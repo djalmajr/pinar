@@ -1,0 +1,7 @@
+node_modules/
+*.png
+!extension/icons/*.png
+.DS_Store
+dist/
+coverage/
+.tmp/

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Screen Feedback demo</title>
+    <style>
+      :root { font-family: ui-sans-serif, system-ui, sans-serif; color: #111827; }
+      body { margin: 0; }
+      header {
+        align-items: center;
+        border-bottom: 1px solid #e5e7eb;
+        display: flex;
+        justify-content: space-between;
+        padding: 16px 32px;
+      }
+      .brand { font-weight: 700; letter-spacing: -0.03em; }
+      .cta {
+        background: #2563eb;
+        border: 0;
+        border-radius: 999px;
+        color: #fff;
+        font-weight: 600;
+        padding: 10px 16px;
+      }
+      main { margin: 0 auto; max-width: 720px; padding: 48px 24px; }
+      h1 { font-size: 40px; letter-spacing: -0.04em; margin: 0 0 12px; }
+      .muted { color: #6b7280; line-height: 1.5; }
+      .card {
+        background: #f9fafb;
+        border: 1px solid #e5e7eb;
+        border-radius: 16px;
+        margin-top: 32px;
+        padding: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="brand">Northwind</div>
+      <button class="cta" type="button">Get started</button>
+    </header>
+    <main>
+      <h1>Pricing that stays out of the way</h1>
+      <p class="muted">
+        Use this page to try Annotate: click the CTA, drag a box around the heading,
+        leave comments, then ⌘↵ / Ctrl+Enter.
+      </p>
+      <section class="card">
+        <strong>Starter — $0</strong>
+        <p class="muted">Enough to leave three pins and ship a screenshot to any MCP agent.</p>
+      </section>
+    </main>
+  </body>
+</html>

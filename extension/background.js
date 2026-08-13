@@ -1,6 +1,5 @@
 import { formatClipboard } from "./format.js";
 
-const SIDECAR = "http://127.0.0.1:17373";
 const tabPins = new Map();
 
 chrome.action.onClicked.addListener(async (tab) => {
@@ -16,20 +15,6 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === "sidecar") {
-    fetch(`${SIDECAR}${message.path}`, {
-      body: message.body === undefined ? undefined : JSON.stringify(message.body),
-      headers: { "content-type": "application/json" },
-      method: message.method ?? "GET",
-    })
-      .then(async (response) => {
-        const body = await response.json().catch(() => null);
-        sendResponse({ body, ok: response.ok, status: response.status });
-      })
-      .catch((error) => sendResponse({ error: String(error), ok: false }));
-    return true;
-  }
-
   if (message.type === "pins:sync") {
     const tabId = sender.tab?.id;
     const frameId = sender.frameId ?? 0;

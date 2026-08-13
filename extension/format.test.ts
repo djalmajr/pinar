@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatClipboard } from "../extension/format.js";
+import { formatClipboard } from "./format.js";
 
 describe("formatClipboard", () => {
   test("plain text carries comment, DOM path, and selector without image data", () => {

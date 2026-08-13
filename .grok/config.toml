@@ -1,4 +1,0 @@
-[mcp_servers.ai-feedback]
-command = "bun"
-args = ["src/cli.ts", "mcp"]
-enabled = true

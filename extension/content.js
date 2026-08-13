@@ -9,11 +9,9 @@
   const MARK = "#6691F2";
   const BUBBLE_BODY = "M2 12C2 6.477 6.477 2 12 2s10 4.477 10 10s-4.477 10-10 10a10 10 0 0 1-4.262-.951l-4.537.93a1 1 0 0 1-1.18-1.18l.93-4.537A10 10 0 0 1 2 12";
   const BUBBLE_DOTS = `${BUBBLE_BODY}m5.5-1.5A1.5 1.5 0 0 0 6 12v.01a1.5 1.5 0 0 0 1.5 1.5h.01a1.5 1.5 0 0 0 1.5-1.5V12a1.5 1.5 0 0 0-1.5-1.5zm4.5 0a1.5 1.5 0 0 0-1.5 1.5v.01a1.5 1.5 0 0 0 1.5 1.5h.01a1.5 1.5 0 0 0 1.5-1.5V12a1.5 1.5 0 0 0-1.5-1.5zm3 1.5a1.5 1.5 0 0 1 1.5-1.5h.01a1.5 1.5 0 0 1 1.5 1.5v.01a1.5 1.5 0 0 1-1.5 1.5h-.01a1.5 1.5 0 0 1-1.5-1.5z`;
-  const BUBBLE_OFF = `${BUBBLE_BODY}m8.707-2.707a1 1 0 0 0-1.414 1.414L10.586 12l-1.293 1.293a1 1 0 1 0 1.414 1.414L12 13.414l1.293 1.293a1 1 0 1 0 1.414-1.414L13.414 12l1.293-1.293a1 1 0 1 0-1.414-1.414L12 10.586z`;
   const bubbleSvg = ({ className = "", variant = "plain" } = {}) => {
-    const d = variant === "dots" ? BUBBLE_DOTS : variant === "off" ? BUBBLE_OFF : BUBBLE_BODY;
-    const fill = variant === "off" ? "#737373" : MARK;
-    return `<svg class="${className}" viewBox="0 0 24 24" aria-hidden="true"><path fill="${fill}" fill-rule="evenodd" clip-rule="evenodd" d="${d}"/></svg>`;
+    const d = variant === "dots" ? BUBBLE_DOTS : BUBBLE_BODY;
+    return `<svg class="${className}" viewBox="0 0 24 24" aria-hidden="true"><path fill="${MARK}" fill-rule="evenodd" clip-rule="evenodd" d="${d}"/></svg>`;
   };
   const sendMod = /mac|iphone|ipad|ipod/i.test(navigator.platform) ? "⌘" : "Ctrl";
   const FRAME_ACTIVITY = "ai-feedback:frame-activity";
@@ -29,7 +27,6 @@
 
   const state = {
     active: true,
-    connected: false,
     sending: false,
     status: null,
     statusTimer: 0,
@@ -86,10 +83,7 @@
       .view[hidden] { display: none !important; }
       .state-icon { display: grid; flex: 0 0 1.25rem; height: 1.25rem; place-items: center; width: 1.25rem; }
       .mark { display: block; height: 1.25rem; width: 1.25rem; }
-      .offline-view .mark { color: #737373; }
       .instructions { align-items: center; display: flex; gap: 12px; }
-      .offline { align-items: center; color: #737373; display: inline-flex; font-weight: 400; gap: 8px; }
-      .offline-icon { color: #E5484D; display: grid; flex: 0 0 16px; height: 16px; place-items: center; width: 16px; }
       .hint { align-items: center; display: inline-flex; gap: 5px; }
       .keys { align-items: center; display: inline-flex; gap: 3px; }
       kbd {
@@ -223,11 +217,13 @@
       .composer textarea {
         border: 0;
         color: #111;
+        display: block;
         font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        min-height: 72px;
+        min-height: 50px;
         outline: none;
-        padding: 4px 4px 8px;
-        resize: vertical;
+        overflow: hidden;
+        padding: 4px 4px 2px;
+        resize: none;
         width: 100%;
       }
       .composer-actions {
@@ -235,7 +231,7 @@
         display: flex;
         gap: 8px;
         justify-content: flex-end;
-        padding: 2px 2px 2px 0;
+        padding: 0;
       }
       .composer-actions .icon-btn { display: inline-flex; margin-right: auto; }
       .btn-cancel, .btn-add {
@@ -265,14 +261,6 @@
           <span class="hint"><span class="keys"><kbd>esc</kbd></span> to clear</span>
         </span>
         <span class="status" data-ref="status" hidden></span>
-      </div>
-      <div class="view offline-view" data-ref="offlineView" hidden>
-        <span class="state-icon" aria-hidden="true">
-          ${bubbleSvg({ className: "mark", variant: "off" })}
-        </span>
-        <span class="offline">
-          Not connected
-        </span>
       </div>
     </div>` : ""}
     <div class="outline" data-ref="outline"></div>
@@ -304,8 +292,6 @@
     input: shadow.querySelector("[data-ref=input]"),
     instructions: shadow.querySelector("[data-ref=instructions]"),
     layer: shadow.querySelector("[data-ref=layer]"),
-    offlineView: shadow.querySelector("[data-ref=offlineView]"),
-    onlineView: shadow.querySelector("[data-ref=onlineView]"),
     outline: shadow.querySelector("[data-ref=outline]"),
     preview: shadow.querySelector("[data-ref=preview]"),
     previewN: shadow.querySelector("[data-ref=previewN]"),
@@ -464,22 +450,8 @@
     return stack.find((node) => !isHostNode(node) && node.tagName !== "HTML" && !node.matches?.("iframe,frame")) ?? null;
   }
 
-  function sidecar(path, method, body) {
-    return chrome.runtime.sendMessage({ body, method, path, type: "sidecar" });
-  }
-
-  async function ping() {
-    const response = await sidecar("/health", "GET").catch(() => ({ ok: false }));
-    state.connected = Boolean(response?.ok);
-    const listed = await chrome.runtime.sendMessage({ type: "pins:list" }).catch(() => null);
-    if (listed?.ok) state.tabPinCount = listed.pins.length;
-    renderChrome();
-  }
-
   function renderChrome() {
     if (!ui.toolbar) return;
-    if (ui.onlineView) ui.onlineView.hidden = false;
-    if (ui.offlineView) ui.offlineView.hidden = true;
     const hasStatus = Boolean(state.status);
     if (ui.instructions) ui.instructions.hidden = hasStatus;
     if (ui.status) {
@@ -628,7 +600,9 @@
     ui.input.value = draft.comment ?? "";
     updateOutline();
     renderMarkers();
+    fitInput();
     queueMicrotask(() => {
+      fitInput();
       ui.input.focus();
       ui.input.setSelectionRange(ui.input.value.length, ui.input.value.length);
     });
@@ -983,19 +957,22 @@
       renderChrome();
       updateOutline();
       renderMarkers();
-      ping();
       return;
     }
     hideOutline();
   }
 
+  function fitInput() {
+    ui.input.style.height = "0";
+    ui.input.style.height = `${Math.max(50, ui.input.scrollHeight)}px`;
+  }
+
+  ui.input.addEventListener("input", fitInput);
   ui.input.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter") return;
-    if (event.shiftKey) return;
+    if (event.key !== "Enter" || event.shiftKey || event.metaKey || event.ctrlKey) return;
     event.preventDefault();
     event.stopPropagation();
-    if (event.metaKey || event.ctrlKey) void sendPins();
-    else saveDraft();
+    saveDraft();
   });
 
   ui.cancel.addEventListener("click", () => cancelDraft());
@@ -1061,7 +1038,6 @@
 
   globalThis.__aiFeedbackToggle = toggle;
   globalThis.__aiFeedbackSetHidden = setHidden;
-  ping();
   renderChrome();
   updateOutline();
   renderMarkers();

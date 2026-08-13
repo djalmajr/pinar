@@ -1,10 +1,10 @@
 {
-  "name": "ai-feedback",
+  "name": "pinar",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "bin": {
-    "ai-feedback": "./src/cli.ts"
+    "pinar": "./src/cli.ts"
   },
   "scripts": {
     "mcp": "bun src/cli.ts mcp",

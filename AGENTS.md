@@ -1,4 +1,4 @@
-# Screen Feedback
+# Pinar
 
 Visual page annotations are copied to the clipboard by the Chrome extension (⌘/Ctrl+Enter).
 

@@ -1,13 +1,13 @@
 ---
-name: ai-feedback
+name: pinar
 description: >
-  Read visual page annotations the user left in the Screen Feedback Chrome
+  Read visual page annotations the user left in the Pinar Chrome
   extension (element pins, area comments, screenshots) and turn them into
   code changes. Use when the user mentions page feedback, annotations, pins,
   on-page comments, "aplica o feedback", or "address my comments on the page".
 ---
 
-# Screen Feedback
+# Pinar
 
 The user annotates a live page in Chrome and copies the bundle with ⌘/Ctrl+Enter. This skill does not browse for them.
 

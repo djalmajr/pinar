@@ -1,9 +1,9 @@
-# Screen Feedback
+# Pinar
 
 Spike: anotar elementos ou áreas numa página Chrome e **copiar** o pacote (comentário, caminho no DOM, screenshot) para a área de transferência. Cola em qualquer lugar — Grok, Claude, Codex, Slack, notas. Não depende de um agente nem de MCP.
 
 ```
-Chrome (Annotate + pins + ⌘↵)
+Chrome (Pinar + pins + ⌘↵)
         │  clipboard (text/plain + text/html com imagens)
         ▼
 Qualquer composer / editor
@@ -11,7 +11,7 @@ Qualquer composer / editor
 
 ## O que este spike faz
 
-- Botão da extensão entra em modo **Annotate**
+- Botão da extensão entra em modo **Pinar**
 - Clique = pin num elemento (caminho no DOM + seletor + texto + comentário)
 - Arraste = pin numa área
 - **⌘↵ / Ctrl+Enter** tira screenshot, recorta cada pin e copia o pacote
@@ -34,7 +34,7 @@ O stdio aceita os dois framings: **Content-Length** (SDK oficial / Claude / Code
 4. Clique num elemento ou arraste uma área, escreva o comentário, confirme
 5. **⌘↵ / Ctrl+Enter** para copiar (a toolbar mostra *Copied* e fecha)
 
-O Chrome não deixa colocar um botão "Annotate" na chrome nativa. O toolbar flutuante no canto é o equivalente.
+O Chrome não deixa colocar um botão "Pinar" na chrome nativa. O toolbar flutuante no canto é o equivalente.
 
 ## 3. Ligar em qualquer agente
 
@@ -43,7 +43,7 @@ Troque `/ABS` pelo caminho absoluto deste repo.
 ### Grok TUI
 
 ```sh
-grok mcp add ai-feedback -- bun /ABS/ai-feedback/src/cli.ts mcp
+grok mcp add ai-feedback -- bun /ABS/pinar/src/cli.ts mcp
 ```
 
 Ou em `~/.grok/config.toml`:
@@ -51,13 +51,13 @@ Ou em `~/.grok/config.toml`:
 ```toml
 [mcp_servers.ai-feedback]
 command = "bun"
-args = ["/ABS/ai-feedback/src/cli.ts", "mcp"]
+args = ["/ABS/pinar/src/cli.ts", "mcp"]
 ```
 
 ### Claude Code
 
 ```sh
-claude mcp add ai-feedback -- bun /ABS/ai-feedback/src/cli.ts mcp
+claude mcp add ai-feedback -- bun /ABS/pinar/src/cli.ts mcp
 ```
 
 ### Codex
@@ -67,12 +67,12 @@ Em `~/.codex/config.toml`:
 ```toml
 [mcp_servers.ai-feedback]
 command = "bun"
-args = ["/ABS/ai-feedback/src/cli.ts", "mcp"]
+args = ["/ABS/pinar/src/cli.ts", "mcp"]
 ```
 
 ### Cursor / Windsurf / outros
 
-O mesmo comando stdio: `bun /ABS/ai-feedback/src/cli.ts mcp`.
+O mesmo comando stdio: `bun /ABS/pinar/src/cli.ts mcp`.
 
 ## 4. Uso no chat
 

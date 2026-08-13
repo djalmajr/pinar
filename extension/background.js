@@ -1,5 +1,6 @@
 import { formatClipboard } from "./format.js";
 
+const SHOTS = "http://127.0.0.1:17373";
 const tabPins = new Map();
 
 chrome.action.onClicked.addListener(async (tab) => {
@@ -84,11 +85,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 async function copyBundle(message) {
+  const pins = message.pins ?? [];
+  const pinCrops = {};
+  for (const [id, url] of Object.entries(message.pinCrops ?? {})) {
+    pinCrops[id] = (await saveShot(url, id)) || url;
+  }
   const payload = formatClipboard({
     page: message.page,
-    pinCrops: message.pinCrops ?? {},
-    pins: message.pins ?? [],
-    viewportPng: message.viewportPng,
+    pinCrops,
+    pins,
   });
   await ensureOffscreen();
   const written = await chrome.runtime.sendMessage({
@@ -133,7 +138,7 @@ async function cropBundle(dataUrl, pins, dpr) {
 }
 
 async function cropPin(bitmap, box, dpr) {
-  const pad = 8 * dpr;
+  const pad = 96 * dpr;
   const x = Math.max(0, Math.round(box.x * dpr - pad));
   const y = Math.max(0, Math.round(box.y * dpr - pad));
   const width = Math.max(1, Math.min(bitmap.width - x, Math.round(box.width * dpr + pad * 2)));
@@ -143,8 +148,61 @@ async function cropPin(bitmap, box, dpr) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
   ctx.drawImage(bitmap, x, y, width, height, 0, 0, width, height);
-  const out = await canvas.convertToBlob({ type: "image/png" });
-  return blobToDataUrl(out);
+  return blobToDataUrl(await canvas.convertToBlob({ type: "image/png" }));
+}
+
+function shotExtension(dataUrl) {
+  if (dataUrl.startsWith("data:image/webp")) return "webp";
+  if (dataUrl.startsWith("data:image/jpeg")) return "jpg";
+  return "png";
+}
+
+function waitForDownload(id) {
+  return new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      chrome.downloads.onChanged.removeListener(onChanged);
+      resolve();
+    };
+    const timer = setTimeout(finish, 4000);
+    const onChanged = (delta) => {
+      if (delta.id === id && (delta.state?.current === "complete" || delta.state?.current === "interrupted")) {
+        finish();
+      }
+    };
+    chrome.downloads.onChanged.addListener(onChanged);
+    chrome.downloads.search({ id }).then((items) => {
+      const state = items[0]?.state;
+      if (state === "complete" || state === "interrupted") finish();
+    });
+  });
+}
+
+async function saveShot(dataUrl, id) {
+  try {
+    const response = await fetch(`${SHOTS}/v1/shots`, {
+      body: JSON.stringify({ id, image: dataUrl }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const body = await response.json();
+    if (response.ok && body.path) return body.path;
+  } catch {
+    /* helper is optional; fall through to Downloads */
+  }
+  try {
+    const downloadId = await chrome.downloads.download({
+      conflictAction: "uniquify",
+      filename: `pinar/${id}.${shotExtension(dataUrl)}`,
+      saveAs: false,
+      url: dataUrl,
+    });
+    await waitForDownload(downloadId);
+    const [item] = await chrome.downloads.search({ id: downloadId });
+    return item?.filename || null;
+  } catch {
+    return null;
+  }
 }
 
 function blobToDataUrl(blob) {

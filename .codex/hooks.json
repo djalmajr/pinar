@@ -1,0 +1,19 @@
+{
+  "description": "Start the Pinar screenshot helper once per session.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/hooks/ensure.sh\"",
+            "commandWindows": "\"$(git rev-parse --show-toplevel)/hooks/ensure.cmd\"",
+            "timeout": 8,
+            "statusMessage": "Pinar shots"
+          }
+        ]
+      }
+    ]
+  }
+}

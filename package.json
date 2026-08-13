@@ -3,11 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "scripts": {
-    "test": "bun test"
+  "bin": {
+    "pinar": "./bin/pinar"
   },
-  "devDependencies": {
-    "@types/bun": "^1.3.14",
-    "typescript": "^7.0.2"
+  "scripts": {
+    "start": "node src/cli.mjs",
+    "serve": "node src/cli.mjs serve",
+    "test": "node --test"
   }
 }

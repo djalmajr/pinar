@@ -16,12 +16,12 @@ function writeWithCopyEvent({ html, plain }) {
 }
 
 async function writeClipboard({ html, plain }) {
-  const item = new ClipboardItem({
+  const textTypes = {
     "text/html": new Blob([html], { type: "text/html" }),
     "text/plain": new Blob([plain], { type: "text/plain" }),
-  });
+  };
   try {
-    await navigator.clipboard.write([item]);
+    await navigator.clipboard.write([new ClipboardItem(textTypes)]);
   } catch {
     await writeWithCopyEvent({ html, plain });
   }

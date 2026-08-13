@@ -1,0 +1,5 @@
+hooks:
+  - id: pinar-shots
+    event: session.created
+    actions:
+      - bash: '"${PI_PROJECT_DIR:-.}/hooks/ensure.sh"'

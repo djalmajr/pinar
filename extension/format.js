@@ -12,7 +12,7 @@ function pinTitle(pin, index) {
   return `${index + 1}. ${kind}${label ? ` — ${label}` : ""}`;
 }
 
-function pinPlain(pin, index) {
+function pinPlain(pin, index, crop) {
   const lines = [`## ${pinTitle(pin, index)}`, ""];
   lines.push(`Comment: ${pin.comment?.trim() || "(none)"}`);
   if (pin.path) lines.push(`DOM path: \`${pin.path}\``);
@@ -22,6 +22,8 @@ function pinPlain(pin, index) {
   if (pin.box) {
     lines.push(`Box: x=${pin.box.x}, y=${pin.box.y}, w=${pin.box.width}, h=${pin.box.height}`);
   }
+  if (crop?.startsWith("data:")) lines.push("", `![Pin ${index + 1}](${crop})`);
+  else if (crop) lines.push(`Screenshot: ${crop}`);
   return lines.join("\n");
 }
 
@@ -45,15 +47,17 @@ function pinHtml(pin, index, crop) {
       `<p><strong>Box:</strong> x=${pin.box.x}, y=${pin.box.y}, w=${pin.box.width}, h=${pin.box.height}</p>`,
     );
   }
-  if (crop) {
+  if (crop?.startsWith("data:")) {
     parts.push(
       `<figure><img alt="Pin ${index + 1} crop" src="${crop}" style="max-width:100%;height:auto"/><figcaption>Pin ${index + 1} screenshot</figcaption></figure>`,
     );
+  } else if (crop) {
+    parts.push(`<p><strong>Screenshot:</strong> <code>${escapeHtml(crop)}</code></p>`);
   }
   return parts.join("\n");
 }
 
-export function formatClipboard({ page = {}, pins = [], pinCrops = {}, sentAt, viewportPng } = {}) {
+export function formatClipboard({ page = {}, pins = [], pinCrops = {}, sentAt } = {}) {
   const when = sentAt || new Date().toISOString();
   const url = page.url || "(unknown)";
   const title = page.title || "(untitled)";
@@ -67,7 +71,7 @@ export function formatClipboard({ page = {}, pins = [], pinCrops = {}, sentAt, v
     "",
     "Each pin is an instruction about that DOM node. Use the DOM path and selector to find the matching source.",
   ];
-  const pinBlocks = pins.map((pin, index) => pinPlain(pin, index)).join("\n\n");
+  const pinBlocks = pins.map((pin, index) => pinPlain(pin, index, pinCrops[pin.id])).join("\n\n");
   const plain = `${[...header, "", pinBlocks].join("\n")}\n`;
 
   const htmlParts = [
@@ -76,11 +80,6 @@ export function formatClipboard({ page = {}, pins = [], pinCrops = {}, sentAt, v
     `<p><strong>URL:</strong> ${escapeHtml(url)}<br/><strong>Title:</strong> ${escapeHtml(title)}<br/><strong>Copied:</strong> ${escapeHtml(when)}</p>`,
     `<p>Each pin is an instruction about that DOM node. Use the DOM path and selector to find the matching source.</p>`,
   ];
-  if (viewportPng) {
-    htmlParts.push(
-      `<figure><img alt="Page screenshot" src="${viewportPng}" style="max-width:100%;height:auto"/><figcaption>Page screenshot</figcaption></figure>`,
-    );
-  }
   pins.forEach((pin, index) => {
     htmlParts.push(pinHtml(pin, index, pinCrops[pin.id]));
   });

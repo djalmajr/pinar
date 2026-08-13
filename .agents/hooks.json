@@ -1,0 +1,12 @@
+{
+  "pinar": {
+    "enabled": true,
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "PINAR_HOOK_JSON=1 \"$(git rev-parse --show-toplevel)/hooks/ensure.sh\"",
+        "timeout": 8
+      }
+    ]
+  }
+}

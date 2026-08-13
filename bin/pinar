@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+if command -v node >/dev/null 2>&1; then
+  exec node "$root/src/cli.mjs" "$@"
+fi
+if command -v bun >/dev/null 2>&1; then
+  exec bun "$root/src/cli.mjs" "$@"
+fi
+echo "pinar: need node or bun on PATH" >&2
+exit 1

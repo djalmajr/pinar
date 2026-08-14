@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { screenshotsDir } from "./paths.mjs";
+import { shotsDir } from "./paths.mjs";
 
 export function decodeDataUrl(dataUrl) {
   const comma = dataUrl.indexOf(",");
@@ -13,7 +13,7 @@ export function safeShotName(id) {
   return `${stem}.png`;
 }
 
-export async function writeShot(id, dataUrl, root = screenshotsDir()) {
+export async function writeShot(id, dataUrl, root = shotsDir()) {
   await mkdir(root, { recursive: true });
   const path = join(root, safeShotName(id));
   await writeFile(path, decodeDataUrl(dataUrl));

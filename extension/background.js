@@ -1,6 +1,7 @@
+import { renderPinsCrop } from "./crop.js";
 import { formatClipboard } from "./format.js";
+import { pinarPorts } from "./ports.js";
 
-const SHOTS = "http://127.0.0.1:17373";
 const tabPins = new Map();
 
 chrome.action.onClicked.addListener(async (tab) => {
@@ -86,14 +87,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function copyBundle(message) {
   const pins = message.pins ?? [];
-  const pinCrops = {};
-  for (const [id, url] of Object.entries(message.pinCrops ?? {})) {
-    pinCrops[id] = (await saveShot(url, id)) || url;
-  }
+  const shot = message.shot ? (await saveShot(message.shot, `pinar-${Date.now()}`)) || message.shot : null;
   const payload = formatClipboard({
     page: message.page,
-    pinCrops,
     pins,
+    shot,
   });
   await ensureOffscreen();
   const written = await chrome.runtime.sendMessage({
@@ -128,27 +126,9 @@ async function ensureOffscreen() {
 async function cropBundle(dataUrl, pins, dpr) {
   const blob = await (await fetch(dataUrl)).blob();
   const bitmap = await createImageBitmap(blob);
-  const pinCrops = {};
-  for (const pin of pins) {
-    const crop = await cropPin(bitmap, pin.topBox ?? pin.box, dpr);
-    if (crop) pinCrops[pin.id] = crop;
-  }
+  const crop = await renderPinsCrop(bitmap, pins, dpr);
   bitmap.close();
-  return { ok: true, pinCrops, viewportPng: dataUrl };
-}
-
-async function cropPin(bitmap, box, dpr) {
-  const pad = 96 * dpr;
-  const x = Math.max(0, Math.round(box.x * dpr - pad));
-  const y = Math.max(0, Math.round(box.y * dpr - pad));
-  const width = Math.max(1, Math.min(bitmap.width - x, Math.round(box.width * dpr + pad * 2)));
-  const height = Math.max(1, Math.min(bitmap.height - y, Math.round(box.height * dpr + pad * 2)));
-  if (width < 2 || height < 2) return null;
-  const canvas = new OffscreenCanvas(width, height);
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return null;
-  ctx.drawImage(bitmap, x, y, width, height, 0, 0, width, height);
-  return blobToDataUrl(await canvas.convertToBlob({ type: "image/png" }));
+  return { ok: true, shot: crop ? await blobToDataUrl(crop) : null };
 }
 
 function shotExtension(dataUrl) {
@@ -178,17 +158,37 @@ function waitForDownload(id) {
   });
 }
 
+async function findShotBase() {
+  const found = await Promise.all(
+    pinarPorts().map(async (port) => {
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/health`);
+        const body = await response.json();
+        if (response.ok && body.ok === true && body.service === "pinar") return port;
+      } catch {
+        /* port empty or not Pinar */
+      }
+      return null;
+    }),
+  );
+  const port = found.find((value) => value != null);
+  return port ? `http://127.0.0.1:${port}` : null;
+}
+
 async function saveShot(dataUrl, id) {
-  try {
-    const response = await fetch(`${SHOTS}/v1/shots`, {
-      body: JSON.stringify({ id, image: dataUrl }),
-      headers: { "content-type": "application/json" },
-      method: "POST",
-    });
-    const body = await response.json();
-    if (response.ok && body.path) return body.path;
-  } catch {
-    /* helper is optional; fall through to Downloads */
+  const base = await findShotBase();
+  if (base) {
+    try {
+      const response = await fetch(`${base}/v1/shots`, {
+        body: JSON.stringify({ id, image: dataUrl }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      });
+      const body = await response.json();
+      if (response.ok && body.path) return body.path;
+    } catch {
+      /* helper is optional; fall through to Downloads */
+    }
   }
   try {
     const downloadId = await chrome.downloads.download({

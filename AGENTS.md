@@ -7,7 +7,7 @@ pinar
 # or: node src/cli.mjs || bun src/cli.mjs
 ```
 
-That command exits immediately if `127.0.0.1:17373` is already healthy. Do not start a second long-lived process. Prefer `node`; use `bun` only if `node` is missing. Screenshots land in `~/.pinar/screenshots` (Windows: `%USERPROFILE%\.pinar\screenshots`).
+That command exits immediately if `127.0.0.1:17373` is already healthy. Do not start a second long-lived process. Prefer `node`; use `bun` only if `node` is missing. Shots land in `~/.pinar/shots` (Windows: `%USERPROFILE%\.pinar\shots`).
 
 Machine-wide install (downloads helper to `~/.pinar`, launcher at `~/.pinar/bin`, then hooks):
 
@@ -25,8 +25,8 @@ Visual page annotations are copied to the clipboard by the Chrome extension (⌘
 
 When the user pastes annotations, or says they copied/annotated a page:
 
-1. Use the pasted markdown/HTML as the source of truth (comment, DOM path, selector, pin coordinates, screenshots).
-2. If a pin lists `Screenshot: /absolute/path.png`, open that file with an image tool.
+1. Use the pasted markdown/HTML as the source of truth (comment, DOM path, selector, pin coordinates, one shared shot).
+2. If the paste lists `Screenshot: /absolute/path.png`, open that file with an image tool. Numbered Pinar badges on it are overlays.
 3. If they did not paste, ask them to press ⌘/Ctrl+Enter in Pinar and paste here.
 4. Change only what the pins describe.
 

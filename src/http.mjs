@@ -18,11 +18,12 @@ function readBody(req) {
 
 export function startShotServer(options) {
   const hostname = options.hostname ?? "127.0.0.1";
+  const state = { port: options.port };
   const server = http.createServer(async (req, res) => {
     const path = new URL(req.url ?? "/", `http://${hostname}`).pathname;
     try {
       if (req.method === "GET" && path === "/health") {
-        sendJson(res, { ok: true });
+        sendJson(res, { ok: true, port: state.port, service: "pinar" });
         return;
       }
       if (req.method === "POST" && path === "/v1/shots") {
@@ -48,7 +49,8 @@ export function startShotServer(options) {
     server.listen(options.port, hostname, () => {
       server.removeListener("error", onError);
       const address = server.address();
-      resolve({ port: typeof address === "object" && address ? address.port : options.port, server });
+      state.port = typeof address === "object" && address ? address.port : options.port;
+      resolve({ port: state.port, server });
     });
   });
 }

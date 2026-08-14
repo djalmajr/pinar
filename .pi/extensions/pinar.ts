@@ -1,1 +1,1 @@
-export { default } from "../../hooks/pinar.ts";
+export { default } from "../../hooks/pinar.js";

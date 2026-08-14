@@ -22,7 +22,7 @@ function resolveEnsure() {
   return null;
 }
 
-export default function (pi: { on: (event: string, handler: () => void) => void }) {
+export default function (pi) {
   const ensure = resolveEnsure();
   pi.on("session_start", () => {
     const winCmd = Boolean(ensure && process.platform === "win32" && ensure.endsWith(".cmd"));

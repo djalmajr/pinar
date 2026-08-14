@@ -11,9 +11,12 @@
   const BUBBLE_DOTS = `${BUBBLE_BODY}m5.5-1.5A1.5 1.5 0 0 0 6 12v.01a1.5 1.5 0 0 0 1.5 1.5h.01a1.5 1.5 0 0 0 1.5-1.5V12a1.5 1.5 0 0 0-1.5-1.5zm4.5 0a1.5 1.5 0 0 0-1.5 1.5v.01a1.5 1.5 0 0 0 1.5 1.5h.01a1.5 1.5 0 0 0 1.5-1.5V12a1.5 1.5 0 0 0-1.5-1.5zm3 1.5a1.5 1.5 0 0 1 1.5-1.5h.01a1.5 1.5 0 0 1 1.5 1.5v.01a1.5 1.5 0 0 1-1.5 1.5h-.01a1.5 1.5 0 0 1-1.5-1.5z`;
   const bubbleSvg = ({ className = "", variant = "plain" } = {}) => {
     const d = variant === "dots" ? BUBBLE_DOTS : BUBBLE_BODY;
-    return `<svg class="${className}" viewBox="0 0 24 24" aria-hidden="true"><path fill="${MARK}" fill-rule="evenodd" clip-rule="evenodd" d="${d}"/></svg>`;
+    return `<svg class="${className}" viewBox="0 0 24 24" aria-hidden="true"><path fill="${MARK}" stroke="#fff" stroke-width="1.15" fill-rule="evenodd" clip-rule="evenodd" d="${d}"/></svg>`;
   };
-  const sendMod = /mac|iphone|ipad|ipod/i.test(navigator.platform) ? "⌘" : "Ctrl";
+  const apple = /mac|iphone|ipad|ipod/i.test(
+    `${navigator.userAgentData?.platform ?? ""} ${navigator.platform ?? ""} ${navigator.userAgent ?? ""}`,
+  );
+  const sendMod = apple ? "⌘" : "Ctrl";
   const FRAME_ACTIVITY = "ai-feedback:frame-activity";
   const FRAME_CANCEL = "ai-feedback:frame-cancel";
   const FRAME_CLEAR = "ai-feedback:frame-clear";
@@ -148,7 +151,12 @@
         width: 28px;
         z-index: 2;
       }
-      .marker svg { display: block; height: 28px; width: 28px; }
+      .marker svg {
+        display: block;
+        filter: drop-shadow(0 1px 2px rgba(15, 23, 42, 0.45));
+        height: 28px;
+        width: 28px;
+      }
       .marker-n {
         color: #fff;
         font: 700 11px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -808,7 +816,11 @@
         cancelDraft();
         return;
       }
-      void discardAnnotations();
+      void discardAnnotations().then(() => {
+        setVisible(false);
+        if (isEmbedded) window.top.postMessage({ type: FRAME_HIDE }, "*");
+        else broadcast(FRAME_HIDE);
+      });
       return;
     }
     if (!canSelect() || state.draft) return;
@@ -866,19 +878,15 @@
       const page = pageContext();
       const copied = await chrome.runtime.sendMessage({
         page,
-        pinCrops: capture.pinCrops ?? {},
         pins,
+        shot: capture.shot,
         type: "clipboard",
-        viewportPng: capture.viewportPng,
       });
       if (!copied?.ok) throw new Error(copied?.error || "clipboard write failed");
       await chrome.runtime.sendMessage({ hidden: false, type: "overlays:hidden" }).catch(() => null);
       await clearPins();
-      setStatus("Copied", "ok");
-      state.statusTimer = setTimeout(() => {
-        if (!isMounted()) return;
-        setVisible(false);
-      }, 900);
+      setStatus(null);
+      setVisible(false);
     } catch (error) {
       await chrome.runtime.sendMessage({ hidden: false, type: "overlays:hidden" }).catch(() => null);
       console.warn("ai-feedback copy failed", error);
@@ -920,6 +928,7 @@
     }
     if (event.data?.type === FRAME_HIDE) {
       setVisible(false);
+      if (!isEmbedded) broadcast(FRAME_HIDE);
       return;
     }
     if (event.data?.type === FRAME_SHOW) {

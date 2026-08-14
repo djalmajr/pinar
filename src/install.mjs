@@ -1,16 +1,106 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { chmod, cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { defaultRoot, installHooks } from "./install-hooks.mjs";
 import { pinarHome } from "./paths.mjs";
 
-export const PAYLOAD_DIRS = ["bin", "src", "hooks", "extension"];
-export const PAYLOAD_FILES = ["package.json", "AGENTS.md"];
+export const RUNTIME_FILES = [
+  ["bin/pinar", "bin/pinar"],
+  ["bin/pinar.cmd", "bin/pinar.cmd"],
+  ["src/cli.mjs", "lib/cli.mjs"],
+  ["src/ensure.mjs", "lib/ensure.mjs"],
+  ["src/http.mjs", "lib/http.mjs"],
+  ["src/install-hooks.mjs", "lib/install-hooks.mjs"],
+  ["src/install.mjs", "lib/install.mjs"],
+  ["src/paths.mjs", "lib/paths.mjs"],
+  ["src/shots.mjs", "lib/shots.mjs"],
+  ["hooks/ensure.cmd", "hooks/ensure.cmd"],
+  ["hooks/ensure.sh", "hooks/ensure.sh"],
+  ["hooks/pinar.js", "hooks/pinar.js"],
+];
+
+const STAGING = ".tmp-install";
+const MANAGED_DIRS = ["bin", "lib", "hooks", "extension"];
+const KEEP_TOP = new Set(["shots", "helper.json", STAGING]);
+
+function resolveRuntimeSource(root, repoPath) {
+  const direct = join(root, repoPath);
+  if (existsSync(direct)) return direct;
+  if (repoPath.startsWith("src/")) {
+    const installed = join(root, "lib", repoPath.slice(4));
+    if (existsSync(installed)) return installed;
+  }
+  return null;
+}
 
 export function launcherPath(dest = pinarHome(), platform = process.platform) {
   return join(dest, "bin", platform === "win32" ? "pinar.cmd" : "pinar");
+}
+
+async function writeStaging(from, staging) {
+  await rm(staging, { recursive: true, force: true });
+  await mkdir(staging, { recursive: true });
+  for (const [fromPath, toPath] of RUNTIME_FILES) {
+    const src = resolveRuntimeSource(from, fromPath);
+    if (!src) continue;
+    const destFile = join(staging, toPath);
+    await mkdir(join(destFile, ".."), { recursive: true });
+    await cp(src, destFile, { force: true });
+  }
+  const extFrom = join(from, "extension");
+  if (existsSync(extFrom)) {
+    await cp(extFrom, join(staging, "extension"), {
+      recursive: true,
+      force: true,
+      filter: (src) => !/\.test\.(js|ts)$/.test(src),
+    });
+  }
+}
+
+async function replaceManaged(staging, to) {
+  for (const dir of MANAGED_DIRS) {
+    const next = join(staging, dir);
+    const destDir = join(to, dir);
+    await rm(destDir, { recursive: true, force: true });
+    if (existsSync(next)) await cp(next, destDir, { recursive: true, force: true });
+  }
+}
+
+export async function migrateShotsDir(to) {
+  const previous = join(to, "screenshots");
+  const next = join(to, "shots");
+  if (!existsSync(previous)) return false;
+  if (!existsSync(next)) {
+    await rename(previous, next);
+    return true;
+  }
+  await mkdir(next, { recursive: true });
+  for (const name of await readdir(previous)) {
+    const from = join(previous, name);
+    const dest = join(next, name);
+    if (!existsSync(dest)) await rename(from, dest);
+  }
+  await rm(previous, { recursive: true, force: true });
+  return true;
+}
+
+async function pruneTopLevel(to) {
+  const allowed = new Set([...MANAGED_DIRS, ...KEEP_TOP]);
+  let entries = [];
+  try {
+    entries = await readdir(to, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const removed = [];
+  for (const entry of entries) {
+    if (allowed.has(entry.name)) continue;
+    await rm(join(to, entry.name), { recursive: true, force: true });
+    removed.push(entry.name);
+  }
+  return removed;
 }
 
 export async function installApp({
@@ -20,29 +110,20 @@ export async function installApp({
 } = {}) {
   const from = resolve(source);
   const to = resolve(dest);
-  if (from === to) {
-    log(`pinar files already at ${to}`);
-    return { dest: to, copied: false };
-  }
   await mkdir(to, { recursive: true });
-  for (const dir of PAYLOAD_DIRS) {
-    const src = join(from, dir);
-    if (!existsSync(src)) continue;
-    await cp(src, join(to, dir), { recursive: true, force: true });
-  }
-  for (const file of PAYLOAD_FILES) {
-    const src = join(from, file);
-    if (!existsSync(src)) continue;
-    await cp(src, join(to, file), { force: true });
-  }
+  const staging = join(to, STAGING);
+  await writeStaging(from, staging);
+  await replaceManaged(staging, to);
+  await migrateShotsDir(to);
+  const removed = await pruneTopLevel(to);
+  await rm(staging, { recursive: true, force: true });
   if (process.platform !== "win32") {
-    await chmod(join(to, "bin", "pinar"), 0o755);
-    if (existsSync(join(to, "hooks", "ensure.sh"))) {
-      await chmod(join(to, "hooks", "ensure.sh"), 0o755);
-    }
+    if (existsSync(join(to, "bin", "pinar"))) await chmod(join(to, "bin", "pinar"), 0o755);
+    if (existsSync(join(to, "hooks", "ensure.sh"))) await chmod(join(to, "hooks", "ensure.sh"), 0o755);
   }
+  if (removed.length) log(`pinar removed ${removed.join(", ")}`);
   log(`pinar files -> ${to}`);
-  return { dest: to, copied: true };
+  return { dest: to, copied: from !== to, removed };
 }
 
 function pathSnippet(bin, platform = process.platform) {

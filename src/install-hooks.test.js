@@ -70,14 +70,14 @@ describe("install-hooks", () => {
   });
 
   test("mergeOmpConfig appends and later replaces the extension path", () => {
-    const first = mergeOmpConfig("theme: dark\n", "/opt/pinar/hooks/pinar.ts");
+    const first = mergeOmpConfig("theme: dark\n", "/opt/pinar/hooks/pinar.js");
     assert.equal(first.changed, true);
-    assert.match(first.text, /extensions:\n  - "\/opt\/pinar\/hooks\/pinar\.ts"/);
-    const second = mergeOmpConfig(first.text, "/opt/pinar/hooks/pinar.ts");
+    assert.match(first.text, /extensions:\n  - "\/opt\/pinar\/hooks\/pinar\.js"/);
+    const second = mergeOmpConfig(first.text, "/opt/pinar/hooks/pinar.js");
     assert.equal(second.changed, false);
-    const moved = mergeOmpConfig(first.text, "/home/me/.pinar/hooks/pinar.ts");
+    const moved = mergeOmpConfig(first.text, "/home/me/.pinar/hooks/pinar.js");
     assert.equal(moved.changed, true);
-    assert.match(moved.text, /\/home\/me\/\.pinar\/hooks\/pinar\.ts/);
+    assert.match(moved.text, /\/home\/me\/\.pinar\/hooks\/pinar\.js/);
     assert.doesNotMatch(moved.text, /\/opt\/pinar/);
   });
 

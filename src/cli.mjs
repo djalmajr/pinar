@@ -1,34 +1,30 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { isAddrInUse, isHealthy, waitHealthy } from "./ensure.mjs";
-import { startShotServer } from "./http.mjs";
+import { findHealthyPort, listenFirstFree, waitHealthy, writeHelperState } from "./ensure.mjs";
 import { install } from "./install.mjs";
 import { installHooks } from "./install-hooks.mjs";
-import { resolvePort, screenshotsDir } from "./paths.mjs";
+import { portRange, shotsDir } from "./paths.mjs";
 
 const command = process.argv[2] ?? "ensure";
-const port = resolvePort();
-const root = screenshotsDir();
+const root = shotsDir();
 const self = fileURLToPath(import.meta.url);
 
 async function serve() {
-  try {
-    await startShotServer({ port, root });
-  } catch (error) {
-    if (isAddrInUse(error) && (await isHealthy(port))) {
-      console.error(`pinar shots already on :${port}`);
-      process.exit(0);
-    }
-    throw error;
+  const found = await listenFirstFree({ root });
+  if (found.existing) {
+    console.error(`pinar shots already on :${found.port}`);
+    process.exit(0);
   }
-  console.error(`pinar shots http://127.0.0.1:${port}`);
+  await writeHelperState({ port: found.port });
+  console.error(`pinar shots http://127.0.0.1:${found.port}`);
   console.error(`store ${root}`);
 }
 
 async function ensure() {
-  if (await isHealthy(port)) {
-    console.error(`pinar shots already on :${port}`);
+  const existing = await findHealthyPort();
+  if (existing != null) {
+    console.error(`pinar shots already on :${existing}`);
     return;
   }
   const child = spawn(process.execPath, [self, "serve"], {
@@ -37,11 +33,13 @@ async function ensure() {
     stdio: "ignore",
   });
   child.unref();
-  if (await waitHealthy(port)) {
+  const port = await waitHealthy();
+  if (port != null) {
     console.error(`pinar shots started on :${port}`);
     return;
   }
-  console.error(`pinar shots failed to start on :${port}`);
+  const range = portRange();
+  console.error(`pinar shots failed to start on :${range[0]}-${range.at(-1)}`);
   process.exit(1);
 }
 

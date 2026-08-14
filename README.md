@@ -27,10 +27,11 @@ irm https://raw.githubusercontent.com/djalmajr/pinar/main/install.ps1 | iex
 
 O instalador:
 
-1. Copia `bin/`, `src/`, `hooks/` e `extension/` para `~/.pinar` (Windows: `%USERPROFILE%\.pinar`)
+1. Sincroniza `~/.pinar` (Windows: `%USERPROFILE%\.pinar`) com o runtime atual: recria `bin/`, `lib/`, `hooks/` e `extension/`, e apaga leftover antigo (`src/`, `AGENTS.md`, testes, pastas velhas)
 2. Deixa o launcher em `~/.pinar/bin/pinar` (Windows: `pinar.cmd`)
 3. Coloca `~/.pinar/bin` no PATH
 4. Faz merge dos hooks globais (não apaga hooks que você já tem)
+5. Preserva `shots/` e `helper.json`
 
 Abra um terminal novo depois da instalação. Depois, no Chrome: `chrome://extensions` → Developer mode → **Load unpacked** → `~/.pinar/extension` (Windows: `%USERPROFILE%\.pinar\extension`).
 
@@ -56,7 +57,7 @@ A partir de um clone:
 - **Esc** no composer fecha só o prompt; sem prompt, limpa todos os pins
 - O ícone da extensão só mostra ou esconde a overlay — não apaga pins
 
-Os recortes PNG vão para `~/.pinar/screenshots` (Windows: `%USERPROFILE%\.pinar\screenshots`). A extensão não consegue escrever nessa pasta sozinha — o helper local sobe no início da sessão. Se a porta `17373` já estiver saudável, o comando sai na hora e não abre segunda instância.
+Os recortes PNG vão para `~/.pinar/shots` (Windows: `%USERPROFILE%\.pinar\shots`). A extensão não consegue escrever nessa pasta sozinha — o helper local sobe no início da sessão. Ele tenta `127.0.0.1:17373` e, se a porta estiver ocupada por outro processo, sobe na próxima livre até `17382`. A extensão procura `GET /health` com `{"service":"pinar"}` nesse intervalo. Se `17373` já for o Pinar, o comando sai na hora e não abre segunda instância. `PINAR_PORT` força uma porta só.
 
 ```sh
 pinar                 # se ~/.pinar/bin está no PATH
@@ -96,7 +97,7 @@ pinar install-hooks
 # Windows: .\bin\pinar.cmd install-hooks
 ```
 
-O `AGENTS.md` descreve como um agente deve tratar o texto colado. Se o pin tiver `Screenshot: /caminho/arquivo.png`, abra esse arquivo.
+O `AGENTS.md` descreve como um agente deve tratar o texto colado. Se o copy tiver `Screenshot: /caminho/arquivo.png`, abra esse arquivo — é um recorte só, com todos os pins.
 
 ```sh
 npm test

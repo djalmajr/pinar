@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, readlinkSync } from "node:fs";
-import { copyFile, mkdir, readFile, rename, symlink, unlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rename, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { homedir as osHomedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -108,8 +108,8 @@ export function mergeOmpConfig(text, extensionPath) {
   if (current.includes(extensionPath)) {
     return { text: current, changed: false };
   }
-  if (/pinar\.ts/.test(current)) {
-    const next = current.replace(/["'][^"'\n]*pinar\.ts["']/, JSON.stringify(extensionPath));
+  if (/pinar\.(ts|js)/.test(current)) {
+    const next = current.replace(/["'][^"'\n]*pinar\.(ts|js)["']/, JSON.stringify(extensionPath));
     if (next !== current) return { text: next, changed: true };
   }
   const line = `  - ${JSON.stringify(extensionPath)}\n`;
@@ -147,26 +147,18 @@ async function writeText(path, value) {
 
 async function linkExtension(from, to) {
   await mkdir(dirname(to), { recursive: true });
-  if (existsSync(to)) {
-    try {
-      if (lstatSync(to).isSymbolicLink() && readlinkSync(to) === from) return false;
-      if (lstatSync(to).isSymbolicLink()) await unlink(to);
-      else {
-        await copyFile(from, to);
-        return true;
-      }
-    } catch {
-      await copyFile(from, to);
-      return true;
-    }
+  try {
+    if (lstatSync(to).isSymbolicLink() && readlinkSync(to) === from) return false;
+  } catch {
+    // missing
   }
+  await rm(to, { force: true });
   try {
     await symlink(from, to);
-    return true;
   } catch {
     await copyFile(from, to);
-    return true;
   }
+  return true;
 }
 
 export async function installHooks({
@@ -178,7 +170,7 @@ export async function installHooks({
   const command = ensureCommand(root, { platform });
   const antigravityCommand = ensureCommand(root, { json: true, platform });
   const commandWindows = ensureCommandWindows(root);
-  const extension = join(root, "hooks", "pinar.ts");
+  const extension = join(root, "hooks", "pinar.js");
   const changed = [];
 
   const claudePath = join(home, ".claude", "settings.json");
@@ -214,8 +206,13 @@ export async function installHooks({
   const piExt = join(home, ".pi", "agent", "extensions", "pinar.ts");
   if (await linkExtension(extension, piExt)) changed.push(piExt);
 
-  const ompExt = join(home, ".omp", "agent", "extensions", "pinar.ts");
+  const ompExt = join(home, ".omp", "agent", "extensions", "pinar.js");
   if (await linkExtension(extension, ompExt)) changed.push(ompExt);
+  const ompLegacy = join(home, ".omp", "agent", "extensions", "pinar.ts");
+  if (existsSync(ompLegacy)) {
+    await unlink(ompLegacy);
+    changed.push(ompLegacy);
+  }
 
   const ompConfigPath = join(home, ".omp", "agent", "config.yml");
   let ompConfig = "";

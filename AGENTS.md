@@ -7,7 +7,7 @@ pinar
 # or: node src/cli.mjs || bun src/cli.mjs
 ```
 
-That command exits immediately if `127.0.0.1:17373` is already healthy. Do not start a second long-lived process. Prefer `node`; use `bun` only if `node` is missing. Shots land in `~/.pinar/shots` (Windows: `%USERPROFILE%\.pinar\shots`).
+That command exits immediately if any port in `127.0.0.1:17373`–`17382` already answers `GET /health` with `service: "pinar"`. Do not start a second long-lived process. Prefer `node`; use `bun` only if `node` is missing. Shots land in `~/.pinar/shots` (Windows: `%USERPROFILE%\.pinar\shots`). `PINAR_PORT` pins the helper to a single port.
 
 Machine-wide install (downloads helper to `~/.pinar`, launcher at `~/.pinar/bin`, then hooks):
 

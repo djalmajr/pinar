@@ -1,17 +1,17 @@
 # Pinar
 
-Anota elementos ou áreas numa página Chrome e **copia** o pacote (comentário, caminho no DOM, coordenadas, screenshot) para a área de transferência. Cola em qualquer lugar — Grok, Claude, Codex, Slack, notas.
+Pin comments on elements or areas in Chrome and **copy** the bundle (comment, DOM path, coordinates, screenshot) to the clipboard. Paste it anywhere — Grok, Claude, Codex, Slack, notes.
 
 ```
 Chrome (Pinar + pins + ⌘↵)
-        │  clipboard (text/plain + text/html com imagens)
+        │  clipboard (text/plain + text/html with images)
         ▼
-Qualquer composer / editor
+Any composer / editor
 ```
 
-## Instalação
+## Install
 
-Um comando baixa o helper para `~/.pinar`, coloca o launcher em `~/.pinar/bin` e registra os hooks dos agentes. Precisa de **Node ou Bun**.
+One command downloads the helper to `~/.pinar`, puts the launcher in `~/.pinar/bin`, and registers agent hooks. Requires **Node or Bun**.
 
 **macOS / Linux**
 
@@ -25,79 +25,79 @@ curl -fsSL https://raw.githubusercontent.com/djalmajr/pinar/main/install.sh | sh
 irm https://raw.githubusercontent.com/djalmajr/pinar/main/install.ps1 | iex
 ```
 
-O instalador:
+The installer:
 
-1. Sincroniza `~/.pinar` (Windows: `%USERPROFILE%\.pinar`) com o runtime atual: recria `bin/`, `lib/`, `hooks/` e `extension/`, e apaga leftover antigo (`src/`, `AGENTS.md`, testes, pastas velhas)
-2. Deixa o launcher em `~/.pinar/bin/pinar` (Windows: `pinar.cmd`)
-3. Coloca `~/.pinar/bin` no PATH
-4. Faz merge dos hooks globais (não apaga hooks que você já tem)
-5. Preserva `shots/`
+1. Syncs `~/.pinar` (Windows: `%USERPROFILE%\.pinar`) with the current runtime: recreates `bin/`, `lib/`, `hooks/`, and `extension/`, and deletes leftover files (`src/`, `AGENTS.md`, tests, old folders)
+2. Leaves the launcher at `~/.pinar/bin/pinar` (Windows: `pinar.cmd`)
+3. Adds `~/.pinar/bin` to PATH
+4. Merges global hooks (does not delete hooks you already have)
+5. Keeps `shots/`
 
-Abra um terminal novo depois da instalação. Depois, no Chrome: `chrome://extensions` → Developer mode → **Load unpacked** → `~/.pinar/extension` (Windows: `%USERPROFILE%\.pinar\extension`).
+Open a new terminal after installing. Then in Chrome: `chrome://extensions` → Developer mode → **Load unpacked** → `~/.pinar/extension` (Windows: `%USERPROFILE%\.pinar\extension`).
 
-Ref específico: `PINAR_REF=v0.1.0` (Unix) ou `$env:PINAR_REF = "v0.1.0"` (PowerShell) antes do one-liner.
+Pin a specific ref: `PINAR_REF=v0.1.0` (Unix) or `$env:PINAR_REF = "v0.1.0"` (PowerShell) before the one-liner.
 
-A partir de um clone:
+From a clone:
 
 ```sh
 ./bin/pinar install          # macOS / Linux
 .\bin\pinar.cmd install      # Windows
 ```
 
-## Uso
+## Usage
 
-1. Carregue a extensão (pasta `extension/` do clone, ou `~/.pinar/extension` após o install)
-2. Abra a página
-3. Clique no ícone da extensão
-4. Clique num elemento ou arraste uma área, escreva o comentário, **Enter** para adicionar
-5. **⌘↵ / Ctrl+Enter** para copiar (a toolbar mostra *Copied* e fecha)
+1. Load the extension (`extension/` from the clone, or `~/.pinar/extension` after install)
+2. Open the page
+3. Click the extension icon
+4. Click an element or drag an area, write the comment, press **Enter** to add
+5. **⌘↵ / Ctrl+Enter** to copy (the toolbar shows *Copied* and closes)
 
-- **Enter** adiciona o pin
-- **Shift+Enter** quebra linha
-- **Esc** no composer fecha só o prompt; sem prompt, limpa todos os pins
-- O ícone da extensão só mostra ou esconde a overlay — não apaga pins
+- **Enter** adds the pin
+- **Shift+Enter** inserts a newline
+- **Esc** in the composer closes only the draft; with no draft, it clears all pins and hides the toolbar
+- The extension icon only shows or hides the overlay — it does not delete pins
 
-Os recortes PNG vão para `~/.pinar/shots` (Windows: `%USERPROFILE%\.pinar\shots`). A extensão não consegue escrever nessa pasta sozinha — o helper local sobe no início da sessão. Ele tenta `127.0.0.1:17373` e, se a porta estiver ocupada por outro processo, sobe na próxima livre até `17382`. A extensão procura `GET /health` com `{"service":"pinar"}` nesse intervalo. Se `17373` já for o Pinar, o comando sai na hora e não abre segunda instância. `PINAR_PORT` força uma porta só.
+PNG crops go to `~/.pinar/shots` (Windows: `%USERPROFILE%\.pinar\shots`). The extension cannot write that folder by itself — the local helper starts at session start. It tries `127.0.0.1:17373` and, if that port is taken by another process, binds the next free port through `17382`. The extension looks for `GET /health` with `{"service":"pinar"}` in that range. If `17373` is already Pinar, the command exits immediately and does not start a second instance. `PINAR_PORT` pins the helper to a single port.
 
 ```sh
-pinar                 # se ~/.pinar/bin está no PATH
-# ou, no clone:
+pinar                 # if ~/.pinar/bin is on PATH
+# or, from a clone:
 node src/cli.mjs
 bun src/cli.mjs
 ./hooks/ensure.sh
 .\hooks\ensure.cmd    # Windows
 ```
 
-Sem o helper, o recorte cai em `Downloads/pinar/` como fallback.
+Without the helper, the crop falls back to `Downloads/pinar/`.
 
-## Hooks de sessão
+## Session hooks
 
-Cada agente tem o próprio formato. **`npx skills add` / skills.sh não instala hooks** — só copia `SKILL.md`.
+Each agent has its own format. **`npx skills add` / skills.sh does not install hooks** — it only copies `SKILL.md`.
 
-O one-liner acima é o caminho certo para qualquer máquina. Os arquivos neste repo também valem quando a sessão abre **neste projeto**:
+The one-liner above is the right path for any machine. The files in this repo also apply when a session opens **in this project**:
 
-| Agente | Arquivo | Evento |
+| Agent | File | Event |
 | --- | --- | --- |
 | Grok | `.grok/hooks/session-start.json` | `SessionStart` |
 | Claude | `.claude/settings.json` | `SessionStart` |
-| Codex | `.codex/hooks.json` | `SessionStart` (`commandWindows` no Windows) |
-| Antigravity | `.agents/hooks.json` | `PreInvocation` (não existe SessionStart) |
+| Codex | `.codex/hooks.json` | `SessionStart` (`commandWindows` on Windows) |
+| Antigravity | `.agents/hooks.json` | `PreInvocation` (no SessionStart) |
 | Pi | `.pi/extensions/pinar.ts` | `session_start` |
 | OMP | `.omp/extensions/pinar.ts` | `session_start` |
 
-YAML extra em `.pi/hook/hooks.yaml` e `.omp/hook/hooks.yaml` só roda se o pacote `pi-yaml-hooks` estiver instalado.
+Extra YAML in `.pi/hook/hooks.yaml` and `.omp/hook/hooks.yaml` only runs if the `pi-yaml-hooks` package is installed.
 
-Projeto local exige trust na primeira vez: Grok `/hooks-trust`, Codex `/hooks`. Antigravity pode preferir o `hooks.json` do workspace ao global — se os hooks globais sumirem neste repo, apague `.agents/hooks.json` e use só o install global.
+A local project needs trust the first time: Grok `/hooks-trust`, Codex `/hooks`. Antigravity may prefer the workspace `hooks.json` over the global one — if global hooks disappear in this repo, delete `.agents/hooks.json` and use the global install only.
 
-Só re-registrar hooks, sem baixar de novo:
+Re-register hooks without downloading again:
 
 ```sh
 pinar install-hooks
-# ou: ./bin/pinar install-hooks
+# or: ./bin/pinar install-hooks
 # Windows: .\bin\pinar.cmd install-hooks
 ```
 
-O `AGENTS.md` descreve como um agente deve tratar o texto colado. Se o copy tiver `Screenshot: /caminho/arquivo.png`, abra esse arquivo — é um recorte só, com todos os pins.
+`AGENTS.md` describes how an agent should treat the pasted text. If the copy has `Screenshot: /path/to/file.png`, open that file — it is a single crop with every pin.
 
 ```sh
 npm test

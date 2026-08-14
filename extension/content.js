@@ -682,13 +682,20 @@
     broadcast(FRAME_CLEAR);
   }
 
+  function broadcastToChildFrames(type) {
+    for (let index = 0; index < window.frames.length; index += 1) {
+      window.frames[index].postMessage({ type }, "*");
+    }
+  }
+
   function broadcast(type) {
     if (isEmbedded) window.top.postMessage({ type }, "*");
-    else {
-      for (let index = 0; index < window.frames.length; index += 1) {
-        window.frames[index].postMessage({ type }, "*");
-      }
-    }
+    else broadcastToChildFrames(type);
+  }
+
+  function dismiss() {
+    resetLocalPins();
+    setVisible(false);
   }
 
   function isMounted() {
@@ -883,10 +890,14 @@
         type: "clipboard",
       });
       if (!copied?.ok) throw new Error(copied?.error || "clipboard write failed");
-      await chrome.runtime.sendMessage({ hidden: false, type: "overlays:hidden" }).catch(() => null);
+      // Do not restore overlays first — that would flash iframe pins after
+      // the top toolbar is already gone. session:end dismisses every frame.
+      await chrome.runtime.sendMessage({ type: "session:end" }).catch(() => null);
       await clearPins();
+      broadcast(FRAME_CLEAR);
       setStatus(null);
       setVisible(false);
+      broadcast(FRAME_HIDE);
     } catch (error) {
       await chrome.runtime.sendMessage({ hidden: false, type: "overlays:hidden" }).catch(() => null);
       console.warn("ai-feedback copy failed", error);
@@ -923,22 +934,23 @@
     }
     if (event.data?.type === FRAME_CLEAR) {
       resetLocalPins();
-      if (!isEmbedded) broadcast(FRAME_CLEAR);
+      broadcastToChildFrames(FRAME_CLEAR);
       return;
     }
     if (event.data?.type === FRAME_HIDE) {
       setVisible(false);
-      if (!isEmbedded) broadcast(FRAME_HIDE);
+      broadcastToChildFrames(FRAME_HIDE);
       return;
     }
     if (event.data?.type === FRAME_SHOW) {
       setVisible(true);
+      broadcastToChildFrames(FRAME_SHOW);
       return;
     }
     if (event.data?.type === FRAME_CANCEL) {
       resetLocalPins();
       setVisible(false);
-      if (!isEmbedded) broadcast(FRAME_CANCEL);
+      broadcastToChildFrames(FRAME_CANCEL);
       return;
     }
     if (!isEmbedded && event.data?.type === FRAME_SEND) {
@@ -1037,16 +1049,19 @@
     window.removeEventListener("message", onFrameMessage);
     delete globalThis.__aiFeedbackToggle;
     delete globalThis.__aiFeedbackSetHidden;
+    delete globalThis.__aiFeedbackDismiss;
   }
 
   function toggle() {
     setVisible(!isVisible());
     globalThis.__aiFeedbackToggle = toggle;
     globalThis.__aiFeedbackSetHidden = setHidden;
+    globalThis.__aiFeedbackDismiss = dismiss;
   }
 
   globalThis.__aiFeedbackToggle = toggle;
   globalThis.__aiFeedbackSetHidden = setHidden;
+  globalThis.__aiFeedbackDismiss = dismiss;
   renderChrome();
   updateOutline();
   renderMarkers();

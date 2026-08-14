@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pinar iframe demo</title>
+    <style>
+      :root { font-family: ui-sans-serif, system-ui, sans-serif; color: #111827; }
+      body { margin: 0; }
+      header {
+        border-bottom: 1px solid #e5e7eb;
+        font-weight: 700;
+        padding: 16px 24px;
+      }
+      iframe {
+        border: 0;
+        display: block;
+        height: calc(100vh - 57px);
+        width: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <header>Host page — the app below is an iframe</header>
+    <iframe src="./demo.html" title="Embedded app"></iframe>
+  </body>
+</html>

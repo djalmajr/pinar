@@ -1,6 +1,7 @@
 import { renderPinsCrop } from "./crop.js";
 import { formatClipboard } from "./format.js";
 import { pinarPorts } from "./ports.js";
+import { endTabPins, planSessionEnd } from "./session.js";
 
 const tabPins = new Map();
 
@@ -58,6 +59,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           globalThis.__aiFeedbackSetHidden?.(hidden);
         },
         target: { allFrames: true, tabId },
+      })
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ error: String(error), ok: false }));
+    return true;
+  }
+
+  if (message.type === "session:end") {
+    const plan = planSessionEnd(sender.tab?.id);
+    if (!plan.ok) {
+      sendResponse({ ok: false, error: plan.error });
+      return false;
+    }
+    if (plan.clearPins) endTabPins(tabPins, plan.tabId);
+    chrome.scripting
+      .executeScript({
+        func: () => {
+          globalThis.__aiFeedbackDismiss?.();
+        },
+        target: { allFrames: true, tabId: plan.tabId },
       })
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ error: String(error), ok: false }));

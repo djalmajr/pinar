@@ -8,7 +8,7 @@
   const BLUE = "#5794FF";
   const MARK = "#6691F2";
   const BUBBLE_BODY = "M2 12C2 6.477 6.477 2 12 2s10 4.477 10 10s-4.477 10-10 10a10 10 0 0 1-4.262-.951l-4.537.93a1 1 0 0 1-1.18-1.18l.93-4.537A10 10 0 0 1 2 12";
-  const BUBBLE_DOTS = `${BUBBLE_BODY}m5.5-1.5A1.5 1.5 0 0 0 6 12v.01a1.5 1.5 0 0 0 1.5 1.5h.01a1.5 1.5 0 0 0 1.5-1.5V12a1.5 1.5 0 0 0-1.5-1.5zm4.5 0a1.5 1.5 0 0 0-1.5 1.5v.01a1.5 1.5 0 0 0 1.5 1.5h.01a1.5 1.5 0 0 0 1.5-1.5V12a1.5 1.5 0 0 0-1.5-1.5zm3 1.5a1.5 1.5 0 0 1 1.5-1.5h.01a1.5 1.5 0 0 1 1.5 1.5v.01a1.5 1.5 0 0 1-1.5 1.5h-.01a1.5 1.5 0 0 1-1.5-1.5z`;
+  const BUBBLE_DOTS = `${BUBBLE_BODY}m10-4a1 1 0 0 1 1 1v2h2a1 1 0 1 1 0 2h-2v2a1 1 0 1 1-2 0v-2H9a1 1 0 1 1 0-2h2V9a1 1 0 0 1 1-1`;
   const bubbleSvg = ({ className = "", variant = "plain" } = {}) => {
     const d = variant === "dots" ? BUBBLE_DOTS : BUBBLE_BODY;
     return `<svg class="${className}" viewBox="0 0 24 24" aria-hidden="true"><path fill="${MARK}" stroke="#fff" stroke-width="1.15" fill-rule="evenodd" clip-rule="evenodd" d="${d}"/></svg>`;
@@ -218,16 +218,18 @@
         box-shadow: 0 12px 32px rgba(15,23,42,.16);
         display: flex;
         flex-direction: column;
+        gap: 10px;
         min-width: 260px;
         padding: 10px 10px 8px;
         width: 280px;
       }
       .composer textarea {
         border: 0;
+        box-sizing: border-box;
         color: #111;
         display: block;
         font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        min-height: 50px;
+        min-height: 24px;
         outline: none;
         overflow: hidden;
         padding: 4px 4px 2px;
@@ -279,7 +281,7 @@
     </div>
     <div class="composer" data-ref="composer" hidden>
       <div class="composer-card">
-        <textarea data-ref="input" rows="3" placeholder="Comment"></textarea>
+        <textarea data-ref="input" rows="1" placeholder="Comment"></textarea>
         <div class="composer-actions">
           <button type="button" class="icon-btn is-ready" data-ref="deleteDraft" title="Delete" aria-label="Delete">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
@@ -985,7 +987,7 @@
 
   function fitInput() {
     ui.input.style.height = "0";
-    ui.input.style.height = `${Math.max(50, ui.input.scrollHeight)}px`;
+    ui.input.style.height = `${Math.max(24, ui.input.scrollHeight)}px`;
   }
 
   ui.input.addEventListener("input", fitInput);

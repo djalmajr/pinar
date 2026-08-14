@@ -1,6 +1,6 @@
 {
   "name": "pinar",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Pin comments on page elements and copy them, with DOM path and screenshots, to the clipboard.",
   "private": true,
   "type": "module",

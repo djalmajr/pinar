@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Pinar",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Pin comments on page elements and copy them, with DOM path and screenshots, to the clipboard.",
   "permissions": ["activeTab", "clipboardWrite", "downloads", "offscreen", "scripting"],
   "host_permissions": ["http://127.0.0.1/*", "<all_urls>"],

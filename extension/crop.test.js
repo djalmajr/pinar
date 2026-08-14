@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { MARKER_CSS, MARKER_TIP, PAD_CSS, cropWindow, labelPlacement, markerPlacement, pinPoint } from "./crop.js";
+import { MARKER_CSS, MARKER_TIP, PAD_CSS, cropWindow, drawAreaBox, labelPlacement, markerPlacement, pinPoint } from "./crop.js";
 
 describe("crop", () => {
   test("pinPoint prefers the click and lifts iframe coords", () => {
@@ -63,5 +63,38 @@ describe("crop", () => {
     assert.ok(crop.height <= PAD_CSS * 2 + 8);
     assert.ok(crop.y + crop.height >= 700);
     assert.ok(700 - crop.y <= PAD_CSS + 2);
+  });
+
+  test("cropWindow covers the entire area selection box", () => {
+    const dpr = 1;
+    const pin = {
+      anchor: { x: 100, y: 100 },
+      box: { height: 250, width: 350, x: 100, y: 100 },
+      kind: "area",
+    };
+    const crop = cropWindow({ height: 800, width: 1000 }, pin, dpr);
+    assert.ok(crop.x <= 100);
+    assert.ok(crop.y <= 100);
+    assert.ok(crop.x + crop.width >= 450);
+    assert.ok(crop.y + crop.height >= 350);
+  });
+
+  test("drawAreaBox strokes dashed rect for area pins", () => {
+    const calls = [];
+    const ctx = {
+      save: () => calls.push("save"),
+      restore: () => calls.push("restore"),
+      fillRect: (...args) => calls.push(["fillRect", ...args]),
+      strokeRect: (...args) => calls.push(["strokeRect", ...args]),
+      setLineDash: (...args) => calls.push(["setLineDash", ...args]),
+    };
+    const box = { height: 100, width: 200, x: 50, y: 60 };
+    const crop = { height: 300, width: 400, x: 20, y: 30 };
+    drawAreaBox(ctx, box, crop, 2);
+    assert.deepEqual(calls[0], "save");
+    assert.deepEqual(calls[1], ["setLineDash", [12, 8]]);
+    assert.deepEqual(calls[2], ["fillRect", 80, 90, 400, 200]);
+    assert.deepEqual(calls[3], ["strokeRect", 80, 90, 400, 200]);
+    assert.deepEqual(calls[4], "restore");
   });
 });

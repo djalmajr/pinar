@@ -167,6 +167,22 @@ export function drawPinMarker(ctx, placement, label) {
   ctx.fillText(LABEL, pillX + width / 2, tipY);
 }
 
+export function drawAreaBox(ctx, box, crop, dpr) {
+  const x = Math.round(box.x * dpr - crop.x);
+  const y = Math.round(box.y * dpr - crop.y);
+  const width = Math.round(box.width * dpr);
+  const height = Math.round(box.height * dpr);
+
+  ctx.save();
+  ctx.strokeStyle = MARK;
+  ctx.lineWidth = Math.max(2, Math.round(2 * dpr));
+  ctx.setLineDash([Math.round(6 * dpr), Math.round(4 * dpr)]);
+  ctx.fillStyle = "rgba(102, 145, 242, 0.08)";
+  ctx.fillRect(x, y, width, height);
+  ctx.strokeRect(x, y, width, height);
+  ctx.restore();
+}
+
 export async function renderPinsCrop(bitmap, pins, dpr) {
   const crop = cropWindow(bitmap, pins, dpr);
   if (crop.width < 2 || crop.height < 2) return null;
@@ -174,6 +190,11 @@ export async function renderPinsCrop(bitmap, pins, dpr) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
   ctx.drawImage(bitmap, crop.x, crop.y, crop.width, crop.height, 0, 0, crop.width, crop.height);
+  pins.forEach((pin) => {
+    if (pin.kind === "area" && (pin.box || pin.topBox)) {
+      drawAreaBox(ctx, pinBox(pin), crop, dpr);
+    }
+  });
   pins.forEach((pin, index) => {
     drawPinMarker(ctx, markerPlacement(pinPoint(pin), crop, dpr), index + 1);
   });

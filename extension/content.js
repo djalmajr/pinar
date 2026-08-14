@@ -10,8 +10,10 @@
   const BUBBLE_BODY = "M2 12C2 6.477 6.477 2 12 2s10 4.477 10 10s-4.477 10-10 10a10 10 0 0 1-4.262-.951l-4.537.93a1 1 0 0 1-1.18-1.18l.93-4.537A10 10 0 0 1 2 12";
   const BUBBLE_DOTS = `${BUBBLE_BODY}m10-4a1 1 0 0 1 1 1v2h2a1 1 0 1 1 0 2h-2v2a1 1 0 1 1-2 0v-2H9a1 1 0 1 1 0-2h2V9a1 1 0 0 1 1-1`;
   const bubbleSvg = ({ className = "", variant = "plain" } = {}) => {
-    const d = variant === "dots" ? BUBBLE_DOTS : BUBBLE_BODY;
-    return `<svg class="${className}" viewBox="0 0 24 24" aria-hidden="true"><path fill="${MARK}" stroke="#fff" stroke-width="1.15" fill-rule="evenodd" clip-rule="evenodd" d="${d}"/></svg>`;
+    if (variant === "dots") {
+      return `<svg class="${className}" viewBox="1.8 1.8 20.4 20.4" aria-hidden="true"><path fill="${MARK}" fill-rule="evenodd" clip-rule="evenodd" d="${BUBBLE_DOTS}"/></svg>`;
+    }
+    return `<svg class="${className}" viewBox="0 0 24 24" aria-hidden="true"><path fill="${MARK}" stroke="#fff" stroke-width="1.15" fill-rule="evenodd" clip-rule="evenodd" d="${BUBBLE_BODY}"/></svg>`;
   };
   const apple = /mac|iphone|ipad|ipod/i.test(
     `${navigator.userAgentData?.platform ?? ""} ${navigator.platform ?? ""} ${navigator.userAgent ?? ""}`,
@@ -46,6 +48,31 @@
     rememberedChildren: new Map(),
   };
 
+  const CURSOR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="7.5" stroke="white" stroke-width="2.5"/><circle cx="12" cy="12" r="7.5" stroke="${BLUE}" stroke-width="1.5"/><path d="M12 2V6M12 18V22M2 12H6M18 12H22" stroke="white" stroke-width="2.5" stroke-linecap="round"/><path d="M12 2V6M12 18V22M2 12H6M18 12H22" stroke="${BLUE}" stroke-width="1.5" stroke-linecap="round"/><circle cx="12" cy="12" r="2" fill="${BLUE}" stroke="white" stroke-width="1"/></svg>`;
+  const CURSOR_URL = `url("data:image/svg+xml,${encodeURIComponent(CURSOR_SVG)}") 12 12, crosshair`;
+  const STYLE_ID = "pinar-global-style";
+
+  function applyGlobalStyles() {
+    let style = document.getElementById(STYLE_ID);
+    if (!style) {
+      style = document.createElement("style");
+      style.id = STYLE_ID;
+      (document.head || document.documentElement).appendChild(style);
+    }
+    style.textContent = `
+      html[data-pinar-active],
+      html[data-pinar-active] * {
+        cursor: ${CURSOR_URL} !important;
+        -webkit-user-select: none !important;
+        user-select: none !important;
+      }
+    `;
+  }
+
+  function removeGlobalStyles() {
+    document.getElementById(STYLE_ID)?.remove();
+  }
+
   const host = document.createElement("div");
   host.setAttribute("data-ai-feedback", "host");
   Object.assign(host.style, {
@@ -59,6 +86,14 @@
   shadow.innerHTML = `
     <style>
       :host { all: initial; }
+      .toolbar, .composer, .preview {
+        cursor: default;
+        -webkit-user-select: auto;
+        user-select: auto;
+      }
+      .marker, .icon-btn, .btn-cancel, .btn-add {
+        cursor: pointer !important;
+      }
       .toolbar {
         background: rgba(255,255,255,.96);
         border: 1px solid rgba(15,23,42,.18);
@@ -117,7 +152,6 @@
         border-radius: 999px;
         box-sizing: border-box;
         color: #737373;
-        cursor: pointer;
         display: none;
         flex: 0 0 32px;
         height: 32px;
@@ -138,11 +172,34 @@
         transition: left 35ms linear, top 35ms linear, width 35ms linear, height 35ms linear;
         z-index: 1;
       }
-      .outline.area { border-style: dashed; }
+      .outline.area {
+        background: rgba(87,148,255,.10);
+        border: 2px dashed ${BLUE};
+        box-shadow: 0 0 0 1px rgba(255,255,255,.5), inset 0 0 0 1px rgba(255,255,255,.3);
+      }
+      .outline.is-dragging {
+        transition: none !important;
+      }
+      .outline-badge {
+        align-items: center;
+        background: rgba(15,23,42,.85);
+        backdrop-filter: blur(4px);
+        border-radius: 4px;
+        bottom: 6px;
+        color: #fff;
+        display: none;
+        font: 600 11px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        padding: 3px 6px;
+        position: absolute;
+        right: 6px;
+        white-space: nowrap;
+      }
+      .outline.area.is-dragging .outline-badge {
+        display: inline-flex;
+      }
       .marker {
         background: transparent;
         border: 0;
-        cursor: pointer;
         height: 28px;
         padding: 0;
         pointer-events: auto;
@@ -247,7 +304,6 @@
       .btn-cancel, .btn-add {
         border: 0;
         border-radius: 999px;
-        cursor: pointer;
         font: 600 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         height: 32px;
         padding: 0 14px;
@@ -262,7 +318,7 @@
           ${bubbleSvg({ className: "mark", variant: "dots" })}
         </span>
         <span class="instructions" data-ref="instructions">
-          <span class="hint">Click or <span class="keys"><kbd>↵</kbd></span> to pin</span>
+          <span class="hint">Click or drag to pin</span>
           <span class="sep"></span>
           <span class="hint"><span class="keys"><kbd>↑</kbd><kbd>↓</kbd></span> to fine-tune selection</span>
           <span class="sep"></span>
@@ -273,7 +329,7 @@
         <span class="status" data-ref="status" hidden></span>
       </div>
     </div>` : ""}
-    <div class="outline" data-ref="outline"></div>
+    <div class="outline" data-ref="outline"><span class="outline-badge" data-ref="outlineBadge"></span></div>
     <div data-ref="layer"></div>
     <div class="preview" data-ref="preview" hidden>
       <span class="preview-n" data-ref="previewN">1</span>
@@ -303,6 +359,7 @@
     instructions: shadow.querySelector("[data-ref=instructions]"),
     layer: shadow.querySelector("[data-ref=layer]"),
     outline: shadow.querySelector("[data-ref=outline]"),
+    outlineBadge: shadow.querySelector("[data-ref=outlineBadge]"),
     preview: shadow.querySelector("[data-ref=preview]"),
     previewN: shadow.querySelector("[data-ref=previewN]"),
     previewText: shadow.querySelector("[data-ref=previewText]"),
@@ -489,8 +546,9 @@
     ui.outline.style.display = "none";
   }
 
-  function showOutline(box, area = false) {
+  function showOutline(box, area = false, dragging = false) {
     ui.outline.classList.toggle("area", area);
+    ui.outline.classList.toggle("is-dragging", dragging);
     Object.assign(ui.outline.style, {
       display: "block",
       height: `${box.height}px`,
@@ -498,6 +556,9 @@
       top: `${box.y}px`,
       width: `${box.width}px`,
     });
+    if (ui.outlineBadge) {
+      ui.outlineBadge.textContent = `${box.width} × ${box.height} px`;
+    }
   }
 
   function canSelect() {
@@ -510,15 +571,22 @@
       return;
     }
     if (state.drag) {
-      showOutline(normBox(state.drag), true);
+      showOutline(normBox(state.drag), true, true);
       return;
     }
     if (state.draft) {
-      showOutline(state.draft.box, state.draft.kind === "area");
+      showOutline(state.draft.box, state.draft.kind === "area", false);
       return;
     }
+    if (state.hoverPinId) {
+      const pin = state.pins.find((item) => item.id === state.hoverPinId);
+      if (pin?.box) {
+        showOutline(pin.box, pin.kind === "area", false);
+        return;
+      }
+    }
     if (selection.current && state.active) {
-      showOutline(boxOf(selection.current));
+      showOutline(boxOf(selection.current), false, false);
       return;
     }
     hideOutline();
@@ -749,6 +817,23 @@
     event.preventDefault();
   }
 
+  async function openAreaDraft(box, anchorPoint) {
+    const offset = await requestTopOffset();
+    const anchor = anchorPoint ?? { x: box.x, y: box.y };
+    openDraft({
+      anchor,
+      box,
+      kind: "area",
+      label: `selected area (${box.width}×${box.height}px)`,
+      topBox: {
+        height: box.height,
+        width: box.width,
+        x: box.x + offset.x,
+        y: box.y + offset.y,
+      },
+    });
+  }
+
   function onPointerUp(event) {
     if (!isMounted() || !state.drag) return;
     if (!canSelect()) {
@@ -761,12 +846,7 @@
     if (drag.moved) {
       const box = normBox(drag);
       if (box.width >= DRAG_THRESHOLD && box.height >= DRAG_THRESHOLD) {
-        openDraft({
-          anchor: { x: drag.x0, y: drag.y0 },
-          box,
-          kind: "area",
-          label: "selected area",
-        });
+        void openAreaDraft(box, { x: box.x, y: box.y });
       } else {
         updateOutline();
       }
@@ -966,6 +1046,12 @@
 
   function setHidden(hidden) {
     host.style.display = hidden || !state.active ? "none" : "";
+    if (hidden) {
+      document.documentElement.removeAttribute("data-pinar-active");
+    } else if (state.active) {
+      document.documentElement.setAttribute("data-pinar-active", "true");
+      applyGlobalStyles();
+    }
   }
 
   function isVisible() {
@@ -977,11 +1063,15 @@
     state.active = visible;
     host.style.display = visible ? "" : "none";
     if (visible) {
+      document.documentElement.setAttribute("data-pinar-active", "true");
+      applyGlobalStyles();
       renderChrome();
       updateOutline();
       renderMarkers();
       return;
     }
+    document.documentElement.removeAttribute("data-pinar-active");
+    removeGlobalStyles();
     hideOutline();
   }
 
@@ -1005,10 +1095,12 @@
     const button = event.target.closest("[data-pin]");
     if (!button || state.draft) return;
     state.hoverPinId = button.getAttribute("data-pin");
+    updateOutline();
     placePreview();
   });
   ui.layer.addEventListener("pointerleave", () => {
     state.hoverPinId = null;
+    updateOutline();
     placePreview();
   });
   ui.layer.addEventListener("click", (event) => {
@@ -1042,6 +1134,8 @@
     if (!host.isConnected && !state.active) return;
     clearTimeout(state.statusTimer);
     state.active = false;
+    document.documentElement.removeAttribute("data-pinar-active");
+    removeGlobalStyles();
     host.remove();
     window.removeEventListener("pointerdown", onPointerDown, true);
     window.removeEventListener("pointermove", onPointerMove, true);
@@ -1064,6 +1158,8 @@
   globalThis.__aiFeedbackToggle = toggle;
   globalThis.__aiFeedbackSetHidden = setHidden;
   globalThis.__aiFeedbackDismiss = dismiss;
+  document.documentElement.setAttribute("data-pinar-active", "true");
+  applyGlobalStyles();
   renderChrome();
   updateOutline();
   renderMarkers();

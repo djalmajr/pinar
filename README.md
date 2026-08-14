@@ -33,7 +33,9 @@ The installer:
 4. Merges global hooks (does not delete hooks you already have)
 5. Keeps `shots/`
 
-Open a new terminal after installing. Then in Chrome: `chrome://extensions` → Developer mode → **Load unpacked** → `~/.pinar/extension` (Windows: `%USERPROFILE%\.pinar\extension`).
+The same command also copies the unpacked Chrome extension into that install. Chrome does not enable it for you.
+
+Open a new terminal after installing so PATH picks up `~/.pinar/bin`.
 
 Pin a specific ref: `PINAR_REF=v0.1.0` (Unix) or `$env:PINAR_REF = "v0.1.0"` (PowerShell) before the one-liner.
 
@@ -44,13 +46,25 @@ From a clone:
 .\bin\pinar.cmd install      # Windows
 ```
 
+## Load the extension
+
+Pinar is not on the Chrome Web Store. After the CLI/hooks install:
+
+1. Open Chrome and go to `chrome://extensions`
+2. Turn on **Developer mode** (toggle in the top-right)
+3. Click **Load unpacked**
+4. Select the installed folder — not a Downloads zip, not the git clone unless you are developing the extension:
+   - macOS / Linux: `~/.pinar/extension`
+   - Windows: `%USERPROFILE%\.pinar\extension`
+
+Chrome remembers that folder. After you run the installer again, open `chrome://extensions` and click **Reload** on the Pinar card if the overlay looks stale.
+
 ## Usage
 
-1. Load the extension (`extension/` from the clone, or `~/.pinar/extension` after install)
-2. Open the page
-3. Click the extension icon
-4. Click an element or drag an area, write the comment, press **Enter** to add
-5. **⌘↵ / Ctrl+Enter** to copy (the toolbar shows *Copied* and closes)
+1. Open the page you want to annotate
+2. Click the Pinar icon in the Chrome toolbar (pin it from the puzzle-piece menu if it is hidden)
+3. Click an element or drag an area, write the comment, press **Enter** to add
+4. **⌘↵ / Ctrl+Enter** to copy (the toolbar shows *Copied* and closes)
 
 - **Enter** adds the pin
 - **Shift+Enter** inserts a newline

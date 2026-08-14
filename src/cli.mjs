@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { findHealthyPort, listenFirstFree, waitHealthy, writeHelperState } from "./ensure.mjs";
+import { findHealthyPort, listenFirstFree, waitHealthy } from "./ensure.mjs";
 import { install } from "./install.mjs";
 import { installHooks } from "./install-hooks.mjs";
 import { portRange, shotsDir } from "./paths.mjs";
@@ -16,7 +16,6 @@ async function serve() {
     console.error(`pinar shots already on :${found.port}`);
     process.exit(0);
   }
-  await writeHelperState({ port: found.port });
   console.error(`pinar shots http://127.0.0.1:${found.port}`);
   console.error(`store ${root}`);
 }

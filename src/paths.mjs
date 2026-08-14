@@ -9,10 +9,6 @@ export function portRange(start = resolvePort()) {
   return Array.from({ length: PORT_COUNT }, (_, i) => start + i);
 }
 
-export function helperStatePath(home = pinarHome()) {
-  return join(home, "helper.json");
-}
-
 export function pinarHome() {
   return process.env.PINAR_HOME ?? join(homedir(), ".pinar");
 }

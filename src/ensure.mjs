@@ -1,6 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises";
 import { startShotServer } from "./http.mjs";
-import { helperStatePath, pinarHome, portRange } from "./paths.mjs";
+import { portRange } from "./paths.mjs";
 
 export function shotsUrl(port) {
   return `http://127.0.0.1:${port}`;
@@ -43,14 +42,6 @@ export async function waitHealthy(ports = portRange(), timeoutMs = 2000) {
     await new Promise((resolve) => setTimeout(resolve, 40));
   }
   return findHealthyPort(list);
-}
-
-export async function writeHelperState({ port, pid = process.pid }) {
-  await mkdir(pinarHome(), { recursive: true });
-  await writeFile(
-    helperStatePath(),
-    `${JSON.stringify({ pid, port, url: shotsUrl(port) }, null, 2)}\n`,
-  );
 }
 
 export async function listenFirstFree({

@@ -31,7 +31,7 @@ O instalador:
 2. Deixa o launcher em `~/.pinar/bin/pinar` (Windows: `pinar.cmd`)
 3. Coloca `~/.pinar/bin` no PATH
 4. Faz merge dos hooks globais (não apaga hooks que você já tem)
-5. Preserva `shots/` e `helper.json`
+5. Preserva `shots/`
 
 Abra um terminal novo depois da instalação. Depois, no Chrome: `chrome://extensions` → Developer mode → **Load unpacked** → `~/.pinar/extension` (Windows: `%USERPROFILE%\.pinar\extension`).
 

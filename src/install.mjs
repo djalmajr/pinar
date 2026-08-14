@@ -23,7 +23,7 @@ export const RUNTIME_FILES = [
 
 const STAGING = ".tmp-install";
 const MANAGED_DIRS = ["bin", "lib", "hooks", "extension"];
-const KEEP_TOP = new Set(["shots", "helper.json", STAGING]);
+const KEEP_TOP = new Set(["shots", STAGING]);
 
 function resolveRuntimeSource(root, repoPath) {
   const direct = join(root, repoPath);

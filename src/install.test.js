@@ -43,12 +43,12 @@ describe("install", () => {
     await writeFile(join(dest, "src", "old.js"), "stale\n");
     await writeFile(join(dest, "legacy", "gone.txt"), "x\n");
     const result = await installApp({ source, dest, log: () => {} });
-    assert.deepEqual(result.removed.sort(), ["AGENTS.md", "legacy", "package.json", "src"]);
+    assert.deepEqual(result.removed.sort(), ["AGENTS.md", "helper.json", "legacy", "package.json", "src"]);
     assert.equal(existsSync(join(dest, "src")), false);
     assert.equal(existsSync(join(dest, "legacy")), false);
+    assert.equal(existsSync(join(dest, "helper.json")), false);
     assert.ok(existsSync(join(dest, "lib", "cli.mjs")));
     assert.equal(await readFile(join(dest, "shots", "keep.png"), "utf8"), "png");
-    assert.equal(await readFile(join(dest, "helper.json"), "utf8"), "{\"port\":17373}\n");
   });
 
   test("installApp renames leftover screenshots/ to shots/", async () => {

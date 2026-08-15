@@ -6,6 +6,16 @@ export function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+export function formatViewerLink(viewerUrl) {
+  const url = viewerUrl.endsWith(".md") ? viewerUrl : `${viewerUrl}.md`;
+  const escapedUrl = escapeHtml(url);
+
+  return {
+    html: `<a href="${escapedUrl}">${escapedUrl}</a>`,
+    plain: url,
+  };
+}
+
 function pinTitle(pin, index) {
   const kind = pin.kind === "area" ? "area" : "element";
   const label = pin.label?.trim();
@@ -22,7 +32,7 @@ function shotHtml(shot) {
   if (!shot) return [];
   if (shot.startsWith("data:")) {
     return [
-      `<figure><img alt="Pinar pins" src="${shot}" style="max-width:100%;height:auto"/><figcaption>Pinar pins — blue overlay badges, not page UI</figcaption></figure>`,
+      `<figure><img alt="Pinar pins" src="${shot}" style="max-width:100%;height:auto"/><figcaption>Colored annotation badges, not page UI</figcaption></figure>`,
     ];
   }
   return [`<p><strong>Screenshot:</strong> <code>${escapeHtml(shot)}</code></p>`];
@@ -64,10 +74,11 @@ function pinHtml(pin, index) {
   return parts.join("\n");
 }
 
-export function formatClipboard({ page = {}, pins = [], shot, sentAt } = {}) {
+export function formatClipboard({ page = {}, pins = [], sentAt, shot, viewerUrl } = {}) {
   const when = sentAt || new Date().toISOString();
   const url = page.url || "(unknown)";
   const title = page.title || "(untitled)";
+  const finalViewer = viewerUrl ? (viewerUrl.endsWith(".md") ? viewerUrl : `${viewerUrl}.md`) : null;
   const header = [
     "# Visual feedback",
     "",
@@ -76,9 +87,10 @@ export function formatClipboard({ page = {}, pins = [], shot, sentAt } = {}) {
     `Copied: ${when}`,
     `Pins: ${pins.length}`,
     ...shotPlain(shot),
+    ...(finalViewer ? [`Viewer: ${finalViewer}`] : []),
     "",
     "Each pin is an instruction about that DOM node. Use the DOM path and selector to find the matching source.",
-    "Blue numbered bubbles labeled Pinar in the screenshot are annotation overlays, not part of the page.",
+    "Colored numbered bubbles in the screenshot are annotation overlays, not part of the page.",
   ];
   const pinBlocks = pins.map((pin, index) => pinPlain(pin, index)).join("\n\n");
   const plain = `${[...header, "", pinBlocks].join("\n")}\n`;
@@ -88,12 +100,17 @@ export function formatClipboard({ page = {}, pins = [], shot, sentAt } = {}) {
     `<h1>Visual feedback</h1>`,
     `<p><strong>URL:</strong> ${escapeHtml(url)}<br/><strong>Title:</strong> ${escapeHtml(title)}<br/><strong>Copied:</strong> ${escapeHtml(when)}</p>`,
     ...shotHtml(shot),
+    ...(finalViewer ? [`<p><strong>Viewer:</strong> <a href="${escapeHtml(finalViewer)}">${escapeHtml(finalViewer)}</a></p>`] : []),
     `<p>Each pin is an instruction about that DOM node. Use the DOM path and selector to find the matching source.</p>`,
-    `<p>Blue numbered bubbles labeled <strong>Pinar</strong> in the screenshot are annotation overlays, not part of the page.</p>`,
+    `<p>Colored numbered bubbles in the screenshot are annotation overlays, not part of the page.</p>`,
   ];
   pins.forEach((pin, index) => {
     htmlParts.push(pinHtml(pin, index));
   });
 
   return { html: htmlParts.join("\n"), plain };
+}
+
+export function formatClipboardPayload(input = {}) {
+  return input.viewerUrl ? formatViewerLink(input.viewerUrl) : formatClipboard(input);
 }

@@ -1,15 +1,43 @@
 {
   "name": "pinar",
   "version": "0.1.1",
-  "description": "Pin comments on page elements and copy them, with DOM path and screenshots, to the clipboard.",
+  "description": "Visual Annotations for AI Agents & Engineers",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "worker"
+  ],
   "bin": {
     "pinar": "./bin/pinar"
   },
   "scripts": {
-    "start": "node src/cli.mjs",
-    "serve": "node src/cli.mjs serve",
-    "test": "node --test"
+    "start": "bun src/cli.mjs",
+    "serve": "bun src/cli.mjs serve",
+    "test": "node --test",
+    "dev:web": "bun --filter @pinar/web dev",
+    "build:web": "bun --filter @pinar/web build && node scripts/generate-web-assets.mjs",
+    "dev:ext": "bun --filter @pinar/extension dev",
+    "build:ext": "bun --filter @pinar/extension build",
+    "build:bin": "bun scripts/build-binaries.mjs",
+    "build": "bun run build:web && bun --filter @pinar/extension build",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@iconify-json/lucide": "^1.2.123",
+    "@iconify-json/radix-icons": "^1.2.6",
+    "@svgr/core": "^8.1.0",
+    "@svgr/plugin-jsx": "^8.1.0",
+    "@tailwindcss/vite": "^4.0.6",
+    "@types/chrome": "^0.0.308",
+    "@types/node": "^22.13.4",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tailwindcss": "^4.0.6",
+    "typescript": "^5.7.3",
+    "unplugin-icons": "^22.0.0",
+    "vite": "^6.1.0"
   }
 }

@@ -7,7 +7,7 @@ export function shotsUrl(port) {
 
 export async function isHealthy(port) {
   try {
-    const response = await fetch(`${shotsUrl(port)}/health`);
+    const response = await fetch(`${shotsUrl(port)}/api/health`);
     const body = await response.json();
     return response.ok && body.ok === true && body.service === "pinar";
   } catch {

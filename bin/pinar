@@ -1,15 +1,37 @@
 #!/bin/sh
 set -e
 root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+
+# 1. Prioritize standalone compiled native binary
+os=$(uname -s | tr '[:upper:]' '[:lower:]')
+arch=$(uname -m)
+case "$arch" in
+  x86_64|amd64) arch="x64" ;;
+  arm64|aarch64) arch="arm64" ;;
+esac
+
+native_bin="$root/dist/bin/pinar-${os}-${arch}"
+if [ -x "$native_bin" ]; then
+  exec "$native_bin" "$@"
+fi
+
+if [ -x "$root/dist/pinar" ]; then
+  exec "$root/dist/pinar" "$@"
+fi
+
+# 2. Fallback to JS launcher via Bun or Node
 cli="$root/lib/cli.mjs"
 if [ ! -f "$cli" ]; then
   cli="$root/src/cli.mjs"
 fi
-if command -v node >/dev/null 2>&1; then
-  exec node "$cli" "$@"
-fi
+
 if command -v bun >/dev/null 2>&1; then
   exec bun "$cli" "$@"
 fi
-echo "pinar: need node or bun on PATH" >&2
+
+if command -v node >/dev/null 2>&1; then
+  exec node "$cli" "$@"
+fi
+
+echo "pinar: need compiled binary or bun/node on PATH" >&2
 exit 1

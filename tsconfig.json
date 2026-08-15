@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["chrome", "node"]
+  },
+  "include": [
+    "packages/shared/src/**/*",
+    "packages/ui/src/**/*",
+    "apps/extension/src/**/*",
+    "apps/extension/vite.config.ts",
+    "apps/web/src/**/*",
+    "apps/web/vite.config.ts"
+  ]
+}

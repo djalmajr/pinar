@@ -17,17 +17,14 @@ describe("install", () => {
     const result = await installApp({ source, dest, log: () => {} });
     assert.equal(result.copied, true);
     assert.ok(existsSync(launcherPath(dest, "darwin")));
-    assert.ok(existsSync(join(dest, "bin", "pinar.cmd")));
+    assert.equal(existsSync(join(dest, "bin", "pinar.cmd")), false);
     assert.ok(existsSync(join(dest, "hooks", "ensure.sh")));
-    assert.ok(existsSync(join(dest, "hooks", "ensure.cmd")));
-    assert.ok(existsSync(join(dest, "lib", "cli.mjs")));
+    assert.equal(existsSync(join(dest, "hooks", "ensure.cmd")), false);
     assert.equal(existsSync(join(dest, "src")), false);
     assert.ok(existsSync(join(dest, "hooks", "pinar.js")));
-    assert.ok(existsSync(join(dest, "extension", "manifest.json")));
+    assert.equal(existsSync(join(dest, "extension")), false);
     assert.equal(existsSync(join(dest, "AGENTS.md")), false);
     assert.equal(existsSync(join(dest, "package.json")), false);
-    assert.equal(existsSync(join(dest, "lib", "shots.test.js")), false);
-    assert.equal(existsSync(join(dest, "extension", "format.test.js")), false);
     assert.equal(await readFile(join(dest, "shots", "keep.png"), "utf8"), "png");
   });
 
@@ -47,7 +44,7 @@ describe("install", () => {
     assert.equal(existsSync(join(dest, "src")), false);
     assert.equal(existsSync(join(dest, "legacy")), false);
     assert.equal(existsSync(join(dest, "helper.json")), false);
-    assert.ok(existsSync(join(dest, "lib", "cli.mjs")));
+    assert.ok(existsSync(join(dest, "bin", "pinar")));
     assert.equal(await readFile(join(dest, "shots", "keep.png"), "utf8"), "png");
   });
 

@@ -1,6 +1,39 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { formatClipboard } from "./format.js";
+import { formatClipboard, formatClipboardPayload, formatViewerLink } from "./format.js";
+
+describe("formatViewerLink", () => {
+  test("copies only the markdown viewer URL", () => {
+    const payload = formatViewerLink("http://127.0.0.1:17373/v/session-1");
+
+    assert.equal(payload.plain, "http://127.0.0.1:17373/v/session-1.md");
+    assert.equal(
+      payload.html,
+      '<a href="http://127.0.0.1:17373/v/session-1.md">http://127.0.0.1:17373/v/session-1.md</a>',
+    );
+  });
+
+  test("does not duplicate an existing markdown suffix", () => {
+    const payload = formatViewerLink("https://pinar.dev/v/session-1.md");
+
+    assert.equal(payload.plain, "https://pinar.dev/v/session-1.md");
+  });
+});
+
+describe("formatClipboardPayload", () => {
+  test("prefers the markdown viewer URL over the detailed prompt", () => {
+    const payload = formatClipboardPayload({
+      page: { title: "App", url: "https://app.com" },
+      pins: [{ comment: "Fix this", id: "1" }],
+      shot: "/Users/me/.pinar/shots/session-1.png",
+      viewerUrl: "http://127.0.0.1:17373/v/session-1.md",
+    });
+
+    assert.equal(payload.plain, "http://127.0.0.1:17373/v/session-1.md");
+    assert.equal(payload.plain.includes("Fix this"), false);
+    assert.equal(payload.plain.includes("Screenshot:"), false);
+  });
+});
 
 describe("formatClipboard", () => {
   test("plain text carries comment, DOM path, selector, and one shared shot", () => {
@@ -62,5 +95,16 @@ describe("formatClipboard", () => {
     assert.equal(plain.includes("![Pinar pins](/Users/me/.pinar/shots/pinar-1.png)"), false);
     assert.match(html, /\/Users\/me\/\.pinar\/shots\/pinar-1\.png/);
     assert.equal(html.includes("<img"), false);
+  });
+
+  test("viewerUrl is appended to plain text and html header when present", () => {
+    const { html, plain } = formatClipboard({
+      page: { title: "App", url: "https://app.com" },
+      pins: [{ comment: "Bug", id: "1" }],
+      shot: "https://pinar-cloud.workers.dev/shots/1.png",
+      viewerUrl: "https://pinar-cloud.workers.dev/v/1",
+    });
+    assert.match(plain, /Viewer: https:\/\/pinar-cloud\.workers\.dev\/v\/1\.md/);
+    assert.match(html, /href="https:\/\/pinar-cloud\.workers\.dev\/v\/1\.md"/);
   });
 });

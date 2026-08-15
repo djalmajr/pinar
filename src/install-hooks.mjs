@@ -5,7 +5,31 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export function defaultRoot() {
-  return join(dirname(fileURLToPath(import.meta.url)), "..");
+  if (process.env.PINAR_SOURCE && existsSync(process.env.PINAR_SOURCE)) {
+    return process.env.PINAR_SOURCE;
+  }
+  const cwdPkg = join(process.cwd(), "package.json");
+  if (existsSync(cwdPkg)) {
+    try {
+      const content = existsSync(cwdPkg);
+      if (content) return process.cwd();
+    } catch {}
+  }
+  const execDir = dirname(process.execPath);
+  if (existsSync(join(execDir, "..", "..", "package.json"))) {
+    return join(execDir, "..", "..");
+  }
+  if (existsSync(join(execDir, "..", "package.json"))) {
+    return join(execDir, "..");
+  }
+  try {
+    const metaPath = fileURLToPath(import.meta.url);
+    if (!metaPath.startsWith("/$bunfs")) {
+      const fromMeta = join(dirname(metaPath), "..");
+      if (existsSync(fromMeta)) return fromMeta;
+    }
+  } catch {}
+  return process.cwd();
 }
 
 export function ensureScript(root, platform = process.platform) {

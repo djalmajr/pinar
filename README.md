@@ -1,5 +1,8 @@
 # Pinar
 
+[![GitHub Sponsors](https://img.shields.io/badge/Sponsor-GitHub%20Sponsors-ea4aaa?style=flat&logo=githubsponsors&logoColor=white)](https://github.com/sponsors/djalmajr)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Donate-yellow?style=flat&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/djalmajr)
+
 Pin comments on elements or areas in Chrome and **copy** the bundle (comment, DOM path, coordinates, screenshot) to the clipboard. Paste it anywhere — Grok, Claude, Codex, Slack, notes.
 
 ```
@@ -71,7 +74,7 @@ Chrome remembers that folder. After you run the installer again, open `chrome://
 - **Esc** in the composer closes only the draft; with no draft, it clears all pins and hides the toolbar
 - The extension icon only shows or hides the overlay — it does not delete pins
 
-PNG crops go to `~/.pinar/shots` (Windows: `%USERPROFILE%\.pinar\shots`). The extension cannot write that folder by itself — the local helper starts at session start. It tries `127.0.0.1:17373` and, if that port is taken by another process, binds the next free port through `17382`. The extension looks for `GET /health` with `{"service":"pinar"}` in that range. If `17373` is already Pinar, the command exits immediately and does not start a second instance. `PINAR_PORT` pins the helper to a single port.
+PNG crops go to `~/.pinar/shots` (Windows: `%USERPROFILE%\.pinar\shots`). The extension cannot write that folder by itself — the local helper starts at session start. It tries `127.0.0.1:17373` and, if that port is taken by another process, binds the next free port through `17382`. The extension looks for `GET /api/health` with `{"service":"pinar"}` in that range. If `17373` is already Pinar, the command exits immediately and does not start a second instance. `PINAR_PORT` pins the helper to a single port.
 
 ```sh
 pinar                 # if ~/.pinar/bin is on PATH

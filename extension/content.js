@@ -7,13 +7,29 @@
   const DRAG_THRESHOLD = 6;
   const BLUE = "#5794FF";
   const MARK = "#6691F2";
+  // Keep in sync with extension/pin-colors.js. Content scripts are loaded as classic scripts.
+  const PIN_COLORS = [
+    "#2563EB",
+    "#0369A1",
+    "#0E7490",
+    "#0F766E",
+    "#15803D",
+    "#4D7C0F",
+    "#A16207",
+    "#C2410C",
+    "#B91C1C",
+    "#BE185D",
+    "#7E22CE",
+    "#4338CA",
+  ];
+  const pinColor = (number = 1) => PIN_COLORS[(Math.max(1, Math.trunc(number)) - 1) % PIN_COLORS.length];
   const BUBBLE_BODY = "M2 12C2 6.477 6.477 2 12 2s10 4.477 10 10s-4.477 10-10 10a10 10 0 0 1-4.262-.951l-4.537.93a1 1 0 0 1-1.18-1.18l.93-4.537A10 10 0 0 1 2 12";
   const BUBBLE_DOTS = `${BUBBLE_BODY}m10-4a1 1 0 0 1 1 1v2h2a1 1 0 1 1 0 2h-2v2a1 1 0 1 1-2 0v-2H9a1 1 0 1 1 0-2h2V9a1 1 0 0 1 1-1`;
-  const bubbleSvg = ({ className = "", variant = "plain" } = {}) => {
+  const bubbleSvg = ({ className = "", color = MARK, variant = "plain" } = {}) => {
     if (variant === "dots") {
-      return `<svg class="${className}" viewBox="1.8 1.8 20.4 20.4" aria-hidden="true"><path fill="${MARK}" fill-rule="evenodd" clip-rule="evenodd" d="${BUBBLE_DOTS}"/></svg>`;
+      return `<svg class="${className}" viewBox="1.8 1.8 20.4 20.4" aria-hidden="true"><path fill="${color}" fill-rule="evenodd" clip-rule="evenodd" d="${BUBBLE_DOTS}"/></svg>`;
     }
-    return `<svg class="${className}" viewBox="0 0 24 24" aria-hidden="true"><path fill="${MARK}" stroke="#fff" stroke-width="1.15" fill-rule="evenodd" clip-rule="evenodd" d="${BUBBLE_BODY}"/></svg>`;
+    return `<svg class="${className}" viewBox="0 0 24 24" aria-hidden="true"><path fill="${color}" stroke="#fff" stroke-width="1.15" fill-rule="evenodd" clip-rule="evenodd" d="${BUBBLE_BODY}"/></svg>`;
   };
   const apple = /mac|iphone|ipad|ipod/i.test(
     `${navigator.userAgentData?.platform ?? ""} ${navigator.platform ?? ""} ${navigator.userAgent ?? ""}`,
@@ -546,11 +562,19 @@
     ui.outline.style.display = "none";
   }
 
-  function showOutline(box, area = false, dragging = false) {
+  function colorWithAlpha(color, alpha) {
+    if (!/^#[0-9a-f]{6}$/i.test(color)) return `rgba(87, 148, 255, ${alpha})`;
+    const value = Number.parseInt(color.slice(1), 16);
+    return `rgba(${value >> 16}, ${(value >> 8) & 255}, ${value & 255}, ${alpha})`;
+  }
+
+  function showOutline(box, area = false, dragging = false, color = BLUE) {
     ui.outline.classList.toggle("area", area);
     ui.outline.classList.toggle("is-dragging", dragging);
     Object.assign(ui.outline.style, {
       display: "block",
+      background: colorWithAlpha(color, area ? 0.1 : 0.055),
+      borderColor: color,
       height: `${box.height}px`,
       left: `${box.x}px`,
       top: `${box.y}px`,
@@ -571,17 +595,22 @@
       return;
     }
     if (state.drag) {
-      showOutline(normBox(state.drag), true, true);
+      showOutline(normBox(state.drag), true, true, pinColor(state.pins.length + 1));
       return;
     }
     if (state.draft) {
-      showOutline(state.draft.box, state.draft.kind === "area", false);
+      showOutline(
+        state.draft.box,
+        state.draft.kind === "area",
+        false,
+        state.draft.color || pinColor(state.pins.length + 1),
+      );
       return;
     }
     if (state.hoverPinId) {
       const pin = state.pins.find((item) => item.id === state.hoverPinId);
       if (pin?.box) {
-        showOutline(pin.box, pin.kind === "area", false);
+        showOutline(pin.box, pin.kind === "area", false, pin.color || pinColor(state.pins.indexOf(pin) + 1));
         return;
       }
     }
@@ -600,8 +629,8 @@
     };
   }
 
-  function markerHtml(point, index, pinId) {
-    const body = `${bubbleSvg()}<span class="marker-n">${index + 1}</span>`;
+  function markerHtml(point, index, pinId, color = pinColor(index + 1)) {
+    const body = `${bubbleSvg({ color })}<span class="marker-n">${index + 1}</span>`;
     if (pinId) {
       return `<button type="button" class="marker" data-pin="${pinId}" style="left:${point.x}px;top:${point.y}px">${body}</button>`;
     }
@@ -609,9 +638,9 @@
   }
 
   function renderMarkers() {
-    const markers = state.pins.map((pin, index) => markerHtml(pinPoint(pin), index, pin.id));
+    const markers = state.pins.map((pin, index) => markerHtml(pinPoint(pin), index, pin.id, pin.color));
     if (state.draft && !state.draft.editId) {
-      markers.push(markerHtml(pinPoint(state.draft), state.pins.length));
+      markers.push(markerHtml(pinPoint(state.draft), state.pins.length, undefined, state.draft.color));
     }
     ui.layer.innerHTML = markers.join("");
     placeComposer();
@@ -651,6 +680,7 @@
     const index = state.pins.indexOf(pin);
     const pos = pinAnchor(pin);
     ui.previewN.textContent = String(index + 1);
+    ui.previewN.style.background = pin.color || pinColor(index + 1);
     ui.previewText.textContent = pin.comment.replaceAll("\n", " ");
     ui.preview.style.left = `${pos.left}px`;
     ui.preview.style.top = `${pos.top}px`;
@@ -703,7 +733,12 @@
       const pin = state.pins.find((item) => item.id === state.draft.editId);
       if (pin) pin.comment = comment;
     } else {
-      state.pins.push({ ...state.draft, comment, id: crypto.randomUUID() });
+      state.pins.push({
+        ...state.draft,
+        color: state.draft.color || pinColor(state.pins.length + 1),
+        comment,
+        id: crypto.randomUUID(),
+      });
     }
     state.draft = null;
     void syncPins();
@@ -722,7 +757,11 @@
 
   async function syncPins() {
     const response = await chrome.runtime.sendMessage({ pins: state.pins, type: "pins:sync" }).catch(() => null);
-    if (response?.ok) state.tabPinCount = response.pins.length;
+    if (response?.ok) {
+      const colorsById = new Map(response.pins.map((pin) => [pin.id, pin.color]));
+      state.pins = state.pins.map((pin) => ({ ...pin, color: colorsById.get(pin.id) || pin.color }));
+      state.tabPinCount = response.pins.length;
+    }
     renderChrome();
   }
 

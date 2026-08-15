@@ -2,8 +2,12 @@
   "manifest_version": 3,
   "name": "Pinar",
   "version": "0.1.1",
-  "description": "Pin comments on page elements and copy them, with DOM path and screenshots, to the clipboard.",
-  "permissions": ["activeTab", "clipboardWrite", "downloads", "offscreen", "scripting"],
+  "description": "Visual Annotations for AI Agents & Engineers",
+  "permissions": ["activeTab", "clipboardWrite", "offscreen", "scripting", "storage"],
+  "options_ui": {
+    "page": "dist/options.html",
+    "open_in_tab": true
+  },
   "host_permissions": ["http://127.0.0.1/*", "<all_urls>"],
   "background": { "service_worker": "background.js", "type": "module" },
   "action": {

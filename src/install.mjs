@@ -6,24 +6,36 @@ import { join, resolve } from "node:path";
 import { defaultRoot, installHooks } from "./install-hooks.mjs";
 import { pinarHome } from "./paths.mjs";
 
-export const RUNTIME_FILES = [
-  ["bin/pinar", "bin/pinar"],
-  ["bin/pinar.cmd", "bin/pinar.cmd"],
+export const RUNTIME_SCRIPTS = [
   ["src/cli.mjs", "lib/cli.mjs"],
   ["src/ensure.mjs", "lib/ensure.mjs"],
+  ["src/history.mjs", "lib/history.mjs"],
   ["src/http.mjs", "lib/http.mjs"],
   ["src/install-hooks.mjs", "lib/install-hooks.mjs"],
   ["src/install.mjs", "lib/install.mjs"],
   ["src/paths.mjs", "lib/paths.mjs"],
   ["src/shots.mjs", "lib/shots.mjs"],
-  ["hooks/ensure.cmd", "hooks/ensure.cmd"],
-  ["hooks/ensure.sh", "hooks/ensure.sh"],
-  ["hooks/pinar.js", "hooks/pinar.js"],
 ];
 
 const STAGING = ".tmp-install";
-const MANAGED_DIRS = ["bin", "lib", "hooks", "extension"];
+const MANAGED_DIRS = ["bin", "lib", "hooks"];
 const KEEP_TOP = new Set(["shots", STAGING]);
+
+export function getNativeBinaryPath(source = defaultRoot(), platform = process.platform, arch = process.arch) {
+  let target = "";
+  if (platform === "darwin") {
+    target = arch === "arm64" ? "pinar-darwin-arm64" : "pinar-darwin-x64";
+  } else if (platform === "linux") {
+    target = arch === "arm64" ? "pinar-linux-arm64" : "pinar-linux-x64";
+  } else if (platform === "win32") {
+    target = "pinar-windows-x64.exe";
+  }
+  const binaryInDist = join(source, "dist", "bin", target);
+  if (existsSync(binaryInDist)) return binaryInDist;
+  const binaryDirect = join(source, "dist", "pinar");
+  if (existsSync(binaryDirect)) return binaryDirect;
+  return null;
+}
 
 function resolveRuntimeSource(root, repoPath) {
   const direct = join(root, repoPath);
@@ -39,23 +51,74 @@ export function launcherPath(dest = pinarHome(), platform = process.platform) {
   return join(dest, "bin", platform === "win32" ? "pinar.cmd" : "pinar");
 }
 
-async function writeStaging(from, staging) {
+async function writeStaging(from, staging, platform = process.platform, arch = process.arch) {
   await rm(staging, { recursive: true, force: true });
   await mkdir(staging, { recursive: true });
-  for (const [fromPath, toPath] of RUNTIME_FILES) {
-    const src = resolveRuntimeSource(from, fromPath);
-    if (!src) continue;
-    const destFile = join(staging, toPath);
-    await mkdir(join(destFile, ".."), { recursive: true });
-    await cp(src, destFile, { force: true });
+
+  const nativeBin = getNativeBinaryPath(from, platform, arch);
+
+  // 1. Platform Binary / Launcher
+  if (platform === "win32") {
+    if (nativeBin) {
+      const destBin = join(staging, "bin", "pinar.exe");
+      await mkdir(join(destBin, ".."), { recursive: true });
+      await cp(nativeBin, destBin, { force: true });
+    } else {
+      const srcLauncher = resolveRuntimeSource(from, "bin/pinar.cmd");
+      if (srcLauncher) {
+        const destBin = join(staging, "bin", "pinar.cmd");
+        await mkdir(join(destBin, ".."), { recursive: true });
+        await cp(srcLauncher, destBin, { force: true });
+      }
+    }
+  } else {
+    const destBin = join(staging, "bin", "pinar");
+    await mkdir(join(destBin, ".."), { recursive: true });
+    if (nativeBin) {
+      await cp(nativeBin, destBin, { force: true });
+    } else {
+      const srcLauncher = resolveRuntimeSource(from, "bin/pinar");
+      if (srcLauncher) {
+        await cp(srcLauncher, destBin, { force: true });
+      }
+    }
+    await chmod(destBin, 0o755).catch(() => {});
   }
-  const extFrom = join(from, "extension");
-  if (existsSync(extFrom)) {
-    await cp(extFrom, join(staging, "extension"), {
-      recursive: true,
-      force: true,
-      filter: (src) => !/\.test\.(js|ts)$/.test(src),
-    });
+
+  // 2. Fallback scripts if no native binary
+  if (!nativeBin) {
+    for (const [fromPath, toPath] of RUNTIME_SCRIPTS) {
+      const src = resolveRuntimeSource(from, fromPath);
+      if (!src) continue;
+      const destFile = join(staging, toPath);
+      await mkdir(join(destFile, ".."), { recursive: true });
+      await cp(src, destFile, { force: true });
+    }
+  }
+
+  // 3. Platform Hooks
+  const hooksPinar = resolveRuntimeSource(from, "hooks/pinar.js");
+  if (hooksPinar) {
+    const destHooksPinar = join(staging, "hooks", "pinar.js");
+    await mkdir(join(destHooksPinar, ".."), { recursive: true });
+    await cp(hooksPinar, destHooksPinar, { force: true });
+  }
+
+  if (platform === "win32") {
+    const hooksEnsureCmd = resolveRuntimeSource(from, "hooks/ensure.cmd");
+    if (hooksEnsureCmd) {
+      const destHooksCmd = join(staging, "hooks", "ensure.cmd");
+      await mkdir(join(destHooksCmd, ".."), { recursive: true });
+      await cp(hooksEnsureCmd, destHooksCmd, { force: true });
+    }
+  } else {
+    const hooksEnsureSh = resolveRuntimeSource(from, "hooks/ensure.sh");
+    if (hooksEnsureSh) {
+      const destHooksSh = join(staging, "hooks", "ensure.sh");
+      await mkdir(join(destHooksSh, ".."), { recursive: true });
+      await cp(hooksEnsureSh, destHooksSh, { force: true });
+      await chmod(destHooksSh, 0o755).catch(() => {});
+    }
   }
 }
 
@@ -106,18 +169,20 @@ async function pruneTopLevel(to) {
 export async function installApp({
   source = defaultRoot(),
   dest = pinarHome(),
+  platform = process.platform,
+  arch = process.arch,
   log = console.error,
 } = {}) {
   const from = resolve(source);
   const to = resolve(dest);
   await mkdir(to, { recursive: true });
   const staging = join(to, STAGING);
-  await writeStaging(from, staging);
+  await writeStaging(from, staging, platform, arch);
   await replaceManaged(staging, to);
   await migrateShotsDir(to);
   const removed = await pruneTopLevel(to);
   await rm(staging, { recursive: true, force: true });
-  if (process.platform !== "win32") {
+  if (platform !== "win32") {
     if (existsSync(join(to, "bin", "pinar"))) await chmod(join(to, "bin", "pinar"), 0o755);
     if (existsSync(join(to, "hooks", "ensure.sh"))) await chmod(join(to, "hooks", "ensure.sh"), 0o755);
   }
@@ -137,61 +202,47 @@ export async function ensureUserPath({
   platform = process.platform,
   log = console.error,
 } = {}) {
-  const bin = join(resolve(dest), "bin");
-  const changed = [];
-  if (platform === "win32") {
-    const script = [
-      `$bin = ${JSON.stringify(bin)}`,
-      `$path = [Environment]::GetEnvironmentVariable('Path', 'User')`,
-      `if ([string]::IsNullOrEmpty($path)) { $path = '' }`,
-      `if (-not (($path -split ';') -contains $bin)) {`,
-      `  if ($path -eq '') { [Environment]::SetEnvironmentVariable('Path', $bin, 'User') }`,
-      `  else { [Environment]::SetEnvironmentVariable('Path', $bin + ';' + $path, 'User') }`,
-      `}`,
-    ].join("; ");
-    execFileSync("powershell.exe", ["-NoProfile", "-Command", script], { stdio: "ignore" });
-    changed.push("User PATH");
-    log(`pinar PATH (user) += ${bin}`);
-    return { bin, changed };
+  const bin = join(dest, "bin");
+  const candidates =
+    platform === "win32"
+      ? []
+      : [
+          join(home, ".zshrc"),
+          join(home, ".bashrc"),
+          join(home, ".bash_profile"),
+          join(home, ".profile"),
+        ];
+
+  let target = candidates.find((path) => existsSync(path));
+  if (!target && platform !== "win32") {
+    target = candidates[0];
+    await writeFile(target, "", { encoding: "utf8", flag: "a" });
   }
-  const line = pathSnippet(bin, platform);
-  const profiles = [".zprofile", ".zshrc", ".bash_profile", ".bashrc", ".profile"];
-  let target = null;
-  for (const name of profiles) {
-    const file = join(home, name);
-    if (!existsSync(file)) continue;
-    const text = await readFile(file, "utf8");
-    if (text.includes(".pinar/bin") || text.includes(bin)) {
-      return { bin, changed: [] };
-    }
-    if (!target) target = { file, text };
-  }
-  if (!target) {
-    const file = join(home, ".profile");
-    await writeFile(file, `${line}\n`);
-    changed.push(file);
-  } else {
-    const next =
-      target.text.endsWith("\n") || target.text.length === 0
-        ? `${target.text}${line}\n`
-        : `${target.text}\n${line}\n`;
-    await writeFile(target.file, next);
-    changed.push(target.file);
-  }
-  for (const file of changed) log(`pinar PATH += ${file}`);
-  return { bin, changed };
+
+  if (!target) return { changed: [], path: bin, updated: false };
+
+  const content = existsSync(target) ? await readFile(target, "utf8") : "";
+  if (content.includes(bin)) return { changed: [], file: target, path: bin, updated: false };
+
+  const snippet = pathSnippet(bin, platform);
+  const suffix = content.endsWith("\n") || !content.length ? "" : "\n";
+  await writeFile(target, `${content}${suffix}${snippet}\n`, "utf8");
+  log(`pinar added ${bin} to ${target}`);
+  return { changed: [target], file: target, path: bin, updated: true };
 }
 
-export async function install({
-  home = homedir(),
+export async function runInstall({
   source = defaultRoot(),
   dest = pinarHome(),
-  log = console.error,
+  home = homedir(),
   platform = process.platform,
+  arch = process.arch,
+  log = console.error,
 } = {}) {
-  const app = await installApp({ source, dest, log });
-  await ensureUserPath({ home, dest: app.dest, platform, log });
-  const hooks = await installHooks({ home, root: app.dest, platform, log });
-  log(`pinar launcher ${launcherPath(app.dest, platform)}`);
-  return { dest: app.dest, hooks };
+  await installApp({ arch, dest, log, platform, source });
+  const pathResult = await ensureUserPath({ dest, home, log, platform });
+  const hooksResult = await installHooks({ dest, home, log, platform });
+  return { ...hooksResult, path: pathResult };
 }
+
+export { runInstall as install };

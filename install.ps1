@@ -1,38 +1,48 @@
-# One-shot install: download Pinar, put the launcher in %USERPROFILE%\.pinar\bin, register hooks.
+# Pinar One-Shot Native Windows Installer
+# Downloads pre-compiled pinar.exe to %USERPROFILE%\.pinar\bin\pinar.exe and registers AI hooks.
 $ErrorActionPreference = "Stop"
 
-$Repo = if ($env:PINAR_REPO) { $env:PINAR_REPO } else { "djalmajr/pinar" }
-$Ref = if ($env:PINAR_REF) { $env:PINAR_REF } else { "main" }
 $Prefix = if ($env:PINAR_HOME) { $env:PINAR_HOME } else { Join-Path $HOME ".pinar" }
+$BinDir = Join-Path $Prefix "bin"
+$ShotsDir = Join-Path $Prefix "shots"
+$BaseUrl = if ($env:PINAR_BASE_URL) { $env:PINAR_BASE_URL } else { "https://pinar.dev" }
 
-$runtime = $null
-if (Get-Command node -ErrorAction SilentlyContinue) { $runtime = "node" }
-elseif (Get-Command bun -ErrorAction SilentlyContinue) { $runtime = "bun" }
-else { throw "pinar: need node or bun on PATH" }
-
-if ($Ref -eq "main" -or $Ref -eq "master") {
-  $url = "https://github.com/$Repo/archive/refs/heads/$Ref.zip"
-} else {
-  $url = "https://github.com/$Repo/archive/refs/tags/$Ref.zip"
+if (-not (Test-Path $BinDir)) {
+  New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
+}
+if (-not (Test-Path $ShotsDir)) {
+  New-Item -ItemType Directory -Path $ShotsDir -Force | Out-Null
 }
 
-$tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("pinar-install-" + [guid]::NewGuid().ToString("N"))
-New-Item -ItemType Directory -Path $tmp | Out-Null
+$TargetBinary = "pinar-windows-x64.exe"
+$DestExe = Join-Path $BinDir "pinar.exe"
+$DestCmd = Join-Path $BinDir "pinar.cmd"
+
+Write-Host "⚡ Downloading Pinar standalone binary for Windows..."
+$TargetUrl = "$BaseUrl/bin/$TargetBinary"
+
 try {
-  Write-Host "pinar: downloading $Repo@$Ref"
-  $zip = Join-Path $tmp "pinar.zip"
-  Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
-  Expand-Archive -Path $zip -DestinationPath $tmp
-  $src = Get-ChildItem -Path $tmp -Directory | Select-Object -First 1
-  if (-not (Test-Path (Join-Path $src.FullName "src\cli.mjs"))) {
-    throw "pinar: unexpected archive layout"
-  }
-  & $runtime (Join-Path $src.FullName "src\cli.mjs") install
-} finally {
-  Remove-Item -Recurse -Force $tmp
+  Invoke-WebRequest -Uri $TargetUrl -OutFile $DestExe -UseBasicParsing
+} catch {
+  $Repo = if ($env:PINAR_REPO) { $env:PINAR_REPO } else { "djalmajr/pinar" }
+  $Ref = if ($env:PINAR_REF) { $env:PINAR_REF } else { "v0.1.1" }
+  $GithubUrl = "https://github.com/$Repo/releases/download/$Ref/$TargetBinary"
+  Write-Host "ℹ️ Fetching from $GithubUrl..."
+  Invoke-WebRequest -Uri $GithubUrl -OutFile $DestExe -UseBasicParsing
 }
 
-$env:Path = "$(Join-Path $Prefix 'bin');$env:Path"
-Write-Host "pinar: launcher $(Join-Path $Prefix 'bin\pinar.cmd')"
-Write-Host "pinar: open a new terminal so PATH picks up %USERPROFILE%\.pinar\bin"
-Write-Host "pinar: Chrome → Load unpacked → $(Join-Path $Prefix 'extension')"
+# Create wrapper cmd if needed
+"@echo off`r`n`"%~dp0pinar.exe`" %*" | Out-File -FilePath $DestCmd -Encoding ascii
+
+# Register AI agent hooks
+& $DestExe install-hooks
+
+# Add to User PATH
+$UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($UserPath -notlike "*$BinDir*") {
+  [Environment]::SetEnvironmentVariable("Path", "$UserPath;$BinDir", "User")
+}
+
+$env:Path = "$BinDir;$env:Path"
+Write-Host "✅ Pinar standalone binary installed at $DestExe"
+Write-Host "🎉 Visual Annotations ready for AI Agents!"

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { MARKER_CSS, MARKER_TIP, PAD_CSS, cropWindow, drawAreaBox, labelPlacement, markerPlacement, pinPoint } from "./crop.js";
+import { MARKER_CSS, MARKER_TIP, PAD_CSS, cropWindow, drawAreaBox, drawPinMarker, markerPlacement, pinPoint } from "./crop.js";
+import { getPinColor } from "./pin-colors.js";
 
 describe("crop", () => {
   test("pinPoint prefers the click and lifts iframe coords", () => {
@@ -30,10 +31,35 @@ describe("crop", () => {
     assert.equal(marker.size, MARKER_CSS * dpr);
     assert.ok(marker.x >= -1);
     assert.ok(marker.y >= -1);
-    const tag = labelPlacement(marker, dpr);
-    assert.equal(tag.text, "Pinar");
-    assert.ok(tag.x > tipX);
-    assert.equal(Math.round(tag.y + tag.height / 2), Math.round(tipY));
+  });
+
+  test("drawPinMarker writes only the pin number", () => {
+    const labels = [];
+    const OriginalPath2D = globalThis.Path2D;
+    globalThis.Path2D = class Path2D {};
+    const ctx = {
+      fill: () => {},
+      fillText: (value) => labels.push(value),
+      restore: () => {},
+      save: () => {},
+      scale: () => {},
+      stroke: () => {},
+      translate: () => {},
+    };
+
+    try {
+      drawPinMarker(ctx, { size: MARKER_CSS, x: 10, y: 20 }, 3);
+    } finally {
+      globalThis.Path2D = OriginalPath2D;
+    }
+
+    assert.deepEqual(labels, ["3"]);
+  });
+
+  test("pin colors are stable and repeat after the palette", () => {
+    assert.equal(getPinColor(1), "#2563EB");
+    assert.equal(getPinColor(2), "#0369A1");
+    assert.equal(getPinColor(13), getPinColor(1));
   });
 
   test("cropWindow covers the union of left, middle, and right pins", () => {

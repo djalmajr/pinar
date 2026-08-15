@@ -4,20 +4,26 @@ import { fileURLToPath } from "node:url";
 import { findHealthyPort, listenFirstFree, waitHealthy } from "./ensure.mjs";
 import { install } from "./install.mjs";
 import { installHooks } from "./install-hooks.mjs";
-import { portRange, shotsDir } from "./paths.mjs";
+import { pinarHome, portRange, shotsDir } from "./paths.mjs";
+import { migrateNestedShots } from "./shots.mjs";
 
 const command = process.argv[2] ?? "ensure";
-const root = shotsDir();
+const root = pinarHome();
 const self = fileURLToPath(import.meta.url);
 
 async function serve() {
+  const migration = await migrateNestedShots(root);
+  if (migration.moved.length) console.error(`pinar moved ${migration.moved.length} nested shots`);
+  if (migration.conflicts.length) {
+    console.error(`pinar kept ${migration.conflicts.length} conflicting nested shots`);
+  }
   const found = await listenFirstFree({ root });
   if (found.existing) {
     console.error(`pinar shots already on :${found.port}`);
     process.exit(0);
   }
   console.error(`pinar shots http://127.0.0.1:${found.port}`);
-  console.error(`store ${root}`);
+  console.error(`store ${shotsDir(root)}`);
 }
 
 async function ensure() {

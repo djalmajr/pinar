@@ -1,7 +1,8 @@
+import { getPinColor } from "./pin-colors.js";
+
 export const MARK = "#6691F2";
 export const MARKER_CSS = 28;
 export const MARKER_TIP = 0.92;
-export const LABEL = "Pinar";
 export const PAD_CSS = 200;
 const BUBBLE = "M2 12C2 6.477 6.477 2 12 2s10 4.477 10 10s-4.477 10-10 10a10 10 0 0 1-4.262-.951l-4.537.93a1 1 0 0 1-1.18-1.18l.93-4.537A10 10 0 0 1 2 12";
 
@@ -62,15 +63,10 @@ export function cropWindow(bitmap, pinOrPins, dpr) {
   let height = Math.max(1, Math.min(bitmap.height - y, Math.round(box.height * dpr + pad * 2)));
   for (const pin of pins) {
     const marker = markerPlacement(pinPoint(pin), { x, y }, dpr);
-    const label = labelPlacement(marker, dpr);
-    const minX = Math.min(x, Math.floor(x + marker.x - 2), Math.floor(x + label.x - 2));
-    const minY = Math.min(y, Math.floor(y + marker.y - 2), Math.floor(y + label.y - 2));
-    const maxX = Math.max(x + width, Math.ceil(x + label.x + label.width + 2), Math.ceil(x + marker.x + marker.size + 2));
-    const maxY = Math.max(
-      y + height,
-      Math.ceil(y + marker.y + marker.size + 2),
-      Math.ceil(y + label.y + label.height + 2),
-    );
+    const minX = Math.min(x, Math.floor(x + marker.x - 2));
+    const minY = Math.min(y, Math.floor(y + marker.y - 2));
+    const maxX = Math.max(x + width, Math.ceil(x + marker.x + marker.size + 2));
+    const maxY = Math.max(y + height, Math.ceil(y + marker.y + marker.size + 2));
     x = Math.max(0, minX);
     y = Math.max(0, minY);
     width = Math.min(bitmap.width - x, Math.max(1, maxX - x));
@@ -88,32 +84,7 @@ export function markerPlacement(anchor, crop, dpr) {
   };
 }
 
-export function labelPlacement(marker, dpr) {
-  const height = 11 * dpr;
-  const width = 34 * dpr;
-  const tipX = marker.x + marker.size / 2;
-  const tipY = marker.y + marker.size * MARKER_TIP;
-  return {
-    height,
-    text: LABEL,
-    width,
-    x: tipX + 5 * dpr,
-    y: tipY - height / 2,
-  };
-}
-
-function roundRect(ctx, x, y, width, height, radius) {
-  const r = Math.min(radius, width / 2, height / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + width, y, x + width, y + height, r);
-  ctx.arcTo(x + width, y + height, x, y + height, r);
-  ctx.arcTo(x, y + height, x, y, r);
-  ctx.arcTo(x, y, x + width, y, r);
-  ctx.closePath();
-}
-
-export function drawPinMarker(ctx, placement, label) {
+export function drawPinMarker(ctx, placement, label, color = getPinColor(label)) {
   const { size, x, y } = placement;
   const scale = size / MARKER_CSS;
   ctx.save();
@@ -125,7 +96,7 @@ export function drawPinMarker(ctx, placement, label) {
   ctx.translate(x, y);
   ctx.scale(size / 24, size / 24);
   const bubble = new Path2D(BUBBLE);
-  ctx.fillStyle = MARK;
+  ctx.fillStyle = color;
   ctx.fill(bubble, "evenodd");
   ctx.shadowColor = "transparent";
   ctx.strokeStyle = "#fff";
@@ -139,45 +110,23 @@ export function drawPinMarker(ctx, placement, label) {
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(String(label), x + size / 2, y + size * 0.46);
-
-  const tipX = x + size / 2;
-  const tipY = y + size * MARKER_TIP;
-  ctx.font = `700 ${Math.max(9, Math.round(9 * scale))}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-  const textWidth = ctx.measureText(LABEL).width;
-  const padX = 5 * scale;
-  const height = 11 * scale;
-  const width = textWidth + padX * 2;
-  const pillX = tipX + 5 * scale;
-  const pillY = tipY - height / 2;
-  ctx.save();
-  ctx.shadowColor = "rgba(15, 23, 42, 0.45)";
-  ctx.shadowBlur = 2 * scale;
-  ctx.shadowOffsetX = 0;
-  ctx.shadowOffsetY = 1 * scale;
-  roundRect(ctx, pillX, pillY, width, height, height / 2);
-  ctx.fillStyle = MARK;
-  ctx.fill();
-  ctx.shadowColor = "transparent";
-  ctx.strokeStyle = "#fff";
-  ctx.lineWidth = 1.5 * scale;
-  ctx.stroke();
-  ctx.fill();
-  ctx.restore();
-  ctx.fillStyle = "#fff";
-  ctx.fillText(LABEL, pillX + width / 2, tipY);
 }
 
-export function drawAreaBox(ctx, box, crop, dpr) {
+export function drawAreaBox(ctx, box, crop, dpr, isElement = false, color = MARK) {
   const x = Math.round(box.x * dpr - crop.x);
   const y = Math.round(box.y * dpr - crop.y);
   const width = Math.round(box.width * dpr);
   const height = Math.round(box.height * dpr);
 
+  if (width < 2 || height < 2) return;
+
   ctx.save();
-  ctx.strokeStyle = MARK;
+  ctx.strokeStyle = color;
   ctx.lineWidth = Math.max(2, Math.round(2 * dpr));
-  ctx.setLineDash([Math.round(6 * dpr), Math.round(4 * dpr)]);
-  ctx.fillStyle = "rgba(102, 145, 242, 0.08)";
+  if (!isElement) {
+    ctx.setLineDash([Math.round(6 * dpr), Math.round(4 * dpr)]);
+  }
+  ctx.fillStyle = `${color}14`;
   ctx.fillRect(x, y, width, height);
   ctx.strokeRect(x, y, width, height);
   ctx.restore();
@@ -190,13 +139,19 @@ export async function renderPinsCrop(bitmap, pins, dpr) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
   ctx.drawImage(bitmap, crop.x, crop.y, crop.width, crop.height, 0, 0, crop.width, crop.height);
-  pins.forEach((pin) => {
-    if (pin.kind === "area" && (pin.box || pin.topBox)) {
-      drawAreaBox(ctx, pinBox(pin), crop, dpr);
+  pins.forEach((pin, index) => {
+    const box = pin.topBox || pin.box;
+    if (box && box.width > 2 && box.height > 2) {
+      drawAreaBox(ctx, pinBox(pin), crop, dpr, pin.kind !== "area", pin.color || getPinColor(index + 1));
     }
   });
   pins.forEach((pin, index) => {
-    drawPinMarker(ctx, markerPlacement(pinPoint(pin), crop, dpr), index + 1);
+    drawPinMarker(
+      ctx,
+      markerPlacement(pinPoint(pin), crop, dpr),
+      index + 1,
+      pin.color || getPinColor(index + 1),
+    );
   });
   return canvas.convertToBlob({ type: "image/png" });
 }

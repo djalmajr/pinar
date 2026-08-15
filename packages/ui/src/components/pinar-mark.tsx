@@ -1,0 +1,23 @@
+import { cn } from "../lib/utils.js";
+
+interface PinarMarkProps {
+  className?: string;
+}
+
+function PinarMark({ className }: PinarMarkProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={cn("size-8 shrink-0 fill-primary", className)}
+      viewBox="1.8 1.8 20.4 20.4"
+    >
+      <path
+        clipRule="evenodd"
+        d="M2 12C2 6.477 6.477 2 12 2s10 4.477 10 10s-4.477 10-10 10a10 10 0 0 1-4.262-.951l-4.537.93a1 1 0 0 1-1.18-1.18l.93-4.537A10 10 0 0 1 2 12m10-4a1 1 0 0 1 1 1v2h2a1 1 0 1 1 0 2h-2v2a1 1 0 1 1-2 0v-2H9a1 1 0 1 1 0-2h2V9a1 1 0 0 1 1-1"
+        fillRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+export { PinarMark, type PinarMarkProps };

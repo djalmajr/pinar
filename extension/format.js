@@ -16,6 +16,14 @@ export function formatViewerLink(viewerUrl) {
   };
 }
 
+export function formatViewerContent(content) {
+  const plain = String(content);
+  return {
+    html: `<pre>${escapeHtml(plain)}</pre>`,
+    plain,
+  };
+}
+
 function pinTitle(pin, index) {
   const kind = pin.kind === "area" ? "area" : "element";
   const label = pin.label?.trim();
@@ -112,5 +120,6 @@ export function formatClipboard({ page = {}, pins = [], sentAt, shot, viewerUrl 
 }
 
 export function formatClipboardPayload(input = {}) {
+  if (typeof input.viewerContent === "string") return formatViewerContent(input.viewerContent);
   return input.viewerUrl ? formatViewerLink(input.viewerUrl) : formatClipboard(input);
 }

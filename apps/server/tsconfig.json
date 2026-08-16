@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "baseUrl": ".",
+    "types": ["unplugin-icons/types/react"],
+    "paths": {
+      "@/*": ["src/*"],
+      "@pinar/cli/*": ["../cli/src/*.mjs"],
+      "@pinar/shared": ["../../packages/shared/src"],
+      "@pinar/shared/*": ["../../packages/shared/src/*"],
+      "@pinar/ui": ["../../packages/ui/src"],
+      "@pinar/ui/*": ["../../packages/ui/src/*"]
+    }
+  },
+  "include": ["src/**/*", "vite.config.ts", "vite.local.config.ts", "worker-configuration.d.ts"]
+}

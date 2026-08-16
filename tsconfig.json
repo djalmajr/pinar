@@ -1,14 +1,12 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "types": ["chrome", "node"]
+    "types": ["chrome", "node", "unplugin-icons/types/react"]
   },
   "include": [
     "packages/shared/src/**/*",
     "packages/ui/src/**/*",
     "apps/extension/src/**/*",
-    "apps/extension/vite.config.ts",
-    "apps/web/src/**/*",
-    "apps/web/vite.config.ts"
+    "apps/extension/vite.config.ts"
   ]
 }

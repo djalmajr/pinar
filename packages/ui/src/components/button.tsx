@@ -20,6 +20,8 @@ const buttonVariants = cva(
           "border-destructive bg-transparent text-destructive hover:bg-destructive/10 focus-visible:border-destructive focus-visible:ring-destructive/20 dark:hover:bg-destructive/20 dark:focus-visible:ring-destructive/40",
         link: "text-primary underline-offset-4 hover:underline",
         pro: "bg-primary text-primary-foreground hover:bg-primary/80",
+        coffee:
+          "border-amber-200 bg-amber-50/50 text-amber-600 hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-400 dark:hover:bg-amber-950/40",
         sponsor:
           "border-pink-200 bg-pink-50/50 text-pink-600 hover:bg-pink-100 dark:border-pink-900 dark:bg-pink-950/20 dark:text-pink-400 dark:hover:bg-pink-950/40",
       },

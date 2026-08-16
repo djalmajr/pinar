@@ -9,8 +9,7 @@
   const MARK = "#6691F2";
   // Keep in sync with extension/pin-colors.js. Content scripts are loaded as classic scripts.
   const PIN_COLORS = [
-    "#2563EB",
-    "#0369A1",
+    "#0069A8",
     "#0E7490",
     "#0F766E",
     "#15803D",
@@ -45,6 +44,13 @@
   const FRAME_SHOW = "ai-feedback:frame-show";
   const isEmbedded = globalThis.top !== globalThis;
   const showToolbar = !isEmbedded;
+  const {
+    anchorInBox,
+    documentBox,
+    documentPoint,
+    pinDocumentGeometry,
+    projectPin,
+  } = globalThis.__pinarCoordinateSpace;
 
   const state = {
     active: true,
@@ -296,6 +302,18 @@
         padding: 10px 10px 8px;
         width: 280px;
       }
+      .composer-target {
+        align-items: center;
+        align-self: flex-start;
+        background: #F4F4F5;
+        border: 1px solid #E4E4E7;
+        border-radius: 999px;
+        color: #525252;
+        display: inline-flex;
+        font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        padding: 5px 8px;
+      }
+      .composer-target[hidden] { display: none; }
       .composer textarea {
         border: 0;
         box-sizing: border-box;
@@ -353,6 +371,7 @@
     </div>
     <div class="composer" data-ref="composer" hidden>
       <div class="composer-card">
+        <span class="composer-target" data-ref="selectionTag" hidden></span>
         <textarea data-ref="input" rows="1" placeholder="Comment"></textarea>
         <div class="composer-actions">
           <button type="button" class="icon-btn is-ready" data-ref="deleteDraft" title="Delete" aria-label="Delete">
@@ -380,6 +399,7 @@
     previewN: shadow.querySelector("[data-ref=previewN]"),
     previewText: shadow.querySelector("[data-ref=previewText]"),
     save: shadow.querySelector("[data-ref=save]"),
+    selectionTag: shadow.querySelector("[data-ref=selectionTag]"),
     status: shadow.querySelector("[data-ref=status]"),
     toolbar: shadow.querySelector(".toolbar"),
   };
@@ -424,6 +444,120 @@
         width: window.innerWidth,
       },
     };
+  }
+
+  function currentScroll() {
+    return {
+      x: window.scrollX,
+      y: window.scrollY,
+    };
+  }
+
+  function pageMetrics() {
+    const root = document.documentElement;
+    const body = document.body;
+    return {
+      documentHeight: Math.max(
+        window.innerHeight,
+        root.scrollHeight,
+        root.offsetHeight,
+        body?.scrollHeight ?? 0,
+        body?.offsetHeight ?? 0,
+      ),
+      documentWidth: Math.max(
+        window.innerWidth,
+        root.scrollWidth,
+        root.offsetWidth,
+        body?.scrollWidth ?? 0,
+        body?.offsetWidth ?? 0,
+      ),
+      originalScroll: currentScroll(),
+      viewportHeight: window.innerHeight,
+      viewportWidth: window.innerWidth,
+    };
+  }
+
+  function waitForCapturePaint(delay = 80) {
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, delay)));
+    });
+  }
+
+  async function prepareCapture(startY) {
+    await restoreCapture();
+    const root = document.documentElement;
+    const originalRootStyle = root.getAttribute("style");
+    const originalScroll = currentScroll();
+    root.style.setProperty("scroll-behavior", "auto", "important");
+    window.scrollTo(0, startY);
+    await waitForCapturePaint();
+
+    const positioned = [];
+    for (const element of document.querySelectorAll("body *")) {
+      if (isHostNode(element)) continue;
+      const position = getComputedStyle(element).position;
+      if (position !== "fixed" && position !== "sticky") continue;
+      const rect = element.getBoundingClientRect();
+      if (rect.width <= 0 && rect.height <= 0) continue;
+      positioned.push({ element, style: element.getAttribute("style") });
+      if (position === "fixed") {
+        element.style.setProperty("position", "absolute", "important");
+        element.style.setProperty("inset", "auto", "important");
+        element.style.setProperty("top", `${rect.top + window.scrollY}px`, "important");
+        element.style.setProperty("left", `${rect.left + window.scrollX}px`, "important");
+        element.style.setProperty("width", `${rect.width}px`, "important");
+        element.style.setProperty("height", `${rect.height}px`, "important");
+        element.style.setProperty("margin", "0", "important");
+      } else {
+        element.style.setProperty("position", "relative", "important");
+        element.style.setProperty("inset", "auto", "important");
+      }
+    }
+
+    globalThis.__pinarCaptureState = { originalRootStyle, originalScroll, positioned };
+    window.scrollTo(0, startY);
+    await waitForCapturePaint();
+    return pageMetrics();
+  }
+
+  async function scrollCapture(scrollY) {
+    window.scrollTo(0, scrollY);
+    await waitForCapturePaint(120);
+    return currentScroll();
+  }
+
+  async function restoreCapture() {
+    const capture = globalThis.__pinarCaptureState;
+    if (!capture) return;
+    for (const { element, style } of capture.positioned) {
+      if (!element.isConnected) continue;
+      if (style == null) element.removeAttribute("style");
+      else element.setAttribute("style", style);
+    }
+    if (capture.originalRootStyle == null) document.documentElement.removeAttribute("style");
+    else document.documentElement.setAttribute("style", capture.originalRootStyle);
+    window.scrollTo(capture.originalScroll.x, capture.originalScroll.y);
+    delete globalThis.__pinarCaptureState;
+    await waitForCapturePaint(0);
+  }
+
+  function viewportPin(pin) {
+    if (pin.kind === "element" && pin.selector) {
+      try {
+        const element = document.querySelector(pin.selector);
+        if (element?.isConnected) {
+          const box = boxOf(element);
+          return {
+            ...pin,
+            anchor: anchorInBox(pin, box),
+            box,
+          };
+        }
+      } catch {
+        /* The captured selector can become invalid after the page mutates. */
+      }
+    }
+    return projectPin(pin, currentScroll());
   }
 
   function cssPath(element) {
@@ -493,34 +627,26 @@
   function requestTopOffset() {
     return new Promise((resolve) => {
       if (!isEmbedded) {
-        resolve({ x: 0, y: 0 });
+        resolve({ offset: { x: 0, y: 0 }, topScroll: currentScroll() });
         return;
       }
       const id = crypto.randomUUID();
       const timer = setTimeout(() => {
         window.removeEventListener("message", onReply);
-        resolve({ x: 0, y: 0 });
+        resolve({ offset: { x: 0, y: 0 }, topScroll: { x: 0, y: 0 } });
       }, 200);
       function onReply(event) {
         if (event.data?.type !== FRAME_RECT_REPLY || event.data.id !== id) return;
         clearTimeout(timer);
         window.removeEventListener("message", onReply);
-        resolve(event.data.offset ?? { x: 0, y: 0 });
+        resolve({
+          offset: event.data.offset ?? { x: 0, y: 0 },
+          topScroll: event.data.topScroll ?? { x: 0, y: 0 },
+        });
       }
       window.addEventListener("message", onReply);
       window.parent.postMessage({ id, type: FRAME_RECT_REQUEST }, "*");
     });
-  }
-
-  async function topBox(element) {
-    const box = boxOf(element);
-    const offset = await requestTopOffset();
-    return {
-      height: box.height,
-      width: box.width,
-      x: box.x + offset.x,
-      y: box.y + offset.y,
-    };
   }
 
   function fromUi(event) {
@@ -534,6 +660,11 @@
   }
 
   function renderChrome() {
+    const selectedTag = state.draft?.kind === "element" ? state.draft.tag : "";
+    if (ui.selectionTag) {
+      ui.selectionTag.hidden = !selectedTag;
+      ui.selectionTag.textContent = selectedTag ? `<${selectedTag}>` : "";
+    }
     if (!ui.toolbar) return;
     const hasStatus = Boolean(state.status);
     if (ui.instructions) ui.instructions.hidden = hasStatus;
@@ -599,18 +730,20 @@
       return;
     }
     if (state.draft) {
+      const draft = viewportPin(state.draft);
       showOutline(
-        state.draft.box,
-        state.draft.kind === "area",
+        draft.box,
+        draft.kind === "area",
         false,
-        state.draft.color || pinColor(state.pins.length + 1),
+        draft.color || pinColor(state.pins.length + 1),
       );
       return;
     }
     if (state.hoverPinId) {
       const pin = state.pins.find((item) => item.id === state.hoverPinId);
       if (pin?.box) {
-        showOutline(pin.box, pin.kind === "area", false, pin.color || pinColor(state.pins.indexOf(pin) + 1));
+        const visiblePin = viewportPin(pin);
+        showOutline(visiblePin.box, pin.kind === "area", false, pin.color || pinColor(state.pins.indexOf(pin) + 1));
         return;
       }
     }
@@ -638,9 +771,9 @@
   }
 
   function renderMarkers() {
-    const markers = state.pins.map((pin, index) => markerHtml(pinPoint(pin), index, pin.id, pin.color));
+    const markers = state.pins.map((pin, index) => markerHtml(pinPoint(viewportPin(pin)), index, pin.id, pin.color));
     if (state.draft && !state.draft.editId) {
-      markers.push(markerHtml(pinPoint(state.draft), state.pins.length, undefined, state.draft.color));
+      markers.push(markerHtml(pinPoint(viewportPin(state.draft)), state.pins.length, undefined, state.draft.color));
     }
     ui.layer.innerHTML = markers.join("");
     placeComposer();
@@ -663,7 +796,7 @@
   }
 
   function pinAnchor(pin) {
-    const point = pinPoint(pin);
+    const point = pinPoint(viewportPin(pin));
     return {
       left: Math.min(window.innerWidth - 340, Math.max(8, point.x + 28)),
       top: Math.min(window.innerHeight - 180, Math.max(56, point.y - 8)),
@@ -706,6 +839,7 @@
     state.hoverPinId = null;
     state.draft = draft;
     ui.input.value = draft.comment ?? "";
+    renderChrome();
     updateOutline();
     renderMarkers();
     fitInput();
@@ -741,6 +875,7 @@
       });
     }
     state.draft = null;
+    renderChrome();
     void syncPins();
     updateOutline();
     renderMarkers();
@@ -756,7 +891,40 @@
   }
 
   async function syncPins() {
-    const response = await chrome.runtime.sendMessage({ pins: state.pins, type: "pins:sync" }).catch(() => null);
+    const { offset, topScroll } = await requestTopOffset();
+    const pins = state.pins.map((pin) => {
+      if (isEmbedded) {
+        const visiblePin = viewportPin(pin);
+        return {
+          ...visiblePin,
+          scroll: { x: 0, y: 0 },
+          topBox: {
+            ...visiblePin.box,
+            x: visiblePin.box.x + offset.x + topScroll.x,
+            y: visiblePin.box.y + offset.y + topScroll.y,
+          },
+        };
+      }
+
+      let liveBox;
+      if (pin.kind === "element" && pin.selector && !pin.viewportAnchored) {
+        try {
+          const element = document.querySelector(pin.selector);
+          if (element?.isConnected) liveBox = boxOf(element);
+        } catch {
+          /* Keep the creation-time document geometry when the selector is stale. */
+        }
+      }
+      const geometry = pinDocumentGeometry(pin, currentScroll(), liveBox);
+      return {
+        ...pin,
+        anchor: geometry.anchor,
+        box: geometry.box,
+        scroll: { x: 0, y: 0 },
+        topBox: geometry.box,
+      };
+    });
+    const response = await chrome.runtime.sendMessage({ pins, type: "pins:sync" }).catch(() => null);
     if (response?.ok) {
       const colorsById = new Map(response.pins.map((pin) => [pin.id, pin.color]));
       state.pins = state.pins.map((pin) => ({ ...pin, color: colorsById.get(pin.id) || pin.color }));
@@ -767,6 +935,7 @@
 
   function cancelDraft() {
     state.draft = null;
+    renderChrome();
     updateOutline();
     renderMarkers();
   }
@@ -857,19 +1026,16 @@
   }
 
   async function openAreaDraft(box, anchorPoint) {
-    const offset = await requestTopOffset();
     const anchor = anchorPoint ?? { x: box.x, y: box.y };
+    const scroll = currentScroll();
     openDraft({
       anchor,
       box,
+      documentAnchor: documentPoint(anchor, scroll),
+      documentBox: documentBox(box, scroll),
       kind: "area",
       label: `selected area (${box.width}×${box.height}px)`,
-      topBox: {
-        height: box.height,
-        width: box.width,
-        x: box.x + offset.x,
-        y: box.y + offset.y,
-      },
+      scroll,
     });
   }
 
@@ -900,21 +1066,27 @@
     event.preventDefault();
   }
 
-  async function openElementDraft(element, point) {
+  function openElementDraft(element, point) {
     const box = boxOf(element);
     const anchor = point ?? state.pointer ?? {
       x: box.x + box.width / 2,
       y: box.y + box.height / 2,
     };
+    const scroll = currentScroll();
+    const position = getComputedStyle(element).position;
     openDraft({
       anchor,
       box,
+      documentAnchor: documentPoint(anchor, scroll),
+      documentBox: documentBox(box, scroll),
       kind: "element",
       label: labelFor(element),
       path: treePath(element),
       selector: cssPath(element),
+      scroll,
+      tag: element.tagName.toLowerCase(),
       text: visibleText(element),
-      topBox: await topBox(element),
+      viewportAnchored: position === "fixed" || position === "sticky",
     });
   }
 
@@ -970,6 +1142,27 @@
     }
   }
 
+  async function writePlainText(text) {
+    if (!text) return false;
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("aria-hidden", "true");
+      textarea.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none";
+      document.documentElement.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      try {
+        return document.execCommand("copy");
+      } finally {
+        textarea.remove();
+      }
+    }
+  }
+
   async function sendPins() {
     if (!isMounted() || !state.active || state.sending) return;
     if (isEmbedded) {
@@ -988,7 +1181,8 @@
     state.sending = true;
     setStatus("Copying…");
     try {
-      await syncPins();
+      const refreshed = await chrome.runtime.sendMessage({ type: "pins:refresh" }).catch(() => null);
+      if (!refreshed?.ok) throw new Error(refreshed?.error || "pin positions could not be refreshed");
       const listed = await chrome.runtime.sendMessage({ type: "pins:list" }).catch(() => null);
       const pins = listed?.pins ?? state.pins;
       if (pins.length === 0) {
@@ -1009,8 +1203,9 @@
         pins,
         shot: capture.shot,
         type: "clipboard",
-      });
-      if (!copied?.ok) throw new Error(copied?.error || "clipboard write failed");
+      }).catch((error) => ({ error: String(error), ok: false }));
+      const locallyCopied = copied?.plain ? await writePlainText(copied.plain) : false;
+      if (!copied?.ok && !locallyCopied) throw new Error(copied?.error || "clipboard write failed");
       // Do not restore overlays first — that would flash iframe pins after
       // the top toolbar is already gone. session:end dismisses every frame.
       await chrome.runtime.sendMessage({ type: "session:end" }).catch(() => null);
@@ -1038,10 +1233,11 @@
     }
     const rect = iframe?.getBoundingClientRect();
     const local = rect ? { x: rect.left, y: rect.top } : { x: 0, y: 0 };
-    void requestTopOffset().then((parentOffset) => {
+    void requestTopOffset().then(({ offset: parentOffset, topScroll }) => {
       event.source?.postMessage({
         id: event.data.id,
         offset: { x: parentOffset.x + local.x, y: parentOffset.y + local.y },
+        topScroll,
         type: FRAME_RECT_REPLY,
       }, "*");
     });
@@ -1185,6 +1381,11 @@
     delete globalThis.__aiFeedbackToggle;
     delete globalThis.__aiFeedbackSetHidden;
     delete globalThis.__aiFeedbackDismiss;
+    delete globalThis.__aiFeedbackSyncPins;
+    delete globalThis.__aiFeedbackCaptureMetrics;
+    delete globalThis.__aiFeedbackPrepareCapture;
+    delete globalThis.__aiFeedbackRestoreCapture;
+    delete globalThis.__aiFeedbackScrollCapture;
   }
 
   function toggle() {
@@ -1197,6 +1398,11 @@
   globalThis.__aiFeedbackToggle = toggle;
   globalThis.__aiFeedbackSetHidden = setHidden;
   globalThis.__aiFeedbackDismiss = dismiss;
+  globalThis.__aiFeedbackSyncPins = syncPins;
+  globalThis.__aiFeedbackCaptureMetrics = pageMetrics;
+  globalThis.__aiFeedbackPrepareCapture = prepareCapture;
+  globalThis.__aiFeedbackRestoreCapture = restoreCapture;
+  globalThis.__aiFeedbackScrollCapture = scrollCapture;
   document.documentElement.setAttribute("data-pinar-active", "true");
   applyGlobalStyles();
   renderChrome();

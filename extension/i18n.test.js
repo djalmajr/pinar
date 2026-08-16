@@ -5,6 +5,9 @@ import { getBestLanguage, translations } from "./i18n.js";
 test("i18n translations dictionary", () => {
   const supportedLangs = ["en", "pt", "es", "fr", "de", "zh", "ja"];
   const requiredKeys = [
+    "capture_destination_label",
+    "collection_label",
+    "destination_unavailable",
     "header_title",
     "header_desc",
     "storage_title",
@@ -23,11 +26,13 @@ test("i18n translations dictionary", () => {
     "license_activated",
     "license_invalid",
     "preferences_title",
+    "project_label",
     "history_label",
     "history_desc",
     "viewer_label",
     "viewer_desc",
     "btn_history",
+    "btn_coffee",
     "btn_sponsor",
     "btn_save",
     "status_saved",
@@ -46,7 +51,8 @@ test("i18n translations dictionary", () => {
 });
 
 test("getBestLanguage resolution", () => {
-  assert.strictEqual(getBestLanguage("pt"), "pt");
-  assert.strictEqual(getBestLanguage("es"), "es");
-  assert.strictEqual(getBestLanguage("invalid"), "en");
+  assert.strictEqual(getBestLanguage("pt", ["de-DE"]), "pt");
+  assert.strictEqual(getBestLanguage(undefined, ["es-MX"]), "es");
+  assert.strictEqual(getBestLanguage(undefined, ["it-IT", "fr-FR"]), "fr");
+  assert.strictEqual(getBestLanguage("invalid", ["it-IT"]), "en");
 });

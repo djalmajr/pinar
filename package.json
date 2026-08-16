@@ -6,23 +6,24 @@
   "type": "module",
   "workspaces": [
     "packages/*",
-    "apps/*",
-    "worker"
+    "apps/*"
   ],
   "bin": {
     "pinar": "./bin/pinar"
   },
   "scripts": {
-    "start": "bun src/cli.mjs",
-    "serve": "bun src/cli.mjs serve",
-    "test": "node --test",
-    "dev:web": "bun --filter @pinar/web dev",
-    "build:web": "bun --filter @pinar/web build && node scripts/generate-web-assets.mjs",
+    "start": "bun apps/cli/src/cli.mjs",
+    "serve": "bun apps/cli/src/cli.mjs serve",
+    "test": "node --test apps/cli/src/*.test.js extension/*.test.js && bun --filter @pinar/server test",
+    "dev:server": "bun --filter @pinar/server dev",
+    "dev:local": "bun --filter @pinar/server dev:local",
+    "build:server": "bun --filter @pinar/server build",
+    "build:local": "bun --filter @pinar/server build:local",
     "dev:ext": "bun --filter @pinar/extension dev",
     "build:ext": "bun --filter @pinar/extension build",
     "build:bin": "bun scripts/build-binaries.mjs",
-    "build": "bun run build:web && bun --filter @pinar/extension build",
-    "typecheck": "tsc --noEmit"
+    "build": "bun run build:server && bun run build:local && bun --filter @pinar/extension build",
+    "typecheck": "bun --filter @pinar/server typecheck && tsc --noEmit"
   },
   "devDependencies": {
     "@iconify-json/lucide": "^1.2.123",
@@ -36,7 +37,8 @@
     "@types/react-dom": "^19.0.3",
     "@vitejs/plugin-react": "^4.3.4",
     "tailwindcss": "^4.0.6",
-    "typescript": "^5.7.3",
+    "typescript": "6.0.3",
+    "nitro": "npm:nitro-nightly@3.0.1-20260810-113911-16ff2809",
     "unplugin-icons": "^22.0.0",
     "vite": "^6.1.0"
   }

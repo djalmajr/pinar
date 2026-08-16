@@ -1,0 +1,29 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pinar",
+  "main": "./src/worker-entry.ts",
+  "compatibility_date": "2026-08-14",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "routes": [
+    { "pattern": "pinar.dev", "custom_domain": true },
+    { "pattern": "www.pinar.dev", "custom_domain": true }
+  ],
+  "r2_buckets": [
+    { "binding": "PINAR_BUCKET", "bucket_name": "pinar-shots" }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pinar-history",
+      "database_id": "7b572f21-7dff-43c0-9d13-38fd50c827f4",
+      "migrations_dir": "./migrations"
+    }
+  ],
+  "triggers": { "crons": ["0 3 * * *"] },
+  "vars": {
+    "STRIPE_PRICE_MONTHLY": "price_1U4OH1JlxS9HAOyog32haJQ1",
+    "STRIPE_PRICE_YEARLY": "price_1U4OH5JlxS9HAOyonThna75s",
+    "STRIPE_PRICE_LIFETIME": "price_1U4PQ3JlxS9HAOyo2N6VeS0t"
+  }
+}

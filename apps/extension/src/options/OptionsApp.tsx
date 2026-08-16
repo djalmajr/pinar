@@ -2,6 +2,12 @@ import { useState, useEffect } from "react";
 import {
   Button,
   Badge,
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
   Switch,
   Input,
   Select,
@@ -11,6 +17,7 @@ import {
   SelectContent,
   SelectItem,
   Tabs,
+  TabsContent,
   TabsList,
   TabsTrigger,
   Toaster,
@@ -35,6 +42,9 @@ import {
 import {
   translations,
   getBestLanguage,
+  type CaptureDestination,
+  type ProjectTree,
+  type ProjectTreeCollection,
   type SupportedLanguage,
   type PinarSettings,
   type ThemeMode,
@@ -51,6 +61,9 @@ import IconSun from "~icons/lucide/sun";
 import IconMoon from "~icons/lucide/moon";
 import IconLaptop from "~icons/lucide/laptop";
 import IconRefreshCw from "~icons/lucide/refresh-cw";
+import IconFolder from "~icons/lucide/folder";
+import IconInbox from "~icons/lucide/inbox";
+import extensionPackage from "../../package.json";
 
 const LANGUAGE_OPTIONS: { code: SupportedLanguage; label: string }[] = [
   { code: "pt", label: "Português" },
@@ -64,13 +77,56 @@ const LANGUAGE_OPTIONS: { code: SupportedLanguage; label: string }[] = [
 
 const PREVIEW_INSTALLATION_ID_KEY = "pinar.preview.installationId";
 const INSTALLATION_ID_PATTERN = /^ins_[A-Za-z0-9_-]{24}$/;
+const DEFAULT_LANGUAGE = getBestLanguage();
+const DEFAULT_PROJECT_OPTION = { label: "Personal", value: "__pinar_default_project__" };
+const DEFAULT_COLLECTION_OPTION = { label: "Inbox", value: "__pinar_default_collection__" };
+
+function flattenDestinationCollections(collections: ProjectTreeCollection[]) {
+  const byId = new Map(collections.map((collection) => [collection.id, collection]));
+  const children = new Map<string | null, ProjectTreeCollection[]>();
+  for (const collection of collections) {
+    const parentId = collection.parentId && byId.has(collection.parentId)
+      ? collection.parentId
+      : null;
+    const siblings = children.get(parentId) ?? [];
+    siblings.push(collection);
+    children.set(parentId, siblings);
+  }
+  for (const siblings of children.values()) {
+    siblings.sort((left, right) => left.position - right.position);
+  }
+
+  const result: Array<{ collection: ProjectTreeCollection; depth: number }> = [];
+  const visited = new Set<string>();
+  function visit(parentId: string | null, depth: number) {
+    for (const collection of children.get(parentId) ?? []) {
+      if (visited.has(collection.id)) continue;
+      visited.add(collection.id);
+      result.push({ collection, depth });
+      visit(collection.id, depth + 1);
+    }
+  }
+  visit(null, 0);
+  for (const collection of collections) {
+    if (!visited.has(collection.id)) result.push({ collection, depth: 0 });
+  }
+  return result;
+}
+
+function extensionVersion() {
+  if (typeof chrome !== "undefined" && chrome.runtime?.getManifest) {
+    return chrome.runtime.getManifest().version;
+  }
+  return extensionPackage.version;
+}
 
 const DEFAULT_SETTINGS: PinarSettings = {
   cloudToken: "",
   cloudUrl: "https://pinar.dev",
+  copyViewerContent: false,
   enableHistory: true,
   includeViewer: true,
-  language: "pt",
+  language: DEFAULT_LANGUAGE,
   licenseKey: "",
   storageMode: "local",
   theme: "system",
@@ -81,6 +137,7 @@ const DEFAULT_SETTINGS: PinarSettings = {
 const SETTINGS_KEYS: (keyof PinarSettings)[] = [
   "cloudToken",
   "cloudUrl",
+  "copyViewerContent",
   "enableHistory",
   "includeViewer",
   "language",
@@ -93,6 +150,13 @@ const SETTINGS_KEYS: (keyof PinarSettings)[] = [
 
 type IdentityMessage = "identity:get" | "identity:regenerate";
 type IdentityResponse = { error?: string; id?: string; ok?: boolean };
+type DestinationMessage = "destination:get" | "destination:set";
+type DestinationResponse = {
+  destination?: CaptureDestination;
+  error?: string;
+  ok?: boolean;
+  tree?: ProjectTree;
+};
 
 function areSettingsEqual(left: PinarSettings, right: PinarSettings) {
   return SETTINGS_KEYS.every((key) => left[key] === right[key]);
@@ -133,10 +197,18 @@ async function requestInstallationIdentity(type: IdentityMessage): Promise<Ident
   }
 }
 
+async function requestCaptureDestination(
+  type: DestinationMessage,
+  collectionId?: string,
+): Promise<DestinationResponse> {
+  if (!isExtensionContext()) return { error: "Capture destination is unavailable", ok: false };
+  return chrome.runtime.sendMessage({ collectionId, type });
+}
+
 export function OptionsApp() {
   const [settings, setSettings] = useState<PinarSettings>(DEFAULT_SETTINGS);
   const [savedSettings, setSavedSettings] = useState<PinarSettings>(DEFAULT_SETTINGS);
-  const [lang, setLang] = useState<SupportedLanguage>("pt");
+  const [lang, setLang] = useState<SupportedLanguage>(DEFAULT_LANGUAGE);
   const [copiedInstall, setCopiedInstall] = useState(false);
   const [showLicenseInput, setShowLicenseInput] = useState(false);
   const [inputKey, setInputKey] = useState("");
@@ -149,9 +221,28 @@ export function OptionsApp() {
   const [regeneratingIdentity, setRegeneratingIdentity] = useState(false);
   const [historyOpening, setHistoryOpening] = useState(false);
   const [historyError, setHistoryError] = useState("");
+  const [captureDestination, setCaptureDestination] = useState<CaptureDestination | null>(null);
+  const [destinationTree, setDestinationTree] = useState<ProjectTree | null>(null);
+  const [destinationProjectId, setDestinationProjectId] = useState("");
+  const [destinationLoading, setDestinationLoading] = useState(true);
+  const [destinationError, setDestinationError] = useState("");
 
   const t = translations[lang] || translations.pt || translations.en;
   const hasUnsavedChanges = !areSettingsEqual(settings, savedSettings);
+  const destinationProjects = destinationTree?.projects ?? [];
+  const destinationProject = destinationProjects.find((project) => project.id === destinationProjectId);
+  const destinationCollections = destinationProject?.collections ?? [];
+  const destinationCollectionTree = flattenDestinationCollections(destinationCollections);
+  const destinationProjectIds = destinationProjects.length > 0
+    ? destinationProjects.map((project) => project.id)
+    : [DEFAULT_PROJECT_OPTION.value];
+  const destinationCollectionOptions = destinationCollections.length > 0
+    ? destinationCollections.map((collection) => ({ label: collection.name, value: collection.id }))
+    : [DEFAULT_COLLECTION_OPTION];
+  const selectedDestinationProjectId = destinationProjectId || DEFAULT_PROJECT_OPTION.value;
+  const selectedDestinationCollectionId = captureDestination?.projectId === destinationProjectId
+    ? captureDestination.collectionId
+    : DEFAULT_COLLECTION_OPTION.value;
 
   const MAC_LINUX_CMD = "curl -fsSL https://pinar.dev/install.sh | sh";
   const WIN_CMD = "irm https://pinar.dev/install.ps1 | iex";
@@ -174,6 +265,56 @@ export function OptionsApp() {
     }
   }
 
+  async function loadCaptureDestination() {
+    setDestinationLoading(true);
+    setDestinationError("");
+    try {
+      const response = await requestCaptureDestination("destination:get");
+      if (!response.ok || !response.destination || !response.tree) {
+        throw new Error(response.error || t.destination_unavailable);
+      }
+      setCaptureDestination(response.destination);
+      setDestinationProjectId(response.destination.projectId);
+      setDestinationTree(response.tree);
+    } catch (error) {
+      setCaptureDestination(null);
+      setDestinationTree(null);
+      setDestinationProjectId("");
+      setDestinationError(String(error instanceof Error ? error.message : error));
+    } finally {
+      setDestinationLoading(false);
+    }
+  }
+
+  async function saveCaptureDestination(collectionId: string) {
+    setDestinationLoading(true);
+    setDestinationError("");
+    try {
+      const response = await requestCaptureDestination("destination:set", collectionId);
+      if (!response.ok || !response.destination || !response.tree) {
+        throw new Error(response.error || t.destination_unavailable);
+      }
+      setCaptureDestination(response.destination);
+      setDestinationProjectId(response.destination.projectId);
+      setDestinationTree(response.tree);
+      toast.success(t.status_saved);
+    } catch (error) {
+      setDestinationError(String(error instanceof Error ? error.message : error));
+      toast.error(t.destination_unavailable);
+      await loadCaptureDestination();
+    } finally {
+      setDestinationLoading(false);
+    }
+  }
+
+  function handleDestinationProjectChange(projectId: string) {
+    const project = destinationProjects.find((item) => item.id === projectId);
+    const collection = project?.collections.find((item) => item.isProtected) ?? project?.collections[0];
+    if (!collection) return;
+    setDestinationProjectId(projectId);
+    void saveCaptureDestination(collection.id);
+  }
+
   useEffect(() => {
     // Detect OS
     if (typeof chrome !== "undefined" && chrome.runtime?.getPlatformInfo) {
@@ -190,6 +331,7 @@ export function OptionsApp() {
         {
           cloudToken: "",
           cloudUrl: "https://pinar.dev",
+          copyViewerContent: false,
           enableHistory: true,
           includeViewer: true,
           language: "",
@@ -249,6 +391,8 @@ export function OptionsApp() {
       })
       .catch((error) => setIdentityError(String(error)))
       .finally(() => setIdentityLoading(false));
+
+    void loadCaptureDestination();
   }, []);
 
   const handleCopyInstall = async () => {
@@ -274,6 +418,7 @@ export function OptionsApp() {
     const completeSave = () => {
       setSavedSettings(nextSettings);
       toast.success(t.status_saved);
+      void loadCaptureDestination();
     };
 
     if (typeof chrome !== "undefined" && chrome.storage?.sync) {
@@ -354,10 +499,13 @@ export function OptionsApp() {
         const response = await chrome.runtime.sendMessage({ type: "history:open" });
         if (!response?.ok) throw new Error(response?.error || "History is unavailable");
       } else {
+        const historyUrl = settings.storageMode === "cloud"
+          ? `${settings.cloudUrl}/history`
+          : "http://127.0.0.1:17373/history";
+        const localizedHistoryUrl = new URL(historyUrl);
+        localizedHistoryUrl.searchParams.set("lang", lang);
         window.open(
-          settings.storageMode === "cloud"
-            ? `${settings.cloudUrl}/history`
-            : "http://127.0.0.1:17373/history",
+          localizedHistoryUrl.toString(),
           "_blank",
           "noopener,noreferrer"
         );
@@ -375,14 +523,14 @@ export function OptionsApp() {
         <div className="flex min-h-full items-center justify-center p-4">
           <div className="relative flex w-full max-w-[560px] flex-col gap-5 rounded-2xl border border-border bg-card p-6">
         {/* Header */}
-        <div className="flex items-center justify-between gap-3 border-b border-border pb-4">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <PinarMark />
             <div>
               <div className="font-bold text-sm tracking-tight flex items-center gap-1.5">
                 {t.header_title}
                 <span className="text-[10px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded font-mono font-normal">
-                  v0.1.1
+                  {t.extension_version_label.replace("{version}", extensionVersion())}
                 </span>
               </div>
               <div className="text-xs text-muted-foreground mt-0.5">{t.header_desc}</div>
@@ -390,33 +538,36 @@ export function OptionsApp() {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            <a
-              href="https://github.com/djalmajr/pinar"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="p-2 rounded-lg border border-border hover:border-primary hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+            <Button
+              render={<a href="https://github.com/djalmajr/pinar" rel="noopener noreferrer" target="_blank" />}
+              size="icon"
               title="GitHub"
+              variant="outline"
             >
               <IconGithub className="w-4 h-4" />
-            </a>
+            </Button>
           </div>
         </div>
 
+        <Tabs defaultValue="storage" className="gap-4">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="storage">{t.tab_storage}</TabsTrigger>
+            <TabsTrigger value="preferences">{t.tab_preferences}</TabsTrigger>
+            <TabsTrigger value="plan">{t.tab_plan}</TabsTrigger>
+          </TabsList>
+
+          <TabsContent className="flex flex-col gap-5" value="storage">
         {/* Storage Destination Section */}
         <div className="flex flex-col gap-2.5">
           <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
             {t.storage_title}
           </span>
 
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-2">
             {/* Local Card */}
             <div
               onClick={() => setSettings((s) => ({ ...s, storageMode: "local" }))}
-              className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-start gap-3 ${
-                settings.storageMode === "local"
-                  ? "border-primary bg-primary/5"
-                  : "border-border bg-card hover:border-border/80"
-              }`}
+              className="-mx-2 flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 transition-colors hover:bg-muted/50"
             >
               <input
                 type="radio"
@@ -425,17 +576,11 @@ export function OptionsApp() {
                 onChange={() => setSettings((s) => ({ ...s, storageMode: "local" }))}
                 className="mt-1 accent-primary"
               />
-              <div className="flex-1 flex flex-col gap-1.5 min-w-0">
-                <div className="flex items-center justify-between">
-                  <div className="font-semibold text-xs text-foreground">{t.local_title}</div>
-                  <Badge variant="outline" className="text-[10px] font-mono">
-                    ~/.pinar/shots/
-                  </Badge>
-                </div>
+              <div className="flex-1 flex flex-col gap-1 min-w-0">
+                <div className="font-semibold text-xs text-foreground">{t.local_title}</div>
                 <div className="text-xs text-muted-foreground leading-relaxed">{t.local_desc}</div>
 
-                <div className="mt-2 flex flex-col gap-1.5" onClick={(e) => e.stopPropagation()}>
-                  <span className="text-[11px] text-muted-foreground">{t.install_hint}</span>
+                <div className="mt-1 flex flex-col" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center gap-1.5 bg-muted/60 border border-border/80 rounded-lg p-1.5 font-mono text-[11px] select-all">
                     <ScrollArea className="min-w-0 flex-1">
                       <code className="block whitespace-nowrap px-1 pb-1 text-muted-foreground">
@@ -463,11 +608,7 @@ export function OptionsApp() {
             {/* Cloud Card */}
             <div
               onClick={() => setSettings((s) => ({ ...s, storageMode: "cloud" }))}
-              className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-start gap-3 ${
-                settings.storageMode === "cloud"
-                  ? "border-primary bg-primary/5"
-                  : "border-border bg-card hover:border-border/80"
-              }`}
+              className="-mx-2 flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 transition-colors hover:bg-muted/50"
             >
               <input
                 type="radio"
@@ -476,18 +617,13 @@ export function OptionsApp() {
                 onChange={() => setSettings((s) => ({ ...s, storageMode: "cloud" }))}
                 className="mt-1 accent-primary"
               />
-              <div className="flex-1 flex flex-col gap-1.5 min-w-0">
-                <div className="flex items-center justify-between">
-                  <div className="font-semibold text-xs text-foreground">{t.remote_title}</div>
-                  <Badge variant={settings.userPlan === "pro" ? "pro" : "outline"} className="text-[10px]">
-                    {settings.userPlan === "pro" ? t.plan_pro : t.plan_free}
-                  </Badge>
-                </div>
+              <div className="flex-1 flex flex-col gap-1 min-w-0">
+                <div className="font-semibold text-xs text-foreground">{t.remote_title}</div>
                 <div className="text-xs text-muted-foreground leading-relaxed">{t.remote_desc}</div>
 
                 {settings.userPlan !== "pro" && (
                   <div
-                    className="mt-2 rounded-lg border bg-muted/45 p-2.5"
+                    className="mt-1 rounded-lg border bg-muted/45 p-2.5"
                     onClick={(event) => event.stopPropagation()}
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -522,21 +658,108 @@ export function OptionsApp() {
 
         <div className="flex flex-col gap-2.5">
           <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-            {t.plan_section_title}
+            {t.capture_destination_label}
           </span>
-          <Card size="sm">
-            <CardHeader>
+          <Card className="gap-3 overflow-visible rounded-none py-0 ring-0" size="sm">
+            <CardContent className="grid gap-3 px-0 sm:grid-cols-2">
+              <label className="flex min-w-0 flex-col gap-1.5">
+                <span className="text-xs font-semibold text-foreground">{t.project_label}</span>
+                <Combobox
+                  autoHighlight
+                  disabled={destinationLoading || destinationProjects.length === 0}
+                  itemToStringLabel={(projectId) => (
+                    destinationProjects.find((project) => project.id === String(projectId))?.name
+                    ?? DEFAULT_PROJECT_OPTION.label
+                  )}
+                  itemToStringValue={(projectId) => String(projectId)}
+                  items={destinationProjectIds}
+                  value={selectedDestinationProjectId}
+                  onValueChange={(value) => {
+                    const projectId = String(value ?? "");
+                    if (destinationProjects.some((project) => project.id === projectId)) {
+                      handleDestinationProjectChange(projectId);
+                    }
+                  }}
+                >
+                  <ComboboxInput
+                    aria-label={t.project_label}
+                    className="w-full"
+                    placeholder={destinationLoading ? "…" : t.project_label}
+                  />
+                  <ComboboxContent>
+                    <ComboboxEmpty>{t.no_projects_found}</ComboboxEmpty>
+                    <ComboboxList>
+                      {(projectId) => {
+                        const project = destinationProjects.find((item) => item.id === String(projectId));
+                        return project ? (
+                          <ComboboxItem
+                            disabled={project.collections.length === 0}
+                            key={project.id}
+                            value={project.id}
+                          >
+                            {project.name}
+                          </ComboboxItem>
+                        ) : null;
+                      }}
+                    </ComboboxList>
+                  </ComboboxContent>
+                </Combobox>
+              </label>
+              <label className="flex min-w-0 flex-col gap-1.5">
+                <span className="text-xs font-semibold text-foreground">{t.collection_label}</span>
+                <Select
+                  disabled={destinationLoading || destinationCollections.length === 0}
+                  items={destinationCollectionOptions}
+                  value={selectedDestinationCollectionId}
+                  onValueChange={(value) => void saveCaptureDestination(String(value))}
+                >
+                  <SelectTrigger className="w-full" size="sm">
+                    <SelectValue placeholder={destinationLoading ? "…" : t.collection_label} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {destinationCollectionTree.length > 0 ? destinationCollectionTree.map(({ collection, depth }) => (
+                          <SelectItem key={collection.id} value={collection.id}>
+                            <span
+                              className="flex min-w-0 items-center gap-2"
+                              style={{ paddingInlineStart: `${depth * 16}px` }}
+                            >
+                              {collection.isProtected ? <IconInbox /> : <IconFolder />}
+                              <span className="truncate">{collection.name}</span>
+                            </span>
+                          </SelectItem>
+                        )) : (
+                          <SelectItem disabled value={DEFAULT_COLLECTION_OPTION.value}>
+                            <IconInbox />
+                            Inbox
+                          </SelectItem>
+                        )}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </label>
+              {destinationError && (
+                <p className="text-xs text-destructive sm:col-span-2">{t.destination_unavailable}</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+          </TabsContent>
+
+          <TabsContent value="plan">
+          <Card className="gap-3 overflow-visible rounded-none py-0 ring-0" size="sm">
+            <CardHeader className="px-0">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <CardTitle>{settings.userPlan === "pro" ? t.plan_pro : t.plan_free}</CardTitle>
                   <CardDescription className="mt-1 text-xs">{t.plan_section_desc}</CardDescription>
                 </div>
                 <Badge variant={settings.userPlan === "pro" ? "pro" : "outline"}>
-                  {settings.userPlan === "pro" ? "Pro" : "Free"}
+                  {settings.userPlan === "pro" ? "Pro" : t.plan_free_badge}
                 </Badge>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="px-0">
               {settings.userPlan === "pro" ? (
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
@@ -572,7 +795,7 @@ export function OptionsApp() {
                   {showLicenseInput && (
                     <div className="flex items-center gap-2 pt-1">
                       <Input
-                        className="h-8 font-mono text-xs"
+                        className="h-8"
                         placeholder={t.license_placeholder}
                         type="text"
                         value={inputKey}
@@ -587,90 +810,101 @@ export function OptionsApp() {
               )}
             </CardContent>
           </Card>
-        </div>
+          </TabsContent>
 
         {/* Preferences Section */}
-        <div className="flex flex-col gap-3.5">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-            {t.preferences_title}
-          </span>
+          <TabsContent value="preferences">
+          <Card className="gap-3 overflow-visible rounded-none py-0 ring-0" size="sm">
+            <CardContent className="flex flex-col gap-3.5 px-0">
+              {/* Language Selector (Compact Content-width select) */}
+              <div className="flex flex-col gap-1.5">
+                <span className="font-semibold text-xs text-foreground">{t.language_label}</span>
+                <Select
+                  items={LANGUAGE_OPTIONS.map((option) => ({ label: option.label, value: option.code }))}
+                  value={lang}
+                  onValueChange={(val) => handleLanguageChange(val as SupportedLanguage)}
+                >
+                  <SelectTrigger size="sm" className="min-w-[120px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {LANGUAGE_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.code} value={opt.code}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </div>
+              {/* Theme Selector (shadcn Tabs / Segmented Control) */}
+              <div className="flex flex-col gap-1.5">
+                <span className="font-semibold text-xs text-foreground">{t.theme_label}</span>
+                <Tabs
+                  value={settings.theme || "system"}
+                  onValueChange={(val) => handleThemeChange(val as ThemeMode)}
+                >
+                  <TabsList>
+                    <TabsTrigger value="system">
+                      <IconLaptop data-icon="inline-start" />
+                      {t.theme_system}
+                    </TabsTrigger>
+                    <TabsTrigger value="light">
+                      <IconSun data-icon="inline-start" className="text-amber-500" />
+                      {t.theme_light}
+                    </TabsTrigger>
+                    <TabsTrigger value="dark">
+                      <IconMoon data-icon="inline-start" className="text-blue-400" />
+                      {t.theme_dark}
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
+              {/* History Toggle (Switch on Left) */}
+              <div className="flex items-start gap-3 py-1">
+                <Switch
+                  checked={settings.enableHistory}
+                  onCheckedChange={(val) => setSettings((s) => ({ ...s, enableHistory: val }))}
+                  className="mt-0.5 shrink-0"
+                />
+                <div className="flex flex-col gap-0.5">
+                  <div className="font-semibold text-xs text-foreground">{t.history_label}</div>
+                  <div className="text-xs text-muted-foreground">{t.history_desc}</div>
+                </div>
+              </div>
+              {/* Viewer Toggle (Switch on Left - Always available for local and remote) */}
+              <div className="flex items-start gap-3 py-1">
+                <Switch
+                  checked={settings.includeViewer}
+                  onCheckedChange={(val) => setSettings((s) => ({ ...s, includeViewer: val }))}
+                  className="mt-0.5 shrink-0"
+                />
+                <div className="flex flex-col gap-0.5">
+                  <div className="font-semibold text-xs text-foreground">{t.viewer_label}</div>
+                  <div className="text-xs text-muted-foreground">{t.viewer_desc}</div>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 py-1">
+                <Switch
+                  aria-label={t.viewer_content_label}
+                  checked={settings.copyViewerContent}
+                  className="mt-0.5 shrink-0"
+                  disabled={!settings.includeViewer}
+                  onCheckedChange={(val) => setSettings((s) => ({ ...s, copyViewerContent: val }))}
+                />
+                <div className="flex flex-col gap-0.5">
+                  <div className="font-semibold text-xs text-foreground">{t.viewer_content_label}</div>
+                  <div className="text-xs text-muted-foreground">{t.viewer_content_desc}</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          </TabsContent>
+        </Tabs>
 
-          {/* Language Selector (Compact Content-width select) */}
-          <div className="flex flex-col gap-1.5">
-            <span className="font-semibold text-xs text-foreground">{t.language_label}</span>
-            <Select
-              items={LANGUAGE_OPTIONS.map((option) => ({ label: option.label, value: option.code }))}
-              value={lang}
-              onValueChange={(val) => handleLanguageChange(val as SupportedLanguage)}
-            >
-              <SelectTrigger size="sm" className="min-w-[120px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {LANGUAGE_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.code} value={opt.code}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Theme Selector (shadcn Tabs / Segmented Control) */}
-          <div className="flex flex-col gap-1.5">
-            <span className="font-semibold text-xs text-foreground">{t.theme_label}</span>
-            <Tabs
-              value={settings.theme || "system"}
-              onValueChange={(val) => handleThemeChange(val as ThemeMode)}
-            >
-              <TabsList>
-                <TabsTrigger value="system">
-                  <IconLaptop data-icon="inline-start" />
-                  {t.theme_system}
-                </TabsTrigger>
-                <TabsTrigger value="light">
-                  <IconSun data-icon="inline-start" className="text-amber-500" />
-                  {t.theme_light}
-                </TabsTrigger>
-                <TabsTrigger value="dark">
-                  <IconMoon data-icon="inline-start" className="text-blue-400" />
-                  {t.theme_dark}
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
-          </div>
-
-          {/* History Toggle (Switch on Left) */}
-          <div className="flex items-start gap-3 py-1">
-            <Switch
-              checked={settings.enableHistory}
-              onCheckedChange={(val) => setSettings((s) => ({ ...s, enableHistory: val }))}
-              className="mt-0.5 shrink-0"
-            />
-            <div className="flex flex-col gap-0.5">
-              <div className="font-semibold text-xs text-foreground">{t.history_label}</div>
-              <div className="text-xs text-muted-foreground">{t.history_desc}</div>
-            </div>
-          </div>
-
-          {/* Viewer Toggle (Switch on Left - Always available for local and remote) */}
-          <div className="flex items-start gap-3 py-1">
-            <Switch
-              checked={settings.includeViewer}
-              onCheckedChange={(val) => setSettings((s) => ({ ...s, includeViewer: val }))}
-              className="mt-0.5 shrink-0"
-            />
-            <div className="flex flex-col gap-0.5">
-              <div className="font-semibold text-xs text-foreground">{t.viewer_label}</div>
-              <div className="text-xs text-muted-foreground">{t.viewer_desc}</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Actions Bar (Left: Salvar & Histórico | Right: Apoiar & Coffee) */}
-        <div className="flex items-center justify-between gap-2 flex-wrap pt-3 border-t border-border mt-1">
+        {/* Actions Bar (Left: Salvar & Histórico | Right: Coffee & Support) */}
+        <div className="flex items-center justify-between gap-2 flex-wrap">
           {/* Left Actions */}
           <div className="flex items-center gap-2">
             <Button
@@ -678,7 +912,7 @@ export function OptionsApp() {
               onClick={handleSave}
               variant="default"
               size="sm"
-              className="h-8 px-3.5 text-xs font-semibold gap-1.5 shadow-none"
+              className="h-8 text-xs font-semibold gap-1.5 shadow-none"
             >
               <IconSave className="w-3.5 h-3.5" />
               {t.btn_save}
@@ -688,42 +922,36 @@ export function OptionsApp() {
               type="button"
               variant="outline"
               size="sm"
-              className="h-8 px-2.5 text-xs gap-1.5 shadow-none"
+              className="h-8 text-xs gap-1.5 shadow-none"
               disabled={historyOpening}
               onClick={handleOpenHistory}
             >
-              <IconExternalLink data-icon="inline-start" />
+              <IconExternalLink />
               {historyOpening ? "…" : t.btn_history}
             </Button>
           </div>
 
-          {/* Right Actions: Support & Coffee Grouped */}
+          {/* Right Actions: Coffee & Support Grouped */}
           <div className="flex items-center gap-2">
-            <a
-              href="https://github.com/sponsors/djalmajr"
-              target="_blank"
-              rel="noopener noreferrer"
+            <Button
+              className="h-8 text-xs shadow-none"
+              render={<a href="https://buymeacoffee.com/djalmajr" rel="noopener noreferrer" target="_blank" />}
+              size="sm"
+              variant="coffee"
             >
-              <Button variant="sponsor" size="sm" className="h-8 px-2.5 text-xs gap-1.5 shadow-none">
-                <IconHeart className="w-3.5 h-3.5 text-pink-500 fill-pink-500" />
-                {t.btn_sponsor}
-              </Button>
-            </a>
+              <IconCoffee />
+              {t.btn_coffee}
+            </Button>
 
-            <a
-              href="https://buymeacoffee.com/djalmajr"
-              target="_blank"
-              rel="noopener noreferrer"
+            <Button
+              className="h-8 text-xs shadow-none"
+              render={<a href="https://github.com/sponsors/djalmajr" rel="noopener noreferrer" target="_blank" />}
+              size="sm"
+              variant="sponsor"
             >
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 px-2.5 text-xs bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 gap-1.5 shadow-none"
-              >
-                <IconCoffee className="w-3.5 h-3.5 text-amber-500" />
-                Coffee
-              </Button>
-            </a>
+              <IconHeart className="fill-current" />
+              {t.btn_sponsor}
+            </Button>
           </div>
         </div>
         {historyError && <p className="-mt-3 text-xs font-medium text-destructive">{historyError}</p>}

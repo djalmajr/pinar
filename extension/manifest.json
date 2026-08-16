@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "Pinar",
+  "name": "Pinar.dev",
   "version": "0.1.1",
   "description": "Visual Annotations for AI Agents & Engineers",
-  "permissions": ["activeTab", "clipboardWrite", "offscreen", "scripting", "storage"],
+  "homepage_url": "https://pinar.dev",
+  "permissions": ["activeTab", "clipboardWrite", "contextMenus", "offscreen", "scripting", "storage"],
   "options_ui": {
     "page": "dist/options.html",
     "open_in_tab": true

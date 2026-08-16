@@ -20,10 +20,7 @@ if [ -x "$root/dist/pinar" ]; then
 fi
 
 # 2. Fallback to JS launcher via Bun or Node
-cli="$root/lib/cli.mjs"
-if [ ! -f "$cli" ]; then
-  cli="$root/src/cli.mjs"
-fi
+cli="$root/apps/cli/src/cli.mjs"
 
 if command -v bun >/dev/null 2>&1; then
   exec bun "$cli" "$@"

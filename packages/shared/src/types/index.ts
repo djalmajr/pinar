@@ -47,6 +47,7 @@ export interface PageInfo {
 
 export interface Session {
   byteSize?: number;
+  collectionId?: string;
   createdAt: string;
   id: string;
   isPermanent?: boolean;
@@ -54,10 +55,55 @@ export interface Session {
   pinCount?: number;
   pins: Pin[];
   plan?: "free" | "pro";
+  position?: number;
   shotId?: string;
   shotUrl?: string | null;
   userId?: string | null;
   viewerUrl?: string | null;
+}
+
+export interface Project {
+  createdAt: string;
+  id: string;
+  isProtected: boolean;
+  name: string;
+  ownerId: string;
+  position: number;
+  updatedAt: string;
+}
+
+export interface Collection {
+  createdAt: string;
+  id: string;
+  isProtected: boolean;
+  name: string;
+  ownerId: string;
+  parentId: string | null;
+  position: number;
+  projectId: string;
+  updatedAt: string;
+}
+
+export interface CollectionPlacement {
+  id: string;
+  parentId: string | null;
+}
+
+export interface ProjectTreeCollection extends Collection {
+  sessions: Session[];
+}
+
+export interface ProjectTreeProject extends Project {
+  collections: ProjectTreeCollection[];
+}
+
+export interface ProjectTree {
+  projects: ProjectTreeProject[];
+}
+
+export interface CaptureDestination {
+  collectionId: string;
+  projectId: string;
 }
 
 export interface UserSubscription {
@@ -78,6 +124,7 @@ export type ThemeMode = "dark" | "light" | "system";
 export interface PinarSettings {
   cloudUrl: string;
   cloudToken: string;
+  copyViewerContent: boolean;
   enableHistory: boolean;
   includeViewer: boolean;
   language: string;

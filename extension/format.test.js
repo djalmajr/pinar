@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { formatClipboard, formatClipboardPayload, formatViewerLink } from "./format.js";
+import { formatClipboard, formatClipboardPayload, formatViewerContent, formatViewerLink } from "./format.js";
 
 describe("formatViewerLink", () => {
   test("copies only the markdown viewer URL", () => {
@@ -32,6 +32,24 @@ describe("formatClipboardPayload", () => {
     assert.equal(payload.plain, "http://127.0.0.1:17373/v/session-1.md");
     assert.equal(payload.plain.includes("Fix this"), false);
     assert.equal(payload.plain.includes("Screenshot:"), false);
+  });
+
+  test("prefers Markdown content when the extension loads it", () => {
+    const markdown = "# Visual feedback\n\nComment: Fix this <button>";
+    const payload = formatClipboardPayload({
+      viewerContent: markdown,
+      viewerUrl: "http://127.0.0.1:17373/v/session-1.md",
+    });
+
+    assert.equal(payload.plain, markdown);
+    assert.equal(payload.html, "<pre># Visual feedback\n\nComment: Fix this &lt;button&gt;</pre>");
+  });
+});
+
+describe("formatViewerContent", () => {
+  test("preserves the complete Markdown as plain text", () => {
+    const markdown = "# Page\n\n## Pin 1\nComment: Update this";
+    assert.equal(formatViewerContent(markdown).plain, markdown);
   });
 });
 

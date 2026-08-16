@@ -57,9 +57,9 @@ describe("crop", () => {
   });
 
   test("pin colors are stable and repeat after the palette", () => {
-    assert.equal(getPinColor(1), "#2563EB");
-    assert.equal(getPinColor(2), "#0369A1");
-    assert.equal(getPinColor(13), getPinColor(1));
+    assert.equal(getPinColor(1), "#0069A8");
+    assert.equal(getPinColor(2), "#0E7490");
+    assert.equal(getPinColor(12), getPinColor(1));
   });
 
   test("cropWindow covers the union of left, middle, and right pins", () => {

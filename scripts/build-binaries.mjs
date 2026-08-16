@@ -16,11 +16,11 @@ if (!existsSync(outDir)) {
 }
 
 console.log("⚡ Building standalone Pinar native binaries with Bun...");
-execSync("bun run build:web", { stdio: "inherit" });
+execSync("bun run build:local", { stdio: "inherit" });
 
 for (const { name, target } of targets) {
   const outfile = resolve(outDir, name);
-  const cmd = `bun build --compile --target=${target} ./src/cli.mjs --outfile ${outfile}`;
+  const cmd = `bun build --compile --target=${target} ./apps/cli/src/cli.mjs --outfile ${outfile}`;
   console.log(`🔨 Compiling ${name} (${target})...`);
   execSync(cmd, { stdio: "inherit" });
 }

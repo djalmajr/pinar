@@ -14,7 +14,7 @@ Any composer / editor
 
 ## Install
 
-One command downloads the helper to `~/.pinar`, puts the launcher in `~/.pinar/bin`, and registers agent hooks. Requires **Node or Bun**.
+One command downloads the standalone server to `~/.pinar`, puts it in `~/.pinar/bin`, and registers agent hooks.
 
 **macOS / Linux**
 
@@ -30,13 +30,11 @@ irm https://raw.githubusercontent.com/djalmajr/pinar/main/install.ps1 | iex
 
 The installer:
 
-1. Syncs `~/.pinar` (Windows: `%USERPROFILE%\.pinar`) with the current runtime: recreates `bin/`, `lib/`, `hooks/`, and `extension/`, and deletes leftover files (`src/`, `AGENTS.md`, tests, old folders)
+1. Syncs the managed runtime and hooks under `~/.pinar` (Windows: `%USERPROFILE%\.pinar`)
 2. Leaves the launcher at `~/.pinar/bin/pinar` (Windows: `pinar.cmd`)
 3. Adds `~/.pinar/bin` to PATH
 4. Merges global hooks (does not delete hooks you already have)
-5. Keeps `shots/`
-
-The same command also copies the unpacked Chrome extension into that install. Chrome does not enable it for you.
+5. Keeps `shots/` and `history.db`
 
 Open a new terminal after installing so PATH picks up `~/.pinar/bin`.
 
@@ -79,13 +77,21 @@ PNG crops go to `~/.pinar/shots` (Windows: `%USERPROFILE%\.pinar\shots`). The ex
 ```sh
 pinar                 # if ~/.pinar/bin is on PATH
 # or, from a clone:
-node src/cli.mjs
-bun src/cli.mjs
+bun apps/cli/src/cli.mjs
 ./hooks/ensure.sh
 .\hooks\ensure.cmd    # Windows
 ```
 
-Without the helper, the crop falls back to `Downloads/pinar/`.
+Without the local server, the crop falls back to `Downloads/pinar/`.
+
+## Architecture
+
+- `apps/server` is the single TanStack Start application. The Cloudflare build serves `pinar.dev`; the Nitro/Bun build serves the local installation with the same routes and UI.
+- `apps/cli` contains installation, hook, storage, and launcher concerns. It starts the compiled local TanStack server.
+- `apps/extension` is the Chrome extension.
+- `packages/ui` and `packages/shared` are consumed by both browser surfaces.
+
+JSON endpoints live under `/api/*`. Public viewer routes remain `/v/:id`, `/v/:id.md`, and `/shots/:id.png`.
 
 ## Session hooks
 
@@ -117,5 +123,5 @@ pinar install-hooks
 `AGENTS.md` describes how an agent should treat the pasted text. If the copy has `Screenshot: /path/to/file.png`, open that file — it is a single crop with every pin.
 
 ```sh
-npm test
+bun test
 ```

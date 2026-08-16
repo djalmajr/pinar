@@ -2,14 +2,14 @@
 
 The shared shadcn UI uses preset `b5J6exi2i` (Nova/Base UI, mist/sky, Inter), with the Switch geometry intentionally kept less rounded.
 
-On session start, hooks run `hooks/ensure.sh` or `hooks/ensure.cmd` (same as `pinar` / `node src/cli.mjs`). If the helper is not up:
+On session start, hooks run `hooks/ensure.sh` or `hooks/ensure.cmd` (same as `pinar` / `bun apps/cli/src/cli.mjs`). If the server is not up:
 
 ```sh
 pinar
-# or: node src/cli.mjs || bun src/cli.mjs
+# or: bun apps/cli/src/cli.mjs
 ```
 
-That command exits immediately if any port in `127.0.0.1:17373`–`17382` already answers `GET /api/health` with `service: "pinar"`. Do not start a second long-lived process. Prefer `node`; use `bun` only if `node` is missing. Shots land in `~/.pinar/shots` (Windows: `%USERPROFILE%\.pinar\shots`). `PINAR_PORT` pins the helper to a single port.
+That command exits immediately if any port in `127.0.0.1:17373`–`17382` already answers `GET /api/health` with `service: "pinar"`. Do not start a second long-lived process. The distributed executable embeds Bun; running from a checkout requires Bun. Shots land in `~/.pinar/shots` and history in `~/.pinar/history.db` (Windows: `%USERPROFILE%\.pinar`). `PINAR_PORT` pins the server to a single port.
 
 Machine-wide install (downloads helper to `~/.pinar`, launcher at `~/.pinar/bin`, then hooks):
 

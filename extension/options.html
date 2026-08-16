@@ -418,10 +418,23 @@
       border-radius: 6px;
     }
     .btn svg { flex-shrink: 0; }
-    .btn-sponsor {
+    .btn-coffee {
+      border-color: rgba(245, 158, 11, 0.3);
+      background: rgba(245, 158, 11, 0.1);
+      color: #D97706;
       transition: all 0.15s;
     }
-    .btn-sponsor:hover {
+    .btn.btn-coffee:hover {
+      border-color: #F59E0B;
+      background: rgba(245, 158, 11, 0.2);
+    }
+    .btn-sponsor {
+      border-color: rgba(236, 72, 153, 0.3);
+      background: rgba(236, 72, 153, 0.08);
+      color: #DB2777;
+      transition: all 0.15s;
+    }
+    .btn.btn-sponsor:hover {
       border-color: #F472B6;
       background: rgba(244, 114, 182, 0.08);
       color: #EC4899;
@@ -569,15 +582,15 @@
           </svg>
           <span data-i18n="btn_history">History</span>
         </a>
+        <a href="https://buymeacoffee.com/djalmajr" target="_blank" rel="noopener noreferrer" class="btn btn-coffee" title="Buy Me a Coffee">
+          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v2M14 2v2M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h12ZM6 2v2M17 10h2a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2h-2"/></svg>
+          <span data-i18n="btn_coffee">Coffee</span>
+        </a>
         <a href="https://github.com/sponsors/djalmajr" target="_blank" rel="noopener noreferrer" class="btn btn-sponsor" id="btnSponsor" title="Sponsor on GitHub">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="color: #EC4899;">
             <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
           </svg>
           <span data-i18n="btn_sponsor">Sponsor</span>
-        </a>
-        <a href="https://buymeacoffee.com/djalmajr" target="_blank" rel="noopener noreferrer" class="btn" style="background: rgba(245,158,11,0.1); border-color: rgba(245,158,11,0.3); color: #F59E0B;" title="Buy Me a Coffee">
-          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v2M14 2v2M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h12ZM6 2v2M17 10h2a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2h-2"/></svg>
-          <span>Coffee</span>
         </a>
       </div>
       <div style="display: flex; align-items: center; gap: 10px;">

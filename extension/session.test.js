@@ -39,7 +39,7 @@ describe("session after copy", () => {
   test("the copy-success path dismisses every frame instead of restoring overlays", () => {
     // Mutation captured: the old success tail sent overlays:hidden false,
     // which put iframe markers back after the top toolbar had already closed.
-    const start = contentSrc.indexOf("if (!copied?.ok)");
+    const start = contentSrc.indexOf("if (!copied?.ok && !locallyCopied)");
     const end = contentSrc.indexOf("} catch", start);
     assert.ok(start >= 0 && end > start);
     const success = contentSrc.slice(start, end);
@@ -48,5 +48,28 @@ describe("session after copy", () => {
     assert.match(contentSrc, /__aiFeedbackDismiss/);
     assert.match(backgroundSrc, /session:end/);
     assert.match(backgroundSrc, /__aiFeedbackDismiss/);
+  });
+
+  test("Cmd/Ctrl+Enter keeps a page-level clipboard fallback before ending the session", () => {
+    // Regression captured: an unavailable offscreen clipboard or a transient
+    // Markdown endpoint used to leave the user with no copied content.
+    assert.match(contentSrc, /async function writePlainText/);
+    assert.match(contentSrc, /copied\?\.plain\s*\?\s*await writePlainText/);
+    assert.match(contentSrc, /!copied\?\.ok\s*&&\s*!locallyCopied/);
+    assert.match(backgroundSrc, /return \{ error: String\(error\), ok: false, plain: payload\.plain, warning \}/);
+  });
+
+  test("Markdown copy retries and degrades to detailed content instead of aborting", () => {
+    assert.match(backgroundSrc, /async function fetchViewerMarkdown/);
+    assert.match(backgroundSrc, /clipboardViewerUrl = null/);
+    assert.match(backgroundSrc, /viewerUrl: clipboardViewerUrl/);
+    assert.match(backgroundSrc, /return \{ ok: true, plain: payload\.plain, warning \}/);
+  });
+
+  test("element composer identifies the selected HTML tag in a badge", () => {
+    assert.match(contentSrc, /data-ref="selectionTag"/);
+    assert.match(contentSrc, /tag:\s*element\.tagName\.toLowerCase\(\)/);
+    assert.match(contentSrc, /ui\.selectionTag\.textContent = selectedTag \? `<\$\{selectedTag\}>` : ""/);
+    assert.match(contentSrc, /state\.draft\?\.kind === "element"/);
   });
 });

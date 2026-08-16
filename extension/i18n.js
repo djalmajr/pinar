@@ -1,5 +1,9 @@
 export const translations = {
   en: {
+    capture_destination_label: "Capture destination",
+    context_open_panel: "Open Panel",
+    collection_label: "Collection",
+    destination_unavailable: "Destination unavailable",
     name: "English",
     header_title: "Pinar Settings",
     header_desc: "Configure storage destination and feedback preferences",
@@ -19,6 +23,7 @@ export const translations = {
     license_activated: "Pro Activated!",
     license_invalid: "Invalid license key",
     preferences_title: "Preferences",
+    project_label: "Project",
     history_label: "Save Annotation History",
     history_desc: "Records past pins, comments, and URLs (7-day retention on remote server).",
     viewer_label: "Copy Web Viewer Link",
@@ -28,6 +33,7 @@ export const translations = {
     theme_light: "Light",
     theme_system: "System",
     btn_history: "History",
+    btn_coffee: "Coffee",
     btn_sponsor: "Sponsor",
     btn_save: "Save",
     status_saved: "Saved!",
@@ -35,6 +41,10 @@ export const translations = {
     status_copied: "Copied!",
   },
   pt: {
+    capture_destination_label: "Destino da captura",
+    context_open_panel: "Abrir painel",
+    collection_label: "Coleção",
+    destination_unavailable: "Destino indisponível",
     name: "Português",
     header_title: "Configurações do Pinar",
     header_desc: "Configure o destino de armazenamento e preferências de feedback",
@@ -54,6 +64,7 @@ export const translations = {
     license_activated: "Pro Ativado!",
     license_invalid: "Chave de licença inválida",
     preferences_title: "Preferências",
+    project_label: "Projeto",
     history_label: "Salvar Histórico de Anotações",
     history_desc: "Registra histórico de pins e comentários (7 dias no servidor remoto).",
     viewer_label: "Copiar Link do Web Viewer",
@@ -63,6 +74,7 @@ export const translations = {
     theme_light: "Claro",
     theme_system: "Sistema",
     btn_history: "Histórico",
+    btn_coffee: "Café",
     btn_sponsor: "Apoiar",
     btn_save: "Salvar",
     status_saved: "Salvo!",
@@ -70,6 +82,10 @@ export const translations = {
     status_copied: "Copiado!",
   },
   es: {
+    capture_destination_label: "Destino de captura",
+    context_open_panel: "Abrir panel",
+    collection_label: "Colección",
+    destination_unavailable: "Destino no disponible",
     name: "Español",
     header_title: "Configuración de Pinar",
     header_desc: "Configura el destino de almacenamiento y preferencias de feedback",
@@ -89,6 +105,7 @@ export const translations = {
     license_activated: "¡Pro Activado!",
     license_invalid: "Clave de licencia no válida",
     preferences_title: "Preferencias",
+    project_label: "Proyecto",
     history_label: "Guardar Historial de Anotaciones",
     history_desc: "Registra pines pasados y comentarios (7 días en servidor remoto).",
     viewer_label: "Copiar Enlace del Visor Web",
@@ -98,6 +115,7 @@ export const translations = {
     theme_light: "Claro",
     theme_system: "Sistema",
     btn_history: "Historial",
+    btn_coffee: "Café",
     btn_sponsor: "Patrocinar",
     btn_save: "Guardar",
     status_saved: "¡Guardado!",
@@ -105,6 +123,10 @@ export const translations = {
     status_copied: "¡Copiado!",
   },
   fr: {
+    capture_destination_label: "Destination de la capture",
+    context_open_panel: "Ouvrir le panneau",
+    collection_label: "Collection",
+    destination_unavailable: "Destination indisponible",
     name: "Français",
     header_title: "Paramètres de Pinar",
     header_desc: "Configurez la destination de stockage et les préférences de feedback",
@@ -124,6 +146,7 @@ export const translations = {
     license_activated: "Pro Activé !",
     license_invalid: "Clé de licence invalide",
     preferences_title: "Préférences",
+    project_label: "Projet",
     history_label: "Enregistrer l'Historique des Annotations",
     history_desc: "Enregistre les pins et commentaires passés (7 jours sur le serveur distant).",
     viewer_label: "Copier le Lien du Visualiseur Web",
@@ -133,6 +156,7 @@ export const translations = {
     theme_light: "Clair",
     theme_system: "Système",
     btn_history: "Historique",
+    btn_coffee: "Café",
     btn_sponsor: "Soutenir",
     btn_save: "Enregistrer",
     status_saved: "Enregistré !",
@@ -140,6 +164,10 @@ export const translations = {
     status_copied: "Copié !",
   },
   de: {
+    capture_destination_label: "Aufnahmeziel",
+    context_open_panel: "Panel öffnen",
+    collection_label: "Sammlung",
+    destination_unavailable: "Ziel nicht verfügbar",
     name: "Deutsch",
     header_title: "Pinar Einstellungen",
     header_desc: "Konfigurieren Sie Speicherziel und Feedback-Einstellungen",
@@ -159,6 +187,7 @@ export const translations = {
     license_activated: "Pro Aktiviert!",
     license_invalid: "Ungültiger Lizenzschlüssel",
     preferences_title: "Einstellungen",
+    project_label: "Projekt",
     history_label: "Anmerkungsverlauf speichern",
     history_desc: "Speichert vergangene Pins und Kommentare (7 Tage auf dem Remote-Server).",
     viewer_label: "Web-Viewer-Link kopieren",
@@ -168,6 +197,7 @@ export const translations = {
     theme_light: "Hell",
     theme_system: "System",
     btn_history: "Verlauf",
+    btn_coffee: "Kaffee",
     btn_sponsor: "Sponsern",
     btn_save: "Speichern",
     status_saved: "Gespeichert!",
@@ -175,6 +205,10 @@ export const translations = {
     status_copied: "Kopiert!",
   },
   zh: {
+    capture_destination_label: "捕获目标",
+    context_open_panel: "打开面板",
+    collection_label: "集合",
+    destination_unavailable: "目标不可用",
     name: "简体中文",
     header_title: "Pinar 设置",
     header_desc: "配置存储目标和反馈偏好",
@@ -194,6 +228,7 @@ export const translations = {
     license_activated: "Pro 已激活！",
     license_invalid: "许可证密钥无效",
     preferences_title: "偏好设置",
+    project_label: "项目",
     history_label: "保存标注历史",
     history_desc: "记录历史图钉、评论和 URL（远程服务器保留7天）。",
     viewer_label: "复制 Web 查看器链接",
@@ -203,6 +238,7 @@ export const translations = {
     theme_light: "浅色",
     theme_system: "跟随系统",
     btn_history: "历史记录",
+    btn_coffee: "咖啡",
     btn_sponsor: "赞助",
     btn_save: "保存",
     status_saved: "已保存！",
@@ -210,6 +246,10 @@ export const translations = {
     status_copied: "已复制！",
   },
   ja: {
+    capture_destination_label: "キャプチャ先",
+    context_open_panel: "パネルを開く",
+    collection_label: "コレクション",
+    destination_unavailable: "保存先を利用できません",
     name: "日本語",
     header_title: "Pinar 設定",
     header_desc: "ストレージの保存先とフィードバック設定を構成",
@@ -229,6 +269,7 @@ export const translations = {
     license_activated: "Proが有効化されました！",
     license_invalid: "無効なライセンスキーです",
     preferences_title: "環境設定",
+    project_label: "プロジェクト",
     history_label: "アノテーション履歴を保存",
     history_desc: "過去のピン、コメント、URLを記録（リモートサーバーでは7日間保持）。",
     viewer_label: "Webビューアリンクをコピー",
@@ -238,6 +279,7 @@ export const translations = {
     theme_light: "ライト",
     theme_system: "システム設定",
     btn_history: "履歴",
+    btn_coffee: "コーヒー",
     btn_sponsor: "スポンサー",
     btn_save: "保存",
     status_saved: "保存完了！",
@@ -246,15 +288,23 @@ export const translations = {
   },
 };
 
-export function getBestLanguage(preferred) {
-  if (preferred && preferred in translations) {
-    return preferred;
-  }
-  if (typeof navigator !== "undefined" && navigator.language) {
-    const lang = navigator.language.toLowerCase().split("-")[0];
-    if (lang in translations) {
-      return lang;
-    }
+function normalizeLanguage(value) {
+  const language = value?.trim().toLowerCase().split("-")[0];
+  return language in translations ? language : undefined;
+}
+
+function navigatorLanguages() {
+  if (typeof navigator === "undefined") return [];
+  if (navigator.languages?.length) return navigator.languages;
+  return navigator.language ? [navigator.language] : [];
+}
+
+export function getBestLanguage(preferred, browserLanguages = navigatorLanguages()) {
+  const preferredLanguage = normalizeLanguage(preferred);
+  if (preferredLanguage) return preferredLanguage;
+  for (const browserLanguage of browserLanguages) {
+    const language = normalizeLanguage(browserLanguage);
+    if (language) return language;
   }
   return "en";
 }

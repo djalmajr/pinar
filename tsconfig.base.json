@@ -15,6 +15,7 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
     "paths": {
       "@pinar/ui": ["packages/ui/src"],
       "@pinar/ui/*": ["packages/ui/src/*"],

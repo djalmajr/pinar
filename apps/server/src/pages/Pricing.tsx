@@ -19,6 +19,7 @@ import {
 import IconCheck from "~icons/lucide/check";
 import IconLock from "~icons/lucide/lock";
 import { isRecord, readResponseRecord } from "@/lib/api-data";
+import type { CheckoutOffer } from "@/lib/entitlements";
 import { useServerI18n } from "@/lib/i18n";
 import {
   type PricingCurrency,
@@ -28,7 +29,6 @@ import {
 } from "@/lib/pricing";
 
 type BillingInterval = "month" | "year";
-type CheckoutInterval = BillingInterval | "lifetime";
 
 interface PricingAmountProps {
   currency: PricingCurrency | undefined;
@@ -36,6 +36,18 @@ interface PricingAmountProps {
   originalLabel: string;
   price: PublicPrice | undefined;
   suffix: string;
+}
+
+interface AddOnCardProps {
+  buttonLabel: string;
+  currency: PricingCurrency | undefined;
+  description: string;
+  language: SupportedLanguage;
+  loading: boolean;
+  price: PublicPrice | undefined;
+  suffix: string;
+  title: string;
+  onPurchase(): void;
 }
 
 function formatAmount(amount: number, currency: PricingCurrency, language: SupportedLanguage) {
@@ -65,10 +77,43 @@ function PricingAmount({ currency, language, originalLabel, price, suffix }: Pri
   );
 }
 
+function AddOnCard({
+  buttonLabel,
+  currency,
+  description,
+  language,
+  loading,
+  price,
+  suffix,
+  title,
+  onPurchase,
+}: AddOnCardProps) {
+  return (
+    <Card className="flex flex-col">
+      <CardHeader>
+        <CardTitle className="text-lg">{title}</CardTitle>
+        <CardDescription className="min-h-[40px]">{description}</CardDescription>
+        <PricingAmount
+          currency={currency}
+          language={language}
+          originalLabel=""
+          price={price}
+          suffix={suffix}
+        />
+      </CardHeader>
+      <CardFooter className="mt-auto">
+        <Button className="w-full" disabled={loading || !price} variant="outline" onClick={onPurchase}>
+          {buttonLabel}
+        </Button>
+      </CardFooter>
+    </Card>
+  );
+}
+
 export function PricingPage() {
   const { language, t } = useServerI18n();
   const [billingInterval, setBillingInterval] = useState<BillingInterval>("year");
-  const [loadingInterval, setLoadingInterval] = useState<CheckoutInterval | null>(null);
+  const [loadingOffer, setLoadingOffer] = useState<CheckoutOffer | null>(null);
   const [pricing, setPricing] = useState<PublicPricing | null>(null);
 
   useEffect(() => {
@@ -83,6 +128,7 @@ export function PricingPage() {
   }, []);
 
   const isYearly = billingInterval === "year";
+  const proOffer: CheckoutOffer = isYearly ? "pro_year" : "pro_month";
   const proPrice = pricing?.prices[billingInterval];
   const proPriceText = pricing && proPrice
     ? formatAmount(proPrice.amount, pricing.currency, language)
@@ -95,7 +141,7 @@ export function PricingPage() {
     : t("pricing.proMonthlyDescription");
   const proPriceSuffix = isYearly ? t("pricing.perYear") : t("pricing.perMonth");
   const proTitle = isYearly ? t("pricing.proYearly") : t("pricing.proMonthly");
-  const proCheckoutLabel = loadingInterval === billingInterval
+  const proCheckoutLabel = loadingOffer === proOffer
     ? t("pricing.redirecting")
     : isYearly
       ? t("pricing.getYearly", { price: proPriceText })
@@ -103,6 +149,9 @@ export function PricingPage() {
   const lifetimePriceText = pricing
     ? formatAmount(pricing.prices.lifetime.amount, pricing.currency, language)
     : "—";
+  const yearlySavings = pricing
+    ? Math.round((1 - pricing.prices.year.amount / (pricing.prices.month.amount * 12)) * 100)
+    : 0;
 
   function selectBillingInterval(values: string[]) {
     const nextInterval = values[0];
@@ -110,13 +159,13 @@ export function PricingPage() {
     setBillingInterval(nextInterval);
   }
 
-  async function startCheckout(interval: CheckoutInterval) {
-    setLoadingInterval(interval);
+  async function startCheckout(offer: CheckoutOffer) {
+    setLoadingOffer(offer);
     try {
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ interval }),
+        body: JSON.stringify({ offer, requestId: crypto.randomUUID() }),
       });
       const data = await readResponseRecord(res);
       if (res.ok && isRecord(data) && typeof data.url === "string") {
@@ -132,7 +181,7 @@ export function PricingPage() {
     } catch {
       toast.error(t("pricing.networkError"));
     } finally {
-      setLoadingInterval(null);
+      setLoadingOffer(null);
     }
   }
 
@@ -162,7 +211,7 @@ export function PricingPage() {
         </ToggleGroup>
         <div className="mb-3 h-6">
           <Badge className={pricing?.regional ? "" : "invisible"} variant="proSoft">
-            {t("pricing.regionalBrazil", { discount: pricing?.discountPercent ?? 35 })}
+            {t("pricing.regionalBrazil")}
           </Badge>
         </div>
         <div className="max-w-5xl w-full grid grid-cols-1 md:grid-cols-3 gap-6 mb-12 pt-3">
@@ -190,6 +239,14 @@ export function PricingPage() {
               <li className="flex items-center gap-2">
                 <IconCheck className="text-success w-4 h-4 shrink-0" />
                 {t("pricing.freeRetention")}
+              </li>
+              <li className="flex items-center gap-2">
+                <IconCheck className="text-success w-4 h-4 shrink-0" />
+                {t("pricing.freeStorage")}
+              </li>
+              <li className="flex items-center gap-2">
+                <IconCheck className="text-success w-4 h-4 shrink-0" />
+                {t("pricing.freeAiCredits")}
               </li>
               <li className="flex items-center gap-2">
                 <IconCheck className="text-success w-4 h-4 shrink-0" />
@@ -249,6 +306,10 @@ export function PricingPage() {
                 </li>
                 <li className="flex items-center gap-2">
                   <IconCheck className="text-success w-4 h-4 shrink-0" />
+                  <span><strong>{t("pricing.proAiCredits")}</strong></span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <IconCheck className="text-success w-4 h-4 shrink-0" />
                   <span>{t("pricing.searchHistory")}</span>
                 </li>
                 <li className="flex items-center gap-2">
@@ -260,8 +321,8 @@ export function PricingPage() {
             <CardFooter>
               <Button
                 className="w-full"
-                disabled={loadingInterval !== null || !pricing}
-                onClick={() => startCheckout(billingInterval)}
+                disabled={loadingOffer !== null || !pricing}
+                onClick={() => startCheckout(proOffer)}
               >
                 {proCheckoutLabel}
               </Button>
@@ -269,7 +330,7 @@ export function PricingPage() {
           </Card>
           {isYearly && (
             <div className="absolute -top-3 right-6">
-              <Badge variant="proSoft">{t("pricing.save45")}</Badge>
+              <Badge variant="proSoft">{t("pricing.save45", { percent: yearlySavings })}</Badge>
             </div>
           )}
         </div>
@@ -303,15 +364,19 @@ export function PricingPage() {
                   <IconCheck className="text-success w-4 h-4 shrink-0" />
                   <span><strong>{t("pricing.earlyAccess")}</strong></span>
                 </li>
+                <li className="flex items-center gap-2">
+                  <IconCheck className="text-success w-4 h-4 shrink-0" />
+                  <span><strong>{t("pricing.lifetimeAiCredits")}</strong></span>
+                </li>
               </ul>
             </CardContent>
             <CardFooter>
               <Button
                 className="w-full bg-success text-success-foreground hover:bg-success/90"
-                disabled={loadingInterval !== null || !pricing}
-                onClick={() => startCheckout("lifetime")}
+                disabled={loadingOffer !== null || !pricing}
+                onClick={() => startCheckout("lifetime_founder")}
               >
-                {loadingInterval === "lifetime"
+                {loadingOffer === "lifetime_founder"
                   ? t("pricing.redirecting")
                   : t("pricing.getLifetime", { price: lifetimePriceText })}
               </Button>
@@ -326,6 +391,46 @@ export function PricingPage() {
             </Badge>
           </div>
         </div>
+        </div>
+
+        <div className="mb-5 max-w-3xl text-center">
+          <h2 className="text-2xl font-bold">{t("pricing.addOnsTitle")}</h2>
+          <p className="mt-2 text-sm text-muted-foreground">{t("pricing.addOnsDescription")}</p>
+        </div>
+        <div className="mb-12 grid w-full max-w-5xl grid-cols-1 gap-6 md:grid-cols-3">
+          <AddOnCard
+            buttonLabel={loadingOffer === "ai_credits_1000" ? t("pricing.redirecting") : t("pricing.buyAddOn")}
+            currency={pricing?.currency}
+            description={t("pricing.aiCreditsDescription")}
+            language={language}
+            loading={loadingOffer !== null}
+            price={pricing?.prices.aiCredits1000}
+            suffix={t("pricing.valid12Months")}
+            title={t("pricing.aiCreditsTitle")}
+            onPurchase={() => startCheckout("ai_credits_1000")}
+          />
+          <AddOnCard
+            buttonLabel={loadingOffer === "storage_5gb_12m" ? t("pricing.redirecting") : t("pricing.buyAddOn")}
+            currency={pricing?.currency}
+            description={t("pricing.storage5Description")}
+            language={language}
+            loading={loadingOffer !== null}
+            price={pricing?.prices.storage5Gb12M}
+            suffix={t("pricing.valid12Months")}
+            title={t("pricing.storage5Title")}
+            onPurchase={() => startCheckout("storage_5gb_12m")}
+          />
+          <AddOnCard
+            buttonLabel={loadingOffer === "storage_20gb_12m" ? t("pricing.redirecting") : t("pricing.buyAddOn")}
+            currency={pricing?.currency}
+            description={t("pricing.storage20Description")}
+            language={language}
+            loading={loadingOffer !== null}
+            price={pricing?.prices.storage20Gb12M}
+            suffix={t("pricing.valid12Months")}
+            title={t("pricing.storage20Title")}
+            onPurchase={() => startCheckout("storage_20gb_12m")}
+          />
         </div>
 
         <ServerFooter

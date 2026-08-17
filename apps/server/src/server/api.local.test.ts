@@ -153,12 +153,15 @@ describe("local TanStack API", () => {
       return Response.json({
         country: "BR",
         currency: "BRL",
-        discountPercent: 35,
+        discountPercent: null,
         prices: {
+          aiCredits1000: { amount: 990, originalAmount: null },
           free: { amount: 0, originalAmount: null },
-          lifetime: { amount: 16_590, originalAmount: 25_487 },
-          month: { amount: 990, originalAmount: 1_508 },
-          year: { amount: 6_490, originalAmount: 9_883 },
+          lifetime: { amount: 12_990, originalAmount: null },
+          month: { amount: 490, originalAmount: null },
+          storage20Gb12M: { amount: 2_990, originalAmount: null },
+          storage5Gb12M: { amount: 990, originalAmount: null },
+          year: { amount: 3_990, originalAmount: null },
         },
         regional: true,
       });

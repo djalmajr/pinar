@@ -23,6 +23,7 @@ describe("initial cloud schema", () => {
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
       ).all().map((row) => row.name);
       assert.deepEqual(tables, [
+        "ai_credit_grants",
         "auth_rate_limits",
         "collections",
         "device_sessions",
@@ -31,6 +32,8 @@ describe("initial cloud schema", () => {
         "installations",
         "projects",
         "sessions",
+        "storage_grants",
+        "stripe_events",
         "users",
         "web_sessions",
       ]);
@@ -40,6 +43,30 @@ describe("initial cloud schema", () => {
         .all()
         .map((column) => column.name);
       assert.ok(projectColumns.includes("icon"));
+      const userColumns = db.query<{ name: string }, []>("PRAGMA table_info(users)")
+        .all()
+        .map((column) => column.name);
+      assert.ok(userColumns.includes("ai_credit_refill_at"));
+      db.exec(`
+        INSERT INTO installations (id, token_hash, created_at, updated_at)
+        VALUES ('ins_test', 'hash_test', '2026-08-17T00:00:00.000Z', '2026-08-17T00:00:00.000Z');
+        INSERT INTO ai_credit_grants (
+          id, owner_type, owner_id, source_type, source_id, credits, created_at
+        ) VALUES (
+          'grant_test', 'installation', 'ins_test', 'free_initial', 'free:ins_test', 5,
+          '2026-08-17T00:00:00.000Z'
+        );
+      `);
+      assert.throws(
+        () => db.query("UPDATE ai_credit_grants SET consumed_credits = 6 WHERE id = 'grant_test'").run(),
+        /constraint/i,
+      );
+      assert.throws(
+        () => db.query(
+          "INSERT INTO sessions (id, created_at, user_id, byte_size) VALUES ('bad_size', 'now', 'owner', -1)",
+        ).run(),
+        /constraint/i,
+      );
     } finally {
       db.close();
     }

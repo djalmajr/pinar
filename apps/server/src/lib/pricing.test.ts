@@ -1,46 +1,63 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { pricingForCountry } from "./pricing";
+import { pricingForCountry, type PricingConfig } from "./pricing";
 
-const PricingConfig = {
-  brazilDiscountPercent: 35,
-  brazilExchangeRate: 5.2014,
-  lifetimeUsdCents: 4_900,
-  monthlyUsdCents: 290,
+const PRICING_CONFIG: PricingConfig = {
+  aiCredits1000BrlCents: 990,
+  aiCredits1000UsdCents: 299,
+  lifetimeBrlCents: 12_990,
+  lifetimeUsdCents: 3_900,
+  monthlyBrlCents: 490,
+  monthlyUsdCents: 299,
+  storage20Gb12MBrlCents: 2_990,
+  storage20Gb12MUsdCents: 799,
+  storage5Gb12MBrlCents: 990,
+  storage5Gb12MUsdCents: 299,
+  yearlyBrlCents: 3_990,
   yearlyUsdCents: 1_900,
 };
 
 describe("regional pricing", () => {
-  test("converts Brazil prices, applies the configured discount, and rounds up to ,90", () => {
-    // Mutation captured: removing the regional calculation returns the USD amounts for Brazil.
-    const pricing = pricingForCountry("br", PricingConfig);
+  test("uses the approved fixed Brazil catalog", () => {
+    const pricing = pricingForCountry("br", PRICING_CONFIG);
     assert.equal(pricing.currency, "BRL");
-    assert.equal(pricing.discountPercent, 35);
+    assert.equal(pricing.discountPercent, null);
+    assert.equal(pricing.regional, true);
     assert.deepEqual(pricing.prices, {
+      aiCredits1000: { amount: 990, originalAmount: null },
       free: { amount: 0, originalAmount: null },
-      lifetime: { amount: 16_590, originalAmount: 25_487 },
-      month: { amount: 990, originalAmount: 1_508 },
-      year: { amount: 6_490, originalAmount: 9_883 },
+      lifetime: { amount: 12_990, originalAmount: null },
+      month: { amount: 490, originalAmount: null },
+      storage20Gb12M: { amount: 2_990, originalAmount: null },
+      storage5Gb12M: { amount: 990, originalAmount: null },
+      year: { amount: 3_990, originalAmount: null },
     });
   });
 
-  test("uses environment inputs instead of compiled regional amounts", () => {
-    // Mutation captured: hardcoding the first rollout values ignores an updated exchange rate.
-    const pricing = pricingForCountry("BR", {
-      ...PricingConfig,
-      brazilDiscountPercent: 50,
-      brazilExchangeRate: 6,
-    });
-    assert.equal(pricing.prices.month.amount, 890);
-    assert.equal(pricing.prices.month.originalAmount, 1_740);
-  });
-
-  test("keeps the configured USD amounts outside Brazil", () => {
-    // Mutation captured: applying the Brazil branch globally changes the public currency and amount.
-    const pricing = pricingForCountry("US", PricingConfig);
+  test("uses the approved fixed global catalog outside Brazil", () => {
+    const pricing = pricingForCountry("US", PRICING_CONFIG);
     assert.equal(pricing.currency, "USD");
     assert.equal(pricing.regional, false);
-    assert.equal(pricing.prices.month.amount, 290);
-    assert.equal(pricing.prices.month.originalAmount, null);
+    assert.deepEqual(pricing.prices, {
+      aiCredits1000: { amount: 299, originalAmount: null },
+      free: { amount: 0, originalAmount: null },
+      lifetime: { amount: 3_900, originalAmount: null },
+      month: { amount: 299, originalAmount: null },
+      storage20Gb12M: { amount: 799, originalAmount: null },
+      storage5Gb12M: { amount: 299, originalAmount: null },
+      year: { amount: 1_900, originalAmount: null },
+    });
+  });
+
+  test("reads every amount from configuration instead of compiling a fallback", () => {
+    const pricing = pricingForCountry("BR", {
+      ...PRICING_CONFIG,
+      aiCredits1000BrlCents: 101,
+      storage20Gb12MBrlCents: 202,
+      storage5Gb12MBrlCents: 303,
+    });
+    assert.equal(pricing.prices.aiCredits1000.amount, 101);
+    assert.equal(pricing.prices.storage20Gb12M.amount, 202);
+    assert.equal(pricing.prices.storage5Gb12M.amount, 303);
   });
 });

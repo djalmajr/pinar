@@ -10,6 +10,7 @@ import { useServerI18n } from "@/lib/i18n";
 
 interface Activation {
   email?: string;
+  offer?: string;
   plan?: string;
 }
 
@@ -33,6 +34,7 @@ export function SuccessPage({ sessionId }: SuccessPageProps) {
       if (response.ok && isRecord(data) && isRecord(data.account)) {
         setActivation({
           email: typeof data.account.email === "string" ? data.account.email : undefined,
+          offer: typeof data.offer === "string" ? data.offer : undefined,
           plan: typeof data.account.plan === "string" ? data.account.plan : undefined,
         });
       } else {
@@ -47,6 +49,10 @@ export function SuccessPage({ sessionId }: SuccessPageProps) {
     else setError({ kind: "translation", value: "success.sessionMissing" });
   }, [sessionId]);
 
+  const isAddOn = activation?.offer === "ai_credits_1000"
+    || activation?.offer === "storage_20gb_12m"
+    || activation?.offer === "storage_5gb_12m";
+
   return (
     <ServerShell activePage="pricing" className="bg-muted/40">
       <ScrollArea className="min-h-0 flex-1">
@@ -55,7 +61,7 @@ export function SuccessPage({ sessionId }: SuccessPageProps) {
             <Card className="w-full max-w-lg">
           <CardHeader className="items-center text-center">
             <CheckCircleIcon className="size-10 text-emerald-500" />
-            <Badge variant="pro">Pinar Pro</Badge>
+            <Badge variant="pro">{isAddOn ? t("success.addOnLabel") : "Pinar Pro"}</Badge>
             <CardTitle>{t("success.confirmed")}</CardTitle>
             <CardDescription>{t("success.ready")}</CardDescription>
           </CardHeader>
@@ -66,7 +72,11 @@ export function SuccessPage({ sessionId }: SuccessPageProps) {
               </p>
             ) : activation ? (
               <div className="flex flex-col gap-3 rounded-lg border bg-muted/40 p-4">
-                <p className="text-sm font-semibold capitalize">{t("success.planReady", { plan: activation.plan || "pro" })}</p>
+                <p className="text-sm font-semibold capitalize">
+                  {isAddOn
+                    ? t("success.addOnReady")
+                    : t("success.planReady", { plan: activation.plan || "pro" })}
+                </p>
                 {activation.email && (
                   <p className="text-xs text-muted-foreground">{t("success.accountFor", { email: activation.email })}</p>
                 )}

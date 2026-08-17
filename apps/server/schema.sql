@@ -7,6 +7,7 @@ CREATE TABLE users (
   billing_status TEXT NOT NULL DEFAULT 'active' CHECK (billing_status IN ('active', 'canceled', 'past_due')),
   stripe_customer_id TEXT UNIQUE,
   stripe_subscription_id TEXT UNIQUE,
+  ai_credit_refill_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -25,6 +26,44 @@ CREATE TABLE installations (
 );
 
 CREATE INDEX idx_installations_status ON installations(status);
+
+CREATE TABLE ai_credit_grants (
+  id TEXT PRIMARY KEY,
+  owner_type TEXT NOT NULL CHECK (owner_type IN ('account', 'installation')),
+  owner_id TEXT NOT NULL,
+  source_type TEXT NOT NULL CHECK (source_type IN ('free_initial', 'pro_monthly', 'lifetime_initial', 'purchase')),
+  source_id TEXT NOT NULL UNIQUE,
+  credits INTEGER NOT NULL CHECK (credits > 0),
+  consumed_credits INTEGER NOT NULL DEFAULT 0,
+  expires_at TEXT,
+  created_at TEXT NOT NULL,
+  CHECK (consumed_credits >= 0 AND consumed_credits <= credits)
+);
+
+CREATE INDEX idx_ai_credit_grants_owner_expiry
+  ON ai_credit_grants(owner_type, owner_id, expires_at);
+
+CREATE TABLE storage_grants (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  source_type TEXT NOT NULL CHECK (source_type IN ('storage_5gb_12m', 'storage_20gb_12m')),
+  source_id TEXT NOT NULL UNIQUE,
+  byte_count INTEGER NOT NULL CHECK (byte_count > 0),
+  starts_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX idx_storage_grants_user_expiry ON storage_grants(user_id, expires_at);
+
+CREATE TABLE stripe_events (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  processed_at TEXT NOT NULL
+);
+
+CREATE INDEX idx_stripe_events_processed ON stripe_events(processed_at);
 
 CREATE TABLE web_sessions (
   token_hash TEXT PRIMARY KEY,
@@ -124,7 +163,7 @@ CREATE TABLE sessions (
   user_id TEXT NOT NULL,
   plan TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'pro', 'lifetime')),
   is_permanent INTEGER NOT NULL DEFAULT 0 CHECK (is_permanent IN (0, 1)),
-  byte_size INTEGER NOT NULL DEFAULT 0,
+  byte_size INTEGER NOT NULL DEFAULT 0 CHECK (byte_size >= 0),
   collection_id TEXT REFERENCES collections(id),
   position INTEGER NOT NULL DEFAULT 0
 );

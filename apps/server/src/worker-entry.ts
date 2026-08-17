@@ -1,4 +1,8 @@
-import { cleanupOldRecords, type CloudEnv } from "./server/cloud-api";
+import {
+  cleanupOldRecords,
+  reconcileBillingEntitlements,
+  type CloudEnv,
+} from "./server/cloud-api";
 
 type TanstackFetch = typeof import("./tanstack-server-entry")["default"]["fetch"];
 
@@ -23,6 +27,9 @@ export default {
     return fetch(request);
   },
   async scheduled(_controller: ScheduledController, env: CloudEnv, context: ExecutionContext) {
-    context.waitUntil(cleanupOldRecords(env, 7));
+    context.waitUntil(Promise.all([
+      cleanupOldRecords(env, 7),
+      reconcileBillingEntitlements(env),
+    ]));
   },
 };

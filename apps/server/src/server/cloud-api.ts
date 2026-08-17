@@ -19,6 +19,25 @@ import {
   PERSONAL_PROJECT_ICON,
   isProjectIcon,
 } from "@pinar/shared/project-icons";
+import {
+  FREE_AI_CREDITS,
+  LIFETIME_AI_CREDITS,
+  PRO_MONTHLY_AI_CREDITS,
+  PURCHASED_AI_CREDITS,
+  STORAGE_20GB_BYTES,
+  STORAGE_5GB_BYTES,
+  addUtcMonths,
+  addUtcYears,
+  baseStorageBytes,
+  canStoreBytes,
+  checkoutOffer,
+  isSubscriptionOffer,
+  legacyCheckoutOffer,
+  planForOffer,
+  storageEntitlement,
+  type CheckoutOffer,
+  type StorageEntitlement,
+} from "../lib/entitlements";
 import { type PricingConfig, pricingForCountry } from "../lib/pricing";
 import { formatCollectionMarkdown, formatProjectMarkdown, formatSessionMarkdown } from "./markdown";
 import { decodePngDataUrl } from "./png";
@@ -58,16 +77,29 @@ export interface CloudEnv {
   EMAIL?: SendEmail;
   EXTENSION_ORIGIN?: string;
   PINAR_BUCKET?: R2Bucket;
-  PRICING_BR_DISCOUNT_PERCENT?: string;
-  PRICING_BR_EXCHANGE_RATE?: string;
+  PRICING_AI_CREDITS_1000_BRL_CENTS?: string;
+  PRICING_AI_CREDITS_1000_USD_CENTS?: string;
+  PRICING_LIFETIME_BRL_CENTS?: string;
   PRICING_LIFETIME_USD_CENTS?: string;
+  PRICING_MONTHLY_BRL_CENTS?: string;
   PRICING_MONTHLY_USD_CENTS?: string;
+  PRICING_STORAGE_20GB_12M_BRL_CENTS?: string;
+  PRICING_STORAGE_20GB_12M_USD_CENTS?: string;
+  PRICING_STORAGE_5GB_12M_BRL_CENTS?: string;
+  PRICING_STORAGE_5GB_12M_USD_CENTS?: string;
+  PRICING_YEARLY_BRL_CENTS?: string;
   PRICING_YEARLY_USD_CENTS?: string;
+  STRIPE_PRICE_AI_CREDITS_1000?: string;
+  STRIPE_PRICE_BR_AI_CREDITS_1000?: string;
   STRIPE_PRICE_BR_LIFETIME?: string;
   STRIPE_PRICE_BR_MONTHLY?: string;
+  STRIPE_PRICE_BR_STORAGE_20GB_12M?: string;
+  STRIPE_PRICE_BR_STORAGE_5GB_12M?: string;
   STRIPE_PRICE_BR_YEARLY?: string;
   STRIPE_PRICE_LIFETIME?: string;
   STRIPE_PRICE_MONTHLY?: string;
+  STRIPE_PRICE_STORAGE_20GB_12M?: string;
+  STRIPE_PRICE_STORAGE_5GB_12M?: string;
   STRIPE_PRICE_YEARLY?: string;
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
@@ -86,6 +118,7 @@ interface InstallationRecord {
 }
 
 interface AccountRecord {
+  aiCreditRefillAt: string;
   billingStatus: "active" | "canceled" | "past_due";
   email: string;
   everPaid: boolean;
@@ -93,6 +126,31 @@ interface AccountRecord {
   plan: AccountPlan;
   stripeCustomerId: string;
   stripeSubscriptionId: string;
+}
+
+type AiCreditSourceType = "free_initial" | "lifetime_initial" | "pro_monthly" | "purchase";
+
+interface AiCreditGrantRecord {
+  consumedCredits: number;
+  createdAt: string;
+  credits: number;
+  expiresAt: string | null;
+  id: string;
+  ownerId: string;
+  ownerType: Principal["kind"];
+  sourceId: string;
+  sourceType: AiCreditSourceType;
+}
+
+interface StorageGrantRecord {
+  byteCount: number;
+  createdAt: string;
+  expiresAt: string;
+  id: string;
+  sourceId: string;
+  sourceType: "storage_20gb_12m" | "storage_5gb_12m";
+  startsAt: string;
+  userId: string;
 }
 
 interface WebSessionRecord {
@@ -138,10 +196,12 @@ const EMAIL_CODE_PATTERN = /^\d{6}$/;
 const EXTENSION_CODE_PATTERN = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8}$/;
 const INSTALLATION_ID_PATTERN = /^ins_[A-Za-z0-9_-]{24}$/;
 const INSTALLATION_TOKEN_PATTERN = /^pit_[A-Za-z0-9_-]{43}$/;
+const REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
 const WEB_SESSION_COOKIE = "pinar_session";
 const WEB_SESSION_PATTERN = /^pws_[A-Za-z0-9_-]{43}$/;
 const memoryAccounts = new Map<string, AccountRecord>();
+const memoryAiCreditGrants = new Map<string, AiCreditGrantRecord>();
 const memoryCollections = new Map<string, Collection>();
 const memoryDeviceSessions = new Map<string, DeviceSessionRecord>();
 const memoryEmailChallenges = new Map<string, EmailChallengeRecord>();
@@ -150,6 +210,8 @@ const memoryInstallations = new Map<string, InstallationRecord>();
 const memoryProjects = new Map<string, Project>();
 const memoryRateLimits = new Map<string, RateLimitRecord>();
 const memorySessions = new Map<string, Session>();
+const memoryStorageGrants = new Map<string, StorageGrantRecord>();
+const memoryStripeEvents = new Set<string>();
 const memoryWebSessions = new Map<string, WebSessionRecord>();
 let memoryMigrationFailure = false;
 let testNow: number | null = null;
@@ -319,6 +381,7 @@ function accountPlan(value: unknown): AccountPlan {
 
 function accountFromRow(row: Record<string, unknown>): AccountRecord {
   return {
+    aiCreditRefillAt: String(row.ai_credit_refill_at || ""),
     billingStatus: row.billing_status === "canceled" || row.billing_status === "past_due"
       ? row.billing_status
       : "active",
@@ -371,29 +434,23 @@ function requestCountry(request: Request) {
 }
 
 function pricingConfig(env: CloudEnv): PricingConfig | null {
-  const brazilDiscountPercent = Number(env.PRICING_BR_DISCOUNT_PERCENT);
-  const brazilExchangeRate = Number(env.PRICING_BR_EXCHANGE_RATE);
-  const lifetimeUsdCents = Number(env.PRICING_LIFETIME_USD_CENTS);
-  const monthlyUsdCents = Number(env.PRICING_MONTHLY_USD_CENTS);
-  const yearlyUsdCents = Number(env.PRICING_YEARLY_USD_CENTS);
-  if (!Number.isFinite(brazilDiscountPercent)
-    || brazilDiscountPercent <= 0
-    || brazilDiscountPercent >= 100
-    || !Number.isFinite(brazilExchangeRate)
-    || brazilExchangeRate <= 0
-    || !Number.isInteger(lifetimeUsdCents)
-    || lifetimeUsdCents <= 0
-    || !Number.isInteger(monthlyUsdCents)
-    || monthlyUsdCents <= 0
-    || !Number.isInteger(yearlyUsdCents)
-    || yearlyUsdCents <= 0) return null;
-  return {
-    brazilDiscountPercent,
-    brazilExchangeRate,
-    lifetimeUsdCents,
-    monthlyUsdCents,
-    yearlyUsdCents,
+  const config: PricingConfig = {
+    aiCredits1000BrlCents: Number(env.PRICING_AI_CREDITS_1000_BRL_CENTS),
+    aiCredits1000UsdCents: Number(env.PRICING_AI_CREDITS_1000_USD_CENTS),
+    lifetimeBrlCents: Number(env.PRICING_LIFETIME_BRL_CENTS),
+    lifetimeUsdCents: Number(env.PRICING_LIFETIME_USD_CENTS),
+    monthlyBrlCents: Number(env.PRICING_MONTHLY_BRL_CENTS),
+    monthlyUsdCents: Number(env.PRICING_MONTHLY_USD_CENTS),
+    storage20Gb12MBrlCents: Number(env.PRICING_STORAGE_20GB_12M_BRL_CENTS),
+    storage20Gb12MUsdCents: Number(env.PRICING_STORAGE_20GB_12M_USD_CENTS),
+    storage5Gb12MBrlCents: Number(env.PRICING_STORAGE_5GB_12M_BRL_CENTS),
+    storage5Gb12MUsdCents: Number(env.PRICING_STORAGE_5GB_12M_USD_CENTS),
+    yearlyBrlCents: Number(env.PRICING_YEARLY_BRL_CENTS),
+    yearlyUsdCents: Number(env.PRICING_YEARLY_USD_CENTS),
   };
+  return Object.values(config).every((amount) => Number.isInteger(amount) && amount > 0)
+    ? config
+    : null;
 }
 
 function validMutationOrigin(request: Request, env: CloudEnv) {
@@ -429,6 +486,255 @@ async function findAccountByEmail(env: CloudEnv, email: string) {
     return row ? accountFromRow(row) : null;
   }
   return Array.from(memoryAccounts.values()).find((account) => account.email === email) || null;
+}
+
+async function findAccountByStripeCustomer(env: CloudEnv, customerId: string) {
+  if (!customerId) return null;
+  if (env.DB) {
+    const row = await env.DB.prepare("SELECT * FROM users WHERE stripe_customer_id = ?")
+      .bind(customerId).first();
+    return row ? accountFromRow(row) : null;
+  }
+  return Array.from(memoryAccounts.values()).find(
+    (account) => account.stripeCustomerId === customerId,
+  ) || null;
+}
+
+interface GrantAiCreditsInput {
+  credits: number;
+  env: CloudEnv;
+  expiresAt: string | null;
+  ownerId: string;
+  ownerType: Principal["kind"];
+  sourceId: string;
+  sourceType: AiCreditSourceType;
+}
+
+async function grantAiCredits(input: GrantAiCreditsInput) {
+  const createdAt = currentDate().toISOString();
+  if (input.env.DB) {
+    await input.env.DB.prepare(
+      "INSERT OR IGNORE INTO ai_credit_grants "
+      + "(id, owner_type, owner_id, source_type, source_id, credits, consumed_credits, expires_at, created_at) "
+      + "VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)",
+    ).bind(
+      "aic_" + generateNanoId(24),
+      input.ownerType,
+      input.ownerId,
+      input.sourceType,
+      input.sourceId,
+      input.credits,
+      input.expiresAt,
+      createdAt,
+    ).run();
+    return;
+  }
+  if (memoryAiCreditGrants.has(input.sourceId)) return;
+  memoryAiCreditGrants.set(input.sourceId, {
+    consumedCredits: 0,
+    createdAt,
+    credits: input.credits,
+    expiresAt: input.expiresAt,
+    id: "aic_" + generateNanoId(24),
+    ownerId: input.ownerId,
+    ownerType: input.ownerType,
+    sourceId: input.sourceId,
+    sourceType: input.sourceType,
+  });
+}
+
+async function moveAiCreditsToAccount(env: CloudEnv, installationId: string, userId: string) {
+  if (env.DB) {
+    await env.DB.prepare(
+      "UPDATE ai_credit_grants SET owner_type = 'account', owner_id = ? "
+      + "WHERE owner_type = 'installation' AND owner_id = ?",
+    ).bind(userId, installationId).run();
+    return;
+  }
+  for (const grant of memoryAiCreditGrants.values()) {
+    if (grant.ownerType !== "installation" || grant.ownerId !== installationId) continue;
+    grant.ownerId = userId;
+    grant.ownerType = "account";
+  }
+}
+
+async function aiCreditBalance(env: CloudEnv, principal: Principal) {
+  const now = currentDate().toISOString();
+  if (env.DB) {
+    const row = await env.DB.prepare(
+      "SELECT COALESCE(SUM(credits - consumed_credits), 0) AS balance, MIN(expires_at) AS next_expiry_at "
+      + "FROM ai_credit_grants WHERE owner_type = ? AND owner_id = ? "
+      + "AND (expires_at IS NULL OR expires_at > ?)",
+    ).bind(principal.kind, principal.id, now).first();
+    return {
+      balance: Number(row?.balance || 0),
+      nextExpiryAt: typeof row?.next_expiry_at === "string" ? row.next_expiry_at : null,
+    };
+  }
+  const grants = Array.from(memoryAiCreditGrants.values()).filter(
+    (grant) => grant.ownerType === principal.kind
+      && grant.ownerId === principal.id
+      && (!grant.expiresAt || grant.expiresAt > now),
+  );
+  return {
+    balance: grants.reduce((total, grant) => total + grant.credits - grant.consumedCredits, 0),
+    nextExpiryAt: grants.map((grant) => grant.expiresAt).filter((value) => value !== null).sort()[0] || null,
+  };
+}
+
+interface GrantStorageInput {
+  byteCount: number;
+  env: CloudEnv;
+  expiresAt: string;
+  sourceId: string;
+  sourceType: StorageGrantRecord["sourceType"];
+  startsAt: string;
+  userId: string;
+}
+
+async function grantStorage(input: GrantStorageInput) {
+  const createdAt = currentDate().toISOString();
+  if (input.env.DB) {
+    await input.env.DB.prepare(
+      "INSERT OR IGNORE INTO storage_grants "
+      + "(id, user_id, source_type, source_id, byte_count, starts_at, expires_at, created_at) "
+      + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    ).bind(
+      "stg_" + generateNanoId(24),
+      input.userId,
+      input.sourceType,
+      input.sourceId,
+      input.byteCount,
+      input.startsAt,
+      input.expiresAt,
+      createdAt,
+    ).run();
+    return;
+  }
+  if (memoryStorageGrants.has(input.sourceId)) return;
+  memoryStorageGrants.set(input.sourceId, {
+    byteCount: input.byteCount,
+    createdAt,
+    expiresAt: input.expiresAt,
+    id: "stg_" + generateNanoId(24),
+    sourceId: input.sourceId,
+    sourceType: input.sourceType,
+    startsAt: input.startsAt,
+    userId: input.userId,
+  });
+}
+
+async function storageGrantSummary(env: CloudEnv, userId: string) {
+  const now = currentDate().toISOString();
+  if (env.DB) {
+    const row = await env.DB.prepare(
+      "SELECT COALESCE(SUM(CASE WHEN expires_at > ? THEN byte_count ELSE 0 END), 0) AS active_bytes, "
+      + "MAX(CASE WHEN expires_at <= ? THEN expires_at ELSE NULL END) AS latest_expired_at, "
+      + "MIN(CASE WHEN expires_at > ? THEN expires_at ELSE NULL END) AS next_expiry_at "
+      + "FROM storage_grants WHERE user_id = ?",
+    ).bind(now, now, now, userId).first();
+    return {
+      activeBytes: Number(row?.active_bytes || 0),
+      latestExpiredAt: typeof row?.latest_expired_at === "string" ? row.latest_expired_at : null,
+      nextExpiryAt: typeof row?.next_expiry_at === "string" ? row.next_expiry_at : null,
+    };
+  }
+  const grants = Array.from(memoryStorageGrants.values()).filter((grant) => grant.userId === userId);
+  return {
+    activeBytes: grants
+      .filter((grant) => grant.expiresAt > now)
+      .reduce((total, grant) => total + grant.byteCount, 0),
+    latestExpiredAt: grants
+      .filter((grant) => grant.expiresAt <= now)
+      .map((grant) => grant.expiresAt)
+      .sort()
+      .at(-1) || null,
+    nextExpiryAt: grants
+      .filter((grant) => grant.expiresAt > now)
+      .map((grant) => grant.expiresAt)
+      .sort()[0] || null,
+  };
+}
+
+async function storageUsedBytes(env: CloudEnv, ownerId: string) {
+  if (env.DB) {
+    const row = await env.DB.prepare(
+      "SELECT COALESCE(SUM(CASE WHEN byte_size > 0 THEN byte_size ELSE 0 END), 0) AS used_bytes "
+      + "FROM sessions WHERE user_id = ?",
+    ).bind(ownerId).first();
+    return Number(row?.used_bytes || 0);
+  }
+  return Array.from(memorySessions.values())
+    .filter((session) => session.userId === ownerId)
+    .reduce((total, session) => total + Math.max(0, Number(session.byteSize || 0)), 0);
+}
+
+async function existingSessionBytes(env: CloudEnv, ownerId: string, sessionId: string) {
+  if (env.DB) {
+    const row = await env.DB.prepare("SELECT byte_size FROM sessions WHERE user_id = ? AND id = ?")
+      .bind(ownerId, sessionId).first();
+    return Number(row?.byte_size || 0);
+  }
+  const session = memorySessions.get(sessionId);
+  return session?.userId === ownerId ? Number(session.byteSize || 0) : 0;
+}
+
+async function storageForPrincipal(env: CloudEnv, principal: Principal): Promise<StorageEntitlement> {
+  const grants = principal.kind === "account"
+    ? await storageGrantSummary(env, principal.id)
+    : { activeBytes: 0, latestExpiredAt: null, nextExpiryAt: null };
+  return storageEntitlement({
+    activeAddOnBytes: grants.activeBytes,
+    baseBytes: baseStorageBytes(principal.plan),
+    latestExpiredAt: grants.latestExpiredAt,
+    nextExpiryAt: grants.nextExpiryAt,
+    now: currentDate(),
+    usedBytes: await storageUsedBytes(env, principal.id),
+  });
+}
+
+async function setAccountRefillAt(env: CloudEnv, account: AccountRecord, refillAt: string) {
+  if (env.DB) {
+    await env.DB.prepare("UPDATE users SET ai_credit_refill_at = ?, updated_at = ? WHERE id = ?")
+      .bind(refillAt, currentDate().toISOString(), account.id).run();
+  }
+  account.aiCreditRefillAt = refillAt;
+}
+
+async function ensureProMonthlyCredits(env: CloudEnv, account: AccountRecord) {
+  if (account.plan !== "pro" || account.billingStatus !== "active") return;
+  const now = currentDate();
+  if (account.aiCreditRefillAt && account.aiCreditRefillAt > now.toISOString()) return;
+  const sourceMarker = account.aiCreditRefillAt || account.stripeSubscriptionId || "initial";
+  const expiresAt = addUtcMonths(now, 1).toISOString();
+  await grantAiCredits({
+    credits: PRO_MONTHLY_AI_CREDITS,
+    env,
+    expiresAt,
+    ownerId: account.id,
+    ownerType: "account",
+    sourceId: `pro:${account.id}:${sourceMarker}`,
+    sourceType: "pro_monthly",
+  });
+  await setAccountRefillAt(env, account, expiresAt);
+}
+
+async function stripeEventProcessed(env: CloudEnv, eventId: string) {
+  if (env.DB) {
+    return Boolean(await env.DB.prepare("SELECT id FROM stripe_events WHERE id = ?").bind(eventId).first());
+  }
+  return memoryStripeEvents.has(eventId);
+}
+
+async function recordStripeEvent(env: CloudEnv, eventId: string, eventType: string) {
+  const now = currentDate().toISOString();
+  if (env.DB) {
+    await env.DB.prepare(
+      "INSERT OR IGNORE INTO stripe_events (id, type, created_at, processed_at) VALUES (?, ?, ?, ?)",
+    ).bind(eventId, eventType, now, now).run();
+    return;
+  }
+  memoryStripeEvents.add(eventId);
 }
 
 async function authSessionForPrincipal(env: CloudEnv, principal: Principal): Promise<AuthSession | null> {
@@ -728,6 +1034,15 @@ async function registerInstallation(request: Request, env: CloudEnv) {
         }
         await env.DB.prepare("UPDATE installations SET last_seen_at = ?, updated_at = ? WHERE id = ?")
           .bind(now, now, installationId).run();
+        await grantAiCredits({
+          credits: FREE_AI_CREDITS,
+          env,
+          expiresAt: null,
+          ownerId: installationId,
+          ownerType: "installation",
+          sourceId: `free:${installationId}`,
+          sourceType: "free_initial",
+        });
         return json({ installationId, ok: true });
       }
       await env.DB.prepare(
@@ -741,9 +1056,29 @@ async function registerInstallation(request: Request, env: CloudEnv) {
     if (existing && (existing.tokenHash !== tokenHash || existing.status !== "active")) {
       return json({ error: "Installation identity already exists" }, 409);
     }
-    if (existing) return json({ installationId, ok: true });
+    if (existing) {
+      await grantAiCredits({
+        credits: FREE_AI_CREDITS,
+        env,
+        expiresAt: null,
+        ownerId: installationId,
+        ownerType: "installation",
+        sourceId: `free:${installationId}`,
+        sourceType: "free_initial",
+      });
+      return json({ installationId, ok: true });
+    }
     memoryInstallations.set(installationId, { status: "active", tokenHash });
   }
+  await grantAiCredits({
+    credits: FREE_AI_CREDITS,
+    env,
+    expiresAt: null,
+    ownerId: installationId,
+    ownerType: "installation",
+    sourceId: `free:${installationId}`,
+    sourceType: "free_initial",
+  });
   return json({ installationId, ok: true }, 201);
 }
 
@@ -1051,6 +1386,10 @@ async function migrateInstallationToAccount(
         env.DB.prepare("DELETE FROM projects WHERE id = ? AND owner_id = ?")
           .bind(source.projectId, installationId),
         env.DB.prepare(
+          "UPDATE ai_credit_grants SET owner_type = 'account', owner_id = ? "
+          + "WHERE owner_type = 'installation' AND owner_id = ?",
+        ).bind(account.id, installationId),
+        env.DB.prepare(
           "UPDATE installations SET status = 'migrated', migrated_to_user_id = ?, updated_at = ? WHERE id = ? AND status = 'active'",
         ).bind(account.id, nowIso, installationId),
         env.DB.prepare(
@@ -1114,6 +1453,7 @@ async function migrateInstallationToAccount(
     }
     memoryCollections.delete(source.collectionId);
     memoryProjects.delete(source.projectId);
+    await moveAiCreditsToAccount(env, installationId, account.id);
     const installation = memoryInstallations.get(installationId);
     if (installation) installation.status = "migrated";
     for (const session of memoryWebSessions.values()) {
@@ -1219,21 +1559,39 @@ async function logout(request: Request, env: CloudEnv) {
   });
 }
 
+function stripePriceForOffer(env: CloudEnv, offer: CheckoutOffer, isBrazil: boolean) {
+  if (offer === "ai_credits_1000") {
+    return isBrazil ? env.STRIPE_PRICE_BR_AI_CREDITS_1000 : env.STRIPE_PRICE_AI_CREDITS_1000;
+  }
+  if (offer === "lifetime_founder") {
+    return isBrazil ? env.STRIPE_PRICE_BR_LIFETIME : env.STRIPE_PRICE_LIFETIME;
+  }
+  if (offer === "pro_month") {
+    return isBrazil ? env.STRIPE_PRICE_BR_MONTHLY : env.STRIPE_PRICE_MONTHLY;
+  }
+  if (offer === "pro_year") {
+    return isBrazil ? env.STRIPE_PRICE_BR_YEARLY : env.STRIPE_PRICE_YEARLY;
+  }
+  if (offer === "storage_20gb_12m") {
+    return isBrazil ? env.STRIPE_PRICE_BR_STORAGE_20GB_12M : env.STRIPE_PRICE_STORAGE_20GB_12M;
+  }
+  return isBrazil ? env.STRIPE_PRICE_BR_STORAGE_5GB_12M : env.STRIPE_PRICE_STORAGE_5GB_12M;
+}
+
 async function createCheckout(request: Request, env: CloudEnv) {
   if (!env.STRIPE_SECRET_KEY) return json({ error: "STRIPE_SECRET_KEY not configured" }, 500);
   const body = await readJson(request);
-  const requestedInterval = stringValue(body, "interval");
-  const interval = requestedInterval === "year" || requestedInterval === "lifetime" ? requestedInterval : "month";
+  const explicitOffer = checkoutOffer(body.offer);
+  if (body.offer !== undefined && !explicitOffer) return json({ error: "Invalid checkout offer" }, 400);
+  const offer = explicitOffer || legacyCheckoutOffer(body.interval);
+  const requestIdInput = stringValue(body, "requestId");
+  if (requestIdInput && !REQUEST_ID_PATTERN.test(requestIdInput)) {
+    return json({ error: "Invalid checkout request id" }, 400);
+  }
+  const requestId = requestIdInput || generateNanoId(24);
   const origin = new URL(request.url).origin;
-  const isLifetime = interval === "lifetime";
-  const isBrazil = requestCountry(request) === "BR";
-  const priceId = isBrazil
-    ? isLifetime
-      ? env.STRIPE_PRICE_BR_LIFETIME
-      : interval === "year" ? env.STRIPE_PRICE_BR_YEARLY : env.STRIPE_PRICE_BR_MONTHLY
-    : isLifetime
-      ? env.STRIPE_PRICE_LIFETIME
-      : interval === "year" ? env.STRIPE_PRICE_YEARLY : env.STRIPE_PRICE_MONTHLY;
+  const subscription = isSubscriptionOffer(offer);
+  const priceId = stripePriceForOffer(env, offer, requestCountry(request) === "BR");
   if (!priceId) return json({ error: "Stripe price is not configured" }, 500);
   const params = new URLSearchParams({
     allow_promotion_codes: "true",
@@ -1241,18 +1599,31 @@ async function createCheckout(request: Request, env: CloudEnv) {
     integration_identifier: `pinar_web_${randomLetters()}`,
     "line_items[0][price]": priceId,
     "line_items[0][quantity]": "1",
-    mode: isLifetime ? "payment" : "subscription",
+    "metadata[pinar_offer]": offer,
+    mode: subscription ? "subscription" : "payment",
     success_url: `${origin}/success?session_id={CHECKOUT_SESSION_ID}`,
   });
-  const email = stringValue(body, "email");
   const principal = await resolvePrincipal(request, env);
   const account = principal?.kind === "account" ? await findAccountById(env, principal.id) : null;
+  const email = normalizeEmail(stringValue(body, "email"));
+  if (account) {
+    params.set("client_reference_id", account.id);
+    params.set("metadata[pinar_user_id]", account.id);
+  }
+  if (subscription) {
+    params.set("subscription_data[metadata][pinar_offer]", offer);
+    if (account) params.set("subscription_data[metadata][pinar_user_id]", account.id);
+  }
   if (account?.stripeCustomerId) params.set("customer", account.stripeCustomerId);
-  else if (email) params.set("customer_email", normalizeEmail(email));
+  else {
+    if (isEmail(email)) params.set("customer_email", email);
+    if (!subscription) params.set("customer_creation", "always");
+  }
   const response = await fetch("https://api.stripe.com/v1/checkout/sessions", {
     body: params,
     headers: {
       Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
+      "Idempotency-Key": `pinar:checkout:${offer}:${requestId}`,
       "Stripe-Version": "2026-07-29.dahlia",
     },
     method: "POST",
@@ -1262,7 +1633,7 @@ async function createCheckout(request: Request, env: CloudEnv) {
     const error = isRecord(data.error) ? stringValue(data.error, "message") : "";
     return json({ error: error || "Checkout failed" }, 400);
   }
-  return json({ ok: true, url: stringValue(data, "url") });
+  return json({ offer, ok: true, url: stringValue(data, "url") });
 }
 
 async function createPortal(request: Request, env: CloudEnv) {
@@ -1291,40 +1662,66 @@ async function createPortal(request: Request, env: CloudEnv) {
   return json({ ok: true, url: stringValue(data, "url") });
 }
 
-async function upsertStripeAccount(
-  env: CloudEnv,
-  session: Record<string, unknown>,
-) {
+interface UpsertStripeAccountInput {
+  env: CloudEnv;
+  plan: AccountPlan | null;
+  session: Record<string, unknown>;
+}
+
+async function upsertStripeAccount(input: UpsertStripeAccountInput) {
+  const { env, plan, session } = input;
   const customerId = stringValue(session, "customer");
   const customerDetails = isRecord(session.customer_details) ? session.customer_details : {};
   const email = normalizeEmail(
     stringValue(customerDetails, "email") || stringValue(session, "customer_email"),
   );
   if (!customerId || !isEmail(email)) return null;
-  const plan: AccountPlan = session.mode === "payment" ? "lifetime" : "pro";
+  const metadata = isRecord(session.metadata) ? session.metadata : {};
+  const referencedUserId = stringValue(metadata, "pinar_user_id") || stringValue(session, "client_reference_id");
   const subscriptionId = stringValue(session, "subscription");
   const now = currentDate().toISOString();
+  const existing = referencedUserId
+    ? await findAccountById(env, referencedUserId)
+    : await findAccountByStripeCustomer(env, customerId) || await findAccountByEmail(env, email);
   if (env.DB) {
-    const userId = "usr_" + generateNanoId(24);
-    await env.DB.prepare(
-      "INSERT INTO users (id, email, plan, ever_paid, billing_status, stripe_customer_id, stripe_subscription_id, created_at, updated_at) " +
-      "VALUES (?, ?, ?, 1, 'active', ?, NULLIF(?, ''), ?, ?) " +
-      "ON CONFLICT(email) DO UPDATE SET " +
-      "plan = excluded.plan, ever_paid = 1, billing_status = 'active', " +
-      "stripe_customer_id = excluded.stripe_customer_id, " +
-      "stripe_subscription_id = COALESCE(excluded.stripe_subscription_id, users.stripe_subscription_id), " +
-      "updated_at = excluded.updated_at",
-    ).bind(userId, email, plan, customerId, subscriptionId, now, now).run();
+    if (existing) {
+      const nextPlan = plan || existing.plan;
+      const nextCustomerId = plan || !existing.stripeCustomerId
+        ? customerId
+        : existing.stripeCustomerId;
+      await env.DB.prepare(
+        "UPDATE users SET email = ?, plan = ?, ever_paid = 1, billing_status = 'active', "
+        + "stripe_customer_id = ?, stripe_subscription_id = COALESCE(NULLIF(?, ''), stripe_subscription_id), "
+        + "ai_credit_refill_at = CASE WHEN ? = 'pro' THEN ai_credit_refill_at ELSE NULL END, updated_at = ? "
+        + "WHERE id = ?",
+      ).bind(email, nextPlan, nextCustomerId, subscriptionId, nextPlan, now, existing.id).run();
+      return findAccountById(env, existing.id);
+    }
+    try {
+      await env.DB.prepare(
+        "INSERT INTO users "
+        + "(id, email, plan, ever_paid, billing_status, stripe_customer_id, stripe_subscription_id, created_at, updated_at) "
+        + "VALUES (?, ?, ?, 1, 'active', ?, NULLIF(?, ''), ?, ?)",
+      ).bind("usr_" + generateNanoId(24), email, plan || "free", customerId, subscriptionId, now, now).run();
+    } catch {
+      const concurrent = await findAccountByEmail(env, email);
+      if (!concurrent) return null;
+      await env.DB.prepare(
+        "UPDATE users SET ever_paid = 1, stripe_customer_id = COALESCE(stripe_customer_id, ?), "
+        + "updated_at = ? WHERE id = ?",
+      ).bind(customerId, now, concurrent.id).run();
+    }
     return findAccountByEmail(env, email);
   }
-  let account = await findAccountByEmail(env, email);
+  let account = existing;
   if (!account) {
     account = {
+      aiCreditRefillAt: "",
       billingStatus: "active",
       email,
       everPaid: true,
       id: "usr_" + generateNanoId(24),
-      plan,
+      plan: plan || "free",
       stripeCustomerId: customerId,
       stripeSubscriptionId: subscriptionId,
     };
@@ -1332,11 +1729,69 @@ async function upsertStripeAccount(
   } else {
     account.billingStatus = "active";
     account.everPaid = true;
-    account.plan = plan;
-    account.stripeCustomerId = customerId;
+    account.email = email;
+    if (plan) account.plan = plan;
+    if (plan || !account.stripeCustomerId) account.stripeCustomerId = customerId;
     if (subscriptionId) account.stripeSubscriptionId = subscriptionId;
+    if (account.plan !== "pro") account.aiCreditRefillAt = "";
   }
   return account;
+}
+
+function offerFromCheckoutSession(session: Record<string, unknown>) {
+  const metadata = isRecord(session.metadata) ? session.metadata : {};
+  return checkoutOffer(metadata.pinar_offer)
+    || legacyCheckoutOffer(session.mode === "subscription" ? "month" : "lifetime");
+}
+
+function checkoutIsPaid(session: Record<string, unknown>) {
+  return session.payment_status === "paid" || session.payment_status === "no_payment_required";
+}
+
+async function fulfillCheckout(env: CloudEnv, session: Record<string, unknown>) {
+  if (!checkoutIsPaid(session)) return null;
+  const offer = offerFromCheckoutSession(session);
+  const account = await upsertStripeAccount({ env, plan: planForOffer(offer), session });
+  if (!account) return null;
+  const sessionId = stringValue(session, "id");
+  if (offer === "pro_month" || offer === "pro_year") {
+    await ensureProMonthlyCredits(env, account);
+  } else if (offer === "lifetime_founder") {
+    if (!sessionId) return null;
+    await grantAiCredits({
+      credits: LIFETIME_AI_CREDITS,
+      env,
+      expiresAt: null,
+      ownerId: account.id,
+      ownerType: "account",
+      sourceId: `checkout:${sessionId}:lifetime`,
+      sourceType: "lifetime_initial",
+    });
+  } else if (offer === "ai_credits_1000") {
+    if (!sessionId) return null;
+    await grantAiCredits({
+      credits: PURCHASED_AI_CREDITS,
+      env,
+      expiresAt: addUtcYears(currentDate(), 1).toISOString(),
+      ownerId: account.id,
+      ownerType: "account",
+      sourceId: `checkout:${sessionId}:ai`,
+      sourceType: "purchase",
+    });
+  } else {
+    if (!sessionId) return null;
+    const startsAt = currentDate().toISOString();
+    await grantStorage({
+      byteCount: offer === "storage_20gb_12m" ? STORAGE_20GB_BYTES : STORAGE_5GB_BYTES,
+      env,
+      expiresAt: addUtcYears(currentDate(), 1).toISOString(),
+      sourceId: `checkout:${sessionId}:storage`,
+      sourceType: offer,
+      startsAt,
+      userId: account.id,
+    });
+  }
+  return { account, offer };
 }
 
 async function completeCheckout(request: Request, env: CloudEnv) {
@@ -1354,14 +1809,17 @@ async function completeCheckout(request: Request, env: CloudEnv) {
     },
   );
   const session = await readJson(response);
-  const paid = session.payment_status === "paid" || session.payment_status === "no_payment_required";
-  if (!response.ok || session.status !== "complete" || !paid) {
+  if (!response.ok || session.status !== "complete" || !checkoutIsPaid(session)) {
     return json({ error: "Checkout session unavailable" }, 400);
   }
-  const account = await upsertStripeAccount(env, session);
-  if (!account) return json({ error: "Checkout activation unavailable" }, 503);
-  const issued = await issueWebSession(env, principalForAccount(account));
-  return json({ account: accountAuthSession(account), ok: true }, 200, {
+  const fulfilled = await fulfillCheckout(env, session);
+  if (!fulfilled) return json({ error: "Checkout activation unavailable" }, 503);
+  const issued = await issueWebSession(env, principalForAccount(fulfilled.account));
+  return json({
+    account: accountAuthSession(fulfilled.account),
+    offer: fulfilled.offer,
+    ok: true,
+  }, 200, {
     "Cache-Control": "no-store",
     "Set-Cookie": webSessionCookie(issued.token, 30 * 24 * 60 * 60),
   });
@@ -1399,23 +1857,24 @@ async function updateSubscriptionAccount(
   customerId: string,
   status: string,
 ) {
-  if (!customerId) return;
+  const account = await findAccountByStripeCustomer(env, customerId);
+  if (!account) return null;
   const active = status === "active" || status === "trialing";
   const billingStatus = status === "canceled" ? "canceled" : active ? "active" : "past_due";
-  const plan: AccountPlan = active ? "pro" : "free";
+  const plan: AccountPlan = account.plan === "lifetime" ? "lifetime" : active ? "pro" : "free";
   if (env.DB) {
     await env.DB.prepare(
       "UPDATE users SET plan = ?, billing_status = ?, ever_paid = 1, updated_at = ? WHERE stripe_customer_id = ?",
     ).bind(plan, billingStatus, currentDate().toISOString(), customerId).run();
-    return;
-  }
-  const account = Array.from(memoryAccounts.values()).find(
-    (candidate) => candidate.stripeCustomerId === customerId,
-  );
-  if (account) {
+    const updated = await findAccountById(env, account.id);
+    if (updated) await ensureProMonthlyCredits(env, updated);
+    return updated;
+  } else {
     account.billingStatus = billingStatus;
     account.everPaid = true;
     account.plan = plan;
+    await ensureProMonthlyCredits(env, account);
+    return account;
   }
 }
 
@@ -1433,14 +1892,23 @@ async function handleWebhook(request: Request, env: CloudEnv) {
   } catch {
     return json({ error: "Invalid webhook payload" }, 400);
   }
+  const eventId = stringValue(event, "id");
+  const eventType = stringValue(event, "type");
+  if (!eventId || !eventType) return json({ error: "Invalid webhook event" }, 400);
+  if (await stripeEventProcessed(env, eventId)) {
+    return json({ duplicate: true, received: true });
+  }
   const data = isRecord(event.data) && isRecord(event.data.object) ? event.data.object : {};
-  if (event.type === "checkout.session.completed") {
-    await upsertStripeAccount(env, data);
-  } else if (event.type === "customer.subscription.deleted") {
+  if (eventType === "checkout.session.completed" || eventType === "checkout.session.async_payment_succeeded") {
+    if (checkoutIsPaid(data) && !await fulfillCheckout(env, data)) {
+      return json({ error: "Checkout fulfillment unavailable" }, 503);
+    }
+  } else if (eventType === "customer.subscription.deleted") {
     await updateSubscriptionAccount(env, stringValue(data, "customer"), "canceled");
-  } else if (event.type === "customer.subscription.updated") {
+  } else if (eventType === "customer.subscription.updated") {
     await updateSubscriptionAccount(env, stringValue(data, "customer"), stringValue(data, "status"));
   }
+  await recordStripeEvent(env, eventId, eventType);
   return json({ received: true });
 }
 
@@ -2027,6 +2495,21 @@ async function persistSession(env: CloudEnv, session: Session) {
   }
 }
 
+async function accountEntitlements(request: Request, env: CloudEnv) {
+  const principal = await resolvePrincipal(request, env);
+  if (!principal) return json({ error: "Unauthorized" }, 401);
+  if (principal.kind === "account") {
+    const account = await findAccountById(env, principal.id);
+    if (account) await ensureProMonthlyCredits(env, account);
+  }
+  return json({
+    aiCredits: await aiCreditBalance(env, principal),
+    ok: true,
+    plan: principal.plan,
+    storage: await storageForPrincipal(env, principal),
+  }, 200, { "Cache-Control": "no-store" });
+}
+
 async function uploadShot(request: Request, env: CloudEnv) {
   const principal = await resolvePrincipal(request, env);
   if (!principal) return json({ error: "Unauthorized" }, 401);
@@ -2040,6 +2523,15 @@ async function uploadShot(request: Request, env: CloudEnv) {
     imageBytes = decodePngDataUrl(image);
   } catch {
     return json({ error: "invalid PNG image" }, 400);
+  }
+  const storage = await storageForPrincipal(env, principal);
+  const replacedBytes = await existingSessionBytes(env, principal.id, id);
+  if (!canStoreBytes(storage, imageBytes.byteLength, replacedBytes)) {
+    return json({
+      code: "storage_quota_exceeded",
+      error: "Storage quota exceeded",
+      storage,
+    }, 413);
   }
   const origin = new URL(request.url).origin;
   const shotUrl = `${origin}/shots/${id}.png`;
@@ -2074,6 +2566,7 @@ async function uploadShot(request: Request, env: CloudEnv) {
     path: shotUrl,
     plan: session.plan,
     shotUrl,
+    storage: await storageForPrincipal(env, principal),
     viewerUrl: `${origin}/v/${id}.md`,
   }, 201);
 }
@@ -2089,7 +2582,7 @@ async function saveHistory(request: Request, env: CloudEnv) {
   const shotId = stringValue(body, "shotId");
   const destination = await resolveDestination(env, principal, stringValue(body, "collectionId"));
   const session: Session = {
-    byteSize: numberValue(body, "byteSize"),
+    byteSize: Math.max(0, numberValue(body, "byteSize")),
     collectionId: destination.collectionId,
     createdAt: stringValue(body, "createdAt") || new Date().toISOString(),
     id,
@@ -2102,6 +2595,15 @@ async function saveHistory(request: Request, env: CloudEnv) {
     shotUrl: stringValue(body, "shotUrl") || (shotId ? `${origin}/shots/${shotId}.png` : null),
     userId: principal.id,
   };
+  const storage = await storageForPrincipal(env, principal);
+  const replacedBytes = await existingSessionBytes(env, principal.id, id);
+  if (!canStoreBytes(storage, Number(session.byteSize || 0), replacedBytes)) {
+    return json({
+      code: "storage_quota_exceeded",
+      error: "Storage quota exceeded",
+      storage,
+    }, 413);
+  }
   try {
     await persistSession(env, session);
   } catch {
@@ -2157,6 +2659,26 @@ function checkAdminAuth(request: Request, env: CloudEnv) {
   const secret = env.ADMIN_API_KEY;
   if (!secret) return false;
   return bearerToken(request) === secret;
+}
+
+export async function reconcileBillingEntitlements(env: CloudEnv) {
+  const now = currentDate().toISOString();
+  let accounts: AccountRecord[];
+  if (env.DB) {
+    const result = await env.DB.prepare(
+      "SELECT * FROM users WHERE plan = 'pro' AND billing_status = 'active' "
+      + "AND (ai_credit_refill_at IS NULL OR ai_credit_refill_at <= ?)",
+    ).bind(now).all();
+    accounts = (result.results || []).map(accountFromRow);
+  } else {
+    accounts = Array.from(memoryAccounts.values()).filter(
+      (account) => account.plan === "pro"
+        && account.billingStatus === "active"
+        && (!account.aiCreditRefillAt || account.aiCreditRefillAt <= now),
+    );
+  }
+  for (const account of accounts) await ensureProMonthlyCredits(env, account);
+  return { creditedAccounts: accounts.length };
 }
 
 export async function cleanupOldRecords(env: CloudEnv, days = 7) {
@@ -2231,6 +2753,7 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
   if (method === "POST" && path === "/api/auth/email-codes") return requestEmailCode(request, env);
   if (method === "POST" && path === "/api/auth/email-codes/verify") return verifyEmailCode(request, env);
   if (method === "POST" && path === "/api/auth/logout") return logout(request, env);
+  if (method === "GET" && path === "/api/account/entitlements") return accountEntitlements(request, env);
   if (method === "POST" && path === "/api/stripe/checkout") return createCheckout(request, env);
   if (method === "POST" && path === "/api/stripe/portal") return createPortal(request, env);
   if (method === "POST" && path === "/api/stripe/webhook") return handleWebhook(request, env);
@@ -2461,6 +2984,7 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
 
 export function resetCloudMemoryStateForTests() {
   memoryAccounts.clear();
+  memoryAiCreditGrants.clear();
   memoryCollections.clear();
   memoryDeviceSessions.clear();
   memoryEmailChallenges.clear();
@@ -2469,12 +2993,15 @@ export function resetCloudMemoryStateForTests() {
   memoryProjects.clear();
   memoryRateLimits.clear();
   memorySessions.clear();
+  memoryStorageGrants.clear();
+  memoryStripeEvents.clear();
   memoryWebSessions.clear();
   memoryMigrationFailure = false;
   testNow = null;
 }
 
 export function seedCloudAccountForTests(input: {
+  aiCreditRefillAt?: string;
   billingStatus?: AccountRecord["billingStatus"];
   email: string;
   everPaid?: boolean;
@@ -2484,6 +3011,7 @@ export function seedCloudAccountForTests(input: {
   stripeSubscriptionId?: string;
 }) {
   const account: AccountRecord = {
+    aiCreditRefillAt: input.aiCreditRefillAt || "",
     billingStatus: input.billingStatus || "active",
     email: normalizeEmail(input.email),
     everPaid: input.everPaid ?? true,
@@ -2494,6 +3022,28 @@ export function seedCloudAccountForTests(input: {
   };
   memoryAccounts.set(account.id, account);
   return accountAuthSession(account);
+}
+
+export function seedCloudStorageUsageForTests(input: {
+  byteSize: number;
+  ownerId: string;
+  sessionId?: string;
+}) {
+  const id = input.sessionId || "seeded_storage_usage";
+  memorySessions.set(id, {
+    byteSize: input.byteSize,
+    collectionId: "",
+    createdAt: currentDate().toISOString(),
+    id,
+    isPermanent: false,
+    page: { title: "Seeded storage usage", url: "https://example.test/storage" },
+    pins: [],
+    plan: "free",
+    position: 0,
+    shotId: id,
+    shotUrl: `https://pinar.test/shots/${id}.png`,
+    userId: input.ownerId,
+  });
 }
 
 export function setCloudMigrationFailureForTests(value: boolean) {

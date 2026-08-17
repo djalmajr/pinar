@@ -6,9 +6,12 @@ export interface PublicPrice {
 }
 
 export interface PublicPricingPrices {
+  aiCredits1000: PublicPrice;
   free: PublicPrice;
   lifetime: PublicPrice;
   month: PublicPrice;
+  storage20Gb12M: PublicPrice;
+  storage5Gb12M: PublicPrice;
   year: PublicPrice;
 }
 
@@ -21,10 +24,17 @@ export interface PublicPricing {
 }
 
 export interface PricingConfig {
-  brazilDiscountPercent: number;
-  brazilExchangeRate: number;
+  aiCredits1000BrlCents: number;
+  aiCredits1000UsdCents: number;
+  lifetimeBrlCents: number;
   lifetimeUsdCents: number;
+  monthlyBrlCents: number;
   monthlyUsdCents: number;
+  storage20Gb12MBrlCents: number;
+  storage20Gb12MUsdCents: number;
+  storage5Gb12MBrlCents: number;
+  storage5Gb12MUsdCents: number;
+  yearlyBrlCents: number;
   yearlyUsdCents: number;
 }
 
@@ -45,59 +55,52 @@ export function isPublicPricing(value: unknown): value is PublicPricing {
   return (value.country === null || typeof value.country === "string")
     && (value.currency === "BRL" || value.currency === "USD")
     && (value.discountPercent === null || Number.isInteger(value.discountPercent))
+    && isPublicPrice(value.prices.aiCredits1000)
     && isPublicPrice(value.prices.free)
     && isPublicPrice(value.prices.lifetime)
     && isPublicPrice(value.prices.month)
+    && isPublicPrice(value.prices.storage20Gb12M)
+    && isPublicPrice(value.prices.storage5Gb12M)
     && isPublicPrice(value.prices.year)
     && typeof value.regional === "boolean";
 }
 
-function regionalAmount(baseAmount: number, exchangeRate: number, discountPercent: number) {
-  const discountedAmount = baseAmount * exchangeRate * (1 - discountPercent / 100);
-  return Math.ceil((discountedAmount - 90) / 100) * 100 + 90;
+function publicPrice(amount: number): PublicPrice {
+  return { amount, originalAmount: null };
 }
 
-function brazilPrice(baseAmount: number, config: PricingConfig): PublicPrice {
+function pricesForBrazil(config: PricingConfig): PublicPricingPrices {
   return {
-    amount: regionalAmount(baseAmount, config.brazilExchangeRate, config.brazilDiscountPercent),
-    originalAmount: Math.round(baseAmount * config.brazilExchangeRate),
+    aiCredits1000: publicPrice(config.aiCredits1000BrlCents),
+    free: publicPrice(0),
+    lifetime: publicPrice(config.lifetimeBrlCents),
+    month: publicPrice(config.monthlyBrlCents),
+    storage20Gb12M: publicPrice(config.storage20Gb12MBrlCents),
+    storage5Gb12M: publicPrice(config.storage5Gb12MBrlCents),
+    year: publicPrice(config.yearlyBrlCents),
   };
 }
 
-function brazilPrices(config: PricingConfig): PublicPricingPrices {
+function pricesForGlobal(config: PricingConfig): PublicPricingPrices {
   return {
-    free: { amount: 0, originalAmount: null },
-    lifetime: brazilPrice(config.lifetimeUsdCents, config),
-    month: brazilPrice(config.monthlyUsdCents, config),
-    year: brazilPrice(config.yearlyUsdCents, config),
-  };
-}
-
-function globalPrices(config: PricingConfig): PublicPricingPrices {
-  return {
-    free: { amount: 0, originalAmount: null },
-    lifetime: { amount: config.lifetimeUsdCents, originalAmount: null },
-    month: { amount: config.monthlyUsdCents, originalAmount: null },
-    year: { amount: config.yearlyUsdCents, originalAmount: null },
+    aiCredits1000: publicPrice(config.aiCredits1000UsdCents),
+    free: publicPrice(0),
+    lifetime: publicPrice(config.lifetimeUsdCents),
+    month: publicPrice(config.monthlyUsdCents),
+    storage20Gb12M: publicPrice(config.storage20Gb12MUsdCents),
+    storage5Gb12M: publicPrice(config.storage5Gb12MUsdCents),
+    year: publicPrice(config.yearlyUsdCents),
   };
 }
 
 export function pricingForCountry(country: string | null, config: PricingConfig): PublicPricing {
   const normalizedCountry = country?.trim().toUpperCase() || null;
-  if (normalizedCountry === "BR") {
-    return {
-      country: normalizedCountry,
-      currency: "BRL",
-      discountPercent: config.brazilDiscountPercent,
-      prices: brazilPrices(config),
-      regional: true,
-    };
-  }
+  const regional = normalizedCountry === "BR";
   return {
     country: normalizedCountry,
-    currency: "USD",
+    currency: regional ? "BRL" : "USD",
     discountPercent: null,
-    prices: globalPrices(config),
-    regional: false,
+    prices: regional ? pricesForBrazil(config) : pricesForGlobal(config),
+    regional,
   };
 }

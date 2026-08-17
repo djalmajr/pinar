@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, test } from "node:test";
+import { FREE_STORAGE_BYTES, STORAGE_5GB_BYTES } from "../lib/entitlements";
 import {
   authorizeCloudAppRequest,
   type CloudEnv,
@@ -8,6 +9,7 @@ import {
   handleCloudPublicRequest,
   resetCloudMemoryStateForTests,
   seedCloudAccountForTests,
+  seedCloudStorageUsageForTests,
   setCloudMigrationFailureForTests,
   setCloudNowForTests,
 } from "./cloud-api";
@@ -48,10 +50,17 @@ function sessionIds(body: Record<string, unknown>) {
 const TEST_ENV: CloudEnv = {
   AUTH_PEPPER: "test-auth-pepper",
   EXTENSION_ORIGIN: "chrome-extension://pinar-test",
-  PRICING_BR_DISCOUNT_PERCENT: "35",
-  PRICING_BR_EXCHANGE_RATE: "5.2014",
-  PRICING_LIFETIME_USD_CENTS: "4900",
-  PRICING_MONTHLY_USD_CENTS: "290",
+  PRICING_AI_CREDITS_1000_BRL_CENTS: "990",
+  PRICING_AI_CREDITS_1000_USD_CENTS: "299",
+  PRICING_LIFETIME_BRL_CENTS: "12990",
+  PRICING_LIFETIME_USD_CENTS: "3900",
+  PRICING_MONTHLY_BRL_CENTS: "490",
+  PRICING_MONTHLY_USD_CENTS: "299",
+  PRICING_STORAGE_20GB_12M_BRL_CENTS: "2990",
+  PRICING_STORAGE_20GB_12M_USD_CENTS: "799",
+  PRICING_STORAGE_5GB_12M_BRL_CENTS: "990",
+  PRICING_STORAGE_5GB_12M_USD_CENTS: "299",
+  PRICING_YEARLY_BRL_CENTS: "3990",
   PRICING_YEARLY_USD_CENTS: "1900",
 };
 
@@ -425,6 +434,7 @@ describe("remote installation isolation", () => {
     const headers = { authorization: `Bearer ${String(login.device.token)}` };
     const event = JSON.stringify({
       data: { object: { customer: "cus_cancel" } },
+      id: "evt_cancel",
       type: "customer.subscription.deleted",
     });
     const timestamp = String(Math.floor(new Date(now).getTime() / 1000));
@@ -473,9 +483,13 @@ describe("remote installation isolation", () => {
     const params = new URLSearchParams(String(stripeInit?.body));
     assert.equal(params.get("mode"), "subscription");
     assert.equal(params.get("line_items[0][price]"), "price_yearly_test");
+    assert.equal(params.get("metadata[pinar_offer]"), "pro_year");
+    assert.equal(params.get("subscription_data[metadata][pinar_offer]"), "pro_year");
     assert.equal(params.has("payment_method_types[0]"), false);
     assert.match(params.get("integration_identifier") || "", /^pinar_web_[a-z]{8}$/);
-    assert.equal(new Headers(stripeInit?.headers).get("stripe-version"), "2026-07-29.dahlia");
+    const stripeHeaders = new Headers(stripeInit?.headers);
+    assert.match(stripeHeaders.get("idempotency-key") || "", /^pinar:checkout:pro_year:[A-Za-z0-9_-]{24}$/);
+    assert.equal(stripeHeaders.get("stripe-version"), "2026-07-29.dahlia");
   });
 
   test("uses the Cloudflare country for Brazil pricing and checkout", async () => {
@@ -493,7 +507,8 @@ describe("remote installation isolation", () => {
     assert.equal(pricing.country, "BR");
     assert.equal(pricing.currency, "BRL");
     assert.ok(isRecord(pricing.prices));
-    assert.deepEqual(pricing.prices.year, { amount: 6_490, originalAmount: 9_883 });
+    assert.deepEqual(pricing.prices.year, { amount: 3_990, originalAmount: null });
+    assert.deepEqual(pricing.prices.aiCredits1000, { amount: 990, originalAmount: null });
 
     const originalFetch = globalThis.fetch;
     let stripeInit: RequestInit | undefined;
@@ -541,6 +556,45 @@ describe("remote installation isolation", () => {
     assert.equal((await jsonBody(response)).error, "Stripe price is not configured");
   });
 
+  test("creates one-time add-on checkout with stable offer metadata and idempotency", async () => {
+    const originalFetch = globalThis.fetch;
+    let stripeInit: RequestInit | undefined;
+    globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      stripeInit = init;
+      return Response.json({ url: "https://checkout.stripe.test/storage" });
+    };
+    try {
+      const response = await api("/api/stripe/checkout", {
+        body: JSON.stringify({
+          offer: "storage_20gb_12m",
+          requestId: "checkout_request_123456",
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }, {
+        STRIPE_PRICE_STORAGE_20GB_12M: "price_storage_20_test",
+        STRIPE_SECRET_KEY: "sk_test_example",
+      });
+      assert.equal(response.status, 200);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    const params = new URLSearchParams(String(stripeInit?.body));
+    assert.equal(params.get("customer_creation"), "always");
+    assert.equal(params.get("line_items[0][price]"), "price_storage_20_test");
+    assert.equal(params.get("metadata[pinar_offer]"), "storage_20gb_12m");
+    assert.equal(params.get("mode"), "payment");
+    assert.equal(
+      new Headers(stripeInit?.headers).get("idempotency-key"),
+      "pinar:checkout:storage_20gb_12m:checkout_request_123456",
+    );
+    assert.equal((await api("/api/stripe/checkout", {
+      body: JSON.stringify({ offer: "unknown_offer" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }, { STRIPE_SECRET_KEY: "sk_test_example" })).status, 400);
+  });
+
   test("turns a confirmed checkout into an account and a 30-day web session", async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async () => Response.json({
@@ -565,6 +619,231 @@ describe("remote installation isolation", () => {
       assert.match(cookieHeader, /Max-Age=2592000/);
       const cookie = cookieHeader.split(";", 1)[0];
       assert.equal((await api("/api/auth/session", { headers: { cookie } })).status, 200);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("grants five initial credits and blocks new Free storage above 250 MB", async () => {
+    await register(identityA);
+    const initial = await jsonBody(await api("/api/account/entitlements", {
+      headers: identityHeaders(identityA),
+    }));
+    assert.ok(isRecord(initial.aiCredits));
+    assert.equal(initial.aiCredits.balance, 5);
+    assert.ok(isRecord(initial.storage));
+    assert.equal(initial.storage.baseBytes, FREE_STORAGE_BYTES);
+    assert.equal(initial.storage.quotaBytes, FREE_STORAGE_BYTES);
+
+    seedCloudStorageUsageForTests({
+      byteSize: FREE_STORAGE_BYTES - 10,
+      ownerId: identityA.id,
+    });
+    const blocked = await upload(identityA, "new_storage_overage", "Over quota");
+    assert.equal(blocked.status, 413);
+    assert.equal((await jsonBody(blocked)).code, "storage_quota_exceeded");
+    const replacement = await upload(identityA, "seeded_storage_usage", "Smaller replacement");
+    assert.equal(replacement.status, 201);
+  });
+
+  test("refills 200 Pro credits monthly without rollover on an annual subscription", async () => {
+    const originalFetch = globalThis.fetch;
+    setCloudNowForTests("2026-01-31T12:30:00.000Z");
+    globalThis.fetch = async () => Response.json({
+      customer: "cus_annual",
+      customer_details: { email: "annual@example.test" },
+      id: "cs_annual",
+      metadata: { pinar_offer: "pro_year" },
+      mode: "subscription",
+      payment_status: "paid",
+      status: "complete",
+      subscription: "sub_annual",
+    });
+    let cookie = "";
+    try {
+      const response = await api("/api/stripe/success?session_id=cs_annual", {}, {
+        ...TEST_ENV,
+        STRIPE_SECRET_KEY: "sk_test_example",
+      });
+      assert.equal(response.status, 200);
+      cookie = response.headers.get("set-cookie")?.split(";", 1)[0] || "";
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    const first = await jsonBody(await api("/api/account/entitlements", { headers: { cookie } }));
+    assert.ok(isRecord(first.aiCredits));
+    assert.equal(first.aiCredits.balance, 200);
+    assert.equal(first.aiCredits.nextExpiryAt, "2026-02-28T12:30:00.000Z");
+
+    setCloudNowForTests("2026-02-28T12:30:00.000Z");
+    const renewed = await jsonBody(await api("/api/account/entitlements", { headers: { cookie } }));
+    assert.ok(isRecord(renewed.aiCredits));
+    assert.equal(renewed.aiCredits.balance, 200);
+    assert.equal(renewed.aiCredits.nextExpiryAt, "2026-03-28T12:30:00.000Z");
+    const duplicate = await jsonBody(await api("/api/account/entitlements", { headers: { cookie } }));
+    assert.ok(isRecord(duplicate.aiCredits));
+    assert.equal(duplicate.aiCredits.balance, 200);
+  });
+
+  test("fulfills a storage add-on once across webhook retries and success polling", async () => {
+    const webhookSecret = "whsec_test";
+    const now = "2026-03-01T00:00:00.000Z";
+    setCloudNowForTests(now);
+    const checkoutSession = {
+      customer: "cus_storage",
+      customer_details: { email: "storage@example.test" },
+      id: "cs_storage",
+      metadata: { pinar_offer: "storage_5gb_12m" },
+      mode: "payment",
+      payment_status: "paid",
+      status: "complete",
+    };
+    const event = JSON.stringify({
+      data: { object: checkoutSession },
+      id: "evt_storage",
+      type: "checkout.session.completed",
+    });
+    const timestamp = String(Math.floor(new Date(now).getTime() / 1000));
+    const signature = await hmacSha256(webhookSecret, `${timestamp}.${event}`);
+    const env: CloudEnv = { ...TEST_ENV, STRIPE_WEBHOOK_SECRET: webhookSecret };
+    assert.equal((await api("/api/stripe/webhook", {
+      body: event,
+      headers: { "stripe-signature": `t=${timestamp},v1=${signature}` },
+      method: "POST",
+    }, env)).status, 200);
+    const duplicateWebhook = await jsonBody(await api("/api/stripe/webhook", {
+      body: event,
+      headers: { "stripe-signature": `t=${timestamp},v1=${signature}` },
+      method: "POST",
+    }, env));
+    assert.equal(duplicateWebhook.duplicate, true);
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => Response.json(checkoutSession);
+    let cookie = "";
+    try {
+      const success = await api("/api/stripe/success?session_id=cs_storage", {}, {
+        ...env,
+        STRIPE_SECRET_KEY: "sk_test_example",
+      });
+      assert.equal(success.status, 200);
+      cookie = success.headers.get("set-cookie")?.split(";", 1)[0] || "";
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    const entitlements = await jsonBody(await api("/api/account/entitlements", { headers: { cookie } }));
+    assert.equal(entitlements.plan, "free");
+    assert.ok(isRecord(entitlements.storage));
+    assert.equal(entitlements.storage.activeAddOnBytes, STORAGE_5GB_BYTES);
+    assert.equal(entitlements.storage.nextExpiryAt, "2027-03-01T00:00:00.000Z");
+    assert.equal(entitlements.storage.quotaBytes, FREE_STORAGE_BYTES + STORAGE_5GB_BYTES);
+  });
+
+  test("keeps the subscription customer when a signed-out account buys an add-on", async () => {
+    const email = "existing@example.test";
+    seedCloudAccountForTests({
+      email,
+      plan: "pro",
+      stripeCustomerId: "cus_subscription",
+      stripeSubscriptionId: "sub_existing",
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => Response.json({
+      customer: "cus_addon_checkout",
+      customer_details: { email },
+      id: "cs_existing_addon",
+      metadata: { pinar_offer: "ai_credits_1000" },
+      mode: "payment",
+      payment_status: "paid",
+      status: "complete",
+    });
+    let cookie = "";
+    try {
+      const success = await api("/api/stripe/success?session_id=cs_existing_addon", {}, {
+        ...TEST_ENV,
+        STRIPE_SECRET_KEY: "sk_test_example",
+      });
+      cookie = success.headers.get("set-cookie")?.split(";", 1)[0] || "";
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    const webhookSecret = "whsec_test";
+    const now = "2026-08-17T12:00:00.000Z";
+    setCloudNowForTests(now);
+    const event = JSON.stringify({
+      data: { object: { customer: "cus_subscription" } },
+      id: "evt_existing_cancel",
+      type: "customer.subscription.deleted",
+    });
+    const timestamp = String(Math.floor(new Date(now).getTime() / 1000));
+    const signature = await hmacSha256(webhookSecret, `${timestamp}.${event}`);
+    assert.equal((await api("/api/stripe/webhook", {
+      body: event,
+      headers: { "stripe-signature": `t=${timestamp},v1=${signature}` },
+      method: "POST",
+    }, { ...TEST_ENV, STRIPE_WEBHOOK_SECRET: webhookSecret })).status, 200);
+    const auth = await jsonBody(await api("/api/auth/session", { headers: { cookie } }));
+    assert.ok(isRecord(auth.session));
+    assert.equal(auth.session.plan, "free");
+  });
+
+  test("fulfills Lifetime and purchased AI credits without duplicate grants", async () => {
+    const originalFetch = globalThis.fetch;
+    setCloudNowForTests("2026-04-30T12:30:00.000Z");
+    const sessions = [
+      {
+        customer: "cus_lifetime",
+        customer_details: { email: "lifetime@example.test" },
+        id: "cs_lifetime",
+        metadata: { pinar_offer: "lifetime_founder" },
+        mode: "payment",
+        payment_status: "paid",
+        status: "complete",
+      },
+      {
+        customer: "cus_ai",
+        customer_details: { email: "ai@example.test" },
+        id: "cs_ai",
+        metadata: { pinar_offer: "ai_credits_1000" },
+        mode: "payment",
+        payment_status: "paid",
+        status: "complete",
+      },
+    ];
+    let index = 0;
+    globalThis.fetch = async () => Response.json(sessions[index]);
+    try {
+      const lifetime = await api("/api/stripe/success?session_id=cs_lifetime", {}, {
+        ...TEST_ENV,
+        STRIPE_SECRET_KEY: "sk_test_example",
+      });
+      const lifetimeCookie = lifetime.headers.get("set-cookie")?.split(";", 1)[0] || "";
+      const lifetimeEntitlements = await jsonBody(await api(
+        "/api/account/entitlements",
+        { headers: { cookie: lifetimeCookie } },
+      ));
+      assert.equal(lifetimeEntitlements.plan, "lifetime");
+      assert.ok(isRecord(lifetimeEntitlements.aiCredits));
+      assert.equal(lifetimeEntitlements.aiCredits.balance, 500);
+
+      index = 1;
+      const ai = await api("/api/stripe/success?session_id=cs_ai", {}, {
+        ...TEST_ENV,
+        STRIPE_SECRET_KEY: "sk_test_example",
+      });
+      const aiCookie = ai.headers.get("set-cookie")?.split(";", 1)[0] || "";
+      assert.equal((await api("/api/stripe/success?session_id=cs_ai", {}, {
+        ...TEST_ENV,
+        STRIPE_SECRET_KEY: "sk_test_example",
+      })).status, 200);
+      const aiEntitlements = await jsonBody(await api(
+        "/api/account/entitlements",
+        { headers: { cookie: aiCookie } },
+      ));
+      assert.ok(isRecord(aiEntitlements.aiCredits));
+      assert.equal(aiEntitlements.aiCredits.balance, 1_000);
+      assert.equal(aiEntitlements.aiCredits.nextExpiryAt, "2027-04-30T12:30:00.000Z");
     } finally {
       globalThis.fetch = originalFetch;
     }

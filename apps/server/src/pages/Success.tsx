@@ -4,14 +4,12 @@ import { Badge, Button, Card, CardContent, CardDescription, CardFooter, CardHead
 import { ServerShell } from "@/components/ServerShell";
 import { ServerFooter } from "@/components/ServerFooter";
 import CheckCircleIcon from "~icons/lucide/circle-check";
-import CopyIcon from "~icons/lucide/copy";
-import HistoryIcon from "~icons/lucide/history";
+import PanelsTopLeftIcon from "~icons/lucide/panels-top-left";
 import { isRecord } from "@/lib/api-data";
 import { useServerI18n } from "@/lib/i18n";
 
 interface Activation {
   email?: string;
-  licenseKey?: string;
   plan?: string;
 }
 
@@ -26,18 +24,16 @@ interface SuccessPageProps {
 export function SuccessPage({ sessionId }: SuccessPageProps) {
   const { t } = useServerI18n();
   const [activation, setActivation] = useState<Activation | null>(null);
-  const [copied, setCopied] = useState(false);
   const [error, setError] = useState<ActivationError | null>(null);
 
   useEffect(() => {
     async function activateCheckout() {
       const response = await fetch(`/api/stripe/success?session_id=${encodeURIComponent(sessionId)}`);
       const data: unknown = await response.json();
-      if (response.ok && isRecord(data)) {
+      if (response.ok && isRecord(data) && isRecord(data.account)) {
         setActivation({
-          email: typeof data.email === "string" ? data.email : undefined,
-          licenseKey: typeof data.licenseKey === "string" ? data.licenseKey : undefined,
-          plan: typeof data.plan === "string" ? data.plan : undefined,
+          email: typeof data.account.email === "string" ? data.account.email : undefined,
+          plan: typeof data.account.plan === "string" ? data.account.plan : undefined,
         });
       } else {
         setError(
@@ -50,13 +46,6 @@ export function SuccessPage({ sessionId }: SuccessPageProps) {
     if (sessionId) void activateCheckout();
     else setError({ kind: "translation", value: "success.sessionMissing" });
   }, [sessionId]);
-
-  async function copyLicense() {
-    if (!activation?.licenseKey) return;
-    await navigator.clipboard.writeText(activation.licenseKey);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 2_000);
-  }
 
   return (
     <ServerShell activePage="pricing" className="bg-muted/40">
@@ -77,10 +66,9 @@ export function SuccessPage({ sessionId }: SuccessPageProps) {
               </p>
             ) : activation ? (
               <div className="flex flex-col gap-3 rounded-lg border bg-muted/40 p-4">
-                <p className="text-xs font-medium text-muted-foreground">{t("success.licenseKey")}</p>
-                <code className="block break-all text-sm font-semibold">{activation.licenseKey}</code>
+                <p className="text-sm font-semibold capitalize">{t("success.planReady", { plan: activation.plan || "pro" })}</p>
                 {activation.email && (
-                  <p className="text-xs text-muted-foreground">{t("success.issuedTo", { email: activation.email })}</p>
+                  <p className="text-xs text-muted-foreground">{t("success.accountFor", { email: activation.email })}</p>
                 )}
               </div>
             ) : (
@@ -88,13 +76,9 @@ export function SuccessPage({ sessionId }: SuccessPageProps) {
             )}
           </CardContent>
           <CardFooter className="justify-center gap-2">
-            <Button disabled={!activation?.licenseKey} variant="outline" onClick={() => void copyLicense()}>
-              <CopyIcon data-icon="inline-start" />
-              {copied ? t("common.copied") : t("success.copyLicense")}
-            </Button>
-            <Button render={<Link preload="intent" to="/history" />}>
-              <HistoryIcon data-icon="inline-start" />
-              {t("success.openHistory")}
+            <Button disabled={!activation} render={<Link preload="intent" to="/app" />}>
+              <PanelsTopLeftIcon data-icon="inline-start" />
+              {t("common.openApp")}
             </Button>
           </CardFooter>
             </Card>

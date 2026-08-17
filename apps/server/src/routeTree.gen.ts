@@ -10,10 +10,11 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as HistoryRouteImport } from './routes/history'
+import { Route as AppRouteImport } from './routes/app'
 import { Route as InstallDotps1RouteImport } from './routes/install[.]ps1'
 import { Route as InstallDotshRouteImport } from './routes/install[.]sh'
 import { Route as PricingRouteImport } from './routes/pricing'
+import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as SuccessRouteImport } from './routes/success'
 import { Route as ApiSplatRouteImport } from './routes/api/$'
 import { Route as CIdRouteImport } from './routes/c/$id'
@@ -26,9 +27,9 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const HistoryRoute = HistoryRouteImport.update({
-  id: '/history',
-  path: '/history',
+const AppRoute = AppRouteImport.update({
+  id: '/app',
+  path: '/app',
   getParentRoute: () => rootRouteImport,
 } as any)
 const InstallDotps1Route = InstallDotps1RouteImport.update({
@@ -44,6 +45,11 @@ const InstallDotshRoute = InstallDotshRouteImport.update({
 const PricingRoute = PricingRouteImport.update({
   id: '/pricing',
   path: '/pricing',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SignInRoute = SignInRouteImport.update({
+  id: '/sign-in',
+  path: '/sign-in',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SuccessRoute = SuccessRouteImport.update({
@@ -79,10 +85,11 @@ const VIdRoute = VIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/history': typeof HistoryRoute
+  '/app': typeof AppRoute
   '/install.ps1': typeof InstallDotps1Route
   '/install.sh': typeof InstallDotshRoute
   '/pricing': typeof PricingRoute
+  '/sign-in': typeof SignInRoute
   '/success': typeof SuccessRoute
   '/api/$': typeof ApiSplatRoute
   '/c/$id': typeof CIdRoute
@@ -92,10 +99,11 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/history': typeof HistoryRoute
+  '/app': typeof AppRoute
   '/install.ps1': typeof InstallDotps1Route
   '/install.sh': typeof InstallDotshRoute
   '/pricing': typeof PricingRoute
+  '/sign-in': typeof SignInRoute
   '/success': typeof SuccessRoute
   '/api/$': typeof ApiSplatRoute
   '/c/$id': typeof CIdRoute
@@ -106,10 +114,11 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/history': typeof HistoryRoute
+  '/app': typeof AppRoute
   '/install.ps1': typeof InstallDotps1Route
   '/install.sh': typeof InstallDotshRoute
   '/pricing': typeof PricingRoute
+  '/sign-in': typeof SignInRoute
   '/success': typeof SuccessRoute
   '/api/$': typeof ApiSplatRoute
   '/c/$id': typeof CIdRoute
@@ -121,10 +130,11 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/history'
+    | '/app'
     | '/install.ps1'
     | '/install.sh'
     | '/pricing'
+    | '/sign-in'
     | '/success'
     | '/api/$'
     | '/c/$id'
@@ -134,10 +144,11 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/history'
+    | '/app'
     | '/install.ps1'
     | '/install.sh'
     | '/pricing'
+    | '/sign-in'
     | '/success'
     | '/api/$'
     | '/c/$id'
@@ -147,10 +158,11 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
-    | '/history'
+    | '/app'
     | '/install.ps1'
     | '/install.sh'
     | '/pricing'
+    | '/sign-in'
     | '/success'
     | '/api/$'
     | '/c/$id'
@@ -161,10 +173,11 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  HistoryRoute: typeof HistoryRoute
+  AppRoute: typeof AppRoute
   InstallDotps1Route: typeof InstallDotps1Route
   InstallDotshRoute: typeof InstallDotshRoute
   PricingRoute: typeof PricingRoute
+  SignInRoute: typeof SignInRoute
   SuccessRoute: typeof SuccessRoute
   ApiSplatRoute: typeof ApiSplatRoute
   CIdRoute: typeof CIdRoute
@@ -182,11 +195,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/history': {
-      id: '/history'
-      path: '/history'
-      fullPath: '/history'
-      preLoaderRoute: typeof HistoryRouteImport
+    '/app': {
+      id: '/app'
+      path: '/app'
+      fullPath: '/app'
+      preLoaderRoute: typeof AppRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/install.ps1': {
@@ -208,6 +221,13 @@ declare module '@tanstack/react-router' {
       path: '/pricing'
       fullPath: '/pricing'
       preLoaderRoute: typeof PricingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sign-in': {
+      id: '/sign-in'
+      path: '/sign-in'
+      fullPath: '/sign-in'
+      preLoaderRoute: typeof SignInRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/success': {
@@ -257,10 +277,11 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  HistoryRoute: HistoryRoute,
+  AppRoute: AppRoute,
   InstallDotps1Route: InstallDotps1Route,
   InstallDotshRoute: InstallDotshRoute,
   PricingRoute: PricingRoute,
+  SignInRoute: SignInRoute,
   SuccessRoute: SuccessRoute,
   ApiSplatRoute: ApiSplatRoute,
   CIdRoute: CIdRoute,

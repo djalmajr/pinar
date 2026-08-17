@@ -1,8 +1,10 @@
 const INSTALLATION_ID_KEY = "installationId";
 const INSTALLATION_TOKEN_KEY = "installationToken";
+const DEVICE_TOKEN_KEY = "deviceToken";
 
 export const INSTALLATION_ID_PATTERN = /^ins_[A-Za-z0-9_-]{24}$/;
 export const INSTALLATION_TOKEN_PATTERN = /^pit_[A-Za-z0-9_-]{43}$/;
+export const DEVICE_TOKEN_PATTERN = /^pdt_[A-Za-z0-9_-]{43}$/;
 
 function randomBytes(size, fillRandom = globalThis.crypto?.getRandomValues?.bind(globalThis.crypto)) {
   if (!fillRandom) throw new Error("Secure random generation is unavailable");
@@ -60,4 +62,26 @@ export function installationAuthHeaders(identity) {
     authorization: `Bearer ${identity.token}`,
     "x-pinar-installation-id": identity.id,
   };
+}
+
+export async function getDeviceToken(storage) {
+  const current = await storage.get({ [DEVICE_TOKEN_KEY]: "" });
+  const token = String(current[DEVICE_TOKEN_KEY] || "");
+  return DEVICE_TOKEN_PATTERN.test(token) ? token : "";
+}
+
+export async function storeDeviceToken(storage, token) {
+  if (!DEVICE_TOKEN_PATTERN.test(String(token || ""))) throw new Error("Invalid device token");
+  await storage.set({ [DEVICE_TOKEN_KEY]: token });
+  return token;
+}
+
+export async function clearDeviceToken(storage) {
+  if (typeof storage.remove === "function") await storage.remove(DEVICE_TOKEN_KEY);
+  else await storage.set({ [DEVICE_TOKEN_KEY]: "" });
+}
+
+export function deviceAuthHeaders(token) {
+  if (!DEVICE_TOKEN_PATTERN.test(String(token || ""))) throw new Error("Invalid device token");
+  return { authorization: `Bearer ${token}` };
 }

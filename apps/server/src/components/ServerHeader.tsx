@@ -14,13 +14,15 @@ import { SERVER_LANGUAGES, useServerI18n } from "@/lib/i18n";
 import CheckIcon from "~icons/lucide/check";
 import LanguagesIcon from "~icons/lucide/languages";
 import HomeIcon from "~icons/lucide/house";
-import DashboardIcon from "~icons/lucide/layout-dashboard";
+import LogInIcon from "~icons/lucide/log-in";
+import MenuIcon from "~icons/lucide/menu";
+import PanelsTopLeftIcon from "~icons/lucide/panels-top-left";
 import MoonIcon from "~icons/lucide/moon";
 import SunIcon from "~icons/lucide/sun";
 import TagIcon from "~icons/lucide/tags";
 import GitHubIcon from "~icons/radix-icons/github-logo";
 
-type ServerPage = "dashboard" | "history" | "home" | "pricing";
+type ServerPage = "home" | "pricing" | "signIn";
 
 export interface ServerHeaderProps {
   actions?: ReactNode;
@@ -31,8 +33,6 @@ export interface ServerHeaderProps {
 export function ServerHeader({ actions, activePage, context }: ServerHeaderProps) {
   const { language, languageName, setLanguage, t } = useServerI18n();
   const [isDark, setIsDark] = useState(false);
-  const isDashboard = activePage === "dashboard" || activePage === "history";
-  const showSubscribeAction = !actions && !context && activePage !== "pricing";
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
@@ -55,7 +55,7 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
 
       <nav
         aria-label={t("common.primaryNavigation")}
-        className={cn("flex shrink-0 items-center gap-1", !context && "absolute left-1/2 -translate-x-1/2")}
+        className={cn("hidden shrink-0 items-center gap-1 md:flex", !context && "absolute left-1/2 -translate-x-1/2")}
       >
         <Button
           render={<Link aria-current={activePage === "home" ? "page" : undefined} preload="intent" to="/" />}
@@ -66,14 +66,6 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
           {t("common.home")}
         </Button>
         <Button
-          render={<Link aria-current={isDashboard ? "page" : undefined} preload="intent" to="/history" />}
-          size="sm"
-          variant={isDashboard ? "secondary" : "ghost"}
-        >
-          <DashboardIcon data-icon="inline-start" />
-          {t("common.dashboard")}
-        </Button>
-        <Button
           render={<Link aria-current={activePage === "pricing" ? "page" : undefined} preload="intent" to="/pricing" />}
           size="sm"
           variant={activePage === "pricing" ? "secondary" : "ghost"}
@@ -81,12 +73,31 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
           <TagIcon data-icon="inline-start" />
           {t("common.plans")}
         </Button>
+        <Button
+          render={<Link aria-current={activePage === "signIn" ? "page" : undefined} preload="intent" search={{ extensionCode: "", returnTo: "/app" }} to="/sign-in" />}
+          size="sm"
+          variant={activePage === "signIn" ? "secondary" : "ghost"}
+        >
+          <LogInIcon data-icon="inline-start" />
+          {t("common.signIn")}
+        </Button>
       </nav>
 
       {context ? <div className="min-w-0 flex-1 border-l pl-4">{context}</div> : <div className="flex-1" />}
 
       <div className="flex shrink-0 items-center gap-2">
         {actions}
+        <DropdownMenu>
+          <DropdownMenuTrigger render={<Button aria-label={t("common.primaryNavigation")} className="md:hidden" size="icon-sm" variant="ghost" />}>
+            <MenuIcon />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44 md:hidden">
+            <DropdownMenuItem render={<Link preload="intent" to="/" />}><HomeIcon />{t("common.home")}</DropdownMenuItem>
+            <DropdownMenuItem render={<Link preload="intent" to="/pricing" />}><TagIcon />{t("common.plans")}</DropdownMenuItem>
+            <DropdownMenuItem render={<Link preload="intent" search={{ extensionCode: "", returnTo: "/app" }} to="/sign-in" />}><LogInIcon />{t("common.signIn")}</DropdownMenuItem>
+            <DropdownMenuItem render={<Link preload="intent" to="/app" />}><PanelsTopLeftIcon />{t("common.openApp")}</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
@@ -116,6 +127,7 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
         </Button>
         <Button
           aria-label="GitHub"
+          className="hidden sm:inline-flex"
           render={<a href="https://github.com/djalmajr/pinar" rel="noopener noreferrer" target="_blank" />}
           size="icon-sm"
           title="GitHub"
@@ -123,11 +135,10 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
         >
           <GitHubIcon />
         </Button>
-        {showSubscribeAction && (
-          <Button className="hidden md:inline-flex" render={<Link preload="intent" to="/pricing" />} size="sm" variant="pro">
-            {t("common.subscribe")}
-          </Button>
-        )}
+        <Button className="hidden md:inline-flex" render={<Link preload="intent" to="/app" />} size="sm" variant="pro">
+          <PanelsTopLeftIcon data-icon="inline-start" />
+          {t("common.openApp")}
+        </Button>
       </div>
     </header>
   );

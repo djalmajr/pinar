@@ -13,6 +13,7 @@ export * from "./components/select.js";
 export * from "./components/combobox.js";
 export * from "./components/sonner.js";
 export * from "./components/scroll-area.js";
+export * from "./components/resizable.js";
 export * from "./components/sheet.js";
 export * from "./components/sidebar.js";
 export * from "./components/separator.js";

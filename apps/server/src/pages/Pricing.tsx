@@ -1,6 +1,7 @@
-import { useState } from "react";
-import { ServerShell } from "@/components/ServerShell";
+import type { SupportedLanguage } from "@pinar/shared";
+import { useEffect, useState } from "react";
 import { ServerFooter } from "@/components/ServerFooter";
+import { ServerShell } from "@/components/ServerShell";
 import {
   Badge,
   Button,
@@ -19,27 +20,89 @@ import IconCheck from "~icons/lucide/check";
 import IconLock from "~icons/lucide/lock";
 import { isRecord, readResponseRecord } from "@/lib/api-data";
 import { useServerI18n } from "@/lib/i18n";
+import {
+  type PricingCurrency,
+  type PublicPrice,
+  type PublicPricing,
+  isPublicPricing,
+} from "@/lib/pricing";
 
 type BillingInterval = "month" | "year";
 type CheckoutInterval = BillingInterval | "lifetime";
 
+interface PricingAmountProps {
+  currency: PricingCurrency | undefined;
+  language: SupportedLanguage;
+  originalLabel: string;
+  price: PublicPrice | undefined;
+  suffix: string;
+}
+
+function formatAmount(amount: number, currency: PricingCurrency, language: SupportedLanguage) {
+  const locale = language === "pt" ? "pt-BR" : language;
+  return new Intl.NumberFormat(locale, { currency, style: "currency" }).format(amount / 100);
+}
+
+function PricingAmount({ currency, language, originalLabel, price, suffix }: PricingAmountProps) {
+  const originalAmount = price?.originalAmount;
+  const hasOriginalAmount = currency !== undefined && typeof originalAmount === "number";
+  const originalText = hasOriginalAmount ? formatAmount(originalAmount, currency, language) : "\u00a0";
+  const priceText = currency && price ? formatAmount(price.amount, currency, language) : "—";
+  return (
+    <div className="pt-4">
+      <div
+        aria-hidden={!hasOriginalAmount}
+        aria-label={hasOriginalAmount ? originalLabel : undefined}
+        className={`h-5 text-sm text-muted-foreground line-through ${hasOriginalAmount ? "" : "invisible"}`}
+      >
+        {originalText}
+      </div>
+      <div className="flex items-baseline gap-1">
+        <span className="text-3xl font-bold">{priceText}</span>
+        <span className="text-sm text-muted-foreground">{suffix}</span>
+      </div>
+    </div>
+  );
+}
+
 export function PricingPage() {
-  const { t } = useServerI18n();
+  const { language, t } = useServerI18n();
   const [billingInterval, setBillingInterval] = useState<BillingInterval>("year");
   const [loadingInterval, setLoadingInterval] = useState<CheckoutInterval | null>(null);
+  const [pricing, setPricing] = useState<PublicPricing | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    async function loadPricing() {
+      const response = await fetch("/api/pricing", { signal: controller.signal });
+      const data = await readResponseRecord(response);
+      if (response.ok && isPublicPricing(data)) setPricing(data);
+    }
+    loadPricing().catch(() => undefined);
+    return () => controller.abort();
+  }, []);
 
   const isYearly = billingInterval === "year";
+  const proPrice = pricing?.prices[billingInterval];
+  const proPriceText = pricing && proPrice
+    ? formatAmount(proPrice.amount, pricing.currency, language)
+    : "—";
+  const yearlyMonthlyPrice = pricing
+    ? formatAmount(Math.round(pricing.prices.year.amount / 12), pricing.currency, language)
+    : "—";
   const proDescription = isYearly
-    ? t("pricing.proYearlyDescription")
+    ? t("pricing.proYearlyDescription", { price: yearlyMonthlyPrice })
     : t("pricing.proMonthlyDescription");
-  const proPrice = isYearly ? "$19" : "$2.90";
   const proPriceSuffix = isYearly ? t("pricing.perYear") : t("pricing.perMonth");
   const proTitle = isYearly ? t("pricing.proYearly") : t("pricing.proMonthly");
   const proCheckoutLabel = loadingInterval === billingInterval
     ? t("pricing.redirecting")
     : isYearly
-      ? t("pricing.getYearly")
-      : t("pricing.getMonthly");
+      ? t("pricing.getYearly", { price: proPriceText })
+      : t("pricing.getMonthly", { price: proPriceText });
+  const lifetimePriceText = pricing
+    ? formatAmount(pricing.prices.lifetime.amount, pricing.currency, language)
+    : "—";
 
   function selectBillingInterval(values: string[]) {
     const nextInterval = values[0];
@@ -97,6 +160,11 @@ export function PricingPage() {
           <ToggleGroupItem value="month">{t("pricing.monthly")}</ToggleGroupItem>
           <ToggleGroupItem value="year">{t("pricing.yearly")}</ToggleGroupItem>
         </ToggleGroup>
+        <div className="mb-3 h-6">
+          <Badge className={pricing?.regional ? "" : "invisible"} variant="proSoft">
+            {t("pricing.regionalBrazil", { discount: pricing?.discountPercent ?? 35 })}
+          </Badge>
+        </div>
         <div className="max-w-5xl w-full grid grid-cols-1 md:grid-cols-3 gap-6 mb-12 pt-3">
         {/* Free Card */}
         <Card className="flex flex-col justify-between">
@@ -105,10 +173,13 @@ export function PricingPage() {
             <CardDescription className="min-h-[38px]">
               {t("pricing.freeDescription")}
             </CardDescription>
-            <div className="pt-4 flex items-baseline gap-1">
-              <span className="text-3xl font-bold">$0</span>
-              <span className="text-sm text-muted-foreground">{t("pricing.forever")}</span>
-            </div>
+            <PricingAmount
+              currency={pricing?.currency}
+              language={language}
+              originalLabel={t("pricing.originalPrice")}
+              price={pricing?.prices.free}
+              suffix={t("pricing.forever")}
+            />
           </CardHeader>
           <CardContent className="flex-1">
             <ul className="flex flex-col gap-2.5 text-xs">
@@ -151,10 +222,13 @@ export function PricingPage() {
               <CardDescription className="min-h-[38px]">
                 {proDescription}
               </CardDescription>
-              <div className="pt-4 flex items-baseline gap-1">
-                <span className="text-3xl font-bold">{proPrice}</span>
-                <span className="text-sm text-muted-foreground">{proPriceSuffix}</span>
-              </div>
+              <PricingAmount
+                currency={pricing?.currency}
+                language={language}
+                originalLabel={t("pricing.originalPrice")}
+                price={proPrice}
+                suffix={proPriceSuffix}
+              />
             </CardHeader>
             <CardContent className="flex-1">
               <p className="mb-3 text-xs text-muted-foreground">
@@ -186,7 +260,7 @@ export function PricingPage() {
             <CardFooter>
               <Button
                 className="w-full"
-                disabled={loadingInterval !== null}
+                disabled={loadingInterval !== null || !pricing}
                 onClick={() => startCheckout(billingInterval)}
               >
                 {proCheckoutLabel}
@@ -208,10 +282,13 @@ export function PricingPage() {
               <CardDescription className="min-h-[38px]">
                 {t("pricing.lifetimeDescription")}
               </CardDescription>
-              <div className="pt-4 flex items-baseline gap-1">
-                <span className="text-3xl font-bold">$49</span>
-                <span className="text-sm text-muted-foreground">{t("pricing.oneTime")}</span>
-              </div>
+              <PricingAmount
+                currency={pricing?.currency}
+                language={language}
+                originalLabel={t("pricing.originalPrice")}
+                price={pricing?.prices.lifetime}
+                suffix={t("pricing.oneTime")}
+              />
             </CardHeader>
             <CardContent className="flex-1">
               <p className="mb-3 text-xs text-muted-foreground">
@@ -231,10 +308,12 @@ export function PricingPage() {
             <CardFooter>
               <Button
                 className="w-full bg-success text-success-foreground hover:bg-success/90"
-                disabled={loadingInterval !== null}
+                disabled={loadingInterval !== null || !pricing}
                 onClick={() => startCheckout("lifetime")}
               >
-                {loadingInterval === "lifetime" ? t("pricing.redirecting") : t("pricing.getLifetime")}
+                {loadingInterval === "lifetime"
+                  ? t("pricing.redirecting")
+                  : t("pricing.getLifetime", { price: lifetimePriceText })}
               </Button>
             </CardFooter>
           </Card>

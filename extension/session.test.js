@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
-import { afterCopyAction, endTabPins, planSessionEnd } from "./session.js";
+import { afterCopyAction, endTabPins, pinFrameIds, planSessionEnd } from "./session.js";
 
 const contentSrc = readFileSync(new URL("./content.js", import.meta.url), "utf8");
 const backgroundSrc = readFileSync(new URL("./background.js", import.meta.url), "utf8");
+const LEGACY_GLOBAL = ["__ai", "Feedback"].join("");
+const LEGACY_NAMESPACE = ["ai", "feedback"].join("-");
 
 describe("session after copy", () => {
   test("successful copy ends the session in every frame instead of restoring overlays", () => {
@@ -45,9 +47,13 @@ describe("session after copy", () => {
     const success = contentSrc.slice(start, end);
     assert.match(success, /session:end/);
     assert.doesNotMatch(success, /hidden:\s*false/);
-    assert.match(contentSrc, /__aiFeedbackDismiss/);
+    assert.match(contentSrc, /__pinarDismiss/);
     assert.match(backgroundSrc, /session:end/);
-    assert.match(backgroundSrc, /__aiFeedbackDismiss/);
+    assert.match(backgroundSrc, /__pinarDismiss/);
+    assert.equal(contentSrc.includes(LEGACY_NAMESPACE), false);
+    assert.equal(contentSrc.includes(LEGACY_GLOBAL), false);
+    assert.equal(backgroundSrc.includes(LEGACY_NAMESPACE), false);
+    assert.equal(backgroundSrc.includes(LEGACY_GLOBAL), false);
   });
 
   test("Cmd/Ctrl+Enter keeps a page-level clipboard fallback before ending the session", () => {
@@ -71,5 +77,21 @@ describe("session after copy", () => {
     assert.match(contentSrc, /tag:\s*element\.tagName\.toLowerCase\(\)/);
     assert.match(contentSrc, /ui\.selectionTag\.textContent = selectedTag \? `<\$\{selectedTag\}>` : ""/);
     assert.match(contentSrc, /state\.draft\?\.kind === "element"/);
+  });
+
+  test("pin refresh targets only frames that own annotations", () => {
+    // Mutation captured: refreshing all tab frames makes one unrelated,
+    // inaccessible iframe abort copying annotations from the top page.
+    assert.deepEqual(pinFrameIds([
+      { frameId: 0 },
+      { frameId: 4 },
+      { frameId: 0 },
+      { frameId: null },
+    ]), [0, 4]);
+    assert.match(backgroundSrc, /frameIds: \[frameId\]/);
+    assert.doesNotMatch(backgroundSrc.slice(
+      backgroundSrc.indexOf('message.type === "pins:refresh"'),
+      backgroundSrc.indexOf('message.type === "pins:clear"'),
+    ), /allFrames:\s*true/);
   });
 });

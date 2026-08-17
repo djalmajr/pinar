@@ -91,7 +91,11 @@ Without the local server, the crop falls back to `Downloads/pinar/`.
 - `apps/extension` is the Chrome extension.
 - `packages/ui` and `packages/shared` are consumed by both browser surfaces.
 
-JSON endpoints live under `/api/*`. Public viewer routes remain `/v/:id`, `/v/:id.md`, and `/shots/:id.png`.
+JSON endpoints live under `/api/*`. The private workspace lives at `/app`; the local build opens it directly, while the cloud build requires a web session. Marketing and sign-in remain public at `/`, `/pricing`, `/sign-in`, and `/success`. Unlisted sharing remains public at `/v/*`, `/p/*`, `/c/*`, and `/shots/*`.
+
+Remote Free installations open `/app` with a five-minute, single-use code created by the extension. Paid and previously paid accounts can also sign in with a six-digit code sent by email. The server stores hashes of codes and session tokens; web sessions last 30 days and authenticated extension devices last 180 days.
+
+The Cloudflare build expects `AUTH_PEPPER`, `STRIPE_SECRET_KEY`, and `STRIPE_WEBHOOK_SECRET` as Worker secrets, plus `EXTENSION_ORIGIN=chrome-extension://<published-extension-id>` as an exact origin allowlist. `ADMIN_API_KEY` is optional and only enables the manual cleanup endpoint. Its `EMAIL` binding sends from `Pinar <noreply@pinar.dev>`; `pinar.dev` must be enabled in [Cloudflare Email Service](https://developers.cloudflare.com/email-service/get-started/send-emails/), and sending to arbitrary recipients requires a Workers Paid plan under the documented [pricing and limits](https://developers.cloudflare.com/email-service/platform/pricing/). Recreating D1, clearing pre-launch R2 objects, configuring Email Service, and deploying the Worker and extension are coordinated rollout operations rather than build steps.
 
 ## Session hooks
 

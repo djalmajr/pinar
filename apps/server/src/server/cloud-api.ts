@@ -1,15 +1,25 @@
-import type {
-  CaptureDestination,
-  Collection,
-  CollectionPlacement,
-  PageInfo,
-  Pin,
-  Project,
-  ProjectTree,
-  ProjectTreeCollection,
-  ProjectTreeProject,
-  Session,
+import {
+  type ProjectIcon,
+  type AccountAuthSession,
+  type AccountPlan,
+  type AuthSession,
+  type CaptureDestination,
+  type Collection,
+  type CollectionPlacement,
+  type PageInfo,
+  type Pin,
+  type Project,
+  type ProjectTree,
+  type ProjectTreeCollection,
+  type ProjectTreeProject,
+  type Session,
 } from "@pinar/shared";
+import {
+  DEFAULT_PROJECT_ICON,
+  PERSONAL_PROJECT_ICON,
+  isProjectIcon,
+} from "@pinar/shared/project-icons";
+import { type PricingConfig, pricingForCountry } from "../lib/pricing";
 import { formatCollectionMarkdown, formatProjectMarkdown, formatSessionMarkdown } from "./markdown";
 import { decodePngDataUrl } from "./png";
 
@@ -42,55 +52,107 @@ interface R2Bucket {
 }
 
 export interface CloudEnv {
-  API_KEY?: string;
-  AUTH_KEY?: string;
+  ADMIN_API_KEY?: string;
+  AUTH_PEPPER?: string;
   DB?: D1Database;
-  PINAR_API_KEY?: string;
+  EMAIL?: SendEmail;
+  EXTENSION_ORIGIN?: string;
   PINAR_BUCKET?: R2Bucket;
+  PRICING_BR_DISCOUNT_PERCENT?: string;
+  PRICING_BR_EXCHANGE_RATE?: string;
+  PRICING_LIFETIME_USD_CENTS?: string;
+  PRICING_MONTHLY_USD_CENTS?: string;
+  PRICING_YEARLY_USD_CENTS?: string;
+  STRIPE_PRICE_BR_LIFETIME?: string;
+  STRIPE_PRICE_BR_MONTHLY?: string;
+  STRIPE_PRICE_BR_YEARLY?: string;
   STRIPE_PRICE_LIFETIME?: string;
   STRIPE_PRICE_MONTHLY?: string;
   STRIPE_PRICE_YEARLY?: string;
   STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
 }
 
 interface Principal {
   id: string;
   isPermanent: boolean;
-  kind: "account" | "browser" | "installation";
-  plan: "free" | "pro";
-  user?: Record<string, unknown>;
+  kind: "account" | "installation";
+  plan: AccountPlan;
 }
 
 interface InstallationRecord {
-  status: "active" | "revoked";
+  status: "active" | "migrated" | "revoked";
   tokenHash: string;
 }
 
-interface BrowserTicketRecord {
-  expiresAt: string;
-  principal: Principal;
-  usedAt: string | null;
+interface AccountRecord {
+  billingStatus: "active" | "canceled" | "past_due";
+  email: string;
+  everPaid: boolean;
+  id: string;
+  plan: AccountPlan;
+  stripeCustomerId: string;
+  stripeSubscriptionId: string;
 }
 
-interface BrowserSessionRecord {
+interface WebSessionRecord {
   expiresAt: string;
-  principal: Principal;
+  ownerId: string;
+  ownerType: Principal["kind"];
   revokedAt: string | null;
 }
 
+interface DeviceSessionRecord {
+  expiresAt: string;
+  installationId: string;
+  revokedAt: string | null;
+  userId: string;
+}
+
+interface ExtensionCodeRecord {
+  expiresAt: string;
+  ownerId: string;
+  ownerType: Principal["kind"];
+  usedAt: string | null;
+}
+
+interface EmailChallengeRecord {
+  attempts: number;
+  codeHash: string;
+  createdAt: string;
+  expiresAt: string;
+  id: string;
+  usedAt: string | null;
+  userId: string;
+}
+
+interface RateLimitRecord {
+  attempts: number;
+  windowStartedAt: number;
+}
+
 const ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz-";
-const BROWSER_SESSION_COOKIE = "pinar_session";
-const BROWSER_SESSION_PATTERN = /^pbs_[A-Za-z0-9_-]{43}$/;
-const BROWSER_TICKET_PATTERN = /^pbt_[A-Za-z0-9_-]{43}$/;
+const CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+const DEVICE_TOKEN_PATTERN = /^pdt_[A-Za-z0-9_-]{43}$/;
+const EMAIL_CODE_PATTERN = /^\d{6}$/;
+const EXTENSION_CODE_PATTERN = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8}$/;
 const INSTALLATION_ID_PATTERN = /^ins_[A-Za-z0-9_-]{24}$/;
 const INSTALLATION_TOKEN_PATTERN = /^pit_[A-Za-z0-9_-]{43}$/;
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
-const memoryBrowserSessions = new Map<string, BrowserSessionRecord>();
-const memoryBrowserTickets = new Map<string, BrowserTicketRecord>();
+const WEB_SESSION_COOKIE = "pinar_session";
+const WEB_SESSION_PATTERN = /^pws_[A-Za-z0-9_-]{43}$/;
+const memoryAccounts = new Map<string, AccountRecord>();
 const memoryCollections = new Map<string, Collection>();
+const memoryDeviceSessions = new Map<string, DeviceSessionRecord>();
+const memoryEmailChallenges = new Map<string, EmailChallengeRecord>();
+const memoryExtensionCodes = new Map<string, ExtensionCodeRecord>();
 const memoryInstallations = new Map<string, InstallationRecord>();
 const memoryProjects = new Map<string, Project>();
+const memoryRateLimits = new Map<string, RateLimitRecord>();
 const memorySessions = new Map<string, Session>();
+const memoryWebSessions = new Map<string, WebSessionRecord>();
+let memoryMigrationFailure = false;
+let testNow: number | null = null;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -148,7 +210,7 @@ async function readJson(message: Request | Response) {
 
 function corsHeaders(initial?: HeadersInit) {
   const headers = new Headers(initial);
-  headers.set("Access-Control-Allow-Headers", "authorization, content-type, x-api-key, x-license-key, x-pinar-installation-id");
+  headers.set("Access-Control-Allow-Headers", "authorization, content-type, x-pinar-installation-id");
   headers.set("Access-Control-Allow-Methods", "DELETE, GET, OPTIONS, PATCH, POST");
   headers.set("Access-Control-Allow-Origin", "*");
   return headers;
@@ -184,6 +246,22 @@ function generateNanoId(size = 12) {
   return id;
 }
 
+function currentDate() {
+  return new Date(testNow ?? Date.now());
+}
+
+function generateCode(size: number) {
+  const bytes = new Uint8Array(size);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => CODE_ALPHABET[byte & 31]).join("");
+}
+
+function generateEmailCode() {
+  const bytes = new Uint32Array(1);
+  crypto.getRandomValues(bytes);
+  return String(bytes[0] % 1_000_000).padStart(6, "0");
+}
+
 function randomLetters(size = 8) {
   const alphabet = "abcdefghijklmnopqrstuvwxyz";
   const bytes = new Uint8Array(size);
@@ -205,6 +283,205 @@ async function hashCredential(value: string) {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+async function hashCode(env: CloudEnv, purpose: string, value: string) {
+  const pepper = env.AUTH_PEPPER;
+  if (!pepper) return null;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(pepper),
+    { hash: "SHA-256", name: "HMAC" },
+    false,
+    ["sign"],
+  );
+  const digest = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(`${purpose}:${value}`),
+  );
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function timingSafeEqual(left: string, right: string) {
+  const encoder = new TextEncoder();
+  const leftBytes = encoder.encode(left);
+  const rightBytes = encoder.encode(right);
+  if (leftBytes.byteLength !== rightBytes.byteLength) return false;
+  let difference = 0;
+  for (let index = 0; index < leftBytes.byteLength; index += 1) {
+    difference |= leftBytes[index] ^ rightBytes[index];
+  }
+  return difference === 0;
+}
+
+function accountPlan(value: unknown): AccountPlan {
+  return value === "lifetime" || value === "pro" ? value : "free";
+}
+
+function accountFromRow(row: Record<string, unknown>): AccountRecord {
+  return {
+    billingStatus: row.billing_status === "canceled" || row.billing_status === "past_due"
+      ? row.billing_status
+      : "active",
+    email: String(row.email || ""),
+    everPaid: Number(row.ever_paid) === 1,
+    id: String(row.id || ""),
+    plan: accountPlan(row.plan),
+    stripeCustomerId: String(row.stripe_customer_id || ""),
+    stripeSubscriptionId: String(row.stripe_subscription_id || ""),
+  };
+}
+
+function accountAuthSession(account: AccountRecord): AccountAuthSession {
+  return {
+    email: account.email,
+    kind: "account",
+    plan: account.plan,
+    userId: account.id,
+  };
+}
+
+function principalForAccount(account: AccountRecord): Principal {
+  return {
+    id: account.id,
+    isPermanent: account.plan === "lifetime" || account.plan === "pro",
+    kind: "account",
+    plan: account.plan,
+  };
+}
+
+function installationPrincipal(id: string): Principal {
+  return { id, isPermanent: false, kind: "installation", plan: "free" };
+}
+
+function normalizeEmail(value: string) {
+  return value.trim().toLocaleLowerCase("en-US");
+}
+
+function isEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) && value.length <= 254;
+}
+
+function clientIp(request: Request) {
+  return request.headers.get("cf-connecting-ip")?.trim() || "unknown";
+}
+
+function requestCountry(request: Request) {
+  const country = request.cf?.country;
+  return typeof country === "string" ? country.trim().toUpperCase() : null;
+}
+
+function pricingConfig(env: CloudEnv): PricingConfig | null {
+  const brazilDiscountPercent = Number(env.PRICING_BR_DISCOUNT_PERCENT);
+  const brazilExchangeRate = Number(env.PRICING_BR_EXCHANGE_RATE);
+  const lifetimeUsdCents = Number(env.PRICING_LIFETIME_USD_CENTS);
+  const monthlyUsdCents = Number(env.PRICING_MONTHLY_USD_CENTS);
+  const yearlyUsdCents = Number(env.PRICING_YEARLY_USD_CENTS);
+  if (!Number.isFinite(brazilDiscountPercent)
+    || brazilDiscountPercent <= 0
+    || brazilDiscountPercent >= 100
+    || !Number.isFinite(brazilExchangeRate)
+    || brazilExchangeRate <= 0
+    || !Number.isInteger(lifetimeUsdCents)
+    || lifetimeUsdCents <= 0
+    || !Number.isInteger(monthlyUsdCents)
+    || monthlyUsdCents <= 0
+    || !Number.isInteger(yearlyUsdCents)
+    || yearlyUsdCents <= 0) return null;
+  return {
+    brazilDiscountPercent,
+    brazilExchangeRate,
+    lifetimeUsdCents,
+    monthlyUsdCents,
+    yearlyUsdCents,
+  };
+}
+
+function validMutationOrigin(request: Request, env: CloudEnv) {
+  const origin = request.headers.get("origin");
+  if (!origin) return true;
+  if (origin === new URL(request.url).origin) return true;
+  const extensionOrigin = env.EXTENSION_ORIGIN?.trim().replace(/\/+$/, "");
+  return Boolean(extensionOrigin && origin === extensionOrigin);
+}
+
+function internalReturnTo(value: string) {
+  return value.startsWith("/") && !value.startsWith("//") && !value.includes("\\")
+    ? value
+    : "/app";
+}
+
+function webSessionCookie(token: string, maxAge: number) {
+  return `${WEB_SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
+}
+
+async function findAccountById(env: CloudEnv, id: string) {
+  if (env.DB) {
+    const row = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(id).first();
+    return row ? accountFromRow(row) : null;
+  }
+  return memoryAccounts.get(id) || null;
+}
+
+async function findAccountByEmail(env: CloudEnv, email: string) {
+  if (env.DB) {
+    const row = await env.DB.prepare("SELECT * FROM users WHERE email = ? COLLATE NOCASE")
+      .bind(email).first();
+    return row ? accountFromRow(row) : null;
+  }
+  return Array.from(memoryAccounts.values()).find((account) => account.email === email) || null;
+}
+
+async function authSessionForPrincipal(env: CloudEnv, principal: Principal): Promise<AuthSession | null> {
+  if (principal.kind === "installation") {
+    return { installationId: principal.id, kind: "installation", plan: "free" };
+  }
+  const account = await findAccountById(env, principal.id);
+  return account ? accountAuthSession(account) : null;
+}
+
+async function consumeRateLimit(
+  env: CloudEnv,
+  action: string,
+  scope: string,
+  limit: number,
+  windowMs: number,
+) {
+  const scopeHash = await hashCredential(scope);
+  const now = currentDate();
+  const cutoff = new Date(now.getTime() - windowMs).toISOString();
+  if (env.DB) {
+    const row = await env.DB.prepare(`
+      INSERT INTO auth_rate_limits (action, scope_hash, window_started_at, attempts)
+      VALUES (?, ?, ?, 1)
+      ON CONFLICT(action, scope_hash) DO UPDATE SET
+        attempts = CASE WHEN window_started_at <= ? THEN 1 ELSE attempts + 1 END,
+        window_started_at = CASE WHEN window_started_at <= ? THEN excluded.window_started_at ELSE window_started_at END
+      RETURNING attempts
+    `).bind(action, scopeHash, now.toISOString(), cutoff, cutoff).first();
+    return Number(row?.attempts || 0) <= limit;
+  }
+  const key = `${action}:${scopeHash}`;
+  const record = memoryRateLimits.get(key);
+  if (!record || record.windowStartedAt <= now.getTime() - windowMs) {
+    memoryRateLimits.set(key, { attempts: 1, windowStartedAt: now.getTime() });
+    return true;
+  }
+  record.attempts += 1;
+  return record.attempts <= limit;
+}
+
+async function withinRateLimits(
+  env: CloudEnv,
+  action: string,
+  scopes: Array<{ limit: number; scope: string }>,
+  windowMs: number,
+) {
+  for (const item of scopes) {
+    if (!await consumeRateLimit(env, action, item.scope, item.limit, windowMs)) return false;
+  }
+  return true;
+}
+
 function sessionFromRow(row: Record<string, unknown>): Session {
   let pins: Pin[] = [];
   try {
@@ -221,7 +498,7 @@ function sessionFromRow(row: Record<string, unknown>): Session {
     page: { title: String(row.title || ""), url: String(row.url || "") },
     pinCount: Number(row.pin_count || 0),
     pins,
-    plan: row.plan === "pro" ? "pro" : "free",
+    plan: accountPlan(row.plan),
     position: Number(row.position || 0),
     shotId: String(row.shot_id || ""),
     shotUrl: typeof row.shot_url === "string" ? row.shot_url : null,
@@ -350,46 +627,67 @@ async function listCollectionSessions(env: CloudEnv, principal: Principal, colle
     .sort((left, right) => Number(left.position) - Number(right.position));
 }
 
+async function principalFromOwner(env: CloudEnv, ownerType: Principal["kind"], ownerId: string) {
+  if (ownerType === "account") {
+    const account = await findAccountById(env, ownerId);
+    return account ? principalForAccount(account) : null;
+  }
+  if (env.DB) {
+    const installation = await env.DB.prepare(
+      "SELECT id FROM installations WHERE id = ? AND status = 'active'",
+    ).bind(ownerId).first();
+    return installation ? installationPrincipal(String(installation.id)) : null;
+  }
+  return memoryInstallations.get(ownerId)?.status === "active" ? installationPrincipal(ownerId) : null;
+}
+
 async function resolvePrincipal(request: Request, env: CloudEnv): Promise<Principal | null> {
-  const now = new Date().toISOString();
-  const browserToken = cookieValue(request, BROWSER_SESSION_COOKIE);
-  if (BROWSER_SESSION_PATTERN.test(browserToken)) {
-    const tokenHash = await hashCredential(browserToken);
+  const now = currentDate().toISOString();
+  const webToken = cookieValue(request, WEB_SESSION_COOKIE);
+  if (WEB_SESSION_PATTERN.test(webToken)) {
+    const tokenHash = await hashCredential(webToken);
     if (env.DB) {
       try {
-        const session = await env.DB.prepare(
-          "SELECT owner_id, plan, is_permanent FROM browser_sessions WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ?",
-        ).bind(tokenHash, now).first();
-        if (session) {
-          return {
-            id: String(session.owner_id),
-            isPermanent: Number(session.is_permanent) === 1,
-            kind: "browser",
-            plan: session.plan === "pro" ? "pro" : "free",
-          };
+        const session = await env.DB.prepare(`
+          SELECT owner_id, owner_type FROM web_sessions
+          WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ?
+        `).bind(tokenHash, now).first();
+        if (session && (session.owner_type === "account" || session.owner_type === "installation")) {
+          return principalFromOwner(env, session.owner_type, String(session.owner_id));
         }
       } catch {
         return null;
       }
     } else {
-      const session = memoryBrowserSessions.get(tokenHash);
-      if (session && !session.revokedAt && session.expiresAt > now) return session.principal;
-    }
-  }
-  const token = bearerToken(request);
-  const keyHeader = request.headers.get("x-license-key") || request.headers.get("x-api-key") || "";
-  const candidateKey = token || keyHeader;
-  if (candidateKey && env.DB) {
-    try {
-      const user = await env.DB.prepare("SELECT * FROM users WHERE license_key = ? AND status = 'active'")
-        .bind(candidateKey).first();
-      if (user?.plan === "pro") {
-        return { id: String(user.id), isPermanent: true, kind: "account", plan: "pro", user };
+      const session = memoryWebSessions.get(tokenHash);
+      if (session && !session.revokedAt && session.expiresAt > now) {
+        return principalFromOwner(env, session.ownerType, session.ownerId);
       }
-    } catch {
-      return null;
     }
   }
+
+  const token = bearerToken(request);
+  if (DEVICE_TOKEN_PATTERN.test(token)) {
+    const tokenHash = await hashCredential(token);
+    if (env.DB) {
+      try {
+        const session = await env.DB.prepare(`
+          SELECT user_id FROM device_sessions
+          WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ?
+        `).bind(tokenHash, now).first();
+        if (!session) return null;
+        await env.DB.prepare("UPDATE device_sessions SET last_seen_at = ? WHERE token_hash = ?")
+          .bind(now, tokenHash).run();
+        return principalFromOwner(env, "account", String(session.user_id));
+      } catch {
+        return null;
+      }
+    }
+    const session = memoryDeviceSessions.get(tokenHash);
+    if (!session || session.revokedAt || session.expiresAt <= now) return null;
+    return principalFromOwner(env, "account", session.userId);
+  }
+
   const installationId = request.headers.get("x-pinar-installation-id") || "";
   if (!INSTALLATION_ID_PATTERN.test(installationId) || !INSTALLATION_TOKEN_PATTERN.test(token)) return null;
   const tokenHash = await hashCredential(token);
@@ -400,15 +698,15 @@ async function resolvePrincipal(request: Request, env: CloudEnv): Promise<Princi
       ).bind(installationId, tokenHash).first();
       if (!installation) return null;
       await env.DB.prepare("UPDATE installations SET last_seen_at = ?, updated_at = ? WHERE id = ?")
-        .bind(now, now, installationId).run().catch(() => undefined);
-      return { id: String(installation.id), isPermanent: false, kind: "installation", plan: "free" };
+        .bind(now, now, installationId).run();
+      return installationPrincipal(String(installation.id));
     } catch {
       return null;
     }
   }
   const installation = memoryInstallations.get(installationId);
   if (!installation || installation.status !== "active" || installation.tokenHash !== tokenHash) return null;
-  return { id: installationId, isPermanent: false, kind: "installation", plan: "free" };
+  return installationPrincipal(installationId);
 }
 
 async function registerInstallation(request: Request, env: CloudEnv) {
@@ -419,7 +717,7 @@ async function registerInstallation(request: Request, env: CloudEnv) {
     return json({ error: "Invalid installation identity" }, 400);
   }
   const tokenHash = await hashCredential(installationToken);
-  const now = new Date().toISOString();
+  const now = currentDate().toISOString();
   if (env.DB) {
     try {
       const existing = await env.DB.prepare("SELECT token_hash, status FROM installations WHERE id = ?")
@@ -449,153 +747,475 @@ async function registerInstallation(request: Request, env: CloudEnv) {
   return json({ installationId, ok: true }, 201);
 }
 
-async function rotateInstallation(request: Request, env: CloudEnv) {
-  const current = await resolvePrincipal(request, env);
-  if (!current || current.kind !== "installation") return json({ error: "Unauthorized" }, 401);
-  const body = await readJson(request);
-  const nextId = stringValue(body, "installationId");
-  const nextToken = stringValue(body, "installationToken");
-  if (nextId === current.id || !INSTALLATION_ID_PATTERN.test(nextId) || !INSTALLATION_TOKEN_PATTERN.test(nextToken)) {
-    return json({ error: "Invalid replacement identity" }, 400);
-  }
-  const nextTokenHash = await hashCredential(nextToken);
-  const now = new Date().toISOString();
+async function issueWebSession(env: CloudEnv, principal: Principal) {
+  const token = randomCredential("pws_");
+  const tokenHash = await hashCredential(token);
+  const now = currentDate();
+  const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
   if (env.DB) {
+    await env.DB.prepare(
+      "INSERT INTO web_sessions (token_hash, owner_type, owner_id, expires_at, revoked_at, created_at) VALUES (?, ?, ?, ?, NULL, ?)",
+    ).bind(tokenHash, principal.kind, principal.id, expiresAt, now.toISOString()).run();
+  } else {
+    memoryWebSessions.set(tokenHash, {
+      expiresAt,
+      ownerId: principal.id,
+      ownerType: principal.kind,
+      revokedAt: null,
+    });
+  }
+  return { expiresAt, token };
+}
+
+async function authSession(request: Request, env: CloudEnv) {
+  const principal = await resolvePrincipal(request, env);
+  if (!principal) return json({ session: null }, 401, { "Cache-Control": "no-store" });
+  return json(
+    { session: await authSessionForPrincipal(env, principal) },
+    200,
+    { "Cache-Control": "no-store" },
+  );
+}
+
+async function createExtensionCode(request: Request, env: CloudEnv) {
+  const principal = await resolvePrincipal(request, env);
+  if (!principal) return json({ error: "Unauthorized" }, 401);
+  const allowed = await withinRateLimits(
+    env,
+    "extension-code",
+    [
+      { limit: 10, scope: "ip:" + clientIp(request) },
+      { limit: 10, scope: principal.kind + ":" + principal.id },
+    ],
+    5 * 60 * 1000,
+  );
+  if (!allowed) return json({ error: "Too many requests" }, 429);
+  const code = generateCode(8);
+  const codeHash = await hashCode(env, "extension-code", code);
+  if (!codeHash) return json({ error: "Authentication is not configured" }, 503);
+  const now = currentDate();
+  const expiresAt = new Date(now.getTime() + 5 * 60 * 1000).toISOString();
+  if (env.DB) {
+    await env.DB.prepare(
+      "INSERT INTO extension_codes (code_hash, owner_type, owner_id, expires_at, used_at, created_at) VALUES (?, ?, ?, ?, NULL, ?)",
+    ).bind(codeHash, principal.kind, principal.id, expiresAt, now.toISOString()).run();
+  } else {
+    memoryExtensionCodes.set(codeHash, {
+      expiresAt,
+      ownerId: principal.id,
+      ownerType: principal.kind,
+      usedAt: null,
+    });
+  }
+  return json({ code, expiresAt, ok: true }, 201, { "Cache-Control": "no-store" });
+}
+
+async function exchangeExtensionCode(request: Request, env: CloudEnv) {
+  const body = await readJson(request);
+  const code = stringValue(body, "code").replace(/[\s-]/g, "").toUpperCase();
+  if (!EXTENSION_CODE_PATTERN.test(code)) return json({ error: "Invalid or expired code" }, 400);
+  const allowed = await withinRateLimits(
+    env,
+    "extension-code-exchange",
+    [{ limit: 20, scope: "ip:" + clientIp(request) }],
+    5 * 60 * 1000,
+  );
+  if (!allowed) return json({ error: "Too many requests" }, 429);
+  const codeHash = await hashCode(env, "extension-code", code);
+  if (!codeHash) return json({ error: "Authentication is not configured" }, 503);
+  const now = currentDate().toISOString();
+  let ownerId = "";
+  let ownerType: Principal["kind"] | null = null;
+  if (env.DB) {
+    const claimed = await env.DB.prepare(
+      "UPDATE extension_codes SET used_at = ? WHERE code_hash = ? AND used_at IS NULL AND expires_at > ? RETURNING owner_id, owner_type",
+    ).bind(now, codeHash, now).first();
+    if (claimed && (claimed.owner_type === "account" || claimed.owner_type === "installation")) {
+      ownerId = String(claimed.owner_id);
+      ownerType = claimed.owner_type;
+    }
+  } else {
+    const record = memoryExtensionCodes.get(codeHash);
+    if (record && !record.usedAt && record.expiresAt > now) {
+      record.usedAt = now;
+      ownerId = record.ownerId;
+      ownerType = record.ownerType;
+    }
+  }
+  if (!ownerType) return json({ error: "Invalid or expired code" }, 400);
+  const principal = await principalFromOwner(env, ownerType, ownerId);
+  if (!principal) return json({ error: "Invalid or expired code" }, 400);
+  const session = await authSessionForPrincipal(env, principal);
+  if (!session) return json({ error: "Invalid or expired code" }, 400);
+  const issued = await issueWebSession(env, principal);
+  const redirectTo = internalReturnTo(stringValue(body, "returnTo"));
+  return json({ ok: true, redirectTo, session }, 200, {
+    "Cache-Control": "no-store",
+    "Set-Cookie": webSessionCookie(issued.token, 30 * 24 * 60 * 60),
+  });
+}
+
+async function requestEmailCode(request: Request, env: CloudEnv) {
+  const body = await readJson(request);
+  const email = normalizeEmail(stringValue(body, "email"));
+  const generic = { accepted: true, expiresInSeconds: 600 };
+  if (!isEmail(email)) return json(generic, 202, { "Cache-Control": "no-store" });
+  const allowed = await withinRateLimits(
+    env,
+    "email-code",
+    [
+      { limit: 10, scope: "ip:" + clientIp(request) },
+      { limit: 5, scope: "email:" + email },
+    ],
+    15 * 60 * 1000,
+  );
+  if (!allowed) return json({ error: "Too many requests" }, 429);
+  const account = await findAccountByEmail(env, email);
+  const code = generateEmailCode();
+  const codeHash = await hashCode(env, "email-code", email + ":" + code);
+  if (!account?.everPaid || !codeHash || !env.EMAIL) {
+    return json(generic, 202, { "Cache-Control": "no-store" });
+  }
+  const now = currentDate();
+  const challenge: EmailChallengeRecord = {
+    attempts: 0,
+    codeHash,
+    createdAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + 10 * 60 * 1000).toISOString(),
+    id: "emc_" + generateNanoId(24),
+    usedAt: null,
+    userId: account.id,
+  };
+  if (env.DB) {
+    await env.DB.prepare(
+      "INSERT INTO email_challenges (id, user_id, code_hash, attempts, expires_at, used_at, created_at) VALUES (?, ?, ?, 0, ?, NULL, ?)",
+    ).bind(
+      challenge.id,
+      challenge.userId,
+      challenge.codeHash,
+      challenge.expiresAt,
+      challenge.createdAt,
+    ).run();
+  } else {
+    memoryEmailChallenges.set(challenge.id, challenge);
+  }
+  try {
+    await env.EMAIL.send({
+      from: { email: "noreply@pinar.dev", name: "Pinar" },
+      html: "<p>Your Pinar sign-in code is:</p><p><strong>" + code + "</strong></p><p>This code expires in 10 minutes.</p>",
+      subject: "Your Pinar sign-in code",
+      text: "Your Pinar sign-in code is " + code + ". It expires in 10 minutes.",
+      to: account.email,
+    });
+  } catch (error) {
+    console.error(JSON.stringify({
+      error: error instanceof Error ? error.message : String(error),
+      message: "email_code_delivery_failed",
+    }));
+    if (env.DB) {
+      await env.DB.prepare("DELETE FROM email_challenges WHERE id = ?").bind(challenge.id).run();
+    } else {
+      memoryEmailChallenges.delete(challenge.id);
+    }
+  }
+  return json(generic, 202, { "Cache-Control": "no-store" });
+}
+
+async function latestEmailChallenge(env: CloudEnv, userId: string) {
+  if (env.DB) {
+    const row = await env.DB.prepare(
+      "SELECT * FROM email_challenges WHERE user_id = ? AND used_at IS NULL ORDER BY created_at DESC LIMIT 1",
+    ).bind(userId).first();
+    return row
+      ? {
+        attempts: Number(row.attempts || 0),
+        codeHash: String(row.code_hash || ""),
+        createdAt: String(row.created_at || ""),
+        expiresAt: String(row.expires_at || ""),
+        id: String(row.id || ""),
+        usedAt: typeof row.used_at === "string" ? row.used_at : null,
+        userId: String(row.user_id || ""),
+      } satisfies EmailChallengeRecord
+      : null;
+  }
+  return Array.from(memoryEmailChallenges.values())
+    .filter((challenge) => challenge.userId === userId && !challenge.usedAt)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0] || null;
+}
+
+async function recordWrongEmailCode(env: CloudEnv, challenge: EmailChallengeRecord) {
+  if (env.DB) {
+    const row = await env.DB.prepare(
+      "UPDATE email_challenges SET attempts = attempts + 1 WHERE id = ? AND used_at IS NULL RETURNING attempts",
+    ).bind(challenge.id).first();
+    return Number(row?.attempts || 0);
+  }
+  challenge.attempts += 1;
+  return challenge.attempts;
+}
+
+async function claimEmailChallenge(env: CloudEnv, challenge: EmailChallengeRecord) {
+  const now = currentDate().toISOString();
+  if (env.DB) {
+    const row = await env.DB.prepare(
+      "UPDATE email_challenges SET used_at = ? WHERE id = ? AND used_at IS NULL AND attempts < 5 AND expires_at > ? RETURNING id",
+    ).bind(now, challenge.id, now).first();
+    return Boolean(row);
+  }
+  if (challenge.usedAt || challenge.attempts >= 5 || challenge.expiresAt <= now) return false;
+  challenge.usedAt = now;
+  return true;
+}
+
+async function verifyInstallationCredentials(
+  env: CloudEnv,
+  installationId: string,
+  installationToken: string,
+) {
+  if (!INSTALLATION_ID_PATTERN.test(installationId) || !INSTALLATION_TOKEN_PATTERN.test(installationToken)) {
+    return false;
+  }
+  const tokenHash = await hashCredential(installationToken);
+  if (env.DB) {
+    const installation = await env.DB.prepare(
+      "SELECT id FROM installations WHERE id = ? AND token_hash = ? AND status = 'active'",
+    ).bind(installationId, tokenHash).first();
+    return Boolean(installation);
+  }
+  const installation = memoryInstallations.get(installationId);
+  return installation?.status === "active" && installation.tokenHash === tokenHash;
+}
+
+async function migrateInstallationToAccount(
+  env: CloudEnv,
+  account: AccountRecord,
+  installationId: string,
+) {
+  const accountPrincipal = principalForAccount(account);
+  const sourcePrincipal = installationPrincipal(installationId);
+  const source = await ensureDefaultDestination(env, sourcePrincipal);
+  const target = await ensureDefaultDestination(env, accountPrincipal);
+  const token = randomCredential("pdt_");
+  const tokenHash = await hashCredential(token);
+  const now = currentDate();
+  const nowIso = now.toISOString();
+  const expiresAt = new Date(now.getTime() + 180 * 24 * 60 * 60 * 1000).toISOString();
+  const deviceId = "dev_" + generateNanoId(24);
+
+  if (env.DB) {
+    const projectPosition = await env.DB.prepare(
+      "SELECT COALESCE(MAX(position), -1) + 1 AS next_position FROM projects WHERE owner_id = ?",
+    ).bind(account.id).first();
+    const collectionPosition = await env.DB.prepare(
+      "SELECT COALESCE(MAX(position), -1) + 1 AS next_position FROM collections WHERE owner_id = ? AND project_id = ?",
+    ).bind(account.id, target.projectId).first();
+    const inboxPosition = await env.DB.prepare(
+      "SELECT COALESCE(MAX(position), -1) + 1 AS next_position FROM sessions WHERE user_id = ? AND collection_id = ?",
+    ).bind(account.id, target.collectionId).first();
     try {
       await env.DB.batch([
         env.DB.prepare(
-          "INSERT INTO installations (id, token_hash, status, created_at, updated_at, last_seen_at) VALUES (?, ?, 'active', ?, ?, ?)",
-        ).bind(nextId, nextTokenHash, now, now, now),
-        env.DB.prepare("UPDATE sessions SET user_id = ? WHERE user_id = ?").bind(nextId, current.id),
-        env.DB.prepare("UPDATE projects SET owner_id = ? WHERE owner_id = ?").bind(nextId, current.id),
-        env.DB.prepare("UPDATE collections SET owner_id = ? WHERE owner_id = ?").bind(nextId, current.id),
-        env.DB.prepare("UPDATE installations SET status = 'revoked', updated_at = ? WHERE id = ?").bind(now, current.id),
-        env.DB.prepare("UPDATE browser_sessions SET revoked_at = ? WHERE owner_id = ? AND revoked_at IS NULL")
-          .bind(now, current.id),
-        env.DB.prepare("DELETE FROM browser_tickets WHERE owner_id = ?").bind(current.id),
+          "UPDATE sessions SET collection_id = ?, position = position + ? WHERE user_id = ? AND collection_id = ?",
+        ).bind(target.collectionId, Number(inboxPosition?.next_position || 0), installationId, source.collectionId),
+        env.DB.prepare(
+          "UPDATE sessions SET user_id = ?, plan = ?, is_permanent = ? WHERE user_id = ?",
+        ).bind(account.id, account.plan, account.plan === "free" ? 0 : 1, installationId),
+        env.DB.prepare(
+          "UPDATE collections SET parent_id = ? WHERE owner_id = ? AND parent_id = ?",
+        ).bind(target.collectionId, installationId, source.collectionId),
+        env.DB.prepare(
+          "UPDATE collections SET owner_id = ?, project_id = ?, position = position + ?, updated_at = ? WHERE owner_id = ? AND project_id = ? AND id <> ?",
+        ).bind(
+          account.id,
+          target.projectId,
+          Number(collectionPosition?.next_position || 0),
+          nowIso,
+          installationId,
+          source.projectId,
+          source.collectionId,
+        ),
+        env.DB.prepare(
+          "UPDATE projects SET owner_id = ?, position = position + ?, updated_at = ? WHERE owner_id = ? AND id <> ?",
+        ).bind(
+          account.id,
+          Number(projectPosition?.next_position || 0),
+          nowIso,
+          installationId,
+          source.projectId,
+        ),
+        env.DB.prepare("DELETE FROM collections WHERE id = ? AND owner_id = ?")
+          .bind(source.collectionId, installationId),
+        env.DB.prepare(
+          "UPDATE collections SET owner_id = ?, updated_at = ? WHERE owner_id = ?",
+        ).bind(account.id, nowIso, installationId),
+        env.DB.prepare("DELETE FROM projects WHERE id = ? AND owner_id = ?")
+          .bind(source.projectId, installationId),
+        env.DB.prepare(
+          "UPDATE installations SET status = 'migrated', migrated_to_user_id = ?, updated_at = ? WHERE id = ? AND status = 'active'",
+        ).bind(account.id, nowIso, installationId),
+        env.DB.prepare(
+          "UPDATE web_sessions SET revoked_at = ? WHERE owner_type = 'installation' AND owner_id = ? AND revoked_at IS NULL",
+        ).bind(nowIso, installationId),
+        env.DB.prepare(
+          "DELETE FROM extension_codes WHERE owner_type = 'installation' AND owner_id = ?",
+        ).bind(installationId),
+        env.DB.prepare(
+          "INSERT INTO device_sessions (id, token_hash, user_id, installation_id, expires_at, revoked_at, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)",
+        ).bind(deviceId, tokenHash, account.id, installationId, expiresAt, nowIso, nowIso),
       ]);
     } catch {
-      return json({ error: "Installation rotation failed" }, 409);
+      return null;
     }
   } else {
-    if (memoryInstallations.has(nextId)) return json({ error: "Installation identity already exists" }, 409);
-    memoryInstallations.set(nextId, { status: "active", tokenHash: nextTokenHash });
-    const previous = memoryInstallations.get(current.id);
-    if (previous) previous.status = "revoked";
+    if (memoryMigrationFailure) return null;
+    const inboxPosition = Array.from(memorySessions.values()).reduce(
+      (position, session) => session.userId === account.id && session.collectionId === target.collectionId
+        ? Math.max(position, Number(session.position || 0) + 1)
+        : position,
+      0,
+    );
+    const projectPosition = Array.from(memoryProjects.values()).reduce(
+      (position, project) => project.ownerId === account.id
+        ? Math.max(position, project.position + 1)
+        : position,
+      0,
+    );
+    const collectionPosition = Array.from(memoryCollections.values()).reduce(
+      (position, collection) => collection.ownerId === account.id && collection.projectId === target.projectId
+        ? Math.max(position, collection.position + 1)
+        : position,
+      0,
+    );
     for (const session of memorySessions.values()) {
-      if (session.userId === current.id) session.userId = nextId;
+      if (session.userId !== installationId) continue;
+      session.userId = account.id;
+      session.plan = account.plan;
+      session.isPermanent = account.plan !== "free";
+      if (session.collectionId === source.collectionId) {
+        session.collectionId = target.collectionId;
+        session.position = Number(session.position || 0) + inboxPosition;
+      }
     }
     for (const project of memoryProjects.values()) {
-      if (project.ownerId === current.id) project.ownerId = nextId;
+      if (project.ownerId !== installationId || project.id === source.projectId) continue;
+      project.ownerId = account.id;
+      project.position += projectPosition;
+      project.updatedAt = nowIso;
     }
     for (const collection of memoryCollections.values()) {
-      if (collection.ownerId === current.id) collection.ownerId = nextId;
-    }
-    for (const browserSession of memoryBrowserSessions.values()) {
-      if (browserSession.principal.id === current.id) browserSession.revokedAt = now;
-    }
-    for (const [ticketHash, ticket] of memoryBrowserTickets) {
-      if (ticket.principal.id === current.id) memoryBrowserTickets.delete(ticketHash);
-    }
-  }
-  return json({ installationId: nextId, ok: true });
-}
-
-async function createBrowserTicket(request: Request, env: CloudEnv) {
-  const principal = await resolvePrincipal(request, env);
-  if (!principal) return json({ error: "Unauthorized" }, 401);
-  const ticket = randomCredential("pbt_");
-  const tokenHash = await hashCredential(ticket);
-  const now = new Date();
-  const expiresAt = new Date(now.getTime() + 60_000).toISOString();
-  const ticketPrincipal: Principal = { ...principal, kind: "browser", user: undefined };
-  if (env.DB) {
-    try {
-      await env.DB.prepare(
-        "INSERT INTO browser_tickets (token_hash, owner_id, plan, is_permanent, expires_at, used_at, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?)",
-      ).bind(tokenHash, principal.id, principal.plan, principal.isPermanent ? 1 : 0, expiresAt, now.toISOString()).run();
-    } catch {
-      return json({ error: "Browser ticket unavailable" }, 503);
-    }
-  } else {
-    memoryBrowserTickets.set(tokenHash, { expiresAt, principal: ticketPrincipal, usedAt: null });
-  }
-  const origin = new URL(request.url).origin;
-  return json({ expiresAt, ok: true, url: `${origin}/api/auth/device?ticket=${encodeURIComponent(ticket)}` });
-}
-
-async function exchangeBrowserTicket(request: Request, env: CloudEnv) {
-  const url = new URL(request.url);
-  const ticket = url.searchParams.get("ticket") || "";
-  if (!BROWSER_TICKET_PATTERN.test(ticket)) return text("Open history from the Pinar extension.", 401);
-  const tokenHash = await hashCredential(ticket);
-  const now = new Date();
-  const nowIso = now.toISOString();
-  let principal: Principal | null = null;
-  if (env.DB) {
-    try {
-      const claimed = await env.DB.prepare(
-        "UPDATE browser_tickets SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND expires_at > ? RETURNING owner_id, plan, is_permanent",
-      ).bind(nowIso, tokenHash, nowIso).first();
-      if (claimed) {
-        principal = {
-          id: String(claimed.owner_id),
-          isPermanent: Number(claimed.is_permanent) === 1,
-          kind: "browser",
-          plan: claimed.plan === "pro" ? "pro" : "free",
-        };
+      if (collection.ownerId !== installationId || collection.id === source.collectionId) continue;
+      collection.ownerId = account.id;
+      collection.updatedAt = nowIso;
+      if (collection.projectId === source.projectId) {
+        collection.projectId = target.projectId;
+        collection.position += collectionPosition;
       }
-    } catch {
-      return text("History authentication is temporarily unavailable.", 503);
+      if (collection.parentId === source.collectionId) collection.parentId = target.collectionId;
     }
-  } else {
-    const record = memoryBrowserTickets.get(tokenHash);
-    if (record && !record.usedAt && record.expiresAt > nowIso) {
-      record.usedAt = nowIso;
-      principal = record.principal;
+    memoryCollections.delete(source.collectionId);
+    memoryProjects.delete(source.projectId);
+    const installation = memoryInstallations.get(installationId);
+    if (installation) installation.status = "migrated";
+    for (const session of memoryWebSessions.values()) {
+      if (session.ownerType === "installation" && session.ownerId === installationId) {
+        session.revokedAt = nowIso;
+      }
     }
+    for (const [codeHash, code] of memoryExtensionCodes) {
+      if (code.ownerType === "installation" && code.ownerId === installationId) {
+        memoryExtensionCodes.delete(codeHash);
+      }
+    }
+    memoryDeviceSessions.set(tokenHash, {
+      expiresAt,
+      installationId,
+      revokedAt: null,
+      userId: account.id,
+    });
   }
-  if (!principal) return text("This history link is invalid or expired.", 401);
-  const browserToken = randomCredential("pbs_");
-  const browserTokenHash = await hashCredential(browserToken);
-  const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
-  if (env.DB) {
-    try {
-      await env.DB.prepare(
-        "INSERT INTO browser_sessions (token_hash, owner_id, plan, is_permanent, expires_at, revoked_at, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?)",
-      ).bind(browserTokenHash, principal.id, principal.plan, principal.isPermanent ? 1 : 0, expiresAt, nowIso).run();
-    } catch {
-      return text("History authentication is temporarily unavailable.", 503);
-    }
-  } else {
-    memoryBrowserSessions.set(browserTokenHash, { expiresAt, principal, revokedAt: null });
+
+  return {
+    expiresAt,
+    session: accountAuthSession(account),
+    token,
+  };
+}
+
+async function verifyEmailCode(request: Request, env: CloudEnv) {
+  const body = await readJson(request);
+  const code = stringValue(body, "code").trim();
+  const email = normalizeEmail(stringValue(body, "email"));
+  const invalid = () => json({ error: "Invalid or expired code" }, 400);
+  if (!isEmail(email) || !EMAIL_CODE_PATTERN.test(code)) return invalid();
+  const allowed = await withinRateLimits(
+    env,
+    "email-code-verify",
+    [
+      { limit: 20, scope: "ip:" + clientIp(request) },
+      { limit: 10, scope: "email:" + email },
+    ],
+    15 * 60 * 1000,
+  );
+  if (!allowed) return json({ error: "Too many requests" }, 429);
+  const account = await findAccountByEmail(env, email);
+  if (!account?.everPaid) return invalid();
+  const challenge = await latestEmailChallenge(env, account.id);
+  const now = currentDate().toISOString();
+  if (!challenge || challenge.usedAt || challenge.attempts >= 5 || challenge.expiresAt <= now) return invalid();
+  const candidateHash = await hashCode(env, "email-code", email + ":" + code);
+  if (!candidateHash) return json({ error: "Authentication is not configured" }, 503);
+  if (!timingSafeEqual(candidateHash, challenge.codeHash)) {
+    await recordWrongEmailCode(env, challenge);
+    return invalid();
   }
-  return new Response(null, {
-    headers: {
-      "Cache-Control": "no-store",
-      Location: "/history",
-      "Referrer-Policy": "no-referrer",
-      "Set-Cookie": `${BROWSER_SESSION_COOKIE}=${encodeURIComponent(browserToken)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
-    },
-    status: 302,
+
+  const installationId = stringValue(body, "installationId");
+  const installationToken = stringValue(body, "installationToken");
+  if (installationId || installationToken) {
+    if (!await verifyInstallationCredentials(env, installationId, installationToken)) return invalid();
+    if (!await claimEmailChallenge(env, challenge)) return invalid();
+    const device = await migrateInstallationToAccount(env, account, installationId);
+    return device
+      ? json({ device, ok: true, session: device.session }, 200, { "Cache-Control": "no-store" })
+      : json({ error: "Account migration failed" }, 409);
+  }
+
+  if (!await claimEmailChallenge(env, challenge)) return invalid();
+  const principal = principalForAccount(account);
+  const issued = await issueWebSession(env, principal);
+  return json({ ok: true, redirectTo: internalReturnTo(stringValue(body, "returnTo")), session: accountAuthSession(account) }, 200, {
+    "Cache-Control": "no-store",
+    "Set-Cookie": webSessionCookie(issued.token, 30 * 24 * 60 * 60),
   });
 }
 
 async function logout(request: Request, env: CloudEnv) {
-  const browserToken = cookieValue(request, BROWSER_SESSION_COOKIE);
-  if (BROWSER_SESSION_PATTERN.test(browserToken)) {
-    const tokenHash = await hashCredential(browserToken);
-    const now = new Date().toISOString();
+  const now = currentDate().toISOString();
+  const webToken = cookieValue(request, WEB_SESSION_COOKIE);
+  if (WEB_SESSION_PATTERN.test(webToken)) {
+    const tokenHash = await hashCredential(webToken);
     if (env.DB) {
-      await env.DB.prepare("UPDATE browser_sessions SET revoked_at = ? WHERE token_hash = ?")
-        .bind(now, tokenHash).run().catch(() => undefined);
+      await env.DB.prepare("UPDATE web_sessions SET revoked_at = ? WHERE token_hash = ?")
+        .bind(now, tokenHash).run();
     } else {
-      const session = memoryBrowserSessions.get(tokenHash);
+      const session = memoryWebSessions.get(tokenHash);
+      if (session) session.revokedAt = now;
+    }
+  }
+  const deviceToken = bearerToken(request);
+  if (DEVICE_TOKEN_PATTERN.test(deviceToken)) {
+    const tokenHash = await hashCredential(deviceToken);
+    if (env.DB) {
+      await env.DB.prepare("UPDATE device_sessions SET revoked_at = ? WHERE token_hash = ?")
+        .bind(now, tokenHash).run();
+    } else {
+      const session = memoryDeviceSessions.get(tokenHash);
       if (session) session.revokedAt = now;
     }
   }
   return json({ ok: true }, 200, {
-    "Set-Cookie": `${BROWSER_SESSION_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`,
+    "Cache-Control": "no-store",
+    "Set-Cookie": webSessionCookie("", 0),
   });
 }
 
@@ -606,9 +1226,14 @@ async function createCheckout(request: Request, env: CloudEnv) {
   const interval = requestedInterval === "year" || requestedInterval === "lifetime" ? requestedInterval : "month";
   const origin = new URL(request.url).origin;
   const isLifetime = interval === "lifetime";
-  const priceId = isLifetime
-    ? env.STRIPE_PRICE_LIFETIME || env.STRIPE_PRICE_YEARLY
-    : interval === "year" ? env.STRIPE_PRICE_YEARLY : env.STRIPE_PRICE_MONTHLY;
+  const isBrazil = requestCountry(request) === "BR";
+  const priceId = isBrazil
+    ? isLifetime
+      ? env.STRIPE_PRICE_BR_LIFETIME
+      : interval === "year" ? env.STRIPE_PRICE_BR_YEARLY : env.STRIPE_PRICE_BR_MONTHLY
+    : isLifetime
+      ? env.STRIPE_PRICE_LIFETIME
+      : interval === "year" ? env.STRIPE_PRICE_YEARLY : env.STRIPE_PRICE_MONTHLY;
   if (!priceId) return json({ error: "Stripe price is not configured" }, 500);
   const params = new URLSearchParams({
     allow_promotion_codes: "true",
@@ -620,7 +1245,10 @@ async function createCheckout(request: Request, env: CloudEnv) {
     success_url: `${origin}/success?session_id={CHECKOUT_SESSION_ID}`,
   });
   const email = stringValue(body, "email");
-  if (email) params.set("customer_email", email);
+  const principal = await resolvePrincipal(request, env);
+  const account = principal?.kind === "account" ? await findAccountById(env, principal.id) : null;
+  if (account?.stripeCustomerId) params.set("customer", account.stripeCustomerId);
+  else if (email) params.set("customer_email", normalizeEmail(email));
   const response = await fetch("https://api.stripe.com/v1/checkout/sessions", {
     body: params,
     headers: {
@@ -638,19 +1266,21 @@ async function createCheckout(request: Request, env: CloudEnv) {
 }
 
 async function createPortal(request: Request, env: CloudEnv) {
-  const body = await readJson(request);
-  const licenseKey = stringValue(body, "licenseKey") || request.headers.get("x-license-key") || "";
-  const origin = new URL(request.url).origin;
-  let customerId = "";
-  if (licenseKey && env.DB) {
-    const user = await env.DB.prepare("SELECT stripe_customer_id FROM users WHERE license_key = ?").bind(licenseKey).first();
-    customerId = user && typeof user.stripe_customer_id === "string" ? user.stripe_customer_id : "";
-  }
-  if (!customerId) return json({ error: "No active Stripe customer found for this license" }, 404);
+  const principal = await resolvePrincipal(request, env);
+  if (!principal || principal.kind !== "account") return json({ error: "Unauthorized" }, 401);
+  const account = await findAccountById(env, principal.id);
+  if (!account?.stripeCustomerId) return json({ error: "No Stripe customer found" }, 404);
   if (!env.STRIPE_SECRET_KEY) return json({ error: "STRIPE_SECRET_KEY not configured" }, 500);
+  const origin = new URL(request.url).origin;
   const response = await fetch("https://api.stripe.com/v1/billing_portal/sessions", {
-    body: new URLSearchParams({ customer: customerId, return_url: `${origin}/history` }),
-    headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` },
+    body: new URLSearchParams({
+      customer: account.stripeCustomerId,
+      return_url: origin + "/app",
+    }),
+    headers: {
+      Authorization: "Bearer " + env.STRIPE_SECRET_KEY,
+      "Stripe-Version": "2026-07-29.dahlia",
+    },
     method: "POST",
   });
   const data = await readJson(response);
@@ -661,70 +1291,157 @@ async function createPortal(request: Request, env: CloudEnv) {
   return json({ ok: true, url: stringValue(data, "url") });
 }
 
-async function upsertStripeUser(env: CloudEnv, session: Record<string, unknown>) {
-  if (!env.DB || !session.customer) return null;
+async function upsertStripeAccount(
+  env: CloudEnv,
+  session: Record<string, unknown>,
+) {
+  const customerId = stringValue(session, "customer");
   const customerDetails = isRecord(session.customer_details) ? session.customer_details : {};
-  const email = stringValue(customerDetails, "email") || stringValue(session, "customer_email") || `user-${Date.now()}@pinar.dev`;
-  const licenseKey = `pinar_${crypto.randomUUID().replace(/-/g, "")}`;
-  const now = new Date().toISOString();
-  const userId = `usr_${Date.now()}`;
-  await env.DB.prepare(
-    `INSERT INTO users (id, email, license_key, plan, stripe_customer_id, stripe_subscription_id, status, storage_limit_mb, created_at, updated_at)
-     VALUES (?, ?, ?, 'pro', ?, ?, 'active', 5120, ?, ?)
-     ON CONFLICT(email) DO UPDATE SET plan='pro', license_key=excluded.license_key, stripe_customer_id=excluded.stripe_customer_id,
-     stripe_subscription_id=excluded.stripe_subscription_id, status='active', updated_at=excluded.updated_at`,
-  ).bind(userId, email, licenseKey, String(session.customer), String(session.subscription || ""), now, now).run();
-  return { email, licenseKey, plan: "pro" };
+  const email = normalizeEmail(
+    stringValue(customerDetails, "email") || stringValue(session, "customer_email"),
+  );
+  if (!customerId || !isEmail(email)) return null;
+  const plan: AccountPlan = session.mode === "payment" ? "lifetime" : "pro";
+  const subscriptionId = stringValue(session, "subscription");
+  const now = currentDate().toISOString();
+  if (env.DB) {
+    const userId = "usr_" + generateNanoId(24);
+    await env.DB.prepare(
+      "INSERT INTO users (id, email, plan, ever_paid, billing_status, stripe_customer_id, stripe_subscription_id, created_at, updated_at) " +
+      "VALUES (?, ?, ?, 1, 'active', ?, NULLIF(?, ''), ?, ?) " +
+      "ON CONFLICT(email) DO UPDATE SET " +
+      "plan = excluded.plan, ever_paid = 1, billing_status = 'active', " +
+      "stripe_customer_id = excluded.stripe_customer_id, " +
+      "stripe_subscription_id = COALESCE(excluded.stripe_subscription_id, users.stripe_subscription_id), " +
+      "updated_at = excluded.updated_at",
+    ).bind(userId, email, plan, customerId, subscriptionId, now, now).run();
+    return findAccountByEmail(env, email);
+  }
+  let account = await findAccountByEmail(env, email);
+  if (!account) {
+    account = {
+      billingStatus: "active",
+      email,
+      everPaid: true,
+      id: "usr_" + generateNanoId(24),
+      plan,
+      stripeCustomerId: customerId,
+      stripeSubscriptionId: subscriptionId,
+    };
+    memoryAccounts.set(account.id, account);
+  } else {
+    account.billingStatus = "active";
+    account.everPaid = true;
+    account.plan = plan;
+    account.stripeCustomerId = customerId;
+    if (subscriptionId) account.stripeSubscriptionId = subscriptionId;
+  }
+  return account;
 }
 
 async function completeCheckout(request: Request, env: CloudEnv) {
   const sessionId = new URL(request.url).searchParams.get("session_id") || "";
-  if (!sessionId || !env.STRIPE_SECRET_KEY || !env.DB) return json({ error: "Checkout session unavailable" }, 400);
-  const response = await fetch(`https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sessionId)}`, {
-    headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` },
-  });
-  const session = await readJson(response);
-  if (!response.ok) return json({ error: "Checkout session unavailable" }, 400);
-  const existing = await env.DB.prepare("SELECT email, license_key, plan FROM users WHERE stripe_customer_id = ?")
-    .bind(stringValue(session, "customer")).first();
-  if (existing) {
-    return json({ email: existing.email, licenseKey: existing.license_key, ok: true, plan: existing.plan });
+  if (!sessionId || !env.STRIPE_SECRET_KEY) {
+    return json({ error: "Checkout session unavailable" }, 400);
   }
-  const user = await upsertStripeUser(env, session);
-  return user ? json({ ...user, ok: true }) : json({ error: "Checkout activation unavailable" }, 503);
+  const response = await fetch(
+    "https://api.stripe.com/v1/checkout/sessions/" + encodeURIComponent(sessionId),
+    {
+      headers: {
+        Authorization: "Bearer " + env.STRIPE_SECRET_KEY,
+        "Stripe-Version": "2026-07-29.dahlia",
+      },
+    },
+  );
+  const session = await readJson(response);
+  const paid = session.payment_status === "paid" || session.payment_status === "no_payment_required";
+  if (!response.ok || session.status !== "complete" || !paid) {
+    return json({ error: "Checkout session unavailable" }, 400);
+  }
+  const account = await upsertStripeAccount(env, session);
+  if (!account) return json({ error: "Checkout activation unavailable" }, 503);
+  const issued = await issueWebSession(env, principalForAccount(account));
+  return json({ account: accountAuthSession(account), ok: true }, 200, {
+    "Cache-Control": "no-store",
+    "Set-Cookie": webSessionCookie(issued.token, 30 * 24 * 60 * 60),
+  });
+}
+
+async function hmacHex(secret: string, value: string) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { hash: "SHA-256", name: "HMAC" },
+    false,
+    ["sign"],
+  );
+  const digest = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function verifyStripeWebhook(
+  body: string,
+  signatureHeader: string,
+  secret: string,
+) {
+  const entries = signatureHeader.split(",").map((entry) => entry.trim().split("=", 2));
+  const timestamp = entries.find(([key]) => key === "t")?.[1] || "";
+  const signatures = entries.filter(([key]) => key === "v1").map(([, value]) => value || "");
+  const timestampNumber = Number(timestamp);
+  if (!Number.isFinite(timestampNumber)) return false;
+  if (Math.abs(Math.floor(currentDate().getTime() / 1000) - timestampNumber) > 300) return false;
+  const expected = await hmacHex(secret, timestamp + "." + body);
+  return signatures.some((signature) => timingSafeEqual(signature, expected));
+}
+
+async function updateSubscriptionAccount(
+  env: CloudEnv,
+  customerId: string,
+  status: string,
+) {
+  if (!customerId) return;
+  const active = status === "active" || status === "trialing";
+  const billingStatus = status === "canceled" ? "canceled" : active ? "active" : "past_due";
+  const plan: AccountPlan = active ? "pro" : "free";
+  if (env.DB) {
+    await env.DB.prepare(
+      "UPDATE users SET plan = ?, billing_status = ?, ever_paid = 1, updated_at = ? WHERE stripe_customer_id = ?",
+    ).bind(plan, billingStatus, currentDate().toISOString(), customerId).run();
+    return;
+  }
+  const account = Array.from(memoryAccounts.values()).find(
+    (candidate) => candidate.stripeCustomerId === customerId,
+  );
+  if (account) {
+    account.billingStatus = billingStatus;
+    account.everPaid = true;
+    account.plan = plan;
+  }
 }
 
 async function handleWebhook(request: Request, env: CloudEnv) {
-  const event = await readJson(request);
+  if (!env.STRIPE_WEBHOOK_SECRET) return json({ error: "Webhook is not configured" }, 503);
+  const body = await request.text();
+  const signature = request.headers.get("stripe-signature") || "";
+  if (!await verifyStripeWebhook(body, signature, env.STRIPE_WEBHOOK_SECRET)) {
+    return json({ error: "Invalid webhook signature" }, 400);
+  }
+  let event: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (isRecord(parsed)) event = parsed;
+  } catch {
+    return json({ error: "Invalid webhook payload" }, 400);
+  }
   const data = isRecord(event.data) && isRecord(event.data.object) ? event.data.object : {};
   if (event.type === "checkout.session.completed") {
-    await upsertStripeUser(env, data);
-  } else if (event.type === "customer.subscription.deleted" && data.customer && env.DB) {
-    await env.DB.prepare("UPDATE users SET plan='free', status='canceled', updated_at=? WHERE stripe_customer_id=?")
-      .bind(new Date().toISOString(), String(data.customer)).run();
+    await upsertStripeAccount(env, data);
+  } else if (event.type === "customer.subscription.deleted") {
+    await updateSubscriptionAccount(env, stringValue(data, "customer"), "canceled");
+  } else if (event.type === "customer.subscription.updated") {
+    await updateSubscriptionAccount(env, stringValue(data, "customer"), stringValue(data, "status"));
   }
   return json({ received: true });
-}
-
-async function verifyLicense(request: Request, env: CloudEnv) {
-  const url = new URL(request.url);
-  const candidateKey = bearerToken(request) || url.searchParams.get("key") || "";
-  if (!candidateKey) return json({ error: "license key required", valid: false }, 400);
-  if (env.DB) {
-    const user = await env.DB.prepare(
-      "SELECT id, email, plan, status, storage_limit_mb, storage_used_bytes FROM users WHERE license_key = ?",
-    ).bind(candidateKey).first();
-    if (user?.status === "active") {
-      return json({
-        email: user.email,
-        ok: true,
-        plan: user.plan,
-        storage: { limitMb: user.storage_limit_mb, usedBytes: user.storage_used_bytes },
-        valid: true,
-      });
-    }
-  }
-  return json({ error: "Invalid or inactive license key", valid: false }, 404);
 }
 
 async function assertSessionOwner(env: CloudEnv, id: string, principal: Principal) {
@@ -740,6 +1457,11 @@ function projectFromRow(row: Record<string, unknown>): Project {
   return {
     createdAt: String(row.created_at || ""),
     id: String(row.id || ""),
+    icon: isProjectIcon(row.icon)
+      ? row.icon
+      : row.is_protected
+        ? PERSONAL_PROJECT_ICON
+        : DEFAULT_PROJECT_ICON,
     isProtected: Boolean(row.is_protected),
     name: String(row.name || ""),
     ownerId: String(row.owner_id || ""),
@@ -840,9 +1562,9 @@ async function ensureDefaultDestination(env: CloudEnv, principal: Principal): Pr
     if (!project) {
       const projectId = generateNanoId();
       await env.DB.prepare(`
-        INSERT INTO projects (id, owner_id, name, position, is_protected, created_at, updated_at)
-        VALUES (?, ?, 'Personal', 0, 1, ?, ?)
-      `).bind(projectId, principal.id, timestamp, timestamp).run();
+        INSERT INTO projects (id, owner_id, name, icon, position, is_protected, created_at, updated_at)
+        VALUES (?, ?, 'Personal', ?, 0, 1, ?, ?)
+      `).bind(projectId, principal.id, PERSONAL_PROJECT_ICON, timestamp, timestamp).run();
       project = await env.DB.prepare("SELECT * FROM projects WHERE id = ?").bind(projectId).first();
     }
     let collection = await env.DB.prepare(
@@ -868,6 +1590,7 @@ async function ensureDefaultDestination(env: CloudEnv, principal: Principal): Pr
     project = {
       createdAt: timestamp,
       id: generateNanoId(),
+      icon: PERSONAL_PROJECT_ICON,
       isProtected: true,
       name: "Personal",
       ownerId: principal.id,
@@ -975,12 +1698,18 @@ async function projectTree(env: CloudEnv, principal: Principal): Promise<Project
   };
 }
 
-async function createProject(env: CloudEnv, principal: Principal, name: string) {
+async function createProject(
+  env: CloudEnv,
+  principal: Principal,
+  name: string,
+  icon: ProjectIcon,
+) {
   const projects = await listProjects(env, principal);
   const timestamp = new Date().toISOString();
   const project: Project = {
     createdAt: timestamp,
     id: generateNanoId(),
+    icon,
     isProtected: false,
     name,
     ownerId: principal.id,
@@ -989,9 +1718,17 @@ async function createProject(env: CloudEnv, principal: Principal, name: string) 
   };
   if (env.DB) {
     await env.DB.prepare(`
-      INSERT INTO projects (id, owner_id, name, position, is_protected, created_at, updated_at)
-      VALUES (?, ?, ?, ?, 0, ?, ?)
-    `).bind(project.id, principal.id, name, project.position, timestamp, timestamp).run();
+      INSERT INTO projects (id, owner_id, name, icon, position, is_protected, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+    `).bind(
+      project.id,
+      principal.id,
+      name,
+      icon,
+      project.position,
+      timestamp,
+      timestamp,
+    ).run();
   } else {
     memoryProjects.set(project.id, project);
   }
@@ -1042,18 +1779,31 @@ async function createCollection(
   return collection;
 }
 
-async function renameProject(env: CloudEnv, principal: Principal, id: string, name: string) {
+async function renameProject(
+  env: CloudEnv,
+  principal: Principal,
+  id: string,
+  name: string,
+  icon?: ProjectIcon,
+) {
   if (env.DB) {
     const timestamp = new Date().toISOString();
-    await env.DB.prepare(
-      "UPDATE projects SET name = ?, updated_at = ? WHERE id = ? AND owner_id = ?",
-    ).bind(name, timestamp, id, principal.id).run();
+    if (icon) {
+      await env.DB.prepare(
+        "UPDATE projects SET name = ?, icon = ?, updated_at = ? WHERE id = ? AND owner_id = ?",
+      ).bind(name, icon, timestamp, id, principal.id).run();
+    } else {
+      await env.DB.prepare(
+        "UPDATE projects SET name = ?, updated_at = ? WHERE id = ? AND owner_id = ?",
+      ).bind(name, timestamp, id, principal.id).run();
+    }
     const row = await env.DB.prepare("SELECT * FROM projects WHERE id = ? AND owner_id = ?")
       .bind(id, principal.id).first();
     return row ? projectFromRow(row) : null;
   }
   const project = memoryProjects.get(id);
   if (!project || project.ownerId !== principal.id) return null;
+  if (icon) project.icon = icon;
   project.name = name;
   project.updatedAt = new Date().toISOString();
   return project;
@@ -1404,9 +2154,9 @@ async function deleteHistory(request: Request, env: CloudEnv, id: string) {
 }
 
 function checkAdminAuth(request: Request, env: CloudEnv) {
-  const secret = env.API_KEY || env.PINAR_API_KEY || env.AUTH_KEY;
+  const secret = env.ADMIN_API_KEY;
   if (!secret) return false;
-  return bearerToken(request) === secret || request.headers.get("x-api-key") === secret;
+  return bearerToken(request) === secret;
 }
 
 export async function cleanupOldRecords(env: CloudEnv, days = 7) {
@@ -1437,7 +2187,7 @@ export async function cleanupOldRecords(env: CloudEnv, days = 7) {
   return { cutoff, deletedCount };
 }
 
-export async function authorizeCloudHistoryRequest(request: Request, env: CloudEnv) {
+export async function authorizeCloudAppRequest(request: Request, env: CloudEnv) {
   return Boolean(await resolvePrincipal(request, env));
 }
 
@@ -1446,23 +2196,41 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
   const { method } = request;
   const path = url.pathname;
   if (method === "OPTIONS") return new Response(null, { headers: corsHeaders(), status: 204 });
+  if (["DELETE", "PATCH", "POST", "PUT"].includes(method) && !validMutationOrigin(request, env)) {
+    return json({ error: "Invalid request origin" }, 403);
+  }
   if (method === "GET" && path === "/api/health") {
     return json({
-      hasAuth: Boolean(env.API_KEY || env.PINAR_API_KEY || env.AUTH_KEY),
+      hasAdminAuth: Boolean(env.ADMIN_API_KEY),
+      hasAuthPepper: Boolean(env.AUTH_PEPPER),
       hasBucket: Boolean(env.PINAR_BUCKET),
       hasDb: Boolean(env.DB),
+      hasEmail: Boolean(env.EMAIL),
+      hasExtensionOrigin: Boolean(env.EXTENSION_ORIGIN),
       hasStripe: Boolean(env.STRIPE_SECRET_KEY),
+      hasStripeWebhook: Boolean(env.STRIPE_WEBHOOK_SECRET),
       ok: true,
       runtime: "cloud",
       service: "pinar",
     });
   }
+  if (method === "GET" && path === "/api/pricing") {
+    const config = pricingConfig(env);
+    if (!config) return json({ code: "pricing_unavailable", error: "Pricing is not configured" }, 503);
+    return json(pricingForCountry(requestCountry(request), config), 200, {
+      "Cache-Control": "private, no-store",
+      Vary: "CF-IPCountry",
+    });
+  }
   if (method === "POST" && path === "/api/installations") return registerInstallation(request, env);
-  if (method === "POST" && path === "/api/installations/rotate") return rotateInstallation(request, env);
-  if (method === "POST" && path === "/api/auth/browser-ticket") return createBrowserTicket(request, env);
-  if (method === "GET" && path === "/api/auth/device") return exchangeBrowserTicket(request, env);
+  if (method === "GET" && path === "/api/auth/session") return authSession(request, env);
+  if (method === "POST" && path === "/api/auth/extension-codes") return createExtensionCode(request, env);
+  if (method === "POST" && path === "/api/auth/extension-codes/exchange") {
+    return exchangeExtensionCode(request, env);
+  }
+  if (method === "POST" && path === "/api/auth/email-codes") return requestEmailCode(request, env);
+  if (method === "POST" && path === "/api/auth/email-codes/verify") return verifyEmailCode(request, env);
   if (method === "POST" && path === "/api/auth/logout") return logout(request, env);
-  if (path === "/api/auth/verify") return verifyLicense(request, env);
   if (method === "POST" && path === "/api/stripe/checkout") return createCheckout(request, env);
   if (method === "POST" && path === "/api/stripe/portal") return createPortal(request, env);
   if (method === "POST" && path === "/api/stripe/webhook") return handleWebhook(request, env);
@@ -1502,7 +2270,15 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
     const body = await readJson(request);
     const name = stringValue(body, "name").trim();
     return name
-      ? json({ ok: true, project: await createProject(env, principal, name) }, 201)
+      ? json({
+          ok: true,
+          project: await createProject(
+            env,
+            principal,
+            name,
+            isProjectIcon(body.icon) ? body.icon : DEFAULT_PROJECT_ICON,
+          ),
+        }, 201)
       : json({ error: "name required" }, 400);
   }
   if (method === "POST" && path === "/api/projects/reorder") {
@@ -1556,7 +2332,13 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
     const body = await readJson(request);
     const name = stringValue(body, "name").trim();
     if (!name) return json({ error: "name required" }, 400);
-    const project = await renameProject(env, principal, decodeURIComponent(projectMatch[1]), name);
+    const project = await renameProject(
+      env,
+      principal,
+      decodeURIComponent(projectMatch[1]),
+      name,
+      isProjectIcon(body.icon) ? body.icon : undefined,
+    );
     return project ? json({ ok: true, project }) : json({ error: "project not found" }, 404);
   }
   if (projectMatch && method === "DELETE") {
@@ -1678,10 +2460,46 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
 }
 
 export function resetCloudMemoryStateForTests() {
-  memoryBrowserSessions.clear();
-  memoryBrowserTickets.clear();
+  memoryAccounts.clear();
   memoryCollections.clear();
+  memoryDeviceSessions.clear();
+  memoryEmailChallenges.clear();
+  memoryExtensionCodes.clear();
   memoryInstallations.clear();
   memoryProjects.clear();
+  memoryRateLimits.clear();
   memorySessions.clear();
+  memoryWebSessions.clear();
+  memoryMigrationFailure = false;
+  testNow = null;
+}
+
+export function seedCloudAccountForTests(input: {
+  billingStatus?: AccountRecord["billingStatus"];
+  email: string;
+  everPaid?: boolean;
+  id?: string;
+  plan?: AccountPlan;
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
+}) {
+  const account: AccountRecord = {
+    billingStatus: input.billingStatus || "active",
+    email: normalizeEmail(input.email),
+    everPaid: input.everPaid ?? true,
+    id: input.id || "usr_" + generateNanoId(24),
+    plan: input.plan || "pro",
+    stripeCustomerId: input.stripeCustomerId || "",
+    stripeSubscriptionId: input.stripeSubscriptionId || "",
+  };
+  memoryAccounts.set(account.id, account);
+  return accountAuthSession(account);
+}
+
+export function setCloudMigrationFailureForTests(value: boolean) {
+  memoryMigrationFailure = value;
+}
+
+export function setCloudNowForTests(value: string | number | null) {
+  testNow = value === null ? null : new Date(value).getTime();
 }

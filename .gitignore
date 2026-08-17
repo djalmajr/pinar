@@ -6,3 +6,4 @@ dist/
 src/web-assets.generated.mjs
 coverage/
 .tmp/
+.env.local

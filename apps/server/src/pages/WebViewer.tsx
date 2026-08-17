@@ -100,7 +100,7 @@ export function WebViewer({ sessionId }: WebViewerProps) {
 
   if (loading) {
     return (
-      <ServerShell activePage="history">
+      <ServerShell>
         <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
           {t("viewer.loading")}
         </div>
@@ -110,10 +110,10 @@ export function WebViewer({ sessionId }: WebViewerProps) {
 
   if (!session) {
     return (
-      <ServerShell activePage="history" className="bg-muted/40">
+      <ServerShell className="bg-muted/40">
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4">
           <h1 className="text-lg font-semibold">{t("viewer.notFound")}</h1>
-          <Button render={<Link preload="intent" to="/history" />} variant="outline">
+          <Button render={<Link preload="intent" to="/app" />} variant="outline">
             <ArrowLeftIcon data-icon="inline-start" />
             {t("viewer.backHistory")}
           </Button>
@@ -128,12 +128,12 @@ export function WebViewer({ sessionId }: WebViewerProps) {
   const selectedMarkdown = selectedPin ? formatPinMarkdown(selectedPin, selectedNumber) : "";
 
   return (
-    <ServerShell activePage="history">
+    <ServerShell>
       <header className="relative z-20 flex min-h-14 shrink-0 items-center gap-4 border-b bg-card px-5 py-2">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <Button
             aria-label={t("viewer.backHistory")}
-            render={<Link preload="intent" to="/history" />}
+            render={<Link preload="intent" to="/app" />}
             size="icon-sm"
             title={t("viewer.backHistory")}
             variant="ghost"

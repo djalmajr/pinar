@@ -3,10 +3,12 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import {
   formatClipboardText,
   type CollectionPlacement,
+  type ProjectIcon,
   type ProjectTree,
   type ProjectTreeCollection,
   type Session,
 } from "@pinar/shared";
+import { DEFAULT_PROJECT_ICON } from "@pinar/shared/project-icons";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,17 +41,23 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   Input,
+  PaginationControls,
+  type PaginationState,
   ScrollArea,
   SidebarInset,
-  SidebarProvider,
   SidebarTrigger,
   Skeleton,
   ToggleGroup,
   ToggleGroupItem,
 } from "@pinar/ui";
-import { HistorySidebar } from "@/components/HistorySidebar";
+import {
+  HistorySidebar,
+  ProjectActionsMenu,
+  ProjectSwitcher,
+} from "@/components/HistorySidebar";
+import { ProjectIconPicker } from "@/components/ProjectIcon";
 import { ServerFooter } from "@/components/ServerFooter";
-import { ServerShell } from "@/components/ServerShell";
+import { AppShell } from "@/components/AppShell";
 import { isProjectTreeProject, isRecord } from "@/lib/api-data";
 import { type ServerMessageKey, useServerI18n } from "@/lib/i18n";
 import { formatSessionDate } from "@/lib/session-date";
@@ -69,6 +77,7 @@ import TrashIcon from "~icons/lucide/trash-2";
 import XIcon from "~icons/lucide/x";
 
 const HISTORY_VIEW_KEY = "pinar-history-view";
+const SESSION_PAGE_SIZE_OPTIONS = [15, 30, 60, 100] as const;
 
 type HistoryView = "grid" | "table";
 type PinCountFilter = "one" | "twoToFive" | "sixOrMore";
@@ -228,7 +237,12 @@ export function HistoryDashboard() {
   const [containerName, setContainerName] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [pagination, setPagination] = useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: SESSION_PAGE_SIZE_OPTIONS[0],
+  });
   const [pinFilters, setPinFilters] = useState<PinCountFilter[]>([]);
+  const [projectIcon, setProjectIcon] = useState<ProjectIcon>(DEFAULT_PROJECT_ICON);
   const [projectTree, setProjectTree] = useState<ProjectTree>({ projects: [] });
   const [search, setSearch] = useState("");
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
@@ -257,12 +271,30 @@ export function HistoryDashboard() {
           || (pin.selector || "").toLowerCase().includes(query));
     });
   }, [pinFilters, search, sessions]);
+  const gridSessions = useMemo(() => {
+    const start = pagination.pageIndex * pagination.pageSize;
+    return [...filteredSessions]
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+      .slice(start, start + pagination.pageSize);
+  }, [filteredSessions, pagination.pageIndex, pagination.pageSize]);
+  const pageCount = Math.max(1, Math.ceil(filteredSessions.length / pagination.pageSize));
 
   useEffect(() => {
     const savedView = localStorage.getItem(HISTORY_VIEW_KEY);
     if (savedView === "grid" || savedView === "table") setView(savedView);
     void fetchTree();
   }, []);
+
+  useEffect(() => {
+    setPagination((current) => current.pageIndex === 0
+      ? current
+      : { ...current, pageIndex: 0 });
+  }, [pinFilters, search, selectedCollectionId, selectedProjectId]);
+
+  useEffect(() => {
+    if (pagination.pageIndex < pageCount) return;
+    setPagination((current) => ({ ...current, pageIndex: pageCount - 1 }));
+  }, [pageCount, pagination.pageIndex]);
 
   async function fetchTree(preferredProjectId = selectedProjectId) {
     setLoading(true);
@@ -290,8 +322,8 @@ export function HistoryDashboard() {
     });
   }
 
-  async function createProject(name: string) {
-    const response = await requestJson("/api/projects", "POST", { name });
+  async function createProject(name: string, icon: ProjectIcon) {
+    const response = await requestJson("/api/projects", "POST", { icon, name });
     const data: unknown = await response.json();
     if (response.ok && isRecord(data) && isRecord(data.project) && typeof data.project.id === "string") {
       await fetchTree(data.project.id);
@@ -312,8 +344,13 @@ export function HistoryDashboard() {
     }
   }
 
-  async function renameContainer(kind: ContainerKind, id: string, name: string) {
-    await requestJson(`/api/${kind}s/${id}`, "PATCH", { name });
+  async function renameContainer(
+    kind: ContainerKind,
+    id: string,
+    name: string,
+    icon?: ProjectIcon,
+  ) {
+    await requestJson(`/api/${kind}s/${id}`, "PATCH", { icon, name });
     await fetchTree(selectedProjectId);
   }
 
@@ -325,19 +362,29 @@ export function HistoryDashboard() {
     }
   }
 
-  function openContainerEditor(editor: ContainerEditor, name = "") {
+  function openContainerEditor(
+    editor: ContainerEditor,
+    name = "",
+    icon = DEFAULT_PROJECT_ICON,
+  ) {
     setContainerName(name);
     setContainerEditor(editor);
+    setProjectIcon(icon);
   }
 
   async function submitContainerEditor() {
     const name = containerName.trim();
     if (!containerEditor || !name) return;
     if (containerEditor.mode === "create") {
-      if (containerEditor.kind === "project") await createProject(name);
+      if (containerEditor.kind === "project") await createProject(name, projectIcon);
       else await createCollection(name, containerEditor.parentId);
     } else if (containerEditor.id) {
-      await renameContainer(containerEditor.kind, containerEditor.id, name);
+      await renameContainer(
+        containerEditor.kind,
+        containerEditor.id,
+        name,
+        containerEditor.kind === "project" ? projectIcon : undefined,
+      );
     }
     setContainerEditor(null);
   }
@@ -456,7 +503,7 @@ export function HistoryDashboard() {
   ], [copiedId, destinations, language, t]);
 
   const searchControl = (
-    <div className="relative min-w-40 max-w-md flex-1">
+    <div className="relative w-56 min-w-40 shrink-0">
       <SearchIcon className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
       <Input className="bg-background pl-9" placeholder={t("dashboard.search")} type="search" value={search} onChange={(event) => setSearch(event.target.value)} />
     </div>
@@ -481,12 +528,47 @@ export function HistoryDashboard() {
       <ToggleGroupItem aria-label={t("dashboard.tableView")} title={t("dashboard.tableView")} value="table"><TableIcon /></ToggleGroupItem>
     </ToggleGroup>
   );
+  const paginationLabels = {
+    nextPage: t("dashboard.nextPage"),
+    pageStatus: (page: number, totalPages: number) => t("dashboard.pageStatus", {
+      page,
+      pageCount: totalPages,
+    }),
+    previousPage: t("dashboard.previousPage"),
+    rowsPerPage: t("dashboard.sessionsPerPage"),
+  };
 
   return (
-    <ServerShell activePage="dashboard" className="font-sans">
-      <SidebarProvider className="min-h-0 flex-1">
-        <HistorySidebar
+    <AppShell
+      className="font-sans"
+      projectActions={(
+        <ProjectActionsMenu
+          selectedProject={selectedProject}
+          t={t}
+          onDelete={setContainerDelete}
+          onRename={({ icon, id, kind, name }) => openContainerEditor(
+            { id, kind, mode: "rename" },
+            name,
+            icon,
+          )}
+          onShare={(path) => void copyShare(path)}
+        />
+      )}
+      projectSelector={(compact) => (
+        <ProjectSwitcher
+          compact={compact}
           projectTree={projectTree}
+          selectedProject={selectedProject}
+          t={t}
+          onCreate={() => openContainerEditor({ kind: "project", mode: "create" })}
+          onSelectProject={(projectId) => {
+            setSelectedProjectId(projectId);
+            setSelectedCollectionId(null);
+          }}
+        />
+      )}
+      sidebar={(
+        <HistorySidebar
           selectedCollectionId={selectedCollectionId}
           selectedProject={selectedProject}
           t={t}
@@ -495,34 +577,46 @@ export function HistoryDashboard() {
           onRename={({ id, kind, name }) => openContainerEditor({ id, kind, mode: "rename" }, name)}
           onReorderCollections={(items) => void reorderCollections(items)}
           onSelectCollection={setSelectedCollectionId}
-          onSelectProject={(projectId) => { setSelectedProjectId(projectId); setSelectedCollectionId(null); }}
           onShare={(path) => void copyShare(path)}
         />
-        <SidebarInset className="min-h-0 min-w-0 overflow-hidden">
-          <ScrollArea className="min-h-0 min-w-0 flex-1">
-            <div className="mx-auto flex min-h-full w-full max-w-[1600px] flex-col gap-4 p-5">
-              {view !== "table" && (
-                <div className="flex min-w-0 flex-row items-center gap-2 overflow-x-auto" role="toolbar">
-                  <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2"><SidebarTrigger aria-label={t("dashboard.collections")} title={t("dashboard.collections")} />{searchControl}{pinFilterControl}</div>
-                  <div className="ml-auto flex shrink-0 items-center justify-end gap-2">{viewControl}</div>
-                </div>
-              )}
-              {loading ? <DashboardSkeleton /> : filteredSessions.length === 0 ? (
-                <Card className="border-dashed py-16 text-center"><CardHeader><CardTitle>{t("dashboard.emptyTitle")}</CardTitle><CardDescription>{t("dashboard.emptyDescription")}</CardDescription></CardHeader></Card>
-              ) : view === "table" ? (
-                <DataTable
-                  columns={tableColumns}
-                  data={filteredSessions}
-                  emptyMessage={t("dashboard.filteredEmpty")}
-                  getRowId={(session) => session.id}
-                  labels={{ clearFilter: t("dashboard.clearFilter"), columns: t("dashboard.columns"), resetFilters: t("dashboard.resetFilters") }}
-                  toolbar={<><SidebarTrigger aria-label={t("dashboard.collections")} title={t("dashboard.collections")} />{searchControl}{pinFilterControl}</>}
-                  toolbarActions={viewControl}
-                  onRowClick={(session) => void navigate({ params: { id: session.id }, to: "/v/$id" })}
-                />
-              ) : (
+      )}
+      workspace={selectedCollection?.name ?? t("dashboard.allSessions")}
+    >
+      <SidebarInset className="min-h-0 min-w-0 overflow-hidden">
+        <ScrollArea className="min-h-0 min-w-0 flex-1">
+          <div className="mx-auto flex min-h-full w-full max-w-[1600px] flex-col gap-4 p-5">
+            {view !== "table" && (
+              <div className="flex min-w-0 flex-row items-center gap-2 overflow-x-auto" role="toolbar">
+                <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2"><SidebarTrigger aria-label={t("dashboard.collections")} className="md:hidden" title={t("dashboard.collections")} />{searchControl}{pinFilterControl}</div>
+                <div className="ml-auto flex shrink-0 items-center justify-end gap-2">{viewControl}</div>
+              </div>
+            )}
+            {loading ? <DashboardSkeleton /> : filteredSessions.length === 0 ? (
+              <Card className="border-dashed py-16 text-center"><CardHeader><CardTitle>{t("dashboard.emptyTitle")}</CardTitle><CardDescription>{t("dashboard.emptyDescription")}</CardDescription></CardHeader></Card>
+            ) : view === "table" ? (
+              <DataTable
+                columns={tableColumns}
+                data={filteredSessions}
+                emptyMessage={t("dashboard.filteredEmpty")}
+                getRowId={(session) => session.id}
+                initialSorting={[{ desc: true, id: "createdAt" }]}
+                labels={{
+                  clearFilter: t("dashboard.clearFilter"),
+                  columns: t("dashboard.columns"),
+                  ...paginationLabels,
+                  resetFilters: t("dashboard.resetFilters"),
+                }}
+                pageSizeOptions={SESSION_PAGE_SIZE_OPTIONS}
+                pagination={pagination}
+                toolbar={<><SidebarTrigger aria-label={t("dashboard.collections")} className="md:hidden" title={t("dashboard.collections")} />{searchControl}{pinFilterControl}</>}
+                toolbarActions={viewControl}
+                onPaginationChange={setPagination}
+                onRowClick={(session) => void navigate({ params: { id: session.id }, to: "/v/$id" })}
+              />
+            ) : (
+              <>
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-4">
-                  {filteredSessions.map((session) => {
+                  {gridSessions.map((session) => {
                     const count = pinCount(session);
                     return (
                       <Card className="gap-0 py-0 transition-colors hover:ring-primary/35" key={session.id} size="sm">
@@ -536,17 +630,29 @@ export function HistoryDashboard() {
                     );
                   })}
                 </div>
-              )}
-              <ServerFooter />
-            </div>
-          </ScrollArea>
-        </SidebarInset>
-      </SidebarProvider>
+                <PaginationControls
+                  labels={paginationLabels}
+                  pageCount={pageCount}
+                  pageIndex={pagination.pageIndex}
+                  pageSize={pagination.pageSize}
+                  pageSizeOptions={SESSION_PAGE_SIZE_OPTIONS}
+                  onPageIndexChange={(pageIndex) => setPagination((current) => ({
+                    ...current,
+                    pageIndex,
+                  }))}
+                  onPageSizeChange={(pageSize) => setPagination({ pageIndex: 0, pageSize })}
+                />
+              </>
+            )}
+            <ServerFooter />
+          </div>
+        </ScrollArea>
+      </SidebarInset>
       <AlertDialog open={Boolean(deleteId)} onOpenChange={(open) => !open && setDeleteId(null)}>
         <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{t("dashboard.deleteTitle")}</AlertDialogTitle><AlertDialogDescription>{t("dashboard.deleteDescription")}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel><AlertDialogAction variant="destructive" onClick={() => void deleteSession()}>{t("dashboard.delete")}</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
       </AlertDialog>
       <Dialog open={Boolean(containerEditor)} onOpenChange={(open) => !open && setContainerEditor(null)}>
-        <DialogContent>
+        <DialogContent className={containerEditor?.kind === "project" ? "sm:max-w-lg" : undefined}>
           <form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); void submitContainerEditor(); }}>
             <DialogHeader>
               <DialogTitle>
@@ -556,10 +662,21 @@ export function HistoryDashboard() {
                     : containerEditor.parentId
                       ? "dashboard.newSubcollection"
                       : "dashboard.newCollection")
-                  : t("dashboard.renamePrompt", { kind: t(containerEditor?.kind === "project" ? "dashboard.project" : "dashboard.collection") })}
+                  : containerEditor?.kind === "project"
+                    ? t("dashboard.editProject")
+                    : t("dashboard.renamePrompt", { kind: t("dashboard.collection") })}
               </DialogTitle>
             </DialogHeader>
             <Input autoFocus aria-label={t("dashboard.name")} placeholder={t("dashboard.name")} value={containerName} onChange={(event) => setContainerName(event.target.value)} />
+            {containerEditor?.kind === "project" ? (
+              <ProjectIconPicker
+                emptyMessage={t("dashboard.noProjectIcons")}
+                label={t("dashboard.projectIcon")}
+                searchPlaceholder={t("dashboard.searchProjectIcons")}
+                value={projectIcon}
+                onValueChange={setProjectIcon}
+              />
+            ) : null}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setContainerEditor(null)}>{t("common.cancel")}</Button>
               <Button disabled={!containerName.trim()} type="submit">{t(containerEditor?.mode === "create" ? "dashboard.create" : "dashboard.save")}</Button>
@@ -581,6 +698,6 @@ export function HistoryDashboard() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </ServerShell>
+    </AppShell>
   );
 }

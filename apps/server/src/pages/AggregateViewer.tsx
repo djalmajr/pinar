@@ -53,7 +53,7 @@ export function AggregateViewer({ id, kind }: AggregateViewerProps) {
 
   if (loading) {
     return (
-      <ServerShell activePage="history">
+      <ServerShell>
         <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
           {t("aggregate.loading")}
         </div>
@@ -63,7 +63,7 @@ export function AggregateViewer({ id, kind }: AggregateViewerProps) {
 
   if (!aggregate) {
     return (
-      <ServerShell activePage="history">
+      <ServerShell>
         <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
           {t("aggregate.notFound", { kind: t(kind === "project" ? "dashboard.project" : "dashboard.collection") })}
         </div>
@@ -74,7 +74,7 @@ export function AggregateViewer({ id, kind }: AggregateViewerProps) {
   const collections = isProjectAggregate(aggregate) ? aggregate.collections : [aggregate];
   const sessionCount = collections.reduce((count, collection) => count + collection.sessions.length, 0);
   return (
-    <ServerShell activePage="history">
+    <ServerShell>
       <header className="flex min-h-14 shrink-0 items-center gap-4 border-b bg-card px-5 py-2">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           {kind === "project" ? <FolderKanbanIcon className="size-5" /> : <FolderIcon className="size-5" />}

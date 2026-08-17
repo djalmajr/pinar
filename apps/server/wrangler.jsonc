@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "pinar",
   "main": "./src/worker-entry.ts",
-  "compatibility_date": "2026-08-14",
+  "compatibility_date": "2026-08-16",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
   "routes": [
@@ -12,18 +12,32 @@
   "r2_buckets": [
     { "binding": "PINAR_BUCKET", "bucket_name": "pinar-shots" }
   ],
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "allowed_sender_addresses": ["noreply@pinar.dev"]
+    }
+  ],
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "pinar-history",
-      "database_id": "7b572f21-7dff-43c0-9d13-38fd50c827f4",
+      "database_name": "pinar-history-v2",
+      "database_id": "e9f7e794-0cde-4eb9-8548-c2e3ad45a16a",
       "migrations_dir": "./migrations"
     }
   ],
   "triggers": { "crons": ["0 3 * * *"] },
   "vars": {
-    "STRIPE_PRICE_MONTHLY": "price_1U4OH1JlxS9HAOyog32haJQ1",
-    "STRIPE_PRICE_YEARLY": "price_1U4OH5JlxS9HAOyonThna75s",
-    "STRIPE_PRICE_LIFETIME": "price_1U4PQ3JlxS9HAOyo2N6VeS0t"
+    "PRICING_BR_DISCOUNT_PERCENT": "35",
+    "PRICING_BR_EXCHANGE_RATE": "5.2014",
+    "PRICING_LIFETIME_USD_CENTS": "4900",
+    "PRICING_MONTHLY_USD_CENTS": "290",
+    "PRICING_YEARLY_USD_CENTS": "1900",
+    "STRIPE_PRICE_MONTHLY": "price_1U5TqVJCxgnfFzy0OxinjwkA",
+    "STRIPE_PRICE_YEARLY": "price_1U5TqWJCxgnfFzy0LS1ywylQ",
+    "STRIPE_PRICE_LIFETIME": "price_1U5TqZJCxgnfFzy0o7pVAtWy",
+    "STRIPE_PRICE_BR_MONTHLY": "price_1U5TqXJCxgnfFzy0Aq8Xd6Gm",
+    "STRIPE_PRICE_BR_YEARLY": "price_1U5TqYJCxgnfFzy0NoebUKCV",
+    "STRIPE_PRICE_BR_LIFETIME": "price_1U5TqaJCxgnfFzy0AqYe7KBu"
   }
 }

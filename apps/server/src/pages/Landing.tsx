@@ -46,7 +46,7 @@ export function LandingPage() {
               {t("landing.description")}
             </p>
             <div className="mt-7 flex flex-wrap items-center justify-center gap-2">
-              <Button render={<Link preload="intent" to="/history" />} size="lg">
+              <Button render={<Link preload="intent" to="/app" />} size="lg">
                 <DashboardIcon data-icon="inline-start" />
                 {t("landing.openDashboard")}
               </Button>
@@ -86,7 +86,7 @@ export function LandingPage() {
                 <p className="text-sm leading-relaxed text-muted-foreground">{t("landing.privateNote")}</p>
               </CardContent>
               <CardFooter className="mt-auto">
-                <Button render={<Link preload="intent" to="/history" />} size="sm" variant="outline">{t("landing.openLocalDashboard")}</Button>
+                <Button render={<Link preload="intent" to="/app" />} size="sm" variant="outline">{t("landing.openLocalDashboard")}</Button>
               </CardFooter>
             </Card>
             <Card className="h-full">

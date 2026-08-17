@@ -2,10 +2,13 @@ import {
   flexRender,
   getCoreRowModel,
   getFilteredRowModel,
+  getPaginationRowModel,
   getSortedRowModel,
   type Column,
   type ColumnFiltersState,
   type ColumnDef,
+  type OnChangeFn,
+  type PaginationState,
   type RowData,
   type SortingState,
   type VisibilityState,
@@ -14,6 +17,8 @@ import {
 import { useMemo, useState, type ComponentProps, type ReactNode } from "react";
 import ArrowDownIcon from "~icons/lucide/arrow-down";
 import ArrowUpIcon from "~icons/lucide/arrow-up";
+import ChevronLeftIcon from "~icons/lucide/chevron-left";
+import ChevronRightIcon from "~icons/lucide/chevron-right";
 import ChevronsUpDownIcon from "~icons/lucide/chevrons-up-down";
 import Columns3Icon from "~icons/lucide/columns-3";
 import ListFilterIcon from "~icons/lucide/list-filter";
@@ -32,6 +37,14 @@ import {
   DropdownMenuTrigger,
 } from "./dropdown-menu.js";
 import { ScrollArea } from "./scroll-area.js";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./select.js";
 import {
   Table,
   TableBody,
@@ -56,7 +69,11 @@ type ColumnMeta = {
 type DataTableLabels = {
   clearFilter?: string;
   columns?: string;
+  nextPage?: string;
+  pageStatus?: (page: number, pageCount: number) => string;
+  previousPage?: string;
   resetFilters?: string;
+  rowsPerPage?: string;
 };
 
 type DataTableProps<TData extends RowData> = ComponentProps<"div"> & {
@@ -66,15 +83,107 @@ type DataTableProps<TData extends RowData> = ComponentProps<"div"> & {
   getRowId?: (row: TData) => string;
   initialSorting?: SortingState;
   labels?: DataTableLabels;
-  onRowClick?: (row: TData) => void;
+  pageSizeOptions?: readonly number[];
+  pagination?: PaginationState;
   toolbar?: ReactNode;
   toolbarActions?: ReactNode;
+  onPaginationChange?: OnChangeFn<PaginationState>;
+  onRowClick?: (row: TData) => void;
 };
+
+type PaginationControlsProps = ComponentProps<"div"> & {
+  labels?: DataTableLabels;
+  pageCount: number;
+  pageIndex: number;
+  pageSize: number;
+  pageSizeOptions?: readonly number[];
+  onPageIndexChange: (pageIndex: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
+};
+
+const DEFAULT_PAGE_SIZE_OPTIONS = [15, 30, 60, 100] as const;
 
 function alignmentClass(align: ColumnMeta["align"]) {
   if (align === "right") return "text-right";
   if (align === "center") return "text-center";
   return "text-left";
+}
+
+function PaginationControls({
+  className,
+  labels,
+  pageCount,
+  pageIndex,
+  pageSize,
+  pageSizeOptions = DEFAULT_PAGE_SIZE_OPTIONS,
+  onPageIndexChange,
+  onPageSizeChange,
+  ...props
+}: PaginationControlsProps) {
+  const pageSizeItems = pageSizeOptions.map((option) => ({
+    label: String(option),
+    value: String(option),
+  }));
+  const nextPageLabel = labels?.nextPage ?? "Next page";
+  const previousPageLabel = labels?.previousPage ?? "Previous page";
+  const pageStatus = labels?.pageStatus?.(pageIndex + 1, pageCount)
+    ?? `Page ${pageIndex + 1} of ${pageCount}`;
+
+  return (
+    <div
+      className={cn("flex flex-wrap items-center justify-end gap-3", className)}
+      {...props}
+    >
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-muted-foreground">{pageStatus}</span>
+        <Button
+          aria-label={previousPageLabel}
+          disabled={pageIndex === 0}
+          size="icon-sm"
+          title={previousPageLabel}
+          variant="outline"
+          onClick={() => onPageIndexChange(pageIndex - 1)}
+        >
+          <ChevronLeftIcon />
+        </Button>
+        <Button
+          aria-label={nextPageLabel}
+          disabled={pageIndex >= pageCount - 1}
+          size="icon-sm"
+          title={nextPageLabel}
+          variant="outline"
+          onClick={() => onPageIndexChange(pageIndex + 1)}
+        >
+          <ChevronRightIcon />
+        </Button>
+        <Select
+          items={pageSizeItems}
+          value={String(pageSize)}
+          onValueChange={(value) => {
+            const nextPageSize = Number(value);
+            if (pageSizeOptions.includes(nextPageSize)) onPageSizeChange(nextPageSize);
+          }}
+        >
+          <SelectTrigger
+            aria-label={labels?.rowsPerPage ?? "Rows per page"}
+            className="w-16"
+            size="sm"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent align="end" alignItemWithTrigger={false} className="min-w-16">
+            <SelectGroup>
+              {pageSizeItems.map((item) => (
+                <SelectItem key={item.value} value={item.value}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
 }
 
 function DataTableFacetedFilter<TData extends RowData>({
@@ -184,25 +293,36 @@ function DataTable<TData extends RowData>({
   getRowId,
   initialSorting = [],
   labels,
-  onRowClick,
+  pageSizeOptions = DEFAULT_PAGE_SIZE_OPTIONS,
+  pagination: controlledPagination,
   toolbar,
   toolbarActions,
+  onPaginationChange,
+  onRowClick,
   ...props
 }: DataTableProps<TData>) {
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+  const [internalPagination, setInternalPagination] = useState<PaginationState>(() => ({
+    pageIndex: 0,
+    pageSize: pageSizeOptions[0] ?? DEFAULT_PAGE_SIZE_OPTIONS[0],
+  }));
   const [sorting, setSorting] = useState<SortingState>(() => initialSorting);
+  const pagination = controlledPagination ?? internalPagination;
+  const updatePagination = onPaginationChange ?? setInternalPagination;
   const table = useReactTable({
     columns,
     data,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
     getRowId,
     getSortedRowModel: getSortedRowModel(),
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
+    onPaginationChange: updatePagination,
     onSortingChange: setSorting,
-    state: { columnFilters, columnVisibility, sorting },
+    state: { columnFilters, columnVisibility, pagination, sorting },
   });
   const filterableColumns = useMemo(
     () =>
@@ -329,15 +449,29 @@ function DataTable<TData extends RowData>({
           </Table>
         </ScrollArea>
       </div>
+      {table.getFilteredRowModel().rows.length > 0 ? (
+        <PaginationControls
+          labels={labels}
+          pageCount={table.getPageCount()}
+          pageIndex={pagination.pageIndex}
+          pageSize={pagination.pageSize}
+          pageSizeOptions={pageSizeOptions}
+          onPageIndexChange={table.setPageIndex}
+          onPageSizeChange={table.setPageSize}
+        />
+      ) : null}
     </div>
   );
 }
 
 export {
   DataTable,
+  PaginationControls,
   type DataTableFilterOption,
   type DataTableLabels,
   type DataTableProps,
   type ColumnDef,
+  type PaginationControlsProps,
+  type PaginationState,
   type SortingState,
 };

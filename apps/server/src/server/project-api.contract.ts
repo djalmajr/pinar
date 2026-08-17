@@ -35,21 +35,31 @@ export async function exerciseProjectApiContract(client: ApiClient) {
   const personal = initialTree.tree.projects[0];
   const personalId = idOf(personal);
   assert.ok(isRecord(personal));
+  assert.equal(personal.icon, "user-round");
   assert.ok(Array.isArray(personal.collections));
   const inboxId = idOf(personal.collections[0]);
 
-  const alphaBody = await jsonRecord(await post(client, "/api/projects", { name: "Alpha" }));
+  const alphaBody = await jsonRecord(await post(
+    client,
+    "/api/projects",
+    { icon: "telescope", name: "Alpha" },
+  ));
   const betaBody = await jsonRecord(await post(client, "/api/projects", { name: "Beta" }));
   const alphaId = idOf(alphaBody.project);
   const betaId = idOf(betaBody.project);
+  assert.equal(isRecord(alphaBody.project) && alphaBody.project.icon, "telescope");
+  assert.equal(isRecord(betaBody.project) && betaBody.project.icon, "folder-kanban");
 
   const renameProject = await client(`/api/projects/${alphaId}`, {
-    body: JSON.stringify({ name: "Alpha renamed" }),
+    body: JSON.stringify({ icon: "audio-waveform", name: "Alpha renamed" }),
     headers: { "content-type": "application/json" },
     method: "PATCH",
   });
   assert.equal(renameProject.status, 200);
-  assert.equal((await jsonRecord(renameProject)).project && true, true);
+  const renamedProject = await jsonRecord(renameProject);
+  assert.ok(isRecord(renamedProject.project));
+  // Mutation captured: updating only the project name loses the selected icon on refresh.
+  assert.equal(renamedProject.project.icon, "audio-waveform");
   assert.equal((await post(client, "/api/projects/reorder", { ids: [betaId, alphaId, personalId] })).status, 200);
   const projectsBody = await jsonRecord(await client("/api/projects"));
   assert.ok(Array.isArray(projectsBody.projects));

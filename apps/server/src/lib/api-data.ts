@@ -1,11 +1,12 @@
-import type {
-  Collection,
-  Pin,
-  Project,
-  ProjectTreeCollection,
-  ProjectTreeProject,
-  Session,
+import {
+  type Collection,
+  type Pin,
+  type Project,
+  type ProjectTreeCollection,
+  type ProjectTreeProject,
+  type Session,
 } from "@pinar/shared";
+import { isProjectIcon } from "@pinar/shared/project-icons";
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -57,7 +58,7 @@ function hasContainerFields(value: unknown) {
 }
 
 function isProject(value: unknown): value is Project {
-  return hasContainerFields(value);
+  return isRecord(value) && hasContainerFields(value) && isProjectIcon(value.icon);
 }
 
 function isCollection(value: unknown): value is Collection {

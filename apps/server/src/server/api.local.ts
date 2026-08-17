@@ -8,9 +8,11 @@ import type {
   PageInfo,
   Pin,
   Project,
+  ProjectIcon,
   ProjectTree,
   Session,
 } from "@pinar/shared";
+import { DEFAULT_PROJECT_ICON, isProjectIcon } from "@pinar/shared/project-icons";
 import { openHistoryDb } from "@pinar/cli/history";
 import { pinarHome, shotsDir } from "@pinar/cli/paths";
 import { writeShot } from "@pinar/cli/shots";
@@ -24,7 +26,7 @@ interface LocalSession extends Session {
 interface HistoryDatabase {
   close(): void;
   createCollection(projectId: string, name: string, parentId?: string | null): Collection | null;
-  createProject(name: string): Project;
+  createProject(name: string, icon?: ProjectIcon): Project;
   deleteCollection(id: string): boolean;
   deleteProject(id: string): boolean;
   deleteSession(id: string): boolean;
@@ -49,7 +51,7 @@ interface HistoryDatabase {
     shotPath?: string | null;
   }): LocalSession;
   updateCollection(id: string, name: string): Collection | null;
-  updateProject(id: string, name: string): Project | null;
+  updateProject(id: string, name: string, icon?: ProjectIcon): Project | null;
 }
 
 let activeDatabase: HistoryDatabase | null = null;
@@ -145,7 +147,7 @@ async function readJson(request: Request) {
 
 function headers(initial?: HeadersInit) {
   const result = new Headers(initial);
-  result.set("Access-Control-Allow-Headers", "authorization, content-type, x-api-key, x-license-key, x-pinar-installation-id");
+  result.set("Access-Control-Allow-Headers", "authorization, content-type, x-pinar-installation-id");
   result.set("Access-Control-Allow-Methods", "DELETE, GET, OPTIONS, PATCH, POST");
   result.set("Access-Control-Allow-Origin", "*");
   return result;
@@ -188,6 +190,10 @@ function presentProjectTree(tree: ProjectTree, origin: string): ProjectTree {
 
 function normalizedName(body: Record<string, unknown>) {
   return stringValue(body, "name").trim();
+}
+
+function projectIconValue(body: Record<string, unknown>) {
+  return isProjectIcon(body.icon) ? body.icon : undefined;
 }
 
 function publicProject(id: string, origin: string) {
@@ -286,6 +292,30 @@ export async function proxyCloudCheckout(request: Request, fetcher: typeof fetch
   return json({ code: "checkout_unavailable", error: "Checkout service unavailable" }, 503);
 }
 
+export async function proxyCloudPricing(fetcher: typeof fetch = fetch) {
+  try {
+    const response = await fetcher("https://pinar.dev/api/pricing", {
+      headers: { Accept: "application/json" },
+      method: "GET",
+    });
+    const body = await response.text();
+    if (response.headers.get("content-type")?.includes("application/json")) {
+      return new Response(body, {
+        headers: headers({
+          "Cache-Control": "private, no-store",
+          "Content-Type": "application/json; charset=utf-8",
+        }),
+        status: response.status,
+      });
+    }
+  } catch {
+    // Normalize cloud and transport failures into the local JSON API contract.
+  }
+  return json({ code: "pricing_unavailable", error: "Pricing service unavailable" }, 503, {
+    "Cache-Control": "private, no-store",
+  });
+}
+
 export function authorizeHistoryRequest() {
   return true;
 }
@@ -298,6 +328,11 @@ export async function handleApiRequest(request: Request) {
   if (method === "GET" && path === "/api/health") {
     return json({ history: true, ok: true, port: Number(url.port), runtime: "local", service: "pinar" });
   }
+  if (method === "GET" && path === "/api/auth/session") {
+    return json({ session: { kind: "local", plan: "free" } }, 200, { "Cache-Control": "no-store" });
+  }
+  if (method === "GET" && path === "/api/pricing") return proxyCloudPricing();
+  if (method === "POST" && path === "/api/auth/logout") return json({ ok: true });
   if (method === "POST" && path === "/api/stripe/checkout") return proxyCloudCheckout(request);
   if (method === "POST" && path === "/api/shots") return uploadShot(request);
   if (method === "POST" && path === "/api/history") return saveHistory(request);
@@ -325,7 +360,13 @@ export async function handleApiRequest(request: Request) {
     const body = await readJson(request);
     const name = normalizedName(body);
     return name
-      ? json({ ok: true, project: historyDatabase().createProject(name) }, 201)
+      ? json({
+          ok: true,
+          project: historyDatabase().createProject(
+            name,
+            projectIconValue(body) ?? DEFAULT_PROJECT_ICON,
+          ),
+        }, 201)
       : json({ error: "name required" }, 400);
   }
   if (method === "POST" && path === "/api/projects/reorder") {
@@ -363,7 +404,11 @@ export async function handleApiRequest(request: Request) {
     const body = await readJson(request);
     const name = normalizedName(body);
     if (!name) return json({ error: "name required" }, 400);
-    const project = historyDatabase().updateProject(decodeURIComponent(projectMatch[1]), name);
+    const project = historyDatabase().updateProject(
+      decodeURIComponent(projectMatch[1]),
+      name,
+      projectIconValue(body),
+    );
     return project ? json({ ok: true, project }) : json({ error: "project not found" }, 404);
   }
   if (projectMatch && method === "DELETE") {
@@ -492,4 +537,8 @@ export function resetLocalApiForTests() {
   activeDatabase?.close();
   activeDatabase = null;
   activeRoot = "";
+}
+
+export function authorizeAppRequest() {
+  return true;
 }

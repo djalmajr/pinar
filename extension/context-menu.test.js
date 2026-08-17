@@ -5,22 +5,27 @@ import { translations } from "./i18n.js";
 
 const backgroundSrc = readFileSync(new URL("./background.js", import.meta.url), "utf8");
 const manifest = JSON.parse(readFileSync(new URL("./manifest.json", import.meta.url), "utf8"));
+const extensionPackage = JSON.parse(
+  readFileSync(new URL("../apps/extension/package.json", import.meta.url), "utf8"),
+);
 
 describe("extension action context menu", () => {
   test("declares the context menu permission and registers an action item", () => {
     assert.ok(manifest.permissions.includes("contextMenus"));
     assert.equal(manifest.name, "Pinar.dev");
+    assert.equal(manifest.version, "0.2.0");
+    assert.equal(extensionPackage.version, manifest.version);
     assert.equal(manifest.homepage_url, "https://pinar.dev");
     assert.match(backgroundSrc, /contexts: \["action"\]/);
     assert.match(backgroundSrc, /title: messages\.context_open_panel/);
     assert.match(backgroundSrc, /chrome\.contextMenus\.onClicked\.addListener/);
   });
 
-  test("opens the authenticated local or remote panel", () => {
+  test("opens the configured Pinar homepage", () => {
     assert.match(backgroundSrc, /info\.menuItemId !== OPEN_PANEL_MENU_ID/);
-    assert.match(backgroundSrc, /void openHistory\(\)/);
-    assert.match(backgroundSrc, /withLanguage\(`\$\{base\}\/history`\)/);
-    assert.match(backgroundSrc, /\/api\/auth\/browser-ticket/);
+    assert.match(backgroundSrc, /void openApp\(\)/);
+    assert.match(backgroundSrc, /withLanguage\(`\$\{base\}\/`\)/);
+    assert.doesNotMatch(backgroundSrc, /browser-ticket|\/history/);
   });
 
   test("localizes the panel label for every supported extension language", () => {

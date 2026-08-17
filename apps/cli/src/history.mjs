@@ -1,5 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join, sep } from "node:path";
+import {
+  DEFAULT_PROJECT_ICON,
+  PERSONAL_PROJECT_ICON,
+  isProjectIcon,
+} from "../../../packages/shared/src/project-icons/index.ts";
 import { pinarHome, shotsDir } from "./paths.mjs";
 
 let SqliteDatabase = null;
@@ -49,6 +54,11 @@ function formatProject(row) {
   return {
     createdAt: row.created_at,
     id: row.id,
+    icon: isProjectIcon(row.icon)
+      ? row.icon
+      : row.is_protected
+        ? PERSONAL_PROJECT_ICON
+        : DEFAULT_PROJECT_ICON,
     isProtected: Boolean(row.is_protected),
     name: row.name,
     ownerId: row.owner_id,
@@ -193,6 +203,13 @@ class JsonHistoryDb {
 
   _ensureDefaults() {
     const timestamp = now();
+    for (const item of this.data.projects) {
+      item.icon = isProjectIcon(item.icon)
+        ? item.icon
+        : item.is_protected
+          ? PERSONAL_PROJECT_ICON
+          : DEFAULT_PROJECT_ICON;
+    }
     let project = this.data.projects.find(
       (item) => item.owner_id === LOCAL_OWNER_ID && item.is_protected,
     );
@@ -200,6 +217,7 @@ class JsonHistoryDb {
       project = {
         created_at: timestamp,
         id: generateNanoId(),
+        icon: PERSONAL_PROJECT_ICON,
         is_protected: 1,
         name: "Personal",
         owner_id: LOCAL_OWNER_ID,
@@ -322,11 +340,12 @@ class JsonHistoryDb {
     return [...this.data.projects].sort((left, right) => left.position - right.position).map(formatProject);
   }
 
-  createProject(name) {
+  createProject(name, icon = DEFAULT_PROJECT_ICON) {
     const timestamp = now();
     const row = {
       created_at: timestamp,
       id: generateNanoId(),
+      icon: isProjectIcon(icon) ? icon : DEFAULT_PROJECT_ICON,
       is_protected: 0,
       name,
       owner_id: LOCAL_OWNER_ID,
@@ -338,9 +357,10 @@ class JsonHistoryDb {
     return formatProject(row);
   }
 
-  updateProject(id, name) {
+  updateProject(id, name, icon) {
     const row = this.data.projects.find((item) => item.id === id);
     if (!row) return null;
+    row.icon = isProjectIcon(icon) ? icon : formatProject(row).icon;
     row.name = name;
     row.updated_at = now();
     this._save();
@@ -519,6 +539,7 @@ class SqliteHistoryDb {
         id TEXT PRIMARY KEY,
         owner_id TEXT NOT NULL,
         name TEXT NOT NULL,
+        icon TEXT NOT NULL DEFAULT 'folder-kanban',
         position INTEGER NOT NULL DEFAULT 0,
         is_protected INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
@@ -550,6 +571,15 @@ class SqliteHistoryDb {
       CREATE INDEX IF NOT EXISTS idx_projects_owner_position ON projects(owner_id, position);
       CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions(created_at DESC);
     `);
+    const projectColumns = new Set(
+      this.db.prepare("PRAGMA table_info(projects)").all().map((row) => row.name),
+    );
+    if (!projectColumns.has("icon")) {
+      this.db.exec(`
+        ALTER TABLE projects ADD COLUMN icon TEXT NOT NULL DEFAULT 'folder-kanban';
+        UPDATE projects SET icon = 'user-round' WHERE is_protected = 1;
+      `);
+    }
     const collectionColumns = new Set(
       this.db.prepare("PRAGMA table_info(collections)").all().map((row) => row.name),
     );
@@ -575,9 +605,9 @@ class SqliteHistoryDb {
     if (!project) {
       const id = generateNanoId();
       this.db.prepare(`
-        INSERT INTO projects (id, owner_id, name, position, is_protected, created_at, updated_at)
-        VALUES (?, ?, 'Personal', 0, 1, ?, ?)
-      `).run(id, LOCAL_OWNER_ID, timestamp, timestamp);
+        INSERT INTO projects (id, owner_id, name, icon, position, is_protected, created_at, updated_at)
+        VALUES (?, ?, 'Personal', ?, 0, 1, ?, ?)
+      `).run(id, LOCAL_OWNER_ID, PERSONAL_PROJECT_ICON, timestamp, timestamp);
       project = this.db.prepare("SELECT * FROM projects WHERE id = ?").get(id);
     }
     let collection = this.db.prepare(
@@ -718,23 +748,41 @@ class SqliteHistoryDb {
     ).all(LOCAL_OWNER_ID).map(formatProject);
   }
 
-  createProject(name) {
+  createProject(name, icon = DEFAULT_PROJECT_ICON) {
     const id = generateNanoId();
     const timestamp = now();
     const position = Number(this.db.prepare(
       "SELECT COUNT(*) AS count FROM projects WHERE owner_id = ?",
     ).get(LOCAL_OWNER_ID).count);
     this.db.prepare(`
-      INSERT INTO projects (id, owner_id, name, position, is_protected, created_at, updated_at)
-      VALUES (?, ?, ?, ?, 0, ?, ?)
-    `).run(id, LOCAL_OWNER_ID, name, position, timestamp, timestamp);
+      INSERT INTO projects (id, owner_id, name, icon, position, is_protected, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+    `).run(
+      id,
+      LOCAL_OWNER_ID,
+      name,
+      isProjectIcon(icon) ? icon : DEFAULT_PROJECT_ICON,
+      position,
+      timestamp,
+      timestamp,
+    );
     return formatProject(this.db.prepare("SELECT * FROM projects WHERE id = ?").get(id));
   }
 
-  updateProject(id, name) {
+  updateProject(id, name, icon) {
+    const existing = this.db.prepare(
+      "SELECT * FROM projects WHERE id = ? AND owner_id = ?",
+    ).get(id, LOCAL_OWNER_ID);
+    if (!existing) return null;
     const result = this.db.prepare(
-      "UPDATE projects SET name = ?, updated_at = ? WHERE id = ? AND owner_id = ?",
-    ).run(name, now(), id, LOCAL_OWNER_ID);
+      "UPDATE projects SET name = ?, icon = ?, updated_at = ? WHERE id = ? AND owner_id = ?",
+    ).run(
+      name,
+      isProjectIcon(icon) ? icon : formatProject(existing).icon,
+      now(),
+      id,
+      LOCAL_OWNER_ID,
+    );
     if (!result.changes) return null;
     return formatProject(this.db.prepare("SELECT * FROM projects WHERE id = ?").get(id));
   }

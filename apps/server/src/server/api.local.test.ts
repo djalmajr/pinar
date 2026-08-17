@@ -4,7 +4,14 @@ import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { handleApiRequest, handlePublicRequest, proxyCloudCheckout, resetLocalApiForTests } from "./api.local";
+import {
+  authorizeAppRequest,
+  handleApiRequest,
+  handlePublicRequest,
+  proxyCloudCheckout,
+  proxyCloudPricing,
+  resetLocalApiForTests,
+} from "./api.local";
 import { exerciseProjectApiContract } from "./project-api.contract";
 
 const VALID_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
@@ -45,6 +52,10 @@ describe("local TanStack API", () => {
     const health = await request("/api/health");
     assert.equal(health.status, 200);
     assert.equal((await jsonBody(health)).runtime, "local");
+    assert.equal(await authorizeAppRequest(), true);
+    assert.deepEqual(await jsonBody(await request("/api/auth/session")), {
+      session: { kind: "local", plan: "free" },
+    });
 
     const upload = await request("/api/shots", {
       body: JSON.stringify({
@@ -132,6 +143,30 @@ describe("local TanStack API", () => {
     );
     assert.equal(response.status, 200);
     assert.equal((await jsonBody(response)).url, "https://checkout.stripe.test/session");
+  });
+
+  test("loads country-aware pricing through the remote server", async () => {
+    // Mutation captured: resolving pricing locally loses Cloudflare's public-IP country detection.
+    let requestedUrl = "";
+    const response = await proxyCloudPricing(async (input) => {
+      requestedUrl = String(input);
+      return Response.json({
+        country: "BR",
+        currency: "BRL",
+        discountPercent: 35,
+        prices: {
+          free: { amount: 0, originalAmount: null },
+          lifetime: { amount: 16_590, originalAmount: 25_487 },
+          month: { amount: 990, originalAmount: 1_508 },
+          year: { amount: 6_490, originalAmount: 9_883 },
+        },
+        regional: true,
+      });
+    });
+    assert.equal(requestedUrl, "https://pinar.dev/api/pricing");
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "private, no-store");
+    assert.equal((await jsonBody(response)).currency, "BRL");
   });
 
   test("provides project and collection CRUD with safe capture fallback", async () => {

@@ -5,13 +5,17 @@ import { formatClipboardPayload } from "./format.js";
 import { getBestLanguage, translations } from "./i18n.js";
 import { getPinColor } from "./pin-colors.js";
 import {
+  clearDeviceToken,
   createInstallationIdentity,
+  deviceAuthHeaders,
   ensureInstallationIdentity,
+  getDeviceToken,
   installationAuthHeaders,
   replaceInstallationIdentity,
+  storeDeviceToken,
 } from "./identity.js";
 import { pinarPorts } from "./ports.js";
-import { endTabPins, planSessionEnd } from "./session.js";
+import { endTabPins, pinFrameIds, planSessionEnd } from "./session.js";
 
 const tabPins = new Map();
 const registeredInstallations = new Set();
@@ -68,7 +72,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 
 chrome.contextMenus.onClicked.addListener((info) => {
   if (info.menuItemId !== OPEN_PANEL_MENU_ID) return;
-  void openHistory().catch((error) => console.error("Unable to open Pinar panel", error));
+  void openApp().catch((error) => console.error("Unable to open Pinar app", error));
 });
 
 void initializeInstallationIdentity();
@@ -76,7 +80,7 @@ void initializeInstallationIdentity();
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab.id) return;
   await chrome.scripting.executeScript({
-    files: ["coordinates.js", "content.js"],
+    files: ["coordinates.js", "keyboard.js", "content.js"],
     target: { allFrames: true, tabId: tab.id },
   });
 });
@@ -86,22 +90,50 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === "identity:get") {
-    initializeInstallationIdentity()
-      .then((identity) => sendResponse({ id: identity.id, ok: true }))
+  if (message.type === "app:open") {
+    openApp()
+      .then((url) => sendResponse({ ok: true, url }))
       .catch((error) => sendResponse({ error: String(error), ok: false }));
     return true;
   }
 
-  if (message.type === "identity:regenerate") {
-    regenerateInstallationIdentity()
-      .then((identity) => sendResponse({ id: identity.id, ok: true }))
+  if (message.type === "auth:get") {
+    getAuthSession()
+      .then((session) => sendResponse({ ok: true, session }))
       .catch((error) => sendResponse({ error: String(error), ok: false }));
     return true;
   }
 
-  if (message.type === "history:open") {
-    openHistory()
+  if (message.type === "auth:extension-code") {
+    createExtensionCodeForCurrentSession()
+      .then((challenge) => sendResponse({ ...challenge, ok: true }))
+      .catch((error) => sendResponse({ error: String(error), ok: false }));
+    return true;
+  }
+
+  if (message.type === "auth:email-code:request") {
+    requestAccountEmailCode(message.email)
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ error: String(error), ok: false }));
+    return true;
+  }
+
+  if (message.type === "auth:email-code:verify") {
+    verifyAccountEmailCode(message.email, message.code)
+      .then((session) => sendResponse({ ok: true, session }))
+      .catch((error) => sendResponse({ error: String(error), ok: false }));
+    return true;
+  }
+
+  if (message.type === "auth:logout") {
+    logoutAccount()
+      .then((session) => sendResponse({ ok: true, session }))
+      .catch((error) => sendResponse({ error: String(error), ok: false }));
+    return true;
+  }
+
+  if (message.type === "auth:billing") {
+    openBillingPortal()
       .then((url) => sendResponse({ ok: true, url }))
       .catch((error) => sendResponse({ error: String(error), ok: false }));
     return true;
@@ -149,12 +181,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ error: "missing tab", ok: false });
       return false;
     }
-    chrome.scripting
-      .executeScript({
-        func: () => globalThis.__aiFeedbackSyncPins?.(),
-        target: { allFrames: true, tabId },
+    const frameIds = pinFrameIds(tabPins.get(tabId));
+    if (frameIds.length === 0) {
+      sendResponse({ ok: true });
+      return false;
+    }
+    Promise.all(frameIds.map((frameId) => chrome.scripting.executeScript({
+      func: () => globalThis.__pinarSyncPins?.(),
+      target: { frameIds: [frameId], tabId },
+    })))
+      .then((results) => {
+        const synced = results.every(([result]) => result?.result === true);
+        sendResponse(synced
+          ? { ok: true }
+          : { error: "pin positions could not be refreshed", ok: false });
       })
-      .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ error: String(error), ok: false }));
     return true;
   }
@@ -175,7 +216,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .executeScript({
         args: [message.hidden === true],
         func: (hidden) => {
-          globalThis.__aiFeedbackSetHidden?.(hidden);
+          globalThis.__pinarSetHidden?.(hidden);
         },
         target: { allFrames: true, tabId },
       })
@@ -194,7 +235,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.scripting
       .executeScript({
         func: () => {
-          globalThis.__aiFeedbackDismiss?.();
+          globalThis.__pinarDismiss?.();
         },
         target: { allFrames: true, tabId: plan.tabId },
       })
@@ -231,27 +272,21 @@ async function getSettings() {
   let settings;
   try {
     settings = await chrome.storage.sync.get({
-      cloudToken: "",
       cloudUrl: "https://pinar.dev",
       copyViewerContent: false,
       enableHistory: true,
       includeViewer: true,
       language: "",
-      licenseKey: "",
       storageMode: "local",
-      userPlan: "free",
     });
   } catch {
     settings = {
-      cloudToken: "",
       cloudUrl: "https://pinar.dev",
       copyViewerContent: false,
       enableHistory: true,
       includeViewer: true,
       language: "",
-      licenseKey: "",
       storageMode: "local",
-      userPlan: "free",
     };
   }
 
@@ -377,13 +412,13 @@ async function runInTopFrame(tabId, func, args = []) {
 }
 
 async function captureMetrics(tabId) {
-  return runInTopFrame(tabId, () => globalThis.__aiFeedbackCaptureMetrics?.());
+  return runInTopFrame(tabId, () => globalThis.__pinarCaptureMetrics?.());
 }
 
 async function prepareCapture(tabId, scrollY) {
   return runInTopFrame(
     tabId,
-    (targetY) => globalThis.__aiFeedbackPrepareCapture?.(targetY),
+    (targetY) => globalThis.__pinarPrepareCapture?.(targetY),
     [scrollY],
   );
 }
@@ -391,13 +426,13 @@ async function prepareCapture(tabId, scrollY) {
 async function scrollCapture(tabId, scrollY) {
   return runInTopFrame(
     tabId,
-    (targetY) => globalThis.__aiFeedbackScrollCapture?.(targetY),
+    (targetY) => globalThis.__pinarScrollCapture?.(targetY),
     [scrollY],
   );
 }
 
 async function restoreCapture(tabId) {
-  return runInTopFrame(tabId, () => globalThis.__aiFeedbackRestoreCapture?.());
+  return runInTopFrame(tabId, () => globalThis.__pinarRestoreCapture?.());
 }
 
 function wait(delay) {
@@ -503,15 +538,7 @@ async function storeDestination(settings, localBase, destination) {
 async function fetchDestinationTree(settings, localBase) {
   if (settings.storageMode === "cloud") {
     const endpoint = cloudEndpoint(settings);
-    const response = settings.licenseKey
-      ? await fetch(`${endpoint}/api/project-tree`, {
-          headers: { authorization: `Bearer ${settings.licenseKey}` },
-        })
-      : await installationFetch(
-          endpoint,
-          "/api/project-tree",
-          await initializeInstallationIdentity(),
-        );
+    const response = await remoteFetch(endpoint, "/api/project-tree");
     const body = await response.json().catch(() => ({}));
     if (!response.ok || !body.tree) throw new Error(body.error || "Remote destinations are unavailable");
     return body.tree;
@@ -587,71 +614,129 @@ async function installationFetch(endpoint, path, identity, init = {}) {
   return response;
 }
 
-async function regenerateInstallationIdentity() {
-  const settings = await getSettings();
-  const endpoint = cloudEndpoint(settings);
-  const current = await initializeInstallationIdentity();
+async function resetToFreshInstallation(endpoint) {
   const replacement = createInstallationIdentity();
-  let response = await fetch(`${endpoint}/api/installations/rotate`, {
-    body: JSON.stringify({
-      installationId: replacement.id,
-      installationToken: replacement.token,
-    }),
-    headers: {
-      ...installationAuthHeaders(current),
-      "content-type": "application/json",
-    },
-    method: "POST",
-  });
-
-  if (response.status === 401) {
-    response = await fetch(`${endpoint}/api/installations`, {
-      body: JSON.stringify({
-        installationId: replacement.id,
-        installationToken: replacement.token,
-      }),
-      headers: { "content-type": "application/json" },
-      method: "POST",
-    });
-  }
-
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || "Installation identity regeneration failed");
+  await clearDeviceToken(chrome.storage.local);
   await replaceInstallationIdentity(chrome.storage.local, replacement);
   registeredInstallations.clear();
-  registeredInstallations.add(`${endpoint}:${replacement.id}`);
+  await registerRemoteInstallation(endpoint, replacement, true);
   return replacement;
 }
 
-async function openHistory() {
+async function remoteFetch(endpoint, path, init = {}) {
+  const deviceToken = await getDeviceToken(chrome.storage.local);
+  if (deviceToken) {
+    const response = await fetch(`${endpoint}${path}`, {
+      ...init,
+      headers: {
+        ...deviceAuthHeaders(deviceToken),
+        ...(init.headers || {}),
+      },
+    });
+    if (response.status !== 401) return response;
+    await resetToFreshInstallation(endpoint);
+  }
+  return installationFetch(endpoint, path, await initializeInstallationIdentity(), init);
+}
+
+async function responseBody(response) {
+  return response.json().catch(() => ({}));
+}
+
+async function getAuthSession() {
+  const settings = await getSettings();
+  if (settings.storageMode !== "cloud") return { kind: "local", plan: "free" };
+  const endpoint = cloudEndpoint(settings);
+  const response = await remoteFetch(endpoint, "/api/auth/session");
+  const body = await responseBody(response);
+  if (!response.ok || !body.session) throw new Error(body.error || "Account session is unavailable");
+  return body.session;
+}
+
+async function createExtensionCodeForCurrentSession() {
+  const settings = await getSettings();
+  if (settings.storageMode !== "cloud") throw new Error("Temporary codes are only used by the remote server");
+  const endpoint = cloudEndpoint(settings);
+  const response = await remoteFetch(endpoint, "/api/auth/extension-codes", { method: "POST" });
+  const body = await responseBody(response);
+  if (!response.ok || !body.code) throw new Error(body.error || "Temporary code is unavailable");
+  return { code: body.code, expiresAt: body.expiresAt };
+}
+
+async function requestAccountEmailCode(email) {
+  const settings = await getSettings();
+  const endpoint = cloudEndpoint(settings);
+  const response = await fetch(`${endpoint}/api/auth/email-codes`, {
+    body: JSON.stringify({ email }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  const body = await responseBody(response);
+  if (!response.ok) throw new Error(body.error || "Unable to request an email code");
+}
+
+async function verifyAccountEmailCode(email, code) {
+  const settings = await getSettings();
+  const endpoint = cloudEndpoint(settings);
+  const identity = await initializeInstallationIdentity();
+  await registerRemoteInstallation(endpoint, identity);
+  const response = await fetch(`${endpoint}/api/auth/email-codes/verify`, {
+    body: JSON.stringify({
+      code,
+      email,
+      installationId: identity.id,
+      installationToken: identity.token,
+    }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  const body = await responseBody(response);
+  if (!response.ok || !body.device?.token || !body.session) {
+    throw new Error(body.error || "The code is invalid or expired");
+  }
+  await storeDeviceToken(chrome.storage.local, body.device.token);
+  registeredInstallations.clear();
+  return body.session;
+}
+
+async function logoutAccount() {
+  const settings = await getSettings();
+  const endpoint = cloudEndpoint(settings);
+  const token = await getDeviceToken(chrome.storage.local);
+  if (token) {
+    const response = await fetch(`${endpoint}/api/auth/logout`, {
+      headers: deviceAuthHeaders(token),
+      method: "POST",
+    });
+    if (!response.ok && response.status !== 401) {
+      const body = await responseBody(response);
+      throw new Error(body.error || "Unable to sign out");
+    }
+  }
+  const identity = await resetToFreshInstallation(endpoint);
+  return { installationId: identity.id, kind: "installation", plan: "free" };
+}
+
+async function openBillingPortal() {
+  const settings = await getSettings();
+  const endpoint = cloudEndpoint(settings);
+  const response = await remoteFetch(endpoint, "/api/stripe/portal", { method: "POST" });
+  const body = await responseBody(response);
+  if (!response.ok || !body.url) throw new Error(body.error || "Billing portal is unavailable");
+  await chrome.tabs.create({ url: body.url });
+  return body.url;
+}
+
+async function openApp() {
   const settings = await getSettings();
   const withLanguage = (value) => {
     const url = new URL(value);
     if (settings.language) url.searchParams.set("lang", settings.language);
     return url.toString();
   };
-  if (settings.storageMode !== "cloud") {
-    const base = await findShotBase();
-    if (!base) throw new Error("Local Pinar server is not running");
-    const url = withLanguage(`${base}/history`);
-    await chrome.tabs.create({ url });
-    return url;
-  }
-
-  const endpoint = cloudEndpoint(settings);
-  let response;
-  if (settings.licenseKey) {
-    response = await fetch(`${endpoint}/api/auth/browser-ticket`, {
-      headers: { authorization: `Bearer ${settings.licenseKey}` },
-      method: "POST",
-    });
-  } else {
-    const identity = await initializeInstallationIdentity();
-    response = await installationFetch(endpoint, "/api/auth/browser-ticket", identity, { method: "POST" });
-  }
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok || !body.url) throw new Error(body.error || "Remote history is unavailable");
-  const url = withLanguage(body.url);
+  const base = settings.storageMode === "cloud" ? cloudEndpoint(settings) : await findShotBase();
+  if (!base) throw new Error("Local Pinar server is not running");
+  const url = withLanguage(`${base}/`);
   await chrome.tabs.create({ url });
   return url;
 }
@@ -666,17 +751,7 @@ async function saveShot(dataUrl, id, page = {}, pins = [], settings = {}, collec
         headers: { "content-type": "application/json" },
         method: "POST",
       };
-      const response = settings.licenseKey
-        ? await fetch(`${endpoint}/api/shots`, {
-            ...init,
-            headers: { ...init.headers, authorization: `Bearer ${settings.licenseKey}` },
-          })
-        : await installationFetch(
-            endpoint,
-            "/api/shots",
-            await initializeInstallationIdentity(),
-            init,
-          );
+      const response = await remoteFetch(endpoint, "/api/shots", init);
       const body = await response.json();
       if (response.ok && (body.path || body.shotUrl)) {
         await storeDestination(settings, "", body.destination);

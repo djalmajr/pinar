@@ -54,7 +54,7 @@ export interface Session {
   page: PageInfo;
   pinCount?: number;
   pins: Pin[];
-  plan?: "free" | "pro";
+  plan?: AccountPlan;
   position?: number;
   shotId?: string;
   shotUrl?: string | null;
@@ -62,9 +62,49 @@ export interface Session {
   viewerUrl?: string | null;
 }
 
+export type AccountPlan = "free" | "lifetime" | "pro";
+
+export interface LocalAuthSession {
+  kind: "local";
+  plan: "free";
+}
+
+export interface InstallationAuthSession {
+  installationId: string;
+  kind: "installation";
+  plan: "free";
+}
+
+export interface AccountAuthSession {
+  email: string;
+  kind: "account";
+  plan: AccountPlan;
+  userId: string;
+}
+
+export type AuthSession = AccountAuthSession | InstallationAuthSession | LocalAuthSession;
+
+export interface AuthSessionResponse {
+  session: AuthSession | null;
+}
+
+export interface ExtensionCodeChallenge {
+  code: string;
+  expiresAt: string;
+}
+
+export interface DeviceSession {
+  expiresAt: string;
+  session: AccountAuthSession;
+  token: string;
+}
+
+export type ProjectIcon = string;
+
 export interface Project {
   createdAt: string;
   id: string;
+  icon: ProjectIcon;
   isProtected: boolean;
   name: string;
   ownerId: string;
@@ -106,16 +146,6 @@ export interface CaptureDestination {
   projectId: string;
 }
 
-export interface UserSubscription {
-  id: string;
-  email: string;
-  licenseKey: string;
-  plan: "free" | "pro";
-  status: "active" | "canceled" | "past_due";
-  storageLimitMb: number;
-  storageUsedBytes: number;
-}
-
 export type StorageMode = "local" | "cloud";
 export type SupportedLanguage = "en" | "pt" | "es" | "fr" | "de" | "zh" | "ja";
 
@@ -123,14 +153,10 @@ export type ThemeMode = "dark" | "light" | "system";
 
 export interface PinarSettings {
   cloudUrl: string;
-  cloudToken: string;
   copyViewerContent: boolean;
   enableHistory: boolean;
   includeViewer: boolean;
   language: string;
-  licenseKey: string;
   storageMode: StorageMode;
   theme?: ThemeMode;
-  userPlan: "free" | "pro";
-  userEmail: string;
 }

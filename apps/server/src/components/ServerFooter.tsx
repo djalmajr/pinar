@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Button, cn } from "@pinar/ui";
+import { isPaidAuthSession, useAuthSession } from "@/lib/auth-session";
 import { useServerI18n } from "@/lib/i18n";
 import { SERVER_VERSION } from "@/lib/version";
 import CoffeeIcon from "~icons/lucide/coffee";
@@ -16,12 +17,18 @@ interface ServerFooterProps extends OpenSourceSupportCardProps {
 
 export function OpenSourceSupportCard({ className, compact = false }: OpenSourceSupportCardProps) {
   const { t } = useServerI18n();
+  const session = useAuthSession();
+  const isPaidAccount = isPaidAuthSession(session);
+  const description = isPaidAccount
+    ? t("pricing.supportThanksDescription")
+    : t("pricing.supportDescription");
+  const title = isPaidAccount ? t("pricing.supportThanksTitle") : t("pricing.supportTitle");
 
   return (
     <section
-      aria-label={t("pricing.supportTitle")}
+      aria-label={title}
       className={cn(
-        "mx-auto flex w-full max-w-4xl items-center justify-between gap-4 rounded-xl border bg-card p-5",
+        "mx-auto flex min-h-24 w-full max-w-4xl items-center justify-between gap-4 rounded-xl border bg-card p-5",
         compact ? "flex-col items-stretch" : "flex-col sm:flex-row",
         className,
       )}
@@ -29,28 +36,30 @@ export function OpenSourceSupportCard({ className, compact = false }: OpenSource
       <div className={cn("text-center sm:text-left", compact && "text-left")}>
         <div className={cn("flex items-center justify-center gap-2 text-sm font-semibold sm:justify-start", compact && "justify-start")}>
           <HeartIcon className="size-4 fill-pink-500 text-pink-500" />
-          {t("pricing.supportTitle")}
+          {title}
         </div>
-        <p className="mt-0.5 text-xs text-muted-foreground">{t("pricing.supportDescription")}</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
       </div>
-      <div className={cn("flex shrink-0 flex-wrap items-center justify-center gap-2.5", compact && "justify-start")}>
-        <Button
-          render={<a href="https://buymeacoffee.com/djalmajr" rel="noopener noreferrer" target="_blank" />}
-          size="sm"
-          variant="coffee"
-        >
-          <CoffeeIcon data-icon="inline-start" />
-          {t("pricing.buyCoffee")}
-        </Button>
-        <Button
-          render={<a href="https://github.com/sponsors/djalmajr" rel="noopener noreferrer" target="_blank" />}
-          size="sm"
-          variant="sponsor"
-        >
-          <HeartIcon className="fill-current" data-icon="inline-start" />
-          {t("pricing.sponsorGitHub")}
-        </Button>
-      </div>
+      {!isPaidAccount ? (
+        <div className={cn("flex shrink-0 flex-wrap items-center justify-center gap-2.5", compact && "justify-start")}>
+          <Button
+            render={<a href="https://buymeacoffee.com/djalmajr" rel="noopener noreferrer" target="_blank" />}
+            size="sm"
+            variant="coffee"
+          >
+            <CoffeeIcon data-icon="inline-start" />
+            {t("pricing.buyCoffee")}
+          </Button>
+          <Button
+            render={<a href="https://github.com/sponsors/djalmajr" rel="noopener noreferrer" target="_blank" />}
+            size="sm"
+            variant="sponsor"
+          >
+            <HeartIcon className="fill-current" data-icon="inline-start" />
+            {t("pricing.sponsorGitHub")}
+          </Button>
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -1,6 +1,6 @@
 (() => {
-  if (globalThis.__aiFeedbackToggle) {
-    globalThis.__aiFeedbackToggle();
+  if (globalThis.__pinarToggle) {
+    globalThis.__pinarToggle();
     return;
   }
 
@@ -34,14 +34,14 @@
     `${navigator.userAgentData?.platform ?? ""} ${navigator.platform ?? ""} ${navigator.userAgent ?? ""}`,
   );
   const sendMod = apple ? "⌘" : "Ctrl";
-  const FRAME_ACTIVITY = "ai-feedback:frame-activity";
-  const FRAME_CANCEL = "ai-feedback:frame-cancel";
-  const FRAME_CLEAR = "ai-feedback:frame-clear";
-  const FRAME_HIDE = "ai-feedback:frame-hide";
-  const FRAME_RECT_REQUEST = "ai-feedback:frame-rect-request";
-  const FRAME_RECT_REPLY = "ai-feedback:frame-rect-reply";
-  const FRAME_SEND = "ai-feedback:frame-send";
-  const FRAME_SHOW = "ai-feedback:frame-show";
+  const FRAME_ACTIVITY = "pinar:frame-activity";
+  const FRAME_CANCEL = "pinar:frame-cancel";
+  const FRAME_CLEAR = "pinar:frame-clear";
+  const FRAME_HIDE = "pinar:frame-hide";
+  const FRAME_RECT_REQUEST = "pinar:frame-rect-request";
+  const FRAME_RECT_REPLY = "pinar:frame-rect-reply";
+  const FRAME_SEND = "pinar:frame-send";
+  const FRAME_SHOW = "pinar:frame-show";
   const isEmbedded = globalThis.top !== globalThis;
   const showToolbar = !isEmbedded;
   const {
@@ -51,6 +51,10 @@
     pinDocumentGeometry,
     projectPin,
   } = globalThis.__pinarCoordinateSpace;
+  const {
+    handleComposerKeyDown,
+    stopComposerKeyboardEvent,
+  } = globalThis.__pinarKeyboardEvents;
 
   const state = {
     active: true,
@@ -96,7 +100,7 @@
   }
 
   const host = document.createElement("div");
-  host.setAttribute("data-ai-feedback", "host");
+  host.setAttribute("data-pinar", "host");
   Object.assign(host.style, {
     all: "initial",
     inset: "0",
@@ -925,12 +929,14 @@
       };
     });
     const response = await chrome.runtime.sendMessage({ pins, type: "pins:sync" }).catch(() => null);
-    if (response?.ok) {
+    const synced = response?.ok === true;
+    if (synced) {
       const colorsById = new Map(response.pins.map((pin) => [pin.id, pin.color]));
       state.pins = state.pins.map((pin) => ({ ...pin, color: colorsById.get(pin.id) || pin.color }));
       state.tabPinCount = response.pins.length;
     }
     renderChrome();
+    return synced;
   }
 
   function cancelDraft() {
@@ -1216,7 +1222,7 @@
       broadcast(FRAME_HIDE);
     } catch (error) {
       await chrome.runtime.sendMessage({ hidden: false, type: "overlays:hidden" }).catch(() => null);
-      console.warn("ai-feedback copy failed", error);
+      console.warn("Pinar copy failed", error);
       flashStatus("Copy failed");
     } finally {
       state.sending = false;
@@ -1317,11 +1323,10 @@
 
   ui.input.addEventListener("input", fitInput);
   ui.input.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" || event.shiftKey || event.metaKey || event.ctrlKey) return;
-    event.preventDefault();
-    event.stopPropagation();
-    saveDraft();
+    if (handleComposerKeyDown(event)) saveDraft();
   });
+  ui.input.addEventListener("keypress", stopComposerKeyboardEvent);
+  ui.input.addEventListener("keyup", stopComposerKeyboardEvent);
 
   ui.cancel.addEventListener("click", () => cancelDraft());
   ui.deleteDraft.addEventListener("click", () => deleteDraft());
@@ -1378,31 +1383,31 @@
     window.removeEventListener("click", onClick, true);
     window.removeEventListener("keydown", onKey, true);
     window.removeEventListener("message", onFrameMessage);
-    delete globalThis.__aiFeedbackToggle;
-    delete globalThis.__aiFeedbackSetHidden;
-    delete globalThis.__aiFeedbackDismiss;
-    delete globalThis.__aiFeedbackSyncPins;
-    delete globalThis.__aiFeedbackCaptureMetrics;
-    delete globalThis.__aiFeedbackPrepareCapture;
-    delete globalThis.__aiFeedbackRestoreCapture;
-    delete globalThis.__aiFeedbackScrollCapture;
+    delete globalThis.__pinarToggle;
+    delete globalThis.__pinarSetHidden;
+    delete globalThis.__pinarDismiss;
+    delete globalThis.__pinarSyncPins;
+    delete globalThis.__pinarCaptureMetrics;
+    delete globalThis.__pinarPrepareCapture;
+    delete globalThis.__pinarRestoreCapture;
+    delete globalThis.__pinarScrollCapture;
   }
 
   function toggle() {
     setVisible(!isVisible());
-    globalThis.__aiFeedbackToggle = toggle;
-    globalThis.__aiFeedbackSetHidden = setHidden;
-    globalThis.__aiFeedbackDismiss = dismiss;
+    globalThis.__pinarToggle = toggle;
+    globalThis.__pinarSetHidden = setHidden;
+    globalThis.__pinarDismiss = dismiss;
   }
 
-  globalThis.__aiFeedbackToggle = toggle;
-  globalThis.__aiFeedbackSetHidden = setHidden;
-  globalThis.__aiFeedbackDismiss = dismiss;
-  globalThis.__aiFeedbackSyncPins = syncPins;
-  globalThis.__aiFeedbackCaptureMetrics = pageMetrics;
-  globalThis.__aiFeedbackPrepareCapture = prepareCapture;
-  globalThis.__aiFeedbackRestoreCapture = restoreCapture;
-  globalThis.__aiFeedbackScrollCapture = scrollCapture;
+  globalThis.__pinarToggle = toggle;
+  globalThis.__pinarSetHidden = setHidden;
+  globalThis.__pinarDismiss = dismiss;
+  globalThis.__pinarSyncPins = syncPins;
+  globalThis.__pinarCaptureMetrics = pageMetrics;
+  globalThis.__pinarPrepareCapture = prepareCapture;
+  globalThis.__pinarRestoreCapture = restoreCapture;
+  globalThis.__pinarScrollCapture = scrollCapture;
   document.documentElement.setAttribute("data-pinar-active", "true");
   applyGlobalStyles();
   renderChrome();

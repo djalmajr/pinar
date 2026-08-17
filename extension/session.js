@@ -8,6 +8,10 @@ export function endTabPins(tabPins, tabId) {
   if (tabId != null) tabPins.delete(tabId);
 }
 
+export function pinFrameIds(pins = []) {
+  return [...new Set(pins.map((pin) => pin.frameId).filter(Number.isInteger))];
+}
+
 export function planSessionEnd(tabId) {
   if (tabId == null) return { ok: false, error: "missing tab" };
   return {

@@ -125,6 +125,7 @@ describe("history", () => {
     const tree = db.getProjectTree();
 
     assert.equal(tree.projects.length, 1);
+    assert.equal(tree.projects[0].icon, "user-round");
     assert.equal(tree.projects[0].name, "Personal");
     assert.equal(tree.projects[0].isProtected, true);
     assert.equal(tree.projects[0].collections.length, 1);
@@ -140,7 +141,9 @@ describe("history", () => {
     const db = openHistoryDb(tempDir);
     const personal = db.listProjects()[0];
     const inbox = db.listCollections(personal.id)[0];
-    const project = db.createProject("Website");
+    const project = db.createProject("Website", "telescope");
+    assert.equal(project.icon, "telescope");
+    assert.equal(db.updateProject(project.id, "Website", "audio-waveform").icon, "audio-waveform");
     const review = db.createCollection(project.id, "Review");
     const ready = db.createCollection(project.id, "Ready");
     db.saveSession({ collectionId: review.id, id: "s1", page: { title: "One" } });

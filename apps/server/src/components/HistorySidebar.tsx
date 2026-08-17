@@ -1,6 +1,7 @@
 import { useMemo, useState, type CSSProperties } from "react";
 import type {
   CollectionPlacement,
+  ProjectIcon,
   ProjectTree,
   ProjectTreeCollection,
   ProjectTreeProject,
@@ -26,6 +27,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
@@ -39,13 +41,11 @@ import {
   SidebarGroupAction,
   SidebarGroupContent,
   SidebarGroupLabel,
-  SidebarHeader,
   SidebarMenu,
   SidebarMenuAction,
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarRail,
   cn,
   useSidebar,
 } from "@pinar/ui";
@@ -57,15 +57,15 @@ import {
   reorderCollectionTree,
   visibleCollections,
 } from "@/lib/collection-tree";
+import { ProjectIconGlyph } from "@/components/ProjectIcon";
 import type { ServerMessageKey } from "@/lib/i18n";
 import CheckIcon from "~icons/lucide/check";
 import ChevronsUpDownIcon from "~icons/lucide/chevrons-up-down";
 import FolderIcon from "~icons/lucide/folder";
 import FolderOpenIcon from "~icons/lucide/folder-open";
-import FolderKanbanIcon from "~icons/lucide/folder-kanban";
 import FolderPlusIcon from "~icons/lucide/folder-plus";
-import ImagesIcon from "~icons/lucide/images";
 import InboxIcon from "~icons/lucide/inbox";
+import LayoutGridIcon from "~icons/lucide/layout-grid";
 import MoreHorizontalIcon from "~icons/lucide/more-horizontal";
 import PencilIcon from "~icons/lucide/pencil";
 import PlusIcon from "~icons/lucide/plus";
@@ -81,11 +81,11 @@ interface ContainerTarget {
 }
 
 interface RenameTarget extends ContainerTarget {
+  icon?: ProjectIcon;
   name: string;
 }
 
 interface HistorySidebarProps {
-  projectTree: ProjectTree;
   selectedCollectionId: string | null;
   selectedProject?: ProjectTreeProject;
   t: Translate;
@@ -94,7 +94,23 @@ interface HistorySidebarProps {
   onRename: (target: RenameTarget) => void;
   onReorderCollections: (items: CollectionPlacement[]) => void;
   onSelectCollection: (collectionId: string | null) => void;
+  onShare: (path: string) => void;
+}
+
+interface ProjectSwitcherProps {
+  compact: boolean;
+  projectTree: ProjectTree;
+  selectedProject?: ProjectTreeProject;
+  t: Translate;
+  onCreate: () => void;
   onSelectProject: (projectId: string) => void;
+}
+
+interface ProjectActionsMenuProps {
+  selectedProject?: ProjectTreeProject;
+  t: Translate;
+  onDelete: (target: ContainerTarget) => void;
+  onRename: (target: RenameTarget) => void;
   onShare: (path: string) => void;
 }
 
@@ -117,6 +133,7 @@ interface CollectionMenuProps {
   collection: ProjectTreeCollection;
   menuOpen: boolean;
   t: Translate;
+  onActionFocusChange: (focused: boolean) => void;
   onCreate: () => void;
   onDelete: (target: ContainerTarget) => void;
   onMenuOpenChange: (open: boolean) => void;
@@ -128,6 +145,7 @@ function CollectionMenu({
   collection,
   menuOpen,
   t,
+  onActionFocusChange,
   onCreate,
   onDelete,
   onMenuOpenChange,
@@ -140,8 +158,11 @@ function CollectionMenu({
         render={
           <SidebarMenuAction
             aria-label={`${collection.name}: ${t("dashboard.collectionActions")}`}
+            className="size-6 peer-data-[size=default]/menu-button:top-1"
             showOnHover
             title={t("dashboard.collectionActions")}
+            onBlur={() => onActionFocusChange(false)}
+            onFocus={() => onActionFocusChange(true)}
           />
         }
       >
@@ -151,7 +172,7 @@ function CollectionMenu({
         <DropdownMenuGroup>
           <DropdownMenuItem onClick={onCreate}>
             <FolderPlusIcon />
-            {t("dashboard.collectionMenu")}
+            {t("dashboard.newCollection")}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => onRename({
             id: collection.id,
@@ -198,6 +219,7 @@ function SortableCollection({
   onToggle,
 }: SortableCollectionProps) {
   const sortable = useSortable({ id: collection.id });
+  const [menuActionFocused, setMenuActionFocused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const style: CSSProperties = {
     opacity: sortable.isDragging ? 0.35 : 1,
@@ -219,21 +241,36 @@ function SortableCollection({
         isActive={isActive}
         style={buttonStyle}
         tooltip={collection.name}
-        onClick={() => {
+        onClick={(event) => {
           onSelect(collection.id);
-          if (hasChildren) onToggle(collection.id);
+          if (
+            hasChildren
+            && event.target instanceof Element
+            && event.target.closest("[data-collection-toggle]")
+          ) {
+            onToggle(collection.id);
+          }
         }}
       >
-        {hasChildren && isExpanded ? <FolderOpenIcon /> : <FolderIcon />}
+        <span
+          className="relative flex size-3.5 shrink-0 cursor-pointer items-center justify-center after:absolute after:-inset-1"
+          data-collection-toggle
+        >
+          {hasChildren && isExpanded ? <FolderOpenIcon /> : <FolderIcon />}
+        </span>
         <span>{collection.name}</span>
       </SidebarMenuButton>
-      <SidebarMenuBadge className={cn("group-hover/menu-item:opacity-0", menuOpen && "opacity-0")}>
+      <SidebarMenuBadge className={cn(
+        "group-hover/menu-item:opacity-0",
+        (menuOpen || menuActionFocused) && "opacity-0",
+      )}>
         {collection.sessions.length}
       </SidebarMenuBadge>
       <CollectionMenu
         collection={collection}
         menuOpen={menuOpen}
         t={t}
+        onActionFocusChange={setMenuActionFocused}
         onCreate={() => onCreateChild(collection.id)}
         onDelete={onDelete}
         onMenuOpenChange={setMenuOpen}
@@ -265,6 +302,7 @@ function FixedCollection({
   onSelect,
   onShare,
 }: FixedCollectionProps) {
+  const [menuActionFocused, setMenuActionFocused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   return (
     <SidebarMenuItem>
@@ -276,13 +314,17 @@ function FixedCollection({
         <InboxIcon />
         <span>{collection.name}</span>
       </SidebarMenuButton>
-      <SidebarMenuBadge className={cn("group-hover/menu-item:opacity-0", menuOpen && "opacity-0")}>
+      <SidebarMenuBadge className={cn(
+        "group-hover/menu-item:opacity-0",
+        (menuOpen || menuActionFocused) && "opacity-0",
+      )}>
         {collection.sessions.length}
       </SidebarMenuBadge>
       <CollectionMenu
         collection={collection}
         menuOpen={menuOpen}
         t={t}
+        onActionFocusChange={setMenuActionFocused}
         onCreate={onCreate}
         onDelete={onDelete}
         onMenuOpenChange={setMenuOpen}
@@ -293,8 +335,141 @@ function FixedCollection({
   );
 }
 
-export function HistorySidebar({
+export function ProjectSwitcher({
+  compact,
   projectTree,
+  selectedProject,
+  t,
+  onCreate,
+  onSelectProject,
+}: ProjectSwitcherProps) {
+  const totalSessions = selectedProject?.collections.reduce(
+    (total, collection) => total + collection.sessions.length,
+    0,
+  ) ?? 0;
+  const sessionLabel = t(
+    totalSessions === 1 ? "aggregate.sessionSingular" : "aggregate.sessionPlural",
+  );
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            aria-label={selectedProject?.name ?? t("common.loading")}
+            className={cn(
+              "min-w-0",
+              compact ? "size-8 justify-center p-0" : "h-11 w-full justify-start px-1.5",
+            )}
+            disabled={!selectedProject}
+            variant="ghost"
+          />
+        }
+      >
+        {compact ? (
+          selectedProject ? <ProjectIconGlyph icon={selectedProject.icon} /> : null
+        ) : (
+          <>
+            {selectedProject ? (
+              <ProjectIconGlyph className="size-5 shrink-0" icon={selectedProject.icon} />
+            ) : null}
+            <span className="grid min-w-0 flex-1 text-left leading-tight">
+              <span className="truncate font-semibold">
+                {selectedProject?.name ?? t("common.loading")}
+              </span>
+              <span className="truncate text-xs font-normal text-sidebar-foreground/60">
+                {t("aggregate.sessionCount", { count: totalSessions, label: sessionLabel })}
+              </span>
+            </span>
+            <ChevronsUpDownIcon className="ml-auto" />
+          </>
+        )}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" side="bottom" sideOffset={8}>
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="capitalize">
+            {t("dashboard.project")}
+          </DropdownMenuLabel>
+          {projectTree.projects.map((project) => (
+            <DropdownMenuItem key={project.id} onClick={() => onSelectProject(project.id)}>
+              <ProjectIconGlyph icon={project.icon} />
+              <span className="min-w-0 flex-1 truncate">{project.name}</span>
+              {project.id === selectedProject?.id && <CheckIcon />}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuItem onClick={onCreate}>
+            <PlusIcon />
+            {t("dashboard.newProject")}
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+export function ProjectActionsMenu({
+  selectedProject,
+  t,
+  onDelete,
+  onRename,
+  onShare,
+}: ProjectActionsMenuProps) {
+  if (!selectedProject) return null;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            aria-label={`${selectedProject.name}: ${t("dashboard.projectActions")}`}
+            size="icon-sm"
+            title={t("dashboard.projectActions")}
+            variant="ghost"
+          />
+        }
+      >
+        <MoreHorizontalIcon />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-44">
+        <DropdownMenuGroup>
+          <DropdownMenuItem className="gap-2.5" onClick={() => onRename({
+            id: selectedProject.id,
+            icon: selectedProject.icon,
+            kind: "project",
+            name: selectedProject.name,
+          })}>
+            <PencilIcon />
+            {t("dashboard.editProject")}
+          </DropdownMenuItem>
+          <DropdownMenuItem className="gap-2.5" onClick={() => onShare(`/p/${selectedProject.id}`)}>
+            <ShareIcon />
+            {t("dashboard.share")}
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+        {!selectedProject.isProtected && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuItem
+                className="gap-2.5"
+                variant="destructive"
+                onClick={() => onDelete({ id: selectedProject.id, kind: "project" })}
+              >
+                <TrashIcon />
+                {t("dashboard.deleteProject")}
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+export function HistorySidebar({
   selectedCollectionId,
   selectedProject,
   t,
@@ -303,7 +478,6 @@ export function HistorySidebar({
   onRename,
   onReorderCollections,
   onSelectCollection,
-  onSelectProject,
   onShare,
 }: HistorySidebarProps) {
   const { setOpenMobile } = useSidebar();
@@ -336,9 +510,6 @@ export function HistorySidebar({
     (total, collection) => total + collection.sessions.length,
     0,
   );
-  const sessionLabel = t(
-    totalSessions === 1 ? "aggregate.sessionSingular" : "aggregate.sessionPlural",
-  );
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -365,11 +536,6 @@ export function HistorySidebar({
 
   function selectCollection(collectionId: string | null) {
     onSelectCollection(collectionId);
-    closeMobile();
-  }
-
-  function selectProject(projectId: string) {
-    onSelectProject(projectId);
     closeMobile();
   }
 
@@ -421,86 +587,10 @@ export function HistorySidebar({
   }
 
   return (
-    <Sidebar className="top-14 h-[calc(100svh-3.5rem)]" collapsible="icon">
-      <SidebarHeader className="border-b border-sidebar-border p-2">
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <SidebarMenuButton className="h-12" disabled={!selectedProject} size="lg" />
-                }
-              >
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                  <FolderKanbanIcon />
-                </span>
-                <span className="grid min-w-0 flex-1 text-left leading-tight">
-                  <span className="truncate font-semibold">
-                    {selectedProject?.name ?? t("common.loading")}
-                  </span>
-                  <span className="truncate text-xs text-muted-foreground">
-                    {t("aggregate.sessionCount", { count: totalSessions, label: sessionLabel })}
-                  </span>
-                </span>
-                <ChevronsUpDownIcon className="ml-auto" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-64" side="right" sideOffset={8}>
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel className="capitalize">
-                    {t("dashboard.project")}
-                  </DropdownMenuLabel>
-                  {projectTree.projects.map((project) => (
-                    <DropdownMenuItem key={project.id} onClick={() => selectProject(project.id)}>
-                      <FolderKanbanIcon />
-                      <span className="min-w-0 flex-1 truncate">{project.name}</span>
-                      {project.id === selectedProject?.id && <CheckIcon />}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuGroup>
-                  <DropdownMenuItem onClick={() => create("project")}>
-                    <PlusIcon />
-                    {t("dashboard.newProject")}
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-                {selectedProject && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuGroup>
-                      <DropdownMenuLabel>{t("dashboard.projectActions")}</DropdownMenuLabel>
-                      <DropdownMenuItem onClick={() => rename({
-                        id: selectedProject.id,
-                        kind: "project",
-                        name: selectedProject.name,
-                      })}>
-                        <PencilIcon />
-                        {t("dashboard.rename")}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => onShare(`/p/${selectedProject.id}`)}>
-                        <ShareIcon />
-                        {t("dashboard.share")}
-                      </DropdownMenuItem>
-                      {!selectedProject.isProtected && (
-                        <DropdownMenuItem
-                          variant="destructive"
-                          onClick={() => deleteContainer({
-                            id: selectedProject.id,
-                            kind: "project",
-                          })}
-                        >
-                          <TrashIcon />
-                          {t("dashboard.deleteProject")}
-                        </DropdownMenuItem>
-                      )}
-                    </DropdownMenuGroup>
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarHeader>
+    <Sidebar
+      className="top-14 h-[calc(100svh-3.5rem)] transition-none group-data-[side=left]:border-r-0"
+      collapsible="icon"
+    >
       <SidebarContent>
         <SidebarGroup className="pb-0">
           <SidebarGroupContent>
@@ -511,7 +601,7 @@ export function HistorySidebar({
                   tooltip={t("dashboard.allSessions")}
                   onClick={() => selectCollection(null)}
                 >
-                  <ImagesIcon />
+                  <LayoutGridIcon />
                   <span>{t("dashboard.allSessions")}</span>
                 </SidebarMenuButton>
                 <SidebarMenuBadge>{totalSessions}</SidebarMenuBadge>
@@ -533,7 +623,7 @@ export function HistorySidebar({
           </SidebarGroupContent>
         </SidebarGroup>
         <SidebarGroup className="pt-4">
-          <SidebarGroupLabel className="h-7 text-[11px] font-normal text-sidebar-foreground/60">
+          <SidebarGroupLabel className="h-7 text-[11px] font-normal uppercase text-sidebar-foreground/60">
             {t("dashboard.collections")}
           </SidebarGroupLabel>
           <SidebarGroupAction
@@ -591,7 +681,6 @@ export function HistorySidebar({
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarRail />
     </Sidebar>
   );
 }

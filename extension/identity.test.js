@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
+  clearDeviceToken,
   createInstallationIdentity,
+  deviceAuthHeaders,
   ensureInstallationIdentity,
+  getDeviceToken,
   installationAuthHeaders,
   isInstallationIdentity,
   replaceInstallationIdentity,
+  storeDeviceToken,
 } from "./identity.js";
 
 function deterministicRandom(bytes) {
@@ -21,6 +25,9 @@ function memoryStorage(initial = {}) {
     },
     async set(next) {
       Object.assign(values, next);
+    },
+    async remove(key) {
+      delete values[key];
     },
     values,
   };
@@ -61,5 +68,22 @@ describe("installation identity", () => {
     });
     assert.equal(storage.values.installationId, next.id);
     assert.equal(storage.values.installationToken, next.token);
+  });
+
+  test("keeps the authenticated device token in local storage and clears it on logout", async () => {
+    const storage = memoryStorage();
+    const token = `pdt_${"d".repeat(43)}`;
+    await storeDeviceToken(storage, token);
+    assert.equal(await getDeviceToken(storage), token);
+    assert.deepEqual(deviceAuthHeaders(token), { authorization: `Bearer ${token}` });
+    await clearDeviceToken(storage);
+    assert.equal(await getDeviceToken(storage), "");
+    assert.equal("deviceToken" in storage.values, false);
+  });
+
+  test("rejects malformed device tokens", async () => {
+    const storage = memoryStorage();
+    await assert.rejects(() => storeDeviceToken(storage, "bad"), /Invalid device token/);
+    assert.throws(() => deviceAuthHeaders("bad"), /Invalid device token/);
   });
 });

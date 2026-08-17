@@ -12,6 +12,7 @@
   "r2_buckets": [
     { "binding": "PINAR_BUCKET", "bucket_name": "pinar-shots" }
   ],
+  "ai": { "binding": "AI" },
   "send_email": [
     {
       "name": "EMAIL",

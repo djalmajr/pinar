@@ -8,7 +8,9 @@ import {
   handleCloudApiRequest,
   handleCloudPublicRequest,
   resetCloudMemoryStateForTests,
+  sendStorageExpiryNotices,
   seedCloudAccountForTests,
+  seedCloudStorageGrantForTests,
   seedCloudStorageUsageForTests,
   setCloudMigrationFailureForTests,
   setCloudNowForTests,
@@ -93,6 +95,13 @@ function upload(identity: typeof identityA, id: string, title: string) {
     headers: identityHeaders(identity, { "content-type": "application/json" }),
     method: "POST",
   });
+}
+
+function aiEnv(run: (model: string, input: unknown) => Promise<unknown>): CloudEnv {
+  return {
+    ...TEST_ENV,
+    AI: { run } as unknown as Ai,
+  };
 }
 
 function emailBinding() {
@@ -646,6 +655,83 @@ describe("remote installation isolation", () => {
     assert.equal(replacement.status, 201);
   });
 
+  test("summarizes an owned session once, replays idempotently and refunds failures", async () => {
+    const calls: Array<{ input: unknown; model: string }> = [];
+    let shouldFail = false;
+    const env = aiEnv(async (model, input) => {
+      calls.push({ input, model });
+      if (shouldFail) throw new Error("upstream unavailable");
+      return {
+        choices: [{ message: { content: JSON.stringify({
+          highlights: ["Clarify the primary action", "Improve contrast"],
+          summary: "The annotations focus on clarity and visual hierarchy.",
+        }) } }],
+        usage: { completion_tokens: 24, prompt_tokens: 120, total_tokens: 144 },
+      };
+    });
+    assert.equal((await register(identityA)).status, 201);
+    assert.equal((await upload(identityA, "ai_session_001", "AI owner")).status, 201);
+
+    const request = () => api("/api/ai/session-summary", {
+      body: JSON.stringify({
+        language: "pt",
+        requestId: "ai_summary_request_0001",
+        sessionId: "ai_session_001",
+      }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
+      method: "POST",
+    }, env);
+    const first = await request();
+    assert.equal(first.status, 200);
+    const firstBody = await jsonBody(first);
+    assert.equal(firstBody.creditsCharged, 1);
+    assert.equal(firstBody.idempotent, false);
+    assert.ok(isRecord(firstBody.aiCredits));
+    assert.equal(firstBody.aiCredits.balance, 4);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].model, "@cf/zai-org/glm-4.7-flash");
+    assert.ok(isRecord(calls[0].input));
+    assert.ok(Array.isArray(calls[0].input.messages));
+    const messages = calls[0].input.messages;
+    assert.ok(isRecord(messages[0]));
+    assert.match(String(messages[0].content), /untrusted data/);
+
+    const replay = await jsonBody(await request());
+    assert.equal(replay.idempotent, true);
+    assert.ok(isRecord(replay.aiCredits));
+    assert.equal(replay.aiCredits.balance, 4);
+    assert.equal(calls.length, 1);
+
+    assert.equal((await upload(identityA, "ai_session_002", "Other resource")).status, 201);
+    const conflict = await api("/api/ai/session-summary", {
+      body: JSON.stringify({
+        requestId: "ai_summary_request_0001",
+        sessionId: "ai_session_002",
+      }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
+      method: "POST",
+    }, env);
+    assert.equal(conflict.status, 409);
+    assert.equal((await jsonBody(conflict)).code, "request_id_conflict");
+
+    shouldFail = true;
+    const failed = await api("/api/ai/session-summary", {
+      body: JSON.stringify({
+        requestId: "ai_summary_request_0002",
+        sessionId: "ai_session_001",
+      }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
+      method: "POST",
+    }, env);
+    assert.equal(failed.status, 503);
+    assert.match(String((await jsonBody(failed)).error), /refunded/i);
+    const entitlements = await jsonBody(await api("/api/account/entitlements", {
+      headers: identityHeaders(identityA),
+    }, env));
+    assert.ok(isRecord(entitlements.aiCredits));
+    assert.equal(entitlements.aiCredits.balance, 4);
+  });
+
   test("refills 200 Pro credits monthly without rollover on an annual subscription", async () => {
     const originalFetch = globalThis.fetch;
     setCloudNowForTests("2026-01-31T12:30:00.000Z");
@@ -689,6 +775,17 @@ describe("remote installation isolation", () => {
     const webhookSecret = "whsec_test";
     const now = "2026-03-01T00:00:00.000Z";
     setCloudNowForTests(now);
+    seedCloudAccountForTests({
+      email: "storage@example.test",
+      everPaid: false,
+      id: "usr_storage_existing",
+      plan: "free",
+    });
+    seedCloudStorageUsageForTests({
+      byteSize: 1024,
+      ownerId: "usr_storage_existing",
+      sessionId: "storage_existing_session",
+    });
     const checkoutSession = {
       customer: "cus_storage",
       customer_details: { email: "storage@example.test" },
@@ -737,6 +834,68 @@ describe("remote installation isolation", () => {
     assert.equal(entitlements.storage.activeAddOnBytes, STORAGE_5GB_BYTES);
     assert.equal(entitlements.storage.nextExpiryAt, "2027-03-01T00:00:00.000Z");
     assert.equal(entitlements.storage.quotaBytes, FREE_STORAGE_BYTES + STORAGE_5GB_BYTES);
+    const preserved = await jsonBody(await api("/api/sessions/storage_existing_session"));
+    assert.ok(isRecord(preserved.session));
+    assert.equal(preserved.session.isPermanent, true);
+
+    const addedDuringPack = await api("/api/shots", {
+      body: JSON.stringify({
+        id: "storage_pack_session",
+        image: VALID_PNG,
+        page: { title: "Stored during pack", url: "https://example.test/storage-pack" },
+        pins: [],
+      }),
+      headers: { "content-type": "application/json", cookie },
+      method: "POST",
+    }, env);
+    assert.equal(addedDuringPack.status, 201);
+    assert.equal((await jsonBody(addedDuringPack)).isPermanent, true);
+  });
+
+  test("sends storage expiry notices at 30, 7 and 1 days without deleting content", async () => {
+    const userId = "usr_storage_notice";
+    const expiresAt = "2027-06-30T12:00:00.000Z";
+    setCloudNowForTests("2027-05-31T12:00:00.000Z");
+    seedCloudAccountForTests({
+      email: "storage-notice@example.test",
+      id: userId,
+      plan: "pro",
+    });
+    seedCloudStorageGrantForTests({ expiresAt, userId });
+    seedCloudStorageUsageForTests({
+      byteSize: 1024,
+      ownerId: userId,
+      sessionId: "storage_notice_session",
+    });
+    const sent: Array<Record<string, unknown>> = [];
+    const env: CloudEnv = {
+      ...TEST_ENV,
+      EMAIL: {
+        async send(message: unknown) {
+          assert.ok(isRecord(message));
+          sent.push(message);
+          return { messageId: `notice-${sent.length}` };
+        },
+      } as unknown as NonNullable<CloudEnv["EMAIL"]>,
+    };
+
+    assert.deepEqual(await sendStorageExpiryNotices(env), { delivered: 1, failed: 0, pending: 0 });
+    assert.match(String(sent[0].subject), /30 days/);
+    assert.match(String(sent[0].text), /not be automatically deleted/i);
+    assert.equal((await sendStorageExpiryNotices(env)).delivered, 0);
+
+    setCloudNowForTests("2027-06-23T12:00:00.000Z");
+    assert.equal((await sendStorageExpiryNotices(env)).delivered, 1);
+    assert.match(String(sent[1].subject), /7 days/);
+
+    setCloudNowForTests("2027-06-29T12:00:00.000Z");
+    assert.equal((await sendStorageExpiryNotices(env)).delivered, 1);
+    assert.match(String(sent[2].subject), /1 day$/);
+
+    setCloudNowForTests("2027-07-01T12:00:00.000Z");
+    assert.equal((await sendStorageExpiryNotices(env)).delivered, 0);
+    assert.equal(sent.length, 3);
+    assert.equal((await api("/api/sessions/storage_notice_session")).status, 200);
   });
 
   test("keeps the subscription customer when a signed-out account buys an add-on", async () => {

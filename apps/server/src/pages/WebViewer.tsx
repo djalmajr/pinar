@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import ReactMarkdown from "react-markdown";
 import { getPinColor, type Pin, type Session } from "@pinar/shared";
@@ -51,12 +51,29 @@ interface WebViewerProps {
   sessionId: string;
 }
 
+interface AiSummaryResult {
+  highlights: string[];
+  summary: string;
+}
+
+function aiSummaryResult(value: unknown): AiSummaryResult | null {
+  if (!isRecord(value) || typeof value.summary !== "string" || !Array.isArray(value.highlights)) return null;
+  const highlights = value.highlights.filter((item): item is string => typeof item === "string");
+  return { highlights, summary: value.summary };
+}
+
 function pinNumber(pin: Pin, index: number) {
   return pin.number || index + 1;
 }
 
 export function WebViewer({ sessionId }: WebViewerProps) {
   const { language, t } = useServerI18n();
+  const aiRequestId = useRef<string | null>(null);
+  const [aiCreditsRemaining, setAiCreditsRemaining] = useState<number | null>(null);
+  const [aiError, setAiError] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiSummary, setAiSummary] = useState<AiSummaryResult | null>(null);
+  const [aiSummaryOpen, setAiSummaryOpen] = useState(false);
   const [imageZoomOpen, setImageZoomOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [pageCopied, setPageCopied] = useState(false);
@@ -96,6 +113,41 @@ export function WebViewer({ sessionId }: WebViewerProps) {
         ? `https://chatgpt.com/?q=${encodeURIComponent(prompt)}`
         : `https://claude.ai/new?q=${encodeURIComponent(prompt)}`;
     window.open(url, "_blank", "noopener,noreferrer");
+  }
+
+  async function generateAiSummary() {
+    setAiSummaryOpen(true);
+    if (aiSummary || aiLoading) return;
+    setAiError("");
+    setAiLoading(true);
+    aiRequestId.current ||= `ai_${crypto.randomUUID().replaceAll("-", "")}`;
+    try {
+      const response = await fetch("/api/ai/session-summary", {
+        body: JSON.stringify({ language, requestId: aiRequestId.current, sessionId }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      });
+      const data: unknown = await response.json();
+      const result = isRecord(data) ? aiSummaryResult(data.result) : null;
+      if (!response.ok || !result) {
+        const code = isRecord(data) && typeof data.code === "string" ? data.code : "";
+        if (code !== "ai_request_in_progress" && code !== "ai_refund_pending") aiRequestId.current = null;
+        if (response.status === 401) setAiError(t("viewer.aiSignIn"));
+        else if (code === "insufficient_ai_credits") setAiError(t("viewer.aiNoCredits"));
+        else if (code === "ai_rate_limited") setAiError(t("viewer.aiRateLimited"));
+        else if (code === "ai_refund_pending") setAiError(t("viewer.aiRefundPending"));
+        else setAiError(t("viewer.aiUnavailable"));
+        return;
+      }
+      if (isRecord(data) && isRecord(data.aiCredits) && typeof data.aiCredits.balance === "number") {
+        setAiCreditsRemaining(data.aiCredits.balance);
+      }
+      setAiSummary(result);
+    } catch {
+      setAiError(t("viewer.aiNetworkError"));
+    } finally {
+      setAiLoading(false);
+    }
   }
 
   if (loading) {
@@ -154,6 +206,10 @@ export function WebViewer({ sessionId }: WebViewerProps) {
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          <Button disabled={aiLoading} type="button" variant="outline" onClick={() => void generateAiSummary()}>
+            <SparklesIcon data-icon="inline-start" />
+            {aiLoading ? t("viewer.aiSummarizing") : t("viewer.aiSummary")}
+          </Button>
           <ButtonGroup aria-label={t("viewer.pageActions")}>
             <Button type="button" variant="outline" onClick={copyPage}>
               {pageCopied ? <CheckIcon data-icon="inline-start" /> : <CopyIcon data-icon="inline-start" />}
@@ -303,6 +359,38 @@ export function WebViewer({ sessionId }: WebViewerProps) {
           onOpenChange={setImageZoomOpen}
         />
       )}
+      <Dialog open={aiSummaryOpen} onOpenChange={setAiSummaryOpen}>
+        <DialogContent className="sm:max-w-2xl" showCloseButton>
+          <DialogHeader>
+            <DialogTitle>{t("viewer.aiSummaryTitle")}</DialogTitle>
+            <DialogDescription>{t("viewer.aiSummaryDescription")}</DialogDescription>
+          </DialogHeader>
+          {aiLoading ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">{t("viewer.aiSummarizing")}</p>
+          ) : aiError ? (
+            <Card className="border-destructive/30 bg-destructive/5">
+              <CardContent className="text-sm text-destructive">{aiError}</CardContent>
+            </Card>
+          ) : aiSummary ? (
+            <div className="flex flex-col gap-5">
+              <p className="text-sm leading-relaxed text-foreground">{aiSummary.summary}</p>
+              {aiSummary.highlights.length > 0 && (
+                <div>
+                  <h3 className="mb-2 text-sm font-semibold">{t("viewer.aiHighlights")}</h3>
+                  <ul className="flex list-disc flex-col gap-2 pl-5 text-sm text-foreground">
+                    {aiSummary.highlights.map((highlight) => <li key={highlight}>{highlight}</li>)}
+                  </ul>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                {aiCreditsRemaining === null
+                  ? t("viewer.aiCreditCost")
+                  : t("viewer.aiCreditsRemaining", { count: aiCreditsRemaining })}
+              </p>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
       <Dialog open={Boolean(selectedPin)} onOpenChange={(open) => !open && setSelectedPin(null)}>
         <DialogContent className="sm:max-w-5xl" outsideScroll showCloseButton>
           {selectedPin && (

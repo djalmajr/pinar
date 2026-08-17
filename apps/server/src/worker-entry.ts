@@ -1,6 +1,8 @@
 import {
   cleanupOldRecords,
   reconcileBillingEntitlements,
+  refundStaleAiReservations,
+  sendStorageExpiryNotices,
   type CloudEnv,
 } from "./server/cloud-api";
 
@@ -30,6 +32,8 @@ export default {
     context.waitUntil(Promise.all([
       cleanupOldRecords(env, 7),
       reconcileBillingEntitlements(env),
+      refundStaleAiReservations(env),
+      sendStorageExpiryNotices(env),
     ]));
   },
 };

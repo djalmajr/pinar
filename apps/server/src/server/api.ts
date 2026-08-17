@@ -18,6 +18,7 @@ interface SecretEnv {
 function runtimeEnv(source: Cloudflare.Env & SecretEnv): CloudEnv {
   return {
     ADMIN_API_KEY: source.ADMIN_API_KEY,
+    AI: source.AI,
     AUTH_PEPPER: source.AUTH_PEPPER,
     DB: source.DB,
     EMAIL: source.EMAIL,

@@ -249,6 +249,10 @@ const REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
 const SHOTS_PREFIX = "shots/";
 const AI_MODEL = "@cf/zai-org/glm-4.7-flash" as const;
+// Cloudflare unit pricing for AI_MODEL, expressed in USD per million tokens.
+// https://developers.cloudflare.com/workers-ai/models/glm-4.7-flash/
+const AI_INPUT_USD_PER_MILLION_TOKENS = 0.06;
+const AI_OUTPUT_USD_PER_MILLION_TOKENS = 0.4;
 const AI_SESSION_SUMMARY_CREDITS = 1;
 const AI_RESERVATION_TIMEOUT_MS = 5 * 60 * 1000;
 const WEB_SESSION_COOKIE = "pinar_session";
@@ -2903,7 +2907,10 @@ function aiResponseUsage(output: unknown, input: string, response: string) {
   const outputTokens = Math.max(0, numberValue(usage, "completion_tokens"))
     || Math.ceil(response.length / 4);
   return {
-    costUsdMicros: Math.ceil(inputTokens * 0.06 + outputTokens * 0.4),
+    costUsdMicros: Math.ceil(
+      inputTokens * AI_INPUT_USD_PER_MILLION_TOKENS
+      + outputTokens * AI_OUTPUT_USD_PER_MILLION_TOKENS,
+    ),
     inputTokens,
     outputTokens,
   };

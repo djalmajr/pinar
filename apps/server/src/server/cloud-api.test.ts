@@ -1006,6 +1006,11 @@ describe("remote installation isolation", () => {
     assert.equal(firstBody.idempotent, false);
     assert.ok(isRecord(firstBody.aiCredits));
     assert.equal(firstBody.aiCredits.balance, 4);
+    assert.ok(isRecord(firstBody.usage));
+    assert.equal(firstBody.usage.costUsdMicros, 17);
+    assert.equal(firstBody.usage.inputTokens, 120);
+    assert.equal(firstBody.usage.outputTokens, 24);
+    assert.equal(firstBody.usage.model, "@cf/zai-org/glm-4.7-flash");
     assert.equal(calls.length, 1);
     assert.equal(calls[0].model, "@cf/zai-org/glm-4.7-flash");
     assert.ok(isRecord(calls[0].input));
@@ -1018,6 +1023,7 @@ describe("remote installation isolation", () => {
     assert.equal(replay.idempotent, true);
     assert.ok(isRecord(replay.aiCredits));
     assert.equal(replay.aiCredits.balance, 4);
+    assert.deepEqual(replay.usage, firstBody.usage);
     assert.equal(calls.length, 1);
 
     assert.equal((await upload(identityA, "ai_session_002", "Other resource")).status, 201);
@@ -1043,6 +1049,48 @@ describe("remote installation isolation", () => {
     }, env);
     assert.equal(failed.status, 503);
     assert.match(String((await jsonBody(failed)).error), /refunded/i);
+    const entitlements = await jsonBody(await api("/api/account/entitlements", {
+      headers: identityHeaders(identityA),
+    }, env));
+    assert.ok(isRecord(entitlements.aiCredits));
+    assert.equal(entitlements.aiCredits.balance, 4);
+  });
+
+  test("rate limits repeated AI requests without consuming another credit", async () => {
+    let calls = 0;
+    const env = aiEnv(async () => {
+      calls += 1;
+      return {
+        choices: [{ message: { content: JSON.stringify({
+          highlights: [],
+          summary: "A concise summary.",
+        }) } }],
+        usage: { completion_tokens: 8, prompt_tokens: 40, total_tokens: 48 },
+      };
+    });
+    assert.equal((await register(identityA)).status, 201);
+    assert.equal((await upload(identityA, "ai_rate_limit_session", "Rate limited AI")).status, 201);
+    const request = () => api("/api/ai/session-summary", {
+      body: JSON.stringify({
+        language: "en",
+        requestId: "ai_rate_limit_request_0001",
+        sessionId: "ai_rate_limit_session",
+      }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
+      method: "POST",
+    }, env);
+
+    assert.equal((await request()).status, 200);
+    for (let attempt = 1; attempt < 10; attempt += 1) {
+      const replay = await request();
+      assert.equal(replay.status, 200);
+      assert.equal((await jsonBody(replay)).idempotent, true);
+    }
+    const limited = await request();
+    assert.equal(limited.status, 429);
+    assert.equal((await jsonBody(limited)).code, "ai_rate_limited");
+    assert.equal(calls, 1);
+
     const entitlements = await jsonBody(await api("/api/account/entitlements", {
       headers: identityHeaders(identityA),
     }, env));

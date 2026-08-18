@@ -21,6 +21,7 @@ import IconLock from "~icons/lucide/lock";
 import { isRecord, readResponseRecord } from "@/lib/api-data";
 import type { CheckoutOffer } from "@/lib/entitlements";
 import { useServerI18n } from "@/lib/i18n";
+import { CURRENT_LEGAL_VERSION } from "@/lib/legal-documents";
 import {
   type PricingCurrency,
   type PublicPrice,
@@ -113,6 +114,7 @@ function AddOnCard({
 export function PricingPage() {
   const { language, t } = useServerI18n();
   const [billingInterval, setBillingInterval] = useState<BillingInterval>("year");
+  const [legalAccepted, setLegalAccepted] = useState(false);
   const [loadingOffer, setLoadingOffer] = useState<CheckoutOffer | null>(null);
   const [pricing, setPricing] = useState<PublicPricing | null>(null);
 
@@ -146,9 +148,17 @@ export function PricingPage() {
     : isYearly
       ? t("pricing.getYearly", { price: proPriceText })
       : t("pricing.getMonthly", { price: proPriceText });
-  const lifetimePriceText = pricing
-    ? formatAmount(pricing.prices.lifetime.amount, pricing.currency, language)
+  const founderPriceText = pricing
+    ? formatAmount(pricing.prices.founder.amount, pricing.currency, language)
     : "—";
+  const founderAvailable = pricing?.founderState === "available";
+  const founderCheckoutLabel = loadingOffer === "founder"
+    ? t("pricing.redirecting")
+    : pricing?.founderState === "sold_out"
+      ? t("pricing.founderSoldOut")
+      : pricing?.founderState === "closed"
+        ? t("pricing.founderClosed")
+        : t("pricing.getFounder", { price: founderPriceText });
   const yearlySavings = pricing
     ? Math.round((1 - pricing.prices.year.amount / (pricing.prices.month.amount * 12)) * 100)
     : 0;
@@ -160,13 +170,30 @@ export function PricingPage() {
   }
 
   async function startCheckout(offer: CheckoutOffer) {
+    if (!legalAccepted) {
+      toast.error(t("pricing.legalConsentRequired"));
+      return;
+    }
     setLoadingOffer(offer);
     try {
       const checkoutClaim = crypto.randomUUID();
+      const legalLocale = language === "pt" ? "pt" : "en";
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ checkoutClaim, offer, requestId: crypto.randomUUID() }),
+        body: JSON.stringify({
+          checkoutClaim,
+          legalAcceptance: {
+            acceptableUseVersion: CURRENT_LEGAL_VERSION,
+            accepted: true,
+            locale: legalLocale,
+            privacyVersion: CURRENT_LEGAL_VERSION,
+            termsVersion: CURRENT_LEGAL_VERSION,
+          },
+          locale: legalLocale,
+          offer,
+          requestId: crypto.randomUUID(),
+        }),
       });
       const data = await readResponseRecord(res);
       if (res.ok && isRecord(data) && typeof data.url === "string") {
@@ -215,6 +242,34 @@ export function PricingPage() {
             {t("pricing.regionalBrazil")}
           </Badge>
         </div>
+        <div className="mb-6 w-full max-w-3xl rounded-lg border bg-card/60 p-4 text-left">
+          <label className="flex cursor-pointer items-start gap-3 text-sm">
+            <input
+              checked={legalAccepted}
+              className="mt-0.5 size-4 shrink-0 accent-primary"
+              type="checkbox"
+              onChange={(event) => setLegalAccepted(event.currentTarget.checked)}
+            />
+            <span>
+              {t("pricing.legalConsentPrefix")}{" "}
+              <a className="font-medium underline underline-offset-4" href="/legal/terms">
+                {t("pricing.legalTerms")}
+              </a>
+              {", "}
+              <a className="font-medium underline underline-offset-4" href="/legal/privacy">
+                {t("pricing.legalPrivacy")}
+              </a>
+              {" "}{t("pricing.legalAnd")}{" "}
+              <a className="font-medium underline underline-offset-4" href="/legal/acceptable-use">
+                {t("pricing.legalAcceptableUse")}
+              </a>
+              .
+              <span className="mt-1 block text-xs text-muted-foreground">
+                {t("pricing.legalConsentVersion", { version: CURRENT_LEGAL_VERSION })}
+              </span>
+            </span>
+          </label>
+        </div>
         <div className="max-w-5xl w-full grid grid-cols-1 md:grid-cols-3 gap-6 mb-12 pt-3">
         {/* Free Card */}
         <Card className="flex flex-col justify-between">
@@ -228,7 +283,7 @@ export function PricingPage() {
               language={language}
               originalLabel={t("pricing.originalPrice")}
               price={pricing?.prices.free}
-              suffix={t("pricing.forever")}
+              suffix={t("pricing.localOnly")}
             />
           </CardHeader>
           <CardContent className="flex-1">
@@ -264,11 +319,13 @@ export function PricingPage() {
             </ul>
           </CardContent>
           <CardFooter>
-            <a href="https://github.com/djalmajr/pinar" target="_blank" className="w-full">
-              <Button variant="outline" className="w-full">
-                {t("pricing.useFree")}
-              </Button>
-            </a>
+            <Button
+              className="w-full"
+              render={<a href="https://github.com/djalmajr/pinar" rel="noopener noreferrer" target="_blank" />}
+              variant="outline"
+            >
+              {t("pricing.useFree")}
+            </Button>
           </CardFooter>
         </Card>
 
@@ -295,11 +352,11 @@ export function PricingPage() {
               <ul className="flex flex-col gap-2.5 text-xs">
                 <li className="flex items-center gap-2">
                   <IconCheck className="text-success w-4 h-4 shrink-0" />
-                  <span><strong>{t("pricing.permanentRetention")}</strong> ({t("pricing.neverDeleted")})</span>
+                  <span><strong>{t("pricing.activePlanRetention")}</strong> ({t("pricing.retentionPolicy")})</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <IconCheck className="text-success w-4 h-4 shrink-0" />
-                  <span><strong>{t("pricing.permanentViewers")}</strong> {t("pricing.forPrs")}</span>
+                  <span><strong>{t("pricing.activePlanViewers")}</strong> {t("pricing.forPrs")}</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <IconCheck className="text-success w-4 h-4 shrink-0" />
@@ -322,7 +379,7 @@ export function PricingPage() {
             <CardFooter>
               <Button
                 className="w-full"
-                disabled={loadingOffer !== null || !pricing}
+                disabled={loadingOffer !== null || !pricing || !legalAccepted}
                 onClick={() => startCheckout(proOffer)}
               >
                 {proCheckoutLabel}
@@ -336,30 +393,30 @@ export function PricingPage() {
           )}
         </div>
 
-        {/* Lifetime Deal Card */}
+        {/* Founder Card */}
         <div className="relative flex">
           <Card className="h-full w-full border-success/50 shadow-md">
             <CardHeader>
-              <CardTitle className="text-xl">{t("pricing.lifetime")}</CardTitle>
+              <CardTitle className="text-xl">{t("pricing.founder")}</CardTitle>
               <CardDescription className="min-h-[38px]">
-                {t("pricing.lifetimeDescription")}
+                {t("pricing.founderDescription")}
               </CardDescription>
               <PricingAmount
                 currency={pricing?.currency}
                 language={language}
                 originalLabel={t("pricing.originalPrice")}
-                price={pricing?.prices.lifetime}
+                price={pricing?.prices.founder}
                 suffix={t("pricing.oneTime")}
               />
             </CardHeader>
             <CardContent className="flex-1">
               <p className="mb-3 text-xs text-muted-foreground">
-                {t("pricing.everythingProPlus")}
+                {t("pricing.founderIncludes")}
               </p>
               <ul className="flex flex-col gap-2.5 text-xs">
                 <li className="flex items-center gap-2">
                   <IconCheck className="text-success w-4 h-4 shrink-0" />
-                  <span><strong>{t("pricing.lifetimeAccess")}</strong> ({t("pricing.noSubscriptions")})</span>
+                  <span><strong>{t("pricing.founderAccess")}</strong> ({t("pricing.withinPolicies")})</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <IconCheck className="text-success w-4 h-4 shrink-0" />
@@ -367,19 +424,17 @@ export function PricingPage() {
                 </li>
                 <li className="flex items-center gap-2">
                   <IconCheck className="text-success w-4 h-4 shrink-0" />
-                  <span><strong>{t("pricing.lifetimeAiCredits")}</strong></span>
+                  <span><strong>{t("pricing.founderAiCredits")}</strong></span>
                 </li>
               </ul>
             </CardContent>
             <CardFooter>
               <Button
                 className="w-full bg-success text-success-foreground hover:bg-success/90"
-                disabled={loadingOffer !== null || !pricing}
-                onClick={() => startCheckout("lifetime_founder")}
+                disabled={loadingOffer !== null || !founderAvailable || !legalAccepted}
+                onClick={() => startCheckout("founder")}
               >
-                {loadingOffer === "lifetime_founder"
-                  ? t("pricing.redirecting")
-                  : t("pricing.getLifetime", { price: lifetimePriceText })}
+                {founderCheckoutLabel}
               </Button>
             </CardFooter>
           </Card>
@@ -388,7 +443,7 @@ export function PricingPage() {
               variant="successSoft"
               className="bg-emerald-50 text-[10px] font-extrabold tracking-wider dark:bg-emerald-950"
             >
-              {t("pricing.earlyBird")}
+              {t("pricing.limitedLaunch")}
             </Badge>
           </div>
         </div>
@@ -404,7 +459,7 @@ export function PricingPage() {
             currency={pricing?.currency}
             description={t("pricing.aiCreditsDescription")}
             language={language}
-            loading={loadingOffer !== null}
+            loading={loadingOffer !== null || !legalAccepted}
             price={pricing?.prices.aiCredits1000}
             suffix={t("pricing.valid12Months")}
             title={t("pricing.aiCreditsTitle")}
@@ -415,7 +470,7 @@ export function PricingPage() {
             currency={pricing?.currency}
             description={t("pricing.storage5Description")}
             language={language}
-            loading={loadingOffer !== null}
+            loading={loadingOffer !== null || !legalAccepted}
             price={pricing?.prices.storage5Gb12M}
             suffix={t("pricing.valid12Months")}
             title={t("pricing.storage5Title")}
@@ -426,7 +481,7 @@ export function PricingPage() {
             currency={pricing?.currency}
             description={t("pricing.storage20Description")}
             language={language}
-            loading={loadingOffer !== null}
+            loading={loadingOffer !== null || !legalAccepted}
             price={pricing?.prices.storage20Gb12M}
             suffix={t("pricing.valid12Months")}
             title={t("pricing.storage20Title")}
@@ -438,7 +493,7 @@ export function PricingPage() {
           note={(
             <span className="inline-flex items-center gap-1.5">
               <IconLock className="size-3.5" />
-              {t("pricing.secureCheckout")} • {t("pricing.cancelAnytime")}
+              {t("pricing.secureCheckout")} • {t("pricing.billingNote")}
             </span>
           )}
         />

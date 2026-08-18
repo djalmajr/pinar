@@ -1,28 +1,29 @@
 import type { ReactNode } from "react";
 import { Button, cn } from "@pinar/ui";
+import { Link } from "@tanstack/react-router";
 import { isPaidAuthSession, useAuthSession } from "@/lib/auth-session";
 import { useServerI18n } from "@/lib/i18n";
+import { LegalDocumentIds, legalDocumentTitle } from "@/lib/legal-documents";
 import { SERVER_VERSION } from "@/lib/version";
 import CoffeeIcon from "~icons/lucide/coffee";
 import HeartIcon from "~icons/lucide/heart";
 
-interface OpenSourceSupportCardProps {
+interface FairSourceSupportCardProps {
   className?: string;
   compact?: boolean;
 }
 
-interface ServerFooterProps extends OpenSourceSupportCardProps {
+interface ServerFooterProps extends FairSourceSupportCardProps {
   note?: ReactNode;
 }
 
-export function OpenSourceSupportCard({ className, compact = false }: OpenSourceSupportCardProps) {
+export function FairSourceSupportCard({ className, compact = false }: FairSourceSupportCardProps) {
   const { t } = useServerI18n();
   const session = useAuthSession();
   const isPaidAccount = isPaidAuthSession(session);
-  const description = isPaidAccount
-    ? t("pricing.supportThanksDescription")
-    : t("pricing.supportDescription");
-  const title = isPaidAccount ? t("pricing.supportThanksTitle") : t("pricing.supportTitle");
+  if (isPaidAccount) return null;
+  const description = t("pricing.supportDescription");
+  const title = t("pricing.supportTitle");
 
   return (
     <section
@@ -40,38 +41,43 @@ export function OpenSourceSupportCard({ className, compact = false }: OpenSource
         </div>
         <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
       </div>
-      {!isPaidAccount ? (
-        <div className={cn("flex shrink-0 flex-wrap items-center justify-center gap-2.5", compact && "justify-start")}>
-          <Button
-            render={<a href="https://buymeacoffee.com/djalmajr" rel="noopener noreferrer" target="_blank" />}
-            size="sm"
-            variant="coffee"
-          >
-            <CoffeeIcon data-icon="inline-start" />
-            {t("pricing.buyCoffee")}
-          </Button>
-          <Button
-            render={<a href="https://github.com/sponsors/djalmajr" rel="noopener noreferrer" target="_blank" />}
-            size="sm"
-            variant="sponsor"
-          >
-            <HeartIcon className="fill-current" data-icon="inline-start" />
-            {t("pricing.sponsorGitHub")}
-          </Button>
-        </div>
-      ) : null}
+      <div className={cn("flex shrink-0 flex-wrap items-center justify-center gap-2.5", compact && "justify-start")}>
+        <Button
+          render={<a href="https://buymeacoffee.com/djalmajr" rel="noopener noreferrer" target="_blank" />}
+          size="sm"
+          variant="coffee"
+        >
+          <CoffeeIcon data-icon="inline-start" />
+          {t("pricing.buyCoffee")}
+        </Button>
+        <Button
+          render={<a href="https://github.com/sponsors/djalmajr" rel="noopener noreferrer" target="_blank" />}
+          size="sm"
+          variant="sponsor"
+        >
+          <HeartIcon className="fill-current" data-icon="inline-start" />
+          {t("pricing.sponsorGitHub")}
+        </Button>
+      </div>
     </section>
   );
 }
 
 export function ServerFooter({ className, compact = false, note }: ServerFooterProps) {
-  const { t } = useServerI18n();
+  const { language, t } = useServerI18n();
 
   return (
     <div className={cn("mt-auto w-full pt-8", className)}>
-      <OpenSourceSupportCard compact={compact} />
+      <FairSourceSupportCard compact={compact} />
       <footer className="mt-6 flex flex-col items-center gap-1.5 text-center text-xs font-normal leading-4 text-muted-foreground">
         {note ? <div className="flex h-4 items-center justify-center">{note}</div> : null}
+        <nav aria-label={language === "pt" ? "Documentos legais" : "Legal documents"} className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+          {LegalDocumentIds.map((document) => (
+            <Link className="hover:text-foreground hover:underline" key={document} params={{ document }} preload="intent" to="/legal/$document">
+              {legalDocumentTitle(document, language)}
+            </Link>
+          ))}
+        </nav>
         <span className="flex h-4 items-center justify-center">{t("landing.footer")}</span>
         <span className="flex h-4 items-center justify-center">
           {t("common.serverVersion", { version: SERVER_VERSION })}

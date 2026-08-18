@@ -28,3 +28,27 @@ test("getBestLanguage resolution", () => {
   assert.strictEqual(getBestLanguage(undefined, ["it-IT", "fr-FR"]), "fr");
   assert.strictEqual(getBestLanguage("invalid", ["it-IT"]), "en");
 });
+
+test("getBestLanguage reads browser language fallbacks when no explicit list is supplied", () => {
+  // Mutation captured: ignoring navigator.languages makes the Japanese assertion fall back to English.
+  const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  try {
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: { language: "de-DE", languages: ["ja-JP", "de-DE"] },
+    });
+    assert.strictEqual(getBestLanguage(), "ja");
+
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: { language: "de-DE", languages: [] },
+    });
+    assert.strictEqual(getBestLanguage(), "de");
+
+    Reflect.deleteProperty(globalThis, "navigator");
+    assert.strictEqual(getBestLanguage(), "en");
+  } finally {
+    if (navigatorDescriptor) Object.defineProperty(globalThis, "navigator", navigatorDescriptor);
+    else Reflect.deleteProperty(globalThis, "navigator");
+  }
+});

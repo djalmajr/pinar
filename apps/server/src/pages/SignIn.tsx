@@ -113,12 +113,18 @@ export function SignInPage({ extensionCode, returnTo }: SignInPageProps) {
     }
   }
 
+  function changeEmail() {
+    setEmailCode("");
+    setError("");
+    setStep("request");
+  }
+
   return (
     <ServerShell activePage="signIn" className="bg-muted/30">
       <ScrollArea className="min-h-0 flex-1">
         <main className="mx-auto flex min-h-full w-full max-w-5xl flex-col px-5 py-10">
           <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center">
-            <Tabs className="w-full" defaultValue="extension">
+            <Tabs className="w-full" defaultValue="extension" onValueChange={() => setError("")}>
               <TabsList className="w-full" variant="segmented">
                 <TabsTrigger value="extension">{t("signIn.extensionTab")}</TabsTrigger>
                 <TabsTrigger value="account">{t("signIn.accountTab")}</TabsTrigger>
@@ -126,8 +132,10 @@ export function SignInPage({ extensionCode, returnTo }: SignInPageProps) {
               <Card>
                 <TabsContent className="flex flex-col gap-4" value="extension">
                   <CardHeader>
-                    <KeyRoundIcon className="size-6 text-primary" />
-                    <CardTitle>{t("signIn.freeTitle")}</CardTitle>
+                    <div className="flex items-center gap-2 text-card-foreground" data-testid="extension-sign-in-heading">
+                      <KeyRoundIcon className="size-[1.125rem] shrink-0 text-current" />
+                      <CardTitle>{t("signIn.freeTitle")}</CardTitle>
+                    </div>
                     <CardDescription>{t("signIn.freeDescription")}</CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -138,7 +146,10 @@ export function SignInPage({ extensionCode, returnTo }: SignInPageProps) {
                         maxLength={11}
                         placeholder={t("signIn.extensionPlaceholder")}
                         value={code}
-                        onChange={(event) => setCode(event.target.value.toUpperCase())}
+                        onChange={(event) => {
+                          setCode(event.target.value.toUpperCase());
+                          setError("");
+                        }}
                       />
                       <Button className="w-full" disabled={loading || code.replace(/[\s-]/g, "").length !== 8} type="submit">
                         {loading ? t("signIn.entering") : t("signIn.openApp")}
@@ -148,21 +159,29 @@ export function SignInPage({ extensionCode, returnTo }: SignInPageProps) {
                 </TabsContent>
                 <TabsContent className="flex flex-col gap-4" value="account">
                   <CardHeader>
-                    <MailIcon className="size-6 text-primary" />
-                    <CardTitle>{t("signIn.accountTitle")}</CardTitle>
+                    <div className="flex items-center gap-2 text-card-foreground" data-testid="account-sign-in-heading">
+                      <MailIcon className="size-[1.125rem] shrink-0 text-current" />
+                      <CardTitle>{t("signIn.accountTitle")}</CardTitle>
+                    </div>
                     <CardDescription>{t(step === "request" ? "signIn.accountDescription" : "signIn.emailSent")}</CardDescription>
                   </CardHeader>
                   <CardContent>
                     {step === "request" ? (
                       <form className="flex flex-col gap-3" onSubmit={requestEmailCode}>
-                        <Input autoComplete="email" placeholder="you@example.com" required type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+                        <Input autoComplete="email" placeholder="you@example.com" required type="email" value={email} onChange={(event) => {
+                          setEmail(event.target.value);
+                          setError("");
+                        }} />
                         <Button className="w-full" disabled={loading} type="submit">{loading ? t("signIn.sending") : t("signIn.sendCode")}</Button>
                       </form>
                     ) : (
                       <form className="flex flex-col gap-3" onSubmit={verifyEmailCode}>
-                        <Input autoComplete="one-time-code" inputMode="numeric" maxLength={6} pattern="[0-9]{6}" placeholder="000000" required value={emailCode} onChange={(event) => setEmailCode(event.target.value.replace(/\D/g, ""))} />
+                        <Input autoComplete="one-time-code" inputMode="numeric" maxLength={6} pattern="[0-9]{6}" placeholder="000000" required value={emailCode} onChange={(event) => {
+                          setEmailCode(event.target.value.replace(/\D/g, ""));
+                          setError("");
+                        }} />
                         <Button className="w-full" disabled={loading || emailCode.length !== 6} type="submit">{loading ? t("signIn.entering") : t("signIn.verifyCode")}</Button>
-                        <Button className="w-full" type="button" variant="ghost" onClick={() => setStep("request")}>{t("signIn.changeEmail")}</Button>
+                        <Button className="w-full" type="button" variant="ghost" onClick={changeEmail}>{t("signIn.changeEmail")}</Button>
                       </form>
                     )}
                   </CardContent>

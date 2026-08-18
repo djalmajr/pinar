@@ -7,3 +7,5 @@ src/web-assets.generated.mjs
 coverage/
 .tmp/
 .env.local
+test-results/
+!e2e/usability/screenshots/**/*.png

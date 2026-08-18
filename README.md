@@ -99,6 +99,40 @@ The Cloudflare build expects `AUTH_PEPPER`, `STRIPE_SECRET_KEY`, and `STRIPE_WEB
 
 Stripe Price IDs and the fixed BRL/USD catalog are non-secret Worker vars in `apps/server/wrangler.jsonc`. Checkout writes the selected offer into Stripe metadata, webhook fulfillment is idempotent, and `/api/account/entitlements` exposes the authenticated credit balance and storage quota. The daily Worker schedule refills active Pro accounts with 200 non-rollover credits each month. Storage add-ons expire after 12 months; uploads above the current quota are blocked, while automatic deletion is intentionally not enabled. Production rollout must subscribe the signed webhook to Checkout completion (including asynchronous success) and subscription update/deletion events before enabling sales.
 
+## Fair Source, plans and policies
+
+Pinar is **Fair Source / source-available**, not OSI-approved Open Source in its
+current versions. Nearly all uses are permitted, but offering a competing
+commercial product or service is restricted, with future conversion to MIT.
+The repository [LICENSE](LICENSE) is the controlling text. Its replacement by
+the standardized [FSL-1.1-MIT](https://fsl.software/) template remains pending
+legal review; this documentation does not silently change that license.
+
+The code license and the hosted service are separate contracts. The hosted
+service currently has Free and recurring Pro plans. **Pinar Founder** is a
+limited, server-controlled cohort sold as a one-time purchase with 5 GB of base
+cloud storage and 500 initial AI credits, without monthly refill. Founder is not
+a promise of unlimited usage or perpetual operation of the hosted service.
+Existing `lifetime` accounts and Stripe metadata remain supported only as a
+legacy compatibility path; new customer-facing copy uses Founder.
+
+Current hosted-service policies are versioned and published at:
+
+- [Terms of Service](https://pinar.dev/legal/terms)
+- [Privacy Policy](https://pinar.dev/legal/privacy)
+- [Acceptable Use Policy](https://pinar.dev/legal/acceptable-use)
+- [Retention Policy](https://pinar.dev/legal/retention)
+- [Refund Policy](https://pinar.dev/legal/refunds)
+- [Fair Source Policy](https://pinar.dev/legal/fair-source)
+- [Subprocessors](https://pinar.dev/legal/subprocessors)
+
+Checkout and remote Free registration record the accepted policy versions.
+Founder uses configurable tranches rather than a permanent hard-coded limit.
+Local and staging currently expose the first 100-seat tranche; production
+remains closed until a separate authorization configures its switch, capacity,
+and both regional Stripe Price IDs. Reaching the configured cap closes new
+checkout reservations without deleting the historical Stripe Price.
+
 ## Session hooks
 
 Each agent has its own format. **`npx skills add` / skills.sh does not install hooks** — it only copies `SKILL.md`.

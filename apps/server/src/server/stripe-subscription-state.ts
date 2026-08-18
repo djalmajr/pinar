@@ -13,7 +13,7 @@ export const UPSERT_STRIPE_SUBSCRIPTION_STATE_SQL =
 
 export const APPLY_STRIPE_SUBSCRIPTION_STATE_SQL =
   "UPDATE users SET "
-  + "plan = CASE WHEN plan = 'lifetime' THEN 'lifetime' "
+  + "plan = CASE WHEN plan IN ('founder', 'lifetime') THEN plan "
   + "WHEN (SELECT status FROM stripe_subscription_states WHERE subscription_id = ?) = 'active' "
   + "THEN 'pro' ELSE 'free' END, "
   + "billing_status = (SELECT status FROM stripe_subscription_states WHERE subscription_id = ?), "

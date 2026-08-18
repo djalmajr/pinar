@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
-import { destinationKey, resolveDestinationPreference } from "./destination.js";
+import { collectionDestination, defaultDestination, destinationKey, resolveDestinationPreference } from "./destination.js";
 
 const backgroundSrc = readFileSync(new URL("./background.js", import.meta.url), "utf8");
 const contentSrc = readFileSync(new URL("./content.js", import.meta.url), "utf8");
@@ -17,6 +17,8 @@ const tree = {
 describe("capture destination", () => {
   test("keeps local and each configured cloud server in separate preference buckets", () => {
     assert.equal(destinationKey({ storageMode: "local" }, "http://127.0.0.1:17373"), "local");
+    assert.equal(destinationKey({ storageMode: "local" }), "local:unavailable");
+    assert.equal(destinationKey({ cloudUrl: "", storageMode: "cloud" }), "cloud:https://pinar.dev");
     assert.equal(destinationKey({ cloudUrl: "https://pinar.dev/", storageMode: "cloud" }), "cloud:https://pinar.dev");
     assert.equal(destinationKey({ cloudUrl: "https://staging.pinar.dev", storageMode: "cloud" }), "cloud:https://staging.pinar.dev");
   });
@@ -30,6 +32,19 @@ describe("capture destination", () => {
       collectionId: "inbox",
       projectId: "personal",
     });
+  });
+
+  // Mutation captured: removing the first-collection fallback leaves valid legacy trees without a destination.
+  test("uses the first collection only when a tree has no protected destination", () => {
+    const legacyTree = {
+      projects: [{ collections: [{ id: "legacy" }], id: "project-legacy" }],
+    };
+    assert.deepEqual(defaultDestination(legacyTree), {
+      collectionId: "legacy",
+      projectId: "project-legacy",
+    });
+    assert.equal(defaultDestination({ projects: [] }), null);
+    assert.equal(collectionDestination(null, "missing"), null);
   });
 
   test("resolves the destination in the background and sends the effective collection with captures", () => {

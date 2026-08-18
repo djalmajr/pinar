@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, test } from "node:test";
 import { FREE_STORAGE_BYTES, STORAGE_5GB_BYTES } from "../lib/entitlements";
+import { CURRENT_LEGAL_VERSION } from "../lib/legal-documents";
 import {
   authorizeCloudAppRequest,
   type CloudEnv,
@@ -21,6 +22,24 @@ const identityA = { id: `ins_${"A".repeat(24)}`, token: `pit_${"a".repeat(43)}` 
 const identityB = { id: `ins_${"B".repeat(24)}`, token: `pit_${"b".repeat(43)}` };
 const identityC = { id: `ins_${"C".repeat(24)}`, token: `pit_${"c".repeat(43)}` };
 const VALID_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+const ACCEPTED_CHECKOUT_CONSENT = { terms_of_service: "accepted" };
+const CHECKOUT_LEGAL_VERSION = CURRENT_LEGAL_VERSION;
+const REMOTE_FREE_LEGAL_ACCEPTANCE = {
+  acceptableUseVersion: CURRENT_LEGAL_VERSION,
+  accepted: true,
+  locale: "en",
+  privacyVersion: CURRENT_LEGAL_VERSION,
+  termsVersion: CURRENT_LEGAL_VERSION,
+};
+
+function checkoutRequest(fields: Record<string, unknown>) {
+  const locale = fields.locale === "pt" ? "pt" : "en";
+  return {
+    ...fields,
+    legalAcceptance: { ...REMOTE_FREE_LEGAL_ACCEPTANCE, locale },
+    locale,
+  };
+}
 
 function identityHeaders(identity: typeof identityA, extra: HeadersInit = {}) {
   return new Headers({
@@ -54,8 +73,8 @@ const TEST_ENV: CloudEnv = {
   EXTENSION_ORIGIN: "chrome-extension://pinar-test",
   PRICING_AI_CREDITS_1000_BRL_CENTS: "990",
   PRICING_AI_CREDITS_1000_USD_CENTS: "299",
-  PRICING_LIFETIME_BRL_CENTS: "12990",
-  PRICING_LIFETIME_USD_CENTS: "3900",
+  PRICING_FOUNDER_BRL_CENTS: "12990",
+  PRICING_FOUNDER_USD_CENTS: "3900",
   PRICING_MONTHLY_BRL_CENTS: "490",
   PRICING_MONTHLY_USD_CENTS: "299",
   PRICING_STORAGE_20GB_12M_BRL_CENTS: "2990",
@@ -78,7 +97,11 @@ function requestForCountry(path: string, country: string, init: RequestInit = {}
 
 function register(identity: typeof identityA) {
   return api("/api/installations", {
-    body: JSON.stringify({ installationId: identity.id, installationToken: identity.token }),
+    body: JSON.stringify({
+      installationId: identity.id,
+      installationToken: identity.token,
+      legalAcceptance: REMOTE_FREE_LEGAL_ACCEPTANCE,
+    }),
     headers: { "content-type": "application/json" },
     method: "POST",
   });
@@ -189,6 +212,20 @@ async function sha256(value: string) {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+async function acceptedCheckoutMetadata(
+  checkoutClaim: string,
+  extra: Record<string, string> = {},
+) {
+  return {
+    pinar_acceptable_use_version: CHECKOUT_LEGAL_VERSION,
+    pinar_checkout_claim_hash: await sha256(checkoutClaim),
+    pinar_locale: "en",
+    pinar_privacy_version: CHECKOUT_LEGAL_VERSION,
+    pinar_terms_version: CHECKOUT_LEGAL_VERSION,
+    ...extra,
+  };
+}
+
 async function postStripeWebhook(event: Record<string, unknown>, env: CloudEnv) {
   const webhookSecret = env.STRIPE_WEBHOOK_SECRET;
   if (!webhookSecret) throw new Error("STRIPE_WEBHOOK_SECRET is required for the test");
@@ -205,6 +242,42 @@ async function postStripeWebhook(event: Record<string, unknown>, env: CloudEnv) 
 
 describe("remote installation isolation", () => {
   beforeEach(() => resetCloudMemoryStateForTests());
+
+  test("requires and records the current legal bundle before remote Free registration", async () => {
+    setCloudNowForTests("2026-08-18T02:53:00.000Z");
+    const current = await api("/api/legal/current");
+    assert.equal(current.status, 200);
+    assert.deepEqual(await jsonBody(current), {
+      acceptableUseUrl: "/legal/acceptable-use",
+      privacyUrl: "/legal/privacy",
+      termsUrl: "/legal/terms",
+      version: CURRENT_LEGAL_VERSION,
+    });
+
+    const rejected = await api("/api/installations", {
+      body: JSON.stringify({ installationId: identityA.id, installationToken: identityA.token }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(rejected.status, 428);
+    assert.equal((await jsonBody(rejected)).code, "legal_acceptance_required");
+
+    assert.equal((await register(identityA)).status, 201);
+    const entitlements = await jsonBody(await api("/api/account/entitlements", {
+      headers: identityHeaders(identityA),
+    }));
+    assert.deepEqual(entitlements.legalAcceptance, {
+      acceptableUseVersion: CURRENT_LEGAL_VERSION,
+      acceptedAt: "2026-08-18T02:53:00.000Z",
+      evidenceId: `remote-free:${identityA.id}:${CURRENT_LEGAL_VERSION}`,
+      locale: "en",
+      ownerId: identityA.id,
+      ownerType: "installation",
+      privacyVersion: CURRENT_LEGAL_VERSION,
+      source: "remote_free",
+      termsVersion: CURRENT_LEGAL_VERSION,
+    });
+  });
 
   test("data and extension-code web sessions remain installation-scoped", async () => {
     assert.equal((await register(identityA)).status, 201);
@@ -520,6 +593,16 @@ describe("remote installation isolation", () => {
     const login = await jsonBody(await verifyEmailCode("cancel@example.test", mail.codes[0], env, identityA));
     assert.ok(isRecord(login.device));
     const headers = { authorization: `Bearer ${String(login.device.token)}` };
+    assert.equal((await api("/api/shots", {
+      body: JSON.stringify({
+        id: "cancel_retention_session",
+        image: VALID_PNG,
+        page: { title: "Cancellation retention", url: "https://example.test/cancel-retention" },
+        pins: [],
+      }),
+      headers: { ...headers, "content-type": "application/json" },
+      method: "POST",
+    }, env)).status, 201);
     const eventCreated = Math.floor(new Date(now).getTime() / 1000);
     const event = JSON.stringify({
       created: eventCreated,
@@ -543,6 +626,12 @@ describe("remote installation isolation", () => {
       headers: { "stripe-signature": `t=${timestamp},v1=invalid` },
       method: "POST",
     }, env)).status, 400);
+    setCloudNowForTests("2026-11-14T11:59:59.000Z");
+    assert.equal((await cleanupOldRecords(env)).deletedCount, 0);
+    assert.equal((await api("/api/sessions/cancel_retention_session", {}, env)).status, 200);
+    setCloudNowForTests("2026-11-14T12:00:01.000Z");
+    assert.equal((await cleanupOldRecords(env)).deletedCount, 1);
+    assert.equal((await api("/api/sessions/cancel_retention_session", {}, env)).status, 404);
   });
 
   test("keeps a cancellation terminal when an older active event arrives later", async () => {
@@ -565,6 +654,16 @@ describe("remote installation isolation", () => {
     const login = await jsonBody(await verifyEmailCode("ordering@example.test", mail.codes[0], env, identityA));
     assert.ok(isRecord(login.device));
     const headers = { authorization: `Bearer ${String(login.device.token)}` };
+    assert.equal((await api("/api/shots", {
+      body: JSON.stringify({
+        id: "ordering_reactivated_session",
+        image: VALID_PNG,
+        page: { title: "Reactivated retention", url: "https://example.test/reactivated-retention" },
+        pins: [],
+      }),
+      headers: { ...headers, "content-type": "application/json" },
+      method: "POST",
+    }, env)).status, 201);
 
     assert.equal((await postStripeWebhook({
       created: canceledAt,
@@ -588,6 +687,147 @@ describe("remote installation isolation", () => {
     const session = await jsonBody(await api("/api/auth/session", { headers }, env));
     assert.ok(isRecord(session.session));
     assert.equal(session.session.plan, "free");
+
+    assert.equal((await postStripeWebhook({
+      created: canceledAt + 60,
+      data: { object: { customer: "cus_ordering", id: "sub_ordering", status: "active" } },
+      id: "evt_ordering_newer_active",
+      type: "customer.subscription.updated",
+    }, env)).status, 200);
+    const reactivated = await jsonBody(await api("/api/auth/session", { headers }, env));
+    assert.ok(isRecord(reactivated.session));
+    assert.equal(reactivated.session.plan, "pro");
+
+    setCloudNowForTests(new Date((canceledAt + 60) * 1000 + 91 * 24 * 60 * 60 * 1000).toISOString());
+    assert.equal((await cleanupOldRecords(env)).deletedCount, 0);
+    assert.equal((await api("/api/sessions/ordering_reactivated_session", {}, env)).status, 200);
+  });
+
+  test("keeps Pro and monthly credits through flexible cancellation and reactivation events", async () => {
+    const checkoutClaim = "checkout_claim_flexible_cancel_reactivate";
+    const email = "flexible-cycle@example.test";
+    const env: CloudEnv = {
+      ...TEST_ENV,
+      STRIPE_SECRET_KEY: "sk_test_example",
+      STRIPE_WEBHOOK_SECRET: "whsec_flexible_cycle_test",
+    };
+    const originalFetch = globalThis.fetch;
+    setCloudNowForTests("2026-08-18T02:53:00.000Z");
+    globalThis.fetch = async () => Response.json({
+      consent: ACCEPTED_CHECKOUT_CONSENT,
+      customer: "cus_flexible_cycle",
+      customer_details: { email },
+      id: "cs_flexible_cycle",
+      metadata: await acceptedCheckoutMetadata(checkoutClaim, {
+        pinar_offer: "pro_year",
+      }),
+      mode: "subscription",
+      payment_status: "paid",
+      status: "complete",
+      subscription: "sub_flexible_cycle",
+    });
+
+    let cookie = "";
+    try {
+      const success = await api(
+        `/api/stripe/success?session_id=cs_flexible_cycle&claim=${checkoutClaim}`,
+        {},
+        env,
+      );
+      assert.equal(success.status, 200);
+      cookie = success.headers.get("set-cookie")?.split(";", 1)[0] || "";
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    const initial = await jsonBody(await api("/api/account/entitlements", {
+      headers: { cookie },
+    }, env));
+    assert.equal(initial.plan, "pro");
+    assert.ok(isRecord(initial.aiCredits));
+    assert.equal(initial.aiCredits.balance, 200);
+
+    const canceledAt = 1_787_023_324;
+    const cancelAt = 1_818_557_602;
+    setCloudNowForTests(new Date(canceledAt * 1000).toISOString());
+    assert.equal((await postStripeWebhook({
+      created: canceledAt,
+      data: {
+        object: {
+          cancel_at: cancelAt,
+          cancel_at_period_end: false,
+          canceled_at: canceledAt,
+          cancellation_details: { feedback: null, reason: "cancellation_requested" },
+          customer: "cus_flexible_cycle",
+          id: "sub_flexible_cycle",
+          status: "active",
+        },
+        previous_attributes: {
+          cancel_at: null,
+          canceled_at: null,
+          cancellation_details: { reason: null },
+        },
+      },
+      id: "evt_flexible_cancel_schedule",
+      type: "customer.subscription.updated",
+    }, env)).status, 200);
+
+    setCloudNowForTests(new Date((canceledAt + 1) * 1000).toISOString());
+    assert.equal((await postStripeWebhook({
+      created: canceledAt + 1,
+      data: {
+        object: {
+          cancel_at: cancelAt,
+          cancel_at_period_end: false,
+          canceled_at: canceledAt,
+          cancellation_details: { feedback: "other", reason: "cancellation_requested" },
+          customer: "cus_flexible_cycle",
+          id: "sub_flexible_cycle",
+          status: "active",
+        },
+        previous_attributes: { cancellation_details: { feedback: null } },
+      },
+      id: "evt_flexible_cancel_feedback",
+      type: "customer.subscription.updated",
+    }, env)).status, 200);
+
+    const scheduled = await jsonBody(await api("/api/account/entitlements", {
+      headers: { cookie },
+    }, env));
+    assert.equal(scheduled.plan, "pro");
+    assert.ok(isRecord(scheduled.aiCredits));
+    assert.equal(scheduled.aiCredits.balance, 200);
+
+    const reactivatedAt = 1_787_023_745;
+    setCloudNowForTests(new Date(reactivatedAt * 1000).toISOString());
+    assert.equal((await postStripeWebhook({
+      created: reactivatedAt,
+      data: {
+        object: {
+          cancel_at: null,
+          cancel_at_period_end: false,
+          canceled_at: null,
+          cancellation_details: { feedback: null, reason: null },
+          customer: "cus_flexible_cycle",
+          id: "sub_flexible_cycle",
+          status: "active",
+        },
+        previous_attributes: {
+          cancel_at: cancelAt,
+          canceled_at: canceledAt,
+          cancellation_details: { feedback: "other", reason: "cancellation_requested" },
+        },
+      },
+      id: "evt_flexible_reactivated",
+      type: "customer.subscription.updated",
+    }, env)).status, 200);
+
+    const reactivated = await jsonBody(await api("/api/account/entitlements", {
+      headers: { cookie },
+    }, env));
+    assert.equal(reactivated.plan, "pro");
+    assert.ok(isRecord(reactivated.aiCredits));
+    assert.equal(reactivated.aiCredits.balance, 200);
   });
 
   test("does not let an old subscription cancellation demote the current subscription", async () => {
@@ -633,7 +873,7 @@ describe("remote installation isolation", () => {
     try {
       const response = await handleCloudApiRequest(
         new Request("https://pinar.test/api/stripe/checkout", {
-          body: JSON.stringify({ checkoutClaim: "checkout_claim_year_0001", interval: "year" }),
+          body: JSON.stringify(checkoutRequest({ checkoutClaim: "checkout_claim_year_0001", interval: "year" })),
           headers: { "content-type": "application/json" },
           method: "POST",
         }),
@@ -668,6 +908,36 @@ describe("remote installation isolation", () => {
     assert.equal(stripeHeaders.get("stripe-version"), "2026-07-29.dahlia");
   });
 
+  test("rejects checkout before Stripe without the current app consent bundle", async () => {
+    let stripeCalls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => {
+      stripeCalls += 1;
+      return Response.json({ url: "https://checkout.stripe.test/unexpected" });
+    };
+    try {
+      const response = await api("/api/stripe/checkout", {
+        body: JSON.stringify({ checkoutClaim: "checkout_without_legal_0001", interval: "year" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }, {
+        STRIPE_PRICE_YEARLY: "price_yearly_test",
+        STRIPE_SECRET_KEY: "sk_test_example",
+      });
+      const body = await jsonBody(response);
+
+      assert.equal(response.status, 400);
+      assert.equal(body.code, "legal_acceptance_required");
+      assert.equal(body.version, CURRENT_LEGAL_VERSION);
+      assert.equal(body.termsUrl, "/legal/terms");
+      assert.equal(body.privacyUrl, "/legal/privacy");
+      assert.equal(body.acceptableUseUrl, "/legal/acceptable-use");
+      assert.equal(stripeCalls, 0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("uses the Cloudflare country for Brazil pricing and checkout", async () => {
     // Mutation captured: trusting a client header or body lets callers select another regional price.
     const pricingResponse = await handleCloudApiRequest(
@@ -682,7 +952,9 @@ describe("remote installation isolation", () => {
     const pricing = await jsonBody(pricingResponse);
     assert.equal(pricing.country, "BR");
     assert.equal(pricing.currency, "BRL");
+    assert.equal(pricing.founderState, "closed");
     assert.ok(isRecord(pricing.prices));
+    assert.deepEqual(pricing.prices.founder, { amount: 12_990, originalAmount: null });
     assert.deepEqual(pricing.prices.year, { amount: 3_990, originalAmount: null });
     assert.deepEqual(pricing.prices.aiCredits1000, { amount: 990, originalAmount: null });
 
@@ -695,11 +967,11 @@ describe("remote installation isolation", () => {
     try {
       const checkoutResponse = await handleCloudApiRequest(
         requestForCountry("/api/stripe/checkout", "BR", {
-          body: JSON.stringify({
+          body: JSON.stringify(checkoutRequest({
             checkoutClaim: "checkout_claim_brazil_0001",
             country: "US",
             interval: "year",
-          }),
+          })),
           headers: { "content-type": "application/json" },
           method: "POST",
         }),
@@ -745,11 +1017,11 @@ describe("remote installation isolation", () => {
     };
     try {
       const response = await api("/api/stripe/checkout", {
-        body: JSON.stringify({
+        body: JSON.stringify(checkoutRequest({
           offer: "storage_20gb_12m",
           checkoutClaim: "checkout_claim_storage_0001",
           requestId: "checkout_request_123456",
-        }),
+        })),
         headers: { "content-type": "application/json" },
         method: "POST",
       }, {
@@ -774,6 +1046,334 @@ describe("remote installation isolation", () => {
       headers: { "content-type": "application/json" },
       method: "POST",
     }, { STRIPE_SECRET_KEY: "sk_test_example" })).status, 400);
+  });
+
+  // Mutation captured: skipping the backend reservation allows a second Checkout for the final Founder slot.
+  test("reserves the final Founder slot and requires versioned Terms consent", async () => {
+    setCloudNowForTests("2026-08-18T12:00:00.000Z");
+    const stripeRequests: RequestInit[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      stripeRequests.push(init || {});
+      return Response.json({
+        id: "cs_founder_reserved",
+        url: "https://checkout.stripe.test/founder",
+      });
+    };
+    const env: CloudEnv = {
+      ...TEST_ENV,
+      FOUNDER_CAPACITY_LIMIT: "1",
+      FOUNDER_SALES_ENABLED: "true",
+      STRIPE_PRICE_FOUNDER: "price_founder_test",
+      STRIPE_SECRET_KEY: "sk_test_example",
+    };
+    try {
+      const first = await api("/api/stripe/checkout", {
+        body: JSON.stringify(checkoutRequest({
+          checkoutClaim: "founder_claim_first_0001",
+          locale: "pt",
+          offer: "founder",
+          requestId: "founder_request_first_0001",
+        })),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }, env);
+      const soldOutPricing = await jsonBody(await api("/api/pricing", {}, env));
+      const second = await api("/api/stripe/checkout", {
+        body: JSON.stringify(checkoutRequest({
+          checkoutClaim: "founder_claim_second_0002",
+          offer: "founder",
+          requestId: "founder_request_second_0002",
+        })),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }, env);
+
+      assert.equal(first.status, 200);
+      assert.equal(soldOutPricing.founderState, "sold_out");
+      assert.equal(second.status, 409);
+      assert.equal((await jsonBody(second)).error, "founder_sold_out");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    assert.equal(stripeRequests.length, 1);
+    const params = new URLSearchParams(String(stripeRequests[0].body));
+    assert.equal(params.has("consent_collection[terms_of_service]"), false);
+    assert.equal(params.get("expires_at"), String(Date.parse("2026-08-18T12:31:00.000Z") / 1_000));
+    assert.equal(params.get("line_items[0][price]"), "price_founder_test");
+    assert.equal(params.get("metadata[pinar_offer]"), "founder");
+    assert.match(params.get("metadata[pinar_founder_reservation_id]") || "", /^fdr_[A-Za-z0-9_-]{24}$/);
+    assert.equal(params.get("metadata[pinar_acceptable_use_version]"), "2026-08-18");
+    assert.equal(params.get("metadata[pinar_legal_acceptance_source]"), "app");
+    assert.equal(params.get("metadata[pinar_legal_accepted_at]"), "2026-08-18T12:00:00.000Z");
+    assert.equal(params.get("metadata[pinar_locale]"), "pt");
+    assert.equal(params.get("metadata[pinar_privacy_version]"), "2026-08-18");
+    assert.equal(params.get("metadata[pinar_terms_version]"), "2026-08-18");
+  });
+
+  test("keeps Founder closed by default and releases capacity after Stripe failure", async () => {
+    let fetchCount = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => {
+      fetchCount += 1;
+      if (fetchCount === 1) return Response.json({ error: { message: "temporary" } }, { status: 500 });
+      return Response.json({ id: "cs_founder_retry", url: "https://checkout.stripe.test/founder-retry" });
+    };
+    const request = (requestId: string) => ({
+      body: JSON.stringify(checkoutRequest({
+        checkoutClaim: `${requestId}_claim`,
+        offer: "founder",
+        requestId,
+      })),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const env: CloudEnv = {
+      ...TEST_ENV,
+      FOUNDER_CAPACITY_LIMIT: "1",
+      FOUNDER_SALES_ENABLED: "true",
+      STRIPE_PRICE_FOUNDER: "price_founder_test",
+      STRIPE_SECRET_KEY: "sk_test_example",
+    };
+    try {
+      const closed = await api("/api/stripe/checkout", request("founder_request_closed_001"), {
+        ...env,
+        FOUNDER_SALES_ENABLED: "false",
+      });
+      assert.equal(closed.status, 409);
+      assert.equal(fetchCount, 0);
+
+      const failed = await api("/api/stripe/checkout", request("founder_request_failed_001"), env);
+      const retry = await api("/api/stripe/checkout", request("founder_request_retry_0002"), env);
+      assert.equal(failed.status, 400);
+      assert.equal(retry.status, 200);
+      assert.equal(fetchCount, 2);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("releases attached Founder slots after expiration or an asynchronous payment failure", async () => {
+    const env: CloudEnv = {
+      ...TEST_ENV,
+      FOUNDER_CAPACITY_LIMIT: "1",
+      FOUNDER_SALES_ENABLED: "true",
+      STRIPE_PRICE_FOUNDER: "price_founder_test",
+      STRIPE_SECRET_KEY: "sk_test_example",
+      STRIPE_WEBHOOK_SECRET: "whsec_founder_expiry_test",
+    };
+    let checkoutCount = 0;
+    const reservationIds: string[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      checkoutCount += 1;
+      const params = new URLSearchParams(String(init?.body));
+      reservationIds.push(params.get("metadata[pinar_founder_reservation_id]") || "");
+      return Response.json({
+        id: `cs_founder_${checkoutCount}`,
+        url: `https://checkout.stripe.test/founder-${checkoutCount}`,
+      });
+    };
+    const request = (suffix: string) => api("/api/stripe/checkout", {
+      body: JSON.stringify(checkoutRequest({
+        checkoutClaim: `founder_expiry_claim_${suffix}`,
+        offer: "founder",
+        requestId: `founder_expiry_request_${suffix}`,
+      })),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }, env);
+    try {
+      setCloudNowForTests("2026-08-18T12:00:00.000Z");
+      assert.equal((await request("first_0001")).status, 200);
+
+      const expiredAt = Date.parse("2026-08-18T12:32:00.000Z") / 1_000;
+      setCloudNowForTests(new Date(expiredAt * 1_000).toISOString());
+      assert.equal((await request("blocked_0002")).status, 409);
+      assert.equal((await postStripeWebhook({
+        created: expiredAt,
+        data: {
+          object: {
+            id: "cs_founder_1",
+            metadata: {
+              pinar_founder_reservation_id: reservationIds[0],
+              pinar_offer: "founder",
+            },
+          },
+        },
+        id: "evt_founder_checkout_expired",
+        type: "checkout.session.expired",
+      }, env)).status, 200);
+      assert.equal((await request("replacement_0003")).status, 200);
+      assert.equal((await postStripeWebhook({
+        created: expiredAt,
+        data: {
+          object: {
+            id: "cs_founder_2",
+            metadata: {
+              pinar_founder_reservation_id: reservationIds[1],
+              pinar_offer: "founder",
+            },
+          },
+        },
+        id: "evt_founder_checkout_async_failed",
+        type: "checkout.session.async_payment_failed",
+      }, env)).status, 200);
+      assert.equal((await request("after_async_failure_0004")).status, 200);
+      assert.equal(checkoutCount, 3);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("rejects a paid Founder session without its attached backend reservation", async () => {
+    const checkoutClaim = "founder_claim_without_reservation_0001";
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => Response.json({
+      consent: { terms_of_service: "accepted" },
+      customer: "cus_founder_unreserved",
+      customer_details: { email: "unreserved-founder@example.test" },
+      id: "cs_founder_unreserved",
+      metadata: {
+        pinar_checkout_claim_hash: await sha256(checkoutClaim),
+        pinar_founder_reservation_id: "fdr_unreserved_founder_0001",
+        pinar_offer: "founder",
+        pinar_terms_version: "2026-08-18",
+      },
+      mode: "payment",
+      payment_status: "paid",
+      status: "complete",
+    });
+    try {
+      const response = await api(
+        `/api/stripe/success?session_id=cs_founder_unreserved&claim=${checkoutClaim}`,
+        {},
+        { ...TEST_ENV, STRIPE_SECRET_KEY: "sk_test_example" },
+      );
+
+      assert.equal(response.status, 503);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("confirms an attached Founder purchase once and grants its one-time quotas", async () => {
+    const checkoutClaim = "founder_claim_fulfillment_0001";
+    const env: CloudEnv = {
+      ...TEST_ENV,
+      FOUNDER_CAPACITY_LIMIT: "1",
+      FOUNDER_SALES_ENABLED: "true",
+      STRIPE_PRICE_FOUNDER: "price_founder_test",
+      STRIPE_SECRET_KEY: "sk_test_example",
+    };
+    let reservationId = "";
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        const params = new URLSearchParams(String(init.body));
+        reservationId = params.get("metadata[pinar_founder_reservation_id]") || "";
+        return Response.json({
+          id: "cs_founder_fulfillment",
+          url: "https://checkout.stripe.test/founder-fulfillment",
+        });
+      }
+      return Response.json({
+        customer: "cus_founder_fulfillment",
+        customer_details: { email: "founder@example.test" },
+        id: "cs_founder_fulfillment",
+        metadata: {
+          pinar_acceptable_use_version: "2026-08-18",
+          pinar_checkout_claim_hash: await sha256(checkoutClaim),
+          pinar_founder_reservation_id: reservationId,
+          pinar_legal_acceptance_source: "app",
+          pinar_legal_accepted_at: "2026-08-18T09:30:00.000Z",
+          pinar_locale: "en",
+          pinar_offer: "founder",
+          pinar_privacy_version: "2026-08-18",
+          pinar_terms_version: "2026-08-18",
+        },
+        mode: "payment",
+        payment_status: "paid",
+        status: "complete",
+      });
+    };
+    try {
+      const checkout = await api("/api/stripe/checkout", {
+        body: JSON.stringify(checkoutRequest({
+          checkoutClaim,
+          offer: "founder",
+          requestId: "founder_request_fulfillment_0001",
+        })),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }, env);
+      assert.equal(checkout.status, 200);
+
+      const first = await api(
+        `/api/stripe/success?session_id=cs_founder_fulfillment&claim=${checkoutClaim}`,
+        {},
+        env,
+      );
+      const replay = await api(
+        `/api/stripe/success?session_id=cs_founder_fulfillment&claim=${checkoutClaim}`,
+        {},
+        env,
+      );
+
+      assert.equal(first.status, 200);
+      assert.equal(replay.status, 200);
+      const firstBody = await jsonBody(first);
+      assert.ok(isRecord(firstBody.account));
+      assert.equal(firstBody.account.plan, "founder");
+      const cookie = first.headers.get("set-cookie")?.split(";", 1)[0] || "";
+      const entitlements = await jsonBody(await api("/api/account/entitlements", {
+        headers: { cookie },
+      }, env));
+      assert.equal(entitlements.plan, "founder");
+      assert.ok(isRecord(entitlements.aiCredits));
+      assert.equal(entitlements.aiCredits.balance, 500);
+      assert.ok(isRecord(entitlements.storage));
+      assert.equal(entitlements.storage.baseBytes, STORAGE_5GB_BYTES);
+      assert.equal(entitlements.storage.quotaBytes, STORAGE_5GB_BYTES);
+      assert.ok(isRecord(entitlements.legalAcceptance));
+      assert.equal(entitlements.legalAcceptance.acceptedAt, "2026-08-18T09:30:00.000Z");
+      assert.equal(entitlements.legalAcceptance.acceptableUseVersion, "2026-08-18");
+      assert.equal(entitlements.legalAcceptance.evidenceId, "cs_founder_fulfillment");
+      assert.equal(entitlements.legalAcceptance.locale, "en");
+      assert.equal(entitlements.legalAcceptance.privacyVersion, "2026-08-18");
+      assert.equal(entitlements.legalAcceptance.termsVersion, "2026-08-18");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("does not activate a paid Checkout without versioned Terms acceptance", async () => {
+    const checkoutClaim = "checkout_claim_without_terms_0001";
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => Response.json({
+      customer: "cus_without_terms",
+      customer_details: { email: "without-terms@example.test" },
+      id: "cs_without_terms",
+      metadata: {
+        pinar_checkout_claim_hash: await sha256(checkoutClaim),
+        pinar_offer: "pro_year",
+      },
+      mode: "subscription",
+      payment_status: "paid",
+      status: "complete",
+      subscription: "sub_without_terms",
+    });
+    try {
+      const response = await api(
+        `/api/stripe/success?session_id=cs_without_terms&claim=${checkoutClaim}`,
+        {},
+        { ...TEST_ENV, STRIPE_SECRET_KEY: "sk_test_example" },
+      );
+
+      assert.equal(response.status, 503);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   test("routes all six paid offers to their BRL and USD Stripe prices", async () => {
@@ -818,7 +1418,7 @@ describe("remote installation isolation", () => {
           const requestId = `checkout_${country}_${offer.offer}_0001`;
           const checkoutClaim = `${requestId}_claim`;
           const response = await handleCloudApiRequest(requestForCountry("/api/stripe/checkout", country, {
-            body: JSON.stringify({ checkoutClaim, offer: offer.offer, requestId }),
+            body: JSON.stringify(checkoutRequest({ checkoutClaim, offer: offer.offer, requestId })),
             headers: { "content-type": "application/json" },
             method: "POST",
           }), env);
@@ -864,9 +1464,11 @@ describe("remote installation isolation", () => {
     const checkoutClaim = "checkout_claim_success_0001";
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async () => Response.json({
+      consent: ACCEPTED_CHECKOUT_CONSENT,
       customer: "cus_checkout",
       customer_details: { email: "checkout@example.test" },
-      metadata: { pinar_checkout_claim_hash: await sha256(checkoutClaim) },
+      id: "cs_test",
+      metadata: await acceptedCheckoutMetadata(checkoutClaim),
       mode: "subscription",
       payment_status: "paid",
       status: "complete",
@@ -917,13 +1519,13 @@ describe("remote installation isolation", () => {
 
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async () => Response.json({
+      consent: ACCEPTED_CHECKOUT_CONSENT,
       customer: "cus_canceled_first",
       customer_details: { email: "canceled-first@example.test" },
       id: "cs_canceled_first",
-      metadata: {
-        pinar_checkout_claim_hash: await sha256(checkoutClaim),
+      metadata: await acceptedCheckoutMetadata(checkoutClaim, {
         pinar_offer: "pro_month",
-      },
+      }),
       mode: "subscription",
       payment_status: "paid",
       status: "complete",
@@ -1105,13 +1707,13 @@ describe("remote installation isolation", () => {
     const originalFetch = globalThis.fetch;
     setCloudNowForTests("2026-01-31T12:30:00.000Z");
     globalThis.fetch = async () => Response.json({
+      consent: ACCEPTED_CHECKOUT_CONSENT,
       customer: "cus_annual",
       customer_details: { email: "annual@example.test" },
       id: "cs_annual",
-      metadata: {
-        pinar_checkout_claim_hash: await sha256(checkoutClaim),
+      metadata: await acceptedCheckoutMetadata(checkoutClaim, {
         pinar_offer: "pro_year",
-      },
+      }),
       mode: "subscription",
       payment_status: "paid",
       status: "complete",
@@ -1160,13 +1762,13 @@ describe("remote installation isolation", () => {
       sessionId: "storage_existing_session",
     });
     const checkoutSession = {
+      consent: ACCEPTED_CHECKOUT_CONSENT,
       customer: "cus_storage",
       customer_details: { email: "storage@example.test" },
       id: "cs_storage",
-      metadata: {
-        pinar_checkout_claim_hash: await sha256(checkoutClaim),
+      metadata: await acceptedCheckoutMetadata(checkoutClaim, {
         pinar_offer: "storage_5gb_12m",
-      },
+      }),
       mode: "payment",
       payment_status: "paid",
       status: "complete",
@@ -1285,13 +1887,13 @@ describe("remote installation isolation", () => {
     });
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async () => Response.json({
+      consent: ACCEPTED_CHECKOUT_CONSENT,
       customer: "cus_addon_checkout",
       customer_details: { email },
       id: "cs_existing_addon",
-      metadata: {
-        pinar_checkout_claim_hash: await sha256(checkoutClaim),
+      metadata: await acceptedCheckoutMetadata(checkoutClaim, {
         pinar_offer: "ai_credits_1000",
-      },
+      }),
       mode: "payment",
       payment_status: "paid",
       status: "complete",
@@ -1336,25 +1938,25 @@ describe("remote installation isolation", () => {
     setCloudNowForTests("2026-04-30T12:30:00.000Z");
     const sessions = [
       {
+        consent: ACCEPTED_CHECKOUT_CONSENT,
         customer: "cus_lifetime",
         customer_details: { email: "lifetime@example.test" },
         id: "cs_lifetime",
-        metadata: {
-          pinar_checkout_claim_hash: await sha256(lifetimeClaim),
+        metadata: await acceptedCheckoutMetadata(lifetimeClaim, {
           pinar_offer: "lifetime_founder",
-        },
+        }),
         mode: "payment",
         payment_status: "paid",
         status: "complete",
       },
       {
+        consent: ACCEPTED_CHECKOUT_CONSENT,
         customer: "cus_ai",
         customer_details: { email: "ai@example.test" },
         id: "cs_ai",
-        metadata: {
-          pinar_checkout_claim_hash: await sha256(aiClaim),
+        metadata: await acceptedCheckoutMetadata(aiClaim, {
           pinar_offer: "ai_credits_1000",
-        },
+        }),
         mode: "payment",
         payment_status: "paid",
         status: "complete",

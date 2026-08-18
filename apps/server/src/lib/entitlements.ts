@@ -2,6 +2,7 @@ import type { AccountPlan } from "@pinar/shared";
 
 export type CheckoutOffer =
   | "ai_credits_1000"
+  | "founder"
   | "lifetime_founder"
   | "pro_month"
   | "pro_year"
@@ -33,8 +34,10 @@ export interface StorageEntitlementInput {
 
 export const FREE_AI_CREDITS = 5;
 export const FREE_STORAGE_BYTES = 250 * 1024 * 1024;
-export const LIFETIME_AI_CREDITS = 500;
-export const PAID_STORAGE_BYTES = 5 * 1024 * 1024 * 1024;
+export const FOUNDER_INITIAL_AI_CREDITS = 500;
+export const FOUNDER_STORAGE_BYTES = 5 * 1024 * 1024 * 1024;
+export const LIFETIME_AI_CREDITS = FOUNDER_INITIAL_AI_CREDITS;
+export const PAID_STORAGE_BYTES = FOUNDER_STORAGE_BYTES;
 export const PRO_MONTHLY_AI_CREDITS = 200;
 export const PURCHASED_AI_CREDITS = 1_000;
 export const STORAGE_20GB_BYTES = 20 * 1024 * 1024 * 1024;
@@ -43,6 +46,7 @@ export const STORAGE_5GB_BYTES = 5 * 1024 * 1024 * 1024;
 const DAY_MS = 24 * 60 * 60 * 1000;
 export function checkoutOffer(value: unknown): CheckoutOffer | null {
   if (value === "ai_credits_1000"
+    || value === "founder"
     || value === "lifetime_founder"
     || value === "pro_month"
     || value === "pro_year"
@@ -58,6 +62,7 @@ export function legacyCheckoutOffer(value: unknown): CheckoutOffer {
 }
 
 export function planForOffer(offer: CheckoutOffer): AccountPlan | null {
+  if (offer === "founder") return "founder";
   if (offer === "lifetime_founder") return "lifetime";
   if (offer === "pro_month" || offer === "pro_year") return "pro";
   return null;
@@ -82,7 +87,9 @@ export function addUtcYears(date: Date, years: number) {
 }
 
 export function baseStorageBytes(plan: AccountPlan) {
-  return plan === "free" ? FREE_STORAGE_BYTES : PAID_STORAGE_BYTES;
+  if (plan === "free") return FREE_STORAGE_BYTES;
+  if (plan === "founder" || plan === "lifetime") return FOUNDER_STORAGE_BYTES;
+  return PAID_STORAGE_BYTES;
 }
 
 export function storageEntitlement(input: StorageEntitlementInput): StorageEntitlement {

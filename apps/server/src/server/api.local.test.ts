@@ -154,10 +154,11 @@ describe("local TanStack API", () => {
         country: "BR",
         currency: "BRL",
         discountPercent: null,
+        founderState: "closed",
         prices: {
           aiCredits1000: { amount: 990, originalAmount: null },
+          founder: { amount: 12_990, originalAmount: null },
           free: { amount: 0, originalAmount: null },
-          lifetime: { amount: 12_990, originalAmount: null },
           month: { amount: 490, originalAmount: null },
           storage20Gb12M: { amount: 2_990, originalAmount: null },
           storage5Gb12M: { amount: 990, originalAmount: null },

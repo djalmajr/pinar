@@ -59,6 +59,12 @@ import IconSparkles from "~icons/lucide/sparkles";
 import IconSun from "~icons/lucide/sun";
 import extensionPackage from "../../package.json";
 import {
+  acceptedRemoteLegalAcceptance,
+  createRemoteLegalAcceptance,
+  parseLegalBundle,
+  type LegalBundle,
+} from "../../../../extension/legal-consent.js";
+import {
   type ExtensionResponseBase,
   withExtensionResponseFallback,
 } from "./extension-response";
@@ -184,9 +190,14 @@ export function OptionsApp() {
   const [email, setEmail] = useState("");
   const [emailCode, setEmailCode] = useState("");
   const [emailCodeRequested, setEmailCodeRequested] = useState(false);
+  const [legalAccepted, setLegalAccepted] = useState(false);
+  const [legalBundle, setLegalBundle] = useState<LegalBundle | null>(null);
+  const [legalError, setLegalError] = useState(false);
+  const [savedLegalAccepted, setSavedLegalAccepted] = useState(false);
 
   const t = translations[lang] || translations.en;
-  const hasUnsavedChanges = !areSettingsEqual(settings, savedSettings);
+  const hasUnsavedChanges = !areSettingsEqual(settings, savedSettings)
+    || legalAccepted !== savedLegalAccepted;
   const destinationProjects = destinationTree?.projects ?? [];
   const destinationProject = destinationProjects.find((project) => project.id === destinationProjectId);
   const destinationCollections = destinationProject?.collections ?? [];
@@ -203,6 +214,29 @@ export function OptionsApp() {
   const installCommand = isWindows
     ? "irm https://pinar.dev/install.ps1 | iex"
     : "curl -fsSL https://pinar.dev/install.sh | sh";
+
+  async function loadLegalConsent(cloudUrl: string) {
+    setLegalError(false);
+    try {
+      const [response, stored] = await Promise.all([
+        fetch(`${cloudUrl.replace(/\/+$/, "")}/api/legal/current`),
+        typeof chrome !== "undefined" && chrome.storage?.local
+          ? chrome.storage.local.get({ remoteLegalAcceptance: null })
+          : Promise.resolve({ remoteLegalAcceptance: null }),
+      ]);
+      const bundle = parseLegalBundle(await response.json().catch(() => null));
+      if (!response.ok || !bundle) throw new Error("Legal bundle unavailable");
+      const accepted = Boolean(acceptedRemoteLegalAcceptance(stored.remoteLegalAcceptance, bundle));
+      setLegalAccepted(accepted);
+      setLegalBundle(bundle);
+      setSavedLegalAccepted(accepted);
+    } catch {
+      setLegalAccepted(false);
+      setLegalBundle(null);
+      setLegalError(true);
+      setSavedLegalAccepted(false);
+    }
+  }
 
   async function loadCaptureDestination() {
     setDestinationLoading(true);
@@ -266,6 +300,7 @@ export function OptionsApp() {
       setLang(loaded.language as SupportedLanguage);
       setSettings(loaded);
       setSavedSettings(loaded);
+      await loadLegalConsent(loaded.cloudUrl || DEFAULT_SETTINGS.cloudUrl);
       await Promise.all([loadCaptureDestination(), loadAuthSession()]);
     }
     void initialize();
@@ -273,7 +308,20 @@ export function OptionsApp() {
 
   async function saveSettings() {
     if (!hasUnsavedChanges) return;
+    if (settings.storageMode === "cloud" && (!legalBundle || !legalAccepted)) {
+      toast.error(t.legal_acceptance_required);
+      return;
+    }
+    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      if (legalAccepted && legalBundle && !savedLegalAccepted) {
+        const acceptance = createRemoteLegalAcceptance(legalBundle, settings.language || lang);
+        if (acceptance) await chrome.storage.local.set({ remoteLegalAcceptance: acceptance });
+      } else if (!legalAccepted && savedLegalAccepted) {
+        await chrome.storage.local.remove("remoteLegalAcceptance");
+      }
+    }
     if (typeof chrome !== "undefined" && chrome.storage?.sync) await chrome.storage.sync.set(settings);
+    setSavedLegalAccepted(legalAccepted);
     setSavedSettings(settings);
     toast.success(t.status_saved);
     await Promise.all([loadCaptureDestination(), loadAuthSession()]);
@@ -445,6 +493,23 @@ export function OptionsApp() {
                     <input checked={settings.storageMode === "cloud"} className="mt-1 accent-primary" name="storageMode" type="radio" onChange={() => setSettings((current) => ({ ...current, storageMode: "cloud" }))} />
                     <span className="min-w-0 flex-1"><span className="block text-xs font-semibold">{t.remote_title}</span><span className="block text-xs leading-relaxed text-muted-foreground">{t.remote_desc}</span></span>
                   </label>
+                  {settings.storageMode === "cloud" ? (
+                    <div className="ml-4 rounded-lg border bg-muted/40 p-3">
+                      <label className="flex cursor-pointer items-start gap-2 text-xs">
+                        <input checked={legalAccepted} className="mt-0.5 accent-primary" disabled={!legalBundle} type="checkbox" onChange={(event) => setLegalAccepted(event.target.checked)} />
+                        <span>{t.legal_acceptance_label}</span>
+                      </label>
+                      {legalBundle ? (
+                        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 pl-5 text-xs">
+                          <a className="text-primary underline underline-offset-4" href={`${(settings.cloudUrl || DEFAULT_SETTINGS.cloudUrl).replace(/\/+$/, "")}${legalBundle.termsUrl}`} rel="noopener noreferrer" target="_blank">{t.legal_terms}</a>
+                          <a className="text-primary underline underline-offset-4" href={`${(settings.cloudUrl || DEFAULT_SETTINGS.cloudUrl).replace(/\/+$/, "")}${legalBundle.privacyUrl}`} rel="noopener noreferrer" target="_blank">{t.legal_privacy}</a>
+                          <a className="text-primary underline underline-offset-4" href={`${(settings.cloudUrl || DEFAULT_SETTINGS.cloudUrl).replace(/\/+$/, "")}${legalBundle.acceptableUseUrl}`} rel="noopener noreferrer" target="_blank">{t.legal_acceptable_use}</a>
+                          <span className="text-muted-foreground">v{legalBundle.version}</span>
+                        </div>
+                      ) : null}
+                      {legalError ? <p className="mt-2 pl-5 text-xs text-destructive">{t.legal_acceptance_required}</p> : null}
+                    </div>
+                  ) : null}
                 </section>
 
                 <section className="flex flex-col gap-2.5">
@@ -550,7 +615,7 @@ export function OptionsApp() {
             </Tabs>
 
             <footer className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex gap-2"><Button className="h-8 text-xs" disabled={!hasUnsavedChanges} size="sm" onClick={() => void saveSettings()}><IconSave className="size-3.5" />{t.btn_save}</Button><Button className="h-8 text-xs" size="sm" variant="outline" onClick={() => void openApp()}><IconExternalLink />{t.btn_open_app}</Button></div>
+              <div className="flex gap-2"><Button className="h-8 text-xs" disabled={!hasUnsavedChanges || (settings.storageMode === "cloud" && (!legalBundle || !legalAccepted))} size="sm" onClick={() => void saveSettings()}><IconSave className="size-3.5" />{t.btn_save}</Button><Button className="h-8 text-xs" size="sm" variant="outline" onClick={() => void openApp()}><IconExternalLink />{t.btn_open_app}</Button></div>
               <div className="flex gap-2"><Button className="h-8 text-xs" render={<a href="https://buymeacoffee.com/djalmajr" rel="noopener noreferrer" target="_blank" />} size="sm" variant="coffee"><IconCoffee />{t.btn_coffee}</Button><Button className="h-8 text-xs" render={<a href="https://github.com/sponsors/djalmajr" rel="noopener noreferrer" target="_blank" />} size="sm" variant="sponsor"><IconHeart className="fill-current" />{t.btn_sponsor}</Button></div>
             </footer>
           </div>

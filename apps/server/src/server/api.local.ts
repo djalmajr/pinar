@@ -17,6 +17,7 @@ import { openHistoryDb } from "@pinar/cli/history";
 import { pinarHome, shotsDir } from "@pinar/cli/paths";
 import { writeShot } from "@pinar/cli/shots";
 import { formatCollectionMarkdown, formatProjectMarkdown, formatSessionMarkdown } from "./markdown";
+import { installerResponse } from "./installers";
 import { decodePngDataUrl } from "./png";
 
 interface LocalSession extends Session {
@@ -526,9 +527,7 @@ export async function handlePublicRequest(request: Request) {
       : text("Collection not found", 404);
   }
   if (request.method === "GET" && (url.pathname === "/install.sh" || url.pathname === "/install.ps1")) {
-    const filename = url.pathname.slice(1);
-    const response = await fetch(`https://raw.githubusercontent.com/djalmajr/pinar/main/${filename}`);
-    return text(await response.text(), response.status, { "Content-Type": "text/plain; charset=utf-8" });
+    return installerResponse(url.pathname) || json({ error: "not found" }, 404);
   }
   return json({ error: "not found" }, 404);
 }

@@ -18,6 +18,7 @@ import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as SuccessRouteImport } from './routes/success'
 import { Route as ApiSplatRouteImport } from './routes/api/$'
 import { Route as CIdRouteImport } from './routes/c/$id'
+import { Route as LegalDocumentRouteImport } from './routes/legal/$document'
 import { Route as PIdRouteImport } from './routes/p/$id'
 import { Route as ShotsIdRouteImport } from './routes/shots/$id'
 import { Route as VIdRouteImport } from './routes/v/$id'
@@ -67,6 +68,11 @@ const CIdRoute = CIdRouteImport.update({
   path: '/c/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LegalDocumentRoute = LegalDocumentRouteImport.update({
+  id: '/legal/$document',
+  path: '/legal/$document',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PIdRoute = PIdRouteImport.update({
   id: '/p/$id',
   path: '/p/$id',
@@ -93,6 +99,7 @@ export interface FileRoutesByFullPath {
   '/success': typeof SuccessRoute
   '/api/$': typeof ApiSplatRoute
   '/c/$id': typeof CIdRoute
+  '/legal/$document': typeof LegalDocumentRoute
   '/p/$id': typeof PIdRoute
   '/shots/$id': typeof ShotsIdRoute
   '/v/$id': typeof VIdRoute
@@ -107,6 +114,7 @@ export interface FileRoutesByTo {
   '/success': typeof SuccessRoute
   '/api/$': typeof ApiSplatRoute
   '/c/$id': typeof CIdRoute
+  '/legal/$document': typeof LegalDocumentRoute
   '/p/$id': typeof PIdRoute
   '/shots/$id': typeof ShotsIdRoute
   '/v/$id': typeof VIdRoute
@@ -122,6 +130,7 @@ export interface FileRoutesById {
   '/success': typeof SuccessRoute
   '/api/$': typeof ApiSplatRoute
   '/c/$id': typeof CIdRoute
+  '/legal/$document': typeof LegalDocumentRoute
   '/p/$id': typeof PIdRoute
   '/shots/$id': typeof ShotsIdRoute
   '/v/$id': typeof VIdRoute
@@ -138,6 +147,7 @@ export interface FileRouteTypes {
     | '/success'
     | '/api/$'
     | '/c/$id'
+    | '/legal/$document'
     | '/p/$id'
     | '/shots/$id'
     | '/v/$id'
@@ -152,6 +162,7 @@ export interface FileRouteTypes {
     | '/success'
     | '/api/$'
     | '/c/$id'
+    | '/legal/$document'
     | '/p/$id'
     | '/shots/$id'
     | '/v/$id'
@@ -166,6 +177,7 @@ export interface FileRouteTypes {
     | '/success'
     | '/api/$'
     | '/c/$id'
+    | '/legal/$document'
     | '/p/$id'
     | '/shots/$id'
     | '/v/$id'
@@ -181,6 +193,7 @@ export interface RootRouteChildren {
   SuccessRoute: typeof SuccessRoute
   ApiSplatRoute: typeof ApiSplatRoute
   CIdRoute: typeof CIdRoute
+  LegalDocumentRoute: typeof LegalDocumentRoute
   PIdRoute: typeof PIdRoute
   ShotsIdRoute: typeof ShotsIdRoute
   VIdRoute: typeof VIdRoute
@@ -251,6 +264,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/legal/$document': {
+      id: '/legal/$document'
+      path: '/legal/$document'
+      fullPath: '/legal/$document'
+      preLoaderRoute: typeof LegalDocumentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/p/$id': {
       id: '/p/$id'
       path: '/p/$id'
@@ -285,6 +305,7 @@ const rootRouteChildren: RootRouteChildren = {
   SuccessRoute: SuccessRoute,
   ApiSplatRoute: ApiSplatRoute,
   CIdRoute: CIdRoute,
+  LegalDocumentRoute: LegalDocumentRoute,
   PIdRoute: PIdRoute,
   ShotsIdRoute: ShotsIdRoute,
   VIdRoute: VIdRoute,

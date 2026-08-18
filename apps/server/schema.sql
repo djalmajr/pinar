@@ -2,14 +2,15 @@
 CREATE TABLE users (
   id TEXT PRIMARY KEY,
   email TEXT NOT NULL COLLATE NOCASE UNIQUE,
-  plan TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'pro', 'lifetime')),
+  plan TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'pro', 'founder', 'lifetime')),
   ever_paid INTEGER NOT NULL DEFAULT 0 CHECK (ever_paid IN (0, 1)),
   billing_status TEXT NOT NULL DEFAULT 'active' CHECK (billing_status IN ('active', 'canceled', 'past_due')),
   stripe_customer_id TEXT UNIQUE,
   stripe_subscription_id TEXT UNIQUE,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  ai_credit_refill_at TEXT
+  ai_credit_refill_at TEXT,
+  paid_eligibility_ended_at TEXT
 );
 
 CREATE INDEX idx_users_email ON users(email);
@@ -31,7 +32,9 @@ CREATE TABLE ai_credit_grants (
   id TEXT PRIMARY KEY,
   owner_type TEXT NOT NULL CHECK (owner_type IN ('account', 'installation')),
   owner_id TEXT NOT NULL,
-  source_type TEXT NOT NULL CHECK (source_type IN ('free_initial', 'pro_monthly', 'lifetime_initial', 'purchase')),
+  source_type TEXT NOT NULL CHECK (
+    source_type IN ('free_initial', 'pro_monthly', 'founder_initial', 'lifetime_initial', 'purchase')
+  ),
   source_id TEXT NOT NULL UNIQUE,
   credits INTEGER NOT NULL CHECK (credits > 0),
   consumed_credits INTEGER NOT NULL DEFAULT 0,
@@ -145,6 +148,63 @@ CREATE TABLE stripe_subscription_states (
 CREATE INDEX idx_stripe_subscription_states_customer
   ON stripe_subscription_states(customer_id, event_created DESC);
 
+CREATE TABLE founder_reservations (
+  id TEXT PRIMARY KEY,
+  checkout_request_id TEXT NOT NULL UNIQUE,
+  claim_hash TEXT NOT NULL,
+  checkout_session_id TEXT UNIQUE,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'confirmed', 'released')),
+  expires_at TEXT NOT NULL,
+  confirmed_at TEXT,
+  released_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX idx_founder_reservations_capacity
+  ON founder_reservations(status, expires_at);
+
+CREATE TABLE founder_purchases (
+  id TEXT PRIMARY KEY,
+  reservation_id TEXT NOT NULL UNIQUE REFERENCES founder_reservations(id),
+  user_id TEXT NOT NULL REFERENCES users(id),
+  checkout_session_id TEXT NOT NULL UNIQUE,
+  stripe_customer_id TEXT NOT NULL,
+  purchased_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX idx_founder_purchases_user ON founder_purchases(user_id);
+
+CREATE TRIGGER confirm_founder_purchase
+AFTER INSERT ON founder_purchases
+BEGIN
+  UPDATE founder_reservations
+  SET status = 'confirmed', confirmed_at = NEW.purchased_at, updated_at = NEW.purchased_at
+  WHERE id = NEW.reservation_id
+    AND status = 'active'
+    AND checkout_session_id = NEW.checkout_session_id;
+  SELECT (CASE WHEN changes() <> 1 THEN RAISE(ABORT, 'founder_reservation_not_active') END);
+END;
+
+CREATE TABLE legal_acceptances (
+  id TEXT PRIMARY KEY,
+  owner_type TEXT NOT NULL CHECK (owner_type IN ('account', 'installation')),
+  owner_id TEXT NOT NULL,
+  terms_version TEXT NOT NULL,
+  privacy_version TEXT NOT NULL,
+  acceptable_use_version TEXT NOT NULL,
+  locale TEXT NOT NULL CHECK (locale IN ('en', 'pt')),
+  source TEXT NOT NULL CHECK (source IN ('account', 'checkout', 'remote_free')),
+  evidence_id TEXT,
+  accepted_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (owner_type, owner_id, terms_version)
+);
+
+CREATE INDEX idx_legal_acceptances_owner
+  ON legal_acceptances(owner_type, owner_id, accepted_at DESC);
+
 CREATE TABLE web_sessions (
   token_hash TEXT PRIMARY KEY,
   owner_type TEXT NOT NULL CHECK (owner_type IN ('account', 'installation')),
@@ -241,14 +301,16 @@ CREATE TABLE sessions (
   pins_json TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL,
   user_id TEXT NOT NULL,
-  plan TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'pro', 'lifetime')),
+  plan TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'pro', 'founder', 'lifetime')),
   is_permanent INTEGER NOT NULL DEFAULT 0 CHECK (is_permanent IN (0, 1)),
   byte_size INTEGER NOT NULL DEFAULT 0,
   collection_id TEXT REFERENCES collections(id),
-  position INTEGER NOT NULL DEFAULT 0
+  position INTEGER NOT NULL DEFAULT 0,
+  retention_expires_at TEXT
 );
 
 CREATE INDEX idx_sessions_created ON sessions(created_at DESC);
 CREATE INDEX idx_sessions_user ON sessions(user_id);
 CREATE INDEX idx_sessions_plan ON sessions(plan, is_permanent);
 CREATE INDEX idx_sessions_collection_position ON sessions(collection_id, position);
+CREATE INDEX idx_sessions_retention_expiry ON sessions(retention_expires_at);

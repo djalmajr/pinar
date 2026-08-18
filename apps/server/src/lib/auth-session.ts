@@ -4,7 +4,7 @@ import { isRecord } from "@/lib/api-data";
 
 let sessionRequest: Promise<AuthSession | null> | null = null;
 
-function isAuthSession(value: unknown): value is AuthSession {
+export function isAuthSession(value: unknown): value is AuthSession {
   if (!isRecord(value) || typeof value.kind !== "string") return false;
   if (value.kind === "local") return value.plan === "free";
   if (value.kind === "installation") {
@@ -13,7 +13,7 @@ function isAuthSession(value: unknown): value is AuthSession {
   return value.kind === "account"
     && typeof value.email === "string"
     && typeof value.userId === "string"
-    && (value.plan === "free" || value.plan === "pro" || value.plan === "lifetime");
+    && (value.plan === "founder" || value.plan === "free" || value.plan === "pro" || value.plan === "lifetime");
 }
 
 function requestAuthSession() {
@@ -42,5 +42,5 @@ export function useAuthSession() {
 
 export function isPaidAuthSession(session: AuthSession | null) {
   return session?.kind === "account"
-    && (session.plan === "pro" || session.plan === "lifetime");
+    && (session.plan === "founder" || session.plan === "pro" || session.plan === "lifetime");
 }

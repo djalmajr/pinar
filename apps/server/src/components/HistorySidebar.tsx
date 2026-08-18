@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import type {
   CollectionPlacement,
   ProjectIcon,
@@ -37,6 +37,7 @@ import {
   DropdownMenuTrigger,
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupAction,
   SidebarGroupContent,
@@ -60,6 +61,8 @@ import {
 import { ProjectIconGlyph } from "@/components/ProjectIcon";
 import type { ServerMessageKey } from "@/lib/i18n";
 import CheckIcon from "~icons/lucide/check";
+import ArrowDownIcon from "~icons/lucide/arrow-down";
+import ArrowUpIcon from "~icons/lucide/arrow-up";
 import ChevronsUpDownIcon from "~icons/lucide/chevrons-up-down";
 import FolderIcon from "~icons/lucide/folder";
 import FolderOpenIcon from "~icons/lucide/folder-open";
@@ -86,6 +89,7 @@ interface RenameTarget extends ContainerTarget {
 }
 
 interface HistorySidebarProps {
+  footer?: ReactNode;
   selectedCollectionId: string | null;
   selectedProject?: ProjectTreeProject;
   t: Translate;
@@ -107,10 +111,13 @@ interface ProjectSwitcherProps {
 }
 
 interface ProjectActionsMenuProps {
+  canMoveEarlier: boolean;
+  canMoveLater: boolean;
   selectedProject?: ProjectTreeProject;
   t: Translate;
   onDelete: (target: ContainerTarget) => void;
   onRename: (target: RenameTarget) => void;
+  onReorder: (direction: "earlier" | "later") => void;
   onShare: (path: string) => void;
 }
 
@@ -229,6 +236,9 @@ function SortableCollection({
   const buttonStyle: CSSProperties = {
     paddingInlineStart: `${8 + (depth * COLLECTION_INDENTATION_WIDTH)}px`,
   };
+  const toggleStyle: CSSProperties = {
+    insetInlineStart: `${8 + (depth * COLLECTION_INDENTATION_WIDTH)}px`,
+  };
 
   return (
     <SidebarMenuItem ref={sortable.setNodeRef} style={style}>
@@ -241,25 +251,28 @@ function SortableCollection({
         isActive={isActive}
         style={buttonStyle}
         tooltip={collection.name}
-        onClick={(event) => {
-          onSelect(collection.id);
-          if (
-            hasChildren
-            && event.target instanceof Element
-            && event.target.closest("[data-collection-toggle]")
-          ) {
-            onToggle(collection.id);
-          }
-        }}
+        onClick={() => onSelect(collection.id)}
       >
-        <span
-          className="relative flex size-3.5 shrink-0 cursor-pointer items-center justify-center after:absolute after:-inset-1"
-          data-collection-toggle
-        >
-          {hasChildren && isExpanded ? <FolderOpenIcon /> : <FolderIcon />}
+        <span aria-hidden className="flex size-3.5 shrink-0 items-center justify-center">
+          {!hasChildren && <FolderIcon />}
         </span>
         <span>{collection.name}</span>
       </SidebarMenuButton>
+      {hasChildren && (
+        <button
+          aria-expanded={isExpanded}
+          aria-label={t(isExpanded ? "dashboard.collapseCollection" : "dashboard.expandCollection", {
+            name: collection.name,
+          })}
+          className="absolute top-2 z-10 flex size-4 items-center justify-center rounded-sm text-sidebar-foreground outline-none after:absolute after:-inset-1 focus-visible:ring-2 focus-visible:ring-sidebar-ring [&_svg]:size-3.5"
+          data-collection-toggle
+          style={toggleStyle}
+          type="button"
+          onClick={() => onToggle(collection.id)}
+        >
+          {isExpanded ? <FolderOpenIcon /> : <FolderIcon />}
+        </button>
+      )}
       <SidebarMenuBadge className={cn(
         "group-hover/menu-item:opacity-0",
         (menuOpen || menuActionFocused) && "opacity-0",
@@ -411,10 +424,13 @@ export function ProjectSwitcher({
 }
 
 export function ProjectActionsMenu({
+  canMoveEarlier,
+  canMoveLater,
   selectedProject,
   t,
   onDelete,
   onRename,
+  onReorder,
   onShare,
 }: ProjectActionsMenuProps) {
   if (!selectedProject) return null;
@@ -449,6 +465,26 @@ export function ProjectActionsMenu({
             {t("dashboard.share")}
           </DropdownMenuItem>
         </DropdownMenuGroup>
+        {(canMoveEarlier || canMoveLater) && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>{t("dashboard.order")}</DropdownMenuLabel>
+              {canMoveEarlier && (
+                <DropdownMenuItem onClick={() => onReorder("earlier")}>
+                  <ArrowUpIcon />
+                  {t("dashboard.moveEarlier")}
+                </DropdownMenuItem>
+              )}
+              {canMoveLater && (
+                <DropdownMenuItem onClick={() => onReorder("later")}>
+                  <ArrowDownIcon />
+                  {t("dashboard.moveLater")}
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuGroup>
+          </>
+        )}
         {!selectedProject.isProtected && (
           <>
             <DropdownMenuSeparator />
@@ -470,6 +506,7 @@ export function ProjectActionsMenu({
 }
 
 export function HistorySidebar({
+  footer,
   selectedCollectionId,
   selectedProject,
   t,
@@ -681,6 +718,7 @@ export function HistorySidebar({
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      {footer ? <SidebarFooter>{footer}</SidebarFooter> : null}
     </Sidebar>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useReducer } from "react";
 import { Link } from "@tanstack/react-router";
 import { Badge, Button, Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle, ScrollArea } from "@pinar/ui";
 import { ServerShell } from "@/components/ServerShell";
@@ -7,16 +7,7 @@ import CheckCircleIcon from "~icons/lucide/circle-check";
 import PanelsTopLeftIcon from "~icons/lucide/panels-top-left";
 import { isRecord } from "@/lib/api-data";
 import { useServerI18n } from "@/lib/i18n";
-
-interface Activation {
-  email?: string;
-  offer?: string;
-  plan?: string;
-}
-
-type ActivationError =
-  | { kind: "message"; value: string }
-  | { kind: "translation"; value: "success.checkoutFailed" | "success.sessionMissing" };
+import { reduceCheckoutActivation } from "@/lib/success-state";
 
 interface SuccessPageProps {
   checkoutClaim: string;
@@ -25,8 +16,7 @@ interface SuccessPageProps {
 
 export function SuccessPage({ checkoutClaim, sessionId }: SuccessPageProps) {
   const { t } = useServerI18n();
-  const [activation, setActivation] = useState<Activation | null>(null);
-  const [error, setError] = useState<ActivationError | null>(null);
+  const [state, dispatch] = useReducer(reduceCheckoutActivation, { status: "idle" });
 
   useEffect(() => {
     async function activateCheckout() {
@@ -36,23 +26,32 @@ export function SuccessPage({ checkoutClaim, sessionId }: SuccessPageProps) {
       const data: unknown = await response.json();
       window.history.replaceState(null, "", "/success");
       if (response.ok && isRecord(data) && isRecord(data.account)) {
-        setActivation({
-          email: typeof data.account.email === "string" ? data.account.email : undefined,
-          offer: typeof data.offer === "string" ? data.offer : undefined,
-          plan: typeof data.account.plan === "string" ? data.account.plan : undefined,
+        dispatch({
+          activation: {
+            email: typeof data.account.email === "string" ? data.account.email : undefined,
+            offer: typeof data.offer === "string" ? data.offer : undefined,
+            plan: typeof data.account.plan === "string" ? data.account.plan : undefined,
+          },
+          type: "succeed",
         });
       } else {
-        setError(
-          isRecord(data) && typeof data.error === "string"
+        dispatch({
+          error: isRecord(data) && typeof data.error === "string"
             ? { kind: "message", value: data.error }
             : { kind: "translation", value: "success.checkoutFailed" },
-        );
+          type: "fail",
+        });
       }
     }
-    if (sessionId && checkoutClaim) void activateCheckout();
-    else setError({ kind: "translation", value: "success.sessionMissing" });
+    if (sessionId && checkoutClaim) {
+      dispatch({ type: "activate" });
+      void activateCheckout();
+    } else {
+      dispatch({ type: "missing" });
+    }
   }, [checkoutClaim, sessionId]);
 
+  const activation = state.status === "active" ? state.activation : null;
   const isAddOn = activation?.offer === "ai_credits_1000"
     || activation?.offer === "storage_20gb_12m"
     || activation?.offer === "storage_5gb_12m";
@@ -70,9 +69,9 @@ export function SuccessPage({ checkoutClaim, sessionId }: SuccessPageProps) {
             <CardDescription>{t("success.ready")}</CardDescription>
           </CardHeader>
           <CardContent>
-            {error ? (
+            {state.status === "error" ? (
               <p className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
-                {error.kind === "message" ? error.value : t(error.value)}
+                {state.error.kind === "message" ? state.error.value : t(state.error.value)}
               </p>
             ) : activation ? (
               <div className="flex flex-col gap-3 rounded-lg border bg-muted/40 p-4">
@@ -90,7 +89,7 @@ export function SuccessPage({ checkoutClaim, sessionId }: SuccessPageProps) {
             )}
           </CardContent>
           <CardFooter className="justify-center gap-2">
-            <Button disabled={!activation} render={<Link preload="intent" to="/app" />}>
+            <Button disabled={state.status !== "active"} render={<Link preload="intent" to="/app" />}>
               <PanelsTopLeftIcon data-icon="inline-start" />
               {t("common.openApp")}
             </Button>

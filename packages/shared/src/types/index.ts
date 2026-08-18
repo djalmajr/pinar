@@ -62,7 +62,7 @@ export interface Session {
   viewerUrl?: string | null;
 }
 
-export type AccountPlan = "free" | "lifetime" | "pro";
+export type AccountPlan = "founder" | "free" | "lifetime" | "pro";
 
 export interface LocalAuthSession {
   kind: "local";

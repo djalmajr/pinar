@@ -7,8 +7,6 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
   ResizableHandle,
   ResizablePanel,
@@ -18,18 +16,12 @@ import {
   useResizablePanelRef,
   useSidebar,
 } from "@pinar/ui";
-import { isRecord } from "@/lib/api-data";
-import { useAuthSession } from "@/lib/auth-session";
 import { SERVER_LANGUAGES, useServerI18n } from "@/lib/i18n";
 import CheckIcon from "~icons/lucide/check";
-import ChevronDownIcon from "~icons/lucide/chevron-down";
 import ChevronRightIcon from "~icons/lucide/chevron-right";
 import LanguagesIcon from "~icons/lucide/languages";
-import LogOutIcon from "~icons/lucide/log-out";
 import MoonIcon from "~icons/lucide/moon";
-import SettingsIcon from "~icons/lucide/settings";
 import SunIcon from "~icons/lucide/sun";
-import UserIcon from "~icons/lucide/user-round";
 
 interface AppShellProps {
   children: ReactNode;
@@ -42,65 +34,6 @@ interface AppShellProps {
 
 const SIDEBAR_COLLAPSED_WIDTH = 48;
 const SIDEBAR_DEFAULT_WIDTH = 250;
-
-function AccountMenu() {
-  const { t } = useServerI18n();
-  const session = useAuthSession();
-
-  async function openBilling() {
-    const response = await fetch("/api/stripe/portal", { method: "POST" });
-    const data: unknown = await response.json();
-    if (response.ok && isRecord(data) && typeof data.url === "string") window.location.href = data.url;
-  }
-
-  async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    window.location.href = "/sign-in";
-  }
-
-  if (!session || session.kind === "local") return null;
-
-  const label = session.kind === "account" ? session.email : t("app.freeInstallation");
-  const plan = session.kind === "account" ? session.plan : "free";
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={<Button aria-label={t("app.accountMenu")} size="sm" title={label} variant="ghost" />}
-      >
-        <UserIcon data-icon="inline-start" />
-        <span className="hidden max-w-44 truncate md:inline">{label}</span>
-        <ChevronDownIcon data-icon="inline-end" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-64">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel className="min-w-0">
-            <span className="block truncate">{label}</span>
-            <span className="block text-xs font-normal capitalize text-muted-foreground">{plan}</span>
-          </DropdownMenuLabel>
-        </DropdownMenuGroup>
-        {session.kind === "account" && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuItem onClick={() => void openBilling()}>
-                <SettingsIcon />
-                {t("app.manageBilling")}
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-          </>
-        )}
-        <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-          <DropdownMenuItem onClick={() => void logout()}>
-            <LogOutIcon />
-            {t("app.signOut")}
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
 
 function AppHeader({
   projectActions,
@@ -173,7 +106,6 @@ function AppHeader({
           {isDark ? <SunIcon /> : <MoonIcon />}
         </Button>
         {projectActions}
-        <AccountMenu />
       </div>
     </header>
   );

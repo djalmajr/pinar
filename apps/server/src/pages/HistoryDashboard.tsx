@@ -57,10 +57,24 @@ import {
 } from "@/components/HistorySidebar";
 import { ProjectIconPicker } from "@/components/ProjectIcon";
 import { ServerFooter } from "@/components/ServerFooter";
+import { AppAccountMenu } from "@/components/AppAccountMenu";
 import { AppShell } from "@/components/AppShell";
 import { isProjectTreeProject, isRecord } from "@/lib/api-data";
 import { type ServerMessageKey, useServerI18n } from "@/lib/i18n";
 import { formatSessionDate } from "@/lib/session-date";
+import {
+  filterSessions,
+  pinCount,
+  type PinCountFilter,
+} from "@/lib/session-filters";
+import {
+  reorderIds,
+  reorderSessionIds,
+  type OrderDirection,
+  type SessionOrderDirection,
+} from "@/lib/session-order";
+import ArrowDownIcon from "~icons/lucide/arrow-down";
+import ArrowUpIcon from "~icons/lucide/arrow-up";
 import CalendarIcon from "~icons/lucide/calendar-days";
 import CheckIcon from "~icons/lucide/check";
 import CopyIcon from "~icons/lucide/copy";
@@ -77,10 +91,10 @@ import TrashIcon from "~icons/lucide/trash-2";
 import XIcon from "~icons/lucide/x";
 
 const HISTORY_VIEW_KEY = "pinar-history-view";
+const SELECTED_PROJECT_KEY = "pinar-selected-project";
 const SESSION_PAGE_SIZE_OPTIONS = [15, 30, 60, 100] as const;
 
 type HistoryView = "grid" | "table";
-type PinCountFilter = "one" | "twoToFive" | "sixOrMore";
 type Translate = (key: ServerMessageKey, values?: Record<string, string | number>) => string;
 type ContainerKind = "collection" | "project";
 
@@ -99,16 +113,6 @@ interface ContainerDelete {
 interface DestinationOption {
   collectionId: string;
   label: string;
-}
-
-function pinCount(session: Session) {
-  return session.pinCount ?? session.pins.length;
-}
-
-function pinCountFilterValue(count: number): PinCountFilter {
-  if (count === 1) return "one";
-  if (count <= 5) return "twoToFive";
-  return "sixOrMore";
 }
 
 function shotUrl(session: Session) {
@@ -138,14 +142,20 @@ function SessionActions({
   onCopy,
   onDelete,
   onMove,
+  onReorder,
+  canMoveEarlier,
+  canMoveLater,
   t,
 }: {
+  canMoveEarlier: boolean;
+  canMoveLater: boolean;
   copied: boolean;
   destinations: DestinationOption[];
   session: Session;
   onCopy: (session: Session) => void;
   onDelete: (id: string) => void;
   onMove: (sessionId: string, collectionId: string) => void;
+  onReorder: (sessionId: string, direction: SessionOrderDirection) => void;
   t: Translate;
 }) {
   return (
@@ -173,14 +183,34 @@ function SessionActions({
         {destinations.some((destination) => destination.collectionId !== session.collectionId) && (
           <>
             <DropdownMenuSeparator />
-            <DropdownMenuLabel>{t("dashboard.moveToCollection")}</DropdownMenuLabel>
             <DropdownMenuGroup>
+              <DropdownMenuLabel>{t("dashboard.moveToCollection")}</DropdownMenuLabel>
               {destinations.filter((destination) => destination.collectionId !== session.collectionId).map((destination) => (
                 <DropdownMenuItem key={destination.collectionId} onClick={() => onMove(session.id, destination.collectionId)}>
                   <MoveRightIcon />
                   {destination.label}
                 </DropdownMenuItem>
               ))}
+            </DropdownMenuGroup>
+          </>
+        )}
+        {(canMoveEarlier || canMoveLater) && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>{t("dashboard.order")}</DropdownMenuLabel>
+              {canMoveEarlier && (
+                <DropdownMenuItem onClick={() => onReorder(session.id, "earlier")}>
+                  <ArrowUpIcon />
+                  {t("dashboard.moveEarlier")}
+                </DropdownMenuItem>
+              )}
+              {canMoveLater && (
+                <DropdownMenuItem onClick={() => onReorder(session.id, "later")}>
+                  <ArrowDownIcon />
+                  {t("dashboard.moveLater")}
+                </DropdownMenuItem>
+              )}
             </DropdownMenuGroup>
           </>
         )}
@@ -251,6 +281,7 @@ export function HistoryDashboard() {
 
   const selectedProject = projectTree.projects.find((project) => project.id === selectedProjectId)
     ?? projectTree.projects[0];
+  const selectedProjectIndex = projectTree.projects.findIndex(({ id }) => id === selectedProject?.id);
   const selectedCollection = selectedProject?.collections.find((collection) => collection.id === selectedCollectionId);
   const sessions = selectedCollection
     ? selectedCollection.sessions
@@ -260,29 +291,23 @@ export function HistoryDashboard() {
     label: `${project.name} / ${collection.name}`,
   })));
 
-  const filteredSessions = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return sessions.filter((session) => {
-      if (pinFilters.length > 0 && !pinFilters.includes(pinCountFilterValue(pinCount(session)))) return false;
-      if (!query) return true;
-      return session.page.title.toLowerCase().includes(query)
-        || session.page.url.toLowerCase().includes(query)
-        || session.pins.some((pin) => pin.comment.toLowerCase().includes(query)
-          || (pin.selector || "").toLowerCase().includes(query));
-    });
-  }, [pinFilters, search, sessions]);
+  const filteredSessions = useMemo(
+    () => filterSessions(sessions, search, pinFilters),
+    [pinFilters, search, sessions],
+  );
   const gridSessions = useMemo(() => {
     const start = pagination.pageIndex * pagination.pageSize;
-    return [...filteredSessions]
-      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
-      .slice(start, start + pagination.pageSize);
-  }, [filteredSessions, pagination.pageIndex, pagination.pageSize]);
+    const ordered = selectedCollection
+      ? filteredSessions
+      : [...filteredSessions].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+    return ordered.slice(start, start + pagination.pageSize);
+  }, [filteredSessions, pagination.pageIndex, pagination.pageSize, selectedCollection]);
   const pageCount = Math.max(1, Math.ceil(filteredSessions.length / pagination.pageSize));
 
   useEffect(() => {
     const savedView = localStorage.getItem(HISTORY_VIEW_KEY);
     if (savedView === "grid" || savedView === "table") setView(savedView);
-    void fetchTree();
+    void fetchTree(localStorage.getItem(SELECTED_PROJECT_KEY) || "");
   }, []);
 
   useEffect(() => {
@@ -306,6 +331,8 @@ export function HistoryDashboard() {
       setProjectTree({ projects });
       const nextProject = projects.find((project) => project.id === preferredProjectId) ?? projects[0];
       setSelectedProjectId(nextProject?.id ?? "");
+      if (nextProject) localStorage.setItem(SELECTED_PROJECT_KEY, nextProject.id);
+      else localStorage.removeItem(SELECTED_PROJECT_KEY);
       if (!nextProject?.collections.some((collection) => collection.id === selectedCollectionId)) {
         setSelectedCollectionId(null);
       }
@@ -414,9 +441,55 @@ export function HistoryDashboard() {
     if (!response.ok) return;
   }
 
+  async function reorderProject(direction: OrderDirection) {
+    if (!selectedProject) return;
+    const ids = reorderIds(
+      projectTree.projects.map(({ id }) => id),
+      selectedProject.id,
+      direction,
+    );
+    if (!ids) return;
+    const byId = new Map(projectTree.projects.map((project) => [project.id, project]));
+    setProjectTree({
+      projects: ids.flatMap((id, position) => {
+        const project = byId.get(id);
+        return project ? [{ ...project, position }] : [];
+      }),
+    });
+    await requestJson("/api/projects/reorder", "POST", { ids });
+    await fetchTree(selectedProject.id);
+  }
+
   async function moveSession(sessionId: string, collectionId: string) {
     await requestJson(`/api/sessions/${sessionId}/move`, "POST", { collectionId });
     await fetchTree(selectedProjectId);
+  }
+
+  async function reorderSession(sessionId: string, direction: SessionOrderDirection) {
+    if (!selectedCollection || !selectedProject) return;
+    const ids = reorderSessionIds(selectedCollection.sessions.map(({ id }) => id), sessionId, direction);
+    if (!ids) return;
+    const byId = new Map(selectedCollection.sessions.map((session) => [session.id, session]));
+    const sessions = ids.flatMap((id, position) => {
+      const session = byId.get(id);
+      return session ? [{ ...session, position }] : [];
+    });
+    setProjectTree((current) => ({
+      projects: current.projects.map((project) => project.id === selectedProject.id
+        ? {
+            ...project,
+            collections: project.collections.map((collection) => collection.id === selectedCollection.id
+              ? { ...collection, sessions }
+              : collection),
+          }
+        : project),
+    }));
+    await requestJson(
+      `/api/collections/${selectedCollection.id}/sessions/reorder`,
+      "POST",
+      { ids },
+    );
+    await fetchTree(selectedProject.id);
   }
 
   async function copyShare(path: string) {
@@ -484,12 +557,15 @@ export function HistoryDashboard() {
     {
       cell: ({ row }) => (
         <SessionActions
+          canMoveEarlier={false}
+          canMoveLater={false}
           copied={copiedId === row.original.id}
           destinations={destinations}
           session={row.original}
           onCopy={(session) => void copyPrompt(session)}
           onDelete={setDeleteId}
           onMove={(sessionId, collectionId) => void moveSession(sessionId, collectionId)}
+          onReorder={(sessionId, direction) => void reorderSession(sessionId, direction)}
           t={t}
         />
       ),
@@ -503,7 +579,7 @@ export function HistoryDashboard() {
   ], [copiedId, destinations, language, t]);
 
   const searchControl = (
-    <div className="relative w-56 min-w-40 shrink-0">
+    <div className="relative min-w-0 flex-1 sm:w-56 sm:min-w-40 sm:flex-none">
       <SearchIcon className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
       <Input className="bg-background pl-9" placeholder={t("dashboard.search")} type="search" value={search} onChange={(event) => setSearch(event.target.value)} />
     </div>
@@ -543,6 +619,8 @@ export function HistoryDashboard() {
       className="font-sans"
       projectActions={(
         <ProjectActionsMenu
+          canMoveEarlier={selectedProjectIndex > 0}
+          canMoveLater={selectedProjectIndex >= 0 && selectedProjectIndex < projectTree.projects.length - 1}
           selectedProject={selectedProject}
           t={t}
           onDelete={setContainerDelete}
@@ -551,6 +629,7 @@ export function HistoryDashboard() {
             name,
             icon,
           )}
+          onReorder={(direction) => void reorderProject(direction)}
           onShare={(path) => void copyShare(path)}
         />
       )}
@@ -563,12 +642,14 @@ export function HistoryDashboard() {
           onCreate={() => openContainerEditor({ kind: "project", mode: "create" })}
           onSelectProject={(projectId) => {
             setSelectedProjectId(projectId);
+            localStorage.setItem(SELECTED_PROJECT_KEY, projectId);
             setSelectedCollectionId(null);
           }}
         />
       )}
       sidebar={(
         <HistorySidebar
+          footer={<AppAccountMenu />}
           selectedCollectionId={selectedCollectionId}
           selectedProject={selectedProject}
           t={t}
@@ -585,14 +666,34 @@ export function HistoryDashboard() {
       <SidebarInset className="min-h-0 min-w-0 overflow-hidden">
         <ScrollArea className="min-h-0 min-w-0 flex-1">
           <div className="mx-auto flex min-h-full w-full max-w-[1600px] flex-col gap-4 p-5">
-            {view !== "table" && (
-              <div className="flex min-w-0 flex-row items-center gap-2 overflow-x-auto" role="toolbar">
+            {(view !== "table" || filteredSessions.length === 0) && (
+              <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap md:overflow-x-auto" role="toolbar">
                 <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2"><SidebarTrigger aria-label={t("dashboard.collections")} className="md:hidden" title={t("dashboard.collections")} />{searchControl}{pinFilterControl}</div>
                 <div className="ml-auto flex shrink-0 items-center justify-end gap-2">{viewControl}</div>
               </div>
             )}
             {loading ? <DashboardSkeleton /> : filteredSessions.length === 0 ? (
-              <Card className="border-dashed py-16 text-center"><CardHeader><CardTitle>{t("dashboard.emptyTitle")}</CardTitle><CardDescription>{t("dashboard.emptyDescription")}</CardDescription></CardHeader></Card>
+              <Card className="border-dashed py-16 text-center">
+                <CardHeader>
+                  <CardTitle>{t("dashboard.emptyTitle")}</CardTitle>
+                  <CardDescription>{t("dashboard.emptyDescription")}</CardDescription>
+                </CardHeader>
+                <CardFooter className="justify-center">
+                  <Button
+                    render={(
+                      <a
+                        href="https://github.com/djalmajr/pinar#load-the-extension"
+                        rel="noopener noreferrer"
+                        target="_blank"
+                      />
+                    )}
+                    variant="outline"
+                  >
+                    {t("dashboard.setupExtension")}
+                    <ExternalLinkIcon data-icon="inline-end" />
+                  </Button>
+                </CardFooter>
+              </Card>
             ) : view === "table" ? (
               <DataTable
                 columns={tableColumns}
@@ -618,13 +719,14 @@ export function HistoryDashboard() {
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-4">
                   {gridSessions.map((session) => {
                     const count = pinCount(session);
+                    const orderIndex = selectedCollection?.sessions.findIndex(({ id }) => id === session.id) ?? -1;
                     return (
                       <Card className="gap-0 py-0 transition-colors hover:ring-primary/35" key={session.id} size="sm">
                         <SessionPreview session={session} t={t} />
                         <CardHeader className="py-3"><CardTitle className="line-clamp-1">{session.page.title || t("dashboard.untitled")}</CardTitle><CardDescription className="min-w-0"><SessionPageLink url={session.page.url} /></CardDescription></CardHeader>
                         <CardFooter className="mt-auto justify-between gap-2 py-2.5">
                           <div className="flex min-w-0 items-center gap-3 text-xs font-medium text-muted-foreground"><time className="inline-flex min-w-0 items-center gap-1.5" dateTime={session.createdAt}><CalendarIcon className="shrink-0 text-primary" /><span className="truncate">{formatSessionDate(session, language)}</span></time><span className="inline-flex shrink-0 items-center gap-1.5"><MessageCircleIcon className="text-primary" />{t("dashboard.pinCount", { count, label: t(count === 1 ? "dashboard.pinSingular" : "dashboard.pinPlural") })}</span></div>
-                          <SessionActions copied={copiedId === session.id} destinations={destinations} session={session} onCopy={(current) => void copyPrompt(current)} onDelete={setDeleteId} onMove={(sessionId, collectionId) => void moveSession(sessionId, collectionId)} t={t} />
+                          <SessionActions canMoveEarlier={orderIndex > 0} canMoveLater={Boolean(selectedCollection && orderIndex >= 0 && orderIndex < selectedCollection.sessions.length - 1)} copied={copiedId === session.id} destinations={destinations} session={session} onCopy={(current) => void copyPrompt(current)} onDelete={setDeleteId} onMove={(sessionId, collectionId) => void moveSession(sessionId, collectionId)} onReorder={(sessionId, direction) => void reorderSession(sessionId, direction)} t={t} />
                         </CardFooter>
                       </Card>
                     );

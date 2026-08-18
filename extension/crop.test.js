@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { MARKER_CSS, MARKER_TIP, PAD_CSS, cropWindow, drawAreaBox, drawPinMarker, markerPlacement, pinPoint } from "./crop.js";
+import { MARKER_CSS, MARKER_TIP, PAD_CSS, cropWindow, drawAreaBox, drawPinMarker, markerPlacement, pinPoint, renderPinsCrop } from "./crop.js";
 import { getPinColor } from "./pin-colors.js";
 
 describe("crop", () => {
@@ -122,5 +122,84 @@ describe("crop", () => {
     assert.deepEqual(calls[2], ["fillRect", 80, 90, 400, 200]);
     assert.deepEqual(calls[3], ["strokeRect", 80, 90, 400, 200]);
     assert.deepEqual(calls[4], "restore");
+  });
+
+  // Mutation captured: skipping area or marker rendering removes the corresponding canvas calls.
+  test("renderPinsCrop draws the bitmap, box and marker before exporting PNG", async () => {
+    const calls = [];
+    const OriginalOffscreenCanvas = globalThis.OffscreenCanvas;
+    const OriginalPath2D = globalThis.Path2D;
+    const ctx = {
+      drawImage: (...args) => calls.push(["drawImage", ...args]),
+      fill: () => calls.push("fill"),
+      fillRect: (...args) => calls.push(["fillRect", ...args]),
+      fillText: (...args) => calls.push(["fillText", ...args]),
+      restore: () => calls.push("restore"),
+      save: () => calls.push("save"),
+      scale: () => calls.push("scale"),
+      setLineDash: (...args) => calls.push(["setLineDash", ...args]),
+      stroke: () => calls.push("stroke"),
+      strokeRect: (...args) => calls.push(["strokeRect", ...args]),
+      translate: () => calls.push("translate"),
+    };
+
+    globalThis.Path2D = class Path2D {};
+    globalThis.OffscreenCanvas = class OffscreenCanvas {
+      constructor(width, height) {
+        calls.push(["canvas", width, height]);
+      }
+
+      convertToBlob(options) {
+        calls.push(["convertToBlob", options]);
+        return new Blob(["png"], options);
+      }
+
+      getContext(kind) {
+        calls.push(["getContext", kind]);
+        return ctx;
+      }
+    };
+
+    try {
+      const result = await renderPinsCrop(
+        { height: 600, width: 800 },
+        [{
+          anchor: { x: 120, y: 140 },
+          box: { height: 80, width: 160, x: 100, y: 100 },
+          color: "#123456",
+          kind: "area",
+        }],
+        1,
+      );
+
+      assert.equal(result.type, "image/png");
+      assert.ok(calls.some((call) => Array.isArray(call) && call[0] === "drawImage"));
+      assert.ok(calls.some((call) => Array.isArray(call) && call[0] === "strokeRect"));
+      assert.ok(calls.some((call) => Array.isArray(call) && call[0] === "fillText" && call[1] === "1"));
+      assert.deepEqual(calls.at(-1), ["convertToBlob", { type: "image/png" }]);
+    } finally {
+      globalThis.OffscreenCanvas = OriginalOffscreenCanvas;
+      globalThis.Path2D = OriginalPath2D;
+    }
+  });
+
+  // Mutation captured: exporting without a viable crop or 2D context stops returning null.
+  test("renderPinsCrop rejects undersized crops and missing canvas contexts", async () => {
+    const OriginalOffscreenCanvas = globalThis.OffscreenCanvas;
+    try {
+      globalThis.OffscreenCanvas = class OffscreenCanvas {
+        getContext() {
+          return null;
+        }
+      };
+      assert.equal(await renderPinsCrop({ height: 1, width: 1 }, [], 1), null);
+      assert.equal(await renderPinsCrop(
+        { height: 600, width: 800 },
+        [{ anchor: { x: 120, y: 140 }, box: { height: 80, width: 160, x: 100, y: 100 } }],
+        1,
+      ), null);
+    } finally {
+      globalThis.OffscreenCanvas = OriginalOffscreenCanvas;
+    }
   });
 });

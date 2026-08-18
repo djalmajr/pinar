@@ -1,0 +1,47 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import {
+  CURRENT_LEGAL_VERSION,
+  LegalDocumentIds,
+  isLegalDocumentId,
+  legalDocument,
+} from "./legal-documents";
+
+describe("public legal documents", () => {
+  it("publishes every required policy in Portuguese and English under one version", () => {
+    assert.match(CURRENT_LEGAL_VERSION, /^\d{4}-\d{2}-\d{2}$/);
+    assert.deepEqual(LegalDocumentIds, [
+      "terms",
+      "privacy",
+      "acceptable-use",
+      "retention",
+      "refunds",
+      "fair-source",
+      "subprocessors",
+    ]);
+    for (const documentId of LegalDocumentIds) {
+      const english = legalDocument(documentId, "en");
+      const portuguese = legalDocument(documentId, "pt");
+      assert.ok(english.body.length > 300);
+      assert.ok(portuguese.body.length > 300);
+      assert.notEqual(english.title, portuguese.title);
+      assert.equal(english.version, CURRENT_LEGAL_VERSION);
+      assert.equal(portuguese.version, CURRENT_LEGAL_VERSION);
+    }
+  });
+
+  it("rejects unknown route identifiers and keeps other UI languages on English legal text", () => {
+    assert.equal(isLegalDocumentId("terms"), true);
+    assert.equal(isLegalDocumentId("lifetime"), false);
+    assert.deepEqual(legalDocument("terms", "es"), legalDocument("terms", "en"));
+  });
+
+  it("states the limited Founder and Fair Source model without a perpetual hosting promise", () => {
+    const terms = legalDocument("terms", "en").body;
+    const fairSource = legalDocument("fair-source", "en").body;
+    assert.match(terms, /5 GB/);
+    assert.match(terms, /500 initial AI credits/);
+    assert.match(terms, /does not create a perpetual hosting obligation/);
+    assert.match(fairSource, /not OSI-approved Open Source/);
+  });
+});

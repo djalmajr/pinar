@@ -47,6 +47,7 @@ describe("cloud schema migrations", () => {
       "0002_billing_entitlements.sql",
       "0003_ai_usage_and_storage_notices.sql",
       "0004_stripe_subscription_ordering.sql",
+      "0005_founder_and_legal_acceptance.sql",
     ]);
     const migrated = new Database(":memory:");
     const canonical = new Database(":memory:");
@@ -68,21 +69,22 @@ describe("cloud schema migrations", () => {
       db.exec("PRAGMA foreign_keys = ON;");
       applyMigrations(db, ["0001_initial.sql"]);
       db.exec(`
-        INSERT INTO users (id, email, created_at, updated_at)
-        VALUES ('usr_existing', 'existing@example.test', '2026-08-16T00:00:00.000Z', '2026-08-16T00:00:00.000Z');
-        INSERT INTO sessions (id, created_at, user_id, byte_size)
-        VALUES ('existing_session', '2026-08-16T00:00:00.000Z', 'usr_existing', 42);
+        INSERT INTO users (id, email, plan, ever_paid, created_at, updated_at)
+        VALUES ('usr_existing', 'existing@example.test', 'lifetime', 1, '2026-08-16T00:00:00.000Z', '2026-08-16T00:00:00.000Z');
+        INSERT INTO sessions (id, created_at, user_id, plan, is_permanent, byte_size)
+        VALUES ('existing_session', '2026-08-16T00:00:00.000Z', 'usr_existing', 'lifetime', 1, 42);
       `);
 
       applyMigrations(db, [
         "0002_billing_entitlements.sql",
         "0003_ai_usage_and_storage_notices.sql",
         "0004_stripe_subscription_ordering.sql",
+        "0005_founder_and_legal_acceptance.sql",
       ]);
 
       assert.equal(
-        db.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM users WHERE id = 'usr_existing'").get()?.count,
-        1,
+        db.query<{ plan: string }, []>("SELECT plan FROM users WHERE id = 'usr_existing'").get()?.plan,
+        "lifetime",
       );
       assert.equal(
         db.query<{ byte_size: number }, []>("SELECT byte_size FROM sessions WHERE id = 'existing_session'").get()?.byte_size,
@@ -95,10 +97,70 @@ describe("cloud schema migrations", () => {
       assert.ok(tables.includes("storage_expiry_notices"));
       assert.ok(tables.includes("stripe_events"));
       assert.ok(tables.includes("stripe_subscription_states"));
+      assert.ok(tables.includes("founder_purchases"));
+      assert.ok(tables.includes("founder_reservations"));
+      assert.ok(tables.includes("legal_acceptances"));
       const userColumns = db.query<{ name: string }, []>("PRAGMA table_info(users)")
         .all()
         .map((column) => column.name);
       assert.ok(userColumns.includes("ai_credit_refill_at"));
+      assert.ok(userColumns.includes("paid_eligibility_ended_at"));
+      const sessionColumns = db.query<{ name: string }, []>("PRAGMA table_info(sessions)")
+        .all()
+        .map((column) => column.name);
+      assert.ok(sessionColumns.includes("retention_expires_at"));
+
+      db.exec(`
+        INSERT INTO users (id, email, plan, ever_paid, created_at, updated_at)
+        VALUES ('usr_founder', 'founder@example.test', 'founder', 1,
+          '2026-08-18T00:00:00.000Z', '2026-08-18T00:00:00.000Z');
+        INSERT INTO sessions (id, created_at, user_id, plan, is_permanent, byte_size)
+        VALUES ('founder_session', '2026-08-18T00:00:00.000Z', 'usr_founder', 'founder', 1, 84);
+        INSERT INTO ai_credit_grants (
+          id, owner_type, owner_id, source_type, source_id, credits, created_at
+        ) VALUES (
+          'grant_founder', 'account', 'usr_founder', 'founder_initial',
+          'founder:usr_founder', 500, '2026-08-18T00:00:00.000Z'
+        );
+        INSERT INTO legal_acceptances (
+          id, owner_type, owner_id, terms_version, privacy_version,
+          acceptable_use_version, locale, source, accepted_at, created_at
+        ) VALUES (
+          'accept_founder', 'account', 'usr_founder', '2026-08-18', '2026-08-18',
+          '2026-08-18', 'pt', 'checkout', '2026-08-18T00:00:00.000Z',
+          '2026-08-18T00:00:00.000Z'
+        );
+      `);
+      assert.equal(
+        db.query<{ credits: number }, []>(
+          "SELECT credits FROM ai_credit_grants WHERE source_type = 'founder_initial'",
+        ).get()?.credits,
+        500,
+      );
+      assert.equal(
+        db.query<{ count: number }, []>(
+          "SELECT COUNT(*) AS count FROM legal_acceptances WHERE owner_id = 'usr_founder'",
+        ).get()?.count,
+        1,
+      );
+      const duplicateAcceptance = db.query(`
+        INSERT INTO legal_acceptances (
+          id, owner_type, owner_id, terms_version, privacy_version,
+          acceptable_use_version, locale, source, accepted_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      assert.throws(() => duplicateAcceptance.run(
+        "accept_founder_duplicate",
+        "account",
+        "usr_founder",
+        "2026-08-18",
+        "2026-08-18",
+        "2026-08-18",
+        "pt",
+        "account",
+        "2026-08-18T00:01:00.000Z",
+        "2026-08-18T00:01:00.000Z",
+      ), /unique/i);
 
       db.exec(`
         INSERT INTO ai_credit_grants (
@@ -144,6 +206,62 @@ describe("cloud schema migrations", () => {
     }
   });
 
+  test("preserves existing AI usage while rebuilding Founder-compatible grants", () => {
+    const db = new Database(":memory:");
+    try {
+      db.exec("PRAGMA foreign_keys = ON;");
+      applyMigrations(db, [
+        "0001_initial.sql",
+        "0002_billing_entitlements.sql",
+        "0003_ai_usage_and_storage_notices.sql",
+        "0004_stripe_subscription_ordering.sql",
+      ]);
+      db.exec(`
+        INSERT INTO users (id, email, plan, ever_paid, created_at, updated_at)
+        VALUES ('usr_ai_existing', 'ai-existing@example.test', 'lifetime', 1,
+          '2026-08-17T00:00:00.000Z', '2026-08-17T00:00:00.000Z');
+        INSERT INTO ai_credit_grants (
+          id, owner_type, owner_id, source_type, source_id, credits, created_at
+        ) VALUES (
+          'grant_ai_existing', 'account', 'usr_ai_existing', 'lifetime_initial',
+          'legacy:ai-existing', 500, '2026-08-17T00:00:00.000Z'
+        );
+        INSERT INTO ai_credit_usages (
+          id, request_id, owner_type, owner_id, grant_id, feature, resource_id,
+          model, credits, status, created_at
+        ) VALUES (
+          'usage_ai_existing', 'request_ai_existing', 'account', 'usr_ai_existing',
+          'grant_ai_existing', 'session_summary', 'session_ai_existing',
+          '@cf/test/model', 1, 'reserved', '2026-08-17T00:01:00.000Z'
+        );
+      `);
+
+      applyMigrations(db, ["0005_founder_and_legal_acceptance.sql"]);
+
+      assert.equal(
+        db.query<{ consumed_credits: number; source_type: string }, []>(
+          "SELECT consumed_credits, source_type FROM ai_credit_grants WHERE id = 'grant_ai_existing'",
+        ).get()?.consumed_credits,
+        1,
+      );
+      assert.equal(
+        db.query<{ count: number }, []>(
+          "SELECT COUNT(*) AS count FROM ai_credit_usages WHERE id = 'usage_ai_existing'",
+        ).get()?.count,
+        1,
+      );
+      db.exec("UPDATE ai_credit_usages SET status = 'refunded' WHERE id = 'usage_ai_existing'");
+      assert.equal(
+        db.query<{ consumed_credits: number }, []>(
+          "SELECT consumed_credits FROM ai_credit_grants WHERE id = 'grant_ai_existing'",
+        ).get()?.consumed_credits,
+        0,
+      );
+    } finally {
+      db.close();
+    }
+  });
+
   test("keeps D1 subscription state monotonic and scoped to the current subscription", () => {
     const db = new Database(":memory:");
     try {
@@ -156,6 +274,8 @@ describe("cloud schema migrations", () => {
         ) VALUES
           ('usr_ordered', 'ordered@example.test', 'pro', 1, 'active', 'cus_ordered',
            'sub_ordered', '2026-08-17T00:00:00.000Z', '2026-08-17T00:00:00.000Z'),
+          ('usr_founder', 'founder@example.test', 'founder', 1, 'active', 'cus_founder',
+           'sub_founder', '2026-08-17T00:00:00.000Z', '2026-08-17T00:00:00.000Z'),
           ('usr_current', 'current@example.test', 'pro', 1, 'active', 'cus_current',
            'sub_current', '2026-08-17T00:00:00.000Z', '2026-08-17T00:00:00.000Z');
       `);
@@ -218,6 +338,30 @@ describe("cloud schema migrations", () => {
           "SELECT billing_status, plan FROM users WHERE id = 'usr_ordered'",
         ).get(),
         { billing_status: "canceled", plan: "free" },
+      );
+
+      upsert.run(
+        "sub_founder",
+        "cus_founder",
+        "canceled",
+        200,
+        "evt_founder_canceled",
+        "2026-08-17T00:03:20.000Z",
+      );
+      apply.run(
+        "sub_founder",
+        "sub_founder",
+        "sub_founder",
+        "2026-08-17T00:03:20.000Z",
+        "cus_founder",
+        "sub_founder",
+        "sub_founder",
+      );
+      assert.deepEqual(
+        db.query<{ billing_status: string; plan: string }, []>(
+          "SELECT billing_status, plan FROM users WHERE id = 'usr_founder'",
+        ).get(),
+        { billing_status: "canceled", plan: "founder" },
       );
 
       upsert.run(

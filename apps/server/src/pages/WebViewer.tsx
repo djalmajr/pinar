@@ -56,6 +56,8 @@ interface AiSummaryResult {
   summary: string;
 }
 
+type AiRecovery = "pricing" | "retry" | "signIn" | null;
+
 function aiSummaryResult(value: unknown): AiSummaryResult | null {
   if (!isRecord(value) || typeof value.summary !== "string" || !Array.isArray(value.highlights)) return null;
   const highlights = value.highlights.filter((item): item is string => typeof item === "string");
@@ -72,6 +74,7 @@ export function WebViewer({ sessionId }: WebViewerProps) {
   const [aiCreditsRemaining, setAiCreditsRemaining] = useState<number | null>(null);
   const [aiError, setAiError] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
+  const [aiRecovery, setAiRecovery] = useState<AiRecovery>(null);
   const [aiSummary, setAiSummary] = useState<AiSummaryResult | null>(null);
   const [aiSummaryOpen, setAiSummaryOpen] = useState(false);
   const [imageZoomOpen, setImageZoomOpen] = useState(false);
@@ -119,6 +122,7 @@ export function WebViewer({ sessionId }: WebViewerProps) {
     setAiSummaryOpen(true);
     if (aiSummary || aiLoading) return;
     setAiError("");
+    setAiRecovery(null);
     setAiLoading(true);
     aiRequestId.current ||= `ai_${crypto.randomUUID().replaceAll("-", "")}`;
     try {
@@ -132,19 +136,32 @@ export function WebViewer({ sessionId }: WebViewerProps) {
       if (!response.ok || !result) {
         const code = isRecord(data) && typeof data.code === "string" ? data.code : "";
         if (code !== "ai_request_in_progress" && code !== "ai_refund_pending") aiRequestId.current = null;
-        if (response.status === 401) setAiError(t("viewer.aiSignIn"));
-        else if (code === "insufficient_ai_credits") setAiError(t("viewer.aiNoCredits"));
-        else if (code === "ai_rate_limited") setAiError(t("viewer.aiRateLimited"));
-        else if (code === "ai_refund_pending") setAiError(t("viewer.aiRefundPending"));
-        else setAiError(t("viewer.aiUnavailable"));
+        if (response.status === 401) {
+          setAiError(t("viewer.aiSignIn"));
+          setAiRecovery("signIn");
+        } else if (code === "insufficient_ai_credits") {
+          setAiError(t("viewer.aiNoCredits"));
+          setAiRecovery("pricing");
+        } else if (code === "ai_rate_limited") {
+          setAiError(t("viewer.aiRateLimited"));
+          setAiRecovery("retry");
+        } else if (code === "ai_refund_pending") {
+          setAiError(t("viewer.aiRefundPending"));
+          setAiRecovery("retry");
+        } else {
+          setAiError(t("viewer.aiUnavailable"));
+          setAiRecovery("retry");
+        }
         return;
       }
       if (isRecord(data) && isRecord(data.aiCredits) && typeof data.aiCredits.balance === "number") {
         setAiCreditsRemaining(data.aiCredits.balance);
       }
       setAiSummary(result);
+      setAiRecovery(null);
     } catch {
       setAiError(t("viewer.aiNetworkError"));
+      setAiRecovery("retry");
     } finally {
       setAiLoading(false);
     }
@@ -181,7 +198,7 @@ export function WebViewer({ sessionId }: WebViewerProps) {
 
   return (
     <ServerShell>
-      <header className="relative z-20 flex min-h-14 shrink-0 items-center gap-4 border-b bg-card px-5 py-2">
+      <header className="relative z-20 flex min-h-14 shrink-0 items-center gap-2 border-b bg-card px-3 py-2 sm:gap-4 sm:px-5">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <Button
             aria-label={t("viewer.backHistory")}
@@ -206,14 +223,14 @@ export function WebViewer({ sessionId }: WebViewerProps) {
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <Button disabled={aiLoading} type="button" variant="outline" onClick={() => void generateAiSummary()}>
+          <Button aria-label={t("viewer.aiSummary")} disabled={aiLoading} type="button" variant="outline" onClick={() => void generateAiSummary()}>
             <SparklesIcon data-icon="inline-start" />
-            {aiLoading ? t("viewer.aiSummarizing") : t("viewer.aiSummary")}
+            <span className="hidden sm:inline">{aiLoading ? t("viewer.aiSummarizing") : t("viewer.aiSummary")}</span>
           </Button>
           <ButtonGroup aria-label={t("viewer.pageActions")}>
-            <Button type="button" variant="outline" onClick={copyPage}>
+            <Button aria-label={pageCopied ? t("common.copied") : t("viewer.copyPage")} type="button" variant="outline" onClick={copyPage}>
               {pageCopied ? <CheckIcon data-icon="inline-start" /> : <CopyIcon data-icon="inline-start" />}
-              {pageCopied ? t("common.copied") : t("viewer.copyPage")}
+              <span className="hidden sm:inline">{pageCopied ? t("common.copied") : t("viewer.copyPage")}</span>
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger
@@ -261,7 +278,7 @@ export function WebViewer({ sessionId }: WebViewerProps) {
         </div>
       </header>
       <div
-        className={`grid min-h-0 flex-1 ${sidebarOpen ? "grid-cols-[minmax(0,1fr)_22rem]" : "grid-cols-1"}`}
+        className={`grid min-h-0 flex-1 ${sidebarOpen ? "grid-cols-1 grid-rows-[minmax(0,3fr)_minmax(12rem,2fr)] md:grid-cols-[minmax(0,1fr)_22rem] md:grid-rows-1" : "grid-cols-1 grid-rows-1"}`}
       >
         <ScrollArea className="min-h-0 min-w-0 bg-card">
           <div className="flex min-h-full flex-col gap-8 p-6">
@@ -293,7 +310,7 @@ export function WebViewer({ sessionId }: WebViewerProps) {
           </div>
         </ScrollArea>
         {sidebarOpen ? (
-          <aside className="flex min-h-0 flex-col border-l bg-card">
+          <aside className="flex min-h-0 flex-col border-t bg-card md:border-t-0 md:border-l">
             <div className="shrink-0 border-b px-4 py-3">
               <div className="flex min-w-0 items-center justify-between gap-3 text-xs font-medium text-muted-foreground">
                 <time className="inline-flex min-w-0 items-center gap-1.5" dateTime={session.createdAt}>
@@ -369,7 +386,26 @@ export function WebViewer({ sessionId }: WebViewerProps) {
             <p className="py-8 text-center text-sm text-muted-foreground">{t("viewer.aiSummarizing")}</p>
           ) : aiError ? (
             <Card className="border-destructive/30 bg-destructive/5">
-              <CardContent className="text-sm text-destructive">{aiError}</CardContent>
+              <CardContent className="flex flex-col items-start gap-3 text-sm text-destructive">
+                <p>{aiError}</p>
+                {aiRecovery === "signIn" ? (
+                  <Button
+                    render={<a href={`/sign-in?returnTo=${encodeURIComponent(`/v/${sessionId}`)}`} />}
+                    size="sm"
+                    variant="outline"
+                  >
+                    {t("viewer.aiSignInAction")}
+                  </Button>
+                ) : aiRecovery === "pricing" ? (
+                  <Button render={<Link preload="intent" to="/pricing" />} size="sm" variant="outline">
+                    {t("viewer.aiViewPlans")}
+                  </Button>
+                ) : aiRecovery === "retry" ? (
+                  <Button size="sm" type="button" variant="outline" onClick={() => void generateAiSummary()}>
+                    {t("viewer.aiRetry")}
+                  </Button>
+                ) : null}
+              </CardContent>
             </Card>
           ) : aiSummary ? (
             <div className="flex flex-col gap-5">

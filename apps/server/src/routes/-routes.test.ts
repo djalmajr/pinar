@@ -7,8 +7,9 @@ const appRoute = readFileSync(new URL("./app.tsx", import.meta.url), "utf8");
 
 describe("public and private route matrix", () => {
   test("keeps public pages and moves the private workspace to /app", () => {
-    for (const path of ["/", "/pricing", "/sign-in", "/success", "/app"]) {
-      assert.match(routeTree, new RegExp(`['\"]${path.replace("/", "\\/")}['\"]`));
+    for (const path of ["/", "/pricing", "/sign-in", "/success", "/app", "/legal/$document"]) {
+      const escapedPath = path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      assert.match(routeTree, new RegExp(`['\"]${escapedPath}['\"]`));
     }
     assert.doesNotMatch(routeTree, /['"]\/history['"]/);
   });

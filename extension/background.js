@@ -3,6 +3,7 @@ import { CAPTURE_TILE_DELAY_MS, planFullPageCapture, shiftPinsToCapture } from "
 import { collectionDestination, destinationKey, resolveDestinationPreference } from "./destination.js";
 import { formatClipboardPayload } from "./format.js";
 import { getBestLanguage, translations } from "./i18n.js";
+import { acceptedRemoteLegalAcceptance, parseLegalBundle } from "./legal-consent.js";
 import { getPinColor } from "./pin-colors.js";
 import {
   clearDeviceToken,
@@ -586,8 +587,17 @@ async function setCaptureDestination(collectionId) {
 async function registerRemoteInstallation(endpoint, identity, force = false) {
   const cacheKey = `${endpoint}:${identity.id}`;
   if (!force && registeredInstallations.has(cacheKey)) return;
+  const [legalResponse, stored] = await Promise.all([
+    fetch(`${endpoint}/api/legal/current`),
+    chrome.storage.local.get({ remoteLegalAcceptance: null }),
+  ]);
+  const legalBundle = parseLegalBundle(await legalResponse.json().catch(() => null));
+  const legalAcceptance = acceptedRemoteLegalAcceptance(stored.remoteLegalAcceptance, legalBundle);
+  if (!legalResponse.ok || !legalBundle || !legalAcceptance) {
+    throw new Error("Accept the current Pinar Terms in the extension settings before using remote storage");
+  }
   const response = await fetch(`${endpoint}/api/installations`, {
-    body: JSON.stringify({ installationId: identity.id, installationToken: identity.token }),
+    body: JSON.stringify({ installationId: identity.id, installationToken: identity.token, legalAcceptance }),
     headers: { "content-type": "application/json" },
     method: "POST",
   });

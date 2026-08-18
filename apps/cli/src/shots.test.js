@@ -12,6 +12,8 @@ describe("shots", () => {
   test("safeShotName strips path characters", () => {
     // Mutation captured: writing ../../etc/passwd.png from a hostile pin id.
     assert.equal(safeShotName("../../etc/passwd"), "etcpasswd.png");
+    assert.equal(safeShotName("!!!"), "pin.png");
+    assert.equal(safeShotName("x".repeat(100)), `${"x".repeat(80)}.png`);
   });
 
   test("writeShot stores png bytes in one shots directory", async () => {
@@ -42,6 +44,34 @@ describe("shots", () => {
     assert.deepEqual(result, { conflicts: [], moved: ["legacy.png"] });
     assert.equal(await readFile(join(root, "shots", "legacy.png"), "utf8"), "png");
     assert.equal(existsSync(nested), false);
+  });
+
+  test("migrateNestedShots is idempotent when no nested directory exists", async () => {
+    // Mutation captured: rethrowing ENOENT turns a harmless repeat migration into startup failure.
+    const root = await mkdtemp(join(tmpdir(), "pinar-no-nested-shots-"));
+    assert.deepEqual(await migrateNestedShots(root), { conflicts: [], moved: [] });
+  });
+
+  test("migrateNestedShots preserves conflicting legacy files", async () => {
+    // Mutation captured: overwriting an existing shot destroys the current capture.
+    const root = await mkdtemp(join(tmpdir(), "pinar-conflicting-shots-"));
+    const target = join(root, "shots");
+    const nested = join(target, "shots");
+    await mkdir(nested, { recursive: true });
+    await writeFile(join(target, "same.png"), "current");
+    await writeFile(join(nested, "same.png"), "legacy");
+
+    assert.deepEqual(await migrateNestedShots(root), { conflicts: ["same.png"], moved: [] });
+    assert.equal(await readFile(join(target, "same.png"), "utf8"), "current");
+    assert.equal(await readFile(join(nested, "same.png"), "utf8"), "legacy");
+  });
+
+  test("migrateNestedShots surfaces non-missing filesystem errors", async () => {
+    // Mutation captured: swallowing ENOTDIR hides a corrupt legacy shots layout.
+    const root = await mkdtemp(join(tmpdir(), "pinar-invalid-nested-shots-"));
+    await mkdir(join(root, "shots"), { recursive: true });
+    await writeFile(join(root, "shots", "shots"), "not a directory");
+    await assert.rejects(migrateNestedShots(root), { code: "ENOTDIR" });
   });
 
 });

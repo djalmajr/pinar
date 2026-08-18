@@ -80,6 +80,44 @@ describe("collection tree drag projection", () => {
       { id: sibling.id, parentId: null },
     ]);
   });
+
+  // Mutation captured: using the previous item id instead of its parent reparents sibling folders.
+  test("keeps a moved sibling under the same parent", () => {
+    const root = collection("root", 0);
+    const first = collection("first", 0, root.id);
+    const second = collection("second", 1, root.id);
+
+    assert.deepEqual(reorderCollectionTree(
+      flattenCollections([root, first, second]),
+      first.id,
+      second.id,
+      0,
+    ), [
+      { id: root.id, parentId: null },
+      { id: second.id, parentId: root.id },
+      { id: first.id, parentId: root.id },
+    ]);
+  });
+
+  // Mutation captured: removing the ancestor scan makes a move after a grandchild jump to the root.
+  test("finds the nearest ancestor when dropping after a deeper descendant", () => {
+    const root = collection("root", 0);
+    const active = collection("active", 0, root.id);
+    const sibling = collection("sibling", 1, root.id);
+    const grandchild = collection("grandchild", 0, sibling.id);
+
+    assert.deepEqual(reorderCollectionTree(
+      flattenCollections([root, active, sibling, grandchild]),
+      active.id,
+      grandchild.id,
+      0,
+    ), [
+      { id: root.id, parentId: null },
+      { id: sibling.id, parentId: root.id },
+      { id: grandchild.id, parentId: sibling.id },
+      { id: active.id, parentId: root.id },
+    ]);
+  });
 });
 
 describe("collection sidebar navigation", () => {

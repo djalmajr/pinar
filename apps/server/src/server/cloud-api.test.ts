@@ -117,6 +117,34 @@ function emailBinding() {
   return { binding, codes };
 }
 
+function bucketBinding() {
+  const deletedKeys: string[] = [];
+  const getKeys: string[] = [];
+  const objects = new Map<string, Uint8Array>();
+  const putKeys: string[] = [];
+  const binding = {
+    async delete(key: string) {
+      deletedKeys.push(key);
+      objects.delete(key);
+    },
+    async get(key: string) {
+      getKeys.push(key);
+      const value = objects.get(key);
+      if (!value) return null;
+      return {
+        body: new Response(new Uint8Array(value)).body,
+        httpEtag: `etag-${key}`,
+        writeHttpMetadata() {},
+      };
+    },
+    async put(key: string, value: Uint8Array) {
+      putKeys.push(key);
+      objects.set(key, value);
+    },
+  } as unknown as NonNullable<CloudEnv["PINAR_BUCKET"]>;
+  return { binding, deletedKeys, getKeys, putKeys };
+}
+
 async function requestEmailCode(email: string, env: CloudEnv) {
   return api("/api/auth/email-codes", {
     body: JSON.stringify({ email }),
@@ -154,6 +182,25 @@ async function hmacSha256(secret: string, value: string) {
   );
   const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value));
   return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function sha256(value: string) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function postStripeWebhook(event: Record<string, unknown>, env: CloudEnv) {
+  const webhookSecret = env.STRIPE_WEBHOOK_SECRET;
+  if (!webhookSecret) throw new Error("STRIPE_WEBHOOK_SECRET is required for the test");
+  assert.equal(typeof event.created, "number");
+  const body = JSON.stringify(event);
+  const timestamp = String(event.created);
+  const signature = await hmacSha256(webhookSecret, `${timestamp}.${body}`);
+  return api("/api/stripe/webhook", {
+    body,
+    headers: { "stripe-signature": `t=${timestamp},v1=${signature}` },
+    method: "POST",
+  }, env);
 }
 
 describe("remote installation isolation", () => {
@@ -230,6 +277,38 @@ describe("remote installation isolation", () => {
     assert.equal((await api("/api/auth/browser-ticket", { method: "POST" })).status, 404);
     assert.equal((await api("/api/installations/rotate", { method: "POST" })).status, 404);
     assert.equal((await api("/api/auth/verify")).status, 404);
+  });
+
+  test("stores shots under the shots prefix inside the environment bucket", async () => {
+    const bucket = bucketBinding();
+    const env = { ...TEST_ENV, PINAR_BUCKET: bucket.binding };
+    assert.equal((await register(identityA)).status, 201);
+
+    const uploaded = await api("/api/shots", {
+      body: JSON.stringify({
+        id: "prefixed_shot_001",
+        image: VALID_PNG,
+        page: { title: "Prefixed shot", url: "https://example.test/prefixed" },
+        pins: [],
+      }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
+      method: "POST",
+    }, env);
+    assert.equal(uploaded.status, 201);
+    assert.deepEqual(bucket.putKeys, ["shots/prefixed_shot_001.png"]);
+
+    const served = await handleCloudPublicRequest(
+      new Request("https://pinar.test/shots/prefixed_shot_001.png"),
+      env,
+    );
+    assert.equal(served.status, 200);
+    assert.deepEqual(bucket.getKeys, ["shots/prefixed_shot_001.png"]);
+
+    assert.equal((await api("/api/history/prefixed_shot_001", {
+      headers: identityHeaders(identityA),
+      method: "DELETE",
+    }, env)).status, 200);
+    assert.deepEqual(bucket.deletedKeys, ["shots/prefixed_shot_001.png"]);
   });
 
   test("expires extension codes, validates origins and constrains returnTo", async () => {
@@ -441,12 +520,14 @@ describe("remote installation isolation", () => {
     const login = await jsonBody(await verifyEmailCode("cancel@example.test", mail.codes[0], env, identityA));
     assert.ok(isRecord(login.device));
     const headers = { authorization: `Bearer ${String(login.device.token)}` };
+    const eventCreated = Math.floor(new Date(now).getTime() / 1000);
     const event = JSON.stringify({
-      data: { object: { customer: "cus_cancel" } },
+      created: eventCreated,
+      data: { object: { customer: "cus_cancel", id: "sub_cancel", status: "canceled" } },
       id: "evt_cancel",
       type: "customer.subscription.deleted",
     });
-    const timestamp = String(Math.floor(new Date(now).getTime() / 1000));
+    const timestamp = String(eventCreated);
     const signature = await hmacSha256(webhookSecret, `${timestamp}.${event}`);
     const webhook = await api("/api/stripe/webhook", {
       body: event,
@@ -464,6 +545,84 @@ describe("remote installation isolation", () => {
     }, env)).status, 400);
   });
 
+  test("keeps a cancellation terminal when an older active event arrives later", async () => {
+    const mail = emailBinding();
+    const env: CloudEnv = {
+      ...TEST_ENV,
+      EMAIL: mail.binding,
+      STRIPE_WEBHOOK_SECRET: "whsec_ordering_test",
+    };
+    const canceledAt = 1_787_000_200;
+    setCloudNowForTests(new Date(canceledAt * 1000).toISOString());
+    seedCloudAccountForTests({
+      email: "ordering@example.test",
+      plan: "pro",
+      stripeCustomerId: "cus_ordering",
+      stripeSubscriptionId: "sub_ordering",
+    });
+    await register(identityA);
+    await requestEmailCode("ordering@example.test", env);
+    const login = await jsonBody(await verifyEmailCode("ordering@example.test", mail.codes[0], env, identityA));
+    assert.ok(isRecord(login.device));
+    const headers = { authorization: `Bearer ${String(login.device.token)}` };
+
+    assert.equal((await postStripeWebhook({
+      created: canceledAt,
+      data: { object: { customer: "cus_ordering", id: "sub_ordering", status: "canceled" } },
+      id: "evt_ordering_canceled",
+      type: "customer.subscription.deleted",
+    }, env)).status, 200);
+    assert.equal((await postStripeWebhook({
+      created: canceledAt - 60,
+      data: { object: { customer: "cus_ordering", id: "sub_ordering", status: "active" } },
+      id: "evt_ordering_stale_active",
+      type: "customer.subscription.updated",
+    }, env)).status, 200);
+    assert.equal((await postStripeWebhook({
+      created: canceledAt,
+      data: { object: { customer: "cus_ordering", id: "sub_ordering", status: "active" } },
+      id: "evt_ordering_same_second_active",
+      type: "customer.subscription.updated",
+    }, env)).status, 200);
+
+    const session = await jsonBody(await api("/api/auth/session", { headers }, env));
+    assert.ok(isRecord(session.session));
+    assert.equal(session.session.plan, "free");
+  });
+
+  test("does not let an old subscription cancellation demote the current subscription", async () => {
+    const mail = emailBinding();
+    const env: CloudEnv = {
+      ...TEST_ENV,
+      EMAIL: mail.binding,
+      STRIPE_WEBHOOK_SECRET: "whsec_subscription_switch_test",
+    };
+    const eventCreated = 1_787_100_000;
+    setCloudNowForTests(new Date(eventCreated * 1000).toISOString());
+    seedCloudAccountForTests({
+      email: "switch@example.test",
+      plan: "pro",
+      stripeCustomerId: "cus_switch",
+      stripeSubscriptionId: "sub_current",
+    });
+    await register(identityA);
+    await requestEmailCode("switch@example.test", env);
+    const login = await jsonBody(await verifyEmailCode("switch@example.test", mail.codes[0], env, identityA));
+    assert.ok(isRecord(login.device));
+    const headers = { authorization: `Bearer ${String(login.device.token)}` };
+
+    assert.equal((await postStripeWebhook({
+      created: eventCreated,
+      data: { object: { customer: "cus_switch", id: "sub_previous", status: "canceled" } },
+      id: "evt_previous_subscription_canceled",
+      type: "customer.subscription.deleted",
+    }, env)).status, 200);
+
+    const session = await jsonBody(await api("/api/auth/session", { headers }, env));
+    assert.ok(isRecord(session.session));
+    assert.equal(session.session.plan, "pro");
+  });
+
   test("creates subscription checkout with dynamic payment methods", async () => {
     const originalFetch = globalThis.fetch;
     let stripeInit: RequestInit | undefined;
@@ -474,7 +633,7 @@ describe("remote installation isolation", () => {
     try {
       const response = await handleCloudApiRequest(
         new Request("https://pinar.test/api/stripe/checkout", {
-          body: JSON.stringify({ interval: "year" }),
+          body: JSON.stringify({ checkoutClaim: "checkout_claim_year_0001", interval: "year" }),
           headers: { "content-type": "application/json" },
           method: "POST",
         }),
@@ -494,6 +653,14 @@ describe("remote installation isolation", () => {
     assert.equal(params.get("line_items[0][price]"), "price_yearly_test");
     assert.equal(params.get("metadata[pinar_offer]"), "pro_year");
     assert.equal(params.get("subscription_data[metadata][pinar_offer]"), "pro_year");
+    assert.equal(
+      params.get("metadata[pinar_checkout_claim_hash]"),
+      await sha256("checkout_claim_year_0001"),
+    );
+    assert.equal(
+      params.get("success_url"),
+      "https://pinar.test/success?session_id={CHECKOUT_SESSION_ID}&claim=checkout_claim_year_0001",
+    );
     assert.equal(params.has("payment_method_types[0]"), false);
     assert.match(params.get("integration_identifier") || "", /^pinar_web_[a-z]{8}$/);
     const stripeHeaders = new Headers(stripeInit?.headers);
@@ -528,7 +695,11 @@ describe("remote installation isolation", () => {
     try {
       const checkoutResponse = await handleCloudApiRequest(
         requestForCountry("/api/stripe/checkout", "BR", {
-          body: JSON.stringify({ country: "US", interval: "year" }),
+          body: JSON.stringify({
+            checkoutClaim: "checkout_claim_brazil_0001",
+            country: "US",
+            interval: "year",
+          }),
           headers: { "content-type": "application/json" },
           method: "POST",
         }),
@@ -551,7 +722,7 @@ describe("remote installation isolation", () => {
     // Mutation captured: falling back to the global price makes the UI show BRL while Stripe charges USD.
     const response = await handleCloudApiRequest(
       requestForCountry("/api/stripe/checkout", "BR", {
-        body: JSON.stringify({ interval: "month" }),
+        body: JSON.stringify({ checkoutClaim: "checkout_claim_missing_price", interval: "month" }),
         headers: { "content-type": "application/json" },
         method: "POST",
       }),
@@ -576,6 +747,7 @@ describe("remote installation isolation", () => {
       const response = await api("/api/stripe/checkout", {
         body: JSON.stringify({
           offer: "storage_20gb_12m",
+          checkoutClaim: "checkout_claim_storage_0001",
           requestId: "checkout_request_123456",
         }),
         headers: { "content-type": "application/json" },
@@ -604,18 +776,112 @@ describe("remote installation isolation", () => {
     }, { STRIPE_SECRET_KEY: "sk_test_example" })).status, 400);
   });
 
+  test("routes all six paid offers to their BRL and USD Stripe prices", async () => {
+    const offers: Array<{
+      brlPrice: string;
+      mode: "payment" | "subscription";
+      offer: string;
+      usdPrice: string;
+    }> = [
+      { brlPrice: "price_br_month", mode: "subscription", offer: "pro_month", usdPrice: "price_us_month" },
+      { brlPrice: "price_br_year", mode: "subscription", offer: "pro_year", usdPrice: "price_us_year" },
+      { brlPrice: "price_br_lifetime", mode: "payment", offer: "lifetime_founder", usdPrice: "price_us_lifetime" },
+      { brlPrice: "price_br_ai", mode: "payment", offer: "ai_credits_1000", usdPrice: "price_us_ai" },
+      { brlPrice: "price_br_storage_5", mode: "payment", offer: "storage_5gb_12m", usdPrice: "price_us_storage_5" },
+      { brlPrice: "price_br_storage_20", mode: "payment", offer: "storage_20gb_12m", usdPrice: "price_us_storage_20" },
+    ];
+    const env: CloudEnv = {
+      ...TEST_ENV,
+      STRIPE_PRICE_AI_CREDITS_1000: "price_us_ai",
+      STRIPE_PRICE_BR_AI_CREDITS_1000: "price_br_ai",
+      STRIPE_PRICE_BR_LIFETIME: "price_br_lifetime",
+      STRIPE_PRICE_BR_MONTHLY: "price_br_month",
+      STRIPE_PRICE_BR_STORAGE_20GB_12M: "price_br_storage_20",
+      STRIPE_PRICE_BR_STORAGE_5GB_12M: "price_br_storage_5",
+      STRIPE_PRICE_BR_YEARLY: "price_br_year",
+      STRIPE_PRICE_LIFETIME: "price_us_lifetime",
+      STRIPE_PRICE_MONTHLY: "price_us_month",
+      STRIPE_PRICE_STORAGE_20GB_12M: "price_us_storage_20",
+      STRIPE_PRICE_STORAGE_5GB_12M: "price_us_storage_5",
+      STRIPE_PRICE_YEARLY: "price_us_year",
+      STRIPE_SECRET_KEY: "sk_test_example",
+    };
+    const stripeRequests: RequestInit[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      stripeRequests.push(init || {});
+      return Response.json({ url: "https://checkout.stripe.test/catalog" });
+    };
+    try {
+      for (const country of ["US", "BR"]) {
+        for (const offer of offers) {
+          const requestId = `checkout_${country}_${offer.offer}_0001`;
+          const checkoutClaim = `${requestId}_claim`;
+          const response = await handleCloudApiRequest(requestForCountry("/api/stripe/checkout", country, {
+            body: JSON.stringify({ checkoutClaim, offer: offer.offer, requestId }),
+            headers: { "content-type": "application/json" },
+            method: "POST",
+          }), env);
+          assert.equal(response.status, 200);
+        }
+      }
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    assert.equal(stripeRequests.length, 12);
+    let requestIndex = 0;
+    for (const country of ["US", "BR"]) {
+      for (const offer of offers) {
+        const request = stripeRequests[requestIndex];
+        const params = new URLSearchParams(String(request.body));
+        const headers = new Headers(request.headers);
+        const expectedPrice = country === "BR" ? offer.brlPrice : offer.usdPrice;
+        assert.equal(params.get("line_items[0][price]"), expectedPrice);
+        assert.equal(params.get("metadata[pinar_offer]"), offer.offer);
+        assert.equal(
+          params.get("metadata[pinar_checkout_claim_hash]"),
+          await sha256(`checkout_${country}_${offer.offer}_0001_claim`),
+        );
+        assert.equal(params.get("mode"), offer.mode);
+        assert.equal(
+          headers.get("idempotency-key"),
+          `pinar:checkout:${offer.offer}:checkout_${country}_${offer.offer}_0001`,
+        );
+        if (offer.mode === "subscription") {
+          assert.equal(params.get("subscription_data[metadata][pinar_offer]"), offer.offer);
+          assert.equal(params.has("customer_creation"), false);
+        } else {
+          assert.equal(params.get("customer_creation"), "always");
+          assert.equal(params.has("subscription_data[metadata][pinar_offer]"), false);
+        }
+        requestIndex += 1;
+      }
+    }
+  });
+
   test("turns a confirmed checkout into an account and a 30-day web session", async () => {
+    const checkoutClaim = "checkout_claim_success_0001";
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async () => Response.json({
       customer: "cus_checkout",
       customer_details: { email: "checkout@example.test" },
+      metadata: { pinar_checkout_claim_hash: await sha256(checkoutClaim) },
       mode: "subscription",
       payment_status: "paid",
       status: "complete",
       subscription: "sub_checkout",
     });
     try {
-      const response = await api("/api/stripe/success?session_id=cs_test", {}, {
+      assert.equal((await api("/api/stripe/success?session_id=cs_test", {}, {
+        ...TEST_ENV,
+        STRIPE_SECRET_KEY: "sk_test_example",
+      })).status, 400);
+      assert.equal((await api("/api/stripe/success?session_id=cs_test&claim=checkout_claim_wrong_0001", {}, {
+        ...TEST_ENV,
+        STRIPE_SECRET_KEY: "sk_test_example",
+      })).status, 400);
+      const response = await api(`/api/stripe/success?session_id=cs_test&claim=${checkoutClaim}`, {}, {
         ...TEST_ENV,
         STRIPE_SECRET_KEY: "sk_test_example",
       });
@@ -628,6 +894,58 @@ describe("remote installation isolation", () => {
       assert.match(cookieHeader, /Max-Age=2592000/);
       const cookie = cookieHeader.split(";", 1)[0];
       assert.equal((await api("/api/auth/session", { headers: { cookie } })).status, 200);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("honors a cancellation that arrives before its checkout session", async () => {
+    const checkoutClaim = "checkout_claim_canceled_first";
+    const eventCreated = 1_788_000_000;
+    const env: CloudEnv = {
+      ...TEST_ENV,
+      STRIPE_SECRET_KEY: "sk_test_example",
+      STRIPE_WEBHOOK_SECRET: "whsec_checkout_order_test",
+    };
+    setCloudNowForTests(new Date(eventCreated * 1000).toISOString());
+    assert.equal((await postStripeWebhook({
+      created: eventCreated,
+      data: { object: { customer: "cus_canceled_first", id: "sub_canceled_first", status: "canceled" } },
+      id: "evt_canceled_before_checkout",
+      type: "customer.subscription.deleted",
+    }, env)).status, 200);
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => Response.json({
+      customer: "cus_canceled_first",
+      customer_details: { email: "canceled-first@example.test" },
+      id: "cs_canceled_first",
+      metadata: {
+        pinar_checkout_claim_hash: await sha256(checkoutClaim),
+        pinar_offer: "pro_month",
+      },
+      mode: "subscription",
+      payment_status: "paid",
+      status: "complete",
+      subscription: "sub_canceled_first",
+    });
+    try {
+      const response = await api(
+        `/api/stripe/success?session_id=cs_canceled_first&claim=${checkoutClaim}`,
+        {},
+        env,
+      );
+      assert.equal(response.status, 200);
+      const body = await jsonBody(response);
+      assert.ok(isRecord(body.account));
+      assert.equal(body.account.plan, "free");
+      const cookie = response.headers.get("set-cookie")?.split(";", 1)[0] || "";
+      const entitlements = await jsonBody(await api("/api/account/entitlements", {
+        headers: { cookie },
+      }, env));
+      assert.equal(entitlements.plan, "free");
+      assert.ok(isRecord(entitlements.aiCredits));
+      assert.equal(entitlements.aiCredits.balance, 0);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -733,13 +1051,17 @@ describe("remote installation isolation", () => {
   });
 
   test("refills 200 Pro credits monthly without rollover on an annual subscription", async () => {
+    const checkoutClaim = "checkout_claim_annual_0001";
     const originalFetch = globalThis.fetch;
     setCloudNowForTests("2026-01-31T12:30:00.000Z");
     globalThis.fetch = async () => Response.json({
       customer: "cus_annual",
       customer_details: { email: "annual@example.test" },
       id: "cs_annual",
-      metadata: { pinar_offer: "pro_year" },
+      metadata: {
+        pinar_checkout_claim_hash: await sha256(checkoutClaim),
+        pinar_offer: "pro_year",
+      },
       mode: "subscription",
       payment_status: "paid",
       status: "complete",
@@ -747,7 +1069,7 @@ describe("remote installation isolation", () => {
     });
     let cookie = "";
     try {
-      const response = await api("/api/stripe/success?session_id=cs_annual", {}, {
+      const response = await api(`/api/stripe/success?session_id=cs_annual&claim=${checkoutClaim}`, {}, {
         ...TEST_ENV,
         STRIPE_SECRET_KEY: "sk_test_example",
       });
@@ -772,6 +1094,7 @@ describe("remote installation isolation", () => {
   });
 
   test("fulfills a storage add-on once across webhook retries and success polling", async () => {
+    const checkoutClaim = "checkout_claim_storage_success";
     const webhookSecret = "whsec_test";
     const now = "2026-03-01T00:00:00.000Z";
     setCloudNowForTests(now);
@@ -790,7 +1113,10 @@ describe("remote installation isolation", () => {
       customer: "cus_storage",
       customer_details: { email: "storage@example.test" },
       id: "cs_storage",
-      metadata: { pinar_offer: "storage_5gb_12m" },
+      metadata: {
+        pinar_checkout_claim_hash: await sha256(checkoutClaim),
+        pinar_offer: "storage_5gb_12m",
+      },
       mode: "payment",
       payment_status: "paid",
       status: "complete",
@@ -819,7 +1145,7 @@ describe("remote installation isolation", () => {
     globalThis.fetch = async () => Response.json(checkoutSession);
     let cookie = "";
     try {
-      const success = await api("/api/stripe/success?session_id=cs_storage", {}, {
+      const success = await api(`/api/stripe/success?session_id=cs_storage&claim=${checkoutClaim}`, {}, {
         ...env,
         STRIPE_SECRET_KEY: "sk_test_example",
       });
@@ -899,6 +1225,7 @@ describe("remote installation isolation", () => {
   });
 
   test("keeps the subscription customer when a signed-out account buys an add-on", async () => {
+    const checkoutClaim = "checkout_claim_existing_addon";
     const email = "existing@example.test";
     seedCloudAccountForTests({
       email,
@@ -911,14 +1238,17 @@ describe("remote installation isolation", () => {
       customer: "cus_addon_checkout",
       customer_details: { email },
       id: "cs_existing_addon",
-      metadata: { pinar_offer: "ai_credits_1000" },
+      metadata: {
+        pinar_checkout_claim_hash: await sha256(checkoutClaim),
+        pinar_offer: "ai_credits_1000",
+      },
       mode: "payment",
       payment_status: "paid",
       status: "complete",
     });
     let cookie = "";
     try {
-      const success = await api("/api/stripe/success?session_id=cs_existing_addon", {}, {
+      const success = await api(`/api/stripe/success?session_id=cs_existing_addon&claim=${checkoutClaim}`, {}, {
         ...TEST_ENV,
         STRIPE_SECRET_KEY: "sk_test_example",
       });
@@ -930,12 +1260,14 @@ describe("remote installation isolation", () => {
     const webhookSecret = "whsec_test";
     const now = "2026-08-17T12:00:00.000Z";
     setCloudNowForTests(now);
+    const eventCreated = Math.floor(new Date(now).getTime() / 1000);
     const event = JSON.stringify({
-      data: { object: { customer: "cus_subscription" } },
+      created: eventCreated,
+      data: { object: { customer: "cus_subscription", id: "sub_existing", status: "canceled" } },
       id: "evt_existing_cancel",
       type: "customer.subscription.deleted",
     });
-    const timestamp = String(Math.floor(new Date(now).getTime() / 1000));
+    const timestamp = String(eventCreated);
     const signature = await hmacSha256(webhookSecret, `${timestamp}.${event}`);
     assert.equal((await api("/api/stripe/webhook", {
       body: event,
@@ -948,6 +1280,8 @@ describe("remote installation isolation", () => {
   });
 
   test("fulfills Lifetime and purchased AI credits without duplicate grants", async () => {
+    const lifetimeClaim = "checkout_claim_lifetime_0001";
+    const aiClaim = "checkout_claim_ai_credits_0001";
     const originalFetch = globalThis.fetch;
     setCloudNowForTests("2026-04-30T12:30:00.000Z");
     const sessions = [
@@ -955,7 +1289,10 @@ describe("remote installation isolation", () => {
         customer: "cus_lifetime",
         customer_details: { email: "lifetime@example.test" },
         id: "cs_lifetime",
-        metadata: { pinar_offer: "lifetime_founder" },
+        metadata: {
+          pinar_checkout_claim_hash: await sha256(lifetimeClaim),
+          pinar_offer: "lifetime_founder",
+        },
         mode: "payment",
         payment_status: "paid",
         status: "complete",
@@ -964,7 +1301,10 @@ describe("remote installation isolation", () => {
         customer: "cus_ai",
         customer_details: { email: "ai@example.test" },
         id: "cs_ai",
-        metadata: { pinar_offer: "ai_credits_1000" },
+        metadata: {
+          pinar_checkout_claim_hash: await sha256(aiClaim),
+          pinar_offer: "ai_credits_1000",
+        },
         mode: "payment",
         payment_status: "paid",
         status: "complete",
@@ -973,7 +1313,7 @@ describe("remote installation isolation", () => {
     let index = 0;
     globalThis.fetch = async () => Response.json(sessions[index]);
     try {
-      const lifetime = await api("/api/stripe/success?session_id=cs_lifetime", {}, {
+      const lifetime = await api(`/api/stripe/success?session_id=cs_lifetime&claim=${lifetimeClaim}`, {}, {
         ...TEST_ENV,
         STRIPE_SECRET_KEY: "sk_test_example",
       });
@@ -987,12 +1327,12 @@ describe("remote installation isolation", () => {
       assert.equal(lifetimeEntitlements.aiCredits.balance, 500);
 
       index = 1;
-      const ai = await api("/api/stripe/success?session_id=cs_ai", {}, {
+      const ai = await api(`/api/stripe/success?session_id=cs_ai&claim=${aiClaim}`, {}, {
         ...TEST_ENV,
         STRIPE_SECRET_KEY: "sk_test_example",
       });
       const aiCookie = ai.headers.get("set-cookie")?.split(";", 1)[0] || "";
-      assert.equal((await api("/api/stripe/success?session_id=cs_ai", {}, {
+      assert.equal((await api(`/api/stripe/success?session_id=cs_ai&claim=${aiClaim}`, {}, {
         ...TEST_ENV,
         STRIPE_SECRET_KEY: "sk_test_example",
       })).status, 200);

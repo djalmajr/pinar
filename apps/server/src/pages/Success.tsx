@@ -19,18 +19,22 @@ type ActivationError =
   | { kind: "translation"; value: "success.checkoutFailed" | "success.sessionMissing" };
 
 interface SuccessPageProps {
+  checkoutClaim: string;
   sessionId: string;
 }
 
-export function SuccessPage({ sessionId }: SuccessPageProps) {
+export function SuccessPage({ checkoutClaim, sessionId }: SuccessPageProps) {
   const { t } = useServerI18n();
   const [activation, setActivation] = useState<Activation | null>(null);
   const [error, setError] = useState<ActivationError | null>(null);
 
   useEffect(() => {
     async function activateCheckout() {
-      const response = await fetch(`/api/stripe/success?session_id=${encodeURIComponent(sessionId)}`);
+      const response = await fetch(
+        `/api/stripe/success?session_id=${encodeURIComponent(sessionId)}&claim=${encodeURIComponent(checkoutClaim)}`,
+      );
       const data: unknown = await response.json();
+      window.history.replaceState(null, "", "/success");
       if (response.ok && isRecord(data) && isRecord(data.account)) {
         setActivation({
           email: typeof data.account.email === "string" ? data.account.email : undefined,
@@ -45,9 +49,9 @@ export function SuccessPage({ sessionId }: SuccessPageProps) {
         );
       }
     }
-    if (sessionId) void activateCheckout();
+    if (sessionId && checkoutClaim) void activateCheckout();
     else setError({ kind: "translation", value: "success.sessionMissing" });
-  }, [sessionId]);
+  }, [checkoutClaim, sessionId]);
 
   const isAddOn = activation?.offer === "ai_credits_1000"
     || activation?.offer === "storage_20gb_12m"

@@ -15,6 +15,7 @@
     "start": "bun apps/cli/src/cli.mjs",
     "serve": "bun apps/cli/src/cli.mjs serve",
     "test": "node --test apps/cli/src/*.test.js extension/*.test.js && bun test apps/extension/src/options/*.test.ts && bun --filter @pinar/server test",
+    "test:stripe-sandbox": "bun scripts/stripe-test-catalog-smoke.mjs",
     "dev:server": "bun --filter @pinar/server dev",
     "dev:local": "bun --filter @pinar/server dev:local",
     "build:server": "bun --filter @pinar/server build",

@@ -80,7 +80,7 @@ BEGIN
     AND owner_id = NEW.owner_id
     AND credits - consumed_credits >= NEW.credits
     AND (expires_at IS NULL OR expires_at > NEW.created_at);
-  SELECT CASE WHEN changes() <> 1 THEN RAISE(ABORT, 'insufficient_ai_credits') END;
+  SELECT (CASE WHEN changes() <> 1 THEN RAISE(ABORT, 'insufficient_ai_credits') END);
 END;
 
 CREATE TRIGGER refund_ai_credit_usage
@@ -91,7 +91,7 @@ BEGIN
   SET consumed_credits = consumed_credits - OLD.credits
   WHERE id = OLD.grant_id
     AND consumed_credits >= OLD.credits;
-  SELECT CASE WHEN changes() <> 1 THEN RAISE(ABORT, 'ai_credit_refund_failed') END;
+  SELECT (CASE WHEN changes() <> 1 THEN RAISE(ABORT, 'ai_credit_refund_failed') END);
 END;
 
 CREATE TABLE storage_grants (
@@ -132,6 +132,18 @@ CREATE TABLE stripe_events (
 );
 
 CREATE INDEX idx_stripe_events_processed ON stripe_events(processed_at);
+
+CREATE TABLE stripe_subscription_states (
+  subscription_id TEXT PRIMARY KEY,
+  customer_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('active', 'canceled', 'past_due')),
+  event_created INTEGER NOT NULL CHECK (event_created > 0),
+  event_id TEXT NOT NULL UNIQUE,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX idx_stripe_subscription_states_customer
+  ON stripe_subscription_states(customer_id, event_created DESC);
 
 CREATE TABLE web_sessions (
   token_hash TEXT PRIMARY KEY,

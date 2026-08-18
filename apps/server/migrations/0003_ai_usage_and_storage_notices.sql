@@ -36,7 +36,7 @@ BEGIN
     AND owner_id = NEW.owner_id
     AND credits - consumed_credits >= NEW.credits
     AND (expires_at IS NULL OR expires_at > NEW.created_at);
-  SELECT CASE WHEN changes() <> 1 THEN RAISE(ABORT, 'insufficient_ai_credits') END;
+  SELECT (CASE WHEN changes() <> 1 THEN RAISE(ABORT, 'insufficient_ai_credits') END);
 END;
 
 CREATE TRIGGER refund_ai_credit_usage
@@ -47,7 +47,7 @@ BEGIN
   SET consumed_credits = consumed_credits - OLD.credits
   WHERE id = OLD.grant_id
     AND consumed_credits >= OLD.credits;
-  SELECT CASE WHEN changes() <> 1 THEN RAISE(ABORT, 'ai_credit_refund_failed') END;
+  SELECT (CASE WHEN changes() <> 1 THEN RAISE(ABORT, 'ai_credit_refund_failed') END);
 END;
 
 -- Delivery ledger for the 30, 7, and 1 day storage-expiry notices.

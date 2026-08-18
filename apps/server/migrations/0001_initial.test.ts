@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { describe, test } from "node:test";
 import { Database } from "bun:sqlite";
+import {
+  APPLY_STRIPE_SUBSCRIPTION_STATE_SQL,
+  UPSERT_STRIPE_SUBSCRIPTION_STATE_SQL,
+} from "../src/server/stripe-subscription-state";
 
 const migrationsUrl = new URL("./", import.meta.url);
 const schemaUrl = new URL("../schema.sql", import.meta.url);
@@ -42,6 +46,7 @@ describe("cloud schema migrations", () => {
       "0001_initial.sql",
       "0002_billing_entitlements.sql",
       "0003_ai_usage_and_storage_notices.sql",
+      "0004_stripe_subscription_ordering.sql",
     ]);
     const migrated = new Database(":memory:");
     const canonical = new Database(":memory:");
@@ -72,6 +77,7 @@ describe("cloud schema migrations", () => {
       applyMigrations(db, [
         "0002_billing_entitlements.sql",
         "0003_ai_usage_and_storage_notices.sql",
+        "0004_stripe_subscription_ordering.sql",
       ]);
 
       assert.equal(
@@ -88,6 +94,7 @@ describe("cloud schema migrations", () => {
       assert.ok(tables.includes("storage_grants"));
       assert.ok(tables.includes("storage_expiry_notices"));
       assert.ok(tables.includes("stripe_events"));
+      assert.ok(tables.includes("stripe_subscription_states"));
       const userColumns = db.query<{ name: string }, []>("PRAGMA table_info(users)")
         .all()
         .map((column) => column.name);
@@ -132,6 +139,110 @@ describe("cloud schema migrations", () => {
         .join("\n")
         .toLowerCase();
       assert.doesNotMatch(source, /license_key|browser_ticket|browser_session/);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("keeps D1 subscription state monotonic and scoped to the current subscription", () => {
+    const db = new Database(":memory:");
+    try {
+      db.exec("PRAGMA foreign_keys = ON;");
+      applyMigrations(db);
+      db.exec(`
+        INSERT INTO users (
+          id, email, plan, ever_paid, billing_status, stripe_customer_id,
+          stripe_subscription_id, created_at, updated_at
+        ) VALUES
+          ('usr_ordered', 'ordered@example.test', 'pro', 1, 'active', 'cus_ordered',
+           'sub_ordered', '2026-08-17T00:00:00.000Z', '2026-08-17T00:00:00.000Z'),
+          ('usr_current', 'current@example.test', 'pro', 1, 'active', 'cus_current',
+           'sub_current', '2026-08-17T00:00:00.000Z', '2026-08-17T00:00:00.000Z');
+      `);
+      const upsert = db.query(UPSERT_STRIPE_SUBSCRIPTION_STATE_SQL);
+      const apply = db.query(APPLY_STRIPE_SUBSCRIPTION_STATE_SQL);
+
+      upsert.run(
+        "sub_ordered",
+        "cus_ordered",
+        "canceled",
+        200,
+        "evt_ordered_canceled",
+        "2026-08-17T00:03:20.000Z",
+      );
+      apply.run(
+        "sub_ordered",
+        "sub_ordered",
+        "sub_ordered",
+        "2026-08-17T00:03:20.000Z",
+        "cus_ordered",
+        "sub_ordered",
+        "sub_ordered",
+      );
+      upsert.run(
+        "sub_ordered",
+        "cus_ordered",
+        "active",
+        100,
+        "evt_ordered_stale_active",
+        "2026-08-17T00:01:40.000Z",
+      );
+      apply.run(
+        "sub_ordered",
+        "sub_ordered",
+        "sub_ordered",
+        "2026-08-17T00:04:00.000Z",
+        "cus_ordered",
+        "sub_ordered",
+        "sub_ordered",
+      );
+      upsert.run(
+        "sub_ordered",
+        "cus_ordered",
+        "active",
+        200,
+        "evt_ordered_same_second_active",
+        "2026-08-17T00:03:20.000Z",
+      );
+      apply.run(
+        "sub_ordered",
+        "sub_ordered",
+        "sub_ordered",
+        "2026-08-17T00:04:10.000Z",
+        "cus_ordered",
+        "sub_ordered",
+        "sub_ordered",
+      );
+      assert.deepEqual(
+        db.query<{ billing_status: string; plan: string }, []>(
+          "SELECT billing_status, plan FROM users WHERE id = 'usr_ordered'",
+        ).get(),
+        { billing_status: "canceled", plan: "free" },
+      );
+
+      upsert.run(
+        "sub_previous",
+        "cus_current",
+        "canceled",
+        300,
+        "evt_previous_canceled",
+        "2026-08-17T00:05:00.000Z",
+      );
+      apply.run(
+        "sub_previous",
+        "sub_previous",
+        "sub_previous",
+        "2026-08-17T00:05:00.000Z",
+        "cus_current",
+        "sub_previous",
+        "sub_previous",
+      );
+      assert.deepEqual(
+        db.query<{ billing_status: string; plan: string; stripe_subscription_id: string }, []>(
+          "SELECT billing_status, plan, stripe_subscription_id FROM users WHERE id = 'usr_current'",
+        ).get(),
+        { billing_status: "active", plan: "pro", stripe_subscription_id: "sub_current" },
+      );
     } finally {
       db.close();
     }

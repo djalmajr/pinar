@@ -41,6 +41,13 @@ import {
 import { type PricingConfig, pricingForCountry } from "../lib/pricing";
 import { formatCollectionMarkdown, formatProjectMarkdown, formatSessionMarkdown } from "./markdown";
 import { decodePngDataUrl } from "./png";
+import {
+  APPLY_STRIPE_SUBSCRIPTION_STATE_SQL,
+  UPSERT_STRIPE_SUBSCRIPTION_STATE_SQL,
+  type StripeSubscriptionStatus,
+  stripeSubscriptionStateShouldReplace,
+  stripeSubscriptionStatus,
+} from "./stripe-subscription-state";
 
 interface D1Result {
   results?: Record<string, unknown>[];
@@ -120,13 +127,21 @@ interface InstallationRecord {
 
 interface AccountRecord {
   aiCreditRefillAt: string;
-  billingStatus: "active" | "canceled" | "past_due";
+  billingStatus: StripeSubscriptionStatus;
   email: string;
   everPaid: boolean;
   id: string;
   plan: AccountPlan;
   stripeCustomerId: string;
   stripeSubscriptionId: string;
+}
+
+interface StripeSubscriptionStateRecord {
+  customerId: string;
+  eventCreated: number;
+  eventId: string;
+  status: StripeSubscriptionStatus;
+  subscriptionId: string;
 }
 
 type AiCreditSourceType = "free_initial" | "lifetime_initial" | "pro_monthly" | "purchase";
@@ -232,11 +247,17 @@ const INSTALLATION_ID_PATTERN = /^ins_[A-Za-z0-9_-]{24}$/;
 const INSTALLATION_TOKEN_PATTERN = /^pit_[A-Za-z0-9_-]{43}$/;
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
+const SHOTS_PREFIX = "shots/";
 const AI_MODEL = "@cf/zai-org/glm-4.7-flash" as const;
 const AI_SESSION_SUMMARY_CREDITS = 1;
 const AI_RESERVATION_TIMEOUT_MS = 5 * 60 * 1000;
 const WEB_SESSION_COOKIE = "pinar_session";
 const WEB_SESSION_PATTERN = /^pws_[A-Za-z0-9_-]{43}$/;
+
+function shotObjectKey(id: string) {
+  const filename = id.endsWith(".png") ? id : `${id}.png`;
+  return `${SHOTS_PREFIX}${filename}`;
+}
 const memoryAccounts = new Map<string, AccountRecord>();
 const memoryAiCreditGrants = new Map<string, AiCreditGrantRecord>();
 const memoryAiCreditUsages = new Map<string, AiCreditUsageRecord>();
@@ -251,6 +272,7 @@ const memorySessions = new Map<string, Session>();
 const memoryStorageGrants = new Map<string, StorageGrantRecord>();
 const memoryStorageExpiryNotices = new Map<string, StorageExpiryNoticeRecord>();
 const memoryStripeEvents = new Set<string>();
+const memoryStripeSubscriptionStates = new Map<string, StripeSubscriptionStateRecord>();
 const memoryWebSessions = new Map<string, WebSessionRecord>();
 let memoryMigrationFailure = false;
 let testNow: number | null = null;
@@ -1857,7 +1879,12 @@ async function createCheckout(request: Request, env: CloudEnv) {
   if (requestIdInput && !REQUEST_ID_PATTERN.test(requestIdInput)) {
     return json({ error: "Invalid checkout request id" }, 400);
   }
+  const checkoutClaim = stringValue(body, "checkoutClaim");
+  if (!REQUEST_ID_PATTERN.test(checkoutClaim)) {
+    return json({ error: "Invalid checkout claim" }, 400);
+  }
   const requestId = requestIdInput || generateNanoId(24);
+  const checkoutClaimHash = await hashCredential(checkoutClaim);
   const origin = new URL(request.url).origin;
   const subscription = isSubscriptionOffer(offer);
   const priceId = stripePriceForOffer(env, offer, requestCountry(request) === "BR");
@@ -1868,9 +1895,10 @@ async function createCheckout(request: Request, env: CloudEnv) {
     integration_identifier: `pinar_web_${randomLetters()}`,
     "line_items[0][price]": priceId,
     "line_items[0][quantity]": "1",
+    "metadata[pinar_checkout_claim_hash]": checkoutClaimHash,
     "metadata[pinar_offer]": offer,
     mode: subscription ? "subscription" : "payment",
-    success_url: `${origin}/success?session_id={CHECKOUT_SESSION_ID}`,
+    success_url: `${origin}/success?session_id={CHECKOUT_SESSION_ID}&claim=${encodeURIComponent(checkoutClaim)}`,
   });
   const principal = await resolvePrincipal(request, env);
   const account = principal?.kind === "account" ? await findAccountById(env, principal.id) : null;
@@ -2020,12 +2048,18 @@ function checkoutIsPaid(session: Record<string, unknown>) {
 async function fulfillCheckout(env: CloudEnv, session: Record<string, unknown>) {
   if (!checkoutIsPaid(session)) return null;
   const offer = offerFromCheckoutSession(session);
-  const account = await upsertStripeAccount({ env, plan: planForOffer(offer), session });
+  let account = await upsertStripeAccount({ env, plan: planForOffer(offer), session });
   if (!account) return null;
   const sessionId = stringValue(session, "id");
   if (offer === "pro_month" || offer === "pro_year") {
+    const subscriptionId = stringValue(session, "subscription");
+    if (subscriptionId) {
+      account = await applyStripeSubscriptionState(env, account.stripeCustomerId, subscriptionId) || account;
+    }
     await ensureProMonthlyCredits(env, account);
-    await preserveAccountSessions(env, account.id, account.plan);
+    if (account.plan === "pro" && account.billingStatus === "active") {
+      await preserveAccountSessions(env, account.id, account.plan);
+    }
   } else if (offer === "lifetime_founder") {
     if (!sessionId) return null;
     await grantAiCredits({
@@ -2067,8 +2101,10 @@ async function fulfillCheckout(env: CloudEnv, session: Record<string, unknown>) 
 }
 
 async function completeCheckout(request: Request, env: CloudEnv) {
-  const sessionId = new URL(request.url).searchParams.get("session_id") || "";
-  if (!sessionId || !env.STRIPE_SECRET_KEY) {
+  const url = new URL(request.url);
+  const sessionId = url.searchParams.get("session_id") || "";
+  const checkoutClaim = url.searchParams.get("claim") || "";
+  if (!sessionId || !REQUEST_ID_PATTERN.test(checkoutClaim) || !env.STRIPE_SECRET_KEY) {
     return json({ error: "Checkout session unavailable" }, 400);
   }
   const response = await fetch(
@@ -2082,6 +2118,12 @@ async function completeCheckout(request: Request, env: CloudEnv) {
   );
   const session = await readJson(response);
   if (!response.ok || session.status !== "complete" || !checkoutIsPaid(session)) {
+    return json({ error: "Checkout session unavailable" }, 400);
+  }
+  const metadata = isRecord(session.metadata) ? session.metadata : {};
+  const expectedClaimHash = stringValue(metadata, "pinar_checkout_claim_hash");
+  const checkoutClaimHash = await hashCredential(checkoutClaim);
+  if (!expectedClaimHash || !timingSafeEqual(checkoutClaimHash, expectedClaimHash)) {
     return json({ error: "Checkout session unavailable" }, 400);
   }
   const fulfilled = await fulfillCheckout(env, session);
@@ -2124,30 +2166,61 @@ async function verifyStripeWebhook(
   return signatures.some((signature) => timingSafeEqual(signature, expected));
 }
 
-async function updateSubscriptionAccount(
-  env: CloudEnv,
-  customerId: string,
-  status: string,
-) {
-  const account = await findAccountByStripeCustomer(env, customerId);
-  if (!account) return null;
-  const active = status === "active" || status === "trialing";
-  const billingStatus = status === "canceled" ? "canceled" : active ? "active" : "past_due";
-  const plan: AccountPlan = account.plan === "lifetime" ? "lifetime" : active ? "pro" : "free";
+interface RecordStripeSubscriptionStateInput {
+  customerId: string;
+  env: CloudEnv;
+  eventCreated: number;
+  eventId: string;
+  status: StripeSubscriptionStatus;
+  subscriptionId: string;
+}
+
+async function recordStripeSubscriptionState(input: RecordStripeSubscriptionStateInput) {
+  const { customerId, env, eventCreated, eventId, status, subscriptionId } = input;
+  const updatedAt = currentDate().toISOString();
   if (env.DB) {
-    await env.DB.prepare(
-      "UPDATE users SET plan = ?, billing_status = ?, ever_paid = 1, updated_at = ? WHERE stripe_customer_id = ?",
-    ).bind(plan, billingStatus, currentDate().toISOString(), customerId).run();
-    const updated = await findAccountById(env, account.id);
-    if (updated) await ensureProMonthlyCredits(env, updated);
-    return updated;
-  } else {
-    account.billingStatus = billingStatus;
-    account.everPaid = true;
-    account.plan = plan;
-    await ensureProMonthlyCredits(env, account);
+    await env.DB.prepare(UPSERT_STRIPE_SUBSCRIPTION_STATE_SQL)
+      .bind(subscriptionId, customerId, status, eventCreated, eventId, updatedAt).run();
+    return;
+  }
+  const existing = memoryStripeSubscriptionStates.get(subscriptionId);
+  if (stripeSubscriptionStateShouldReplace(existing, { eventCreated, status })) {
+    memoryStripeSubscriptionStates.set(subscriptionId, {
+      customerId,
+      eventCreated,
+      eventId,
+      status,
+      subscriptionId,
+    });
+  }
+}
+
+async function applyStripeSubscriptionState(env: CloudEnv, customerId: string, subscriptionId: string) {
+  const account = await findAccountByStripeCustomer(env, customerId);
+  if (!account || (account.stripeSubscriptionId && account.stripeSubscriptionId !== subscriptionId)) {
     return account;
   }
+  if (env.DB) {
+    await env.DB.prepare(APPLY_STRIPE_SUBSCRIPTION_STATE_SQL).bind(
+      subscriptionId,
+      subscriptionId,
+      subscriptionId,
+      currentDate().toISOString(),
+      customerId,
+      subscriptionId,
+      subscriptionId,
+    ).run();
+  } else {
+    const state = memoryStripeSubscriptionStates.get(subscriptionId);
+    if (!state || state.customerId !== customerId) return account;
+    account.billingStatus = state.status;
+    account.everPaid = true;
+    account.plan = account.plan === "lifetime" ? "lifetime" : state.status === "active" ? "pro" : "free";
+    account.stripeSubscriptionId ||= subscriptionId;
+  }
+  const updated = await findAccountById(env, account.id);
+  if (updated) await ensureProMonthlyCredits(env, updated);
+  return updated;
 }
 
 async function handleWebhook(request: Request, env: CloudEnv) {
@@ -2175,10 +2248,16 @@ async function handleWebhook(request: Request, env: CloudEnv) {
     if (checkoutIsPaid(data) && !await fulfillCheckout(env, data)) {
       return json({ error: "Checkout fulfillment unavailable" }, 503);
     }
-  } else if (eventType === "customer.subscription.deleted") {
-    await updateSubscriptionAccount(env, stringValue(data, "customer"), "canceled");
-  } else if (eventType === "customer.subscription.updated") {
-    await updateSubscriptionAccount(env, stringValue(data, "customer"), stringValue(data, "status"));
+  } else if (eventType === "customer.subscription.deleted" || eventType === "customer.subscription.updated") {
+    const customerId = stringValue(data, "customer");
+    const eventCreated = numberValue(event, "created");
+    const status = stripeSubscriptionStatus(eventType, stringValue(data, "status"));
+    const subscriptionId = stringValue(data, "id");
+    if (!customerId || eventCreated <= 0 || !status || !subscriptionId) {
+      return json({ error: "Invalid subscription event" }, 400);
+    }
+    await recordStripeSubscriptionState({ customerId, env, eventCreated, eventId, status, subscriptionId });
+    await applyStripeSubscriptionState(env, customerId, subscriptionId);
   }
   await recordStripeEvent(env, eventId, eventType);
   return json({ received: true });
@@ -3041,7 +3120,7 @@ async function uploadShot(request: Request, env: CloudEnv) {
   const shotUrl = `${origin}/shots/${id}.png`;
   const destination = await resolveDestination(env, principal, stringValue(body, "collectionId"));
   if (env.PINAR_BUCKET) {
-    await env.PINAR_BUCKET.put(`${id}.png`, imageBytes, { httpMetadata: { contentType: "image/png" } });
+    await env.PINAR_BUCKET.put(shotObjectKey(id), imageBytes, { httpMetadata: { contentType: "image/png" } });
   }
   const session: Session = {
     byteSize: imageBytes.byteLength,
@@ -3155,7 +3234,7 @@ async function deleteHistory(request: Request, env: CloudEnv, id: string) {
     shotId = existing.shotId || id;
     memorySessions.delete(id);
   }
-  if (env.PINAR_BUCKET) await env.PINAR_BUCKET.delete(`${shotId}.png`).catch(() => undefined);
+  if (env.PINAR_BUCKET) await env.PINAR_BUCKET.delete(shotObjectKey(shotId)).catch(() => undefined);
   return json({ ok: true });
 }
 
@@ -3401,7 +3480,7 @@ export async function cleanupOldRecords(env: CloudEnv, days = 7) {
     ).bind(cutoff).all();
     const sessions = result.results || [];
     if (env.PINAR_BUCKET) {
-      await Promise.all(sessions.map((session) => env.PINAR_BUCKET?.delete(`${session.shot_id || session.id}.png`)));
+      await Promise.all(sessions.map((session) => env.PINAR_BUCKET?.delete(shotObjectKey(String(session.shot_id || session.id)))));
     }
     await env.DB.prepare(
       "DELETE FROM sessions WHERE created_at < ? AND (is_permanent = 0 OR is_permanent IS NULL)",
@@ -3412,7 +3491,7 @@ export async function cleanupOldRecords(env: CloudEnv, days = 7) {
       (session) => !session.isPermanent && session.createdAt < cutoff,
     );
     if (env.PINAR_BUCKET) {
-      await Promise.all(expired.map((session) => env.PINAR_BUCKET?.delete(`${session.shotId || session.id}.png`)));
+      await Promise.all(expired.map((session) => env.PINAR_BUCKET?.delete(shotObjectKey(session.shotId || session.id))));
     }
     for (const session of expired) memorySessions.delete(session.id);
     deletedCount = expired.length;
@@ -3646,7 +3725,7 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
   const url = new URL(request.url);
   if (request.method === "GET" && url.pathname.startsWith("/shots/")) {
     const id = decodeURIComponent(url.pathname.slice("/shots/".length));
-    const key = id.endsWith(".png") ? id : `${id}.png`;
+    const key = shotObjectKey(id);
     const object = env.PINAR_BUCKET ? await env.PINAR_BUCKET.get(key) : null;
     if (!object) return json({ error: "shot not found" }, 404);
     const headers = corsHeaders({ "Cache-Control": "public, max-age=86400", "Content-Type": "image/png" });
@@ -3710,6 +3789,7 @@ export function resetCloudMemoryStateForTests() {
   memoryStorageGrants.clear();
   memoryStorageExpiryNotices.clear();
   memoryStripeEvents.clear();
+  memoryStripeSubscriptionStates.clear();
   memoryWebSessions.clear();
   memoryMigrationFailure = false;
   testNow = null;

@@ -1,16 +1,22 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "pinar",
+  "name": "pinar-dev",
   "main": "./src/worker-entry.ts",
   "compatibility_date": "2026-08-16",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
-  "routes": [
-    { "pattern": "pinar.dev", "custom_domain": true },
-    { "pattern": "www.pinar.dev", "custom_domain": true }
+
+  // Top-level is local-only. Named environments below own every remote
+  // binding and route so a bare deploy cannot overwrite staging/production.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pinar-dev",
+      "migrations_dir": "./migrations"
+    }
   ],
   "r2_buckets": [
-    { "binding": "PINAR_BUCKET", "bucket_name": "pinar-shots" }
+    { "binding": "PINAR_BUCKET", "bucket_name": "pinar-dev" }
   ],
   "ai": { "binding": "AI" },
   "send_email": [
@@ -19,14 +25,9 @@
       "allowed_sender_addresses": ["noreply@pinar.dev"]
     }
   ],
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "pinar-history-v2",
-      "database_id": "e9f7e794-0cde-4eb9-8548-c2e3ad45a16a",
-      "migrations_dir": "./migrations"
-    }
-  ],
+  "secrets": {
+    "required": ["AUTH_PEPPER", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"]
+  },
   "triggers": { "crons": ["0 3 * * *"] },
   "vars": {
     "PRICING_AI_CREDITS_1000_BRL_CENTS": "990",
@@ -41,17 +42,130 @@
     "PRICING_STORAGE_5GB_12M_USD_CENTS": "299",
     "PRICING_YEARLY_BRL_CENTS": "3990",
     "PRICING_YEARLY_USD_CENTS": "1900",
-    "STRIPE_PRICE_AI_CREDITS_1000": "price_1U5XwFJGVFdtzSCOR2agCgof",
-    "STRIPE_PRICE_BR_AI_CREDITS_1000": "price_1U5XwGJGVFdtzSCO8T2LGEqJ",
-    "STRIPE_PRICE_BR_LIFETIME": "price_1U5XwEJGVFdtzSCO8nCcFRSc",
-    "STRIPE_PRICE_BR_MONTHLY": "price_1U5XomJGVFdtzSCO0316SVCW",
-    "STRIPE_PRICE_BR_STORAGE_20GB_12M": "price_1U5XwKJGVFdtzSCOYszI1KcQ",
-    "STRIPE_PRICE_BR_STORAGE_5GB_12M": "price_1U5XwIJGVFdtzSCOBh5ZZt5S",
-    "STRIPE_PRICE_BR_YEARLY": "price_1U5XomJGVFdtzSCOxtZnslQI",
-    "STRIPE_PRICE_LIFETIME": "price_1U5XwDJGVFdtzSCO7ngjKIy0",
-    "STRIPE_PRICE_MONTHLY": "price_1U5XomJGVFdtzSCOqTGr4M7C",
-    "STRIPE_PRICE_STORAGE_20GB_12M": "price_1U5XwJJGVFdtzSCOd7ex00cf",
-    "STRIPE_PRICE_STORAGE_5GB_12M": "price_1U5XwHJGVFdtzSCOPqyoHW73",
-    "STRIPE_PRICE_YEARLY": "price_1U5XomJGVFdtzSCOQPra4ioz"
+    "STRIPE_PRICE_AI_CREDITS_1000": "price_1U5ZSTJGVFdtzSCOysL2A8Ty",
+    "STRIPE_PRICE_BR_AI_CREDITS_1000": "price_1U5ZSTJGVFdtzSCO2YI9ulOP",
+    "STRIPE_PRICE_BR_LIFETIME": "price_1U5ZZNJGVFdtzSCOzRPZZSfK",
+    "STRIPE_PRICE_BR_MONTHLY": "price_1U5ZXeJGVFdtzSCOAZSOqvZh",
+    "STRIPE_PRICE_BR_STORAGE_20GB_12M": "price_1U5ZUcJGVFdtzSCOyrwKWYBK",
+    "STRIPE_PRICE_BR_STORAGE_5GB_12M": "price_1U5ZTwJGVFdtzSCOGomGvcBw",
+    "STRIPE_PRICE_BR_YEARLY": "price_1U5ZXeJGVFdtzSCORyc16YUv",
+    "STRIPE_PRICE_LIFETIME": "price_1U5ZZNJGVFdtzSCODvgL6RDy",
+    "STRIPE_PRICE_MONTHLY": "price_1U5ZXeJGVFdtzSCOLS2bNf7I",
+    "STRIPE_PRICE_STORAGE_20GB_12M": "price_1U5ZUcJGVFdtzSCOabxqpqXR",
+    "STRIPE_PRICE_STORAGE_5GB_12M": "price_1U5ZTwJGVFdtzSCOl1iqMMKf",
+    "STRIPE_PRICE_YEARLY": "price_1U5ZXeJGVFdtzSCOQmiGxJUq"
+  },
+
+  "env": {
+    "staging": {
+      "name": "pinar-stg",
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "pinar-stg",
+          "database_id": "24ee4840-f0f3-49ba-b6ce-b99b0050d37e",
+          "migrations_dir": "./migrations"
+        }
+      ],
+      "r2_buckets": [
+        { "binding": "PINAR_BUCKET", "bucket_name": "pinar-stg" }
+      ],
+      "ai": { "binding": "AI" },
+      "send_email": [
+        {
+          "name": "EMAIL",
+          "allowed_sender_addresses": ["noreply@pinar.dev"]
+        }
+      ],
+      "secrets": {
+        "required": ["AUTH_PEPPER", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"]
+      },
+      "routes": [
+        { "pattern": "stg.pinar.dev", "custom_domain": true }
+      ],
+      "triggers": { "crons": ["0 3 * * *"] },
+      "vars": {
+        "PRICING_AI_CREDITS_1000_BRL_CENTS": "990",
+        "PRICING_AI_CREDITS_1000_USD_CENTS": "299",
+        "PRICING_LIFETIME_BRL_CENTS": "12990",
+        "PRICING_LIFETIME_USD_CENTS": "3900",
+        "PRICING_MONTHLY_BRL_CENTS": "490",
+        "PRICING_MONTHLY_USD_CENTS": "299",
+        "PRICING_STORAGE_20GB_12M_BRL_CENTS": "2990",
+        "PRICING_STORAGE_20GB_12M_USD_CENTS": "799",
+        "PRICING_STORAGE_5GB_12M_BRL_CENTS": "990",
+        "PRICING_STORAGE_5GB_12M_USD_CENTS": "299",
+        "PRICING_YEARLY_BRL_CENTS": "3990",
+        "PRICING_YEARLY_USD_CENTS": "1900",
+        "STRIPE_PRICE_AI_CREDITS_1000": "price_1U5ZSTJGVFdtzSCOysL2A8Ty",
+        "STRIPE_PRICE_BR_AI_CREDITS_1000": "price_1U5ZSTJGVFdtzSCO2YI9ulOP",
+        "STRIPE_PRICE_BR_LIFETIME": "price_1U5ZZNJGVFdtzSCOzRPZZSfK",
+        "STRIPE_PRICE_BR_MONTHLY": "price_1U5ZXeJGVFdtzSCOAZSOqvZh",
+        "STRIPE_PRICE_BR_STORAGE_20GB_12M": "price_1U5ZUcJGVFdtzSCOyrwKWYBK",
+        "STRIPE_PRICE_BR_STORAGE_5GB_12M": "price_1U5ZTwJGVFdtzSCOGomGvcBw",
+        "STRIPE_PRICE_BR_YEARLY": "price_1U5ZXeJGVFdtzSCORyc16YUv",
+        "STRIPE_PRICE_LIFETIME": "price_1U5ZZNJGVFdtzSCODvgL6RDy",
+        "STRIPE_PRICE_MONTHLY": "price_1U5ZXeJGVFdtzSCOLS2bNf7I",
+        "STRIPE_PRICE_STORAGE_20GB_12M": "price_1U5ZUcJGVFdtzSCOabxqpqXR",
+        "STRIPE_PRICE_STORAGE_5GB_12M": "price_1U5ZTwJGVFdtzSCOl1iqMMKf",
+        "STRIPE_PRICE_YEARLY": "price_1U5ZXeJGVFdtzSCOQmiGxJUq"
+      }
+    },
+
+    "production": {
+      "name": "pinar-prd",
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "pinar-prd",
+          "database_id": "d9f0f168-9cfe-45a8-8996-c592e5ec6bda",
+          "migrations_dir": "./migrations"
+        }
+      ],
+      "r2_buckets": [
+        { "binding": "PINAR_BUCKET", "bucket_name": "pinar-prd" }
+      ],
+      "ai": { "binding": "AI" },
+      "send_email": [
+        {
+          "name": "EMAIL",
+          "allowed_sender_addresses": ["noreply@pinar.dev"]
+        }
+      ],
+      "secrets": {
+        "required": ["AUTH_PEPPER", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"]
+      },
+      "routes": [
+        { "pattern": "pinar.dev", "custom_domain": true },
+        { "pattern": "www.pinar.dev", "custom_domain": true }
+      ],
+      "triggers": { "crons": ["0 3 * * *"] },
+      "vars": {
+        "PRICING_AI_CREDITS_1000_BRL_CENTS": "990",
+        "PRICING_AI_CREDITS_1000_USD_CENTS": "299",
+        "PRICING_LIFETIME_BRL_CENTS": "12990",
+        "PRICING_LIFETIME_USD_CENTS": "3900",
+        "PRICING_MONTHLY_BRL_CENTS": "490",
+        "PRICING_MONTHLY_USD_CENTS": "299",
+        "PRICING_STORAGE_20GB_12M_BRL_CENTS": "2990",
+        "PRICING_STORAGE_20GB_12M_USD_CENTS": "799",
+        "PRICING_STORAGE_5GB_12M_BRL_CENTS": "990",
+        "PRICING_STORAGE_5GB_12M_USD_CENTS": "299",
+        "PRICING_YEARLY_BRL_CENTS": "3990",
+        "PRICING_YEARLY_USD_CENTS": "1900",
+        "STRIPE_PRICE_AI_CREDITS_1000": "price_1U5XwFJGVFdtzSCOR2agCgof",
+        "STRIPE_PRICE_BR_AI_CREDITS_1000": "price_1U5XwGJGVFdtzSCO8T2LGEqJ",
+        "STRIPE_PRICE_BR_LIFETIME": "price_1U5XwEJGVFdtzSCO8nCcFRSc",
+        "STRIPE_PRICE_BR_MONTHLY": "price_1U5XomJGVFdtzSCO0316SVCW",
+        "STRIPE_PRICE_BR_STORAGE_20GB_12M": "price_1U5XwKJGVFdtzSCOYszI1KcQ",
+        "STRIPE_PRICE_BR_STORAGE_5GB_12M": "price_1U5XwIJGVFdtzSCOBh5ZZt5S",
+        "STRIPE_PRICE_BR_YEARLY": "price_1U5XomJGVFdtzSCOxtZnslQI",
+        "STRIPE_PRICE_LIFETIME": "price_1U5XwDJGVFdtzSCO7ngjKIy0",
+        "STRIPE_PRICE_MONTHLY": "price_1U5XomJGVFdtzSCOqTGr4M7C",
+        "STRIPE_PRICE_STORAGE_20GB_12M": "price_1U5XwJJGVFdtzSCOd7ex00cf",
+        "STRIPE_PRICE_STORAGE_5GB_12M": "price_1U5XwHJGVFdtzSCOPqyoHW73",
+        "STRIPE_PRICE_YEARLY": "price_1U5XomJGVFdtzSCOQPra4ioz"
+      }
+    }
   }
 }

@@ -162,10 +162,11 @@ export function PricingPage() {
   async function startCheckout(offer: CheckoutOffer) {
     setLoadingOffer(offer);
     try {
+      const checkoutClaim = crypto.randomUUID();
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ offer, requestId: crypto.randomUUID() }),
+        body: JSON.stringify({ checkoutClaim, offer, requestId: crypto.randomUUID() }),
       });
       const data = await readResponseRecord(res);
       if (res.ok && isRecord(data) && typeof data.url === "string") {

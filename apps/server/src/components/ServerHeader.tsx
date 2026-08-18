@@ -16,7 +16,6 @@ import LanguagesIcon from "~icons/lucide/languages";
 import HomeIcon from "~icons/lucide/house";
 import LogInIcon from "~icons/lucide/log-in";
 import MenuIcon from "~icons/lucide/menu";
-import PanelsTopLeftIcon from "~icons/lucide/panels-top-left";
 import MoonIcon from "~icons/lucide/moon";
 import SunIcon from "~icons/lucide/sun";
 import TagIcon from "~icons/lucide/tags";
@@ -73,14 +72,6 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
           <TagIcon data-icon="inline-start" />
           {t("common.plans")}
         </Button>
-        <Button
-          render={<Link aria-current={activePage === "signIn" ? "page" : undefined} preload="intent" search={{ extensionCode: "", returnTo: "/app" }} to="/sign-in" />}
-          size="sm"
-          variant={activePage === "signIn" ? "secondary" : "ghost"}
-        >
-          <LogInIcon data-icon="inline-start" />
-          {t("common.signIn")}
-        </Button>
       </nav>
 
       {context ? <div className="min-w-0 flex-1 border-l pl-4">{context}</div> : <div className="flex-1" />}
@@ -95,7 +86,6 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
             <DropdownMenuItem render={<Link preload="intent" to="/" />}><HomeIcon />{t("common.home")}</DropdownMenuItem>
             <DropdownMenuItem render={<Link preload="intent" to="/pricing" />}><TagIcon />{t("common.plans")}</DropdownMenuItem>
             <DropdownMenuItem render={<Link preload="intent" search={{ extensionCode: "", returnTo: "/app" }} to="/sign-in" />}><LogInIcon />{t("common.signIn")}</DropdownMenuItem>
-            <DropdownMenuItem render={<Link preload="intent" to="/app" />}><PanelsTopLeftIcon />{t("common.openApp")}</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
         <DropdownMenu>
@@ -135,9 +125,14 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
         >
           <GitHubIcon />
         </Button>
-        <Button className="hidden md:inline-flex" render={<Link preload="intent" to="/app" />} size="sm" variant="pro">
-          <PanelsTopLeftIcon data-icon="inline-start" />
-          {t("common.openApp")}
+        <Button
+          className="hidden md:inline-flex"
+          render={<Link aria-current={activePage === "signIn" ? "page" : undefined} preload="intent" search={{ extensionCode: "", returnTo: "/app" }} to="/sign-in" />}
+          size="sm"
+          variant="pro"
+        >
+          <LogInIcon data-icon="inline-start" />
+          {t("common.signIn")}
         </Button>
       </div>
     </header>

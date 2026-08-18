@@ -1007,17 +1007,19 @@ describe("remote installation isolation", () => {
     assert.ok(isRecord(firstBody.aiCredits));
     assert.equal(firstBody.aiCredits.balance, 4);
     assert.ok(isRecord(firstBody.usage));
-    assert.equal(firstBody.usage.costUsdMicros, 17);
+    assert.equal(firstBody.usage.costUsdMicros, 25);
     assert.equal(firstBody.usage.inputTokens, 120);
     assert.equal(firstBody.usage.outputTokens, 24);
-    assert.equal(firstBody.usage.model, "@cf/zai-org/glm-4.7-flash");
+    assert.equal(firstBody.usage.model, "@cf/meta/llama-3.1-8b-instruct-fp8");
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].model, "@cf/zai-org/glm-4.7-flash");
+    assert.equal(calls[0].model, "@cf/meta/llama-3.1-8b-instruct-fp8");
     assert.ok(isRecord(calls[0].input));
     assert.ok(Array.isArray(calls[0].input.messages));
     const messages = calls[0].input.messages;
     assert.ok(isRecord(messages[0]));
     assert.match(String(messages[0].content), /untrusted data/);
+    assert.match(String(messages[0].content), /property names must be exactly/);
+    assert.equal(calls[0].input.max_tokens, 256);
 
     const replay = await jsonBody(await request());
     assert.equal(replay.idempotent, true);

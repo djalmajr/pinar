@@ -6,6 +6,7 @@ import { ServerFooter } from "@/components/ServerFooter";
 import CheckCircleIcon from "~icons/lucide/circle-check";
 import PanelsTopLeftIcon from "~icons/lucide/panels-top-left";
 import { isRecord } from "@/lib/api-data";
+import { refreshAuthSession } from "@/lib/auth-session";
 import { useServerI18n } from "@/lib/i18n";
 import { reduceCheckoutActivation } from "@/lib/success-state";
 
@@ -34,6 +35,7 @@ export function SuccessPage({ checkoutClaim, sessionId }: SuccessPageProps) {
           },
           type: "succeed",
         });
+        void refreshAuthSession();
       } else {
         dispatch({
           error: isRecord(data) && typeof data.error === "string"

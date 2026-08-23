@@ -7,5 +7,7 @@ src/web-assets.generated.mjs
 coverage/
 .tmp/
 .env.local
+.dev.vars*
+.wrangler/
 test-results/
 !e2e/usability/screenshots/**/*.png

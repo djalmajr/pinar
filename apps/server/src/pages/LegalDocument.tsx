@@ -1,5 +1,5 @@
-import { Button, ScrollArea } from "@pinar/ui";
-import { Link } from "@tanstack/react-router";
+import { Button, ScrollArea, Tabs, TabsContent, TabsList, TabsTrigger } from "@pinar/ui";
+import { Link, useNavigate } from "@tanstack/react-router";
 import ReactMarkdown from "react-markdown";
 import { ServerFooter } from "@/components/ServerFooter";
 import { ServerShell } from "@/components/ServerShell";
@@ -17,6 +17,7 @@ interface LegalDocumentPageProps {
 
 export function LegalDocumentPage({ documentId }: LegalDocumentPageProps) {
   const { language } = useServerI18n();
+  const navigate = useNavigate();
   if (!isLegalDocumentId(documentId)) {
     return (
       <ServerShell>
@@ -30,6 +31,12 @@ export function LegalDocumentPage({ documentId }: LegalDocumentPageProps) {
     );
   }
   const document = legalDocument(documentId, language);
+
+  function selectDocument(nextDocumentId: string) {
+    if (!isLegalDocumentId(nextDocumentId)) return;
+    void navigate({ params: { document: nextDocumentId }, to: "/legal/$document" });
+  }
+
   return (
     <ServerShell>
       <ScrollArea className="min-h-0 flex-1">
@@ -41,32 +48,35 @@ export function LegalDocumentPage({ documentId }: LegalDocumentPageProps) {
               {language === "pt" ? "Versão e vigência" : "Version and effective date"}: {document.version}
             </p>
           </header>
-          <nav aria-label={language === "pt" ? "Documentos legais" : "Legal documents"} className="flex flex-wrap gap-2 border-b py-5">
-            {LegalDocumentIds.map((legalDocumentId) => (
-              <Button
-                key={legalDocumentId}
-                render={<Link params={{ document: legalDocumentId }} preload="intent" to="/legal/$document" />}
-                size="sm"
-                variant={legalDocumentId === document.id ? "secondary" : "ghost"}
-              >
-                {legalDocumentTitle(legalDocumentId, language)}
-              </Button>
-            ))}
-          </nav>
-          <article className="py-8 text-sm leading-7 text-foreground">
-            <ReactMarkdown
-              components={{
-                a: ({ children, href }) => <a className="font-medium text-primary underline underline-offset-4" href={href} rel="noopener noreferrer" target="_blank">{children}</a>,
-                h2: ({ children }) => <h2 className="mb-3 mt-8 text-xl font-semibold tracking-tight first:mt-0">{children}</h2>,
-                h3: ({ children }) => <h3 className="mb-2 mt-6 text-base font-semibold">{children}</h3>,
-                li: ({ children }) => <li className="ml-5 list-disc pl-1">{children}</li>,
-                p: ({ children }) => <p className="mb-4 text-muted-foreground">{children}</p>,
-                ul: ({ children }) => <ul className="mb-4 space-y-1 text-muted-foreground">{children}</ul>,
-              }}
+          <Tabs className="gap-0" value={document.id} onValueChange={selectDocument}>
+            <TabsList
+              aria-label={language === "pt" ? "Documentos legais" : "Legal documents"}
+              className="h-auto w-full flex-wrap justify-start gap-x-4 gap-y-2 border-b px-0 py-5 group-data-horizontal/tabs:h-auto"
+              variant="line"
             >
-              {document.body}
-            </ReactMarkdown>
-          </article>
+              {LegalDocumentIds.map((legalDocumentId) => (
+                <TabsTrigger className="h-8 flex-none px-0" key={legalDocumentId} value={legalDocumentId}>
+                  {legalDocumentTitle(legalDocumentId, language)}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            <TabsContent value={document.id}>
+              <article className="py-8 text-sm leading-7 text-foreground">
+                <ReactMarkdown
+                  components={{
+                    a: ({ children, href }) => <a className="font-medium text-primary underline underline-offset-4" href={href} rel="noopener noreferrer" target="_blank">{children}</a>,
+                    h2: ({ children }) => <h2 className="mb-3 mt-8 text-xl font-semibold tracking-tight first:mt-0">{children}</h2>,
+                    h3: ({ children }) => <h3 className="mb-2 mt-6 text-base font-semibold">{children}</h3>,
+                    li: ({ children }) => <li className="ml-5 list-disc pl-1">{children}</li>,
+                    p: ({ children }) => <p className="mb-4 text-muted-foreground">{children}</p>,
+                    ul: ({ children }) => <ul className="mb-4 space-y-1 text-muted-foreground">{children}</ul>,
+                  }}
+                >
+                  {document.body}
+                </ReactMarkdown>
+              </article>
+            </TabsContent>
+          </Tabs>
           <ServerFooter className="pt-4" />
         </main>
       </ScrollArea>

@@ -11,6 +11,13 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   ScrollArea,
   toast,
   ToggleGroup,
@@ -116,6 +123,7 @@ export function PricingPage() {
   const [billingInterval, setBillingInterval] = useState<BillingInterval>("year");
   const [legalAccepted, setLegalAccepted] = useState(false);
   const [loadingOffer, setLoadingOffer] = useState<CheckoutOffer | null>(null);
+  const [pendingOffer, setPendingOffer] = useState<CheckoutOffer | null>(null);
   const [pricing, setPricing] = useState<PublicPricing | null>(null);
 
   useEffect(() => {
@@ -169,11 +177,7 @@ export function PricingPage() {
     setBillingInterval(nextInterval);
   }
 
-  async function startCheckout(offer: CheckoutOffer) {
-    if (!legalAccepted) {
-      toast.error(t("pricing.legalConsentRequired"));
-      return;
-    }
+  async function startCheckout(offer: CheckoutOffer, includeLegalAcceptance = false) {
     setLoadingOffer(offer);
     try {
       const checkoutClaim = crypto.randomUUID();
@@ -183,13 +187,13 @@ export function PricingPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           checkoutClaim,
-          legalAcceptance: {
+          legalAcceptance: includeLegalAcceptance ? {
             acceptableUseVersion: CURRENT_LEGAL_VERSION,
             accepted: true,
             locale: legalLocale,
             privacyVersion: CURRENT_LEGAL_VERSION,
             termsVersion: CURRENT_LEGAL_VERSION,
-          },
+          } : undefined,
           locale: legalLocale,
           offer,
           requestId: crypto.randomUUID(),
@@ -198,6 +202,9 @@ export function PricingPage() {
       const data = await readResponseRecord(res);
       if (res.ok && isRecord(data) && typeof data.url === "string") {
         window.location.href = data.url;
+      } else if (isRecord(data) && data.code === "legal_acceptance_required") {
+        setLegalAccepted(false);
+        setPendingOffer(offer);
       } else {
         const message = isRecord(data)
           && data.code !== "checkout_unavailable"
@@ -241,34 +248,6 @@ export function PricingPage() {
           <Badge className={pricing?.regional ? "" : "invisible"} variant="proSoft">
             {t("pricing.regionalBrazil")}
           </Badge>
-        </div>
-        <div className="mb-6 w-full max-w-3xl rounded-lg border bg-card/60 p-4 text-left">
-          <label className="flex cursor-pointer items-start gap-3 text-sm">
-            <input
-              checked={legalAccepted}
-              className="mt-0.5 size-4 shrink-0 accent-primary"
-              type="checkbox"
-              onChange={(event) => setLegalAccepted(event.currentTarget.checked)}
-            />
-            <span>
-              {t("pricing.legalConsentPrefix")}{" "}
-              <a className="font-medium underline underline-offset-4" href="/legal/terms">
-                {t("pricing.legalTerms")}
-              </a>
-              {", "}
-              <a className="font-medium underline underline-offset-4" href="/legal/privacy">
-                {t("pricing.legalPrivacy")}
-              </a>
-              {" "}{t("pricing.legalAnd")}{" "}
-              <a className="font-medium underline underline-offset-4" href="/legal/acceptable-use">
-                {t("pricing.legalAcceptableUse")}
-              </a>
-              .
-              <span className="mt-1 block text-xs text-muted-foreground">
-                {t("pricing.legalConsentVersion", { version: CURRENT_LEGAL_VERSION })}
-              </span>
-            </span>
-          </label>
         </div>
         <div className="max-w-5xl w-full grid grid-cols-1 md:grid-cols-3 gap-6 mb-12 pt-3">
         {/* Free Card */}
@@ -379,7 +358,7 @@ export function PricingPage() {
             <CardFooter>
               <Button
                 className="w-full"
-                disabled={loadingOffer !== null || !pricing || !legalAccepted}
+                disabled={loadingOffer !== null || !pricing}
                 onClick={() => startCheckout(proOffer)}
               >
                 {proCheckoutLabel}
@@ -431,7 +410,7 @@ export function PricingPage() {
             <CardFooter>
               <Button
                 className="w-full bg-success text-success-foreground hover:bg-success/90"
-                disabled={loadingOffer !== null || !founderAvailable || !legalAccepted}
+                disabled={loadingOffer !== null || !founderAvailable}
                 onClick={() => startCheckout("founder")}
               >
                 {founderCheckoutLabel}
@@ -459,7 +438,7 @@ export function PricingPage() {
             currency={pricing?.currency}
             description={t("pricing.aiCreditsDescription")}
             language={language}
-            loading={loadingOffer !== null || !legalAccepted}
+            loading={loadingOffer !== null}
             price={pricing?.prices.aiCredits1000}
             suffix={t("pricing.valid12Months")}
             title={t("pricing.aiCreditsTitle")}
@@ -470,7 +449,7 @@ export function PricingPage() {
             currency={pricing?.currency}
             description={t("pricing.storage5Description")}
             language={language}
-            loading={loadingOffer !== null || !legalAccepted}
+            loading={loadingOffer !== null}
             price={pricing?.prices.storage5Gb12M}
             suffix={t("pricing.valid12Months")}
             title={t("pricing.storage5Title")}
@@ -481,7 +460,7 @@ export function PricingPage() {
             currency={pricing?.currency}
             description={t("pricing.storage20Description")}
             language={language}
-            loading={loadingOffer !== null || !legalAccepted}
+            loading={loadingOffer !== null}
             price={pricing?.prices.storage20Gb12M}
             suffix={t("pricing.valid12Months")}
             title={t("pricing.storage20Title")}
@@ -497,6 +476,59 @@ export function PricingPage() {
             </span>
           )}
         />
+        <Dialog
+          open={pendingOffer !== null}
+          onOpenChange={(open) => {
+            if (!open && loadingOffer === null) {
+              setLegalAccepted(false);
+              setPendingOffer(null);
+            }
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{t("pricing.legalDialogTitle")}</DialogTitle>
+              <DialogDescription>{t("pricing.legalDialogDescription")}</DialogDescription>
+            </DialogHeader>
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border bg-muted/30 p-4 text-sm">
+              <input
+                checked={legalAccepted}
+                className="mt-0.5 size-4 shrink-0 accent-primary"
+                type="checkbox"
+                onChange={(event) => setLegalAccepted(event.currentTarget.checked)}
+              />
+              <span>
+                {t("pricing.legalConsentPrefix")}{" "}
+                <a className="font-medium underline underline-offset-4" href="/legal/terms" target="_blank">
+                  {t("pricing.legalTerms")}
+                </a>
+                {", "}
+                <a className="font-medium underline underline-offset-4" href="/legal/privacy" target="_blank">
+                  {t("pricing.legalPrivacy")}
+                </a>
+                {" "}{t("pricing.legalAnd")}{" "}
+                <a className="font-medium underline underline-offset-4" href="/legal/acceptable-use" target="_blank">
+                  {t("pricing.legalAcceptableUse")}
+                </a>
+                .
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  {t("pricing.legalDialogVersion", { version: CURRENT_LEGAL_VERSION })}
+                </span>
+              </span>
+            </label>
+            <DialogFooter>
+              <DialogClose render={<Button variant="outline" />}>
+                {t("common.cancel")}
+              </DialogClose>
+              <Button
+                disabled={!legalAccepted || loadingOffer !== null}
+                onClick={() => pendingOffer && void startCheckout(pendingOffer, true)}
+              >
+                {loadingOffer ? t("pricing.redirecting") : t("pricing.legalContinue")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
         </div>
       </ScrollArea>
     </ServerShell>

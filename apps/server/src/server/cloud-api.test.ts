@@ -181,6 +181,7 @@ async function verifyEmailCode(
   code: string,
   env: CloudEnv,
   identity?: typeof identityA,
+  includeLegalAcceptance = true,
 ) {
   return api("/api/auth/email-codes/verify", {
     body: JSON.stringify({
@@ -188,6 +189,7 @@ async function verifyEmailCode(
       email,
       installationId: identity?.id,
       installationToken: identity?.token,
+      legalAcceptance: includeLegalAcceptance ? REMOTE_FREE_LEGAL_ACCEPTANCE : undefined,
       returnTo: "/app",
     }),
     headers: { "content-type": "application/json" },
@@ -457,11 +459,23 @@ describe("remote installation isolation", () => {
     assert.equal(locked.headers.get("set-cookie"), null);
   });
 
-  test("signs a paid account in directly with a single-use email code", async () => {
+  test("requires current policies on first activation and reuses acceptance on later logins", async () => {
     const mail = emailBinding();
     const env: CloudEnv = { ...TEST_ENV, EMAIL: mail.binding };
     seedCloudAccountForTests({ email: "owner@example.test", plan: "lifetime" });
     await requestEmailCode("OWNER@example.test", env);
+    const required = await verifyEmailCode("owner@example.test", mail.codes[0], env, undefined, false);
+    assert.equal(required.status, 428);
+    assert.deepEqual(await jsonBody(required), {
+      acceptableUseUrl: "/legal/acceptable-use",
+      code: "legal_acceptance_required",
+      error: "Current legal acceptance is required",
+      privacyUrl: "/legal/privacy",
+      termsUrl: "/legal/terms",
+      version: CURRENT_LEGAL_VERSION,
+    });
+    assert.equal(required.headers.get("set-cookie"), null);
+
     const response = await verifyEmailCode("owner@example.test", mail.codes[0], env);
     assert.equal(response.status, 200);
     const cookie = response.headers.get("set-cookie")?.split(";", 1)[0] || "";
@@ -471,6 +485,16 @@ describe("remote installation isolation", () => {
     assert.equal(session.session.kind, "account");
     assert.equal(session.session.plan, "lifetime");
     assert.equal((await verifyEmailCode("owner@example.test", mail.codes[0], env)).status, 400);
+
+    await requestEmailCode("owner@example.test", env);
+    const laterLogin = await verifyEmailCode("owner@example.test", mail.codes.at(-1) || "", env, undefined, false);
+    assert.equal(laterLogin.status, 200);
+    const entitlements = await jsonBody(await api("/api/account/entitlements", {
+      headers: { cookie: laterLogin.headers.get("set-cookie")?.split(";", 1)[0] || "" },
+    }, env));
+    assert.ok(isRecord(entitlements.legalAcceptance));
+    assert.equal(entitlements.legalAcceptance.source, "account");
+    assert.equal(entitlements.legalAcceptance.termsVersion, CURRENT_LEGAL_VERSION);
   });
 
   test("expires email codes after ten minutes", async () => {
@@ -936,6 +960,41 @@ describe("remote installation isolation", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+
+  test("opens checkout directly for an account with the current policy acceptance", async () => {
+    const mail = emailBinding();
+    const env: CloudEnv = {
+      ...TEST_ENV,
+      EMAIL: mail.binding,
+      STRIPE_PRICE_YEARLY: "price_yearly_test",
+      STRIPE_SECRET_KEY: "sk_test_example",
+    };
+    seedCloudAccountForTests({ email: "accepted@example.test", plan: "pro" });
+    await requestEmailCode("accepted@example.test", env);
+    const login = await verifyEmailCode("accepted@example.test", mail.codes[0], env);
+    const cookie = login.headers.get("set-cookie")?.split(";", 1)[0] || "";
+
+    const originalFetch = globalThis.fetch;
+    let stripeInit: RequestInit | undefined;
+    globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      stripeInit = init;
+      return Response.json({ url: "https://checkout.stripe.test/current-acceptance" });
+    };
+    try {
+      const response = await api("/api/stripe/checkout", {
+        body: JSON.stringify({ checkoutClaim: "checkout_existing_acceptance_0001", interval: "year" }),
+        headers: { "content-type": "application/json", cookie },
+        method: "POST",
+      }, env);
+      assert.equal(response.status, 200);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    const params = new URLSearchParams(String(stripeInit?.body));
+    assert.equal(params.get("metadata[pinar_legal_acceptance_source]"), "account");
+    assert.equal(params.get("metadata[pinar_terms_version]"), CURRENT_LEGAL_VERSION);
   });
 
   test("uses the Cloudflare country for Brazil pricing and checkout", async () => {
@@ -1734,12 +1793,14 @@ describe("remote installation isolation", () => {
     assert.ok(isRecord(first.aiCredits));
     assert.equal(first.aiCredits.balance, 200);
     assert.equal(first.aiCredits.nextExpiryAt, "2026-02-28T12:30:00.000Z");
+    assert.equal(first.aiCredits.nextRefillAt, "2026-02-28T12:30:00.000Z");
 
     setCloudNowForTests("2026-02-28T12:30:00.000Z");
     const renewed = await jsonBody(await api("/api/account/entitlements", { headers: { cookie } }));
     assert.ok(isRecord(renewed.aiCredits));
     assert.equal(renewed.aiCredits.balance, 200);
     assert.equal(renewed.aiCredits.nextExpiryAt, "2026-03-28T12:30:00.000Z");
+    assert.equal(renewed.aiCredits.nextRefillAt, "2026-03-28T12:30:00.000Z");
     const duplicate = await jsonBody(await api("/api/account/entitlements", { headers: { cookie } }));
     assert.ok(isRecord(duplicate.aiCredits));
     assert.equal(duplicate.aiCredits.balance, 200);

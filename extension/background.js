@@ -586,7 +586,6 @@ async function setCaptureDestination(collectionId) {
 
 async function registerRemoteInstallation(endpoint, identity, force = false) {
   const cacheKey = `${endpoint}:${identity.id}`;
-  if (!force && registeredInstallations.has(cacheKey)) return;
   const [legalResponse, stored] = await Promise.all([
     fetch(`${endpoint}/api/legal/current`),
     chrome.storage.local.get({ remoteLegalAcceptance: null }),
@@ -596,6 +595,7 @@ async function registerRemoteInstallation(endpoint, identity, force = false) {
   if (!legalResponse.ok || !legalBundle || !legalAcceptance) {
     throw new Error("Accept the current Pinar Terms in the extension settings before using remote storage");
   }
+  if (!force && registeredInstallations.has(cacheKey)) return legalAcceptance;
   const response = await fetch(`${endpoint}/api/installations`, {
     body: JSON.stringify({ installationId: identity.id, installationToken: identity.token, legalAcceptance }),
     headers: { "content-type": "application/json" },
@@ -604,6 +604,7 @@ async function registerRemoteInstallation(endpoint, identity, force = false) {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || "Remote installation registration failed");
   registeredInstallations.add(cacheKey);
+  return legalAcceptance;
 }
 
 async function installationFetch(endpoint, path, identity, init = {}) {
@@ -689,13 +690,14 @@ async function verifyAccountEmailCode(email, code) {
   const settings = await getSettings();
   const endpoint = cloudEndpoint(settings);
   const identity = await initializeInstallationIdentity();
-  await registerRemoteInstallation(endpoint, identity);
+  const legalAcceptance = await registerRemoteInstallation(endpoint, identity);
   const response = await fetch(`${endpoint}/api/auth/email-codes/verify`, {
     body: JSON.stringify({
       code,
       email,
       installationId: identity.id,
       installationToken: identity.token,
+      legalAcceptance,
     }),
     headers: { "content-type": "application/json" },
     method: "POST",

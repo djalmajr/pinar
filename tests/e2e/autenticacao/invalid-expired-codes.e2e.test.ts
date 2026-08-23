@@ -37,8 +37,8 @@ test.beforeEach(async ({ page }) => {
   }));
 });
 
-// Mutation captured: separating the icon from the title or restoring the
-// previous 24px primary icon changes both the measured row and color contract.
+// Mutation captured: separating the icon from the title, restoring the
+// previous accent color or making it larger than the title breaks this contract.
 test("Extension and Account headings keep their compact icons aligned with the title", async ({ page }) => {
   await page.goto("/sign-in");
 
@@ -69,8 +69,7 @@ test("Extension and Account headings keep their compact icons aligned with the t
 
     expect(metrics.colorMatches).toBe(true);
     expect(metrics.sameLine).toBe(true);
-    expect(metrics.iconHeight).toBeGreaterThan(metrics.titleFontSize);
-    expect(metrics.iconHeight).toBeLessThanOrEqual(metrics.titleFontSize + 2);
+    expect(metrics.iconHeight).toBe(metrics.titleFontSize);
   }
 });
 
@@ -186,4 +185,51 @@ test("email OTP keeps responses non-enumerating, limits retries and resets recov
   await page.getByPlaceholder("000000").fill("654321");
   await page.getByRole("button", { name: "Verify and enter" }).click();
   await expect(page).toHaveURL(/\/app$/);
+});
+
+test("first remote account activation accepts the current policies after OTP verification", async ({ page }) => {
+  const verifyBodies: Record<string, unknown>[] = [];
+  await page.route("**/api/auth/email-codes", (route) => route.fulfill({ json: { ok: true }, status: 202 }));
+  await page.route("**/api/auth/email-codes/verify", async (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    verifyBodies.push(body);
+    if (!body.legalAcceptance) {
+      await route.fulfill({
+        json: {
+          acceptableUseUrl: "/legal/acceptable-use",
+          code: "legal_acceptance_required",
+          privacyUrl: "/legal/privacy",
+          termsUrl: "/legal/terms",
+          version: "2026-08-18",
+        },
+        status: 428,
+      });
+      return;
+    }
+    await route.fulfill({ json: { redirectTo: "/pricing?activated=1" } });
+  });
+
+  await page.goto("/sign-in");
+  await page.getByRole("tab", { name: "Account" }).click();
+  await page.getByPlaceholder("you@example.com").fill("founder@example.com");
+  await page.getByRole("button", { name: "Send code" }).click();
+  await page.getByPlaceholder("000000").fill("654321");
+  await page.getByRole("button", { name: "Verify and enter" }).click();
+
+  await expect(page.getByText("Accept the current hosted-service policies to activate this account.")).toBeVisible();
+  const acceptButton = page.getByRole("button", { name: "Accept and enter" });
+  await expect(acceptButton).toBeDisabled();
+  await page.getByRole("checkbox", { name: /I agree to the Terms of Service/ }).check();
+  await acceptButton.click();
+  await expect(page).toHaveURL(/\/pricing\?activated=1$/);
+
+  expect(verifyBodies).toHaveLength(2);
+  expect(verifyBodies[0].legalAcceptance).toBeUndefined();
+  expect(verifyBodies[1].legalAcceptance).toEqual({
+    acceptableUseVersion: "2026-08-18",
+    accepted: true,
+    locale: "en",
+    privacyVersion: "2026-08-18",
+    termsVersion: "2026-08-18",
+  });
 });

@@ -17,6 +17,7 @@ import { ServerFooter } from "@/components/ServerFooter";
 import { ServerShell } from "@/components/ServerShell";
 import { isRecord } from "@/lib/api-data";
 import { useServerI18n } from "@/lib/i18n";
+import { CURRENT_LEGAL_VERSION } from "@/lib/legal-documents";
 import KeyRoundIcon from "~icons/lucide/key-round";
 import MailIcon from "~icons/lucide/mail";
 
@@ -25,7 +26,7 @@ interface SignInPageProps {
   returnTo: string;
 }
 
-type Step = "request" | "verify";
+type Step = "accept" | "request" | "verify";
 
 async function responseError(response: Response) {
   const data: unknown = await response.json().catch(() => ({}));
@@ -33,13 +34,14 @@ async function responseError(response: Response) {
 }
 
 export function SignInPage({ extensionCode, returnTo }: SignInPageProps) {
-  const { t } = useServerI18n();
+  const { language, t } = useServerI18n();
   const [code, setCode] = useState(extensionCode);
   const [email, setEmail] = useState("");
   const [emailCode, setEmailCode] = useState("");
   const [error, setError] = useState("");
   const autoExchangeStarted = useRef(false);
   const [loading, setLoading] = useState(false);
+  const [legalAccepted, setLegalAccepted] = useState(false);
   const [step, setStep] = useState<Step>("request");
 
   async function exchangeCode(value: string) {
@@ -99,12 +101,29 @@ export function SignInPage({ extensionCode, returnTo }: SignInPageProps) {
     setError("");
     try {
       const response = await fetch("/api/auth/email-codes/verify", {
-        body: JSON.stringify({ code: emailCode, email, returnTo }),
+        body: JSON.stringify({
+          code: emailCode,
+          email,
+          legalAcceptance: step === "accept" ? {
+            acceptableUseVersion: CURRENT_LEGAL_VERSION,
+            accepted: legalAccepted,
+            locale: language === "pt" ? "pt" : "en",
+            privacyVersion: CURRENT_LEGAL_VERSION,
+            termsVersion: CURRENT_LEGAL_VERSION,
+          } : undefined,
+          returnTo,
+        }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
       });
-      if (!response.ok) throw new Error(await responseError(response));
-      const data: unknown = await response.json();
+      const data: unknown = await response.json().catch(() => ({}));
+      if (response.status === 428 && isRecord(data) && data.code === "legal_acceptance_required") {
+        setStep("accept");
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(isRecord(data) && typeof data.error === "string" ? data.error : "Request failed");
+      }
       window.location.href = isRecord(data) && typeof data.redirectTo === "string" ? data.redirectTo : returnTo;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("signIn.codeInvalid"));
@@ -116,6 +135,7 @@ export function SignInPage({ extensionCode, returnTo }: SignInPageProps) {
   function changeEmail() {
     setEmailCode("");
     setError("");
+    setLegalAccepted(false);
     setStep("request");
   }
 
@@ -133,7 +153,7 @@ export function SignInPage({ extensionCode, returnTo }: SignInPageProps) {
                 <TabsContent className="flex flex-col gap-4" value="extension">
                   <CardHeader>
                     <div className="flex items-center gap-2 text-card-foreground" data-testid="extension-sign-in-heading">
-                      <KeyRoundIcon className="size-[1.125rem] shrink-0 text-current" />
+                      <KeyRoundIcon className="size-4 shrink-0 text-current" />
                       <CardTitle>{t("signIn.freeTitle")}</CardTitle>
                     </div>
                     <CardDescription>{t("signIn.freeDescription")}</CardDescription>
@@ -160,10 +180,14 @@ export function SignInPage({ extensionCode, returnTo }: SignInPageProps) {
                 <TabsContent className="flex flex-col gap-4" value="account">
                   <CardHeader>
                     <div className="flex items-center gap-2 text-card-foreground" data-testid="account-sign-in-heading">
-                      <MailIcon className="size-[1.125rem] shrink-0 text-current" />
+                      <MailIcon className="size-4 shrink-0 text-current" />
                       <CardTitle>{t("signIn.accountTitle")}</CardTitle>
                     </div>
-                    <CardDescription>{t(step === "request" ? "signIn.accountDescription" : "signIn.emailSent")}</CardDescription>
+                    <CardDescription>{t(step === "request"
+                      ? "signIn.accountDescription"
+                      : step === "accept"
+                        ? "signIn.legalDescription"
+                        : "signIn.emailSent")}</CardDescription>
                   </CardHeader>
                   <CardContent>
                     {step === "request" ? (
@@ -174,13 +198,37 @@ export function SignInPage({ extensionCode, returnTo }: SignInPageProps) {
                         }} />
                         <Button className="w-full" disabled={loading} type="submit">{loading ? t("signIn.sending") : t("signIn.sendCode")}</Button>
                       </form>
-                    ) : (
+                    ) : step === "verify" ? (
                       <form className="flex flex-col gap-3" onSubmit={verifyEmailCode}>
                         <Input autoComplete="one-time-code" inputMode="numeric" maxLength={6} pattern="[0-9]{6}" placeholder="000000" required value={emailCode} onChange={(event) => {
                           setEmailCode(event.target.value.replace(/\D/g, ""));
                           setError("");
                         }} />
                         <Button className="w-full" disabled={loading || emailCode.length !== 6} type="submit">{loading ? t("signIn.entering") : t("signIn.verifyCode")}</Button>
+                        <Button className="w-full" type="button" variant="ghost" onClick={changeEmail}>{t("signIn.changeEmail")}</Button>
+                      </form>
+                    ) : (
+                      <form className="flex flex-col gap-3" onSubmit={verifyEmailCode}>
+                        <label className="flex cursor-pointer items-start gap-3 rounded-lg border bg-muted/30 p-3 text-sm">
+                          <input
+                            checked={legalAccepted}
+                            className="mt-0.5 size-4 shrink-0 accent-primary"
+                            type="checkbox"
+                            onChange={(event) => setLegalAccepted(event.currentTarget.checked)}
+                          />
+                          <span>
+                            {t("pricing.legalConsentPrefix")}{" "}
+                            <a className="font-medium underline underline-offset-4" href="/legal/terms" target="_blank">{t("pricing.legalTerms")}</a>
+                            {", "}
+                            <a className="font-medium underline underline-offset-4" href="/legal/privacy" target="_blank">{t("pricing.legalPrivacy")}</a>
+                            {" "}{t("pricing.legalAnd")}{" "}
+                            <a className="font-medium underline underline-offset-4" href="/legal/acceptable-use" target="_blank">{t("pricing.legalAcceptableUse")}</a>.
+                            <span className="mt-1 block text-xs text-muted-foreground">{t("pricing.legalDialogVersion", { version: CURRENT_LEGAL_VERSION })}</span>
+                          </span>
+                        </label>
+                        <Button className="w-full" disabled={loading || !legalAccepted} type="submit">
+                          {loading ? t("signIn.entering") : t("signIn.acceptAndEnter")}
+                        </Button>
                         <Button className="w-full" type="button" variant="ghost" onClick={changeEmail}>{t("signIn.changeEmail")}</Button>
                       </form>
                     )}

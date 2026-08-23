@@ -11,13 +11,21 @@ const tanstackReactStartServerEntry = fileURLToPath(new URL("./src/tanstack-serv
 const useSyncExternalStoreShim = fileURLToPath(
   new URL("./src/lib/use-sync-external-store-shim.ts", import.meta.url),
 );
+const cloudStatePath = process.env.PINAR_CLOUD_STATE_PATH || ".wrangler/state/cloud-local";
+const LOCAL_CLOUD_COMPATIBILITY_DATE = "2026-08-06";
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   define: {
     "import.meta.env.VITE_PINAR_RUNTIME": JSON.stringify("cloud"),
   },
   plugins: [
-    cloudflare({ viteEnvironment: { name: "ssr" } }),
+    cloudflare({
+      config: command === "serve"
+        ? { compatibility_date: LOCAL_CLOUD_COMPATIBILITY_DATE }
+        : undefined,
+      persistState: { path: cloudStatePath },
+      viteEnvironment: { name: "ssr" },
+    }),
     tailwindcss(),
     Icons({
       compiler: "jsx",
@@ -42,4 +50,4 @@ export default defineConfig({
     port: 3000,
     strictPort: true,
   },
-});
+}));

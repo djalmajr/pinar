@@ -6,9 +6,11 @@
   "scripts": {
     "build": "vite build",
     "build:local": "vite build --config vite.local.config.ts",
+    "dev:cloud": "bun scripts/cloud-local.mjs --serve",
     "dev": "vite dev --host",
     "dev:local": "vite dev --config vite.local.config.ts --host 127.0.0.1 --port 17373 --strictPort",
     "preview": "wrangler dev",
+    "prepare:cloud": "bun scripts/cloud-local.mjs",
     "test": "bun test",
     "typecheck": "wrangler types && tsc --noEmit"
   },

@@ -73,4 +73,9 @@ describe("capture destination", () => {
     assert.doesNotMatch(backgroundSrc, /withLanguage\(`\$\{base\}\/app`\)/);
     assert.doesNotMatch(backgroundSrc, /browser-ticket|\/history/);
   });
+
+  test("carries the current remote legal acceptance into account activation", () => {
+    assert.match(backgroundSrc, /const legalAcceptance = await registerRemoteInstallation\(endpoint, identity\)/);
+    assert.match(backgroundSrc, /body: JSON\.stringify\(\{[\s\S]*code,[\s\S]*email,[\s\S]*installationId: identity\.id,[\s\S]*installationToken: identity\.token,[\s\S]*legalAcceptance,[\s\S]*\}\)/);
+  });
 });

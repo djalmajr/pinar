@@ -16,35 +16,30 @@ const config = JSON.parse(
     .replace(/,\s*([}\]])/g, "$1"),
 ) as WranglerConfig;
 
-function expectFounderClosed(vars: Record<string, string>) {
-  assert.equal(vars.FOUNDER_SALES_ENABLED, undefined);
-  assert.equal(vars.FOUNDER_CAPACITY_LIMIT, undefined);
-}
-
 function expectFounderOpen(vars: Record<string, string>) {
   assert.equal(vars.FOUNDER_SALES_ENABLED, "true");
   assert.equal(vars.FOUNDER_CAPACITY_LIMIT, "100");
 }
 
 describe("Founder deployment configuration", () => {
-  test("opens the first 100-seat tranche only for local and staging", () => {
+  test("opens the first 100-seat tranche for local, staging, and production", () => {
     expectFounderOpen(config.vars);
     expectFounderOpen(config.env.staging.vars);
-    expectFounderClosed(config.env.production.vars);
+    expectFounderOpen(config.env.production.vars);
   });
 
-  test("reuses equivalent Test prices under Founder names without removing legacy aliases", () => {
-    for (const vars of [config.vars, config.env.staging.vars]) {
+  test("reuses equivalent prices under Founder names without removing legacy aliases", () => {
+    for (const vars of [config.vars, config.env.staging.vars, config.env.production.vars]) {
       assert.equal(vars.STRIPE_PRICE_FOUNDER, vars.STRIPE_PRICE_LIFETIME);
       assert.equal(vars.STRIPE_PRICE_BR_FOUNDER, vars.STRIPE_PRICE_BR_LIFETIME);
     }
   });
 
-  test("does not opt production into the new Founder catalog without authorization", () => {
+  test("keeps production Founder prices aliased to the live Lifetime catalog", () => {
     const production = config.env.production.vars;
 
-    assert.equal(production.STRIPE_PRICE_FOUNDER, undefined);
-    assert.equal(production.STRIPE_PRICE_BR_FOUNDER, undefined);
+    assert.match(production.STRIPE_PRICE_FOUNDER, /^price_/);
+    assert.match(production.STRIPE_PRICE_BR_FOUNDER, /^price_/);
     assert.match(production.STRIPE_PRICE_LIFETIME, /^price_/);
     assert.match(production.STRIPE_PRICE_BR_LIFETIME, /^price_/);
   });

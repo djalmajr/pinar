@@ -10,13 +10,16 @@ import {
   DropdownMenuTrigger,
   PinarMark,
 } from "@pinar/ui";
+import { useAuthSession } from "@/lib/auth-session";
 import { SERVER_LANGUAGES, useServerI18n } from "@/lib/i18n";
+import { publicHeaderCta } from "@/lib/server-header";
 import CheckIcon from "~icons/lucide/check";
 import LanguagesIcon from "~icons/lucide/languages";
 import HomeIcon from "~icons/lucide/house";
 import LogInIcon from "~icons/lucide/log-in";
 import MenuIcon from "~icons/lucide/menu";
 import MoonIcon from "~icons/lucide/moon";
+import PanelsTopLeftIcon from "~icons/lucide/panels-top-left";
 import SunIcon from "~icons/lucide/sun";
 import TagIcon from "~icons/lucide/tags";
 import GitHubIcon from "~icons/radix-icons/github-logo";
@@ -31,6 +34,8 @@ export interface ServerHeaderProps {
 
 export function ServerHeader({ actions, activePage, context }: ServerHeaderProps) {
   const { language, languageName, setLanguage, t } = useServerI18n();
+  const session = useAuthSession();
+  const headerCta = publicHeaderCta(session);
   const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
@@ -85,7 +90,11 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
           <DropdownMenuContent align="end" className="w-44 md:hidden">
             <DropdownMenuItem render={<Link preload="intent" to="/" />}><HomeIcon />{t("common.home")}</DropdownMenuItem>
             <DropdownMenuItem render={<Link preload="intent" to="/pricing" />}><TagIcon />{t("common.plans")}</DropdownMenuItem>
-            <DropdownMenuItem render={<Link preload="intent" search={{ extensionCode: "", returnTo: "/app" }} to="/sign-in" />}><LogInIcon />{t("common.signIn")}</DropdownMenuItem>
+            {headerCta === "open-app" ? (
+              <DropdownMenuItem render={<Link preload="intent" to="/app" />}><PanelsTopLeftIcon />{t("common.openApp")}</DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem render={<Link preload="intent" search={{ extensionCode: "", returnTo: "/app" }} to="/sign-in" />}><LogInIcon />{t("common.signIn")}</DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
         <DropdownMenu>
@@ -125,15 +134,27 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
         >
           <GitHubIcon />
         </Button>
-        <Button
-          className="hidden md:inline-flex"
-          render={<Link aria-current={activePage === "signIn" ? "page" : undefined} preload="intent" search={{ extensionCode: "", returnTo: "/app" }} to="/sign-in" />}
-          size="sm"
-          variant="pro"
-        >
-          <LogInIcon data-icon="inline-start" />
-          {t("common.signIn")}
-        </Button>
+        {headerCta === "open-app" ? (
+          <Button
+            className="hidden md:inline-flex"
+            render={<Link preload="intent" to="/app" />}
+            size="sm"
+            variant="pro"
+          >
+            <PanelsTopLeftIcon data-icon="inline-start" />
+            {t("common.openApp")}
+          </Button>
+        ) : (
+          <Button
+            className="hidden md:inline-flex"
+            render={<Link aria-current={activePage === "signIn" ? "page" : undefined} preload="intent" search={{ extensionCode: "", returnTo: "/app" }} to="/sign-in" />}
+            size="sm"
+            variant="pro"
+          >
+            <LogInIcon data-icon="inline-start" />
+            {t("common.signIn")}
+          </Button>
+        )}
       </div>
     </header>
   );

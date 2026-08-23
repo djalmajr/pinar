@@ -17,7 +17,7 @@ import ArrowRightIcon from "~icons/lucide/arrow-right";
 import BotIcon from "~icons/lucide/bot";
 import CloudIcon from "~icons/lucide/cloud";
 import CodeIcon from "~icons/lucide/code-xml";
-import DashboardIcon from "~icons/lucide/layout-dashboard";
+import LogInIcon from "~icons/lucide/log-in";
 import MapPinIcon from "~icons/lucide/map-pin";
 import ShieldCheckIcon from "~icons/lucide/shield-check";
 import SparklesIcon from "~icons/lucide/sparkles";
@@ -35,7 +35,7 @@ export function LandingPage() {
       <ScrollArea className="min-h-0 flex-1">
         <main className="mx-auto flex min-h-full w-full max-w-6xl flex-col px-5 py-14">
           <section className="mx-auto flex max-w-3xl flex-col items-center text-center">
-            <Badge variant="pro">
+            <Badge variant="proSoft">
               <SparklesIcon data-icon="inline-start" />
               {t("landing.badge")}
             </Badge>
@@ -46,9 +46,9 @@ export function LandingPage() {
               {t("landing.description")}
             </p>
             <div className="mt-7 flex flex-wrap items-center justify-center gap-2">
-              <Button render={<Link preload="intent" to="/app" />} size="lg">
-                <DashboardIcon data-icon="inline-start" />
-                {t("landing.openDashboard")}
+              <Button render={<Link preload="intent" search={{ extensionCode: "", returnTo: "/app" }} to="/sign-in" />} size="lg">
+                <LogInIcon data-icon="inline-start" />
+                {t("common.signIn")}
               </Button>
               <Button render={<Link preload="intent" to="/pricing" />} size="lg" variant="outline">
                 {t("landing.viewPlans")}
@@ -61,8 +61,8 @@ export function LandingPage() {
             {features.map((feature) => (
               <Card key={feature.title}>
                 <CardHeader>
-                  <div className="flex items-center gap-2">
-                    <feature.icon className="size-6 shrink-0 text-primary" />
+                  <div className="flex items-center gap-2 text-card-foreground">
+                    <feature.icon className="size-4 shrink-0 text-current" />
                     <CardTitle>{feature.title}</CardTitle>
                   </div>
                   <CardDescription>{feature.description}</CardDescription>
@@ -74,8 +74,8 @@ export function LandingPage() {
           <section className="mt-8 grid gap-4 md:grid-cols-2">
             <Card className="h-full">
               <CardHeader>
-                <div className="flex items-center gap-2">
-                  <ShieldCheckIcon className="size-6 shrink-0 text-primary" />
+                <div className="flex items-center gap-2 text-card-foreground">
+                  <ShieldCheckIcon className="size-4 shrink-0 text-current" />
                   <CardTitle>{t("landing.privateTitle")}</CardTitle>
                 </div>
                 <CardDescription>
@@ -91,8 +91,8 @@ export function LandingPage() {
             </Card>
             <Card className="h-full">
               <CardHeader>
-                <div className="flex items-center gap-2">
-                  <CloudIcon className="size-6 shrink-0 text-primary" />
+                <div className="flex items-center gap-2 text-card-foreground">
+                  <CloudIcon className="size-4 shrink-0 text-current" />
                   <CardTitle>{t("landing.shareTitle")}</CardTitle>
                 </div>
                 <CardDescription>

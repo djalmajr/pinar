@@ -3,6 +3,7 @@ import type { AuthSession, AuthSessionResponse } from "@pinar/shared";
 import { isRecord } from "@/lib/api-data";
 
 let sessionRequest: Promise<AuthSession | null> | null = null;
+const sessionListeners = new Set<(session: AuthSession | null) => void>();
 
 export function isAuthSession(value: unknown): value is AuthSession {
   if (!isRecord(value) || typeof value.kind !== "string") return false;
@@ -16,24 +17,35 @@ export function isAuthSession(value: unknown): value is AuthSession {
     && (value.plan === "founder" || value.plan === "free" || value.plan === "pro" || value.plan === "lifetime");
 }
 
+function notifyAuthSession(session: AuthSession | null) {
+  for (const listener of sessionListeners) listener(session);
+}
+
 function requestAuthSession() {
   sessionRequest ??= fetch("/api/auth/session", { cache: "no-store" })
     .then((response) => response.json() as Promise<AuthSessionResponse>)
     .then((data) => isAuthSession(data.session) ? data.session : null)
-    .catch(() => null);
+    .catch(() => null)
+    .then((session) => {
+      notifyAuthSession(session);
+      return session;
+    });
   return sessionRequest;
+}
+
+export function refreshAuthSession() {
+  sessionRequest = null;
+  return requestAuthSession();
 }
 
 export function useAuthSession() {
   const [session, setSession] = useState<AuthSession | null>(null);
 
   useEffect(() => {
-    let active = true;
-    void requestAuthSession().then((nextSession) => {
-      if (active) setSession(nextSession);
-    });
+    sessionListeners.add(setSession);
+    void requestAuthSession().then(setSession);
     return () => {
-      active = false;
+      sessionListeners.delete(setSession);
     };
   }, []);
 

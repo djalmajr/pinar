@@ -46,15 +46,25 @@ describe("accountUsageSummary", () => {
   // both the parsed contract and its observable percentage.
   test("parses the observable credits and storage contract", () => {
     const summary = accountUsageSummary({
-      aiCredits: { balance: 700, nextExpiryAt: "2026-09-18T00:00:00.000Z" },
-      plan: "founder",
-      storage: { quotaBytes: 5 * 1024 ** 3, usedBytes: 512 * 1024 ** 2 },
+      aiCredits: {
+        balance: 700,
+        nextExpiryAt: "2026-09-18T00:00:00.000Z",
+        nextRefillAt: "2026-09-30T00:00:00.000Z",
+      },
+      plan: "pro",
+      storage: {
+        nextExpiryAt: "2026-10-01T00:00:00.000Z",
+        quotaBytes: 5 * 1024 ** 3,
+        usedBytes: 512 * 1024 ** 2,
+      },
     });
 
     assert.deepEqual(summary, {
       aiCredits: 700,
       aiCreditsExpireAt: "2026-09-18T00:00:00.000Z",
-      plan: "founder",
+      aiCreditsRefillAt: "2026-09-30T00:00:00.000Z",
+      plan: "pro",
+      storageExpireAt: "2026-10-01T00:00:00.000Z",
       storageQuotaBytes: 5 * 1024 ** 3,
       storageUsedBytes: 512 * 1024 ** 2,
     });
@@ -66,14 +76,24 @@ describe("accountUsageSummary", () => {
   test("rejects malformed responses instead of displaying invented quotas", () => {
     assert.equal(accountUsageSummary({ aiCredits: { balance: 500 }, plan: "founder" }), null);
     assert.equal(accountUsageSummary({
-      aiCredits: { balance: "500", nextExpiryAt: null },
+      aiCredits: { balance: "500", nextExpiryAt: null, nextRefillAt: null },
       plan: "founder",
-      storage: { quotaBytes: 5 * 1024 ** 3, usedBytes: 0 },
+      storage: { nextExpiryAt: null, quotaBytes: 5 * 1024 ** 3, usedBytes: 0 },
     }), null);
     assert.equal(accountUsageSummary({
-      aiCredits: { balance: 500, nextExpiryAt: "not-a-date" },
+      aiCredits: { balance: 500, nextExpiryAt: "not-a-date", nextRefillAt: null },
       plan: "founder",
-      storage: { quotaBytes: 5 * 1024 ** 3, usedBytes: 0 },
+      storage: { nextExpiryAt: null, quotaBytes: 5 * 1024 ** 3, usedBytes: 0 },
+    }), null);
+    assert.equal(accountUsageSummary({
+      aiCredits: { balance: 500, nextExpiryAt: null, nextRefillAt: "not-a-date" },
+      plan: "pro",
+      storage: { nextExpiryAt: null, quotaBytes: 5 * 1024 ** 3, usedBytes: 0 },
+    }), null);
+    assert.equal(accountUsageSummary({
+      aiCredits: { balance: 500, nextExpiryAt: null, nextRefillAt: null },
+      plan: "pro",
+      storage: { nextExpiryAt: "not-a-date", quotaBytes: 5 * 1024 ** 3, usedBytes: 0 },
     }), null);
   });
 });

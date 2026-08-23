@@ -10,7 +10,9 @@ export interface AccountMenuIdentity {
 export interface AccountUsageSummary {
   aiCredits: number;
   aiCreditsExpireAt: string | null;
+  aiCreditsRefillAt: string | null;
   plan: AccountPlan;
+  storageExpireAt: string | null;
   storageQuotaBytes: number;
   storageUsedBytes: number;
 }
@@ -45,21 +47,30 @@ export function accountMenuIdentity(
   return { detail: freeDetail, initials: "PF", name: freeName };
 }
 
+function entitlementDate(value: unknown) {
+  if (value === null) return null;
+  if (typeof value !== "string" || Number.isNaN(Date.parse(value))) return undefined;
+  return value;
+}
+
 export function accountUsageSummary(value: unknown): AccountUsageSummary | null {
   if (!isRecord(value) || !isRecord(value.aiCredits) || !isRecord(value.storage)) return null;
   const plan = value.plan;
   const balance = value.aiCredits.balance;
-  const nextExpiryAt = value.aiCredits.nextExpiryAt;
+  const creditsExpireAt = entitlementDate(value.aiCredits.nextExpiryAt);
+  const creditsRefillAt = entitlementDate(value.aiCredits.nextRefillAt);
   const quotaBytes = value.storage.quotaBytes;
+  const storageExpireAt = entitlementDate(value.storage.nextExpiryAt);
   const usedBytes = value.storage.usedBytes;
   if (plan !== "founder" && plan !== "free" && plan !== "lifetime" && plan !== "pro") return null;
   if (!Number.isFinite(balance) || !Number.isFinite(quotaBytes) || !Number.isFinite(usedBytes)) return null;
-  if (nextExpiryAt !== null && typeof nextExpiryAt !== "string") return null;
-  if (typeof nextExpiryAt === "string" && Number.isNaN(Date.parse(nextExpiryAt))) return null;
+  if (creditsExpireAt === undefined || creditsRefillAt === undefined || storageExpireAt === undefined) return null;
   return {
     aiCredits: Math.max(0, Number(balance)),
-    aiCreditsExpireAt: nextExpiryAt,
+    aiCreditsExpireAt: creditsExpireAt,
+    aiCreditsRefillAt: creditsRefillAt,
     plan,
+    storageExpireAt,
     storageQuotaBytes: Math.max(0, Number(quotaBytes)),
     storageUsedBytes: Math.max(0, Number(usedBytes)),
   };

@@ -6,9 +6,26 @@ test("checkout return activates the account without showing a stale missing-sess
   const sessionId = "cs_test_checkout_return_0001";
   const claim = "checkout_claim_return_0001";
   let activationRequest = "";
+  let signedIn = false;
+
+  await page.route("**/api/auth/session", async (route) => {
+    await route.fulfill({
+      json: signedIn
+        ? {
+          session: {
+            email: "checkout@example.test",
+            kind: "account",
+            plan: "pro",
+            userId: "usr_checkout",
+          },
+        }
+        : { session: { kind: "local", plan: "free" } },
+    });
+  });
 
   await page.route("**/api/stripe/success?**", async (route) => {
     activationRequest = route.request().url();
+    signedIn = true;
     await route.fulfill({
       json: {
         account: { email: "checkout@example.test", kind: "account", plan: "pro" },
@@ -25,6 +42,8 @@ test("checkout return activates the account without showing a stale missing-sess
   await expect(page.getByText("Your pro plan is active", { exact: true })).toBeVisible();
   await expect(page.getByText("Signed in as checkout@example.test", { exact: true })).toBeVisible();
   await expect(page.getByText("Checkout session is missing", { exact: true })).toHaveCount(0);
-  await expect(page.getByRole("link", { exact: true, name: "Open app" })).toBeEnabled();
+  await expect(page.getByRole("banner").getByRole("link", { exact: true, name: "Sign in" })).toHaveCount(0);
+  await expect(page.getByRole("banner").getByRole("link", { exact: true, name: "Open app" })).toBeVisible();
+  await expect(page.getByRole("main").getByRole("link", { exact: true, name: "Open app" })).toBeEnabled();
   await expect(page).toHaveURL("/success");
 });

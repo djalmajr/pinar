@@ -15,19 +15,26 @@ async function openAccountMenu(page: Page) {
   await accountMenu.click();
 }
 
-// Mutation captured: rendering AppAccountMenu in AppHeader removes it from
-// SidebarFooter; dropping the entitlement fetch also removes the three usage
-// assertions below.
-test("Founder account menu shows the purchased plan, credit balance and storage quota", async ({ page }) => {
+// Mutation captured: removing the refill rendering hides the Pro subscription
+// detail while leaving the Billing action available.
+test("Pro account menu shows credit refill and expiry dates alongside Billing", async ({ page }) => {
   await page.route("**/api/stripe/portal", (route) => route.fulfill({
     json: { url: "/pricing?from=billing" },
   }));
   await page.route("**/api/account/entitlements", (route) => route.fulfill({
     json: {
-      aiCredits: { balance: 700, nextExpiryAt: "2026-09-18T00:00:00.000Z" },
+      aiCredits: {
+        balance: 200,
+        nextExpiryAt: "2026-09-18T00:00:00.000Z",
+        nextRefillAt: "2026-09-30T00:00:00.000Z",
+      },
       ok: true,
-      plan: "founder",
-      storage: { quotaBytes: 5 * 1024 ** 3, usedBytes: 512 * 1024 ** 2 },
+      plan: "pro",
+      storage: {
+        nextExpiryAt: "2026-10-01T00:00:00.000Z",
+        quotaBytes: 10 * 1024 ** 3,
+        usedBytes: 128 * 1024 ** 2,
+      },
     },
   }));
   await page.route("**/api/auth/session", (route) => route.fulfill({
@@ -35,8 +42,8 @@ test("Founder account menu shows the purchased plan, credit balance and storage 
       session: {
         email: "djalmajr@example.test",
         kind: "account",
-        plan: "founder",
-        userId: "usr_account_menu_founder",
+        plan: "pro",
+        userId: "usr_account_menu_pro",
       },
     },
   }));
@@ -47,11 +54,16 @@ test("Founder account menu shows the purchased plan, credit balance and storage 
   await expect(page.locator("header").getByRole("button", { exact: true, name: "Account menu" })).toHaveCount(0);
   await expect(page.getByRole("menu").getByText("djalmajr@example.test", { exact: true })).toBeVisible();
   const usage = page.getByTestId("account-usage");
-  await expect(usage.getByText("Pinar Founder", { exact: true })).toBeVisible();
-  await expect(usage.getByText("700 available", { exact: true })).toBeVisible();
-  await expect(usage.getByText("Some credits expire Sep 18, 2026", { exact: true })).toBeVisible();
-  await expect(usage.getByText("512 MB of 5 GB", { exact: true })).toBeVisible();
-  await expect(usage.getByRole("progressbar", { name: "Storage" })).toHaveAttribute("aria-valuenow", String(512 * 1024 ** 2));
+  const credits = usage.getByTestId("account-credits");
+  const storage = usage.getByTestId("account-storage");
+  await expect(page.getByTestId("account-plan")).toHaveText("Pinar Pro");
+  await expect(usage.getByText("Pinar Pro", { exact: true })).toHaveCount(0);
+  await expect(credits.getByText("200 available", { exact: true })).toBeVisible();
+  await expect(credits.getByText("Some credits expire Sep 18, 2026", { exact: true })).toBeVisible();
+  await expect(credits.getByText("Monthly refill on Sep 30, 2026", { exact: true })).toBeVisible();
+  await expect(storage.getByText("128 MB used of 10 GB", { exact: true })).toBeVisible();
+  await expect(storage.getByText("Storage add-on expires Oct 1, 2026", { exact: true })).toBeVisible();
+  await expect(storage.getByRole("progressbar", { name: "Storage" })).toHaveAttribute("aria-valuenow", String(128 * 1024 ** 2));
   await expect(page.getByRole("menuitem", { exact: true, name: "Billing" })).toBeVisible();
   await expect(page.getByRole("menuitem", { exact: true, name: "Sign out" })).toBeVisible();
   await expect(page.getByRole("menuitem", { exact: true, name: "Upgrade to Pro" })).toHaveCount(0);
@@ -67,10 +79,10 @@ test("Founder account menu shows the purchased plan, credit balance and storage 
 test("Free installation offers upgrade from the same sidebar user panel", async ({ page }) => {
   await page.route("**/api/account/entitlements", (route) => route.fulfill({
     json: {
-      aiCredits: { balance: 5, nextExpiryAt: null },
+      aiCredits: { balance: 5, nextExpiryAt: null, nextRefillAt: null },
       ok: true,
       plan: "free",
-      storage: { quotaBytes: 250 * 1024 ** 2, usedBytes: 0 },
+      storage: { nextExpiryAt: null, quotaBytes: 250 * 1024 ** 2, usedBytes: 0 },
     },
   }));
   await page.route("**/api/auth/session", (route) => route.fulfill({
@@ -86,8 +98,8 @@ test("Free installation offers upgrade from the same sidebar user panel", async 
   await page.goto("/app");
 
   await openAccountMenu(page);
-  await expect(page.getByTestId("account-usage").getByText("5 available", { exact: true })).toBeVisible();
-  await expect(page.getByTestId("account-usage").getByText("0 B of 250 MB", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("account-credits").getByText("5 available", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("account-storage").getByText("0 B used of 250 MB", { exact: true })).toBeVisible();
   await expect(page.getByRole("menuitem", { exact: true, name: "Upgrade to Pro" })).toBeVisible();
   await expect(page.getByRole("menuitem", { exact: true, name: "Billing" })).toHaveCount(0);
   await page.getByRole("menuitem", { exact: true, name: "Upgrade to Pro" }).click();

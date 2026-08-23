@@ -18,6 +18,35 @@ const BrazilPricing = {
   regional: true,
 };
 
+interface BadgeColors {
+  backgroundColor: string;
+  borderColor: string;
+  color: string;
+}
+
+async function badgeColors(page: import("@playwright/test").Page, text: string): Promise<BadgeColors> {
+  return page.getByText(text, { exact: true }).evaluate((element) => {
+    const style = window.getComputedStyle(element);
+    return {
+      backgroundColor: style.backgroundColor,
+      borderColor: style.borderColor,
+      color: style.color,
+    };
+  });
+}
+
+// Mutation captured: changing the landing badge from `proSoft` to `pro` makes
+// its computed background differ from the matching pricing badge.
+test("public hero badges share the same soft Pro treatment", async ({ page }) => {
+  await page.goto("/");
+  const landingColors = await badgeColors(page, "Visual feedback for AI workflows");
+
+  await page.goto("/pricing");
+  const pricingColors = await badgeColors(page, "Pinar Pro & Sponsors");
+
+  expect(landingColors).toEqual(pricingColors);
+});
+
 // Mutation captured: forcing `isYearly = true` leaves the Monthly click on the
 // annual card; this test fails while waiting for the observable Pro Monthly UI.
 test("visitor compares every BRL offer without opening checkout", async ({ page }) => {
@@ -66,29 +95,58 @@ test("Use Free is one accessible link that opens the installation documentation"
   await expect(popup.getByRole("heading", { name: "Pinar repository" })).toBeVisible();
 });
 
-test("paid checkout requires and sends the current versioned app consent", async ({ page }) => {
-  let checkoutBody: Record<string, unknown> | null = null;
+test("paid checkout asks for current consent only after the server requires it", async ({ page }) => {
+  const checkoutBodies: Record<string, unknown>[] = [];
   await page.route("**/api/pricing", (route) => route.fulfill({ json: BrazilPricing }));
   await page.route("**/api/stripe/checkout", async (route) => {
-    checkoutBody = route.request().postDataJSON() as Record<string, unknown>;
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    checkoutBodies.push(body);
+    if (!body.legalAcceptance) {
+      await route.fulfill({
+        json: { code: "legal_acceptance_required", error: "Current legal acceptance is required", version: "2026-08-18" },
+        status: 400,
+      });
+      return;
+    }
     const origin = new URL(route.request().url()).origin;
     await route.fulfill({ json: { ok: true, url: `${origin}/pricing?checkout=ready` } });
   });
 
   await page.goto("/pricing");
   const founderCheckout = page.getByRole("button", { name: "Get Pinar Founder — R$129.90" });
-  const consent = page.getByRole("checkbox", { name: /I agree to the Terms of Service/ });
-
-  await expect(founderCheckout).toBeDisabled();
-  await expect(page.getByRole("link", { name: "Terms of Service", exact: true }).first())
-    .toHaveAttribute("href", "/legal/terms");
-  await expect(page.getByText("Version 2026-08-18. Required before secure checkout.")).toBeVisible();
-  await consent.check();
   await expect(founderCheckout).toBeEnabled();
   await founderCheckout.click();
+
+  const dialog = page.getByRole("dialog", { name: "Review the current policies" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("link", { name: "Terms of Service", exact: true }))
+    .toHaveAttribute("href", "/legal/terms");
+  await expect(dialog.getByText("Version 2026-08-18.")).toBeVisible();
+  const continueButton = dialog.getByRole("button", { name: "Accept and continue" });
+  await expect(continueButton).toBeDisabled();
+  await dialog.getByRole("checkbox", { name: /I agree to the Terms of Service/ }).check();
+  await continueButton.click();
   await expect(page).toHaveURL(/\/pricing\?checkout=ready$/);
 
-  assertCheckoutConsent(checkoutBody);
+  expect(checkoutBodies).toHaveLength(2);
+  expect(checkoutBodies[0].legalAcceptance).toBeUndefined();
+  assertCheckoutConsent(checkoutBodies[1]);
+});
+
+test("an account with current acceptance goes directly to checkout", async ({ page }) => {
+  let checkoutBody: Record<string, unknown> | null = null;
+  await page.route("**/api/pricing", (route) => route.fulfill({ json: BrazilPricing }));
+  await page.route("**/api/stripe/checkout", async (route) => {
+    checkoutBody = route.request().postDataJSON() as Record<string, unknown>;
+    const origin = new URL(route.request().url()).origin;
+    await route.fulfill({ json: { ok: true, url: `${origin}/pricing?checkout=direct` } });
+  });
+
+  await page.goto("/pricing");
+  await page.getByRole("button", { name: "Get Pinar Founder — R$129.90" }).click();
+  await expect(page).toHaveURL(/\/pricing\?checkout=direct$/);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(checkoutBody?.legalAcceptance).toBeUndefined();
 });
 
 function assertCheckoutConsent(body: Record<string, unknown> | null) {

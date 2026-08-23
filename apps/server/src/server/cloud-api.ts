@@ -1924,8 +1924,25 @@ async function verifyEmailCode(request: Request, env: CloudEnv) {
 
   const installationId = stringValue(body, "installationId");
   const installationToken = stringValue(body, "installationToken");
+  if ((installationId || installationToken)
+    && !await verifyInstallationCredentials(env, installationId, installationToken)) {
+    return invalid();
+  }
+
+  const accountPrincipal = principalForAccount(account);
+  const currentAcceptance = await latestLegalAcceptance(env, accountPrincipal);
+  if (!isCurrentLegalAcceptance(currentAcceptance)) {
+    const evidence = currentAppLegalEvidence(
+      body,
+      `account:${account.id}:${CURRENT_LEGAL_VERSION}`,
+    );
+    if (!evidence) return legalAcceptanceRequiredResponse(428);
+    if (!await recordAccountLegalAcceptance(env, account, evidence, "account")) {
+      return json({ error: "Unable to record legal acceptance" }, 503);
+    }
+  }
+
   if (installationId || installationToken) {
-    if (!await verifyInstallationCredentials(env, installationId, installationToken)) return invalid();
     if (!await claimEmailChallenge(env, challenge)) return invalid();
     const device = await migrateInstallationToAccount(env, account, installationId);
     return device
@@ -2223,24 +2240,17 @@ async function createCheckout(request: Request, env: CloudEnv) {
   const subscription = isSubscriptionOffer(offer);
   const priceId = stripePriceForOffer(env, offer, requestCountry(request) === "BR");
   if (!priceId) return json({ error: "Stripe price is not configured" }, 500);
+  const principal = await resolvePrincipal(request, env);
+  const account = principal?.kind === "account" ? await findAccountById(env, principal.id) : null;
+  const storedAcceptance = account ? await latestLegalAcceptance(env, principalForAccount(account)) : null;
   const legalLocale: LegalAcceptanceLocale = body.locale === "pt" ? "pt" : "en";
-  const legalAcceptance = body.legalAcceptance;
-  if (!isRecord(legalAcceptance)
-    || legalAcceptance.accepted !== true
-    || legalAcceptance.locale !== legalLocale
-    || legalAcceptance.acceptableUseVersion !== CURRENT_LEGAL_VERSION
-    || legalAcceptance.privacyVersion !== CURRENT_LEGAL_VERSION
-    || legalAcceptance.termsVersion !== CURRENT_LEGAL_VERSION) {
-    return json({
-      acceptableUseUrl: "/legal/acceptable-use",
-      code: "legal_acceptance_required",
-      error: "Current legal acceptance is required",
-      privacyUrl: "/legal/privacy",
-      termsUrl: "/legal/terms",
-      version: CURRENT_LEGAL_VERSION,
-    }, 400);
-  }
-  const legalAcceptedAt = now.toISOString();
+  const submittedEvidence = currentAppLegalEvidence(body, `checkout:${checkoutClaimHash}`);
+  const legalEvidence = isCurrentLegalAcceptance(storedAcceptance)
+    ? storedAcceptance
+    : submittedEvidence?.locale === legalLocale ? submittedEvidence : null;
+  if (!legalEvidence) return legalAcceptanceRequiredResponse(400);
+  const legalAcceptedAt = legalEvidence.acceptedAt || now.toISOString();
+  const legalSource = isCurrentLegalAcceptance(storedAcceptance) ? "account" : "app";
   const params = new URLSearchParams({
     allow_promotion_codes: "true",
     cancel_url: `${origin}/pricing`,
@@ -2249,17 +2259,15 @@ async function createCheckout(request: Request, env: CloudEnv) {
     "line_items[0][quantity]": "1",
     "metadata[pinar_acceptable_use_version]": CURRENT_LEGAL_VERSION,
     "metadata[pinar_checkout_claim_hash]": checkoutClaimHash,
-    "metadata[pinar_legal_acceptance_source]": "app",
+    "metadata[pinar_legal_acceptance_source]": legalSource,
     "metadata[pinar_legal_accepted_at]": legalAcceptedAt,
-    "metadata[pinar_locale]": legalLocale,
+    "metadata[pinar_locale]": legalEvidence.locale,
     "metadata[pinar_offer]": offer,
     "metadata[pinar_privacy_version]": CURRENT_LEGAL_VERSION,
     "metadata[pinar_terms_version]": CURRENT_LEGAL_VERSION,
     mode: subscription ? "subscription" : "payment",
     success_url: `${origin}/success?session_id={CHECKOUT_SESSION_ID}&claim=${encodeURIComponent(checkoutClaim)}`,
   });
-  const principal = await resolvePrincipal(request, env);
-  const account = principal?.kind === "account" ? await findAccountById(env, principal.id) : null;
   const email = normalizeEmail(stringValue(body, "email"));
   if (account) {
     params.set("client_reference_id", account.id);
@@ -2481,20 +2489,21 @@ function checkoutLegalEvidence(session: Record<string, unknown>): CheckoutLegalE
   const metadata = isRecord(session.metadata) ? session.metadata : {};
   const acceptableUseVersion = stringValue(metadata, "pinar_acceptable_use_version");
   const acceptedAt = stringValue(metadata, "pinar_legal_accepted_at");
-  const acceptedInApp = metadata.pinar_legal_acceptance_source === "app"
+  const acceptedInPinar = (metadata.pinar_legal_acceptance_source === "app"
+    || metadata.pinar_legal_acceptance_source === "account")
     && Number.isFinite(Date.parse(acceptedAt));
   const evidenceId = stringValue(session, "id");
   const locale = metadata.pinar_locale === "pt" ? "pt" : metadata.pinar_locale === "en" ? "en" : null;
   const privacyVersion = stringValue(metadata, "pinar_privacy_version");
   const termsVersion = stringValue(metadata, "pinar_terms_version");
-  if ((consent.terms_of_service !== "accepted" && !acceptedInApp)
+  if ((consent.terms_of_service !== "accepted" && !acceptedInPinar)
     || !locale
     || !evidenceId
     || !LEGAL_VERSION_PATTERN.test(acceptableUseVersion)
     || !LEGAL_VERSION_PATTERN.test(privacyVersion)
     || !LEGAL_VERSION_PATTERN.test(termsVersion)) return null;
   return {
-    acceptedAt: acceptedInApp ? acceptedAt : undefined,
+    acceptedAt: acceptedInPinar ? acceptedAt : undefined,
     acceptableUseVersion,
     evidenceId,
     locale,
@@ -2507,9 +2516,9 @@ function legalAcceptanceKey(ownerType: "account" | "installation", ownerId: stri
   return `${ownerType}:${ownerId}:${termsVersion}`;
 }
 
-function remoteFreeLegalEvidence(
+function currentAppLegalEvidence(
   body: Record<string, unknown>,
-  installationId: string,
+  evidenceId: string,
 ): CheckoutLegalEvidence | null {
   const acceptance = body.legalAcceptance;
   if (!isRecord(acceptance) || acceptance.accepted !== true) return null;
@@ -2523,11 +2532,34 @@ function remoteFreeLegalEvidence(
     || termsVersion !== CURRENT_LEGAL_VERSION) return null;
   return {
     acceptableUseVersion,
-    evidenceId: `remote-free:${installationId}:${CURRENT_LEGAL_VERSION}`,
+    evidenceId,
     locale,
     privacyVersion,
     termsVersion,
   };
+}
+
+function remoteFreeLegalEvidence(body: Record<string, unknown>, installationId: string) {
+  return currentAppLegalEvidence(body, `remote-free:${installationId}:${CURRENT_LEGAL_VERSION}`);
+}
+
+function isCurrentLegalAcceptance(
+  acceptance: LegalAcceptanceRecord | null | undefined,
+): acceptance is LegalAcceptanceRecord {
+  return acceptance?.termsVersion === CURRENT_LEGAL_VERSION
+    && acceptance.privacyVersion === CURRENT_LEGAL_VERSION
+    && acceptance.acceptableUseVersion === CURRENT_LEGAL_VERSION;
+}
+
+function legalAcceptanceRequiredResponse(status: number) {
+  return json({
+    acceptableUseUrl: "/legal/acceptable-use",
+    code: "legal_acceptance_required",
+    error: "Current legal acceptance is required",
+    privacyUrl: "/legal/privacy",
+    termsUrl: "/legal/terms",
+    version: CURRENT_LEGAL_VERSION,
+  }, status);
 }
 
 async function recordRemoteFreeLegalAcceptance(
@@ -2573,10 +2605,11 @@ async function recordRemoteFreeLegalAcceptance(
   return acceptance;
 }
 
-async function recordCheckoutLegalAcceptance(
+async function recordAccountLegalAcceptance(
   env: CloudEnv,
   account: AccountRecord,
   evidence: CheckoutLegalEvidence,
+  source: "account" | "checkout",
 ) {
   const acceptedAt = evidence.acceptedAt || currentDate().toISOString();
   if (env.DB) {
@@ -2584,7 +2617,7 @@ async function recordCheckoutLegalAcceptance(
       "INSERT OR IGNORE INTO legal_acceptances "
       + "(id, owner_type, owner_id, terms_version, privacy_version, acceptable_use_version, "
       + "locale, source, evidence_id, accepted_at, created_at) "
-      + "VALUES (?, 'account', ?, ?, ?, ?, ?, 'checkout', ?, ?, ?)",
+      + "VALUES (?, 'account', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     ).bind(
       `lga_${generateNanoId(24)}`,
       account.id,
@@ -2592,6 +2625,7 @@ async function recordCheckoutLegalAcceptance(
       evidence.privacyVersion,
       evidence.acceptableUseVersion,
       evidence.locale,
+      source,
       evidence.evidenceId,
       acceptedAt,
       acceptedAt,
@@ -2610,10 +2644,19 @@ async function recordCheckoutLegalAcceptance(
     acceptedAt,
     ownerId: account.id,
     ownerType: "account",
-    source: "checkout",
+    source,
   };
   memoryLegalAcceptances.set(key, acceptance);
   return acceptance;
+}
+
+
+async function recordCheckoutLegalAcceptance(
+  env: CloudEnv,
+  account: AccountRecord,
+  evidence: CheckoutLegalEvidence,
+) {
+  return recordAccountLegalAcceptance(env, account, evidence, "checkout");
 }
 
 async function latestLegalAcceptance(env: CloudEnv, principal: Principal) {
@@ -3536,12 +3579,19 @@ async function persistSession(env: CloudEnv, session: Session) {
 async function accountEntitlements(request: Request, env: CloudEnv) {
   const principal = await resolvePrincipal(request, env);
   if (!principal) return json({ error: "Unauthorized" }, 401);
+  let nextRefillAt: string | null = null;
   if (principal.kind === "account") {
     const account = await findAccountById(env, principal.id);
-    if (account) await ensureProMonthlyCredits(env, account);
+    if (account) {
+      await ensureProMonthlyCredits(env, account);
+      if (account.plan === "pro" && account.billingStatus === "active") {
+        nextRefillAt = account.aiCreditRefillAt || null;
+      }
+    }
   }
+  const aiCredits = await aiCreditBalance(env, principal);
   return json({
-    aiCredits: await aiCreditBalance(env, principal),
+    aiCredits: { ...aiCredits, nextRefillAt },
     legalAcceptance: await latestLegalAcceptance(env, principal),
     ok: true,
     plan: principal.plan,

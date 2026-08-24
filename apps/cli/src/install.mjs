@@ -4,21 +4,32 @@ import { chmod, cp, mkdir, readdir, readFile, rename, rm, writeFile } from "node
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { defaultRoot, installHooks } from "./install-hooks.mjs";
+import { installMacDesktopApp } from "./install-desktop.mjs";
 import { pinarHome } from "./paths.mjs";
 
 export const RUNTIME_SCRIPTS = [
   ["apps/cli/src/cli.mjs", "apps/cli/src/cli.mjs"],
   ["apps/cli/src/ensure.mjs", "apps/cli/src/ensure.mjs"],
   ["apps/cli/src/history.mjs", "apps/cli/src/history.mjs"],
+  ["apps/cli/src/install-desktop.mjs", "apps/cli/src/install-desktop.mjs"],
   ["apps/cli/src/install-hooks.mjs", "apps/cli/src/install-hooks.mjs"],
   ["apps/cli/src/install.mjs", "apps/cli/src/install.mjs"],
   ["apps/cli/src/paths.mjs", "apps/cli/src/paths.mjs"],
+  ["apps/cli/src/process.mjs", "apps/cli/src/process.mjs"],
   ["apps/cli/src/shots.mjs", "apps/cli/src/shots.mjs"],
 ];
 
 const STAGING = ".tmp-install";
 const MANAGED_DIRS = ["apps", "bin", "hooks"];
-const KEEP_TOP = new Set(["history.db", "history.json", "shots", STAGING]);
+const KEEP_TOP = new Set([
+  "desktop.json",
+  "history.db",
+  "history.json",
+  "server.pid",
+  "shots",
+  "tray.pid",
+  STAGING,
+]);
 
 export function getNativeBinaryPath(source = defaultRoot(), platform = process.platform, arch = process.arch) {
   let target = "";
@@ -243,6 +254,9 @@ export async function runInstall({
   log = console.error,
 } = {}) {
   await installApp({ arch, dest, log, platform, source });
+  if (platform === "darwin") {
+    await installMacDesktopApp({ log, source });
+  }
   const pathResult = await ensureUserPath({ dest, home, log, platform });
   const hooksResult = await installHooks({ dest, home, log, platform });
   return { ...hooksResult, path: pathResult };

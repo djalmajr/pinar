@@ -14,7 +14,16 @@ Any composer / editor
 
 ## Install
 
-One command downloads the standalone server to `~/.pinar`, puts it in `~/.pinar/bin`, and registers agent hooks.
+One command downloads the standalone server to `~/.pinar`, puts it in `~/.pinar/bin`, and registers agent hooks. On macOS it also installs **Pinar.app** to `~/Applications` when that artifact is published.
+
+From a checkout, build the tray and install both the CLI and the app:
+
+```sh
+bun run build:tray
+bun apps/cli/src/cli.mjs install
+```
+
+The macOS app then checks GitHub Releases for updates (`stable-macos-arm64-update.json` on `/releases/latest/download`).
 
 **macOS / Linux**
 

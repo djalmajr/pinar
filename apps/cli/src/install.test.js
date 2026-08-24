@@ -15,6 +15,8 @@ describe("install", () => {
     await mkdir(join(dest, "shots"), { recursive: true });
     await writeFile(join(dest, "shots", "keep.png"), "png");
     await writeFile(join(dest, "history.db"), "history");
+    await writeFile(join(dest, "desktop.json"), "{\"loginEnabled\":true}\n");
+    await writeFile(join(dest, "server.pid"), "4242\n");
     const result = await installApp({ source, dest, log: () => {} });
     assert.equal(result.copied, true);
     assert.ok(existsSync(launcherPath(dest, "darwin")));
@@ -28,6 +30,8 @@ describe("install", () => {
     assert.equal(existsSync(join(dest, "package.json")), false);
     assert.equal(await readFile(join(dest, "shots", "keep.png"), "utf8"), "png");
     assert.equal(await readFile(join(dest, "history.db"), "utf8"), "history");
+    assert.equal(await readFile(join(dest, "desktop.json"), "utf8"), "{\"loginEnabled\":true}\n");
+    assert.equal(await readFile(join(dest, "server.pid"), "utf8"), "4242\n");
   });
 
   test("installApp replaces managed dirs and drops leftover top-level files", async () => {

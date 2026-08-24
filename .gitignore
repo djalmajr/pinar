@@ -1,6 +1,8 @@
 node_modules/
 *.png
 !extension/icons/*.png
+!apps/tray/**/*.png
+.hutch/
 .DS_Store
 dist/
 src/web-assets.generated.mjs

@@ -81,4 +81,29 @@ fi
 
 export PATH="${bin_dir}:${PATH}"
 echo "✅ Pinar standalone binary installed at ${bin_dir}/pinar" >&2
+
+if [ "$(uname -s)" = "Darwin" ]; then
+  desktop_dir="${HOME}/Applications"
+  desktop_app="${desktop_dir}/Pinar.app"
+  desktop_zip="${TMPDIR:-/tmp}/Pinar-macos.zip"
+  arch_name="$(uname -m)"
+  case "$arch_name" in
+    arm64|aarch64) desktop_asset="Pinar-macos-arm64.zip" ;;
+    *) desktop_asset="Pinar-macos-x64.zip" ;;
+  esac
+  mkdir -p "$desktop_dir"
+  if fetch_file "${base_url}/bin/${desktop_asset}" "$desktop_zip" 2>/dev/null \
+    || fetch_file "https://github.com/${PINAR_REPO:-djalmajr/pinar}/releases/download/${PINAR_REF:-v0.1.1}/${desktop_asset}" "$desktop_zip" 2>/dev/null; then
+    rm -rf "$desktop_app"
+    unzip -qo "$desktop_zip" -d "$desktop_dir"
+    rm -f "$desktop_zip"
+    if [ -d "$desktop_app" ]; then
+      open -ga "$desktop_app" || true
+      echo "✅ Pinar.app installed at ${desktop_app}" >&2
+    fi
+  else
+    echo "ℹ️ Desktop app not published yet. From a checkout: bun run build:tray && bun apps/cli/src/cli.mjs install" >&2
+  fi
+fi
+
 echo "🎉 Visual Annotations ready for AI Agents!" >&2

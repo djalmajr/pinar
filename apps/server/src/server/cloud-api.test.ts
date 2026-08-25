@@ -1162,12 +1162,12 @@ describe("remote installation isolation", () => {
     assert.equal(params.get("line_items[0][price]"), "price_founder_test");
     assert.equal(params.get("metadata[pinar_offer]"), "founder");
     assert.match(params.get("metadata[pinar_founder_reservation_id]") || "", /^fdr_[A-Za-z0-9_-]{24}$/);
-    assert.equal(params.get("metadata[pinar_acceptable_use_version]"), "2026-08-18");
+    assert.equal(params.get("metadata[pinar_acceptable_use_version]"), CURRENT_LEGAL_VERSION);
     assert.equal(params.get("metadata[pinar_legal_acceptance_source]"), "app");
     assert.equal(params.get("metadata[pinar_legal_accepted_at]"), "2026-08-18T12:00:00.000Z");
     assert.equal(params.get("metadata[pinar_locale]"), "pt");
-    assert.equal(params.get("metadata[pinar_privacy_version]"), "2026-08-18");
-    assert.equal(params.get("metadata[pinar_terms_version]"), "2026-08-18");
+    assert.equal(params.get("metadata[pinar_privacy_version]"), CURRENT_LEGAL_VERSION);
+    assert.equal(params.get("metadata[pinar_terms_version]"), CURRENT_LEGAL_VERSION);
   });
 
   test("keeps Founder closed by default and releases capacity after Stripe failure", async () => {
@@ -1297,7 +1297,7 @@ describe("remote installation isolation", () => {
         pinar_checkout_claim_hash: await sha256(checkoutClaim),
         pinar_founder_reservation_id: "fdr_unreserved_founder_0001",
         pinar_offer: "founder",
-        pinar_terms_version: "2026-08-18",
+        pinar_terms_version: CURRENT_LEGAL_VERSION,
       },
       mode: "payment",
       payment_status: "paid",
@@ -1341,15 +1341,15 @@ describe("remote installation isolation", () => {
         customer_details: { email: "founder@example.test" },
         id: "cs_founder_fulfillment",
         metadata: {
-          pinar_acceptable_use_version: "2026-08-18",
+          pinar_acceptable_use_version: CURRENT_LEGAL_VERSION,
           pinar_checkout_claim_hash: await sha256(checkoutClaim),
           pinar_founder_reservation_id: reservationId,
           pinar_legal_acceptance_source: "app",
           pinar_legal_accepted_at: "2026-08-18T09:30:00.000Z",
           pinar_locale: "en",
           pinar_offer: "founder",
-          pinar_privacy_version: "2026-08-18",
-          pinar_terms_version: "2026-08-18",
+          pinar_privacy_version: CURRENT_LEGAL_VERSION,
+          pinar_terms_version: CURRENT_LEGAL_VERSION,
         },
         mode: "payment",
         payment_status: "paid",
@@ -1396,11 +1396,11 @@ describe("remote installation isolation", () => {
       assert.equal(entitlements.storage.quotaBytes, STORAGE_5GB_BYTES);
       assert.ok(isRecord(entitlements.legalAcceptance));
       assert.equal(entitlements.legalAcceptance.acceptedAt, "2026-08-18T09:30:00.000Z");
-      assert.equal(entitlements.legalAcceptance.acceptableUseVersion, "2026-08-18");
+      assert.equal(entitlements.legalAcceptance.acceptableUseVersion, CURRENT_LEGAL_VERSION);
       assert.equal(entitlements.legalAcceptance.evidenceId, "cs_founder_fulfillment");
       assert.equal(entitlements.legalAcceptance.locale, "en");
-      assert.equal(entitlements.legalAcceptance.privacyVersion, "2026-08-18");
-      assert.equal(entitlements.legalAcceptance.termsVersion, "2026-08-18");
+      assert.equal(entitlements.legalAcceptance.privacyVersion, CURRENT_LEGAL_VERSION);
+      assert.equal(entitlements.legalAcceptance.termsVersion, CURRENT_LEGAL_VERSION);
     } finally {
       globalThis.fetch = originalFetch;
     }

@@ -32,11 +32,26 @@ export function defaultRoot() {
   return process.cwd();
 }
 
+export function desktopAppPath(home = osHomedir()) {
+  return join(home, "Applications", "Pinar.app");
+}
+
+export function darwinOpenAppCommand(home = osHomedir()) {
+  return `/usr/bin/open -ga ${JSON.stringify(desktopAppPath(home))}`;
+}
+
+export function darwinOpenAppCommandJson(home = osHomedir()) {
+  return `${darwinOpenAppCommand(home)}; printf '%s\\n' '{}'`;
+}
+
 export function ensureScript(root, platform = process.platform) {
   return join(root, "hooks", platform === "win32" ? "ensure.cmd" : "ensure.sh");
 }
 
-export function ensureCommand(root, { json = false, platform = process.platform } = {}) {
+export function ensureCommand(root, { json = false, platform = process.platform, home = osHomedir() } = {}) {
+  if (platform === "darwin") {
+    return json ? darwinOpenAppCommandJson(home) : darwinOpenAppCommand(home);
+  }
   const quoted = `"${ensureScript(root, platform)}"`;
   if (!json) return quoted;
   if (platform === "win32") return `set PINAR_HOOK_JSON=1&& ${quoted}`;
@@ -47,10 +62,16 @@ export function ensureCommandWindows(root, { json = false } = {}) {
   return ensureCommand(root, { json, platform: "win32" });
 }
 
+export function hookExtensionPath(root, execPath = process.execPath) {
+  const candidates = [join(root, "hooks", "pinar.js"), join(dirname(execPath), "pinar.js")];
+  return candidates.find((path) => existsSync(path)) ?? candidates[0];
+}
+
 export function isPinarEnsureCommand(command = "") {
   return (
-    /hooks[/\\]ensure\.(sh|cmd)/.test(command) ||
-    /[/\\]\.pinar[/\\](bin[/\\]pinar(?:\.cmd)?|hooks[/\\]ensure\.(sh|cmd))/.test(command)
+    /\/usr\/bin\/open -ga /.test(command)
+    || /hooks[/\\]ensure\.(sh|cmd)/.test(command)
+    || /[/\\]\.pinar[/\\](bin[/\\]pinar(?:\.cmd)?|hooks[/\\]ensure\.(sh|cmd))/.test(command)
   );
 }
 
@@ -170,6 +191,7 @@ async function writeText(path, value) {
 }
 
 async function linkExtension(from, to) {
+  if (!existsSync(from)) return false;
   await mkdir(dirname(to), { recursive: true });
   try {
     if (lstatSync(to).isSymbolicLink() && readlinkSync(to) === from) return false;
@@ -191,10 +213,10 @@ export async function installHooks({
   platform = process.platform,
   log = console.error,
 } = {}) {
-  const command = ensureCommand(root, { platform });
-  const antigravityCommand = ensureCommand(root, { json: true, platform });
+  const command = ensureCommand(root, { home, platform });
+  const antigravityCommand = ensureCommand(root, { home, json: true, platform });
   const commandWindows = ensureCommandWindows(root);
-  const extension = join(root, "hooks", "pinar.js");
+  const extension = hookExtensionPath(root);
   const changed = [];
 
   const claudePath = join(home, ".claude", "settings.json");

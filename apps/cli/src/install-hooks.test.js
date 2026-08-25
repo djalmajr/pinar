@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +9,7 @@ import {
   ensureCommand,
   ensureCommandWindows,
   grokDocument,
+  hookExtensionPath,
   installHooks,
   isPinarEnsureCommand,
   mergeAntigravity,
@@ -19,15 +21,20 @@ import {
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 
 describe("install-hooks", () => {
-  test("ensure command points at the checkout script", () => {
-    const command = ensureCommand("/opt/pinar", { platform: "darwin" });
+  test("ensure command opens Pinar.app on Darwin and keeps scripts elsewhere", () => {
+    const command = ensureCommand("/opt/pinar", { platform: "darwin", home: "/Users/me" });
     assert.equal(isPinarEnsureCommand(command), true);
-    assert.match(command, /\/opt\/pinar\/hooks\/ensure\.sh/);
-    assert.match(ensureCommand("/opt/pinar", { json: true, platform: "darwin" }), /^PINAR_HOOK_JSON=1 /);
+    assert.equal(command, '/usr/bin/open -ga "/Users/me/Applications/Pinar.app"');
+    assert.match(ensureCommand("/opt/pinar", { json: true, platform: "darwin", home: "/Users/me" }), /printf/);
+    assert.match(ensureCommand("/opt/pinar", { platform: "linux" }), /\/opt\/pinar\/hooks\/ensure\.sh/);
     assert.match(ensureCommandWindows("/opt/pinar"), /ensure\.cmd/);
-    assert.match(
-      ensureCommand("/opt/pinar", { json: true, platform: "win32" }),
-      /^set PINAR_HOOK_JSON=1&& /,
+    assert.match(ensureCommand("/opt/pinar", { json: true, platform: "win32" }), /^set PINAR_HOOK_JSON=1&& /);
+    assert.equal(hookExtensionPath(root), join(root, "hooks", "pinar.js"));
+    const helperDir = mkdtempSync(join(tmpdir(), "pinar-helper-ext-"));
+    writeFileSync(join(helperDir, "pinar.js"), "");
+    assert.equal(
+      hookExtensionPath("/missing-pinar-root", join(helperDir, "pinar")),
+      join(helperDir, "pinar.js"),
     );
   });
 
@@ -37,7 +44,7 @@ describe("install-hooks", () => {
     const second = upsertSessionStart(first.hooks, ensureCommand("/opt/pinar", { platform: "darwin" }));
     assert.equal(second.changed, false);
     assert.equal(second.hooks.SessionStart.length, 1);
-    const moved = upsertSessionStart(first.hooks, ensureCommand("/home/me/.pinar", { platform: "darwin" }));
+    const moved = upsertSessionStart(first.hooks, ensureCommand("/home/me/.pinar", { platform: "linux" }));
     assert.equal(moved.changed, true);
     assert.equal(moved.hooks.SessionStart.length, 1);
     assert.match(moved.hooks.SessionStart[0].hooks[0].command, /\.pinar\/hooks\/ensure\.sh/);
@@ -113,6 +120,10 @@ describe("install-hooks", () => {
     const claude = JSON.parse(await readFile(join(home, ".claude", "settings.json"), "utf8"));
     assert.ok(claude.hooks.Stop);
     assert.equal(isPinarEnsureCommand(claude.hooks.SessionStart[0].hooks[0].command), true);
+    assert.equal(
+      claude.hooks.SessionStart[0].hooks[0].command,
+      `/usr/bin/open -ga ${JSON.stringify(join(home, "Applications", "Pinar.app"))}`,
+    );
 
     const antigravity = JSON.parse(
       await readFile(join(home, ".gemini", "config", "hooks.json"), "utf8"),

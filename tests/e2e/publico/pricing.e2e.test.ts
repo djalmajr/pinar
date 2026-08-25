@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 import { primaryNavigationItem } from "../helpers/ui";
 
+const MACOS_DMG_URL = "https://github.com/djalmajr/pinar/releases/latest/download/macos-arm64-Pinar.dmg";
+
 const BrazilPricing = {
   country: "BR",
   currency: "BRL",
@@ -77,22 +79,23 @@ test("visitor compares every BRL offer without opening checkout", async ({ page 
 
 // Mutation captured: wrapping Button with an anchor nests two interactive
 // elements, so the semantic assertion finds one button inside the link.
-test("Use Free is one accessible link that opens the installation documentation", async ({ context, page }) => {
+test("Use Free is one accessible link that opens the macOS desktop installer", async ({ context, page }) => {
   await page.route("**/api/pricing", (route) => route.fulfill({ json: BrazilPricing }));
-  await context.route("https://github.com/djalmajr/pinar", (route) => route.fulfill({
-    body: "<h1>Pinar repository</h1>",
+  await context.route(MACOS_DMG_URL, (route) => route.fulfill({
+    body: "<h1>Pinar for macOS</h1>",
     contentType: "text/html",
   }));
   await page.goto("/pricing");
   const useFree = page.getByRole("link", { exact: true, name: "Use Free" });
 
   await expect(useFree.getByRole("button")).toHaveCount(0);
+  await expect(useFree).toHaveAttribute("href", MACOS_DMG_URL);
   const popupPromise = page.waitForEvent("popup");
   await useFree.click();
   const popup = await popupPromise;
 
-  await expect(popup).toHaveURL("https://github.com/djalmajr/pinar");
-  await expect(popup.getByRole("heading", { name: "Pinar repository" })).toBeVisible();
+  await expect(popup).toHaveURL(MACOS_DMG_URL);
+  await expect(popup.getByRole("heading", { name: "Pinar for macOS" })).toBeVisible();
 });
 
 test("paid checkout asks for current consent only after the server requires it", async ({ page }) => {

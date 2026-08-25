@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { findAvailablePort, findHealthyPort, waitHealthy } from "./ensure.mjs";
 import { install } from "./install.mjs";
 import { installHooks } from "./install-hooks.mjs";
-import { pinarHome, portRange, shotsDir } from "./paths.mjs";
+import { ensurePinarHome, pinarHome, portRange, shotsDir } from "./paths.mjs";
 import {
   clearServerPid,
   findListeningPid,
@@ -22,6 +22,7 @@ const root = pinarHome();
 const self = fileURLToPath(import.meta.url);
 
 async function serve() {
+  ensurePinarHome(root);
   const migration = await migrateNestedShots(root);
   if (migration.moved.length) console.error(`pinar moved ${migration.moved.length} nested shots`);
   if (migration.conflicts.length) {
@@ -46,6 +47,7 @@ async function serve() {
 }
 
 async function ensure() {
+  ensurePinarHome(root);
   const existing = await findHealthyPort();
   if (existing != null) {
     console.error(`pinar server already on :${existing}`);

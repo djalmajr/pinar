@@ -14,58 +14,39 @@ Any composer / editor
 
 ## Install
 
-One command downloads the standalone server to `~/.pinar`, puts it in `~/.pinar/bin`, and registers agent hooks. On macOS it also installs **Pinar.app** to `~/Applications` when that artifact is published.
+**macOS:** download [Pinar.app](https://github.com/djalmajr/pinar/releases/latest/download/macos-arm64-Pinar.dmg), open the disk image, and drag **Pinar.app** to `~/Applications`. The menu-bar app starts the local server and registers agent hooks. Shots stay in `~/.pinar/shots`.
 
-From a checkout, build the tray and install both the CLI and the app:
+**Windows (PowerShell)** — helper until a desktop app exists:
+
+```powershell
+irm https://pinar.dev/install.ps1 | iex
+```
+
+**Linux** still installs the helper binary:
+
+```sh
+curl -fsSL https://pinar.dev/install.sh | sh
+```
+
+The macOS app checks GitHub Releases for updates (`stable-macos-arm64-update.json` on `/releases/latest/download`).
+
+From a checkout (developers):
 
 ```sh
 bun run build:tray
 bun apps/cli/src/cli.mjs install
 ```
 
-The macOS app then checks GitHub Releases for updates (`stable-macos-arm64-update.json` on `/releases/latest/download`).
-
-**macOS / Linux**
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/djalmajr/pinar/main/install.sh | sh
-```
-
-**Windows (PowerShell)**
-
-```powershell
-irm https://raw.githubusercontent.com/djalmajr/pinar/main/install.ps1 | iex
-```
-
-The installer:
-
-1. Syncs the managed runtime and hooks under `~/.pinar` (Windows: `%USERPROFILE%\.pinar`)
-2. Leaves the launcher at `~/.pinar/bin/pinar` (Windows: `pinar.cmd`)
-3. Adds `~/.pinar/bin` to PATH
-4. Merges global hooks (does not delete hooks you already have)
-5. Keeps `shots/` and `history.db`
-
-Open a new terminal after installing so PATH picks up `~/.pinar/bin`.
-
-Pin a specific ref: `PINAR_REF=v0.1.0` (Unix) or `$env:PINAR_REF = "v0.1.0"` (PowerShell) before the one-liner.
-
-From a clone:
-
-```sh
-./bin/pinar install          # macOS / Linux
-.\bin\pinar.cmd install      # Windows
-```
-
 ## Load the extension
 
-Pinar is not on the Chrome Web Store. After the CLI/hooks install:
+Pinar is not on the Chrome Web Store. After installing **Pinar.app** (macOS) or the helper (Windows/Linux):
 
 1. Open Chrome and go to `chrome://extensions`
 2. Turn on **Developer mode** (toggle in the top-right)
 3. Click **Load unpacked**
-4. Select the installed folder — not a Downloads zip, not the git clone unless you are developing the extension:
-   - macOS / Linux: `~/.pinar/extension`
-   - Windows: `%USERPROFILE%\.pinar\extension`
+4. Select the unpacked extension folder — not a Downloads zip:
+   - From this checkout after `bun run build:ext`: `extension/dist`
+   - Windows / Linux helper installs do not currently copy the extension into `~/.pinar`; use `extension/dist` from a clone until a desktop app exists on those platforms.
 
 Chrome remembers that folder. After you run the installer again, open `chrome://extensions` and click **Reload** on the Pinar card if the overlay looks stale.
 
@@ -81,22 +62,15 @@ Chrome remembers that folder. After you run the installer again, open `chrome://
 - **Esc** in the composer closes only the draft; with no draft, it clears all pins and hides the toolbar
 - The extension icon only shows or hides the overlay — it does not delete pins
 
-PNG crops go to `~/.pinar/shots` (Windows: `%USERPROFILE%\.pinar\shots`). The extension cannot write that folder by itself — the local helper starts at session start. It tries `127.0.0.1:17373` and, if that port is taken by another process, binds the next free port through `17382`. The extension looks for `GET /api/health` with `{"service":"pinar"}` in that range. If `17373` is already Pinar, the command exits immediately and does not start a second instance. `PINAR_PORT` pins the helper to a single port.
-
-```sh
-pinar                 # if ~/.pinar/bin is on PATH
-# or, from a clone:
-bun apps/cli/src/cli.mjs
-./hooks/ensure.sh
-.\hooks\ensure.cmd    # Windows
-```
+PNG crops go to `~/.pinar/shots` (Windows: `%USERPROFILE%\.pinar\shots`). The extension cannot write that folder by itself — on macOS, **Pinar.app** starts the local server (menu bar: Start if it shows Off). It tries `127.0.0.1:17373` and, if that port is taken by another process, binds the next free port through `17382`. The extension looks for `GET /api/health` with `{"service":"pinar"}` in that range. If `17373` is already Pinar, a second instance is not started. `PINAR_PORT` pins the helper to a single port.
 
 Without the local server, the crop falls back to `Downloads/pinar/`.
 
 ## Architecture
 
 - `apps/server` is the single TanStack Start application. The Cloudflare build serves `pinar.dev`; the Nitro/Bun build serves the local installation with the same routes and UI.
-- `apps/cli` contains installation, hook, storage, and launcher concerns. It starts the compiled local TanStack server.
+- `apps/cli` is the compiled local HTTP helper (embedded in Pinar.app on macOS; still the public installer on Windows/Linux).
+- `apps/tray` is the macOS menu-bar app.
 - `apps/extension` is the Chrome extension.
 - `packages/ui` and `packages/shared` are consumed by both browser surfaces.
 
@@ -148,7 +122,7 @@ checkout reservations without deleting the historical Stripe Price.
 
 Each agent has its own format. **`npx skills add` / skills.sh does not install hooks** — it only copies `SKILL.md`.
 
-The one-liner above is the right path for any machine. The files in this repo also apply when a session opens **in this project**:
+The files in this repo also apply when a session opens **in this project**:
 
 | Agent | File | Event |
 | --- | --- | --- |
@@ -163,12 +137,11 @@ Extra YAML in `.pi/hook/hooks.yaml` and `.omp/hook/hooks.yaml` only runs if the 
 
 A local project needs trust the first time: Grok `/hooks-trust`, Codex `/hooks`. Antigravity may prefer the workspace `hooks.json` over the global one — if global hooks disappear in this repo, delete `.agents/hooks.json` and use the global install only.
 
-Re-register hooks without downloading again:
+Re-register hooks from Pinar.app (macOS) or, on Windows/Linux:
 
 ```sh
+# Windows / Linux helper
 pinar install-hooks
-# or: ./bin/pinar install-hooks
-# Windows: .\bin\pinar.cmd install-hooks
 ```
 
 `AGENTS.md` describes how an agent should treat the pasted text. If the copy has `Screenshot: /path/to/file.png`, open that file — it is a single crop with every pin.

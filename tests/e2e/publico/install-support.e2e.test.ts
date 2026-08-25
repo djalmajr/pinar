@@ -44,6 +44,7 @@ test("Unix and PowerShell installer routes return executable text instead of HTM
   expect(unix.headers()["content-type"]).toContain("text/plain");
   const unixBody = await unix.text();
   expect(unixBody).toMatch(/^#!\/bin\/sh/);
+  expect(unixBody).toContain("macos-arm64-Pinar.dmg");
   expect(unixBody).toContain("pinar");
   expect(unixBody).not.toMatch(/<html/i);
 

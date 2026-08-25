@@ -57,6 +57,12 @@ export function launcherPath(dest = pinarHome(), platform = process.platform) {
   return join(dest, "bin", platform === "win32" ? "pinar.cmd" : "pinar");
 }
 
+export async function removeLegacyDarwinBin(dest = pinarHome()) {
+  const bin = join(dest, "bin");
+  await rm(bin, { recursive: true, force: true });
+  return bin;
+}
+
 async function writeStaging(from, staging, platform = process.platform, arch = process.arch) {
   await rm(staging, { recursive: true, force: true });
   await mkdir(staging, { recursive: true });
@@ -253,12 +259,18 @@ export async function runInstall({
   arch = process.arch,
   log = console.error,
 } = {}) {
-  await installApp({ arch, dest, log, platform, source });
   if (platform === "darwin") {
-    await installMacDesktopApp({ log, source });
+    const to = resolve(dest);
+    await mkdir(to, { recursive: true });
+    await migrateShotsDir(to);
+    await removeLegacyDarwinBin(to);
+    await installMacDesktopApp({ home, log, source });
+    const hooksResult = await installHooks({ dest: to, home, log, platform, root: source });
+    return { ...hooksResult, path: { path: to, updated: false } };
   }
+  await installApp({ arch, dest, log, platform, source });
   const pathResult = await ensureUserPath({ dest, home, log, platform });
-  const hooksResult = await installHooks({ dest, home, log, platform });
+  const hooksResult = await installHooks({ dest, home, log, platform, root: source });
   return { ...hooksResult, path: pathResult };
 }
 

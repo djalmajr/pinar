@@ -14,8 +14,8 @@ test("visitor reads every versioned legal document and switches it to Portuguese
   await page.goto("/legal/terms");
 
   await expect(page.getByRole("heading", { name: "Terms of Service", level: 1 })).toBeVisible();
-  await expect(page.getByText("Version and effective date: 2026-08-18", { exact: true })).toBeVisible();
-  await expect(page.getByText("Djalma Araújo Júnior", { exact: false }).first()).toBeVisible();
+  await expect(page.getByText("Version and effective date: 2026-08-24", { exact: true })).toBeVisible();
+  await expect(page.getByText("Djalma Júnior", { exact: false }).first()).toBeVisible();
   await expect(page.getByText("djalmajr@gmail.com", { exact: false }).first()).toBeVisible();
 
   const legalTabs = page.getByRole("tablist", { name: "Legal documents" });
@@ -29,7 +29,7 @@ test("visitor reads every versioned legal document and switches it to Portuguese
   await page.getByRole("button", { name: "Language" }).click();
   await page.getByRole("menuitem", { name: "Português" }).click();
   await expect(page.getByRole("heading", { name: "Provedores de Serviço e Suboperadores", level: 1 })).toBeVisible();
-  await expect(page.getByText("Versão e vigência: 2026-08-18", { exact: true })).toBeVisible();
+  await expect(page.getByText("Versão e vigência: 2026-08-24", { exact: true })).toBeVisible();
   await expect(page.getByRole("tablist", { name: "Documentos legais" })).toBeVisible();
 
   await page.reload();

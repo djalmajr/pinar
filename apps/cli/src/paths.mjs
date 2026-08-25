@@ -1,3 +1,4 @@
+import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -15,6 +16,12 @@ export function pinarHome() {
 
 export function shotsDir(root = pinarHome()) {
   return join(root, "shots");
+}
+
+export function ensurePinarHome(root = pinarHome()) {
+  mkdirSync(root, { recursive: true });
+  mkdirSync(shotsDir(root), { recursive: true });
+  return root;
 }
 
 export function resolvePort() {

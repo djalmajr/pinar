@@ -179,7 +179,10 @@ test("storage mode and destination identity persist without mixing local and clo
   await installOptionsHarness(page);
 
   await expect(page.getByRole("radio", { name: /Local Server/ })).toBeChecked();
-  await expect(page.getByText("curl -fsSL https://pinar.dev/install.sh | sh", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Download Pinar" })).toHaveAttribute(
+    "href",
+    "https://github.com/djalmajr/pinar/releases/latest/download/macos-arm64-Pinar.dmg",
+  );
   await expect(page.getByRole("combobox", { name: "Project" })).toHaveValue("Account Local");
 
   await page.getByRole("radio", { name: /Remote Server/ }).check();

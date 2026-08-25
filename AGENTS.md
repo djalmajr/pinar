@@ -2,26 +2,16 @@
 
 The shared shadcn UI uses preset `b5J6exi2i` (Nova/Base UI, mist/sky, Inter), with the Switch geometry intentionally kept less rounded.
 
-On session start, hooks run `hooks/ensure.sh` or `hooks/ensure.cmd` (same as `pinar` / `bun apps/cli/src/cli.mjs`). If the server is not up:
+On macOS, session-start hooks open **Pinar.app** (`/usr/bin/open -ga ~/Applications/Pinar.app`). The menu-bar app starts the local HTTP server if it is not already up. If the menu bar shows Local Server: Off, choose Start. Do not instruct `pinar` or `curl | sh`, and do not start a second long-lived process: any port in `127.0.0.1:17373`–`17382` that answers `GET /api/health` with `service: "pinar"` is enough. Shots land in `~/.pinar/shots` and history in `~/.pinar/history.db`. `PINAR_PORT` pins the server to a single port.
+
+From a checkout, developers can still build the tray and helper:
 
 ```sh
-pinar
-# or: bun apps/cli/src/cli.mjs
+bun run build:tray
+bun apps/cli/src/cli.mjs install
 ```
 
-That command exits immediately if any port in `127.0.0.1:17373`–`17382` already answers `GET /api/health` with `service: "pinar"`. Do not start a second long-lived process. The distributed executable embeds Bun; running from a checkout requires Bun. Shots land in `~/.pinar/shots` and history in `~/.pinar/history.db` (Windows: `%USERPROFILE%\.pinar`). `PINAR_PORT` pins the server to a single port.
-
-Machine-wide install (downloads helper to `~/.pinar`, launcher at `~/.pinar/bin`, then hooks):
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/djalmajr/pinar/main/install.sh | sh
-```
-
-```powershell
-irm https://raw.githubusercontent.com/djalmajr/pinar/main/install.ps1 | iex
-```
-
-From a checkout: `./bin/pinar install` or `.\bin\pinar.cmd install`. skills.sh does not install these hooks.
+skills.sh does not install these hooks.
 
 Visual page annotations are copied to the clipboard by the Chrome extension (⌘/Ctrl+Enter).
 

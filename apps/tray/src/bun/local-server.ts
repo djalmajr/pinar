@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 const PORTS = Array.from({ length: 10 }, (_, index) => 17373 + index);
 
@@ -22,10 +22,44 @@ export function pinarHome() {
 	return process.env.PINAR_HOME ?? join(homedir(), ".pinar");
 }
 
-export function pinarBin(): string {
+export function ensurePinarHome(root = pinarHome()) {
+	mkdirSync(root, { recursive: true });
+	mkdirSync(join(root, "shots"), { recursive: true });
+	return root;
+}
+
+export function runningAppBundle(execPath = process.execPath) {
+	let current = dirname(execPath);
+	for (let i = 0; i < 8; i += 1) {
+		if (current.endsWith(".app")) return current;
+		const parent = dirname(current);
+		if (parent === current) break;
+		current = parent;
+	}
+	return null;
+}
+
+export function bundledHelperCandidates(bundle: string) {
+	return [
+		join(bundle, "Contents", "Helpers", "pinar"),
+		join(bundle, "Contents", "Resources", "app", "Helpers", "pinar"),
+	];
+}
+
+export function bundledHelperPath(execPath = process.execPath) {
+	const bundle = runningAppBundle(execPath);
+	if (!bundle) return null;
+	return bundledHelperCandidates(bundle).find((path) => existsSync(path)) ?? null;
+}
+
+export function pinarBin(execPath = process.execPath): string {
 	if (process.env.PINAR_BIN) return process.env.PINAR_BIN;
-	const installed = join(pinarHome(), "bin", process.platform === "win32" ? "pinar.cmd" : "pinar");
-	if (existsSync(installed)) return installed;
+	const bundled = bundledHelperPath(execPath);
+	if (bundled) return bundled;
+	if (process.platform !== "darwin") {
+		const installed = join(pinarHome(), "bin", process.platform === "win32" ? "pinar.cmd" : "pinar");
+		if (existsSync(installed)) return installed;
+	}
 	return process.platform === "win32" ? "pinar.cmd" : "pinar";
 }
 
@@ -41,6 +75,12 @@ function spawnPinar(args: string[]) {
 
 export function startServer() {
 	spawnPinar(["ensure"]);
+}
+
+export function installBundledHooks() {
+	const bin = pinarBin();
+	if (!process.env.PINAR_BIN && !existsSync(bin)) return;
+	spawnPinar(["install-hooks"]);
 }
 
 function sleep(ms: number) {
@@ -75,7 +115,7 @@ export async function restartServer() {
 }
 
 async function killListeningPid(port: number, seen = new Set<number>()) {
-	if (process.platform === "win32") return;
+	if (process.platform !== "win32") return;
 	const child = spawn("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], {
 		stdio: ["ignore", "pipe", "ignore"],
 	});
@@ -115,4 +155,3 @@ async function killListeningPid(port: number, seen = new Set<number>()) {
 export function workspaceUrl(port: number) {
 	return `http://127.0.0.1:${port}/app`;
 }
-

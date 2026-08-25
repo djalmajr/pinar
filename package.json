@@ -1,6 +1,6 @@
 {
   "name": "pinar",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Visual Annotations for AI Agents & Engineers",
   "private": true,
   "type": "module",
@@ -16,7 +16,7 @@
   "scripts": {
     "start": "bun apps/cli/src/cli.mjs",
     "serve": "bun apps/cli/src/cli.mjs serve",
-    "test": "node --test apps/cli/src/*.test.js extension/*.test.js && bun test apps/extension/src/options/*.test.ts apps/tray/src/bun/*.test.ts && bun --filter @pinar/server test",
+    "test": "node --test apps/cli/src/*.test.js extension/*.test.js && bun test apps/extension/src/options/*.test.ts apps/tray/src/bun/*.test.ts packages/shared/src/*.test.ts scripts/*.test.ts && bun --filter @pinar/server test",
     "test:coverage:cli": "node --experimental-test-coverage --test apps/cli/src/*.test.js",
     "test:coverage:extension": "bun test --coverage extension/*.test.js apps/extension/src/options/*.test.ts",
     "test:coverage:server": "bun test --coverage apps/server/src",
@@ -33,8 +33,8 @@
     "build:server": "bun --filter @pinar/server build",
     "build:local": "bun --filter @pinar/server build:local",
     "dev:ext": "bun --filter @pinar/extension dev",
-    "dev:tray": "sh -c 'cd apps/tray && exec hutch run dev'",
-    "build:tray": "sh -c 'cd apps/tray && exec hutch electrobun build --env=stable'",
+    "dev:tray": "bun scripts/prepare-tray-helper.mjs && sh -c 'cd apps/tray && exec hutch run dev'",
+    "build:tray": "bun scripts/prepare-tray-helper.mjs && sh -c 'cd apps/tray && exec hutch electrobun build --env=stable'",
     "build:ext": "bun --filter @pinar/extension build",
     "build:bin": "bun scripts/build-binaries.mjs",
     "build": "bun run build:server && bun run build:local && bun --filter @pinar/extension build",

@@ -4,7 +4,7 @@ export default {
 	app: {
 		name: "Pinar",
 		identifier: "dev.pinar.local",
-		version: "0.1.1",
+		version: "0.1.2",
 	},
 	runtime: {
 		exitOnLastWindowClosed: false,
@@ -32,11 +32,17 @@ export default {
 			"src/assets/tray-on.png": "views/assets/tray-on.png",
 			"src/assets/tray-on@2x.png": "views/assets/tray-on@2x.png",
 			"src/assets/tray-off.png": "views/assets/tray-off.png",
+			"helpers/pinar": "Helpers/pinar",
+			"helpers/pinar.js": "Helpers/pinar.js",
 		},
 		cottontail: {
 			entrypoint: "src/bun/index.ts",
 		},
 		mainProcess: "cottontail",
+	},
+	scripts: {
+		postBuild: "scripts/macos-agent-app.mjs",
+		postWrap: "scripts/macos-agent-app.mjs",
 	},
 	release: {
 		baseUrl:

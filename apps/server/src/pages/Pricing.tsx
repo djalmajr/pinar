@@ -1,4 +1,5 @@
 import type { SupportedLanguage } from "@pinar/shared";
+import { freeInstallUrl } from "@pinar/shared";
 import { useEffect, useState } from "react";
 import { ServerFooter } from "@/components/ServerFooter";
 import { ServerShell } from "@/components/ServerShell";
@@ -125,6 +126,11 @@ export function PricingPage() {
   const [loadingOffer, setLoadingOffer] = useState<CheckoutOffer | null>(null);
   const [pendingOffer, setPendingOffer] = useState<CheckoutOffer | null>(null);
   const [pricing, setPricing] = useState<PublicPricing | null>(null);
+  const [freeHref, setFreeHref] = useState(() => freeInstallUrl());
+
+  useEffect(() => {
+    setFreeHref(freeInstallUrl(navigator.userAgent));
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -300,7 +306,7 @@ export function PricingPage() {
           <CardFooter>
             <Button
               className="w-full"
-              render={<a href="https://github.com/djalmajr/pinar" rel="noopener noreferrer" target="_blank" />}
+              render={<a href={freeHref} rel="noopener noreferrer" target="_blank" />}
               variant="outline"
             >
               {t("pricing.useFree")}

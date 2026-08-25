@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { pinarBin, pinarHome } from "./local-server";
+import { pinarBin, pinarHome, runningAppBundle } from "./local-server";
 
 export const LOGIN_LABEL = "dev.pinar.local";
 
@@ -13,17 +13,6 @@ export function loginPlistPath() {
 
 export function desktopPrefsPath() {
 	return join(pinarHome(), "desktop.json");
-}
-
-export function runningAppBundle(execPath = process.execPath) {
-	let current = dirname(execPath);
-	for (let i = 0; i < 8; i += 1) {
-		if (current.endsWith(".app")) return current;
-		const parent = dirname(current);
-		if (parent === current) break;
-		current = parent;
-	}
-	return null;
 }
 
 export function loginAppBundle() {

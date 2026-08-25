@@ -1,9 +1,11 @@
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { Tray, Updater, Utils } from "electrobun/main";
+import Electrobun, { Tray, Updater, Utils } from "electrobun/main";
 import { ensureDefaultLogin, isServerLoginEnabled, setServerLoginEnabled } from "./login";
 import {
+	ensurePinarHome,
 	findHealthyPort,
+	installBundledHooks,
 	pinarHome,
 	restartServer,
 	startServer,
@@ -11,7 +13,7 @@ import {
 	waitUntilHealthy,
 	workspaceUrl,
 } from "./local-server";
-import { updateMenuItem, type UpdateUiState } from "./update";
+import { shouldOfferUpdate, updateMenuItem, type UpdateUiState, versionMenuItem } from "./update";
 
 function trayPidPath() {
 	return join(pinarHome(), "tray.pid");
@@ -46,8 +48,16 @@ function releaseTrayLock() {
 	}
 }
 
+ensurePinarHome();
 claimTrayLock();
-Utils.setDockIconVisible(false);
+
+function hideDock() {
+	if (process.platform !== "darwin") return;
+	Utils.setDockIconVisible(false);
+}
+
+hideDock();
+Electrobun.events.on("reopen", hideDock);
 
 const tray = new Tray({
 	height: 22,
@@ -63,9 +73,8 @@ let busy = false;
 let updateUi: UpdateUiState = { available: false, checking: false, ready: false, version: "" };
 
 function updateMenu() {
-	const status = online ? "Local Server: On" : "Local Server: Off";
 	tray.setMenu([
-		{ enabled: false, label: status, type: "normal" },
+		versionMenuItem(),
 		{
 			action: "login",
 			checked: loginEnabled,
@@ -92,24 +101,41 @@ async function syncUpdate() {
 	updateMenu();
 	try {
 		const info = await Updater.checkForUpdate();
-		updateUi = {
-			available: info.updateAvailable,
-			checking: info.updateAvailable && !info.updateReady,
-			ready: info.updateReady,
-			version: info.version,
-		};
-		updateMenu();
-		if (info.updateAvailable && !info.updateReady) {
-			await Updater.downloadUpdate();
-			const ready = Updater.updateInfo();
-			updateUi = {
-				available: ready.updateAvailable,
-				checking: false,
-				ready: ready.updateReady,
-				version: ready.version,
-			};
+		const local = await Updater.getLocalInfo();
+		const available = shouldOfferUpdate({
+			localHash: local.hash,
+			localVersion: local.version,
+			remoteHash: info.hash,
+			remoteVersion: info.version,
+		});
+		if (!available) {
+			updateUi = { available: false, checking: false, ready: false, version: "" };
 		} else {
-			updateUi = { ...updateUi, checking: false };
+			updateUi = {
+				available: true,
+				checking: !info.updateReady,
+				ready: info.updateReady,
+				version: info.version,
+			};
+			updateMenu();
+			if (!info.updateReady) {
+				await Updater.downloadUpdate();
+				const ready = Updater.updateInfo();
+				const stillAvailable = shouldOfferUpdate({
+					localHash: local.hash,
+					localVersion: local.version,
+					remoteHash: ready.hash,
+					remoteVersion: ready.version,
+				});
+				updateUi = {
+					available: stillAvailable,
+					checking: false,
+					ready: stillAvailable && ready.updateReady,
+					version: stillAvailable ? ready.version : "",
+				};
+			} else {
+				updateUi = { ...updateUi, checking: false };
+			}
 		}
 	} catch (error) {
 		console.error("pinar tray update check failed", error);
@@ -119,6 +145,7 @@ async function syncUpdate() {
 }
 
 async function refresh() {
+	ensurePinarHome();
 	const port = await findHealthyPort();
 	online = port != null;
 	loginEnabled = await isServerLoginEnabled();
@@ -140,7 +167,15 @@ async function withBusy(work: () => Promise<void>) {
 
 updateMenu();
 void ensureDefaultLogin()
-	.then(() => refresh())
+	.then(async () => {
+		installBundledHooks();
+		await refresh();
+		if (!online) {
+			startServer();
+			await waitUntilHealthy();
+			await refresh();
+		}
+	})
 	.catch((error) => {
 		console.error("pinar tray login setup failed", error);
 		return refresh();
@@ -178,7 +213,7 @@ tray.on("tray-clicked", (event: unknown) => {
 		return;
 	}
 	if (action === "folder") {
-		Utils.openPath(pinarHome());
+		Utils.openPath(ensurePinarHome());
 		return;
 	}
 	if (action === "login") {

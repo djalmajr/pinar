@@ -8,7 +8,9 @@ describe("installer responses", () => {
     assert.ok(unix);
     assert.equal(unix.headers.get("content-type"), "text/plain; charset=utf-8");
     assert.equal(unix.headers.get("cache-control"), "public, max-age=300");
-    assert.match(await unix.text(), /^#!\/bin\/sh/);
+    const unixBody = await unix.text();
+    assert.match(unixBody, /^#!\/bin\/sh/);
+    assert.match(unixBody, /macos-arm64-Pinar\.dmg/);
 
     const powershell = installerResponse("/install.ps1");
     assert.ok(powershell);

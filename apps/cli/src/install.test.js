@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { ensureUserPath, installApp, launcherPath } from "./install.mjs";
+import { ensureUserPath, installApp, launcherPath, removeLegacyDarwinBin } from "./install.mjs";
 
 const source = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -73,5 +73,17 @@ describe("install", () => {
     assert.match(text, /\.pinar\/bin/);
     const again = await ensureUserPath({ home, dest, platform: "darwin", log: () => {} });
     assert.deepEqual(again.changed, []);
+  });
+
+  test("removeLegacyDarwinBin deletes leftover ~/.pinar/bin", async () => {
+    const dest = await mkdtemp(join(tmpdir(), "pinar-legacy-bin-"));
+    await mkdir(join(dest, "bin"), { recursive: true });
+    await writeFile(join(dest, "bin", "pinar"), "old\n");
+    await writeFile(join(dest, "history.db"), "keep\n");
+    await removeLegacyDarwinBin(dest);
+    assert.equal(existsSync(join(dest, "bin")), false);
+    assert.equal(await readFile(join(dest, "history.db"), "utf8"), "keep\n");
+    await removeLegacyDarwinBin(dest);
+    assert.equal(existsSync(join(dest, "bin")), false);
   });
 });

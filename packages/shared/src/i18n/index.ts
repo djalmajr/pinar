@@ -57,6 +57,7 @@ export interface TranslationDictionary {
   btn_sponsor: string;
   btn_save: string;
   status_saved: string;
+  btn_download_macos: string;
   btn_copy: string;
   status_copied: string;
 }
@@ -119,6 +120,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     btn_sponsor: "Sponsor",
     btn_save: "Save",
     status_saved: "Settings saved successfully!",
+    btn_download_macos: "Download Pinar",
     btn_copy: "Copy",
     status_copied: "Copied!",
   },
@@ -179,6 +181,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     btn_sponsor: "Apoiar",
     btn_save: "Salvar",
     status_saved: "Preferências salvas com sucesso!",
+    btn_download_macos: "Baixar Pinar",
     btn_copy: "Copiar",
     status_copied: "Copiado!",
   },
@@ -239,6 +242,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     btn_sponsor: "Patrocinar",
     btn_save: "Guardar",
     status_saved: "¡Guardado con éxito!",
+    btn_download_macos: "Descargar Pinar",
     btn_copy: "Copiar",
     status_copied: "¡Copiado!",
   },
@@ -299,6 +303,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     btn_sponsor: "Soutenir",
     btn_save: "Enregistrer",
     status_saved: "Enregistré avec succès !",
+    btn_download_macos: "Télécharger Pinar",
     btn_copy: "Copier",
     status_copied: "Copié !",
   },
@@ -359,6 +364,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     btn_sponsor: "Sponsern",
     btn_save: "Speichern",
     status_saved: "Erfolgreich gespeichert!",
+    btn_download_macos: "Pinar herunterladen",
     btn_copy: "Kopieren",
     status_copied: "Kopiert!",
   },
@@ -419,6 +425,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     btn_sponsor: "赞助",
     btn_save: "保存",
     status_saved: "保存成功！",
+    btn_download_macos: "下载 Pinar",
     btn_copy: "复制",
     status_copied: "已复制！",
   },
@@ -479,6 +486,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     btn_sponsor: "スポンサー",
     btn_save: "保存",
     status_saved: "正常に保存されました！",
+    btn_download_macos: "Pinarをダウンロード",
     btn_copy: "コピー",
     status_copied: "コピー完了！",
   },

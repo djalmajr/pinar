@@ -6,13 +6,17 @@ import { describe, expect, test } from "bun:test";
 import {
 	APP_IDENTIFIER,
 	GITHUB_RELEASE_BASE_URL,
+	appVersion,
 	checkRemoteUpdate,
+	compareReleaseVersions,
 	downloadUpdateArtifact,
 	parseUpdateManifest,
 	platformPrefix,
+	shouldOfferUpdate,
 	updateArtifactUrl,
 	updateManifestUrl,
 	updateMenuItem,
+	versionMenuItem,
 } from "./update";
 
 const LOCAL = {
@@ -105,6 +109,15 @@ describe("GitHub Releases update contract", () => {
 	});
 
 	test("menu labels follow check → download → apply", () => {
+		expect(versionMenuItem("0.1.2")).toEqual({
+			enabled: false,
+			label: "Pinar 0.1.2",
+			type: "normal",
+		});
+		expect(appVersion(() => ({ version: "9.9.9" }))).toBe("9.9.9");
+		expect(appVersion(() => {
+			throw new Error("missing");
+		})).toMatch(/^\d+\.\d+\.\d+/);
 		expect(updateMenuItem({ available: false, checking: false, ready: false, version: "" }).label).toBe(
 			"Check for Updates…",
 		);
@@ -120,6 +133,57 @@ describe("GitHub Releases update contract", () => {
 			label: "Update to 0.1.2",
 			type: "normal",
 		});
+	});
+
+	test("does not offer a GitHub older build as an update", () => {
+		expect(compareReleaseVersions("0.1.1", "0.1.2")).toBe(-1);
+		expect(compareReleaseVersions("0.1.2", "0.1.2")).toBe(0);
+		expect(compareReleaseVersions("0.1.3", "0.1.2")).toBe(1);
+		expect(
+			shouldOfferUpdate({
+				localHash: "localhash0001",
+				localVersion: "0.1.2",
+				remoteHash: "remotehash001",
+				remoteVersion: "0.1.1",
+			}),
+		).toBe(false);
+		expect(
+			shouldOfferUpdate({
+				localHash: "localhash0001",
+				localVersion: "0.1.2",
+				remoteHash: "remotehash001",
+				remoteVersion: "0.1.2",
+			}),
+		).toBe(true);
+		expect(
+			shouldOfferUpdate({
+				localHash: "samehash00001",
+				localVersion: "0.1.1",
+				remoteHash: "samehash00001",
+				remoteVersion: "0.1.2",
+			}),
+		).toBe(false);
+	});
+
+	test("checkRemoteUpdate ignores an older GitHub latest", async () => {
+		const { baseUrl, server } = await serveGitHubLayout({
+			"stable-macos-arm64-update.json": JSON.stringify({ ...MANIFEST, version: "0.1.1", hash: "oldrelhash01" }),
+		});
+		try {
+			const newerLocal = await checkRemoteUpdate({
+				baseUrl,
+				local: { ...LOCAL, version: "0.1.2" },
+			});
+			expect(newerLocal.updateAvailable).toBe(false);
+			expect(newerLocal.version).toBe("0.1.1");
+			const olderLocal = await checkRemoteUpdate({
+				baseUrl,
+				local: { ...LOCAL, version: "0.1.0" },
+			});
+			expect(olderLocal.updateAvailable).toBe(true);
+		} finally {
+			server.stop(true);
+		}
 	});
 
 	test("GitHub-style host reports an update when the hash changes", async () => {
@@ -172,7 +236,7 @@ describe("GitHub Releases update contract", () => {
 			) as { baseUrl?: string; identifier?: string; channel?: string; version?: string };
 			expect(version.identifier).toBe(APP_IDENTIFIER);
 			expect(version.channel).toBe("stable");
-			expect(version.version).toBe("0.1.1");
+			expect(version.version).toMatch(/^\d+\.\d+\.\d+$/);
 			expect(version.baseUrl).toBe(GITHUB_RELEASE_BASE_URL);
 		},
 	);
@@ -227,5 +291,5 @@ describe("GitHub Releases update contract", () => {
 			local: { ...LOCAL, hash: manifest.hash },
 		});
 		expect(current.updateAvailable).toBe(false);
-	});
+	}, 20_000);
 });

@@ -3,6 +3,7 @@ import {
   type AuthSession,
   type CaptureDestination,
   getBestLanguage,
+  macosDesktopDmgUrl,
   type PinarSettings,
   type ProjectTree,
   type ProjectTreeCollection,
@@ -174,7 +175,7 @@ export function OptionsApp() {
   const [settings, setSettings] = useState<PinarSettings>(DEFAULT_SETTINGS);
   const [savedSettings, setSavedSettings] = useState<PinarSettings>(DEFAULT_SETTINGS);
   const [lang, setLang] = useState<SupportedLanguage>(DEFAULT_LANGUAGE);
-  const [isWindows, setIsWindows] = useState(false);
+  const [installPlatform, setInstallPlatform] = useState<"mac" | "win" | "other">("mac");
   const [copiedInstall, setCopiedInstall] = useState(false);
   const [captureDestination, setCaptureDestination] = useState<CaptureDestination | null>(null);
   const [destinationTree, setDestinationTree] = useState<ProjectTree | null>(null);
@@ -211,7 +212,7 @@ export function OptionsApp() {
   const selectedDestinationCollectionId = captureDestination?.projectId === destinationProjectId
     ? captureDestination.collectionId
     : DEFAULT_COLLECTION_OPTION.value;
-  const installCommand = isWindows
+  const installCommand = installPlatform === "win"
     ? "irm https://pinar.dev/install.ps1 | iex"
     : "curl -fsSL https://pinar.dev/install.sh | sh";
 
@@ -276,9 +277,9 @@ export function OptionsApp() {
 
   useEffect(() => {
     async function initialize() {
-      setIsWindows(typeof chrome !== "undefined" && chrome.runtime?.getPlatformInfo
-        ? (await chrome.runtime.getPlatformInfo()).os === "win"
-        : /win/i.test(navigator.userAgent));
+      setInstallPlatform(typeof chrome !== "undefined" && chrome.runtime?.getPlatformInfo
+        ? ((os) => (os === "win" ? "win" : os === "mac" ? "mac" : "other"))((await chrome.runtime.getPlatformInfo()).os)
+        : /win/i.test(navigator.userAgent) ? "win" : /mac/i.test(navigator.userAgent) ? "mac" : "other");
       let loaded = DEFAULT_SETTINGS;
       if (typeof chrome !== "undefined" && chrome.storage?.sync) {
         const items = await chrome.storage.sync.get(DEFAULT_SETTINGS);
@@ -481,12 +482,25 @@ export function OptionsApp() {
                     <span className="min-w-0 flex-1">
                       <span className="block text-xs font-semibold">{t.local_title}</span>
                       <span className="block text-xs leading-relaxed text-muted-foreground">{t.local_desc}</span>
-                      <span className="mt-2 flex items-center gap-1.5 rounded-lg border bg-muted/60 p-1.5 font-mono text-[11px]">
-                        <ScrollArea className="min-w-0 flex-1"><code className="block whitespace-nowrap px-1 text-muted-foreground">{installCommand}</code><ScrollBar orientation="horizontal" /></ScrollArea>
-                        <button className="shrink-0 rounded p-1 text-muted-foreground hover:bg-background hover:text-foreground" title={t.btn_copy} type="button" onClick={async (event) => { event.preventDefault(); await navigator.clipboard.writeText(installCommand); setCopiedInstall(true); window.setTimeout(() => setCopiedInstall(false), 2_000); }}>
-                          {copiedInstall ? <IconCheck className="size-3.5 text-emerald-500" /> : <IconCopy className="size-3.5" />}
-                        </button>
-                      </span>
+                      {installPlatform === "mac" ? (
+                        <span className="mt-2 block" onClick={(event) => event.stopPropagation()}>
+                          <Button
+                            render={<a href={macosDesktopDmgUrl()} rel="noopener noreferrer" target="_blank" />}
+                            size="sm"
+                            variant="outline"
+                          >
+                            <IconExternalLink data-icon="inline-start" />
+                            {t.btn_download_macos}
+                          </Button>
+                        </span>
+                      ) : (
+                        <span className="mt-2 flex items-center gap-1.5 rounded-lg border bg-muted/60 p-1.5 font-mono text-[11px]">
+                          <ScrollArea className="min-w-0 flex-1"><code className="block whitespace-nowrap px-1 text-muted-foreground">{installCommand}</code><ScrollBar orientation="horizontal" /></ScrollArea>
+                          <button className="shrink-0 rounded p-1 text-muted-foreground hover:bg-background hover:text-foreground" title={t.btn_copy} type="button" onClick={async (event) => { event.preventDefault(); await navigator.clipboard.writeText(installCommand); setCopiedInstall(true); window.setTimeout(() => setCopiedInstall(false), 2_000); }}>
+                            {copiedInstall ? <IconCheck className="size-3.5 text-emerald-500" /> : <IconCopy className="size-3.5" />}
+                          </button>
+                        </span>
+                      )}
                     </span>
                   </label>
                   <label className="-mx-2 flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 hover:bg-muted/50">

@@ -36,7 +36,23 @@ describe("public legal documents", () => {
     assert.deepEqual(legalDocument("terms", "es"), legalDocument("terms", "en"));
   });
 
-  it("states the limited Founder and Fair Source model without a perpetual hosting promise", () => {
+  it("names Djalma Júnior as operator without a Pinar/we alias", () => {
+    const termsEn = legalDocument("terms", "en").body;
+    const termsPt = legalDocument("terms", "pt").body;
+    const privacyEn = legalDocument("privacy", "en").body;
+    const privacyPt = legalDocument("privacy", "pt").body;
+    assert.match(termsEn, /Djalma Júnior/);
+    assert.match(termsPt, /Djalma Júnior/);
+    assert.match(privacyEn, /Djalma Júnior/);
+    assert.match(privacyPt, /Djalma Júnior/);
+    assert.doesNotMatch(termsEn, /Araújo/);
+    assert.doesNotMatch(termsPt, /Araújo/);
+    assert.doesNotMatch(termsEn, /\("Pinar", "we", "us"\)/);
+    assert.doesNotMatch(termsPt, /\("Pinar", "nós"\)/);
+    assert.equal(CURRENT_LEGAL_VERSION, "2026-08-24");
+  });
+
+  it("keeps Founder as a limited cohort without a perpetual hosting promise", () => {
     const terms = legalDocument("terms", "en").body;
     const fairSource = legalDocument("fair-source", "en").body;
     assert.match(terms, /5 GB/);

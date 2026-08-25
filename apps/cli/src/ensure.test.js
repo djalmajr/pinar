@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import http from "node:http";
+import { existsSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, test } from "node:test";
 import { canListen, findAvailablePort, findHealthyPort, isAddrInUse, isHealthy, waitHealthy } from "./ensure.mjs";
-import { pinarHome, portRange, resolvePort } from "./paths.mjs";
+import { ensurePinarHome, pinarHome, portRange, resolvePort } from "./paths.mjs";
 
 describe("ensure", () => {
   test("portRange stays on 17373 unless PINAR_PORT is set", () => {
@@ -35,6 +39,15 @@ describe("ensure", () => {
       if (previousPort == null) delete process.env.PINAR_PORT;
       else process.env.PINAR_PORT = previousPort;
     }
+  });
+
+  test("ensurePinarHome recreates a missing data folder", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "pinar-data-"));
+    const root = join(parent, "gone");
+    assert.equal(existsSync(root), false);
+    assert.equal(ensurePinarHome(root), root);
+    assert.equal(existsSync(join(root, "shots")), true);
+    await rm(parent, { force: true, recursive: true });
   });
 
   test("isHealthy accepts only a Pinar health response", async () => {

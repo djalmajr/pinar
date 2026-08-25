@@ -1,14 +1,23 @@
 #!/bin/sh
-# Start the screenshot helper (one instance). Hook hosts may send JSON on stdin;
+# Start the local Pinar server (one instance). Hook hosts may send JSON on stdin;
 # drain it so the pipe does not break. Stdout stays empty unless PINAR_HOOK_JSON=1
 # (Antigravity PreInvocation expects a JSON object).
 set -e
 if [ ! -t 0 ]; then
   cat >/dev/null
 fi
-root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 status=0
-"$root/bin/pinar" || status=$?
+if [ "$(uname -s)" = Darwin ]; then
+  app="${HOME}/Applications/Pinar.app"
+  if [ -d "$app" ]; then
+    /usr/bin/open -ga "$app" || status=$?
+  else
+    /usr/bin/open -ga Pinar || status=$?
+  fi
+else
+  root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+  "$root/bin/pinar" || status=$?
+fi
 if [ "${PINAR_HOOK_JSON:-}" = "1" ]; then
   printf '%s\n' '{}'
   exit 0

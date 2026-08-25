@@ -17,10 +17,10 @@ Encontrar uma forma segura de instalar o Pinar e, se quiser, apoiar o projeto.
 
 1. Na landing, **ler o card "Private by default"** → entende que o servidor local mantém dados no dispositivo.
 2. **Clicar em "View plans" e localizar o card Free** → CTA "Use Free" está visível.
-3. **Clicar em "Use Free"** → repositório/README abre com instruções para Unix e PowerShell.
+3. **Clicar em "Use Free"** → no macOS abre o DMG `macos-arm64-Pinar.dmg` do GitHub Releases (Windows/Linux seguem o instalador helper).
 4. **Voltar ao Pinar e localizar o rodapé** → bloco de patrocínio aparece para visitante/Free.
 5. **Inspecionar "Buy Me a Coffee" e "Sponsor on GitHub"** → links apontam aos domínios esperados e abrem externamente.
-6. **Usar os links/comandos documentados dos instaladores** → Unix e PowerShell respondem como texto executável, sem HTML inesperado.
+6. **Usar os links/comandos documentados dos instaladores** → `/install.sh` no Darwin aponta para o DMG; no Linux instala o helper. PowerShell responde como texto executável, sem HTML inesperado.
 
 ## Expected result
 

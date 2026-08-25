@@ -1,6 +1,6 @@
 import type { SupportedLanguage } from "@pinar/shared";
 
-export const CURRENT_LEGAL_VERSION = "2026-08-18";
+export const CURRENT_LEGAL_VERSION = "2026-08-24";
 
 export const LegalDocumentIds = [
   "terms",
@@ -61,7 +61,7 @@ const documents: Record<LegalDocumentId, LocalizedLegalDocument> = {
   terms: {
     en: `## 1. Who operates Pinar
 
-Pinar is operated by **Djalma Araújo Júnior**, an individual operating the pinar.dev service from Brazil ("Pinar", "we", "us"). Contact: **djalmajr@gmail.com**.
+Pinar is operated by **Djalma Júnior**, an individual operating the pinar.dev service from Brazil. Contact: **djalmajr@gmail.com**.
 
 These Terms govern the hosted Pinar service, paid plans, cloud storage, AI features, browser extension integrations, and related websites. Software distributed from the public repository is also governed by its repository license.
 
@@ -107,7 +107,7 @@ To the extent permitted by law, Pinar is provided "as is" and "as available". We
 Brazilian law governs these Terms, without removing mandatory protections available where you live. Brazilian consumers may bring claims in the legally competent forum, including their domicile where applicable. Questions and formal requests may be sent to **djalmajr@gmail.com**.`,
     pt: `## 1. Quem opera o Pinar
 
-O Pinar é operado por **Djalma Araújo Júnior**, pessoa física responsável pelo serviço pinar.dev no Brasil ("Pinar", "nós"). Contato: **djalmajr@gmail.com**.
+O Pinar é operado por **Djalma Júnior**, pessoa física responsável pelo serviço pinar.dev no Brasil. Contato: **djalmajr@gmail.com**.
 
 Estes Termos regem o serviço hospedado do Pinar, planos pagos, armazenamento em nuvem, recursos de IA, integrações com a extensão de navegador e sites relacionados. O software distribuído pelo repositório público também é regido pela licença presente no repositório.
 
@@ -155,7 +155,7 @@ A lei brasileira rege estes Termos, sem afastar proteções obrigatórias dispon
   privacy: {
     en: `## 1. Controller and scope
 
-For the hosted Pinar service, the data controller is **Djalma Araújo Júnior**, an individual in Brazil. Privacy contact: **djalmajr@gmail.com**. This Policy does not govern local-only data that never leaves your device; you control that data locally.
+For the hosted Pinar service, the data controller is **Djalma Júnior**, an individual in Brazil. Privacy contact: **djalmajr@gmail.com**. This Policy does not govern local-only data that never leaves your device; you control that data locally.
 
 ## 2. Data we process
 
@@ -188,7 +188,7 @@ Subject to applicable law, you may request confirmation and access; correction; 
 Pinar is not directed to children. Do not submit a child's personal data without the authority and safeguards required by law. We will publish material changes and request renewed acceptance when legally or contractually necessary. You may also lodge a complaint with Brazil's National Data Protection Authority (ANPD) or another competent authority.`,
     pt: `## 1. Controlador e escopo
 
-No serviço hospedado do Pinar, o controlador é **Djalma Araújo Júnior**, pessoa física no Brasil. Contato de privacidade: **djalmajr@gmail.com**. Esta Política não rege dados de uso exclusivamente local que nunca saem do seu dispositivo; você controla esses dados localmente.
+No serviço hospedado do Pinar, o controlador é **Djalma Júnior**, pessoa física no Brasil. Contato de privacidade: **djalmajr@gmail.com**. Esta Política não rege dados de uso exclusivamente local que nunca saem do seu dispositivo; você controla esses dados localmente.
 
 ## 2. Dados tratados
 

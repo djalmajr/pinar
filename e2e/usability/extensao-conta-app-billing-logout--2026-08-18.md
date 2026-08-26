@@ -7,13 +7,13 @@
 
 ## Walkthrough
 
-1. Em **Account**, confirmei `djalmajr@gmail.com` e o badge **pro**.
+1. Em **Account**, confirmei `contato@pinar.dev` e o badge **pro**.
 2. **Open app** abriu uma aba da identidade `local/account`.
 3. **Manage Billing** abriu uma aba separada do customer Pro e o estado da conta permaneceu.
 4. **Sign out** mudou o badge para **Free**.
 5. Em Storage, a árvore mudou de **Account Local** para **Installation Local**.
 6. **Open app** passou a abrir `local/installation`.
-7. Solicitei código para `djalmajr@gmail.com`, validei `123456` na fronteira controlada e recuperei a conta Pro.
+7. Solicitei código para `contato@pinar.dev`, validei `123456` na fronteira controlada e recuperei a conta Pro.
 8. A árvore voltou a **Account Local**, sem um segundo projeto.
 
 ## Finding corrigido

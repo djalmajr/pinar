@@ -8,7 +8,6 @@ import {
 	GITHUB_RELEASE_BASE_URL,
 	appVersion,
 	checkRemoteUpdate,
-	compareReleaseVersions,
 	downloadUpdateArtifact,
 	parseUpdateManifest,
 	platformPrefix,
@@ -135,10 +134,7 @@ describe("GitHub Releases update contract", () => {
 		});
 	});
 
-	test("does not offer a GitHub older build as an update", () => {
-		expect(compareReleaseVersions("0.1.1", "0.1.2")).toBe(-1);
-		expect(compareReleaseVersions("0.1.2", "0.1.2")).toBe(0);
-		expect(compareReleaseVersions("0.1.3", "0.1.2")).toBe(1);
+	test("offers only a newer release version when the installed version is known", () => {
 		expect(
 			shouldOfferUpdate({
 				localHash: "localhash0001",
@@ -153,6 +149,14 @@ describe("GitHub Releases update contract", () => {
 				localVersion: "0.1.2",
 				remoteHash: "remotehash001",
 				remoteVersion: "0.1.2",
+			}),
+		).toBe(false);
+		expect(
+			shouldOfferUpdate({
+				localHash: "localhash0001",
+				localVersion: "0.1.2",
+				remoteHash: "remotehash001",
+				remoteVersion: "0.1.3",
 			}),
 		).toBe(true);
 		expect(

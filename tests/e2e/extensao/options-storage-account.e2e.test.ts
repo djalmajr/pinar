@@ -18,6 +18,7 @@ async function installOptionsHarness(page: Page) {
     const IDENTITY_KEY = "pinar-e2e-extension-identity";
     const MESSAGES_KEY = "pinar-e2e-extension-messages";
     const LOCAL_STORAGE_KEY = "pinar-e2e-extension-local";
+    let extensionCodeIndex = 0;
     const settings = () => JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
     const identity = () => localStorage.getItem(IDENTITY_KEY) || "account";
     const localValues = () => JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY) || "{}");
@@ -27,7 +28,7 @@ async function installOptionsHarness(page: Page) {
       localStorage.setItem(MESSAGES_KEY, JSON.stringify(messages));
     };
     const authSession = () => identity() === "account"
-      ? { email: "djalmajr@gmail.com", kind: "account", plan: "pro", userId: "user-pro" }
+      ? { email: "contato@pinar.dev", kind: "account", plan: "pro", userId: "user-pro" }
       : { installationId: "installation-free", kind: "installation", plan: "free" };
     const destination = () => {
       const mode = settings().storageMode === "cloud" ? "cloud" : "local";
@@ -78,7 +79,12 @@ async function installOptionsHarness(page: Page) {
           if (message.type === "destination:get" || message.type === "destination:set") {
             return { ok: true, ...destination() };
           }
-          if (message.type === "auth:get") return { ok: true, session: authSession() };
+          if (message.type === "auth:get") {
+            if (localStorage.getItem("pinar-e2e-auth-fail") === "1") {
+              return { error: "Account service is unavailable.", ok: false };
+            }
+            return { ok: true, session: authSession() };
+          }
           if (message.type === "auth:logout") {
             localStorage.setItem(IDENTITY_KEY, "installation");
             return { ok: true, session: authSession() };
@@ -91,6 +97,14 @@ async function installOptionsHarness(page: Page) {
             if (message.code !== "123456") return { error: "Invalid code", ok: false };
             localStorage.setItem(IDENTITY_KEY, "account");
             return { ok: true, session: authSession() };
+          }
+          if (message.type === "auth:extension-code") {
+            extensionCodeIndex += 1;
+            return {
+              code: extensionCodeIndex === 1 ? "ABCDE234" : "FGHJK567",
+              expiresAt: "2026-08-18T00:05:00.000Z",
+              ok: true,
+            };
           }
           if (message.type === "app:open") {
             const mode = settings().storageMode === "cloud" ? "cloud" : "local";
@@ -179,10 +193,12 @@ test("storage mode and destination identity persist without mixing local and clo
   await installOptionsHarness(page);
 
   await expect(page.getByRole("radio", { name: /Local Server/ })).toBeChecked();
-  await expect(page.getByRole("link", { name: "Download Pinar" })).toHaveAttribute(
+  const downloadLink = page.getByRole("link", { name: "Download Pinar" });
+  await expect(downloadLink).toHaveAttribute(
     "href",
     "https://github.com/djalmajr/pinar/releases/latest/download/macos-arm64-Pinar.dmg",
   );
+  await expect(downloadLink).toHaveClass(/external-link/);
   await expect(page.getByRole("combobox", { name: "Project" })).toHaveValue("Account Local");
 
   await page.getByRole("radio", { name: /Remote Server/ }).check();
@@ -211,30 +227,189 @@ test("storage mode and destination identity persist without mixing local and clo
   await expect(page.getByRole("combobox", { name: "Project" })).toHaveValue("Account Local");
 });
 
+test("email sign-in stays on the Account tab when the session service is down", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("pinar-e2e-auth-fail", "1");
+  });
+  await installOptionsHarness(page);
+  await page.getByRole("tab", { name: "Account" }).click();
+
+  await expect(page.getByText("Account service is unavailable.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Free", { exact: true })).toHaveCount(0);
+  const emailInput = page.getByPlaceholder("you@example.com");
+  const sendCodeButton = page.getByRole("button", { name: "Send code", exact: true });
+  await expect(emailInput).toBeVisible();
+  await expect(sendCodeButton).toBeEnabled();
+  await expect
+    .poll(async () => ({
+      buttonHeight: (await sendCodeButton.boundingBox())?.height,
+      inputHeight: (await emailInput.boundingBox())?.height,
+    }))
+    .toEqual({ buttonHeight: 32, inputHeight: 32 });
+  await expect(page.getByRole("link", { name: "Upgrade to Pro", exact: true })).toHaveCount(1);
+  await expect(page.getByRole("link", { name: "Upgrade to Pro", exact: true })).toHaveAttribute(
+    "href",
+    /https:\/\/pinar\.dev\/pricing/,
+  );
+  await expect(page.getByRole("button", { name: "Generate code", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open app", exact: true })).toHaveCount(1);
+});
+
+test("Free installation separates temporary-code guidance from the paid upgrade", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("pinar-e2e-extension-identity", "installation");
+  });
+  await installOptionsHarness(page);
+  await page.getByRole("tab", { name: "Account" }).click();
+
+  const freeSection = page.getByRole("region", { name: "Continue with a Free installation" });
+  const paidSection = page.getByRole("region", { name: "Paid account" });
+  const codeEntryLink = freeSection.getByRole("link", { name: "Open page to enter code" });
+  const upgradeLink = paidSection.getByRole("link", { name: "Upgrade to Pro", exact: true });
+  const generateCodeButton = freeSection.getByRole("button", { name: "Generate code", exact: true });
+  const sendCodeButton = paidSection.getByRole("button", { name: "Send code", exact: true });
+
+  await expect(freeSection).toBeVisible();
+  await expect(paidSection).toBeVisible();
+  await expect(freeSection.getByRole("link", { name: "Upgrade to Pro", exact: true })).toHaveCount(0);
+  await expect(upgradeLink).toHaveCount(1);
+  await expect(freeSection.getByText(
+    "Only the latest code can be used. Generating another code invalidates the current one.",
+    { exact: true },
+  )).toBeVisible();
+  await expect(codeEntryLink).toHaveClass(/external-link/);
+  await expect(generateCodeButton).toHaveClass(/border-border/);
+  await expect(generateCodeButton).toHaveClass(/bg-background/);
+  await expect(sendCodeButton).toHaveClass(/border-border/);
+  await expect(sendCodeButton).toHaveClass(/bg-background/);
+
+  const signInUrl = new URL(await codeEntryLink.getAttribute("href") || "about:blank");
+  expect(signInUrl.origin).toBe("https://pinar.dev");
+  expect(signInUrl.pathname).toBe("/sign-in");
+  expect(signInUrl.searchParams.get("extensionCode")).toBe("");
+  expect(signInUrl.searchParams.get("returnTo")).toBe("/app");
+
+  await expect(freeSection.getByText(
+    "Open “Sign in”, keep the “Extension” tab selected, and paste the code.",
+    { exact: true },
+  )).toHaveCount(0);
+
+  await expect
+    .poll(async () => ({
+      sendHeight: (await sendCodeButton.boundingBox())?.height,
+      upgradeHeight: (await upgradeLink.boundingBox())?.height,
+    }))
+    .toEqual({ sendHeight: 32, upgradeHeight: 32 });
+
+  const freeBackground = await freeSection.evaluate((element) => getComputedStyle(element).backgroundColor);
+  const paidBackground = await paidSection.evaluate((element) => getComputedStyle(element).backgroundColor);
+  const guidanceBackground = await codeEntryLink.locator("..").evaluate(
+    (element) => getComputedStyle(element).backgroundColor,
+  );
+  const upgradeBackground = await paidSection.getByRole("group", { name: "Don't have a subscription yet?" })
+    .evaluate((element) => getComputedStyle(element).backgroundColor);
+  expect(freeBackground).toBe(paidBackground);
+  expect(guidanceBackground).toBe(upgradeBackground);
+
+  await generateCodeButton.click();
+  await expect(freeSection.getByText("ABCDE234", { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("pinar-e2e-clipboard"))).toBeNull();
+  await freeSection.getByRole("button", { name: "Copy code", exact: true }).click();
+  expect(await page.evaluate(() => localStorage.getItem("pinar-e2e-clipboard"))).toBe("ABCDE234");
+  await expect(freeSection.getByRole("button", { name: "Copied!", exact: true })).toBeVisible();
+
+  await freeSection.getByRole("button", { name: "Generate another", exact: true }).click();
+  const confirmation = page.getByRole("alertdialog");
+  await expect(confirmation.getByRole("heading", { name: "Generate another code?", exact: true })).toBeVisible();
+  await expect(confirmation.getByText(
+    "The code ABCDE234 will stop working. The new code will be valid for five minutes.",
+    { exact: true },
+  )).toBeVisible();
+  await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(confirmation).toBeHidden();
+  await expect(freeSection.getByText("ABCDE234", { exact: true })).toBeVisible();
+
+  await freeSection.getByRole("button", { name: "Generate another", exact: true }).click();
+  await confirmation.getByRole("button", { name: "Invalidate and generate", exact: true }).click();
+  await expect(freeSection.getByText("FGHJK567", { exact: true })).toBeVisible();
+  await expect(freeSection.getByText("ABCDE234", { exact: true })).toHaveCount(0);
+  await freeSection.getByRole("button", { name: "Copy code", exact: true }).click();
+  expect(await page.evaluate(() => localStorage.getItem("pinar-e2e-clipboard"))).toBe("FGHJK567");
+  const extensionCodeMessages = await page.evaluate(() => JSON.parse(
+    localStorage.getItem("pinar-e2e-extension-messages") || "[]",
+  ).filter((message: { type?: string }) => message.type === "auth:extension-code"));
+  expect(extensionCodeMessages).toHaveLength(2);
+});
+
+test("temporary-code actions are localized in every supported language", async ({ page }) => {
+  const cases = [
+    { code: "en", confirm: "Generate another code?", generate: "Generate code", generateAnother: "Generate another" },
+    { code: "pt", confirm: "Gerar outro código?", generate: "Gerar código", generateAnother: "Gerar outro" },
+    { code: "es", confirm: "¿Generar otro código?", generate: "Generar código", generateAnother: "Generar otro" },
+    { code: "fr", confirm: "Générer un autre code ?", generate: "Générer un code", generateAnother: "Générer un autre" },
+    { code: "de", confirm: "Einen weiteren Code erzeugen?", generate: "Code erzeugen", generateAnother: "Weiteren erzeugen" },
+    { code: "zh", confirm: "生成另一个代码？", generate: "生成代码", generateAnother: "生成另一个" },
+    { code: "ja", confirm: "別のコードを生成しますか？", generate: "コードを生成", generateAnother: "別のコードを生成" },
+  ];
+  await page.addInitScript(() => {
+    localStorage.setItem("pinar-e2e-extension-identity", "installation");
+  });
+  await installOptionsHarness(page);
+
+  for (const item of cases) {
+    await page.evaluate((language) => {
+      const key = "pinar-e2e-extension-settings";
+      const current = JSON.parse(localStorage.getItem(key) || "{}");
+      localStorage.setItem(key, JSON.stringify({ ...current, language }));
+    }, item.code);
+    await page.reload();
+    await page.getByRole("tab").nth(2).click();
+    await page.getByRole("button", { name: item.generate, exact: true }).click();
+    await page.getByRole("button", { name: item.generateAnother, exact: true }).click();
+    await expect(page.getByRole("alertdialog").getByRole("heading", { name: item.confirm, exact: true })).toBeVisible();
+    await page.getByRole("alertdialog").getByRole("button").first().click();
+  }
+});
+
 test("Pro account opens app and billing, signs out, and returns by email without duplicating its tree", async ({ page }) => {
   await installOptionsHarness(page);
   await page.getByRole("tab", { name: "Account" }).click();
 
-  await expect(page.getByText("djalmajr@gmail.com", { exact: true })).toBeVisible();
-  await expect(page.locator('[data-slot="badge"]').getByText("pro", { exact: true })).toBeVisible();
+  await expect(page.getByText("contato@pinar.dev", { exact: true })).toBeVisible();
+  await expect(page.getByText("pro", { exact: true })).toBeVisible();
+  await expect(page.locator('[data-slot="badge"]').getByText("pro", { exact: true })).toHaveCount(0);
   await expectActionPopup(page, "Open app", "/extension-open/local/account");
   await expectActionPopup(page, "Manage Billing", "/extension-billing/customer-pro");
-  await expect(page.getByText("djalmajr@gmail.com", { exact: true })).toBeVisible();
+  await expect(page.getByText("contato@pinar.dev", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Sign out" }).click();
-  await expect(page.locator('[data-slot="badge"]').getByText("Free", { exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Upgrade to Pro", exact: true })).toHaveAttribute("href", "https://pinar.dev/pricing");
+  await expect(page.locator('[data-slot="badge"]').getByText("Free", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Upgrade to Pro", exact: true })).toHaveCount(1);
+  await expect(page.getByRole("link", { name: "Upgrade to Pro", exact: true })).toHaveAttribute(
+    "href",
+    /https:\/\/pinar\.dev\/pricing/,
+  );
+  await expect(page.getByRole("button", { name: "Generate code", exact: true })).toBeVisible();
   await page.getByRole("tab", { name: "Storage" }).click();
   await expect(page.getByRole("combobox", { name: "Project" })).toHaveValue("Installation Local");
   await expectActionPopup(page, "Open app", "/extension-open/local/installation");
 
   await page.getByRole("tab", { name: "Account" }).click();
-  await page.getByPlaceholder("you@example.com").fill("djalmajr@gmail.com");
+  await page.getByPlaceholder("you@example.com").fill("contato@pinar.dev");
   await page.getByRole("button", { name: "Send code" }).click();
-  await page.getByPlaceholder("000000").fill("123456");
-  await page.getByRole("button", { name: "Verify" }).click();
-  await expect(page.getByText("djalmajr@gmail.com", { exact: true })).toBeVisible();
-  await expect(page.locator('[data-slot="badge"]').getByText("pro", { exact: true })).toBeVisible();
+  const emailCodeInput = page.getByPlaceholder("000000");
+  const verifyButton = page.getByRole("button", { name: "Verify" });
+  await expect
+    .poll(async () => ({
+      buttonHeight: (await verifyButton.boundingBox())?.height,
+      inputHeight: (await emailCodeInput.boundingBox())?.height,
+    }))
+    .toEqual({ buttonHeight: 32, inputHeight: 32 });
+  await emailCodeInput.fill("123456");
+  await verifyButton.click();
+  await expect(page.getByText("contato@pinar.dev", { exact: true })).toBeVisible();
+  await expect(page.getByText("pro", { exact: true })).toBeVisible();
+  await expect(page.locator('[data-slot="badge"]').getByText("pro", { exact: true })).toHaveCount(0);
 
   await page.getByRole("tab", { name: "Storage" }).click();
   await expect(page.getByRole("combobox", { name: "Project" })).toHaveValue("Account Local");
@@ -249,9 +424,15 @@ test("remote Free requires current legal consent while local mode remains indepe
   });
   await expect(acceptance).not.toBeChecked();
   await expect(page.getByText("v2026-08-18", { exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Terms", exact: true })).toHaveAttribute("href", "https://pinar.dev/legal/terms");
-  await expect(page.getByRole("link", { name: "Privacy", exact: true })).toHaveAttribute("href", "https://pinar.dev/legal/privacy");
-  await expect(page.getByRole("link", { name: "Acceptable Use", exact: true })).toHaveAttribute("href", "https://pinar.dev/legal/acceptable-use");
+  const termsLink = page.getByRole("link", { name: "Terms", exact: true });
+  const privacyLink = page.getByRole("link", { name: "Privacy", exact: true });
+  const acceptableUseLink = page.getByRole("link", { name: "Acceptable Use", exact: true });
+  await expect(termsLink).toHaveAttribute("href", "https://pinar.dev/legal/terms");
+  await expect(privacyLink).toHaveAttribute("href", "https://pinar.dev/legal/privacy");
+  await expect(acceptableUseLink).toHaveAttribute("href", "https://pinar.dev/legal/acceptable-use");
+  await expect(termsLink).toHaveClass(/external-link/);
+  await expect(privacyLink).toHaveClass(/external-link/);
+  await expect(acceptableUseLink).toHaveClass(/external-link/);
   await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
 
   await acceptance.check();

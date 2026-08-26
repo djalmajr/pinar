@@ -2,7 +2,6 @@ import { useEffect, useReducer } from "react";
 import { Link } from "@tanstack/react-router";
 import { Badge, Button, Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle, ScrollArea } from "@pinar/ui";
 import { ServerShell } from "@/components/ServerShell";
-import { ServerFooter } from "@/components/ServerFooter";
 import CheckCircleIcon from "~icons/lucide/circle-check";
 import PanelsTopLeftIcon from "~icons/lucide/panels-top-left";
 import { isRecord } from "@/lib/api-data";
@@ -98,7 +97,6 @@ export function SuccessPage({ checkoutClaim, sessionId }: SuccessPageProps) {
           </CardFooter>
             </Card>
           </div>
-          <ServerFooter />
         </main>
       </ScrollArea>
     </ServerShell>

@@ -51,110 +51,112 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
   }
 
   return (
-    <header className="relative z-30 flex h-14 shrink-0 items-center gap-4 border-b bg-card/95 px-5 backdrop-blur">
-      <Link aria-label={t("common.pinarHome")} className="flex shrink-0 items-center gap-2" preload="intent" to="/">
-        <PinarMark className="size-5" />
-        <span className="text-sm font-bold">Pinar</span>
-      </Link>
+    <header className="relative z-30 shrink-0 border-b bg-card/95 backdrop-blur">
+      <div className="relative mx-auto flex h-14 w-full max-w-6xl items-center gap-4 px-5">
+        <Link aria-label={t("common.pinarHome")} className="flex shrink-0 items-center gap-2" preload="intent" to="/">
+          <PinarMark className="size-5" />
+          <span className="text-sm font-bold">Pinar</span>
+        </Link>
 
-      <nav
-        aria-label={t("common.primaryNavigation")}
-        className={cn("hidden shrink-0 items-center gap-1 md:flex", !context && "absolute left-1/2 -translate-x-1/2")}
-      >
-        <Button
-          render={<Link aria-current={activePage === "home" ? "page" : undefined} preload="intent" to="/" />}
-          size="sm"
-          variant={activePage === "home" ? "secondary" : "ghost"}
+        <nav
+          aria-label={t("common.primaryNavigation")}
+          className={cn("hidden shrink-0 items-center gap-1 md:flex", !context && "absolute left-1/2 -translate-x-1/2")}
         >
-          <HomeIcon data-icon="inline-start" />
-          {t("common.home")}
-        </Button>
-        <Button
-          render={<Link aria-current={activePage === "pricing" ? "page" : undefined} preload="intent" to="/pricing" />}
-          size="sm"
-          variant={activePage === "pricing" ? "secondary" : "ghost"}
-        >
-          <TagIcon data-icon="inline-start" />
-          {t("common.plans")}
-        </Button>
-      </nav>
-
-      {context ? <div className="min-w-0 flex-1 border-l pl-4">{context}</div> : <div className="flex-1" />}
-
-      <div className="flex shrink-0 items-center gap-2">
-        {actions}
-        <DropdownMenu>
-          <DropdownMenuTrigger render={<Button aria-label={t("common.primaryNavigation")} className="md:hidden" size="icon-sm" variant="ghost" />}>
-            <MenuIcon />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-44 md:hidden">
-            <DropdownMenuItem render={<Link preload="intent" to="/" />}><HomeIcon />{t("common.home")}</DropdownMenuItem>
-            <DropdownMenuItem render={<Link preload="intent" to="/pricing" />}><TagIcon />{t("common.plans")}</DropdownMenuItem>
-            {headerCta === "open-app" ? (
-              <DropdownMenuItem render={<Link preload="intent" to="/app" />}><PanelsTopLeftIcon />{t("common.openApp")}</DropdownMenuItem>
-            ) : (
-              <DropdownMenuItem render={<Link preload="intent" search={{ extensionCode: "", returnTo: "/app" }} to="/sign-in" />}><LogInIcon />{t("common.signIn")}</DropdownMenuItem>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                aria-label={t("common.language")}
-                size="icon-sm"
-                title={`${t("common.language")}: ${languageName(language)}`}
-                variant="ghost"
-              />
-            }
-          >
-            <LanguagesIcon />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-40">
-            <DropdownMenuGroup>
-              {SERVER_LANGUAGES.map((candidate) => (
-                <DropdownMenuItem key={candidate} onClick={() => setLanguage(candidate)}>
-                  <span className="flex-1">{languageName(candidate)}</span>
-                  {candidate === language && <CheckIcon />}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <Button aria-label={t("common.toggleTheme")} size="icon-sm" title={t("common.toggleTheme")} variant="ghost" onClick={toggleTheme}>
-          {isDark ? <SunIcon /> : <MoonIcon />}
-        </Button>
-        <Button
-          aria-label="GitHub"
-          className="hidden sm:inline-flex"
-          render={<a href="https://github.com/djalmajr/pinar" rel="noopener noreferrer" target="_blank" />}
-          size="icon-sm"
-          title="GitHub"
-          variant="ghost"
-        >
-          <GitHubIcon />
-        </Button>
-        {headerCta === "open-app" ? (
           <Button
-            className="hidden md:inline-flex"
-            render={<Link preload="intent" to="/app" />}
+            render={<Link aria-current={activePage === "home" ? "page" : undefined} preload="intent" to="/" />}
             size="sm"
-            variant="pro"
+            variant={activePage === "home" ? "secondary" : "ghost"}
           >
-            <PanelsTopLeftIcon data-icon="inline-start" />
-            {t("common.openApp")}
+            <HomeIcon data-icon="inline-start" />
+            {t("common.home")}
           </Button>
-        ) : (
           <Button
-            className="hidden md:inline-flex"
-            render={<Link aria-current={activePage === "signIn" ? "page" : undefined} preload="intent" search={{ extensionCode: "", returnTo: "/app" }} to="/sign-in" />}
+            render={<Link aria-current={activePage === "pricing" ? "page" : undefined} preload="intent" to="/pricing" />}
             size="sm"
-            variant="pro"
+            variant={activePage === "pricing" ? "secondary" : "ghost"}
           >
-            <LogInIcon data-icon="inline-start" />
-            {t("common.signIn")}
+            <TagIcon data-icon="inline-start" />
+            {t("common.plans")}
           </Button>
-        )}
+        </nav>
+
+        {context ? <div className="min-w-0 flex-1 border-l pl-4">{context}</div> : <div className="flex-1" />}
+
+        <div className="flex shrink-0 items-center gap-2">
+          {actions}
+          <DropdownMenu>
+            <DropdownMenuTrigger render={<Button aria-label={t("common.primaryNavigation")} className="md:hidden" size="icon-sm" variant="ghost" />}>
+              <MenuIcon />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44 md:hidden">
+              <DropdownMenuItem render={<Link preload="intent" to="/" />}><HomeIcon />{t("common.home")}</DropdownMenuItem>
+              <DropdownMenuItem render={<Link preload="intent" to="/pricing" />}><TagIcon />{t("common.plans")}</DropdownMenuItem>
+              {headerCta === "open-app" ? (
+                <DropdownMenuItem render={<Link preload="intent" to="/app" />}><PanelsTopLeftIcon />{t("common.openApp")}</DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem render={<Link preload="intent" search={{ extensionCode: "", returnTo: "/app" }} to="/sign-in" />}><LogInIcon />{t("common.signIn")}</DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  aria-label={t("common.language")}
+                  size="icon-sm"
+                  title={`${t("common.language")}: ${languageName(language)}`}
+                  variant="ghost"
+                />
+              }
+            >
+              <LanguagesIcon />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuGroup>
+                {SERVER_LANGUAGES.map((candidate) => (
+                  <DropdownMenuItem key={candidate} onClick={() => setLanguage(candidate)}>
+                    <span className="flex-1">{languageName(candidate)}</span>
+                    {candidate === language && <CheckIcon />}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button aria-label={t("common.toggleTheme")} size="icon-sm" title={t("common.toggleTheme")} variant="ghost" onClick={toggleTheme}>
+            {isDark ? <SunIcon /> : <MoonIcon />}
+          </Button>
+          <Button
+            aria-label="GitHub"
+            className="hidden sm:inline-flex"
+            render={<a href="https://github.com/djalmajr/pinar" rel="noopener noreferrer" target="_blank" />}
+            size="icon-sm"
+            title="GitHub"
+            variant="ghost"
+          >
+            <GitHubIcon />
+          </Button>
+          {headerCta === "open-app" ? (
+            <Button
+              className="hidden md:inline-flex"
+              render={<Link preload="intent" to="/app" />}
+              size="sm"
+              variant="pro"
+            >
+              <PanelsTopLeftIcon data-icon="inline-start" />
+              {t("common.openApp")}
+            </Button>
+          ) : (
+            <Button
+              className="hidden md:inline-flex"
+              render={<Link aria-current={activePage === "signIn" ? "page" : undefined} preload="intent" search={{ extensionCode: "", returnTo: "/app" }} to="/sign-in" />}
+              size="sm"
+              variant="pro"
+            >
+              <LogInIcon data-icon="inline-start" />
+              {t("common.signIn")}
+            </Button>
+          )}
+        </div>
       </div>
     </header>
   );

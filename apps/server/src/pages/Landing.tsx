@@ -13,14 +13,15 @@ import { Link } from "@tanstack/react-router";
 import { ServerShell } from "@/components/ServerShell";
 import { ServerFooter } from "@/components/ServerFooter";
 import { useServerI18n } from "@/lib/i18n";
-import ArrowRightIcon from "~icons/lucide/arrow-right";
 import BotIcon from "~icons/lucide/bot";
 import CloudIcon from "~icons/lucide/cloud";
 import CodeIcon from "~icons/lucide/code-xml";
-import LogInIcon from "~icons/lucide/log-in";
+import DownloadIcon from "~icons/lucide/download";
 import MapPinIcon from "~icons/lucide/map-pin";
 import ShieldCheckIcon from "~icons/lucide/shield-check";
 import SparklesIcon from "~icons/lucide/sparkles";
+
+export const CHROME_EXTENSION_URL = "https://chromewebstore.google.com/detail/pinardev/idpeaokdndjedekacfdfbilcolpholbo";
 
 export function LandingPage() {
   const { t } = useServerI18n();
@@ -46,13 +47,9 @@ export function LandingPage() {
               {t("landing.description")}
             </p>
             <div className="mt-7 flex flex-wrap items-center justify-center gap-2">
-              <Button render={<Link preload="intent" search={{ extensionCode: "", returnTo: "/app" }} to="/sign-in" />} size="lg">
-                <LogInIcon data-icon="inline-start" />
-                {t("common.signIn")}
-              </Button>
-              <Button render={<Link preload="intent" to="/pricing" />} size="lg" variant="outline">
-                {t("landing.viewPlans")}
-                <ArrowRightIcon data-icon="inline-end" />
+              <Button className="text-xs" render={<a href={CHROME_EXTENSION_URL} rel="noopener noreferrer" target="_blank" />} size="lg">
+                <DownloadIcon data-icon="inline-start" />
+                {t("landing.installExtension")}
               </Button>
             </div>
           </section>

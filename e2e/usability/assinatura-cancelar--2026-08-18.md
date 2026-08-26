@@ -8,7 +8,7 @@
 
 ## Walkthrough
 
-1. Parti da conta `djalmajr@gmail.com`, plano Pro, e abri **Manage billing**.
+1. Parti da conta `contato@pinar.dev`, plano Pro, e abri **Manage billing**.
 2. O portal mostrou a assinatura anual de R$ 39,90, cartão Test final 4242 e próxima cobrança em 18/08/2027.
 3. Iniciei o cancelamento; a confirmação informou que o serviço permaneceria disponível até 18/08/2027.
 4. Confirmei com motivo **Other reason**. O portal passou a mostrar **Cancels Aug 18, 2027** e ofereceu **Don't cancel subscription**.

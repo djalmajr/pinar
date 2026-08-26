@@ -229,7 +229,7 @@ export function PricingPage() {
   return (
     <ServerShell activePage="pricing">
       <ScrollArea className="min-h-0 flex-1">
-        <div className="flex min-h-full flex-col items-center px-4 py-10">
+        <main className="mx-auto flex min-h-full w-full max-w-6xl flex-col items-center px-5 py-10">
         <div className="max-w-4xl w-full flex flex-col items-center text-center mb-6">
           <Badge className="mb-4" variant="proSoft">{t("pricing.badge")}</Badge>
           <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight mb-3">
@@ -535,7 +535,7 @@ export function PricingPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-        </div>
+        </main>
       </ScrollArea>
     </ServerShell>
   );

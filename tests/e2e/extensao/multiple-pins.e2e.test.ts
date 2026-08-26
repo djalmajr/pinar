@@ -24,6 +24,24 @@ const fixture = `<!doctype html>
   </body>
 </html>`;
 
+const iframeFixture = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Iframe path fixture</title></head>
+  <body><iframe id="workspace-shell" src="https://shell.pinar.test/middle"></iframe></body>
+</html>`;
+
+const middleFrameFixture = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Middle frame</title></head>
+  <body><iframe id="application-frame" src="https://app.pinar.test/child"></iframe></body>
+</html>`;
+
+const childFrameFixture = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Child frame</title></head>
+  <body><main><button id="iframe-target">New project</button></main></body>
+</html>`;
+
 async function installExtensionHarness(page: Page) {
   await page.addInitScript(() => {
     const original = Element.prototype.attachShadow;
@@ -75,9 +93,53 @@ async function installExtensionHarness(page: Page) {
     };
   });
   await page.addScriptTag({ path: extensionPath("coordinates.js") });
+  await page.addScriptTag({ path: extensionPath("frame-path.js") });
   await page.addScriptTag({ path: extensionPath("keyboard.js") });
   await page.addScriptTag({ path: extensionPath("content.js") });
   await expect(page.locator('[data-pinar="host"]')).toBeVisible();
+}
+
+async function installIframeExtensionHarness(page: Page) {
+  await page.addInitScript(() => {
+    const original = Element.prototype.attachShadow;
+    Element.prototype.attachShadow = function attachOpenShadow(init) {
+      return original.call(this, { ...init, mode: "open" });
+    };
+    const runtimeState = { messages: [] as unknown[], pins: [] as unknown[] };
+    (globalThis as any).__pinarRuntimeState = runtimeState;
+    (globalThis as any).chrome = {
+      runtime: {
+        sendMessage: async (message: any) => {
+          runtimeState.messages.push(structuredClone(message));
+          if (message.type === "pins:sync") {
+            runtimeState.pins = structuredClone(message.pins);
+            return { ok: true, pins: structuredClone(runtimeState.pins) };
+          }
+          return { ok: true, pins: structuredClone(runtimeState.pins) };
+        },
+      },
+    };
+  });
+  await page.route("**/iframe-path-fixture", (route) => route.fulfill({
+    body: iframeFixture,
+    contentType: "text/html",
+  }));
+  await page.route("https://shell.pinar.test/middle", (route) => route.fulfill({
+    body: middleFrameFixture,
+    contentType: "text/html",
+  }));
+  await page.route("https://app.pinar.test/child", (route) => route.fulfill({
+    body: childFrameFixture,
+    contentType: "text/html",
+  }));
+  await page.goto("/iframe-path-fixture");
+  await expect.poll(() => page.frames().length).toBe(3);
+  for (const frame of page.frames()) {
+    await frame.addScriptTag({ path: extensionPath("coordinates.js") });
+    await frame.addScriptTag({ path: extensionPath("frame-path.js") });
+    await frame.addScriptTag({ path: extensionPath("keyboard.js") });
+    await frame.addScriptTag({ path: extensionPath("content.js") });
+  }
 }
 
 async function createPin(page: Page, target: string, comment: string) {
@@ -187,4 +249,25 @@ test("power user edits, deletes, clears and preserves pin order through the view
   await page.getByRole("button", { name: "Close" }).click();
   await pinCards.nth(1).click();
   await expect(page.locator('[data-slot="dialog-content"]')).toContainText("Second bundled comment");
+});
+
+test("a pin inside nested cross-origin iframes keeps the complete DOM path", async ({ page }) => {
+  await installIframeExtensionHarness(page);
+  const childFrame = page.frames().find((frame) => frame.url() === "https://app.pinar.test/child");
+  expect(childFrame).toBeDefined();
+  if (!childFrame) return;
+
+  const target = childFrame.locator("#iframe-target");
+  const bounds = await target.boundingBox();
+  expect(bounds).not.toBeNull();
+  if (!bounds) return;
+  await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+  const composer = childFrame.locator('[data-pinar="host"] [data-ref="composer"]');
+  await composer.locator("textarea").fill("Keep the frame chain");
+  await composer.getByRole("button", { name: "Add" }).click();
+
+  const [pin] = await childFrame.evaluate(() => (globalThis as any).__pinarRuntimeState.pins);
+  expect(pin.path).toBe(
+    "body > iframe#workspace-shell ::frame:: body > iframe#application-frame ::frame:: body > main > button#iframe-target",
+  );
 });

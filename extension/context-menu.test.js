@@ -13,7 +13,7 @@ describe("extension action context menu", () => {
   test("declares the context menu permission and registers an action item", () => {
     assert.ok(manifest.permissions.includes("contextMenus"));
     assert.equal(manifest.name, "Pinar.dev");
-    assert.equal(manifest.version, "0.2.0");
+    assert.equal(manifest.version, "0.2.3");
     assert.equal(extensionPackage.version, manifest.version);
     assert.equal(manifest.homepage_url, "https://pinar.dev");
     assert.match(backgroundSrc, /contexts: \["action"\]/);

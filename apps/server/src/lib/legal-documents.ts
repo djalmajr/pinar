@@ -1,6 +1,10 @@
 import type { SupportedLanguage } from "@pinar/shared";
 
-export const CURRENT_LEGAL_VERSION = "2026-08-24";
+export const CURRENT_LEGAL_VERSION = "2026-08-25";
+export const OPERATOR_CONTACT_EMAIL = {
+  en: "contact@pinar.dev",
+  pt: "contato@pinar.dev",
+} as const;
 
 export const LegalDocumentIds = [
   "terms",
@@ -61,7 +65,7 @@ const documents: Record<LegalDocumentId, LocalizedLegalDocument> = {
   terms: {
     en: `## 1. Who operates Pinar
 
-Pinar is operated by **Djalma Júnior**, an individual operating the pinar.dev service from Brazil. Contact: **djalmajr@gmail.com**.
+Pinar is operated by **Djalma Júnior**, an individual operating the pinar.dev service from Brazil. Contact: **${OPERATOR_CONTACT_EMAIL.en}**.
 
 These Terms govern the hosted Pinar service, paid plans, cloud storage, AI features, browser extension integrations, and related websites. Software distributed from the public repository is also governed by its repository license.
 
@@ -77,7 +81,7 @@ You are responsible for the email address, devices, access codes, extension toke
 
 - **Free** provides limited cloud retention, storage, and introductory AI credits.
 - **Pro** is a recurring monthly or annual subscription. Included storage, AI-credit refills, and paid retention apply only while the subscription remains eligible, subject to the Retention Policy.
-- **Pinar Founder** is a limited-cohort, one-time purchase with 5 GB of base cloud storage and 500 initial AI credits without monthly refill. It is not a promise that the hosted service, every feature, or unlimited operating cost will continue forever.
+- **Pinar Founder** is a limited-cohort, one-time purchase with the Pro entitlements available while the managed service is offered, including 5 GB of base cloud storage, 200 AI credits refilled monthly without rollover, and 500 bonus AI credits granted at activation. It is not a promise that the hosted service, every feature, or unlimited operating cost will continue forever.
 - Storage and AI-credit add-ons have the amount, validity, and consumption rules shown before purchase.
 
 Prices, taxes, currency, renewal interval, and the applicable offer are shown at Checkout. Stripe processes payments. You may cancel a recurring plan before its next renewal. Cancellation stops future renewals but does not automatically refund an already-started billing period.
@@ -104,10 +108,10 @@ To the extent permitted by law, Pinar is provided "as is" and "as available". We
 
 ## 10. Governing law and contact
 
-Brazilian law governs these Terms, without removing mandatory protections available where you live. Brazilian consumers may bring claims in the legally competent forum, including their domicile where applicable. Questions and formal requests may be sent to **djalmajr@gmail.com**.`,
+Brazilian law governs these Terms, without removing mandatory protections available where you live. Brazilian consumers may bring claims in the legally competent forum, including their domicile where applicable. Questions and formal requests may be sent to **${OPERATOR_CONTACT_EMAIL.en}**.`,
     pt: `## 1. Quem opera o Pinar
 
-O Pinar é operado por **Djalma Júnior**, pessoa física responsável pelo serviço pinar.dev no Brasil. Contato: **djalmajr@gmail.com**.
+O Pinar é operado por **Djalma Júnior**, pessoa física responsável pelo serviço pinar.dev no Brasil. Contato: **${OPERATOR_CONTACT_EMAIL.pt}**.
 
 Estes Termos regem o serviço hospedado do Pinar, planos pagos, armazenamento em nuvem, recursos de IA, integrações com a extensão de navegador e sites relacionados. O software distribuído pelo repositório público também é regido pela licença presente no repositório.
 
@@ -123,7 +127,7 @@ Você é responsável pelo endereço de e-mail, dispositivos, códigos de acesso
 
 - **Free** oferece retenção em nuvem, armazenamento e créditos iniciais de IA limitados.
 - **Pro** é uma assinatura mensal ou anual recorrente. Armazenamento incluído, recargas de créditos de IA e retenção paga aplicam-se somente enquanto a assinatura permanecer elegível, conforme a Política de Retenção.
-- **Pinar Founder** é uma compra única para uma coorte limitada, com 5 GB de armazenamento-base em nuvem e 500 créditos iniciais de IA sem recarga mensal. Não é uma promessa de que o serviço hospedado, todos os recursos ou custos operacionais ilimitados continuarão para sempre.
+- **Pinar Founder** é uma compra única para uma coorte limitada, com os benefícios Pro disponíveis enquanto o serviço gerenciado for oferecido, incluindo 5 GB de armazenamento-base em nuvem, 200 créditos de IA recarregados mensalmente sem acúmulo e 500 créditos de IA de bônus concedidos na ativação. Não é uma promessa de que o serviço hospedado, todos os recursos ou custos operacionais ilimitados continuarão para sempre.
 - Adicionais de armazenamento e créditos de IA seguem a quantidade, a validade e as regras de consumo exibidas antes da compra.
 
 Preços, tributos, moeda, intervalo de renovação e oferta aplicável são exibidos no Checkout. O Stripe processa os pagamentos. Você pode cancelar um plano recorrente antes da próxima renovação. O cancelamento impede renovações futuras, mas não gera automaticamente reembolso de um período de cobrança já iniciado.
@@ -150,12 +154,12 @@ Na medida permitida por lei, o Pinar é fornecido "como está" e "conforme dispo
 
 ## 10. Lei aplicável e contato
 
-A lei brasileira rege estes Termos, sem afastar proteções obrigatórias disponíveis no local onde você vive. Consumidores brasileiros podem ajuizar demandas no foro legalmente competente, inclusive o de seu domicílio quando aplicável. Dúvidas e solicitações formais podem ser enviadas para **djalmajr@gmail.com**.`,
+A lei brasileira rege estes Termos, sem afastar proteções obrigatórias disponíveis no local onde você vive. Consumidores brasileiros podem ajuizar demandas no foro legalmente competente, inclusive o de seu domicílio quando aplicável. Dúvidas e solicitações formais podem ser enviadas para **${OPERATOR_CONTACT_EMAIL.pt}**.`,
   },
   privacy: {
     en: `## 1. Controller and scope
 
-For the hosted Pinar service, the data controller is **Djalma Júnior**, an individual in Brazil. Privacy contact: **djalmajr@gmail.com**. This Policy does not govern local-only data that never leaves your device; you control that data locally.
+For the hosted Pinar service, the data controller is **Djalma Júnior**, an individual in Brazil. Privacy contact: **${OPERATOR_CONTACT_EMAIL.en}**. This Policy does not govern local-only data that never leaves your device; you control that data locally.
 
 ## 2. Data we process
 
@@ -181,14 +185,14 @@ We use measures designed for the nature of the service, including scoped tokens,
 
 ## 7. Your rights
 
-Subject to applicable law, you may request confirmation and access; correction; information about sharing; portability where regulated; anonymization, blocking, or deletion of unnecessary or unlawfully processed data; deletion of consent-based data subject to legal exceptions; information about consent choices; withdrawal of consent; and review of a decision based solely on automated processing that affects your interests. We may verify your identity before acting. Requests are free and may be sent to **djalmajr@gmail.com**.
+Subject to applicable law, you may request confirmation and access; correction; information about sharing; portability where regulated; anonymization, blocking, or deletion of unnecessary or unlawfully processed data; deletion of consent-based data subject to legal exceptions; information about consent choices; withdrawal of consent; and review of a decision based solely on automated processing that affects your interests. We may verify your identity before acting. Requests are free and may be sent to **${OPERATOR_CONTACT_EMAIL.en}**.
 
 ## 8. Children, changes, and complaints
 
 Pinar is not directed to children. Do not submit a child's personal data without the authority and safeguards required by law. We will publish material changes and request renewed acceptance when legally or contractually necessary. You may also lodge a complaint with Brazil's National Data Protection Authority (ANPD) or another competent authority.`,
     pt: `## 1. Controlador e escopo
 
-No serviço hospedado do Pinar, o controlador é **Djalma Júnior**, pessoa física no Brasil. Contato de privacidade: **djalmajr@gmail.com**. Esta Política não rege dados de uso exclusivamente local que nunca saem do seu dispositivo; você controla esses dados localmente.
+No serviço hospedado do Pinar, o controlador é **Djalma Júnior**, pessoa física no Brasil. Contato de privacidade: **${OPERATOR_CONTACT_EMAIL.pt}**. Esta Política não rege dados de uso exclusivamente local que nunca saem do seu dispositivo; você controla esses dados localmente.
 
 ## 2. Dados tratados
 
@@ -214,7 +218,7 @@ Adotamos medidas compatíveis com a natureza do serviço, incluindo tokens com e
 
 ## 7. Seus direitos
 
-Conforme a lei aplicável, você pode solicitar confirmação e acesso; correção; informação sobre compartilhamento; portabilidade quando regulamentada; anonimização, bloqueio ou eliminação de dados desnecessários ou tratados irregularmente; eliminação de dados tratados com consentimento, ressalvadas exceções legais; informação sobre escolhas de consentimento; revogação do consentimento; e revisão de decisão tomada unicamente por tratamento automatizado que afete seus interesses. Podemos verificar sua identidade antes de atender ao pedido. As solicitações são gratuitas e podem ser enviadas para **djalmajr@gmail.com**.
+Conforme a lei aplicável, você pode solicitar confirmação e acesso; correção; informação sobre compartilhamento; portabilidade quando regulamentada; anonimização, bloqueio ou eliminação de dados desnecessários ou tratados irregularmente; eliminação de dados tratados com consentimento, ressalvadas exceções legais; informação sobre escolhas de consentimento; revogação do consentimento; e revisão de decisão tomada unicamente por tratamento automatizado que afete seus interesses. Podemos verificar sua identidade antes de atender ao pedido. As solicitações são gratuitas e podem ser enviadas para **${OPERATOR_CONTACT_EMAIL.pt}**.
 
 ## 8. Crianças, alterações e reclamações
 
@@ -249,7 +253,7 @@ Storage, AI credits, rate limits, and plan quotas are enforced per account or in
 
 ## 5. Enforcement
 
-We consider severity, intent, recurrence, impact, and legal obligations. Responses may include a warning, removal or restriction of content, throttling, suspension, termination, or referral to authorities. When safe and appropriate, we will give notice and an opportunity to correct the issue. Report abuse to **djalmajr@gmail.com** with the relevant URL and evidence.`,
+We consider severity, intent, recurrence, impact, and legal obligations. Responses may include a warning, removal or restriction of content, throttling, suspension, termination, or referral to authorities. When safe and appropriate, we will give notice and an opportunity to correct the issue. Report abuse to **${OPERATOR_CONTACT_EMAIL.en}** with the relevant URL and evidence.`,
     pt: `## 1. Finalidade
 
 Esta Política protege usuários, terceiros e a infraestrutura compartilhada. Ela se aplica a conteúdo hospedado, visualizadores públicos, tráfego da extensão, APIs, recursos de IA e tentativas de acesso ao serviço.
@@ -278,7 +282,7 @@ Armazenamento, créditos de IA, limites de requisição e cotas do plano são ap
 
 ## 5. Aplicação
 
-Consideramos gravidade, intenção, reincidência, impacto e obrigações legais. As medidas podem incluir aviso, remoção ou restrição de conteúdo, limitação, suspensão, encerramento ou comunicação às autoridades. Quando seguro e apropriado, forneceremos aviso e oportunidade de correção. Denuncie abuso para **djalmajr@gmail.com**, incluindo URL e evidências relevantes.`,
+Consideramos gravidade, intenção, reincidência, impacto e obrigações legais. As medidas podem incluir aviso, remoção ou restrição de conteúdo, limitação, suspensão, encerramento ou comunicação às autoridades. Quando seguro e apropriado, forneceremos aviso e oportunidade de correção. Denuncie abuso para **${OPERATOR_CONTACT_EMAIL.pt}**, incluindo URL e evidências relevantes.`,
   },
   retention: {
     en: `## 1. Local-only data
@@ -300,7 +304,7 @@ Web sessions generally expire after 30 days and device sessions after 180 days u
 
 ## 4. Backups, logs, and deletion requests
 
-Operational logs are retained for a limited period appropriate to security and diagnosis. Deleted data may persist temporarily in restricted backups until normal rotation. A verified deletion request removes or anonymizes data unless retention is required for law, fraud prevention, security, disputes, or exercise of rights. Contact **djalmajr@gmail.com**.`,
+Operational logs are retained for a limited period appropriate to security and diagnosis. Deleted data may persist temporarily in restricted backups until normal rotation. A verified deletion request removes or anonymizes data unless retention is required for law, fraud prevention, security, disputes, or exercise of rights. Contact **${OPERATOR_CONTACT_EMAIL.en}**.`,
     pt: `## 1. Dados exclusivamente locais
 
 Os dados locais do Pinar permanecem no seu dispositivo até que você os exclua ou desinstale e remova os dados locais. O Pinar não exclui remotamente o histórico exclusivamente local.
@@ -320,7 +324,7 @@ Sessões web geralmente expiram após 30 dias, e sessões de dispositivos após 
 
 ## 4. Backups, logs e pedidos de exclusão
 
-Logs operacionais são mantidos por período limitado compatível com segurança e diagnóstico. Dados excluídos podem permanecer temporariamente em backups restritos até a rotação normal. Um pedido de exclusão verificado remove ou anonimiza dados, salvo retenção necessária por lei, prevenção à fraude, segurança, disputas ou exercício de direitos. Contato: **djalmajr@gmail.com**.`,
+Logs operacionais são mantidos por período limitado compatível com segurança e diagnóstico. Dados excluídos podem permanecer temporariamente em backups restritos até a rotação normal. Um pedido de exclusão verificado remove ou anonimiza dados, salvo retenção necessária por lei, prevenção à fraude, segurança, disputas ou exercício de direitos. Contato: **${OPERATOR_CONTACT_EMAIL.pt}**.`,
   },
   refunds: {
     en: `## 1. Mandatory rights
@@ -337,7 +341,7 @@ Duplicate, incorrect, or unauthorized charges should be reported promptly and wi
 
 ## 4. How to request
 
-Email **djalmajr@gmail.com** from the account email with the Checkout receipt or transaction reference and a short description. Do not send card numbers. Approved refunds are sent to the original payment method; the time to appear depends on Stripe, the payment network, and your financial institution.`,
+Email **${OPERATOR_CONTACT_EMAIL.en}** from the account email with the Checkout receipt or transaction reference and a short description. Do not send card numbers. Approved refunds are sent to the original payment method; the time to appear depends on Stripe, the payment network, and your financial institution.`,
     pt: `## 1. Direitos obrigatórios
 
 Esta Política não reduz direitos obrigatórios do consumidor. No Brasil, o consumidor que contrata on-line pode exercer o direito legal de arrependimento em até 7 dias contados da contratação ou do recebimento do serviço, conforme aplicável. Valores abrangidos por esse direito serão devolvidos pelo meio de pagamento original.
@@ -352,7 +356,7 @@ Cobranças duplicadas, incorretas ou não autorizadas devem ser informadas pront
 
 ## 4. Como solicitar
 
-Envie um e-mail para **djalmajr@gmail.com** a partir do e-mail da conta, com o recibo do Checkout ou referência da transação e uma breve descrição. Não envie números de cartão. Reembolsos aprovados são enviados ao meio de pagamento original; o prazo para aparecer depende do Stripe, da rede de pagamento e da sua instituição financeira.`,
+Envie um e-mail para **${OPERATOR_CONTACT_EMAIL.pt}** a partir do e-mail da conta, com o recibo do Checkout ou referência da transação e uma breve descrição. Não envie números de cartão. Reembolsos aprovados são enviados ao meio de pagamento original; o prazo para aparecer depende do Stripe, da rede de pagamento e da sua instituição financeira.`,
   },
   "fair-source": {
     en: `## 1. Source-available, not Open Source
@@ -369,7 +373,7 @@ Purchasing Pro or Founder buys hosted-service entitlements under the Terms; it d
 
 ## 4. Contributions and questions
 
-Unless a separate contribution agreement says otherwise, contributions are accepted under the repository's contribution terms and applicable license. For commercial licensing, competitive-use questions, or clarification, contact **djalmajr@gmail.com** before relying on an assumption.`,
+Unless a separate contribution agreement says otherwise, contributions are accepted under the repository's contribution terms and applicable license. For commercial licensing, competitive-use questions, or clarification, contact **${OPERATOR_CONTACT_EMAIL.en}** before relying on an assumption.`,
     pt: `## 1. Código disponível, não Open Source
 
 O Pinar publica seu código-fonte sob um modelo Fair Source para que as pessoas possam inspecionar, aprender, modificar e auto-hospedar o software dentro dos limites da licença do repositório. Como a licença atual contém restrição de concorrência antes da Data de Mudança, a versão atual é **source-available e Fair Source, não Open Source aprovado pela OSI**.
@@ -384,7 +388,7 @@ Comprar Pro ou Founder adquire direitos de uso do serviço hospedado conforme os
 
 ## 4. Contribuições e dúvidas
 
-Salvo disposição diferente em acordo específico, contribuições são aceitas segundo os termos de contribuição e a licença aplicável do repositório. Para licenciamento comercial, dúvidas sobre uso concorrente ou esclarecimentos, contate **djalmajr@gmail.com** antes de se basear em uma suposição.`,
+Salvo disposição diferente em acordo específico, contribuições são aceitas segundo os termos de contribuição e a licença aplicável do repositório. Para licenciamento comercial, dúvidas sobre uso concorrente ou esclarecimentos, contate **${OPERATOR_CONTACT_EMAIL.pt}** antes de se basear em uma suposição.`,
   },
   subprocessors: {
     en: `## 1. Scope
@@ -403,7 +407,7 @@ Pinar uses the following core providers to operate the hosted service. A provide
 
 ## 3. Changes
 
-We may replace or add a provider when needed to operate the service. We will update this page before or promptly after a material change and provide additional notice when required by law or contract. Questions or lawful objections may be sent to **djalmajr@gmail.com**.`,
+We may replace or add a provider when needed to operate the service. We will update this page before or promptly after a material change and provide additional notice when required by law or contract. Questions or lawful objections may be sent to **${OPERATOR_CONTACT_EMAIL.en}**.`,
     pt: `## 1. Escopo
 
 O Pinar utiliza os provedores essenciais abaixo para operar o serviço hospedado. Um provedor pode atuar como operador, suboperador ou controlador independente conforme os dados e o serviço. Esta lista não inclui um site que você escolha capturar nem um link de terceiro que você abra por decisão própria.
@@ -420,7 +424,7 @@ O Pinar utiliza os provedores essenciais abaixo para operar o serviço hospedado
 
 ## 3. Alterações
 
-Podemos substituir ou adicionar um provedor quando necessário para operar o serviço. Atualizaremos esta página antes ou logo após uma mudança material e forneceremos aviso adicional quando exigido por lei ou contrato. Dúvidas ou objeções legítimas podem ser enviadas para **djalmajr@gmail.com**.`,
+Podemos substituir ou adicionar um provedor quando necessário para operar o serviço. Atualizaremos esta página antes ou logo após uma mudança material e forneceremos aviso adicional quando exigido por lei ou contrato. Dúvidas ou objeções legítimas podem ser enviadas para **${OPERATOR_CONTACT_EMAIL.pt}**.`,
   },
 };
 

@@ -426,6 +426,96 @@ describe("remote installation isolation", () => {
     assert.equal((await jsonBody(exchange)).redirectTo, "/app");
   });
 
+  test("invalidates earlier unused extension codes when another code is created", async () => {
+    await register(identityA);
+    const first = await jsonBody(await api("/api/auth/extension-codes", {
+      headers: identityHeaders(identityA),
+      method: "POST",
+    }));
+    const second = await jsonBody(await api("/api/auth/extension-codes", {
+      headers: identityHeaders(identityA),
+      method: "POST",
+    }));
+
+    assert.notEqual(first.code, second.code);
+    // Mutation captured: retaining the previous unused code makes this exchange succeed.
+    assert.equal((await api("/api/auth/extension-codes/exchange", {
+      body: JSON.stringify({ code: first.code }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    })).status, 400);
+    assert.equal((await api("/api/auth/extension-codes/exchange", {
+      body: JSON.stringify({ code: second.code }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    })).status, 200);
+  });
+
+  test("removes consumed extension codes and expired web sessions during cleanup", async () => {
+    setCloudNowForTests("2026-08-16T12:00:00.000Z");
+    await register(identityA);
+    const created = await jsonBody(await api("/api/auth/extension-codes", {
+      headers: identityHeaders(identityA),
+      method: "POST",
+    }));
+    assert.equal((await api("/api/auth/extension-codes/exchange", {
+      body: JSON.stringify({ code: created.code }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    })).status, 200);
+
+    setCloudNowForTests("2026-09-16T12:00:01.000Z");
+    const result = await cleanupOldRecords({});
+
+    // Mutation captured: omitting either auth-table cleanup leaves its count at zero.
+    assert.equal(result.deletedExtensionCodeCount, 1);
+    assert.equal(result.deletedWebSessionCount, 1);
+  });
+
+  test("cleans D1 auth records without touching capture objects in R2", async () => {
+    type FakeStatement = {
+      all(): Promise<{ results: Record<string, unknown>[] }>;
+      bind(...values: unknown[]): FakeStatement;
+      first(): Promise<Record<string, unknown> | null>;
+      query: string;
+      run(): Promise<unknown>;
+      values: unknown[];
+    };
+    const batchedStatements: FakeStatement[] = [];
+    const db = {
+      async batch(statements: FakeStatement[]) {
+        batchedStatements.push(...statements);
+        return [{ meta: { changes: 2 } }, { meta: { changes: 3 } }];
+      },
+      prepare(query: string) {
+        const statement: FakeStatement = {
+          async all() { return { results: [] }; },
+          bind(...values: unknown[]) { statement.values = values; return statement; },
+          async first() { return null; },
+          query,
+          async run() { return { meta: { changes: 0 } }; },
+          values: [],
+        };
+        return statement;
+      },
+    };
+    const bucket = bucketBinding();
+    setCloudNowForTests("2026-09-16T12:00:01.000Z");
+
+    const result = await cleanupOldRecords({
+      DB: db,
+      PINAR_BUCKET: bucket.binding,
+    } as unknown as CloudEnv);
+
+    assert.equal(result.deletedExtensionCodeCount, 2);
+    assert.equal(result.deletedWebSessionCount, 3);
+    assert.deepEqual(bucket.deletedKeys, []);
+    assert.deepEqual(batchedStatements.map((statement) => statement.query), [
+      "DELETE FROM extension_codes WHERE expires_at <= ? OR used_at IS NOT NULL",
+      "DELETE FROM web_sessions WHERE expires_at <= ? OR (revoked_at IS NOT NULL AND revoked_at <= ?)",
+    ]);
+  });
+
   test("rate limits temporary extension codes by installation and IP", async () => {
     await register(identityA);
     for (let index = 0; index < 10; index += 1) {
@@ -1316,7 +1406,7 @@ describe("remote installation isolation", () => {
     }
   });
 
-  test("confirms an attached Founder purchase once and grants its one-time quotas", async () => {
+  test("confirms an attached Founder purchase once and grants its bonus and monthly credits", async () => {
     const checkoutClaim = "founder_claim_fulfillment_0001";
     const env: CloudEnv = {
       ...TEST_ENV,
@@ -1327,6 +1417,7 @@ describe("remote installation isolation", () => {
     };
     let reservationId = "";
     const originalFetch = globalThis.fetch;
+    setCloudNowForTests("2027-01-31T09:30:00.000Z");
     globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === "POST") {
         const params = new URLSearchParams(String(init.body));
@@ -1390,7 +1481,8 @@ describe("remote installation isolation", () => {
       }, env));
       assert.equal(entitlements.plan, "founder");
       assert.ok(isRecord(entitlements.aiCredits));
-      assert.equal(entitlements.aiCredits.balance, 500);
+      assert.equal(entitlements.aiCredits.balance, 700);
+      assert.equal(entitlements.aiCredits.nextRefillAt, "2027-02-28T09:30:00.000Z");
       assert.ok(isRecord(entitlements.storage));
       assert.equal(entitlements.storage.baseBytes, STORAGE_5GB_BYTES);
       assert.equal(entitlements.storage.quotaBytes, STORAGE_5GB_BYTES);
@@ -1401,6 +1493,14 @@ describe("remote installation isolation", () => {
       assert.equal(entitlements.legalAcceptance.locale, "en");
       assert.equal(entitlements.legalAcceptance.privacyVersion, CURRENT_LEGAL_VERSION);
       assert.equal(entitlements.legalAcceptance.termsVersion, CURRENT_LEGAL_VERSION);
+
+      setCloudNowForTests("2027-02-28T09:30:00.000Z");
+      const renewed = await jsonBody(await api("/api/account/entitlements", {
+        headers: { cookie },
+      }, env));
+      assert.ok(isRecord(renewed.aiCredits));
+      assert.equal(renewed.aiCredits.balance, 700);
+      assert.equal(renewed.aiCredits.nextRefillAt, "2027-03-28T09:30:00.000Z");
     } finally {
       globalThis.fetch = originalFetch;
     }

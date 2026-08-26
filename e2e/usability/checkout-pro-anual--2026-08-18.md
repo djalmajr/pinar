@@ -9,9 +9,9 @@
 
 1. Parti da landing, cliquei em **View plans** e confirmei o anual selecionado a R$ 39,90/ano, equivalente a R$ 3,33/mês.
 2. Cliquei em **Get Pro Yearly**; o Checkout Stripe Sandbox apresentou oferta, recorrência e total anual corretos.
-3. Preenchi `djalmajr@gmail.com` e cartão Stripe Test `4242`; a assinatura foi paga e criou a subscription anual.
+3. Preenchi `contato@pinar.dev` e cartão Stripe Test `4242`; a assinatura foi paga e criou a subscription anual.
 4. O retorno chegou a `/success`, mas exibiu simultaneamente **Payment confirmed** e **Checkout session is missing**.
-5. Como diagnóstico fora do percurso UX, reapresentei a URL de retorno completa. A conta foi ativada de forma idempotente e `/app` passou a mostrar `djalmajr@gmail.com` com plano `pro`.
+5. Como diagnóstico fora do percurso UX, reapresentei a URL de retorno completa. A conta foi ativada de forma idempotente e `/app` passou a mostrar `contato@pinar.dev` com plano `pro`.
 6. Abri **Manage billing** pelo menu real. O portal Test mostrou **Pinar Pro**, R$ 39,90 por ano, próxima cobrança em 18/08/2027, cartão final 4242 e invoice paga.
 7. Não foi possível conferir 200 créditos mensais: o produto não possui uma superfície visível de saldo.
 

@@ -61,23 +61,6 @@ export type LocalUpdateIdentity = {
 	version?: string;
 };
 
-/** Negative when `left` is older than `right`. */
-export function compareReleaseVersions(left: string, right: string) {
-	const parts = (value: string) =>
-		value.split(/[.+-]/).map((part) => {
-			const n = Number.parseInt(part, 10);
-			return Number.isFinite(n) ? n : 0;
-		});
-	const a = parts(left);
-	const b = parts(right);
-	const len = Math.max(a.length, b.length);
-	for (let i = 0; i < len; i += 1) {
-		const delta = (a[i] ?? 0) - (b[i] ?? 0);
-		if (delta !== 0) return delta > 0 ? 1 : -1;
-	}
-	return 0;
-}
-
 export function shouldOfferUpdate({
 	localHash,
 	localVersion,
@@ -90,7 +73,7 @@ export function shouldOfferUpdate({
 	remoteVersion: string;
 }) {
 	if (!remoteHash || remoteHash === localHash) return false;
-	if (localVersion && compareReleaseVersions(remoteVersion, localVersion) < 0) return false;
+	if (localVersion && Bun.semver.order(remoteVersion, localVersion) <= 0) return false;
 	return true;
 }
 

@@ -64,6 +64,10 @@ describe("capture destination", () => {
     assert.match(optionsSrc, /type: "auth:extension-code"/);
     assert.match(optionsSrc, /type: "auth:email-code:verify"/);
     assert.match(optionsSrc, /type: "auth:logout"/);
+    assert.match(optionsSrc, /authSession\?\.kind === "account"/);
+    assert.doesNotMatch(optionsSrc, /authSession\?\.kind === "installation"/);
+    assert.match(optionsSrc, /t\.btn_upgrade_pro/);
+    assert.doesNotMatch(optionsSrc, /t\.btn_subscription/);
     assert.doesNotMatch(optionsSrc, /license|identity:regenerate|installationId/i);
   });
 
@@ -77,5 +81,10 @@ describe("capture destination", () => {
   test("carries the current remote legal acceptance into account activation", () => {
     assert.match(backgroundSrc, /const legalAcceptance = await registerRemoteInstallation\(endpoint, identity\)/);
     assert.match(backgroundSrc, /body: JSON\.stringify\(\{[\s\S]*code,[\s\S]*email,[\s\S]*installationId: identity\.id,[\s\S]*installationToken: identity\.token,[\s\S]*legalAcceptance,[\s\S]*\}\)/);
+  });
+
+  test("coalesces concurrent first-load registration requests for one installation", () => {
+    assert.match(backgroundSrc, /const registerInstallationOnce = createSingleFlight\(\)/);
+    assert.match(backgroundSrc, /return registerInstallationOnce\(cacheKey, async \(\) => \{/);
   });
 });

@@ -21,7 +21,7 @@ export function LegalDocumentPage({ documentId }: LegalDocumentPageProps) {
   if (!isLegalDocumentId(documentId)) {
     return (
       <ServerShell>
-        <main className="flex flex-1 flex-col items-center justify-center gap-4 px-5 text-center">
+        <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col items-center justify-center gap-4 px-5 text-center">
           <h1 className="text-2xl font-bold">{language === "pt" ? "Documento não encontrado" : "Document not found"}</h1>
           <Button render={<Link preload="intent" to="/" />} variant="outline">
             {language === "pt" ? "Voltar ao início" : "Back home"}
@@ -40,15 +40,15 @@ export function LegalDocumentPage({ documentId }: LegalDocumentPageProps) {
   return (
     <ServerShell>
       <ScrollArea className="min-h-0 flex-1">
-        <main className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-5 py-10">
-          <header className="border-b pb-6">
-            <p className="text-sm font-medium text-primary">Pinar</p>
+        <main className="mx-auto flex min-h-full w-full max-w-6xl flex-col px-5 py-10">
+          <div className="mx-auto w-full max-w-4xl">
+            <header className="border-b pb-6">
             <h1 className="mt-2 text-3xl font-bold tracking-tight">{document.title}</h1>
             <p className="mt-2 text-sm text-muted-foreground">
               {language === "pt" ? "Versão e vigência" : "Version and effective date"}: {document.version}
             </p>
-          </header>
-          <Tabs className="gap-0" value={document.id} onValueChange={selectDocument}>
+            </header>
+            <Tabs className="gap-0" value={document.id} onValueChange={selectDocument}>
             <TabsList
               aria-label={language === "pt" ? "Documentos legais" : "Legal documents"}
               className="h-auto w-full flex-wrap justify-start gap-x-4 gap-y-2 border-b px-0 py-5 group-data-horizontal/tabs:h-auto"
@@ -76,7 +76,8 @@ export function LegalDocumentPage({ documentId }: LegalDocumentPageProps) {
                 </ReactMarkdown>
               </article>
             </TabsContent>
-          </Tabs>
+            </Tabs>
+          </div>
           <ServerFooter className="pt-4" />
         </main>
       </ScrollArea>

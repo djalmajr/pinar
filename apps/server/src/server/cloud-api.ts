@@ -1084,8 +1084,10 @@ async function setAccountRefillAt(env: CloudEnv, account: AccountRecord, refillA
   account.aiCreditRefillAt = refillAt;
 }
 
-async function ensureProMonthlyCredits(env: CloudEnv, account: AccountRecord) {
-  if (account.plan !== "pro" || account.billingStatus !== "active") return;
+async function ensureIncludedMonthlyCredits(env: CloudEnv, account: AccountRecord) {
+  const eligible = account.plan === "founder"
+    || (account.plan === "pro" && account.billingStatus === "active");
+  if (!eligible) return;
   const now = currentDate();
   if (account.aiCreditRefillAt && account.aiCreditRefillAt > now.toISOString()) return;
   const sourceMarker = account.aiCreditRefillAt || account.stripeSubscriptionId || "initial";
@@ -1096,7 +1098,7 @@ async function ensureProMonthlyCredits(env: CloudEnv, account: AccountRecord) {
     expiresAt,
     ownerId: account.id,
     ownerType: "account",
-    sourceId: `pro:${account.id}:${sourceMarker}`,
+    sourceId: `${account.plan}:${account.id}:${sourceMarker}`,
     sourceType: "pro_monthly",
   });
   await setAccountRefillAt(env, account, expiresAt);
@@ -1544,10 +1546,20 @@ async function createExtensionCode(request: Request, env: CloudEnv) {
   const now = currentDate();
   const expiresAt = new Date(now.getTime() + 5 * 60 * 1000).toISOString();
   if (env.DB) {
-    await env.DB.prepare(
-      "INSERT INTO extension_codes (code_hash, owner_type, owner_id, expires_at, used_at, created_at) VALUES (?, ?, ?, ?, NULL, ?)",
-    ).bind(codeHash, principal.kind, principal.id, expiresAt, now.toISOString()).run();
+    await env.DB.batch([
+      env.DB.prepare(
+        "DELETE FROM extension_codes WHERE owner_type = ? AND owner_id = ? AND used_at IS NULL",
+      ).bind(principal.kind, principal.id),
+      env.DB.prepare(
+        "INSERT INTO extension_codes (code_hash, owner_type, owner_id, expires_at, used_at, created_at) VALUES (?, ?, ?, ?, NULL, ?)",
+      ).bind(codeHash, principal.kind, principal.id, expiresAt, now.toISOString()),
+    ]);
   } else {
+    for (const [existingHash, existingCode] of memoryExtensionCodes) {
+      if (existingCode.ownerType === principal.kind && existingCode.ownerId === principal.id && !existingCode.usedAt) {
+        memoryExtensionCodes.delete(existingHash);
+      }
+    }
     memoryExtensionCodes.set(codeHash, {
       expiresAt,
       ownerId: principal.id,
@@ -2396,7 +2408,7 @@ async function upsertStripeAccount(input: UpsertStripeAccountInput) {
         "UPDATE users SET email = ?, plan = ?, ever_paid = 1, "
         + "billing_status = CASE WHEN ? IS NOT NULL THEN 'active' ELSE billing_status END, "
         + "stripe_customer_id = ?, stripe_subscription_id = COALESCE(NULLIF(?, ''), stripe_subscription_id), "
-        + "ai_credit_refill_at = CASE WHEN ? = 'pro' THEN ai_credit_refill_at ELSE NULL END, "
+        + "ai_credit_refill_at = CASE WHEN ? IN ('pro', 'founder') THEN ai_credit_refill_at ELSE NULL END, "
         + "paid_eligibility_ended_at = CASE WHEN ? IS NOT NULL THEN NULL ELSE paid_eligibility_ended_at END, "
         + "updated_at = ? "
         + "WHERE id = ?",
@@ -2452,7 +2464,7 @@ async function upsertStripeAccount(input: UpsertStripeAccountInput) {
     }
     if (plan || !account.stripeCustomerId) account.stripeCustomerId = customerId;
     if (subscriptionId) account.stripeSubscriptionId = subscriptionId;
-    if (account.plan !== "pro") account.aiCreditRefillAt = "";
+    if (account.plan !== "pro" && account.plan !== "founder") account.aiCreditRefillAt = "";
   }
   return account;
 }
@@ -2462,11 +2474,12 @@ async function activateFounderAccount(env: CloudEnv, account: AccountRecord) {
   if (env.DB) {
     await env.DB.prepare(
       "UPDATE users SET plan = ?, ever_paid = 1, billing_status = 'active', "
-      + "ai_credit_refill_at = NULL, paid_eligibility_ended_at = NULL, updated_at = ? WHERE id = ?",
+      + "ai_credit_refill_at = CASE WHEN plan IN ('founder', 'lifetime') THEN ai_credit_refill_at ELSE NULL END, "
+      + "paid_eligibility_ended_at = NULL, updated_at = ? WHERE id = ?",
     ).bind(nextPlan, currentDate().toISOString(), account.id).run();
     return findAccountById(env, account.id);
   }
-  account.aiCreditRefillAt = "";
+  if (account.plan !== "founder" && account.plan !== "lifetime") account.aiCreditRefillAt = "";
   account.billingStatus = "active";
   account.everPaid = true;
   account.paidEligibilityEndedAt = "";
@@ -2719,6 +2732,7 @@ async function fulfillFounderCheckout(
     sourceId: `checkout:${sessionId}:founder`,
     sourceType: "founder_initial",
   });
+  await ensureIncludedMonthlyCredits(env, account);
   await preserveAccountSessions(env, account.id, account.plan);
   return { account, offer: "founder" as const };
 }
@@ -2738,7 +2752,7 @@ async function fulfillCheckout(env: CloudEnv, session: Record<string, unknown>) 
     if (subscriptionId) {
       account = await applyStripeSubscriptionState(env, account.stripeCustomerId, subscriptionId) || account;
     }
-    await ensureProMonthlyCredits(env, account);
+    await ensureIncludedMonthlyCredits(env, account);
     if (account.plan === "pro" && account.billingStatus === "active") {
       await preserveAccountSessions(env, account.id, account.plan);
     }
@@ -2937,7 +2951,7 @@ async function applyStripeSubscriptionState(env: CloudEnv, customerId: string, s
   const updated = await findAccountById(env, account.id);
   if (!updated) return null;
   await applyPaidRetentionTransition(env, updated);
-  await ensureProMonthlyCredits(env, updated);
+  await ensureIncludedMonthlyCredits(env, updated);
   return updated;
 }
 
@@ -3583,8 +3597,8 @@ async function accountEntitlements(request: Request, env: CloudEnv) {
   if (principal.kind === "account") {
     const account = await findAccountById(env, principal.id);
     if (account) {
-      await ensureProMonthlyCredits(env, account);
-      if (account.plan === "pro" && account.billingStatus === "active") {
+      await ensureIncludedMonthlyCredits(env, account);
+      if (account.plan === "founder" || (account.plan === "pro" && account.billingStatus === "active")) {
         nextRefillAt = account.aiCreditRefillAt || null;
       }
     }
@@ -3698,7 +3712,7 @@ async function summarizeSession(request: Request, env: CloudEnv) {
   if (!session) return json({ error: "Session not found" }, 404);
   if (principal.kind === "account") {
     const account = await findAccountById(env, principal.id);
-    if (account) await ensureProMonthlyCredits(env, account);
+    if (account) await ensureIncludedMonthlyCredits(env, account);
   }
   const allowed = await withinRateLimits(env, "ai-session-summary", [
     { limit: 10, scope: `${principal.kind}:${principal.id}` },
@@ -3989,18 +4003,18 @@ export async function reconcileBillingEntitlements(env: CloudEnv) {
   let accounts: AccountRecord[];
   if (env.DB) {
     const result = await env.DB.prepare(
-      "SELECT * FROM users WHERE plan = 'pro' AND billing_status = 'active' "
+      "SELECT * FROM users WHERE (plan = 'founder' OR (plan = 'pro' AND billing_status = 'active')) "
       + "AND (ai_credit_refill_at IS NULL OR ai_credit_refill_at <= ?)",
     ).bind(now).all();
     accounts = (result.results || []).map(accountFromRow);
   } else {
     accounts = Array.from(memoryAccounts.values()).filter(
-      (account) => account.plan === "pro"
-        && account.billingStatus === "active"
+      (account) => (account.plan === "founder"
+        || (account.plan === "pro" && account.billingStatus === "active"))
         && (!account.aiCreditRefillAt || account.aiCreditRefillAt <= now),
     );
   }
-  for (const account of accounts) await ensureProMonthlyCredits(env, account);
+  for (const account of accounts) await ensureIncludedMonthlyCredits(env, account);
   return { creditedAccounts: accounts.length };
 }
 
@@ -4216,6 +4230,8 @@ export async function cleanupOldRecords(env: CloudEnv, days = 7) {
   const nowIso = now.toISOString();
   const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
   let deletedCount = 0;
+  let deletedExtensionCodeCount = 0;
+  let deletedWebSessionCount = 0;
   if (env.DB) {
     const result = await env.DB.prepare(
       "SELECT id, shot_id FROM sessions WHERE "
@@ -4234,6 +4250,16 @@ export async function cleanupOldRecords(env: CloudEnv, days = 7) {
       + "AND (is_permanent = 0 OR is_permanent IS NULL))",
     ).bind(nowIso, cutoff).run();
     deletedCount = sessions.length;
+    const cleanupResults = await env.DB.batch([
+      env.DB.prepare(
+        "DELETE FROM extension_codes WHERE expires_at <= ? OR used_at IS NOT NULL",
+      ).bind(nowIso),
+      env.DB.prepare(
+        "DELETE FROM web_sessions WHERE expires_at <= ? OR (revoked_at IS NOT NULL AND revoked_at <= ?)",
+      ).bind(nowIso, cutoff),
+    ]) as { meta?: { changes?: number } }[];
+    deletedExtensionCodeCount = Number(cleanupResults[0]?.meta?.changes || 0);
+    deletedWebSessionCount = Number(cleanupResults[1]?.meta?.changes || 0);
   } else {
     const expired = Array.from(memorySessions.values()).filter((session) => {
       const retentionExpiresAt = memorySessionRetentionExpiresAt.get(session.id);
@@ -4249,8 +4275,18 @@ export async function cleanupOldRecords(env: CloudEnv, days = 7) {
       memorySessionRetentionExpiresAt.delete(session.id);
     }
     deletedCount = expired.length;
+    for (const [codeHash, code] of memoryExtensionCodes) {
+      if (!code.usedAt && code.expiresAt > nowIso) continue;
+      memoryExtensionCodes.delete(codeHash);
+      deletedExtensionCodeCount += 1;
+    }
+    for (const [tokenHash, session] of memoryWebSessions) {
+      if (session.expiresAt > nowIso && (!session.revokedAt || session.revokedAt > cutoff)) continue;
+      memoryWebSessions.delete(tokenHash);
+      deletedWebSessionCount += 1;
+    }
   }
-  return { cutoff, deletedCount };
+  return { cutoff, deletedCount, deletedExtensionCodeCount, deletedWebSessionCount };
 }
 
 export async function authorizeCloudAppRequest(request: Request, env: CloudEnv) {

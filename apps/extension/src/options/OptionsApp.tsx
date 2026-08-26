@@ -12,6 +12,14 @@ import {
   translations,
 } from "@pinar/shared";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
   Badge,
   Button,
   Card,
@@ -51,6 +59,8 @@ import IconFolder from "~icons/lucide/folder";
 import IconGithub from "~icons/radix-icons/github-logo";
 import IconHeart from "~icons/lucide/heart";
 import IconInbox from "~icons/lucide/inbox";
+import IconInfo from "~icons/lucide/info";
+import IconKeyRound from "~icons/lucide/key-round";
 import IconLaptop from "~icons/lucide/laptop";
 import IconLogOut from "~icons/lucide/log-out";
 import IconMail from "~icons/lucide/mail";
@@ -124,6 +134,25 @@ function isExtensionContext() {
   return typeof chrome !== "undefined" && Boolean(chrome.runtime?.id) && Boolean(chrome.runtime?.sendMessage);
 }
 
+function hostedPricingUrl(cloudUrl: string, language: SupportedLanguage) {
+  const url = new URL(`${(cloudUrl || "https://pinar.dev").replace(/\/+$/, "")}/pricing`);
+  if (language) url.searchParams.set("lang", language);
+  return url.toString();
+}
+
+function hostedSignInUrl(cloudUrl: string, language: SupportedLanguage) {
+  const url = new URL(`${(cloudUrl || "https://pinar.dev").replace(/\/+$/, "")}/sign-in`);
+  url.searchParams.set("extensionCode", "");
+  url.searchParams.set("returnTo", "/app");
+  if (language) url.searchParams.set("lang", language);
+  return url.toString();
+}
+
+function accountSessionError(message: string, unavailable: string, legalRequired: string) {
+  if (/Accept the current Pinar Terms/i.test(message)) return legalRequired;
+  return message || unavailable;
+}
+
 async function extensionMessage(
   message: Record<string, unknown>,
   unavailableMessage: string,
@@ -183,11 +212,13 @@ export function OptionsApp() {
   const [destinationLoading, setDestinationLoading] = useState(true);
   const [destinationError, setDestinationError] = useState("");
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
+  const [authReady, setAuthReady] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState("");
   const [temporaryCode, setTemporaryCode] = useState("");
   const [temporaryCodeExpiresAt, setTemporaryCodeExpiresAt] = useState("");
   const [copiedCode, setCopiedCode] = useState(false);
+  const [regenerateCodeOpen, setRegenerateCodeOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [emailCode, setEmailCode] = useState("");
   const [emailCodeRequested, setEmailCodeRequested] = useState(false);
@@ -267,11 +298,16 @@ export function OptionsApp() {
       const response = await extensionMessage({ type: "auth:get" }, t.account_unavailable);
       if (!response.ok || !response.session) throw new Error(response.error || t.account_unavailable);
       setAuthSession(response.session);
-    } catch {
+    } catch (cause) {
       setAuthSession(null);
-      setAuthError(t.account_unavailable);
+      setAuthError(accountSessionError(
+        cause instanceof Error ? cause.message : t.account_unavailable,
+        t.account_unavailable,
+        t.legal_acceptance_required,
+      ));
     } finally {
       setAuthLoading(false);
+      setAuthReady(true);
     }
   }
 
@@ -366,22 +402,38 @@ export function OptionsApp() {
     if (!response.ok) setAuthError(response.error || t.account_unavailable);
   }
 
-  async function copyTemporaryCode() {
+  async function generateTemporaryCode() {
     setAuthLoading(true);
     setAuthError("");
     try {
       const response = await extensionMessage({ type: "auth:extension-code" }, t.account_unavailable);
       if (!response.ok || !response.code) throw new Error(response.error || t.account_unavailable);
-      await navigator.clipboard.writeText(response.code);
       setTemporaryCode(response.code);
       setTemporaryCodeExpiresAt(response.expiresAt || "");
+      setCopiedCode(false);
+      return true;
+    } catch (cause) {
+      setAuthError(cause instanceof Error ? cause.message : String(cause));
+      return false;
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  async function copyTemporaryCode() {
+    if (!temporaryCode) return;
+    setAuthError("");
+    try {
+      await navigator.clipboard.writeText(temporaryCode);
       setCopiedCode(true);
       window.setTimeout(() => setCopiedCode(false), 2_000);
     } catch (cause) {
       setAuthError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setAuthLoading(false);
     }
+  }
+
+  async function regenerateTemporaryCode() {
+    if (await generateTemporaryCode()) setRegenerateCodeOpen(false);
   }
 
   async function requestEmailCode(event: FormEvent) {
@@ -484,14 +536,7 @@ export function OptionsApp() {
                       <span className="block text-xs leading-relaxed text-muted-foreground">{t.local_desc}</span>
                       {installPlatform === "mac" ? (
                         <span className="mt-2 block" onClick={(event) => event.stopPropagation()}>
-                          <Button
-                            render={<a href={macosDesktopDmgUrl()} rel="noopener noreferrer" target="_blank" />}
-                            size="sm"
-                            variant="outline"
-                          >
-                            <IconExternalLink data-icon="inline-start" />
-                            {t.btn_download_macos}
-                          </Button>
+                          <a className="external-link w-fit text-xs font-semibold text-primary underline-offset-4 hover:underline" href={macosDesktopDmgUrl()} rel="noopener noreferrer" target="_blank">{t.btn_download_macos}</a>
                         </span>
                       ) : (
                         <span className="mt-2 flex items-center gap-1.5 rounded-lg border bg-muted/60 p-1.5 font-mono text-[11px]">
@@ -515,9 +560,9 @@ export function OptionsApp() {
                       </label>
                       {legalBundle ? (
                         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 pl-5 text-xs">
-                          <a className="text-primary underline underline-offset-4" href={`${(settings.cloudUrl || DEFAULT_SETTINGS.cloudUrl).replace(/\/+$/, "")}${legalBundle.termsUrl}`} rel="noopener noreferrer" target="_blank">{t.legal_terms}</a>
-                          <a className="text-primary underline underline-offset-4" href={`${(settings.cloudUrl || DEFAULT_SETTINGS.cloudUrl).replace(/\/+$/, "")}${legalBundle.privacyUrl}`} rel="noopener noreferrer" target="_blank">{t.legal_privacy}</a>
-                          <a className="text-primary underline underline-offset-4" href={`${(settings.cloudUrl || DEFAULT_SETTINGS.cloudUrl).replace(/\/+$/, "")}${legalBundle.acceptableUseUrl}`} rel="noopener noreferrer" target="_blank">{t.legal_acceptable_use}</a>
+                          <a className="external-link text-primary underline underline-offset-4" href={`${(settings.cloudUrl || DEFAULT_SETTINGS.cloudUrl).replace(/\/+$/, "")}${legalBundle.termsUrl}`} rel="noopener noreferrer" target="_blank">{t.legal_terms}</a>
+                          <a className="external-link text-primary underline underline-offset-4" href={`${(settings.cloudUrl || DEFAULT_SETTINGS.cloudUrl).replace(/\/+$/, "")}${legalBundle.privacyUrl}`} rel="noopener noreferrer" target="_blank">{t.legal_privacy}</a>
+                          <a className="external-link text-primary underline underline-offset-4" href={`${(settings.cloudUrl || DEFAULT_SETTINGS.cloudUrl).replace(/\/+$/, "")}${legalBundle.acceptableUseUrl}`} rel="noopener noreferrer" target="_blank">{t.legal_acceptable_use}</a>
                           <span className="text-muted-foreground">v{legalBundle.version}</span>
                         </div>
                       ) : null}
@@ -578,13 +623,10 @@ export function OptionsApp() {
               <TabsContent value="account">
                 <Card className="gap-4 overflow-visible rounded-none py-0 ring-0" size="sm">
                   <CardHeader className="px-0">
-                    <div className="flex items-start justify-between gap-3">
-                      <div><CardTitle>{t.account_title}</CardTitle><CardDescription className="mt-1 text-xs">{t.account_description}</CardDescription></div>
-                      <Badge variant={authSession?.kind === "account" && authSession.plan !== "free" ? "pro" : "outline"}>{authSession?.kind === "account" ? authSession.plan : t.plan_free_badge}</Badge>
-                    </div>
+                    <div><CardTitle>{t.account_title}</CardTitle><CardDescription className="mt-1 text-xs">{t.account_description}</CardDescription></div>
                   </CardHeader>
                   <CardContent className="space-y-4 px-0">
-                    {authLoading && !authSession ? <p className="text-xs text-muted-foreground">…</p> : authSession?.kind === "account" ? (
+                    {!authReady ? <p className="text-xs text-muted-foreground">…</p> : authSession?.kind === "account" ? (
                       <div className="space-y-3">
                         <div className="rounded-lg border bg-muted/40 p-3"><p className="truncate text-sm font-semibold">{authSession.email}</p><p className="mt-1 text-xs capitalize text-muted-foreground">{authSession.plan}</p></div>
                         <div className="flex flex-wrap gap-2">
@@ -592,24 +634,40 @@ export function OptionsApp() {
                           <Button size="sm" variant="ghost" onClick={() => void logout()}><IconLogOut data-icon="inline-start" />{t.btn_sign_out}</Button>
                         </div>
                       </div>
-                    ) : authSession?.kind === "installation" ? (
-                      <div className="space-y-4">
-                        <div className="space-y-2 rounded-lg border bg-muted/40 p-3">
-                          <p className="text-xs text-muted-foreground">{t.account_free_description}</p>
-                          <div className="flex flex-wrap gap-2"><Button size="sm" onClick={() => void openApp()}><IconExternalLink data-icon="inline-start" />{t.btn_open_app}</Button><Button disabled={authLoading} size="sm" variant="outline" onClick={() => void copyTemporaryCode()}><IconCopy data-icon="inline-start" />{copiedCode ? t.status_copied : t.btn_copy_code}</Button></div>
-                          {temporaryCode && <div className="rounded border bg-background p-2"><code className="text-base font-bold tracking-[0.2em]">{temporaryCode}</code>{temporaryCodeExpiresAt && <p className="mt-1 text-[11px] text-muted-foreground">{t.account_code_expires}</p>}</div>}
-                        </div>
-                        <div className="border-t pt-4">
-                          <div className="mb-3"><p className="text-sm font-semibold">{t.account_email_title}</p><p className="mt-1 text-xs text-muted-foreground">{emailCodeRequested ? t.account_email_sent : t.account_email_description}</p></div>
+                    ) : (
+                      <div className="space-y-3">
+                        <section aria-labelledby="account-free-title" className="space-y-3 rounded-lg border bg-background p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0"><p className="text-sm font-semibold" id="account-free-title">{t.account_free_title}</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t.account_free_description}</p></div>
+                            <Badge className="shrink-0 bg-muted text-muted-foreground" variant="outline">{t.account_free_badge}</Badge>
+                          </div>
+                          <div className="flex items-stretch gap-2">
+                            {temporaryCode ? <><div className="min-w-0 flex-1 rounded-lg border bg-background px-3 py-2"><code className="text-base font-bold tracking-[0.16em]">{temporaryCode}</code>{temporaryCodeExpiresAt && <p className="mt-1 text-[11px] text-muted-foreground">{t.account_code_expires}</p>}</div><Button className="shrink-0" variant="outline" onClick={() => void copyTemporaryCode()}><IconCopy data-icon="inline-start" />{copiedCode ? t.status_copied : t.btn_copy_code}</Button></> : <Button disabled={authLoading} variant="outline" onClick={() => void generateTemporaryCode()}><IconKeyRound data-icon="inline-start" />{t.btn_generate_code}</Button>}
+                          </div>
+                          {temporaryCode && <Button className="h-auto px-0" size="xs" variant="link" onClick={() => setRegenerateCodeOpen(true)}>{t.btn_generate_another_code}</Button>}
+                          <div className="rounded-lg bg-muted/60 p-3"><p className="text-xs font-semibold">{t.account_code_entry_title}</p><a className="external-link mt-2 text-xs font-semibold text-primary" href={hostedSignInUrl(settings.cloudUrl, lang)} rel="noopener noreferrer" target="_blank">{t.btn_open_code_entry}</a></div>
+                          <p className="flex items-start gap-2 text-[11px] leading-relaxed text-muted-foreground"><IconInfo className="mt-0.5 size-3.5 shrink-0" />{t.account_code_regeneration_note}</p>
+                        </section>
+                        <AlertDialog open={regenerateCodeOpen} onOpenChange={setRegenerateCodeOpen}>
+                          <AlertDialogContent>
+                            <AlertDialogHeader><AlertDialogTitle>{t.account_code_regeneration_title}</AlertDialogTitle><AlertDialogDescription>{t.account_code_regeneration_description.replace("{code}", temporaryCode)}</AlertDialogDescription></AlertDialogHeader>
+                            <AlertDialogFooter><AlertDialogCancel>{t.btn_cancel}</AlertDialogCancel><AlertDialogAction disabled={authLoading} onClick={() => void regenerateTemporaryCode()}>{t.btn_invalidate_and_generate}</AlertDialogAction></AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                        <section aria-labelledby="account-email-title" className="space-y-3 rounded-lg border bg-background p-3">
+                          <div><p className="text-sm font-semibold" id="account-email-title">{t.account_email_title}</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">{emailCodeRequested ? t.account_email_sent : t.account_email_description}</p></div>
                           {!emailCodeRequested ? (
-                            <form className="flex gap-2" onSubmit={requestEmailCode}><Input autoComplete="email" placeholder="you@example.com" required type="email" value={email} onChange={(event) => setEmail(event.target.value)} /><Button disabled={authLoading} size="sm" type="submit"><IconMail data-icon="inline-start" />{t.btn_send_code}</Button></form>
+                            <form className="flex gap-2" onSubmit={requestEmailCode}><Input autoComplete="email" placeholder="you@example.com" required type="email" value={email} onChange={(event) => setEmail(event.target.value)} /><Button disabled={authLoading} type="submit" variant="outline"><IconMail data-icon="inline-start" />{t.btn_send_code}</Button></form>
                           ) : (
-                            <form className="space-y-2" onSubmit={verifyEmailCode}><div className="flex gap-2"><Input autoComplete="one-time-code" inputMode="numeric" maxLength={6} pattern="[0-9]{6}" placeholder="000000" required value={emailCode} onChange={(event) => setEmailCode(event.target.value.replace(/\D/g, ""))} /><Button disabled={authLoading || emailCode.length !== 6} size="sm" type="submit">{t.btn_verify_code}</Button></div><Button size="xs" type="button" variant="link" onClick={() => setEmailCodeRequested(false)}>{t.btn_change_email}</Button></form>
+                            <form className="space-y-2" onSubmit={verifyEmailCode}><label className="block text-xs font-semibold" htmlFor="account-email-code">{t.account_email_code_label}</label><div className="flex gap-2"><Input autoComplete="one-time-code" id="account-email-code" inputMode="numeric" maxLength={6} pattern="[0-9]{6}" placeholder="000000" required value={emailCode} onChange={(event) => setEmailCode(event.target.value.replace(/\D/g, ""))} /><Button disabled={authLoading || emailCode.length !== 6} type="submit">{t.btn_verify_code}</Button></div><Button size="xs" type="button" variant="link" onClick={() => setEmailCodeRequested(false)}>{t.btn_change_email}</Button></form>
                           )}
-                        </div>
-                        <Button render={<a href="https://pinar.dev/pricing" rel="noopener noreferrer" target="_blank" />} size="sm" variant="pro"><IconSparkles data-icon="inline-start" />{t.btn_upgrade_pro}</Button>
+                          <div aria-label={t.account_subscription_prompt_title} className="flex items-center justify-between gap-3 rounded-lg bg-muted/60 p-3" role="group">
+                            <div className="min-w-0"><p className="text-xs font-semibold">{t.account_subscription_prompt_title}</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t.account_subscription_prompt_description}</p></div>
+                            <Button className="shrink-0" render={<a href={hostedPricingUrl(settings.cloudUrl, lang)} rel="noopener noreferrer" target="_blank" />} variant="pro"><IconSparkles data-icon="inline-start" />{t.btn_upgrade_pro}</Button>
+                          </div>
+                        </section>
                       </div>
-                    ) : null}
+                    )}
                     {authError && <p className="text-xs font-medium text-destructive" role="alert">{authError}</p>}
                   </CardContent>
                 </Card>

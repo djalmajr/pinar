@@ -4,7 +4,6 @@ import ReactMarkdown from "react-markdown";
 import { getPinColor, type Pin, type Session } from "@pinar/shared";
 import { ImageZoomDialog } from "@/components/ImageZoomDialog";
 import { ServerShell } from "@/components/ServerShell";
-import { ServerFooter } from "@/components/ServerFooter";
 import { isRecord, isSession } from "@/lib/api-data";
 import { useServerI18n } from "@/lib/i18n";
 import { formatPinMarkdown } from "@/lib/pin-markdown";
@@ -306,7 +305,6 @@ export function WebViewer({ sessionId }: WebViewerProps) {
                 </Card>
               )}
             </div>
-            <ServerFooter className="mt-0 pb-2 pt-0" />
           </div>
         </ScrollArea>
         {sidebarOpen ? (

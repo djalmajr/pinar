@@ -20,7 +20,7 @@ interface ServerFooterProps extends FairSourceSupportCardProps {
 
 const FooterLegalDocumentIds = ["terms", "privacy"] as const;
 
-export function FairSourceSupportCard({ className, compact = false }: FairSourceSupportCardProps) {
+export function FairSourceSupportCard({ className }: FairSourceSupportCardProps) {
   const { t } = useServerI18n();
   const session = useAuthSession();
   const isPaidAccount = isPaidAuthSession(session);
@@ -32,19 +32,18 @@ export function FairSourceSupportCard({ className, compact = false }: FairSource
     <section
       aria-label={title}
       className={cn(
-        "mx-auto flex min-h-24 w-full max-w-4xl items-center justify-between gap-4 rounded-xl border bg-card p-5",
-        compact ? "flex-col items-stretch" : "flex-col sm:flex-row",
+        "mx-auto flex min-h-24 w-full max-w-4xl flex-col items-stretch gap-4 rounded-xl border bg-card p-5",
         className,
       )}
     >
-      <div className={cn("text-center sm:text-left", compact && "text-left")}>
-        <div className={cn("flex items-center justify-center gap-2 text-sm font-semibold sm:justify-start", compact && "justify-start")}>
+      <div className="text-left">
+        <div className="flex items-center justify-start gap-2 text-sm font-semibold">
           <HeartIcon className="size-4 fill-pink-500 text-pink-500" />
           {title}
         </div>
         <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
       </div>
-      <div className={cn("flex shrink-0 flex-wrap items-center justify-center gap-2.5", compact && "justify-start")}>
+      <div className="flex shrink-0 flex-wrap items-center justify-start gap-2.5">
         <Button
           render={<a href="https://buymeacoffee.com/djalmajr" rel="noopener noreferrer" target="_blank" />}
           size="sm"
@@ -71,64 +70,55 @@ export function ServerFooter({ className, compact = false, note }: ServerFooterP
   const currentYear = footerYear();
 
   return (
-    <div className={cn("mt-auto w-full pt-8", className)}>
+    <footer className={cn("mt-auto w-full pt-8", className)} role="contentinfo">
       <FairSourceSupportCard compact={compact} />
-      <footer className="mx-auto mt-8 w-full max-w-4xl overflow-hidden rounded-xl border bg-card/70 text-xs font-normal leading-4 text-muted-foreground shadow-xs">
+      {note ? (
+        <div className="mx-auto mt-6 flex min-h-9 w-full max-w-6xl items-center justify-center px-1 py-2 text-center text-[11px] font-normal leading-4 text-muted-foreground">
+          {note}
+        </div>
+      ) : null}
+      <div
+        className={cn("mx-auto w-full max-w-6xl border-t border-border/60 text-[11px] font-normal leading-4 text-muted-foreground", note ? "mt-8" : "mt-6")}
+      >
         <div
           className={cn(
-            "grid gap-6 px-5 py-5",
-            !compact && "sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start",
+            "flex flex-col gap-2 px-1 py-3",
+            !compact && "sm:flex-row sm:items-center sm:justify-between",
           )}
         >
-          <div className="max-w-sm">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <Link
               aria-label={t("common.pinarHome")}
-              className="inline-flex items-center gap-2 text-foreground"
+              className="inline-flex items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground"
               preload="intent"
               to="/"
             >
-              <PinarMark className="size-5" />
-              <span className="text-sm font-bold">Pinar</span>
+              <PinarMark className="size-4 opacity-80" />
+              <span className="font-medium text-foreground/80">Pinar</span>
             </Link>
-            <p className="mt-2 max-w-xs text-sm leading-5">{t("landing.badge")}</p>
+            <span aria-hidden="true">·</span>
+            <span>© {currentYear}</span>
+            <span aria-hidden="true">·</span>
+            <span>{t("common.serverVersion", { version: SERVER_VERSION })}</span>
           </div>
-          <div className={cn("flex flex-col items-start gap-2", !compact && "sm:min-w-48")}>
-            <p className="font-semibold uppercase tracking-[0.12em] text-foreground">{t("footer.legal")}</p>
-            <nav
-              aria-label={language === "pt" ? "Documentos legais" : "Legal documents"}
-              className="flex flex-col items-start gap-1"
-            >
-              {FooterLegalDocumentIds.map((document) => (
-                <Link
-                  className="rounded-md py-1 text-sm font-medium text-foreground underline-offset-4 transition-colors hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  key={document}
-                  params={{ document }}
-                  preload="intent"
-                  to="/legal/$document"
-                >
-                  {legalDocumentTitle(document, language)}
-                </Link>
-              ))}
-            </nav>
-          </div>
-        </div>
-        <div className="border-t bg-muted/20">
-          {note ? <div className="flex min-h-10 items-center justify-center border-b px-5 py-3 text-center">{note}</div> : null}
-          <div
-            className={cn(
-              "flex flex-col gap-2 px-5 py-3",
-              !compact && "sm:flex-row sm:items-center sm:justify-between",
-            )}
+          <nav
+            aria-label={language === "pt" ? "Documentos legais" : "Legal documents"}
+            className={cn("flex flex-wrap items-center gap-x-3 gap-y-1", !compact && "sm:justify-end")}
           >
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span>© {currentYear} Pinar</span>
-              <span aria-hidden="true">·</span>
-              <span>{t("common.serverVersion", { version: SERVER_VERSION })}</span>
-            </div>
-            <span className={cn(!compact && "sm:text-right")}>{t("landing.footer")}</span>
-          </div>
+            {FooterLegalDocumentIds.map((document) => (
+              <Link
+                className="underline-offset-4 transition-colors hover:text-foreground hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                key={document}
+                params={{ document }}
+                preload="intent"
+                to="/legal/$document"
+              >
+                {legalDocumentTitle(document, language)}
+              </Link>
+            ))}
+          </nav>
         </div>
-      </footer>
-    </div>
+      </div>
+    </footer>
   );
 }

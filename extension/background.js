@@ -17,9 +17,11 @@ import {
 } from "./identity.js";
 import { pinarPorts } from "./ports.js";
 import { endTabPins, pinFrameIds, planSessionEnd } from "./session.js";
+import { createSingleFlight } from "./single-flight.js";
 
 const tabPins = new Map();
 const registeredInstallations = new Set();
+const registerInstallationOnce = createSingleFlight();
 const OPEN_PANEL_MENU_ID = "pinar-open-panel";
 
 function normalizePins(pins = []) {
@@ -81,7 +83,7 @@ void initializeInstallationIdentity();
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab.id) return;
   await chrome.scripting.executeScript({
-    files: ["coordinates.js", "keyboard.js", "content.js"],
+    files: ["coordinates.js", "frame-path.js", "keyboard.js", "content.js"],
     target: { allFrames: true, tabId: tab.id },
   });
 });
@@ -584,27 +586,29 @@ async function setCaptureDestination(collectionId) {
   return { ...context, destination };
 }
 
-async function registerRemoteInstallation(endpoint, identity, force = false) {
+function registerRemoteInstallation(endpoint, identity, force = false) {
   const cacheKey = `${endpoint}:${identity.id}`;
-  const [legalResponse, stored] = await Promise.all([
-    fetch(`${endpoint}/api/legal/current`),
-    chrome.storage.local.get({ remoteLegalAcceptance: null }),
-  ]);
-  const legalBundle = parseLegalBundle(await legalResponse.json().catch(() => null));
-  const legalAcceptance = acceptedRemoteLegalAcceptance(stored.remoteLegalAcceptance, legalBundle);
-  if (!legalResponse.ok || !legalBundle || !legalAcceptance) {
-    throw new Error("Accept the current Pinar Terms in the extension settings before using remote storage");
-  }
-  if (!force && registeredInstallations.has(cacheKey)) return legalAcceptance;
-  const response = await fetch(`${endpoint}/api/installations`, {
-    body: JSON.stringify({ installationId: identity.id, installationToken: identity.token, legalAcceptance }),
-    headers: { "content-type": "application/json" },
-    method: "POST",
+  return registerInstallationOnce(cacheKey, async () => {
+    const [legalResponse, stored] = await Promise.all([
+      fetch(`${endpoint}/api/legal/current`),
+      chrome.storage.local.get({ remoteLegalAcceptance: null }),
+    ]);
+    const legalBundle = parseLegalBundle(await legalResponse.json().catch(() => null));
+    const legalAcceptance = acceptedRemoteLegalAcceptance(stored.remoteLegalAcceptance, legalBundle);
+    if (!legalResponse.ok || !legalBundle || !legalAcceptance) {
+      throw new Error("Accept the current Pinar Terms in the extension settings before using remote storage");
+    }
+    if (!force && registeredInstallations.has(cacheKey)) return legalAcceptance;
+    const response = await fetch(`${endpoint}/api/installations`, {
+      body: JSON.stringify({ installationId: identity.id, installationToken: identity.token, legalAcceptance }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || "Remote installation registration failed");
+    registeredInstallations.add(cacheKey);
+    return legalAcceptance;
   });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || "Remote installation registration failed");
-  registeredInstallations.add(cacheKey);
-  return legalAcceptance;
 }
 
 async function installationFetch(endpoint, path, identity, init = {}) {

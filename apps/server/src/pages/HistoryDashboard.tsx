@@ -56,7 +56,6 @@ import {
   ProjectSwitcher,
 } from "@/components/HistorySidebar";
 import { ProjectIconPicker } from "@/components/ProjectIcon";
-import { ServerFooter } from "@/components/ServerFooter";
 import { AppAccountMenu } from "@/components/AppAccountMenu";
 import { AppShell } from "@/components/AppShell";
 import { isProjectTreeProject, isRecord } from "@/lib/api-data";
@@ -746,7 +745,6 @@ export function HistoryDashboard() {
                 />
               </>
             )}
-            <ServerFooter />
           </div>
         </ScrollArea>
       </SidebarInset>

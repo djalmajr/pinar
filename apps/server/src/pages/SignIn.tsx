@@ -13,7 +13,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@pinar/ui";
-import { ServerFooter } from "@/components/ServerFooter";
+import { FairSourceSupportCard } from "@/components/ServerFooter";
 import { ServerShell } from "@/components/ServerShell";
 import { isRecord } from "@/lib/api-data";
 import { useServerI18n } from "@/lib/i18n";
@@ -242,7 +242,7 @@ export function SignInPage({ extensionCode, returnTo }: SignInPageProps) {
               </Card>
             </Tabs>
           </div>
-          <ServerFooter className="pt-8" />
+          <FairSourceSupportCard className="mt-auto" />
         </main>
       </ScrollArea>
     </ServerShell>

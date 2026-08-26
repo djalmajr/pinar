@@ -38,6 +38,8 @@
   const FRAME_CANCEL = "pinar:frame-cancel";
   const FRAME_CLEAR = "pinar:frame-clear";
   const FRAME_HIDE = "pinar:frame-hide";
+  const FRAME_PATH_REQUEST = "pinar:frame-path-request";
+  const FRAME_PATH_REPLY = "pinar:frame-path-reply";
   const FRAME_RECT_REQUEST = "pinar:frame-rect-request";
   const FRAME_RECT_REPLY = "pinar:frame-rect-reply";
   const FRAME_SEND = "pinar:frame-send";
@@ -51,6 +53,7 @@
     pinDocumentGeometry,
     projectPin,
   } = globalThis.__pinarCoordinateSpace;
+  const { joinFrameDomPath } = globalThis.__pinarFramePath;
   const {
     handleComposerKeyDown,
     stopComposerKeyboardEvent,
@@ -653,6 +656,28 @@
     });
   }
 
+  function requestFramePaths() {
+    return new Promise((resolve) => {
+      if (!isEmbedded) {
+        resolve([]);
+        return;
+      }
+      const id = crypto.randomUUID();
+      const timer = setTimeout(() => {
+        window.removeEventListener("message", onReply);
+        resolve([]);
+      }, 400);
+      function onReply(event) {
+        if (event.data?.type !== FRAME_PATH_REPLY || event.data.id !== id) return;
+        clearTimeout(timer);
+        window.removeEventListener("message", onReply);
+        resolve(Array.isArray(event.data.paths) ? event.data.paths : []);
+      }
+      window.addEventListener("message", onReply);
+      window.parent.postMessage({ id, type: FRAME_PATH_REQUEST }, "*");
+    });
+  }
+
   function fromUi(event) {
     if (ui.toolbar?.classList.contains("pass-through")) return false;
     return event.composedPath().some((node) => node === host);
@@ -1072,7 +1097,7 @@
     event.preventDefault();
   }
 
-  function openElementDraft(element, point) {
+  async function openElementDraft(element, point) {
     const box = boxOf(element);
     const anchor = point ?? state.pointer ?? {
       x: box.x + box.width / 2,
@@ -1080,6 +1105,7 @@
     };
     const scroll = currentScroll();
     const position = getComputedStyle(element).position;
+    const path = joinFrameDomPath(await requestFramePaths(), treePath(element));
     openDraft({
       anchor,
       box,
@@ -1087,7 +1113,7 @@
       documentBox: documentBox(box, scroll),
       kind: "element",
       label: labelFor(element),
-      path: treePath(element),
+      path,
       selector: cssPath(element),
       scroll,
       tag: element.tagName.toLowerCase(),
@@ -1229,14 +1255,28 @@
     }
   }
 
-  function replyFrameRect(event) {
-    let iframe = null;
+  function frameElementForSource(source) {
     for (const node of document.querySelectorAll("iframe,frame")) {
-      if (node.contentWindow === event.source) {
-        iframe = node;
-        break;
-      }
+      if (node.contentWindow === source) return node;
     }
+    return null;
+  }
+
+  function replyFramePath(event) {
+    const iframe = frameElementForSource(event.source);
+    if (!iframe) return;
+    const localPath = treePath(iframe);
+    void requestFramePaths().then((parentPaths) => {
+      event.source?.postMessage({
+        id: event.data.id,
+        paths: [...parentPaths, localPath],
+        type: FRAME_PATH_REPLY,
+      }, "*");
+    });
+  }
+
+  function replyFrameRect(event) {
+    const iframe = frameElementForSource(event.source);
     const rect = iframe?.getBoundingClientRect();
     const local = rect ? { x: rect.left, y: rect.top } : { x: 0, y: 0 };
     void requestTopOffset().then(({ offset: parentOffset, topScroll }) => {
@@ -1253,6 +1293,10 @@
     if (event.source === window) return;
     if (event.data?.type === FRAME_RECT_REQUEST) {
       replyFrameRect(event);
+      return;
+    }
+    if (event.data?.type === FRAME_PATH_REQUEST) {
+      replyFramePath(event);
       return;
     }
     if (event.data?.type === FRAME_CLEAR) {

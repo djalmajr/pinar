@@ -37,7 +37,9 @@ export function desktopAppPath(home = osHomedir()) {
 }
 
 export function darwinOpenAppCommand(home = osHomedir()) {
-  return `/usr/bin/open -ga ${JSON.stringify(desktopAppPath(home))}`;
+  const pidFile = JSON.stringify(join(home, ".pinar", "tray.pid"));
+  const app = JSON.stringify(desktopAppPath(home));
+  return `pid_file=${pidFile}; if [ -r "$pid_file" ] && pid="$(/bin/cat "$pid_file" 2>/dev/null)" && [ -n "$pid" ] && /bin/kill -0 "$pid" 2>/dev/null; then :; else /usr/bin/open -ga ${app}; fi`;
 }
 
 export function darwinOpenAppCommandJson(home = osHomedir()) {

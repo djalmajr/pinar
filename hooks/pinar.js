@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,9 +23,21 @@ function resolveEnsure() {
   return null;
 }
 
+function isTrayRunning() {
+  try {
+    const pid = Number(readFileSync(join(homedir(), ".pinar", "tray.pid"), "utf8").trim());
+    if (!Number.isInteger(pid) || pid <= 0) return false;
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export default function (pi) {
   const ensure = resolveEnsure();
   pi.on("session_start", () => {
+    if (process.platform === "darwin" && isTrayRunning()) return;
     const winCmd = Boolean(ensure && process.platform === "win32" && ensure.endsWith(".cmd"));
     let child;
     if (process.platform === "darwin") {

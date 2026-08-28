@@ -12,8 +12,8 @@ const extensionPackage = JSON.parse(
 describe("extension action context menu", () => {
   test("declares the context menu permission and registers an action item", () => {
     assert.ok(manifest.permissions.includes("contextMenus"));
-    assert.equal(manifest.name, "Pinar.dev");
-    assert.equal(manifest.version, "0.2.3");
+    assert.equal(manifest.name, "Pinar");
+    assert.equal(manifest.version, "0.2.4");
     assert.equal(extensionPackage.version, manifest.version);
     assert.equal(manifest.homepage_url, "https://pinar.dev");
     assert.match(backgroundSrc, /contexts: \["action"\]/);

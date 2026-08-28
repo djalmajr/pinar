@@ -48,15 +48,14 @@ function releaseTrayLock() {
 	}
 }
 
-ensurePinarHome();
-claimTrayLock();
-
 function hideDock() {
 	if (process.platform !== "darwin") return;
 	Utils.setDockIconVisible(false);
 }
 
+ensurePinarHome();
 hideDock();
+claimTrayLock();
 Electrobun.events.on("reopen", hideDock);
 
 const tray = new Tray({

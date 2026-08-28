@@ -4,7 +4,7 @@ export default {
 	app: {
 		name: "Pinar",
 		identifier: "dev.pinar.local",
-		version: "0.1.2",
+		version: "0.1.3",
 	},
 	runtime: {
 		exitOnLastWindowClosed: false,

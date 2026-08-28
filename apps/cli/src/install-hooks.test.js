@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,7 +25,9 @@ describe("install-hooks", () => {
   test("ensure command opens Pinar.app on Darwin and keeps scripts elsewhere", () => {
     const command = ensureCommand("/opt/pinar", { platform: "darwin", home: "/Users/me" });
     assert.equal(isPinarEnsureCommand(command), true);
-    assert.equal(command, '/usr/bin/open -ga "/Users/me/Applications/Pinar.app"');
+    assert.match(command, /\/Users\/me\/\.pinar\/tray\.pid/);
+    assert.match(command, /\/bin\/kill -0/);
+    assert.match(command, /else \/usr\/bin\/open -ga "\/Users\/me\/Applications\/Pinar\.app"/);
     assert.match(ensureCommand("/opt/pinar", { json: true, platform: "darwin", home: "/Users/me" }), /printf/);
     assert.match(ensureCommand("/opt/pinar", { platform: "linux" }), /\/opt\/pinar\/hooks\/ensure\.sh/);
     assert.match(ensureCommandWindows("/opt/pinar"), /ensure\.cmd/);
@@ -36,6 +39,16 @@ describe("install-hooks", () => {
       hookExtensionPath("/missing-pinar-root", join(helperDir, "pinar")),
       join(helperDir, "pinar.js"),
     );
+  });
+
+  test("Darwin ensure command skips open while the tray PID is alive", () => {
+    const home = mkdtempSync(join(tmpdir(), "pinar-running-tray-"));
+    mkdirSync(join(home, ".pinar"), { recursive: true });
+    writeFileSync(join(home, ".pinar", "tray.pid"), `${process.pid}\n`);
+
+    assert.doesNotThrow(() => {
+      execFileSync("/bin/sh", ["-c", ensureCommand("/opt/pinar", { platform: "darwin", home })]);
+    });
   });
 
   test("upsertSessionStart is idempotent and updates an old path", () => {
@@ -122,7 +135,7 @@ describe("install-hooks", () => {
     assert.equal(isPinarEnsureCommand(claude.hooks.SessionStart[0].hooks[0].command), true);
     assert.equal(
       claude.hooks.SessionStart[0].hooks[0].command,
-      `/usr/bin/open -ga ${JSON.stringify(join(home, "Applications", "Pinar.app"))}`,
+      ensureCommand(root, { platform: "darwin", home }),
     );
 
     const antigravity = JSON.parse(

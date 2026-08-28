@@ -8,11 +8,18 @@ if [ ! -t 0 ]; then
 fi
 status=0
 if [ "$(uname -s)" = Darwin ]; then
-  app="${HOME}/Applications/Pinar.app"
-  if [ -d "$app" ]; then
-    /usr/bin/open -ga "$app" || status=$?
-  else
-    /usr/bin/open -ga Pinar || status=$?
+  pid_file="${HOME}/.pinar/tray.pid"
+  pid=""
+  if [ -r "$pid_file" ]; then
+    pid=$(/bin/cat "$pid_file" 2>/dev/null || true)
+  fi
+  if [ -z "$pid" ] || ! /bin/kill -0 "$pid" 2>/dev/null; then
+    app="${HOME}/Applications/Pinar.app"
+    if [ -d "$app" ]; then
+      /usr/bin/open -ga "$app" || status=$?
+    else
+      /usr/bin/open -ga Pinar || status=$?
+    fi
   fi
 else
   root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)

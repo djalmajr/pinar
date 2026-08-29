@@ -16,6 +16,14 @@ import {
   pinIdsFromPins,
   presentAgentExecution,
 } from "../../../packages/shared/src/agent-results/index.ts";
+import {
+  PinReviewError,
+  countPinReviews,
+  defaultPinReviewStatus,
+  humanActionsForStatus,
+  isPinReviewStatus,
+  resolvePinReviewTransition,
+} from "../../../packages/shared/src/pin-review/index.ts";
 import { pinarHome, shotsDir } from "./paths.mjs";
 
 let SqliteDatabase = null;
@@ -220,6 +228,37 @@ function parseExecutionForSession(session, input) {
   return parsed;
 }
 
+function formatPinReviewEvent(row) {
+  return {
+    actorId: row.actor_id,
+    actorType: row.actor_type,
+    createdAt: row.created_at,
+    executionId: row.execution_id || undefined,
+    fromStatus: row.from_status,
+    id: row.id,
+    origin: row.origin,
+    pinId: row.pin_id,
+    toStatus: row.to_status,
+  };
+}
+
+function formatPinReview(pinId, row, events) {
+  const status = isPinReviewStatus(row?.status) ? row.status : defaultPinReviewStatus();
+  return {
+    actions: humanActionsForStatus(status),
+    pinId,
+    status,
+    timeline: events,
+    updatedAt: row?.updated_at || "",
+  };
+}
+
+function requirePinReview(reviews, pinId) {
+  const review = reviews.find((item) => item.pinId === pinId);
+  if (!review) throw new PinReviewError("pin_not_found");
+  return review;
+}
+
 function captureForSave(id, page, pins, shotId, shotPath, extras = {}) {
   return parseVisualCapture({
     captureId: id,
@@ -246,11 +285,22 @@ class JsonHistoryDb {
     try {
       if (existsSync(this.dbPath)) {
         const stored = JSON.parse(readFileSync(this.dbPath, "utf8"));
-        if (Array.isArray(stored)) return { agent_executions: [], collections: [], projects: [], sessions: stored };
+        if (Array.isArray(stored)) {
+          return {
+            agent_executions: [],
+            collections: [],
+            pin_review_events: [],
+            pin_reviews: [],
+            projects: [],
+            sessions: stored,
+          };
+        }
         if (stored && typeof stored === "object") {
           return {
             agent_executions: Array.isArray(stored.agent_executions) ? stored.agent_executions : [],
             collections: Array.isArray(stored.collections) ? stored.collections : [],
+            pin_review_events: Array.isArray(stored.pin_review_events) ? stored.pin_review_events : [],
+            pin_reviews: Array.isArray(stored.pin_reviews) ? stored.pin_reviews : [],
             projects: Array.isArray(stored.projects) ? stored.projects : [],
             sessions: Array.isArray(stored.sessions) ? stored.sessions : [],
           };
@@ -259,7 +309,14 @@ class JsonHistoryDb {
     } catch {
       // A corrupt fallback should not prevent the local server from starting.
     }
-    return { agent_executions: [], collections: [], projects: [], sessions: [] };
+    return {
+      agent_executions: [],
+      collections: [],
+      pin_review_events: [],
+      pin_reviews: [],
+      projects: [],
+      sessions: [],
+    };
   }
 
   _save() {
@@ -369,8 +426,10 @@ class JsonHistoryDb {
       url: page.url || capture.page.url || "",
     };
     this.data.sessions = [entry, ...this.data.sessions.filter((item) => item.id !== entry.id)];
+    const session = formatSession(entry);
+    this._ensureOpenReviews(session);
     this._save();
-    return formatSession(entry);
+    return this._decorateSession(session);
   }
 
   listSessions({ collectionId = "", limit = 50, offset = 0, query = "" } = {}) {
@@ -387,12 +446,99 @@ class JsonHistoryDb {
       if (collectionId) return Number(left.position) - Number(right.position);
       return String(right.created_at).localeCompare(String(left.created_at));
     });
-    return results.slice(offset, offset + limit).map(formatSession);
+    return results.slice(offset, offset + limit).map((row) => this._decorateSession(formatSession(row)));
   }
 
   getSession(id) {
     const row = this.data.sessions.find((item) => item.id === id);
-    return row ? formatSession(row) : null;
+    return row ? this._decorateSession(formatSession(row)) : null;
+  }
+
+  _reviewStatusMap(captureId) {
+    return new Map(
+      this.data.pin_reviews
+        .filter((item) => item.capture_id === captureId)
+        .map((item) => [item.pin_id, item.status]),
+    );
+  }
+
+  _decorateSession(session) {
+    return {
+      ...session,
+      reviewCounts: countPinReviews(pinIdsFromPins(session.pins), this._reviewStatusMap(session.id)),
+    };
+  }
+
+  _ensureOpenReviews(session) {
+    const timestamp = now();
+    for (const pinId of pinIdsFromPins(session.pins)) {
+      const existing = this.data.pin_reviews.find((item) => item.capture_id === session.id && item.pin_id === pinId);
+      if (existing) continue;
+      this.data.pin_reviews.push({
+        capture_id: session.id,
+        last_execution_id: null,
+        pin_id: pinId,
+        status: "open",
+        updated_at: timestamp,
+      });
+    }
+  }
+
+  listPinReviews(captureId) {
+    const session = this.getSession(captureId);
+    if (!session) return [];
+    const events = this.data.pin_review_events
+      .filter((item) => item.capture_id === captureId)
+      .sort((left, right) => String(left.created_at).localeCompare(String(right.created_at)));
+    return [...pinIdsFromPins(session.pins)].map((pinId) => {
+      const row = this.data.pin_reviews.find((item) => item.capture_id === captureId && item.pin_id === pinId);
+      return formatPinReview(
+        pinId,
+        row,
+        events.filter((item) => item.pin_id === pinId).map(formatPinReviewEvent),
+      );
+    });
+  }
+
+  applyPinReview(captureId, pinId, action, actor) {
+    const session = this.getSession(captureId);
+    if (!session || !pinIdsFromPins(session.pins).has(pinId)) throw new PinReviewError("pin_not_found");
+    this._ensureOpenReviews(session);
+    let row = this.data.pin_reviews.find((item) => item.capture_id === captureId && item.pin_id === pinId);
+    if (!row) throw new PinReviewError("pin_not_found");
+    const current = isPinReviewStatus(row.status) ? row.status : "open";
+    if (
+      action === "agent_changed"
+      && actor.executionId
+      && row.last_execution_id === actor.executionId
+      && current === "correction_ready"
+    ) {
+      return { changed: false, review: requirePinReview(this.listPinReviews(captureId), pinId) };
+    }
+    const transition = resolvePinReviewTransition(current, action);
+    const timestamp = now();
+    if (transition.changed) {
+      this.data.pin_review_events.push({
+        actor_id: actor.actorId,
+        actor_type: actor.actorType,
+        capture_id: captureId,
+        created_at: timestamp,
+        execution_id: actor.executionId || null,
+        from_status: current,
+        id: generateNanoId(),
+        origin: actor.origin,
+        pin_id: pinId,
+        to_status: transition.next,
+      });
+      row.status = transition.next;
+      row.updated_at = timestamp;
+    }
+    if (actor.executionId) row.last_execution_id = actor.executionId;
+    this._save();
+    return {
+      changed: transition.changed,
+      review: requirePinReview(this.listPinReviews(captureId), pinId),
+    };
   }
 
   listAgentExecutions(captureId) {
@@ -406,39 +552,59 @@ class JsonHistoryDb {
     const captureId = typeof input?.captureId === "string" ? input.captureId.trim() : "";
     const parsed = parseExecutionForSession(this.getSession(captureId), input);
     const existing = this.data.agent_executions.find((item) => item.idempotency_key === parsed.idempotencyKey);
-    if (existing) {
-      if (existing.payload_hash !== parsed.fingerprint) throw new AgentResultError("idempotency_conflict");
-      return { created: false, execution: formatAgentExecution(existing) };
+    const saved = existing
+      ? (() => {
+        if (existing.payload_hash !== parsed.fingerprint) throw new AgentResultError("idempotency_conflict");
+        return { created: false, execution: formatAgentExecution(existing) };
+      })()
+      : (() => {
+        const timestamp = now();
+        const row = {
+          agent: parsed.agent,
+          capture_id: parsed.captureId,
+          created_at: timestamp,
+          id: generateNanoId(),
+          idempotency_key: parsed.idempotencyKey,
+          payload_hash: parsed.fingerprint,
+          results: parsed.results.map((result) => ({
+            commit_ref: result.commit || null,
+            created_at: timestamp,
+            files_json: JSON.stringify(result.files),
+            id: generateNanoId(),
+            pin_id: result.pinId,
+            pull_request: result.pullRequest || null,
+            reason: result.reason || null,
+            status: result.status,
+            summary: result.summary,
+          })),
+        };
+        this.data.agent_executions = [...this.data.agent_executions, row];
+        this._save();
+        return { created: true, execution: formatAgentExecution(row) };
+      })();
+    for (const result of saved.execution.results) {
+      if (result.status !== "changed") continue;
+      try {
+        this.applyPinReview(parsed.captureId, result.pinId, "agent_changed", {
+          actorId: saved.execution.agent,
+          actorType: "agent",
+          executionId: saved.execution.id,
+          origin: "agent_result",
+        });
+      } catch (error) {
+        if (error instanceof PinReviewError && error.code === "invalid_transition") continue;
+        throw error;
+      }
     }
-    const timestamp = now();
-    const row = {
-      agent: parsed.agent,
-      capture_id: parsed.captureId,
-      created_at: timestamp,
-      id: generateNanoId(),
-      idempotency_key: parsed.idempotencyKey,
-      payload_hash: parsed.fingerprint,
-      results: parsed.results.map((result) => ({
-        commit_ref: result.commit || null,
-        created_at: timestamp,
-        files_json: JSON.stringify(result.files),
-        id: generateNanoId(),
-        pin_id: result.pinId,
-        pull_request: result.pullRequest || null,
-        reason: result.reason || null,
-        status: result.status,
-        summary: result.summary,
-      })),
-    };
-    this.data.agent_executions = [...this.data.agent_executions, row];
-    this._save();
-    return { created: true, execution: formatAgentExecution(row) };
+    return saved;
   }
 
   deleteSession(id) {
     const previousLength = this.data.sessions.length;
     this.data.sessions = this.data.sessions.filter((item) => item.id !== id);
     this.data.agent_executions = this.data.agent_executions.filter((item) => item.capture_id !== id);
+    this.data.pin_reviews = this.data.pin_reviews.filter((item) => item.capture_id !== id);
+    this.data.pin_review_events = this.data.pin_review_events.filter((item) => item.capture_id !== id);
     this._save();
     return previousLength !== this.data.sessions.length;
   }
@@ -446,6 +612,8 @@ class JsonHistoryDb {
   clearHistory() {
     this.data.sessions = [];
     this.data.agent_executions = [];
+    this.data.pin_reviews = [];
+    this.data.pin_review_events = [];
     this._save();
     return true;
   }
@@ -703,10 +871,31 @@ class SqliteHistoryDb {
         created_at TEXT NOT NULL,
         UNIQUE (execution_id, pin_id)
       );
+      CREATE TABLE IF NOT EXISTS pin_reviews (
+        capture_id TEXT NOT NULL,
+        pin_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_execution_id TEXT,
+        PRIMARY KEY (capture_id, pin_id)
+      );
+      CREATE TABLE IF NOT EXISTS pin_review_events (
+        id TEXT PRIMARY KEY,
+        capture_id TEXT NOT NULL,
+        pin_id TEXT NOT NULL,
+        actor_type TEXT NOT NULL,
+        actor_id TEXT NOT NULL,
+        origin TEXT NOT NULL,
+        from_status TEXT NOT NULL,
+        to_status TEXT NOT NULL,
+        execution_id TEXT,
+        created_at TEXT NOT NULL
+      );
       CREATE INDEX IF NOT EXISTS idx_projects_owner_position ON projects(owner_id, position);
       CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions(created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_agent_executions_capture ON agent_executions(capture_id, created_at);
       CREATE INDEX IF NOT EXISTS idx_agent_pin_results_execution ON agent_pin_results(execution_id);
+      CREATE INDEX IF NOT EXISTS idx_pin_review_events_pin ON pin_review_events(capture_id, pin_id, created_at);
     `);
     const projectColumns = new Set(
       this.db.prepare("PRAGMA table_info(projects)").all().map((row) => row.name),
@@ -836,7 +1025,8 @@ class SqliteHistoryDb {
     );
     const session = this.getSession(capture.captureId);
     if (!session) throw new Error(`Failed to save history session ${sid}`);
-    return session;
+    this._ensureOpenReviews(session);
+    return this._decorateSession(this.getSession(capture.captureId));
   }
 
   listSessions({ collectionId = "", limit = 50, offset = 0, query = "" } = {}) {
@@ -860,7 +1050,7 @@ class SqliteHistoryDb {
       ORDER BY ${order}
       LIMIT ? OFFSET ?
     `).all(...values, limit, offset);
-    return rows.map(formatSession);
+    return rows.map((row) => this._decorateSession(formatSession(row)));
   }
 
   getSession(id) {
@@ -868,7 +1058,115 @@ class SqliteHistoryDb {
       SELECT id, url, title, shot_id, shot_path, pin_count, pins_json, created_at, collection_id, position
       FROM sessions WHERE id = ?
     `).get(id);
-    return row ? formatSession(row) : null;
+    return row ? this._decorateSession(formatSession(row)) : null;
+  }
+
+  _reviewStatusMap(captureId) {
+    return new Map(
+      this.db.prepare("SELECT pin_id, status FROM pin_reviews WHERE capture_id = ?")
+        .all(captureId)
+        .map((row) => [row.pin_id, row.status]),
+    );
+  }
+
+  _decorateSession(session) {
+    return {
+      ...session,
+      reviewCounts: countPinReviews(pinIdsFromPins(session.pins), this._reviewStatusMap(session.id)),
+    };
+  }
+
+  _ensureOpenReviews(session) {
+    const timestamp = now();
+    const insert = this.db.prepare(`
+      INSERT INTO pin_reviews (capture_id, pin_id, status, updated_at, last_execution_id)
+      VALUES (?, ?, 'open', ?, NULL)
+      ON CONFLICT(capture_id, pin_id) DO NOTHING
+    `);
+    for (const pinId of pinIdsFromPins(session.pins)) insert.run(session.id, pinId, timestamp);
+  }
+
+  listPinReviews(captureId) {
+    const session = this.getSession(captureId);
+    if (!session) return [];
+    const rows = this.db.prepare("SELECT * FROM pin_reviews WHERE capture_id = ?").all(captureId);
+    const byPin = new Map(rows.map((row) => [row.pin_id, row]));
+    const events = this.db.prepare(`
+      SELECT * FROM pin_review_events WHERE capture_id = ? ORDER BY created_at ASC
+    `).all(captureId);
+    return [...pinIdsFromPins(session.pins)].map((pinId) => formatPinReview(
+      pinId,
+      byPin.get(pinId),
+      events.filter((item) => item.pin_id === pinId).map(formatPinReviewEvent),
+    ));
+  }
+
+  applyPinReview(captureId, pinId, action, actor) {
+    const session = this.getSession(captureId);
+    if (!session || !pinIdsFromPins(session.pins).has(pinId)) throw new PinReviewError("pin_not_found");
+    this._ensureOpenReviews(session);
+    const row = this.db.prepare("SELECT * FROM pin_reviews WHERE capture_id = ? AND pin_id = ?")
+      .get(captureId, pinId);
+    if (!row) throw new PinReviewError("pin_not_found");
+    const current = isPinReviewStatus(row.status) ? row.status : "open";
+    if (
+      action === "agent_changed"
+      && actor.executionId
+      && row.last_execution_id === actor.executionId
+      && current === "correction_ready"
+    ) {
+      return { changed: false, review: requirePinReview(this.listPinReviews(captureId), pinId) };
+    }
+    const transition = resolvePinReviewTransition(current, action);
+    const timestamp = now();
+    if (transition.changed) {
+      this.db.prepare(`
+        INSERT INTO pin_review_events (
+          id, capture_id, pin_id, actor_type, actor_id, origin, from_status, to_status, execution_id, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        generateNanoId(),
+        captureId,
+        pinId,
+        actor.actorType,
+        actor.actorId,
+        actor.origin,
+        current,
+        transition.next,
+        actor.executionId || null,
+        timestamp,
+      );
+      this.db.prepare(`
+        UPDATE pin_reviews SET status = ?, updated_at = ?, last_execution_id = COALESCE(?, last_execution_id)
+        WHERE capture_id = ? AND pin_id = ?
+      `).run(transition.next, timestamp, actor.executionId || null, captureId, pinId);
+    } else if (actor.executionId) {
+      this.db.prepare(`
+        UPDATE pin_reviews SET last_execution_id = ? WHERE capture_id = ? AND pin_id = ?
+      `).run(actor.executionId, captureId, pinId);
+    }
+    return {
+      changed: transition.changed,
+      review: requirePinReview(this.listPinReviews(captureId), pinId),
+    };
+  }
+
+  _applyChangedResults(execution) {
+    if (!execution) return;
+    for (const result of execution.results) {
+      if (result.status !== "changed") continue;
+      try {
+        this.applyPinReview(execution.captureId, result.pinId, "agent_changed", {
+          actorId: execution.agent,
+          actorType: "agent",
+          executionId: execution.id,
+          origin: "agent_result",
+        });
+      } catch (error) {
+        if (error instanceof PinReviewError && error.code === "invalid_transition") continue;
+        throw error;
+      }
+    }
   }
 
   listAgentExecutions(captureId) {
@@ -888,14 +1186,13 @@ class SqliteHistoryDb {
       .get(parsed.idempotencyKey);
     if (existing) {
       if (existing.payload_hash !== parsed.fingerprint) throw new AgentResultError("idempotency_conflict");
-      return {
-        created: false,
-        execution: formatAgentExecution(
-          existing,
-          this.db.prepare("SELECT * FROM agent_pin_results WHERE execution_id = ? ORDER BY pin_id ASC")
-            .all(existing.id),
-        ),
-      };
+      const execution = formatAgentExecution(
+        existing,
+        this.db.prepare("SELECT * FROM agent_pin_results WHERE execution_id = ? ORDER BY pin_id ASC")
+          .all(existing.id),
+      );
+      this._applyChangedResults(execution);
+      return { created: false, execution };
     }
     const timestamp = now();
     const id = generateNanoId();
@@ -909,14 +1206,13 @@ class SqliteHistoryDb {
       const raced = this.db.prepare("SELECT * FROM agent_executions WHERE idempotency_key = ?")
         .get(parsed.idempotencyKey);
       if (raced?.payload_hash === parsed.fingerprint) {
-        return {
-          created: false,
-          execution: formatAgentExecution(
-            raced,
-            this.db.prepare("SELECT * FROM agent_pin_results WHERE execution_id = ? ORDER BY pin_id ASC")
-              .all(raced.id),
-          ),
-        };
+        const execution = formatAgentExecution(
+          raced,
+          this.db.prepare("SELECT * FROM agent_pin_results WHERE execution_id = ? ORDER BY pin_id ASC")
+            .all(raced.id),
+        );
+        this._applyChangedResults(execution);
+        return { created: false, execution };
       }
       if (raced) throw new AgentResultError("idempotency_conflict");
       throw error;
@@ -940,10 +1236,9 @@ class SqliteHistoryDb {
         timestamp,
       );
     }
-    return {
-      created: true,
-      execution: this.listAgentExecutions(parsed.captureId).find((item) => item.id === id),
-    };
+    const execution = this.listAgentExecutions(parsed.captureId).find((item) => item.id === id);
+    this._applyChangedResults(execution);
+    return { created: true, execution };
   }
 
   deleteSession(id) {
@@ -951,11 +1246,13 @@ class SqliteHistoryDb {
     const deleteResults = this.db.prepare("DELETE FROM agent_pin_results WHERE execution_id = ?");
     for (const row of executions) deleteResults.run(row.id);
     this.db.prepare("DELETE FROM agent_executions WHERE capture_id = ?").run(id);
+    this.db.prepare("DELETE FROM pin_review_events WHERE capture_id = ?").run(id);
+    this.db.prepare("DELETE FROM pin_reviews WHERE capture_id = ?").run(id);
     return this.db.prepare("DELETE FROM sessions WHERE id = ?").run(id).changes > 0;
   }
 
   clearHistory() {
-    this.db.exec("DELETE FROM agent_pin_results; DELETE FROM agent_executions; DELETE FROM sessions;");
+    this.db.exec("DELETE FROM agent_pin_results; DELETE FROM agent_executions; DELETE FROM pin_review_events; DELETE FROM pin_reviews; DELETE FROM sessions;");
     return true;
   }
 

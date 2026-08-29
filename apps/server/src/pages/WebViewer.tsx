@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import ReactMarkdown from "react-markdown";
-import { getPinColor, type Pin, type PinLocation, type Session } from "@pinar/shared";
+import { getPinColor, type AgentExecution, type Pin, type PinLocation, type PinReview, type PinReviewHumanAction, type PinReviewStatus, type Session } from "@pinar/shared";
 import { ImageZoomDialog } from "@/components/ImageZoomDialog";
 import { ServerShell } from "@/components/ServerShell";
 import { isRecord, isSession } from "@/lib/api-data";
@@ -94,6 +94,63 @@ function locationBadge(t: (key: ServerMessageKey, vars?: Record<string, string |
   return { label: t("viewer.locationNeedsReview"), variant: "destructive" as const };
 }
 
+function pinLookupId(pin: Pin) {
+  return pin.pinId || pin.id || "";
+}
+
+function reviewStatusLabel(
+  t: (key: ServerMessageKey, vars?: Record<string, string | number>) => string,
+  status: PinReviewStatus,
+) {
+  if (status === "correction_ready") return t("viewer.reviewCorrectionReady");
+  if (status === "accepted") return t("viewer.reviewAccepted");
+  if (status === "reopened") return t("viewer.reviewReopened");
+  return t("viewer.reviewOpen");
+}
+
+function reviewStatusBadge(status: PinReviewStatus) {
+  if (status === "correction_ready") return "warning" as const;
+  if (status === "accepted") return "successSoft" as const;
+  if (status === "reopened") return "secondary" as const;
+  return "outline" as const;
+}
+
+function asReviews(value: unknown): PinReview[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is PinReview => (
+    isRecord(item)
+    && typeof item.pinId === "string"
+    && typeof item.status === "string"
+    && Array.isArray(item.actions)
+    && Array.isArray(item.timeline)
+  ));
+}
+
+function asExecutions(value: unknown): AgentExecution[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is AgentExecution => (
+    isRecord(item)
+    && typeof item.id === "string"
+    && typeof item.agent === "string"
+    && Array.isArray(item.results)
+  ));
+}
+
+function reviewForPin(reviews: PinReview[], pin: Pin) {
+  const pinId = pinLookupId(pin);
+  return reviews.find((review) => review.pinId === pinId);
+}
+
+function lastAgentResult(executions: AgentExecution[], pin: Pin) {
+  const pinId = pinLookupId(pin);
+  for (let index = executions.length - 1; index >= 0; index -= 1) {
+    const execution = executions[index];
+    const result = execution?.results.find((item) => item.pinId === pinId);
+    if (execution && result) return { agent: execution.agent, result };
+  }
+  return null;
+}
+
 export function WebViewer({ sessionId }: WebViewerProps) {
   const { language, t } = useServerI18n();
   const showAiSummary = pinarRuntime() === "cloud";
@@ -107,22 +164,57 @@ export function WebViewer({ sessionId }: WebViewerProps) {
   const [imageZoomOpen, setImageZoomOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [pageCopied, setPageCopied] = useState(false);
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [reviews, setReviews] = useState<PinReview[]>([]);
+  const [executions, setExecutions] = useState<AgentExecution[]>([]);
   const [selectedPin, setSelectedPin] = useState<Pin | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
+  async function loadSession() {
+    const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`);
+    const data: unknown = await response.json();
+    if (response.ok && isRecord(data) && isSession(data.session)) {
+      const nextSession = data.session;
+      setSession(nextSession);
+      setReviews(asReviews(data.reviews));
+      setExecutions(asExecutions(data.executions));
+      setSelectedPin((current) => {
+        if (!current) return current;
+        return nextSession.pins.find((pin) => pinLookupId(pin) === pinLookupId(current)) || current;
+      });
+    }
+  }
+
   useEffect(() => {
-    async function loadSession() {
+    async function load() {
       try {
-        const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`);
-        const data: unknown = await response.json();
-        if (response.ok && isRecord(data) && isSession(data.session)) setSession(data.session);
+        await loadSession();
       } finally {
         setLoading(false);
       }
     }
-    void loadSession();
+    void load();
   }, [sessionId]);
+
+  async function submitReview(pin: Pin, action: PinReviewHumanAction) {
+    const pinId = pinLookupId(pin);
+    if (!pinId || reviewBusy) return;
+    setReviewBusy(true);
+    try {
+      const response = await fetch(
+        `/api/sessions/${encodeURIComponent(sessionId)}/pins/${encodeURIComponent(pinId)}/review`,
+        {
+          body: JSON.stringify({ action }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        },
+      );
+      if (response.ok) await loadSession();
+    } finally {
+      setReviewBusy(false);
+    }
+  }
 
   function markdownUrl() {
     return new URL(`/v/${sessionId}.md`, window.location.origin).toString();
@@ -373,6 +465,7 @@ export function WebViewer({ sessionId }: WebViewerProps) {
                   const color = pin.color || getPinColor(number);
                   const isArea = pin.type === "area" || pin.kind === "area";
                   const badge = locationBadge(t, pin.location);
+                  const review = reviewForPin(reviews, pin);
                   return (
                     <Button
                       className="h-auto w-full justify-start p-0 text-left whitespace-normal"
@@ -391,11 +484,18 @@ export function WebViewer({ sessionId }: WebViewerProps) {
                             <CardDescription className="mt-1 line-clamp-3 whitespace-pre-wrap text-xs text-foreground">
                               {pin.comment}
                             </CardDescription>
-                            {badge ? (
-                              <Badge className="mt-2" variant={badge.variant}>
-                                {badge.label}
-                              </Badge>
-                            ) : null}
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {review ? (
+                                <Badge variant={reviewStatusBadge(review.status)}>
+                                  {reviewStatusLabel(t, review.status)}
+                                </Badge>
+                              ) : null}
+                              {badge ? (
+                                <Badge variant={badge.variant}>
+                                  {badge.label}
+                                </Badge>
+                              ) : null}
+                            </div>
                           </div>
                         </CardHeader>
                         {(pin.selector || pin.domPath || pin.path) && (
@@ -498,6 +598,73 @@ export function WebViewer({ sessionId }: WebViewerProps) {
                   <TabsTrigger value="raw">{t("viewer.raw")}</TabsTrigger>
                 </TabsList>
               </div>
+              {(() => {
+                const review = reviewForPin(reviews, selectedPin);
+                const last = lastAgentResult(executions, selectedPin);
+                if (!review) return null;
+                return (
+                  <div className="flex flex-col gap-3 rounded-lg border bg-muted/30 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <Badge variant={reviewStatusBadge(review.status)}>
+                        {reviewStatusLabel(t, review.status)}
+                      </Badge>
+                      <div className="flex flex-wrap gap-2">
+                        {review.actions.includes("accept") ? (
+                          <Button
+                            disabled={reviewBusy}
+                            size="sm"
+                            type="button"
+                            onClick={() => void submitReview(selectedPin, "accept")}
+                          >
+                            {t("viewer.acceptCorrection")}
+                          </Button>
+                        ) : null}
+                        {review.actions.includes("reopen") ? (
+                          <Button
+                            disabled={reviewBusy}
+                            size="sm"
+                            type="button"
+                            variant="outline"
+                            onClick={() => void submitReview(selectedPin, "reopen")}
+                          >
+                            {t("viewer.reopenPin")}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="text-sm">
+                      <p className="font-medium">{t("viewer.lastAgentResult")}</p>
+                      {last ? (
+                        <p className="mt-1 text-muted-foreground">
+                          {last.agent}: {last.result.status}
+                          {last.result.summary ? ` — ${last.result.summary}` : ""}
+                        </p>
+                      ) : (
+                        <p className="mt-1 text-muted-foreground">{t("viewer.noAgentResult")}</p>
+                      )}
+                    </div>
+                    {review.timeline.length > 0 ? (
+                      <div className="text-sm">
+                        <p className="font-medium">{t("viewer.reviewTimeline")}</p>
+                        <ul className="mt-1 flex flex-col gap-1 text-xs text-muted-foreground">
+                          {review.timeline.map((event) => (
+                            <li key={event.id}>
+                              {t("viewer.reviewTransition", {
+                                from: reviewStatusLabel(t, event.fromStatus),
+                                to: reviewStatusLabel(t, event.toStatus),
+                              })}
+                              {" · "}
+                              {event.origin}
+                              {" · "}
+                              {event.actorType}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })()}
               <TabsContent value="preview">
                 <div className="rounded-lg border bg-card">
                   <article className="flex flex-col gap-4 p-5 text-sm leading-relaxed">

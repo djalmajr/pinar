@@ -19,6 +19,7 @@ import {
 import { exerciseProjectApiContract } from "./project-api.contract";
 import { exerciseVisualContextContract } from "./visual-context.contract";
 import { exerciseAgentResultsContract, exerciseAgentResultsIsolation } from "./agent-results.contract";
+import { exercisePinReviewContract, exercisePinReviewIsolation } from "./pin-review.contract";
 
 const identityA = { id: `ins_${"A".repeat(24)}`, token: `pit_${"a".repeat(43)}` };
 const identityB = { id: `ins_${"B".repeat(24)}`, token: `pit_${"b".repeat(43)}` };
@@ -2336,6 +2337,37 @@ describe("remote installation isolation", () => {
     await register(identityA);
     await register(identityB);
     await exerciseAgentResultsIsolation(
+      (path, init = {}) => api(path, {
+        ...init,
+        headers: identityHeaders(identityA, init.headers),
+      }),
+      (path, init = {}) => api(path, {
+        ...init,
+        headers: identityHeaders(identityB, init.headers),
+      }),
+    );
+  });
+
+  test("matches the shared pin review contract", async () => {
+    await register(identityA);
+    assert.equal((await api("/api/sessions/pin_review_element/pins/pin_cta/review", {
+      body: JSON.stringify({ action: "accept" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    })).status, 401);
+    await exercisePinReviewContract(
+      (path, init = {}) => api(path, {
+        ...init,
+        headers: identityHeaders(identityA, init.headers),
+      }),
+      (path, init = {}) => handleCloudPublicRequest(new Request(`https://pinar.test${path}`, init), TEST_ENV),
+    );
+  });
+
+  test("keeps pin review actions isolated between installations", async () => {
+    await register(identityA);
+    await register(identityB);
+    await exercisePinReviewIsolation(
       (path, init = {}) => api(path, {
         ...init,
         headers: identityHeaders(identityA, init.headers),

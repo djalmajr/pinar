@@ -14,10 +14,15 @@ import type {
 } from "@pinar/shared";
 import {
   AgentResultError,
+  PinReviewError,
+  VisualContextError,
   agentResultErrorBody,
   agentResultHttpStatus,
   generateNanoId,
+  isPinReviewHumanAction,
   parseVisualCapture,
+  pinReviewErrorBody,
+  pinReviewHttpStatus,
   visualContextErrorBody,
   type AgentExecution,
   type VisualCapture,
@@ -60,6 +65,18 @@ interface HistoryDatabase {
   getProjectTree(): ProjectTree;
   getSession(id: string): LocalSession | null;
   listAgentExecutions(captureId: string): AgentExecution[];
+  listPinReviews(captureId: string): import("@pinar/shared").PinReview[];
+  applyPinReview(
+    captureId: string,
+    pinId: string,
+    action: import("@pinar/shared").PinReviewHumanAction | "agent_changed",
+    actor: {
+      actorId: string;
+      actorType: import("@pinar/shared").PinReviewActorType;
+      executionId?: string;
+      origin: import("@pinar/shared").PinReviewOrigin;
+    },
+  ): { changed: boolean; review: import("@pinar/shared").PinReview };
   listCollections(projectId: string): Collection[];
   listProjects(): Project[];
   listSessions(options: { collectionId?: string; limit: number; offset: number; query: string }): LocalSession[];
@@ -202,8 +219,30 @@ function sessionPayload(session: LocalSession | null, origin: string) {
   return json({
     executions: historyDatabase().listAgentExecutions(presented.id),
     ok: true,
+    reviews: historyDatabase().listPinReviews(presented.id),
     session: presented,
   });
+}
+
+async function reviewPin(request: Request, captureId: string, pinId: string) {
+  const body = await readJson(request);
+  const action = body.action;
+  if (!isPinReviewHumanAction(action)) {
+    return json(pinReviewErrorBody(new PinReviewError("invalid_payload")), 400);
+  }
+  try {
+    const saved = historyDatabase().applyPinReview(captureId, pinId, action, {
+      actorId: "local",
+      actorType: "human",
+      origin: "human",
+    });
+    return json({ ok: true, review: saved.review });
+  } catch (error) {
+    if (error instanceof PinReviewError) {
+      return json(pinReviewErrorBody(error), pinReviewHttpStatus(error));
+    }
+    throw error;
+  }
 }
 
 async function publishAgentExecution(request: Request) {
@@ -465,6 +504,14 @@ async function routeLocalApi(request: Request): Promise<Response> {
     const deleted = historyDatabase().deleteCollection(decodeURIComponent(collectionMatch[1]));
     return deleted ? json({ deleted, ok: true }) : json({ error: "protected or not found" }, 409);
   }
+  const pinReviewMatch = path.match(/^\/api\/sessions\/([^/]+)\/pins\/([^/]+)\/review$/);
+  if (pinReviewMatch && method === "POST") {
+    return reviewPin(
+      request,
+      decodeURIComponent(pinReviewMatch[1]),
+      decodeURIComponent(pinReviewMatch[2]),
+    );
+  }
   const sessionMoveMatch = path.match(/^\/api\/sessions\/([^/]+)\/move$/);
   if (sessionMoveMatch && method === "POST") {
     const body = await readJson(request);
@@ -535,7 +582,12 @@ export async function handlePublicRequest(request: Request): Promise<Response> {
     const session = presentSession(historyDatabase().getSession(id), url.origin);
     if (!session) return text("Session not found", 404);
     return text(
-      formatSessionMarkdown(session, `${url.origin}/v/${id}`, historyDatabase().listAgentExecutions(id)),
+      formatSessionMarkdown(
+        session,
+        `${url.origin}/v/${id}`,
+        historyDatabase().listAgentExecutions(id),
+        historyDatabase().listPinReviews(id),
+      ),
       200,
       {
         "Cache-Control": "public, max-age=60",

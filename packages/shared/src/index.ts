@@ -8,3 +8,4 @@ export * from "./visual-context/index.js";
 export { VISUAL_CONTEXT_FIXTURES } from "./visual-context/fixtures.js";
 export * from "./handoff/index.js";
 export * from "./agent-results/index.js";
+export * from "./pin-review/index.js";

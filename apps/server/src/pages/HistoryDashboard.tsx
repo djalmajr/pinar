@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   formatClipboardText,
+  PIN_REVIEW_STATUSES,
   type CollectionPlacement,
+  type PinReviewStatus,
   type ProjectIcon,
   type ProjectTree,
   type ProjectTreeCollection,
@@ -257,6 +259,36 @@ function DashboardSkeleton() {
   );
 }
 
+function reviewStatusLabel(t: Translate, status: PinReviewStatus) {
+  if (status === "correction_ready") return t("dashboard.reviewCorrectionReady");
+  if (status === "accepted") return t("dashboard.reviewAccepted");
+  if (status === "reopened") return t("dashboard.reviewReopened");
+  return t("dashboard.reviewOpen");
+}
+
+function reviewStatusBadge(status: PinReviewStatus) {
+  if (status === "correction_ready") return "warning" as const;
+  if (status === "accepted") return "successSoft" as const;
+  if (status === "reopened") return "secondary" as const;
+  return "outline" as const;
+}
+
+function ReviewCounts({ session, t }: { session: Session; t: Translate }) {
+  const counts = session.reviewCounts;
+  if (!counts) return null;
+  const visible = PIN_REVIEW_STATUSES.filter((status) => counts[status] > 0);
+  if (!visible.length) return null;
+  return (
+    <span className="flex min-w-0 flex-wrap items-center gap-1">
+      {visible.map((status) => (
+        <Badge key={status} variant={reviewStatusBadge(status)}>
+          {counts[status]} {reviewStatusLabel(t, status)}
+        </Badge>
+      ))}
+    </span>
+  );
+}
+
 export function HistoryDashboard() {
   const { language, t } = useServerI18n();
   const navigate = useNavigate();
@@ -271,6 +303,7 @@ export function HistoryDashboard() {
     pageSize: SESSION_PAGE_SIZE_OPTIONS[0],
   });
   const [pinFilters, setPinFilters] = useState<PinCountFilter[]>([]);
+  const [reviewFilters, setReviewFilters] = useState<PinReviewStatus[]>([]);
   const [projectIcon, setProjectIcon] = useState<ProjectIcon>(DEFAULT_PROJECT_ICON);
   const [projectTree, setProjectTree] = useState<ProjectTree>({ projects: [] });
   const [search, setSearch] = useState("");
@@ -291,8 +324,8 @@ export function HistoryDashboard() {
   })));
 
   const filteredSessions = useMemo(
-    () => filterSessions(sessions, search, pinFilters),
-    [pinFilters, search, sessions],
+    () => filterSessions(sessions, search, pinFilters, reviewFilters),
+    [pinFilters, reviewFilters, search, sessions],
   );
   const gridSessions = useMemo(() => {
     const start = pagination.pageIndex * pagination.pageSize;
@@ -313,7 +346,7 @@ export function HistoryDashboard() {
     setPagination((current) => current.pageIndex === 0
       ? current
       : { ...current, pageIndex: 0 });
-  }, [pinFilters, search, selectedCollectionId, selectedProjectId]);
+  }, [pinFilters, reviewFilters, search, selectedCollectionId, selectedProjectId]);
 
   useEffect(() => {
     if (pagination.pageIndex < pageCount) return;
@@ -555,6 +588,13 @@ export function HistoryDashboard() {
       size: 90,
     },
     {
+      cell: ({ row }) => <ReviewCounts session={row.original} t={t} />,
+      header: t("dashboard.reviewStatus"),
+      id: "review",
+      meta: { label: t("dashboard.reviewStatus") },
+      size: 220,
+    },
+    {
       cell: ({ row }) => (
         <SessionActions
           canMoveEarlier={false}
@@ -595,6 +635,36 @@ export function HistoryDashboard() {
       <DropdownMenuContent align="start" className="w-52">
         <DropdownMenuGroup><DropdownMenuLabel>{t("dashboard.pins")}</DropdownMenuLabel>{pinFilterOptions.map((option) => <DropdownMenuCheckboxItem checked={pinFilters.includes(option.value)} key={option.value} onClick={() => setPinFilters((current) => current.includes(option.value) ? current.filter((item) => item !== option.value) : [...current, option.value])}>{option.label}</DropdownMenuCheckboxItem>)}</DropdownMenuGroup>
         {pinFilters.length > 0 && <><DropdownMenuSeparator /><DropdownMenuItem onClick={() => setPinFilters([])}><XIcon />{t("dashboard.clearFilter")}</DropdownMenuItem></>}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+  const reviewFilterControl = (
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<Button className="border-dashed font-normal" variant="outline" />}><ListFilterIcon data-icon="inline-start" />{t("dashboard.reviewStatus")}{reviewFilters.length > 0 && <Badge className="rounded-md px-1 font-normal" variant="secondary">{reviewFilters.length}</Badge>}</DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-56">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>{t("dashboard.reviewStatus")}</DropdownMenuLabel>
+          {PIN_REVIEW_STATUSES.map((status) => (
+            <DropdownMenuCheckboxItem
+              checked={reviewFilters.includes(status)}
+              key={status}
+              onClick={() => setReviewFilters((current) => (
+                current.includes(status) ? current.filter((item) => item !== status) : [...current, status]
+              ))}
+            >
+              {reviewStatusLabel(t, status)}
+            </DropdownMenuCheckboxItem>
+          ))}
+        </DropdownMenuGroup>
+        {reviewFilters.length > 0 && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => setReviewFilters([])}>
+              <XIcon />
+              {t("dashboard.clearFilter")}
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -668,7 +738,7 @@ export function HistoryDashboard() {
           <div className="mx-auto flex min-h-full w-full max-w-[1600px] flex-col gap-4 p-5">
             {(view !== "table" || filteredSessions.length === 0) && (
               <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap md:overflow-x-auto" role="toolbar">
-                <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2"><SidebarTrigger aria-label={t("dashboard.collections")} className="md:hidden" title={t("dashboard.collections")} />{searchControl}{pinFilterControl}</div>
+                <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2"><SidebarTrigger aria-label={t("dashboard.collections")} className="md:hidden" title={t("dashboard.collections")} />{searchControl}{pinFilterControl}{reviewFilterControl}</div>
                 <div className="ml-auto flex shrink-0 items-center justify-end gap-2">{viewControl}</div>
               </div>
             )}
@@ -709,7 +779,7 @@ export function HistoryDashboard() {
                 }}
                 pageSizeOptions={SESSION_PAGE_SIZE_OPTIONS}
                 pagination={pagination}
-                toolbar={<><SidebarTrigger aria-label={t("dashboard.collections")} className="md:hidden" title={t("dashboard.collections")} />{searchControl}{pinFilterControl}</>}
+                toolbar={<><SidebarTrigger aria-label={t("dashboard.collections")} className="md:hidden" title={t("dashboard.collections")} />{searchControl}{pinFilterControl}{reviewFilterControl}</>}
                 toolbarActions={viewControl}
                 onPaginationChange={setPagination}
                 onRowClick={(session) => void navigate({ params: { id: session.id }, to: "/v/$id" })}
@@ -725,7 +795,13 @@ export function HistoryDashboard() {
                         <SessionPreview session={session} t={t} />
                         <CardHeader className="py-3"><CardTitle className="line-clamp-1">{session.page.title || t("dashboard.untitled")}</CardTitle><CardDescription className="min-w-0"><SessionPageLink url={session.page.url} /></CardDescription></CardHeader>
                         <CardFooter className="mt-auto justify-between gap-2 py-2.5">
-                          <div className="flex min-w-0 items-center gap-3 text-xs font-medium text-muted-foreground"><time className="inline-flex min-w-0 items-center gap-1.5" dateTime={session.createdAt}><CalendarIcon className="shrink-0 text-primary" /><span className="truncate">{formatSessionDate(session, language)}</span></time><span className="inline-flex shrink-0 items-center gap-1.5"><MessageCircleIcon className="text-primary" />{t("dashboard.pinCount", { count, label: t(count === 1 ? "dashboard.pinSingular" : "dashboard.pinPlural") })}</span></div>
+                          <div className="flex min-w-0 flex-col gap-2 text-xs font-medium text-muted-foreground">
+                            <div className="flex min-w-0 items-center gap-3">
+                              <time className="inline-flex min-w-0 items-center gap-1.5" dateTime={session.createdAt}><CalendarIcon className="shrink-0 text-primary" /><span className="truncate">{formatSessionDate(session, language)}</span></time>
+                              <span className="inline-flex shrink-0 items-center gap-1.5"><MessageCircleIcon className="text-primary" />{t("dashboard.pinCount", { count, label: t(count === 1 ? "dashboard.pinSingular" : "dashboard.pinPlural") })}</span>
+                            </div>
+                            <ReviewCounts session={session} t={t} />
+                          </div>
                           <SessionActions canMoveEarlier={orderIndex > 0} canMoveLater={Boolean(selectedCollection && orderIndex >= 0 && orderIndex < selectedCollection.sessions.length - 1)} copied={copiedId === session.id} destinations={destinations} session={session} onCopy={(current) => void copyPrompt(current)} onDelete={setDeleteId} onMove={(sessionId, collectionId) => void moveSession(sessionId, collectionId)} onReorder={(sessionId, direction) => void reorderSession(sessionId, direction)} t={t} />
                         </CardFooter>
                       </Card>

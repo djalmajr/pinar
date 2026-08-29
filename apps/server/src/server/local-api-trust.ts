@@ -48,14 +48,6 @@ export const LOCAL_API_TRUST_MATRIX: readonly LocalApiTrustEntry[] = [
   },
   {
     class: "public-min",
-    intendedClients: ["workspace"],
-    methods: ["GET"],
-    notes: "Proxies public cloud pricing; not local capture data.",
-    path: "/api/pricing",
-    pattern: /^\/api\/pricing$/,
-  },
-  {
-    class: "public-min",
     intendedClients: ["extension"],
     methods: ["GET"],
     notes: "Origin-gated pairing. Hostile origins are denied before the handler.",
@@ -91,13 +83,6 @@ export const LOCAL_API_TRUST_MATRIX: readonly LocalApiTrustEntry[] = [
     methods: ["POST"],
     path: "/api/auth/logout",
     pattern: /^\/api\/auth\/logout$/,
-  },
-  {
-    class: "mutable",
-    intendedClients: ["workspace"],
-    methods: ["POST"],
-    path: "/api/stripe/checkout",
-    pattern: /^\/api\/stripe\/checkout$/,
   },
   {
     class: "mutable",

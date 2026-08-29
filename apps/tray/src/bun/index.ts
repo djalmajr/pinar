@@ -18,6 +18,7 @@ import {
 	waitUntilHealthy,
 	workspaceUrl,
 } from "./local-server";
+import { createQuitController } from "./tray-quit";
 import {
 	shouldOfferUpdate,
 	updateMenuItem,
@@ -211,6 +212,16 @@ setInterval(
 	6 * 60 * 60 * 1000,
 );
 
+const quit = createQuitController({
+	quit: (code) => {
+		Utils.quit(code ?? 0);
+	},
+	releaseLock: releaseTrayLock,
+	removeTray: () => tray.remove(),
+	stopServer,
+});
+Electrobun.events.on("before-quit", quit.onBeforeQuit);
+
 console.error("pinar tray started");
 
 tray.on("tray-clicked", (event: unknown) => {
@@ -254,11 +265,6 @@ tray.on("tray-clicked", (event: unknown) => {
 		return;
 	}
 	if (action === "quit") {
-		void (async () => {
-			await stopServer();
-			releaseTrayLock();
-			tray.remove();
-			Utils.quit(0);
-		})();
+		void quit.finish();
 	}
 });

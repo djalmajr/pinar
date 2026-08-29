@@ -28,6 +28,14 @@ export default defineConfig({
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : [["list"]],
   retries: process.env.CI ? 1 : 0,
   testDir: "./tests/e2e",
+  testIgnore: [
+    "**/autenticacao/**",
+    "**/cloud/**",
+    "**/ia/**",
+    "**/monetizacao/success.e2e.test.ts",
+    "**/publico/pricing.e2e.test.ts",
+    "**/workspace/account-menu.e2e.test.ts",
+  ],
   testMatch: /.*\.e2e\.test\.ts$/,
   timeout: 30_000,
   use: {

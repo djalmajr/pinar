@@ -10,7 +10,14 @@ export default defineConfig({
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
   ],
   reporter: [["list"]],
-  testDir: "./tests/e2e/cloud",
+  testDir: "./tests/e2e",
+  testMatch: [
+    "**/autenticacao/**/*.e2e.test.ts",
+    "**/cloud/**/*.e2e.test.ts",
+    "**/ia/**/*.e2e.test.ts",
+    "**/monetizacao/success.e2e.test.ts",
+    "**/publico/pricing.e2e.test.ts",
+  ],
   timeout: 45_000,
   use: {
     baseURL,

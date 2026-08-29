@@ -62,6 +62,12 @@
     stableSelector,
   } = globalThis.__pinarLocators;
   const {
+    documentBoxes,
+    parseExtraKeys,
+    scanSensitiveDocuments,
+    sanitizeCapture,
+  } = globalThis.__pinarPrivacy;
+  const {
     handleComposerKeyDown,
     stopComposerKeyboardEvent,
   } = globalThis.__pinarKeyboardEvents;
@@ -77,6 +83,10 @@
     draft: null,
     hoverPinId: null,
     pointer: null,
+    maskMode: false,
+    userMasks: [],
+    dismissedMaskIds: new Set(),
+    privacyConfirmed: false,
   };
 
   const selection = {
@@ -361,6 +371,29 @@
       }
       .btn-cancel { background: #f4f4f5; color: #111; }
       .btn-add { background: ${MARK}; color: #fff; }
+      .privacy-mask {
+        background: rgba(17, 24, 39, 0.72);
+        border: 2px solid #111827;
+        box-sizing: border-box;
+        cursor: pointer !important;
+        pointer-events: auto;
+        position: fixed;
+        z-index: 1;
+      }
+      .privacy-mask[data-source="user"] { border-style: dashed; }
+      .privacy-mask-label {
+        color: #fff;
+        font: 600 10px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        left: 6px;
+        letter-spacing: 0.02em;
+        position: absolute;
+        text-transform: uppercase;
+        top: 6px;
+      }
+      html[data-pinar-mask-mode] .outline.area {
+        background: rgba(17, 24, 39, 0.28);
+        border: 2px dashed #111827;
+      }
     </style>
     ${showToolbar ? `
     <div class="toolbar">
@@ -374,6 +407,8 @@
           <span class="hint"><span class="keys"><kbd>↑</kbd><kbd>↓</kbd></span> to fine-tune selection</span>
           <span class="sep"></span>
           <span class="hint"><span class="keys"><kbd>${sendMod}</kbd><kbd>↵</kbd></span> to copy</span>
+          <span class="sep"></span>
+          <span class="hint"><span class="keys"><kbd>M</kbd></span> hide region</span>
           <span class="sep"></span>
           <span class="hint"><span class="keys"><kbd>esc</kbd></span> to clear</span>
         </span>
@@ -725,6 +760,7 @@
       ui.status.textContent = state.status?.text ?? "";
       ui.status.dataset.kind = state.status?.kind ?? "";
     }
+    document.documentElement.toggleAttribute("data-pinar-mask-mode", state.maskMode);
   }
 
   function setStatus(text, kind = "info") {
@@ -778,7 +814,7 @@
       return;
     }
     if (state.drag) {
-      showOutline(normBox(state.drag), true, true, pinColor(state.pins.length + 1));
+      showOutline(normBox(state.drag), true, true, state.maskMode ? "#111827" : pinColor(state.pins.length + 1));
       return;
     }
     if (state.draft) {
@@ -826,6 +862,17 @@
   }
 
   function renderMarkers() {
+    const scroll = currentScroll();
+    const masks = activeMaskRegions().map((mask) => {
+      const box = {
+        height: mask.box.height,
+        width: mask.box.width,
+        x: mask.box.x - scroll.x,
+        y: mask.box.y - scroll.y,
+      };
+      const label = mask.unevaluated ? "Can't inspect" : "Hidden";
+      return `<button type="button" class="privacy-mask" data-privacy-mask="${escapeAttr(mask.id)}" data-source="${mask.source}" style="left:${box.x}px;top:${box.y}px;width:${box.width}px;height:${box.height}px"><span class="privacy-mask-label">${label}</span></button>`;
+    });
     const markers = state.pins.map((pin, index) => {
       const visible = viewportPin(pin);
       return markerHtml(pinPoint(visible), index, pin.id, pin.color, visible.location);
@@ -834,9 +881,85 @@
       const visible = viewportPin(state.draft);
       markers.push(markerHtml(pinPoint(visible), state.pins.length, undefined, state.draft.color, visible.location));
     }
-    ui.layer.innerHTML = markers.join("");
+    ui.layer.innerHTML = `${masks.join("")}${markers.join("")}`;
     placeComposer();
     placePreview();
+  }
+
+  function activeScan() {
+    const scan = scanSensitiveDocuments();
+    const pinsUnevaluated = state.pins.some((pin) => pin.location?.warning === "cross-origin-frame");
+    return {
+      ...scan,
+      unevaluated: scan.unevaluated || pinsUnevaluated,
+    };
+  }
+
+  function activeMaskRegions() {
+    const scan = activeScan();
+    const auto = documentBoxes(
+      scan.masks.filter((mask) => !state.dismissedMaskIds.has(mask.id)),
+      currentScroll(),
+    );
+    return [...auto, ...state.userMasks];
+  }
+
+  function privacyPreview(page, pins, extraQueryKeys = []) {
+    const scan = activeScan();
+    return sanitizeCapture({
+      fields: scan.fields,
+      page,
+      pins,
+      unevaluated: scan.unevaluated,
+    }, { extraQueryKeys });
+  }
+
+  function privacyReviewText(report) {
+    const hidden = (report.privacy?.redacted || []).filter((item) => item !== "unevaluated");
+    const parts = [];
+    if (hidden.length) parts.push(`Hidden: ${hidden.join(", ")}`);
+    if (report.privacy?.unevaluated) parts.push("Could not inspect a region");
+    if (!parts.length && activeMaskRegions().length) parts.push("Hidden regions ready");
+    return parts.join(" · ");
+  }
+
+  function addUserMask(box) {
+    const scroll = currentScroll();
+    state.userMasks = [
+      ...state.userMasks,
+      {
+        box: {
+          height: box.height,
+          width: box.width,
+          x: box.x + scroll.x,
+          y: box.y + scroll.y,
+        },
+        category: "manual",
+        id: `user:${crypto.randomUUID()}`,
+        source: "user",
+      },
+    ];
+    state.privacyConfirmed = false;
+    renderMarkers();
+    flashStatus("Region hidden · click the mask to restore", "ok");
+  }
+
+  function removeMask(id) {
+    if (!id) return;
+    if (id.startsWith("user:")) {
+      state.userMasks = state.userMasks.filter((mask) => mask.id !== id);
+    } else {
+      state.dismissedMaskIds.add(id);
+    }
+    state.privacyConfirmed = false;
+    renderMarkers();
+  }
+
+  function toggleMaskMode() {
+    if (state.draft) return;
+    state.maskMode = !state.maskMode;
+    renderChrome();
+    flashStatus(state.maskMode ? "Drag to hide a region · click a mask to restore" : "Pin mode", "ok");
   }
 
   function escapeAttr(value) {
@@ -1009,6 +1132,10 @@
     state.draft = null;
     state.tabPinCount = 0;
     state.hoverPinId = null;
+    state.maskMode = false;
+    state.userMasks = [];
+    state.dismissedMaskIds = new Set();
+    state.privacyConfirmed = false;
     renderChrome();
     updateOutline();
     renderMarkers();
@@ -1115,10 +1242,18 @@
     if (drag.moved) {
       const box = normBox(drag);
       if (box.width >= DRAG_THRESHOLD && box.height >= DRAG_THRESHOLD) {
+        if (state.maskMode) {
+          addUserMask(box);
+          return;
+        }
         void openAreaDraft(box, { x: box.x, y: box.y });
       } else {
         updateOutline();
       }
+      return;
+    }
+    if (state.maskMode) {
+      updateOutline();
       return;
     }
     const target = selection.current ?? targetFromPoint(event.clientX, event.clientY);
@@ -1184,6 +1319,11 @@
         cancelDraft();
         return;
       }
+      if (state.maskMode) {
+        state.maskMode = false;
+        renderChrome();
+        return;
+      }
       void discardAnnotations().then(() => {
         setVisible(false);
         if (isEmbedded) window.top.postMessage({ type: FRAME_HIDE }, "*");
@@ -1192,6 +1332,11 @@
       return;
     }
     if (!canSelect() || state.draft) return;
+    if (event.key === "m" || event.key === "M") {
+      event.preventDefault();
+      toggleMaskMode();
+      return;
+    }
     if (event.key === "ArrowUp") {
       event.preventDefault();
       selectParent();
@@ -1246,6 +1391,29 @@
       flashStatus("Write a comment first");
       return;
     }
+    if (state.pins.length === 0 && !state.draft) {
+      flashStatus("Add a pin first");
+      return;
+    }
+    let extraQueryKeys = [];
+    try {
+      const stored = await chrome.storage.sync.get({ sensitiveQueryKeys: "" });
+      extraQueryKeys = parseExtraKeys(stored.sensitiveQueryKeys);
+    } catch {
+      extraQueryKeys = [];
+    }
+    const preview = privacyPreview(pageContext(), state.pins, extraQueryKeys);
+    const needsReview = Boolean(
+      preview.privacy.redacted.length
+      || preview.privacy.unevaluated
+      || activeMaskRegions().length,
+    );
+    if (needsReview && !state.privacyConfirmed) {
+      state.privacyConfirmed = true;
+      renderMarkers();
+      setStatus(`${privacyReviewText(preview)} · ${sendMod}↵ to copy`, "ok");
+      return;
+    }
     state.sending = true;
     setStatus("Copying…");
     try {
@@ -1257,23 +1425,34 @@
         flashStatus("Add a pin first");
         return;
       }
+      const scan = activeScan();
+      const maskRegions = activeMaskRegions();
       await chrome.runtime.sendMessage({ hidden: true, type: "overlays:hidden" }).catch(() => null);
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const capture = await chrome.runtime.sendMessage({
         dpr: window.devicePixelRatio || 1,
+        maskRegions,
         pins,
         type: "capture",
       });
       if (!capture?.ok) throw new Error(capture?.error || "capture failed");
-      const page = pageContext();
+      const sanitized = sanitizeCapture({
+        fields: scan.fields,
+        page: pageContext(),
+        pins: pins.map((pin) => ({ ...pin, pinId: pin.pinId || pin.id })),
+        unevaluated: scan.unevaluated,
+      }, { extraQueryKeys });
       const captureId = crypto.randomUUID();
       const copied = await chrome.runtime.sendMessage({
         captureId,
-        page,
-        pins: pins.map((pin) => ({ ...pin, pinId: pin.pinId || pin.id })),
+        fields: scan.fields.map((field) => ({ attrs: field.attrs })),
+        page: sanitized.page,
+        pins: sanitized.pins,
+        privacy: sanitized.privacy,
         schemaVersion: 1,
         shot: capture.shot,
         type: "clipboard",
+        warnings: sanitized.warnings,
       }).catch((error) => ({ error: String(error), ok: false }));
       const locallyCopied = copied?.plain ? await writePlainText(copied.plain) : false;
       if (!copied?.ok && !locallyCopied) throw new Error(copied?.error || "clipboard write failed");
@@ -1372,6 +1551,7 @@
     host.style.display = hidden || !state.active ? "none" : "";
     if (hidden) {
       document.documentElement.removeAttribute("data-pinar-active");
+      document.documentElement.removeAttribute("data-pinar-mask-mode");
     } else if (state.active) {
       document.documentElement.setAttribute("data-pinar-active", "true");
       applyGlobalStyles();
@@ -1395,6 +1575,7 @@
       return;
     }
     document.documentElement.removeAttribute("data-pinar-active");
+    document.documentElement.removeAttribute("data-pinar-mask-mode");
     removeGlobalStyles();
     hideOutline();
   }
@@ -1427,6 +1608,13 @@
     placePreview();
   });
   ui.layer.addEventListener("click", (event) => {
+    const mask = event.target.closest("[data-privacy-mask]");
+    if (mask) {
+      event.preventDefault();
+      event.stopPropagation();
+      removeMask(mask.getAttribute("data-privacy-mask"));
+      return;
+    }
     const button = event.target.closest("[data-pin]");
     if (!button) return;
     event.preventDefault();
@@ -1458,7 +1646,7 @@
     if (relocateTimer) return;
     relocateTimer = window.setTimeout(() => {
       relocateTimer = 0;
-      if (isMounted() && state.pins.length) renderMarkers();
+      if (isMounted()) renderMarkers();
     }, 32);
   }
   const relocateObserver = new MutationObserver((records) => {
@@ -1486,6 +1674,7 @@
     relocateObserver.disconnect();
     state.active = false;
     document.documentElement.removeAttribute("data-pinar-active");
+    document.documentElement.removeAttribute("data-pinar-mask-mode");
     removeGlobalStyles();
     host.remove();
     window.removeEventListener("pointerdown", onPointerDown, true);

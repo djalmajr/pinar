@@ -1,4 +1,4 @@
-import type { Box, PageInfo, Pin, Point, Session } from "../types/index.js";
+import type { Box, PageInfo, Pin, Point, PrivacyReport, RedactedCategory, Session } from "../types/index.js";
 import type { PinLocation, VisualFingerprint } from "../locators/types.js";
 
 export const VISUAL_CONTEXT_SCHEMA_VERSION = 1 as const;
@@ -75,6 +75,7 @@ export interface VisualCapture {
   createdAt?: string;
   page: PageInfo;
   pins: VisualPin[];
+  privacy?: PrivacyReport;
   schemaVersion: typeof VISUAL_CONTEXT_SCHEMA_VERSION;
   screenshot: VisualScreenshot;
   viewport?: VisualViewport;
@@ -290,6 +291,30 @@ function pinLooksLikeIframe(pin: VisualPin) {
   return /\biframe\b/i.test(path);
 }
 
+function asPrivacy(value: unknown): PrivacyReport | undefined {
+  if (!isRecord(value)) return undefined;
+  const allowed = [
+    "password",
+    "token",
+    "secret-query",
+    "secret-hash",
+    "payment",
+    "otp",
+    "email",
+    "unevaluated",
+  ];
+  const redacted = Array.isArray(value.redacted)
+    ? value.redacted.filter((item): item is RedactedCategory =>
+      typeof item === "string" && allowed.includes(item))
+    : [];
+  const unevaluated = value.unevaluated === true || redacted.includes("unevaluated");
+  const categories = unevaluated && !redacted.includes("unevaluated")
+    ? [...redacted, "unevaluated" as const]
+    : redacted;
+  if (!categories.length && !unevaluated) return undefined;
+  return { redacted: categories, unevaluated };
+}
+
 export function parseVisualCapture(input: unknown, fallbackCaptureId?: string): VisualCapture {
   if (!isRecord(input)) throw new VisualContextError("invalid_payload");
   if (
@@ -310,6 +335,9 @@ export function parseVisualCapture(input: unknown, fallbackCaptureId?: string): 
   const screenshot = screenshotFrom(input, captureId);
   if (screenshot.missing) warnings.push("screenshot_missing");
   const viewport = viewportFrom(input.viewport, pageRecord);
+  const privacy = asPrivacy(input.privacy);
+  if (privacy?.redacted.some((item) => item !== "unevaluated")) warnings.push("privacy_redacted");
+  if (privacy?.unevaluated) warnings.push("privacy_unevaluated");
 
   return {
     capabilities: {
@@ -326,6 +354,7 @@ export function parseVisualCapture(input: unknown, fallbackCaptureId?: string): 
         : undefined,
     },
     pins,
+    privacy,
     schemaVersion: VISUAL_CONTEXT_SCHEMA_VERSION,
     screenshot,
     viewport,
@@ -340,6 +369,7 @@ export function encodeVisualCaptureJson(capture: VisualCapture) {
     createdAt: capture.createdAt,
     page: capture.page,
     pins: capture.pins,
+    privacy: capture.privacy,
     schemaVersion: capture.schemaVersion,
     screenshot: capture.screenshot,
     viewport: capture.viewport,
@@ -372,6 +402,7 @@ export function captureFromSession(session: Session, extras: { shotPath?: string
     createdAt: session.createdAt,
     page: session.page,
     pins: session.pins,
+    privacy: session.privacy,
     schemaVersion: session.schemaVersion,
     screenshot: {
       id: session.shotId || session.id,
@@ -390,6 +421,7 @@ export function sessionFromCapture(capture: VisualCapture, extras: Partial<Sessi
     page: capture.page,
     pinCount: capture.pins.length,
     pins: capture.pins,
+    privacy: capture.privacy,
     schemaVersion: capture.schemaVersion,
     shotId: extras.shotId || capture.screenshot.id,
     shotUrl: extras.shotUrl !== undefined ? extras.shotUrl : capture.screenshot.url,
@@ -419,6 +451,12 @@ export function formatVisualContextMarkdown(capture: VisualCapture, viewerUrl?: 
   ];
   if (viewerUrl) lines.push(`Viewer: ${viewerUrl}`);
   if (capture.screenshot.url) lines.push(`Screenshot: ${capture.screenshot.url}`);
+  if (capture.privacy?.redacted.length) {
+    lines.push(`Redacted: ${capture.privacy.redacted.join(", ")}`);
+  }
+  if (capture.privacy?.unevaluated) {
+    lines.push("Warning: some regions could not be inspected");
+  }
   if (capture.viewport) {
     lines.push(
       `Viewport: ${capture.viewport.width}x${capture.viewport.height} dpr=${capture.viewport.devicePixelRatio}`,

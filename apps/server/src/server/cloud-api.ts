@@ -1186,6 +1186,7 @@ function sessionFromRow(row: Record<string, unknown>): Session {
     pins: capture.pins,
     plan: accountPlan(row.plan),
     position: Number(row.position || 0),
+    privacy: capture.privacy,
     schemaVersion: capture.schemaVersion,
     shotId: String(row.shot_id || ""),
     shotUrl: typeof row.shot_url === "string" ? row.shot_url : null,

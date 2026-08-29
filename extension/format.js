@@ -98,18 +98,33 @@ function pinHtml(pin, index) {
   return parts.join("\n");
 }
 
+function privacyLines(privacy) {
+  const redacted = Array.isArray(privacy?.redacted) ? privacy.redacted.filter(Boolean) : [];
+  const lines = [];
+  if (redacted.length) lines.push(`Redacted: ${redacted.join(", ")}`);
+  if (privacy?.unevaluated) lines.push("Warning: some regions could not be inspected");
+  return lines;
+}
+
+function privacyHtml(privacy) {
+  const lines = privacyLines(privacy);
+  if (!lines.length) return [];
+  return [`<p>${lines.map((line) => escapeHtml(line)).join("<br/>")}</p>`];
+}
+
 /**
  * @param {{
  *   captureId?: string,
  *   page?: { title?: string, url?: string },
  *   pins?: object[],
+ *   privacy?: { redacted?: string[], unevaluated?: boolean },
  *   schemaVersion?: number,
  *   sentAt?: string,
  *   shot?: string,
  *   viewerUrl?: string,
  * }} [input]
  */
-export function formatClipboard({ captureId, page = {}, pins = [], schemaVersion, sentAt, shot, viewerUrl } = {}) {
+export function formatClipboard({ captureId, page = {}, pins = [], privacy, schemaVersion, sentAt, shot, viewerUrl } = {}) {
   const when = sentAt || new Date().toISOString();
   const url = page.url || "(unknown)";
   const title = page.title || "(untitled)";
@@ -122,6 +137,7 @@ export function formatClipboard({ captureId, page = {}, pins = [], schemaVersion
     `Title: ${title}`,
     `Copied: ${when}`,
     `Pins: ${pins.length}`,
+    ...privacyLines(privacy),
     ...shotPlain(shot),
     ...(finalViewer ? [`Viewer: ${finalViewer}`] : []),
     "",
@@ -138,6 +154,7 @@ export function formatClipboard({ captureId, page = {}, pins = [], schemaVersion
       ? [`<p><strong>schemaVersion:</strong> ${escapeHtml(String(schemaVersion || 1))}<br/><strong>captureId:</strong> ${escapeHtml(captureId)}</p>`]
       : []),
     `<p><strong>URL:</strong> ${escapeHtml(url)}<br/><strong>Title:</strong> ${escapeHtml(title)}<br/><strong>Copied:</strong> ${escapeHtml(when)}</p>`,
+    ...privacyHtml(privacy),
     ...shotHtml(shot),
     ...(finalViewer ? [`<p><strong>Viewer:</strong> <a href="${escapeHtml(finalViewer)}">${escapeHtml(finalViewer)}</a></p>`] : []),
     `<p>Each pin is an instruction about that DOM node. Use the DOM path and selector to find the matching source.</p>`,

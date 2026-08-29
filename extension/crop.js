@@ -1,5 +1,6 @@
 import { getPinColor } from "./pin-colors.js";
 
+export const MASK_FILL = "#111827";
 export const MARK = "#6691F2";
 export const MARKER_CSS = 28;
 export const MARKER_TIP = 0.92;
@@ -132,13 +133,31 @@ export function drawAreaBox(ctx, box, crop, dpr, isElement = false, color = MARK
   ctx.restore();
 }
 
-export async function renderPinsCrop(bitmap, pins, dpr) {
+export function drawMaskRegions(ctx, regions, crop, dpr, fill = MASK_FILL) {
+  if (!ctx || !regions?.length) return;
+  ctx.save();
+  ctx.fillStyle = fill;
+  for (const region of regions) {
+    const box = region.box || region;
+    if (!box) continue;
+    const x = Math.round(box.x * dpr - crop.x);
+    const y = Math.round(box.y * dpr - crop.y);
+    const width = Math.round((box.width || 0) * dpr);
+    const height = Math.round((box.height || 0) * dpr);
+    if (width < 2 || height < 2) continue;
+    ctx.fillRect(x, y, width, height);
+  }
+  ctx.restore();
+}
+
+export async function renderPinsCrop(bitmap, pins, dpr, maskRegions = []) {
   const crop = cropWindow(bitmap, pins, dpr);
   if (crop.width < 2 || crop.height < 2) return null;
   const canvas = new OffscreenCanvas(crop.width, crop.height);
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
   ctx.drawImage(bitmap, crop.x, crop.y, crop.width, crop.height, 0, 0, crop.width, crop.height);
+  drawMaskRegions(ctx, maskRegions, crop, dpr);
   pins.forEach((pin, index) => {
     const box = pin.topBox || pin.box;
     if (box && box.width > 2 && box.height > 2) {

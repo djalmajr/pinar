@@ -130,4 +130,16 @@ describe("formatClipboard", () => {
     assert.match(plain, /Viewer: https:\/\/pinar-cloud\.workers\.dev\/v\/1\.md/);
     assert.match(html, /href="https:\/\/pinar-cloud\.workers\.dev\/v\/1\.md"/);
   });
+
+  test("lists redacted categories without original secrets", () => {
+    const { html, plain } = formatClipboard({
+      page: { title: "Login", url: "https://app.example.test/login?token=[redacted]" },
+      pins: [{ comment: "Fix this", id: "1" }],
+      privacy: { redacted: ["password", "token"], unevaluated: true },
+    });
+    assert.match(plain, /Redacted: password, token/);
+    assert.match(plain, /some regions could not be inspected/);
+    assert.match(html, /Redacted: password, token/);
+    assert.equal(plain.includes("s3cret"), false);
+  });
 });

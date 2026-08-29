@@ -66,6 +66,8 @@ export interface TranslationDictionary {
   theme_light: string;
   theme_system: string;
   language_label: string;
+  privacy_query_keys_label: string;
+  privacy_query_keys_desc: string;
   btn_coffee: string;
   btn_sponsor: string;
   btn_save: string;
@@ -142,6 +144,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     theme_light: "Light",
     theme_system: "System",
     language_label: "Language",
+    privacy_query_keys_label: "Extra URL keys to hide",
+    privacy_query_keys_desc: "Comma-separated query or hash keys stripped from captured URLs, in addition to tokens and secrets.",
     btn_coffee: "Coffee",
     btn_sponsor: "Sponsor",
     btn_save: "Save",
@@ -216,6 +220,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     theme_light: "Claro",
     theme_system: "Sistema",
     language_label: "Idioma",
+    privacy_query_keys_label: "Chaves extras da URL para ocultar",
+    privacy_query_keys_desc: "Chaves de query ou hash, separadas por vírgula, removidas das URLs capturadas além de tokens e segredos.",
     btn_coffee: "Café",
     btn_sponsor: "Apoiar",
     btn_save: "Salvar",
@@ -290,6 +296,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     theme_light: "Claro",
     theme_system: "Sistema",
     language_label: "Idioma",
+    privacy_query_keys_label: "Claves extra de URL para ocultar",
+    privacy_query_keys_desc: "Claves de query o hash, separadas por comas, que se eliminan de las URLs capturadas además de tokens y secretos.",
     btn_coffee: "Café",
     btn_sponsor: "Patrocinar",
     btn_save: "Guardar",
@@ -364,6 +372,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     theme_light: "Clair",
     theme_system: "Système",
     language_label: "Langue",
+    privacy_query_keys_label: "Clés d’URL supplémentaires à masquer",
+    privacy_query_keys_desc: "Clés de requête ou de hash, séparées par des virgules, retirées des URL capturées en plus des jetons et secrets.",
     btn_coffee: "Café",
     btn_sponsor: "Soutenir",
     btn_save: "Enregistrer",
@@ -438,6 +448,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     theme_light: "Hell",
     theme_system: "System",
     language_label: "Sprache",
+    privacy_query_keys_label: "Zusätzliche URL-Schlüssel ausblenden",
+    privacy_query_keys_desc: "Kommagetrennte Query- oder Hash-Schlüssel, die zusätzlich zu Tokens und Geheimnissen aus erfassten URLs entfernt werden.",
     btn_coffee: "Kaffee",
     btn_sponsor: "Sponsern",
     btn_save: "Speichern",
@@ -512,6 +524,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     theme_light: "浅色",
     theme_system: "跟随系统",
     language_label: "语言",
+    privacy_query_keys_label: "要隐藏的额外 URL 参数",
+    privacy_query_keys_desc: "以逗号分隔的 query 或 hash 键，会从捕获的 URL 中移除，作为令牌和密钥之外的补充。",
     btn_coffee: "咖啡",
     btn_sponsor: "赞助",
     btn_save: "保存",
@@ -586,6 +600,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     theme_light: "ライト",
     theme_system: "システム設定",
     language_label: "言語",
+    privacy_query_keys_label: "追加で隠す URL キー",
+    privacy_query_keys_desc: "トークンやシークレットに加えて、キャプチャした URL から取り除く query / hash キーをカンマ区切りで指定します。",
     btn_coffee: "コーヒー",
     btn_sponsor: "スポンサー",
     btn_save: "保存",

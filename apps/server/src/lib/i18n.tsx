@@ -205,6 +205,8 @@ const messages = {
   "viewer.strategySemantic": { en: "text", pt: "texto", es: "texto", fr: "texte", de: "Text", zh: "文本", ja: "テキスト" },
   "viewer.strategyGeometry": { en: "position", pt: "posição", es: "posición", fr: "position", de: "Position", zh: "位置", ja: "位置" },
   "viewer.locationCrossOrigin": { en: "Cross-origin iframe is not readable", pt: "Iframe de outra origem não é legível", es: "El iframe de otro origen no es legible", fr: "L’iframe cross-origin n’est pas lisible", de: "Cross-Origin-Iframe ist nicht lesbar", zh: "跨源 iframe 不可读", ja: "クロスオリジンの iframe は読み取れません" },
+  "viewer.privacyRedacted": { en: "Hidden: {categories}", pt: "Oculto: {categories}", es: "Oculto: {categories}", fr: "Masqué : {categories}", de: "Ausgeblendet: {categories}", zh: "已隐藏：{categories}", ja: "非表示: {categories}" },
+  "viewer.privacyUnevaluated": { en: "Some regions could not be inspected", pt: "Algumas regiões não puderam ser inspecionadas", es: "No se pudieron inspeccionar algunas regiones", fr: "Certaines zones n’ont pas pu être inspectées", de: "Einige Bereiche konnten nicht geprüft werden", zh: "部分区域无法检查", ja: "一部の領域を検査できませんでした" },
   "viewer.pinTitle": { en: "Pin {number}", pt: "Pin {number}", es: "Pin {number}", fr: "Pin {number}", de: "Pin {number}", zh: "标记 {number}", ja: "ピン {number}" },
   "viewer.completeContext": { en: "Complete annotation context", pt: "Contexto completo da anotação", es: "Contexto completo de la anotación", fr: "Contexte complet de l’annotation", de: "Vollständiger Anmerkungskontext", zh: "完整注释上下文", ja: "注釈の完全なコンテキスト" },
   "viewer.preview": { en: "Preview", pt: "Visualização", es: "Vista previa", fr: "Aperçu", de: "Vorschau", zh: "预览", ja: "プレビュー" },

@@ -55,6 +55,12 @@ describe("capture destination", () => {
     assert.match(backgroundSrc, /getCaptureDestinationContext\(settings\)/);
     assert.match(backgroundSrc, /JSON\.stringify\(\{ collectionId, captureId: id, id, image: dataUrl, page, pins, schemaVersion: 1 \}\)/);
     assert.match(backgroundSrc, /storeDestination\(settings, "", body\.destination\)/);
+    assert.match(backgroundSrc, /localFetch\(base, "\/api\/shots"/);
+    assert.match(backgroundSrc, /localFetch\(localBase, "\/api\/project-tree"\)/);
+    assert.match(backgroundSrc, /\$\{base\}\/api\/local\/capability/);
+    assert.match(backgroundSrc, /"x-pinar-capability": token/);
+    assert.doesNotMatch(backgroundSrc, /\/api\/local\/capability\?/);
+    assert.doesNotMatch(backgroundSrc, /console\.(?:log|info|debug|warn)\([^)]*token/);
   });
 
   test("offers storage, preferences and account tabs without legacy credentials", () => {

@@ -55,6 +55,30 @@ export const LOCAL_API_TRUST_MATRIX: readonly LocalApiTrustEntry[] = [
     pattern: /^\/api\/pricing$/,
   },
   {
+    class: "public-min",
+    intendedClients: ["extension"],
+    methods: ["GET"],
+    notes: "Origin-gated pairing. Hostile origins are denied before the handler.",
+    path: "/api/local/capability",
+    pattern: /^\/api\/local\/capability$/,
+  },
+  {
+    class: "mutable",
+    intendedClients: ["extension", "workspace"],
+    methods: ["POST"],
+    notes: "Requires the current or grace-window capability.",
+    path: "/api/local/capability/rotate",
+    pattern: /^\/api\/local\/capability\/rotate$/,
+  },
+  {
+    class: "mutable",
+    intendedClients: ["extension", "workspace"],
+    methods: ["POST"],
+    notes: "Requires a valid capability. Next bootstrap mints a new secret.",
+    path: "/api/local/capability/revoke",
+    pattern: /^\/api\/local\/capability\/revoke$/,
+  },
+  {
     class: "sensitive-read",
     intendedClients: ["cli", "tray", "workspace"],
     methods: ["GET"],
@@ -258,17 +282,17 @@ export const LOCAL_PUBLIC_PROJECTIONS: readonly LocalApiTrustEntry[] = [
   },
 ];
 
-export const CURRENT_LOCAL_CORS_ALLOW_ORIGIN = "*";
+export const LOCAL_CORS_ALLOWED_ORIGIN_KINDS = ["chrome-extension", "loopback"] as const;
 
 export const INTENDED_LOCAL_TRUST = {
   capability: {
     "local-public-projection": "none on loopback viewer",
-    mutable: "required",
-    "public-min": "none",
-    "sensitive-read": "required",
+    mutable: "required unless loopback Origin or non-browser client",
+    "public-min": "none, except pairing GET which is origin-gated",
+    "sensitive-read": "required unless loopback Origin or non-browser client",
   },
   corsAllowOrigin: "chrome-extension origin and loopback workspace only",
-  notes: "DJA-156+ invert the hostile baseline. This file does not enforce capability or CORS.",
+  notes: "Enforced by local-api-policy.ts before business handlers.",
 } as const;
 
 export const CLOUD_HEALTH_OUT_OF_SCOPE = {

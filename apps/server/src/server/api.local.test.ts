@@ -13,6 +13,7 @@ import {
 import { exerciseProjectApiContract } from "./project-api.contract";
 import { exerciseVisualContextContract } from "./visual-context.contract";
 import { exerciseAgentResultsContract } from "./agent-results.contract";
+import { exercisePinReviewContract } from "./pin-review.contract";
 
 const VALID_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 
@@ -232,6 +233,12 @@ describe("local TanStack API", () => {
 
   test("matches the shared agent results contract", async () => {
     await exerciseAgentResultsContract(request, (path, init) => (
+      handlePublicRequest(new Request(`http://127.0.0.1:17373${path}`, init))
+    ));
+  });
+
+  test("matches the shared pin review contract", async () => {
+    await exercisePinReviewContract(request, (path, init) => (
       handlePublicRequest(new Request(`http://127.0.0.1:17373${path}`, init))
     ));
   });

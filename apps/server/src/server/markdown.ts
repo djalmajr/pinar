@@ -2,7 +2,9 @@ import {
   captureFromSession,
   formatAgentResultsMarkdown,
   formatHandoffBundle,
+  formatPinReviewsMarkdown,
   type AgentExecution,
+  type PinReview,
   type ProjectTreeCollection,
   type ProjectTreeProject,
   type Session,
@@ -12,10 +14,14 @@ export function formatSessionMarkdown(
   session: Session,
   viewerUrl: string,
   executions: AgentExecution[] = [],
+  reviews: PinReview[] = [],
 ) {
-  const base = formatHandoffBundle(captureFromSession(session), viewerUrl).plain.trim();
+  const parts = [formatHandoffBundle(captureFromSession(session), viewerUrl).plain.trim()];
   const results = formatAgentResultsMarkdown(executions);
-  return results ? `${base}\n\n${results}` : base;
+  const reviewMarkdown = formatPinReviewsMarkdown(reviews);
+  if (results) parts.push(results);
+  if (reviewMarkdown) parts.push(reviewMarkdown);
+  return parts.join("\n\n");
 }
 
 function appendSession(lines: string[], session: Session, origin: string) {

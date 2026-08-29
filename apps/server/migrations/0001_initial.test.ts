@@ -49,6 +49,7 @@ describe("cloud schema migrations", () => {
       "0004_stripe_subscription_ordering.sql",
       "0005_founder_and_legal_acceptance.sql",
       "0006_agent_executions.sql",
+      "0007_pin_reviews.sql",
     ]);
     const migrated = new Database(":memory:");
     const canonical = new Database(":memory:");
@@ -437,6 +438,28 @@ describe("cloud schema migrations", () => {
           "SELECT status FROM agent_pin_results WHERE execution_id = 'aex_existing'",
         ).get()?.status,
         "changed",
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  test("adds pin review tables without rewriting agent executions", () => {
+    const db = new Database(":memory:");
+    try {
+      db.exec("PRAGMA foreign_keys = ON;");
+      applyMigrations(db);
+      assert.ok(databaseShape(db).tables.includes("pin_reviews"));
+      assert.ok(databaseShape(db).tables.includes("pin_review_events"));
+      db.exec(`
+        INSERT INTO pin_reviews (capture_id, pin_id, status, updated_at)
+        VALUES ('existing_session', 'pin_cta', 'open', '2026-08-29T00:00:00.000Z');
+      `);
+      assert.equal(
+        db.query<{ status: string }, []>(
+          "SELECT status FROM pin_reviews WHERE capture_id = 'existing_session'",
+        ).get()?.status,
+        "open",
       );
     } finally {
       db.close();

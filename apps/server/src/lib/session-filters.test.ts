@@ -46,4 +46,20 @@ describe("session filters", () => {
     assert.deepEqual(filterSessions(sessions, "", ["one", "sixOrMore"]).map(({ id }) => id), ["alpha", "gamma"]);
     assert.deepEqual(sessions, before);
   });
+
+  test("filters sessions by pin review state, treating missing counts as open", () => {
+    const ready: Session = {
+      ...sessions[1]!,
+      reviewCounts: { accepted: 0, correction_ready: 2, open: 1, reopened: 0 },
+    };
+    const accepted: Session = {
+      ...sessions[2]!,
+      reviewCounts: { accepted: 6, correction_ready: 0, open: 0, reopened: 0 },
+    };
+    const mixed = [sessions[0]!, ready, accepted];
+    assert.deepEqual(filterSessions(mixed, "", [], ["open"]).map(({ id }) => id), ["alpha", "beta"]);
+    assert.deepEqual(filterSessions(mixed, "", [], ["correction_ready"]).map(({ id }) => id), ["beta"]);
+    assert.deepEqual(filterSessions(mixed, "", [], ["accepted", "reopened"]).map(({ id }) => id), ["gamma"]);
+    assert.deepEqual(filterSessions(mixed, "checkout", ["twoToFive"], ["correction_ready"]).map(({ id }) => id), ["beta"]);
+  });
 });

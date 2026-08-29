@@ -246,6 +246,87 @@ describe("history", () => {
     db.close();
   });
 
+  test("moves pins through open, correction_ready, accepted and reopened with an append-only timeline", () => {
+    const db = openHistoryDb(tempDir);
+    const session = db.saveSession({
+      id: "capture_review_01",
+      page: { title: "Review capture", url: "https://example.test/review" },
+      pins: [{ comment: "Fix CTA", pinId: "pin_cta" }],
+    });
+    assert.deepEqual(session.reviewCounts, {
+      accepted: 0,
+      correction_ready: 0,
+      open: 1,
+      reopened: 0,
+    });
+    const opened = db.listPinReviews("capture_review_01");
+    assert.equal(opened.length, 1);
+    assert.equal(opened[0].pinId, "pin_cta");
+    assert.equal(opened[0].status, "open");
+    assert.deepEqual(opened[0].actions, []);
+    assert.deepEqual(opened[0].timeline, []);
+
+    const first = db.saveAgentExecution({
+      agent: "cursor",
+      captureId: "capture_review_01",
+      idempotencyKey: "exec_review_cta_01",
+      results: [{ pinId: "pin_cta", status: "changed", summary: "Updated the CTA" }],
+    });
+    assert.equal(first.created, true);
+    const ready = db.listPinReviews("capture_review_01")[0];
+    assert.equal(ready.status, "correction_ready");
+    assert.deepEqual(ready.actions, ["accept"]);
+    assert.equal(ready.timeline.length, 1);
+    assert.equal(ready.timeline[0].fromStatus, "open");
+    assert.equal(ready.timeline[0].toStatus, "correction_ready");
+    assert.equal(ready.timeline[0].origin, "agent_result");
+
+    db.saveAgentExecution({
+      agent: "cursor",
+      captureId: "capture_review_01",
+      idempotencyKey: "exec_review_cta_01",
+      results: [{ pinId: "pin_cta", status: "changed", summary: "Updated the CTA" }],
+    });
+    assert.equal(db.listPinReviews("capture_review_01")[0].timeline.length, 1);
+
+    const accepted = db.applyPinReview("capture_review_01", "pin_cta", "accept", {
+      actorId: "local",
+      actorType: "human",
+      origin: "human",
+    });
+    assert.equal(accepted.review.status, "accepted");
+    assert.equal(accepted.review.timeline.length, 2);
+    assert.throws(
+      () => db.applyPinReview("capture_review_01", "pin_cta", "accept", {
+        actorId: "local",
+        actorType: "human",
+        origin: "human",
+      }),
+      (error) => error?.code === "invalid_transition",
+    );
+    assert.equal(db.listPinReviews("capture_review_01")[0].timeline.length, 2);
+
+    db.saveAgentExecution({
+      agent: "cursor",
+      captureId: "capture_review_01",
+      idempotencyKey: "exec_review_after_accept",
+      results: [{ pinId: "pin_cta", status: "changed", summary: "Must not reopen" }],
+    });
+    assert.equal(db.listPinReviews("capture_review_01")[0].status, "accepted");
+
+    const reopened = db.applyPinReview("capture_review_01", "pin_cta", "reopen", {
+      actorId: "local",
+      actorType: "human",
+      origin: "human",
+    });
+    assert.equal(reopened.review.status, "reopened");
+    assert.equal(db.getSession("capture_review_01").reviewCounts.reopened, 1);
+
+    assert.equal(db.deleteSession("capture_review_01"), true);
+    assert.deepEqual(db.listPinReviews("capture_review_01"), []);
+    db.close();
+  });
+
   test("falls back to Personal and Inbox when a saved capture destination is invalid", () => {
     // Mutation captured: trusting an unknown collection id creates an orphan session.
     const db = openHistoryDb(tempDir);

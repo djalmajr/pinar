@@ -1,4 +1,5 @@
 import type { PinLocation, VisualFingerprint } from "../locators/types.js";
+import type { PinReviewCounts } from "../pin-review/index.js";
 import type { PrivacyReport } from "../privacy/types.js";
 
 export type { LocateConfidence, LocateStrategy, PinLocation, VisualFingerprint } from "../locators/types.js";
@@ -74,6 +75,7 @@ export interface Session {
   plan?: AccountPlan;
   position?: number;
   privacy?: PrivacyReport;
+  reviewCounts?: PinReviewCounts;
   schemaVersion?: number;
   shotId?: string;
   shotUrl?: string | null;

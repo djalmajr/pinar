@@ -13,6 +13,7 @@ const arch = process.arch === "arm64" ? "arm64" : "x64";
 const bunTarget = arch === "arm64" ? "bun-darwin-arm64" : "bun-darwin-x64";
 const outDir = resolve(root, "apps/tray/helpers");
 const outfile = resolve(outDir, "pinar");
+const ensureHook = resolve(outDir, "ensure.sh");
 
 mkdirSync(outDir, { recursive: true });
 execSync("bun run build:local", { cwd: root, stdio: "inherit" });
@@ -22,4 +23,6 @@ execSync(`bun build --compile --target=${bunTarget} ./apps/cli/src/cli.mjs --out
 });
 chmodSync(outfile, 0o755);
 copyFileSync(resolve(root, "hooks/pinar.js"), resolve(outDir, "pinar.js"));
+copyFileSync(resolve(root, "hooks/ensure.sh"), ensureHook);
+chmodSync(ensureHook, 0o755);
 process.stdout.write(`Embedded helper ready at ${outfile}\n`);

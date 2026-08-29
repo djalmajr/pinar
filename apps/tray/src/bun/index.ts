@@ -1,7 +1,12 @@
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import Electrobun, { Tray, Updater, Utils } from "electrobun/main";
-import { ensureDefaultLogin, isServerLoginEnabled, setServerLoginEnabled } from "./login";
+import { claimInstanceLock } from "./instance-lock";
+import {
+	ensureDefaultLogin,
+	isServerLoginEnabled,
+	setServerLoginEnabled,
+} from "./login";
 import {
 	ensurePinarHome,
 	findHealthyPort,
@@ -13,28 +18,15 @@ import {
 	waitUntilHealthy,
 	workspaceUrl,
 } from "./local-server";
-import { shouldOfferUpdate, updateMenuItem, type UpdateUiState, versionMenuItem } from "./update";
+import {
+	shouldOfferUpdate,
+	updateMenuItem,
+	type UpdateUiState,
+	versionMenuItem,
+} from "./update";
 
 function trayPidPath() {
 	return join(pinarHome(), "tray.pid");
-}
-
-function claimTrayLock() {
-	const path = trayPidPath();
-	try {
-		const existing = Number(readFileSync(path, "utf8").trim());
-		if (Number.isInteger(existing) && existing > 0 && existing !== process.pid) {
-			try {
-				process.kill(existing, 0);
-				process.exit(0);
-			} catch {
-				// Stale lock from a previous tray.
-			}
-		}
-	} catch {
-		// Missing lock is the first instance.
-	}
-	writeFileSync(path, `${process.pid}\n`);
 }
 
 function releaseTrayLock() {
@@ -55,8 +47,17 @@ function hideDock() {
 
 ensurePinarHome();
 hideDock();
-claimTrayLock();
-Electrobun.events.on("reopen", hideDock);
+let handledInitialReopen = false;
+Electrobun.events.on("reopen", () => {
+	if (handledInitialReopen) return;
+	handledInitialReopen = true;
+	hideDock();
+});
+const ownsTrayLock = claimInstanceLock(trayPidPath(), () => Utils.quit(0));
+if (!ownsTrayLock) {
+	// Keep Cottontail idle while the native runtime completes Utils.quit().
+	await new Promise<never>(() => {});
+}
 
 const tray = new Tray({
 	height: 22,
@@ -69,7 +70,12 @@ const tray = new Tray({
 let online = false;
 let loginEnabled = false;
 let busy = false;
-let updateUi: UpdateUiState = { available: false, checking: false, ready: false, version: "" };
+let updateUi: UpdateUiState = {
+	available: false,
+	checking: false,
+	ready: false,
+	version: "",
+};
 
 function updateMenu() {
 	tray.setMenu([
@@ -82,10 +88,20 @@ function updateMenu() {
 			type: "normal",
 		},
 		{ type: "divider" },
-		{ action: "start", enabled: !busy, label: online ? "Restart" : "Start", type: "normal" },
+		{
+			action: "start",
+			enabled: !busy,
+			label: online ? "Restart" : "Start",
+			type: "normal",
+		},
 		{ action: "stop", enabled: !busy && online, label: "Stop", type: "normal" },
 		{ type: "divider" },
-		{ action: "open", enabled: online, label: "Open Workspace", type: "normal" },
+		{
+			action: "open",
+			enabled: online,
+			label: "Open Workspace",
+			type: "normal",
+		},
 		{ action: "folder", label: "Open Folder", type: "normal" },
 		{ type: "divider" },
 		updateMenuItem(updateUi),
@@ -108,7 +124,12 @@ async function syncUpdate() {
 			remoteVersion: info.version,
 		});
 		if (!available) {
-			updateUi = { available: false, checking: false, ready: false, version: "" };
+			updateUi = {
+				available: false,
+				checking: false,
+				ready: false,
+				version: "",
+			};
 		} else {
 			updateUi = {
 				available: true,
@@ -183,9 +204,12 @@ setInterval(() => {
 	void refresh();
 }, 2000);
 void syncUpdate();
-setInterval(() => {
-	void syncUpdate();
-}, 6 * 60 * 60 * 1000);
+setInterval(
+	() => {
+		void syncUpdate();
+	},
+	6 * 60 * 60 * 1000,
+);
 
 console.error("pinar tray started");
 
@@ -234,7 +258,7 @@ tray.on("tray-clicked", (event: unknown) => {
 			await stopServer();
 			releaseTrayLock();
 			tray.remove();
-			process.exit(0);
+			Utils.quit(0);
 		})();
 	}
 });

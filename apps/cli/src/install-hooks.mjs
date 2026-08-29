@@ -36,10 +36,13 @@ export function desktopAppPath(home = osHomedir()) {
   return join(home, "Applications", "Pinar.app");
 }
 
-export function darwinOpenAppCommand(home = osHomedir()) {
+export function darwinOpenAppCommand(home = osHomedir(), { opener = "/usr/bin/open" } = {}) {
+  const pinarDir = JSON.stringify(join(home, ".pinar"));
   const pidFile = JSON.stringify(join(home, ".pinar", "tray.pid"));
+  const launchLock = JSON.stringify(join(home, ".pinar", "tray-launch.lock"));
   const app = JSON.stringify(desktopAppPath(home));
-  return `pid_file=${pidFile}; if [ -r "$pid_file" ] && pid="$(/bin/cat "$pid_file" 2>/dev/null)" && [ -n "$pid" ] && /bin/kill -0 "$pid" 2>/dev/null; then :; else /usr/bin/open -ga ${app}; fi`;
+  const open = `${opener === "/usr/bin/open" ? opener : JSON.stringify(opener)} -ga ${app}`;
+  return `pinar_dir=${pinarDir}; pid_file=${pidFile}; launch_lock=${launchLock}; /bin/mkdir -p "$pinar_dir"; if [ -r "$pid_file" ] && pid="$(/bin/cat "$pid_file" 2>/dev/null)" && [ -n "$pid" ] && /bin/kill -0 "$pid" 2>/dev/null; then :; elif /usr/bin/shlock -p "$$" -f "$launch_lock"; then trap '/bin/rm -f "$launch_lock"' 0 1 2 15; if [ -r "$pid_file" ] && pid="$(/bin/cat "$pid_file" 2>/dev/null)" && [ -n "$pid" ] && /bin/kill -0 "$pid" 2>/dev/null; then :; elif ${open}; then attempts=0; while [ "$attempts" -lt 100 ]; do if [ -r "$pid_file" ] && pid="$(/bin/cat "$pid_file" 2>/dev/null)" && [ -n "$pid" ] && /bin/kill -0 "$pid" 2>/dev/null; then break; fi; attempts=$((attempts + 1)); /bin/sleep 0.05; done; fi; else :; fi`;
 }
 
 export function darwinOpenAppCommandJson(home = osHomedir()) {
@@ -71,9 +74,9 @@ export function hookExtensionPath(root, execPath = process.execPath) {
 
 export function isPinarEnsureCommand(command = "") {
   return (
-    /\/usr\/bin\/open -ga /.test(command)
-    || /hooks[/\\]ensure\.(sh|cmd)/.test(command)
-    || /[/\\]\.pinar[/\\](bin[/\\]pinar(?:\.cmd)?|hooks[/\\]ensure\.(sh|cmd))/.test(command)
+    /"?\/usr\/bin\/open"? -ga /.test(command) ||
+    /hooks[/\\]ensure\.(sh|cmd)/.test(command) ||
+    /[/\\]\.pinar[/\\](bin[/\\]pinar(?:\.cmd)?|hooks[/\\]ensure\.(sh|cmd))/.test(command)
   );
 }
 
@@ -87,8 +90,7 @@ export function upsertSessionStart(hooks, command, extra = {}) {
     const hookIndex = group.hooks.findIndex((hook) => isPinarEnsureCommand(hook.command));
     const hook = group.hooks[hookIndex];
     const same =
-      hook.command === command &&
-      (extra.commandWindows === undefined || hook.commandWindows === extra.commandWindows);
+      hook.command === command && (extra.commandWindows === undefined || hook.commandWindows === extra.commandWindows);
     if (same) return { hooks, changed: false };
     const nextHook = { ...hook, command, timeout: hook.timeout ?? 8 };
     if (extra.commandWindows) nextHook.commandWindows = extra.commandWindows;
@@ -161,10 +163,16 @@ export function mergeOmpConfig(text, extensionPath) {
   }
   const line = `  - ${JSON.stringify(extensionPath)}\n`;
   if (/^extensions:\s*$/m.test(current)) {
-    return { text: current.replace(/^extensions:\s*$/m, `extensions:\n${line.trimEnd()}`), changed: true };
+    return {
+      text: current.replace(/^extensions:\s*$/m, `extensions:\n${line.trimEnd()}`),
+      changed: true,
+    };
   }
   if (/^extensions:\s*\n/m.test(current)) {
-    return { text: current.replace(/^extensions:\s*\n/m, `extensions:\n${line}`), changed: true };
+    return {
+      text: current.replace(/^extensions:\s*\n/m, `extensions:\n${line}`),
+      changed: true,
+    };
   }
   const suffix = current.endsWith("\n") || current.length === 0 ? "" : "\n";
   return { text: `${current}${suffix}extensions:\n${line}`, changed: true };
@@ -216,7 +224,11 @@ export async function installHooks({
   log = console.error,
 } = {}) {
   const command = ensureCommand(root, { home, platform });
-  const antigravityCommand = ensureCommand(root, { home, json: true, platform });
+  const antigravityCommand = ensureCommand(root, {
+    home,
+    json: true,
+    platform,
+  });
   const commandWindows = ensureCommandWindows(root);
   const extension = hookExtensionPath(root);
   const changed = [];
@@ -230,7 +242,9 @@ export async function installHooks({
 
   const codexPath = join(home, ".codex", "hooks.json");
   const codexDoc = await readJson(codexPath, { hooks: {} });
-  const codexHooks = upsertSessionStart(codexDoc.hooks ?? {}, command, { commandWindows });
+  const codexHooks = upsertSessionStart(codexDoc.hooks ?? {}, command, {
+    commandWindows,
+  });
   if (codexHooks.changed) {
     await writeJson(codexPath, { ...codexDoc, hooks: codexHooks.hooks });
     changed.push(codexPath);

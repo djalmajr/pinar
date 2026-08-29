@@ -8,17 +8,40 @@ if [ ! -t 0 ]; then
 fi
 status=0
 if [ "$(uname -s)" = Darwin ]; then
-  pid_file="${HOME}/.pinar/tray.pid"
+  pinar_dir="${HOME}/.pinar"
+  pid_file="${pinar_dir}/tray.pid"
+  launch_lock="${pinar_dir}/tray-launch.lock"
+  /bin/mkdir -p "$pinar_dir"
   pid=""
   if [ -r "$pid_file" ]; then
     pid=$(/bin/cat "$pid_file" 2>/dev/null || true)
   fi
   if [ -z "$pid" ] || ! /bin/kill -0 "$pid" 2>/dev/null; then
-    app="${HOME}/Applications/Pinar.app"
-    if [ -d "$app" ]; then
-      /usr/bin/open -ga "$app" || status=$?
-    else
-      /usr/bin/open -ga Pinar || status=$?
+    if /usr/bin/shlock -p "$$" -f "$launch_lock"; then
+      trap '/bin/rm -f "$launch_lock"' 0 1 2 15
+      pid=""
+      if [ -r "$pid_file" ]; then
+        pid=$(/bin/cat "$pid_file" 2>/dev/null || true)
+      fi
+      if [ -z "$pid" ] || ! /bin/kill -0 "$pid" 2>/dev/null; then
+        app="${HOME}/Applications/Pinar.app"
+        if [ -d "$app" ]; then
+          /usr/bin/open -ga "$app" || status=$?
+        else
+          /usr/bin/open -ga Pinar || status=$?
+        fi
+        attempts=0
+        while [ "$status" -eq 0 ] && [ "$attempts" -lt 100 ]; do
+          if [ -r "$pid_file" ]; then
+            pid=$(/bin/cat "$pid_file" 2>/dev/null || true)
+            if [ -n "$pid" ] && /bin/kill -0 "$pid" 2>/dev/null; then
+              break
+            fi
+          fi
+          attempts=$((attempts + 1))
+          /bin/sleep 0.05
+        done
+      fi
     fi
   fi
 else

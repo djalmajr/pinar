@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { ensureUserPath, installApp, launcherPath, removeLegacyDarwinBin } from "./install.mjs";
+import { ensureUserPath, installApp, installPlatformHooks, launcherPath, removeLegacyDarwinBin } from "./install.mjs";
 
 const source = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -15,7 +15,7 @@ describe("install", () => {
     await mkdir(join(dest, "shots"), { recursive: true });
     await writeFile(join(dest, "shots", "keep.png"), "png");
     await writeFile(join(dest, "history.db"), "history");
-    await writeFile(join(dest, "desktop.json"), "{\"loginEnabled\":true}\n");
+    await writeFile(join(dest, "desktop.json"), '{"loginEnabled":true}\n');
     await writeFile(join(dest, "server.pid"), "4242\n");
     const result = await installApp({ source, dest, log: () => {} });
     assert.equal(result.copied, true);
@@ -30,7 +30,7 @@ describe("install", () => {
     assert.equal(existsSync(join(dest, "package.json")), false);
     assert.equal(await readFile(join(dest, "shots", "keep.png"), "utf8"), "png");
     assert.equal(await readFile(join(dest, "history.db"), "utf8"), "history");
-    assert.equal(await readFile(join(dest, "desktop.json"), "utf8"), "{\"loginEnabled\":true}\n");
+    assert.equal(await readFile(join(dest, "desktop.json"), "utf8"), '{"loginEnabled":true}\n');
     assert.equal(await readFile(join(dest, "server.pid"), "utf8"), "4242\n");
   });
 
@@ -40,7 +40,7 @@ describe("install", () => {
     await mkdir(join(dest, "src"), { recursive: true });
     await mkdir(join(dest, "legacy"), { recursive: true });
     await writeFile(join(dest, "shots", "keep.png"), "png");
-    await writeFile(join(dest, "helper.json"), "{\"port\":17373}\n");
+    await writeFile(join(dest, "helper.json"), '{"port":17373}\n');
     await writeFile(join(dest, "AGENTS.md"), "old\n");
     await writeFile(join(dest, "package.json"), "{}\n");
     await writeFile(join(dest, "src", "old.js"), "stale\n");
@@ -67,11 +67,21 @@ describe("install", () => {
     const home = await mkdtemp(join(tmpdir(), "pinar-path-"));
     await writeFile(join(home, ".zshrc"), "export EDITOR=vim\n");
     const dest = join(home, ".pinar");
-    const first = await ensureUserPath({ home, dest, platform: "darwin", log: () => {} });
+    const first = await ensureUserPath({
+      home,
+      dest,
+      platform: "darwin",
+      log: () => {},
+    });
     const text = await readFile(join(home, ".zshrc"), "utf8");
     assert.equal(first.changed.length, 1);
     assert.match(text, /\.pinar\/bin/);
-    const again = await ensureUserPath({ home, dest, platform: "darwin", log: () => {} });
+    const again = await ensureUserPath({
+      home,
+      dest,
+      platform: "darwin",
+      log: () => {},
+    });
     assert.deepEqual(again.changed, []);
   });
 
@@ -85,5 +95,13 @@ describe("install", () => {
     assert.equal(await readFile(join(dest, "history.db"), "utf8"), "keep\n");
     await removeLegacyDarwinBin(dest);
     assert.equal(existsSync(join(dest, "bin")), false);
+  });
+
+  test("installPlatformHooks refreshes the Darwin launch guard", async () => {
+    const dest = await mkdtemp(join(tmpdir(), "pinar-hooks-"));
+    await installPlatformHooks(source, dest, "darwin");
+
+    assert.match(await readFile(join(dest, "hooks", "ensure.sh"), "utf8"), /\/usr\/bin\/shlock/);
+    assert.match(await readFile(join(dest, "hooks", "pinar.js"), "utf8"), /spawn\(ensure/);
   });
 });

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,32 +23,34 @@ function resolveEnsure() {
   return null;
 }
 
-function isTrayRunning() {
-  try {
-    const pid = Number(readFileSync(join(homedir(), ".pinar", "tray.pid"), "utf8").trim());
-    if (!Number.isInteger(pid) || pid <= 0) return false;
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export default function (pi) {
   const ensure = resolveEnsure();
   pi.on("session_start", () => {
-    if (process.platform === "darwin" && isTrayRunning()) return;
     const winCmd = Boolean(ensure && process.platform === "win32" && ensure.endsWith(".cmd"));
     let child;
-    if (process.platform === "darwin") {
+    if (ensure) {
+      child = spawn(ensure, [], {
+        detached: true,
+        stdio: "ignore",
+        shell: winCmd,
+      });
+    } else if (process.platform === "darwin") {
       const app = join(homedir(), "Applications", "Pinar.app");
       child = existsSync(app)
-        ? spawn("/usr/bin/open", ["-ga", app], { detached: true, stdio: "ignore" })
-        : spawn("/usr/bin/open", ["-ga", "Pinar"], { detached: true, stdio: "ignore" });
-    } else if (ensure) {
-      child = spawn(ensure, [], { detached: true, stdio: "ignore", shell: winCmd });
+        ? spawn("/usr/bin/open", ["-ga", app], {
+            detached: true,
+            stdio: "ignore",
+          })
+        : spawn("/usr/bin/open", ["-ga", "Pinar"], {
+            detached: true,
+            stdio: "ignore",
+          });
     } else {
-      child = spawn("pinar", [], { detached: true, stdio: "ignore", shell: process.platform === "win32" });
+      child = spawn("pinar", [], {
+        detached: true,
+        stdio: "ignore",
+        shell: process.platform === "win32",
+      });
     }
     child.unref();
   });

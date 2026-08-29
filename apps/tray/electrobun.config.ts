@@ -4,7 +4,7 @@ export default {
 	app: {
 		name: "Pinar",
 		identifier: "dev.pinar.local",
-		version: "0.1.3",
+		version: "0.1.4",
 	},
 	runtime: {
 		exitOnLastWindowClosed: false,
@@ -16,7 +16,8 @@ export default {
 			createDmg: true,
 			icons: "icon.iconset",
 			notarize: Boolean(
-				process.env.ELECTROBUN_APPLEAPIKEYPATH || process.env.ELECTROBUN_APPLEID,
+				process.env.ELECTROBUN_APPLEAPIKEYPATH ||
+					process.env.ELECTROBUN_APPLEID,
 			),
 		},
 		linux: {
@@ -34,6 +35,7 @@ export default {
 			"src/assets/tray-off.png": "views/assets/tray-off.png",
 			"helpers/pinar": "Helpers/pinar",
 			"helpers/pinar.js": "Helpers/pinar.js",
+			"helpers/ensure.sh": "Helpers/ensure.sh",
 		},
 		cottontail: {
 			entrypoint: "src/bun/index.ts",

@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  darwinOpenAppCommand,
   ensureCommand,
   ensureCommandWindows,
   grokDocument,
@@ -23,22 +24,30 @@ const root = fileURLToPath(new URL("../../../", import.meta.url));
 
 describe("install-hooks", () => {
   test("ensure command opens Pinar.app on Darwin and keeps scripts elsewhere", () => {
-    const command = ensureCommand("/opt/pinar", { platform: "darwin", home: "/Users/me" });
+    const command = ensureCommand("/opt/pinar", {
+      platform: "darwin",
+      home: "/Users/me",
+    });
     assert.equal(isPinarEnsureCommand(command), true);
     assert.match(command, /\/Users\/me\/\.pinar\/tray\.pid/);
     assert.match(command, /\/bin\/kill -0/);
-    assert.match(command, /else \/usr\/bin\/open -ga "\/Users\/me\/Applications\/Pinar\.app"/);
-    assert.match(ensureCommand("/opt/pinar", { json: true, platform: "darwin", home: "/Users/me" }), /printf/);
+    assert.match(command, /\/usr\/bin\/shlock/);
+    assert.match(command, /\/usr\/bin\/open -ga "\/Users\/me\/Applications\/Pinar\.app"/);
+    assert.match(
+      ensureCommand("/opt/pinar", {
+        json: true,
+        platform: "darwin",
+        home: "/Users/me",
+      }),
+      /printf/,
+    );
     assert.match(ensureCommand("/opt/pinar", { platform: "linux" }), /\/opt\/pinar\/hooks\/ensure\.sh/);
     assert.match(ensureCommandWindows("/opt/pinar"), /ensure\.cmd/);
     assert.match(ensureCommand("/opt/pinar", { json: true, platform: "win32" }), /^set PINAR_HOOK_JSON=1&& /);
     assert.equal(hookExtensionPath(root), join(root, "hooks", "pinar.js"));
     const helperDir = mkdtempSync(join(tmpdir(), "pinar-helper-ext-"));
     writeFileSync(join(helperDir, "pinar.js"), "");
-    assert.equal(
-      hookExtensionPath("/missing-pinar-root", join(helperDir, "pinar")),
-      join(helperDir, "pinar.js"),
-    );
+    assert.equal(hookExtensionPath("/missing-pinar-root", join(helperDir, "pinar")), join(helperDir, "pinar.js"));
   });
 
   test("Darwin ensure command skips open while the tray PID is alive", () => {
@@ -49,6 +58,36 @@ describe("install-hooks", () => {
     assert.doesNotThrow(() => {
       execFileSync("/bin/sh", ["-c", ensureCommand("/opt/pinar", { platform: "darwin", home })]);
     });
+  });
+
+  test("Darwin ensure command serializes concurrent cold launches", async () => {
+    const home = mkdtempSync(join(tmpdir(), "pinar-concurrent-launch-"));
+    const pinarDir = join(home, ".pinar");
+    const countPath = join(home, "open-count");
+    const opener = join(home, "fake-open");
+    mkdirSync(pinarDir, { recursive: true });
+    writeFileSync(
+      opener,
+      `#!/bin/sh\n/bin/sleep 0.2\nprintf x >> ${JSON.stringify(countPath)}\nprintf '%s\\n' "$PPID" > ${JSON.stringify(join(pinarDir, "tray.pid"))}\n`,
+    );
+    chmodSync(opener, 0o755);
+    const command = darwinOpenAppCommand(home, { opener });
+
+    await Promise.all(
+      Array.from(
+        { length: 8 },
+        () =>
+          new Promise((resolve, reject) => {
+            const child = spawn("/bin/sh", ["-c", command], {
+              stdio: "ignore",
+            });
+            child.once("error", reject);
+            child.once("exit", (code) => (code === 0 ? resolve() : reject(new Error(`hook exited ${code}`))));
+          }),
+      ),
+    );
+
+    assert.equal(readFileSync(countPath, "utf8"), "x");
   });
 
   test("upsertSessionStart is idempotent and updates an old path", () => {
@@ -69,10 +108,7 @@ describe("install-hooks", () => {
         SessionStart: [{ hooks: [{ type: "command", command: "echo other" }] }],
       },
     };
-    const { doc, changed } = mergeSettingsFile(
-      existing,
-      ensureCommand("/opt/pinar", { platform: "darwin" }),
-    );
+    const { doc, changed } = mergeSettingsFile(existing, ensureCommand("/opt/pinar", { platform: "darwin" }));
     assert.equal(changed, true);
     assert.equal(doc.hooks.SessionStart.length, 2);
     assert.equal(doc.hooks.SessionStart[0].hooks[0].command, "echo other");
@@ -109,10 +145,7 @@ describe("install-hooks", () => {
   test("installHooks writes user files without clobbering siblings", async () => {
     const home = await mkdtemp(join(tmpdir(), "pinar-hooks-"));
     await mkdir(join(home, ".claude"), { recursive: true });
-    await writeFile(
-      join(home, ".claude", "settings.json"),
-      `${JSON.stringify({ hooks: { Stop: [] } }, null, 2)}\n`,
-    );
+    await writeFile(join(home, ".claude", "settings.json"), `${JSON.stringify({ hooks: { Stop: [] } }, null, 2)}\n`);
     await mkdir(join(home, ".gemini", "config"), { recursive: true });
     await writeFile(
       join(home, ".gemini", "config", "hooks.json"),
@@ -133,14 +166,9 @@ describe("install-hooks", () => {
     const claude = JSON.parse(await readFile(join(home, ".claude", "settings.json"), "utf8"));
     assert.ok(claude.hooks.Stop);
     assert.equal(isPinarEnsureCommand(claude.hooks.SessionStart[0].hooks[0].command), true);
-    assert.equal(
-      claude.hooks.SessionStart[0].hooks[0].command,
-      ensureCommand(root, { platform: "darwin", home }),
-    );
+    assert.equal(claude.hooks.SessionStart[0].hooks[0].command, ensureCommand(root, { platform: "darwin", home }));
 
-    const antigravity = JSON.parse(
-      await readFile(join(home, ".gemini", "config", "hooks.json"), "utf8"),
-    );
+    const antigravity = JSON.parse(await readFile(join(home, ".gemini", "config", "hooks.json"), "utf8"));
     assert.ok(antigravity["ai-memory"]);
     assert.ok(antigravity.pinar);
 
@@ -150,7 +178,12 @@ describe("install-hooks", () => {
     const codex = JSON.parse(await readFile(join(home, ".codex", "hooks.json"), "utf8"));
     assert.ok(codex.hooks.SessionStart[0].hooks[0].commandWindows.includes("ensure.cmd"));
 
-    const again = await installHooks({ home, root, platform: "darwin", log: () => {} });
+    const again = await installHooks({
+      home,
+      root,
+      platform: "darwin",
+      log: () => {},
+    });
     assert.deepEqual(again, []);
     assert.match(logs.join("\n"), /pinar hooks installed/);
   });

@@ -21,15 +21,7 @@ export const RUNTIME_SCRIPTS = [
 
 const STAGING = ".tmp-install";
 const MANAGED_DIRS = ["apps", "bin", "hooks"];
-const KEEP_TOP = new Set([
-  "desktop.json",
-  "history.db",
-  "history.json",
-  "server.pid",
-  "shots",
-  "tray.pid",
-  STAGING,
-]);
+const KEEP_TOP = new Set(["desktop.json", "history.db", "history.json", "server.pid", "shots", "tray.pid", STAGING]);
 
 export function getNativeBinaryPath(source = defaultRoot(), platform = process.platform, arch = process.arch) {
   let target = "";
@@ -51,6 +43,24 @@ function resolveRuntimeSource(root, repoPath) {
   const direct = join(root, repoPath);
   if (existsSync(direct)) return direct;
   return null;
+}
+
+export async function installPlatformHooks(from, to, platform = process.platform) {
+  const hooksDir = join(to, "hooks");
+  const hooksPinar = resolveRuntimeSource(from, "hooks/pinar.js");
+  if (hooksPinar) {
+    await mkdir(hooksDir, { recursive: true });
+    await cp(hooksPinar, join(hooksDir, "pinar.js"), { force: true });
+  }
+
+  const ensureName = platform === "win32" ? "ensure.cmd" : "ensure.sh";
+  const hooksEnsure = resolveRuntimeSource(from, `hooks/${ensureName}`);
+  if (hooksEnsure) {
+    await mkdir(hooksDir, { recursive: true });
+    const destEnsure = join(hooksDir, ensureName);
+    await cp(hooksEnsure, destEnsure, { force: true });
+    if (platform !== "win32") await chmod(destEnsure, 0o755).catch(() => {});
+  }
 }
 
 export function launcherPath(dest = pinarHome(), platform = process.platform) {
@@ -101,7 +111,10 @@ async function writeStaging(from, staging, platform = process.platform, arch = p
   if (!nativeBin) {
     const serverOutput = join(from, "apps", "server", ".output");
     if (!existsSync(join(serverOutput, "server", "index.mjs"))) {
-      execFileSync("bun", ["run", "build:local"], { cwd: from, stdio: "inherit" });
+      execFileSync("bun", ["run", "build:local"], {
+        cwd: from,
+        stdio: "inherit",
+      });
     }
     for (const [fromPath, toPath] of RUNTIME_SCRIPTS) {
       const src = resolveRuntimeSource(from, fromPath);
@@ -117,29 +130,7 @@ async function writeStaging(from, staging, platform = process.platform, arch = p
   }
 
   // 3. Platform Hooks
-  const hooksPinar = resolveRuntimeSource(from, "hooks/pinar.js");
-  if (hooksPinar) {
-    const destHooksPinar = join(staging, "hooks", "pinar.js");
-    await mkdir(join(destHooksPinar, ".."), { recursive: true });
-    await cp(hooksPinar, destHooksPinar, { force: true });
-  }
-
-  if (platform === "win32") {
-    const hooksEnsureCmd = resolveRuntimeSource(from, "hooks/ensure.cmd");
-    if (hooksEnsureCmd) {
-      const destHooksCmd = join(staging, "hooks", "ensure.cmd");
-      await mkdir(join(destHooksCmd, ".."), { recursive: true });
-      await cp(hooksEnsureCmd, destHooksCmd, { force: true });
-    }
-  } else {
-    const hooksEnsureSh = resolveRuntimeSource(from, "hooks/ensure.sh");
-    if (hooksEnsureSh) {
-      const destHooksSh = join(staging, "hooks", "ensure.sh");
-      await mkdir(join(destHooksSh, ".."), { recursive: true });
-      await cp(hooksEnsureSh, destHooksSh, { force: true });
-      await chmod(destHooksSh, 0o755).catch(() => {});
-    }
-  }
+  await installPlatformHooks(from, staging, platform);
 }
 
 async function replaceManaged(staging, to) {
@@ -226,12 +217,7 @@ export async function ensureUserPath({
   const candidates =
     platform === "win32"
       ? []
-      : [
-          join(home, ".zshrc"),
-          join(home, ".bashrc"),
-          join(home, ".bash_profile"),
-          join(home, ".profile"),
-        ];
+      : [join(home, ".zshrc"), join(home, ".bashrc"), join(home, ".bash_profile"), join(home, ".profile")];
 
   let target = candidates.find((path) => existsSync(path));
   if (!target && platform !== "win32") {
@@ -264,13 +250,26 @@ export async function runInstall({
     await mkdir(to, { recursive: true });
     await migrateShotsDir(to);
     await removeLegacyDarwinBin(to);
+    await installPlatformHooks(resolve(source), to, platform);
     await installMacDesktopApp({ home, log, source });
-    const hooksResult = await installHooks({ dest: to, home, log, platform, root: source });
+    const hooksResult = await installHooks({
+      dest: to,
+      home,
+      log,
+      platform,
+      root: source,
+    });
     return { ...hooksResult, path: { path: to, updated: false } };
   }
   await installApp({ arch, dest, log, platform, source });
   const pathResult = await ensureUserPath({ dest, home, log, platform });
-  const hooksResult = await installHooks({ dest, home, log, platform, root: source });
+  const hooksResult = await installHooks({
+    dest,
+    home,
+    log,
+    platform,
+    root: source,
+  });
   return { ...hooksResult, path: pathResult };
 }
 

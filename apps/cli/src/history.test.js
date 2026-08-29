@@ -197,6 +197,55 @@ describe("history", () => {
     db.close();
   });
 
+  test("records idempotent agent executions per pin and rejects unknown pins", () => {
+    const db = openHistoryDb(tempDir);
+    db.saveSession({
+      id: "capture_agent_01",
+      page: { title: "Agent capture", url: "https://example.test/agent" },
+      pins: [{ comment: "Fix CTA", pinId: "pin_cta" }],
+    });
+    const first = db.saveAgentExecution({
+      agent: "grok",
+      captureId: "capture_agent_01",
+      idempotencyKey: "exec_grok_cta_01",
+      results: [{
+        files: ["apps/web/cta.tsx"],
+        pinId: "pin_cta",
+        status: "changed",
+        summary: "Updated the CTA",
+      }],
+    });
+    assert.equal(first.created, true);
+    assert.equal(first.execution.agent, "grok");
+    assert.equal(first.execution.results[0].pinId, "pin_cta");
+    const replay = db.saveAgentExecution({
+      agent: "grok",
+      captureId: "capture_agent_01",
+      idempotencyKey: "exec_grok_cta_01",
+      results: [{
+        files: ["apps/web/cta.tsx"],
+        pinId: "pin_cta",
+        status: "changed",
+        summary: "Updated the CTA",
+      }],
+    });
+    assert.equal(replay.created, false);
+    assert.equal(replay.execution.id, first.execution.id);
+    assert.equal(db.listAgentExecutions("capture_agent_01").length, 1);
+    assert.throws(
+      () => db.saveAgentExecution({
+        agent: "grok",
+        captureId: "capture_agent_01",
+        idempotencyKey: "exec_grok_missing",
+        results: [{ pinId: "pin_missing", status: "changed", summary: "Nope" }],
+      }),
+      (error) => error?.code === "pin_not_found",
+    );
+    assert.equal(db.deleteSession("capture_agent_01"), true);
+    assert.deepEqual(db.listAgentExecutions("capture_agent_01"), []);
+    db.close();
+  });
+
   test("falls back to Personal and Inbox when a saved capture destination is invalid", () => {
     // Mutation captured: trusting an unknown collection id creates an orphan session.
     const db = openHistoryDb(tempDir);

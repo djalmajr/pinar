@@ -13,7 +13,8 @@
     "./visual-context": "./src/visual-context/index.ts",
     "./locators": "./src/locators/index.ts",
     "./privacy": "./src/privacy/index.ts",
-    "./handoff": "./src/handoff/index.ts"
+    "./handoff": "./src/handoff/index.ts",
+    "./agent-results": "./src/agent-results/index.ts"
   },
   "dependencies": {
     "@iconify-json/lucide": "^1.2.123"

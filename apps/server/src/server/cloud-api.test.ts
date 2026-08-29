@@ -18,6 +18,7 @@ import {
 } from "./cloud-api";
 import { exerciseProjectApiContract } from "./project-api.contract";
 import { exerciseVisualContextContract } from "./visual-context.contract";
+import { exerciseAgentResultsContract, exerciseAgentResultsIsolation } from "./agent-results.contract";
 
 const identityA = { id: `ins_${"A".repeat(24)}`, token: `pit_${"a".repeat(43)}` };
 const identityB = { id: `ins_${"B".repeat(24)}`, token: `pit_${"b".repeat(43)}` };
@@ -2312,6 +2313,37 @@ describe("remote installation isolation", () => {
         headers: identityHeaders(identityA, init.headers),
       }),
       (path, init = {}) => handleCloudPublicRequest(new Request(`https://pinar.test${path}`, init), TEST_ENV),
+    );
+  });
+
+  test("matches the shared agent results contract", async () => {
+    await register(identityA);
+    assert.equal((await api("/api/agent-executions", {
+      body: JSON.stringify({ captureId: "visual_contract_element" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    })).status, 401);
+    await exerciseAgentResultsContract(
+      (path, init = {}) => api(path, {
+        ...init,
+        headers: identityHeaders(identityA, init.headers),
+      }),
+      (path, init = {}) => handleCloudPublicRequest(new Request(`https://pinar.test${path}`, init), TEST_ENV),
+    );
+  });
+
+  test("keeps agent results isolated between installations", async () => {
+    await register(identityA);
+    await register(identityB);
+    await exerciseAgentResultsIsolation(
+      (path, init = {}) => api(path, {
+        ...init,
+        headers: identityHeaders(identityA, init.headers),
+      }),
+      (path, init = {}) => api(path, {
+        ...init,
+        headers: identityHeaders(identityB, init.headers),
+      }),
     );
   });
 });

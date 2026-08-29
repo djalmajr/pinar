@@ -48,6 +48,7 @@ describe("cloud schema migrations", () => {
       "0003_ai_usage_and_storage_notices.sql",
       "0004_stripe_subscription_ordering.sql",
       "0005_founder_and_legal_acceptance.sql",
+      "0006_agent_executions.sql",
     ]);
     const migrated = new Database(":memory:");
     const canonical = new Database(":memory:");
@@ -386,6 +387,56 @@ describe("cloud schema migrations", () => {
           "SELECT billing_status, plan, stripe_subscription_id FROM users WHERE id = 'usr_current'",
         ).get(),
         { billing_status: "active", plan: "pro", stripe_subscription_id: "sub_current" },
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  test("adds agent execution tables without rewriting existing sessions", () => {
+    const db = new Database(":memory:");
+    try {
+      db.exec("PRAGMA foreign_keys = ON;");
+      applyMigrations(db, [
+        "0001_initial.sql",
+        "0002_billing_entitlements.sql",
+        "0003_ai_usage_and_storage_notices.sql",
+        "0004_stripe_subscription_ordering.sql",
+        "0005_founder_and_legal_acceptance.sql",
+      ]);
+      db.exec(`
+        INSERT INTO users (id, email, plan, ever_paid, created_at, updated_at)
+        VALUES ('usr_existing', 'existing@example.test', 'lifetime', 1, '2026-08-16T00:00:00.000Z', '2026-08-16T00:00:00.000Z');
+        INSERT INTO sessions (id, created_at, user_id, plan, is_permanent, byte_size)
+        VALUES ('existing_session', '2026-08-16T00:00:00.000Z', 'usr_existing', 'lifetime', 1, 42);
+      `);
+      applyMigrations(db, ["0006_agent_executions.sql"]);
+      assert.equal(
+        db.query<{ byte_size: number }, []>("SELECT byte_size FROM sessions WHERE id = 'existing_session'").get()?.byte_size,
+        42,
+      );
+      const tables = databaseShape(db).tables;
+      assert.ok(tables.includes("agent_executions"));
+      assert.ok(tables.includes("agent_pin_results"));
+      db.exec(`
+        INSERT INTO agent_executions (
+          id, idempotency_key, capture_id, agent, created_at, owner_id, payload_hash
+        ) VALUES (
+          'aex_existing', 'exec_cursor_01', 'existing_session', 'cursor',
+          '2026-08-29T00:00:00.000Z', 'usr_existing', 'hash'
+        );
+        INSERT INTO agent_pin_results (
+          id, execution_id, pin_id, status, summary, files_json, created_at
+        ) VALUES (
+          'ars_existing', 'aex_existing', 'pin_cta', 'changed', 'Updated CTA', '[]',
+          '2026-08-29T00:00:00.000Z'
+        );
+      `);
+      assert.equal(
+        db.query<{ status: string }, []>(
+          "SELECT status FROM agent_pin_results WHERE execution_id = 'aex_existing'",
+        ).get()?.status,
+        "changed",
       );
     } finally {
       db.close();

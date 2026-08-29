@@ -2,6 +2,8 @@ import {
   type ProjectIcon,
   type AccountAuthSession,
   type AccountPlan,
+  type AgentExecution,
+  type AgentPinResult,
   type AuthSession,
   type CaptureDestination,
   type Collection,
@@ -11,10 +13,16 @@ import {
   type ProjectTreeCollection,
   type ProjectTreeProject,
   type Session,
+  AgentResultError,
+  agentResultErrorBody,
+  agentResultHttpStatus,
   captureFromSession,
   decodeVisualCaptureJson,
   encodeVisualCaptureJson,
+  parseAgentExecutionInput,
   parseVisualCapture,
+  pinIdsFromPins,
+  presentAgentExecution,
   sessionFromCapture,
   visualContextErrorBody,
 } from "@pinar/shared";
@@ -269,6 +277,12 @@ interface DeviceSessionRecord {
   userId: string;
 }
 
+interface MemoryAgentExecution {
+  execution: AgentExecution;
+  ownerId: string;
+  payloadHash: string;
+}
+
 interface ExtensionCodeRecord {
   expiresAt: string;
   ownerId: string;
@@ -318,6 +332,7 @@ function shotObjectKey(id: string) {
   return `${SHOTS_PREFIX}${filename}`;
 }
 const memoryAccounts = new Map<string, AccountRecord>();
+const memoryAgentExecutions = new Map<string, MemoryAgentExecution>();
 const memoryAiCreditGrants = new Map<string, AiCreditGrantRecord>();
 const memoryAiCreditUsages = new Map<string, AiCreditUsageRecord>();
 const memoryCollections = new Map<string, Collection>();
@@ -3588,6 +3603,205 @@ async function persistSession(env: CloudEnv, session: Session) {
   }
 }
 
+function parseFilesJson(value: unknown) {
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string");
+  try {
+    const parsed = JSON.parse(typeof value === "string" ? value : "[]");
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function agentPinResultFromRow(row: Record<string, unknown>): AgentPinResult {
+  const commit = String(row.commit_ref || "");
+  const pullRequest = String(row.pull_request || "");
+  const reason = String(row.reason || "");
+  return {
+    commit: commit || undefined,
+    createdAt: String(row.created_at || ""),
+    files: parseFilesJson(row.files_json),
+    pinId: String(row.pin_id || ""),
+    pullRequest: pullRequest || undefined,
+    reason: reason || undefined,
+    status: row.status as AgentPinResult["status"],
+    summary: String(row.summary || ""),
+  };
+}
+
+function agentExecutionFromParts(
+  row: Record<string, unknown>,
+  results: AgentPinResult[],
+): AgentExecution {
+  return presentAgentExecution({
+    agent: row.agent as AgentExecution["agent"],
+    captureId: String(row.capture_id || ""),
+    createdAt: String(row.created_at || ""),
+    id: String(row.id || ""),
+    idempotencyKey: String(row.idempotency_key || ""),
+    results,
+  });
+}
+
+function deleteMemoryExecutionsForCapture(captureId: string, ownerId?: string) {
+  for (const [id, stored] of memoryAgentExecutions) {
+    if (stored.execution.captureId !== captureId) continue;
+    if (ownerId && stored.ownerId !== ownerId) continue;
+    memoryAgentExecutions.delete(id);
+  }
+}
+
+async function listAgentExecutions(env: CloudEnv, captureId: string): Promise<AgentExecution[]> {
+  if (env.DB) {
+    const executions = await env.DB.prepare(
+      "SELECT * FROM agent_executions WHERE capture_id = ? ORDER BY created_at ASC",
+    ).bind(captureId).all();
+    const rows = executions.results || [];
+    const result = [];
+    for (const row of rows) {
+      const pins = await env.DB.prepare(
+        "SELECT * FROM agent_pin_results WHERE execution_id = ? ORDER BY pin_id ASC",
+      ).bind(String(row.id || "")).all();
+      result.push(agentExecutionFromParts(row, (pins.results || []).map(agentPinResultFromRow)));
+    }
+    return result;
+  }
+  return Array.from(memoryAgentExecutions.values())
+    .filter((item) => item.execution.captureId === captureId)
+    .sort((left, right) => left.execution.createdAt.localeCompare(right.execution.createdAt))
+    .map((item) => presentAgentExecution(item.execution));
+}
+
+async function findOwnedSession(env: CloudEnv, principal: Principal, id: string) {
+  const session = await findPublicSession(env, id);
+  return session?.userId === principal.id ? session : null;
+}
+
+async function persistAgentExecution(
+  env: CloudEnv,
+  principal: Principal,
+  draft: ReturnType<typeof parseAgentExecutionInput>,
+) {
+  const timestamp = currentDate().toISOString();
+  if (env.DB) {
+    const existing = await env.DB.prepare(
+      "SELECT * FROM agent_executions WHERE owner_id = ? AND idempotency_key = ?",
+    ).bind(principal.id, draft.idempotencyKey).first();
+    if (existing) {
+      if (String(existing.payload_hash || "") !== draft.fingerprint) {
+        throw new AgentResultError("idempotency_conflict");
+      }
+      const pins = await env.DB.prepare(
+        "SELECT * FROM agent_pin_results WHERE execution_id = ? ORDER BY pin_id ASC",
+      ).bind(String(existing.id || "")).all();
+      return {
+        created: false,
+        execution: agentExecutionFromParts(existing, (pins.results || []).map(agentPinResultFromRow)),
+      };
+    }
+    const id = generateNanoId();
+    const statements = [
+      env.DB.prepare(`
+        INSERT INTO agent_executions (
+          id, idempotency_key, capture_id, agent, created_at, owner_id, payload_hash
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        id,
+        draft.idempotencyKey,
+        draft.captureId,
+        draft.agent,
+        timestamp,
+        principal.id,
+        draft.fingerprint,
+      ),
+      ...draft.results.map((result) => env.DB?.prepare(`
+        INSERT INTO agent_pin_results (
+          id, execution_id, pin_id, status, summary, reason, files_json, commit_ref, pull_request, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        generateNanoId(),
+        id,
+        result.pinId,
+        result.status,
+        result.summary,
+        result.reason || null,
+        JSON.stringify(result.files),
+        result.commit || null,
+        result.pullRequest || null,
+        timestamp,
+      )),
+    ].filter((item): item is D1Statement => Boolean(item));
+    try {
+      await env.DB.batch(statements);
+    } catch {
+      const raced = await env.DB.prepare(
+        "SELECT * FROM agent_executions WHERE owner_id = ? AND idempotency_key = ?",
+      ).bind(principal.id, draft.idempotencyKey).first();
+      if (raced && String(raced.payload_hash || "") === draft.fingerprint) {
+        const pins = await env.DB.prepare(
+          "SELECT * FROM agent_pin_results WHERE execution_id = ? ORDER BY pin_id ASC",
+        ).bind(String(raced.id || "")).all();
+        return {
+          created: false,
+          execution: agentExecutionFromParts(raced, (pins.results || []).map(agentPinResultFromRow)),
+        };
+      }
+      if (raced) throw new AgentResultError("idempotency_conflict");
+      throw new AgentResultError("invalid_payload");
+    }
+    const executions = await listAgentExecutions(env, draft.captureId);
+    const execution = executions.find((item) => item.id === id);
+    if (!execution) throw new AgentResultError("invalid_payload");
+    return { created: true, execution };
+  }
+  for (const stored of memoryAgentExecutions.values()) {
+    if (stored.ownerId !== principal.id || stored.execution.idempotencyKey !== draft.idempotencyKey) continue;
+    if (stored.payloadHash !== draft.fingerprint) throw new AgentResultError("idempotency_conflict");
+    return { created: false, execution: presentAgentExecution(stored.execution) };
+  }
+  const execution = presentAgentExecution({
+    agent: draft.agent,
+    captureId: draft.captureId,
+    createdAt: timestamp,
+    id: generateNanoId(),
+    idempotencyKey: draft.idempotencyKey,
+    results: draft.results.map((result) => ({ ...result, createdAt: timestamp })),
+  });
+  memoryAgentExecutions.set(execution.id, {
+    execution,
+    ownerId: principal.id,
+    payloadHash: draft.fingerprint,
+  });
+  return { created: true, execution };
+}
+
+async function publishAgentExecution(request: Request, env: CloudEnv) {
+  const principal = await resolvePrincipal(request, env);
+  if (!principal) return json({ error: "Unauthorized" }, 401);
+  const body = await readJson(request);
+  const captureId = stringValue(body, "captureId");
+  const session = await findOwnedSession(env, principal, captureId);
+  if (!session) return json(agentResultErrorBody(new AgentResultError("capture_not_found")), 404);
+  try {
+    const draft = parseAgentExecutionInput(body, pinIdsFromPins(session.pins));
+    const saved = await persistAgentExecution(env, principal, draft);
+    return json({ created: saved.created, execution: saved.execution, ok: true }, saved.created ? 201 : 200);
+  } catch (error) {
+    if (error instanceof AgentResultError) {
+      return json(agentResultErrorBody(error), agentResultHttpStatus(error));
+    }
+    throw error;
+  }
+}
+
+async function sessionApiPayload(env: CloudEnv, session: Session) {
+  return {
+    executions: await listAgentExecutions(env, session.id),
+    ok: true,
+    session,
+  };
+}
+
 async function accountEntitlements(request: Request, env: CloudEnv) {
   const principal = await resolvePrincipal(request, env);
   if (!principal) return json({ error: "Unauthorized" }, 401);
@@ -3984,7 +4198,11 @@ async function deleteHistory(request: Request, env: CloudEnv, id: string) {
         .bind(id, principal.id).first();
       if (!existing) return json({ error: "Session not found" }, 404);
       shotId = String(existing.shot_id || id);
-      await env.DB.prepare("DELETE FROM sessions WHERE id = ? AND user_id = ?").bind(id, principal.id).run();
+      await env.DB.batch([
+        env.DB.prepare("DELETE FROM agent_executions WHERE capture_id = ? AND owner_id = ?")
+          .bind(id, principal.id),
+        env.DB.prepare("DELETE FROM sessions WHERE id = ? AND user_id = ?").bind(id, principal.id),
+      ]);
     } catch {
       return json({ error: "Session deletion failed" }, 503);
     }
@@ -3993,6 +4211,7 @@ async function deleteHistory(request: Request, env: CloudEnv, id: string) {
     if (!existing || existing.userId !== principal.id) return json({ error: "Session not found" }, 404);
     shotId = existing.shotId || id;
     memorySessions.delete(id);
+    deleteMemoryExecutionsForCapture(id, principal.id);
   }
   if (env.PINAR_BUCKET) await env.PINAR_BUCKET.delete(shotObjectKey(shotId)).catch(() => undefined);
   return json({ ok: true });
@@ -4255,6 +4474,9 @@ export async function cleanupOldRecords(env: CloudEnv, days = 7) {
       + "(retention_expires_at IS NULL AND created_at < ? "
       + "AND (is_permanent = 0 OR is_permanent IS NULL))",
     ).bind(nowIso, cutoff).run();
+    await env.DB.prepare(
+      "DELETE FROM agent_executions WHERE capture_id NOT IN (SELECT id FROM sessions)",
+    ).run();
     deletedCount = sessions.length;
     const cleanupResults = await env.DB.batch([
       env.DB.prepare(
@@ -4279,6 +4501,7 @@ export async function cleanupOldRecords(env: CloudEnv, days = 7) {
     for (const session of expired) {
       memorySessions.delete(session.id);
       memorySessionRetentionExpiresAt.delete(session.id);
+      deleteMemoryExecutionsForCapture(session.id);
     }
     deletedCount = expired.length;
     for (const [codeHash, code] of memoryExtensionCodes) {
@@ -4356,6 +4579,7 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
   if (method === "GET" && path === "/api/stripe/success") return completeCheckout(request, env);
   if (method === "POST" && path === "/api/shots") return uploadShot(request, env);
   if (method === "POST" && path === "/api/history") return saveHistory(request, env);
+  if (method === "POST" && path === "/api/agent-executions") return publishAgentExecution(request, env);
   if (method === "GET" && path === "/api/history") return queryHistory(request, env);
   if (method === "GET" && path.startsWith("/api/public/projects/")) {
     const project = await findPublicProject(
@@ -4512,7 +4736,7 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
     const id = decodeURIComponent(path.slice("/api/sessions/".length));
     const session = await findPublicSession(env, id);
     return session
-      ? json({ ok: true, session }, 200, { "Cache-Control": "public, max-age=60" })
+      ? json(await sessionApiPayload(env, session), 200, { "Cache-Control": "public, max-age=60" })
       : json({ error: "Session not found" }, 404);
   }
   if (method === "DELETE" && path.startsWith("/api/history/")) {
@@ -4543,10 +4767,18 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
     const id = rawId.slice(0, -3);
     const session = await findPublicSession(env, id);
     if (!session) return text("Session not found", 404);
-    return text(formatSessionMarkdown(session, `${url.origin}/v/${id}`), 200, {
-      "Cache-Control": "public, max-age=60",
-      "Content-Type": "text/markdown; charset=utf-8",
-    });
+    return text(
+      formatSessionMarkdown(
+        session,
+        `${url.origin}/v/${id}`,
+        await listAgentExecutions(env, id),
+      ),
+      200,
+      {
+        "Cache-Control": "public, max-age=60",
+        "Content-Type": "text/markdown; charset=utf-8",
+      },
+    );
   }
   if (request.method === "GET" && url.pathname.startsWith("/p/")) {
     const rawId = decodeURIComponent(url.pathname.slice("/p/".length));
@@ -4578,6 +4810,7 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
 
 export function resetCloudMemoryStateForTests() {
   memoryAccounts.clear();
+  memoryAgentExecutions.clear();
   memoryAiCreditGrants.clear();
   memoryAiCreditUsages.clear();
   memoryCollections.clear();

@@ -1,4 +1,5 @@
 import type { Box, PageInfo, Pin, Point, Session } from "../types/index.js";
+import type { PinLocation, VisualFingerprint } from "../locators/types.js";
 
 export const VISUAL_CONTEXT_SCHEMA_VERSION = 1 as const;
 
@@ -32,6 +33,7 @@ export interface VisualViewport {
 export interface VisualLocator {
   cssSelector?: string;
   domPath?: string;
+  fingerprint?: VisualFingerprint;
   innerText?: string;
   label?: string;
   tag?: string;
@@ -127,6 +129,53 @@ function pinType(value: Record<string, unknown>): VisualPin["type"] {
   return "point";
 }
 
+function asFingerprint(value: unknown): VisualFingerprint | undefined {
+  if (!isRecord(value)) return undefined;
+  const classes = Array.isArray(value.classes)
+    ? value.classes.filter((item): item is string => typeof item === "string")
+    : undefined;
+  const fingerprint: VisualFingerprint = {
+    classes: classes?.length ? classes : undefined,
+    id: asString(value.id) || undefined,
+    name: asString(value.name) || undefined,
+    nthOfType: asFiniteNumber(value.nthOfType),
+    role: asString(value.role) || undefined,
+    tag: asString(value.tag) || undefined,
+    testId: asString(value.testId) || undefined,
+    text: asString(value.text) || undefined,
+  };
+  if (!Object.values(fingerprint).some((item) => item != null && item !== "")) return undefined;
+  return fingerprint;
+}
+
+function asLocation(value: unknown): PinLocation | undefined {
+  if (!isRecord(value)) return undefined;
+  const confidence = value.confidence;
+  const strategy = value.strategy;
+  if (
+    confidence !== "exact"
+    && confidence !== "probable"
+    && confidence !== "ambiguous"
+    && confidence !== "unresolved"
+  ) return undefined;
+  if (
+    strategy !== "stable-selector"
+    && strategy !== "structure"
+    && strategy !== "semantic"
+    && strategy !== "geometry"
+    && strategy !== "none"
+  ) return undefined;
+  return {
+    confidence,
+    evidence: Array.isArray(value.evidence)
+      ? value.evidence.filter((item): item is string => typeof item === "string")
+      : [],
+    score: asFiniteNumber(value.score) ?? 0,
+    strategy,
+    warning: value.warning === "cross-origin-frame" ? "cross-origin-frame" : undefined,
+  };
+}
+
 export function normalizePin(value: unknown, captureId: string, index: number): VisualPin {
   if (!isRecord(value)) throw new VisualContextError("invalid_pin");
   const number = pinNumber(value, index);
@@ -139,12 +188,16 @@ export function normalizePin(value: unknown, captureId: string, index: number): 
   const coords = asPoint(value.coords) || documentPoint || viewportPoint || asPoint(value.box) || { x: 0, y: 0 };
   const viewportBox = asBox(value.box);
   const documentBox = asBox(value.documentBox) || asBox(value.areaBox) || (kind === "area" ? viewportBox : undefined);
+  const nestedLocator = isRecord(value.locator) ? value.locator : {};
+  const fingerprint = asFingerprint(value.fingerprint) || asFingerprint(nestedLocator.fingerprint);
+  const location = asLocation(value.location);
   const locator: VisualLocator = {
-    cssSelector: asString(value.selector) || undefined,
-    domPath: asString(value.domPath) || asString(value.path) || undefined,
-    innerText: asString(value.innerText) || asString(value.text) || undefined,
-    label: asString(value.label) || undefined,
-    tag: asString(value.tag) || undefined,
+    cssSelector: asString(value.selector) || asString(nestedLocator.cssSelector) || undefined,
+    domPath: asString(value.domPath) || asString(value.path) || asString(nestedLocator.domPath) || undefined,
+    fingerprint,
+    innerText: asString(value.innerText) || asString(value.text) || asString(nestedLocator.innerText) || undefined,
+    label: asString(value.label) || asString(nestedLocator.label) || undefined,
+    tag: asString(value.tag) || asString(nestedLocator.tag) || undefined,
   };
   const geometry: VisualGeometry = {
     box: documentBox || viewportBox,
@@ -167,12 +220,14 @@ export function normalizePin(value: unknown, captureId: string, index: number): 
     documentAnchor: documentPoint,
     documentBox,
     domPath: locator.domPath,
+    fingerprint,
     frameId: asFiniteNumber(value.frameId),
     geometry,
     id: pinId,
     innerText: locator.innerText,
     kind,
     label: locator.label,
+    location,
     locator,
     number,
     path: asString(value.path) || locator.domPath,
@@ -378,6 +433,12 @@ export function formatVisualContextMarkdown(capture: VisualCapture, viewerUrl?: 
     if (pin.locator.cssSelector) lines.push(`Selector: ${pin.locator.cssSelector}`);
     if (pin.locator.innerText) {
       lines.push(`Text: "${pin.locator.innerText.replace(/\n+/g, " ").trim()}"`);
+    }
+    if (pin.location) {
+      lines.push(`Location: ${pin.location.confidence} (${pin.location.strategy})`);
+      if (pin.location.warning === "cross-origin-frame") {
+        lines.push("Warning: cross-origin iframe is not readable");
+      }
     }
     lines.push("");
   }

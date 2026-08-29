@@ -94,6 +94,7 @@ async function installExtensionHarness(page: Page) {
   });
   await page.addScriptTag({ path: extensionPath("coordinates.js") });
   await page.addScriptTag({ path: extensionPath("frame-path.js") });
+  await page.addScriptTag({ path: extensionPath("locators.js") });
   await page.addScriptTag({ path: extensionPath("keyboard.js") });
   await page.addScriptTag({ path: extensionPath("content.js") });
   await expect(page.locator('[data-pinar="host"]')).toBeVisible();
@@ -137,6 +138,7 @@ async function installIframeExtensionHarness(page: Page) {
   for (const frame of page.frames()) {
     await frame.addScriptTag({ path: extensionPath("coordinates.js") });
     await frame.addScriptTag({ path: extensionPath("frame-path.js") });
+    await frame.addScriptTag({ path: extensionPath("locators.js") });
     await frame.addScriptTag({ path: extensionPath("keyboard.js") });
     await frame.addScriptTag({ path: extensionPath("content.js") });
   }
@@ -266,6 +268,10 @@ test("a pin inside nested cross-origin iframes keeps the complete DOM path", asy
   await composer.locator("textarea").fill("Keep the frame chain");
   await composer.getByRole("button", { name: "Add" }).click();
 
+  await expect.poll(async () => {
+    const pins = await childFrame.evaluate(() => (globalThis as any).__pinarRuntimeState?.pins ?? []);
+    return pins.length;
+  }).toBe(1);
   const [pin] = await childFrame.evaluate(() => (globalThis as any).__pinarRuntimeState.pins);
   expect(pin.path).toBe(
     "body > iframe#workspace-shell ::frame:: body > iframe#application-frame ::frame:: body > main > button#iframe-target",

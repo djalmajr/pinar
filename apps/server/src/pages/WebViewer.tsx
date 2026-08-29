@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import ReactMarkdown from "react-markdown";
-import { getPinColor, type Pin, type Session } from "@pinar/shared";
+import { getPinColor, type Pin, type PinLocation, type Session } from "@pinar/shared";
 import { ImageZoomDialog } from "@/components/ImageZoomDialog";
 import { ServerShell } from "@/components/ServerShell";
 import { isRecord, isSession } from "@/lib/api-data";
-import { useServerI18n } from "@/lib/i18n";
+import { useServerI18n, type ServerMessageKey } from "@/lib/i18n";
 import { formatPinMarkdown } from "@/lib/pin-markdown";
 import { pinarRuntime } from "@/lib/server-header";
 import { formatSessionDate } from "@/lib/session-date";
 import {
+  Badge,
   Button,
   ButtonGroup,
   Card,
@@ -66,6 +67,31 @@ function aiSummaryResult(value: unknown): AiSummaryResult | null {
 
 function pinNumber(pin: Pin, index: number) {
   return pin.number || index + 1;
+}
+
+function locationStrategyLabel(
+  t: (key: ServerMessageKey, vars?: Record<string, string | number>) => string,
+  location: PinLocation,
+) {
+  if (location.strategy === "stable-selector") return t("viewer.strategyStableSelector");
+  if (location.strategy === "structure") return t("viewer.strategyStructure");
+  if (location.strategy === "semantic") return t("viewer.strategySemantic");
+  if (location.strategy === "geometry") return t("viewer.strategyGeometry");
+  return location.strategy;
+}
+
+function locationBadge(t: (key: ServerMessageKey, vars?: Record<string, string | number>) => string, location?: PinLocation) {
+  if (!location) return null;
+  if (location.confidence === "exact") {
+    return { label: t("viewer.locationExact"), variant: "successSoft" as const };
+  }
+  if (location.confidence === "probable") {
+    return {
+      label: t("viewer.locationStrategy", { strategy: locationStrategyLabel(t, location) }),
+      variant: "warning" as const,
+    };
+  }
+  return { label: t("viewer.locationNeedsReview"), variant: "destructive" as const };
 }
 
 export function WebViewer({ sessionId }: WebViewerProps) {
@@ -334,6 +360,7 @@ export function WebViewer({ sessionId }: WebViewerProps) {
                   const number = pinNumber(pin, index);
                   const color = pin.color || getPinColor(number);
                   const isArea = pin.type === "area" || pin.kind === "area";
+                  const badge = locationBadge(t, pin.location);
                   return (
                     <Button
                       className="h-auto w-full justify-start p-0 text-left whitespace-normal"
@@ -352,6 +379,11 @@ export function WebViewer({ sessionId }: WebViewerProps) {
                             <CardDescription className="mt-1 line-clamp-3 whitespace-pre-wrap text-xs text-foreground">
                               {pin.comment}
                             </CardDescription>
+                            {badge ? (
+                              <Badge className="mt-2" variant={badge.variant}>
+                                {badge.label}
+                              </Badge>
+                            ) : null}
                           </div>
                         </CardHeader>
                         {(pin.selector || pin.domPath || pin.path) && (
@@ -441,7 +473,11 @@ export function WebViewer({ sessionId }: WebViewerProps) {
                     <PinBadge color={selectedColor} number={selectedNumber} />
                     <div>
                       <DialogTitle>{t("viewer.pinTitle", { number: selectedNumber })}</DialogTitle>
-                      <DialogDescription>{t("viewer.completeContext")}</DialogDescription>
+                      <DialogDescription>
+                        {selectedPin.location
+                          ? locationBadge(t, selectedPin.location)?.label
+                          : t("viewer.completeContext")}
+                      </DialogDescription>
                     </div>
                   </div>
                 </DialogHeader>

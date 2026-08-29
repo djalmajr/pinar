@@ -53,7 +53,14 @@
     pinDocumentGeometry,
     projectPin,
   } = globalThis.__pinarCoordinateSpace;
-  const { joinFrameDomPath } = globalThis.__pinarFramePath;
+  const { joinFrameDomPath, splitFrameDomPath } = globalThis.__pinarFramePath;
+  const {
+    captureFingerprint,
+    isPendingLocation,
+    locateResultMeta,
+    resolveLocator,
+    stableSelector,
+  } = globalThis.__pinarLocators;
   const {
     handleComposerKeyDown,
     stopComposerKeyboardEvent,
@@ -236,6 +243,9 @@
         transform: translate(-50%, -92%);
         width: 28px;
         z-index: 2;
+      }
+      .marker.is-pending svg {
+        filter: drop-shadow(0 0 0 2px #fff) drop-shadow(0 0 0 3px #C2410C) drop-shadow(0 1px 2px rgba(15, 23, 42, 0.45));
       }
       .marker svg {
         display: block;
@@ -548,22 +558,35 @@
     await waitForCapturePaint(0);
   }
 
-  function viewportPin(pin) {
-    if (pin.kind === "element" && pin.selector) {
-      try {
-        const element = document.querySelector(pin.selector);
-        if (element?.isConnected) {
-          const box = boxOf(element);
-          return {
-            ...pin,
-            anchor: anchorInBox(pin, box),
-            box,
-          };
-        }
-      } catch {
-        /* The captured selector can become invalid after the page mutates. */
-      }
+  function locatePin(pin) {
+    if (pin.kind !== "element") {
+      return { ...projectPin(pin, currentScroll()), location: pin.location };
     }
+    const localPath = splitFrameDomPath(pin.path || "").at(-1) || pin.path;
+    const result = resolveLocator(document, {
+      cssSelector: pin.selector,
+      domPath: localPath,
+      fingerprint: pin.fingerprint,
+      geometry: pin.box ? { box: pin.box } : undefined,
+      innerText: pin.text,
+      kind: pin.kind,
+      tag: pin.tag,
+    });
+    const location = locateResultMeta(result);
+    if (result.element && (location.confidence === "exact" || location.confidence === "probable")) {
+      const box = boxOf(result.element);
+      return {
+        ...pin,
+        anchor: anchorInBox(pin, box),
+        box,
+        location,
+      };
+    }
+    return { ...projectPin(pin, currentScroll()), location };
+  }
+
+  function viewportPin(pin) {
+    if (pin.kind === "element") return locatePin(pin);
     return projectPin(pin, currentScroll());
   }
 
@@ -791,18 +814,25 @@
     };
   }
 
-  function markerHtml(point, index, pinId, color = pinColor(index + 1)) {
+  function markerHtml(point, index, pinId, color = pinColor(index + 1), location) {
     const body = `${bubbleSvg({ color })}<span class="marker-n">${index + 1}</span>`;
+    const pending = isPendingLocation(location);
+    const confidence = location?.confidence ? ` data-location-confidence="${escapeAttr(location.confidence)}"` : "";
+    const cls = pending ? "marker is-pending" : "marker";
     if (pinId) {
-      return `<button type="button" class="marker" data-pin="${pinId}" style="left:${point.x}px;top:${point.y}px">${body}</button>`;
+      return `<button type="button" class="${cls}" data-pin="${pinId}"${confidence} style="left:${point.x}px;top:${point.y}px">${body}</button>`;
     }
-    return `<span class="marker" data-draft="1" style="left:${point.x}px;top:${point.y}px">${body}</span>`;
+    return `<span class="${cls}" data-draft="1"${confidence} style="left:${point.x}px;top:${point.y}px">${body}</span>`;
   }
 
   function renderMarkers() {
-    const markers = state.pins.map((pin, index) => markerHtml(pinPoint(viewportPin(pin)), index, pin.id, pin.color));
+    const markers = state.pins.map((pin, index) => {
+      const visible = viewportPin(pin);
+      return markerHtml(pinPoint(visible), index, pin.id, pin.color, visible.location);
+    });
     if (state.draft && !state.draft.editId) {
-      markers.push(markerHtml(pinPoint(viewportPin(state.draft)), state.pins.length, undefined, state.draft.color));
+      const visible = viewportPin(state.draft);
+      markers.push(markerHtml(pinPoint(visible), state.pins.length, undefined, state.draft.color, visible.location));
     }
     ui.layer.innerHTML = markers.join("");
     placeComposer();
@@ -844,6 +874,9 @@
     ui.previewN.textContent = String(index + 1);
     ui.previewN.style.background = pin.color || pinColor(index + 1);
     ui.previewText.textContent = pin.comment.replaceAll("\n", " ");
+    if (isPendingLocation(viewportPin(pin).location)) {
+      ui.previewText.textContent = `${ui.previewText.textContent} · Needs review`;
+    }
     ui.preview.style.left = `${pos.left}px`;
     ui.preview.style.top = `${pos.top}px`;
     ui.preview.hidden = false;
@@ -936,12 +969,11 @@
       }
 
       let liveBox;
-      if (pin.kind === "element" && pin.selector && !pin.viewportAnchored) {
-        try {
-          const element = document.querySelector(pin.selector);
-          if (element?.isConnected) liveBox = boxOf(element);
-        } catch {
-          /* Keep the creation-time document geometry when the selector is stale. */
+      if (pin.kind === "element" && !pin.viewportAnchored) {
+        const located = locatePin(pin);
+        pin = { ...pin, location: located.location };
+        if (located.location?.confidence === "exact" || located.location?.confidence === "probable") {
+          liveBox = located.box;
         }
       }
       const geometry = pinDocumentGeometry(pin, currentScroll(), liveBox);
@@ -961,6 +993,7 @@
       state.tabPinCount = response.pins.length;
     }
     renderChrome();
+    renderMarkers();
     return synced;
   }
 
@@ -1106,15 +1139,18 @@
     const scroll = currentScroll();
     const position = getComputedStyle(element).position;
     const path = joinFrameDomPath(await requestFramePaths(), treePath(element));
+    const fingerprint = captureFingerprint(element);
     openDraft({
       anchor,
       box,
       documentAnchor: documentPoint(anchor, scroll),
       documentBox: documentBox(box, scroll),
+      fingerprint,
       kind: "element",
       label: labelFor(element),
+      location: { confidence: "exact", evidence: ["captured"], score: 1, strategy: "stable-selector" },
       path,
-      selector: cssPath(element),
+      selector: stableSelector(document, element) || cssPath(element),
       scroll,
       tag: element.tagName.toLowerCase(),
       text: visibleText(element),
@@ -1417,9 +1453,37 @@
     }
   });
 
+  let relocateTimer = 0;
+  function scheduleRelocate() {
+    if (relocateTimer) return;
+    relocateTimer = window.setTimeout(() => {
+      relocateTimer = 0;
+      if (isMounted() && state.pins.length) renderMarkers();
+    }, 32);
+  }
+  const relocateObserver = new MutationObserver((records) => {
+    for (const record of records) {
+      if (record.target === host || host.contains(record.target)) continue;
+      if (record.type === "childList") {
+        const nodes = [...record.addedNodes, ...record.removedNodes];
+        if (nodes.length && nodes.every((node) => node === host || host.contains(node))) continue;
+      }
+      scheduleRelocate();
+      return;
+    }
+  });
+  relocateObserver.observe(document.documentElement, {
+    attributeFilter: ["aria-label", "class", "data-testid", "id", "name"],
+    attributes: true,
+    childList: true,
+    subtree: true,
+  });
+
   function teardown() {
     if (!host.isConnected && !state.active) return;
     clearTimeout(state.statusTimer);
+    clearTimeout(relocateTimer);
+    relocateObserver.disconnect();
     state.active = false;
     document.documentElement.removeAttribute("data-pinar-active");
     removeGlobalStyles();

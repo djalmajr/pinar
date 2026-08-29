@@ -10,7 +10,8 @@
     "./project-icons": "./src/project-icons/index.ts",
     "./i18n": "./src/i18n/index.ts",
     "./format": "./src/format/index.ts",
-    "./visual-context": "./src/visual-context/index.ts"
+    "./visual-context": "./src/visual-context/index.ts",
+    "./locators": "./src/locators/index.ts"
   },
   "dependencies": {
     "@iconify-json/lucide": "^1.2.123"

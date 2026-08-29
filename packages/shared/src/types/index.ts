@@ -1,3 +1,7 @@
+import type { PinLocation, VisualFingerprint } from "../locators/types.js";
+
+export type { LocateConfidence, LocateStrategy, PinLocation, VisualFingerprint } from "../locators/types.js";
+
 export interface Point {
   x: number;
   y: number;
@@ -41,6 +45,8 @@ export interface Pin {
     scrollY: number;
   };
   viewportAnchored?: boolean;
+  fingerprint?: VisualFingerprint;
+  location?: PinLocation;
 }
 
 export interface PageInfo {

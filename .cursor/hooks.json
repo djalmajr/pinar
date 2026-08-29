@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "hooks/ensure.sh",
+        "timeout": 8
+      }
+    ]
+  }
+}

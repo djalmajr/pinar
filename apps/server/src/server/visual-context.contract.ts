@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { formatClipboard } from "../../../../extension/format.js";
+import { adaptHandoffAll, formatHandoffBundle, HANDOFF_AGENTS, handoffSemantics } from "@pinar/shared/handoff";
 import {
   formatVisualContextMarkdown,
   parseVisualCapture,
@@ -25,6 +26,7 @@ async function jsonRecord(response: Response) {
 export function assertVisualContextEquivalence() {
   const capture = parseVisualCapture(VISUAL_CONTEXT_FIXTURES.elementV0);
   const markdown = formatVisualContextMarkdown(capture, "http://127.0.0.1:17373/v/cap_element_v0");
+  const handoff = formatHandoffBundle(capture, "http://127.0.0.1:17373/v/cap_element_v0");
   const clipboard = formatClipboard({
     captureId: capture.captureId,
     page: capture.page,
@@ -37,6 +39,20 @@ export function assertVisualContextEquivalence() {
   assert.match(markdown, /pinId: pin_cta/);
   assert.match(clipboard.plain, /captureId: cap_element_v0/);
   assert.match(clipboard.plain, /pinId: pin_cta/);
+  assert.match(clipboard.plain, /```pinar-visual-context/);
+  assert.match(handoff.plain, /```pinar-visual-context/);
+  const adapted = adaptHandoffAll(capture);
+  const expected = handoffSemantics(adapted.cursor.text);
+  for (const agent of HANDOFF_AGENTS) {
+    assert.deepEqual(handoffSemantics(adapted[agent].text), expected);
+  }
+  assert.deepEqual(handoffSemantics(clipboard.plain), {
+    captureId: expected.captureId,
+    comments: expected.comments,
+    pinIds: expected.pinIds,
+    url: expected.url,
+    warnings: handoffSemantics(clipboard.plain).warnings,
+  });
   assert.equal(capture.schemaVersion, VISUAL_CONTEXT_SCHEMA_VERSION);
 }
 

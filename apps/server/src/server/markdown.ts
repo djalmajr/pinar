@@ -1,13 +1,13 @@
 import {
   captureFromSession,
-  formatVisualContextMarkdown,
+  formatHandoffBundle,
   type ProjectTreeCollection,
   type ProjectTreeProject,
   type Session,
 } from "@pinar/shared";
 
 export function formatSessionMarkdown(session: Session, viewerUrl: string) {
-  return formatVisualContextMarkdown(captureFromSession(session), viewerUrl);
+  return formatHandoffBundle(captureFromSession(session), viewerUrl).plain;
 }
 
 function appendSession(lines: string[], session: Session, origin: string) {

@@ -15,6 +15,8 @@ import {
   installHooks,
   isPinarEnsureCommand,
   mergeAntigravity,
+  mergeCursorHooks,
+  mergeGrokDocument,
   mergeOmpConfig,
   mergeSettingsFile,
   upsertSessionStart,
@@ -23,6 +25,13 @@ import {
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 
 describe("install-hooks", () => {
+  test("project Cursor hooks start the helper like Claude, Codex, and Grok", () => {
+    const cursor = JSON.parse(readFileSync(join(root, ".cursor/hooks.json"), "utf8"));
+    assert.equal(cursor.version, 1);
+    assert.match(cursor.hooks.sessionStart[0].command, /hooks\/ensure\.sh/);
+    assert.equal(cursor.hooks.sessionStart[0].timeout, 8);
+  });
+
   test("ensure command opens Pinar.app on Darwin and keeps scripts elsewhere", () => {
     const command = ensureCommand("/opt/pinar", {
       platform: "darwin",
@@ -142,10 +151,54 @@ describe("install-hooks", () => {
     assert.equal(doc.hooks.SessionStart[0].hooks[0].type, "command");
   });
 
+  test("mergeGrokDocument keeps sibling grok hooks", () => {
+    const existing = {
+      extra: true,
+      hooks: {
+        Stop: [{ hooks: [{ type: "command", command: "echo stop" }] }],
+      },
+    };
+    const { doc, changed } = mergeGrokDocument(existing, ensureCommand("/opt/pinar", { platform: "linux" }));
+    assert.equal(changed, true);
+    assert.equal(doc.extra, true);
+    assert.equal(doc.hooks.Stop[0].hooks[0].command, "echo stop");
+    assert.equal(isPinarEnsureCommand(doc.hooks.SessionStart[0].hooks[0].command), true);
+  });
+
+  test("mergeCursorHooks is idempotent and keeps unrelated Cursor hooks", () => {
+    const existing = {
+      version: 1,
+      hooks: {
+        afterFileEdit: [{ command: "format.sh" }],
+      },
+    };
+    const command = ensureCommand("/opt/pinar", { platform: "darwin" });
+    const first = mergeCursorHooks(existing, command);
+    assert.equal(first.changed, true);
+    assert.equal(first.doc.hooks.afterFileEdit[0].command, "format.sh");
+    assert.equal(first.doc.hooks.sessionStart[0].command, command);
+    const second = mergeCursorHooks(first.doc, command);
+    assert.equal(second.changed, false);
+    const moved = mergeCursorHooks(first.doc, ensureCommand("/home/me/.pinar", { platform: "linux" }));
+    assert.equal(moved.changed, true);
+    assert.equal(moved.doc.hooks.sessionStart.length, 1);
+    assert.match(moved.doc.hooks.sessionStart[0].command, /ensure\.sh/);
+  });
+
   test("installHooks writes user files without clobbering siblings", async () => {
     const home = await mkdtemp(join(tmpdir(), "pinar-hooks-"));
     await mkdir(join(home, ".claude"), { recursive: true });
     await writeFile(join(home, ".claude", "settings.json"), `${JSON.stringify({ hooks: { Stop: [] } }, null, 2)}\n`);
+    await mkdir(join(home, ".cursor"), { recursive: true });
+    await writeFile(
+      join(home, ".cursor", "hooks.json"),
+      `${JSON.stringify({ version: 1, hooks: { afterFileEdit: [{ command: "format.sh" }] } }, null, 2)}\n`,
+    );
+    await mkdir(join(home, ".grok", "hooks"), { recursive: true });
+    await writeFile(
+      join(home, ".grok", "hooks", "pinar.json"),
+      `${JSON.stringify({ extra: true, hooks: { Stop: [] } }, null, 2)}\n`,
+    );
     await mkdir(join(home, ".gemini", "config"), { recursive: true });
     await writeFile(
       join(home, ".gemini", "config", "hooks.json"),
@@ -173,7 +226,13 @@ describe("install-hooks", () => {
     assert.ok(antigravity.pinar);
 
     const grok = JSON.parse(await readFile(join(home, ".grok", "hooks", "pinar.json"), "utf8"));
+    assert.equal(grok.extra, true);
+    assert.ok(grok.hooks.Stop);
     assert.ok(grok.hooks.SessionStart);
+
+    const cursor = JSON.parse(await readFile(join(home, ".cursor", "hooks.json"), "utf8"));
+    assert.equal(cursor.hooks.afterFileEdit[0].command, "format.sh");
+    assert.equal(isPinarEnsureCommand(cursor.hooks.sessionStart[0].command), true);
 
     const codex = JSON.parse(await readFile(join(home, ".codex", "hooks.json"), "utf8"));
     assert.ok(codex.hooks.SessionStart[0].hooks[0].commandWindows.includes("ensure.cmd"));

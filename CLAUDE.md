@@ -1,3 +1,19 @@
+# Pinar
+
+On macOS, session-start hooks open **Pinar.app** (`/usr/bin/open -ga ~/Applications/Pinar.app`). The menu-bar app starts the local HTTP server if it is not already up. If the menu bar shows Local Server: Off, choose Start. Do not instruct `pinar` or `curl | sh`, and do not start a second long-lived process: any port in `127.0.0.1:17373`–`17382` that answers `GET /api/health` with `service: "pinar"` is enough. Shots land in `~/.pinar/shots` and history in `~/.pinar/history.db`. `PINAR_PORT` pins the server to a single port.
+
+Visual page annotations are copied to the clipboard by the Chrome extension (⌘/Ctrl+Enter). The same action copies a human Markdown representation and a `pinar-visual-context` JSON block (Visual Context v1). `captureId` and `pinId` identify the capture; do not rewrite them.
+
+When the user pastes annotations, or says they copied/annotated a page:
+
+1. Use the pasted markdown/HTML **and** the `pinar-visual-context` JSON as the source of truth (comment, DOM path, selector, pin coordinates, one shared shot, captureId, pinId).
+2. If the paste lists `Screenshot: /absolute/path.png`, open that file with an image tool. Numbered Pinar badges on it are overlays.
+3. If `Warnings:` include `screenshot_missing`, still use the comment and DOM context. If they include `helper_unavailable` or `viewer_unavailable`, the bundle is still correlatable locally.
+4. If they did not paste, ask them to press ⌘/Ctrl+Enter in Pinar and paste here.
+5. Change only what the pins describe.
+
+The extension does not inject a prompt into the composer. The user pastes. Cursor, Codex, Claude, and Grok consume the same paste; session-start hooks only open Pinar.app / the local helper.
+
 <!-- ai-memory:start -->
 ## Long-term memory (ai-memory)
 

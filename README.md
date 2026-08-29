@@ -68,13 +68,13 @@ Without the local server, the crop falls back to `Downloads/pinar/`.
 
 ## Architecture
 
-- `apps/server` is the single TanStack Start application. The Cloudflare build serves `pinar.dev`; the Nitro/Bun build serves the local installation with the same routes and UI.
+- `apps/server` is the single TanStack Start application. The Cloudflare build serves `pinar.dev` with marketing, accounts, Stripe, and AI. The Nitro/Bun helper serves the local installation: `/`, `/app`, `/v/*`, `/legal/*`. Pasting `/pricing`, `/sign-in`, or `/success` on loopback redirects to the same path on `https://pinar.dev`. The local API does not proxy pricing or checkout.
 - `apps/cli` is the compiled local HTTP helper (embedded in Pinar.app on macOS; still the public installer on Windows/Linux).
 - `apps/tray` is the macOS menu-bar app.
 - `apps/extension` is the Chrome extension.
 - `packages/ui` and `packages/shared` are consumed by both browser surfaces.
 
-JSON endpoints live under `/api/*`. The private workspace lives at `/app`; the local build opens it directly, while the cloud build requires a web session. Marketing and sign-in remain public at `/`, `/pricing`, `/sign-in`, and `/success`. Unlisted sharing remains public at `/v/*`, `/p/*`, `/c/*`, and `/shots/*`.
+JSON endpoints live under `/api/*`. The private workspace lives at `/app`; the local build opens it directly, while the cloud build requires a web session. Unlisted sharing remains public at `/v/*`, `/p/*`, `/c/*`, and `/shots/*`.
 
 Remote Free installations open `/app` with a five-minute, single-use code created by the extension. Paid and previously paid accounts can also sign in with a six-digit code sent by email. The server stores hashes of codes and session tokens; web sessions last 30 days and authenticated extension devices last 180 days.
 

@@ -7,6 +7,7 @@ import { ServerShell } from "@/components/ServerShell";
 import { isRecord, isSession } from "@/lib/api-data";
 import { useServerI18n } from "@/lib/i18n";
 import { formatPinMarkdown } from "@/lib/pin-markdown";
+import { pinarRuntime } from "@/lib/server-header";
 import { formatSessionDate } from "@/lib/session-date";
 import {
   Button,
@@ -69,6 +70,7 @@ function pinNumber(pin: Pin, index: number) {
 
 export function WebViewer({ sessionId }: WebViewerProps) {
   const { language, t } = useServerI18n();
+  const showAiSummary = pinarRuntime() === "cloud";
   const aiRequestId = useRef<string | null>(null);
   const [aiCreditsRemaining, setAiCreditsRemaining] = useState<number | null>(null);
   const [aiError, setAiError] = useState("");
@@ -222,10 +224,12 @@ export function WebViewer({ sessionId }: WebViewerProps) {
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <Button aria-label={t("viewer.aiSummary")} disabled={aiLoading} type="button" variant="outline" onClick={() => void generateAiSummary()}>
-            <SparklesIcon data-icon="inline-start" />
-            <span className="hidden sm:inline">{aiLoading ? t("viewer.aiSummarizing") : t("viewer.aiSummary")}</span>
-          </Button>
+          {showAiSummary ? (
+            <Button aria-label={t("viewer.aiSummary")} disabled={aiLoading} type="button" variant="outline" onClick={() => void generateAiSummary()}>
+              <SparklesIcon data-icon="inline-start" />
+              <span className="hidden sm:inline">{aiLoading ? t("viewer.aiSummarizing") : t("viewer.aiSummary")}</span>
+            </Button>
+          ) : null}
           <ButtonGroup aria-label={t("viewer.pageActions")}>
             <Button aria-label={pageCopied ? t("common.copied") : t("viewer.copyPage")} type="button" variant="outline" onClick={copyPage}>
               {pageCopied ? <CheckIcon data-icon="inline-start" /> : <CopyIcon data-icon="inline-start" />}
@@ -374,57 +378,59 @@ export function WebViewer({ sessionId }: WebViewerProps) {
           onOpenChange={setImageZoomOpen}
         />
       )}
-      <Dialog open={aiSummaryOpen} onOpenChange={setAiSummaryOpen}>
-        <DialogContent className="sm:max-w-2xl" showCloseButton>
-          <DialogHeader>
-            <DialogTitle>{t("viewer.aiSummaryTitle")}</DialogTitle>
-            <DialogDescription>{t("viewer.aiSummaryDescription")}</DialogDescription>
-          </DialogHeader>
-          {aiLoading ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">{t("viewer.aiSummarizing")}</p>
-          ) : aiError ? (
-            <Card className="border-destructive/30 bg-destructive/5">
-              <CardContent className="flex flex-col items-start gap-3 text-sm text-destructive">
-                <p>{aiError}</p>
-                {aiRecovery === "signIn" ? (
-                  <Button
-                    render={<a href={`/sign-in?returnTo=${encodeURIComponent(`/v/${sessionId}`)}`} />}
-                    size="sm"
-                    variant="outline"
-                  >
-                    {t("viewer.aiSignInAction")}
-                  </Button>
-                ) : aiRecovery === "pricing" ? (
-                  <Button render={<Link preload="intent" to="/pricing" />} size="sm" variant="outline">
-                    {t("viewer.aiViewPlans")}
-                  </Button>
-                ) : aiRecovery === "retry" ? (
-                  <Button size="sm" type="button" variant="outline" onClick={() => void generateAiSummary()}>
-                    {t("viewer.aiRetry")}
-                  </Button>
-                ) : null}
-              </CardContent>
-            </Card>
-          ) : aiSummary ? (
-            <div className="flex flex-col gap-5">
-              <p className="text-sm leading-relaxed text-foreground">{aiSummary.summary}</p>
-              {aiSummary.highlights.length > 0 && (
-                <div>
-                  <h3 className="mb-2 text-sm font-semibold">{t("viewer.aiHighlights")}</h3>
-                  <ul className="flex list-disc flex-col gap-2 pl-5 text-sm text-foreground">
-                    {aiSummary.highlights.map((highlight) => <li key={highlight}>{highlight}</li>)}
-                  </ul>
-                </div>
-              )}
-              <p className="text-xs text-muted-foreground">
-                {aiCreditsRemaining === null
-                  ? t("viewer.aiCreditCost")
-                  : t("viewer.aiCreditsRemaining", { count: aiCreditsRemaining })}
-              </p>
-            </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
+      {showAiSummary ? (
+        <Dialog open={aiSummaryOpen} onOpenChange={setAiSummaryOpen}>
+          <DialogContent className="sm:max-w-2xl" showCloseButton>
+            <DialogHeader>
+              <DialogTitle>{t("viewer.aiSummaryTitle")}</DialogTitle>
+              <DialogDescription>{t("viewer.aiSummaryDescription")}</DialogDescription>
+            </DialogHeader>
+            {aiLoading ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">{t("viewer.aiSummarizing")}</p>
+            ) : aiError ? (
+              <Card className="border-destructive/30 bg-destructive/5">
+                <CardContent className="flex flex-col items-start gap-3 text-sm text-destructive">
+                  <p>{aiError}</p>
+                  {aiRecovery === "signIn" ? (
+                    <Button
+                      render={<a href={`/sign-in?returnTo=${encodeURIComponent(`/v/${sessionId}`)}`} />}
+                      size="sm"
+                      variant="outline"
+                    >
+                      {t("viewer.aiSignInAction")}
+                    </Button>
+                  ) : aiRecovery === "pricing" ? (
+                    <Button render={<Link preload="intent" to="/pricing" />} size="sm" variant="outline">
+                      {t("viewer.aiViewPlans")}
+                    </Button>
+                  ) : aiRecovery === "retry" ? (
+                    <Button size="sm" type="button" variant="outline" onClick={() => void generateAiSummary()}>
+                      {t("viewer.aiRetry")}
+                    </Button>
+                  ) : null}
+                </CardContent>
+              </Card>
+            ) : aiSummary ? (
+              <div className="flex flex-col gap-5">
+                <p className="text-sm leading-relaxed text-foreground">{aiSummary.summary}</p>
+                {aiSummary.highlights.length > 0 && (
+                  <div>
+                    <h3 className="mb-2 text-sm font-semibold">{t("viewer.aiHighlights")}</h3>
+                    <ul className="flex list-disc flex-col gap-2 pl-5 text-sm text-foreground">
+                      {aiSummary.highlights.map((highlight) => <li key={highlight}>{highlight}</li>)}
+                    </ul>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  {aiCreditsRemaining === null
+                    ? t("viewer.aiCreditCost")
+                    : t("viewer.aiCreditsRemaining", { count: aiCreditsRemaining })}
+                </p>
+              </div>
+            ) : null}
+          </DialogContent>
+        </Dialog>
+      ) : null}
       <Dialog open={Boolean(selectedPin)} onOpenChange={(open) => !open && setSelectedPin(null)}>
         <DialogContent className="sm:max-w-5xl" outsideScroll showCloseButton>
           {selectedPin && (

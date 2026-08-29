@@ -152,6 +152,25 @@ test("an account with current acceptance goes directly to checkout", async ({ pa
   expect(checkoutBody?.legalAcceptance).toBeUndefined();
 });
 
+test("pricing footer keeps Stripe checkout note above legal links", async ({ page }) => {
+  await page.route("**/api/pricing", (route) => route.fulfill({ json: BrazilPricing }));
+  await page.goto("/pricing");
+
+  const footer = page.getByRole("contentinfo");
+  const checkoutNote = footer.getByText("Secure checkout powered by Stripe", { exact: false });
+  const copyright = footer.getByText(/^© \d{4}$/);
+  const legalNav = footer.getByRole("navigation", { name: "Legal documents" });
+  const [checkoutNoteBox, copyrightBox, legalNavBox] = await Promise.all([
+    checkoutNote.boundingBox(),
+    copyright.boundingBox(),
+    legalNav.boundingBox(),
+  ]);
+  if (!checkoutNoteBox || !copyrightBox || !legalNavBox) {
+    throw new Error("Expected the pricing footer checkout note, copyright, and legal navigation.");
+  }
+  expect(copyrightBox.y - (checkoutNoteBox.y + checkoutNoteBox.height)).toBeGreaterThanOrEqual(16);
+});
+
 function assertCheckoutConsent(body: Record<string, unknown> | null) {
   expect(body).not.toBeNull();
   expect(body?.offer).toBe("founder");

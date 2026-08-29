@@ -101,7 +101,10 @@ test("unlisted visitor sees only authentic public session data and explicit navi
 
   await expect(page.getByRole("button", { exact: true, name: "Personal" })).toHaveCount(0);
   await expect(page.getByRole("button", { exact: true, name: "Inbox" })).toHaveCount(0);
-  await expect(await primaryNavigationItem(page, "Sign in")).toBeVisible();
+  await expect(await primaryNavigationItem(page, "Open app")).toBeVisible();
+  await expect(page.getByRole("banner").getByRole("link", { exact: true, name: "Sign in" })).toHaveCount(0);
+  await expect(page.getByRole("banner").getByRole("link", { exact: true, name: "Plans" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "AI summary" })).toHaveCount(0);
 });
 
 test("copy, Markdown endpoint and assistant prompts preserve one session payload", async ({ page }) => {

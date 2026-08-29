@@ -8,8 +8,6 @@ import {
   authorizeAppRequest,
   handleApiRequest,
   handlePublicRequest,
-  proxyCloudCheckout,
-  proxyCloudPricing,
   resetLocalApiForTests,
 } from "./api.local";
 import { exerciseProjectApiContract } from "./project-api.contract";
@@ -113,64 +111,28 @@ describe("local TanStack API", () => {
     assert.equal(existsSync(join(root, "shots", "local_session_001.png")), false);
   });
 
-  test("normalizes a non-JSON cloud checkout failure", async () => {
-    const response = await proxyCloudCheckout(
-      new Request("http://127.0.0.1:17373/api/stripe/checkout", {
+  test("does not proxy cloud pricing or checkout", async () => {
+    let fetched = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      fetched += 1;
+      return Response.json({ leaked: true });
+    }) as typeof fetch;
+    try {
+      const pricing = await request("/api/pricing");
+      const checkout = await request("/api/stripe/checkout", {
         body: JSON.stringify({ interval: "year" }),
         headers: { "content-type": "application/json" },
         method: "POST",
-      }),
-      async () => new Response("404 Not Found", {
-        headers: { "content-type": "text/plain" },
-        status: 404,
-      }),
-    );
-    assert.equal(response.status, 503);
-    assert.deepEqual(await jsonBody(response), {
-      code: "checkout_unavailable",
-      error: "Checkout service unavailable",
-    });
-  });
-
-  test("passes through a JSON cloud checkout response", async () => {
-    const response = await proxyCloudCheckout(
-      new Request("http://127.0.0.1:17373/api/stripe/checkout", {
-        body: JSON.stringify({ interval: "year" }),
-        headers: { "content-type": "application/json" },
-        method: "POST",
-      }),
-      async () => Response.json({ ok: true, url: "https://checkout.stripe.test/session" }),
-    );
-    assert.equal(response.status, 200);
-    assert.equal((await jsonBody(response)).url, "https://checkout.stripe.test/session");
-  });
-
-  test("loads country-aware pricing through the remote server", async () => {
-    // Mutation captured: resolving pricing locally loses Cloudflare's public-IP country detection.
-    let requestedUrl = "";
-    const response = await proxyCloudPricing(async (input) => {
-      requestedUrl = String(input);
-      return Response.json({
-        country: "BR",
-        currency: "BRL",
-        discountPercent: null,
-        founderState: "closed",
-        prices: {
-          aiCredits1000: { amount: 990, originalAmount: null },
-          founder: { amount: 12_990, originalAmount: null },
-          free: { amount: 0, originalAmount: null },
-          month: { amount: 490, originalAmount: null },
-          storage20Gb12M: { amount: 2_990, originalAmount: null },
-          storage5Gb12M: { amount: 990, originalAmount: null },
-          year: { amount: 3_990, originalAmount: null },
-        },
-        regional: true,
       });
-    });
-    assert.equal(requestedUrl, "https://pinar.dev/api/pricing");
-    assert.equal(response.status, 200);
-    assert.equal(response.headers.get("cache-control"), "private, no-store");
-    assert.equal((await jsonBody(response)).currency, "BRL");
+      assert.equal(pricing.status, 404);
+      assert.equal(checkout.status, 404);
+      assert.deepEqual(await jsonBody(pricing), { error: "not found" });
+      assert.deepEqual(await jsonBody(checkout), { error: "not found" });
+      assert.equal(fetched, 0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   test("provides project and collection CRUD with safe capture fallback", async () => {

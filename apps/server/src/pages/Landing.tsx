@@ -12,6 +12,7 @@ import {
 import { Link } from "@tanstack/react-router";
 import { ServerShell } from "@/components/ServerShell";
 import { ServerFooter } from "@/components/ServerFooter";
+import { pinarRuntime } from "@/lib/server-header";
 import { useServerI18n } from "@/lib/i18n";
 import BotIcon from "~icons/lucide/bot";
 import CloudIcon from "~icons/lucide/cloud";
@@ -25,6 +26,7 @@ export const CHROME_EXTENSION_URL = "https://chromewebstore.google.com/detail/pi
 
 export function LandingPage() {
   const { t } = useServerI18n();
+  const isLocal = pinarRuntime() === "local";
   const features = [
     { description: t("landing.pinDescription"), icon: MapPinIcon, title: t("landing.pinTitle") },
     { description: t("landing.contextDescription"), icon: CodeIcon, title: t("landing.contextTitle") },
@@ -46,12 +48,14 @@ export function LandingPage() {
             <p className="mt-5 max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg">
               {t("landing.description")}
             </p>
-            <div className="mt-7 flex flex-wrap items-center justify-center gap-2">
-              <Button className="text-xs" render={<a href={CHROME_EXTENSION_URL} rel="noopener noreferrer" target="_blank" />} size="lg">
-                <DownloadIcon data-icon="inline-start" />
-                {t("landing.installExtension")}
-              </Button>
-            </div>
+            {isLocal ? null : (
+              <div className="mt-7 flex flex-wrap items-center justify-center gap-2">
+                <Button className="text-xs" render={<a href={CHROME_EXTENSION_URL} rel="noopener noreferrer" target="_blank" />} size="lg">
+                  <DownloadIcon data-icon="inline-start" />
+                  {t("landing.installExtension")}
+                </Button>
+              </div>
+            )}
           </section>
 
           <section aria-label={t("landing.howItWorks")} className="mt-14 grid gap-4 md:grid-cols-3">
@@ -68,7 +72,7 @@ export function LandingPage() {
             ))}
           </section>
 
-          <section className="mt-8 grid gap-4 md:grid-cols-2">
+          <section className={`mt-8 grid gap-4 ${isLocal ? "" : "md:grid-cols-2"}`}>
             <Card className="h-full">
               <CardHeader>
                 <div className="flex items-center gap-2 text-card-foreground">
@@ -86,23 +90,25 @@ export function LandingPage() {
                 <Button render={<Link preload="intent" to="/app" />} size="sm" variant="outline">{t("landing.openLocalDashboard")}</Button>
               </CardFooter>
             </Card>
-            <Card className="h-full">
-              <CardHeader>
-                <div className="flex items-center gap-2 text-card-foreground">
-                  <CloudIcon className="size-4 shrink-0 text-current" />
-                  <CardTitle>{t("landing.shareTitle")}</CardTitle>
-                </div>
-                <CardDescription>
-                  {t("landing.shareDescription")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm leading-relaxed text-muted-foreground">{t("landing.sameExperience")}</p>
-              </CardContent>
-              <CardFooter className="mt-auto">
-                <Button render={<Link preload="intent" to="/pricing" />} size="sm" variant="outline">{t("landing.comparePlans")}</Button>
-              </CardFooter>
-            </Card>
+            {isLocal ? null : (
+              <Card className="h-full">
+                <CardHeader>
+                  <div className="flex items-center gap-2 text-card-foreground">
+                    <CloudIcon className="size-4 shrink-0 text-current" />
+                    <CardTitle>{t("landing.shareTitle")}</CardTitle>
+                  </div>
+                  <CardDescription>
+                    {t("landing.shareDescription")}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm leading-relaxed text-muted-foreground">{t("landing.sameExperience")}</p>
+                </CardContent>
+                <CardFooter className="mt-auto">
+                  <Button render={<Link preload="intent" to="/pricing" />} size="sm" variant="outline">{t("landing.comparePlans")}</Button>
+                </CardFooter>
+              </Card>
+            )}
           </section>
 
           <ServerFooter className="pt-12" />

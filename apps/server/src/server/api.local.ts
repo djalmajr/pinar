@@ -303,53 +303,6 @@ async function deleteHistory(id: string) {
   return json({ deleted: database.deleteSession(id), ok: true });
 }
 
-export async function proxyCloudCheckout(request: Request, fetcher: typeof fetch = fetch) {
-  try {
-    const response = await fetcher("https://pinar.dev/api/stripe/checkout", {
-      body: await request.text(),
-      headers: {
-        Accept: "application/json",
-        "Content-Type": request.headers.get("content-type") || "application/json",
-      },
-      method: "POST",
-    });
-    const body = await response.text();
-    if (response.headers.get("content-type")?.includes("application/json")) {
-      return new Response(body, {
-        headers: headers({ "Content-Type": "application/json; charset=utf-8" }),
-        status: response.status,
-      });
-    }
-  } catch {
-    // Normalize cloud and transport failures into the local JSON API contract.
-  }
-  return json({ code: "checkout_unavailable", error: "Checkout service unavailable" }, 503);
-}
-
-export async function proxyCloudPricing(fetcher: typeof fetch = fetch) {
-  try {
-    const response = await fetcher("https://pinar.dev/api/pricing", {
-      headers: { Accept: "application/json" },
-      method: "GET",
-    });
-    const body = await response.text();
-    if (response.headers.get("content-type")?.includes("application/json")) {
-      return new Response(body, {
-        headers: headers({
-          "Cache-Control": "private, no-store",
-          "Content-Type": "application/json; charset=utf-8",
-        }),
-        status: response.status,
-      });
-    }
-  } catch {
-    // Normalize cloud and transport failures into the local JSON API contract.
-  }
-  return json({ code: "pricing_unavailable", error: "Pricing service unavailable" }, 503, {
-    "Cache-Control": "private, no-store",
-  });
-}
-
 export async function authorizeHistoryRequest(request: Request) {
   return localApiRequestAllowed(request);
 }
@@ -383,9 +336,7 @@ async function routeLocalApi(request: Request): Promise<Response> {
   if (method === "GET" && path === "/api/auth/session") {
     return json({ session: { kind: "local", plan: "free" } }, 200, { "Cache-Control": "no-store" });
   }
-  if (method === "GET" && path === "/api/pricing") return proxyCloudPricing();
   if (method === "POST" && path === "/api/auth/logout") return json({ ok: true });
-  if (method === "POST" && path === "/api/stripe/checkout") return proxyCloudCheckout(request);
   if (method === "POST" && path === "/api/shots") return uploadShot(request);
   if (method === "POST" && path === "/api/history") return saveHistory(request);
   if (method === "GET" && path.startsWith("/api/public/projects/")) {

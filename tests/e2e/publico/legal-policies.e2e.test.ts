@@ -40,7 +40,7 @@ test("visitor reads every versioned legal document and switches it to Portuguese
 // Mutation captured: removing the brand/legal columns, restoring the full
 // document list, or moving operational metadata above the divider breaks this hierarchy.
 test("public footer keeps only primary legal links and opens the full policy tabs", async ({ page }) => {
-  await page.goto("/pricing");
+  await page.goto("/");
 
   const footer = page.getByRole("contentinfo");
   const brandLink = footer.getByRole("link", { name: "Pinar home" });
@@ -48,32 +48,29 @@ test("public footer keeps only primary legal links and opens the full policy tab
   const legalLinks = legalNav.getByRole("link");
   const checkoutNote = footer.getByText("Secure checkout powered by Stripe", { exact: false });
   const copyright = footer.getByText(/^© \d{4}$/);
-  const [brandLinkBox, footerBox, legalNavBox, checkoutNoteBox, copyrightBox] = await Promise.all([
+  const [brandLinkBox, footerBox, legalNavBox, copyrightBox] = await Promise.all([
     brandLink.boundingBox(),
     footer.boundingBox(),
     legalNav.boundingBox(),
-    checkoutNote.boundingBox(),
     copyright.boundingBox(),
   ]);
 
-  if (!brandLinkBox || !footerBox || !legalNavBox || !checkoutNoteBox || !copyrightBox) {
-    throw new Error("Expected the footer brand, legal navigation, and metadata to have visible layout boxes.");
+  if (!brandLinkBox || !footerBox || !legalNavBox || !copyrightBox) {
+    throw new Error("Expected the footer brand, legal navigation, and copyright to have visible layout boxes.");
   }
 
   await expect(legalLinks).toHaveCount(2);
   await expect(legalLinks.nth(0)).toHaveText("Terms of Service");
   await expect(legalLinks.nth(1)).toHaveText("Privacy Policy");
+  await expect(checkoutNote).toHaveCount(0);
   const isDesktop = (page.viewportSize()?.width ?? 0) >= 640;
   if (isDesktop) {
     expect(brandLinkBox.x).toBeLessThan(legalNavBox.x);
+    expect(Math.abs(copyrightBox.y - legalNavBox.y)).toBeLessThanOrEqual(8);
   } else {
     expect(legalNavBox.y).toBeGreaterThan(brandLinkBox.y);
   }
   expect(legalNavBox.width).toBeLessThan(footerBox.width * 0.7);
-  expect(copyrightBox.y - (checkoutNoteBox.y + checkoutNoteBox.height)).toBeGreaterThanOrEqual(16);
-  if (isDesktop) {
-    expect(Math.abs(copyrightBox.y - legalNavBox.y)).toBeLessThanOrEqual(8);
-  }
 
   await legalLinks.nth(0).click();
   await expect(page).toHaveURL(/\/legal\/terms$/);

@@ -24,6 +24,7 @@ import {
 } from "@/lib/account-menu";
 import { useAuthSession } from "@/lib/auth-session";
 import { useServerI18n } from "@/lib/i18n";
+import { pinarRuntime } from "@/lib/server-header";
 import CalendarClockIcon from "~icons/lucide/calendar-clock";
 import ChevronsUpDownIcon from "~icons/lucide/chevrons-up-down";
 import CoinsIcon from "~icons/lucide/coins";
@@ -46,11 +47,12 @@ export function AppAccountMenu() {
   const { language, t } = useServerI18n();
   const session = useAuthSession();
   const { isMobile } = useSidebar();
+  const localRuntime = pinarRuntime() === "local";
   const [usage, setUsage] = useState<AccountUsageSummary | null>(null);
   const [usageStatus, setUsageStatus] = useState<UsageStatus>("loading");
 
   useEffect(() => {
-    if (!session || session.kind === "local") return;
+    if (localRuntime || !session || session.kind === "local") return;
     const controller = new AbortController();
     setUsage(null);
     setUsageStatus("loading");
@@ -69,7 +71,7 @@ export function AppAccountMenu() {
         if (!controller.signal.aborted) setUsageStatus("error");
       });
     return () => controller.abort();
-  }, [session]);
+  }, [localRuntime, session]);
 
   async function openBilling() {
     const response = await fetch("/api/stripe/portal", { method: "POST" });
@@ -84,7 +86,7 @@ export function AppAccountMenu() {
     window.location.href = "/sign-in";
   }
 
-  if (!session || session.kind === "local") return null;
+  if (localRuntime || !session || session.kind === "local") return null;
 
   const identity = accountMenuIdentity(session, "Pinar Free", t("app.freePlan"));
   const currentPlan = usage?.plan ?? session.plan;

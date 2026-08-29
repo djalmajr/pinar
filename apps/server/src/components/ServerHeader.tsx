@@ -12,7 +12,7 @@ import {
 } from "@pinar/ui";
 import { useAuthSession } from "@/lib/auth-session";
 import { SERVER_LANGUAGES, useServerI18n } from "@/lib/i18n";
-import { publicHeaderCta } from "@/lib/server-header";
+import { pinarRuntime, publicHeaderCta, publicHeaderShowsPlans } from "@/lib/server-header";
 import CheckIcon from "~icons/lucide/check";
 import LanguagesIcon from "~icons/lucide/languages";
 import HomeIcon from "~icons/lucide/house";
@@ -35,7 +35,9 @@ export interface ServerHeaderProps {
 export function ServerHeader({ actions, activePage, context }: ServerHeaderProps) {
   const { language, languageName, setLanguage, t } = useServerI18n();
   const session = useAuthSession();
-  const headerCta = publicHeaderCta(session);
+  const runtime = pinarRuntime();
+  const headerCta = publicHeaderCta(session, runtime);
+  const showPlans = publicHeaderShowsPlans(runtime);
   const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
@@ -70,14 +72,16 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
             <HomeIcon data-icon="inline-start" />
             {t("common.home")}
           </Button>
-          <Button
-            render={<Link aria-current={activePage === "pricing" ? "page" : undefined} preload="intent" to="/pricing" />}
-            size="sm"
-            variant={activePage === "pricing" ? "secondary" : "ghost"}
-          >
-            <TagIcon data-icon="inline-start" />
-            {t("common.plans")}
-          </Button>
+          {showPlans ? (
+            <Button
+              render={<Link aria-current={activePage === "pricing" ? "page" : undefined} preload="intent" to="/pricing" />}
+              size="sm"
+              variant={activePage === "pricing" ? "secondary" : "ghost"}
+            >
+              <TagIcon data-icon="inline-start" />
+              {t("common.plans")}
+            </Button>
+          ) : null}
         </nav>
 
         {context ? <div className="min-w-0 flex-1 border-l pl-4">{context}</div> : <div className="flex-1" />}
@@ -90,7 +94,9 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44 md:hidden">
               <DropdownMenuItem render={<Link preload="intent" to="/" />}><HomeIcon />{t("common.home")}</DropdownMenuItem>
-              <DropdownMenuItem render={<Link preload="intent" to="/pricing" />}><TagIcon />{t("common.plans")}</DropdownMenuItem>
+              {showPlans ? (
+                <DropdownMenuItem render={<Link preload="intent" to="/pricing" />}><TagIcon />{t("common.plans")}</DropdownMenuItem>
+              ) : null}
               {headerCta === "open-app" ? (
                 <DropdownMenuItem render={<Link preload="intent" to="/app" />}><PanelsTopLeftIcon />{t("common.openApp")}</DropdownMenuItem>
               ) : (

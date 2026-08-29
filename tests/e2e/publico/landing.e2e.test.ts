@@ -10,7 +10,6 @@ test("landing card icons inherit their title color and remain compact", async ({
     "Preserve the context",
     "Hand it to AI",
     "Private by default",
-    "Share when you need to",
   ]) {
     const heading = page.getByRole("heading", { name: title, exact: true });
     const row = heading.locator("xpath=..");
@@ -36,16 +35,14 @@ test("landing card icons inherit their title color and remain compact", async ({
 
 // Mutation captured: linking the primary public CTA directly to `/app`
 // bypasses the explicit sign-in step and makes this routing assertion fail.
-test("public landing routes dashboard intent through sign-in and keeps local access explicit", async ({ page }) => {
+test("public landing keeps local workspace access without a sign-in detour", async ({ page }) => {
   await page.goto("/");
 
   const main = page.getByRole("main");
-  const signIn = main.getByRole("link", { name: "Sign in", exact: true });
   const localDashboard = main.getByRole("link", { name: "Open local dashboard", exact: true });
-  await expect(signIn).toHaveAttribute("href", "/sign-in?extensionCode=&returnTo=%2Fapp");
+  await expect(main.getByRole("link", { name: "Sign in", exact: true })).toHaveCount(0);
   await expect(localDashboard).toHaveAttribute("href", "/app");
 
-  await signIn.click();
-  await expect(page).toHaveURL(/\/sign-in/);
-  expect(new URL(page.url()).searchParams.get("returnTo")).toBe("/app");
+  await localDashboard.click();
+  await expect(page).toHaveURL(/\/app/);
 });

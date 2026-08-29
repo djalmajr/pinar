@@ -16,5 +16,6 @@ describe("landing page", () => {
     assert.match(landingSource, /className="text-xs"/);
     assert.doesNotMatch(landingSource, /t\("common\.signIn"\)/);
     assert.doesNotMatch(landingSource, /t\("landing\.viewPlans"\)/);
+    assert.match(landingSource, /pinarRuntime\(\) === "local"/);
   });
 });

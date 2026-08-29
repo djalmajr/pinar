@@ -39,6 +39,12 @@ const session = {
       coords: { x: 24, y: 48 },
       domPath: elementDomPath,
       innerText: "Save changes",
+      location: {
+        confidence: "ambiguous",
+        evidence: ["competing candidates"],
+        score: 0.52,
+        strategy: "semantic",
+      },
       number: 1,
       selector: elementSelector,
       tag: "button",
@@ -91,6 +97,7 @@ test("unlisted visitor sees only authentic public session data and explicit navi
   const cards = page.locator("aside").getByTitle(/Open pin/);
   await expect(cards).toHaveCount(2);
   await expect(cards.nth(0)).toContainText("Align this action with the right edge.");
+  await expect(cards.nth(0)).toContainText("Needs review");
   await expect(cards.nth(1)).toContainText("Reduce the empty space in this region.");
 
   const popupPromise = page.waitForEvent("popup");
@@ -162,6 +169,7 @@ test("visitor inspects element and area pins in Preview and Raw", async ({ page 
   await page.getByTitle("Open pin 1").click();
   let dialog = page.locator('[data-slot="dialog-content"]');
   await expect(dialog.getByRole("tab", { name: "Preview", selected: true })).toBeVisible();
+  await expect(dialog.getByText("Needs review")).toBeVisible();
   await expect(dialog.getByText(elementComment, { exact: true })).toBeVisible();
   await expect(dialog.getByText(elementSelector, { exact: true })).toBeVisible();
   await expect(dialog.getByText(elementDomPath, { exact: true })).toBeVisible();
@@ -176,6 +184,7 @@ test("visitor inspects element and area pins in Preview and Raw", async ({ page 
   expect(occurrences(rawText, elementComment)).toBe(1);
   expect(occurrences(rawText, elementSelector)).toBe(1);
   expect(occurrences(rawText, elementDomPath)).toBe(1);
+  expect(rawText).toContain("**Location:** ambiguous (semantic)");
 
   await dialog.getByRole("button", { name: "Close" }).click();
   await page.getByTitle("Open pin 2").click();

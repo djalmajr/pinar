@@ -6,7 +6,7 @@ import vm from "node:vm";
 const source = readFileSync(new URL("./frame-path.js", import.meta.url), "utf8");
 const context = vm.createContext({});
 vm.runInContext(source, context);
-const { joinFrameDomPath } = context.__pinarFramePath;
+const { joinFrameDomPath, splitFrameDomPath } = context.__pinarFramePath;
 
 describe("frame DOM paths", () => {
   test("joins nested iframe paths from the top document to the selected element", () => {
@@ -24,5 +24,12 @@ describe("frame DOM paths", () => {
 
   test("keeps the existing path unchanged in the top document", () => {
     assert.equal(joinFrameDomPath([], "body > main > button#target"), "body > main > button#target");
+  });
+
+  test("splits nested iframe paths back into per-document selectors", () => {
+    assert.equal(
+      splitFrameDomPath("body > iframe#workspace-shell ::frame:: body > iframe#application-frame ::frame:: body > main > button#iframe-target").join(" | "),
+      "body > iframe#workspace-shell | body > iframe#application-frame | body > main > button#iframe-target",
+    );
   });
 });

@@ -27,6 +27,12 @@ export function formatPinMarkdown(pin: Pin, number: number) {
   if (element) lines.push(`- **Element:** \`${element}\``);
   if (coordinates) lines.push(`- **Coordinates:** \`x=${coordinates.x}, y=${coordinates.y}\``);
   if (box) lines.push(`- **Area:** \`${box.width} × ${box.height}px at x=${box.x}, y=${box.y}\``);
+  if (pin.location) {
+    lines.push(`- **Location:** ${pin.location.confidence} (${pin.location.strategy})`);
+    if (pin.location.warning === "cross-origin-frame") {
+      lines.push("- **Warning:** cross-origin iframe is not readable");
+    }
+  }
 
   appendCodeBlock(lines, "Selector", pin.selector, "css");
   appendCodeBlock(lines, "DOM path", pin.domPath || pin.path);

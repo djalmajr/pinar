@@ -34,8 +34,10 @@ function normalizePins(pins = []) {
       color: getPinColor(number),
       coords: pinPoint(pin),
       domPath: pin.path,
+      fingerprint: pin.fingerprint,
       id: pinId,
       innerText: pin.text,
+      location: pin.location,
       number,
       pinId,
       tag: pin.label,
@@ -86,7 +88,7 @@ void initializeInstallationIdentity();
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab.id) return;
   await chrome.scripting.executeScript({
-    files: ["coordinates.js", "frame-path.js", "keyboard.js", "content.js"],
+    files: ["coordinates.js", "frame-path.js", "locators.js", "keyboard.js", "content.js"],
     target: { allFrames: true, tabId: tab.id },
   });
 });

@@ -55,6 +55,23 @@ describe("visual context v1", () => {
     assert.equal(aliases.pins[0].pinId, stableLegacyPinId("cap_legacy_aliases", 1));
   });
 
+  test("preserves fingerprint and location without treating them as exact by default", () => {
+    const capture = parseVisualCapture({
+      captureId: "cap_locate",
+      pins: [{
+        comment: "Keep the button",
+        fingerprint: { id: "pay", tag: "button", text: "Pay" },
+        location: { confidence: "probable", evidence: ["visible text"], score: 0.7, strategy: "semantic" },
+        selector: "button.cta",
+      }],
+    });
+    assert.equal(capture.pins[0].fingerprint?.id, "pay");
+    assert.equal(capture.pins[0].locator.fingerprint?.id, "pay");
+    assert.equal(capture.pins[0].location?.confidence, "probable");
+    assert.equal(capture.pins[0].location?.strategy, "semantic");
+    assert.match(formatVisualContextMarkdown(capture), /Location: probable \(semantic\)/);
+  });
+
   test("round-trips v1 without changing captureId or pinId", () => {
     const first = parseVisualCapture(VISUAL_CONTEXT_FIXTURES.v1StableIds);
     assert.equal(first.captureId, "cap_stable");

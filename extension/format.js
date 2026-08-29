@@ -53,6 +53,12 @@ function pinPlain(pin, index) {
   lines.push(`Comment: ${pin.comment?.trim() || "(none)"}`);
   if (pin.path) lines.push(`DOM path: \`${pin.path}\``);
   if (pin.selector) lines.push(`Selector: \`${pin.selector}\``);
+  if (pin.location) {
+    lines.push(`Location: ${pin.location.confidence} (${pin.location.strategy})`);
+    if (pin.location.warning === "cross-origin-frame") {
+      lines.push("Warning: cross-origin iframe is not readable");
+    }
+  }
   if (pin.text) lines.push(`Visible text: ${JSON.stringify(pin.text)}`);
   if (pin.anchor) lines.push(`Pin: x=${pin.anchor.x}, y=${pin.anchor.y}`);
   if (pin.box) {
@@ -71,6 +77,12 @@ function pinHtml(pin, index) {
   }
   if (pin.selector) {
     parts.push(`<p><strong>Selector:</strong> <code>${escapeHtml(pin.selector)}</code></p>`);
+  }
+  if (pin.location) {
+    parts.push(`<p><strong>Location:</strong> ${escapeHtml(pin.location.confidence)} (${escapeHtml(pin.location.strategy)})</p>`);
+    if (pin.location.warning === "cross-origin-frame") {
+      parts.push("<p><strong>Warning:</strong> cross-origin iframe is not readable</p>");
+    }
   }
   if (pin.text) {
     parts.push(`<p><strong>Visible text:</strong> ${escapeHtml(pin.text)}</p>`);

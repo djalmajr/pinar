@@ -543,6 +543,40 @@ async function storeDestination(settings, localBase, destination) {
   });
 }
 
+let localCapabilityCache = { base: "", token: "" };
+
+async function getLocalCapability(base, forceRefresh = false) {
+  if (!forceRefresh && localCapabilityCache.base === base && localCapabilityCache.token) {
+    return localCapabilityCache.token;
+  }
+  const response = await fetch(`${base}/api/local/capability`);
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || typeof body.token !== "string" || !body.token) {
+    throw new Error("Local Pinar server is not running");
+  }
+  localCapabilityCache = { base, token: body.token };
+  return body.token;
+}
+
+async function localFetch(base, path, init = {}) {
+  const send = async (forceRefresh = false) => {
+    const token = await getLocalCapability(base, forceRefresh);
+    return fetch(`${base}${path}`, {
+      ...init,
+      headers: {
+        ...(init.headers || {}),
+        "x-pinar-capability": token,
+      },
+    });
+  };
+  let response = await send();
+  if (response.status === 401) {
+    localCapabilityCache = { base: "", token: "" };
+    response = await send(true);
+  }
+  return response;
+}
+
 async function fetchDestinationTree(settings, localBase) {
   if (settings.storageMode === "cloud") {
     const endpoint = cloudEndpoint(settings);
@@ -552,7 +586,7 @@ async function fetchDestinationTree(settings, localBase) {
     return body.tree;
   }
   if (!localBase) throw new Error("Local Pinar server is not running");
-  const response = await fetch(`${localBase}/api/project-tree`);
+  const response = await localFetch(localBase, "/api/project-tree");
   const body = await response.json().catch(() => ({}));
   if (!response.ok || !body.tree) throw new Error(body.error || "Local destinations are unavailable");
   return body.tree;
@@ -793,7 +827,7 @@ async function saveShot(dataUrl, id, page = {}, pins = [], settings = {}, collec
   const base = await findShotBase();
   if (base) {
     try {
-      const response = await fetch(`${base}/api/shots`, {
+      const response = await localFetch(base, "/api/shots", {
         body: JSON.stringify({ collectionId, captureId: id, id, image: dataUrl, page, pins, schemaVersion: 1 }),
         headers: { "content-type": "application/json" },
         method: "POST",

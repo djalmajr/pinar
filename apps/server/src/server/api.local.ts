@@ -25,6 +25,20 @@ import { pinarHome, shotsDir } from "@pinar/cli/paths";
 import { writeShot } from "@pinar/cli/shots";
 import { formatCollectionMarkdown, formatProjectMarkdown, formatSessionMarkdown } from "./markdown";
 import { installerResponse } from "./installers";
+import {
+  capabilitySecretFromRequest,
+  readOrCreateLocalCapability,
+  resetLocalCapabilityForTests,
+  revokeLocalCapability,
+  rotateLocalCapability,
+} from "./local-capability";
+import {
+  denyUnauthorizedLocalApi,
+  localApiPreflightResponse,
+  localApiRequestAllowed,
+  unauthorizedLocalApiResponse,
+  withLocalApiHeaders,
+} from "./local-api-policy";
 import { localHealthDiscoveryBody } from "./local-api-trust";
 import { decodePngDataUrl } from "./png";
 
@@ -148,9 +162,8 @@ async function readJson(request: Request) {
 
 function headers(initial?: HeadersInit) {
   const result = new Headers(initial);
-  result.set("Access-Control-Allow-Headers", "authorization, content-type, x-pinar-installation-id");
-  result.set("Access-Control-Allow-Methods", "DELETE, GET, OPTIONS, PATCH, POST");
-  result.set("Access-Control-Allow-Origin", "*");
+  result.set("X-Content-Type-Options", "nosniff");
+  if (!result.has("Cache-Control")) result.set("Cache-Control", "no-store");
   return result;
 }
 
@@ -337,15 +350,33 @@ export async function proxyCloudPricing(fetcher: typeof fetch = fetch) {
   });
 }
 
-export function authorizeHistoryRequest() {
-  return true;
+export async function authorizeHistoryRequest(request: Request) {
+  return localApiRequestAllowed(request);
 }
 
 export async function handleApiRequest(request: Request): Promise<Response> {
+  if (request.method === "OPTIONS") return localApiPreflightResponse(request);
+  const denied = await denyUnauthorizedLocalApi(request);
+  if (denied) return denied;
+  return withLocalApiHeaders(request, await routeLocalApi(request));
+}
+
+async function routeLocalApi(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const { method } = request;
   const path = url.pathname;
-  if (method === "OPTIONS") return new Response(null, { headers: headers(), status: 204 });
+  if (method === "GET" && path === "/api/local/capability") {
+    const store = await readOrCreateLocalCapability();
+    return json({ token: store.current.secret });
+  }
+  if (method === "POST" && path === "/api/local/capability/rotate") {
+    const next = await rotateLocalCapability(capabilitySecretFromRequest(request));
+    return next ? json({ token: next.current.secret }) : unauthorizedLocalApiResponse(request);
+  }
+  if (method === "POST" && path === "/api/local/capability/revoke") {
+    const revoked = await revokeLocalCapability(capabilitySecretFromRequest(request));
+    return revoked ? json({ ok: true }) : unauthorizedLocalApiResponse(request);
+  }
   if (method === "GET" && path === "/api/health") {
     return json(localHealthDiscoveryBody());
   }
@@ -556,8 +587,9 @@ export function resetLocalApiForTests() {
   activeDatabase?.close();
   activeDatabase = null;
   activeRoot = "";
+  resetLocalCapabilityForTests();
 }
 
-export function authorizeAppRequest() {
+export function authorizeAppRequest(_request?: Request) {
   return true;
 }

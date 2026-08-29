@@ -1,3 +1,6 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 
 const PORT = Number(process.env.PINAR_E2E_PORT ?? 17383);
@@ -8,6 +11,8 @@ if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65_535) {
 
 const externalBaseUrl = process.env.PINAR_E2E_BASE_URL;
 const baseURL = externalBaseUrl || `http://127.0.0.1:${PORT}`;
+const e2eHome = process.env.PINAR_E2E_HOME || join(tmpdir(), `pinar-e2e-${PORT}`);
+if (!externalBaseUrl) mkdirSync(e2eHome, { recursive: true });
 
 export default defineConfig({
   expect: { timeout: 5_000 },
@@ -34,7 +39,7 @@ export default defineConfig({
   webServer: externalBaseUrl
     ? undefined
     : {
-        command: `env PORT=${PORT} bun apps/server/.output/server/index.mjs`,
+        command: `env PORT=${PORT} PINAR_HOME=${JSON.stringify(e2eHome)} bun apps/server/.output/server/index.mjs`,
         reuseExistingServer: false,
         stderr: "pipe",
         stdout: "ignore",

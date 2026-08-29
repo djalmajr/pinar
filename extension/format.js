@@ -48,6 +48,8 @@ function shotHtml(shot) {
 
 function pinPlain(pin, index) {
   const lines = [`## ${pinTitle(pin, index)}`, ""];
+  const pinId = pin.pinId || pin.id;
+  if (pinId) lines.push(`pinId: ${pinId}`);
   lines.push(`Comment: ${pin.comment?.trim() || "(none)"}`);
   if (pin.path) lines.push(`DOM path: \`${pin.path}\``);
   if (pin.selector) lines.push(`Selector: \`${pin.selector}\``);
@@ -61,6 +63,8 @@ function pinPlain(pin, index) {
 
 function pinHtml(pin, index) {
   const parts = [`<h2>${escapeHtml(pinTitle(pin, index))}</h2>`];
+  const pinId = pin.pinId || pin.id;
+  if (pinId) parts.push(`<p><strong>pinId:</strong> <code>${escapeHtml(pinId)}</code></p>`);
   parts.push(`<p><strong>Comment:</strong> ${escapeHtml(pin.comment?.trim() || "(none)")}</p>`);
   if (pin.path) {
     parts.push(`<p><strong>DOM path:</strong> <code>${escapeHtml(pin.path)}</code></p>`);
@@ -82,7 +86,18 @@ function pinHtml(pin, index) {
   return parts.join("\n");
 }
 
-export function formatClipboard({ page = {}, pins = [], sentAt, shot, viewerUrl } = {}) {
+/**
+ * @param {{
+ *   captureId?: string,
+ *   page?: { title?: string, url?: string },
+ *   pins?: object[],
+ *   schemaVersion?: number,
+ *   sentAt?: string,
+ *   shot?: string,
+ *   viewerUrl?: string,
+ * }} [input]
+ */
+export function formatClipboard({ captureId, page = {}, pins = [], schemaVersion, sentAt, shot, viewerUrl } = {}) {
   const when = sentAt || new Date().toISOString();
   const url = page.url || "(unknown)";
   const title = page.title || "(untitled)";
@@ -90,6 +105,7 @@ export function formatClipboard({ page = {}, pins = [], sentAt, shot, viewerUrl 
   const header = [
     "# Visual feedback",
     "",
+    ...(captureId ? [`schemaVersion: ${schemaVersion || 1}`, `captureId: ${captureId}`] : []),
     `URL: ${url}`,
     `Title: ${title}`,
     `Copied: ${when}`,
@@ -106,6 +122,9 @@ export function formatClipboard({ page = {}, pins = [], sentAt, shot, viewerUrl 
   const htmlParts = [
     `<meta charset="utf-8"/>`,
     `<h1>Visual feedback</h1>`,
+    ...(captureId
+      ? [`<p><strong>schemaVersion:</strong> ${escapeHtml(String(schemaVersion || 1))}<br/><strong>captureId:</strong> ${escapeHtml(captureId)}</p>`]
+      : []),
     `<p><strong>URL:</strong> ${escapeHtml(url)}<br/><strong>Title:</strong> ${escapeHtml(title)}<br/><strong>Copied:</strong> ${escapeHtml(when)}</p>`,
     ...shotHtml(shot),
     ...(finalViewer ? [`<p><strong>Viewer:</strong> <a href="${escapeHtml(finalViewer)}">${escapeHtml(finalViewer)}</a></p>`] : []),

@@ -6,13 +6,17 @@ import {
   type CaptureDestination,
   type Collection,
   type CollectionPlacement,
-  type PageInfo,
-  type Pin,
   type Project,
   type ProjectTree,
   type ProjectTreeCollection,
   type ProjectTreeProject,
   type Session,
+  captureFromSession,
+  decodeVisualCaptureJson,
+  encodeVisualCaptureJson,
+  parseVisualCapture,
+  sessionFromCapture,
+  visualContextErrorBody,
 } from "@pinar/shared";
 import {
   DEFAULT_PROJECT_ICON,
@@ -369,16 +373,6 @@ function collectionPlacementsValue(record: Record<string, unknown>) {
       parentId: typeof item.parentId === "string" && item.parentId ? item.parentId : null,
     }];
   });
-}
-
-function pageValue(value: unknown): PageInfo {
-  if (!isRecord(value)) return { title: "", url: "" };
-  return { title: stringValue(value, "title"), url: stringValue(value, "url") };
-}
-
-function pinsValue(value: unknown): Pin[] {
-  if (!Array.isArray(value)) return [];
-  return JSON.parse(JSON.stringify(value));
 }
 
 async function readJson(message: Request | Response) {
@@ -1174,23 +1168,25 @@ async function withinRateLimits(
 }
 
 function sessionFromRow(row: Record<string, unknown>): Session {
-  let pins: Pin[] = [];
-  try {
-    pins = pinsValue(JSON.parse(String(row.pins_json || "[]")));
-  } catch {
-    pins = [];
-  }
+  const id = String(row.id || "");
+  const capture = decodeVisualCaptureJson(String(row.pins_json || "[]"), id);
   return {
     byteSize: Number(row.byte_size || 0),
+    captureId: capture.captureId,
     collectionId: String(row.collection_id || ""),
     createdAt: String(row.created_at || ""),
-    id: String(row.id || ""),
+    id,
     isPermanent: Boolean(row.is_permanent),
-    page: { title: String(row.title || ""), url: String(row.url || "") },
+    page: {
+      title: String(row.title || ""),
+      url: String(row.url || ""),
+      viewport: capture.page.viewport,
+    },
     pinCount: Number(row.pin_count || 0),
-    pins,
+    pins: capture.pins,
     plan: accountPlan(row.plan),
     position: Number(row.position || 0),
+    schemaVersion: capture.schemaVersion,
     shotId: String(row.shot_id || ""),
     shotUrl: typeof row.shot_url === "string" ? row.shot_url : null,
     userId: typeof row.user_id === "string" ? row.user_id : null,
@@ -3558,6 +3554,7 @@ async function deleteProjectContainer(env: CloudEnv, principal: Principal, id: s
 }
 
 async function persistSession(env: CloudEnv, session: Session) {
+  const capture = captureFromSession(session);
   if (env.DB) {
     await env.DB.prepare(
       `INSERT INTO sessions (
@@ -3575,8 +3572,8 @@ async function persistSession(env: CloudEnv, session: Session) {
       session.page.title || "",
       session.shotId || "",
       session.shotUrl || "",
-      session.pins.length,
-      JSON.stringify(session.pins),
+      capture.pins.length,
+      encodeVisualCaptureJson(capture),
       session.createdAt,
       session.userId || "",
       session.plan || "free",
@@ -3586,7 +3583,7 @@ async function persistSession(env: CloudEnv, session: Session) {
       session.position || 0,
     ).run();
   } else {
-    memorySessions.set(session.id, session);
+    memorySessions.set(session.id, sessionFromCapture(capture, session));
   }
 }
 
@@ -3851,10 +3848,16 @@ async function uploadShot(request: Request, env: CloudEnv) {
   const principal = await resolvePrincipal(request, env);
   if (!principal) return json({ error: "Unauthorized" }, 401);
   const body = await readJson(request);
-  const id = stringValue(body, "id");
+  const id = stringValue(body, "id") || stringValue(body, "captureId");
   const image = stringValue(body, "image");
   if (!SESSION_ID_PATTERN.test(id) || !image) return json({ error: "valid id and image required" }, 400);
   if (!(await assertSessionOwner(env, id, principal))) return json({ error: "Session id is unavailable" }, 409);
+  let capture;
+  try {
+    capture = parseVisualCapture({ ...body, captureId: id }, id);
+  } catch (error) {
+    return json(visualContextErrorBody(error), 400);
+  }
   let imageBytes: Uint8Array;
   try {
     imageBytes = decodePngDataUrl(image);
@@ -3876,20 +3879,18 @@ async function uploadShot(request: Request, env: CloudEnv) {
   if (env.PINAR_BUCKET) {
     await env.PINAR_BUCKET.put(shotObjectKey(id), imageBytes, { httpMetadata: { contentType: "image/png" } });
   }
-  const session: Session = {
+  const session = sessionFromCapture(capture, {
     byteSize: imageBytes.byteLength,
     collectionId: destination.collectionId,
-    createdAt: stringValue(body, "createdAt") || new Date().toISOString(),
+    createdAt: stringValue(body, "createdAt") || capture.createdAt || new Date().toISOString(),
     id,
     isPermanent: principal.isPermanent || storage.activeAddOnBytes > 0,
-    page: pageValue(body.page),
-    pins: pinsValue(body.pins),
     plan: principal.plan,
     position: await nextSessionPosition(env, principal, destination.collectionId),
     shotId: id,
     shotUrl,
     userId: principal.id,
-  };
+  });
   try {
     await persistSession(env, session);
   } catch {
@@ -3912,27 +3913,31 @@ async function saveHistory(request: Request, env: CloudEnv) {
   const principal = await resolvePrincipal(request, env);
   if (!principal) return json({ error: "Unauthorized" }, 401);
   const body = await readJson(request);
-  const id = stringValue(body, "id") || generateNanoId();
+  const id = stringValue(body, "id") || stringValue(body, "captureId") || generateNanoId();
   if (!SESSION_ID_PATTERN.test(id)) return json({ error: "invalid session id" }, 400);
   if (!(await assertSessionOwner(env, id, principal))) return json({ error: "Session id is unavailable" }, 409);
+  let capture;
+  try {
+    capture = parseVisualCapture({ ...body, captureId: id }, id);
+  } catch (error) {
+    return json(visualContextErrorBody(error), 400);
+  }
   const origin = new URL(request.url).origin;
   const shotId = stringValue(body, "shotId");
   const destination = await resolveDestination(env, principal, stringValue(body, "collectionId"));
   const storage = await storageForPrincipal(env, principal);
-  const session: Session = {
+  const session = sessionFromCapture(capture, {
     byteSize: Math.max(0, numberValue(body, "byteSize")),
     collectionId: destination.collectionId,
-    createdAt: stringValue(body, "createdAt") || new Date().toISOString(),
+    createdAt: stringValue(body, "createdAt") || capture.createdAt || new Date().toISOString(),
     id,
     isPermanent: principal.isPermanent || storage.activeAddOnBytes > 0,
-    page: pageValue(body.page),
-    pins: pinsValue(body.pins),
     plan: principal.plan,
     position: await nextSessionPosition(env, principal, destination.collectionId),
     shotId,
     shotUrl: stringValue(body, "shotUrl") || (shotId ? `${origin}/shots/${shotId}.png` : null),
     userId: principal.id,
-  };
+  });
   const replacedBytes = await existingSessionBytes(env, principal.id, id);
   if (!canStoreBytes(storage, Number(session.byteSize || 0), replacedBytes)) {
     return json({

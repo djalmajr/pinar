@@ -31,6 +31,9 @@ describe("history", () => {
     assert.equal(session.page.title, "Test Page");
     assert.equal(session.pins.length, 1);
     assert.equal(session.pins[0].comment, "Fix header");
+    assert.equal(session.schemaVersion, 1);
+    assert.equal(session.captureId, "test-1");
+    assert.equal(session.pins[0].pinId, "test-1:p1");
 
     const fetched = db.getSession("test-1");
     assert.deepEqual(fetched, session);

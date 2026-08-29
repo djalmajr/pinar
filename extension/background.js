@@ -27,14 +27,17 @@ const OPEN_PANEL_MENU_ID = "pinar-open-panel";
 function normalizePins(pins = []) {
   return pins.map((pin, index) => {
     const number = index + 1;
+    const pinId = pin.pinId || pin.id;
     return {
       ...pin,
       areaBox: pin.kind === "area" ? pinBox(pin) : undefined,
       color: getPinColor(number),
       coords: pinPoint(pin),
       domPath: pin.path,
+      id: pinId,
       innerText: pin.text,
       number,
+      pinId,
       tag: pin.label,
       type: pin.kind === "area" ? "area" : "point",
     };
@@ -319,7 +322,7 @@ function generateNanoId(size = 12) {
 
 async function copyBundle(message) {
   const pins = message.pins ?? [];
-  const id = generateNanoId(12);
+  const id = message.captureId || generateNanoId(12);
   const settings = await getSettings();
   let savedResult = null;
   const destination = await getCaptureDestinationContext(settings)
@@ -348,8 +351,10 @@ async function copyBundle(message) {
   }
 
   const payload = formatClipboardPayload({
+    captureId: id,
     page: message.page,
     pins,
+    schemaVersion: message.schemaVersion || 1,
     shot,
     viewerContent,
     viewerUrl: clipboardViewerUrl,
@@ -763,7 +768,7 @@ async function saveShot(dataUrl, id, page = {}, pins = [], settings = {}, collec
     const endpoint = cloudEndpoint(settings);
     try {
       const init = {
-        body: JSON.stringify({ collectionId, id, image: dataUrl, page, pins }),
+        body: JSON.stringify({ collectionId, captureId: id, id, image: dataUrl, page, pins, schemaVersion: 1 }),
         headers: { "content-type": "application/json" },
         method: "POST",
       };
@@ -789,7 +794,7 @@ async function saveShot(dataUrl, id, page = {}, pins = [], settings = {}, collec
   if (base) {
     try {
       const response = await fetch(`${base}/api/shots`, {
-        body: JSON.stringify({ collectionId, id, image: dataUrl, page, pins }),
+        body: JSON.stringify({ collectionId, captureId: id, id, image: dataUrl, page, pins, schemaVersion: 1 }),
         headers: { "content-type": "application/json" },
         method: "POST",
       });

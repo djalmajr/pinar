@@ -1,43 +1,34 @@
 import type { Pin, PageInfo } from "../types/index.js";
+import { formatVisualContextMarkdown, parseVisualCapture } from "../visual-context/index.js";
 
 export function formatClipboardText(
   page: PageInfo,
   pins: Pin[],
   shotPath?: string | null,
-  viewerUrl?: string | null
+  viewerUrl?: string | null,
+  captureId?: string,
 ): string {
-  const parts: string[] = [];
-
-  parts.push(`Page: ${page.title || "(untitled)"}`);
-  parts.push(`URL: ${page.url || "(unknown)"}`);
-  if (viewerUrl) {
-    parts.push(`Viewer: ${viewerUrl}`);
-  }
-  if (shotPath) {
-    parts.push(`Screenshot: ${shotPath}`);
-  }
-  parts.push("");
-
-  pins.forEach((pin) => {
-    parts.push(`Pin #${pin.number}:`);
-    parts.push(`Comment: ${pin.comment}`);
-    if (pin.domPath) parts.push(`DOM: ${pin.domPath}`);
-    if (pin.selector) parts.push(`Selector: ${pin.selector}`);
-    if (pin.innerText) parts.push(`Text: "${pin.innerText.replace(/\n+/g, " ").trim()}"`);
-    parts.push("");
-  });
-
-  return parts.join("\n").trim();
+  const capture = parseVisualCapture({
+    captureId: captureId || "clipboard",
+    page,
+    pins,
+    screenshot: { missing: !shotPath, url: shotPath || null },
+  }, captureId || "clipboard");
+  return formatVisualContextMarkdown(capture, viewerUrl);
 }
 
 export function formatClipboardHtml(
   page: PageInfo,
   pins: Pin[],
   shotPath?: string | null,
-  viewerUrl?: string | null
+  viewerUrl?: string | null,
+  captureId?: string,
 ): string {
   const lines: string[] = [];
   lines.push(`<div data-pinar="bundle">`);
+  if (captureId) {
+    lines.push(`<p><strong>schemaVersion:</strong> 1<br/><strong>captureId:</strong> ${escapeHtml(captureId)}</p>`);
+  }
   lines.push(`<h3>${escapeHtml(page.title || "Page")}</h3>`);
   lines.push(`<p><strong>URL:</strong> <a href="${escapeHtml(page.url)}">${escapeHtml(page.url)}</a></p>`);
   if (viewerUrl) {
@@ -48,8 +39,10 @@ export function formatClipboardHtml(
   }
   lines.push(`<ol>`);
   pins.forEach((pin) => {
+    const pinId = pin.pinId || pin.id;
     lines.push(`<li>`);
     lines.push(`<strong>${escapeHtml(pin.comment)}</strong><br/>`);
+    if (pinId) lines.push(`<small>pinId: <code>${escapeHtml(pinId)}</code></small><br/>`);
     if (pin.selector) lines.push(`<small><code>${escapeHtml(pin.selector)}</code></small>`);
     lines.push(`</li>`);
   });

@@ -17,6 +17,7 @@ import {
   setCloudNowForTests,
 } from "./cloud-api";
 import { exerciseProjectApiContract } from "./project-api.contract";
+import { exerciseVisualContextContract } from "./visual-context.contract";
 
 const identityA = { id: `ins_${"A".repeat(24)}`, token: `pit_${"a".repeat(43)}` };
 const identityB = { id: `ins_${"B".repeat(24)}`, token: `pit_${"b".repeat(43)}` };
@@ -2301,5 +2302,16 @@ describe("remote installation isolation", () => {
       ...init,
       headers: identityHeaders(identityA, init.headers),
     }));
+  });
+
+  test("matches the shared visual context contract", async () => {
+    await register(identityA);
+    await exerciseVisualContextContract(
+      (path, init = {}) => api(path, {
+        ...init,
+        headers: identityHeaders(identityA, init.headers),
+      }),
+      (path, init = {}) => handleCloudPublicRequest(new Request(`https://pinar.test${path}`, init), TEST_ENV),
+    );
   });
 });

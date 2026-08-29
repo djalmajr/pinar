@@ -1,22 +1,13 @@
-import type { ProjectTreeCollection, ProjectTreeProject, Session } from "@pinar/shared";
+import {
+  captureFromSession,
+  formatVisualContextMarkdown,
+  type ProjectTreeCollection,
+  type ProjectTreeProject,
+  type Session,
+} from "@pinar/shared";
 
 export function formatSessionMarkdown(session: Session, viewerUrl: string) {
-  const lines = [
-    `Page: ${session.page?.title || "(untitled)"}`,
-    `URL: ${session.page?.url || "(unknown)"}`,
-    `Viewer: ${viewerUrl}`,
-  ];
-  if (session.shotUrl) lines.push(`Screenshot: ${session.shotUrl}`);
-  lines.push("");
-  for (const [index, pin] of (session.pins || []).entries()) {
-    lines.push(`Pin #${pin.number || index + 1}:`);
-    lines.push(`Comment: ${pin.comment}`);
-    if (pin.domPath) lines.push(`DOM: ${pin.domPath}`);
-    if (pin.selector) lines.push(`Selector: ${pin.selector}`);
-    if (pin.innerText) lines.push(`Text: "${pin.innerText.replace(/\n+/g, " ").trim()}"`);
-    lines.push("");
-  }
-  return lines.join("\n").trim();
+  return formatVisualContextMarkdown(captureFromSession(session), viewerUrl);
 }
 
 function appendSession(lines: string[], session: Session, origin: string) {
@@ -29,6 +20,7 @@ function appendSession(lines: string[], session: Session, origin: string) {
   lines.push("");
   for (const [index, pin] of session.pins.entries()) {
     lines.push(`${pin.number || index + 1}. ${pin.comment}`);
+    if (pin.pinId || pin.id) lines.push(`   - pinId: ${pin.pinId || pin.id}`);
     if (pin.domPath) lines.push(`   - DOM: ${pin.domPath}`);
     if (pin.selector) lines.push(`   - Selector: ${pin.selector}`);
     if (pin.innerText) lines.push(`   - Text: "${pin.innerText.replace(/\n+/g, " ").trim()}"`);

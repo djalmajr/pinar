@@ -73,6 +73,38 @@ function spawnPinar(args: string[]) {
 	return child;
 }
 
+export function runPinarCommand(args: string[]): Promise<number> {
+	return new Promise((resolve, reject) => {
+		const child = spawn(pinarBin(), args, {
+			env: process.env,
+			stdio: "ignore",
+		});
+		child.on("error", reject);
+		child.on("close", (code) => resolve(code ?? 1));
+	});
+}
+
+export type StopServerDeps = {
+	healthyPort?: () => Promise<number | null>;
+	killPort?: (port: number, seen: Set<number>) => Promise<void>;
+	run?: (args: string[]) => Promise<number>;
+	unhealthyTimeoutMs?: number;
+	wait?: (ms: number) => Promise<void>;
+};
+
+export async function waitUntilUnhealthy(
+	timeoutMs = 2000,
+	healthyPort: () => Promise<number | null> = findHealthyPort,
+	wait: (ms: number) => Promise<void> = sleep,
+) {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		if ((await healthyPort()) == null) return true;
+		await wait(50);
+	}
+	return (await healthyPort()) == null;
+}
+
 export function startServer() {
 	spawnPinar(["ensure"]);
 }
@@ -97,15 +129,28 @@ export async function waitUntilHealthy(timeoutMs = 2000) {
 	return findHealthyPort();
 }
 
-export async function stopServer() {
+export async function stopServer(deps: StopServerDeps = {}) {
+	const healthyPort = deps.healthyPort ?? findHealthyPort;
+	const killPort = deps.killPort ?? killListeningPid;
+	const run = deps.run ?? runPinarCommand;
+	const wait = deps.wait ?? sleep;
+	const unhealthyTimeoutMs = deps.unhealthyTimeoutMs ?? 2000;
+	try {
+		await run(["stop"]);
+	} catch {
+		// Missing binary or spawn failure — fall through to health + lsof.
+	}
+	if (await waitUntilUnhealthy(unhealthyTimeoutMs, healthyPort, wait)) return;
+	if (process.platform === "win32") return;
 	const seen = new Set<number>();
 	for (let n = 0; n < PORTS.length; n += 1) {
-		const port = await findHealthyPort();
+		const port = await healthyPort();
 		if (port == null) return;
-		const before = [...seen];
-		await killListeningPid(port, seen);
-		if (seen.size === before.length) return;
+		const before = seen.size;
+		await killPort(port, seen);
+		if (seen.size === before) return;
 	}
+	await waitUntilUnhealthy(unhealthyTimeoutMs, healthyPort, wait);
 }
 
 export async function restartServer() {
@@ -115,17 +160,17 @@ export async function restartServer() {
 }
 
 async function killListeningPid(port: number, seen = new Set<number>()) {
-	if (process.platform !== "win32") return;
+	if (process.platform === "win32") return;
 	const child = spawn("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], {
 		stdio: ["ignore", "pipe", "ignore"],
 	});
-	const stdout = await new Promise<string>((resolve, reject) => {
+	const stdout = await new Promise<string>((resolve) => {
 		let data = "";
 		child.stdout?.setEncoding("utf8");
 		child.stdout?.on("data", (chunk: string) => {
 			data += chunk;
 		});
-		child.on("error", reject);
+		child.on("error", () => resolve(""));
 		child.on("close", () => resolve(data));
 	});
 	const pids = stdout

@@ -17,12 +17,18 @@ export interface Pin {
   color?: string;
   comment: string;
   coords: Point;
+  documentAnchor?: Point;
+  documentBox?: Box;
   domPath?: string;
+  frameId?: number;
+  id?: string;
   innerText?: string;
   kind?: "area" | "element";
   label?: string;
   number: number;
   path?: string;
+  pinId?: string;
+  scroll?: Point;
   selector?: string;
   tag?: string;
   text?: string;
@@ -34,19 +40,22 @@ export interface Pin {
     scrollX: number;
     scrollY: number;
   };
+  viewportAnchored?: boolean;
 }
 
 export interface PageInfo {
   title: string;
   url: string;
   viewport?: {
-    width: number;
+    dpr?: number;
     height: number;
+    width: number;
   };
 }
 
 export interface Session {
   byteSize?: number;
+  captureId?: string;
   collectionId?: string;
   createdAt: string;
   id: string;
@@ -56,6 +65,7 @@ export interface Session {
   pins: Pin[];
   plan?: AccountPlan;
   position?: number;
+  schemaVersion?: number;
   shotId?: string;
   shotUrl?: string | null;
   userId?: string | null;

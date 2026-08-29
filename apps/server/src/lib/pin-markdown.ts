@@ -21,6 +21,7 @@ export function formatPinMarkdown(pin: Pin, number: number) {
     "",
     `- **Type:** ${isArea ? "Area selection" : "Element"}`,
   ];
+  if (pin.pinId || pin.id) lines.push(`- **Pin ID:** \`${pin.pinId || pin.id}\``);
 
   const element = pin.tag || pin.label;
   if (element) lines.push(`- **Element:** \`${element}\``);

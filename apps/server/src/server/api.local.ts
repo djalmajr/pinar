@@ -12,12 +12,20 @@ import type {
   ProjectTree,
   Session,
 } from "@pinar/shared";
+import {
+  generateNanoId,
+  parseVisualCapture,
+  VisualContextError,
+  visualContextErrorBody,
+  type VisualCapture,
+} from "@pinar/shared";
 import { DEFAULT_PROJECT_ICON, isProjectIcon } from "@pinar/shared/project-icons";
 import { openHistoryDb } from "@pinar/cli/history";
 import { pinarHome, shotsDir } from "@pinar/cli/paths";
 import { writeShot } from "@pinar/cli/shots";
 import { formatCollectionMarkdown, formatProjectMarkdown, formatSessionMarkdown } from "./markdown";
 import { installerResponse } from "./installers";
+import { localHealthDiscoveryBody } from "./local-api-trust";
 import { decodePngDataUrl } from "./png";
 
 interface LocalSession extends Session {
@@ -101,40 +109,32 @@ function stringArrayValue(record: Record<string, unknown>, key: string) {
 
 function pageValue(value: unknown): PageInfo {
   if (!isRecord(value)) return { title: "", url: "" };
-  return { title: stringValue(value, "title"), url: stringValue(value, "url") };
-}
-
-function pointValue(value: unknown): Pin["coords"] | null {
-  if (!isRecord(value) || typeof value.x !== "number" || typeof value.y !== "number") return null;
-  return { x: value.x, y: value.y };
-}
-
-function pinValue(value: unknown, index: number): Pin | null {
-  if (!isRecord(value)) return null;
-  const anchor = pointValue(value.anchor);
-  const coords = pointValue(value.coords) || anchor || pointValue(value.box) || { x: 0, y: 0 };
-  const kind = value.kind === "area" || value.kind === "element" ? value.kind : undefined;
-  const type = value.type === "area" || value.type === "point"
-    ? value.type
-    : kind === "area" ? "area" : "point";
-  const number = typeof value.number === "number" && Number.isFinite(value.number) && value.number > 0
-    ? value.number
-    : index + 1;
-
+  const viewport = isRecord(value.viewport) ? value.viewport : undefined;
   return {
-    ...value,
-    anchor: anchor || undefined,
-    comment: typeof value.comment === "string" ? value.comment : "",
-    coords,
-    kind,
-    number,
-    type,
-  } as Pin;
+    title: stringValue(value, "title"),
+    url: stringValue(value, "url"),
+    viewport: viewport
+      ? {
+        dpr: typeof viewport.dpr === "number" ? viewport.dpr : undefined,
+        height: typeof viewport.height === "number" ? viewport.height : 0,
+        width: typeof viewport.width === "number" ? viewport.width : 0,
+      }
+      : undefined,
+  };
 }
 
-function pinsValue(value: unknown): Pin[] {
-  if (!Array.isArray(value)) return [];
-  return value.map(pinValue).filter((pin): pin is Pin => pin !== null);
+function visualCaptureFromBody(
+  body: Record<string, unknown>,
+  id: string,
+): { ok: true; capture: VisualCapture } | { ok: false; response: Response } {
+  try {
+    return {
+      ok: true,
+      capture: parseVisualCapture({ ...body, captureId: id, page: body.page ?? pageValue(body.page) }, id),
+    };
+  } catch (error) {
+    return { ok: false, response: json(visualContextErrorBody(error), 400) };
+  }
 }
 
 async function readJson(request: Request) {
@@ -167,9 +167,10 @@ function presentSession(session: LocalSession | null, origin: string): Session |
   const shotId = session.shotId || session.id;
   return {
     ...session,
+    captureId: session.captureId || session.id,
     isPermanent: true,
     plan: "free",
-    pins: pinsValue(session.pins),
+    schemaVersion: session.schemaVersion ?? 1,
     shotUrl: shotId ? `${origin}/shots/${shotId}.png` : null,
     viewerUrl: `${origin}/v/${session.id}.md`,
   };
@@ -211,11 +212,17 @@ function publicCollection(id: string, origin: string) {
   return null;
 }
 
-async function uploadShot(request: Request) {
+async function uploadShot(request: Request): Promise<Response> {
   const body = await readJson(request);
-  const id = stringValue(body, "id");
+  const id = stringValue(body, "id") || stringValue(body, "captureId");
   const image = stringValue(body, "image");
   if (!id || !image) return json({ error: "id and image required" }, 400);
+  let capture = null;
+  if (body.page != null || body.pins != null || body.schemaVersion != null || body.captureId) {
+    const parsed = visualCaptureFromBody(body, id);
+    if (!parsed.ok) return parsed.response;
+    capture = parsed.capture;
+  }
   try {
     decodePngDataUrl(image);
   } catch {
@@ -223,16 +230,21 @@ async function uploadShot(request: Request) {
   }
   const saved = await writeShot(id, image, rootPath());
   const destination = historyDatabase().resolveDestination(stringValue(body, "collectionId"));
-  if (body.page || body.pins) {
-    historyDatabase().saveSession({
-      collectionId: destination.collectionId,
-      createdAt: stringValue(body, "createdAt"),
-      id,
-      page: pageValue(body.page),
-      pins: pinsValue(body.pins),
-      shotId: id,
-      shotPath: saved,
-    });
+  if (capture) {
+    try {
+      historyDatabase().saveSession({
+        collectionId: destination.collectionId,
+        createdAt: stringValue(body, "createdAt") || capture.createdAt,
+        id: capture.captureId,
+        page: capture.page,
+        pins: capture.pins,
+        shotId: id,
+        shotPath: saved,
+      });
+    } catch (error) {
+      if (error instanceof VisualContextError) return json(visualContextErrorBody(error), 400);
+      throw error;
+    }
   }
   const origin = new URL(request.url).origin;
   return json({
@@ -247,19 +259,27 @@ async function uploadShot(request: Request) {
   }, 201);
 }
 
-async function saveHistory(request: Request) {
+async function saveHistory(request: Request): Promise<Response> {
   const body = await readJson(request);
   const destination = historyDatabase().resolveDestination(stringValue(body, "collectionId"));
-  const session = historyDatabase().saveSession({
-    collectionId: destination.collectionId,
-    createdAt: stringValue(body, "createdAt"),
-    id: stringValue(body, "id"),
-    page: pageValue(body.page),
-    pins: pinsValue(body.pins),
-    shotId: stringValue(body, "shotId"),
-    shotPath: stringValue(body, "shotPath"),
-  });
-  return json({ destination, ok: true, session: presentSession(session, new URL(request.url).origin) }, 201);
+  const id = stringValue(body, "id") || stringValue(body, "captureId") || generateNanoId();
+  const parsed = visualCaptureFromBody(body, id);
+  if (!parsed.ok) return parsed.response;
+  try {
+    const session = historyDatabase().saveSession({
+      collectionId: destination.collectionId,
+      createdAt: stringValue(body, "createdAt") || parsed.capture.createdAt,
+      id: parsed.capture.captureId,
+      page: parsed.capture.page,
+      pins: parsed.capture.pins,
+      shotId: stringValue(body, "shotId"),
+      shotPath: stringValue(body, "shotPath"),
+    });
+    return json({ destination, ok: true, session: presentSession(session, new URL(request.url).origin) }, 201);
+  } catch (error) {
+    if (error instanceof VisualContextError) return json(visualContextErrorBody(error), 400);
+    throw error;
+  }
 }
 
 async function deleteHistory(id: string) {
@@ -321,13 +341,13 @@ export function authorizeHistoryRequest() {
   return true;
 }
 
-export async function handleApiRequest(request: Request) {
+export async function handleApiRequest(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const { method } = request;
   const path = url.pathname;
   if (method === "OPTIONS") return new Response(null, { headers: headers(), status: 204 });
   if (method === "GET" && path === "/api/health") {
-    return json({ history: true, ok: true, port: Number(url.port), runtime: "local", service: "pinar" });
+    return json(localHealthDiscoveryBody());
   }
   if (method === "GET" && path === "/api/auth/session") {
     return json({ session: { kind: "local", plan: "free" } }, 200, { "Cache-Control": "no-store" });
@@ -475,7 +495,7 @@ export async function handleApiRequest(request: Request) {
   return json({ error: "not found" }, 404);
 }
 
-export async function handlePublicRequest(request: Request) {
+export async function handlePublicRequest(request: Request): Promise<Response> {
   const url = new URL(request.url);
   if (request.method === "GET" && url.pathname.startsWith("/shots/")) {
     const rawId = basename(decodeURIComponent(url.pathname));

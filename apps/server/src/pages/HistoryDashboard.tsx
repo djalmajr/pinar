@@ -501,6 +501,7 @@ export function HistoryDashboard() {
       session.pins,
       session.shotUrl,
       session.viewerUrl || `/v/${session.id}.md`,
+      session.captureId || session.id,
     ));
     setCopiedId(session.id);
     window.setTimeout(() => setCopiedId(null), 2_000);

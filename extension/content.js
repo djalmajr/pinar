@@ -1230,9 +1230,12 @@
       });
       if (!capture?.ok) throw new Error(capture?.error || "capture failed");
       const page = pageContext();
+      const captureId = crypto.randomUUID();
       const copied = await chrome.runtime.sendMessage({
+        captureId,
         page,
-        pins,
+        pins: pins.map((pin) => ({ ...pin, pinId: pin.pinId || pin.id })),
+        schemaVersion: 1,
         shot: capture.shot,
         type: "clipboard",
       }).catch((error) => ({ error: String(error), ok: false }));

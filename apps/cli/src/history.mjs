@@ -5,6 +5,11 @@ import {
   PERSONAL_PROJECT_ICON,
   isProjectIcon,
 } from "../../../packages/shared/src/project-icons/index.ts";
+import {
+  decodeVisualCaptureJson,
+  encodeVisualCaptureJson,
+  parseVisualCapture,
+} from "../../../packages/shared/src/visual-context/index.ts";
 import { pinarHome, shotsDir } from "./paths.mjs";
 
 let SqliteDatabase = null;
@@ -147,23 +152,37 @@ function planCollectionPlacements(rows, requested) {
 }
 
 function formatSession(row) {
-  let pins = [];
-  try {
-    pins = JSON.parse(row.pins_json);
-  } catch {
-    pins = [];
-  }
+  const capture = decodeVisualCaptureJson(row.pins_json, row.id);
   return {
+    captureId: capture.captureId,
     collectionId: row.collection_id,
     createdAt: row.created_at,
     id: row.id,
-    page: { title: row.title, url: row.url },
+    page: {
+      title: row.title,
+      url: row.url,
+      viewport: capture.page.viewport,
+    },
     pinCount: row.pin_count,
-    pins,
+    pins: capture.pins,
     position: row.position,
+    schemaVersion: capture.schemaVersion,
     shotId: row.shot_id,
     shotPath: row.shot_path,
   };
+}
+
+function captureForSave(id, page, pins, shotId, shotPath) {
+  return parseVisualCapture({
+    captureId: id,
+    page,
+    pins,
+    screenshot: {
+      id: shotId || id,
+      missing: !shotPath,
+      url: shotPath || null,
+    },
+  }, id);
 }
 
 class JsonHistoryDb {
@@ -282,19 +301,21 @@ class JsonHistoryDb {
   saveSession({ collectionId, createdAt, id, page = {}, pins = [], shotId = null, shotPath = null } = {}) {
     const destination = this.resolveDestination(collectionId);
     const existing = id ? this.data.sessions.find((item) => item.id === id) : null;
+    const sid = id || generateNanoId();
+    const capture = captureForSave(sid, page, pins, shotId, shotPath);
     const entry = {
       collection_id: destination.collectionId,
       created_at: createdAt || now(),
-      id: id || generateNanoId(),
-      pin_count: pins.length,
-      pins_json: JSON.stringify(pins),
+      id: capture.captureId,
+      pin_count: capture.pins.length,
+      pins_json: encodeVisualCaptureJson(capture),
       position: existing?.collection_id === destination.collectionId
         ? existing.position
         : this._nextSessionPosition(destination.collectionId),
       shot_id: shotId,
       shot_path: shotPath,
-      title: page.title || "(untitled)",
-      url: page.url || "",
+      title: page.title || capture.page.title || "(untitled)",
+      url: page.url || capture.page.url || "",
     };
     this.data.sessions = [entry, ...this.data.sessions.filter((item) => item.id !== entry.id)];
     this._save();
@@ -670,6 +691,7 @@ class SqliteHistoryDb {
     const position = existing?.collection_id === destination.collectionId
       ? existing.position
       : this._nextSessionPosition(destination.collectionId);
+    const capture = captureForSave(sid, page, pins, shotId, shotPath);
     this.db.prepare(`
       INSERT INTO sessions (
         id, url, title, shot_id, shot_path, pin_count, pins_json, created_at, collection_id, position
@@ -685,18 +707,18 @@ class SqliteHistoryDb {
         collection_id=excluded.collection_id,
         position=excluded.position
     `).run(
-      sid,
-      page.url || "",
-      page.title || "(untitled)",
+      capture.captureId,
+      page.url || capture.page.url || "",
+      page.title || capture.page.title || "(untitled)",
       shotId,
       shotPath,
-      pins.length,
-      JSON.stringify(pins),
+      capture.pins.length,
+      encodeVisualCaptureJson(capture),
       createdAt || now(),
       destination.collectionId,
       position,
     );
-    const session = this.getSession(sid);
+    const session = this.getSession(capture.captureId);
     if (!session) throw new Error(`Failed to save history session ${sid}`);
     return session;
   }

@@ -57,6 +57,7 @@ describe("formatClipboard", () => {
   test("plain text carries comment, DOM path, selector, and one shared shot", () => {
     // Mutation captured: omitting the DOM path so paste cannot locate the node.
     const { html, plain } = formatClipboard({
+      captureId: "cap_pricing",
       page: { title: "Pricing", url: "http://localhost/pricing" },
       pins: [{
         anchor: { x: 90, y: 112 },
@@ -69,9 +70,13 @@ describe("formatClipboard", () => {
         selector: "button.cta",
         text: "Get started",
       }],
+      schemaVersion: 1,
       sentAt: "2026-08-13T21:00:00.000Z",
       shot: "data:image/png;base64,aaa",
     });
+    assert.match(plain, /schemaVersion: 1/);
+    assert.match(plain, /captureId: cap_pricing/);
+    assert.match(plain, /pinId: pin_1/);
     assert.match(plain, /http:\/\/localhost\/pricing/);
     assert.match(plain, /Make the CTA bolder/);
     assert.match(plain, /main > section.card > button.cta/);

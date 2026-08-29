@@ -13,6 +13,7 @@ import {
   resetLocalApiForTests,
 } from "./api.local";
 import { exerciseProjectApiContract } from "./project-api.contract";
+import { exerciseVisualContextContract } from "./visual-context.contract";
 
 const VALID_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 
@@ -90,14 +91,13 @@ describe("local TanStack API", () => {
     const sessionBody = await jsonBody(session);
     assert.ok(isRecord(sessionBody.session));
     assert.ok(Array.isArray(sessionBody.session.pins));
-    assert.deepEqual(sessionBody.session.pins[0], {
-      anchor: { x: 12, y: 34 },
-      comment: "Local pin",
-      coords: { x: 12, y: 34 },
-      kind: "element",
-      number: 1,
-      type: "point",
-    });
+    assert.equal(sessionBody.session.schemaVersion, 1);
+    assert.equal(sessionBody.session.captureId, "local_session_001");
+    assert.equal(sessionBody.session.pins[0].comment, "Local pin");
+    assert.equal(sessionBody.session.pins[0].kind, "element");
+    assert.equal(sessionBody.session.pins[0].number, 1);
+    assert.equal(sessionBody.session.pins[0].pinId, "local_session_001:p1");
+    assert.deepEqual(sessionBody.session.pins[0].coords, { x: 12, y: 34 });
     const markdown = await handlePublicRequest(
       new Request("http://127.0.0.1:17373/v/local_session_001.md"),
     );
@@ -259,5 +259,11 @@ describe("local TanStack API", () => {
 
   test("matches the shared projects and collections API contract", async () => {
     await exerciseProjectApiContract(request);
+  });
+
+  test("matches the shared visual context contract", async () => {
+    await exerciseVisualContextContract(request, (path, init) => (
+      handlePublicRequest(new Request(`http://127.0.0.1:17373${path}`, init))
+    ));
   });
 });

@@ -24,6 +24,8 @@ When the user pastes annotations, or says they copied/annotated a page:
 
 The extension does not inject a prompt into the composer. The user pastes.
 
+Linear (team Fábrica): update the issue in the same turn the role finishes. In Progress = implementing. In Review = reviewing and testing, with evidence on the issue. Done = merged to `main` and verified; if the change ships on the Cloudflare Worker, Done only after a successful staging deploy. Labels `env:staging` / `env:production` record Worker environment (SHA + worker name + URL in the comment). Local-only work (CLI, tray, local API) can be Done without `env:*`. Never apply those labels on an unpushed commit. Production deploy is never automatic. Canonical private docs: [Práticas operacionais no Linear](https://linear.app/djalmajr/document/praticas-operacionais-no-linear-08f51d46451e) and [Pinar — Aplicação das práticas](https://linear.app/djalmajr/document/pinar-aplicacao-das-praticas-operacionais-no-linear-659c156123a1).
+
 <!-- ai-memory:start -->
 ## Long-term memory (ai-memory)
 

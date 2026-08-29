@@ -247,6 +247,18 @@ export function WebViewer({ sessionId }: WebViewerProps) {
               <span className="truncate">{session.page?.url}</span>
               <ExternalLinkIcon className="size-3 shrink-0" />
             </a>
+            {session.privacy?.redacted.length || session.privacy?.unevaluated ? (
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {session.privacy?.redacted.length ? (
+                  <Badge variant="warning">
+                    {t("viewer.privacyRedacted", { categories: session.privacy.redacted.join(", ") })}
+                  </Badge>
+                ) : null}
+                {session.privacy?.unevaluated ? (
+                  <Badge variant="destructive">{t("viewer.privacyUnevaluated")}</Badge>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">

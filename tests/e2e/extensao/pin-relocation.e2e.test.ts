@@ -64,6 +64,7 @@ async function installHarness(page: Page) {
   await page.addScriptTag({ path: extensionPath("coordinates.js") });
   await page.addScriptTag({ path: extensionPath("frame-path.js") });
   await page.addScriptTag({ path: extensionPath("locators.js") });
+  await page.addScriptTag({ path: extensionPath("privacy.js") });
   await page.addScriptTag({ path: extensionPath("keyboard.js") });
   await page.addScriptTag({ path: extensionPath("content.js") });
   await expect(page.locator('[data-pinar="host"]')).toBeVisible();
@@ -103,6 +104,7 @@ async function installIframeHarness(page: Page) {
     await frame.addScriptTag({ path: extensionPath("coordinates.js") });
     await frame.addScriptTag({ path: extensionPath("frame-path.js") });
     await frame.addScriptTag({ path: extensionPath("locators.js") });
+    await frame.addScriptTag({ path: extensionPath("privacy.js") });
     await frame.addScriptTag({ path: extensionPath("keyboard.js") });
     await frame.addScriptTag({ path: extensionPath("content.js") });
   }

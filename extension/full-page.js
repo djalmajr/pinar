@@ -56,3 +56,10 @@ export function shiftPinsToCapture(pins, origin) {
     topBox: shiftPoint(pin.topBox, origin),
   }));
 }
+
+export function shiftMaskRegions(regions, origin) {
+  return (regions || []).map((region) => ({
+    ...region,
+    box: shiftPoint(region.box, origin),
+  }));
+}

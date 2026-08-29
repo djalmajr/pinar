@@ -85,6 +85,26 @@ describe("visual context v1", () => {
     assert.equal(encoded.includes("data:"), false);
   });
 
+  test("round-trips privacy categories without original secret values", () => {
+    const capture = parseVisualCapture({
+      captureId: "cap_privacy",
+      page: { title: "Login", url: "https://app.example.test/login?token=[redacted]" },
+      pins: [{ comment: "Hide the field", text: "[redacted]" }],
+      privacy: { redacted: ["password", "token"], unevaluated: true },
+    });
+    assert.deepEqual(capture.privacy?.redacted, ["password", "token", "unevaluated"]);
+    assert.equal(capture.privacy?.unevaluated, true);
+    assert.ok(capture.warnings.includes("privacy_redacted"));
+    assert.ok(capture.warnings.includes("privacy_unevaluated"));
+    const encoded = encodeVisualCaptureJson(capture);
+    assert.equal(encoded.includes("s3cret"), false);
+    const markdown = formatVisualContextMarkdown(capture);
+    assert.match(markdown, /Redacted: password, token, unevaluated/);
+    assert.match(markdown, /some regions could not be inspected/);
+    const again = parseVisualCapture(JSON.parse(encoded));
+    assert.deepEqual(again.privacy, capture.privacy);
+  });
+
   test("reads a legacy pins array using the session id as captureId", () => {
     const capture = decodeVisualCaptureJson(
       JSON.stringify([{ comment: "Fix header", kind: "element", selector: "h1" }]),

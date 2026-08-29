@@ -53,7 +53,9 @@ describe("capture destination", () => {
     assert.match(optionsSrc, /collectionId, type: "destination:set"/);
     assert.match(optionsSrc, /flattenDestinationCollections\(destinationCollections\)/);
     assert.match(backgroundSrc, /getCaptureDestinationContext\(settings\)/);
-    assert.match(backgroundSrc, /JSON\.stringify\(\{ collectionId, captureId: id, id, image: dataUrl, page, pins, schemaVersion: 1 \}\)/);
+    assert.match(backgroundSrc, /JSON\.stringify\(payload\)/);
+    assert.equal((backgroundSrc.match(/body: JSON\.stringify\(payload\)/g) || []).length, 2);
+    assert.match(backgroundSrc, /privacy,/);
     assert.match(backgroundSrc, /storeDestination\(settings, "", body\.destination\)/);
     assert.match(backgroundSrc, /localFetch\(base, "\/api\/shots"/);
     assert.match(backgroundSrc, /localFetch\(localBase, "\/api\/project-tree"\)/);

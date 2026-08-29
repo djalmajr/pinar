@@ -1,5 +1,5 @@
 import { pinBox, pinPoint, renderPinsCrop } from "./crop.js";
-import { CAPTURE_TILE_DELAY_MS, planFullPageCapture, shiftPinsToCapture } from "./full-page.js";
+import { CAPTURE_TILE_DELAY_MS, planFullPageCapture, shiftMaskRegions, shiftPinsToCapture } from "./full-page.js";
 import { collectionDestination, destinationKey, resolveDestinationPreference } from "./destination.js";
 import { formatClipboardPayload } from "./format.js";
 import { getBestLanguage, translations } from "./i18n.js";
@@ -18,6 +18,7 @@ import {
 import { pinarPorts } from "./ports.js";
 import { endTabPins, pinFrameIds, planSessionEnd } from "./session.js";
 import { createSingleFlight } from "./single-flight.js";
+import "./privacy.js";
 
 const tabPins = new Map();
 const registeredInstallations = new Set();
@@ -88,7 +89,7 @@ void initializeInstallationIdentity();
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab.id) return;
   await chrome.scripting.executeScript({
-    files: ["coordinates.js", "frame-path.js", "locators.js", "keyboard.js", "content.js"],
+    files: ["coordinates.js", "frame-path.js", "locators.js", "privacy.js", "keyboard.js", "content.js"],
     target: { allFrames: true, tabId: tab.id },
   });
 });
@@ -260,7 +261,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ error: "missing tab", ok: false });
       return false;
     }
-    captureTabBundle(tabId, windowId, pins)
+    captureTabBundle(tabId, windowId, pins, message.maskRegions)
       .then(sendResponse)
       .catch((error) => sendResponse({ error: String(error), ok: false }));
     return true;
@@ -285,6 +286,7 @@ async function getSettings() {
       enableHistory: true,
       includeViewer: true,
       language: "",
+      sensitiveQueryKeys: "",
       storageMode: "local",
     });
   } catch {
@@ -294,6 +296,7 @@ async function getSettings() {
       enableHistory: true,
       includeViewer: true,
       language: "",
+      sensitiveQueryKeys: "",
       storageMode: "local",
     };
   }
@@ -323,16 +326,37 @@ function generateNanoId(size = 12) {
 }
 
 async function copyBundle(message) {
-  const pins = message.pins ?? [];
   const id = message.captureId || generateNanoId(12);
   const settings = await getSettings();
+  const privacyApi = globalThis.__pinarPrivacy;
+  if (!privacyApi) throw new Error("privacy sanitizer is unavailable");
+  const extraQueryKeys = privacyApi.parseExtraKeys(settings.sensitiveQueryKeys);
+  const sanitized = privacyApi.sanitizeCapture({
+    fields: message.fields,
+    page: message.page,
+    pins: message.pins ?? [],
+    unevaluated: message.privacy?.unevaluated === true,
+    warnings: message.warnings,
+  }, { extraQueryKeys });
+  const pins = sanitized.pins;
+  const page = sanitized.page;
+  const privacy = sanitized.privacy;
   let savedResult = null;
   const destination = await getCaptureDestinationContext(settings)
     .then((context) => context.destination)
     .catch(() => null);
 
   if (message.shot) {
-    savedResult = await saveShot(message.shot, id, message.page, pins, settings, destination?.collectionId);
+    savedResult = await saveShot(
+      message.shot,
+      id,
+      page,
+      pins,
+      settings,
+      destination?.collectionId,
+      privacy,
+      sanitized.warnings,
+    );
   }
 
   const shot = savedResult?.path || message.shot || null;
@@ -354,8 +378,9 @@ async function copyBundle(message) {
 
   const payload = formatClipboardPayload({
     captureId: id,
-    page: message.page,
+    page,
     pins,
+    privacy,
     schemaVersion: message.schemaVersion || 1,
     shot,
     viewerContent,
@@ -454,7 +479,7 @@ async function dataUrlBitmap(dataUrl) {
   return createImageBitmap(blob);
 }
 
-async function renderCaptureFrames(frames, pins, metrics) {
+async function renderCaptureFrames(frames, pins, metrics, maskRegions = []) {
   const bitmaps = await Promise.all(frames.map((frame) => dataUrlBitmap(frame.dataUrl)));
   try {
     const first = bitmaps[0];
@@ -481,15 +506,17 @@ async function renderCaptureFrames(frames, pins, metrics) {
       ctx.drawImage(bitmap, 0, sourceY, bitmap.width, height, 0, targetY, first.width, height);
     });
 
-    const shiftedPins = shiftPinsToCapture(pins, { x: 0, y: captureStart });
-    const crop = await renderPinsCrop(canvas, shiftedPins, dpr);
+    const origin = { x: 0, y: captureStart };
+    const shiftedPins = shiftPinsToCapture(pins, origin);
+    const shiftedMasks = shiftMaskRegions(maskRegions, origin);
+    const crop = await renderPinsCrop(canvas, shiftedPins, dpr, shiftedMasks);
     return { ok: true, shot: crop ? await blobToDataUrl(crop) : null };
   } finally {
     bitmaps.forEach((bitmap) => bitmap.close());
   }
 }
 
-async function captureTabBundle(tabId, windowId, pins) {
+async function captureTabBundle(tabId, windowId, pins, maskRegions = []) {
   const metrics = await captureMetrics(tabId);
   if (!metrics) throw new Error("Unable to read page dimensions");
   const plan = planFullPageCapture(pins, metrics);
@@ -503,7 +530,7 @@ async function captureTabBundle(tabId, windowId, pins) {
       const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: "png" });
       frames.push({ dataUrl, scrollY: actualScroll?.y ?? plan.scrollYs[index] });
     }
-    return await renderCaptureFrames(frames, pins, metrics);
+    return await renderCaptureFrames(frames, pins, metrics, maskRegions);
   } finally {
     await restoreCapture(tabId).catch(() => {});
   }
@@ -798,13 +825,24 @@ async function openApp() {
   return url;
 }
 
-async function saveShot(dataUrl, id, page = {}, pins = [], settings = {}, collectionId = "") {
+async function saveShot(dataUrl, id, page = {}, pins = [], settings = {}, collectionId = "", privacy = null, warnings = []) {
+  const payload = {
+    captureId: id,
+    collectionId,
+    id,
+    image: dataUrl,
+    page,
+    pins,
+    privacy,
+    schemaVersion: 1,
+    warnings,
+  };
   // 1. Cloudflare Worker mode
   if (settings.storageMode === "cloud") {
     const endpoint = cloudEndpoint(settings);
     try {
       const init = {
-        body: JSON.stringify({ collectionId, captureId: id, id, image: dataUrl, page, pins, schemaVersion: 1 }),
+        body: JSON.stringify(payload),
         headers: { "content-type": "application/json" },
         method: "POST",
       };
@@ -830,7 +868,7 @@ async function saveShot(dataUrl, id, page = {}, pins = [], settings = {}, collec
   if (base) {
     try {
       const response = await localFetch(base, "/api/shots", {
-        body: JSON.stringify({ collectionId, captureId: id, id, image: dataUrl, page, pins, schemaVersion: 1 }),
+        body: JSON.stringify(payload),
         headers: { "content-type": "application/json" },
         method: "POST",
       });

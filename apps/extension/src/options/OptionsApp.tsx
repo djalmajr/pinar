@@ -99,6 +99,7 @@ const SETTINGS_KEYS: (keyof PinarSettings)[] = [
   "enableHistory",
   "includeViewer",
   "language",
+  "sensitiveQueryKeys",
   "storageMode",
   "theme",
 ];
@@ -109,6 +110,7 @@ const DEFAULT_SETTINGS: PinarSettings = {
   enableHistory: true,
   includeViewer: true,
   language: DEFAULT_LANGUAGE,
+  sensitiveQueryKeys: "",
   storageMode: "local",
   theme: "system",
 };
@@ -328,6 +330,7 @@ export function OptionsApp() {
           enableHistory: Boolean(items.enableHistory),
           includeViewer: Boolean(items.includeViewer),
           language: getBestLanguage(items.language),
+          sensitiveQueryKeys: typeof items.sensitiveQueryKeys === "string" ? items.sensitiveQueryKeys : "",
           storageMode: items.storageMode === "cloud" ? "cloud" : "local",
           theme: items.theme === "dark" || items.theme === "light" ? items.theme : "system",
         };
@@ -681,6 +684,14 @@ export function OptionsApp() {
                     <label className="flex items-start gap-3 py-1"><Switch checked={settings.enableHistory} className="mt-0.5 shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, enableHistory: value }))} /><span><span className="block text-xs font-semibold">{t.history_label}</span><span className="block text-xs text-muted-foreground">{t.history_desc}</span></span></label>
                     <label className="flex items-start gap-3 py-1"><Switch checked={settings.includeViewer} className="mt-0.5 shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, includeViewer: value }))} /><span><span className="block text-xs font-semibold">{t.viewer_label}</span><span className="block text-xs text-muted-foreground">{t.viewer_desc}</span></span></label>
                     <label className="flex items-start gap-3 py-1"><Switch checked={settings.copyViewerContent} className="mt-0.5 shrink-0" disabled={!settings.includeViewer} onCheckedChange={(value) => setSettings((current) => ({ ...current, copyViewerContent: value }))} /><span><span className="block text-xs font-semibold">{t.viewer_content_label}</span><span className="block text-xs text-muted-foreground">{t.viewer_content_desc}</span></span></label>
+                    <label className="flex flex-col gap-1.5 py-1">
+                      <span className="text-xs font-semibold">{t.privacy_query_keys_label}</span>
+                      <Input
+                        value={settings.sensitiveQueryKeys || ""}
+                        onChange={(event) => setSettings((current) => ({ ...current, sensitiveQueryKeys: event.target.value }))}
+                      />
+                      <span className="text-xs text-muted-foreground">{t.privacy_query_keys_desc}</span>
+                    </label>
                   </CardContent>
                 </Card>
               </TabsContent>

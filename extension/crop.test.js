@@ -183,6 +183,51 @@ describe("crop", () => {
     }
   });
 
+  test("renderPinsCrop paints mask regions over the bitmap before pin markers", async () => {
+    const calls = [];
+    const OriginalOffscreenCanvas = globalThis.OffscreenCanvas;
+    const OriginalPath2D = globalThis.Path2D;
+    const ctx = {
+      drawImage: (...args) => calls.push(["drawImage", ...args]),
+      fill: () => calls.push("fill"),
+      fillRect: (...args) => calls.push(["fillRect", ...args]),
+      fillText: (...args) => calls.push(["fillText", ...args]),
+      restore: () => calls.push("restore"),
+      save: () => calls.push("save"),
+      scale: () => calls.push("scale"),
+      setLineDash: (...args) => calls.push(["setLineDash", ...args]),
+      stroke: () => calls.push("stroke"),
+      strokeRect: (...args) => calls.push(["strokeRect", ...args]),
+      translate: () => calls.push("translate"),
+    };
+    globalThis.Path2D = class Path2D {};
+    globalThis.OffscreenCanvas = class OffscreenCanvas {
+      constructor() {}
+      convertToBlob(options) {
+        calls.push(["convertToBlob", options]);
+        return new Blob(["png"], options);
+      }
+      getContext() { return ctx; }
+    };
+    try {
+      await renderPinsCrop(
+        { height: 600, width: 800 },
+        [{ anchor: { x: 120, y: 140 }, box: { height: 20, width: 20, x: 110, y: 130 } }],
+        1,
+        [{ box: { height: 40, width: 80, x: 10, y: 20 }, id: "auto:password:pass" }],
+      );
+      const draw = calls.findIndex((call) => Array.isArray(call) && call[0] === "drawImage");
+      const mask = calls.findIndex((call) => Array.isArray(call) && call[0] === "fillRect" && call[1] === 10);
+      const marker = calls.findIndex((call) => Array.isArray(call) && call[0] === "fillText");
+      assert.ok(draw >= 0 && mask > draw);
+      assert.ok(marker > mask);
+      assert.deepEqual(calls[mask], ["fillRect", 10, 20, 80, 40]);
+    } finally {
+      globalThis.OffscreenCanvas = OriginalOffscreenCanvas;
+      globalThis.Path2D = OriginalPath2D;
+    }
+  });
+
   // Mutation captured: exporting without a viable crop or 2D context stops returning null.
   test("renderPinsCrop rejects undersized crops and missing canvas contexts", async () => {
     const OriginalOffscreenCanvas = globalThis.OffscreenCanvas;

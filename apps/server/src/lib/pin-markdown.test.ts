@@ -70,4 +70,17 @@ describe("formatPinMarkdown", () => {
     assert.match(markdown, /- \*\*Location:\*\* unresolved \(none\)/);
     assert.match(markdown, /- \*\*Warning:\*\* cross-origin iframe is not readable/);
   });
+
+  test("keeps redacted placeholders instead of original secrets", () => {
+    const pin: Pin = {
+      comment: "Reset with [redacted]",
+      coords: { x: 8, y: 8 },
+      innerText: "[redacted]",
+      number: 1,
+      type: "point",
+    };
+    const markdown = formatPinMarkdown(pin, 1);
+    assert.match(markdown, /Reset with \[redacted\]/);
+    assert.doesNotMatch(markdown, /PINAR_FIXTURE/);
+  });
 });

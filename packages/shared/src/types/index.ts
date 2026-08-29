@@ -1,6 +1,8 @@
 import type { PinLocation, VisualFingerprint } from "../locators/types.js";
+import type { PrivacyReport } from "../privacy/types.js";
 
 export type { LocateConfidence, LocateStrategy, PinLocation, VisualFingerprint } from "../locators/types.js";
+export type { PrivacyReport, RedactedCategory } from "../privacy/types.js";
 
 export interface Point {
   x: number;
@@ -71,6 +73,7 @@ export interface Session {
   pins: Pin[];
   plan?: AccountPlan;
   position?: number;
+  privacy?: PrivacyReport;
   schemaVersion?: number;
   shotId?: string;
   shotUrl?: string | null;
@@ -173,6 +176,7 @@ export interface PinarSettings {
   enableHistory: boolean;
   includeViewer: boolean;
   language: string;
+  sensitiveQueryKeys?: string;
   storageMode: StorageMode;
   theme?: ThemeMode;
 }

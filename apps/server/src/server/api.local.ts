@@ -70,8 +70,10 @@ interface HistoryDatabase {
     id?: string;
     page?: PageInfo;
     pins?: Pin[];
+    privacy?: import("@pinar/shared").PrivacyReport;
     shotId?: string | null;
     shotPath?: string | null;
+    warnings?: string[];
   }): LocalSession;
   updateCollection(id: string, name: string): Collection | null;
   updateProject(id: string, name: string, icon?: ProjectIcon): Project | null;
@@ -251,8 +253,10 @@ async function uploadShot(request: Request): Promise<Response> {
         id: capture.captureId,
         page: capture.page,
         pins: capture.pins,
+        privacy: capture.privacy,
         shotId: id,
         shotPath: saved,
+        warnings: capture.warnings,
       });
     } catch (error) {
       if (error instanceof VisualContextError) return json(visualContextErrorBody(error), 400);
@@ -285,8 +289,10 @@ async function saveHistory(request: Request): Promise<Response> {
       id: parsed.capture.captureId,
       page: parsed.capture.page,
       pins: parsed.capture.pins,
+      privacy: parsed.capture.privacy,
       shotId: stringValue(body, "shotId"),
       shotPath: stringValue(body, "shotPath"),
+      warnings: parsed.capture.warnings,
     });
     return json({ destination, ok: true, session: presentSession(session, new URL(request.url).origin) }, 201);
   } catch (error) {

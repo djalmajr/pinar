@@ -13,10 +13,13 @@ import type {
   Session,
 } from "@pinar/shared";
 import {
+  AgentResultError,
+  agentResultErrorBody,
+  agentResultHttpStatus,
   generateNanoId,
   parseVisualCapture,
-  VisualContextError,
   visualContextErrorBody,
+  type AgentExecution,
   type VisualCapture,
 } from "@pinar/shared";
 import { DEFAULT_PROJECT_ICON, isProjectIcon } from "@pinar/shared/project-icons";
@@ -56,6 +59,7 @@ interface HistoryDatabase {
   getDefaultDestination(): CaptureDestination;
   getProjectTree(): ProjectTree;
   getSession(id: string): LocalSession | null;
+  listAgentExecutions(captureId: string): AgentExecution[];
   listCollections(projectId: string): Collection[];
   listProjects(): Project[];
   listSessions(options: { collectionId?: string; limit: number; offset: number; query: string }): LocalSession[];
@@ -64,6 +68,7 @@ interface HistoryDatabase {
   reorderProjects(ids: string[]): Project[];
   reorderSessions(collectionId: string, ids: string[]): LocalSession[];
   resolveDestination(collectionId?: string): CaptureDestination;
+  saveAgentExecution(input: unknown): { created: boolean; execution: AgentExecution };
   saveSession(input: {
     collectionId?: string;
     createdAt?: string;
@@ -189,6 +194,29 @@ function presentSession(session: LocalSession | null, origin: string): Session |
     shotUrl: shotId ? `${origin}/shots/${shotId}.png` : null,
     viewerUrl: `${origin}/v/${session.id}.md`,
   };
+}
+
+function sessionPayload(session: LocalSession | null, origin: string) {
+  const presented = presentSession(session, origin);
+  if (!presented) return json({ error: "not found" }, 404);
+  return json({
+    executions: historyDatabase().listAgentExecutions(presented.id),
+    ok: true,
+    session: presented,
+  });
+}
+
+async function publishAgentExecution(request: Request) {
+  const body = await readJson(request);
+  try {
+    const saved = historyDatabase().saveAgentExecution(body);
+    return json({ created: saved.created, execution: saved.execution, ok: true }, saved.created ? 201 : 200);
+  } catch (error) {
+    if (error instanceof AgentResultError) {
+      return json(agentResultErrorBody(error), agentResultHttpStatus(error));
+    }
+    throw error;
+  }
 }
 
 function presentProjectTree(tree: ProjectTree, origin: string): ProjectTree {
@@ -345,6 +373,7 @@ async function routeLocalApi(request: Request): Promise<Response> {
   if (method === "POST" && path === "/api/auth/logout") return json({ ok: true });
   if (method === "POST" && path === "/api/shots") return uploadShot(request);
   if (method === "POST" && path === "/api/history") return saveHistory(request);
+  if (method === "POST" && path === "/api/agent-executions") return publishAgentExecution(request);
   if (method === "GET" && path.startsWith("/api/public/projects/")) {
     const project = publicProject(
       decodeURIComponent(path.slice("/api/public/projects/".length)),
@@ -469,13 +498,11 @@ async function routeLocalApi(request: Request): Promise<Response> {
   }
   if (method === "GET" && path.startsWith("/api/sessions/")) {
     const id = decodeURIComponent(path.slice("/api/sessions/".length));
-    const session = presentSession(historyDatabase().getSession(id), url.origin);
-    return session ? json({ ok: true, session }) : json({ error: "not found" }, 404);
+    return sessionPayload(historyDatabase().getSession(id), url.origin);
   }
   if (method === "GET" && path.startsWith("/api/history/")) {
     const id = decodeURIComponent(path.slice("/api/history/".length));
-    const session = presentSession(historyDatabase().getSession(id), url.origin);
-    return session ? json({ ok: true, session }) : json({ error: "not found" }, 404);
+    return sessionPayload(historyDatabase().getSession(id), url.origin);
   }
   if (method === "DELETE" && path.startsWith("/api/history/")) {
     return deleteHistory(decodeURIComponent(path.slice("/api/history/".length)));
@@ -507,10 +534,14 @@ export async function handlePublicRequest(request: Request): Promise<Response> {
     const id = rawId.slice(0, -3);
     const session = presentSession(historyDatabase().getSession(id), url.origin);
     if (!session) return text("Session not found", 404);
-    return text(formatSessionMarkdown(session, `${url.origin}/v/${id}`), 200, {
-      "Cache-Control": "public, max-age=60",
-      "Content-Type": "text/markdown; charset=utf-8",
-    });
+    return text(
+      formatSessionMarkdown(session, `${url.origin}/v/${id}`, historyDatabase().listAgentExecutions(id)),
+      200,
+      {
+        "Cache-Control": "public, max-age=60",
+        "Content-Type": "text/markdown; charset=utf-8",
+      },
+    );
   }
   if (request.method === "GET" && url.pathname.startsWith("/p/")) {
     const rawId = decodeURIComponent(url.pathname.slice("/p/".length));

@@ -126,6 +126,7 @@ describe("local API trust enforcement", () => {
     assert.equal(await authorizeHistoryRequest(new Request("http://127.0.0.1:17373/api/history")), true);
     assert.equal(classifyLocalApiRequest("GET", "/api/history")?.class, "sensitive-read");
     assert.equal(classifyLocalApiRequest("POST", "/api/shots")?.class, "mutable");
+    assert.equal(classifyLocalApiRequest("POST", "/api/agent-executions")?.class, "mutable");
     assert.equal(classifyLocalApiRequest("GET", "/v/hostile_session.md")?.class, "local-public-projection");
   });
 
@@ -182,6 +183,19 @@ describe("local API trust enforcement", () => {
     assert.equal(missing.status, 401);
     assert.deepEqual(await jsonBody(missing), LOCAL_UNAUTHORIZED_BODY);
     assert.equal(missing.headers.get("access-control-allow-origin"), EXTENSION_ORIGIN);
+
+    const missingResult = await request("/api/agent-executions", {
+      body: JSON.stringify({
+        agent: "cursor",
+        captureId: "missing_capability",
+        idempotencyKey: "exec_missing_capability",
+        results: [{ pinId: "pin_cta", status: "changed", summary: "Nope" }],
+      }),
+      headers: { "content-type": "application/json", origin: EXTENSION_ORIGIN },
+      method: "POST",
+    });
+    assert.equal(missingResult.status, 401);
+    assert.deepEqual(await jsonBody(missingResult), LOCAL_UNAUTHORIZED_BODY);
 
     const pairing = await request("/api/local/capability", { headers: { origin: EXTENSION_ORIGIN } });
     assert.equal(pairing.status, 200);

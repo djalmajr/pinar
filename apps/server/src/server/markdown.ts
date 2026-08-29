@@ -1,13 +1,21 @@
 import {
   captureFromSession,
+  formatAgentResultsMarkdown,
   formatHandoffBundle,
+  type AgentExecution,
   type ProjectTreeCollection,
   type ProjectTreeProject,
   type Session,
 } from "@pinar/shared";
 
-export function formatSessionMarkdown(session: Session, viewerUrl: string) {
-  return formatHandoffBundle(captureFromSession(session), viewerUrl).plain;
+export function formatSessionMarkdown(
+  session: Session,
+  viewerUrl: string,
+  executions: AgentExecution[] = [],
+) {
+  const base = formatHandoffBundle(captureFromSession(session), viewerUrl).plain.trim();
+  const results = formatAgentResultsMarkdown(executions);
+  return results ? `${base}\n\n${results}` : base;
 }
 
 function appendSession(lines: string[], session: Session, origin: string) {

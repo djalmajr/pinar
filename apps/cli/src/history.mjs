@@ -10,6 +10,12 @@ import {
   encodeVisualCaptureJson,
   parseVisualCapture,
 } from "../../../packages/shared/src/visual-context/index.ts";
+import {
+  AgentResultError,
+  parseAgentExecutionInput,
+  pinIdsFromPins,
+  presentAgentExecution,
+} from "../../../packages/shared/src/agent-results/index.ts";
 import { pinarHome, shotsDir } from "./paths.mjs";
 
 let SqliteDatabase = null;
@@ -175,6 +181,45 @@ function formatSession(row) {
   };
 }
 
+function parseFilesJson(value) {
+  if (Array.isArray(value)) return value.filter((item) => typeof item === "string");
+  try {
+    const parsed = JSON.parse(value || "[]");
+    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function formatAgentExecution(row, results = row.results) {
+  return presentAgentExecution({
+    agent: row.agent,
+    captureId: row.capture_id,
+    createdAt: row.created_at,
+    id: row.id,
+    idempotencyKey: row.idempotency_key,
+    results: (results || []).map((result) => ({
+      commit: result.commit_ref || result.commit || undefined,
+      createdAt: result.created_at,
+      files: parseFilesJson(result.files ?? result.files_json),
+      pinId: result.pin_id,
+      pullRequest: result.pull_request || undefined,
+      reason: result.reason || undefined,
+      status: result.status,
+      summary: result.summary,
+    })),
+  });
+}
+
+function parseExecutionForSession(session, input) {
+  if (!session) throw new AgentResultError("capture_not_found");
+  const parsed = parseAgentExecutionInput(input, pinIdsFromPins(session.pins));
+  if (parsed.captureId !== session.id && parsed.captureId !== session.captureId) {
+    throw new AgentResultError("capture_not_found");
+  }
+  return parsed;
+}
+
 function captureForSave(id, page, pins, shotId, shotPath, extras = {}) {
   return parseVisualCapture({
     captureId: id,
@@ -201,9 +246,10 @@ class JsonHistoryDb {
     try {
       if (existsSync(this.dbPath)) {
         const stored = JSON.parse(readFileSync(this.dbPath, "utf8"));
-        if (Array.isArray(stored)) return { collections: [], projects: [], sessions: stored };
+        if (Array.isArray(stored)) return { agent_executions: [], collections: [], projects: [], sessions: stored };
         if (stored && typeof stored === "object") {
           return {
+            agent_executions: Array.isArray(stored.agent_executions) ? stored.agent_executions : [],
             collections: Array.isArray(stored.collections) ? stored.collections : [],
             projects: Array.isArray(stored.projects) ? stored.projects : [],
             sessions: Array.isArray(stored.sessions) ? stored.sessions : [],
@@ -213,7 +259,7 @@ class JsonHistoryDb {
     } catch {
       // A corrupt fallback should not prevent the local server from starting.
     }
-    return { collections: [], projects: [], sessions: [] };
+    return { agent_executions: [], collections: [], projects: [], sessions: [] };
   }
 
   _save() {
@@ -349,15 +395,57 @@ class JsonHistoryDb {
     return row ? formatSession(row) : null;
   }
 
+  listAgentExecutions(captureId) {
+    return this.data.agent_executions
+      .filter((item) => item.capture_id === captureId)
+      .sort((left, right) => String(left.created_at).localeCompare(String(right.created_at)))
+      .map((row) => formatAgentExecution(row));
+  }
+
+  saveAgentExecution(input) {
+    const captureId = typeof input?.captureId === "string" ? input.captureId.trim() : "";
+    const parsed = parseExecutionForSession(this.getSession(captureId), input);
+    const existing = this.data.agent_executions.find((item) => item.idempotency_key === parsed.idempotencyKey);
+    if (existing) {
+      if (existing.payload_hash !== parsed.fingerprint) throw new AgentResultError("idempotency_conflict");
+      return { created: false, execution: formatAgentExecution(existing) };
+    }
+    const timestamp = now();
+    const row = {
+      agent: parsed.agent,
+      capture_id: parsed.captureId,
+      created_at: timestamp,
+      id: generateNanoId(),
+      idempotency_key: parsed.idempotencyKey,
+      payload_hash: parsed.fingerprint,
+      results: parsed.results.map((result) => ({
+        commit_ref: result.commit || null,
+        created_at: timestamp,
+        files_json: JSON.stringify(result.files),
+        id: generateNanoId(),
+        pin_id: result.pinId,
+        pull_request: result.pullRequest || null,
+        reason: result.reason || null,
+        status: result.status,
+        summary: result.summary,
+      })),
+    };
+    this.data.agent_executions = [...this.data.agent_executions, row];
+    this._save();
+    return { created: true, execution: formatAgentExecution(row) };
+  }
+
   deleteSession(id) {
     const previousLength = this.data.sessions.length;
     this.data.sessions = this.data.sessions.filter((item) => item.id !== id);
+    this.data.agent_executions = this.data.agent_executions.filter((item) => item.capture_id !== id);
     this._save();
     return previousLength !== this.data.sessions.length;
   }
 
   clearHistory() {
     this.data.sessions = [];
+    this.data.agent_executions = [];
     this._save();
     return true;
   }
@@ -594,8 +682,31 @@ class SqliteHistoryDb {
         collection_id TEXT,
         position INTEGER
       );
+      CREATE TABLE IF NOT EXISTS agent_executions (
+        id TEXT PRIMARY KEY,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        capture_id TEXT NOT NULL,
+        agent TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        payload_hash TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS agent_pin_results (
+        id TEXT PRIMARY KEY,
+        execution_id TEXT NOT NULL,
+        pin_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        reason TEXT,
+        files_json TEXT NOT NULL DEFAULT '[]',
+        commit_ref TEXT,
+        pull_request TEXT,
+        created_at TEXT NOT NULL,
+        UNIQUE (execution_id, pin_id)
+      );
       CREATE INDEX IF NOT EXISTS idx_projects_owner_position ON projects(owner_id, position);
       CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_agent_executions_capture ON agent_executions(capture_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_agent_pin_results_execution ON agent_pin_results(execution_id);
     `);
     const projectColumns = new Set(
       this.db.prepare("PRAGMA table_info(projects)").all().map((row) => row.name),
@@ -760,12 +871,91 @@ class SqliteHistoryDb {
     return row ? formatSession(row) : null;
   }
 
+  listAgentExecutions(captureId) {
+    const executions = this.db.prepare(`
+      SELECT * FROM agent_executions WHERE capture_id = ? ORDER BY created_at ASC
+    `).all(captureId);
+    const resultsFor = this.db.prepare(`
+      SELECT * FROM agent_pin_results WHERE execution_id = ? ORDER BY pin_id ASC
+    `);
+    return executions.map((row) => formatAgentExecution(row, resultsFor.all(row.id)));
+  }
+
+  saveAgentExecution(input) {
+    const captureId = typeof input?.captureId === "string" ? input.captureId.trim() : "";
+    const parsed = parseExecutionForSession(this.getSession(captureId), input);
+    const existing = this.db.prepare("SELECT * FROM agent_executions WHERE idempotency_key = ?")
+      .get(parsed.idempotencyKey);
+    if (existing) {
+      if (existing.payload_hash !== parsed.fingerprint) throw new AgentResultError("idempotency_conflict");
+      return {
+        created: false,
+        execution: formatAgentExecution(
+          existing,
+          this.db.prepare("SELECT * FROM agent_pin_results WHERE execution_id = ? ORDER BY pin_id ASC")
+            .all(existing.id),
+        ),
+      };
+    }
+    const timestamp = now();
+    const id = generateNanoId();
+    try {
+      this.db.prepare(`
+        INSERT INTO agent_executions (
+          id, idempotency_key, capture_id, agent, created_at, payload_hash
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `).run(id, parsed.idempotencyKey, parsed.captureId, parsed.agent, timestamp, parsed.fingerprint);
+    } catch (error) {
+      const raced = this.db.prepare("SELECT * FROM agent_executions WHERE idempotency_key = ?")
+        .get(parsed.idempotencyKey);
+      if (raced?.payload_hash === parsed.fingerprint) {
+        return {
+          created: false,
+          execution: formatAgentExecution(
+            raced,
+            this.db.prepare("SELECT * FROM agent_pin_results WHERE execution_id = ? ORDER BY pin_id ASC")
+              .all(raced.id),
+          ),
+        };
+      }
+      if (raced) throw new AgentResultError("idempotency_conflict");
+      throw error;
+    }
+    const insertResult = this.db.prepare(`
+      INSERT INTO agent_pin_results (
+        id, execution_id, pin_id, status, summary, reason, files_json, commit_ref, pull_request, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const result of parsed.results) {
+      insertResult.run(
+        generateNanoId(),
+        id,
+        result.pinId,
+        result.status,
+        result.summary,
+        result.reason || null,
+        JSON.stringify(result.files),
+        result.commit || null,
+        result.pullRequest || null,
+        timestamp,
+      );
+    }
+    return {
+      created: true,
+      execution: this.listAgentExecutions(parsed.captureId).find((item) => item.id === id),
+    };
+  }
+
   deleteSession(id) {
+    const executions = this.db.prepare("SELECT id FROM agent_executions WHERE capture_id = ?").all(id);
+    const deleteResults = this.db.prepare("DELETE FROM agent_pin_results WHERE execution_id = ?");
+    for (const row of executions) deleteResults.run(row.id);
+    this.db.prepare("DELETE FROM agent_executions WHERE capture_id = ?").run(id);
     return this.db.prepare("DELETE FROM sessions WHERE id = ?").run(id).changes > 0;
   }
 
   clearHistory() {
-    this.db.exec("DELETE FROM sessions;");
+    this.db.exec("DELETE FROM agent_pin_results; DELETE FROM agent_executions; DELETE FROM sessions;");
     return true;
   }
 

@@ -99,6 +99,14 @@ export const LOCAL_API_TRUST_MATRIX: readonly LocalApiTrustEntry[] = [
     pattern: /^\/api\/history$/,
   },
   {
+    class: "mutable",
+    intendedClients: ["cli", "extension", "workspace"],
+    methods: ["POST"],
+    notes: "Requires a valid capability. Publishes idempotent per-pin agent results.",
+    path: "/api/agent-executions",
+    pattern: /^\/api\/agent-executions$/,
+  },
+  {
     class: "sensitive-read",
     intendedClients: ["cli", "workspace"],
     methods: ["GET"],

@@ -47,14 +47,18 @@ async function writePrefs(next: { loginConfigured?: boolean; loginEnabled?: bool
 	await writeFile(desktopPrefsPath(), `${JSON.stringify(next)}\n`, "utf8");
 }
 
+export function shouldConfigureDefaultLogin(
+	prefs: { loginConfigured?: boolean; loginEnabled?: boolean },
+	loginAgentExists: boolean,
+) {
+	if (!prefs.loginConfigured) return true;
+	return prefs.loginEnabled === true && !loginAgentExists;
+}
+
 export async function ensureDefaultLogin() {
 	if (process.platform !== "darwin") return;
 	const prefs = await readPrefs();
-	if (!prefs.loginConfigured) {
-		await setServerLoginEnabled(true);
-		return;
-	}
-	if (prefs.loginEnabled) {
+	if (shouldConfigureDefaultLogin(prefs, existsSync(loginPlistPath()))) {
 		await setServerLoginEnabled(true);
 	}
 }

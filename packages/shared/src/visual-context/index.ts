@@ -462,6 +462,12 @@ export function formatVisualContextMarkdown(capture: VisualCapture, viewerUrl?: 
       `Viewport: ${capture.viewport.width}x${capture.viewport.height} dpr=${capture.viewport.devicePixelRatio}`,
     );
   }
+  const capabilityLabels = [
+    capture.capabilities?.fullPage ? "fullPage" : "",
+    capture.capabilities?.iframe ? "iframe" : "",
+  ].filter(Boolean);
+  if (capabilityLabels.length) lines.push(`Capabilities: ${capabilityLabels.join(", ")}`);
+  if (capture.warnings.length) lines.push(`Warnings: ${capture.warnings.join(", ")}`);
   lines.push("");
   for (const [index, pin] of capture.pins.entries()) {
     lines.push(`Pin #${pin.number || index + 1}:`);

@@ -45,6 +45,8 @@ describe("shared clipboard formats", () => {
     assert.match(text, /^DOM: body > main > button$/m);
     assert.match(text, /^Selector: button\[name="pay"\]$/m);
     assert.match(text, /^Text: "Pay now"$/m);
+    assert.match(text, /captureId: clipboard/);
+    assert.match(text, /```pinar-visual-context/);
   });
 
   // Mutation captured: interpolating raw user content exposes tags or unescaped URL attributes.
@@ -62,6 +64,7 @@ describe("shared clipboard formats", () => {
     assert.match(html, /\/tmp\/&lt;shot&gt;\.png/);
     assert.match(html, /Move &lt;button&gt;/);
     assert.match(html, /button\[name=&quot;pay&quot;\]/);
+    assert.match(html, /data-pinar="pinar-visual-context"/);
     assert.doesNotMatch(html, /<review>|<shot>|Move <button>/);
   });
 

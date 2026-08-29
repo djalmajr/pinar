@@ -126,6 +126,7 @@ The files in this repo also apply when a session opens **in this project**:
 
 | Agent | File | Event |
 | --- | --- | --- |
+| Cursor | `.cursor/hooks.json` | `sessionStart` |
 | Grok | `.grok/hooks/session-start.json` | `SessionStart` |
 | Claude | `.claude/settings.json` | `SessionStart` |
 | Codex | `.codex/hooks.json` | `SessionStart` (`commandWindows` on Windows) |
@@ -144,7 +145,7 @@ Re-register hooks from Pinar.app (macOS) or, on Windows/Linux:
 pinar install-hooks
 ```
 
-`AGENTS.md` describes how an agent should treat the pasted text. If the copy has `Screenshot: /path/to/file.png`, open that file — it is a single crop with every pin.
+`AGENTS.md` and `CLAUDE.md` describe how an agent should treat the pasted text. The copy includes `captureId`, `pinId`, and a `pinar-visual-context` JSON block. If it also has `Screenshot: /path/to/file.png`, open that file — it is a single crop with every pin. Cursor uses `.cursor/hooks.json` (`sessionStart`) like the other agents.
 
 ```sh
 bun test

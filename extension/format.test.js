@@ -21,20 +21,24 @@ describe("formatViewerLink", () => {
 });
 
 describe("formatClipboardPayload", () => {
-  test("prefers the markdown viewer URL over the detailed prompt", () => {
+  test("keeps captureId and pin comments when a viewer URL is present", () => {
     const payload = formatClipboardPayload({
+      captureId: "session-1",
       page: { title: "App", url: "https://app.com" },
-      pins: [{ comment: "Fix this", id: "1" }],
+      pins: [{ comment: "Fix this", id: "pin_1" }],
       shot: "/Users/me/.pinar/shots/session-1.png",
       viewerUrl: "http://127.0.0.1:17373/v/session-1.md",
     });
 
-    assert.equal(payload.plain, "http://127.0.0.1:17373/v/session-1.md");
-    assert.equal(payload.plain.includes("Fix this"), false);
-    assert.equal(payload.plain.includes("Screenshot:"), false);
+    assert.match(payload.plain, /captureId: session-1/);
+    assert.match(payload.plain, /pinId: pin_1/);
+    assert.match(payload.plain, /Fix this/);
+    assert.match(payload.plain, /Screenshot: \/Users\/me\/\.pinar\/shots\/session-1\.png/);
+    assert.match(payload.plain, /Viewer: http:\/\/127\.0\.0\.1:17373\/v\/session-1\.md/);
+    assert.match(payload.plain, /```pinar-visual-context/);
   });
 
-  test("prefers Markdown content when the extension loads it", () => {
+  test("prefers Markdown content when the extension loads it without a local capture", () => {
     const markdown = "# Visual feedback\n\nComment: Fix this <button>";
     const payload = formatClipboardPayload({
       viewerContent: markdown,
@@ -85,6 +89,8 @@ describe("formatClipboard", () => {
     assert.match(plain, /Box: x=24, y=80, w=160, h=40/);
     assert.match(plain, /!\[Pinar pins]\(data:image\/png;base64,aaa\)/);
     assert.equal((plain.match(/!\[Pinar/g) || []).length, 1);
+    assert.match(plain, /```pinar-visual-context/);
+    assert.equal(plain.includes("data:image/png;base64,aaa") && plain.includes('"url":null'), true);
     assert.match(html, /Pinar pins/);
     assert.match(html, /Pin:<\/strong> x=90, y=112/);
     assert.match(html, /data:image\/png;base64,aaa/);
@@ -141,5 +147,22 @@ describe("formatClipboard", () => {
     assert.match(plain, /some regions could not be inspected/);
     assert.match(html, /Redacted: password, token/);
     assert.equal(plain.includes("s3cret"), false);
+  });
+
+  test("missing screenshot still copies comment and DOM context", () => {
+    const { plain } = formatClipboard({
+      captureId: "cap_local",
+      page: { title: "App", url: "https://app.example.test" },
+      pins: [{ comment: "Still useful", id: "pin_1", path: "main > button", selector: "button" }],
+      warnings: ["helper_unavailable", "viewer_unavailable"],
+    });
+    assert.match(plain, /captureId: cap_local/);
+    assert.match(plain, /pinId: pin_1/);
+    assert.match(plain, /Still useful/);
+    assert.match(plain, /main > button/);
+    assert.match(plain, /helper_unavailable/);
+    assert.match(plain, /viewer_unavailable/);
+    assert.match(plain, /screenshot_missing/);
+    assert.match(plain, /```pinar-visual-context/);
   });
 });

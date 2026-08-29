@@ -6,3 +6,4 @@ export * from "./pins/colors.js";
 export * from "./desktop.js";
 export * from "./visual-context/index.js";
 export { VISUAL_CONTEXT_FIXTURES } from "./visual-context/fixtures.js";
+export * from "./handoff/index.js";

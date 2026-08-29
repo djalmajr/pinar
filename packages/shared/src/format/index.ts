@@ -1,5 +1,6 @@
 import type { Pin, PageInfo } from "../types/index.js";
-import { formatVisualContextMarkdown, parseVisualCapture } from "../visual-context/index.js";
+import { formatHandoffBundle } from "../handoff/index.js";
+import { parseVisualCapture } from "../visual-context/index.js";
 
 export function formatClipboardText(
   page: PageInfo,
@@ -8,13 +9,14 @@ export function formatClipboardText(
   viewerUrl?: string | null,
   captureId?: string,
 ): string {
+  const id = captureId || "clipboard";
   const capture = parseVisualCapture({
-    captureId: captureId || "clipboard",
+    captureId: id,
     page,
     pins,
     screenshot: { missing: !shotPath, url: shotPath || null },
-  }, captureId || "clipboard");
-  return formatVisualContextMarkdown(capture, viewerUrl);
+  }, id);
+  return formatHandoffBundle(capture, viewerUrl).plain;
 }
 
 export function formatClipboardHtml(
@@ -24,11 +26,17 @@ export function formatClipboardHtml(
   viewerUrl?: string | null,
   captureId?: string,
 ): string {
+  const id = captureId || "clipboard";
+  const capture = parseVisualCapture({
+    captureId: id,
+    page,
+    pins,
+    screenshot: { missing: !shotPath, url: shotPath || null },
+  }, id);
+  const bundle = formatHandoffBundle(capture, viewerUrl);
   const lines: string[] = [];
   lines.push(`<div data-pinar="bundle">`);
-  if (captureId) {
-    lines.push(`<p><strong>schemaVersion:</strong> 1<br/><strong>captureId:</strong> ${escapeHtml(captureId)}</p>`);
-  }
+  lines.push(`<p><strong>schemaVersion:</strong> 1<br/><strong>captureId:</strong> ${escapeHtml(capture.captureId)}</p>`);
   lines.push(`<h3>${escapeHtml(page.title || "Page")}</h3>`);
   lines.push(`<p><strong>URL:</strong> <a href="${escapeHtml(page.url)}">${escapeHtml(page.url)}</a></p>`);
   if (viewerUrl) {
@@ -38,15 +46,15 @@ export function formatClipboardHtml(
     lines.push(`<p><strong>Screenshot:</strong> <code>${escapeHtml(shotPath)}</code></p>`);
   }
   lines.push(`<ol>`);
-  pins.forEach((pin) => {
-    const pinId = pin.pinId || pin.id;
+  capture.pins.forEach((pin) => {
     lines.push(`<li>`);
     lines.push(`<strong>${escapeHtml(pin.comment)}</strong><br/>`);
-    if (pinId) lines.push(`<small>pinId: <code>${escapeHtml(pinId)}</code></small><br/>`);
-    if (pin.selector) lines.push(`<small><code>${escapeHtml(pin.selector)}</code></small>`);
+    lines.push(`<small>pinId: <code>${escapeHtml(pin.pinId)}</code></small><br/>`);
+    if (pin.locator.cssSelector) lines.push(`<small><code>${escapeHtml(pin.locator.cssSelector)}</code></small>`);
     lines.push(`</li>`);
   });
   lines.push(`</ol>`);
+  lines.push(`<pre data-pinar="pinar-visual-context">${escapeHtml(bundle.json)}</pre>`);
   lines.push(`</div>`);
   return lines.join("\n");
 }

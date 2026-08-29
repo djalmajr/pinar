@@ -13,16 +13,17 @@ bun apps/cli/src/cli.mjs install
 
 skills.sh does not install these hooks.
 
-Visual page annotations are copied to the clipboard by the Chrome extension (⌘/Ctrl+Enter).
+Visual page annotations are copied to the clipboard by the Chrome extension (⌘/Ctrl+Enter). The same action copies a human Markdown representation and a `pinar-visual-context` JSON block (Visual Context v1). `captureId` and `pinId` identify the capture; do not rewrite them.
 
 When the user pastes annotations, or says they copied/annotated a page:
 
-1. Use the pasted markdown/HTML as the source of truth (comment, DOM path, selector, pin coordinates, one shared shot).
+1. Use the pasted markdown/HTML **and** the `pinar-visual-context` JSON as the source of truth (comment, DOM path, selector, pin coordinates, one shared shot, captureId, pinId).
 2. If the paste lists `Screenshot: /absolute/path.png`, open that file with an image tool. Numbered Pinar badges on it are overlays.
-3. If they did not paste, ask them to press ⌘/Ctrl+Enter in Pinar and paste here.
-4. Change only what the pins describe.
+3. If `Warnings:` include `screenshot_missing`, still use the comment and DOM context. If they include `helper_unavailable` or `viewer_unavailable`, the bundle is still correlatable locally.
+4. If they did not paste, ask them to press ⌘/Ctrl+Enter in Pinar and paste here.
+5. Change only what the pins describe.
 
-The extension does not inject a prompt into the composer. The user pastes.
+The extension does not inject a prompt into the composer. The user pastes. Cursor, Codex, Claude, and Grok consume the same paste; session-start hooks only open Pinar.app / the local helper.
 
 Linear (team Fábrica): update the issue in the same turn the role finishes. In Progress = implementing. In Review = reviewing and testing, with evidence on the issue. Done = merged to `main` and verified; if the change ships on the Cloudflare Worker, Done only after a successful staging deploy. Labels `env:staging` / `env:production` record Worker environment (SHA + worker name + URL in the comment). Local-only work (CLI, tray, local API) can be Done without `env:*`. Never apply those labels on an unpushed commit. Production deploy is never automatic. Canonical private docs: [Práticas operacionais no Linear](https://linear.app/djalmajr/document/praticas-operacionais-no-linear-08f51d46451e) and [Pinar — Aplicação das práticas](https://linear.app/djalmajr/document/pinar-aplicacao-das-praticas-operacionais-no-linear-659c156123a1).
 

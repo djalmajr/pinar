@@ -112,8 +112,53 @@ function privacyHtml(privacy) {
   return [`<p>${lines.map((line) => escapeHtml(line)).join("<br/>")}</p>`];
 }
 
+function shotUrlForJson(shot) {
+  if (!shot || String(shot).startsWith("data:")) return null;
+  return shot;
+}
+
+function handoffWarnings({ shot, warnings = [] } = {}) {
+  const next = Array.isArray(warnings) ? warnings.filter(Boolean) : [];
+  if (!shot && !next.includes("screenshot_missing")) next.push("screenshot_missing");
+  if (typeof shot === "string" && shot.startsWith("data:") && !next.includes("screenshot_inline")) {
+    next.push("screenshot_inline");
+  }
+  return [...new Set(next)];
+}
+
+function structuredHandoff({
+  capabilities,
+  captureId,
+  page = {},
+  pins = [],
+  privacy,
+  schemaVersion,
+  shot,
+  warnings,
+} = {}) {
+  return JSON.stringify({
+    capabilities: capabilities || { fullPage: false, iframe: false },
+    captureId: captureId || "",
+    page: { title: page.title || "", url: page.url || "" },
+    pins: pins.map((pin) => ({
+      comment: pin.comment || "",
+      pinId: pin.pinId || pin.id || "",
+      locator: {
+        cssSelector: pin.selector || pin.locator?.cssSelector || "",
+        domPath: pin.path || pin.locator?.domPath || "",
+        innerText: pin.text || pin.locator?.innerText || "",
+      },
+    })),
+    privacy: privacy || undefined,
+    schemaVersion: schemaVersion || 1,
+    screenshot: { missing: !shot, url: shotUrlForJson(shot) },
+    warnings: handoffWarnings({ shot, warnings }),
+  });
+}
+
 /**
  * @param {{
+ *   capabilities?: { fullPage?: boolean, iframe?: boolean },
  *   captureId?: string,
  *   page?: { title?: string, url?: string },
  *   pins?: object[],
@@ -122,13 +167,30 @@ function privacyHtml(privacy) {
  *   sentAt?: string,
  *   shot?: string,
  *   viewerUrl?: string,
+ *   warnings?: string[],
  * }} [input]
  */
-export function formatClipboard({ captureId, page = {}, pins = [], privacy, schemaVersion, sentAt, shot, viewerUrl } = {}) {
+export function formatClipboard({
+  capabilities,
+  captureId,
+  page = {},
+  pins = [],
+  privacy,
+  schemaVersion,
+  sentAt,
+  shot,
+  viewerUrl,
+  warnings,
+} = {}) {
   const when = sentAt || new Date().toISOString();
   const url = page.url || "(unknown)";
   const title = page.title || "(untitled)";
   const finalViewer = viewerUrl ? (viewerUrl.endsWith(".md") ? viewerUrl : `${viewerUrl}.md`) : null;
+  const resolvedWarnings = handoffWarnings({ shot, warnings });
+  const capabilityLabels = [
+    capabilities?.fullPage ? "fullPage" : "",
+    capabilities?.iframe ? "iframe" : "",
+  ].filter(Boolean);
   const header = [
     "# Visual feedback",
     "",
@@ -140,12 +202,24 @@ export function formatClipboard({ captureId, page = {}, pins = [], privacy, sche
     ...privacyLines(privacy),
     ...shotPlain(shot),
     ...(finalViewer ? [`Viewer: ${finalViewer}`] : []),
+    ...(capabilityLabels.length ? [`Capabilities: ${capabilityLabels.join(", ")}`] : []),
+    ...(resolvedWarnings.length ? [`Warnings: ${resolvedWarnings.join(", ")}`] : []),
     "",
     "Each pin is an instruction about that DOM node. Use the DOM path and selector to find the matching source.",
     "Colored numbered bubbles in the screenshot are annotation overlays, not part of the page.",
   ];
   const pinBlocks = pins.map((pin, index) => pinPlain(pin, index)).join("\n\n");
-  const plain = `${[...header, "", pinBlocks].join("\n")}\n`;
+  const json = structuredHandoff({
+    capabilities,
+    captureId,
+    page,
+    pins,
+    privacy,
+    schemaVersion,
+    shot,
+    warnings: resolvedWarnings,
+  });
+  const plain = `${[...header, "", pinBlocks].join("\n")}\n\n\`\`\`pinar-visual-context\n${json}\n\`\`\`\n`;
 
   const htmlParts = [
     `<meta charset="utf-8"/>`,
@@ -157,17 +231,23 @@ export function formatClipboard({ captureId, page = {}, pins = [], privacy, sche
     ...privacyHtml(privacy),
     ...shotHtml(shot),
     ...(finalViewer ? [`<p><strong>Viewer:</strong> <a href="${escapeHtml(finalViewer)}">${escapeHtml(finalViewer)}</a></p>`] : []),
+    ...(resolvedWarnings.length
+      ? [`<p><strong>Warnings:</strong> ${escapeHtml(resolvedWarnings.join(", "))}</p>`]
+      : []),
     `<p>Each pin is an instruction about that DOM node. Use the DOM path and selector to find the matching source.</p>`,
     `<p>Colored numbered bubbles in the screenshot are annotation overlays, not part of the page.</p>`,
   ];
   pins.forEach((pin, index) => {
     htmlParts.push(pinHtml(pin, index));
   });
+  htmlParts.push(`<pre data-pinar="pinar-visual-context">${escapeHtml(json)}</pre>`);
 
   return { html: htmlParts.join("\n"), plain };
 }
 
 export function formatClipboardPayload(input = {}) {
-  if (typeof input.viewerContent === "string") return formatViewerContent(input.viewerContent);
-  return input.viewerUrl ? formatViewerLink(input.viewerUrl) : formatClipboard(input);
+  if (typeof input.viewerContent === "string" && !input.captureId) {
+    return formatViewerContent(input.viewerContent);
+  }
+  return formatClipboard(input);
 }

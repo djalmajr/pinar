@@ -341,6 +341,7 @@ async function copyBundle(message) {
   const pins = sanitized.pins;
   const page = sanitized.page;
   const privacy = sanitized.privacy;
+  const warnings = [...(sanitized.warnings || [])];
   let savedResult = null;
   const destination = await getCaptureDestinationContext(settings)
     .then((context) => context.destination)
@@ -355,26 +356,20 @@ async function copyBundle(message) {
       settings,
       destination?.collectionId,
       privacy,
-      sanitized.warnings,
+      warnings,
     );
+    if (!savedResult) warnings.push("helper_unavailable");
+  } else {
+    warnings.push("screenshot_missing");
   }
 
   const shot = savedResult?.path || message.shot || null;
   const viewerUrl = (settings.includeViewer && savedResult?.viewerUrl) ? savedResult.viewerUrl : null;
-  let clipboardViewerUrl = viewerUrl;
-  let viewerContent = null;
-  let warning = null;
-  if (viewerUrl && settings.copyViewerContent) {
-    try {
-      viewerContent = await fetchViewerMarkdown(viewerUrl);
-    } catch (error) {
-      // The session was saved, but its Markdown endpoint may need a moment to
-      // become available. Preserve the user's content instead of failing the
-      // entire Cmd/Ctrl+Enter action or silently copying only the viewer URL.
-      clipboardViewerUrl = null;
-      warning = String(error);
-    }
-  }
+  if (settings.includeViewer && !viewerUrl) warnings.push("viewer_unavailable");
+  const uniqueWarnings = [...new Set(warnings)];
+  const degraded = uniqueWarnings.some((warning) => (
+    warning === "screenshot_missing" || warning === "helper_unavailable" || warning === "viewer_unavailable"
+  ));
 
   const payload = formatClipboardPayload({
     captureId: id,
@@ -383,8 +378,8 @@ async function copyBundle(message) {
     privacy,
     schemaVersion: message.schemaVersion || 1,
     shot,
-    viewerContent,
-    viewerUrl: clipboardViewerUrl,
+    viewerUrl,
+    warnings: uniqueWarnings,
   });
 
   try {
@@ -395,26 +390,11 @@ async function copyBundle(message) {
       type: "clipboard:write",
     });
     if (!written?.ok) throw new Error(written?.error || "clipboard write failed");
-    return { ok: true, plain: payload.plain, warning };
+    return { degraded, ok: true, plain: payload.plain, warning: uniqueWarnings[0] || null, warnings: uniqueWarnings };
   } catch (error) {
     // Give the active page a final, user-gesture-compatible clipboard path.
-    return { error: String(error), ok: false, plain: payload.plain, warning };
+    return { degraded, error: String(error), ok: false, plain: payload.plain, warning: uniqueWarnings[0] || null, warnings: uniqueWarnings };
   }
-}
-
-async function fetchViewerMarkdown(viewerUrl, attempts = 3) {
-  let lastError = null;
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    try {
-      const response = await fetch(viewerUrl, { cache: "no-store" });
-      if (!response.ok) throw new Error(`Unable to load Markdown (${response.status})`);
-      return await response.text();
-    } catch (error) {
-      lastError = error;
-      if (attempt < attempts - 1) await wait(100 * (attempt + 1));
-    }
-  }
-  throw lastError || new Error("Unable to load Markdown");
 }
 
 async function ensureOffscreen() {

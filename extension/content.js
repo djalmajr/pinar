@@ -1376,6 +1376,16 @@
     }
   }
 
+  function handoffStatusText(result) {
+    const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
+    if (!result?.degraded) return "Copied";
+    const parts = ["Copied"];
+    if (warnings.includes("screenshot_missing")) parts.push("no screenshot");
+    if (warnings.includes("helper_unavailable")) parts.push("helper unavailable");
+    else if (warnings.includes("viewer_unavailable")) parts.push("no viewer");
+    return parts.join(" · ");
+  }
+
   async function sendPins() {
     if (!isMounted() || !state.active || state.sending) return;
     if (isEmbedded) {
@@ -1434,8 +1444,8 @@
         maskRegions,
         pins,
         type: "capture",
-      });
-      if (!capture?.ok) throw new Error(capture?.error || "capture failed");
+      }).catch((error) => ({ error: String(error), ok: false }));
+      const shot = capture?.ok ? capture.shot : null;
       const sanitized = sanitizeCapture({
         fields: scan.fields,
         page: pageContext(),
@@ -1450,12 +1460,14 @@
         pins: sanitized.pins,
         privacy: sanitized.privacy,
         schemaVersion: 1,
-        shot: capture.shot,
+        shot,
         type: "clipboard",
         warnings: sanitized.warnings,
       }).catch((error) => ({ error: String(error), ok: false }));
       const locallyCopied = copied?.plain ? await writePlainText(copied.plain) : false;
       if (!copied?.ok && !locallyCopied) throw new Error(copied?.error || "clipboard write failed");
+      setStatus(handoffStatusText(copied), "ok");
+      await new Promise((resolve) => setTimeout(resolve, 1400));
       // Do not restore overlays first — that would flash iframe pins after
       // the top toolbar is already gone. session:end dismisses every frame.
       await chrome.runtime.sendMessage({ type: "session:end" }).catch(() => null);

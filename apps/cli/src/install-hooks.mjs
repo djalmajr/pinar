@@ -141,14 +141,34 @@ export function mergeAntigravity(doc, command) {
 }
 
 export function grokDocument(command) {
+  return mergeGrokDocument({}, command).doc;
+}
+
+export function mergeGrokDocument(doc, command) {
+  const current = doc && typeof doc === "object" ? doc : {};
+  const { hooks, changed } = upsertSessionStart(current.hooks ?? {}, command);
+  if (!changed) return { doc: current, changed: false };
+  return { doc: { ...current, hooks }, changed: true };
+}
+
+export function mergeCursorHooks(doc, command) {
+  const current = doc && typeof doc === "object" ? doc : {};
+  const hooks = current.hooks && typeof current.hooks === "object" ? { ...current.hooks } : {};
+  const events = Array.isArray(hooks.sessionStart) ? hooks.sessionStart.slice() : [];
+  const index = events.findIndex((hook) => isPinarEnsureCommand(hook?.command));
+  if (index >= 0) {
+    const existing = events[index];
+    if (existing.command === command) return { doc: current, changed: false };
+    events[index] = { ...existing, command, timeout: existing.timeout ?? 8 };
+    return {
+      doc: { ...current, version: current.version || 1, hooks: { ...hooks, sessionStart: events } },
+      changed: true,
+    };
+  }
+  events.push({ command, timeout: 8 });
   return {
-    hooks: {
-      SessionStart: [
-        {
-          hooks: [{ type: "command", command, timeout: 8 }],
-        },
-      ],
-    },
+    doc: { ...current, version: current.version || 1, hooks: { ...hooks, sessionStart: events } },
+    changed: true,
   };
 }
 
@@ -251,11 +271,17 @@ export async function installHooks({
   }
 
   const grokPath = join(home, ".grok", "hooks", "pinar.json");
-  const grokWanted = grokDocument(command);
-  const grokExisting = await readJson(grokPath, null);
-  if (JSON.stringify(grokExisting) !== JSON.stringify(grokWanted)) {
-    await writeJson(grokPath, grokWanted);
+  const grok = mergeGrokDocument(await readJson(grokPath, {}), command);
+  if (grok.changed) {
+    await writeJson(grokPath, grok.doc);
     changed.push(grokPath);
+  }
+
+  const cursorPath = join(home, ".cursor", "hooks.json");
+  const cursor = mergeCursorHooks(await readJson(cursorPath, { version: 1, hooks: {} }), command);
+  if (cursor.changed) {
+    await writeJson(cursorPath, cursor.doc);
+    changed.push(cursorPath);
   }
 
   const antigravityPath = join(home, ".gemini", "config", "hooks.json");

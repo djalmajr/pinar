@@ -62,14 +62,19 @@ describe("session after copy", () => {
     assert.match(contentSrc, /async function writePlainText/);
     assert.match(contentSrc, /copied\?\.plain\s*\?\s*await writePlainText/);
     assert.match(contentSrc, /!copied\?\.ok\s*&&\s*!locallyCopied/);
-    assert.match(backgroundSrc, /return \{ error: String\(error\), ok: false, plain: payload\.plain, warning \}/);
+    assert.match(backgroundSrc, /return \{ degraded, error: String\(error\), ok: false, plain: payload\.plain, warning: uniqueWarnings\[0\] \|\| null, warnings: uniqueWarnings \}/);
   });
 
-  test("Markdown copy retries and degrades to detailed content instead of aborting", () => {
-    assert.match(backgroundSrc, /async function fetchViewerMarkdown/);
-    assert.match(backgroundSrc, /clipboardViewerUrl = null/);
-    assert.match(backgroundSrc, /viewerUrl: clipboardViewerUrl/);
-    assert.match(backgroundSrc, /return \{ ok: true, plain: payload\.plain, warning \}/);
+  test("screenshot and helper failures still copy a correlatable bundle", () => {
+    assert.match(contentSrc, /const shot = capture\?\.ok \? capture\.shot : null/);
+    assert.match(contentSrc, /function handoffStatusText/);
+    assert.match(contentSrc, /no screenshot/);
+    assert.match(contentSrc, /helper unavailable/);
+    assert.match(backgroundSrc, /warnings\.push\("screenshot_missing"\)/);
+    assert.match(backgroundSrc, /warnings\.push\("helper_unavailable"\)/);
+    assert.match(backgroundSrc, /warnings\.push\("viewer_unavailable"\)/);
+    assert.match(backgroundSrc, /degraded, ok: true, plain: payload\.plain/);
+    assert.match(backgroundSrc, /viewerUrl,/);
   });
 
   test("element composer identifies the selected HTML tag in a badge", () => {

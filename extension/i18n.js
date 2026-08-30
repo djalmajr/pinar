@@ -62,18 +62,8 @@ function normalizeLanguage(value) {
   return language in translations ? language : undefined;
 }
 
-function navigatorLanguages() {
-  if (typeof navigator === "undefined") return [];
-  if (navigator.languages?.length) return navigator.languages;
-  return navigator.language ? [navigator.language] : [];
-}
-
-export function getBestLanguage(preferred, browserLanguages = navigatorLanguages()) {
+export function getBestLanguage(preferred, _browserLanguages = []) {
   const preferredLanguage = normalizeLanguage(preferred);
   if (preferredLanguage) return preferredLanguage;
-  for (const browserLanguage of browserLanguages) {
-    const language = normalizeLanguage(browserLanguage);
-    if (language) return language;
-  }
   return "en";
 }

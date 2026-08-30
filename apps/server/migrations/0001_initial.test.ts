@@ -51,6 +51,8 @@ describe("cloud schema migrations", () => {
       "0006_agent_executions.sql",
       "0007_pin_reviews.sql",
       "0008_loop_metrics.sql",
+      "0009_include_screenshot.sql",
+      "0010_owner_preferences.sql",
     ]);
     const migrated = new Database(":memory:");
     const canonical = new Database(":memory:");
@@ -482,6 +484,88 @@ describe("cloud schema migrations", () => {
           "SELECT event FROM loop_metrics WHERE id = 'lm_test'",
         ).get()?.event,
         "handoff",
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  test("adds include_screenshot without rewriting existing sessions", () => {
+    const db = new Database(":memory:");
+    try {
+      db.exec("PRAGMA foreign_keys = ON;");
+      applyMigrations(db, [
+        "0001_initial.sql",
+        "0002_billing_entitlements.sql",
+        "0003_ai_usage_and_storage_notices.sql",
+        "0004_stripe_subscription_ordering.sql",
+        "0005_founder_and_legal_acceptance.sql",
+        "0006_agent_executions.sql",
+        "0007_pin_reviews.sql",
+        "0008_loop_metrics.sql",
+      ]);
+      db.exec(`
+        INSERT INTO users (id, email, plan, ever_paid, created_at, updated_at)
+        VALUES ('usr_existing', 'existing@example.test', 'lifetime', 1, '2026-08-16T00:00:00.000Z', '2026-08-16T00:00:00.000Z');
+        INSERT INTO sessions (id, created_at, user_id, plan, is_permanent, byte_size)
+        VALUES ('existing_session', '2026-08-16T00:00:00.000Z', 'usr_existing', 'lifetime', 1, 42);
+      `);
+      applyMigrations(db, ["0009_include_screenshot.sql"]);
+      assert.equal(
+        db.query<{ byte_size: number; include_screenshot: number }, []>(
+          "SELECT byte_size, include_screenshot FROM sessions WHERE id = 'existing_session'",
+        ).get()?.byte_size,
+        42,
+      );
+      assert.equal(
+        db.query<{ include_screenshot: number }, []>(
+          "SELECT include_screenshot FROM sessions WHERE id = 'existing_session'",
+        ).get()?.include_screenshot,
+        1,
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  test("adds owner_preferences without rewriting existing sessions", () => {
+    const db = new Database(":memory:");
+    try {
+      db.exec("PRAGMA foreign_keys = ON;");
+      applyMigrations(db, [
+        "0001_initial.sql",
+        "0002_billing_entitlements.sql",
+        "0003_ai_usage_and_storage_notices.sql",
+        "0004_stripe_subscription_ordering.sql",
+        "0005_founder_and_legal_acceptance.sql",
+        "0006_agent_executions.sql",
+        "0007_pin_reviews.sql",
+        "0008_loop_metrics.sql",
+        "0009_include_screenshot.sql",
+      ]);
+      db.exec(`
+        INSERT INTO users (id, email, plan, ever_paid, created_at, updated_at)
+        VALUES ('usr_existing', 'existing@example.test', 'lifetime', 1, '2026-08-16T00:00:00.000Z', '2026-08-16T00:00:00.000Z');
+        INSERT INTO sessions (id, created_at, user_id, plan, is_permanent, byte_size, include_screenshot)
+        VALUES ('existing_session', '2026-08-16T00:00:00.000Z', 'usr_existing', 'lifetime', 1, 42, 1);
+      `);
+      applyMigrations(db, ["0010_owner_preferences.sql"]);
+      assert.ok(databaseShape(db).tables.includes("owner_preferences"));
+      assert.equal(
+        db.query<{ byte_size: number }, []>(
+          "SELECT byte_size FROM sessions WHERE id = 'existing_session'",
+        ).get()?.byte_size,
+        42,
+      );
+      db.exec(`
+        INSERT INTO owner_preferences (owner_id, include_screenshot, updated_at)
+        VALUES ('usr_existing', 0, '2026-08-30T00:00:00.000Z');
+      `);
+      assert.equal(
+        db.query<{ include_screenshot: number }, []>(
+          "SELECT include_screenshot FROM owner_preferences WHERE owner_id = 'usr_existing'",
+        ).get()?.include_screenshot,
+        0,
       );
     } finally {
       db.close();

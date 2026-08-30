@@ -3,6 +3,7 @@ import {
   formatAgentResultsMarkdown,
   formatHandoffBundle,
   formatPinReviewsMarkdown,
+  screenshotDeliveryEnabled,
   type AgentExecution,
   type PinReview,
   type ProjectTreeCollection,
@@ -10,13 +11,23 @@ import {
   type Session,
 } from "@pinar/shared";
 
+export type MarkdownDelivery = { includeScreenshot?: boolean };
+
+function deliverScreenshot(session: Session, delivery?: MarkdownDelivery) {
+  return screenshotDeliveryEnabled(delivery?.includeScreenshot, session);
+}
+
 export function formatSessionMarkdown(
   session: Session,
   viewerUrl: string,
   executions: AgentExecution[] = [],
   reviews: PinReview[] = [],
+  delivery?: MarkdownDelivery,
 ) {
-  const parts = [formatHandoffBundle(captureFromSession(session), viewerUrl).plain.trim()];
+  const parts = [formatHandoffBundle(
+    captureFromSession(session, { deliverScreenshot: deliverScreenshot(session, delivery) }),
+    viewerUrl,
+  ).plain.trim()];
   const results = formatAgentResultsMarkdown(executions);
   const reviewMarkdown = formatPinReviewsMarkdown(reviews);
   if (results) parts.push(results);
@@ -24,13 +35,13 @@ export function formatSessionMarkdown(
   return parts.join("\n\n");
 }
 
-function appendSession(lines: string[], session: Session, origin: string) {
+function appendSession(lines: string[], session: Session, origin: string, delivery?: MarkdownDelivery) {
   const title = session.page.title || "(untitled)";
   lines.push(`### [${title}](${origin}/v/${session.id})`);
   lines.push("");
   lines.push(`Page: ${session.page.url || "(unknown)"}`);
   lines.push(`Markdown: ${origin}/v/${session.id}.md`);
-  if (session.shotUrl) lines.push(`Screenshot: ${session.shotUrl}`);
+  if (session.shotUrl && deliverScreenshot(session, delivery)) lines.push(`Screenshot: ${session.shotUrl}`);
   lines.push("");
   for (const [index, pin] of session.pins.entries()) {
     lines.push(`${pin.number || index + 1}. ${pin.comment}`);
@@ -42,18 +53,26 @@ function appendSession(lines: string[], session: Session, origin: string) {
   lines.push("");
 }
 
-export function formatCollectionMarkdown(collection: ProjectTreeCollection, origin: string) {
+export function formatCollectionMarkdown(
+  collection: ProjectTreeCollection,
+  origin: string,
+  delivery?: MarkdownDelivery,
+) {
   const lines = [
     `# ${collection.name}`,
     "",
     `Collection viewer: ${origin}/c/${collection.id}`,
     "",
   ];
-  for (const session of collection.sessions) appendSession(lines, session, origin);
+  for (const session of collection.sessions) appendSession(lines, session, origin, delivery);
   return lines.join("\n").trim();
 }
 
-export function formatProjectMarkdown(project: ProjectTreeProject, origin: string) {
+export function formatProjectMarkdown(
+  project: ProjectTreeProject,
+  origin: string,
+  delivery?: MarkdownDelivery,
+) {
   const lines = [
     `# ${project.name}`,
     "",
@@ -63,7 +82,7 @@ export function formatProjectMarkdown(project: ProjectTreeProject, origin: strin
   for (const collection of project.collections) {
     lines.push(`## [${collection.name}](${origin}/c/${collection.id})`);
     lines.push("");
-    for (const session of collection.sessions) appendSession(lines, session, origin);
+    for (const session of collection.sessions) appendSession(lines, session, origin, delivery);
   }
   return lines.join("\n").trim();
 }

@@ -1,17 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MouseEventHandler, type ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { useDraggable } from "@dnd-kit/core";
 import {
   formatClipboardText,
   PIN_REVIEW_STATUSES,
   requestReopenSession,
-  type CollectionPlacement,
   type PinReviewStatus,
-  type ProjectIcon,
-  type ProjectTree,
-  type ProjectTreeCollection,
   type Session,
 } from "@pinar/shared";
-import { DEFAULT_PROJECT_ICON } from "@pinar/shared/project-icons";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,13 +24,9 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
+  Checkbox,
   type ColumnDef,
   DataTable,
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
@@ -46,22 +38,19 @@ import {
   Input,
   PaginationControls,
   type PaginationState,
+  type RowSelectionState,
   ScrollArea,
   SidebarInset,
   SidebarTrigger,
   Skeleton,
+  TableRow,
   ToggleGroup,
   ToggleGroupItem,
+  cn,
 } from "@pinar/ui";
-import {
-  HistorySidebar,
-  ProjectActionsMenu,
-  ProjectSwitcher,
-} from "@/components/HistorySidebar";
-import { ProjectIconPicker } from "@/components/ProjectIcon";
-import { AppAccountMenu } from "@/components/AppAccountMenu";
-import { AppShell } from "@/components/AppShell";
-import { isProjectTreeProject, isRecord } from "@/lib/api-data";
+import { WorkspaceChrome, useWorkspaceChrome } from "@/components/WorkspaceChrome";
+import { useDeliveryPreferences } from "@/lib/delivery-preferences";
+import { useDocumentMeta } from "@/lib/document-meta";
 import { type ServerMessageKey, useServerI18n } from "@/lib/i18n";
 import { formatSessionDate } from "@/lib/session-date";
 import {
@@ -69,12 +58,17 @@ import {
   pinCount,
   type PinCountFilter,
 } from "@/lib/session-filters";
+import { sessionListingCopy, flattenCollectionSessions } from "@/lib/session-listing";
 import {
-  reorderIds,
+  SESSION_DND_TYPE,
+  sessionDragId,
+  sessionIdsForDrop,
+} from "@/lib/workspace-dnd";
+import {
   reorderSessionIds,
-  type OrderDirection,
   type SessionOrderDirection,
 } from "@/lib/session-order";
+import { WebViewer } from "@/pages/WebViewer";
 import ArrowDownIcon from "~icons/lucide/arrow-down";
 import ArrowUpIcon from "~icons/lucide/arrow-up";
 import CalendarIcon from "~icons/lucide/calendar-days";
@@ -84,6 +78,7 @@ import ExternalLinkIcon from "~icons/lucide/external-link";
 import FileTextIcon from "~icons/lucide/file-text";
 import GridIcon from "~icons/lucide/layout-grid";
 import ListFilterIcon from "~icons/lucide/list-filter";
+import Maximize2Icon from "~icons/lucide/maximize-2";
 import MessageCircleIcon from "~icons/lucide/message-circle";
 import MoreHorizontalIcon from "~icons/lucide/more-horizontal";
 import MoveRightIcon from "~icons/lucide/move-right";
@@ -94,24 +89,10 @@ import TrashIcon from "~icons/lucide/trash-2";
 import XIcon from "~icons/lucide/x";
 
 const HISTORY_VIEW_KEY = "pinar-history-view";
-const SELECTED_PROJECT_KEY = "pinar-selected-project";
 const SESSION_PAGE_SIZE_OPTIONS = [15, 30, 60, 100] as const;
 
 type HistoryView = "grid" | "table";
 type Translate = (key: ServerMessageKey, values?: Record<string, string | number>) => string;
-type ContainerKind = "collection" | "project";
-
-interface ContainerEditor {
-  id?: string;
-  kind: ContainerKind;
-  mode: "create" | "rename";
-  parentId?: string;
-}
-
-interface ContainerDelete {
-  id: string;
-  kind: ContainerKind;
-}
 
 interface DestinationOption {
   collectionId: string;
@@ -138,6 +119,39 @@ function SessionPageLink({ url }: { url?: string }) {
   );
 }
 
+function SessionIdentity({
+  heading = false,
+  session,
+}: {
+  heading?: boolean;
+  session: Session;
+}) {
+  const { description, title, url } = sessionListingCopy(session.page);
+  return (
+    <div className="min-w-0 space-y-0.5">
+      {title ? (
+        heading ? (
+          <CardTitle className="line-clamp-1">{title}</CardTitle>
+        ) : (
+          <Link className="block truncate font-medium hover:underline" search={{ session: session.id }} to="/app">
+            {title}
+          </Link>
+        )
+      ) : null}
+      {description ? (
+        <p className="line-clamp-2 text-xs text-muted-foreground">{description}</p>
+      ) : null}
+      {heading ? (
+        <CardDescription className="min-w-0">
+          <SessionPageLink url={url} />
+        </CardDescription>
+      ) : (
+        <SessionPageLink url={url} />
+      )}
+    </div>
+  );
+}
+
 function SessionActions({
   copied,
   destinations,
@@ -146,6 +160,7 @@ function SessionActions({
   onDelete,
   onMove,
   onReorder,
+  onView,
   canMoveEarlier,
   canMoveLater,
   t,
@@ -159,19 +174,20 @@ function SessionActions({
   onDelete: (id: string) => void;
   onMove: (sessionId: string, collectionId: string) => void;
   onReorder: (sessionId: string, direction: SessionOrderDirection) => void;
+  onView: (sessionId: string) => void;
   t: Translate;
 }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        render={<Button aria-label={t("dashboard.moreActions")} size="icon-xs" title={t("dashboard.moreActions")} variant="ghost" />}
+        render={<Button aria-label={t("dashboard.moreActions")} data-no-dnd="" size="icon-xs" title={t("dashboard.moreActions")} variant="ghost" />}
       >
         <MoreHorizontalIcon />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="max-h-96 w-64 overflow-y-auto">
         <DropdownMenuGroup>
-          <DropdownMenuItem render={<Link params={{ id: session.id }} preload="intent" to="/v/$id" />}>
-            <ExternalLinkIcon />
+          <DropdownMenuItem onClick={() => onView(session.id)}>
+            <Maximize2Icon />
             {t("dashboard.view")}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => requestReopenSession(session.id)}>
@@ -231,25 +247,54 @@ function SessionActions({
   );
 }
 
-function SessionPreview({ session, t }: { session: Session; t: Translate }) {
+function SessionPreview({
+  compact = false,
+  session,
+  t,
+  onOpen,
+}: {
+  compact?: boolean;
+  session: Session;
+  t: Translate;
+  onOpen?: () => void;
+}) {
   const [failed, setFailed] = useState(false);
   const previewUrl = shotUrl(session);
-  if (!previewUrl || failed) return null;
+  if (!previewUrl || failed) {
+    if (!compact) return null;
+    return <span aria-hidden="true" className="block h-11 w-[4.5rem] rounded-md bg-muted" />;
+  }
+  if (compact) {
+    return (
+      <img
+        alt=""
+        className="h-11 w-[4.5rem] rounded-md object-cover object-top"
+        src={previewUrl}
+        onError={() => setFailed(true)}
+      />
+    );
+  }
   return (
-    <Link className="group relative block h-32 overflow-hidden border-b bg-muted" params={{ id: session.id }} preload="intent" to="/v/$id">
+    <button
+      aria-label={t("dashboard.openPreview")}
+      className="group relative block h-32 w-full overflow-hidden border-b bg-muted"
+      type="button"
+      onClick={onOpen}
+    >
       <img
         alt={session.page.title || t("dashboard.screenshot")}
         className="size-full object-cover object-top transition-transform duration-300 group-hover:scale-[1.01]"
         src={previewUrl}
         onError={() => setFailed(true)}
       />
-      <span className="absolute inset-0 flex items-center justify-center gap-1.5 bg-black/45 text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
-        <ExternalLinkIcon />
-        {t("dashboard.openViewer")}
+      <span className="pointer-events-none absolute inset-0 flex items-center justify-center gap-1.5 bg-black/45 text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
+        <Maximize2Icon />
+        {t("dashboard.openPreview")}
       </span>
-    </Link>
+    </button>
   );
 }
+
 
 function DashboardSkeleton() {
   return (
@@ -295,39 +340,159 @@ function ReviewCounts({ session, t }: { session: Session; t: Translate }) {
   );
 }
 
-export function HistoryDashboard() {
+function sessionSelectLabel(session: Session, t: Translate) {
+  const copy = sessionListingCopy(session.page);
+  return t("dashboard.selectSession", { title: copy.title || copy.url || session.id });
+}
+
+function SessionSelectCheckbox({
+  checked,
+  indeterminate = false,
+  label,
+  onCheckedChange,
+}: {
+  checked: boolean;
+  indeterminate?: boolean;
+  label: string;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <Checkbox
+      aria-label={label}
+      checked={checked}
+      data-no-dnd=""
+      indeterminate={indeterminate}
+      onCheckedChange={onCheckedChange}
+      onClick={(event) => event.stopPropagation()}
+    />
+  );
+}
+
+function DraggableSessionTableRow({
+  children,
+  className,
+  onClick,
+  selected,
+  selectedIds,
+  session,
+}: {
+  children: ReactNode;
+  className?: string;
+  onClick?: MouseEventHandler<HTMLTableRowElement>;
+  selected: boolean;
+  selectedIds: ReadonlySet<string>;
+  session: Session;
+}) {
+  const draggable = useDraggable({
+    data: {
+      sessionId: session.id,
+      sessionIds: sessionIdsForDrop(session.id, selectedIds),
+      type: SESSION_DND_TYPE,
+    },
+    id: sessionDragId(session.id),
+  });
+  return (
+    <TableRow
+      ref={draggable.setNodeRef}
+      className={cn(className, draggable.isDragging && "opacity-50")}
+      data-session-id={session.id}
+      data-state={selected ? "selected" : undefined}
+      {...draggable.attributes}
+      {...draggable.listeners}
+      role="row"
+      onClick={onClick}
+    >
+      {children}
+    </TableRow>
+  );
+}
+
+function DraggableSessionCard({
+  children,
+  selected,
+  selectedIds,
+  session,
+}: {
+  children: ReactNode;
+  selected: boolean;
+  selectedIds: ReadonlySet<string>;
+  session: Session;
+}) {
+  const draggable = useDraggable({
+    data: {
+      sessionId: session.id,
+      sessionIds: sessionIdsForDrop(session.id, selectedIds),
+      type: SESSION_DND_TYPE,
+    },
+    id: sessionDragId(session.id),
+  });
+  return (
+    <Card
+      ref={draggable.setNodeRef}
+      className={cn(
+        "gap-0 py-0 transition-colors hover:ring-primary/35",
+        selected && "ring-primary/50",
+        draggable.isDragging && "opacity-50",
+      )}
+      data-session-id={session.id}
+      size="sm"
+      {...draggable.attributes}
+      {...draggable.listeners}
+      role={undefined}
+    >
+      {children}
+    </Card>
+  );
+}
+
+export function HistoryDashboard({ viewerSessionId }: { viewerSessionId?: string }) {
+  return (
+    <WorkspaceChrome>
+      <HistoryDashboardContent viewerSessionId={viewerSessionId} />
+    </WorkspaceChrome>
+  );
+}
+
+function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string }) {
   const { language, t } = useServerI18n();
+  const { includeScreenshot } = useDeliveryPreferences();
   const navigate = useNavigate();
+  const {
+    fetchTree,
+    loading,
+    moveSessions,
+    projectTree,
+    selectedCollection,
+    selectedCollectionId,
+    selectedProject,
+    setProjectTree,
+  } = useWorkspaceChrome();
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [containerDelete, setContainerDelete] = useState<ContainerDelete | null>(null);
-  const [containerEditor, setContainerEditor] = useState<ContainerEditor | null>(null);
-  const [containerName, setContainerName] = useState("");
-  const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [deleteIds, setDeleteIds] = useState<string[]>([]);
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
     pageSize: SESSION_PAGE_SIZE_OPTIONS[0],
   });
   const [pinFilters, setPinFilters] = useState<PinCountFilter[]>([]);
   const [reviewFilters, setReviewFilters] = useState<PinReviewStatus[]>([]);
-  const [projectIcon, setProjectIcon] = useState<ProjectIcon>(DEFAULT_PROJECT_ICON);
-  const [projectTree, setProjectTree] = useState<ProjectTree>({ projects: [] });
   const [search, setSearch] = useState("");
-  const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
-  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [view, setView] = useState<HistoryView>("grid");
+  useDocumentMeta(selectedCollection?.name || t("dashboard.allSessions"));
 
-  const selectedProject = projectTree.projects.find((project) => project.id === selectedProjectId)
-    ?? projectTree.projects[0];
-  const selectedProjectIndex = projectTree.projects.findIndex(({ id }) => id === selectedProject?.id);
-  const selectedCollection = selectedProject?.collections.find((collection) => collection.id === selectedCollectionId);
-  const sessions = selectedCollection
-    ? selectedCollection.sessions
-    : selectedProject?.collections.flatMap((collection) => collection.sessions) ?? [];
-  const destinations = projectTree.projects.flatMap((project) => project.collections.map((collection) => ({
-    collectionId: collection.id,
-    label: `${project.name} / ${collection.name}`,
-  })));
+  const sessions = useMemo(
+    () => selectedCollection
+      ? selectedCollection.sessions
+      : flattenCollectionSessions(selectedProject?.collections),
+    [selectedCollection, selectedProject],
+  );
+  const destinations = useMemo(
+    () => projectTree.projects.flatMap((project) => project.collections.map((collection) => ({
+      collectionId: collection.id,
+      label: `${project.name} / ${collection.name}`,
+    }))),
+    [projectTree.projects],
+  );
 
   const filteredSessions = useMemo(
     () => filterSessions(sessions, search, pinFilters, reviewFilters),
@@ -341,43 +506,43 @@ export function HistoryDashboard() {
     return ordered.slice(start, start + pagination.pageSize);
   }, [filteredSessions, pagination.pageIndex, pagination.pageSize, selectedCollection]);
   const pageCount = Math.max(1, Math.ceil(filteredSessions.length / pagination.pageSize));
+  const rowSelection = useMemo(
+    () => Object.fromEntries([...selectedIds].map((id) => [id, true])),
+    [selectedIds],
+  );
+  const gridPageSelected = gridSessions.length > 0
+    && gridSessions.every((session) => selectedIds.has(session.id));
+  const gridPagePartiallySelected = gridSessions.some((session) => selectedIds.has(session.id))
+    && !gridPageSelected;
+
+  useEffect(() => {
+    const existing = new Set(sessions.map((session) => session.id));
+    setSelectedIds((current) => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of current) {
+        if (existing.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : current;
+    });
+  }, [sessions]);
 
   useEffect(() => {
     const savedView = localStorage.getItem(HISTORY_VIEW_KEY);
     if (savedView === "grid" || savedView === "table") setView(savedView);
-    void fetchTree(localStorage.getItem(SELECTED_PROJECT_KEY) || "");
   }, []);
 
   useEffect(() => {
     setPagination((current) => current.pageIndex === 0
       ? current
       : { ...current, pageIndex: 0 });
-  }, [pinFilters, reviewFilters, search, selectedCollectionId, selectedProjectId]);
+  }, [pinFilters, reviewFilters, search, selectedCollectionId, selectedProject?.id]);
 
   useEffect(() => {
     if (pagination.pageIndex < pageCount) return;
     setPagination((current) => ({ ...current, pageIndex: pageCount - 1 }));
   }, [pageCount, pagination.pageIndex]);
-
-  async function fetchTree(preferredProjectId = selectedProjectId) {
-    setLoading(true);
-    try {
-      const response = await fetch("/api/project-tree", { cache: "no-store" });
-      const data: unknown = await response.json();
-      if (!response.ok || !isRecord(data) || !isRecord(data.tree) || !Array.isArray(data.tree.projects)) return;
-      const projects = data.tree.projects.filter(isProjectTreeProject);
-      setProjectTree({ projects });
-      const nextProject = projects.find((project) => project.id === preferredProjectId) ?? projects[0];
-      setSelectedProjectId(nextProject?.id ?? "");
-      if (nextProject) localStorage.setItem(SELECTED_PROJECT_KEY, nextProject.id);
-      else localStorage.removeItem(SELECTED_PROJECT_KEY);
-      if (!nextProject?.collections.some((collection) => collection.id === selectedCollectionId)) {
-        setSelectedCollectionId(null);
-      }
-    } finally {
-      setLoading(false);
-    }
-  }
 
   async function requestJson(path: string, method: string, body?: unknown) {
     return fetch(path, {
@@ -387,120 +552,22 @@ export function HistoryDashboard() {
     });
   }
 
-  async function createProject(name: string, icon: ProjectIcon) {
-    const response = await requestJson("/api/projects", "POST", { icon, name });
-    const data: unknown = await response.json();
-    if (response.ok && isRecord(data) && isRecord(data.project) && typeof data.project.id === "string") {
-      await fetchTree(data.project.id);
-    }
-  }
-
-  async function createCollection(name: string, parentId?: string) {
-    if (!selectedProject) return;
-    const response = await requestJson(
-      `/api/projects/${selectedProject.id}/collections`,
-      "POST",
-      { name, parentId },
-    );
-    const data: unknown = await response.json();
-    if (response.ok && isRecord(data) && isRecord(data.collection) && typeof data.collection.id === "string") {
-      await fetchTree(selectedProject.id);
-      setSelectedCollectionId(data.collection.id);
-    }
-  }
-
-  async function renameContainer(
-    kind: ContainerKind,
-    id: string,
-    name: string,
-    icon?: ProjectIcon,
-  ) {
-    await requestJson(`/api/${kind}s/${id}`, "PATCH", { icon, name });
-    await fetchTree(selectedProjectId);
-  }
-
-  async function deleteContainer(kind: ContainerKind, id: string) {
-    const response = await requestJson(`/api/${kind}s/${id}`, "DELETE");
-    if (response.ok) {
-      setContainerDelete(null);
-      await fetchTree();
-    }
-  }
-
-  function openContainerEditor(
-    editor: ContainerEditor,
-    name = "",
-    icon = DEFAULT_PROJECT_ICON,
-  ) {
-    setContainerName(name);
-    setContainerEditor(editor);
-    setProjectIcon(icon);
-  }
-
-  async function submitContainerEditor() {
-    const name = containerName.trim();
-    if (!containerEditor || !name) return;
-    if (containerEditor.mode === "create") {
-      if (containerEditor.kind === "project") await createProject(name, projectIcon);
-      else await createCollection(name, containerEditor.parentId);
-    } else if (containerEditor.id) {
-      await renameContainer(
-        containerEditor.kind,
-        containerEditor.id,
-        name,
-        containerEditor.kind === "project" ? projectIcon : undefined,
-      );
-    }
-    setContainerEditor(null);
-  }
-
-  async function reorderCollections(items: CollectionPlacement[]) {
-    if (!selectedProject) return;
-    const collectionsById = new Map(selectedProject.collections.map((collection) => [collection.id, collection]));
-    const siblingPositions = new Map<string | null, number>();
-    const collections = items.flatMap((item): ProjectTreeCollection[] => {
-      const collection = collectionsById.get(item.id);
-      if (!collection) return [];
-      const position = siblingPositions.get(item.parentId) || 0;
-      siblingPositions.set(item.parentId, position + 1);
-      return [{ ...collection, parentId: item.parentId, position }];
+  function toggleSessionSelected(sessionId: string, checked: boolean) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(sessionId);
+      else next.delete(sessionId);
+      return next;
     });
-    setProjectTree((current) => ({
-      projects: current.projects.map((project) => project.id === selectedProject.id
-        ? { ...project, collections }
-        : project),
-    }));
-    const response = await requestJson(
-      `/api/projects/${selectedProject.id}/collections/reorder`,
-      "POST",
-      { items },
-    );
-    await fetchTree(selectedProject.id);
-    if (!response.ok) return;
   }
 
-  async function reorderProject(direction: OrderDirection) {
-    if (!selectedProject) return;
-    const ids = reorderIds(
-      projectTree.projects.map(({ id }) => id),
-      selectedProject.id,
-      direction,
-    );
-    if (!ids) return;
-    const byId = new Map(projectTree.projects.map((project) => [project.id, project]));
-    setProjectTree({
-      projects: ids.flatMap((id, position) => {
-        const project = byId.get(id);
-        return project ? [{ ...project, position }] : [];
-      }),
+  function setRowSelection(updater: RowSelectionState | ((current: RowSelectionState) => RowSelectionState)) {
+    const next = typeof updater === "function" ? updater(rowSelection) : updater;
+    const ids = Object.entries(next).flatMap(([id, on]) => (on ? [id] : []));
+    setSelectedIds((current) => {
+      if (current.size === ids.length && ids.every((id) => current.has(id))) return current;
+      return new Set(ids);
     });
-    await requestJson("/api/projects/reorder", "POST", { ids });
-    await fetchTree(selectedProject.id);
-  }
-
-  async function moveSession(sessionId: string, collectionId: string) {
-    await requestJson(`/api/sessions/${sessionId}/move`, "POST", { collectionId });
-    await fetchTree(selectedProjectId);
   }
 
   async function reorderSession(sessionId: string, direction: SessionOrderDirection) {
@@ -508,7 +575,7 @@ export function HistoryDashboard() {
     const ids = reorderSessionIds(selectedCollection.sessions.map(({ id }) => id), sessionId, direction);
     if (!ids) return;
     const byId = new Map(selectedCollection.sessions.map((session) => [session.id, session]));
-    const sessions = ids.flatMap((id, position) => {
+    const nextSessions = ids.flatMap((id, position) => {
       const session = byId.get(id);
       return session ? [{ ...session, position }] : [];
     });
@@ -517,7 +584,7 @@ export function HistoryDashboard() {
         ? {
             ...project,
             collections: project.collections.map((collection) => collection.id === selectedCollection.id
-              ? { ...collection, sessions }
+              ? { ...collection, sessions: nextSessions }
               : collection),
           }
         : project),
@@ -530,10 +597,6 @@ export function HistoryDashboard() {
     await fetchTree(selectedProject.id);
   }
 
-  async function copyShare(path: string) {
-    await navigator.clipboard.writeText(new URL(path, window.location.origin).toString());
-  }
-
   async function copyPrompt(session: Session) {
     await navigator.clipboard.writeText(formatClipboardText(
       session.page,
@@ -541,16 +604,34 @@ export function HistoryDashboard() {
       session.shotUrl,
       session.viewerUrl || `/v/${session.id}.md`,
       session.captureId || session.id,
+      includeScreenshot,
     ));
     setCopiedId(session.id);
     window.setTimeout(() => setCopiedId(null), 2_000);
   }
 
-  async function deleteSession() {
-    if (!deleteId) return;
-    const response = await fetch(`/api/history/${deleteId}`, { method: "DELETE" });
-    if (response.ok) await fetchTree(selectedProjectId);
-    setDeleteId(null);
+  async function deleteSessions() {
+    if (!deleteIds.length) return;
+    await Promise.all(deleteIds.map((id) => fetch(`/api/history/${id}`, { method: "DELETE" })));
+    setSelectedIds((current) => {
+      const removed = new Set(deleteIds);
+      return new Set([...current].filter((id) => !removed.has(id)));
+    });
+    setDeleteIds([]);
+    await fetchTree(selectedProject?.id);
+  }
+
+  async function moveSelectedTo(collectionId: string) {
+    await moveSessions([...selectedIds], collectionId);
+    setSelectedIds(new Set());
+  }
+
+  function openViewer(sessionId: string) {
+    void navigate({ search: { session: sessionId }, to: "/app" });
+  }
+
+  function closeViewer() {
+    void navigate({ search: { session: undefined }, to: "/app" });
   }
 
   function selectView(values: string[]) {
@@ -562,20 +643,51 @@ export function HistoryDashboard() {
 
   const tableColumns = useMemo<ColumnDef<Session>[]>(() => [
     {
-      accessorFn: (session) => session.page.title || t("dashboard.untitled"),
       cell: ({ row }) => (
-        <div className="min-w-0">
-          <Link className="block truncate font-medium hover:underline" params={{ id: row.original.id }} preload="intent" to="/v/$id">
-            {row.original.page.title || t("dashboard.untitled")}
-          </Link>
-          <SessionPageLink url={row.original.page.url} />
-        </div>
+        <SessionSelectCheckbox
+          checked={row.getIsSelected()}
+          label={sessionSelectLabel(row.original, t)}
+          onCheckedChange={(checked) => row.toggleSelected(checked)}
+        />
+      ),
+      enableHiding: false,
+      enableSorting: false,
+      header: ({ table }) => (
+        <SessionSelectCheckbox
+          checked={table.getIsAllPageRowsSelected()}
+          indeterminate={table.getIsSomePageRowsSelected() && !table.getIsAllPageRowsSelected()}
+          label={t("dashboard.selectAll")}
+          onCheckedChange={(checked) => table.toggleAllPageRowsSelected(checked)}
+        />
+      ),
+      id: "select",
+      maxSize: 40,
+      meta: { fit: true, label: t("dashboard.selectAll") },
+      minSize: 40,
+      size: 40,
+    },
+    {
+      cell: ({ row }) => (
+        <SessionPreview compact session={row.original} t={t} />
+      ),
+      enableHiding: false,
+      enableSorting: false,
+      header: t("dashboard.preview"),
+      id: "preview",
+      maxSize: 88,
+      meta: { fit: true, label: t("dashboard.preview") },
+      minSize: 88,
+      size: 88,
+    },
+    {
+      accessorFn: (session) => sessionListingCopy(session.page).title || session.page.url,
+      cell: ({ row }) => (
+        <SessionIdentity session={row.original} />
       ),
       enableHiding: false,
       header: t("dashboard.session"),
       id: "session",
-      meta: { label: t("dashboard.session") },
-      size: 340,
+      meta: { grow: true, label: t("dashboard.session"), wrap: true },
     },
     {
       accessorFn: (session) => new Date(session.createdAt).getTime(),
@@ -609,9 +721,10 @@ export function HistoryDashboard() {
           destinations={destinations}
           session={row.original}
           onCopy={(session) => void copyPrompt(session)}
-          onDelete={setDeleteId}
-          onMove={(sessionId, collectionId) => void moveSession(sessionId, collectionId)}
+          onDelete={(id) => setDeleteIds([id])}
+          onMove={(sessionId, collectionId) => void moveSessions([sessionId], collectionId)}
           onReorder={(sessionId, direction) => void reorderSession(sessionId, direction)}
+          onView={openViewer}
           t={t}
         />
       ),
@@ -622,7 +735,7 @@ export function HistoryDashboard() {
       meta: { align: "right", label: t("dashboard.actions") },
       size: 64,
     },
-  ], [copiedId, destinations, language, t]);
+  ], [copiedId, destinations, language, moveSessions, t]);
 
   const searchControl = (
     <div className="relative min-w-0 flex-1 sm:w-56 sm:min-w-40 sm:flex-none">
@@ -680,6 +793,59 @@ export function HistoryDashboard() {
       <ToggleGroupItem aria-label={t("dashboard.tableView")} title={t("dashboard.tableView")} value="table"><TableIcon /></ToggleGroupItem>
     </ToggleGroup>
   );
+  const selectionToolbar = selectedIds.size > 0 ? (
+    <div className="flex min-w-0 flex-wrap items-center gap-2" data-bulk-toolbar>
+      <span className="text-sm text-muted-foreground">
+        {t("dashboard.selectedCount", { count: selectedIds.size })}
+      </span>
+      {destinations.length > 0 ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger render={<Button variant="outline" />}>
+            <MoveRightIcon data-icon="inline-start" />
+            {t("dashboard.moveToCollection")}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="max-h-96 w-64 overflow-y-auto">
+            <DropdownMenuGroup>
+              {destinations.map((destination) => (
+                <DropdownMenuItem
+                  key={destination.collectionId}
+                  onClick={() => void moveSelectedTo(destination.collectionId)}
+                >
+                  <MoveRightIcon />
+                  {destination.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
+      <Button variant="destructive" onClick={() => setDeleteIds([...selectedIds])}>
+        <TrashIcon data-icon="inline-start" />
+        {t("dashboard.delete")}
+      </Button>
+      <Button variant="ghost" onClick={() => setSelectedIds(new Set())}>
+        {t("dashboard.clearSelection")}
+      </Button>
+    </div>
+  ) : null;
+  const gridSelectControl = (
+    <SessionSelectCheckbox
+      checked={gridPageSelected}
+      indeterminate={gridPagePartiallySelected}
+      label={t("dashboard.selectAll")}
+      onCheckedChange={(checked) => {
+        const pageIds = gridSessions.map((session) => session.id);
+        setSelectedIds((current) => {
+          const next = new Set(current);
+          for (const id of pageIds) {
+            if (checked) next.add(id);
+            else next.delete(id);
+          }
+          return next;
+        });
+      }}
+    />
+  );
   const paginationLabels = {
     nextPage: t("dashboard.nextPage"),
     pageStatus: (page: number, totalPages: number) => t("dashboard.pageStatus", {
@@ -691,61 +857,23 @@ export function HistoryDashboard() {
   };
 
   return (
-    <AppShell
-      className="font-sans"
-      projectActions={(
-        <ProjectActionsMenu
-          canMoveEarlier={selectedProjectIndex > 0}
-          canMoveLater={selectedProjectIndex >= 0 && selectedProjectIndex < projectTree.projects.length - 1}
-          selectedProject={selectedProject}
-          t={t}
-          onDelete={setContainerDelete}
-          onRename={({ icon, id, kind, name }) => openContainerEditor(
-            { id, kind, mode: "rename" },
-            name,
-            icon,
-          )}
-          onReorder={(direction) => void reorderProject(direction)}
-          onShare={(path) => void copyShare(path)}
-        />
-      )}
-      projectSelector={(compact) => (
-        <ProjectSwitcher
-          compact={compact}
-          projectTree={projectTree}
-          selectedProject={selectedProject}
-          t={t}
-          onCreate={() => openContainerEditor({ kind: "project", mode: "create" })}
-          onSelectProject={(projectId) => {
-            setSelectedProjectId(projectId);
-            localStorage.setItem(SELECTED_PROJECT_KEY, projectId);
-            setSelectedCollectionId(null);
-          }}
-        />
-      )}
-      sidebar={(
-        <HistorySidebar
-          footer={<AppAccountMenu />}
-          selectedCollectionId={selectedCollectionId}
-          selectedProject={selectedProject}
-          t={t}
-          onCreate={(kind, parentId) => openContainerEditor({ kind, mode: "create", parentId })}
-          onDelete={setContainerDelete}
-          onRename={({ id, kind, name }) => openContainerEditor({ id, kind, mode: "rename" }, name)}
-          onReorderCollections={(items) => void reorderCollections(items)}
-          onSelectCollection={setSelectedCollectionId}
-          onShare={(path) => void copyShare(path)}
-        />
-      )}
-      workspace={selectedCollection?.name ?? t("dashboard.allSessions")}
-    >
+    <>
       <SidebarInset className="min-h-0 min-w-0 overflow-hidden">
         <ScrollArea className="min-h-0 min-w-0 flex-1">
           <div className="mx-auto flex min-h-full w-full max-w-[1600px] flex-col gap-4 p-5">
             {(view !== "table" || filteredSessions.length === 0) && (
-              <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap md:overflow-x-auto" role="toolbar">
-                <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2"><SidebarTrigger aria-label={t("dashboard.collections")} className="md:hidden" title={t("dashboard.collections")} />{searchControl}{pinFilterControl}{reviewFilterControl}</div>
-                <div className="ml-auto flex shrink-0 items-center justify-end gap-2">{viewControl}</div>
+              <div className="flex min-w-0 flex-col gap-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap md:overflow-x-auto" role="toolbar">
+                  <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2">
+                    <SidebarTrigger aria-label={t("dashboard.collections")} className="md:hidden" title={t("dashboard.collections")} />
+                    {filteredSessions.length > 0 ? gridSelectControl : null}
+                    {searchControl}
+                    {pinFilterControl}
+                    {reviewFilterControl}
+                  </div>
+                  <div className="ml-auto flex shrink-0 items-center justify-end gap-2">{viewControl}</div>
+                </div>
+                {selectionToolbar}
               </div>
             )}
             {loading ? <DashboardSkeleton /> : filteredSessions.length === 0 ? (
@@ -754,27 +882,13 @@ export function HistoryDashboard() {
                   <CardTitle>{t("dashboard.emptyTitle")}</CardTitle>
                   <CardDescription>{t("dashboard.emptyDescription")}</CardDescription>
                 </CardHeader>
-                <CardFooter className="justify-center">
-                  <Button
-                    render={(
-                      <a
-                        href="https://github.com/djalmajr/pinar#load-the-extension"
-                        rel="noopener noreferrer"
-                        target="_blank"
-                      />
-                    )}
-                    variant="outline"
-                  >
-                    {t("dashboard.setupExtension")}
-                    <ExternalLinkIcon data-icon="inline-end" />
-                  </Button>
-                </CardFooter>
               </Card>
             ) : view === "table" ? (
               <DataTable
                 columns={tableColumns}
                 data={filteredSessions}
                 emptyMessage={t("dashboard.filteredEmpty")}
+                enableRowSelection
                 getRowId={(session) => session.id}
                 initialSorting={[{ desc: true, id: "createdAt" }]}
                 labels={{
@@ -785,10 +899,31 @@ export function HistoryDashboard() {
                 }}
                 pageSizeOptions={SESSION_PAGE_SIZE_OPTIONS}
                 pagination={pagination}
-                toolbar={<><SidebarTrigger aria-label={t("dashboard.collections")} className="md:hidden" title={t("dashboard.collections")} />{searchControl}{pinFilterControl}{reviewFilterControl}</>}
+                renderRow={({ children, className, onClick, row, selected }) => (
+                  <DraggableSessionTableRow
+                    className={className}
+                    selected={selected}
+                    selectedIds={selectedIds}
+                    session={row.original}
+                    onClick={onClick}
+                  >
+                    {children}
+                  </DraggableSessionTableRow>
+                )}
+                rowSelection={rowSelection}
+                toolbar={(
+                  <>
+                    <SidebarTrigger aria-label={t("dashboard.collections")} className="md:hidden" title={t("dashboard.collections")} />
+                    {searchControl}
+                    {pinFilterControl}
+                    {reviewFilterControl}
+                    {selectionToolbar}
+                  </>
+                )}
                 toolbarActions={viewControl}
                 onPaginationChange={setPagination}
-                onRowClick={(session) => void navigate({ params: { id: session.id }, to: "/v/$id" })}
+                onRowClick={(session) => openViewer(session.id)}
+                onRowSelectionChange={setRowSelection}
               />
             ) : (
               <>
@@ -797,9 +932,23 @@ export function HistoryDashboard() {
                     const count = pinCount(session);
                     const orderIndex = selectedCollection?.sessions.findIndex(({ id }) => id === session.id) ?? -1;
                     return (
-                      <Card className="gap-0 py-0 transition-colors hover:ring-primary/35" key={session.id} size="sm">
-                        <SessionPreview session={session} t={t} />
-                        <CardHeader className="py-3"><CardTitle className="line-clamp-1">{session.page.title || t("dashboard.untitled")}</CardTitle><CardDescription className="min-w-0"><SessionPageLink url={session.page.url} /></CardDescription></CardHeader>
+                      <DraggableSessionCard
+                        key={session.id}
+                        selected={selectedIds.has(session.id)}
+                        selectedIds={selectedIds}
+                        session={session}
+                      >
+                        <SessionPreview session={session} t={t} onOpen={() => openViewer(session.id)} />
+                        <CardHeader className="py-3">
+                          <div className="flex items-start gap-2">
+                            <SessionSelectCheckbox
+                              checked={selectedIds.has(session.id)}
+                              label={sessionSelectLabel(session, t)}
+                              onCheckedChange={(checked) => toggleSessionSelected(session.id, checked)}
+                            />
+                            <SessionIdentity heading session={session} />
+                          </div>
+                        </CardHeader>
                         <CardFooter className="mt-auto justify-between gap-2 py-2.5">
                           <div className="flex min-w-0 flex-col gap-2 text-xs font-medium text-muted-foreground">
                             <div className="flex min-w-0 items-center gap-3">
@@ -808,9 +957,9 @@ export function HistoryDashboard() {
                             </div>
                             <ReviewCounts session={session} t={t} />
                           </div>
-                          <SessionActions canMoveEarlier={orderIndex > 0} canMoveLater={Boolean(selectedCollection && orderIndex >= 0 && orderIndex < selectedCollection.sessions.length - 1)} copied={copiedId === session.id} destinations={destinations} session={session} onCopy={(current) => void copyPrompt(current)} onDelete={setDeleteId} onMove={(sessionId, collectionId) => void moveSession(sessionId, collectionId)} onReorder={(sessionId, direction) => void reorderSession(sessionId, direction)} t={t} />
+                          <SessionActions canMoveEarlier={orderIndex > 0} canMoveLater={Boolean(selectedCollection && orderIndex >= 0 && orderIndex < selectedCollection.sessions.length - 1)} copied={copiedId === session.id} destinations={destinations} session={session} onCopy={(current) => void copyPrompt(current)} onDelete={(id) => setDeleteIds([id])} onMove={(sessionId, collectionId) => void moveSessions([sessionId], collectionId)} onReorder={(sessionId, direction) => void reorderSession(sessionId, direction)} onView={openViewer} t={t} />
                         </CardFooter>
-                      </Card>
+                      </DraggableSessionCard>
                     );
                   })}
                 </div>
@@ -831,56 +980,31 @@ export function HistoryDashboard() {
           </div>
         </ScrollArea>
       </SidebarInset>
-      <AlertDialog open={Boolean(deleteId)} onOpenChange={(open) => !open && setDeleteId(null)}>
-        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{t("dashboard.deleteTitle")}</AlertDialogTitle><AlertDialogDescription>{t("dashboard.deleteDescription")}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel><AlertDialogAction variant="destructive" onClick={() => void deleteSession()}>{t("dashboard.delete")}</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
-      </AlertDialog>
-      <Dialog open={Boolean(containerEditor)} onOpenChange={(open) => !open && setContainerEditor(null)}>
-        <DialogContent className={containerEditor?.kind === "project" ? "sm:max-w-lg" : undefined}>
-          <form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); void submitContainerEditor(); }}>
-            <DialogHeader>
-              <DialogTitle>
-                {containerEditor?.mode === "create"
-                  ? t(containerEditor.kind === "project"
-                    ? "dashboard.newProject"
-                    : containerEditor.parentId
-                      ? "dashboard.newSubcollection"
-                      : "dashboard.newCollection")
-                  : containerEditor?.kind === "project"
-                    ? t("dashboard.editProject")
-                    : t("dashboard.renamePrompt", { kind: t("dashboard.collection") })}
-              </DialogTitle>
-            </DialogHeader>
-            <Input autoFocus aria-label={t("dashboard.name")} placeholder={t("dashboard.name")} value={containerName} onChange={(event) => setContainerName(event.target.value)} />
-            {containerEditor?.kind === "project" ? (
-              <ProjectIconPicker
-                emptyMessage={t("dashboard.noProjectIcons")}
-                label={t("dashboard.projectIcon")}
-                searchPlaceholder={t("dashboard.searchProjectIcons")}
-                value={projectIcon}
-                onValueChange={setProjectIcon}
-              />
-            ) : null}
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setContainerEditor(null)}>{t("common.cancel")}</Button>
-              <Button disabled={!containerName.trim()} type="submit">{t(containerEditor?.mode === "create" ? "dashboard.create" : "dashboard.save")}</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-      <AlertDialog open={Boolean(containerDelete)} onOpenChange={(open) => !open && setContainerDelete(null)}>
+      {viewerSessionId ? (
+        <WebViewer onClose={closeViewer} presentation="modal" sessionId={viewerSessionId} />
+      ) : null}
+      <AlertDialog open={deleteIds.length > 0} onOpenChange={(open) => !open && setDeleteIds([])}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t(containerDelete?.kind === "project" ? "dashboard.deleteProject" : "dashboard.deleteCollection")}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {deleteIds.length > 1
+                ? t("dashboard.deleteSelectedTitle", { count: deleteIds.length })
+                : t("dashboard.deleteTitle")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              {t("dashboard.deleteContainerConfirm", { kind: t(containerDelete?.kind === "project" ? "dashboard.project" : "dashboard.collection") })}
+              {deleteIds.length > 1
+                ? t("dashboard.deleteSelectedDescription")
+                : t("dashboard.deleteDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={() => containerDelete && void deleteContainer(containerDelete.kind, containerDelete.id)}>{t("dashboard.delete")}</AlertDialogAction>
+            <AlertDialogAction variant="destructive" onClick={() => void deleteSessions()}>
+              {t("dashboard.delete")}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </AppShell>
+    </>
   );
 }

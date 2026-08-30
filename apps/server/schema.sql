@@ -306,7 +306,8 @@ CREATE TABLE sessions (
   byte_size INTEGER NOT NULL DEFAULT 0,
   collection_id TEXT REFERENCES collections(id),
   position INTEGER NOT NULL DEFAULT 0,
-  retention_expires_at TEXT
+  retention_expires_at TEXT,
+  include_screenshot INTEGER NOT NULL DEFAULT 1 CHECK (include_screenshot IN (0, 1))
 );
 
 CREATE INDEX idx_sessions_created ON sessions(created_at DESC);
@@ -383,3 +384,9 @@ CREATE TABLE loop_metrics (
 );
 
 CREATE INDEX idx_loop_metrics_owner_created ON loop_metrics(owner_id, created_at ASC);
+
+CREATE TABLE owner_preferences (
+  owner_id TEXT PRIMARY KEY,
+  include_screenshot INTEGER NOT NULL DEFAULT 1 CHECK (include_screenshot IN (0, 1)),
+  updated_at TEXT NOT NULL
+);

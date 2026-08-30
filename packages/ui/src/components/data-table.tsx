@@ -9,12 +9,14 @@ import {
   type ColumnDef,
   type OnChangeFn,
   type PaginationState,
+  type Row,
   type RowData,
+  type RowSelectionState,
   type SortingState,
   type VisibilityState,
   useReactTable,
 } from "@tanstack/react-table";
-import { useMemo, useState, type ComponentProps, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type ComponentProps, type CSSProperties, type MouseEventHandler, type ReactNode } from "react";
 import ArrowDownIcon from "~icons/lucide/arrow-down";
 import ArrowUpIcon from "~icons/lucide/arrow-up";
 import ChevronLeftIcon from "~icons/lucide/chevron-left";
@@ -63,7 +65,10 @@ type ColumnMeta = {
   align?: "center" | "left" | "right";
   filterLabel?: string;
   filterOptions?: DataTableFilterOption[];
+  fit?: boolean;
+  grow?: boolean;
   label?: string;
+  wrap?: boolean;
 };
 
 type DataTableLabels = {
@@ -76,19 +81,31 @@ type DataTableLabels = {
   rowsPerPage?: string;
 };
 
+type DataTableRowRenderProps<TData extends RowData> = {
+  children: ReactNode;
+  className?: string;
+  onClick?: MouseEventHandler<HTMLTableRowElement>;
+  row: Row<TData>;
+  selected: boolean;
+};
+
 type DataTableProps<TData extends RowData> = ComponentProps<"div"> & {
   columns: ColumnDef<TData>[];
   data: TData[];
   emptyMessage?: string;
+  enableRowSelection?: boolean;
   getRowId?: (row: TData) => string;
   initialSorting?: SortingState;
   labels?: DataTableLabels;
   pageSizeOptions?: readonly number[];
   pagination?: PaginationState;
+  renderRow?: (props: DataTableRowRenderProps<TData>) => ReactNode;
+  rowSelection?: RowSelectionState;
   toolbar?: ReactNode;
   toolbarActions?: ReactNode;
   onPaginationChange?: OnChangeFn<PaginationState>;
   onRowClick?: (row: TData) => void;
+  onRowSelectionChange?: OnChangeFn<RowSelectionState>;
 };
 
 type PaginationControlsProps = ComponentProps<"div"> & {
@@ -102,6 +119,25 @@ type PaginationControlsProps = ComponentProps<"div"> & {
 };
 
 const DEFAULT_PAGE_SIZE_OPTIONS = [15, 30, 60, 100] as const;
+
+function columnSizeStyle(columnDef: { maxSize?: number; minSize?: number; size?: number }): CSSProperties | undefined {
+  const style: CSSProperties = {};
+  if (columnDef.size != null) style.width = columnDef.size;
+  if (columnDef.minSize != null) style.minWidth = columnDef.minSize;
+  if (columnDef.maxSize != null) style.maxWidth = columnDef.maxSize;
+  return Object.keys(style).length ? style : undefined;
+}
+
+function columnLayoutStyle(
+  columnDef: { maxSize?: number; meta?: unknown; minSize?: number; size?: number },
+): CSSProperties | undefined {
+  const meta = columnDef.meta as ColumnMeta | undefined;
+  if (meta?.grow) return { width: "100%" };
+  if (meta?.fit && columnDef.size != null) {
+    return { maxWidth: columnDef.size, minWidth: columnDef.size, width: columnDef.size };
+  }
+  return columnSizeStyle(columnDef);
+}
 
 function alignmentClass(align: ColumnMeta["align"]) {
   if (align === "right") return "text-right";
@@ -290,15 +326,19 @@ function DataTable<TData extends RowData>({
   columns,
   data,
   emptyMessage = "No results.",
+  enableRowSelection = false,
   getRowId,
   initialSorting = [],
   labels,
   pageSizeOptions = DEFAULT_PAGE_SIZE_OPTIONS,
   pagination: controlledPagination,
+  renderRow,
+  rowSelection,
   toolbar,
   toolbarActions,
   onPaginationChange,
   onRowClick,
+  onRowSelectionChange,
   ...props
 }: DataTableProps<TData>) {
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
@@ -309,10 +349,20 @@ function DataTable<TData extends RowData>({
   }));
   const [sorting, setSorting] = useState<SortingState>(() => initialSorting);
   const pagination = controlledPagination ?? internalPagination;
-  const updatePagination = onPaginationChange ?? setInternalPagination;
+  const updatePagination: OnChangeFn<PaginationState> = (updater) => {
+    const apply = onPaginationChange ?? setInternalPagination;
+    apply((current) => {
+      const next = typeof updater === "function" ? updater(current) : updater;
+      return current.pageIndex === next.pageIndex && current.pageSize === next.pageSize
+        ? current
+        : next;
+    });
+  };
   const table = useReactTable({
+    autoResetPageIndex: !controlledPagination,
     columns,
     data,
+    enableRowSelection,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
@@ -321,8 +371,15 @@ function DataTable<TData extends RowData>({
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
     onPaginationChange: updatePagination,
+    onRowSelectionChange,
     onSortingChange: setSorting,
-    state: { columnFilters, columnVisibility, pagination, sorting },
+    state: {
+      columnFilters,
+      columnVisibility,
+      pagination,
+      rowSelection: rowSelection ?? {},
+      sorting,
+    },
   });
   const filterableColumns = useMemo(
     () =>
@@ -369,25 +426,30 @@ function DataTable<TData extends RowData>({
       <div className="w-full overflow-hidden rounded-lg border bg-background">
         <ScrollArea className="w-full">
           <Table className="min-w-[760px] table-fixed">
+            <colgroup>
+              {table.getVisibleLeafColumns().map((column) => (
+                <col key={column.id} style={columnLayoutStyle(column.columnDef)} />
+              ))}
+            </colgroup>
             <TableHeader className="sticky top-0 z-10 bg-background">
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
                   {headerGroup.headers.map((header) => {
-                    const align = (header.column.columnDef.meta as ColumnMeta | undefined)?.align;
+                    const meta = header.column.columnDef.meta as ColumnMeta | undefined;
                     const sorted = header.column.getIsSorted();
                     return (
                       <TableHead
-                        className={cn("h-9", alignmentClass(align))}
+                        className={cn("h-9", meta?.fit && "w-0", alignmentClass(meta?.align))}
                         colSpan={header.colSpan}
                         key={header.id}
-                        style={header.column.columnDef.size ? { width: header.column.columnDef.size } : undefined}
+                        style={columnLayoutStyle(header.column.columnDef)}
                       >
                         {header.isPlaceholder ? null : header.column.getCanSort() ? (
                           <button
                             className={cn(
                               "inline-flex h-7 items-center gap-1.5 rounded-md px-1.5 font-medium hover:bg-muted",
-                              align === "right" && "ml-auto",
-                              align === "center" && "mx-auto",
+                              meta?.align === "right" && "ml-auto",
+                              meta?.align === "center" && "mx-auto",
                             )}
                             type="button"
                             onClick={header.column.getToggleSortingHandler()}
@@ -412,32 +474,57 @@ function DataTable<TData extends RowData>({
             </TableHeader>
             <TableBody>
               {table.getRowModel().rows.length ? (
-                table.getRowModel().rows.map((row) => (
-                  <TableRow
-                    className={cn(onRowClick && "cursor-pointer")}
-                    key={row.id}
-                    onClick={(event) => {
-                      if (!onRowClick) return;
+                table.getRowModel().rows.map((row) => {
+                  const selected = row.getIsSelected();
+                  const className = cn(onRowClick && "cursor-pointer");
+                  const onClick: MouseEventHandler<HTMLTableRowElement> | undefined = onRowClick
+                    ? (event) => {
                       const target = event.target as HTMLElement;
-                      if (!target.closest("a, button, input, [role=button], [role=menuitem], [data-no-row-click]")) {
+                      if (!target.closest("a, button, input, [role=button], [role=checkbox], [role=menuitem], [data-slot=checkbox], [data-no-row-click]")) {
                         onRowClick(row.original);
                       }
-                    }}
-                  >
-                    {row.getVisibleCells().map((cell) => {
-                      const align = (cell.column.columnDef.meta as ColumnMeta | undefined)?.align;
-                      return (
-                        <TableCell
-                          className={alignmentClass(align)}
-                          key={cell.id}
-                          style={cell.column.columnDef.size ? { width: cell.column.columnDef.size } : undefined}
-                        >
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </TableCell>
-                      );
-                    })}
-                  </TableRow>
-                ))
+                    }
+                    : undefined;
+                  const cells = row.getVisibleCells().map((cell) => {
+                    const meta = cell.column.columnDef.meta as ColumnMeta | undefined;
+                    return (
+                      <TableCell
+                        className={cn(
+                          meta?.fit && "w-0",
+                          meta?.wrap && "whitespace-normal",
+                          alignmentClass(meta?.align),
+                        )}
+                        key={cell.id}
+                        style={columnLayoutStyle(cell.column.columnDef)}
+                      >
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
+                    );
+                  });
+                  if (renderRow) {
+                    return (
+                      <Fragment key={row.id}>
+                        {renderRow({
+                          children: cells,
+                          className,
+                          onClick,
+                          row,
+                          selected,
+                        })}
+                      </Fragment>
+                    );
+                  }
+                  return (
+                    <TableRow
+                      className={className}
+                      data-state={selected ? "selected" : undefined}
+                      key={row.id}
+                      onClick={onClick}
+                    >
+                      {cells}
+                    </TableRow>
+                  );
+                })
               ) : (
                 <TableRow>
                   <TableCell className="h-24 text-center text-muted-foreground" colSpan={visibleColumnCount}>
@@ -470,8 +557,10 @@ export {
   type DataTableFilterOption,
   type DataTableLabels,
   type DataTableProps,
+  type DataTableRowRenderProps,
   type ColumnDef,
   type PaginationControlsProps,
   type PaginationState,
+  type RowSelectionState,
   type SortingState,
 };

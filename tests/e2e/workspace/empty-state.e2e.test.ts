@@ -56,10 +56,12 @@ test.beforeEach(async ({ page }) => {
   }));
 });
 
-test("first use keeps the protected tree, both views and an actionable extension path", async ({ page }) => {
+test("first use keeps the protected tree and both views without an extension CTA", async ({ page }) => {
   await page.goto("/app");
 
   await expect(page.getByRole("heading", { name: "No annotation sessions found" })).toBeVisible();
+  await expect(page.getByText("Use the Pinar extension to annotate a page.")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Set up the extension" })).toHaveCount(0);
   await expect(page.getByRole("button", { exact: true, name: "Personal" })).toBeVisible();
   await openWorkspaceSidebar(page, "Inbox");
   await expect(page.getByRole("button", { exact: true, name: "Inbox" })).toBeVisible();
@@ -69,22 +71,9 @@ test("first use keeps the protected tree, both views and an actionable extension
   await expect(page.getByRole("heading", { name: "No annotation sessions found" })).toBeVisible();
   await page.getByRole("button", { name: "Grid view" }).click();
   await expect(page.getByRole("heading", { name: "No annotation sessions found" })).toBeVisible();
-
-  const setup = page.getByRole("link", { name: "Set up the extension" });
-  await expect(setup).toHaveAttribute("href", "https://github.com/djalmajr/pinar#load-the-extension");
-  await page.context().route("https://github.com/djalmajr/pinar", (route) => route.fulfill({
-    body: "<title>Pinar extension guide</title><main>Load the extension</main>",
-    contentType: "text/html",
-  }));
-  const guidePromise = page.waitForEvent("popup");
-  await setup.click();
-  const guide = await guidePromise;
-  await expect(guide).toHaveURL("https://github.com/djalmajr/pinar#load-the-extension");
-  await expect(guide.getByText("Load the extension")).toBeVisible();
-  await guide.close();
 });
 
-test("preferences persist and the account trigger survives the active sidebar layout", async ({ page }) => {
+test("preferences persist language, theme and the collapsed sidebar", async ({ page }) => {
   await page.goto("/app");
 
   await page.getByRole("button", { name: "Language" }).click();
@@ -99,12 +88,7 @@ test("preferences persist and the account trigger survives the active sidebar la
 
   if (isMobileViewport(page)) {
     await openWorkspaceSidebar(page, "Inbox");
-    const accountMenu = page.locator('[data-mobile="true"]')
-      .getByRole("button", { name: "Menu da conta" });
-    await expect(accountMenu).toBeVisible();
-    await accountMenu.click();
-    await expect(page.getByRole("menuitem", { name: "Assinar o Pro" })).toBeVisible();
-    await page.keyboard.press("Escape");
+    await expect(page.getByRole("button", { exact: true, name: "Inbox" })).toBeVisible();
     await closeWorkspaceSidebar(page);
     await expect(page.getByRole("heading", { name: "Nenhuma sessão de anotação encontrada" })).toBeVisible();
     return;
@@ -114,19 +98,11 @@ test("preferences persist and the account trigger survives the active sidebar la
   await expect.poll(async () => (await sidebarPanel.boundingBox())?.width || 0).toBeGreaterThan(190);
   await page.locator("header").getByRole("button", { name: "Coleções" }).click();
   await expect.poll(async () => (await sidebarPanel.boundingBox())?.width || 999).toBeLessThan(60);
-
-  const accountMenu = page.locator('[data-sidebar="footer"]')
-    .getByRole("button", { name: "Menu da conta" });
-  await expect(accountMenu).toBeVisible();
-  await accountMenu.click();
-  await expect(page.getByRole("menuitem", { name: "Assinar o Pro" })).toBeVisible();
-  await page.keyboard.press("Escape");
-
   await page.locator("header").getByRole("button", { name: "Coleções" }).click();
   await expect.poll(async () => (await sidebarPanel.boundingBox())?.width || 0).toBeGreaterThan(190);
 });
 
-test("mobile sidebar opens, exposes the user panel and returns focus to the workspace", async ({ page }) => {
+test("mobile sidebar opens collections and returns focus to the workspace", async ({ page }) => {
   await page.setViewportSize({ height: 844, width: 390 });
   await page.goto("/app");
 
@@ -134,14 +110,14 @@ test("mobile sidebar opens, exposes the user panel and returns focus to the work
   await expect(page.getByRole("button", { exact: true, name: "Inbox" })).toBeHidden();
   await toggle.click();
   await expect(page.getByRole("button", { exact: true, name: "Inbox" })).toBeVisible();
-
-  await page.locator('[data-mobile="true"]')
-    .getByRole("button", { name: "Account menu" })
-    .click();
-  await expect(page.getByRole("menuitem", { name: "Upgrade to Pro" })).toBeVisible();
-  await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
 
   await expect(page.getByRole("button", { exact: true, name: "Inbox" })).toBeHidden();
   await expect(page.getByRole("heading", { name: "No annotation sessions found" })).toBeVisible();
+
+  const workspaceTrigger = page.locator("header").getByRole("button", { exact: true, name: "Personal" });
+  const box = await workspaceTrigger.boundingBox();
+  const viewport = page.viewportSize();
+  expect(box).not.toBeNull();
+  expect(box?.width ?? Infinity).toBeLessThan((viewport?.width ?? 0) * 0.5);
 });

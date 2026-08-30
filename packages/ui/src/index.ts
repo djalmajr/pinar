@@ -1,5 +1,6 @@
 export * from "./lib/utils.js";
 export * from "./components/button.js";
+export * from "./components/checkbox.js";
 export * from "./components/avatar.js";
 export * from "./components/button-group.js";
 export * from "./components/card.js";

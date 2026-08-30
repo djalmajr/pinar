@@ -61,6 +61,7 @@ export interface Pin {
 }
 
 export interface PageInfo {
+  description?: string;
   title: string;
   url: string;
   viewport?: {
@@ -87,6 +88,7 @@ export interface Session {
   schemaVersion?: number;
   shotId?: string;
   shotUrl?: string | null;
+  includeScreenshot?: boolean;
   userId?: string | null;
   viewerUrl?: string | null;
 }
@@ -180,10 +182,43 @@ export type SupportedLanguage = "en" | "pt" | "es" | "fr" | "de" | "zh" | "ja";
 
 export type ThemeMode = "dark" | "light" | "system";
 
+export interface DeliveryPreferences {
+  includeScreenshot: boolean;
+}
+
+export const DEFAULT_DELIVERY_PREFERENCES: DeliveryPreferences = {
+  includeScreenshot: true,
+};
+
+function includeScreenshotValue(value: unknown, fallback = true) {
+  if (typeof value === "boolean") return value;
+  if (value === 0 || value === "0" || value === "false") return false;
+  if (value === 1 || value === "1" || value === "true") return true;
+  return fallback;
+}
+
+export function parseDeliveryPreferences(value: unknown): DeliveryPreferences {
+  if (typeof value !== "object" || value === null) return { ...DEFAULT_DELIVERY_PREFERENCES };
+  const record = value as Record<string, unknown>;
+  if (!("includeScreenshot" in record)) return { ...DEFAULT_DELIVERY_PREFERENCES };
+  return { includeScreenshot: includeScreenshotValue(record.includeScreenshot) };
+}
+
+export function mergeDeliveryPreferences(
+  current: DeliveryPreferences,
+  patch: unknown,
+): DeliveryPreferences {
+  if (typeof patch !== "object" || patch === null || !("includeScreenshot" in patch)) return current;
+  return {
+    includeScreenshot: includeScreenshotValue((patch as Record<string, unknown>).includeScreenshot),
+  };
+}
+
 export interface PinarSettings {
   cloudUrl: string;
   copyViewerContent: boolean;
   enableHistory: boolean;
+  includeScreenshot: boolean;
   includeViewer: boolean;
   loopMetricsOptIn?: boolean;
   language: string;

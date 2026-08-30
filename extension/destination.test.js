@@ -54,11 +54,15 @@ describe("capture destination", () => {
     assert.match(optionsSrc, /flattenDestinationCollections\(destinationCollections\)/);
     assert.match(backgroundSrc, /getCaptureDestinationContext\(settings\)/);
     assert.match(backgroundSrc, /JSON\.stringify\(payload\)/);
+    assert.match(backgroundSrc, /includeScreenshot,/);
     assert.equal((backgroundSrc.match(/body: JSON\.stringify\(payload\)/g) || []).length, 2);
     assert.match(backgroundSrc, /privacy,/);
     assert.match(backgroundSrc, /storeDestination\(settings, "", body\.destination\)/);
     assert.match(backgroundSrc, /localFetch\(base, "\/api\/shots"/);
     assert.match(backgroundSrc, /localFetch\(localBase, "\/api\/project-tree"\)/);
+    assert.match(backgroundSrc, /\/api\/preferences/);
+    assert.match(backgroundSrc, /preferences:get/);
+    assert.match(backgroundSrc, /preferences:set/);
     assert.match(backgroundSrc, /\$\{base\}\/api\/local\/capability/);
     assert.match(backgroundSrc, /"x-pinar-capability": token/);
     assert.doesNotMatch(backgroundSrc, /\/api\/local\/capability\?/);
@@ -74,15 +78,18 @@ describe("capture destination", () => {
     assert.match(optionsSrc, /type: "auth:logout"/);
     assert.match(optionsSrc, /authSession\?\.kind === "account"/);
     assert.doesNotMatch(optionsSrc, /authSession\?\.kind === "installation"/);
+    assert.match(optionsSrc, /t\.screenshot_label/);
+    assert.match(optionsSrc, /type: "preferences:get"/);
+    assert.match(optionsSrc, /includeScreenshot: settings.includeScreenshot, type: "preferences:set"/);
     assert.match(optionsSrc, /t\.btn_upgrade_pro/);
     assert.doesNotMatch(optionsSrc, /t\.btn_subscription/);
     assert.doesNotMatch(optionsSrc, /license|identity:regenerate|installationId/i);
   });
 
-  test("opens every Pinar entry point at the configured homepage", () => {
+  test("opens the default workspace", () => {
     assert.match(optionsSrc, /type: "app:open"/);
-    assert.match(backgroundSrc, /withLanguage\(`\$\{base\}\/`\)/);
-    assert.doesNotMatch(backgroundSrc, /withLanguage\(`\$\{base\}\/app`\)/);
+    assert.match(backgroundSrc, /withLanguage\(`\$\{base\}\/app`\)/);
+    assert.doesNotMatch(backgroundSrc, /withLanguage\(`\$\{base\}\/`\)/);
     assert.doesNotMatch(backgroundSrc, /browser-ticket|\/history/);
   });
 

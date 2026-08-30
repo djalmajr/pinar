@@ -269,11 +269,12 @@ function screenshotFrom(record: Record<string, unknown>, captureId: string): Vis
     || asString(record.shot);
   const isDataUrl = rawUrl.startsWith("data:");
   const url = !rawUrl || isDataUrl ? null : rawUrl;
+  const explicitMissing = nested.missing;
   return {
     height: asFiniteNumber(nested.height),
     id: asString(nested.id) || asString(record.shotId) || captureId,
     mimeType: "image/png",
-    missing: nested.missing === true || !url,
+    missing: explicitMissing === false ? false : explicitMissing === true || !url,
     url,
     width: asFiniteNumber(nested.width),
   };
@@ -347,6 +348,9 @@ export function parseVisualCapture(input: unknown, fallbackCaptureId?: string): 
     captureId,
     createdAt: asString(input.createdAt) || undefined,
     page: {
+      ...(asString(pageRecord.description).trim()
+        ? { description: asString(pageRecord.description).trim() }
+        : {}),
       title: asString(pageRecord.title),
       url: asString(pageRecord.url),
       viewport: viewport
@@ -395,8 +399,22 @@ export function decodeVisualCaptureJson(raw: string | null | undefined, fallback
   }
 }
 
-export function captureFromSession(session: Session, extras: { shotPath?: string | null } = {}): VisualCapture {
-  const shotUrl = extras.shotPath ?? session.shotUrl ?? null;
+export function sessionDeliversScreenshot(session?: Pick<Session, "includeScreenshot"> | null) {
+  return session?.includeScreenshot !== false;
+}
+
+export function screenshotDeliveryEnabled(
+  preference?: boolean | null,
+  session?: Pick<Session, "includeScreenshot"> | null,
+) {
+  if (typeof preference === "boolean") return preference;
+  return sessionDeliversScreenshot(session);
+}
+
+export function captureFromSession(session: Session, extras: { shotPath?: string | null; deliverScreenshot?: boolean } = {}): VisualCapture {
+  const storedUrl = extras.shotPath ?? session.shotUrl ?? null;
+  const deliver = extras.deliverScreenshot ?? true;
+  const shotUrl = deliver ? storedUrl : null;
   return parseVisualCapture({
     captureId: session.captureId || session.id,
     createdAt: session.createdAt,
@@ -406,7 +424,7 @@ export function captureFromSession(session: Session, extras: { shotPath?: string
     schemaVersion: session.schemaVersion,
     screenshot: {
       id: session.shotId || session.id,
-      missing: !shotUrl,
+      missing: deliver ? !shotUrl : false,
       url: shotUrl,
     },
   }, session.id);
@@ -447,6 +465,7 @@ export function formatVisualContextMarkdown(capture: VisualCapture, viewerUrl?: 
     `schemaVersion: ${capture.schemaVersion}`,
     `captureId: ${capture.captureId}`,
     `Page: ${capture.page.title || "(untitled)"}`,
+    ...(capture.page.description ? [`Description: ${capture.page.description}`] : []),
     `URL: ${capture.page.url || "(unknown)"}`,
   ];
   if (viewerUrl) lines.push(`Viewer: ${viewerUrl}`);

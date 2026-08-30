@@ -7,13 +7,10 @@ import type {
   ProjectTreeProject,
 } from "@pinar/shared";
 import {
-  DndContext,
   DragOverlay,
-  KeyboardSensor,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
+  useDndContext,
+  useDndMonitor,
+  useDroppable,
   type DragEndEvent,
   type DragMoveEvent,
   type DragOverEvent,
@@ -21,7 +18,6 @@ import {
 } from "@dnd-kit/core";
 import {
   SortableContext,
-  sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
@@ -58,6 +54,10 @@ import {
   reorderCollectionTree,
   visibleCollections,
 } from "@/lib/collection-tree";
+import {
+  COLLECTION_DND_TYPE,
+  SESSION_DND_TYPE,
+} from "@/lib/workspace-dnd";
 import { ProjectIconGlyph } from "@/components/ProjectIcon";
 import type { ServerMessageKey } from "@/lib/i18n";
 import CheckIcon from "~icons/lucide/check";
@@ -225,9 +225,14 @@ function SortableCollection({
   onShare,
   onToggle,
 }: SortableCollectionProps) {
-  const sortable = useSortable({ id: collection.id });
+  const { active } = useDndContext();
+  const sortable = useSortable({
+    data: { type: COLLECTION_DND_TYPE },
+    id: collection.id,
+  });
   const [menuActionFocused, setMenuActionFocused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const sessionDropTarget = sortable.isOver && active?.data.current?.type === SESSION_DND_TYPE;
   const style: CSSProperties = {
     opacity: sortable.isDragging ? 0.35 : 1,
     transform: CSS.Transform.toString(sortable.transform),
@@ -246,7 +251,11 @@ function SortableCollection({
         {...sortable.attributes}
         {...sortable.listeners}
         ref={sortable.setActivatorNodeRef}
-        className={cn("touch-none", sortable.isDragging ? "cursor-grabbing" : "cursor-default")}
+        className={cn(
+          "touch-none",
+          sortable.isDragging ? "cursor-grabbing" : "cursor-default",
+          sessionDropTarget && "bg-sidebar-accent ring-1 ring-sidebar-ring",
+        )}
         aria-expanded={hasChildren ? isExpanded : undefined}
         isActive={isActive}
         style={buttonStyle}
@@ -315,11 +324,18 @@ function FixedCollection({
   onSelect,
   onShare,
 }: FixedCollectionProps) {
+  const { active } = useDndContext();
+  const droppable = useDroppable({
+    data: { type: COLLECTION_DND_TYPE },
+    id: collection.id,
+  });
   const [menuActionFocused, setMenuActionFocused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const sessionDropTarget = droppable.isOver && active?.data.current?.type === SESSION_DND_TYPE;
   return (
-    <SidebarMenuItem>
+    <SidebarMenuItem ref={droppable.setNodeRef}>
       <SidebarMenuButton
+        className={cn(sessionDropTarget && "bg-sidebar-accent ring-1 ring-sidebar-ring")}
         isActive={isActive}
         tooltip={collection.name}
         onClick={() => onSelect(collection.id)}
@@ -356,6 +372,7 @@ export function ProjectSwitcher({
   onCreate,
   onSelectProject,
 }: ProjectSwitcherProps) {
+  const { isMobile } = useSidebar();
   const totalSessions = selectedProject?.collections.reduce(
     (total, collection) => total + collection.sessions.length,
     0,
@@ -372,7 +389,11 @@ export function ProjectSwitcher({
             aria-label={selectedProject?.name ?? t("common.loading")}
             className={cn(
               "min-w-0",
-              compact ? "size-8 justify-center p-0" : "h-11 w-full justify-start px-1.5",
+              compact
+                ? "size-8 justify-center p-0"
+                : isMobile
+                  ? "h-8 w-auto max-w-full justify-start px-1.5"
+                  : "h-11 w-full justify-start px-1.5",
             )}
             disabled={!selectedProject}
             variant="ghost"
@@ -386,15 +407,21 @@ export function ProjectSwitcher({
             {selectedProject ? (
               <ProjectIconGlyph className="size-5 shrink-0" icon={selectedProject.icon} />
             ) : null}
-            <span className="grid min-w-0 flex-1 text-left leading-tight">
-              <span className="truncate font-semibold">
-                {selectedProject?.name ?? t("common.loading")}
-              </span>
-              <span className="truncate text-xs font-normal text-sidebar-foreground/60">
-                {t("aggregate.sessionCount", { count: totalSessions, label: sessionLabel })}
-              </span>
+            <span className={cn("min-w-0 text-left leading-tight", isMobile ? "truncate font-semibold" : "grid flex-1")}>
+              {isMobile ? (
+                selectedProject?.name ?? t("common.loading")
+              ) : (
+                <>
+                  <span className="truncate font-semibold">
+                    {selectedProject?.name ?? t("common.loading")}
+                  </span>
+                  <span className="truncate text-xs font-normal text-sidebar-foreground/60">
+                    {t("aggregate.sessionCount", { count: totalSessions, label: sessionLabel })}
+                  </span>
+                </>
+              )}
             </span>
-            <ChevronsUpDownIcon className="ml-auto" />
+            <ChevronsUpDownIcon className={isMobile ? "shrink-0" : "ml-auto"} />
           </>
         )}
       </DropdownMenuTrigger>
@@ -547,10 +574,6 @@ export function HistorySidebar({
     (total, collection) => total + collection.sessions.length,
     0,
   );
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
 
   function closeMobile() {
     setOpenMobile(false);
@@ -591,22 +614,29 @@ export function HistorySidebar({
     setOverId(null);
   }
 
+  function isCollectionTreeDrag(event: { active: { data: { current?: { type?: string } } } }) {
+    return event.active.data.current?.type !== SESSION_DND_TYPE;
+  }
+
   function handleDragStart(event: DragStartEvent) {
+    if (!isCollectionTreeDrag(event)) return;
     const id = String(event.active.id);
     setActiveId(id);
     setOverId(id);
   }
 
   function handleDragMove(event: DragMoveEvent) {
+    if (!isCollectionTreeDrag(event)) return;
     setOffsetLeft(event.delta.x);
   }
 
   function handleDragOver(event: DragOverEvent) {
+    if (!isCollectionTreeDrag(event)) return;
     setOverId(event.over ? String(event.over.id) : null);
   }
 
   function handleDragEnd(event: DragEndEvent) {
-    if (event.over) {
+    if (isCollectionTreeDrag(event) && event.over) {
       const items = reorderCollectionTree(
         flattened,
         String(event.active.id),
@@ -622,6 +652,14 @@ export function HistorySidebar({
     }
     resetDrag();
   }
+
+  useDndMonitor({
+    onDragCancel: resetDrag,
+    onDragEnd: handleDragEnd,
+    onDragMove: handleDragMove,
+    onDragOver: handleDragOver,
+    onDragStart: handleDragStart,
+  });
 
   return (
     <Sidebar
@@ -673,48 +711,38 @@ export function HistorySidebar({
             <span className="sr-only">{t("dashboard.newCollection")}</span>
           </SidebarGroupAction>
           <SidebarGroupContent>
-            <DndContext
-              collisionDetection={closestCenter}
-              sensors={sensors}
-              onDragCancel={resetDrag}
-              onDragEnd={handleDragEnd}
-              onDragMove={handleDragMove}
-              onDragOver={handleDragOver}
-              onDragStart={handleDragStart}
+            <SortableContext
+              items={visibleFlattened.map((item) => item.collection.id)}
+              strategy={verticalListSortingStrategy}
             >
-              <SortableContext
-                items={visibleFlattened.map((item) => item.collection.id)}
-                strategy={verticalListSortingStrategy}
-              >
-                <SidebarMenu>
-                  {visibleFlattened.map(({ collection, depth }) => (
-                    <SortableCollection
-                      collection={collection}
-                      depth={collection.id === activeId && projection ? projection.depth : depth}
-                      hasChildren={collectionIdsWithChildren.has(collection.id)}
-                      isActive={selectedCollectionId === collection.id}
-                      isExpanded={!collapsedCollectionIds.has(collection.id)}
-                      key={collection.id}
-                      t={t}
-                      onCreateChild={(parentId) => create("collection", parentId)}
-                      onDelete={deleteContainer}
-                      onRename={rename}
-                      onSelect={selectCollection}
-                      onShare={onShare}
-                      onToggle={toggleCollection}
-                    />
-                  ))}
-                </SidebarMenu>
-              </SortableContext>
-              <DragOverlay dropAnimation={null}>
-                {activeCollection ? (
-                  <div className="flex h-8 items-center gap-2 rounded-md bg-popover px-2 text-sm text-popover-foreground shadow-md ring-1 ring-border">
-                    <FolderIcon />
-                    <span className="truncate">{activeCollection.name}</span>
-                  </div>
-                ) : null}
-              </DragOverlay>
-            </DndContext>
+              <SidebarMenu>
+                {visibleFlattened.map(({ collection, depth }) => (
+                  <SortableCollection
+                    collection={collection}
+                    depth={collection.id === activeId && projection ? projection.depth : depth}
+                    hasChildren={collectionIdsWithChildren.has(collection.id)}
+                    isActive={selectedCollectionId === collection.id}
+                    isExpanded={!collapsedCollectionIds.has(collection.id)}
+                    key={collection.id}
+                    t={t}
+                    onCreateChild={(parentId) => create("collection", parentId)}
+                    onDelete={deleteContainer}
+                    onRename={rename}
+                    onSelect={selectCollection}
+                    onShare={onShare}
+                    onToggle={toggleCollection}
+                  />
+                ))}
+              </SidebarMenu>
+            </SortableContext>
+            <DragOverlay dropAnimation={null}>
+              {activeCollection ? (
+                <div className="flex h-8 items-center gap-2 rounded-md bg-popover px-2 text-sm text-popover-foreground shadow-md ring-1 ring-border">
+                  <FolderIcon />
+                  <span className="truncate">{activeCollection.name}</span>
+                </div>
+              ) : null}
+            </DragOverlay>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>

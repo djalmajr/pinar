@@ -34,6 +34,9 @@ import {
   sessionFromCapture,
   visualContextErrorBody,
   planLoopMetricRequest,
+  DEFAULT_DELIVERY_PREFERENCES,
+  mergeDeliveryPreferences,
+  type DeliveryPreferences,
   type LoopMetric,
   type PinReview,
   type PinReviewEvent,
@@ -347,6 +350,7 @@ function shotObjectKey(id: string) {
 const memoryAccounts = new Map<string, AccountRecord>();
 const memoryAgentExecutions = new Map<string, MemoryAgentExecution>();
 const memoryLoopMetrics: Array<LoopMetric & { createdAt: string; id: string; ownerId: string }> = [];
+const memoryOwnerPreferences = new Map<string, DeliveryPreferences>();
 const memoryPinReviews = new Map<string, { lastExecutionId: string | null; status: PinReviewStatus; updatedAt: string }>();
 const memoryPinReviewEvents: Array<PinReviewEvent & { captureId: string }> = [];
 const memoryAiCreditGrants = new Map<string, AiCreditGrantRecord>();
@@ -383,6 +387,66 @@ function stringValue(record: Record<string, unknown>, key: string) {
 function numberValue(record: Record<string, unknown>, key: string) {
   const value = Number(record[key]);
   return Number.isFinite(value) ? value : 0;
+}
+
+function booleanValue(record: Record<string, unknown>, key: string, fallback = true) {
+  const value = record[key];
+  if (typeof value === "boolean") return value;
+  if (value === 0 || value === "0" || value === "false") return false;
+  if (value === 1 || value === "1" || value === "true") return true;
+  return fallback;
+}
+
+async function readOwnerDeliveryPreferences(env: CloudEnv, ownerId: string): Promise<DeliveryPreferences> {
+  if (!ownerId) return { ...DEFAULT_DELIVERY_PREFERENCES };
+  if (env.DB) {
+    try {
+      const row = await env.DB.prepare(
+        "SELECT include_screenshot FROM owner_preferences WHERE owner_id = ?",
+      ).bind(ownerId).first();
+      if (!row) return { ...DEFAULT_DELIVERY_PREFERENCES };
+      return { includeScreenshot: Number(row.include_screenshot) !== 0 };
+    } catch {
+      return { ...DEFAULT_DELIVERY_PREFERENCES };
+    }
+  }
+  return memoryOwnerPreferences.get(ownerId) ?? { ...DEFAULT_DELIVERY_PREFERENCES };
+}
+
+async function writeOwnerDeliveryPreferences(
+  env: CloudEnv,
+  ownerId: string,
+  patch: unknown,
+): Promise<DeliveryPreferences> {
+  const next = mergeDeliveryPreferences(await readOwnerDeliveryPreferences(env, ownerId), patch);
+  const updatedAt = currentDate().toISOString();
+  if (env.DB) {
+    await env.DB.prepare(`
+      INSERT INTO owner_preferences (owner_id, include_screenshot, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(owner_id) DO UPDATE SET
+        include_screenshot = excluded.include_screenshot,
+        updated_at = excluded.updated_at
+    `).bind(ownerId, next.includeScreenshot ? 1 : 0, updatedAt).run();
+  } else {
+    memoryOwnerPreferences.set(ownerId, next);
+  }
+  return next;
+}
+
+async function readPreferences(request: Request, env: CloudEnv) {
+  const principal = await resolvePrincipal(request, env);
+  if (!principal) return json({ error: "Unauthorized" }, 401);
+  return json({ ok: true, ...(await readOwnerDeliveryPreferences(env, principal.id)) });
+}
+
+async function updatePreferences(request: Request, env: CloudEnv) {
+  const principal = await resolvePrincipal(request, env);
+  if (!principal) return json({ error: "Unauthorized" }, 401);
+  return json({
+    ok: true,
+    ...(await writeOwnerDeliveryPreferences(env, principal.id, await readJson(request))),
+  });
 }
 
 function protectedValue(value: unknown) {
@@ -1209,6 +1273,7 @@ function sessionFromRow(row: Record<string, unknown>): Session {
     id,
     isPermanent: Boolean(row.is_permanent),
     page: {
+      ...(capture.page.description ? { description: capture.page.description } : {}),
       title: String(row.title || ""),
       url: String(row.url || ""),
       viewport: capture.page.viewport,
@@ -1221,6 +1286,9 @@ function sessionFromRow(row: Record<string, unknown>): Session {
     schemaVersion: capture.schemaVersion,
     shotId: String(row.shot_id || ""),
     shotUrl: typeof row.shot_url === "string" ? row.shot_url : null,
+    includeScreenshot: row.include_screenshot === undefined || row.include_screenshot === null
+      ? true
+      : Number(row.include_screenshot) !== 0,
     userId: typeof row.user_id === "string" ? row.user_id : null,
   };
 }
@@ -1228,7 +1296,7 @@ function sessionFromRow(row: Record<string, unknown>): Session {
 function sessionMatchesQuery(session: Session, query: string) {
   if (!query) return true;
   const needle = query.toLocaleLowerCase();
-  return [session.page?.title, session.page?.url, JSON.stringify(session.pins || [])].some((value) => {
+  return [session.page?.title, session.page?.description, session.page?.url, JSON.stringify(session.pins || [])].some((value) => {
     return String(value || "").toLocaleLowerCase().includes(needle);
   });
 }
@@ -3598,13 +3666,14 @@ async function persistSession(env: CloudEnv, session: Session) {
     await env.DB.prepare(
       `INSERT INTO sessions (
          id, url, title, shot_id, shot_url, pin_count, pins_json, created_at, user_id,
-         plan, is_permanent, byte_size, collection_id, position
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         plan, is_permanent, byte_size, collection_id, position, include_screenshot
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET url=excluded.url, title=excluded.title, shot_id=excluded.shot_id,
        shot_url=excluded.shot_url, pin_count=excluded.pin_count, pins_json=excluded.pins_json,
        created_at=excluded.created_at, user_id=excluded.user_id, plan=excluded.plan,
        is_permanent=excluded.is_permanent, byte_size=excluded.byte_size,
-       collection_id=excluded.collection_id, position=excluded.position`,
+       collection_id=excluded.collection_id, position=excluded.position,
+       include_screenshot=excluded.include_screenshot`,
     ).bind(
       session.id,
       session.page.url || "",
@@ -3620,6 +3689,7 @@ async function persistSession(env: CloudEnv, session: Session) {
       session.byteSize || 0,
       session.collectionId || "",
       session.position || 0,
+      session.includeScreenshot === false ? 0 : 1,
     ).run();
   } else {
     memorySessions.set(session.id, sessionFromCapture(capture, session));
@@ -4456,6 +4526,11 @@ async function uploadShot(request: Request, env: CloudEnv) {
     position: await nextSessionPosition(env, principal, destination.collectionId),
     shotId: id,
     shotUrl,
+    includeScreenshot: booleanValue(
+      body,
+      "includeScreenshot",
+      (await readOwnerDeliveryPreferences(env, principal.id)).includeScreenshot,
+    ),
     userId: principal.id,
   });
   try {
@@ -4503,6 +4578,11 @@ async function saveHistory(request: Request, env: CloudEnv) {
     position: await nextSessionPosition(env, principal, destination.collectionId),
     shotId,
     shotUrl: stringValue(body, "shotUrl") || (shotId ? `${origin}/shots/${shotId}.png` : null),
+    includeScreenshot: booleanValue(
+      body,
+      "includeScreenshot",
+      (await readOwnerDeliveryPreferences(env, principal.id)).includeScreenshot,
+    ),
     userId: principal.id,
   });
   const replacedBytes = await existingSessionBytes(env, principal.id, id);
@@ -4926,6 +5006,8 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
   }
   if (method === "POST" && path === "/api/installations") return registerInstallation(request, env);
   if (method === "GET" && path === "/api/auth/session") return authSession(request, env);
+  if (method === "GET" && path === "/api/preferences") return readPreferences(request, env);
+  if (method === "PATCH" && path === "/api/preferences") return updatePreferences(request, env);
   if (method === "POST" && path === "/api/auth/extension-codes") return createExtensionCode(request, env);
   if (method === "POST" && path === "/api/auth/extension-codes/exchange") {
     return exchangeExtensionCode(request, env);
@@ -5146,6 +5228,7 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
         `${url.origin}/v/${id}`,
         await listAgentExecutions(env, id),
         await listPinReviews(env, id),
+        await readOwnerDeliveryPreferences(env, session.userId || ""),
       ),
       200,
       {
@@ -5159,7 +5242,14 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
     if (!rawId.endsWith(".md")) return json({ error: "Not found" }, 404);
     const project = await findPublicProject(env, rawId.slice(0, -3));
     return project
-      ? text(formatProjectMarkdown(project, url.origin), 200, {
+      ? text(
+        formatProjectMarkdown(
+          project,
+          url.origin,
+          await readOwnerDeliveryPreferences(env, project.ownerId),
+        ),
+        200,
+        {
         "Cache-Control": "public, max-age=60",
         "Content-Type": "text/markdown; charset=utf-8",
       })
@@ -5170,7 +5260,14 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
     if (!rawId.endsWith(".md")) return json({ error: "Not found" }, 404);
     const collection = await findPublicCollection(env, rawId.slice(0, -3));
     return collection
-      ? text(formatCollectionMarkdown(collection, url.origin), 200, {
+      ? text(
+        formatCollectionMarkdown(
+          collection,
+          url.origin,
+          await readOwnerDeliveryPreferences(env, collection.ownerId),
+        ),
+        200,
+        {
         "Cache-Control": "public, max-age=60",
         "Content-Type": "text/markdown; charset=utf-8",
       })
@@ -5186,6 +5283,7 @@ export function resetCloudMemoryStateForTests() {
   memoryAccounts.clear();
   memoryAgentExecutions.clear();
   memoryLoopMetrics.length = 0;
+  memoryOwnerPreferences.clear();
   memoryPinReviews.clear();
   memoryPinReviewEvents.length = 0;
   memoryAiCreditGrants.clear();

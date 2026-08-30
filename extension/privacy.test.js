@@ -8,7 +8,7 @@ const backgroundSrc = readFileSync(new URL("./background.js", import.meta.url), 
 const contentSrc = readFileSync(new URL("./content.js", import.meta.url), "utf8");
 const context = vm.createContext({ URL, URLSearchParams });
 vm.runInContext(source, context);
-const { classifyFieldAttrs, sanitizeCapture, sanitizeUrl } = context.__pinarPrivacy;
+const { classifyFieldAttrs, copyReviewCategories, sanitizeCapture, sanitizeUrl, shouldAutoMask } = context.__pinarPrivacy;
 
 const SECRET = "PINAR_FIXTURE_SECRET_s3cretValue";
 
@@ -17,6 +17,7 @@ describe("extension privacy", () => {
     assert.match(backgroundSrc, /privacy\.js/);
     assert.match(contentSrc, /__pinarPrivacy/);
     assert.match(contentSrc, /data-privacy-mask/);
+    assert.match(contentSrc, /copyReviewCategories/);
   });
 
   test("redacts fixture secrets from a capture payload", () => {
@@ -28,6 +29,22 @@ describe("extension privacy", () => {
     const payload = JSON.stringify(result);
     assert.equal(payload.includes(SECRET), false);
     assert.equal(classifyFieldAttrs({ type: "password" }), "password");
+    assert.equal(classifyFieldAttrs({ type: "email" }), null);
+    assert.equal(shouldAutoMask("password"), false);
+    assert.equal(shouldAutoMask("email"), false);
+    assert.equal(shouldAutoMask("token"), true);
+    assert.deepEqual(copyReviewCategories(["password", "email", "token", "unevaluated"]), ["token"]);
     assert.equal(sanitizeUrl("https://x.test/?token=abc12345").url.includes("abc12345"), false);
+  });
+
+  test("does not treat email field values as secrets", () => {
+    const email = "user@example.test";
+    const result = sanitizeCapture({
+      fields: [{ attrs: { type: "email" }, value: email }],
+      page: { title: "Signup", url: "https://app.example.test/signup" },
+      pins: [{ comment: `Fix ${email}`, text: "Email" }],
+    });
+    assert.equal(result.privacy.redacted.includes("email"), false);
+    assert.equal(result.pins[0].comment.includes(email), true);
   });
 });

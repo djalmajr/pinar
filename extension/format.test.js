@@ -165,4 +165,23 @@ describe("formatClipboard", () => {
     assert.match(plain, /screenshot_missing/);
     assert.match(plain, /```pinar-visual-context/);
   });
+
+  test("omits the screenshot from agent copy when includeScreenshot is false", () => {
+    const { html, plain } = formatClipboard({
+      captureId: "cap_no_shot",
+      includeScreenshot: false,
+      page: { title: "App", url: "https://app.example.test" },
+      pins: [{ comment: "Fix this", id: "pin_1" }],
+      shot: "/Users/me/.pinar/shots/cap_no_shot.png",
+      viewerUrl: "http://127.0.0.1:17373/v/cap_no_shot.md",
+    });
+    assert.match(plain, /captureId: cap_no_shot/);
+    assert.match(plain, /Viewer: http:\/\/127\.0\.0\.1:17373\/v\/cap_no_shot\.md/);
+    assert.doesNotMatch(plain, /Screenshot:/);
+    assert.doesNotMatch(plain, /screenshot_missing/);
+    assert.doesNotMatch(plain, /Colored numbered bubbles/);
+    assert.doesNotMatch(html, /Screenshot:/);
+    assert.match(plain, /"missing":false/);
+    assert.match(plain, /"url":null/);
+  });
 });

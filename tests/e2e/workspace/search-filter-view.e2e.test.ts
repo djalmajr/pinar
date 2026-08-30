@@ -109,7 +109,25 @@ test("search, pin filters and grid/table views preserve the same session set", a
   await search.clear();
   await page.getByRole("button", { name: "Table view" }).click();
   await expect(page.getByRole("table")).toBeVisible();
-  for (const item of sessions) await expect(page.getByRole("cell", { name: item.page.title })).toBeVisible();
+  for (const item of sessions) {
+    await expect(
+      page.getByRole("row").filter({
+        has: page.getByRole("link", { name: item.page.title, exact: true }),
+      }),
+    ).toBeVisible();
+  }
+
+  await page.getByRole("button", { exact: true, name: "Inbox" }).click();
+  await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toContainText("Inbox");
+  await page.getByRole("button", { exact: true, name: "All sessions" }).click();
+  await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toContainText("All sessions");
+  for (const item of sessions) {
+    await expect(
+      page.getByRole("row").filter({
+        has: page.getByRole("link", { name: item.page.title, exact: true }),
+      }),
+    ).toBeVisible();
+  }
 
   await page.getByRole("button", { name: "Grid view" }).click();
   for (const item of sessions) await expect(page.getByRole("heading", { name: item.page.title })).toBeVisible();

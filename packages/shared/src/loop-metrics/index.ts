@@ -127,10 +127,11 @@ export function sanitizeLoopMetric(value: unknown): LoopMetric {
     metric.degraded = value.degraded;
   }
   if (value.durationMs !== undefined) {
-    if (!Number.isInteger(value.durationMs) || value.durationMs < 0 || value.durationMs > 86_400_000) {
+    const durationMs = value.durationMs;
+    if (typeof durationMs !== "number" || !Number.isInteger(durationMs) || durationMs < 0 || durationMs > 86_400_000) {
       throw new LoopMetricError("invalid_payload");
     }
-    metric.durationMs = value.durationMs;
+    metric.durationMs = durationMs;
   }
   if (value.locationConfidence !== undefined) {
     if (!isConfidence(value.locationConfidence)) throw new LoopMetricError("invalid_payload");

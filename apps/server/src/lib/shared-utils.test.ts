@@ -49,6 +49,29 @@ describe("shared clipboard formats", () => {
     assert.match(text, /```pinar-visual-context/);
   });
 
+  test("omits the screenshot when includeScreenshot is false", () => {
+    const text = formatClipboardText(
+      PAGE,
+      PINS,
+      "/tmp/pinar-shot.png",
+      "https://pinar.dev/v/session-one.md",
+      "session-one",
+      false,
+    );
+    assert.doesNotMatch(text, /Screenshot:/);
+    assert.doesNotMatch(text, /screenshot_missing/);
+    assert.match(text, /Viewer: https:\/\/pinar\.dev\/v\/session-one\.md/);
+    const html = formatClipboardHtml(
+      PAGE,
+      PINS,
+      "/tmp/pinar-shot.png",
+      "https://pinar.dev/v/session-one.md",
+      "session-one",
+      false,
+    );
+    assert.doesNotMatch(html, /Screenshot:/);
+  });
+
   // Mutation captured: interpolating raw user content exposes tags or unescaped URL attributes.
   test("escapes untrusted content in the HTML clipboard payload", () => {
     const html = formatClipboardHtml(

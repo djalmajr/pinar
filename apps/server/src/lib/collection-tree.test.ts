@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { ProjectTreeCollection } from "@pinar/shared";
 import {
+  collectionAncestorPath,
   flattenCollections,
   partitionCollectionNavigation,
   reorderCollectionTree,
@@ -117,6 +118,35 @@ describe("collection tree drag projection", () => {
       { id: grandchild.id, parentId: sibling.id },
       { id: active.id, parentId: root.id },
     ]);
+  });
+});
+
+describe("collection ancestor path", () => {
+  test("walks from the selected folder up to the root", () => {
+    const root = collection("root", 0);
+    const child = collection("child", 0, root.id);
+    const grandchild = collection("grandchild", 0, child.id);
+    const sibling = collection("sibling", 1);
+
+    assert.deepEqual(collectionAncestorPath([root, child, grandchild, sibling], null), []);
+    assert.deepEqual(collectionAncestorPath([root, child, grandchild, sibling], "missing"), []);
+    assert.deepEqual(
+      collectionAncestorPath([root, child, grandchild, sibling], root.id).map(({ id }) => id),
+      [root.id],
+    );
+    assert.deepEqual(
+      collectionAncestorPath([root, child, grandchild, sibling], grandchild.id).map(({ id }) => id),
+      [root.id, child.id, grandchild.id],
+    );
+  });
+
+  test("stops if the parent chain loops", () => {
+    const left = collection("left", 0, "right");
+    const right = collection("right", 1, "left");
+    assert.deepEqual(
+      collectionAncestorPath([left, right], left.id).map(({ id }) => id),
+      [right.id, left.id],
+    );
   });
 });
 

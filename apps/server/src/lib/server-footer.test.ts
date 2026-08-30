@@ -14,13 +14,17 @@ describe("ServerFooter", () => {
   });
 
   test("keeps the full footer only on institutional public pages", () => {
-    for (const page of ["Landing", "Pricing", "LegalDocument"]) {
+    for (const page of ["Landing", "Pricing", "LegalDocument", "Docs"]) {
       assert.match(pageSource(page), /<ServerFooter\b/);
     }
 
     for (const page of ["SignIn", "Success", "HistoryDashboard", "WebViewer"]) {
       assert.doesNotMatch(pageSource(page), /<ServerFooter\b/);
     }
+
+    assert.match(pageSource("WebViewer"), /shouldUseWorkspaceChrome/);
+    assert.match(pageSource("WebViewer"), /WorkspaceChrome/);
+    assert.match(pageSource("HistoryDashboard"), /<WorkspaceChrome>/);
 
     assert.match(pageSource("SignIn"), /<FairSourceSupportCard\b/);
   });
@@ -32,5 +36,6 @@ describe("ServerFooter", () => {
     assert.match(pageSource("Landing"), /<main[^>]+max-w-6xl[^>]+px-5/);
     assert.match(pageSource("Pricing"), /<main[^>]+max-w-6xl[^>]+px-5/);
     assert.match(pageSource("LegalDocument"), /<main[^>]+max-w-6xl[^>]+px-5/);
+    assert.match(pageSource("Docs"), /<main[^>]+max-w-6xl[^>]+px-5/);
   });
 });

@@ -8,13 +8,17 @@ export function formatClipboardText(
   shotPath?: string | null,
   viewerUrl?: string | null,
   captureId?: string,
+  includeScreenshot = true,
 ): string {
   const id = captureId || "clipboard";
   const capture = parseVisualCapture({
     captureId: id,
     page,
     pins,
-    screenshot: { missing: !shotPath, url: shotPath || null },
+    screenshot: {
+      missing: includeScreenshot ? !shotPath : false,
+      url: includeScreenshot ? shotPath || null : null,
+    },
   }, id);
   return formatHandoffBundle(capture, viewerUrl).plain;
 }
@@ -25,13 +29,18 @@ export function formatClipboardHtml(
   shotPath?: string | null,
   viewerUrl?: string | null,
   captureId?: string,
+  includeScreenshot = true,
 ): string {
   const id = captureId || "clipboard";
+  const deliveredShot = includeScreenshot ? shotPath : null;
   const capture = parseVisualCapture({
     captureId: id,
     page,
     pins,
-    screenshot: { missing: !shotPath, url: shotPath || null },
+    screenshot: {
+      missing: includeScreenshot ? !shotPath : false,
+      url: deliveredShot || null,
+    },
   }, id);
   const bundle = formatHandoffBundle(capture, viewerUrl);
   const lines: string[] = [];
@@ -42,8 +51,8 @@ export function formatClipboardHtml(
   if (viewerUrl) {
     lines.push(`<p><strong>Viewer:</strong> <a href="${escapeHtml(viewerUrl)}">${escapeHtml(viewerUrl)}</a></p>`);
   }
-  if (shotPath) {
-    lines.push(`<p><strong>Screenshot:</strong> <code>${escapeHtml(shotPath)}</code></p>`);
+  if (deliveredShot) {
+    lines.push(`<p><strong>Screenshot:</strong> <code>${escapeHtml(deliveredShot)}</code></p>`);
   }
   lines.push(`<ol>`);
   capture.pins.forEach((pin) => {

@@ -35,7 +35,6 @@ export function classifyFieldAttrs(attrs: FieldAttrs = {}): RedactedCategory | n
   if (type === "password" || PASSWORD_AUTOCOMPLETE.test(autocomplete)) return "password";
   if (OTP_AUTOCOMPLETE.test(autocomplete) || OTP_NAME.test(haystack)) return "otp";
   if (PAYMENT_AUTOCOMPLETE.test(autocomplete) || PAYMENT_NAME.test(haystack)) return "payment";
-  if (type === "email" || autocomplete === "email" || autocomplete.endsWith(" email")) return "email";
   if (TOKEN_NAME.test(haystack)) return "token";
   if (type === "hidden" && TOKEN_NAME.test(haystack)) return "token";
   return null;

@@ -249,10 +249,10 @@ test("power user edits, deletes, clears and preserves pin order through the view
   const pinCards = page.locator("aside").getByTitle(/Open pin/);
   await expect(pinCards).toHaveCount(2);
   await pinCards.nth(0).click();
-  await expect(page.locator('[data-slot="dialog-content"]')).toContainText("First bundled comment");
-  await page.getByRole("button", { name: "Close" }).click();
+  await expect(page.getByRole("dialog", { name: "Pin 1" })).toContainText("First bundled comment");
+  await page.getByRole("dialog", { name: "Pin 1" }).getByRole("button", { name: "Close" }).click();
   await pinCards.nth(1).click();
-  await expect(page.locator('[data-slot="dialog-content"]')).toContainText("Second bundled comment");
+  await expect(page.getByRole("dialog", { name: "Pin 2" })).toContainText("Second bundled comment");
 });
 
 test("a pin inside nested cross-origin iframes keeps the complete DOM path", async ({ page }) => {

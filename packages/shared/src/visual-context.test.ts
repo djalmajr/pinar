@@ -7,6 +7,7 @@ import {
   formatVisualContextMarkdown,
   knownPinFields,
   parseVisualCapture,
+  screenshotDeliveryEnabled,
   stableLegacyPinId,
   VisualContextError,
   visualContextErrorBody,
@@ -83,6 +84,22 @@ describe("visual context v1", () => {
     assert.equal(second.pins[0].pinId, first.pins[0].pinId);
     assert.deepEqual(knownPinFields(second.pins[0]), knownPinFields(first.pins[0]));
     assert.equal(encoded.includes("data:"), false);
+  });
+
+  test("keeps a page description through encode and markdown", () => {
+    const capture = parseVisualCapture({
+      captureId: "cap_description",
+      page: {
+        description: "Project API keys for Lowcode Studio.",
+        title: "API keys",
+        url: "https://example.test/settings",
+      },
+      pins: [{ comment: "Rotate the key", selector: "input" }],
+    });
+    assert.equal(capture.page.description, "Project API keys for Lowcode Studio.");
+    const encoded = encodeVisualCaptureJson(capture);
+    assert.equal(parseVisualCapture(JSON.parse(encoded)).page.description, capture.page.description);
+    assert.match(formatVisualContextMarkdown(capture), /Description: Project API keys for Lowcode Studio\./);
   });
 
   test("round-trips privacy categories without original secret values", () => {
@@ -165,5 +182,36 @@ describe("visual context v1", () => {
     });
     assert.equal(session.captureId, "cap_element_v0");
     assert.equal(session.schemaVersion, 1);
+  });
+
+  test("keeps an omitted screenshot from becoming a missing-screenshot warning", () => {
+    const capture = parseVisualCapture({
+      captureId: "cap_omit_shot",
+      page: { title: "Login", url: "https://example.test/login" },
+      pins: [{ comment: "Fix this", coords: { x: 1, y: 2 }, number: 1, type: "point" }],
+      screenshot: { missing: false, url: null },
+    });
+    assert.equal(capture.screenshot.missing, false);
+    assert.equal(capture.screenshot.url, null);
+    assert.equal(capture.warnings.includes("screenshot_missing"), false);
+    const markdown = formatVisualContextMarkdown(capture, "http://127.0.0.1:17373/v/cap_omit_shot.md");
+    assert.doesNotMatch(markdown, /Screenshot:/);
+    assert.match(markdown, /Viewer: http:\/\/127\.0\.0\.1:17373\/v\/cap_omit_shot\.md/);
+    const delivered = captureFromSession({
+      createdAt: "2026-08-30T00:00:00.000Z",
+      id: "cap_omit_shot",
+      includeScreenshot: false,
+      page: capture.page,
+      pins: capture.pins,
+      shotUrl: "/tmp/shot.png",
+    }, { deliverScreenshot: false });
+    assert.equal(delivered.screenshot.missing, false);
+    assert.equal(delivered.screenshot.url, null);
+  });
+
+  test("live delivery preference wins over a session stamp", () => {
+    assert.equal(screenshotDeliveryEnabled(false, { includeScreenshot: true }), false);
+    assert.equal(screenshotDeliveryEnabled(true, { includeScreenshot: false }), true);
+    assert.equal(screenshotDeliveryEnabled(undefined, { includeScreenshot: false }), false);
   });
 });

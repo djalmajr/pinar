@@ -7,7 +7,11 @@ function fixture(id: string, title: string, url: string, comments: string[], pin
   return {
     createdAt: "2026-08-18T00:00:00.000Z",
     id,
-    page: { title, url },
+    page: {
+      description: id === "beta" ? "Checkout payment form" : undefined,
+      title,
+      url,
+    },
     pinCount,
     pins: comments.map((comment, index) => ({
       comment,
@@ -33,9 +37,9 @@ describe("session filters", () => {
     assert.equal(pinCountFilterValue(6), "sixOrMore");
   });
 
-  test("searches title, URL, comment and selector case-insensitively", () => {
+  test("searches title, description, URL, comment and selector case-insensitively", () => {
     assert.deepEqual(filterSessions(sessions, "ALPHA", []).map(({ id }) => id), ["alpha"]);
-    assert.deepEqual(filterSessions(sessions, "billing", []).map(({ id }) => id), ["beta"]);
+    assert.deepEqual(filterSessions(sessions, "payment form", []).map(({ id }) => id), ["beta"]);
     assert.deepEqual(filterSessions(sessions, "secret metric", []).map(({ id }) => id), ["gamma"]);
     assert.deepEqual(filterSessions(sessions, 'data-session="beta"', []).map(({ id }) => id), ["beta"]);
   });

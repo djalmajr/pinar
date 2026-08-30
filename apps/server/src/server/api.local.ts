@@ -31,6 +31,7 @@ import {
 import { DEFAULT_PROJECT_ICON, isProjectIcon } from "@pinar/shared/project-icons";
 import { openHistoryDb } from "@pinar/cli/history";
 import { pinarHome, shotsDir } from "@pinar/cli/paths";
+import { readDeliveryPreferences, writeDeliveryPreferences } from "@pinar/cli/preferences";
 import { writeShot } from "@pinar/cli/shots";
 import { formatCollectionMarkdown, formatProjectMarkdown, formatSessionMarkdown } from "./markdown";
 import { installerResponse } from "./installers";
@@ -98,6 +99,7 @@ interface HistoryDatabase {
     privacy?: import("@pinar/shared").PrivacyReport;
     shotId?: string | null;
     shotPath?: string | null;
+    includeScreenshot?: boolean;
     warnings?: string[];
   }): LocalSession;
   updateCollection(id: string, name: string): Collection | null;
@@ -143,6 +145,14 @@ function stringValue(record: Record<string, unknown>, key: string) {
   return typeof value === "string" ? value : "";
 }
 
+function booleanValue(record: Record<string, unknown>, key: string, fallback = true) {
+  const value = record[key];
+  if (typeof value === "boolean") return value;
+  if (value === 0 || value === "0" || value === "false") return false;
+  if (value === 1 || value === "1" || value === "true") return true;
+  return fallback;
+}
+
 function stringArrayValue(record: Record<string, unknown>, key: string) {
   const value = record[key];
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
@@ -152,6 +162,7 @@ function pageValue(value: unknown): PageInfo {
   if (!isRecord(value)) return { title: "", url: "" };
   const viewport = isRecord(value.viewport) ? value.viewport : undefined;
   return {
+    ...(stringValue(value, "description") ? { description: stringValue(value, "description") } : {}),
     title: stringValue(value, "title"),
     url: stringValue(value, "url"),
     viewport: viewport
@@ -341,6 +352,11 @@ async function uploadShot(request: Request): Promise<Response> {
         privacy: capture.privacy,
         shotId: id,
         shotPath: saved,
+        includeScreenshot: booleanValue(
+          body,
+          "includeScreenshot",
+          readDeliveryPreferences(rootPath()).includeScreenshot,
+        ),
         warnings: capture.warnings,
       });
     } catch (error) {
@@ -377,6 +393,11 @@ async function saveHistory(request: Request): Promise<Response> {
       privacy: parsed.capture.privacy,
       shotId: stringValue(body, "shotId"),
       shotPath: stringValue(body, "shotPath"),
+      includeScreenshot: booleanValue(
+        body,
+        "includeScreenshot",
+        readDeliveryPreferences(rootPath()).includeScreenshot,
+      ),
       warnings: parsed.capture.warnings,
     });
     return json({ destination, ok: true, session: presentSession(session, new URL(request.url).origin) }, 201);
@@ -426,6 +447,12 @@ async function routeLocalApi(request: Request): Promise<Response> {
   }
   if (method === "GET" && path === "/api/auth/session") {
     return json({ session: { kind: "local", plan: "free" } }, 200, { "Cache-Control": "no-store" });
+  }
+  if (method === "GET" && path === "/api/preferences") {
+    return json({ ok: true, ...readDeliveryPreferences(rootPath()) });
+  }
+  if (method === "PATCH" && path === "/api/preferences") {
+    return json({ ok: true, ...writeDeliveryPreferences(await readJson(request), rootPath()) });
   }
   if (method === "POST" && path === "/api/auth/logout") return json({ ok: true });
   if (method === "POST" && path === "/api/shots") return uploadShot(request);
@@ -601,12 +628,14 @@ export async function handlePublicRequest(request: Request): Promise<Response> {
     const id = rawId.slice(0, -3);
     const session = presentSession(historyDatabase().getSession(id), url.origin);
     if (!session) return text("Session not found", 404);
+    const delivery = readDeliveryPreferences(rootPath());
     return text(
       formatSessionMarkdown(
         session,
         `${url.origin}/v/${id}`,
         historyDatabase().listAgentExecutions(id),
         historyDatabase().listPinReviews(id),
+        delivery,
       ),
       200,
       {
@@ -620,7 +649,7 @@ export async function handlePublicRequest(request: Request): Promise<Response> {
     if (!rawId.endsWith(".md")) return json({ error: "not found" }, 404);
     const project = publicProject(rawId.slice(0, -3), url.origin);
     return project
-      ? text(formatProjectMarkdown(project, url.origin), 200, {
+      ? text(formatProjectMarkdown(project, url.origin, readDeliveryPreferences(rootPath())), 200, {
         "Cache-Control": "public, max-age=60",
         "Content-Type": "text/markdown; charset=utf-8",
       })
@@ -631,7 +660,7 @@ export async function handlePublicRequest(request: Request): Promise<Response> {
     if (!rawId.endsWith(".md")) return json({ error: "not found" }, 404);
     const collection = publicCollection(rawId.slice(0, -3), url.origin);
     return collection
-      ? text(formatCollectionMarkdown(collection, url.origin), 200, {
+      ? text(formatCollectionMarkdown(collection, url.origin, readDeliveryPreferences(rootPath())), 200, {
         "Cache-Control": "public, max-age=60",
         "Content-Type": "text/markdown; charset=utf-8",
       })

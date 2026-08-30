@@ -62,6 +62,7 @@
     stableSelector,
   } = globalThis.__pinarLocators;
   const {
+    copyReviewCategories,
     documentBoxes,
     parseExtraKeys,
     scanSensitiveDocuments,
@@ -491,9 +492,25 @@
     return selection.current;
   }
 
+  function pageMetaContent(selectors) {
+    for (const selector of selectors) {
+      const value = document.querySelector(selector)?.getAttribute("content")?.trim();
+      if (value) return value;
+    }
+    return "";
+  }
+
   function pageContext() {
+    const description = pageMetaContent([
+      'meta[name="description"]',
+      'meta[property="og:description"]',
+      'meta[name="twitter:description"]',
+    ]);
+    const title = pageMetaContent(['meta[property="og:title"]', 'meta[name="twitter:title"]'])
+      || (document.title || "").trim();
     return {
-      title: document.title,
+      ...(description ? { description } : {}),
+      title,
       url: location.href,
       viewport: {
         dpr: window.devicePixelRatio || 1,
@@ -962,7 +979,7 @@
   }
 
   function privacyReviewText(report) {
-    const hidden = (report.privacy?.redacted || []).filter((item) => item !== "unevaluated");
+    const hidden = copyReviewCategories(report.privacy?.redacted);
     const parts = [];
     if (hidden.length) parts.push(`Hidden: ${hidden.join(", ")}`);
     if (report.privacy?.unevaluated) parts.push("Could not inspect a region");
@@ -1486,7 +1503,7 @@
     }
     const preview = privacyPreview(pageContext(), state.pins, extraQueryKeys);
     const needsReview = Boolean(
-      preview.privacy.redacted.length
+      copyReviewCategories(preview.privacy.redacted).length
       || preview.privacy.unevaluated
       || activeMaskRegions().length,
     );

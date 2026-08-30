@@ -147,4 +147,10 @@ describe("session after copy", () => {
     assert.match(contentSrc, /manual-reposition/);
     assert.doesNotMatch(contentSrc, /session:reopen[\s\S]*pins of every session/);
   });
+
+  test("captures og:title and meta description instead of only document.title", () => {
+    assert.match(contentSrc, /og:title/);
+    assert.match(contentSrc, /meta\[name="description"\]/);
+    assert.match(contentSrc, /og:description/);
+  });
 });

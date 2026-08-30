@@ -3,6 +3,7 @@
   "name": "Pinar",
   "version": "0.2.4",
   "description": "Visual Annotations for AI Agents & Engineers",
+  "default_locale": "en_US",
   "homepage_url": "https://pinar.dev",
   "permissions": ["activeTab", "clipboardWrite", "contextMenus", "offscreen", "scripting", "storage"],
   "options_ui": {

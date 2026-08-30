@@ -103,7 +103,10 @@ describe("local TanStack API", () => {
       new Request("http://127.0.0.1:17373/v/local_session_001.md"),
     );
     assert.equal(markdown.status, 200);
-    assert.match(await markdown.text(), /Local pin/);
+    const markdownText = await markdown.text();
+    assert.match(markdownText, /Local pin/);
+    assert.match(markdownText, /Screenshot:/);
+    assert.equal(sessionBody.session.includeScreenshot, true);
     const shot = await handlePublicRequest(
       new Request("http://127.0.0.1:17373/shots/local_session_001.png"),
     );
@@ -112,6 +115,74 @@ describe("local TanStack API", () => {
 
     assert.equal((await request("/api/history/local_session_001", { method: "DELETE" })).status, 200);
     assert.equal(existsSync(join(root, "shots", "local_session_001.png")), false);
+  });
+
+  test("serves session markdown from the live helper preference", async () => {
+    const defaults = await jsonBody(await request("/api/preferences"));
+    assert.equal(defaults.ok, true);
+    assert.equal(defaults.includeScreenshot, true);
+
+    const upload = await request("/api/shots", {
+      body: JSON.stringify({
+        id: "local_session_live_pref",
+        image: VALID_PNG,
+        page: { title: "Login", url: "https://example.test/login" },
+        pins: [{ comment: "Fix the form", kind: "element" }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(upload.status, 201);
+    const session = await jsonBody(await request("/api/sessions/local_session_live_pref"));
+    assert.equal(session.session.includeScreenshot, true);
+    assert.match(String(session.session.shotUrl), /\/shots\/local_session_live_pref\.png/);
+    const withShot = await handlePublicRequest(
+      new Request("http://127.0.0.1:17373/v/local_session_live_pref.md"),
+    );
+    assert.match(await withShot.text(), /Screenshot:/);
+
+    const patched = await jsonBody(await request("/api/preferences", {
+      body: JSON.stringify({ includeScreenshot: false }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    }));
+    assert.equal(patched.includeScreenshot, false);
+    const emptyPatch = await jsonBody(await request("/api/preferences", {
+      body: JSON.stringify({}),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    }));
+    assert.equal(emptyPatch.includeScreenshot, false);
+
+    const markdown = await handlePublicRequest(
+      new Request("http://127.0.0.1:17373/v/local_session_live_pref.md"),
+    );
+    assert.equal(markdown.status, 200);
+    const text = await markdown.text();
+    assert.match(text, /Fix the form/);
+    assert.doesNotMatch(text, /Screenshot:/);
+    assert.doesNotMatch(text, /screenshot_missing/);
+  });
+
+  test("session includeScreenshot stamp does not control live markdown", async () => {
+    const upload = await request("/api/shots", {
+      body: JSON.stringify({
+        id: "local_session_stamp_only",
+        image: VALID_PNG,
+        includeScreenshot: false,
+        page: { title: "Login", url: "https://example.test/login" },
+        pins: [{ comment: "Fix the form", kind: "element" }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(upload.status, 201);
+    const session = await jsonBody(await request("/api/sessions/local_session_stamp_only"));
+    assert.equal(session.session.includeScreenshot, false);
+    const markdown = await handlePublicRequest(
+      new Request("http://127.0.0.1:17373/v/local_session_stamp_only.md"),
+    );
+    assert.match(await markdown.text(), /Screenshot:/);
   });
 
   test("does not proxy cloud pricing or checkout", async () => {

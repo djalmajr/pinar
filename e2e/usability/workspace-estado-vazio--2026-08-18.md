@@ -12,7 +12,7 @@
 3. Confirmei **Personal**, **All sessions** e **Inbox** com contagens zeradas.
 4. Alternei de grade para tabela. Antes da correção, o seletor desapareceu e não era possível voltar à grade.
 5. Mantive o toolbar também no vazio da tabela e retornei à grade.
-6. O estado agora oferece **Set up the extension**, abre o guia em aba isolada e preserva a âncora `#load-the-extension`.
+6. O estado vazio descreve o uso da extensão, sem CTA de configuração no workspace.
 
 ## Findings
 
@@ -23,6 +23,6 @@
 
 ## Cobertura automatizada
 
-- `tests/e2e/workspace/empty-state.e2e.test.ts`: árvore protegida, fim do loading, grade ↔ tabela, estado vazio e abertura do guia em aba isolada.
+- `tests/e2e/workspace/empty-state.e2e.test.ts`: árvore protegida, fim do loading, grade ↔ tabela e estado vazio sem CTA de extensão.
 - O teste falhou primeiro ao aguardar **Grid view** após entrar na tabela e passou depois da correção.
 - A comparação visual em staging permanece uma validação pós-deploy, não um gap funcional local.

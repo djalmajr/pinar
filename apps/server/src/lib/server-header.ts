@@ -19,3 +19,7 @@ export function publicHeaderCta(
   if (session?.kind === "account" || session?.kind === "installation") return "open-app";
   return "sign-in";
 }
+
+export function shouldUseWorkspaceChrome(runtime: PinarRuntime): boolean {
+  return runtime === "local";
+}

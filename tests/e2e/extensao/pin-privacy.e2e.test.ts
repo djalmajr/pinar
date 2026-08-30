@@ -26,7 +26,7 @@ const fixture = `<!doctype html>
   </body>
 </html>`;
 
-async function installHarness(page: Page) {
+async function installHarness(page: Page, html = fixture, path = `/privacy-fixture?access_token=${TOKEN}&keep=1`) {
   await page.addInitScript(() => {
     const original = Element.prototype.attachShadow;
     Element.prototype.attachShadow = function attachOpenShadow(init) {
@@ -34,10 +34,10 @@ async function installHarness(page: Page) {
     };
   });
   await page.route("**/privacy-fixture*", (route) => route.fulfill({
-    body: fixture,
+    body: html,
     contentType: "text/html",
   }));
-  await page.goto(`/privacy-fixture?access_token=${TOKEN}&keep=1`);
+  await page.goto(path);
   await page.evaluate(() => {
     const runtimeState = { clipboard: "", messages: [] as unknown[], pins: [] as unknown[] };
     (globalThis as any).__pinarRuntimeState = runtimeState;
@@ -87,10 +87,10 @@ async function createPin(page: Page, target: string, comment: string) {
 test("redacts secrets and lets the user add or remove mask regions before copy", async ({ page }) => {
   await installHarness(page);
   const autoMasks = page.locator('[data-pinar="host"] [data-privacy-mask]');
-  await expect(autoMasks).toHaveCount(2);
+  await expect(autoMasks).toHaveCount(1);
 
   await autoMasks.first().click();
-  await expect(autoMasks).toHaveCount(1);
+  await expect(autoMasks).toHaveCount(0);
 
   await page.keyboard.press("m");
   await page.mouse.move(40, 200);
@@ -120,4 +120,44 @@ test("redacts secrets and lets the user add or remove mask regions before copy",
   expect(clipboardMessage.privacy.redacted).toEqual(expect.arrayContaining(["password", "token", "secret-query"]));
   expect(clipboardMessage.pins[0].comment).toContain("[redacted]");
   expect(clipboardMessage.maskRegions || clipboardMessage.fields).toBeTruthy();
+});
+
+const loginFixture = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Login fixture</title>
+    <style>
+      body { font: 16px/1.4 sans-serif; margin: 0; padding: 140px 48px; }
+      label { display: block; margin: 16px 0; }
+      input { height: 48px; width: 280px; }
+      button { height: 64px; width: 180px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <label>Email <input id="login-email" name="email" type="email" value="user@example.test" /></label>
+      <label>Password <input id="login-pass" name="password" type="password" value="${SECRET}" /></label>
+      <button id="save">Sign in</button>
+    </main>
+  </body>
+</html>`;
+
+test("copies on the first shortcut when only password and email fields are present", async ({ page }) => {
+  await installHarness(page, loginFixture, "/privacy-fixture");
+  await expect(page.locator('[data-pinar="host"] [data-privacy-mask]')).toHaveCount(0);
+
+  await createPin(page, "#save", `Do not leak ${SECRET}`);
+  await page.keyboard.press("Control+Enter");
+  await expect(page.locator('[data-pinar="host"]')).toBeHidden();
+
+  const clipboardMessage = await page.evaluate(() => {
+    const messages = (globalThis as any).__pinarRuntimeState.messages as any[];
+    return messages.findLast((message) => message.type === "clipboard");
+  });
+  const payload = JSON.stringify(clipboardMessage);
+  expect(payload.includes(SECRET)).toBe(false);
+  expect(clipboardMessage.privacy.redacted).toEqual(["password"]);
+  expect(clipboardMessage.privacy.redacted).not.toContain("email");
+  expect(clipboardMessage.pins[0].comment).toContain("[redacted]");
 });

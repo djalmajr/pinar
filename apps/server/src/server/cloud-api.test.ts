@@ -390,6 +390,60 @@ describe("remote installation isolation", () => {
     assert.deepEqual(bucket.deletedKeys, ["shots/prefixed_shot_001.png"]);
   });
 
+  test("omits session markdown screenshots from the live owner preference", async () => {
+    assert.equal((await register(identityA)).status, 201);
+    assert.equal((await register(identityB)).status, 201);
+    assert.equal((await api("/api/preferences")).status, 401);
+    const defaults = await jsonBody(await api("/api/preferences", { headers: identityHeaders(identityA) }));
+    assert.equal(defaults.ok, true);
+    assert.equal(defaults.includeScreenshot, true);
+
+    const uploaded = await api("/api/shots", {
+      body: JSON.stringify({
+        id: "session_live_pref_001",
+        image: VALID_PNG,
+        page: { title: "Login", url: "https://example.test/login" },
+        pins: [{ comment: "Fix the form", number: 1 }],
+      }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
+      method: "POST",
+    });
+    assert.equal(uploaded.status, 201);
+    const publicSession = await jsonBody(await api("/api/sessions/session_live_pref_001"));
+    assert.equal(publicSession.session.includeScreenshot, true);
+    assert.match(String(publicSession.session.shotUrl), /\/shots\/session_live_pref_001\.png/);
+    const withShot = await handleCloudPublicRequest(
+      new Request("https://pinar.test/v/session_live_pref_001.md"),
+      {},
+    );
+    assert.match(await withShot.text(), /Screenshot:/);
+
+    const patched = await jsonBody(await api("/api/preferences", {
+      body: JSON.stringify({ includeScreenshot: false }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
+      method: "PATCH",
+    }));
+    assert.equal(patched.includeScreenshot, false);
+    const emptyPatch = await jsonBody(await api("/api/preferences", {
+      body: JSON.stringify({}),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
+      method: "PATCH",
+    }));
+    assert.equal(emptyPatch.includeScreenshot, false);
+    const otherOwner = await jsonBody(await api("/api/preferences", { headers: identityHeaders(identityB) }));
+    assert.equal(otherOwner.includeScreenshot, true);
+
+    const markdown = await handleCloudPublicRequest(
+      new Request("https://pinar.test/v/session_live_pref_001.md"),
+      {},
+    );
+    assert.equal(markdown.status, 200);
+    const text = await markdown.text();
+    assert.match(text, /Fix the form/);
+    assert.doesNotMatch(text, /Screenshot:/);
+    assert.doesNotMatch(text, /screenshot_missing/);
+  });
+
   test("expires extension codes, validates origins and constrains returnTo", async () => {
     setCloudNowForTests("2026-08-16T12:00:00.000Z");
     await register(identityA);

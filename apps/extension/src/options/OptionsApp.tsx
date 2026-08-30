@@ -99,6 +99,7 @@ const SETTINGS_KEYS: (keyof PinarSettings)[] = [
   "enableHistory",
   "includeViewer",
   "language",
+  "loopMetricsOptIn",
   "sensitiveQueryKeys",
   "storageMode",
   "theme",
@@ -110,6 +111,7 @@ const DEFAULT_SETTINGS: PinarSettings = {
   enableHistory: true,
   includeViewer: true,
   language: DEFAULT_LANGUAGE,
+  loopMetricsOptIn: false,
   sensitiveQueryKeys: "",
   storageMode: "local",
   theme: "system",
@@ -330,6 +332,7 @@ export function OptionsApp() {
           enableHistory: Boolean(items.enableHistory),
           includeViewer: Boolean(items.includeViewer),
           language: getBestLanguage(items.language),
+          loopMetricsOptIn: items.loopMetricsOptIn === true,
           sensitiveQueryKeys: typeof items.sensitiveQueryKeys === "string" ? items.sensitiveQueryKeys : "",
           storageMode: items.storageMode === "cloud" ? "cloud" : "local",
           theme: items.theme === "dark" || items.theme === "light" ? items.theme : "system",
@@ -682,6 +685,7 @@ export function OptionsApp() {
                     <label className="flex flex-col gap-1.5"><span className="text-xs font-semibold">{t.language_label}</span><Select items={LANGUAGE_OPTIONS.map((option) => ({ label: option.label, value: option.code }))} value={lang} onValueChange={(value) => { const next = value as SupportedLanguage; setLang(next); setSettings((current) => ({ ...current, language: next })); }}><SelectTrigger className="min-w-36" size="sm"><SelectValue /></SelectTrigger><SelectContent><SelectGroup>{LANGUAGE_OPTIONS.map((option) => <SelectItem key={option.code} value={option.code}>{option.label}</SelectItem>)}</SelectGroup></SelectContent></Select></label>
                     <div className="flex flex-col gap-1.5"><span className="text-xs font-semibold">{t.theme_label}</span><Tabs value={settings.theme || "system"} onValueChange={(value) => { const theme = value as ThemeMode; applyTheme(theme); setSettings((current) => ({ ...current, theme })); }}><TabsList><TabsTrigger value="system"><IconLaptop data-icon="inline-start" />{t.theme_system}</TabsTrigger><TabsTrigger value="light"><IconSun className="text-amber-500" data-icon="inline-start" />{t.theme_light}</TabsTrigger><TabsTrigger value="dark"><IconMoon className="text-blue-400" data-icon="inline-start" />{t.theme_dark}</TabsTrigger></TabsList></Tabs></div>
                     <label className="flex items-start gap-3 py-1"><Switch checked={settings.enableHistory} className="mt-0.5 shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, enableHistory: value }))} /><span><span className="block text-xs font-semibold">{t.history_label}</span><span className="block text-xs text-muted-foreground">{t.history_desc}</span></span></label>
+                    <label className="flex items-start gap-3 py-1"><Switch checked={settings.loopMetricsOptIn === true} className="mt-0.5 shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, loopMetricsOptIn: value }))} /><span><span className="block text-xs font-semibold">{t.loop_metrics_label}</span><span className="block text-xs text-muted-foreground">{t.loop_metrics_desc}</span></span></label>
                     <label className="flex items-start gap-3 py-1"><Switch checked={settings.includeViewer} className="mt-0.5 shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, includeViewer: value }))} /><span><span className="block text-xs font-semibold">{t.viewer_label}</span><span className="block text-xs text-muted-foreground">{t.viewer_desc}</span></span></label>
                     <label className="flex items-start gap-3 py-1"><Switch checked={settings.copyViewerContent} className="mt-0.5 shrink-0" disabled={!settings.includeViewer} onCheckedChange={(value) => setSettings((current) => ({ ...current, copyViewerContent: value }))} /><span><span className="block text-xs font-semibold">{t.viewer_content_label}</span><span className="block text-xs text-muted-foreground">{t.viewer_content_desc}</span></span></label>
                     <label className="flex flex-col gap-1.5 py-1">

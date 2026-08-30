@@ -31,6 +31,10 @@
     { "id": "api:POST /api/stripe/webhook", "kind": "api", "source": "apps/server/src/server/cloud-api.ts", "flows": ["assinatura-evento-duplicado-fora-ordem", "assinatura-renovar-creditos", "assinatura-inadimplencia-downgrade"] },
     { "id": "api:GET /api/stripe/success", "kind": "api", "source": "apps/server/src/server/cloud-api.ts", "flows": ["assinatura-sucesso-idempotente", "checkout-pro-mensal", "checkout-pro-anual", "checkout-founder", "checkout-creditos-ia", "checkout-storage-5gb", "checkout-storage-20gb"] },
     { "id": "api:POST /api/shots", "kind": "api", "source": "apps/server/src/server/cloud-api.ts", "flows": ["captura-primeiro-elemento", "storage-quotas-e-replacement"] },
+    { "id": "api:POST /api/agent-executions", "kind": "api", "source": "apps/server/src/server/cloud-api.ts", "flows": ["extensao-closed-loop"] },
+    { "id": "api:POST /api/sessions/$id/pins/$pinId/review", "kind": "api", "source": "apps/server/src/server/cloud-api.ts", "flows": ["extensao-closed-loop"] },
+    { "id": "api:POST /api/loop-metrics", "kind": "api", "source": "apps/server/src/server/cloud-api.ts", "flows": ["extensao-closed-loop"] },
+    { "id": "api:GET /api/loop-metrics", "kind": "api", "source": "apps/server/src/server/cloud-api.ts", "flows": ["extensao-closed-loop"] },
     { "id": "api:POST /api/history", "kind": "api", "source": "apps/server/src/server/cloud-api.ts", "flows": ["captura-primeiro-elemento", "workspace-destino-invalido-fallback"] },
     { "id": "api:GET /api/history", "kind": "api", "source": "apps/server/src/server/cloud-api.ts", "flows": ["workspace-buscar-filtrar-alternar-visao", "retencao-free-e-paga"] },
     { "id": "api:GET /api/sessions/$id", "kind": "api", "source": "apps/server/src/server/cloud-api.ts", "flows": ["viewer-abrir-sessao-publica", "ia-resumir-sessao", "extensao-reidratar-sessao"] },
@@ -54,7 +58,7 @@
     { "id": "ui:history-dashboard", "kind": "ui", "source": "apps/server/src/pages/HistoryDashboard.tsx", "flows": ["workspace-estado-vazio", "workspace-buscar-filtrar-alternar-visao", "workspace-mover-reordenar-excluir-sessoes", "extensao-reidratar-sessao"] },
     { "id": "ui:history-sidebar", "kind": "ui", "source": "apps/server/src/components/HistorySidebar.tsx", "flows": ["workspace-estado-vazio", "workspace-idioma-tema-sidebar", "workspace-projeto-crud", "workspace-colecao-crud-aninhada", "workspace-reordenar-arvore"] },
     { "id": "ui:account-menu", "kind": "ui", "source": "apps/server/src/components/AppShell.tsx", "flows": ["workspace-idioma-tema-sidebar", "assinatura-abrir-portal", "auth-sair-web-extensao"] },
-    { "id": "ui:web-viewer", "kind": "ui", "source": "apps/server/src/pages/WebViewer.tsx", "flows": ["viewer-abrir-sessao-publica", "viewer-pin-preview-raw-zoom", "ia-resumir-sessao", "extensao-reidratar-sessao"] },
+    { "id": "ui:web-viewer", "kind": "ui", "source": "apps/server/src/pages/WebViewer.tsx", "flows": ["viewer-abrir-sessao-publica", "viewer-pin-preview-raw-zoom", "ia-resumir-sessao", "extensao-reidratar-sessao", "extensao-closed-loop"] },
     { "id": "ui:image-zoom-dialog", "kind": "ui", "source": "apps/server/src/components/ImageZoomDialog.tsx", "flows": ["viewer-pin-preview-raw-zoom"] },
     { "id": "ui:aggregate-viewer", "kind": "ui", "source": "apps/server/src/pages/AggregateViewer.tsx", "flows": ["sharing-projeto", "sharing-colecao"] },
     { "id": "ui:legal-documents", "kind": "ui", "source": "apps/server/src/pages/LegalDocument.tsx", "flows": ["publico-consultar-politicas"] },
@@ -64,15 +68,16 @@
     { "id": "extension:element-area-composer", "kind": "extension", "source": "extension/content.js", "flows": ["captura-primeiro-elemento", "captura-area", "captura-multiplos-pins-editar-excluir", "extensao-reidratar-sessao"] },
     { "id": "extension:iframe-session", "kind": "extension", "source": "extension/session.js", "flows": ["captura-iframe", "captura-recuperar-falha-copia", "extensao-reidratar-sessao"] },
     { "id": "extension:full-page-capture", "kind": "extension", "source": "extension/full-page.js", "flows": ["captura-pagina-inteira"] },
-    { "id": "extension:clipboard", "kind": "extension", "source": "extension/format.js", "flows": ["captura-clipboard-viewer-markdown", "captura-recuperar-falha-copia"] },
+    { "id": "extension:clipboard", "kind": "extension", "source": "extension/format.js", "flows": ["captura-clipboard-viewer-markdown", "captura-recuperar-falha-copia", "extensao-closed-loop"] },
     { "id": "extension:storage-options", "kind": "extension", "source": "apps/extension/src/options/OptionsApp.tsx", "flows": ["extensao-alternar-local-cloud", "extensao-destino-projeto-colecao", "auth-aceitar-politicas-free-remoto"] },
-    { "id": "extension:preferences", "kind": "extension", "source": "apps/extension/src/options/OptionsApp.tsx", "flows": ["extensao-preferencias"] },
+    { "id": "extension:preferences", "kind": "extension", "source": "apps/extension/src/options/OptionsApp.tsx", "flows": ["extensao-preferencias", "extensao-closed-loop"] },
     { "id": "extension:account", "kind": "extension", "source": "apps/extension/src/options/OptionsApp.tsx", "flows": ["extensao-conta-app-billing-logout", "auth-entrar-email-extensao-migrar-free"] },
 
     { "id": "cli:install-update", "kind": "cli", "source": "apps/cli/src/install.mjs", "flows": ["publico-instalar-e-apoiar"] },
     { "id": "cli:session-hooks", "kind": "cli", "source": "apps/cli/src/install-hooks.mjs", "flows": ["publico-instalar-e-apoiar"] },
     { "id": "cli:health-port-selection", "kind": "cli", "source": "apps/cli/src/ensure.mjs", "flows": ["extensao-alternar-local-cloud"] },
-    { "id": "cli:local-history", "kind": "cli", "source": "apps/cli/src/history.mjs", "flows": ["workspace-projeto-crud", "workspace-colecao-crud-aninhada", "workspace-mover-reordenar-excluir-sessoes"] },
-    { "id": "cli:shot-storage", "kind": "cli", "source": "apps/cli/src/shots.mjs", "flows": ["captura-primeiro-elemento", "captura-pagina-inteira"] }
+    { "id": "cli:local-history", "kind": "cli", "source": "apps/cli/src/history.mjs", "flows": ["workspace-projeto-crud", "workspace-colecao-crud-aninhada", "workspace-mover-reordenar-excluir-sessoes", "extensao-closed-loop"] },
+    { "id": "cli:shot-storage", "kind": "cli", "source": "apps/cli/src/shots.mjs", "flows": ["captura-primeiro-elemento", "captura-pagina-inteira"] },
+    { "id": "docs:release-closed-loop", "kind": "docs", "source": "docs/release-closed-loop.md", "flows": ["extensao-closed-loop"] }
   ]
 }

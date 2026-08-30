@@ -10,3 +10,4 @@ export * from "./handoff/index.js";
 export * from "./agent-results/index.js";
 export * from "./pin-review/index.js";
 export * from "./session-reopen/index.js";
+export * from "./loop-metrics/index.js";

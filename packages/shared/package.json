@@ -16,7 +16,8 @@
     "./handoff": "./src/handoff/index.ts",
     "./agent-results": "./src/agent-results/index.ts",
     "./pin-review": "./src/pin-review/index.ts",
-    "./session-reopen": "./src/session-reopen/index.ts"
+    "./session-reopen": "./src/session-reopen/index.ts",
+    "./loop-metrics": "./src/loop-metrics/index.ts"
   },
   "dependencies": {
     "@iconify-json/lucide": "^1.2.123"

@@ -24,6 +24,9 @@ import {
   isPinReviewStatus,
   resolvePinReviewTransition,
 } from "../../../packages/shared/src/pin-review/index.ts";
+import {
+  sanitizeLoopMetric,
+} from "../../../packages/shared/src/loop-metrics/index.ts";
 import { pinarHome, shotsDir } from "./paths.mjs";
 
 let SqliteDatabase = null;
@@ -219,6 +222,34 @@ function formatAgentExecution(row, results = row.results) {
   });
 }
 
+function formatLoopMetric(row) {
+  return {
+    agent: row.agent || undefined,
+    createdAt: row.created_at,
+    degraded: Boolean(Number(row.degraded)),
+    durationMs: row.duration_ms == null ? undefined : Number(row.duration_ms),
+    event: row.event,
+    id: row.id,
+    locationConfidence: row.location_confidence || undefined,
+  };
+}
+
+function loopMetricRows(events) {
+  const timestamp = now();
+  return events.map((event) => {
+    const sanitized = sanitizeLoopMetric(event);
+    return {
+      agent: sanitized.agent || null,
+      created_at: timestamp,
+      degraded: sanitized.degraded ? 1 : 0,
+      duration_ms: sanitized.durationMs ?? null,
+      event: sanitized.event,
+      id: generateNanoId(),
+      location_confidence: sanitized.locationConfidence || null,
+    };
+  });
+}
+
 function parseExecutionForSession(session, input) {
   if (!session) throw new AgentResultError("capture_not_found");
   const parsed = parseAgentExecutionInput(input, pinIdsFromPins(session.pins));
@@ -289,6 +320,7 @@ class JsonHistoryDb {
           return {
             agent_executions: [],
             collections: [],
+            loop_metrics: [],
             pin_review_events: [],
             pin_reviews: [],
             projects: [],
@@ -299,6 +331,7 @@ class JsonHistoryDb {
           return {
             agent_executions: Array.isArray(stored.agent_executions) ? stored.agent_executions : [],
             collections: Array.isArray(stored.collections) ? stored.collections : [],
+            loop_metrics: Array.isArray(stored.loop_metrics) ? stored.loop_metrics : [],
             pin_review_events: Array.isArray(stored.pin_review_events) ? stored.pin_review_events : [],
             pin_reviews: Array.isArray(stored.pin_reviews) ? stored.pin_reviews : [],
             projects: Array.isArray(stored.projects) ? stored.projects : [],
@@ -312,6 +345,7 @@ class JsonHistoryDb {
     return {
       agent_executions: [],
       collections: [],
+      loop_metrics: [],
       pin_review_events: [],
       pin_reviews: [],
       projects: [],
@@ -599,6 +633,19 @@ class JsonHistoryDb {
     return saved;
   }
 
+  listLoopMetrics() {
+    return [...this.data.loop_metrics]
+      .sort((left, right) => String(left.created_at).localeCompare(String(right.created_at)))
+      .map(formatLoopMetric);
+  }
+
+  saveLoopMetrics(events) {
+    const rows = loopMetricRows(events);
+    this.data.loop_metrics = [...this.data.loop_metrics, ...rows];
+    this._save();
+    return rows.map(formatLoopMetric);
+  }
+
   deleteSession(id) {
     const previousLength = this.data.sessions.length;
     this.data.sessions = this.data.sessions.filter((item) => item.id !== id);
@@ -612,6 +659,7 @@ class JsonHistoryDb {
   clearHistory() {
     this.data.sessions = [];
     this.data.agent_executions = [];
+    this.data.loop_metrics = [];
     this.data.pin_reviews = [];
     this.data.pin_review_events = [];
     this._save();
@@ -891,11 +939,21 @@ class SqliteHistoryDb {
         execution_id TEXT,
         created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS loop_metrics (
+        id TEXT PRIMARY KEY,
+        event TEXT NOT NULL,
+        duration_ms INTEGER,
+        agent TEXT,
+        location_confidence TEXT,
+        degraded INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
       CREATE INDEX IF NOT EXISTS idx_projects_owner_position ON projects(owner_id, position);
       CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions(created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_agent_executions_capture ON agent_executions(capture_id, created_at);
       CREATE INDEX IF NOT EXISTS idx_agent_pin_results_execution ON agent_pin_results(execution_id);
       CREATE INDEX IF NOT EXISTS idx_pin_review_events_pin ON pin_review_events(capture_id, pin_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_loop_metrics_created ON loop_metrics(created_at);
     `);
     const projectColumns = new Set(
       this.db.prepare("PRAGMA table_info(projects)").all().map((row) => row.name),
@@ -1241,6 +1299,31 @@ class SqliteHistoryDb {
     return { created: true, execution };
   }
 
+  listLoopMetrics() {
+    return this.db.prepare("SELECT * FROM loop_metrics ORDER BY created_at ASC").all().map(formatLoopMetric);
+  }
+
+  saveLoopMetrics(events) {
+    const rows = loopMetricRows(events);
+    const insert = this.db.prepare(`
+      INSERT INTO loop_metrics (
+        id, event, duration_ms, agent, location_confidence, degraded, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const row of rows) {
+      insert.run(
+        row.id,
+        row.event,
+        row.duration_ms,
+        row.agent,
+        row.location_confidence,
+        row.degraded,
+        row.created_at,
+      );
+    }
+    return rows.map(formatLoopMetric);
+  }
+
   deleteSession(id) {
     const executions = this.db.prepare("SELECT id FROM agent_executions WHERE capture_id = ?").all(id);
     const deleteResults = this.db.prepare("DELETE FROM agent_pin_results WHERE execution_id = ?");
@@ -1252,7 +1335,7 @@ class SqliteHistoryDb {
   }
 
   clearHistory() {
-    this.db.exec("DELETE FROM agent_pin_results; DELETE FROM agent_executions; DELETE FROM pin_review_events; DELETE FROM pin_reviews; DELETE FROM sessions;");
+    this.db.exec("DELETE FROM loop_metrics; DELETE FROM agent_pin_results; DELETE FROM agent_executions; DELETE FROM pin_review_events; DELETE FROM pin_reviews; DELETE FROM sessions;");
     return true;
   }
 

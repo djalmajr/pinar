@@ -116,10 +116,13 @@ export async function exerciseAgentResultsContract(client: ApiClient, publicClie
   const sessionBody = await jsonRecord(sessionResponse);
   assert.ok(Array.isArray(sessionBody.executions));
   assert.equal(sessionBody.executions.length, 1);
-  assert.ok(isRecord(sessionBody.executions[0]));
-  assert.equal(sessionBody.executions[0].id, executionId);
-  assert.ok(isRecord(sessionBody.executions[0].results[0]));
-  assert.equal(sessionBody.executions[0].results[0].status, "changed");
+  const [execution] = sessionBody.executions;
+  assert.ok(isRecord(execution));
+  assert.equal(execution.id, executionId);
+  assert.ok(Array.isArray(execution.results));
+  const [result] = execution.results;
+  assert.ok(isRecord(result));
+  assert.equal(result.status, "changed");
 
   if (publicClient) {
     const markdown = await publicClient(`/v/${id}.md`);

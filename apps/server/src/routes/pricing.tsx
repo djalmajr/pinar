@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { localCloudOnlyServerHandlers, throwIfLocalCloudLocation } from "@/lib/local-cloud-redirect";
+import { localCloudRedirectOrNext, throwIfLocalCloudLocation } from "@/lib/local-cloud-redirect";
 import { PricingPage } from "@/pages/Pricing";
 
 export const Route = createFileRoute("/pricing")({
@@ -8,6 +8,8 @@ export const Route = createFileRoute("/pricing")({
   },
   component: PricingPage,
   server: {
-    handlers: localCloudOnlyServerHandlers(),
+    handlers: {
+      GET: ({ next, request }) => localCloudRedirectOrNext(request, next),
+    },
   },
 });

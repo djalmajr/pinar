@@ -410,6 +410,7 @@ describe("remote installation isolation", () => {
     });
     assert.equal(uploaded.status, 201);
     const publicSession = await jsonBody(await api("/api/sessions/session_live_pref_001"));
+    assert.ok(isRecord(publicSession.session));
     assert.equal(publicSession.session.includeScreenshot, true);
     assert.match(String(publicSession.session.shotUrl), /\/shots\/session_live_pref_001\.png/);
     const withShot = await handleCloudPublicRequest(

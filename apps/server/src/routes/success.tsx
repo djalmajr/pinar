@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { localCloudOnlyServerHandlers, throwIfLocalCloudLocation } from "@/lib/local-cloud-redirect";
+import { localCloudRedirectOrNext, throwIfLocalCloudLocation } from "@/lib/local-cloud-redirect";
 import { SuccessPage } from "@/pages/Success";
 
 function SuccessRoute() {
@@ -8,15 +8,17 @@ function SuccessRoute() {
 }
 
 export const Route = createFileRoute("/success")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    claim: typeof search.claim === "string" ? search.claim : "",
+    sessionId: typeof search.session_id === "string" ? search.session_id : "",
+  }),
   beforeLoad: ({ location }) => {
     throwIfLocalCloudLocation(location.href, location.pathname);
   },
   component: SuccessRoute,
   server: {
-    handlers: localCloudOnlyServerHandlers(),
+    handlers: {
+      GET: ({ next, request }) => localCloudRedirectOrNext(request, next),
+    },
   },
-  validateSearch: (search) => ({
-    claim: typeof search.claim === "string" ? search.claim : "",
-    sessionId: typeof search.session_id === "string" ? search.session_id : "",
-  }),
 });

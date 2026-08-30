@@ -134,6 +134,7 @@ describe("local TanStack API", () => {
     });
     assert.equal(upload.status, 201);
     const session = await jsonBody(await request("/api/sessions/local_session_live_pref"));
+    assert.ok(isRecord(session.session));
     assert.equal(session.session.includeScreenshot, true);
     assert.match(String(session.session.shotUrl), /\/shots\/local_session_live_pref\.png/);
     const withShot = await handlePublicRequest(
@@ -178,6 +179,7 @@ describe("local TanStack API", () => {
     });
     assert.equal(upload.status, 201);
     const session = await jsonBody(await request("/api/sessions/local_session_stamp_only"));
+    assert.ok(isRecord(session.session));
     assert.equal(session.session.includeScreenshot, false);
     const markdown = await handlePublicRequest(
       new Request("http://127.0.0.1:17373/v/local_session_stamp_only.md"),

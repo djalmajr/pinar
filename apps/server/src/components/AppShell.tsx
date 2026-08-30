@@ -88,6 +88,7 @@ function AppHeader({
                 aria-label={t("common.pinarHome")}
                 className="text-sm font-semibold"
                 preload="intent"
+                search={{ session: undefined }}
                 to="/app"
               >
                 Pinar
@@ -104,6 +105,7 @@ function AppHeader({
                     <Link
                       className="truncate text-sm hover:underline"
                       preload="intent"
+                      search={{ session: undefined }}
                       to="/app"
                       onClick={() => onSelectWorkspace?.(crumb.id)}
                     >

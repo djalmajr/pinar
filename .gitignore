@@ -7,6 +7,8 @@ node_modules/
 dist/
 src/web-assets.generated.mjs
 coverage/
+!e2e/coverage/
+!e2e/coverage/**
 .tmp/
 .env.local
 .dev.vars*

@@ -49,7 +49,15 @@ export interface Pin {
   };
   viewportAnchored?: boolean;
   fingerprint?: VisualFingerprint;
+  historicalAnchor?: Point;
+  historicalBox?: Box;
   location?: PinLocation;
+  locationHistory?: Array<{
+    at: string;
+    confidence: PinLocation["confidence"];
+    source: "locator" | "manual";
+    strategy?: string;
+  }>;
 }
 
 export interface PageInfo {

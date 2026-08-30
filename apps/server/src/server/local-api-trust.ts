@@ -216,7 +216,7 @@ export const LOCAL_API_TRUST_MATRIX: readonly LocalApiTrustEntry[] = [
   },
   {
     class: "sensitive-read",
-    intendedClients: ["cli", "workspace"],
+    intendedClients: ["cli", "extension", "workspace"],
     methods: ["GET"],
     path: "/api/sessions/:id",
     pattern: /^\/api\/sessions\/[^/]+$/,

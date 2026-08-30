@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import ReactMarkdown from "react-markdown";
-import { getPinColor, type AgentExecution, type Pin, type PinLocation, type PinReview, type PinReviewHumanAction, type PinReviewStatus, type Session } from "@pinar/shared";
+import { getPinColor, PINAR_REOPEN_SESSION_RESULT_EVENT, requestReopenSession, type AgentExecution, type Pin, type PinLocation, type PinReview, type PinReviewHumanAction, type PinReviewStatus, type Session } from "@pinar/shared";
 import { ImageZoomDialog } from "@/components/ImageZoomDialog";
 import { ServerShell } from "@/components/ServerShell";
 import { isRecord, isSession } from "@/lib/api-data";
@@ -46,6 +46,7 @@ import FileTextIcon from "~icons/lucide/file-text";
 import MessageCircleIcon from "~icons/lucide/message-circle";
 import PanelRightCloseIcon from "~icons/lucide/panel-right-close";
 import PanelRightOpenIcon from "~icons/lucide/panel-right-open";
+import ScanSearchIcon from "~icons/lucide/scan-search";
 import SparklesIcon from "~icons/lucide/sparkles";
 
 interface WebViewerProps {
@@ -164,6 +165,8 @@ export function WebViewer({ sessionId }: WebViewerProps) {
   const [imageZoomOpen, setImageZoomOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [pageCopied, setPageCopied] = useState(false);
+  const [reopenHint, setReopenHint] = useState<"failed" | "missing" | null>(null);
+  const reopenWait = useRef<number | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviews, setReviews] = useState<PinReview[]>([]);
   const [executions, setExecutions] = useState<AgentExecution[]>([]);
@@ -196,6 +199,30 @@ export function WebViewer({ sessionId }: WebViewerProps) {
     }
     void load();
   }, [sessionId]);
+
+  useEffect(() => {
+    function onResult(event: Event) {
+      const detail = (event as CustomEvent<{ error?: string; ok?: boolean }>).detail;
+      if (reopenWait.current != null) window.clearTimeout(reopenWait.current);
+      reopenWait.current = null;
+      setReopenHint(detail?.ok ? null : "failed");
+    }
+    window.addEventListener(PINAR_REOPEN_SESSION_RESULT_EVENT, onResult);
+    return () => {
+      window.removeEventListener(PINAR_REOPEN_SESSION_RESULT_EVENT, onResult);
+      if (reopenWait.current != null) window.clearTimeout(reopenWait.current);
+    };
+  }, []);
+
+  function reopenOnPage() {
+    if (!session) return;
+    setReopenHint(null);
+    if (reopenWait.current != null) window.clearTimeout(reopenWait.current);
+    requestReopenSession(session.id);
+    reopenWait.current = window.setTimeout(() => {
+      setReopenHint("missing");
+    }, 800);
+  }
 
   async function submitReview(pin: Pin, action: PinReviewHumanAction) {
     const pinId = pinLookupId(pin);
@@ -351,9 +378,24 @@ export function WebViewer({ sessionId }: WebViewerProps) {
                 ) : null}
               </div>
             ) : null}
+            {reopenHint ? (
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                {t(reopenHint === "missing" ? "viewer.reviewOnPageHint" : "viewer.reviewOnPageFailed")}
+              </p>
+            ) : null}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          <Button
+            aria-label={t("viewer.reviewOnPage")}
+            title={t("viewer.reviewOnPage")}
+            type="button"
+            variant="outline"
+            onClick={reopenOnPage}
+          >
+            <ScanSearchIcon data-icon="inline-start" />
+            <span className="hidden sm:inline">{t("viewer.reviewOnPage")}</span>
+          </Button>
           {showAiSummary ? (
             <Button aria-label={t("viewer.aiSummary")} disabled={aiLoading} type="button" variant="outline" onClick={() => void generateAiSummary()}>
               <SparklesIcon data-icon="inline-start" />

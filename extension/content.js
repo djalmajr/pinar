@@ -87,6 +87,11 @@
     userMasks: [],
     dismissedMaskIds: new Set(),
     privacyConfirmed: false,
+    reviewMode: false,
+    reviewSessionId: null,
+    reviews: [],
+    repositionPinId: null,
+    unavailable: false,
   };
 
   const selection = {
@@ -594,6 +599,10 @@
   }
 
   function locatePin(pin) {
+    pin = freezeHistorical(pin);
+    if (pin.location?.evidence?.includes("manual-reposition")) {
+      return { ...pin, location: pin.location };
+    }
     if (pin.kind !== "element") {
       return { ...projectPin(pin, currentScroll()), location: pin.location };
     }
@@ -602,7 +611,7 @@
       cssSelector: pin.selector,
       domPath: localPath,
       fingerprint: pin.fingerprint,
-      geometry: pin.box ? { box: pin.box } : undefined,
+      geometry: pin.historicalBox || pin.box ? { box: pin.historicalBox || pin.box } : undefined,
       innerText: pin.text,
       kind: pin.kind,
       tag: pin.tag,
@@ -618,6 +627,21 @@
       };
     }
     return { ...projectPin(pin, currentScroll()), location };
+  }
+
+  function freezeHistorical(pin) {
+    if (!state.reviewMode) return pin;
+    return {
+      ...pin,
+      historicalAnchor: pin.historicalAnchor || pin.anchor,
+      historicalBox: pin.historicalBox || pin.box,
+    };
+  }
+
+  function reviewStatusFor(pin) {
+    const pinId = pin.id || pin.pinId;
+    const review = state.reviews.find((item) => item.pinId === pinId);
+    return review?.status || (state.reviewMode ? "open" : "");
   }
 
   function viewportPin(pin) {
@@ -760,7 +784,22 @@
       ui.status.textContent = state.status?.text ?? "";
       ui.status.dataset.kind = state.status?.kind ?? "";
     }
+    if (state.reviewMode && !state.status) {
+      if (ui.instructions) ui.instructions.hidden = true;
+      if (ui.status) {
+        ui.status.hidden = false;
+        ui.status.textContent = reviewBannerText();
+        ui.status.dataset.kind = state.unavailable ? "error" : "info";
+      }
+    }
     document.documentElement.toggleAttribute("data-pinar-mask-mode", state.maskMode);
+    document.documentElement.toggleAttribute("data-pinar-review", state.reviewMode);
+  }
+
+  function reviewBannerText() {
+    if (state.unavailable) return "Original page is unavailable";
+    if (state.repositionPinId) return "Click the correct element to place this pin";
+    return "Reviewing saved session · pending pins need a manual place";
   }
 
   function setStatus(text, kind = "info") {
@@ -805,7 +844,7 @@
   }
 
   function canSelect() {
-    return state.active;
+    return state.active && !state.unavailable && (!state.reviewMode || Boolean(state.repositionPinId));
   }
 
   function updateOutline() {
@@ -850,13 +889,14 @@
     };
   }
 
-  function markerHtml(point, index, pinId, color = pinColor(index + 1), location) {
+  function markerHtml(point, index, pinId, color = pinColor(index + 1), location, reviewStatus) {
     const body = `${bubbleSvg({ color })}<span class="marker-n">${index + 1}</span>`;
     const pending = isPendingLocation(location);
     const confidence = location?.confidence ? ` data-location-confidence="${escapeAttr(location.confidence)}"` : "";
+    const review = reviewStatus ? ` data-review-status="${escapeAttr(reviewStatus)}"` : "";
     const cls = pending ? "marker is-pending" : "marker";
     if (pinId) {
-      return `<button type="button" class="${cls}" data-pin="${pinId}"${confidence} style="left:${point.x}px;top:${point.y}px">${body}</button>`;
+      return `<button type="button" class="${cls}" data-pin="${pinId}"${confidence}${review} style="left:${point.x}px;top:${point.y}px">${body}</button>`;
     }
     return `<span class="${cls}" data-draft="1"${confidence} style="left:${point.x}px;top:${point.y}px">${body}</span>`;
   }
@@ -875,7 +915,14 @@
     });
     const markers = state.pins.map((pin, index) => {
       const visible = viewportPin(pin);
-      return markerHtml(pinPoint(visible), index, pin.id, pin.color, visible.location);
+      return markerHtml(
+        pinPoint(visible),
+        index,
+        pin.id,
+        pin.color,
+        visible.location,
+        reviewStatusFor(pin),
+      );
     });
     if (state.draft && !state.draft.editId) {
       const visible = viewportPin(state.draft);
@@ -997,9 +1044,12 @@
     ui.previewN.textContent = String(index + 1);
     ui.previewN.style.background = pin.color || pinColor(index + 1);
     ui.previewText.textContent = pin.comment.replaceAll("\n", " ");
-    if (isPendingLocation(viewportPin(pin).location)) {
-      ui.previewText.textContent = `${ui.previewText.textContent} · Needs review`;
-    }
+    const visible = viewportPin(pin);
+    const bits = [];
+    if (state.reviewMode) bits.push(reviewStatusFor(pin) || "open");
+    if (visible.location?.confidence) bits.push(visible.location.confidence);
+    if (isPendingLocation(visible.location)) bits.push("Needs review");
+    if (bits.length) ui.previewText.textContent = `${ui.previewText.textContent} · ${bits.join(" · ")}`;
     ui.preview.style.left = `${pos.left}px`;
     ui.preview.style.top = `${pos.top}px`;
     ui.preview.hidden = false;
@@ -1092,23 +1142,35 @@
       }
 
       let liveBox;
-      if (pin.kind === "element" && !pin.viewportAnchored) {
-        const located = locatePin(pin);
-        pin = { ...pin, location: located.location };
+      let working = freezeHistorical(pin);
+      if (working.kind === "element" && !working.viewportAnchored) {
+        const located = locatePin(working);
+        working = {
+          ...working,
+          historicalAnchor: located.historicalAnchor,
+          historicalBox: located.historicalBox,
+          location: located.location,
+        };
         if (located.location?.confidence === "exact" || located.location?.confidence === "probable") {
           liveBox = located.box;
         }
       }
-      const geometry = pinDocumentGeometry(pin, currentScroll(), liveBox);
+      const geometry = pinDocumentGeometry(working, currentScroll(), liveBox);
       return {
-        ...pin,
+        ...working,
         anchor: geometry.anchor,
         box: geometry.box,
+        historicalAnchor: working.historicalAnchor,
+        historicalBox: working.historicalBox,
         scroll: { x: 0, y: 0 },
         topBox: geometry.box,
       };
     });
-    const response = await chrome.runtime.sendMessage({ pins, type: "pins:sync" }).catch(() => null);
+    const response = await chrome.runtime.sendMessage({
+      pins,
+      sessionId: state.reviewSessionId || undefined,
+      type: "pins:sync",
+    }).catch(() => null);
     const synced = response?.ok === true;
     if (synced) {
       const colorsById = new Map(response.pins.map((pin) => [pin.id, pin.color]));
@@ -1136,6 +1198,11 @@
     state.userMasks = [];
     state.dismissedMaskIds = new Set();
     state.privacyConfirmed = false;
+    state.reviewMode = false;
+    state.reviewSessionId = null;
+    state.reviews = [];
+    state.repositionPinId = null;
+    state.unavailable = false;
     renderChrome();
     updateOutline();
     renderMarkers();
@@ -1259,6 +1326,11 @@
     const target = selection.current ?? targetFromPoint(event.clientX, event.clientY);
     if (!target) {
       updateOutline();
+      return;
+    }
+    if (state.repositionPinId) {
+      applyManualPlace(state.repositionPinId, target);
+      event.preventDefault();
       return;
     }
     void openElementDraft(target, { x: event.clientX, y: event.clientY });
@@ -1631,7 +1703,15 @@
     if (!button) return;
     event.preventDefault();
     event.stopPropagation();
-    openPinEditor(button.getAttribute("data-pin"));
+    const pinId = button.getAttribute("data-pin");
+    const pin = state.pins.find((item) => item.id === pinId);
+    if (state.reviewMode && pin && isPendingLocation(viewportPin(pin).location)) {
+      state.repositionPinId = pinId;
+      renderChrome();
+      flashStatus("Click the correct element to place this pin", "ok");
+      return;
+    }
+    openPinEditor(pinId);
   });
 
   window.addEventListener("pointerdown", onPointerDown, true);
@@ -1679,6 +1759,93 @@
     subtree: true,
   });
 
+  function pinBelongsHere(pin) {
+    const parts = splitFrameDomPath(pin.path || pin.domPath || "");
+    if (isEmbedded) return parts.length > 1;
+    return parts.length <= 1;
+  }
+
+  function hydrateSession(payload) {
+    const session = payload?.session;
+    const sessionId = payload?.sessionId;
+    if (!session || (session.id !== sessionId && session.captureId !== sessionId)) return false;
+    state.reviewMode = true;
+    state.reviewSessionId = session.id || sessionId;
+    state.reviews = Array.isArray(payload.reviews) ? payload.reviews : [];
+    state.unavailable = false;
+    state.repositionPinId = null;
+    state.draft = null;
+    state.pins = (session.pins || []).filter(pinBelongsHere).map((pin) => freezeHistorical({
+      ...pin,
+      id: pin.id || pin.pinId,
+      kind: pin.kind || (pin.type === "area" ? "area" : "element"),
+    }));
+    if (!state.active) {
+      state.active = true;
+      document.documentElement.setAttribute("data-pinar-active", "true");
+      applyGlobalStyles();
+    }
+    renderChrome();
+    void syncPins();
+    return true;
+  }
+
+  function showUnavailable(reason) {
+    state.reviewMode = true;
+    state.unavailable = true;
+    state.repositionPinId = null;
+    state.pins = [];
+    setStatus(reason === "origin_mismatch"
+      ? "This page is not the original capture URL"
+      : "Original page is unavailable", "error");
+    renderChrome();
+    renderMarkers();
+    return true;
+  }
+
+  function applyManualPlace(pinId, element) {
+    const index = state.pins.findIndex((pin) => pin.id === pinId);
+    if (index < 0 || !element) return false;
+    const current = freezeHistorical(state.pins[index]);
+    const box = boxOf(element);
+    const historicalSelector = current.selector;
+    const historicalPath = current.path;
+    const historicalFingerprint = current.fingerprint;
+    current.anchor = anchorInBox(current, box);
+    current.box = box;
+    current.location = {
+      confidence: "exact",
+      evidence: ["manual-reposition"],
+      score: 1,
+      strategy: "geometry",
+    };
+    current.locationHistory = [
+      ...(current.locationHistory || []),
+      {
+        at: new Date().toISOString(),
+        confidence: "exact",
+        source: "manual",
+        strategy: "geometry",
+      },
+    ];
+    current.selector = historicalSelector;
+    current.path = historicalPath;
+    current.fingerprint = historicalFingerprint;
+    state.pins[index] = current;
+    state.repositionPinId = null;
+    void syncPins();
+    updateOutline();
+    renderMarkers();
+    renderChrome();
+    return true;
+  }
+
+  function repositionPin(pinId, selector) {
+    const element = selector ? document.querySelector(selector) : selection.current;
+    if (!element) return false;
+    return applyManualPlace(pinId, element);
+  }
+
   function teardown() {
     if (!host.isConnected && !state.active) return;
     clearTimeout(state.statusTimer);
@@ -1703,6 +1870,9 @@
     delete globalThis.__pinarPrepareCapture;
     delete globalThis.__pinarRestoreCapture;
     delete globalThis.__pinarScrollCapture;
+    delete globalThis.__pinarHydrateSession;
+    delete globalThis.__pinarShowUnavailable;
+    delete globalThis.__pinarRepositionPin;
   }
 
   function toggle() {
@@ -1720,6 +1890,20 @@
   globalThis.__pinarPrepareCapture = prepareCapture;
   globalThis.__pinarRestoreCapture = restoreCapture;
   globalThis.__pinarScrollCapture = scrollCapture;
+  globalThis.__pinarHydrateSession = hydrateSession;
+  globalThis.__pinarShowUnavailable = showUnavailable;
+  globalThis.__pinarRepositionPin = repositionPin;
+  globalThis.chrome?.runtime?.onMessage?.addListener?.((message, _sender, sendResponse) => {
+    if (message?.type === "session:hydrate") {
+      sendResponse({ ok: hydrateSession(message) });
+      return false;
+    }
+    if (message?.type === "session:unavailable") {
+      sendResponse({ ok: showUnavailable(message.reason) });
+      return false;
+    }
+    return false;
+  });
   document.documentElement.setAttribute("data-pinar-active", "true");
   applyGlobalStyles();
   renderChrome();

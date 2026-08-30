@@ -15,7 +15,8 @@
     "./privacy": "./src/privacy/index.ts",
     "./handoff": "./src/handoff/index.ts",
     "./agent-results": "./src/agent-results/index.ts",
-    "./pin-review": "./src/pin-review/index.ts"
+    "./pin-review": "./src/pin-review/index.ts",
+    "./session-reopen": "./src/session-reopen/index.ts"
   },
   "dependencies": {
     "@iconify-json/lucide": "^1.2.123"

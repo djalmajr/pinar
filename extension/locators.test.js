@@ -6,13 +6,16 @@ import vm from "node:vm";
 const source = readFileSync(new URL("./locators.js", import.meta.url), "utf8");
 const backgroundSrc = readFileSync(new URL("./background.js", import.meta.url), "utf8");
 const contentSrc = readFileSync(new URL("./content.js", import.meta.url), "utf8");
+const sessionSrc = readFileSync(new URL("./session.js", import.meta.url), "utf8");
 const context = vm.createContext({});
 vm.runInContext(source, context);
 const { isPendingLocation, locateResultMeta, splitFrameDomPath } = context.__pinarLocators;
 
 describe("extension locators", () => {
   test("injects locators.js before content.js and never treats pending matches as exact", () => {
-    assert.match(backgroundSrc, /locators\.js/);
+    assert.match(sessionSrc, /"locators\.js"/);
+    assert.match(backgroundSrc, /CONTENT_INJECTION_FILES/);
+    assert.ok(sessionSrc.indexOf('"locators.js"') < sessionSrc.indexOf('"content.js"'));
     assert.match(contentSrc, /__pinarLocators/);
     assert.match(contentSrc, /data-location-confidence/);
     assert.match(contentSrc, /is-pending/);

@@ -509,7 +509,7 @@ export function WebViewer({ onClose, presentation = "page", sessionId }: WebView
           {isModal ? null : (
             <Button
               aria-label={t("viewer.backHistory")}
-              render={<Link preload="intent" to="/app" />}
+              render={<Link preload="intent" search={{ session: undefined }} to="/app" />}
               size="icon-sm"
               title={t("viewer.backHistory")}
               variant="ghost"

@@ -90,7 +90,7 @@ export function SuccessPage({ checkoutClaim, sessionId }: SuccessPageProps) {
             )}
           </CardContent>
           <CardFooter className="justify-center gap-2">
-            <Button disabled={state.status !== "active"} render={<Link preload="intent" to="/app" />}>
+            <Button disabled={state.status !== "active"} render={<Link preload="intent" search={{ session: undefined }} to="/app" />}>
               <PanelsTopLeftIcon data-icon="inline-start" />
               {t("common.openApp")}
             </Button>

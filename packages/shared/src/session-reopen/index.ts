@@ -138,7 +138,7 @@ export function dropHydrationIfTabLeftOrigin<T extends { pageUrl: string }>(
   return { dropped: true as const, reason: "origin_mismatch" as const };
 }
 
-export function withHistoricalAnchor<T extends HistoricalPin>(pin: T): T {
+export function withHistoricalAnchor<T extends HistoricalPin>(pin: T): T & HistoricalPin {
   return {
     ...pin,
     historicalAnchor: pin.historicalAnchor || pin.anchor,
@@ -161,10 +161,10 @@ export function applyLocatorToPin<T extends HistoricalPin>(
     box?: HistoricalPin["box"];
     location: NonNullable<HistoricalPin["location"]>;
   },
-): T {
+): T & HistoricalPin {
   const frozen = withHistoricalAnchor(pin);
   const pending = located.location.confidence === "ambiguous" || located.location.confidence === "unresolved";
-  const next: T = {
+  const next: T & HistoricalPin = {
     ...frozen,
     location: located.location,
     locationHistory: appendLocationHistory(frozen.locationHistory, {
@@ -189,7 +189,7 @@ export function applyManualReposition<T extends HistoricalPin>(
     at?: string;
     box: NonNullable<HistoricalPin["box"]>;
   },
-): T {
+): T & HistoricalPin {
   const frozen = withHistoricalAnchor(pin);
   const anchor = placed.anchor || {
     x: placed.box.x + placed.box.width / 2,

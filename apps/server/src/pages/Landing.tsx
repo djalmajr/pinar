@@ -90,7 +90,7 @@ export function LandingPage() {
                 <p className="text-sm leading-relaxed text-muted-foreground">{t("landing.privateNote")}</p>
               </CardContent>
               <CardFooter className="mt-auto">
-                <Button render={<Link preload="intent" to="/app" />} size="sm" variant="outline">{t("landing.openLocalDashboard")}</Button>
+                <Button render={<Link preload="intent" search={{ session: undefined }} to="/app" />} size="sm" variant="outline">{t("landing.openLocalDashboard")}</Button>
               </CardFooter>
             </Card>
             {isLocal ? null : (

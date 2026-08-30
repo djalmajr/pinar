@@ -98,7 +98,7 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
                 <DropdownMenuItem render={<Link preload="intent" to="/pricing" />}><TagIcon />{t("common.plans")}</DropdownMenuItem>
               ) : null}
               {headerCta === "open-app" ? (
-                <DropdownMenuItem render={<Link preload="intent" to="/app" />}><PanelsTopLeftIcon />{t("common.openApp")}</DropdownMenuItem>
+                <DropdownMenuItem render={<Link preload="intent" search={{ session: undefined }} to="/app" />}><PanelsTopLeftIcon />{t("common.openApp")}</DropdownMenuItem>
               ) : (
                 <DropdownMenuItem render={<Link preload="intent" search={{ extensionCode: "", returnTo: "/app" }} to="/sign-in" />}><LogInIcon />{t("common.signIn")}</DropdownMenuItem>
               )}
@@ -144,7 +144,7 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
           {headerCta === "open-app" ? (
             <Button
               className="hidden md:inline-flex"
-              render={<Link preload="intent" to="/app" />}
+              render={<Link preload="intent" search={{ session: undefined }} to="/app" />}
               size="sm"
               variant="pro"
             >

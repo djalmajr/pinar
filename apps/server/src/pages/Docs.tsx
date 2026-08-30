@@ -70,7 +70,7 @@ export function DocsPage() {
                 <CardDescription>{t("docs.workspaceDescription")}</CardDescription>
               </CardHeader>
               <CardFooter>
-                <Button render={<Link preload="intent" to="/app" />} variant="outline">
+                <Button render={<Link preload="intent" search={{ session: undefined }} to="/app" />} variant="outline">
                   {isLocal ? t("landing.openLocalDashboard") : t("common.dashboard")}
                 </Button>
               </CardFooter>

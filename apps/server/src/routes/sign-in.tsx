@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { localCloudOnlyServerHandlers, throwIfLocalCloudLocation } from "@/lib/local-cloud-redirect";
+import { localCloudRedirectOrNext, throwIfLocalCloudLocation } from "@/lib/local-cloud-redirect";
 import { SignInPage } from "@/pages/SignIn";
 
 function internalReturnTo(value: unknown) {
@@ -14,15 +14,17 @@ function SignInRoute() {
 }
 
 export const Route = createFileRoute("/sign-in")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    extensionCode: typeof search.extensionCode === "string" ? search.extensionCode : "",
+    returnTo: internalReturnTo(search.returnTo),
+  }),
   beforeLoad: ({ location }) => {
     throwIfLocalCloudLocation(location.href, location.pathname);
   },
   component: SignInRoute,
   server: {
-    handlers: localCloudOnlyServerHandlers(),
+    handlers: {
+      GET: ({ next, request }) => localCloudRedirectOrNext(request, next),
+    },
   },
-  validateSearch: (search) => ({
-    extensionCode: typeof search.extensionCode === "string" ? search.extensionCode : "",
-    returnTo: internalReturnTo(search.returnTo),
-  }),
 });

@@ -126,7 +126,6 @@ function collect(node: MockNode, parent: MockNode | null, out: Array<{ node: Moc
 
 function wrap(
   node: MockNode,
-  parent: MockNode | null,
   parentElement: LocateElement | null,
   owner: LocateRoot,
   cache: WeakMap<MockNode, LocateElement>,
@@ -137,7 +136,7 @@ function wrap(
     get children() {
       return node.children
         .filter((child) => child.tag !== "#text")
-        .map((child) => wrap(child, node, element, owner, cache));
+        .map((child) => wrap(child, element, owner, cache));
     },
     classList: {
       contains(token: string) {
@@ -194,8 +193,8 @@ function queryAllFrom(
     current = next;
   }
   return current.map((item) => {
-    const parentElement = item.parent ? wrap(item.parent, null, null, owner, cache) : null;
-    return wrap(item.node, item.parent, parentElement, owner, cache);
+    const parentElement = item.parent ? wrap(item.parent, null, owner, cache) : null;
+    return wrap(item.node, parentElement, owner, cache);
   });
 }
 
@@ -205,8 +204,8 @@ export function documentOf(bodyChildren: MockNode[]): LocateRoot {
   const cache = new WeakMap<MockNode, LocateElement>();
   const root: LocateRoot = {
     get body() {
-      const htmlElement = wrap(html, null, null, root, cache);
-      return wrap(body, html, htmlElement, root, cache);
+      const htmlElement = wrap(html, null, root, cache);
+      return wrap(body, htmlElement, root, cache);
     },
     querySelector(selectors: string) {
       return this.querySelectorAll(selectors)[0] ?? null;

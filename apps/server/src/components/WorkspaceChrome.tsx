@@ -187,7 +187,7 @@ export function WorkspaceChrome({
   const setSelectedCollectionId = useCallback((id: string | null) => {
     setSelectedCollectionIdState(id);
     writeStoredCollectionId(id);
-    if (navigateOnCollectionSelect) void navigate({ to: "/app" });
+    if (navigateOnCollectionSelect) void navigate({ search: { session: undefined }, to: "/app" });
   }, [navigate, navigateOnCollectionSelect]);
 
   const applyProjects = useCallback((projects: ProjectTreeProject[], preferredProjectId: string) => {
@@ -494,7 +494,7 @@ export function WorkspaceChrome({
               localStorage.setItem(SELECTED_PROJECT_KEY, projectId);
               setSelectedCollectionIdState(null);
               writeStoredCollectionId(null);
-              if (navigateOnCollectionSelect) void navigate({ to: "/app" });
+              if (navigateOnCollectionSelect) void navigate({ search: { session: undefined }, to: "/app" });
             }}
           />
         )}

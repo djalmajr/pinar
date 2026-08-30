@@ -35,10 +35,9 @@ export function throwIfLocalCloudLocation(href: string, pathname: string) {
   throwIfLocalCloudRedirect(pathname, url.search);
 }
 
-export function localCloudOnlyServerHandlers() {
-  return {
-    GET: ({ next, request }: { next: () => Response | Promise<Response>; request: Request }) => {
-      return localCloudRedirectResponse(request) ?? next();
-    },
-  };
+export function localCloudRedirectOrNext<TNext>(
+  request: Request,
+  next: () => TNext,
+): Response | TNext {
+  return localCloudRedirectResponse(request) ?? next();
 }

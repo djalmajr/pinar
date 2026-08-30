@@ -114,6 +114,20 @@ test("unlisted visitor sees only authentic public session data and explicit navi
   await expect(page.getByRole("button", { name: "AI summary" })).toHaveCount(0);
 });
 
+test("review on page dispatches only the chosen session id", async ({ page }) => {
+  await page.goto("/v/viewer-e2e");
+  await page.evaluate(() => {
+    window.addEventListener("pinar:reopen-session", (event) => {
+      (window as any).__pinarReopenDetail = (event as CustomEvent).detail;
+    });
+  });
+  await page.getByRole("button", { name: "Review on page" }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__pinarReopenDetail)).toEqual({
+    sessionId: "viewer-e2e",
+  });
+  await expect(page.getByText("Install the Pinar extension to reopen this session on the original page.")).toBeVisible();
+});
+
 test("copy, Markdown endpoint and assistant prompts preserve one session payload", async ({ page }) => {
   await installClipboardHarness(page);
   await page.context().route("**/v/viewer-e2e.md", (route) => route.fulfill({

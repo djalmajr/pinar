@@ -11,6 +11,18 @@
   },
   "host_permissions": ["http://127.0.0.1/*", "<all_urls>"],
   "background": { "service_worker": "background.js", "type": "module" },
+  "content_scripts": [
+    {
+      "js": ["app-bridge.js"],
+      "matches": [
+        "http://127.0.0.1/*",
+        "http://localhost/*",
+        "https://pinar.dev/*",
+        "https://*.pinar.dev/*"
+      ],
+      "run_at": "document_start"
+    }
+  ],
   "action": {
     "default_title": "Pinar",
     "default_icon": {

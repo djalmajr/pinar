@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
-import { afterCopyAction, endTabPins, pinFrameIds, planSessionEnd } from "./session.js";
+import {
+  afterCopyAction,
+  dropHydrationIfTabLeftOrigin,
+  endTabPins,
+  pinFrameIds,
+  planSessionEnd,
+  planSessionReopen,
+  selectHydrateSession,
+} from "./session.js";
 
 const contentSrc = readFileSync(new URL("./content.js", import.meta.url), "utf8");
 const backgroundSrc = readFileSync(new URL("./background.js", import.meta.url), "utf8");
@@ -98,5 +106,45 @@ describe("session after copy", () => {
       backgroundSrc.indexOf('message.type === "pins:refresh"'),
       backgroundSrc.indexOf('message.type === "pins:clear"'),
     ), /allFrames:\s*true/);
+  });
+
+  test("reopen hydrates only the chosen session onto a matching origin tab", () => {
+    const session = {
+      captureId: "cap_one",
+      id: "session_one",
+      page: { url: "https://app.example.test/settings" },
+    };
+    assert.deepEqual(planSessionReopen({
+      appUrl: "http://127.0.0.1:17373/v/session_one",
+      requestedSessionId: "session_one",
+      session,
+    }), {
+      ok: true,
+      origin: "https://app.example.test",
+      pageUrl: session.page.url,
+      sessionId: "session_one",
+    });
+    assert.equal(planSessionReopen({
+      appUrl: "https://evil.example",
+      requestedSessionId: "session_one",
+      session,
+    }).error, "untrusted_app");
+    assert.equal(selectHydrateSession("session_two", session), null);
+
+    const hydrations = new Map([[3, { pageUrl: session.page.url }]]);
+    const tabPins = new Map([[3, [{ comment: "only session_one" }]]]);
+    assert.deepEqual(
+      dropHydrationIfTabLeftOrigin(hydrations, tabPins, 3, "https://evil.example"),
+      { dropped: true, reason: "origin_mismatch" },
+    );
+    assert.equal(tabPins.has(3), false);
+
+    assert.match(backgroundSrc, /session:reopen/);
+    assert.match(backgroundSrc, /session_mismatch/);
+    assert.match(backgroundSrc, /CONTENT_INJECTION_FILES/);
+    assert.match(contentSrc, /__pinarHydrateSession/);
+    assert.match(contentSrc, /historicalAnchor/);
+    assert.match(contentSrc, /manual-reposition/);
+    assert.doesNotMatch(contentSrc, /session:reopen[\s\S]*pins of every session/);
   });
 });

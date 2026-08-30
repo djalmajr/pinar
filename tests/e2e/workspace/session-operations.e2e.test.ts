@@ -28,7 +28,7 @@ function card(page: Page, title: string) {
 
 function openSessionMenu(page: Page) {
   return page.locator('[role="menu"][data-open]').filter({
-    has: page.getByRole("menuitem", { name: "View" }),
+    has: page.getByRole("menuitem", { exact: true, name: "View" }),
   });
 }
 
@@ -137,7 +137,8 @@ test("move, manual order, copy and confirmed deletion remain precise and persist
   await expect(page.locator('[data-slot="card-title"]')).toHaveText(["Moved capture", "Second capture", "Third capture"]);
 
   await card(page, "Moved capture").getByRole("button", { name: "More session actions" }).click();
-  await openSessionMenu(page).getByRole("menuitem", { name: "View" }).click();
+  await expect(openSessionMenu(page).getByRole("menuitem", { name: "Review on page" })).toBeVisible();
+  await openSessionMenu(page).getByRole("menuitem", { exact: true, name: "View" }).click();
   await expect(page.getByRole("heading", { name: "Moved capture" })).toBeVisible();
   await page.goBack();
   await openWorkspaceSidebar(page, "Collection B");

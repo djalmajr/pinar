@@ -3,6 +3,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import {
   formatClipboardText,
   PIN_REVIEW_STATUSES,
+  requestReopenSession,
   type CollectionPlacement,
   type PinReviewStatus,
   type ProjectIcon,
@@ -87,6 +88,7 @@ import MessageCircleIcon from "~icons/lucide/message-circle";
 import MoreHorizontalIcon from "~icons/lucide/more-horizontal";
 import MoveRightIcon from "~icons/lucide/move-right";
 import SearchIcon from "~icons/lucide/search";
+import ScanSearchIcon from "~icons/lucide/scan-search";
 import TableIcon from "~icons/lucide/table-2";
 import TrashIcon from "~icons/lucide/trash-2";
 import XIcon from "~icons/lucide/x";
@@ -171,6 +173,10 @@ function SessionActions({
           <DropdownMenuItem render={<Link params={{ id: session.id }} preload="intent" to="/v/$id" />}>
             <ExternalLinkIcon />
             {t("dashboard.view")}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => requestReopenSession(session.id)}>
+            <ScanSearchIcon />
+            {t("dashboard.reviewOnPage")}
           </DropdownMenuItem>
           <DropdownMenuItem render={<a href={`/v/${session.id}.md`} rel="noopener noreferrer" target="_blank" />}>
             <FileTextIcon />

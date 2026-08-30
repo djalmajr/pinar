@@ -37,6 +37,6 @@ e2e/
 
 ## Catálogo
 
-O catálogo aprovado contém 62 fluxos nas categorias `publico`, `autenticacao`,
+O catálogo aprovado contém 63 fluxos nas categorias `publico`, `autenticacao`,
 `monetizacao/ofertas`, `monetizacao/assinatura`, `extensao/captura`,
-`extensao/configuracao`, `workspace`, `compartilhamento` e `ia-retencao`.
+`extensao/configuracao`, `extensao/revisao`, `workspace`, `compartilhamento` e `ia-retencao`.

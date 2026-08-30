@@ -16,11 +16,23 @@ import {
   storeDeviceToken,
 } from "./identity.js";
 import { pinarPorts } from "./ports.js";
-import { endTabPins, pinFrameIds, planSessionEnd } from "./session.js";
+import {
+  bindTabHydration,
+  CONTENT_INJECTION_FILES,
+  dropHydrationIfTabLeftOrigin,
+  endTabPins,
+  hydrationForTab,
+  isPinarHelperOrigin,
+  originOf,
+  pinFrameIds,
+  planSessionEnd,
+  planSessionReopen,
+} from "./session.js";
 import { createSingleFlight } from "./single-flight.js";
 import "./privacy.js";
 
 const tabPins = new Map();
+const tabHydrations = new Map();
 const registeredInstallations = new Set();
 const registerInstallationOnce = createSingleFlight();
 const OPEN_PANEL_MENU_ID = "pinar-open-panel";
@@ -89,13 +101,28 @@ void initializeInstallationIdentity();
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab.id) return;
   await chrome.scripting.executeScript({
-    files: ["coordinates.js", "frame-path.js", "locators.js", "privacy.js", "keyboard.js", "content.js"],
+    files: CONTENT_INJECTION_FILES,
     target: { allFrames: true, tabId: tab.id },
   });
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   tabPins.delete(tabId);
+  tabHydrations.delete(tabId);
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status !== "complete") return;
+  const binding = hydrationForTab(tabHydrations, tabId);
+  if (!binding) return;
+  const dropped = dropHydrationIfTabLeftOrigin(tabHydrations, tabPins, tabId, tab.url || "");
+  if (dropped.dropped) {
+    void notifyTabUnavailable(tabId, dropped.reason);
+    return;
+  }
+  void hydrateBoundTab(tabId, binding).catch((error) => {
+    console.error("Unable to rehydrate Pinar session", error);
+  });
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -162,11 +189,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "session:reopen") {
+    reopenSavedSession(message.sessionId, sender)
+      .then((result) => sendResponse(result))
+      .catch((error) => sendResponse({ error: String(error), ok: false }));
+    return true;
+  }
+
   if (message.type === "pins:sync") {
     const tabId = sender.tab?.id;
     const frameId = sender.frameId ?? 0;
     if (tabId == null) {
       sendResponse({ ok: false, error: "missing tab" });
+      return false;
+    }
+    const hydration = hydrationForTab(tabHydrations, tabId);
+    if (hydration && message.sessionId && message.sessionId !== hydration.sessionId) {
+      sendResponse({ ok: false, error: "session_mismatch" });
       return false;
     }
     const existing = tabPins.get(tabId) ?? [];
@@ -240,7 +279,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: false, error: plan.error });
       return false;
     }
-    if (plan.clearPins) endTabPins(tabPins, plan.tabId);
+    if (plan.clearPins) {
+      endTabPins(tabPins, plan.tabId);
+      tabHydrations.delete(plan.tabId);
+    }
     chrome.scripting
       .executeScript({
         func: () => {
@@ -584,6 +626,91 @@ async function localFetch(base, path, init = {}) {
     response = await send(true);
   }
   return response;
+}
+
+async function fetchHydratePayload(appOrigin, sessionId) {
+  const path = `/api/sessions/${encodeURIComponent(sessionId)}`;
+  const response = isPinarHelperOrigin(appOrigin)
+    ? await localFetch(appOrigin, path)
+    : await remoteFetch(appOrigin, path);
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !body.session) throw new Error(body.error || "Session not found");
+  return {
+    reviews: Array.isArray(body.reviews) ? body.reviews : [],
+    session: body.session,
+  };
+}
+
+async function notifyTabUnavailable(tabId, reason) {
+  try {
+    await chrome.scripting.executeScript({
+      args: [reason || "unavailable"],
+      func: (unavailableReason) => globalThis.__pinarShowUnavailable?.(unavailableReason),
+      target: { allFrames: true, tabId },
+    });
+  } catch {
+    /* Tab may already be gone or not injectable. */
+  }
+}
+
+async function tabHasHydrate(tabId) {
+  try {
+    const results = await chrome.scripting.executeScript({
+      func: () => typeof globalThis.__pinarHydrateSession === "function",
+      target: { allFrames: false, tabId },
+    });
+    return results.some((entry) => entry?.result === true);
+  } catch {
+    return false;
+  }
+}
+
+async function hydrateBoundTab(tabId, binding) {
+  if (binding.hydrated) return { ok: true, tabId };
+  const payload = {
+    reviews: binding.payload.reviews,
+    session: binding.payload.session,
+    sessionId: binding.sessionId,
+  };
+  if (payload.session?.id !== binding.sessionId && payload.session?.captureId !== binding.sessionId) {
+    return { ok: false, error: "session_mismatch" };
+  }
+  binding.hydrated = true;
+  endTabPins(tabPins, tabId);
+  if (!await tabHasHydrate(tabId)) {
+    await chrome.scripting.executeScript({
+      files: CONTENT_INJECTION_FILES,
+      target: { allFrames: true, tabId },
+    });
+  }
+  await chrome.scripting.executeScript({
+    args: [payload],
+    func: (hydratePayload) => globalThis.__pinarHydrateSession?.(hydratePayload),
+    target: { allFrames: true, tabId },
+  });
+  return { ok: true, tabId };
+}
+
+async function reopenSavedSession(sessionId, sender) {
+  const appUrl = sender?.url || "";
+  const appOrigin = originOf(appUrl);
+  const fetched = await fetchHydratePayload(appOrigin, sessionId);
+  const plan = planSessionReopen({
+    appUrl,
+    requestedSessionId: sessionId,
+    session: fetched.session,
+  });
+  if (!plan.ok) return plan;
+  const tab = await chrome.tabs.create({ url: plan.pageUrl });
+  if (tab.id == null) return { ok: false, error: "missing tab" };
+  bindTabHydration(tabHydrations, tab.id, {
+    hydrated: false,
+    origin: plan.origin,
+    pageUrl: plan.pageUrl,
+    payload: fetched,
+    sessionId: plan.sessionId,
+  });
+  return { ok: true, tabId: tab.id };
 }
 
 async function fetchDestinationTree(settings, localBase) {

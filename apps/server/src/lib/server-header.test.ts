@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { publicHeaderCta, publicHeaderShowsPlans } from "./server-header";
+import { publicHeaderCta, publicHeaderShowsPlans, shouldUseWorkspaceChrome } from "./server-header";
 import { cloudRedirectLocation } from "./local-cloud-redirect";
 
 describe("public header CTA", () => {
@@ -36,6 +36,11 @@ describe("public header CTA", () => {
   test("local helper hides Plans", () => {
     assert.equal(publicHeaderShowsPlans("local"), false);
     assert.equal(publicHeaderShowsPlans("cloud"), true);
+  });
+
+  test("local helper uses workspace chrome instead of the public header", () => {
+    assert.equal(shouldUseWorkspaceChrome("local"), true);
+    assert.equal(shouldUseWorkspaceChrome("cloud"), false);
   });
 });
 

@@ -69,13 +69,11 @@ async function initializeInstallationIdentity() {
 }
 
 async function registerActionContextMenu() {
-  const settings = await getSettings();
-  const messages = translations[getBestLanguage(settings.language)] ?? translations.en;
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
       contexts: ["action"],
       id: OPEN_PANEL_MENU_ID,
-      title: messages.context_open_panel,
+      title: translations.en.context_open_panel,
     });
   });
 }
@@ -86,10 +84,6 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.runtime.onStartup.addListener(() => void registerActionContextMenu());
-
-chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName === "sync" && changes.language) void registerActionContextMenu();
-});
 
 chrome.contextMenus.onClicked.addListener((info) => {
   if (info.menuItemId !== OPEN_PANEL_MENU_ID) return;
@@ -185,6 +179,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "destination:set") {
     setCaptureDestination(message.collectionId)
       .then((context) => sendResponse({ ...context, ok: true }))
+      .catch((error) => sendResponse({ error: String(error), ok: false }));
+    return true;
+  }
+
+  if (message.type === "preferences:get") {
+    getDeliveryPreferences()
+      .then((prefs) => sendResponse({ ...prefs, ok: true }))
+      .catch((error) => sendResponse({ error: String(error), ok: false }));
+    return true;
+  }
+
+  if (message.type === "preferences:set") {
+    setDeliveryPreferences(message.includeScreenshot !== false)
+      .then((prefs) => sendResponse({ ...prefs, ok: true }))
       .catch((error) => sendResponse({ error: String(error), ok: false }));
     return true;
   }
@@ -326,6 +334,7 @@ async function getSettings() {
       cloudUrl: "https://pinar.dev",
       copyViewerContent: false,
       enableHistory: true,
+      includeScreenshot: true,
       includeViewer: true,
       language: "",
       sensitiveQueryKeys: "",
@@ -336,6 +345,7 @@ async function getSettings() {
       cloudUrl: "https://pinar.dev",
       copyViewerContent: false,
       enableHistory: true,
+      includeScreenshot: true,
       includeViewer: true,
       language: "",
       sensitiveQueryKeys: "",
@@ -352,6 +362,73 @@ async function getSettings() {
   }
 
   return settings;
+}
+
+async function fetchDeliveryPreferences(settings) {
+  try {
+    if (settings.storageMode === "cloud") {
+      const response = await remoteFetch(cloudEndpoint(settings), "/api/preferences");
+      const body = await responseBody(response);
+      if (!response.ok || typeof body.includeScreenshot !== "boolean") return null;
+      return { includeScreenshot: body.includeScreenshot };
+    }
+    const base = await findShotBase();
+    if (!base) return null;
+    const response = await localFetch(base, "/api/preferences");
+    const body = await responseBody(response);
+    if (!response.ok || typeof body.includeScreenshot !== "boolean") return null;
+    return { includeScreenshot: body.includeScreenshot };
+  } catch {
+    return null;
+  }
+}
+
+async function cacheDeliveryPreferences(includeScreenshot) {
+  try {
+    await chrome.storage.sync.set({ includeScreenshot });
+  } catch {
+    /* ignore cache write */
+  }
+}
+
+async function getDeliveryPreferences() {
+  const settings = await getSettings();
+  const remote = await fetchDeliveryPreferences(settings);
+  if (!remote) return { includeScreenshot: settings.includeScreenshot !== false };
+  if (remote.includeScreenshot !== (settings.includeScreenshot !== false)) {
+    await cacheDeliveryPreferences(remote.includeScreenshot);
+  }
+  return remote;
+}
+
+async function setDeliveryPreferences(includeScreenshot) {
+  const settings = await getSettings();
+  if (settings.storageMode === "cloud") {
+    const response = await remoteFetch(cloudEndpoint(settings), "/api/preferences", {
+      body: JSON.stringify({ includeScreenshot }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    });
+    const body = await responseBody(response);
+    if (!response.ok || typeof body.includeScreenshot !== "boolean") {
+      throw new Error(body.error || "Unable to save screenshot preference");
+    }
+    await cacheDeliveryPreferences(body.includeScreenshot);
+    return { includeScreenshot: body.includeScreenshot };
+  }
+  const base = await findShotBase();
+  if (!base) throw new Error("Local Pinar server is not running");
+  const response = await localFetch(base, "/api/preferences", {
+    body: JSON.stringify({ includeScreenshot }),
+    headers: { "content-type": "application/json" },
+    method: "PATCH",
+  });
+  const body = await responseBody(response);
+  if (!response.ok || typeof body.includeScreenshot !== "boolean") {
+    throw new Error(body.error || "Unable to save screenshot preference");
+  }
+  await cacheDeliveryPreferences(body.includeScreenshot);
+  return { includeScreenshot: body.includeScreenshot };
 }
 
 const ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz-";
@@ -389,6 +466,11 @@ async function copyBundle(message) {
     .then((context) => context.destination)
     .catch(() => null);
 
+  const remotePrefs = await fetchDeliveryPreferences(settings);
+  const includeScreenshot = remotePrefs?.includeScreenshot ?? settings.includeScreenshot !== false;
+  if (remotePrefs && remotePrefs.includeScreenshot !== (settings.includeScreenshot !== false)) {
+    await cacheDeliveryPreferences(remotePrefs.includeScreenshot);
+  }
   if (message.shot) {
     savedResult = await saveShot(
       message.shot,
@@ -399,13 +481,14 @@ async function copyBundle(message) {
       destination?.collectionId,
       privacy,
       warnings,
+      includeScreenshot,
     );
     if (!savedResult) warnings.push("helper_unavailable");
-  } else {
+  } else if (includeScreenshot) {
     warnings.push("screenshot_missing");
   }
 
-  const shot = savedResult?.path || message.shot || null;
+  const shot = includeScreenshot ? (savedResult?.path || message.shot || null) : null;
   const viewerUrl = (settings.includeViewer && savedResult?.viewerUrl) ? savedResult.viewerUrl : null;
   if (settings.includeViewer && !viewerUrl) warnings.push("viewer_unavailable");
   const uniqueWarnings = [...new Set(warnings)];
@@ -415,6 +498,7 @@ async function copyBundle(message) {
 
   const payload = formatClipboardPayload({
     captureId: id,
+    includeScreenshot,
     page,
     pins,
     privacy,
@@ -927,17 +1011,18 @@ async function openApp() {
   };
   const base = settings.storageMode === "cloud" ? cloudEndpoint(settings) : await findShotBase();
   if (!base) throw new Error("Local Pinar server is not running");
-  const url = withLanguage(`${base}/`);
+  const url = withLanguage(`${base}/app`);
   await chrome.tabs.create({ url });
   return url;
 }
 
-async function saveShot(dataUrl, id, page = {}, pins = [], settings = {}, collectionId = "", privacy = null, warnings = []) {
+async function saveShot(dataUrl, id, page = {}, pins = [], settings = {}, collectionId = "", privacy = null, warnings = [], includeScreenshot = true) {
   const payload = {
     captureId: id,
     collectionId,
     id,
     image: dataUrl,
+    includeScreenshot,
     page,
     pins,
     privacy,

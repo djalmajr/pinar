@@ -17,30 +17,21 @@ describe("extension action context menu", () => {
     assert.equal(extensionPackage.version, manifest.version);
     assert.equal(manifest.homepage_url, "https://pinar.dev");
     assert.match(backgroundSrc, /contexts: \["action"\]/);
-    assert.match(backgroundSrc, /title: messages\.context_open_panel/);
+    assert.match(backgroundSrc, /title: translations\.en\.context_open_panel/);
     assert.match(backgroundSrc, /chrome\.contextMenus\.onClicked\.addListener/);
   });
 
-  test("opens the configured Pinar homepage", () => {
+  test("opens the default workspace", () => {
     assert.match(backgroundSrc, /info\.menuItemId !== OPEN_PANEL_MENU_ID/);
     assert.match(backgroundSrc, /void openApp\(\)/);
-    assert.match(backgroundSrc, /withLanguage\(`\$\{base\}\/`\)/);
+    assert.match(backgroundSrc, /withLanguage\(`\$\{base\}\/app`\)/);
     assert.doesNotMatch(backgroundSrc, /browser-ticket|\/history/);
   });
 
-  test("localizes the panel label for every supported extension language", () => {
-    assert.deepEqual(
-      Object.fromEntries(Object.entries(translations).map(([language, messages]) => [language, messages.context_open_panel])),
-      {
-        de: "Panel öffnen",
-        en: "Open Panel",
-        es: "Abrir panel",
-        fr: "Ouvrir le panneau",
-        ja: "パネルを開く",
-        pt: "Abrir painel",
-        zh: "打开面板",
-      },
-    );
-    assert.match(backgroundSrc, /changes\.language/);
+  test("keeps the Chrome action menu in English for the global store listing", () => {
+    assert.equal(manifest.default_locale, "en_US");
+    assert.match(backgroundSrc, /title: translations\.en\.context_open_panel/);
+    assert.doesNotMatch(backgroundSrc, /changes\.language/);
+    assert.equal(translations.en.context_open_panel, "Open Panel");
   });
 });

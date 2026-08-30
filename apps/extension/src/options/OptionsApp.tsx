@@ -81,8 +81,8 @@ import {
 } from "./extension-response";
 
 const LANGUAGE_OPTIONS: { code: SupportedLanguage; label: string }[] = [
-  { code: "pt", label: "Português" },
   { code: "en", label: "English" },
+  { code: "pt", label: "Português" },
   { code: "es", label: "Español" },
   { code: "fr", label: "Français" },
   { code: "de", label: "Deutsch" },
@@ -90,13 +90,14 @@ const LANGUAGE_OPTIONS: { code: SupportedLanguage; label: string }[] = [
   { code: "ja", label: "日本語" },
 ];
 
-const DEFAULT_LANGUAGE = getBestLanguage();
+const DEFAULT_LANGUAGE: SupportedLanguage = "en";
 const DEFAULT_PROJECT_OPTION = { label: "Personal", value: "__pinar_default_project__" };
 const DEFAULT_COLLECTION_OPTION = { label: "Inbox", value: "__pinar_default_collection__" };
 const SETTINGS_KEYS: (keyof PinarSettings)[] = [
   "cloudUrl",
   "copyViewerContent",
   "enableHistory",
+  "includeScreenshot",
   "includeViewer",
   "language",
   "loopMetricsOptIn",
@@ -109,6 +110,7 @@ const DEFAULT_SETTINGS: PinarSettings = {
   cloudUrl: "https://pinar.dev",
   copyViewerContent: false,
   enableHistory: true,
+  includeScreenshot: true,
   includeViewer: true,
   language: DEFAULT_LANGUAGE,
   loopMetricsOptIn: false,
@@ -122,6 +124,7 @@ interface ExtensionResponse extends ExtensionResponseBase {
   destination?: CaptureDestination;
   error?: string;
   expiresAt?: string;
+  includeScreenshot?: boolean;
   ok?: boolean;
   session?: AuthSession;
   tree?: ProjectTree;
@@ -274,6 +277,17 @@ export function OptionsApp() {
     }
   }
 
+  async function syncDeliveryPreferences(current: PinarSettings) {
+    const response = await extensionMessage({ type: "preferences:get" }, "");
+    if (!response.ok || typeof response.includeScreenshot !== "boolean") return current;
+    if (response.includeScreenshot === current.includeScreenshot) return current;
+    const next = { ...current, includeScreenshot: response.includeScreenshot };
+    if (typeof chrome !== "undefined" && chrome.storage?.sync) {
+      await chrome.storage.sync.set({ includeScreenshot: response.includeScreenshot });
+    }
+    return next;
+  }
+
   async function loadCaptureDestination() {
     setDestinationLoading(true);
     setDestinationError("");
@@ -330,8 +344,9 @@ export function OptionsApp() {
           cloudUrl,
           copyViewerContent: Boolean(items.copyViewerContent),
           enableHistory: Boolean(items.enableHistory),
+          includeScreenshot: items.includeScreenshot !== false,
           includeViewer: Boolean(items.includeViewer),
-          language: getBestLanguage(items.language),
+          language: getBestLanguage(items.language || DEFAULT_LANGUAGE, []),
           loopMetricsOptIn: items.loopMetricsOptIn === true,
           sensitiveQueryKeys: typeof items.sensitiveQueryKeys === "string" ? items.sensitiveQueryKeys : "",
           storageMode: items.storageMode === "cloud" ? "cloud" : "local",
@@ -339,6 +354,7 @@ export function OptionsApp() {
         };
         if (cloudUrl !== items.cloudUrl) await chrome.storage.sync.set({ cloudUrl });
       }
+      loaded = await syncDeliveryPreferences(loaded);
       applyTheme(loaded.theme || "system");
       setLang(loaded.language as SupportedLanguage);
       setSettings(loaded);
@@ -364,8 +380,19 @@ export function OptionsApp() {
       }
     }
     if (typeof chrome !== "undefined" && chrome.storage?.sync) await chrome.storage.sync.set(settings);
+    const prefs = await extensionMessage(
+      { includeScreenshot: settings.includeScreenshot, type: "preferences:set" },
+      "",
+    );
+    const saved = prefs.ok && typeof prefs.includeScreenshot === "boolean"
+      ? { ...settings, includeScreenshot: prefs.includeScreenshot }
+      : settings;
+    if (saved.includeScreenshot !== settings.includeScreenshot && typeof chrome !== "undefined" && chrome.storage?.sync) {
+      await chrome.storage.sync.set({ includeScreenshot: saved.includeScreenshot });
+    }
     setSavedLegalAccepted(legalAccepted);
-    setSavedSettings(settings);
+    setSettings(saved);
+    setSavedSettings(saved);
     toast.success(t.status_saved);
     await Promise.all([loadCaptureDestination(), loadAuthSession()]);
   }
@@ -688,6 +715,7 @@ export function OptionsApp() {
                     <label className="flex items-start gap-3 py-1"><Switch checked={settings.loopMetricsOptIn === true} className="mt-0.5 shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, loopMetricsOptIn: value }))} /><span><span className="block text-xs font-semibold">{t.loop_metrics_label}</span><span className="block text-xs text-muted-foreground">{t.loop_metrics_desc}</span></span></label>
                     <label className="flex items-start gap-3 py-1"><Switch checked={settings.includeViewer} className="mt-0.5 shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, includeViewer: value }))} /><span><span className="block text-xs font-semibold">{t.viewer_label}</span><span className="block text-xs text-muted-foreground">{t.viewer_desc}</span></span></label>
                     <label className="flex items-start gap-3 py-1"><Switch checked={settings.copyViewerContent} className="mt-0.5 shrink-0" disabled={!settings.includeViewer} onCheckedChange={(value) => setSettings((current) => ({ ...current, copyViewerContent: value }))} /><span><span className="block text-xs font-semibold">{t.viewer_content_label}</span><span className="block text-xs text-muted-foreground">{t.viewer_content_desc}</span></span></label>
+                    <label className="flex items-start gap-3 py-1"><Switch checked={settings.includeScreenshot} className="mt-0.5 shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, includeScreenshot: value }))} /><span><span className="block text-xs font-semibold">{t.screenshot_label}</span><span className="block text-xs text-muted-foreground">{t.screenshot_desc}</span></span></label>
                     <label className="flex flex-col gap-1.5 py-1">
                       <span className="text-xs font-semibold">{t.privacy_query_keys_label}</span>
                       <Input

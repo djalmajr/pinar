@@ -21,7 +21,7 @@ describe("history", () => {
     const db = openHistoryDb(tempDir);
     const session = db.saveSession({
       id: "test-1",
-      page: { title: "Test Page", url: "https://example.com" },
+      page: { description: "Home of the example site.", title: "Test Page", url: "https://example.com" },
       pins: [{ comment: "Fix header", kind: "element", selector: "h1" }],
       shotId: "shot-1",
       shotPath: "/tmp/shot-1.png",
@@ -29,11 +29,13 @@ describe("history", () => {
 
     assert.equal(session.id, "test-1");
     assert.equal(session.page.title, "Test Page");
+    assert.equal(session.page.description, "Home of the example site.");
     assert.equal(session.pins.length, 1);
     assert.equal(session.pins[0].comment, "Fix header");
     assert.equal(session.schemaVersion, 1);
     assert.equal(session.captureId, "test-1");
     assert.equal(session.pins[0].pinId, "test-1:p1");
+    assert.equal(session.includeScreenshot, true);
 
     const fetched = db.getSession("test-1");
     assert.deepEqual(fetched, session);
@@ -41,6 +43,20 @@ describe("history", () => {
     const list = db.listSessions();
     assert.equal(list.length, 1);
     assert.equal(list[0].id, "test-1");
+    db.close();
+  });
+
+  test("saveSession records includeScreenshot for agent markdown", () => {
+    const db = openHistoryDb(tempDir);
+    const omitted = db.saveSession({
+      id: "no-shot",
+      includeScreenshot: false,
+      page: { title: "Login" },
+      pins: [],
+      shotPath: "/tmp/login.png",
+    });
+    assert.equal(omitted.includeScreenshot, false);
+    assert.equal(db.getSession("no-shot")?.includeScreenshot, false);
     db.close();
   });
 

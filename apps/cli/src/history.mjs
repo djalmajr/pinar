@@ -56,6 +56,7 @@ const LOCAL_OWNER_ID = "local";
  * @property {string[]} [warnings]
  * @property {string | null} [shotId]
  * @property {string | null} [shotPath]
+ * @property {boolean} [includeScreenshot]
  */
 
 function generateNanoId(size = 12) {
@@ -170,6 +171,11 @@ function planCollectionPlacements(rows, requested) {
   });
 }
 
+function includeScreenshotFromRow(row) {
+  if (row?.include_screenshot === undefined || row?.include_screenshot === null) return true;
+  return Number(row.include_screenshot) !== 0;
+}
+
 function formatSession(row) {
   const capture = decodeVisualCaptureJson(row.pins_json, row.id);
   return {
@@ -177,7 +183,9 @@ function formatSession(row) {
     collectionId: row.collection_id,
     createdAt: row.created_at,
     id: row.id,
+    includeScreenshot: includeScreenshotFromRow(row),
     page: {
+      ...(capture.page.description ? { description: capture.page.description } : {}),
       title: row.title,
       url: row.url,
       viewport: capture.page.viewport,
@@ -440,7 +448,7 @@ class JsonHistoryDb {
   }
 
   /** @param {HistoryInput} input */
-  saveSession({ collectionId, createdAt, id, page = {}, pins = [], privacy, shotId = null, shotPath = null, warnings } = {}) {
+  saveSession({ collectionId, createdAt, id, includeScreenshot = true, page = {}, pins = [], privacy, shotId = null, shotPath = null, warnings } = {}) {
     const destination = this.resolveDestination(collectionId);
     const existing = id ? this.data.sessions.find((item) => item.id === id) : null;
     const sid = id || generateNanoId();
@@ -449,6 +457,7 @@ class JsonHistoryDb {
       collection_id: destination.collectionId,
       created_at: createdAt || now(),
       id: capture.captureId,
+      include_screenshot: includeScreenshot === false ? 0 : 1,
       pin_count: capture.pins.length,
       pins_json: encodeVisualCaptureJson(capture),
       position: existing?.collection_id === destination.collectionId
@@ -896,7 +905,8 @@ class SqliteHistoryDb {
         pins_json TEXT,
         created_at TEXT,
         collection_id TEXT,
-        position INTEGER
+        position INTEGER,
+        include_screenshot INTEGER NOT NULL DEFAULT 1
       );
       CREATE TABLE IF NOT EXISTS agent_executions (
         id TEXT PRIMARY KEY,
@@ -978,6 +988,9 @@ class SqliteHistoryDb {
     const columns = new Set(this.db.prepare("PRAGMA table_info(sessions)").all().map((row) => row.name));
     if (!columns.has("collection_id")) this.db.exec("ALTER TABLE sessions ADD COLUMN collection_id TEXT;");
     if (!columns.has("position")) this.db.exec("ALTER TABLE sessions ADD COLUMN position INTEGER;");
+    if (!columns.has("include_screenshot")) {
+      this.db.exec("ALTER TABLE sessions ADD COLUMN include_screenshot INTEGER NOT NULL DEFAULT 1;");
+    }
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_sessions_collection_position ON sessions(collection_id, position);");
   }
 
@@ -1047,7 +1060,7 @@ class SqliteHistoryDb {
   }
 
   /** @param {HistoryInput} input */
-  saveSession({ collectionId, createdAt, id, page = {}, pins = [], privacy, shotId = null, shotPath = null, warnings } = {}) {
+  saveSession({ collectionId, createdAt, id, includeScreenshot = true, page = {}, pins = [], privacy, shotId = null, shotPath = null, warnings } = {}) {
     const sid = id || generateNanoId();
     const destination = this.resolveDestination(collectionId);
     const existing = this.db.prepare("SELECT collection_id, position FROM sessions WHERE id = ?").get(sid);
@@ -1055,10 +1068,11 @@ class SqliteHistoryDb {
       ? existing.position
       : this._nextSessionPosition(destination.collectionId);
     const capture = captureForSave(sid, page, pins, shotId, shotPath, { privacy, warnings });
+    const includeFlag = includeScreenshot === false ? 0 : 1;
     this.db.prepare(`
       INSERT INTO sessions (
-        id, url, title, shot_id, shot_path, pin_count, pins_json, created_at, collection_id, position
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, url, title, shot_id, shot_path, pin_count, pins_json, created_at, collection_id, position, include_screenshot
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         url=excluded.url,
         title=excluded.title,
@@ -1068,7 +1082,8 @@ class SqliteHistoryDb {
         pins_json=excluded.pins_json,
         created_at=excluded.created_at,
         collection_id=excluded.collection_id,
-        position=excluded.position
+        position=excluded.position,
+        include_screenshot=excluded.include_screenshot
     `).run(
       capture.captureId,
       page.url || capture.page.url || "",
@@ -1080,6 +1095,7 @@ class SqliteHistoryDb {
       createdAt || now(),
       destination.collectionId,
       position,
+      includeFlag,
     );
     const session = this.getSession(capture.captureId);
     if (!session) throw new Error(`Failed to save history session ${sid}`);
@@ -1102,7 +1118,7 @@ class SqliteHistoryDb {
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     const order = collectionId ? "position ASC" : "created_at DESC";
     const rows = this.db.prepare(`
-      SELECT id, url, title, shot_id, shot_path, pin_count, pins_json, created_at, collection_id, position
+      SELECT id, url, title, shot_id, shot_path, pin_count, pins_json, created_at, collection_id, position, include_screenshot
       FROM sessions
       ${where}
       ORDER BY ${order}
@@ -1113,7 +1129,7 @@ class SqliteHistoryDb {
 
   getSession(id) {
     const row = this.db.prepare(`
-      SELECT id, url, title, shot_id, shot_path, pin_count, pins_json, created_at, collection_id, position
+      SELECT id, url, title, shot_id, shot_path, pin_count, pins_json, created_at, collection_id, position, include_screenshot
       FROM sessions WHERE id = ?
     `).get(id);
     return row ? this._decorateSession(formatSession(row)) : null;

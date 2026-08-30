@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/app'
+import { Route as DocsRouteImport } from './routes/docs'
 import { Route as InstallDotps1RouteImport } from './routes/install[.]ps1'
 import { Route as InstallDotshRouteImport } from './routes/install[.]sh'
 import { Route as PricingRouteImport } from './routes/pricing'
@@ -31,6 +32,11 @@ const IndexRoute = IndexRouteImport.update({
 const AppRoute = AppRouteImport.update({
   id: '/app',
   path: '/app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DocsRoute = DocsRouteImport.update({
+  id: '/docs',
+  path: '/docs',
   getParentRoute: () => rootRouteImport,
 } as any)
 const InstallDotps1Route = InstallDotps1RouteImport.update({
@@ -92,6 +98,7 @@ const VIdRoute = VIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/app': typeof AppRoute
+  '/docs': typeof DocsRoute
   '/install.ps1': typeof InstallDotps1Route
   '/install.sh': typeof InstallDotshRoute
   '/pricing': typeof PricingRoute
@@ -107,6 +114,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/app': typeof AppRoute
+  '/docs': typeof DocsRoute
   '/install.ps1': typeof InstallDotps1Route
   '/install.sh': typeof InstallDotshRoute
   '/pricing': typeof PricingRoute
@@ -123,6 +131,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/app': typeof AppRoute
+  '/docs': typeof DocsRoute
   '/install.ps1': typeof InstallDotps1Route
   '/install.sh': typeof InstallDotshRoute
   '/pricing': typeof PricingRoute
@@ -140,6 +149,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/app'
+    | '/docs'
     | '/install.ps1'
     | '/install.sh'
     | '/pricing'
@@ -155,6 +165,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/app'
+    | '/docs'
     | '/install.ps1'
     | '/install.sh'
     | '/pricing'
@@ -170,6 +181,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/app'
+    | '/docs'
     | '/install.ps1'
     | '/install.sh'
     | '/pricing'
@@ -186,6 +198,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRoute
+  DocsRoute: typeof DocsRoute
   InstallDotps1Route: typeof InstallDotps1Route
   InstallDotshRoute: typeof InstallDotshRoute
   PricingRoute: typeof PricingRoute
@@ -213,6 +226,13 @@ declare module '@tanstack/react-router' {
       path: '/app'
       fullPath: '/app'
       preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/docs': {
+      id: '/docs'
+      path: '/docs'
+      fullPath: '/docs'
+      preLoaderRoute: typeof DocsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/install.ps1': {
@@ -298,6 +318,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRoute,
+  DocsRoute: DocsRoute,
   InstallDotps1Route: InstallDotps1Route,
   InstallDotshRoute: InstallDotshRoute,
   PricingRoute: PricingRoute,

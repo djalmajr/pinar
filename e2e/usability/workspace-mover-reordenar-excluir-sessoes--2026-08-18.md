@@ -10,4 +10,4 @@ O primeiro exercício revelou uma falha real: os rótulos **Move to collection**
 
 Na matriz completa, menus fechados preservados no DOM pelo Base UI expuseram um seletor amplo e ambíguo no iPhone. A regressão foi estreitada ao menu com `data-open`; o produto já apresentava uma única ação visível. O fluxo terminou **5/5** na matriz final.
 
-O fluxo usa ações **Move earlier / Move later** em vez de drag-and-drop. O gesto de drag da árvore de coleções permanece no fluxo independente `workspace-reordenar-arvore`.
+O fluxo usa ações **Move earlier / Move later** em vez de drag-and-drop para reordenar dentro da coleção. Organizar para pastas também cobre drag da listagem para a árvore e seleção em lote (mover/excluir). O gesto de drag da árvore de coleções permanece no fluxo independente `workspace-reordenar-arvore`.

@@ -20,14 +20,15 @@ function leakHaystack(values: unknown[]) {
 }
 
 describe("privacy sanitizer", () => {
-  test("classifies password, token, payment, otp, and email fields", () => {
+  test("classifies password, token, payment, and otp fields", () => {
     assert.equal(classifyFieldAttrs({ type: "password" }), "password");
     assert.equal(classifyFieldAttrs({ autocomplete: "current-password" }), "password");
     assert.equal(classifyFieldAttrs({ name: "api_key", type: "text" }), "token");
     assert.equal(classifyFieldAttrs({ id: "stripe-token" }), "token");
     assert.equal(classifyFieldAttrs({ autocomplete: "cc-number" }), "payment");
     assert.equal(classifyFieldAttrs({ autocomplete: "one-time-code" }), "otp");
-    assert.equal(classifyFieldAttrs({ type: "email" }), "email");
+    assert.equal(classifyFieldAttrs({ type: "email" }), null);
+    assert.equal(classifyFieldAttrs({ autocomplete: "email" }), null);
     assert.equal(classifyFieldAttrs({ name: "search", type: "text" }), null);
   });
 
@@ -119,5 +120,16 @@ describe("privacy sanitizer", () => {
     assert.equal(sanitized.privacy.unevaluated, false);
     assert.equal((sanitized.pins[0] as { comment: string }).comment, "Make the CTA bolder");
     assert.match(sanitized.page.url, /plan=pro/);
+  });
+
+  test("does not treat email field values as secrets", () => {
+    const email = "user@example.test";
+    const sanitized = sanitizeCapture({
+      fields: [{ attrs: { type: "email" }, value: email }],
+      page: { title: "Signup", url: "https://app.example.test/signup" },
+      pins: [{ comment: `Fix ${email}`, text: "Email" }],
+    });
+    assert.equal(sanitized.privacy.redacted.includes("email"), false);
+    assert.equal((sanitized.pins[0] as { comment: string }).comment.includes(email), true);
   });
 });

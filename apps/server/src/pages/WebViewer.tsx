@@ -1,14 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import ReactMarkdown from "react-markdown";
 import { getPinColor, PINAR_REOPEN_SESSION_RESULT_EVENT, requestReopenSession, type AgentExecution, type Pin, type PinLocation, type PinReview, type PinReviewHumanAction, type PinReviewStatus, type Session } from "@pinar/shared";
-import { ImageZoomDialog } from "@/components/ImageZoomDialog";
+import { ImageZoomControls, ImageZoomStage, useImageZoom } from "@/components/ImageZoomStage";
 import { ServerShell } from "@/components/ServerShell";
+import { WorkspaceChrome } from "@/components/WorkspaceChrome";
 import { isRecord, isSession } from "@/lib/api-data";
 import { useServerI18n, type ServerMessageKey } from "@/lib/i18n";
 import { formatPinMarkdown } from "@/lib/pin-markdown";
-import { pinarRuntime } from "@/lib/server-header";
+import { pinarRuntime, shouldUseWorkspaceChrome } from "@/lib/server-header";
 import { formatSessionDate } from "@/lib/session-date";
+import { sessionListingCopy } from "@/lib/session-listing";
 import {
   Badge,
   Button,
@@ -19,6 +21,7 @@ import {
   CardHeader,
   CardTitle,
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -27,9 +30,14 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
   DropdownMenuTrigger,
   PinBadge,
   ScrollArea,
+  SidebarInset,
   Tabs,
   TabsContent,
   TabsList,
@@ -44,12 +52,13 @@ import CopyIcon from "~icons/lucide/copy";
 import ExternalLinkIcon from "~icons/lucide/external-link";
 import FileTextIcon from "~icons/lucide/file-text";
 import MessageCircleIcon from "~icons/lucide/message-circle";
-import PanelRightCloseIcon from "~icons/lucide/panel-right-close";
-import PanelRightOpenIcon from "~icons/lucide/panel-right-open";
 import ScanSearchIcon from "~icons/lucide/scan-search";
 import SparklesIcon from "~icons/lucide/sparkles";
+import XIcon from "~icons/lucide/x";
 
 interface WebViewerProps {
+  onClose?: () => void;
+  presentation?: "modal" | "page";
   sessionId: string;
 }
 
@@ -70,6 +79,91 @@ function pinNumber(pin: Pin, index: number) {
   return pin.number || index + 1;
 }
 
+function OriginalPageAnchor({ className, url }: { className?: string; url: string }) {
+  return (
+    <a
+      className={className}
+      href={url}
+      rel="noopener noreferrer"
+      target="_blank"
+    >
+      <span className="truncate">{url}</span>
+      <ExternalLinkIcon className="size-3 shrink-0" />
+    </a>
+  );
+}
+
+function PrivacyBadges({ session, t }: { session: Session; t: (key: ServerMessageKey, values?: Record<string, string | number>) => string }) {
+  if (!session.privacy?.redacted.length && !session.privacy?.unevaluated) return null;
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+      {session.privacy?.redacted.length ? (
+        <Badge variant="warning">
+          {t("viewer.privacyRedacted", { categories: session.privacy.redacted.join(", ") })}
+        </Badge>
+      ) : null}
+      {session.privacy?.unevaluated ? (
+        <Badge variant="destructive">{t("viewer.privacyUnevaluated")}</Badge>
+      ) : null}
+    </div>
+  );
+}
+
+function ViewerPageIdentity({
+  isModal,
+  reopenHint,
+  session,
+  t,
+}: {
+  isModal: boolean;
+  reopenHint: "failed" | "missing" | null;
+  session: Session;
+  t: (key: ServerMessageKey, values?: Record<string, string | number>) => string;
+}) {
+  const copy = sessionListingCopy(session.page);
+  const accessibleName = copy.title || copy.url || t("viewer.annotation");
+  const titleClassName = "truncate text-sm font-medium";
+  const descriptionClassName = "line-clamp-2 text-xs text-muted-foreground";
+  const linkClassName = "inline-flex min-w-0 items-center gap-1 overflow-hidden font-mono text-xs text-muted-foreground hover:text-primary";
+  return (
+    <div className="min-w-0 flex-1 space-y-0.5">
+      {copy.title ? (
+        isModal ? (
+          <DialogTitle className={titleClassName}>{copy.title}</DialogTitle>
+        ) : (
+          <h1 className={titleClassName}>{copy.title}</h1>
+        )
+      ) : isModal ? (
+        <DialogTitle className="sr-only">{accessibleName}</DialogTitle>
+      ) : (
+        <h1 className="sr-only">{accessibleName}</h1>
+      )}
+      {copy.description ? (
+        isModal ? (
+          <DialogDescription className={descriptionClassName}>{copy.description}</DialogDescription>
+        ) : (
+          <p className={descriptionClassName}>{copy.description}</p>
+        )
+      ) : isModal ? (
+        <DialogDescription className="sr-only">{copy.url || t("viewer.annotation")}</DialogDescription>
+      ) : null}
+      {copy.url ? (
+        <div className="flex min-w-0 items-center gap-2">
+          <OriginalPageAnchor className={linkClassName} url={copy.url} />
+          <PrivacyBadges session={session} t={t} />
+        </div>
+      ) : (
+        <PrivacyBadges session={session} t={t} />
+      )}
+      {reopenHint ? (
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          {t(reopenHint === "missing" ? "viewer.reviewOnPageHint" : "viewer.reviewOnPageFailed")}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function locationStrategyLabel(
   t: (key: ServerMessageKey, vars?: Record<string, string | number>) => string,
   location: PinLocation,
@@ -84,15 +178,45 @@ function locationStrategyLabel(
 function locationBadge(t: (key: ServerMessageKey, vars?: Record<string, string | number>) => string, location?: PinLocation) {
   if (!location) return null;
   if (location.confidence === "exact") {
-    return { label: t("viewer.locationExact"), variant: "successSoft" as const };
+    return {
+      hint: t("viewer.locationExactHint"),
+      label: t("viewer.locationExact"),
+      variant: "successSoft" as const,
+    };
   }
   if (location.confidence === "probable") {
     return {
+      hint: t("viewer.locationProbableHint"),
       label: t("viewer.locationStrategy", { strategy: locationStrategyLabel(t, location) }),
       variant: "warning" as const,
     };
   }
-  return { label: t("viewer.locationNeedsReview"), variant: "destructive" as const };
+  return {
+    hint: t("viewer.locationNeedsReviewHint"),
+    label: t("viewer.locationNeedsReview"),
+    variant: "destructive" as const,
+  };
+}
+
+function LocationConfidenceBadge({
+  location,
+  t,
+}: {
+  location?: PinLocation;
+  t: (key: ServerMessageKey, vars?: Record<string, string | number>) => string;
+}) {
+  const badge = locationBadge(t, location);
+  if (!badge) return null;
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span className="inline-flex max-w-full" />}>
+        <Badge title={badge.hint} variant={badge.variant}>
+          {badge.label}
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent>{badge.hint}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 function pinLookupId(pin: Pin) {
@@ -152,7 +276,20 @@ function lastAgentResult(executions: AgentExecution[], pin: Pin) {
   return null;
 }
 
-export function WebViewer({ sessionId }: WebViewerProps) {
+function ViewerFrame({ children, className }: { children: ReactNode; className?: string }) {
+  if (shouldUseWorkspaceChrome(pinarRuntime())) {
+    return (
+      <WorkspaceChrome className={className} navigateOnCollectionSelect>
+        <SidebarInset className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          {children}
+        </SidebarInset>
+      </WorkspaceChrome>
+    );
+  }
+  return <ServerShell className={className}>{children}</ServerShell>;
+}
+
+export function WebViewer({ onClose, presentation = "page", sessionId }: WebViewerProps) {
   const { language, t } = useServerI18n();
   const showAiSummary = pinarRuntime() === "cloud";
   const aiRequestId = useRef<string | null>(null);
@@ -162,7 +299,6 @@ export function WebViewer({ sessionId }: WebViewerProps) {
   const [aiRecovery, setAiRecovery] = useState<AiRecovery>(null);
   const [aiSummary, setAiSummary] = useState<AiSummaryResult | null>(null);
   const [aiSummaryOpen, setAiSummaryOpen] = useState(false);
-  const [imageZoomOpen, setImageZoomOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [pageCopied, setPageCopied] = useState(false);
   const [reopenHint, setReopenHint] = useState<"failed" | "missing" | null>(null);
@@ -172,7 +308,8 @@ export function WebViewer({ sessionId }: WebViewerProps) {
   const [executions, setExecutions] = useState<AgentExecution[]>([]);
   const [selectedPin, setSelectedPin] = useState<Pin | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const zoom = useImageZoom(session?.shotUrl || sessionId);
+  const isModal = presentation === "modal";
 
   async function loadSession() {
     const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`);
@@ -313,27 +450,48 @@ export function WebViewer({ sessionId }: WebViewerProps) {
     }
   }
 
-  if (loading) {
+  function wrapFrame(body: ReactNode, frameClassName?: string) {
+    if (!isModal) {
+      return <ViewerFrame className={frameClassName}>{body}</ViewerFrame>;
+    }
     return (
-      <ServerShell>
+      <Dialog open onOpenChange={(open) => { if (!open) onClose?.(); }}>
+        <DialogContent className="flex h-[calc(100dvh-2rem)] max-w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[calc(100vw-2rem)]">
+          {body}
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  if (loading) {
+    return wrapFrame(
+      <>
+        {isModal ? (
+          <DialogHeader className="sr-only">
+            <DialogTitle>{t("viewer.loading")}</DialogTitle>
+          </DialogHeader>
+        ) : null}
         <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
           {t("viewer.loading")}
         </div>
-      </ServerShell>
+      </>,
     );
   }
 
   if (!session) {
-    return (
-      <ServerShell className="bg-muted/40">
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4">
+    return wrapFrame(
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4">
+        {isModal ? (
+          <DialogTitle className="text-lg font-semibold">{t("viewer.notFound")}</DialogTitle>
+        ) : (
           <h1 className="text-lg font-semibold">{t("viewer.notFound")}</h1>
-          <Button render={<Link preload="intent" to="/app" />} variant="outline">
-            <ArrowLeftIcon data-icon="inline-start" />
-            {t("viewer.backHistory")}
-          </Button>
-        </div>
-      </ServerShell>
+        )}
+        <Button render={<Link preload="intent" search={{ session: undefined }} to="/app" />} variant="outline">
+          <ArrowLeftIcon data-icon="inline-start" />
+          {t("viewer.backHistory")}
+        </Button>
+      </div>,
+      "bg-muted/40",
     );
   }
 
@@ -343,47 +501,28 @@ export function WebViewer({ sessionId }: WebViewerProps) {
   const selectedMarkdown = selectedPin ? formatPinMarkdown(selectedPin, selectedNumber) : "";
 
   return (
-    <ServerShell>
-      <header className="relative z-20 flex min-h-14 shrink-0 items-center gap-2 border-b bg-card px-3 py-2 sm:gap-4 sm:px-5">
+    <TooltipProvider delay={200}>
+    {wrapFrame(
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <header className="relative z-20 flex min-h-14 shrink-0 flex-wrap items-center gap-2 border-b bg-card px-3 py-2 sm:gap-4 sm:px-5">
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <Button
-            aria-label={t("viewer.backHistory")}
-            render={<Link preload="intent" to="/app" />}
-            size="icon-sm"
-            title={t("viewer.backHistory")}
-            variant="ghost"
-          >
-            <ArrowLeftIcon />
-          </Button>
-          <div className="min-w-0">
-            <h1 className="truncate text-sm font-semibold">{session.page?.title || t("viewer.annotation")}</h1>
-            <a
-              className="mt-0.5 flex max-w-xl items-center gap-1 truncate text-xs text-muted-foreground hover:text-primary"
-              href={session.page?.url}
-              rel="noopener noreferrer"
-              target="_blank"
+          {isModal ? null : (
+            <Button
+              aria-label={t("viewer.backHistory")}
+              render={<Link preload="intent" to="/app" />}
+              size="icon-sm"
+              title={t("viewer.backHistory")}
+              variant="ghost"
             >
-              <span className="truncate">{session.page?.url}</span>
-              <ExternalLinkIcon className="size-3 shrink-0" />
-            </a>
-            {session.privacy?.redacted.length || session.privacy?.unevaluated ? (
-              <div className="mt-1.5 flex flex-wrap gap-1.5">
-                {session.privacy?.redacted.length ? (
-                  <Badge variant="warning">
-                    {t("viewer.privacyRedacted", { categories: session.privacy.redacted.join(", ") })}
-                  </Badge>
-                ) : null}
-                {session.privacy?.unevaluated ? (
-                  <Badge variant="destructive">{t("viewer.privacyUnevaluated")}</Badge>
-                ) : null}
-              </div>
-            ) : null}
-            {reopenHint ? (
-              <p className="mt-1.5 text-xs text-muted-foreground">
-                {t(reopenHint === "missing" ? "viewer.reviewOnPageHint" : "viewer.reviewOnPageFailed")}
-              </p>
-            ) : null}
-          </div>
+              <ArrowLeftIcon />
+            </Button>
+          )}
+          <ViewerPageIdentity
+            isModal={isModal}
+            reopenHint={reopenHint}
+            session={session}
+            t={t}
+          />
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Button
@@ -440,51 +579,45 @@ export function WebViewer({ sessionId }: WebViewerProps) {
               </DropdownMenuContent>
             </DropdownMenu>
           </ButtonGroup>
-          <Button
-            aria-label={t(sidebarOpen ? "viewer.hidePins" : "viewer.showPins")}
-            size="icon"
-            title={t(sidebarOpen ? "viewer.hidePins" : "viewer.showPins")}
-            type="button"
-            variant="outline"
-            onClick={() => setSidebarOpen((open) => !open)}
-          >
-            {sidebarOpen ? <PanelRightCloseIcon /> : <PanelRightOpenIcon />}
-          </Button>
+          {isModal ? (
+            <DialogClose render={<Button aria-label="Close" size="icon" title="Close" variant="outline" />}>
+              <XIcon />
+              <span className="sr-only">Close</span>
+            </DialogClose>
+          ) : null}
         </div>
       </header>
-      <div
-        className={`grid min-h-0 flex-1 ${sidebarOpen ? "grid-cols-1 grid-rows-[minmax(0,3fr)_minmax(12rem,2fr)] md:grid-cols-[minmax(0,1fr)_22rem] md:grid-rows-1" : "grid-cols-1 grid-rows-1"}`}
-      >
-        <ScrollArea className="min-h-0 min-w-0 bg-card">
-          <div className="flex min-h-full flex-col gap-8 p-6">
-            <div className="flex items-start justify-center">
-              {session.shotUrl ? (
-                <Button
-                  aria-label={t("viewer.openZoom")}
-                  className="h-auto w-full max-w-[96rem] cursor-zoom-in overflow-hidden p-0 shadow-lg"
-                  title={t("viewer.openZoom")}
-                  type="button"
-                  variant="outline"
-                  onClick={() => setImageZoomOpen(true)}
-                >
-                  <img
-                    alt={t("viewer.annotatedScreenshot")}
-                    className="block h-auto w-full object-contain transition-opacity group-hover/button:opacity-90"
-                    src={session.shotUrl}
-                  />
-                </Button>
-              ) : (
-                <Card className="w-full max-w-[96rem] p-0 shadow-lg">
-                  <CardContent className="flex min-h-80 min-w-96 items-center justify-center text-sm text-muted-foreground">
-                    {t("viewer.screenshotUnavailable")}
-                  </CardContent>
-                </Card>
-              )}
+      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,3fr)_minmax(12rem,2fr)] md:grid-cols-[minmax(0,1fr)_22rem] md:grid-rows-1">
+        {session.shotUrl ? (
+          <div className="relative flex min-h-0 min-w-0 flex-col">
+            <ImageZoomStage
+              alt={t("viewer.annotatedScreenshot")}
+              src={session.shotUrl}
+              stageRef={zoom.stageRef}
+              transform={zoom.transform}
+              onDoubleClick={() => zoom.transform.scale <= 1 ? zoom.zoomBy(2) : zoom.resetZoom()}
+              onPointerCancel={zoom.handlePointerUp}
+              onPointerDown={zoom.handlePointerDown}
+              onPointerMove={zoom.handlePointerMove}
+              onPointerUp={zoom.handlePointerUp}
+              onWheel={zoom.handleWheel}
+            />
+            <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center">
+              <div className="pointer-events-auto">
+                <ImageZoomControls scale={zoom.transform.scale} onReset={zoom.resetZoom} onZoomBy={zoom.zoomBy} />
+              </div>
             </div>
           </div>
-        </ScrollArea>
-        {sidebarOpen ? (
-          <aside className="flex min-h-0 flex-col border-t bg-card md:border-t-0 md:border-l">
+        ) : (
+          <div className="flex min-h-0 items-center justify-center bg-muted/40 p-6">
+            <Card className="w-full max-w-[min(48rem,100%)] p-0 shadow-lg">
+              <CardContent className="flex min-h-80 items-center justify-center text-sm text-muted-foreground">
+                {t("viewer.screenshotUnavailable")}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+        <aside className="flex min-h-0 flex-col border-t bg-card md:border-t-0 md:border-l">
             <div className="shrink-0 border-b px-4 py-3">
               <div className="flex min-w-0 items-center justify-between gap-3 text-xs font-medium text-muted-foreground">
                 <time className="inline-flex min-w-0 items-center gap-1.5" dateTime={session.createdAt}>
@@ -506,7 +639,6 @@ export function WebViewer({ sessionId }: WebViewerProps) {
                   const number = pinNumber(pin, index);
                   const color = pin.color || getPinColor(number);
                   const isArea = pin.type === "area" || pin.kind === "area";
-                  const badge = locationBadge(t, pin.location);
                   const review = reviewForPin(reviews, pin);
                   return (
                     <Button
@@ -532,11 +664,7 @@ export function WebViewer({ sessionId }: WebViewerProps) {
                                   {reviewStatusLabel(t, review.status)}
                                 </Badge>
                               ) : null}
-                              {badge ? (
-                                <Badge variant={badge.variant}>
-                                  {badge.label}
-                                </Badge>
-                              ) : null}
+                              <LocationConfidenceBadge location={pin.location} t={t} />
                             </div>
                           </div>
                         </CardHeader>
@@ -554,16 +682,9 @@ export function WebViewer({ sessionId }: WebViewerProps) {
               </div>
             </ScrollArea>
           </aside>
-        ) : null}
       </div>
-      {session.shotUrl && (
-        <ImageZoomDialog
-          alt={session.page?.title || t("viewer.annotatedScreenshot")}
-          open={imageZoomOpen}
-          src={session.shotUrl}
-          onOpenChange={setImageZoomOpen}
-        />
-      )}
+      </div>,
+    )}
       {showAiSummary ? (
         <Dialog open={aiSummaryOpen} onOpenChange={setAiSummaryOpen}>
           <DialogContent className="sm:max-w-2xl" showCloseButton>
@@ -629,7 +750,7 @@ export function WebViewer({ sessionId }: WebViewerProps) {
                       <DialogTitle>{t("viewer.pinTitle", { number: selectedNumber })}</DialogTitle>
                       <DialogDescription>
                         {selectedPin.location
-                          ? locationBadge(t, selectedPin.location)?.label
+                          ? locationBadge(t, selectedPin.location)?.hint
                           : t("viewer.completeContext")}
                       </DialogDescription>
                     </div>
@@ -736,6 +857,6 @@ export function WebViewer({ sessionId }: WebViewerProps) {
           )}
         </DialogContent>
       </Dialog>
-    </ServerShell>
+    </TooltipProvider>
   );
 }

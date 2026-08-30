@@ -6,6 +6,7 @@
   "exports": {
     "./history": "./src/history.mjs",
     "./paths": "./src/paths.mjs",
+    "./preferences": "./src/preferences.mjs",
     "./shots": "./src/shots.mjs"
   }
 }

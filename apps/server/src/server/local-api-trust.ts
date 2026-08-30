@@ -85,6 +85,22 @@ export const LOCAL_API_TRUST_MATRIX: readonly LocalApiTrustEntry[] = [
     pattern: /^\/api\/auth\/logout$/,
   },
   {
+    class: "sensitive-read",
+    intendedClients: ["cli", "extension", "workspace"],
+    methods: ["GET"],
+    notes: "Live delivery preference for agent copy and public .md URLs.",
+    path: "/api/preferences",
+    pattern: /^\/api\/preferences$/,
+  },
+  {
+    class: "mutable",
+    intendedClients: ["cli", "extension", "workspace"],
+    methods: ["PATCH"],
+    notes: "Updates the live delivery preference for this helper.",
+    path: "/api/preferences",
+    pattern: /^\/api\/preferences$/,
+  },
+  {
     class: "mutable",
     intendedClients: ["cli", "extension", "workspace"],
     methods: ["POST"],

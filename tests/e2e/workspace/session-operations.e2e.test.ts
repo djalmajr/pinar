@@ -139,7 +139,7 @@ test("move, manual order, copy and confirmed deletion remain precise and persist
   await card(page, "Moved capture").getByRole("button", { name: "More session actions" }).click();
   await expect(openSessionMenu(page).getByRole("menuitem", { name: "Review on page" })).toBeVisible();
   await openSessionMenu(page).getByRole("menuitem", { exact: true, name: "View" }).click();
-  await expect(page.getByRole("heading", { name: "Moved capture" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Moved capture" })).toBeVisible();
   await page.goBack();
   await openWorkspaceSidebar(page, "Collection B");
   await page.getByRole("button", { exact: true, name: "Collection B" }).click();

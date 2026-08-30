@@ -12,6 +12,8 @@ import {
 import { Link } from "@tanstack/react-router";
 import { ServerShell } from "@/components/ServerShell";
 import { ServerFooter } from "@/components/ServerFooter";
+import { CHROME_EXTENSION_URL } from "@/lib/chrome-extension";
+import { useDocumentMeta } from "@/lib/document-meta";
 import { pinarRuntime } from "@/lib/server-header";
 import { useServerI18n } from "@/lib/i18n";
 import BotIcon from "~icons/lucide/bot";
@@ -22,11 +24,12 @@ import MapPinIcon from "~icons/lucide/map-pin";
 import ShieldCheckIcon from "~icons/lucide/shield-check";
 import SparklesIcon from "~icons/lucide/sparkles";
 
-export const CHROME_EXTENSION_URL = "https://chromewebstore.google.com/detail/pinardev/idpeaokdndjedekacfdfbilcolpholbo";
+export { CHROME_EXTENSION_URL };
 
 export function LandingPage() {
   const { t } = useServerI18n();
   const isLocal = pinarRuntime() === "local";
+  useDocumentMeta(t("landing.title"), t("landing.description"));
   const features = [
     { description: t("landing.pinDescription"), icon: MapPinIcon, title: t("landing.pinTitle") },
     { description: t("landing.contextDescription"), icon: CodeIcon, title: t("landing.contextTitle") },

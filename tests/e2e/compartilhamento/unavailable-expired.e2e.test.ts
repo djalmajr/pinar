@@ -105,5 +105,5 @@ test("an aggregate that remains after retention explains that its collection is 
   await expect(page.getByRole("heading", { name: "Retained collection" })).toBeVisible();
   await expect(page.getByText("0 sessions", { exact: true })).toBeVisible();
   await expect(page.getByText("No sessions in this collection.", { exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open" })).toHaveCount(0);
+  await expect(page.getByRole("link", { exact: true, name: "Open" })).toHaveCount(0);
 });

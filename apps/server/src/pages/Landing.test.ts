@@ -3,11 +3,12 @@ import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 
 const landingSource = readFileSync(new URL("./Landing.tsx", import.meta.url), "utf8");
+const extensionSource = readFileSync(new URL("../lib/chrome-extension.ts", import.meta.url), "utf8");
 
 describe("landing page", () => {
   test("offers the published Chrome extension as the primary hero action", () => {
     assert.match(
-      landingSource,
+      extensionSource,
       /https:\/\/chromewebstore\.google\.com\/detail\/pinardev\/idpeaokdndjedekacfdfbilcolpholbo/,
     );
     assert.match(landingSource, /href=\{CHROME_EXTENSION_URL\}/);

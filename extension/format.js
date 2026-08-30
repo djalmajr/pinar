@@ -117,9 +117,9 @@ function shotUrlForJson(shot) {
   return shot;
 }
 
-function handoffWarnings({ shot, warnings = [] } = {}) {
+function handoffWarnings({ shot, warnings = [], includeScreenshot = true } = {}) {
   const next = Array.isArray(warnings) ? warnings.filter(Boolean) : [];
-  if (!shot && !next.includes("screenshot_missing")) next.push("screenshot_missing");
+  if (includeScreenshot !== false && !shot && !next.includes("screenshot_missing")) next.push("screenshot_missing");
   if (typeof shot === "string" && shot.startsWith("data:") && !next.includes("screenshot_inline")) {
     next.push("screenshot_inline");
   }
@@ -135,11 +135,17 @@ function structuredHandoff({
   schemaVersion,
   shot,
   warnings,
+  includeScreenshot = true,
 } = {}) {
+  const deliveredShot = includeScreenshot === false ? null : shot;
   return JSON.stringify({
     capabilities: capabilities || { fullPage: false, iframe: false },
     captureId: captureId || "",
-    page: { title: page.title || "", url: page.url || "" },
+    page: {
+      ...(page.description ? { description: page.description } : {}),
+      title: page.title || "",
+      url: page.url || "",
+    },
     pins: pins.map((pin) => ({
       comment: pin.comment || "",
       pinId: pin.pinId || pin.id || "",
@@ -151,8 +157,11 @@ function structuredHandoff({
     })),
     privacy: privacy || undefined,
     schemaVersion: schemaVersion || 1,
-    screenshot: { missing: !shot, url: shotUrlForJson(shot) },
-    warnings: handoffWarnings({ shot, warnings }),
+    screenshot: {
+      missing: includeScreenshot === false ? false : !deliveredShot,
+      url: shotUrlForJson(deliveredShot),
+    },
+    warnings: handoffWarnings({ includeScreenshot, shot: deliveredShot, warnings }),
   });
 }
 
@@ -166,6 +175,7 @@ function structuredHandoff({
  *   schemaVersion?: number,
  *   sentAt?: string,
  *   shot?: string,
+ *   includeScreenshot?: boolean,
  *   viewerUrl?: string,
  *   warnings?: string[],
  * }} [input]
@@ -179,6 +189,7 @@ export function formatClipboard({
   schemaVersion,
   sentAt,
   shot,
+  includeScreenshot = true,
   viewerUrl,
   warnings,
 } = {}) {
@@ -186,7 +197,8 @@ export function formatClipboard({
   const url = page.url || "(unknown)";
   const title = page.title || "(untitled)";
   const finalViewer = viewerUrl ? (viewerUrl.endsWith(".md") ? viewerUrl : `${viewerUrl}.md`) : null;
-  const resolvedWarnings = handoffWarnings({ shot, warnings });
+  const deliveredShot = includeScreenshot === false ? null : shot;
+  const resolvedWarnings = handoffWarnings({ includeScreenshot, shot: deliveredShot, warnings });
   const capabilityLabels = [
     capabilities?.fullPage ? "fullPage" : "",
     capabilities?.iframe ? "iframe" : "",
@@ -200,23 +212,24 @@ export function formatClipboard({
     `Copied: ${when}`,
     `Pins: ${pins.length}`,
     ...privacyLines(privacy),
-    ...shotPlain(shot),
+    ...shotPlain(deliveredShot),
     ...(finalViewer ? [`Viewer: ${finalViewer}`] : []),
     ...(capabilityLabels.length ? [`Capabilities: ${capabilityLabels.join(", ")}`] : []),
     ...(resolvedWarnings.length ? [`Warnings: ${resolvedWarnings.join(", ")}`] : []),
     "",
     "Each pin is an instruction about that DOM node. Use the DOM path and selector to find the matching source.",
-    "Colored numbered bubbles in the screenshot are annotation overlays, not part of the page.",
+    ...(deliveredShot ? ["Colored numbered bubbles in the screenshot are annotation overlays, not part of the page."] : []),
   ];
   const pinBlocks = pins.map((pin, index) => pinPlain(pin, index)).join("\n\n");
   const json = structuredHandoff({
     capabilities,
     captureId,
+    includeScreenshot,
     page,
     pins,
     privacy,
     schemaVersion,
-    shot,
+    shot: deliveredShot,
     warnings: resolvedWarnings,
   });
   const plain = `${[...header, "", pinBlocks].join("\n")}\n\n\`\`\`pinar-visual-context\n${json}\n\`\`\`\n`;
@@ -229,13 +242,15 @@ export function formatClipboard({
       : []),
     `<p><strong>URL:</strong> ${escapeHtml(url)}<br/><strong>Title:</strong> ${escapeHtml(title)}<br/><strong>Copied:</strong> ${escapeHtml(when)}</p>`,
     ...privacyHtml(privacy),
-    ...shotHtml(shot),
+    ...shotHtml(deliveredShot),
     ...(finalViewer ? [`<p><strong>Viewer:</strong> <a href="${escapeHtml(finalViewer)}">${escapeHtml(finalViewer)}</a></p>`] : []),
     ...(resolvedWarnings.length
       ? [`<p><strong>Warnings:</strong> ${escapeHtml(resolvedWarnings.join(", "))}</p>`]
       : []),
     `<p>Each pin is an instruction about that DOM node. Use the DOM path and selector to find the matching source.</p>`,
-    `<p>Colored numbered bubbles in the screenshot are annotation overlays, not part of the page.</p>`,
+    ...(deliveredShot
+      ? [`<p>Colored numbered bubbles in the screenshot are annotation overlays, not part of the page.</p>`]
+      : []),
   ];
   pins.forEach((pin, index) => {
     htmlParts.push(pinHtml(pin, index));

@@ -29,6 +29,7 @@ export function filterSessions(
     if (!sessionMatchesReviewFilters(effectiveReviewCounts(session), reviewFilters)) return false;
     if (!query) return true;
     return session.page.title.toLowerCase().includes(query)
+      || (session.page.description || "").toLowerCase().includes(query)
       || session.page.url.toLowerCase().includes(query)
       || session.pins.some((pin) => pin.comment.toLowerCase().includes(query)
         || (pin.selector || "").toLowerCase().includes(query));

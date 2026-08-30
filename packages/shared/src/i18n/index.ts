@@ -63,6 +63,8 @@ export interface TranslationDictionary {
   viewer_desc: string;
   viewer_content_label: string;
   viewer_content_desc: string;
+  screenshot_label: string;
+  screenshot_desc: string;
   theme_label: string;
   theme_dark: string;
   theme_light: string;
@@ -143,6 +145,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     viewer_desc: "Appends the Web Viewer link to the visual context bundle.",
     viewer_content_label: "Copy Markdown content",
     viewer_content_desc: "Viewer Markdown is extra context. captureId and pinId always stay in the copied bundle.",
+    screenshot_label: "Include screenshot",
+    screenshot_desc: "Stored on the selected server. Adds the printed screenshot to the agent copy and to each item's .md URL.",
     theme_label: "Theme",
     theme_dark: "Dark",
     theme_light: "Light",
@@ -221,6 +225,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     viewer_desc: "Anexa o link do Web Viewer ao bundle de contexto visual.",
     viewer_content_label: "Copiar conteúdo Markdown",
     viewer_content_desc: "O Markdown do viewer é contexto extra. captureId e pinId permanecem no bundle copiado.",
+    screenshot_label: "Incluir captura de tela",
+    screenshot_desc: "Fica no servidor selecionado. Entrega a imagem printada no bundle copiado para os agentes e no Markdown .md de cada item.",
     theme_label: "Tema",
     theme_dark: "Escuro",
     theme_light: "Claro",
@@ -299,6 +305,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     viewer_desc: "Añade el enlace del Visor Web al bundle de contexto visual.",
     viewer_content_label: "Copiar contenido Markdown",
     viewer_content_desc: "El Markdown del visor es contexto extra. captureId y pinId siempre quedan en el bundle copiado.",
+    screenshot_label: "Incluir captura de pantalla",
+    screenshot_desc: "Se guarda en el servidor seleccionado. Añade la captura impresa a la copia para los agentes y a la URL .md de cada elemento.",
     theme_label: "Tema",
     theme_dark: "Oscuro",
     theme_light: "Claro",
@@ -377,6 +385,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     viewer_desc: "Ajoute le lien du Visualiseur Web au bundle de contexte visuel.",
     viewer_content_label: "Copier le contenu Markdown",
     viewer_content_desc: "Le Markdown du visualiseur est un complément. captureId et pinId restent toujours dans le bundle copié.",
+    screenshot_label: "Inclure la capture d’écran",
+    screenshot_desc: "Enregistré sur le serveur sélectionné. Ajoute la capture imprimée à la copie pour les agents et à l’URL .md de chaque élément.",
     theme_label: "Thème",
     theme_dark: "Sombre",
     theme_light: "Clair",
@@ -455,6 +465,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     viewer_desc: "Hängt den Web-Viewer-Link an das Visual-Context-Bundle an.",
     viewer_content_label: "Markdown-Inhalt kopieren",
     viewer_content_desc: "Viewer-Markdown ist Zusatzkontext. captureId und pinId bleiben immer im kopierten Bundle.",
+    screenshot_label: "Screenshot einbeziehen",
+    screenshot_desc: "Wird auf dem gewählten Server gespeichert. Fügt den gedruckten Screenshot zur Agenten-Kopie und zur .md-URL jedes Eintrags hinzu.",
     theme_label: "Erscheinungsbild",
     theme_dark: "Dunkel",
     theme_light: "Hell",
@@ -533,6 +545,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     viewer_desc: "将 Web 查看器链接附加到视觉上下文包。",
     viewer_content_label: "复制 Markdown 内容",
     viewer_content_desc: "查看器 Markdown 是额外上下文。captureId 和 pinId 始终保留在复制的包中。",
+    screenshot_label: "包含截图",
+    screenshot_desc: "保存在所选服务器上。将打印的截图加入给代理的副本以及每条记录的 .md 链接。",
     theme_label: "主题",
     theme_dark: "深色",
     theme_light: "浅色",
@@ -611,6 +625,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     viewer_desc: "Web ビューアのリンクをビジュアルコンテキストのバンドルに追加します。",
     viewer_content_label: "Markdown の内容をコピー",
     viewer_content_desc: "ビューアの Markdown は追加の文脈です。captureId と pinId は常にコピーしたバンドルに残ります。",
+    screenshot_label: "スクリーンショットを含める",
+    screenshot_desc: "選択したサーバーに保存されます。印刷したスクリーンショットをエージェント向けコピーと各項目の .md URL に含めます。",
     theme_label: "テーマ",
     theme_dark: "ダーク",
     theme_light: "ライト",

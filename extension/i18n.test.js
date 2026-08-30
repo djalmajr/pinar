@@ -24,26 +24,25 @@ test("i18n translations dictionary", () => {
 
 test("getBestLanguage resolution", () => {
   assert.strictEqual(getBestLanguage("pt", ["de-DE"]), "pt");
-  assert.strictEqual(getBestLanguage(undefined, ["es-MX"]), "es");
-  assert.strictEqual(getBestLanguage(undefined, ["it-IT", "fr-FR"]), "fr");
+  assert.strictEqual(getBestLanguage(undefined, ["es-MX"]), "en");
+  assert.strictEqual(getBestLanguage(undefined, ["it-IT", "fr-FR"]), "en");
   assert.strictEqual(getBestLanguage("invalid", ["it-IT"]), "en");
 });
 
-test("getBestLanguage reads browser language fallbacks when no explicit list is supplied", () => {
-  // Mutation captured: ignoring navigator.languages makes the Japanese assertion fall back to English.
+test("getBestLanguage ignores browser language so the shipped extension stays English", () => {
   const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
   try {
     Object.defineProperty(globalThis, "navigator", {
       configurable: true,
       value: { language: "de-DE", languages: ["ja-JP", "de-DE"] },
     });
-    assert.strictEqual(getBestLanguage(), "ja");
+    assert.strictEqual(getBestLanguage(), "en");
 
     Object.defineProperty(globalThis, "navigator", {
       configurable: true,
-      value: { language: "de-DE", languages: [] },
+      value: { language: "pt-BR", languages: ["pt-BR"] },
     });
-    assert.strictEqual(getBestLanguage(), "de");
+    assert.strictEqual(getBestLanguage(), "en");
 
     Reflect.deleteProperty(globalThis, "navigator");
     assert.strictEqual(getBestLanguage(), "en");

@@ -65,6 +65,26 @@ export function flattenCollections(collections: ProjectTreeCollection[]) {
   return result;
 }
 
+export function collectionAncestorPath(
+  collections: ProjectTreeCollection[],
+  collectionId: string | null,
+): ProjectTreeCollection[] {
+  if (!collectionId) return [];
+  const byId = new Map(collections.map((collection) => [collection.id, collection]));
+  const current = byId.get(collectionId);
+  if (!current) return [];
+  const path: ProjectTreeCollection[] = [];
+  const seen = new Set<string>();
+  let node: ProjectTreeCollection | undefined = current;
+  while (node) {
+    if (seen.has(node.id)) break;
+    seen.add(node.id);
+    path.unshift(node);
+    node = node.parentId ? byId.get(node.parentId) : undefined;
+  }
+  return path;
+}
+
 export function visibleCollections(
   items: FlattenedCollection[],
   collapsedIds: ReadonlySet<string>,

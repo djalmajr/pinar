@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import {
   chooseButtonMenuItem,
   closeWorkspaceSidebar,
+  isMobileViewport,
   openButtonMenu,
   openWorkspaceSidebar,
 } from "../helpers/ui";
@@ -135,6 +136,14 @@ test("nested collection CRUD protects Inbox and preserves sessions through conta
   await openWorkspaceSidebar(page, "Child");
   await expect(page.getByRole("button", { exact: true, name: "Child" })).toBeVisible();
   expect(workspaceCollections.find((item) => item.id === "col_child")?.parentId).toBe("col_parent");
+  if (!isMobileViewport(page)) {
+    const breadcrumb = page.getByRole("navigation", { name: "Breadcrumb" });
+    await expect(breadcrumb.getByRole("link", { name: "Parent" })).toBeVisible();
+    await expect(breadcrumb.getByText("Child", { exact: true })).toBeVisible();
+    await breadcrumb.getByRole("link", { name: "Parent" }).click();
+    await expect(breadcrumb.getByRole("link", { name: "Parent" })).toHaveCount(0);
+    await expect(breadcrumb.getByText("Parent", { exact: true })).toBeVisible();
+  }
 
   await openButtonMenu(page, "Child: Collection actions");
   await chooseButtonMenuItem(page, "Child: Collection actions", "Rename");
@@ -152,6 +161,11 @@ test("nested collection CRUD protects Inbox and preserves sessions through conta
   await openWorkspaceSidebar(page, "Child review");
   await page.getByRole("button", { exact: true, name: "Child review" }).click();
   await expect(page.getByText("Nested capture", { exact: true })).toBeVisible();
+  if (!isMobileViewport(page)) {
+    const breadcrumb = page.getByRole("navigation", { name: "Breadcrumb" });
+    await expect(breadcrumb.getByRole("link", { name: "Parent" })).toBeVisible();
+    await expect(breadcrumb.getByText("Child review", { exact: true })).toBeVisible();
+  }
 
   await openWorkspaceSidebar(page, "Parent");
   const collapseParent = page.getByRole("button", { name: "Collapse Parent" });
@@ -182,6 +196,12 @@ test("nested collection CRUD protects Inbox and preserves sessions through conta
   await expect(page.getByRole("button", { exact: true, name: "Parent" })).toHaveCount(0);
   await expect(page.getByRole("button", { exact: true, name: "Child review" })).toBeVisible();
   expect(workspaceCollections.find((item) => item.id === "col_child")?.parentId).toBeNull();
+  await page.getByRole("button", { exact: true, name: "Child review" }).click();
+  if (!isMobileViewport(page)) {
+    const breadcrumb = page.getByRole("navigation", { name: "Breadcrumb" });
+    await expect(breadcrumb.getByRole("link", { name: "Parent" })).toHaveCount(0);
+    await expect(breadcrumb.getByText("Child review", { exact: true })).toBeVisible();
+  }
 
   await openButtonMenu(page, "Child review: Collection actions");
   await chooseButtonMenuItem(page, "Child review: Collection actions", "Remove");

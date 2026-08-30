@@ -150,7 +150,8 @@ export function sanitizeCapture(
   const urlResult = sanitizeUrl(typeof pageIn.url === "string" ? pageIn.url : "", extraKeys);
   const fieldResult = collectFromFields(input.fields);
   const patternSecrets: string[] = [...urlResult.secrets];
-  collectFromUnknown(pageIn.title, patternSecrets);
+    collectFromUnknown(pageIn.title, patternSecrets);
+    collectFromUnknown(pageIn.description, patternSecrets);
   collectFromUnknown(input.pins, patternSecrets);
   const secrets = uniqueSecrets([...urlResult.secrets, ...fieldResult.secrets, ...patternSecrets]);
 
@@ -163,11 +164,14 @@ export function sanitizeCapture(
   const privacy: PrivacyReport = { redacted, unevaluated };
   const page = sanitizeValue({
     ...pageIn,
+    ...(typeof pageIn.description === "string" ? { description: pageIn.description } : {}),
     title: typeof pageIn.title === "string" ? pageIn.title : "",
     url: urlResult.url,
   }, secrets) as SanitizeCaptureResult["page"];
   page.title = typeof page.title === "string" ? page.title : "";
   page.url = typeof page.url === "string" ? page.url : urlResult.url;
+  if (typeof page.description === "string") page.description = page.description.trim();
+  else delete page.description;
 
   const pins = sanitizeValue(input.pins ?? [], secrets) as unknown[];
   const warnings = [...new Set([

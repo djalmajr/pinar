@@ -1,7 +1,6 @@
 import { expect, test } from "@playwright/test";
 import {
   installClipboardHarness,
-  primaryNavigationItem,
   readClipboardHarness,
 } from "../helpers/ui";
 
@@ -30,6 +29,7 @@ const session = {
   createdAt: "2026-08-18T01:30:00.000Z",
   id: "viewer-e2e",
   page: {
+    description: "Settings for the example app.",
     title: "Viewer fixture",
     url: "https://example.test/settings",
   },
@@ -58,11 +58,47 @@ const session = {
       type: "area",
     },
   ],
+  privacy: { redacted: ["secret-query"], unevaluated: false },
   shotId: "viewer-e2e",
   shotUrl: "/shots/viewer-e2e.svg",
 };
 
 test.beforeEach(async ({ page }) => {
+  await page.route("**/api/auth/session", (route) => route.fulfill({
+    json: { session: { kind: "local", plan: "free" } },
+  }));
+  await page.route("**/api/project-tree", (route) => route.fulfill({
+    json: {
+      tree: {
+        projects: [
+          {
+            collections: [
+              {
+                createdAt: "2026-08-18T01:30:00.000Z",
+                id: "col_viewer_inbox",
+                isProtected: true,
+                name: "Inbox",
+                ownerId: "local",
+                parentId: null,
+                position: 0,
+                projectId: "prj_viewer_personal",
+                sessions: [],
+                updatedAt: "2026-08-18T01:30:00.000Z",
+              },
+            ],
+            createdAt: "2026-08-18T01:30:00.000Z",
+            icon: "user-round",
+            id: "prj_viewer_personal",
+            isProtected: true,
+            name: "Personal",
+            ownerId: "local",
+            position: 0,
+            updatedAt: "2026-08-18T01:30:00.000Z",
+          },
+        ],
+      },
+    },
+  }));
   await page.route("**/api/sessions/viewer-e2e", (route) => route.fulfill({
     json: { session },
   }));
@@ -72,17 +108,27 @@ test.beforeEach(async ({ page }) => {
   }));
 });
 
-test("unlisted visitor sees only authentic public session data and explicit navigation", async ({ page }) => {
+test("local viewer keeps workspace chrome and authentic session data", async ({ page }) => {
   await page.context().route("https://example.test/settings", (route) => route.fulfill({
     body: "<title>Original settings page</title>",
     contentType: "text/html",
   }));
   await page.goto("/v/viewer-e2e");
 
-  await expect(page.getByRole("heading", { name: "Viewer fixture" })).toBeVisible();
-  const originalPage = page.getByRole("link", { name: "https://example.test/settings" });
+  const viewerTitle = page.getByRole("heading", { name: "Viewer fixture" });
+  await expect(viewerTitle).toBeVisible();
+  await expect(page.getByRole("heading", { name: session.page.url })).toHaveCount(0);
+  await expect(page.getByText("Settings for the example app.")).toBeVisible();
+  const originalPage = page.getByRole("link", { name: session.page.url });
   await expect(originalPage).toHaveAttribute("target", "_blank");
   await expect(originalPage).toHaveAttribute("rel", "noopener noreferrer");
+  const privacyBadge = page.getByText("Hidden: secret-query");
+  await expect(privacyBadge).toBeVisible();
+  const urlBox = await originalPage.boundingBox();
+  const badgeBox = await privacyBadge.boundingBox();
+  expect(urlBox).not.toBeNull();
+  expect(badgeBox).not.toBeNull();
+  expect(badgeBox?.x ?? 0).toBeGreaterThan(urlBox?.x ?? 0);
 
   const screenshot = page.getByRole("img", { name: "Annotated page screenshot" });
   await expect(screenshot).toBeVisible();
@@ -90,6 +136,12 @@ test("unlisted visitor sees only authentic public session data and explicit navi
     height: image.naturalHeight,
     width: image.naturalWidth,
   }))).toEqual({ height: 800, width: 1200 });
+  const preview = await screenshot.boundingBox();
+  const viewport = page.viewportSize();
+  expect(preview).not.toBeNull();
+  expect(preview?.height ?? Infinity).toBeLessThan(800);
+  expect(preview?.width ?? Infinity).toBeLessThan(1200);
+  expect(preview?.height ?? Infinity).toBeLessThan(viewport?.height ?? 0);
   const svg = await screenshot.evaluate(async (image: HTMLImageElement) => fetch(image.src).then((response) => response.text()));
   expect(svg).toContain("Viewer fixture");
 
@@ -98,6 +150,10 @@ test("unlisted visitor sees only authentic public session data and explicit navi
   await expect(cards).toHaveCount(2);
   await expect(cards.nth(0)).toContainText("Align this action with the right edge.");
   await expect(cards.nth(0)).toContainText("Needs review");
+  await expect(page.getByText("Needs review", { exact: true })).toHaveAttribute(
+    "title",
+    "Pinar may not find this element again on the original page.",
+  );
   await expect(cards.nth(1)).toContainText("Reduce the empty space in this region.");
 
   const popupPromise = page.waitForEvent("popup");
@@ -106,12 +162,17 @@ test("unlisted visitor sees only authentic public session data and explicit navi
   await expect(popup).toHaveURL("https://example.test/settings");
   await popup.close();
 
-  await expect(page.getByRole("button", { exact: true, name: "Personal" })).toHaveCount(0);
-  await expect(page.getByRole("button", { exact: true, name: "Inbox" })).toHaveCount(0);
-  await expect(await primaryNavigationItem(page, "Open app")).toBeVisible();
-  await expect(page.getByRole("banner").getByRole("link", { exact: true, name: "Sign in" })).toHaveCount(0);
+  await expect(page).toHaveURL(/\/app\?session=viewer-e2e/);
+  await expect(page.getByRole("dialog", { name: "Viewer fixture" })).toBeVisible();
+  await expect(page.getByRole("link", { exact: true, name: "Open app" })).toHaveCount(0);
+  await expect(page.getByRole("link", { exact: true, name: "Home" })).toHaveCount(0);
   await expect(page.getByRole("banner").getByRole("link", { exact: true, name: "Plans" })).toHaveCount(0);
+  await expect(page.getByRole("banner").getByRole("link", { exact: true, name: "Sign in" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "AI summary" })).toHaveCount(0);
+
+  await page.getByRole("dialog", { name: "Viewer fixture" }).getByRole("button", { name: "Close" }).click();
+  await expect(page.getByRole("button", { exact: true, name: "Personal" })).toBeVisible();
+  await expect(page.getByRole("button", { exact: true, name: "Inbox" })).toBeVisible();
 });
 
 test("review on page dispatches only the chosen session id", async ({ page }) => {
@@ -181,9 +242,9 @@ test("visitor inspects element and area pins in Preview and Raw", async ({ page 
   await page.goto("/v/viewer-e2e");
 
   await page.getByTitle("Open pin 1").click();
-  let dialog = page.locator('[data-slot="dialog-content"]');
+  let dialog = page.getByRole("dialog", { name: "Pin 1" });
   await expect(dialog.getByRole("tab", { name: "Preview", selected: true })).toBeVisible();
-  await expect(dialog.getByText("Needs review")).toBeVisible();
+  await expect(dialog.getByText("Pinar may not find this element again on the original page.")).toBeVisible();
   await expect(dialog.getByText(elementComment, { exact: true })).toBeVisible();
   await expect(dialog.getByText(elementSelector, { exact: true })).toBeVisible();
   await expect(dialog.getByText(elementDomPath, { exact: true })).toBeVisible();
@@ -202,25 +263,23 @@ test("visitor inspects element and area pins in Preview and Raw", async ({ page 
 
   await dialog.getByRole("button", { name: "Close" }).click();
   await page.getByTitle("Open pin 2").click();
-  dialog = page.locator('[data-slot="dialog-content"]');
+  dialog = page.getByRole("dialog", { name: "Pin 2" });
   await expect(dialog.getByText(/Type:\s*Area selection/)).toBeVisible();
   await expect(dialog.getByText(/Area:\s*320 × 180px at x=80, y=120/)).toBeVisible();
   await dialog.getByRole("button", { name: "Close" }).click();
 });
 
-test("screenshot zoom clamps, pans, resets and preserves the pins sidebar state", async ({ page }) => {
+test("screenshot zoom is the default viewer and keeps the pins sidebar", async ({ page }) => {
   await page.goto("/v/viewer-e2e");
-  await page.getByRole("button", { name: "Open screenshot zoom" }).click();
+  const viewer = page.getByRole("dialog", { name: "Viewer fixture" });
+  const zoomIn = viewer.getByRole("button", { name: "Zoom in" });
+  const zoomOut = viewer.getByRole("button", { name: "Zoom out" });
+  const reset = viewer.getByRole("button", { name: "Reset zoom" });
+  const image = viewer.getByRole("img", { name: "Annotated page screenshot" });
 
-  const zoomDialog = page.locator('[data-slot="dialog-content"]');
-  const zoomIn = zoomDialog.getByRole("button", { name: "Zoom in" });
-  const zoomOut = zoomDialog.getByRole("button", { name: "Zoom out" });
-  const reset = zoomDialog.getByRole("button", { name: "Reset zoom" });
-  const image = zoomDialog.getByRole("img", { name: "Viewer fixture" });
-
-  await expect(zoomDialog.getByText("100%", { exact: true })).toBeVisible();
+  await expect(viewer.getByText("100%", { exact: true })).toBeVisible();
   for (let attempt = 0; attempt < 10; attempt += 1) await zoomIn.click();
-  await expect(zoomDialog.getByText("800%", { exact: true })).toBeVisible();
+  await expect(viewer.getByText("800%", { exact: true })).toBeVisible();
   await expect(zoomIn).toBeDisabled();
 
   const stage = image.locator("..");
@@ -237,19 +296,17 @@ test("screenshot zoom clamps, pans, resets and preserves the pins sidebar state"
   await expect(image).toHaveAttribute("style", /translate\((?:39|40)px, (?:29|30)px\) scale\(8\)/);
 
   await reset.click();
-  await expect(zoomDialog.getByText("100%", { exact: true })).toBeVisible();
+  await expect(viewer.getByText("100%", { exact: true })).toBeVisible();
   await expect(image).toHaveAttribute("style", /transform: translate\(0px(?:, 0px)?\) scale\(1\);/);
 
   for (let attempt = 0; attempt < 4; attempt += 1) await zoomOut.click();
-  await expect(zoomDialog.getByText("50%", { exact: true })).toBeVisible();
+  await expect(viewer.getByText("50%", { exact: true })).toBeVisible();
   await expect(zoomOut).toBeDisabled();
   await reset.click();
-  await zoomDialog.getByRole("button", { name: "Close" }).click();
 
   await expect(page.getByTitle("Open pin 1")).toBeVisible();
-  await page.getByRole("button", { name: "Hide pins sidebar" }).click();
-  await expect(page.getByTitle("Open pin 1")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Open screenshot zoom" })).toBeVisible();
-  await page.getByRole("button", { name: "Show pins sidebar" }).click();
-  await expect(page.getByTitle("Open pin 1")).toBeVisible();
+  await expect(viewer.locator("header").getByRole("button", { name: "Zoom in" })).toHaveCount(0);
+  await expect(viewer.getByRole("button", { name: "Hide pins sidebar" })).toHaveCount(0);
+  await expect(viewer.getByRole("button", { name: "Show pins sidebar" })).toHaveCount(0);
+  await expect(viewer.getByRole("button", { name: "Close" })).toHaveClass(/border-border/);
 });

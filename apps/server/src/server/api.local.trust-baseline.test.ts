@@ -129,6 +129,8 @@ describe("local API trust enforcement", () => {
     assert.equal(classifyLocalApiRequest("POST", "/api/agent-executions")?.class, "mutable");
     assert.equal(classifyLocalApiRequest("POST", "/api/loop-metrics")?.class, "mutable");
     assert.equal(classifyLocalApiRequest("GET", "/api/loop-metrics")?.class, "sensitive-read");
+    assert.equal(classifyLocalApiRequest("GET", "/api/preferences")?.class, "sensitive-read");
+    assert.equal(classifyLocalApiRequest("PATCH", "/api/preferences")?.class, "mutable");
     assert.equal(classifyLocalApiRequest("POST", "/api/sessions/hostile_session/pins/pin_cta/review")?.class, "mutable");
     assert.equal(classifyLocalApiRequest("GET", "/v/hostile_session.md")?.class, "local-public-projection");
   });

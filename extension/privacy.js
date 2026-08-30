@@ -61,7 +61,6 @@
     if (type === "password" || PASSWORD_AUTOCOMPLETE.test(autocomplete)) return "password";
     if (OTP_AUTOCOMPLETE.test(autocomplete) || OTP_NAME.test(haystack)) return "otp";
     if (PAYMENT_AUTOCOMPLETE.test(autocomplete) || PAYMENT_NAME.test(haystack)) return "payment";
-    if (type === "email" || autocomplete === "email") return "email";
     if (TOKEN_NAME.test(haystack)) return "token";
     return null;
   }
@@ -84,6 +83,16 @@
       }
     }
     return found;
+  }
+
+  function copyReviewCategories(redacted = []) {
+    return (Array.isArray(redacted) ? redacted : []).filter(
+      (item) => item && item !== "unevaluated" && item !== "password" && item !== "email",
+    );
+  }
+
+  function shouldAutoMask(category) {
+    return Boolean(category) && category !== "password" && category !== "email";
   }
 
   function mergeCategories(lists) {
@@ -223,6 +232,7 @@
     const fieldResult = collectFromFields(input.fields);
     const patternSecrets = [...urlResult.secrets];
     collectFromUnknown(pageIn.title, patternSecrets);
+    collectFromUnknown(pageIn.description, patternSecrets);
     collectFromUnknown(input.pins, patternSecrets);
     const secrets = uniqueSecrets([...urlResult.secrets, ...fieldResult.secrets, ...patternSecrets]);
     const unevaluated = input.unevaluated === true;
@@ -234,6 +244,7 @@
     const privacy = { redacted, unevaluated };
     const page = sanitizeValue({
       ...pageIn,
+      ...(typeof pageIn.description === "string" ? { description: pageIn.description } : {}),
       title: typeof pageIn.title === "string" ? pageIn.title : "",
       url: urlResult.url,
     }, secrets);
@@ -276,6 +287,7 @@
       if (!category) continue;
       const value = typeof element.value === "string" ? element.value : "";
       into.fields.push({ attrs, value });
+      if (!shouldAutoMask(category)) continue;
       const box = viewportBoxOf(element, offset);
       if (!box) continue;
       into.masks.push({
@@ -323,10 +335,12 @@
   globalThis.__pinarPrivacy = Object.freeze({
     REDACTION_PLACEHOLDER,
     classifyFieldAttrs,
+    copyReviewCategories,
     documentBoxes,
     parseExtraKeys,
     scanSensitiveDocuments,
     sanitizeCapture,
+    shouldAutoMask,
     sanitizeUrl,
   });
 })();

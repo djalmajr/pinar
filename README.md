@@ -82,6 +82,8 @@ The Cloudflare build expects `AUTH_PEPPER`, `STRIPE_SECRET_KEY`, and `STRIPE_WEB
 
 For hosted-feature development without a deploy, use the isolated Cloudflare runtime described in [Local cloud development](docs/local-cloud-development.md). It runs the Worker code locally with local D1/R2 data and a seeded paid account; it never turns the ordinary local helper into a hosted account.
 
+A public release is not ready until the [closed-loop release gate](docs/release-closed-loop.md) has been proven: pin → agent return → `correction_ready` → accepted, including reopen and a second return. Loop metrics stay off unless the user opts in, and never include comments, URLs, selectors, screenshots, or DOM.
+
 Stripe Price IDs and the fixed BRL/USD catalog are non-secret Worker vars in `apps/server/wrangler.jsonc`. Checkout writes the selected offer into Stripe metadata, webhook fulfillment is idempotent, and `/api/account/entitlements` exposes the authenticated credit balance and storage quota. The daily Worker schedule refills active Pro accounts with 200 non-rollover credits each month. Storage add-ons expire after 12 months; uploads above the current quota are blocked, while automatic deletion is intentionally not enabled. Production rollout must subscribe the signed webhook to Checkout completion (including asynchronous success) and subscription update/deletion events before enabling sales.
 
 ## Fair Source, plans and policies

@@ -14,6 +14,7 @@ import { exerciseProjectApiContract } from "./project-api.contract";
 import { exerciseVisualContextContract } from "./visual-context.contract";
 import { exerciseAgentResultsContract } from "./agent-results.contract";
 import { exercisePinReviewContract } from "./pin-review.contract";
+import { exerciseClosedLoopContract } from "./closed-loop.contract";
 
 const VALID_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 
@@ -241,5 +242,9 @@ describe("local TanStack API", () => {
     await exercisePinReviewContract(request, (path, init) => (
       handlePublicRequest(new Request(`http://127.0.0.1:17373${path}`, init))
     ));
+  });
+
+  test("matches the closed-loop pin, handoff, review and opt-in metrics contract", async () => {
+    await exerciseClosedLoopContract(request);
   });
 });

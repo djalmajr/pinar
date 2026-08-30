@@ -185,6 +185,7 @@ export interface PinarSettings {
   copyViewerContent: boolean;
   enableHistory: boolean;
   includeViewer: boolean;
+  loopMetricsOptIn?: boolean;
   language: string;
   sensitiveQueryKeys?: string;
   storageMode: StorageMode;

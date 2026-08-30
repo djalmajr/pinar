@@ -33,6 +33,8 @@ import {
   resolvePinReviewTransition,
   sessionFromCapture,
   visualContextErrorBody,
+  planLoopMetricRequest,
+  type LoopMetric,
   type PinReview,
   type PinReviewEvent,
   type PinReviewStatus,
@@ -344,6 +346,7 @@ function shotObjectKey(id: string) {
 }
 const memoryAccounts = new Map<string, AccountRecord>();
 const memoryAgentExecutions = new Map<string, MemoryAgentExecution>();
+const memoryLoopMetrics: Array<LoopMetric & { createdAt: string; id: string; ownerId: string }> = [];
 const memoryPinReviews = new Map<string, { lastExecutionId: string | null; status: PinReviewStatus; updatedAt: string }>();
 const memoryPinReviewEvents: Array<PinReviewEvent & { captureId: string }> = [];
 const memoryAiCreditGrants = new Map<string, AiCreditGrantRecord>();
@@ -4059,6 +4062,89 @@ async function publishAgentExecution(request: Request, env: CloudEnv) {
   }
 }
 
+function presentStoredLoopMetric(row: LoopMetric & { createdAt: string; id: string }) {
+  return {
+    agent: row.agent,
+    createdAt: row.createdAt,
+    degraded: row.degraded,
+    durationMs: row.durationMs,
+    event: row.event,
+    id: row.id,
+    locationConfidence: row.locationConfidence,
+  };
+}
+
+async function persistLoopMetrics(env: CloudEnv, principal: Principal, events: LoopMetric[]) {
+  const timestamp = currentDate().toISOString();
+  const stored = events.map((event) => ({
+    ...event,
+    createdAt: timestamp,
+    id: generateNanoId(),
+    ownerId: principal.id,
+  }));
+  if (env.DB) {
+    const statements = stored.map((row) => env.DB?.prepare(`
+      INSERT INTO loop_metrics (
+        id, owner_id, event, duration_ms, agent, location_confidence, degraded, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      row.id,
+      principal.id,
+      row.event,
+      row.durationMs ?? null,
+      row.agent ?? null,
+      row.locationConfidence ?? null,
+      row.degraded ? 1 : 0,
+      row.createdAt,
+    )).filter((item): item is D1Statement => Boolean(item));
+    await env.DB.batch(statements);
+  } else {
+    memoryLoopMetrics.push(...stored);
+  }
+  return stored.map(presentStoredLoopMetric);
+}
+
+async function listOwnedLoopMetrics(env: CloudEnv, principal: Principal) {
+  if (env.DB) {
+    const rows = await env.DB.prepare(
+      "SELECT * FROM loop_metrics WHERE owner_id = ? ORDER BY created_at ASC",
+    ).bind(principal.id).all();
+    return (rows.results || []).map((row) => presentStoredLoopMetric({
+      agent: typeof row.agent === "string" ? row.agent as LoopMetric["agent"] : undefined,
+      createdAt: String(row.created_at || ""),
+      degraded: Boolean(Number(row.degraded)),
+      durationMs: row.duration_ms == null ? undefined : Number(row.duration_ms),
+      event: row.event as LoopMetric["event"],
+      id: String(row.id || ""),
+      locationConfidence: typeof row.location_confidence === "string"
+        ? row.location_confidence as LoopMetric["locationConfidence"]
+        : undefined,
+    }));
+  }
+  return memoryLoopMetrics
+    .filter((row) => row.ownerId === principal.id)
+    .map(presentStoredLoopMetric);
+}
+
+async function publishLoopMetrics(request: Request, env: CloudEnv) {
+  const principal = await resolvePrincipal(request, env);
+  if (!principal) return json({ error: "Unauthorized" }, 401);
+  const body = await readJson(request);
+  const planned = planLoopMetricRequest(body.optIn, body.events);
+  if (!planned.send) {
+    if (planned.reason === "opt_in_off") return json({ events: [], ok: true, stored: 0 });
+    return json({ error: planned.reason, ok: false }, 400);
+  }
+  const stored = await persistLoopMetrics(env, principal, planned.events);
+  return json({ events: stored, ok: true, stored: stored.length }, 201);
+}
+
+async function queryLoopMetrics(request: Request, env: CloudEnv) {
+  const principal = await resolvePrincipal(request, env);
+  if (!principal) return json({ error: "Unauthorized" }, 401);
+  return json({ events: await listOwnedLoopMetrics(env, principal), ok: true });
+}
+
 async function sessionApiPayload(env: CloudEnv, session: Session) {
   return {
     executions: await listAgentExecutions(env, session.id),
@@ -4856,6 +4942,8 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
   if (method === "POST" && path === "/api/shots") return uploadShot(request, env);
   if (method === "POST" && path === "/api/history") return saveHistory(request, env);
   if (method === "POST" && path === "/api/agent-executions") return publishAgentExecution(request, env);
+  if (method === "POST" && path === "/api/loop-metrics") return publishLoopMetrics(request, env);
+  if (method === "GET" && path === "/api/loop-metrics") return queryLoopMetrics(request, env);
   if (method === "GET" && path === "/api/history") return queryHistory(request, env);
   if (method === "GET" && path.startsWith("/api/public/projects/")) {
     const project = await findPublicProject(
@@ -5097,6 +5185,7 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
 export function resetCloudMemoryStateForTests() {
   memoryAccounts.clear();
   memoryAgentExecutions.clear();
+  memoryLoopMetrics.length = 0;
   memoryPinReviews.clear();
   memoryPinReviewEvents.length = 0;
   memoryAiCreditGrants.clear();

@@ -107,6 +107,22 @@ export const LOCAL_API_TRUST_MATRIX: readonly LocalApiTrustEntry[] = [
     pattern: /^\/api\/agent-executions$/,
   },
   {
+    class: "mutable",
+    intendedClients: ["cli", "extension", "workspace"],
+    methods: ["POST"],
+    notes: "Requires a valid capability. Opt-in funnel metrics only; never stores comments, URLs, selectors, or screenshots.",
+    path: "/api/loop-metrics",
+    pattern: /^\/api\/loop-metrics$/,
+  },
+  {
+    class: "sensitive-read",
+    intendedClients: ["cli", "workspace"],
+    methods: ["GET"],
+    notes: "Returns allowlisted funnel events only.",
+    path: "/api/loop-metrics",
+    pattern: /^\/api\/loop-metrics$/,
+  },
+  {
     class: "sensitive-read",
     intendedClients: ["cli", "workspace"],
     methods: ["GET"],

@@ -6,9 +6,9 @@ Gerado por `node scripts/audit-e2e-flow-coverage.mjs --write --strict`.
 
 | Métrica | Total |
 |---|---:|
-| Fluxos catalogados | 63 |
-| Superfícies mapeadas | 69 |
-| automated | 26 |
+| Fluxos catalogados | 64 |
+| Superfícies mapeadas | 74 |
+| automated | 27 |
 | partial | 32 |
 | missing | 0 |
 | env-gated | 5 |
@@ -85,6 +85,7 @@ Gerado por `node scripts/audit-e2e-flow-coverage.mjs --write --strict`.
 | `checkout-storage-20gb` | partial | `tests/e2e/workspace/account-menu.e2e.test.ts`<br>`apps/server/src/server/cloud-api.test.ts`<br>`scripts/stripe-test-catalog-smoke.mjs` | Grant 20 GB/12 meses idempotente e uso/cota apresentados no painel da conta. | Concluir o Checkout do pack hospedado e revalidar a nova cota no staging. |
 | `checkout-storage-5gb` | partial | `tests/e2e/workspace/account-menu.e2e.test.ts`<br>`apps/server/src/server/cloud-api.test.ts`<br>`scripts/stripe-test-catalog-smoke.mjs` | Grant 5 GB/12 meses idempotente e uso/cota apresentados no painel da conta. | Concluir o Checkout do pack hospedado e revalidar a nova cota no staging. |
 | `extensao-alternar-local-cloud` | partial | `tests/e2e/extensao/options-storage-account.e2e.test.ts`<br>`e2e/usability/extensao-alternar-local-cloud--2026-08-18.md`<br>`extension/destination.test.js`<br>`apps/server/src/server/api.local.trust-baseline.test.ts`<br>`apps/server/src/server/local-capability.test.ts` | Bundle real das opções alterna Local/Remote, salva, recarrega e restaura a última preferência.<br>Árvores e abas Open app permanecem distintas para local/account e cloud/account.<br>A API local exige capability na origem da extensão, recusa páginas hostis e preserva workspace/CLI no loopback. | Produzir capturas com a extensão realmente carregada e confirmar exclusividade no helper local e no staging. |
+| `extensao-closed-loop` | automated | `tests/e2e/extensao/closed-loop.e2e.test.ts`<br>`tests/e2e/extensao/pin-handoff.e2e.test.ts`<br>`apps/server/src/server/closed-loop.contract.ts`<br>`packages/shared/src/loop-metrics.test.ts`<br>`packages/shared/src/handoff.test.ts` | Pin → handoff equivalente nos quatro adaptadores → retorno changed → correction_ready → accepted, reabertura com nova devolutiva, modos degradados e métricas opt-in sem conteúdo. | Chrome real: recarregar a extensão unpacked, colar nos quatro agentes e registrar o aceite humano. Ver docs/release-closed-loop.md. |
 | `extensao-conta-app-billing-logout` | partial | `tests/e2e/extensao/options-storage-account.e2e.test.ts`<br>`e2e/usability/extensao-conta-app-billing-logout--2026-08-18.md`<br>`apps/extension/src/options/extension-response.test.ts`<br>`apps/extension/src/options/pricing-copy.test.ts`<br>`extension/identity.test.js` | Conta Pro mostra e-mail/plano, abre app e billing, preserva estado e muda para instalação Free no logout.<br>Destino muda de Account Local para Installation Local e retorna por e-mail sem duplicar árvore; CTA neutro delega preço regional a /pricing. | Portal Stripe hospedado real, OTP por e-mail e revogação do token numa extensão instalada. |
 | `extensao-destino-projeto-colecao` | partial | `extension/destination.test.js`<br>`apps/server/src/server/cloud-api.test.ts` | Resolução e fallback de destino. | Combobox/Select e captura real. |
 | `extensao-preferencias` | partial | `apps/extension/src/options/extension-response.test.ts`<br>`extension/i18n.test.js` | Fallback de mensagens e idioma base. | Persistência completa em chrome.storage.sync. |

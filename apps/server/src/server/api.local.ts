@@ -23,6 +23,7 @@ import {
   parseVisualCapture,
   pinReviewErrorBody,
   pinReviewHttpStatus,
+  planLoopMetricRequest,
   visualContextErrorBody,
   type AgentExecution,
   type VisualCapture,
@@ -86,6 +87,8 @@ interface HistoryDatabase {
   reorderSessions(collectionId: string, ids: string[]): LocalSession[];
   resolveDestination(collectionId?: string): CaptureDestination;
   saveAgentExecution(input: unknown): { created: boolean; execution: AgentExecution };
+  saveLoopMetrics(events: unknown[]): Array<import("@pinar/shared").LoopMetric & { createdAt: string; id: string }>;
+  listLoopMetrics(): Array<import("@pinar/shared").LoopMetric & { createdAt: string; id: string }>;
   saveSession(input: {
     collectionId?: string;
     createdAt?: string;
@@ -258,6 +261,21 @@ async function publishAgentExecution(request: Request) {
   }
 }
 
+async function publishLoopMetrics(request: Request) {
+  const body = await readJson(request);
+  const planned = planLoopMetricRequest(body.optIn, body.events);
+  if (!planned.send) {
+    if (planned.reason === "opt_in_off") return json({ events: [], ok: true, stored: 0 });
+    return json({ error: planned.reason, ok: false }, 400);
+  }
+  const stored = historyDatabase().saveLoopMetrics(planned.events);
+  return json({ events: stored, ok: true, stored: stored.length }, 201);
+}
+
+function listLoopMetrics() {
+  return json({ events: historyDatabase().listLoopMetrics(), ok: true });
+}
+
 function presentProjectTree(tree: ProjectTree, origin: string): ProjectTree {
   return {
     projects: tree.projects.map((project) => ({
@@ -413,6 +431,8 @@ async function routeLocalApi(request: Request): Promise<Response> {
   if (method === "POST" && path === "/api/shots") return uploadShot(request);
   if (method === "POST" && path === "/api/history") return saveHistory(request);
   if (method === "POST" && path === "/api/agent-executions") return publishAgentExecution(request);
+  if (method === "POST" && path === "/api/loop-metrics") return publishLoopMetrics(request);
+  if (method === "GET" && path === "/api/loop-metrics") return listLoopMetrics();
   if (method === "GET" && path.startsWith("/api/public/projects/")) {
     const project = publicProject(
       decodeURIComponent(path.slice("/api/public/projects/".length)),

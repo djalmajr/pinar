@@ -20,6 +20,7 @@ import { exerciseProjectApiContract } from "./project-api.contract";
 import { exerciseVisualContextContract } from "./visual-context.contract";
 import { exerciseAgentResultsContract, exerciseAgentResultsIsolation } from "./agent-results.contract";
 import { exercisePinReviewContract, exercisePinReviewIsolation } from "./pin-review.contract";
+import { exerciseClosedLoopContract, exerciseClosedLoopIsolation } from "./closed-loop.contract";
 
 const identityA = { id: `ins_${"A".repeat(24)}`, token: `pit_${"a".repeat(43)}` };
 const identityB = { id: `ins_${"B".repeat(24)}`, token: `pit_${"b".repeat(43)}` };
@@ -2368,6 +2369,36 @@ describe("remote installation isolation", () => {
     await register(identityA);
     await register(identityB);
     await exercisePinReviewIsolation(
+      (path, init = {}) => api(path, {
+        ...init,
+        headers: identityHeaders(identityA, init.headers),
+      }),
+      (path, init = {}) => api(path, {
+        ...init,
+        headers: identityHeaders(identityB, init.headers),
+      }),
+    );
+  });
+
+  test("matches the closed-loop pin, handoff, review and opt-in metrics contract", async () => {
+    await register(identityA);
+    assert.equal((await api("/api/loop-metrics", {
+      body: JSON.stringify({ events: [{ event: "handoff" }], optIn: true }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    })).status, 401);
+    await exerciseClosedLoopContract(
+      (path, init = {}) => api(path, {
+        ...init,
+        headers: identityHeaders(identityA, init.headers),
+      }),
+    );
+  });
+
+  test("keeps loop metrics isolated between installations", async () => {
+    await register(identityA);
+    await register(identityB);
+    await exerciseClosedLoopIsolation(
       (path, init = {}) => api(path, {
         ...init,
         headers: identityHeaders(identityA, init.headers),

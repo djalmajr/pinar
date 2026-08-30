@@ -246,6 +246,27 @@ describe("history", () => {
     db.close();
   });
 
+  test("stores opt-in loop metrics without comments, URLs, selectors or screenshots", () => {
+    const db = openHistoryDb(tempDir);
+    const stored = db.saveLoopMetrics([{
+      agent: "claude",
+      durationMs: 800,
+      event: "handoff",
+    }]);
+    assert.equal(stored.length, 1);
+    assert.equal(stored[0].event, "handoff");
+    assert.equal(stored[0].agent, "claude");
+    const serialized = JSON.stringify(db.listLoopMetrics());
+    assert.equal(serialized.includes("http"), false);
+    assert.equal(serialized.includes("comment"), false);
+    assert.throws(
+      () => db.saveLoopMetrics([{ comment: "secret", event: "handoff", url: "https://example.test" }]),
+      (error) => error?.code === "forbidden_fields",
+    );
+    assert.equal(db.listLoopMetrics().length, 1);
+    db.close();
+  });
+
   test("moves pins through open, correction_ready, accepted and reopened with an append-only timeline", () => {
     const db = openHistoryDb(tempDir);
     const session = db.saveSession({

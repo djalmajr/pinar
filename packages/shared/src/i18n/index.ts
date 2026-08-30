@@ -57,6 +57,8 @@ export interface TranslationDictionary {
   no_projects_found: string;
   history_label: string;
   history_desc: string;
+  loop_metrics_label: string;
+  loop_metrics_desc: string;
   viewer_label: string;
   viewer_desc: string;
   viewer_content_label: string;
@@ -135,6 +137,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     no_projects_found: "No projects found.",
     history_label: "Save Annotation History",
     history_desc: "Records past pins, comments, and URLs (7-day retention on remote server).",
+    loop_metrics_label: "Share anonymous loop metrics",
+    loop_metrics_desc: "Off by default. Sends only event name, duration, agent adapter, and location confidence — never comments, URLs, selectors, screenshots, or DOM.",
     viewer_label: "Copy Web Viewer",
     viewer_desc: "Appends the Web Viewer link to the visual context bundle.",
     viewer_content_label: "Copy Markdown content",
@@ -211,6 +215,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     no_projects_found: "Nenhum projeto encontrado.",
     history_label: "Salvar Histórico de Anotações",
     history_desc: "Registra histórico de pins e comentários (7 dias no servidor remoto).",
+    loop_metrics_label: "Compartilhar métricas anônimas do loop",
+    loop_metrics_desc: "Desligado por padrão. Envia só nome do evento, duração, adaptador e confiança de localização — nunca comentários, URLs, seletores, screenshots ou DOM.",
     viewer_label: "Copiar Web Viewer",
     viewer_desc: "Anexa o link do Web Viewer ao bundle de contexto visual.",
     viewer_content_label: "Copiar conteúdo Markdown",
@@ -287,6 +293,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     no_projects_found: "No se encontraron proyectos.",
     history_label: "Guardar Historial de Anotaciones",
     history_desc: "Registra pines pasados y comentarios (7 días en servidor remoto).",
+    loop_metrics_label: "Compartir métricas anónimas del loop",
+    loop_metrics_desc: "Desactivado por defecto. Envía solo el evento, la duración, el adaptador y la confianza de ubicación — nunca comentarios, URLs, selectores, capturas ni DOM.",
     viewer_label: "Copiar Visor Web",
     viewer_desc: "Añade el enlace del Visor Web al bundle de contexto visual.",
     viewer_content_label: "Copiar contenido Markdown",
@@ -363,6 +371,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     no_projects_found: "Aucun projet trouvé.",
     history_label: "Enregistrer l'Historique des Annotations",
     history_desc: "Enregistre les pins et commentaires passés (7 jours sur le serveur distant).",
+    loop_metrics_label: "Partager les métriques anonymes du loop",
+    loop_metrics_desc: "Désactivé par défaut. Envoie seulement l'événement, la durée, l'adaptateur et la confiance de localisation — jamais les commentaires, URLs, sélecteurs, captures ou le DOM.",
     viewer_label: "Copier le Visualiseur Web",
     viewer_desc: "Ajoute le lien du Visualiseur Web au bundle de contexte visuel.",
     viewer_content_label: "Copier le contenu Markdown",
@@ -439,6 +449,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     no_projects_found: "Keine Projekte gefunden.",
     history_label: "Anmerkungsverlauf speichern",
     history_desc: "Speichert vergangene Pins und Kommentare (7 Tage auf dem Remote-Server).",
+    loop_metrics_label: "Anonyme Loop-Metriken teilen",
+    loop_metrics_desc: "Standardmäßig aus. Sendet nur Ereignis, Dauer, Adapter und Lokalisierungsvertrauen — niemals Kommentare, URLs, Selektoren, Screenshots oder DOM.",
     viewer_label: "Web-Viewer kopieren",
     viewer_desc: "Hängt den Web-Viewer-Link an das Visual-Context-Bundle an.",
     viewer_content_label: "Markdown-Inhalt kopieren",
@@ -515,6 +527,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     no_projects_found: "未找到项目。",
     history_label: "保存标注历史",
     history_desc: "记录历史图钉、评论和 URL（远程服务器保留7天）。",
+    loop_metrics_label: "分享匿名闭环指标",
+    loop_metrics_desc: "默认关闭。仅发送事件名、时长、适配器和定位置信度，绝不发送评论、URL、选择器、截图或 DOM。",
     viewer_label: "复制 Web 查看器",
     viewer_desc: "将 Web 查看器链接附加到视觉上下文包。",
     viewer_content_label: "复制 Markdown 内容",
@@ -591,6 +605,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     no_projects_found: "プロジェクトが見つかりません。",
     history_label: "アノテーション履歴を保存",
     history_desc: "過去のピン、コメント、URLを記録（リモートサーバーでは7日間保持）。",
+    loop_metrics_label: "匿名のループ指標を共有",
+    loop_metrics_desc: "既定はオフ。イベント名・所要時間・アダプター・位置の確信度のみ送信し、コメント、URL、セレクタ、スクリーンショット、DOMは送りません。",
     viewer_label: "Webビューアをコピー",
     viewer_desc: "Web ビューアのリンクをビジュアルコンテキストのバンドルに追加します。",
     viewer_content_label: "Markdown の内容をコピー",

@@ -127,6 +127,8 @@ describe("local API trust enforcement", () => {
     assert.equal(classifyLocalApiRequest("GET", "/api/history")?.class, "sensitive-read");
     assert.equal(classifyLocalApiRequest("POST", "/api/shots")?.class, "mutable");
     assert.equal(classifyLocalApiRequest("POST", "/api/agent-executions")?.class, "mutable");
+    assert.equal(classifyLocalApiRequest("POST", "/api/loop-metrics")?.class, "mutable");
+    assert.equal(classifyLocalApiRequest("GET", "/api/loop-metrics")?.class, "sensitive-read");
     assert.equal(classifyLocalApiRequest("POST", "/api/sessions/hostile_session/pins/pin_cta/review")?.class, "mutable");
     assert.equal(classifyLocalApiRequest("GET", "/v/hostile_session.md")?.class, "local-public-projection");
   });
@@ -197,6 +199,14 @@ describe("local API trust enforcement", () => {
     });
     assert.equal(missingResult.status, 401);
     assert.deepEqual(await jsonBody(missingResult), LOCAL_UNAUTHORIZED_BODY);
+
+    const missingMetrics = await request("/api/loop-metrics", {
+      body: JSON.stringify({ events: [{ event: "handoff" }], optIn: true }),
+      headers: { "content-type": "application/json", origin: EXTENSION_ORIGIN },
+      method: "POST",
+    });
+    assert.equal(missingMetrics.status, 401);
+    assert.deepEqual(await jsonBody(missingMetrics), LOCAL_UNAUTHORIZED_BODY);
 
     const pairing = await request("/api/local/capability", { headers: { origin: EXTENSION_ORIGIN } });
     assert.equal(pairing.status, 200);

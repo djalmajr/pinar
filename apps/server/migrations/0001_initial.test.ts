@@ -50,6 +50,7 @@ describe("cloud schema migrations", () => {
       "0005_founder_and_legal_acceptance.sql",
       "0006_agent_executions.sql",
       "0007_pin_reviews.sql",
+      "0008_loop_metrics.sql",
     ]);
     const migrated = new Database(":memory:");
     const canonical = new Database(":memory:");
@@ -460,6 +461,27 @@ describe("cloud schema migrations", () => {
           "SELECT status FROM pin_reviews WHERE capture_id = 'existing_session'",
         ).get()?.status,
         "open",
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  test("adds loop metric tables without rewriting pin reviews", () => {
+    const db = new Database(":memory:");
+    try {
+      db.exec("PRAGMA foreign_keys = ON;");
+      applyMigrations(db);
+      assert.ok(databaseShape(db).tables.includes("loop_metrics"));
+      db.exec(`
+        INSERT INTO loop_metrics (id, owner_id, event, duration_ms, degraded, created_at)
+        VALUES ('lm_test', 'ins_test', 'handoff', 40, 0, '2026-08-30T00:00:00.000Z');
+      `);
+      assert.equal(
+        db.query<{ event: string }, []>(
+          "SELECT event FROM loop_metrics WHERE id = 'lm_test'",
+        ).get()?.event,
+        "handoff",
       );
     } finally {
       db.close();

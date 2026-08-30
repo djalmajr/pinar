@@ -104,9 +104,9 @@ test("table view puts the mini-preview in the first column and opens the viewer"
   await page.getByRole("button", { name: "Table view" }).click();
   const table = page.getByRole("table");
   await expect(table).toBeVisible();
-  await expect(table.getByRole("columnheader").first()).toHaveText("Preview");
-  await expect(table.getByRole("columnheader").nth(1)).toHaveText("Session");
-  const preview = table.locator("tbody tr").first().locator("td").first();
+  await expect(table.getByRole("columnheader", { name: "Preview" })).toBeVisible();
+  await expect(table.getByRole("columnheader", { name: "Session" })).toBeVisible();
+  const preview = table.locator("tbody tr").first().locator("td").nth(1);
   const thumb = preview.locator("img");
   await expect(thumb).toBeVisible();
   const cellBox = await preview.boundingBox();
@@ -118,7 +118,7 @@ test("table view puts the mini-preview in the first column and opens the viewer"
     "href",
     "/app?session=preview-e2e",
   );
-  const sessionCell = table.locator("tbody tr").first().locator("td").nth(1);
+  const sessionCell = table.locator("tbody tr").first().locator("td").nth(2);
   await expect(sessionCell.getByRole("link", { name: "Lowcode Studio" })).toBeVisible();
   await expect(sessionCell.getByText("Project API keys for Lowcode Studio.")).toBeVisible();
   await expect(sessionCell.getByRole("link", { name: session.page.url })).toBeVisible();

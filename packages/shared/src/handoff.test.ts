@@ -3,6 +3,8 @@ import { describe, test } from "node:test";
 import {
   adaptHandoff,
   adaptHandoffAll,
+  formatCompactHandoffBundle,
+  formatFullHandoffBundle,
   formatHandoffBundle,
   HANDOFF_AGENTS,
   handoffSemantics,
@@ -76,5 +78,43 @@ describe("agent handoff", () => {
     assert.match(bundle.plain, /viewer_unavailable/);
     assert.equal(handoffSemantics(bundle.plain).captureId, "cap_element_v0");
     assert.deepEqual(handoffSemantics(adaptHandoff("cursor", capture).text).pinIds, ["pin_cta"]);
+  });
+
+  test("compact clipboard keeps locators and drops redundant element geometry", () => {
+    const capture = parseVisualCapture(VISUAL_CONTEXT_FIXTURES.elementV0);
+    const full = formatHandoffBundle(capture, "http://127.0.0.1:17373/v/cap_element_v0.md");
+    const compact = formatCompactHandoffBundle(capture, "http://127.0.0.1:17373/v/cap_element_v0.md");
+    const parsed = parseHandoffJson(compact.plain) as {
+      pins: Array<{
+        locator: { cssSelector: string; domPath: string };
+      }>;
+    };
+
+    assert.equal(parsed.pins[0].locator.cssSelector, "button.cta");
+    assert.equal(parsed.pins[0].locator.domPath, "main > section.card > button.cta");
+    assert.equal("coords" in parsed.pins[0], false);
+    assert.equal("box" in parsed.pins[0], false);
+    assert.equal((compact.plain.match(/main > section\.card > button\.cta/g) || []).length, 1);
+    assert.doesNotMatch(compact.plain, /^Page:|^Comment:|^DOM:|^Selector:/m);
+    assert.match(full.markdown, /^Page: Pricing$/m);
+    assert.ok(compact.plain.length < full.plain.length);
+  });
+
+  test("compact areas keep fallback geometry while full copies preserve every captured field", () => {
+    const area = parseVisualCapture(VISUAL_CONTEXT_FIXTURES.areaV0);
+    const compactArea = parseHandoffJson(formatCompactHandoffBundle(area).plain) as {
+      pins: Array<{ box: { height: number; width: number; x: number; y: number } }>;
+    };
+    assert.deepEqual(compactArea.pins[0].box, { height: 80, width: 240, x: 16, y: 48 });
+
+    const element = parseVisualCapture(VISUAL_CONTEXT_FIXTURES.elementV0);
+    const full = parseHandoffJson(formatFullHandoffBundle(element).plain) as {
+      pins: Array<{ box: { height: number; width: number; x: number; y: number }; locator: { fingerprint?: unknown } }>;
+      schemaVersion: number;
+      viewport: unknown;
+    };
+    assert.deepEqual(full.pins[0].box, { height: 40, width: 160, x: 24, y: 80 });
+    assert.equal(full.schemaVersion, 1);
+    assert.ok(full.viewport);
   });
 });

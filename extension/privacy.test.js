@@ -17,7 +17,11 @@ describe("extension privacy", () => {
     assert.match(backgroundSrc, /privacy\.js/);
     assert.match(contentSrc, /__pinarPrivacy/);
     assert.match(contentSrc, /data-privacy-mask/);
-    assert.match(contentSrc, /copyReviewCategories/);
+  });
+
+  test("copies masked captures without a second confirmation shortcut", () => {
+    assert.doesNotMatch(contentSrc, /privacyConfirmed/);
+    assert.doesNotMatch(contentSrc, /Hidden regions ready/);
   });
 
   test("redacts fixture secrets from a capture payload", () => {

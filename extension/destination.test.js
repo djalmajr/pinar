@@ -79,8 +79,10 @@ describe("capture destination", () => {
     assert.match(optionsSrc, /authSession\?\.kind === "account"/);
     assert.doesNotMatch(optionsSrc, /authSession\?\.kind === "installation"/);
     assert.match(optionsSrc, /t\.screenshot_label/);
+    assert.match(optionsSrc, /t\.handoff_mode_label/);
     assert.match(optionsSrc, /type: "preferences:get"/);
-    assert.match(optionsSrc, /includeScreenshot: settings.includeScreenshot, type: "preferences:set"/);
+    assert.match(optionsSrc, /handoffMode: settings\.handoffMode, includeScreenshot: settings\.includeScreenshot, type: "preferences:set"/);
+    assert.match(backgroundSrc, /handoffMode: message\.handoffMode === "full" \? "full" : "compact"/);
     assert.match(optionsSrc, /t\.btn_upgrade_pro/);
     assert.doesNotMatch(optionsSrc, /t\.btn_subscription/);
     assert.doesNotMatch(optionsSrc, /license|identity:regenerate|installationId/i);

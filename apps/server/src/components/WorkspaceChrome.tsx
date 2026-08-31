@@ -22,9 +22,11 @@ import type {
 import { DEFAULT_PROJECT_ICON } from "@pinar/shared/project-icons";
 import {
   DndContext,
+  DragOverlay,
   KeyboardSensor,
   useSensor,
   useSensors,
+  type DragStartEvent,
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
@@ -163,6 +165,7 @@ export function WorkspaceChrome({
   const [loading, setLoading] = useState(true);
   const [projectIcon, setProjectIcon] = useState<ProjectIcon>(DEFAULT_PROJECT_ICON);
   const [projectTree, setProjectTree] = useState<ProjectTree>({ projects: [] });
+  const [activeSessionDrag, setActiveSessionDrag] = useState<{ count: number; title: string } | null>(null);
   const [selectedCollectionId, setSelectedCollectionIdState] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const fingerprintRef = useRef("");
@@ -255,31 +258,51 @@ export function WorkspaceChrome({
 
   const moveSessions = useCallback(async (sessionIds: string[], collectionId: string) => {
     const ids = [...new Set(sessionIds)];
-    if (!ids.length || !selectedProject) return;
-    const collectionIds = new Set(selectedProject.collections.map((collection) => collection.id));
-    if (!collectionIds.has(collectionId)) return;
+    if (!ids.length) return;
+    const destination = projectTree.projects
+      .flatMap((project) => project.collections)
+      .find((collection) => collection.id === collectionId);
+    if (!destination) return;
     const alreadyThere = new Set(
-      selectedProject.collections.find((collection) => collection.id === collectionId)
-        ?.sessions.map((session) => session.id) ?? [],
+      destination.sessions.map((session) => session.id),
     );
     const toMove = ids.filter((id) => !alreadyThere.has(id));
     if (!toMove.length) return;
     await Promise.all(toMove.map((id) => requestJson(`/api/sessions/${id}/move`, "POST", { collectionId })));
-    await fetchTree(selectedProject.id, { silent: true });
-  }, [fetchTree, selectedProject]);
+    await fetchTree(selectedProject?.id, { silent: true });
+  }, [fetchTree, projectTree.projects, selectedProject?.id]);
 
   const sensors = useSensors(
     useSensor(WorkspacePointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
+  function handleSessionDragStart(event: DragStartEvent) {
+    const data = event.active.data.current;
+    if (!isSessionDragData(data)) return;
+    setActiveSessionDrag({
+      count: data.sessionIds.length,
+      title: typeof data.title === "string" ? data.title : t("dashboard.session"),
+    });
+  }
+
   function handleSessionDragEnd(event: DragEndEvent) {
+    setActiveSessionDrag(null);
     if (!isSessionDragData(event.active.data.current) || !event.over) return;
     const collectionIds = new Set(selectedProject?.collections.map((collection) => collection.id) ?? []);
     const collectionId = collectionIdFromOver(event.over.id, collectionIds);
     if (!collectionId) return;
     void moveSessions(event.active.data.current.sessionIds, collectionId);
   }
+
+  useEffect(() => {
+    if (!activeSessionDrag) return;
+    const previousCursor = document.body.style.cursor;
+    document.body.style.cursor = "grabbing";
+    return () => {
+      document.body.style.cursor = previousCursor;
+    };
+  }, [activeSessionDrag]);
 
   useEffect(() => {
     void fetchTree(localStorage.getItem(SELECTED_PROJECT_KEY) || "");
@@ -462,7 +485,9 @@ export function WorkspaceChrome({
       <DndContext
         collisionDetection={workspaceCollisionDetection}
         sensors={sensors}
+        onDragCancel={() => setActiveSessionDrag(null)}
         onDragEnd={handleSessionDragEnd}
+        onDragStart={handleSessionDragStart}
       >
       <AppShell
         className={className ?? "font-sans"}
@@ -564,6 +589,21 @@ export function WorkspaceChrome({
           </AlertDialogContent>
         </AlertDialog>
       </AppShell>
+      <DragOverlay dropAnimation={null} zIndex={100}>
+        {activeSessionDrag ? (
+          <div className="flex w-72 max-w-[calc(100vw-2rem)] items-center gap-3 rounded-lg border bg-card px-3 py-2.5 text-card-foreground shadow-2xl" data-session-drag-overlay>
+            <span className="size-2 shrink-0 rounded-full bg-primary" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-medium">{activeSessionDrag.title}</p>
+              {activeSessionDrag.count > 1 ? (
+                <p className="text-xs text-muted-foreground">
+                  {t("dashboard.selectedCount", { count: activeSessionDrag.count })}
+                </p>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </DragOverlay>
       </DndContext>
     </WorkspaceChromeContext.Provider>
   );

@@ -53,6 +53,7 @@ describe("cloud schema migrations", () => {
       "0008_loop_metrics.sql",
       "0009_include_screenshot.sql",
       "0010_owner_preferences.sql",
+      "0011_handoff_mode.sql",
     ]);
     const migrated = new Database(":memory:");
     const canonical = new Database(":memory:");
@@ -566,6 +567,43 @@ describe("cloud schema migrations", () => {
           "SELECT include_screenshot FROM owner_preferences WHERE owner_id = 'usr_existing'",
         ).get()?.include_screenshot,
         0,
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  test("adds compact handoff mode without changing an existing screenshot preference", () => {
+    const db = new Database(":memory:");
+    try {
+      db.exec("PRAGMA foreign_keys = ON;");
+      applyMigrations(db, [
+        "0001_initial.sql",
+        "0002_billing_entitlements.sql",
+        "0003_ai_usage_and_storage_notices.sql",
+        "0004_stripe_subscription_ordering.sql",
+        "0005_founder_and_legal_acceptance.sql",
+        "0006_agent_executions.sql",
+        "0007_pin_reviews.sql",
+        "0008_loop_metrics.sql",
+        "0009_include_screenshot.sql",
+        "0010_owner_preferences.sql",
+      ]);
+      db.exec(`
+        INSERT INTO owner_preferences (owner_id, include_screenshot, updated_at)
+        VALUES ('usr_existing', 0, '2026-08-30T00:00:00.000Z');
+      `);
+
+      applyMigrations(db, ["0011_handoff_mode.sql"]);
+      assert.deepEqual(
+        db.query<{ handoff_mode: string; include_screenshot: number }, []>(
+          "SELECT handoff_mode, include_screenshot FROM owner_preferences WHERE owner_id = 'usr_existing'",
+        ).get(),
+        { handoff_mode: "compact", include_screenshot: 0 },
+      );
+      assert.throws(
+        () => db.query("UPDATE owner_preferences SET handoff_mode = 'verbose' WHERE owner_id = 'usr_existing'").run(),
+        /constraint/i,
       );
     } finally {
       db.close();

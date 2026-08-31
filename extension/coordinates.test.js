@@ -6,10 +6,24 @@ import vm from "node:vm";
 const source = readFileSync(new URL("./coordinates.js", import.meta.url), "utf8");
 const context = vm.createContext({});
 vm.runInContext(source, context);
-const { anchorInBox, documentBox, documentPoint, pinDocumentGeometry, projectPin } = context.__pinarCoordinateSpace;
+const {
+  anchorInBox,
+  documentBox,
+  documentPoint,
+  geometryLabel,
+  pinDocumentGeometry,
+  projectPin,
+} = context.__pinarCoordinateSpace;
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
 describe("pin coordinate projection", () => {
+  test("formats viewport position and dimensions for the live selection indicator", () => {
+    assert.equal(
+      geometryLabel({ height: 77.7, width: 143.6, x: 42.4, y: 19.5 }),
+      "(42,20) 144x78",
+    );
+  });
+
   test("an element pin follows the page when the viewport scrolls", () => {
     // Mutation captured: ignoring the scroll delta leaves the marker fixed at y=260.
     const pin = {

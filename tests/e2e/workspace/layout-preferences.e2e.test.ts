@@ -16,7 +16,9 @@ async function dragSeparator(page: Page, separator: Locator, targetX: number) {
   await page.mouse.up();
 }
 
-test("resizer limits and viewer navigation preserve language and theme", async ({ page }) => {
+test("global settings and viewer navigation preserve language, theme, and capture preferences", async ({ page }) => {
+  let includeScreenshot = true;
+  let handoffMode: "compact" | "full" = "compact";
   const capture = {
     collectionId: "col_preferences",
     createdAt,
@@ -38,6 +40,18 @@ test("resizer limits and viewer navigation preserve language and theme", async (
   await page.route("**/api/auth/session", (route) => route.fulfill({
     json: { session: { installationId: "ins_preferences", kind: "installation", plan: "free" } },
   }));
+  await page.route("**/api/preferences", async (route) => {
+    if (route.request().method() === "PATCH") {
+      const body: unknown = route.request().postDataJSON();
+      if (typeof body === "object" && body !== null && "includeScreenshot" in body) {
+        includeScreenshot = body.includeScreenshot !== false;
+      }
+      if (typeof body === "object" && body !== null && "handoffMode" in body) {
+        handoffMode = body.handoffMode === "full" ? "full" : "compact";
+      }
+    }
+    await route.fulfill({ json: { handoffMode, includeScreenshot, ok: true } });
+  });
   await page.route("**/api/project-tree", (route) => route.fulfill({
     json: {
       tree: {
@@ -75,10 +89,57 @@ test("resizer limits and viewer navigation preserve language and theme", async (
   }));
 
   await page.goto("/app");
-  await page.getByRole("button", { name: "Language" }).click();
-  await page.getByRole("menuitem", { name: "Português" }).click();
-  await page.getByRole("button", { name: "Alternar tema" }).click();
+  const gridViewTab = page.getByRole("tab", { name: "Grid view" });
+  const tableViewTab = page.getByRole("tab", { name: "Table view" });
+  await expect(gridViewTab).toHaveAttribute("aria-selected", "true");
+  await expect(tableViewTab).toHaveAttribute("aria-selected", "false");
+  await tableViewTab.click();
+  await expect(tableViewTab).toHaveAttribute("aria-selected", "true");
+  await gridViewTab.click();
+  await expect(gridViewTab).toHaveAttribute("aria-selected", "true");
+  const settingsButton = page.getByRole("button", { name: "Settings" });
+  await expect(settingsButton).toHaveText("");
+  await expect.poll(async () => (await settingsButton.boundingBox())?.width).toBe(28);
+  await settingsButton.click();
+  const settingsDialog = page.getByRole("dialog");
+  await expect(settingsDialog).toBeVisible();
+  if (!isMobileViewport(page)) {
+    const settingsSidebar = settingsDialog.locator('[data-slot="resizable-panel"]').first();
+    const settingsSeparator = settingsDialog.locator('[data-slot="resizable-handle"]');
+    const initialWidth = (await settingsSidebar.boundingBox())?.width ?? 0;
+    const separatorBox = await settingsSeparator.boundingBox();
+    if (!separatorBox) throw new Error("Settings separator is not visible");
+    await dragSeparator(page, settingsSeparator, separatorBox.x + 64);
+    await expect.poll(async () => (await settingsSidebar.boundingBox())?.width ?? 0).toBeGreaterThan(initialWidth + 40);
+    const settingsSidebarTrigger = settingsDialog.getByRole("button", { name: "Settings", exact: true });
+    await settingsSidebarTrigger.click();
+    await expect.poll(async () => Math.round((await settingsSidebar.boundingBox())?.width ?? 0)).toBe(48);
+    await expect(settingsDialog.getByRole("button", { name: "General", exact: true })).toHaveText("");
+    await settingsSidebarTrigger.click();
+    await expect.poll(async () => (await settingsSidebar.boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(192);
+    await expect(settingsDialog.getByRole("button", { name: "General", exact: true })).toHaveText("General");
+  }
+  await page.getByRole("combobox", { name: "Language" }).click();
+  await page.getByRole("option", { name: "Português" }).click();
+  await page.getByRole("button", { name: "Captura e privacidade" }).click();
+  const detailSwitch = page.getByRole("switch", { name: "Detalhamento da cópia para IA" });
+  await expect(detailSwitch).not.toBeChecked();
+  await detailSwitch.click();
+  await expect(detailSwitch).toBeChecked();
+  const screenshotSwitch = page.getByRole("switch", { name: "Incluir captura no copy para agentes" });
+  await expect(screenshotSwitch).toBeChecked();
+  await screenshotSwitch.click();
+  await expect(screenshotSwitch).not.toBeChecked();
+  await page.getByRole("button", { name: "Interface e comportamento" }).click();
+  const darkThemeTab = page.getByRole("tab", { name: "Escuro" });
+  await darkThemeTab.click();
+  await expect(darkThemeTab).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  const closeSettings = page.getByRole("button", { name: "Fechar configurações" });
+  await expect.poll(() => closeSettings.evaluate((element) => getComputedStyle(element).borderTopWidth)).toBe("0px");
+  await closeSettings.click();
+  await expect(page.getByRole("dialog")).toBeHidden();
+  await expect(page.locator("[data-dashboard-scroll-area] > [data-slot=scroll-area-scrollbar]")).toBeHidden();
 
   if (isMobileViewport(page)) {
     await openWorkspaceSidebar(page, "Preferences");
@@ -107,7 +168,11 @@ test("resizer limits and viewer navigation preserve language and theme", async (
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 
   await page.reload();
-  await expect(page.getByRole("button", { name: "Idioma" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Configurações" })).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute("lang", "pt");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await page.getByRole("button", { name: "Configurações" }).click();
+  await page.getByRole("button", { name: "Captura e privacidade" }).click();
+  await expect(page.getByRole("switch", { name: "Detalhamento da cópia para IA" })).toBeChecked();
+  await expect(page.getByRole("switch", { name: "Incluir captura no copy para agentes" })).not.toBeChecked();
 });

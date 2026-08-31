@@ -29,6 +29,22 @@ export function isMobileViewport(page: Page) {
   return (page.viewportSize()?.width || 0) < 768;
 }
 
+export async function expectScrollableComboboxList(page: Page, maxHeight = 288) {
+  const list = page.locator('[data-slot="combobox-list"]:not([aria-hidden="true"])');
+  await expect(list).toBeVisible();
+  const metrics = await list.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      clientHeight: element.clientHeight,
+      overflowY: style.overflowY,
+      scrollHeight: element.scrollHeight,
+    };
+  });
+  expect(metrics.overflowY).toBe("auto");
+  expect(metrics.clientHeight).toBeLessThanOrEqual(maxHeight);
+  expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
+}
+
 export async function openPrimaryNavigation(page: Page) {
   const trigger = page.getByRole("button", { name: "Primary navigation" });
   if (await trigger.isVisible()) await trigger.click();

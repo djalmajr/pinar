@@ -36,7 +36,7 @@ export function collectionIdFromOver(
 
 export function isSessionDragData(
   data: unknown,
-): data is { sessionIds: string[]; type: typeof SESSION_DND_TYPE } {
+): data is { sessionIds: string[]; title?: string; type: typeof SESSION_DND_TYPE } {
   if (!data || typeof data !== "object") return false;
   const record = data as { sessionIds?: unknown; type?: unknown };
   return record.type === SESSION_DND_TYPE
@@ -47,7 +47,7 @@ export function isSessionDragData(
 export function shouldStartWorkspaceDrag(event: Event) {
   const target = event.target;
   if (!target || typeof (target as { closest?: unknown }).closest !== "function") return true;
-  return !(target as Element).closest("a, input, textarea, [data-no-dnd], [data-slot=checkbox]");
+  return !(target as Element).closest("input, textarea, [data-no-dnd], [data-slot=checkbox]");
 }
 
 export class WorkspacePointerSensor extends PointerSensor {

@@ -11,6 +11,8 @@ bun run build:tray
 bun apps/cli/src/cli.mjs install
 ```
 
+After every source modification, rebuild and reinstall the affected local Pinar artifacts before handing the work back. Rebuild and reinstall `Pinar.app`, then verify `/api/health`; when extension files change, also run `bun run build:ext` and explicitly reload the unpacked extension before claiming the new behavior is active.
+
 skills.sh does not install these hooks.
 
 Visual page annotations are copied to the clipboard by the Chrome extension (⌘/Ctrl+Enter). The same action copies a human Markdown representation and a `pinar-visual-context` JSON block (Visual Context v1). `captureId` and `pinId` identify the capture; do not rewrite them.

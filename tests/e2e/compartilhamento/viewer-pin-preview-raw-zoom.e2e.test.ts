@@ -54,6 +54,12 @@ const session = {
       areaBox: { height: 180, width: 320, x: 80, y: 120 },
       comment: "Reduce the empty space in this region.",
       coords: { x: 80, y: 120 },
+      location: {
+        confidence: "exact",
+        evidence: ["stable selector"],
+        score: 1,
+        strategy: "stable-selector",
+      },
       number: 2,
       type: "area",
     },
@@ -122,13 +128,7 @@ test("local viewer keeps workspace chrome and authentic session data", async ({ 
   const originalPage = page.getByRole("link", { name: session.page.url });
   await expect(originalPage).toHaveAttribute("target", "_blank");
   await expect(originalPage).toHaveAttribute("rel", "noopener noreferrer");
-  const privacyBadge = page.getByText("Hidden: secret-query");
-  await expect(privacyBadge).toBeVisible();
-  const urlBox = await originalPage.boundingBox();
-  const badgeBox = await privacyBadge.boundingBox();
-  expect(urlBox).not.toBeNull();
-  expect(badgeBox).not.toBeNull();
-  expect(badgeBox?.x ?? 0).toBeGreaterThan(urlBox?.x ?? 0);
+  await expect(page.getByText("Hidden: secret-query")).toHaveCount(0);
 
   const screenshot = page.getByRole("img", { name: "Annotated page screenshot" });
   await expect(screenshot).toBeVisible();
@@ -150,6 +150,7 @@ test("local viewer keeps workspace chrome and authentic session data", async ({ 
   await expect(cards).toHaveCount(2);
   await expect(cards.nth(0)).toContainText("Align this action with the right edge.");
   await expect(cards.nth(0)).toContainText("Needs review");
+  await expect(page.getByText("Found by selector", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Needs review", { exact: true })).toHaveAttribute(
     "title",
     "Pinar may not find this element again on the original page.",
@@ -207,7 +208,25 @@ test("copy, Markdown endpoint and assistant prompts preserve one session payload
 
   await page.getByRole("button", { name: "Copy Page" }).click();
   await expect(page.getByRole("button", { name: "Copied" })).toBeVisible();
-  expect(await readClipboardHarness(page)).toBe(sessionMarkdown);
+  const copiedPrompt = await readClipboardHarness(page);
+  const contextMatch = copiedPrompt.match(/```pinar-visual-context\n([\s\S]*?)\n```/);
+  expect(contextMatch).toBeTruthy();
+  const copiedContext = JSON.parse(contextMatch?.[1] || "{}") as {
+    captureId: string;
+    page: { url: string };
+    pins: Array<{
+      comment: string;
+      locator?: { cssSelector?: string; domPath?: string };
+    }>;
+  };
+  expect(copiedContext.captureId).toBe("viewer-e2e");
+  expect(copiedContext.page.url).toBe(session.page.url);
+  expect(copiedContext.pins[0].comment).toBe(elementComment);
+  expect(copiedContext.pins[0].locator).toEqual(expect.objectContaining({
+    cssSelector: elementSelector,
+    domPath: elementDomPath,
+  }));
+  expect(occurrences(copiedPrompt, elementDomPath)).toBe(1);
 
   await page.getByRole("button", { name: "More page actions" }).click();
   const markdownPopupPromise = page.waitForEvent("popup");

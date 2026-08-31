@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
+import { expectScrollableComboboxList } from "../helpers/ui";
 
 const extensionDist = resolve(process.cwd(), "extension", "dist");
 
@@ -36,6 +37,43 @@ async function installOptionsHarness(page: Page) {
       const projectId = `${owner}-${mode}-project`;
       const collectionId = `${owner}-${mode}-inbox`;
       const now = "2026-08-18T00:00:00.000Z";
+      const scaleCollections = Array.from({ length: 48 }, (_, index) => ({
+        createdAt: now,
+        id: `${owner}-${mode}-scale-collection-${index}`,
+        isProtected: false,
+        name: `Scale collection ${String(index).padStart(2, "0")} — ${index % 2 ? "International customer experience" : "UX"}`,
+        ownerId: owner,
+        parentId: index % 6 === 0 ? null : `${owner}-${mode}-scale-collection-${index - 1}`,
+        position: index + 1,
+        projectId,
+        sessions: [],
+        updatedAt: now,
+      }));
+      const scaleProjects = Array.from({ length: 36 }, (_, index) => {
+        const scaleProjectId = `${owner}-${mode}-scale-project-${index}`;
+        return {
+          collections: [{
+            createdAt: now,
+            id: `${scaleProjectId}-inbox`,
+            isProtected: true,
+            name: "Inbox",
+            ownerId: owner,
+            parentId: null,
+            position: 0,
+            projectId: scaleProjectId,
+            sessions: [],
+            updatedAt: now,
+          }],
+          createdAt: now,
+          icon: "folder",
+          id: scaleProjectId,
+          isProtected: false,
+          name: `Scale workspace ${String(index).padStart(2, "0")} — ${index % 2 ? "International operations" : "UX"}`,
+          ownerId: owner,
+          position: index + 1,
+          updatedAt: now,
+        };
+      });
       return {
         destination: { collectionId, projectId },
         tree: {
@@ -51,7 +89,7 @@ async function installOptionsHarness(page: Page) {
               projectId,
               sessions: [],
               updatedAt: now,
-            }],
+            }, ...scaleCollections],
             createdAt: now,
             icon: "folder",
             id: projectId,
@@ -60,7 +98,7 @@ async function installOptionsHarness(page: Page) {
             ownerId: owner,
             position: 0,
             updatedAt: now,
-          }],
+          }, ...scaleProjects],
         },
       };
     };
@@ -78,6 +116,20 @@ async function installOptionsHarness(page: Page) {
           remember(message);
           if (message.type === "destination:get" || message.type === "destination:set") {
             return { ok: true, ...destination() };
+          }
+          if (message.type === "preferences:get") {
+            return {
+              handoffMode: settings().handoffMode === "full" ? "full" : "compact",
+              includeScreenshot: settings().includeScreenshot !== false,
+              ok: true,
+            };
+          }
+          if (message.type === "preferences:set") {
+            return {
+              handoffMode: message.handoffMode === "full" ? "full" : "compact",
+              includeScreenshot: message.includeScreenshot !== false,
+              ok: true,
+            };
           }
           if (message.type === "auth:get") {
             if (localStorage.getItem("pinar-e2e-auth-fail") === "1") {
@@ -199,7 +251,27 @@ test("storage mode and destination identity persist without mixing local and clo
     "https://github.com/djalmajr/pinar/releases/latest/download/macos-arm64-Pinar.dmg",
   );
   await expect(downloadLink).toHaveClass(/external-link/);
-  await expect(page.getByRole("combobox", { name: "Project" })).toHaveValue("Account Local");
+  const projectCombobox = page.getByRole("combobox", { name: "Project" });
+  await expect(projectCombobox).toHaveValue("Account Local");
+  await projectCombobox.click();
+  await expectScrollableComboboxList(page);
+  await projectCombobox.fill("missing workspace");
+  await expect(page.getByText("No projects found.", { exact: true })).toBeVisible();
+  await projectCombobox.fill("Account Local");
+  await page.getByRole("option", { name: "Account Local" }).click();
+
+  const collectionCombobox = page.getByRole("combobox", { name: "Collection" });
+  await expect(collectionCombobox).toHaveValue("Inbox");
+  await collectionCombobox.click();
+  await expectScrollableComboboxList(page);
+  await collectionCombobox.fill("Scale collection 47");
+  const deepCollection = page.getByRole("option", { name: "Scale collection 47 — International customer experience" });
+  await expect(deepCollection).toBeVisible();
+  await expect(deepCollection.locator(":scope > span").first()).toHaveCSS("padding-inline-start", "80px");
+  await collectionCombobox.fill("missing collection");
+  await expect(page.getByText("No collections found.", { exact: true })).toBeVisible();
+  await collectionCombobox.fill("Inbox");
+  await page.getByRole("option", { name: "Inbox" }).click();
 
   await page.getByRole("radio", { name: /Remote Server/ }).check();
   await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
@@ -225,6 +297,32 @@ test("storage mode and destination identity persist without mixing local and clo
   await page.reload();
   await expect(page.getByRole("radio", { name: /Local Server/ })).toBeChecked();
   await expect(page.getByRole("combobox", { name: "Project" })).toHaveValue("Account Local");
+});
+
+test("agent copy detail persists independently from the complete saved capture", async ({ page }) => {
+  await installOptionsHarness(page);
+  await page.getByRole("tab", { name: "Preferences" }).click();
+
+  const detail = page.getByRole("switch", { name: "Agent copy detail" });
+  await expect(page.getByText("Agent copy detail · Compact", { exact: true })).toBeVisible();
+  await expect(detail).not.toBeChecked();
+  await detail.click();
+  await expect(detail).toBeChecked();
+  await expect(page.getByText("Agent copy detail · Full", { exact: true })).toBeVisible();
+  await save(page);
+
+  const saved = await page.evaluate(() => JSON.parse(
+    localStorage.getItem("pinar-e2e-extension-settings") || "{}",
+  ));
+  expect(saved.handoffMode).toBe("full");
+  const preferenceMessages = await page.evaluate(() => JSON.parse(
+    localStorage.getItem("pinar-e2e-extension-messages") || "[]",
+  ).filter((message: { type?: string }) => message.type === "preferences:set"));
+  expect(preferenceMessages.at(-1)).toMatchObject({ handoffMode: "full" });
+
+  await page.reload();
+  await page.getByRole("tab", { name: "Preferences" }).click();
+  await expect(page.getByRole("switch", { name: "Agent copy detail" })).toBeChecked();
 });
 
 test("email sign-in stays on the Account tab when the session service is down", async ({ page }) => {

@@ -50,6 +50,7 @@
     anchorInBox,
     documentBox,
     documentPoint,
+    geometryLabel,
     pinDocumentGeometry,
     projectPin,
   } = globalThis.__pinarCoordinateSpace;
@@ -62,7 +63,6 @@
     stableSelector,
   } = globalThis.__pinarLocators;
   const {
-    copyReviewCategories,
     documentBoxes,
     parseExtraKeys,
     scanSensitiveDocuments,
@@ -87,7 +87,6 @@
     maskMode: false,
     userMasks: [],
     dismissedMaskIds: new Set(),
-    privacyConfirmed: false,
     reviewMode: false,
     reviewSessionId: null,
     reviews: [],
@@ -149,7 +148,7 @@
       .toolbar {
         background: rgba(255,255,255,.96);
         border: 1px solid rgba(15,23,42,.18);
-        border-radius: 999px;
+        border-radius: 8px;
         box-shadow: 0 10px 28px rgba(15,23,42,.18), 0 1px 2px rgba(15,23,42,.10);
         box-sizing: border-box;
         color: #262626;
@@ -169,6 +168,25 @@
         z-index: 3;
       }
       .toolbar.pass-through { opacity: 0; pointer-events: none; }
+      .toast {
+        background: rgba(255,255,255,.96);
+        border: 1px solid rgba(15,23,42,.18);
+        border-radius: 8px;
+        box-shadow: 0 8px 20px rgba(15,23,42,.14), 0 1px 2px rgba(15,23,42,.08);
+        color: #262626;
+        font: 500 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        left: 50%;
+        padding: 7px 10px;
+        pointer-events: none;
+        position: fixed;
+        top: 68px;
+        transform: translateX(-50%);
+        white-space: nowrap;
+        z-index: 3;
+      }
+      .toast[hidden] { display: none; }
+      .toast[data-kind="error"] { color: #E5484D; }
+      .toast[data-kind="ok"] { color: #1F7A4D; }
       .view { align-items: center; display: flex; gap: 12px; position: relative; z-index: 1; }
       .view[hidden] { display: none !important; }
       .state-icon { display: grid; flex: 0 0 1.25rem; height: 1.25rem; place-items: center; width: 1.25rem; }
@@ -201,7 +219,7 @@
         align-items: center;
         background: transparent;
         border: 0;
-        border-radius: 999px;
+        border-radius: 6px;
         box-sizing: border-box;
         color: #737373;
         display: none;
@@ -234,20 +252,25 @@
       }
       .outline-badge {
         align-items: center;
-        background: rgba(15,23,42,.85);
+        background: var(--outline-color, ${BLUE});
         backdrop-filter: blur(4px);
         border-radius: 4px;
-        bottom: 6px;
+        bottom: -24px;
         color: #fff;
         display: none;
         font: 600 11px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         padding: 3px 6px;
         position: absolute;
-        right: 6px;
+        left: 50%;
+        transform: translateX(-50%);
         white-space: nowrap;
       }
-      .outline.area.is-dragging .outline-badge {
+      .outline.show-geometry .outline-badge {
         display: inline-flex;
+      }
+      .outline.badge-above .outline-badge {
+        bottom: 6px;
+        top: auto;
       }
       .marker {
         background: transparent;
@@ -284,7 +307,7 @@
         align-items: center;
         background: #fff;
         border: 1px solid rgba(15,23,42,.14);
-        border-radius: 999px;
+        border-radius: 8px;
         box-shadow: 0 8px 24px rgba(15,23,42,.14);
         display: none;
         font: 14px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -326,7 +349,7 @@
       .composer-card {
         background: #fff;
         border: 1px solid rgba(15,23,42,.14);
-        border-radius: 16px;
+        border-radius: 8px;
         box-shadow: 0 12px 32px rgba(15,23,42,.16);
         display: flex;
         flex-direction: column;
@@ -340,7 +363,7 @@
         align-self: flex-start;
         background: #F4F4F5;
         border: 1px solid #E4E4E7;
-        border-radius: 999px;
+        border-radius: 6px;
         color: #525252;
         display: inline-flex;
         font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -370,7 +393,7 @@
       .composer-actions .icon-btn { display: inline-flex; margin-right: auto; }
       .btn-cancel, .btn-add {
         border: 0;
-        border-radius: 999px;
+        border-radius: 6px;
         font: 600 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         height: 32px;
         padding: 0 14px;
@@ -418,9 +441,10 @@
           <span class="sep"></span>
           <span class="hint"><span class="keys"><kbd>esc</kbd></span> to clear</span>
         </span>
-        <span class="status" data-ref="status" hidden></span>
+        <span class="status" data-ref="toolbarStatus" hidden></span>
       </div>
-    </div>` : ""}
+    </div>
+    <div class="toast" data-ref="toast" role="status" aria-live="polite" hidden></div>` : ""}
     <div class="outline" data-ref="outline"><span class="outline-badge" data-ref="outlineBadge"></span></div>
     <div data-ref="layer"></div>
     <div class="preview" data-ref="preview" hidden>
@@ -458,8 +482,9 @@
     previewText: shadow.querySelector("[data-ref=previewText]"),
     save: shadow.querySelector("[data-ref=save]"),
     selectionTag: shadow.querySelector("[data-ref=selectionTag]"),
-    status: shadow.querySelector("[data-ref=status]"),
+    toast: shadow.querySelector("[data-ref=toast]"),
     toolbar: shadow.querySelector(".toolbar"),
+    toolbarStatus: shadow.querySelector("[data-ref=toolbarStatus]"),
   };
 
   document.documentElement.append(host);
@@ -577,6 +602,13 @@
       if (position === "fixed") {
         element.style.setProperty("position", "absolute", "important");
         element.style.setProperty("inset", "auto", "important");
+        // Fixed dialogs are commonly centered with translate/transform. Once
+        // their measured rect becomes the absolute top/left, those transforms
+        // must be neutralized or the screenshot applies the offset twice.
+        element.style.setProperty("transform", "none", "important");
+        element.style.setProperty("translate", "none", "important");
+        element.style.setProperty("scale", "none", "important");
+        element.style.setProperty("rotate", "none", "important");
         element.style.setProperty("top", `${rect.top + window.scrollY}px`, "important");
         element.style.setProperty("left", `${rect.left + window.scrollX}px`, "important");
         element.style.setProperty("width", `${rect.width}px`, "important");
@@ -795,19 +827,16 @@
     }
     if (!ui.toolbar) return;
     const hasStatus = Boolean(state.status);
-    if (ui.instructions) ui.instructions.hidden = hasStatus;
-    if (ui.status) {
-      ui.status.hidden = !hasStatus;
-      ui.status.textContent = state.status?.text ?? "";
-      ui.status.dataset.kind = state.status?.kind ?? "";
+    if (ui.instructions) ui.instructions.hidden = state.reviewMode;
+    if (ui.toast) {
+      ui.toast.hidden = !hasStatus;
+      ui.toast.textContent = state.status?.text ?? "";
+      ui.toast.dataset.kind = state.status?.kind ?? "";
     }
-    if (state.reviewMode && !state.status) {
-      if (ui.instructions) ui.instructions.hidden = true;
-      if (ui.status) {
-        ui.status.hidden = false;
-        ui.status.textContent = reviewBannerText();
-        ui.status.dataset.kind = state.unavailable ? "error" : "info";
-      }
+    if (ui.toolbarStatus) {
+      ui.toolbarStatus.hidden = !state.reviewMode;
+      ui.toolbarStatus.textContent = state.reviewMode ? reviewBannerText() : "";
+      ui.toolbarStatus.dataset.kind = state.reviewMode && state.unavailable ? "error" : "info";
     }
     document.documentElement.toggleAttribute("data-pinar-mask-mode", state.maskMode);
     document.documentElement.toggleAttribute("data-pinar-review", state.reviewMode);
@@ -843,20 +872,23 @@
     return `rgba(${value >> 16}, ${(value >> 8) & 255}, ${value & 255}, ${alpha})`;
   }
 
-  function showOutline(box, area = false, dragging = false, color = BLUE) {
+  function showOutline(box, area = false, dragging = false, color = BLUE, showGeometry = false) {
     ui.outline.classList.toggle("area", area);
     ui.outline.classList.toggle("is-dragging", dragging);
+    ui.outline.classList.toggle("show-geometry", showGeometry);
+    ui.outline.classList.toggle("badge-above", box.y + box.height + 32 > innerHeight);
     Object.assign(ui.outline.style, {
       display: "block",
       background: colorWithAlpha(color, area ? 0.1 : 0.055),
       borderColor: color,
+      "--outline-color": color,
       height: `${box.height}px`,
       left: `${box.x}px`,
       top: `${box.y}px`,
       width: `${box.width}px`,
     });
     if (ui.outlineBadge) {
-      ui.outlineBadge.textContent = `${box.width} × ${box.height} px`;
+      ui.outlineBadge.textContent = geometryLabel(box);
     }
   }
 
@@ -870,7 +902,13 @@
       return;
     }
     if (state.drag) {
-      showOutline(normBox(state.drag), true, true, state.maskMode ? "#111827" : pinColor(state.pins.length + 1));
+      showOutline(
+        normBox(state.drag),
+        true,
+        true,
+        state.maskMode ? "#111827" : pinColor(state.pins.length + 1),
+        true,
+      );
       return;
     }
     if (state.draft) {
@@ -880,6 +918,7 @@
         draft.kind === "area",
         false,
         draft.color || pinColor(state.pins.length + 1),
+        true,
       );
       return;
     }
@@ -892,7 +931,7 @@
       }
     }
     if (selection.current && state.active) {
-      showOutline(boxOf(selection.current), false, false);
+      showOutline(boxOf(selection.current), false, false, BLUE, true);
       return;
     }
     hideOutline();
@@ -968,25 +1007,6 @@
     return [...auto, ...state.userMasks];
   }
 
-  function privacyPreview(page, pins, extraQueryKeys = []) {
-    const scan = activeScan();
-    return sanitizeCapture({
-      fields: scan.fields,
-      page,
-      pins,
-      unevaluated: scan.unevaluated,
-    }, { extraQueryKeys });
-  }
-
-  function privacyReviewText(report) {
-    const hidden = copyReviewCategories(report.privacy?.redacted);
-    const parts = [];
-    if (hidden.length) parts.push(`Hidden: ${hidden.join(", ")}`);
-    if (report.privacy?.unevaluated) parts.push("Could not inspect a region");
-    if (!parts.length && activeMaskRegions().length) parts.push("Hidden regions ready");
-    return parts.join(" · ");
-  }
-
   function addUserMask(box) {
     const scroll = currentScroll();
     state.userMasks = [
@@ -1003,7 +1023,6 @@
         source: "user",
       },
     ];
-    state.privacyConfirmed = false;
     renderMarkers();
     flashStatus("Region hidden · click the mask to restore", "ok");
   }
@@ -1015,7 +1034,6 @@
     } else {
       state.dismissedMaskIds.add(id);
     }
-    state.privacyConfirmed = false;
     renderMarkers();
   }
 
@@ -1097,9 +1115,14 @@
     fitInput();
     queueMicrotask(() => {
       fitInput();
-      ui.input.focus();
+      ui.input.focus({ preventScroll: true });
       ui.input.setSelectionRange(ui.input.value.length, ui.input.value.length);
     });
+  }
+
+  function keepComposerFocus(event) {
+    if (!state.draft || !event.composedPath().includes(host)) return;
+    event.stopImmediatePropagation();
   }
 
   function openPinEditor(id) {
@@ -1214,7 +1237,6 @@
     state.maskMode = false;
     state.userMasks = [];
     state.dismissedMaskIds = new Set();
-    state.privacyConfirmed = false;
     state.reviewMode = false;
     state.reviewSessionId = null;
     state.reviews = [];
@@ -1501,18 +1523,6 @@
     } catch {
       extraQueryKeys = [];
     }
-    const preview = privacyPreview(pageContext(), state.pins, extraQueryKeys);
-    const needsReview = Boolean(
-      copyReviewCategories(preview.privacy.redacted).length
-      || preview.privacy.unevaluated
-      || activeMaskRegions().length,
-    );
-    if (needsReview && !state.privacyConfirmed) {
-      state.privacyConfirmed = true;
-      renderMarkers();
-      setStatus(`${privacyReviewText(preview)} · ${sendMod}↵ to copy`, "ok");
-      return;
-    }
     state.sending = true;
     setStatus("Copying…");
     try {
@@ -1735,6 +1745,7 @@
   window.addEventListener("pointermove", onPointerMove, true);
   window.addEventListener("pointerup", onPointerUp, true);
   window.addEventListener("click", onClick, true);
+  window.addEventListener("focusin", keepComposerFocus, true);
   window.addEventListener("keydown", onKey, true);
   window.addEventListener("message", onFrameMessage);
   window.addEventListener("scroll", () => {
@@ -1877,6 +1888,7 @@
     window.removeEventListener("pointermove", onPointerMove, true);
     window.removeEventListener("pointerup", onPointerUp, true);
     window.removeEventListener("click", onClick, true);
+    window.removeEventListener("focusin", keepComposerFocus, true);
     window.removeEventListener("keydown", onKey, true);
     window.removeEventListener("message", onFrameMessage);
     delete globalThis.__pinarToggle;

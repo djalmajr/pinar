@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { formatClipboard } from "../../../../extension/format.js";
-import { adaptHandoffAll, formatHandoffBundle, HANDOFF_AGENTS, handoffSemantics } from "@pinar/shared/handoff";
+import { adaptHandoffAll, formatHandoffBundle, HANDOFF_AGENTS, handoffSemantics, parseHandoffJson } from "@pinar/shared/handoff";
 import {
   formatVisualContextMarkdown,
   parseVisualCapture,
@@ -37,8 +37,12 @@ export function assertVisualContextEquivalence() {
   });
   assert.match(markdown, /captureId: cap_element_v0/);
   assert.match(markdown, /pinId: pin_cta/);
-  assert.match(clipboard.plain, /captureId: cap_element_v0/);
-  assert.match(clipboard.plain, /pinId: pin_cta/);
+  const clipboardContext = parseHandoffJson(clipboard.plain) as {
+    captureId: string;
+    pins: Array<{ pinId: string }>;
+  };
+  assert.equal(clipboardContext.captureId, "cap_element_v0");
+  assert.equal(clipboardContext.pins[0].pinId, "pin_cta");
   assert.match(clipboard.plain, /```pinar-visual-context/);
   assert.match(handoff.plain, /```pinar-visual-context/);
   const adapted = adaptHandoffAll(capture);

@@ -120,6 +120,7 @@ describe("local TanStack API", () => {
   test("serves session markdown from the live helper preference", async () => {
     const defaults = await jsonBody(await request("/api/preferences"));
     assert.equal(defaults.ok, true);
+    assert.equal(defaults.handoffMode, "compact");
     assert.equal(defaults.includeScreenshot, true);
 
     const upload = await request("/api/shots", {
@@ -148,11 +149,20 @@ describe("local TanStack API", () => {
       method: "PATCH",
     }));
     assert.equal(patched.includeScreenshot, false);
+    assert.equal(patched.handoffMode, "compact");
+    const detailed = await jsonBody(await request("/api/preferences", {
+      body: JSON.stringify({ handoffMode: "full" }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    }));
+    assert.equal(detailed.handoffMode, "full");
+    assert.equal(detailed.includeScreenshot, false);
     const emptyPatch = await jsonBody(await request("/api/preferences", {
       body: JSON.stringify({}),
       headers: { "content-type": "application/json" },
       method: "PATCH",
     }));
+    assert.equal(emptyPatch.handoffMode, "full");
     assert.equal(emptyPatch.includeScreenshot, false);
 
     const markdown = await handlePublicRequest(

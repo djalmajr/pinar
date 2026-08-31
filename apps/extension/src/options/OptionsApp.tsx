@@ -3,6 +3,7 @@ import {
   type AuthSession,
   type CaptureDestination,
   getBestLanguage,
+  type HandoffMode,
   macosDesktopDmgUrl,
   type PinarSettings,
   type ProjectTree,
@@ -97,6 +98,7 @@ const SETTINGS_KEYS: (keyof PinarSettings)[] = [
   "cloudUrl",
   "copyViewerContent",
   "enableHistory",
+  "handoffMode",
   "includeScreenshot",
   "includeViewer",
   "language",
@@ -110,6 +112,7 @@ const DEFAULT_SETTINGS: PinarSettings = {
   cloudUrl: "https://pinar.dev",
   copyViewerContent: false,
   enableHistory: true,
+  handoffMode: "compact",
   includeScreenshot: true,
   includeViewer: true,
   language: DEFAULT_LANGUAGE,
@@ -124,6 +127,7 @@ interface ExtensionResponse extends ExtensionResponseBase {
   destination?: CaptureDestination;
   error?: string;
   expiresAt?: string;
+  handoffMode?: HandoffMode;
   includeScreenshot?: boolean;
   ok?: boolean;
   session?: AuthSession;
@@ -244,9 +248,9 @@ export function OptionsApp() {
   const destinationProjectIds = destinationProjects.length
     ? destinationProjects.map((project) => project.id)
     : [DEFAULT_PROJECT_OPTION.value];
-  const destinationCollectionOptions = destinationCollections.length
-    ? destinationCollections.map((collection) => ({ label: collection.name, value: collection.id }))
-    : [DEFAULT_COLLECTION_OPTION];
+  const destinationCollectionIds = destinationCollections.length
+    ? destinationCollections.map((collection) => collection.id)
+    : [DEFAULT_COLLECTION_OPTION.value];
   const selectedDestinationCollectionId = captureDestination?.projectId === destinationProjectId
     ? captureDestination.collectionId
     : DEFAULT_COLLECTION_OPTION.value;
@@ -277,13 +281,14 @@ export function OptionsApp() {
     }
   }
 
-  async function syncDeliveryPreferences(current: PinarSettings) {
+  async function syncDeliveryPreferences(current: PinarSettings): Promise<PinarSettings> {
     const response = await extensionMessage({ type: "preferences:get" }, "");
     if (!response.ok || typeof response.includeScreenshot !== "boolean") return current;
-    if (response.includeScreenshot === current.includeScreenshot) return current;
-    const next = { ...current, includeScreenshot: response.includeScreenshot };
+    const handoffMode: HandoffMode = response.handoffMode === "full" ? "full" : "compact";
+    if (response.includeScreenshot === current.includeScreenshot && handoffMode === current.handoffMode) return current;
+    const next = { ...current, handoffMode, includeScreenshot: response.includeScreenshot };
     if (typeof chrome !== "undefined" && chrome.storage?.sync) {
-      await chrome.storage.sync.set({ includeScreenshot: response.includeScreenshot });
+      await chrome.storage.sync.set({ handoffMode, includeScreenshot: response.includeScreenshot });
     }
     return next;
   }
@@ -334,7 +339,7 @@ export function OptionsApp() {
       setInstallPlatform(typeof chrome !== "undefined" && chrome.runtime?.getPlatformInfo
         ? ((os) => (os === "win" ? "win" : os === "mac" ? "mac" : "other"))((await chrome.runtime.getPlatformInfo()).os)
         : /win/i.test(navigator.userAgent) ? "win" : /mac/i.test(navigator.userAgent) ? "mac" : "other");
-      let loaded = DEFAULT_SETTINGS;
+      let loaded: PinarSettings = DEFAULT_SETTINGS;
       if (typeof chrome !== "undefined" && chrome.storage?.sync) {
         const items = await chrome.storage.sync.get(DEFAULT_SETTINGS);
         const cloudUrl = !items.cloudUrl || items.cloudUrl.includes("workers.dev") || items.cloudUrl.includes("djalmajr.dev")
@@ -344,6 +349,7 @@ export function OptionsApp() {
           cloudUrl,
           copyViewerContent: Boolean(items.copyViewerContent),
           enableHistory: Boolean(items.enableHistory),
+          handoffMode: items.handoffMode === "full" ? "full" : "compact",
           includeScreenshot: items.includeScreenshot !== false,
           includeViewer: Boolean(items.includeViewer),
           language: getBestLanguage(items.language || DEFAULT_LANGUAGE, []),
@@ -381,14 +387,19 @@ export function OptionsApp() {
     }
     if (typeof chrome !== "undefined" && chrome.storage?.sync) await chrome.storage.sync.set(settings);
     const prefs = await extensionMessage(
-      { includeScreenshot: settings.includeScreenshot, type: "preferences:set" },
+      { handoffMode: settings.handoffMode, includeScreenshot: settings.includeScreenshot, type: "preferences:set" },
       "",
     );
     const saved = prefs.ok && typeof prefs.includeScreenshot === "boolean"
-      ? { ...settings, includeScreenshot: prefs.includeScreenshot }
+      ? {
+          ...settings,
+          handoffMode: prefs.handoffMode === "full" ? "full" as const : "compact" as const,
+          includeScreenshot: prefs.includeScreenshot,
+        }
       : settings;
-    if (saved.includeScreenshot !== settings.includeScreenshot && typeof chrome !== "undefined" && chrome.storage?.sync) {
-      await chrome.storage.sync.set({ includeScreenshot: saved.includeScreenshot });
+    if ((saved.includeScreenshot !== settings.includeScreenshot || saved.handoffMode !== settings.handoffMode)
+      && typeof chrome !== "undefined" && chrome.storage?.sync) {
+      await chrome.storage.sync.set({ handoffMode: saved.handoffMode, includeScreenshot: saved.includeScreenshot });
     }
     setSavedLegalAccepted(legalAccepted);
     setSettings(saved);
@@ -617,35 +628,46 @@ export function OptionsApp() {
                       </label>
                       <label className="flex min-w-0 flex-col gap-1.5">
                         <span className="text-xs font-semibold">{t.collection_label}</span>
-                        <Select disabled={destinationLoading || !destinationCollections.length} items={destinationCollectionOptions} value={selectedDestinationCollectionId} onValueChange={(value) => void saveCaptureDestination(String(value))}>
-                          <SelectTrigger className="w-full" size="sm"><SelectValue placeholder={destinationLoading ? "…" : t.collection_label} /></SelectTrigger>
-                          <SelectContent>
-                            <SelectGroup>
-                              {destinationCollectionTree.length
-                                ? destinationCollectionTree.map(({ collection, depth }) => (
-                                  <SelectItem
-                                    className="overflow-hidden [&>div]:min-w-0 [&>div]:shrink [&>div]:overflow-hidden"
-                                    key={collection.id}
-                                    value={collection.id}
-                                  >
+                        <Combobox
+                          autoHighlight
+                          disabled={destinationLoading || !destinationCollections.length}
+                          itemToStringLabel={(collectionId) => destinationCollections.find((collection) => collection.id === String(collectionId))?.name ?? DEFAULT_COLLECTION_OPTION.label}
+                          itemToStringValue={(collectionId) => String(collectionId)}
+                          items={destinationCollectionIds}
+                          value={selectedDestinationCollectionId}
+                          onValueChange={(value) => {
+                            const collectionId = String(value ?? "");
+                            if (destinationCollections.some((collection) => collection.id === collectionId)) {
+                              void saveCaptureDestination(collectionId);
+                            }
+                          }}
+                        >
+                          <ComboboxInput aria-label={t.collection_label} className="w-full" placeholder={destinationLoading ? "…" : t.collection_label} />
+                          <ComboboxContent>
+                            <ComboboxEmpty>{t.no_collections_found}</ComboboxEmpty>
+                            <ComboboxList>
+                              {(collectionId) => {
+                                const entry = destinationCollectionTree.find(({ collection }) => collection.id === String(collectionId));
+                                return entry ? (
+                                  <ComboboxItem key={entry.collection.id} value={entry.collection.id}>
                                     <span
                                       className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden"
-                                      style={{ paddingInlineStart: `${depth * 16}px` }}
+                                      style={{ paddingInlineStart: `${entry.depth * 16}px` }}
                                     >
-                                      {collection.isProtected ? <IconInbox /> : <IconFolder />}
-                                      <span className="min-w-0 flex-1 truncate">{collection.name}</span>
+                                      {entry.collection.isProtected ? <IconInbox /> : <IconFolder />}
+                                      <span className="min-w-0 flex-1 truncate">{entry.collection.name}</span>
                                     </span>
-                                  </SelectItem>
-                                ))
-                                : (
-                                  <SelectItem disabled value={DEFAULT_COLLECTION_OPTION.value}>
+                                  </ComboboxItem>
+                                ) : (
+                                  <ComboboxItem disabled key={String(collectionId)} value={String(collectionId)}>
                                     <IconInbox />
                                     Inbox
-                                  </SelectItem>
-                                )}
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
+                                  </ComboboxItem>
+                                );
+                              }}
+                            </ComboboxList>
+                          </ComboboxContent>
+                        </Combobox>
                       </label>
                       {destinationError && <p className="text-xs text-destructive sm:col-span-2">{t.destination_unavailable}</p>}
                     </CardContent>
@@ -713,6 +735,23 @@ export function OptionsApp() {
                     <div className="flex flex-col gap-1.5"><span className="text-xs font-semibold">{t.theme_label}</span><Tabs value={settings.theme || "system"} onValueChange={(value) => { const theme = value as ThemeMode; applyTheme(theme); setSettings((current) => ({ ...current, theme })); }}><TabsList><TabsTrigger value="system"><IconLaptop data-icon="inline-start" />{t.theme_system}</TabsTrigger><TabsTrigger value="light"><IconSun className="text-amber-500" data-icon="inline-start" />{t.theme_light}</TabsTrigger><TabsTrigger value="dark"><IconMoon className="text-blue-400" data-icon="inline-start" />{t.theme_dark}</TabsTrigger></TabsList></Tabs></div>
                     <label className="flex items-start gap-3 py-1"><Switch checked={settings.enableHistory} className="mt-0.5 shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, enableHistory: value }))} /><span><span className="block text-xs font-semibold">{t.history_label}</span><span className="block text-xs text-muted-foreground">{t.history_desc}</span></span></label>
                     <label className="flex items-start gap-3 py-1"><Switch checked={settings.loopMetricsOptIn === true} className="mt-0.5 shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, loopMetricsOptIn: value }))} /><span><span className="block text-xs font-semibold">{t.loop_metrics_label}</span><span className="block text-xs text-muted-foreground">{t.loop_metrics_desc}</span></span></label>
+                    <label className="flex items-start gap-3 py-1">
+                      <Switch
+                        aria-label={t.handoff_mode_label}
+                        checked={settings.handoffMode === "full"}
+                        className="mt-0.5 shrink-0"
+                        onCheckedChange={(checked) => setSettings((current) => ({
+                          ...current,
+                          handoffMode: checked ? "full" : "compact",
+                        }))}
+                      />
+                      <span>
+                        <span className="block text-xs font-semibold">
+                          {t.handoff_mode_label} · {settings.handoffMode === "full" ? t.handoff_mode_full : t.handoff_mode_compact}
+                        </span>
+                        <span className="block text-xs text-muted-foreground">{t.handoff_mode_desc}</span>
+                      </span>
+                    </label>
                     <label className="flex items-start gap-3 py-1"><Switch checked={settings.includeViewer} className="mt-0.5 shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, includeViewer: value }))} /><span><span className="block text-xs font-semibold">{t.viewer_label}</span><span className="block text-xs text-muted-foreground">{t.viewer_desc}</span></span></label>
                     <label className="flex items-start gap-3 py-1"><Switch checked={settings.copyViewerContent} className="mt-0.5 shrink-0" disabled={!settings.includeViewer} onCheckedChange={(value) => setSettings((current) => ({ ...current, copyViewerContent: value }))} /><span><span className="block text-xs font-semibold">{t.viewer_content_label}</span><span className="block text-xs text-muted-foreground">{t.viewer_content_desc}</span></span></label>
                     <label className="flex items-start gap-3 py-1"><Switch checked={settings.includeScreenshot} className="mt-0.5 shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, includeScreenshot: value }))} /><span><span className="block text-xs font-semibold">{t.screenshot_label}</span><span className="block text-xs text-muted-foreground">{t.screenshot_desc}</span></span></label>

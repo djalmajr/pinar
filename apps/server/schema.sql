@@ -388,5 +388,6 @@ CREATE INDEX idx_loop_metrics_owner_created ON loop_metrics(owner_id, created_at
 CREATE TABLE owner_preferences (
   owner_id TEXT PRIMARY KEY,
   include_screenshot INTEGER NOT NULL DEFAULT 1 CHECK (include_screenshot IN (0, 1)),
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  handoff_mode TEXT NOT NULL DEFAULT 'compact' CHECK (handoff_mode IN ('compact', 'full'))
 );

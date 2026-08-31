@@ -181,14 +181,21 @@ export type StorageMode = "local" | "cloud";
 export type SupportedLanguage = "en" | "pt" | "es" | "fr" | "de" | "zh" | "ja";
 
 export type ThemeMode = "dark" | "light" | "system";
+export type HandoffMode = "compact" | "full";
 
 export interface DeliveryPreferences {
+  handoffMode: HandoffMode;
   includeScreenshot: boolean;
 }
 
 export const DEFAULT_DELIVERY_PREFERENCES: DeliveryPreferences = {
+  handoffMode: "compact",
   includeScreenshot: true,
 };
+
+function handoffModeValue(value: unknown, fallback: HandoffMode = "compact"): HandoffMode {
+  return value === "full" || value === "compact" ? value : fallback;
+}
 
 function includeScreenshotValue(value: unknown, fallback = true) {
   if (typeof value === "boolean") return value;
@@ -200,17 +207,21 @@ function includeScreenshotValue(value: unknown, fallback = true) {
 export function parseDeliveryPreferences(value: unknown): DeliveryPreferences {
   if (typeof value !== "object" || value === null) return { ...DEFAULT_DELIVERY_PREFERENCES };
   const record = value as Record<string, unknown>;
-  if (!("includeScreenshot" in record)) return { ...DEFAULT_DELIVERY_PREFERENCES };
-  return { includeScreenshot: includeScreenshotValue(record.includeScreenshot) };
+  return {
+    handoffMode: handoffModeValue(record.handoffMode),
+    includeScreenshot: includeScreenshotValue(record.includeScreenshot),
+  };
 }
 
 export function mergeDeliveryPreferences(
   current: DeliveryPreferences,
   patch: unknown,
 ): DeliveryPreferences {
-  if (typeof patch !== "object" || patch === null || !("includeScreenshot" in patch)) return current;
+  if (typeof patch !== "object" || patch === null) return current;
+  const record = patch as Record<string, unknown>;
   return {
-    includeScreenshot: includeScreenshotValue((patch as Record<string, unknown>).includeScreenshot),
+    handoffMode: handoffModeValue(record.handoffMode, current.handoffMode),
+    includeScreenshot: includeScreenshotValue(record.includeScreenshot, current.includeScreenshot),
   };
 }
 
@@ -218,6 +229,7 @@ export interface PinarSettings {
   cloudUrl: string;
   copyViewerContent: boolean;
   enableHistory: boolean;
+  handoffMode: HandoffMode;
   includeScreenshot: boolean;
   includeViewer: boolean;
   loopMetricsOptIn?: boolean;

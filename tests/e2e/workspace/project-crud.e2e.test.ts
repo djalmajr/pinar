@@ -111,6 +111,9 @@ test("project CRUD preserves sessions through public sharing and container delet
 
   await page.goto("/app");
   await page.getByRole("button", { name: "Personal" }).first().click();
+  const projectMenu = page.getByRole("menu");
+  await expect(projectMenu.getByText("Project", { exact: true })).toHaveCount(0);
+  await expect(projectMenu.getByRole("menuitem", { name: "Personal" })).toBeVisible();
   await page.getByRole("menuitem", { name: "New project" }).click();
   const createDialog = page.getByRole("dialog", { name: "New project" });
   await createDialog.getByRole("textbox", { name: "Name" }).fill("Client portal");

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type MouseEventHandler, type ReactNode } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useDraggable } from "@dnd-kit/core";
 import {
   formatClipboardText,
@@ -25,8 +25,20 @@ import {
   CardHeader,
   CardTitle,
   Checkbox,
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
   type ColumnDef,
   DataTable,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
@@ -44,8 +56,9 @@ import {
   SidebarTrigger,
   Skeleton,
   TableRow,
-  ToggleGroup,
-  ToggleGroupItem,
+  Tabs,
+  TabsList,
+  TabsTrigger,
   cn,
 } from "@pinar/ui";
 import { WorkspaceChrome, useWorkspaceChrome } from "@/components/WorkspaceChrome";
@@ -53,6 +66,7 @@ import { useDeliveryPreferences } from "@/lib/delivery-preferences";
 import { useDocumentMeta } from "@/lib/document-meta";
 import { type ServerMessageKey, useServerI18n } from "@/lib/i18n";
 import { formatSessionDate } from "@/lib/session-date";
+import { flattenCollections } from "@/lib/collection-tree";
 import {
   filterSessions,
   pinCount,
@@ -76,12 +90,13 @@ import CheckIcon from "~icons/lucide/check";
 import CopyIcon from "~icons/lucide/copy";
 import ExternalLinkIcon from "~icons/lucide/external-link";
 import FileTextIcon from "~icons/lucide/file-text";
+import FolderIcon from "~icons/lucide/folder";
 import GridIcon from "~icons/lucide/layout-grid";
 import ListFilterIcon from "~icons/lucide/list-filter";
 import Maximize2Icon from "~icons/lucide/maximize-2";
 import MessageCircleIcon from "~icons/lucide/message-circle";
-import MoreHorizontalIcon from "~icons/lucide/more-horizontal";
-import MoveRightIcon from "~icons/lucide/move-right";
+import MoreVerticalIcon from "~icons/lucide/ellipsis-vertical";
+import FolderInputIcon from "~icons/lucide/folder-input";
 import SearchIcon from "~icons/lucide/search";
 import ScanSearchIcon from "~icons/lucide/scan-search";
 import TableIcon from "~icons/lucide/table-2";
@@ -94,11 +109,6 @@ const SESSION_PAGE_SIZE_OPTIONS = [15, 30, 60, 100] as const;
 type HistoryView = "grid" | "table";
 type Translate = (key: ServerMessageKey, values?: Record<string, string | number>) => string;
 
-interface DestinationOption {
-  collectionId: string;
-  label: string;
-}
-
 function shotUrl(session: Session) {
   return session.shotUrl || (session.shotId ? `/shots/${session.shotId}.png` : null);
 }
@@ -108,6 +118,7 @@ function SessionPageLink({ url }: { url?: string }) {
   return (
     <a
       className="inline-flex max-w-full items-center gap-1 font-mono text-xs text-muted-foreground hover:text-primary"
+      draggable={false}
       href={url}
       rel="noopener noreferrer"
       target="_blank"
@@ -120,24 +131,34 @@ function SessionPageLink({ url }: { url?: string }) {
 }
 
 function SessionIdentity({
+  collectionName,
   heading = false,
   session,
 }: {
+  collectionName?: string;
   heading?: boolean;
   session: Session;
 }) {
   const { description, title, url } = sessionListingCopy(session.page);
+  const collectionLabel = collectionName ? (
+    <span className="inline-flex max-w-40 shrink-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
+      <FolderIcon className="size-3.5 shrink-0" />
+      <span className="truncate">{collectionName}</span>
+    </span>
+  ) : null;
   return (
-    <div className="min-w-0 space-y-0.5">
+    <div className="flex min-w-0 flex-col items-start gap-0.5">
       {title ? (
         heading ? (
           <CardTitle className="line-clamp-1">{title}</CardTitle>
         ) : (
-          <Link className="block truncate font-medium hover:underline" search={{ session: session.id }} to="/app">
-            {title}
-          </Link>
+          <span className="flex max-w-full min-w-0 items-center gap-2">
+            <span className="min-w-0 truncate align-bottom font-medium" title={title}>{title}</span>
+            {collectionLabel}
+          </span>
         )
       ) : null}
+      {(heading || !title) ? collectionLabel : null}
       {description ? (
         <p className="line-clamp-2 text-xs text-muted-foreground">{description}</p>
       ) : null}
@@ -154,7 +175,6 @@ function SessionIdentity({
 
 function SessionActions({
   copied,
-  destinations,
   session,
   onCopy,
   onDelete,
@@ -168,82 +188,79 @@ function SessionActions({
   canMoveEarlier: boolean;
   canMoveLater: boolean;
   copied: boolean;
-  destinations: DestinationOption[];
   session: Session;
   onCopy: (session: Session) => void;
   onDelete: (id: string) => void;
-  onMove: (sessionId: string, collectionId: string) => void;
+  onMove: (id: string) => void;
   onReorder: (sessionId: string, direction: SessionOrderDirection) => void;
   onView: (sessionId: string) => void;
   t: Translate;
 }) {
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={<Button aria-label={t("dashboard.moreActions")} data-no-dnd="" size="icon-xs" title={t("dashboard.moreActions")} variant="ghost" />}
+    <div className="flex items-center justify-end gap-0.5" data-session-actions>
+      <Button
+        aria-label={copied ? t("common.copied") : t("dashboard.copyPrompt")}
+        data-no-dnd=""
+        size="icon-sm"
+        title={copied ? t("common.copied") : t("dashboard.copyPrompt")}
+        variant="ghost"
+        onClick={() => onCopy(session)}
       >
-        <MoreHorizontalIcon />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="max-h-96 w-64 overflow-y-auto">
-        <DropdownMenuGroup>
-          <DropdownMenuItem onClick={() => onView(session.id)}>
-            <Maximize2Icon />
-            {t("dashboard.view")}
+        {copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={<Button aria-label={t("dashboard.moreActions")} data-no-dnd="" size="icon-sm" title={t("dashboard.moreActions")} variant="ghost" />}
+        >
+          <MoreVerticalIcon className="size-3.5" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="max-h-96 w-64 overflow-y-auto">
+          <DropdownMenuGroup>
+            <DropdownMenuItem onClick={() => onView(session.id)}>
+              <Maximize2Icon />
+              {t("dashboard.view")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => requestReopenSession(session.id)}>
+              <ScanSearchIcon />
+              {t("dashboard.reviewOnPage")}
+            </DropdownMenuItem>
+            <DropdownMenuItem render={<a href={`/v/${session.id}.md`} rel="noopener noreferrer" target="_blank" />}>
+              <FileTextIcon />
+              {t("dashboard.markdown")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onMove(session.id)}>
+              <FolderInputIcon />
+              {t("dashboard.moveTo")}
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+          {(canMoveEarlier || canMoveLater) && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>{t("dashboard.order")}</DropdownMenuLabel>
+                {canMoveEarlier && (
+                  <DropdownMenuItem onClick={() => onReorder(session.id, "earlier")}>
+                    <ArrowUpIcon />
+                    {t("dashboard.moveEarlier")}
+                  </DropdownMenuItem>
+                )}
+                {canMoveLater && (
+                  <DropdownMenuItem onClick={() => onReorder(session.id, "later")}>
+                    <ArrowDownIcon />
+                    {t("dashboard.moveLater")}
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuGroup>
+            </>
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem variant="destructive" onClick={() => onDelete(session.id)}>
+            <TrashIcon />
+            {t("dashboard.deleteSession")}
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => requestReopenSession(session.id)}>
-            <ScanSearchIcon />
-            {t("dashboard.reviewOnPage")}
-          </DropdownMenuItem>
-          <DropdownMenuItem render={<a href={`/v/${session.id}.md`} rel="noopener noreferrer" target="_blank" />}>
-            <FileTextIcon />
-            {t("dashboard.markdown")}
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => onCopy(session)}>
-            {copied ? <CheckIcon /> : <CopyIcon />}
-            {copied ? t("common.copied") : t("dashboard.copyPrompt")}
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-        {destinations.some((destination) => destination.collectionId !== session.collectionId) && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuLabel>{t("dashboard.moveToCollection")}</DropdownMenuLabel>
-              {destinations.filter((destination) => destination.collectionId !== session.collectionId).map((destination) => (
-                <DropdownMenuItem key={destination.collectionId} onClick={() => onMove(session.id, destination.collectionId)}>
-                  <MoveRightIcon />
-                  {destination.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuGroup>
-          </>
-        )}
-        {(canMoveEarlier || canMoveLater) && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuLabel>{t("dashboard.order")}</DropdownMenuLabel>
-              {canMoveEarlier && (
-                <DropdownMenuItem onClick={() => onReorder(session.id, "earlier")}>
-                  <ArrowUpIcon />
-                  {t("dashboard.moveEarlier")}
-                </DropdownMenuItem>
-              )}
-              {canMoveLater && (
-                <DropdownMenuItem onClick={() => onReorder(session.id, "later")}>
-                  <ArrowDownIcon />
-                  {t("dashboard.moveLater")}
-                </DropdownMenuItem>
-              )}
-            </DropdownMenuGroup>
-          </>
-        )}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" onClick={() => onDelete(session.id)}>
-          <TrashIcon />
-          {t("dashboard.deleteSession")}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }
 
@@ -260,30 +277,44 @@ function SessionPreview({
 }) {
   const [failed, setFailed] = useState(false);
   const previewUrl = shotUrl(session);
-  if (!previewUrl || failed) {
-    if (!compact) return null;
-    return <span aria-hidden="true" className="block h-11 w-[4.5rem] rounded-md bg-muted" />;
-  }
   if (compact) {
-    return (
+    const preview = !previewUrl || failed ? (
+      <span aria-hidden="true" className="block size-full bg-muted" />
+    ) : (
       <img
         alt=""
-        className="h-11 w-[4.5rem] rounded-md object-cover object-top"
+        className="size-full object-cover object-top"
+        draggable={false}
         src={previewUrl}
         onError={() => setFailed(true)}
       />
     );
+    if (!onOpen) return <span className="block h-11 w-[4.5rem] overflow-hidden rounded-md">{preview}</span>;
+    return (
+      <button
+        aria-label={t("dashboard.openPreview")}
+        className="block h-11 w-[4.5rem] overflow-hidden rounded-md border-0 bg-transparent p-0 outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        data-no-dnd=""
+        type="button"
+        onClick={onOpen}
+      >
+        {preview}
+      </button>
+    );
   }
+  if (!previewUrl || failed) return null;
   return (
     <button
       aria-label={t("dashboard.openPreview")}
       className="group relative block h-32 w-full overflow-hidden border-b bg-muted"
+      data-no-dnd=""
       type="button"
       onClick={onOpen}
     >
       <img
         alt={session.page.title || t("dashboard.screenshot")}
         className="size-full object-cover object-top transition-transform duration-300 group-hover:scale-[1.01]"
+        draggable={false}
         src={previewUrl}
         onError={() => setFailed(true)}
       />
@@ -383,10 +414,12 @@ function DraggableSessionTableRow({
   selectedIds: ReadonlySet<string>;
   session: Session;
 }) {
+  const sessionIds = sessionIdsForDrop(session.id, selectedIds);
   const draggable = useDraggable({
     data: {
       sessionId: session.id,
-      sessionIds: sessionIdsForDrop(session.id, selectedIds),
+      sessionIds,
+      title: sessionListingCopy(session.page).title || session.page.url || session.id,
       type: SESSION_DND_TYPE,
     },
     id: sessionDragId(session.id),
@@ -394,7 +427,8 @@ function DraggableSessionTableRow({
   return (
     <TableRow
       ref={draggable.setNodeRef}
-      className={cn(className, draggable.isDragging && "opacity-50")}
+      className={cn(className, draggable.isDragging && "cursor-grabbing opacity-40")}
+      data-session-drag-surface={session.id}
       data-session-id={session.id}
       data-state={selected ? "selected" : undefined}
       {...draggable.attributes}
@@ -418,10 +452,12 @@ function DraggableSessionCard({
   selectedIds: ReadonlySet<string>;
   session: Session;
 }) {
+  const sessionIds = sessionIdsForDrop(session.id, selectedIds);
   const draggable = useDraggable({
     data: {
       sessionId: session.id,
-      sessionIds: sessionIdsForDrop(session.id, selectedIds),
+      sessionIds,
+      title: sessionListingCopy(session.page).title || session.page.url || session.id,
       type: SESSION_DND_TYPE,
     },
     id: sessionDragId(session.id),
@@ -430,10 +466,11 @@ function DraggableSessionCard({
     <Card
       ref={draggable.setNodeRef}
       className={cn(
-        "gap-0 py-0 transition-colors hover:ring-primary/35",
+        "relative gap-0 py-0 transition-colors hover:ring-primary/35",
         selected && "ring-primary/50",
-        draggable.isDragging && "opacity-50",
+        draggable.isDragging && "cursor-grabbing opacity-40",
       )}
+      data-session-drag-surface={session.id}
       data-session-id={session.id}
       size="sm"
       {...draggable.attributes}
@@ -455,7 +492,7 @@ export function HistoryDashboard({ viewerSessionId }: { viewerSessionId?: string
 
 function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string }) {
   const { language, t } = useServerI18n();
-  const { includeScreenshot } = useDeliveryPreferences();
+  const { handoffMode, includeScreenshot } = useDeliveryPreferences();
   const navigate = useNavigate();
   const {
     fetchTree,
@@ -469,6 +506,10 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
   } = useWorkspaceChrome();
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [deleteIds, setDeleteIds] = useState<string[]>([]);
+  const [moveIds, setMoveIds] = useState<string[]>([]);
+  const [moveProjectId, setMoveProjectId] = useState("");
+  const [moveCollectionId, setMoveCollectionId] = useState("");
+  const [moving, setMoving] = useState(false);
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
     pageSize: SESSION_PAGE_SIZE_OPTIONS[0],
@@ -486,13 +527,21 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
       : flattenCollectionSessions(selectedProject?.collections),
     [selectedCollection, selectedProject],
   );
-  const destinations = useMemo(
-    () => projectTree.projects.flatMap((project) => project.collections.map((collection) => ({
-      collectionId: collection.id,
-      label: `${project.name} / ${collection.name}`,
-    }))),
-    [projectTree.projects],
+  const collectionNameBySessionId = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const collection of selectedProject?.collections ?? []) {
+      for (const session of collection.sessions) {
+        if (!names.has(session.id)) names.set(session.id, collection.name);
+      }
+    }
+    return names;
+  }, [selectedProject]);
+  const moveProjects = projectTree.projects;
+  const moveProjectIds = moveProjects.map((project) => project.id);
+  const moveCollectionTree = flattenCollections(
+    moveProjects.find((project) => project.id === moveProjectId)?.collections ?? [],
   );
+  const moveCollectionIds = moveCollectionTree.map(({ collection }) => collection.id);
 
   const filteredSessions = useMemo(
     () => filterSessions(sessions, search, pinFilters, reviewFilters),
@@ -605,6 +654,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
       session.viewerUrl || `/v/${session.id}.md`,
       session.captureId || session.id,
       includeScreenshot,
+      handoffMode,
     ));
     setCopiedId(session.id);
     window.setTimeout(() => setCopiedId(null), 2_000);
@@ -621,9 +671,28 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
     await fetchTree(selectedProject?.id);
   }
 
-  async function moveSelectedTo(collectionId: string) {
-    await moveSessions([...selectedIds], collectionId);
-    setSelectedIds(new Set());
+  function openMoveDialog(ids: string[]) {
+    const uniqueIds = [...new Set(ids)];
+    if (!uniqueIds.length) return;
+    const project = selectedProject ?? projectTree.projects.find((item) => item.collections.length > 0);
+    setMoveProjectId(project?.id ?? "");
+    setMoveCollectionId("");
+    setMoveIds(uniqueIds);
+  }
+
+  async function submitMove() {
+    if (!moveIds.length || !moveCollectionId || moving) return;
+    setMoving(true);
+    try {
+      await moveSessions(moveIds, moveCollectionId);
+      setSelectedIds((current) => {
+        const movedIds = new Set(moveIds);
+        return new Set([...current].filter((id) => !movedIds.has(id)));
+      });
+      setMoveIds([]);
+    } finally {
+      setMoving(false);
+    }
   }
 
   function openViewer(sessionId: string) {
@@ -634,8 +703,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
     void navigate({ search: { session: undefined }, to: "/app" });
   }
 
-  function selectView(values: string[]) {
-    const nextView = values[0];
+  function selectView(nextView: string) {
     if (nextView !== "grid" && nextView !== "table") return;
     setView(nextView);
     localStorage.setItem(HISTORY_VIEW_KEY, nextView);
@@ -668,7 +736,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
     },
     {
       cell: ({ row }) => (
-        <SessionPreview compact session={row.original} t={t} />
+        <SessionPreview compact session={row.original} t={t} onOpen={() => openViewer(row.original.id)} />
       ),
       enableHiding: false,
       enableSorting: false,
@@ -682,7 +750,10 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
     {
       accessorFn: (session) => sessionListingCopy(session.page).title || session.page.url,
       cell: ({ row }) => (
-        <SessionIdentity session={row.original} />
+        <SessionIdentity
+          collectionName={selectedCollection ? undefined : collectionNameBySessionId.get(row.original.id)}
+          session={row.original}
+        />
       ),
       enableHiding: false,
       header: t("dashboard.session"),
@@ -690,12 +761,11 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
       meta: { grow: true, label: t("dashboard.session"), wrap: true },
     },
     {
-      accessorFn: (session) => new Date(session.createdAt).getTime(),
-      cell: ({ row }) => <time className="text-muted-foreground" dateTime={row.original.createdAt}>{formatSessionDate(row.original, language)}</time>,
-      header: t("dashboard.created"),
-      id: "createdAt",
-      meta: { label: t("dashboard.created") },
-      size: 150,
+      cell: ({ row }) => <ReviewCounts session={row.original} t={t} />,
+      header: t("dashboard.reviewStatus"),
+      id: "review",
+      meta: { label: t("dashboard.reviewStatus") },
+      size: 160,
     },
     {
       accessorFn: pinCount,
@@ -706,11 +776,12 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
       size: 90,
     },
     {
-      cell: ({ row }) => <ReviewCounts session={row.original} t={t} />,
-      header: t("dashboard.reviewStatus"),
-      id: "review",
-      meta: { label: t("dashboard.reviewStatus") },
-      size: 220,
+      accessorFn: (session) => new Date(session.createdAt).getTime(),
+      cell: ({ row }) => <time className="text-muted-foreground" dateTime={row.original.createdAt}>{formatSessionDate(row.original, language)}</time>,
+      header: t("dashboard.created"),
+      id: "createdAt",
+      meta: { label: t("dashboard.created") },
+      size: 180,
     },
     {
       cell: ({ row }) => (
@@ -718,11 +789,10 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
           canMoveEarlier={false}
           canMoveLater={false}
           copied={copiedId === row.original.id}
-          destinations={destinations}
           session={row.original}
           onCopy={(session) => void copyPrompt(session)}
           onDelete={(id) => setDeleteIds([id])}
-          onMove={(sessionId, collectionId) => void moveSessions([sessionId], collectionId)}
+          onMove={(id) => openMoveDialog([id])}
           onReorder={(sessionId, direction) => void reorderSession(sessionId, direction)}
           onView={openViewer}
           t={t}
@@ -733,9 +803,9 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
       header: t("dashboard.actions"),
       id: "actions",
       meta: { align: "right", label: t("dashboard.actions") },
-      size: 64,
+      size: 76,
     },
-  ], [copiedId, destinations, language, moveSessions, t]);
+  ], [collectionNameBySessionId, copiedId, handoffMode, includeScreenshot, language, projectTree.projects, selectedCollection, selectedProject, t]);
 
   const searchControl = (
     <div className="relative min-w-0 flex-1 sm:w-56 sm:min-w-40 sm:flex-none">
@@ -788,38 +858,20 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
     </DropdownMenu>
   );
   const viewControl = (
-    <ToggleGroup aria-label={t("dashboard.historyView")} className="shrink-0 bg-background" size="default" spacing={0} value={[view]} variant="outline" onValueChange={selectView}>
-      <ToggleGroupItem aria-label={t("dashboard.gridView")} title={t("dashboard.gridView")} value="grid"><GridIcon /></ToggleGroupItem>
-      <ToggleGroupItem aria-label={t("dashboard.tableView")} title={t("dashboard.tableView")} value="table"><TableIcon /></ToggleGroupItem>
-    </ToggleGroup>
+    <Tabs className="shrink-0" value={view} onValueChange={selectView}>
+      <TabsList aria-label={t("dashboard.historyView")} variant="segmented">
+        <TabsTrigger aria-label={t("dashboard.gridView")} title={t("dashboard.gridView")} value="grid"><GridIcon /></TabsTrigger>
+        <TabsTrigger aria-label={t("dashboard.tableView")} title={t("dashboard.tableView")} value="table"><TableIcon /></TabsTrigger>
+      </TabsList>
+    </Tabs>
   );
   const selectionToolbar = selectedIds.size > 0 ? (
-    <div className="flex min-w-0 flex-wrap items-center gap-2" data-bulk-toolbar>
-      <span className="text-sm text-muted-foreground">
-        {t("dashboard.selectedCount", { count: selectedIds.size })}
-      </span>
-      {destinations.length > 0 ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="outline" />}>
-            <MoveRightIcon data-icon="inline-start" />
-            {t("dashboard.moveToCollection")}
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="max-h-96 w-64 overflow-y-auto">
-            <DropdownMenuGroup>
-              {destinations.map((destination) => (
-                <DropdownMenuItem
-                  key={destination.collectionId}
-                  onClick={() => void moveSelectedTo(destination.collectionId)}
-                >
-                  <MoveRightIcon />
-                  {destination.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : null}
-      <Button variant="destructive" onClick={() => setDeleteIds([...selectedIds])}>
+    <div className="flex shrink-0 items-center gap-2" data-bulk-toolbar>
+      <Button variant="outline" onClick={() => openMoveDialog([...selectedIds])}>
+        <FolderInputIcon data-icon="inline-start" />
+        {t("dashboard.moveTo")}
+      </Button>
+      <Button variant="destructiveOutline" onClick={() => setDeleteIds([...selectedIds])}>
         <TrashIcon data-icon="inline-start" />
         {t("dashboard.delete")}
       </Button>
@@ -859,21 +911,24 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
   return (
     <>
       <SidebarInset className="min-h-0 min-w-0 overflow-hidden">
-        <ScrollArea className="min-h-0 min-w-0 flex-1">
+        <ScrollArea
+          className="min-h-0 min-w-0 flex-1 [&>[data-slot=scroll-area-scrollbar]]:hidden"
+          data-dashboard-scroll-area
+        >
           <div className="mx-auto flex min-h-full w-full max-w-[1600px] flex-col gap-4 p-5">
             {(view !== "table" || filteredSessions.length === 0) && (
               <div className="flex min-w-0 flex-col gap-2">
-                <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap md:overflow-x-auto" role="toolbar">
+                <div className="flex min-w-0 flex-wrap items-center gap-2" role="toolbar">
                   <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2">
                     <SidebarTrigger aria-label={t("dashboard.collections")} className="md:hidden" title={t("dashboard.collections")} />
                     {filteredSessions.length > 0 ? gridSelectControl : null}
                     {searchControl}
                     {pinFilterControl}
                     {reviewFilterControl}
+                    {selectionToolbar}
                   </div>
                   <div className="ml-auto flex shrink-0 items-center justify-end gap-2">{viewControl}</div>
                 </div>
-                {selectionToolbar}
               </div>
             )}
             {loading ? <DashboardSkeleton /> : filteredSessions.length === 0 ? (
@@ -889,6 +944,11 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
                 data={filteredSessions}
                 emptyMessage={t("dashboard.filteredEmpty")}
                 enableRowSelection
+                footerStart={selectedIds.size > 0 ? (
+                  <span className="text-sm text-muted-foreground" data-selected-count>
+                    {t("dashboard.selectedCount", { count: selectedIds.size })}
+                  </span>
+                ) : null}
                 getRowId={(session) => session.id}
                 initialSorting={[{ desc: true, id: "createdAt" }]}
                 labels={{
@@ -922,7 +982,6 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
                 )}
                 toolbarActions={viewControl}
                 onPaginationChange={setPagination}
-                onRowClick={(session) => openViewer(session.id)}
                 onRowSelectionChange={setRowSelection}
               />
             ) : (
@@ -938,15 +997,21 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
                         selectedIds={selectedIds}
                         session={session}
                       >
+                        <div className="absolute top-2 left-2 z-10" data-grid-selection>
+                          <SessionSelectCheckbox
+                            checked={selectedIds.has(session.id)}
+                            label={sessionSelectLabel(session, t)}
+                            onCheckedChange={(checked) => toggleSessionSelected(session.id, checked)}
+                          />
+                        </div>
                         <SessionPreview session={session} t={t} onOpen={() => openViewer(session.id)} />
                         <CardHeader className="py-3">
-                          <div className="flex items-start gap-2">
-                            <SessionSelectCheckbox
-                              checked={selectedIds.has(session.id)}
-                              label={sessionSelectLabel(session, t)}
-                              onCheckedChange={(checked) => toggleSessionSelected(session.id, checked)}
+                          <div className="min-w-0">
+                            <SessionIdentity
+                              collectionName={selectedCollection ? undefined : collectionNameBySessionId.get(session.id)}
+                              heading
+                              session={session}
                             />
-                            <SessionIdentity heading session={session} />
                           </div>
                         </CardHeader>
                         <CardFooter className="mt-auto justify-between gap-2 py-2.5">
@@ -957,7 +1022,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
                             </div>
                             <ReviewCounts session={session} t={t} />
                           </div>
-                          <SessionActions canMoveEarlier={orderIndex > 0} canMoveLater={Boolean(selectedCollection && orderIndex >= 0 && orderIndex < selectedCollection.sessions.length - 1)} copied={copiedId === session.id} destinations={destinations} session={session} onCopy={(current) => void copyPrompt(current)} onDelete={(id) => setDeleteIds([id])} onMove={(sessionId, collectionId) => void moveSessions([sessionId], collectionId)} onReorder={(sessionId, direction) => void reorderSession(sessionId, direction)} onView={openViewer} t={t} />
+                          <SessionActions canMoveEarlier={orderIndex > 0} canMoveLater={Boolean(selectedCollection && orderIndex >= 0 && orderIndex < selectedCollection.sessions.length - 1)} copied={copiedId === session.id} session={session} onCopy={(current) => void copyPrompt(current)} onDelete={(id) => setDeleteIds([id])} onMove={(id) => openMoveDialog([id])} onReorder={(sessionId, direction) => void reorderSession(sessionId, direction)} onView={openViewer} t={t} />
                         </CardFooter>
                       </DraggableSessionCard>
                     );
@@ -983,6 +1048,82 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
       {viewerSessionId ? (
         <WebViewer onClose={closeViewer} presentation="modal" sessionId={viewerSessionId} />
       ) : null}
+      <Dialog open={moveIds.length > 0} onOpenChange={(open) => !open && setMoveIds([])}>
+        <DialogContent className="sm:max-w-2xl">
+          <form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); void submitMove(); }}>
+            <DialogHeader>
+              <DialogTitle>{t("dashboard.moveTo")}</DialogTitle>
+              <DialogDescription>
+                {t("dashboard.moveDescription")}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex min-w-0 flex-col gap-1.5">
+                <span className="text-xs font-semibold">{t("app.workspace")}</span>
+                <Combobox
+                  autoHighlight
+                  itemToStringLabel={(projectId) => moveProjects.find((project) => project.id === String(projectId))?.name ?? ""}
+                  itemToStringValue={(projectId) => String(projectId)}
+                  items={moveProjectIds}
+                  value={moveProjectId}
+                  onValueChange={(value) => {
+                    setMoveProjectId(String(value ?? ""));
+                    setMoveCollectionId("");
+                  }}
+                >
+                  <ComboboxInput aria-label={t("app.workspace")} className="w-full" placeholder={t("dashboard.chooseWorkspace")} />
+                  <ComboboxContent>
+                    <ComboboxEmpty>{t("dashboard.noWorkspacesFound")}</ComboboxEmpty>
+                    <ComboboxList>
+                      {(projectId) => {
+                        const project = moveProjects.find((item) => item.id === String(projectId));
+                        return project ? (
+                          <ComboboxItem disabled={!project.collections.length} key={project.id} value={project.id}>
+                            {project.name}
+                          </ComboboxItem>
+                        ) : null;
+                      }}
+                    </ComboboxList>
+                  </ComboboxContent>
+                </Combobox>
+              </label>
+              <label className="flex min-w-0 flex-col gap-1.5">
+                <span className="text-xs font-semibold">{t("dashboard.collectionMenu")}</span>
+                <Combobox
+                  autoHighlight
+                  disabled={!moveProjectId || !moveCollectionIds.length}
+                  itemToStringLabel={(collectionId) => moveCollectionTree.find(({ collection }) => collection.id === String(collectionId))?.collection.name ?? ""}
+                  itemToStringValue={(collectionId) => String(collectionId)}
+                  items={moveCollectionIds}
+                  value={moveCollectionId}
+                  onValueChange={(value) => setMoveCollectionId(String(value ?? ""))}
+                >
+                  <ComboboxInput aria-label={t("dashboard.collectionMenu")} className="w-full" placeholder={t("dashboard.chooseCollection")} />
+                  <ComboboxContent>
+                    <ComboboxEmpty>{t("dashboard.noCollectionsFound")}</ComboboxEmpty>
+                    <ComboboxList>
+                      {(collectionId) => {
+                        const entry = moveCollectionTree.find(({ collection }) => collection.id === String(collectionId));
+                        return entry ? (
+                          <ComboboxItem key={entry.collection.id} value={entry.collection.id}>
+                            <span className="min-w-0 truncate" style={{ paddingInlineStart: `${entry.depth * 16}px` }}>
+                              {entry.collection.name}
+                            </span>
+                          </ComboboxItem>
+                        ) : null;
+                      }}
+                    </ComboboxList>
+                  </ComboboxContent>
+                </Combobox>
+              </label>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setMoveIds([])}>{t("common.cancel")}</Button>
+              <Button disabled={!moveCollectionId || moving} type="submit">{t("dashboard.move")}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
       <AlertDialog open={deleteIds.length > 0} onOpenChange={(open) => !open && setDeleteIds([])}>
         <AlertDialogContent>
           <AlertDialogHeader>

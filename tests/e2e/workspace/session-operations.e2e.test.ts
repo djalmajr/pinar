@@ -117,9 +117,12 @@ test("move, manual order, copy and confirmed deletion remain precise and persist
   await openWorkspaceSidebar(page, "Collection A");
   await page.getByRole("button", { exact: true, name: "Collection A" }).click();
   await card(page, "Moved capture").getByRole("button", { name: "More session actions" }).click();
-  await openSessionMenu(page)
-    .getByText("Workspace / Collection B", { exact: true })
-    .click();
+  await openSessionMenu(page).getByRole("menuitem", { name: "Move to…" }).click();
+  const moveDialog = page.getByRole("dialog", { name: "Move to…" });
+  await expect(moveDialog.getByRole("combobox", { name: "Workspace" })).toHaveValue("Workspace");
+  await moveDialog.getByRole("combobox", { name: "Collection" }).fill("Collection B");
+  await page.getByRole("option", { name: "Collection B" }).click();
+  await moveDialog.getByRole("button", { exact: true, name: "Move" }).click();
   await expect(page.getByText("Moved capture", { exact: true })).toHaveCount(0);
 
   await openWorkspaceSidebar(page, "Collection B");
@@ -144,7 +147,10 @@ test("move, manual order, copy and confirmed deletion remain precise and persist
   await openWorkspaceSidebar(page, "Collection B");
   await page.getByRole("button", { exact: true, name: "Collection B" }).click();
   await card(page, "Moved capture").getByRole("button", { name: "More session actions" }).click();
-  await openSessionMenu(page).getByRole("menuitem", { name: "Copy prompt" }).click();
+  await expect(openSessionMenu(page).getByRole("menuitem", { name: "Copy prompt" })).toHaveCount(0);
+  await card(page, "Moved capture").getByRole("button", { name: "More session actions" }).click();
+  await expect(openSessionMenu(page)).toHaveCount(0);
+  await card(page, "Moved capture").getByRole("button", { name: "Copy prompt" }).click();
   const copied = await readClipboardHarness(page);
   expect(copied).toContain("Moved capture feedback");
   expect(copied).toContain("/v/session_moved.md");

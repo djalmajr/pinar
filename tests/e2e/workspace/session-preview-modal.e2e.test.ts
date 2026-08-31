@@ -72,8 +72,22 @@ test("grid capture opens the zoom viewer modal without leaving the dashboard", a
   }));
   await page.goto("/app");
   await expect(page.getByRole("heading", { name: "Lowcode Studio" })).toBeVisible();
+  const gridToolbar = page.getByRole("toolbar");
+  await expect(gridToolbar).toHaveCSS("overflow-x", "visible");
+  await expect(gridToolbar).toHaveCSS("overflow-y", "visible");
 
-  await page.getByRole("button", { name: "View capture" }).click();
+  const card = page.locator('[data-slot="card"]').filter({ hasText: "Lowcode Studio" }).first();
+  await expect(card.getByText("Inbox", { exact: true })).toBeVisible();
+  const selection = card.locator("[data-grid-selection]");
+  const preview = card.getByRole("button", { name: "View capture" });
+  const selectionBox = await selection.boundingBox();
+  const previewBox = await preview.boundingBox();
+  expect(selectionBox).not.toBeNull();
+  expect(previewBox).not.toBeNull();
+  expect(selectionBox?.x ?? Infinity).toBeLessThan((previewBox?.x ?? 0) + 40);
+  expect(selectionBox?.y ?? Infinity).toBeLessThan((previewBox?.y ?? 0) + 40);
+
+  await preview.click();
   const dialog = page.getByRole("dialog", { name: "Lowcode Studio" });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("heading", { name: "Lowcode Studio" })).toBeVisible();
@@ -97,34 +111,78 @@ test("grid capture opens the zoom viewer modal without leaving the dashboard", a
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
   await expect(page).toHaveURL(/\/app\/?$/);
+
+  await page.locator('[data-sidebar="menu-button"]').filter({ hasText: "Inbox" }).click();
+  await expect(card.getByText("Inbox", { exact: true })).toHaveCount(0);
 });
 
 test("table view puts the mini-preview in the first column and opens the viewer", async ({ page }) => {
   await page.goto("/app");
-  await page.getByRole("button", { name: "Table view" }).click();
+  await page.getByRole("tab", { name: "Table view" }).click();
   const table = page.getByRole("table");
+  const tableToolbar = page.getByRole("toolbar");
+  await expect(tableToolbar).toHaveCSS("overflow-x", "visible");
+  await expect(tableToolbar).toHaveCSS("overflow-y", "visible");
   await expect(table).toBeVisible();
+  await page.getByRole("button", { name: "Columns", exact: true }).click();
+  const columnsMenu = page.getByRole("menu");
+  await expect(columnsMenu.getByText("Columns", { exact: true })).toHaveCount(0);
+  await expect(columnsMenu.getByRole("menuitemcheckbox", { name: "Review" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(table.getByRole("columnheader", { name: "Drag" })).toHaveCount(0);
   await expect(table.getByRole("columnheader", { name: "Preview" })).toBeVisible();
   await expect(table.getByRole("columnheader", { name: "Session" })).toBeVisible();
-  const preview = table.locator("tbody tr").first().locator("td").nth(1);
-  const thumb = preview.locator("img");
+  const reviewHeaderBox = await table.getByRole("columnheader", { exact: true, name: "Review" }).boundingBox();
+  const pinsHeaderBox = await table.getByRole("columnheader", { exact: true, name: "Pins" }).boundingBox();
+  const createdHeaderBox = await table.getByRole("columnheader", { exact: true, name: "Created" }).boundingBox();
+  expect(reviewHeaderBox).not.toBeNull();
+  expect(pinsHeaderBox).not.toBeNull();
+  expect(createdHeaderBox).not.toBeNull();
+  expect(reviewHeaderBox!.x).toBeLessThan(pinsHeaderBox!.x);
+  expect(pinsHeaderBox!.x).toBeLessThan(createdHeaderBox!.x);
+  expect(reviewHeaderBox!.width).toBeLessThan(createdHeaderBox!.width);
+  const firstRow = table.locator("tbody tr").first();
+  const copyButtonBox = await firstRow.getByRole("button", { name: "Copy prompt" }).boundingBox();
+  const actionsButtonBox = await firstRow.getByRole("button", { name: "More session actions" }).boundingBox();
+  expect(copyButtonBox).not.toBeNull();
+  expect(actionsButtonBox).not.toBeNull();
+  expect(copyButtonBox!.width).toBe(28);
+  expect(copyButtonBox!.height).toBe(28);
+  expect(actionsButtonBox!.width).toBe(28);
+  expect(actionsButtonBox!.height).toBe(28);
+  const previewCell = table.locator("tbody tr").first().locator("td").nth(1);
+  const thumb = previewCell.locator("img");
   await expect(thumb).toBeVisible();
-  const cellBox = await preview.boundingBox();
+  const cellBox = await previewCell.boundingBox();
   const thumbBox = await thumb.boundingBox();
   expect(cellBox).not.toBeNull();
   expect(thumbBox).not.toBeNull();
   expect(cellBox?.width ?? Infinity).toBeLessThan((thumbBox?.width ?? 0) + 32);
-  await expect(table.getByRole("link", { name: "Lowcode Studio" })).toHaveAttribute(
-    "href",
-    "/app?session=preview-e2e",
-  );
   const sessionCell = table.locator("tbody tr").first().locator("td").nth(2);
-  await expect(sessionCell.getByRole("link", { name: "Lowcode Studio" })).toBeVisible();
+  const title = sessionCell.getByText("Lowcode Studio", { exact: true });
+  await expect(title).toBeVisible();
+  await expect(title).toHaveCSS("text-overflow", "ellipsis");
+  await expect(sessionCell.getByRole("link", { name: "Lowcode Studio" })).toHaveCount(0);
+  await expect(sessionCell.getByText("Inbox", { exact: true })).toBeVisible();
+  const sessionCellBox = await sessionCell.boundingBox();
+  const titleBox = await title.boundingBox();
+  const collectionBox = await sessionCell.getByText("Inbox", { exact: true }).boundingBox();
+  expect(sessionCellBox).not.toBeNull();
+  expect(titleBox).not.toBeNull();
+  expect(collectionBox).not.toBeNull();
+  expect(titleBox?.width ?? Infinity).toBeLessThan(sessionCellBox?.width ?? 0);
+  expect(collectionBox?.x ?? 0).toBeGreaterThan(titleBox?.x ?? Infinity);
+  expect(Math.abs((collectionBox?.y ?? 0) - (titleBox?.y ?? 0))).toBeLessThan(4);
+  const urlLinkBox = await sessionCell.getByRole("link", { name: session.page.url }).boundingBox();
+  expect(urlLinkBox).not.toBeNull();
+  expect(urlLinkBox?.y ?? 0).toBeGreaterThan(titleBox?.y ?? Infinity);
   await expect(sessionCell.getByText("Project API keys for Lowcode Studio.")).toBeVisible();
   await expect(sessionCell.getByRole("link", { name: session.page.url })).toBeVisible();
-  await table.locator("tbody tr").first().evaluate((row) => {
-    (row as HTMLTableRowElement).click();
-  });
+  expect(await table.locator("tbody tr").first().evaluate((row) => getComputedStyle(row).cursor)).toBe("auto");
+  await title.click();
+  await expect(page.getByRole("dialog", { name: "Lowcode Studio" })).toHaveCount(0);
+  await expect(page.locator("[data-table-scroll-container]")).toHaveCSS("overflow-y", "hidden");
+  await thumb.click();
   const dialog = page.getByRole("dialog", { name: "Lowcode Studio" });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("heading", { name: "Lowcode Studio" })).toBeVisible();

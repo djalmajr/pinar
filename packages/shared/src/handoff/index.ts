@@ -43,6 +43,12 @@ export interface HandoffBundle {
   warnings: string[];
 }
 
+export interface CompactHandoffBundle {
+  html: string;
+  json: string;
+  plain: string;
+}
+
 export interface HandoffAdapterResult extends HandoffSemantics {
   agent: HandoffAgent;
   text: string;
@@ -78,6 +84,95 @@ export function captureForHandoffJson(capture: VisualCapture): VisualCapture {
     },
     warnings,
   };
+}
+
+function compactPin(pin: VisualCapture["pins"][number]) {
+  const selector = pin.locator.cssSelector || undefined;
+  const domPath = pin.locator.domPath || undefined;
+  const innerText = pin.locator.innerText || undefined;
+  const locator = {
+    cssSelector: selector,
+    domPath,
+    innerText,
+  };
+  const hasLocator = Object.values(locator).some((value) => value !== undefined);
+  const needsGeometry = pin.kind === "area" || !hasLocator;
+  return {
+    box: needsGeometry ? pin.box : undefined,
+    comment: pin.comment,
+    coords: needsGeometry && !pin.box ? pin.coords : undefined,
+    frameId: pin.frameId || undefined,
+    kind: pin.kind === "area" ? "area" : undefined,
+    locator: hasLocator ? locator : undefined,
+    pinId: pin.pinId,
+    viewportAnchored: pin.viewportAnchored || undefined,
+  };
+}
+
+/**
+ * Clipboard projection: every useful fact appears once. The richer Markdown
+ * projection remains available to viewers through formatHandoffBundle.
+ */
+export function compactCaptureForHandoff(capture: VisualCapture) {
+  const screenshotUrl = capture.screenshot.url?.startsWith("data:") ? null : capture.screenshot.url;
+  const capabilities = {
+    fullPage: capture.capabilities?.fullPage || undefined,
+    iframe: capture.capabilities?.iframe || undefined,
+  };
+  const page = {
+    description: capture.page.description || undefined,
+    title: capture.page.title || undefined,
+    url: capture.page.url,
+  };
+  const privacy = capture.privacy
+    && (capture.privacy.redacted.length || capture.privacy.unevaluated)
+    ? capture.privacy
+    : undefined;
+  return {
+    capabilities: Object.values(capabilities).some(Boolean) ? capabilities : undefined,
+    captureId: capture.captureId,
+    page,
+    pins: capture.pins.map(compactPin),
+    privacy,
+    screenshot: screenshotUrl ? { url: screenshotUrl } : undefined,
+    warnings: capture.warnings.length ? capture.warnings : undefined,
+  };
+}
+
+function structuredHandoffBundle(
+  capture: VisualCapture,
+  jsonCapture: unknown,
+  viewerUrl?: string | null,
+): CompactHandoffBundle {
+  const json = JSON.stringify(jsonCapture);
+  const instructions = [
+    "Implement the pin comments below. Use selector and DOM path as complementary locators.",
+    ...(capture.screenshot.url
+      ? ["Numbered screenshot badges are annotation overlays, not page UI."]
+      : []),
+    ...(viewerUrl ? [`Full context: ${viewerUrl}`] : []),
+  ].join("\n");
+  const plain = `${instructions}\n\n${formatHandoffJsonFence(json)}\n`;
+  const html = [
+    `<meta charset="utf-8"/>`,
+    `<p>${escapeHtml(instructions).replaceAll("\n", "<br/>")}</p>`,
+    `<pre data-pinar="${HANDOFF_JSON_FENCE}">${escapeHtml(json)}</pre>`,
+  ].join("\n");
+  return { html, json, plain };
+}
+
+export function formatCompactHandoffBundle(
+  capture: VisualCapture,
+  viewerUrl?: string | null,
+): CompactHandoffBundle {
+  return structuredHandoffBundle(capture, compactCaptureForHandoff(capture), viewerUrl);
+}
+
+export function formatFullHandoffBundle(
+  capture: VisualCapture,
+  viewerUrl?: string | null,
+): CompactHandoffBundle {
+  return structuredHandoffBundle(capture, captureForHandoffJson(capture), viewerUrl);
 }
 
 export function formatHandoffJsonFence(json: string) {

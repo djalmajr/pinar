@@ -17,7 +17,22 @@ const fixture = `<!doctype html>
   <body>
     <main>
       <button id="save">Save changes</button>
+      <section aria-modal="true" hidden id="fixture-dialog" role="dialog">
+        <button id="close-dialog">Close</button>
+        <p id="delete-copy">Delete local agents?</p>
+      </section>
     </main>
+    <script>
+      const dialog = document.querySelector("#fixture-dialog");
+      const closeDialog = document.querySelector("#close-dialog");
+      globalThis.openFixtureDialog = () => {
+        dialog.hidden = false;
+        closeDialog.focus();
+      };
+      document.addEventListener("focusin", (event) => {
+        if (!dialog.hidden && !dialog.contains(event.target)) closeDialog.focus();
+      }, true);
+    </script>
   </body>
 </html>`;
 
@@ -90,6 +105,22 @@ test("pin copy keeps capture ids for the four-agent handoff", async ({ page }) =
   expect(clipboardMessage.captureId).toBeTruthy();
   expect(clipboardMessage.pins[0].pinId || clipboardMessage.pins[0].id).toBeTruthy();
   expect(clipboardMessage.pins[0].comment).toBe("Make the CTA bolder");
+});
+
+test("pin composer focuses its comment field over a page modal", async ({ page }) => {
+  await installHarness(page);
+  await page.evaluate(() => (globalThis as any).openFixtureDialog());
+  const target = page.locator("#delete-copy");
+  await expect(target).toBeVisible();
+  const bounds = await target.boundingBox();
+  expect(bounds).not.toBeNull();
+  if (!bounds) return;
+
+  await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+  const composer = page.locator('[data-pinar="host"] [data-ref="composer"]');
+  const input = composer.locator("textarea");
+  await expect(composer).toBeVisible();
+  await expect(input).toBeFocused();
 });
 
 test("workspace records handoff return, accept, reopen and keeps metrics empty without opt-in", async ({ page }) => {

@@ -191,7 +191,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "preferences:set") {
-    setDeliveryPreferences(message.includeScreenshot !== false)
+    setDeliveryPreferences({
+      handoffMode: message.handoffMode === "full" ? "full" : "compact",
+      includeScreenshot: message.includeScreenshot !== false,
+    })
       .then((prefs) => sendResponse({ ...prefs, ok: true }))
       .catch((error) => sendResponse({ error: String(error), ok: false }));
     return true;
@@ -334,6 +337,7 @@ async function getSettings() {
       cloudUrl: "https://pinar.dev",
       copyViewerContent: false,
       enableHistory: true,
+      handoffMode: "compact",
       includeScreenshot: true,
       includeViewer: true,
       language: "",
@@ -345,6 +349,7 @@ async function getSettings() {
       cloudUrl: "https://pinar.dev",
       copyViewerContent: false,
       enableHistory: true,
+      handoffMode: "compact",
       includeScreenshot: true,
       includeViewer: true,
       language: "",
@@ -370,22 +375,28 @@ async function fetchDeliveryPreferences(settings) {
       const response = await remoteFetch(cloudEndpoint(settings), "/api/preferences");
       const body = await responseBody(response);
       if (!response.ok || typeof body.includeScreenshot !== "boolean") return null;
-      return { includeScreenshot: body.includeScreenshot };
+      return {
+        handoffMode: body.handoffMode === "full" ? "full" : "compact",
+        includeScreenshot: body.includeScreenshot,
+      };
     }
     const base = await findShotBase();
     if (!base) return null;
     const response = await localFetch(base, "/api/preferences");
     const body = await responseBody(response);
     if (!response.ok || typeof body.includeScreenshot !== "boolean") return null;
-    return { includeScreenshot: body.includeScreenshot };
+    return {
+      handoffMode: body.handoffMode === "full" ? "full" : "compact",
+      includeScreenshot: body.includeScreenshot,
+    };
   } catch {
     return null;
   }
 }
 
-async function cacheDeliveryPreferences(includeScreenshot) {
+async function cacheDeliveryPreferences(preferences) {
   try {
-    await chrome.storage.sync.set({ includeScreenshot });
+    await chrome.storage.sync.set(preferences);
   } catch {
     /* ignore cache write */
   }
@@ -394,18 +405,22 @@ async function cacheDeliveryPreferences(includeScreenshot) {
 async function getDeliveryPreferences() {
   const settings = await getSettings();
   const remote = await fetchDeliveryPreferences(settings);
-  if (!remote) return { includeScreenshot: settings.includeScreenshot !== false };
-  if (remote.includeScreenshot !== (settings.includeScreenshot !== false)) {
-    await cacheDeliveryPreferences(remote.includeScreenshot);
+  if (!remote) return {
+    handoffMode: settings.handoffMode === "full" ? "full" : "compact",
+    includeScreenshot: settings.includeScreenshot !== false,
+  };
+  if (remote.includeScreenshot !== (settings.includeScreenshot !== false)
+    || remote.handoffMode !== settings.handoffMode) {
+    await cacheDeliveryPreferences(remote);
   }
   return remote;
 }
 
-async function setDeliveryPreferences(includeScreenshot) {
+async function setDeliveryPreferences(preferences) {
   const settings = await getSettings();
   if (settings.storageMode === "cloud") {
     const response = await remoteFetch(cloudEndpoint(settings), "/api/preferences", {
-      body: JSON.stringify({ includeScreenshot }),
+      body: JSON.stringify(preferences),
       headers: { "content-type": "application/json" },
       method: "PATCH",
     });
@@ -413,13 +428,17 @@ async function setDeliveryPreferences(includeScreenshot) {
     if (!response.ok || typeof body.includeScreenshot !== "boolean") {
       throw new Error(body.error || "Unable to save screenshot preference");
     }
-    await cacheDeliveryPreferences(body.includeScreenshot);
-    return { includeScreenshot: body.includeScreenshot };
+    const next = {
+      handoffMode: body.handoffMode === "full" ? "full" : "compact",
+      includeScreenshot: body.includeScreenshot,
+    };
+    await cacheDeliveryPreferences(next);
+    return next;
   }
   const base = await findShotBase();
   if (!base) throw new Error("Local Pinar server is not running");
   const response = await localFetch(base, "/api/preferences", {
-    body: JSON.stringify({ includeScreenshot }),
+    body: JSON.stringify(preferences),
     headers: { "content-type": "application/json" },
     method: "PATCH",
   });
@@ -427,8 +446,12 @@ async function setDeliveryPreferences(includeScreenshot) {
   if (!response.ok || typeof body.includeScreenshot !== "boolean") {
     throw new Error(body.error || "Unable to save screenshot preference");
   }
-  await cacheDeliveryPreferences(body.includeScreenshot);
-  return { includeScreenshot: body.includeScreenshot };
+  const next = {
+    handoffMode: body.handoffMode === "full" ? "full" : "compact",
+    includeScreenshot: body.includeScreenshot,
+  };
+  await cacheDeliveryPreferences(next);
+  return next;
 }
 
 const ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz-";
@@ -468,8 +491,10 @@ async function copyBundle(message) {
 
   const remotePrefs = await fetchDeliveryPreferences(settings);
   const includeScreenshot = remotePrefs?.includeScreenshot ?? settings.includeScreenshot !== false;
-  if (remotePrefs && remotePrefs.includeScreenshot !== (settings.includeScreenshot !== false)) {
-    await cacheDeliveryPreferences(remotePrefs.includeScreenshot);
+  const handoffMode = remotePrefs?.handoffMode ?? (settings.handoffMode === "full" ? "full" : "compact");
+  if (remotePrefs && (remotePrefs.includeScreenshot !== (settings.includeScreenshot !== false)
+    || remotePrefs.handoffMode !== settings.handoffMode)) {
+    await cacheDeliveryPreferences(remotePrefs);
   }
   if (message.shot) {
     savedResult = await saveShot(
@@ -498,6 +523,8 @@ async function copyBundle(message) {
 
   const payload = formatClipboardPayload({
     captureId: id,
+    createdAt: message.createdAt,
+    handoffMode,
     includeScreenshot,
     page,
     pins,
@@ -505,6 +532,7 @@ async function copyBundle(message) {
     schemaVersion: message.schemaVersion || 1,
     shot,
     viewerUrl,
+    viewport: message.viewport,
     warnings: uniqueWarnings,
   });
 

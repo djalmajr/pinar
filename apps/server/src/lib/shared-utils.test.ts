@@ -5,6 +5,7 @@ import {
   formatClipboardText,
   generateNanoId,
   getPinColor,
+  parseHandoffJson,
 } from "@pinar/shared";
 import {
   getProjectIconData,
@@ -29,8 +30,7 @@ const PINS = [{
 }];
 
 describe("shared clipboard formats", () => {
-  // Mutation captured: dropping any optional field loses one observable line from the plain payload.
-  test("preserves complete page and pin context in plain text", () => {
+  test("preserves complete page and pin context once in compact structured text", () => {
     const text = formatClipboardText(
       PAGE,
       PINS,
@@ -38,14 +38,16 @@ describe("shared clipboard formats", () => {
       "https://pinar.dev/v/session-one",
     );
 
-    assert.match(text, /^Page: Checkout <review>$/m);
-    assert.match(text, /^URL: https:\/\/example\.test\/checkout\?a=1&b=2$/m);
-    assert.match(text, /^Viewer: https:\/\/pinar\.dev\/v\/session-one$/m);
-    assert.match(text, /^Screenshot: \/tmp\/pinar-shot\.png$/m);
-    assert.match(text, /^DOM: body > main > button$/m);
-    assert.match(text, /^Selector: button\[name="pay"\]$/m);
-    assert.match(text, /^Text: "Pay now"$/m);
-    assert.match(text, /captureId: clipboard/);
+    const context = parseHandoffJson(text) as any;
+    assert.equal(context.page.title, "Checkout <review>");
+    assert.equal(context.page.url, "https://example.test/checkout?a=1&b=2");
+    assert.deepEqual(context.screenshot, { url: "/tmp/pinar-shot.png" });
+    assert.equal(context.pins[0].locator.domPath, "body > main > button");
+    assert.equal(context.pins[0].locator.cssSelector, 'button[name="pay"]');
+    assert.equal(context.pins[0].locator.innerText, "Pay\nnow");
+    assert.equal(context.captureId, "clipboard");
+    assert.match(text, /^Full context: https:\/\/pinar\.dev\/v\/session-one$/m);
+    assert.equal((text.match(/body > main > button/g) || []).length, 1);
     assert.match(text, /```pinar-visual-context/);
   });
 
@@ -60,7 +62,8 @@ describe("shared clipboard formats", () => {
     );
     assert.doesNotMatch(text, /Screenshot:/);
     assert.doesNotMatch(text, /screenshot_missing/);
-    assert.match(text, /Viewer: https:\/\/pinar\.dev\/v\/session-one\.md/);
+    assert.match(text, /Full context: https:\/\/pinar\.dev\/v\/session-one\.md/);
+    assert.equal((parseHandoffJson(text) as any).screenshot, undefined);
     const html = formatClipboardHtml(
       PAGE,
       PINS,
@@ -70,6 +73,14 @@ describe("shared clipboard formats", () => {
       false,
     );
     assert.doesNotMatch(html, /Screenshot:/);
+  });
+
+  test("full agent copy preserves capture geometry while compact remains the default", () => {
+    const compact = parseHandoffJson(formatClipboardText(PAGE, PINS)) as any;
+    const full = parseHandoffJson(formatClipboardText(PAGE, PINS, null, null, "full-copy", true, "full")) as any;
+    assert.equal(compact.pins[0].coords, undefined);
+    assert.deepEqual(full.pins[0].coords, { x: 10, y: 20 });
+    assert.equal(full.schemaVersion, 1);
   });
 
   // Mutation captured: interpolating raw user content exposes tags or unescaped URL attributes.
@@ -86,15 +97,16 @@ describe("shared clipboard formats", () => {
     assert.match(html, /session-one\?x=1&amp;y=2/);
     assert.match(html, /\/tmp\/&lt;shot&gt;\.png/);
     assert.match(html, /Move &lt;button&gt;/);
-    assert.match(html, /button\[name=&quot;pay&quot;\]/);
+    assert.match(html, /cssSelector/);
+    assert.match(html, /pay/);
     assert.match(html, /data-pinar="pinar-visual-context"/);
     assert.doesNotMatch(html, /<review>|<shot>|Move <button>/);
   });
 
-  // Mutation captured: replacing the placeholders with empty strings makes the payload ambiguous.
-  test("uses safe placeholders when page metadata is absent", () => {
-    assert.match(formatClipboardText({ title: "", url: "" }, []), /Page: \(untitled\)\nURL: \(unknown\)/);
-    assert.match(formatClipboardHtml({ title: "", url: "" }, []), /<h3>Page<\/h3>/);
+  test("keeps absent page metadata unambiguous in structured context", () => {
+    const text = formatClipboardText({ title: "", url: "" }, []);
+    assert.deepEqual((parseHandoffJson(text) as any).page, { url: "" });
+    assert.match(formatClipboardHtml({ title: "", url: "" }, []), /&quot;url&quot;:&quot;&quot;/);
   });
 });
 

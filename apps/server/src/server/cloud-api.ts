@@ -402,10 +402,13 @@ async function readOwnerDeliveryPreferences(env: CloudEnv, ownerId: string): Pro
   if (env.DB) {
     try {
       const row = await env.DB.prepare(
-        "SELECT include_screenshot FROM owner_preferences WHERE owner_id = ?",
+        "SELECT handoff_mode, include_screenshot FROM owner_preferences WHERE owner_id = ?",
       ).bind(ownerId).first();
       if (!row) return { ...DEFAULT_DELIVERY_PREFERENCES };
-      return { includeScreenshot: Number(row.include_screenshot) !== 0 };
+      return {
+        handoffMode: row.handoff_mode === "full" ? "full" : "compact",
+        includeScreenshot: Number(row.include_screenshot) !== 0,
+      };
     } catch {
       return { ...DEFAULT_DELIVERY_PREFERENCES };
     }
@@ -422,12 +425,13 @@ async function writeOwnerDeliveryPreferences(
   const updatedAt = currentDate().toISOString();
   if (env.DB) {
     await env.DB.prepare(`
-      INSERT INTO owner_preferences (owner_id, include_screenshot, updated_at)
-      VALUES (?, ?, ?)
+      INSERT INTO owner_preferences (owner_id, handoff_mode, include_screenshot, updated_at)
+      VALUES (?, ?, ?, ?)
       ON CONFLICT(owner_id) DO UPDATE SET
+        handoff_mode = excluded.handoff_mode,
         include_screenshot = excluded.include_screenshot,
         updated_at = excluded.updated_at
-    `).bind(ownerId, next.includeScreenshot ? 1 : 0, updatedAt).run();
+    `).bind(ownerId, next.handoffMode, next.includeScreenshot ? 1 : 0, updatedAt).run();
   } else {
     memoryOwnerPreferences.set(ownerId, next);
   }

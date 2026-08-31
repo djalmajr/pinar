@@ -38,7 +38,7 @@ describe("workspace session drag", () => {
     assert.equal(isSessionDragData({ sessionIds: [""], type: "session" }), false);
   });
 
-  test("does not start a drag from checkboxes, links or no-dnd targets", () => {
+  test("starts from item content but not checkboxes or no-dnd targets", () => {
     function target(hits: string[]) {
       return {
         closest(selector: string) {
@@ -48,7 +48,7 @@ describe("workspace session drag", () => {
       };
     }
     assert.equal(shouldStartWorkspaceDrag({ target: target(["[data-slot=checkbox]"]) } as unknown as Event), false);
-    assert.equal(shouldStartWorkspaceDrag({ target: target(["a"]) } as unknown as Event), false);
+    assert.equal(shouldStartWorkspaceDrag({ target: target(["a"]) } as unknown as Event), true);
     assert.equal(shouldStartWorkspaceDrag({ target: target(["[data-no-dnd]"]) } as unknown as Event), false);
     assert.equal(shouldStartWorkspaceDrag({ target: target([]) } as unknown as Event), true);
   });

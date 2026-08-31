@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import ReactMarkdown from "react-markdown";
-import { getPinColor, PINAR_REOPEN_SESSION_RESULT_EVENT, requestReopenSession, type AgentExecution, type Pin, type PinLocation, type PinReview, type PinReviewHumanAction, type PinReviewStatus, type Session } from "@pinar/shared";
+import { formatClipboardText, getPinColor, PINAR_REOPEN_SESSION_RESULT_EVENT, requestReopenSession, type AgentExecution, type Pin, type PinLocation, type PinReview, type PinReviewHumanAction, type PinReviewStatus, type Session } from "@pinar/shared";
 import { ImageZoomControls, ImageZoomStage, useImageZoom } from "@/components/ImageZoomStage";
 import { ServerShell } from "@/components/ServerShell";
 import { WorkspaceChrome } from "@/components/WorkspaceChrome";
@@ -94,17 +94,10 @@ function OriginalPageAnchor({ className, url }: { className?: string; url: strin
 }
 
 function PrivacyBadges({ session, t }: { session: Session; t: (key: ServerMessageKey, values?: Record<string, string | number>) => string }) {
-  if (!session.privacy?.redacted.length && !session.privacy?.unevaluated) return null;
+  if (!session.privacy?.unevaluated) return null;
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-      {session.privacy?.redacted.length ? (
-        <Badge variant="warning">
-          {t("viewer.privacyRedacted", { categories: session.privacy.redacted.join(", ") })}
-        </Badge>
-      ) : null}
-      {session.privacy?.unevaluated ? (
-        <Badge variant="destructive">{t("viewer.privacyUnevaluated")}</Badge>
-      ) : null}
+      <Badge variant="destructive">{t("viewer.privacyUnevaluated")}</Badge>
     </div>
   );
 }
@@ -206,7 +199,7 @@ function LocationConfidenceBadge({
   t: (key: ServerMessageKey, vars?: Record<string, string | number>) => string;
 }) {
   const badge = locationBadge(t, location);
-  if (!badge) return null;
+  if (!badge || location?.confidence === "exact") return null;
   return (
     <Tooltip>
       <TooltipTrigger render={<span className="inline-flex max-w-full" />}>
@@ -385,9 +378,24 @@ export function WebViewer({ onClose, presentation = "page", sessionId }: WebView
   }
 
   async function copyPage() {
-    const response = await fetch(markdownUrl());
-    if (!response.ok) throw new Error(`Unable to load Markdown (${response.status})`);
-    await navigator.clipboard.writeText(await response.text());
+    if (!session) return;
+    let handoffMode: "compact" | "full" = "compact";
+    try {
+      const response = await fetch("/api/preferences");
+      const preferences: unknown = await response.json();
+      if (response.ok && isRecord(preferences) && preferences.handoffMode === "full") handoffMode = "full";
+    } catch {
+      // Public viewers and older servers keep the compact default.
+    }
+    await navigator.clipboard.writeText(formatClipboardText(
+      session.page,
+      session.pins,
+      session.shotUrl,
+      markdownUrl(),
+      session.captureId || session.id,
+      session.includeScreenshot !== false,
+      handoffMode,
+    ));
     setPageCopied(true);
     window.setTimeout(() => setPageCopied(false), 2_000);
   }

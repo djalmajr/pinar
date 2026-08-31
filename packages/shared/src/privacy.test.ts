@@ -9,6 +9,7 @@ import {
   sanitizeUrl,
 } from "./privacy/index.js";
 import { encodeVisualCaptureJson, formatVisualContextMarkdown, parseVisualCapture } from "./visual-context/index.js";
+import { parseHandoffJson } from "./handoff/index.js";
 
 const PASSWORD = "PINAR_FIXTURE_SECRET_s3cretValue";
 const TOKEN = "tok_live_fixture_9f3aXXXX";
@@ -98,8 +99,11 @@ describe("privacy sanitizer", () => {
     assert.equal(haystack.includes(TOKEN), false);
     assert.equal(haystack.includes(JWT), false);
     assert.equal(haystack.includes("AT_FIXTURE"), false);
-    assert.match(clipboard.plain, /Redacted:/);
-    assert.match(clipboard.html, /Redacted:/);
+    const clipboardContext = parseHandoffJson(clipboard.plain) as {
+      privacy: { redacted: string[]; unevaluated: boolean };
+    };
+    assert.deepEqual(clipboardContext.privacy, sanitized.privacy);
+    assert.match(clipboard.html, /&quot;privacy&quot;/);
     assert.match(markdown, /Redacted: /);
     assert.equal(sanitized.privacy.unevaluated, true);
     assert.ok(sanitized.privacy.redacted.includes("password"));

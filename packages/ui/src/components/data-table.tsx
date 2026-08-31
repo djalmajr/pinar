@@ -38,7 +38,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./dropdown-menu.js";
-import { ScrollArea } from "./scroll-area.js";
 import {
   Select,
   SelectContent,
@@ -94,6 +93,7 @@ type DataTableProps<TData extends RowData> = ComponentProps<"div"> & {
   data: TData[];
   emptyMessage?: string;
   enableRowSelection?: boolean;
+  footerStart?: ReactNode;
   getRowId?: (row: TData) => string;
   initialSorting?: SortingState;
   labels?: DataTableLabels;
@@ -302,7 +302,6 @@ function DataTableViewOptions<TData extends RowData>({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">
         <DropdownMenuGroup>
-          <DropdownMenuLabel>{labels?.columns ?? "Columns"}</DropdownMenuLabel>
           {columns.map((column) => {
             const meta = column.columnDef.meta as ColumnMeta | undefined;
             return (
@@ -327,6 +326,7 @@ function DataTable<TData extends RowData>({
   data,
   emptyMessage = "No results.",
   enableRowSelection = false,
+  footerStart,
   getRowId,
   initialSorting = [],
   labels,
@@ -397,7 +397,7 @@ function DataTable<TData extends RowData>({
     <div className={cn("flex w-full flex-col gap-2.5 overflow-hidden", className)} {...props}>
       <div
         aria-orientation="horizontal"
-        className="flex min-w-0 flex-row items-center gap-2 overflow-x-auto"
+        className="flex min-w-0 flex-wrap items-center gap-2"
         role="toolbar"
       >
         <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2">
@@ -424,7 +424,7 @@ function DataTable<TData extends RowData>({
         </div>
       </div>
       <div className="w-full overflow-hidden rounded-lg border bg-background">
-        <ScrollArea className="w-full">
+        <div className="w-full overflow-x-auto overflow-y-hidden" data-table-scroll-container>
           <Table className="min-w-[760px] table-fixed">
             <colgroup>
               {table.getVisibleLeafColumns().map((column) => (
@@ -534,18 +534,22 @@ function DataTable<TData extends RowData>({
               )}
             </TableBody>
           </Table>
-        </ScrollArea>
+        </div>
       </div>
       {table.getFilteredRowModel().rows.length > 0 ? (
-        <PaginationControls
-          labels={labels}
-          pageCount={table.getPageCount()}
-          pageIndex={pagination.pageIndex}
-          pageSize={pagination.pageSize}
-          pageSizeOptions={pageSizeOptions}
-          onPageIndexChange={table.setPageIndex}
-          onPageSizeChange={table.setPageSize}
-        />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {footerStart}
+          <PaginationControls
+            className="ml-auto"
+            labels={labels}
+            pageCount={table.getPageCount()}
+            pageIndex={pagination.pageIndex}
+            pageSize={pagination.pageSize}
+            pageSizeOptions={pageSizeOptions}
+            onPageIndexChange={table.setPageIndex}
+            onPageSizeChange={table.setPageSize}
+          />
+        </div>
       ) : null}
     </div>
   );

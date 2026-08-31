@@ -2,6 +2,12 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { formatClipboard, formatClipboardPayload, formatViewerContent, formatViewerLink } from "./format.js";
 
+function contextFrom(plain) {
+  const match = plain.match(/```pinar-visual-context\n([\s\S]*?)\n```/);
+  assert.ok(match);
+  return JSON.parse(match[1]);
+}
+
 describe("formatViewerLink", () => {
   test("copies only the markdown viewer URL", () => {
     const payload = formatViewerLink("http://127.0.0.1:17373/v/session-1");
@@ -30,11 +36,12 @@ describe("formatClipboardPayload", () => {
       viewerUrl: "http://127.0.0.1:17373/v/session-1.md",
     });
 
-    assert.match(payload.plain, /captureId: session-1/);
-    assert.match(payload.plain, /pinId: pin_1/);
-    assert.match(payload.plain, /Fix this/);
-    assert.match(payload.plain, /Screenshot: \/Users\/me\/\.pinar\/shots\/session-1\.png/);
-    assert.match(payload.plain, /Viewer: http:\/\/127\.0\.0\.1:17373\/v\/session-1\.md/);
+    const context = contextFrom(payload.plain);
+    assert.equal(context.captureId, "session-1");
+    assert.equal(context.pins[0].pinId, "pin_1");
+    assert.equal(context.pins[0].comment, "Fix this");
+    assert.deepEqual(context.screenshot, { url: "/Users/me/.pinar/shots/session-1.png" });
+    assert.match(payload.plain, /Full context: http:\/\/127\.0\.0\.1:17373\/v\/session-1\.md/);
     assert.match(payload.plain, /```pinar-visual-context/);
   });
 
@@ -58,7 +65,7 @@ describe("formatViewerContent", () => {
 });
 
 describe("formatClipboard", () => {
-  test("plain text carries comment, DOM path, selector, and one shared shot", () => {
+  test("plain text carries each fact once in compact structured context", () => {
     // Mutation captured: omitting the DOM path so paste cannot locate the node.
     const { html, plain } = formatClipboard({
       captureId: "cap_pricing",
@@ -78,27 +85,50 @@ describe("formatClipboard", () => {
       sentAt: "2026-08-13T21:00:00.000Z",
       shot: "data:image/png;base64,aaa",
     });
-    assert.match(plain, /schemaVersion: 1/);
-    assert.match(plain, /captureId: cap_pricing/);
-    assert.match(plain, /pinId: pin_1/);
-    assert.match(plain, /http:\/\/localhost\/pricing/);
-    assert.match(plain, /Make the CTA bolder/);
-    assert.match(plain, /main > section.card > button.cta/);
-    assert.match(plain, /button.cta/);
-    assert.match(plain, /Pin: x=90, y=112/);
-    assert.match(plain, /Box: x=24, y=80, w=160, h=40/);
-    assert.match(plain, /!\[Pinar pins]\(data:image\/png;base64,aaa\)/);
-    assert.equal((plain.match(/!\[Pinar/g) || []).length, 1);
+    const context = contextFrom(plain);
+    assert.equal(context.schemaVersion, undefined);
+    assert.equal(context.captureId, "cap_pricing");
+    assert.equal(context.page.url, "http://localhost/pricing");
+    assert.equal(context.pins[0].pinId, "pin_1");
+    assert.equal(context.pins[0].comment, "Make the CTA bolder");
+    assert.equal(context.pins[0].locator.domPath, "main > section.card > button.cta");
+    assert.equal(context.pins[0].locator.cssSelector, "button.cta");
+    assert.equal(context.pins[0].anchor, undefined);
+    assert.equal(context.pins[0].box, undefined);
+    assert.equal((plain.match(/main > section\.card > button\.cta/g) || []).length, 1);
+    assert.equal((plain.match(/button\.cta/g) || []).length, 2);
+    assert.doesNotMatch(plain, /data:image\/png;base64/);
     assert.match(plain, /```pinar-visual-context/);
-    assert.equal(plain.includes("data:image/png;base64,aaa") && plain.includes('"url":null'), true);
+    assert.equal(context.screenshot, undefined);
+    assert.deepEqual(context.warnings, ["screenshot_inline"]);
     assert.match(html, /Pinar pins/);
-    assert.match(html, /Pin:<\/strong> x=90, y=112/);
     assert.match(html, /data:image\/png;base64,aaa/);
     assert.match(html, /main &gt; section.card &gt; button.cta/);
   });
 
-  test("plain text leaves a blank line between pins", () => {
-    // Mutation captured: joining pin blocks with a single newline so headings stick to the previous Box line.
+  test("full mode preserves captured geometry and metadata", () => {
+    const { plain } = formatClipboard({
+      captureId: "cap_full",
+      handoffMode: "full",
+      page: { title: "Pricing", url: "http://localhost/pricing" },
+      pins: [{
+        anchor: { x: 90, y: 112 },
+        box: { height: 40, width: 160, x: 24, y: 80 },
+        comment: "Make the CTA bolder",
+        id: "pin_1",
+        selector: "button.cta",
+      }],
+      schemaVersion: 1,
+      viewport: { height: 900, width: 1440 },
+    });
+    const context = contextFrom(plain);
+    assert.deepEqual(context.pins[0].anchor, { x: 90, y: 112 });
+    assert.deepEqual(context.pins[0].box, { height: 40, width: 160, x: 24, y: 80 });
+    assert.equal(context.schemaVersion, 1);
+    assert.deepEqual(context.viewport, { height: 900, width: 1440 });
+  });
+
+  test("keeps multiple pins in one structured block without prose duplication", () => {
     const { plain } = formatClipboard({
       page: { title: "Pricing", url: "http://localhost/pricing" },
       pins: [
@@ -106,7 +136,9 @@ describe("formatClipboard", () => {
         { comment: "second", id: "b", kind: "element", label: "p" },
       ],
     });
-    assert.match(plain, /Comment: first\n\n## 2\. element/);
+    const context = contextFrom(plain);
+    assert.deepEqual(context.pins.map((pin) => pin.comment), ["first", "second"]);
+    assert.doesNotMatch(plain, /## 1\.|## 2\.|Comment:/);
   });
 
   test("file-path crops stay as a short Screenshot line once", () => {
@@ -119,8 +151,8 @@ describe("formatClipboard", () => {
       ],
       shot: "/Users/me/.pinar/shots/pinar-1.png",
     });
-    assert.match(plain, /Screenshot: \/Users\/me\/\.pinar\/shots\/pinar-1\.png/);
-    assert.equal((plain.match(/Screenshot:/g) || []).length, 1);
+    assert.equal(contextFrom(plain).screenshot.url, "/Users/me/.pinar/shots/pinar-1.png");
+    assert.equal((plain.match(/\/Users\/me\/\.pinar\/shots\/pinar-1\.png/g) || []).length, 1);
     assert.equal(plain.includes("![Pinar pins](/Users/me/.pinar/shots/pinar-1.png)"), false);
     assert.match(html, /\/Users\/me\/\.pinar\/shots\/pinar-1\.png/);
     assert.equal(html.includes("<img"), false);
@@ -133,8 +165,8 @@ describe("formatClipboard", () => {
       shot: "https://pinar-cloud.workers.dev/shots/1.png",
       viewerUrl: "https://pinar-cloud.workers.dev/v/1",
     });
-    assert.match(plain, /Viewer: https:\/\/pinar-cloud\.workers\.dev\/v\/1\.md/);
-    assert.match(html, /href="https:\/\/pinar-cloud\.workers\.dev\/v\/1\.md"/);
+    assert.match(plain, /Full context: https:\/\/pinar-cloud\.workers\.dev\/v\/1\.md/);
+    assert.match(html, /Full context: https:\/\/pinar-cloud\.workers\.dev\/v\/1\.md/);
   });
 
   test("lists redacted categories without original secrets", () => {
@@ -143,9 +175,9 @@ describe("formatClipboard", () => {
       pins: [{ comment: "Fix this", id: "1" }],
       privacy: { redacted: ["password", "token"], unevaluated: true },
     });
-    assert.match(plain, /Redacted: password, token/);
-    assert.match(plain, /some regions could not be inspected/);
-    assert.match(html, /Redacted: password, token/);
+    const context = contextFrom(plain);
+    assert.deepEqual(context.privacy, { redacted: ["password", "token"], unevaluated: true });
+    assert.match(html, /&quot;redacted&quot;:\[&quot;password&quot;,&quot;token&quot;\]/);
     assert.equal(plain.includes("s3cret"), false);
   });
 
@@ -156,13 +188,12 @@ describe("formatClipboard", () => {
       pins: [{ comment: "Still useful", id: "pin_1", path: "main > button", selector: "button" }],
       warnings: ["helper_unavailable", "viewer_unavailable"],
     });
-    assert.match(plain, /captureId: cap_local/);
-    assert.match(plain, /pinId: pin_1/);
-    assert.match(plain, /Still useful/);
-    assert.match(plain, /main > button/);
-    assert.match(plain, /helper_unavailable/);
-    assert.match(plain, /viewer_unavailable/);
-    assert.match(plain, /screenshot_missing/);
+    const context = contextFrom(plain);
+    assert.equal(context.captureId, "cap_local");
+    assert.equal(context.pins[0].pinId, "pin_1");
+    assert.equal(context.pins[0].comment, "Still useful");
+    assert.equal(context.pins[0].locator.domPath, "main > button");
+    assert.deepEqual(context.warnings, ["helper_unavailable", "viewer_unavailable", "screenshot_missing"]);
     assert.match(plain, /```pinar-visual-context/);
   });
 
@@ -175,13 +206,13 @@ describe("formatClipboard", () => {
       shot: "/Users/me/.pinar/shots/cap_no_shot.png",
       viewerUrl: "http://127.0.0.1:17373/v/cap_no_shot.md",
     });
-    assert.match(plain, /captureId: cap_no_shot/);
-    assert.match(plain, /Viewer: http:\/\/127\.0\.0\.1:17373\/v\/cap_no_shot\.md/);
+    const context = contextFrom(plain);
+    assert.equal(context.captureId, "cap_no_shot");
+    assert.match(plain, /Full context: http:\/\/127\.0\.0\.1:17373\/v\/cap_no_shot\.md/);
     assert.doesNotMatch(plain, /Screenshot:/);
     assert.doesNotMatch(plain, /screenshot_missing/);
     assert.doesNotMatch(plain, /Colored numbered bubbles/);
     assert.doesNotMatch(html, /Screenshot:/);
-    assert.match(plain, /"missing":false/);
-    assert.match(plain, /"url":null/);
+    assert.equal(context.screenshot, undefined);
   });
 });

@@ -9,6 +9,8 @@ export interface FormatClipboardInput {
     iframe?: boolean;
   };
   captureId?: string;
+  createdAt?: string;
+  handoffMode?: "compact" | "full";
   includeScreenshot?: boolean;
   page?: {
     description?: string;
@@ -24,6 +26,7 @@ export interface FormatClipboardInput {
   sentAt?: string;
   shot?: string;
   viewerUrl?: string;
+  viewport?: object;
   warnings?: string[];
 }
 

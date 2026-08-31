@@ -69,7 +69,7 @@ import FolderOpenIcon from "~icons/lucide/folder-open";
 import FolderPlusIcon from "~icons/lucide/folder-plus";
 import InboxIcon from "~icons/lucide/inbox";
 import LayoutGridIcon from "~icons/lucide/layout-grid";
-import MoreHorizontalIcon from "~icons/lucide/more-horizontal";
+import MoreVerticalIcon from "~icons/lucide/ellipsis-vertical";
 import PencilIcon from "~icons/lucide/pencil";
 import PlusIcon from "~icons/lucide/plus";
 import ShareIcon from "~icons/lucide/share-2";
@@ -173,7 +173,7 @@ function CollectionMenu({
           />
         }
       >
-        <MoreHorizontalIcon />
+        <MoreVerticalIcon />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-48" side="right" sideOffset={8}>
         <DropdownMenuGroup>
@@ -246,7 +246,12 @@ function SortableCollection({
   };
 
   return (
-    <SidebarMenuItem ref={sortable.setNodeRef} style={style}>
+    <SidebarMenuItem
+      ref={sortable.setNodeRef}
+      data-collection-depth={depth}
+      data-collection-id={collection.id}
+      style={style}
+    >
       <SidebarMenuButton
         {...sortable.attributes}
         {...sortable.listeners}
@@ -267,6 +272,15 @@ function SortableCollection({
         </span>
         <span>{collection.name}</span>
       </SidebarMenuButton>
+      {Array.from({ length: depth }, (_, level) => (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 z-10 w-px bg-sidebar-border"
+          data-collection-guide
+          key={level}
+          style={{ insetInlineStart: `${15 + (level * COLLECTION_INDENTATION_WIDTH)}px` }}
+        />
+      ))}
       {hasChildren && (
         <button
           aria-expanded={isExpanded}
@@ -427,9 +441,6 @@ export function ProjectSwitcher({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" side="bottom" sideOffset={8}>
         <DropdownMenuGroup>
-          <DropdownMenuLabel className="capitalize">
-            {t("dashboard.project")}
-          </DropdownMenuLabel>
           {projectTree.projects.map((project) => (
             <DropdownMenuItem key={project.id} onClick={() => onSelectProject(project.id)}>
               <ProjectIconGlyph icon={project.icon} />
@@ -474,7 +485,7 @@ export function ProjectActionsMenu({
           />
         }
       >
-        <MoreHorizontalIcon />
+        <MoreVerticalIcon />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-44">
         <DropdownMenuGroup>

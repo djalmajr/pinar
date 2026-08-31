@@ -92,6 +92,40 @@ describe("session after copy", () => {
     assert.match(contentSrc, /state\.draft\?\.kind === "element"/);
   });
 
+  test("extension controls use the same non-pill radius language as the app", () => {
+    const toolbarStyles = contentSrc.slice(contentSrc.indexOf(".toolbar {"), contentSrc.indexOf(".toolbar.pass-through"));
+    const composerStyles = contentSrc.slice(contentSrc.indexOf(".composer-card {"), contentSrc.indexOf(".privacy-mask {"));
+    assert.match(toolbarStyles, /border-radius: 8px/);
+    assert.match(composerStyles, /\.composer-card \{[\s\S]*border-radius: 8px/);
+    assert.match(composerStyles, /\.btn-cancel, \.btn-add \{[\s\S]*border-radius: 6px/);
+    assert.doesNotMatch(composerStyles, /border-radius: 999px/);
+  });
+
+  test("live element and area selection shows position and dimensions", () => {
+    // Mutation captured: limiting the badge to is-dragging hides geometry while
+    // the user navigates candidate elements with the pointer or keyboard.
+    assert.match(contentSrc, /\.outline\.show-geometry \.outline-badge/);
+    assert.match(contentSrc, /classList\.toggle\("show-geometry", showGeometry\)/);
+    assert.match(contentSrc, /showOutline\(boxOf\(selection\.current\), false, false, BLUE, true\)/);
+    assert.match(contentSrc, /normBox\(state\.drag\)[\s\S]*?true,[\s\S]*?\);/);
+    assert.match(contentSrc, /outlineBadge\.textContent = geometryLabel\(box\)/);
+  });
+
+  test("fixed modal capture preserves the measured viewport rect", () => {
+    // Mutation captured: keeping a dialog's centering translation after moving
+    // it to its measured absolute top/left shifts the screenshot by half the modal.
+    const prepareCapture = contentSrc.slice(
+      contentSrc.indexOf("async function prepareCapture"),
+      contentSrc.indexOf("async function scrollCapture"),
+    );
+    assert.match(prepareCapture, /setProperty\("transform", "none", "important"\)/);
+    assert.match(prepareCapture, /setProperty\("translate", "none", "important"\)/);
+    assert.match(prepareCapture, /setProperty\("scale", "none", "important"\)/);
+    assert.match(prepareCapture, /setProperty\("rotate", "none", "important"\)/);
+    assert.ok(prepareCapture.indexOf('setProperty("translate", "none", "important")')
+      < prepareCapture.indexOf('setProperty("top", `${rect.top + window.scrollY}px`, "important")'));
+  });
+
   test("pin refresh targets only frames that own annotations", () => {
     // Mutation captured: refreshing all tab frames makes one unrelated,
     // inaccessible iframe abort copying annotations from the top page.

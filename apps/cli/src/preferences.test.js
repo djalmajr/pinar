@@ -20,16 +20,26 @@ describe("delivery preferences", () => {
     if (tempDir) await rm(tempDir, { force: true, recursive: true });
   });
 
-  test("defaults to delivering screenshots", () => {
-    assert.deepEqual(readDeliveryPreferences(tempDir), { includeScreenshot: true });
+  test("defaults to compact agent copies with screenshots", () => {
+    assert.deepEqual(readDeliveryPreferences(tempDir), { handoffMode: "compact", includeScreenshot: true });
   });
 
   test("persists includeScreenshot for the local helper", () => {
     assert.deepEqual(writeDeliveryPreferences({ includeScreenshot: false }, tempDir), {
+      handoffMode: "compact",
       includeScreenshot: false,
     });
     assert.equal(readDeliveryPreferences(tempDir).includeScreenshot, false);
     assert.equal(writeDeliveryPreferences({}, tempDir).includeScreenshot, false);
+  });
+
+  test("persists the handoff detail independently from the saved capture", () => {
+    assert.deepEqual(writeDeliveryPreferences({ handoffMode: "full" }, tempDir), {
+      handoffMode: "full",
+      includeScreenshot: true,
+    });
+    assert.equal(readDeliveryPreferences(tempDir).handoffMode, "full");
+    assert.equal(writeDeliveryPreferences({ handoffMode: "invalid" }, tempDir).handoffMode, "full");
   });
 
   test("treats numeric 0 as omitting the screenshot", () => {

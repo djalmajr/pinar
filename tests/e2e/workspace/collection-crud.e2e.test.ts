@@ -135,6 +135,9 @@ test("nested collection CRUD protects Inbox and preserves sessions through conta
   await expect(dialog).not.toBeVisible();
   await openWorkspaceSidebar(page, "Child");
   await expect(page.getByRole("button", { exact: true, name: "Child" })).toBeVisible();
+  const childCollection = page.locator('[data-collection-id="col_child"]');
+  await expect(childCollection).toHaveAttribute("data-collection-depth", "1");
+  await expect(childCollection.locator("[data-collection-guide]")).toHaveCount(1);
   expect(workspaceCollections.find((item) => item.id === "col_child")?.parentId).toBe("col_parent");
   if (!isMobileViewport(page)) {
     const breadcrumb = page.getByRole("navigation", { name: "Breadcrumb" });

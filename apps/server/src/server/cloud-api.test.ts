@@ -396,6 +396,7 @@ describe("remote installation isolation", () => {
     assert.equal((await api("/api/preferences")).status, 401);
     const defaults = await jsonBody(await api("/api/preferences", { headers: identityHeaders(identityA) }));
     assert.equal(defaults.ok, true);
+    assert.equal(defaults.handoffMode, "compact");
     assert.equal(defaults.includeScreenshot, true);
 
     const uploaded = await api("/api/shots", {
@@ -425,13 +426,23 @@ describe("remote installation isolation", () => {
       method: "PATCH",
     }));
     assert.equal(patched.includeScreenshot, false);
+    assert.equal(patched.handoffMode, "compact");
+    const detailed = await jsonBody(await api("/api/preferences", {
+      body: JSON.stringify({ handoffMode: "full" }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
+      method: "PATCH",
+    }));
+    assert.equal(detailed.handoffMode, "full");
+    assert.equal(detailed.includeScreenshot, false);
     const emptyPatch = await jsonBody(await api("/api/preferences", {
       body: JSON.stringify({}),
       headers: identityHeaders(identityA, { "content-type": "application/json" }),
       method: "PATCH",
     }));
+    assert.equal(emptyPatch.handoffMode, "full");
     assert.equal(emptyPatch.includeScreenshot, false);
     const otherOwner = await jsonBody(await api("/api/preferences", { headers: identityHeaders(identityB) }));
+    assert.equal(otherOwner.handoffMode, "compact");
     assert.equal(otherOwner.includeScreenshot, true);
 
     const markdown = await handleCloudPublicRequest(

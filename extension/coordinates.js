@@ -37,6 +37,14 @@
     };
   }
 
+  function geometryLabel(box) {
+    const x = Math.round(Number(box?.x) || 0);
+    const y = Math.round(Number(box?.y) || 0);
+    const width = Math.max(0, Math.round(Number(box?.width) || 0));
+    const height = Math.max(0, Math.round(Number(box?.height) || 0));
+    return `(${x},${y}) ${width}x${height}`;
+  }
+
   function anchorInBox(pin, box) {
     const sourceBox = pin.box;
     const sourceAnchor = pin.anchor ?? {
@@ -97,6 +105,7 @@
     anchorInBox,
     documentBox,
     documentPoint,
+    geometryLabel,
     pinDocumentGeometry,
     projectPin,
     viewportBox,

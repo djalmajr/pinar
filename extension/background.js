@@ -112,6 +112,36 @@ async function syncBatchSurfaces(extra = {}) {
     : chrome.tabs.sendMessage(tab.id, { type: "batch:changed", ...state, ...extra }).catch(() => null))));
 }
 
+function overlayMessages(language) {
+  const catalog = translations[language] || translations.en;
+  const messages = {};
+  for (const key of Object.keys(catalog)) {
+    if (key.startsWith("overlay_")) messages[key] = catalog[key];
+  }
+  return messages;
+}
+
+async function uiMessagesState() {
+  const settings = await getSettings();
+  const language = getBestLanguage(settings.language);
+  return { language, messages: overlayMessages(language) };
+}
+
+// Same fan-out as the batch pill: every open tab gets a fresh overlay dictionary
+// when the Options language changes. Missing content scripts are ignored.
+async function syncUiMessages() {
+  const state = await uiMessagesState();
+  const tabs = await chrome.tabs.query({}).catch(() => []);
+  await Promise.all(tabs.map((tab) => (tab.id == null
+    ? null
+    : chrome.tabs.sendMessage(tab.id, { type: "ui:messages", ...state }).catch(() => null))));
+}
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "sync" || !changes.language) return;
+  void syncUiMessages();
+});
+
 chrome.runtime.onInstalled.addListener(() => {
   void initializeInstallationIdentity();
 });
@@ -227,6 +257,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "batch:get") {
     batchState()
+      .then((state) => sendResponse({ ...state, ok: true }))
+      .catch((error) => sendResponse({ error: String(error), ok: false }));
+    return true;
+  }
+
+  if (message.type === "ui:messages") {
+    uiMessagesState()
       .then((state) => sendResponse({ ...state, ok: true }))
       .catch((error) => sendResponse({ error: String(error), ok: false }));
     return true;

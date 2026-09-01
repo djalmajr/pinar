@@ -15,6 +15,9 @@ test("i18n translations dictionary", () => {
     "batch_label",
     "destination_unavailable",
     "project_label",
+    "overlay_copied",
+    "overlay_hint_pin",
+    "overlay_write_comment",
   ];
 
   for (const lang of Object.keys(translations)) {
@@ -61,5 +64,52 @@ test("getBestLanguage ignores browser language so the shipped extension stays En
   } finally {
     if (navigatorDescriptor) Object.defineProperty(globalThis, "navigator", navigatorDescriptor);
     else Reflect.deleteProperty(globalThis, "navigator");
+  }
+});
+
+test("overlay copy is served through ui:messages and falls back to English", () => {
+  const contentSrc = readFileSync(new URL("./content.js", import.meta.url), "utf8");
+  const backgroundSrc = readFileSync(new URL("./background.js", import.meta.url), "utf8");
+  assert.match(contentSrc, /type: "ui:messages"/);
+  assert.match(backgroundSrc, /message\.type === "ui:messages"/);
+  assert.match(backgroundSrc, /chrome\.storage\.onChanged/);
+  assert.match(backgroundSrc, /changes\.language/);
+
+  const fallbackMatch = contentSrc.match(/const FALLBACK_MESSAGES = \{[\s\S]*?\n  \};/);
+  assert.ok(fallbackMatch, "content.js should keep an English fallback dictionary");
+  const fallback = fallbackMatch[0];
+  const outside = contentSrc.replace(fallback, "");
+  const literals = [
+    "Click or drag to pin",
+    "to fine-tune selection",
+    "Fine-tune",
+    "to copy",
+    "Copy",
+    "hide region",
+    "Hide",
+    "to clear",
+    "Clear",
+    "Comment",
+    "Cancel",
+    "Add",
+    "Original page is unavailable",
+    "Click the correct element to place this pin",
+    "Reviewing saved session · pending pins need a manual place",
+    "Region hidden · click the mask to restore",
+    "Drag to hide a region · click a mask to restore",
+    "Pin mode",
+    "Copying…",
+    "Copied",
+    "no screenshot",
+    "helper unavailable",
+    "no viewer",
+    "Write a comment first",
+    "Add a pin first",
+    "Copy failed",
+  ];
+  for (const literal of literals) {
+    const quoted = `"${literal}"`;
+    assert.ok(fallback.includes(quoted), `fallback missing ${literal}`);
+    assert.equal(outside.includes(quoted), false, `${literal} still appears outside the fallback dictionary`);
   }
 });

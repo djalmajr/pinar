@@ -5,7 +5,7 @@
   }
 
   const DRAG_THRESHOLD = 6;
-  // How long "Copied" stays up before the overlay closes. Short on purpose.
+  // How long the copy confirmation stays up before the overlay closes. Short on purpose.
   const COPY_CONFIRMATION_MS = 1400;
   const BLUE = "#5794FF";
   const MARK = "#6691F2";
@@ -127,6 +127,37 @@
   function removeGlobalStyles() {
     document.getElementById(STYLE_ID)?.remove();
   }
+
+  const FALLBACK_MESSAGES = {
+    overlay_add: "Add",
+    overlay_add_pin_first: "Add a pin first",
+    overlay_cancel: "Cancel",
+    overlay_comment: "Comment",
+    overlay_copied: "Copied",
+    overlay_copy_failed: "Copy failed",
+    overlay_copying: "Copying…",
+    overlay_helper_unavailable: "helper unavailable",
+    overlay_hint_clear_long: "to clear",
+    overlay_hint_clear_short: "Clear",
+    overlay_hint_copy_long: "to copy",
+    overlay_hint_copy_short: "Copy",
+    overlay_hint_mask_long: "hide region",
+    overlay_hint_mask_short: "Hide",
+    overlay_hint_pin: "Click or drag to pin",
+    overlay_hint_tune_long: "to fine-tune selection",
+    overlay_hint_tune_short: "Fine-tune",
+    overlay_mask_mode: "Drag to hide a region · click a mask to restore",
+    overlay_no_screenshot: "no screenshot",
+    overlay_no_viewer: "no viewer",
+    overlay_page_unavailable: "Original page is unavailable",
+    overlay_pin_mode: "Pin mode",
+    overlay_place_pin: "Click the correct element to place this pin",
+    overlay_region_hidden: "Region hidden · click the mask to restore",
+    overlay_reviewing: "Reviewing saved session · pending pins need a manual place",
+    overlay_write_comment: "Write a comment first",
+  };
+  let messages = {};
+  const t = (key) => messages[key] ?? FALLBACK_MESSAGES[key];
 
   const host = document.createElement("div");
   host.setAttribute("data-pinar", "host");
@@ -481,11 +512,11 @@
           ${bubbleSvg({ className: "mark", variant: "dots" })}
         </span>
         <span class="instructions" data-ref="instructions">
-          <span class="hint" data-hint="pin">Click or drag to pin</span>
-          <span class="hint" data-hint="tune"><span class="keys"><kbd>↑</kbd><kbd>↓</kbd></span><span class="long">to fine-tune selection</span><span class="short">Fine-tune</span></span>
-          <span class="hint" data-hint="copy"><span class="keys"><kbd>${sendMod}</kbd><kbd>↵</kbd></span><span class="long">to copy</span><span class="short">Copy</span></span>
-          <span class="hint" data-hint="mask"><span class="keys"><kbd>M</kbd></span><span class="long">hide region</span><span class="short">Hide</span></span>
-          <span class="hint" data-hint="clear"><span class="keys"><kbd>esc</kbd></span><span class="long">to clear</span><span class="short">Clear</span></span>
+          <span class="hint" data-hint="pin" data-i18n="overlay_hint_pin">${t("overlay_hint_pin")}</span>
+          <span class="hint" data-hint="tune"><span class="keys"><kbd>↑</kbd><kbd>↓</kbd></span><span class="long" data-i18n="overlay_hint_tune_long">${t("overlay_hint_tune_long")}</span><span class="short" data-i18n="overlay_hint_tune_short">${t("overlay_hint_tune_short")}</span></span>
+          <span class="hint" data-hint="copy"><span class="keys"><kbd>${sendMod}</kbd><kbd>↵</kbd></span><span class="long" data-i18n="overlay_hint_copy_long">${t("overlay_hint_copy_long")}</span><span class="short" data-i18n="overlay_hint_copy_short">${t("overlay_hint_copy_short")}</span></span>
+          <span class="hint" data-hint="mask"><span class="keys"><kbd>M</kbd></span><span class="long" data-i18n="overlay_hint_mask_long">${t("overlay_hint_mask_long")}</span><span class="short" data-i18n="overlay_hint_mask_short">${t("overlay_hint_mask_short")}</span></span>
+          <span class="hint" data-hint="clear"><span class="keys"><kbd>esc</kbd></span><span class="long" data-i18n="overlay_hint_clear_long">${t("overlay_hint_clear_long")}</span><span class="short" data-i18n="overlay_hint_clear_short">${t("overlay_hint_clear_short")}</span></span>
         </span>
         <span class="status" data-ref="toolbarStatus" hidden></span>
         <span class="batch-pill" data-ref="batchPill">
@@ -504,15 +535,15 @@
     <div class="composer" data-ref="composer" hidden>
       <div class="composer-card">
         <span class="composer-target" data-ref="selectionTag" hidden></span>
-        <textarea data-ref="input" rows="1" placeholder="Comment"></textarea>
+        <textarea data-ref="input" rows="1" placeholder="${t("overlay_comment")}"></textarea>
         <div class="composer-actions">
           <button type="button" class="icon-btn is-ready" data-ref="deleteDraft" title="Delete" aria-label="Delete">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
               <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 11v6m-4-6v6M6 7v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7M4 7h16M7 7l2-4h6l2 4"/>
             </svg>
           </button>
-          <button type="button" class="btn-cancel" data-ref="cancel">Cancel</button>
-          <button type="button" class="btn-add" data-ref="save">Add</button>
+          <button type="button" class="btn-cancel" data-ref="cancel" data-i18n="overlay_cancel">${t("overlay_cancel")}</button>
+          <button type="button" class="btn-add" data-ref="save" data-i18n="overlay_add">${t("overlay_add")}</button>
         </div>
       </div>
     </div>
@@ -911,9 +942,9 @@
   }
 
   function reviewBannerText() {
-    if (state.unavailable) return "Original page is unavailable";
-    if (state.repositionPinId) return "Click the correct element to place this pin";
-    return "Reviewing saved session · pending pins need a manual place";
+    if (state.unavailable) return t("overlay_page_unavailable");
+    if (state.repositionPinId) return t("overlay_place_pin");
+    return t("overlay_reviewing");
   }
 
   function setStatus(text, kind = "info") {
@@ -949,6 +980,29 @@
       applyBatchState(response?.ok ? response : null);
     } catch {
       applyBatchState(null);
+    }
+  }
+
+  function applyOverlayCopy() {
+    shadow.querySelectorAll("[data-i18n]").forEach((node) => {
+      node.textContent = t(node.getAttribute("data-i18n"));
+    });
+    if (ui.input) ui.input.placeholder = t("overlay_comment");
+    renderChrome();
+  }
+
+  function applyUiMessages(next) {
+    if (!next?.messages || typeof next.messages !== "object") return;
+    messages = next.messages;
+    applyOverlayCopy();
+  }
+
+  async function syncUiMessages() {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "ui:messages" });
+      if (response?.ok) applyUiMessages(response);
+    } catch {
+      /* keep English fallback */
     }
   }
 
@@ -1114,7 +1168,7 @@
       },
     ];
     renderMarkers();
-    flashStatus("Region hidden · click the mask to restore", "ok");
+    flashStatus(t("overlay_region_hidden"), "ok");
   }
 
   function removeMask(id) {
@@ -1131,7 +1185,7 @@
     if (state.draft) return;
     state.maskMode = !state.maskMode;
     renderChrome();
-    flashStatus(state.maskMode ? "Drag to hide a region · click a mask to restore" : "Pin mode", "ok");
+    flashStatus(state.maskMode ? t("overlay_mask_mode") : t("overlay_pin_mode"), "ok");
   }
 
   function escapeAttr(value) {
@@ -1666,11 +1720,11 @@
 
   function handoffStatusText(result) {
     const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
-    if (!result?.degraded) return "Copied";
-    const parts = ["Copied"];
-    if (warnings.includes("screenshot_missing")) parts.push("no screenshot");
-    if (warnings.includes("helper_unavailable")) parts.push("helper unavailable");
-    else if (warnings.includes("viewer_unavailable")) parts.push("no viewer");
+    if (!result?.degraded) return t("overlay_copied");
+    const parts = [t("overlay_copied")];
+    if (warnings.includes("screenshot_missing")) parts.push(t("overlay_no_screenshot"));
+    if (warnings.includes("helper_unavailable")) parts.push(t("overlay_helper_unavailable"));
+    else if (warnings.includes("viewer_unavailable")) parts.push(t("overlay_no_viewer"));
     return parts.join(" · ");
   }
 
@@ -1678,7 +1732,7 @@
     if (!isMounted() || !state.active || state.sending) return;
     if (isEmbedded) {
       if (!saveDraft()) {
-        flashStatus("Write a comment first");
+        flashStatus(t("overlay_write_comment"));
         return;
       }
       await syncPins();
@@ -1686,11 +1740,11 @@
       return;
     }
     if (!saveDraft()) {
-      flashStatus("Write a comment first");
+      flashStatus(t("overlay_write_comment"));
       return;
     }
     if (state.pins.length === 0 && !state.draft) {
-      flashStatus("Add a pin first");
+      flashStatus(t("overlay_add_pin_first"));
       return;
     }
     let extraQueryKeys = [];
@@ -1701,14 +1755,14 @@
       extraQueryKeys = [];
     }
     state.sending = true;
-    setStatus("Copying…");
+    setStatus(t("overlay_copying"));
     try {
       const refreshed = await chrome.runtime.sendMessage({ type: "pins:refresh" }).catch(() => null);
       if (!refreshed?.ok) throw new Error(refreshed?.error || "pin positions could not be refreshed");
       const listed = await chrome.runtime.sendMessage({ type: "pins:list" }).catch(() => null);
       const pins = listed?.pins ?? state.pins;
       if (pins.length === 0) {
-        flashStatus("Add a pin first");
+        flashStatus(t("overlay_add_pin_first"));
         return;
       }
       const scan = activeScan();
@@ -1723,7 +1777,7 @@
       }).catch((error) => ({ error: String(error), ok: false }));
       const shot = capture?.ok ? capture.shot : null;
       // The screenshot needed every overlay out of the frame. Bring this
-      // frame's toolbar back now so the "Copying…"/"Copied" confirmation is
+      // frame's toolbar back now so the copy confirmation is
       // actually seen; child frames stay hidden until session:end so their
       // pins do not flash after the top toolbar is gone.
       setHidden(false);
@@ -1763,7 +1817,7 @@
     } catch (error) {
       await chrome.runtime.sendMessage({ hidden: false, type: "overlays:hidden" }).catch(() => null);
       console.warn("Pinar copy failed", error);
-      flashStatus("Copy failed");
+      flashStatus(t("overlay_copy_failed"));
     } finally {
       state.sending = false;
       if (state.reopenAfterSend) {
@@ -1881,6 +1935,7 @@
       updateOutline();
       renderMarkers();
       void syncBatchLabel();
+      void syncUiMessages();
       return;
     }
     document.documentElement.removeAttribute("data-pinar-active");
@@ -1933,7 +1988,7 @@
     if (state.reviewMode && pin && isPendingLocation(viewportPin(pin).location)) {
       state.repositionPinId = pinId;
       renderChrome();
-      flashStatus("Click the correct element to place this pin", "ok");
+      flashStatus(t("overlay_place_pin"), "ok");
       return;
     }
     openPinEditor(pinId);
@@ -2026,7 +2081,7 @@
     state.pins = [];
     setStatus(reason === "origin_mismatch"
       ? "This page is not the original capture URL"
-      : "Original page is unavailable", "error");
+      : t("overlay_page_unavailable"), "error");
     renderChrome();
     renderMarkers();
     return true;
@@ -2146,6 +2201,11 @@
       sendResponse({ ok: true });
       return false;
     }
+    if (message?.type === "ui:messages") {
+      applyUiMessages(message);
+      sendResponse({ ok: true });
+      return false;
+    }
     if (message?.type === "session:unavailable") {
       sendResponse({ ok: showUnavailable(message.reason) });
       return false;
@@ -2158,4 +2218,5 @@
   updateOutline();
   renderMarkers();
   void syncBatchLabel();
+  void syncUiMessages();
 })();

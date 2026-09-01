@@ -33,6 +33,14 @@ export interface TranslationDictionary {
   shortcuts_browser_title: string;
   shortcuts_browser_desc: string;
   shortcuts_toggle_label: string;
+  shortcuts_toggle_desc: string;
+  shortcuts_finish_batch_desc: string;
+  shortcuts_open_panel_desc: string;
+  shortcut_pin_element_desc: string;
+  shortcut_walk_dom_desc: string;
+  shortcut_mask_desc: string;
+  shortcut_cancel_desc: string;
+  shortcut_copy_desc: string;
   shortcuts_finish_batch_label: string;
   shortcuts_unassigned: string;
   shortcuts_customize: string;
@@ -53,7 +61,6 @@ export interface TranslationDictionary {
   legal_privacy: string;
   legal_terms: string;
   account_title: string;
-  account_description: string;
   account_free_badge: string;
   account_free_description: string;
   account_free_title: string;
@@ -182,6 +189,14 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_browser_title: "Browser shortcuts",
     shortcuts_browser_desc: "Assigned by Chrome and rebindable per browser. They stay inert on chrome:// pages, on the Web Store, and before the overlay is injected.",
     shortcuts_toggle_label: "Show or hide the Pinar toolbar",
+    shortcuts_toggle_desc: "Opens the toolbar on the current tab, or closes it.",
+    shortcuts_finish_batch_desc: "Groups the next captures into one batch; press again to finish and copy it.",
+    shortcuts_open_panel_desc: "Opens the Pinar workspace in a new tab.",
+    shortcut_pin_element_desc: "Pins the highlighted element and opens the comment box.",
+    shortcut_walk_dom_desc: "Moves the selection up to the parent or back down to a child.",
+    shortcut_mask_desc: "Drag to hide a region from the screenshot; click a mask to restore it.",
+    shortcut_cancel_desc: "Closes the comment box, or clears the pins and hides the toolbar.",
+    shortcut_copy_desc: "Captures the page and copies the prompt for your agent.",
     shortcuts_finish_batch_label: "Start or finish a capture batch",
     shortcuts_unassigned: "Not assigned",
     shortcuts_customize: "Change in Chrome",
@@ -202,7 +217,6 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     legal_privacy: "Privacy",
     legal_terms: "Terms",
     account_title: "Account and plan",
-    account_description: "Connect this extension to Pinar or continue with a Free installation.",
     account_free_badge: "No account",
     account_free_description: "Use a temporary code to open Pinar in another browser.",
     account_free_title: "Continue with a Free installation",
@@ -329,6 +343,14 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_browser_title: "Atalhos do navegador",
     shortcuts_browser_desc: "Atribuídos pelo Chrome e redefiníveis por navegador. Ficam inertes em páginas chrome://, na Web Store e antes de o overlay ser injetado.",
     shortcuts_toggle_label: "Mostrar ou esconder a toolbar do Pinar",
+    shortcuts_toggle_desc: "Abre a toolbar na aba atual, ou a fecha.",
+    shortcuts_finish_batch_desc: "Agrupa as próximas capturas num lote; pressione de novo para finalizar e copiar.",
+    shortcuts_open_panel_desc: "Abre o painel do Pinar em uma nova aba.",
+    shortcut_pin_element_desc: "Fixa o elemento destacado e abre o campo de comentário.",
+    shortcut_walk_dom_desc: "Move a seleção para o pai ou de volta para um filho.",
+    shortcut_mask_desc: "Arraste para ocultar uma região do screenshot; clique na máscara para restaurar.",
+    shortcut_cancel_desc: "Fecha o comentário, ou limpa os pins e esconde a toolbar.",
+    shortcut_copy_desc: "Captura a página e copia o prompt para o seu agente.",
     shortcuts_finish_batch_label: "Iniciar ou finalizar um lote de capturas",
     shortcuts_unassigned: "Sem atribuição",
     shortcuts_customize: "Alterar no Chrome",
@@ -349,7 +371,6 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     legal_privacy: "Privacidade",
     legal_terms: "Termos",
     account_title: "Conta e plano",
-    account_description: "Conecte esta extensão ao Pinar ou continue com uma instalação Free.",
     account_free_badge: "Sem conta",
     account_free_description: "Use um código temporário para abrir o Pinar em outro navegador.",
     account_free_title: "Continuar com uma instalação Free",
@@ -476,6 +497,14 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_browser_title: "Atajos del navegador",
     shortcuts_browser_desc: "Asignados por Chrome y reasignables por navegador. Quedan inertes en páginas chrome://, en la Web Store y antes de que se inyecte el overlay.",
     shortcuts_toggle_label: "Mostrar u ocultar la barra de Pinar",
+    shortcuts_toggle_desc: "Abre la barra en la pestaña actual, o la cierra.",
+    shortcuts_finish_batch_desc: "Agrupa las próximas capturas en un lote; pulsa de nuevo para finalizar y copiar.",
+    shortcuts_open_panel_desc: "Abre el panel de Pinar en una pestaña nueva.",
+    shortcut_pin_element_desc: "Fija el elemento resaltado y abre el comentario.",
+    shortcut_walk_dom_desc: "Mueve la selección al padre o de vuelta a un hijo.",
+    shortcut_mask_desc: "Arrastra para ocultar una región de la captura; pulsa la máscara para restaurar.",
+    shortcut_cancel_desc: "Cierra el comentario, o limpia los pins y oculta la barra.",
+    shortcut_copy_desc: "Captura la página y copia el prompt para tu agente.",
     shortcuts_finish_batch_label: "Iniciar o finalizar un lote de capturas",
     shortcuts_unassigned: "Sin asignar",
     shortcuts_customize: "Cambiar en Chrome",
@@ -496,7 +525,6 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     legal_privacy: "Privacidad",
     legal_terms: "Términos",
     account_title: "Cuenta y plan",
-    account_description: "Conecta esta extensión a Pinar o continúa con una instalación Free.",
     account_free_badge: "Sin cuenta",
     account_free_description: "Usa un código temporal para abrir Pinar en otro navegador.",
     account_free_title: "Continuar con una instalación Free",
@@ -623,6 +651,14 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_browser_title: "Raccourcis du navigateur",
     shortcuts_browser_desc: "Attribués par Chrome et réattribuables par navigateur. Ils restent inertes sur les pages chrome://, sur le Web Store et avant l’injection de l’overlay.",
     shortcuts_toggle_label: "Afficher ou masquer la barre d’outils Pinar",
+    shortcuts_toggle_desc: "Ouvre la barre sur l’onglet actuel, ou la ferme.",
+    shortcuts_finish_batch_desc: "Regroupe les prochaines captures dans un lot ; appuyez à nouveau pour terminer et copier.",
+    shortcuts_open_panel_desc: "Ouvre le panneau Pinar dans un nouvel onglet.",
+    shortcut_pin_element_desc: "Épingle l’élément surligné et ouvre le commentaire.",
+    shortcut_walk_dom_desc: "Déplace la sélection vers le parent ou vers un enfant.",
+    shortcut_mask_desc: "Glissez pour masquer une zone de la capture ; cliquez sur le masque pour la rétablir.",
+    shortcut_cancel_desc: "Ferme le commentaire, ou efface les épingles et masque la barre.",
+    shortcut_copy_desc: "Capture la page et copie le prompt pour votre agent.",
     shortcuts_finish_batch_label: "Démarrer ou terminer un lot de captures",
     shortcuts_unassigned: "Non attribué",
     shortcuts_customize: "Modifier dans Chrome",
@@ -643,7 +679,6 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     legal_privacy: "Confidentialité",
     legal_terms: "Conditions",
     account_title: "Compte et forfait",
-    account_description: "Connectez cette extension à Pinar ou continuez avec une installation gratuite.",
     account_free_badge: "Sans compte",
     account_free_description: "Utilisez un code temporaire pour ouvrir Pinar dans un autre navigateur.",
     account_free_title: "Continuer avec une installation Free",
@@ -770,6 +805,14 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_browser_title: "Browser-Kurzbefehle",
     shortcuts_browser_desc: "Von Chrome vergeben und pro Browser neu belegbar. Auf chrome://-Seiten, im Web Store und vor der Injektion des Overlays bleiben sie wirkungslos.",
     shortcuts_toggle_label: "Pinar-Toolbar ein- oder ausblenden",
+    shortcuts_toggle_desc: "Öffnet die Toolbar im aktuellen Tab oder schließt sie.",
+    shortcuts_finish_batch_desc: "Fasst die nächsten Aufnahmen zu einem Stapel zusammen; erneut drücken zum Abschließen und Kopieren.",
+    shortcuts_open_panel_desc: "Öffnet das Pinar-Panel in einem neuen Tab.",
+    shortcut_pin_element_desc: "Heftet das markierte Element an und öffnet den Kommentar.",
+    shortcut_walk_dom_desc: "Verschiebt die Auswahl zum Elternelement oder zurück zu einem Kind.",
+    shortcut_mask_desc: "Ziehen, um einen Bereich im Screenshot zu verbergen; Maske anklicken zum Wiederherstellen.",
+    shortcut_cancel_desc: "Schließt den Kommentar oder löscht die Pins und blendet die Toolbar aus.",
+    shortcut_copy_desc: "Nimmt die Seite auf und kopiert den Prompt für deinen Agenten.",
     shortcuts_finish_batch_label: "Aufnahme-Stapel starten oder beenden",
     shortcuts_unassigned: "Nicht belegt",
     shortcuts_customize: "In Chrome ändern",
@@ -790,7 +833,6 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     legal_privacy: "Datenschutz",
     legal_terms: "Bedingungen",
     account_title: "Konto und Tarif",
-    account_description: "Verbinde diese Erweiterung mit Pinar oder nutze eine kostenlose Installation.",
     account_free_badge: "Kein Konto",
     account_free_description: "Verwende einen temporären Code, um Pinar in einem anderen Browser zu öffnen.",
     account_free_title: "Mit einer Free-Installation fortfahren",
@@ -917,6 +959,14 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_browser_title: "浏览器快捷键",
     shortcuts_browser_desc: "由 Chrome 分配，可按浏览器重新绑定。在 chrome:// 页面、网上应用店以及覆盖层注入之前不会生效。",
     shortcuts_toggle_label: "显示或隐藏 Pinar 工具栏",
+    shortcuts_toggle_desc: "在当前标签页打开或关闭工具栏。",
+    shortcuts_finish_batch_desc: "把接下来的捕获归入一个批次；再按一次结束并复制。",
+    shortcuts_open_panel_desc: "在新标签页中打开 Pinar 面板。",
+    shortcut_pin_element_desc: "固定高亮元素并打开评论框。",
+    shortcut_walk_dom_desc: "将选区移到父元素或返回子元素。",
+    shortcut_mask_desc: "拖动以在截图中隐藏区域；点击遮罩可恢复。",
+    shortcut_cancel_desc: "关闭评论框，或清除标记并隐藏工具栏。",
+    shortcut_copy_desc: "捕获页面并复制给智能体的提示词。",
     shortcuts_finish_batch_label: "开始或结束捕获批次",
     shortcuts_unassigned: "未分配",
     shortcuts_customize: "在 Chrome 中修改",
@@ -937,7 +987,6 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     legal_privacy: "隐私",
     legal_terms: "条款",
     account_title: "账户与方案",
-    account_description: "将此扩展程序连接到 Pinar，或继续使用免费安装。",
     account_free_badge: "无需账户",
     account_free_description: "使用临时代码在其他浏览器中打开 Pinar。",
     account_free_title: "继续使用 Free 安装",
@@ -1064,6 +1113,14 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_browser_title: "ブラウザーのショートカット",
     shortcuts_browser_desc: "Chrome が割り当て、ブラウザーごとに変更できます。chrome:// ページ、ウェブストア、オーバーレイ挿入前には動作しません。",
     shortcuts_toggle_label: "Pinar ツールバーの表示を切り替え",
+    shortcuts_toggle_desc: "現在のタブでツールバーを開く／閉じる。",
+    shortcuts_finish_batch_desc: "次のキャプチャをバッチにまとめる。もう一度押すと終了してコピー。",
+    shortcuts_open_panel_desc: "新しいタブで Pinar パネルを開く。",
+    shortcut_pin_element_desc: "ハイライト中の要素を固定してコメント欄を開く。",
+    shortcut_walk_dom_desc: "選択を親要素へ、または子要素へ戻す。",
+    shortcut_mask_desc: "ドラッグでスクリーンショットの領域を隠す。マスクをクリックで戻す。",
+    shortcut_cancel_desc: "コメントを閉じる。またはピンを消してツールバーを隠す。",
+    shortcut_copy_desc: "ページをキャプチャしてエージェント用プロンプトをコピー。",
     shortcuts_finish_batch_label: "キャプチャバッチを開始または終了",
     shortcuts_unassigned: "未割り当て",
     shortcuts_customize: "Chrome で変更",
@@ -1084,7 +1141,6 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     legal_privacy: "プライバシー",
     legal_terms: "利用規約",
     account_title: "アカウントとプラン",
-    account_description: "この拡張機能を Pinar に接続するか、無料インストールで続行します。",
     account_free_badge: "アカウント不要",
     account_free_description: "一時コードを使って別のブラウザーで Pinar を開きます。",
     account_free_title: "Free インストールを続ける",

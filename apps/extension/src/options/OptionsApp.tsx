@@ -87,18 +87,18 @@ const LANGUAGE_OPTIONS = SUPPORTED_LANGUAGES.map((code) => ({ code, label: trans
 const SECTION_HEADER = "text-[11px] font-semibold uppercase tracking-wider";
 
 const OVERLAY_SHORTCUTS = [
-  { keys: "Enter", label: "shortcut_pin_element" },
-  { keys: "↑ / ↓", label: "shortcut_walk_dom" },
-  { keys: "M", label: "shortcut_mask" },
-  { keys: "Esc", label: "shortcut_cancel" },
-  { keys: "⌘/Ctrl + Enter", label: "shortcut_copy" },
-] as const satisfies ReadonlyArray<{ keys: string; label: keyof TranslationDictionary }>;
+  { description: "shortcut_pin_element_desc", keys: "Enter", label: "shortcut_pin_element" },
+  { description: "shortcut_walk_dom_desc", keys: "↑ / ↓", label: "shortcut_walk_dom" },
+  { description: "shortcut_mask_desc", keys: "M", label: "shortcut_mask" },
+  { description: "shortcut_cancel_desc", keys: "Esc", label: "shortcut_cancel" },
+  { description: "shortcut_copy_desc", keys: "⌘/Ctrl + Enter", label: "shortcut_copy" },
+] as const satisfies ReadonlyArray<{ description: keyof TranslationDictionary; keys: string; label: keyof TranslationDictionary }>;
 
-function ShortcutRow({ editLabel, keys, label, onEdit }: { editLabel?: string; keys: string; label: string; onEdit?: () => void }) {
+function ShortcutRow({ description, editLabel, keys, label, onEdit }: { description: string; editLabel?: string; keys: string; label: string; onEdit?: () => void }) {
   const chip = <kbd className="block rounded border bg-muted px-2 py-1 font-mono text-[11px] text-muted-foreground transition-colors group-hover/shortcut:border-primary group-hover/shortcut:text-foreground">{keys}</kbd>;
   return (
-    <li className="flex items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2">
-      <span className="min-w-0 text-xs">{label}</span>
+    <li className="flex items-center justify-between gap-3 py-1">
+      <span className="min-w-0"><span className="block text-xs font-semibold">{label}</span><span className="block text-xs text-muted-foreground">{description}</span></span>
       {onEdit ? (
         <button aria-label={editLabel} className="group/shortcut shrink-0 cursor-pointer rounded outline-none focus-visible:ring-2 focus-visible:ring-ring/30" title={editLabel} type="button" onClick={onEdit}>{chip}</button>
       ) : (
@@ -108,16 +108,17 @@ function ShortcutRow({ editLabel, keys, label, onEdit }: { editLabel?: string; k
   );
 }
 
-const COMMAND_LABELS = {
-  _execute_action: "shortcuts_toggle_label",
-  "finish-batch": "shortcuts_finish_batch_label",
-  "open-panel": "shortcuts_open_panel_label",
-} as const satisfies Record<string, keyof TranslationDictionary>;
+const COMMAND_TEXT = {
+  _execute_action: { description: "shortcuts_toggle_desc", label: "shortcuts_toggle_label" },
+  "finish-batch": { description: "shortcuts_finish_batch_desc", label: "shortcuts_finish_batch_label" },
+  "open-panel": { description: "shortcuts_open_panel_desc", label: "shortcuts_open_panel_label" },
+} as const satisfies Record<string, { description: keyof TranslationDictionary; label: keyof TranslationDictionary }>;
 
-function commandLabel(command: chrome.commands.Command, t: TranslationDictionary) {
-  const key = COMMAND_LABELS[command.name as keyof typeof COMMAND_LABELS];
+function commandText(command: chrome.commands.Command, t: TranslationDictionary) {
+  const keys = COMMAND_TEXT[command.name as keyof typeof COMMAND_TEXT];
   // Chrome only knows the English manifest description; our own UI must not.
-  return key ? t[key] : command.description || command.name || "";
+  if (!keys) return { description: "", label: command.description || command.name || "" };
+  return { description: t[keys.description], label: t[keys.label] };
 }
 
 function ShortcutsTab({ t }: { t: TranslationDictionary }) {
@@ -142,17 +143,17 @@ function ShortcutsTab({ t }: { t: TranslationDictionary }) {
       <section className="flex flex-col gap-2.5">
         <span className={SECTION_HEADER}>{t.shortcuts_browser_title}</span>
         <p className="text-xs leading-relaxed text-muted-foreground">{t.shortcuts_browser_desc}</p>
-        <ul className="flex flex-col gap-1.5">
+        <ul className="flex flex-col gap-2">
           {commands.map((command) => (
-            <ShortcutRow editLabel={t.shortcuts_customize} key={command.name} keys={command.shortcut || t.shortcuts_unassigned} label={commandLabel(command, t)} onEdit={() => void chrome.tabs.create({ url: "chrome://extensions/shortcuts" })} />
+            <ShortcutRow editLabel={t.shortcuts_customize} key={command.name} keys={command.shortcut || t.shortcuts_unassigned} {...commandText(command, t)} onEdit={() => void chrome.tabs.create({ url: "chrome://extensions/shortcuts" })} />
           ))}
         </ul>
       </section>
       <section className="flex flex-col gap-2.5">
         <span className={SECTION_HEADER}>{t.shortcuts_overlay_title}</span>
         <p className="text-xs leading-relaxed text-muted-foreground">{t.shortcuts_overlay_desc}</p>
-        <ul className="flex flex-col gap-1.5">
-          {OVERLAY_SHORTCUTS.map((item) => <ShortcutRow key={item.keys} keys={item.keys} label={t[item.label]} />)}
+        <ul className="flex flex-col gap-2">
+          {OVERLAY_SHORTCUTS.map((item) => <ShortcutRow description={t[item.description]} key={item.keys} keys={item.keys} label={t[item.label]} />)}
         </ul>
       </section>
     </div>
@@ -803,25 +804,23 @@ export function OptionsApp() {
               </TabsContent>
 
               <TabsContent className="flex flex-col gap-5" value="account">
-                <section className="flex flex-col gap-2.5">
-                  <span className={SECTION_HEADER}>{t.account_title}</span>
-                  <p className="text-xs leading-relaxed text-muted-foreground">{t.account_description}</p>
-                  <div className="space-y-4">
                     {!authReady ? <p className="text-xs text-muted-foreground">…</p> : authSession?.kind === "account" ? (
-                      <div className="space-y-3">
+                      <section className="flex flex-col gap-2.5">
+                        <span className={SECTION_HEADER}>{t.account_title}</span>
                         <div className="rounded-lg border bg-muted/40 p-3"><p className="truncate text-sm font-semibold">{authSession.email}</p><p className="mt-1 text-xs capitalize text-muted-foreground">{authSession.plan}</p></div>
                         <div className="flex flex-wrap gap-2">
                           <Button size="sm" variant="outline" onClick={() => void openBilling()}>{t.btn_manage_sub}</Button>
                           <Button size="sm" variant="ghost" onClick={() => void logout()}><IconLogOut data-icon="inline-start" />{t.btn_sign_out}</Button>
                         </div>
-                      </div>
+                      </section>
                     ) : (
-                      <div className="space-y-3">
-                        <section aria-labelledby="account-free-title" className="space-y-3 rounded-lg border bg-background p-3">
+                      <>
+                        <section aria-labelledby="account-free-title" className="flex flex-col gap-2.5">
                           <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0"><p className="text-sm font-semibold" id="account-free-title">{t.account_free_title}</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t.account_free_description}</p></div>
+                            <span className={SECTION_HEADER} id="account-free-title">{t.account_free_title}</span>
                             <Badge className="shrink-0 bg-muted text-muted-foreground" variant="outline">{t.account_free_badge}</Badge>
                           </div>
+                          <p className="text-xs leading-relaxed text-muted-foreground">{t.account_free_description}</p>
                           <div className="flex items-stretch gap-2">
                             {temporaryCode ? <><div className="min-w-0 flex-1 rounded-lg border bg-background px-3 py-2"><code className="text-base font-bold tracking-[0.16em]">{temporaryCode}</code>{temporaryCodeExpiresAt && <p className="mt-1 text-[11px] text-muted-foreground">{t.account_code_expires}</p>}</div><Button className="shrink-0" variant="outline" onClick={() => void copyTemporaryCode()}><IconCopy data-icon="inline-start" />{copiedCode ? t.status_copied : t.btn_copy_code}</Button></> : <Button disabled={authLoading} variant="outline" onClick={() => void generateTemporaryCode()}><IconKeyRound data-icon="inline-start" />{t.btn_generate_code}</Button>}
                           </div>
@@ -835,8 +834,9 @@ export function OptionsApp() {
                             <AlertDialogFooter><AlertDialogCancel>{t.btn_cancel}</AlertDialogCancel><AlertDialogAction disabled={authLoading} onClick={() => void regenerateTemporaryCode()}>{t.btn_invalidate_and_generate}</AlertDialogAction></AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>
-                        <section aria-labelledby="account-email-title" className="space-y-3 rounded-lg border bg-background p-3">
-                          <div><p className="text-sm font-semibold" id="account-email-title">{t.account_email_title}</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">{emailCodeRequested ? t.account_email_sent : t.account_email_description}</p></div>
+                        <section aria-labelledby="account-email-title" className="flex flex-col gap-2.5">
+                          <span className={SECTION_HEADER} id="account-email-title">{t.account_email_title}</span>
+                          <p className="text-xs leading-relaxed text-muted-foreground">{emailCodeRequested ? t.account_email_sent : t.account_email_description}</p>
                           {!emailCodeRequested ? (
                             <form className="flex gap-2" onSubmit={requestEmailCode}><Input autoComplete="email" placeholder="you@example.com" required type="email" value={email} onChange={(event) => setEmail(event.target.value)} /><Button disabled={authLoading} type="submit" variant="outline"><IconMail data-icon="inline-start" />{t.btn_send_code}</Button></form>
                           ) : (
@@ -847,11 +847,9 @@ export function OptionsApp() {
                             <Button className="shrink-0" render={<a href={hostedPricingUrl(settings.cloudUrl, lang)} rel="noopener noreferrer" target="_blank" />} variant="pro"><IconSparkles data-icon="inline-start" />{t.btn_upgrade_pro}</Button>
                           </div>
                         </section>
-                      </div>
+                      </>
                     )}
                     {authError && <p className="text-xs font-medium text-destructive" role="alert">{authError}</p>}
-                  </div>
-                </section>
               </TabsContent>
 
               <TabsContent className="flex flex-col gap-5" value="preferences">

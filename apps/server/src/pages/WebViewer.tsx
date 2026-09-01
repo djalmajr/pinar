@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import ReactMarkdown from "react-markdown";
 import { formatClipboardText, getPinColor, PINAR_REOPEN_SESSION_RESULT_EVENT, requestReopenSession, type AgentExecution, type Pin, type PinLocation, type PinReview, type PinReviewHumanAction, type PinReviewStatus, type Session } from "@pinar/shared";
@@ -122,7 +122,7 @@ function ViewerPageIdentity({
   const copy = sessionListingCopy(session.page);
   const accessibleName = copy.title || copy.url || t("viewer.annotation");
   const titleClassName = "truncate text-sm font-medium";
-  const descriptionClassName = "line-clamp-2 text-xs text-muted-foreground";
+  // No visible description here: the title and the URL already identify the page.
   const linkClassName = "inline-flex min-w-0 items-center gap-1 overflow-hidden font-mono text-xs text-muted-foreground hover:text-primary";
   return (
     <div className="min-w-0 flex-1 space-y-0.5">
@@ -137,14 +137,11 @@ function ViewerPageIdentity({
       ) : (
         <h1 className="sr-only">{accessibleName}</h1>
       )}
-      {copy.description ? (
-        isModal ? (
-          <DialogDescription className={descriptionClassName}>{copy.description}</DialogDescription>
-        ) : (
-          <p className={descriptionClassName}>{copy.description}</p>
-        )
-      ) : isModal ? (
-        <DialogDescription className="sr-only">{copy.url || t("viewer.annotation")}</DialogDescription>
+      {isModal ? (
+        // The dialog still needs an accessible description, just not a visible one.
+        <DialogDescription className="sr-only">
+          {copy.description || copy.url || t("viewer.annotation")}
+        </DialogDescription>
       ) : null}
       {copy.url ? (
         <div className="flex min-w-0 items-center gap-2">
@@ -316,6 +313,31 @@ export function WebViewer({
   const siblingIndex = siblingIds.indexOf(sessionId);
   const zoom = useImageZoom(session?.shotUrl || sessionId);
   const isModal = presentation === "modal";
+
+  const stepCapture = useCallback((delta: number) => {
+    const next = siblingIds[siblingIds.indexOf(sessionId) + delta];
+    if (next) onNavigate?.(next);
+  }, [onNavigate, sessionId, siblingIds]);
+
+  useEffect(() => {
+    if (siblingIds.length < 2) return;
+    function onKey(event: KeyboardEvent) {
+      // Let the pin dialog, the summary and any text field keep their arrows.
+      if (selectedPin || aiSummaryOpen) return;
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      // The target is not always an Element - a keydown aimed at the document
+      // has no closest() - so narrow before asking about form fields.
+      const target = event.target;
+      if (target instanceof Element && target.closest("input, textarea, select, [contenteditable='true']")) return;
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      stepCapture(event.key === "ArrowLeft" ? -1 : 1);
+    }
+    // Capture phase: the dialog stops keydown from bubbling, and focus lives
+    // inside it, so a bubble listener on window would never see these keys.
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [aiSummaryOpen, selectedPin, siblingIds, stepCapture]);
 
   async function loadSession() {
     const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`);
@@ -521,11 +543,6 @@ export function WebViewer({
   const selectedColor = selectedPin?.color || getPinColor(selectedNumber);
   const selectedMarkdown = selectedPin ? formatPinMarkdown(selectedPin, selectedNumber) : "";
 
-  function stepCapture(delta: number) {
-    const next = siblingIds[siblingIndex + delta];
-    if (next) onNavigate?.(next);
-  }
-
   return (
     <TooltipProvider delay={200}>
     {wrapFrame(
@@ -552,30 +569,35 @@ export function WebViewer({
         </div>
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           {siblingIndex >= 0 && siblingIds.length > 1 ? (
-            <ButtonGroup aria-label={t("viewer.captureNavigation")}>
-              <Button
-                aria-label={t("viewer.previousCapture")}
-                disabled={siblingIndex <= 0}
-                size="icon"
-                title={t("viewer.previousCapture")}
-                type="button"
-                variant="outline"
-                onClick={() => stepCapture(-1)}
-              >
-                <ChevronLeftIcon />
-              </Button>
-              <Button
-                aria-label={t("viewer.nextCapture")}
-                disabled={siblingIndex >= siblingIds.length - 1}
-                size="icon"
-                title={t("viewer.nextCapture")}
-                type="button"
-                variant="outline"
-                onClick={() => stepCapture(1)}
-              >
-                <ChevronRightIcon />
-              </Button>
-            </ButtonGroup>
+            <div className="flex shrink-0 items-center gap-2">
+              <span className="text-xs text-muted-foreground tabular-nums" role="status">
+                {t("viewer.capturePosition", { current: siblingIndex + 1, total: siblingIds.length })}
+              </span>
+              <ButtonGroup aria-label={t("viewer.captureNavigation")}>
+                <Button
+                  aria-label={t("viewer.previousCapture")}
+                  disabled={siblingIndex <= 0}
+                  size="icon"
+                  title={t("viewer.previousCapture")}
+                  type="button"
+                  variant="outline"
+                  onClick={() => stepCapture(-1)}
+                >
+                  <ChevronLeftIcon />
+                </Button>
+                <Button
+                  aria-label={t("viewer.nextCapture")}
+                  disabled={siblingIndex >= siblingIds.length - 1}
+                  size="icon"
+                  title={t("viewer.nextCapture")}
+                  type="button"
+                  variant="outline"
+                  onClick={() => stepCapture(1)}
+                >
+                  <ChevronRightIcon />
+                </Button>
+              </ButtonGroup>
+            </div>
           ) : null}
           <Button
             aria-label={t("viewer.reviewOnPage")}

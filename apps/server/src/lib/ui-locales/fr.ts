@@ -245,6 +245,7 @@ const messages: UiMessages = {
   "viewer.nextCapture": "Capture suivante",
   "viewer.previousCapture": "Capture précédente",
   "viewer.captureNavigation": "Navigation entre captures",
+  "viewer.capturePosition": "{current} sur {total}",
   "viewer.screenshotUnavailable": "Capture indisponible",
   "viewer.openPin": "Ouvrir le pin {number}",
   "viewer.areaSelection": "Sélection de zone",

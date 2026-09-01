@@ -244,6 +244,7 @@ const messages: UiMessages = {
   "viewer.nextCapture": "Nächste Aufnahme",
   "viewer.previousCapture": "Vorherige Aufnahme",
   "viewer.captureNavigation": "Navigation zwischen Aufnahmen",
+  "viewer.capturePosition": "{current} von {total}",
   "viewer.screenshotUnavailable": "Screenshot nicht verfügbar",
   "viewer.openPin": "Pin {number} öffnen",
   "viewer.areaSelection": "Bereichsauswahl",

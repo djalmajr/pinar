@@ -241,6 +241,7 @@ const messages = {
   "viewer.nextCapture": "Next capture",
   "viewer.previousCapture": "Previous capture",
   "viewer.captureNavigation": "Capture navigation",
+  "viewer.capturePosition": "{current} of {total}",
   "viewer.screenshotUnavailable": "Screenshot unavailable",
   "viewer.openPin": "Open pin {number}",
   "viewer.areaSelection": "Area selection",

@@ -245,6 +245,7 @@ const messages: UiMessages = {
   "viewer.nextCapture": "次のキャプチャ",
   "viewer.previousCapture": "前のキャプチャ",
   "viewer.captureNavigation": "キャプチャの移動",
+  "viewer.capturePosition": "{current} / {total}",
   "viewer.screenshotUnavailable": "スクリーンショットを利用できません",
   "viewer.openPin": "ピン {number} を開く",
   "viewer.areaSelection": "範囲選択",

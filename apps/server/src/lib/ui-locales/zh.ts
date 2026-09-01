@@ -228,6 +228,7 @@ const messages: UiMessages = {
   "viewer.nextCapture": "下一个捕获",
   "viewer.previousCapture": "上一个捕获",
   "viewer.captureNavigation": "捕获导航",
+  "viewer.capturePosition": "第 {current} / {total}",
   "viewer.screenshotUnavailable": "截图不可用",
   "viewer.openPin": "打开标记 {number}",
   "viewer.areaSelection": "区域选择",

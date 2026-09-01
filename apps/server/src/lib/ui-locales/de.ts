@@ -191,6 +191,13 @@ const messages: UiMessages = {
   "dashboard.collectionMenu": "Sammlung",
   "dashboard.breadcrumb": "Brotkrumenpfad",
   "dashboard.collections": "Sammlungen",
+  "dashboard.filters": "Filter",
+  "dashboard.filtersEmpty": "Keine Filter",
+  "dashboard.filterActions": "Filteraktionen",
+  "dashboard.deleteFilter": "Gruppierung entfernen",
+  "dashboard.deleteFilterTitle": "Diese Gruppierung entfernen?",
+  "dashboard.deleteFilterConfirm":
+    "Die Sitzungen bleiben in ihren Sammlungen. Entfernt wird nur die Gruppierung.",
   "dashboard.create": "Erstellen",
   "dashboard.deleteCollection": "Sammlung löschen",
   "dashboard.deleteContainerConfirm":

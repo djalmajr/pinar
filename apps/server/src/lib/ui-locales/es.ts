@@ -192,6 +192,13 @@ const messages: UiMessages = {
   "dashboard.collectionMenu": "Colección",
   "dashboard.breadcrumb": "Ruta de navegación",
   "dashboard.collections": "Colecciones",
+  "dashboard.filters": "Filtros",
+  "dashboard.filtersEmpty": "Sin filtros",
+  "dashboard.filterActions": "Acciones del filtro",
+  "dashboard.deleteFilter": "Quitar agrupación",
+  "dashboard.deleteFilterTitle": "¿Quitar esta agrupación?",
+  "dashboard.deleteFilterConfirm":
+    "Las sesiones se quedan en sus colecciones. Solo desaparece la agrupación.",
   "dashboard.create": "Crear",
   "dashboard.deleteCollection": "Eliminar colección",
   "dashboard.deleteContainerConfirm":

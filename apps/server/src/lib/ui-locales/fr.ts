@@ -192,6 +192,13 @@ const messages: UiMessages = {
   "dashboard.collectionMenu": "Collection",
   "dashboard.breadcrumb": "Fil d’Ariane",
   "dashboard.collections": "Collections",
+  "dashboard.filters": "Filtres",
+  "dashboard.filtersEmpty": "Aucun filtre",
+  "dashboard.filterActions": "Actions du filtre",
+  "dashboard.deleteFilter": "Retirer le regroupement",
+  "dashboard.deleteFilterTitle": "Retirer ce regroupement ?",
+  "dashboard.deleteFilterConfirm":
+    "Les sessions restent dans leurs collections. Seul le regroupement disparaît.",
   "dashboard.create": "Créer",
   "dashboard.deleteCollection": "Supprimer la collection",
   "dashboard.deleteContainerConfirm":

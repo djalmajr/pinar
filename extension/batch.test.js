@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test, { describe } from "node:test";
 import {
   addCapture,
-  batchDestination,
   batchSummary,
   markFailed,
   openBatch,
@@ -11,22 +10,26 @@ import {
   savedCount,
 } from "./batch.js";
 
-const destination = { collectionId: "col_1", projectId: "proj_1" };
+const opened = { id: "11111111-1111-4111-8111-111111111111", label: "Batch · 01/09/2026, 14:11" };
 
 describe("capture batch", () => {
-  test("locks the destination when the batch opens", () => {
-    const batch = openBatch(destination, "2026-09-01T10:00:00Z");
-    assert.deepEqual(batchDestination(batch), destination);
+  test("opens with an id, label and startedAt", () => {
+    const batch = openBatch({ ...opened, startedAt: "2026-09-01T10:00:00Z" });
+    assert.equal(batch.id, opened.id);
+    assert.equal(batch.label, opened.label);
     assert.equal(batch.items.length, 0);
     assert.equal(batch.startedAt, "2026-09-01T10:00:00Z");
   });
 
-  test("refuses to open without a collection", () => {
-    assert.throws(() => openBatch({ projectId: "proj_1" }), /collection destination/);
+  test("carries no collection destination", () => {
+    const batch = openBatch(opened);
+    assert.equal("collectionId" in batch, false);
+    assert.equal("projectId" in batch, false);
+    assert.deepEqual(Object.keys(batch).sort(), ["id", "items", "label", "startedAt"]);
   });
 
   test("accumulates one item per page", () => {
-    let batch = openBatch(destination);
+    let batch = openBatch(opened);
     batch = addCapture(batch, { captureId: "cap_a", url: "https://a.test" });
     batch = addCapture(batch, { captureId: "cap_b", url: "https://b.test" });
     assert.equal(savedCount(batch), 2);
@@ -34,7 +37,7 @@ describe("capture batch", () => {
   });
 
   test("is idempotent for a repeated captureId", () => {
-    let batch = openBatch(destination);
+    let batch = openBatch(opened);
     batch = addCapture(batch, { captureId: "cap_a", url: "https://a.test" });
     batch = addCapture(batch, { captureId: "cap_a", url: "https://a.test?v=2" });
     assert.equal(batch.items.length, 1);
@@ -42,7 +45,7 @@ describe("capture batch", () => {
   });
 
   test("keeps a failed item pending without dropping the batch", () => {
-    let batch = openBatch(destination);
+    let batch = openBatch(opened);
     batch = addCapture(batch, { captureId: "cap_a" });
     batch = markFailed(batch, "cap_b", "upload_failed");
     assert.equal(savedCount(batch), 1);
@@ -51,7 +54,7 @@ describe("capture batch", () => {
   });
 
   test("promotes a pending item once the retry succeeds", () => {
-    let batch = openBatch(destination);
+    let batch = openBatch(opened);
     batch = markFailed(batch, "cap_a", "upload_failed");
     batch = addCapture(batch, { captureId: "cap_a", url: "https://a.test" });
     assert.equal(batch.items.length, 1);
@@ -60,13 +63,13 @@ describe("capture batch", () => {
   });
 
   test("summarizes saved, pending and total", () => {
-    let batch = openBatch(destination);
+    let batch = openBatch(opened);
     batch = addCapture(batch, { captureId: "cap_a" });
     batch = markFailed(batch, "cap_b", "quota");
     assert.deepEqual(batchSummary(batch), {
-      collectionId: "col_1",
+      id: opened.id,
+      label: opened.label,
       pending: 1,
-      projectId: "proj_1",
       saved: 1,
       startedAt: batch.startedAt,
       total: 2,
@@ -77,7 +80,6 @@ describe("capture batch", () => {
     assert.equal(addCapture(null, { captureId: "cap_a" }), null);
     assert.equal(markFailed(null, "cap_a"), null);
     assert.equal(batchSummary(null), null);
-    assert.equal(batchDestination(null), null);
     assert.equal(savedCount(null), 0);
   });
 });
@@ -146,17 +148,9 @@ describe("capture persistence plan", () => {
   });
 });
 
-describe("batch destination", () => {
-  test("nests the batch inside the collection the user configured", () => {
-    const destination = { collectionId: "studio_1", projectId: "proj_1" };
-    const batch = openBatch({ collectionId: "batch_1", projectId: destination.projectId }, "2026-09-01T10:00:00.000Z");
-    // The batch owns a distinct collection, but it belongs to the configured project.
-    assert.notEqual(batch.collectionId, destination.collectionId);
-    assert.equal(batch.projectId, destination.projectId);
-  });
-
+describe("batch identity", () => {
   test("keeps items addressed by captureId so a retry replaces instead of duplicating", () => {
-    const batch = openBatch({ collectionId: "c1", projectId: "p1" }, "2026-09-01T10:00:00.000Z");
+    const batch = openBatch({ id: "batch_1", label: "Lote · 01/09/2026, 14:11", startedAt: "2026-09-01T10:00:00.000Z" });
     const once = addCapture(batch, { captureId: "cap_1", title: "A", url: "https://a" });
     const twice = addCapture(once, { captureId: "cap_1", title: "A", url: "https://a" });
     assert.equal(twice.items.length, 1);

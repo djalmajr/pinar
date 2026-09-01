@@ -54,6 +54,7 @@ describe("cloud schema migrations", () => {
       "0009_include_screenshot.sql",
       "0010_owner_preferences.sql",
       "0011_handoff_mode.sql",
+      "0012_batches.sql",
     ]);
     const migrated = new Database(":memory:");
     const canonical = new Database(":memory:");

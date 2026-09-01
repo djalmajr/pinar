@@ -12,12 +12,11 @@ export function planCapturePersistence({ enableHistory, hasShot, includeScreensh
   };
 }
 
-export function openBatch(destination, startedAt) {
-  if (!destination?.collectionId) throw new Error("A batch needs a collection destination");
+export function openBatch({ id, label, startedAt } = {}) {
   return {
-    collectionId: destination.collectionId,
+    id,
     items: [],
-    projectId: destination.projectId || "",
+    label: label || "",
     startedAt: startedAt || new Date().toISOString(),
   };
 }
@@ -79,15 +78,11 @@ export function pendingCount(batch) {
 export function batchSummary(batch) {
   if (!batch) return null;
   return {
-    collectionId: batch.collectionId,
+    id: batch.id,
+    label: batch.label,
     pending: pendingCount(batch),
-    projectId: batch.projectId,
     saved: savedCount(batch),
     startedAt: batch.startedAt,
     total: batch.items.length,
   };
-}
-
-export function batchDestination(batch) {
-  return batch ? { collectionId: batch.collectionId, projectId: batch.projectId } : null;
 }

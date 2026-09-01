@@ -223,6 +223,27 @@ export const LOCAL_API_TRUST_MATRIX: readonly LocalApiTrustEntry[] = [
     pattern: /^\/api\/collections\/[^/]+$/,
   },
   {
+    class: "sensitive-read",
+    intendedClients: ["cli", "extension", "workspace"],
+    methods: ["GET"],
+    path: "/api/batches",
+    pattern: /^\/api\/batches$/,
+  },
+  {
+    class: "mutable",
+    intendedClients: ["cli", "extension", "workspace"],
+    methods: ["POST"],
+    path: "/api/batches/:id/finish",
+    pattern: /^\/api\/batches\/[^/]+\/finish$/,
+  },
+  {
+    class: "mutable",
+    intendedClients: ["cli", "workspace"],
+    methods: ["DELETE"],
+    path: "/api/batches/:id",
+    pattern: /^\/api\/batches\/[^/]+$/,
+  },
+  {
     class: "mutable",
     intendedClients: ["cli", "workspace"],
     methods: ["POST"],

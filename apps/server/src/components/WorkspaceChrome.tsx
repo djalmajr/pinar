@@ -90,6 +90,14 @@ interface ContainerDelete {
   kind: ContainerKind;
 }
 
+interface BatchRecord {
+  finishedAt: string | null;
+  id: string;
+  label: string;
+  sessionCount: number;
+  startedAt: string;
+}
+
 interface WorkspaceChromeContextValue {
   fetchTree: (preferredProjectId?: string, options?: { silent?: boolean }) => Promise<void>;
   loading: boolean;
@@ -102,6 +110,7 @@ interface WorkspaceChromeContextValue {
   sessions: Session[];
   setProjectTree: Dispatch<SetStateAction<ProjectTree>>;
   setSelectedCollectionId: (id: string | null) => void;
+  selectedBatchId: string | null;
 }
 
 const WorkspaceChromeContext = createContext<WorkspaceChromeContextValue | null>(null);
@@ -148,6 +157,20 @@ function writeStoredCollectionId(id: string | null) {
   }
 }
 
+function isBatchRecord(value: unknown): value is BatchRecord {
+  return isRecord(value)
+    && typeof value.id === "string"
+    && typeof value.label === "string"
+    && typeof value.startedAt === "string"
+    && (value.finishedAt === null || typeof value.finishedAt === "string")
+    && typeof value.sessionCount === "number";
+}
+
+function sessionBatchId(session: Session) {
+  const value = (session as Session & { batchId?: unknown }).batchId;
+  return typeof value === "string" ? value : null;
+}
+
 export function WorkspaceChrome({
   children,
   className,
@@ -167,6 +190,9 @@ export function WorkspaceChrome({
   const [projectTree, setProjectTree] = useState<ProjectTree>({ projects: [] });
   const [activeSessionDrag, setActiveSessionDrag] = useState<{ count: number; title: string } | null>(null);
   const [selectedCollectionId, setSelectedCollectionIdState] = useState<string | null>(null);
+  const [batches, setBatches] = useState<BatchRecord[]>([]);
+  const [filterDeleteId, setFilterDeleteId] = useState<string | null>(null);
+  const [selectedBatchId, setSelectedBatchIdState] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const fingerprintRef = useRef("");
   const generationRef = useRef(0);
@@ -180,16 +206,26 @@ export function WorkspaceChrome({
     ?? projectTree.projects[0];
   const selectedProjectIndex = projectTree.projects.findIndex(({ id }) => id === selectedProject?.id);
   const selectedCollection = selectedProject?.collections.find((collection) => collection.id === selectedCollectionId);
-  const sessions = useMemo(
-    () => selectedCollection
+  const sessions = useMemo(() => {
+    const listed = selectedCollection
       ? selectedCollection.sessions
-      : flattenCollectionSessions(selectedProject?.collections),
-    [selectedCollection, selectedProject],
-  );
+      : flattenCollectionSessions(selectedProject?.collections);
+    if (!selectedBatchId) return listed;
+    return listed.filter((session) => sessionBatchId(session) === selectedBatchId);
+  }, [selectedBatchId, selectedCollection, selectedProject]);
 
   const setSelectedCollectionId = useCallback((id: string | null) => {
     setSelectedCollectionIdState(id);
+    setSelectedBatchIdState(null);
     writeStoredCollectionId(id);
+    if (navigateOnCollectionSelect) void navigate({ search: { session: undefined }, to: "/app" });
+  }, [navigate, navigateOnCollectionSelect]);
+
+  const setSelectedBatchId = useCallback((id: string | null) => {
+    setSelectedBatchIdState(id);
+    if (id === null) return;
+    setSelectedCollectionIdState(null);
+    writeStoredCollectionId(null);
     if (navigateOnCollectionSelect) void navigate({ search: { session: undefined }, to: "/app" });
   }, [navigate, navigateOnCollectionSelect]);
 
@@ -219,6 +255,14 @@ export function WorkspaceChrome({
     }
   }, []);
 
+  const applyBatches = useCallback((next: BatchRecord[]) => {
+    setBatches(next);
+    setSelectedBatchIdState((current) => {
+      if (!current || next.some((batch) => batch.id === current)) return current;
+      return null;
+    });
+  }, []);
+
   const fetchTree = useCallback(async (
     preferredProjectId?: string,
     options?: { silent?: boolean },
@@ -230,7 +274,10 @@ export function WorkspaceChrome({
     }
     const generation = ++generationRef.current;
     try {
-      const response = await fetch("/api/project-tree", { cache: "no-store" });
+      const [response, batchesResponse] = await Promise.all([
+        fetch("/api/project-tree", { cache: "no-store" }),
+        fetch("/api/batches", { cache: "no-store" }).catch(() => null),
+      ]);
       const data: unknown = await response.json();
       if (generation !== generationRef.current) return;
       if (!response.ok || !isRecord(data) || !isRecord(data.tree) || !Array.isArray(data.tree.projects)) return;
@@ -238,6 +285,12 @@ export function WorkspaceChrome({
         data.tree.projects.filter(isProjectTreeProject),
         preferredProjectId || selectedProjectIdRef.current,
       );
+      if (!batchesResponse?.ok) return;
+      const batchesData: unknown = await batchesResponse.json();
+      if (generation !== generationRef.current) return;
+      if (isRecord(batchesData) && Array.isArray(batchesData.batches)) {
+        applyBatches(batchesData.batches.filter(isBatchRecord));
+      }
     } catch (error) {
       if (options?.silent || isAbortError(error)) return;
       throw error;
@@ -247,7 +300,7 @@ export function WorkspaceChrome({
         if (generation === generationRef.current) setLoading(false);
       }
     }
-  }, [applyProjects]);
+  }, [applyBatches, applyProjects]);
 
   const setProjectTreeAndLock = useCallback((update: SetStateAction<ProjectTree>) => {
     mutatingRef.current += 1;
@@ -352,6 +405,7 @@ export function WorkspaceChrome({
       await fetchTree(selectedProject.id);
       setSelectedCollectionIdState(data.collection.id);
       writeStoredCollectionId(data.collection.id);
+      setSelectedBatchIdState(null);
     }
   }
 
@@ -371,6 +425,15 @@ export function WorkspaceChrome({
       setContainerDelete(null);
       await fetchTree();
     }
+  }
+
+  async function deleteFilter(id: string) {
+    const response = await requestJson(`/api/batches/${id}`, "DELETE");
+    if (!response.ok && response.status !== 404) return;
+    setFilterDeleteId(null);
+    setSelectedBatchIdState((current) => (current === id ? null : current));
+    setBatches((current) => current.filter((batch) => batch.id !== id));
+    await fetchTree(selectedProjectId, { silent: true });
   }
 
   function openContainerEditor(
@@ -448,17 +511,21 @@ export function WorkspaceChrome({
     await navigator.clipboard.writeText(new URL(path, window.location.origin).toString());
   }
 
-  const workspaceCrumbs = workspaceCrumbsFor(
-    selectedProject?.collections ?? [],
-    selectedCollection,
-    t("dashboard.allSessions"),
-  );
+  const selectedBatch = batches.find((batch) => batch.id === selectedBatchId);
+  const workspaceCrumbs = selectedBatch
+    ? [{ id: null, name: selectedBatch.label }]
+    : workspaceCrumbsFor(
+      selectedProject?.collections ?? [],
+      selectedCollection,
+      t("dashboard.allSessions"),
+    );
 
   const contextValue = useMemo<WorkspaceChromeContextValue>(() => ({
     fetchTree,
     loading,
     moveSessions,
     projectTree,
+    selectedBatchId,
     selectedCollection,
     selectedCollectionId,
     selectedProject,
@@ -471,6 +538,7 @@ export function WorkspaceChrome({
     loading,
     moveSessions,
     projectTree,
+    selectedBatchId,
     selectedCollection,
     selectedCollectionId,
     selectedProject,
@@ -518,6 +586,7 @@ export function WorkspaceChrome({
               setSelectedProjectId(projectId);
               localStorage.setItem(SELECTED_PROJECT_KEY, projectId);
               setSelectedCollectionIdState(null);
+              setSelectedBatchIdState(null);
               writeStoredCollectionId(null);
               if (navigateOnCollectionSelect) void navigate({ search: { session: undefined }, to: "/app" });
             }}
@@ -525,15 +594,23 @@ export function WorkspaceChrome({
         )}
         sidebar={(
           <HistorySidebar
+            filters={batches.map((batch) => ({
+              count: batch.sessionCount,
+              id: batch.id,
+              label: batch.label,
+            }))}
             footer={<AppAccountMenu />}
             selectedCollectionId={selectedCollectionId}
+            selectedFilterId={selectedBatchId}
             selectedProject={selectedProject}
             t={t}
             onCreate={(kind, parentId) => openContainerEditor({ kind, mode: "create", parentId })}
             onDelete={setContainerDelete}
+            onDeleteFilter={setFilterDeleteId}
             onRename={({ id, kind, name }) => openContainerEditor({ id, kind, mode: "rename" }, name)}
             onReorderCollections={(items) => void reorderCollections(items)}
             onSelectCollection={setSelectedCollectionId}
+            onSelectFilter={setSelectedBatchId}
             onShare={(path) => void copyShare(path)}
           />
         )}
@@ -585,6 +662,18 @@ export function WorkspaceChrome({
             <AlertDialogFooter>
               <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
               <AlertDialogAction variant="destructive" onClick={() => containerDelete && void deleteContainer(containerDelete.kind, containerDelete.id)}>{t("dashboard.delete")}</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        <AlertDialog open={Boolean(filterDeleteId)} onOpenChange={(open) => !open && setFilterDeleteId(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t("dashboard.deleteFilterTitle")}</AlertDialogTitle>
+              <AlertDialogDescription>{t("dashboard.deleteFilterConfirm")}</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+              <AlertDialogAction variant="destructive" onClick={() => filterDeleteId && void deleteFilter(filterDeleteId)}>{t("dashboard.deleteFilter")}</AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>

@@ -176,6 +176,13 @@ const messages: UiMessages = {
   "dashboard.collectionMenu": "集合",
   "dashboard.breadcrumb": "面包屑导航",
   "dashboard.collections": "集合",
+  "dashboard.filters": "筛选",
+  "dashboard.filtersEmpty": "无筛选",
+  "dashboard.filterActions": "筛选操作",
+  "dashboard.deleteFilter": "移除分组",
+  "dashboard.deleteFilterTitle": "移除此分组？",
+  "dashboard.deleteFilterConfirm":
+    "会话仍保留在各自的集合中。只会去掉分组。",
   "dashboard.create": "创建",
   "dashboard.deleteCollection": "删除集合",
   "dashboard.deleteContainerConfirm":

@@ -1,7 +1,6 @@
 import { pinBox, pinPoint, renderPinsCrop } from "./crop.js";
 import {
   addCapture,
-  batchDestination,
   batchSummary,
   markFailed,
   openBatch,
@@ -567,9 +566,8 @@ async function copyBundle(message) {
   const privacy = sanitized.privacy;
   const warnings = [...(sanitized.warnings || [])];
   let savedResult = null;
-  // An open batch pins every capture to the collection chosen when it started.
   const activeBatch = await readBatch();
-  const destination = batchDestination(activeBatch) ?? await getCaptureDestinationContext(settings)
+  const destination = await getCaptureDestinationContext(settings)
     .then((context) => context.destination)
     .catch(() => null);
 
@@ -598,6 +596,7 @@ async function copyBundle(message) {
       privacy,
       warnings,
       includeScreenshot,
+      activeBatch,
     );
     if (!savedResult) warnings.push("helper_unavailable");
   } else if (plan.warnScreenshotMissing) {
@@ -1057,51 +1056,41 @@ async function writeBatch(batch) {
   return batch;
 }
 
-// A batch gets its own collection so the sessions it captured stay identifiable,
-// and that collection is nested under the destination the user configured: a
-// batch is a group of captures, not a different kind of thing, so the setting
-// still applies. When the destination is the protected Inbox the panel hoists
-// the child to the project root on its own; see partitionCollectionNavigation.
-async function createBatchCollection(settings, projectId, name, parentId) {
-  const path = `/api/projects/${encodeURIComponent(projectId)}/collections`;
-  const init = {
-    body: JSON.stringify({ name, parentId }),
-    headers: { "content-type": "application/json" },
-    method: "POST",
-  };
-  const response = settings.storageMode === "cloud"
-    ? await remoteFetch(cloudEndpoint(settings), path, init)
-    : await localFetch(await requireShotBase(), path, init);
-  const body = await responseBody(response);
-  if (!response.ok || !body.collection) throw new Error(body.error || "Unable to create the batch collection");
-  return body.collection;
-}
-
-async function requireShotBase() {
-  const base = await findShotBase();
-  if (!base) throw new Error("Local Pinar server is not running");
-  return base;
-}
-
 async function startBatch() {
-  const context = await getCaptureDestinationContext();
-  const { collectionId: parentId, projectId } = context.destination ?? {};
-  if (!projectId || !parentId) throw new Error("No capture destination is available");
   const settings = await getSettings();
   const language = getBestLanguage(settings.language);
-  const when = new Intl.DateTimeFormat(language, { dateStyle: "short", timeStyle: "short" }).format(new Date());
-  const name = translations[language].batch_collection_name.replace("{when}", when);
-  const collection = await createBatchCollection(settings, projectId, name, parentId);
-  const batch = await writeBatch(openBatch({ collectionId: collection.id, projectId }));
+  const startedAt = new Date();
+  const when = new Intl.DateTimeFormat(language, { dateStyle: "short", timeStyle: "short" }).format(startedAt);
+  const label = translations[language].batch_label.replace("{when}", when);
+  const batch = await writeBatch(openBatch({
+    id: crypto.randomUUID(),
+    label,
+    startedAt: startedAt.toISOString(),
+  }));
   await refreshBatchMenu();
   return batch;
 }
 
-// Finishing only closes the batch. The collection already exists in the panel,
-// so there is nothing to navigate to and nothing to steal the user's tab for.
 async function finishBatch() {
   const batch = await readBatch();
   if (!batch) return { summary: null };
+  const settings = await getSettings();
+  const path = `/api/batches/${encodeURIComponent(batch.id)}/finish`;
+  const init = {
+    body: JSON.stringify({ finishedAt: new Date().toISOString() }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  };
+  try {
+    if (settings.storageMode === "cloud") {
+      await remoteFetch(cloudEndpoint(settings), path, init);
+    } else {
+      const base = await findShotBase();
+      if (base) await localFetch(base, path, init);
+    }
+  } catch {
+    /* A missing server must not keep the batch open. */
+  }
   await writeBatch(null);
   await refreshBatchMenu();
   return { summary: batchSummary(batch) };
@@ -1230,7 +1219,7 @@ async function openApp() {
   return url;
 }
 
-async function saveShot(dataUrl, id, page = {}, pins = [], settings = {}, collectionId = "", privacy = null, warnings = [], includeScreenshot = true) {
+async function saveShot(dataUrl, id, page = {}, pins = [], settings = {}, collectionId = "", privacy = null, warnings = [], includeScreenshot = true, batch = null) {
   const payload = {
     captureId: id,
     collectionId,
@@ -1243,6 +1232,7 @@ async function saveShot(dataUrl, id, page = {}, pins = [], settings = {}, collec
     schemaVersion: 1,
     warnings,
   };
+  if (batch) payload.batch = { id: batch.id, label: batch.label, startedAt: batch.startedAt };
   // 1. Cloudflare Worker mode
   if (settings.storageMode === "cloud") {
     const endpoint = cloudEndpoint(settings);

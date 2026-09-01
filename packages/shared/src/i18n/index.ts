@@ -17,7 +17,7 @@ export interface TranslationDictionary {
   section_handoff: string;
   section_privacy: string;
   batch_active: string;
-  batch_collection_name: string;
+  batch_label: string;
   batch_start: string;
   batch_finish: string;
   storage_status_title: string;
@@ -132,7 +132,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     section_handoff: "Agent handoff",
     section_privacy: "Privacy",
     batch_active: "Batch: {count}",
-    batch_collection_name: "Batch · {when}",
+    batch_label: "Batch · {when}",
     batch_start: "Start capture batch",
     batch_finish: "Finish capture batch",
     storage_status_title: "Storage status",
@@ -245,7 +245,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     section_handoff: "Entrega ao agente",
     section_privacy: "Privacidade",
     batch_active: "Lote: {count}",
-    batch_collection_name: "Lote · {when}",
+    batch_label: "Lote · {when}",
     batch_start: "Iniciar lote de capturas",
     batch_finish: "Finalizar lote de capturas",
     storage_status_title: "Status do armazenamento",
@@ -358,7 +358,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     section_handoff: "Entrega al agente",
     section_privacy: "Privacidad",
     batch_active: "Lote: {count}",
-    batch_collection_name: "Lote · {when}",
+    batch_label: "Lote · {when}",
     batch_start: "Iniciar lote de capturas",
     batch_finish: "Finalizar lote de capturas",
     storage_status_title: "Estado del almacenamiento",
@@ -471,7 +471,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     section_handoff: "Transmission à l’agent",
     section_privacy: "Confidentialité",
     batch_active: "Lot : {count}",
-    batch_collection_name: "Lot · {when}",
+    batch_label: "Lot · {when}",
     batch_start: "Démarrer un lot de captures",
     batch_finish: "Terminer le lot de captures",
     storage_status_title: "État du stockage",
@@ -584,7 +584,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     section_handoff: "Übergabe an den Agenten",
     section_privacy: "Datenschutz",
     batch_active: "Stapel: {count}",
-    batch_collection_name: "Stapel · {when}",
+    batch_label: "Stapel · {when}",
     batch_start: "Aufnahme-Stapel starten",
     batch_finish: "Aufnahme-Stapel abschließen",
     storage_status_title: "Speicherstatus",
@@ -697,7 +697,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     section_handoff: "交给智能体",
     section_privacy: "隐私",
     batch_active: "批次：{count}",
-    batch_collection_name: "批次 · {when}",
+    batch_label: "批次 · {when}",
     batch_start: "开始捕获批次",
     batch_finish: "结束捕获批次",
     storage_status_title: "存储状态",
@@ -810,7 +810,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     section_handoff: "エージェントへの引き渡し",
     section_privacy: "プライバシー",
     batch_active: "バッチ: {count}",
-    batch_collection_name: "バッチ · {when}",
+    batch_label: "バッチ · {when}",
     batch_start: "キャプチャバッチを開始",
     batch_finish: "キャプチャバッチを終了",
     storage_status_title: "ストレージの状態",

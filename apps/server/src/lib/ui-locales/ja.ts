@@ -193,6 +193,13 @@ const messages: UiMessages = {
   "dashboard.collectionMenu": "コレクション",
   "dashboard.breadcrumb": "パンくずリスト",
   "dashboard.collections": "コレクション",
+  "dashboard.filters": "フィルター",
+  "dashboard.filtersEmpty": "フィルターなし",
+  "dashboard.filterActions": "フィルター操作",
+  "dashboard.deleteFilter": "グループを外す",
+  "dashboard.deleteFilterTitle": "このグループを外しますか？",
+  "dashboard.deleteFilterConfirm":
+    "セッションはコレクションに残ります。グループ分けだけが消えます。",
   "dashboard.create": "作成",
   "dashboard.deleteCollection": "コレクションを削除",
   "dashboard.deleteContainerConfirm":

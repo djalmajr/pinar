@@ -72,7 +72,7 @@ import {
   pinCount,
   type PinCountFilter,
 } from "@/lib/session-filters";
-import { sessionListingCopy, flattenCollectionSessions } from "@/lib/session-listing";
+import { sessionListingCopy } from "@/lib/session-listing";
 import {
   SESSION_DND_TYPE,
   sessionDragId,
@@ -499,9 +499,11 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
     loading,
     moveSessions,
     projectTree,
+    selectedBatchId,
     selectedCollection,
     selectedCollectionId,
     selectedProject,
+    sessions,
     setProjectTree,
   } = useWorkspaceChrome();
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -520,13 +522,6 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [view, setView] = useState<HistoryView>("grid");
   useDocumentMeta(selectedCollection?.name || t("dashboard.allSessions"));
-
-  const sessions = useMemo(
-    () => selectedCollection
-      ? selectedCollection.sessions
-      : flattenCollectionSessions(selectedProject?.collections),
-    [selectedCollection, selectedProject],
-  );
   const collectionNameBySessionId = useMemo(() => {
     const names = new Map<string, string>();
     for (const collection of selectedProject?.collections ?? []) {
@@ -586,7 +581,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
     setPagination((current) => current.pageIndex === 0
       ? current
       : { ...current, pageIndex: 0 });
-  }, [pinFilters, reviewFilters, search, selectedCollectionId, selectedProject?.id]);
+  }, [pinFilters, reviewFilters, search, selectedBatchId, selectedCollectionId, selectedProject?.id]);
 
   useEffect(() => {
     if (pagination.pageIndex < pageCount) return;

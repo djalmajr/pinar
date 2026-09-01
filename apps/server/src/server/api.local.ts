@@ -53,16 +53,27 @@ import { localHealthDiscoveryBody } from "./local-api-trust";
 import { decodePngDataUrl } from "./png";
 
 interface LocalSession extends Session {
+  batchId?: string | null;
   shotPath?: string | null;
+}
+
+interface HistoryBatch {
+  finishedAt: string | null;
+  id: string;
+  label: string;
+  sessionCount: number;
+  startedAt: string;
 }
 
 interface HistoryDatabase {
   close(): void;
   createCollection(projectId: string, name: string, parentId?: string | null): Collection | null;
   createProject(name: string, icon?: ProjectIcon): Project;
+  deleteBatch(id: string): boolean;
   deleteCollection(id: string): boolean;
   deleteProject(id: string): boolean;
   deleteSession(id: string): boolean;
+  finishBatch(id: string, finishedAt: string): HistoryBatch | null;
   getDefaultDestination(): CaptureDestination;
   getProjectTree(): ProjectTree;
   getSession(id: string): LocalSession | null;
@@ -80,8 +91,15 @@ interface HistoryDatabase {
     },
   ): { changed: boolean; review: import("@pinar/shared").PinReview };
   listCollections(projectId: string): Collection[];
+  listBatches(): HistoryBatch[];
   listProjects(): Project[];
-  listSessions(options: { collectionId?: string; limit: number; offset: number; query: string }): LocalSession[];
+  listSessions(options: {
+    batchId?: string;
+    collectionId?: string;
+    limit: number;
+    offset: number;
+    query: string;
+  }): LocalSession[];
   moveSession(id: string, collectionId: string): LocalSession | null;
   reorderCollections(projectId: string, items: CollectionPlacement[] | string[]): Collection[] | null;
   reorderProjects(ids: string[]): Project[];
@@ -91,6 +109,7 @@ interface HistoryDatabase {
   saveLoopMetrics(events: unknown[]): Array<import("@pinar/shared").LoopMetric & { createdAt: string; id: string }>;
   listLoopMetrics(): Array<import("@pinar/shared").LoopMetric & { createdAt: string; id: string }>;
   saveSession(input: {
+    batchId?: string | null;
     collectionId?: string;
     createdAt?: string;
     id?: string;
@@ -103,6 +122,7 @@ interface HistoryDatabase {
     warnings?: string[];
   }): LocalSession;
   updateCollection(id: string, name: string): Collection | null;
+  upsertBatch(input: { id: string; label: string; startedAt: string }): HistoryBatch;
   updateProject(id: string, name: string, icon?: ProjectIcon): Project | null;
 }
 
@@ -156,6 +176,24 @@ function booleanValue(record: Record<string, unknown>, key: string, fallback = t
 function stringArrayValue(record: Record<string, unknown>, key: string) {
   const value = record[key];
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function batchValue(record: Record<string, unknown>) {
+  const value = record.batch;
+  if (!isRecord(value)) return null;
+  const id = stringValue(value, "id").trim();
+  if (!id) return null;
+  return {
+    id,
+    label: stringValue(value, "label"),
+    startedAt: stringValue(value, "startedAt") || new Date().toISOString(),
+  };
+}
+
+function persistBatch(body: Record<string, unknown>) {
+  const batch = batchValue(body);
+  if (batch) historyDatabase().upsertBatch(batch);
+  return batch;
 }
 
 function pageValue(value: unknown): PageInfo {
@@ -344,6 +382,7 @@ async function uploadShot(request: Request): Promise<Response> {
   if (capture) {
     try {
       historyDatabase().saveSession({
+        batchId: persistBatch(body)?.id ?? null,
         collectionId: destination.collectionId,
         createdAt: stringValue(body, "createdAt") || capture.createdAt,
         id: capture.captureId,
@@ -385,6 +424,7 @@ async function saveHistory(request: Request): Promise<Response> {
   if (!parsed.ok) return parsed.response;
   try {
     const session = historyDatabase().saveSession({
+      batchId: persistBatch(body)?.id ?? null,
       collectionId: destination.collectionId,
       createdAt: stringValue(body, "createdAt") || parsed.capture.createdAt,
       id: parsed.capture.captureId,
@@ -476,6 +516,24 @@ async function routeLocalApi(request: Request): Promise<Response> {
   }
   if (method === "GET" && path === "/api/project-tree") {
     return json({ ok: true, tree: presentProjectTree(historyDatabase().getProjectTree(), url.origin) });
+  }
+  if (method === "GET" && path === "/api/batches") {
+    return json({ batches: historyDatabase().listBatches(), ok: true });
+  }
+  const batchFinishMatch = path.match(/^\/api\/batches\/([^/]+)\/finish$/);
+  if (batchFinishMatch && method === "POST") {
+    const body = await readJson(request);
+    const finishedAt = stringValue(body, "finishedAt") || new Date().toISOString();
+    const batch = historyDatabase().finishBatch(
+      decodeURIComponent(batchFinishMatch[1]),
+      finishedAt,
+    );
+    return batch ? json({ batch, ok: true }) : json({ error: "batch not found" }, 404);
+  }
+  const batchMatch = path.match(/^\/api\/batches\/([^/]+)$/);
+  if (batchMatch && method === "DELETE") {
+    const deleted = historyDatabase().deleteBatch(decodeURIComponent(batchMatch[1]));
+    return deleted ? json({ ok: true }) : json({ error: "batch not found" }, 404);
   }
   if (method === "GET" && path === "/api/projects") {
     return json({ ok: true, projects: historyDatabase().listProjects() });
@@ -585,7 +643,8 @@ async function routeLocalApi(request: Request): Promise<Response> {
     const offset = Number(url.searchParams.get("offset")) || 0;
     const query = url.searchParams.get("q") || "";
     const collectionId = url.searchParams.get("collectionId") || "";
-    const sessions = historyDatabase().listSessions({ collectionId, limit, offset, query }).map((session) => {
+    const batchId = url.searchParams.get("batchId") || "";
+    const sessions = historyDatabase().listSessions({ batchId, collectionId, limit, offset, query }).map((session) => {
       return presentSession(session, url.origin);
     });
     return json({ ok: true, sessions });

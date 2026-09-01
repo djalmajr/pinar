@@ -188,6 +188,13 @@ const messages = {
   "dashboard.collectionMenu": "Collection",
   "dashboard.breadcrumb": "Breadcrumb",
   "dashboard.collections": "Collections",
+  "dashboard.filters": "Filters",
+  "dashboard.filtersEmpty": "No filters",
+  "dashboard.filterActions": "Filter actions",
+  "dashboard.deleteFilter": "Remove grouping",
+  "dashboard.deleteFilterTitle": "Remove this grouping?",
+  "dashboard.deleteFilterConfirm":
+    "The sessions stay in their collections. Only the grouping is removed.",
   "dashboard.create": "Create",
   "dashboard.deleteCollection": "Delete collection",
   "dashboard.deleteContainerConfirm":

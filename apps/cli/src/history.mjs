@@ -57,6 +57,7 @@ const LOCAL_OWNER_ID = "local";
  * @property {string | null} [shotId]
  * @property {string | null} [shotPath]
  * @property {boolean} [includeScreenshot]
+ * @property {string | null} [batchId]
  */
 
 function generateNanoId(size = 12) {
@@ -103,6 +104,16 @@ function formatCollection(row) {
     position: row.position,
     projectId: row.project_id,
     updatedAt: row.updated_at,
+  };
+}
+
+function formatBatch(row, sessionCount = Number(row.session_count) || 0) {
+  return {
+    finishedAt: row.finished_at || null,
+    id: row.id,
+    label: row.label,
+    sessionCount,
+    startedAt: row.started_at,
   };
 }
 
@@ -180,6 +191,7 @@ function formatSession(row) {
   const capture = decodeVisualCaptureJson(row.pins_json, row.id);
   return {
     captureId: capture.captureId,
+    batchId: row.batch_id || null,
     collectionId: row.collection_id,
     createdAt: row.created_at,
     id: row.id,
@@ -327,6 +339,7 @@ class JsonHistoryDb {
         if (Array.isArray(stored)) {
           return {
             agent_executions: [],
+            batches: [],
             collections: [],
             loop_metrics: [],
             pin_review_events: [],
@@ -338,6 +351,7 @@ class JsonHistoryDb {
         if (stored && typeof stored === "object") {
           return {
             agent_executions: Array.isArray(stored.agent_executions) ? stored.agent_executions : [],
+            batches: Array.isArray(stored.batches) ? stored.batches : [],
             collections: Array.isArray(stored.collections) ? stored.collections : [],
             loop_metrics: Array.isArray(stored.loop_metrics) ? stored.loop_metrics : [],
             pin_review_events: Array.isArray(stored.pin_review_events) ? stored.pin_review_events : [],
@@ -352,6 +366,7 @@ class JsonHistoryDb {
     }
     return {
       agent_executions: [],
+      batches: [],
       collections: [],
       loop_metrics: [],
       pin_review_events: [],
@@ -448,12 +463,13 @@ class JsonHistoryDb {
   }
 
   /** @param {HistoryInput} input */
-  saveSession({ collectionId, createdAt, id, includeScreenshot = true, page = {}, pins = [], privacy, shotId = null, shotPath = null, warnings } = {}) {
+  saveSession({ batchId = null, collectionId, createdAt, id, includeScreenshot = true, page = {}, pins = [], privacy, shotId = null, shotPath = null, warnings } = {}) {
     const destination = this.resolveDestination(collectionId);
     const existing = id ? this.data.sessions.find((item) => item.id === id) : null;
     const sid = id || generateNanoId();
     const capture = captureForSave(sid, page, pins, shotId, shotPath, { privacy, warnings });
     const entry = {
+      batch_id: batchId || null,
       collection_id: destination.collectionId,
       created_at: createdAt || now(),
       id: capture.captureId,
@@ -475,8 +491,9 @@ class JsonHistoryDb {
     return this._decorateSession(session);
   }
 
-  listSessions({ collectionId = "", limit = 50, offset = 0, query = "" } = {}) {
+  listSessions({ batchId = "", collectionId = "", limit = 50, offset = 0, query = "" } = {}) {
     let results = this.data.sessions;
+    if (batchId) results = results.filter((item) => item.batch_id === batchId);
     if (collectionId) results = results.filter((item) => item.collection_id === collectionId);
     if (query) {
       const normalized = query.toLowerCase();
@@ -818,6 +835,48 @@ class JsonHistoryDb {
     return true;
   }
 
+  upsertBatch({ id, label, startedAt }) {
+    let row = this.data.batches.find((item) => item.id === id);
+    if (!row) {
+      row = {
+        finished_at: null,
+        id,
+        label,
+        started_at: startedAt,
+      };
+      this.data.batches.push(row);
+      this._save();
+    }
+    return formatBatch(row, this.data.sessions.filter((item) => item.batch_id === id).length);
+  }
+
+  listBatches() {
+    return [...this.data.batches]
+      .sort((left, right) => String(right.started_at).localeCompare(String(left.started_at)))
+      .map((row) => formatBatch(
+        row,
+        this.data.sessions.filter((item) => item.batch_id === row.id).length,
+      ));
+  }
+
+  finishBatch(id, finishedAt) {
+    const row = this.data.batches.find((item) => item.id === id);
+    if (!row) return null;
+    row.finished_at = finishedAt;
+    this._save();
+    return formatBatch(row, this.data.sessions.filter((item) => item.batch_id === id).length);
+  }
+
+  deleteBatch(id) {
+    if (!this.data.batches.some((item) => item.id === id)) return false;
+    for (const session of this.data.sessions) {
+      if (session.batch_id === id) session.batch_id = null;
+    }
+    this.data.batches = this.data.batches.filter((item) => item.id !== id);
+    this._save();
+    return true;
+  }
+
   moveSession(id, collectionId) {
     const session = this.data.sessions.find((item) => item.id === id);
     const collection = this.data.collections.find((item) => item.id === collectionId);
@@ -895,6 +954,12 @@ class SqliteHistoryDb {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS batches (
+        id TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        finished_at TEXT
+      );
       CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY,
         url TEXT,
@@ -905,6 +970,7 @@ class SqliteHistoryDb {
         pins_json TEXT,
         created_at TEXT,
         collection_id TEXT,
+        batch_id TEXT,
         position INTEGER,
         include_screenshot INTEGER NOT NULL DEFAULT 1
       );
@@ -991,7 +1057,9 @@ class SqliteHistoryDb {
     if (!columns.has("include_screenshot")) {
       this.db.exec("ALTER TABLE sessions ADD COLUMN include_screenshot INTEGER NOT NULL DEFAULT 1;");
     }
+    if (!columns.has("batch_id")) this.db.exec("ALTER TABLE sessions ADD COLUMN batch_id TEXT;");
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_sessions_collection_position ON sessions(collection_id, position);");
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_sessions_batch ON sessions(batch_id, created_at DESC);");
   }
 
   _ensureDefaults() {
@@ -1060,7 +1128,7 @@ class SqliteHistoryDb {
   }
 
   /** @param {HistoryInput} input */
-  saveSession({ collectionId, createdAt, id, includeScreenshot = true, page = {}, pins = [], privacy, shotId = null, shotPath = null, warnings } = {}) {
+  saveSession({ batchId = null, collectionId, createdAt, id, includeScreenshot = true, page = {}, pins = [], privacy, shotId = null, shotPath = null, warnings } = {}) {
     const sid = id || generateNanoId();
     const destination = this.resolveDestination(collectionId);
     const existing = this.db.prepare("SELECT collection_id, position FROM sessions WHERE id = ?").get(sid);
@@ -1071,8 +1139,8 @@ class SqliteHistoryDb {
     const includeFlag = includeScreenshot === false ? 0 : 1;
     this.db.prepare(`
       INSERT INTO sessions (
-        id, url, title, shot_id, shot_path, pin_count, pins_json, created_at, collection_id, position, include_screenshot
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, url, title, shot_id, shot_path, pin_count, pins_json, created_at, collection_id, batch_id, position, include_screenshot
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         url=excluded.url,
         title=excluded.title,
@@ -1082,6 +1150,7 @@ class SqliteHistoryDb {
         pins_json=excluded.pins_json,
         created_at=excluded.created_at,
         collection_id=excluded.collection_id,
+        batch_id=excluded.batch_id,
         position=excluded.position,
         include_screenshot=excluded.include_screenshot
     `).run(
@@ -1094,6 +1163,7 @@ class SqliteHistoryDb {
       encodeVisualCaptureJson(capture),
       createdAt || now(),
       destination.collectionId,
+      batchId || null,
       position,
       includeFlag,
     );
@@ -1103,9 +1173,13 @@ class SqliteHistoryDb {
     return this._decorateSession(this.getSession(capture.captureId));
   }
 
-  listSessions({ collectionId = "", limit = 50, offset = 0, query = "" } = {}) {
+  listSessions({ batchId = "", collectionId = "", limit = 50, offset = 0, query = "" } = {}) {
     const clauses = [];
     const values = [];
+    if (batchId) {
+      clauses.push("batch_id = ?");
+      values.push(batchId);
+    }
     if (collectionId) {
       clauses.push("collection_id = ?");
       values.push(collectionId);
@@ -1118,7 +1192,7 @@ class SqliteHistoryDb {
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     const order = collectionId ? "position ASC" : "created_at DESC";
     const rows = this.db.prepare(`
-      SELECT id, url, title, shot_id, shot_path, pin_count, pins_json, created_at, collection_id, position, include_screenshot
+      SELECT id, url, title, shot_id, shot_path, pin_count, pins_json, created_at, collection_id, batch_id, position, include_screenshot
       FROM sessions
       ${where}
       ORDER BY ${order}
@@ -1129,7 +1203,7 @@ class SqliteHistoryDb {
 
   getSession(id) {
     const row = this.db.prepare(`
-      SELECT id, url, title, shot_id, shot_path, pin_count, pins_json, created_at, collection_id, position, include_screenshot
+      SELECT id, url, title, shot_id, shot_path, pin_count, pins_json, created_at, collection_id, batch_id, position, include_screenshot
       FROM sessions WHERE id = ?
     `).get(id);
     return row ? this._decorateSession(formatSession(row)) : null;
@@ -1532,6 +1606,50 @@ class SqliteHistoryDb {
     return this.db.prepare(
       "DELETE FROM collections WHERE id = ? AND owner_id = ?",
     ).run(id, LOCAL_OWNER_ID).changes > 0;
+  }
+
+  _formatBatchRow(row) {
+    if (!row) return null;
+    const count = this.db.prepare(
+      "SELECT COUNT(*) AS session_count FROM sessions WHERE batch_id = ?",
+    ).get(row.id);
+    return formatBatch(row, Number(count.session_count) || 0);
+  }
+
+  upsertBatch({ id, label, startedAt }) {
+    this.db.prepare(`
+      INSERT INTO batches (id, label, started_at) VALUES (?, ?, ?)
+      ON CONFLICT(id) DO NOTHING
+    `).run(id, label, startedAt);
+    return this._formatBatchRow(this.db.prepare("SELECT * FROM batches WHERE id = ?").get(id));
+  }
+
+  listBatches() {
+    const rows = this.db.prepare(`
+      SELECT batches.id, batches.label, batches.started_at, batches.finished_at,
+        COUNT(sessions.id) AS session_count
+      FROM batches
+      LEFT JOIN sessions ON sessions.batch_id = batches.id
+      GROUP BY batches.id
+      ORDER BY batches.started_at DESC
+    `).all();
+    return rows.map((row) => formatBatch(row, Number(row.session_count) || 0));
+  }
+
+  finishBatch(id, finishedAt) {
+    const result = this.db.prepare(
+      "UPDATE batches SET finished_at = ? WHERE id = ?",
+    ).run(finishedAt, id);
+    if (!result.changes) return null;
+    return this._formatBatchRow(this.db.prepare("SELECT * FROM batches WHERE id = ?").get(id));
+  }
+
+  deleteBatch(id) {
+    const existing = this.db.prepare("SELECT id FROM batches WHERE id = ?").get(id);
+    if (!existing) return false;
+    this.db.prepare("UPDATE sessions SET batch_id = NULL WHERE batch_id = ?").run(id);
+    this.db.prepare("DELETE FROM batches WHERE id = ?").run(id);
+    return true;
   }
 
   moveSession(id, collectionId) {

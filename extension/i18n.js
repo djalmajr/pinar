@@ -3,7 +3,7 @@
 export const translations = {
   en: {
     batch_active: "Batch: {count}",
-    batch_collection_name: "Batch · {when}",
+    batch_label: "Batch · {when}",
     batch_finish: "Finish capture batch",
     batch_start: "Start capture batch",
     capture_destination_label: "Capture destination",
@@ -15,7 +15,7 @@ export const translations = {
   },
   pt: {
     batch_active: "Lote: {count}",
-    batch_collection_name: "Lote · {when}",
+    batch_label: "Lote · {when}",
     batch_finish: "Finalizar lote de capturas",
     batch_start: "Iniciar lote de capturas",
     capture_destination_label: "Destino da captura",
@@ -27,7 +27,7 @@ export const translations = {
   },
   es: {
     batch_active: "Lote: {count}",
-    batch_collection_name: "Lote · {when}",
+    batch_label: "Lote · {when}",
     batch_finish: "Finalizar lote de capturas",
     batch_start: "Iniciar lote de capturas",
     capture_destination_label: "Destino de captura",
@@ -39,7 +39,7 @@ export const translations = {
   },
   fr: {
     batch_active: "Lot : {count}",
-    batch_collection_name: "Lot · {when}",
+    batch_label: "Lot · {when}",
     batch_finish: "Terminer le lot de captures",
     batch_start: "Démarrer un lot de captures",
     capture_destination_label: "Destination de la capture",
@@ -51,7 +51,7 @@ export const translations = {
   },
   de: {
     batch_active: "Stapel: {count}",
-    batch_collection_name: "Stapel · {when}",
+    batch_label: "Stapel · {when}",
     batch_finish: "Aufnahme-Stapel abschließen",
     batch_start: "Aufnahme-Stapel starten",
     capture_destination_label: "Aufnahmeziel",
@@ -63,7 +63,7 @@ export const translations = {
   },
   zh: {
     batch_active: "批次：{count}",
-    batch_collection_name: "批次 · {when}",
+    batch_label: "批次 · {when}",
     batch_finish: "结束捕获批次",
     batch_start: "开始捕获批次",
     capture_destination_label: "捕获目标",
@@ -75,7 +75,7 @@ export const translations = {
   },
   ja: {
     batch_active: "バッチ: {count}",
-    batch_collection_name: "バッチ · {when}",
+    batch_label: "バッチ · {when}",
     batch_finish: "キャプチャバッチを終了",
     batch_start: "キャプチャバッチを開始",
     capture_destination_label: "キャプチャ先",

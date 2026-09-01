@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useMemo, useState, type ComponentType, type CSSProperties, type ReactNode } from "react";
 import type {
   CollectionPlacement,
   ProjectIcon,
@@ -72,6 +72,7 @@ import PencilIcon from "~icons/lucide/pencil";
 import PlusIcon from "~icons/lucide/plus";
 import ShareIcon from "~icons/lucide/share-2";
 import TrashIcon from "~icons/lucide/trash-2";
+import FilterIcon from "~icons/lucide/list-filter";
 
 type ContainerKind = "collection" | "project";
 type Translate = (
@@ -89,16 +90,26 @@ interface RenameTarget extends ContainerTarget {
   name: string;
 }
 
+export interface SidebarFilterItem {
+  count: number;
+  id: string;
+  label: string;
+}
+
 interface HistorySidebarProps {
+  filters: SidebarFilterItem[];
   footer?: ReactNode;
   selectedCollectionId: string | null;
+  selectedFilterId: string | null;
   selectedProject?: ProjectTreeProject;
   t: Translate;
   onCreate: (kind: ContainerKind, parentId?: string) => void;
   onDelete: (target: ContainerTarget) => void;
+  onDeleteFilter: (id: string) => void;
   onRename: (target: RenameTarget) => void;
   onReorderCollections: (items: CollectionPlacement[]) => void;
   onSelectCollection: (collectionId: string | null) => void;
+  onSelectFilter: (id: string | null) => void;
   onShare: (path: string) => void;
 }
 
@@ -410,6 +421,149 @@ function FixedCollection({
   );
 }
 
+function FilterMenu({
+  item,
+  menuOpen,
+  t,
+  onActionFocusChange,
+  onDelete,
+  onMenuOpenChange,
+}: {
+  item: SidebarFilterItem;
+  menuOpen: boolean;
+  t: Translate;
+  onActionFocusChange: (focused: boolean) => void;
+  onDelete: (id: string) => void;
+  onMenuOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <DropdownMenu open={menuOpen} onOpenChange={onMenuOpenChange}>
+      <DropdownMenuTrigger
+        render={
+          <SidebarMenuAction
+            aria-label={`${item.label}: ${t("dashboard.filterActions")}`}
+            className="size-6 peer-data-[size=default]/menu-button:top-1"
+            showOnHover
+            title={t("dashboard.filterActions")}
+            onBlur={() => onActionFocusChange(false)}
+            onFocus={() => onActionFocusChange(true)}
+          />
+        }
+      >
+        <MoreVerticalIcon />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        className="w-48"
+        side="right"
+        sideOffset={8}
+      >
+        <DropdownMenuGroup>
+          <DropdownMenuItem
+            variant="destructive"
+            onClick={() => onDelete(item.id)}
+          >
+            <TrashIcon />
+            {t("dashboard.deleteFilter")}
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function FilterRow({
+  icon: Icon,
+  item,
+  isActive,
+  t,
+  onDelete,
+  onSelect,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  item: SidebarFilterItem;
+  isActive: boolean;
+  t: Translate;
+  onDelete: (id: string) => void;
+  onSelect: (id: string) => void;
+}) {
+  const [menuActionFocused, setMenuActionFocused] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        isActive={isActive}
+        tooltip={item.label}
+        onClick={() => onSelect(item.id)}
+      >
+        <Icon />
+        <span>{item.label}</span>
+      </SidebarMenuButton>
+      <SidebarMenuBadge
+        className={cn(
+          "group-hover/menu-item:opacity-0",
+          (menuOpen || menuActionFocused) && "opacity-0",
+        )}
+      >
+        {item.count}
+      </SidebarMenuBadge>
+      <FilterMenu
+        item={item}
+        menuOpen={menuOpen}
+        t={t}
+        onActionFocusChange={setMenuActionFocused}
+        onDelete={onDelete}
+        onMenuOpenChange={setMenuOpen}
+      />
+    </SidebarMenuItem>
+  );
+}
+
+function SidebarFilterGroup({
+  icon,
+  items,
+  selectedId,
+  title,
+  t,
+  onDelete,
+  onSelect,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  items: SidebarFilterItem[];
+  selectedId: string | null;
+  title: string;
+  t: Translate;
+  onDelete: (id: string) => void;
+  onSelect: (id: string | null) => void;
+}) {
+  if (!items.length) return null;
+  return (
+    <SidebarGroup className="pt-4">
+      <SidebarGroupLabel
+        aria-label={title || t("dashboard.filtersEmpty")}
+        className="h-7 text-[11px] font-normal uppercase text-sidebar-foreground/60"
+      >
+        {title}
+      </SidebarGroupLabel>
+      <SidebarGroupContent>
+        <SidebarMenu>
+          {items.map((item) => (
+            <FilterRow
+              icon={icon}
+              isActive={selectedId === item.id}
+              item={item}
+              key={item.id}
+              t={t}
+              onDelete={onDelete}
+              onSelect={(id) => onSelect(selectedId === id ? null : id)}
+            />
+          ))}
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  );
+}
+
 export function ProjectSwitcher({
   compact,
   projectTree,
@@ -626,15 +780,19 @@ export function ProjectActionsMenu({
 }
 
 export function HistorySidebar({
+  filters,
   footer,
   selectedCollectionId,
+  selectedFilterId,
   selectedProject,
   t,
   onCreate,
   onDelete,
+  onDeleteFilter,
   onRename,
   onReorderCollections,
   onSelectCollection,
+  onSelectFilter,
   onShare,
 }: HistorySidebarProps) {
   const { setOpenMobile } = useSidebar();
@@ -700,6 +858,16 @@ export function HistorySidebar({
   function selectCollection(collectionId: string | null) {
     onSelectCollection(collectionId);
     closeMobile();
+  }
+
+  function selectFilter(id: string | null) {
+    onSelectFilter(id);
+    closeMobile();
+  }
+
+  function deleteFilter(id: string) {
+    closeMobile();
+    onDeleteFilter(id);
   }
 
   function toggleCollection(collectionId: string) {
@@ -777,7 +945,7 @@ export function HistorySidebar({
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  isActive={selectedCollectionId === null}
+                  isActive={selectedCollectionId === null && selectedFilterId === null}
                   tooltip={t("dashboard.allSessions")}
                   onClick={() => selectCollection(null)}
                 >
@@ -854,6 +1022,15 @@ export function HistorySidebar({
             </DragOverlay>
           </SidebarGroupContent>
         </SidebarGroup>
+        <SidebarFilterGroup
+          icon={FilterIcon}
+          items={filters}
+          selectedId={selectedFilterId}
+          t={t}
+          title={t("dashboard.filters")}
+          onDelete={deleteFilter}
+          onSelect={selectFilter}
+        />
       </SidebarContent>
       {footer ? <SidebarFooter>{footer}</SidebarFooter> : null}
     </Sidebar>

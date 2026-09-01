@@ -190,23 +190,15 @@ test("review on page dispatches only the chosen session id", async ({ page }) =>
   await expect(page.getByText("Install the Pinar extension to reopen this session on the original page.")).toBeVisible();
 });
 
-test("copy, Markdown endpoint and assistant prompts preserve one session payload", async ({ page }) => {
+test("copy and the Markdown endpoint preserve one session payload", async ({ page }) => {
   await installClipboardHarness(page);
   await page.context().route("**/v/viewer-e2e.md", (route) => route.fulfill({
     body: sessionMarkdown,
     contentType: "text/markdown",
   }));
-  await page.context().route("https://chatgpt.com/**", (route) => route.fulfill({
-    body: "<title>ChatGPT prompt receiver</title>",
-    contentType: "text/html",
-  }));
-  await page.context().route("https://claude.ai/**", (route) => route.fulfill({
-    body: "<title>Claude prompt receiver</title>",
-    contentType: "text/html",
-  }));
   await page.goto("/v/viewer-e2e");
 
-  await page.getByRole("button", { name: "Copy Page" }).click();
+  await page.getByRole("button", { name: "Copy prompt" }).click();
   await expect(page.getByRole("button", { name: "Copied" })).toBeVisible();
   const copiedPrompt = await readClipboardHarness(page);
   const contextMatch = copiedPrompt.match(/```pinar-visual-context\n([\s\S]*?)\n```/);
@@ -230,7 +222,7 @@ test("copy, Markdown endpoint and assistant prompts preserve one session payload
 
   await page.getByRole("button", { name: "More page actions" }).click();
   const markdownPopupPromise = page.waitForEvent("popup");
-  await page.getByRole("menuitem", { name: "View as Markdown" }).click();
+  await page.getByRole("menuitem", { name: "Markdown" }).click();
   const markdownPopup = await markdownPopupPromise;
   await expect(markdownPopup.locator("body")).toContainText("Viewer fixture");
   await expect(markdownPopup.locator("body")).toContainText("https://example.test/settings");
@@ -238,20 +230,10 @@ test("copy, Markdown endpoint and assistant prompts preserve one session payload
   await expect(markdownPopup.locator("body")).toContainText("Reduce the empty space in this region.");
   await markdownPopup.close();
 
-  const markdownUrl = `${new URL(page.url()).origin}/v/viewer-e2e.md`;
+  // The menu offers no "open in assistant" entries: the handoff is the copied prompt.
   await page.getByRole("button", { name: "More page actions" }).click();
-  const chatGptPopupPromise = page.waitForEvent("popup");
-  await page.getByRole("menuitem", { name: "Open in ChatGPT" }).click();
-  const chatGptPopup = await chatGptPopupPromise;
-  expect(new URL(chatGptPopup.url()).searchParams.get("q")).toBe(`Review this annotated page: ${markdownUrl}`);
-  await chatGptPopup.close();
-
-  await page.getByRole("button", { name: "More page actions" }).click();
-  const claudePopupPromise = page.waitForEvent("popup");
-  await page.getByRole("menuitem", { name: "Open in Claude" }).click();
-  const claudePopup = await claudePopupPromise;
-  expect(new URL(claudePopup.url()).searchParams.get("q")).toBe(`Review this annotated page: ${markdownUrl}`);
-  await claudePopup.close();
+  await expect(page.getByRole("menuitem")).toHaveText(["Markdown"]);
+  await page.keyboard.press("Escape");
 
   await expect(page.getByRole("heading", { name: "Viewer fixture" })).toBeVisible();
   await expect(page.locator("aside").getByTitle(/Open pin/)).toHaveCount(2);

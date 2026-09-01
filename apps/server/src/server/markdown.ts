@@ -1,12 +1,14 @@
 import {
   captureFromSession,
   formatAgentResultsMarkdown,
+  formatBatchHandoff,
   formatHandoffBundle,
   formatPinReviewsMarkdown,
   isPinAwaitingAgent,
   pinReviewStatusFor,
   screenshotDeliveryEnabled,
   type AgentExecution,
+  type HandoffMode,
   type PinReview,
   type PinReviewStatus,
   type ProjectTreeCollection,
@@ -14,7 +16,7 @@ import {
   type Session,
 } from "@pinar/shared";
 
-export type MarkdownDelivery = { includeScreenshot?: boolean };
+export type MarkdownDelivery = { handoffMode?: HandoffMode; includeScreenshot?: boolean };
 
 function deliverScreenshot(session: Session, delivery?: MarkdownDelivery) {
   return screenshotDeliveryEnabled(delivery?.includeScreenshot, session);
@@ -74,6 +76,12 @@ export function formatCollectionMarkdown(
 // A batch is handed to an agent as work, not as an archive: only the pins the
 // review state still expects the agent to act on. Screenshots follow the same
 // delivery preference as every other export.
+/**
+ * The batch bundle is an agent handoff, not a projection: the same instruction
+ * block and `pinar-visual-context` fences a single capture produces, one fence
+ * per page. Only pins the review state still expects the agent to act on are
+ * included, and a page with none left is dropped rather than handed over empty.
+ */
 export function formatBatchMarkdown(
   batch: { id: string; label: string },
   sessions: Session[],
@@ -81,18 +89,18 @@ export function formatBatchMarkdown(
   origin: string,
   delivery?: MarkdownDelivery,
 ) {
-  const lines = [`# ${batch.label}`, ""];
-  let pending = 0;
+  const captures = [];
   for (const session of sessions) {
     const pins = session.pins.filter((pin) => isPinAwaitingAgent(
       pinReviewStatusFor(String(pin.pinId || pin.id || ""), statusByPinId),
     ));
     if (!pins.length) continue;
-    pending += pins.length;
-    appendSession(lines, { ...session, pins }, origin, delivery);
+    captures.push({
+      capture: captureFromSession({ ...session, pins }, { deliverScreenshot: deliverScreenshot(session, delivery) }),
+      viewerUrl: `${origin}/v/${session.id}.md`,
+    });
   }
-  if (!pending) lines.push("No pins are waiting on the agent in this batch.", "");
-  return lines.join("\n").trim();
+  return formatBatchHandoff(batch.label, captures, delivery?.handoffMode === "full" ? "full" : "compact").trim();
 }
 
 export function formatProjectMarkdown(

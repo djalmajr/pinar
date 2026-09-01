@@ -62,7 +62,7 @@ import {
   cn,
 } from "@pinar/ui";
 import { WorkspaceChrome, useWorkspaceChrome } from "@/components/WorkspaceChrome";
-import { openSessionInAssistant } from "../lib/session-actions";
+import { copyBatchHandoff } from "../lib/session-actions";
 import { SessionActionsMenu } from "../components/SessionActionsMenu";
 import { useDeliveryPreferences } from "@/lib/delivery-preferences";
 import { useDocumentMeta } from "@/lib/document-meta";
@@ -181,9 +181,11 @@ function SessionIdentity({
 }
 
 function SessionActions({
+  batchCopied,
   copied,
   session,
   onCopy,
+  onCopyBatch,
   onDelete,
   onMove,
   onReorder,
@@ -192,11 +194,13 @@ function SessionActions({
   canMoveLater,
   t,
 }: {
+  batchCopied: boolean;
   canMoveEarlier: boolean;
   canMoveLater: boolean;
   copied: boolean;
   session: Session;
   onCopy: (session: Session) => void;
+  onCopyBatch: (batchId: string) => void;
   onDelete: (id: string) => void;
   onMove: (id: string) => void;
   onReorder: (sessionId: string, direction: SessionOrderDirection) => void;
@@ -230,7 +234,8 @@ function SessionActions({
           onCopy={onCopy}
           onDelete={onDelete}
           onMove={onMove}
-          onOpenAssistant={(assistant) => openSessionInAssistant(session.id, assistant, t)}
+          batchCopied={batchCopied}
+          onCopyBatch={onCopyBatch}
           onReorder={onReorder}
           onReview={requestReopenSession}
           onView={onView}
@@ -483,6 +488,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
     setProjectTree,
   } = useWorkspaceChrome();
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [copiedBatchId, setCopiedBatchId] = useState<string | null>(null);
   const [deleteIds, setDeleteIds] = useState<string[]>([]);
   const [moveIds, setMoveIds] = useState<string[]>([]);
   const [moveProjectId, setMoveProjectId] = useState("");
@@ -639,6 +645,12 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
     window.setTimeout(() => setCopiedId(null), 2_000);
   }
 
+  async function copyBatch(batchId: string) {
+    if (!await copyBatchHandoff(batchId)) return;
+    setCopiedBatchId(batchId);
+    window.setTimeout(() => setCopiedBatchId(null), 2_000);
+  }
+
   async function deleteSessions() {
     if (!deleteIds.length) return;
     await Promise.all(deleteIds.map((id) => fetch(`/api/history/${id}`, { method: "DELETE" })));
@@ -765,11 +777,13 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
     {
       cell: ({ row }) => (
         <SessionActions
+          batchCopied={copiedBatchId != null && copiedBatchId === row.original.batchId}
           canMoveEarlier={false}
           canMoveLater={false}
           copied={copiedId === row.original.id}
           session={row.original}
           onCopy={(session) => void copyPrompt(session)}
+          onCopyBatch={(id) => void copyBatch(id)}
           onDelete={(id) => setDeleteIds([id])}
           onMove={(id) => openMoveDialog([id])}
           onReorder={(sessionId, direction) => void reorderSession(sessionId, direction)}
@@ -784,7 +798,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
       meta: { align: "right", label: t("dashboard.actions") },
       size: 76,
     },
-  ], [collectionNameBySessionId, copiedId, handoffMode, includeScreenshot, language, projectTree.projects, selectedCollection, selectedProject, t]);
+  ], [collectionNameBySessionId, copiedBatchId, copiedId, handoffMode, includeScreenshot, language, projectTree.projects, selectedCollection, selectedProject, t]);
 
   const searchControl = (
     <div className="relative min-w-0 flex-1 sm:w-56 sm:min-w-40 sm:flex-none">
@@ -987,7 +1001,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
                             selection checkbox, on a plate so they stay legible
                             over whatever the screenshot happens to show. */}
                         <div className="absolute top-2 right-2 z-10 flex items-center rounded-md bg-card/85 backdrop-blur-sm" data-grid-actions>
-                          <SessionActions canMoveEarlier={orderIndex > 0} canMoveLater={Boolean(selectedCollection && orderIndex >= 0 && orderIndex < selectedCollection.sessions.length - 1)} copied={copiedId === session.id} session={session} onCopy={(current) => void copyPrompt(current)} onDelete={(id) => setDeleteIds([id])} onMove={(id) => openMoveDialog([id])} onReorder={(sessionId, direction) => void reorderSession(sessionId, direction)} onView={openViewer} t={t} />
+                          <SessionActions batchCopied={copiedBatchId != null && copiedBatchId === session.batchId} canMoveEarlier={orderIndex > 0} canMoveLater={Boolean(selectedCollection && orderIndex >= 0 && orderIndex < selectedCollection.sessions.length - 1)} copied={copiedId === session.id} session={session} onCopy={(current) => void copyPrompt(current)} onCopyBatch={(id) => void copyBatch(id)} onDelete={(id) => setDeleteIds([id])} onMove={(id) => openMoveDialog([id])} onReorder={(sessionId, direction) => void reorderSession(sessionId, direction)} onView={openViewer} t={t} />
                         </div>
                         <SessionPreview session={session} t={t} onOpen={() => openViewer(session.id)} />
                         <CardHeader className="py-3">

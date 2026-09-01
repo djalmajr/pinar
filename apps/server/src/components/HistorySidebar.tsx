@@ -55,6 +55,7 @@ import {
   visibleCollections,
 } from "@/lib/collection-tree";
 import { COLLECTION_DND_TYPE, SESSION_DND_TYPE } from "@/lib/workspace-dnd";
+import { copyBatchHandoff } from "../lib/session-actions";
 import { ProjectIconGlyph } from "@/components/ProjectIcon";
 import type { ServerMessageKey } from "@/lib/i18n";
 import { pinarRuntime } from "@/lib/server-header";
@@ -439,15 +440,9 @@ function FilterMenu({
   const [copied, setCopied] = useState(false);
 
   async function copyBatch() {
-    try {
-      const response = await fetch(`/b/${item.id}.md`);
-      if (!response.ok) return;
-      await navigator.clipboard.writeText(await response.text());
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2_000);
-    } catch {
-      return;
-    }
+    if (!await copyBatchHandoff(item.id)) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 2_000);
   }
 
   return (

@@ -157,10 +157,34 @@ describe("batch markdown", () => {
 
   test("honours the screenshot delivery preference like every other export", () => {
     const sessions = [session("one", "pin-open", "open pin")];
-    assert.match(formatBatchMarkdown(batch, sessions, {}, "https://pinar.test"), /Screenshot:/);
-    assert.doesNotMatch(
-      formatBatchMarkdown(batch, sessions, {}, "https://pinar.test", { includeScreenshot: false }),
-      /Screenshot:/,
-    );
+    const withShot = formatBatchMarkdown(batch, sessions, {}, "https://pinar.test");
+    assert.match(withShot, /"screenshot":\{"url":"https:\/\/pinar.test\/shots\/one.png"\}/);
+    assert.match(withShot, /Numbered screenshot badges/);
+    const withoutShot = formatBatchMarkdown(batch, sessions, {}, "https://pinar.test", { includeScreenshot: false });
+    assert.doesNotMatch(withoutShot, /shots\/one.png/);
+    assert.doesNotMatch(withoutShot, /Numbered screenshot badges/);
+  });
+
+  test("is an agent handoff in the same shape as a single capture, one fence per page", () => {
+    const sessions = [session("one", "pin-a", "first page"), session("two", "pin-b", "second page")];
+    const markdown = formatBatchMarkdown(batch, sessions, {}, "https://pinar.test");
+    assert.match(markdown, /^# Batch · test\n/);
+    assert.match(markdown, /Implement the pin comments below across 2 pages\. Use selector and DOM path/);
+    assert.equal(markdown.match(/```pinar-visual-context/g)?.length, 2);
+    // Each fence is a parseable capture that keeps its own identity.
+    const fences = [...markdown.matchAll(/```pinar-visual-context\n(.*)\n```/g)].map((m) => JSON.parse(m[1]));
+    assert.deepEqual(fences.map((f) => f.captureId), ["one", "two"]);
+    assert.deepEqual(fences.map((f) => f.pins[0].pinId), ["pin-a", "pin-b"]);
+    assert.equal(fences[0].pins[0].comment, "first page");
+    // The per-page full-context link sits above its own fence.
+    assert.match(markdown, /## one\nFull context \(fetch only if the details above are insufficient\): https:\/\/pinar.test\/v\/one.md/);
+  });
+
+  test("full handoff mode carries the complete pin rather than the compact projection", () => {
+    const sessions = [session("one", "pin-a", "first page")];
+    const compact = formatBatchMarkdown(batch, sessions, {}, "https://pinar.test");
+    const full = formatBatchMarkdown(batch, sessions, {}, "https://pinar.test", { handoffMode: "full" });
+    assert.doesNotMatch(compact, /"number":1/);
+    assert.match(full, /"number":1/);
   });
 });

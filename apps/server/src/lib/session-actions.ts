@@ -1,23 +1,16 @@
-import type { Translate } from "./i18n";
-
-export function sessionMarkdownUrl(sessionId: string) {
-  return new URL(`/v/${sessionId}.md`, window.location.origin).toString();
-}
-
 /**
- * Both the listing menu and the viewer hand a session to an assistant, and they
- * must hand over the same thing: a link to the markdown projection wrapped in
- * the localized review prompt.
+ * Every "copy batch" affordance - sidebar row, session card, viewer - hands
+ * over the same thing: the batch handoff served by /b/{id}.md. Returns whether
+ * the clipboard actually received it, so callers can show the copied state
+ * only when it is true.
  */
-export function openSessionInAssistant(
-  sessionId: string,
-  assistant: "chatgpt" | "claude",
-  t: Translate,
-) {
-  const prompt = t("viewer.reviewPrompt", { url: sessionMarkdownUrl(sessionId) });
-  const url =
-    assistant === "chatgpt"
-      ? `https://chatgpt.com/?q=${encodeURIComponent(prompt)}`
-      : `https://claude.ai/new?q=${encodeURIComponent(prompt)}`;
-  window.open(url, "_blank", "noopener,noreferrer");
+export async function copyBatchHandoff(batchId: string): Promise<boolean> {
+  try {
+    const response = await fetch(`/b/${encodeURIComponent(batchId)}.md`);
+    if (!response.ok) return false;
+    await navigator.clipboard.writeText(await response.text());
+    return true;
+  } catch {
+    return false;
+  }
 }

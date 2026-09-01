@@ -175,6 +175,44 @@ export function formatFullHandoffBundle(
   return structuredHandoffBundle(capture, captureForHandoffJson(capture), viewerUrl);
 }
 
+export interface BatchHandoffCapture {
+  capture: VisualCapture;
+  viewerUrl?: string | null;
+}
+
+/**
+ * A batch is handed to an agent in the same shape as a single capture - one
+ * instruction block, then `pinar-visual-context` fences - so whatever already
+ * parses a paste keeps working when several pages arrive at once. Each fence
+ * is one page and keeps its own captureId; the per-capture "full context" link
+ * sits right above its fence instead of in the shared instructions.
+ */
+export function formatBatchHandoff(
+  title: string,
+  captures: BatchHandoffCapture[],
+  handoffMode: "compact" | "full" = "compact",
+): string {
+  if (captures.length === 0) {
+    return `# ${title}\n\nNo pins are waiting on the agent in this batch.\n`;
+  }
+  const project = handoffMode === "full" ? captureForHandoffJson : compactCaptureForHandoff;
+  const anyScreenshot = captures.some(({ capture }) => Boolean(capture.screenshot.url));
+  const instructions = [
+    `# ${title}`,
+    "",
+    `Implement the pin comments below across ${captures.length} ${captures.length === 1 ? "page" : "pages"}. Use selector and DOM path as complementary locators.`,
+    "Each pinar-visual-context block is one page; captureId and pinId identify the capture, do not rewrite them.",
+    ...(anyScreenshot ? ["Numbered screenshot badges are annotation overlays, not page UI."] : []),
+  ];
+  const blocks = captures.map(({ capture, viewerUrl }) => [
+    `## ${capture.page.title || capture.page.url}`,
+    ...(viewerUrl ? [`Full context (fetch only if the details above are insufficient): ${viewerUrl}`] : []),
+    "",
+    formatHandoffJsonFence(JSON.stringify(project(capture))),
+  ].join("\n"));
+  return `${instructions.join("\n")}\n\n${blocks.join("\n\n")}\n`;
+}
+
 export function formatHandoffJsonFence(json: string) {
   return `\`\`\`${HANDOFF_JSON_FENCE}\n${json}\n\`\`\``;
 }

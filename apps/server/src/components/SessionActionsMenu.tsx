@@ -1,14 +1,13 @@
 import type { Session } from "@pinar/shared";
 import ArrowDownIcon from "~icons/lucide/arrow-down";
 import ArrowUpIcon from "~icons/lucide/arrow-up";
-import BotIcon from "~icons/lucide/bot";
 import CheckIcon from "~icons/lucide/check";
 import CopyIcon from "~icons/lucide/copy";
 import FileTextIcon from "~icons/lucide/file-text";
 import FolderInputIcon from "~icons/lucide/folder-input";
+import LayersIcon from "~icons/lucide/layers";
 import Maximize2Icon from "~icons/lucide/maximize-2";
 import ScanSearchIcon from "~icons/lucide/scan-search";
-import SparklesIcon from "~icons/lucide/sparkles";
 import TrashIcon from "~icons/lucide/trash-2";
 import {
   DropdownMenuContent,
@@ -25,19 +24,22 @@ export type SessionOrderDirection = "earlier" | "later";
  * The listing card and the viewer header offer the same actions, so they share
  * one menu: a session should not be reachable differently depending on which
  * surface you opened it from. Each item renders only when its handler is
- * supplied, which is how a surface opts out - the viewer has no "view", and the
- * standalone /v/ route has no list to move within or return to after a delete.
+ * supplied, which is how a surface opts out - the viewer omits "view", "review"
+ * and "copy prompt" because its header already carries those as buttons, and
+ * the standalone /v/ route has no list to move within or return to after a delete.
+ * "Copy batch" appears only for a session that belongs to one.
  */
 export interface SessionActionsMenuProps {
+  batchCopied?: boolean;
   canMoveEarlier?: boolean;
   canMoveLater?: boolean;
   copied?: boolean;
   session: Session;
   t: Translate;
   onCopy?: (session: Session) => void;
+  onCopyBatch?: (batchId: string) => void;
   onDelete?: (id: string) => void;
   onMove?: (id: string) => void;
-  onOpenAssistant?: (assistant: "chatgpt" | "claude") => void;
   onReorder?: (sessionId: string, direction: SessionOrderDirection) => void;
   onReview?: (id: string) => void;
   onView?: (id: string) => void;
@@ -47,20 +49,22 @@ export interface SessionActionsMenuProps {
 export const SESSION_MENU_WIDTH = "max-h-96 overflow-y-auto";
 
 export function SessionActionsMenu({
+  batchCopied = false,
   canMoveEarlier = false,
   canMoveLater = false,
   copied = false,
   session,
   t,
   onCopy,
+  onCopyBatch,
   onDelete,
   onMove,
-  onOpenAssistant,
   onReorder,
   onReview,
   onView,
 }: SessionActionsMenuProps) {
   const showOrder = Boolean(onReorder) && (canMoveEarlier || canMoveLater);
+  const batchId = session.batchId ?? null;
   return (
     <DropdownMenuContent align="end" className={SESSION_MENU_WIDTH}>
       <DropdownMenuGroup>
@@ -80,27 +84,21 @@ export function SessionActionsMenu({
       <DropdownMenuSeparator />
       <DropdownMenuGroup>
         {onCopy ? (
-          <DropdownMenuItem onClick={() => onCopy(session)}>
+          <DropdownMenuItem closeOnClick={false} onClick={() => onCopy(session)}>
             {copied ? <CheckIcon /> : <CopyIcon />}
             {copied ? t("common.copied") : t("dashboard.copyPrompt")}
+          </DropdownMenuItem>
+        ) : null}
+        {onCopyBatch && batchId ? (
+          <DropdownMenuItem closeOnClick={false} onClick={() => onCopyBatch(batchId)}>
+            {batchCopied ? <CheckIcon /> : <LayersIcon />}
+            {batchCopied ? t("common.copied") : t("dashboard.copyBatch")}
           </DropdownMenuItem>
         ) : null}
         <DropdownMenuItem render={<a href={`/v/${session.id}.md`} rel="noopener noreferrer" target="_blank" />}>
           <FileTextIcon />
           {t("dashboard.markdown")}
         </DropdownMenuItem>
-        {onOpenAssistant ? (
-          <>
-            <DropdownMenuItem onClick={() => onOpenAssistant("chatgpt")}>
-              <BotIcon />
-              {t("viewer.openChatGPT")}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onOpenAssistant("claude")}>
-              <SparklesIcon />
-              {t("viewer.openClaude")}
-            </DropdownMenuItem>
-          </>
-        ) : null}
       </DropdownMenuGroup>
       {onMove ? (
         <>

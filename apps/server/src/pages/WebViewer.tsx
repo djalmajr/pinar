@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import { formatClipboardText, getPinColor, PINAR_REOPEN_SESSION_RESULT_EVENT, requestReopenSession, type AgentExecution, type Pin, type PinLocation, type PinReview, type PinReviewHumanAction, type PinReviewStatus, type Session } from "@pinar/shared";
 import { ImageZoomControls, ImageZoomStage, useImageZoom } from "@/components/ImageZoomStage";
 import { SessionActionsMenu } from "../components/SessionActionsMenu";
+import { copyBatchHandoff } from "../lib/session-actions";
 import { ServerShell } from "@/components/ServerShell";
 import { WorkspaceChrome } from "@/components/WorkspaceChrome";
 import { isRecord, isSession } from "@/lib/api-data";
@@ -305,6 +306,7 @@ export function WebViewer({
   const [aiSummaryOpen, setAiSummaryOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [pageCopied, setPageCopied] = useState(false);
+  const [batchCopied, setBatchCopied] = useState(false);
   const [reopenHint, setReopenHint] = useState<"failed" | "missing" | null>(null);
   const reopenWait = useRef<number | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
@@ -414,6 +416,12 @@ export function WebViewer({
     return new URL(`/v/${sessionId}.md`, window.location.origin).toString();
   }
 
+  async function copyBatch(batchId: string) {
+    if (!await copyBatchHandoff(batchId)) return;
+    setBatchCopied(true);
+    window.setTimeout(() => setBatchCopied(false), 2_000);
+  }
+
   async function copyPage() {
     if (!session) return;
     let handoffMode: "compact" | "full" = "compact";
@@ -437,14 +445,6 @@ export function WebViewer({
     window.setTimeout(() => setPageCopied(false), 2_000);
   }
 
-  function openInAssistant(assistant: "chatgpt" | "claude") {
-    const prompt = t("viewer.reviewPrompt", { url: markdownUrl() });
-    const url =
-      assistant === "chatgpt"
-        ? `https://chatgpt.com/?q=${encodeURIComponent(prompt)}`
-        : `https://claude.ai/new?q=${encodeURIComponent(prompt)}`;
-    window.open(url, "_blank", "noopener,noreferrer");
-  }
 
   async function generateAiSummary() {
     setAiSummaryOpen(true);
@@ -618,9 +618,9 @@ export function WebViewer({
             </Button>
           ) : null}
           <ButtonGroup aria-label={t("viewer.pageActions")}>
-            <Button aria-label={pageCopied ? t("common.copied") : t("viewer.copyPage")} type="button" variant="outline" onClick={copyPage}>
+            <Button aria-label={pageCopied ? t("common.copied") : t("dashboard.copyPrompt")} type="button" variant="outline" onClick={copyPage}>
               {pageCopied ? <CheckIcon data-icon="inline-start" /> : <CopyIcon data-icon="inline-start" />}
-              <span className="hidden sm:inline">{pageCopied ? t("common.copied") : t("viewer.copyPage")}</span>
+              <span className="hidden sm:inline">{pageCopied ? t("common.copied") : t("dashboard.copyPrompt")}</span>
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger
@@ -636,14 +636,12 @@ export function WebViewer({
                 <ChevronDownIcon />
               </DropdownMenuTrigger>
               <SessionActionsMenu
-                copied={pageCopied}
+                batchCopied={batchCopied}
                 session={session}
                 t={t}
-                onCopy={() => void copyPage()}
+                onCopyBatch={(id) => void copyBatch(id)}
                 onDelete={onDelete}
                 onMove={onMove}
-                onOpenAssistant={openInAssistant}
-                onReview={reopenOnPage}
               />
             </DropdownMenu>
           </ButtonGroup>

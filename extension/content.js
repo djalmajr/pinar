@@ -213,7 +213,21 @@
         padding: 0 6px;
         text-align: center;
       }
-      .sep { background: #B7B7B7; border-radius: 50%; flex: 0 0 3px; height: 3px; width: 3px; }
+      .hint + .hint::before {
+        background: #B7B7B7;
+        border-radius: 50%;
+        content: "";
+        flex: 0 0 3px;
+        height: 3px;
+        margin-right: 7px;
+        width: 3px;
+      }
+      /* Hints are a teaching aid: drop whole ones, least essential first, rather
+         than letting the row clip mid-word. Thresholds come from measuring the
+         bar with the batch pill present. */
+      @media (max-width: 1000px) { .hint[data-hint="mask"] { display: none; } }
+      @media (max-width: 880px) { .hint[data-hint="tune"] { display: none; } }
+      @media (max-width: 760px) { .hint[data-hint="clear"] { display: none; } }
       .status { color: #262626; font-weight: 500; }
       .status[data-kind="error"] { color: #E5484D; }
       .status[data-kind="ok"] { color: #1F7A4D; }
@@ -447,15 +461,11 @@
           ${bubbleSvg({ className: "mark", variant: "dots" })}
         </span>
         <span class="instructions" data-ref="instructions">
-          <span class="hint">Click or drag to pin</span>
-          <span class="sep"></span>
-          <span class="hint"><span class="keys"><kbd>↑</kbd><kbd>↓</kbd></span> to fine-tune selection</span>
-          <span class="sep"></span>
-          <span class="hint"><span class="keys"><kbd>${sendMod}</kbd><kbd>↵</kbd></span> to copy</span>
-          <span class="sep"></span>
-          <span class="hint"><span class="keys"><kbd>M</kbd></span> hide region</span>
-          <span class="sep"></span>
-          <span class="hint"><span class="keys"><kbd>esc</kbd></span> to clear</span>
+          <span class="hint" data-hint="pin">Click or drag to pin</span>
+          <span class="hint" data-hint="tune"><span class="keys"><kbd>↑</kbd><kbd>↓</kbd></span> to fine-tune selection</span>
+          <span class="hint" data-hint="copy"><span class="keys"><kbd>${sendMod}</kbd><kbd>↵</kbd></span> to copy</span>
+          <span class="hint" data-hint="mask"><span class="keys"><kbd>M</kbd></span> hide region</span>
+          <span class="hint" data-hint="clear"><span class="keys"><kbd>esc</kbd></span> to clear</span>
         </span>
         <span class="status" data-ref="toolbarStatus" hidden></span>
         <span class="batch-pill" data-ref="batchPill" data-active="false">

@@ -136,9 +136,7 @@ chrome.action.onClicked.addListener(async (tab) => {
 
 chrome.commands?.onCommand.addListener((command) => {
   if (command !== "finish-batch") return;
-  void finishBatch()
-    .then((result) => (result.url ? chrome.tabs.create({ url: result.url }) : null))
-    .catch((error) => console.error("Unable to finish the capture batch", error));
+  void finishBatch().catch((error) => console.error("Unable to finish the capture batch", error));
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -1097,25 +1095,20 @@ async function startBatch() {
   return batch;
 }
 
+// Finishing only closes the batch. The collection already exists in the panel,
+// so there is nothing to navigate to and nothing to steal the user's tab for.
 async function finishBatch() {
   const batch = await readBatch();
   if (!batch) return { summary: null };
   await writeBatch(null);
   await refreshBatchMenu();
-  const settings = await getSettings();
-  const base = settings.storageMode === "cloud" ? cloudEndpoint(settings) : await findShotBase();
-  return {
-    summary: batchSummary(batch),
-    url: base ? `${base}/c/${batch.collectionId}` : null,
-  };
+  return { summary: batchSummary(batch) };
 }
 
 async function toggleBatch() {
   const batch = await readBatch();
   if (!batch) return startBatch();
-  const result = await finishBatch();
-  if (result.url) await chrome.tabs.create({ url: result.url });
-  return result;
+  return finishBatch();
 }
 
 async function getAuthSession() {

@@ -67,7 +67,9 @@ function applyTheme(theme: ThemeMode) {
 
 function settingsNavButtonClass(isActive: boolean) {
   return cn(
-    "w-full justify-start gap-2 rounded-md px-2 font-normal hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+    // The label is translated, so its length is unbounded: let it wrap instead of
+    // spilling past the sidebar. `hyphens-auto` uses the dictionary for <html lang>.
+    "h-auto w-full justify-start gap-2 rounded-md px-2 py-1.5 text-left font-normal hyphens-auto whitespace-normal hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-sidebar-ring [&>span]:min-w-0",
     isActive && "bg-sidebar-accent font-medium text-sidebar-accent-foreground",
   );
 }

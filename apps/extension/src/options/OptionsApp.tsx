@@ -675,7 +675,7 @@ export function OptionsApp() {
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center justify-between gap-3">
                         <span className="text-xs font-semibold">{t.local_title}</span>
-                        {installPlatform === "mac" ? <a className="external-link shrink-0 text-xs font-semibold text-primary underline-offset-4 hover:underline" href={macosDesktopDmgUrl()} rel="noopener noreferrer" target="_blank" onClick={(event) => event.stopPropagation()}>{t.btn_download_macos}</a> : null}
+                        {installPlatform === "mac" ? <Button className="h-7 shrink-0 text-xs" render={<a href={macosDesktopDmgUrl()} rel="noopener noreferrer" target="_blank" />} size="sm" variant="outline" onClick={(event) => event.stopPropagation()}>{t.btn_download_macos}<IconExternalLink data-icon="inline-end" /></Button> : null}
                       </span>
                       <span className="block text-xs leading-relaxed text-muted-foreground">{t.local_desc}</span>
                       {installPlatform === "mac" ? null : (
@@ -882,7 +882,7 @@ export function OptionsApp() {
             </Tabs>
 
             <footer className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex gap-2"><Button className="h-8 text-xs" disabled={!hasUnsavedChanges || (settings.storageMode === "cloud" && (!legalBundle || !legalAccepted))} size="sm" onClick={() => void saveSettings()}><IconSave className="size-3.5" />{t.btn_save}</Button><Button className="h-8 text-xs" size="sm" variant="outline" onClick={() => void openApp()}><IconExternalLink />{t.btn_open_app}</Button></div>
+              <div className="flex gap-2"><Button className="h-8 text-xs" disabled={!hasUnsavedChanges || (settings.storageMode === "cloud" && (!legalBundle || !legalAccepted))} size="sm" onClick={() => void saveSettings()}><IconSave className="size-3.5" />{t.btn_save}</Button><Button className="h-8 text-xs" size="sm" variant="outline" onClick={() => void openApp()}>{t.btn_open_app}<IconExternalLink data-icon="inline-end" /></Button></div>
               <div className="flex gap-2"><Button className="h-8 text-xs" render={<a href="https://buymeacoffee.com/djalmajr" rel="noopener noreferrer" target="_blank" />} size="sm" variant="coffee"><IconCoffee />{t.btn_coffee}</Button><Button className="h-8 text-xs" render={<a href="https://github.com/sponsors/djalmajr" rel="noopener noreferrer" target="_blank" />} size="sm" variant="sponsor"><IconHeart className="fill-current" />{t.btn_sponsor}</Button></div>
             </footer>
           </div>

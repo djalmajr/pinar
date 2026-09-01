@@ -240,8 +240,6 @@
         .hint[data-hint="copy"]::before { display: none; }
       }
       @media (max-width: 660px) { .hint[data-hint="clear"] { display: none; } }
-      /* Off needs no activity dot: the word already says so. */
-      .batch-pill:not([data-active="true"]) .batch-dot { display: none; }
       .status { color: #262626; font-weight: 500; }
       .status[data-kind="error"] { color: #E5484D; }
       .status[data-kind="ok"] { color: #1F7A4D; }
@@ -367,20 +365,25 @@
         text-overflow: ellipsis;
         white-space: nowrap;
       }
-        .batch-pill {
+        /* The batch reads as one more hint: same colour, same separator. Its state
+         is the wording, not decoration - "Batch off" versus a live count. It only
+         differs in living outside .instructions, so the hints clip before it. */
+      .batch-pill {
         align-items: center;
-        border-radius: 999px;
-        color: rgba(15,23,42,.45);
         display: inline-flex;
         flex: 0 0 auto;
-        gap: 6px;
-        padding: 2px 8px 2px 6px;
+        gap: 5px;
         white-space: nowrap;
       }
-      .batch-pill[data-active="true"] { background: rgba(87,148,255,.14); color: #1D4ED8; }
-      .batch-pill kbd { font-size: 11px; height: 20px; min-width: 20px; }
-      .batch-dot { background: currentColor; border-radius: 50%; flex: 0 0 6px; height: 6px; opacity: .4; width: 6px; }
-      .batch-pill[data-active="true"] .batch-dot { background: ${BLUE}; opacity: 1; }
+      .batch-pill::before {
+        background: #B7B7B7;
+        border-radius: 50%;
+        content: "";
+        flex: 0 0 3px;
+        height: 3px;
+        margin-right: 7px;
+        width: 3px;
+      }
       .composer {
         background: transparent;
         display: none;
@@ -482,9 +485,8 @@
           <span class="hint" data-hint="clear"><span class="keys"><kbd>esc</kbd></span><span class="long">to clear</span><span class="short">Clear</span></span>
         </span>
         <span class="status" data-ref="toolbarStatus" hidden></span>
-        <span class="batch-pill" data-ref="batchPill" data-active="false">
+        <span class="batch-pill" data-ref="batchPill">
           <kbd data-ref="batchPillKey" hidden></kbd>
-          <span class="batch-dot" aria-hidden="true"></span>
           <span data-ref="batchPillText"></span>
         </span>
       </div>
@@ -897,7 +899,6 @@
       ui.toolbarStatus.dataset.kind = state.reviewMode && state.unavailable ? "error" : "info";
     }
     if (ui.batchPill) {
-      ui.batchPill.dataset.active = String(state.batch.active);
       ui.batchPillText.textContent = state.batch.label;
       ui.batchPillKey.textContent = state.batch.shortcut;
       ui.batchPillKey.hidden = !state.batch.shortcut;

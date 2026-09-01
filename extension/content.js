@@ -1852,6 +1852,11 @@
     state.active = visible;
     host.style.display = visible ? "" : "none";
     if (visible) {
+      // The toolbar fades while the pointer hovers it so the page beneath can
+      // be pinned. That class is only recomputed on pointermove, which is
+      // ignored while hidden - so whatever the pointer was doing at the last
+      // capture would otherwise decide whether the next activation is visible.
+      ui.toolbar?.classList.remove("pass-through");
       document.documentElement.setAttribute("data-pinar-active", "true");
       applyGlobalStyles();
       renderChrome();

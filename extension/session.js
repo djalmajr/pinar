@@ -1,3 +1,12 @@
+// Chrome refuses content-script injection on its own surfaces. Deciding up
+// front keeps the click a deliberate no-op there and lets a rejection on an
+// ordinary page stay loud, since that one is a real defect.
+const UNINJECTABLE_URL = /^(?:chrome|chrome-extension|chrome-untrusted|devtools|edge|about|view-source):|^https:\/\/chromewebstore\.google\.com\//i;
+
+export function canInjectInto(tabUrl) {
+  return typeof tabUrl === "string" && tabUrl !== "" && !UNINJECTABLE_URL.test(tabUrl);
+}
+
 /** Tab-level close after a successful copy. Must reach every frame. */
 export function afterCopyAction(ok) {
   if (ok) return { type: "session:end" };

@@ -9,6 +9,7 @@ import {
   planSessionEnd,
   planSessionReopen,
   selectHydrateSession,
+  canInjectInto,
 } from "./session.js";
 
 const contentSrc = readFileSync(new URL("./content.js", import.meta.url), "utf8");
@@ -187,4 +188,26 @@ describe("session after copy", () => {
     assert.match(contentSrc, /meta\[name="description"\]/);
     assert.match(contentSrc, /og:description/);
   });
+});
+
+test("the action injects only where Chrome allows content scripts", () => {
+  // Chrome's own surfaces reject executeScript; treating them as a deliberate
+  // no-op keeps a rejection on an ordinary page loud instead of swallowed.
+  for (const url of [
+    "chrome://extensions/",
+    "chrome://newtab/",
+    "chrome-extension://abcdefghijklmnop/dist/options.html",
+    "chrome-untrusted://x/",
+    "devtools://devtools/bundled/inspector.html",
+    "about:blank",
+    "view-source:https://example.com/",
+    "https://chromewebstore.google.com/detail/pinar/abc",
+    "",
+    undefined,
+  ]) assert.equal(canInjectInto(url), false, String(url));
+  for (const url of [
+    "https://example.com/",
+    "http://127.0.0.1:17373/app",
+    "file:///Users/me/page.html",
+  ]) assert.equal(canInjectInto(url), true, url);
 });

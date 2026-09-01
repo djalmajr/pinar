@@ -28,6 +28,7 @@ import {
 import { pinarPorts } from "./ports.js";
 import {
   bindTabHydration,
+  canInjectInto,
   CONTENT_INJECTION_FILES,
   dropHydrationIfTabLeftOrigin,
   endTabPins,
@@ -118,15 +119,17 @@ chrome.runtime.onInstalled.addListener(() => {
 void initializeInstallationIdentity();
 
 chrome.action.onClicked.addListener(async (tab) => {
-  if (!tab.id) return;
+  // Chrome refuses injection on its own surfaces (chrome://, the Web Store,
+  // extension pages); there is nothing to annotate there, so the click is a
+  // deliberate no-op. Any other rejection is a real defect and stays visible.
+  if (!tab.id || !canInjectInto(tab.url)) return;
   try {
     await chrome.scripting.executeScript({
       files: CONTENT_INJECTION_FILES,
       target: { allFrames: true, tabId: tab.id },
     });
-  } catch {
-    // chrome://, the Web Store and extension pages refuse injection. There is
-    // nothing to annotate there, so the click is a no-op rather than an error.
+  } catch (error) {
+    console.error("Unable to open the Pinar toolbar on this tab", tab.url, error);
   }
 });
 

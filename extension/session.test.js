@@ -211,3 +211,18 @@ test("the action injects only where Chrome allows content scripts", () => {
     "file:///Users/me/page.html",
   ]) assert.equal(canInjectInto(url), true, url);
 });
+
+test("a toggle during a capture is queued, never applied to the closing session", () => {
+  // Pressing the shortcut while the confirmation lingered used to flip the
+  // finished overlay back on, and the tear-down still in flight then wiped it -
+  // together with whatever the user had just pinned.
+  const src = readFileSync(new URL("./content.js", import.meta.url), "utf8");
+  const toggleStart = src.indexOf("  function toggle() {");
+  const toggle = src.slice(toggleStart, src.indexOf("\n  }\n", toggleStart));
+  assert.match(toggle, /if \(state\.sending\) \{/);
+  assert.match(toggle, /state\.reopenAfterSend = true;/);
+  assert.match(toggle, /state\.finishEarly\?\.\(\);/);
+  const send = src.slice(src.indexOf("  async function sendPins() {"), src.indexOf("  function frameElementForSource"));
+  assert.match(send, /state\.finishEarly = resolve;/);
+  assert.match(send, /finally \{[\s\S]*state\.sending = false;[\s\S]*if \(state\.reopenAfterSend\) \{[\s\S]*setVisible\(true\);/);
+});

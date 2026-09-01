@@ -77,6 +77,8 @@
     active: true,
     batch: { active: false, label: "", shortcut: "" },
     sending: false,
+    finishEarly: null,
+    reopenAfterSend: false,
     status: null,
     statusTimer: 0,
     pins: [],
@@ -1740,7 +1742,13 @@
       const locallyCopied = copied?.plain ? await writePlainText(copied.plain) : false;
       if (!copied?.ok && !locallyCopied) throw new Error(copied?.error || "clipboard write failed");
       setStatus(handoffStatusText(copied), "ok");
-      await new Promise((resolve) => setTimeout(resolve, 1400));
+      // The confirmation lingers briefly, but a toggle request cuts it short
+      // instead of racing the shutdown below (see toggle()).
+      await new Promise((resolve) => {
+        state.finishEarly = resolve;
+        setTimeout(resolve, 1400);
+      });
+      state.finishEarly = null;
       // Do not restore overlays first — that would flash iframe pins after
       // the top toolbar is already gone. session:end dismisses every frame.
       await chrome.runtime.sendMessage({ type: "session:end" }).catch(() => null);
@@ -1755,6 +1763,14 @@
       flashStatus("Copy failed");
     } finally {
       state.sending = false;
+      state.finishEarly = null;
+      if (state.reopenAfterSend) {
+        // The user asked for the toolbar while the previous capture was still
+        // closing: give them a fresh one now that the old state is gone.
+        state.reopenAfterSend = false;
+        setVisible(true);
+        broadcast(FRAME_SHOW);
+      }
     }
   }
 
@@ -2091,6 +2107,17 @@
   }
 
   function toggle() {
+    if (state.sending) {
+      // A capture is mid-flight: screenshot, clipboard, confirmation, then the
+      // tear-down. Flipping visibility now would either put the toolbar in the
+      // screenshot or resurrect the finished session for the tear-down to wipe
+      // again, taking the user's next pins with it. Queue the request instead:
+      // the confirmation ends early and a fresh toolbar opens once the old
+      // state is gone.
+      state.reopenAfterSend = true;
+      state.finishEarly?.();
+      return;
+    }
     setVisible(!isVisible());
     globalThis.__pinarToggle = toggle;
     globalThis.__pinarSetHidden = setHidden;

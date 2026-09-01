@@ -221,8 +221,10 @@ test("a toggle during a capture is queued, never applied to the closing session"
   const toggle = src.slice(toggleStart, src.indexOf("\n  }\n", toggleStart));
   assert.match(toggle, /if \(state\.sending\) \{/);
   assert.match(toggle, /state\.reopenAfterSend = true;/);
-  assert.match(toggle, /state\.finishEarly\?\.\(\);/);
+  assert.doesNotMatch(toggle, /finishEarly|COPY_CONFIRMATION_MS/);
   const send = src.slice(src.indexOf("  async function sendPins() {"), src.indexOf("  function frameElementForSource"));
-  assert.match(send, /state\.finishEarly = resolve;/);
+  // The confirmation is never cut short: the user must see the copy land.
+  assert.match(send, /setTimeout\(resolve, COPY_CONFIRMATION_MS\)/);
+  assert.doesNotMatch(send, /finishEarly/);
   assert.match(send, /finally \{[\s\S]*state\.sending = false;[\s\S]*if \(state\.reopenAfterSend\) \{[\s\S]*setVisible\(true\);/);
 });

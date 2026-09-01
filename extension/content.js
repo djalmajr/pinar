@@ -5,6 +5,8 @@
   }
 
   const DRAG_THRESHOLD = 6;
+  // How long "Copied" stays up before the overlay closes. Short on purpose.
+  const COPY_CONFIRMATION_MS = 1400;
   const BLUE = "#5794FF";
   const MARK = "#6691F2";
   // Keep in sync with extension/pin-colors.js. Content scripts are loaded as classic scripts.
@@ -77,7 +79,6 @@
     active: true,
     batch: { active: false, label: "", shortcut: "" },
     sending: false,
-    finishEarly: null,
     reopenAfterSend: false,
     status: null,
     statusTimer: 0,
@@ -1721,6 +1722,11 @@
         type: "capture",
       }).catch((error) => ({ error: String(error), ok: false }));
       const shot = capture?.ok ? capture.shot : null;
+      // The screenshot needed every overlay out of the frame. Bring this
+      // frame's toolbar back now so the "Copying…"/"Copied" confirmation is
+      // actually seen; child frames stay hidden until session:end so their
+      // pins do not flash after the top toolbar is gone.
+      setHidden(false);
       const sanitized = sanitizeCapture({
         fields: scan.fields,
         page: pageContext(),
@@ -1742,13 +1748,10 @@
       const locallyCopied = copied?.plain ? await writePlainText(copied.plain) : false;
       if (!copied?.ok && !locallyCopied) throw new Error(copied?.error || "clipboard write failed");
       setStatus(handoffStatusText(copied), "ok");
-      // The confirmation lingers briefly, but a toggle request cuts it short
-      // instead of racing the shutdown below (see toggle()).
-      await new Promise((resolve) => {
-        state.finishEarly = resolve;
-        setTimeout(resolve, 1400);
-      });
-      state.finishEarly = null;
+      // The confirmation always gets its full time on screen, even when the
+      // user has already asked for the next toolbar (see toggle()): a copy the
+      // user never saw confirmed reads as a copy that did not happen.
+      await new Promise((resolve) => setTimeout(resolve, COPY_CONFIRMATION_MS));
       // Do not restore overlays first — that would flash iframe pins after
       // the top toolbar is already gone. session:end dismisses every frame.
       await chrome.runtime.sendMessage({ type: "session:end" }).catch(() => null);
@@ -1763,7 +1766,6 @@
       flashStatus("Copy failed");
     } finally {
       state.sending = false;
-      state.finishEarly = null;
       if (state.reopenAfterSend) {
         // The user asked for the toolbar while the previous capture was still
         // closing: give them a fresh one now that the old state is gone.
@@ -2112,10 +2114,9 @@
       // tear-down. Flipping visibility now would either put the toolbar in the
       // screenshot or resurrect the finished session for the tear-down to wipe
       // again, taking the user's next pins with it. Queue the request instead:
-      // the confirmation ends early and a fresh toolbar opens once the old
+      // a fresh toolbar opens once the confirmation has shown and the old
       // state is gone.
       state.reopenAfterSend = true;
-      state.finishEarly?.();
       return;
     }
     setVisible(!isVisible());

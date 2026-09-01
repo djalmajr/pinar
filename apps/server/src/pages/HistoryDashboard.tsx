@@ -132,6 +132,16 @@ function SessionPageLink({ url }: { url?: string }) {
   );
 }
 
+function CollectionChip({ name }: { name?: string }) {
+  if (!name) return null;
+  return (
+    <span className="inline-flex max-w-40 shrink-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
+      <FolderIcon className="size-3.5 shrink-0" />
+      <span className="truncate">{name}</span>
+    </span>
+  );
+}
+
 function SessionIdentity({
   collectionName,
   heading = false,
@@ -142,12 +152,7 @@ function SessionIdentity({
   session: Session;
 }) {
   const { description, title, url } = sessionListingCopy(session.page);
-  const collectionLabel = collectionName ? (
-    <span className="inline-flex max-w-40 shrink-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
-      <FolderIcon className="size-3.5 shrink-0" />
-      <span className="truncate">{collectionName}</span>
-    </span>
-  ) : null;
+  const collectionLabel = <CollectionChip name={collectionName} />;
   return (
     <div className="flex min-w-0 flex-col items-start gap-0.5">
       {title ? (
@@ -554,6 +559,14 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
       : [...filteredSessions].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
     return ordered.slice(start, start + pagination.pageSize);
   }, [filteredSessions, pagination.pageIndex, pagination.pageSize, selectedCollection]);
+  // The viewer steps through the whole filtered set in display order, so the
+  // arrows keep working past the end of the current page.
+  const orderedSessionIds = useMemo(() => {
+    const ordered = selectedCollection
+      ? filteredSessions
+      : [...filteredSessions].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+    return ordered.map((session) => session.id);
+  }, [filteredSessions, selectedCollection]);
   const pageCount = Math.max(1, Math.ceil(filteredSessions.length / pagination.pageSize));
   const rowSelection = useMemo(
     () => Object.fromEntries([...selectedIds].map((id) => [id, true])),
@@ -1004,14 +1017,16 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
                             onCheckedChange={(checked) => toggleSessionSelected(session.id, checked)}
                           />
                         </div>
+                        {/* Actions ride the top-right corner, mirroring the
+                            selection checkbox, on a plate so they stay legible
+                            over whatever the screenshot happens to show. */}
+                        <div className="absolute top-2 right-2 z-10 flex items-center rounded-md bg-card/85 backdrop-blur-sm" data-grid-actions>
+                          <SessionActions canMoveEarlier={orderIndex > 0} canMoveLater={Boolean(selectedCollection && orderIndex >= 0 && orderIndex < selectedCollection.sessions.length - 1)} copied={copiedId === session.id} session={session} onCopy={(current) => void copyPrompt(current)} onDelete={(id) => setDeleteIds([id])} onMove={(id) => openMoveDialog([id])} onReorder={(sessionId, direction) => void reorderSession(sessionId, direction)} onView={openViewer} t={t} />
+                        </div>
                         <SessionPreview session={session} t={t} onOpen={() => openViewer(session.id)} />
                         <CardHeader className="py-3">
                           <div className="min-w-0">
-                            <SessionIdentity
-                              collectionName={selectedCollection ? undefined : collectionNameBySessionId.get(session.id)}
-                              heading
-                              session={session}
-                            />
+                            <SessionIdentity heading session={session} />
                           </div>
                         </CardHeader>
                         <CardFooter className="mt-auto justify-between gap-2 py-2.5">
@@ -1020,9 +1035,11 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
                               <time className="inline-flex min-w-0 items-center gap-1.5" dateTime={session.createdAt}><CalendarIcon className="shrink-0 text-primary" /><span className="truncate">{formatSessionDate(session, language)}</span></time>
                               <span className="inline-flex shrink-0 items-center gap-1.5"><MessageCircleIcon className="text-primary" />{t("dashboard.pinCount", { count })}</span>
                             </div>
-                            <ReviewCounts session={session} t={t} />
+                            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                              <ReviewCounts session={session} t={t} />
+                              {selectedCollection ? null : <CollectionChip name={collectionNameBySessionId.get(session.id)} />}
+                            </div>
                           </div>
-                          <SessionActions canMoveEarlier={orderIndex > 0} canMoveLater={Boolean(selectedCollection && orderIndex >= 0 && orderIndex < selectedCollection.sessions.length - 1)} copied={copiedId === session.id} session={session} onCopy={(current) => void copyPrompt(current)} onDelete={(id) => setDeleteIds([id])} onMove={(id) => openMoveDialog([id])} onReorder={(sessionId, direction) => void reorderSession(sessionId, direction)} onView={openViewer} t={t} />
                         </CardFooter>
                       </DraggableSessionCard>
                     );
@@ -1049,7 +1066,13 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
         </ScrollArea>
       </SidebarInset>
       {viewerSessionId ? (
-        <WebViewer onClose={closeViewer} presentation="modal" sessionId={viewerSessionId} />
+        <WebViewer
+          presentation="modal"
+          sessionId={viewerSessionId}
+          siblingIds={orderedSessionIds}
+          onClose={closeViewer}
+          onNavigate={openViewer}
+        />
       ) : null}
       <Dialog open={moveIds.length > 0} onOpenChange={(open) => !open && setMoveIds([])}>
         <DialogContent className="sm:max-w-2xl">

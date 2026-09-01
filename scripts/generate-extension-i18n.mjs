@@ -8,6 +8,7 @@ const MV3_KEYS = [
   "batch_active",
   "batch_idle",
   "batch_label",
+  "batch_on",
   "batch_finish",
   "batch_start",
   "capture_destination_label",

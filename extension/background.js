@@ -48,6 +48,7 @@ const BATCH_MENU_ID = "pinar-batch-toggle";
 // Keeping the original command id preserves every shortcut a user already bound;
 // Chrome keys bindings by name, so renaming it to "toggle-batch" would drop them.
 const BATCH_COMMAND = "finish-batch";
+const PANEL_COMMAND = "open-panel";
 
 function normalizePins(pins = []) {
   return pins.map((pin, index) => {
@@ -101,7 +102,7 @@ async function batchState() {
   return {
     active: Boolean(batch),
     count,
-    label: batch ? messages.batch_active.replace("{count}", String(count)) : messages.batch_idle,
+    label: batch ? (count > 0 ? messages.batch_active.replace("{count}", String(count)) : messages.batch_on) : messages.batch_idle,
     shortcut: commands.find((command) => command.name === BATCH_COMMAND)?.shortcut || "",
     summary: batchSummary(batch),
   };
@@ -110,8 +111,9 @@ async function batchState() {
 async function syncBatchSurfaces() {
   const state = await batchState();
   await chrome.contextMenus.update(BATCH_MENU_ID, { title: await batchMenuTitle() }).catch(() => null);
-  // Only a real count earns a badge: an empty bubble says nothing.
-  await chrome.action.setBadgeText({ text: state.count > 0 ? String(state.count) : "" }).catch(() => null);
+  // The badge mirrors the toolbar: "on" while the batch is empty, then the count.
+  const badge = state.active ? (state.count > 0 ? String(state.count) : "on") : "";
+  await chrome.action.setBadgeText({ text: badge }).catch(() => null);
   await chrome.action.setBadgeBackgroundColor({ color: "#5794FF" }).catch(() => null);
   await chrome.action.setBadgeTextColor({ color: "#FFFFFF" }).catch(() => null);
   const tabs = await chrome.tabs.query({}).catch(() => []);
@@ -163,6 +165,10 @@ chrome.action.onClicked.addListener(async (tab) => {
 });
 
 chrome.commands?.onCommand.addListener((command) => {
+  if (command === PANEL_COMMAND) {
+    void openApp().catch((error) => console.error("Unable to open Pinar app", error));
+    return;
+  }
   if (command !== BATCH_COMMAND) return;
   void toggleBatch().catch((error) => console.error("Unable to toggle the capture batch", error));
 });

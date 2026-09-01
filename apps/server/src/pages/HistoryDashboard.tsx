@@ -1028,7 +1028,10 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
                     );
                   })}
                 </div>
+                {/* The table ends on its own bottom border; the grid does not, so
+                    the controls need a rule to sit against. */}
                 <PaginationControls
+                  className="border-t pt-4"
                   labels={paginationLabels}
                   pageCount={pageCount}
                   pageIndex={pagination.pageIndex}

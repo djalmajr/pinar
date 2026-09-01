@@ -110,6 +110,7 @@ function ShortcutRow({ editLabel, keys, label, onEdit }: { editLabel?: string; k
 const COMMAND_LABELS = {
   _execute_action: "shortcuts_toggle_label",
   "finish-batch": "shortcuts_finish_batch_label",
+  "open-panel": "shortcuts_open_panel_label",
 } as const satisfies Record<string, keyof TranslationDictionary>;
 
 function commandLabel(command: chrome.commands.Command, t: TranslationDictionary) {

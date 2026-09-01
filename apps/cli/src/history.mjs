@@ -1608,12 +1608,17 @@ class SqliteHistoryDb {
     ).run(id, LOCAL_OWNER_ID).changes > 0;
   }
 
+  // Takes a row that exists. Callers that may not have one check first, so the
+  // return type stays free of null and the interface can promise a batch.
   _formatBatchRow(row) {
-    if (!row) return null;
     const count = this.db.prepare(
       "SELECT COUNT(*) AS session_count FROM sessions WHERE batch_id = ?",
     ).get(row.id);
     return formatBatch(row, Number(count.session_count) || 0);
+  }
+
+  _batchRow(id) {
+    return this.db.prepare("SELECT * FROM batches WHERE id = ?").get(id);
   }
 
   upsertBatch({ id, label, startedAt }) {
@@ -1621,7 +1626,11 @@ class SqliteHistoryDb {
       INSERT INTO batches (id, label, started_at) VALUES (?, ?, ?)
       ON CONFLICT(id) DO NOTHING
     `).run(id, label, startedAt);
-    return this._formatBatchRow(this.db.prepare("SELECT * FROM batches WHERE id = ?").get(id));
+    const row = this._batchRow(id);
+    // The insert either created the row or found it already there, so a miss
+    // means the write did not land: fail loudly instead of returning null.
+    if (!row) throw new Error(`Unable to persist the capture batch ${id}`);
+    return this._formatBatchRow(row);
   }
 
   listBatches() {
@@ -1641,7 +1650,8 @@ class SqliteHistoryDb {
       "UPDATE batches SET finished_at = ? WHERE id = ?",
     ).run(finishedAt, id);
     if (!result.changes) return null;
-    return this._formatBatchRow(this.db.prepare("SELECT * FROM batches WHERE id = ?").get(id));
+    const row = this._batchRow(id);
+    return row ? this._formatBatchRow(row) : null;
   }
 
   deleteBatch(id) {

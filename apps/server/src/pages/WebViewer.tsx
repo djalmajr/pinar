@@ -20,6 +20,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  cn,
   Dialog,
   DialogClose,
   DialogContent,
@@ -48,6 +49,8 @@ import BotIcon from "~icons/lucide/bot";
 import CalendarIcon from "~icons/lucide/calendar-days";
 import CheckIcon from "~icons/lucide/check";
 import ChevronDownIcon from "~icons/lucide/chevron-down";
+import ChevronLeftIcon from "~icons/lucide/chevron-left";
+import ChevronRightIcon from "~icons/lucide/chevron-right";
 import CopyIcon from "~icons/lucide/copy";
 import ExternalLinkIcon from "~icons/lucide/external-link";
 import FileTextIcon from "~icons/lucide/file-text";
@@ -301,6 +304,10 @@ export function WebViewer({ onClose, presentation = "page", sessionId }: WebView
   const [executions, setExecutions] = useState<AgentExecution[]>([]);
   const [selectedPin, setSelectedPin] = useState<Pin | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  // Stepping through pins only moves this focus. Opening the detail dialog from
+  // the header would cover the header itself and strand the arrows.
+  const [focusedPin, setFocusedPin] = useState(-1);
+  const pinListRef = useRef<HTMLDivElement | null>(null);
   const zoom = useImageZoom(session?.shotUrl || sessionId);
   const isModal = presentation === "modal";
 
@@ -507,6 +514,15 @@ export function WebViewer({ onClose, presentation = "page", sessionId }: WebView
   const selectedNumber = selectedPin ? pinNumber(selectedPin, Math.max(0, selectedIndex)) : 0;
   const selectedColor = selectedPin?.color || getPinColor(selectedNumber);
   const selectedMarkdown = selectedPin ? formatPinMarkdown(selectedPin, selectedNumber) : "";
+  const pinCount = session.pins?.length || 0;
+
+  function stepPin(delta: number) {
+    const next = Math.min(pinCount - 1, Math.max(0, focusedPin + delta));
+    setFocusedPin(next);
+    pinListRef.current
+      ?.querySelector(`[data-pin-index="${next}"]`)
+      ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
 
   return (
     <TooltipProvider delay={200}>
@@ -533,6 +549,35 @@ export function WebViewer({ onClose, presentation = "page", sessionId }: WebView
           />
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          {pinCount > 1 ? (
+            <ButtonGroup aria-label={t("viewer.pinPosition", { current: Math.max(1, focusedPin + 1), total: pinCount })}>
+              <Button
+                aria-label={t("viewer.previousPin")}
+                disabled={focusedPin <= 0}
+                size="icon"
+                title={t("viewer.previousPin")}
+                type="button"
+                variant="outline"
+                onClick={() => stepPin(-1)}
+              >
+                <ChevronLeftIcon />
+              </Button>
+              <span aria-hidden="true" className="inline-flex h-9 min-w-14 items-center justify-center border-y bg-card px-2 font-mono text-xs tabular-nums">
+                {focusedPin < 0 ? `–/${pinCount}` : `${focusedPin + 1}/${pinCount}`}
+              </span>
+              <Button
+                aria-label={t("viewer.nextPin")}
+                disabled={focusedPin >= pinCount - 1}
+                size="icon"
+                title={t("viewer.nextPin")}
+                type="button"
+                variant="outline"
+                onClick={() => stepPin(1)}
+              >
+                <ChevronRightIcon />
+              </Button>
+            </ButtonGroup>
+          ) : null}
           <Button
             aria-label={t("viewer.reviewOnPage")}
             title={t("viewer.reviewOnPage")}
@@ -639,21 +684,24 @@ export function WebViewer({ onClose, presentation = "page", sessionId }: WebView
               </div>
             </div>
             <ScrollArea className="min-h-0 flex-1">
-              <div className="flex flex-col gap-3 p-4">
+              <div className="flex flex-col gap-3 p-4" ref={pinListRef}>
                 {(session.pins || []).map((pin, index) => {
                   const number = pinNumber(pin, index);
                   const color = pin.color || getPinColor(number);
                   const isArea = pin.type === "area" || pin.kind === "area";
                   const review = reviewForPin(reviews, pin);
+                  const focused = index === focusedPin;
                   return (
                     <Button
+                      aria-current={focused ? "true" : undefined}
                       className="h-auto w-full justify-start p-0 text-left whitespace-normal"
+                      data-pin-index={index}
                       key={`${session.id}-${number}`}
                       title={t("viewer.openPin", { number })}
                       variant="ghost"
-                      onClick={() => setSelectedPin(pin)}
+                      onClick={() => { setFocusedPin(index); setSelectedPin(pin); }}
                     >
-                      <Card className="w-full gap-3 py-3 transition-colors hover:ring-primary/35">
+                      <Card className={cn("w-full gap-3 py-3 transition-colors hover:ring-primary/35", focused && "ring-2 ring-primary")}>
                         <CardHeader className="grid grid-cols-[auto_1fr] items-start gap-x-2 px-3">
                           <PinBadge color={color} number={number} />
                           <div className="min-w-0">

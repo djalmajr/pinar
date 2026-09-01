@@ -18,6 +18,8 @@ export interface TranslationDictionary {
   section_privacy: string;
   batch_active: string;
   batch_idle: string;
+  shortcuts_open_panel_label: string;
+  batch_on: string;
   batch_label: string;
   batch_start: string;
   batch_finish: string;
@@ -134,6 +136,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     section_privacy: "Privacy",
     batch_active: "Batch: {count}",
     batch_idle: "Batch off",
+    shortcuts_open_panel_label: "Open the Pinar panel",
+    batch_on: "Batch: on",
     batch_label: "Batch · {when}",
     batch_start: "Start capture batch",
     batch_finish: "Finish capture batch",
@@ -248,6 +252,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     section_privacy: "Privacidade",
     batch_active: "Lote: {count}",
     batch_idle: "Lote inativo",
+    shortcuts_open_panel_label: "Abrir o painel do Pinar",
+    batch_on: "Lote: ativo",
     batch_label: "Lote · {when}",
     batch_start: "Iniciar lote de capturas",
     batch_finish: "Finalizar lote de capturas",
@@ -362,6 +368,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     section_privacy: "Privacidad",
     batch_active: "Lote: {count}",
     batch_idle: "Lote inactivo",
+    shortcuts_open_panel_label: "Abrir el panel de Pinar",
+    batch_on: "Lote: activo",
     batch_label: "Lote · {when}",
     batch_start: "Iniciar lote de capturas",
     batch_finish: "Finalizar lote de capturas",
@@ -476,6 +484,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     section_privacy: "Confidentialité",
     batch_active: "Lot : {count}",
     batch_idle: "Lot inactif",
+    shortcuts_open_panel_label: "Ouvrir le panneau Pinar",
+    batch_on: "Lot : actif",
     batch_label: "Lot · {when}",
     batch_start: "Démarrer un lot de captures",
     batch_finish: "Terminer le lot de captures",
@@ -590,6 +600,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     section_privacy: "Datenschutz",
     batch_active: "Stapel: {count}",
     batch_idle: "Stapel aus",
+    shortcuts_open_panel_label: "Pinar-Panel öffnen",
+    batch_on: "Stapel: aktiv",
     batch_label: "Stapel · {when}",
     batch_start: "Aufnahme-Stapel starten",
     batch_finish: "Aufnahme-Stapel abschließen",
@@ -704,6 +716,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     section_privacy: "隐私",
     batch_active: "批次：{count}",
     batch_idle: "批次未启用",
+    shortcuts_open_panel_label: "打开 Pinar 面板",
+    batch_on: "批次:进行中",
     batch_label: "批次 · {when}",
     batch_start: "开始捕获批次",
     batch_finish: "结束捕获批次",
@@ -818,6 +832,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     section_privacy: "プライバシー",
     batch_active: "バッチ: {count}",
     batch_idle: "バッチ停止中",
+    shortcuts_open_panel_label: "Pinar パネルを開く",
+    batch_on: "バッチ: 実行中",
     batch_label: "バッチ · {when}",
     batch_start: "キャプチャバッチを開始",
     batch_finish: "キャプチャバッチを終了",

@@ -59,6 +59,12 @@
         "default": "Alt+Shift+B"
       },
       "description": "Start or finish the Pinar capture batch"
+    },
+    "open-panel": {
+      "description": "Open the Pinar panel",
+      "suggested_key": {
+        "default": "Alt+Shift+O"
+      }
     }
   },
   "icons": {

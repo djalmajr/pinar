@@ -5,6 +5,9 @@ import { translations } from "../packages/shared/src/i18n/index.ts";
 import { SUPPORTED_LANGUAGES } from "../packages/shared/src/types/index.ts";
 
 const MV3_KEYS = [
+  "batch_active",
+  "batch_finish",
+  "batch_start",
   "capture_destination_label",
   "collection_label",
   "context_open_panel",

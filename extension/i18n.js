@@ -2,6 +2,9 @@
 
 export const translations = {
   en: {
+    batch_active: "Batch: {count}",
+    batch_finish: "Finish capture batch",
+    batch_start: "Start capture batch",
     capture_destination_label: "Capture destination",
     collection_label: "Collection",
     context_open_panel: "Open Panel",
@@ -10,6 +13,9 @@ export const translations = {
     project_label: "Project",
   },
   pt: {
+    batch_active: "Lote: {count}",
+    batch_finish: "Finalizar lote de capturas",
+    batch_start: "Iniciar lote de capturas",
     capture_destination_label: "Destino da captura",
     collection_label: "Coleção",
     context_open_panel: "Abrir painel",
@@ -18,6 +24,9 @@ export const translations = {
     project_label: "Projeto",
   },
   es: {
+    batch_active: "Lote: {count}",
+    batch_finish: "Finalizar lote de capturas",
+    batch_start: "Iniciar lote de capturas",
     capture_destination_label: "Destino de captura",
     collection_label: "Colección",
     context_open_panel: "Abrir panel",
@@ -26,6 +35,9 @@ export const translations = {
     project_label: "Proyecto",
   },
   fr: {
+    batch_active: "Lot : {count}",
+    batch_finish: "Terminer le lot de captures",
+    batch_start: "Démarrer un lot de captures",
     capture_destination_label: "Destination de la capture",
     collection_label: "Collection",
     context_open_panel: "Ouvrir le panneau",
@@ -34,6 +46,9 @@ export const translations = {
     project_label: "Projet",
   },
   de: {
+    batch_active: "Stapel: {count}",
+    batch_finish: "Aufnahme-Stapel abschließen",
+    batch_start: "Aufnahme-Stapel starten",
     capture_destination_label: "Aufnahmeziel",
     collection_label: "Sammlung",
     context_open_panel: "Panel öffnen",
@@ -42,6 +57,9 @@ export const translations = {
     project_label: "Projekt",
   },
   zh: {
+    batch_active: "批次：{count}",
+    batch_finish: "结束捕获批次",
+    batch_start: "开始捕获批次",
     capture_destination_label: "捕获目标",
     collection_label: "集合",
     context_open_panel: "打开面板",
@@ -50,6 +68,9 @@ export const translations = {
     project_label: "项目",
   },
   ja: {
+    batch_active: "バッチ: {count}",
+    batch_finish: "キャプチャバッチを終了",
+    batch_start: "キャプチャバッチを開始",
     capture_destination_label: "キャプチャ先",
     collection_label: "コレクション",
     context_open_panel: "パネルを開く",

@@ -22,10 +22,20 @@ describe("extension action context menu", () => {
   });
 
   test("opens the default workspace", () => {
-    assert.match(backgroundSrc, /info\.menuItemId !== OPEN_PANEL_MENU_ID/);
+    assert.match(backgroundSrc, /info\.menuItemId === OPEN_PANEL_MENU_ID/);
     assert.match(backgroundSrc, /void openApp\(\)/);
     assert.match(backgroundSrc, /withLanguage\(`\$\{base\}\/app`\)/);
     assert.doesNotMatch(backgroundSrc, /browser-ticket|\/history/);
+  });
+
+  test("offers a batch entry that follows the user language", () => {
+    assert.match(backgroundSrc, /id: BATCH_MENU_ID/);
+    assert.match(backgroundSrc, /info\.menuItemId !== BATCH_MENU_ID/);
+    assert.match(backgroundSrc, /void toggleBatch\(\)/);
+    // The batch title carries a live count, so it is translated and refreshed.
+    assert.match(backgroundSrc, /messages\.batch_start/);
+    assert.match(backgroundSrc, /messages\.batch_active\.replace\("\{count\}"/);
+    assert.match(backgroundSrc, /refreshBatchMenu\(\)/);
   });
 
   test("keeps the Chrome action menu in English for the global store listing", () => {

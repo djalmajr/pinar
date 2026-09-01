@@ -75,6 +75,7 @@
 
   const state = {
     active: true,
+    batchLabel: "",
     sending: false,
     status: null,
     statusTimer: 0,
@@ -842,8 +843,9 @@
       ui.toast.dataset.kind = state.status?.kind ?? "";
     }
     if (ui.toolbarStatus) {
-      ui.toolbarStatus.hidden = !state.reviewMode;
-      ui.toolbarStatus.textContent = state.reviewMode ? reviewBannerText() : "";
+      const banner = state.reviewMode ? reviewBannerText() : state.batchLabel || "";
+      ui.toolbarStatus.hidden = !banner;
+      ui.toolbarStatus.textContent = banner;
       ui.toolbarStatus.dataset.kind = state.reviewMode && state.unavailable ? "error" : "info";
     }
     document.documentElement.toggleAttribute("data-pinar-mask-mode", state.maskMode);
@@ -868,6 +870,17 @@
       state.status = null;
       renderChrome();
     }, 1800);
+  }
+
+  // The batch lives in the service worker; the overlay only mirrors its count.
+  async function syncBatchLabel() {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "batch:get" });
+      state.batchLabel = response?.ok ? response.label || "" : "";
+    } catch {
+      state.batchLabel = "";
+    }
+    renderChrome();
   }
 
   function hideOutline() {
@@ -1778,6 +1791,7 @@
       renderChrome();
       updateOutline();
       renderMarkers();
+      void syncBatchLabel();
       return;
     }
     document.documentElement.removeAttribute("data-pinar-active");
@@ -2039,4 +2053,5 @@
   renderChrome();
   updateOutline();
   renderMarkers();
+  void syncBatchLabel();
 })();

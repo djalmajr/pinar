@@ -5,6 +5,7 @@ import {
   batchSummary,
   markFailed,
   openBatch,
+  savedCount,
 } from "./batch.js";
 import { CAPTURE_TILE_DELAY_MS, planFullPageCapture, shiftMaskRegions, shiftPinsToCapture } from "./full-page.js";
 import { collectionDestination, destinationKey, resolveDestinationPreference } from "./destination.js";
@@ -43,6 +44,7 @@ const tabHydrations = new Map();
 const registeredInstallations = new Set();
 const registerInstallationOnce = createSingleFlight();
 const OPEN_PANEL_MENU_ID = "pinar-open-panel";
+const BATCH_MENU_ID = "pinar-batch-toggle";
 
 function normalizePins(pins = []) {
   return pins.map((pin, index) => {
@@ -75,12 +77,31 @@ async function initializeInstallationIdentity() {
   return ensureInstallationIdentity(chrome.storage.local);
 }
 
+async function batchMenuTitle() {
+  const settings = await getSettings();
+  const messages = translations[getBestLanguage(settings.language)];
+  const batch = await readBatch();
+  if (!batch) return messages.batch_start;
+  return `${messages.batch_finish} · ${messages.batch_active.replace("{count}", String(savedCount(batch)))}`;
+}
+
+async function refreshBatchMenu() {
+  const title = await batchMenuTitle();
+  await chrome.contextMenus.update(BATCH_MENU_ID, { title }).catch(() => null);
+}
+
 async function registerActionContextMenu() {
+  const batchTitle = await batchMenuTitle();
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
       contexts: ["action"],
       id: OPEN_PANEL_MENU_ID,
       title: translations.en.context_open_panel,
+    });
+    chrome.contextMenus.create({
+      contexts: ["action"],
+      id: BATCH_MENU_ID,
+      title: batchTitle,
     });
   });
 }
@@ -93,8 +114,12 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onStartup.addListener(() => void registerActionContextMenu());
 
 chrome.contextMenus.onClicked.addListener((info) => {
-  if (info.menuItemId !== OPEN_PANEL_MENU_ID) return;
-  void openApp().catch((error) => console.error("Unable to open Pinar app", error));
+  if (info.menuItemId === OPEN_PANEL_MENU_ID) {
+    void openApp().catch((error) => console.error("Unable to open Pinar app", error));
+    return;
+  }
+  if (info.menuItemId !== BATCH_MENU_ID) return;
+  void toggleBatch().catch((error) => console.error("Unable to toggle the capture batch", error));
 });
 
 void initializeInstallationIdentity();
@@ -198,8 +223,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "batch:get") {
-    readBatch()
-      .then((batch) => sendResponse({ ok: true, summary: batchSummary(batch) }))
+    Promise.all([readBatch(), getSettings()])
+      .then(([batch, settings]) => {
+        const messages = translations[getBestLanguage(settings.language)];
+        return sendResponse({
+          label: batch ? messages.batch_active.replace("{count}", String(savedCount(batch))) : "",
+          ok: true,
+          summary: batchSummary(batch),
+        });
+      })
       .catch((error) => sendResponse({ error: String(error), ok: false }));
     return true;
   }
@@ -570,6 +602,7 @@ async function copyBundle(message) {
       ? addCapture(activeBatch, { captureId: id, title: page?.title, url: page?.url })
       : markFailed(activeBatch, id, warnings.at(-1) || "not_saved");
     await writeBatch(updated);
+    await refreshBatchMenu();
   }
 
   const shot = includeScreenshot ? (savedResult?.path || message.shot || null) : null;
@@ -1021,19 +1054,30 @@ async function writeBatch(batch) {
 async function startBatch() {
   const context = await getCaptureDestinationContext();
   if (!context.destination?.collectionId) throw new Error("No capture destination is available");
-  return writeBatch(openBatch(context.destination));
+  const batch = await writeBatch(openBatch(context.destination));
+  await refreshBatchMenu();
+  return batch;
 }
 
 async function finishBatch() {
   const batch = await readBatch();
   if (!batch) return { summary: null };
   await writeBatch(null);
+  await refreshBatchMenu();
   const settings = await getSettings();
   const base = settings.storageMode === "cloud" ? cloudEndpoint(settings) : await findShotBase();
   return {
     summary: batchSummary(batch),
     url: base ? `${base}/c/${batch.collectionId}` : null,
   };
+}
+
+async function toggleBatch() {
+  const batch = await readBatch();
+  if (!batch) return startBatch();
+  const result = await finishBatch();
+  if (result.url) await chrome.tabs.create({ url: result.url });
+  return result;
 }
 
 async function getAuthSession() {

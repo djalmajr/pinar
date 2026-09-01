@@ -27,9 +27,6 @@ import {
   Button,
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
   Combobox,
   ComboboxContent,
   ComboboxEmpty,
@@ -86,6 +83,8 @@ import {
 
 const LANGUAGE_OPTIONS = SUPPORTED_LANGUAGES.map((code) => ({ code, label: translations[code].name }));
 
+const SECTION_HEADER = "text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70";
+
 const OVERLAY_SHORTCUTS = [
   { keys: "Enter", label: "shortcut_pin_element" },
   { keys: "↑ / ↓", label: "shortcut_walk_dom" },
@@ -116,7 +115,7 @@ function ShortcutsTab({ t }: { t: TranslationDictionary }) {
   return (
     <div className="flex flex-col gap-5">
       <section className="flex flex-col gap-2.5">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{t.shortcuts_browser_title}</span>
+        <span className={SECTION_HEADER}>{t.shortcuts_browser_title}</span>
         <p className="text-xs leading-relaxed text-muted-foreground">{t.shortcuts_browser_desc}</p>
         <ul className="flex flex-col gap-1.5">
           {commands.map((command) => (
@@ -125,7 +124,7 @@ function ShortcutsTab({ t }: { t: TranslationDictionary }) {
         </ul>
       </section>
       <section className="flex flex-col gap-2.5">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{t.shortcuts_overlay_title}</span>
+        <span className={SECTION_HEADER}>{t.shortcuts_overlay_title}</span>
         <p className="text-xs leading-relaxed text-muted-foreground">{t.shortcuts_overlay_desc}</p>
         <ul className="flex flex-col gap-1.5">
           {OVERLAY_SHORTCUTS.map((item) => <ShortcutRow key={item.keys} keys={item.keys} label={t[item.label]} />)}
@@ -669,7 +668,7 @@ export function OptionsApp() {
 
               <TabsContent className="flex flex-col gap-5" value="storage">
                 <section className="flex flex-col gap-2.5">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{t.storage_title}</span>
+                  <span className={SECTION_HEADER}>{t.storage_title}</span>
                   <label className="-mx-2 flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 hover:bg-muted/50">
                     <input checked={settings.storageMode === "local"} className="mt-0.5 accent-primary" name="storageMode" type="radio" onChange={() => setSettings((current) => ({ ...current, storageMode: "local" }))} />
                     <span className="min-w-0 flex-1">
@@ -710,13 +709,13 @@ export function OptionsApp() {
                 </section>
 
                 <section className="flex flex-col gap-2.5">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{t.storage_status_title}</span>
+                  <span className={SECTION_HEADER}>{t.storage_status_title}</span>
                   <StorageStatusPanel mode={settings.storageMode} t={t} />
                   <label className={cn("flex items-center justify-between gap-3 py-1", settings.storageMode !== "cloud" && "opacity-50")}><span className="min-w-0"><span className="block text-xs font-semibold">{t.history_label}</span><span className="block text-xs text-muted-foreground">{t.history_desc}</span></span><Switch checked={settings.storageMode === "cloud" ? settings.enableHistory : true} className="shrink-0" disabled={settings.storageMode !== "cloud"} onCheckedChange={(value) => setSettings((current) => ({ ...current, enableHistory: value }))} /></label>
                 </section>
 
                 <section className="flex flex-col gap-2.5">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{t.capture_destination_label}</span>
+                  <span className={SECTION_HEADER}>{t.capture_destination_label}</span>
                   <Card className="gap-3 overflow-visible rounded-none py-0 ring-0" size="sm">
                     <CardContent className="grid gap-3 px-0 sm:grid-cols-2">
                       <label className="flex min-w-0 flex-col gap-1.5">
@@ -775,12 +774,11 @@ export function OptionsApp() {
                 </section>
               </TabsContent>
 
-              <TabsContent value="account">
-                <Card className="gap-4 overflow-visible rounded-none py-0 ring-0" size="sm">
-                  <CardHeader className="px-0">
-                    <div><CardTitle>{t.account_title}</CardTitle><CardDescription className="mt-1 text-xs">{t.account_description}</CardDescription></div>
-                  </CardHeader>
-                  <CardContent className="space-y-4 px-0">
+              <TabsContent className="flex flex-col gap-5" value="account">
+                <section className="flex flex-col gap-2.5">
+                  <span className={SECTION_HEADER}>{t.account_title}</span>
+                  <p className="text-xs leading-relaxed text-muted-foreground">{t.account_description}</p>
+                  <div className="space-y-4">
                     {!authReady ? <p className="text-xs text-muted-foreground">…</p> : authSession?.kind === "account" ? (
                       <div className="space-y-3">
                         <div className="rounded-lg border bg-muted/40 p-3"><p className="truncate text-sm font-semibold">{authSession.email}</p><p className="mt-1 text-xs capitalize text-muted-foreground">{authSession.plan}</p></div>
@@ -824,14 +822,14 @@ export function OptionsApp() {
                       </div>
                     )}
                     {authError && <p className="text-xs font-medium text-destructive" role="alert">{authError}</p>}
-                  </CardContent>
-                </Card>
+                  </div>
+                </section>
               </TabsContent>
 
-              <TabsContent value="preferences">
-                <Card className="gap-3 overflow-visible rounded-none py-0 ring-0" size="sm">
-                  <CardContent className="flex flex-col gap-3.5 px-0">
-                    <div className="grid gap-3 sm:grid-cols-2">
+              <TabsContent className="flex flex-col gap-5" value="preferences">
+                <section className="flex flex-col gap-2.5">
+                  <span className={SECTION_HEADER}>{t.section_interface}</span>
+                  <div className="grid gap-3 sm:grid-cols-2">
                       <label className="flex min-w-0 flex-col gap-1.5">
                         <span className="text-xs font-semibold">{t.language_label}</span>
                         <Select items={LANGUAGE_OPTIONS.map((option) => ({ label: option.label, value: option.code }))} value={lang} onValueChange={(value) => { const next = value as SupportedLanguage; setLang(next); setSettings((current) => ({ ...current, language: next })); }}><SelectTrigger aria-label={t.language_label} className="w-full" size="sm"><SelectValue /></SelectTrigger><SelectContent><SelectGroup>{LANGUAGE_OPTIONS.map((option) => <SelectItem key={option.code} value={option.code}>{option.label}</SelectItem>)}</SelectGroup></SelectContent></Select>
@@ -840,9 +838,12 @@ export function OptionsApp() {
                         <span className="text-xs font-semibold" id="options-theme-label">{t.theme_label}</span>
                         <Tabs value={settings.theme || "system"} onValueChange={(value) => { const theme = value as ThemeMode; applyTheme(theme); setSettings((current) => ({ ...current, theme })); }}><TabsList aria-labelledby="options-theme-label" className="group-data-horizontal/tabs:h-7 w-full p-0.5 [&>button]:text-xs"><TabsTrigger className="flex-1" value="system"><IconLaptop data-icon="inline-start" />{t.theme_system}</TabsTrigger><TabsTrigger className="flex-1" value="light"><IconSun className="text-amber-500" data-icon="inline-start" />{t.theme_light}</TabsTrigger><TabsTrigger className="flex-1" value="dark"><IconMoon className="text-blue-400" data-icon="inline-start" />{t.theme_dark}</TabsTrigger></TabsList></Tabs>
                       </div>
-                    </div>
-                    <label className="flex items-center justify-between gap-3 py-1"><span className="min-w-0"><span className="block text-xs font-semibold">{t.loop_metrics_label}</span><span className="block text-xs text-muted-foreground">{t.loop_metrics_desc}</span></span><Switch checked={settings.loopMetricsOptIn === true} className="shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, loopMetricsOptIn: value }))} /></label>
-                    <label className="flex items-center justify-between gap-3 py-1">
+                  </div>
+                </section>
+
+                <section className="flex flex-col gap-2.5">
+                  <span className={SECTION_HEADER}>{t.section_handoff}</span>
+                  <label className="flex items-center justify-between gap-3 py-1">
                       <span className="min-w-0">
                         <span className="block text-xs font-semibold">
                           {t.handoff_mode_label} · {settings.handoffMode === "full" ? t.handoff_mode_full : t.handoff_mode_compact}
@@ -862,16 +863,21 @@ export function OptionsApp() {
                     <label className="flex items-center justify-between gap-3 py-1"><span className="min-w-0"><span className="block text-xs font-semibold">{t.viewer_label}</span><span className="block text-xs text-muted-foreground">{t.viewer_desc}</span></span><Switch checked={settings.includeViewer} className="shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, includeViewer: value }))} /></label>
                     <label className="flex items-center justify-between gap-3 py-1"><span className="min-w-0"><span className="block text-xs font-semibold">{t.viewer_content_label}</span><span className="block text-xs text-muted-foreground">{t.viewer_content_desc}</span></span><Switch checked={settings.copyViewerContent} className="shrink-0" disabled={!settings.includeViewer} onCheckedChange={(value) => setSettings((current) => ({ ...current, copyViewerContent: value }))} /></label>
                     <label className="flex items-center justify-between gap-3 py-1"><span className="min-w-0"><span className="block text-xs font-semibold">{t.screenshot_label}</span><span className="block text-xs text-muted-foreground">{t.screenshot_desc}</span></span><Switch checked={settings.includeScreenshot} className="shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, includeScreenshot: value }))} /></label>
-                    <label className="flex flex-col gap-1.5 py-1">
-                      <span className="text-xs font-semibold">{t.privacy_query_keys_label}</span>
-                      <Input
-                        value={settings.sensitiveQueryKeys || ""}
-                        onChange={(event) => setSettings((current) => ({ ...current, sensitiveQueryKeys: event.target.value }))}
-                      />
-                      <span className="text-xs text-muted-foreground">{t.privacy_query_keys_desc}</span>
-                    </label>
-                  </CardContent>
-                </Card>
+                </section>
+
+                <section className="flex flex-col gap-2.5">
+                  <span className={SECTION_HEADER}>{t.section_privacy}</span>
+                  <label className="flex items-center justify-between gap-3 py-1"><span className="min-w-0"><span className="block text-xs font-semibold">{t.loop_metrics_label}</span><span className="block text-xs text-muted-foreground">{t.loop_metrics_desc}</span></span><Switch checked={settings.loopMetricsOptIn === true} className="shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, loopMetricsOptIn: value }))} /></label>
+                  <label className="flex flex-col gap-1.5 py-1">
+                    <span className="text-xs font-semibold">{t.privacy_query_keys_label}</span>
+                    <Input
+                      value={settings.sensitiveQueryKeys || ""}
+                      onChange={(event) => setSettings((current) => ({ ...current, sensitiveQueryKeys: event.target.value }))}
+                    />
+                    <span className="text-xs text-muted-foreground">{t.privacy_query_keys_desc}</span>
+                  </label>
+                </section>
+
               </TabsContent>
 
               <TabsContent value="shortcuts">

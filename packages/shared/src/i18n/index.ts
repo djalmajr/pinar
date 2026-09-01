@@ -13,6 +13,9 @@ export interface TranslationDictionary {
   tab_preferences: string;
   tab_account: string;
   tab_shortcuts: string;
+  section_interface: string;
+  section_handoff: string;
+  section_privacy: string;
   storage_status_title: string;
   storage_status_desc: string;
   storage_local_connected: string;
@@ -120,6 +123,9 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     tab_preferences: "Preferences",
     tab_account: "Account",
     tab_shortcuts: "Shortcuts",
+    section_interface: "Interface",
+    section_handoff: "Agent handoff",
+    section_privacy: "Privacy",
     storage_status_title: "Storage status",
     storage_status_desc: "Where captures are written and whether new uploads are accepted.",
     storage_local_connected: "Local server connected on port {port}",
@@ -225,6 +231,9 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     tab_preferences: "Preferências",
     tab_account: "Conta",
     tab_shortcuts: "Atalhos",
+    section_interface: "Interface",
+    section_handoff: "Entrega ao agente",
+    section_privacy: "Privacidade",
     storage_status_title: "Status do armazenamento",
     storage_status_desc: "Onde as capturas são gravadas e se novos uploads são aceitos.",
     storage_local_connected: "Servidor local conectado na porta {port}",
@@ -330,6 +339,9 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     tab_preferences: "Preferencias",
     tab_account: "Cuenta",
     tab_shortcuts: "Atajos",
+    section_interface: "Interfaz",
+    section_handoff: "Entrega al agente",
+    section_privacy: "Privacidad",
     storage_status_title: "Estado del almacenamiento",
     storage_status_desc: "Dónde se escriben las capturas y si se aceptan nuevas subidas.",
     storage_local_connected: "Servidor local conectado en el puerto {port}",
@@ -435,6 +447,9 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     tab_preferences: "Préférences",
     tab_account: "Compte",
     tab_shortcuts: "Raccourcis",
+    section_interface: "Interface",
+    section_handoff: "Transmission à l’agent",
+    section_privacy: "Confidentialité",
     storage_status_title: "État du stockage",
     storage_status_desc: "Où les captures sont écrites et si de nouveaux envois sont acceptés.",
     storage_local_connected: "Serveur local connecté sur le port {port}",
@@ -540,6 +555,9 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     tab_preferences: "Einstellungen",
     tab_account: "Konto",
     tab_shortcuts: "Kurzbefehle",
+    section_interface: "Oberfläche",
+    section_handoff: "Übergabe an den Agenten",
+    section_privacy: "Datenschutz",
     storage_status_title: "Speicherstatus",
     storage_status_desc: "Wohin Aufnahmen geschrieben werden und ob neue Uploads angenommen werden.",
     storage_local_connected: "Lokaler Server auf Port {port} verbunden",
@@ -645,6 +663,9 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     tab_preferences: "偏好设置",
     tab_account: "账户",
     tab_shortcuts: "快捷键",
+    section_interface: "界面",
+    section_handoff: "交给智能体",
+    section_privacy: "隐私",
     storage_status_title: "存储状态",
     storage_status_desc: "捕获写入的位置，以及是否接受新的上传。",
     storage_local_connected: "本地服务器已连接，端口 {port}",
@@ -750,6 +771,9 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     tab_preferences: "環境設定",
     tab_account: "アカウント",
     tab_shortcuts: "ショートカット",
+    section_interface: "インターフェース",
+    section_handoff: "エージェントへの引き渡し",
+    section_privacy: "プライバシー",
     storage_status_title: "ストレージの状態",
     storage_status_desc: "キャプチャの保存先と、新しいアップロードを受け付けるかどうか。",
     storage_local_connected: "ローカルサーバーはポート {port} で接続済み",

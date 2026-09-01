@@ -7,6 +7,7 @@ import {
   markFailed,
   openBatch,
   pendingCount,
+  planCapturePersistence,
   savedCount,
 } from "./batch.js";
 
@@ -78,5 +79,69 @@ describe("capture batch", () => {
     assert.equal(batchSummary(null), null);
     assert.equal(batchDestination(null), null);
     assert.equal(savedCount(null), 0);
+  });
+});
+
+describe("capture persistence plan", () => {
+  const plan = (overrides) => planCapturePersistence({
+    enableHistory: true,
+    hasShot: true,
+    includeScreenshot: true,
+    storageMode: "local",
+    ...overrides,
+  });
+
+  test("always persists local captures, even with history declined", () => {
+    assert.deepEqual(plan({ enableHistory: false, storageMode: "local" }), {
+      historyAllowed: true,
+      persist: true,
+      warnScreenshotMissing: false,
+    });
+  });
+
+  test("persists remote captures while history is enabled", () => {
+    assert.equal(plan({ storageMode: "cloud" }).persist, true);
+    assert.equal(plan({ storageMode: "cloud" }).historyAllowed, true);
+  });
+
+  test("declines remote persistence without pretending the helper failed", () => {
+    const declined = plan({ enableHistory: false, storageMode: "cloud" });
+    assert.equal(declined.persist, false);
+    assert.equal(declined.historyAllowed, false);
+    // A deliberate opt-out must not surface as a missing screenshot either.
+    assert.equal(declined.warnScreenshotMissing, false);
+  });
+
+  test("warns about a missing screenshot only when one was expected", () => {
+    assert.equal(plan({ hasShot: false }).warnScreenshotMissing, true);
+    assert.equal(plan({ hasShot: false, includeScreenshot: false }).warnScreenshotMissing, false);
+  });
+
+  test("keeps history allowed when there is nothing to save, so the viewer warning still fires", () => {
+    const noShot = plan({ hasShot: false });
+    assert.equal(noShot.persist, false);
+    assert.equal(noShot.historyAllowed, true);
+  });
+
+  test("covers the whole storage and history matrix", () => {
+    const matrix = [];
+    for (const storageMode of ["local", "cloud"]) {
+      for (const enableHistory of [true, false]) {
+        for (const hasShot of [true, false]) {
+          const result = planCapturePersistence({ enableHistory, hasShot, includeScreenshot: true, storageMode });
+          matrix.push(`${storageMode}/${enableHistory}/${hasShot}=${result.persist}`);
+        }
+      }
+    }
+    assert.deepEqual(matrix, [
+      "local/true/true=true",
+      "local/true/false=false",
+      "local/false/true=true",
+      "local/false/false=false",
+      "cloud/true/true=true",
+      "cloud/true/false=false",
+      "cloud/false/true=false",
+      "cloud/false/false=false",
+    ]);
   });
 });

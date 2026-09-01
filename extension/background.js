@@ -5,6 +5,7 @@ import {
   batchSummary,
   markFailed,
   openBatch,
+  planCapturePersistence,
   savedCount,
 } from "./batch.js";
 import { CAPTURE_TILE_DELAY_MS, planFullPageCapture, shiftMaskRegions, shiftPinsToCapture } from "./full-page.js";
@@ -580,8 +581,13 @@ async function copyBundle(message) {
     await cacheDeliveryPreferences(remotePrefs);
   }
   // History can only be declined for the remote server; local captures always persist on-device.
-  const persistCapture = settings.storageMode !== "cloud" || settings.enableHistory !== false;
-  if (message.shot && persistCapture) {
+  const plan = planCapturePersistence({
+    enableHistory: settings.enableHistory,
+    hasShot: Boolean(message.shot),
+    includeScreenshot,
+    storageMode: settings.storageMode,
+  });
+  if (plan.persist) {
     savedResult = await saveShot(
       message.shot,
       id,
@@ -594,7 +600,7 @@ async function copyBundle(message) {
       includeScreenshot,
     );
     if (!savedResult) warnings.push("helper_unavailable");
-  } else if (includeScreenshot && !message.shot) {
+  } else if (plan.warnScreenshotMissing) {
     warnings.push("screenshot_missing");
   }
   if (activeBatch) {
@@ -607,7 +613,7 @@ async function copyBundle(message) {
 
   const shot = includeScreenshot ? (savedResult?.path || message.shot || null) : null;
   const viewerUrl = (settings.includeViewer && savedResult?.viewerUrl) ? savedResult.viewerUrl : null;
-  if (persistCapture && settings.includeViewer && !viewerUrl) warnings.push("viewer_unavailable");
+  if (plan.historyAllowed && settings.includeViewer && !viewerUrl) warnings.push("viewer_unavailable");
   const uniqueWarnings = [...new Set(warnings)];
   const degraded = uniqueWarnings.some((warning) => (
     warning === "screenshot_missing" || warning === "helper_unavailable" || warning === "viewer_unavailable"

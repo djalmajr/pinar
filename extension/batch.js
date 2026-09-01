@@ -1,6 +1,17 @@
 // Pure state for multi-page capture batches. No chrome APIs here so the
 // transitions stay testable without a browser.
 
+// Two distinct decisions: whether the user allows remote history at all, and
+// whether this particular capture has something to persist.
+export function planCapturePersistence({ enableHistory, hasShot, includeScreenshot, storageMode }) {
+  const historyAllowed = storageMode !== "cloud" || enableHistory !== false;
+  return {
+    historyAllowed,
+    persist: historyAllowed && Boolean(hasShot),
+    warnScreenshotMissing: Boolean(includeScreenshot) && !hasShot,
+  };
+}
+
 export function openBatch(destination, startedAt) {
   if (!destination?.collectionId) throw new Error("A batch needs a collection destination");
   return {

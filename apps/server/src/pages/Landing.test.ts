@@ -15,6 +15,7 @@ describe("landing page", () => {
     assert.match(landingSource, /target="_blank"/);
     assert.match(landingSource, /t\("landing\.installExtension"\)/);
     assert.match(landingSource, /className="text-xs"/);
+    assert.doesNotMatch(landingSource, /isLocal \? null : \(\s*<div className="mt-7/);
     assert.doesNotMatch(landingSource, /t\("common\.signIn"\)/);
     assert.doesNotMatch(landingSource, /t\("landing\.viewPlans"\)/);
     assert.match(landingSource, /pinarRuntime\(\) === "local"/);

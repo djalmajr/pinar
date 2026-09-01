@@ -54,12 +54,10 @@ import {
   reorderCollectionTree,
   visibleCollections,
 } from "@/lib/collection-tree";
-import {
-  COLLECTION_DND_TYPE,
-  SESSION_DND_TYPE,
-} from "@/lib/workspace-dnd";
+import { COLLECTION_DND_TYPE, SESSION_DND_TYPE } from "@/lib/workspace-dnd";
 import { ProjectIconGlyph } from "@/components/ProjectIcon";
 import type { ServerMessageKey } from "@/lib/i18n";
+import { pinarRuntime } from "@/lib/server-header";
 import CheckIcon from "~icons/lucide/check";
 import ArrowDownIcon from "~icons/lucide/arrow-down";
 import ArrowUpIcon from "~icons/lucide/arrow-up";
@@ -76,7 +74,10 @@ import ShareIcon from "~icons/lucide/share-2";
 import TrashIcon from "~icons/lucide/trash-2";
 
 type ContainerKind = "collection" | "project";
-type Translate = (key: ServerMessageKey, values?: Record<string, number | string>) => string;
+type Translate = (
+  key: ServerMessageKey,
+  values?: Record<string, number | string>,
+) => string;
 
 interface ContainerTarget {
   id: string;
@@ -175,30 +176,43 @@ function CollectionMenu({
       >
         <MoreVerticalIcon />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-48" side="right" sideOffset={8}>
+      <DropdownMenuContent
+        align="start"
+        className="w-48"
+        side="right"
+        sideOffset={8}
+      >
         <DropdownMenuGroup>
           <DropdownMenuItem onClick={onCreate}>
             <FolderPlusIcon />
             {t("dashboard.newCollection")}
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => onRename({
-            id: collection.id,
-            kind: "collection",
-            name: collection.name,
-          })}>
+          <DropdownMenuItem
+            onClick={() =>
+              onRename({
+                id: collection.id,
+                kind: "collection",
+                name: collection.name,
+              })
+            }
+          >
             <PencilIcon />
             {t("dashboard.rename")}
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => onShare(`/c/${collection.id}`)}>
-            <ShareIcon />
-            {t("dashboard.share")}
-          </DropdownMenuItem>
+          {pinarRuntime() === "cloud" && (
+            <DropdownMenuItem onClick={() => onShare(`/c/${collection.id}`)}>
+              <ShareIcon />
+              {t("dashboard.share")}
+            </DropdownMenuItem>
+          )}
           {!collection.isProtected && (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 variant="destructive"
-                onClick={() => onDelete({ id: collection.id, kind: "collection" })}
+                onClick={() =>
+                  onDelete({ id: collection.id, kind: "collection" })
+                }
               >
                 <TrashIcon />
                 {t("dashboard.remove")}
@@ -232,17 +246,18 @@ function SortableCollection({
   });
   const [menuActionFocused, setMenuActionFocused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const sessionDropTarget = sortable.isOver && active?.data.current?.type === SESSION_DND_TYPE;
+  const sessionDropTarget =
+    sortable.isOver && active?.data.current?.type === SESSION_DND_TYPE;
   const style: CSSProperties = {
     opacity: sortable.isDragging ? 0.35 : 1,
     transform: CSS.Transform.toString(sortable.transform),
     transition: sortable.transition,
   };
   const buttonStyle: CSSProperties = {
-    paddingInlineStart: `${8 + (depth * COLLECTION_INDENTATION_WIDTH)}px`,
+    paddingInlineStart: `${8 + depth * COLLECTION_INDENTATION_WIDTH}px`,
   };
   const toggleStyle: CSSProperties = {
-    insetInlineStart: `${8 + (depth * COLLECTION_INDENTATION_WIDTH)}px`,
+    insetInlineStart: `${8 + depth * COLLECTION_INDENTATION_WIDTH}px`,
   };
 
   return (
@@ -267,7 +282,10 @@ function SortableCollection({
         tooltip={collection.name}
         onClick={() => onSelect(collection.id)}
       >
-        <span aria-hidden className="flex size-3.5 shrink-0 items-center justify-center">
+        <span
+          aria-hidden
+          className="flex size-3.5 shrink-0 items-center justify-center"
+        >
           {!hasChildren && <FolderIcon />}
         </span>
         <span>{collection.name}</span>
@@ -278,15 +296,22 @@ function SortableCollection({
           className="pointer-events-none absolute inset-y-0 z-10 w-px bg-sidebar-border"
           data-collection-guide
           key={level}
-          style={{ insetInlineStart: `${15 + (level * COLLECTION_INDENTATION_WIDTH)}px` }}
+          style={{
+            insetInlineStart: `${15 + level * COLLECTION_INDENTATION_WIDTH}px`,
+          }}
         />
       ))}
       {hasChildren && (
         <button
           aria-expanded={isExpanded}
-          aria-label={t(isExpanded ? "dashboard.collapseCollection" : "dashboard.expandCollection", {
-            name: collection.name,
-          })}
+          aria-label={t(
+            isExpanded
+              ? "dashboard.collapseCollection"
+              : "dashboard.expandCollection",
+            {
+              name: collection.name,
+            },
+          )}
           className="absolute top-2 z-10 flex size-4 items-center justify-center rounded-sm text-sidebar-foreground outline-none after:absolute after:-inset-1 focus-visible:ring-2 focus-visible:ring-sidebar-ring [&_svg]:size-3.5"
           data-collection-toggle
           style={toggleStyle}
@@ -296,10 +321,12 @@ function SortableCollection({
           {isExpanded ? <FolderOpenIcon /> : <FolderIcon />}
         </button>
       )}
-      <SidebarMenuBadge className={cn(
-        "group-hover/menu-item:opacity-0",
-        (menuOpen || menuActionFocused) && "opacity-0",
-      )}>
+      <SidebarMenuBadge
+        className={cn(
+          "group-hover/menu-item:opacity-0",
+          (menuOpen || menuActionFocused) && "opacity-0",
+        )}
+      >
         {collection.sessions.length}
       </SidebarMenuBadge>
       <CollectionMenu
@@ -345,11 +372,14 @@ function FixedCollection({
   });
   const [menuActionFocused, setMenuActionFocused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const sessionDropTarget = droppable.isOver && active?.data.current?.type === SESSION_DND_TYPE;
+  const sessionDropTarget =
+    droppable.isOver && active?.data.current?.type === SESSION_DND_TYPE;
   return (
     <SidebarMenuItem ref={droppable.setNodeRef}>
       <SidebarMenuButton
-        className={cn(sessionDropTarget && "bg-sidebar-accent ring-1 ring-sidebar-ring")}
+        className={cn(
+          sessionDropTarget && "bg-sidebar-accent ring-1 ring-sidebar-ring",
+        )}
         isActive={isActive}
         tooltip={collection.name}
         onClick={() => onSelect(collection.id)}
@@ -357,10 +387,12 @@ function FixedCollection({
         <InboxIcon />
         <span>{collection.name}</span>
       </SidebarMenuButton>
-      <SidebarMenuBadge className={cn(
-        "group-hover/menu-item:opacity-0",
-        (menuOpen || menuActionFocused) && "opacity-0",
-      )}>
+      <SidebarMenuBadge
+        className={cn(
+          "group-hover/menu-item:opacity-0",
+          (menuOpen || menuActionFocused) && "opacity-0",
+        )}
+      >
         {collection.sessions.length}
       </SidebarMenuBadge>
       <CollectionMenu
@@ -387,14 +419,11 @@ export function ProjectSwitcher({
   onSelectProject,
 }: ProjectSwitcherProps) {
   const { isMobile } = useSidebar();
-  const totalSessions = selectedProject?.collections.reduce(
-    (total, collection) => total + collection.sessions.length,
-    0,
-  ) ?? 0;
-  const sessionLabel = t(
-    totalSessions === 1 ? "aggregate.sessionSingular" : "aggregate.sessionPlural",
-  );
-
+  const totalSessions =
+    selectedProject?.collections.reduce(
+      (total, collection) => total + collection.sessions.length,
+      0,
+    ) ?? 0;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -415,22 +444,32 @@ export function ProjectSwitcher({
         }
       >
         {compact ? (
-          selectedProject ? <ProjectIconGlyph icon={selectedProject.icon} /> : null
+          selectedProject ? (
+            <ProjectIconGlyph icon={selectedProject.icon} />
+          ) : null
         ) : (
           <>
             {selectedProject ? (
-              <ProjectIconGlyph className="size-5 shrink-0" icon={selectedProject.icon} />
+              <ProjectIconGlyph
+                className="size-5 shrink-0"
+                icon={selectedProject.icon}
+              />
             ) : null}
-            <span className={cn("min-w-0 text-left leading-tight", isMobile ? "truncate font-semibold" : "grid flex-1")}>
+            <span
+              className={cn(
+                "min-w-0 text-left leading-tight",
+                isMobile ? "truncate font-semibold" : "grid flex-1",
+              )}
+            >
               {isMobile ? (
-                selectedProject?.name ?? t("common.loading")
+                (selectedProject?.name ?? t("common.loading"))
               ) : (
                 <>
                   <span className="truncate font-semibold">
                     {selectedProject?.name ?? t("common.loading")}
                   </span>
                   <span className="truncate text-xs font-normal text-sidebar-foreground/60">
-                    {t("aggregate.sessionCount", { count: totalSessions, label: sessionLabel })}
+                    {t("aggregate.sessionCount", { count: totalSessions })}
                   </span>
                 </>
               )}
@@ -442,7 +481,10 @@ export function ProjectSwitcher({
       <DropdownMenuContent align="start" side="bottom" sideOffset={8}>
         <DropdownMenuGroup>
           {projectTree.projects.map((project) => (
-            <DropdownMenuItem key={project.id} onClick={() => onSelectProject(project.id)}>
+            <DropdownMenuItem
+              key={project.id}
+              onClick={() => onSelectProject(project.id)}
+            >
               <ProjectIconGlyph icon={project.icon} />
               <span className="min-w-0 flex-1 truncate">{project.name}</span>
               {project.id === selectedProject?.id && <CheckIcon />}
@@ -473,6 +515,34 @@ export function ProjectActionsMenu({
 }: ProjectActionsMenuProps) {
   if (!selectedProject) return null;
 
+  // With share cloud-only, a protected project with no reorder targets would
+  // leave a single-item menu; surface the edit action directly instead.
+  const menuHasExtras =
+    canMoveEarlier ||
+    canMoveLater ||
+    !selectedProject.isProtected ||
+    pinarRuntime() === "cloud";
+  if (!menuHasExtras) {
+    return (
+      <Button
+        aria-label={`${selectedProject.name}: ${t("dashboard.editProject")}`}
+        size="icon-sm"
+        title={t("dashboard.editProject")}
+        variant="ghost"
+        onClick={() =>
+          onRename({
+            id: selectedProject.id,
+            icon: selectedProject.icon,
+            kind: "project",
+            name: selectedProject.name,
+          })
+        }
+      >
+        <PencilIcon />
+      </Button>
+    );
+  }
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -489,19 +559,29 @@ export function ProjectActionsMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-44">
         <DropdownMenuGroup>
-          <DropdownMenuItem className="gap-2.5" onClick={() => onRename({
-            id: selectedProject.id,
-            icon: selectedProject.icon,
-            kind: "project",
-            name: selectedProject.name,
-          })}>
+          <DropdownMenuItem
+            className="gap-2.5"
+            onClick={() =>
+              onRename({
+                id: selectedProject.id,
+                icon: selectedProject.icon,
+                kind: "project",
+                name: selectedProject.name,
+              })
+            }
+          >
             <PencilIcon />
             {t("dashboard.editProject")}
           </DropdownMenuItem>
-          <DropdownMenuItem className="gap-2.5" onClick={() => onShare(`/p/${selectedProject.id}`)}>
-            <ShareIcon />
-            {t("dashboard.share")}
-          </DropdownMenuItem>
+          {pinarRuntime() === "cloud" && (
+            <DropdownMenuItem
+              className="gap-2.5"
+              onClick={() => onShare(`/p/${selectedProject.id}`)}
+            >
+              <ShareIcon />
+              {t("dashboard.share")}
+            </DropdownMenuItem>
+          )}
         </DropdownMenuGroup>
         {(canMoveEarlier || canMoveLater) && (
           <>
@@ -530,7 +610,9 @@ export function ProjectActionsMenu({
               <DropdownMenuItem
                 className="gap-2.5"
                 variant="destructive"
-                onClick={() => onDelete({ id: selectedProject.id, kind: "project" })}
+                onClick={() =>
+                  onDelete({ id: selectedProject.id, kind: "project" })
+                }
               >
                 <TrashIcon />
                 {t("dashboard.deleteProject")}
@@ -557,7 +639,9 @@ export function HistorySidebar({
 }: HistorySidebarProps) {
   const { setOpenMobile } = useSidebar();
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [collapsedCollectionIds, setCollapsedCollectionIds] = useState<Set<string>>(() => new Set());
+  const [collapsedCollectionIds, setCollapsedCollectionIds] = useState<
+    Set<string>
+  >(() => new Set());
   const [offsetLeft, setOffsetLeft] = useState(0);
   const [overId, setOverId] = useState<string | null>(null);
   const collections = selectedProject?.collections ?? [];
@@ -574,13 +658,21 @@ export function HistorySidebar({
     [collapsedCollectionIds, flattened],
   );
   const collectionIdsWithChildren = useMemo(
-    () => new Set(sortableCollections.flatMap((collection) => collection.parentId ? [collection.parentId] : [])),
+    () =>
+      new Set(
+        sortableCollections.flatMap((collection) =>
+          collection.parentId ? [collection.parentId] : [],
+        ),
+      ),
     [sortableCollections],
   );
-  const projection = activeId && overId
-    ? getCollectionProjection(flattened, activeId, overId, offsetLeft)
-    : null;
-  const activeCollection = sortableCollections.find((collection) => collection.id === activeId);
+  const projection =
+    activeId && overId
+      ? getCollectionProjection(flattened, activeId, overId, offsetLeft)
+      : null;
+  const activeCollection = sortableCollections.find(
+    (collection) => collection.id === activeId,
+  );
   const totalSessions = collections.reduce(
     (total, collection) => total + collection.sessions.length,
     0,
@@ -625,7 +717,9 @@ export function HistorySidebar({
     setOverId(null);
   }
 
-  function isCollectionTreeDrag(event: { active: { data: { current?: { type?: string } } } }) {
+  function isCollectionTreeDrag(event: {
+    active: { data: { current?: { type?: string } } };
+  }) {
     return event.active.data.current?.type !== SESSION_DND_TYPE;
   }
 
@@ -730,7 +824,11 @@ export function HistorySidebar({
                 {visibleFlattened.map(({ collection, depth }) => (
                   <SortableCollection
                     collection={collection}
-                    depth={collection.id === activeId && projection ? projection.depth : depth}
+                    depth={
+                      collection.id === activeId && projection
+                        ? projection.depth
+                        : depth
+                    }
                     hasChildren={collectionIdsWithChildren.has(collection.id)}
                     isActive={selectedCollectionId === collection.id}
                     isExpanded={!collapsedCollectionIds.has(collection.id)}

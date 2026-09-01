@@ -41,7 +41,7 @@ describe("formatClipboardPayload", () => {
     assert.equal(context.pins[0].pinId, "pin_1");
     assert.equal(context.pins[0].comment, "Fix this");
     assert.deepEqual(context.screenshot, { url: "/Users/me/.pinar/shots/session-1.png" });
-    assert.match(payload.plain, /Full context: http:\/\/127\.0\.0\.1:17373\/v\/session-1\.md/);
+    assert.match(payload.plain, /Full context \(fetch only if the details above are insufficient\): http:\/\/127\.0\.0\.1:17373\/v\/session-1\.md/);
     assert.match(payload.plain, /```pinar-visual-context/);
   });
 
@@ -165,8 +165,8 @@ describe("formatClipboard", () => {
       shot: "https://pinar-cloud.workers.dev/shots/1.png",
       viewerUrl: "https://pinar-cloud.workers.dev/v/1",
     });
-    assert.match(plain, /Full context: https:\/\/pinar-cloud\.workers\.dev\/v\/1\.md/);
-    assert.match(html, /Full context: https:\/\/pinar-cloud\.workers\.dev\/v\/1\.md/);
+    assert.match(plain, /Full context \(fetch only if the details above are insufficient\): https:\/\/pinar-cloud\.workers\.dev\/v\/1\.md/);
+    assert.match(html, /Full context \(fetch only if the details above are insufficient\): https:\/\/pinar-cloud\.workers\.dev\/v\/1\.md/);
   });
 
   test("lists redacted categories without original secrets", () => {
@@ -208,7 +208,7 @@ describe("formatClipboard", () => {
     });
     const context = contextFrom(plain);
     assert.equal(context.captureId, "cap_no_shot");
-    assert.match(plain, /Full context: http:\/\/127\.0\.0\.1:17373\/v\/cap_no_shot\.md/);
+    assert.match(plain, /Full context \(fetch only if the details above are insufficient\): http:\/\/127\.0\.0\.1:17373\/v\/cap_no_shot\.md/);
     assert.doesNotMatch(plain, /Screenshot:/);
     assert.doesNotMatch(plain, /screenshot_missing/);
     assert.doesNotMatch(plain, /Colored numbered bubbles/);

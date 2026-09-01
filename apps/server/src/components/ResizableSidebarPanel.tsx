@@ -2,7 +2,7 @@ import { type ComponentProps, useEffect } from "react";
 import { ResizablePanel, useResizablePanelRef } from "@pinar/ui";
 
 const SIDEBAR_COLLAPSED_WIDTH = 48;
-const SIDEBAR_DEFAULT_WIDTH = 250;
+const SIDEBAR_DEFAULT_WIDTH = 200;
 
 interface ResizableSidebarPanelProps extends Omit<ComponentProps<typeof ResizablePanel>, "children" | "id" | "onResize"> {
   children: ComponentProps<typeof ResizablePanel>["children"];

@@ -1,0 +1,148 @@
+import type { ReleaseLocale } from "../release-content";
+
+const locale = {
+  ui: {
+    allReleases: "Alle Versionen",
+    backToReleases: "Zurück zu den Versionen",
+    firstRelease: "Dies ist die erste Version",
+    historyDescription:
+      "Öffnen Sie den Verlauf, um jedes veröffentlichte Tag zu sehen.",
+    latestRelease: "Sie sind auf dem neuesten Stand",
+    metaDescription: "Offizielle Hinweise zu jeder getaggten Pinar-Version.",
+    next: "Weiter",
+    pageDescription:
+      "Jeder Hinweis entspricht einem veröffentlichten Repository-Tag, ohne unveröffentlichte Arbeit zu vermischen.",
+    pageTitle: "Neuigkeiten in Pinar",
+    previous: "Zurück",
+    releaseNavigation: "Versionsnavigation",
+    releaseNotFound: "Version nicht gefunden",
+    releaseNotFoundDescription:
+      "Diese Version steht nicht im veröffentlichten Verlauf.",
+    viewDetails: "Details anzeigen",
+    whatChanged: "Was sich geändert hat",
+  },
+  releases: {
+    "v0.1.5": {
+      title: "Zuverlässiger Start bei der Anmeldung",
+      summary:
+        "Pinar.app bewahrt die bestehende macOS-Login-Konfiguration, ohne den Agenten unnötig neu zu laden.",
+      changes: {
+        "idempotent-login-setup": {
+          title: "Idempotente Login-Einrichtung",
+          description:
+            "Die Tray-App prüft, ob der LaunchAgent bereits existiert, bevor sie ihn konfiguriert, und vermeidet so einen zweiten Start durch RunAtLoad.",
+        },
+        "preference-preserved": {
+          title: "Einstellung bleibt erhalten",
+          description:
+            "Die gespeicherte Einstellung Start at Login bleibt unverändert, ohne Unload-/Reload-Zyklen beim normalen Start.",
+        },
+      },
+    },
+    "v0.1.4": {
+      title: "Serialisierter macOS-Tray-Start",
+      summary:
+        "Gleichzeitig laufende Agent-Hooks können keine doppelten Pinar.app-Instanzen oder Geister-Kacheln im Dock mehr erzeugen.",
+      changes: {
+        "single-app-instance": {
+          title: "Eine App-Instanz",
+          description:
+            "Eine atomare PID-Sperre lässt die laufende Tray-App die Kontrolle behalten, während ein doppelter Start sauber beendet wird.",
+        },
+        "coordinated-hooks": {
+          title: "Koordinierte Hooks",
+          description:
+            "Sitzungs-Hooks und der Installer serialisieren jetzt den Tray-Start und warten auf Bereitschaft, statt sich gegenseitig zu überholen.",
+        },
+      },
+    },
+    "v0.1.3": {
+      title: "Präzisere Konto- und iframe-Aufnahmeabläufe",
+      summary:
+        "Kontoverwaltung, iframe-Zielauswahl, Upload-Deduplizierung, öffentliche Navigation und Schutz vor doppeltem Tray-Start wurden gemeinsam verfeinert.",
+      changes: {
+        "nested-iframe-locators": {
+          title: "Locator in verschachtelten iframes",
+          description:
+            "Erfasste DOM-Pfade bewahren jetzt jede Frame-Grenze, sodass Pins in verschachtelten iframes genauer gefunden werden.",
+        },
+        "single-flight-uploads": {
+          title: "Single-Flight-Uploads",
+          description:
+            "Wiederholte Aufnahme-Anfragen teilen sich einen laufenden Upload und verhindern so doppelte Sitzungen und Upload-Wettläufe.",
+        },
+        "account-clarity": {
+          title: "Klarere Kontoansicht",
+          description:
+            "Der Kontobildschirm der Erweiterung macht Plan, Speicher, Abrechnung und den Status der rechtlichen Zustimmung leichter verständlich und steuerbar.",
+        },
+        "duplicate-launch-guard": {
+          title: "Schutz vor doppeltem Start",
+          description:
+            "Agent-Sitzungs-Hooks erkennen eine bereits laufende macOS-Tray-App, bevor sie eine weitere Instanz öffnen.",
+        },
+      },
+    },
+    "v0.1.2": {
+      title: "Pinar.app für macOS",
+      summary:
+        "Die lokale Pinar-Erfahrung liegt jetzt in einer nativen Menüleisten-App mit eingebettetem Helper, Login-Steuerung und Updates über GitHub.",
+      changes: {
+        "native-menu-bar-app": {
+          title: "Native Menüleisten-App",
+          description:
+            "Öffnen Sie den Workspace, starten oder stoppen Sie den lokalen Server, prüfen Sie den aktiven Port und steuern Sie Start at Login direkt aus Pinar.app.",
+        },
+        "bundled-local-helper": {
+          title: "Mitgelieferter lokaler Helper",
+          description:
+            "Die App legt das lokale Pinar-Verzeichnis an, startet den Helper und registriert unterstützte KI-Agent-Hooks, ohne einen separaten Daemon zu installieren.",
+        },
+        "automatic-updates": {
+          title: "Automatische Updates",
+          description:
+            "Die App prüft signierte Artefakte aus GitHub Releases und lehnt versehentliche Downgrades ab.",
+        },
+        "unified-macos-installer": {
+          title: "Einheitlicher macOS-Installer",
+          description:
+            "Der öffentliche Installer lädt Pinar.app jetzt herunter, installiert und startet sie als unterstütztes lokales Produkt unter macOS.",
+        },
+      },
+    },
+    "v0.1.1": {
+      title: "Visuelle Aufnahme, Cloud-Workspace und Founder",
+      summary:
+        "Die erste getaggte Produktversion verband Browser-Annotationen mit lokalen und Cloud-Workspaces, KI-Agent-Handoffs, Teilen, Plänen und Datenschutzsteuerungen.",
+      changes: {
+        "element-and-area-capture": {
+          title: "Element- und Bereichsaufnahme",
+          description:
+            "Pinnen Sie ein oder mehrere DOM-Elemente oder freie Bereiche, schreiben Sie Kommentare, erfassen Sie Screenshots und kopieren Sie ein strukturiertes Paket aus Chrome.",
+        },
+        "local-helper-and-agent-hooks": {
+          title: "Lokaler Helper und Agent-Hooks",
+          description:
+            "Ein Loopback-Helper speichert Screenshots und Verlauf, während installierte Sitzungs-Hooks unterstützte Coding-Agenten bereithalten, Pinar-Kontext zu empfangen.",
+        },
+        "cloud-workspace-and-sharing": {
+          title: "Cloud-Workspace und Teilen",
+          description:
+            "Passwortlose Konten, Projekte, verschachtelte Sammlungen, Aufnahme-Viewer sowie nicht gelistete Links für Sitzung, Projekt und Sammlung kamen gemeinsam.",
+        },
+        "plans-ai-and-storage": {
+          title: "Pläne, KI und Speicher",
+          description:
+            "Free, Pro und begrenzter Founder-Zugang führten Cloud-Aufbewahrung, Speicherkontingente, KI-Zusammenfassungen, Abonnements und optionale Credit- oder Speicherpakete ein.",
+        },
+        "privacy-and-legal-controls": {
+          title: "Datenschutz und rechtliche Steuerungen",
+          description:
+            "Schwärzung sensibler Felder, manuelle Masken, versionierte Zustimmung und veröffentlichte Dienstrichtlinien zogen die Sicherheitsgrenze der Cloud.",
+        },
+      },
+    },
+  },
+} satisfies ReleaseLocale;
+
+export default locale;

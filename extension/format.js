@@ -187,7 +187,7 @@ export function formatClipboard({
   const instructions = [
     "Implement the pin comments below. Use selector and DOM path as complementary locators.",
     ...(deliveredShot ? ["Numbered screenshot badges are annotation overlays, not page UI."] : []),
-    ...(finalViewer ? [`Full context: ${finalViewer}`] : []),
+    ...(finalViewer ? [`Full context (fetch only if the details above are insufficient): ${finalViewer}`] : []),
   ];
   const plain = `${instructions.join("\n")}\n\n\`\`\`pinar-visual-context\n${json}\n\`\`\`\n`;
 

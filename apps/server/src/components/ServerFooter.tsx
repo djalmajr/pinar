@@ -32,7 +32,7 @@ export function FairSourceSupportCard({ className }: FairSourceSupportCardProps)
     <section
       aria-label={title}
       className={cn(
-        "mx-auto flex min-h-24 w-full max-w-4xl flex-col items-stretch gap-4 rounded-xl border bg-card p-5",
+        "flex min-h-24 w-full flex-col items-stretch gap-4 rounded-xl border bg-card p-5",
         className,
       )}
     >

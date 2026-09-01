@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 import { publicHeaderCta, publicHeaderShowsPlans, shouldUseWorkspaceChrome } from "./server-header";
 import { cloudRedirectLocation } from "./local-cloud-redirect";
+
+const serverHeaderSource = readFileSync(new URL("../components/ServerHeader.tsx", import.meta.url), "utf8");
 
 describe("public header CTA", () => {
   // Mutation captured: keeping Sign in for an account session after checkout
@@ -26,6 +29,12 @@ describe("public header CTA", () => {
       plan: "pro",
       userId: "usr_pro",
     }), "open-app");
+  });
+
+  test("shows Home in desktop and mobile public navigation", () => {
+    assert.equal(serverHeaderSource.match(/<HomeIcon/g)?.length, 2);
+    assert.equal(serverHeaderSource.match(/t\("common\.home"\)/g)?.length, 2);
+    assert.match(serverHeaderSource, /activePage === "home" \? "page"/);
   });
 
   test("local helper never offers Sign in", () => {

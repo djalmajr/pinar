@@ -1,4 +1,4 @@
-import type { SupportedLanguage } from "../types/index.js";
+import { SUPPORTED_LANGUAGES, type SupportedLanguage } from "../types/index.js";
 
 export interface TranslationDictionary {
   capture_destination_label: string;
@@ -12,6 +12,26 @@ export interface TranslationDictionary {
   tab_storage: string;
   tab_preferences: string;
   tab_account: string;
+  tab_shortcuts: string;
+  storage_status_title: string;
+  storage_status_desc: string;
+  storage_local_connected: string;
+  storage_local_missing: string;
+  storage_recheck: string;
+  storage_cloud_usage: string;
+  storage_cloud_paused: string;
+  shortcuts_browser_title: string;
+  shortcuts_browser_desc: string;
+  shortcuts_toggle_label: string;
+  shortcuts_unassigned: string;
+  shortcuts_customize: string;
+  shortcuts_overlay_title: string;
+  shortcuts_overlay_desc: string;
+  shortcut_pin_element: string;
+  shortcut_walk_dom: string;
+  shortcut_mask: string;
+  shortcut_cancel: string;
+  shortcut_copy: string;
   local_title: string;
   local_desc: string;
   remote_title: string;
@@ -99,6 +119,26 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     tab_storage: "Storage",
     tab_preferences: "Preferences",
     tab_account: "Account",
+    tab_shortcuts: "Shortcuts",
+    storage_status_title: "Storage status",
+    storage_status_desc: "Where captures are written and whether new uploads are accepted.",
+    storage_local_connected: "Local server connected on port {port}",
+    storage_local_missing: "Local server not found on ports 17373-17382",
+    storage_recheck: "Check again",
+    storage_cloud_usage: "{used} of {quota} used",
+    storage_cloud_paused: "Uploads paused. Free space or add a storage pack.",
+    shortcuts_browser_title: "Browser shortcuts",
+    shortcuts_browser_desc: "Assigned by Chrome and rebindable per browser. They stay inert on chrome:// pages, on the Web Store, and before the overlay is injected.",
+    shortcuts_toggle_label: "Show or hide the Pinar toolbar",
+    shortcuts_unassigned: "Not assigned",
+    shortcuts_customize: "Change in Chrome",
+    shortcuts_overlay_title: "During capture",
+    shortcuts_overlay_desc: "Fixed keys, active only while the capture overlay is on. Pinar holds them so the page underneath never receives the same keystroke.",
+    shortcut_pin_element: "Pin the hovered element",
+    shortcut_walk_dom: "Walk to the parent or back to a child",
+    shortcut_mask: "Toggle privacy-mask drawing",
+    shortcut_cancel: "Cancel the draft, mask, or capture",
+    shortcut_copy: "Copy the finished bundle",
     local_title: "Local Server",
     local_desc: "Everything stays 100% local and private on this device at ~/.pinar/shots/.",
     remote_title: "Remote Server",
@@ -144,7 +184,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     no_projects_found: "No projects found.",
     no_collections_found: "No collections found.",
     history_label: "Save Annotation History",
-    history_desc: "Records past pins, comments, and URLs (7-day retention on remote server).",
+    history_desc: "Saves the session on the remote server so the viewer, reopen, and review keep working. Local captures always stay on this device.",
     handoff_mode_label: "Agent copy detail",
     handoff_mode_desc: "Compact copies only actionable context. Full includes every captured field. Saved captures and the viewer are always complete.",
     handoff_mode_compact: "Compact",
@@ -184,6 +224,26 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     tab_storage: "Armazenamento",
     tab_preferences: "Preferências",
     tab_account: "Conta",
+    tab_shortcuts: "Atalhos",
+    storage_status_title: "Status do armazenamento",
+    storage_status_desc: "Onde as capturas são gravadas e se novos uploads são aceitos.",
+    storage_local_connected: "Servidor local conectado na porta {port}",
+    storage_local_missing: "Servidor local não encontrado nas portas 17373-17382",
+    storage_recheck: "Verificar novamente",
+    storage_cloud_usage: "{used} de {quota} usados",
+    storage_cloud_paused: "Uploads pausados. Libere espaço ou compre um pacote de armazenamento.",
+    shortcuts_browser_title: "Atalhos do navegador",
+    shortcuts_browser_desc: "Atribuídos pelo Chrome e redefiníveis por navegador. Ficam inertes em páginas chrome://, na Web Store e antes de o overlay ser injetado.",
+    shortcuts_toggle_label: "Mostrar ou esconder a toolbar do Pinar",
+    shortcuts_unassigned: "Sem atribuição",
+    shortcuts_customize: "Alterar no Chrome",
+    shortcuts_overlay_title: "Durante a captura",
+    shortcuts_overlay_desc: "Teclas fixas, ativas apenas com o overlay de captura ligado. O Pinar as retém para a página abaixo nunca receber a mesma tecla.",
+    shortcut_pin_element: "Fixar o elemento sob o cursor",
+    shortcut_walk_dom: "Ir para o elemento pai ou voltar para um filho",
+    shortcut_mask: "Alternar o desenho de máscara de privacidade",
+    shortcut_cancel: "Cancelar o rascunho, a máscara ou a captura",
+    shortcut_copy: "Copiar o pacote finalizado",
     local_title: "Servidor Local",
     local_desc: "Tudo fica 100% local e privado neste dispositivo em ~/.pinar/shots/.",
     remote_title: "Servidor Remoto",
@@ -229,7 +289,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     no_projects_found: "Nenhum projeto encontrado.",
     no_collections_found: "Nenhuma coleção encontrada.",
     history_label: "Salvar Histórico de Anotações",
-    history_desc: "Registra histórico de pins e comentários (7 dias no servidor remoto).",
+    history_desc: "Salva a sessão no servidor remoto para o viewer, o reabrir e a revisão continuarem funcionando. Capturas locais permanecem sempre neste dispositivo.",
     handoff_mode_label: "Detalhamento da cópia para IA",
     handoff_mode_desc: "Compacto copia apenas o contexto acionável. Completo inclui todos os campos capturados. A captura salva e o viewer são sempre completos.",
     handoff_mode_compact: "Compacto",
@@ -269,6 +329,26 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     tab_storage: "Almacenamiento",
     tab_preferences: "Preferencias",
     tab_account: "Cuenta",
+    tab_shortcuts: "Atajos",
+    storage_status_title: "Estado del almacenamiento",
+    storage_status_desc: "Dónde se escriben las capturas y si se aceptan nuevas subidas.",
+    storage_local_connected: "Servidor local conectado en el puerto {port}",
+    storage_local_missing: "Servidor local no encontrado en los puertos 17373-17382",
+    storage_recheck: "Comprobar de nuevo",
+    storage_cloud_usage: "{used} de {quota} usados",
+    storage_cloud_paused: "Subidas en pausa. Libera espacio o compra un paquete de almacenamiento.",
+    shortcuts_browser_title: "Atajos del navegador",
+    shortcuts_browser_desc: "Asignados por Chrome y reasignables por navegador. Quedan inertes en páginas chrome://, en la Web Store y antes de que se inyecte el overlay.",
+    shortcuts_toggle_label: "Mostrar u ocultar la barra de Pinar",
+    shortcuts_unassigned: "Sin asignar",
+    shortcuts_customize: "Cambiar en Chrome",
+    shortcuts_overlay_title: "Durante la captura",
+    shortcuts_overlay_desc: "Teclas fijas, activas solo con el overlay de captura encendido. Pinar las retiene para que la página de abajo nunca reciba la misma pulsación.",
+    shortcut_pin_element: "Fijar el elemento bajo el cursor",
+    shortcut_walk_dom: "Ir al elemento padre o volver a un hijo",
+    shortcut_mask: "Alternar el dibujo de máscara de privacidad",
+    shortcut_cancel: "Cancelar el borrador, la máscara o la captura",
+    shortcut_copy: "Copiar el paquete terminado",
     local_title: "Servidor Local",
     local_desc: "Todo permanece 100% local y privado en este dispositivo en ~/.pinar/shots/.",
     remote_title: "Servidor Remoto",
@@ -314,7 +394,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     no_projects_found: "No se encontraron proyectos.",
     no_collections_found: "No se encontraron colecciones.",
     history_label: "Guardar Historial de Anotaciones",
-    history_desc: "Registra pines pasados y comentarios (7 días en servidor remoto).",
+    history_desc: "Guarda la sesión en el servidor remoto para que el visor, la reapertura y la revisión sigan funcionando. Las capturas locales siempre permanecen en este dispositivo.",
     handoff_mode_label: "Detalle de la copia para IA",
     handoff_mode_desc: "Compacto copia solo el contexto accionable. Completo incluye todos los campos capturados. La captura guardada y el visor siempre están completos.",
     handoff_mode_compact: "Compacto",
@@ -354,6 +434,26 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     tab_storage: "Stockage",
     tab_preferences: "Préférences",
     tab_account: "Compte",
+    tab_shortcuts: "Raccourcis",
+    storage_status_title: "État du stockage",
+    storage_status_desc: "Où les captures sont écrites et si de nouveaux envois sont acceptés.",
+    storage_local_connected: "Serveur local connecté sur le port {port}",
+    storage_local_missing: "Serveur local introuvable sur les ports 17373-17382",
+    storage_recheck: "Vérifier à nouveau",
+    storage_cloud_usage: "{used} sur {quota} utilisés",
+    storage_cloud_paused: "Envois en pause. Libérez de l’espace ou ajoutez un pack de stockage.",
+    shortcuts_browser_title: "Raccourcis du navigateur",
+    shortcuts_browser_desc: "Attribués par Chrome et réattribuables par navigateur. Ils restent inertes sur les pages chrome://, sur le Web Store et avant l’injection de l’overlay.",
+    shortcuts_toggle_label: "Afficher ou masquer la barre d’outils Pinar",
+    shortcuts_unassigned: "Non attribué",
+    shortcuts_customize: "Modifier dans Chrome",
+    shortcuts_overlay_title: "Pendant la capture",
+    shortcuts_overlay_desc: "Touches fixes, actives uniquement quand l’overlay de capture est allumé. Pinar les retient pour que la page en dessous ne reçoive jamais la même frappe.",
+    shortcut_pin_element: "Épingler l’élément survolé",
+    shortcut_walk_dom: "Aller à l’élément parent ou revenir à un enfant",
+    shortcut_mask: "Activer le tracé du masque de confidentialité",
+    shortcut_cancel: "Annuler le brouillon, le masque ou la capture",
+    shortcut_copy: "Copier le paquet terminé",
     local_title: "Serveur Local",
     local_desc: "Tout reste 100 % local et privé sur cet appareil dans ~/.pinar/shots/.",
     remote_title: "Serveur Distant",
@@ -399,7 +499,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     no_projects_found: "Aucun projet trouvé.",
     no_collections_found: "Aucune collection trouvée.",
     history_label: "Enregistrer l'Historique des Annotations",
-    history_desc: "Enregistre les pins et commentaires passés (7 jours sur le serveur distant).",
+    history_desc: "Enregistre la session sur le serveur distant pour que le visualiseur, la réouverture et la revue continuent de fonctionner. Les captures locales restent toujours sur cet appareil.",
     handoff_mode_label: "Niveau de détail de la copie IA",
     handoff_mode_desc: "Compact ne copie que le contexte exploitable. Complet inclut tous les champs capturés. La capture enregistrée et le viewer restent toujours complets.",
     handoff_mode_compact: "Compact",
@@ -439,6 +539,26 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     tab_storage: "Speicher",
     tab_preferences: "Einstellungen",
     tab_account: "Konto",
+    tab_shortcuts: "Kurzbefehle",
+    storage_status_title: "Speicherstatus",
+    storage_status_desc: "Wohin Aufnahmen geschrieben werden und ob neue Uploads angenommen werden.",
+    storage_local_connected: "Lokaler Server auf Port {port} verbunden",
+    storage_local_missing: "Lokaler Server auf den Ports 17373-17382 nicht gefunden",
+    storage_recheck: "Erneut prüfen",
+    storage_cloud_usage: "{used} von {quota} belegt",
+    storage_cloud_paused: "Uploads pausiert. Gib Speicher frei oder kaufe ein Speicherpaket.",
+    shortcuts_browser_title: "Browser-Kurzbefehle",
+    shortcuts_browser_desc: "Von Chrome vergeben und pro Browser neu belegbar. Auf chrome://-Seiten, im Web Store und vor der Injektion des Overlays bleiben sie wirkungslos.",
+    shortcuts_toggle_label: "Pinar-Toolbar ein- oder ausblenden",
+    shortcuts_unassigned: "Nicht belegt",
+    shortcuts_customize: "In Chrome ändern",
+    shortcuts_overlay_title: "Während der Aufnahme",
+    shortcuts_overlay_desc: "Feste Tasten, nur bei eingeschaltetem Aufnahme-Overlay aktiv. Pinar hält sie zurück, damit die Seite darunter denselben Tastendruck nie erhält.",
+    shortcut_pin_element: "Element unter dem Zeiger anpinnen",
+    shortcut_walk_dom: "Zum Elternelement gehen oder zu einem Kind zurück",
+    shortcut_mask: "Zeichnen der Datenschutzmaske umschalten",
+    shortcut_cancel: "Entwurf, Maske oder Aufnahme abbrechen",
+    shortcut_copy: "Fertiges Bundle kopieren",
     local_title: "Lokaler Server",
     local_desc: "Alles bleibt zu 100 % lokal und privat auf diesem Gerät unter ~/.pinar/shots/.",
     remote_title: "Remote-Server",
@@ -484,7 +604,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     no_projects_found: "Keine Projekte gefunden.",
     no_collections_found: "Keine Sammlungen gefunden.",
     history_label: "Anmerkungsverlauf speichern",
-    history_desc: "Speichert vergangene Pins und Kommentare (7 Tage auf dem Remote-Server).",
+    history_desc: "Speichert die Sitzung auf dem Remote-Server, damit Viewer, Wiederöffnen und Review weiter funktionieren. Lokale Aufnahmen bleiben immer auf diesem Gerät.",
     handoff_mode_label: "Detailgrad der KI-Kopie",
     handoff_mode_desc: "Kompakt kopiert nur den relevanten Kontext. Vollständig enthält alle erfassten Felder. Gespeicherte Aufnahmen und Viewer bleiben immer vollständig.",
     handoff_mode_compact: "Kompakt",
@@ -524,6 +644,26 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     tab_storage: "存储",
     tab_preferences: "偏好设置",
     tab_account: "账户",
+    tab_shortcuts: "快捷键",
+    storage_status_title: "存储状态",
+    storage_status_desc: "捕获写入的位置，以及是否接受新的上传。",
+    storage_local_connected: "本地服务器已连接，端口 {port}",
+    storage_local_missing: "未在 17373-17382 端口找到本地服务器",
+    storage_recheck: "重新检查",
+    storage_cloud_usage: "已使用 {used}，共 {quota}",
+    storage_cloud_paused: "上传已暂停。请释放空间或购买存储包。",
+    shortcuts_browser_title: "浏览器快捷键",
+    shortcuts_browser_desc: "由 Chrome 分配，可按浏览器重新绑定。在 chrome:// 页面、网上应用店以及覆盖层注入之前不会生效。",
+    shortcuts_toggle_label: "显示或隐藏 Pinar 工具栏",
+    shortcuts_unassigned: "未分配",
+    shortcuts_customize: "在 Chrome 中修改",
+    shortcuts_overlay_title: "捕获过程中",
+    shortcuts_overlay_desc: "固定按键，仅在捕获覆盖层开启时生效。Pinar 会拦截它们，避免下方页面收到相同按键。",
+    shortcut_pin_element: "固定光标所指的元素",
+    shortcut_walk_dom: "移到父元素或返回子元素",
+    shortcut_mask: "切换隐私遮罩绘制",
+    shortcut_cancel: "取消草稿、遮罩或捕获",
+    shortcut_copy: "复制完成的数据包",
     local_title: "本地服务器",
     local_desc: "所有数据均 100% 保存在此设备的 ~/.pinar/shots/，并保持私密。",
     remote_title: "远程服务器",
@@ -569,7 +709,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     no_projects_found: "未找到项目。",
     no_collections_found: "未找到集合。",
     history_label: "保存标注历史",
-    history_desc: "记录历史图钉、评论和 URL（远程服务器保留7天）。",
+    history_desc: "将会话保存到远程服务器，以便查看器、重新打开和审阅继续可用。本地捕获始终保留在此设备上。",
     handoff_mode_label: "AI 副本详细程度",
     handoff_mode_desc: "精简模式仅复制可操作上下文；完整模式包含所有捕获字段。已保存的捕获和查看器始终完整。",
     handoff_mode_compact: "精简",
@@ -609,6 +749,26 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     tab_storage: "保存先",
     tab_preferences: "環境設定",
     tab_account: "アカウント",
+    tab_shortcuts: "ショートカット",
+    storage_status_title: "ストレージの状態",
+    storage_status_desc: "キャプチャの保存先と、新しいアップロードを受け付けるかどうか。",
+    storage_local_connected: "ローカルサーバーはポート {port} で接続済み",
+    storage_local_missing: "ポート 17373-17382 でローカルサーバーが見つかりません",
+    storage_recheck: "再確認",
+    storage_cloud_usage: "{quota} 中 {used} を使用",
+    storage_cloud_paused: "アップロードは一時停止中です。空き容量を作るか、ストレージパックを購入してください。",
+    shortcuts_browser_title: "ブラウザーのショートカット",
+    shortcuts_browser_desc: "Chrome が割り当て、ブラウザーごとに変更できます。chrome:// ページ、ウェブストア、オーバーレイ挿入前には動作しません。",
+    shortcuts_toggle_label: "Pinar ツールバーの表示を切り替え",
+    shortcuts_unassigned: "未割り当て",
+    shortcuts_customize: "Chrome で変更",
+    shortcuts_overlay_title: "キャプチャ中",
+    shortcuts_overlay_desc: "固定キーで、キャプチャオーバーレイが有効なときだけ動作します。下のページに同じ入力が渡らないよう Pinar が保持します。",
+    shortcut_pin_element: "カーソル下の要素をピン留め",
+    shortcut_walk_dom: "親要素へ移動、または子要素へ戻る",
+    shortcut_mask: "プライバシーマスクの描画を切り替え",
+    shortcut_cancel: "下書き・マスク・キャプチャを取り消し",
+    shortcut_copy: "完成したバンドルをコピー",
     local_title: "ローカルサーバー",
     local_desc: "すべてのデータはこのデバイスの ~/.pinar/shots/ にのみ保存され、完全に非公開です。",
     remote_title: "リモートサーバー",
@@ -654,7 +814,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     no_projects_found: "プロジェクトが見つかりません。",
     no_collections_found: "コレクションが見つかりません。",
     history_label: "アノテーション履歴を保存",
-    history_desc: "過去のピン、コメント、URLを記録（リモートサーバーでは7日間保持）。",
+    history_desc: "リモートサーバーにセッションを保存し、ビューアー・再オープン・レビューを利用できるようにします。ローカルのキャプチャは常にこの端末に残ります。",
     handoff_mode_label: "AI コピーの詳細度",
     handoff_mode_desc: "コンパクトは実行に必要な情報だけをコピーし、完全は全フィールドを含みます。保存済みキャプチャとビューアーは常に完全です。",
     handoff_mode_compact: "コンパクト",
@@ -685,16 +845,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
 };
 
 function normalizeLanguage(value?: string): SupportedLanguage | undefined {
-  switch (value?.trim().toLowerCase().split("-")[0]) {
-    case "de": return "de";
-    case "en": return "en";
-    case "es": return "es";
-    case "fr": return "fr";
-    case "ja": return "ja";
-    case "pt": return "pt";
-    case "zh": return "zh";
-    default: return undefined;
-  }
+  const language = value?.trim().toLowerCase().split("-")[0];
+  return SUPPORTED_LANGUAGES.find((candidate) => candidate === language);
 }
 
 function navigatorLanguages(): readonly string[] {

@@ -489,6 +489,14 @@
 
   document.documentElement.append(host);
 
+  // Interactions with our own UI (composer, toolbar) must not bubble into the
+  // page: dismiss layers treat target=host as an "outside" press and close
+  // their dialogs. Our listeners live inside the shadow root, below the host,
+  // so they run before these stoppers.
+  for (const type of ["pointerdown", "pointerup", "mousedown", "mouseup", "click", "dblclick"]) {
+    host.addEventListener(type, (event) => event.stopPropagation());
+  }
+
   function isHostNode(node) {
     return node === host || host.contains(node);
   }
@@ -1104,6 +1112,33 @@
     ui.composer.classList.add("is-open");
   }
 
+  let composerFocusRetryTimer = 0;
+  let composerFocusRetries = 0;
+  let claimingComposerFocus = false;
+
+  function claimComposerFocus() {
+    if (!state.draft) return;
+    // Guard against synchronous recursion: focus() dispatches focus events,
+    // and an aggressive page trap stealing focus inside that dispatch would
+    // re-enter through keepComposerFocus.
+    claimingComposerFocus = true;
+    try {
+      ui.input.focus({ preventScroll: true });
+    } finally {
+      claimingComposerFocus = false;
+    }
+    if (shadow.activeElement === ui.input) {
+      composerFocusRetries = 0;
+      return;
+    }
+    // Focus refused or synchronously stolen by a page focus trap; retry a few
+    // times, then surrender instead of fighting the page forever.
+    if (composerFocusRetries >= 5) return;
+    composerFocusRetries += 1;
+    clearTimeout(composerFocusRetryTimer);
+    composerFocusRetryTimer = setTimeout(claimComposerFocus, 100);
+  }
+
   function openDraft(draft) {
     if (!canSelect()) return;
     state.hoverPinId = null;
@@ -1113,16 +1148,29 @@
     updateOutline();
     renderMarkers();
     fitInput();
+    composerFocusRetries = 0;
     queueMicrotask(() => {
       fitInput();
-      ui.input.focus({ preventScroll: true });
+      claimComposerFocus();
       ui.input.setSelectionRange(ui.input.value.length, ui.input.value.length);
     });
   }
 
   function keepComposerFocus(event) {
-    if (!state.draft || !event.composedPath().includes(host)) return;
+    if (!state.draft) return;
     event.stopImmediatePropagation();
+    if (claimingComposerFocus || event.composedPath().includes(host)) return;
+    // The page moved focus elsewhere while the composer is open; pull it back.
+    claimComposerFocus();
+  }
+
+  function shieldComposerFocusOut(event) {
+    if (!state.draft) return;
+    // Hide the handoff from page focus traps: when focus moves into our
+    // composer, the page must not see its own element losing focus, or traps
+    // (e.g. dialog focus locks) immediately steal focus back.
+    const related = event.relatedTarget;
+    if (related === host || host.contains(related)) event.stopImmediatePropagation();
   }
 
   function openPinEditor(id) {
@@ -1316,7 +1364,12 @@
   }
 
   function onPointerDown(event) {
-    if (!isMounted() || !canSelect() || event.button !== 0 || fromUi(event) || state.draft) return;
+    if (!isMounted()) return;
+    // Page apps must not react to pointer input while pin mode is active —
+    // e.g. dialogs dismiss on "outside" presses because the event target is
+    // our overlay, not the dialog subtree.
+    if (state.active && !fromUi(event)) event.stopImmediatePropagation();
+    if (!canSelect() || event.button !== 0 || fromUi(event) || state.draft) return;
     if (document.elementFromPoint(event.clientX, event.clientY)?.matches?.("iframe,frame")) return;
     state.drag = { moved: false, x0: event.clientX, x1: event.clientX, y0: event.clientY, y1: event.clientY };
     event.preventDefault();
@@ -1337,7 +1390,9 @@
   }
 
   function onPointerUp(event) {
-    if (!isMounted() || !state.drag) return;
+    if (!isMounted()) return;
+    if (state.active && !fromUi(event)) event.stopImmediatePropagation();
+    if (!state.drag) return;
     if (!canSelect()) {
       state.drag = null;
       hideOutline();
@@ -1406,9 +1461,9 @@
 
   function onClick(event) {
     if (!isMounted() || fromUi(event)) return;
-    if (canSelect()) {
+    if (state.active) {
       event.preventDefault();
-      event.stopPropagation();
+      event.stopImmediatePropagation();
     }
   }
 
@@ -1416,16 +1471,25 @@
     return event.key === "Enter" && (event.metaKey || event.ctrlKey);
   }
 
+  // Physical keys whose keydown we suppressed; their keyup/keypress must be
+  // suppressed too, even if the same key deactivated pin mode meanwhile.
+  const ownedKeyCodes = new Set();
+
   function onKey(event) {
     if (!isMounted() || !state.active) return;
+    // onKey fully owns these two keys: never let the page see them, even when
+    // they originate inside the composer (e.g. Esc closing a page modal).
     if (isModEnter(event)) {
       event.preventDefault();
-      event.stopPropagation();
+      event.stopImmediatePropagation();
+      ownedKeyCodes.add(event.code);
       void sendPins();
       return;
     }
     if (event.key === "Escape") {
       event.preventDefault();
+      event.stopImmediatePropagation();
+      ownedKeyCodes.add(event.code);
       if (state.draft) {
         cancelDraft();
         return;
@@ -1441,6 +1505,19 @@
         else broadcast(FRAME_HIDE);
       });
       return;
+    }
+    // While pin mode is active the page app must never react to keys. Events
+    // from our UI keep propagating so the composer's own handlers still run.
+    const path = event.composedPath();
+    if (!path.includes(host)) {
+      event.stopImmediatePropagation();
+      // Also block native actions on focused page elements (button/checkbox
+      // activation, typing into inputs). Keys aimed at the document itself keep
+      // their defaults so keyboard scrolling still works.
+      const target = path[0];
+      if (target !== window && target !== document && target !== document.documentElement && target !== document.body) {
+        event.preventDefault();
+      }
     }
     if (!canSelect() || state.draft) return;
     if (event.key === "m" || event.key === "M") {
@@ -1464,6 +1541,24 @@
       event.preventDefault();
       if (selection.current) void openElementDraft(selection.current);
     }
+  }
+
+  function onPageKeyEvent(event) {
+    // Consume before the active guard: Esc that deactivates pin mode must not
+    // leak its own keyup to the page once state.active flips to false.
+    if (ownedKeyCodes.has(event.code)) {
+      event.stopImmediatePropagation();
+      if (event.type === "keyup") ownedKeyCodes.delete(event.code);
+      return;
+    }
+    if (!isMounted() || !state.active) return;
+    // Keys onKey owns on keydown stay owned here too, regardless of origin:
+    // apps may react to Escape/Mod+Enter on keyup even with keydown blocked.
+    if (event.key === "Escape" || isModEnter(event)) {
+      event.stopImmediatePropagation();
+      return;
+    }
+    if (!event.composedPath().includes(host)) event.stopImmediatePropagation();
   }
 
   async function writePlainText(text) {
@@ -1746,7 +1841,10 @@
   window.addEventListener("pointerup", onPointerUp, true);
   window.addEventListener("click", onClick, true);
   window.addEventListener("focusin", keepComposerFocus, true);
+  window.addEventListener("focusout", shieldComposerFocusOut, true);
   window.addEventListener("keydown", onKey, true);
+  window.addEventListener("keypress", onPageKeyEvent, true);
+  window.addEventListener("keyup", onPageKeyEvent, true);
   window.addEventListener("message", onFrameMessage);
   window.addEventListener("scroll", () => {
     if (isMounted()) {
@@ -1889,7 +1987,10 @@
     window.removeEventListener("pointerup", onPointerUp, true);
     window.removeEventListener("click", onClick, true);
     window.removeEventListener("focusin", keepComposerFocus, true);
+    window.removeEventListener("focusout", shieldComposerFocusOut, true);
     window.removeEventListener("keydown", onKey, true);
+    window.removeEventListener("keypress", onPageKeyEvent, true);
+    window.removeEventListener("keyup", onPageKeyEvent, true);
     window.removeEventListener("message", onFrameMessage);
     delete globalThis.__pinarToggle;
     delete globalThis.__pinarSetHidden;

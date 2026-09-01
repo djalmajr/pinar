@@ -1,14 +1,18 @@
 import { spawn, spawnSync } from "node:child_process";
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { CURRENT_LEGAL_VERSION } from "../src/lib/legal-documents";
 
 const SERVER_DIRECTORY = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_PORT = 3000;
 const DEFAULT_STATE_PATH = ".wrangler/state/cloud-local";
 const LOCAL_DEV_SECRETS = {
   AUTH_PEPPER: "pinar-cloud-local-development-only",
+  // Deterministic id of the unpacked extension staged with DEV_EXTENSION_KEY
+  // (see tests/e2e/cloud/free-extension-flow.e2e.test.ts).
+  EXTENSION_ORIGIN: "chrome-extension://bobfbkbogoiemdcjchoakflgepmekdeh",
   STRIPE_SECRET_KEY: "sk_test_cloud_local_not_configured",
   STRIPE_WEBHOOK_SECRET: "whsec_cloud_local_not_configured",
 };
@@ -19,6 +23,11 @@ export const CloudLocalProfiles = {
     credits: 500,
     email: "founder.cloud-local@pinar.test",
     plan: "founder",
+  },
+  free: {
+    code: "FRCLD826",
+    credits: 5,
+    plan: "free",
   },
   lifetime: {
     code: "LIFE2826",
@@ -91,12 +100,28 @@ export function extensionCodeHash(pepper, code) {
   return createHmac("sha256", pepper).update(`extension-code:${code}`).digest("hex");
 }
 
+export function installationTokenHash(token) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
 export function buildCloudLocalFixture(profileName, pepper, now = new Date()) {
   const profile = CloudLocalProfiles[profileName];
   if (!profile) throw new Error(`Unknown cloud-local profile: ${profileName}`);
   const nextMonth = addUtcMonths(now, 1).toISOString();
   const creditExpiry = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
   const suffix = profile.plan;
+  if (profile.plan === "free") {
+    return {
+      ...profile,
+      creditExpiry,
+      extensionCodeHash: extensionCodeHash(pepper, profile.code),
+      installationId: "ins_cloud_local_free00000000",
+      installationToken: `pit_${"cloudlocalfree".padEnd(43, "0")}`,
+      nextRefillAt: null,
+      now: now.toISOString(),
+      userId: null,
+    };
+  }
   return {
     ...profile,
     creditExpiry,
@@ -108,8 +133,20 @@ export function buildCloudLocalFixture(profileName, pepper, now = new Date()) {
 }
 
 export function buildCloudLocalSeedSql(fixture) {
+  if (fixture.plan === "free") {
+    const codeExpiresAt = new Date(Date.parse(fixture.now) + 24 * 60 * 60 * 1000).toISOString();
+    return [
+      `INSERT INTO installations (id, token_hash, status, created_at, updated_at, last_seen_at) VALUES (${sqlString(fixture.installationId)}, ${sqlString(installationTokenHash(fixture.installationToken))}, 'active', ${sqlString(fixture.now)}, ${sqlString(fixture.now)}, ${sqlString(fixture.now)}) ON CONFLICT(id) DO UPDATE SET token_hash=excluded.token_hash, status='active', updated_at=excluded.updated_at, last_seen_at=excluded.last_seen_at;`,
+      `INSERT OR IGNORE INTO legal_acceptances (id, owner_type, owner_id, terms_version, privacy_version, acceptable_use_version, locale, source, evidence_id, accepted_at, created_at) VALUES ('lga_cloud_local_free00000000', 'installation', ${sqlString(fixture.installationId)}, ${sqlString(CURRENT_LEGAL_VERSION)}, ${sqlString(CURRENT_LEGAL_VERSION)}, ${sqlString(CURRENT_LEGAL_VERSION)}, 'en', 'remote_free', ${sqlString(`remote-free:${fixture.installationId}:${CURRENT_LEGAL_VERSION}`)}, ${sqlString(fixture.now)}, ${sqlString(fixture.now)});`,
+      // Canonical free-grant source id: a later real registerInstallation call
+      // for this installation dedupes against it instead of double-granting.
+      `DELETE FROM ai_credit_grants WHERE owner_type = 'installation' AND owner_id = ${sqlString(fixture.installationId)} AND source_id = ${sqlString(`free:${fixture.installationId}`)};`,
+      `INSERT INTO ai_credit_grants (id, owner_type, owner_id, source_type, source_id, credits, consumed_credits, expires_at, created_at) VALUES ('grant_cloud_local_free', 'installation', ${sqlString(fixture.installationId)}, 'free_initial', ${sqlString(`free:${fixture.installationId}`)}, ${fixture.credits}, 0, NULL, ${sqlString(fixture.now)});`,
+      `INSERT INTO extension_codes (code_hash, owner_type, owner_id, expires_at, used_at, created_at) VALUES (${sqlString(fixture.extensionCodeHash)}, 'installation', ${sqlString(fixture.installationId)}, ${sqlString(codeExpiresAt)}, NULL, ${sqlString(fixture.now)}) ON CONFLICT(code_hash) DO UPDATE SET owner_type='installation', owner_id=excluded.owner_id, expires_at=excluded.expires_at, used_at=NULL, created_at=excluded.created_at;`,
+    ].join("\n");
+  }
   const sessionBytes = 128 * 1024 * 1024;
-  const permanent = fixture.plan === "free" ? 0 : 1;
+  const permanent = 1;
   const projectId = `prj_cloud_local_${fixture.plan}`;
   const collectionId = `col_cloud_local_${fixture.plan}`;
   const sessionId = `session_cloud_local_${fixture.plan}`;

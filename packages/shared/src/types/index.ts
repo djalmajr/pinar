@@ -2,7 +2,12 @@ import type { PinLocation, VisualFingerprint } from "../locators/types.js";
 import type { PinReviewCounts } from "../pin-review/index.js";
 import type { PrivacyReport } from "../privacy/types.js";
 
-export type { LocateConfidence, LocateStrategy, PinLocation, VisualFingerprint } from "../locators/types.js";
+export type {
+  LocateConfidence,
+  LocateStrategy,
+  PinLocation,
+  VisualFingerprint,
+} from "../locators/types.js";
 export type { PrivacyReport, RedactedCategory } from "../privacy/types.js";
 
 export interface Point {
@@ -113,7 +118,8 @@ export interface AccountAuthSession {
   userId: string;
 }
 
-export type AuthSession = AccountAuthSession | InstallationAuthSession | LocalAuthSession;
+export type AuthSession =
+  AccountAuthSession | InstallationAuthSession | LocalAuthSession;
 
 export interface AuthSessionResponse {
   session: AuthSession | null;
@@ -178,7 +184,16 @@ export interface CaptureDestination {
 }
 
 export type StorageMode = "local" | "cloud";
-export type SupportedLanguage = "en" | "pt" | "es" | "fr" | "de" | "zh" | "ja";
+export const SUPPORTED_LANGUAGES = [
+  "en",
+  "pt",
+  "es",
+  "fr",
+  "de",
+  "zh",
+  "ja",
+] as const;
+export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
 
 export type ThemeMode = "dark" | "light" | "system";
 export type HandoffMode = "compact" | "full";
@@ -193,7 +208,10 @@ export const DEFAULT_DELIVERY_PREFERENCES: DeliveryPreferences = {
   includeScreenshot: true,
 };
 
-function handoffModeValue(value: unknown, fallback: HandoffMode = "compact"): HandoffMode {
+function handoffModeValue(
+  value: unknown,
+  fallback: HandoffMode = "compact",
+): HandoffMode {
   return value === "full" || value === "compact" ? value : fallback;
 }
 
@@ -205,7 +223,8 @@ function includeScreenshotValue(value: unknown, fallback = true) {
 }
 
 export function parseDeliveryPreferences(value: unknown): DeliveryPreferences {
-  if (typeof value !== "object" || value === null) return { ...DEFAULT_DELIVERY_PREFERENCES };
+  if (typeof value !== "object" || value === null)
+    return { ...DEFAULT_DELIVERY_PREFERENCES };
   const record = value as Record<string, unknown>;
   return {
     handoffMode: handoffModeValue(record.handoffMode),
@@ -221,7 +240,10 @@ export function mergeDeliveryPreferences(
   const record = patch as Record<string, unknown>;
   return {
     handoffMode: handoffModeValue(record.handoffMode, current.handoffMode),
-    includeScreenshot: includeScreenshotValue(record.includeScreenshot, current.includeScreenshot),
+    includeScreenshot: includeScreenshotValue(
+      record.includeScreenshot,
+      current.includeScreenshot,
+    ),
   };
 }
 

@@ -915,7 +915,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
           className="min-h-0 min-w-0 flex-1 [&>[data-slot=scroll-area-scrollbar]]:hidden"
           data-dashboard-scroll-area
         >
-          <div className="mx-auto flex min-h-full w-full max-w-[1600px] flex-col gap-4 p-5">
+          <div className="mx-auto flex min-h-full w-full max-w-[1600px] flex-col gap-4 p-4">
             {(view !== "table" || filteredSessions.length === 0) && (
               <div className="flex min-w-0 flex-col gap-2">
                 <div className="flex min-w-0 flex-wrap items-center gap-2" role="toolbar">
@@ -1018,7 +1018,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
                           <div className="flex min-w-0 flex-col gap-2 text-xs font-medium text-muted-foreground">
                             <div className="flex min-w-0 items-center gap-3">
                               <time className="inline-flex min-w-0 items-center gap-1.5" dateTime={session.createdAt}><CalendarIcon className="shrink-0 text-primary" /><span className="truncate">{formatSessionDate(session, language)}</span></time>
-                              <span className="inline-flex shrink-0 items-center gap-1.5"><MessageCircleIcon className="text-primary" />{t("dashboard.pinCount", { count, label: t(count === 1 ? "dashboard.pinSingular" : "dashboard.pinPlural") })}</span>
+                              <span className="inline-flex shrink-0 items-center gap-1.5"><MessageCircleIcon className="text-primary" />{t("dashboard.pinCount", { count })}</span>
                             </div>
                             <ReviewCounts session={session} t={t} />
                           </div>

@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
 import {
   type AuthSession,
   type CaptureDestination,
@@ -8,8 +8,10 @@ import {
   type PinarSettings,
   type ProjectTree,
   type ProjectTreeCollection,
+  SUPPORTED_LANGUAGES,
   type SupportedLanguage,
   type ThemeMode,
+  type TranslationDictionary,
   translations,
 } from "@pinar/shared";
 import {
@@ -51,6 +53,7 @@ import {
   TabsTrigger,
   Toaster,
   toast,
+  cn,
 } from "@pinar/ui";
 import IconCheck from "~icons/lucide/check";
 import IconCoffee from "~icons/lucide/coffee";
@@ -81,15 +84,108 @@ import {
   withExtensionResponseFallback,
 } from "./extension-response";
 
-const LANGUAGE_OPTIONS: { code: SupportedLanguage; label: string }[] = [
-  { code: "en", label: "English" },
-  { code: "pt", label: "Português" },
-  { code: "es", label: "Español" },
-  { code: "fr", label: "Français" },
-  { code: "de", label: "Deutsch" },
-  { code: "zh", label: "简体中文" },
-  { code: "ja", label: "日本語" },
-];
+const LANGUAGE_OPTIONS = SUPPORTED_LANGUAGES.map((code) => ({ code, label: translations[code].name }));
+
+const OVERLAY_SHORTCUTS = [
+  { keys: "Enter", label: "shortcut_pin_element" },
+  { keys: "↑ / ↓", label: "shortcut_walk_dom" },
+  { keys: "M", label: "shortcut_mask" },
+  { keys: "Esc", label: "shortcut_cancel" },
+  { keys: "⌘/Ctrl + Enter", label: "shortcut_copy" },
+] as const satisfies ReadonlyArray<{ keys: string; label: keyof TranslationDictionary }>;
+
+function ShortcutRow({ editLabel, keys, label, onEdit }: { editLabel?: string; keys: string; label: string; onEdit?: () => void }) {
+  const chip = <kbd className="block rounded border bg-muted px-2 py-1 font-mono text-[11px] text-muted-foreground transition-colors group-hover/shortcut:border-primary group-hover/shortcut:text-foreground">{keys}</kbd>;
+  return (
+    <li className="flex items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2">
+      <span className="min-w-0 text-xs">{label}</span>
+      {onEdit ? (
+        <button aria-label={editLabel} className="group/shortcut shrink-0 cursor-pointer rounded outline-none focus-visible:ring-2 focus-visible:ring-ring/30" title={editLabel} type="button" onClick={onEdit}>{chip}</button>
+      ) : (
+        <span className="shrink-0">{chip}</span>
+      )}
+    </li>
+  );
+}
+
+function ShortcutsTab({ t }: { t: TranslationDictionary }) {
+  const [commands, setCommands] = useState<chrome.commands.Command[]>([]);
+
+  useEffect(() => { chrome.commands?.getAll?.((all) => setCommands(all ?? [])); }, []);
+
+  return (
+    <div className="flex flex-col gap-5">
+      <section className="flex flex-col gap-2.5">
+        <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{t.shortcuts_browser_title}</span>
+        <p className="text-xs leading-relaxed text-muted-foreground">{t.shortcuts_browser_desc}</p>
+        <ul className="flex flex-col gap-1.5">
+          {commands.map((command) => (
+            <ShortcutRow editLabel={t.shortcuts_customize} key={command.name} keys={command.shortcut || t.shortcuts_unassigned} label={command.name === "_execute_action" ? t.shortcuts_toggle_label : command.description || command.name || ""} onEdit={() => void chrome.tabs.create({ url: "chrome://extensions/shortcuts" })} />
+          ))}
+        </ul>
+      </section>
+      <section className="flex flex-col gap-2.5">
+        <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{t.shortcuts_overlay_title}</span>
+        <p className="text-xs leading-relaxed text-muted-foreground">{t.shortcuts_overlay_desc}</p>
+        <ul className="flex flex-col gap-1.5">
+          {OVERLAY_SHORTCUTS.map((item) => <ShortcutRow key={item.keys} keys={item.keys} label={t[item.label]} />)}
+        </ul>
+      </section>
+    </div>
+  );
+}
+
+function formatBytes(value: number, locale: string) {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const index = value > 0 ? Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1) : 0;
+  const scaled = value / 1024 ** index;
+  return `${new Intl.NumberFormat(locale, { maximumFractionDigits: index > 0 && scaled < 10 ? 1 : 0 }).format(scaled)} ${units[index]}`;
+}
+
+function StorageStatusPanel({ mode, t }: { mode: PinarSettings["storageMode"]; t: TranslationDictionary }) {
+  const [status, setStatus] = useState<Record<string, unknown> | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  const refresh = useCallback(async () => {
+    setChecking(true);
+    const response = await extensionMessage({ type: "storage:status" }, t.account_unavailable);
+    setStatus(response.ok ? (response as unknown as Record<string, unknown>) : null);
+    setChecking(false);
+  }, [t.account_unavailable]);
+
+  useEffect(() => { void refresh(); }, [mode, refresh]);
+
+  if (mode === "cloud") {
+    const used = Number(status?.usedBytes ?? 0);
+    const quota = Number(status?.quotaBytes ?? 0);
+    const paused = status ? status.uploadAllowed === false : false;
+    return (
+      <div className="flex flex-col gap-2 py-1">
+        <div className="flex items-center justify-between gap-3">
+          <span className="min-w-0">
+            <span className="block text-xs font-semibold">{quota > 0 ? t.storage_cloud_usage.replace("{used}", formatBytes(used, "en")).replace("{quota}", formatBytes(quota, "en")) : "—"}</span>
+            <span className={cn("block text-xs", paused ? "text-destructive" : "text-muted-foreground")}>{paused ? t.storage_cloud_paused : t.storage_status_desc}</span>
+          </span>
+          <Button className="h-7 shrink-0 text-xs" disabled={checking} size="sm" variant="outline" onClick={() => void refresh()}>{t.storage_recheck}</Button>
+        </div>
+        {quota > 0 ? <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted"><div className={cn("h-full rounded-full", paused ? "bg-destructive" : "bg-primary")} style={{ width: `${Math.min(100, Math.round((used / quota) * 100))}%` }} /></div> : null}
+      </div>
+    );
+  }
+
+  const reachable = status?.reachable === true;
+  return (
+    <div className="flex items-center justify-between gap-3 py-1">
+      <span className="min-w-0">
+        <span className={cn("block text-xs font-semibold", reachable ? "text-foreground" : "text-destructive")}>
+          {reachable ? t.storage_local_connected.replace("{port}", String(status?.port ?? "")) : t.storage_local_missing}
+        </span>
+        <span className="block text-xs text-muted-foreground">{t.storage_status_desc}</span>
+      </span>
+      <Button className="h-7 shrink-0 text-xs" disabled={checking} size="sm" variant="outline" onClick={() => void refresh()}>{t.storage_recheck}</Button>
+    </div>
+  );
+}
 
 const DEFAULT_LANGUAGE: SupportedLanguage = "en";
 const DEFAULT_PROJECT_OPTION = { label: "Personal", value: "__pinar_default_project__" };
@@ -544,7 +640,7 @@ export function OptionsApp() {
     <div className="h-screen w-full overflow-hidden bg-muted/50 font-sans text-foreground dark:bg-background">
       <ScrollArea className="h-full w-full">
         <div className="flex min-h-full items-center justify-center p-4">
-          <div className="relative flex w-full max-w-[560px] flex-col gap-5 rounded-2xl border border-border bg-card p-6">
+          <div className="relative flex w-full max-w-[640px] flex-col gap-5 rounded-2xl border border-border bg-card p-6">
             <header className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <PinarMark />
@@ -564,9 +660,10 @@ export function OptionsApp() {
             </header>
 
             <Tabs className="gap-4" defaultValue="storage">
-              <TabsList className="grid w-full grid-cols-3">
+              <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="storage">{t.tab_storage}</TabsTrigger>
                 <TabsTrigger value="preferences">{t.tab_preferences}</TabsTrigger>
+                <TabsTrigger value="shortcuts">{t.tab_shortcuts}</TabsTrigger>
                 <TabsTrigger value="account">{t.tab_account}</TabsTrigger>
               </TabsList>
 
@@ -576,13 +673,12 @@ export function OptionsApp() {
                   <label className="-mx-2 flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 hover:bg-muted/50">
                     <input checked={settings.storageMode === "local"} className="mt-1 accent-primary" name="storageMode" type="radio" onChange={() => setSettings((current) => ({ ...current, storageMode: "local" }))} />
                     <span className="min-w-0 flex-1">
-                      <span className="block text-xs font-semibold">{t.local_title}</span>
+                      <span className="flex items-center justify-between gap-3">
+                        <span className="text-xs font-semibold">{t.local_title}</span>
+                        {installPlatform === "mac" ? <a className="external-link shrink-0 text-xs font-semibold text-primary underline-offset-4 hover:underline" href={macosDesktopDmgUrl()} rel="noopener noreferrer" target="_blank" onClick={(event) => event.stopPropagation()}>{t.btn_download_macos}</a> : null}
+                      </span>
                       <span className="block text-xs leading-relaxed text-muted-foreground">{t.local_desc}</span>
-                      {installPlatform === "mac" ? (
-                        <span className="mt-2 block" onClick={(event) => event.stopPropagation()}>
-                          <a className="external-link w-fit text-xs font-semibold text-primary underline-offset-4 hover:underline" href={macosDesktopDmgUrl()} rel="noopener noreferrer" target="_blank">{t.btn_download_macos}</a>
-                        </span>
-                      ) : (
+                      {installPlatform === "mac" ? null : (
                         <span className="mt-2 flex items-center gap-1.5 rounded-lg border bg-muted/60 p-1.5 font-mono text-[11px]">
                           <ScrollArea className="min-w-0 flex-1"><code className="block whitespace-nowrap px-1 text-muted-foreground">{installCommand}</code><ScrollBar orientation="horizontal" /></ScrollArea>
                           <button className="shrink-0 rounded p-1 text-muted-foreground hover:bg-background hover:text-foreground" title={t.btn_copy} type="button" onClick={async (event) => { event.preventDefault(); await navigator.clipboard.writeText(installCommand); setCopiedInstall(true); window.setTimeout(() => setCopiedInstall(false), 2_000); }}>
@@ -613,6 +709,12 @@ export function OptionsApp() {
                       {legalError ? <p className="mt-2 pl-5 text-xs text-destructive">{t.legal_acceptance_required}</p> : null}
                     </div>
                   ) : null}
+                </section>
+
+                <section className="flex flex-col gap-2.5">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{t.storage_status_title}</span>
+                  <StorageStatusPanel mode={settings.storageMode} t={t} />
+                  <label className={cn("flex items-center justify-between gap-3 py-1", settings.storageMode !== "cloud" && "opacity-50")}><span className="min-w-0"><span className="block text-xs font-semibold">{t.history_label}</span><span className="block text-xs text-muted-foreground">{t.history_desc}</span></span><Switch checked={settings.storageMode === "cloud" ? settings.enableHistory : true} className="shrink-0" disabled={settings.storageMode !== "cloud"} onCheckedChange={(value) => setSettings((current) => ({ ...current, enableHistory: value }))} /></label>
                 </section>
 
                 <section className="flex flex-col gap-2.5">
@@ -731,30 +833,37 @@ export function OptionsApp() {
               <TabsContent value="preferences">
                 <Card className="gap-3 overflow-visible rounded-none py-0 ring-0" size="sm">
                   <CardContent className="flex flex-col gap-3.5 px-0">
-                    <label className="flex flex-col gap-1.5"><span className="text-xs font-semibold">{t.language_label}</span><Select items={LANGUAGE_OPTIONS.map((option) => ({ label: option.label, value: option.code }))} value={lang} onValueChange={(value) => { const next = value as SupportedLanguage; setLang(next); setSettings((current) => ({ ...current, language: next })); }}><SelectTrigger className="min-w-36" size="sm"><SelectValue /></SelectTrigger><SelectContent><SelectGroup>{LANGUAGE_OPTIONS.map((option) => <SelectItem key={option.code} value={option.code}>{option.label}</SelectItem>)}</SelectGroup></SelectContent></Select></label>
-                    <div className="flex flex-col gap-1.5"><span className="text-xs font-semibold">{t.theme_label}</span><Tabs value={settings.theme || "system"} onValueChange={(value) => { const theme = value as ThemeMode; applyTheme(theme); setSettings((current) => ({ ...current, theme })); }}><TabsList><TabsTrigger value="system"><IconLaptop data-icon="inline-start" />{t.theme_system}</TabsTrigger><TabsTrigger value="light"><IconSun className="text-amber-500" data-icon="inline-start" />{t.theme_light}</TabsTrigger><TabsTrigger value="dark"><IconMoon className="text-blue-400" data-icon="inline-start" />{t.theme_dark}</TabsTrigger></TabsList></Tabs></div>
-                    <label className="flex items-start gap-3 py-1"><Switch checked={settings.enableHistory} className="mt-0.5 shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, enableHistory: value }))} /><span><span className="block text-xs font-semibold">{t.history_label}</span><span className="block text-xs text-muted-foreground">{t.history_desc}</span></span></label>
-                    <label className="flex items-start gap-3 py-1"><Switch checked={settings.loopMetricsOptIn === true} className="mt-0.5 shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, loopMetricsOptIn: value }))} /><span><span className="block text-xs font-semibold">{t.loop_metrics_label}</span><span className="block text-xs text-muted-foreground">{t.loop_metrics_desc}</span></span></label>
-                    <label className="flex items-start gap-3 py-1">
-                      <Switch
-                        aria-label={t.handoff_mode_label}
-                        checked={settings.handoffMode === "full"}
-                        className="mt-0.5 shrink-0"
-                        onCheckedChange={(checked) => setSettings((current) => ({
-                          ...current,
-                          handoffMode: checked ? "full" : "compact",
-                        }))}
-                      />
-                      <span>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="flex min-w-0 flex-col gap-1.5">
+                        <span className="text-xs font-semibold">{t.language_label}</span>
+                        <Select items={LANGUAGE_OPTIONS.map((option) => ({ label: option.label, value: option.code }))} value={lang} onValueChange={(value) => { const next = value as SupportedLanguage; setLang(next); setSettings((current) => ({ ...current, language: next })); }}><SelectTrigger aria-label={t.language_label} className="w-full" size="sm"><SelectValue /></SelectTrigger><SelectContent><SelectGroup>{LANGUAGE_OPTIONS.map((option) => <SelectItem key={option.code} value={option.code}>{option.label}</SelectItem>)}</SelectGroup></SelectContent></Select>
+                      </label>
+                      <div className="flex min-w-0 flex-col gap-1.5">
+                        <span className="text-xs font-semibold" id="options-theme-label">{t.theme_label}</span>
+                        <Tabs value={settings.theme || "system"} onValueChange={(value) => { const theme = value as ThemeMode; applyTheme(theme); setSettings((current) => ({ ...current, theme })); }}><TabsList aria-labelledby="options-theme-label" className="group-data-horizontal/tabs:h-7 w-full p-0.5 [&>button]:text-xs"><TabsTrigger className="flex-1" value="system"><IconLaptop data-icon="inline-start" />{t.theme_system}</TabsTrigger><TabsTrigger className="flex-1" value="light"><IconSun className="text-amber-500" data-icon="inline-start" />{t.theme_light}</TabsTrigger><TabsTrigger className="flex-1" value="dark"><IconMoon className="text-blue-400" data-icon="inline-start" />{t.theme_dark}</TabsTrigger></TabsList></Tabs>
+                      </div>
+                    </div>
+                    <label className="flex items-center justify-between gap-3 py-1"><span className="min-w-0"><span className="block text-xs font-semibold">{t.loop_metrics_label}</span><span className="block text-xs text-muted-foreground">{t.loop_metrics_desc}</span></span><Switch checked={settings.loopMetricsOptIn === true} className="shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, loopMetricsOptIn: value }))} /></label>
+                    <label className="flex items-center justify-between gap-3 py-1">
+                      <span className="min-w-0">
                         <span className="block text-xs font-semibold">
                           {t.handoff_mode_label} · {settings.handoffMode === "full" ? t.handoff_mode_full : t.handoff_mode_compact}
                         </span>
                         <span className="block text-xs text-muted-foreground">{t.handoff_mode_desc}</span>
                       </span>
+                      <Switch
+                        aria-label={t.handoff_mode_label}
+                        checked={settings.handoffMode === "full"}
+                        className="shrink-0"
+                        onCheckedChange={(checked) => setSettings((current) => ({
+                          ...current,
+                          handoffMode: checked ? "full" : "compact",
+                        }))}
+                      />
                     </label>
-                    <label className="flex items-start gap-3 py-1"><Switch checked={settings.includeViewer} className="mt-0.5 shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, includeViewer: value }))} /><span><span className="block text-xs font-semibold">{t.viewer_label}</span><span className="block text-xs text-muted-foreground">{t.viewer_desc}</span></span></label>
-                    <label className="flex items-start gap-3 py-1"><Switch checked={settings.copyViewerContent} className="mt-0.5 shrink-0" disabled={!settings.includeViewer} onCheckedChange={(value) => setSettings((current) => ({ ...current, copyViewerContent: value }))} /><span><span className="block text-xs font-semibold">{t.viewer_content_label}</span><span className="block text-xs text-muted-foreground">{t.viewer_content_desc}</span></span></label>
-                    <label className="flex items-start gap-3 py-1"><Switch checked={settings.includeScreenshot} className="mt-0.5 shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, includeScreenshot: value }))} /><span><span className="block text-xs font-semibold">{t.screenshot_label}</span><span className="block text-xs text-muted-foreground">{t.screenshot_desc}</span></span></label>
+                    <label className="flex items-center justify-between gap-3 py-1"><span className="min-w-0"><span className="block text-xs font-semibold">{t.viewer_label}</span><span className="block text-xs text-muted-foreground">{t.viewer_desc}</span></span><Switch checked={settings.includeViewer} className="shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, includeViewer: value }))} /></label>
+                    <label className="flex items-center justify-between gap-3 py-1"><span className="min-w-0"><span className="block text-xs font-semibold">{t.viewer_content_label}</span><span className="block text-xs text-muted-foreground">{t.viewer_content_desc}</span></span><Switch checked={settings.copyViewerContent} className="shrink-0" disabled={!settings.includeViewer} onCheckedChange={(value) => setSettings((current) => ({ ...current, copyViewerContent: value }))} /></label>
+                    <label className="flex items-center justify-between gap-3 py-1"><span className="min-w-0"><span className="block text-xs font-semibold">{t.screenshot_label}</span><span className="block text-xs text-muted-foreground">{t.screenshot_desc}</span></span><Switch checked={settings.includeScreenshot} className="shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, includeScreenshot: value }))} /></label>
                     <label className="flex flex-col gap-1.5 py-1">
                       <span className="text-xs font-semibold">{t.privacy_query_keys_label}</span>
                       <Input
@@ -765,6 +874,10 @@ export function OptionsApp() {
                     </label>
                   </CardContent>
                 </Card>
+              </TabsContent>
+
+              <TabsContent value="shortcuts">
+                <ShortcutsTab t={t} />
               </TabsContent>
             </Tabs>
 

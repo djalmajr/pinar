@@ -150,7 +150,7 @@ function structuredHandoffBundle(
     ...(capture.screenshot.url
       ? ["Numbered screenshot badges are annotation overlays, not page UI."]
       : []),
-    ...(viewerUrl ? [`Full context: ${viewerUrl}`] : []),
+    ...(viewerUrl ? [`Full context (fetch only if the details above are insufficient): ${viewerUrl}`] : []),
   ].join("\n");
   const plain = `${instructions}\n\n${formatHandoffJsonFence(json)}\n`;
   const html = [

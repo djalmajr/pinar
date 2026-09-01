@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useState } from "react";
+import { SUPPORTED_LANGUAGES } from "@pinar/shared";
 import { Link } from "@tanstack/react-router";
 import {
   Button,
@@ -11,20 +12,22 @@ import {
   PinarMark,
 } from "@pinar/ui";
 import { useAuthSession } from "@/lib/auth-session";
-import { SERVER_LANGUAGES, useServerI18n } from "@/lib/i18n";
+import { useServerI18n } from "@/lib/i18n";
 import { pinarRuntime, publicHeaderCta, publicHeaderShowsPlans } from "@/lib/server-header";
 import CheckIcon from "~icons/lucide/check";
 import LanguagesIcon from "~icons/lucide/languages";
+import HelpCircleIcon from "~icons/lucide/circle-help";
 import HomeIcon from "~icons/lucide/house";
 import LogInIcon from "~icons/lucide/log-in";
 import MenuIcon from "~icons/lucide/menu";
 import MoonIcon from "~icons/lucide/moon";
 import PanelsTopLeftIcon from "~icons/lucide/panels-top-left";
+import NewspaperIcon from "~icons/lucide/newspaper";
 import SunIcon from "~icons/lucide/sun";
 import TagIcon from "~icons/lucide/tags";
 import GitHubIcon from "~icons/radix-icons/github-logo";
 
-type ServerPage = "home" | "pricing" | "signIn";
+type ServerPage = "help" | "home" | "pricing" | "releases" | "signIn";
 
 export interface ServerHeaderProps {
   actions?: ReactNode;
@@ -65,12 +68,28 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
           className={cn("hidden shrink-0 items-center gap-1 md:flex", !context && "absolute left-1/2 -translate-x-1/2")}
         >
           <Button
-            render={<Link aria-current={activePage === "home" ? "page" : undefined} preload="intent" to="/" />}
+            render={<Link activeOptions={{ exact: true }} aria-current={activePage === "home" ? "page" : undefined} preload="intent" to="/" />}
             size="sm"
             variant={activePage === "home" ? "secondary" : "ghost"}
           >
             <HomeIcon data-icon="inline-start" />
             {t("common.home")}
+          </Button>
+          <Button
+            render={<Link activeOptions={{ exact: true }} aria-current={activePage === "releases" ? "location" : undefined} preload="intent" to="/releases" />}
+            size="sm"
+            variant={activePage === "releases" ? "secondary" : "ghost"}
+          >
+            <NewspaperIcon data-icon="inline-start" />
+            {t("common.releases")}
+          </Button>
+          <Button
+            render={<Link activeOptions={{ exact: true }} aria-current={activePage === "help" ? "location" : undefined} preload="intent" to="/help" />}
+            size="sm"
+            variant={activePage === "help" ? "secondary" : "ghost"}
+          >
+            <HelpCircleIcon data-icon="inline-start" />
+            {t("common.help")}
           </Button>
           {showPlans ? (
             <Button
@@ -93,7 +112,9 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
               <MenuIcon />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44 md:hidden">
-              <DropdownMenuItem render={<Link preload="intent" to="/" />}><HomeIcon />{t("common.home")}</DropdownMenuItem>
+              <DropdownMenuItem render={<Link activeOptions={{ exact: true }} preload="intent" to="/" />}><HomeIcon />{t("common.home")}</DropdownMenuItem>
+              <DropdownMenuItem render={<Link activeOptions={{ exact: true }} preload="intent" to="/releases" />}><NewspaperIcon />{t("common.releases")}</DropdownMenuItem>
+              <DropdownMenuItem render={<Link activeOptions={{ exact: true }} preload="intent" to="/help" />}><HelpCircleIcon />{t("common.help")}</DropdownMenuItem>
               {showPlans ? (
                 <DropdownMenuItem render={<Link preload="intent" to="/pricing" />}><TagIcon />{t("common.plans")}</DropdownMenuItem>
               ) : null}
@@ -119,7 +140,7 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-40">
               <DropdownMenuGroup>
-                {SERVER_LANGUAGES.map((candidate) => (
+                {SUPPORTED_LANGUAGES.map((candidate) => (
                   <DropdownMenuItem key={candidate} onClick={() => setLanguage(candidate)}>
                     <span className="flex-1">{languageName(candidate)}</span>
                     {candidate === language && <CheckIcon />}

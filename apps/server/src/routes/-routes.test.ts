@@ -8,10 +8,11 @@ const viewerRoute = readFileSync(new URL("./v/$id.tsx", import.meta.url), "utf8"
 
 describe("public and private route matrix", () => {
   test("keeps public pages and moves the private workspace to /app", () => {
-    for (const path of ["/", "/pricing", "/sign-in", "/success", "/app", "/docs", "/legal/$document"]) {
+    for (const path of ["/", "/pricing", "/sign-in", "/success", "/app", "/help", "/help/$category", "/help/$category/$article", "/releases", "/releases/$version", "/legal/$document"]) {
       const escapedPath = path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       assert.match(routeTree, new RegExp(`['\"]${escapedPath}['\"]`));
     }
+    assert.doesNotMatch(routeTree, /['"]\/docs['"]/);
     assert.doesNotMatch(routeTree, /['"]\/history['"]/);
   });
 

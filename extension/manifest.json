@@ -5,7 +5,14 @@
   "description": "Visual Annotations for AI Agents & Engineers",
   "default_locale": "en_US",
   "homepage_url": "https://pinar.dev",
-  "permissions": ["activeTab", "clipboardWrite", "contextMenus", "offscreen", "scripting", "storage"],
+  "permissions": [
+    "activeTab",
+    "clipboardWrite",
+    "contextMenus",
+    "offscreen",
+    "scripting",
+    "storage"
+  ],
   "options_ui": {
     "page": "dist/options.html",
     "open_in_tab": true
@@ -31,6 +38,11 @@
       "32": "icons/icon-32.png",
       "48": "icons/icon-48.png",
       "128": "icons/icon-128.png"
+    }
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": { "default": "Alt+Shift+P" }
     }
   },
   "icons": {

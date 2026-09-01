@@ -1,3 +1,5 @@
+// Generated from packages/shared/src/i18n by scripts/generate-extension-i18n.mjs. Do not edit.
+
 export const translations = {
   en: {
     capture_destination_label: "Capture destination",

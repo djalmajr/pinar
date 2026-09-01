@@ -176,6 +176,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "storage:status") {
+    getStorageStatus()
+      .then((status) => sendResponse({ ...status, ok: true }))
+      .catch((error) => sendResponse({ error: String(error), ok: false }));
+    return true;
+  }
+
   if (message.type === "destination:set") {
     setCaptureDestination(message.collectionId)
       .then((context) => sendResponse({ ...context, ok: true }))
@@ -496,7 +503,9 @@ async function copyBundle(message) {
     || remotePrefs.handoffMode !== settings.handoffMode)) {
     await cacheDeliveryPreferences(remotePrefs);
   }
-  if (message.shot) {
+  // History can only be declined for the remote server; local captures always persist on-device.
+  const persistCapture = settings.storageMode !== "cloud" || settings.enableHistory !== false;
+  if (message.shot && persistCapture) {
     savedResult = await saveShot(
       message.shot,
       id,
@@ -509,13 +518,13 @@ async function copyBundle(message) {
       includeScreenshot,
     );
     if (!savedResult) warnings.push("helper_unavailable");
-  } else if (includeScreenshot) {
+  } else if (includeScreenshot && !message.shot) {
     warnings.push("screenshot_missing");
   }
 
   const shot = includeScreenshot ? (savedResult?.path || message.shot || null) : null;
   const viewerUrl = (settings.includeViewer && savedResult?.viewerUrl) ? savedResult.viewerUrl : null;
-  if (settings.includeViewer && !viewerUrl) warnings.push("viewer_unavailable");
+  if (persistCapture && settings.includeViewer && !viewerUrl) warnings.push("viewer_unavailable");
   const uniqueWarnings = [...new Set(warnings)];
   const degraded = uniqueWarnings.some((warning) => (
     warning === "screenshot_missing" || warning === "helper_unavailable" || warning === "viewer_unavailable"
@@ -953,6 +962,24 @@ async function getAuthSession() {
   const body = await responseBody(response);
   if (!response.ok || !body.session) throw new Error(body.error || "Account session is unavailable");
   return body.session;
+}
+
+async function getStorageStatus() {
+  const settings = await getSettings();
+  if (settings.storageMode !== "cloud") {
+    const base = await findShotBase();
+    return { mode: "local", port: base ? new URL(base).port : null, reachable: Boolean(base) };
+  }
+  const response = await remoteFetch(cloudEndpoint(settings), "/api/account/entitlements");
+  const body = await responseBody(response);
+  const storage = body.storage || {};
+  return {
+    mode: "cloud",
+    quotaBytes: Number(storage.quotaBytes || 0),
+    reachable: response.ok,
+    uploadAllowed: storage.uploadAllowed !== false,
+    usedBytes: Number(storage.usedBytes || 0),
+  };
 }
 
 async function createExtensionCodeForCurrentSession() {

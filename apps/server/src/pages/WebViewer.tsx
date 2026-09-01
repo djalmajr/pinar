@@ -634,10 +634,7 @@ export function WebViewer({ onClose, presentation = "page", sessionId }: WebView
                 </time>
                 <h2 className="inline-flex shrink-0 items-center gap-1.5">
                   <MessageCircleIcon className="text-primary" />
-                  {t("dashboard.pinCount", {
-                    count: session.pins?.length || 0,
-                    label: t((session.pins?.length || 0) === 1 ? "dashboard.pinSingular" : "dashboard.pinPlural"),
-                  })}
+                  {t("dashboard.pinCount", { count: session.pins?.length || 0 })}
                 </h2>
               </div>
             </div>

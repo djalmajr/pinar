@@ -107,10 +107,33 @@ function ShortcutRow({ editLabel, keys, label, onEdit }: { editLabel?: string; k
   );
 }
 
+const COMMAND_LABELS = {
+  _execute_action: "shortcuts_toggle_label",
+  "finish-batch": "shortcuts_finish_batch_label",
+} as const satisfies Record<string, keyof TranslationDictionary>;
+
+function commandLabel(command: chrome.commands.Command, t: TranslationDictionary) {
+  const key = COMMAND_LABELS[command.name as keyof typeof COMMAND_LABELS];
+  // Chrome only knows the English manifest description; our own UI must not.
+  return key ? t[key] : command.description || command.name || "";
+}
+
 function ShortcutsTab({ t }: { t: TranslationDictionary }) {
   const [commands, setCommands] = useState<chrome.commands.Command[]>([]);
 
-  useEffect(() => { chrome.commands?.getAll?.((all) => setCommands(all ?? [])); }, []);
+  useEffect(() => {
+    const read = () => chrome.commands?.getAll?.((all) => setCommands(all ?? []));
+    read();
+    // Chrome fires no event when a binding changes on chrome://extensions/shortcuts,
+    // so re-read whenever the user comes back to this page.
+    const onVisibility = () => { if (document.visibilityState === "visible") read(); };
+    window.addEventListener("focus", read);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", read);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
 
   return (
     <div className="flex flex-col gap-5">
@@ -119,7 +142,7 @@ function ShortcutsTab({ t }: { t: TranslationDictionary }) {
         <p className="text-xs leading-relaxed text-muted-foreground">{t.shortcuts_browser_desc}</p>
         <ul className="flex flex-col gap-1.5">
           {commands.map((command) => (
-            <ShortcutRow editLabel={t.shortcuts_customize} key={command.name} keys={command.shortcut || t.shortcuts_unassigned} label={command.name === "_execute_action" ? t.shortcuts_toggle_label : command.description || command.name || ""} onEdit={() => void chrome.tabs.create({ url: "chrome://extensions/shortcuts" })} />
+            <ShortcutRow editLabel={t.shortcuts_customize} key={command.name} keys={command.shortcut || t.shortcuts_unassigned} label={commandLabel(command, t)} onEdit={() => void chrome.tabs.create({ url: "chrome://extensions/shortcuts" })} />
           ))}
         </ul>
       </section>

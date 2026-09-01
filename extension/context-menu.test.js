@@ -34,6 +34,9 @@ describe("extension action context menu", () => {
     assert.match(backgroundSrc, /void toggleBatch\(\)/);
     // The batch title carries a live count, so it is translated and refreshed.
     assert.match(backgroundSrc, /messages\.batch_start/);
+    // The action menu stays English like context_open_panel; see the store-listing test.
+    assert.match(backgroundSrc, /async function batchMenuTitle\(\) \{\n  const messages = translations\.en;/);
+    assert.doesNotMatch(backgroundSrc, /batchMenuTitle[\s\S]{0,200}getBestLanguage/);
     assert.match(backgroundSrc, /messages\.batch_active\.replace\("\{count\}"/);
     assert.match(backgroundSrc, /refreshBatchMenu\(\)/);
   });

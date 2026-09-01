@@ -1,10 +1,15 @@
-export const LOCAL_HEALTH_DISCOVERY_KEYS = ["ok", "runtime", "service"] as const;
+export const LOCAL_HEALTH_DISCOVERY_KEYS = ["ok", "runtime", "service", "version"] as const;
 
-export function localHealthDiscoveryBody() {
+// `version` is the only fingerprinting field allowed here. It is needed so the
+// extension, the CLI and the tray can tell a stale helper from a current one
+// instead of silently talking to it. The body stays free of configuration and
+// of the port, which remain in LOCAL_HEALTH_FORBIDDEN_KEYS.
+export function localHealthDiscoveryBody(version = "") {
   return {
     ok: true,
     runtime: "local" as const,
     service: "pinar",
+    version,
   };
 }
 
@@ -42,7 +47,7 @@ export const LOCAL_API_TRUST_MATRIX: readonly LocalApiTrustEntry[] = [
     class: "public-min",
     intendedClients: ["cli", "extension-discovery", "tray"],
     methods: ["GET"],
-    notes: "Discovery only. Body is ok/runtime/service.",
+    notes: "Discovery only. Body is ok/runtime/service/version.",
     path: "/api/health",
     pattern: /^\/api\/health$/,
   },

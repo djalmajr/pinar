@@ -443,7 +443,7 @@ async function routeLocalApi(request: Request): Promise<Response> {
     return revoked ? json({ ok: true }) : unauthorizedLocalApiResponse(request);
   }
   if (method === "GET" && path === "/api/health") {
-    return json(localHealthDiscoveryBody());
+    return json(localHealthDiscoveryBody(import.meta.env.VITE_PINAR_VERSION ?? ""));
   }
   if (method === "GET" && path === "/api/auth/session") {
     return json({ session: { kind: "local", plan: "free" } }, 200, { "Cache-Control": "no-store" });

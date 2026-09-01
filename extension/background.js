@@ -78,9 +78,10 @@ async function initializeInstallationIdentity() {
   return ensureInstallationIdentity(chrome.storage.local);
 }
 
+// The Chrome action menu stays English to match the global store listing,
+// the same rule context_open_panel already follows.
 async function batchMenuTitle() {
-  const settings = await getSettings();
-  const messages = translations[getBestLanguage(settings.language)];
+  const messages = translations.en;
   const batch = await readBatch();
   if (!batch) return messages.batch_start;
   return `${messages.batch_finish} · ${messages.batch_active.replace("{count}", String(savedCount(batch)))}`;
@@ -224,9 +225,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "batch:get") {
-    Promise.all([readBatch(), getSettings()])
-      .then(([batch, settings]) => {
-        const messages = translations[getBestLanguage(settings.language)];
+    readBatch()
+      .then((batch) => {
+        // The overlay chrome is English as well; see reviewBannerText().
+        const messages = translations.en;
         return sendResponse({
           label: batch ? messages.batch_active.replace("{count}", String(savedCount(batch))) : "",
           ok: true,
@@ -1057,10 +1059,40 @@ async function writeBatch(batch) {
   return batch;
 }
 
+// A batch gets its own collection. Reusing the capture destination would point
+// the finish link at a long-lived bucket (Inbox and everything already in it),
+// leaving no way to tell which sessions belonged to the batch.
+async function createBatchCollection(settings, projectId, name) {
+  const path = `/api/projects/${encodeURIComponent(projectId)}/collections`;
+  const init = {
+    body: JSON.stringify({ name }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  };
+  if (settings.storageMode === "cloud") {
+    const response = await remoteFetch(cloudEndpoint(settings), path, init);
+    const body = await responseBody(response);
+    if (!response.ok || !body.collection) throw new Error(body.error || "Unable to create the batch collection");
+    return body.collection;
+  }
+  const base = await findShotBase();
+  if (!base) throw new Error("Local Pinar server is not running");
+  const response = await localFetch(base, path, init);
+  const body = await responseBody(response);
+  if (!response.ok || !body.collection) throw new Error(body.error || "Unable to create the batch collection");
+  return body.collection;
+}
+
 async function startBatch() {
   const context = await getCaptureDestinationContext();
-  if (!context.destination?.collectionId) throw new Error("No capture destination is available");
-  const batch = await writeBatch(openBatch(context.destination));
+  const projectId = context.destination?.projectId;
+  if (!projectId) throw new Error("No capture destination is available");
+  const settings = await getSettings();
+  const language = getBestLanguage(settings.language);
+  const when = new Intl.DateTimeFormat(language, { dateStyle: "short", timeStyle: "short" }).format(new Date());
+  const name = translations[language].batch_collection_name.replace("{when}", when);
+  const collection = await createBatchCollection(settings, projectId, name);
+  const batch = await writeBatch(openBatch({ collectionId: collection.id, projectId }));
   await refreshBatchMenu();
   return batch;
 }

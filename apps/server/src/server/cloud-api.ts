@@ -4990,6 +4990,7 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
       ok: true,
       runtime: "cloud",
       service: "pinar",
+      version: import.meta.env.VITE_PINAR_VERSION ?? "",
     });
   }
   if (method === "GET" && path === "/api/pricing") {

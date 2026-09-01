@@ -17,6 +17,7 @@ export interface TranslationDictionary {
   section_handoff: string;
   section_privacy: string;
   batch_active: string;
+  batch_collection_name: string;
   batch_start: string;
   batch_finish: string;
   storage_status_title: string;
@@ -29,6 +30,7 @@ export interface TranslationDictionary {
   shortcuts_browser_title: string;
   shortcuts_browser_desc: string;
   shortcuts_toggle_label: string;
+  shortcuts_finish_batch_label: string;
   shortcuts_unassigned: string;
   shortcuts_customize: string;
   shortcuts_overlay_title: string;
@@ -130,6 +132,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     section_handoff: "Agent handoff",
     section_privacy: "Privacy",
     batch_active: "Batch: {count}",
+    batch_collection_name: "Batch · {when}",
     batch_start: "Start capture batch",
     batch_finish: "Finish capture batch",
     storage_status_title: "Storage status",
@@ -142,6 +145,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_browser_title: "Browser shortcuts",
     shortcuts_browser_desc: "Assigned by Chrome and rebindable per browser. They stay inert on chrome:// pages, on the Web Store, and before the overlay is injected.",
     shortcuts_toggle_label: "Show or hide the Pinar toolbar",
+    shortcuts_finish_batch_label: "Finish the capture batch",
     shortcuts_unassigned: "Not assigned",
     shortcuts_customize: "Change in Chrome",
     shortcuts_overlay_title: "During capture",
@@ -241,6 +245,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     section_handoff: "Entrega ao agente",
     section_privacy: "Privacidade",
     batch_active: "Lote: {count}",
+    batch_collection_name: "Lote · {when}",
     batch_start: "Iniciar lote de capturas",
     batch_finish: "Finalizar lote de capturas",
     storage_status_title: "Status do armazenamento",
@@ -253,6 +258,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_browser_title: "Atalhos do navegador",
     shortcuts_browser_desc: "Atribuídos pelo Chrome e redefiníveis por navegador. Ficam inertes em páginas chrome://, na Web Store e antes de o overlay ser injetado.",
     shortcuts_toggle_label: "Mostrar ou esconder a toolbar do Pinar",
+    shortcuts_finish_batch_label: "Finalizar o lote de capturas",
     shortcuts_unassigned: "Sem atribuição",
     shortcuts_customize: "Alterar no Chrome",
     shortcuts_overlay_title: "Durante a captura",
@@ -352,6 +358,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     section_handoff: "Entrega al agente",
     section_privacy: "Privacidad",
     batch_active: "Lote: {count}",
+    batch_collection_name: "Lote · {when}",
     batch_start: "Iniciar lote de capturas",
     batch_finish: "Finalizar lote de capturas",
     storage_status_title: "Estado del almacenamiento",
@@ -364,6 +371,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_browser_title: "Atajos del navegador",
     shortcuts_browser_desc: "Asignados por Chrome y reasignables por navegador. Quedan inertes en páginas chrome://, en la Web Store y antes de que se inyecte el overlay.",
     shortcuts_toggle_label: "Mostrar u ocultar la barra de Pinar",
+    shortcuts_finish_batch_label: "Finalizar el lote de capturas",
     shortcuts_unassigned: "Sin asignar",
     shortcuts_customize: "Cambiar en Chrome",
     shortcuts_overlay_title: "Durante la captura",
@@ -463,6 +471,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     section_handoff: "Transmission à l’agent",
     section_privacy: "Confidentialité",
     batch_active: "Lot : {count}",
+    batch_collection_name: "Lot · {when}",
     batch_start: "Démarrer un lot de captures",
     batch_finish: "Terminer le lot de captures",
     storage_status_title: "État du stockage",
@@ -475,6 +484,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_browser_title: "Raccourcis du navigateur",
     shortcuts_browser_desc: "Attribués par Chrome et réattribuables par navigateur. Ils restent inertes sur les pages chrome://, sur le Web Store et avant l’injection de l’overlay.",
     shortcuts_toggle_label: "Afficher ou masquer la barre d’outils Pinar",
+    shortcuts_finish_batch_label: "Terminer le lot de captures",
     shortcuts_unassigned: "Non attribué",
     shortcuts_customize: "Modifier dans Chrome",
     shortcuts_overlay_title: "Pendant la capture",
@@ -574,6 +584,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     section_handoff: "Übergabe an den Agenten",
     section_privacy: "Datenschutz",
     batch_active: "Stapel: {count}",
+    batch_collection_name: "Stapel · {when}",
     batch_start: "Aufnahme-Stapel starten",
     batch_finish: "Aufnahme-Stapel abschließen",
     storage_status_title: "Speicherstatus",
@@ -586,6 +597,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_browser_title: "Browser-Kurzbefehle",
     shortcuts_browser_desc: "Von Chrome vergeben und pro Browser neu belegbar. Auf chrome://-Seiten, im Web Store und vor der Injektion des Overlays bleiben sie wirkungslos.",
     shortcuts_toggle_label: "Pinar-Toolbar ein- oder ausblenden",
+    shortcuts_finish_batch_label: "Aufnahme-Stapel abschließen",
     shortcuts_unassigned: "Nicht belegt",
     shortcuts_customize: "In Chrome ändern",
     shortcuts_overlay_title: "Während der Aufnahme",
@@ -685,6 +697,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     section_handoff: "交给智能体",
     section_privacy: "隐私",
     batch_active: "批次：{count}",
+    batch_collection_name: "批次 · {when}",
     batch_start: "开始捕获批次",
     batch_finish: "结束捕获批次",
     storage_status_title: "存储状态",
@@ -697,6 +710,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_browser_title: "浏览器快捷键",
     shortcuts_browser_desc: "由 Chrome 分配，可按浏览器重新绑定。在 chrome:// 页面、网上应用店以及覆盖层注入之前不会生效。",
     shortcuts_toggle_label: "显示或隐藏 Pinar 工具栏",
+    shortcuts_finish_batch_label: "结束捕获批次",
     shortcuts_unassigned: "未分配",
     shortcuts_customize: "在 Chrome 中修改",
     shortcuts_overlay_title: "捕获过程中",
@@ -796,6 +810,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     section_handoff: "エージェントへの引き渡し",
     section_privacy: "プライバシー",
     batch_active: "バッチ: {count}",
+    batch_collection_name: "バッチ · {when}",
     batch_start: "キャプチャバッチを開始",
     batch_finish: "キャプチャバッチを終了",
     storage_status_title: "ストレージの状態",
@@ -808,6 +823,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_browser_title: "ブラウザーのショートカット",
     shortcuts_browser_desc: "Chrome が割り当て、ブラウザーごとに変更できます。chrome:// ページ、ウェブストア、オーバーレイ挿入前には動作しません。",
     shortcuts_toggle_label: "Pinar ツールバーの表示を切り替え",
+    shortcuts_finish_batch_label: "キャプチャバッチを終了",
     shortcuts_unassigned: "未割り当て",
     shortcuts_customize: "Chrome で変更",
     shortcuts_overlay_title: "キャプチャ中",

@@ -83,6 +83,15 @@ describe("local API trust enforcement", () => {
     assert.deepEqual([...LOCAL_CORS_ALLOWED_ORIGIN_KINDS].sort(), ["chrome-extension", "loopback"]);
   });
 
+  test("discloses the build version and nothing else that fingerprints the install", () => {
+    const body = localHealthDiscoveryBody("0.1.5");
+    assert.equal(body.version, "0.1.5");
+    assert.equal(typeof localHealthDiscoveryBody().version, "string");
+    // The version is the single fingerprinting field the baseline accepts.
+    assert.equal(LOCAL_HEALTH_DISCOVERY_KEYS.includes("version"), true);
+    for (const key of LOCAL_HEALTH_FORBIDDEN_KEYS) assert.equal(key in body, false);
+  });
+
   test("denies hostile CORS, preflight reflection, and capability-less mutation", async () => {
     const preflight = await request("/api/history", {
       headers: {

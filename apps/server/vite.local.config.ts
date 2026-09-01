@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
@@ -11,10 +12,14 @@ const tanstackReactStartServerEntry = fileURLToPath(new URL("./src/tanstack-serv
 const useSyncExternalStoreShim = fileURLToPath(
   new URL("./src/lib/use-sync-external-store-shim.ts", import.meta.url),
 );
+const productVersion = JSON.parse(
+  readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+).version;
 
 export default defineConfig({
   define: {
     "import.meta.env.VITE_PINAR_RUNTIME": JSON.stringify("local"),
+    "import.meta.env.VITE_PINAR_VERSION": JSON.stringify(productVersion),
   },
   plugins: [
     tailwindcss(),

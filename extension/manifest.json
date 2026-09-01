@@ -17,11 +17,19 @@
     "page": "dist/options.html",
     "open_in_tab": true
   },
-  "host_permissions": ["http://127.0.0.1/*", "<all_urls>"],
-  "background": { "service_worker": "background.js", "type": "module" },
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
   "content_scripts": [
     {
-      "js": ["app-bridge.js"],
+      "js": [
+        "app-bridge.js"
+      ],
       "matches": [
         "http://127.0.0.1/*",
         "http://localhost/*",
@@ -42,11 +50,15 @@
   },
   "commands": {
     "_execute_action": {
-      "suggested_key": { "default": "Alt+Shift+P" }
+      "suggested_key": {
+        "default": "Alt+Shift+P"
+      }
     },
     "finish-batch": {
-      "suggested_key": { "default": "Alt+Shift+B" },
-      "description": "Finish the current Pinar capture batch"
+      "suggested_key": {
+        "default": "Alt+Shift+B"
+      },
+      "description": "Start or finish the Pinar capture batch"
     }
   },
   "icons": {

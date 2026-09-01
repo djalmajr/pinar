@@ -28,17 +28,26 @@ describe("extension action context menu", () => {
     assert.doesNotMatch(backgroundSrc, /browser-ticket|\/history/);
   });
 
-  test("offers a batch entry that follows the user language", () => {
+  test("offers a batch entry that toggles and stays English", () => {
     assert.match(backgroundSrc, /id: BATCH_MENU_ID/);
     assert.match(backgroundSrc, /info\.menuItemId !== BATCH_MENU_ID/);
     assert.match(backgroundSrc, /void toggleBatch\(\)/);
-    // The batch title carries a live count, so it is translated and refreshed.
     assert.match(backgroundSrc, /messages\.batch_start/);
     // The action menu stays English like context_open_panel; see the store-listing test.
     assert.match(backgroundSrc, /async function batchMenuTitle\(\) \{\n  const messages = translations\.en;/);
     assert.doesNotMatch(backgroundSrc, /batchMenuTitle[\s\S]{0,200}getBestLanguage/);
     assert.match(backgroundSrc, /messages\.batch_active\.replace\("\{count\}"/);
-    assert.match(backgroundSrc, /refreshBatchMenu\(\)/);
+  });
+
+  test("keeps the key, the menu and the badge on one snapshot", () => {
+    // The shortcut toggles, so a batch can start without the mouse.
+    assert.match(backgroundSrc, /command !== BATCH_COMMAND/);
+    assert.match(backgroundSrc, /const BATCH_COMMAND = "finish-batch"/);
+    // Every surface refreshes from the same call, so none of them can go stale.
+    assert.match(backgroundSrc, /async function syncBatchSurfaces\(\)/);
+    assert.match(backgroundSrc, /chrome\.action\.setBadgeText/);
+    assert.match(backgroundSrc, /type: "batch:changed"/);
+    assert.doesNotMatch(backgroundSrc, /refreshBatchMenu/);
   });
 
   test("keeps the Chrome action menu in English for the global store listing", () => {

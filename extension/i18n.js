@@ -3,6 +3,7 @@
 export const translations = {
   en: {
     batch_active: "Batch: {count}",
+    batch_idle: "Batch off",
     batch_label: "Batch · {when}",
     batch_finish: "Finish capture batch",
     batch_start: "Start capture batch",
@@ -15,6 +16,7 @@ export const translations = {
   },
   pt: {
     batch_active: "Lote: {count}",
+    batch_idle: "Lote inativo",
     batch_label: "Lote · {when}",
     batch_finish: "Finalizar lote de capturas",
     batch_start: "Iniciar lote de capturas",
@@ -27,6 +29,7 @@ export const translations = {
   },
   es: {
     batch_active: "Lote: {count}",
+    batch_idle: "Lote inactivo",
     batch_label: "Lote · {when}",
     batch_finish: "Finalizar lote de capturas",
     batch_start: "Iniciar lote de capturas",
@@ -39,6 +42,7 @@ export const translations = {
   },
   fr: {
     batch_active: "Lot : {count}",
+    batch_idle: "Lot inactif",
     batch_label: "Lot · {when}",
     batch_finish: "Terminer le lot de captures",
     batch_start: "Démarrer un lot de captures",
@@ -51,6 +55,7 @@ export const translations = {
   },
   de: {
     batch_active: "Stapel: {count}",
+    batch_idle: "Stapel aus",
     batch_label: "Stapel · {when}",
     batch_finish: "Aufnahme-Stapel abschließen",
     batch_start: "Aufnahme-Stapel starten",
@@ -63,6 +68,7 @@ export const translations = {
   },
   zh: {
     batch_active: "批次：{count}",
+    batch_idle: "批次未启用",
     batch_label: "批次 · {when}",
     batch_finish: "结束捕获批次",
     batch_start: "开始捕获批次",
@@ -75,6 +81,7 @@ export const translations = {
   },
   ja: {
     batch_active: "バッチ: {count}",
+    batch_idle: "バッチ停止中",
     batch_label: "バッチ · {when}",
     batch_finish: "キャプチャバッチを終了",
     batch_start: "キャプチャバッチを開始",

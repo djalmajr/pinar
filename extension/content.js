@@ -75,7 +75,7 @@
 
   const state = {
     active: true,
-    batchLabel: "",
+    batch: { active: false, label: "", shortcut: "" },
     sending: false,
     status: null,
     statusTimer: 0,
@@ -157,6 +157,7 @@
         align-items: center;
         font: 14px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         left: 50%;
+        max-width: calc(100vw - 32px);
         min-height: 44px;
         overflow: hidden;
         padding: 7px 14px 7px 12px;
@@ -188,11 +189,11 @@
       .toast[hidden] { display: none; }
       .toast[data-kind="error"] { color: #E5484D; }
       .toast[data-kind="ok"] { color: #1F7A4D; }
-      .view { align-items: center; display: flex; gap: 12px; position: relative; z-index: 1; }
+      .view { align-items: center; display: flex; gap: 12px; min-width: 0; position: relative; z-index: 1; }
       .view[hidden] { display: none !important; }
       .state-icon { display: grid; flex: 0 0 1.25rem; height: 1.25rem; place-items: center; width: 1.25rem; }
       .mark { display: block; height: 1.25rem; width: 1.25rem; }
-      .instructions { align-items: center; display: flex; gap: 12px; }
+      .instructions { align-items: center; display: flex; gap: 12px; min-width: 0; overflow: hidden; }
       .hint { align-items: center; display: inline-flex; gap: 5px; }
       .keys { align-items: center; display: inline-flex; gap: 3px; }
       kbd {
@@ -338,6 +339,20 @@
         text-overflow: ellipsis;
         white-space: nowrap;
       }
+        .batch-pill {
+        align-items: center;
+        border-radius: 999px;
+        color: rgba(15,23,42,.45);
+        display: inline-flex;
+        flex: 0 0 auto;
+        gap: 6px;
+        padding: 2px 8px 2px 6px;
+        white-space: nowrap;
+      }
+      .batch-pill[data-active="true"] { background: rgba(87,148,255,.14); color: #1D4ED8; }
+      .batch-pill kbd { font-size: 11px; height: 20px; min-width: 20px; }
+      .batch-dot { background: currentColor; border-radius: 50%; flex: 0 0 6px; height: 6px; opacity: .4; width: 6px; }
+      .batch-pill[data-active="true"] .batch-dot { background: ${BLUE}; opacity: 1; }
       .composer {
         background: transparent;
         display: none;
@@ -443,6 +458,11 @@
           <span class="hint"><span class="keys"><kbd>esc</kbd></span> to clear</span>
         </span>
         <span class="status" data-ref="toolbarStatus" hidden></span>
+        <span class="batch-pill" data-ref="batchPill" data-active="false">
+          <span class="batch-dot" aria-hidden="true"></span>
+          <span data-ref="batchPillText"></span>
+          <kbd data-ref="batchPillKey" hidden></kbd>
+        </span>
       </div>
     </div>
     <div class="toast" data-ref="toast" role="status" aria-live="polite" hidden></div>` : ""}
@@ -486,6 +506,9 @@
     toast: shadow.querySelector("[data-ref=toast]"),
     toolbar: shadow.querySelector(".toolbar"),
     toolbarStatus: shadow.querySelector("[data-ref=toolbarStatus]"),
+    batchPill: shadow.querySelector("[data-ref=batchPill]"),
+    batchPillKey: shadow.querySelector("[data-ref=batchPillKey]"),
+    batchPillText: shadow.querySelector("[data-ref=batchPillText]"),
   };
 
   document.documentElement.append(host);
@@ -843,10 +866,17 @@
       ui.toast.dataset.kind = state.status?.kind ?? "";
     }
     if (ui.toolbarStatus) {
-      const banner = state.reviewMode ? reviewBannerText() : state.batchLabel || "";
+      // Review owns this slot; the batch pill has its own so one never hides the other.
+      const banner = state.reviewMode ? reviewBannerText() : "";
       ui.toolbarStatus.hidden = !banner;
       ui.toolbarStatus.textContent = banner;
       ui.toolbarStatus.dataset.kind = state.reviewMode && state.unavailable ? "error" : "info";
+    }
+    if (ui.batchPill) {
+      ui.batchPill.dataset.active = String(state.batch.active);
+      ui.batchPillText.textContent = state.batch.label;
+      ui.batchPillKey.textContent = state.batch.shortcut;
+      ui.batchPillKey.hidden = !state.batch.shortcut;
     }
     document.documentElement.toggleAttribute("data-pinar-mask-mode", state.maskMode);
     document.documentElement.toggleAttribute("data-pinar-review", state.reviewMode);
@@ -872,15 +902,25 @@
     }, 1800);
   }
 
-  // The batch lives in the service worker; the overlay only mirrors its count.
+  // The batch lives in the service worker; the overlay mirrors it. Pull once on
+  // mount, then rely on the batch:changed push so the pill cannot go stale when
+  // the batch moves from the menu, the shortcut or another tab.
+  function applyBatchState(next) {
+    state.batch = {
+      active: Boolean(next?.active),
+      label: next?.label || "",
+      shortcut: next?.shortcut || "",
+    };
+    renderChrome();
+  }
+
   async function syncBatchLabel() {
     try {
       const response = await chrome.runtime.sendMessage({ type: "batch:get" });
-      state.batchLabel = response?.ok ? response.label || "" : "";
+      applyBatchState(response?.ok ? response : null);
     } catch {
-      state.batchLabel = "";
+      applyBatchState(null);
     }
-    renderChrome();
   }
 
   function hideOutline() {
@@ -2040,6 +2080,11 @@
   globalThis.chrome?.runtime?.onMessage?.addListener?.((message, _sender, sendResponse) => {
     if (message?.type === "session:hydrate") {
       sendResponse({ ok: hydrateSession(message) });
+      return false;
+    }
+    if (message?.type === "batch:changed") {
+      applyBatchState(message);
+      sendResponse({ ok: true });
       return false;
     }
     if (message?.type === "session:unavailable") {

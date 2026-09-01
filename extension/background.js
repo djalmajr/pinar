@@ -45,6 +45,9 @@ const registeredInstallations = new Set();
 const registerInstallationOnce = createSingleFlight();
 const OPEN_PANEL_MENU_ID = "pinar-open-panel";
 const BATCH_MENU_ID = "pinar-batch-toggle";
+// Keeping the original command id preserves every shortcut a user already bound;
+// Chrome keys bindings by name, so renaming it to "toggle-batch" would drop them.
+const BATCH_COMMAND = "finish-batch";
 
 function normalizePins(pins = []) {
   return pins.map((pin, index) => {
@@ -86,9 +89,35 @@ async function batchMenuTitle() {
   return `${messages.batch_finish} · ${messages.batch_active.replace("{count}", String(savedCount(batch)))}`;
 }
 
-async function refreshBatchMenu() {
-  const title = await batchMenuTitle();
-  await chrome.contextMenus.update(BATCH_MENU_ID, { title }).catch(() => null);
+// One snapshot feeds every surface that shows batch state: the menu, the action
+// badge and the overlay pill. The shortcut travels with it because the overlay
+// cannot read chrome.commands, and hardcoding a key would lie to anyone who
+// rebound it.
+async function batchState() {
+  const messages = translations.en;
+  const batch = await readBatch();
+  const count = batch ? savedCount(batch) : 0;
+  const commands = await chrome.commands.getAll().catch(() => []);
+  return {
+    active: Boolean(batch),
+    count,
+    label: batch ? messages.batch_active.replace("{count}", String(count)) : messages.batch_idle,
+    shortcut: commands.find((command) => command.name === BATCH_COMMAND)?.shortcut || "",
+    summary: batchSummary(batch),
+  };
+}
+
+async function syncBatchSurfaces() {
+  const state = await batchState();
+  await chrome.contextMenus.update(BATCH_MENU_ID, { title: await batchMenuTitle() }).catch(() => null);
+  // An empty active batch reads better as a dot than as a literal zero.
+  const badge = state.active ? (state.count > 0 ? String(state.count) : "•") : "";
+  await chrome.action.setBadgeText({ text: badge }).catch(() => null);
+  await chrome.action.setBadgeBackgroundColor({ color: "#5794FF" }).catch(() => null);
+  const tabs = await chrome.tabs.query({}).catch(() => []);
+  await Promise.all(tabs.map((tab) => (tab.id == null
+    ? null
+    : chrome.tabs.sendMessage(tab.id, { type: "batch:changed", ...state }).catch(() => null))));
 }
 
 async function registerActionContextMenu() {
@@ -134,8 +163,8 @@ chrome.action.onClicked.addListener(async (tab) => {
 });
 
 chrome.commands?.onCommand.addListener((command) => {
-  if (command !== "finish-batch") return;
-  void finishBatch().catch((error) => console.error("Unable to finish the capture batch", error));
+  if (command !== BATCH_COMMAND) return;
+  void toggleBatch().catch((error) => console.error("Unable to toggle the capture batch", error));
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -222,16 +251,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "batch:get") {
-    readBatch()
-      .then((batch) => {
-        // The overlay chrome is English as well; see reviewBannerText().
-        const messages = translations.en;
-        return sendResponse({
-          label: batch ? messages.batch_active.replace("{count}", String(savedCount(batch))) : "",
-          ok: true,
-          summary: batchSummary(batch),
-        });
-      })
+    batchState()
+      .then((state) => sendResponse({ ...state, ok: true }))
       .catch((error) => sendResponse({ error: String(error), ok: false }));
     return true;
   }
@@ -607,7 +628,7 @@ async function copyBundle(message) {
       ? addCapture(activeBatch, { captureId: id, title: page?.title, url: page?.url })
       : markFailed(activeBatch, id, warnings.at(-1) || "not_saved");
     await writeBatch(updated);
-    await refreshBatchMenu();
+    await syncBatchSurfaces();
   }
 
   const shot = includeScreenshot ? (savedResult?.path || message.shot || null) : null;
@@ -1067,7 +1088,7 @@ async function startBatch() {
     label,
     startedAt: startedAt.toISOString(),
   }));
-  await refreshBatchMenu();
+  await syncBatchSurfaces();
   return batch;
 }
 
@@ -1092,7 +1113,7 @@ async function finishBatch() {
     /* A missing server must not keep the batch open. */
   }
   await writeBatch(null);
-  await refreshBatchMenu();
+  await syncBatchSurfaces();
   return { summary: batchSummary(batch) };
 }
 

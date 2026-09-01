@@ -1057,39 +1057,41 @@ async function writeBatch(batch) {
   return batch;
 }
 
-// A batch gets its own collection. Reusing the capture destination would point
-// the finish link at a long-lived bucket (Inbox and everything already in it),
-// leaving no way to tell which sessions belonged to the batch.
-async function createBatchCollection(settings, projectId, name) {
+// A batch gets its own collection so the sessions it captured stay identifiable,
+// and that collection is nested under the destination the user configured: a
+// batch is a group of captures, not a different kind of thing, so the setting
+// still applies. When the destination is the protected Inbox the panel hoists
+// the child to the project root on its own; see partitionCollectionNavigation.
+async function createBatchCollection(settings, projectId, name, parentId) {
   const path = `/api/projects/${encodeURIComponent(projectId)}/collections`;
   const init = {
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, parentId }),
     headers: { "content-type": "application/json" },
     method: "POST",
   };
-  if (settings.storageMode === "cloud") {
-    const response = await remoteFetch(cloudEndpoint(settings), path, init);
-    const body = await responseBody(response);
-    if (!response.ok || !body.collection) throw new Error(body.error || "Unable to create the batch collection");
-    return body.collection;
-  }
-  const base = await findShotBase();
-  if (!base) throw new Error("Local Pinar server is not running");
-  const response = await localFetch(base, path, init);
+  const response = settings.storageMode === "cloud"
+    ? await remoteFetch(cloudEndpoint(settings), path, init)
+    : await localFetch(await requireShotBase(), path, init);
   const body = await responseBody(response);
   if (!response.ok || !body.collection) throw new Error(body.error || "Unable to create the batch collection");
   return body.collection;
 }
 
+async function requireShotBase() {
+  const base = await findShotBase();
+  if (!base) throw new Error("Local Pinar server is not running");
+  return base;
+}
+
 async function startBatch() {
   const context = await getCaptureDestinationContext();
-  const projectId = context.destination?.projectId;
-  if (!projectId) throw new Error("No capture destination is available");
+  const { collectionId: parentId, projectId } = context.destination ?? {};
+  if (!projectId || !parentId) throw new Error("No capture destination is available");
   const settings = await getSettings();
   const language = getBestLanguage(settings.language);
   const when = new Intl.DateTimeFormat(language, { dateStyle: "short", timeStyle: "short" }).format(new Date());
   const name = translations[language].batch_collection_name.replace("{when}", when);
-  const collection = await createBatchCollection(settings, projectId, name);
+  const collection = await createBatchCollection(settings, projectId, name, parentId);
   const batch = await writeBatch(openBatch({ collectionId: collection.id, projectId }));
   await refreshBatchMenu();
   return batch;

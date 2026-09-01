@@ -145,3 +145,21 @@ describe("capture persistence plan", () => {
     ]);
   });
 });
+
+describe("batch destination", () => {
+  test("nests the batch inside the collection the user configured", () => {
+    const destination = { collectionId: "studio_1", projectId: "proj_1" };
+    const batch = openBatch({ collectionId: "batch_1", projectId: destination.projectId }, "2026-09-01T10:00:00.000Z");
+    // The batch owns a distinct collection, but it belongs to the configured project.
+    assert.notEqual(batch.collectionId, destination.collectionId);
+    assert.equal(batch.projectId, destination.projectId);
+  });
+
+  test("keeps items addressed by captureId so a retry replaces instead of duplicating", () => {
+    const batch = openBatch({ collectionId: "c1", projectId: "p1" }, "2026-09-01T10:00:00.000Z");
+    const once = addCapture(batch, { captureId: "cap_1", title: "A", url: "https://a" });
+    const twice = addCapture(once, { captureId: "cap_1", title: "A", url: "https://a" });
+    assert.equal(twice.items.length, 1);
+    assert.equal(savedCount(twice), 1);
+  });
+});

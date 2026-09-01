@@ -990,17 +990,31 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
                         selectedIds={selectedIds}
                         session={session}
                       >
-                        <div className="absolute top-2 left-2 z-10" data-grid-selection>
+                        {/* Both corner controls stay out of the way until the
+                            card is hovered or focused. A checked box stays put
+                            so a selection never looks like it vanished, the
+                            actions stay while their menu is open (the pointer
+                            is in a portal by then), and coarse pointers, which
+                            cannot hover, always see them. */}
+                        <div
+                          className={cn(
+                            "absolute top-2 left-2 z-10 transition-opacity",
+                            selectedIds.has(session.id)
+                              ? "opacity-100"
+                              : "opacity-0 group-hover/card:opacity-100 group-focus-within/card:opacity-100 pointer-coarse:opacity-100",
+                          )}
+                          data-grid-selection
+                        >
                           <SessionSelectCheckbox
                             checked={selectedIds.has(session.id)}
                             label={sessionSelectLabel(session, t)}
                             onCheckedChange={(checked) => toggleSessionSelected(session.id, checked)}
                           />
                         </div>
-                        {/* Actions ride the top-right corner, mirroring the
-                            selection checkbox, on a plate so they stay legible
-                            over whatever the screenshot happens to show. */}
-                        <div className="absolute top-2 right-2 z-10 flex items-center rounded-md bg-card/85 backdrop-blur-sm" data-grid-actions>
+                        <div
+                          className="absolute top-2 right-2 z-10 flex items-center rounded-md bg-card/85 opacity-0 backdrop-blur-sm transition-opacity group-hover/card:opacity-100 group-focus-within/card:opacity-100 has-[[aria-expanded=true]]:opacity-100 pointer-coarse:opacity-100"
+                          data-grid-actions
+                        >
                           <SessionActions batchCopied={copiedBatchId != null && copiedBatchId === session.batchId} canMoveEarlier={orderIndex > 0} canMoveLater={Boolean(selectedCollection && orderIndex >= 0 && orderIndex < selectedCollection.sessions.length - 1)} copied={copiedId === session.id} session={session} onCopy={(current) => void copyPrompt(current)} onCopyBatch={(id) => void copyBatch(id)} onDelete={(id) => setDeleteIds([id])} onMove={(id) => openMoveDialog([id])} onReorder={(sessionId, direction) => void reorderSession(sessionId, direction)} onView={openViewer} t={t} />
                         </div>
                         <SessionPreview session={session} t={t} onOpen={() => openViewer(session.id)} />

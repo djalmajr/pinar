@@ -1,4 +1,11 @@
 import { pinBox, pinPoint, renderPinsCrop } from "./crop.js";
+import {
+  addCapture,
+  batchDestination,
+  batchSummary,
+  markFailed,
+  openBatch,
+} from "./batch.js";
 import { CAPTURE_TILE_DELAY_MS, planFullPageCapture, shiftMaskRegions, shiftPinsToCapture } from "./full-page.js";
 import { collectionDestination, destinationKey, resolveDestinationPreference } from "./destination.js";
 import { formatClipboardPayload } from "./format.js";
@@ -100,6 +107,13 @@ chrome.action.onClicked.addListener(async (tab) => {
   });
 });
 
+chrome.commands?.onCommand.addListener((command) => {
+  if (command !== "finish-batch") return;
+  void finishBatch()
+    .then((result) => (result.url ? chrome.tabs.create({ url: result.url }) : null))
+    .catch((error) => console.error("Unable to finish the capture batch", error));
+});
+
 chrome.tabs.onRemoved.addListener((tabId) => {
   tabPins.delete(tabId);
   tabHydrations.delete(tabId);
@@ -179,6 +193,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "storage:status") {
     getStorageStatus()
       .then((status) => sendResponse({ ...status, ok: true }))
+      .catch((error) => sendResponse({ error: String(error), ok: false }));
+    return true;
+  }
+
+  if (message.type === "batch:get") {
+    readBatch()
+      .then((batch) => sendResponse({ ok: true, summary: batchSummary(batch) }))
+      .catch((error) => sendResponse({ error: String(error), ok: false }));
+    return true;
+  }
+
+  if (message.type === "batch:start") {
+    startBatch()
+      .then((batch) => sendResponse({ ok: true, summary: batchSummary(batch) }))
+      .catch((error) => sendResponse({ error: String(error), ok: false }));
+    return true;
+  }
+
+  if (message.type === "batch:finish") {
+    finishBatch()
+      .then((result) => sendResponse({ ...result, ok: true }))
+      .catch((error) => sendResponse({ error: String(error), ok: false }));
+    return true;
+  }
+
+  if (message.type === "batch:cancel") {
+    writeBatch(null)
+      .then(() => sendResponse({ ok: true, summary: null }))
       .catch((error) => sendResponse({ error: String(error), ok: false }));
     return true;
   }
@@ -492,7 +534,9 @@ async function copyBundle(message) {
   const privacy = sanitized.privacy;
   const warnings = [...(sanitized.warnings || [])];
   let savedResult = null;
-  const destination = await getCaptureDestinationContext(settings)
+  // An open batch pins every capture to the collection chosen when it started.
+  const activeBatch = await readBatch();
+  const destination = batchDestination(activeBatch) ?? await getCaptureDestinationContext(settings)
     .then((context) => context.destination)
     .catch(() => null);
 
@@ -520,6 +564,12 @@ async function copyBundle(message) {
     if (!savedResult) warnings.push("helper_unavailable");
   } else if (includeScreenshot && !message.shot) {
     warnings.push("screenshot_missing");
+  }
+  if (activeBatch) {
+    const updated = savedResult
+      ? addCapture(activeBatch, { captureId: id, title: page?.title, url: page?.url })
+      : markFailed(activeBatch, id, warnings.at(-1) || "not_saved");
+    await writeBatch(updated);
   }
 
   const shot = includeScreenshot ? (savedResult?.path || message.shot || null) : null;
@@ -952,6 +1002,38 @@ async function remoteFetch(endpoint, path, init = {}) {
 
 async function responseBody(response) {
   return response.json().catch(() => ({}));
+}
+
+const BATCH_STORAGE_KEY = "captureBatch";
+
+// Session storage, not memory: the service worker hibernates between captures.
+async function readBatch() {
+  const stored = await chrome.storage.session.get({ [BATCH_STORAGE_KEY]: null });
+  return stored[BATCH_STORAGE_KEY] || null;
+}
+
+async function writeBatch(batch) {
+  if (batch) await chrome.storage.session.set({ [BATCH_STORAGE_KEY]: batch });
+  else await chrome.storage.session.remove(BATCH_STORAGE_KEY);
+  return batch;
+}
+
+async function startBatch() {
+  const context = await getCaptureDestinationContext();
+  if (!context.destination?.collectionId) throw new Error("No capture destination is available");
+  return writeBatch(openBatch(context.destination));
+}
+
+async function finishBatch() {
+  const batch = await readBatch();
+  if (!batch) return { summary: null };
+  await writeBatch(null);
+  const settings = await getSettings();
+  const base = settings.storageMode === "cloud" ? cloudEndpoint(settings) : await findShotBase();
+  return {
+    summary: batchSummary(batch),
+    url: base ? `${base}/c/${batch.collectionId}` : null,
+  };
 }
 
 async function getAuthSession() {

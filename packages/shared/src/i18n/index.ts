@@ -2,7 +2,6 @@ import { SUPPORTED_LANGUAGES, type SupportedLanguage } from "../types/index.js";
 
 export interface TranslationDictionary {
   capture_destination_label: string;
-  context_open_panel: string;
   collection_label: string;
   destination_unavailable: string;
   name: string;
@@ -21,8 +20,6 @@ export interface TranslationDictionary {
   shortcuts_open_panel_label: string;
   batch_on: string;
   batch_label: string;
-  batch_start: string;
-  batch_finish: string;
   storage_status_title: string;
   storage_status_desc: string;
   storage_local_connected: string;
@@ -120,7 +117,6 @@ export interface TranslationDictionary {
 export const translations: Record<SupportedLanguage, TranslationDictionary> = {
   en: {
     capture_destination_label: "Capture destination",
-    context_open_panel: "Open Panel",
     collection_label: "Collection",
     destination_unavailable: "Projects and collections could not be loaded. Check that the selected server is available and up to date.",
     name: "English",
@@ -139,8 +135,6 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_open_panel_label: "Open the Pinar panel",
     batch_on: "Batch: on",
     batch_label: "Batch · {when}",
-    batch_start: "Start capture batch",
-    batch_finish: "Finish capture batch",
     storage_status_title: "Storage status",
     storage_status_desc: "Where captures are written and whether new uploads are accepted.",
     storage_local_connected: "Local server connected on port {port}",
@@ -236,7 +230,6 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
   },
   pt: {
     capture_destination_label: "Destino da captura",
-    context_open_panel: "Abrir painel",
     collection_label: "Coleção",
     destination_unavailable: "Não foi possível carregar projetos e coleções. Verifique se o servidor selecionado está disponível e atualizado.",
     name: "Português",
@@ -255,8 +248,6 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_open_panel_label: "Abrir o painel do Pinar",
     batch_on: "Lote: ativo",
     batch_label: "Lote · {when}",
-    batch_start: "Iniciar lote de capturas",
-    batch_finish: "Finalizar lote de capturas",
     storage_status_title: "Status do armazenamento",
     storage_status_desc: "Onde as capturas são gravadas e se novos uploads são aceitos.",
     storage_local_connected: "Servidor local conectado na porta {port}",
@@ -352,7 +343,6 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
   },
   es: {
     capture_destination_label: "Destino de captura",
-    context_open_panel: "Abrir panel",
     collection_label: "Colección",
     destination_unavailable: "No se pudieron cargar los proyectos y las colecciones. Comprueba que el servidor seleccionado esté disponible y actualizado.",
     name: "Español",
@@ -371,8 +361,6 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_open_panel_label: "Abrir el panel de Pinar",
     batch_on: "Lote: activo",
     batch_label: "Lote · {when}",
-    batch_start: "Iniciar lote de capturas",
-    batch_finish: "Finalizar lote de capturas",
     storage_status_title: "Estado del almacenamiento",
     storage_status_desc: "Dónde se escriben las capturas y si se aceptan nuevas subidas.",
     storage_local_connected: "Servidor local conectado en el puerto {port}",
@@ -468,7 +456,6 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
   },
   fr: {
     capture_destination_label: "Destination de la capture",
-    context_open_panel: "Ouvrir le panneau",
     collection_label: "Collection",
     destination_unavailable: "Impossible de charger les projets et les collections. Vérifiez que le serveur sélectionné est disponible et à jour.",
     name: "Français",
@@ -487,8 +474,6 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_open_panel_label: "Ouvrir le panneau Pinar",
     batch_on: "Lot : actif",
     batch_label: "Lot · {when}",
-    batch_start: "Démarrer un lot de captures",
-    batch_finish: "Terminer le lot de captures",
     storage_status_title: "État du stockage",
     storage_status_desc: "Où les captures sont écrites et si de nouveaux envois sont acceptés.",
     storage_local_connected: "Serveur local connecté sur le port {port}",
@@ -584,7 +569,6 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
   },
   de: {
     capture_destination_label: "Aufnahmeziel",
-    context_open_panel: "Panel öffnen",
     collection_label: "Sammlung",
     destination_unavailable: "Projekte und Sammlungen konnten nicht geladen werden. Prüfen Sie, ob der ausgewählte Server verfügbar und aktuell ist.",
     name: "Deutsch",
@@ -603,8 +587,6 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_open_panel_label: "Pinar-Panel öffnen",
     batch_on: "Stapel: aktiv",
     batch_label: "Stapel · {when}",
-    batch_start: "Aufnahme-Stapel starten",
-    batch_finish: "Aufnahme-Stapel abschließen",
     storage_status_title: "Speicherstatus",
     storage_status_desc: "Wohin Aufnahmen geschrieben werden und ob neue Uploads angenommen werden.",
     storage_local_connected: "Lokaler Server auf Port {port} verbunden",
@@ -700,7 +682,6 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
   },
   zh: {
     capture_destination_label: "捕获目标",
-    context_open_panel: "打开面板",
     collection_label: "集合",
     destination_unavailable: "无法加载项目和集合。请检查所选服务器是否可用且已更新。",
     name: "简体中文",
@@ -719,8 +700,6 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_open_panel_label: "打开 Pinar 面板",
     batch_on: "批次:进行中",
     batch_label: "批次 · {when}",
-    batch_start: "开始捕获批次",
-    batch_finish: "结束捕获批次",
     storage_status_title: "存储状态",
     storage_status_desc: "捕获写入的位置，以及是否接受新的上传。",
     storage_local_connected: "本地服务器已连接，端口 {port}",
@@ -816,7 +795,6 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
   },
   ja: {
     capture_destination_label: "キャプチャ先",
-    context_open_panel: "パネルを開く",
     collection_label: "コレクション",
     destination_unavailable: "プロジェクトとコレクションを読み込めませんでした。選択したサーバーが利用可能で最新であることを確認してください。",
     name: "日本語",
@@ -835,8 +813,6 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_open_panel_label: "Pinar パネルを開く",
     batch_on: "バッチ: 実行中",
     batch_label: "バッチ · {when}",
-    batch_start: "キャプチャバッチを開始",
-    batch_finish: "キャプチャバッチを終了",
     storage_status_title: "ストレージの状態",
     storage_status_desc: "キャプチャの保存先と、新しいアップロードを受け付けるかどうか。",
     storage_local_connected: "ローカルサーバーはポート {port} で接続済み",

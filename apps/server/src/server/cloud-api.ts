@@ -87,7 +87,7 @@ import {
   type FounderReservationRecord,
   type ReserveFounderSlotResult,
 } from "./founder-capacity-store";
-import { formatCollectionMarkdown, formatProjectMarkdown, formatSessionMarkdown } from "./markdown";
+import { formatBatchMarkdown, formatCollectionMarkdown, formatProjectMarkdown, formatSessionMarkdown } from "./markdown";
 import { installerResponse } from "./installers";
 import { decodePngDataUrl } from "./png";
 import {
@@ -1422,6 +1422,32 @@ async function findPublicProject(env: CloudEnv, id: string): Promise<ProjectTree
       if (!publicCollection) throw new Error("Collection disappeared while building project aggregate");
       return publicCollection;
     })),
+  };
+}
+
+async function findPublicBatch(env: CloudEnv, id: string) {
+  if (env.DB) {
+    const row = await env.DB.prepare("SELECT * FROM batches WHERE id = ?").bind(id).first();
+    if (!row) return null;
+    const ownerId = String(row.user_id || "");
+    const sessions = await env.DB.prepare(
+      "SELECT * FROM sessions WHERE user_id = ? AND batch_id = ? ORDER BY created_at DESC",
+    ).bind(ownerId, id).all();
+    return {
+      batch: batchFromRow(row),
+      ownerId,
+      sessions: (sessions.results || []).map(sessionFromRow),
+    };
+  }
+  const batch = memoryBatches.get(id);
+  if (!batch) return null;
+  return {
+    batch: memoryBatchRecord(batch),
+    ownerId: batch.userId,
+    sessions: Array.from(memorySessions.values())
+      .filter((session) => session.userId === batch.userId && cloudSessionBatchId(session) === id)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .map((session) => withCloudBatchId(session)),
   };
 }
 
@@ -5519,6 +5545,32 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
         "Content-Type": "text/markdown; charset=utf-8",
       })
       : text("Collection not found", 404);
+  }
+  if (request.method === "GET" && url.pathname.startsWith("/b/")) {
+    const rawId = decodeURIComponent(url.pathname.slice("/b/".length));
+    if (!rawId.endsWith(".md")) return json({ error: "Not found" }, 404);
+    const bundle = await findPublicBatch(env, rawId.slice(0, -3));
+    if (!bundle) return text("Batch not found", 404);
+    const statusByPinId: Record<string, PinReviewStatus> = {};
+    for (const session of bundle.sessions) {
+      for (const review of await listPinReviews(env, session.id)) {
+        statusByPinId[review.pinId] = review.status;
+      }
+    }
+    return text(
+      formatBatchMarkdown(
+        bundle.batch,
+        bundle.sessions,
+        statusByPinId,
+        url.origin,
+        await readOwnerDeliveryPreferences(env, bundle.ownerId),
+      ),
+      200,
+      {
+        "Cache-Control": "no-store",
+        "Content-Type": "text/markdown; charset=utf-8",
+      },
+    );
   }
   if (request.method === "GET" && (url.pathname === "/install.sh" || url.pathname === "/install.ps1")) {
     return installerResponse(url.pathname) || json({ error: "Not found" }, 404);

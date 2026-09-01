@@ -59,6 +59,7 @@ import { ProjectIconGlyph } from "@/components/ProjectIcon";
 import type { ServerMessageKey } from "@/lib/i18n";
 import { pinarRuntime } from "@/lib/server-header";
 import CheckIcon from "~icons/lucide/check";
+import CopyIcon from "~icons/lucide/copy";
 import ArrowDownIcon from "~icons/lucide/arrow-down";
 import ArrowUpIcon from "~icons/lucide/arrow-up";
 import ChevronsUpDownIcon from "~icons/lucide/chevrons-up-down";
@@ -436,6 +437,20 @@ function FilterMenu({
   onDelete: (id: string) => void;
   onMenuOpenChange: (open: boolean) => void;
 }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copyBatch() {
+    try {
+      const response = await fetch(`/b/${item.id}.md`);
+      if (!response.ok) return;
+      await navigator.clipboard.writeText(await response.text());
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2_000);
+    } catch {
+      return;
+    }
+  }
+
   return (
     <DropdownMenu open={menuOpen} onOpenChange={onMenuOpenChange}>
       <DropdownMenuTrigger
@@ -459,6 +474,11 @@ function FilterMenu({
         sideOffset={8}
       >
         <DropdownMenuGroup>
+          <DropdownMenuItem closeOnClick={false} onClick={() => void copyBatch()}>
+            {copied ? <CheckIcon /> : <CopyIcon />}
+            {copied ? t("common.copied") : t("dashboard.copyBatch")}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuItem
             variant="destructive"
             onClick={() => onDelete(item.id)}

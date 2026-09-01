@@ -179,6 +179,7 @@ const messages: UiMessages = {
   "dashboard.filters": "筛选",
   "dashboard.filtersEmpty": "无筛选",
   "dashboard.filterActions": "筛选操作",
+  "dashboard.copyBatch": "将批次复制为提示词包",
   "dashboard.deleteFilter": "移除分组",
   "dashboard.deleteFilterTitle": "移除此分组？",
   "dashboard.deleteFilterConfirm":

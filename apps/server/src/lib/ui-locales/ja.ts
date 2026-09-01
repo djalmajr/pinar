@@ -196,6 +196,7 @@ const messages: UiMessages = {
   "dashboard.filters": "フィルター",
   "dashboard.filtersEmpty": "フィルターなし",
   "dashboard.filterActions": "フィルター操作",
+  "dashboard.copyBatch": "バッチをプロンプト一式としてコピー",
   "dashboard.deleteFilter": "グループを外す",
   "dashboard.deleteFilterTitle": "このグループを外しますか？",
   "dashboard.deleteFilterConfirm":

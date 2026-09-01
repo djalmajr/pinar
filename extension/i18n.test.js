@@ -9,7 +9,7 @@ test("i18n translations dictionary", () => {
   const requiredKeys = [
     "capture_destination_label",
     "collection_label",
-    "context_open_panel",
+    "batch_label",
     "destination_unavailable",
     "project_label",
   ];

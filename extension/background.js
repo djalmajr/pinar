@@ -43,8 +43,6 @@ const tabPins = new Map();
 const tabHydrations = new Map();
 const registeredInstallations = new Set();
 const registerInstallationOnce = createSingleFlight();
-const OPEN_PANEL_MENU_ID = "pinar-open-panel";
-const BATCH_MENU_ID = "pinar-batch-toggle";
 // Keeping the original command id preserves every shortcut a user already bound;
 // Chrome keys bindings by name, so renaming it to "toggle-batch" would drop them.
 const BATCH_COMMAND = "finish-batch";
@@ -81,19 +79,6 @@ async function initializeInstallationIdentity() {
   return ensureInstallationIdentity(chrome.storage.local);
 }
 
-// The Chrome action menu stays English to match the global store listing,
-// the same rule context_open_panel already follows.
-async function batchMenuTitle() {
-  const messages = translations.en;
-  const batch = await readBatch();
-  if (!batch) return messages.batch_start;
-  return `${messages.batch_finish} · ${messages.batch_active.replace("{count}", String(savedCount(batch)))}`;
-}
-
-// One snapshot feeds every surface that shows batch state: the menu, the action
-// badge and the overlay pill. The shortcut travels with it because the overlay
-// cannot read chrome.commands, and hardcoding a key would lie to anyone who
-// rebound it.
 async function batchState() {
   const messages = translations.en;
   const batch = await readBatch();
@@ -108,9 +93,11 @@ async function batchState() {
   };
 }
 
+// Every surface that shows batch state refreshes from one snapshot: the action
+// badge and the overlay pill. The keyboard commands replaced the action context
+// menu, which could never be localized - Chrome shows one title to everyone.
 async function syncBatchSurfaces() {
   const state = await batchState();
-  await chrome.contextMenus.update(BATCH_MENU_ID, { title: await batchMenuTitle() }).catch(() => null);
   // The badge mirrors the toolbar: "on" while the batch is empty, then the count.
   const badge = state.active ? (state.count > 0 ? String(state.count) : "on") : "";
   await chrome.action.setBadgeText({ text: badge }).catch(() => null);
@@ -122,36 +109,8 @@ async function syncBatchSurfaces() {
     : chrome.tabs.sendMessage(tab.id, { type: "batch:changed", ...state }).catch(() => null))));
 }
 
-async function registerActionContextMenu() {
-  const batchTitle = await batchMenuTitle();
-  chrome.contextMenus.removeAll(() => {
-    chrome.contextMenus.create({
-      contexts: ["action"],
-      id: OPEN_PANEL_MENU_ID,
-      title: translations.en.context_open_panel,
-    });
-    chrome.contextMenus.create({
-      contexts: ["action"],
-      id: BATCH_MENU_ID,
-      title: batchTitle,
-    });
-  });
-}
-
 chrome.runtime.onInstalled.addListener(() => {
   void initializeInstallationIdentity();
-  void registerActionContextMenu();
-});
-
-chrome.runtime.onStartup.addListener(() => void registerActionContextMenu());
-
-chrome.contextMenus.onClicked.addListener((info) => {
-  if (info.menuItemId === OPEN_PANEL_MENU_ID) {
-    void openApp().catch((error) => console.error("Unable to open Pinar app", error));
-    return;
-  }
-  if (info.menuItemId !== BATCH_MENU_ID) return;
-  void toggleBatch().catch((error) => console.error("Unable to toggle the capture batch", error));
 });
 
 void initializeInstallationIdentity();

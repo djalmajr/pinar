@@ -191,6 +191,7 @@ const messages: UiMessages = {
   "dashboard.filters": "Filtros",
   "dashboard.filtersEmpty": "Nenhum filtro",
   "dashboard.filterActions": "Ações do filtro",
+  "dashboard.copyBatch": "Copiar lote como pacote de prompt",
   "dashboard.deleteFilter": "Remover agrupamento",
   "dashboard.deleteFilterTitle": "Remover este agrupamento?",
   "dashboard.deleteFilterConfirm":

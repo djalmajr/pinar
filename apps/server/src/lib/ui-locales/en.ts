@@ -191,6 +191,7 @@ const messages = {
   "dashboard.filters": "Filters",
   "dashboard.filtersEmpty": "No filters",
   "dashboard.filterActions": "Filter actions",
+  "dashboard.copyBatch": "Copy batch as prompt bundle",
   "dashboard.deleteFilter": "Remove grouping",
   "dashboard.deleteFilterTitle": "Remove this grouping?",
   "dashboard.deleteFilterConfirm":

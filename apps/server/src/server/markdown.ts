@@ -3,9 +3,12 @@ import {
   formatAgentResultsMarkdown,
   formatHandoffBundle,
   formatPinReviewsMarkdown,
+  isPinAwaitingAgent,
+  pinReviewStatusFor,
   screenshotDeliveryEnabled,
   type AgentExecution,
   type PinReview,
+  type PinReviewStatus,
   type ProjectTreeCollection,
   type ProjectTreeProject,
   type Session,
@@ -65,6 +68,30 @@ export function formatCollectionMarkdown(
     "",
   ];
   for (const session of collection.sessions) appendSession(lines, session, origin, delivery);
+  return lines.join("\n").trim();
+}
+
+// A batch is handed to an agent as work, not as an archive: only the pins the
+// review state still expects the agent to act on. Screenshots follow the same
+// delivery preference as every other export.
+export function formatBatchMarkdown(
+  batch: { id: string; label: string },
+  sessions: Session[],
+  statusByPinId: Record<string, PinReviewStatus>,
+  origin: string,
+  delivery?: MarkdownDelivery,
+) {
+  const lines = [`# ${batch.label}`, ""];
+  let pending = 0;
+  for (const session of sessions) {
+    const pins = session.pins.filter((pin) => isPinAwaitingAgent(
+      pinReviewStatusFor(String(pin.pinId || pin.id || ""), statusByPinId),
+    ));
+    if (!pins.length) continue;
+    pending += pins.length;
+    appendSession(lines, { ...session, pins }, origin, delivery);
+  }
+  if (!pending) lines.push("No pins are waiting on the agent in this batch.", "");
   return lines.join("\n").trim();
 }
 

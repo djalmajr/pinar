@@ -78,6 +78,7 @@ export interface PageInfo {
 
 export interface Session {
   byteSize?: number;
+  batchId?: string | null;
   captureId?: string;
   collectionId?: string;
   createdAt: string;

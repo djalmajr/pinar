@@ -17,6 +17,7 @@ import { Route as PricingRouteImport } from './routes/pricing'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as SuccessRouteImport } from './routes/success'
 import { Route as ApiSplatRouteImport } from './routes/api/$'
+import { Route as BIdRouteImport } from './routes/b/$id'
 import { Route as CIdRouteImport } from './routes/c/$id'
 import { Route as HelpIndexRouteImport } from './routes/help/index'
 import { Route as LegalDocumentRouteImport } from './routes/legal/$document'
@@ -66,6 +67,11 @@ const SuccessRoute = SuccessRouteImport.update({
 const ApiSplatRoute = ApiSplatRouteImport.update({
   id: '/api/$',
   path: '/api/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BIdRoute = BIdRouteImport.update({
+  id: '/b/$id',
+  path: '/b/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CIdRoute = CIdRouteImport.update({
@@ -128,6 +134,7 @@ export interface FileRoutesByFullPath {
   '/sign-in': typeof SignInRoute
   '/success': typeof SuccessRoute
   '/api/$': typeof ApiSplatRoute
+  '/b/$id': typeof BIdRoute
   '/c/$id': typeof CIdRoute
   '/legal/$document': typeof LegalDocumentRoute
   '/p/$id': typeof PIdRoute
@@ -148,6 +155,7 @@ export interface FileRoutesByTo {
   '/sign-in': typeof SignInRoute
   '/success': typeof SuccessRoute
   '/api/$': typeof ApiSplatRoute
+  '/b/$id': typeof BIdRoute
   '/c/$id': typeof CIdRoute
   '/legal/$document': typeof LegalDocumentRoute
   '/p/$id': typeof PIdRoute
@@ -169,6 +177,7 @@ export interface FileRoutesById {
   '/sign-in': typeof SignInRoute
   '/success': typeof SuccessRoute
   '/api/$': typeof ApiSplatRoute
+  '/b/$id': typeof BIdRoute
   '/c/$id': typeof CIdRoute
   '/legal/$document': typeof LegalDocumentRoute
   '/p/$id': typeof PIdRoute
@@ -191,6 +200,7 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/success'
     | '/api/$'
+    | '/b/$id'
     | '/c/$id'
     | '/legal/$document'
     | '/p/$id'
@@ -211,6 +221,7 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/success'
     | '/api/$'
+    | '/b/$id'
     | '/c/$id'
     | '/legal/$document'
     | '/p/$id'
@@ -231,6 +242,7 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/success'
     | '/api/$'
+    | '/b/$id'
     | '/c/$id'
     | '/legal/$document'
     | '/p/$id'
@@ -252,6 +264,7 @@ export interface RootRouteChildren {
   SignInRoute: typeof SignInRoute
   SuccessRoute: typeof SuccessRoute
   ApiSplatRoute: typeof ApiSplatRoute
+  BIdRoute: typeof BIdRoute
   CIdRoute: typeof CIdRoute
   LegalDocumentRoute: typeof LegalDocumentRoute
   PIdRoute: typeof PIdRoute
@@ -320,6 +333,13 @@ declare module '@tanstack/react-router' {
       path: '/api/$'
       fullPath: '/api/$'
       preLoaderRoute: typeof ApiSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/b/$id': {
+      id: '/b/$id'
+      path: '/b/$id'
+      fullPath: '/b/$id'
+      preLoaderRoute: typeof BIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/c/$id': {
@@ -404,6 +424,7 @@ const rootRouteChildren: RootRouteChildren = {
   SignInRoute: SignInRoute,
   SuccessRoute: SuccessRoute,
   ApiSplatRoute: ApiSplatRoute,
+  BIdRoute: BIdRoute,
   CIdRoute: CIdRoute,
   LegalDocumentRoute: LegalDocumentRoute,
   PIdRoute: PIdRoute,

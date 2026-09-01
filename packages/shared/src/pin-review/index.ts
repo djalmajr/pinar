@@ -99,18 +99,29 @@ export function resolvePinReviewTransition(
   return { changed: true, next: "reopened" };
 }
 
+// The states an agent is expected to act on: exactly the ones `agent_changed`
+// accepts above. `correction_ready` waits on a human and `accepted` is done.
+export function isPinAwaitingAgent(status: PinReviewStatus) {
+  return status === "open" || status === "reopened";
+}
+
+// A pin with no review row has never been triaged, so it counts as open.
+export function pinReviewStatusFor(
+  pinId: string,
+  statusByPinId: Map<string, PinReviewStatus> | Record<string, PinReviewStatus>,
+): PinReviewStatus {
+  const lookup = statusByPinId instanceof Map
+    ? statusByPinId
+    : new Map(Object.entries(statusByPinId) as Array<[string, PinReviewStatus]>);
+  return lookup.get(pinId) || "open";
+}
+
 export function countPinReviews(
   pinIds: Iterable<string>,
   statusByPinId: Map<string, PinReviewStatus> | Record<string, PinReviewStatus>,
 ): PinReviewCounts {
   const counts = emptyPinReviewCounts();
-  const lookup = statusByPinId instanceof Map
-    ? statusByPinId
-    : new Map(Object.entries(statusByPinId) as Array<[string, PinReviewStatus]>);
-  for (const pinId of pinIds) {
-    const status = lookup.get(pinId) || "open";
-    counts[status] += 1;
-  }
+  for (const pinId of pinIds) counts[pinReviewStatusFor(pinId, statusByPinId)] += 1;
   return counts;
 }
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { ProjectTreeProject, Session } from "@pinar/shared";
-import { formatProjectMarkdown, formatSessionMarkdown } from "./markdown";
+import { formatBatchMarkdown, formatProjectMarkdown, formatSessionMarkdown } from "./markdown";
 
 describe("aggregate markdown", () => {
   test("preserves manual collection, session, and pin order with live links", () => {
@@ -120,5 +120,47 @@ describe("aggregate markdown", () => {
     assert.match(markdown, /First pin/);
     assert.doesNotMatch(markdown, /Screenshot:/);
     assert.doesNotMatch(markdown, /screenshot_missing/);
+  });
+});
+
+describe("batch markdown", () => {
+  const batch = { id: "batch-1", label: "Batch · test" };
+  const session = (id: string, pinId: string, comment: string): Session => ({
+    createdAt: "2026-01-02T00:00:00.000Z",
+    id,
+    includeScreenshot: true,
+    page: { title: id, url: `https://example.test/${id}` },
+    pins: [{ comment, coords: { x: 1, y: 2 }, number: 1, pinId, type: "point" }],
+    shotUrl: `https://pinar.test/shots/${id}.png`,
+  });
+
+  test("carries only the pins the agent is still expected to act on", () => {
+    const sessions = [session("one", "pin-open", "still open"), session("two", "pin-done", "already accepted")];
+    const markdown = formatBatchMarkdown(batch, sessions, { "pin-done": "accepted" }, "https://pinar.test");
+    assert.match(markdown, /still open/);
+    assert.doesNotMatch(markdown, /already accepted/);
+    // A session left with no pending pin is dropped whole, not left as an empty heading.
+    assert.doesNotMatch(markdown, /\/v\/two/);
+  });
+
+  test("treats an untriaged pin as open and a reopened one as pending", () => {
+    const sessions = [session("one", "pin-new", "never triaged"), session("two", "pin-back", "reopened work")];
+    const markdown = formatBatchMarkdown(batch, sessions, { "pin-back": "reopened" }, "https://pinar.test");
+    assert.match(markdown, /never triaged/);
+    assert.match(markdown, /reopened work/);
+  });
+
+  test("says so instead of handing over an empty document", () => {
+    const markdown = formatBatchMarkdown(batch, [session("one", "pin-done", "done")], { "pin-done": "accepted" }, "https://pinar.test");
+    assert.match(markdown, /No pins are waiting/);
+  });
+
+  test("honours the screenshot delivery preference like every other export", () => {
+    const sessions = [session("one", "pin-open", "open pin")];
+    assert.match(formatBatchMarkdown(batch, sessions, {}, "https://pinar.test"), /Screenshot:/);
+    assert.doesNotMatch(
+      formatBatchMarkdown(batch, sessions, {}, "https://pinar.test", { includeScreenshot: false }),
+      /Screenshot:/,
+    );
   });
 });

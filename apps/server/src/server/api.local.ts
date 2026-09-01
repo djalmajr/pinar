@@ -10,6 +10,7 @@ import type {
   Project,
   ProjectIcon,
   ProjectTree,
+  PinReviewStatus,
   Session,
 } from "@pinar/shared";
 import {
@@ -33,7 +34,7 @@ import { openHistoryDb } from "@pinar/cli/history";
 import { pinarHome, shotsDir } from "@pinar/cli/paths";
 import { readDeliveryPreferences, writeDeliveryPreferences } from "@pinar/cli/preferences";
 import { writeShot } from "@pinar/cli/shots";
-import { formatCollectionMarkdown, formatProjectMarkdown, formatSessionMarkdown } from "./markdown";
+import { formatBatchMarkdown, formatCollectionMarkdown, formatProjectMarkdown, formatSessionMarkdown } from "./markdown";
 import { installerResponse } from "./installers";
 import {
   capabilitySecretFromRequest,
@@ -359,6 +360,27 @@ function publicCollection(id: string, origin: string) {
     if (collection) return collection;
   }
   return null;
+}
+
+// Pins carry review state per session, so the bundle gathers both: the sessions
+// tagged with this batch and the status map the markdown filters on.
+function publicBatch(id: string, origin: string) {
+  const batch = historyDatabase().listBatches().find((item) => item.id === id);
+  if (!batch) return null;
+  const sessions: Session[] = [];
+  const statusByPinId: Record<string, PinReviewStatus> = {};
+  for (const project of presentProjectTree(historyDatabase().getProjectTree(), origin).projects) {
+    for (const collection of project.collections) {
+      for (const session of collection.sessions) {
+        if (session.batchId !== id) continue;
+        sessions.push(session);
+        for (const review of historyDatabase().listPinReviews(session.id)) {
+          statusByPinId[review.pinId] = review.status;
+        }
+      }
+    }
+  }
+  return { batch, sessions, statusByPinId };
 }
 
 async function uploadShot(request: Request): Promise<Response> {
@@ -724,6 +746,18 @@ export async function handlePublicRequest(request: Request): Promise<Response> {
         "Content-Type": "text/markdown; charset=utf-8",
       })
       : text("Collection not found", 404);
+  }
+  if (request.method === "GET" && url.pathname.startsWith("/b/")) {
+    const rawId = decodeURIComponent(url.pathname.slice("/b/".length));
+    if (!rawId.endsWith(".md")) return json({ error: "not found" }, 404);
+    const bundle = publicBatch(rawId.slice(0, -3), url.origin);
+    return bundle
+      ? text(
+        formatBatchMarkdown(bundle.batch, bundle.sessions, bundle.statusByPinId, url.origin, readDeliveryPreferences(rootPath())),
+        200,
+        { "Cache-Control": "no-store", "Content-Type": "text/markdown; charset=utf-8" },
+      )
+      : text("Batch not found", 404);
   }
   if (request.method === "GET" && (url.pathname === "/install.sh" || url.pathname === "/install.ps1")) {
     return installerResponse(url.pathname) || json({ error: "not found" }, 404);

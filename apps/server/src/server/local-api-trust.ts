@@ -327,6 +327,14 @@ export const LOCAL_PUBLIC_PROJECTIONS: readonly LocalApiTrustEntry[] = [
   },
   {
     class: "local-public-projection",
+    intendedClients: ["browser-viewer"],
+    methods: ["GET"],
+    notes: "Batch handoff bundle; carries only pins still awaiting the agent.",
+    path: "/b/:id.md",
+    pattern: /^\/b\//,
+  },
+  {
+    class: "local-public-projection",
     intendedClients: ["cli-install"],
     methods: ["GET"],
     path: "/install.sh",

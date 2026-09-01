@@ -1,8 +1,9 @@
-function writeWithCopyEvent({ html, plain }) {
+import { clipboardFlavors } from "./clipboard.js";
+
+function writeWithCopyEvent(flavors) {
   return new Promise((resolve, reject) => {
     const onCopy = (event) => {
-      event.clipboardData.setData("text/html", html);
-      event.clipboardData.setData("text/plain", plain);
+      for (const [type, value] of Object.entries(flavors)) event.clipboardData.setData(type, value);
       event.preventDefault();
     };
     document.addEventListener("copy", onCopy, { once: true });
@@ -15,15 +16,15 @@ function writeWithCopyEvent({ html, plain }) {
   });
 }
 
-async function writeClipboard({ html, plain }) {
-  const textTypes = {
-    "text/html": new Blob([html], { type: "text/html" }),
-    "text/plain": new Blob([plain], { type: "text/plain" }),
-  };
+async function writeClipboard(message) {
+  const flavors = clipboardFlavors(message);
+  const blobs = Object.fromEntries(
+    Object.entries(flavors).map(([type, value]) => [type, new Blob([value], { type })]),
+  );
   try {
-    await navigator.clipboard.write([new ClipboardItem(textTypes)]);
+    await navigator.clipboard.write([new ClipboardItem(blobs)]);
   } catch {
-    await writeWithCopyEvent({ html, plain });
+    await writeWithCopyEvent(flavors);
   }
 }
 

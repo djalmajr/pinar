@@ -658,10 +658,12 @@ async function ensureOffscreen() {
   }
 }
 
+// Markdown is not HTML. Offering it as `text/html` would let a contenteditable
+// composer pick that flavor, collapse the newlines and swallow anything shaped
+// like a tag, so this path publishes `text/plain` alone.
 async function writeClipboardPlain(text) {
   await ensureOffscreen();
   const written = await chrome.runtime.sendMessage({
-    html: text,
     plain: text,
     type: "clipboard:write",
   });

@@ -222,12 +222,26 @@
         margin-right: 7px;
         width: 3px;
       }
-      /* Hints are a teaching aid: drop whole ones, least essential first, rather
-         than letting the row clip mid-word. Thresholds come from measuring the
-         bar with the batch pill present. */
-      @media (max-width: 1000px) { .hint[data-hint="mask"] { display: none; } }
-      @media (max-width: 880px) { .hint[data-hint="tune"] { display: none; } }
-      @media (max-width: 760px) { .hint[data-hint="clear"] { display: none; } }
+      .short { display: none; }
+      /* The bar degrades in stages instead of clipping: first the wording gets
+         terse, then the hints leave one by one, least essential first. Batch state
+         is never dropped - it is state, not a teaching aid. */
+      @media (max-width: 1180px) {
+        .long { display: none; }
+        .short { display: inline; }
+      }
+      @media (max-width: 1000px) {
+        .hint[data-hint="pin"] { display: none; }
+        .hint[data-hint="tune"]::before { display: none; }
+      }
+      @media (max-width: 860px) { .hint[data-hint="mask"] { display: none; } }
+      @media (max-width: 760px) {
+        .hint[data-hint="tune"] { display: none; }
+        .hint[data-hint="copy"]::before { display: none; }
+      }
+      @media (max-width: 660px) { .hint[data-hint="clear"] { display: none; } }
+      /* Off needs no activity dot: the word already says so. */
+      .batch-pill:not([data-active="true"]) .batch-dot { display: none; }
       .status { color: #262626; font-weight: 500; }
       .status[data-kind="error"] { color: #E5484D; }
       .status[data-kind="ok"] { color: #1F7A4D; }
@@ -462,16 +476,16 @@
         </span>
         <span class="instructions" data-ref="instructions">
           <span class="hint" data-hint="pin">Click or drag to pin</span>
-          <span class="hint" data-hint="tune"><span class="keys"><kbd>↑</kbd><kbd>↓</kbd></span> to fine-tune selection</span>
-          <span class="hint" data-hint="copy"><span class="keys"><kbd>${sendMod}</kbd><kbd>↵</kbd></span> to copy</span>
-          <span class="hint" data-hint="mask"><span class="keys"><kbd>M</kbd></span> hide region</span>
-          <span class="hint" data-hint="clear"><span class="keys"><kbd>esc</kbd></span> to clear</span>
+          <span class="hint" data-hint="tune"><span class="keys"><kbd>↑</kbd><kbd>↓</kbd></span><span class="long">to fine-tune selection</span><span class="short">Fine-tune</span></span>
+          <span class="hint" data-hint="copy"><span class="keys"><kbd>${sendMod}</kbd><kbd>↵</kbd></span><span class="long">to copy</span><span class="short">Copy</span></span>
+          <span class="hint" data-hint="mask"><span class="keys"><kbd>M</kbd></span><span class="long">hide region</span><span class="short">Hide</span></span>
+          <span class="hint" data-hint="clear"><span class="keys"><kbd>esc</kbd></span><span class="long">to clear</span><span class="short">Clear</span></span>
         </span>
         <span class="status" data-ref="toolbarStatus" hidden></span>
         <span class="batch-pill" data-ref="batchPill" data-active="false">
+          <kbd data-ref="batchPillKey" hidden></kbd>
           <span class="batch-dot" aria-hidden="true"></span>
           <span data-ref="batchPillText"></span>
-          <kbd data-ref="batchPillKey" hidden></kbd>
         </span>
       </div>
     </div>

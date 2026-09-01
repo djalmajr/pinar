@@ -110,10 +110,10 @@ async function batchState() {
 async function syncBatchSurfaces() {
   const state = await batchState();
   await chrome.contextMenus.update(BATCH_MENU_ID, { title: await batchMenuTitle() }).catch(() => null);
-  // An empty active batch reads better as a dot than as a literal zero.
-  const badge = state.active ? (state.count > 0 ? String(state.count) : "•") : "";
-  await chrome.action.setBadgeText({ text: badge }).catch(() => null);
+  // Only a real count earns a badge: an empty bubble says nothing.
+  await chrome.action.setBadgeText({ text: state.count > 0 ? String(state.count) : "" }).catch(() => null);
   await chrome.action.setBadgeBackgroundColor({ color: "#5794FF" }).catch(() => null);
+  await chrome.action.setBadgeTextColor({ color: "#FFFFFF" }).catch(() => null);
   const tabs = await chrome.tabs.query({}).catch(() => []);
   await Promise.all(tabs.map((tab) => (tab.id == null
     ? null

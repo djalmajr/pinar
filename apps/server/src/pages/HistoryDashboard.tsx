@@ -124,7 +124,9 @@ function SessionPageLink({ url }: { url?: string }) {
       target="_blank"
       onClick={(event) => event.stopPropagation()}
     >
-      <span className="truncate">{url}</span>
+      {/* min-w-0 lets the flex item shrink past the URL's min-content so truncate
+          can ellipsise it; the icon keeps its place because it never shrinks. */}
+      <span className="min-w-0 truncate">{url}</span>
       <ExternalLinkIcon className="size-3 shrink-0" />
     </a>
   );
@@ -163,7 +165,10 @@ function SessionIdentity({
         <p className="line-clamp-2 text-xs text-muted-foreground">{description}</p>
       ) : null}
       {heading ? (
-        <CardDescription className="min-w-0">
+        // items-start on the column means this paragraph sizes to its content, and
+        // an unbreakable URL makes that content wider than the card. max-w-full caps
+        // it against the column so the anchor below can finally truncate.
+        <CardDescription className="max-w-full min-w-0">
           <SessionPageLink url={url} />
         </CardDescription>
       ) : (

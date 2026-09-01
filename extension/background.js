@@ -119,10 +119,15 @@ void initializeInstallationIdentity();
 
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab.id) return;
-  await chrome.scripting.executeScript({
-    files: CONTENT_INJECTION_FILES,
-    target: { allFrames: true, tabId: tab.id },
-  });
+  try {
+    await chrome.scripting.executeScript({
+      files: CONTENT_INJECTION_FILES,
+      target: { allFrames: true, tabId: tab.id },
+    });
+  } catch {
+    // chrome://, the Web Store and extension pages refuse injection. There is
+    // nothing to annotate there, so the click is a no-op rather than an error.
+  }
 });
 
 chrome.commands?.onCommand.addListener((command) => {

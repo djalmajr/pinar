@@ -195,8 +195,8 @@ const messages: UiMessages = {
   "dashboard.filters": "Filtros",
   "dashboard.filtersEmpty": "Sin filtros",
   "dashboard.filterActions": "Acciones del filtro",
-  "dashboard.copyBatch": "Copiar lote como paquete de prompt",
-  "dashboard.deleteFilter": "Quitar agrupación",
+  "dashboard.copyBatch": "Copiar lote",
+  "dashboard.deleteFilter": "Quitar",
   "dashboard.deleteFilterTitle": "¿Quitar esta agrupación?",
   "dashboard.deleteFilterConfirm":
     "Las sesiones se quedan en sus colecciones. Solo desaparece la agrupación.",

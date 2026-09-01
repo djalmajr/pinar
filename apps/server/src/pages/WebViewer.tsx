@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import ReactMarkdown from "react-markdown";
 import { formatClipboardText, getPinColor, PINAR_REOPEN_SESSION_RESULT_EVENT, requestReopenSession, type AgentExecution, type Pin, type PinLocation, type PinReview, type PinReviewHumanAction, type PinReviewStatus, type Session } from "@pinar/shared";
 import { ImageZoomControls, ImageZoomStage, useImageZoom } from "@/components/ImageZoomStage";
+import { SessionActionsMenu } from "../components/SessionActionsMenu";
 import { ServerShell } from "@/components/ServerShell";
 import { WorkspaceChrome } from "@/components/WorkspaceChrome";
 import { isRecord, isSession } from "@/lib/api-data";
@@ -27,9 +28,6 @@ import {
   DialogHeader,
   DialogTitle,
   DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -44,7 +42,6 @@ import {
   TabsTrigger,
 } from "@pinar/ui";
 import ArrowLeftIcon from "~icons/lucide/arrow-left";
-import BotIcon from "~icons/lucide/bot";
 import CalendarIcon from "~icons/lucide/calendar-days";
 import CheckIcon from "~icons/lucide/check";
 import ChevronDownIcon from "~icons/lucide/chevron-down";
@@ -52,7 +49,6 @@ import ChevronLeftIcon from "~icons/lucide/chevron-left";
 import ChevronRightIcon from "~icons/lucide/chevron-right";
 import CopyIcon from "~icons/lucide/copy";
 import ExternalLinkIcon from "~icons/lucide/external-link";
-import FileTextIcon from "~icons/lucide/file-text";
 import MessageCircleIcon from "~icons/lucide/message-circle";
 import ScanSearchIcon from "~icons/lucide/scan-search";
 import SparklesIcon from "~icons/lucide/sparkles";
@@ -60,6 +56,10 @@ import XIcon from "~icons/lucide/x";
 
 interface WebViewerProps {
   onClose?: () => void;
+  // Moving and deleting need a list to return to, so the standalone /v/ route
+  // leaves them out rather than stranding the reader on a dead session.
+  onDelete?: (sessionId: string) => void;
+  onMove?: (sessionId: string) => void;
   // Walking captures needs the surrounding list; the standalone route has none,
   // so the arrows simply do not render there.
   onNavigate?: (sessionId: string) => void;
@@ -287,6 +287,8 @@ function ViewerFrame({ children, className }: { children: ReactNode; className?:
 
 export function WebViewer({
   onClose,
+  onDelete,
+  onMove,
   onNavigate,
   presentation = "page",
   sessionId,
@@ -567,7 +569,7 @@ export function WebViewer({
             t={t}
           />
         </div>
-        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
           {siblingIndex >= 0 && siblingIds.length > 1 ? (
             <div className="flex shrink-0 items-center gap-2">
               <span className="text-xs text-muted-foreground tabular-nums" role="status">
@@ -633,24 +635,16 @@ export function WebViewer({
               >
                 <ChevronDownIcon />
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52">
-                <DropdownMenuGroup>
-                  <DropdownMenuItem
-                    render={<a href={`/v/${session.id}.md`} rel="noopener noreferrer" target="_blank" />}
-                  >
-                    <FileTextIcon />
-                    {t("viewer.viewMarkdown")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => openInAssistant("chatgpt")}>
-                    <BotIcon />
-                    {t("viewer.openChatGPT")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => openInAssistant("claude")}>
-                    <SparklesIcon />
-                    {t("viewer.openClaude")}
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-              </DropdownMenuContent>
+              <SessionActionsMenu
+                copied={pageCopied}
+                session={session}
+                t={t}
+                onCopy={() => void copyPage()}
+                onDelete={onDelete}
+                onMove={onMove}
+                onOpenAssistant={openInAssistant}
+                onReview={reopenOnPage}
+              />
             </DropdownMenu>
           </ButtonGroup>
           {isModal ? (

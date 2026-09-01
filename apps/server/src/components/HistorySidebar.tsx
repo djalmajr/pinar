@@ -190,7 +190,6 @@ function CollectionMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="start"
-        className="w-48"
         side="right"
         sideOffset={8}
       >
@@ -469,7 +468,6 @@ function FilterMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="start"
-        className="w-48"
         side="right"
         sideOffset={8}
       >
@@ -609,8 +607,8 @@ export function ProjectSwitcher({
               compact
                 ? "size-8 justify-center p-0"
                 : isMobile
-                  ? "h-8 w-auto max-w-full justify-start px-1.5"
-                  : "h-11 w-full justify-start px-1.5",
+                  ? "h-8 w-auto max-w-full justify-start px-2"
+                  : "h-11 w-full justify-start px-2",
             )}
             disabled={!selectedProject}
             variant="ghost"
@@ -731,7 +729,7 @@ export function ProjectActionsMenu({
       >
         <MoreVerticalIcon />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-44">
+      <DropdownMenuContent align="end">
         <DropdownMenuGroup>
           <DropdownMenuItem
             className="gap-2.5"

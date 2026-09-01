@@ -195,8 +195,8 @@ const messages: UiMessages = {
   "dashboard.filters": "Filtres",
   "dashboard.filtersEmpty": "Aucun filtre",
   "dashboard.filterActions": "Actions du filtre",
-  "dashboard.copyBatch": "Copier le lot comme ensemble de prompts",
-  "dashboard.deleteFilter": "Retirer le regroupement",
+  "dashboard.copyBatch": "Copier le lot",
+  "dashboard.deleteFilter": "Retirer",
   "dashboard.deleteFilterTitle": "Retirer ce regroupement ?",
   "dashboard.deleteFilterConfirm":
     "Les sessions restent dans leurs collections. Seul le regroupement disparaît.",

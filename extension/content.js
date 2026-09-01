@@ -937,6 +937,7 @@
       shortcut: next?.shortcut || "",
     };
     renderChrome();
+    if (next?.toast) flashStatus(next.toast, "ok");
   }
 
   async function syncBatchLabel() {

@@ -52,10 +52,10 @@ function AppHeader({
         className={cn(
           "flex h-full shrink-0 items-center border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-none",
           isMobile
-            ? "w-auto max-w-[min(60vw,14rem)] shrink-0 px-4"
+            ? "w-auto max-w-[min(60vw,14rem)] shrink-0 px-2"
             : compact
               ? "w-[calc(var(--sidebar-width-icon)+1px)] px-2"
-              : "w-[calc(var(--sidebar-width)+1px)] px-4",
+              : "w-[calc(var(--sidebar-width)+1px)] px-2",
         )}
       >
         {projectSelector(compact)}

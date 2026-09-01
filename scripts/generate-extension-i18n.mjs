@@ -6,6 +6,9 @@ import { SUPPORTED_LANGUAGES } from "../packages/shared/src/types/index.ts";
 
 const MV3_KEYS = [
   "batch_active",
+  "batch_copied_link",
+  "batch_copied_prompt",
+  "batch_finished",
   "batch_idle",
   "batch_label",
   "batch_on",

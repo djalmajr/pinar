@@ -20,6 +20,9 @@ export interface TranslationDictionary {
   shortcuts_open_panel_label: string;
   batch_on: string;
   batch_label: string;
+  batch_copied_link: string;
+  batch_copied_prompt: string;
+  batch_finished: string;
   storage_status_title: string;
   storage_status_desc: string;
   storage_local_connected: string;
@@ -98,6 +101,11 @@ export interface TranslationDictionary {
   viewer_content_desc: string;
   screenshot_label: string;
   screenshot_desc: string;
+  copy_on_finish_batch_label: string;
+  copy_on_finish_batch_desc: string;
+  copy_on_finish_batch_off: string;
+  copy_on_finish_batch_link: string;
+  copy_on_finish_batch_prompt: string;
   theme_label: string;
   theme_dark: string;
   theme_light: string;
@@ -135,6 +143,9 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_open_panel_label: "Open the Pinar panel",
     batch_on: "Batch: on",
     batch_label: "Batch · {when}",
+    batch_copied_link: "Copied link · {count}",
+    batch_copied_prompt: "Copied prompt · {count}",
+    batch_finished: "Batch finished · {count}",
     storage_status_title: "Storage status",
     storage_status_desc: "Where captures are written and whether new uploads are accepted.",
     storage_local_connected: "Local server connected on port {port}",
@@ -213,6 +224,11 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     viewer_content_desc: "Viewer Markdown is extra context. captureId and pinId always stay in the copied bundle.",
     screenshot_label: "Include screenshot",
     screenshot_desc: "Stored on the selected server. Adds the printed screenshot to the agent copy and to each item's .md URL.",
+    copy_on_finish_batch_label: "Copy when a batch finishes",
+    copy_on_finish_batch_desc: "Puts the finished batch on the clipboard so you can paste it into an agent.",
+    copy_on_finish_batch_off: "Off",
+    copy_on_finish_batch_link: "Link",
+    copy_on_finish_batch_prompt: "Prompt",
     theme_label: "Theme",
     theme_dark: "Dark",
     theme_light: "Light",
@@ -248,6 +264,9 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_open_panel_label: "Abrir o painel do Pinar",
     batch_on: "Lote: ativo",
     batch_label: "Lote · {when}",
+    batch_copied_link: "Link copiado · {count}",
+    batch_copied_prompt: "Prompt copiado · {count}",
+    batch_finished: "Lote finalizado · {count}",
     storage_status_title: "Status do armazenamento",
     storage_status_desc: "Onde as capturas são gravadas e se novos uploads são aceitos.",
     storage_local_connected: "Servidor local conectado na porta {port}",
@@ -326,6 +345,11 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     viewer_content_desc: "O Markdown do viewer é contexto extra. captureId e pinId permanecem no bundle copiado.",
     screenshot_label: "Incluir captura de tela",
     screenshot_desc: "Fica no servidor selecionado. Entrega a imagem printada no bundle copiado para os agentes e no Markdown .md de cada item.",
+    copy_on_finish_batch_label: "Copiar ao finalizar um lote",
+    copy_on_finish_batch_desc: "Coloca o lote finalizado na área de transferência para colar no agente.",
+    copy_on_finish_batch_off: "Desligado",
+    copy_on_finish_batch_link: "Link",
+    copy_on_finish_batch_prompt: "Prompt",
     theme_label: "Tema",
     theme_dark: "Escuro",
     theme_light: "Claro",
@@ -361,6 +385,9 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_open_panel_label: "Abrir el panel de Pinar",
     batch_on: "Lote: activo",
     batch_label: "Lote · {when}",
+    batch_copied_link: "Enlace copiado · {count}",
+    batch_copied_prompt: "Prompt copiado · {count}",
+    batch_finished: "Lote finalizado · {count}",
     storage_status_title: "Estado del almacenamiento",
     storage_status_desc: "Dónde se escriben las capturas y si se aceptan nuevas subidas.",
     storage_local_connected: "Servidor local conectado en el puerto {port}",
@@ -439,6 +466,11 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     viewer_content_desc: "El Markdown del visor es contexto extra. captureId y pinId siempre quedan en el bundle copiado.",
     screenshot_label: "Incluir captura de pantalla",
     screenshot_desc: "Se guarda en el servidor seleccionado. Añade la captura impresa a la copia para los agentes y a la URL .md de cada elemento.",
+    copy_on_finish_batch_label: "Copiar al finalizar un lote",
+    copy_on_finish_batch_desc: "Pone el lote finalizado en el portapapeles para pegarlo en el agente.",
+    copy_on_finish_batch_off: "No",
+    copy_on_finish_batch_link: "Enlace",
+    copy_on_finish_batch_prompt: "Prompt",
     theme_label: "Tema",
     theme_dark: "Oscuro",
     theme_light: "Claro",
@@ -474,6 +506,9 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_open_panel_label: "Ouvrir le panneau Pinar",
     batch_on: "Lot : actif",
     batch_label: "Lot · {when}",
+    batch_copied_link: "Lien copié · {count}",
+    batch_copied_prompt: "Prompt copié · {count}",
+    batch_finished: "Lot terminé · {count}",
     storage_status_title: "État du stockage",
     storage_status_desc: "Où les captures sont écrites et si de nouveaux envois sont acceptés.",
     storage_local_connected: "Serveur local connecté sur le port {port}",
@@ -552,6 +587,11 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     viewer_content_desc: "Le Markdown du visualiseur est un complément. captureId et pinId restent toujours dans le bundle copié.",
     screenshot_label: "Inclure la capture d’écran",
     screenshot_desc: "Enregistré sur le serveur sélectionné. Ajoute la capture imprimée à la copie pour les agents et à l’URL .md de chaque élément.",
+    copy_on_finish_batch_label: "Copier à la fin d’un lot",
+    copy_on_finish_batch_desc: "Place le lot terminé dans le presse-papiers pour le coller dans un agent.",
+    copy_on_finish_batch_off: "Désactivé",
+    copy_on_finish_batch_link: "Lien",
+    copy_on_finish_batch_prompt: "Prompt",
     theme_label: "Thème",
     theme_dark: "Sombre",
     theme_light: "Clair",
@@ -587,6 +627,9 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_open_panel_label: "Pinar-Panel öffnen",
     batch_on: "Stapel: aktiv",
     batch_label: "Stapel · {when}",
+    batch_copied_link: "Link kopiert · {count}",
+    batch_copied_prompt: "Prompt kopiert · {count}",
+    batch_finished: "Stapel beendet · {count}",
     storage_status_title: "Speicherstatus",
     storage_status_desc: "Wohin Aufnahmen geschrieben werden und ob neue Uploads angenommen werden.",
     storage_local_connected: "Lokaler Server auf Port {port} verbunden",
@@ -665,6 +708,11 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     viewer_content_desc: "Viewer-Markdown ist Zusatzkontext. captureId und pinId bleiben immer im kopierten Bundle.",
     screenshot_label: "Screenshot einbeziehen",
     screenshot_desc: "Wird auf dem gewählten Server gespeichert. Fügt den gedruckten Screenshot zur Agenten-Kopie und zur .md-URL jedes Eintrags hinzu.",
+    copy_on_finish_batch_label: "Beim Beenden eines Stapels kopieren",
+    copy_on_finish_batch_desc: "Legt den abgeschlossenen Stapel in die Zwischenablage, damit Sie ihn in einen Agenten einfügen können.",
+    copy_on_finish_batch_off: "Aus",
+    copy_on_finish_batch_link: "Link",
+    copy_on_finish_batch_prompt: "Prompt",
     theme_label: "Erscheinungsbild",
     theme_dark: "Dunkel",
     theme_light: "Hell",
@@ -700,6 +748,9 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_open_panel_label: "打开 Pinar 面板",
     batch_on: "批次:进行中",
     batch_label: "批次 · {when}",
+    batch_copied_link: "已复制链接 · {count}",
+    batch_copied_prompt: "已复制提示 · {count}",
+    batch_finished: "批次已结束 · {count}",
     storage_status_title: "存储状态",
     storage_status_desc: "捕获写入的位置，以及是否接受新的上传。",
     storage_local_connected: "本地服务器已连接，端口 {port}",
@@ -778,6 +829,11 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     viewer_content_desc: "查看器 Markdown 是额外上下文。captureId 和 pinId 始终保留在复制的包中。",
     screenshot_label: "包含截图",
     screenshot_desc: "保存在所选服务器上。将打印的截图加入给代理的副本以及每条记录的 .md 链接。",
+    copy_on_finish_batch_label: "批次结束时复制",
+    copy_on_finish_batch_desc: "将完成的批次放入剪贴板，以便粘贴给代理。",
+    copy_on_finish_batch_off: "关闭",
+    copy_on_finish_batch_link: "链接",
+    copy_on_finish_batch_prompt: "提示",
     theme_label: "主题",
     theme_dark: "深色",
     theme_light: "浅色",
@@ -813,6 +869,9 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_open_panel_label: "Pinar パネルを開く",
     batch_on: "バッチ: 実行中",
     batch_label: "バッチ · {when}",
+    batch_copied_link: "リンクをコピーしました · {count}",
+    batch_copied_prompt: "プロンプトをコピーしました · {count}",
+    batch_finished: "バッチ終了 · {count}",
     storage_status_title: "ストレージの状態",
     storage_status_desc: "キャプチャの保存先と、新しいアップロードを受け付けるかどうか。",
     storage_local_connected: "ローカルサーバーはポート {port} で接続済み",
@@ -891,6 +950,11 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     viewer_content_desc: "ビューアの Markdown は追加の文脈です。captureId と pinId は常にコピーしたバンドルに残ります。",
     screenshot_label: "スクリーンショットを含める",
     screenshot_desc: "選択したサーバーに保存されます。印刷したスクリーンショットをエージェント向けコピーと各項目の .md URL に含めます。",
+    copy_on_finish_batch_label: "バッチ終了時にコピー",
+    copy_on_finish_batch_desc: "完了したバッチをクリップボードに置き、エージェントに貼り付けできるようにします。",
+    copy_on_finish_batch_off: "オフ",
+    copy_on_finish_batch_link: "リンク",
+    copy_on_finish_batch_prompt: "プロンプト",
     theme_label: "テーマ",
     theme_dark: "ダーク",
     theme_light: "ライト",

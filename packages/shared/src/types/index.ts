@@ -198,6 +198,7 @@ export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
 
 export type ThemeMode = "dark" | "light" | "system";
 export type HandoffMode = "compact" | "full";
+export type CopyOnFinishBatch = "link" | "off" | "prompt";
 
 export interface DeliveryPreferences {
   handoffMode: HandoffMode;
@@ -250,6 +251,7 @@ export function mergeDeliveryPreferences(
 
 export interface PinarSettings {
   cloudUrl: string;
+  copyOnFinishBatch: CopyOnFinishBatch;
   copyViewerContent: boolean;
   enableHistory: boolean;
   handoffMode: HandoffMode;

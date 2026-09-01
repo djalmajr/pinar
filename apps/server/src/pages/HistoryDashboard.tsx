@@ -62,9 +62,11 @@ import {
   cn,
 } from "@pinar/ui";
 import { WorkspaceChrome, useWorkspaceChrome } from "@/components/WorkspaceChrome";
+import { openSessionInAssistant } from "../lib/session-actions";
+import { SessionActionsMenu } from "../components/SessionActionsMenu";
 import { useDeliveryPreferences } from "@/lib/delivery-preferences";
 import { useDocumentMeta } from "@/lib/document-meta";
-import { type ServerMessageKey, useServerI18n } from "@/lib/i18n";
+import { type Translate, useServerI18n } from "@/lib/i18n";
 import { formatSessionDate } from "@/lib/session-date";
 import { flattenCollections } from "@/lib/collection-tree";
 import {
@@ -83,13 +85,10 @@ import {
   type SessionOrderDirection,
 } from "@/lib/session-order";
 import { WebViewer } from "@/pages/WebViewer";
-import ArrowDownIcon from "~icons/lucide/arrow-down";
-import ArrowUpIcon from "~icons/lucide/arrow-up";
 import CalendarIcon from "~icons/lucide/calendar-days";
 import CheckIcon from "~icons/lucide/check";
 import CopyIcon from "~icons/lucide/copy";
 import ExternalLinkIcon from "~icons/lucide/external-link";
-import FileTextIcon from "~icons/lucide/file-text";
 import FolderIcon from "~icons/lucide/folder";
 import GridIcon from "~icons/lucide/layout-grid";
 import ListFilterIcon from "~icons/lucide/list-filter";
@@ -98,7 +97,6 @@ import MessageCircleIcon from "~icons/lucide/message-circle";
 import MoreVerticalIcon from "~icons/lucide/ellipsis-vertical";
 import FolderInputIcon from "~icons/lucide/folder-input";
 import SearchIcon from "~icons/lucide/search";
-import ScanSearchIcon from "~icons/lucide/scan-search";
 import TableIcon from "~icons/lucide/table-2";
 import TrashIcon from "~icons/lucide/trash-2";
 import XIcon from "~icons/lucide/x";
@@ -107,7 +105,6 @@ const HISTORY_VIEW_KEY = "pinar-history-view";
 const SESSION_PAGE_SIZE_OPTIONS = [15, 30, 60, 100] as const;
 
 type HistoryView = "grid" | "table";
-type Translate = (key: ServerMessageKey, values?: Record<string, string | number>) => string;
 
 function shotUrl(session: Session) {
   return session.shotUrl || (session.shotId ? `/shots/${session.shotId}.png` : null);
@@ -224,51 +221,20 @@ function SessionActions({
         >
           <MoreVerticalIcon className="size-3.5" />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="max-h-96 w-64 overflow-y-auto">
-          <DropdownMenuGroup>
-            <DropdownMenuItem onClick={() => onView(session.id)}>
-              <Maximize2Icon />
-              {t("dashboard.view")}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => requestReopenSession(session.id)}>
-              <ScanSearchIcon />
-              {t("dashboard.reviewOnPage")}
-            </DropdownMenuItem>
-            <DropdownMenuItem render={<a href={`/v/${session.id}.md`} rel="noopener noreferrer" target="_blank" />}>
-              <FileTextIcon />
-              {t("dashboard.markdown")}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onMove(session.id)}>
-              <FolderInputIcon />
-              {t("dashboard.moveTo")}
-            </DropdownMenuItem>
-          </DropdownMenuGroup>
-          {(canMoveEarlier || canMoveLater) && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuGroup>
-                <DropdownMenuLabel>{t("dashboard.order")}</DropdownMenuLabel>
-                {canMoveEarlier && (
-                  <DropdownMenuItem onClick={() => onReorder(session.id, "earlier")}>
-                    <ArrowUpIcon />
-                    {t("dashboard.moveEarlier")}
-                  </DropdownMenuItem>
-                )}
-                {canMoveLater && (
-                  <DropdownMenuItem onClick={() => onReorder(session.id, "later")}>
-                    <ArrowDownIcon />
-                    {t("dashboard.moveLater")}
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuGroup>
-            </>
-          )}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" onClick={() => onDelete(session.id)}>
-            <TrashIcon />
-            {t("dashboard.deleteSession")}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
+        <SessionActionsMenu
+          canMoveEarlier={canMoveEarlier}
+          canMoveLater={canMoveLater}
+          copied={copied}
+          session={session}
+          t={t}
+          onCopy={onCopy}
+          onDelete={onDelete}
+          onMove={onMove}
+          onOpenAssistant={(assistant) => openSessionInAssistant(session.id, assistant, t)}
+          onReorder={onReorder}
+          onReview={requestReopenSession}
+          onView={onView}
+        />
       </DropdownMenu>
     </div>
   );
@@ -834,7 +800,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
   const pinFilterControl = (
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button className="border-dashed font-normal" variant="outline" />}><ListFilterIcon data-icon="inline-start" />{t("dashboard.pins")}{pinFilters.length > 0 && <Badge className="rounded-md px-1 font-normal" variant="secondary">{pinFilters.length}</Badge>}</DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-52">
+      <DropdownMenuContent align="start">
         <DropdownMenuGroup><DropdownMenuLabel>{t("dashboard.pins")}</DropdownMenuLabel>{pinFilterOptions.map((option) => <DropdownMenuCheckboxItem checked={pinFilters.includes(option.value)} key={option.value} onClick={() => setPinFilters((current) => current.includes(option.value) ? current.filter((item) => item !== option.value) : [...current, option.value])}>{option.label}</DropdownMenuCheckboxItem>)}</DropdownMenuGroup>
         {pinFilters.length > 0 && <><DropdownMenuSeparator /><DropdownMenuItem onClick={() => setPinFilters([])}><XIcon />{t("dashboard.clearFilter")}</DropdownMenuItem></>}
       </DropdownMenuContent>
@@ -843,7 +809,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
   const reviewFilterControl = (
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button className="border-dashed font-normal" variant="outline" />}><ListFilterIcon data-icon="inline-start" />{t("dashboard.reviewStatus")}{reviewFilters.length > 0 && <Badge className="rounded-md px-1 font-normal" variant="secondary">{reviewFilters.length}</Badge>}</DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-56">
+      <DropdownMenuContent align="start">
         <DropdownMenuGroup>
           <DropdownMenuLabel>{t("dashboard.reviewStatus")}</DropdownMenuLabel>
           {PIN_REVIEW_STATUSES.map((status) => (
@@ -1071,6 +1037,8 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
           sessionId={viewerSessionId}
           siblingIds={orderedSessionIds}
           onClose={closeViewer}
+          onDelete={(id) => { closeViewer(); setDeleteIds([id]); }}
+          onMove={(id) => { closeViewer(); openMoveDialog([id]); }}
           onNavigate={openViewer}
         />
       ) : null}

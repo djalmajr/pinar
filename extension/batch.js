@@ -86,3 +86,39 @@ export function batchSummary(batch) {
     total: batch.items.length,
   };
 }
+
+export function copyOnFinishBatchMode(value) {
+  return value === "off" || value === "link" || value === "prompt" ? value : "prompt";
+}
+
+// A batch has no page of its own - it is a filter inside the workspace - so
+// both shapes address the markdown bundle. "link" hands over the URL for the
+// agent to fetch; "prompt" hands over the body of that same URL.
+export function batchHandoffUrl(base, batchId) {
+  const root = String(base || "").replace(/\/+$/, "");
+  if (!root || !batchId) return "";
+  return `${root}/b/${batchId}.md`;
+}
+
+export function finishedBatchToastKey(copied) {
+  if (copied === "link") return "batch_copied_link";
+  if (copied === "prompt") return "batch_copied_prompt";
+  return "batch_finished";
+}
+
+export async function copyFinishedBatch({
+  mode,
+  base,
+  batchId,
+  fetchText,
+  writeClipboard,
+}) {
+  const copyMode = copyOnFinishBatchMode(mode);
+  if (copyMode === "off") return { copied: null };
+  const url = batchHandoffUrl(base, batchId);
+  if (!url) return { copied: null };
+  const text = copyMode === "prompt" ? await fetchText(url) : url;
+  if (!text) return { copied: null };
+  await writeClipboard(text);
+  return { copied: copyMode };
+}

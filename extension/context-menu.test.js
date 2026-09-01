@@ -34,7 +34,7 @@ describe("extension action entry points", () => {
   });
 
   test("keeps the state surfaces on one snapshot", () => {
-    assert.match(backgroundSrc, /async function syncBatchSurfaces\(\)/);
+    assert.match(backgroundSrc, /async function syncBatchSurfaces\(/);
     assert.match(backgroundSrc, /chrome\.action\.setBadgeText/);
     assert.match(backgroundSrc, /type: "batch:changed"/);
   });

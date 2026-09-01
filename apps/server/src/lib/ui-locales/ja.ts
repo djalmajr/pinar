@@ -196,8 +196,8 @@ const messages: UiMessages = {
   "dashboard.filters": "フィルター",
   "dashboard.filtersEmpty": "フィルターなし",
   "dashboard.filterActions": "フィルター操作",
-  "dashboard.copyBatch": "バッチをプロンプト一式としてコピー",
-  "dashboard.deleteFilter": "グループを外す",
+  "dashboard.copyBatch": "バッチをコピー",
+  "dashboard.deleteFilter": "削除",
   "dashboard.deleteFilterTitle": "このグループを外しますか？",
   "dashboard.deleteFilterConfirm":
     "セッションはコレクションに残ります。グループ分けだけが消えます。",

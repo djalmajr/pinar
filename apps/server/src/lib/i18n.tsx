@@ -20,6 +20,7 @@ import {
 export type { UiMessages };
 export type ServerMessageKey = keyof UiMessages;
 export type MessageValues = Record<string, string | number>;
+export type Translate = (key: ServerMessageKey, values?: MessageValues) => string;
 
 type UiMessagesModule = { default: UiMessages };
 

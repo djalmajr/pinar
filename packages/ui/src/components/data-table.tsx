@@ -256,7 +256,7 @@ function DataTableFacetedFilter<TData extends RowData>({
           </Badge>
         ) : null}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-52">
+      <DropdownMenuContent align="start">
         <DropdownMenuGroup>
           <DropdownMenuLabel>{filterLabel}</DropdownMenuLabel>
           {options.map((option) => (
@@ -300,7 +300,7 @@ function DataTableViewOptions<TData extends RowData>({
         <Columns3Icon data-icon="inline-start" />
         {labels?.columns ?? "Columns"}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-48">
+      <DropdownMenuContent align="end">
         <DropdownMenuGroup>
           {columns.map((column) => {
             const meta = column.columnDef.meta as ColumnMeta | undefined;

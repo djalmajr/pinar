@@ -7,6 +7,9 @@ import { getBestLanguage, translations } from "./i18n.js";
 
 test("i18n translations dictionary", () => {
   const requiredKeys = [
+    "batch_copied_link",
+    "batch_copied_prompt",
+    "batch_finished",
     "capture_destination_label",
     "collection_label",
     "batch_label",

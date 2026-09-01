@@ -3,6 +3,9 @@
 export const translations = {
   en: {
     batch_active: "Batch: {count}",
+    batch_copied_link: "Copied link · {count}",
+    batch_copied_prompt: "Copied prompt · {count}",
+    batch_finished: "Batch finished · {count}",
     batch_idle: "Batch off",
     batch_label: "Batch · {when}",
     batch_on: "Batch: on",
@@ -14,6 +17,9 @@ export const translations = {
   },
   pt: {
     batch_active: "Lote: {count}",
+    batch_copied_link: "Link copiado · {count}",
+    batch_copied_prompt: "Prompt copiado · {count}",
+    batch_finished: "Lote finalizado · {count}",
     batch_idle: "Lote inativo",
     batch_label: "Lote · {when}",
     batch_on: "Lote: ativo",
@@ -25,6 +31,9 @@ export const translations = {
   },
   es: {
     batch_active: "Lote: {count}",
+    batch_copied_link: "Enlace copiado · {count}",
+    batch_copied_prompt: "Prompt copiado · {count}",
+    batch_finished: "Lote finalizado · {count}",
     batch_idle: "Lote inactivo",
     batch_label: "Lote · {when}",
     batch_on: "Lote: activo",
@@ -36,6 +45,9 @@ export const translations = {
   },
   fr: {
     batch_active: "Lot : {count}",
+    batch_copied_link: "Lien copié · {count}",
+    batch_copied_prompt: "Prompt copié · {count}",
+    batch_finished: "Lot terminé · {count}",
     batch_idle: "Lot inactif",
     batch_label: "Lot · {when}",
     batch_on: "Lot : actif",
@@ -47,6 +59,9 @@ export const translations = {
   },
   de: {
     batch_active: "Stapel: {count}",
+    batch_copied_link: "Link kopiert · {count}",
+    batch_copied_prompt: "Prompt kopiert · {count}",
+    batch_finished: "Stapel beendet · {count}",
     batch_idle: "Stapel aus",
     batch_label: "Stapel · {when}",
     batch_on: "Stapel: aktiv",
@@ -58,6 +73,9 @@ export const translations = {
   },
   zh: {
     batch_active: "批次：{count}",
+    batch_copied_link: "已复制链接 · {count}",
+    batch_copied_prompt: "已复制提示 · {count}",
+    batch_finished: "批次已结束 · {count}",
     batch_idle: "批次未启用",
     batch_label: "批次 · {when}",
     batch_on: "批次:进行中",
@@ -69,6 +87,9 @@ export const translations = {
   },
   ja: {
     batch_active: "バッチ: {count}",
+    batch_copied_link: "リンクをコピーしました · {count}",
+    batch_copied_prompt: "プロンプトをコピーしました · {count}",
+    batch_finished: "バッチ終了 · {count}",
     batch_idle: "バッチ停止中",
     batch_label: "バッチ · {when}",
     batch_on: "バッチ: 実行中",

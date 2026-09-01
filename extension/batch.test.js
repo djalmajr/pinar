@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test, { describe } from "node:test";
 import {
   addCapture,
+  batchHandoffUrl,
   batchSummary,
+  copyFinishedBatch,
+  finishedBatchToastKey,
   markFailed,
   openBatch,
   pendingCount,
@@ -155,5 +159,103 @@ describe("batch identity", () => {
     const twice = addCapture(once, { captureId: "cap_1", title: "A", url: "https://a" });
     assert.equal(twice.items.length, 1);
     assert.equal(savedCount(twice), 1);
+  });
+});
+
+describe("copy on finish batch", () => {
+  const base = "http://127.0.0.1:17373";
+  const batchId = opened.id;
+
+  test("off performs no clipboard write", async () => {
+    const writes = [];
+    const fetches = [];
+    const result = await copyFinishedBatch({
+      base,
+      batchId,
+      fetchText: async (url) => {
+        fetches.push(url);
+        return "nope";
+      },
+      mode: "off",
+      writeClipboard: async (text) => {
+        writes.push(text);
+      },
+    });
+    assert.equal(result.copied, null);
+    assert.deepEqual(writes, []);
+    assert.deepEqual(fetches, []);
+  });
+
+  test("link copies a URL", async () => {
+    const writes = [];
+    const result = await copyFinishedBatch({
+      base: `${base}/`,
+      batchId,
+      fetchText: async () => {
+        throw new Error("should not fetch");
+      },
+      mode: "link",
+      writeClipboard: async (text) => {
+        writes.push(text);
+      },
+    });
+    assert.equal(result.copied, "link");
+    assert.deepEqual(writes, [`${base}/b/${batchId}.md`]);
+  });
+
+  test("prompt copies the fetched markdown body", async () => {
+    const writes = [];
+    const result = await copyFinishedBatch({
+      base,
+      batchId,
+      fetchText: async (url) => {
+        assert.equal(url, `${base}/b/${batchId}.md`);
+        return "# Batch prompt\n";
+      },
+      mode: "prompt",
+      writeClipboard: async (text) => {
+        writes.push(text);
+      },
+    });
+    assert.equal(result.copied, "prompt");
+    assert.deepEqual(writes, ["# Batch prompt\n"]);
+  });
+
+  test("unknown mode defaults to prompt", async () => {
+    const writes = [];
+    const result = await copyFinishedBatch({
+      base,
+      batchId,
+      fetchText: async () => "body",
+      mode: "surprise",
+      writeClipboard: async (text) => {
+        writes.push(text);
+      },
+    });
+    assert.equal(result.copied, "prompt");
+    assert.deepEqual(writes, ["body"]);
+    assert.equal(batchHandoffUrl(base, batchId), `${base}/b/${batchId}.md`);
+    assert.equal(finishedBatchToastKey("link"), "batch_copied_link");
+    assert.equal(finishedBatchToastKey("prompt"), "batch_copied_prompt");
+    assert.equal(finishedBatchToastKey(null), "batch_finished");
+  });
+
+  test("finishBatch copies through the offscreen clipboard after closing the batch", () => {
+    const backgroundSrc = readFileSync(new URL("./background.js", import.meta.url), "utf8");
+    const contentSrc = readFileSync(new URL("./content.js", import.meta.url), "utf8");
+    const finish = backgroundSrc.slice(
+      backgroundSrc.indexOf("async function finishBatch()"),
+      backgroundSrc.indexOf("async function toggleBatch()"),
+    );
+    assert.match(finish, /writeBatch\(null\)/);
+    assert.match(finish, /copyFinishedBatch/);
+    assert.match(finish, /writeClipboardPlain/);
+    assert.ok(finish.indexOf("writeBatch(null)") < finish.indexOf("copyFinishedBatch"));
+    assert.ok(finish.indexOf("copyFinishedBatch") < finish.indexOf("syncBatchSurfaces"));
+    assert.match(backgroundSrc, /async function writeClipboardPlain\(text\)/);
+    assert.match(backgroundSrc, /type: "clipboard:write"/);
+    assert.match(backgroundSrc, /ensureOffscreen\(\)/);
+    assert.match(backgroundSrc, /copyOnFinishBatch: "prompt"/);
+    assert.match(contentSrc, /if \(next\?\.toast\) flashStatus\(next\.toast, "ok"\)/);
   });
 });

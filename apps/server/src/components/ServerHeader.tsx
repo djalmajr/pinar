@@ -111,7 +111,7 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
             <DropdownMenuTrigger render={<Button aria-label={t("common.primaryNavigation")} className="md:hidden" size="icon-sm" variant="ghost" />}>
               <MenuIcon />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44 md:hidden">
+            <DropdownMenuContent align="end" className="md:hidden">
               <DropdownMenuItem render={<Link activeOptions={{ exact: true }} preload="intent" to="/" />}><HomeIcon />{t("common.home")}</DropdownMenuItem>
               <DropdownMenuItem render={<Link activeOptions={{ exact: true }} preload="intent" to="/releases" />}><NewspaperIcon />{t("common.releases")}</DropdownMenuItem>
               <DropdownMenuItem render={<Link activeOptions={{ exact: true }} preload="intent" to="/help" />}><HelpCircleIcon />{t("common.help")}</DropdownMenuItem>
@@ -138,7 +138,7 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
             >
               <LanguagesIcon />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-40">
+            <DropdownMenuContent align="end">
               <DropdownMenuGroup>
                 {SUPPORTED_LANGUAGES.map((candidate) => (
                   <DropdownMenuItem key={candidate} onClick={() => setLanguage(candidate)}>

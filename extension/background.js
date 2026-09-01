@@ -2,6 +2,8 @@ import { pinBox, pinPoint, renderPinsCrop } from "./crop.js";
 import {
   addCapture,
   batchSummary,
+  copyFinishedBatch,
+  finishedBatchToastKey,
   markFailed,
   openBatch,
   planCapturePersistence,
@@ -96,7 +98,7 @@ async function batchState() {
 // Every surface that shows batch state refreshes from one snapshot: the action
 // badge and the overlay pill. The keyboard commands replaced the action context
 // menu, which could never be localized - Chrome shows one title to everyone.
-async function syncBatchSurfaces() {
+async function syncBatchSurfaces(extra = {}) {
   const state = await batchState();
   // The badge mirrors the toolbar: "on" while the batch is empty, then the count.
   const badge = state.active ? (state.count > 0 ? String(state.count) : "on") : "";
@@ -106,7 +108,7 @@ async function syncBatchSurfaces() {
   const tabs = await chrome.tabs.query({}).catch(() => []);
   await Promise.all(tabs.map((tab) => (tab.id == null
     ? null
-    : chrome.tabs.sendMessage(tab.id, { type: "batch:changed", ...state }).catch(() => null))));
+    : chrome.tabs.sendMessage(tab.id, { type: "batch:changed", ...state, ...extra }).catch(() => null))));
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -402,6 +404,7 @@ async function getSettings() {
   try {
     settings = await chrome.storage.sync.get({
       cloudUrl: "https://pinar.dev",
+      copyOnFinishBatch: "prompt",
       copyViewerContent: false,
       enableHistory: true,
       handoffMode: "compact",
@@ -414,6 +417,7 @@ async function getSettings() {
   } catch {
     settings = {
       cloudUrl: "https://pinar.dev",
+      copyOnFinishBatch: "prompt",
       copyViewerContent: false,
       enableHistory: true,
       handoffMode: "compact",
@@ -652,6 +656,16 @@ async function ensureOffscreen() {
   } catch (error) {
     if (!/already exists|Only a single offscreen/i.test(String(error))) throw error;
   }
+}
+
+async function writeClipboardPlain(text) {
+  await ensureOffscreen();
+  const written = await chrome.runtime.sendMessage({
+    html: text,
+    plain: text,
+    type: "clipboard:write",
+  });
+  if (!written?.ok) throw new Error(written?.error || "clipboard write failed");
 }
 
 async function runInTopFrame(tabId, func, args = []) {
@@ -1067,19 +1081,45 @@ async function finishBatch() {
     headers: { "content-type": "application/json" },
     method: "POST",
   };
+  const helperBase = settings.storageMode === "cloud"
+    ? cloudEndpoint(settings)
+    : await findShotBase();
   try {
     if (settings.storageMode === "cloud") {
-      await remoteFetch(cloudEndpoint(settings), path, init);
-    } else {
-      const base = await findShotBase();
-      if (base) await localFetch(base, path, init);
+      await remoteFetch(helperBase, path, init);
+    } else if (helperBase) {
+      await localFetch(helperBase, path, init);
     }
   } catch {
     /* A missing server must not keep the batch open. */
   }
   await writeBatch(null);
-  await syncBatchSurfaces();
-  return { summary: batchSummary(batch) };
+  const summary = batchSummary(batch);
+  // A batch row only exists once a capture landed in it, so an empty batch has
+  // nothing to hand over and its bundle URL would legitimately 404.
+  let copied = null;
+  if (summary.saved > 0) {
+    try {
+      const result = await copyFinishedBatch({
+        base: helperBase,
+        batchId: batch.id,
+        fetchText: async (url) => {
+          const response = await fetch(url);
+          if (!response.ok) throw new Error(`batch markdown ${response.status}`);
+          return response.text();
+        },
+        mode: settings.copyOnFinishBatch,
+        writeClipboard: writeClipboardPlain,
+      });
+      copied = result.copied;
+    } catch (error) {
+      console.error("Unable to copy the finished batch", error);
+    }
+  }
+  const language = getBestLanguage(settings.language);
+  const toast = translations[language][finishedBatchToastKey(copied)].replace("{count}", String(summary.saved));
+  await syncBatchSurfaces({ toast });
+  return { copied, summary, toast };
 }
 
 async function toggleBatch() {

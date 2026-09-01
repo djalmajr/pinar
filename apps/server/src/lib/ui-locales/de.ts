@@ -194,8 +194,8 @@ const messages: UiMessages = {
   "dashboard.filters": "Filter",
   "dashboard.filtersEmpty": "Keine Filter",
   "dashboard.filterActions": "Filteraktionen",
-  "dashboard.copyBatch": "Batch als Prompt-Paket kopieren",
-  "dashboard.deleteFilter": "Gruppierung entfernen",
+  "dashboard.copyBatch": "Stapel kopieren",
+  "dashboard.deleteFilter": "Entfernen",
   "dashboard.deleteFilterTitle": "Diese Gruppierung entfernen?",
   "dashboard.deleteFilterConfirm":
     "Die Sitzungen bleiben in ihren Sammlungen. Entfernt wird nur die Gruppierung.",

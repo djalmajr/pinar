@@ -2,6 +2,7 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 import {
   type AuthSession,
   type CaptureDestination,
+  type CopyOnFinishBatch,
   getBestLanguage,
   type HandoffMode,
   macosDesktopDmgUrl,
@@ -215,6 +216,7 @@ const DEFAULT_PROJECT_OPTION = { label: "Personal", value: "__pinar_default_proj
 const DEFAULT_COLLECTION_OPTION = { label: "Inbox", value: "__pinar_default_collection__" };
 const SETTINGS_KEYS: (keyof PinarSettings)[] = [
   "cloudUrl",
+  "copyOnFinishBatch",
   "copyViewerContent",
   "enableHistory",
   "handoffMode",
@@ -229,6 +231,7 @@ const SETTINGS_KEYS: (keyof PinarSettings)[] = [
 
 const DEFAULT_SETTINGS: PinarSettings = {
   cloudUrl: "https://pinar.dev",
+  copyOnFinishBatch: "prompt",
   copyViewerContent: false,
   enableHistory: true,
   handoffMode: "compact",
@@ -466,6 +469,7 @@ export function OptionsApp() {
           : items.cloudUrl;
         loaded = {
           cloudUrl,
+          copyOnFinishBatch: items.copyOnFinishBatch === "off" || items.copyOnFinishBatch === "link" ? items.copyOnFinishBatch : "prompt",
           copyViewerContent: Boolean(items.copyViewerContent),
           enableHistory: Boolean(items.enableHistory),
           handoffMode: items.handoffMode === "full" ? "full" : "compact",
@@ -887,6 +891,7 @@ export function OptionsApp() {
                     <label className="flex items-center justify-between gap-3 py-1"><span className="min-w-0"><span className="block text-xs font-semibold">{t.viewer_label}</span><span className="block text-xs text-muted-foreground">{t.viewer_desc}</span></span><Switch checked={settings.includeViewer} className="shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, includeViewer: value }))} /></label>
                     <label className="flex items-center justify-between gap-3 py-1"><span className="min-w-0"><span className="block text-xs font-semibold">{t.viewer_content_label}</span><span className="block text-xs text-muted-foreground">{t.viewer_content_desc}</span></span><Switch checked={settings.copyViewerContent} className="shrink-0" disabled={!settings.includeViewer} onCheckedChange={(value) => setSettings((current) => ({ ...current, copyViewerContent: value }))} /></label>
                     <label className="flex items-center justify-between gap-3 py-1"><span className="min-w-0"><span className="block text-xs font-semibold">{t.screenshot_label}</span><span className="block text-xs text-muted-foreground">{t.screenshot_desc}</span></span><Switch checked={settings.includeScreenshot} className="shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, includeScreenshot: value }))} /></label>
+                    <label className="flex items-center justify-between gap-3 py-1"><span className="min-w-0"><span className="block text-xs font-semibold">{t.copy_on_finish_batch_label}</span><span className="block text-xs text-muted-foreground">{t.copy_on_finish_batch_desc}</span></span><Select items={[{ label: t.copy_on_finish_batch_prompt, value: "prompt" }, { label: t.copy_on_finish_batch_link, value: "link" }, { label: t.copy_on_finish_batch_off, value: "off" }]} value={settings.copyOnFinishBatch || "prompt"} onValueChange={(value) => setSettings((current) => ({ ...current, copyOnFinishBatch: (value === "off" || value === "link" ? value : "prompt") as CopyOnFinishBatch }))}><SelectTrigger aria-label={t.copy_on_finish_batch_label} className="w-32 shrink-0" size="sm"><SelectValue /></SelectTrigger><SelectContent><SelectGroup><SelectItem value="prompt">{t.copy_on_finish_batch_prompt}</SelectItem><SelectItem value="link">{t.copy_on_finish_batch_link}</SelectItem><SelectItem value="off">{t.copy_on_finish_batch_off}</SelectItem></SelectGroup></SelectContent></Select></label>
                 </section>
 
                 <section className="flex flex-col gap-2.5">

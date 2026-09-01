@@ -191,8 +191,8 @@ const messages = {
   "dashboard.filters": "Filters",
   "dashboard.filtersEmpty": "No filters",
   "dashboard.filterActions": "Filter actions",
-  "dashboard.copyBatch": "Copy batch as prompt bundle",
-  "dashboard.deleteFilter": "Remove grouping",
+  "dashboard.copyBatch": "Copy batch",
+  "dashboard.deleteFilter": "Remove",
   "dashboard.deleteFilterTitle": "Remove this grouping?",
   "dashboard.deleteFilterConfirm":
     "The sessions stay in their collections. Only the grouping is removed.",

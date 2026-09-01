@@ -116,7 +116,7 @@ function ShortcutsTab({ t }: { t: TranslationDictionary }) {
   return (
     <div className="flex flex-col gap-5">
       <section className="flex flex-col gap-2.5">
-        <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{t.shortcuts_browser_title}</span>
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{t.shortcuts_browser_title}</span>
         <p className="text-xs leading-relaxed text-muted-foreground">{t.shortcuts_browser_desc}</p>
         <ul className="flex flex-col gap-1.5">
           {commands.map((command) => (
@@ -125,7 +125,7 @@ function ShortcutsTab({ t }: { t: TranslationDictionary }) {
         </ul>
       </section>
       <section className="flex flex-col gap-2.5">
-        <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{t.shortcuts_overlay_title}</span>
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{t.shortcuts_overlay_title}</span>
         <p className="text-xs leading-relaxed text-muted-foreground">{t.shortcuts_overlay_desc}</p>
         <ul className="flex flex-col gap-1.5">
           {OVERLAY_SHORTCUTS.map((item) => <ShortcutRow key={item.keys} keys={item.keys} label={t[item.label]} />)}
@@ -669,15 +669,12 @@ export function OptionsApp() {
 
               <TabsContent className="flex flex-col gap-5" value="storage">
                 <section className="flex flex-col gap-2.5">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{t.storage_title}</span>
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{t.storage_title}</span>
                   <label className="-mx-2 flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 hover:bg-muted/50">
-                    <input checked={settings.storageMode === "local"} className="mt-1 accent-primary" name="storageMode" type="radio" onChange={() => setSettings((current) => ({ ...current, storageMode: "local" }))} />
+                    <input checked={settings.storageMode === "local"} className="mt-0.5 accent-primary" name="storageMode" type="radio" onChange={() => setSettings((current) => ({ ...current, storageMode: "local" }))} />
                     <span className="min-w-0 flex-1">
-                      <span className="flex items-center justify-between gap-3">
-                        <span className="text-xs font-semibold">{t.local_title}</span>
-                        {installPlatform === "mac" ? <Button className="h-7 shrink-0 text-xs" render={<a href={macosDesktopDmgUrl()} rel="noopener noreferrer" target="_blank" />} size="sm" variant="outline" onClick={(event) => event.stopPropagation()}>{t.btn_download_macos}<IconExternalLink data-icon="inline-end" /></Button> : null}
-                      </span>
-                      <span className="block text-xs leading-relaxed text-muted-foreground">{t.local_desc}</span>
+                      <span className="block text-xs font-semibold">{t.local_title}</span>
+                      <span className="block text-xs text-muted-foreground">{t.local_desc}</span>
                       {installPlatform === "mac" ? null : (
                         <span className="mt-2 flex items-center gap-1.5 rounded-lg border bg-muted/60 p-1.5 font-mono text-[11px]">
                           <ScrollArea className="min-w-0 flex-1"><code className="block whitespace-nowrap px-1 text-muted-foreground">{installCommand}</code><ScrollBar orientation="horizontal" /></ScrollArea>
@@ -687,10 +684,11 @@ export function OptionsApp() {
                         </span>
                       )}
                     </span>
+                    {installPlatform === "mac" ? <Button className="h-7 shrink-0 self-center text-xs" render={<a href={macosDesktopDmgUrl()} rel="noopener noreferrer" target="_blank" />} size="sm" variant="outline" onClick={(event) => event.stopPropagation()}>{t.btn_download_macos}<IconExternalLink data-icon="inline-end" /></Button> : null}
                   </label>
                   <label className="-mx-2 flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 hover:bg-muted/50">
-                    <input checked={settings.storageMode === "cloud"} className="mt-1 accent-primary" name="storageMode" type="radio" onChange={() => setSettings((current) => ({ ...current, storageMode: "cloud" }))} />
-                    <span className="min-w-0 flex-1"><span className="block text-xs font-semibold">{t.remote_title}</span><span className="block text-xs leading-relaxed text-muted-foreground">{t.remote_desc}</span></span>
+                    <input checked={settings.storageMode === "cloud"} className="mt-0.5 accent-primary" name="storageMode" type="radio" onChange={() => setSettings((current) => ({ ...current, storageMode: "cloud" }))} />
+                    <span className="min-w-0 flex-1"><span className="block text-xs font-semibold">{t.remote_title}</span><span className="block text-xs text-muted-foreground">{t.remote_desc}</span></span>
                   </label>
                   {settings.storageMode === "cloud" ? (
                     <div className="ml-4 rounded-lg border bg-muted/40 p-3">
@@ -712,13 +710,13 @@ export function OptionsApp() {
                 </section>
 
                 <section className="flex flex-col gap-2.5">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{t.storage_status_title}</span>
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{t.storage_status_title}</span>
                   <StorageStatusPanel mode={settings.storageMode} t={t} />
                   <label className={cn("flex items-center justify-between gap-3 py-1", settings.storageMode !== "cloud" && "opacity-50")}><span className="min-w-0"><span className="block text-xs font-semibold">{t.history_label}</span><span className="block text-xs text-muted-foreground">{t.history_desc}</span></span><Switch checked={settings.storageMode === "cloud" ? settings.enableHistory : true} className="shrink-0" disabled={settings.storageMode !== "cloud"} onCheckedChange={(value) => setSettings((current) => ({ ...current, enableHistory: value }))} /></label>
                 </section>
 
                 <section className="flex flex-col gap-2.5">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{t.capture_destination_label}</span>
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{t.capture_destination_label}</span>
                   <Card className="gap-3 overflow-visible rounded-none py-0 ring-0" size="sm">
                     <CardContent className="grid gap-3 px-0 sm:grid-cols-2">
                       <label className="flex min-w-0 flex-col gap-1.5">

@@ -75,8 +75,6 @@ import PlusIcon from "~icons/lucide/plus";
 import ShareIcon from "~icons/lucide/share-2";
 import TrashIcon from "~icons/lucide/trash-2";
 import FilterIcon from "~icons/lucide/list-filter";
-import ChevronDownIcon from "~icons/lucide/chevron-down";
-import ChevronRightIcon from "~icons/lucide/chevron-right";
 import LayersIcon from "~icons/lucide/layers";
 
 type ContainerKind = "collection" | "project";
@@ -542,17 +540,6 @@ function FilterRow({
         <Icon />
         <span>{item.label}</span>
       </SidebarMenuButton>
-      {Array.from({ length: depth }, (_, level) => (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-y-0 z-10 w-px bg-sidebar-border"
-          data-collection-guide
-          key={level}
-          style={{
-            insetInlineStart: `${15 + level * COLLECTION_INDENTATION_WIDTH}px`,
-          }}
-        />
-      ))}
       <SidebarMenuBadge
         className={cn(
           "group-hover/menu-item:opacity-0",
@@ -596,9 +583,10 @@ function BatchesFolderRow({
           aria-hidden
           className="flex size-3.5 shrink-0 items-center justify-center"
         />
-        <LayersIcon />
         <span>{label}</span>
       </SidebarMenuButton>
+      {/* Same anatomy as a collection with children: the icon slot is the
+          toggle; no chevron. */}
       <button
         aria-expanded={expanded}
         aria-label={t(
@@ -611,7 +599,7 @@ function BatchesFolderRow({
         type="button"
         onClick={onToggle}
       >
-        {expanded ? <ChevronDownIcon /> : <ChevronRightIcon />}
+        <LayersIcon />
       </button>
       <SidebarMenuBadge>{count}</SidebarMenuBadge>
     </SidebarMenuItem>

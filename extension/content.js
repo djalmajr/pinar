@@ -143,9 +143,9 @@
     overlay_add_pin_first: "Add a pin first",
     overlay_cancel: "Cancel",
     overlay_comment: "Comment",
-    overlay_copied: "Copied",
+    overlay_copied: "Copied successfully!",
     overlay_copy_failed: "Copy failed",
-    overlay_copying: "Copying…",
+    overlay_copying: "Saving the annotations…",
     overlay_helper_unavailable: "helper unavailable",
     overlay_hint_clear_long: "to clear",
     overlay_hint_clear_short: "Clear",
@@ -232,17 +232,21 @@
       }
       .toast[hidden] { display: none; }
       /* After Cmd+Enter the toolbar stays where it is and becomes the progress
-         report: its content switches to "Copying… 55%" and a fill grows left to
+         report: its content switches to the saving label with a percentage and a fill grows left to
          right behind it, the way capture tools do. Picker, pins and composer
          leave; --progress is 0..1. */
       :host([data-progress]) .marker, :host([data-progress]) .outline, :host([data-progress]) .composer,
       :host([data-progress]) .preview, :host([data-progress]) .toast { display: none !important; }
       .toolbar::before { background: rgba(15,23,42,.08); content: ""; inset: 0; position: absolute; transform: scaleX(var(--progress, 0)); transform-origin: left center; transition: transform 240ms ease; z-index: 0; }
-      .progress-view { gap: 10px; }
-      .progress-text { font-weight: 500; }
-      .progress-pct { color: #737373; font-variant-numeric: tabular-nums; min-width: 3ch; text-align: right; }
+      .progress-view { gap: 28px; padding: 6px 28px 6px 16px; }
+      .progress-text { font-size: 16px; font-weight: 500; }
+      .progress-pct { color: #737373; font-size: 16px; font-variant-numeric: tabular-nums; min-width: 4ch; text-align: right; }
       .toolbar[data-kind="error"] .progress-text { color: #E5484D; }
-      .toolbar[data-kind="ok"] .progress-text { color: #1F7A4D; }
+      .progress-icon svg { display: none; height: 20px; width: 20px; }
+      .toolbar[data-kind="info"] .progress-spinner { animation: pinar-spin 0.9s linear infinite; color: #5794FF; display: block; }
+      .toolbar[data-kind="ok"] .progress-check { color: #1F7A4D; display: block; }
+      .toolbar[data-kind="error"] .progress-alert { color: #E5484D; display: block; }
+      @keyframes pinar-spin { to { transform: rotate(360deg); } }
       .toast[data-kind="error"] { color: #E5484D; }
       .toast[data-kind="ok"] { color: #1F7A4D; }
       .view { align-items: center; display: flex; gap: 12px; min-width: 0; position: relative; z-index: 1; }
@@ -548,8 +552,10 @@
         </span>
       </div>
       <div class="view progress-view" data-ref="progressView" hidden>
-        <span class="state-icon" aria-hidden="true">
-          ${bubbleSvg({ className: "mark", variant: "dots" })}
+        <span class="state-icon progress-icon" aria-hidden="true">
+          <svg class="progress-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 9 9"/></svg>
+          <svg class="progress-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>
+          <svg class="progress-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 2.6 17.2A2 2 0 0 0 4.3 20h15.4a2 2 0 0 0 1.7-2.8L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
         </span>
         <span class="progress-text" data-ref="progressText"></span>
         <span class="progress-pct" data-ref="progressPct"></span>
@@ -1021,13 +1027,8 @@
   }
 
   function setProgress(label, progress, kind = "info") {
-    if (!host.hasAttribute("data-progress")) {
-      // Freeze half the toolbar's width so switching to the short progress
-      // content does not collapse the bar to a fraction of its size.
-      const width = ui.toolbar?.getBoundingClientRect().width || 0;
-      if (ui.toolbar) ui.toolbar.style.minWidth = width ? `${Math.round(width / 2)}px` : "";
-      host.setAttribute("data-progress", "");
-    }
+    const entering = !host.hasAttribute("data-progress");
+    host.setAttribute("data-progress", "");
     state.progress = progress;
     if (progress >= 1 && kind !== "info") {
       // Keep the in-progress wording until the bar is visibly full.
@@ -1037,13 +1038,15 @@
       state.progressKind = kind;
     }
     renderChrome();
+    // The done label is shorter than the saving one; hold the width the bar
+    // took on entry so the end does not shrink it.
+    if (entering && ui.toolbar) ui.toolbar.style.minWidth = `${Math.ceil(ui.toolbar.getBoundingClientRect().width)}px`;
   }
 
   function clearProgress() {
     cancelAnimationFrame(state.progressRaf);
     host.removeAttribute("data-progress");
     state.progressFinal = null;
-    if (ui.toolbar) ui.toolbar.style.minWidth = "";
     state.progressLabel = null;
     state.progress = 0;
     state.progressShown = 0;

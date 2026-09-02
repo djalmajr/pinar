@@ -38,8 +38,15 @@ if (!kind) {
   console.error("usage: bun run release patch|minor|major|<x.y.z>");
   process.exit(2);
 }
-if (git("status", "--porcelain")) {
-  console.error("release: commit or stash your changes first; the release commit must contain only the version bump.");
+// The release commit is the bump plus the notes for the new tag, and nothing
+// else: the notes cannot be committed earlier because the release tests demand
+// a tag for every note, and the bump cannot land without notes.
+const NOTES_PATHS = ["apps/server/src/lib/release-content.ts", "apps/server/src/lib/release-locales/"];
+const dirty = git("status", "--porcelain").split("\n").filter(Boolean).map((line) => line.slice(3));
+const foreign = dirty.filter((file) => !NOTES_PATHS.some((allowed) => file.startsWith(allowed)));
+if (foreign.length) {
+  console.error("release: commit or stash these first; only the release notes may be pending:");
+  for (const file of foreign) console.error(`  - ${file}`);
   process.exit(1);
 }
 const branch = git("rev-parse", "--abbrev-ref", "HEAD");
@@ -70,7 +77,7 @@ if (problems.length) {
   for (const p of problems) console.error(`  - ${p}`);
   process.exit(1);
 }
-git("add", "package.json", ...SHIPPED_PACKAGES);
+git("add", "package.json", ...SHIPPED_PACKAGES, ...NOTES_PATHS);
 git("commit", "-q", "-m", `chore: release ${tag}`);
 git("tag", "-a", tag, "-m", tag);
 console.log(`release: ${current} -> ${version}, tagged ${tag}`);

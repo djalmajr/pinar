@@ -1,10 +1,15 @@
+import { readFileSync } from "node:fs";
 import type { ElectrobunConfig } from "electrobun";
+
+// The product version lives in the root package.json (see AGENTS.md); the app
+// bundle carries the same number.
+const version: string = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version;
 
 export default {
 	app: {
 		name: "Pinar",
 		identifier: "dev.pinar.local",
-		version: "0.1.5",
+		version,
 	},
 	runtime: {
 		exitOnLastWindowClosed: false,

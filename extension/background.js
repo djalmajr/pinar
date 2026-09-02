@@ -49,7 +49,9 @@ const registerInstallationOnce = createSingleFlight();
 // Keeping the original command id preserves every shortcut a user already bound;
 // Chrome keys bindings by name, so renaming it to "toggle-batch" would drop them.
 const BATCH_COMMAND = "finish-batch";
+const CANCEL_BATCH_COMMAND = "cancel-batch";
 const PANEL_COMMAND = "open-panel";
+const CANCEL_BATCH_MENU_ID = "pinar-cancel-batch";
 
 function normalizePins(pins = []) {
   return pins.map((pin, index) => {
@@ -101,6 +103,7 @@ async function batchState() {
 // menu, which could never be localized - Chrome shows one title to everyone.
 async function syncBatchSurfaces(extra = {}) {
   const state = await batchState();
+  await syncCancelBatchMenu(state).catch(() => null);
   // The badge mirrors the toolbar: "on" while the batch is empty, then the count.
   const badge = state.active ? (state.count > 0 ? String(state.count) : "on") : "";
   await chrome.action.setBadgeText({ text: badge }).catch(() => null);
@@ -140,10 +143,14 @@ async function syncUiMessages() {
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "sync" || !changes.language) return;
   void syncUiMessages();
+  void batchState().then(syncCancelBatchMenu).catch(() => null);
 });
+
+chrome.runtime.onStartup?.addListener(() => void batchState().then(syncCancelBatchMenu).catch(() => null));
 
 chrome.runtime.onInstalled.addListener(() => {
   void initializeInstallationIdentity();
+  void batchState().then(syncCancelBatchMenu).catch(() => null);
 });
 
 void initializeInstallationIdentity();
@@ -168,8 +175,33 @@ chrome.commands?.onCommand.addListener((command) => {
     void openApp().catch((error) => console.error("Unable to open Pinar app", error));
     return;
   }
+  if (command === CANCEL_BATCH_COMMAND) {
+    void finishBatch({ copy: false }).catch((error) => console.error("Unable to close the capture batch", error));
+    return;
+  }
   if (command !== BATCH_COMMAND) return;
   void toggleBatch().catch((error) => console.error("Unable to toggle the capture batch", error));
+});
+
+// The action's context menu carries one rare action: closing a batch without
+// copying it. The toolbar cannot host it (it fades under the pointer) and the
+// last default-key slot goes to the shortcut, so the menu is the pointer path.
+// Its title follows the extension language: the string is ours, set at
+// runtime, and refreshed whenever the language or the batch changes.
+async function syncCancelBatchMenu(state) {
+  if (!chrome.contextMenus) return;
+  const settings = await getSettings();
+  const title = translations[getBestLanguage(settings.language)].batch_close_menu;
+  const props = { contexts: ["action"], title, visible: Boolean(state?.active) };
+  await new Promise((resolve) => chrome.contextMenus.update(CANCEL_BATCH_MENU_ID, props, () => {
+    if (!chrome.runtime.lastError) return resolve();
+    chrome.contextMenus.create({ id: CANCEL_BATCH_MENU_ID, ...props }, () => { void chrome.runtime.lastError; resolve(); });
+  }));
+}
+
+chrome.contextMenus?.onClicked.addListener((info) => {
+  if (info.menuItemId !== CANCEL_BATCH_MENU_ID) return;
+  void finishBatch({ copy: false }).catch((error) => console.error("Unable to close the capture batch", error));
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -284,8 +316,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "batch:cancel") {
-    writeBatch(null)
-      .then(() => sendResponse({ ok: true, summary: null }))
+    // Same door as the shortcut and the action menu: close without copying.
+    // Forgetting the batch locally would leave its server row open forever.
+    finishBatch({ copy: false })
+      .then((result) => sendResponse({ ...result, ok: true }))
       .catch((error) => sendResponse({ error: String(error), ok: false }));
     return true;
   }
@@ -1197,7 +1231,7 @@ async function startBatch() {
   return batch;
 }
 
-async function finishBatch() {
+async function finishBatch({ copy = true } = {}) {
   const batch = await readBatch();
   if (!batch) return { summary: null };
   const settings = await getSettings();
@@ -1226,7 +1260,7 @@ async function finishBatch() {
   // A batch row only exists once a capture landed in it, so an empty batch has
   // nothing to hand over and its bundle URL would legitimately 404.
   let copied = null;
-  if (summary.saved > 0) {
+  if (copy && summary.saved > 0) {
     try {
       const result = await copyFinishedBatch({
         base: helperBase,
@@ -1245,7 +1279,7 @@ async function finishBatch() {
     }
   }
   const language = getBestLanguage(remotePrefs?.language ?? settings.language);
-  const toast = translations[language][finishedBatchToastKey(copied)].replace("{count}", String(summary.saved));
+  const toast = translations[language][copy ? finishedBatchToastKey(copied) : "batch_closed"].replace("{count}", String(summary.saved));
   await syncBatchSurfaces({ toast });
   return { copied, summary, toast };
 }

@@ -8,6 +8,8 @@ const MV3_KEYS = [
   "batch_active",
   "batch_copied_link",
   "batch_copied_prompt",
+  "batch_close_menu",
+  "batch_closed",
   "batch_finished",
   "batch_idle",
   "batch_label",

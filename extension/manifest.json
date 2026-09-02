@@ -8,6 +8,7 @@
   "permissions": [
     "activeTab",
     "clipboardWrite",
+    "contextMenus",
     "offscreen",
     "scripting",
     "storage"
@@ -63,6 +64,12 @@
       "description": "Open the Pinar panel",
       "suggested_key": {
         "default": "Alt+Shift+O"
+      }
+    },
+    "cancel-batch": {
+      "description": "Close the Pinar capture batch without copying it",
+      "suggested_key": {
+        "default": "Alt+Shift+X"
       }
     }
   },

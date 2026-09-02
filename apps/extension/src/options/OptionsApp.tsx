@@ -112,6 +112,7 @@ function ShortcutRow({ description, editLabel, keys, label, onEdit }: { descript
 const COMMAND_TEXT = {
   _execute_action: { description: "shortcuts_toggle_desc", label: "shortcuts_toggle_label" },
   "finish-batch": { description: "shortcuts_finish_batch_desc", label: "shortcuts_finish_batch_label" },
+  "cancel-batch": { description: "shortcuts_cancel_batch_desc", label: "shortcuts_cancel_batch_label" },
   "open-panel": { description: "shortcuts_open_panel_desc", label: "shortcuts_open_panel_label" },
 } as const satisfies Record<string, { description: keyof TranslationDictionary; label: keyof TranslationDictionary }>;
 

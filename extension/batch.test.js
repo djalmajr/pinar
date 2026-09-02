@@ -244,7 +244,7 @@ describe("copy on finish batch", () => {
     const backgroundSrc = readFileSync(new URL("./background.js", import.meta.url), "utf8");
     const contentSrc = readFileSync(new URL("./content.js", import.meta.url), "utf8");
     const finish = backgroundSrc.slice(
-      backgroundSrc.indexOf("async function finishBatch()"),
+      backgroundSrc.indexOf("async function finishBatch("),
       backgroundSrc.indexOf("async function toggleBatch()"),
     );
     assert.match(finish, /writeBatch\(null\)/);

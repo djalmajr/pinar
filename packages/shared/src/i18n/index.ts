@@ -23,6 +23,10 @@ export interface TranslationDictionary {
   batch_copied_link: string;
   batch_copied_prompt: string;
   batch_finished: string;
+  batch_closed: string;
+  batch_close_menu: string;
+  shortcuts_cancel_batch_label: string;
+  shortcuts_cancel_batch_desc: string;
   storage_status_title: string;
   storage_status_desc: string;
   storage_local_connected: string;
@@ -179,6 +183,10 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_copied_link: "Copied link · {count}",
     batch_copied_prompt: "Copied prompt · {count}",
     batch_finished: "Batch finished · {count}",
+    batch_closed: "Batch closed · {count}",
+    batch_close_menu: "Close batch without copying",
+    shortcuts_cancel_batch_label: "Close the batch without copying",
+    shortcuts_cancel_batch_desc: "Stops grouping captures. What was captured stays saved; nothing goes to the clipboard.",
     storage_status_title: "Storage status",
     storage_status_desc: "Where captures are written and whether new uploads are accepted.",
     storage_local_connected: "Local server connected on port {port}",
@@ -333,6 +341,10 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_copied_link: "Link copiado · {count}",
     batch_copied_prompt: "Prompt copiado · {count}",
     batch_finished: "Lote finalizado · {count}",
+    batch_closed: "Lote encerrado · {count}",
+    batch_close_menu: "Encerrar lote sem copiar",
+    shortcuts_cancel_batch_label: "Encerrar o lote sem copiar",
+    shortcuts_cancel_batch_desc: "Para de agrupar capturas. O que foi capturado continua salvo; nada vai para a área de transferência.",
     storage_status_title: "Status do armazenamento",
     storage_status_desc: "Onde as capturas são gravadas e se novos uploads são aceitos.",
     storage_local_connected: "Servidor local conectado na porta {port}",
@@ -487,6 +499,10 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_copied_link: "Enlace copiado · {count}",
     batch_copied_prompt: "Prompt copiado · {count}",
     batch_finished: "Lote finalizado · {count}",
+    batch_closed: "Lote cerrado · {count}",
+    batch_close_menu: "Cerrar lote sin copiar",
+    shortcuts_cancel_batch_label: "Cerrar el lote sin copiar",
+    shortcuts_cancel_batch_desc: "Deja de agrupar capturas. Lo capturado sigue guardado; nada va al portapapeles.",
     storage_status_title: "Estado del almacenamiento",
     storage_status_desc: "Dónde se escriben las capturas y si se aceptan nuevas subidas.",
     storage_local_connected: "Servidor local conectado en el puerto {port}",
@@ -641,6 +657,10 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_copied_link: "Lien copié · {count}",
     batch_copied_prompt: "Prompt copié · {count}",
     batch_finished: "Lot terminé · {count}",
+    batch_closed: "Lot fermé · {count}",
+    batch_close_menu: "Fermer le lot sans copier",
+    shortcuts_cancel_batch_label: "Fermer le lot sans copier",
+    shortcuts_cancel_batch_desc: "Arrête de regrouper les captures. Ce qui a été capturé reste enregistré ; rien ne va dans le presse-papiers.",
     storage_status_title: "État du stockage",
     storage_status_desc: "Où les captures sont écrites et si de nouveaux envois sont acceptés.",
     storage_local_connected: "Serveur local connecté sur le port {port}",
@@ -795,6 +815,10 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_copied_link: "Link kopiert · {count}",
     batch_copied_prompt: "Prompt kopiert · {count}",
     batch_finished: "Stapel beendet · {count}",
+    batch_closed: "Stapel geschlossen · {count}",
+    batch_close_menu: "Stapel ohne Kopieren schließen",
+    shortcuts_cancel_batch_label: "Stapel ohne Kopieren schließen",
+    shortcuts_cancel_batch_desc: "Beendet das Gruppieren. Aufgenommenes bleibt gespeichert; nichts landet in der Zwischenablage.",
     storage_status_title: "Speicherstatus",
     storage_status_desc: "Wohin Aufnahmen geschrieben werden und ob neue Uploads angenommen werden.",
     storage_local_connected: "Lokaler Server auf Port {port} verbunden",
@@ -949,6 +973,10 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_copied_link: "已复制链接 · {count}",
     batch_copied_prompt: "已复制提示 · {count}",
     batch_finished: "批次已结束 · {count}",
+    batch_closed: "批次已关闭 · {count}",
+    batch_close_menu: "关闭批次但不复制",
+    shortcuts_cancel_batch_label: "关闭批次但不复制",
+    shortcuts_cancel_batch_desc: "停止归组捕获。已捕获的内容仍会保存；不会复制到剪贴板。",
     storage_status_title: "存储状态",
     storage_status_desc: "捕获写入的位置，以及是否接受新的上传。",
     storage_local_connected: "本地服务器已连接，端口 {port}",
@@ -1103,6 +1131,10 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_copied_link: "リンクをコピーしました · {count}",
     batch_copied_prompt: "プロンプトをコピーしました · {count}",
     batch_finished: "バッチ終了 · {count}",
+    batch_closed: "バッチを終了 · {count}",
+    batch_close_menu: "コピーせずにバッチを終了",
+    shortcuts_cancel_batch_label: "コピーせずにバッチを終了",
+    shortcuts_cancel_batch_desc: "キャプチャのまとめを停止。キャプチャ済みは保存されたまま、クリップボードには何も入りません。",
     storage_status_title: "ストレージの状態",
     storage_status_desc: "キャプチャの保存先と、新しいアップロードを受け付けるかどうか。",
     storage_local_connected: "ローカルサーバーはポート {port} で接続済み",

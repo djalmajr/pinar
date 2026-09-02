@@ -5,8 +5,13 @@
   }
 
   const DRAG_THRESHOLD = 6;
-  // How long the copy confirmation stays up before the overlay closes. Short on purpose.
-  const COPY_CONFIRMATION_MS = 1400;
+  // How long the copy confirmation stays up before the overlay closes.
+  const COPY_CONFIRMATION_MS = 2000;
+  // How long "Copying…" is shown before the overlay steps out of the frame for
+  // the screenshot. The screenshot cannot include the toolbar, so the overlay
+  // has to vanish for as long as the capture takes; this beat makes that read
+  // as part of the sequence instead of the toolbar simply disappearing.
+  const COPY_ANNOUNCE_MS = 250;
   const BLUE = "#5794FF";
   const MARK = "#6691F2";
   // Keep in sync with extension/pin-colors.js. Content scripts are loaded as classic scripts.
@@ -1767,6 +1772,7 @@
       }
       const scan = activeScan();
       const maskRegions = activeMaskRegions();
+      await new Promise((resolve) => setTimeout(resolve, COPY_ANNOUNCE_MS));
       await chrome.runtime.sendMessage({ hidden: true, type: "overlays:hidden" }).catch(() => null);
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const capture = await chrome.runtime.sendMessage({

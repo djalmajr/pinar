@@ -238,9 +238,9 @@
       :host([data-progress]) .marker, :host([data-progress]) .outline, :host([data-progress]) .composer,
       :host([data-progress]) .preview, :host([data-progress]) .toast { display: none !important; }
       .toolbar::before { background: rgba(15,23,42,.08); content: ""; inset: 0; position: absolute; transform: scaleX(var(--progress, 0)); transform-origin: left center; transition: transform 240ms ease; z-index: 0; }
-      .progress-view { gap: 24px; padding: 6px 12px; }
+      .progress-view { gap: 12px; }
       :host([data-progress]) .toolbar { padding-left: 14px; padding-right: 14px; }
-      .progress-text { font-weight: 500; }
+      .progress-text { font-weight: 400; }
       .progress-pct { color: #737373; font-variant-numeric: tabular-nums; }
       .toolbar[data-kind="error"] .progress-text { color: #E5484D; }
       .progress-icon svg { display: none; height: 20px; width: 20px; }

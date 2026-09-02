@@ -31,7 +31,7 @@
     "dev:cloud": "bun apps/server/scripts/cloud-local.mjs --serve",
     "dev:local": "bun --filter @pinar/server dev:local",
     "prepare:cloud": "bun apps/server/scripts/cloud-local.mjs",
-    "build:server": "bun --filter @pinar/server build",
+    "build:server": "bun scripts/release-check.mjs && bun --filter @pinar/server build",
     "build:local": "bun --filter @pinar/server build:local",
     "dev:ext": "bun --filter @pinar/extension dev",
     "dev:tray": "bun scripts/prepare-tray-helper.mjs && sh -c 'cd apps/tray && exec hutch run dev'",
@@ -39,7 +39,9 @@
     "build:ext": "bun scripts/generate-extension-i18n.mjs && bun --filter @pinar/extension build",
     "build:bin": "bun scripts/build-binaries.mjs",
     "build": "bun run build:server && bun run build:local && bun --filter @pinar/extension build",
-    "typecheck": "bun --filter @pinar/server typecheck && tsc --noEmit"
+    "typecheck": "bun --filter @pinar/server typecheck && tsc --noEmit",
+    "release": "bun scripts/release.mjs",
+    "release:check": "bun scripts/release-check.mjs --production"
   },
   "devDependencies": {
     "@iconify-json/lucide": "^1.2.123",

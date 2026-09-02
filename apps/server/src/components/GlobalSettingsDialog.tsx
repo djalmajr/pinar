@@ -4,6 +4,7 @@ import {
   SUPPORTED_LANGUAGES,
 } from "@pinar/shared";
 import {
+  Badge,
   Button,
   cn,
   Dialog,
@@ -23,11 +24,16 @@ import {
   TabsList,
   TabsTrigger,
 } from "@pinar/ui";
+import { Link } from "@tanstack/react-router";
 import { isProjectTreeProject, isRecord } from "@/lib/api-data";
 import { flattenCollections } from "@/lib/collection-tree";
 import { useDeliveryPreferences } from "@/lib/delivery-preferences";
 import { useServerI18n } from "@/lib/i18n";
 import { isSupportedLanguage } from "@/lib/language";
+import { findProductRelease, loadReleaseContent, type ProductRelease } from "@/lib/release-content";
+import { pinarRuntime } from "@/lib/server-header";
+import { SERVER_BUILD, SERVER_VERSION, SERVER_VERSION_LABEL } from "@/lib/version";
+import InfoIcon from "~icons/lucide/info";
 import LaptopIcon from "~icons/lucide/laptop";
 import MonitorIcon from "~icons/lucide/monitor";
 import MoonIcon from "~icons/lucide/moon";
@@ -36,7 +42,7 @@ import SlidersHorizontalIcon from "~icons/lucide/sliders-horizontal";
 import SunIcon from "~icons/lucide/sun";
 import XIcon from "~icons/lucide/x";
 
-type SettingsSection = "capture" | "general" | "interface";
+type SettingsSection = "about" | "capture" | "general" | "interface";
 type ThemeMode = "dark" | "light" | "system";
 
 interface GlobalSettingsDialogProps {
@@ -46,12 +52,14 @@ interface GlobalSettingsDialogProps {
 
 interface SettingRowProps {
   children: ReactNode;
-  description: string;
+  description?: string;
   title: string;
 }
 
 const THEME_STORAGE_KEY = "pinar-theme";
 const DEFAULT_DESTINATION = "__default__";
+const PINAR_GITHUB_URL = "https://github.com/djalmajr/pinar";
+const PINAR_WEBSITE_URL = "https://pinar.dev";
 const SECTION_HEADER = "text-[11px] font-semibold uppercase tracking-wider";
 
 function currentThemeMode(): ThemeMode {
@@ -87,7 +95,9 @@ function SettingRow({ children, description, title }: SettingRowProps) {
     <div className="flex items-center justify-between gap-6">
       <div className="min-w-0">
         <p className="font-medium">{title}</p>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
+        {description ? (
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
+        ) : null}
       </div>
       <div className="flex w-52 shrink-0 justify-end">{children}</div>
     </div>
@@ -111,6 +121,9 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
   const [theme, setTheme] = useState<ThemeMode>("system");
   const [projects, setProjects] = useState<ProjectTreeProject[]>([]);
   const [sensitiveQueryKeysDraft, setSensitiveQueryKeysDraft] = useState("");
+  const runtime = pinarRuntime();
+  const [helperVersion, setHelperVersion] = useState("");
+  const [currentRelease, setCurrentRelease] = useState<ProductRelease | null>();
 
   useEffect(() => {
     if (!open) return;
@@ -142,6 +155,38 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
   }, [open]);
 
   useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    if (runtime === "local") {
+      void (async () => {
+        try {
+          const response = await fetch("/api/health");
+          const body: unknown = await response.json().catch(() => null);
+          if (cancelled) return;
+          const version = isRecord(body) && typeof body.version === "string"
+            ? body.version.trim()
+            : "";
+          setHelperVersion(response.ok ? version : "");
+        } catch {
+          if (!cancelled) setHelperVersion("");
+        }
+      })();
+    } else {
+      setHelperVersion("");
+    }
+    void loadReleaseContent(language)
+      .then((content) => {
+        if (!cancelled) setCurrentRelease(findProductRelease(content, SERVER_VERSION));
+      })
+      .catch(() => {
+        if (!cancelled) setCurrentRelease(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [language, open, runtime]);
+
+  useEffect(() => {
     if (theme !== "system") return;
     const media = matchMedia("(prefers-color-scheme: dark)");
     const handleChange = () => applyTheme("system");
@@ -171,16 +216,20 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
     { label: t("settings.copyOnFinishBatchOff"), value: "off" },
   ];
 
-  const sectionLabel = section === "capture"
-    ? t("settings.capture")
-    : section === "interface"
-      ? t("settings.interface")
-      : t("settings.general");
-  const sectionDescription = section === "capture"
-    ? t("settings.captureDescription")
-    : section === "interface"
-      ? t("settings.interfaceDescription")
-      : t("settings.generalDescription");
+  const sectionLabel = section === "about"
+    ? t("settings.aboutTitle")
+    : section === "capture"
+      ? t("settings.capture")
+      : section === "interface"
+        ? t("settings.interface")
+        : t("settings.general");
+  const sectionDescription = section === "about"
+    ? t("settings.aboutDescription")
+    : section === "capture"
+      ? t("settings.captureDescription")
+      : section === "interface"
+        ? t("settings.interfaceDescription")
+        : t("settings.generalDescription");
 
   function selectTheme(nextTheme: ThemeMode) {
     setTheme(nextTheme);
@@ -237,6 +286,15 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                 <MonitorIcon />
                 {t("settings.interface")}
               </Button>
+              <Button
+                aria-current={section === "about" ? "page" : undefined}
+                className={settingsNavButtonClass(section === "about")}
+                variant="ghost"
+                onClick={() => setSection("about")}
+              >
+                <InfoIcon />
+                {t("settings.about")}
+              </Button>
             </nav>
           </aside>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -256,6 +314,7 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
               <Button size="sm" variant={section === "general" ? "secondary" : "ghost"} onClick={() => setSection("general")}>{t("settings.general")}</Button>
               <Button size="sm" variant={section === "capture" ? "secondary" : "ghost"} onClick={() => setSection("capture")}>{t("settings.capture")}</Button>
               <Button size="sm" variant={section === "interface" ? "secondary" : "ghost"} onClick={() => setSection("interface")}>{t("settings.interface")}</Button>
+              <Button size="sm" variant={section === "about" ? "secondary" : "ghost"} onClick={() => setSection("about")}>{t("settings.about")}</Button>
             </nav>
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
               <section className={cn("flex flex-col gap-5", section !== "general" && "hidden")}>
@@ -422,6 +481,81 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                     </TabsList>
                   </Tabs>
                 </SettingRow>
+              </section>
+              <section className={cn("flex flex-col gap-5", section !== "about" && "hidden")}>
+                <div className="flex flex-col gap-5">
+                  <span className={SECTION_HEADER}>{t("settings.versionHeading")}</span>
+                  <SettingRow title={t("settings.productName")}>
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <span className="text-sm tabular-nums">{SERVER_VERSION_LABEL}</span>
+                      <Badge variant="secondary">
+                        {runtime === "local" ? t("settings.runtimeLocal") : t("settings.runtimeCloud")}
+                      </Badge>
+                    </div>
+                  </SettingRow>
+                  {runtime === "local" && helperVersion ? (
+                    <SettingRow title={t("settings.helperName")}>
+                      <span className="text-sm tabular-nums">{helperVersion}</span>
+                    </SettingRow>
+                  ) : null}
+                  <SettingRow
+                    description={SERVER_BUILD
+                      ? t("settings.whatsNewAhead", { version: SERVER_VERSION })
+                      : currentRelease
+                        ? `${currentRelease.title}. ${currentRelease.summary}`
+                        : currentRelease === null
+                          ? t("settings.whatsNewUnpublished")
+                          : undefined}
+                    title={t("settings.whatsNew")}
+                  >
+                    <Button
+                      render={<Link preload="intent" to="/releases" />}
+                      size="sm"
+                      variant="outline"
+                    >
+                      {t("settings.allReleases")}
+                    </Button>
+                  </SettingRow>
+                </div>
+                <div className="flex flex-col gap-5">
+                  <span className={SECTION_HEADER}>{t("settings.linksHeading")}</span>
+                  <SettingRow description={PINAR_WEBSITE_URL} title={t("settings.website")}>
+                    <Button
+                      render={<a href={PINAR_WEBSITE_URL} rel="noopener noreferrer" target="_blank" />}
+                      size="sm"
+                      variant="outline"
+                    >
+                      {t("settings.openLink")}
+                    </Button>
+                  </SettingRow>
+                  <SettingRow description={PINAR_GITHUB_URL} title={t("settings.github")}>
+                    <Button
+                      render={<a href={PINAR_GITHUB_URL} rel="noopener noreferrer" target="_blank" />}
+                      size="sm"
+                      variant="outline"
+                    >
+                      {t("settings.openLink")}
+                    </Button>
+                  </SettingRow>
+                  <SettingRow title={t("settings.terms")}>
+                    <Button
+                      render={<Link params={{ document: "terms" }} preload="intent" to="/legal/$document" />}
+                      size="sm"
+                      variant="outline"
+                    >
+                      {t("settings.openLink")}
+                    </Button>
+                  </SettingRow>
+                  <SettingRow title={t("settings.privacyPolicy")}>
+                    <Button
+                      render={<Link params={{ document: "privacy" }} preload="intent" to="/legal/$document" />}
+                      size="sm"
+                      variant="outline"
+                    >
+                      {t("settings.openLink")}
+                    </Button>
+                  </SettingRow>
+                </div>
               </section>
             </div>
           </div>

@@ -5,7 +5,7 @@ import { isPaidAuthSession, useAuthSession } from "@/lib/auth-session";
 import { useServerI18n } from "@/lib/i18n";
 import { legalDocumentTitle } from "@/lib/legal-documents";
 import { footerYear } from "@/lib/server-footer";
-import { SERVER_VERSION } from "@/lib/version";
+import { SERVER_VERSION_LABEL } from "@/lib/version";
 import CoffeeIcon from "~icons/lucide/coffee";
 import HeartIcon from "~icons/lucide/heart";
 
@@ -99,7 +99,7 @@ export function ServerFooter({ className, compact = false, note }: ServerFooterP
             <span aria-hidden="true">·</span>
             <span>© {currentYear}</span>
             <span aria-hidden="true">·</span>
-            <span>{t("common.serverVersion", { version: SERVER_VERSION })}</span>
+            <span>{t("common.serverVersion", { version: SERVER_VERSION_LABEL })}</span>
           </div>
           <nav
             aria-label={language === "pt" ? "Documentos legais" : "Legal documents"}

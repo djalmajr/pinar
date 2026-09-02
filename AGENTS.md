@@ -35,6 +35,8 @@ Linear (team Fábrica): update the issue in the same turn the role finishes. In 
 
 Cloudflare releases use an environment-specific Vite artifact. For each environment, build with `CLOUDFLARE_ENV=<staging|production> bun run build:server`, inspect `apps/server/dist/server/wrangler.json` for the matching `targetEnvironment`, Worker, bindings, and routes, then run `bunx wrangler deploy --env <environment>` from `apps/server`. Never reuse a build from another environment or bypass a mismatch. Apply authorized D1 migrations first, deploy and smoke-test staging before production, and record the Worker version IDs and public health checks.
 
+The product version is the root `package.json` version, and it is the only one: git tags (`vX.Y.Z`), release notes (`apps/server/src/lib/release-content.ts` + `release-locales/*`), `/api/health`, the site footer and Settings → About all read it. Cut a release with `bun run release <patch|minor|major>`: it requires a clean tree and notes for the new tag in all seven languages, writes the version to `apps/cli`, `apps/tray` and `apps/server` too, commits `chore: release vX.Y.Z` and tags. It does not push or deploy. `CLOUDFLARE_ENV=production bun run build:server` refuses to build unless HEAD is exactly on the release tag with a clean tree (`bun run release:check` shows why); staging and local builds are not gated, and a build ahead of the last tag shows as `X.Y.Z+<sha>` in the footer and About.
+
 <!-- ai-memory:start -->
 ## Long-term memory (ai-memory)
 

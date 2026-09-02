@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
@@ -6,6 +5,7 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import react from "@vitejs/plugin-react";
 import Icons from "unplugin-icons/vite";
 import { defineConfig } from "vite";
+import { buildIdentity } from "./build-identity";
 
 const tanstackReactStartServer = fileURLToPath(import.meta.resolve("@tanstack/react-start/server"));
 const tanstackReactStartServerEntry = fileURLToPath(new URL("./src/tanstack-server-entry.ts", import.meta.url));
@@ -14,14 +14,11 @@ const useSyncExternalStoreShim = fileURLToPath(
 );
 const cloudStatePath = process.env.PINAR_CLOUD_STATE_PATH || ".wrangler/state/cloud-local";
 const LOCAL_CLOUD_COMPATIBILITY_DATE = "2026-08-06";
-const productVersion = JSON.parse(
-  readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
-).version;
 
 export default defineConfig(({ command }) => ({
   define: {
     "import.meta.env.VITE_PINAR_RUNTIME": JSON.stringify("cloud"),
-    "import.meta.env.VITE_PINAR_VERSION": JSON.stringify(productVersion),
+    ...buildIdentity(),
   },
   plugins: [
     cloudflare({

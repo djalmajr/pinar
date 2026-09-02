@@ -52,10 +52,8 @@ const messages: UiMessages = {
   "settings.general": "常规",
   "settings.generalDescription": "应用于整个 Pinar 应用的默认设置。",
   "settings.handoffMode": "AI 副本详细程度",
-  "settings.handoffModeCompact": "精简",
   "settings.handoffModeDescription":
     "精简模式仅复制可操作上下文；完整模式包含所有捕获字段。已保存的捕获和查看器始终完整。",
-  "settings.handoffModeFull": "完整",
   "settings.captureDestination": "捕获目标",
   "settings.captureDestinationDefault": "服务器默认（Inbox）",
   "settings.captureDestinationDescription": "新捕获的保存位置。服务器默认使用第一个项目的 Inbox。",
@@ -89,7 +87,6 @@ const messages: UiMessages = {
   "settings.aboutDescription":
     "在任意网页上添加可视化标注，锚定到真实的 DOM 定位器，并以提示包的形式交给 AI 智能体和工程师。本地优先，云端可选。",
   "settings.aboutTitle": "关于 Pinar",
-  "settings.allReleases": "全部版本",
   "settings.github": "GitHub",
   "settings.linksHeading": "链接",
   "settings.privacyPolicy": "隐私政策",

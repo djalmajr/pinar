@@ -85,7 +85,7 @@ import {
 
 const LANGUAGE_OPTIONS = SUPPORTED_LANGUAGES.map((code) => ({ code, label: translations[code].name }));
 
-const SECTION_HEADER = "text-[11px] font-semibold uppercase tracking-wider";
+const SECTION_HEADER = "text-[11px] font-semibold uppercase tracking-wider text-muted-foreground";
 
 const OVERLAY_SHORTCUTS = [
   { description: "shortcut_pin_element_desc", keys: "Enter", label: "shortcut_pin_element" },

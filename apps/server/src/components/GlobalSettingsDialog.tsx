@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   type ProjectTreeProject,
   SUPPORTED_LANGUAGES,
@@ -13,18 +13,19 @@ import {
   DialogDescription,
   DialogTitle,
   Input,
+  SectionHeading,
   Select,
   SelectContent,
   SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
+  SettingRow,
   Switch,
   Tabs,
   TabsList,
   TabsTrigger,
 } from "@pinar/ui";
-import { Link } from "@tanstack/react-router";
 import { isProjectTreeProject, isRecord } from "@/lib/api-data";
 import { flattenCollections } from "@/lib/collection-tree";
 import { useDeliveryPreferences } from "@/lib/delivery-preferences";
@@ -51,18 +52,10 @@ interface GlobalSettingsDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-interface SettingRowProps {
-  children: ReactNode;
-  description?: string;
-  title: string;
-}
-
 const THEME_STORAGE_KEY = "pinar-theme";
 const DEFAULT_DESTINATION = "__default__";
 const PINAR_GITHUB_URL = "https://github.com/djalmajr/pinar";
 const PINAR_WEBSITE_URL = "https://pinar.dev";
-const SECTION_HEADER = "text-[11px] font-semibold uppercase tracking-wider";
-
 function currentThemeMode(): ThemeMode {
   const stored = localStorage.getItem(THEME_STORAGE_KEY);
   if (stored === "dark" || stored === "light") return stored;
@@ -84,10 +77,11 @@ function applyTheme(theme: ThemeMode) {
 
 // Every link in About reads the same way the rest of the workspace shows a
 // page URL: title, then the address itself as the link, with the new-tab mark.
-function AboutLink({ href, title }: { href: string; title: string }) {
+function AboutLink({ description, href, title }: { description?: string; href: string; title: string }) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
       <span className="text-sm font-medium">{title}</span>
+      {description ? <span className="text-sm leading-5 text-muted-foreground">{description}</span> : null}
       <a
         className="inline-flex max-w-full items-center gap-1 text-sm text-muted-foreground hover:text-primary"
         href={href}
@@ -111,20 +105,6 @@ function settingsNavButtonClass(isActive: boolean) {
     // spilling past the sidebar. `hyphens-auto` uses the dictionary for <html lang>.
     "h-auto w-full justify-start gap-2 rounded-md px-2 py-1.5 text-left font-normal hyphens-auto whitespace-normal hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-sidebar-ring [&>span]:min-w-0",
     isActive && "bg-sidebar-accent font-medium text-sidebar-accent-foreground",
-  );
-}
-
-function SettingRow({ children, description, title }: SettingRowProps) {
-  return (
-    <div className="flex items-center justify-between gap-6">
-      <div className="min-w-0">
-        <p className="font-medium">{title}</p>
-        {description ? (
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
-        ) : null}
-      </div>
-      <div className="flex w-52 shrink-0 justify-end">{children}</div>
-    </div>
   );
 }
 
@@ -324,7 +304,7 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
             </nav>
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
               <section className={cn("flex flex-col gap-5", section !== "general" && "hidden")}>
-                <SettingRow description={t("settings.languageDescription")} title={t("common.language")}>
+                <SettingRow controlClassName="w-52" description={t("settings.languageDescription")} title={t("common.language")}>
                   <Select
                     items={SUPPORTED_LANGUAGES.map((candidate) => ({ label: languageName(candidate), value: candidate }))}
                     value={language}
@@ -346,8 +326,8 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
               </section>
               <section className={cn("flex flex-col gap-5", section !== "capture" && "hidden")}>
                 <div className="flex flex-col gap-5">
-                  <span className={SECTION_HEADER}>{t("settings.captureHeading")}</span>
-                  <SettingRow description={t("settings.captureDestinationDescription")} title={t("settings.captureDestination")}>
+                  <SectionHeading>{t("settings.captureHeading")}</SectionHeading>
+                  <SettingRow controlClassName="w-52" description={t("settings.captureDestinationDescription")} title={t("settings.captureDestination")}>
                     <div className="flex w-full flex-col gap-2">
                       <Select
                         disabled={!available}
@@ -396,7 +376,7 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                       ) : null}
                     </div>
                   </SettingRow>
-                  <SettingRow description={t("settings.copyOnFinishBatchDescription")} title={t("settings.copyOnFinishBatch")}>
+                  <SettingRow controlClassName="w-52" description={t("settings.copyOnFinishBatchDescription")} title={t("settings.copyOnFinishBatch")}>
                     <Select
                       disabled={!available}
                       items={copyOnFinishItems}
@@ -415,21 +395,16 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                   </SettingRow>
                 </div>
                 <div className="flex flex-col gap-5">
-                  <span className={SECTION_HEADER}>{t("settings.handoffHeading")}</span>
-                  <SettingRow description={t("settings.handoffModeDescription")} title={t("settings.handoffMode")}>
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm text-muted-foreground">
-                        {handoffMode === "full" ? t("settings.handoffModeFull") : t("settings.handoffModeCompact")}
-                      </span>
-                      <Switch
-                        aria-label={t("settings.handoffMode")}
-                        checked={handoffMode === "full"}
-                        disabled={!available}
-                        onCheckedChange={(checked) => void patch({ handoffMode: checked ? "full" : "compact" })}
-                      />
-                    </div>
+                  <SectionHeading>{t("settings.handoffHeading")}</SectionHeading>
+                  <SettingRow controlClassName="w-52" description={t("settings.handoffModeDescription")} title={t("settings.handoffMode")}>
+                    <Switch
+                      aria-label={t("settings.handoffMode")}
+                      checked={handoffMode === "full"}
+                      disabled={!available}
+                      onCheckedChange={(checked) => void patch({ handoffMode: checked ? "full" : "compact" })}
+                    />
                   </SettingRow>
-                  <SettingRow description={t("dashboard.includeScreenshotHint")} title={t("dashboard.includeScreenshot")}>
+                  <SettingRow controlClassName="w-52" description={t("dashboard.includeScreenshotHint")} title={t("dashboard.includeScreenshot")}>
                     <Switch
                       aria-label={t("dashboard.includeScreenshot")}
                       checked={includeScreenshot}
@@ -437,7 +412,7 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                       onCheckedChange={(value) => void patch({ includeScreenshot: value })}
                     />
                   </SettingRow>
-                  <SettingRow description={t("settings.includeViewerDescription")} title={t("settings.includeViewer")}>
+                  <SettingRow controlClassName="w-52" description={t("settings.includeViewerDescription")} title={t("settings.includeViewer")}>
                     <Switch
                       aria-label={t("settings.includeViewer")}
                       checked={includeViewer}
@@ -445,7 +420,7 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                       onCheckedChange={(value) => void patch({ includeViewer: value })}
                     />
                   </SettingRow>
-                  <SettingRow description={t("settings.copyViewerContentDescription")} title={t("settings.copyViewerContent")}>
+                  <SettingRow controlClassName="w-52" description={t("settings.copyViewerContentDescription")} title={t("settings.copyViewerContent")}>
                     <Switch
                       aria-label={t("settings.copyViewerContent")}
                       checked={copyViewerContent}
@@ -455,8 +430,8 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                   </SettingRow>
                 </div>
                 <div className="flex flex-col gap-5">
-                  <span className={SECTION_HEADER}>{t("settings.privacyHeading")}</span>
-                  <SettingRow description={t("settings.privacyQueryKeysDescription")} title={t("settings.privacyQueryKeys")}>
+                  <SectionHeading>{t("settings.privacyHeading")}</SectionHeading>
+                  <SettingRow controlClassName="w-52" description={t("settings.privacyQueryKeysDescription")} title={t("settings.privacyQueryKeys")}>
                     <Input
                       aria-label={t("settings.privacyQueryKeys")}
                       disabled={!available}
@@ -473,7 +448,7 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                 </div>
               </section>
               <section className={cn("flex flex-col gap-5", section !== "interface" && "hidden")}>
-                <SettingRow description={t("settings.themeDescription")} title={t("settings.theme")}>
+                <SettingRow controlClassName="w-52" description={t("settings.themeDescription")} title={t("settings.theme")}>
                   <Tabs
                     value={theme}
                     onValueChange={(value) => {
@@ -490,8 +465,8 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
               </section>
               <section className={cn("flex flex-col gap-5", section !== "about" && "hidden")}>
                 <div className="flex flex-col gap-5">
-                  <span className={SECTION_HEADER}>{t("settings.versionHeading")}</span>
-                  <SettingRow title={t("settings.productName")}>
+                  <SectionHeading>{t("settings.versionHeading")}</SectionHeading>
+                  <SettingRow controlClassName="w-52" title={t("settings.productName")}>
                     <div className="flex flex-wrap items-center justify-end gap-2">
                       <span className="text-sm tabular-nums">{SERVER_VERSION_LABEL}</span>
                       <Badge variant="secondary">
@@ -499,7 +474,10 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                       </Badge>
                     </div>
                   </SettingRow>
-                  <SettingRow
+                </div>
+                <div className="flex flex-col gap-5">
+                  <SectionHeading>{t("settings.linksHeading")}</SectionHeading>
+                  <AboutLink
                     description={SERVER_BUILD
                       ? t("settings.whatsNewAhead", { version: SERVER_VERSION })
                       : currentRelease
@@ -507,19 +485,9 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                         : currentRelease === null
                           ? t("settings.whatsNewUnpublished")
                           : undefined}
+                    href={absoluteUrl("/releases")}
                     title={t("settings.whatsNew")}
-                  >
-                    <Button
-                      render={<Link preload="intent" to="/releases" />}
-                      size="sm"
-                      variant="outline"
-                    >
-                      {t("settings.allReleases")}
-                    </Button>
-                  </SettingRow>
-                </div>
-                <div className="flex flex-col gap-5">
-                  <span className={SECTION_HEADER}>{t("settings.linksHeading")}</span>
+                  />
                   <AboutLink href={PINAR_WEBSITE_URL} title={t("settings.website")} />
                   <AboutLink href={PINAR_GITHUB_URL} title={t("settings.github")} />
                   <AboutLink href={absoluteUrl("/legal/terms")} title={t("settings.terms")} />

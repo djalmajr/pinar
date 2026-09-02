@@ -54,10 +54,8 @@ const messages: UiMessages = {
   "settings.generalDescription":
     "Pinar アプリケーション全体に適用される既定値です。",
   "settings.handoffMode": "AI コピーの詳細度",
-  "settings.handoffModeCompact": "コンパクト",
   "settings.handoffModeDescription":
     "コンパクトは実行に必要な情報だけをコピーし、完全は全フィールドを含みます。保存済みキャプチャとビューアーは常に完全です。",
-  "settings.handoffModeFull": "完全",
   "settings.captureDestination": "キャプチャ先",
   "settings.captureDestinationDefault": "サーバーの既定（Inbox）",
   "settings.captureDestinationDescription":
@@ -98,7 +96,6 @@ const messages: UiMessages = {
   "settings.aboutDescription":
     "任意のウェブページに視覚的な注釈を付け、実際の DOM ロケーターにピン留めし、プロンプトバンドルとして AI エージェントやエンジニアに渡せます。ローカルファーストで、クラウドは任意です。",
   "settings.aboutTitle": "Pinar について",
-  "settings.allReleases": "すべてのリリース",
   "settings.github": "GitHub",
   "settings.linksHeading": "リンク",
   "settings.privacyPolicy": "プライバシーポリシー",

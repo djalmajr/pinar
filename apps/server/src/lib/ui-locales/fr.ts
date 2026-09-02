@@ -54,10 +54,8 @@ const messages: UiMessages = {
   "settings.generalDescription":
     "Valeurs par défaut appliquées dans toute l’application Pinar.",
   "settings.handoffMode": "Niveau de détail de la copie IA",
-  "settings.handoffModeCompact": "Compact",
   "settings.handoffModeDescription":
     "Compact ne copie que le contexte exploitable. Complet inclut tous les champs capturés. La capture enregistrée et le viewer restent toujours complets.",
-  "settings.handoffModeFull": "Complet",
   "settings.captureDestination": "Destination de la capture",
   "settings.captureDestinationDefault": "Valeur par défaut du serveur (Inbox)",
   "settings.captureDestinationDescription":
@@ -98,7 +96,6 @@ const messages: UiMessages = {
   "settings.aboutDescription":
     "Posez des annotations visuelles sur n’importe quelle page web, ancrées à de vrais localisateurs DOM, et transmettez-les aux agents d’IA et aux ingénieurs sous forme de bundle de prompt. Local-first, avec un cloud optionnel.",
   "settings.aboutTitle": "À propos de Pinar",
-  "settings.allReleases": "Toutes les versions",
   "settings.github": "GitHub",
   "settings.linksHeading": "Liens",
   "settings.privacyPolicy": "Politique de confidentialité",

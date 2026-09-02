@@ -54,10 +54,8 @@ const messages: UiMessages = {
   "settings.generalDescription":
     "Standardeinstellungen für die gesamte Pinar-Anwendung.",
   "settings.handoffMode": "Detailgrad der KI-Kopie",
-  "settings.handoffModeCompact": "Kompakt",
   "settings.handoffModeDescription":
     "Kompakt kopiert nur den relevanten Kontext. Vollständig enthält alle erfassten Felder. Gespeicherte Aufnahmen und Viewer bleiben immer vollständig.",
-  "settings.handoffModeFull": "Vollständig",
   "settings.captureDestination": "Aufnahmeziel",
   "settings.captureDestinationDefault": "Serverstandard (Inbox)",
   "settings.captureDestinationDescription":
@@ -98,7 +96,6 @@ const messages: UiMessages = {
   "settings.aboutDescription":
     "Setze visuelle Annotationen auf beliebigen Webseiten, geheftet an echte DOM-Locator, und übergib sie KI-Agenten und Entwicklern als Prompt-Bundle. Local-first, mit optionaler Cloud.",
   "settings.aboutTitle": "Über Pinar",
-  "settings.allReleases": "Alle Versionen",
   "settings.github": "GitHub",
   "settings.linksHeading": "Links",
   "settings.privacyPolicy": "Datenschutzerklärung",

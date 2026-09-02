@@ -52,10 +52,8 @@ const messages = {
   "settings.generalDescription":
     "Defaults applied throughout the Pinar application.",
   "settings.handoffMode": "Agent copy detail",
-  "settings.handoffModeCompact": "Compact",
   "settings.handoffModeDescription":
     "Compact copies only actionable context. Full includes every captured field. Saved captures and the viewer are always complete.",
-  "settings.handoffModeFull": "Full",
   "settings.captureDestination": "Capture destination",
   "settings.captureDestinationDefault": "Server default (Inbox)",
   "settings.captureDestinationDescription":
@@ -96,7 +94,6 @@ const messages = {
   "settings.aboutDescription":
     "Drop visual annotations on any web page, pinned to real DOM locators, and hand them to AI agents and engineers as a prompt bundle. Local-first, with optional cloud.",
   "settings.aboutTitle": "About Pinar",
-  "settings.allReleases": "All releases",
   "settings.github": "GitHub",
   "settings.linksHeading": "Links",
   "settings.privacyPolicy": "Privacy Policy",

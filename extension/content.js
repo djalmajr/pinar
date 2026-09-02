@@ -7,11 +7,9 @@
   const DRAG_THRESHOLD = 6;
   // How long the copy confirmation stays up before the overlay closes.
   const COPY_CONFIRMATION_MS = 2000;
-  // How long the in-progress status is shown before the overlay steps out for
-  // the screenshot. The screenshot cannot include the toolbar, so the overlay
-  // has to vanish for as long as the capture takes; this beat makes that read
-  // as part of the sequence instead of the toolbar simply disappearing.
-  const COPY_ANNOUNCE_MS = 250;
+  // How long a copy error stays up before the overlay closes; the pins are kept
+  // so reopening lets the user retry.
+  const COPY_ERROR_MS = 3000;
   const BLUE = "#5794FF";
   const MARK = "#6691F2";
   // Keep in sync with extension/pin-colors.js. Content scripts are loaded as classic scripts.
@@ -226,6 +224,12 @@
         z-index: 3;
       }
       .toast[hidden] { display: none; }
+      /* After Cmd+Enter the overlay is only a status: toolbar, picker, pins and
+         composer are gone, the toast alone reports the outcome where the
+         toolbar used to sit. */
+      :host([data-toast-only]) .toolbar, :host([data-toast-only]) .marker, :host([data-toast-only]) .outline,
+      :host([data-toast-only]) .composer, :host([data-toast-only]) .preview { display: none !important; }
+      :host([data-toast-only]) .toast { top: 16px; }
       .toast[data-kind="error"] { color: #E5484D; }
       .toast[data-kind="ok"] { color: #1F7A4D; }
       .view { align-items: center; display: flex; gap: 12px; min-width: 0; position: relative; z-index: 1; }
@@ -1777,7 +1781,10 @@
       }
       const scan = activeScan();
       const maskRegions = activeMaskRegions();
-      await new Promise((resolve) => setTimeout(resolve, COPY_ANNOUNCE_MS));
+      // From here on the overlay is a status display. The toolbar and picker
+      // leave now, deliberately; only the outcome toast comes back.
+      setStatus(null);
+      host.setAttribute("data-toast-only", "");
       await chrome.runtime.sendMessage({ hidden: true, type: "overlays:hidden" }).catch(() => null);
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const capture = await chrome.runtime.sendMessage({
@@ -1827,9 +1834,15 @@
       setVisible(false);
       broadcast(FRAME_HIDE);
     } catch (error) {
-      await chrome.runtime.sendMessage({ hidden: false, type: "overlays:hidden" }).catch(() => null);
       console.warn("Pinar copy failed", error);
-      flashStatus(t("overlay_copy_failed"));
+      // Same shape as success: a toast alone, red, then the overlay closes.
+      // Pins stay so the shortcut reopens the session for a retry.
+      setHidden(false);
+      setStatus(t("overlay_copy_failed"), "error");
+      await new Promise((resolve) => setTimeout(resolve, COPY_ERROR_MS));
+      setStatus(null);
+      setVisible(false);
+      broadcast(FRAME_HIDE);
     } finally {
       state.sending = false;
       if (state.reopenAfterSend) {
@@ -1933,6 +1946,7 @@
 
   function setVisible(visible) {
     if (visible && !host.isConnected) document.documentElement.append(host);
+    host.removeAttribute("data-toast-only");
     state.active = visible;
     host.style.display = visible ? "" : "none";
     if (visible) {

@@ -42,7 +42,7 @@ if (!kind) {
 // else: the notes cannot be committed earlier because the release tests demand
 // a tag for every note, and the bump cannot land without notes.
 const NOTES_PATHS = ["apps/server/src/lib/release-content.ts", "apps/server/src/lib/release-locales/"];
-const dirty = git("status", "--porcelain").split("\n").filter(Boolean).map((line) => line.slice(3));
+const dirty = git("status", "--porcelain").split("\n").filter(Boolean).map((line) => line.replace(/^.. /, "").replace(/^.* -> /, ""));
 const foreign = dirty.filter((file) => !NOTES_PATHS.some((allowed) => file.startsWith(allowed)));
 if (foreign.length) {
   console.error("release: commit or stash these first; only the release notes may be pending:");

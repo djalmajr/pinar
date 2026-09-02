@@ -51,6 +51,8 @@ const registerInstallationOnce = createSingleFlight();
 const BATCH_COMMAND = "finish-batch";
 const CANCEL_BATCH_COMMAND = "cancel-batch";
 const PANEL_COMMAND = "open-panel";
+const OPEN_PANEL_MENU_ID = "pinar-open-panel";
+const BATCH_MENU_ID = "pinar-batch-toggle";
 const CANCEL_BATCH_MENU_ID = "pinar-cancel-batch";
 
 function normalizePins(pins = []) {
@@ -85,7 +87,8 @@ async function initializeInstallationIdentity() {
 }
 
 async function batchState() {
-  const messages = translations.en;
+  const settings = await getSettings();
+  const messages = translations[getBestLanguage(settings.language)];
   const batch = await readBatch();
   const count = batch ? savedCount(batch) : 0;
   const commands = await chrome.commands.getAll().catch(() => []);
@@ -103,7 +106,7 @@ async function batchState() {
 // menu, which could never be localized - Chrome shows one title to everyone.
 async function syncBatchSurfaces(extra = {}) {
   const state = await batchState();
-  await syncCancelBatchMenu(state).catch(() => null);
+  await syncActionMenu(state).catch(() => null);
   // The badge mirrors the toolbar: "on" while the batch is empty, then the count.
   const badge = state.active ? (state.count > 0 ? String(state.count) : "on") : "";
   await chrome.action.setBadgeText({ text: badge }).catch(() => null);
@@ -143,14 +146,14 @@ async function syncUiMessages() {
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "sync" || !changes.language) return;
   void syncUiMessages();
-  void batchState().then(syncCancelBatchMenu).catch(() => null);
+  void batchState().then(syncActionMenu).catch(() => null);
 });
 
-chrome.runtime.onStartup?.addListener(() => void batchState().then(syncCancelBatchMenu).catch(() => null));
+chrome.runtime.onStartup?.addListener(() => void batchState().then(syncActionMenu).catch(() => null));
 
 chrome.runtime.onInstalled.addListener(() => {
   void initializeInstallationIdentity();
-  void batchState().then(syncCancelBatchMenu).catch(() => null);
+  void batchState().then(syncActionMenu).catch(() => null);
 });
 
 void initializeInstallationIdentity();
@@ -183,23 +186,41 @@ chrome.commands?.onCommand.addListener((command) => {
   void toggleBatch().catch((error) => console.error("Unable to toggle the capture batch", error));
 });
 
-// The action's context menu carries one rare action: closing a batch without
-// copying it. The toolbar cannot host it (it fades under the pointer) and the
-// last default-key slot goes to the shortcut, so the menu is the pointer path.
-// Its title follows the extension language: the string is ours, set at
-// runtime, and refreshed whenever the language or the batch changes.
-async function syncCancelBatchMenu(state) {
-  if (!chrome.contextMenus) return;
-  const settings = await getSettings();
-  const title = translations[getBestLanguage(settings.language)].batch_close_menu;
-  const props = { contexts: ["action"], title, visible: Boolean(state?.active) };
-  await new Promise((resolve) => chrome.contextMenus.update(CANCEL_BATCH_MENU_ID, props, () => {
+// The action's context menu mirrors the commands, for people who reach for
+// the mouse: open the panel, start or finish the batch, and - only while a
+// batch is running - close it without copying. Every title is our own string
+// set at runtime in the language chosen in Options and refreshed whenever the
+// language or the batch changes; Chrome never sees a fixed English label.
+function menuItem(id, props) {
+  return new Promise((resolve) => chrome.contextMenus.update(id, props, () => {
     if (!chrome.runtime.lastError) return resolve();
-    chrome.contextMenus.create({ id: CANCEL_BATCH_MENU_ID, ...props }, () => { void chrome.runtime.lastError; resolve(); });
+    chrome.contextMenus.create({ id, ...props }, () => { void chrome.runtime.lastError; resolve(); });
   }));
 }
 
+async function syncActionMenu(state) {
+  if (!chrome.contextMenus) return;
+  const settings = await getSettings();
+  const messages = translations[getBestLanguage(settings.language)];
+  const contexts = ["action"];
+  const active = Boolean(state?.active);
+  const batchTitle = active
+    ? `${messages.batch_finish} · ${state.label}`
+    : messages.batch_start;
+  await menuItem(OPEN_PANEL_MENU_ID, { contexts, title: messages.context_open_panel });
+  await menuItem(BATCH_MENU_ID, { contexts, title: batchTitle });
+  await menuItem(CANCEL_BATCH_MENU_ID, { contexts, title: messages.batch_close_menu, visible: active });
+}
+
 chrome.contextMenus?.onClicked.addListener((info) => {
+  if (info.menuItemId === OPEN_PANEL_MENU_ID) {
+    void openApp().catch((error) => console.error("Unable to open Pinar app", error));
+    return;
+  }
+  if (info.menuItemId === BATCH_MENU_ID) {
+    void toggleBatch().catch((error) => console.error("Unable to toggle the capture batch", error));
+    return;
+  }
   if (info.menuItemId !== CANCEL_BATCH_MENU_ID) return;
   void finishBatch({ copy: false }).catch((error) => console.error("Unable to close the capture batch", error));
 });

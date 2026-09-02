@@ -23,6 +23,9 @@ export interface TranslationDictionary {
   batch_copied_link: string;
   batch_copied_prompt: string;
   batch_finished: string;
+  context_open_panel: string;
+  batch_start: string;
+  batch_finish: string;
   batch_closed: string;
   batch_close_menu: string;
   shortcuts_cancel_batch_label: string;
@@ -183,6 +186,9 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_copied_link: "Copied link · {count}",
     batch_copied_prompt: "Copied prompt · {count}",
     batch_finished: "Batch finished · {count}",
+    context_open_panel: "Open panel",
+    batch_start: "Start capture batch",
+    batch_finish: "Finish capture batch",
     batch_closed: "Batch closed · {count}",
     batch_close_menu: "Close batch without copying",
     shortcuts_cancel_batch_label: "Close the batch without copying",
@@ -341,6 +347,9 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_copied_link: "Link copiado · {count}",
     batch_copied_prompt: "Prompt copiado · {count}",
     batch_finished: "Lote finalizado · {count}",
+    context_open_panel: "Abrir painel",
+    batch_start: "Iniciar lote de capturas",
+    batch_finish: "Finalizar lote de capturas",
     batch_closed: "Lote encerrado · {count}",
     batch_close_menu: "Encerrar lote sem copiar",
     shortcuts_cancel_batch_label: "Encerrar o lote sem copiar",
@@ -499,6 +508,9 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_copied_link: "Enlace copiado · {count}",
     batch_copied_prompt: "Prompt copiado · {count}",
     batch_finished: "Lote finalizado · {count}",
+    context_open_panel: "Abrir panel",
+    batch_start: "Iniciar lote de capturas",
+    batch_finish: "Finalizar lote de capturas",
     batch_closed: "Lote cerrado · {count}",
     batch_close_menu: "Cerrar lote sin copiar",
     shortcuts_cancel_batch_label: "Cerrar el lote sin copiar",
@@ -657,6 +669,9 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_copied_link: "Lien copié · {count}",
     batch_copied_prompt: "Prompt copié · {count}",
     batch_finished: "Lot terminé · {count}",
+    context_open_panel: "Ouvrir le panneau",
+    batch_start: "Démarrer un lot de captures",
+    batch_finish: "Terminer le lot de captures",
     batch_closed: "Lot fermé · {count}",
     batch_close_menu: "Fermer le lot sans copier",
     shortcuts_cancel_batch_label: "Fermer le lot sans copier",
@@ -815,6 +830,9 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_copied_link: "Link kopiert · {count}",
     batch_copied_prompt: "Prompt kopiert · {count}",
     batch_finished: "Stapel beendet · {count}",
+    context_open_panel: "Panel öffnen",
+    batch_start: "Aufnahme-Stapel starten",
+    batch_finish: "Aufnahme-Stapel abschließen",
     batch_closed: "Stapel geschlossen · {count}",
     batch_close_menu: "Stapel ohne Kopieren schließen",
     shortcuts_cancel_batch_label: "Stapel ohne Kopieren schließen",
@@ -973,6 +991,9 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_copied_link: "已复制链接 · {count}",
     batch_copied_prompt: "已复制提示 · {count}",
     batch_finished: "批次已结束 · {count}",
+    context_open_panel: "打开面板",
+    batch_start: "开始捕获批次",
+    batch_finish: "结束捕获批次",
     batch_closed: "批次已关闭 · {count}",
     batch_close_menu: "关闭批次但不复制",
     shortcuts_cancel_batch_label: "关闭批次但不复制",
@@ -1131,6 +1152,9 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_copied_link: "リンクをコピーしました · {count}",
     batch_copied_prompt: "プロンプトをコピーしました · {count}",
     batch_finished: "バッチ終了 · {count}",
+    context_open_panel: "パネルを開く",
+    batch_start: "キャプチャバッチを開始",
+    batch_finish: "キャプチャバッチを終了",
     batch_closed: "バッチを終了 · {count}",
     batch_close_menu: "コピーせずにバッチを終了",
     shortcuts_cancel_batch_label: "コピーせずにバッチを終了",

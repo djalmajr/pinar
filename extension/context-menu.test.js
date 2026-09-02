@@ -22,28 +22,40 @@ describe("extension action entry points", () => {
     assert.match(backgroundSrc, /command !== BATCH_COMMAND/);
   });
 
-  test("the action menu carries only the rare action, in the extension's language", () => {
-    // The toolbar fades under the pointer, so it cannot host a click; the last
-    // default-key slot went to the shortcut. The menu is the pointer path for
-    // closing a batch without copying, and nothing else. Its title is our own
-    // string set at runtime, so it follows the language chosen in Options -
-    // never the English catalog, which was the old menu's mistake.
+  test("the action menu mirrors the commands, in the extension's language", () => {
+    // The toolbar fades under the pointer, so it cannot host a click. The menu
+    // is the pointer path: open the panel, start/finish the batch, and close
+    // it without copying while one runs. Every title is our own string set at
+    // runtime, so it follows the language chosen in Options - never the
+    // English catalog, which was the old menu's mistake.
     assert.ok(manifest.permissions.includes("contextMenus"));
     const menu = backgroundSrc.slice(
-      backgroundSrc.indexOf("async function syncCancelBatchMenu"),
+      backgroundSrc.indexOf("function menuItem("),
       backgroundSrc.indexOf("chrome.tabs.onRemoved"),
     );
-    assert.match(menu, /translations\[getBestLanguage\(settings\.language\)\]\.batch_close_menu/);
+    assert.match(menu, /translations\[getBestLanguage\(settings\.language\)\]/);
     assert.doesNotMatch(menu, /translations\.en/);
-    assert.match(menu, /visible: Boolean\(state\?\.active\)/);
-    assert.equal((backgroundSrc.match(/chrome\.contextMenus\.create\(/g) ?? []).length, 1);
+    assert.match(menu, /messages\.context_open_panel/);
+    assert.match(menu, /messages\.batch_finish/);
+    assert.match(menu, /messages\.batch_start/);
+    assert.match(menu, /title: messages\.batch_close_menu, visible: active/);
     assert.match(menu, /finishBatch\(\{ copy: false \}\)/);
-    for (const lang of Object.keys(translations)) assert.ok(translations[lang].batch_close_menu);
+    assert.match(menu, /void toggleBatch\(\)/);
+    assert.match(menu, /void openApp\(\)/);
+    for (const lang of Object.keys(translations)) {
+      for (const key of ["context_open_panel", "batch_start", "batch_finish", "batch_close_menu"]) assert.ok(translations[lang][key], `${lang}.${key}`);
+    }
+  });
+
+  test("the batch label shown on the pill, badge and menu follows the extension language", () => {
+    const state = backgroundSrc.slice(backgroundSrc.indexOf("async function batchState()"), backgroundSrc.indexOf("async function syncBatchSurfaces"));
+    assert.match(state, /translations\[getBestLanguage\(settings\.language\)\]/);
+    assert.doesNotMatch(state, /translations\.en/);
   });
 
   test("the menu title is refreshed when the language or the batch changes", () => {
-    assert.match(backgroundSrc, /async function syncBatchSurfaces[\s\S]*?await syncCancelBatchMenu\(state\)/);
-    assert.match(backgroundSrc, /changes\.language[\s\S]*?syncCancelBatchMenu/);
+    assert.match(backgroundSrc, /async function syncBatchSurfaces[\s\S]*?await syncActionMenu\(state\)/);
+    assert.match(backgroundSrc, /changes\.language[\s\S]*?syncActionMenu/);
   });
 
   test("closing without copying never touches the clipboard", () => {

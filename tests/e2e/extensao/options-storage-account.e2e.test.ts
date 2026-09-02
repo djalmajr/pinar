@@ -245,12 +245,14 @@ test("storage mode and destination identity persist without mixing local and clo
   await installOptionsHarness(page);
 
   await expect(page.getByRole("radio", { name: /Local Server/ })).toBeChecked();
+  await expect(page.getByRole("tabpanel").locator("[data-slot=separator]")).toHaveCount(2);
+  await expect(page.getByText("Keep new captures on this device or send them to a remote Pinar server.", { exact: true })).toBeVisible();
   const downloadLink = page.getByRole("link", { name: "Download Pinar" });
   await expect(downloadLink).toHaveAttribute(
     "href",
     "https://github.com/djalmajr/pinar/releases/latest/download/macos-arm64-Pinar.dmg",
   );
-  await expect(downloadLink).toHaveClass(/external-link/);
+  await expect(downloadLink).toHaveAttribute("target", "_blank");
   const projectCombobox = page.getByRole("combobox", { name: "Project" });
   await expect(projectCombobox).toHaveValue("Account Local");
   await projectCombobox.click();
@@ -271,7 +273,8 @@ test("storage mode and destination identity persist without mixing local and clo
   await collectionCombobox.fill("missing collection");
   await expect(page.getByText("No collections found.", { exact: true })).toBeVisible();
   await collectionCombobox.fill("Inbox");
-  await page.getByRole("option", { name: "Inbox" }).click();
+  await collectionCombobox.press("Enter");
+  await expect(collectionCombobox).toHaveValue("Inbox");
 
   await page.getByRole("radio", { name: /Remote Server/ }).check();
   await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
@@ -297,6 +300,138 @@ test("storage mode and destination identity persist without mixing local and clo
   await page.reload();
   await expect(page.getByRole("radio", { name: /Local Server/ })).toBeChecked();
   await expect(page.getByRole("combobox", { name: "Project" })).toHaveValue("Account Local");
+});
+
+test("language and theme sit on their own preference rows", async ({ page }) => {
+  await installOptionsHarness(page);
+  await page.getByRole("tab", { name: "Preferences" }).click();
+
+  const language = page.getByRole("combobox", { name: "Language" });
+  await expect(language).toBeVisible();
+  await expect(page.getByText("Language", { exact: true })).toHaveCSS("font-size", "12px");
+  await expect(page.getByText("Theme", { exact: true })).toHaveCSS("font-size", "12px");
+  await expect(page.getByText("Copy when a batch finishes", { exact: true })).toHaveCSS("font-size", "12px");
+  await expect(page.getByText("Choose the language used across the extension.", { exact: true })).toHaveCSS("font-size", "12px");
+  await expect(page.getByText("Follow the system appearance or choose a fixed theme.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Language and appearance used across the extension.", { exact: true })).toBeVisible();
+  await expect(page.getByText("What is copied to the agent and what stays complete on the server.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Optional metrics and extra URL keys stripped from captured addresses.", { exact: true })).toBeVisible();
+
+  const panel = page.getByRole("tabpanel");
+  const separators = panel.locator("[data-slot=separator]");
+  await expect(separators).toHaveCount(2);
+  const interfaceHeading = page.getByText("Interface", { exact: true });
+  const languageTitle = page.getByText("Language", { exact: true });
+  const themeTitle = page.getByText("Theme", { exact: true });
+  const handoffHeading = page.getByText("Agent handoff", { exact: true });
+  const privacyHeading = page.getByText("Privacy", { exact: true });
+  const interfaceBox = await interfaceHeading.boundingBox();
+  const languageBox = await languageTitle.boundingBox();
+  const themeBox = await themeTitle.boundingBox();
+  const handoffBox = await handoffHeading.boundingBox();
+  const privacyBox = await privacyHeading.boundingBox();
+  const firstSep = await separators.nth(0).boundingBox();
+  const secondSep = await separators.nth(1).boundingBox();
+  expect(interfaceBox && languageBox && themeBox && handoffBox && privacyBox && firstSep && secondSep).toBeTruthy();
+  expect((languageBox!.y) - (interfaceBox!.y + interfaceBox!.height)).toBeGreaterThanOrEqual(24);
+  expect(firstSep!.y).toBeGreaterThan(themeBox!.y);
+  expect(firstSep!.y).toBeLessThan(handoffBox!.y);
+  expect(secondSep!.y).toBeGreaterThan(handoffBox!.y);
+  expect(secondSep!.y).toBeLessThan(privacyBox!.y);
+
+  const theme = page.getByRole("tablist", { name: "Theme" });
+  await expect(theme).toBeVisible();
+  await expect(page.getByRole("tab", { name: "System", exact: true })).toHaveText("");
+  await expect(page.getByRole("tab", { name: "Light", exact: true })).toHaveText("");
+  await expect(page.getByRole("tab", { name: "Dark", exact: true })).toHaveText("");
+
+  await page.getByRole("tab", { name: "Dark", exact: true }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+
+  const languageTriggerBox = await language.boundingBox();
+  expect(languageTriggerBox?.width ?? 999).toBeLessThan(160);
+
+  await language.click();
+  const languageMenu = page.locator("[data-slot=select-content][data-open]");
+  await expect(languageMenu).toBeVisible();
+  const languageMenuBox = await languageMenu.boundingBox();
+  expect(languageMenuBox?.width ?? 999).toBeLessThan(180);
+  await page.getByRole("option", { name: "Português" }).click();
+  await expect(page.getByRole("combobox", { name: "Idioma" })).toContainText("Português");
+
+  await page.getByRole("combobox", { name: "Copiar ao finalizar um lote" }).click();
+  const copyMenu = page.locator("[data-slot=select-content][data-open]");
+  await expect(copyMenu).toBeVisible();
+  const copyMenuBox = await copyMenu.boundingBox();
+  expect(copyMenuBox?.width ?? 999).toBeLessThan(160);
+});
+
+test("each options tab separates its sections", async ({ page }) => {
+  await installOptionsHarness(page);
+  await expect(page.getByRole("tabpanel").locator("[data-slot=separator]")).toHaveCount(2);
+
+  await page.getByRole("tab", { name: "Preferences" }).click();
+  await expect(page.getByRole("tabpanel").locator("[data-slot=separator]")).toHaveCount(2);
+
+  await page.getByRole("tab", { name: "Shortcuts" }).click();
+  await expect(page.getByRole("tabpanel").locator("[data-slot=separator]")).toHaveCount(1);
+  const shortcutsHeading = page.getByText("Browser shortcuts", { exact: true });
+  const shortcutsDesc = page.getByText(
+    "Assigned by Chrome and rebindable per browser. They stay inert on chrome:// pages, on the Web Store, and before the overlay is injected.",
+    { exact: true },
+  );
+  const shortcutsHeadingBox = await shortcutsHeading.boundingBox();
+  const shortcutsDescBox = await shortcutsDesc.boundingBox();
+  expect(shortcutsHeadingBox && shortcutsDescBox).toBeTruthy();
+  expect((shortcutsDescBox!.y) - (shortcutsHeadingBox!.y + shortcutsHeadingBox!.height)).toBeLessThan(8);
+
+  await page.getByRole("tab", { name: "Account" }).click();
+  await expect(page.getByRole("tabpanel").locator("[data-slot=separator]")).toHaveCount(0);
+});
+
+test("privacy URL keys input sits under its description", async ({ page }) => {
+  await installOptionsHarness(page);
+  await page.getByRole("tab", { name: "Preferences" }).click();
+
+  const description = page.getByText(
+    "Comma-separated query or hash keys stripped from captured URLs, in addition to tokens and secrets.",
+    { exact: true },
+  );
+  const input = page.getByRole("textbox", { name: "Extra URL keys to hide" });
+  const descriptionBox = await description.boundingBox();
+  const inputBox = await input.boundingBox();
+  expect(descriptionBox && inputBox, "privacy copy and input should be measurable").toBeTruthy();
+  expect(inputBox!.y).toBeGreaterThan((descriptionBox!.y + descriptionBox!.height) - 1);
+  expect(inputBox!.width).toBeGreaterThan(280);
+});
+
+test("preference copy uses tight line-height and reaches the control", async ({ page }) => {
+  await installOptionsHarness(page);
+  await page.getByRole("tab", { name: "Preferences" }).click();
+
+  const handoff = page.getByText(
+    "Compact copies only actionable context. Full includes every captured field. Saved captures and the viewer are always complete.",
+    { exact: true },
+  );
+  await expect(handoff).toHaveCSS("font-size", "12px");
+  await expect(handoff).toHaveCSS("line-height", "16px");
+
+  const title = page.getByText("Agent copy detail · Compact", { exact: true });
+  const titleBox = await title.boundingBox();
+  const descBox = await handoff.boundingBox();
+  expect(titleBox && descBox, "title and description should be measurable").toBeTruthy();
+  expect((descBox?.y ?? 0) - ((titleBox?.y ?? 0) + (titleBox?.height ?? 0))).toBeLessThan(4);
+
+  const row = page.locator("[data-slot=setting-row]").filter({ has: handoff });
+  const controlWidth = await row.evaluate((el) => el.children[1]?.getBoundingClientRect().width ?? 0);
+  expect(controlWidth).toBeLessThan(80);
+
+  await page.getByRole("tab", { name: "Shortcuts" }).click();
+  const intro = page.getByText(
+    "Assigned by Chrome and rebindable per browser. They stay inert on chrome:// pages, on the Web Store, and before the overlay is injected.",
+    { exact: true },
+  );
+  await expect(intro).toHaveCSS("line-height", "16px");
 });
 
 test("agent copy detail persists independently from the complete saved capture", async ({ page }) => {
@@ -461,7 +596,7 @@ test("temporary-code actions are localized in every supported language", async (
       localStorage.setItem(key, JSON.stringify({ ...current, language }));
     }, item.code);
     await page.reload();
-    await page.getByRole("tab").nth(2).click();
+    await page.getByRole("tab").nth(3).click();
     await page.getByRole("button", { name: item.generate, exact: true }).click();
     await page.getByRole("button", { name: item.generateAnother, exact: true }).click();
     await expect(page.getByRole("alertdialog").getByRole("heading", { name: item.confirm, exact: true })).toBeVisible();

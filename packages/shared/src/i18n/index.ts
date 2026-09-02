@@ -2,19 +2,24 @@ import { SUPPORTED_LANGUAGES, type SupportedLanguage } from "../types/index.js";
 
 export interface TranslationDictionary {
   capture_destination_label: string;
+  capture_destination_desc: string;
   collection_label: string;
   destination_unavailable: string;
   name: string;
   header_title: string;
   header_desc: string;
   storage_title: string;
+  storage_title_desc: string;
   tab_storage: string;
   tab_preferences: string;
   tab_account: string;
   tab_shortcuts: string;
   section_interface: string;
+  section_interface_desc: string;
   section_handoff: string;
+  section_handoff_desc: string;
   section_privacy: string;
+  section_privacy_desc: string;
   batch_active: string;
   batch_idle: string;
   shortcuts_open_panel_label: string;
@@ -33,6 +38,7 @@ export interface TranslationDictionary {
   shortcuts_cancel_batch_label: string;
   shortcuts_cancel_batch_desc: string;
   storage_status_title: string;
+  storage_status_title_desc: string;
   storage_status_desc: string;
   storage_local_connected: string;
   storage_local_missing: string;
@@ -70,6 +76,7 @@ export interface TranslationDictionary {
   legal_privacy: string;
   legal_terms: string;
   account_title: string;
+  account_title_desc: string;
   account_free_badge: string;
   account_free_description: string;
   account_free_title: string;
@@ -123,10 +130,12 @@ export interface TranslationDictionary {
   copy_on_finish_batch_link: string;
   copy_on_finish_batch_prompt: string;
   theme_label: string;
+  theme_desc: string;
   theme_dark: string;
   theme_light: string;
   theme_system: string;
   language_label: string;
+  language_desc: string;
   privacy_query_keys_label: string;
   privacy_query_keys_desc: string;
   btn_coffee: string;
@@ -156,6 +165,7 @@ export interface TranslationDictionary {
   overlay_pin_mode: string;
   overlay_copying: string;
   overlay_copied: string;
+  overlay_saved: string;
   overlay_no_screenshot: string;
   overlay_helper_unavailable: string;
   overlay_no_viewer: string;
@@ -173,19 +183,24 @@ export interface TranslationDictionary {
 export const translations: Record<SupportedLanguage, TranslationDictionary> = {
   en: {
     capture_destination_label: "Capture destination",
+    capture_destination_desc: "Project and collection that receive new captures on the selected server.",
     collection_label: "Collection",
     destination_unavailable: "Projects and collections could not be loaded. Check that the selected server is available and up to date.",
     name: "English",
     header_title: "Pinar Settings",
     header_desc: "Configure storage destination and feedback preferences",
     storage_title: "Storage Destination",
+    storage_title_desc: "Keep new captures on this device or send them to a remote Pinar server.",
     tab_storage: "Storage",
     tab_preferences: "Preferences",
     tab_account: "Account",
     tab_shortcuts: "Shortcuts",
     section_interface: "Interface",
+    section_interface_desc: "Language and appearance used across the extension.",
     section_handoff: "Agent handoff",
+    section_handoff_desc: "What is copied to the agent and what stays complete on the server.",
     section_privacy: "Privacy",
+    section_privacy_desc: "Optional metrics and extra URL keys stripped from captured addresses.",
     batch_active: "Batch: {count}",
     batch_idle: "Batch off",
     shortcuts_open_panel_label: "Open the Pinar panel",
@@ -193,7 +208,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_label: "Batch · {when}",
     batch_copied_link: "Copied link · {count}",
     batch_copied_prompt: "Copied prompt · {count}",
-    batch_finished: "Batch finished · {count}",
+    batch_finished: "Batch saved successfully!",
     batch_finish_failed: "Batch closed here, but the server could not be reached · {count}",
     batch_copy_failed: "Batch closed · copy failed · {count}",
     context_open_panel: "Open panel",
@@ -204,6 +219,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_cancel_batch_label: "Close the batch without copying",
     shortcuts_cancel_batch_desc: "Stops grouping captures. What was captured stays saved; nothing goes to the clipboard.",
     storage_status_title: "Storage status",
+    storage_status_title_desc: "Reachability, quota, and whether capture history is kept.",
     storage_status_desc: "Where captures are written and whether new uploads are accepted.",
     storage_local_connected: "Local server connected on port {port}",
     storage_local_missing: "Local server not found on ports 17373-17382",
@@ -241,6 +257,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     legal_privacy: "Privacy",
     legal_terms: "Terms",
     account_title: "Account and plan",
+    account_title_desc: "Signed-in email, plan, and billing for this browser.",
     account_free_badge: "No account",
     account_free_description: "Use a temporary code to open Pinar in another browser.",
     account_free_title: "Continue with a Free installation",
@@ -294,10 +311,12 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     copy_on_finish_batch_link: "Link",
     copy_on_finish_batch_prompt: "Prompt",
     theme_label: "Theme",
+    theme_desc: "Follow the system appearance or choose a fixed theme.",
     theme_dark: "Dark",
     theme_light: "Light",
     theme_system: "System",
     language_label: "Language",
+    language_desc: "Choose the language used across the extension.",
     privacy_query_keys_label: "Extra URL keys to hide",
     privacy_query_keys_desc: "Comma-separated query or hash keys stripped from captured URLs, in addition to tokens and secrets.",
     btn_coffee: "Coffee",
@@ -327,6 +346,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_pin_mode: "Pin mode",
     overlay_copying: "Saving the annotations…",
     overlay_copied: "Copied successfully!",
+    overlay_saved: "Annotations saved successfully!",
     overlay_no_screenshot: "no screenshot",
     overlay_helper_unavailable: "helper unavailable",
     overlay_no_viewer: "no viewer",
@@ -342,19 +362,24 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
   },
   pt: {
     capture_destination_label: "Destino da captura",
+    capture_destination_desc: "Projeto e coleção que recebem as novas capturas no servidor selecionado.",
     collection_label: "Coleção",
     destination_unavailable: "Não foi possível carregar projetos e coleções. Verifique se o servidor selecionado está disponível e atualizado.",
     name: "Português",
     header_title: "Configurações do Pinar",
     header_desc: "Configure o destino de armazenamento e preferências de feedback",
     storage_title: "Destino de Armazenamento",
+    storage_title_desc: "Mantenha as novas capturas neste dispositivo ou envie-as a um servidor Pinar remoto.",
     tab_storage: "Armazenamento",
     tab_preferences: "Preferências",
     tab_account: "Conta",
     tab_shortcuts: "Atalhos",
     section_interface: "Interface",
+    section_interface_desc: "Idioma e aparência usados em toda a extensão.",
     section_handoff: "Entrega ao agente",
+    section_handoff_desc: "O que é copiado para o agente e o que permanece completo no servidor.",
     section_privacy: "Privacidade",
+    section_privacy_desc: "Métricas opcionais e chaves extras de URL removidas dos endereços capturados.",
     batch_active: "Lote: {count}",
     batch_idle: "Lote inativo",
     shortcuts_open_panel_label: "Abrir o painel do Pinar",
@@ -362,7 +387,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_label: "Lote · {when}",
     batch_copied_link: "Link copiado · {count}",
     batch_copied_prompt: "Prompt copiado · {count}",
-    batch_finished: "Lote finalizado · {count}",
+    batch_finished: "Lote gravado com sucesso!",
     batch_finish_failed: "Lote encerrado aqui, mas o servidor não respondeu · {count}",
     batch_copy_failed: "Lote encerrado · cópia falhou · {count}",
     context_open_panel: "Abrir painel",
@@ -373,6 +398,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_cancel_batch_label: "Encerrar o lote sem copiar",
     shortcuts_cancel_batch_desc: "Para de agrupar capturas. O que foi capturado continua salvo; nada vai para a área de transferência.",
     storage_status_title: "Status do armazenamento",
+    storage_status_title_desc: "Conexão, cota e se o histórico de capturas é mantido.",
     storage_status_desc: "Onde as capturas são gravadas e se novos uploads são aceitos.",
     storage_local_connected: "Servidor local conectado na porta {port}",
     storage_local_missing: "Servidor local não encontrado nas portas 17373-17382",
@@ -410,6 +436,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     legal_privacy: "Privacidade",
     legal_terms: "Termos",
     account_title: "Conta e plano",
+    account_title_desc: "E-mail, plano e cobrança da conta neste navegador.",
     account_free_badge: "Sem conta",
     account_free_description: "Use um código temporário para abrir o Pinar em outro navegador.",
     account_free_title: "Continuar com uma instalação Free",
@@ -463,10 +490,12 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     copy_on_finish_batch_link: "Link",
     copy_on_finish_batch_prompt: "Prompt",
     theme_label: "Tema",
+    theme_desc: "Use a aparência do sistema ou escolha um tema fixo.",
     theme_dark: "Escuro",
     theme_light: "Claro",
     theme_system: "Sistema",
     language_label: "Idioma",
+    language_desc: "Escolha o idioma usado em toda a extensão.",
     privacy_query_keys_label: "Chaves extras da URL para ocultar",
     privacy_query_keys_desc: "Chaves de query ou hash, separadas por vírgula, removidas das URLs capturadas além de tokens e segredos.",
     btn_coffee: "Café",
@@ -496,6 +525,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_pin_mode: "Modo pin",
     overlay_copying: "Gravando as anotações…",
     overlay_copied: "Copiado com sucesso!",
+    overlay_saved: "Anotações gravadas com sucesso!",
     overlay_no_screenshot: "sem captura",
     overlay_helper_unavailable: "auxiliar indisponível",
     overlay_no_viewer: "sem visualizador",
@@ -511,19 +541,24 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
   },
   es: {
     capture_destination_label: "Destino de captura",
+    capture_destination_desc: "Proyecto y colección que reciben las nuevas capturas en el servidor seleccionado.",
     collection_label: "Colección",
     destination_unavailable: "No se pudieron cargar los proyectos y las colecciones. Comprueba que el servidor seleccionado esté disponible y actualizado.",
     name: "Español",
     header_title: "Configuración de Pinar",
     header_desc: "Configura el destino de almacenamiento y preferencias de feedback",
     storage_title: "Destino de Almacenamiento",
+    storage_title_desc: "Mantén las capturas nuevas en este dispositivo o envíalas a un servidor Pinar remoto.",
     tab_storage: "Almacenamiento",
     tab_preferences: "Preferencias",
     tab_account: "Cuenta",
     tab_shortcuts: "Atajos",
     section_interface: "Interfaz",
+    section_interface_desc: "Idioma y apariencia usados en toda la extensión.",
     section_handoff: "Entrega al agente",
+    section_handoff_desc: "Qué se copia al agente y qué permanece completo en el servidor.",
     section_privacy: "Privacidad",
+    section_privacy_desc: "Métricas opcionales y claves extra de URL eliminadas de las direcciones capturadas.",
     batch_active: "Lote: {count}",
     batch_idle: "Lote inactivo",
     shortcuts_open_panel_label: "Abrir el panel de Pinar",
@@ -531,7 +566,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_label: "Lote · {when}",
     batch_copied_link: "Enlace copiado · {count}",
     batch_copied_prompt: "Prompt copiado · {count}",
-    batch_finished: "Lote finalizado · {count}",
+    batch_finished: "¡Lote guardado con éxito!",
     batch_finish_failed: "Lote cerrado aquí, pero el servidor no respondió · {count}",
     batch_copy_failed: "Lote cerrado · la copia falló · {count}",
     context_open_panel: "Abrir panel",
@@ -542,6 +577,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_cancel_batch_label: "Cerrar el lote sin copiar",
     shortcuts_cancel_batch_desc: "Deja de agrupar capturas. Lo capturado sigue guardado; nada va al portapapeles.",
     storage_status_title: "Estado del almacenamiento",
+    storage_status_title_desc: "Conexión, cuota y si se guarda el historial de capturas.",
     storage_status_desc: "Dónde se escriben las capturas y si se aceptan nuevas subidas.",
     storage_local_connected: "Servidor local conectado en el puerto {port}",
     storage_local_missing: "Servidor local no encontrado en los puertos 17373-17382",
@@ -579,6 +615,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     legal_privacy: "Privacidad",
     legal_terms: "Términos",
     account_title: "Cuenta y plan",
+    account_title_desc: "Correo, plan y facturación de la cuenta en este navegador.",
     account_free_badge: "Sin cuenta",
     account_free_description: "Usa un código temporal para abrir Pinar en otro navegador.",
     account_free_title: "Continuar con una instalación Free",
@@ -632,10 +669,12 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     copy_on_finish_batch_link: "Enlace",
     copy_on_finish_batch_prompt: "Prompt",
     theme_label: "Tema",
+    theme_desc: "Usa la apariencia del sistema o elige un tema fijo.",
     theme_dark: "Oscuro",
     theme_light: "Claro",
     theme_system: "Sistema",
     language_label: "Idioma",
+    language_desc: "Elige el idioma utilizado en toda la extensión.",
     privacy_query_keys_label: "Claves extra de URL para ocultar",
     privacy_query_keys_desc: "Claves de query o hash, separadas por comas, que se eliminan de las URLs capturadas además de tokens y secretos.",
     btn_coffee: "Café",
@@ -665,6 +704,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_pin_mode: "Modo pin",
     overlay_copying: "Guardando las anotaciones…",
     overlay_copied: "¡Copiado con éxito!",
+    overlay_saved: "¡Anotaciones guardadas con éxito!",
     overlay_no_screenshot: "sin captura",
     overlay_helper_unavailable: "ayudante no disponible",
     overlay_no_viewer: "sin visor",
@@ -680,19 +720,24 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
   },
   fr: {
     capture_destination_label: "Destination de la capture",
+    capture_destination_desc: "Projet et collection qui reçoivent les nouvelles captures sur le serveur sélectionné.",
     collection_label: "Collection",
     destination_unavailable: "Impossible de charger les projets et les collections. Vérifiez que le serveur sélectionné est disponible et à jour.",
     name: "Français",
     header_title: "Paramètres de Pinar",
     header_desc: "Configurez la destination de stockage et les préférences de feedback",
     storage_title: "Destination de Stockage",
+    storage_title_desc: "Gardez les nouvelles captures sur cet appareil ou envoyez-les vers un serveur Pinar distant.",
     tab_storage: "Stockage",
     tab_preferences: "Préférences",
     tab_account: "Compte",
     tab_shortcuts: "Raccourcis",
     section_interface: "Interface",
+    section_interface_desc: "Langue et apparence utilisées dans toute l’extension.",
     section_handoff: "Transmission à l’agent",
+    section_handoff_desc: "Ce qui est copié vers l’agent et ce qui reste complet sur le serveur.",
     section_privacy: "Confidentialité",
+    section_privacy_desc: "Métriques facultatives et clés d’URL supplémentaires retirées des adresses capturées.",
     batch_active: "Lot : {count}",
     batch_idle: "Lot inactif",
     shortcuts_open_panel_label: "Ouvrir le panneau Pinar",
@@ -700,7 +745,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_label: "Lot · {when}",
     batch_copied_link: "Lien copié · {count}",
     batch_copied_prompt: "Prompt copié · {count}",
-    batch_finished: "Lot terminé · {count}",
+    batch_finished: "Lot enregistré avec succès !",
     batch_finish_failed: "Lot fermé ici, mais le serveur n’a pas répondu · {count}",
     batch_copy_failed: "Lot fermé · copie échouée · {count}",
     context_open_panel: "Ouvrir le panneau",
@@ -711,6 +756,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_cancel_batch_label: "Fermer le lot sans copier",
     shortcuts_cancel_batch_desc: "Arrête de regrouper les captures. Ce qui a été capturé reste enregistré ; rien ne va dans le presse-papiers.",
     storage_status_title: "État du stockage",
+    storage_status_title_desc: "Connectivité, quota et conservation de l’historique des captures.",
     storage_status_desc: "Où les captures sont écrites et si de nouveaux envois sont acceptés.",
     storage_local_connected: "Serveur local connecté sur le port {port}",
     storage_local_missing: "Serveur local introuvable sur les ports 17373-17382",
@@ -748,6 +794,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     legal_privacy: "Confidentialité",
     legal_terms: "Conditions",
     account_title: "Compte et forfait",
+    account_title_desc: "E-mail, forfait et facturation du compte dans ce navigateur.",
     account_free_badge: "Sans compte",
     account_free_description: "Utilisez un code temporaire pour ouvrir Pinar dans un autre navigateur.",
     account_free_title: "Continuer avec une installation Free",
@@ -801,10 +848,12 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     copy_on_finish_batch_link: "Lien",
     copy_on_finish_batch_prompt: "Prompt",
     theme_label: "Thème",
+    theme_desc: "Suivez l’apparence du système ou choisissez un thème fixe.",
     theme_dark: "Sombre",
     theme_light: "Clair",
     theme_system: "Système",
     language_label: "Langue",
+    language_desc: "Choisissez la langue utilisée dans toute l’extension.",
     privacy_query_keys_label: "Clés d’URL supplémentaires à masquer",
     privacy_query_keys_desc: "Clés de requête ou de hash, séparées par des virgules, retirées des URL capturées en plus des jetons et secrets.",
     btn_coffee: "Café",
@@ -834,6 +883,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_pin_mode: "Mode épingle",
     overlay_copying: "Enregistrement des annotations…",
     overlay_copied: "Copié avec succès !",
+    overlay_saved: "Annotations enregistrées avec succès !",
     overlay_no_screenshot: "pas de capture",
     overlay_helper_unavailable: "assistant indisponible",
     overlay_no_viewer: "pas de visionneuse",
@@ -849,19 +899,24 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
   },
   de: {
     capture_destination_label: "Aufnahmeziel",
+    capture_destination_desc: "Projekt und Sammlung, die neue Aufnahmen auf dem gewählten Server empfangen.",
     collection_label: "Sammlung",
     destination_unavailable: "Projekte und Sammlungen konnten nicht geladen werden. Prüfen Sie, ob der ausgewählte Server verfügbar und aktuell ist.",
     name: "Deutsch",
     header_title: "Pinar Einstellungen",
     header_desc: "Konfigurieren Sie Speicherziel und Feedback-Einstellungen",
     storage_title: "Speicherziel",
+    storage_title_desc: "Neue Aufnahmen auf diesem Gerät behalten oder an einen entfernten Pinar-Server senden.",
     tab_storage: "Speicher",
     tab_preferences: "Einstellungen",
     tab_account: "Konto",
     tab_shortcuts: "Kurzbefehle",
     section_interface: "Oberfläche",
+    section_interface_desc: "Sprache und Erscheinungsbild der gesamten Erweiterung.",
     section_handoff: "Übergabe an den Agenten",
+    section_handoff_desc: "Was an den Agenten kopiert wird und was vollständig auf dem Server bleibt.",
     section_privacy: "Datenschutz",
+    section_privacy_desc: "Optionale Metriken und zusätzliche URL-Schlüssel, die aus erfassten Adressen entfernt werden.",
     batch_active: "Stapel: {count}",
     batch_idle: "Stapel aus",
     shortcuts_open_panel_label: "Pinar-Panel öffnen",
@@ -869,7 +924,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_label: "Stapel · {when}",
     batch_copied_link: "Link kopiert · {count}",
     batch_copied_prompt: "Prompt kopiert · {count}",
-    batch_finished: "Stapel beendet · {count}",
+    batch_finished: "Stapel erfolgreich gespeichert!",
     batch_finish_failed: "Stapel hier geschlossen, aber der Server war nicht erreichbar · {count}",
     batch_copy_failed: "Stapel geschlossen · Kopieren fehlgeschlagen · {count}",
     context_open_panel: "Panel öffnen",
@@ -880,6 +935,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_cancel_batch_label: "Stapel ohne Kopieren schließen",
     shortcuts_cancel_batch_desc: "Beendet das Gruppieren. Aufgenommenes bleibt gespeichert; nichts landet in der Zwischenablage.",
     storage_status_title: "Speicherstatus",
+    storage_status_title_desc: "Erreichbarkeit, Kontingent und ob der Aufnahmeverlauf gespeichert wird.",
     storage_status_desc: "Wohin Aufnahmen geschrieben werden und ob neue Uploads angenommen werden.",
     storage_local_connected: "Lokaler Server auf Port {port} verbunden",
     storage_local_missing: "Lokaler Server auf den Ports 17373-17382 nicht gefunden",
@@ -917,6 +973,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     legal_privacy: "Datenschutz",
     legal_terms: "Bedingungen",
     account_title: "Konto und Tarif",
+    account_title_desc: "E-Mail, Tarif und Abrechnung des Kontos in diesem Browser.",
     account_free_badge: "Kein Konto",
     account_free_description: "Verwende einen temporären Code, um Pinar in einem anderen Browser zu öffnen.",
     account_free_title: "Mit einer Free-Installation fortfahren",
@@ -970,10 +1027,12 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     copy_on_finish_batch_link: "Link",
     copy_on_finish_batch_prompt: "Prompt",
     theme_label: "Erscheinungsbild",
+    theme_desc: "Verwende das Systemdesign oder wähle ein festes Design.",
     theme_dark: "Dunkel",
     theme_light: "Hell",
     theme_system: "System",
     language_label: "Sprache",
+    language_desc: "Wähle die Sprache für die gesamte Erweiterung.",
     privacy_query_keys_label: "Zusätzliche URL-Schlüssel ausblenden",
     privacy_query_keys_desc: "Kommagetrennte Query- oder Hash-Schlüssel, die zusätzlich zu Tokens und Geheimnissen aus erfassten URLs entfernt werden.",
     btn_coffee: "Kaffee",
@@ -1003,6 +1062,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_pin_mode: "Pin-Modus",
     overlay_copying: "Anmerkungen werden gespeichert…",
     overlay_copied: "Erfolgreich kopiert!",
+    overlay_saved: "Anmerkungen erfolgreich gespeichert!",
     overlay_no_screenshot: "kein Screenshot",
     overlay_helper_unavailable: "Helfer nicht verfügbar",
     overlay_no_viewer: "kein Viewer",
@@ -1018,19 +1078,24 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
   },
   zh: {
     capture_destination_label: "捕获目标",
+    capture_destination_desc: "在所选服务器上接收新捕获的项目和集合。",
     collection_label: "集合",
     destination_unavailable: "无法加载项目和集合。请检查所选服务器是否可用且已更新。",
     name: "简体中文",
     header_title: "Pinar 设置",
     header_desc: "配置存储目标和反馈偏好",
     storage_title: "存储目标",
+    storage_title_desc: "将新捕获保存在此设备，或发送到远程 Pinar 服务器。",
     tab_storage: "存储",
     tab_preferences: "偏好设置",
     tab_account: "账户",
     tab_shortcuts: "快捷键",
     section_interface: "界面",
+    section_interface_desc: "整个扩展使用的语言和外观。",
     section_handoff: "交给智能体",
+    section_handoff_desc: "复制给智能体的内容，以及仍完整保留在服务器上的内容。",
     section_privacy: "隐私",
+    section_privacy_desc: "可选指标，以及从捕获地址中移除的额外 URL 键。",
     batch_active: "批次：{count}",
     batch_idle: "批次未启用",
     shortcuts_open_panel_label: "打开 Pinar 面板",
@@ -1038,7 +1103,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_label: "批次 · {when}",
     batch_copied_link: "已复制链接 · {count}",
     batch_copied_prompt: "已复制提示 · {count}",
-    batch_finished: "批次已结束 · {count}",
+    batch_finished: "批次已成功保存！",
     batch_finish_failed: "批次已在本地关闭，但无法连接服务器 · {count}",
     batch_copy_failed: "批次已关闭 · 复制失败 · {count}",
     context_open_panel: "打开面板",
@@ -1049,6 +1114,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_cancel_batch_label: "关闭批次但不复制",
     shortcuts_cancel_batch_desc: "停止归组捕获。已捕获的内容仍会保存；不会复制到剪贴板。",
     storage_status_title: "存储状态",
+    storage_status_title_desc: "连通性、配额，以及是否保留捕获历史。",
     storage_status_desc: "捕获写入的位置，以及是否接受新的上传。",
     storage_local_connected: "本地服务器已连接，端口 {port}",
     storage_local_missing: "未在 17373-17382 端口找到本地服务器",
@@ -1086,6 +1152,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     legal_privacy: "隐私",
     legal_terms: "条款",
     account_title: "账户与方案",
+    account_title_desc: "此浏览器中已登录账户的邮箱、方案和账单。",
     account_free_badge: "无需账户",
     account_free_description: "使用临时代码在其他浏览器中打开 Pinar。",
     account_free_title: "继续使用 Free 安装",
@@ -1139,10 +1206,12 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     copy_on_finish_batch_link: "链接",
     copy_on_finish_batch_prompt: "提示",
     theme_label: "主题",
+    theme_desc: "跟随系统外观或选择固定主题。",
     theme_dark: "深色",
     theme_light: "浅色",
     theme_system: "跟随系统",
     language_label: "语言",
+    language_desc: "选择扩展使用的语言。",
     privacy_query_keys_label: "要隐藏的额外 URL 参数",
     privacy_query_keys_desc: "以逗号分隔的 query 或 hash 键，会从捕获的 URL 中移除，作为令牌和密钥之外的补充。",
     btn_coffee: "咖啡",
@@ -1172,6 +1241,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_pin_mode: "图钉模式",
     overlay_copying: "正在保存标注…",
     overlay_copied: "复制成功！",
+    overlay_saved: "标注已成功保存！",
     overlay_no_screenshot: "无截图",
     overlay_helper_unavailable: "助手不可用",
     overlay_no_viewer: "无查看器",
@@ -1187,19 +1257,24 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
   },
   ja: {
     capture_destination_label: "キャプチャ先",
+    capture_destination_desc: "選択したサーバーで新しいキャプチャを受け取るプロジェクトとコレクション。",
     collection_label: "コレクション",
     destination_unavailable: "プロジェクトとコレクションを読み込めませんでした。選択したサーバーが利用可能で最新であることを確認してください。",
     name: "日本語",
     header_title: "Pinar 設定",
     header_desc: "ストレージの保存先とフィードバック設定を構成",
     storage_title: "保存先",
+    storage_title_desc: "新しいキャプチャをこのデバイスに残すか、リモートの Pinar サーバーへ送ります。",
     tab_storage: "保存先",
     tab_preferences: "環境設定",
     tab_account: "アカウント",
     tab_shortcuts: "ショートカット",
     section_interface: "インターフェース",
+    section_interface_desc: "拡張機能全体で使う言語と外観。",
     section_handoff: "エージェントへの引き渡し",
+    section_handoff_desc: "エージェントへコピーする内容と、サーバー上で完全なまま残る内容。",
     section_privacy: "プライバシー",
+    section_privacy_desc: "任意の指標と、キャプチャしたアドレスから除く追加の URL キー。",
     batch_active: "バッチ: {count}",
     batch_idle: "バッチ停止中",
     shortcuts_open_panel_label: "Pinar パネルを開く",
@@ -1207,7 +1282,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_label: "バッチ · {when}",
     batch_copied_link: "リンクをコピーしました · {count}",
     batch_copied_prompt: "プロンプトをコピーしました · {count}",
-    batch_finished: "バッチ終了 · {count}",
+    batch_finished: "バッチを保存しました！",
     batch_finish_failed: "バッチはここで終了しましたが、サーバーに接続できません · {count}",
     batch_copy_failed: "バッチを終了 · コピーに失敗 · {count}",
     context_open_panel: "パネルを開く",
@@ -1218,6 +1293,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     shortcuts_cancel_batch_label: "コピーせずにバッチを終了",
     shortcuts_cancel_batch_desc: "キャプチャのまとめを停止。キャプチャ済みは保存されたまま、クリップボードには何も入りません。",
     storage_status_title: "ストレージの状態",
+    storage_status_title_desc: "接続、容量、キャプチャ履歴を残すかどうか。",
     storage_status_desc: "キャプチャの保存先と、新しいアップロードを受け付けるかどうか。",
     storage_local_connected: "ローカルサーバーはポート {port} で接続済み",
     storage_local_missing: "ポート 17373-17382 でローカルサーバーが見つかりません",
@@ -1255,6 +1331,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     legal_privacy: "プライバシー",
     legal_terms: "利用規約",
     account_title: "アカウントとプラン",
+    account_title_desc: "このブラウザーでサインインしているメール、プラン、請求。",
     account_free_badge: "アカウント不要",
     account_free_description: "一時コードを使って別のブラウザーで Pinar を開きます。",
     account_free_title: "Free インストールを続ける",
@@ -1308,10 +1385,12 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     copy_on_finish_batch_link: "リンク",
     copy_on_finish_batch_prompt: "プロンプト",
     theme_label: "テーマ",
+    theme_desc: "システムの外観に合わせるか、固定テーマを選択します。",
     theme_dark: "ダーク",
     theme_light: "ライト",
     theme_system: "システム設定",
     language_label: "言語",
+    language_desc: "拡張機能全体で使用する言語を選択します。",
     privacy_query_keys_label: "追加で隠す URL キー",
     privacy_query_keys_desc: "トークンやシークレットに加えて、キャプチャした URL から取り除く query / hash キーをカンマ区切りで指定します。",
     btn_coffee: "コーヒー",
@@ -1341,6 +1420,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_pin_mode: "ピンモード",
     overlay_copying: "注釈を保存しています…",
     overlay_copied: "コピーしました！",
+    overlay_saved: "注釈を保存しました！",
     overlay_no_screenshot: "スクリーンショットなし",
     overlay_helper_unavailable: "ヘルパー利用不可",
     overlay_no_viewer: "ビューアなし",

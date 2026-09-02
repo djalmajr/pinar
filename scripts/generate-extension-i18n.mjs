@@ -28,6 +28,7 @@ const MV3_KEYS = [
   "overlay_cancel",
   "overlay_comment",
   "overlay_copied",
+  "overlay_saved",
   "overlay_copy_failed",
   "overlay_copying",
   "overlay_helper_unavailable",

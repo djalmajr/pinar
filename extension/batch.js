@@ -100,12 +100,6 @@ export function batchHandoffUrl(base, batchId) {
   return `${root}/b/${batchId}.md`;
 }
 
-export function finishedBatchToastKey(copied) {
-  if (copied === "link") return "batch_copied_link";
-  if (copied === "prompt") return "batch_copied_prompt";
-  return "batch_finished";
-}
-
 export async function copyFinishedBatch({
   mode,
   base,

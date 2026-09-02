@@ -37,6 +37,8 @@
     "dev:tray": "bun scripts/prepare-tray-helper.mjs && sh -c 'cd apps/tray && exec hutch run dev'",
     "build:tray": "bun scripts/prepare-tray-helper.mjs && sh -c 'cd apps/tray && exec hutch electrobun build --env=stable'",
     "build:ext": "bun scripts/generate-extension-i18n.mjs && bun --filter @pinar/extension build",
+    "package:ext": "bun scripts/package-extension.mjs",
+    "test:ext": "bun run build:ext && node --test extension/*.test.js && bun test apps/extension/src/options/*.test.ts packages/shared/src/*.test.ts scripts/package-extension.test.ts",
     "build:bin": "bun scripts/build-binaries.mjs",
     "build": "bun run build:server && bun run build:local && bun --filter @pinar/extension build",
     "typecheck": "bun --filter @pinar/server typecheck && tsc --noEmit",

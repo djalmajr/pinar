@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Pinar.dev",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Visual Annotations for AI Agents & Engineers",
   "default_locale": "en_US",
   "homepage_url": "https://pinar.dev",
@@ -9,7 +9,6 @@
     "activeTab",
     "clipboardWrite",
     "contextMenus",
-    "notifications",
     "offscreen",
     "scripting",
     "storage"

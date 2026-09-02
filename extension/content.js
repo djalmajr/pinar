@@ -1042,7 +1042,9 @@
   }
 
   function canSelect() {
-    return state.active && !state.unavailable && (!state.reviewMode || Boolean(state.repositionPinId));
+    // While a capture is being copied the overlay is a status display, not a
+    // picker: no outline, no new pins, until it closes or reopens fresh.
+    return state.active && !state.sending && !state.unavailable && (!state.reviewMode || Boolean(state.repositionPinId));
   }
 
   function updateOutline() {
@@ -1760,6 +1762,8 @@
       extraQueryKeys = [];
     }
     state.sending = true;
+    hideOutline();
+    ui.toolbar?.classList.remove("pass-through");
     setStatus(t("overlay_copying"));
     try {
       const refreshed = await chrome.runtime.sendMessage({ type: "pins:refresh" }).catch(() => null);

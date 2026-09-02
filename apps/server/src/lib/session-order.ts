@@ -1,5 +1,4 @@
 export type OrderDirection = "earlier" | "later";
-export type SessionOrderDirection = OrderDirection;
 
 export function reorderIds(
   ids: readonly string[],

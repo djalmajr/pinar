@@ -37,6 +37,16 @@ describe("public header CTA", () => {
     assert.match(serverHeaderSource, /activePage === "home" \? "page"/);
   });
 
+  test("orders public navigation consistently on desktop and mobile", () => {
+    const navigationLabels = [...serverHeaderSource.matchAll(/t\("common\.(home|plans|releases|help)"\)/g)]
+      .map((match) => match[1]);
+
+    assert.deepEqual(navigationLabels, [
+      "home", "plans", "releases", "help",
+      "home", "plans", "releases", "help",
+    ]);
+  });
+
   test("local helper never offers Sign in", () => {
     assert.equal(publicHeaderCta(null, "local"), "open-app");
     assert.equal(publicHeaderCta({ kind: "local", plan: "free" }, "cloud"), "open-app");

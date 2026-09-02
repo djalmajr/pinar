@@ -191,6 +191,7 @@ export function WorkspaceChrome({
   const [activeSessionDrag, setActiveSessionDrag] = useState<{ count: number; title: string } | null>(null);
   const [selectedCollectionId, setSelectedCollectionIdState] = useState<string | null>(null);
   const [batches, setBatches] = useState<BatchRecord[]>([]);
+  const [filterDeleteAllOpen, setFilterDeleteAllOpen] = useState(false);
   const [filterDeleteId, setFilterDeleteId] = useState<string | null>(null);
   const [selectedBatchId, setSelectedBatchIdState] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState("");
@@ -436,6 +437,18 @@ export function WorkspaceChrome({
     await fetchTree(selectedProjectId, { silent: true });
   }
 
+  async function deleteAllFilters() {
+    const ids = batches.map((batch) => batch.id);
+    for (const id of ids) {
+      const response = await requestJson(`/api/batches/${id}`, "DELETE");
+      if (!response.ok && response.status !== 404) return;
+    }
+    setFilterDeleteAllOpen(false);
+    setSelectedBatchIdState(null);
+    setBatches([]);
+    await fetchTree(selectedProjectId, { silent: true });
+  }
+
   function openContainerEditor(
     editor: ContainerEditor,
     name = "",
@@ -606,6 +619,9 @@ export function WorkspaceChrome({
             t={t}
             onCreate={(kind, parentId) => openContainerEditor({ kind, mode: "create", parentId })}
             onDelete={setContainerDelete}
+            onDeleteAllFilters={() => {
+              if (batches.length) setFilterDeleteAllOpen(true);
+            }}
             onDeleteFilter={setFilterDeleteId}
             onRename={({ id, kind, name }) => openContainerEditor({ id, kind, mode: "rename" }, name)}
             onReorderCollections={(items) => void reorderCollections(items)}
@@ -674,6 +690,18 @@ export function WorkspaceChrome({
             <AlertDialogFooter>
               <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
               <AlertDialogAction variant="destructive" onClick={() => filterDeleteId && void deleteFilter(filterDeleteId)}>{t("dashboard.deleteFilter")}</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        <AlertDialog open={filterDeleteAllOpen} onOpenChange={(open) => !open && setFilterDeleteAllOpen(false)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t("dashboard.deleteAllFiltersTitle")}</AlertDialogTitle>
+              <AlertDialogDescription>{t("dashboard.deleteAllFiltersConfirm")}</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+              <AlertDialogAction variant="destructive" onClick={() => void deleteAllFilters()}>{t("dashboard.deleteAllFilters")}</AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>

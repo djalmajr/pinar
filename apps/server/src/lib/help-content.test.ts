@@ -188,6 +188,85 @@ describe("help content", () => {
     );
   });
 
+  test("keeps published help copy free of internal implementation details", async () => {
+    const forbidden = [
+      /127\.0\.0\.1/i,
+      /1737[0-9]/,
+      /\/api\//,
+      /tray\.pid/i,
+      /local-capability/i,
+      /0o600/,
+      /\b0600\b/,
+      /untrusted_app/,
+      /session_mismatch/,
+      /PINAR_PORT/,
+      /PINAR_HOME/,
+      /PINAR_CAPABILITY/,
+      /FOUNDER_SALES/,
+      /FOUNDER_CAPACITY/,
+      /x-pinar-capability/i,
+      /idempotency_conflict/,
+      /legal_acceptance_required/,
+      /retention_expires_at/,
+      /\bD1\b/,
+      /\bR2\b/,
+      /pinar ensure/,
+      /install-hooks/,
+      /LaunchAgent/,
+      /launchctl/,
+      /SqliteHistoryDb/,
+      /history\.db/,
+      /history\.json/,
+      /localStorage/,
+      /Cache-Control/,
+      /Authorization Bearer/i,
+      /chrome-extension:\/\//,
+      /readOrCreateLocalCapability/,
+      /humanActionsForStatus/,
+      /forbidden_fields/,
+      /ai_request_in_progress/,
+      /ai_refund_pending/,
+      /insufficient_ai_credits/,
+      /ai_unavailable/,
+      /owner_preferences/,
+      /email_challenges/,
+      /@cf\//,
+      /stripeCustomerId/,
+      /founderState/,
+      /~\/\.pinar/,
+      /Workers AI/,
+    ];
+
+    for (const content of await loadEveryHelpLocale()) {
+      const published: string[] = [
+        content.ui.homeHeading,
+        content.ui.homeDescription,
+        content.ui.homeMetaTitle,
+        content.ui.homeMetaDescription,
+      ];
+      for (const category of content.categories) {
+        published.push(category.title, category.description);
+      }
+      for (const article of content.articles) {
+        published.push(article.title, article.summary);
+        for (const section of article.sections) {
+          published.push(section.heading, ...section.paragraphs);
+          if (section.bullets) published.push(...section.bullets);
+        }
+      }
+
+      for (const text of published) {
+        for (const pattern of forbidden) {
+          assert.equal(
+            pattern.test(text),
+            false,
+            `${content.language} leaked ${pattern}: ${text.slice(0, 180)}`,
+          );
+        }
+      }
+    }
+  });
+
   test("keeps Markdown code spans and link targets identical across locales", async () => {
     const [english, ...translations] = await loadEveryHelpLocale();
 

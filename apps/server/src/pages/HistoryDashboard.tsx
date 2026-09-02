@@ -80,10 +80,6 @@ import {
   sessionDragId,
   sessionIdsForDrop,
 } from "@/lib/workspace-dnd";
-import {
-  reorderSessionIds,
-  type SessionOrderDirection,
-} from "@/lib/session-order";
 import { WebViewer } from "@/pages/WebViewer";
 import CalendarIcon from "~icons/lucide/calendar-days";
 import CheckIcon from "~icons/lucide/check";
@@ -188,22 +184,16 @@ function SessionActions({
   onCopyBatch,
   onDelete,
   onMove,
-  onReorder,
   onView,
-  canMoveEarlier,
-  canMoveLater,
   t,
 }: {
   batchCopied: boolean;
-  canMoveEarlier: boolean;
-  canMoveLater: boolean;
   copied: boolean;
   session: Session;
   onCopy: (session: Session) => void;
   onCopyBatch: (batchId: string) => void;
   onDelete: (id: string) => void;
   onMove: (id: string) => void;
-  onReorder: (sessionId: string, direction: SessionOrderDirection) => void;
   onView: (sessionId: string) => void;
   t: Translate;
 }) {
@@ -226,8 +216,6 @@ function SessionActions({
           <MoreVerticalIcon className="size-3.5" />
         </DropdownMenuTrigger>
         <SessionActionsMenu
-          canMoveEarlier={canMoveEarlier}
-          canMoveLater={canMoveLater}
           copied={copied}
           session={session}
           t={t}
@@ -236,7 +224,6 @@ function SessionActions({
           onMove={onMove}
           batchCopied={batchCopied}
           onCopyBatch={onCopyBatch}
-          onReorder={onReorder}
           onReview={requestReopenSession}
           onView={onView}
         />
@@ -485,7 +472,6 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
     selectedCollectionId,
     selectedProject,
     sessions,
-    setProjectTree,
   } = useWorkspaceChrome();
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copiedBatchId, setCopiedBatchId] = useState<string | null>(null);
@@ -578,14 +564,6 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
     setPagination((current) => ({ ...current, pageIndex: pageCount - 1 }));
   }, [pageCount, pagination.pageIndex]);
 
-  async function requestJson(path: string, method: string, body?: unknown) {
-    return fetch(path, {
-      body: body === undefined ? undefined : JSON.stringify(body),
-      headers: body === undefined ? undefined : { "content-type": "application/json" },
-      method,
-    });
-  }
-
   function toggleSessionSelected(sessionId: string, checked: boolean) {
     setSelectedIds((current) => {
       const next = new Set(current);
@@ -602,33 +580,6 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
       if (current.size === ids.length && ids.every((id) => current.has(id))) return current;
       return new Set(ids);
     });
-  }
-
-  async function reorderSession(sessionId: string, direction: SessionOrderDirection) {
-    if (!selectedCollection || !selectedProject) return;
-    const ids = reorderSessionIds(selectedCollection.sessions.map(({ id }) => id), sessionId, direction);
-    if (!ids) return;
-    const byId = new Map(selectedCollection.sessions.map((session) => [session.id, session]));
-    const nextSessions = ids.flatMap((id, position) => {
-      const session = byId.get(id);
-      return session ? [{ ...session, position }] : [];
-    });
-    setProjectTree((current) => ({
-      projects: current.projects.map((project) => project.id === selectedProject.id
-        ? {
-            ...project,
-            collections: project.collections.map((collection) => collection.id === selectedCollection.id
-              ? { ...collection, sessions: nextSessions }
-              : collection),
-          }
-        : project),
-    }));
-    await requestJson(
-      `/api/collections/${selectedCollection.id}/sessions/reorder`,
-      "POST",
-      { ids },
-    );
-    await fetchTree(selectedProject.id);
   }
 
   async function copyPrompt(session: Session) {
@@ -779,15 +730,12 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
       cell: ({ row }) => (
         <SessionActions
           batchCopied={copiedBatchId != null && copiedBatchId === row.original.batchId}
-          canMoveEarlier={false}
-          canMoveLater={false}
           copied={copiedId === row.original.id}
           session={row.original}
           onCopy={(session) => void copyPrompt(session)}
           onCopyBatch={(id) => void copyBatch(id)}
           onDelete={(id) => setDeleteIds([id])}
           onMove={(id) => openMoveDialog([id])}
-          onReorder={(sessionId, direction) => void reorderSession(sessionId, direction)}
           onView={openViewer}
           t={t}
         />
@@ -983,7 +931,6 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-4">
                   {gridSessions.map((session) => {
                     const count = pinCount(session);
-                    const orderIndex = selectedCollection?.sessions.findIndex(({ id }) => id === session.id) ?? -1;
                     return (
                       <DraggableSessionCard
                         key={session.id}
@@ -1016,7 +963,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
                           className="absolute top-2 right-2 z-10 flex items-center rounded-md bg-card/85 opacity-0 backdrop-blur-sm transition-opacity group-hover/card:opacity-100 group-focus-within/card:opacity-100 has-[[aria-expanded=true]]:opacity-100 pointer-coarse:opacity-100"
                           data-grid-actions
                         >
-                          <SessionActions batchCopied={copiedBatchId != null && copiedBatchId === session.batchId} canMoveEarlier={orderIndex > 0} canMoveLater={Boolean(selectedCollection && orderIndex >= 0 && orderIndex < selectedCollection.sessions.length - 1)} copied={copiedId === session.id} session={session} onCopy={(current) => void copyPrompt(current)} onCopyBatch={(id) => void copyBatch(id)} onDelete={(id) => setDeleteIds([id])} onMove={(id) => openMoveDialog([id])} onReorder={(sessionId, direction) => void reorderSession(sessionId, direction)} onView={openViewer} t={t} />
+                          <SessionActions batchCopied={copiedBatchId != null && copiedBatchId === session.batchId} copied={copiedId === session.id} session={session} onCopy={(current) => void copyPrompt(current)} onCopyBatch={(id) => void copyBatch(id)} onDelete={(id) => setDeleteIds([id])} onMove={(id) => openMoveDialog([id])} onView={openViewer} t={t} />
                         </div>
                         <SessionPreview session={session} t={t} onOpen={() => openViewer(session.id)} />
                         <CardHeader className="py-3">

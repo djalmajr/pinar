@@ -97,31 +97,18 @@ test("global settings and viewer navigation preserve language, theme, and captur
   await expect(tableViewTab).toHaveAttribute("aria-selected", "true");
   await gridViewTab.click();
   await expect(gridViewTab).toHaveAttribute("aria-selected", "true");
-  const settingsButton = page.getByRole("button", { name: "Settings" });
-  await expect(settingsButton).toHaveText("");
-  await expect.poll(async () => (await settingsButton.boundingBox())?.width).toBe(28);
+  await expect(page.locator("header").getByRole("button", { exact: true, name: "Settings" })).toHaveCount(0);
+  await openWorkspaceSidebar(page, "Settings");
+  const settingsButton = page.locator('[data-sidebar="footer"]')
+    .getByRole("button", { exact: true, name: "Settings" });
+  await expect(settingsButton).toHaveText("Settings");
   await settingsButton.click();
-  const settingsDialog = page.getByRole("dialog");
+  const settingsDialog = page.locator('[data-slot="dialog-content"]');
   await expect(settingsDialog).toBeVisible();
-  if (!isMobileViewport(page)) {
-    const settingsSidebar = settingsDialog.locator('[data-slot="resizable-panel"]').first();
-    const settingsSeparator = settingsDialog.locator('[data-slot="resizable-handle"]');
-    const initialWidth = (await settingsSidebar.boundingBox())?.width ?? 0;
-    const separatorBox = await settingsSeparator.boundingBox();
-    if (!separatorBox) throw new Error("Settings separator is not visible");
-    await dragSeparator(page, settingsSeparator, separatorBox.x + 64);
-    await expect.poll(async () => (await settingsSidebar.boundingBox())?.width ?? 0).toBeGreaterThan(initialWidth + 40);
-    const settingsSidebarTrigger = settingsDialog.getByRole("button", { name: "Settings", exact: true });
-    await settingsSidebarTrigger.click();
-    await expect.poll(async () => Math.round((await settingsSidebar.boundingBox())?.width ?? 0)).toBe(48);
-    await expect(settingsDialog.getByRole("button", { name: "General", exact: true })).toHaveText("");
-    await settingsSidebarTrigger.click();
-    await expect.poll(async () => (await settingsSidebar.boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(192);
-    await expect(settingsDialog.getByRole("button", { name: "General", exact: true })).toHaveText("General");
-  }
+  await expect(settingsDialog.getByRole("button", { name: "General", exact: true })).toHaveText("General");
   await page.getByRole("combobox", { name: "Language" }).click();
   await page.getByRole("option", { name: "Português" }).click();
-  await page.getByRole("button", { name: "Captura e privacidade" }).click();
+  await page.getByRole("button", { exact: true, name: "Captura" }).click();
   const detailSwitch = page.getByRole("switch", { name: "Detalhamento da cópia para IA" });
   await expect(detailSwitch).not.toBeChecked();
   await detailSwitch.click();
@@ -130,7 +117,7 @@ test("global settings and viewer navigation preserve language, theme, and captur
   await expect(screenshotSwitch).toBeChecked();
   await screenshotSwitch.click();
   await expect(screenshotSwitch).not.toBeChecked();
-  await page.getByRole("button", { name: "Interface e comportamento" }).click();
+  await page.getByRole("button", { exact: true, name: "Interface" }).click();
   const darkThemeTab = page.getByRole("tab", { name: "Escuro" });
   await darkThemeTab.click();
   await expect(darkThemeTab).toHaveAttribute("aria-selected", "true");
@@ -138,7 +125,7 @@ test("global settings and viewer navigation preserve language, theme, and captur
   const closeSettings = page.getByRole("button", { name: "Fechar configurações" });
   await expect.poll(() => closeSettings.evaluate((element) => getComputedStyle(element).borderTopWidth)).toBe("0px");
   await closeSettings.click();
-  await expect(page.getByRole("dialog")).toBeHidden();
+  await expect(settingsDialog).toBeHidden();
   await expect(page.locator("[data-dashboard-scroll-area] > [data-slot=scroll-area-scrollbar]")).toBeHidden();
 
   if (isMobileViewport(page)) {
@@ -168,11 +155,14 @@ test("global settings and viewer navigation preserve language, theme, and captur
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 
   await page.reload();
-  await expect(page.getByRole("button", { name: "Configurações" })).toBeVisible();
+  await expect(page.locator("header").getByRole("button", { exact: true, name: "Configurações" })).toHaveCount(0);
   await expect(page.locator("html")).toHaveAttribute("lang", "pt");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  await page.getByRole("button", { name: "Configurações" }).click();
-  await page.getByRole("button", { name: "Captura e privacidade" }).click();
+  await openWorkspaceSidebar(page, "Configurações");
+  await page.locator('[data-sidebar="footer"]')
+    .getByRole("button", { exact: true, name: "Configurações" })
+    .click();
+  await page.getByRole("button", { exact: true, name: "Captura" }).click();
   await expect(page.getByRole("switch", { name: "Detalhamento da cópia para IA" })).toBeChecked();
   await expect(page.getByRole("switch", { name: "Incluir captura no copy para agentes" })).not.toBeChecked();
 });

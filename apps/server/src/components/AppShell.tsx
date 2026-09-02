@@ -1,7 +1,6 @@
 import { type CSSProperties, type ReactNode, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
-  Button,
   cn,
   ResizableHandle,
   ResizablePanel,
@@ -10,7 +9,7 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@pinar/ui";
-import { GlobalSettingsDialog } from "@/components/GlobalSettingsDialog";
+import { GlobalSettingsProvider } from "@/components/GlobalSettingsDialog";
 import {
   ResizableSidebarPanel,
   SIDEBAR_DEFAULT_WIDTH,
@@ -18,7 +17,6 @@ import {
 import { DeliveryPreferencesProvider } from "@/lib/delivery-preferences";
 import { useServerI18n } from "@/lib/i18n";
 import ChevronRightIcon from "~icons/lucide/chevron-right";
-import SettingsIcon from "~icons/lucide/settings";
 
 export interface WorkspaceCrumb {
   id: string | null;
@@ -43,7 +41,6 @@ function AppHeader({
 }: Pick<AppShellProps, "onSelectWorkspace" | "projectActions" | "projectSelector" | "workspaceCrumbs">) {
   const { t } = useServerI18n();
   const { isMobile, state } = useSidebar();
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const compact = !isMobile && state === "collapsed";
 
   return (
@@ -101,11 +98,7 @@ function AppHeader({
       </div>
       <div className="flex shrink-0 items-center gap-1 px-4">
         {projectActions}
-        <Button aria-label={t("settings.title")} size="icon-sm" title={t("settings.title")} variant="ghost" onClick={() => setSettingsOpen(true)}>
-          <SettingsIcon />
-        </Button>
       </div>
-      <GlobalSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </header>
   );
 }
@@ -156,20 +149,22 @@ export function AppShell({
 
   return (
     <DeliveryPreferencesProvider>
-      <SidebarProvider
-        className={cn("h-screen min-h-0 flex-col overflow-hidden bg-background text-foreground", className)}
-        style={sidebarStyle}
-      >
-        <AppHeader
-          onSelectWorkspace={onSelectWorkspace}
-          projectActions={projectActions}
-          projectSelector={projectSelector}
-          workspaceCrumbs={workspaceCrumbs}
-        />
-        <AppWorkspace sidebar={sidebar} onSidebarWidthChange={setSidebarWidth}>
-          {children}
-        </AppWorkspace>
-      </SidebarProvider>
+      <GlobalSettingsProvider>
+        <SidebarProvider
+          className={cn("h-screen min-h-0 flex-col overflow-hidden bg-background text-foreground", className)}
+          style={sidebarStyle}
+        >
+          <AppHeader
+            onSelectWorkspace={onSelectWorkspace}
+            projectActions={projectActions}
+            projectSelector={projectSelector}
+            workspaceCrumbs={workspaceCrumbs}
+          />
+          <AppWorkspace sidebar={sidebar} onSidebarWidthChange={setSidebarWidth}>
+            {children}
+          </AppWorkspace>
+        </SidebarProvider>
+      </GlobalSettingsProvider>
     </DeliveryPreferencesProvider>
   );
 }

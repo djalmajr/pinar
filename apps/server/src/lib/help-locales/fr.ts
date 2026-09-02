@@ -128,7 +128,7 @@ const locale = {
         {
           heading: "Extension de navigateur",
           paragraphs: [
-            "Installez Pinar depuis le Chrome Web Store. C’est le chemin d’installation officiel du navigateur ; un checkout GitHub ou un dossier d’extension unpacked n’est pas nécessaire pour un usage normal.",
+            "Installez Pinar depuis le Chrome Web Store. C’est le chemin d’installation officiel du navigateur ; un clone GitHub ou un dossier d’extension non empaqueté n’est pas nécessaire pour un usage normal.",
           ],
           bullets: [
             "Épinglez l’icône Pinar depuis le menu des extensions de Chrome pour qu’elle reste visible.",
@@ -141,22 +141,22 @@ const locale = {
             "Sur macOS, Pinar.app vit dans la barre de menus, exécute le helper intégré, enregistre les hooks d’agents pris en charge et consulte GitHub Releases pour les mises à jour. Windows et Linux utilisent actuellement l’installateur du helper autonome plutôt qu’une application de bureau.",
           ],
           bullets: [
-            "Les screenshots se trouvent normalement dans `~/.pinar/shots` et l’historique dans `~/.pinar/history.db`. L’action Ouvrir le dossier de la barre de menus ouvre ce répertoire ; PINAR_HOME peut le remplacer.",
-            "Le helper parcourt les ports 17373 à 17382 de 127.0.0.1 et reconnaît Pinar via GET `/api/health`. PINAR_PORT fige la découverte sur un seul port.",
-            "Ouvrir à la connexion utilise un LaunchAgent utilisateur sur macOS. Pinar se rabat sur le chemin launchctl historique sur les systèmes plus anciens et conserve les journaux dans le répertoire d’accueil Pinar.",
-            "Si le helper local est indisponible, les recadrages d’image se rabattent sur Downloads/pinar.",
+            "Les screenshots et l’historique restent sur cet ordinateur. Utilisez Ouvrir le dossier dans la barre de menus pour les voir.",
+            "Pinar trouve et démarre le service local automatiquement lorsque vous ouvrez l’app.",
+            "Sur macOS, Ouvrir à la connexion garde Pinar disponible après la connexion à l’ordinateur.",
+            "Si la connexion locale n’est pas disponible, ouvrez Pinar depuis la barre de menus et réessayez la capture.",
           ],
         },
         {
           heading: "Confirmer le helper et ouvrir le workspace",
           paragraphs: [
-            "Une fois l’extension épinglée, installez le produit local correspondant via le chemin documenté en une étape : glissez l’image disque macOS dans ~/Applications, exécutez l’installateur PowerShell sur Windows, ou l’installateur curl sur Linux. Ces scripts placent le helper dans ~/.pinar/bin (ou %USERPROFILE%\\.pinar\\bin), ajoutent ce répertoire au PATH et exécutent pinar install-hooks pour que les agents de code puissent recevoir les captures collées.",
-            "Sur macOS, Pinar.app masque l’icône du Dock, conserve une instance unique de barre de menus via ~/.pinar/tray.pid et démarre le helper avec pinar ensure si GET `/api/health` ne renvoie pas encore ok true et service pinar. Utilisez le contrôle Démarrer ou Redémarrer de la barre de menus lorsque l’état est Off, puis Ouvrir le workspace pour charger http://127.0.0.1:<port>/app. Relancez pinar install-hooks depuis le helper si un agent ne voit plus les instructions de collage.",
+            "Une fois l’extension épinglée, installez le produit local correspondant via le chemin documenté en une étape : glissez l’image disque macOS dans Applications, exécutez l’installateur PowerShell sur Windows, ou l’installateur curl sur Linux. Ces installateurs enregistrent le service local afin que les agents de code puissent recevoir les captures collées.",
+            "Sur macOS, Pinar.app vit dans la barre de menus et démarre le service local pour vous. Si la barre de menus indique que le serveur local est arrêté, choisissez Démarrer, puis Ouvrir le workspace. Si un agent ne voit plus les captures collées, rouvrez Pinar et réessayez.",
           ],
           bullets: [
             "Installation Windows : irm https://pinar.dev/install.ps1 | iex. Installation Linux : curl -fsSL https://pinar.dev/install.sh | sh. Le script a besoin de curl ou wget pour télécharger le binaire.",
-            "Un helper sain répond à GET `/api/health` avec ok true et service pinar. Sur macOS, Ouvrir le workspace utilise ce port découvert sur le chemin de workspace /app.",
-            "L’extension Chrome ne peut pas écrire `~/.pinar/shots` toute seule. Si les recadrages manquent ce dossier, démarrez d’abord le produit local, puis recapturez.",
+            "Lorsque le service local est prêt, Ouvrir le workspace charge votre workspace depuis la barre de menus.",
+            "L’extension Chrome ne peut pas stocker les screenshots toute seule. Si une capture n’a pas d’image, démarrez d’abord le produit local, puis recapturez.",
           ],
         },
       ],
@@ -191,7 +191,7 @@ const locale = {
           bullets: [
             "Un composer vide ou une capture sans pins interrompt la copie et affiche brièvement Write a comment first ou Add a pin first.",
             "Les copies dégradées collent encore les commentaires et les localisateurs, mais la barre d’outils peut ajouter no screenshot, helper unavailable ou no viewer après Copied.",
-            "Préférez un helper en cours d’exécution pour que les recadrages PNG atterrissent dans `~/.pinar/shots` et que le paquet puisse inclure un lien de visualiseur /v/<id>.md pour le contexte complet.",
+            "Préférez un Pinar local en cours d’exécution pour que la copie puisse inclure un screenshot et un lien de visualiseur pour le contexte complet.",
           ],
         },
       ],
@@ -204,25 +204,25 @@ const locale = {
         {
           heading: "Local",
           paragraphs: [
-            "Le mode local conserve l’historique dans SQLite et les screenshots sur votre machine. L’API loopback n’accepte que des origines locales ou d’extension de confiance et utilise un jeton de capacité protégé par le système de fichiers.",
+            "Le mode local conserve l’historique et les screenshots sur cet ordinateur. Le workspace local reste disponible sans compte.",
           ],
         },
         {
           heading: "Cloud",
           paragraphs: [
-            "Le mode cloud stocke les données de compte dans D1 et les screenshots dans R2. Il active l’accès distant au workspace, la rétention gérée, les résumés IA, la facturation et les liens de partage non listés. Un consentement juridique est requis avant toute persistance distante.",
+            "Le mode cloud active l’accès distant au workspace, la rétention gérée, les résumés IA, la facturation et les liens de partage non listés. Vous acceptez les politiques en vigueur avant que quoi que ce soit ne soit stocké à distance.",
           ],
         },
         {
           heading: "Comment les sessions locales et cloud s’ouvrent réellement",
           paragraphs: [
-            "L’historique local appartient toujours au owner local. À la première utilisation, la base crée un projet protégé Personal et une collection protégée Inbox, qui ne peuvent pas être imbriqués ni supprimés comme ceux créés par l’utilisateur. Les captures enregistrées sont marquées isPermanent true avec plan free, les fichiers PNG sont écrits dans le répertoire shots de l’accueil Pinar, et l’API loopback les présente à /shots/<id>.png et /v/<id>.md. Muter cette API exige le secret de capacité de ~/.pinar/local-capability.json, envoyé comme x-pinar-capability ou un jeton Authorization Bearer. Le fichier est écrit en mode 0600 ; la rotation conserve le secret précédent valable 24 heures, sauf si PINAR_CAPABILITY_GRACE_MS en dispose autrement.",
-            "La persistance cloud est bloquée jusqu’à l’acceptation des versions courantes des Conditions, de la Confidentialité et de l’Utilisation acceptable ; l’API renvoie HTTP 428 avec le code legal_acceptance_required. Remote Free enregistre ensuite une installation et peut émettre un code d’association à usage unique de cinq minutes pour ouvrir /app. Les comptes payants ou précédemment payants peuvent aussi vérifier un code e-mail à six chiffres. Les cookies de navigateur durent 30 jours ; les appareils d’extension authentifiés durent 180 jours. Le Markdown non listé reste public à /v/, /p/ et /c/, et les screenshots à /shots/.",
+            "L’historique local commence avec un projet protégé Personal et une collection Inbox, que vous ne pouvez pas imbriquer ni supprimer comme des dossiers ordinaires. Les captures restent sur cet ordinateur, et vous pouvez les ouvrir depuis le workspace local.",
+            "Le stockage cloud attend que vous acceptiez les Conditions, la Confidentialité et l’Utilisation acceptable en vigueur. Ensuite, les comptes Free peuvent associer l’extension avec un code à courte durée de vie, et les comptes payants peuvent aussi confirmer un code e-mail à six chiffres. Les liens de partage restent lisibles par quiconque possède l’URL non listée.",
           ],
           bullets: [
-            "Le GET /api/local/capability local renvoie le jeton courant ; rotate et revoke sont des points de terminaison POST sur le même préfixe /api/local/capability.",
-            "SQLite vit dans `history.db` du répertoire d’accueil Pinar ; si SQLite ne peut pas s’ouvrir, l’historique se rabat sur `history.json` dans le même accueil.",
-            "Les liens de partage cloud n’exigent pas de session de workspace : quiconque a l’URL non listée peut lire le Markdown ou le PNG à /v/, /p/, /c/ ou /shots/.",
+            "Le workspace local reste sur cet ordinateur et n’a pas besoin de compte cloud.",
+            "Si l’historique local ne peut pas ouvrir son magasin habituel, Pinar récupère un catalogue utilisable au lieu de planter.",
+            "Les liens de partage cloud n’exigent pas de session de workspace : quiconque a l’URL non listée peut lire le Markdown ou l’image.",
           ],
         },
       ],
@@ -540,13 +540,13 @@ const locale = {
         {
           heading: "Enregistrer une exécution et l’accepter en tant qu’humain",
           paragraphs: [
-            "POST /api/agent-executions avec agent égal à claude, codex, cursor ou grok, le `captureId` de la capture, un idempotencyKey de 8 à 128 caractères correspondant à [A-Za-z0-9_-], et un tableau results non vide. Chaque résultat a besoin d’un `pinId` qui existe déjà sur cette capture, d’un status et d’un summary d’au plus 2000 caractères ; les files optionnels sont limités à 50 chemins, et pullRequest doit être une URL http(s). Une empreinte conflictuelle sous la même clé est idempotency_conflict (409). Un `pinId` inconnu est pin_not_found (400) sans renvoyer les commentaires de la capture ; un `captureId` inconnu est capture_not_found (404).",
-            "La relecture humaine est un POST distinct vers /api/sessions/{id}/pins/{`pinId`}/review avec action accept ou reopen. humanActionsForStatus n’offre accept que dans correction_ready et reopen que dans accepted ; open et reopened n’exposent aucune action humaine, et toute autre transition est invalid_transition (409). Après un reopen humain, une seconde exécution changed est la nouvelle tentative prévue. Laissez Share anonymous loop metrics désactivé sauf si vous y adhérez : commentaires, URL, sélecteurs et screenshots sont rejetés comme forbidden_fields même lorsque optIn est true.",
+            "Un agent signale le travail par rapport au `captureId` de la capture et à chaque `pinId`. Ne répétez une livraison avec la même clé que lorsque le résultat est inchangé ; un résumé, des fichiers ou un statut différent nécessitent une nouvelle clé. Les pins ou captures inconnus sont rejetés sans renvoyer les commentaires privés.",
+            "Une personne accepte une correction ou rouvre un pin accepté depuis l’interface de relecture. Les agents ne peuvent pas accepter leur propre travail. Après une réouverture humaine, la nouvelle tentative prévue est un second résultat changed. Laissez les métriques de boucle anonymes désactivées sauf si vous y adhérez.",
           ],
           bullets: [
-            "Publiez un résultat changed pour le même `captureId` et `pinId`, puis confirmez que le visualiseur affiche correction_ready avant d’accepter.",
-            "Réutilisez un idempotencyKey uniquement avec la même empreinte ; créez une nouvelle clé lorsque les fichiers, le résumé ou le status ont réellement changé.",
-            "Si la vérification échoue, rouvrez en tant qu’humain, publiez un second résultat, acceptez à nouveau, et conservez les capture ids avant et après.",
+            "Publiez un résultat changed pour le même `captureId` et `pinId`, puis confirmez que le visualiseur affiche le pin comme prêt à accepter.",
+            "Réutilisez une clé de livraison uniquement lorsque le résultat est identique ; créez une nouvelle clé lorsque les fichiers, le résumé ou le statut ont réellement changé.",
+            "Si la vérification échoue, rouvrez en tant qu’humain, publiez un second résultat, acceptez à nouveau, et conservez les identifiants de capture avant et après.",
           ],
         },
       ],
@@ -571,13 +571,13 @@ const locale = {
         {
           heading: "Ouvrir l’URL d’origine et placer les pins en attente",
           paragraphs: [
-            "session:reopen n’est accepté que depuis une origine d’app Pinar de confiance : https sur pinar.dev ou un hôte *.pinar.dev, ou http sur les ports loopback 17373 à 17382. Le helper récupère /api/sessions/{id} et ouvre un nouvel onglet à l’URL de page enregistrée. Tout autre site reçoit untrusted_app. Un id demandé qui ne correspond ni à session.id ni à `captureId` est session_mismatch ; une capture sans page.url est missing_page. Après le chargement, l’hydratation s’injecte dans chaque cadre et ne conserve que les pins dont le chemin DOM appartient à ce cadre.",
-            "L’hydratation continue seulement tant que l’origine de l’onglet correspond encore à la capture. Naviguer ailleurs rompt le lien et affiche This page is not the original capture URL ; about:blank est traité comme transitoire et ne le rompt pas. Les correspondances de localisateur ambiguës ou non résolues laissent la boîte live inchangée au lieu de s’accrocher à un sosie. Cliquez un pin en attente, puis l’élément correct : sélecteur, chemin et empreinte restent figés, location devient exact avec evidence manual-reposition, et locationHistory ajoute une entrée exacte manuelle.",
+            "Relire sur la page ne s’ouvre que depuis l’app Pinar, sur l’URL de capture d’origine. Un autre site ne peut pas injecter une session enregistrée dans l’extension. Après le chargement, chaque cadre n’affiche que les pins qui lui appartiennent.",
+            "L’overlay reste lié seulement tant que l’onglet est encore le site capturé. Naviguer ailleurs affiche This page is not the original capture URL. Les correspondances ambiguës conservent la boîte d’origine au lieu de s’accrocher à un sosie. Cliquez un pin en attente, puis l’élément correct, pour le placer.",
           ],
           bullets: [
             "Lancez Relire sur la page depuis l’app Pinar afin que seule cette session s’hydrate sur l’origine capturée.",
             "Si l’overlay indique This page is not the original capture URL, revenez à l’origine capturée au lieu de placer des pins.",
-            "Pour un pin non résolu, cliquez le marqueur, cliquez l’élément live, puis confirmez que locationHistory a gagné une entrée exacte manuelle.",
+            "Pour un pin non résolu, cliquez le marqueur, puis cliquez l’élément live pour le placer.",
           ],
         },
       ],
@@ -628,17 +628,17 @@ const locale = {
         {
           heading: "Déplacer et ordonner",
           paragraphs: [
-            "Faites glisser des sessions entre collections, réordonnez-les, ou utilisez Déplacer vers en lot pour un ensemble sélectionné. Dans une collection, Déplacer plus tôt et Déplacer plus tard ajustent l’ordre manuel enregistré.",
+            "Faites glisser des sessions entre collections pour les réordonner, ou utilisez Déplacer vers en lot pour un ensemble sélectionné.",
           ],
         },
         {
           heading: "Confirmer où atterrit une session déplacée",
           paragraphs: [
-            "Ouvrez une collection avant d’utiliser Déplacer plus tôt ou Déplacer plus tard. Ces éléments n’apparaissent que dans une vue de collection, échangent la session avec son voisin dans la liste de positions enregistrée, et ne font rien à la première ou à la dernière ligne. Le tableau de bord envoie ensuite cette liste d’id complète en POST à `/api/collections/{id}/sessions/reorder`. Lorsqu’aucune collection n’est sélectionnée, la liste trie par date de création au lieu de cet ordre enregistré.",
+            "Ouvrez une collection pour voir et modifier l’ordre manuel enregistré en faisant glisser une session sur sa voisine. Lorsqu’aucune collection n’est sélectionnée, la liste trie par date de création au lieu de cet ordre enregistré.",
             "Un glisser commence depuis la carte ou la ligne de tableau, pas depuis la recherche, les cases à cocher ou le menu d’actions (`data-no-dnd`). Si la session glissée est déjà sélectionnée avec d’autres, chaque id sélectionné voyage avec elle ; sinon seule cette session se déplace. Déplacer vers demande un projet, puis une collection dans l’arbre aplati de ce projet ; changer de projet vide le champ collection, et un projet sans collections est désactivé. La session est ajoutée à la position suivante dans la cible. Supprimer Personal est refusé ; supprimer un autre projet ajoute ses sessions à Inbox dans l’ordre existant et retire les collections de ce projet.",
           ],
           bullets: [
-            "Sélectionnez une collection, puis n’utilisez Déplacer plus tôt ou Déplacer plus tard que lorsqu’un voisin existe ; la première ligne ne peut pas avancer et la dernière ne peut pas reculer.",
+            "Pour changer l’ordre dans une collection, faites glisser une session sur sa voisine.",
             "Pour déplacer plusieurs sessions, sélectionnez-les d’abord, puis faites glisser n’importe quelle carte sélectionnée ou ouvrez Déplacer vers ; glisser une carte non sélectionnée ne déplace que cette session.",
             "Après avoir supprimé un projet non Personal, ouvrez Personal / Inbox et parcourez la fin de la liste pour les sessions ajoutées avant de les classer à nouveau.",
           ],
@@ -697,7 +697,7 @@ const locale = {
           heading: "Combiner les filtres, puis copier le Markdown public",
           paragraphs: [
             "La recherche retire les espaces et correspond comme une sous-chaîne insensible à la casse. Une requête uniquement composée d’espaces laisse chaque session éligible jusqu’à ce que les filtres de nombre de pins ou de statut de relecture les excluent. Les cases de nombre de pins sont des seaux de 1, 2–5 et 6 ou plus ; une session doit correspondre à au moins un seau sélectionné. Les filtres de statut de relecture s’appliquent aux reviewCounts stockés ; si ces totaux manquent, chaque pin est traité comme open. Changer la recherche, l’un ou l’autre filtre, la collection ou le projet réinitialise la pagination à la première page.",
-            "Tout sélectionner en grille ne s’applique qu’à la page courante de cartes ; tout sélectionner en tableau utilise la page de tableau courante. Le choix grille ou tableau est stocké dans localStorage comme `pinar-history-view`. La suppression en lot ouvre une boîte de confirmation, puis DELETE `/api/history/{id}` pour chaque id sélectionné. Un visualiseur public de projet ou de collection charge `/api/public/projects/{id}` ou `/api/public/collections/{id}` et copie le Markdown combiné depuis `/p/{id}.md` ou `/c/{id}.md`. Si cette récupération publique n’est pas ok, le visualiseur affiche un état introuvable au lieu d’une liste.",
+            "Tout sélectionner en grille ne s’applique qu’à la page courante de cartes ; tout sélectionner en tableau utilise la page de tableau courante. Le choix grille ou tableau est mémorisé dans ce navigateur. La suppression en lot demande une confirmation, puis retire chaque session sélectionnée. Un visualiseur public de projet ou de collection copie le Markdown combiné depuis la page de partage. Si ce partage a disparu, le visualiseur affiche un état introuvable au lieu d’une liste.",
           ],
           bullets: [
             "Après avoir appliqué la recherche ou les filtres, confirmez que la pagination est passée à la page 1 afin de ne pas lire une page périmée d’un ancien jeu de résultats.",
@@ -715,26 +715,26 @@ const locale = {
         {
           heading: "Deux flux de code",
           paragraphs: [
-            "Les installations Remote Free peuvent ouvrir l’app web avec un code d’extension à usage unique de cinq minutes. Créer un nouveau code de huit caractères invalide le précédent encore actif ; la génération autorise 10 demandes par cinq minutes par IP et compte, et l’échange autorise 20 tentatives par cinq minutes par IP. Les comptes payants et précédemment payants peuvent aussi demander un code e-mail à six chiffres ; il expire après dix minutes et se verrouille après cinq tentatives invalides.",
+            "Les installations Free distantes peuvent ouvrir l’app web avec un code d’extension à usage unique de cinq minutes. Créer un nouveau code de huit caractères invalide le précédent encore actif ; la génération autorise 10 demandes par cinq minutes par IP et compte, et l’échange autorise 20 tentatives par cinq minutes par IP. Les comptes payants et précédemment payants peuvent aussi demander un code e-mail à six chiffres ; il expire après dix minutes et se verrouille après cinq tentatives invalides.",
           ],
         },
         {
           heading: "Sessions",
           paragraphs: [
-            "Les sessions web durent 30 jours et les appareils d’extension authentifiés durent 180 jours. Le serveur stocke des hachages des codes et des jetons de session plutôt que les valeurs secrètes d’origine.",
+            "Les sessions web durent 30 jours et les appareils d’extension authentifiés durent 180 jours. Les codes expirent pour des raisons de sécurité.",
           ],
         },
         {
           heading:
             "Terminer l’association depuis l’onglet Compte de l’extension",
           paragraphs: [
-            "Sur une installation Remote Free, ouvrez l’onglet Compte des options de l’extension, générez-y le code temporaire, puis copiez-le. Ouvrez la page de connexion hébergée depuis ce même onglet ; le lien cible /sign-in avec returnTo=/app afin qu’un échange réussi atterrisse dans le workspace web. Régénérer demande d’abord une confirmation parce que le serveur supprime chaque code inutilisé de ce owner avant d’insérer la nouvelle valeur de huit caractères. Collez le code sur pinar.dev plutôt que sur loopback : le helper local redirige /sign-in vers l’origine hébergée et n’émet pas lui-même de sessions cloud.",
-            "Demander un code e-mail signale toujours accepted avec une indication de dix minutes, y compris pour des adresses inconnues, des comptes non payants, ou lorsque le service de mail est absent, afin que le formulaire ne soit pas un oracle de compte. Un véritable message à six chiffres n’est envoyé qu’à un compte ever-paid ; si la livraison lève une exception, cette ligne de challenge est supprimée. Les demandes e-mail autorisent 10 essais par IP et 5 par adresse par 15 minutes ; la vérification autorise 20 par IP et 10 par adresse par 15 minutes. Soumettre le code avec l’identité d’installation migre ce workspace Remote Free sur le compte payant et émet un jeton d’appareil de 180 jours. Se déconnecter révoque le cookie pinar_session et tout bearer d’appareil présenté sur la même requête.",
+            "Sur une installation Free distante, ouvrez l’onglet Compte des options de l’extension, générez-y le code temporaire, puis copiez-le. Ouvrez la page de connexion hébergée depuis ce même onglet afin qu’un échange réussi atterrisse dans le workspace web. Régénérer demande d’abord une confirmation parce que les codes inutilisés de ce compte sont remplacés. Collez le code sur pinar.dev plutôt que sur une page de workspace local.",
+            "Demander un code e-mail a toujours la même apparence, y compris pour des adresses inconnues, afin que le formulaire ne révèle pas si un compte existe. Un véritable message à six chiffres n’est envoyé qu’à un compte payant éligible. Se déconnecter dans l’onglet Compte termine les sessions web et d’extension courantes.",
           ],
           bullets: [
-            "Si aucun e-mail n’arrive, attendez la fenêtre de demande de 15 minutes avant de réessayer ; un 429 signifie que la limite d’IP ou d’adresse a été atteinte, tandis qu’une réponse accepted silencieuse peut signifier que l’adresse n’est pas payante ou est inconnue.",
+            "Si aucun e-mail n’arrive, attendez avant de réessayer ; les codes expirent, et trop de tentatives sont retardées.",
             "Confirmez la boîte de régénération avant d’invalider un code que vous comptez encore saisir sur la page de connexion hébergée.",
-            "Utilisez Se déconnecter dans l’onglet Compte, ou POST /api/auth/logout, lorsque vous devez révoquer immédiatement le cookie web courant ou la session d’appareil de l’extension.",
+            "Utilisez Se déconnecter dans l’onglet Compte lorsque vous devez terminer immédiatement la session web ou d’extension courante.",
           ],
         },
       ],
@@ -760,13 +760,13 @@ const locale = {
           heading:
             "Lancer Checkout avec les politiques actuelles et la bonne devise",
           paragraphs: [
-            "POST /api/stripe/checkout refuse l’offre jusqu’à l’acceptation des versions courantes des Conditions, de la Politique de confidentialité et de l’Utilisation acceptable. Un pays Cloudflare BR sélectionne le catalogue BRL et les identifiants Stripe Price du Brésil ; tout autre pays utilise USD. Le checkout Founder insère d’abord une réservation de capacité indexée par l’id de requête de checkout et le hachage de claim, puis attache l’id de session Stripe ; créer la session Stripe sans réservation attachable libère le créneau. FOUNDER_SALES_ENABLED doit être true avec un FOUNDER_CAPACITY_LIMIT positif, sinon le gestionnaire renvoie 503 ; une cohorte pleine ou une discordance de claim sur un id de requête réutilisé renvoie 409.",
-            "L’URL de succès porte session_id et claim ; l’activation hache ce claim contre les métadonnées Stripe et n’accorde l’offre qu’ensuite. GET /api/pricing expose founderState comme closed, sold_out ou available afin que la page Plans puisse masquer une cohorte que le checkout rejetterait. Le portail de facturation exige un compte authentifié qui a déjà un stripeCustomerId et revient à /app. Lorsque la facturation Pro cesse d’être active, les sessions de ce plan reçoivent un retention_expires_at 90 jours après la fin de l’éligibilité payante ; les comptes Founder et lifetime hérités conservent les sessions marquées permanente au lieu d’entrer dans ce chemin d’expiration.",
+            "Le checkout ne démarre qu’après l’acceptation des Conditions, de la Politique de confidentialité et de l’Utilisation acceptable en vigueur. Le Brésil utilise les prix en BRL ; les autres pays utilisent l’USD. Le checkout Founder réserve un créneau limité et le libère si vous partez sans payer. Lorsque la cohorte est pleine ou que les ventes sont en pause, la page Plans masque cette offre.",
+            "Après un paiement réussi, l’offre est accordée au compte connecté et vous revenez au workspace. Le portail de facturation est disponible après un checkout payant. Lorsqu’un abonnement Pro se termine, ces sessions cloud entrent dans une fenêtre de récupération ; les comptes Founder et lifetime hérités restent permanents à la place.",
           ],
           bullets: [
-            "Acceptez les versions de politique courantes dans le flux Plans hébergé avant de payer ; une acceptation manquante renvoie legal_acceptance_required au lieu d’une URL Stripe.",
-            "Si le checkout Founder renvoie 409, rechargez /api/pricing : closed ou sold_out signifie attendre une réservation libérée ou choisir Pro plutôt que de réessayer le même claim avec un nouvel id de requête.",
-            "Si le portail renvoie 401 ou 404 No Stripe customer found, terminez d’abord un Checkout payant afin qu’un id client existe, puis rouvrez Gérer l’abonnement depuis une session de compte.",
+            "Acceptez les versions de politique courantes dans le flux Plans hébergé avant de payer.",
+            "Si le checkout Founder est indisponible, attendez un créneau ou choisissez Pro plutôt que de réessayer le même checkout.",
+            "Si Gérer l’abonnement est indisponible, terminez d’abord un Checkout payant, puis ouvrez-le depuis un compte connecté.",
           ],
         },
       ],
@@ -792,13 +792,13 @@ const locale = {
           heading:
             "Relancer les résumés avec un nouvel id de requête et lire le grand livre",
           paragraphs: [
-            "POST /api/ai/session-summary exige un requestId unique plus une session que vous possédez. Réutiliser le même requestId sur cette session renvoie la charge de succès stockée ou 409 ai_request_in_progress pendant que l’inférence est encore réservée. Après le délai de réservation de cinq minutes, l’usage est remboursé comme reservation_timeout et le prochain appel doit utiliser un nouveau requestId ; une relance expirée qui ne peut pas encore rembourser renvoie 503 ai_refund_pending. Une inférence échouée ou abandonnée rembourse immédiatement lorsque c’est possible. Un solde trop faible renvoie 402 insufficient_ai_credits avec le solde live. Workers AI manquant renvoie 503 ai_unavailable.",
-            "Le sélecteur de grant dépense d’abord les soldes non achetés, puis le grant qui expire le plus tôt, afin que les crédits mensuels inclus qui expirent au prochain mois UTC soient utilisés avant un pack acheté. Un pack acheté de 1 000 crédits est stocké avec un expires_at de 12 mois et sort de la requête de solde une fois cet horodatage passé. GET /api/account/entitlements renvoie les crédits restants additionnés, nextExpiryAt et nextRefillAt pour les comptes Founder et pour les comptes Pro dont billing_status est active. La langue de résumé demandée doit être de, en, es, fr, ja, pt ou zh ; toute autre valeur est écrite en anglais.",
+            "Un résumé ne s’exécute que sur une session que vous possédez. Si un résumé est déjà en cours, attendez qu’il se termine au lieu d’en lancer un autre. Les résumés échoués ou abandonnés remboursent la réservation lorsque c’est possible. Si le solde est trop faible, le workspace affiche les crédits restants en direct.",
+            "Les crédits mensuels inclus sont utilisés avant les packs achetés, et le solde qui expire le plus tôt est utilisé en premier. Un pack acheté de 1 000 crédits dure jusqu’à 12 mois. Le menu du compte affiche les crédits restants et la prochaine date de recharge pour les comptes Pro et Founder actifs. Les résumés utilisent la langue du workspace lorsqu’elle fait partie des sept langues prises en charge.",
           ],
           bullets: [
-            "Sur 409 ai_request_in_progress, attendez la fin du requestId en cours au lieu d’ouvrir un second résumé sur la même session.",
-            "Sur ai_request_refunded ou reservation_timeout, soumettez un nouveau requestId ; rejouer l’id expiré ne lancera pas une autre inférence.",
-            "Si le workspace affiche zéro crédit, appelez /api/account/entitlements et comparez nextExpiryAt aux packs achetés avant d’acheter une autre offre de 1 000 crédits.",
+            "Si un résumé est déjà en cours sur cette session, attendez qu’il se termine au lieu d’en lancer un second.",
+            "Si une réservation expire ou est remboursée, lancez un nouveau résumé plutôt que de réessayer la même requête.",
+            "Si le workspace affiche zéro crédit, vérifiez les packs restants et la prochaine date de recharge avant d’acheter une autre offre de 1 000 crédits.",
           ],
         },
       ],
@@ -824,13 +824,13 @@ const locale = {
           heading:
             "Faire tenir les remplacements sous le quota et utiliser l’horloge de récupération de 90 jours",
           paragraphs: [
-            "Le quota est `baseBytes` plus les octets d’options encore actives. `canStoreBytes` traite un écrasement comme `usedBytes` moins les octets déjà stockés pour cette session plus la taille entrante, donc remplacer un PNG plus lourd par un plus petit peut réussir lorsqu’une capture entièrement nouvelle dépasserait le quota. `uploadAllowed` est false dès que `usedBytes` est déjà égal ou supérieur au quota. Le dépassement de quota sans horodatage `latestExpiredAt` est l’état over_quota sans horloge de grâce. Lorsque `latestExpiredAt` est défini depuis une option expirée ou depuis `paidEligibilityEndedAt`, le compte est en grâce pendant 30 jours, récupérable jusqu’au jour 90, puis cleanup_eligible ; les envois restent interdits dans les trois états.",
-            "Les sessions cloud Free non permanentes deviennent éligibles à la suppression après sept jours. Le contenu Pro au-dessus du quota Free suit la grâce de 30 jours et la fenêtre de récupération de 90 jours après la fin de l’éligibilité payante. Le contenu Founder et lifetime hérité n’est pas rendu éligible à la suppression simplement parce qu’il n’y a pas d’abonnement récurrent ; il reste limité par le quota acheté, la suppression utilisateur, les gels d’abus et juridiques, la clôture de compte et l’arrêt du service. L’historique uniquement local sur l’appareil n’est jamais supprimé à distance. L’éligibilité à la suppression n’est pas une promesse de retrait immédiat, et la suppression automatique hébergée n’est volontairement pas activée.",
+            "Le quota est le stockage inclus de votre plan plus toute option encore active. Remplacer un screenshot plus lourd par un plus petit peut réussir lorsqu’une capture entièrement nouvelle échouerait. Les envois s’interrompent dès que le compte est au quota ou au-dessus, y compris pendant la grâce et la récupération.",
+            "Les sessions cloud Free qui ne sont pas marquées permanentes deviennent éligibles au nettoyage après sept jours. Le contenu Pro au-dessus du quota Free suit la grâce de 30 jours et la fenêtre de récupération de 90 jours après la fin de l’éligibilité payante. Le contenu Founder et lifetime hérité n’est pas rendu éligible simplement parce qu’il n’y a pas d’abonnement récurrent. L’historique uniquement local sur cet ordinateur n’est jamais supprimé à distance. L’éligibilité n’est pas une promesse de retrait immédiat.",
           ],
           bullets: [
-            "Lorsque de nouvelles captures s’interrompent, réduisez `usedBytes` sous le quota restant en supprimant des sessions ou en remplaçant un screenshot lourd, ou achetez une option de douze mois de 5 Go ou 20 Go.",
-            "Si l’état de droit est grace ou recoverable, exportez ce dont vous avez encore besoin avant le jour 90 après `latestExpiredAt` ; cleanup_eligible ne marque que le dépassement, il ne supprime pas lui-même.",
-            "N’attendez pas que la désinstallation de l’app de bureau purge les objets cloud, et n’attendez pas que le cloud efface l’historique local ~/.pinar.",
+            "Lorsque de nouvelles captures s’interrompent, libérez de l’espace en supprimant des sessions ou en remplaçant un screenshot lourd, ou achetez une option de douze mois de 5 Go ou 20 Go.",
+            "Si le compte est en grâce ou en récupération, exportez ce dont vous avez encore besoin avant le jour 90 ; l’éligibilité ne fait que marquer le dépassement, elle ne supprime pas elle-même.",
+            "N’attendez pas que la désinstallation de l’app de bureau purge les objets cloud, et n’attendez pas que le cloud efface l’historique local sur cet ordinateur.",
           ],
         },
       ],
@@ -856,13 +856,13 @@ const locale = {
           heading:
             "Copier la projection Markdown publique et savoir ce qu’elle expose",
           paragraphs: [
-            "Le HTML non listé vit à /v/{id} pour une session, /p/{id} pour un projet et /c/{id} pour une collection. La projection Markdown est le même chemin avec un suffixe .md. Le visualiseur agrégé charge /api/public/projects/{id} ou /api/public/collections/{id} sans cookie d’auth ; Copier le Markdown fait ensuite GET /p/{id}.md ou /c/{id}.md et écrit le texte dans le presse-papiers, et chaque carte de session ouvre /v/{id}. Un id manquant ou malformé renvoie Session not found, Project not found ou Collection not found plutôt que l’e-mail du owner, le plan ou d’autres champs de compte.",
-            "Le Markdown de session est construit à partir du paquet de handoff plus les sections agent-result et pin-review. Le Markdown de projet et de collection liste chaque session imbriquée avec l’URL de page, /v/{id}.md, une URL de screenshot optionnelle, les commentaires de pins, `pinId`, le chemin DOM, le sélecteur et le texte intérieur. Les lignes Screenshot n’apparaissent que lorsque la préférence de livraison `includeScreenshot` du owner les autorise. Le Markdown et le JSON public sont mis en cache comme public max-age=60 ; les PNG de clichés sont mis en cache 86400 secondes. Quiconque peut ouvrir le lien peut copier ce qu’il voit, donc une URL non listée n’est pas une autorisation ni une minimisation des données.",
+            "Chaque session, projet ou collection a une page non listée et une copie Markdown. Copier le Markdown place ce texte dans le presse-papiers, et chaque carte de session ouvre son propre visualiseur. Un lien manquant ou invalide affiche une page introuvable plutôt que l’e-mail du propriétaire, le plan ou d’autres champs de compte.",
+            "Le Markdown de session inclut le paquet de handoff plus les résultats d’agents et les relectures de pins. Le Markdown de projet et de collection liste chaque session imbriquée avec l’URL de page, les commentaires de pins, `pinId` et les localisateurs. Les lignes Screenshot n’apparaissent que lorsque le propriétaire autorise la livraison de screenshots. Quiconque peut ouvrir le lien peut copier ce qu’il voit, donc une URL non listée n’est pas une autorisation.",
           ],
           bullets: [
-            "Avant d’envoyer /p/{id} ou /c/{id}, ouvrez une fois Copier le Markdown et vérifiez que chaque session imbriquée, commentaire de pin et ligne de screenshot est sûre à publier.",
-            "Désactivez la livraison de screenshots sur le compte owner si la projection doit garder les URL d’images hors du contenu ; attendez au moins 60 secondes que le cache Markdown public expire.",
-            "Si un chemin partagé affiche introuvable, traitez l’id comme disparu ou invalide ; les gestionnaires publics n’ajoutent jamais de diagnostics de compte privés à cette réponse.",
+            "Avant d’envoyer un lien de projet ou de collection, ouvrez une fois Copier le Markdown et vérifiez que chaque session imbriquée, commentaire de pin et ligne de screenshot est sûre à publier.",
+            "Désactivez la livraison de screenshots sur le compte du propriétaire si le Markdown partagé doit garder les URL d’images hors du contenu.",
+            "Si un chemin partagé affiche introuvable, traitez le lien comme disparu ou invalide ; cette page n’ajoute pas de détails de compte privés.",
           ],
         },
       ],
@@ -875,25 +875,25 @@ const locale = {
         {
           heading: "Frontière locale",
           paragraphs: [
-            "Les screenshots locaux sont des fichiers sous `~/.pinar/shots` et l’historique local est SQLite sous `~/.pinar/history.db`, avec un repli JSON lorsque SQLite est indisponible. Les préférences du navigateur telles que la vue, la langue, le thème et les réglages de livraison restent dans le stockage local du navigateur, sauf si une fonction les synchronise explicitement.",
+            "Les screenshots et l’historique locaux restent sur cet ordinateur. Les préférences du navigateur telles que la vue, la langue, le thème et les réglages de livraison restent dans ce navigateur, sauf si une fonction connectée les synchronise explicitement.",
           ],
         },
         {
           heading: "Frontière cloud",
           paragraphs: [
-            "Les enregistrements de compte cloud et les métadonnées de capture utilisent Cloudflare D1 ; les images utilisent R2. Stripe traite la facturation, le service d’e-mail configuré envoie les codes de connexion, et Workers AI gère les résumés demandés. La page Sous-traitants est la liste actuelle des rôles de services externes.",
+            "Les enregistrements de compte cloud, les métadonnées de capture et les images sont stockés dans le service hébergé. Stripe traite la facturation, et le service d’e-mail envoie les codes de connexion. La page Sous-traitants est la liste actuelle des rôles de services externes.",
           ],
         },
         {
           heading: "Confirmer quel magasin détient réellement chaque capture",
           paragraphs: [
-            "Commencez dans le répertoire d’accueil du helper et vérifiez quel fichier est live. Les screenshots sont écrits comme fichiers PNG dans le dossier shots ; l’historique de session préfère SQLite à `history.db`, et `history.json` n’est ouvert qu’après que `SqliteHistoryDb` n’a pas pu être construit. Une ouverture SQLite réussie réécrit aussi les préfixes de chemin shots/shots imbriqués vers le répertoire shots canonique. Le thème reste une préférence uniquement navigateur : l’onglet Interface stocke dark ou light sous la clé localStorage pinar-theme et supprime cette clé pour system. La langue plus les interrupteurs de l’onglet Capture pour le mode de handoff (full versus compact) et include-screenshot sont édités dans la même boîte de dialogue de paramètres, mais un compte cloud connecté peut persister handoff_mode et include_screenshot dans D1 owner_preferences via GET et PATCH /api/preferences.",
-            "Les captures hébergées conservent les métadonnées dans D1 et les octets PNG dans R2. Les projections publiques non authentifiées sont GET /shots/{id}.png (Cache-Control max-age 86400), GET /v/{id}.md, et les routes de projet et de collection /p/ et /c/. POST /api/auth/email-codes ne stocke qu’un hachage dans email_challenges, expire le challenge après dix minutes, et renvoie 202 avec { accepted: true, expiresInSeconds: 600 } même lorsque EMAIL est manquant ou que le compte n’est pas everPaid, afin que la réponse ne révèle pas si le mail a été envoyé (429 est l’exception de limite de débit). Les résumés demandés appellent le modèle Workers AI @cf/meta/llama-3.1-8b-instruct-fp8 à POST /api/ai/session-summary. La page Sous-traitants nomme Cloudflare pour D1, R2, Workers AI et l’e-mail transactionnel, et Stripe pour Checkout, en notant que Pinar ne reçoit pas les détails complets de carte. GET /api/legal/current signale la version de politique 2026-08-25.",
+            "Les screenshots locaux sont stockés comme fichiers PNG, et l’historique de session reste sur cet ordinateur. Le thème est une préférence uniquement navigateur dans l’onglet Interface. La langue et les interrupteurs de livraison Capture vivent dans la même boîte de dialogue de paramètres ; un compte cloud connecté peut conserver ces choix de livraison dans le workspace hébergé.",
+            "Les captures hébergées conservent les métadonnées et les images dans le service cloud. Les visualiseurs non listés et les copies Markdown sont disponibles sans session de workspace. Les codes de connexion par e-mail expirent, et le formulaire ne révèle pas si un compte existe. La page Sous-traitants nomme les fournisseurs hébergés actuels, et Pinar ne reçoit pas les détails complets de carte. Les versions de politique en vigueur sont publiées sur les pages juridiques.",
           ],
           bullets: [
-            "Si `history.db` est manquant ou que SQLite n’a pas pu s’ouvrir, traitez ~/.pinar/history.json comme le catalogue local live et attendez un avertissement de console sur le repli JSON.",
-            'Ouvrez un screenshot hébergé à /shots/{id}.png et sa projection markdown à /v/{id}.md ; un objet R2 manquant renvoie JSON { error: "shot not found" } avec le statut 404.',
-            "Dans les paramètres, confirmez le thème Interface via pinar-theme, puis distinguez les interrupteurs de livraison Capture de handoff_mode et include_screenshot synchronisés dans D1 lorsque vous êtes connecté.",
+            "Si l’historique local ne peut pas s’ouvrir, Pinar récupère un catalogue utilisable sur cet ordinateur au lieu de planter.",
+            "Ouvrez un screenshot hébergé depuis sa page de partage ou son visualiseur Markdown ; une image manquante affiche introuvable plutôt que des détails de compte.",
+            "Dans les paramètres, confirmez le thème Interface localement, puis distinguez les interrupteurs de livraison Capture des choix de livraison synchronisés dans le cloud lorsque vous êtes connecté.",
           ],
         },
       ],
@@ -919,13 +919,13 @@ const locale = {
           heading:
             "Observer le rapport de rédaction et les images inline abandonnées",
           paragraphs: [
-            "sanitizeCapture classe les champs password, otp, payment et token à partir du type d’entrée, de l’autocomplete et du haystack name/id/ariaLabel/role, puis sanitise l’URL de la page. Les clés de requête de l’ensemble sensible, ou les valeurs qui lookLikeSecret (longueur d’au moins 12 correspondant à un JWT ou des préfixes tels que sk_live_, ghp_, github_pat_ et AIza), sont remplacées par [redacted] et étiquetées secret-query ou token ; les paramètres de hash utilisent secret-hash. Les noms supplémentaires dans extraQueryKeys et extraHashKeys sont mis en minuscules, découpés sur les espaces, virgules ou points-virgules, et unis à DEFAULT_SENSITIVE_QUERY_KEYS, qui inclut aussi authorization, refresh_token, session, session_id, client_secret, bearer et des noms liés au-delà de la courte liste d’aperçu. Les secrets collectés remplacent ensuite les sous-chaînes correspondantes dans title, description, URL et pins. Les valeurs de moins de quatre caractères ne sont pas utilisées comme secrets de remplacement même lorsque le champ a été classé, et une URL qui ne s’analyse pas est renvoyée inchangée.",
-            "parseVisualCapture accepte schemaVersion 1 ou l’héritage 0 et lève VisualContextError avec le message stable invalid visual context et les codes unsupported_schema, invalid_payload, invalid_pin ou missing_capture_id au lieu d’échoer le corps brut. decodeVisualCaptureJson se rétablit d’un échec JSON ou de schéma en renvoyant ce `captureId` avec des pins vides. screenshotFrom et captureForHandoffJson définissent screenshot.url à null pour les URL data: ; le chemin de handoff ajoute l’avertissement screenshot_inline lorsqu’il a retiré des octets inline, afin que le paquet texte conserve un chemin de système de fichiers ou une référence http(s) plutôt que la charge d’image. Définir input.unevaluated à true enregistre unevaluated sur le rapport de confidentialité et ajoute l’avertissement privacy_unevaluated.",
+            "Pinar rédige les champs password, payment, token et code à usage unique, puis nettoie l’URL de la page. Les valeurs de requête qui ressemblent à des secrets connus sont remplacées par [redacted]. Les noms supplémentaires que vous ajoutez dans les paramètres sont inclus. Les sous-chaînes correspondantes sont aussi retirées du titre, de la description, de l’URL et des pins.",
+            "Le bloc visual-context copié conserve `captureId` même si le reste de la charge utile ne peut pas être analysé. Les octets de screenshot inline sont retirés du paquet texte afin que la copie conserve un chemin de fichier ou une URL de visualiseur. Si certaines régions n’ont pas pu être inspectées, le collage inclut un avertissement de confidentialité.",
           ],
           bullets: [
-            "Après sanitizeCapture, lisez privacy.redacted plus les avertissements privacy_redacted ou privacy_unevaluated ; unevaluated true signifie que certaines régions n’ont pas été inspectées.",
-            "Ajoutez des noms de clés de requête supplémentaires comme jetons séparés par des virgules, des espaces ou des points-virgules ; la correspondance est insensible à la casse contre l’ensemble intégré, y compris authorization, session et refresh_token.",
-            "Si le JSON de handoff collé contient encore une URL de screenshot data:, la capture a sauté captureForHandoffJson ; le chemin pris en charge met url à null et peut ajouter screenshot_inline.",
+            "Après une copie, lisez les avertissements de confidentialité dans le collage ; certaines régions peuvent être marquées comme non inspectées.",
+            "Ajoutez des noms de clés de requête supplémentaires comme jetons séparés par des virgules, des espaces ou des points-virgules ; la correspondance est insensible à la casse.",
+            "Si le JSON de handoff collé contient encore une URL de screenshot data:, recapturez afin que le paquet texte conserve un chemin ou une URL de visualiseur.",
           ],
         },
       ],
@@ -951,13 +951,13 @@ const locale = {
           heading:
             "Présenter le secret de capacité et récupérer un magasin local cassé",
           paragraphs: [
-            'Le helper persiste un magasin version-1 à local-capability.json en utilisant un fichier temporaire 0o600 et un rename. Envoyez le secret courant dans l’en-tête x-pinar-capability ou comme jeton Authorization Bearer. GET /api/local/capability peut omettre le secret lorsque Origin est vide, HTTP loopback sur 127.0.0.1, localhost ou ::1, ou chrome-extension:// avec un id alphanumérique ; toute autre Origin est hostile et reçoit 401 { error: "unauthorized" } avec Cache-Control no-store. Le loopback HTTPS n’est pas traité comme loopback. POST /api/local/capability/rotate et /revoke exigent un secret correspondant. La rotation écrit un nouveau secret current et conserve previous.secret jusqu’à expiresAt (24 heures par défaut, surchargeable avec PINAR_CAPABILITY_GRACE_MS ; zéro abandonne previous). Révoquer supprime le fichier ; le prochain readOrCreateLocalCapability crée un nouveau magasin. Les requêtes loopback ordinaires sautent le secret ; les requêtes chrome-extension ont besoin d’une correspondance. Les entrées classées public-min ou local-public-projection sautent cette porte.',
-            "claimInstanceLock laisse un PID étranger live en place et appelle onDuplicate ; un verrou manquant ou illisible est traité comme périmé et écrasé avec l’id de ce processus. migrateNestedShots déplace les fichiers de shots/shots vers shots et saute les noms qui existent déjà à la destination ; il retire le répertoire imbriqué seulement lorsque la liste de conflits est vide. Les ids de clichés sont réduits à A–Z, a–z, 0–9, underscore et trait d’union, avec un maximum de 80 caractères, sinon le fichier est pin.png. Si `SqliteHistoryDb` lève une exception, openHistoryDb avertit et ouvre `history.json`. Un fichier JSON corrompu s’analyse en tableaux vides, puis _ensureDefaults recrée le projet protégé Personal et la collection Inbox pour owner local. Une écriture JSON échouée consigne un avertissement et n’interrompt pas le démarrage. Lorsque `history.db` est absent, migrateLegacyHistoryDb peut renommer un history.sqlite restant de bin/ ou shots/ en `history.db`.",
+            "Le workspace local n’accepte que l’app Pinar et l’extension officielle. La rotation conserve le secret précédent valable assez longtemps pour que les processus en cours rattrapent ; la révocation force une nouvelle autorisation.",
+            "Si une autre instance Pinar est déjà en cours d’exécution, cette instance reste en place. Les dossiers de screenshots imbriqués sont migrés sans écraser les conflits de noms. Si l’historique local ne peut pas s’ouvrir, Pinar récupère un projet Personal et une Inbox utilisables au lieu de planter.",
           ],
           bullets: [
-            "Envoyez x-pinar-capability ou Bearer sur les appels chrome-extension ; GET /api/local/capability s’amorce depuis HTTP loopback ou chrome-extension, et les autres Origin reçoivent 401 unauthorized.",
-            "Après revoke, local-capability.json a disparu ; le prochain démarrage du helper crée un nouveau secret, et les clients doivent le relire avant que rotate ou revoke ne réussissent à nouveau.",
-            "Si `history.db` ne peut pas s’ouvrir, attendez `history.json` ; un fichier JSON corrompu devient un catalogue vide, puis Personal et Inbox pour owner local, sans faire planter le helper.",
+            "Continuez à utiliser l’extension officielle et l’app Pinar ; d’autres sites ne peuvent pas parler au workspace local.",
+            "Après avoir révoqué l’accès local, redémarrez Pinar afin que le workspace puisse s’autoriser à nouveau.",
+            "Si l’historique local ne peut pas s’ouvrir, attendez un projet Personal et une Inbox récupérés plutôt qu’un plantage.",
           ],
         },
       ],
@@ -970,7 +970,7 @@ const locale = {
         {
           heading: "Métriques de boucle fermée",
           paragraphs: [
-            "Les métriques de boucle sont désactivées sauf si vous y adhérez. Lorsqu’elles sont désactivées, les envois sont jetés. Lorsqu’elles sont activées, le sanitizer autorise les événements opérationnels, la durée, l’agent et la confiance de relocalisation, mais rejette les commentaires, titres, URL, chemins DOM, sélecteurs, screenshots, balisage et contenu brut.",
+            "Les métriques de boucle sont désactivées sauf si vous y adhérez. Lorsqu’elles sont désactivées, les envois sont jetés. Lorsqu’elles sont activées, le filtre autorise les événements opérationnels, la durée, l’agent et la confiance de relocalisation, mais rejette les commentaires, titres, URL, chemins DOM, sélecteurs, screenshots, balisage et contenu brut.",
           ],
         },
         {
@@ -983,13 +983,13 @@ const locale = {
           heading:
             "Vérifier les charges d’adhésion et l’ensemble de politiques publié",
           paragraphs: [
-            "Les métriques de boucle sont désactivées par défaut parce que DEFAULT_LOOP_METRICS_OPT_IN est false. planLoopMetricRequest renvoie send false avec la raison opt_in_off sauf si optIn est strictement true, et loopMetricHttpStatus mappe ce code vers HTTP 200. Lorsqu’elles sont activées, chaque objet d’événement ne peut contenir que agent, degraded, durationMs, event et locationConfidence. Des clés inconnues, des clés interdites telles que url, title, comment, screenshot, selector, path, `captureId`, sessionId, html, markdown, content, pin et page, ou des valeurs de chaîne qui ressemblent à des URL http(s), des URI data:, ou contiennent { ou <, deviennent forbidden_fields (HTTP 400). event doit être accepted, correction_ready, handoff, relocation_failed ou reopened ; agent doit être claude, codex, cursor ou grok ; locationConfidence doit être exact, probable, ambiguous ou unresolved ; durationMs doit être un entier non négatif d’au plus 86 400 000. Une valeur events vide ou non tableau est invalid_payload et n’est pas envoyée.",
-            "Le README indique que le checkout et l’enregistrement Remote Free consignent les versions de politique acceptées et publie les Conditions, Confidentialité, Utilisation acceptable, Rétention, Remboursements, Fair Source et Sous-traitants à https://pinar.dev/legal/. legal-documents fige CURRENT_LEGAL_VERSION à 2026-08-25 pour les sept ids de documents. Les Conditions disent qu’un usage uniquement local qui ne contacte jamais le service hébergé n’a pas besoin de compte hébergé ; la Confidentialité dit que les données uniquement locales qui ne quittent jamais l’appareil sont hors de la politique hébergée. LICENSE est Functional Source License, Version 1.1, MIT Conversion : deux ans après la première publication, la Change License est MIT, et jusqu’à la Change Date vous ne pouvez pas offrir un service commercial hébergé concurrent d’annotation visuelle, d’aperçu de screenshot ou de persistance cloud. L’avis Fair Source s’en remet à LICENSE et n’est pas Open Source approuvé OSI. Les questions vont à contact@pinar.dev ou contato@pinar.dev.",
+            "Les métriques de boucle restent désactivées sauf si vous y adhérez. Lorsqu’elles sont activées, seuls les événements opérationnels sont envoyés. Les commentaires, titres, URL, sélecteurs, screenshots et contenus similaires sont rejetés.",
+            "Le checkout et l’enregistrement Free distant consignent les versions de politique acceptées. Les Conditions, la Confidentialité, l’Utilisation acceptable, la Rétention, les Remboursements, Fair Source et les Sous-traitants sont publiés à https://pinar.dev/legal/. Un usage uniquement local qui ne contacte jamais le service hébergé n’a pas besoin de compte hébergé. Les questions vont à contact@pinar.dev ou contato@pinar.dev.",
           ],
           bullets: [
-            "Laissez les métriques de boucle désactivées sauf si vous visez optIn true ; un plan désactivé renvoie send false avec opt_in_off et ne transmet pas le lot.",
-            "Avant la persistance hébergée ou le checkout, ouvrez Conditions, Confidentialité et Utilisation acceptable à la version 2026-08-25 depuis https://pinar.dev/legal/terms, /privacy et /acceptable-use.",
-            "Traitez LICENSE comme déterminant pour les limites de concurrence FSL-1.1-MIT et la Change Date ; les sous-traitants hébergés actuellement nommés sont Cloudflare et Stripe.",
+            "Laissez les métriques de boucle désactivées sauf si vous visez à y adhérer ; un réglage désactivé ne transmet pas de lot.",
+            "Avant la persistance hébergée ou le checkout, ouvrez Conditions, Confidentialité et Utilisation acceptable depuis https://pinar.dev/legal/terms, /privacy et /acceptable-use.",
+            "Traitez la licence publiée comme déterminante pour les limites Fair Source ; les sous-traitants hébergés actuellement nommés sont Cloudflare et Stripe.",
           ],
         },
       ],

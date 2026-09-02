@@ -141,22 +141,22 @@ const locale = {
             "Unter macOS sitzt Pinar.app in der Menüleiste, führt den eingebetteten Helper aus, registriert unterstützte Agent-Hooks und prüft GitHub Releases auf Updates. Windows und Linux nutzen derzeit den eigenständigen Helper-Installer statt einer Desktop-App.",
           ],
           bullets: [
-            "Screenshots liegen normalerweise in `~/.pinar/shots` und der Verlauf in `~/.pinar/history.db`. Die Tray-Aktion Open Folder öffnet dieses Verzeichnis; PINAR_HOME kann es überschreiben.",
-            "Der Helper prüft auf 127.0.0.1 die Ports 17373 bis 17382 und erkennt Pinar über GET `/api/health`. PINAR_PORT legt die Discovery auf einen Port fest.",
-            "Start at Login verwendet unter macOS einen Benutzer-LaunchAgent. Pinar fällt auf älteren Systemen auf den älteren launchctl-Pfad zurück und speichert Logs im Pinar-Home-Verzeichnis.",
-            "Ist der lokale Helper nicht verfügbar, fallen Bildausschnitte auf Downloads/pinar zurück.",
+            "Screenshots und Verlauf bleiben auf diesem Computer. Nutze Open Folder in der Menüleiste, um sie zu sehen.",
+            "Pinar findet den lokalen Dienst und startet ihn automatisch, wenn du die App öffnest.",
+            "Unter macOS hält Start at Login Pinar bereit, nachdem du dich am Computer angemeldet hast.",
+            "Wenn die lokale Verbindung nicht verfügbar ist, öffne Pinar über die Menüleiste und versuche die Aufnahme erneut.",
           ],
         },
         {
           heading: "Helper bestätigen und Workspace öffnen",
           paragraphs: [
-            "Nachdem die Erweiterung angeheftet ist, installiere das passende lokale Produkt über den dokumentierten One-Shot-Pfad: ziehe das macOS-Disk-Image nach ~/Applications, führe unter Windows den PowerShell-Installer aus oder unter Linux den curl-Installer. Diese Skripte legen den Helper in ~/.pinar/bin (oder %USERPROFILE%\\.pinar\\bin) ab, fügen dieses Verzeichnis zu PATH hinzu und führen pinar install-hooks aus, damit Coding-Agents eingefügte Captures empfangen können.",
-            "Unter macOS blendet Pinar.app das Dock-Symbol aus, hält über ~/.pinar/tray.pid eine einzige Tray-Instanz und startet den Helper mit pinar ensure, wenn GET `/api/health` noch nicht ok true und service pinar zurückgibt. Nutze in der Menüleiste Start oder Restart, wenn der Status Off ist, und anschließend Open Workspace, um http://127.0.0.1:<port>/app zu laden. Führe pinar install-hooks erneut über den Helper aus, wenn ein Agent die Einfügeanweisungen nicht mehr sieht.",
+            "Nachdem die Erweiterung angeheftet ist, installiere das passende lokale Produkt über den dokumentierten Ein-Schritt-Weg: ziehe das macOS-Disk-Image nach Applications, führe unter Windows den PowerShell-Installer aus oder unter Linux den curl-Installer. Diese Installer registrieren den lokalen Dienst, damit Coding-Agents eingefügte Aufnahmen empfangen können.",
+            "Unter macOS sitzt Pinar.app in der Menüleiste und startet den lokalen Dienst für dich. Zeigt die Menüleiste Local Server: Off, wähle Start und dann Open Workspace. Sieht ein Agent eingefügte Aufnahmen nicht mehr, öffne Pinar erneut und versuche es noch einmal.",
           ],
           bullets: [
             "Windows-Installation: irm https://pinar.dev/install.ps1 | iex. Linux-Installation: curl -fsSL https://pinar.dev/install.sh | sh. Das Skript benötigt curl oder wget, um die Binary herunterzuladen.",
-            "Ein gesunder Helper beantwortet GET `/api/health` mit ok true und service pinar. Unter macOS nutzt Open Workspace den gefundenen Port am Workspace-Pfad /app.",
-            "Die Chrome-Erweiterung kann `~/.pinar/shots` nicht selbst beschreiben. Fehlen Ausschnitte in diesem Ordner, starte zuerst das lokale Produkt und erfasse dann erneut.",
+            "Wenn der lokale Dienst bereit ist, lädt Open Workspace deinen Arbeitsbereich aus der Menüleiste.",
+            "Die Chrome-Erweiterung kann Screenshots nicht selbst speichern. Hat eine Aufnahme kein Bild, starte zuerst das lokale Produkt und erfasse dann erneut.",
           ],
         },
       ],
@@ -186,12 +186,12 @@ const locale = {
           heading: "Kopieren abschließen und Identitäten behalten",
           paragraphs: [
             "Command/Ctrl+Enter kopiert erst, wenn mindestens ein Pin einen Kommentar hat. Das Overlay zeigt Copying…, blendet die Pin-Chrome für den Screenshot aus, danach Copied, und die Symbolleiste schließt sich. Ein späterer Klick auf das Erweiterungssymbol blendet nur das Overlay ein oder aus; bereits gesetzte Pins werden nicht gelöscht. Scheitern alle Zwischenablagewege, wird das Overlay wiederhergestellt, damit du es erneut versuchen kannst.",
-            "Behandle die Zwischenablage-Nutzlast als eine Einheit: lesbare Anweisungen, eine optionale Viewer-URL und einen fenced pinar-visual-context-JSON-Block mit `captureId`, `pinId`, Seiten-URL, Locators (cssSelector, domPath, innerText) und einer Screenshot-URL, wenn der Helper eine Datei gespeichert hat. Nummerierte Badges auf dem Bild sind Annotations-Overlays, keine Seiten-UI. Schreibe `captureId` oder `pinId` beim Einfügen in einen Agent nicht um. Eine Zeile Screenshot: /path/to/file.png ist, sofern vorhanden, der einzige Ausschnitt, der alle Pins enthält.",
+            "Behandle die Zwischenablage-Nutzlast als eine Einheit: lesbare Anweisungen, eine optionale Viewer-URL und einen abgegrenzten pinar-visual-context-JSON-Block mit `captureId`, `pinId`, Seiten-URL, Locators (cssSelector, domPath, innerText) und einer Screenshot-URL, wenn der Helper eine Datei gespeichert hat. Nummerierte Badges auf dem Bild sind Annotations-Overlays, keine Seiten-UI. Schreibe `captureId` oder `pinId` beim Einfügen in einen Agent nicht um. Eine Zeile Screenshot: /path/to/file.png ist, sofern vorhanden, der einzige Ausschnitt, der alle Pins enthält.",
           ],
           bullets: [
             "Ein leerer Composer oder ein Capture ohne Pins bricht das Kopieren ab und blendet Write a comment first oder Add a pin first ein.",
             "Eingeschränkte Kopien fügen weiterhin Kommentare und Locators ein, aber die Symbolleiste kann nach Copied no screenshot, helper unavailable oder no viewer ergänzen.",
-            "Bevorzuge einen laufenden Helper, damit PNG-Ausschnitte in `~/.pinar/shots` landen und das Bundle einen Viewer-Link /v/<id>.md für den vollen Kontext enthalten kann.",
+            "Bevorzuge ein laufendes lokales Pinar, damit die Kopie einen Screenshot und einen Viewer-Link für den vollen Kontext enthalten kann.",
           ],
         },
       ],
@@ -204,25 +204,25 @@ const locale = {
         {
           heading: "Lokal",
           paragraphs: [
-            "Der lokale Modus speichert den Verlauf in SQLite und Screenshots auf deinem Rechner. Die Loopback-API akzeptiert nur vertrauenswürdige lokale Origins oder Erweiterungs-Origins und verwendet ein dateisystemgeschütztes Capability-Token.",
+            "Der lokale Modus behält Verlauf und Screenshots auf diesem Computer. Der lokale Workspace bleibt ohne Konto verfügbar.",
           ],
         },
         {
           heading: "Cloud",
           paragraphs: [
-            "Der Cloud-Modus speichert Kontodaten in D1 und Screenshots in R2. Er ermöglicht Remote-Zugriff auf den Workspace, verwaltete Aufbewahrung, KI-Zusammenfassungen, Abrechnung und unlisted Freigabelinks. Vor der Remote-Persistenz ist eine rechtliche Einwilligung erforderlich.",
+            "Der Cloud-Modus ermöglicht Remote-Zugriff auf den Workspace, verwaltete Aufbewahrung, KI-Zusammenfassungen, Abrechnung und unlisted Freigabelinks. Du akzeptierst die aktuellen Richtlinien, bevor etwas remote gespeichert wird.",
           ],
         },
         {
           heading: "Wie lokale und Cloud-Sitzungen wirklich geöffnet werden",
           paragraphs: [
-            "Lokaler Verlauf gehört immer zu owner local. Beim ersten Gebrauch legt die Datenbank ein geschütztes Projekt Personal und eine geschützte Collection Inbox an, die sich nicht wie benutzererstellte verschachteln oder löschen lassen. Gespeicherte Captures sind mit isPermanent true und plan free markiert, PNG-Dateien werden im Shots-Verzeichnis des Pinar-Home geschrieben, und die Loopback-API stellt sie unter /shots/<id>.png und /v/<id>.md bereit. Änderungen an dieser API erfordern das Capability-Geheimnis aus ~/.pinar/local-capability.json, gesendet als x-pinar-capability oder als Authorization-Bearer-Token. Die Datei wird mit mode 0600 geschrieben; die Rotation hält das vorherige Geheimnis 24 Stunden gültig, sofern PINAR_CAPABILITY_GRACE_MS nichts anderes festlegt.",
-            "Cloud-Persistenz ist gesperrt, bis die aktuellen Versionen von Nutzungsbedingungen, Datenschutz und zulässiger Nutzung akzeptiert sind; die API antwortet mit HTTP 428 und code legal_acceptance_required. Remote Free registriert danach eine Installation und kann einen fünfminütigen, einmaligen Pairing-Code erzeugen, um /app zu öffnen. Paid-Konten oder zuvor bezahlte Konten können zusätzlich einen sechsstelligen E-Mail-Code bestätigen. Browser-Cookies gelten 30 Tage; authentifizierte Erweiterungsgeräte 180 Tage. Unlisted Markdown bleibt unter /v/, /p/ und /c/ öffentlich, Screenshots unter /shots/.",
+            "Der lokale Verlauf beginnt mit einem geschützten Projekt Personal und einer geschützten Collection Inbox, die du nicht wie gewöhnliche Ordner verschachteln oder löschen kannst. Aufnahmen bleiben auf diesem Computer, und du kannst sie im lokalen Workspace öffnen.",
+            "Cloud-Speicher wartet, bis du die aktuellen Nutzungsbedingungen, die Datenschutzerklärung und die zulässige Nutzung akzeptiert hast. Danach können Free-Konten die Erweiterung mit einem kurzlebigen Code koppeln, und bezahlte Konten können zusätzlich einen sechsstelligen E-Mail-Code bestätigen. Freigabelinks bleiben für alle lesbar, die die unlisted URL haben.",
           ],
           bullets: [
-            "Lokales GET /api/local/capability gibt das aktuelle Token zurück; rotate und revoke sind POST-Endpunkte unter demselben Präfix /api/local/capability.",
-            "SQLite liegt als `history.db` im Pinar-Home-Verzeichnis; kann SQLite nicht geöffnet werden, fällt der Verlauf auf `history.json` im selben Home zurück.",
-            "Cloud-Freigabelinks benötigen keine Workspace-Sitzung: Jeder mit der unlisted URL kann das Markdown oder PNG unter /v/, /p/, /c/ oder /shots/ lesen.",
+            "Der lokale Workspace bleibt auf diesem Computer und braucht kein Cloud-Konto.",
+            "Wenn der lokale Verlauf seinen üblichen Speicher nicht öffnen kann, stellt Pinar einen nutzbaren Katalog wieder her, statt abzustürzen.",
+            "Cloud-Freigabelinks brauchen keine Workspace-Sitzung: Jede Person mit der unlisted URL kann das Markdown oder das Bild lesen.",
           ],
         },
       ],
@@ -358,7 +358,7 @@ const locale = {
     "smart-selection": {
       title: "Intelligente Locator und DOM-Auswahl",
       summary:
-        "Verstehen Sie, wie ein Pin einem Element folgt, nachdem sich die Seite ändert, und warum Pinar eine manuelle Platzierung anfordern kann.",
+        "Verstehe, wie ein Pin einem Element folgt, nachdem sich die Seite ändert, und warum Pinar eine manuelle Platzierung anfordern kann.",
       sections: [
         {
           heading: "Robuste Fingerprints",
@@ -394,7 +394,7 @@ const locale = {
         {
           heading: "Eine Maske zeichnen",
           paragraphs: [
-            "Drücken Sie M, während der Capture-Modus aktiv ist, und ziehen Sie dann über den sensiblen Bereich. Benutzermasken werden vor dem Speichern auf das aufgenommene Bild angewendet; entfernen Sie eine irrtümliche Maske vor dem Kopieren.",
+            "Drücke M, während der Capture-Modus aktiv ist, und ziehe dann über den sensiblen Bereich. Benutzermasken werden vor dem Speichern auf das aufgenommene Bild angewendet; entferne eine irrtümliche Maske vor dem Kopieren.",
           ],
         },
         {
@@ -410,7 +410,7 @@ const locale = {
             "Die kombinierten Regionen reisen mit der Capture-Nachricht, damit sie vor Zwischenablage oder Speicherung auf den Screenshot gezeichnet werden. Eine separate Bereinigung schwärzt weiterhin bekannte Geheimnisse in URLs, Feldwerten und Pin-Text; Masken decken Pixel ab, die diese Zeichenkettenregeln nicht klassifizieren können.",
           ],
           bullets: [
-            "Benutzermasken verwenden eine eindeutige id und die Kategorie manual, damit sie unabhängig von automatischen Boxen gelöscht werden können.",
+            "Benutzermasken verwenden eine eindeutige id und eine manuelle Kategorie, damit sie unabhängig von automatischen Boxen gelöscht werden können.",
             "Automatische Feldmasken werden verworfen statt gelöscht, damit spätere Scans das zugrunde liegende Feld weiterhin melden können.",
             "Escape beendet das Maskenzeichnen, ohne die bereits auf der Seite platzierten Pins zu verwerfen.",
           ],
@@ -428,14 +428,14 @@ const locale = {
             "Der Capture-Viewer unterstützt Zeiger-Schwenken, Mausrad-Zoom am Cursor, Doppelklick-Zoom und Steuerung von 50 % bis 800 %. Das Auswählen eines Pins öffnet die gerenderten Preview- und die wortgetreuen Raw-Markdown-Tabs.",
           ],
           bullets: [
-            "Laden Sie den Screenshot herunter oder kopieren Sie das Session-Markdown aus dem Viewer.",
-            "Öffnen Sie das öffentliche Markdown in ChatGPT oder Claude über das Viewer-Aktionsmenü, wenn das Teilen verfügbar ist.",
+            "Lade den Screenshot herunter oder kopiere das Sitzungs-Markdown aus dem Viewer.",
+            "Öffne das öffentliche Markdown in ChatGPT oder Claude über das Viewer-Aktionsmenü, wenn das Teilen verfügbar ist.",
           ],
         },
         {
           heading: "Auf der Originalseite prüfen",
           paragraphs: [
-            "Review on page öffnet den erfassten Origin und rehydriert die Pins. Pinar lehnt eine Origin-Abweichung ab, bewahrt jeden historischen Anker und jede Box, zeichnet die Relokationshistorie auf und lässt Sie einen unresolved Pin manuell neu positionieren.",
+            "Review on page öffnet den erfassten Origin und rehydriert die Pins. Pinar lehnt eine Origin-Abweichung ab, bewahrt jeden historischen Anker und jede Box, zeichnet die Relokationshistorie auf und lässt dich einen unresolved Pin manuell neu positionieren.",
           ],
         },
         {
@@ -456,12 +456,12 @@ const locale = {
     "send-to-agent": {
       title: "Visuellen Kontext an einen Agenten senden",
       summary:
-        "Fügen Sie das vollständige Pinar-Bundle ein, damit der Agent Kommentar, Ziel, Geometrie und das geteilte Bild zusammen sieht.",
+        "Füge das vollständige Pinar-Bundle ein, damit der Agent Kommentar, Ziel, Geometrie und das geteilte Bild zusammen sieht.",
       sections: [
         {
           heading: "Was einzufügen ist",
           paragraphs: [
-            "Pinar schreibt reines Markdown und HTML in die Zwischenablage. Der Text enthält lesbare Annotationen plus einen fenced pinar-visual-context-JSON-Block. Fügen Sie beides als eine Einheit ein; der strukturierte Block ist die maschinenlesbare Quelle der Wahrheit.",
+            "Pinar schreibt reines Markdown und HTML in die Zwischenablage. Der Text enthält lesbare Annotationen plus einen abgegrenzten pinar-visual-context-JSON-Block. Füge beides als eine Einheit ein; der strukturierte Block ist die maschinenlesbare Quelle der Wahrheit.",
           ],
         },
         {
@@ -473,13 +473,13 @@ const locale = {
         {
           heading: "Wie das kopierte Bundle an einen Agenten geliefert wird",
           paragraphs: [
-            "Die Chrome-Erweiterung tippt niemals in den Agent-Composer. Nach Command/Ctrl+Enter fügen Sie die Zwischenablage selbst in Cursor, Claude, Codex oder Grok ein. Der Text beginnt mit Anweisungen, die Pin-Kommentare umzusetzen und Selektor und DOM-Pfad als ergänzende Locator zu behandeln, gefolgt von einem fenced pinar-visual-context-JSON-Block. Wenn eine Viewer-URL enthalten ist, rufen Sie sie nur ab, wenn diese Details nicht ausreichen.",
-            "Behandeln Sie `captureId` und `pinId` als Identität, nicht als Labels zum Umschreiben. Visual Context kodiert derzeit schemaVersion 1; parseVisualCapture lehnt eine fehlende `captureId` und jede schemaVersion außer 1 oder dem Legacy-Wert 0 ab. Ändern Sie nur, was die Pins beschreiben. Wenn die Person nichts eingefügt hat, bitten Sie sie, erneut aus Pinar zu kopieren, statt Pins aus dem Gedächtnis zu rekonstruieren.",
+            "Die Chrome-Erweiterung tippt niemals in den Agent-Composer. Nach Command/Ctrl+Enter füge die Zwischenablage selbst in Cursor, Claude, Codex oder Grok ein. Der Text beginnt mit Anweisungen, die Pin-Kommentare umzusetzen und Selektor und DOM-Pfad als ergänzende Locator zu behandeln, gefolgt von einem abgegrenzten pinar-visual-context-JSON-Block. Wenn eine Viewer-URL enthalten ist, rufe sie nur ab, wenn diese Details nicht ausreichen.",
+            "Behandle `captureId` und `pinId` als Identität, nicht als Labels zum Umschreiben. Visual Context kodiert derzeit schemaVersion 1; parseVisualCapture lehnt eine fehlende `captureId` und jede schemaVersion außer 1 oder dem Legacy-Wert 0 ab. Ändere nur, was die Pins beschreiben. Wenn die Person nichts eingefügt hat, bitte sie, erneut aus Pinar zu kopieren, statt Pins aus dem Gedächtnis zu rekonstruieren.",
           ],
           bullets: [
-            "Fügen Sie die gesamte Zwischenablage in den Agenten ein; tippen Sie Kommentare nicht ab und erfinden Sie keine neue `captureId`.",
-            "Bestätigen Sie, dass der eingefügte Text noch einen geschlossenen pinar-visual-context-Fence enthält, bevor Sie Code bearbeiten.",
-            "Wenn nichts eingefügt wurde, bitten Sie um Command/Ctrl+Enter in Pinar und setzen Sie nur die Pin-Kommentare um.",
+            "Füge die gesamte Zwischenablage in den Agenten ein; tippe Kommentare nicht ab und erfinde keine neue `captureId`.",
+            "Bestätige, dass der eingefügte Text noch einen geschlossenen pinar-visual-context-Fence enthält, bevor du Code bearbeitest.",
+            "Wenn nichts eingefügt wurde, bitte um Command/Ctrl+Enter in Pinar und setze nur die Pin-Kommentare um.",
           ],
         },
       ],
@@ -487,7 +487,7 @@ const locale = {
     "handoff-formats": {
       title: "Handoff-Formate und Ziele",
       summary:
-        "Wählen Sie compact- oder full-Kontext und eine agentenspezifische Darstellung, ohne die Capture-Identität zu ändern.",
+        "Wähle compact- oder full-Kontext und eine agentenspezifische Darstellung, ohne die Capture-Identität zu ändern.",
       sections: [
         {
           heading: "Compact und full",
@@ -503,15 +503,15 @@ const locale = {
         },
         {
           heading:
-            "Zustellmodus in den Erweiterungsoptionen wählen, bevor Sie kopieren",
+            "Zustellmodus in den Erweiterungsoptionen wählen, bevor du kopierst",
           paragraphs: [
             "In den Erweiterungsoptionen setzt ein Schalter handoffMode auf full, wenn aktiviert, und auf compact, wenn deaktiviert. compact ist der gespeicherte Standard und behält jede nützliche Tatsache einmal: `pinId`, comment, cssSelector, domPath und innerText, plus box oder coords nur für Flächen-Pins oder Pins ohne Locator. full behält die ungekürzte Capture. Beide Projektionen entfernen weiterhin data:-Screenshot-URLs aus dem JSON; ein Inline-Bild wird als null-URL und screenshot_inline-Warnung gespeichert, damit der Prompt begrenzt bleibt.",
-            "Klicken Sie auf Save, damit preferences:set handoffMode und `includeScreenshot` in das aktive Backend und chrome.storage.sync schreibt. Unbekannte handoffMode-Werte fallen auf compact zurück; `includeScreenshot` ist standardmäßig true. Adapter-Ziele sind cursor, claude, codex und grok: jedes stellt die eigene Präambel voran, aber `captureId`, pinIds und comments bleiben identisch. Der copy-viewer-content-Schalter ist deaktiviert, sobald includeViewer aus ist.",
+            "Klicke auf Save, damit preferences:set handoffMode und `includeScreenshot` in das aktive Backend und chrome.storage.sync schreibt. Unbekannte handoffMode-Werte fallen auf compact zurück; `includeScreenshot` ist standardmäßig true. Adapter-Ziele sind cursor, claude, codex und grok: jedes stellt die eigene Präambel voran, aber `captureId`, pinIds und comments bleiben identisch. Der copy-viewer-content-Schalter ist deaktiviert, sobald includeViewer aus ist.",
           ],
           bullets: [
-            "Setzen Sie den compact/full-Schalter und den `includeScreenshot`-Schalter und klicken Sie vor dem nächsten Kopieren auf Save.",
-            "Lassen Sie `includeScreenshot` an, es sei denn, Sie wollen bewusst Metadaten, Pins, Locator und Handoff ohne Bildspeicherung.",
-            "Kopieren Sie nach dem Speichern einmal und bestätigen Sie, dass jeder Adapter-Paste weiterhin dieselbe `captureId` und dieselben pinIds teilt.",
+            "Setze den compact/full-Schalter und den `includeScreenshot`-Schalter und klicke vor dem nächsten Kopieren auf Save.",
+            "Lass `includeScreenshot` an, es sei denn, du willst bewusst Metadaten, Pins, Locator und Handoff ohne Bildspeicherung.",
+            "Kopiere nach dem Speichern einmal und bestätige, dass jedes Einfügen über einen Adapter weiterhin dieselbe `captureId` und dieselben pinIds teilt.",
           ],
         },
       ],
@@ -519,7 +519,7 @@ const locale = {
     "closed-loop-review": {
       title: "Die Agent-Review-Schleife schließen",
       summary:
-        "Verfolgen Sie, was ein Agent geändert hat, prüfen Sie es als Mensch und öffnen Sie nur erneut, wenn eine weitere Korrektur nötig ist.",
+        "Verfolge, was ein Agent geändert hat, prüfe es als Mensch und öffne nur erneut, wenn eine weitere Korrektur nötig ist.",
       sections: [
         {
           heading: "Agent-Rückmeldung",
@@ -540,13 +540,13 @@ const locale = {
         {
           heading: "Eine Ausführung erfassen und als Mensch akzeptieren",
           paragraphs: [
-            "POST /api/agent-executions mit agent gesetzt auf claude, codex, cursor oder grok, der `captureId` der Capture, einem idempotencyKey von 8 bis 128 Zeichen passend zu [A-Za-z0-9_-] und einem nicht leeren results-Array. Jedes Ergebnis braucht eine `pinId`, die auf dieser Capture bereits existiert, einen status und eine summary von höchstens 2000 Zeichen; optionale files sind auf 50 Pfade begrenzt, und pullRequest muss eine http(s)-URL sein. Ein widersprüchlicher Fingerprint unter demselben Schlüssel ist idempotency_conflict (409). Eine unbekannte `pinId` ist pin_not_found (400) ohne Echo der Capture-Kommentare; eine unbekannte `captureId` ist capture_not_found (404).",
-            "Die menschliche Prüfung ist ein separates POST an /api/sessions/{id}/pins/{`pinId`}/review mit action accept oder reopen. humanActionsForStatus bietet accept nur in correction_ready und reopen nur in accepted; open und reopened zeigen keine menschlichen Aktionen, und jeder andere Übergang ist invalid_transition (409). Nach einem menschlichen reopen ist eine zweite changed-Ausführung der vorgesehene Retry. Lassen Sie Share anonymous loop metrics aus, sofern Sie nicht opt-in: comments, URLs, selectors und screenshots werden als forbidden_fields abgelehnt, selbst wenn optIn true ist.",
+            "Ein Agent meldet Arbeit zur `captureId` der Capture und zu jeder `pinId`. Wiederhole eine Zustellung mit demselben Schlüssel nur, wenn das Ergebnis unverändert ist; eine andere Zusammenfassung, andere Dateien oder ein anderer Status brauchen einen neuen Schlüssel. Unbekannte Pins oder Captures werden abgelehnt, ohne private Kommentare zu wiederholen.",
+            "Eine Person akzeptiert eine Korrektur oder öffnet einen accepted-Pin in der Review-Oberfläche erneut. Agenten können ihre eigene Arbeit nicht akzeptieren. Nach einem menschlichen erneuten Öffnen ist der vorgesehene Retry ein zweites changed-Ergebnis. Lass anonyme Loop-Metriken aus, sofern du nicht opt-in aktivierst.",
           ],
           bullets: [
-            "Veröffentlichen Sie ein changed-Ergebnis für dieselbe `captureId` und `pinId` und bestätigen Sie, dass der Viewer correction_ready zeigt, bevor Sie akzeptieren.",
-            "Verwenden Sie einen idempotencyKey nur mit demselben Fingerprint erneut; erzeugen Sie einen neuen Schlüssel, wenn sich files, summary oder status tatsächlich geändert haben.",
-            "Wenn die Prüfung fehlschlägt, öffnen Sie als Mensch erneut, veröffentlichen Sie ein zweites Ergebnis, akzeptieren Sie erneut und behalten Sie die Capture-IDs vorher und nachher.",
+            "Veröffentliche ein changed-Ergebnis für dieselbe `captureId` und `pinId` und bestätige, dass der Viewer den Pin als bereit zur Annahme zeigt.",
+            "Verwende einen Zustellschlüssel nur erneut, wenn das Ergebnis identisch ist; erzeuge einen neuen Schlüssel, wenn sich Dateien, Zusammenfassung oder Status tatsächlich geändert haben.",
+            "Wenn die Prüfung fehlschlägt, öffne als Mensch erneut, veröffentliche ein zweites Ergebnis, akzeptiere erneut und behalte die Capture-IDs vorher und nachher.",
           ],
         },
       ],
@@ -554,7 +554,7 @@ const locale = {
     "reopen-and-relocate": {
       title: "Pins erneut öffnen und neu verorten",
       summary:
-        "Prüfen Sie die Umsetzung auf der Live-Seite, auch nachdem sich das DOM geändert hat.",
+        "Prüfe die Umsetzung auf der Live-Seite, auch nachdem sich das DOM geändert hat.",
       sections: [
         {
           heading: "Sichere Rehydrierung",
@@ -565,20 +565,20 @@ const locale = {
         {
           heading: "Manuelle Korrektur",
           paragraphs: [
-            "Wenn ein Ziel ambiguous oder unresolved ist, positionieren Sie den Pin manuell neu. Der ursprüngliche Anker und die Box bleiben in der Historie eingefroren, und jede automatische oder manuelle Relokation wird für die spätere Prüfung aufgezeichnet.",
+            "Wenn ein Ziel ambiguous oder unresolved ist, positioniere den Pin manuell neu. Der ursprüngliche Anker und die Box bleiben in der Historie eingefroren, und jede automatische oder manuelle Relokation wird für die spätere Prüfung aufgezeichnet.",
           ],
         },
         {
           heading:
             "Die ursprüngliche URL öffnen und ausstehende Pins platzieren",
           paragraphs: [
-            "session:reopen wird nur von einem vertrauenswürdigen Pinar-App-Origin akzeptiert: https auf pinar.dev oder einem *.pinar.dev-Host oder http auf Loopback-Ports 17373 bis 17382. Der Helper ruft /api/sessions/{id} ab und öffnet einen neuen Tab unter der gespeicherten Seiten-URL. Jede andere Site erhält untrusted_app. Eine angeforderte id, die weder session.id noch `captureId` entspricht, ist session_mismatch; eine Capture ohne page.url ist missing_page. Nach dem Laden injiziert die Hydrierung in jeden Frame und behält nur Pins, deren DOM-Pfad zu diesem Frame gehört.",
-            "Die Hydrierung läuft nur weiter, solange der Tab-Origin noch zur Capture passt. Wegnavigieren löst die Bindung und zeigt This page is not the original capture URL; about:blank gilt als transient und löst sie nicht. Ambiguous- oder unresolved-Locator-Treffer lassen die Live-Box unverändert, statt auf ein ähnliches Element zu springen. Klicken Sie auf einen ausstehenden Pin, dann auf das korrekte Element: Selektor, Pfad und Fingerprint bleiben eingefroren, location wird exact mit evidence manual-reposition, und locationHistory hängt einen Eintrag manual exact an.",
+            "Review on page öffnet nur aus der Pinar-App, auf der ursprünglichen Capture-URL. Eine andere Site kann keine gespeicherte Sitzung in die Erweiterung injizieren. Nach dem Laden zeigt jeder Frame nur die Pins, die dorthin gehören.",
+            "Das Overlay bleibt nur gebunden, solange der Tab noch die erfasste Site ist. Wegnavigieren zeigt This page is not the original capture URL. Mehrdeutige Treffer behalten die ursprüngliche Box, statt auf ein ähnliches Element zu springen. Klicke auf einen ausstehenden Pin, dann auf das korrekte Element, um ihn zu platzieren.",
           ],
           bullets: [
-            "Starten Sie Review on page aus der Pinar-App, damit nur diese Session auf dem erfassten Origin hydriert.",
-            "Wenn das Overlay This page is not the original capture URL sagt, kehren Sie zum erfassten Origin zurück, statt Pins zu platzieren.",
-            "Bei einem unresolved Pin klicken Sie auf die Markierung, dann auf das Live-Element, und bestätigen Sie, dass locationHistory einen Eintrag manual exact erhalten hat.",
+            "Starte Review on page aus der Pinar-App, damit nur diese Sitzung auf dem erfassten Origin hydriert.",
+            "Wenn das Overlay This page is not the original capture URL sagt, kehre zum erfassten Origin zurück, statt Pins zu platzieren.",
+            "Bei einem unresolved Pin klicke auf die Markierung und dann auf das Live-Element, um ihn zu platzieren.",
           ],
         },
       ],
@@ -591,13 +591,13 @@ const locale = {
         {
           heading: "Wiederherstellung der Zwischenablage",
           paragraphs: [
-            "Pinar verwendet zuerst die Clipboard-API des Browsers über ein Offscreen-Dokument und fällt auf eine versteckte Textauswahl zurück, wenn Berechtigung oder Fokus sie blockieren. Wenn jeder Kopiermechanismus fehlschlägt, wird das Overlay wiederhergestellt, sodass Ihre Pins und Kommentare bearbeitbar bleiben.",
+            "Pinar verwendet zuerst die Clipboard-API des Browsers über ein Offscreen-Dokument und fällt auf eine versteckte Textauswahl zurück, wenn Berechtigung oder Fokus sie blockieren. Wenn jeder Kopiermechanismus fehlschlägt, wird das Overlay wiederhergestellt, sodass deine Pins und Kommentare bearbeitbar bleiben.",
           ],
         },
         {
           heading: "Eingeschränkt bedeutet nicht unkorreliert",
           paragraphs: [
-            "`screenshot_missing` bedeutet, dass das Bild nicht gespeichert werden konnte. `helper_unavailable` bedeutet, dass der lokale Dienst nicht erreicht wurde. `viewer_unavailable` bedeutet, dass keine Viewer-URL erzeugt wurde. Machen Sie mit Kommentar, DOM-Pfad, Selektor, Pin-Koordinaten, `captureId` und `pinId` weiter und wiederholen Sie nur die fehlende Ebene.",
+            "`screenshot_missing` bedeutet, dass das Bild nicht gespeichert werden konnte. `helper_unavailable` bedeutet, dass der lokale Dienst nicht erreicht wurde. `viewer_unavailable` bedeutet, dass keine Viewer-URL erzeugt wurde. Fahre mit Kommentar, DOM-Pfad, Selektor, Pin-Koordinaten, `captureId` und `pinId` fort und wiederhole nur die fehlende Ebene.",
           ],
         },
         {
@@ -608,9 +608,9 @@ const locale = {
             "Wenn jeder Kopierpfad fehlschlägt, sendet die Seite overlays:hidden mit hidden false, zeigt kurz Copy failed und lässt Pins bearbeitbar. Ein erfolgreiches Kopieren zeigt Copied oder Copied plus no screenshot, helper unavailable oder no viewer und beendet dann die Sitzung. Diese Suffixe entsprechen `screenshot_missing`, `helper_unavailable` und `viewer_unavailable`. screenshot_inline gehört nicht zu den eingeschränkten Übergabewarnungen. Ein Einfügen ohne geschlossene pinar-visual-context-Fence kann nicht als JSON geparst werden.",
           ],
           bullets: [
-            "Wenn die Symbolleiste Write a comment first oder Add a pin first anzeigt, schließen Sie diesen Pin ab und drücken Sie erneut Command/Ctrl+Enter.",
-            "Wenn Copy failed erscheint, bestätigen Sie, dass die Pins noch auf der Seite sind, erteilen Sie bei Aufforderung die Zwischenablageberechtigung und wiederholen Sie das Kopieren.",
-            "Lesen Sie das Copied-Suffix: no screenshot, helper unavailable und no viewer benennen die fehlende Ebene, die Sie ohne Verwerfen der Kommentare erneut versuchen können.",
+            "Wenn die Symbolleiste Write a comment first oder Add a pin first anzeigt, schließe diesen Pin ab und drücke erneut Command/Ctrl+Enter.",
+            "Wenn Copy failed erscheint, bestätige, dass die Pins noch auf der Seite sind, erteile bei Aufforderung die Zwischenablageberechtigung und wiederhole das Kopieren.",
+            "Lies das Copied-Suffix: no screenshot, helper unavailable und no viewer benennen die fehlende Ebene, die du ohne Verwerfen der Kommentare erneut versuchen kannst.",
           ],
         },
       ],
@@ -629,19 +629,19 @@ const locale = {
         {
           heading: "Verschieben und sortieren",
           paragraphs: [
-            "Ziehen Sie Sitzungen zwischen Collections, ordnen Sie sie neu oder nutzen Sie Move to in der Sammelaktion für eine Auswahl. In einer Collection passen Move Earlier und Move Later die gespeicherte manuelle Reihenfolge an.",
+            "Ziehe Sitzungen zwischen Collections, um sie neu zu ordnen, oder nutze Move to in der Sammelaktion für eine Auswahl.",
           ],
         },
         {
           heading: "Prüfen, wo eine verschobene Sitzung landet",
           paragraphs: [
-            "Öffnen Sie eine Collection, bevor Sie Move Earlier oder Move Later verwenden. Diese Einträge erscheinen nur in einer Collection-Ansicht, tauschen die Sitzung mit ihrem Nachbarn in der gespeicherten Positionsliste und tun in der ersten oder letzten Zeile nichts. Das Dashboard sendet diese vollständige id-Liste anschließend per POST an `/api/collections/{id}/sessions/reorder`. Wenn keine Collection ausgewählt ist, sortiert die Liste nach Erstellungsdatum statt nach dieser gespeicherten Reihenfolge.",
+            "Öffne eine Collection, um die gespeicherte manuelle Reihenfolge zu sehen und zu ändern, indem du eine Sitzung auf ihren Nachbarn ziehst. Wenn keine Collection ausgewählt ist, sortiert die Liste nach Erstellungsdatum statt nach dieser gespeicherten Reihenfolge.",
             "Ein Ziehen beginnt an der Karte oder Tabellenzeile, nicht über Suche, Kontrollkästchen oder das Aktionsmenü (`data-no-dnd`). Wenn die gezogene Sitzung bereits mit anderen ausgewählt ist, wandern alle ausgewählten ids mit; andernfalls wird nur diese Sitzung verschoben. Move to fragt nach einem Projekt, dann nach einer Collection im abgeflachten Baum dieses Projekts; ein Projektwechsel leert das Collection-Feld, und ein Projekt ohne Collections ist deaktiviert. Die Sitzung wird an der nächsten Position im Ziel angehängt. Das Löschen von Personal wird abgelehnt; das Löschen eines anderen Projekts hängt dessen Sitzungen in bestehender Reihenfolge an Inbox an und entfernt die Collections dieses Projekts.",
           ],
           bullets: [
-            "Wählen Sie eine Collection aus und nutzen Sie Move Earlier oder Move Later nur, wenn ein Nachbar existiert; die erste Zeile kann nicht früher und die letzte nicht später verschoben werden.",
-            "Um mehrere Sitzungen zu verschieben, wählen Sie sie zuerst aus und ziehen Sie dann eine ausgewählte Karte oder öffnen Sie Move to; das Ziehen einer nicht ausgewählten Karte verschiebt nur diese Sitzung.",
-            "Nach dem Löschen eines Nicht-Personal-Projekts öffnen Sie Personal / Inbox und prüfen Sie das Ende der Liste auf die angehängten Sitzungen, bevor Sie sie erneut einsortieren.",
+            "Um die Reihenfolge in einer Collection zu ändern, ziehe eine Sitzung auf ihren Nachbarn.",
+            "Um mehrere Sitzungen zu verschieben, wähle sie zuerst aus und ziehe dann eine ausgewählte Karte oder öffne Move to; das Ziehen einer nicht ausgewählten Karte verschiebt nur diese Sitzung.",
+            "Nach dem Löschen eines Nicht-Personal-Projekts öffne Personal / Inbox und prüfe das Ende der Liste auf die angehängten Sitzungen, bevor du sie erneut einsortierst.",
           ],
         },
       ],
@@ -649,7 +649,7 @@ const locale = {
     "nested-collections": {
       title: "Verschachtelte Collections verwenden",
       summary:
-        "Bauen Sie in jedem Projekt eine Hierarchie auf und ordnen Sie sie neu, ohne Kindbeziehungen abzuflachen.",
+        "Baue in jedem Projekt eine Hierarchie auf und ordne sie neu, ohne Kindbeziehungen abzuflachen.",
       sections: [
         {
           heading: "Collection-Baum",
@@ -670,9 +670,9 @@ const locale = {
             "Im Zielauswähler der Erweiterung gibt `destination:get` ein CaptureDestination (`projectId` und `collectionId`) plus den Projektbaum zurück, wobei verschachtelte Collections um 16 Pixel pro Tiefe eingerückt sind. Ein Projektwechsel speichert sofort die geschützte Collection dieses Projekts, falls eine existiert, andernfalls die erste Collection. Wenn `destination:set` fehlschlägt, zeigt die Optionsseite den destination-unavailable-Fehler und lädt `destination:get` neu, damit eine fehlende Collection nicht ausgewählt bleibt. Ein leerer Baum zeigt einen deaktivierten Inbox-Platzhalter.",
           ],
           bullets: [
-            "Ziehen Sie eine Collection nach rechts, um sie unter dem vorherigen Geschwisterelement zu verschachteln, oder nach links zur Wurzel; wenn das Ablegen abgelehnt wird, bleibt die parentId-Liste unverändert.",
-            "Klappen Sie ein Elternelement nur ein, wenn Sie eine kürzere Seitenleiste brauchen; ausgeblendete Nachfahren bleiben im Baum und bewegen sich weiterhin mit dem gezogenen Zweig.",
-            "Nach einem Fehler beim Speichern des Ziels öffnen Sie die Erweiterungsoptionen erneut und bestätigen Sie, dass Projekt und Collection einem aktuellen Baumeintrag entsprechen, bevor der nächste Cloud-Capture erfolgt.",
+            "Ziehe eine Collection nach rechts, um sie unter dem vorherigen Geschwisterelement zu verschachteln, oder nach links zur Wurzel; wenn das Ablegen abgelehnt wird, bleibt die parentId-Liste unverändert.",
+            "Klappe ein Elternelement nur ein, wenn du eine kürzere Seitenleiste brauchst; ausgeblendete Nachfahren bleiben im Baum und bewegen sich weiterhin mit dem gezogenen Zweig.",
+            "Nach einem Fehler beim Speichern des Ziels öffne die Erweiterungsoptionen erneut und bestätige, dass Projekt und Collection einem aktuellen Baumeintrag entsprechen, bevor der nächste Cloud-Capture erfolgt.",
           ],
         },
       ],
@@ -680,30 +680,30 @@ const locale = {
     "find-manage-share": {
       title: "Sitzungen finden, verwalten und teilen",
       summary:
-        "Durchsuchen Sie jedes nützliche Feld, filtern Sie Review-Arbeit, führen Sie Sammelaktionen aus und veröffentlichen Sie nur, was Sie beabsichtigen.",
+        "Durchsuche jedes nützliche Feld, filtere Review-Arbeit, führe Sammelaktionen aus und veröffentliche nur, was du beabsichtigst.",
       sections: [
         {
           heading: "Suche und Ansichten",
           paragraphs: [
-            "Die Suche findet Treffer in Seitentitel, URL, Beschreibung, Pin-Kommentaren und CSS-Selektoren. Filter für Pin-Anzahl und Review-Status können kombiniert werden. Wechseln Sie zwischen Kartenraster und Tabelle; die Tabelle bietet 15, 30, 60 oder 100 Zeilen pro Seite und merkt sich die Ansicht lokal.",
+            "Die Suche findet Treffer in Seitentitel, URL, Beschreibung, Pin-Kommentaren und CSS-Selektoren. Filter für Pin-Anzahl und Review-Status können kombiniert werden. Wechsle zwischen Kartenraster und Tabelle; die Tabelle bietet 15, 30, 60 oder 100 Zeilen pro Seite und merkt sich die Ansicht lokal.",
           ],
         },
         {
           heading: "Sammel- und Freigabeaktionen",
           paragraphs: [
-            "Wählen Sie Sitzungen in jeder der beiden Ansichten aus, um sie gemeinsam zu verschieben oder zu löschen. Das Löschen einer Sitzung ist dauerhaft: Es entfernt den Screenshot sowie Agent-Ausführungen, Pin-Ergebnisse, Reviews und Review-Ereignisse. Öffentliche Viewer für Sitzungen, Projekte und Collections sind unlisted statt zugriffskontrolliert; jede Person mit einem gültigen Link kann einen öffnen. Aggregierte Viewer können kombiniertes Markdown für jede enthaltene Sitzung kopieren.",
+            "Wähle Sitzungen in jeder der beiden Ansichten aus, um sie gemeinsam zu verschieben oder zu löschen. Das Löschen einer Sitzung ist dauerhaft: Es entfernt den Screenshot sowie Agent-Ausführungen, Pin-Ergebnisse, Reviews und Review-Ereignisse. Öffentliche Viewer für Sitzungen, Projekte und Collections sind unlisted statt zugriffskontrolliert; jede Person mit einem gültigen Link kann einen öffnen. Aggregierte Viewer können kombiniertes Markdown für jede enthaltene Sitzung kopieren.",
           ],
         },
         {
           heading: "Filter kombinieren und dann öffentliches Markdown kopieren",
           paragraphs: [
             "Die Suche entfernt umgebende Leerzeichen und sucht als groß-/kleinschreibungsunabhängige Teilzeichenkette. Eine nur aus Leerzeichen bestehende Abfrage lässt jede Sitzung zu, bis Filter für Pin-Anzahl oder Review-Status sie ausschließen. Die Kontrollkästchen für die Pin-Anzahl sind Buckets von 1, 2–5 und 6 oder mehr; eine Sitzung muss mindestens einem ausgewählten Bucket entsprechen. Review-Status-Filter laufen gegen gespeicherte reviewCounts; fehlen diese Zählungen, wird jeder Pin als open behandelt. Das Ändern von Suche, einem der Filter, Collection oder Projekt setzt die Paginierung auf die erste Seite zurück.",
-            "Grid-select-all gilt nur für die aktuelle Kartenseite; Tabellen-select-all nutzt die aktuelle Tabellenseite. Die Wahl zwischen Raster und Tabelle wird in localStorage als `pinar-history-view` gespeichert. Sammellöschen öffnet einen Bestätigungsdialog und sendet dann DELETE `/api/history/{id}` für jede ausgewählte id. Ein öffentlicher Projekt- oder Collection-Viewer lädt `/api/public/projects/{id}` oder `/api/public/collections/{id}` und kopiert kombiniertes Markdown von `/p/{id}.md` oder `/c/{id}.md`. Wenn dieser öffentliche Abruf nicht ok ist, zeigt der Viewer einen not-found-Zustand statt einer Liste.",
+            "Alles auswählen im Raster gilt nur für die aktuelle Kartenseite; Alles auswählen in der Tabelle gilt für die aktuelle Tabellenseite. Dieser Browser merkt sich die Wahl zwischen Raster und Tabelle. Sammellöschen fragt nach Bestätigung und entfernt dann jede ausgewählte Sitzung. Ein öffentlicher Projekt- oder Collection-Viewer kopiert kombiniertes Markdown von der Freigabeseite. Wenn diese Freigabe weg ist, zeigt der Viewer einen not-found-Zustand statt einer Liste.",
           ],
           bullets: [
-            "Bestätigen Sie nach dem Anwenden von Suche oder Filtern, dass die Paginierung auf Seite 1 gesprungen ist, damit Sie keine veraltete Seite eines älteren Ergebnissatzes lesen.",
-            "Nutzen Sie Move to oder Delete in der Sammel-Symbolleiste erst, wenn die Kontrollkästchen den gewünschten Sitzungen entsprechen; Clear selection leert die Menge, ohne den Speicher zu ändern.",
-            "In einem aggregierten Viewer sollte Copy Markdown eine Überschrift, eine `/p/`- oder `/c/`-Viewer-URL und dann jede Sitzung als `/v/{id}`-Überschrift mit Page, Markdown, optionalem Screenshot und nummerierten Pin-Kommentaren einfügen; wenn das Kopieren mit Unable to load Markdown fehlschlägt, öffnen Sie dieselbe `.md`-URL im Browser.",
+            "Bestätige nach dem Anwenden von Suche oder Filtern, dass die Paginierung auf Seite 1 gesprungen ist, damit du keine veraltete Seite eines älteren Ergebnissatzes liest.",
+            "Nutze Move to oder Delete in der Sammel-Symbolleiste erst, wenn die Kontrollkästchen den gewünschten Sitzungen entsprechen; Clear selection leert die Menge, ohne den Speicher zu ändern.",
+            "In einem aggregierten Viewer sollte Copy Markdown eine Überschrift, eine `/p/`- oder `/c/`-Viewer-URL und dann jede Sitzung als `/v/{id}`-Überschrift mit Page, Markdown, optionalem Screenshot und nummerierten Pin-Kommentaren einfügen; wenn das Kopieren mit Unable to load Markdown fehlschlägt, öffne dieselbe `.md`-URL im Browser.",
           ],
         },
       ],
@@ -711,7 +711,7 @@ const locale = {
     "account-and-sign-in": {
       title: "Konto und passwortlose Anmeldung",
       summary:
-        "Verbinden Sie die Erweiterung, öffnen Sie den Web-Workspace und verstehen Sie den Ablauf von Codes und Sitzungen.",
+        "Verbinde die Erweiterung, öffne den Web-Workspace und verstehe den Ablauf von Codes und Sitzungen.",
       sections: [
         {
           heading: "Zwei Code-Abläufe",
@@ -722,19 +722,19 @@ const locale = {
         {
           heading: "Sitzungen",
           paragraphs: [
-            "Web-Sitzungen gelten 30 Tage und authentifizierte Erweiterungsgeräte 180 Tage. Der Server speichert Hashes von Codes und Sitzungstoken statt der ursprünglichen Geheimwerte.",
+            "Web-Sitzungen gelten 30 Tage und authentifizierte Erweiterungsgeräte 180 Tage. Codes laufen aus Sicherheitsgründen ab.",
           ],
         },
         {
           heading: "Kopplung im Account-Tab der Erweiterung abschließen",
           paragraphs: [
-            "Öffnen Sie bei einer Remote-Free-Installation den Account-Tab der Erweiterungsoptionen, erzeugen Sie dort den temporären Code und kopieren Sie ihn. Öffnen Sie die gehostete Anmeldeseite über denselben Tab; der Link zielt auf /sign-in mit returnTo=/app, sodass ein erfolgreicher Austausch im Web-Workspace landet. Das erneute Erzeugen fragt zuerst nach Bestätigung, weil der Server jeden ungenutzten Code dieses Inhabers löscht, bevor der neue achtstellige Wert eingefügt wird. Fügen Sie den Code auf pinar.dev ein, nicht auf loopback: Der lokale Helper leitet /sign-in zur gehosteten Origin um und stellt selbst keine Cloud-Sitzungen aus.",
-            "Das Anfordern eines E-Mail-Codes meldet immer accepted mit einem Zehn-Minuten-Hinweis, auch bei unbekannten Adressen, unbezahlten Konten oder fehlendem Mail-Dienst, sodass das Formular kein Konto-Orakel ist. Eine echte sechsstellige Nachricht wird nur an ein jemals bezahltes Konto gesendet; wenn die Zustellung einen Fehler wirft, wird diese Challenge-Zeile gelöscht. E-Mail-Anfragen erlauben 10 Versuche pro IP und 5 pro Adresse pro 15 Minuten; die Verifizierung erlaubt 20 pro IP und 10 pro Adresse pro 15 Minuten. Das Absenden des Codes zusammen mit der Installationsidentität migriert diesen Remote-Free-Workspace auf das bezahlte Konto und stellt ein 180-Tage-Gerätetoken aus. Sign-out widerruft das pinar_session-Cookie und jeden in derselben Anfrage übermittelten Device-Bearer.",
+            "Öffne bei einer Remote-Free-Installation den Account-Tab der Erweiterungsoptionen, erzeuge dort den temporären Code und kopiere ihn. Öffne die gehostete Anmeldeseite über denselben Tab, damit ein erfolgreicher Austausch im Web-Workspace landet. Das erneute Erzeugen fragt zuerst nach Bestätigung, weil ungenutzte Codes dieses Kontos ersetzt werden. Füge den Code auf pinar.dev ein, nicht auf einer lokalen Workspace-Seite.",
+            "Das Anfordern eines E-Mail-Codes sieht immer gleich aus, auch bei unbekannten Adressen, sodass das Formular nicht verrät, ob ein Konto existiert. Eine echte sechsstellige Nachricht wird nur an ein berechtigtes bezahltes Konto gesendet. Sign-out im Account-Tab beendet die aktuelle Web- und Erweiterungssitzung.",
           ],
           bullets: [
-            "Wenn keine E-Mail ankommt, warten Sie das 15-Minuten-Anfragefenster ab, bevor Sie es erneut versuchen; 429 bedeutet, dass das IP- oder Adresslimit erreicht wurde, während eine stille accepted-Antwort bedeuten kann, dass die Adresse unbezahlt oder unbekannt ist.",
-            "Bestätigen Sie den Regenerieren-Dialog, bevor Sie einen Code ungültig machen, den Sie noch auf der gehosteten Anmeldeseite eingeben wollen.",
-            "Nutzen Sie Sign out im Account-Tab oder POST /api/auth/logout, wenn das aktuelle Web-Cookie oder die Geräte-Sitzung der Erweiterung sofort widerrufen werden soll.",
+            "Wenn keine E-Mail ankommt, warte vor einem erneuten Versuch; Codes laufen ab, und zu viele Versuche werden verzögert.",
+            "Bestätige den Regenerieren-Dialog, bevor du einen Code ungültig machst, den du noch auf der gehosteten Anmeldeseite eingeben willst.",
+            "Nutze Sign out im Account-Tab, wenn die aktuelle Web- oder Erweiterungssitzung sofort beendet werden soll.",
           ],
         },
       ],
@@ -742,7 +742,7 @@ const locale = {
     "plans-and-billing": {
       title: "Free, Pro, Founder und Abrechnung",
       summary:
-        "Vergleichen Sie Produktberechtigungen, verwalten Sie ein Abonnement und behandeln Sie die Preisseite als aktuelle Preisquelle.",
+        "Vergleiche Produktberechtigungen, verwalte ein Abonnement und behandle die Preisseite als aktuelle Preisquelle.",
       sections: [
         {
           heading: "Planstruktur",
@@ -760,13 +760,13 @@ const locale = {
           heading:
             "Checkout mit aktuellen Richtlinien und der richtigen Währung starten",
           paragraphs: [
-            "POST /api/stripe/checkout lehnt das Angebot ab, bis die aktuellen Versionen von Terms, Privacy Policy und Acceptable Use akzeptiert sind. Ein Cloudflare-Land BR wählt den BRL-Katalog und die Stripe-Price-IDs für Brasilien; jedes andere Land verwendet USD. Der Founder-Checkout fügt zuerst eine Kapazitätsreservierung ein, Schlüssel sind checkout request id und claim-Hash, und hängt dann die Stripe-session-id an; das Erstellen der Stripe-Sitzung ohne anhängbare Reservierung gibt den Platz frei. FOUNDER_SALES_ENABLED muss true sein und FOUNDER_CAPACITY_LIMIT positiv, sonst gibt der Handler 503 zurück; eine volle Kohorte oder eine claim-Abweichung bei wiederverwendeter request id gibt 409 zurück.",
-            "Die Erfolgs-URL trägt session_id und claim; die Aktivierung hasht diesen claim gegen Stripe-Metadaten und gewährt erst dann das Angebot. GET /api/pricing stellt founderState als closed, sold_out oder available bereit, damit die Plans-Seite eine Kohorte ausblenden kann, die der Checkout ablehnen würde. Das Abrechnungsportal erfordert ein authentifiziertes Konto, das bereits eine stripeCustomerId hat, und kehrt zu /app zurück. Wenn die Pro-Abrechnung nicht mehr active ist, erhalten Sitzungen dieses Plans ein retention_expires_at 90 Tage nach Ende der bezahlten Berechtigung; Founder- und Legacy-Lifetime-Konten behalten Sitzungen als permanent markiert, statt diesen Ablaufpfad zu betreten.",
+            "Checkout startet erst, nachdem du die aktuellen Nutzungsbedingungen, die Datenschutzerklärung und die zulässige Nutzung akzeptiert hast. Brasilien verwendet BRL-Preise; andere Länder verwenden USD. Der Founder-Checkout reserviert einen begrenzten Platz und gibt ihn frei, wenn du ohne Zahlung gehst. Ist die Kohorte voll oder der Verkauf pausiert, blendet die Plans-Seite dieses Angebot aus.",
+            "Nach einer erfolgreichen Zahlung wird das Angebot dem angemeldeten Konto gewährt und du kehrst in den Workspace zurück. Das Abrechnungsportal ist nach einem bezahlten Checkout verfügbar. Endet ein Pro-Abonnement, treten diese Cloud-Sitzungen in ein Wiederherstellungsfenster ein; Founder- und Legacy-Lifetime-Konten bleiben stattdessen dauerhaft.",
           ],
           bullets: [
-            "Akzeptieren Sie die aktuellen Richtlinienversionen im gehosteten Plans-Ablauf vor der Zahlung; eine fehlende Annahme gibt legal_acceptance_required statt einer Stripe-URL zurück.",
-            "Wenn der Founder-Checkout 409 zurückgibt, laden Sie /api/pricing neu: closed oder sold_out bedeutet, auf eine freigegebene Reservierung zu warten oder Pro zu wählen, statt denselben claim mit einer neuen request id erneut zu versuchen.",
-            "Wenn das Portal 401 oder 404 No Stripe customer found zurückgibt, schließen Sie zuerst einen bezahlten Checkout ab, damit eine customer id existiert, und öffnen Sie dann Manage subscription aus einer Kontositzung.",
+            "Akzeptiere die aktuellen Richtlinienversionen im gehosteten Plans-Ablauf vor der Zahlung.",
+            "Wenn der Founder-Checkout nicht verfügbar ist, warte auf einen Platz oder wähle Pro, statt denselben Checkout erneut zu versuchen.",
+            "Wenn Manage subscription nicht verfügbar ist, schließe zuerst einen bezahlten Checkout ab und öffne es dann aus einem angemeldeten Konto.",
           ],
         },
       ],
@@ -774,7 +774,7 @@ const locale = {
     "ai-credits": {
       title: "AI-Zusammenfassungen und Credits",
       summary:
-        "Erfahren Sie, wann Credits reserviert, verbraucht, aufgefüllt oder erstattet werden.",
+        "Erfahre, wann Credits reserviert, verbraucht, aufgefüllt oder erstattet werden.",
       sections: [
         {
           heading: "Kosten der Zusammenfassung",
@@ -792,13 +792,13 @@ const locale = {
           heading:
             "Zusammenfassungen mit einer neuen request id wiederholen und das Ledger lesen",
           paragraphs: [
-            "POST /api/ai/session-summary erfordert eine eindeutige requestId plus eine Sitzung, die Ihnen gehört. Die Wiederverwendung derselben requestId für diese Sitzung gibt die gespeicherte Erfolgs-Payload oder 409 ai_request_in_progress zurück, solange die Inferenz noch reserviert ist. Nach dem fünfminütigen Reservierungs-Timeout wird die Nutzung als reservation_timeout erstattet, und der nächste Aufruf muss eine neue requestId verwenden; ein zeitlich abgelaufener Retry, der noch nicht erstatten kann, gibt 503 ai_refund_pending zurück. Eine fehlgeschlagene oder abgebrochene Inferenz erstattet sofort, wenn möglich. Zu geringes Guthaben gibt 402 insufficient_ai_credits mit dem aktuellen Guthaben zurück. Fehlendes Workers AI gibt 503 ai_unavailable zurück.",
-            "Der Grant-Picker verbraucht zuerst Nicht-Kauf-Guthaben, dann den zuerst ablaufenden Grant, sodass monatlich enthaltene Credits, die zum nächsten UTC-Monat ablaufen, vor einem gekauften Paket verwendet werden. Ein gekauftes 1.000-Credit-Paket wird mit einem 12-Monats-expires_at gespeichert und fällt aus der Guthabenabfrage, sobald dieser Zeitstempel überschritten ist. GET /api/account/entitlements gibt die summierten Rest-Credits, nextExpiryAt und nextRefillAt für Founder-Konten und für Pro-Konten mit billing_status active zurück. Die angeforderte Sprache der Zusammenfassung muss de, en, es, fr, ja, pt oder zh sein; jeder andere Wert wird als English geschrieben.",
+            "Eine Zusammenfassung läuft nur auf einer Sitzung, die dir gehört. Läuft bereits eine, warte, bis sie fertig ist, statt eine weitere zu starten. Fehlgeschlagene oder abgebrochene Zusammenfassungen erstatten die Reservierung, wenn möglich. Ist das Guthaben zu niedrig, zeigt der Workspace die aktuell verbleibenden Credits.",
+            "Enthaltene monatliche Credits werden vor gekauften Paketen verwendet, und das zuerst ablaufende Guthaben kommt zuerst. Ein gekauftes 1.000-Credit-Paket gilt bis zu 12 Monate. Das Kontomenü zeigt verbleibende Credits und das nächste Auffülldatum für aktive Pro- und Founder-Konten. Zusammenfassungen nutzen die Workspace-Sprache, wenn sie eine der sieben unterstützten Sprachen ist.",
           ],
           bullets: [
-            "Bei 409 ai_request_in_progress warten Sie, bis die laufende requestId fertig ist, statt eine zweite Zusammenfassung derselben Sitzung zu öffnen.",
-            "Bei ai_request_refunded oder reservation_timeout senden Sie eine neue requestId; das Wiederholen der abgelaufenen id startet keine weitere Inferenz.",
-            "Wenn der Workspace null Credits anzeigt, rufen Sie /api/account/entitlements auf und vergleichen Sie nextExpiryAt mit gekauften Paketen, bevor Sie ein weiteres 1.000-Credit-Angebot kaufen.",
+            "Läuft auf dieser Sitzung bereits eine Zusammenfassung, warte, bis sie fertig ist, statt eine zweite zu starten.",
+            "Läuft eine Reservierung ab oder wird sie erstattet, starte eine neue Zusammenfassung, statt dieselbe Anfrage zu wiederholen.",
+            "Zeigt der Workspace null Credits, prüfe verbleibende Pakete und das nächste Auffülldatum, bevor du ein weiteres 1.000-Credit-Angebot kaufst.",
           ],
         },
       ],
@@ -824,13 +824,13 @@ const locale = {
           heading:
             "Ersetzungen unter das Kontingent bringen und die 90-Tage-Wiederherstellungsuhr nutzen",
           paragraphs: [
-            "Das Kontingent ist `baseBytes` plus noch aktive Add-on-Bytes. `canStoreBytes` behandelt ein Überschreiben als `usedBytes` minus die bereits für diese Sitzung gespeicherten Bytes plus die eingehende Größe, sodass das Ersetzen einer größeren PNG durch eine kleinere gelingen kann, wenn eine brandneue Capture das Kontingent überschreiten würde. `uploadAllowed` ist false, sobald `usedBytes` bereits am oder über dem Kontingent liegt. Überkontingent ohne `latestExpiredAt`-Zeitstempel ist der Zustand over_quota ohne Nachfrist-Uhr. Wenn `latestExpiredAt` von einem abgelaufenen Add-on oder von `paidEligibilityEndedAt` gesetzt ist, befindet sich das Konto 30 Tage in grace, ist bis Tag 90 recoverable und danach cleanup_eligible; Uploads bleiben in allen drei Zuständen unzulässig.",
-            "Nicht permanente Free-Cloud-Sitzungen werden nach sieben Tagen löschberechtigt. Pro-Inhalte oberhalb des Free-Kontingents folgen nach Ende der bezahlten Berechtigung der 30-tägigen Nachfrist und dem 90-tägigen Wiederherstellungsfenster. Founder- und Legacy-Lifetime-Inhalte werden nicht allein deshalb löschberechtigt, weil kein wiederkehrendes Abonnement besteht; sie bleiben durch gekauftes Kontingent, Benutzerlöschung, Missbrauchs- und Rechtssperren, Kontoschließung und Dienstbeendigung begrenzt. Ausschließlich lokaler Verlauf auf dem Gerät wird niemals remote gelöscht. Löschberechtigung ist kein Versprechen einer sofortigen Entfernung, und die gehostete automatische Löschung ist bewusst nicht aktiviert.",
+            "Das Kontingent ist der im Plan enthaltene Speicher plus jedes noch aktive Add-on. Das Ersetzen eines größeren Screenshots durch einen kleineren kann gelingen, wenn eine brandneue Capture das nicht täte. Uploads pausieren, sobald das Konto am oder über dem Kontingent liegt, auch während Nachfrist und Wiederherstellung.",
+            "Free-Cloud-Sitzungen, die nicht als dauerhaft markiert sind, werden nach sieben Tagen bereinigungsberechtigt. Pro-Inhalte oberhalb des Free-Kontingents folgen nach Ende der bezahlten Berechtigung der 30-tägigen Nachfrist und dem 90-tägigen Wiederherstellungsfenster. Founder- und Legacy-Lifetime-Inhalte werden nicht allein deshalb berechtigt, weil kein wiederkehrendes Abonnement besteht. Ausschließlich lokaler Verlauf auf diesem Computer wird niemals remote gelöscht. Berechtigung ist kein Versprechen einer sofortigen Entfernung.",
           ],
           bullets: [
-            "Wenn neue Captures pausieren, senken Sie `usedBytes` unter das verbleibende Kontingent, indem Sie Sitzungen löschen oder einen umfangreichen Screenshot ersetzen, oder erwerben Sie ein zwölfmonatiges 5-GB- oder 20-GB-Add-on.",
-            "Wenn der Berechtigungszustand grace oder recoverable ist, exportieren Sie alles noch Benötigte vor Tag 90 nach `latestExpiredAt`; cleanup_eligible kennzeichnet nur den Überschuss und löscht selbst nicht.",
-            "Erwarten Sie nicht, dass das Deinstallieren der Desktop-App Cloud-Objekte bereinigt, und erwarten Sie nicht, dass die Cloud den lokalen Verlauf unter ~/.pinar löscht.",
+            "Wenn neue Captures pausieren, schaffe Platz, indem du Sitzungen löschst oder einen umfangreichen Screenshot ersetzt, oder erwirb ein zwölfmonatiges 5-GB- oder 20-GB-Add-on.",
+            "Ist das Konto in der Nachfrist oder Wiederherstellung, exportiere alles noch Benötigte vor Tag 90; Berechtigung kennzeichnet nur den Überschuss und löscht selbst nicht.",
+            "Erwarte nicht, dass das Deinstallieren der Desktop-App Cloud-Objekte bereinigt, und erwarte nicht, dass die Cloud den lokalen Verlauf auf diesem Computer löscht.",
           ],
         },
       ],
@@ -843,7 +843,7 @@ const locale = {
         {
           heading: "Unlisted öffentliche Links",
           paragraphs: [
-            "Cloud-Viewer gibt es für eine Sitzung, ein Projekt oder eine Sammlung. Sie sind für alle öffentlich, die den Link haben, und werden nicht wie die normale Navigation indexiert. Behandeln Sie eine unlisted URL nicht als Authentifizierung für sensible Inhalte.",
+            "Cloud-Viewer gibt es für eine Sitzung, ein Projekt oder eine Sammlung. Sie sind für alle öffentlich, die den Link haben, und werden nicht wie die normale Navigation indexiert. Behandle eine unlisted URL nicht als Authentifizierung für sensible Inhalte.",
           ],
         },
         {
@@ -856,44 +856,44 @@ const locale = {
           heading:
             "Die öffentliche Markdown-Projektion kopieren und wissen, was sie preisgibt",
           paragraphs: [
-            "Unlisted HTML liegt unter /v/{id} für eine Sitzung, /p/{id} für ein Projekt und /c/{id} für eine Sammlung. Die Markdown-Projektion ist derselbe Pfad mit einem .md-Suffix. Der Aggregat-Viewer lädt /api/public/projects/{id} oder /api/public/collections/{id} ohne Auth-Cookie; Copy Markdown führt dann GET auf /p/{id}.md oder /c/{id}.md aus und schreibt den Text in die Zwischenablage, und jede Sitzungskarte öffnet /v/{id}. Eine fehlende oder fehlerhafte id gibt Session not found, Project not found oder Collection not found zurück, nicht die E-Mail des Inhabers, den Plan oder andere Kontofelder.",
-            "Sitzungs-Markdown wird aus dem Handoff-Bundle plus den Abschnitten agent-result und pin-review aufgebaut. Projekt- und Sammlungs-Markdown listen jede verschachtelte Sitzung mit Seiten-URL, /v/{id}.md, optionaler Screenshot-URL, Pin-Kommentaren, `pinId`, DOM-Pfad, selector und inner text. Screenshot-Zeilen erscheinen nur, wenn die `includeScreenshot`-Delivery-Präferenz des Inhabers sie zulässt. Markdown und öffentliches JSON werden als public max-age=60 zwischengespeichert; Shot-PNGs werden 86400 Sekunden zwischengespeichert. Jeder, der den Link öffnen kann, kann kopieren, was er sieht; eine unlisted URL ist daher keine Autorisierung und keine Datenminimierung.",
+            "Jede Sitzung, jedes Projekt und jede Collection hat eine unlisted Seite und eine Markdown-Kopie. Copy Markdown legt diesen Text in die Zwischenablage, und jede Sitzungskarte öffnet den eigenen Viewer. Ein fehlender oder ungültiger Link zeigt eine not-found-Seite statt Inhaber-E-Mail, Plan oder anderen Kontofeldern.",
+            "Sitzungs-Markdown enthält das Handoff-Bundle plus Agent-Ergebnisse und Pin-Reviews. Projekt- und Collection-Markdown listen jede verschachtelte Sitzung mit Seiten-URL, Pin-Kommentaren, `pinId` und Locators. Screenshot-Zeilen erscheinen nur, wenn der Inhaber die Screenshot-Zustellung zulässt. Jede Person, die den Link öffnen kann, kann kopieren, was sie sieht; eine unlisted URL ist daher keine Autorisierung.",
           ],
           bullets: [
-            "Bevor Sie /p/{id} oder /c/{id} versenden, öffnen Sie Copy Markdown einmal und prüfen Sie, dass jede verschachtelte Sitzung, jeder Pin-Kommentar und jede Screenshot-Zeile zur Veröffentlichung geeignet ist.",
-            "Deaktivieren Sie die Screenshot-Delivery im Inhaberkonto, wenn die Projektion Bild-URLs auslassen soll; warten Sie mindestens 60 Sekunden, bis der öffentliche Markdown-Cache abläuft.",
-            "Wenn ein geteilter Pfad not found anzeigt, behandeln Sie die id als nicht mehr vorhanden oder ungültig; die öffentlichen Handler fügen dieser Antwort niemals private Konto-Diagnosen hinzu.",
+            "Bevor du einen Projekt- oder Collection-Link versendest, öffne Copy Markdown einmal und prüfe, dass jede verschachtelte Sitzung, jeder Pin-Kommentar und jede Screenshot-Zeile zur Veröffentlichung geeignet ist.",
+            "Deaktiviere die Screenshot-Zustellung im Inhaberkonto, wenn das geteilte Markdown Bild-URLs auslassen soll.",
+            "Wenn ein geteilter Pfad not found anzeigt, behandle den Link als nicht mehr vorhanden oder ungültig; diese Seite fügt keine privaten Kontodetails hinzu.",
           ],
         },
       ],
     },
     "where-data-lives": {
-      title: "Wo Ihre Daten liegen",
+      title: "Wo deine Daten liegen",
       summary:
         "Lokale Dateien, Cloud-Persistenz, Browser-Einstellungen und öffentliche Projektionen voneinander trennen.",
       sections: [
         {
           heading: "Lokale Grenze",
           paragraphs: [
-            "Lokale Screenshots sind Dateien unter `~/.pinar/shots`, und der lokale Verlauf ist SQLite unter `~/.pinar/history.db`, mit einem JSON-Fallback, wenn SQLite nicht verfügbar ist. Browser-Einstellungen wie Ansicht, Sprache, Theme und Delivery-Einstellungen bleiben im lokalen Browserspeicher, sofern eine Funktion sie nicht ausdrücklich synchronisiert.",
+            "Lokale Screenshots und der Verlauf bleiben auf diesem Computer. Browser-Einstellungen wie Ansicht, Sprache, Theme und Zustelloptionen bleiben in diesem Browser, sofern eine angemeldete Funktion sie nicht ausdrücklich synchronisiert.",
           ],
         },
         {
           heading: "Cloud-Grenze",
           paragraphs: [
-            "Cloud-Kontodatensätze und Capture-Metadaten nutzen Cloudflare D1; Bilder nutzen R2. Stripe verarbeitet die Abrechnung, der konfigurierte E-Mail-Dienst sendet Anmeldecodes, und Workers AI erstellt angeforderte Zusammenfassungen. Die Seite Subprocessors ist die aktuelle Liste der externen Dienstrollen.",
+            "Cloud-Kontodatensätze, Capture-Metadaten und Bilder werden im gehosteten Dienst gespeichert. Stripe verarbeitet die Abrechnung, und der E-Mail-Dienst sendet Anmeldecodes. Die Seite Subprocessors ist die aktuelle Liste der externen Dienstrollen.",
           ],
         },
         {
           heading: "Prüfen, welcher Speicher jede Capture tatsächlich hält",
           paragraphs: [
-            "Beginnen Sie im Home-Verzeichnis des Helpers und prüfen Sie, welche Datei aktiv ist. Screenshots werden als PNG-Dateien in den Ordner shots geschrieben; der Sitzungsverlauf bevorzugt SQLite unter `history.db`, und `history.json` wird nur geöffnet, nachdem `SqliteHistoryDb` nicht konstruiert werden kann. Ein erfolgreiches Öffnen von SQLite schreibt außerdem verschachtelte shots/shots-Pfadpräfixe auf das kanonische shots-Verzeichnis um. Theme bleibt eine reine Browser-Einstellung: Der Tab Interface speichert dark oder light unter dem localStorage-Schlüssel pinar-theme und löscht diesen Schlüssel für system. Sprache sowie die Schalter im Tab Capture für den Handoff-Modus (full versus compact) und include-screenshot werden im selben Einstellungsdialog bearbeitet, ein angemeldetes Cloud-Konto kann handoff_mode und include_screenshot jedoch in D1 owner_preferences über GET und PATCH /api/preferences persistieren.",
-            "Gehostete Captures halten Metadaten in D1 und PNG-Bytes in R2. Nicht authentifizierte öffentliche Projektionen sind GET /shots/{id}.png (Cache-Control max-age 86400), GET /v/{id}.md sowie die Projekt- und Sammlungsrouten /p/ und /c/. POST /api/auth/email-codes speichert nur einen Hash in email_challenges, lässt die Challenge nach zehn Minuten ablaufen und gibt 202 mit { accepted: true, expiresInSeconds: 600 } zurück, selbst wenn EMAIL fehlt oder das Konto nicht everPaid ist, sodass die Antwort nicht preisgibt, ob E-Mail gesendet wurde (429 ist die Rate-Limit-Ausnahme). Angeforderte Zusammenfassungen rufen das Workers-AI-Modell @cf/meta/llama-3.1-8b-instruct-fp8 unter POST /api/ai/session-summary auf. Die Seite Subprocessors nennt Cloudflare für D1, R2, Workers AI und transaktionale E-Mail sowie Stripe für Checkout und weist darauf hin, dass Pinar keine vollständigen Kartendaten erhält. GET /api/legal/current meldet die Richtlinienversion 2026-08-25.",
+            "Lokale Screenshots werden als PNG-Dateien gespeichert, und der Sitzungsverlauf bleibt auf diesem Computer. Theme ist eine reine Browser-Einstellung im Tab Interface. Sprache und die Schalter für Capture-Zustellung leben im selben Einstellungsdialog; ein angemeldetes Cloud-Konto kann diese Zustelloptionen im gehosteten Workspace behalten.",
+            "Gehostete Captures halten Metadaten und Bilder im Cloud-Dienst. Unlisted Viewer und Markdown-Kopien sind ohne Workspace-Sitzung verfügbar. E-Mail-Anmeldecodes laufen ab, und das Formular verrät nicht, ob ein Konto existiert. Die Seite Subprocessors nennt die aktuellen gehosteten Anbieter, und Pinar erhält keine vollständigen Kartendaten. Aktuelle Richtlinienversionen sind auf den Rechtsseiten veröffentlicht.",
           ],
           bullets: [
-            "Wenn `history.db` fehlt oder SQLite nicht geöffnet werden konnte, behandeln Sie ~/.pinar/history.json als den aktiven lokalen Katalog und rechnen Sie mit einer Konsolenwarnung zum JSON-Fallback.",
-            'Öffnen Sie einen gehosteten Screenshot unter /shots/{id}.png und seine Markdown-Projektion unter /v/{id}.md; ein fehlendes R2-Objekt gibt JSON { error: "shot not found" } mit Status 404 zurück.',
-            "Bestätigen Sie in den Einstellungen das Interface-Theme über pinar-theme und unterscheiden Sie dann die Capture-Delivery-Schalter von den cloud-synchronisierten Werten handoff_mode und include_screenshot in D1, wenn Sie angemeldet sind.",
+            "Wenn der lokale Verlauf nicht geöffnet werden kann, stellt Pinar auf diesem Computer einen nutzbaren Katalog wieder her, statt abzustürzen.",
+            "Öffne einen gehosteten Screenshot von seiner Freigabeseite oder dem Markdown-Viewer; ein fehlendes Bild zeigt not found statt Kontodetails.",
+            "Bestätige in den Einstellungen das Interface-Theme lokal und unterscheide dann die Capture-Zustellschalter von den cloud-synchronisierten Zustelloptionen, wenn du angemeldet bist.",
           ],
         },
       ],
@@ -901,12 +901,12 @@ const locale = {
     "automatic-sanitization": {
       title: "Automatische Bereinigung",
       summary:
-        "Sehen Sie, welche URL-, DOM-, Zugangsdaten- und Inline-Bilddaten Pinar vor der Übergabe oder Speicherung entfernt.",
+        "Sieh, welche URL-, DOM-, Zugangsdaten- und Inline-Bilddaten Pinar vor der Übergabe oder Speicherung entfernt.",
       sections: [
         {
           heading: "Sensible Felder und URLs",
           paragraphs: [
-            "Pinar schwärzt Passwort-, Zahlungs-, Token- und OTP-Felder, entfernt URL-Fragmente und streicht bekannte sensible Query-Keys wie access_token, api_key, auth, password, secret, token und jwt. Weitere Query-Key-Namen können Sie in den Erweiterungseinstellungen hinzufügen.",
+            "Pinar schwärzt Passwort-, Zahlungs-, Token- und OTP-Felder, entfernt URL-Fragmente und streicht bekannte sensible Query-Keys wie access_token, api_key, auth, password, secret, token und jwt. Weitere Query-Key-Namen kannst du in den Erweiterungseinstellungen hinzufügen.",
           ],
         },
         {
@@ -918,13 +918,13 @@ const locale = {
         {
           heading: "Schwärzungsbericht und verworfene Inline-Bilder beobachten",
           paragraphs: [
-            "sanitizeCapture klassifiziert die Felder password, otp, payment und token anhand von input type, autocomplete und dem name/id/ariaLabel/role-Haystack und bereinigt anschließend die Seiten-URL. Query-Keys im sensiblen Satz oder Werte, die lookLikeSecret erfüllen (Länge mindestens 12, passend zu einem JWT oder Präfixe wie sk_live_, ghp_, github_pat_ und AIza), werden durch [redacted] ersetzt und als secret-query oder token markiert; Hash-Parameter verwenden secret-hash. Zusätzliche Namen in extraQueryKeys und extraHashKeys werden kleingeschrieben, an Leerzeichen, Kommas oder Semikolons getrennt und mit DEFAULT_SENSITIVE_QUERY_KEYS vereinigt, das außerdem authorization, refresh_token, session, session_id, client_secret, bearer und verwandte Namen über die kurze Übersichtsliste hinaus enthält. Gesammelte Geheimnisse ersetzen anschließend übereinstimmende Teilzeichenfolgen in title, description, URL und Pins. Werte kürzer als vier Zeichen werden selbst bei kategorisiertem Feld nicht als Ersatzgeheimnisse verwendet, und eine URL, die sich nicht parsen lässt, wird unverändert zurückgegeben.",
-            "parseVisualCapture akzeptiert schemaVersion 1 oder Legacy 0 und wirft VisualContextError mit der stabilen Meldung invalid visual context und den Codes unsupported_schema, invalid_payload, invalid_pin oder missing_capture_id, statt den Roh-Body zu wiederholen. decodeVisualCaptureJson stellt sich nach JSON- oder Schemafehler wieder her, indem diese `captureId` mit leeren Pins zurückgegeben wird. screenshotFrom und captureForHandoffJson setzen screenshot.url für data:-URLs auf null; der Übergabepfad fügt die Warnung screenshot_inline hinzu, wenn Inline-Bytes entfernt wurden, sodass das Text-Bundle einen Dateisystempfad oder eine http(s)-Referenz statt der Bildnutzlast behält. Das Setzen von input.unevaluated auf true trägt unevaluated im Privacy-Report ein und fügt die Warnung privacy_unevaluated hinzu.",
+            "Pinar schwärzt Passwort-, Zahlungs-, Token- und Einmalcode-Felder und bereinigt anschließend die Seiten-URL. Bekannte geheimnisartig wirkende Query-Werte werden durch [redacted] ersetzt. Zusätzliche Namen, die du in den Einstellungen hinzufügst, werden einbezogen. Übereinstimmende Teilzeichenfolgen werden auch aus Titel, Beschreibung, URL und Pins entfernt.",
+            "Der kopierte Visual-Context-Block behält `captureId`, auch wenn der Rest der Nutzlast nicht geparst werden kann. Inline-Screenshot-Bytes werden aus dem Text-Bundle entfernt, sodass die Kopie stattdessen einen Dateipfad oder eine Viewer-URL behält. Konnten einige Bereiche nicht geprüft werden, enthält das Einfügen eine Privacy-Warnung.",
           ],
           bullets: [
-            "Lesen Sie nach sanitizeCapture privacy.redacted sowie die Warnungen privacy_redacted oder privacy_unevaluated; unevaluated true bedeutet, dass einige Bereiche nicht geprüft wurden.",
-            "Fügen Sie zusätzliche Query-Key-Namen als kommagetrennte, leerzeichengetrennte oder semikolongetrennte Tokens hinzu; der Abgleich erfolgt unabhängig von der Groß-/Kleinschreibung gegen den integrierten Satz einschließlich authorization, session und refresh_token.",
-            "Wenn eingefügtes Übergabe-JSON weiterhin eine data:-Screenshot-URL enthält, hat der Capture captureForHandoffJson übersprungen; der unterstützte Pfad setzt url auf null und kann screenshot_inline hinzufügen.",
+            "Lies nach einem Kopieren die Privacy-Warnungen im Einfügen; einige Bereiche können als nicht geprüft markiert sein.",
+            "Füge zusätzliche Query-Key-Namen als kommagetrennte, leerzeichengetrennte oder semikolongetrennte Tokens hinzu; der Abgleich erfolgt unabhängig von der Groß-/Kleinschreibung.",
+            "Wenn eingefügtes Übergabe-JSON weiterhin eine data:-Screenshot-URL enthält, erfasse erneut, damit das Text-Bundle stattdessen einen Pfad oder eine Viewer-URL behält.",
           ],
         },
       ],
@@ -932,7 +932,7 @@ const locale = {
     "local-security-and-recovery": {
       title: "Lokale Sicherheit und Wiederherstellung",
       summary:
-        "Verstehen Sie Capability-Token, vertrauenswürdige Origins, lokale Migrationen und die sichere Startwiederherstellung.",
+        "Verstehe Capability-Token, vertrauenswürdige Origins, lokale Migrationen und die sichere Startwiederherstellung.",
       sections: [
         {
           heading: "Lokales API-Vertrauen",
@@ -950,13 +950,13 @@ const locale = {
           heading:
             "Das Capability-Geheimnis vorlegen und einen beschädigten lokalen Store wiederherstellen",
           paragraphs: [
-            'Der Helper speichert einen Store der Version 1 unter local-capability.json mithilfe einer temporären 0o600-Datei und Umbenennung. Senden Sie das aktuelle Geheimnis im Header x-pinar-capability oder als Authorization-Bearer-Token. GET /api/local/capability darf das Geheimnis weglassen, wenn Origin leer ist, Loopback-HTTP auf 127.0.0.1, localhost oder ::1, oder chrome-extension:// mit alphanumerischer ID; jeder andere Origin gilt als feindlich und erhält 401 { error: "unauthorized" } mit Cache-Control no-store. HTTPS-Loopback wird nicht als Loopback behandelt. POST /api/local/capability/rotate und /revoke erfordern ein passendes Geheimnis. Die Rotation schreibt ein neues aktuelles Geheimnis und behält previous.secret bis expiresAt (Standard 24 Stunden, überschreibbar mit PINAR_CAPABILITY_GRACE_MS; 0 verwirft previous). Revoke löscht die Datei; der nächste readOrCreateLocalCapability erzeugt einen neuen Store. Gewöhnliche Loopback-Anfragen überspringen das Geheimnis; chrome-extension-Anfragen benötigen eine Übereinstimmung. Als public-min oder local-public-projection klassifizierte Einträge überspringen dieses Gate.',
-            "claimInstanceLock belässt eine laufende fremde PID und ruft onDuplicate auf; ein fehlendes oder unlesbares Lock gilt als veraltet und wird mit dieser Prozess-ID überschrieben. migrateNestedShots verschiebt Dateien von shots/shots nach shots und überspringt Namen, die am Ziel bereits existieren; das verschachtelte Verzeichnis wird nur entfernt, wenn die conflicts-Liste leer ist. Shot-IDs werden auf A–Z, a–z, 0–9, Unterstrich und Bindestrich mit höchstens 80 Zeichen reduziert, andernfalls ist die Datei pin.png. Wenn `SqliteHistoryDb` wirft, warnt openHistoryDb und öffnet `history.json`. Eine beschädigte JSON-Datei wird zu leeren Arrays geparst, anschließend erstellt _ensureDefaults das geschützte Projekt Personal und die Collection Inbox für den Owner local neu. Ein fehlgeschlagener JSON-Write protokolliert eine Warnung und bricht den Start nicht ab. Fehlt `history.db`, kann migrateLegacyHistoryDb eine übrig gebliebene history.sqlite aus bin/ oder shots/ in `history.db` umbenennen.",
+            "Der lokale Workspace akzeptiert nur die Pinar-App und die offizielle Erweiterung. Die Rotation hält das vorherige Geheimnis lange genug gültig, damit laufende Prozesse nachziehen können; der Widerruf erzwingt eine neue Autorisierung.",
+            "Läuft bereits eine andere Pinar-Instanz, bleibt diese Instanz an Ort und Stelle. Verschachtelte Screenshot-Ordner werden migriert, ohne Namenskonflikte zu überschreiben. Wenn der lokale Verlauf nicht geöffnet werden kann, stellt Pinar ein nutzbares Projekt Personal und Inbox wieder her, statt abzustürzen.",
           ],
           bullets: [
-            "Senden Sie x-pinar-capability oder Bearer bei chrome-extension-Aufrufen; GET /api/local/capability bootstrapped über Loopback-HTTP oder chrome-extension, andere Origins erhalten 401 unauthorized.",
-            "Nach revoke ist local-capability.json verschwunden; der nächste Helper-Start erzeugt ein neues Geheimnis, und Clients müssen es erneut lesen, bevor rotate oder revoke wieder erfolgreich sind.",
-            "Wenn `history.db` nicht geöffnet werden kann, erwarten Sie `history.json`; eine beschädigte JSON-Datei wird zu einem leeren Katalog, anschließend Personal und Inbox für den Owner local, ohne dass der Helper abstürzt.",
+            "Nutze weiter die offizielle Erweiterung und die Pinar-App; andere Sites können nicht mit dem lokalen Workspace sprechen.",
+            "Nachdem du den lokalen Zugriff widerrufen hast, starte Pinar neu, damit der Workspace sich erneut autorisieren kann.",
+            "Wenn der lokale Verlauf nicht geöffnet werden kann, erwarte ein wiederhergestelltes Projekt Personal und Inbox statt eines Absturzes.",
           ],
         },
       ],
@@ -964,12 +964,12 @@ const locale = {
     "telemetry-and-policies": {
       title: "Telemetrie, Einwilligung und Richtlinien",
       summary:
-        "Erfahren Sie, was opt-in ist, welche Richtlinien die Cloud-Nutzung steuern und was Fair Source hier bedeutet.",
+        "Erfahre, was opt-in ist, welche Richtlinien die Cloud-Nutzung steuern und was Fair Source hier bedeutet.",
       sections: [
         {
           heading: "Closed-Loop-Metriken",
           paragraphs: [
-            "Loop-Metriken sind aus, sofern Sie nicht opt-in aktivieren. Wenn deaktiviert, werden Übermittlungen verworfen. Wenn aktiviert, lässt der Sanitizer operative Events, duration, agent und Relocation-Confidence zu, lehnt jedoch Kommentare, Titel, URLs, DOM-Pfade, Selektoren, Screenshots, Markup und Rohinhalte ab.",
+            "Loop-Metriken sind aus, sofern du nicht opt-in aktivierst. Wenn deaktiviert, werden Übermittlungen verworfen. Wenn aktiviert, lässt der Sanitizer operative Events, duration, agent und Relocation-Confidence zu, lehnt jedoch Kommentare, Titel, URLs, DOM-Pfade, Selektoren, Screenshots, Markup und Rohinhalte ab.",
           ],
         },
         {
@@ -982,13 +982,13 @@ const locale = {
           heading:
             "Opt-in-Payloads und den veröffentlichten Richtliniensatz prüfen",
           paragraphs: [
-            "Loop-Metriken sind standardmäßig aus, weil DEFAULT_LOOP_METRICS_OPT_IN false ist. planLoopMetricRequest gibt send false mit dem Grund opt_in_off zurück, sofern optIn nicht strikt true ist, und loopMetricHttpStatus mappt diesen Code auf HTTP 200. Wenn aktiviert, darf jedes Event-Objekt nur agent, degraded, durationMs, event und locationConfidence enthalten. Unbekannte Keys, verbotene Keys wie url, title, comment, screenshot, selector, path, `captureId`, sessionId, html, markdown, content, pin und page oder String-Werte, die wie http(s)-URLs oder data:-URIs aussehen oder { oder < enthalten, werden zu forbidden_fields (HTTP 400). event muss accepted, correction_ready, handoff, relocation_failed oder reopened sein; agent muss claude, codex, cursor oder grok sein; locationConfidence muss exact, probable, ambiguous oder unresolved sein; durationMs muss eine nicht negative Ganzzahl von höchstens 86.400.000 sein. Ein leerer oder nicht als Array vorliegender events-Wert ist invalid_payload und wird nicht gesendet.",
-            "README stellt fest, dass Checkout und die Remote-Registrierung für Free angenommene Richtlinienversionen erfassen, und veröffentlicht Terms, Privacy, Acceptable Use, Retention, Refunds, Fair Source und Subprocessors unter https://pinar.dev/legal/. legal-documents setzt CURRENT_LEGAL_VERSION für alle sieben Dokument-IDs auf 2026-08-25. Terms besagen, dass rein lokale Nutzung, die den gehosteten Dienst nie kontaktiert, kein gehostetes Konto braucht; Privacy besagt, dass rein lokale Daten, die das Gerät nie verlassen, außerhalb der gehosteten Richtlinie liegen. LICENSE ist Functional Source License, Version 1.1, MIT Conversion: zwei Jahre nach der Erstveröffentlichung ist die Change License MIT, und bis zum Change Date dürfen Sie keinen konkurrierenden kommerziellen gehosteten Visual-Annotation-, Screenshot-Preview- oder Cloud-Persistenzdienst anbieten. Der Fair-Source-Hinweis verweist auf LICENSE und ist kein OSI-approved Open Source. Fragen gehen an contact@pinar.dev oder contato@pinar.dev.",
+            "Loop-Metriken bleiben aus, sofern du nicht opt-in aktivierst. Wenn aktiviert, werden nur operative Events gesendet. Kommentare, Titel, URLs, Selektoren, Screenshots und ähnliche Inhalte werden abgelehnt.",
+            "Checkout und die Remote-Registrierung für Free erfassen angenommene Richtlinienversionen. Terms, Privacy, Acceptable Use, Retention, Refunds, Fair Source und Subprocessors sind unter https://pinar.dev/legal/ veröffentlicht. Rein lokale Nutzung, die den gehosteten Dienst nie kontaktiert, braucht kein gehostetes Konto. Fragen gehen an contact@pinar.dev oder contato@pinar.dev.",
           ],
           bullets: [
-            "Lassen Sie Loop-Metriken deaktiviert, sofern Sie nicht optIn true beabsichtigen; ein deaktivierter Plan gibt send false mit opt_in_off zurück und überträgt den Batch nicht.",
-            "Öffnen Sie vor gehosteter Persistenz oder Checkout Terms, Privacy und Acceptable Use in der Version 2026-08-25 unter https://pinar.dev/legal/terms, /privacy und /acceptable-use.",
-            "Behandeln Sie LICENSE als maßgeblich für die FSL-1.1-MIT-Wettbewerbsgrenzen und das Change Date; die derzeit genannten gehosteten Subprocessors sind Cloudflare und Stripe.",
+            "Lass Loop-Metriken deaktiviert, sofern du nicht opt-in willst; eine deaktivierte Einstellung überträgt keinen Batch.",
+            "Öffne vor gehosteter Persistenz oder Checkout Terms, Privacy und Acceptable Use unter https://pinar.dev/legal/terms, /privacy und /acceptable-use.",
+            "Behandle die veröffentlichte Lizenz als maßgeblich für die Fair-Source-Grenzen; die derzeit genannten gehosteten Subprocessors sind Cloudflare und Stripe.",
           ],
         },
       ],

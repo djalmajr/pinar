@@ -208,7 +208,7 @@ const messages = {
   "dashboard.moreActions": "More session actions",
   "dashboard.view": "View",
   "dashboard.reviewOnPage": "Review on page",
-  "dashboard.markdown": "Markdown",
+  "dashboard.markdown": "Open prompt *.md",
   "dashboard.copyPrompt": "Copy prompt",
   "dashboard.includeScreenshot": "Include screenshot in agent copy",
   "dashboard.includeScreenshotHint":
@@ -231,14 +231,19 @@ const messages = {
   "dashboard.filters": "Filters",
   "dashboard.filtersEmpty": "No filters",
   "dashboard.filterActions": "Filter actions",
+  "dashboard.batchActions": "Batch actions",
   "dashboard.batches": "Batches",
   "dashboard.collapseBatches": "Collapse {name}",
   "dashboard.expandBatches": "Expand {name}",
-  "dashboard.copyBatch": "Copy batch",
+  "dashboard.copyBatch": "Copy prompt (batch)",
   "dashboard.deleteFilter": "Remove",
   "dashboard.deleteFilterTitle": "Remove this grouping?",
   "dashboard.deleteFilterConfirm":
     "The sessions stay in their collections. Only the grouping is removed.",
+  "dashboard.deleteAllFilters": "Remove all",
+  "dashboard.deleteAllFiltersTitle": "Remove all groupings?",
+  "dashboard.deleteAllFiltersConfirm":
+    "The sessions stay in their collections. Only the groupings are removed.",
   "dashboard.create": "Create",
   "dashboard.deleteCollection": "Delete collection",
   "dashboard.deleteContainerConfirm":

@@ -212,7 +212,7 @@ const messages: UiMessages = {
   "dashboard.moreActions": "Más acciones de la sesión",
   "dashboard.view": "Ver",
   "dashboard.reviewOnPage": "Revisar en la página",
-  "dashboard.markdown": "Markdown",
+  "dashboard.markdown": "Abrir prompt *.md",
   "dashboard.copyPrompt": "Copiar prompt",
   "dashboard.includeScreenshot": "Incluir captura en la copia para agentes",
   "dashboard.includeScreenshotHint":
@@ -235,14 +235,19 @@ const messages: UiMessages = {
   "dashboard.filters": "Filtros",
   "dashboard.filtersEmpty": "Sin filtros",
   "dashboard.filterActions": "Acciones del filtro",
+  "dashboard.batchActions": "Acciones de lotes",
   "dashboard.batches": "Lotes",
   "dashboard.collapseBatches": "Contraer {name}",
   "dashboard.expandBatches": "Expandir {name}",
-  "dashboard.copyBatch": "Copiar lote",
+  "dashboard.copyBatch": "Copiar prompt (lote)",
   "dashboard.deleteFilter": "Quitar",
   "dashboard.deleteFilterTitle": "¿Quitar esta agrupación?",
   "dashboard.deleteFilterConfirm":
     "Las sesiones se quedan en sus colecciones. Solo desaparece la agrupación.",
+  "dashboard.deleteAllFilters": "Quitar todos",
+  "dashboard.deleteAllFiltersTitle": "¿Quitar todas las agrupaciones?",
+  "dashboard.deleteAllFiltersConfirm":
+    "Las sesiones se quedan en sus colecciones. Solo desaparecen las agrupaciones.",
   "dashboard.create": "Crear",
   "dashboard.deleteCollection": "Eliminar colección",
   "dashboard.deleteContainerConfirm":

@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   type ProjectTreeProject,
   SUPPORTED_LANGUAGES,
@@ -51,6 +59,8 @@ interface GlobalSettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
+
+const GlobalSettingsContext = createContext<(() => void) | null>(null);
 
 const THEME_STORAGE_KEY = "pinar-theme";
 const DEFAULT_DESTINATION = "__default__";
@@ -239,7 +249,7 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
       <DialogContent className="h-[min(44rem,calc(100dvh-2rem))] w-[min(68rem,calc(100vw-2rem))] max-w-none gap-0 overflow-hidden rounded-xl p-0 sm:max-w-none">
         <DialogDescription className="sr-only">{t("settings.description")}</DialogDescription>
         <div className="flex min-h-0 min-w-0 flex-1">
-          <aside className="hidden h-full w-[210px] shrink-0 flex-col border-r border-sidebar-border bg-muted/20 p-4 sm:flex">
+          <aside className="hidden h-full w-[210px] shrink-0 flex-col border-r border-sidebar-border bg-muted/20 p-2 sm:flex">
             <div className="px-2 py-3">
               <DialogTitle>{t("settings.title")}</DialogTitle>
               <span className="block text-xs text-muted-foreground">Pinar</span>
@@ -396,7 +406,7 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                 </div>
                 <div className="flex flex-col gap-5">
                   <SectionHeading>{t("settings.handoffHeading")}</SectionHeading>
-                  <SettingRow controlClassName="w-52" description={t("settings.handoffModeDescription")} title={t("settings.handoffMode")}>
+                  <SettingRow description={t("settings.handoffModeDescription")} title={t("settings.handoffMode")}>
                     <Switch
                       aria-label={t("settings.handoffMode")}
                       checked={handoffMode === "full"}
@@ -404,7 +414,7 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                       onCheckedChange={(checked) => void patch({ handoffMode: checked ? "full" : "compact" })}
                     />
                   </SettingRow>
-                  <SettingRow controlClassName="w-52" description={t("dashboard.includeScreenshotHint")} title={t("dashboard.includeScreenshot")}>
+                  <SettingRow description={t("dashboard.includeScreenshotHint")} title={t("dashboard.includeScreenshot")}>
                     <Switch
                       aria-label={t("dashboard.includeScreenshot")}
                       checked={includeScreenshot}
@@ -412,7 +422,7 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                       onCheckedChange={(value) => void patch({ includeScreenshot: value })}
                     />
                   </SettingRow>
-                  <SettingRow controlClassName="w-52" description={t("settings.includeViewerDescription")} title={t("settings.includeViewer")}>
+                  <SettingRow description={t("settings.includeViewerDescription")} title={t("settings.includeViewer")}>
                     <Switch
                       aria-label={t("settings.includeViewer")}
                       checked={includeViewer}
@@ -420,7 +430,7 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                       onCheckedChange={(value) => void patch({ includeViewer: value })}
                     />
                   </SettingRow>
-                  <SettingRow controlClassName="w-52" description={t("settings.copyViewerContentDescription")} title={t("settings.copyViewerContent")}>
+                  <SettingRow description={t("settings.copyViewerContentDescription")} title={t("settings.copyViewerContent")}>
                     <Switch
                       aria-label={t("settings.copyViewerContent")}
                       checked={copyViewerContent}
@@ -431,7 +441,7 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                 </div>
                 <div className="flex flex-col gap-5">
                   <SectionHeading>{t("settings.privacyHeading")}</SectionHeading>
-                  <SettingRow controlClassName="w-52" description={t("settings.privacyQueryKeysDescription")} title={t("settings.privacyQueryKeys")}>
+                  <SettingRow layout="stack" description={t("settings.privacyQueryKeysDescription")} title={t("settings.privacyQueryKeys")}>
                     <Input
                       aria-label={t("settings.privacyQueryKeys")}
                       disabled={!available}
@@ -448,7 +458,7 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                 </div>
               </section>
               <section className={cn("flex flex-col gap-5", section !== "interface" && "hidden")}>
-                <SettingRow controlClassName="w-52" description={t("settings.themeDescription")} title={t("settings.theme")}>
+                <SettingRow description={t("settings.themeDescription")} title={t("settings.theme")}>
                   <Tabs
                     value={theme}
                     onValueChange={(value) => {
@@ -500,4 +510,22 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
       </DialogContent>
     </Dialog>
   );
+}
+
+export function GlobalSettingsProvider({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const openSettings = useCallback(() => setOpen(true), []);
+
+  return (
+    <GlobalSettingsContext.Provider value={openSettings}>
+      {children}
+      <GlobalSettingsDialog open={open} onOpenChange={setOpen} />
+    </GlobalSettingsContext.Provider>
+  );
+}
+
+export function useGlobalSettings() {
+  const openSettings = useContext(GlobalSettingsContext);
+  if (!openSettings) throw new Error("useGlobalSettings must be used within GlobalSettingsProvider");
+  return openSettings;
 }

@@ -41,11 +41,13 @@ bun apps/cli/src/cli.mjs install
 
 Install the official [Pinar extension from the Chrome Web Store](https://chromewebstore.google.com/detail/pinardev/idpeaokdndjedekacfdfbilcolpholbo). A GitHub checkout or unpacked extension folder is not required for normal use.
 
+Independent [extension releases on GitHub](https://github.com/djalmajr/pinar/releases?q=extension-v) provide the same versioned installable package without waiting for Store approval. They can be loaded unpacked in compatible Chromium browsers: download and extract the ZIP, enable developer mode on the browser's extension-management page, choose **Load unpacked**, and select the directory containing `manifest.json`. Store installation remains recommended for automatic updates.
+
 Extension contributors can still load a development build:
 
 1. Run `bun run build:ext` from this checkout.
 2. Open `chrome://extensions` and enable **Developer mode**.
-3. Choose **Load unpacked** and select `extension/dist`.
+3. Choose **Load unpacked** and select `extension`.
 4. After rebuilding, choose **Reload** on the Pinar card before testing the new behavior.
 
 ## Usage
@@ -60,9 +62,7 @@ Extension contributors can still load a development build:
 - **Esc** in the composer closes only the draft; with no draft, it clears all pins and hides the toolbar
 - The extension icon only shows or hides the overlay — it does not delete pins
 
-PNG crops go to `~/.pinar/shots` (Windows: `%USERPROFILE%\.pinar\shots`). The extension cannot write that folder by itself — on macOS, **Pinar.app** starts the local server (menu bar: Start if it shows Off). It tries `127.0.0.1:17373` and, if that port is taken by another process, binds the next free port through `17382`. The extension looks for `GET /api/health` with `{"service":"pinar"}` in that range. If `17373` is already Pinar, a second instance is not started. `PINAR_PORT` pins the helper to a single port.
-
-Without the local server, the crop falls back to `Downloads/pinar/`.
+PNG crops go to `~/.pinar/shots` (Windows: `%USERPROFILE%\.pinar\shots`). The extension cannot write that folder by itself — on macOS, **Pinar.app** starts the local service (menu bar: Start if it shows Off). If the connection is not available, open Pinar and try the capture again.
 
 ## Architecture
 

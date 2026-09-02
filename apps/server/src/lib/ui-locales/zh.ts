@@ -193,7 +193,7 @@ const messages: UiMessages = {
   "dashboard.moreActions": "更多会话操作",
   "dashboard.view": "查看",
   "dashboard.reviewOnPage": "在原页审阅",
-  "dashboard.markdown": "Markdown",
+  "dashboard.markdown": "打开提示 *.md",
   "dashboard.copyPrompt": "复制提示词",
   "dashboard.includeScreenshot": "在代理副本中包含截图",
   "dashboard.includeScreenshotHint":
@@ -215,13 +215,18 @@ const messages: UiMessages = {
   "dashboard.filters": "筛选",
   "dashboard.filtersEmpty": "无筛选",
   "dashboard.filterActions": "筛选操作",
+  "dashboard.batchActions": "批次操作",
   "dashboard.batches": "批次",
   "dashboard.collapseBatches": "收起 {name}",
   "dashboard.expandBatches": "展开 {name}",
-  "dashboard.copyBatch": "复制批次",
+  "dashboard.copyBatch": "复制提示（批次）",
   "dashboard.deleteFilter": "移除",
   "dashboard.deleteFilterTitle": "移除此分组？",
   "dashboard.deleteFilterConfirm":
+    "会话仍保留在各自的集合中。只会去掉分组。",
+  "dashboard.deleteAllFilters": "全部移除",
+  "dashboard.deleteAllFiltersTitle": "移除全部分组？",
+  "dashboard.deleteAllFiltersConfirm":
     "会话仍保留在各自的集合中。只会去掉分组。",
   "dashboard.create": "创建",
   "dashboard.deleteCollection": "删除集合",

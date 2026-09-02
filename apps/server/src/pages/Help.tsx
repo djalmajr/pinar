@@ -16,10 +16,20 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
   Input,
   ScrollArea,
   cn,
 } from "@pinar/ui";
+import {
+  ImageZoomControls,
+  ImageZoomStage,
+  useImageZoom,
+} from "@/components/ImageZoomStage";
 import { Link } from "@tanstack/react-router";
 import ReactMarkdown from "react-markdown";
 import { ServerFooter } from "@/components/ServerFooter";
@@ -258,33 +268,73 @@ function HelpSearch({ className }: { className?: string } = {}) {
 
 function HelpArticleFigure({ screenshot }: { screenshot: HelpScreenshot }) {
   const { ui } = useActiveHelpContent();
+  const [open, setOpen] = useState(false);
+  const zoom = useImageZoom(`${screenshot.src}:${open}`);
+
   return (
-    <figure className="mt-8 overflow-hidden rounded-xl border bg-muted/20 shadow-sm">
-      <a
-        aria-label={ui.openScreenshot}
-        className="block bg-background"
-        href={screenshot.src}
-        rel="noreferrer"
-        target="_blank"
-      >
-        <img
-          alt={screenshot.alt}
-          className="block h-auto w-full object-cover object-top"
-          decoding="async"
-          draggable={false}
-          height={screenshot.height}
-          loading="lazy"
-          src={screenshot.src}
-          width={screenshot.width}
-        />
-      </a>
-      <figcaption className="border-t bg-muted/30 px-4 py-3 text-xs leading-5 text-muted-foreground">
-        <span className="font-semibold text-foreground">
-          {ui.visualExample}
-        </span>{" "}
-        {screenshot.caption}
-      </figcaption>
-    </figure>
+    <>
+      <figure className="mt-8 overflow-hidden rounded-xl border bg-muted/20 shadow-sm">
+        <button
+          aria-label={ui.openScreenshot}
+          className="block w-full bg-background text-left"
+          type="button"
+          onClick={() => setOpen(true)}
+        >
+          <img
+            alt={screenshot.alt}
+            className="block h-auto w-full object-cover object-top"
+            decoding="async"
+            draggable={false}
+            height={screenshot.height}
+            loading="lazy"
+            src={screenshot.src}
+            width={screenshot.width}
+          />
+        </button>
+        <figcaption className="border-t bg-muted/30 px-4 py-3 text-xs leading-5 text-muted-foreground">
+          <span className="font-semibold text-foreground">
+            {ui.visualExample}
+          </span>{" "}
+          {screenshot.caption}
+        </figcaption>
+      </figure>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent
+          className="flex h-[calc(100dvh-2rem)] max-w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[calc(100vw-2rem)]"
+          showCloseButton
+        >
+          <DialogHeader className="sr-only">
+            <DialogTitle>{screenshot.alt}</DialogTitle>
+            <DialogDescription>{screenshot.caption}</DialogDescription>
+          </DialogHeader>
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            <ImageZoomStage
+              alt={screenshot.alt}
+              src={screenshot.src}
+              stageRef={zoom.stageRef}
+              transform={zoom.transform}
+              onDoubleClick={() =>
+                zoom.transform.scale <= 1 ? zoom.zoomBy(2) : zoom.resetZoom()
+              }
+              onPointerCancel={zoom.handlePointerUp}
+              onPointerDown={zoom.handlePointerDown}
+              onPointerMove={zoom.handlePointerMove}
+              onPointerUp={zoom.handlePointerUp}
+              onWheel={zoom.handleWheel}
+            />
+            <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center">
+              <div className="pointer-events-auto">
+                <ImageZoomControls
+                  scale={zoom.transform.scale}
+                  onReset={zoom.resetZoom}
+                  onZoomBy={zoom.zoomBy}
+                />
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -673,10 +723,55 @@ function HelpArticlePageContent({
   const { ui } = content;
   const category = findHelpCategory(content, categoryId);
   const article = findHelpArticle(content, categoryId, articleId);
+  const [activeSectionIndex, setActiveSectionIndex] = useState(0);
   useDocumentMeta(
     article ? `${article.title} — ${ui.pageTitleSuffix}` : ui.articleNotFound,
     article ? article.summary : ui.articleNotFoundDescription,
   );
+
+  useEffect(() => {
+    if (!article) return;
+    const sections = article.sections
+      .map((_, index) => document.getElementById(`section-${index + 1}`))
+      .filter((section): section is HTMLElement => Boolean(section));
+    const viewport = sections[0]?.closest<HTMLElement>(
+      '[data-slot="scroll-area-viewport"]',
+    );
+    if (!viewport || !sections.length) return;
+    const scrollViewport = viewport;
+
+    function updateActiveSection() {
+      const viewportBounds = scrollViewport.getBoundingClientRect();
+      const activationLine =
+        viewportBounds.top + Math.min(160, scrollViewport.clientHeight * 0.25);
+      let nextIndex = 0;
+
+      for (const [index, section] of sections.entries()) {
+        if (section.getBoundingClientRect().top > activationLine) break;
+        nextIndex = index;
+      }
+      if (
+        scrollViewport.scrollHeight -
+          scrollViewport.scrollTop -
+          scrollViewport.clientHeight <=
+        2
+      ) {
+        nextIndex = sections.length - 1;
+      }
+      setActiveSectionIndex(nextIndex);
+    }
+
+    updateActiveSection();
+    scrollViewport.addEventListener("scroll", updateActiveSection, {
+      passive: true,
+    });
+    window.addEventListener("resize", updateActiveSection);
+    return () => {
+      scrollViewport.removeEventListener("scroll", updateActiveSection);
+      window.removeEventListener("resize", updateActiveSection);
+    };
+  }, [article]);
+
   if (!category || !article) return <HelpNotFound article />;
 
   return (
@@ -827,7 +922,17 @@ function HelpArticlePageContent({
                 <div className="space-y-2">
                   {article.sections.map((section, sectionIndex) => (
                     <a
-                      className="block text-xs leading-5 text-muted-foreground hover:text-primary"
+                      aria-current={
+                        activeSectionIndex === sectionIndex
+                          ? "location"
+                          : undefined
+                      }
+                      className={cn(
+                        "-ml-[17px] block border-l-2 py-0.5 pl-4 text-xs leading-5 transition-colors",
+                        activeSectionIndex === sectionIndex
+                          ? "border-primary font-medium text-primary"
+                          : "border-transparent text-muted-foreground hover:text-primary",
+                      )}
                       href={`#section-${sectionIndex + 1}`}
                       key={`${article.id}-aside-${sectionIndex}`}
                     >

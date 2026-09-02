@@ -75,6 +75,16 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
             <HomeIcon data-icon="inline-start" />
             {t("common.home")}
           </Button>
+          {showPlans ? (
+            <Button
+              render={<Link aria-current={activePage === "pricing" ? "page" : undefined} preload="intent" to="/pricing" />}
+              size="sm"
+              variant={activePage === "pricing" ? "secondary" : "ghost"}
+            >
+              <TagIcon data-icon="inline-start" />
+              {t("common.plans")}
+            </Button>
+          ) : null}
           <Button
             render={<Link activeOptions={{ exact: true }} aria-current={activePage === "releases" ? "location" : undefined} preload="intent" to="/releases" />}
             size="sm"
@@ -91,16 +101,6 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
             <HelpCircleIcon data-icon="inline-start" />
             {t("common.help")}
           </Button>
-          {showPlans ? (
-            <Button
-              render={<Link aria-current={activePage === "pricing" ? "page" : undefined} preload="intent" to="/pricing" />}
-              size="sm"
-              variant={activePage === "pricing" ? "secondary" : "ghost"}
-            >
-              <TagIcon data-icon="inline-start" />
-              {t("common.plans")}
-            </Button>
-          ) : null}
         </nav>
 
         {context ? <div className="min-w-0 flex-1 border-l pl-4">{context}</div> : <div className="flex-1" />}
@@ -113,11 +113,11 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="md:hidden">
               <DropdownMenuItem render={<Link activeOptions={{ exact: true }} preload="intent" to="/" />}><HomeIcon />{t("common.home")}</DropdownMenuItem>
-              <DropdownMenuItem render={<Link activeOptions={{ exact: true }} preload="intent" to="/releases" />}><NewspaperIcon />{t("common.releases")}</DropdownMenuItem>
-              <DropdownMenuItem render={<Link activeOptions={{ exact: true }} preload="intent" to="/help" />}><HelpCircleIcon />{t("common.help")}</DropdownMenuItem>
               {showPlans ? (
                 <DropdownMenuItem render={<Link preload="intent" to="/pricing" />}><TagIcon />{t("common.plans")}</DropdownMenuItem>
               ) : null}
+              <DropdownMenuItem render={<Link activeOptions={{ exact: true }} preload="intent" to="/releases" />}><NewspaperIcon />{t("common.releases")}</DropdownMenuItem>
+              <DropdownMenuItem render={<Link activeOptions={{ exact: true }} preload="intent" to="/help" />}><HelpCircleIcon />{t("common.help")}</DropdownMenuItem>
               {headerCta === "open-app" ? (
                 <DropdownMenuItem render={<Link preload="intent" search={{ session: undefined }} to="/app" />}><PanelsTopLeftIcon />{t("common.openApp")}</DropdownMenuItem>
               ) : (

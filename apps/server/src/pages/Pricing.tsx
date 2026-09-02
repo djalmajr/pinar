@@ -101,7 +101,9 @@ function AddOnCard({
     <Card className="flex flex-col">
       <CardHeader>
         <CardTitle className="text-lg">{title}</CardTitle>
-        <CardDescription className="min-h-[40px]">{description}</CardDescription>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent className="mt-auto">
         <PricingAmount
           currency={currency}
           language={language}
@@ -109,8 +111,8 @@ function AddOnCard({
           price={price}
           suffix={suffix}
         />
-      </CardHeader>
-      <CardFooter className="mt-auto">
+      </CardContent>
+      <CardFooter>
         <Button className="w-full" disabled={loading || !price} variant="outline" onClick={onPurchase}>
           {buttonLabel}
         </Button>

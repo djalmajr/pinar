@@ -5,445 +5,179 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
-import { getBestLanguage, translations, type SupportedLanguage } from "@pinar/shared";
+import { translations, type SupportedLanguage } from "@pinar/shared";
+import type { UiMessages } from "./ui-locales/en";
+import {
+  isSupportedLanguage,
+  LANGUAGE_STORAGE_KEY,
+  persistLanguage,
+  readLanguageCookie,
+} from "./language";
 
-export const SERVER_LANGUAGES: SupportedLanguage[] = ["en", "pt", "es", "fr", "de", "zh", "ja"];
+export type { UiMessages };
+export type ServerMessageKey = keyof UiMessages;
+export type MessageValues = Record<string, string | number>;
+export type Translate = (key: ServerMessageKey, values?: MessageValues) => string;
 
-type LocalizedMessage = Record<SupportedLanguage, string>;
+type UiMessagesModule = { default: UiMessages };
 
-const messages = {
-  "common.pinarHome": { en: "Pinar home", pt: "Início do Pinar", es: "Inicio de Pinar", fr: "Accueil Pinar", de: "Pinar-Startseite", zh: "Pinar 首页", ja: "Pinar ホーム" },
-  "common.primaryNavigation": { en: "Primary navigation", pt: "Navegação principal", es: "Navegación principal", fr: "Navigation principale", de: "Hauptnavigation", zh: "主导航", ja: "メインナビゲーション" },
-  "common.home": { en: "Home", pt: "Início", es: "Inicio", fr: "Accueil", de: "Start", zh: "首页", ja: "ホーム" },
-  "common.dashboard": { en: "Dashboard", pt: "Painel", es: "Panel", fr: "Tableau de bord", de: "Übersicht", zh: "控制面板", ja: "ダッシュボード" },
-  "common.plans": { en: "Plans", pt: "Planos", es: "Planes", fr: "Forfaits", de: "Tarife", zh: "方案", ja: "プラン" },
-  "common.signIn": { en: "Sign in", pt: "Entrar", es: "Entrar", fr: "Se connecter", de: "Anmelden", zh: "登录", ja: "ログイン" },
-  "common.openApp": { en: "Open app", pt: "Abrir app", es: "Abrir app", fr: "Ouvrir l’app", de: "App öffnen", zh: "打开应用", ja: "アプリを開く" },
-  "common.language": { en: "Language", pt: "Idioma", es: "Idioma", fr: "Langue", de: "Sprache", zh: "语言", ja: "言語" },
-  "common.toggleTheme": { en: "Toggle theme", pt: "Alternar tema", es: "Cambiar tema", fr: "Changer de thème", de: "Theme wechseln", zh: "切换主题", ja: "テーマを切り替え" },
-  "common.coffee": { en: "Coffee", pt: "Café", es: "Café", fr: "Café", de: "Kaffee", zh: "请喝咖啡", ja: "コーヒー" },
-  "common.sponsor": { en: "Sponsor", pt: "Apoiar", es: "Patrocinar", fr: "Soutenir", de: "Unterstützen", zh: "赞助", ja: "スポンサー" },
-  "common.upgradePro": { en: "Upgrade to Pro", pt: "Assinar o Pro", es: "Mejorar a Pro", fr: "Passer à Pro", de: "Auf Pro upgraden", zh: "升级到 Pro", ja: "Pro にアップグレード" },
-  "common.subscribe": { en: "Subscribe", pt: "Assinar", es: "Suscribirse", fr: "S’abonner", de: "Abonnieren", zh: "订阅", ja: "購読" },
-  "common.pro": { en: "Pro", pt: "Pro", es: "Pro", fr: "Pro", de: "Pro", zh: "Pro", ja: "Pro" },
-  "common.copied": { en: "Copied", pt: "Copiado", es: "Copiado", fr: "Copié", de: "Kopiert", zh: "已复制", ja: "コピー済み" },
-  "common.cancel": { en: "Cancel", pt: "Cancelar", es: "Cancelar", fr: "Annuler", de: "Abbrechen", zh: "取消", ja: "キャンセル" },
-  "common.error": { en: "Error", pt: "Erro", es: "Error", fr: "Erreur", de: "Fehler", zh: "错误", ja: "エラー" },
-  "common.loading": { en: "Loading page", pt: "Carregando página", es: "Cargando página", fr: "Chargement de la page", de: "Seite wird geladen", zh: "正在加载页面", ja: "ページを読み込み中" },
-  "common.serverVersion": { en: "Pinar v{version}", pt: "Pinar v{version}", es: "Pinar v{version}", fr: "Pinar v{version}", de: "Pinar v{version}", zh: "Pinar v{version}", ja: "Pinar v{version}" },
-  "footer.legal": { en: "Legal", pt: "Legal", es: "Legal", fr: "Mentions légales", de: "Rechtliches", zh: "法律信息", ja: "法的情報" },
+const uiMessageLoaders = {
+  en: () => import("./ui-locales/en"),
+  pt: () => import("./ui-locales/pt"),
+  es: () => import("./ui-locales/es"),
+  fr: () => import("./ui-locales/fr"),
+  de: () => import("./ui-locales/de"),
+  zh: () => import("./ui-locales/zh"),
+  ja: () => import("./ui-locales/ja"),
+} satisfies Record<SupportedLanguage, () => Promise<UiMessagesModule>>;
 
-  "app.accountMenu": { en: "Account menu", pt: "Menu da conta", es: "Menú de la cuenta", fr: "Menu du compte", de: "Kontomenü", zh: "账户菜单", ja: "アカウントメニュー" },
-  "app.aiCredits": { en: "AI credits", pt: "Créditos de IA", es: "Créditos de IA", fr: "Crédits IA", de: "KI-Guthaben", zh: "AI 点数", ja: "AIクレジット" },
-  "app.allProjects": { en: "All projects", pt: "Todos os projetos", es: "Todos los proyectos", fr: "Tous les projets", de: "Alle Projekte", zh: "所有项目", ja: "すべてのプロジェクト" },
-  "app.billing": { en: "Billing", pt: "Cobrança", es: "Facturación", fr: "Facturation", de: "Abrechnung", zh: "账单", ja: "請求" },
-  "app.creditsAvailable": { en: "{count} available", pt: "{count} disponíveis", es: "{count} disponibles", fr: "{count} disponibles", de: "{count} verfügbar", zh: "可用 {count}", ja: "{count} 利用可能" },
-  "app.creditsExpire": { en: "Some credits expire {date}", pt: "Alguns créditos expiram em {date}", es: "Algunos créditos vencen el {date}", fr: "Certains crédits expirent le {date}", de: "Einige Guthaben verfallen am {date}", zh: "部分点数将于 {date} 到期", ja: "一部のクレジットは {date} に期限切れになります" },
-  "app.creditsRefill": { en: "Monthly refill on {date}", pt: "Reposição mensal em {date}", es: "Reposición mensual el {date}", fr: "Recharge mensuelle le {date}", de: "Monatliche Auffüllung am {date}", zh: "每月补充：{date}", ja: "月次補充日: {date}" },
-  "app.founderPlan": { en: "Pinar Founder", pt: "Pinar Founder", es: "Pinar Founder", fr: "Pinar Founder", de: "Pinar Founder", zh: "Pinar Founder", ja: "Pinar Founder" },
-  "app.freePlan": { en: "Free plan", pt: "Plano Free", es: "Plan Free", fr: "Forfait gratuit", de: "Kostenloser Tarif", zh: "免费方案", ja: "無料プラン" },
-  "app.lifetimePlan": { en: "Pinar Lifetime", pt: "Pinar Lifetime", es: "Pinar Lifetime", fr: "Pinar Lifetime", de: "Pinar Lifetime", zh: "Pinar Lifetime", ja: "Pinar Lifetime" },
-  "app.local": { en: "Local server", pt: "Servidor local", es: "Servidor local", fr: "Serveur local", de: "Lokaler Server", zh: "本地服务器", ja: "ローカルサーバー" },
-  "app.plan": { en: "Plan", pt: "Plano", es: "Plan", fr: "Forfait", de: "Tarif", zh: "方案", ja: "プラン" },
-  "app.proPlan": { en: "Pinar Pro", pt: "Pinar Pro", es: "Pinar Pro", fr: "Pinar Pro", de: "Pinar Pro", zh: "Pinar Pro", ja: "Pinar Pro" },
-  "app.signOut": { en: "Sign out", pt: "Sair", es: "Salir", fr: "Se déconnecter", de: "Abmelden", zh: "退出登录", ja: "ログアウト" },
-  "app.storage": { en: "Storage", pt: "Armazenamento", es: "Almacenamiento", fr: "Stockage", de: "Speicher", zh: "存储", ja: "ストレージ" },
-  "app.storageExpires": { en: "Storage add-on expires {date}", pt: "O adicional de armazenamento vence em {date}", es: "El complemento de almacenamiento vence el {date}", fr: "L’extension de stockage expire le {date}", de: "Das Speicher-Add-on läuft am {date} ab", zh: "存储附加包将于 {date} 到期", ja: "ストレージ追加分の期限: {date}" },
-  "app.storageUsage": { en: "{used} used of {quota}", pt: "{used} usados de {quota}", es: "{used} usados de {quota}", fr: "{used} utilisés sur {quota}", de: "{used} von {quota} belegt", zh: "已使用 {used}，共 {quota}", ja: "{quota} 中 {used} 使用済み" },
-  "app.upgradeToPro": { en: "Upgrade to Pro", pt: "Assinar o Pro", es: "Mejorar a Pro", fr: "Passer à Pro", de: "Auf Pro upgraden", zh: "升级到 Pro", ja: "Pro にアップグレード" },
-  "app.usageLoading": { en: "Loading usage…", pt: "Carregando uso…", es: "Cargando uso…", fr: "Chargement de l’utilisation…", de: "Nutzung wird geladen…", zh: "正在加载用量…", ja: "使用状況を読み込み中…" },
-  "app.usageUnavailable": { en: "Usage is temporarily unavailable.", pt: "O uso está temporariamente indisponível.", es: "El uso no está disponible temporalmente.", fr: "L’utilisation est temporairement indisponible.", de: "Die Nutzung ist vorübergehend nicht verfügbar.", zh: "用量暂时不可用。", ja: "使用状況は一時的に利用できません。" },
-  "app.workspace": { en: "Workspace", pt: "Workspace", es: "Espacio de trabajo", fr: "Espace de travail", de: "Arbeitsbereich", zh: "工作区", ja: "ワークスペース" },
+const uiMessagePromises = new Map<SupportedLanguage, Promise<UiMessages>>();
+const uiMessages = new Map<SupportedLanguage, UiMessages>();
 
-  "settings.capture": { en: "Capture & privacy", pt: "Captura e privacidade", es: "Captura y privacidad", fr: "Capture et confidentialité", de: "Aufnahme und Datenschutz", zh: "捕获与隐私", ja: "キャプチャとプライバシー" },
-  "settings.captureDescription": { en: "Control what Pinar includes when sharing captured sessions.", pt: "Controle o que o Pinar inclui ao compartilhar sessões capturadas.", es: "Controla lo que Pinar incluye al compartir sesiones capturadas.", fr: "Contrôlez ce que Pinar inclut lors du partage des sessions capturées.", de: "Lege fest, was Pinar beim Teilen erfasster Sitzungen einschließt.", zh: "控制 Pinar 在分享捕获的会话时包含的内容。", ja: "キャプチャしたセッションを共有するときに Pinar が含める内容を設定します。" },
-  "settings.close": { en: "Close settings", pt: "Fechar configurações", es: "Cerrar configuración", fr: "Fermer les paramètres", de: "Einstellungen schließen", zh: "关闭设置", ja: "設定を閉じる" },
-  "settings.description": { en: "Global preferences for the Pinar application.", pt: "Preferências globais da aplicação Pinar.", es: "Preferencias globales de la aplicación Pinar.", fr: "Préférences globales de l’application Pinar.", de: "Globale Einstellungen für die Pinar-Anwendung.", zh: "Pinar 应用的全局偏好设置。", ja: "Pinar アプリケーションのグローバル設定です。" },
-  "settings.general": { en: "General", pt: "Geral", es: "General", fr: "Général", de: "Allgemein", zh: "常规", ja: "一般" },
-  "settings.generalDescription": { en: "Defaults applied throughout the Pinar application.", pt: "Padrões aplicados em toda a aplicação do Pinar.", es: "Valores predeterminados aplicados en toda la aplicación Pinar.", fr: "Valeurs par défaut appliquées dans toute l’application Pinar.", de: "Standardeinstellungen für die gesamte Pinar-Anwendung.", zh: "应用于整个 Pinar 应用的默认设置。", ja: "Pinar アプリケーション全体に適用される既定値です。" },
-  "settings.handoffMode": { en: "Agent copy detail", pt: "Detalhamento da cópia para IA", es: "Detalle de la copia para IA", fr: "Niveau de détail de la copie IA", de: "Detailgrad der KI-Kopie", zh: "AI 副本详细程度", ja: "AI コピーの詳細度" },
-  "settings.handoffModeCompact": { en: "Compact", pt: "Compacto", es: "Compacto", fr: "Compact", de: "Kompakt", zh: "精简", ja: "コンパクト" },
-  "settings.handoffModeDescription": { en: "Compact copies only actionable context. Full includes every captured field. Saved captures and the viewer are always complete.", pt: "Compacto copia apenas o contexto acionável. Completo inclui todos os campos capturados. A captura salva e o viewer são sempre completos.", es: "Compacto copia solo el contexto accionable. Completo incluye todos los campos capturados. La captura guardada y el visor siempre están completos.", fr: "Compact ne copie que le contexte exploitable. Complet inclut tous les champs capturés. La capture enregistrée et le viewer restent toujours complets.", de: "Kompakt kopiert nur den relevanten Kontext. Vollständig enthält alle erfassten Felder. Gespeicherte Aufnahmen und Viewer bleiben immer vollständig.", zh: "精简模式仅复制可操作上下文；完整模式包含所有捕获字段。已保存的捕获和查看器始终完整。", ja: "コンパクトは実行に必要な情報だけをコピーし、完全は全フィールドを含みます。保存済みキャプチャとビューアーは常に完全です。" },
-  "settings.handoffModeFull": { en: "Full", pt: "Completo", es: "Completo", fr: "Complet", de: "Vollständig", zh: "完整", ja: "完全" },
-  "settings.interface": { en: "Interface & behavior", pt: "Interface e comportamento", es: "Interfaz y comportamiento", fr: "Interface et comportement", de: "Oberfläche und Verhalten", zh: "界面与行为", ja: "インターフェースと動作" },
-  "settings.interfaceDescription": { en: "Choose how Pinar looks and responds on this device.", pt: "Escolha como o Pinar se apresenta e responde neste dispositivo.", es: "Elige cómo se ve y responde Pinar en este dispositivo.", fr: "Choisissez l’apparence et le comportement de Pinar sur cet appareil.", de: "Lege fest, wie Pinar auf diesem Gerät aussieht und reagiert.", zh: "选择 Pinar 在此设备上的外观和响应方式。", ja: "このデバイスでの Pinar の外観と動作を選択します。" },
-  "settings.languageDescription": { en: "Choose the language used across the application.", pt: "Escolha o idioma usado em toda a aplicação.", es: "Elige el idioma utilizado en toda la aplicación.", fr: "Choisissez la langue utilisée dans toute l’application.", de: "Wähle die Sprache für die gesamte Anwendung.", zh: "选择整个应用使用的语言。", ja: "アプリケーション全体で使用する言語を選択します。" },
-  "settings.theme": { en: "Theme", pt: "Tema", es: "Tema", fr: "Thème", de: "Design", zh: "主题", ja: "テーマ" },
-  "settings.themeDark": { en: "Dark", pt: "Escuro", es: "Oscuro", fr: "Sombre", de: "Dunkel", zh: "深色", ja: "ダーク" },
-  "settings.themeDescription": { en: "Follow the system appearance or choose a fixed theme.", pt: "Use a aparência do sistema ou escolha um tema fixo.", es: "Usa la apariencia del sistema o elige un tema fijo.", fr: "Suivez l’apparence du système ou choisissez un thème fixe.", de: "Verwende das Systemdesign oder wähle ein festes Design.", zh: "跟随系统外观或选择固定主题。", ja: "システムの外観に合わせるか、固定テーマを選択します。" },
-  "settings.themeLight": { en: "Light", pt: "Claro", es: "Claro", fr: "Clair", de: "Hell", zh: "浅色", ja: "ライト" },
-  "settings.themeSystem": { en: "System", pt: "Sistema", es: "Sistema", fr: "Système", de: "System", zh: "系统", ja: "システム" },
-  "settings.title": { en: "Settings", pt: "Configurações", es: "Configuración", fr: "Paramètres", de: "Einstellungen", zh: "设置", ja: "設定" },
+export function loadUiMessages(language: SupportedLanguage) {
+  const cached = uiMessagePromises.get(language);
+  if (cached) return cached;
+  const promise = uiMessageLoaders[language]().then((module) => {
+    uiMessages.set(language, module.default);
+    return module.default;
+  });
+  uiMessagePromises.set(language, promise);
+  return promise;
+}
 
-  "signIn.accountDescription": { en: "Paid and previously paid accounts receive a six-digit code by email.", pt: "Contas pagantes ou anteriormente pagantes recebem um código de seis dígitos por e-mail.", es: "Las cuentas pagadas o anteriormente pagadas reciben un código de seis dígitos por correo.", fr: "Les comptes payants ou anciennement payants reçoivent un code à six chiffres par e-mail.", de: "Zahlende und ehemals zahlende Konten erhalten einen sechsstelligen Code per E-Mail.", zh: "付费或曾付费账户会通过电子邮件收到六位数代码。", ja: "有料または以前有料だったアカウントには、6桁のコードがメールで届きます。" },
-  "signIn.accountTab": { en: "Account", pt: "Conta", es: "Cuenta", fr: "Compte", de: "Konto", zh: "账户", ja: "アカウント" },
-  "signIn.accountTitle": { en: "Sign in to your account", pt: "Entrar na sua conta", es: "Entrar en tu cuenta", fr: "Se connecter à votre compte", de: "Bei deinem Konto anmelden", zh: "登录账户", ja: "アカウントにログイン" },
-  "signIn.changeEmail": { en: "Use another email", pt: "Usar outro e-mail", es: "Usar otro correo", fr: "Utiliser un autre e-mail", de: "Andere E-Mail verwenden", zh: "使用其他邮箱", ja: "別のメールを使う" },
-  "signIn.codeInvalid": { en: "The code is invalid or expired.", pt: "O código é inválido ou expirou.", es: "El código no es válido o ha caducado.", fr: "Le code est invalide ou expiré.", de: "Der Code ist ungültig oder abgelaufen.", zh: "代码无效或已过期。", ja: "コードが無効か期限切れです。" },
-  "signIn.emailSent": { en: "If this email belongs to an eligible account, a code is on its way.", pt: "Se este e-mail pertencer a uma conta elegível, o código está a caminho.", es: "Si este correo pertenece a una cuenta elegible, el código está en camino.", fr: "Si cet e-mail correspond à un compte éligible, un code est en route.", de: "Wenn diese E-Mail zu einem berechtigten Konto gehört, ist ein Code unterwegs.", zh: "如果该邮箱属于符合条件的账户，代码已发送。", ja: "このメールが対象アカウントのものであれば、コードが送信されます。" },
-  "signIn.entering": { en: "Signing in…", pt: "Entrando…", es: "Entrando…", fr: "Connexion…", de: "Anmeldung…", zh: "正在登录…", ja: "ログイン中…" },
-  "signIn.extensionPlaceholder": { en: "8-character code", pt: "Código de 8 caracteres", es: "Código de 8 caracteres", fr: "Code à 8 caractères", de: "8-stelliger Code", zh: "8 位代码", ja: "8文字のコード" },
-  "signIn.extensionTab": { en: "Extension", pt: "Extensão", es: "Extensión", fr: "Extension", de: "Erweiterung", zh: "扩展程序", ja: "拡張機能" },
-  "signIn.freeDescription": { en: "Free users can enter the temporary code shown by the Pinar extension.", pt: "Usuários Free podem inserir o código temporário exibido pela extensão Pinar.", es: "Los usuarios Free pueden ingresar el código temporal de la extensión Pinar.", fr: "Les utilisateurs gratuits peuvent saisir le code temporaire affiché par l’extension Pinar.", de: "Kostenlose Nutzer können den temporären Code aus der Pinar-Erweiterung eingeben.", zh: "免费用户可以输入 Pinar 扩展程序显示的临时代码。", ja: "無料ユーザーは Pinar 拡張機能に表示される一時コードを入力できます。" },
-  "signIn.freeTitle": { en: "Continue with the extension", pt: "Continuar com a extensão", es: "Continuar con la extensión", fr: "Continuer avec l’extension", de: "Mit der Erweiterung fortfahren", zh: "使用扩展程序继续", ja: "拡張機能で続行" },
-  "signIn.openApp": { en: "Open app", pt: "Abrir app", es: "Abrir app", fr: "Ouvrir l’app", de: "App öffnen", zh: "打开应用", ja: "アプリを開く" },
-  "signIn.requestFailed": { en: "Unable to request a code.", pt: "Não foi possível solicitar o código.", es: "No se pudo solicitar el código.", fr: "Impossible de demander un code.", de: "Der Code konnte nicht angefordert werden.", zh: "无法请求代码。", ja: "コードをリクエストできませんでした。" },
-  "signIn.sendCode": { en: "Send code", pt: "Enviar código", es: "Enviar código", fr: "Envoyer le code", de: "Code senden", zh: "发送代码", ja: "コードを送信" },
-  "signIn.sending": { en: "Sending…", pt: "Enviando…", es: "Enviando…", fr: "Envoi…", de: "Wird gesendet…", zh: "正在发送…", ja: "送信中…" },
-  "signIn.verifyCode": { en: "Verify and enter", pt: "Verificar e entrar", es: "Verificar y entrar", fr: "Vérifier et entrer", de: "Prüfen und anmelden", zh: "验证并登录", ja: "確認してログイン" },
-  "signIn.legalDescription": { en: "Accept the current hosted-service policies to activate this account.", pt: "Aceite as políticas vigentes do serviço hospedado para ativar esta conta.", es: "Acepta las políticas actuales del servicio alojado para activar esta cuenta.", fr: "Acceptez les politiques actuelles du service hébergé pour activer ce compte.", de: "Akzeptiere die aktuellen Richtlinien des gehosteten Dienstes, um dieses Konto zu aktivieren.", zh: "接受当前托管服务政策以激活此账户。", ja: "このアカウントを有効化するには、現在のホステッドサービス規約に同意してください。" },
-  "signIn.acceptAndEnter": { en: "Accept and enter", pt: "Aceitar e entrar", es: "Aceptar y entrar", fr: "Accepter et entrer", de: "Akzeptieren und anmelden", zh: "接受并登录", ja: "同意してログイン" },
+const pluralRules = new Map<SupportedLanguage, Intl.PluralRules>();
+const numberFormats = new Map<SupportedLanguage, Intl.NumberFormat>();
 
-  "landing.badge": { en: "Visual feedback for AI workflows", pt: "Feedback visual para fluxos com IA", es: "Feedback visual para flujos con IA", fr: "Retours visuels pour les flux IA", de: "Visuelles Feedback für KI-Workflows", zh: "面向 AI 工作流的视觉反馈", ja: "AI ワークフロー向けビジュアルフィードバック" },
-  "landing.title": { en: "Point to the problem. Share the complete context.", pt: "Aponte o problema. Compartilhe todo o contexto.", es: "Señala el problema. Comparte todo el contexto.", fr: "Montrez le problème. Partagez tout le contexte.", de: "Zeige auf das Problem. Teile den vollständigen Kontext.", zh: "指出问题，分享完整上下文。", ja: "問題を示し、完全なコンテキストを共有。" },
-  "landing.description": { en: "Pinar turns annotated screenshots into structured, Markdown-ready feedback that developers and AI agents can act on immediately.", pt: "O Pinar transforma capturas anotadas em feedback estruturado e pronto para Markdown, para desenvolvedores e agentes de IA agirem imediatamente.", es: "Pinar convierte capturas anotadas en feedback estructurado y listo para Markdown, para que desarrolladores y agentes de IA actúen de inmediato.", fr: "Pinar transforme les captures annotées en retours structurés, prêts pour Markdown, directement exploitables par les développeurs et agents IA.", de: "Pinar verwandelt kommentierte Screenshots in strukturiertes, Markdown-fertiges Feedback für Entwickler und KI-Agenten.", zh: "Pinar 将带注释的截图转化为结构化、可直接用于 Markdown 的反馈，便于开发者和 AI 代理立即处理。", ja: "Pinar は注釈付きスクリーンショットを、開発者や AI エージェントがすぐ扱える構造化された Markdown 向けフィードバックに変換します。" },
-  "landing.installExtension": { en: "Install Chrome extension", pt: "Instalar extensão no Chrome", es: "Instalar extensión de Chrome", fr: "Installer l’extension Chrome", de: "Chrome-Erweiterung installieren", zh: "安装 Chrome 扩展程序", ja: "Chrome 拡張機能をインストール" },
-  "landing.openDashboard": { en: "Open dashboard", pt: "Abrir painel", es: "Abrir panel", fr: "Ouvrir le tableau de bord", de: "Übersicht öffnen", zh: "打开控制面板", ja: "ダッシュボードを開く" },
-  "landing.viewPlans": { en: "View plans", pt: "Ver planos", es: "Ver planes", fr: "Voir les forfaits", de: "Tarife ansehen", zh: "查看方案", ja: "プランを見る" },
-  "landing.howItWorks": { en: "How Pinar works", pt: "Como o Pinar funciona", es: "Cómo funciona Pinar", fr: "Comment fonctionne Pinar", de: "So funktioniert Pinar", zh: "Pinar 的工作方式", ja: "Pinar の仕組み" },
-  "landing.pinTitle": { en: "Pin what matters", pt: "Marque o que importa", es: "Marca lo importante", fr: "Épinglez l’essentiel", de: "Markiere, was wichtig ist", zh: "标记关键内容", ja: "重要な箇所をピン留め" },
-  "landing.pinDescription": { en: "Select an element or area and attach the feedback exactly where the problem appears, without losing the page context.", pt: "Selecione um elemento ou uma área e anexe o feedback exatamente onde o problema aparece, sem perder o contexto da página.", es: "Selecciona un elemento o área y adjunta el feedback exactamente donde aparece el problema, sin perder el contexto de la página.", fr: "Sélectionnez un élément ou une zone et placez le retour exactement là où le problème apparaît, sans perdre le contexte de la page.", de: "Wähle ein Element oder einen Bereich und platziere das Feedback genau an der Problemstelle, ohne den Seitenkontext zu verlieren.", zh: "选择元素或区域，将反馈准确附加到问题出现的位置，同时保留页面上下文。", ja: "要素や範囲を選び、ページのコンテキストを失わずに問題のある場所へ正確にフィードバックを付けます。" },
-  "landing.contextTitle": { en: "Preserve the context", pt: "Preserve o contexto", es: "Conserva el contexto", fr: "Préservez le contexte", de: "Bewahre den Kontext", zh: "保留上下文", ja: "コンテキストを保持" },
-  "landing.contextDescription": { en: "Every capture keeps the screenshot, comment, selector, DOM path, and coordinates together.", pt: "Cada captura mantém juntos o screenshot, comentário, seletor, caminho DOM e coordenadas.", es: "Cada captura conserva juntos la imagen, el comentario, el selector, la ruta DOM y las coordenadas.", fr: "Chaque capture conserve ensemble l’image, le commentaire, le sélecteur, le chemin DOM et les coordonnées.", de: "Jede Aufnahme hält Screenshot, Kommentar, Selektor, DOM-Pfad und Koordinaten zusammen.", zh: "每次捕获都会将截图、评论、选择器、DOM 路径和坐标保存在一起。", ja: "各キャプチャでスクリーンショット、コメント、セレクター、DOM パス、座標をまとめて保持します。" },
-  "landing.aiTitle": { en: "Hand it to AI", pt: "Entregue para a IA", es: "Entrégaselo a la IA", fr: "Confiez-le à l’IA", de: "Übergib es an die KI", zh: "交给 AI", ja: "AI に渡す" },
-  "landing.aiDescription": { en: "Copy one Markdown-ready link so an AI agent can move from report to implementation quickly.", pt: "Copie um único link pronto para Markdown para que um agente de IA passe rapidamente do relato à implementação.", es: "Copia un único enlace listo para Markdown para que un agente de IA pase rápidamente del informe a la implementación.", fr: "Copiez un lien prêt pour Markdown afin qu’un agent IA passe rapidement du signalement à l’implémentation.", de: "Kopiere einen Markdown-fertigen Link, damit ein KI-Agent schnell vom Bericht zur Umsetzung gelangt.", zh: "复制一个可用于 Markdown 的链接，让 AI 代理快速从报告进入实现。", ja: "Markdown 対応リンクを1つコピーし、AI エージェントが報告から実装へすばやく進めるようにします。" },
-  "landing.privateTitle": { en: "Private by default", pt: "Privado por padrão", es: "Privado por defecto", fr: "Privé par défaut", de: "Standardmäßig privat", zh: "默认私密", ja: "デフォルトで非公開" },
-  "landing.privateDescription": { en: "Run the local server with unlimited retention. Your screenshots and annotations remain on your device.", pt: "Execute o servidor local com retenção ilimitada. Seus screenshots e anotações permanecem no dispositivo.", es: "Ejecuta el servidor local con retención ilimitada. Tus capturas y anotaciones permanecen en el dispositivo.", fr: "Utilisez le serveur local avec une conservation illimitée. Vos captures et annotations restent sur l’appareil.", de: "Nutze den lokalen Server mit unbegrenzter Aufbewahrung. Screenshots und Anmerkungen bleiben auf deinem Gerät.", zh: "运行本地服务器即可无限期保留，截图和注释始终留在设备上。", ja: "ローカルサーバーなら無期限保存。スクリーンショットと注釈は端末内に残ります。" },
-  "landing.privateNote": { en: "Ideal for private workflows with AI agents running on your own machine.", pt: "Ideal para fluxos privados com agentes de IA executados na sua própria máquina.", es: "Ideal para flujos privados con agentes de IA ejecutados en tu propio equipo.", fr: "Idéal pour les flux privés avec des agents IA exécutés sur votre propre machine.", de: "Ideal für private Workflows mit KI-Agenten, die auf deinem eigenen Rechner laufen.", zh: "非常适合在你自己的设备上运行 AI 代理的私密工作流。", ja: "自分のマシン上で AI エージェントを実行するプライベートなワークフローに最適です。" },
-  "landing.openLocalDashboard": { en: "Open local dashboard", pt: "Abrir painel local", es: "Abrir panel local", fr: "Ouvrir le tableau local", de: "Lokale Übersicht öffnen", zh: "打开本地控制面板", ja: "ローカルダッシュボードを開く" },
-  "landing.shareTitle": { en: "Share when you need to", pt: "Compartilhe quando precisar", es: "Comparte cuando lo necesites", fr: "Partagez quand nécessaire", de: "Teile bei Bedarf", zh: "按需分享", ja: "必要なときだけ共有" },
-  "landing.shareDescription": { en: "Use the remote server for unlisted viewer and Markdown links, with seven-day Free retention or retention while a paid plan is active.", pt: "Use o servidor remoto para links não listados do viewer e Markdown, com retenção gratuita de sete dias ou enquanto um plano pago estiver ativo.", es: "Usa el servidor remoto para enlaces no listados del visor y Markdown, con siete días en Gratis o mientras un plan de pago esté activo.", fr: "Utilisez le serveur distant pour des liens non répertoriés du visualiseur et Markdown, conservés sept jours en Gratuit ou pendant qu’un forfait payant est actif.", de: "Nutze den Remote-Server für nicht gelistete Viewer- und Markdown-Links, sieben Tage kostenlos oder solange ein kostenpflichtiger Tarif aktiv ist.", zh: "使用远程服务器生成非公开查看器和 Markdown 链接；免费版保留七天，付费方案有效期间持续保留。", ja: "リモートサーバーで非公開のビューアー／Markdown リンクを利用できます。無料版は7日間、有料プランの有効期間中は継続して保存されます。" },
-  "landing.sameExperience": { en: "The same capture and viewer experience works locally and remotely.", pt: "A mesma experiência de captura e visualização funciona local e remotamente.", es: "La misma experiencia de captura y visualización funciona en local y remoto.", fr: "La même expérience de capture et de visualisation fonctionne en local comme à distance.", de: "Dieselbe Aufnahme- und Viewer-Erfahrung funktioniert lokal und remote.", zh: "本地与远程模式拥有相同的捕获和查看体验。", ja: "ローカルでもリモートでも同じキャプチャとビューアー体験です。" },
-  "landing.comparePlans": { en: "Compare plans", pt: "Comparar planos", es: "Comparar planes", fr: "Comparer les forfaits", de: "Tarife vergleichen", zh: "比较方案", ja: "プランを比較" },
-  "landing.footer": { en: "Visual annotations for developers and AI agents.", pt: "Anotações visuais para desenvolvedores e agentes de IA.", es: "Anotaciones visuales para desarrolladores y agentes de IA.", fr: "Annotations visuelles pour développeurs et agents IA.", de: "Visuelle Anmerkungen für Entwickler und KI-Agenten.", zh: "面向开发者和 AI 代理的视觉注释。", ja: "開発者と AI エージェントのためのビジュアル注釈。" },
+function pluralRulesFor(language: SupportedLanguage) {
+  const cached = pluralRules.get(language);
+  if (cached) return cached;
+  const rules = new Intl.PluralRules(language);
+  pluralRules.set(language, rules);
+  return rules;
+}
 
-  "docs.title": { en: "Docs", pt: "Docs", es: "Docs", fr: "Docs", de: "Docs", zh: "文档", ja: "ドキュメント" },
-  "docs.description": { en: "Install the official extension and start pinning pages. Copied sessions land in your workspace.", pt: "Instale a extensão oficial e comece a pinar páginas. As sessões copiadas aparecem no workspace.", es: "Instala la extensión oficial y empieza a anotar páginas. Las sesiones copiadas aparecen en el espacio de trabajo.", fr: "Installez l’extension officielle et commencez à épingler des pages. Les sessions copiées apparaissent dans l’espace de travail.", de: "Installiere die offizielle Erweiterung und beginne, Seiten zu pinnen. Kopierte Sitzungen erscheinen im Workspace.", zh: "安装官方扩展并开始在页面上标记。复制的会话会出现在工作区。", ja: "公式拡張機能を入れてページにピンを付けます。コピーしたセッションはワークスペースに表示されます。" },
-  "docs.extensionTitle": { en: "Chrome extension", pt: "Extensão do Chrome", es: "Extensión de Chrome", fr: "Extension Chrome", de: "Chrome-Erweiterung", zh: "Chrome 扩展程序", ja: "Chrome 拡張機能" },
-  "docs.extensionDescription": { en: "Add Pinar from the Chrome Web Store. It is the official install path — you do not need GitHub or an unpacked folder.", pt: "Adicione o Pinar pela Chrome Web Store. Esse é o caminho oficial — sem GitHub e sem pasta unpacked.", es: "Añade Pinar desde Chrome Web Store. Es la vía oficial: no hace falta GitHub ni una carpeta unpacked.", fr: "Ajoutez Pinar depuis le Chrome Web Store. C’est le chemin officiel — pas besoin de GitHub ni d’un dossier unpacked.", de: "Füge Pinar über den Chrome Web Store hinzu. Das ist der offizielle Weg — kein GitHub und kein Unpacked-Ordner.", zh: "从 Chrome 网上应用店添加 Pinar。这是官方安装方式，无需 GitHub 或未打包文件夹。", ja: "Chrome ウェブストアから Pinar を追加します。公式の導入方法であり、GitHub や unpacked フォルダは不要です。" },
-  "docs.captureTitle": { en: "Pin and copy", pt: "Pinar e copiar", es: "Anotar y copiar", fr: "Épingler et copier", de: "Pinnen und kopieren", zh: "标记并复制", ja: "ピンしてコピー" },
-  "docs.captureDescription": { en: "Open a page, click the Pinar icon, pin an element or area, then press ⌘/Ctrl+Enter to copy the bundle into any agent or notes app.", pt: "Abra uma página, clique no ícone do Pinar, pine um elemento ou área e pressione ⌘/Ctrl+Enter para copiar o pacote para qualquer agente ou app de notas.", es: "Abre una página, pulsa el icono de Pinar, anota un elemento o área y pulsa ⌘/Ctrl+Enter para copiar el paquete a cualquier agente o app de notas.", fr: "Ouvrez une page, cliquez sur l’icône Pinar, épinglez un élément ou une zone, puis appuyez sur ⌘/Ctrl+Entrée pour copier le paquet vers n’importe quel agent ou application de notes.", de: "Öffne eine Seite, klicke auf das Pinar-Symbol, pinne ein Element oder einen Bereich und drücke ⌘/Ctrl+Enter, um das Paket in einen Agenten oder eine Notizen-App zu kopieren.", zh: "打开页面，点击 Pinar 图标，标记元素或区域，然后按 ⌘/Ctrl+Enter，将内容复制到任意代理或笔记应用。", ja: "ページを開き、Pinar アイコンをクリックして要素または範囲をピンし、⌘/Ctrl+Enter でバンドルをエージェントやメモアプリにコピーします。" },
-  "docs.workspaceTitle": { en: "Workspace", pt: "Workspace", es: "Espacio de trabajo", fr: "Espace de travail", de: "Workspace", zh: "工作区", ja: "ワークスペース" },
-  "docs.workspaceDescription": { en: "After you copy, sessions show up here so you can reopen pins on the original page.", pt: "Depois de copiar, as sessões aparecem aqui para você reabrir os pins na página original.", es: "Después de copiar, las sesiones aparecen aquí para reabrir los pines en la página original.", fr: "Après la copie, les sessions apparaissent ici pour rouvrir les pins sur la page d’origine.", de: "Nach dem Kopieren erscheinen Sitzungen hier, damit du Pins auf der Originalseite erneut öffnen kannst.", zh: "复制后，会话会显示在这里，便于你在原始页面上重新打开标记。", ja: "コピー後、セッションがここに表示され、元のページでピンを再開できます。" },
+function numberFormatFor(language: SupportedLanguage) {
+  const cached = numberFormats.get(language);
+  if (cached) return cached;
+  const format = new Intl.NumberFormat(language);
+  numberFormats.set(language, format);
+  return format;
+}
 
-  "dashboard.description": { en: "Review and reopen your visual feedback sessions.", pt: "Revise e reabra suas sessões de feedback visual.", es: "Revisa y vuelve a abrir tus sesiones de feedback visual.", fr: "Consultez et rouvrez vos sessions de retours visuels.", de: "Prüfe und öffne deine visuellen Feedback-Sitzungen erneut.", zh: "查看并重新打开视觉反馈会话。", ja: "ビジュアルフィードバックのセッションを確認し、再度開けます。" },
-  "dashboard.moveTo": { en: "Move to…", pt: "Mover para…", es: "Mover a…", fr: "Déplacer vers…", de: "Verschieben nach…", zh: "移动到…", ja: "移動先…" },
-  "dashboard.move": { en: "Move", pt: "Mover", es: "Mover", fr: "Déplacer", de: "Verschieben", zh: "移动", ja: "移動" },
-  "dashboard.moveDescription": { en: "Choose the destination workspace and collection.", pt: "Escolha o workspace e a coleção de destino.", es: "Elige el espacio de trabajo y la colección de destino.", fr: "Choisissez l’espace de travail et la collection de destination.", de: "Wähle den Zielarbeitsbereich und die Zielsammlung.", zh: "选择目标工作区和集合。", ja: "移動先のワークスペースとコレクションを選択します。" },
-  "dashboard.chooseWorkspace": { en: "Choose a workspace", pt: "Escolha um workspace", es: "Elige un espacio de trabajo", fr: "Choisissez un espace de travail", de: "Arbeitsbereich auswählen", zh: "选择工作区", ja: "ワークスペースを選択" },
-  "dashboard.chooseCollection": { en: "Choose a collection", pt: "Escolha uma coleção", es: "Elige una colección", fr: "Choisissez une collection", de: "Sammlung auswählen", zh: "选择集合", ja: "コレクションを選択" },
-  "dashboard.noWorkspacesFound": { en: "No workspaces found.", pt: "Nenhum workspace encontrado.", es: "No se encontraron espacios de trabajo.", fr: "Aucun espace de travail trouvé.", de: "Keine Arbeitsbereiche gefunden.", zh: "未找到工作区。", ja: "ワークスペースが見つかりません。" },
-  "dashboard.noCollectionsFound": { en: "No collections found.", pt: "Nenhuma coleção encontrada.", es: "No se encontraron colecciones.", fr: "Aucune collection trouvée.", de: "Keine Sammlungen gefunden.", zh: "未找到集合。", ja: "コレクションが見つかりません。" },
-  "dashboard.search": { en: "Search...", pt: "Buscar...", es: "Buscar...", fr: "Rechercher...", de: "Suchen...", zh: "搜索...", ja: "検索..." },
-  "dashboard.historyView": { en: "History view", pt: "Visualização do histórico", es: "Vista del historial", fr: "Affichage de l’historique", de: "Verlaufsansicht", zh: "历史视图", ja: "履歴表示" },
-  "dashboard.gridView": { en: "Grid view", pt: "Visualização em grade", es: "Vista de cuadrícula", fr: "Vue en grille", de: "Rasteransicht", zh: "网格视图", ja: "グリッド表示" },
-  "dashboard.tableView": { en: "Table view", pt: "Visualização em tabela", es: "Vista de tabla", fr: "Vue en tableau", de: "Tabellenansicht", zh: "表格视图", ja: "テーブル表示" },
-  "dashboard.loading": { en: "Loading history…", pt: "Carregando histórico…", es: "Cargando historial…", fr: "Chargement de l’historique…", de: "Verlauf wird geladen…", zh: "正在加载历史记录…", ja: "履歴を読み込み中…" },
-  "dashboard.emptyTitle": { en: "No annotation sessions found", pt: "Nenhuma sessão de anotação encontrada", es: "No se encontraron sesiones de anotación", fr: "Aucune session d’annotation trouvée", de: "Keine Anmerkungssitzungen gefunden", zh: "未找到注释会话", ja: "注釈セッションが見つかりません" },
-  "dashboard.emptyDescription": { en: "Use the Pinar extension to annotate a page. New sessions will appear here.", pt: "Use a extensão Pinar para anotar uma página. As novas sessões aparecerão aqui.", es: "Usa la extensión Pinar para anotar una página. Las nuevas sesiones aparecerán aquí.", fr: "Utilisez l’extension Pinar pour annoter une page. Les nouvelles sessions apparaîtront ici.", de: "Nutze die Pinar-Erweiterung, um eine Seite zu annotieren. Neue Sitzungen erscheinen hier.", zh: "使用 Pinar 扩展为页面添加注释，新会话会显示在这里。", ja: "Pinar 拡張機能でページに注釈を付けると、新しいセッションがここに表示されます。" },
-  "dashboard.selectSession": { en: "Select {title}", pt: "Selecionar {title}", es: "Seleccionar {title}", fr: "Sélectionner {title}", de: "{title} auswählen", zh: "选择 {title}", ja: "{title} を選択" },
-  "dashboard.selectAll": { en: "Select all on this page", pt: "Selecionar todas nesta página", es: "Seleccionar todas en esta página", fr: "Sélectionner tout sur cette page", de: "Alle auf dieser Seite auswählen", zh: "选择本页全部", ja: "このページのすべてを選択" },
-  "dashboard.selectedCount": { en: "{count} selected", pt: "{count} selecionadas", es: "{count} seleccionadas", fr: "{count} sélectionnées", de: "{count} ausgewählt", zh: "已选择 {count} 项", ja: "{count} 件選択中" },
-  "dashboard.clearSelection": { en: "Clear selection", pt: "Limpar seleção", es: "Borrar selección", fr: "Effacer la sélection", de: "Auswahl aufheben", zh: "清除选择", ja: "選択を解除" },
-  "dashboard.deleteSelectedTitle": { en: "Delete {count} annotation sessions?", pt: "Excluir {count} sessões de anotação?", es: "¿Eliminar {count} sesiones de anotación?", fr: "Supprimer {count} sessions d’annotation ?", de: "{count} Anmerkungssitzungen löschen?", zh: "删除 {count} 个注释会话？", ja: "{count} 件の注釈セッションを削除しますか？" },
-  "dashboard.deleteSelectedDescription": { en: "The screenshots and pins will be permanently removed.", pt: "Os screenshots e pins serão removidos permanentemente.", es: "Las capturas y los pines se eliminarán permanentemente.", fr: "Les captures et les pins seront définitivement supprimés.", de: "Die Screenshots und Pins werden dauerhaft entfernt.", zh: "截图及其标记将被永久删除。", ja: "スクリーンショットとピンは完全に削除されます。" },
-  "dashboard.untitled": { en: "Untitled page", pt: "Página sem título", es: "Página sin título", fr: "Page sans titre", de: "Unbenannte Seite", zh: "无标题页面", ja: "無題のページ" },
-  "dashboard.session": { en: "Session", pt: "Sessão", es: "Sesión", fr: "Session", de: "Sitzung", zh: "会话", ja: "セッション" },
-  "dashboard.created": { en: "Created", pt: "Criada em", es: "Creada", fr: "Créée", de: "Erstellt", zh: "创建时间", ja: "作成日時" },
-  "dashboard.pins": { en: "Pins", pt: "Pins", es: "Pines", fr: "Pins", de: "Pins", zh: "标记", ja: "ピン" },
-  "dashboard.actions": { en: "Actions", pt: "Ações", es: "Acciones", fr: "Actions", de: "Aktionen", zh: "操作", ja: "操作" },
-  "dashboard.columns": { en: "Columns", pt: "Colunas", es: "Columnas", fr: "Colonnes", de: "Spalten", zh: "列", ja: "列" },
-  "dashboard.clearFilter": { en: "Clear filter", pt: "Limpar filtro", es: "Limpiar filtro", fr: "Effacer le filtre", de: "Filter löschen", zh: "清除筛选", ja: "フィルターを解除" },
-  "dashboard.nextPage": { en: "Next page", pt: "Próxima página", es: "Página siguiente", fr: "Page suivante", de: "Nächste Seite", zh: "下一页", ja: "次のページ" },
-  "dashboard.pageStatus": { en: "Page {page} of {pageCount}", pt: "Página {page} de {pageCount}", es: "Página {page} de {pageCount}", fr: "Page {page} sur {pageCount}", de: "Seite {page} von {pageCount}", zh: "第 {page} 页，共 {pageCount} 页", ja: "{page} / {pageCount} ページ" },
-  "dashboard.previousPage": { en: "Previous page", pt: "Página anterior", es: "Página anterior", fr: "Page précédente", de: "Vorherige Seite", zh: "上一页", ja: "前のページ" },
-  "dashboard.resetFilters": { en: "Reset filters", pt: "Limpar filtros", es: "Restablecer filtros", fr: "Réinitialiser les filtres", de: "Filter zurücksetzen", zh: "重置筛选", ja: "フィルターをリセット" },
-  "dashboard.sessionsPerPage": { en: "Sessions per page", pt: "Sessões por página", es: "Sesiones por página", fr: "Sessions par page", de: "Sitzungen pro Seite", zh: "每页会话数", ja: "1ページあたりのセッション数" },
-  "dashboard.onePin": { en: "1 pin", pt: "1 pin", es: "1 pin", fr: "1 pin", de: "1 Pin", zh: "1 个标记", ja: "1 ピン" },
-  "dashboard.twoToFivePins": { en: "2–5 pins", pt: "2–5 pins", es: "2–5 pines", fr: "2–5 pins", de: "2–5 Pins", zh: "2–5 个标记", ja: "2～5 ピン" },
-  "dashboard.sixOrMorePins": { en: "6+ pins", pt: "6+ pins", es: "6+ pines", fr: "6+ pins", de: "6+ Pins", zh: "6 个以上标记", ja: "6 ピン以上" },
-  "dashboard.reviewStatus": { en: "Review", pt: "Revisão", es: "Revisión", fr: "Revue", de: "Prüfung", zh: "审阅", ja: "レビュー" },
-  "dashboard.reviewOpen": { en: "Open", pt: "Aberto", es: "Abierto", fr: "Ouvert", de: "Offen", zh: "待处理", ja: "未着手" },
-  "dashboard.reviewCorrectionReady": { en: "Ready to accept", pt: "Pronto para aceitar", es: "Listo para aceptar", fr: "Prêt à accepter", de: "Bereit zur Annahme", zh: "待接受", ja: "承認待ち" },
-  "dashboard.reviewAccepted": { en: "Accepted", pt: "Aceito", es: "Aceptado", fr: "Accepté", de: "Akzeptiert", zh: "已接受", ja: "承認済み" },
-  "dashboard.reviewReopened": { en: "Reopened", pt: "Reaberto", es: "Reabierto", fr: "Rouvert", de: "Erneut geöffnet", zh: "已重开", ja: "再開" },
-  "dashboard.filteredEmpty": { en: "No sessions match these filters.", pt: "Nenhuma sessão corresponde a estes filtros.", es: "Ninguna sesión coincide con estos filtros.", fr: "Aucune session ne correspond à ces filtres.", de: "Keine Sitzung entspricht diesen Filtern.", zh: "没有符合这些筛选条件的会话。", ja: "これらのフィルターに一致するセッションはありません。" },
-  "dashboard.pinCount": { en: "{count} {label}", pt: "{count} {label}", es: "{count} {label}", fr: "{count} {label}", de: "{count} {label}", zh: "{count} 个{label}", ja: "{count} {label}" },
-  "dashboard.pinSingular": { en: "pin", pt: "pin", es: "pin", fr: "pin", de: "Pin", zh: "标记", ja: "ピン" },
-  "dashboard.pinPlural": { en: "pins", pt: "pins", es: "pines", fr: "pins", de: "Pins", zh: "标记", ja: "ピン" },
-  "dashboard.moreActions": { en: "More session actions", pt: "Mais ações da sessão", es: "Más acciones de la sesión", fr: "Plus d’actions pour la session", de: "Weitere Sitzungsaktionen", zh: "更多会话操作", ja: "その他のセッション操作" },
-  "dashboard.view": { en: "View", pt: "Visualizar", es: "Ver", fr: "Voir", de: "Ansehen", zh: "查看", ja: "表示" },
-  "dashboard.reviewOnPage": { en: "Review on page", pt: "Revisar na página", es: "Revisar en la página", fr: "Revoir sur la page", de: "Auf der Seite prüfen", zh: "在原页审阅", ja: "元のページで確認" },
-  "dashboard.markdown": { en: "Markdown", pt: "Markdown", es: "Markdown", fr: "Markdown", de: "Markdown", zh: "Markdown", ja: "Markdown" },
-  "dashboard.copyPrompt": { en: "Copy prompt", pt: "Copiar prompt", es: "Copiar prompt", fr: "Copier le prompt", de: "Prompt kopieren", zh: "复制提示词", ja: "プロンプトをコピー" },
-  "dashboard.includeScreenshot": { en: "Include screenshot in agent copy", pt: "Incluir captura no copy para agentes", es: "Incluir captura en la copia para agentes", fr: "Inclure la capture dans la copie pour les agents", de: "Screenshot in die Agenten-Kopie aufnehmen", zh: "在代理副本中包含截图", ja: "エージェント向けコピーにスクリーンショットを含める" },
-  "dashboard.includeScreenshotHint": { en: "Adds the printed screenshot to copied prompts and to each item's .md URL.", pt: "Entrega a imagem printada no prompt copiado e no Markdown .md de cada item.", es: "Añade la captura impresa a los prompts copiados y a la URL .md de cada elemento.", fr: "Ajoute la capture imprimée aux prompts copiés et à l’URL .md de chaque élément.", de: "Fügt den gedruckten Screenshot zu kopierten Prompts und zur .md-URL jedes Eintrags hinzu.", zh: "将打印的截图加入复制的提示词以及每条记录的 .md 链接。", ja: "印刷したスクリーンショットをコピーしたプロンプトと各項目の .md URL に含めます。" },
-  "dashboard.deleteSession": { en: "Delete session", pt: "Excluir sessão", es: "Eliminar sesión", fr: "Supprimer la session", de: "Sitzung löschen", zh: "删除会话", ja: "セッションを削除" },
-  "dashboard.openPreview": { en: "View capture", pt: "Ver captura", es: "Ver captura", fr: "Voir la capture", de: "Aufnahme ansehen", zh: "查看截图", ja: "キャプチャを表示" },
-  "dashboard.preview": { en: "Preview", pt: "Prévia", es: "Vista previa", fr: "Aperçu", de: "Vorschau", zh: "预览", ja: "プレビュー" },
-  "dashboard.screenshot": { en: "Screenshot", pt: "Screenshot", es: "Captura de pantalla", fr: "Capture d’écran", de: "Screenshot", zh: "截图", ja: "スクリーンショット" },
-  "dashboard.deleteTitle": { en: "Delete this annotation session?", pt: "Excluir esta sessão de anotação?", es: "¿Eliminar esta sesión de anotación?", fr: "Supprimer cette session d’annotation ?", de: "Diese Anmerkungssitzung löschen?", zh: "删除此注释会话？", ja: "この注釈セッションを削除しますか？" },
-  "dashboard.deleteDescription": { en: "The screenshot and its pins will be permanently removed.", pt: "O screenshot e seus pins serão removidos permanentemente.", es: "La captura y sus pines se eliminarán permanentemente.", fr: "La capture et ses pins seront définitivement supprimés.", de: "Der Screenshot und seine Pins werden dauerhaft entfernt.", zh: "截图及其标记将被永久删除。", ja: "スクリーンショットとピンは完全に削除されます。" },
-  "dashboard.delete": { en: "Delete", pt: "Excluir", es: "Eliminar", fr: "Supprimer", de: "Löschen", zh: "删除", ja: "削除" },
-  "dashboard.allSessions": { en: "All sessions", pt: "Todas as sessões", es: "Todas las sesiones", fr: "Toutes les sessions", de: "Alle Sitzungen", zh: "所有会话", ja: "すべてのセッション" },
-  "dashboard.collection": { en: "collection", pt: "coleção", es: "colección", fr: "collection", de: "Sammlung", zh: "集合", ja: "コレクション" },
-  "dashboard.collectionActions": { en: "Collection actions", pt: "Ações da coleção", es: "Acciones de la colección", fr: "Actions de la collection", de: "Sammlungsaktionen", zh: "集合操作", ja: "コレクション操作" },
-  "dashboard.collapseCollection": { en: "Collapse {name}", pt: "Recolher {name}", es: "Contraer {name}", fr: "Réduire {name}", de: "{name} einklappen", zh: "收起 {name}", ja: "{name} を折りたたむ" },
-  "dashboard.collectionMenu": { en: "Collection", pt: "Coleção", es: "Colección", fr: "Collection", de: "Sammlung", zh: "集合", ja: "コレクション" },
-  "dashboard.breadcrumb": { en: "Breadcrumb", pt: "Trilha de navegação", es: "Ruta de navegación", fr: "Fil d’Ariane", de: "Brotkrumenpfad", zh: "面包屑导航", ja: "パンくずリスト" },
-  "dashboard.collections": { en: "Collections", pt: "Coleções", es: "Colecciones", fr: "Collections", de: "Sammlungen", zh: "集合", ja: "コレクション" },
-  "dashboard.create": { en: "Create", pt: "Criar", es: "Crear", fr: "Créer", de: "Erstellen", zh: "创建", ja: "作成" },
-  "dashboard.deleteCollection": { en: "Delete collection", pt: "Excluir coleção", es: "Eliminar colección", fr: "Supprimer la collection", de: "Sammlung löschen", zh: "删除集合", ja: "コレクションを削除" },
-  "dashboard.deleteContainerConfirm": { en: "Delete this {kind}? Its sessions will move to Personal / Inbox.", pt: "Excluir este item ({kind})? As sessões serão movidas para Personal / Inbox.", es: "¿Eliminar esta {kind}? Sus sesiones se moverán a Personal / Inbox.", fr: "Supprimer cette {kind} ? Ses sessions seront déplacées vers Personal / Inbox.", de: "Diese {kind} löschen? Die Sitzungen werden nach Personal / Inbox verschoben.", zh: "删除此{kind}？其中的会话将移至 Personal / Inbox。", ja: "この{kind}を削除しますか？セッションは Personal / Inbox に移動されます。" },
-  "dashboard.deleteProject": { en: "Delete project", pt: "Excluir projeto", es: "Eliminar proyecto", fr: "Supprimer le projet", de: "Projekt löschen", zh: "删除项目", ja: "プロジェクトを削除" },
-  "dashboard.editProject": { en: "Edit project", pt: "Editar projeto", es: "Editar proyecto", fr: "Modifier le projet", de: "Projekt bearbeiten", zh: "编辑项目", ja: "プロジェクトを編集" },
-  "dashboard.order": { en: "Order", pt: "Ordem", es: "Orden", fr: "Ordre", de: "Reihenfolge", zh: "排序", ja: "順序" },
-  "dashboard.moveEarlier": { en: "Move earlier", pt: "Mover para antes", es: "Mover antes", fr: "Déplacer plus tôt", de: "Nach vorne verschieben", zh: "前移", ja: "前へ移動" },
-  "dashboard.moveLater": { en: "Move later", pt: "Mover para depois", es: "Mover después", fr: "Déplacer plus tard", de: "Nach hinten verschieben", zh: "后移", ja: "後ろへ移動" },
-  "dashboard.newCollection": { en: "New collection", pt: "Nova coleção", es: "Nueva colección", fr: "Nouvelle collection", de: "Neue Sammlung", zh: "新建集合", ja: "新しいコレクション" },
-  "dashboard.expandCollection": { en: "Expand {name}", pt: "Expandir {name}", es: "Expandir {name}", fr: "Développer {name}", de: "{name} ausklappen", zh: "展开 {name}", ja: "{name} を展開" },
-  "dashboard.newProject": { en: "New project", pt: "Novo projeto", es: "Nuevo proyecto", fr: "Nouveau projet", de: "Neues Projekt", zh: "新建项目", ja: "新しいプロジェクト" },
-  "dashboard.newSubcollection": { en: "New nested collection", pt: "Nova subcoleção", es: "Nueva subcolección", fr: "Nouvelle sous-collection", de: "Neue Untersammlung", zh: "新建子集合", ja: "新しいサブコレクション" },
-  "dashboard.name": { en: "Name", pt: "Nome", es: "Nombre", fr: "Nom", de: "Name", zh: "名称", ja: "名前" },
-  "dashboard.project": { en: "project", pt: "projeto", es: "proyecto", fr: "projet", de: "Projekt", zh: "项目", ja: "プロジェクト" },
-  "dashboard.projectActions": { en: "Project actions", pt: "Ações do projeto", es: "Acciones del proyecto", fr: "Actions du projet", de: "Projektaktionen", zh: "项目操作", ja: "プロジェクト操作" },
-  "dashboard.projectIcon": { en: "Project icon", pt: "Ícone do projeto", es: "Icono del proyecto", fr: "Icône du projet", de: "Projektsymbol", zh: "项目图标", ja: "プロジェクトアイコン" },
-  "dashboard.noProjectIcons": { en: "No icons found.", pt: "Nenhum ícone encontrado.", es: "No se encontraron iconos.", fr: "Aucune icône trouvée.", de: "Keine Symbole gefunden.", zh: "未找到图标。", ja: "アイコンが見つかりません。" },
-  "dashboard.searchProjectIcons": { en: "Search icons...", pt: "Buscar ícones...", es: "Buscar iconos...", fr: "Rechercher des icônes...", de: "Symbole suchen...", zh: "搜索图标...", ja: "アイコンを検索..." },
-  "dashboard.rename": { en: "Rename", pt: "Renomear", es: "Renombrar", fr: "Renommer", de: "Umbenennen", zh: "重命名", ja: "名前を変更" },
-  "dashboard.renamePrompt": { en: "Rename {kind}", pt: "Renomear {kind}", es: "Renombrar {kind}", fr: "Renommer {kind}", de: "{kind} umbenennen", zh: "重命名{kind}", ja: "{kind}の名前を変更" },
-  "dashboard.remove": { en: "Remove", pt: "Remover", es: "Quitar", fr: "Retirer", de: "Entfernen", zh: "移除", ja: "削除" },
-  "dashboard.save": { en: "Save", pt: "Salvar", es: "Guardar", fr: "Enregistrer", de: "Speichern", zh: "保存", ja: "保存" },
-  "dashboard.share": { en: "Share", pt: "Compartilhar", es: "Compartir", fr: "Partager", de: "Teilen", zh: "分享", ja: "共有" },
+const PLURAL_BLOCK = /\{(\w+),\s*plural,\s*((?:[^{}]|\{[^{}]*\})*)\}/g;
+const PLURAL_BRANCH = /(=\d+|zero|one|two|few|many|other)\s*\{([^{}]*)\}/g;
 
-  "aggregate.copyMarkdown": { en: "Copy Markdown", pt: "Copiar Markdown", es: "Copiar Markdown", fr: "Copier le Markdown", de: "Markdown kopieren", zh: "复制 Markdown", ja: "Markdown をコピー" },
-  "aggregate.loading": { en: "Loading…", pt: "Carregando…", es: "Cargando…", fr: "Chargement…", de: "Wird geladen…", zh: "正在加载…", ja: "読み込み中…" },
-  "aggregate.noSessions": { en: "No sessions in this collection.", pt: "Nenhuma sessão nesta coleção.", es: "No hay sesiones en esta colección.", fr: "Aucune session dans cette collection.", de: "Keine Sitzungen in dieser Sammlung.", zh: "此集合中没有会话。", ja: "このコレクションにはセッションがありません。" },
-  "aggregate.notFound": { en: "{kind} not found", pt: "{kind} não encontrado(a)", es: "No se encontró {kind}", fr: "{kind} introuvable", de: "{kind} nicht gefunden", zh: "未找到{kind}", ja: "{kind}が見つかりません" },
-  "aggregate.open": { en: "Open", pt: "Abrir", es: "Abrir", fr: "Ouvrir", de: "Öffnen", zh: "打开", ja: "開く" },
-  "aggregate.sessionCount": { en: "{count} {label}", pt: "{count} {label}", es: "{count} {label}", fr: "{count} {label}", de: "{count} {label}", zh: "{count} 个{label}", ja: "{count} {label}" },
-  "aggregate.sessionPlural": { en: "sessions", pt: "sessões", es: "sesiones", fr: "sessions", de: "Sitzungen", zh: "会话", ja: "セッション" },
-  "aggregate.sessionSingular": { en: "session", pt: "sessão", es: "sesión", fr: "session", de: "Sitzung", zh: "会话", ja: "セッション" },
+function selectPluralBranch(body: string, exact: string, category: string) {
+  const branches = new Map<string, string>();
+  for (const branch of body.matchAll(PLURAL_BRANCH))
+    branches.set(branch[1], branch[2]);
+  return branches.get(exact) ?? branches.get(category) ?? branches.get("other");
+}
 
-  "viewer.loading": { en: "Loading viewer…", pt: "Carregando viewer…", es: "Cargando visor…", fr: "Chargement du visualiseur…", de: "Viewer wird geladen…", zh: "正在加载查看器…", ja: "ビューアーを読み込み中…" },
-  "viewer.notFound": { en: "Annotation session not found", pt: "Sessão de anotação não encontrada", es: "Sesión de anotación no encontrada", fr: "Session d’annotation introuvable", de: "Anmerkungssitzung nicht gefunden", zh: "未找到注释会话", ja: "注釈セッションが見つかりません" },
-  "viewer.backHistory": { en: "Back to dashboard", pt: "Voltar ao painel", es: "Volver al panel", fr: "Retour au tableau de bord", de: "Zurück zur Übersicht", zh: "返回控制面板", ja: "ダッシュボードに戻る" },
-  "viewer.pageActions": { en: "Page actions", pt: "Ações da página", es: "Acciones de página", fr: "Actions de la page", de: "Seitenaktionen", zh: "页面操作", ja: "ページ操作" },
-  "viewer.copyPage": { en: "Copy Page", pt: "Copiar página", es: "Copiar página", fr: "Copier la page", de: "Seite kopieren", zh: "复制页面", ja: "ページをコピー" },
-  "viewer.moreActions": { en: "More page actions", pt: "Mais ações da página", es: "Más acciones de página", fr: "Plus d’actions pour la page", de: "Weitere Seitenaktionen", zh: "更多页面操作", ja: "その他のページ操作" },
-  "viewer.viewMarkdown": { en: "View as Markdown", pt: "Ver como Markdown", es: "Ver como Markdown", fr: "Afficher en Markdown", de: "Als Markdown anzeigen", zh: "以 Markdown 查看", ja: "Markdown で表示" },
-  "viewer.openChatGPT": { en: "Open in ChatGPT", pt: "Abrir no ChatGPT", es: "Abrir en ChatGPT", fr: "Ouvrir dans ChatGPT", de: "In ChatGPT öffnen", zh: "在 ChatGPT 中打开", ja: "ChatGPT で開く" },
-  "viewer.openClaude": { en: "Open in Claude", pt: "Abrir no Claude", es: "Abrir en Claude", fr: "Ouvrir dans Claude", de: "In Claude öffnen", zh: "在 Claude 中打开", ja: "Claude で開く" },
-  "viewer.annotation": { en: "Annotation", pt: "Anotação", es: "Anotación", fr: "Annotation", de: "Anmerkung", zh: "注释", ja: "注釈" },
-  "viewer.retention": { en: "7-day retention", pt: "Retenção de 7 dias", es: "Retención de 7 días", fr: "Conservation de 7 jours", de: "7 Tage Aufbewahrung", zh: "保留 7 天", ja: "7日間保存" },
-  "viewer.annotatedScreenshot": { en: "Annotated page screenshot", pt: "Screenshot anotado da página", es: "Captura anotada de la página", fr: "Capture annotée de la page", de: "Kommentierter Seiten-Screenshot", zh: "带注释的页面截图", ja: "注釈付きページスクリーンショット" },
-  "viewer.screenshotUnavailable": { en: "Screenshot unavailable", pt: "Screenshot indisponível", es: "Captura no disponible", fr: "Capture indisponible", de: "Screenshot nicht verfügbar", zh: "截图不可用", ja: "スクリーンショットを利用できません" },
-  "viewer.openPin": { en: "Open pin {number}", pt: "Abrir pin {number}", es: "Abrir pin {number}", fr: "Ouvrir le pin {number}", de: "Pin {number} öffnen", zh: "打开标记 {number}", ja: "ピン {number} を開く" },
-  "viewer.areaSelection": { en: "Area selection", pt: "Seleção de área", es: "Selección de área", fr: "Sélection de zone", de: "Bereichsauswahl", zh: "区域选择", ja: "範囲選択" },
-  "viewer.element": { en: "Element", pt: "Elemento", es: "Elemento", fr: "Élément", de: "Element", zh: "元素", ja: "要素" },
-  "viewer.locationExact": { en: "Exact match", pt: "Correspondência exata", es: "Coincidencia exacta", fr: "Correspondance exacte", de: "Exakte Übereinstimmung", zh: "精确匹配", ja: "完全一致" },
-  "viewer.locationExactHint": { en: "Pinar can find this element again on the original page.", pt: "O Pinar consegue achar este elemento de novo na página original.", es: "Pinar puede volver a encontrar este elemento en la página original.", fr: "Pinar peut retrouver cet élément sur la page d’origine.", de: "Pinar findet dieses Element auf der Originalseite wieder.", zh: "Pinar 可以在原始页面上再次找到此元素。", ja: "Pinar は元のページでこの要素を再検出できます。" },
-  "viewer.locationProbableHint": { en: "Pinar found a likely match. Review on page may need a check.", pt: "O Pinar achou uma correspondência provável. Revisar na página pode precisar de conferência.", es: "Pinar encontró una coincidencia probable. Revisar en la página puede requerir comprobación.", fr: "Pinar a trouvé une correspondance probable. « Review on page » peut nécessiter une vérification.", de: "Pinar hat eine wahrscheinliche Übereinstimmung gefunden. „Review on page“ kann eine Prüfung brauchen.", zh: "Pinar 找到了可能的匹配。在页面上复查时可能需要核对。", ja: "Pinar は有力な一致を見つけました。ページで確認するとき、目視が必要になる場合があります。" },
-  "viewer.locationNeedsReviewHint": { en: "Pinar may not find this element again on the original page.", pt: "O Pinar pode não achar este elemento de novo na página original.", es: "Pinar puede no volver a encontrar este elemento en la página original.", fr: "Pinar pourrait ne pas retrouver cet élément sur la page d’origine.", de: "Pinar findet dieses Element auf der Originalseite möglicherweise nicht wieder.", zh: "Pinar 可能无法在原始页面上再次找到此元素。", ja: "Pinar は元のページでこの要素を再検出できない場合があります。" },
-  "viewer.locationProbable": { en: "Probable match", pt: "Correspondência provável", es: "Coincidencia probable", fr: "Correspondance probable", de: "Wahrscheinliche Übereinstimmung", zh: "可能匹配", ja: "ほぼ一致" },
-  "viewer.locationNeedsReview": { en: "Needs review", pt: "Precisa de revisão", es: "Requiere revisión", fr: "À vérifier", de: "Prüfung nötig", zh: "需要复查", ja: "要確認" },
-  "viewer.locationStrategy": { en: "Found by {strategy}", pt: "Encontrado por {strategy}", es: "Encontrado por {strategy}", fr: "Trouvé par {strategy}", de: "Gefunden über {strategy}", zh: "通过 {strategy} 定位", ja: "{strategy} で検出" },
-  "viewer.strategyStableSelector": { en: "selector", pt: "seletor", es: "selector", fr: "sélecteur", de: "Selektor", zh: "选择器", ja: "セレクター" },
-  "viewer.strategyStructure": { en: "DOM path", pt: "caminho DOM", es: "ruta DOM", fr: "chemin DOM", de: "DOM-Pfad", zh: "DOM 路径", ja: "DOM パス" },
-  "viewer.strategySemantic": { en: "text", pt: "texto", es: "texto", fr: "texte", de: "Text", zh: "文本", ja: "テキスト" },
-  "viewer.strategyGeometry": { en: "position", pt: "posição", es: "posición", fr: "position", de: "Position", zh: "位置", ja: "位置" },
-  "viewer.locationCrossOrigin": { en: "Cross-origin iframe is not readable", pt: "Iframe de outra origem não é legível", es: "El iframe de otro origen no es legible", fr: "L’iframe cross-origin n’est pas lisible", de: "Cross-Origin-Iframe ist nicht lesbar", zh: "跨源 iframe 不可读", ja: "クロスオリジンの iframe は読み取れません" },
-  "viewer.privacyUnevaluated": { en: "Some regions could not be inspected", pt: "Algumas regiões não puderam ser inspecionadas", es: "No se pudieron inspeccionar algunas regiones", fr: "Certaines zones n’ont pas pu être inspectées", de: "Einige Bereiche konnten nicht geprüft werden", zh: "部分区域无法检查", ja: "一部の領域を検査できませんでした" },
-  "viewer.pinTitle": { en: "Pin {number}", pt: "Pin {number}", es: "Pin {number}", fr: "Pin {number}", de: "Pin {number}", zh: "标记 {number}", ja: "ピン {number}" },
-  "viewer.completeContext": { en: "Complete annotation context", pt: "Contexto completo da anotação", es: "Contexto completo de la anotación", fr: "Contexte complet de l’annotation", de: "Vollständiger Anmerkungskontext", zh: "完整注释上下文", ja: "注釈の完全なコンテキスト" },
-  "viewer.preview": { en: "Preview", pt: "Visualização", es: "Vista previa", fr: "Aperçu", de: "Vorschau", zh: "预览", ja: "プレビュー" },
-  "viewer.raw": { en: "Raw", pt: "Markdown", es: "Markdown", fr: "Markdown", de: "Markdown", zh: "Markdown 源文", ja: "Markdown" },
-  "viewer.reviewOpen": { en: "Open", pt: "Aberto", es: "Abierto", fr: "Ouvert", de: "Offen", zh: "待处理", ja: "未着手" },
-  "viewer.reviewCorrectionReady": { en: "Ready to accept", pt: "Pronto para aceitar", es: "Listo para aceptar", fr: "Prêt à accepter", de: "Bereit zur Annahme", zh: "待接受", ja: "承認待ち" },
-  "viewer.reviewAccepted": { en: "Accepted", pt: "Aceito", es: "Aceptado", fr: "Accepté", de: "Akzeptiert", zh: "已接受", ja: "承認済み" },
-  "viewer.reviewReopened": { en: "Reopened", pt: "Reaberto", es: "Reabierto", fr: "Rouvert", de: "Erneut geöffnet", zh: "已重开", ja: "再開" },
-  "viewer.acceptCorrection": { en: "Accept correction", pt: "Aceitar correção", es: "Aceptar corrección", fr: "Accepter la correction", de: "Korrektur akzeptieren", zh: "接受修正", ja: "修正を承認" },
-  "viewer.reopenPin": { en: "Reopen pin", pt: "Reabrir pin", es: "Reabrir pin", fr: "Rouvrir le pin", de: "Pin erneut öffnen", zh: "重开标记", ja: "ピンを再開" },
-  "viewer.lastAgentResult": { en: "Last agent result", pt: "Última devolutiva do agente", es: "Último resultado del agente", fr: "Dernier résultat de l’agent", de: "Letztes Agentenergebnis", zh: "最近一次代理结果", ja: "最新のエージェント結果" },
-  "viewer.noAgentResult": { en: "No agent result yet", pt: "Ainda sem devolutiva do agente", es: "Aún no hay resultado del agente", fr: "Pas encore de résultat d’agent", de: "Noch kein Agentenergebnis", zh: "尚无代理结果", ja: "エージェント結果はまだありません" },
-  "viewer.reviewTimeline": { en: "Review history", pt: "Histórico de revisão", es: "Historial de revisión", fr: "Historique de revue", de: "Prüfungsverlauf", zh: "审阅历史", ja: "レビュー履歴" },
-  "viewer.reviewTransition": { en: "{from} → {to}", pt: "{from} → {to}", es: "{from} → {to}", fr: "{from} → {to}", de: "{from} → {to}", zh: "{from} → {to}", ja: "{from} → {to}" },
-  "viewer.reviewPrompt": { en: "Review this annotated page: {url}", pt: "Revise esta página anotada: {url}", es: "Revisa esta página anotada: {url}", fr: "Examinez cette page annotée : {url}", de: "Prüfe diese kommentierte Seite: {url}", zh: "请审查这个带注释的页面：{url}", ja: "この注釈付きページを確認してください: {url}" },
-  "viewer.reviewOnPage": { en: "Review on page", pt: "Revisar na página", es: "Revisar en la página", fr: "Revoir sur la page", de: "Auf der Seite prüfen", zh: "在原页审阅", ja: "元のページで確認" },
-  "viewer.reviewOnPageHint": { en: "Install the Pinar extension to reopen this session on the original page.", pt: "Instale a extensão do Pinar para reabrir esta sessão na página original.", es: "Instala la extensión de Pinar para reabrir esta sesión en la página original.", fr: "Installez l’extension Pinar pour rouvrir cette session sur la page d’origine.", de: "Installiere die Pinar-Erweiterung, um diese Sitzung auf der Originalseite zu öffnen.", zh: "安装 Pinar 扩展后即可在原始页面重新打开此会话。", ja: "Pinar 拡張機能をインストールすると、元のページでこのセッションを再開できます。" },
-  "viewer.reviewOnPageFailed": { en: "The original page could not be opened for review.", pt: "Não foi possível abrir a página original para revisão.", es: "No se pudo abrir la página original para revisión.", fr: "Impossible d’ouvrir la page d’origine pour la revue.", de: "Die Originalseite konnte nicht zur Prüfung geöffnet werden.", zh: "无法打开原始页面进行审阅。", ja: "元のページを確認用に開けませんでした。" },
-  "viewer.aiSummary": { en: "AI summary", pt: "Resumo com IA", es: "Resumen con IA", fr: "Résumé par IA", de: "KI-Zusammenfassung", zh: "AI 摘要", ja: "AI 要約" },
-  "viewer.aiSummaryTitle": { en: "Annotation summary", pt: "Resumo das anotações", es: "Resumen de anotaciones", fr: "Résumé des annotations", de: "Zusammenfassung der Anmerkungen", zh: "注释摘要", ja: "注釈の要約" },
-  "viewer.aiSummaryDescription": { en: "Pinar analyzes only the page title, URL, and pin comments. One AI credit is charged after a successful result.", pt: "O Pinar analisa apenas o título, a URL e os comentários dos pins. Um crédito de IA é cobrado após um resultado bem-sucedido.", es: "Pinar solo analiza el título, la URL y los comentarios de los pines. Se cobra un crédito de IA tras un resultado correcto.", fr: "Pinar analyse uniquement le titre, l’URL et les commentaires des pins. Un crédit IA est débité après un résultat réussi.", de: "Pinar analysiert nur Seitentitel, URL und Pin-Kommentare. Ein KI-Guthaben wird erst nach einem erfolgreichen Ergebnis abgezogen.", zh: "Pinar 仅分析页面标题、URL 和标记评论。成功生成结果后扣除 1 个 AI 点数。", ja: "Pinar はページタイトル、URL、ピンのコメントのみを分析します。正常に結果が生成された後、AI クレジットを1点消費します。" },
-  "viewer.aiSummarizing": { en: "Summarizing…", pt: "Resumindo…", es: "Resumiendo…", fr: "Résumé en cours…", de: "Zusammenfassung läuft…", zh: "正在生成摘要…", ja: "要約中…" },
-  "viewer.aiHighlights": { en: "Highlights", pt: "Pontos principais", es: "Puntos principales", fr: "Points clés", de: "Kernpunkte", zh: "要点", ja: "要点" },
-  "viewer.aiCreditCost": { en: "Cost: 1 AI credit", pt: "Custo: 1 crédito de IA", es: "Costo: 1 crédito de IA", fr: "Coût : 1 crédit IA", de: "Kosten: 1 KI-Guthaben", zh: "费用：1 个 AI 点数", ja: "費用：AI クレジット 1 点" },
-  "viewer.aiCreditsRemaining": { en: "1 AI credit used · {count} remaining", pt: "1 crédito de IA usado · {count} restantes", es: "1 crédito de IA usado · quedan {count}", fr: "1 crédit IA utilisé · {count} restants", de: "1 KI-Guthaben verbraucht · {count} verbleibend", zh: "已使用 1 个 AI 点数 · 剩余 {count}", ja: "AI クレジットを1点使用 · 残り {count} 点" },
-  "viewer.aiSignIn": { en: "Sign in as the session owner to use AI.", pt: "Entre como proprietário da sessão para usar a IA.", es: "Inicia sesión como propietario de la sesión para usar la IA.", fr: "Connectez-vous en tant que propriétaire de la session pour utiliser l’IA.", de: "Melde dich als Eigentümer der Sitzung an, um KI zu verwenden.", zh: "请以会话所有者身份登录后使用 AI。", ja: "AI を使用するにはセッション所有者としてログインしてください。" },
-  "viewer.aiSignInAction": { en: "Sign in", pt: "Entrar", es: "Iniciar sesión", fr: "Se connecter", de: "Anmelden", zh: "登录", ja: "ログイン" },
-  "viewer.aiNoCredits": { en: "You do not have enough AI credits.", pt: "Você não tem créditos de IA suficientes.", es: "No tienes suficientes créditos de IA.", fr: "Vous n’avez pas assez de crédits IA.", de: "Du hast nicht genügend KI-Guthaben.", zh: "AI 点数不足。", ja: "AI クレジットが不足しています。" },
-  "viewer.aiViewPlans": { en: "View plans", pt: "Ver planos", es: "Ver planes", fr: "Voir les forfaits", de: "Tarife ansehen", zh: "查看方案", ja: "プランを見る" },
-  "viewer.aiRateLimited": { en: "Too many requests. Wait a minute and try again.", pt: "Muitas solicitações. Aguarde um minuto e tente novamente.", es: "Demasiadas solicitudes. Espera un minuto e inténtalo de nuevo.", fr: "Trop de requêtes. Attendez une minute puis réessayez.", de: "Zu viele Anfragen. Warte eine Minute und versuche es erneut.", zh: "请求过多，请等待一分钟后重试。", ja: "リクエストが多すぎます。1分待ってから再試行してください。" },
-  "viewer.aiRetry": { en: "Try again", pt: "Tentar novamente", es: "Intentar de nuevo", fr: "Réessayer", de: "Erneut versuchen", zh: "重试", ja: "もう一度試す" },
-  "viewer.aiUnavailable": { en: "The AI summary is unavailable. No credit was charged.", pt: "O resumo com IA está indisponível. Nenhum crédito foi cobrado.", es: "El resumen con IA no está disponible. No se cobró ningún crédito.", fr: "Le résumé par IA est indisponible. Aucun crédit n’a été débité.", de: "Die KI-Zusammenfassung ist nicht verfügbar. Es wurde kein Guthaben abgezogen.", zh: "AI 摘要暂不可用，未扣除点数。", ja: "AI 要約を利用できません。クレジットは消費されていません。" },
-  "viewer.aiRefundPending": { en: "The AI request failed and the credit refund is still processing. Retry safely in a few minutes.", pt: "A solicitação de IA falhou e o estorno do crédito ainda está sendo processado. Tente novamente com segurança em alguns minutos.", es: "La solicitud de IA falló y el reembolso del crédito aún se está procesando. Vuelve a intentarlo de forma segura en unos minutos.", fr: "La requête IA a échoué et le remboursement du crédit est en cours. Réessayez en toute sécurité dans quelques minutes.", de: "Die KI-Anfrage ist fehlgeschlagen und die Gutschrift wird noch verarbeitet. Versuche es in einigen Minuten sicher erneut.", zh: "AI 请求失败，点数退款仍在处理中。请几分钟后安全重试。", ja: "AI リクエストに失敗し、クレジットの返還処理中です。数分後に安全に再試行してください。" },
-  "viewer.aiNetworkError": { en: "The connection was interrupted. Try again to safely resume the same request.", pt: "A conexão foi interrompida. Tente novamente para retomar a mesma solicitação com segurança.", es: "La conexión se interrumpió. Inténtalo de nuevo para reanudar la misma solicitud de forma segura.", fr: "La connexion a été interrompue. Réessayez pour reprendre la même requête en toute sécurité.", de: "Die Verbindung wurde unterbrochen. Versuche es erneut, um dieselbe Anfrage sicher fortzusetzen.", zh: "连接中断。请重试以安全恢复同一请求。", ja: "接続が中断されました。再試行すると同じリクエストを安全に再開できます。" },
-
-  "pricing.badge": { en: "Pinar Pro & Sponsors", pt: "Pinar Pro e apoiadores", es: "Pinar Pro y patrocinadores", fr: "Pinar Pro et sponsors", de: "Pinar Pro und Unterstützer", zh: "Pinar Pro 与赞助者", ja: "Pinar Pro とスポンサー" },
-  "pricing.title": { en: "Keep visual feedback organized and recoverable", pt: "Mantenha o feedback visual organizado e recuperável", es: "Mantén el feedback visual organizado y recuperable", fr: "Gardez les retours visuels organisés et récupérables", de: "Visuelles Feedback organisiert und wiederherstellbar halten", zh: "让视觉反馈井然有序且可恢复", ja: "ビジュアルフィードバックを整理し、復元可能に" },
-  "pricing.description": { en: "Cloud retention, AI credits, and storage that grow with your workflow.", pt: "Retenção na nuvem, créditos de IA e armazenamento que crescem com o seu fluxo.", es: "Retención en la nube, créditos de IA y almacenamiento que crecen con tu flujo.", fr: "Conservation cloud, crédits IA et stockage qui évoluent avec votre flux.", de: "Cloud-Aufbewahrung, KI-Guthaben und Speicher, die mit deinem Workflow wachsen.", zh: "随工作流程扩展的云端保留、AI 点数与存储空间。", ja: "ワークフローに合わせて拡張できるクラウド保存、AIクレジット、ストレージ。" },
-  "pricing.billingInterval": { en: "Billing interval", pt: "Período de cobrança", es: "Periodo de facturación", fr: "Période de facturation", de: "Abrechnungszeitraum", zh: "计费周期", ja: "請求間隔" },
-  "pricing.monthly": { en: "Monthly", pt: "Mensal", es: "Mensual", fr: "Mensuel", de: "Monatlich", zh: "按月", ja: "月払い" },
-  "pricing.yearly": { en: "Yearly", pt: "Anual", es: "Anual", fr: "Annuel", de: "Jährlich", zh: "按年", ja: "年払い" },
-  "pricing.save45": { en: "Save {percent}%", pt: "Economize {percent}%", es: "Ahorra {percent}%", fr: "Économisez {percent} %", de: "{percent} % sparen", zh: "节省 {percent}%", ja: "{percent}% お得" },
-  "pricing.free": { en: "Free", pt: "Gratuito", es: "Gratis", fr: "Gratuit", de: "Kostenlos", zh: "免费", ja: "無料" },
-  "pricing.freeDescription": { en: "100% private local development and quick testing.", pt: "Desenvolvimento local 100% privado e testes rápidos.", es: "Desarrollo local 100 % privado y pruebas rápidas.", fr: "Développement local 100 % privé et tests rapides.", de: "100 % private lokale Entwicklung und schnelle Tests.", zh: "100% 私密的本地开发与快速测试。", ja: "100% プライベートなローカル開発と迅速なテスト。" },
-  "pricing.localOnly": { en: "local mode", pt: "modo local", es: "modo local", fr: "mode local", de: "lokaler Modus", zh: "本地模式", ja: "ローカルモード" },
-  "pricing.freeLocal": { en: "100% Free local app", pt: "App local 100% gratuito", es: "App local 100 % gratuita", fr: "Application locale 100 % gratuite", de: "100 % kostenlose lokale App", zh: "100% 免费的本地应用", ja: "100% 無料のローカルアプリ" },
-  "pricing.freeRetention": { en: "7-Day Cloud Retention", pt: "Retenção de 7 dias na nuvem", es: "Retención de 7 días en la nube", fr: "Conservation cloud de 7 jours", de: "7 Tage Cloud-Aufbewahrung", zh: "云端保留 7 天", ja: "クラウドで7日間保存" },
-  "pricing.freeStorage": { en: "250 MB of cloud storage", pt: "250 MB de armazenamento na nuvem", es: "250 MB de almacenamiento en la nube", fr: "250 Mo de stockage cloud", de: "250 MB Cloud-Speicher", zh: "250 MB 云存储", ja: "250 MB のクラウドストレージ" },
-  "pricing.freeAiCredits": { en: "5 initial AI credits", pt: "5 créditos iniciais de IA", es: "5 créditos iniciales de IA", fr: "5 crédits IA initiaux", de: "5 anfängliche KI-Guthaben", zh: "5 个初始 AI 点数", ja: "初回 AI クレジット 5 点" },
-  "pricing.standardViewer": { en: "Standard Web Viewer", pt: "Web Viewer padrão", es: "Visor web estándar", fr: "Visualiseur web standard", de: "Standard-Web-Viewer", zh: "标准 Web 查看器", ja: "標準 Web ビューアー" },
-  "pricing.clipboardPrompts": { en: "One-Click Clipboard AI Prompts", pt: "Prompts para IA com um clique", es: "Prompts para IA con un clic", fr: "Prompts IA copiés en un clic", de: "KI-Prompts mit einem Klick kopieren", zh: "一键复制 AI 提示词", ja: "ワンクリックで AI プロンプトをコピー" },
-  "pricing.projectsCollections": { en: "Projects and collections", pt: "Projetos e coleções", es: "Proyectos y colecciones", fr: "Projets et collections", de: "Projekte und Sammlungen", zh: "项目和集合", ja: "プロジェクトとコレクション" },
-  "pricing.useFree": { en: "Use Free", pt: "Usar gratuitamente", es: "Usar gratis", fr: "Utiliser gratuitement", de: "Kostenlos nutzen", zh: "免费使用", ja: "無料で使う" },
-  "pricing.everythingFreePlus": { en: "Everything in Free, plus:", pt: "Tudo do Gratuito, mais:", es: "Todo lo de Gratis, más:", fr: "Tout ce qui est inclus dans Gratuit, plus :", de: "Alles aus Kostenlos, plus:", zh: "包含免费版的全部功能，另加：", ja: "無料プランの全機能に加えて：" },
-  "pricing.founderIncludes": { en: "Everything in Pro Yearly, plus:", pt: "Tudo do Pro Anual, mais:", es: "Todo lo de Pro Anual, más:", fr: "Tout ce qui est inclus dans Pro Annuel, plus :", de: "Alles aus Pro Jährlich, plus:", zh: "包含 Pro 年付的全部功能，另加：", ja: "Pro 年払いの全機能に加えて：" },
-  "pricing.proYearly": { en: "Pro Yearly", pt: "Pro Anual", es: "Pro Anual", fr: "Pro Annuel", de: "Pro Jährlich", zh: "Pro 年付", ja: "Pro 年払い" },
-  "pricing.proMonthly": { en: "Pro Monthly", pt: "Pro Mensal", es: "Pro Mensual", fr: "Pro Mensuel", de: "Pro Monatlich", zh: "Pro 月付", ja: "Pro 月払い" },
-  "pricing.proYearlyDescription": { en: "Cloud retention while active for about {price}/month.", pt: "Retenção na nuvem enquanto ativo por cerca de {price}/mês.", es: "Retención en la nube mientras esté activo por unos {price}/mes.", fr: "Conservation cloud pendant l’abonnement actif pour environ {price}/mois.", de: "Cloud-Aufbewahrung während der aktiven Laufzeit für etwa {price}/Monat.", zh: "方案有效期间提供云端保留，每月约 {price}。", ja: "有効期間中のクラウド保存を月額約{price}で。" },
-  "pricing.proMonthlyDescription": { en: "Cloud retention while active with flexible monthly billing.", pt: "Retenção na nuvem enquanto ativo, com cobrança mensal flexível.", es: "Retención en la nube mientras esté activo, con facturación mensual flexible.", fr: "Conservation cloud pendant l’abonnement actif, avec facturation mensuelle flexible.", de: "Cloud-Aufbewahrung während der aktiven Laufzeit mit flexibler Monatsabrechnung.", zh: "方案有效期间提供云端保留，按月灵活计费。", ja: "有効期間中のクラウド保存を柔軟な月払いで。" },
-  "pricing.perYear": { en: "/ year", pt: "/ ano", es: "/ año", fr: "/ an", de: "/ Jahr", zh: "/ 年", ja: "/ 年" },
-  "pricing.perMonth": { en: "/ month", pt: "/ mês", es: "/ mes", fr: "/ mois", de: "/ Monat", zh: "/ 月", ja: "/ 月" },
-  "pricing.redirecting": { en: "Redirecting…", pt: "Redirecionando…", es: "Redirigiendo…", fr: "Redirection…", de: "Weiterleitung…", zh: "正在跳转…", ja: "リダイレクト中…" },
-  "pricing.getYearly": { en: "Get Pro Yearly — {price}/yr", pt: "Assinar Pro Anual — {price}/ano", es: "Obtener Pro Anual — {price}/año", fr: "Choisir Pro Annuel — {price}/an", de: "Pro Jährlich — {price}/Jahr", zh: "购买 Pro 年付 — {price}/年", ja: "Pro 年払い — {price}/年" },
-  "pricing.getMonthly": { en: "Get Pro Monthly — {price}/mo", pt: "Assinar Pro Mensal — {price}/mês", es: "Obtener Pro Mensual — {price}/mes", fr: "Choisir Pro Mensuel — {price}/mois", de: "Pro Monatlich — {price}/Monat", zh: "购买 Pro 月付 — {price}/月", ja: "Pro 月払い — {price}/月" },
-  "pricing.activePlanRetention": { en: "Retention while your plan is active", pt: "Retenção enquanto o plano estiver ativo", es: "Retención mientras el plan esté activo", fr: "Conservation pendant que le forfait est actif", de: "Aufbewahrung während der aktiven Laufzeit", zh: "方案有效期间保留", ja: "プラン有効期間中の保存" },
-  "pricing.retentionPolicy": { en: "grace and recovery after cancellation", pt: "carência e recuperação após cancelamento", es: "gracia y recuperación tras cancelar", fr: "délai de grâce et récupération après résiliation", de: "Karenz und Wiederherstellung nach Kündigung", zh: "取消后提供宽限与恢复期", ja: "解約後の猶予・復元期間あり" },
-  "pricing.activePlanViewers": { en: "Web viewers while the plan is active", pt: "Web Viewers enquanto o plano estiver ativo", es: "Visores web mientras el plan esté activo", fr: "Web Viewers pendant que le forfait est actif", de: "Web-Viewer während der aktiven Laufzeit", zh: "方案有效期间的 Web 查看器", ja: "プラン有効期間中の Web ビューアー" },
-  "pricing.forPrs": { en: "for PRs", pt: "para PRs", es: "para PR", fr: "pour les PR", de: "für PRs", zh: "用于 PR", ja: "PR 向け" },
-  "pricing.storage5": { en: "5 GB Dedicated Cloud Storage", pt: "5 GB de armazenamento dedicado na nuvem", es: "5 GB de almacenamiento dedicado en la nube", fr: "5 Go de stockage cloud dédié", de: "5 GB dedizierter Cloud-Speicher", zh: "5 GB 专属云存储", ja: "5 GB 専用クラウドストレージ" },
-  "pricing.proAiCredits": { en: "200 AI credits every month", pt: "200 créditos de IA por mês", es: "200 créditos de IA al mes", fr: "200 crédits IA par mois", de: "200 KI-Guthaben pro Monat", zh: "每月 200 个 AI 点数", ja: "毎月 200 AI クレジット" },
-  "pricing.searchHistory": { en: "Search across your cloud history", pt: "Busca em todo o histórico na nuvem", es: "Busca en todo tu historial en la nube", fr: "Recherche dans tout votre historique cloud", de: "Suche im gesamten Cloud-Verlauf", zh: "搜索全部云端历史记录", ja: "クラウド履歴全体を検索" },
-  "pricing.founder": { en: "Pinar Founder", pt: "Pinar Founder", es: "Pinar Founder", fr: "Pinar Founder", de: "Pinar Founder", zh: "Pinar Founder", ja: "Pinar Founder" },
-  "pricing.founderDescription": { en: "One-time launch offer, valid while the managed service is offered. No recurring charge.", pt: "Oferta única de lançamento, válida enquanto o serviço gerenciado for oferecido. Sem cobrança recorrente.", es: "Oferta única de lanzamiento, válida mientras se ofrezca el servicio gestionado. Sin cobro recurrente.", fr: "Offre de lancement unique, valable tant que le service géré est proposé. Sans paiement récurrent.", de: "Einmaliges Startangebot, gültig solange der verwaltete Dienst angeboten wird. Keine wiederkehrende Gebühr.", zh: "一次性首发优惠，在托管服务持续提供期间有效，无周期性收费。", ja: "買い切りのローンチオファー。マネージドサービスの提供期間中有効で、継続課金はありません。" },
-  "pricing.oneTime": { en: "one-time payment", pt: "pagamento único", es: "pago único", fr: "paiement unique", de: "Einmalzahlung", zh: "一次性付款", ja: "一括払い" },
-  "pricing.founderAccess": { en: "Founder access without a subscription", pt: "Acesso Founder sem assinatura", es: "Acceso Founder sin suscripción", fr: "Accès Founder sans abonnement", de: "Founder-Zugang ohne Abonnement", zh: "无需订阅的 Founder 权限", ja: "サブスクリプション不要の Founder アクセス" },
-  "pricing.withinPolicies": { en: "within quotas and policies", pt: "dentro das cotas e políticas", es: "dentro de las cuotas y políticas", fr: "dans les limites et politiques", de: "innerhalb der Kontingente und Richtlinien", zh: "受配额与政策约束", ja: "クォータとポリシーの範囲内" },
-  "pricing.earlyAccess": { en: "Early access to new Pro features", pt: "Acesso antecipado a novas funcionalidades Pro", es: "Acceso anticipado a nuevas funciones Pro", fr: "Accès anticipé aux nouvelles fonctionnalités Pro", de: "Frühzeitiger Zugriff auf neue Pro-Funktionen", zh: "提前体验新的 Pro 功能", ja: "新しい Pro 機能への先行アクセス" },
-  "pricing.founderAiCredits": { en: "500 bonus AI credits at activation", pt: "500 créditos de IA de bônus na ativação", es: "500 créditos de IA de bonificación al activar", fr: "500 crédits IA bonus à l’activation", de: "500 zusätzliche KI-Guthaben bei Aktivierung", zh: "激活时额外赠送 500 个 AI 点数", ja: "有効化時にボーナス AI クレジット 500 点" },
-  "pricing.unbrandedViewers": { en: "Unbranded Web Viewers", pt: "Web Viewers sem a marca Pinar", es: "Visores web sin la marca Pinar", fr: "Web Viewers sans la marque Pinar", de: "Web-Viewer ohne Pinar-Branding", zh: "无 Pinar 品牌标识的 Web 查看器", ja: "Pinar ブランドなしの Web ビューアー" },
-  "pricing.getFounder": { en: "Get Pinar Founder — {price}", pt: "Obter Pinar Founder — {price}", es: "Obtener Pinar Founder — {price}", fr: "Obtenir Pinar Founder — {price}", de: "Pinar Founder erhalten — {price}", zh: "购买 Pinar Founder — {price}", ja: "Pinar Founder を購入 — {price}" },
-  "pricing.founderSoldOut": { en: "Founder cohort closed", pt: "Turma Founder encerrada", es: "Cohorte Founder cerrada", fr: "Cohorte Founder clôturée", de: "Founder-Kohorte geschlossen", zh: "Founder 名额已结束", ja: "Founder 募集終了" },
-  "pricing.founderClosed": { en: "Founder opens soon", pt: "Founder abre em breve", es: "Founder abre pronto", fr: "Founder ouvre bientôt", de: "Founder startet bald", zh: "Founder 即将开放", ja: "Founder は近日開始" },
-  "pricing.originalPrice": { en: "Original price", pt: "Preço original", es: "Precio original", fr: "Prix initial", de: "Ursprünglicher Preis", zh: "原价", ja: "通常価格" },
-  "pricing.regionalBrazil": { en: "Exclusive price for Brazil", pt: "Preço exclusivo para o Brasil", es: "Precio exclusivo para Brasil", fr: "Tarif exclusif pour le Brésil", de: "Exklusivpreis für Brasilien", zh: "巴西专享价格", ja: "ブラジル限定価格" },
-  "pricing.addOnsTitle": { en: "Add capacity when you need it", pt: "Adicione capacidade quando precisar", es: "Añade capacidad cuando la necesites", fr: "Ajoutez de la capacité quand nécessaire", de: "Kapazität bei Bedarf hinzufügen", zh: "按需增加容量", ja: "必要なときに容量を追加" },
-  "pricing.addOnsDescription": { en: "Packs stack and expire 12 months after purchase. If storage expires above your current quota, new uploads pause before any existing content is affected.", pt: "Os pacotes acumulam e expiram 12 meses após a compra. Se o armazenamento expirar acima da cota vigente, novos uploads são pausados antes de qualquer conteúdo existente ser afetado.", es: "Los paquetes se acumulan y vencen 12 meses después de la compra. Si el almacenamiento vence por encima de tu cuota, las nuevas cargas se pausan antes de afectar el contenido existente.", fr: "Les packs se cumulent et expirent 12 mois après l’achat. Si le stockage expire au-dessus du quota, les nouveaux envois sont suspendus avant que le contenu existant ne soit affecté.", de: "Pakete sind stapelbar und verfallen 12 Monate nach dem Kauf. Liegt der Speicher danach über dem Kontingent, werden neue Uploads pausiert, bevor bestehende Inhalte betroffen sind.", zh: "套餐可叠加，并在购买 12 个月后到期。若到期后超出当前配额，将先暂停新上传，不影响现有内容。", ja: "パックは追加購入でき、購入から12か月後に期限切れになります。期限切れ後に現在の上限を超える場合、既存コンテンツに影響する前に新規アップロードを停止します。" },
-  "pricing.buyAddOn": { en: "Buy add-on", pt: "Comprar adicional", es: "Comprar adicional", fr: "Acheter l’option", de: "Zusatzpaket kaufen", zh: "购买附加包", ja: "追加パックを購入" },
-  "pricing.aiCreditsTitle": { en: "1,000 AI credits", pt: "1.000 créditos de IA", es: "1.000 créditos de IA", fr: "1 000 crédits IA", de: "1.000 KI-Guthaben", zh: "1,000 个 AI 点数", ja: "1,000 AI クレジット" },
-  "pricing.aiCreditsDescription": { en: "Used after included monthly credits and consumed by feature complexity.", pt: "Usados após os créditos mensais incluídos e consumidos conforme a complexidade da funcionalidade.", es: "Se usan después de los créditos mensuales incluidos y se consumen según la complejidad de la función.", fr: "Utilisés après les crédits mensuels inclus, selon la complexité de la fonctionnalité.", de: "Wird nach dem monatlich enthaltenen Guthaben je nach Funktionskomplexität verbraucht.", zh: "在每月包含的点数用完后使用，并按功能复杂度扣除。", ja: "月次付与分の後に使用され、機能の複雑さに応じて消費されます。" },
-  "pricing.storage5Title": { en: "+5 GB storage", pt: "+5 GB de armazenamento", es: "+5 GB de almacenamiento", fr: "+5 Go de stockage", de: "+5 GB Speicher", zh: "+5 GB 存储", ja: "+5 GB ストレージ" },
-  "pricing.storage5Description": { en: "Adds 5 GB to your current cloud quota and stacks with other packs.", pt: "Adiciona 5 GB à sua cota atual na nuvem e acumula com outros pacotes.", es: "Añade 5 GB a tu cuota actual en la nube y se acumula con otros paquetes.", fr: "Ajoute 5 Go à votre quota cloud actuel et se cumule avec d’autres packs.", de: "Fügt deinem aktuellen Cloud-Kontingent 5 GB hinzu und ist stapelbar.", zh: "为当前云端配额增加 5 GB，并可与其他套餐叠加。", ja: "現在のクラウド上限に 5 GB を追加し、他のパックと併用できます。" },
-  "pricing.storage20Title": { en: "+20 GB storage", pt: "+20 GB de armazenamento", es: "+20 GB de almacenamiento", fr: "+20 Go de stockage", de: "+20 GB Speicher", zh: "+20 GB 存储", ja: "+20 GB ストレージ" },
-  "pricing.storage20Description": { en: "Adds 20 GB to your current cloud quota and stacks with other packs.", pt: "Adiciona 20 GB à sua cota atual na nuvem e acumula com outros pacotes.", es: "Añade 20 GB a tu cuota actual en la nube y se acumula con otros paquetes.", fr: "Ajoute 20 Go à votre quota cloud actuel et se cumule avec d’autres packs.", de: "Fügt deinem aktuellen Cloud-Kontingent 20 GB hinzu und ist stapelbar.", zh: "为当前云端配额增加 20 GB，并可与其他套餐叠加。", ja: "現在のクラウド上限に 20 GB を追加し、他のパックと併用できます。" },
-  "pricing.valid12Months": { en: "valid for 12 months", pt: "válido por 12 meses", es: "válido por 12 meses", fr: "valable 12 mois", de: "12 Monate gültig", zh: "有效期 12 个月", ja: "12か月有効" },
-  "pricing.limitedLaunch": { en: "LIMITED LAUNCH", pt: "LANÇAMENTO LIMITADO", es: "LANZAMIENTO LIMITADO", fr: "LANCEMENT LIMITÉ", de: "LIMITIERTER START", zh: "限量首发", ja: "限定ローンチ" },
-  "pricing.supportTitle": { en: "Support Fair Source development", pt: "Apoie o desenvolvimento Fair Source", es: "Apoya el desarrollo Fair Source", fr: "Soutenez le développement Fair Source", de: "Fair-Source-Entwicklung unterstützen", zh: "支持 Fair Source 开发", ja: "Fair Source 開発を支援" },
-  "pricing.supportDescription": { en: "Prefer supporting public source development directly? Sponsor on GitHub or buy a coffee.", pt: "Prefere apoiar diretamente o desenvolvimento com código público? Patrocine no GitHub ou pague um café.", es: "¿Prefieres apoyar directamente el desarrollo con código público? Patrocina en GitHub o invita un café.", fr: "Vous préférez soutenir directement le développement à code public ? Sponsorisez sur GitHub ou offrez un café.", de: "Möchtest du die Entwicklung mit öffentlichem Quellcode direkt unterstützen? Sponsere auf GitHub oder spendiere einen Kaffee.", zh: "想直接支持公开源码开发？可在 GitHub 赞助或请我们喝杯咖啡。", ja: "公開ソースの開発を直接支援しますか？GitHub スポンサーまたはコーヒーで応援できます。" },
-  "pricing.sponsorGitHub": { en: "Sponsor on GitHub", pt: "Apoiar no GitHub", es: "Patrocinar en GitHub", fr: "Sponsoriser sur GitHub", de: "Auf GitHub sponsern", zh: "在 GitHub 赞助", ja: "GitHub でスポンサー" },
-  "pricing.buyCoffee": { en: "Buy Me a Coffee", pt: "Pague um café", es: "Invítame un café", fr: "Offrir un café", de: "Kaffee spendieren", zh: "请我喝咖啡", ja: "コーヒーを贈る" },
-  "pricing.secureCheckout": { en: "Secure checkout powered by Stripe", pt: "Checkout seguro processado pela Stripe", es: "Pago seguro procesado por Stripe", fr: "Paiement sécurisé par Stripe", de: "Sichere Zahlung über Stripe", zh: "由 Stripe 提供安全结账", ja: "Stripe による安全な決済" },
-  "pricing.billingNote": { en: "Subscriptions can be canceled; one-time purchases follow the published terms", pt: "Assinaturas podem ser canceladas; compras únicas seguem os termos publicados", es: "Las suscripciones pueden cancelarse; las compras únicas siguen los términos publicados", fr: "Les abonnements peuvent être résiliés ; les achats uniques suivent les conditions publiées", de: "Abonnements sind kündbar; Einmalkäufe unterliegen den veröffentlichten Bedingungen", zh: "订阅可取消；一次性购买遵循已公布条款", ja: "サブスクリプションは解約可能。買い切り購入には公開規約が適用されます" },
-  "pricing.checkoutFailed": { en: "Failed to initialize checkout", pt: "Não foi possível iniciar o checkout", es: "No se pudo iniciar el pago", fr: "Impossible de démarrer le paiement", de: "Checkout konnte nicht gestartet werden", zh: "无法启动结账", ja: "決済を開始できませんでした" },
-  "pricing.checkoutUnavailable": { en: "Checkout is temporarily unavailable. Please try again later.", pt: "O checkout está temporariamente indisponível. Tente novamente mais tarde.", es: "El pago no está disponible temporalmente. Inténtalo de nuevo más tarde.", fr: "Le paiement est temporairement indisponible. Réessayez plus tard.", de: "Der Checkout ist vorübergehend nicht verfügbar. Bitte versuche es später erneut.", zh: "结账服务暂时不可用，请稍后再试。", ja: "決済は一時的に利用できません。後でもう一度お試しください。" },
-  "pricing.legalConsentPrefix": { en: "I agree to the", pt: "Concordo com os", es: "Acepto los", fr: "J’accepte les", de: "Ich stimme den", zh: "我同意", ja: "以下に同意します：" },
-  "pricing.legalTerms": { en: "Terms of Service", pt: "Termos de Serviço", es: "Términos del Servicio", fr: "Conditions d’utilisation", de: "Nutzungsbedingungen", zh: "服务条款", ja: "利用規約" },
-  "pricing.legalPrivacy": { en: "Privacy Policy", pt: "Política de Privacidade", es: "Política de Privacidad", fr: "Politique de confidentialité", de: "Datenschutzerklärung", zh: "隐私政策", ja: "プライバシーポリシー" },
-  "pricing.legalAnd": { en: "and the", pt: "e a", es: "y la", fr: "et la", de: "und der", zh: "以及", ja: "および" },
-  "pricing.legalAcceptableUse": { en: "Acceptable Use Policy", pt: "Política de Uso Aceitável", es: "Política de Uso Aceptable", fr: "Politique d’utilisation acceptable", de: "Richtlinie zur zulässigen Nutzung", zh: "可接受使用政策", ja: "許容利用ポリシー" },
-  "pricing.legalConsentVersion": { en: "Version {version}. Required before secure checkout.", pt: "Versão {version}. Obrigatório antes do checkout seguro.", es: "Versión {version}. Obligatorio antes del pago seguro.", fr: "Version {version}. Requis avant le paiement sécurisé.", de: "Version {version}. Vor dem sicheren Checkout erforderlich.", zh: "版本 {version}。安全结账前必须同意。", ja: "バージョン {version}。安全な決済の前に同意が必要です。" },
-  "pricing.legalConsentRequired": { en: "Accept the current policies before checkout.", pt: "Aceite as políticas vigentes antes do checkout.", es: "Acepta las políticas vigentes antes del pago.", fr: "Acceptez les politiques en vigueur avant le paiement.", de: "Akzeptiere vor dem Checkout die aktuellen Richtlinien.", zh: "结账前请接受当前政策。", ja: "決済前に現在のポリシーへ同意してください。" },
-  "pricing.legalDialogTitle": { en: "Review the current policies", pt: "Revise as políticas vigentes", es: "Revisa las políticas actuales", fr: "Consultez les politiques actuelles", de: "Aktuelle Richtlinien prüfen", zh: "查看当前政策", ja: "現在のポリシーを確認" },
-  "pricing.legalDialogDescription": { en: "This acceptance is required once for the current document version before secure checkout.", pt: "Este aceite é necessário uma vez para a versão vigente dos documentos antes do checkout seguro.", es: "Esta aceptación se requiere una vez para la versión actual de los documentos antes del pago seguro.", fr: "Cette acceptation est requise une fois pour la version actuelle des documents avant le paiement sécurisé.", de: "Diese Zustimmung ist für die aktuelle Dokumentversion einmalig vor dem sicheren Checkout erforderlich.", zh: "在安全结账前，当前文档版本只需同意一次。", ja: "安全な決済の前に、現在の文書バージョンへの同意が一度だけ必要です。" },
-  "pricing.legalDialogVersion": { en: "Version {version}.", pt: "Versão {version}.", es: "Versión {version}.", fr: "Version {version}.", de: "Version {version}.", zh: "版本 {version}。", ja: "バージョン {version}。" },
-  "pricing.legalContinue": { en: "Accept and continue", pt: "Aceitar e continuar", es: "Aceptar y continuar", fr: "Accepter et continuer", de: "Akzeptieren und fortfahren", zh: "接受并继续", ja: "同意して続行" },
-  "pricing.networkError": { en: "Network error", pt: "Erro de rede", es: "Error de red", fr: "Erreur réseau", de: "Netzwerkfehler", zh: "网络错误", ja: "ネットワークエラー" },
-
-  "success.checkoutFailed": { en: "Checkout activation failed", pt: "Falha ao ativar a compra", es: "Error al activar la compra", fr: "Échec de l’activation de l’achat", de: "Checkout-Aktivierung fehlgeschlagen", zh: "购买激活失败", ja: "購入の有効化に失敗しました" },
-  "success.sessionMissing": { en: "Checkout session is missing", pt: "A sessão de checkout está ausente", es: "Falta la sesión de pago", fr: "La session de paiement est absente", de: "Checkout-Sitzung fehlt", zh: "缺少结账会话", ja: "決済セッションがありません" },
-  "success.confirmed": { en: "Payment confirmed", pt: "Pagamento confirmado", es: "Pago confirmado", fr: "Paiement confirmé", de: "Zahlung bestätigt", zh: "付款已确认", ja: "支払いが確認されました" },
-  "success.ready": { en: "Your purchase is active and linked to your Pinar account.", pt: "Sua compra está ativa e vinculada à sua conta Pinar.", es: "Tu compra está activa y vinculada a tu cuenta de Pinar.", fr: "Votre achat est actif et lié à votre compte Pinar.", de: "Dein Kauf ist aktiv und mit deinem Pinar-Konto verknüpft.", zh: "您的购买已生效并关联到 Pinar 账户。", ja: "購入が有効になり、Pinar アカウントに関連付けられました。" },
-  "success.planReady": { en: "Your {plan} plan is active", pt: "Seu plano {plan} está ativo", es: "Tu plan {plan} está activo", fr: "Votre forfait {plan} est actif", de: "Dein {plan}-Tarif ist aktiv", zh: "您的 {plan} 方案已激活", ja: "{plan} プランが有効になりました" },
-  "success.addOnReady": { en: "Your add-on is active", pt: "Seu adicional está ativo", es: "Tu adicional está activo", fr: "Votre option est active", de: "Dein Zusatzpaket ist aktiv", zh: "您的附加包已生效", ja: "追加パックが有効になりました" },
-  "success.addOnLabel": { en: "Pinar Add-on", pt: "Adicional Pinar", es: "Adicional de Pinar", fr: "Option Pinar", de: "Pinar-Zusatzpaket", zh: "Pinar 附加包", ja: "Pinar 追加パック" },
-  "success.accountFor": { en: "Signed in as {email}", pt: "Conta conectada: {email}", es: "Sesión iniciada como {email}", fr: "Connecté en tant que {email}", de: "Angemeldet als {email}", zh: "已登录为 {email}", ja: "{email} としてログイン中" },
-  "success.activating": { en: "Activating your purchase…", pt: "Ativando sua compra…", es: "Activando tu compra…", fr: "Activation de votre achat…", de: "Dein Kauf wird aktiviert…", zh: "正在激活购买…", ja: "購入を有効化しています…" },
-
-  "zoom.screenshot": { en: "Screenshot", pt: "Screenshot", es: "Captura de pantalla", fr: "Capture d’écran", de: "Screenshot", zh: "截图", ja: "スクリーンショット" },
-  "zoom.out": { en: "Zoom out", pt: "Diminuir zoom", es: "Alejar", fr: "Dézoomer", de: "Verkleinern", zh: "缩小", ja: "縮小" },
-  "zoom.in": { en: "Zoom in", pt: "Aumentar zoom", es: "Acercar", fr: "Zoomer", de: "Vergrößern", zh: "放大", ja: "拡大" },
-  "zoom.reset": { en: "Reset zoom", pt: "Redefinir zoom", es: "Restablecer zoom", fr: "Réinitialiser le zoom", de: "Zoom zurücksetzen", zh: "重置缩放", ja: "ズームをリセット" },
-} as const satisfies Record<string, LocalizedMessage>;
-
-export type ServerMessageKey = keyof typeof messages;
+export function formatMessage(
+  template: string,
+  language: SupportedLanguage,
+  values?: MessageValues,
+) {
+  if (!values) return template;
+  const expanded = template.replace(PLURAL_BLOCK, (block, name, body) => {
+    const count = Number(values[name]);
+    if (!Number.isFinite(count)) return block;
+    const branch = selectPluralBranch(
+      body,
+      `=${count}`,
+      pluralRulesFor(language).select(count),
+    );
+    if (branch === undefined) return block;
+    return branch.replaceAll("#", numberFormatFor(language).format(count));
+  });
+  return Object.entries(values).reduce(
+    (message, [key, value]) => message.replaceAll(`{${key}}`, String(value)),
+    expanded,
+  );
+}
 
 interface ServerI18nValue {
   language: SupportedLanguage;
   languageName: (language: SupportedLanguage) => string;
   setLanguage: (language: SupportedLanguage) => void;
-  t: (key: ServerMessageKey, values?: Record<string, string | number>) => string;
+  t: (key: ServerMessageKey, values?: MessageValues) => string;
 }
 
 const ServerI18nContext = createContext<ServerI18nValue | null>(null);
-const LANGUAGE_STORAGE_KEY = "pinar-language";
 
-function isSupportedLanguage(value: string | null): value is SupportedLanguage {
-  return Boolean(value && SERVER_LANGUAGES.includes(value as SupportedLanguage));
-}
+export function ServerI18nProvider({
+  children,
+  initialLanguage,
+  initialMessages,
+}: {
+  children: ReactNode;
+  initialLanguage: SupportedLanguage;
+  initialMessages: UiMessages;
+}) {
+  const [active, setActive] = useState({
+    language: initialLanguage,
+    messages: initialMessages,
+  });
+  const activeLanguage = active.language;
+  const migrated = useRef(false);
 
-function formatMessage(template: string, values?: Record<string, string | number>) {
-  if (!values) return template;
-  return Object.entries(values).reduce(
-    (message, [key, value]) => message.replaceAll(`{${key}}`, String(value)),
-    template,
-  );
-}
-
-export function ServerI18nProvider({ children }: { children: ReactNode }) {
-  const [language, setLanguageState] = useState<SupportedLanguage>("en");
-
-  const updateLanguage = useCallback((nextLanguage: SupportedLanguage) => {
-    setLanguageState(nextLanguage);
-    if (typeof document !== "undefined") document.documentElement.lang = nextLanguage;
+  const setLanguage = useCallback((next: SupportedLanguage) => {
+    const cached = uiMessages.get(next);
+    if (cached) {
+      persistLanguage(next);
+      setActive({ language: next, messages: cached });
+      return;
+    }
+    void loadUiMessages(next).then((messages) => {
+      persistLanguage(next);
+      setActive({ language: next, messages });
+    });
   }, []);
 
-  const setLanguage = useCallback((nextLanguage: SupportedLanguage) => {
-    updateLanguage(nextLanguage);
-    localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLanguage);
-  }, [updateLanguage]);
+  useEffect(() => {
+    uiMessages.set(initialLanguage, initialMessages);
+    uiMessagePromises.set(initialLanguage, Promise.resolve(initialMessages));
+  }, [initialLanguage, initialMessages]);
 
   useEffect(() => {
-    const requested = new URLSearchParams(window.location.search).get("lang");
-    const stored = localStorage.getItem(LANGUAGE_STORAGE_KEY);
-    const preferred = isSupportedLanguage(stored) ? stored : isSupportedLanguage(requested) ? requested : undefined;
-    updateLanguage(getBestLanguage(preferred));
-  }, [updateLanguage]);
+    if (migrated.current) return;
+    migrated.current = true;
+    const cookie = readLanguageCookie(document.cookie);
+    if (!cookie) {
+      const stored = localStorage.getItem(LANGUAGE_STORAGE_KEY);
+      if (isSupportedLanguage(stored) && stored !== activeLanguage) {
+        setLanguage(stored);
+        return;
+      }
+    }
+    if (cookie !== activeLanguage) persistLanguage(activeLanguage);
+  }, [activeLanguage, setLanguage]);
 
-  const value = useMemo<ServerI18nValue>(() => ({
-    language,
-    languageName: (candidate) => translations[candidate].name,
-    setLanguage,
-    t: (key, values) => formatMessage(messages[key][language], values),
-  }), [language, setLanguage]);
+  const value = useMemo<ServerI18nValue>(
+    () => ({
+      language: active.language,
+      languageName: (candidate) => translations[candidate].name,
+      setLanguage,
+      t: (key, values) =>
+        formatMessage(active.messages[key], active.language, values),
+    }),
+    [active, setLanguage],
+  );
 
-  return <ServerI18nContext.Provider value={value}>{children}</ServerI18nContext.Provider>;
+  return (
+    <ServerI18nContext.Provider value={value}>
+      {children}
+    </ServerI18nContext.Provider>
+  );
 }
 
 export function useServerI18n() {
   const context = useContext(ServerI18nContext);
-  if (!context) throw new Error("useServerI18n must be used inside ServerI18nProvider");
+  if (!context)
+    throw new Error("useServerI18n must be used inside ServerI18nProvider");
   return context;
 }

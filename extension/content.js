@@ -5,6 +5,11 @@
   }
 
   const DRAG_THRESHOLD = 6;
+  // How long the copy confirmation stays up before the overlay closes.
+  const COPY_CONFIRMATION_MS = 2000;
+  // How long a copy error stays up before the overlay closes; the pins are kept
+  // so reopening lets the user retry.
+  const COPY_ERROR_MS = 3000;
   const BLUE = "#5794FF";
   const MARK = "#6691F2";
   // Keep in sync with extension/pin-colors.js. Content scripts are loaded as classic scripts.
@@ -75,9 +80,18 @@
 
   const state = {
     active: true,
+    batch: { active: false, label: "", shortcut: "" },
     sending: false,
+    reopenAfterSend: false,
     status: null,
     statusTimer: 0,
+    progress: 0,
+    progressLabel: null,
+    progressKind: "info",
+    progressShown: 0,
+    progressRaf: 0,
+    progressFinal: null,
+    progressTweened: null,
     pins: [],
     tabPinCount: 0,
     drag: null,
@@ -124,6 +138,37 @@
     document.getElementById(STYLE_ID)?.remove();
   }
 
+  const FALLBACK_MESSAGES = {
+    overlay_add: "Add",
+    overlay_add_pin_first: "Add a pin first",
+    overlay_cancel: "Cancel",
+    overlay_comment: "Comment",
+    overlay_copied: "Copied successfully!",
+    overlay_copy_failed: "Copy failed",
+    overlay_copying: "Saving the annotations…",
+    overlay_helper_unavailable: "helper unavailable",
+    overlay_hint_clear_long: "to clear",
+    overlay_hint_clear_short: "Clear",
+    overlay_hint_copy_long: "to copy",
+    overlay_hint_copy_short: "Copy",
+    overlay_hint_mask_long: "hide region",
+    overlay_hint_mask_short: "Hide",
+    overlay_hint_pin: "Click or drag to pin",
+    overlay_hint_tune_long: "to fine-tune selection",
+    overlay_hint_tune_short: "Fine-tune",
+    overlay_mask_mode: "Drag to hide a region · click a mask to restore",
+    overlay_no_screenshot: "no screenshot",
+    overlay_no_viewer: "no viewer",
+    overlay_page_unavailable: "Original page is unavailable",
+    overlay_pin_mode: "Pin mode",
+    overlay_place_pin: "Click the correct element to place this pin",
+    overlay_region_hidden: "Region hidden · click the mask to restore",
+    overlay_reviewing: "Reviewing saved session · pending pins need a manual place",
+    overlay_write_comment: "Write a comment first",
+  };
+  let messages = {};
+  const t = (key) => messages[key] ?? FALLBACK_MESSAGES[key];
+
   const host = document.createElement("div");
   host.setAttribute("data-pinar", "host");
   Object.assign(host.style, {
@@ -156,6 +201,7 @@
         align-items: center;
         font: 14px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         left: 50%;
+        max-width: calc(100vw - 32px);
         min-height: 44px;
         overflow: hidden;
         padding: 7px 14px 7px 12px;
@@ -185,13 +231,31 @@
         z-index: 3;
       }
       .toast[hidden] { display: none; }
+      /* After Cmd+Enter the toolbar stays where it is and becomes the progress
+         report: its content switches to the saving label with a percentage and a fill grows left to
+         right behind it, the way capture tools do. Picker, pins and composer
+         leave; --progress is 0..1. */
+      :host([data-progress]) .marker, :host([data-progress]) .outline, :host([data-progress]) .composer,
+      :host([data-progress]) .preview, :host([data-progress]) .toast { display: none !important; }
+      .toolbar::before { background: rgba(15,23,42,.08); content: ""; inset: 0; position: absolute; transform: scaleX(var(--progress, 0)); transform-origin: left center; transition: transform 240ms ease; z-index: 0; }
+      .progress-view { gap: 12px; }
+      :host([data-progress]) .toolbar { padding-left: 14px; padding-right: 14px; }
+      .progress-text { font-weight: 400; }
+      .progress-pct { color: #737373; font-variant-numeric: tabular-nums; }
+      .toolbar[data-kind="error"] .progress-text { color: #E5484D; }
+      .progress-icon svg { display: none; height: 20px; width: 20px; }
+      .toolbar[data-kind="info"] .progress-spinner { animation: pinar-spin 0.9s linear infinite; color: #5794FF; display: block; }
+      .toolbar[data-kind="ok"] .progress-check { color: #1F7A4D; display: block; }
+      .toolbar[data-kind="error"] .progress-alert { color: #E5484D; display: block; }
+      @keyframes pinar-spin { to { transform: rotate(360deg); } }
       .toast[data-kind="error"] { color: #E5484D; }
       .toast[data-kind="ok"] { color: #1F7A4D; }
-      .view { align-items: center; display: flex; gap: 12px; position: relative; z-index: 1; }
+      .view { align-items: center; display: flex; gap: 12px; min-width: 0; position: relative; z-index: 1; }
       .view[hidden] { display: none !important; }
-      .state-icon { display: grid; flex: 0 0 1.25rem; height: 1.25rem; place-items: center; width: 1.25rem; }
-      .mark { display: block; height: 1.25rem; width: 1.25rem; }
-      .instructions { align-items: center; display: flex; gap: 12px; }
+      /* px, never rem: rem follows the host page root font-size, which the shadow root does not isolate. */
+      .state-icon { display: grid; flex: 0 0 20px; height: 20px; place-items: center; width: 20px; }
+      .mark { display: block; height: 20px; width: 20px; }
+      .instructions { align-items: center; display: flex; gap: 12px; min-width: 0; overflow: hidden; }
       .hint { align-items: center; display: inline-flex; gap: 5px; }
       .keys { align-items: center; display: inline-flex; gap: 3px; }
       kbd {
@@ -211,7 +275,33 @@
         padding: 0 6px;
         text-align: center;
       }
-      .sep { background: #B7B7B7; border-radius: 50%; flex: 0 0 3px; height: 3px; width: 3px; }
+      .hint + .hint::before {
+        background: #B7B7B7;
+        border-radius: 50%;
+        content: "";
+        flex: 0 0 3px;
+        height: 3px;
+        margin-right: 7px;
+        width: 3px;
+      }
+      .short { display: none; }
+      /* The bar degrades in stages instead of clipping: first the wording gets
+         terse, then the hints leave one by one, least essential first. Batch state
+         is never dropped - it is state, not a teaching aid. */
+      @media (max-width: 1180px) {
+        .long { display: none; }
+        .short { display: inline; }
+      }
+      @media (max-width: 1000px) {
+        .hint[data-hint="pin"] { display: none; }
+        .hint[data-hint="tune"]::before { display: none; }
+      }
+      @media (max-width: 860px) { .hint[data-hint="mask"] { display: none; } }
+      @media (max-width: 760px) {
+        .hint[data-hint="tune"] { display: none; }
+        .hint[data-hint="copy"]::before { display: none; }
+      }
+      @media (max-width: 660px) { .hint[data-hint="clear"] { display: none; } }
       .status { color: #262626; font-weight: 500; }
       .status[data-kind="error"] { color: #E5484D; }
       .status[data-kind="ok"] { color: #1F7A4D; }
@@ -337,6 +427,25 @@
         text-overflow: ellipsis;
         white-space: nowrap;
       }
+        /* The batch reads as one more hint: same colour, same separator. Its state
+         is the wording, not decoration - "Batch off" versus a live count. It only
+         differs in living outside .instructions, so the hints clip before it. */
+      .batch-pill {
+        align-items: center;
+        display: inline-flex;
+        flex: 0 0 auto;
+        gap: 5px;
+        white-space: nowrap;
+      }
+      .batch-pill::before {
+        background: #B7B7B7;
+        border-radius: 50%;
+        content: "";
+        flex: 0 0 3px;
+        height: 3px;
+        margin-right: 7px;
+        width: 3px;
+      }
       .composer {
         background: transparent;
         display: none;
@@ -431,17 +540,26 @@
           ${bubbleSvg({ className: "mark", variant: "dots" })}
         </span>
         <span class="instructions" data-ref="instructions">
-          <span class="hint">Click or drag to pin</span>
-          <span class="sep"></span>
-          <span class="hint"><span class="keys"><kbd>↑</kbd><kbd>↓</kbd></span> to fine-tune selection</span>
-          <span class="sep"></span>
-          <span class="hint"><span class="keys"><kbd>${sendMod}</kbd><kbd>↵</kbd></span> to copy</span>
-          <span class="sep"></span>
-          <span class="hint"><span class="keys"><kbd>M</kbd></span> hide region</span>
-          <span class="sep"></span>
-          <span class="hint"><span class="keys"><kbd>esc</kbd></span> to clear</span>
+          <span class="hint" data-hint="pin" data-i18n="overlay_hint_pin">${t("overlay_hint_pin")}</span>
+          <span class="hint" data-hint="tune"><span class="keys"><kbd>↑</kbd><kbd>↓</kbd></span><span class="long" data-i18n="overlay_hint_tune_long">${t("overlay_hint_tune_long")}</span><span class="short" data-i18n="overlay_hint_tune_short">${t("overlay_hint_tune_short")}</span></span>
+          <span class="hint" data-hint="copy"><span class="keys"><kbd>${sendMod}</kbd><kbd>↵</kbd></span><span class="long" data-i18n="overlay_hint_copy_long">${t("overlay_hint_copy_long")}</span><span class="short" data-i18n="overlay_hint_copy_short">${t("overlay_hint_copy_short")}</span></span>
+          <span class="hint" data-hint="mask"><span class="keys"><kbd>M</kbd></span><span class="long" data-i18n="overlay_hint_mask_long">${t("overlay_hint_mask_long")}</span><span class="short" data-i18n="overlay_hint_mask_short">${t("overlay_hint_mask_short")}</span></span>
+          <span class="hint" data-hint="clear"><span class="keys"><kbd>esc</kbd></span><span class="long" data-i18n="overlay_hint_clear_long">${t("overlay_hint_clear_long")}</span><span class="short" data-i18n="overlay_hint_clear_short">${t("overlay_hint_clear_short")}</span></span>
         </span>
         <span class="status" data-ref="toolbarStatus" hidden></span>
+        <span class="batch-pill" data-ref="batchPill">
+          <kbd data-ref="batchPillKey" hidden></kbd>
+          <span data-ref="batchPillText"></span>
+        </span>
+      </div>
+      <div class="view progress-view" data-ref="progressView" hidden>
+        <span class="state-icon progress-icon" aria-hidden="true">
+          <svg class="progress-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 9 9"/></svg>
+          <svg class="progress-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>
+          <svg class="progress-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 2.6 17.2A2 2 0 0 0 4.3 20h15.4a2 2 0 0 0 1.7-2.8L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+        </span>
+        <span class="progress-text" data-ref="progressText"></span>
+        <span class="progress-pct" data-ref="progressPct"></span>
       </div>
     </div>
     <div class="toast" data-ref="toast" role="status" aria-live="polite" hidden></div>` : ""}
@@ -454,15 +572,15 @@
     <div class="composer" data-ref="composer" hidden>
       <div class="composer-card">
         <span class="composer-target" data-ref="selectionTag" hidden></span>
-        <textarea data-ref="input" rows="1" placeholder="Comment"></textarea>
+        <textarea data-ref="input" rows="1" placeholder="${t("overlay_comment")}"></textarea>
         <div class="composer-actions">
           <button type="button" class="icon-btn is-ready" data-ref="deleteDraft" title="Delete" aria-label="Delete">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
               <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 11v6m-4-6v6M6 7v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7M4 7h16M7 7l2-4h6l2 4"/>
             </svg>
           </button>
-          <button type="button" class="btn-cancel" data-ref="cancel">Cancel</button>
-          <button type="button" class="btn-add" data-ref="save">Add</button>
+          <button type="button" class="btn-cancel" data-ref="cancel" data-i18n="overlay_cancel">${t("overlay_cancel")}</button>
+          <button type="button" class="btn-add" data-ref="save" data-i18n="overlay_add">${t("overlay_add")}</button>
         </div>
       </div>
     </div>
@@ -485,9 +603,24 @@
     toast: shadow.querySelector("[data-ref=toast]"),
     toolbar: shadow.querySelector(".toolbar"),
     toolbarStatus: shadow.querySelector("[data-ref=toolbarStatus]"),
+    onlineView: shadow.querySelector("[data-ref=onlineView]"),
+    progressView: shadow.querySelector("[data-ref=progressView]"),
+    progressText: shadow.querySelector("[data-ref=progressText]"),
+    progressPct: shadow.querySelector("[data-ref=progressPct]"),
+    batchPill: shadow.querySelector("[data-ref=batchPill]"),
+    batchPillKey: shadow.querySelector("[data-ref=batchPillKey]"),
+    batchPillText: shadow.querySelector("[data-ref=batchPillText]"),
   };
 
   document.documentElement.append(host);
+
+  // Interactions with our own UI (composer, toolbar) must not bubble into the
+  // page: dismiss layers treat target=host as an "outside" press and close
+  // their dialogs. Our listeners live inside the shadow root, below the host,
+  // so they run before these stoppers.
+  for (const type of ["pointerdown", "pointerup", "mousedown", "mouseup", "click", "dblclick"]) {
+    host.addEventListener(type, (event) => event.stopPropagation());
+  }
 
   function isHostNode(node) {
     return node === host || host.contains(node);
@@ -826,31 +959,108 @@
       ui.selectionTag.textContent = selectedTag ? `<${selectedTag}>` : "";
     }
     if (!ui.toolbar) return;
+    const inProgress = host.hasAttribute("data-progress");
+    if (ui.onlineView) ui.onlineView.hidden = inProgress;
+    if (ui.progressView) {
+      ui.progressView.hidden = !inProgress;
+      ui.progressText.textContent = state.progressLabel ?? "";
+      ui.toolbar.dataset.kind = inProgress ? state.progressKind : "";
+      ui.toolbar.style.setProperty("--progress", String(inProgress ? state.progress : 0));
+      if (inProgress && state.progressTweened !== state.progress) {
+        state.progressTweened = state.progress;
+        tweenProgressPercent();
+      } else if (!inProgress) {
+        state.progressTweened = null;
+        ui.progressPct.textContent = "";
+      }
+    }
     const hasStatus = Boolean(state.status);
     if (ui.instructions) ui.instructions.hidden = state.reviewMode;
     if (ui.toast) {
       ui.toast.hidden = !hasStatus;
-      ui.toast.textContent = state.status?.text ?? "";
+      ui.toast.replaceChildren(Object.assign(document.createElement("span"), { textContent: state.status?.text ?? "" }));
       ui.toast.dataset.kind = state.status?.kind ?? "";
+      ui.toast.style.setProperty("--progress", String(state.progress ?? 0));
     }
     if (ui.toolbarStatus) {
-      ui.toolbarStatus.hidden = !state.reviewMode;
-      ui.toolbarStatus.textContent = state.reviewMode ? reviewBannerText() : "";
+      // Review owns this slot; the batch pill has its own so one never hides the other.
+      const banner = state.reviewMode ? reviewBannerText() : "";
+      ui.toolbarStatus.hidden = !banner;
+      ui.toolbarStatus.textContent = banner;
       ui.toolbarStatus.dataset.kind = state.reviewMode && state.unavailable ? "error" : "info";
+    }
+    if (ui.batchPill) {
+      ui.batchPillText.textContent = state.batch.label;
+      ui.batchPillKey.textContent = state.batch.shortcut;
+      ui.batchPillKey.hidden = !state.batch.shortcut;
     }
     document.documentElement.toggleAttribute("data-pinar-mask-mode", state.maskMode);
     document.documentElement.toggleAttribute("data-pinar-review", state.reviewMode);
   }
 
-  function reviewBannerText() {
-    if (state.unavailable) return "Original page is unavailable";
-    if (state.repositionPinId) return "Click the correct element to place this pin";
-    return "Reviewing saved session · pending pins need a manual place";
+  // The percentage moves with the fill (same 240ms as its transition) instead
+  // of jumping between phases, and the final (done) label only lands
+  // once both have reached 100%: a green done label over a half-full bar is a lie.
+  const PROGRESS_TWEEN_MS = 240;
+  function tweenProgressPercent() {
+    cancelAnimationFrame(state.progressRaf);
+    const from = state.progressShown;
+    const target = Math.round(state.progress * 100);
+    const started = performance.now();
+    const step = (now) => {
+      const k = Math.min(1, (now - started) / PROGRESS_TWEEN_MS);
+      state.progressShown = Math.round(from + (target - from) * (1 - (1 - k) * (1 - k)));
+      if (ui.progressPct) ui.progressPct.textContent = `${state.progressShown}%`;
+      if (k < 1) {
+        state.progressRaf = requestAnimationFrame(step);
+        return;
+      }
+      if (target === 100 && state.progressFinal) {
+        const { kind, label } = state.progressFinal;
+        state.progressFinal = null;
+        state.progressLabel = label;
+        state.progressKind = kind;
+        if (ui.progressText) ui.progressText.textContent = label;
+        if (ui.toolbar) ui.toolbar.dataset.kind = kind;
+      }
+    };
+    state.progressRaf = requestAnimationFrame(step);
   }
 
-  function setStatus(text, kind = "info") {
+  function setProgress(label, progress, kind = "info") {
+    host.setAttribute("data-progress", "");
+    state.progress = progress;
+    if (progress >= 1 && kind !== "info") {
+      // Keep the in-progress wording until the bar is visibly full.
+      state.progressFinal = { kind, label };
+    } else {
+      state.progressLabel = label;
+      state.progressKind = kind;
+    }
+    renderChrome();
+  }
+
+  function clearProgress() {
+    cancelAnimationFrame(state.progressRaf);
+    host.removeAttribute("data-progress");
+    state.progressFinal = null;
+    state.progressLabel = null;
+    state.progress = 0;
+    state.progressShown = 0;
+    state.progressKind = "info";
+  }
+
+  function reviewBannerText() {
+    if (state.unavailable) return t("overlay_page_unavailable");
+    if (state.repositionPinId) return t("overlay_place_pin");
+    return t("overlay_reviewing");
+  }
+
+  function setStatus(text, kind = "info", progress = null) {
     clearTimeout(state.statusTimer);
     state.status = text ? { kind, text } : null;
+    if (progress !== null) state.progress = progress;
+    if (!text) state.progress = 0;
     renderChrome();
   }
 
@@ -860,6 +1070,51 @@
       state.status = null;
       renderChrome();
     }, 1800);
+  }
+
+  // The batch lives in the service worker; the overlay mirrors it. Pull once on
+  // mount, then rely on the batch:changed push so the pill cannot go stale when
+  // the batch moves from the menu, the shortcut or another tab.
+  function applyBatchState(next) {
+    state.batch = {
+      active: Boolean(next?.active),
+      label: next?.label || "",
+      shortcut: next?.shortcut || "",
+    };
+    renderChrome();
+    if (next?.toast) flashStatus(next.toast, next.toastKind === "error" ? "error" : "ok");
+  }
+
+  async function syncBatchLabel() {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "batch:get" });
+      applyBatchState(response?.ok ? response : null);
+    } catch {
+      applyBatchState(null);
+    }
+  }
+
+  function applyOverlayCopy() {
+    shadow.querySelectorAll("[data-i18n]").forEach((node) => {
+      node.textContent = t(node.getAttribute("data-i18n"));
+    });
+    if (ui.input) ui.input.placeholder = t("overlay_comment");
+    renderChrome();
+  }
+
+  function applyUiMessages(next) {
+    if (!next?.messages || typeof next.messages !== "object") return;
+    messages = next.messages;
+    applyOverlayCopy();
+  }
+
+  async function syncUiMessages() {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "ui:messages" });
+      if (response?.ok) applyUiMessages(response);
+    } catch {
+      /* keep English fallback */
+    }
   }
 
   function hideOutline() {
@@ -893,7 +1148,9 @@
   }
 
   function canSelect() {
-    return state.active && !state.unavailable && (!state.reviewMode || Boolean(state.repositionPinId));
+    // While a capture is being copied the overlay is a status display, not a
+    // picker: no outline, no new pins, until it closes or reopens fresh.
+    return state.active && !state.sending && !state.unavailable && (!state.reviewMode || Boolean(state.repositionPinId));
   }
 
   function updateOutline() {
@@ -1024,7 +1281,7 @@
       },
     ];
     renderMarkers();
-    flashStatus("Region hidden · click the mask to restore", "ok");
+    flashStatus(t("overlay_region_hidden"), "ok");
   }
 
   function removeMask(id) {
@@ -1041,7 +1298,7 @@
     if (state.draft) return;
     state.maskMode = !state.maskMode;
     renderChrome();
-    flashStatus(state.maskMode ? "Drag to hide a region · click a mask to restore" : "Pin mode", "ok");
+    flashStatus(state.maskMode ? t("overlay_mask_mode") : t("overlay_pin_mode"), "ok");
   }
 
   function escapeAttr(value) {
@@ -1104,6 +1361,33 @@
     ui.composer.classList.add("is-open");
   }
 
+  let composerFocusRetryTimer = 0;
+  let composerFocusRetries = 0;
+  let claimingComposerFocus = false;
+
+  function claimComposerFocus() {
+    if (!state.draft) return;
+    // Guard against synchronous recursion: focus() dispatches focus events,
+    // and an aggressive page trap stealing focus inside that dispatch would
+    // re-enter through keepComposerFocus.
+    claimingComposerFocus = true;
+    try {
+      ui.input.focus({ preventScroll: true });
+    } finally {
+      claimingComposerFocus = false;
+    }
+    if (shadow.activeElement === ui.input) {
+      composerFocusRetries = 0;
+      return;
+    }
+    // Focus refused or synchronously stolen by a page focus trap; retry a few
+    // times, then surrender instead of fighting the page forever.
+    if (composerFocusRetries >= 5) return;
+    composerFocusRetries += 1;
+    clearTimeout(composerFocusRetryTimer);
+    composerFocusRetryTimer = setTimeout(claimComposerFocus, 100);
+  }
+
   function openDraft(draft) {
     if (!canSelect()) return;
     state.hoverPinId = null;
@@ -1113,16 +1397,29 @@
     updateOutline();
     renderMarkers();
     fitInput();
+    composerFocusRetries = 0;
     queueMicrotask(() => {
       fitInput();
-      ui.input.focus({ preventScroll: true });
+      claimComposerFocus();
       ui.input.setSelectionRange(ui.input.value.length, ui.input.value.length);
     });
   }
 
   function keepComposerFocus(event) {
-    if (!state.draft || !event.composedPath().includes(host)) return;
+    if (!state.draft) return;
     event.stopImmediatePropagation();
+    if (claimingComposerFocus || event.composedPath().includes(host)) return;
+    // The page moved focus elsewhere while the composer is open; pull it back.
+    claimComposerFocus();
+  }
+
+  function shieldComposerFocusOut(event) {
+    if (!state.draft) return;
+    // Hide the handoff from page focus traps: when focus moves into our
+    // composer, the page must not see its own element losing focus, or traps
+    // (e.g. dialog focus locks) immediately steal focus back.
+    const related = event.relatedTarget;
+    if (related === host || host.contains(related)) event.stopImmediatePropagation();
   }
 
   function openPinEditor(id) {
@@ -1316,7 +1613,12 @@
   }
 
   function onPointerDown(event) {
-    if (!isMounted() || !canSelect() || event.button !== 0 || fromUi(event) || state.draft) return;
+    if (!isMounted()) return;
+    // Page apps must not react to pointer input while pin mode is active —
+    // e.g. dialogs dismiss on "outside" presses because the event target is
+    // our overlay, not the dialog subtree.
+    if (state.active && !fromUi(event)) event.stopImmediatePropagation();
+    if (!canSelect() || event.button !== 0 || fromUi(event) || state.draft) return;
     if (document.elementFromPoint(event.clientX, event.clientY)?.matches?.("iframe,frame")) return;
     state.drag = { moved: false, x0: event.clientX, x1: event.clientX, y0: event.clientY, y1: event.clientY };
     event.preventDefault();
@@ -1337,7 +1639,9 @@
   }
 
   function onPointerUp(event) {
-    if (!isMounted() || !state.drag) return;
+    if (!isMounted()) return;
+    if (state.active && !fromUi(event)) event.stopImmediatePropagation();
+    if (!state.drag) return;
     if (!canSelect()) {
       state.drag = null;
       hideOutline();
@@ -1406,9 +1710,9 @@
 
   function onClick(event) {
     if (!isMounted() || fromUi(event)) return;
-    if (canSelect()) {
+    if (state.active) {
       event.preventDefault();
-      event.stopPropagation();
+      event.stopImmediatePropagation();
     }
   }
 
@@ -1416,16 +1720,25 @@
     return event.key === "Enter" && (event.metaKey || event.ctrlKey);
   }
 
+  // Physical keys whose keydown we suppressed; their keyup/keypress must be
+  // suppressed too, even if the same key deactivated pin mode meanwhile.
+  const ownedKeyCodes = new Set();
+
   function onKey(event) {
     if (!isMounted() || !state.active) return;
+    // onKey fully owns these two keys: never let the page see them, even when
+    // they originate inside the composer (e.g. Esc closing a page modal).
     if (isModEnter(event)) {
       event.preventDefault();
-      event.stopPropagation();
+      event.stopImmediatePropagation();
+      ownedKeyCodes.add(event.code);
       void sendPins();
       return;
     }
     if (event.key === "Escape") {
       event.preventDefault();
+      event.stopImmediatePropagation();
+      ownedKeyCodes.add(event.code);
       if (state.draft) {
         cancelDraft();
         return;
@@ -1441,6 +1754,19 @@
         else broadcast(FRAME_HIDE);
       });
       return;
+    }
+    // While pin mode is active the page app must never react to keys. Events
+    // from our UI keep propagating so the composer's own handlers still run.
+    const path = event.composedPath();
+    if (!path.includes(host)) {
+      event.stopImmediatePropagation();
+      // Also block native actions on focused page elements (button/checkbox
+      // activation, typing into inputs). Keys aimed at the document itself keep
+      // their defaults so keyboard scrolling still works.
+      const target = path[0];
+      if (target !== window && target !== document && target !== document.documentElement && target !== document.body) {
+        event.preventDefault();
+      }
     }
     if (!canSelect() || state.draft) return;
     if (event.key === "m" || event.key === "M") {
@@ -1466,6 +1792,24 @@
     }
   }
 
+  function onPageKeyEvent(event) {
+    // Consume before the active guard: Esc that deactivates pin mode must not
+    // leak its own keyup to the page once state.active flips to false.
+    if (ownedKeyCodes.has(event.code)) {
+      event.stopImmediatePropagation();
+      if (event.type === "keyup") ownedKeyCodes.delete(event.code);
+      return;
+    }
+    if (!isMounted() || !state.active) return;
+    // Keys onKey owns on keydown stay owned here too, regardless of origin:
+    // apps may react to Escape/Mod+Enter on keyup even with keydown blocked.
+    if (event.key === "Escape" || isModEnter(event)) {
+      event.stopImmediatePropagation();
+      return;
+    }
+    if (!event.composedPath().includes(host)) event.stopImmediatePropagation();
+  }
+
   async function writePlainText(text) {
     if (!text) return false;
     try {
@@ -1489,11 +1833,11 @@
 
   function handoffStatusText(result) {
     const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
-    if (!result?.degraded) return "Copied";
-    const parts = ["Copied"];
-    if (warnings.includes("screenshot_missing")) parts.push("no screenshot");
-    if (warnings.includes("helper_unavailable")) parts.push("helper unavailable");
-    else if (warnings.includes("viewer_unavailable")) parts.push("no viewer");
+    if (!result?.degraded) return t("overlay_copied");
+    const parts = [t("overlay_copied")];
+    if (warnings.includes("screenshot_missing")) parts.push(t("overlay_no_screenshot"));
+    if (warnings.includes("helper_unavailable")) parts.push(t("overlay_helper_unavailable"));
+    else if (warnings.includes("viewer_unavailable")) parts.push(t("overlay_no_viewer"));
     return parts.join(" · ");
   }
 
@@ -1501,7 +1845,7 @@
     if (!isMounted() || !state.active || state.sending) return;
     if (isEmbedded) {
       if (!saveDraft()) {
-        flashStatus("Write a comment first");
+        flashStatus(t("overlay_write_comment"));
         return;
       }
       await syncPins();
@@ -1509,11 +1853,11 @@
       return;
     }
     if (!saveDraft()) {
-      flashStatus("Write a comment first");
+      flashStatus(t("overlay_write_comment"));
       return;
     }
     if (state.pins.length === 0 && !state.draft) {
-      flashStatus("Add a pin first");
+      flashStatus(t("overlay_add_pin_first"));
       return;
     }
     let extraQueryKeys = [];
@@ -1524,18 +1868,24 @@
       extraQueryKeys = [];
     }
     state.sending = true;
-    setStatus("Copying…");
+    hideOutline();
+    ui.toolbar?.classList.remove("pass-through");
+    setStatus(t("overlay_copying"));
     try {
       const refreshed = await chrome.runtime.sendMessage({ type: "pins:refresh" }).catch(() => null);
       if (!refreshed?.ok) throw new Error(refreshed?.error || "pin positions could not be refreshed");
       const listed = await chrome.runtime.sendMessage({ type: "pins:list" }).catch(() => null);
       const pins = listed?.pins ?? state.pins;
       if (pins.length === 0) {
-        flashStatus("Add a pin first");
+        flashStatus(t("overlay_add_pin_first"));
         return;
       }
       const scan = activeScan();
       const maskRegions = activeMaskRegions();
+      // From here on the overlay is a status display. The toolbar and picker
+      // leave now, deliberately; the progress toast takes their place and runs
+      // through the shot (out of frame for ~2 frames), the save and the copy.
+      setProgress(t("overlay_copying"), 0.2);
       await chrome.runtime.sendMessage({ hidden: true, type: "overlays:hidden" }).catch(() => null);
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const capture = await chrome.runtime.sendMessage({
@@ -1545,6 +1895,13 @@
         type: "capture",
       }).catch((error) => ({ error: String(error), ok: false }));
       const shot = capture?.ok ? capture.shot : null;
+      // The shutter is closed (the background already revealed this frame the
+      // moment the last pixel was taken). Back on screen as a status display:
+      // the fill behind the toast reports the rest - save and clipboard - the
+      // way a capture tool's progress bar does. Child frames stay hidden until
+      // session:end so their pins do not flash after the toolbar is gone.
+      setHidden(false);
+      setProgress(t("overlay_copying"), 0.55);
       const sanitized = sanitizeCapture({
         fields: scan.fields,
         page: pageContext(),
@@ -1552,6 +1909,7 @@
         unevaluated: scan.unevaluated,
       }, { extraQueryKeys });
       const captureId = crypto.randomUUID();
+      setProgress(t("overlay_copying"), 0.8);
       const copied = await chrome.runtime.sendMessage({
         captureId,
         fields: scan.fields.map((field) => ({ attrs: field.attrs })),
@@ -1565,8 +1923,12 @@
       }).catch((error) => ({ error: String(error), ok: false }));
       const locallyCopied = copied?.plain ? await writePlainText(copied.plain) : false;
       if (!copied?.ok && !locallyCopied) throw new Error(copied?.error || "clipboard write failed");
-      setStatus(handoffStatusText(copied), "ok");
-      await new Promise((resolve) => setTimeout(resolve, 1400));
+      // A degraded copy (not saved, no screenshot) is a warning, not a success.
+      setProgress(handoffStatusText(copied), 1, copied?.degraded ? "error" : "ok");
+      // The confirmation always gets its full time on screen, even when the
+      // user has already asked for the next toolbar (see toggle()): a copy the
+      // user never saw confirmed reads as a copy that did not happen.
+      await new Promise((resolve) => setTimeout(resolve, COPY_CONFIRMATION_MS));
       // Do not restore overlays first — that would flash iframe pins after
       // the top toolbar is already gone. session:end dismisses every frame.
       await chrome.runtime.sendMessage({ type: "session:end" }).catch(() => null);
@@ -1576,11 +1938,23 @@
       setVisible(false);
       broadcast(FRAME_HIDE);
     } catch (error) {
-      await chrome.runtime.sendMessage({ hidden: false, type: "overlays:hidden" }).catch(() => null);
       console.warn("Pinar copy failed", error);
-      flashStatus("Copy failed");
+      // Same shape as success: a toast alone, red, then the overlay closes.
+      // Pins stay so the shortcut reopens the session for a retry.
+      setHidden(false);
+      setProgress(t("overlay_copy_failed"), state.progress, "error");
+      await new Promise((resolve) => setTimeout(resolve, COPY_ERROR_MS));
+      setVisible(false);
+      broadcast(FRAME_HIDE);
     } finally {
       state.sending = false;
+      if (state.reopenAfterSend) {
+        // The user asked for the toolbar while the previous capture was still
+        // closing: give them a fresh one now that the old state is gone.
+        state.reopenAfterSend = false;
+        setVisible(true);
+        broadcast(FRAME_SHOW);
+      }
     }
   }
 
@@ -1675,14 +2049,22 @@
 
   function setVisible(visible) {
     if (visible && !host.isConnected) document.documentElement.append(host);
+    clearProgress();
     state.active = visible;
     host.style.display = visible ? "" : "none";
     if (visible) {
+      // The toolbar fades while the pointer hovers it so the page beneath can
+      // be pinned. That class is only recomputed on pointermove, which is
+      // ignored while hidden - so whatever the pointer was doing at the last
+      // capture would otherwise decide whether the next activation is visible.
+      ui.toolbar?.classList.remove("pass-through");
       document.documentElement.setAttribute("data-pinar-active", "true");
       applyGlobalStyles();
       renderChrome();
       updateOutline();
       renderMarkers();
+      void syncBatchLabel();
+      void syncUiMessages();
       return;
     }
     document.documentElement.removeAttribute("data-pinar-active");
@@ -1735,7 +2117,7 @@
     if (state.reviewMode && pin && isPendingLocation(viewportPin(pin).location)) {
       state.repositionPinId = pinId;
       renderChrome();
-      flashStatus("Click the correct element to place this pin", "ok");
+      flashStatus(t("overlay_place_pin"), "ok");
       return;
     }
     openPinEditor(pinId);
@@ -1746,7 +2128,10 @@
   window.addEventListener("pointerup", onPointerUp, true);
   window.addEventListener("click", onClick, true);
   window.addEventListener("focusin", keepComposerFocus, true);
+  window.addEventListener("focusout", shieldComposerFocusOut, true);
   window.addEventListener("keydown", onKey, true);
+  window.addEventListener("keypress", onPageKeyEvent, true);
+  window.addEventListener("keyup", onPageKeyEvent, true);
   window.addEventListener("message", onFrameMessage);
   window.addEventListener("scroll", () => {
     if (isMounted()) {
@@ -1825,7 +2210,7 @@
     state.pins = [];
     setStatus(reason === "origin_mismatch"
       ? "This page is not the original capture URL"
-      : "Original page is unavailable", "error");
+      : t("overlay_page_unavailable"), "error");
     renderChrome();
     renderMarkers();
     return true;
@@ -1889,7 +2274,10 @@
     window.removeEventListener("pointerup", onPointerUp, true);
     window.removeEventListener("click", onClick, true);
     window.removeEventListener("focusin", keepComposerFocus, true);
+    window.removeEventListener("focusout", shieldComposerFocusOut, true);
     window.removeEventListener("keydown", onKey, true);
+    window.removeEventListener("keypress", onPageKeyEvent, true);
+    window.removeEventListener("keyup", onPageKeyEvent, true);
     window.removeEventListener("message", onFrameMessage);
     delete globalThis.__pinarToggle;
     delete globalThis.__pinarSetHidden;
@@ -1905,6 +2293,16 @@
   }
 
   function toggle() {
+    if (state.sending) {
+      // A capture is mid-flight: screenshot, clipboard, confirmation, then the
+      // tear-down. Flipping visibility now would either put the toolbar in the
+      // screenshot or resurrect the finished session for the tear-down to wipe
+      // again, taking the user's next pins with it. Queue the request instead:
+      // a fresh toolbar opens once the confirmation has shown and the old
+      // state is gone.
+      state.reopenAfterSend = true;
+      return;
+    }
     setVisible(!isVisible());
     globalThis.__pinarToggle = toggle;
     globalThis.__pinarSetHidden = setHidden;
@@ -1927,6 +2325,16 @@
       sendResponse({ ok: hydrateSession(message) });
       return false;
     }
+    if (message?.type === "batch:changed") {
+      applyBatchState(message);
+      sendResponse({ ok: true });
+      return false;
+    }
+    if (message?.type === "ui:messages") {
+      applyUiMessages(message);
+      sendResponse({ ok: true });
+      return false;
+    }
     if (message?.type === "session:unavailable") {
       sendResponse({ ok: showUnavailable(message.reason) });
       return false;
@@ -1938,4 +2346,6 @@
   renderChrome();
   updateOutline();
   renderMarkers();
+  void syncBatchLabel();
+  void syncUiMessages();
 })();

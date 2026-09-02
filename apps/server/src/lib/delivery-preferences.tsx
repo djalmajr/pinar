@@ -4,31 +4,33 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
-import { DEFAULT_DELIVERY_PREFERENCES, type DeliveryPreferences, type HandoffMode } from "@pinar/shared";
+import {
+  DEFAULT_DELIVERY_PREFERENCES,
+  parseDeliveryPreferences,
+  type DeliveryPreferences,
+} from "@pinar/shared";
+import { useServerI18n } from "@/lib/i18n";
 
-interface DeliveryPreferencesContextValue {
+interface DeliveryPreferencesContextValue extends DeliveryPreferences {
   available: boolean;
-  handoffMode: HandoffMode;
-  includeScreenshot: boolean;
-  setHandoffMode: (value: HandoffMode) => Promise<void>;
-  setIncludeScreenshot: (value: boolean) => Promise<void>;
+  patch: (partial: Partial<DeliveryPreferences>) => Promise<void>;
 }
 
 const DeliveryPreferencesContext = createContext<DeliveryPreferencesContextValue | null>(null);
 
 function preferencesFromBody(body: unknown): DeliveryPreferences | null {
-  if (typeof body !== "object" || body === null || !("includeScreenshot" in body)) return null;
-  const record = body as { handoffMode?: unknown; includeScreenshot?: unknown };
-  return {
-    handoffMode: record.handoffMode === "full" ? "full" : "compact",
-    includeScreenshot: record.includeScreenshot !== false,
-  };
+  if (typeof body !== "object" || body === null) return null;
+  return parseDeliveryPreferences(body);
 }
 
 export function DeliveryPreferencesProvider({ children }: { children: ReactNode }) {
+  const { language, setLanguage } = useServerI18n();
+  const languageRef = useRef(language);
+  languageRef.current = language;
   const [preferences, setPreferences] = useState(DEFAULT_DELIVERY_PREFERENCES);
   const [available, setAvailable] = useState(false);
 
@@ -46,6 +48,9 @@ export function DeliveryPreferencesProvider({ children }: { children: ReactNode 
         }
         setPreferences(next);
         setAvailable(true);
+        if (next.language != null && next.language !== languageRef.current) {
+          setLanguage(next.language);
+        }
       } catch {
         if (!cancelled) setAvailable(false);
       }
@@ -53,14 +58,14 @@ export function DeliveryPreferencesProvider({ children }: { children: ReactNode 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [setLanguage]);
 
-  const patchPreferences = useCallback(async (patch: Partial<DeliveryPreferences>) => {
+  const patch = useCallback(async (partial: Partial<DeliveryPreferences>) => {
     const previous = preferences;
-    setPreferences((current) => ({ ...current, ...patch }));
+    setPreferences((current) => ({ ...current, ...partial }));
     try {
       const response = await fetch("/api/preferences", {
-        body: JSON.stringify(patch),
+        body: JSON.stringify(partial),
         headers: { "content-type": "application/json" },
         method: "PATCH",
       });
@@ -76,24 +81,13 @@ export function DeliveryPreferencesProvider({ children }: { children: ReactNode 
     }
   }, [preferences]);
 
-  const setHandoffMode = useCallback(
-    (value: HandoffMode) => patchPreferences({ handoffMode: value }),
-    [patchPreferences],
-  );
-  const setIncludeScreenshot = useCallback(
-    (value: boolean) => patchPreferences({ includeScreenshot: value }),
-    [patchPreferences],
-  );
-
   const value = useMemo(
     () => ({
+      ...preferences,
       available,
-      handoffMode: preferences.handoffMode,
-      includeScreenshot: preferences.includeScreenshot,
-      setHandoffMode,
-      setIncludeScreenshot,
+      patch,
     }),
-    [available, preferences, setHandoffMode, setIncludeScreenshot],
+    [available, patch, preferences],
   );
 
   return (

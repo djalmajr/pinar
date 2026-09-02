@@ -11,18 +11,23 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/app'
-import { Route as DocsRouteImport } from './routes/docs'
 import { Route as InstallDotps1RouteImport } from './routes/install[.]ps1'
 import { Route as InstallDotshRouteImport } from './routes/install[.]sh'
 import { Route as PricingRouteImport } from './routes/pricing'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as SuccessRouteImport } from './routes/success'
 import { Route as ApiSplatRouteImport } from './routes/api/$'
+import { Route as BIdRouteImport } from './routes/b/$id'
 import { Route as CIdRouteImport } from './routes/c/$id'
+import { Route as HelpIndexRouteImport } from './routes/help/index'
 import { Route as LegalDocumentRouteImport } from './routes/legal/$document'
 import { Route as PIdRouteImport } from './routes/p/$id'
+import { Route as ReleasesIndexRouteImport } from './routes/releases/index'
+import { Route as ReleasesVersionRouteImport } from './routes/releases/$version'
 import { Route as ShotsIdRouteImport } from './routes/shots/$id'
 import { Route as VIdRouteImport } from './routes/v/$id'
+import { Route as HelpCategoryIndexRouteImport } from './routes/help/$category/index'
+import { Route as HelpCategoryArticleRouteImport } from './routes/help/$category/$article'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -32,11 +37,6 @@ const IndexRoute = IndexRouteImport.update({
 const AppRoute = AppRouteImport.update({
   id: '/app',
   path: '/app',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DocsRoute = DocsRouteImport.update({
-  id: '/docs',
-  path: '/docs',
   getParentRoute: () => rootRouteImport,
 } as any)
 const InstallDotps1Route = InstallDotps1RouteImport.update({
@@ -69,9 +69,19 @@ const ApiSplatRoute = ApiSplatRouteImport.update({
   path: '/api/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BIdRoute = BIdRouteImport.update({
+  id: '/b/$id',
+  path: '/b/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CIdRoute = CIdRouteImport.update({
   id: '/c/$id',
   path: '/c/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HelpIndexRoute = HelpIndexRouteImport.update({
+  id: '/help/',
+  path: '/help/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LegalDocumentRoute = LegalDocumentRouteImport.update({
@@ -84,6 +94,16 @@ const PIdRoute = PIdRouteImport.update({
   path: '/p/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ReleasesIndexRoute = ReleasesIndexRouteImport.update({
+  id: '/releases/',
+  path: '/releases/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReleasesVersionRoute = ReleasesVersionRouteImport.update({
+  id: '/releases/$version',
+  path: '/releases/$version',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ShotsIdRoute = ShotsIdRouteImport.update({
   id: '/shots/$id',
   path: '/shots/$id',
@@ -94,122 +114,167 @@ const VIdRoute = VIdRouteImport.update({
   path: '/v/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const HelpCategoryIndexRoute = HelpCategoryIndexRouteImport.update({
+  id: '/help/$category/',
+  path: '/help/$category/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HelpCategoryArticleRoute = HelpCategoryArticleRouteImport.update({
+  id: '/help/$category/$article',
+  path: '/help/$category/$article',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/app': typeof AppRoute
-  '/docs': typeof DocsRoute
   '/install.ps1': typeof InstallDotps1Route
   '/install.sh': typeof InstallDotshRoute
   '/pricing': typeof PricingRoute
   '/sign-in': typeof SignInRoute
   '/success': typeof SuccessRoute
   '/api/$': typeof ApiSplatRoute
+  '/b/$id': typeof BIdRoute
   '/c/$id': typeof CIdRoute
   '/legal/$document': typeof LegalDocumentRoute
   '/p/$id': typeof PIdRoute
+  '/releases/$version': typeof ReleasesVersionRoute
   '/shots/$id': typeof ShotsIdRoute
   '/v/$id': typeof VIdRoute
+  '/help/': typeof HelpIndexRoute
+  '/releases/': typeof ReleasesIndexRoute
+  '/help/$category/$article': typeof HelpCategoryArticleRoute
+  '/help/$category/': typeof HelpCategoryIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/app': typeof AppRoute
-  '/docs': typeof DocsRoute
   '/install.ps1': typeof InstallDotps1Route
   '/install.sh': typeof InstallDotshRoute
   '/pricing': typeof PricingRoute
   '/sign-in': typeof SignInRoute
   '/success': typeof SuccessRoute
   '/api/$': typeof ApiSplatRoute
+  '/b/$id': typeof BIdRoute
   '/c/$id': typeof CIdRoute
   '/legal/$document': typeof LegalDocumentRoute
   '/p/$id': typeof PIdRoute
+  '/releases/$version': typeof ReleasesVersionRoute
   '/shots/$id': typeof ShotsIdRoute
   '/v/$id': typeof VIdRoute
+  '/help': typeof HelpIndexRoute
+  '/releases': typeof ReleasesIndexRoute
+  '/help/$category/$article': typeof HelpCategoryArticleRoute
+  '/help/$category': typeof HelpCategoryIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/app': typeof AppRoute
-  '/docs': typeof DocsRoute
   '/install.ps1': typeof InstallDotps1Route
   '/install.sh': typeof InstallDotshRoute
   '/pricing': typeof PricingRoute
   '/sign-in': typeof SignInRoute
   '/success': typeof SuccessRoute
   '/api/$': typeof ApiSplatRoute
+  '/b/$id': typeof BIdRoute
   '/c/$id': typeof CIdRoute
   '/legal/$document': typeof LegalDocumentRoute
   '/p/$id': typeof PIdRoute
+  '/releases/$version': typeof ReleasesVersionRoute
   '/shots/$id': typeof ShotsIdRoute
   '/v/$id': typeof VIdRoute
+  '/help/': typeof HelpIndexRoute
+  '/releases/': typeof ReleasesIndexRoute
+  '/help/$category/$article': typeof HelpCategoryArticleRoute
+  '/help/$category/': typeof HelpCategoryIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/app'
-    | '/docs'
     | '/install.ps1'
     | '/install.sh'
     | '/pricing'
     | '/sign-in'
     | '/success'
     | '/api/$'
+    | '/b/$id'
     | '/c/$id'
     | '/legal/$document'
     | '/p/$id'
+    | '/releases/$version'
     | '/shots/$id'
     | '/v/$id'
+    | '/help/'
+    | '/releases/'
+    | '/help/$category/$article'
+    | '/help/$category/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/app'
-    | '/docs'
     | '/install.ps1'
     | '/install.sh'
     | '/pricing'
     | '/sign-in'
     | '/success'
     | '/api/$'
+    | '/b/$id'
     | '/c/$id'
     | '/legal/$document'
     | '/p/$id'
+    | '/releases/$version'
     | '/shots/$id'
     | '/v/$id'
+    | '/help'
+    | '/releases'
+    | '/help/$category/$article'
+    | '/help/$category'
   id:
     | '__root__'
     | '/'
     | '/app'
-    | '/docs'
     | '/install.ps1'
     | '/install.sh'
     | '/pricing'
     | '/sign-in'
     | '/success'
     | '/api/$'
+    | '/b/$id'
     | '/c/$id'
     | '/legal/$document'
     | '/p/$id'
+    | '/releases/$version'
     | '/shots/$id'
     | '/v/$id'
+    | '/help/'
+    | '/releases/'
+    | '/help/$category/$article'
+    | '/help/$category/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRoute
-  DocsRoute: typeof DocsRoute
   InstallDotps1Route: typeof InstallDotps1Route
   InstallDotshRoute: typeof InstallDotshRoute
   PricingRoute: typeof PricingRoute
   SignInRoute: typeof SignInRoute
   SuccessRoute: typeof SuccessRoute
   ApiSplatRoute: typeof ApiSplatRoute
+  BIdRoute: typeof BIdRoute
   CIdRoute: typeof CIdRoute
   LegalDocumentRoute: typeof LegalDocumentRoute
   PIdRoute: typeof PIdRoute
+  ReleasesVersionRoute: typeof ReleasesVersionRoute
   ShotsIdRoute: typeof ShotsIdRoute
   VIdRoute: typeof VIdRoute
+  HelpIndexRoute: typeof HelpIndexRoute
+  ReleasesIndexRoute: typeof ReleasesIndexRoute
+  HelpCategoryArticleRoute: typeof HelpCategoryArticleRoute
+  HelpCategoryIndexRoute: typeof HelpCategoryIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -226,13 +291,6 @@ declare module '@tanstack/react-router' {
       path: '/app'
       fullPath: '/app'
       preLoaderRoute: typeof AppRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/docs': {
-      id: '/docs'
-      path: '/docs'
-      fullPath: '/docs'
-      preLoaderRoute: typeof DocsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/install.ps1': {
@@ -277,11 +335,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/b/$id': {
+      id: '/b/$id'
+      path: '/b/$id'
+      fullPath: '/b/$id'
+      preLoaderRoute: typeof BIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/c/$id': {
       id: '/c/$id'
       path: '/c/$id'
       fullPath: '/c/$id'
       preLoaderRoute: typeof CIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/help/': {
+      id: '/help/'
+      path: '/help'
+      fullPath: '/help/'
+      preLoaderRoute: typeof HelpIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/legal/$document': {
@@ -298,6 +370,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/releases/': {
+      id: '/releases/'
+      path: '/releases'
+      fullPath: '/releases/'
+      preLoaderRoute: typeof ReleasesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/releases/$version': {
+      id: '/releases/$version'
+      path: '/releases/$version'
+      fullPath: '/releases/$version'
+      preLoaderRoute: typeof ReleasesVersionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/shots/$id': {
       id: '/shots/$id'
       path: '/shots/$id'
@@ -312,24 +398,43 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof VIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/help/$category/': {
+      id: '/help/$category/'
+      path: '/help/$category'
+      fullPath: '/help/$category/'
+      preLoaderRoute: typeof HelpCategoryIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/help/$category/$article': {
+      id: '/help/$category/$article'
+      path: '/help/$category/$article'
+      fullPath: '/help/$category/$article'
+      preLoaderRoute: typeof HelpCategoryArticleRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRoute,
-  DocsRoute: DocsRoute,
   InstallDotps1Route: InstallDotps1Route,
   InstallDotshRoute: InstallDotshRoute,
   PricingRoute: PricingRoute,
   SignInRoute: SignInRoute,
   SuccessRoute: SuccessRoute,
   ApiSplatRoute: ApiSplatRoute,
+  BIdRoute: BIdRoute,
   CIdRoute: CIdRoute,
   LegalDocumentRoute: LegalDocumentRoute,
   PIdRoute: PIdRoute,
+  ReleasesVersionRoute: ReleasesVersionRoute,
   ShotsIdRoute: ShotsIdRoute,
   VIdRoute: VIdRoute,
+  HelpIndexRoute: HelpIndexRoute,
+  ReleasesIndexRoute: ReleasesIndexRoute,
+  HelpCategoryArticleRoute: HelpCategoryArticleRoute,
+  HelpCategoryIndexRoute: HelpCategoryIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

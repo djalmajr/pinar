@@ -51,14 +51,12 @@ export function LandingPage() {
             <p className="mt-5 max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg">
               {t("landing.description")}
             </p>
-            {isLocal ? null : (
-              <div className="mt-7 flex flex-wrap items-center justify-center gap-2">
-                <Button className="text-xs" render={<a href={CHROME_EXTENSION_URL} rel="noopener noreferrer" target="_blank" />} size="lg">
-                  <DownloadIcon data-icon="inline-start" />
-                  {t("landing.installExtension")}
-                </Button>
-              </div>
-            )}
+            <div className="mt-7 flex flex-wrap items-center justify-center gap-2">
+              <Button className="text-xs" render={<a href={CHROME_EXTENSION_URL} rel="noopener noreferrer" target="_blank" />} size="lg">
+                <DownloadIcon data-icon="inline-start" />
+                {t("landing.installExtension")}
+              </Button>
+            </div>
           </section>
 
           <section aria-label={t("landing.howItWorks")} className="mt-14 grid gap-4 md:grid-cols-3">

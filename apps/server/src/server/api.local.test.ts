@@ -175,6 +175,104 @@ describe("local TanStack API", () => {
     assert.doesNotMatch(text, /screenshot_missing/);
   });
 
+  test("falls back to captureDestination when a shot omits a collection", async () => {
+    const defaults = await jsonBody(await request("/api/preferences"));
+    assert.deepEqual(defaults, {
+      ok: true,
+      captureDestination: null,
+      copyOnFinishBatch: "prompt",
+      copyViewerContent: false,
+      handoffMode: "compact",
+      includeScreenshot: true,
+      includeViewer: true,
+      language: null,
+      sensitiveQueryKeys: "",
+    });
+
+    const tree = await jsonBody(await request("/api/project-tree"));
+    assert.ok(isRecord(tree.tree));
+    assert.ok(Array.isArray(tree.tree.projects));
+    const personal = tree.tree.projects[0];
+    assert.ok(isRecord(personal));
+    assert.ok(Array.isArray(personal.collections));
+    const inbox = personal.collections[0];
+    assert.ok(isRecord(inbox));
+
+    const projectBody = await jsonBody(await request("/api/projects", {
+      body: JSON.stringify({ name: "Preferred" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }));
+    assert.ok(isRecord(projectBody.project));
+    const projectId = String(projectBody.project.id);
+    const collectionBody = await jsonBody(await request(`/api/projects/${projectId}/collections`, {
+      body: JSON.stringify({ name: "Review" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }));
+    assert.ok(isRecord(collectionBody.collection));
+    const collectionId = String(collectionBody.collection.id);
+
+    const patched = await jsonBody(await request("/api/preferences", {
+      body: JSON.stringify({
+        captureDestination: { collectionId, projectId },
+        copyOnFinishBatch: "link",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    }));
+    assert.deepEqual(patched.captureDestination, { collectionId, projectId });
+    assert.equal(patched.copyOnFinishBatch, "link");
+    assert.equal(patched.includeScreenshot, true);
+
+    const preferred = await jsonBody(await request("/api/shots", {
+      body: JSON.stringify({
+        id: "pref_dest_session",
+        image: VALID_PNG,
+        page: { title: "Preferred dest", url: "https://example.test/pref" },
+        pins: [],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }));
+    assert.ok(isRecord(preferred.destination));
+    assert.deepEqual(preferred.destination, { collectionId, projectId });
+
+    const explicit = await jsonBody(await request("/api/shots", {
+      body: JSON.stringify({
+        collectionId: String(inbox.id),
+        id: "explicit_dest_session",
+        image: VALID_PNG,
+        page: { title: "Explicit dest", url: "https://example.test/explicit" },
+        pins: [],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }));
+    assert.ok(isRecord(explicit.destination));
+    assert.equal(explicit.destination.collectionId, inbox.id);
+
+    await request("/api/preferences", {
+      body: JSON.stringify({
+        captureDestination: { collectionId: "missing-collection", projectId },
+      }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    });
+    const missing = await jsonBody(await request("/api/shots", {
+      body: JSON.stringify({
+        id: "missing_dest_session",
+        image: VALID_PNG,
+        page: { title: "Missing dest", url: "https://example.test/missing" },
+        pins: [],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }));
+    assert.ok(isRecord(missing.destination));
+    assert.equal(missing.destination.collectionId, inbox.id);
+  });
+
   test("session includeScreenshot stamp does not control live markdown", async () => {
     const upload = await request("/api/shots", {
       body: JSON.stringify({

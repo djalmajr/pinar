@@ -1,6 +1,10 @@
-import { type ReactNode, useEffect, useState } from "react";
-import type { SupportedLanguage } from "@pinar/shared";
+import { useEffect, useMemo, useState } from "react";
 import {
+  type ProjectTreeProject,
+  SUPPORTED_LANGUAGES,
+} from "@pinar/shared";
+import {
+  Badge,
   Button,
   cn,
   Dialog,
@@ -8,33 +12,39 @@ import {
   DialogContent,
   DialogDescription,
   DialogTitle,
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
+  Input,
+  SectionHeading,
   Select,
   SelectContent,
   SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
+  SettingRow,
   Switch,
   Tabs,
   TabsList,
   TabsTrigger,
 } from "@pinar/ui";
-import { ResizableSidebarPanel } from "@/components/ResizableSidebarPanel";
+import { isProjectTreeProject, isRecord } from "@/lib/api-data";
+import { flattenCollections } from "@/lib/collection-tree";
 import { useDeliveryPreferences } from "@/lib/delivery-preferences";
-import { SERVER_LANGUAGES, useServerI18n } from "@/lib/i18n";
+import { useServerI18n } from "@/lib/i18n";
+import { isSupportedLanguage } from "@/lib/language";
+import { findProductRelease, loadReleaseContent, type ProductRelease } from "@/lib/release-content";
+import { pinarRuntime } from "@/lib/server-header";
+import { SERVER_BUILD, SERVER_VERSION, SERVER_VERSION_LABEL } from "@/lib/version";
+import InfoIcon from "~icons/lucide/info";
+import ExternalLinkIcon from "~icons/lucide/external-link";
 import LaptopIcon from "~icons/lucide/laptop";
 import MonitorIcon from "~icons/lucide/monitor";
 import MoonIcon from "~icons/lucide/moon";
-import SettingsIcon from "~icons/lucide/settings";
 import ShieldCheckIcon from "~icons/lucide/shield-check";
 import SlidersHorizontalIcon from "~icons/lucide/sliders-horizontal";
 import SunIcon from "~icons/lucide/sun";
 import XIcon from "~icons/lucide/x";
 
-type SettingsSection = "capture" | "general" | "interface";
+type SettingsSection = "about" | "capture" | "general" | "interface";
 type ThemeMode = "dark" | "light" | "system";
 
 interface GlobalSettingsDialogProps {
@@ -42,22 +52,14 @@ interface GlobalSettingsDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-interface SettingRowProps {
-  children: ReactNode;
-  description: string;
-  title: string;
-}
-
 const THEME_STORAGE_KEY = "pinar-theme";
-
+const DEFAULT_DESTINATION = "__default__";
+const PINAR_GITHUB_URL = "https://github.com/djalmajr/pinar";
+const PINAR_WEBSITE_URL = "https://pinar.dev";
 function currentThemeMode(): ThemeMode {
   const stored = localStorage.getItem(THEME_STORAGE_KEY);
   if (stored === "dark" || stored === "light") return stored;
   return "system";
-}
-
-function isSupportedLanguage(value: string): value is SupportedLanguage {
-  return SERVER_LANGUAGES.some((candidate) => candidate === value);
 }
 
 function resolveDarkTheme(theme: ThemeMode) {
@@ -73,45 +75,102 @@ function applyTheme(theme: ThemeMode) {
   else localStorage.setItem(THEME_STORAGE_KEY, theme);
 }
 
-function settingsNavButtonClass(compact: boolean, isActive: boolean) {
-  return cn(
-    "rounded-md font-normal hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-sidebar-ring",
-    compact ? "size-8 justify-center p-0" : "w-full justify-start gap-2 px-2",
-    isActive && "bg-sidebar-accent font-medium text-sidebar-accent-foreground",
+// Every link in About reads the same way the rest of the workspace shows a
+// page URL: title, then the address itself as the link, with the new-tab mark.
+function AboutLink({ description, href, title }: { description?: string; href: string; title: string }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <span className="text-sm font-medium">{title}</span>
+      {description ? <span className="text-sm leading-5 text-muted-foreground">{description}</span> : null}
+      <a
+        className="inline-flex max-w-full items-center gap-1 text-sm text-muted-foreground hover:text-primary"
+        href={href}
+        rel="noopener noreferrer"
+        target="_blank"
+      >
+        <span className="min-w-0 truncate">{href}</span>
+        <ExternalLinkIcon className="size-3.5 shrink-0" />
+      </a>
+    </div>
   );
 }
 
-function SettingRow({ children, description, title }: SettingRowProps) {
-  return (
-    <div className="flex min-h-24 items-center justify-between gap-6 border-b px-5 py-4 last:border-b-0">
-      <div className="min-w-0">
-        <p className="font-medium">{title}</p>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
-      </div>
-      <div className="flex w-52 shrink-0 justify-end">{children}</div>
-    </div>
+function absoluteUrl(path: string) {
+  return typeof window === "undefined" ? path : new URL(path, window.location.origin).toString();
+}
+
+function settingsNavButtonClass(isActive: boolean) {
+  return cn(
+    // The label is translated, so its length is unbounded: let it wrap instead of
+    // spilling past the sidebar. `hyphens-auto` uses the dictionary for <html lang>.
+    "h-auto w-full justify-start gap-2 rounded-md px-2 py-1.5 text-left font-normal hyphens-auto whitespace-normal hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-sidebar-ring [&>span]:min-w-0",
+    isActive && "bg-sidebar-accent font-medium text-sidebar-accent-foreground",
   );
 }
 
 export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialogProps) {
   const {
     available,
+    captureDestination,
+    copyOnFinishBatch,
+    copyViewerContent,
     handoffMode,
     includeScreenshot,
-    setHandoffMode,
-    setIncludeScreenshot,
+    includeViewer,
+    patch,
+    sensitiveQueryKeys,
   } = useDeliveryPreferences();
   const { language, languageName, setLanguage, t } = useServerI18n();
   const [section, setSection] = useState<SettingsSection>("general");
-  const [settingsSidebarOpen, setSettingsSidebarOpen] = useState(true);
   const [theme, setTheme] = useState<ThemeMode>("system");
+  const [projects, setProjects] = useState<ProjectTreeProject[]>([]);
+  const [sensitiveQueryKeysDraft, setSensitiveQueryKeysDraft] = useState("");
+  const runtime = pinarRuntime();
+  const [currentRelease, setCurrentRelease] = useState<ProductRelease | null>();
 
   useEffect(() => {
     if (!open) return;
     setSection("general");
-    setSettingsSidebarOpen(true);
     setTheme(currentThemeMode());
+    setSensitiveQueryKeysDraft(sensitiveQueryKeys);
+  }, [open, sensitiveQueryKeys]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/project-tree");
+        const body: unknown = await response.json().catch(() => null);
+        if (cancelled) return;
+        if (!response.ok || !isRecord(body) || !isRecord(body.tree) || !Array.isArray(body.tree.projects)) {
+          setProjects([]);
+          return;
+        }
+        setProjects(body.tree.projects.filter(isProjectTreeProject));
+      } catch {
+        if (!cancelled) setProjects([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void loadReleaseContent(language)
+      .then((content) => {
+        if (!cancelled) setCurrentRelease(findProductRelease(content, SERVER_VERSION));
+      })
+      .catch(() => {
+        if (!cancelled) setCurrentRelease(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [language, open]);
 
   useEffect(() => {
     if (theme !== "system") return;
@@ -121,174 +180,323 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
     return () => media.removeEventListener("change", handleChange);
   }, [theme]);
 
-  const sectionLabel = section === "capture"
-    ? t("settings.capture")
-    : section === "interface"
-      ? t("settings.interface")
-      : t("settings.general");
-  const sectionDescription = section === "capture"
-    ? t("settings.captureDescription")
-    : section === "interface"
-      ? t("settings.interfaceDescription")
-      : t("settings.generalDescription");
+  const selectedProject = projects.find((project) => project.id === captureDestination?.projectId);
+  const collectionEntries = useMemo(
+    () => selectedProject ? flattenCollections(selectedProject.collections) : [],
+    [selectedProject],
+  );
+  const projectItems = useMemo(
+    () => [
+      { label: t("settings.captureDestinationDefault"), value: DEFAULT_DESTINATION },
+      ...projects.map((project) => ({ label: project.name, value: project.id })),
+    ],
+    [projects, t],
+  );
+  const collectionItems = useMemo(
+    () => collectionEntries.map(({ collection }) => ({ label: collection.name, value: collection.id })),
+    [collectionEntries],
+  );
+  const copyOnFinishItems = [
+    { label: t("settings.copyOnFinishBatchPrompt"), value: "prompt" },
+    { label: t("settings.copyOnFinishBatchLink"), value: "link" },
+    { label: t("settings.copyOnFinishBatchOff"), value: "off" },
+  ];
+
+  const sectionLabel = section === "about"
+    ? t("settings.aboutTitle")
+    : section === "capture"
+      ? t("settings.capture")
+      : section === "interface"
+        ? t("settings.interface")
+        : t("settings.general");
+  const sectionDescription = section === "about"
+    ? t("settings.aboutDescription")
+    : section === "capture"
+      ? t("settings.captureDescription")
+      : section === "interface"
+        ? t("settings.interfaceDescription")
+        : t("settings.generalDescription");
 
   function selectTheme(nextTheme: ThemeMode) {
     setTheme(nextTheme);
     applyTheme(nextTheme);
   }
 
+  function selectCaptureProject(value: string | null) {
+    if (!value || value === DEFAULT_DESTINATION) {
+      void patch({ captureDestination: null });
+      return;
+    }
+    const project = projects.find((item) => item.id === value);
+    if (!project) return;
+    const inbox = project.collections.find((collection) => collection.isProtected) ?? project.collections[0];
+    if (!inbox) return;
+    void patch({ captureDestination: { collectionId: inbox.id, projectId: project.id } });
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="h-[min(44rem,calc(100dvh-2rem))] w-[min(68rem,calc(100vw-2rem))] max-w-none gap-0 overflow-hidden rounded-xl p-0 sm:max-w-none">
         <DialogDescription className="sr-only">{t("settings.description")}</DialogDescription>
-        <ResizablePanelGroup className="min-h-0 min-w-0 flex-1" orientation="horizontal">
-          <ResizableSidebarPanel
-            className="hidden min-w-0 sm:block"
-            id="settings-sidebar"
-            open={settingsSidebarOpen}
-            onOpenChange={setSettingsSidebarOpen}
-          >
-            <aside className={cn("flex h-full min-w-0 flex-col bg-muted/20", settingsSidebarOpen ? "p-3" : "p-2")}>
-              <div className={cn("flex items-center py-3", settingsSidebarOpen ? "gap-2.5 px-2" : "justify-center")}>
-                <Button
-                  aria-label={t("settings.title")}
-                  size="icon-sm"
-                  title={settingsSidebarOpen ? undefined : t("settings.title")}
-                  onClick={() => setSettingsSidebarOpen((current) => !current)}
-                >
-                  <SettingsIcon />
-                </Button>
-                {settingsSidebarOpen ? (
-                  <span>
-                    <DialogTitle>{t("settings.title")}</DialogTitle>
-                    <span className="block text-xs text-muted-foreground">Pinar</span>
-                  </span>
-                ) : null}
+        <div className="flex min-h-0 min-w-0 flex-1">
+          <aside className="hidden h-full w-[210px] shrink-0 flex-col border-r border-sidebar-border bg-muted/20 p-4 sm:flex">
+            <div className="px-2 py-3">
+              <DialogTitle>{t("settings.title")}</DialogTitle>
+              <span className="block text-xs text-muted-foreground">Pinar</span>
+            </div>
+            <nav aria-label={t("settings.title")} className="mt-2 flex flex-col gap-1">
+              <Button
+                aria-current={section === "general" ? "page" : undefined}
+                className={settingsNavButtonClass(section === "general")}
+                variant="ghost"
+                onClick={() => setSection("general")}
+              >
+                <SlidersHorizontalIcon />
+                {t("settings.general")}
+              </Button>
+              <Button
+                aria-current={section === "capture" ? "page" : undefined}
+                className={settingsNavButtonClass(section === "capture")}
+                variant="ghost"
+                onClick={() => setSection("capture")}
+              >
+                <ShieldCheckIcon />
+                {t("settings.captureNav")}
+              </Button>
+              <Button
+                aria-current={section === "interface" ? "page" : undefined}
+                className={settingsNavButtonClass(section === "interface")}
+                variant="ghost"
+                onClick={() => setSection("interface")}
+              >
+                <MonitorIcon />
+                {t("settings.interfaceNav")}
+              </Button>
+              <Button
+                aria-current={section === "about" ? "page" : undefined}
+                className={settingsNavButtonClass(section === "about")}
+                variant="ghost"
+                onClick={() => setSection("about")}
+              >
+                <InfoIcon />
+                {t("settings.about")}
+              </Button>
+            </nav>
+          </aside>
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <header className="flex min-h-20 shrink-0 items-center justify-between gap-4 border-b p-4">
+              <div className="min-w-0">
+                <h2 className="text-lg font-semibold">{sectionLabel}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">{sectionDescription}</p>
               </div>
-              <nav aria-label={t("settings.title")} className="mt-2 flex flex-col gap-1">
-                <Button
-                  aria-label={t("settings.general")}
-                  aria-current={section === "general" ? "page" : undefined}
-                  className={settingsNavButtonClass(!settingsSidebarOpen, section === "general")}
-                  title={settingsSidebarOpen ? undefined : t("settings.general")}
-                  variant="ghost"
-                  onClick={() => setSection("general")}
-                >
-                  <SlidersHorizontalIcon />
-                  {settingsSidebarOpen ? t("settings.general") : null}
-                </Button>
-                <Button
-                  aria-label={t("settings.capture")}
-                  aria-current={section === "capture" ? "page" : undefined}
-                  className={settingsNavButtonClass(!settingsSidebarOpen, section === "capture")}
-                  title={settingsSidebarOpen ? undefined : t("settings.capture")}
-                  variant="ghost"
-                  onClick={() => setSection("capture")}
-                >
-                  <ShieldCheckIcon />
-                  {settingsSidebarOpen ? t("settings.capture") : null}
-                </Button>
-                <Button
-                  aria-label={t("settings.interface")}
-                  aria-current={section === "interface" ? "page" : undefined}
-                  className={settingsNavButtonClass(!settingsSidebarOpen, section === "interface")}
-                  title={settingsSidebarOpen ? undefined : t("settings.interface")}
-                  variant="ghost"
-                  onClick={() => setSection("interface")}
-                >
-                  <MonitorIcon />
-                  {settingsSidebarOpen ? t("settings.interface") : null}
-                </Button>
-              </nav>
-            </aside>
-          </ResizableSidebarPanel>
-          <ResizableHandle className="hidden bg-sidebar-border sm:flex" withHandle />
-          <ResizablePanel className="flex min-h-0 min-w-0" id="settings-content" minSize="20rem">
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-              <header className="flex min-h-20 shrink-0 items-center justify-between gap-4 border-b px-5 py-3">
-                <div className="min-w-0">
-                  <h2 className="text-lg font-semibold">{sectionLabel}</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">{sectionDescription}</p>
-                </div>
-                <DialogClose
-                  aria-label={t("settings.close")}
-                  className="flex size-8 items-center justify-center rounded-lg border-0 bg-transparent text-muted-foreground shadow-none outline-none hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
-                >
-                  <XIcon className="size-4" />
-                </DialogClose>
-              </header>
-              <nav aria-label={t("settings.title")} className="flex shrink-0 gap-1 overflow-x-auto border-b p-2 sm:hidden">
-                <Button size="sm" variant={section === "general" ? "secondary" : "ghost"} onClick={() => setSection("general")}>{t("settings.general")}</Button>
-                <Button size="sm" variant={section === "capture" ? "secondary" : "ghost"} onClick={() => setSection("capture")}>{t("settings.capture")}</Button>
-                <Button size="sm" variant={section === "interface" ? "secondary" : "ghost"} onClick={() => setSection("interface")}>{t("settings.interface")}</Button>
-              </nav>
-              <div className="min-h-0 flex-1 overflow-y-auto p-4">
-                <section className={cn("flex flex-col gap-5", section !== "general" && "hidden")}>
-                  <div className="overflow-hidden rounded-xl border bg-card">
-                    <SettingRow description={t("settings.languageDescription")} title={t("common.language")}>
+              <DialogClose
+                aria-label={t("settings.close")}
+                className="flex size-8 items-center justify-center rounded-lg border-0 bg-transparent text-muted-foreground shadow-none outline-none hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+              >
+                <XIcon className="size-4" />
+              </DialogClose>
+            </header>
+            <nav aria-label={t("settings.title")} className="flex shrink-0 gap-1 overflow-x-auto border-b p-2 sm:hidden">
+              <Button size="sm" variant={section === "general" ? "secondary" : "ghost"} onClick={() => setSection("general")}>{t("settings.general")}</Button>
+              <Button size="sm" variant={section === "capture" ? "secondary" : "ghost"} onClick={() => setSection("capture")}>{t("settings.captureNav")}</Button>
+              <Button size="sm" variant={section === "interface" ? "secondary" : "ghost"} onClick={() => setSection("interface")}>{t("settings.interfaceNav")}</Button>
+              <Button size="sm" variant={section === "about" ? "secondary" : "ghost"} onClick={() => setSection("about")}>{t("settings.about")}</Button>
+            </nav>
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+              <section className={cn("flex flex-col gap-5", section !== "general" && "hidden")}>
+                <SettingRow controlClassName="w-52" description={t("settings.languageDescription")} title={t("common.language")}>
+                  <Select
+                    items={SUPPORTED_LANGUAGES.map((candidate) => ({ label: languageName(candidate), value: candidate }))}
+                    value={language}
+                    onValueChange={(value) => {
+                      if (value && isSupportedLanguage(value)) {
+                        setLanguage(value);
+                        void patch({ language: value });
+                      }
+                    }}
+                  >
+                    <SelectTrigger aria-label={t("common.language")} className="w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent align="end">
+                      <SelectGroup>
+                        {SUPPORTED_LANGUAGES.map((candidate) => <SelectItem key={candidate} value={candidate}>{languageName(candidate)}</SelectItem>)}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </SettingRow>
+              </section>
+              <section className={cn("flex flex-col gap-5", section !== "capture" && "hidden")}>
+                <div className="flex flex-col gap-5">
+                  <SectionHeading>{t("settings.captureHeading")}</SectionHeading>
+                  <SettingRow controlClassName="w-52" description={t("settings.captureDestinationDescription")} title={t("settings.captureDestination")}>
+                    <div className="flex w-full flex-col gap-2">
                       <Select
-                        items={SERVER_LANGUAGES.map((candidate) => ({ label: languageName(candidate), value: candidate }))}
-                        value={language}
-                        onValueChange={(value) => {
-                          if (value && isSupportedLanguage(value)) setLanguage(value);
-                        }}
+                        disabled={!available}
+                        items={projectItems}
+                        value={captureDestination?.projectId ?? DEFAULT_DESTINATION}
+                        onValueChange={selectCaptureProject}
                       >
-                        <SelectTrigger aria-label={t("common.language")} className="w-full"><SelectValue /></SelectTrigger>
+                        <SelectTrigger aria-label={t("settings.project")} className="w-full"><SelectValue /></SelectTrigger>
                         <SelectContent align="end">
                           <SelectGroup>
-                            {SERVER_LANGUAGES.map((candidate) => <SelectItem key={candidate} value={candidate}>{languageName(candidate)}</SelectItem>)}
+                            <SelectItem value={DEFAULT_DESTINATION}>{t("settings.captureDestinationDefault")}</SelectItem>
+                            {projects.map((project) => (
+                              <SelectItem disabled={project.collections.length === 0} key={project.id} value={project.id}>
+                                {project.name}
+                              </SelectItem>
+                            ))}
                           </SelectGroup>
                         </SelectContent>
                       </Select>
-                    </SettingRow>
-                  </div>
-                </section>
-                <section className={cn("flex flex-col gap-5", section !== "capture" && "hidden")}>
-                  <div className="overflow-hidden rounded-xl border bg-card">
-                    <SettingRow description={t("settings.handoffModeDescription")} title={t("settings.handoffMode")}>
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm text-muted-foreground">
-                          {handoffMode === "full" ? t("settings.handoffModeFull") : t("settings.handoffModeCompact")}
-                        </span>
-                        <Switch
-                          aria-label={t("settings.handoffMode")}
-                          checked={handoffMode === "full"}
-                          onCheckedChange={(checked) => void setHandoffMode(checked ? "full" : "compact")}
-                        />
-                      </div>
-                    </SettingRow>
-                    <SettingRow description={t("dashboard.includeScreenshotHint")} title={t("dashboard.includeScreenshot")}>
-                      <Switch
-                        aria-label={t("dashboard.includeScreenshot")}
-                        checked={includeScreenshot}
-                        disabled={!available}
-                        onCheckedChange={(value) => void setIncludeScreenshot(value)}
-                      />
-                    </SettingRow>
-                  </div>
-                </section>
-                <section className={cn("flex flex-col gap-5", section !== "interface" && "hidden")}>
-                  <div className="overflow-hidden rounded-xl border bg-card">
-                    <SettingRow description={t("settings.themeDescription")} title={t("settings.theme")}>
-                      <Tabs
-                        value={theme}
-                        onValueChange={(value) => {
-                          if (value === "system" || value === "light" || value === "dark") selectTheme(value);
-                        }}
-                      >
-                        <TabsList aria-label={t("settings.theme")} variant="segmented">
-                          <TabsTrigger aria-label={t("settings.themeSystem")} title={t("settings.themeSystem")} value="system"><LaptopIcon /></TabsTrigger>
-                          <TabsTrigger aria-label={t("settings.themeLight")} title={t("settings.themeLight")} value="light"><SunIcon className="text-amber-500" /></TabsTrigger>
-                          <TabsTrigger aria-label={t("settings.themeDark")} title={t("settings.themeDark")} value="dark"><MoonIcon className="text-blue-500" /></TabsTrigger>
-                        </TabsList>
-                      </Tabs>
-                    </SettingRow>
-                  </div>
-                </section>
-              </div>
+                      {captureDestination ? (
+                        // Only meaningful once a project is chosen; an empty
+                        // second box under "server default" reads as broken.
+                        <Select
+                          disabled={!available}
+                          items={collectionItems}
+                          value={captureDestination.collectionId}
+                          onValueChange={(value) => {
+                            if (!value) return;
+                            if (!collectionEntries.some(({ collection }) => collection.id === value)) return;
+                            void patch({ captureDestination: { collectionId: value, projectId: captureDestination.projectId } });
+                          }}
+                        >
+                          <SelectTrigger aria-label={t("settings.collection")} className="w-full"><SelectValue /></SelectTrigger>
+                          <SelectContent align="end">
+                            <SelectGroup>
+                              {collectionEntries.map(({ collection, depth }) => (
+                                <SelectItem key={collection.id} value={collection.id}>
+                                  <span className="block truncate" style={{ paddingInlineStart: `${depth * 12}px` }}>
+                                    {collection.name}
+                                  </span>
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                      ) : null}
+                    </div>
+                  </SettingRow>
+                  <SettingRow controlClassName="w-52" description={t("settings.copyOnFinishBatchDescription")} title={t("settings.copyOnFinishBatch")}>
+                    <Select
+                      disabled={!available}
+                      items={copyOnFinishItems}
+                      value={copyOnFinishBatch}
+                      onValueChange={(value) => {
+                        if (value === "off" || value === "link" || value === "prompt") void patch({ copyOnFinishBatch: value });
+                      }}
+                    >
+                      <SelectTrigger aria-label={t("settings.copyOnFinishBatch")} className="w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent align="end">
+                        <SelectGroup>
+                          {copyOnFinishItems.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </SettingRow>
+                </div>
+                <div className="flex flex-col gap-5">
+                  <SectionHeading>{t("settings.handoffHeading")}</SectionHeading>
+                  <SettingRow controlClassName="w-52" description={t("settings.handoffModeDescription")} title={t("settings.handoffMode")}>
+                    <Switch
+                      aria-label={t("settings.handoffMode")}
+                      checked={handoffMode === "full"}
+                      disabled={!available}
+                      onCheckedChange={(checked) => void patch({ handoffMode: checked ? "full" : "compact" })}
+                    />
+                  </SettingRow>
+                  <SettingRow controlClassName="w-52" description={t("dashboard.includeScreenshotHint")} title={t("dashboard.includeScreenshot")}>
+                    <Switch
+                      aria-label={t("dashboard.includeScreenshot")}
+                      checked={includeScreenshot}
+                      disabled={!available}
+                      onCheckedChange={(value) => void patch({ includeScreenshot: value })}
+                    />
+                  </SettingRow>
+                  <SettingRow controlClassName="w-52" description={t("settings.includeViewerDescription")} title={t("settings.includeViewer")}>
+                    <Switch
+                      aria-label={t("settings.includeViewer")}
+                      checked={includeViewer}
+                      disabled={!available}
+                      onCheckedChange={(value) => void patch({ includeViewer: value })}
+                    />
+                  </SettingRow>
+                  <SettingRow controlClassName="w-52" description={t("settings.copyViewerContentDescription")} title={t("settings.copyViewerContent")}>
+                    <Switch
+                      aria-label={t("settings.copyViewerContent")}
+                      checked={copyViewerContent}
+                      disabled={!available || !includeViewer}
+                      onCheckedChange={(value) => void patch({ copyViewerContent: value })}
+                    />
+                  </SettingRow>
+                </div>
+                <div className="flex flex-col gap-5">
+                  <SectionHeading>{t("settings.privacyHeading")}</SectionHeading>
+                  <SettingRow controlClassName="w-52" description={t("settings.privacyQueryKeysDescription")} title={t("settings.privacyQueryKeys")}>
+                    <Input
+                      aria-label={t("settings.privacyQueryKeys")}
+                      disabled={!available}
+                      maxLength={2000}
+                      value={sensitiveQueryKeysDraft}
+                      onBlur={() => {
+                        if (sensitiveQueryKeysDraft !== sensitiveQueryKeys) {
+                          void patch({ sensitiveQueryKeys: sensitiveQueryKeysDraft });
+                        }
+                      }}
+                      onChange={(event) => setSensitiveQueryKeysDraft(event.target.value)}
+                    />
+                  </SettingRow>
+                </div>
+              </section>
+              <section className={cn("flex flex-col gap-5", section !== "interface" && "hidden")}>
+                <SettingRow controlClassName="w-52" description={t("settings.themeDescription")} title={t("settings.theme")}>
+                  <Tabs
+                    value={theme}
+                    onValueChange={(value) => {
+                      if (value === "system" || value === "light" || value === "dark") selectTheme(value);
+                    }}
+                  >
+                    <TabsList aria-label={t("settings.theme")} variant="segmented">
+                      <TabsTrigger aria-label={t("settings.themeSystem")} title={t("settings.themeSystem")} value="system"><LaptopIcon /></TabsTrigger>
+                      <TabsTrigger aria-label={t("settings.themeLight")} title={t("settings.themeLight")} value="light"><SunIcon className="text-amber-500" /></TabsTrigger>
+                      <TabsTrigger aria-label={t("settings.themeDark")} title={t("settings.themeDark")} value="dark"><MoonIcon className="text-blue-500" /></TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                </SettingRow>
+              </section>
+              <section className={cn("flex flex-col gap-5", section !== "about" && "hidden")}>
+                <div className="flex flex-col gap-5">
+                  <SectionHeading>{t("settings.versionHeading")}</SectionHeading>
+                  <SettingRow controlClassName="w-52" title={t("settings.productName")}>
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <span className="text-sm tabular-nums">{SERVER_VERSION_LABEL}</span>
+                      <Badge variant="secondary">
+                        {runtime === "local" ? t("settings.runtimeLocal") : t("settings.runtimeCloud")}
+                      </Badge>
+                    </div>
+                  </SettingRow>
+                </div>
+                <div className="flex flex-col gap-5">
+                  <SectionHeading>{t("settings.linksHeading")}</SectionHeading>
+                  <AboutLink
+                    description={SERVER_BUILD
+                      ? t("settings.whatsNewAhead", { version: SERVER_VERSION })
+                      : currentRelease
+                        ? `${currentRelease.title}. ${currentRelease.summary}`
+                        : currentRelease === null
+                          ? t("settings.whatsNewUnpublished")
+                          : undefined}
+                    href={absoluteUrl("/releases")}
+                    title={t("settings.whatsNew")}
+                  />
+                  <AboutLink href={PINAR_WEBSITE_URL} title={t("settings.website")} />
+                  <AboutLink href={PINAR_GITHUB_URL} title={t("settings.github")} />
+                  <AboutLink href={absoluteUrl("/legal/terms")} title={t("settings.terms")} />
+                  <AboutLink href={absoluteUrl("/legal/privacy")} title={t("settings.privacyPolicy")} />
+                </div>
+              </section>
             </div>
-          </ResizablePanel>
-        </ResizablePanelGroup>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );

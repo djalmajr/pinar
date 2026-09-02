@@ -9,6 +9,7 @@ import {
   planSessionEnd,
   planSessionReopen,
   selectHydrateSession,
+  canInjectInto,
 } from "./session.js";
 
 const contentSrc = readFileSync(new URL("./content.js", import.meta.url), "utf8");
@@ -187,4 +188,43 @@ describe("session after copy", () => {
     assert.match(contentSrc, /meta\[name="description"\]/);
     assert.match(contentSrc, /og:description/);
   });
+});
+
+test("the action injects only where Chrome allows content scripts", () => {
+  // Chrome's own surfaces reject executeScript; treating them as a deliberate
+  // no-op keeps a rejection on an ordinary page loud instead of swallowed.
+  for (const url of [
+    "chrome://extensions/",
+    "chrome://newtab/",
+    "chrome-extension://abcdefghijklmnop/dist/options.html",
+    "chrome-untrusted://x/",
+    "devtools://devtools/bundled/inspector.html",
+    "about:blank",
+    "view-source:https://example.com/",
+    "https://chromewebstore.google.com/detail/pinar/abc",
+    "",
+    undefined,
+  ]) assert.equal(canInjectInto(url), false, String(url));
+  for (const url of [
+    "https://example.com/",
+    "http://127.0.0.1:17373/app",
+    "file:///Users/me/page.html",
+  ]) assert.equal(canInjectInto(url), true, url);
+});
+
+test("a toggle during a capture is queued, never applied to the closing session", () => {
+  // Pressing the shortcut while the confirmation lingered used to flip the
+  // finished overlay back on, and the tear-down still in flight then wiped it -
+  // together with whatever the user had just pinned.
+  const src = readFileSync(new URL("./content.js", import.meta.url), "utf8");
+  const toggleStart = src.indexOf("  function toggle() {");
+  const toggle = src.slice(toggleStart, src.indexOf("\n  }\n", toggleStart));
+  assert.match(toggle, /if \(state\.sending\) \{/);
+  assert.match(toggle, /state\.reopenAfterSend = true;/);
+  assert.doesNotMatch(toggle, /finishEarly|COPY_CONFIRMATION_MS/);
+  const send = src.slice(src.indexOf("  async function sendPins() {"), src.indexOf("  function frameElementForSource"));
+  // The confirmation is never cut short: the user must see the copy land.
+  assert.match(send, /setTimeout\(resolve, COPY_CONFIRMATION_MS\)/);
+  assert.doesNotMatch(send, /finishEarly/);
+  assert.match(send, /finally \{[\s\S]*state\.sending = false;[\s\S]*if \(state\.reopenAfterSend\) \{[\s\S]*setVisible\(true\);/);
 });

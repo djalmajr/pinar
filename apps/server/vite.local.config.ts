@@ -5,6 +5,7 @@ import react from "@vitejs/plugin-react";
 import { nitro } from "nitro/vite";
 import Icons from "unplugin-icons/vite";
 import { defineConfig } from "vite";
+import { buildIdentity } from "./build-identity";
 
 const tanstackReactStartServer = fileURLToPath(import.meta.resolve("@tanstack/react-start/server"));
 const tanstackReactStartServerEntry = fileURLToPath(new URL("./src/tanstack-server-entry.ts", import.meta.url));
@@ -15,6 +16,7 @@ const useSyncExternalStoreShim = fileURLToPath(
 export default defineConfig({
   define: {
     "import.meta.env.VITE_PINAR_RUNTIME": JSON.stringify("local"),
+    ...buildIdentity(),
   },
   plugins: [
     tailwindcss(),

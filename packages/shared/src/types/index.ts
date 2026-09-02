@@ -2,7 +2,12 @@ import type { PinLocation, VisualFingerprint } from "../locators/types.js";
 import type { PinReviewCounts } from "../pin-review/index.js";
 import type { PrivacyReport } from "../privacy/types.js";
 
-export type { LocateConfidence, LocateStrategy, PinLocation, VisualFingerprint } from "../locators/types.js";
+export type {
+  LocateConfidence,
+  LocateStrategy,
+  PinLocation,
+  VisualFingerprint,
+} from "../locators/types.js";
 export type { PrivacyReport, RedactedCategory } from "../privacy/types.js";
 
 export interface Point {
@@ -73,6 +78,7 @@ export interface PageInfo {
 
 export interface Session {
   byteSize?: number;
+  batchId?: string | null;
   captureId?: string;
   collectionId?: string;
   createdAt: string;
@@ -113,7 +119,8 @@ export interface AccountAuthSession {
   userId: string;
 }
 
-export type AuthSession = AccountAuthSession | InstallationAuthSession | LocalAuthSession;
+export type AuthSession =
+  AccountAuthSession | InstallationAuthSession | LocalAuthSession;
 
 export interface AuthSessionResponse {
   session: AuthSession | null;
@@ -178,55 +185,121 @@ export interface CaptureDestination {
 }
 
 export type StorageMode = "local" | "cloud";
-export type SupportedLanguage = "en" | "pt" | "es" | "fr" | "de" | "zh" | "ja";
+export const SUPPORTED_LANGUAGES = [
+  "en",
+  "pt",
+  "es",
+  "fr",
+  "de",
+  "zh",
+  "ja",
+] as const;
+export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
 
 export type ThemeMode = "dark" | "light" | "system";
 export type HandoffMode = "compact" | "full";
+export type CopyOnFinishBatch = "link" | "off" | "prompt";
+
+/**
+ * Preferences that describe what leaves Pinar - the shape of a handoff, where
+ * captures land, what the finished batch puts on the clipboard. They live on
+ * the server (per machine locally, per account in the cloud) and the extension
+ * mirrors them: the server is the source of truth, the extension's storage is
+ * a cache. Transport and consent (storage mode, telemetry) stay in the
+ * extension because they describe how one browser talks to Pinar.
+ */
+export interface CaptureDestination {
+  collectionId: string;
+  projectId: string;
+}
 
 export interface DeliveryPreferences {
+  captureDestination: CaptureDestination | null;
+  copyOnFinishBatch: CopyOnFinishBatch;
+  copyViewerContent: boolean;
   handoffMode: HandoffMode;
   includeScreenshot: boolean;
+  includeViewer: boolean;
+  language: SupportedLanguage | null;
+  sensitiveQueryKeys: string;
 }
 
 export const DEFAULT_DELIVERY_PREFERENCES: DeliveryPreferences = {
+  captureDestination: null,
+  copyOnFinishBatch: "prompt",
+  copyViewerContent: false,
   handoffMode: "compact",
   includeScreenshot: true,
+  includeViewer: true,
+  language: null,
+  sensitiveQueryKeys: "",
 };
 
-function handoffModeValue(value: unknown, fallback: HandoffMode = "compact"): HandoffMode {
+function handoffModeValue(
+  value: unknown,
+  fallback: HandoffMode = "compact",
+): HandoffMode {
   return value === "full" || value === "compact" ? value : fallback;
 }
 
-function includeScreenshotValue(value: unknown, fallback = true) {
+function booleanValue(value: unknown, fallback: boolean) {
   if (typeof value === "boolean") return value;
   if (value === 0 || value === "0" || value === "false") return false;
   if (value === 1 || value === "1" || value === "true") return true;
   return fallback;
 }
 
-export function parseDeliveryPreferences(value: unknown): DeliveryPreferences {
-  if (typeof value !== "object" || value === null) return { ...DEFAULT_DELIVERY_PREFERENCES };
-  const record = value as Record<string, unknown>;
-  return {
-    handoffMode: handoffModeValue(record.handoffMode),
-    includeScreenshot: includeScreenshotValue(record.includeScreenshot),
-  };
+function copyOnFinishBatchValue(value: unknown, fallback: CopyOnFinishBatch): CopyOnFinishBatch {
+  return value === "off" || value === "link" || value === "prompt" ? value : fallback;
 }
 
+function languageValue(value: unknown, fallback: SupportedLanguage | null): SupportedLanguage | null {
+  if (value === null) return null;
+  return (SUPPORTED_LANGUAGES as readonly string[]).includes(value as string) ? (value as SupportedLanguage) : fallback;
+}
+
+function sensitiveQueryKeysValue(value: unknown, fallback: string) {
+  return typeof value === "string" ? value.slice(0, 2000) : fallback;
+}
+
+function captureDestinationValue(value: unknown, fallback: CaptureDestination | null): CaptureDestination | null {
+  if (value === null) return null;
+  if (typeof value !== "object") return fallback;
+  const record = value as Record<string, unknown>;
+  if (typeof record.projectId !== "string" || typeof record.collectionId !== "string") return fallback;
+  if (!record.projectId || !record.collectionId) return fallback;
+  return { collectionId: record.collectionId, projectId: record.projectId };
+}
+
+export function parseDeliveryPreferences(value: unknown): DeliveryPreferences {
+  return mergeDeliveryPreferences({ ...DEFAULT_DELIVERY_PREFERENCES }, value);
+}
+
+/** A key absent from the patch keeps its current value; an invalid one too. */
 export function mergeDeliveryPreferences(
   current: DeliveryPreferences,
   patch: unknown,
 ): DeliveryPreferences {
   if (typeof patch !== "object" || patch === null) return current;
   const record = patch as Record<string, unknown>;
+  const pick = <K extends keyof DeliveryPreferences>(key: K, read: (value: unknown, fallback: DeliveryPreferences[K]) => DeliveryPreferences[K]) => (
+    key in record ? read(record[key], current[key]) : current[key]
+  );
   return {
-    handoffMode: handoffModeValue(record.handoffMode, current.handoffMode),
-    includeScreenshot: includeScreenshotValue(record.includeScreenshot, current.includeScreenshot),
+    captureDestination: pick("captureDestination", captureDestinationValue),
+    copyOnFinishBatch: pick("copyOnFinishBatch", copyOnFinishBatchValue),
+    copyViewerContent: pick("copyViewerContent", booleanValue),
+    handoffMode: pick("handoffMode", handoffModeValue),
+    includeScreenshot: pick("includeScreenshot", booleanValue),
+    includeViewer: pick("includeViewer", booleanValue),
+    language: pick("language", languageValue),
+    sensitiveQueryKeys: pick("sensitiveQueryKeys", sensitiveQueryKeysValue),
   };
 }
 
 export interface PinarSettings {
   cloudUrl: string;
+  copyOnFinishBatch: CopyOnFinishBatch;
   copyViewerContent: boolean;
   enableHistory: boolean;
   handoffMode: HandoffMode;

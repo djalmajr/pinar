@@ -1,17 +1,23 @@
 import {
   captureFromSession,
   formatAgentResultsMarkdown,
+  formatBatchHandoff,
   formatHandoffBundle,
   formatPinReviewsMarkdown,
+  isPinAwaitingAgent,
+  pinReviewStatusFor,
   screenshotDeliveryEnabled,
   type AgentExecution,
+  type HandoffMode,
   type PinReview,
+  type PinReviewStatus,
   type ProjectTreeCollection,
   type ProjectTreeProject,
   type Session,
+  type SupportedLanguage,
 } from "@pinar/shared";
 
-export type MarkdownDelivery = { includeScreenshot?: boolean };
+export type MarkdownDelivery = { handoffMode?: HandoffMode; includeScreenshot?: boolean; language?: SupportedLanguage | null };
 
 function deliverScreenshot(session: Session, delivery?: MarkdownDelivery) {
   return screenshotDeliveryEnabled(delivery?.includeScreenshot, session);
@@ -66,6 +72,36 @@ export function formatCollectionMarkdown(
   ];
   for (const session of collection.sessions) appendSession(lines, session, origin, delivery);
   return lines.join("\n").trim();
+}
+
+// A batch is handed to an agent as work, not as an archive: only the pins the
+// review state still expects the agent to act on. Screenshots follow the same
+// delivery preference as every other export.
+/**
+ * The batch bundle is an agent handoff, not a projection: the same instruction
+ * block and `pinar-visual-context` fences a single capture produces, one fence
+ * per page. Only pins the review state still expects the agent to act on are
+ * included, and a page with none left is dropped rather than handed over empty.
+ */
+export function formatBatchMarkdown(
+  batch: { id: string; label: string },
+  sessions: Session[],
+  statusByPinId: Record<string, PinReviewStatus>,
+  origin: string,
+  delivery?: MarkdownDelivery,
+) {
+  const captures = [];
+  for (const session of sessions) {
+    const pins = session.pins.filter((pin) => isPinAwaitingAgent(
+      pinReviewStatusFor(String(pin.pinId || pin.id || ""), statusByPinId),
+    ));
+    if (!pins.length) continue;
+    captures.push({
+      capture: captureFromSession({ ...session, pins }, { deliverScreenshot: deliverScreenshot(session, delivery) }),
+      viewerUrl: `${origin}/v/${session.id}.md`,
+    });
+  }
+  return formatBatchHandoff(batch.label, captures, delivery?.handoffMode === "full" ? "full" : "compact", delivery?.language ?? "en").trim();
 }
 
 export function formatProjectMarkdown(

@@ -46,7 +46,7 @@ describe("shared clipboard formats", () => {
     assert.equal(context.pins[0].locator.cssSelector, 'button[name="pay"]');
     assert.equal(context.pins[0].locator.innerText, "Pay\nnow");
     assert.equal(context.captureId, "clipboard");
-    assert.match(text, /^Full context: https:\/\/pinar\.dev\/v\/session-one$/m);
+    assert.match(text, /^Full context \(fetch only if the details above are insufficient\): https:\/\/pinar\.dev\/v\/session-one$/m);
     assert.equal((text.match(/body > main > button/g) || []).length, 1);
     assert.match(text, /```pinar-visual-context/);
   });
@@ -62,7 +62,7 @@ describe("shared clipboard formats", () => {
     );
     assert.doesNotMatch(text, /Screenshot:/);
     assert.doesNotMatch(text, /screenshot_missing/);
-    assert.match(text, /Full context: https:\/\/pinar\.dev\/v\/session-one\.md/);
+    assert.match(text, /Full context \(fetch only if the details above are insufficient\): https:\/\/pinar\.dev\/v\/session-one\.md/);
     assert.equal((parseHandoffJson(text) as any).screenshot, undefined);
     const html = formatClipboardHtml(
       PAGE,

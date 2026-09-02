@@ -14,7 +14,7 @@ describe("ServerFooter", () => {
   });
 
   test("keeps the full footer only on institutional public pages", () => {
-    for (const page of ["Landing", "Pricing", "LegalDocument", "Docs"]) {
+    for (const page of ["Landing", "Pricing", "LegalDocument", "Help", "Releases"]) {
       assert.match(pageSource(page), /<ServerFooter\b/);
     }
 
@@ -31,11 +31,13 @@ describe("ServerFooter", () => {
 
   test("aligns the public header and legal footer with the main content width", () => {
     assert.match(componentSource("ServerHeader"), /max-w-6xl/);
-    assert.match(componentSource("ServerFooter"), /max-w-4xl flex-col/);
-    assert.match(componentSource("ServerFooter"), /max-w-6xl border-t/);
+    assert.match(componentSource("ServerFooter"), /min-h-24 w-full flex-col/);
+    assert.doesNotMatch(componentSource("ServerFooter"), /max-w-4xl flex-col/);
     assert.match(pageSource("Landing"), /<main[^>]+max-w-6xl[^>]+px-5/);
     assert.match(pageSource("Pricing"), /<main[^>]+max-w-6xl[^>]+px-5/);
     assert.match(pageSource("LegalDocument"), /<main[^>]+max-w-6xl[^>]+px-5/);
-    assert.match(pageSource("Docs"), /<main[^>]+max-w-6xl[^>]+px-5/);
+    assert.match(pageSource("Help"), /<main[^>]+max-w-6xl[^>]+px-5/);
+    assert.doesNotMatch(pageSource("LegalDocument"), /max-w-4xl/);
+    assert.match(pageSource("Releases"), /<main[^>]+max-w-6xl[^>]+px-5/);
   });
 });

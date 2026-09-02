@@ -1,4 +1,14 @@
 import { pinBox, pinPoint, renderPinsCrop } from "./crop.js";
+import {
+  addCapture,
+  batchSummary,
+  copyFinishedBatch,
+  finishedBatchToastKey,
+  markFailed,
+  openBatch,
+  planCapturePersistence,
+  savedCount,
+} from "./batch.js";
 import { CAPTURE_TILE_DELAY_MS, planFullPageCapture, shiftMaskRegions, shiftPinsToCapture } from "./full-page.js";
 import { collectionDestination, destinationKey, resolveDestinationPreference } from "./destination.js";
 import { formatClipboardPayload } from "./format.js";
@@ -18,6 +28,7 @@ import {
 import { pinarPorts } from "./ports.js";
 import {
   bindTabHydration,
+  canInjectInto,
   CONTENT_INJECTION_FILES,
   dropHydrationIfTabLeftOrigin,
   endTabPins,
@@ -35,7 +46,14 @@ const tabPins = new Map();
 const tabHydrations = new Map();
 const registeredInstallations = new Set();
 const registerInstallationOnce = createSingleFlight();
+// Keeping the original command id preserves every shortcut a user already bound;
+// Chrome keys bindings by name, so renaming it to "toggle-batch" would drop them.
+const BATCH_COMMAND = "finish-batch";
+const CANCEL_BATCH_COMMAND = "cancel-batch";
+const PANEL_COMMAND = "open-panel";
 const OPEN_PANEL_MENU_ID = "pinar-open-panel";
+const BATCH_MENU_ID = "pinar-batch-toggle";
+const CANCEL_BATCH_MENU_ID = "pinar-cancel-batch";
 
 function normalizePins(pins = []) {
   return pins.map((pin, index) => {
@@ -68,36 +86,143 @@ async function initializeInstallationIdentity() {
   return ensureInstallationIdentity(chrome.storage.local);
 }
 
-async function registerActionContextMenu() {
-  chrome.contextMenus.removeAll(() => {
-    chrome.contextMenus.create({
-      contexts: ["action"],
-      id: OPEN_PANEL_MENU_ID,
-      title: translations.en.context_open_panel,
-    });
-  });
+async function batchState() {
+  const settings = await getSettings();
+  const messages = translations[getBestLanguage(settings.language)];
+  const batch = await readBatch();
+  const count = batch ? savedCount(batch) : 0;
+  const commands = await chrome.commands.getAll().catch(() => []);
+  return {
+    active: Boolean(batch),
+    count,
+    label: batch ? (count > 0 ? messages.batch_active.replace("{count}", String(count)) : messages.batch_on) : messages.batch_idle,
+    shortcut: commands.find((command) => command.name === BATCH_COMMAND)?.shortcut || "",
+    summary: batchSummary(batch),
+  };
 }
+
+// Every surface that shows batch state refreshes from one snapshot: the action
+// badge and the overlay pill. The keyboard commands replaced the action context
+// menu, which could never be localized - Chrome shows one title to everyone.
+async function syncBatchSurfaces(extra = {}) {
+  const state = await batchState();
+  await syncActionMenu(state).catch(() => null);
+  // The badge mirrors the toolbar: "on" while the batch is empty, then the count.
+  const badge = state.active ? (state.count > 0 ? String(state.count) : "on") : "";
+  await chrome.action.setBadgeText({ text: badge }).catch(() => null);
+  await chrome.action.setBadgeBackgroundColor({ color: "#5794FF" }).catch(() => null);
+  await chrome.action.setBadgeTextColor({ color: "#FFFFFF" }).catch(() => null);
+  const tabs = await chrome.tabs.query({}).catch(() => []);
+  await Promise.all(tabs.map((tab) => (tab.id == null
+    ? null
+    : chrome.tabs.sendMessage(tab.id, { type: "batch:changed", ...state, ...extra }).catch(() => null))));
+}
+
+function overlayMessages(language) {
+  const catalog = translations[language] || translations.en;
+  const messages = {};
+  for (const key of Object.keys(catalog)) {
+    if (key.startsWith("overlay_")) messages[key] = catalog[key];
+  }
+  return messages;
+}
+
+async function uiMessagesState() {
+  const settings = await getSettings();
+  const language = getBestLanguage(settings.language);
+  return { language, messages: overlayMessages(language) };
+}
+
+// Same fan-out as the batch pill: every open tab gets a fresh overlay dictionary
+// when the Options language changes. Missing content scripts are ignored.
+async function syncUiMessages() {
+  const state = await uiMessagesState();
+  const tabs = await chrome.tabs.query({}).catch(() => []);
+  await Promise.all(tabs.map((tab) => (tab.id == null
+    ? null
+    : chrome.tabs.sendMessage(tab.id, { type: "ui:messages", ...state }).catch(() => null))));
+}
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "sync" || !changes.language) return;
+  void syncUiMessages();
+  void batchState().then(syncActionMenu).catch(() => null);
+});
+
+chrome.runtime.onStartup?.addListener(() => void batchState().then(syncActionMenu).catch(() => null));
 
 chrome.runtime.onInstalled.addListener(() => {
   void initializeInstallationIdentity();
-  void registerActionContextMenu();
-});
-
-chrome.runtime.onStartup.addListener(() => void registerActionContextMenu());
-
-chrome.contextMenus.onClicked.addListener((info) => {
-  if (info.menuItemId !== OPEN_PANEL_MENU_ID) return;
-  void openApp().catch((error) => console.error("Unable to open Pinar app", error));
+  void batchState().then(syncActionMenu).catch(() => null);
 });
 
 void initializeInstallationIdentity();
 
 chrome.action.onClicked.addListener(async (tab) => {
-  if (!tab.id) return;
-  await chrome.scripting.executeScript({
-    files: CONTENT_INJECTION_FILES,
-    target: { allFrames: true, tabId: tab.id },
-  });
+  // Chrome refuses injection on its own surfaces (chrome://, the Web Store,
+  // extension pages); there is nothing to annotate there, so the click is a
+  // deliberate no-op. Any other rejection is a real defect and stays visible.
+  if (!tab.id || !canInjectInto(tab.url)) return;
+  try {
+    await chrome.scripting.executeScript({
+      files: CONTENT_INJECTION_FILES,
+      target: { allFrames: true, tabId: tab.id },
+    });
+  } catch (error) {
+    console.error("Unable to open the Pinar toolbar on this tab", tab.url, error);
+  }
+});
+
+chrome.commands?.onCommand.addListener((command) => {
+  if (command === PANEL_COMMAND) {
+    void openApp().catch((error) => console.error("Unable to open Pinar app", error));
+    return;
+  }
+  if (command === CANCEL_BATCH_COMMAND) {
+    void finishBatch({ copy: false }).catch((error) => console.error("Unable to close the capture batch", error));
+    return;
+  }
+  if (command !== BATCH_COMMAND) return;
+  void toggleBatch().catch((error) => console.error("Unable to toggle the capture batch", error));
+});
+
+// The action's context menu mirrors the commands, for people who reach for
+// the mouse: open the panel, start or finish the batch, and - only while a
+// batch is running - close it without copying. Every title is our own string
+// set at runtime in the language chosen in Options and refreshed whenever the
+// language or the batch changes; Chrome never sees a fixed English label.
+function menuItem(id, props) {
+  return new Promise((resolve) => chrome.contextMenus.update(id, props, () => {
+    if (!chrome.runtime.lastError) return resolve();
+    chrome.contextMenus.create({ id, ...props }, () => { void chrome.runtime.lastError; resolve(); });
+  }));
+}
+
+async function syncActionMenu(state) {
+  if (!chrome.contextMenus) return;
+  const settings = await getSettings();
+  const messages = translations[getBestLanguage(settings.language)];
+  const contexts = ["action"];
+  const active = Boolean(state?.active);
+  const batchTitle = active
+    ? `${messages.batch_finish} · ${state.label}`
+    : messages.batch_start;
+  await menuItem(OPEN_PANEL_MENU_ID, { contexts, title: messages.context_open_panel });
+  await menuItem(BATCH_MENU_ID, { contexts, title: batchTitle });
+  await menuItem(CANCEL_BATCH_MENU_ID, { contexts, title: messages.batch_close_menu, visible: active });
+}
+
+chrome.contextMenus?.onClicked.addListener((info) => {
+  if (info.menuItemId === OPEN_PANEL_MENU_ID) {
+    void openApp().catch((error) => console.error("Unable to open Pinar app", error));
+    return;
+  }
+  if (info.menuItemId === BATCH_MENU_ID) {
+    void toggleBatch().catch((error) => console.error("Unable to toggle the capture batch", error));
+    return;
+  }
+  if (info.menuItemId !== CANCEL_BATCH_MENU_ID) return;
+  void finishBatch({ copy: false }).catch((error) => console.error("Unable to close the capture batch", error));
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -176,6 +301,50 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "storage:status") {
+    getStorageStatus()
+      .then((status) => sendResponse({ ...status, ok: true }))
+      .catch((error) => sendResponse({ error: String(error), ok: false }));
+    return true;
+  }
+
+  if (message.type === "batch:get") {
+    batchState()
+      .then((state) => sendResponse({ ...state, ok: true }))
+      .catch((error) => sendResponse({ error: String(error), ok: false }));
+    return true;
+  }
+
+  if (message.type === "ui:messages") {
+    uiMessagesState()
+      .then((state) => sendResponse({ ...state, ok: true }))
+      .catch((error) => sendResponse({ error: String(error), ok: false }));
+    return true;
+  }
+
+  if (message.type === "batch:start") {
+    startBatch()
+      .then((batch) => sendResponse({ ok: true, summary: batchSummary(batch) }))
+      .catch((error) => sendResponse({ error: String(error), ok: false }));
+    return true;
+  }
+
+  if (message.type === "batch:finish") {
+    finishBatch()
+      .then((result) => sendResponse({ ...result, ok: true }))
+      .catch((error) => sendResponse({ error: String(error), ok: false }));
+    return true;
+  }
+
+  if (message.type === "batch:cancel") {
+    // Same door as the shortcut and the action menu: close without copying.
+    // Forgetting the batch locally would leave its server row open forever.
+    finishBatch({ copy: false })
+      .then((result) => sendResponse({ ...result, ok: true }))
+      .catch((error) => sendResponse({ error: String(error), ok: false }));
+    return true;
+  }
+
   if (message.type === "destination:set") {
     setCaptureDestination(message.collectionId)
       .then((context) => sendResponse({ ...context, ok: true }))
@@ -191,10 +360,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "preferences:set") {
-    setDeliveryPreferences({
-      handoffMode: message.handoffMode === "full" ? "full" : "compact",
-      includeScreenshot: message.includeScreenshot !== false,
-    })
+    setDeliveryPreferences(deliveryPatchFromMessage(message))
       .then((prefs) => sendResponse({ ...prefs, ok: true }))
       .catch((error) => sendResponse({ error: String(error), ok: false }));
     return true;
@@ -335,6 +501,7 @@ async function getSettings() {
   try {
     settings = await chrome.storage.sync.get({
       cloudUrl: "https://pinar.dev",
+      copyOnFinishBatch: "prompt",
       copyViewerContent: false,
       enableHistory: true,
       handoffMode: "compact",
@@ -347,6 +514,7 @@ async function getSettings() {
   } catch {
     settings = {
       cloudUrl: "https://pinar.dev",
+      copyOnFinishBatch: "prompt",
       copyViewerContent: false,
       enableHistory: true,
       handoffMode: "compact",
@@ -369,88 +537,163 @@ async function getSettings() {
   return settings;
 }
 
+const SUPPORTED_PREF_LANGUAGES = new Set(["de", "en", "es", "fr", "ja", "pt", "zh"]);
+
+function booleanPref(value, fallback) {
+  if (typeof value === "boolean") return value;
+  if (value === 0 || value === "0" || value === "false") return false;
+  if (value === 1 || value === "1" || value === "true") return true;
+  return fallback;
+}
+
+function parseCaptureDestinationPref(value) {
+  if (value === null) return null;
+  if (typeof value !== "object") return undefined;
+  if (typeof value.projectId !== "string" || typeof value.collectionId !== "string") return undefined;
+  if (!value.projectId || !value.collectionId) return undefined;
+  return { collectionId: value.collectionId, projectId: value.projectId };
+}
+
+function localDeliveryPreferences(settings) {
+  return {
+    captureDestination: null,
+    copyOnFinishBatch: settings.copyOnFinishBatch === "off" || settings.copyOnFinishBatch === "link" || settings.copyOnFinishBatch === "prompt"
+      ? settings.copyOnFinishBatch
+      : "prompt",
+    copyViewerContent: settings.copyViewerContent === true,
+    handoffMode: settings.handoffMode === "full" ? "full" : "compact",
+    includeScreenshot: settings.includeScreenshot !== false,
+    includeViewer: settings.includeViewer !== false,
+    language: SUPPORTED_PREF_LANGUAGES.has(settings.language) ? settings.language : null,
+    sensitiveQueryKeys: typeof settings.sensitiveQueryKeys === "string" ? settings.sensitiveQueryKeys.slice(0, 2000) : "",
+  };
+}
+
+function mergeDeliveryPreferencesPatch(current, patch) {
+  if (!patch || typeof patch !== "object") return current;
+  const captureDestination = "captureDestination" in patch
+    ? parseCaptureDestinationPref(patch.captureDestination)
+    : current.captureDestination;
+  return {
+    captureDestination: captureDestination === undefined ? current.captureDestination : captureDestination,
+    copyOnFinishBatch: "copyOnFinishBatch" in patch
+      ? (patch.copyOnFinishBatch === "off" || patch.copyOnFinishBatch === "link" || patch.copyOnFinishBatch === "prompt"
+        ? patch.copyOnFinishBatch
+        : current.copyOnFinishBatch)
+      : current.copyOnFinishBatch,
+    copyViewerContent: "copyViewerContent" in patch
+      ? booleanPref(patch.copyViewerContent, current.copyViewerContent)
+      : current.copyViewerContent,
+    handoffMode: "handoffMode" in patch
+      ? (patch.handoffMode === "full" || patch.handoffMode === "compact" ? patch.handoffMode : current.handoffMode)
+      : current.handoffMode,
+    includeScreenshot: "includeScreenshot" in patch
+      ? booleanPref(patch.includeScreenshot, current.includeScreenshot)
+      : current.includeScreenshot,
+    includeViewer: "includeViewer" in patch
+      ? booleanPref(patch.includeViewer, current.includeViewer)
+      : current.includeViewer,
+    language: "language" in patch
+      ? (patch.language === null ? null : (SUPPORTED_PREF_LANGUAGES.has(patch.language) ? patch.language : current.language))
+      : current.language,
+    sensitiveQueryKeys: "sensitiveQueryKeys" in patch
+      ? (typeof patch.sensitiveQueryKeys === "string" ? patch.sensitiveQueryKeys.slice(0, 2000) : current.sensitiveQueryKeys)
+      : current.sensitiveQueryKeys,
+  };
+}
+
+function deliveryPatchFromMessage(message) {
+  const patch = {};
+  if ("captureDestination" in message) {
+    const destination = parseCaptureDestinationPref(message.captureDestination);
+    if (destination !== undefined) patch.captureDestination = destination;
+  }
+  if ("copyOnFinishBatch" in message) {
+    patch.copyOnFinishBatch = message.copyOnFinishBatch === "off" || message.copyOnFinishBatch === "link" || message.copyOnFinishBatch === "prompt"
+      ? message.copyOnFinishBatch
+      : "prompt";
+  }
+  if ("copyViewerContent" in message) patch.copyViewerContent = message.copyViewerContent === true;
+  if ("handoffMode" in message) patch.handoffMode = message.handoffMode === "full" ? "full" : "compact";
+  if ("includeScreenshot" in message) patch.includeScreenshot = message.includeScreenshot !== false;
+  if ("includeViewer" in message) patch.includeViewer = message.includeViewer !== false;
+  if ("language" in message) {
+    patch.language = message.language === null
+      ? null
+      : (SUPPORTED_PREF_LANGUAGES.has(message.language) ? message.language : undefined);
+    if (patch.language === undefined) delete patch.language;
+  }
+  if ("sensitiveQueryKeys" in message) {
+    patch.sensitiveQueryKeys = typeof message.sensitiveQueryKeys === "string" ? message.sensitiveQueryKeys.slice(0, 2000) : "";
+  }
+  return patch;
+}
+
+async function preferencesFetch(settings, init = {}) {
+  if (settings.storageMode === "cloud") {
+    return remoteFetch(cloudEndpoint(settings), "/api/preferences", init);
+  }
+  const base = await findShotBase();
+  if (!base) return null;
+  return localFetch(base, "/api/preferences", init);
+}
+
 async function fetchDeliveryPreferences(settings) {
   try {
-    if (settings.storageMode === "cloud") {
-      const response = await remoteFetch(cloudEndpoint(settings), "/api/preferences");
-      const body = await responseBody(response);
-      if (!response.ok || typeof body.includeScreenshot !== "boolean") return null;
-      return {
-        handoffMode: body.handoffMode === "full" ? "full" : "compact",
-        includeScreenshot: body.includeScreenshot,
-      };
-    }
-    const base = await findShotBase();
-    if (!base) return null;
-    const response = await localFetch(base, "/api/preferences");
+    const response = await preferencesFetch(settings);
+    if (!response) return null;
     const body = await responseBody(response);
     if (!response.ok || typeof body.includeScreenshot !== "boolean") return null;
-    return {
-      handoffMode: body.handoffMode === "full" ? "full" : "compact",
-      includeScreenshot: body.includeScreenshot,
-    };
+    return mergeDeliveryPreferencesPatch(localDeliveryPreferences(settings), body);
   } catch {
     return null;
   }
 }
 
-async function cacheDeliveryPreferences(preferences) {
+async function cacheDeliveryPreferences(preferences, settings) {
+  const syncPatch = {
+    copyOnFinishBatch: preferences.copyOnFinishBatch,
+    copyViewerContent: preferences.copyViewerContent,
+    handoffMode: preferences.handoffMode,
+    includeScreenshot: preferences.includeScreenshot,
+    includeViewer: preferences.includeViewer,
+    sensitiveQueryKeys: preferences.sensitiveQueryKeys,
+  };
+  if (preferences.language) syncPatch.language = preferences.language;
   try {
-    await chrome.storage.sync.set(preferences);
+    await chrome.storage.sync.set(syncPatch);
   } catch {
     /* ignore cache write */
   }
+  if (!preferences.captureDestination) return;
+  const resolved = settings || await getSettings();
+  const localBase = resolved.storageMode === "cloud" ? "" : (await findShotBase() || "");
+  await storeDestination(resolved, localBase, preferences.captureDestination);
 }
 
 async function getDeliveryPreferences() {
   const settings = await getSettings();
+  const local = localDeliveryPreferences(settings);
   const remote = await fetchDeliveryPreferences(settings);
-  if (!remote) return {
-    handoffMode: settings.handoffMode === "full" ? "full" : "compact",
-    includeScreenshot: settings.includeScreenshot !== false,
-  };
-  if (remote.includeScreenshot !== (settings.includeScreenshot !== false)
-    || remote.handoffMode !== settings.handoffMode) {
-    await cacheDeliveryPreferences(remote);
-  }
+  if (!remote) return local;
+  await cacheDeliveryPreferences(remote, settings);
   return remote;
 }
 
 async function setDeliveryPreferences(preferences) {
   const settings = await getSettings();
-  if (settings.storageMode === "cloud") {
-    const response = await remoteFetch(cloudEndpoint(settings), "/api/preferences", {
-      body: JSON.stringify(preferences),
-      headers: { "content-type": "application/json" },
-      method: "PATCH",
-    });
-    const body = await responseBody(response);
-    if (!response.ok || typeof body.includeScreenshot !== "boolean") {
-      throw new Error(body.error || "Unable to save screenshot preference");
-    }
-    const next = {
-      handoffMode: body.handoffMode === "full" ? "full" : "compact",
-      includeScreenshot: body.includeScreenshot,
-    };
-    await cacheDeliveryPreferences(next);
-    return next;
-  }
-  const base = await findShotBase();
-  if (!base) throw new Error("Local Pinar server is not running");
-  const response = await localFetch(base, "/api/preferences", {
+  const response = await preferencesFetch(settings, {
     body: JSON.stringify(preferences),
     headers: { "content-type": "application/json" },
     method: "PATCH",
   });
+  if (!response) throw new Error("Local Pinar server is not running");
   const body = await responseBody(response);
   if (!response.ok || typeof body.includeScreenshot !== "boolean") {
-    throw new Error(body.error || "Unable to save screenshot preference");
+    throw new Error(body.error || "Unable to save preferences");
   }
-  const next = {
-    handoffMode: body.handoffMode === "full" ? "full" : "compact",
-    includeScreenshot: body.includeScreenshot,
-  };
-  await cacheDeliveryPreferences(next);
+  const next = mergeDeliveryPreferencesPatch(localDeliveryPreferences(settings), body);
+  await cacheDeliveryPreferences(next, settings);
   return next;
 }
 
@@ -470,9 +713,14 @@ function generateNanoId(size = 12) {
 async function copyBundle(message) {
   const id = message.captureId || generateNanoId(12);
   const settings = await getSettings();
+  const remotePrefs = await fetchDeliveryPreferences(settings);
+  if (remotePrefs) await cacheDeliveryPreferences(remotePrefs, settings);
+  const includeScreenshot = remotePrefs?.includeScreenshot ?? settings.includeScreenshot !== false;
+  const includeViewer = remotePrefs?.includeViewer ?? settings.includeViewer !== false;
+  const handoffMode = remotePrefs?.handoffMode ?? (settings.handoffMode === "full" ? "full" : "compact");
   const privacyApi = globalThis.__pinarPrivacy;
   if (!privacyApi) throw new Error("privacy sanitizer is unavailable");
-  const extraQueryKeys = privacyApi.parseExtraKeys(settings.sensitiveQueryKeys);
+  const extraQueryKeys = privacyApi.parseExtraKeys(remotePrefs?.sensitiveQueryKeys ?? settings.sensitiveQueryKeys);
   const sanitized = privacyApi.sanitizeCapture({
     fields: message.fields,
     page: message.page,
@@ -485,18 +733,19 @@ async function copyBundle(message) {
   const privacy = sanitized.privacy;
   const warnings = [...(sanitized.warnings || [])];
   let savedResult = null;
+  const activeBatch = await readBatch();
   const destination = await getCaptureDestinationContext(settings)
     .then((context) => context.destination)
     .catch(() => null);
 
-  const remotePrefs = await fetchDeliveryPreferences(settings);
-  const includeScreenshot = remotePrefs?.includeScreenshot ?? settings.includeScreenshot !== false;
-  const handoffMode = remotePrefs?.handoffMode ?? (settings.handoffMode === "full" ? "full" : "compact");
-  if (remotePrefs && (remotePrefs.includeScreenshot !== (settings.includeScreenshot !== false)
-    || remotePrefs.handoffMode !== settings.handoffMode)) {
-    await cacheDeliveryPreferences(remotePrefs);
-  }
-  if (message.shot) {
+  // History can only be declined for the remote server; local captures always persist on-device.
+  const plan = planCapturePersistence({
+    enableHistory: settings.enableHistory,
+    hasShot: Boolean(message.shot),
+    includeScreenshot,
+    storageMode: settings.storageMode,
+  });
+  if (plan.persist) {
     savedResult = await saveShot(
       message.shot,
       id,
@@ -507,25 +756,35 @@ async function copyBundle(message) {
       privacy,
       warnings,
       includeScreenshot,
+      activeBatch,
     );
     if (!savedResult) warnings.push("helper_unavailable");
-  } else if (includeScreenshot) {
+  } else if (plan.warnScreenshotMissing) {
     warnings.push("screenshot_missing");
+  }
+  if (activeBatch) {
+    const updated = savedResult
+      ? addCapture(activeBatch, { captureId: id, title: page?.title, url: page?.url })
+      : markFailed(activeBatch, id, warnings.at(-1) || "not_saved");
+    await writeBatch(updated);
+    await syncBatchSurfaces();
   }
 
   const shot = includeScreenshot ? (savedResult?.path || message.shot || null) : null;
-  const viewerUrl = (settings.includeViewer && savedResult?.viewerUrl) ? savedResult.viewerUrl : null;
-  if (settings.includeViewer && !viewerUrl) warnings.push("viewer_unavailable");
+  const viewerUrl = (includeViewer && savedResult?.viewerUrl) ? savedResult.viewerUrl : null;
+  if (plan.historyAllowed && includeViewer && !viewerUrl) warnings.push("viewer_unavailable");
   const uniqueWarnings = [...new Set(warnings)];
   const degraded = uniqueWarnings.some((warning) => (
     warning === "screenshot_missing" || warning === "helper_unavailable" || warning === "viewer_unavailable"
   ));
 
+  const language = getBestLanguage(remotePrefs?.language ?? settings.language);
   const payload = formatClipboardPayload({
     captureId: id,
     createdAt: message.createdAt,
     handoffMode,
     includeScreenshot,
+    messages: translations[language],
     page,
     pins,
     privacy,
@@ -569,6 +828,29 @@ async function ensureOffscreen() {
   } catch (error) {
     if (!/already exists|Only a single offscreen/i.test(String(error))) throw error;
   }
+}
+
+// Markdown is not HTML. Offering it as `text/html` would let a contenteditable
+// composer pick that flavor, collapse the newlines and swallow anything shaped
+// like a tag, so this path publishes `text/plain` alone.
+async function notify(id, message, isError = false) {
+  if (!chrome.notifications) return;
+  await new Promise((resolve) => chrome.notifications.create(id, {
+    iconUrl: chrome.runtime.getURL("icons/icon-128.png"),
+    message,
+    priority: isError ? 2 : 0,
+    title: isError ? "Pinar · error" : "Pinar",
+    type: "basic",
+  }, () => { void chrome.runtime.lastError; resolve(); }));
+}
+
+async function writeClipboardPlain(text) {
+  await ensureOffscreen();
+  const written = await chrome.runtime.sendMessage({
+    plain: text,
+    type: "clipboard:write",
+  });
+  if (!written?.ok) throw new Error(written?.error || "clipboard write failed");
 }
 
 async function runInTopFrame(tabId, func, args = []) {
@@ -650,11 +932,29 @@ async function renderCaptureFrames(frames, pins, metrics, maskRegions = []) {
   }
 }
 
+async function revealTopOverlay(tabId) {
+  await chrome.scripting.executeScript({
+    func: () => { globalThis.__pinarSetHidden?.(false); },
+    target: { frameIds: [0], tabId },
+  }).catch(() => null);
+}
+
 async function captureTabBundle(tabId, windowId, pins, maskRegions = []) {
   const metrics = await captureMetrics(tabId);
   if (!metrics) throw new Error("Unable to read page dimensions");
   const plan = planFullPageCapture(pins, metrics);
   const frames = [];
+
+  // One tile at the current scroll position - the common case - needs none of
+  // the full-page machinery: no fixed-to-absolute rewrite of the page, no
+  // scrolling, no settle waits. The overlay is already out of the frame, so
+  // the shutter can fire right away; the perceived gap is the shot itself.
+  const currentY = metrics.originalScroll?.y ?? 0;
+  if (plan.scrollYs.length === 1 && Math.abs(plan.scrollYs[0] - currentY) < 1) {
+    const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: "png" });
+    await revealTopOverlay(tabId);
+    return renderCaptureFrames([{ dataUrl, scrollY: currentY }], pins, metrics, maskRegions);
+  }
 
   try {
     await prepareCapture(tabId, plan.scrollYs[0]);
@@ -664,6 +964,10 @@ async function captureTabBundle(tabId, windowId, pins, maskRegions = []) {
       const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: "png" });
       frames.push({ dataUrl, scrollY: actualScroll?.y ?? plan.scrollYs[index] });
     }
+    // The shutter is closed: only the pixels needed the overlay out of the
+    // frame. Badges, masks and the scroll restore that follow can run with the
+    // status back on screen, which is most of the perceived gap.
+    await revealTopOverlay(tabId);
     return await renderCaptureFrames(frames, pins, metrics, maskRegions);
   } finally {
     await restoreCapture(tabId).catch(() => {});
@@ -844,6 +1148,10 @@ async function getCaptureDestinationContext(providedSettings) {
   const settings = providedSettings || await getSettings();
   const localBase = settings.storageMode === "cloud" ? "" : await findShotBase();
   const key = destinationKey(settings, localBase || "");
+  // The server owns the destination; a choice made in the workspace dialog
+  // must win over whatever this browser cached. Unreachable server: keep the
+  // cache, same as every other preference.
+  await getDeliveryPreferences().catch(() => null);
   const tree = await fetchDestinationTree(settings, localBase);
   const stored = await chrome.storage.local.get({ captureDestinations: {} });
   const destination = resolveDestinationPreference(tree, stored.captureDestinations[key]);
@@ -870,6 +1178,11 @@ async function setCaptureDestination(collectionId) {
   const settings = await getSettings();
   const localBase = settings.storageMode === "cloud" ? "" : await findShotBase();
   await storeDestination(settings, localBase, destination);
+  try {
+    await setDeliveryPreferences({ captureDestination: destination });
+  } catch {
+    /* Local destination already saved. */
+  }
   return { ...context, destination };
 }
 
@@ -945,6 +1258,108 @@ async function responseBody(response) {
   return response.json().catch(() => ({}));
 }
 
+const BATCH_STORAGE_KEY = "captureBatch";
+
+// Session storage, not memory: the service worker hibernates between captures.
+async function readBatch() {
+  const stored = await chrome.storage.session.get({ [BATCH_STORAGE_KEY]: null });
+  return stored[BATCH_STORAGE_KEY] || null;
+}
+
+async function writeBatch(batch) {
+  if (batch) await chrome.storage.session.set({ [BATCH_STORAGE_KEY]: batch });
+  else await chrome.storage.session.remove(BATCH_STORAGE_KEY);
+  return batch;
+}
+
+async function startBatch() {
+  const settings = await getSettings();
+  const language = getBestLanguage(settings.language);
+  const startedAt = new Date();
+  const when = new Intl.DateTimeFormat(language, { dateStyle: "short", timeStyle: "short" }).format(startedAt);
+  const label = translations[language].batch_label.replace("{when}", when);
+  const batch = await writeBatch(openBatch({
+    id: crypto.randomUUID(),
+    label,
+    startedAt: startedAt.toISOString(),
+  }));
+  await syncBatchSurfaces();
+  return batch;
+}
+
+async function finishBatch({ copy = true } = {}) {
+  const batch = await readBatch();
+  if (!batch) return { summary: null };
+  const settings = await getSettings();
+  const remotePrefs = await fetchDeliveryPreferences(settings);
+  if (remotePrefs) await cacheDeliveryPreferences(remotePrefs, settings);
+  const path = `/api/batches/${encodeURIComponent(batch.id)}/finish`;
+  const init = {
+    body: JSON.stringify({ finishedAt: new Date().toISOString() }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  };
+  const helperBase = settings.storageMode === "cloud"
+    ? cloudEndpoint(settings)
+    : await findShotBase();
+  // A missing server must not keep the batch open, but the user must hear
+  // about it: the row stays open server-side until the next finish.
+  let serverError = null;
+  try {
+    if (settings.storageMode === "cloud") {
+      await remoteFetch(helperBase, path, init);
+    } else if (helperBase) {
+      await localFetch(helperBase, path, init);
+    } else {
+      serverError = new Error("helper unavailable");
+    }
+  } catch (error) {
+    serverError = error;
+  }
+  await writeBatch(null);
+  const summary = batchSummary(batch);
+  // A batch row only exists once a capture landed in it, so an empty batch has
+  // nothing to hand over and its bundle URL would legitimately 404.
+  let copied = null;
+  let copyError = null;
+  if (copy && summary.saved > 0) {
+    try {
+      const result = await copyFinishedBatch({
+        base: helperBase,
+        batchId: batch.id,
+        fetchText: async (url) => {
+          const response = await fetch(url);
+          if (!response.ok) throw new Error(`batch markdown ${response.status}`);
+          return response.text();
+        },
+        mode: remotePrefs?.copyOnFinishBatch ?? settings.copyOnFinishBatch,
+        writeClipboard: writeClipboardPlain,
+      });
+      copied = result.copied;
+    } catch (error) {
+      copyError = error;
+      console.error("Unable to copy the finished batch", error);
+    }
+  }
+  const language = getBestLanguage(remotePrefs?.language ?? settings.language);
+  const messages = translations[language];
+  const failed = Boolean(serverError || copyError);
+  const toastKey = serverError ? "batch_finish_failed" : copyError ? "batch_copy_failed" : copy ? finishedBatchToastKey(copied) : "batch_closed";
+  const toast = messages[toastKey].replace("{count}", String(summary.saved));
+  await syncBatchSurfaces({ toast, toastKind: failed ? "error" : "ok" });
+  // The overlay toast only exists on a tab with the toolbar open; the batch is
+  // usually finished from the shortcut or the action menu, so the outcome also
+  // goes out as a system notification - success and failure alike.
+  await notify(`pinar-batch-${batch.id}`, toast, failed);
+  return { copied, failed, summary, toast };
+}
+
+async function toggleBatch() {
+  const batch = await readBatch();
+  if (!batch) return startBatch();
+  return finishBatch();
+}
+
 async function getAuthSession() {
   const settings = await getSettings();
   if (settings.storageMode !== "cloud") return { kind: "local", plan: "free" };
@@ -953,6 +1368,24 @@ async function getAuthSession() {
   const body = await responseBody(response);
   if (!response.ok || !body.session) throw new Error(body.error || "Account session is unavailable");
   return body.session;
+}
+
+async function getStorageStatus() {
+  const settings = await getSettings();
+  if (settings.storageMode !== "cloud") {
+    const base = await findShotBase();
+    return { mode: "local", port: base ? new URL(base).port : null, reachable: Boolean(base) };
+  }
+  const response = await remoteFetch(cloudEndpoint(settings), "/api/account/entitlements");
+  const body = await responseBody(response);
+  const storage = body.storage || {};
+  return {
+    mode: "cloud",
+    quotaBytes: Number(storage.quotaBytes || 0),
+    reachable: response.ok,
+    uploadAllowed: storage.uploadAllowed !== false,
+    usedBytes: Number(storage.usedBytes || 0),
+  };
 }
 
 async function createExtensionCodeForCurrentSession() {
@@ -1044,7 +1477,7 @@ async function openApp() {
   return url;
 }
 
-async function saveShot(dataUrl, id, page = {}, pins = [], settings = {}, collectionId = "", privacy = null, warnings = [], includeScreenshot = true) {
+async function saveShot(dataUrl, id, page = {}, pins = [], settings = {}, collectionId = "", privacy = null, warnings = [], includeScreenshot = true, batch = null) {
   const payload = {
     captureId: id,
     collectionId,
@@ -1057,6 +1490,7 @@ async function saveShot(dataUrl, id, page = {}, pins = [], settings = {}, collec
     schemaVersion: 1,
     warnings,
   };
+  if (batch) payload.batch = { id: batch.id, label: batch.label, startedAt: batch.startedAt };
   // 1. Cloudflare Worker mode
   if (settings.storageMode === "cloud") {
     const endpoint = cloudEndpoint(settings);

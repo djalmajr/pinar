@@ -62,9 +62,11 @@ import {
   cn,
 } from "@pinar/ui";
 import { WorkspaceChrome, useWorkspaceChrome } from "@/components/WorkspaceChrome";
+import { copyBatchHandoff } from "../lib/session-actions";
+import { SessionActionsMenu } from "../components/SessionActionsMenu";
 import { useDeliveryPreferences } from "@/lib/delivery-preferences";
 import { useDocumentMeta } from "@/lib/document-meta";
-import { type ServerMessageKey, useServerI18n } from "@/lib/i18n";
+import { type Translate, useServerI18n } from "@/lib/i18n";
 import { formatSessionDate } from "@/lib/session-date";
 import { flattenCollections } from "@/lib/collection-tree";
 import {
@@ -72,7 +74,7 @@ import {
   pinCount,
   type PinCountFilter,
 } from "@/lib/session-filters";
-import { sessionListingCopy, flattenCollectionSessions } from "@/lib/session-listing";
+import { sessionListingCopy } from "@/lib/session-listing";
 import {
   SESSION_DND_TYPE,
   sessionDragId,
@@ -83,13 +85,10 @@ import {
   type SessionOrderDirection,
 } from "@/lib/session-order";
 import { WebViewer } from "@/pages/WebViewer";
-import ArrowDownIcon from "~icons/lucide/arrow-down";
-import ArrowUpIcon from "~icons/lucide/arrow-up";
 import CalendarIcon from "~icons/lucide/calendar-days";
 import CheckIcon from "~icons/lucide/check";
 import CopyIcon from "~icons/lucide/copy";
 import ExternalLinkIcon from "~icons/lucide/external-link";
-import FileTextIcon from "~icons/lucide/file-text";
 import FolderIcon from "~icons/lucide/folder";
 import GridIcon from "~icons/lucide/layout-grid";
 import ListFilterIcon from "~icons/lucide/list-filter";
@@ -98,7 +97,6 @@ import MessageCircleIcon from "~icons/lucide/message-circle";
 import MoreVerticalIcon from "~icons/lucide/ellipsis-vertical";
 import FolderInputIcon from "~icons/lucide/folder-input";
 import SearchIcon from "~icons/lucide/search";
-import ScanSearchIcon from "~icons/lucide/scan-search";
 import TableIcon from "~icons/lucide/table-2";
 import TrashIcon from "~icons/lucide/trash-2";
 import XIcon from "~icons/lucide/x";
@@ -107,7 +105,6 @@ const HISTORY_VIEW_KEY = "pinar-history-view";
 const SESSION_PAGE_SIZE_OPTIONS = [15, 30, 60, 100] as const;
 
 type HistoryView = "grid" | "table";
-type Translate = (key: ServerMessageKey, values?: Record<string, string | number>) => string;
 
 function shotUrl(session: Session) {
   return session.shotUrl || (session.shotId ? `/shots/${session.shotId}.png` : null);
@@ -117,16 +114,28 @@ function SessionPageLink({ url }: { url?: string }) {
   if (!url) return null;
   return (
     <a
-      className="inline-flex max-w-full items-center gap-1 font-mono text-xs text-muted-foreground hover:text-primary"
+      className="inline-flex max-w-full items-center gap-1 text-sm text-muted-foreground hover:text-primary"
       draggable={false}
       href={url}
       rel="noopener noreferrer"
       target="_blank"
       onClick={(event) => event.stopPropagation()}
     >
-      <span className="truncate">{url}</span>
+      {/* min-w-0 lets the flex item shrink past the URL's min-content so truncate
+          can ellipsise it; the icon keeps its place because it never shrinks. */}
+      <span className="min-w-0 truncate">{url}</span>
       <ExternalLinkIcon className="size-3 shrink-0" />
     </a>
+  );
+}
+
+function CollectionChip({ name }: { name?: string }) {
+  if (!name) return null;
+  return (
+    <span className="inline-flex max-w-40 shrink-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
+      <FolderIcon className="size-3.5 shrink-0" />
+      <span className="truncate">{name}</span>
+    </span>
   );
 }
 
@@ -140,12 +149,7 @@ function SessionIdentity({
   session: Session;
 }) {
   const { description, title, url } = sessionListingCopy(session.page);
-  const collectionLabel = collectionName ? (
-    <span className="inline-flex max-w-40 shrink-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
-      <FolderIcon className="size-3.5 shrink-0" />
-      <span className="truncate">{collectionName}</span>
-    </span>
-  ) : null;
+  const collectionLabel = <CollectionChip name={collectionName} />;
   return (
     <div className="flex min-w-0 flex-col items-start gap-0.5">
       {title ? (
@@ -163,7 +167,10 @@ function SessionIdentity({
         <p className="line-clamp-2 text-xs text-muted-foreground">{description}</p>
       ) : null}
       {heading ? (
-        <CardDescription className="min-w-0">
+        // items-start on the column means this paragraph sizes to its content, and
+        // an unbreakable URL makes that content wider than the card. max-w-full caps
+        // it against the column so the anchor below can finally truncate.
+        <CardDescription className="max-w-full min-w-0">
           <SessionPageLink url={url} />
         </CardDescription>
       ) : (
@@ -174,9 +181,11 @@ function SessionIdentity({
 }
 
 function SessionActions({
+  batchCopied,
   copied,
   session,
   onCopy,
+  onCopyBatch,
   onDelete,
   onMove,
   onReorder,
@@ -185,11 +194,13 @@ function SessionActions({
   canMoveLater,
   t,
 }: {
+  batchCopied: boolean;
   canMoveEarlier: boolean;
   canMoveLater: boolean;
   copied: boolean;
   session: Session;
   onCopy: (session: Session) => void;
+  onCopyBatch: (batchId: string) => void;
   onDelete: (id: string) => void;
   onMove: (id: string) => void;
   onReorder: (sessionId: string, direction: SessionOrderDirection) => void;
@@ -214,51 +225,21 @@ function SessionActions({
         >
           <MoreVerticalIcon className="size-3.5" />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="max-h-96 w-64 overflow-y-auto">
-          <DropdownMenuGroup>
-            <DropdownMenuItem onClick={() => onView(session.id)}>
-              <Maximize2Icon />
-              {t("dashboard.view")}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => requestReopenSession(session.id)}>
-              <ScanSearchIcon />
-              {t("dashboard.reviewOnPage")}
-            </DropdownMenuItem>
-            <DropdownMenuItem render={<a href={`/v/${session.id}.md`} rel="noopener noreferrer" target="_blank" />}>
-              <FileTextIcon />
-              {t("dashboard.markdown")}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onMove(session.id)}>
-              <FolderInputIcon />
-              {t("dashboard.moveTo")}
-            </DropdownMenuItem>
-          </DropdownMenuGroup>
-          {(canMoveEarlier || canMoveLater) && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuGroup>
-                <DropdownMenuLabel>{t("dashboard.order")}</DropdownMenuLabel>
-                {canMoveEarlier && (
-                  <DropdownMenuItem onClick={() => onReorder(session.id, "earlier")}>
-                    <ArrowUpIcon />
-                    {t("dashboard.moveEarlier")}
-                  </DropdownMenuItem>
-                )}
-                {canMoveLater && (
-                  <DropdownMenuItem onClick={() => onReorder(session.id, "later")}>
-                    <ArrowDownIcon />
-                    {t("dashboard.moveLater")}
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuGroup>
-            </>
-          )}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" onClick={() => onDelete(session.id)}>
-            <TrashIcon />
-            {t("dashboard.deleteSession")}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
+        <SessionActionsMenu
+          canMoveEarlier={canMoveEarlier}
+          canMoveLater={canMoveLater}
+          copied={copied}
+          session={session}
+          t={t}
+          onCopy={onCopy}
+          onDelete={onDelete}
+          onMove={onMove}
+          batchCopied={batchCopied}
+          onCopyBatch={onCopyBatch}
+          onReorder={onReorder}
+          onReview={requestReopenSession}
+          onView={onView}
+        />
       </DropdownMenu>
     </div>
   );
@@ -499,12 +480,15 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
     loading,
     moveSessions,
     projectTree,
+    selectedBatchId,
     selectedCollection,
     selectedCollectionId,
     selectedProject,
+    sessions,
     setProjectTree,
   } = useWorkspaceChrome();
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [copiedBatchId, setCopiedBatchId] = useState<string | null>(null);
   const [deleteIds, setDeleteIds] = useState<string[]>([]);
   const [moveIds, setMoveIds] = useState<string[]>([]);
   const [moveProjectId, setMoveProjectId] = useState("");
@@ -520,13 +504,6 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [view, setView] = useState<HistoryView>("grid");
   useDocumentMeta(selectedCollection?.name || t("dashboard.allSessions"));
-
-  const sessions = useMemo(
-    () => selectedCollection
-      ? selectedCollection.sessions
-      : flattenCollectionSessions(selectedProject?.collections),
-    [selectedCollection, selectedProject],
-  );
   const collectionNameBySessionId = useMemo(() => {
     const names = new Map<string, string>();
     for (const collection of selectedProject?.collections ?? []) {
@@ -554,6 +531,14 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
       : [...filteredSessions].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
     return ordered.slice(start, start + pagination.pageSize);
   }, [filteredSessions, pagination.pageIndex, pagination.pageSize, selectedCollection]);
+  // The viewer steps through the whole filtered set in display order, so the
+  // arrows keep working past the end of the current page.
+  const orderedSessionIds = useMemo(() => {
+    const ordered = selectedCollection
+      ? filteredSessions
+      : [...filteredSessions].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+    return ordered.map((session) => session.id);
+  }, [filteredSessions, selectedCollection]);
   const pageCount = Math.max(1, Math.ceil(filteredSessions.length / pagination.pageSize));
   const rowSelection = useMemo(
     () => Object.fromEntries([...selectedIds].map((id) => [id, true])),
@@ -586,7 +571,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
     setPagination((current) => current.pageIndex === 0
       ? current
       : { ...current, pageIndex: 0 });
-  }, [pinFilters, reviewFilters, search, selectedCollectionId, selectedProject?.id]);
+  }, [pinFilters, reviewFilters, search, selectedBatchId, selectedCollectionId, selectedProject?.id]);
 
   useEffect(() => {
     if (pagination.pageIndex < pageCount) return;
@@ -655,9 +640,16 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
       session.captureId || session.id,
       includeScreenshot,
       handoffMode,
+      language,
     ));
     setCopiedId(session.id);
     window.setTimeout(() => setCopiedId(null), 2_000);
+  }
+
+  async function copyBatch(batchId: string) {
+    if (!await copyBatchHandoff(batchId)) return;
+    setCopiedBatchId(batchId);
+    window.setTimeout(() => setCopiedBatchId(null), 2_000);
   }
 
   async function deleteSessions() {
@@ -786,11 +778,13 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
     {
       cell: ({ row }) => (
         <SessionActions
+          batchCopied={copiedBatchId != null && copiedBatchId === row.original.batchId}
           canMoveEarlier={false}
           canMoveLater={false}
           copied={copiedId === row.original.id}
           session={row.original}
           onCopy={(session) => void copyPrompt(session)}
+          onCopyBatch={(id) => void copyBatch(id)}
           onDelete={(id) => setDeleteIds([id])}
           onMove={(id) => openMoveDialog([id])}
           onReorder={(sessionId, direction) => void reorderSession(sessionId, direction)}
@@ -805,7 +799,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
       meta: { align: "right", label: t("dashboard.actions") },
       size: 76,
     },
-  ], [collectionNameBySessionId, copiedId, handoffMode, includeScreenshot, language, projectTree.projects, selectedCollection, selectedProject, t]);
+  ], [collectionNameBySessionId, copiedBatchId, copiedId, handoffMode, includeScreenshot, language, projectTree.projects, selectedCollection, selectedProject, t]);
 
   const searchControl = (
     <div className="relative min-w-0 flex-1 sm:w-56 sm:min-w-40 sm:flex-none">
@@ -821,7 +815,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
   const pinFilterControl = (
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button className="border-dashed font-normal" variant="outline" />}><ListFilterIcon data-icon="inline-start" />{t("dashboard.pins")}{pinFilters.length > 0 && <Badge className="rounded-md px-1 font-normal" variant="secondary">{pinFilters.length}</Badge>}</DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-52">
+      <DropdownMenuContent align="start">
         <DropdownMenuGroup><DropdownMenuLabel>{t("dashboard.pins")}</DropdownMenuLabel>{pinFilterOptions.map((option) => <DropdownMenuCheckboxItem checked={pinFilters.includes(option.value)} key={option.value} onClick={() => setPinFilters((current) => current.includes(option.value) ? current.filter((item) => item !== option.value) : [...current, option.value])}>{option.label}</DropdownMenuCheckboxItem>)}</DropdownMenuGroup>
         {pinFilters.length > 0 && <><DropdownMenuSeparator /><DropdownMenuItem onClick={() => setPinFilters([])}><XIcon />{t("dashboard.clearFilter")}</DropdownMenuItem></>}
       </DropdownMenuContent>
@@ -830,7 +824,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
   const reviewFilterControl = (
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button className="border-dashed font-normal" variant="outline" />}><ListFilterIcon data-icon="inline-start" />{t("dashboard.reviewStatus")}{reviewFilters.length > 0 && <Badge className="rounded-md px-1 font-normal" variant="secondary">{reviewFilters.length}</Badge>}</DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-56">
+      <DropdownMenuContent align="start">
         <DropdownMenuGroup>
           <DropdownMenuLabel>{t("dashboard.reviewStatus")}</DropdownMenuLabel>
           {PIN_REVIEW_STATUSES.map((status) => (
@@ -915,7 +909,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
           className="min-h-0 min-w-0 flex-1 [&>[data-slot=scroll-area-scrollbar]]:hidden"
           data-dashboard-scroll-area
         >
-          <div className="mx-auto flex min-h-full w-full max-w-[1600px] flex-col gap-4 p-5">
+          <div className="mx-auto flex min-h-full w-full max-w-[1600px] flex-col gap-4 p-4">
             {(view !== "table" || filteredSessions.length === 0) && (
               <div className="flex min-w-0 flex-col gap-2">
                 <div className="flex min-w-0 flex-wrap items-center gap-2" role="toolbar">
@@ -997,38 +991,59 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
                         selectedIds={selectedIds}
                         session={session}
                       >
-                        <div className="absolute top-2 left-2 z-10" data-grid-selection>
+                        {/* Both corner controls stay out of the way until the
+                            card is hovered or focused. A checked box stays put
+                            so a selection never looks like it vanished, the
+                            actions stay while their menu is open (the pointer
+                            is in a portal by then), and coarse pointers, which
+                            cannot hover, always see them. */}
+                        <div
+                          className={cn(
+                            "absolute top-2 left-2 z-10 transition-opacity",
+                            selectedIds.has(session.id)
+                              ? "opacity-100"
+                              : "opacity-0 group-hover/card:opacity-100 group-focus-within/card:opacity-100 pointer-coarse:opacity-100",
+                          )}
+                          data-grid-selection
+                        >
                           <SessionSelectCheckbox
                             checked={selectedIds.has(session.id)}
                             label={sessionSelectLabel(session, t)}
                             onCheckedChange={(checked) => toggleSessionSelected(session.id, checked)}
                           />
                         </div>
+                        <div
+                          className="absolute top-2 right-2 z-10 flex items-center rounded-md bg-card/85 opacity-0 backdrop-blur-sm transition-opacity group-hover/card:opacity-100 group-focus-within/card:opacity-100 has-[[aria-expanded=true]]:opacity-100 pointer-coarse:opacity-100"
+                          data-grid-actions
+                        >
+                          <SessionActions batchCopied={copiedBatchId != null && copiedBatchId === session.batchId} canMoveEarlier={orderIndex > 0} canMoveLater={Boolean(selectedCollection && orderIndex >= 0 && orderIndex < selectedCollection.sessions.length - 1)} copied={copiedId === session.id} session={session} onCopy={(current) => void copyPrompt(current)} onCopyBatch={(id) => void copyBatch(id)} onDelete={(id) => setDeleteIds([id])} onMove={(id) => openMoveDialog([id])} onReorder={(sessionId, direction) => void reorderSession(sessionId, direction)} onView={openViewer} t={t} />
+                        </div>
                         <SessionPreview session={session} t={t} onOpen={() => openViewer(session.id)} />
                         <CardHeader className="py-3">
                           <div className="min-w-0">
-                            <SessionIdentity
-                              collectionName={selectedCollection ? undefined : collectionNameBySessionId.get(session.id)}
-                              heading
-                              session={session}
-                            />
+                            <SessionIdentity heading session={session} />
                           </div>
                         </CardHeader>
                         <CardFooter className="mt-auto justify-between gap-2 py-2.5">
                           <div className="flex min-w-0 flex-col gap-2 text-xs font-medium text-muted-foreground">
                             <div className="flex min-w-0 items-center gap-3">
                               <time className="inline-flex min-w-0 items-center gap-1.5" dateTime={session.createdAt}><CalendarIcon className="shrink-0 text-primary" /><span className="truncate">{formatSessionDate(session, language)}</span></time>
-                              <span className="inline-flex shrink-0 items-center gap-1.5"><MessageCircleIcon className="text-primary" />{t("dashboard.pinCount", { count, label: t(count === 1 ? "dashboard.pinSingular" : "dashboard.pinPlural") })}</span>
+                              <span className="inline-flex shrink-0 items-center gap-1.5"><MessageCircleIcon className="text-primary" />{t("dashboard.pinCount", { count })}</span>
                             </div>
-                            <ReviewCounts session={session} t={t} />
+                            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                              <ReviewCounts session={session} t={t} />
+                              {selectedCollection ? null : <CollectionChip name={collectionNameBySessionId.get(session.id)} />}
+                            </div>
                           </div>
-                          <SessionActions canMoveEarlier={orderIndex > 0} canMoveLater={Boolean(selectedCollection && orderIndex >= 0 && orderIndex < selectedCollection.sessions.length - 1)} copied={copiedId === session.id} session={session} onCopy={(current) => void copyPrompt(current)} onDelete={(id) => setDeleteIds([id])} onMove={(id) => openMoveDialog([id])} onReorder={(sessionId, direction) => void reorderSession(sessionId, direction)} onView={openViewer} t={t} />
                         </CardFooter>
                       </DraggableSessionCard>
                     );
                   })}
                 </div>
+                {/* The table ends on its own bottom border; the grid does not, so
+                    the controls need a rule to sit against. */}
                 <PaginationControls
+                  className="border-t pt-4"
                   labels={paginationLabels}
                   pageCount={pageCount}
                   pageIndex={pagination.pageIndex}
@@ -1046,7 +1061,15 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
         </ScrollArea>
       </SidebarInset>
       {viewerSessionId ? (
-        <WebViewer onClose={closeViewer} presentation="modal" sessionId={viewerSessionId} />
+        <WebViewer
+          presentation="modal"
+          sessionId={viewerSessionId}
+          siblingIds={orderedSessionIds}
+          onClose={closeViewer}
+          onDelete={(id) => { closeViewer(); setDeleteIds([id]); }}
+          onMove={(id) => { closeViewer(); openMoveDialog([id]); }}
+          onNavigate={openViewer}
+        />
       ) : null}
       <Dialog open={moveIds.length > 0} onOpenChange={(open) => !open && setMoveIds([])}>
         <DialogContent className="sm:max-w-2xl">

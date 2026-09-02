@@ -6,6 +6,7 @@ export * from "./components/button-group.js";
 export * from "./components/card.js";
 export * from "./components/badge.js";
 export * from "./components/switch.js";
+export * from "./components/settings.js";
 export * from "./components/input.js";
 export * from "./components/dialog.js";
 export * from "./components/alert-dialog.js";

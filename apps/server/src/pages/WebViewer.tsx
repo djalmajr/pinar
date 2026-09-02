@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import ReactMarkdown from "react-markdown";
 import { formatClipboardText, getPinColor, PINAR_REOPEN_SESSION_RESULT_EVENT, requestReopenSession, type AgentExecution, type Pin, type PinLocation, type PinReview, type PinReviewHumanAction, type PinReviewStatus, type Session } from "@pinar/shared";
 import { ImageZoomControls, ImageZoomStage, useImageZoom } from "@/components/ImageZoomStage";
+import { SessionActionsMenu } from "../components/SessionActionsMenu";
+import { copyBatchHandoff } from "../lib/session-actions";
 import { ServerShell } from "@/components/ServerShell";
 import { WorkspaceChrome } from "@/components/WorkspaceChrome";
 import { isRecord, isSession } from "@/lib/api-data";
@@ -27,9 +29,6 @@ import {
   DialogHeader,
   DialogTitle,
   DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -44,13 +43,13 @@ import {
   TabsTrigger,
 } from "@pinar/ui";
 import ArrowLeftIcon from "~icons/lucide/arrow-left";
-import BotIcon from "~icons/lucide/bot";
 import CalendarIcon from "~icons/lucide/calendar-days";
 import CheckIcon from "~icons/lucide/check";
 import ChevronDownIcon from "~icons/lucide/chevron-down";
+import ChevronLeftIcon from "~icons/lucide/chevron-left";
+import ChevronRightIcon from "~icons/lucide/chevron-right";
 import CopyIcon from "~icons/lucide/copy";
 import ExternalLinkIcon from "~icons/lucide/external-link";
-import FileTextIcon from "~icons/lucide/file-text";
 import MessageCircleIcon from "~icons/lucide/message-circle";
 import ScanSearchIcon from "~icons/lucide/scan-search";
 import SparklesIcon from "~icons/lucide/sparkles";
@@ -58,8 +57,16 @@ import XIcon from "~icons/lucide/x";
 
 interface WebViewerProps {
   onClose?: () => void;
+  // Moving and deleting need a list to return to, so the standalone /v/ route
+  // leaves them out rather than stranding the reader on a dead session.
+  onDelete?: (sessionId: string) => void;
+  onMove?: (sessionId: string) => void;
+  // Walking captures needs the surrounding list; the standalone route has none,
+  // so the arrows simply do not render there.
+  onNavigate?: (sessionId: string) => void;
   presentation?: "modal" | "page";
   sessionId: string;
+  siblingIds?: string[];
 }
 
 interface AiSummaryResult {
@@ -116,8 +123,8 @@ function ViewerPageIdentity({
   const copy = sessionListingCopy(session.page);
   const accessibleName = copy.title || copy.url || t("viewer.annotation");
   const titleClassName = "truncate text-sm font-medium";
-  const descriptionClassName = "line-clamp-2 text-xs text-muted-foreground";
-  const linkClassName = "inline-flex min-w-0 items-center gap-1 overflow-hidden font-mono text-xs text-muted-foreground hover:text-primary";
+  // No visible description here: the title and the URL already identify the page.
+  const linkClassName = "inline-flex min-w-0 items-center gap-1 overflow-hidden text-sm text-muted-foreground hover:text-primary";
   return (
     <div className="min-w-0 flex-1 space-y-0.5">
       {copy.title ? (
@@ -131,14 +138,11 @@ function ViewerPageIdentity({
       ) : (
         <h1 className="sr-only">{accessibleName}</h1>
       )}
-      {copy.description ? (
-        isModal ? (
-          <DialogDescription className={descriptionClassName}>{copy.description}</DialogDescription>
-        ) : (
-          <p className={descriptionClassName}>{copy.description}</p>
-        )
-      ) : isModal ? (
-        <DialogDescription className="sr-only">{copy.url || t("viewer.annotation")}</DialogDescription>
+      {isModal ? (
+        // The dialog still needs an accessible description, just not a visible one.
+        <DialogDescription className="sr-only">
+          {copy.description || copy.url || t("viewer.annotation")}
+        </DialogDescription>
       ) : null}
       {copy.url ? (
         <div className="flex min-w-0 items-center gap-2">
@@ -282,7 +286,15 @@ function ViewerFrame({ children, className }: { children: ReactNode; className?:
   return <ServerShell className={className}>{children}</ServerShell>;
 }
 
-export function WebViewer({ onClose, presentation = "page", sessionId }: WebViewerProps) {
+export function WebViewer({
+  onClose,
+  onDelete,
+  onMove,
+  onNavigate,
+  presentation = "page",
+  sessionId,
+  siblingIds = [],
+}: WebViewerProps) {
   const { language, t } = useServerI18n();
   const showAiSummary = pinarRuntime() === "cloud";
   const aiRequestId = useRef<string | null>(null);
@@ -294,6 +306,7 @@ export function WebViewer({ onClose, presentation = "page", sessionId }: WebView
   const [aiSummaryOpen, setAiSummaryOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [pageCopied, setPageCopied] = useState(false);
+  const [batchCopied, setBatchCopied] = useState(false);
   const [reopenHint, setReopenHint] = useState<"failed" | "missing" | null>(null);
   const reopenWait = useRef<number | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
@@ -301,8 +314,34 @@ export function WebViewer({ onClose, presentation = "page", sessionId }: WebView
   const [executions, setExecutions] = useState<AgentExecution[]>([]);
   const [selectedPin, setSelectedPin] = useState<Pin | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  const siblingIndex = siblingIds.indexOf(sessionId);
   const zoom = useImageZoom(session?.shotUrl || sessionId);
   const isModal = presentation === "modal";
+
+  const stepCapture = useCallback((delta: number) => {
+    const next = siblingIds[siblingIds.indexOf(sessionId) + delta];
+    if (next) onNavigate?.(next);
+  }, [onNavigate, sessionId, siblingIds]);
+
+  useEffect(() => {
+    if (siblingIds.length < 2) return;
+    function onKey(event: KeyboardEvent) {
+      // Let the pin dialog, the summary and any text field keep their arrows.
+      if (selectedPin || aiSummaryOpen) return;
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      // The target is not always an Element - a keydown aimed at the document
+      // has no closest() - so narrow before asking about form fields.
+      const target = event.target;
+      if (target instanceof Element && target.closest("input, textarea, select, [contenteditable='true']")) return;
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      stepCapture(event.key === "ArrowLeft" ? -1 : 1);
+    }
+    // Capture phase: the dialog stops keydown from bubbling, and focus lives
+    // inside it, so a bubble listener on window would never see these keys.
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [aiSummaryOpen, selectedPin, siblingIds, stepCapture]);
 
   async function loadSession() {
     const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`);
@@ -377,6 +416,12 @@ export function WebViewer({ onClose, presentation = "page", sessionId }: WebView
     return new URL(`/v/${sessionId}.md`, window.location.origin).toString();
   }
 
+  async function copyBatch(batchId: string) {
+    if (!await copyBatchHandoff(batchId)) return;
+    setBatchCopied(true);
+    window.setTimeout(() => setBatchCopied(false), 2_000);
+  }
+
   async function copyPage() {
     if (!session) return;
     let handoffMode: "compact" | "full" = "compact";
@@ -395,19 +440,12 @@ export function WebViewer({ onClose, presentation = "page", sessionId }: WebView
       session.captureId || session.id,
       session.includeScreenshot !== false,
       handoffMode,
+      language,
     ));
     setPageCopied(true);
     window.setTimeout(() => setPageCopied(false), 2_000);
   }
 
-  function openInAssistant(assistant: "chatgpt" | "claude") {
-    const prompt = t("viewer.reviewPrompt", { url: markdownUrl() });
-    const url =
-      assistant === "chatgpt"
-        ? `https://chatgpt.com/?q=${encodeURIComponent(prompt)}`
-        : `https://claude.ai/new?q=${encodeURIComponent(prompt)}`;
-    window.open(url, "_blank", "noopener,noreferrer");
-  }
 
   async function generateAiSummary() {
     setAiSummaryOpen(true);
@@ -532,7 +570,38 @@ export function WebViewer({ onClose, presentation = "page", sessionId }: WebView
             t={t}
           />
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+          {siblingIndex >= 0 && siblingIds.length > 1 ? (
+            <div className="flex shrink-0 items-center gap-2">
+              <span className="text-xs text-muted-foreground tabular-nums" role="status">
+                {t("viewer.capturePosition", { current: siblingIndex + 1, total: siblingIds.length })}
+              </span>
+              <ButtonGroup aria-label={t("viewer.captureNavigation")}>
+                <Button
+                  aria-label={t("viewer.previousCapture")}
+                  disabled={siblingIndex <= 0}
+                  size="icon"
+                  title={t("viewer.previousCapture")}
+                  type="button"
+                  variant="outline"
+                  onClick={() => stepCapture(-1)}
+                >
+                  <ChevronLeftIcon />
+                </Button>
+                <Button
+                  aria-label={t("viewer.nextCapture")}
+                  disabled={siblingIndex >= siblingIds.length - 1}
+                  size="icon"
+                  title={t("viewer.nextCapture")}
+                  type="button"
+                  variant="outline"
+                  onClick={() => stepCapture(1)}
+                >
+                  <ChevronRightIcon />
+                </Button>
+              </ButtonGroup>
+            </div>
+          ) : null}
           <Button
             aria-label={t("viewer.reviewOnPage")}
             title={t("viewer.reviewOnPage")}
@@ -550,9 +619,9 @@ export function WebViewer({ onClose, presentation = "page", sessionId }: WebView
             </Button>
           ) : null}
           <ButtonGroup aria-label={t("viewer.pageActions")}>
-            <Button aria-label={pageCopied ? t("common.copied") : t("viewer.copyPage")} type="button" variant="outline" onClick={copyPage}>
+            <Button aria-label={pageCopied ? t("common.copied") : t("dashboard.copyPrompt")} type="button" variant="outline" onClick={copyPage}>
               {pageCopied ? <CheckIcon data-icon="inline-start" /> : <CopyIcon data-icon="inline-start" />}
-              <span className="hidden sm:inline">{pageCopied ? t("common.copied") : t("viewer.copyPage")}</span>
+              <span className="hidden sm:inline">{pageCopied ? t("common.copied") : t("dashboard.copyPrompt")}</span>
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger
@@ -567,24 +636,14 @@ export function WebViewer({ onClose, presentation = "page", sessionId }: WebView
               >
                 <ChevronDownIcon />
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52">
-                <DropdownMenuGroup>
-                  <DropdownMenuItem
-                    render={<a href={`/v/${session.id}.md`} rel="noopener noreferrer" target="_blank" />}
-                  >
-                    <FileTextIcon />
-                    {t("viewer.viewMarkdown")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => openInAssistant("chatgpt")}>
-                    <BotIcon />
-                    {t("viewer.openChatGPT")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => openInAssistant("claude")}>
-                    <SparklesIcon />
-                    {t("viewer.openClaude")}
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-              </DropdownMenuContent>
+              <SessionActionsMenu
+                batchCopied={batchCopied}
+                session={session}
+                t={t}
+                onCopyBatch={(id) => void copyBatch(id)}
+                onDelete={onDelete}
+                onMove={onMove}
+              />
             </DropdownMenu>
           </ButtonGroup>
           {isModal ? (
@@ -634,10 +693,7 @@ export function WebViewer({ onClose, presentation = "page", sessionId }: WebView
                 </time>
                 <h2 className="inline-flex shrink-0 items-center gap-1.5">
                   <MessageCircleIcon className="text-primary" />
-                  {t("dashboard.pinCount", {
-                    count: session.pins?.length || 0,
-                    label: t((session.pins?.length || 0) === 1 ? "dashboard.pinSingular" : "dashboard.pinPlural"),
-                  })}
+                  {t("dashboard.pinCount", { count: session.pins?.length || 0 })}
                 </h2>
               </div>
             </div>

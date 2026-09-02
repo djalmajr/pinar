@@ -10,6 +10,7 @@ import type {
   Project,
   ProjectIcon,
   ProjectTree,
+  PinReviewStatus,
   Session,
 } from "@pinar/shared";
 import {
@@ -33,7 +34,7 @@ import { openHistoryDb } from "@pinar/cli/history";
 import { pinarHome, shotsDir } from "@pinar/cli/paths";
 import { readDeliveryPreferences, writeDeliveryPreferences } from "@pinar/cli/preferences";
 import { writeShot } from "@pinar/cli/shots";
-import { formatCollectionMarkdown, formatProjectMarkdown, formatSessionMarkdown } from "./markdown";
+import { formatBatchMarkdown, formatCollectionMarkdown, formatProjectMarkdown, formatSessionMarkdown } from "./markdown";
 import { installerResponse } from "./installers";
 import {
   capabilitySecretFromRequest,
@@ -53,16 +54,27 @@ import { localHealthDiscoveryBody } from "./local-api-trust";
 import { decodePngDataUrl } from "./png";
 
 interface LocalSession extends Session {
+  batchId?: string | null;
   shotPath?: string | null;
+}
+
+interface HistoryBatch {
+  finishedAt: string | null;
+  id: string;
+  label: string;
+  sessionCount: number;
+  startedAt: string;
 }
 
 interface HistoryDatabase {
   close(): void;
   createCollection(projectId: string, name: string, parentId?: string | null): Collection | null;
   createProject(name: string, icon?: ProjectIcon): Project;
+  deleteBatch(id: string): boolean;
   deleteCollection(id: string): boolean;
   deleteProject(id: string): boolean;
   deleteSession(id: string): boolean;
+  finishBatch(id: string, finishedAt: string): HistoryBatch | null;
   getDefaultDestination(): CaptureDestination;
   getProjectTree(): ProjectTree;
   getSession(id: string): LocalSession | null;
@@ -80,8 +92,15 @@ interface HistoryDatabase {
     },
   ): { changed: boolean; review: import("@pinar/shared").PinReview };
   listCollections(projectId: string): Collection[];
+  listBatches(): HistoryBatch[];
   listProjects(): Project[];
-  listSessions(options: { collectionId?: string; limit: number; offset: number; query: string }): LocalSession[];
+  listSessions(options: {
+    batchId?: string;
+    collectionId?: string;
+    limit: number;
+    offset: number;
+    query: string;
+  }): LocalSession[];
   moveSession(id: string, collectionId: string): LocalSession | null;
   reorderCollections(projectId: string, items: CollectionPlacement[] | string[]): Collection[] | null;
   reorderProjects(ids: string[]): Project[];
@@ -91,6 +110,7 @@ interface HistoryDatabase {
   saveLoopMetrics(events: unknown[]): Array<import("@pinar/shared").LoopMetric & { createdAt: string; id: string }>;
   listLoopMetrics(): Array<import("@pinar/shared").LoopMetric & { createdAt: string; id: string }>;
   saveSession(input: {
+    batchId?: string | null;
     collectionId?: string;
     createdAt?: string;
     id?: string;
@@ -103,6 +123,7 @@ interface HistoryDatabase {
     warnings?: string[];
   }): LocalSession;
   updateCollection(id: string, name: string): Collection | null;
+  upsertBatch(input: { id: string; label: string; startedAt: string }): HistoryBatch;
   updateProject(id: string, name: string, icon?: ProjectIcon): Project | null;
 }
 
@@ -156,6 +177,24 @@ function booleanValue(record: Record<string, unknown>, key: string, fallback = t
 function stringArrayValue(record: Record<string, unknown>, key: string) {
   const value = record[key];
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function batchValue(record: Record<string, unknown>) {
+  const value = record.batch;
+  if (!isRecord(value)) return null;
+  const id = stringValue(value, "id").trim();
+  if (!id) return null;
+  return {
+    id,
+    label: stringValue(value, "label"),
+    startedAt: stringValue(value, "startedAt") || new Date().toISOString(),
+  };
+}
+
+function persistBatch(body: Record<string, unknown>) {
+  const batch = batchValue(body);
+  if (batch) historyDatabase().upsertBatch(batch);
+  return batch;
 }
 
 function pageValue(value: unknown): PageInfo {
@@ -323,6 +362,27 @@ function publicCollection(id: string, origin: string) {
   return null;
 }
 
+// Pins carry review state per session, so the bundle gathers both: the sessions
+// tagged with this batch and the status map the markdown filters on.
+function publicBatch(id: string, origin: string) {
+  const batch = historyDatabase().listBatches().find((item) => item.id === id);
+  if (!batch) return null;
+  const sessions: Session[] = [];
+  const statusByPinId: Record<string, PinReviewStatus> = {};
+  for (const project of presentProjectTree(historyDatabase().getProjectTree(), origin).projects) {
+    for (const collection of project.collections) {
+      for (const session of collection.sessions) {
+        if (session.batchId !== id) continue;
+        sessions.push(session);
+        for (const review of historyDatabase().listPinReviews(session.id)) {
+          statusByPinId[review.pinId] = review.status;
+        }
+      }
+    }
+  }
+  return { batch, sessions, statusByPinId };
+}
+
 async function uploadShot(request: Request): Promise<Response> {
   const body = await readJson(request);
   const id = stringValue(body, "id") || stringValue(body, "captureId");
@@ -340,10 +400,14 @@ async function uploadShot(request: Request): Promise<Response> {
     return json({ error: "invalid PNG image" }, 400);
   }
   const saved = await writeShot(id, image, rootPath());
-  const destination = historyDatabase().resolveDestination(stringValue(body, "collectionId"));
+  const preferences = readDeliveryPreferences(rootPath());
+  const destination = historyDatabase().resolveDestination(
+    stringValue(body, "collectionId") || preferences.captureDestination?.collectionId,
+  );
   if (capture) {
     try {
       historyDatabase().saveSession({
+        batchId: persistBatch(body)?.id ?? null,
         collectionId: destination.collectionId,
         createdAt: stringValue(body, "createdAt") || capture.createdAt,
         id: capture.captureId,
@@ -355,7 +419,7 @@ async function uploadShot(request: Request): Promise<Response> {
         includeScreenshot: booleanValue(
           body,
           "includeScreenshot",
-          readDeliveryPreferences(rootPath()).includeScreenshot,
+          preferences.includeScreenshot,
         ),
         warnings: capture.warnings,
       });
@@ -385,6 +449,7 @@ async function saveHistory(request: Request): Promise<Response> {
   if (!parsed.ok) return parsed.response;
   try {
     const session = historyDatabase().saveSession({
+      batchId: persistBatch(body)?.id ?? null,
       collectionId: destination.collectionId,
       createdAt: stringValue(body, "createdAt") || parsed.capture.createdAt,
       id: parsed.capture.captureId,
@@ -443,7 +508,7 @@ async function routeLocalApi(request: Request): Promise<Response> {
     return revoked ? json({ ok: true }) : unauthorizedLocalApiResponse(request);
   }
   if (method === "GET" && path === "/api/health") {
-    return json(localHealthDiscoveryBody());
+    return json(localHealthDiscoveryBody(import.meta.env.VITE_PINAR_VERSION ?? ""));
   }
   if (method === "GET" && path === "/api/auth/session") {
     return json({ session: { kind: "local", plan: "free" } }, 200, { "Cache-Control": "no-store" });
@@ -476,6 +541,24 @@ async function routeLocalApi(request: Request): Promise<Response> {
   }
   if (method === "GET" && path === "/api/project-tree") {
     return json({ ok: true, tree: presentProjectTree(historyDatabase().getProjectTree(), url.origin) });
+  }
+  if (method === "GET" && path === "/api/batches") {
+    return json({ batches: historyDatabase().listBatches(), ok: true });
+  }
+  const batchFinishMatch = path.match(/^\/api\/batches\/([^/]+)\/finish$/);
+  if (batchFinishMatch && method === "POST") {
+    const body = await readJson(request);
+    const finishedAt = stringValue(body, "finishedAt") || new Date().toISOString();
+    const batch = historyDatabase().finishBatch(
+      decodeURIComponent(batchFinishMatch[1]),
+      finishedAt,
+    );
+    return batch ? json({ batch, ok: true }) : json({ error: "batch not found" }, 404);
+  }
+  const batchMatch = path.match(/^\/api\/batches\/([^/]+)$/);
+  if (batchMatch && method === "DELETE") {
+    const deleted = historyDatabase().deleteBatch(decodeURIComponent(batchMatch[1]));
+    return deleted ? json({ ok: true }) : json({ error: "batch not found" }, 404);
   }
   if (method === "GET" && path === "/api/projects") {
     return json({ ok: true, projects: historyDatabase().listProjects() });
@@ -585,7 +668,8 @@ async function routeLocalApi(request: Request): Promise<Response> {
     const offset = Number(url.searchParams.get("offset")) || 0;
     const query = url.searchParams.get("q") || "";
     const collectionId = url.searchParams.get("collectionId") || "";
-    const sessions = historyDatabase().listSessions({ collectionId, limit, offset, query }).map((session) => {
+    const batchId = url.searchParams.get("batchId") || "";
+    const sessions = historyDatabase().listSessions({ batchId, collectionId, limit, offset, query }).map((session) => {
       return presentSession(session, url.origin);
     });
     return json({ ok: true, sessions });
@@ -665,6 +749,22 @@ export async function handlePublicRequest(request: Request): Promise<Response> {
         "Content-Type": "text/markdown; charset=utf-8",
       })
       : text("Collection not found", 404);
+  }
+  if (request.method === "GET" && url.pathname.startsWith("/b/")) {
+    const rawId = decodeURIComponent(url.pathname.slice("/b/".length));
+    if (!rawId.endsWith(".md")) return json({ error: "not found" }, 404);
+    const bundle = publicBatch(rawId.slice(0, -3), url.origin);
+    const preferences = readDeliveryPreferences(rootPath());
+    return bundle
+      ? text(
+        formatBatchMarkdown(bundle.batch, bundle.sessions, bundle.statusByPinId, url.origin, {
+          ...preferences,
+          language: preferences.language ?? "en",
+        }),
+        200,
+        { "Cache-Control": "no-store", "Content-Type": "text/markdown; charset=utf-8" },
+      )
+      : text("Batch not found", 404);
   }
   if (request.method === "GET" && (url.pathname === "/install.sh" || url.pathname === "/install.ps1")) {
     return installerResponse(url.pathname) || json({ error: "not found" }, 404);

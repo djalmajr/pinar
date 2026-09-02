@@ -291,6 +291,16 @@ CREATE TABLE collections (
 CREATE INDEX idx_collections_owner ON collections(owner_id);
 CREATE INDEX idx_collections_project_position ON collections(project_id, parent_id, position);
 
+CREATE TABLE batches (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  label TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  finished_at TEXT
+);
+
+CREATE INDEX idx_batches_user_started ON batches(user_id, started_at DESC);
+
 CREATE TABLE sessions (
   id TEXT PRIMARY KEY,
   url TEXT,
@@ -307,7 +317,8 @@ CREATE TABLE sessions (
   collection_id TEXT REFERENCES collections(id),
   position INTEGER NOT NULL DEFAULT 0,
   retention_expires_at TEXT,
-  include_screenshot INTEGER NOT NULL DEFAULT 1 CHECK (include_screenshot IN (0, 1))
+  include_screenshot INTEGER NOT NULL DEFAULT 1 CHECK (include_screenshot IN (0, 1)),
+  batch_id TEXT REFERENCES batches(id)
 );
 
 CREATE INDEX idx_sessions_created ON sessions(created_at DESC);
@@ -315,6 +326,7 @@ CREATE INDEX idx_sessions_user ON sessions(user_id);
 CREATE INDEX idx_sessions_plan ON sessions(plan, is_permanent);
 CREATE INDEX idx_sessions_collection_position ON sessions(collection_id, position);
 CREATE INDEX idx_sessions_retention_expiry ON sessions(retention_expires_at);
+CREATE INDEX idx_sessions_user_batch ON sessions(user_id, batch_id);
 
 CREATE TABLE agent_executions (
   id TEXT PRIMARY KEY,
@@ -389,5 +401,12 @@ CREATE TABLE owner_preferences (
   owner_id TEXT PRIMARY KEY,
   include_screenshot INTEGER NOT NULL DEFAULT 1 CHECK (include_screenshot IN (0, 1)),
   updated_at TEXT NOT NULL,
-  handoff_mode TEXT NOT NULL DEFAULT 'compact' CHECK (handoff_mode IN ('compact', 'full'))
+  handoff_mode TEXT NOT NULL DEFAULT 'compact' CHECK (handoff_mode IN ('compact', 'full')),
+  capture_project_id TEXT,
+  capture_collection_id TEXT,
+  copy_on_finish_batch TEXT CHECK (copy_on_finish_batch IN ('off', 'link', 'prompt')),
+  copy_viewer_content INTEGER CHECK (copy_viewer_content IN (0, 1)),
+  include_viewer INTEGER CHECK (include_viewer IN (0, 1)),
+  language TEXT,
+  sensitive_query_keys TEXT
 );

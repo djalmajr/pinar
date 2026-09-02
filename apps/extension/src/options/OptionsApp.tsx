@@ -1,15 +1,19 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
 import {
   type AuthSession,
   type CaptureDestination,
+  type CopyOnFinishBatch,
   getBestLanguage,
   type HandoffMode,
   macosDesktopDmgUrl,
+  mergeDeliveryPreferences,
   type PinarSettings,
   type ProjectTree,
   type ProjectTreeCollection,
+  SUPPORTED_LANGUAGES,
   type SupportedLanguage,
   type ThemeMode,
+  type TranslationDictionary,
   translations,
 } from "@pinar/shared";
 import {
@@ -25,9 +29,6 @@ import {
   Button,
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
   Combobox,
   ComboboxContent,
   ComboboxEmpty,
@@ -51,6 +52,7 @@ import {
   TabsTrigger,
   Toaster,
   toast,
+  cn,
 } from "@pinar/ui";
 import IconCheck from "~icons/lucide/check";
 import IconCoffee from "~icons/lucide/coffee";
@@ -81,21 +83,143 @@ import {
   withExtensionResponseFallback,
 } from "./extension-response";
 
-const LANGUAGE_OPTIONS: { code: SupportedLanguage; label: string }[] = [
-  { code: "en", label: "English" },
-  { code: "pt", label: "Português" },
-  { code: "es", label: "Español" },
-  { code: "fr", label: "Français" },
-  { code: "de", label: "Deutsch" },
-  { code: "zh", label: "简体中文" },
-  { code: "ja", label: "日本語" },
-];
+const LANGUAGE_OPTIONS = SUPPORTED_LANGUAGES.map((code) => ({ code, label: translations[code].name }));
+
+const SECTION_HEADER = "text-[11px] font-semibold uppercase tracking-wider text-muted-foreground";
+
+const OVERLAY_SHORTCUTS = [
+  { description: "shortcut_pin_element_desc", keys: "Enter", label: "shortcut_pin_element" },
+  { description: "shortcut_walk_dom_desc", keys: "↑ / ↓", label: "shortcut_walk_dom" },
+  { description: "shortcut_mask_desc", keys: "M", label: "shortcut_mask" },
+  { description: "shortcut_cancel_desc", keys: "Esc", label: "shortcut_cancel" },
+  { description: "shortcut_copy_desc", keys: "⌘/Ctrl + Enter", label: "shortcut_copy" },
+] as const satisfies ReadonlyArray<{ description: keyof TranslationDictionary; keys: string; label: keyof TranslationDictionary }>;
+
+function ShortcutRow({ description, editLabel, keys, label, onEdit }: { description: string; editLabel?: string; keys: string; label: string; onEdit?: () => void }) {
+  const chip = <kbd className="block rounded border bg-muted px-2 py-1 font-mono text-[11px] text-muted-foreground transition-colors group-hover/shortcut:border-primary group-hover/shortcut:text-foreground">{keys}</kbd>;
+  return (
+    <li className="flex items-center justify-between gap-3 py-1">
+      <span className="min-w-0"><span className="block text-xs font-semibold">{label}</span><span className="block text-xs text-muted-foreground">{description}</span></span>
+      {onEdit ? (
+        <button aria-label={editLabel} className="group/shortcut shrink-0 cursor-pointer rounded outline-none focus-visible:ring-2 focus-visible:ring-ring/30" title={editLabel} type="button" onClick={onEdit}>{chip}</button>
+      ) : (
+        <span className="shrink-0">{chip}</span>
+      )}
+    </li>
+  );
+}
+
+const COMMAND_TEXT = {
+  _execute_action: { description: "shortcuts_toggle_desc", label: "shortcuts_toggle_label" },
+  "finish-batch": { description: "shortcuts_finish_batch_desc", label: "shortcuts_finish_batch_label" },
+  "cancel-batch": { description: "shortcuts_cancel_batch_desc", label: "shortcuts_cancel_batch_label" },
+  "open-panel": { description: "shortcuts_open_panel_desc", label: "shortcuts_open_panel_label" },
+} as const satisfies Record<string, { description: keyof TranslationDictionary; label: keyof TranslationDictionary }>;
+
+function commandText(command: chrome.commands.Command, t: TranslationDictionary) {
+  const keys = COMMAND_TEXT[command.name as keyof typeof COMMAND_TEXT];
+  // Chrome only knows the English manifest description; our own UI must not.
+  if (!keys) return { description: "", label: command.description || command.name || "" };
+  return { description: t[keys.description], label: t[keys.label] };
+}
+
+function ShortcutsTab({ t }: { t: TranslationDictionary }) {
+  const [commands, setCommands] = useState<chrome.commands.Command[]>([]);
+
+  useEffect(() => {
+    const read = () => chrome.commands?.getAll?.((all) => setCommands(all ?? []));
+    read();
+    // Chrome fires no event when a binding changes on chrome://extensions/shortcuts,
+    // so re-read whenever the user comes back to this page.
+    const onVisibility = () => { if (document.visibilityState === "visible") read(); };
+    window.addEventListener("focus", read);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", read);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
+
+  return (
+    <div className="flex flex-col gap-5">
+      <section className="flex flex-col gap-2.5">
+        <span className={SECTION_HEADER}>{t.shortcuts_browser_title}</span>
+        <p className="text-xs leading-relaxed text-muted-foreground">{t.shortcuts_browser_desc}</p>
+        <ul className="flex flex-col gap-2">
+          {commands.map((command) => (
+            <ShortcutRow editLabel={t.shortcuts_customize} key={command.name} keys={command.shortcut || t.shortcuts_unassigned} {...commandText(command, t)} onEdit={() => void chrome.tabs.create({ url: "chrome://extensions/shortcuts" })} />
+          ))}
+        </ul>
+      </section>
+      <section className="flex flex-col gap-2.5">
+        <span className={SECTION_HEADER}>{t.shortcuts_overlay_title}</span>
+        <p className="text-xs leading-relaxed text-muted-foreground">{t.shortcuts_overlay_desc}</p>
+        <ul className="flex flex-col gap-2">
+          {OVERLAY_SHORTCUTS.map((item) => <ShortcutRow description={t[item.description]} key={item.keys} keys={item.keys} label={t[item.label]} />)}
+        </ul>
+      </section>
+    </div>
+  );
+}
+
+function formatBytes(value: number, locale: string) {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const index = value > 0 ? Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1) : 0;
+  const scaled = value / 1024 ** index;
+  return `${new Intl.NumberFormat(locale, { maximumFractionDigits: index > 0 && scaled < 10 ? 1 : 0 }).format(scaled)} ${units[index]}`;
+}
+
+function StorageStatusPanel({ mode, t }: { mode: PinarSettings["storageMode"]; t: TranslationDictionary }) {
+  const [status, setStatus] = useState<Record<string, unknown> | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  const refresh = useCallback(async () => {
+    setChecking(true);
+    const response = await extensionMessage({ type: "storage:status" }, t.account_unavailable);
+    setStatus(response.ok ? (response as unknown as Record<string, unknown>) : null);
+    setChecking(false);
+  }, [t.account_unavailable]);
+
+  useEffect(() => { void refresh(); }, [mode, refresh]);
+
+  if (mode === "cloud") {
+    const used = Number(status?.usedBytes ?? 0);
+    const quota = Number(status?.quotaBytes ?? 0);
+    const paused = status ? status.uploadAllowed === false : false;
+    return (
+      <div className="flex flex-col gap-2 py-1">
+        <div className="flex items-center justify-between gap-3">
+          <span className="min-w-0">
+            <span className="block text-xs font-semibold">{quota > 0 ? t.storage_cloud_usage.replace("{used}", formatBytes(used, "en")).replace("{quota}", formatBytes(quota, "en")) : "—"}</span>
+            <span className={cn("block text-xs", paused ? "text-destructive" : "text-muted-foreground")}>{paused ? t.storage_cloud_paused : t.storage_status_desc}</span>
+          </span>
+          <Button className="h-7 shrink-0 text-xs" disabled={checking} size="sm" variant="outline" onClick={() => void refresh()}>{t.storage_recheck}</Button>
+        </div>
+        {quota > 0 ? <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted"><div className={cn("h-full rounded-full", paused ? "bg-destructive" : "bg-primary")} style={{ width: `${Math.min(100, Math.round((used / quota) * 100))}%` }} /></div> : null}
+      </div>
+    );
+  }
+
+  const reachable = status?.reachable === true;
+  return (
+    <div className="flex items-center justify-between gap-3 py-1">
+      <span className="min-w-0">
+        <span className={cn("block text-xs font-semibold", reachable ? "text-foreground" : "text-destructive")}>
+          {reachable ? t.storage_local_connected.replace("{port}", String(status?.port ?? "")) : t.storage_local_missing}
+        </span>
+        <span className="block text-xs text-muted-foreground">{t.storage_status_desc}</span>
+      </span>
+      <Button className="h-7 shrink-0 text-xs" disabled={checking} size="sm" variant="outline" onClick={() => void refresh()}>{t.storage_recheck}</Button>
+    </div>
+  );
+}
 
 const DEFAULT_LANGUAGE: SupportedLanguage = "en";
 const DEFAULT_PROJECT_OPTION = { label: "Personal", value: "__pinar_default_project__" };
 const DEFAULT_COLLECTION_OPTION = { label: "Inbox", value: "__pinar_default_collection__" };
 const SETTINGS_KEYS: (keyof PinarSettings)[] = [
   "cloudUrl",
+  "copyOnFinishBatch",
   "copyViewerContent",
   "enableHistory",
   "handoffMode",
@@ -110,6 +234,7 @@ const SETTINGS_KEYS: (keyof PinarSettings)[] = [
 
 const DEFAULT_SETTINGS: PinarSettings = {
   cloudUrl: "https://pinar.dev",
+  copyOnFinishBatch: "prompt",
   copyViewerContent: false,
   enableHistory: true,
   handoffMode: "compact",
@@ -123,13 +248,19 @@ const DEFAULT_SETTINGS: PinarSettings = {
 };
 
 interface ExtensionResponse extends ExtensionResponseBase {
+  captureDestination?: CaptureDestination | null;
   code?: string;
+  copyOnFinishBatch?: CopyOnFinishBatch;
+  copyViewerContent?: boolean;
   destination?: CaptureDestination;
   error?: string;
   expiresAt?: string;
   handoffMode?: HandoffMode;
   includeScreenshot?: boolean;
+  includeViewer?: boolean;
+  language?: SupportedLanguage | null;
   ok?: boolean;
+  sensitiveQueryKeys?: string;
   session?: AuthSession;
   tree?: ProjectTree;
   url?: string;
@@ -175,6 +306,32 @@ async function extensionMessage(
 
 function areSettingsEqual(left: PinarSettings, right: PinarSettings) {
   return SETTINGS_KEYS.every((key) => left[key] === right[key]);
+}
+
+function applyDeliveryResponse(current: PinarSettings, patch: unknown): PinarSettings {
+  const language = (SUPPORTED_LANGUAGES as readonly string[]).includes(current.language)
+    ? current.language as SupportedLanguage
+    : null;
+  const merged = mergeDeliveryPreferences({
+    captureDestination: null,
+    copyOnFinishBatch: current.copyOnFinishBatch,
+    copyViewerContent: Boolean(current.copyViewerContent),
+    handoffMode: current.handoffMode === "full" ? "full" : "compact",
+    includeScreenshot: current.includeScreenshot !== false,
+    includeViewer: current.includeViewer !== false,
+    language,
+    sensitiveQueryKeys: typeof current.sensitiveQueryKeys === "string" ? current.sensitiveQueryKeys : "",
+  }, patch);
+  return {
+    ...current,
+    copyOnFinishBatch: merged.copyOnFinishBatch,
+    copyViewerContent: merged.copyViewerContent,
+    handoffMode: merged.handoffMode,
+    includeScreenshot: merged.includeScreenshot,
+    includeViewer: merged.includeViewer,
+    language: merged.language ?? current.language,
+    sensitiveQueryKeys: merged.sensitiveQueryKeys,
+  };
 }
 
 function flattenDestinationCollections(collections: ProjectTreeCollection[]) {
@@ -284,11 +441,18 @@ export function OptionsApp() {
   async function syncDeliveryPreferences(current: PinarSettings): Promise<PinarSettings> {
     const response = await extensionMessage({ type: "preferences:get" }, "");
     if (!response.ok || typeof response.includeScreenshot !== "boolean") return current;
-    const handoffMode: HandoffMode = response.handoffMode === "full" ? "full" : "compact";
-    if (response.includeScreenshot === current.includeScreenshot && handoffMode === current.handoffMode) return current;
-    const next = { ...current, handoffMode, includeScreenshot: response.includeScreenshot };
+    const next = applyDeliveryResponse(current, response);
+    if (areSettingsEqual(next, current)) return current;
     if (typeof chrome !== "undefined" && chrome.storage?.sync) {
-      await chrome.storage.sync.set({ handoffMode, includeScreenshot: response.includeScreenshot });
+      await chrome.storage.sync.set({
+        copyOnFinishBatch: next.copyOnFinishBatch,
+        copyViewerContent: next.copyViewerContent,
+        handoffMode: next.handoffMode,
+        includeScreenshot: next.includeScreenshot,
+        includeViewer: next.includeViewer,
+        language: next.language,
+        sensitiveQueryKeys: next.sensitiveQueryKeys,
+      });
     }
     return next;
   }
@@ -347,6 +511,7 @@ export function OptionsApp() {
           : items.cloudUrl;
         loaded = {
           cloudUrl,
+          copyOnFinishBatch: items.copyOnFinishBatch === "off" || items.copyOnFinishBatch === "link" ? items.copyOnFinishBatch : "prompt",
           copyViewerContent: Boolean(items.copyViewerContent),
           enableHistory: Boolean(items.enableHistory),
           handoffMode: items.handoffMode === "full" ? "full" : "compact",
@@ -386,20 +551,29 @@ export function OptionsApp() {
       }
     }
     if (typeof chrome !== "undefined" && chrome.storage?.sync) await chrome.storage.sync.set(settings);
-    const prefs = await extensionMessage(
-      { handoffMode: settings.handoffMode, includeScreenshot: settings.includeScreenshot, type: "preferences:set" },
-      "",
-    );
+    const prefs = await extensionMessage({
+      copyOnFinishBatch: settings.copyOnFinishBatch,
+      copyViewerContent: settings.copyViewerContent,
+      handoffMode: settings.handoffMode,
+      includeScreenshot: settings.includeScreenshot,
+      includeViewer: settings.includeViewer,
+      language: settings.language,
+      sensitiveQueryKeys: settings.sensitiveQueryKeys,
+      type: "preferences:set",
+    }, "");
     const saved = prefs.ok && typeof prefs.includeScreenshot === "boolean"
-      ? {
-          ...settings,
-          handoffMode: prefs.handoffMode === "full" ? "full" as const : "compact" as const,
-          includeScreenshot: prefs.includeScreenshot,
-        }
+      ? applyDeliveryResponse(settings, prefs)
       : settings;
-    if ((saved.includeScreenshot !== settings.includeScreenshot || saved.handoffMode !== settings.handoffMode)
-      && typeof chrome !== "undefined" && chrome.storage?.sync) {
-      await chrome.storage.sync.set({ handoffMode: saved.handoffMode, includeScreenshot: saved.includeScreenshot });
+    if (!areSettingsEqual(saved, settings) && typeof chrome !== "undefined" && chrome.storage?.sync) {
+      await chrome.storage.sync.set({
+        copyOnFinishBatch: saved.copyOnFinishBatch,
+        copyViewerContent: saved.copyViewerContent,
+        handoffMode: saved.handoffMode,
+        includeScreenshot: saved.includeScreenshot,
+        includeViewer: saved.includeViewer,
+        language: saved.language,
+        sensitiveQueryKeys: saved.sensitiveQueryKeys,
+      });
     }
     setSavedLegalAccepted(legalAccepted);
     setSettings(saved);
@@ -544,7 +718,7 @@ export function OptionsApp() {
     <div className="h-screen w-full overflow-hidden bg-muted/50 font-sans text-foreground dark:bg-background">
       <ScrollArea className="h-full w-full">
         <div className="flex min-h-full items-center justify-center p-4">
-          <div className="relative flex w-full max-w-[560px] flex-col gap-5 rounded-2xl border border-border bg-card p-6">
+          <div className="relative flex w-full max-w-[640px] flex-col gap-5 rounded-2xl border border-border bg-card p-6">
             <header className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <PinarMark />
@@ -564,25 +738,22 @@ export function OptionsApp() {
             </header>
 
             <Tabs className="gap-4" defaultValue="storage">
-              <TabsList className="grid w-full grid-cols-3">
+              <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="storage">{t.tab_storage}</TabsTrigger>
                 <TabsTrigger value="preferences">{t.tab_preferences}</TabsTrigger>
+                <TabsTrigger value="shortcuts">{t.tab_shortcuts}</TabsTrigger>
                 <TabsTrigger value="account">{t.tab_account}</TabsTrigger>
               </TabsList>
 
               <TabsContent className="flex flex-col gap-5" value="storage">
                 <section className="flex flex-col gap-2.5">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{t.storage_title}</span>
+                  <span className={SECTION_HEADER}>{t.storage_title}</span>
                   <label className="-mx-2 flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 hover:bg-muted/50">
-                    <input checked={settings.storageMode === "local"} className="mt-1 accent-primary" name="storageMode" type="radio" onChange={() => setSettings((current) => ({ ...current, storageMode: "local" }))} />
+                    <input checked={settings.storageMode === "local"} className="mt-0.5 accent-primary" name="storageMode" type="radio" onChange={() => setSettings((current) => ({ ...current, storageMode: "local" }))} />
                     <span className="min-w-0 flex-1">
                       <span className="block text-xs font-semibold">{t.local_title}</span>
-                      <span className="block text-xs leading-relaxed text-muted-foreground">{t.local_desc}</span>
-                      {installPlatform === "mac" ? (
-                        <span className="mt-2 block" onClick={(event) => event.stopPropagation()}>
-                          <a className="external-link w-fit text-xs font-semibold text-primary underline-offset-4 hover:underline" href={macosDesktopDmgUrl()} rel="noopener noreferrer" target="_blank">{t.btn_download_macos}</a>
-                        </span>
-                      ) : (
+                      <span className="block text-xs text-muted-foreground">{t.local_desc}</span>
+                      {installPlatform === "mac" ? null : (
                         <span className="mt-2 flex items-center gap-1.5 rounded-lg border bg-muted/60 p-1.5 font-mono text-[11px]">
                           <ScrollArea className="min-w-0 flex-1"><code className="block whitespace-nowrap px-1 text-muted-foreground">{installCommand}</code><ScrollBar orientation="horizontal" /></ScrollArea>
                           <button className="shrink-0 rounded p-1 text-muted-foreground hover:bg-background hover:text-foreground" title={t.btn_copy} type="button" onClick={async (event) => { event.preventDefault(); await navigator.clipboard.writeText(installCommand); setCopiedInstall(true); window.setTimeout(() => setCopiedInstall(false), 2_000); }}>
@@ -591,10 +762,11 @@ export function OptionsApp() {
                         </span>
                       )}
                     </span>
+                    {installPlatform === "mac" ? <Button className="h-7 shrink-0 self-center text-xs" render={<a href={macosDesktopDmgUrl()} rel="noopener noreferrer" target="_blank" />} size="sm" variant="outline" onClick={(event) => event.stopPropagation()}>{t.btn_download_macos}<IconExternalLink data-icon="inline-end" /></Button> : null}
                   </label>
                   <label className="-mx-2 flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 hover:bg-muted/50">
-                    <input checked={settings.storageMode === "cloud"} className="mt-1 accent-primary" name="storageMode" type="radio" onChange={() => setSettings((current) => ({ ...current, storageMode: "cloud" }))} />
-                    <span className="min-w-0 flex-1"><span className="block text-xs font-semibold">{t.remote_title}</span><span className="block text-xs leading-relaxed text-muted-foreground">{t.remote_desc}</span></span>
+                    <input checked={settings.storageMode === "cloud"} className="mt-0.5 accent-primary" name="storageMode" type="radio" onChange={() => setSettings((current) => ({ ...current, storageMode: "cloud" }))} />
+                    <span className="min-w-0 flex-1"><span className="block text-xs font-semibold">{t.remote_title}</span><span className="block text-xs text-muted-foreground">{t.remote_desc}</span></span>
                   </label>
                   {settings.storageMode === "cloud" ? (
                     <div className="ml-4 rounded-lg border bg-muted/40 p-3">
@@ -616,7 +788,13 @@ export function OptionsApp() {
                 </section>
 
                 <section className="flex flex-col gap-2.5">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{t.capture_destination_label}</span>
+                  <span className={SECTION_HEADER}>{t.storage_status_title}</span>
+                  <StorageStatusPanel mode={settings.storageMode} t={t} />
+                  <label className={cn("flex items-center justify-between gap-3 py-1", settings.storageMode !== "cloud" && "opacity-50")}><span className="min-w-0"><span className="block text-xs font-semibold">{t.history_label}</span><span className="block text-xs text-muted-foreground">{t.history_desc}</span></span><Switch checked={settings.storageMode === "cloud" ? settings.enableHistory : true} className="shrink-0" disabled={settings.storageMode !== "cloud"} onCheckedChange={(value) => setSettings((current) => ({ ...current, enableHistory: value }))} /></label>
+                </section>
+
+                <section className="flex flex-col gap-2.5">
+                  <span className={SECTION_HEADER}>{t.capture_destination_label}</span>
                   <Card className="gap-3 overflow-visible rounded-none py-0 ring-0" size="sm">
                     <CardContent className="grid gap-3 px-0 sm:grid-cols-2">
                       <label className="flex min-w-0 flex-col gap-1.5">
@@ -675,27 +853,24 @@ export function OptionsApp() {
                 </section>
               </TabsContent>
 
-              <TabsContent value="account">
-                <Card className="gap-4 overflow-visible rounded-none py-0 ring-0" size="sm">
-                  <CardHeader className="px-0">
-                    <div><CardTitle>{t.account_title}</CardTitle><CardDescription className="mt-1 text-xs">{t.account_description}</CardDescription></div>
-                  </CardHeader>
-                  <CardContent className="space-y-4 px-0">
+              <TabsContent className="flex flex-col gap-5" value="account">
                     {!authReady ? <p className="text-xs text-muted-foreground">…</p> : authSession?.kind === "account" ? (
-                      <div className="space-y-3">
+                      <section className="flex flex-col gap-2.5">
+                        <span className={SECTION_HEADER}>{t.account_title}</span>
                         <div className="rounded-lg border bg-muted/40 p-3"><p className="truncate text-sm font-semibold">{authSession.email}</p><p className="mt-1 text-xs capitalize text-muted-foreground">{authSession.plan}</p></div>
                         <div className="flex flex-wrap gap-2">
                           <Button size="sm" variant="outline" onClick={() => void openBilling()}>{t.btn_manage_sub}</Button>
                           <Button size="sm" variant="ghost" onClick={() => void logout()}><IconLogOut data-icon="inline-start" />{t.btn_sign_out}</Button>
                         </div>
-                      </div>
+                      </section>
                     ) : (
-                      <div className="space-y-3">
-                        <section aria-labelledby="account-free-title" className="space-y-3 rounded-lg border bg-background p-3">
+                      <>
+                        <section aria-labelledby="account-free-title" className="flex flex-col gap-2.5">
                           <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0"><p className="text-sm font-semibold" id="account-free-title">{t.account_free_title}</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t.account_free_description}</p></div>
+                            <span className={SECTION_HEADER} id="account-free-title">{t.account_free_title}</span>
                             <Badge className="shrink-0 bg-muted text-muted-foreground" variant="outline">{t.account_free_badge}</Badge>
                           </div>
+                          <p className="text-xs leading-relaxed text-muted-foreground">{t.account_free_description}</p>
                           <div className="flex items-stretch gap-2">
                             {temporaryCode ? <><div className="min-w-0 flex-1 rounded-lg border bg-background px-3 py-2"><code className="text-base font-bold tracking-[0.16em]">{temporaryCode}</code>{temporaryCodeExpiresAt && <p className="mt-1 text-[11px] text-muted-foreground">{t.account_code_expires}</p>}</div><Button className="shrink-0" variant="outline" onClick={() => void copyTemporaryCode()}><IconCopy data-icon="inline-start" />{copiedCode ? t.status_copied : t.btn_copy_code}</Button></> : <Button disabled={authLoading} variant="outline" onClick={() => void generateTemporaryCode()}><IconKeyRound data-icon="inline-start" />{t.btn_generate_code}</Button>}
                           </div>
@@ -709,8 +884,9 @@ export function OptionsApp() {
                             <AlertDialogFooter><AlertDialogCancel>{t.btn_cancel}</AlertDialogCancel><AlertDialogAction disabled={authLoading} onClick={() => void regenerateTemporaryCode()}>{t.btn_invalidate_and_generate}</AlertDialogAction></AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>
-                        <section aria-labelledby="account-email-title" className="space-y-3 rounded-lg border bg-background p-3">
-                          <div><p className="text-sm font-semibold" id="account-email-title">{t.account_email_title}</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">{emailCodeRequested ? t.account_email_sent : t.account_email_description}</p></div>
+                        <section aria-labelledby="account-email-title" className="flex flex-col gap-2.5">
+                          <span className={SECTION_HEADER} id="account-email-title">{t.account_email_title}</span>
+                          <p className="text-xs leading-relaxed text-muted-foreground">{emailCodeRequested ? t.account_email_sent : t.account_email_description}</p>
                           {!emailCodeRequested ? (
                             <form className="flex gap-2" onSubmit={requestEmailCode}><Input autoComplete="email" placeholder="you@example.com" required type="email" value={email} onChange={(event) => setEmail(event.target.value)} /><Button disabled={authLoading} type="submit" variant="outline"><IconMail data-icon="inline-start" />{t.btn_send_code}</Button></form>
                           ) : (
@@ -721,55 +897,73 @@ export function OptionsApp() {
                             <Button className="shrink-0" render={<a href={hostedPricingUrl(settings.cloudUrl, lang)} rel="noopener noreferrer" target="_blank" />} variant="pro"><IconSparkles data-icon="inline-start" />{t.btn_upgrade_pro}</Button>
                           </div>
                         </section>
-                      </div>
+                      </>
                     )}
                     {authError && <p className="text-xs font-medium text-destructive" role="alert">{authError}</p>}
-                  </CardContent>
-                </Card>
               </TabsContent>
 
-              <TabsContent value="preferences">
-                <Card className="gap-3 overflow-visible rounded-none py-0 ring-0" size="sm">
-                  <CardContent className="flex flex-col gap-3.5 px-0">
-                    <label className="flex flex-col gap-1.5"><span className="text-xs font-semibold">{t.language_label}</span><Select items={LANGUAGE_OPTIONS.map((option) => ({ label: option.label, value: option.code }))} value={lang} onValueChange={(value) => { const next = value as SupportedLanguage; setLang(next); setSettings((current) => ({ ...current, language: next })); }}><SelectTrigger className="min-w-36" size="sm"><SelectValue /></SelectTrigger><SelectContent><SelectGroup>{LANGUAGE_OPTIONS.map((option) => <SelectItem key={option.code} value={option.code}>{option.label}</SelectItem>)}</SelectGroup></SelectContent></Select></label>
-                    <div className="flex flex-col gap-1.5"><span className="text-xs font-semibold">{t.theme_label}</span><Tabs value={settings.theme || "system"} onValueChange={(value) => { const theme = value as ThemeMode; applyTheme(theme); setSettings((current) => ({ ...current, theme })); }}><TabsList><TabsTrigger value="system"><IconLaptop data-icon="inline-start" />{t.theme_system}</TabsTrigger><TabsTrigger value="light"><IconSun className="text-amber-500" data-icon="inline-start" />{t.theme_light}</TabsTrigger><TabsTrigger value="dark"><IconMoon className="text-blue-400" data-icon="inline-start" />{t.theme_dark}</TabsTrigger></TabsList></Tabs></div>
-                    <label className="flex items-start gap-3 py-1"><Switch checked={settings.enableHistory} className="mt-0.5 shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, enableHistory: value }))} /><span><span className="block text-xs font-semibold">{t.history_label}</span><span className="block text-xs text-muted-foreground">{t.history_desc}</span></span></label>
-                    <label className="flex items-start gap-3 py-1"><Switch checked={settings.loopMetricsOptIn === true} className="mt-0.5 shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, loopMetricsOptIn: value }))} /><span><span className="block text-xs font-semibold">{t.loop_metrics_label}</span><span className="block text-xs text-muted-foreground">{t.loop_metrics_desc}</span></span></label>
-                    <label className="flex items-start gap-3 py-1">
-                      <Switch
-                        aria-label={t.handoff_mode_label}
-                        checked={settings.handoffMode === "full"}
-                        className="mt-0.5 shrink-0"
-                        onCheckedChange={(checked) => setSettings((current) => ({
-                          ...current,
-                          handoffMode: checked ? "full" : "compact",
-                        }))}
-                      />
-                      <span>
+              <TabsContent className="flex flex-col gap-5" value="preferences">
+                <section className="flex flex-col gap-2.5">
+                  <span className={SECTION_HEADER}>{t.section_interface}</span>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="flex min-w-0 flex-col gap-1.5">
+                        <span className="text-xs font-semibold">{t.language_label}</span>
+                        <Select items={LANGUAGE_OPTIONS.map((option) => ({ label: option.label, value: option.code }))} value={lang} onValueChange={(value) => { const next = value as SupportedLanguage; setLang(next); setSettings((current) => ({ ...current, language: next })); }}><SelectTrigger aria-label={t.language_label} className="w-full" size="sm"><SelectValue /></SelectTrigger><SelectContent><SelectGroup>{LANGUAGE_OPTIONS.map((option) => <SelectItem key={option.code} value={option.code}>{option.label}</SelectItem>)}</SelectGroup></SelectContent></Select>
+                      </label>
+                      <div className="flex min-w-0 flex-col gap-1.5">
+                        <span className="text-xs font-semibold" id="options-theme-label">{t.theme_label}</span>
+                        <Tabs value={settings.theme || "system"} onValueChange={(value) => { const theme = value as ThemeMode; applyTheme(theme); setSettings((current) => ({ ...current, theme })); }}><TabsList aria-labelledby="options-theme-label" className="group-data-horizontal/tabs:h-7 w-full p-0.5 [&>button]:text-xs"><TabsTrigger className="flex-1" value="system"><IconLaptop data-icon="inline-start" />{t.theme_system}</TabsTrigger><TabsTrigger className="flex-1" value="light"><IconSun className="text-amber-500" data-icon="inline-start" />{t.theme_light}</TabsTrigger><TabsTrigger className="flex-1" value="dark"><IconMoon className="text-blue-400" data-icon="inline-start" />{t.theme_dark}</TabsTrigger></TabsList></Tabs>
+                      </div>
+                  </div>
+                </section>
+
+                <section className="flex flex-col gap-2.5">
+                  <span className={SECTION_HEADER}>{t.section_handoff}</span>
+                  <label className="flex items-center justify-between gap-3 py-1">
+                      <span className="min-w-0">
                         <span className="block text-xs font-semibold">
                           {t.handoff_mode_label} · {settings.handoffMode === "full" ? t.handoff_mode_full : t.handoff_mode_compact}
                         </span>
                         <span className="block text-xs text-muted-foreground">{t.handoff_mode_desc}</span>
                       </span>
-                    </label>
-                    <label className="flex items-start gap-3 py-1"><Switch checked={settings.includeViewer} className="mt-0.5 shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, includeViewer: value }))} /><span><span className="block text-xs font-semibold">{t.viewer_label}</span><span className="block text-xs text-muted-foreground">{t.viewer_desc}</span></span></label>
-                    <label className="flex items-start gap-3 py-1"><Switch checked={settings.copyViewerContent} className="mt-0.5 shrink-0" disabled={!settings.includeViewer} onCheckedChange={(value) => setSettings((current) => ({ ...current, copyViewerContent: value }))} /><span><span className="block text-xs font-semibold">{t.viewer_content_label}</span><span className="block text-xs text-muted-foreground">{t.viewer_content_desc}</span></span></label>
-                    <label className="flex items-start gap-3 py-1"><Switch checked={settings.includeScreenshot} className="mt-0.5 shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, includeScreenshot: value }))} /><span><span className="block text-xs font-semibold">{t.screenshot_label}</span><span className="block text-xs text-muted-foreground">{t.screenshot_desc}</span></span></label>
-                    <label className="flex flex-col gap-1.5 py-1">
-                      <span className="text-xs font-semibold">{t.privacy_query_keys_label}</span>
-                      <Input
-                        value={settings.sensitiveQueryKeys || ""}
-                        onChange={(event) => setSettings((current) => ({ ...current, sensitiveQueryKeys: event.target.value }))}
+                      <Switch
+                        aria-label={t.handoff_mode_label}
+                        checked={settings.handoffMode === "full"}
+                        className="shrink-0"
+                        onCheckedChange={(checked) => setSettings((current) => ({
+                          ...current,
+                          handoffMode: checked ? "full" : "compact",
+                        }))}
                       />
-                      <span className="text-xs text-muted-foreground">{t.privacy_query_keys_desc}</span>
                     </label>
-                  </CardContent>
-                </Card>
+                    <label className="flex items-center justify-between gap-3 py-1"><span className="min-w-0"><span className="block text-xs font-semibold">{t.viewer_label}</span><span className="block text-xs text-muted-foreground">{t.viewer_desc}</span></span><Switch checked={settings.includeViewer} className="shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, includeViewer: value }))} /></label>
+                    <label className="flex items-center justify-between gap-3 py-1"><span className="min-w-0"><span className="block text-xs font-semibold">{t.viewer_content_label}</span><span className="block text-xs text-muted-foreground">{t.viewer_content_desc}</span></span><Switch checked={settings.copyViewerContent} className="shrink-0" disabled={!settings.includeViewer} onCheckedChange={(value) => setSettings((current) => ({ ...current, copyViewerContent: value }))} /></label>
+                    <label className="flex items-center justify-between gap-3 py-1"><span className="min-w-0"><span className="block text-xs font-semibold">{t.screenshot_label}</span><span className="block text-xs text-muted-foreground">{t.screenshot_desc}</span></span><Switch checked={settings.includeScreenshot} className="shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, includeScreenshot: value }))} /></label>
+                    <label className="flex items-center justify-between gap-3 py-1"><span className="min-w-0"><span className="block text-xs font-semibold">{t.copy_on_finish_batch_label}</span><span className="block text-xs text-muted-foreground">{t.copy_on_finish_batch_desc}</span></span><Select items={[{ label: t.copy_on_finish_batch_prompt, value: "prompt" }, { label: t.copy_on_finish_batch_link, value: "link" }, { label: t.copy_on_finish_batch_off, value: "off" }]} value={settings.copyOnFinishBatch || "prompt"} onValueChange={(value) => setSettings((current) => ({ ...current, copyOnFinishBatch: (value === "off" || value === "link" ? value : "prompt") as CopyOnFinishBatch }))}><SelectTrigger aria-label={t.copy_on_finish_batch_label} className="w-32 shrink-0" size="sm"><SelectValue /></SelectTrigger><SelectContent><SelectGroup><SelectItem value="prompt">{t.copy_on_finish_batch_prompt}</SelectItem><SelectItem value="link">{t.copy_on_finish_batch_link}</SelectItem><SelectItem value="off">{t.copy_on_finish_batch_off}</SelectItem></SelectGroup></SelectContent></Select></label>
+                </section>
+
+                <section className="flex flex-col gap-2.5">
+                  <span className={SECTION_HEADER}>{t.section_privacy}</span>
+                  <label className="flex items-center justify-between gap-3 py-1"><span className="min-w-0"><span className="block text-xs font-semibold">{t.loop_metrics_label}</span><span className="block text-xs text-muted-foreground">{t.loop_metrics_desc}</span></span><Switch checked={settings.loopMetricsOptIn === true} className="shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, loopMetricsOptIn: value }))} /></label>
+                  <label className="flex flex-col gap-1.5 py-1">
+                    <span className="text-xs font-semibold">{t.privacy_query_keys_label}</span>
+                    <Input
+                      value={settings.sensitiveQueryKeys || ""}
+                      onChange={(event) => setSettings((current) => ({ ...current, sensitiveQueryKeys: event.target.value }))}
+                    />
+                    <span className="text-xs text-muted-foreground">{t.privacy_query_keys_desc}</span>
+                  </label>
+                </section>
+
+              </TabsContent>
+
+              <TabsContent value="shortcuts">
+                <ShortcutsTab t={t} />
               </TabsContent>
             </Tabs>
 
             <footer className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex gap-2"><Button className="h-8 text-xs" disabled={!hasUnsavedChanges || (settings.storageMode === "cloud" && (!legalBundle || !legalAccepted))} size="sm" onClick={() => void saveSettings()}><IconSave className="size-3.5" />{t.btn_save}</Button><Button className="h-8 text-xs" size="sm" variant="outline" onClick={() => void openApp()}><IconExternalLink />{t.btn_open_app}</Button></div>
+              <div className="flex gap-2"><Button className="h-8 text-xs" disabled={!hasUnsavedChanges || (settings.storageMode === "cloud" && (!legalBundle || !legalAccepted))} size="sm" onClick={() => void saveSettings()}><IconSave className="size-3.5" />{t.btn_save}</Button><Button className="h-8 text-xs" size="sm" variant="outline" onClick={() => void openApp()}>{t.btn_open_app}<IconExternalLink data-icon="inline-end" /></Button></div>
               <div className="flex gap-2"><Button className="h-8 text-xs" render={<a href="https://buymeacoffee.com/djalmajr" rel="noopener noreferrer" target="_blank" />} size="sm" variant="coffee"><IconCoffee />{t.btn_coffee}</Button><Button className="h-8 text-xs" render={<a href="https://github.com/sponsors/djalmajr" rel="noopener noreferrer" target="_blank" />} size="sm" variant="sponsor"><IconHeart className="fill-current" />{t.btn_sponsor}</Button></div>
             </footer>
           </div>

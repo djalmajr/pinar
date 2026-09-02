@@ -37,18 +37,16 @@ bun run build:tray
 bun apps/cli/src/cli.mjs install
 ```
 
-## Load the extension
+## Install the extension
 
-Pinar is not on the Chrome Web Store. After installing **Pinar.app** (macOS) or the helper (Windows/Linux):
+Install the official [Pinar extension from the Chrome Web Store](https://chromewebstore.google.com/detail/pinardev/idpeaokdndjedekacfdfbilcolpholbo). A GitHub checkout or unpacked extension folder is not required for normal use.
 
-1. Open Chrome and go to `chrome://extensions`
-2. Turn on **Developer mode** (toggle in the top-right)
-3. Click **Load unpacked**
-4. Select the unpacked extension folder — not a Downloads zip:
-   - From this checkout after `bun run build:ext`: `extension/dist`
-   - Windows / Linux helper installs do not currently copy the extension into `~/.pinar`; use `extension/dist` from a clone until a desktop app exists on those platforms.
+Extension contributors can still load a development build:
 
-Chrome remembers that folder. After you run the installer again, open `chrome://extensions` and click **Reload** on the Pinar card if the overlay looks stale.
+1. Run `bun run build:ext` from this checkout.
+2. Open `chrome://extensions` and enable **Developer mode**.
+3. Choose **Load unpacked** and select `extension/dist`.
+4. After rebuilding, choose **Reload** on the Pinar card before testing the new behavior.
 
 ## Usage
 
@@ -68,7 +66,7 @@ Without the local server, the crop falls back to `Downloads/pinar/`.
 
 ## Architecture
 
-- `apps/server` is the single TanStack Start application. The Cloudflare build serves `pinar.dev` with marketing, accounts, Stripe, and AI. The Nitro/Bun helper serves the local installation: `/`, `/app`, `/v/*`, `/legal/*`. Pasting `/pricing`, `/sign-in`, or `/success` on loopback redirects to the same path on `https://pinar.dev`. The local API does not proxy pricing or checkout.
+- `apps/server` is the single TanStack Start application. The Cloudflare build serves `pinar.dev` with marketing, accounts, Stripe, and AI. The Nitro/Bun helper serves the local installation: `/`, `/app`, `/v/*`, `/help/*`, `/releases/*`, `/legal/*`. Pasting `/pricing`, `/sign-in`, or `/success` on loopback redirects to the same path on `https://pinar.dev`. The local API does not proxy pricing or checkout.
 - `apps/cli` is the compiled local HTTP helper (embedded in Pinar.app on macOS; still the public installer on Windows/Linux).
 - `apps/tray` is the macOS menu-bar app.
 - `apps/extension` is the Chrome extension.

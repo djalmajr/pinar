@@ -456,6 +456,113 @@ describe("remote installation isolation", () => {
     assert.doesNotMatch(text, /screenshot_missing/);
   });
 
+  test("falls back to captureDestination when a shot omits a collection", async () => {
+    assert.equal((await register(identityA)).status, 201);
+    const defaults = await jsonBody(await api("/api/preferences", { headers: identityHeaders(identityA) }));
+    assert.deepEqual(defaults, {
+      ok: true,
+      captureDestination: null,
+      copyOnFinishBatch: "prompt",
+      copyViewerContent: false,
+      handoffMode: "compact",
+      includeScreenshot: true,
+      includeViewer: true,
+      language: null,
+      sensitiveQueryKeys: "",
+    });
+
+    const tree = await jsonBody(await api("/api/project-tree", { headers: identityHeaders(identityA) }));
+    assert.ok(isRecord(tree.tree));
+    assert.ok(Array.isArray(tree.tree.projects));
+    const personal = tree.tree.projects[0];
+    assert.ok(isRecord(personal));
+    assert.ok(Array.isArray(personal.collections));
+    const inbox = personal.collections[0];
+    assert.ok(isRecord(inbox));
+
+    const projectBody = await jsonBody(await api("/api/projects", {
+      body: JSON.stringify({ name: "Preferred" }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
+      method: "POST",
+    }));
+    assert.ok(isRecord(projectBody.project));
+    const projectId = String(projectBody.project.id);
+    const collectionBody = await jsonBody(await api(`/api/projects/${projectId}/collections`, {
+      body: JSON.stringify({ name: "Review" }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
+      method: "POST",
+    }));
+    assert.ok(isRecord(collectionBody.collection));
+    const collectionId = String(collectionBody.collection.id);
+
+    const patched = await jsonBody(await api("/api/preferences", {
+      body: JSON.stringify({
+        captureDestination: { collectionId, projectId },
+        copyOnFinishBatch: "link",
+      }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
+      method: "PATCH",
+    }));
+    assert.deepEqual(patched.captureDestination, { collectionId, projectId });
+    assert.equal(patched.copyOnFinishBatch, "link");
+    assert.equal(patched.includeScreenshot, true);
+
+    const preferred = await jsonBody(await api("/api/shots", {
+      body: JSON.stringify({
+        id: "pref_dest_session",
+        image: VALID_PNG,
+        page: { title: "Preferred dest", url: "https://example.test/pref" },
+        pins: [],
+      }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
+      method: "POST",
+    }));
+    assert.ok(isRecord(preferred.destination));
+    assert.deepEqual(preferred.destination, { collectionId, projectId });
+
+    const explicit = await jsonBody(await api("/api/shots", {
+      body: JSON.stringify({
+        collectionId: String(inbox.id),
+        id: "explicit_dest_session",
+        image: VALID_PNG,
+        page: { title: "Explicit dest", url: "https://example.test/explicit" },
+        pins: [],
+      }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
+      method: "POST",
+    }));
+    assert.ok(isRecord(explicit.destination));
+    assert.equal(explicit.destination.collectionId, inbox.id);
+
+    await api("/api/preferences", {
+      body: JSON.stringify({
+        captureDestination: { collectionId: "missing-collection", projectId },
+      }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
+      method: "PATCH",
+    });
+    const missing = await jsonBody(await api("/api/shots", {
+      body: JSON.stringify({
+        id: "missing_dest_session",
+        image: VALID_PNG,
+        page: { title: "Missing dest", url: "https://example.test/missing" },
+        pins: [],
+      }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
+      method: "POST",
+    }));
+    assert.ok(isRecord(missing.destination));
+    assert.equal(missing.destination.collectionId, inbox.id);
+
+    const unknown = await jsonBody(await api("/api/preferences", {
+      body: JSON.stringify({ unknownKey: true }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
+      method: "PATCH",
+    }));
+    assert.equal("unknownKey" in unknown, false);
+    assert.deepEqual(unknown.captureDestination, { collectionId: "missing-collection", projectId });
+  });
+
   test("expires extension codes, validates origins and constrains returnTo", async () => {
     setCloudNowForTests("2026-08-16T12:00:00.000Z");
     await register(identityA);

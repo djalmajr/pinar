@@ -5,6 +5,7 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import react from "@vitejs/plugin-react";
 import Icons from "unplugin-icons/vite";
 import { defineConfig } from "vite";
+import { buildIdentity } from "./build-identity";
 
 const tanstackReactStartServer = fileURLToPath(import.meta.resolve("@tanstack/react-start/server"));
 const tanstackReactStartServerEntry = fileURLToPath(new URL("./src/tanstack-server-entry.ts", import.meta.url));
@@ -17,6 +18,7 @@ const LOCAL_CLOUD_COMPATIBILITY_DATE = "2026-08-06";
 export default defineConfig(({ command }) => ({
   define: {
     "import.meta.env.VITE_PINAR_RUNTIME": JSON.stringify("cloud"),
+    ...buildIdentity(),
   },
   plugins: [
     cloudflare({

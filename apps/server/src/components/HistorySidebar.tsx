@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ComponentType, type CSSProperties, type ReactNode } from "react";
 import type {
   CollectionPlacement,
   ProjectIcon,
@@ -54,13 +54,13 @@ import {
   reorderCollectionTree,
   visibleCollections,
 } from "@/lib/collection-tree";
-import {
-  COLLECTION_DND_TYPE,
-  SESSION_DND_TYPE,
-} from "@/lib/workspace-dnd";
+import { COLLECTION_DND_TYPE, SESSION_DND_TYPE } from "@/lib/workspace-dnd";
+import { copyBatchHandoff } from "../lib/session-actions";
 import { ProjectIconGlyph } from "@/components/ProjectIcon";
 import type { ServerMessageKey } from "@/lib/i18n";
+import { pinarRuntime } from "@/lib/server-header";
 import CheckIcon from "~icons/lucide/check";
+import CopyIcon from "~icons/lucide/copy";
 import ArrowDownIcon from "~icons/lucide/arrow-down";
 import ArrowUpIcon from "~icons/lucide/arrow-up";
 import ChevronsUpDownIcon from "~icons/lucide/chevrons-up-down";
@@ -74,9 +74,35 @@ import PencilIcon from "~icons/lucide/pencil";
 import PlusIcon from "~icons/lucide/plus";
 import ShareIcon from "~icons/lucide/share-2";
 import TrashIcon from "~icons/lucide/trash-2";
+import FilterIcon from "~icons/lucide/list-filter";
+import LayersIcon from "~icons/lucide/layers";
 
 type ContainerKind = "collection" | "project";
-type Translate = (key: ServerMessageKey, values?: Record<string, number | string>) => string;
+type Translate = (
+  key: ServerMessageKey,
+  values?: Record<string, number | string>,
+) => string;
+
+const BATCHES_EXPANDED_KEY = "pinar-batches-expanded";
+
+function readStoredBatchesExpanded(): boolean | null {
+  try {
+    const stored = localStorage.getItem(BATCHES_EXPANDED_KEY);
+    if (stored === "true") return true;
+    if (stored === "false") return false;
+  } catch {
+    /* private mode */
+  }
+  return null;
+}
+
+function writeStoredBatchesExpanded(expanded: boolean) {
+  try {
+    localStorage.setItem(BATCHES_EXPANDED_KEY, String(expanded));
+  } catch {
+    /* private mode */
+  }
+}
 
 interface ContainerTarget {
   id: string;
@@ -88,16 +114,26 @@ interface RenameTarget extends ContainerTarget {
   name: string;
 }
 
+export interface SidebarFilterItem {
+  count: number;
+  id: string;
+  label: string;
+}
+
 interface HistorySidebarProps {
+  filters: SidebarFilterItem[];
   footer?: ReactNode;
   selectedCollectionId: string | null;
+  selectedFilterId: string | null;
   selectedProject?: ProjectTreeProject;
   t: Translate;
   onCreate: (kind: ContainerKind, parentId?: string) => void;
   onDelete: (target: ContainerTarget) => void;
+  onDeleteFilter: (id: string) => void;
   onRename: (target: RenameTarget) => void;
   onReorderCollections: (items: CollectionPlacement[]) => void;
   onSelectCollection: (collectionId: string | null) => void;
+  onSelectFilter: (id: string | null) => void;
   onShare: (path: string) => void;
 }
 
@@ -175,30 +211,42 @@ function CollectionMenu({
       >
         <MoreVerticalIcon />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-48" side="right" sideOffset={8}>
+      <DropdownMenuContent
+        align="start"
+        side="right"
+        sideOffset={8}
+      >
         <DropdownMenuGroup>
           <DropdownMenuItem onClick={onCreate}>
             <FolderPlusIcon />
             {t("dashboard.newCollection")}
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => onRename({
-            id: collection.id,
-            kind: "collection",
-            name: collection.name,
-          })}>
+          <DropdownMenuItem
+            onClick={() =>
+              onRename({
+                id: collection.id,
+                kind: "collection",
+                name: collection.name,
+              })
+            }
+          >
             <PencilIcon />
             {t("dashboard.rename")}
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => onShare(`/c/${collection.id}`)}>
-            <ShareIcon />
-            {t("dashboard.share")}
-          </DropdownMenuItem>
+          {pinarRuntime() === "cloud" && (
+            <DropdownMenuItem onClick={() => onShare(`/c/${collection.id}`)}>
+              <ShareIcon />
+              {t("dashboard.share")}
+            </DropdownMenuItem>
+          )}
           {!collection.isProtected && (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 variant="destructive"
-                onClick={() => onDelete({ id: collection.id, kind: "collection" })}
+                onClick={() =>
+                  onDelete({ id: collection.id, kind: "collection" })
+                }
               >
                 <TrashIcon />
                 {t("dashboard.remove")}
@@ -232,17 +280,18 @@ function SortableCollection({
   });
   const [menuActionFocused, setMenuActionFocused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const sessionDropTarget = sortable.isOver && active?.data.current?.type === SESSION_DND_TYPE;
+  const sessionDropTarget =
+    sortable.isOver && active?.data.current?.type === SESSION_DND_TYPE;
   const style: CSSProperties = {
     opacity: sortable.isDragging ? 0.35 : 1,
     transform: CSS.Transform.toString(sortable.transform),
     transition: sortable.transition,
   };
   const buttonStyle: CSSProperties = {
-    paddingInlineStart: `${8 + (depth * COLLECTION_INDENTATION_WIDTH)}px`,
+    paddingInlineStart: `${8 + depth * COLLECTION_INDENTATION_WIDTH}px`,
   };
   const toggleStyle: CSSProperties = {
-    insetInlineStart: `${8 + (depth * COLLECTION_INDENTATION_WIDTH)}px`,
+    insetInlineStart: `${8 + depth * COLLECTION_INDENTATION_WIDTH}px`,
   };
 
   return (
@@ -267,7 +316,10 @@ function SortableCollection({
         tooltip={collection.name}
         onClick={() => onSelect(collection.id)}
       >
-        <span aria-hidden className="flex size-3.5 shrink-0 items-center justify-center">
+        <span
+          aria-hidden
+          className="flex size-3.5 shrink-0 items-center justify-center"
+        >
           {!hasChildren && <FolderIcon />}
         </span>
         <span>{collection.name}</span>
@@ -278,15 +330,22 @@ function SortableCollection({
           className="pointer-events-none absolute inset-y-0 z-10 w-px bg-sidebar-border"
           data-collection-guide
           key={level}
-          style={{ insetInlineStart: `${15 + (level * COLLECTION_INDENTATION_WIDTH)}px` }}
+          style={{
+            insetInlineStart: `${15 + level * COLLECTION_INDENTATION_WIDTH}px`,
+          }}
         />
       ))}
       {hasChildren && (
         <button
           aria-expanded={isExpanded}
-          aria-label={t(isExpanded ? "dashboard.collapseCollection" : "dashboard.expandCollection", {
-            name: collection.name,
-          })}
+          aria-label={t(
+            isExpanded
+              ? "dashboard.collapseCollection"
+              : "dashboard.expandCollection",
+            {
+              name: collection.name,
+            },
+          )}
           className="absolute top-2 z-10 flex size-4 items-center justify-center rounded-sm text-sidebar-foreground outline-none after:absolute after:-inset-1 focus-visible:ring-2 focus-visible:ring-sidebar-ring [&_svg]:size-3.5"
           data-collection-toggle
           style={toggleStyle}
@@ -296,10 +355,12 @@ function SortableCollection({
           {isExpanded ? <FolderOpenIcon /> : <FolderIcon />}
         </button>
       )}
-      <SidebarMenuBadge className={cn(
-        "group-hover/menu-item:opacity-0",
-        (menuOpen || menuActionFocused) && "opacity-0",
-      )}>
+      <SidebarMenuBadge
+        className={cn(
+          "group-hover/menu-item:opacity-0",
+          (menuOpen || menuActionFocused) && "opacity-0",
+        )}
+      >
         {collection.sessions.length}
       </SidebarMenuBadge>
       <CollectionMenu
@@ -345,11 +406,14 @@ function FixedCollection({
   });
   const [menuActionFocused, setMenuActionFocused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const sessionDropTarget = droppable.isOver && active?.data.current?.type === SESSION_DND_TYPE;
+  const sessionDropTarget =
+    droppable.isOver && active?.data.current?.type === SESSION_DND_TYPE;
   return (
     <SidebarMenuItem ref={droppable.setNodeRef}>
       <SidebarMenuButton
-        className={cn(sessionDropTarget && "bg-sidebar-accent ring-1 ring-sidebar-ring")}
+        className={cn(
+          sessionDropTarget && "bg-sidebar-accent ring-1 ring-sidebar-ring",
+        )}
         isActive={isActive}
         tooltip={collection.name}
         onClick={() => onSelect(collection.id)}
@@ -357,10 +421,12 @@ function FixedCollection({
         <InboxIcon />
         <span>{collection.name}</span>
       </SidebarMenuButton>
-      <SidebarMenuBadge className={cn(
-        "group-hover/menu-item:opacity-0",
-        (menuOpen || menuActionFocused) && "opacity-0",
-      )}>
+      <SidebarMenuBadge
+        className={cn(
+          "group-hover/menu-item:opacity-0",
+          (menuOpen || menuActionFocused) && "opacity-0",
+        )}
+      >
         {collection.sessions.length}
       </SidebarMenuBadge>
       <CollectionMenu
@@ -378,6 +444,251 @@ function FixedCollection({
   );
 }
 
+function FilterMenu({
+  item,
+  menuOpen,
+  t,
+  onActionFocusChange,
+  onDelete,
+  onMenuOpenChange,
+}: {
+  item: SidebarFilterItem;
+  menuOpen: boolean;
+  t: Translate;
+  onActionFocusChange: (focused: boolean) => void;
+  onDelete: (id: string) => void;
+  onMenuOpenChange: (open: boolean) => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  async function copyBatch() {
+    if (!await copyBatchHandoff(item.id)) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 2_000);
+  }
+
+  return (
+    <DropdownMenu open={menuOpen} onOpenChange={onMenuOpenChange}>
+      <DropdownMenuTrigger
+        render={
+          <SidebarMenuAction
+            aria-label={`${item.label}: ${t("dashboard.filterActions")}`}
+            className="size-6 peer-data-[size=default]/menu-button:top-1"
+            showOnHover
+            title={t("dashboard.filterActions")}
+            onBlur={() => onActionFocusChange(false)}
+            onFocus={() => onActionFocusChange(true)}
+          />
+        }
+      >
+        <MoreVerticalIcon />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        side="right"
+        sideOffset={8}
+      >
+        <DropdownMenuGroup>
+          <DropdownMenuItem closeOnClick={false} onClick={() => void copyBatch()}>
+            {copied ? <CheckIcon /> : <CopyIcon />}
+            {copied ? t("common.copied") : t("dashboard.copyBatch")}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            variant="destructive"
+            onClick={() => onDelete(item.id)}
+          >
+            <TrashIcon />
+            {t("dashboard.deleteFilter")}
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function FilterRow({
+  depth = 0,
+  icon: Icon,
+  item,
+  isActive,
+  t,
+  onDelete,
+  onSelect,
+}: {
+  depth?: number;
+  icon: ComponentType<{ className?: string }>;
+  item: SidebarFilterItem;
+  isActive: boolean;
+  t: Translate;
+  onDelete: (id: string) => void;
+  onSelect: (id: string) => void;
+}) {
+  const [menuActionFocused, setMenuActionFocused] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const buttonStyle: CSSProperties | undefined = depth
+    ? { paddingInlineStart: `${8 + depth * COLLECTION_INDENTATION_WIDTH}px` }
+    : undefined;
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        isActive={isActive}
+        style={buttonStyle}
+        tooltip={item.label}
+        onClick={() => onSelect(item.id)}
+      >
+        <Icon />
+        <span>{item.label}</span>
+      </SidebarMenuButton>
+      {/* Same guide a nested collection draws under its parent's icon. */}
+      {Array.from({ length: depth }, (_, level) => (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 z-10 w-px bg-sidebar-border"
+          data-collection-guide
+          key={level}
+          style={{
+            insetInlineStart: `${15 + level * COLLECTION_INDENTATION_WIDTH}px`,
+          }}
+        />
+      ))}
+      <SidebarMenuBadge
+        className={cn(
+          "group-hover/menu-item:opacity-0",
+          (menuOpen || menuActionFocused) && "opacity-0",
+        )}
+      >
+        {item.count}
+      </SidebarMenuBadge>
+      <FilterMenu
+        item={item}
+        menuOpen={menuOpen}
+        t={t}
+        onActionFocusChange={setMenuActionFocused}
+        onDelete={onDelete}
+        onMenuOpenChange={setMenuOpen}
+      />
+    </SidebarMenuItem>
+  );
+}
+
+function BatchesFolderRow({
+  count,
+  expanded,
+  t,
+  onToggle,
+}: {
+  count: number;
+  expanded: boolean;
+  t: Translate;
+  onToggle: () => void;
+}) {
+  const label = t("dashboard.batches");
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        aria-expanded={expanded}
+        tooltip={label}
+        onClick={onToggle}
+      >
+        <span
+          aria-hidden
+          className="flex size-3.5 shrink-0 items-center justify-center"
+        />
+        <span>{label}</span>
+      </SidebarMenuButton>
+      {/* Same anatomy as a collection with children: the icon slot is the
+          toggle; no chevron. */}
+      <button
+        aria-expanded={expanded}
+        aria-label={t(
+          expanded ? "dashboard.collapseBatches" : "dashboard.expandBatches",
+          { name: label },
+        )}
+        className="absolute top-2 z-10 flex size-4 items-center justify-center rounded-sm text-sidebar-foreground outline-none after:absolute after:-inset-1 focus-visible:ring-2 focus-visible:ring-sidebar-ring [&_svg]:size-3.5"
+        data-batches-toggle
+        style={{ insetInlineStart: "8px" }}
+        type="button"
+        onClick={onToggle}
+      >
+        <LayersIcon />
+      </button>
+      <SidebarMenuBadge>{count}</SidebarMenuBadge>
+    </SidebarMenuItem>
+  );
+}
+
+function SidebarFilterGroup({
+  icon,
+  items,
+  selectedId,
+  title,
+  t,
+  onDelete,
+  onSelect,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  items: SidebarFilterItem[];
+  selectedId: string | null;
+  title: string;
+  t: Translate;
+  onDelete: (id: string) => void;
+  onSelect: (id: string | null) => void;
+}) {
+  const [expanded, setExpanded] = useState(() => {
+    if (selectedId) return true;
+    return readStoredBatchesExpanded() ?? false;
+  });
+
+  useEffect(() => {
+    if (selectedId) setExpanded(true);
+  }, [selectedId]);
+
+  function toggleExpanded() {
+    setExpanded((current) => {
+      const next = !current;
+      writeStoredBatchesExpanded(next);
+      return next;
+    });
+  }
+
+  if (!items.length) return null;
+  return (
+    <SidebarGroup className="pt-4">
+      <SidebarGroupLabel
+        aria-label={title || t("dashboard.filtersEmpty")}
+        className="h-7 text-[11px] font-normal uppercase text-sidebar-foreground/60"
+      >
+        {title}
+      </SidebarGroupLabel>
+      <SidebarGroupContent>
+        <SidebarMenu>
+          <BatchesFolderRow
+            count={items.length}
+            expanded={expanded}
+            t={t}
+            onToggle={toggleExpanded}
+          />
+          {expanded
+            ? items.map((item) => (
+                <FilterRow
+                  depth={1}
+                  icon={icon}
+                  isActive={selectedId === item.id}
+                  item={item}
+                  key={item.id}
+                  t={t}
+                  onDelete={onDelete}
+                  onSelect={(id) => onSelect(selectedId === id ? null : id)}
+                />
+              ))
+            : null}
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  );
+}
+
 export function ProjectSwitcher({
   compact,
   projectTree,
@@ -387,14 +698,11 @@ export function ProjectSwitcher({
   onSelectProject,
 }: ProjectSwitcherProps) {
   const { isMobile } = useSidebar();
-  const totalSessions = selectedProject?.collections.reduce(
-    (total, collection) => total + collection.sessions.length,
-    0,
-  ) ?? 0;
-  const sessionLabel = t(
-    totalSessions === 1 ? "aggregate.sessionSingular" : "aggregate.sessionPlural",
-  );
-
+  const totalSessions =
+    selectedProject?.collections.reduce(
+      (total, collection) => total + collection.sessions.length,
+      0,
+    ) ?? 0;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -406,8 +714,8 @@ export function ProjectSwitcher({
               compact
                 ? "size-8 justify-center p-0"
                 : isMobile
-                  ? "h-8 w-auto max-w-full justify-start px-1.5"
-                  : "h-11 w-full justify-start px-1.5",
+                  ? "h-8 w-auto max-w-full justify-start px-2"
+                  : "h-11 w-full justify-start px-2",
             )}
             disabled={!selectedProject}
             variant="ghost"
@@ -415,22 +723,32 @@ export function ProjectSwitcher({
         }
       >
         {compact ? (
-          selectedProject ? <ProjectIconGlyph icon={selectedProject.icon} /> : null
+          selectedProject ? (
+            <ProjectIconGlyph icon={selectedProject.icon} />
+          ) : null
         ) : (
           <>
             {selectedProject ? (
-              <ProjectIconGlyph className="size-5 shrink-0" icon={selectedProject.icon} />
+              <ProjectIconGlyph
+                className="size-5 shrink-0"
+                icon={selectedProject.icon}
+              />
             ) : null}
-            <span className={cn("min-w-0 text-left leading-tight", isMobile ? "truncate font-semibold" : "grid flex-1")}>
+            <span
+              className={cn(
+                "min-w-0 text-left leading-tight",
+                isMobile ? "truncate font-semibold" : "grid flex-1",
+              )}
+            >
               {isMobile ? (
-                selectedProject?.name ?? t("common.loading")
+                (selectedProject?.name ?? t("common.loading"))
               ) : (
                 <>
                   <span className="truncate font-semibold">
                     {selectedProject?.name ?? t("common.loading")}
                   </span>
                   <span className="truncate text-xs font-normal text-sidebar-foreground/60">
-                    {t("aggregate.sessionCount", { count: totalSessions, label: sessionLabel })}
+                    {t("aggregate.sessionCount", { count: totalSessions })}
                   </span>
                 </>
               )}
@@ -442,7 +760,10 @@ export function ProjectSwitcher({
       <DropdownMenuContent align="start" side="bottom" sideOffset={8}>
         <DropdownMenuGroup>
           {projectTree.projects.map((project) => (
-            <DropdownMenuItem key={project.id} onClick={() => onSelectProject(project.id)}>
+            <DropdownMenuItem
+              key={project.id}
+              onClick={() => onSelectProject(project.id)}
+            >
               <ProjectIconGlyph icon={project.icon} />
               <span className="min-w-0 flex-1 truncate">{project.name}</span>
               {project.id === selectedProject?.id && <CheckIcon />}
@@ -473,6 +794,34 @@ export function ProjectActionsMenu({
 }: ProjectActionsMenuProps) {
   if (!selectedProject) return null;
 
+  // With share cloud-only, a protected project with no reorder targets would
+  // leave a single-item menu; surface the edit action directly instead.
+  const menuHasExtras =
+    canMoveEarlier ||
+    canMoveLater ||
+    !selectedProject.isProtected ||
+    pinarRuntime() === "cloud";
+  if (!menuHasExtras) {
+    return (
+      <Button
+        aria-label={`${selectedProject.name}: ${t("dashboard.editProject")}`}
+        size="icon-sm"
+        title={t("dashboard.editProject")}
+        variant="ghost"
+        onClick={() =>
+          onRename({
+            id: selectedProject.id,
+            icon: selectedProject.icon,
+            kind: "project",
+            name: selectedProject.name,
+          })
+        }
+      >
+        <PencilIcon />
+      </Button>
+    );
+  }
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -487,21 +836,31 @@ export function ProjectActionsMenu({
       >
         <MoreVerticalIcon />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-44">
+      <DropdownMenuContent align="end">
         <DropdownMenuGroup>
-          <DropdownMenuItem className="gap-2.5" onClick={() => onRename({
-            id: selectedProject.id,
-            icon: selectedProject.icon,
-            kind: "project",
-            name: selectedProject.name,
-          })}>
+          <DropdownMenuItem
+            className="gap-2.5"
+            onClick={() =>
+              onRename({
+                id: selectedProject.id,
+                icon: selectedProject.icon,
+                kind: "project",
+                name: selectedProject.name,
+              })
+            }
+          >
             <PencilIcon />
             {t("dashboard.editProject")}
           </DropdownMenuItem>
-          <DropdownMenuItem className="gap-2.5" onClick={() => onShare(`/p/${selectedProject.id}`)}>
-            <ShareIcon />
-            {t("dashboard.share")}
-          </DropdownMenuItem>
+          {pinarRuntime() === "cloud" && (
+            <DropdownMenuItem
+              className="gap-2.5"
+              onClick={() => onShare(`/p/${selectedProject.id}`)}
+            >
+              <ShareIcon />
+              {t("dashboard.share")}
+            </DropdownMenuItem>
+          )}
         </DropdownMenuGroup>
         {(canMoveEarlier || canMoveLater) && (
           <>
@@ -530,7 +889,9 @@ export function ProjectActionsMenu({
               <DropdownMenuItem
                 className="gap-2.5"
                 variant="destructive"
-                onClick={() => onDelete({ id: selectedProject.id, kind: "project" })}
+                onClick={() =>
+                  onDelete({ id: selectedProject.id, kind: "project" })
+                }
               >
                 <TrashIcon />
                 {t("dashboard.deleteProject")}
@@ -544,20 +905,26 @@ export function ProjectActionsMenu({
 }
 
 export function HistorySidebar({
+  filters,
   footer,
   selectedCollectionId,
+  selectedFilterId,
   selectedProject,
   t,
   onCreate,
   onDelete,
+  onDeleteFilter,
   onRename,
   onReorderCollections,
   onSelectCollection,
+  onSelectFilter,
   onShare,
 }: HistorySidebarProps) {
   const { setOpenMobile } = useSidebar();
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [collapsedCollectionIds, setCollapsedCollectionIds] = useState<Set<string>>(() => new Set());
+  const [collapsedCollectionIds, setCollapsedCollectionIds] = useState<
+    Set<string>
+  >(() => new Set());
   const [offsetLeft, setOffsetLeft] = useState(0);
   const [overId, setOverId] = useState<string | null>(null);
   const collections = selectedProject?.collections ?? [];
@@ -574,13 +941,21 @@ export function HistorySidebar({
     [collapsedCollectionIds, flattened],
   );
   const collectionIdsWithChildren = useMemo(
-    () => new Set(sortableCollections.flatMap((collection) => collection.parentId ? [collection.parentId] : [])),
+    () =>
+      new Set(
+        sortableCollections.flatMap((collection) =>
+          collection.parentId ? [collection.parentId] : [],
+        ),
+      ),
     [sortableCollections],
   );
-  const projection = activeId && overId
-    ? getCollectionProjection(flattened, activeId, overId, offsetLeft)
-    : null;
-  const activeCollection = sortableCollections.find((collection) => collection.id === activeId);
+  const projection =
+    activeId && overId
+      ? getCollectionProjection(flattened, activeId, overId, offsetLeft)
+      : null;
+  const activeCollection = sortableCollections.find(
+    (collection) => collection.id === activeId,
+  );
   const totalSessions = collections.reduce(
     (total, collection) => total + collection.sessions.length,
     0,
@@ -610,6 +985,16 @@ export function HistorySidebar({
     closeMobile();
   }
 
+  function selectFilter(id: string | null) {
+    onSelectFilter(id);
+    closeMobile();
+  }
+
+  function deleteFilter(id: string) {
+    closeMobile();
+    onDeleteFilter(id);
+  }
+
   function toggleCollection(collectionId: string) {
     setCollapsedCollectionIds((current) => {
       const next = new Set(current);
@@ -625,7 +1010,9 @@ export function HistorySidebar({
     setOverId(null);
   }
 
-  function isCollectionTreeDrag(event: { active: { data: { current?: { type?: string } } } }) {
+  function isCollectionTreeDrag(event: {
+    active: { data: { current?: { type?: string } } };
+  }) {
     return event.active.data.current?.type !== SESSION_DND_TYPE;
   }
 
@@ -683,7 +1070,7 @@ export function HistorySidebar({
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  isActive={selectedCollectionId === null}
+                  isActive={selectedCollectionId === null && selectedFilterId === null}
                   tooltip={t("dashboard.allSessions")}
                   onClick={() => selectCollection(null)}
                 >
@@ -730,7 +1117,11 @@ export function HistorySidebar({
                 {visibleFlattened.map(({ collection, depth }) => (
                   <SortableCollection
                     collection={collection}
-                    depth={collection.id === activeId && projection ? projection.depth : depth}
+                    depth={
+                      collection.id === activeId && projection
+                        ? projection.depth
+                        : depth
+                    }
                     hasChildren={collectionIdsWithChildren.has(collection.id)}
                     isActive={selectedCollectionId === collection.id}
                     isExpanded={!collapsedCollectionIds.has(collection.id)}
@@ -756,6 +1147,15 @@ export function HistorySidebar({
             </DragOverlay>
           </SidebarGroupContent>
         </SidebarGroup>
+        <SidebarFilterGroup
+          icon={FilterIcon}
+          items={filters}
+          selectedId={selectedFilterId}
+          t={t}
+          title={t("dashboard.filters")}
+          onDelete={deleteFilter}
+          onSelect={selectFilter}
+        />
       </SidebarContent>
       {footer ? <SidebarFooter>{footer}</SidebarFooter> : null}
     </Sidebar>

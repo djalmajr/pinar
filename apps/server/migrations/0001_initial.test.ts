@@ -54,6 +54,8 @@ describe("cloud schema migrations", () => {
       "0009_include_screenshot.sql",
       "0010_owner_preferences.sql",
       "0011_handoff_mode.sql",
+      "0012_batches.sql",
+      "0013_delivery_preferences.sql",
     ]);
     const migrated = new Database(":memory:");
     const canonical = new Database(":memory:");
@@ -603,6 +605,75 @@ describe("cloud schema migrations", () => {
       );
       assert.throws(
         () => db.query("UPDATE owner_preferences SET handoff_mode = 'verbose' WHERE owner_id = 'usr_existing'").run(),
+        /constraint/i,
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  test("adds delivery preference columns without rewriting an existing owner row", () => {
+    const db = new Database(":memory:");
+    try {
+      db.exec("PRAGMA foreign_keys = ON;");
+      applyMigrations(db, [
+        "0001_initial.sql",
+        "0002_billing_entitlements.sql",
+        "0003_ai_usage_and_storage_notices.sql",
+        "0004_stripe_subscription_ordering.sql",
+        "0005_founder_and_legal_acceptance.sql",
+        "0006_agent_executions.sql",
+        "0007_pin_reviews.sql",
+        "0008_loop_metrics.sql",
+        "0009_include_screenshot.sql",
+        "0010_owner_preferences.sql",
+        "0011_handoff_mode.sql",
+        "0012_batches.sql",
+      ]);
+      db.exec(`
+        INSERT INTO owner_preferences (owner_id, include_screenshot, handoff_mode, updated_at)
+        VALUES ('usr_existing', 0, 'full', '2026-08-30T00:00:00.000Z');
+      `);
+
+      applyMigrations(db, ["0013_delivery_preferences.sql"]);
+      assert.deepEqual(
+        db.query<{
+          capture_collection_id: string | null;
+          capture_project_id: string | null;
+          copy_on_finish_batch: string | null;
+          copy_viewer_content: number | null;
+          handoff_mode: string;
+          include_screenshot: number;
+          include_viewer: number | null;
+          language: string | null;
+          sensitive_query_keys: string | null;
+        }, []>(
+          `SELECT
+            capture_collection_id,
+            capture_project_id,
+            copy_on_finish_batch,
+            copy_viewer_content,
+            handoff_mode,
+            include_screenshot,
+            include_viewer,
+            language,
+            sensitive_query_keys
+          FROM owner_preferences WHERE owner_id = 'usr_existing'`,
+        ).get(),
+        {
+          capture_collection_id: null,
+          capture_project_id: null,
+          copy_on_finish_batch: null,
+          copy_viewer_content: null,
+          handoff_mode: "full",
+          include_screenshot: 0,
+          include_viewer: null,
+          language: null,
+          sensitive_query_keys: null,
+        },
+      );
+      assert.throws(
+        () => db.query("UPDATE owner_preferences SET copy_on_finish_batch = 'always' WHERE owner_id = 'usr_existing'").run(),
         /constraint/i,
       );
     } finally {

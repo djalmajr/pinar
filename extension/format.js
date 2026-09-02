@@ -136,6 +136,20 @@ function completeHandoff({
   });
 }
 
+const DEFAULT_HANDOFF_MESSAGES = {
+  handoff_instructions: "Implement the pin comments below. Use selector and DOM path as complementary locators.",
+  handoff_screenshot_note: "Numbered screenshot badges are annotation overlays, not page UI.",
+  handoff_full_context: "Full context (fetch only if the details above are insufficient): {url}",
+};
+
+function fillHandoff(template, vars) {
+  let text = template;
+  for (const [key, value] of Object.entries(vars)) {
+    text = text.replaceAll(`{${key}}`, String(value));
+  }
+  return text;
+}
+
 /**
  * @param {{
  *   capabilities?: { fullPage?: boolean, iframe?: boolean },
@@ -151,6 +165,7 @@ function completeHandoff({
  *   viewerUrl?: string,
  *   viewport?: object,
  *   warnings?: string[],
+ *   messages?: Record<string, string>,
  * }} [input]
  */
 export function formatClipboard({
@@ -167,6 +182,7 @@ export function formatClipboard({
   viewport,
   viewerUrl,
   warnings,
+  messages,
 } = {}) {
   const finalViewer = viewerUrl ? (viewerUrl.endsWith(".md") ? viewerUrl : `${viewerUrl}.md`) : null;
   const deliveredShot = includeScreenshot === false ? null : shot;
@@ -184,10 +200,11 @@ export function formatClipboard({
     viewport,
     warnings: resolvedWarnings,
   });
+  const copy = { ...DEFAULT_HANDOFF_MESSAGES, ...messages };
   const instructions = [
-    "Implement the pin comments below. Use selector and DOM path as complementary locators.",
-    ...(deliveredShot ? ["Numbered screenshot badges are annotation overlays, not page UI."] : []),
-    ...(finalViewer ? [`Full context: ${finalViewer}`] : []),
+    copy.handoff_instructions,
+    ...(deliveredShot ? [copy.handoff_screenshot_note] : []),
+    ...(finalViewer ? [fillHandoff(copy.handoff_full_context, { url: finalViewer })] : []),
   ];
   const plain = `${instructions.join("\n")}\n\n\`\`\`pinar-visual-context\n${json}\n\`\`\`\n`;
 

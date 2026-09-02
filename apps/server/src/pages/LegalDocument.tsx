@@ -41,7 +41,7 @@ export function LegalDocumentPage({ documentId }: LegalDocumentPageProps) {
     <ServerShell>
       <ScrollArea className="min-h-0 flex-1">
         <main className="mx-auto flex min-h-full w-full max-w-6xl flex-col px-5 py-10">
-          <div className="mx-auto w-full max-w-4xl">
+          <div className="w-full">
             <header className="border-b pb-6">
             <h1 className="mt-2 text-3xl font-bold tracking-tight">{document.title}</h1>
             <p className="mt-2 text-sm text-muted-foreground">

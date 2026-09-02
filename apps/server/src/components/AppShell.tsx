@@ -50,17 +50,17 @@ function AppHeader({
     <header className="relative z-30 flex h-14 shrink-0 items-center border-b bg-card/95 backdrop-blur">
       <div
         className={cn(
-          "flex h-full shrink-0 items-center border-r border-sidebar-border bg-sidebar px-2 text-sidebar-foreground transition-none",
+          "flex h-full shrink-0 items-center border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-none",
           isMobile
-            ? "w-auto max-w-[min(60vw,14rem)] shrink-0"
+            ? "w-auto max-w-[min(60vw,14rem)] shrink-0 px-4"
             : compact
-              ? "w-[calc(var(--sidebar-width-icon)+1px)]"
-              : "w-[calc(var(--sidebar-width)+1px)]",
+              ? "w-[calc(var(--sidebar-width-icon)+1px)] px-2"
+              : "w-[calc(var(--sidebar-width)+1px)] px-2",
         )}
       >
         {projectSelector(compact)}
       </div>
-      <div className="hidden min-w-0 flex-1 items-center gap-3 px-3 md:flex">
+      <div className="hidden min-w-0 flex-1 items-center gap-3 px-4 md:flex">
         <SidebarTrigger aria-label={t("dashboard.collections")} title={t("dashboard.collections")} />
         <nav aria-label={t("dashboard.breadcrumb")} className="min-w-0 flex-1">
           <ol className="flex min-w-0 items-center gap-3">
@@ -99,11 +99,11 @@ function AppHeader({
           </ol>
         </nav>
       </div>
-      <div className="flex shrink-0 items-center gap-1 px-2">
+      <div className="flex shrink-0 items-center gap-1 px-4">
+        {projectActions}
         <Button aria-label={t("settings.title")} size="icon-sm" title={t("settings.title")} variant="ghost" onClick={() => setSettingsOpen(true)}>
           <SettingsIcon />
         </Button>
-        {projectActions}
       </div>
       <GlobalSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </header>

@@ -20,7 +20,11 @@ describe("local cloud runtime options", () => {
       parseCloudLocalOptions(["--serve", "--profile", "founder", "--port", "17384", "--state-path", "fixture-state"]),
       { port: 17384, profile: "founder", serve: true, statePath: "fixture-state" },
     );
-    assert.throws(() => parseCloudLocalOptions(["--profile", "free"]), /founder, lifetime, pro/);
+    assert.deepEqual(
+      parseCloudLocalOptions(["--profile", "free"]),
+      { port: 3000, profile: "free", serve: false, statePath: ".wrangler/state/cloud-local" },
+    );
+    assert.throws(() => parseCloudLocalOptions(["--profile", "enterprise"]), /founder, free, lifetime, pro/);
     assert.throws(() => parseCloudLocalOptions(["--port", "0"]), /between 1 and 65535/);
   });
 });
@@ -48,5 +52,23 @@ describe("local cloud account fixture", () => {
       assert.equal(fixture.nextRefillAt, null);
       assert.doesNotMatch(buildCloudLocalSeedSql(fixture), /'pro_monthly'/);
     }
+  });
+
+  // Mutation captured: dropping any statement leaves the free installation unable to
+  // sign in, hold its 5 credits, or pass the remote-free legal gate.
+  test("seeds a signable free installation with legal acceptance and 5 credits", () => {
+    const fixture = buildCloudLocalFixture("free", "test-pepper", new Date("2026-08-19T12:00:00.000Z"));
+    const sql = buildCloudLocalSeedSql(fixture);
+
+    assert.match(fixture.installationId, /^ins_[A-Za-z0-9_-]{24}$/);
+    assert.match(fixture.installationToken, /^pit_[A-Za-z0-9_-]{43}$/);
+    assert.equal(fixture.nextRefillAt, null);
+    assert.equal(fixture.extensionCodeHash, extensionCodeHash("test-pepper", "FRCLD826"));
+    assert.match(sql, /INSERT INTO installations /);
+    assert.match(sql, /INSERT OR IGNORE INTO legal_acceptances /);
+    assert.match(sql, /'remote_free'/);
+    assert.match(sql, /'free_initial', 'free:ins_cloud_local_free00000000', 5, 0/);
+    assert.doesNotMatch(sql, /INSERT INTO users/);
+    assert.doesNotMatch(sql, /INSERT INTO sessions/);
   });
 });

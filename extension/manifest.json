@@ -1,20 +1,36 @@
 {
   "manifest_version": 3,
-  "name": "Pinar",
+  "name": "Pinar.dev",
   "version": "0.4.0",
   "description": "Visual Annotations for AI Agents & Engineers",
   "default_locale": "en_US",
   "homepage_url": "https://pinar.dev",
-  "permissions": ["activeTab", "clipboardWrite", "contextMenus", "offscreen", "scripting", "storage"],
+  "permissions": [
+    "activeTab",
+    "clipboardWrite",
+    "contextMenus",
+    "notifications",
+    "offscreen",
+    "scripting",
+    "storage"
+  ],
   "options_ui": {
     "page": "dist/options.html",
     "open_in_tab": true
   },
-  "host_permissions": ["http://127.0.0.1/*", "<all_urls>"],
-  "background": { "service_worker": "background.js", "type": "module" },
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
   "content_scripts": [
     {
-      "js": ["app-bridge.js"],
+      "js": [
+        "app-bridge.js"
+      ],
       "matches": [
         "http://127.0.0.1/*",
         "http://localhost/*",
@@ -25,12 +41,37 @@
     }
   ],
   "action": {
-    "default_title": "Pinar",
+    "default_title": "Pinar.dev",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",
       "48": "icons/icon-48.png",
       "128": "icons/icon-128.png"
+    }
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+Shift+P"
+      }
+    },
+    "finish-batch": {
+      "suggested_key": {
+        "default": "Alt+Shift+B"
+      },
+      "description": "Start or finish the Pinar capture batch"
+    },
+    "open-panel": {
+      "description": "Open the Pinar panel",
+      "suggested_key": {
+        "default": "Alt+Shift+O"
+      }
+    },
+    "cancel-batch": {
+      "description": "Close the Pinar capture batch without copying it",
+      "suggested_key": {
+        "default": "Alt+Shift+X"
+      }
     }
   },
   "icons": {

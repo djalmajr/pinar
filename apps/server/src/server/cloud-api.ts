@@ -36,6 +36,7 @@ import {
   planLoopMetricRequest,
   DEFAULT_DELIVERY_PREFERENCES,
   mergeDeliveryPreferences,
+  parseDeliveryPreferences,
   type DeliveryPreferences,
   type LoopMetric,
   type PinReview,
@@ -87,7 +88,7 @@ import {
   type FounderReservationRecord,
   type ReserveFounderSlotResult,
 } from "./founder-capacity-store";
-import { formatCollectionMarkdown, formatProjectMarkdown, formatSessionMarkdown } from "./markdown";
+import { formatBatchMarkdown, formatCollectionMarkdown, formatProjectMarkdown, formatSessionMarkdown } from "./markdown";
 import { installerResponse } from "./installers";
 import { decodePngDataUrl } from "./png";
 import {
@@ -171,6 +172,30 @@ interface Principal {
   isPermanent: boolean;
   kind: "account" | "installation";
   plan: AccountPlan;
+}
+
+type CloudSession = Session & { batchId: string | null };
+
+interface CaptureBatchInput {
+  id: string;
+  label: string;
+  startedAt: string;
+}
+
+interface BatchRecord {
+  finishedAt: string | null;
+  id: string;
+  label: string;
+  sessionCount: number;
+  startedAt: string;
+}
+
+interface MemoryBatch {
+  finishedAt: string | null;
+  id: string;
+  label: string;
+  startedAt: string;
+  userId: string;
 }
 
 interface InstallationRecord {
@@ -366,6 +391,7 @@ const memoryLegalAcceptances = new Map<string, LegalAcceptanceRecord>();
 const memoryProjects = new Map<string, Project>();
 const memoryRateLimits = new Map<string, RateLimitRecord>();
 const memorySessions = new Map<string, Session>();
+const memoryBatches = new Map<string, MemoryBatch>();
 const memorySessionRetentionExpiresAt = new Map<string, string>();
 const memoryStorageGrants = new Map<string, StorageGrantRecord>();
 const memoryStorageExpiryNotices = new Map<string, StorageExpiryNoticeRecord>();
@@ -397,23 +423,78 @@ function booleanValue(record: Record<string, unknown>, key: string, fallback = t
   return fallback;
 }
 
+function cloudSessionBatchId(session: Session): string | null {
+  const value = (session as CloudSession).batchId;
+  return typeof value === "string" && value ? value : null;
+}
+
+function withCloudBatchId(session: Session, batchId = cloudSessionBatchId(session)): CloudSession {
+  return { ...session, batchId };
+}
+
+function parseCaptureBatch(
+  body: Record<string, unknown>,
+): { ok: true; batch: CaptureBatchInput | null } | { ok: false } {
+  if (body.batch == null) return { ok: true, batch: null };
+  if (!isRecord(body.batch)) return { ok: false };
+  const id = stringValue(body.batch, "id").trim();
+  const label = stringValue(body.batch, "label").trim();
+  const startedAt = stringValue(body.batch, "startedAt").trim();
+  if (!id || !label || !startedAt) return { ok: false };
+  return { ok: true, batch: { id, label, startedAt } };
+}
+
+function batchFromRow(row: Record<string, unknown>): BatchRecord {
+  return {
+    finishedAt: typeof row.finished_at === "string" && row.finished_at ? row.finished_at : null,
+    id: String(row.id || ""),
+    label: String(row.label || ""),
+    sessionCount: Number(row.session_count || 0),
+    startedAt: String(row.started_at || ""),
+  };
+}
+
+function deliveryPreferencesFromOwnerRow(row: Record<string, unknown> | null | undefined): DeliveryPreferences {
+  if (!row) return { ...DEFAULT_DELIVERY_PREFERENCES };
+  const projectId = typeof row.capture_project_id === "string" ? row.capture_project_id : "";
+  const collectionId = typeof row.capture_collection_id === "string" ? row.capture_collection_id : "";
+  return parseDeliveryPreferences({
+    captureDestination: projectId && collectionId ? { collectionId, projectId } : null,
+    copyOnFinishBatch: row.copy_on_finish_batch,
+    copyViewerContent: row.copy_viewer_content,
+    handoffMode: row.handoff_mode,
+    includeScreenshot: row.include_screenshot,
+    includeViewer: row.include_viewer,
+    language: row.language,
+    sensitiveQueryKeys: row.sensitive_query_keys,
+  });
+}
+
 async function readOwnerDeliveryPreferences(env: CloudEnv, ownerId: string): Promise<DeliveryPreferences> {
   if (!ownerId) return { ...DEFAULT_DELIVERY_PREFERENCES };
   if (env.DB) {
     try {
-      const row = await env.DB.prepare(
-        "SELECT handoff_mode, include_screenshot FROM owner_preferences WHERE owner_id = ?",
-      ).bind(ownerId).first();
-      if (!row) return { ...DEFAULT_DELIVERY_PREFERENCES };
-      return {
-        handoffMode: row.handoff_mode === "full" ? "full" : "compact",
-        includeScreenshot: Number(row.include_screenshot) !== 0,
-      };
+      const row = await env.DB.prepare(`
+        SELECT
+          capture_collection_id,
+          capture_project_id,
+          copy_on_finish_batch,
+          copy_viewer_content,
+          handoff_mode,
+          include_screenshot,
+          include_viewer,
+          language,
+          sensitive_query_keys
+        FROM owner_preferences
+        WHERE owner_id = ?
+      `).bind(ownerId).first();
+      return deliveryPreferencesFromOwnerRow(row);
     } catch {
       return { ...DEFAULT_DELIVERY_PREFERENCES };
     }
   }
-  return memoryOwnerPreferences.get(ownerId) ?? { ...DEFAULT_DELIVERY_PREFERENCES };
+  const stored = memoryOwnerPreferences.get(ownerId);
+  return stored ? parseDeliveryPreferences(stored) : { ...DEFAULT_DELIVERY_PREFERENCES };
 }
 
 async function writeOwnerDeliveryPreferences(
@@ -425,13 +506,44 @@ async function writeOwnerDeliveryPreferences(
   const updatedAt = currentDate().toISOString();
   if (env.DB) {
     await env.DB.prepare(`
-      INSERT INTO owner_preferences (owner_id, handoff_mode, include_screenshot, updated_at)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO owner_preferences (
+        owner_id,
+        handoff_mode,
+        include_screenshot,
+        updated_at,
+        capture_project_id,
+        capture_collection_id,
+        copy_on_finish_batch,
+        copy_viewer_content,
+        include_viewer,
+        language,
+        sensitive_query_keys
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(owner_id) DO UPDATE SET
         handoff_mode = excluded.handoff_mode,
         include_screenshot = excluded.include_screenshot,
-        updated_at = excluded.updated_at
-    `).bind(ownerId, next.handoffMode, next.includeScreenshot ? 1 : 0, updatedAt).run();
+        updated_at = excluded.updated_at,
+        capture_project_id = excluded.capture_project_id,
+        capture_collection_id = excluded.capture_collection_id,
+        copy_on_finish_batch = excluded.copy_on_finish_batch,
+        copy_viewer_content = excluded.copy_viewer_content,
+        include_viewer = excluded.include_viewer,
+        language = excluded.language,
+        sensitive_query_keys = excluded.sensitive_query_keys
+    `).bind(
+      ownerId,
+      next.handoffMode,
+      next.includeScreenshot ? 1 : 0,
+      updatedAt,
+      next.captureDestination?.projectId ?? null,
+      next.captureDestination?.collectionId ?? null,
+      next.copyOnFinishBatch,
+      next.copyViewerContent ? 1 : 0,
+      next.includeViewer ? 1 : 0,
+      next.language,
+      next.sensitiveQueryKeys,
+    ).run();
   } else {
     memoryOwnerPreferences.set(ownerId, next);
   }
@@ -1266,10 +1378,11 @@ async function withinRateLimits(
   return true;
 }
 
-function sessionFromRow(row: Record<string, unknown>): Session {
+function sessionFromRow(row: Record<string, unknown>): CloudSession {
   const id = String(row.id || "");
   const capture = decodeVisualCaptureJson(String(row.pins_json || "[]"), id);
   return {
+    batchId: typeof row.batch_id === "string" && row.batch_id ? row.batch_id : null,
     byteSize: Number(row.byte_size || 0),
     captureId: capture.captureId,
     collectionId: String(row.collection_id || ""),
@@ -1368,14 +1481,43 @@ async function findPublicProject(env: CloudEnv, id: string): Promise<ProjectTree
   };
 }
 
+async function findPublicBatch(env: CloudEnv, id: string) {
+  if (env.DB) {
+    const row = await env.DB.prepare("SELECT * FROM batches WHERE id = ?").bind(id).first();
+    if (!row) return null;
+    const ownerId = String(row.user_id || "");
+    const sessions = await env.DB.prepare(
+      "SELECT * FROM sessions WHERE user_id = ? AND batch_id = ? ORDER BY created_at DESC",
+    ).bind(ownerId, id).all();
+    return {
+      batch: batchFromRow(row),
+      ownerId,
+      sessions: (sessions.results || []).map(sessionFromRow),
+    };
+  }
+  const batch = memoryBatches.get(id);
+  if (!batch) return null;
+  return {
+    batch: memoryBatchRecord(batch),
+    ownerId: batch.userId,
+    sessions: Array.from(memorySessions.values())
+      .filter((session) => session.userId === batch.userId && cloudSessionBatchId(session) === id)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .map((session) => withCloudBatchId(session)),
+  };
+}
+
 async function listSessions(
   env: CloudEnv,
   principal: Principal,
   query: string,
   requestedLimit: string,
   collectionId = "",
+  batchId = "",
+  requestedOffset = "",
 ) {
   const limit = Math.min(Math.max(Number(requestedLimit) || 50, 1), 100);
+  const offset = Math.max(Number(requestedOffset) || 0, 0);
   if (env.DB) {
     const clauses = ["user_id = ?"];
     const values: unknown[] = [principal.id];
@@ -1383,14 +1525,18 @@ async function listSessions(
       clauses.push("collection_id = ?");
       values.push(collectionId);
     }
+    if (batchId) {
+      clauses.push("batch_id = ?");
+      values.push(batchId);
+    }
     if (query) {
       clauses.push("(title LIKE ? OR url LIKE ? OR pins_json LIKE ?)");
       values.push(`%${query}%`, `%${query}%`, `%${query}%`);
     }
     const order = collectionId ? "position ASC" : "created_at DESC";
     const statement = env.DB.prepare(
-      `SELECT * FROM sessions WHERE ${clauses.join(" AND ")} ORDER BY ${order} LIMIT ?`,
-    ).bind(...values, limit);
+      `SELECT * FROM sessions WHERE ${clauses.join(" AND ")} ORDER BY ${order} LIMIT ? OFFSET ?`,
+    ).bind(...values, limit, offset);
     const result = await statement.all();
     return decorateCloudSessions(env, (result.results || []).map(sessionFromRow));
   }
@@ -1399,11 +1545,12 @@ async function listSessions(
     Array.from(memorySessions.values())
       .filter((session) => session.userId === principal.id
         && (!collectionId || session.collectionId === collectionId)
+        && (!batchId || cloudSessionBatchId(session) === batchId)
         && sessionMatchesQuery(session, query))
       .sort((left, right) => collectionId
         ? Number(left.position) - Number(right.position)
         : right.createdAt.localeCompare(left.createdAt))
-      .slice(0, limit),
+      .slice(offset, offset + limit),
   );
 }
 
@@ -1418,7 +1565,146 @@ async function listCollectionSessions(env: CloudEnv, principal: Principal, colle
   }
   return Array.from(memorySessions.values())
     .filter((session) => session.userId === principal.id && session.collectionId === collectionId)
-    .sort((left, right) => Number(left.position) - Number(right.position));
+    .sort((left, right) => Number(left.position) - Number(right.position))
+    .map((session) => withCloudBatchId(session));
+}
+
+const BATCH_SELECT = `
+  SELECT
+    b.id,
+    b.label,
+    b.started_at,
+    b.finished_at,
+    COUNT(s.id) AS session_count
+  FROM batches b
+  LEFT JOIN sessions s ON s.batch_id = b.id AND s.user_id = b.user_id
+`;
+
+function memoryBatchRecord(batch: MemoryBatch): BatchRecord {
+  return {
+    finishedAt: batch.finishedAt,
+    id: batch.id,
+    label: batch.label,
+    sessionCount: Array.from(memorySessions.values()).filter(
+      (session) => session.userId === batch.userId && cloudSessionBatchId(session) === batch.id,
+    ).length,
+    startedAt: batch.startedAt,
+  };
+}
+
+async function listBatches(env: CloudEnv, principal: Principal): Promise<BatchRecord[]> {
+  if (env.DB) {
+    const result = await env.DB.prepare(`
+      ${BATCH_SELECT}
+      WHERE b.user_id = ?
+      GROUP BY b.id
+      ORDER BY b.started_at DESC
+    `).bind(principal.id).all();
+    return (result.results || []).map(batchFromRow);
+  }
+  return Array.from(memoryBatches.values())
+    .filter((batch) => batch.userId === principal.id)
+    .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
+    .map(memoryBatchRecord);
+}
+
+async function getBatch(env: CloudEnv, principal: Principal, id: string): Promise<BatchRecord | null> {
+  if (env.DB) {
+    const row = await env.DB.prepare(`
+      ${BATCH_SELECT}
+      WHERE b.id = ? AND b.user_id = ?
+      GROUP BY b.id
+    `).bind(id, principal.id).first();
+    return row ? batchFromRow(row) : null;
+  }
+  const batch = memoryBatches.get(id);
+  if (!batch || batch.userId !== principal.id) return null;
+  return memoryBatchRecord(batch);
+}
+
+async function upsertBatch(env: CloudEnv, principal: Principal, input: CaptureBatchInput) {
+  if (env.DB) {
+    await env.DB.prepare(`
+      INSERT INTO batches (id, user_id, label, started_at, finished_at)
+      VALUES (?, ?, ?, ?, NULL)
+      ON CONFLICT(id) DO NOTHING
+    `).bind(input.id, principal.id, input.label, input.startedAt).run();
+    const row = await env.DB.prepare(
+      "SELECT id FROM batches WHERE id = ? AND user_id = ?",
+    ).bind(input.id, principal.id).first();
+    return Boolean(row);
+  }
+  const existing = memoryBatches.get(input.id);
+  if (!existing) {
+    memoryBatches.set(input.id, {
+      finishedAt: null,
+      id: input.id,
+      label: input.label,
+      startedAt: input.startedAt,
+      userId: principal.id,
+    });
+    return true;
+  }
+  return existing.userId === principal.id;
+}
+
+async function resolveCaptureBatchId(
+  env: CloudEnv,
+  principal: Principal,
+  body: Record<string, unknown>,
+): Promise<string | null | Response> {
+  const parsed = parseCaptureBatch(body);
+  if (!parsed.ok) return json({ error: "invalid batch" }, 400);
+  if (!parsed.batch) return null;
+  if (!(await upsertBatch(env, principal, parsed.batch))) return json({ error: "invalid batch" }, 409);
+  return parsed.batch.id;
+}
+
+async function finishBatch(
+  env: CloudEnv,
+  principal: Principal,
+  id: string,
+  finishedAt: string,
+): Promise<BatchRecord | null> {
+  if (env.DB) {
+    const existing = await env.DB.prepare(
+      "SELECT id FROM batches WHERE id = ? AND user_id = ?",
+    ).bind(id, principal.id).first();
+    if (!existing) return null;
+    await env.DB.prepare(
+      "UPDATE batches SET finished_at = ? WHERE id = ? AND user_id = ?",
+    ).bind(finishedAt, id, principal.id).run();
+    return getBatch(env, principal, id);
+  }
+  const batch = memoryBatches.get(id);
+  if (!batch || batch.userId !== principal.id) return null;
+  batch.finishedAt = finishedAt;
+  return memoryBatchRecord(batch);
+}
+
+async function deleteBatch(env: CloudEnv, principal: Principal, id: string) {
+  if (env.DB) {
+    const existing = await env.DB.prepare(
+      "SELECT id FROM batches WHERE id = ? AND user_id = ?",
+    ).bind(id, principal.id).first();
+    if (!existing) return false;
+    await env.DB.batch([
+      env.DB.prepare(
+        "UPDATE sessions SET batch_id = NULL WHERE batch_id = ? AND user_id = ?",
+      ).bind(id, principal.id),
+      env.DB.prepare("DELETE FROM batches WHERE id = ? AND user_id = ?").bind(id, principal.id),
+    ]);
+    return true;
+  }
+  const batch = memoryBatches.get(id);
+  if (!batch || batch.userId !== principal.id) return false;
+  for (const session of memorySessions.values()) {
+    if (session.userId === principal.id && cloudSessionBatchId(session) === id) {
+      (session as CloudSession).batchId = null;
+    }
+  }
+  memoryBatches.delete(id);
+  return true;
 }
 
 async function principalFromOwner(env: CloudEnv, ownerType: Principal["kind"], ownerId: string) {
@@ -1883,6 +2169,8 @@ async function migrateInstallationToAccount(
         env.DB.prepare(
           "UPDATE sessions SET user_id = ?, plan = ?, is_permanent = ? WHERE user_id = ?",
         ).bind(account.id, account.plan, account.plan === "free" ? 0 : 1, installationId),
+        env.DB.prepare("UPDATE batches SET user_id = ? WHERE user_id = ?")
+          .bind(account.id, installationId),
         env.DB.prepare(
           "UPDATE collections SET parent_id = ? WHERE owner_id = ? AND parent_id = ?",
         ).bind(target.collectionId, installationId, source.collectionId),
@@ -1962,6 +2250,9 @@ async function migrateInstallationToAccount(
         session.collectionId = target.collectionId;
         session.position = Number(session.position || 0) + inboxPosition;
       }
+    }
+    for (const batch of memoryBatches.values()) {
+      if (batch.userId === installationId) batch.userId = account.id;
     }
     for (const project of memoryProjects.values()) {
       if (project.ownerId !== installationId || project.id === source.projectId) continue;
@@ -3664,20 +3955,20 @@ async function deleteProjectContainer(env: CloudEnv, principal: Principal, id: s
   return true;
 }
 
-async function persistSession(env: CloudEnv, session: Session) {
+async function persistSession(env: CloudEnv, session: Session, batchId: string | null = null) {
   const capture = captureFromSession(session);
   if (env.DB) {
     await env.DB.prepare(
       `INSERT INTO sessions (
          id, url, title, shot_id, shot_url, pin_count, pins_json, created_at, user_id,
-         plan, is_permanent, byte_size, collection_id, position, include_screenshot
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         plan, is_permanent, byte_size, collection_id, position, include_screenshot, batch_id
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET url=excluded.url, title=excluded.title, shot_id=excluded.shot_id,
        shot_url=excluded.shot_url, pin_count=excluded.pin_count, pins_json=excluded.pins_json,
        created_at=excluded.created_at, user_id=excluded.user_id, plan=excluded.plan,
        is_permanent=excluded.is_permanent, byte_size=excluded.byte_size,
        collection_id=excluded.collection_id, position=excluded.position,
-       include_screenshot=excluded.include_screenshot`,
+       include_screenshot=excluded.include_screenshot, batch_id=excluded.batch_id`,
     ).bind(
       session.id,
       session.page.url || "",
@@ -3694,9 +3985,10 @@ async function persistSession(env: CloudEnv, session: Session) {
       session.collectionId || "",
       session.position || 0,
       session.includeScreenshot === false ? 0 : 1,
+      batchId,
     ).run();
   } else {
-    memorySessions.set(session.id, sessionFromCapture(capture, session));
+    memorySessions.set(session.id, withCloudBatchId(sessionFromCapture(capture, session), batchId));
   }
   await ensureOpenPinReviews(env, session);
 }
@@ -3935,8 +4227,12 @@ async function reviewCountsForSession(env: CloudEnv, session: Session) {
   return countPinReviews(pinIds, map);
 }
 
-async function decorateCloudSession(env: CloudEnv, session: Session): Promise<Session> {
-  return { ...session, reviewCounts: await reviewCountsForSession(env, session) };
+async function decorateCloudSession(env: CloudEnv, session: Session): Promise<CloudSession> {
+  return {
+    ...session,
+    batchId: cloudSessionBatchId(session),
+    reviewCounts: await reviewCountsForSession(env, session),
+  };
 }
 
 async function decorateCloudSessions(env: CloudEnv, sessions: Session[]) {
@@ -4516,7 +4812,14 @@ async function uploadShot(request: Request, env: CloudEnv) {
   }
   const origin = new URL(request.url).origin;
   const shotUrl = `${origin}/shots/${id}.png`;
-  const destination = await resolveDestination(env, principal, stringValue(body, "collectionId"));
+  const preferences = await readOwnerDeliveryPreferences(env, principal.id);
+  const destination = await resolveDestination(
+    env,
+    principal,
+    stringValue(body, "collectionId") || preferences.captureDestination?.collectionId || "",
+  );
+  const batchId = await resolveCaptureBatchId(env, principal, body);
+  if (batchId instanceof Response) return batchId;
   if (env.PINAR_BUCKET) {
     await env.PINAR_BUCKET.put(shotObjectKey(id), imageBytes, { httpMetadata: { contentType: "image/png" } });
   }
@@ -4533,12 +4836,12 @@ async function uploadShot(request: Request, env: CloudEnv) {
     includeScreenshot: booleanValue(
       body,
       "includeScreenshot",
-      (await readOwnerDeliveryPreferences(env, principal.id)).includeScreenshot,
+      preferences.includeScreenshot,
     ),
     userId: principal.id,
   });
   try {
-    await persistSession(env, session);
+    await persistSession(env, session, batchId);
   } catch {
     return json({ error: "Session persistence failed" }, 503);
   }
@@ -4597,12 +4900,14 @@ async function saveHistory(request: Request, env: CloudEnv) {
       storage,
     }, 413);
   }
+  const batchId = await resolveCaptureBatchId(env, principal, body);
+  if (batchId instanceof Response) return batchId;
   try {
-    await persistSession(env, session);
+    await persistSession(env, session, batchId);
   } catch {
     return json({ error: "Session persistence failed" }, 503);
   }
-  return json({ destination, ok: true, session }, 201);
+  return json({ destination, ok: true, session: withCloudBatchId(session, batchId) }, 201);
 }
 
 async function queryHistory(request: Request, env: CloudEnv) {
@@ -4616,6 +4921,8 @@ async function queryHistory(request: Request, env: CloudEnv) {
       url.searchParams.get("q") || "",
       url.searchParams.get("limit") || "",
       url.searchParams.get("collectionId") || "",
+      url.searchParams.get("batchId") || "",
+      url.searchParams.get("offset") || "",
     );
     return json({ ok: true, sessions }, 200, { "Cache-Control": "no-store" });
   } catch {
@@ -4990,6 +5297,7 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
       ok: true,
       runtime: "cloud",
       service: "pinar",
+      version: import.meta.env.VITE_PINAR_VERSION ?? "",
     });
   }
   if (method === "GET" && path === "/api/pricing") {
@@ -5031,6 +5339,28 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
   if (method === "POST" && path === "/api/loop-metrics") return publishLoopMetrics(request, env);
   if (method === "GET" && path === "/api/loop-metrics") return queryLoopMetrics(request, env);
   if (method === "GET" && path === "/api/history") return queryHistory(request, env);
+  if (method === "GET" && path === "/api/batches") {
+    const principal = await resolvePrincipal(request, env);
+    if (!principal) return json({ error: "Unauthorized" }, 401);
+    return json({ ok: true, batches: await listBatches(env, principal) }, 200, { "Cache-Control": "no-store" });
+  }
+  const batchFinishMatch = path.match(/^\/api\/batches\/([^/]+)\/finish$/);
+  if (batchFinishMatch && method === "POST") {
+    const principal = await resolvePrincipal(request, env);
+    if (!principal) return json({ error: "Unauthorized" }, 401);
+    const body = await readJson(request);
+    const finishedAt = stringValue(body, "finishedAt").trim();
+    if (!finishedAt) return json({ error: "finishedAt required" }, 400);
+    const batch = await finishBatch(env, principal, decodeURIComponent(batchFinishMatch[1]), finishedAt);
+    return batch ? json({ ok: true, batch }) : json({ error: "batch not found" }, 404);
+  }
+  const batchMatch = path.match(/^\/api\/batches\/([^/]+)$/);
+  if (batchMatch && method === "DELETE") {
+    const principal = await resolvePrincipal(request, env);
+    if (!principal) return json({ error: "Unauthorized" }, 401);
+    const deleted = await deleteBatch(env, principal, decodeURIComponent(batchMatch[1]));
+    return deleted ? json({ ok: true }) : json({ error: "batch not found" }, 404);
+  }
   if (method === "GET" && path.startsWith("/api/public/projects/")) {
     const project = await findPublicProject(
       env,
@@ -5277,6 +5607,33 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
       })
       : text("Collection not found", 404);
   }
+  if (request.method === "GET" && url.pathname.startsWith("/b/")) {
+    const rawId = decodeURIComponent(url.pathname.slice("/b/".length));
+    if (!rawId.endsWith(".md")) return json({ error: "Not found" }, 404);
+    const bundle = await findPublicBatch(env, rawId.slice(0, -3));
+    if (!bundle) return text("Batch not found", 404);
+    const statusByPinId: Record<string, PinReviewStatus> = {};
+    for (const session of bundle.sessions) {
+      for (const review of await listPinReviews(env, session.id)) {
+        statusByPinId[review.pinId] = review.status;
+      }
+    }
+    const preferences = await readOwnerDeliveryPreferences(env, bundle.ownerId);
+    return text(
+      formatBatchMarkdown(
+        bundle.batch,
+        bundle.sessions,
+        statusByPinId,
+        url.origin,
+        { ...preferences, language: preferences.language ?? "en" },
+      ),
+      200,
+      {
+        "Cache-Control": "no-store",
+        "Content-Type": "text/markdown; charset=utf-8",
+      },
+    );
+  }
   if (request.method === "GET" && (url.pathname === "/install.sh" || url.pathname === "/install.ps1")) {
     return installerResponse(url.pathname) || json({ error: "Not found" }, 404);
   }
@@ -5303,6 +5660,7 @@ export function resetCloudMemoryStateForTests() {
   memoryProjects.clear();
   memoryRateLimits.clear();
   memorySessions.clear();
+  memoryBatches.clear();
   memorySessionRetentionExpiresAt.clear();
   memoryStorageGrants.clear();
   memoryStorageExpiryNotices.clear();

@@ -4,6 +4,8 @@ import {
   parseVisualCapture,
   type VisualCapture,
 } from "../visual-context/index.js";
+import { translations } from "../i18n/index.js";
+import type { SupportedLanguage } from "../types/index.js";
 
 export const HANDOFF_AGENTS = ["cursor", "claude", "codex", "grok"] as const;
 export type HandoffAgent = (typeof HANDOFF_AGENTS)[number];
@@ -64,6 +66,14 @@ function escapeHtml(value: string) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+function fillHandoff(template: string, vars: Record<string, string | number>) {
+  let text = template;
+  for (const [key, value] of Object.entries(vars)) {
+    text = text.replaceAll(`{${key}}`, String(value));
+  }
+  return text;
 }
 
 export function isDegradedHandoff(warnings: string[] = []) {
@@ -143,14 +153,14 @@ function structuredHandoffBundle(
   capture: VisualCapture,
   jsonCapture: unknown,
   viewerUrl?: string | null,
+  language: SupportedLanguage = "en",
 ): CompactHandoffBundle {
+  const t = (language && translations[language]) || translations.en;
   const json = JSON.stringify(jsonCapture);
   const instructions = [
-    "Implement the pin comments below. Use selector and DOM path as complementary locators.",
-    ...(capture.screenshot.url
-      ? ["Numbered screenshot badges are annotation overlays, not page UI."]
-      : []),
-    ...(viewerUrl ? [`Full context: ${viewerUrl}`] : []),
+    t.handoff_instructions,
+    ...(capture.screenshot.url ? [t.handoff_screenshot_note] : []),
+    ...(viewerUrl ? [fillHandoff(t.handoff_full_context, { url: viewerUrl })] : []),
   ].join("\n");
   const plain = `${instructions}\n\n${formatHandoffJsonFence(json)}\n`;
   const html = [
@@ -164,15 +174,57 @@ function structuredHandoffBundle(
 export function formatCompactHandoffBundle(
   capture: VisualCapture,
   viewerUrl?: string | null,
+  language: SupportedLanguage = "en",
 ): CompactHandoffBundle {
-  return structuredHandoffBundle(capture, compactCaptureForHandoff(capture), viewerUrl);
+  return structuredHandoffBundle(capture, compactCaptureForHandoff(capture), viewerUrl, language);
 }
 
 export function formatFullHandoffBundle(
   capture: VisualCapture,
   viewerUrl?: string | null,
+  language: SupportedLanguage = "en",
 ): CompactHandoffBundle {
-  return structuredHandoffBundle(capture, captureForHandoffJson(capture), viewerUrl);
+  return structuredHandoffBundle(capture, captureForHandoffJson(capture), viewerUrl, language);
+}
+
+export interface BatchHandoffCapture {
+  capture: VisualCapture;
+  viewerUrl?: string | null;
+}
+
+/**
+ * A batch is handed to an agent in the same shape as a single capture - one
+ * instruction block, then `pinar-visual-context` fences - so whatever already
+ * parses a paste keeps working when several pages arrive at once. Each fence
+ * is one page and keeps its own captureId; the per-capture "full context" link
+ * sits right above its fence instead of in the shared instructions.
+ */
+export function formatBatchHandoff(
+  title: string,
+  captures: BatchHandoffCapture[],
+  handoffMode: "compact" | "full" = "compact",
+  language: SupportedLanguage = "en",
+): string {
+  const t = (language && translations[language]) || translations.en;
+  if (captures.length === 0) {
+    return `# ${title}\n\n${t.handoff_batch_empty}\n`;
+  }
+  const project = handoffMode === "full" ? captureForHandoffJson : compactCaptureForHandoff;
+  const anyScreenshot = captures.some(({ capture }) => Boolean(capture.screenshot.url));
+  const instructions = [
+    `# ${title}`,
+    "",
+    fillHandoff(t.handoff_batch_instructions, { count: captures.length }),
+    t.handoff_batch_blocks,
+    ...(anyScreenshot ? [t.handoff_screenshot_note] : []),
+  ];
+  const blocks = captures.map(({ capture, viewerUrl }) => [
+    `## ${capture.page.title || capture.page.url}`,
+    ...(viewerUrl ? [fillHandoff(t.handoff_full_context, { url: viewerUrl })] : []),
+    "",
+    formatHandoffJsonFence(JSON.stringify(project(capture))),
+  ].join("\n"));
+  return `${instructions.join("\n")}\n\n${blocks.join("\n\n")}\n`;
 }
 
 export function formatHandoffJsonFence(json: string) {

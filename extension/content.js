@@ -230,8 +230,9 @@
       .toast[data-kind="ok"] { color: #1F7A4D; }
       .view { align-items: center; display: flex; gap: 12px; min-width: 0; position: relative; z-index: 1; }
       .view[hidden] { display: none !important; }
-      .state-icon { display: grid; flex: 0 0 1.25rem; height: 1.25rem; place-items: center; width: 1.25rem; }
-      .mark { display: block; height: 1.25rem; width: 1.25rem; }
+      /* px, never rem: rem follows the host page root font-size, which the shadow root does not isolate. */
+      .state-icon { display: grid; flex: 0 0 20px; height: 20px; place-items: center; width: 20px; }
+      .mark { display: block; height: 20px; width: 20px; }
       .instructions { align-items: center; display: flex; gap: 12px; min-width: 0; overflow: hidden; }
       .hint { align-items: center; display: inline-flex; gap: 5px; }
       .keys { align-items: center; display: inline-flex; gap: 3px; }

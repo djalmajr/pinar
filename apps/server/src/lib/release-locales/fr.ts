@@ -22,6 +22,38 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.2.0": {
+      title: "Lots de captures et préférences synchronisées",
+      summary:
+        "Regroupez des captures de plusieurs pages en un seul prompt, gardez toutes les préférences sur le serveur et utilisez Pinar en sept langues de bout en bout.",
+      changes: {
+        "capture-batches": {
+          title: "Lots de captures",
+          description:
+            "Appuyez sur Alt+Maj+B pour regrouper les prochaines captures ; appuyez à nouveau pour terminer et les copier en un seul prompt. Les lots vivent dans un dossier de la barre latérale, et Alt+Maj+X ou le menu de l’icône en ferme un sans copier.",
+        },
+        "server-preferences": {
+          title: "Préférences sur le serveur",
+          description:
+            "Destination des captures, copie du lot, forme du handoff, clés d’URL masquées et langue vivent sur le serveur et restent synchronisées avec l’extension. Les Réglages gagnent des sections Capture, Handoff et Confidentialité.",
+        },
+        "localized-everywhere": {
+          title: "Sept langues partout",
+          description:
+            "La barre d’outils, le menu de l’icône et le prompt remis à l’agent suivent la langue choisie, avec l’espace de travail et les Options.",
+        },
+        "progress-toolbar": {
+          title: "Progression dans la barre",
+          description:
+            "Cmd+Entrée transforme la barre en barre de progression - enregistrement, terminé ou erreur - et l’obturateur de la capture ne dure plus que deux images. Fermer un lot signale son résultat par une notification.",
+        },
+        "about-and-versioning": {
+          title: "À propos et une seule version",
+          description:
+            "Réglages > À propos montre ce qu’est Pinar, sa version et les notes de version. Une seule version du produit régit l’app, le site et les tags, et les builds de production ne partent que d’un tag de release.",
+        },
+      },
+    },
     "v0.1.5": {
       title: "Lancement fiable à la connexion",
       summary:

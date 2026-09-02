@@ -21,6 +21,38 @@ const locale = {
     whatChanged: "Qué cambió",
   },
   releases: {
+    "v0.2.0": {
+      title: "Lotes de captura y preferencias sincronizadas",
+      summary:
+        "Agrupa capturas de varias páginas en un solo prompt, guarda todas las preferencias en el servidor y usa Pinar en siete idiomas de principio a fin.",
+      changes: {
+        "capture-batches": {
+          title: "Lotes de captura",
+          description:
+            "Pulsa Alt+Shift+B para agrupar las próximas capturas; pulsa de nuevo para finalizar y copiarlas como un solo prompt. Los lotes viven en una carpeta de la barra lateral, y Alt+Shift+X o el menú del icono cierra uno sin copiar.",
+        },
+        "server-preferences": {
+          title: "Preferencias en el servidor",
+          description:
+            "Destino de captura, copia del lote, formato del handoff, claves de URL ocultas e idioma viven en el servidor y se sincronizan con la extensión. Ajustes suma secciones de Captura, Handoff y Privacidad.",
+        },
+        "localized-everywhere": {
+          title: "Siete idiomas en todo",
+          description:
+            "La barra, el menú del icono y el prompt entregado al agente siguen el idioma elegido, junto con el espacio de trabajo y las Opciones.",
+        },
+        "progress-toolbar": {
+          title: "Progreso en la barra",
+          description:
+            "Cmd+Enter convierte la barra en una barra de progreso - guardando, listo o error - y el obturador de la captura ahora dura dos fotogramas. Cerrar un lote informa el resultado con una notificación.",
+        },
+        "about-and-versioning": {
+          title: "Acerca de y una sola versión",
+          description:
+            "Ajustes > Acerca de muestra qué es Pinar, su versión y las notas de la versión. Una sola versión del producto rige la app, el sitio y las etiquetas, y las compilaciones de producción salen solo de una etiqueta de release.",
+        },
+      },
+    },
     "v0.1.5": {
       title: "Inicio fiable al iniciar sesión",
       summary:

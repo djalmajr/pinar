@@ -20,6 +20,38 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.2.0": {
+      title: "Capture batches and synced preferences",
+      summary:
+        "Group captures across pages into one prompt, keep every preference on the server, and use Pinar in seven languages end to end.",
+      changes: {
+        "capture-batches": {
+          title: "Capture batches",
+          description:
+            "Press Alt+Shift+B to group the next captures; press again to finish and copy them as one prompt. Batches live in a folder in the sidebar, and Alt+Shift+X or the icon menu closes one without copying.",
+        },
+        "server-preferences": {
+          title: "Preferences on the server",
+          description:
+            "Capture destination, batch copy, handoff shape, hidden URL keys and language live on the server and stay in sync with the extension. Settings gained Capture, Handoff and Privacy sections.",
+        },
+        "localized-everywhere": {
+          title: "Seven languages everywhere",
+          description:
+            "The toolbar, the icon menu and the prompt handed to the agent follow the language you chose, alongside the workspace and Options.",
+        },
+        "progress-toolbar": {
+          title: "Progress in the toolbar",
+          description:
+            "Cmd+Enter turns the toolbar into a progress bar - saving, done, or the error - and the screenshot shutter is now two frames. Finishing a batch reports its outcome as a notification.",
+        },
+        "about-and-versioning": {
+          title: "About and one version",
+          description:
+            "Settings > About shows what Pinar is, its version and release notes. One product version drives the app, the site and the tags, and production builds come only from a release tag.",
+        },
+      },
+    },
     "v0.1.5": {
       title: "Reliable launch at login",
       summary:

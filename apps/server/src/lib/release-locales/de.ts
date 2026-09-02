@@ -22,6 +22,38 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.2.0": {
+      title: "Aufnahme-Stapel und synchronisierte Einstellungen",
+      summary:
+        "Fasse Aufnahmen mehrerer Seiten zu einem Prompt zusammen, halte alle Einstellungen auf dem Server und nutze Pinar durchgehend in sieben Sprachen.",
+      changes: {
+        "capture-batches": {
+          title: "Aufnahme-Stapel",
+          description:
+            "Alt+Umschalt+B fasst die nächsten Aufnahmen zusammen; erneut drücken schließt ab und kopiert sie als einen Prompt. Stapel liegen in einem Ordner der Seitenleiste; Alt+Umschalt+X oder das Symbolmenü schließt einen ohne Kopieren.",
+        },
+        "server-preferences": {
+          title: "Einstellungen auf dem Server",
+          description:
+            "Aufnahmeziel, Stapelkopie, Handoff-Form, verborgene URL-Schlüssel und Sprache liegen auf dem Server und bleiben mit der Erweiterung synchron. Die Einstellungen erhalten Abschnitte für Aufnahme, Handoff und Datenschutz.",
+        },
+        "localized-everywhere": {
+          title: "Sieben Sprachen überall",
+          description:
+            "Toolbar, Symbolmenü und der an den Agenten übergebene Prompt folgen der gewählten Sprache, zusammen mit Arbeitsbereich und Optionen.",
+        },
+        "progress-toolbar": {
+          title: "Fortschritt in der Toolbar",
+          description:
+            "Cmd+Enter macht die Toolbar zur Fortschrittsanzeige - speichern, fertig oder Fehler - und der Screenshot-Verschluss dauert nur noch zwei Frames. Das Abschließen eines Stapels meldet sein Ergebnis als Benachrichtigung.",
+        },
+        "about-and-versioning": {
+          title: "Über und eine Version",
+          description:
+            "Einstellungen > Über zeigt, was Pinar ist, seine Version und die Versionshinweise. Eine Produktversion bestimmt App, Website und Tags; Produktions-Builds entstehen nur aus einem Release-Tag.",
+        },
+      },
+    },
     "v0.1.5": {
       title: "Zuverlässiger Start bei der Anmeldung",
       summary:

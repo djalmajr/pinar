@@ -22,6 +22,38 @@ const locale = {
     whatChanged: "O que mudou",
   },
   releases: {
+    "v0.2.0": {
+      title: "Lotes de captura e preferências sincronizadas",
+      summary:
+        "Agrupe capturas de várias páginas em um só prompt, mantenha todas as preferências no servidor e use o Pinar em sete idiomas de ponta a ponta.",
+      changes: {
+        "capture-batches": {
+          title: "Lotes de captura",
+          description:
+            "Pressione Alt+Shift+B para agrupar as próximas capturas; pressione de novo para finalizar e copiá-las como um só prompt. Os lotes ficam em uma pasta na barra lateral, e Alt+Shift+X ou o menu do ícone encerra um sem copiar.",
+        },
+        "server-preferences": {
+          title: "Preferências no servidor",
+          description:
+            "Destino da captura, cópia do lote, formato do handoff, chaves de URL ocultas e idioma vivem no servidor e ficam em sincronia com a extensão. As Configurações ganharam seções de Captura, Handoff e Privacidade.",
+        },
+        "localized-everywhere": {
+          title: "Sete idiomas em tudo",
+          description:
+            "A toolbar, o menu do ícone e o prompt entregue ao agente seguem o idioma escolhido, junto do workspace e das Opções.",
+        },
+        "progress-toolbar": {
+          title: "Progresso na toolbar",
+          description:
+            "Cmd+Enter transforma a toolbar em uma barra de progresso - gravando, concluído ou erro - e o obturador do screenshot agora dura dois quadros. Encerrar um lote informa o resultado em uma notificação.",
+        },
+        "about-and-versioning": {
+          title: "Sobre e uma versão só",
+          description:
+            "Configurações > Sobre mostra o que é o Pinar, sua versão e as notas de lançamento. Uma versão do produto rege o app, o site e as tags, e builds de produção saem apenas de uma tag de release.",
+        },
+      },
+    },
     "v0.1.5": {
       title: "Inicialização confiável no login",
       summary:

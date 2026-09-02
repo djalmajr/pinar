@@ -20,6 +20,38 @@ const locale = {
     whatChanged: "更新内容",
   },
   releases: {
+    "v0.2.0": {
+      title: "捕获批次与同步的偏好设置",
+      summary:
+        "把多个页面的捕获归入一个提示词，把所有偏好设置保存在服务器上，并以七种语言完整使用 Pinar。",
+      changes: {
+        "capture-batches": {
+          title: "捕获批次",
+          description:
+            "按 Alt+Shift+B 开始归组接下来的捕获；再按一次结束并将它们复制为一个提示词。批次位于侧栏的一个文件夹中，Alt+Shift+X 或图标菜单可在不复制的情况下关闭批次。",
+        },
+        "server-preferences": {
+          title: "服务器上的偏好设置",
+          description:
+            "捕获目标、批次复制、交接格式、隐藏的 URL 键和语言都保存在服务器上，并与扩展保持同步。设置新增了捕获、交接和隐私分区。",
+        },
+        "localized-everywhere": {
+          title: "处处七种语言",
+          description:
+            "工具栏、图标菜单和交给智能体的提示词都遵循所选语言，与工作区和选项页一致。",
+        },
+        "progress-toolbar": {
+          title: "工具栏中的进度",
+          description:
+            "Cmd+Enter 将工具栏变为进度条——保存中、完成或错误——截图快门现在只需两帧。结束批次时会以通知报告结果。",
+        },
+        "about-and-versioning": {
+          title: "关于与单一版本",
+          description:
+            "设置 > 关于显示 Pinar 是什么、当前版本和更新说明。产品只有一个版本号，驱动应用、网站和标签；生产构建只能来自发布标签。",
+        },
+      },
+    },
     "v0.1.5": {
       title: "登录时可靠启动",
       summary:

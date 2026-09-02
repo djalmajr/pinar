@@ -59,6 +59,11 @@ export interface ReleaseContent {
 
 export const releaseDefinitions = [
   {
+    tag: "v0.2.0",
+    date: "2026-09-02",
+    changes: ["capture-batches", "server-preferences", "localized-everywhere", "progress-toolbar", "about-and-versioning"],
+  },
+  {
     tag: "v0.1.5",
     date: "2026-08-28",
     changes: ["idempotent-login-setup", "preference-preserved"],

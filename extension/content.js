@@ -90,6 +90,8 @@
     progressKind: "info",
     progressShown: 0,
     progressRaf: 0,
+    progressFinal: null,
+    progressTweened: null,
     pins: [],
     tabPinCount: 0,
     drag: null,
@@ -957,8 +959,13 @@
       ui.progressText.textContent = state.progressLabel ?? "";
       ui.toolbar.dataset.kind = inProgress ? state.progressKind : "";
       ui.toolbar.style.setProperty("--progress", String(inProgress ? state.progress : 0));
-      if (inProgress) tweenProgressPercent();
-      else ui.progressPct.textContent = "";
+      if (inProgress && state.progressTweened !== state.progress) {
+        state.progressTweened = state.progress;
+        tweenProgressPercent();
+      } else if (!inProgress) {
+        state.progressTweened = null;
+        ui.progressPct.textContent = "";
+      }
     }
     const hasStatus = Boolean(state.status);
     if (ui.instructions) ui.instructions.hidden = state.reviewMode;
@@ -984,30 +991,59 @@
     document.documentElement.toggleAttribute("data-pinar-review", state.reviewMode);
   }
 
-  // The percentage catches up with the fill instead of jumping between phases.
+  // The percentage moves with the fill (same 240ms as its transition) instead
+  // of jumping between phases, and the final (done) label only lands
+  // once both have reached 100%: a green done label over a half-full bar is a lie.
+  const PROGRESS_TWEEN_MS = 240;
   function tweenProgressPercent() {
     cancelAnimationFrame(state.progressRaf);
-    const step = () => {
-      const target = Math.round(state.progress * 100);
-      if (state.progressShown < target) state.progressShown = Math.min(target, state.progressShown + Math.max(1, Math.ceil((target - state.progressShown) / 8)));
-      else state.progressShown = target;
+    const from = state.progressShown;
+    const target = Math.round(state.progress * 100);
+    const started = performance.now();
+    const step = (now) => {
+      const k = Math.min(1, (now - started) / PROGRESS_TWEEN_MS);
+      state.progressShown = Math.round(from + (target - from) * (1 - (1 - k) * (1 - k)));
       if (ui.progressPct) ui.progressPct.textContent = `${state.progressShown}%`;
-      if (state.progressShown !== target) state.progressRaf = requestAnimationFrame(step);
+      if (k < 1) {
+        state.progressRaf = requestAnimationFrame(step);
+        return;
+      }
+      if (target === 100 && state.progressFinal) {
+        const { kind, label } = state.progressFinal;
+        state.progressFinal = null;
+        state.progressLabel = label;
+        state.progressKind = kind;
+        if (ui.progressText) ui.progressText.textContent = label;
+        if (ui.toolbar) ui.toolbar.dataset.kind = kind;
+      }
     };
-    step();
+    state.progressRaf = requestAnimationFrame(step);
   }
 
   function setProgress(label, progress, kind = "info") {
-    host.setAttribute("data-progress", "");
-    state.progressLabel = label;
+    if (!host.hasAttribute("data-progress")) {
+      // Freeze half the toolbar's width so switching to the short progress
+      // content does not collapse the bar to a fraction of its size.
+      const width = ui.toolbar?.getBoundingClientRect().width || 0;
+      if (ui.toolbar) ui.toolbar.style.minWidth = width ? `${Math.round(width / 2)}px` : "";
+      host.setAttribute("data-progress", "");
+    }
     state.progress = progress;
-    state.progressKind = kind;
+    if (progress >= 1 && kind !== "info") {
+      // Keep the in-progress wording until the bar is visibly full.
+      state.progressFinal = { kind, label };
+    } else {
+      state.progressLabel = label;
+      state.progressKind = kind;
+    }
     renderChrome();
   }
 
   function clearProgress() {
     cancelAnimationFrame(state.progressRaf);
     host.removeAttribute("data-progress");
+    state.progressFinal = null;
+    if (ui.toolbar) ui.toolbar.style.minWidth = "";
     state.progressLabel = null;
     state.progress = 0;
     state.progressShown = 0;

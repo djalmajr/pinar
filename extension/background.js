@@ -932,11 +932,29 @@ async function renderCaptureFrames(frames, pins, metrics, maskRegions = []) {
   }
 }
 
+async function revealTopOverlay(tabId) {
+  await chrome.scripting.executeScript({
+    func: () => { globalThis.__pinarSetHidden?.(false); },
+    target: { frameIds: [0], tabId },
+  }).catch(() => null);
+}
+
 async function captureTabBundle(tabId, windowId, pins, maskRegions = []) {
   const metrics = await captureMetrics(tabId);
   if (!metrics) throw new Error("Unable to read page dimensions");
   const plan = planFullPageCapture(pins, metrics);
   const frames = [];
+
+  // One tile at the current scroll position - the common case - needs none of
+  // the full-page machinery: no fixed-to-absolute rewrite of the page, no
+  // scrolling, no settle waits. The overlay is already out of the frame, so
+  // the shutter can fire right away; the perceived gap is the shot itself.
+  const currentY = metrics.originalScroll?.y ?? 0;
+  if (plan.scrollYs.length === 1 && Math.abs(plan.scrollYs[0] - currentY) < 1) {
+    const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: "png" });
+    await revealTopOverlay(tabId);
+    return renderCaptureFrames([{ dataUrl, scrollY: currentY }], pins, metrics, maskRegions);
+  }
 
   try {
     await prepareCapture(tabId, plan.scrollYs[0]);
@@ -946,6 +964,10 @@ async function captureTabBundle(tabId, windowId, pins, maskRegions = []) {
       const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: "png" });
       frames.push({ dataUrl, scrollY: actualScroll?.y ?? plan.scrollYs[index] });
     }
+    // The shutter is closed: only the pixels needed the overlay out of the
+    // frame. Badges, masks and the scroll restore that follow can run with the
+    // status back on screen, which is most of the perceived gap.
+    await revealTopOverlay(tabId);
     return await renderCaptureFrames(frames, pins, metrics, maskRegions);
   } finally {
     await restoreCapture(tabId).catch(() => {});

@@ -85,6 +85,7 @@
     reopenAfterSend: false,
     status: null,
     statusTimer: 0,
+    progress: 0,
     pins: [],
     tabPinCount: 0,
     drag: null,
@@ -230,6 +231,11 @@
       :host([data-toast-only]) .toolbar, :host([data-toast-only]) .marker, :host([data-toast-only]) .outline,
       :host([data-toast-only]) .composer, :host([data-toast-only]) .preview { display: none !important; }
       :host([data-toast-only]) .toast { top: 16px; }
+      /* Progress reads as a fill growing left to right behind the text, the way
+         capture tools do; --progress is 0..1, set as the copy advances. */
+      .toast { overflow: hidden; }
+      .toast::before { background: rgba(15,23,42,.08); content: ""; inset: 0; position: absolute; transform: scaleX(var(--progress, 0)); transform-origin: left center; transition: transform 240ms ease; z-index: -1; }
+      .toast > span { position: relative; }
       .toast[data-kind="error"] { color: #E5484D; }
       .toast[data-kind="ok"] { color: #1F7A4D; }
       .view { align-items: center; display: flex; gap: 12px; min-width: 0; position: relative; z-index: 1; }
@@ -932,8 +938,9 @@
     if (ui.instructions) ui.instructions.hidden = state.reviewMode;
     if (ui.toast) {
       ui.toast.hidden = !hasStatus;
-      ui.toast.textContent = state.status?.text ?? "";
+      ui.toast.replaceChildren(Object.assign(document.createElement("span"), { textContent: state.status?.text ?? "" }));
       ui.toast.dataset.kind = state.status?.kind ?? "";
+      ui.toast.style.setProperty("--progress", String(state.progress ?? 0));
     }
     if (ui.toolbarStatus) {
       // Review owns this slot; the batch pill has its own so one never hides the other.
@@ -957,9 +964,11 @@
     return t("overlay_reviewing");
   }
 
-  function setStatus(text, kind = "info") {
+  function setStatus(text, kind = "info", progress = null) {
     clearTimeout(state.statusTimer);
     state.status = text ? { kind, text } : null;
+    if (progress !== null) state.progress = progress;
+    if (!text) state.progress = 0;
     renderChrome();
   }
 
@@ -1782,9 +1791,10 @@
       const scan = activeScan();
       const maskRegions = activeMaskRegions();
       // From here on the overlay is a status display. The toolbar and picker
-      // leave now, deliberately; only the outcome toast comes back.
-      setStatus(null);
+      // leave now, deliberately; the progress toast takes their place and runs
+      // through the shot (out of frame for ~2 frames), the save and the copy.
       host.setAttribute("data-toast-only", "");
+      setStatus(t("overlay_copying"), "info", 0.2);
       await chrome.runtime.sendMessage({ hidden: true, type: "overlays:hidden" }).catch(() => null);
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const capture = await chrome.runtime.sendMessage({
@@ -1794,11 +1804,13 @@
         type: "capture",
       }).catch((error) => ({ error: String(error), ok: false }));
       const shot = capture?.ok ? capture.shot : null;
-      // The screenshot needed every overlay out of the frame. Bring this
-      // frame's toolbar back now so the copy confirmation is
-      // actually seen; child frames stay hidden until session:end so their
-      // pins do not flash after the top toolbar is gone.
+      // The shutter is closed (the background already revealed this frame the
+      // moment the last pixel was taken). Back on screen as a status display:
+      // the fill behind the toast reports the rest - save and clipboard - the
+      // way a capture tool's progress bar does. Child frames stay hidden until
+      // session:end so their pins do not flash after the toolbar is gone.
       setHidden(false);
+      setStatus(t("overlay_copying"), "info", 0.55);
       const sanitized = sanitizeCapture({
         fields: scan.fields,
         page: pageContext(),
@@ -1820,7 +1832,7 @@
       const locallyCopied = copied?.plain ? await writePlainText(copied.plain) : false;
       if (!copied?.ok && !locallyCopied) throw new Error(copied?.error || "clipboard write failed");
       // A degraded copy (not saved, no screenshot) is a warning, not a success.
-      setStatus(handoffStatusText(copied), copied?.degraded ? "error" : "ok");
+      setStatus(handoffStatusText(copied), copied?.degraded ? "error" : "ok", 1);
       // The confirmation always gets its full time on screen, even when the
       // user has already asked for the next toolbar (see toggle()): a copy the
       // user never saw confirmed reads as a copy that did not happen.

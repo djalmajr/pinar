@@ -3,7 +3,6 @@ import {
   addCapture,
   batchSummary,
   copyFinishedBatch,
-  finishedBatchToastKey,
   markFailed,
   openBatch,
   planCapturePersistence,
@@ -833,15 +832,20 @@ async function ensureOffscreen() {
 // Markdown is not HTML. Offering it as `text/html` would let a contenteditable
 // composer pick that flavor, collapse the newlines and swallow anything shaped
 // like a tag, so this path publishes `text/plain` alone.
-async function notify(id, message, isError = false) {
-  if (!chrome.notifications) return;
-  await new Promise((resolve) => chrome.notifications.create(id, {
-    iconUrl: chrome.runtime.getURL("icons/icon-128.png"),
-    message,
-    priority: isError ? 2 : 0,
-    title: isError ? "Pinar · error" : "Pinar",
-    type: "basic",
-  }, () => { void chrome.runtime.lastError; resolve(); }));
+async function ensureContentOnActiveTab() {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []);
+  if (!tab?.id || !canInjectInto(tab.url)) return;
+  // Re-injecting content.js toggles the overlay. Probe first so a finish toast
+  // cannot flip a hidden session open or a live one closed.
+  const [probe] = await chrome.scripting.executeScript({
+    func: () => Boolean(globalThis.__pinarToggle),
+    target: { frameIds: [0], tabId: tab.id },
+  }).catch(() => []);
+  if (probe?.result) return;
+  await chrome.scripting.executeScript({
+    files: CONTENT_INJECTION_FILES,
+    target: { allFrames: false, tabId: tab.id },
+  }).catch(() => null);
 }
 
 async function writeClipboardPlain(text) {
@@ -1344,13 +1348,10 @@ async function finishBatch({ copy = true } = {}) {
   const language = getBestLanguage(remotePrefs?.language ?? settings.language);
   const messages = translations[language];
   const failed = Boolean(serverError || copyError);
-  const toastKey = serverError ? "batch_finish_failed" : copyError ? "batch_copy_failed" : copy ? finishedBatchToastKey(copied) : "batch_closed";
+  const toastKey = serverError ? "batch_finish_failed" : copyError ? "batch_copy_failed" : copy ? "batch_finished" : "batch_closed";
   const toast = messages[toastKey].replace("{count}", String(summary.saved));
+  await ensureContentOnActiveTab();
   await syncBatchSurfaces({ toast, toastKind: failed ? "error" : "ok" });
-  // The overlay toast only exists on a tab with the toolbar open; the batch is
-  // usually finished from the shortcut or the action menu, so the outcome also
-  // goes out as a system notification - success and failure alike.
-  await notify(`pinar-batch-${batch.id}`, toast, failed);
   return { copied, failed, summary, toast };
 }
 

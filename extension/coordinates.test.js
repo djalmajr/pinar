@@ -11,6 +11,8 @@ const {
   documentBox,
   documentPoint,
   geometryLabel,
+  isScrollContainerRecord,
+  layoutScroll,
   pinDocumentGeometry,
   projectPin,
 } = context.__pinarCoordinateSpace;
@@ -52,6 +54,53 @@ describe("pin coordinate projection", () => {
 
     assert.deepEqual(plain(projected.anchor), { x: 50, y: 240 });
     assert.deepEqual(plain(projected.box), { height: 180, width: 300, x: 50, y: 240 });
+  });
+
+  test("an area pin follows a nested scroller even when the window does not move", () => {
+    // Mutation captured: Help/app pages scroll `[data-slot=scroll-area-viewport]`.
+    // Window scroll stays 0, so a window-only origin leaves the overlay glued
+    // to the viewport while the marked region moves.
+    const origin = layoutScroll({ x: 0, y: 0 }, [{ scrollLeft: 0, scrollTop: 240 }]);
+    const current = layoutScroll({ x: 0, y: 0 }, [{ scrollLeft: 0, scrollTop: 400 }]);
+    const pin = {
+      anchor: { x: 80, y: 360 },
+      box: { height: 180, width: 300, x: 80, y: 360 },
+      kind: "area",
+      layoutScroll: origin,
+      scroll: { x: 0, y: 0 },
+    };
+
+    const projected = projectPin(pin, current);
+
+    assert.deepEqual(plain(origin), { x: 0, y: 240 });
+    assert.deepEqual(plain(current), { x: 0, y: 400 });
+    assert.deepEqual(plain(projected.anchor), { x: 80, y: 200 });
+    assert.deepEqual(plain(projected.box), { height: 180, width: 300, x: 80, y: 200 });
+  });
+
+  test("overflow auto/scroll boxes count as layout scroll containers", () => {
+    assert.equal(
+      isScrollContainerRecord({
+        clientHeight: 400,
+        clientWidth: 640,
+        overflowX: "hidden",
+        overflowY: "auto",
+        scrollHeight: 2400,
+        scrollWidth: 640,
+      }),
+      true,
+    );
+    assert.equal(
+      isScrollContainerRecord({
+        clientHeight: 400,
+        clientWidth: 640,
+        overflowX: "visible",
+        overflowY: "visible",
+        scrollHeight: 2400,
+        scrollWidth: 640,
+      }),
+      false,
+    );
   });
 
   test("iframe pins are projected into the current top-frame viewport", () => {

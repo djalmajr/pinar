@@ -6,7 +6,6 @@ import {
   batchHandoffUrl,
   batchSummary,
   copyFinishedBatch,
-  finishedBatchToastKey,
   markFailed,
   openBatch,
   pendingCount,
@@ -235,9 +234,6 @@ describe("copy on finish batch", () => {
     assert.equal(result.copied, "prompt");
     assert.deepEqual(writes, ["body"]);
     assert.equal(batchHandoffUrl(base, batchId), `${base}/b/${batchId}.md`);
-    assert.equal(finishedBatchToastKey("link"), "batch_copied_link");
-    assert.equal(finishedBatchToastKey("prompt"), "batch_copied_prompt");
-    assert.equal(finishedBatchToastKey(null), "batch_finished");
   });
 
   test("finishBatch copies through the offscreen clipboard after closing the batch", () => {
@@ -256,13 +252,22 @@ describe("copy on finish batch", () => {
     assert.match(backgroundSrc, /type: "clipboard:write"/);
     assert.match(backgroundSrc, /ensureOffscreen\(\)/);
     assert.match(backgroundSrc, /copyOnFinishBatch: "prompt"/);
-    // The toast carries its kind: a failed finish must not read as a success.
-    assert.match(contentSrc, /if \(next\?\.toast\) flashStatus\(next\.toast, next\.toastKind === "error" \? "error" : "ok"\)/);
+    // Finish reuses the capture confirmation bar without a fill, percentage, or
+    // OS notification. Copy still happens; the toast does not say so.
+    const apply = contentSrc.slice(
+      contentSrc.indexOf("function applyBatchState"),
+      contentSrc.indexOf("async function syncBatchLabel"),
+    );
+    assert.match(apply, /showConfirm\(next\.toast, kind\)/);
+    assert.match(contentSrc, /data-confirm/);
+    assert.equal(apply.includes("setProgress("), false);
+    assert.equal(apply.includes("setStatus("), false);
+    assert.match(finish, /copy \? "batch_finished" : "batch_closed"/);
     assert.match(finish, /toastKind: failed \? "error" : "ok"/);
     assert.match(finish, /serverError \? "batch_finish_failed" : copyError \? "batch_copy_failed"/);
-    // Finishing usually happens from the shortcut or the menu, with no toolbar
-    // open anywhere, so the outcome also goes out as a system notification.
-    assert.match(finish, /await notify\(`pinar-batch-\$\{batch\.id\}`, toast, failed\)/);
-    assert.match(backgroundSrc, /chrome\.notifications\.create\(/);
+    assert.match(finish, /await ensureContentOnActiveTab\(\)/);
+    assert.match(backgroundSrc, /Boolean\(globalThis\.__pinarToggle\)/);
+    assert.equal(finish.includes("notify("), false);
+    assert.equal(backgroundSrc.includes("chrome.notifications.create("), false);
   });
 });

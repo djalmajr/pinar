@@ -37,6 +37,29 @@
     };
   }
 
+  function isOverflowScroll(value) {
+    return value === "auto" || value === "scroll" || value === "overlay";
+  }
+
+  function isScrollContainerRecord(record = {}) {
+    const canX = isOverflowScroll(record.overflowX);
+    const canY = isOverflowScroll(record.overflowY);
+    if (!canX && !canY) return false;
+    return (canY && (Number(record.scrollHeight) || 0) > (Number(record.clientHeight) || 0) + 1)
+      || (canX && (Number(record.scrollWidth) || 0) > (Number(record.clientWidth) || 0) + 1);
+  }
+
+  function layoutScroll(windowScroll = {}, containers = []) {
+    const origin = scrollPosition(windowScroll);
+    let x = origin.x;
+    let y = origin.y;
+    for (const container of containers) {
+      x += Number(container?.scrollLeft ?? container?.x) || 0;
+      y += Number(container?.scrollTop ?? container?.y) || 0;
+    }
+    return { x, y };
+  }
+
   function geometryLabel(box) {
     const x = Math.round(Number(box?.x) || 0);
     const y = Math.round(Number(box?.y) || 0);
@@ -60,11 +83,12 @@
   }
 
   function projectPin(pin, currentScroll, frameOffset = { x: 0, y: 0 }) {
-    const box = viewportBox(pin.box, pin.scroll, currentScroll);
+    const originScroll = pin.layoutScroll || pin.scroll;
+    const box = viewportBox(pin.box, originScroll, currentScroll);
     const anchor = viewportPoint(pin.anchor ?? {
       x: pin.box.x + pin.box.width / 2,
       y: pin.box.y + pin.box.height / 2,
-    }, pin.scroll, currentScroll);
+    }, originScroll, currentScroll);
     return {
       ...pin,
       anchor,
@@ -106,6 +130,8 @@
     documentBox,
     documentPoint,
     geometryLabel,
+    isScrollContainerRecord,
+    layoutScroll,
     pinDocumentGeometry,
     projectPin,
     viewportBox,

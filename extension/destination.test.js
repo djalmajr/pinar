@@ -91,6 +91,80 @@ describe("capture destination", () => {
     assert.doesNotMatch(optionsSrc, /license|identity:regenerate|installationId/i);
   });
 
+  test("language and theme each occupy a full settings row like the workspace dialog", () => {
+    const interfaceSection = optionsSrc.slice(
+      optionsSrc.indexOf("{t.section_interface}"),
+      optionsSrc.indexOf("{t.section_handoff}"),
+    );
+    assert.match(interfaceSection, /<SettingRow size="xs" description=\{t\.language_desc\} title=\{t\.language_label\}>/);
+    assert.match(interfaceSection, /<SettingRow size="xs" description=\{t\.theme_desc\} title=\{t\.theme_label\}>/);
+    assert.match(optionsSrc, /<SettingRow size="xs" description=\{t\.handoff_mode_desc\}/);
+    assert.match(optionsSrc, /<SettingRow size="xs" description=\{t\.copy_on_finish_batch_desc\} title=\{t\.copy_on_finish_batch_label\}>/);
+    assert.match(optionsSrc, /<SettingRow layout="stack" size="xs" description=\{t\.privacy_query_keys_desc\} title=\{t\.privacy_query_keys_label\}>/);
+    // Mutation captured: w-52 + w-full stretches the trigger; the menu then inherits --anchor-width and looks padded.
+    assert.doesNotMatch(optionsSrc, /controlClassName="w-52"/);
+    assert.match(interfaceSection, /SelectTrigger aria-label=\{t\.language_label\}><SelectValue \/>/);
+    assert.match(optionsSrc, /SelectTrigger aria-label=\{t\.copy_on_finish_batch_label\}><SelectValue \/>/);
+    assert.match(interfaceSection, /SelectContent align="end" alignItemWithTrigger=\{false\} className="w-max min-w-min"/);
+    assert.match(optionsSrc, /SelectContent align="end" alignItemWithTrigger=\{false\} className="w-max min-w-min"/);
+    assert.match(interfaceSection, /variant="segmented"/);
+    assert.match(interfaceSection, /aria-label=\{t\.theme_system\}/);
+    assert.match(interfaceSection, /aria-label=\{t\.theme_light\}/);
+    assert.match(interfaceSection, /aria-label=\{t\.theme_dark\}/);
+    assert.doesNotMatch(interfaceSection, /sm:grid-cols-2/);
+    assert.doesNotMatch(interfaceSection, /\{t\.theme_system\}<\/TabsTrigger>/);
+    assert.doesNotMatch(interfaceSection, /\{t\.theme_light\}<\/TabsTrigger>/);
+    assert.doesNotMatch(interfaceSection, /\{t\.theme_dark\}<\/TabsTrigger>/);
+    // Mutation captured: dropping the separators leaves preference sections as an undifferentiated stack.
+    assert.match(optionsSrc, /\{t\.section_interface\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.section_handoff\}/);
+    assert.match(optionsSrc, /\{t\.section_handoff\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.section_privacy\}/);
+    assert.match(optionsSrc, /\{t\.storage_title\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.storage_status_title\}/);
+    assert.match(optionsSrc, /\{t\.storage_status_title\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.capture_destination_label\}/);
+    assert.match(optionsSrc, /\{t\.shortcuts_browser_title\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.shortcuts_overlay_title\}/);
+    assert.match(optionsSrc, /\{t\.account_free_title\}[\s\S]*<\/section>\s*<Separator \/>/);
+    assert.equal([...optionsSrc.matchAll(/<Separator \/>/g)].length, 6);
+    // Mutation captured: mb-8 under the section description is larger than the gap-5 between preference rows.
+    assert.match(optionsSrc, /const SECTION_DESC = "mt-0\.5 mb-5 text-xs text-muted-foreground"/);
+    assert.match(optionsSrc, /\{t\.section_interface_desc\}<\/p>\s*<div className="flex flex-col gap-3">/);
+    assert.match(optionsSrc, /\{t\.section_handoff_desc\}<\/p>\s*<div className="flex flex-col gap-3">/);
+    assert.match(optionsSrc, /\{t\.section_privacy_desc\}<\/p>\s*<div className="flex flex-col gap-3">/);
+    assert.doesNotMatch(optionsSrc, /SECTION_LEAD/);
+    assert.equal([...optionsSrc.matchAll(/className=\{SECTION_DESC\}/g)].length, 11);
+    assert.match(optionsSrc, /\{t\.section_interface_desc\}/);
+    assert.match(optionsSrc, /\{t\.section_handoff_desc\}/);
+    assert.match(optionsSrc, /\{t\.section_privacy_desc\}/);
+    assert.match(optionsSrc, /\{t\.storage_title_desc\}/);
+    // Mutation captured: gap-2.5 plus py-2 on each radio leaves a large gap between Local and Remote.
+    assert.match(optionsSrc, /\{t\.storage_title_desc\}<\/p>\s*<div className="flex flex-col gap-1">/);
+    assert.match(optionsSrc, /px-2 py-1 hover:bg-muted\/50">\s*<input checked=\{settings\.storageMode === "local"\}/);
+    assert.match(optionsSrc, /px-2 py-1 hover:bg-muted\/50">\s*<input checked=\{settings\.storageMode === "cloud"\}/);
+    assert.match(optionsSrc, /\{t\.storage_status_title_desc\}/);
+    assert.match(optionsSrc, /\{t\.capture_destination_desc\}/);
+    assert.match(optionsSrc, /\{t\.account_title_desc\}/);
+  });
+
+  test("extension setting rows stay compact xs while the workspace dialog stays sm", () => {
+    const settingsSrc = readFileSync(new URL("../packages/ui/src/components/settings.tsx", import.meta.url), "utf8");
+    const dialogSrc = readFileSync(new URL("../apps/server/src/components/GlobalSettingsDialog.tsx", import.meta.url), "utf8");
+    // Mutation captured: omitting size="xs" or switching compact titles to text-sm makes Options larger than the rest of the page.
+    assert.match(settingsSrc, /compact \? "text-xs font-semibold" : "text-sm font-medium"/);
+    assert.match(settingsSrc, /min-w-0 flex-1/);
+    // Mutation captured: leading-5 on text-xs descriptions opens line-height to 20px; mt-1 keeps the subtitle away from the title.
+    assert.match(settingsSrc, /compact \? "mt-0\.5 text-xs" : "mt-0\.5 text-sm leading-5"/);
+    const optionRows = [...optionsSrc.matchAll(/<SettingRow\b[^>]*>/g)].map((match) => match[0]);
+    assert.ok(optionRows.length >= 10);
+    for (const row of optionRows) {
+      assert.match(row, /\ssize="xs"/);
+    }
+    assert.doesNotMatch(dialogSrc, /<SettingRow[^>]*\ssize="xs"/);
+    assert.match(settingsSrc, /layout === "stack"/);
+    assert.doesNotMatch(optionsSrc, /controlClassName="w-52"/);
+    assert.match(optionsSrc, /<p className=\{SECTION_DESC\}>\{t\.shortcuts_browser_desc\}<\/p>/);
+    assert.match(optionsSrc, /<p className=\{SECTION_DESC\}>\{t\.shortcuts_overlay_desc\}<\/p>/);
+    assert.doesNotMatch(optionsSrc, /text-xs leading-5/);
+    assert.doesNotMatch(optionsSrc, /mt-1 block text-xs/);
+  });
+
   test("opens the default workspace", () => {
     assert.match(optionsSrc, /type: "app:open"/);
     assert.match(backgroundSrc, /withLanguage\(`\$\{base\}\/app`\)/);

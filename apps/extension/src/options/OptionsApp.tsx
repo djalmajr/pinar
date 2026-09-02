@@ -45,6 +45,8 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Separator,
+  SettingRow,
   Switch,
   Tabs,
   TabsContent,
@@ -85,7 +87,8 @@ import {
 
 const LANGUAGE_OPTIONS = SUPPORTED_LANGUAGES.map((code) => ({ code, label: translations[code].name }));
 
-const SECTION_HEADER = "text-[11px] font-semibold uppercase tracking-wider text-muted-foreground";
+const SECTION_HEADER = "text-[11px] font-semibold uppercase leading-none tracking-wider text-muted-foreground";
+const SECTION_DESC = "mt-0.5 mb-5 text-xs text-muted-foreground";
 
 const OVERLAY_SHORTCUTS = [
   { description: "shortcut_pin_element_desc", keys: "Enter", label: "shortcut_pin_element" },
@@ -98,13 +101,14 @@ const OVERLAY_SHORTCUTS = [
 function ShortcutRow({ description, editLabel, keys, label, onEdit }: { description: string; editLabel?: string; keys: string; label: string; onEdit?: () => void }) {
   const chip = <kbd className="block rounded border bg-muted px-2 py-1 font-mono text-[11px] text-muted-foreground transition-colors group-hover/shortcut:border-primary group-hover/shortcut:text-foreground">{keys}</kbd>;
   return (
-    <li className="flex items-center justify-between gap-3 py-1">
-      <span className="min-w-0"><span className="block text-xs font-semibold">{label}</span><span className="block text-xs text-muted-foreground">{description}</span></span>
-      {onEdit ? (
-        <button aria-label={editLabel} className="group/shortcut shrink-0 cursor-pointer rounded outline-none focus-visible:ring-2 focus-visible:ring-ring/30" title={editLabel} type="button" onClick={onEdit}>{chip}</button>
-      ) : (
-        <span className="shrink-0">{chip}</span>
-      )}
+    <li>
+      <SettingRow description={description} size="xs" title={label}>
+        {onEdit ? (
+          <button aria-label={editLabel} className="group/shortcut shrink-0 cursor-pointer rounded outline-none focus-visible:ring-2 focus-visible:ring-ring/30" title={editLabel} type="button" onClick={onEdit}>{chip}</button>
+        ) : (
+          chip
+        )}
+      </SettingRow>
     </li>
   );
 }
@@ -142,18 +146,19 @@ function ShortcutsTab({ t }: { t: TranslationDictionary }) {
 
   return (
     <div className="flex flex-col gap-5">
-      <section className="flex flex-col gap-2.5">
+      <section className="flex flex-col">
         <span className={SECTION_HEADER}>{t.shortcuts_browser_title}</span>
-        <p className="text-xs leading-relaxed text-muted-foreground">{t.shortcuts_browser_desc}</p>
+        <p className={SECTION_DESC}>{t.shortcuts_browser_desc}</p>
         <ul className="flex flex-col gap-2">
           {commands.map((command) => (
             <ShortcutRow editLabel={t.shortcuts_customize} key={command.name} keys={command.shortcut || t.shortcuts_unassigned} {...commandText(command, t)} onEdit={() => void chrome.tabs.create({ url: "chrome://extensions/shortcuts" })} />
           ))}
         </ul>
       </section>
-      <section className="flex flex-col gap-2.5">
+      <Separator />
+      <section className="flex flex-col">
         <span className={SECTION_HEADER}>{t.shortcuts_overlay_title}</span>
-        <p className="text-xs leading-relaxed text-muted-foreground">{t.shortcuts_overlay_desc}</p>
+        <p className={SECTION_DESC}>{t.shortcuts_overlay_desc}</p>
         <ul className="flex flex-col gap-2">
           {OVERLAY_SHORTCUTS.map((item) => <ShortcutRow description={t[item.description]} key={item.keys} keys={item.keys} label={t[item.label]} />)}
         </ul>
@@ -191,7 +196,7 @@ function StorageStatusPanel({ mode, t }: { mode: PinarSettings["storageMode"]; t
         <div className="flex items-center justify-between gap-3">
           <span className="min-w-0">
             <span className="block text-xs font-semibold">{quota > 0 ? t.storage_cloud_usage.replace("{used}", formatBytes(used, "en")).replace("{quota}", formatBytes(quota, "en")) : "—"}</span>
-            <span className={cn("block text-xs", paused ? "text-destructive" : "text-muted-foreground")}>{paused ? t.storage_cloud_paused : t.storage_status_desc}</span>
+            <span className={cn("mt-0.5 block text-xs", paused ? "text-destructive" : "text-muted-foreground")}>{paused ? t.storage_cloud_paused : t.storage_status_desc}</span>
           </span>
           <Button className="h-7 shrink-0 text-xs" disabled={checking} size="sm" variant="outline" onClick={() => void refresh()}>{t.storage_recheck}</Button>
         </div>
@@ -207,7 +212,7 @@ function StorageStatusPanel({ mode, t }: { mode: PinarSettings["storageMode"]; t
         <span className={cn("block text-xs font-semibold", reachable ? "text-foreground" : "text-destructive")}>
           {reachable ? t.storage_local_connected.replace("{port}", String(status?.port ?? "")) : t.storage_local_missing}
         </span>
-        <span className="block text-xs text-muted-foreground">{t.storage_status_desc}</span>
+        <span className="mt-0.5 block text-xs text-muted-foreground">{t.storage_status_desc}</span>
       </span>
       <Button className="h-7 shrink-0 text-xs" disabled={checking} size="sm" variant="outline" onClick={() => void refresh()}>{t.storage_recheck}</Button>
     </div>
@@ -746,13 +751,15 @@ export function OptionsApp() {
               </TabsList>
 
               <TabsContent className="flex flex-col gap-5" value="storage">
-                <section className="flex flex-col gap-2.5">
+                <section className="flex flex-col">
                   <span className={SECTION_HEADER}>{t.storage_title}</span>
-                  <label className="-mx-2 flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 hover:bg-muted/50">
+                  <p className={SECTION_DESC}>{t.storage_title_desc}</p>
+                  <div className="flex flex-col gap-1">
+                  <label className="-mx-2 flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1 hover:bg-muted/50">
                     <input checked={settings.storageMode === "local"} className="mt-0.5 accent-primary" name="storageMode" type="radio" onChange={() => setSettings((current) => ({ ...current, storageMode: "local" }))} />
                     <span className="min-w-0 flex-1">
                       <span className="block text-xs font-semibold">{t.local_title}</span>
-                      <span className="block text-xs text-muted-foreground">{t.local_desc}</span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">{t.local_desc}</span>
                       {installPlatform === "mac" ? null : (
                         <span className="mt-2 flex items-center gap-1.5 rounded-lg border bg-muted/60 p-1.5 font-mono text-[11px]">
                           <ScrollArea className="min-w-0 flex-1"><code className="block whitespace-nowrap px-1 text-muted-foreground">{installCommand}</code><ScrollBar orientation="horizontal" /></ScrollArea>
@@ -764,9 +771,9 @@ export function OptionsApp() {
                     </span>
                     {installPlatform === "mac" ? <Button className="h-7 shrink-0 self-center text-xs" render={<a href={macosDesktopDmgUrl()} rel="noopener noreferrer" target="_blank" />} size="sm" variant="outline" onClick={(event) => event.stopPropagation()}>{t.btn_download_macos}<IconExternalLink data-icon="inline-end" /></Button> : null}
                   </label>
-                  <label className="-mx-2 flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 hover:bg-muted/50">
+                  <label className="-mx-2 flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1 hover:bg-muted/50">
                     <input checked={settings.storageMode === "cloud"} className="mt-0.5 accent-primary" name="storageMode" type="radio" onChange={() => setSettings((current) => ({ ...current, storageMode: "cloud" }))} />
-                    <span className="min-w-0 flex-1"><span className="block text-xs font-semibold">{t.remote_title}</span><span className="block text-xs text-muted-foreground">{t.remote_desc}</span></span>
+                    <span className="min-w-0 flex-1"><span className="block text-xs font-semibold">{t.remote_title}</span><span className="mt-0.5 block text-xs text-muted-foreground">{t.remote_desc}</span></span>
                   </label>
                   {settings.storageMode === "cloud" ? (
                     <div className="ml-4 rounded-lg border bg-muted/40 p-3">
@@ -785,16 +792,25 @@ export function OptionsApp() {
                       {legalError ? <p className="mt-2 pl-5 text-xs text-destructive">{t.legal_acceptance_required}</p> : null}
                     </div>
                   ) : null}
+                  </div>
                 </section>
-
-                <section className="flex flex-col gap-2.5">
+                <Separator />
+                <section className="flex flex-col">
                   <span className={SECTION_HEADER}>{t.storage_status_title}</span>
+                  <p className={SECTION_DESC}>{t.storage_status_title_desc}</p>
+                  <div className="flex flex-col gap-2.5">
                   <StorageStatusPanel mode={settings.storageMode} t={t} />
-                  <label className={cn("flex items-center justify-between gap-3 py-1", settings.storageMode !== "cloud" && "opacity-50")}><span className="min-w-0"><span className="block text-xs font-semibold">{t.history_label}</span><span className="block text-xs text-muted-foreground">{t.history_desc}</span></span><Switch checked={settings.storageMode === "cloud" ? settings.enableHistory : true} className="shrink-0" disabled={settings.storageMode !== "cloud"} onCheckedChange={(value) => setSettings((current) => ({ ...current, enableHistory: value }))} /></label>
+                  <div className={cn(settings.storageMode !== "cloud" && "opacity-50")}>
+                    <SettingRow size="xs" description={t.history_desc} title={t.history_label}>
+                      <Switch aria-label={t.history_label} checked={settings.storageMode === "cloud" ? settings.enableHistory : true} disabled={settings.storageMode !== "cloud"} onCheckedChange={(value) => setSettings((current) => ({ ...current, enableHistory: value }))} />
+                    </SettingRow>
+                  </div>
+                  </div>
                 </section>
-
-                <section className="flex flex-col gap-2.5">
+                <Separator />
+                <section className="flex flex-col">
                   <span className={SECTION_HEADER}>{t.capture_destination_label}</span>
+                  <p className={SECTION_DESC}>{t.capture_destination_desc}</p>
                   <Card className="gap-3 overflow-visible rounded-none py-0 ring-0" size="sm">
                     <CardContent className="grid gap-3 px-0 sm:grid-cols-2">
                       <label className="flex min-w-0 flex-col gap-1.5">
@@ -855,46 +871,54 @@ export function OptionsApp() {
 
               <TabsContent className="flex flex-col gap-5" value="account">
                     {!authReady ? <p className="text-xs text-muted-foreground">…</p> : authSession?.kind === "account" ? (
-                      <section className="flex flex-col gap-2.5">
+                      <section className="flex flex-col">
                         <span className={SECTION_HEADER}>{t.account_title}</span>
+                        <p className={SECTION_DESC}>{t.account_title_desc}</p>
+                        <div className="flex flex-col gap-2.5">
                         <div className="rounded-lg border bg-muted/40 p-3"><p className="truncate text-sm font-semibold">{authSession.email}</p><p className="mt-1 text-xs capitalize text-muted-foreground">{authSession.plan}</p></div>
                         <div className="flex flex-wrap gap-2">
                           <Button size="sm" variant="outline" onClick={() => void openBilling()}>{t.btn_manage_sub}</Button>
                           <Button size="sm" variant="ghost" onClick={() => void logout()}><IconLogOut data-icon="inline-start" />{t.btn_sign_out}</Button>
                         </div>
+                        </div>
                       </section>
                     ) : (
                       <>
-                        <section aria-labelledby="account-free-title" className="flex flex-col gap-2.5">
+                        <section aria-labelledby="account-free-title" className="flex flex-col">
                           <div className="flex items-start justify-between gap-3">
                             <span className={SECTION_HEADER} id="account-free-title">{t.account_free_title}</span>
                             <Badge className="shrink-0 bg-muted text-muted-foreground" variant="outline">{t.account_free_badge}</Badge>
                           </div>
-                          <p className="text-xs leading-relaxed text-muted-foreground">{t.account_free_description}</p>
+                          <p className={SECTION_DESC}>{t.account_free_description}</p>
+                          <div className="flex flex-col gap-2.5">
                           <div className="flex items-stretch gap-2">
                             {temporaryCode ? <><div className="min-w-0 flex-1 rounded-lg border bg-background px-3 py-2"><code className="text-base font-bold tracking-[0.16em]">{temporaryCode}</code>{temporaryCodeExpiresAt && <p className="mt-1 text-[11px] text-muted-foreground">{t.account_code_expires}</p>}</div><Button className="shrink-0" variant="outline" onClick={() => void copyTemporaryCode()}><IconCopy data-icon="inline-start" />{copiedCode ? t.status_copied : t.btn_copy_code}</Button></> : <Button disabled={authLoading} variant="outline" onClick={() => void generateTemporaryCode()}><IconKeyRound data-icon="inline-start" />{t.btn_generate_code}</Button>}
                           </div>
                           {temporaryCode && <Button className="h-auto px-0" size="xs" variant="link" onClick={() => setRegenerateCodeOpen(true)}>{t.btn_generate_another_code}</Button>}
                           <div className="rounded-lg bg-muted/60 p-3"><p className="text-xs font-semibold">{t.account_code_entry_title}</p><a className="external-link mt-2 text-xs font-semibold text-primary" href={hostedSignInUrl(settings.cloudUrl, lang)} rel="noopener noreferrer" target="_blank">{t.btn_open_code_entry}</a></div>
                           <p className="flex items-start gap-2 text-[11px] leading-relaxed text-muted-foreground"><IconInfo className="mt-0.5 size-3.5 shrink-0" />{t.account_code_regeneration_note}</p>
+                          </div>
                         </section>
+                        <Separator />
                         <AlertDialog open={regenerateCodeOpen} onOpenChange={setRegenerateCodeOpen}>
                           <AlertDialogContent>
                             <AlertDialogHeader><AlertDialogTitle>{t.account_code_regeneration_title}</AlertDialogTitle><AlertDialogDescription>{t.account_code_regeneration_description.replace("{code}", temporaryCode)}</AlertDialogDescription></AlertDialogHeader>
                             <AlertDialogFooter><AlertDialogCancel>{t.btn_cancel}</AlertDialogCancel><AlertDialogAction disabled={authLoading} onClick={() => void regenerateTemporaryCode()}>{t.btn_invalidate_and_generate}</AlertDialogAction></AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>
-                        <section aria-labelledby="account-email-title" className="flex flex-col gap-2.5">
+                        <section aria-labelledby="account-email-title" className="flex flex-col">
                           <span className={SECTION_HEADER} id="account-email-title">{t.account_email_title}</span>
-                          <p className="text-xs leading-relaxed text-muted-foreground">{emailCodeRequested ? t.account_email_sent : t.account_email_description}</p>
+                          <p className={SECTION_DESC}>{emailCodeRequested ? t.account_email_sent : t.account_email_description}</p>
+                          <div className="flex flex-col gap-2.5">
                           {!emailCodeRequested ? (
                             <form className="flex gap-2" onSubmit={requestEmailCode}><Input autoComplete="email" placeholder="you@example.com" required type="email" value={email} onChange={(event) => setEmail(event.target.value)} /><Button disabled={authLoading} type="submit" variant="outline"><IconMail data-icon="inline-start" />{t.btn_send_code}</Button></form>
                           ) : (
                             <form className="space-y-2" onSubmit={verifyEmailCode}><label className="block text-xs font-semibold" htmlFor="account-email-code">{t.account_email_code_label}</label><div className="flex gap-2"><Input autoComplete="one-time-code" id="account-email-code" inputMode="numeric" maxLength={6} pattern="[0-9]{6}" placeholder="000000" required value={emailCode} onChange={(event) => setEmailCode(event.target.value.replace(/\D/g, ""))} /><Button disabled={authLoading || emailCode.length !== 6} type="submit">{t.btn_verify_code}</Button></div><Button size="xs" type="button" variant="link" onClick={() => setEmailCodeRequested(false)}>{t.btn_change_email}</Button></form>
                           )}
                           <div aria-label={t.account_subscription_prompt_title} className="flex items-center justify-between gap-3 rounded-lg bg-muted/60 p-3" role="group">
-                            <div className="min-w-0"><p className="text-xs font-semibold">{t.account_subscription_prompt_title}</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t.account_subscription_prompt_description}</p></div>
+                            <div className="min-w-0"><p className="text-xs font-semibold">{t.account_subscription_prompt_title}</p><p className="mt-0.5 text-xs text-muted-foreground">{t.account_subscription_prompt_description}</p></div>
                             <Button className="shrink-0" render={<a href={hostedPricingUrl(settings.cloudUrl, lang)} rel="noopener noreferrer" target="_blank" />} variant="pro"><IconSparkles data-icon="inline-start" />{t.btn_upgrade_pro}</Button>
+                          </div>
                           </div>
                         </section>
                       </>
@@ -903,56 +927,52 @@ export function OptionsApp() {
               </TabsContent>
 
               <TabsContent className="flex flex-col gap-5" value="preferences">
-                <section className="flex flex-col gap-2.5">
+                <section className="flex flex-col">
                   <span className={SECTION_HEADER}>{t.section_interface}</span>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                      <label className="flex min-w-0 flex-col gap-1.5">
-                        <span className="text-xs font-semibold">{t.language_label}</span>
-                        <Select items={LANGUAGE_OPTIONS.map((option) => ({ label: option.label, value: option.code }))} value={lang} onValueChange={(value) => { const next = value as SupportedLanguage; setLang(next); setSettings((current) => ({ ...current, language: next })); }}><SelectTrigger aria-label={t.language_label} className="w-full" size="sm"><SelectValue /></SelectTrigger><SelectContent><SelectGroup>{LANGUAGE_OPTIONS.map((option) => <SelectItem key={option.code} value={option.code}>{option.label}</SelectItem>)}</SelectGroup></SelectContent></Select>
-                      </label>
-                      <div className="flex min-w-0 flex-col gap-1.5">
-                        <span className="text-xs font-semibold" id="options-theme-label">{t.theme_label}</span>
-                        <Tabs value={settings.theme || "system"} onValueChange={(value) => { const theme = value as ThemeMode; applyTheme(theme); setSettings((current) => ({ ...current, theme })); }}><TabsList aria-labelledby="options-theme-label" className="group-data-horizontal/tabs:h-7 w-full p-0.5 [&>button]:text-xs"><TabsTrigger className="flex-1" value="system"><IconLaptop data-icon="inline-start" />{t.theme_system}</TabsTrigger><TabsTrigger className="flex-1" value="light"><IconSun className="text-amber-500" data-icon="inline-start" />{t.theme_light}</TabsTrigger><TabsTrigger className="flex-1" value="dark"><IconMoon className="text-blue-400" data-icon="inline-start" />{t.theme_dark}</TabsTrigger></TabsList></Tabs>
-                      </div>
+                  <p className={SECTION_DESC}>{t.section_interface_desc}</p>
+                  <div className="flex flex-col gap-3">
+                  <SettingRow size="xs" description={t.language_desc} title={t.language_label}>
+                    <Select items={LANGUAGE_OPTIONS.map((option) => ({ label: option.label, value: option.code }))} value={lang} onValueChange={(value) => { const next = value as SupportedLanguage; setLang(next); setSettings((current) => ({ ...current, language: next })); }}><SelectTrigger aria-label={t.language_label}><SelectValue /></SelectTrigger><SelectContent align="end" alignItemWithTrigger={false} className="w-max min-w-min"><SelectGroup>{LANGUAGE_OPTIONS.map((option) => <SelectItem key={option.code} value={option.code}>{option.label}</SelectItem>)}</SelectGroup></SelectContent></Select>
+                  </SettingRow>
+                  <SettingRow size="xs" description={t.theme_desc} title={t.theme_label}>
+                    <Tabs value={settings.theme || "system"} onValueChange={(value) => { const theme = value as ThemeMode; applyTheme(theme); setSettings((current) => ({ ...current, theme })); }}><TabsList aria-label={t.theme_label} variant="segmented"><TabsTrigger aria-label={t.theme_system} title={t.theme_system} value="system"><IconLaptop /></TabsTrigger><TabsTrigger aria-label={t.theme_light} title={t.theme_light} value="light"><IconSun className="text-amber-500" /></TabsTrigger><TabsTrigger aria-label={t.theme_dark} title={t.theme_dark} value="dark"><IconMoon className="text-blue-500" /></TabsTrigger></TabsList></Tabs>
+                  </SettingRow>
                   </div>
                 </section>
-
-                <section className="flex flex-col gap-2.5">
+                <Separator />
+                <section className="flex flex-col">
                   <span className={SECTION_HEADER}>{t.section_handoff}</span>
-                  <label className="flex items-center justify-between gap-3 py-1">
-                      <span className="min-w-0">
-                        <span className="block text-xs font-semibold">
-                          {t.handoff_mode_label} · {settings.handoffMode === "full" ? t.handoff_mode_full : t.handoff_mode_compact}
-                        </span>
-                        <span className="block text-xs text-muted-foreground">{t.handoff_mode_desc}</span>
-                      </span>
-                      <Switch
-                        aria-label={t.handoff_mode_label}
-                        checked={settings.handoffMode === "full"}
-                        className="shrink-0"
-                        onCheckedChange={(checked) => setSettings((current) => ({
-                          ...current,
-                          handoffMode: checked ? "full" : "compact",
-                        }))}
-                      />
-                    </label>
-                    <label className="flex items-center justify-between gap-3 py-1"><span className="min-w-0"><span className="block text-xs font-semibold">{t.viewer_label}</span><span className="block text-xs text-muted-foreground">{t.viewer_desc}</span></span><Switch checked={settings.includeViewer} className="shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, includeViewer: value }))} /></label>
-                    <label className="flex items-center justify-between gap-3 py-1"><span className="min-w-0"><span className="block text-xs font-semibold">{t.viewer_content_label}</span><span className="block text-xs text-muted-foreground">{t.viewer_content_desc}</span></span><Switch checked={settings.copyViewerContent} className="shrink-0" disabled={!settings.includeViewer} onCheckedChange={(value) => setSettings((current) => ({ ...current, copyViewerContent: value }))} /></label>
-                    <label className="flex items-center justify-between gap-3 py-1"><span className="min-w-0"><span className="block text-xs font-semibold">{t.screenshot_label}</span><span className="block text-xs text-muted-foreground">{t.screenshot_desc}</span></span><Switch checked={settings.includeScreenshot} className="shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, includeScreenshot: value }))} /></label>
-                    <label className="flex items-center justify-between gap-3 py-1"><span className="min-w-0"><span className="block text-xs font-semibold">{t.copy_on_finish_batch_label}</span><span className="block text-xs text-muted-foreground">{t.copy_on_finish_batch_desc}</span></span><Select items={[{ label: t.copy_on_finish_batch_prompt, value: "prompt" }, { label: t.copy_on_finish_batch_link, value: "link" }, { label: t.copy_on_finish_batch_off, value: "off" }]} value={settings.copyOnFinishBatch || "prompt"} onValueChange={(value) => setSettings((current) => ({ ...current, copyOnFinishBatch: (value === "off" || value === "link" ? value : "prompt") as CopyOnFinishBatch }))}><SelectTrigger aria-label={t.copy_on_finish_batch_label} className="w-32 shrink-0" size="sm"><SelectValue /></SelectTrigger><SelectContent><SelectGroup><SelectItem value="prompt">{t.copy_on_finish_batch_prompt}</SelectItem><SelectItem value="link">{t.copy_on_finish_batch_link}</SelectItem><SelectItem value="off">{t.copy_on_finish_batch_off}</SelectItem></SelectGroup></SelectContent></Select></label>
+                  <p className={SECTION_DESC}>{t.section_handoff_desc}</p>
+                  <div className="flex flex-col gap-3">
+                  <SettingRow size="xs" description={t.handoff_mode_desc} title={`${t.handoff_mode_label} · ${settings.handoffMode === "full" ? t.handoff_mode_full : t.handoff_mode_compact}`}>
+                    <Switch aria-label={t.handoff_mode_label} checked={settings.handoffMode === "full"} onCheckedChange={(checked) => setSettings((current) => ({ ...current, handoffMode: checked ? "full" : "compact" }))} />
+                  </SettingRow>
+                  <SettingRow size="xs" description={t.viewer_desc} title={t.viewer_label}>
+                    <Switch aria-label={t.viewer_label} checked={settings.includeViewer} onCheckedChange={(value) => setSettings((current) => ({ ...current, includeViewer: value }))} />
+                  </SettingRow>
+                  <SettingRow size="xs" description={t.viewer_content_desc} title={t.viewer_content_label}>
+                    <Switch aria-label={t.viewer_content_label} checked={settings.copyViewerContent} disabled={!settings.includeViewer} onCheckedChange={(value) => setSettings((current) => ({ ...current, copyViewerContent: value }))} />
+                  </SettingRow>
+                  <SettingRow size="xs" description={t.screenshot_desc} title={t.screenshot_label}>
+                    <Switch aria-label={t.screenshot_label} checked={settings.includeScreenshot} onCheckedChange={(value) => setSettings((current) => ({ ...current, includeScreenshot: value }))} />
+                  </SettingRow>
+                  <SettingRow size="xs" description={t.copy_on_finish_batch_desc} title={t.copy_on_finish_batch_label}>
+                    <Select items={[{ label: t.copy_on_finish_batch_prompt, value: "prompt" }, { label: t.copy_on_finish_batch_link, value: "link" }, { label: t.copy_on_finish_batch_off, value: "off" }]} value={settings.copyOnFinishBatch || "prompt"} onValueChange={(value) => setSettings((current) => ({ ...current, copyOnFinishBatch: (value === "off" || value === "link" ? value : "prompt") as CopyOnFinishBatch }))}><SelectTrigger aria-label={t.copy_on_finish_batch_label}><SelectValue /></SelectTrigger><SelectContent align="end" alignItemWithTrigger={false} className="w-max min-w-min"><SelectGroup><SelectItem value="prompt">{t.copy_on_finish_batch_prompt}</SelectItem><SelectItem value="link">{t.copy_on_finish_batch_link}</SelectItem><SelectItem value="off">{t.copy_on_finish_batch_off}</SelectItem></SelectGroup></SelectContent></Select>
+                  </SettingRow>
+                  </div>
                 </section>
-
-                <section className="flex flex-col gap-2.5">
+                <Separator />
+                <section className="flex flex-col">
                   <span className={SECTION_HEADER}>{t.section_privacy}</span>
-                  <label className="flex items-center justify-between gap-3 py-1"><span className="min-w-0"><span className="block text-xs font-semibold">{t.loop_metrics_label}</span><span className="block text-xs text-muted-foreground">{t.loop_metrics_desc}</span></span><Switch checked={settings.loopMetricsOptIn === true} className="shrink-0" onCheckedChange={(value) => setSettings((current) => ({ ...current, loopMetricsOptIn: value }))} /></label>
-                  <label className="flex flex-col gap-1.5 py-1">
-                    <span className="text-xs font-semibold">{t.privacy_query_keys_label}</span>
-                    <Input
-                      value={settings.sensitiveQueryKeys || ""}
-                      onChange={(event) => setSettings((current) => ({ ...current, sensitiveQueryKeys: event.target.value }))}
-                    />
-                    <span className="text-xs text-muted-foreground">{t.privacy_query_keys_desc}</span>
-                  </label>
+                  <p className={SECTION_DESC}>{t.section_privacy_desc}</p>
+                  <div className="flex flex-col gap-3">
+                  <SettingRow size="xs" description={t.loop_metrics_desc} title={t.loop_metrics_label}>
+                    <Switch aria-label={t.loop_metrics_label} checked={settings.loopMetricsOptIn === true} onCheckedChange={(value) => setSettings((current) => ({ ...current, loopMetricsOptIn: value }))} />
+                  </SettingRow>
+                  <SettingRow layout="stack" size="xs" description={t.privacy_query_keys_desc} title={t.privacy_query_keys_label}>
+                    <Input aria-label={t.privacy_query_keys_label} value={settings.sensitiveQueryKeys || ""} onChange={(event) => setSettings((current) => ({ ...current, sensitiveQueryKeys: event.target.value }))} />
+                  </SettingRow>
+                  </div>
                 </section>
 
               </TabsContent>

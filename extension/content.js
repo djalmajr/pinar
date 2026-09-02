@@ -56,6 +56,8 @@
     documentBox,
     documentPoint,
     geometryLabel,
+    isScrollContainerRecord,
+    layoutScroll,
     pinDocumentGeometry,
     projectPin,
   } = globalThis.__pinarCoordinateSpace;
@@ -146,6 +148,7 @@
     overlay_copied: "Copied successfully!",
     overlay_copy_failed: "Copy failed",
     overlay_copying: "Saving the annotations…",
+    overlay_saved: "Annotations saved successfully!",
     overlay_helper_unavailable: "helper unavailable",
     overlay_hint_clear_long: "to clear",
     overlay_hint_clear_short: "Clear",
@@ -239,7 +242,12 @@
       :host([data-progress]) .preview, :host([data-progress]) .toast { display: none !important; }
       .toolbar::before { background: rgba(15,23,42,.08); content: ""; inset: 0; position: absolute; transform: scaleX(var(--progress, 0)); transform-origin: left center; transition: transform 240ms ease; z-index: 0; }
       .progress-view { gap: 12px; }
-      :host([data-progress]) .toolbar { padding-left: 14px; padding-right: 14px; }
+      :host([data-progress]) .toolbar, :host([data-confirm]) .toolbar { padding-left: 14px; padding-right: 14px; }
+      /* Batch finish reuses that confirmation chrome without a fill or a percentage. */
+      :host([data-confirm]) .marker, :host([data-confirm]) .outline, :host([data-confirm]) .composer,
+      :host([data-confirm]) .preview, :host([data-confirm]) .toast { display: none !important; }
+      :host([data-confirm]) .toolbar::before { display: none; }
+      :host([data-confirm]) .progress-pct { display: none; }
       .progress-text { font-weight: 400; }
       .progress-pct { color: #737373; font-variant-numeric: tabular-nums; }
       .toolbar[data-kind="error"] .progress-text { color: #E5484D; }
@@ -786,7 +794,7 @@
       return { ...pin, location: pin.location };
     }
     if (pin.kind !== "element") {
-      return { ...projectPin(pin, currentScroll()), location: pin.location };
+      return { ...projectPin(pin, pinLayoutScroll(pin)), location: pin.location };
     }
     const localPath = splitFrameDomPath(pin.path || "").at(-1) || pin.path;
     const result = resolveLocator(document, {
@@ -826,9 +834,44 @@
     return review?.status || (state.reviewMode ? "open" : "");
   }
 
+  function isScrollContainer(element) {
+    if (!element || element === document.documentElement || element === document.body) return false;
+    if (element === host || host.contains(element)) return false;
+    const style = getComputedStyle(element);
+    return isScrollContainerRecord({
+      clientHeight: element.clientHeight,
+      clientWidth: element.clientWidth,
+      overflowX: style.overflowX,
+      overflowY: style.overflowY,
+      scrollHeight: element.scrollHeight,
+      scrollWidth: element.scrollWidth,
+    });
+  }
+
+  function scrollRootsFromPoint(x, y) {
+    const roots = [];
+    const seen = new Set();
+    let node = document.elementFromPoint(x, y);
+    while (node && node !== document.documentElement && node !== document.body) {
+      if (!seen.has(node) && isScrollContainer(node)) {
+        seen.add(node);
+        roots.push(node);
+      }
+      node = node.parentElement;
+    }
+    return roots;
+  }
+
+  function pinLayoutScroll(pin) {
+    const roots = Array.isArray(pin?.scrollRoots)
+      ? pin.scrollRoots.filter((element) => element?.isConnected)
+      : [];
+    return layoutScroll(currentScroll(), roots);
+  }
+
   function viewportPin(pin) {
     if (pin.kind === "element") return locatePin(pin);
-    return projectPin(pin, currentScroll());
+    return projectPin(pin, pinLayoutScroll(pin));
   }
 
   function cssPath(element) {
@@ -960,11 +1003,13 @@
     }
     if (!ui.toolbar) return;
     const inProgress = host.hasAttribute("data-progress");
-    if (ui.onlineView) ui.onlineView.hidden = inProgress;
+    const inConfirm = host.hasAttribute("data-confirm");
+    const report = inProgress || inConfirm;
+    if (ui.onlineView) ui.onlineView.hidden = report;
     if (ui.progressView) {
-      ui.progressView.hidden = !inProgress;
+      ui.progressView.hidden = !report;
       ui.progressText.textContent = state.progressLabel ?? "";
-      ui.toolbar.dataset.kind = inProgress ? state.progressKind : "";
+      ui.toolbar.dataset.kind = report ? state.progressKind : "";
       ui.toolbar.style.setProperty("--progress", String(inProgress ? state.progress : 0));
       if (inProgress && state.progressTweened !== state.progress) {
         state.progressTweened = state.progress;
@@ -1028,6 +1073,7 @@
   }
 
   function setProgress(label, progress, kind = "info") {
+    host.removeAttribute("data-confirm");
     host.setAttribute("data-progress", "");
     state.progress = progress;
     if (progress >= 1 && kind !== "info") {
@@ -1043,11 +1089,27 @@
   function clearProgress() {
     cancelAnimationFrame(state.progressRaf);
     host.removeAttribute("data-progress");
+    host.removeAttribute("data-confirm");
     state.progressFinal = null;
     state.progressLabel = null;
     state.progress = 0;
     state.progressShown = 0;
     state.progressKind = "info";
+  }
+
+  function showConfirm(label, kind = "ok") {
+    cancelAnimationFrame(state.progressRaf);
+    host.removeAttribute("data-progress");
+    host.setAttribute("data-confirm", "");
+    state.progressFinal = null;
+    state.progress = 0;
+    state.progressShown = 0;
+    state.progressLabel = label;
+    state.progressKind = kind;
+    if (!host.isConnected) document.documentElement.append(host);
+    host.style.display = "";
+    ui.toolbar?.classList.remove("pass-through");
+    renderChrome();
   }
 
   function reviewBannerText() {
@@ -1081,8 +1143,23 @@
       label: next?.label || "",
       shortcut: next?.shortcut || "",
     };
-    renderChrome();
-    if (next?.toast) flashStatus(next.toast, next.toastKind === "error" ? "error" : "ok");
+    if (!next?.toast) {
+      renderChrome();
+      return;
+    }
+    const kind = next.toastKind === "error" ? "error" : "ok";
+    const wasVisible = isVisible();
+    // Same confirmation bar as a finished capture, without the fill or the 100%.
+    // The pin toolbar must not come along.
+    showConfirm(next.toast, kind);
+    clearTimeout(state.statusTimer);
+    state.statusTimer = setTimeout(() => {
+      host.removeAttribute("data-confirm");
+      state.progressLabel = null;
+      state.progressKind = "info";
+      if (!wasVisible) host.style.display = "none";
+      renderChrome();
+    }, COPY_CONFIRMATION_MS);
   }
 
   async function syncBatchLabel() {
@@ -1627,6 +1704,10 @@
   async function openAreaDraft(box, anchorPoint) {
     const anchor = anchorPoint ?? { x: box.x, y: box.y };
     const scroll = currentScroll();
+    const scrollRoots = scrollRootsFromPoint(
+      box.x + box.width / 2,
+      box.y + box.height / 2,
+    );
     openDraft({
       anchor,
       box,
@@ -1634,7 +1715,9 @@
       documentBox: documentBox(box, scroll),
       kind: "area",
       label: `selected area (${box.width}×${box.height}px)`,
+      layoutScroll: layoutScroll(scroll, scrollRoots),
       scroll,
+      scrollRoots,
     });
   }
 
@@ -1833,7 +1916,7 @@
 
   function handoffStatusText(result) {
     const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
-    if (!result?.degraded) return t("overlay_copied");
+    if (!result?.degraded) return t("overlay_saved");
     const parts = [t("overlay_copied")];
     if (warnings.includes("screenshot_missing")) parts.push(t("overlay_no_screenshot"));
     if (warnings.includes("helper_unavailable")) parts.push(t("overlay_helper_unavailable"));

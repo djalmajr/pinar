@@ -77,6 +77,8 @@ describe("session after copy", () => {
   test("screenshot and helper failures still copy a correlatable bundle", () => {
     assert.match(contentSrc, /const shot = capture\?\.ok \? capture\.shot : null/);
     assert.match(contentSrc, /function handoffStatusText/);
+    assert.match(contentSrc, /if \(!result\?\.degraded\) return t\("overlay_saved"\)/);
+    assert.match(contentSrc, /const parts = \[t\("overlay_copied"\)\]/);
     assert.match(contentSrc, /no screenshot/);
     assert.match(contentSrc, /helper unavailable/);
     assert.match(backgroundSrc, /warnings\.push\("screenshot_missing"\)/);
@@ -110,6 +112,27 @@ describe("session after copy", () => {
     assert.match(contentSrc, /showOutline\(boxOf\(selection\.current\), false, false, BLUE, true\)/);
     assert.match(contentSrc, /normBox\(state\.drag\)[\s\S]*?true,[\s\S]*?\);/);
     assert.match(contentSrc, /outlineBadge\.textContent = geometryLabel\(box\)/);
+  });
+
+  test("area pin overlay projection uses nested scroller offsets, not only window scroll", () => {
+    // Mutation captured: Help articles scroll inside ScrollArea. The numbered
+    // marker and dashed box stayed glued to the viewport while the selected
+    // region moved with the inner scroller.
+    const viewportPin = contentSrc.slice(
+      contentSrc.indexOf("function viewportPin"),
+      contentSrc.indexOf("function cssPath"),
+    );
+    const openAreaDraft = contentSrc.slice(
+      contentSrc.indexOf("async function openAreaDraft"),
+      contentSrc.indexOf("function onPointerUp"),
+    );
+    assert.match(contentSrc, /function pinLayoutScroll\(/);
+    assert.match(contentSrc, /function scrollRootsFromPoint\(/);
+    assert.match(viewportPin, /projectPin\(pin, pinLayoutScroll\(pin\)\)/);
+    assert.doesNotMatch(viewportPin, /projectPin\(pin, currentScroll\(\)\)/);
+    assert.match(openAreaDraft, /scrollRootsFromPoint\(/);
+    assert.match(openAreaDraft, /layoutScroll:/);
+    assert.match(openAreaDraft, /scrollRoots,/);
   });
 
   test("fixed modal capture preserves the measured viewport rect", () => {

@@ -16,6 +16,7 @@ test("i18n translations dictionary", () => {
     "destination_unavailable",
     "project_label",
     "overlay_copied",
+    "overlay_saved",
     "overlay_hint_pin",
     "overlay_write_comment",
   ];
@@ -100,6 +101,7 @@ test("overlay copy is served through ui:messages and falls back to English", () 
     "Pin mode",
     "Saving the annotations…",
     "Copied successfully!",
+    "Annotations saved successfully!",
     "no screenshot",
     "helper unavailable",
     "no viewer",

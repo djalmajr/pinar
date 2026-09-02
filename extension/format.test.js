@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { formatClipboard, formatClipboardPayload, formatViewerContent, formatViewerLink } from "./format.js";
+import { translations } from "./i18n.js";
 
 function contextFrom(plain) {
   const match = plain.match(/```pinar-visual-context\n([\s\S]*?)\n```/);
@@ -214,5 +215,24 @@ describe("formatClipboard", () => {
     assert.doesNotMatch(plain, /Colored numbered bubbles/);
     assert.doesNotMatch(html, /Screenshot:/);
     assert.equal(context.screenshot, undefined);
+  });
+
+  test("localizes instruction lines while keeping the JSON fence identical", () => {
+    const input = {
+      captureId: "cap_lang",
+      page: { title: "App", url: "https://app.com" },
+      pins: [{ comment: "Fix this", id: "pin_1" }],
+      shot: "/tmp/shot.png",
+      viewerUrl: "https://pinar.test/v/cap_lang.md",
+    };
+    const en = formatClipboard(input);
+    const pt = formatClipboard({ ...input, messages: translations.pt });
+    assert.match(pt.plain, /Implemente os comentários dos pins abaixo/);
+    const fence = (plain) => {
+      const match = plain.match(/```pinar-visual-context\n[\s\S]*?\n```/);
+      assert.ok(match);
+      return match[0];
+    };
+    assert.equal(fence(pt.plain), fence(en.plain));
   });
 });

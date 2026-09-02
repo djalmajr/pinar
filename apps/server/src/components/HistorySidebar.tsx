@@ -1,4 +1,4 @@
-import { useMemo, useState, type ComponentType, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ComponentType, type CSSProperties, type ReactNode } from "react";
 import type {
   CollectionPlacement,
   ProjectIcon,
@@ -75,12 +75,36 @@ import PlusIcon from "~icons/lucide/plus";
 import ShareIcon from "~icons/lucide/share-2";
 import TrashIcon from "~icons/lucide/trash-2";
 import FilterIcon from "~icons/lucide/list-filter";
+import ChevronDownIcon from "~icons/lucide/chevron-down";
+import ChevronRightIcon from "~icons/lucide/chevron-right";
+import LayersIcon from "~icons/lucide/layers";
 
 type ContainerKind = "collection" | "project";
 type Translate = (
   key: ServerMessageKey,
   values?: Record<string, number | string>,
 ) => string;
+
+const BATCHES_EXPANDED_KEY = "pinar-batches-expanded";
+
+function readStoredBatchesExpanded(): boolean | null {
+  try {
+    const stored = localStorage.getItem(BATCHES_EXPANDED_KEY);
+    if (stored === "true") return true;
+    if (stored === "false") return false;
+  } catch {
+    /* private mode */
+  }
+  return null;
+}
+
+function writeStoredBatchesExpanded(expanded: boolean) {
+  try {
+    localStorage.setItem(BATCHES_EXPANDED_KEY, String(expanded));
+  } catch {
+    /* private mode */
+  }
+}
 
 interface ContainerTarget {
   id: string;
@@ -486,6 +510,7 @@ function FilterMenu({
 }
 
 function FilterRow({
+  depth = 0,
   icon: Icon,
   item,
   isActive,
@@ -493,6 +518,7 @@ function FilterRow({
   onDelete,
   onSelect,
 }: {
+  depth?: number;
   icon: ComponentType<{ className?: string }>;
   item: SidebarFilterItem;
   isActive: boolean;
@@ -502,16 +528,31 @@ function FilterRow({
 }) {
   const [menuActionFocused, setMenuActionFocused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const buttonStyle: CSSProperties | undefined = depth
+    ? { paddingInlineStart: `${8 + depth * COLLECTION_INDENTATION_WIDTH}px` }
+    : undefined;
   return (
     <SidebarMenuItem>
       <SidebarMenuButton
         isActive={isActive}
+        style={buttonStyle}
         tooltip={item.label}
         onClick={() => onSelect(item.id)}
       >
         <Icon />
         <span>{item.label}</span>
       </SidebarMenuButton>
+      {Array.from({ length: depth }, (_, level) => (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 z-10 w-px bg-sidebar-border"
+          data-collection-guide
+          key={level}
+          style={{
+            insetInlineStart: `${15 + level * COLLECTION_INDENTATION_WIDTH}px`,
+          }}
+        />
+      ))}
       <SidebarMenuBadge
         className={cn(
           "group-hover/menu-item:opacity-0",
@@ -528,6 +569,51 @@ function FilterRow({
         onDelete={onDelete}
         onMenuOpenChange={setMenuOpen}
       />
+    </SidebarMenuItem>
+  );
+}
+
+function BatchesFolderRow({
+  count,
+  expanded,
+  t,
+  onToggle,
+}: {
+  count: number;
+  expanded: boolean;
+  t: Translate;
+  onToggle: () => void;
+}) {
+  const label = t("dashboard.batches");
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        aria-expanded={expanded}
+        tooltip={label}
+        onClick={onToggle}
+      >
+        <span
+          aria-hidden
+          className="flex size-3.5 shrink-0 items-center justify-center"
+        />
+        <LayersIcon />
+        <span>{label}</span>
+      </SidebarMenuButton>
+      <button
+        aria-expanded={expanded}
+        aria-label={t(
+          expanded ? "dashboard.collapseBatches" : "dashboard.expandBatches",
+          { name: label },
+        )}
+        className="absolute top-2 z-10 flex size-4 items-center justify-center rounded-sm text-sidebar-foreground outline-none after:absolute after:-inset-1 focus-visible:ring-2 focus-visible:ring-sidebar-ring [&_svg]:size-3.5"
+        data-batches-toggle
+        style={{ insetInlineStart: "8px" }}
+        type="button"
+        onClick={onToggle}
+      >
+        {expanded ? <ChevronDownIcon /> : <ChevronRightIcon />}
+      </button>
+      <SidebarMenuBadge>{count}</SidebarMenuBadge>
     </SidebarMenuItem>
   );
 }
@@ -549,6 +635,23 @@ function SidebarFilterGroup({
   onDelete: (id: string) => void;
   onSelect: (id: string | null) => void;
 }) {
+  const [expanded, setExpanded] = useState(() => {
+    if (selectedId) return true;
+    return readStoredBatchesExpanded() ?? false;
+  });
+
+  useEffect(() => {
+    if (selectedId) setExpanded(true);
+  }, [selectedId]);
+
+  function toggleExpanded() {
+    setExpanded((current) => {
+      const next = !current;
+      writeStoredBatchesExpanded(next);
+      return next;
+    });
+  }
+
   if (!items.length) return null;
   return (
     <SidebarGroup className="pt-4">
@@ -560,17 +663,26 @@ function SidebarFilterGroup({
       </SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu>
-          {items.map((item) => (
-            <FilterRow
-              icon={icon}
-              isActive={selectedId === item.id}
-              item={item}
-              key={item.id}
-              t={t}
-              onDelete={onDelete}
-              onSelect={(id) => onSelect(selectedId === id ? null : id)}
-            />
-          ))}
+          <BatchesFolderRow
+            count={items.length}
+            expanded={expanded}
+            t={t}
+            onToggle={toggleExpanded}
+          />
+          {expanded
+            ? items.map((item) => (
+                <FilterRow
+                  depth={1}
+                  icon={icon}
+                  isActive={selectedId === item.id}
+                  item={item}
+                  key={item.id}
+                  t={t}
+                  onDelete={onDelete}
+                  onSelect={(id) => onSelect(selectedId === id ? null : id)}
+                />
+              ))
+            : null}
         </SidebarMenu>
       </SidebarGroupContent>
     </SidebarGroup>

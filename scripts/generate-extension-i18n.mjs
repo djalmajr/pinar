@@ -11,6 +11,8 @@ const MV3_KEYS = [
   "batch_close_menu",
   "batch_closed",
   "batch_finish",
+  "batch_copy_failed",
+  "batch_finish_failed",
   "batch_finished",
   "batch_start",
   "context_open_panel",
@@ -48,6 +50,12 @@ const MV3_KEYS = [
   "overlay_reviewing",
   "overlay_write_comment",
   "project_label",
+  "handoff_instructions",
+  "handoff_screenshot_note",
+  "handoff_full_context",
+  "handoff_batch_instructions",
+  "handoff_batch_blocks",
+  "handoff_batch_empty",
 ];
 
 const outputPath = resolve(dirname(fileURLToPath(import.meta.url)), "../extension/i18n.js");

@@ -754,9 +754,13 @@ export async function handlePublicRequest(request: Request): Promise<Response> {
     const rawId = decodeURIComponent(url.pathname.slice("/b/".length));
     if (!rawId.endsWith(".md")) return json({ error: "not found" }, 404);
     const bundle = publicBatch(rawId.slice(0, -3), url.origin);
+    const preferences = readDeliveryPreferences(rootPath());
     return bundle
       ? text(
-        formatBatchMarkdown(bundle.batch, bundle.sessions, bundle.statusByPinId, url.origin, readDeliveryPreferences(rootPath())),
+        formatBatchMarkdown(bundle.batch, bundle.sessions, bundle.statusByPinId, url.origin, {
+          ...preferences,
+          language: preferences.language ?? "en",
+        }),
         200,
         { "Cache-Control": "no-store", "Content-Type": "text/markdown; charset=utf-8" },
       )

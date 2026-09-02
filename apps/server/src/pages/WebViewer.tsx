@@ -440,6 +440,7 @@ export function WebViewer({
       session.captureId || session.id,
       session.includeScreenshot !== false,
       handoffMode,
+      language,
     ));
     setPageCopied(true);
     window.setTimeout(() => setPageCopied(false), 2_000);

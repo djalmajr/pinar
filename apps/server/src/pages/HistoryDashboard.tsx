@@ -640,6 +640,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
       session.captureId || session.id,
       includeScreenshot,
       handoffMode,
+      language,
     ));
     setCopiedId(session.id);
     window.setTimeout(() => setCopiedId(null), 2_000);

@@ -27,6 +27,7 @@ export interface FormatClipboardInput {
   shot?: string;
   viewerUrl?: string;
   viewport?: object;
+  messages?: Record<string, string>;
   warnings?: string[];
 }
 

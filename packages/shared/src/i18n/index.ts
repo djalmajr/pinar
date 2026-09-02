@@ -23,6 +23,8 @@ export interface TranslationDictionary {
   batch_copied_link: string;
   batch_copied_prompt: string;
   batch_finished: string;
+  batch_finish_failed: string;
+  batch_copy_failed: string;
   context_open_panel: string;
   batch_start: string;
   batch_finish: string;
@@ -160,6 +162,12 @@ export interface TranslationDictionary {
   overlay_write_comment: string;
   overlay_add_pin_first: string;
   overlay_copy_failed: string;
+  handoff_instructions: string;
+  handoff_screenshot_note: string;
+  handoff_full_context: string;
+  handoff_batch_instructions: string;
+  handoff_batch_blocks: string;
+  handoff_batch_empty: string;
 }
 
 export const translations: Record<SupportedLanguage, TranslationDictionary> = {
@@ -186,6 +194,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_copied_link: "Copied link · {count}",
     batch_copied_prompt: "Copied prompt · {count}",
     batch_finished: "Batch finished · {count}",
+    batch_finish_failed: "Batch closed here, but the server could not be reached · {count}",
+    batch_copy_failed: "Batch closed · copy failed · {count}",
     context_open_panel: "Open panel",
     batch_start: "Start capture batch",
     batch_finish: "Finish capture batch",
@@ -323,6 +333,12 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_write_comment: "Write a comment first",
     overlay_add_pin_first: "Add a pin first",
     overlay_copy_failed: "Copy failed",
+    handoff_instructions: "Implement the pin comments below. Use selector and DOM path as complementary locators.",
+    handoff_screenshot_note: "Numbered screenshot badges are annotation overlays, not page UI.",
+    handoff_full_context: "Full context (fetch only if the details above are insufficient): {url}",
+    handoff_batch_instructions: "Implement the pin comments below across {count} pages. Use selector and DOM path as complementary locators.",
+    handoff_batch_blocks: "Each pinar-visual-context block is one page; captureId and pinId identify the capture, do not rewrite them.",
+    handoff_batch_empty: "No pins are waiting on the agent in this batch.",
   },
   pt: {
     capture_destination_label: "Destino da captura",
@@ -347,6 +363,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_copied_link: "Link copiado · {count}",
     batch_copied_prompt: "Prompt copiado · {count}",
     batch_finished: "Lote finalizado · {count}",
+    batch_finish_failed: "Lote encerrado aqui, mas o servidor não respondeu · {count}",
+    batch_copy_failed: "Lote encerrado · cópia falhou · {count}",
     context_open_panel: "Abrir painel",
     batch_start: "Iniciar lote de capturas",
     batch_finish: "Finalizar lote de capturas",
@@ -484,6 +502,12 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_write_comment: "Escreva um comentário",
     overlay_add_pin_first: "Adicione um pin",
     overlay_copy_failed: "Falha ao copiar",
+    handoff_instructions: "Implemente os comentários dos pins abaixo. Use seletor e caminho DOM como localizadores complementares.",
+    handoff_screenshot_note: "Os badges numerados na captura são sobreposições de anotação, não a UI da página.",
+    handoff_full_context: "Contexto completo (busque apenas se os detalhes acima forem insuficientes): {url}",
+    handoff_batch_instructions: "Implemente os comentários dos pins abaixo em {count} páginas. Use seletor e caminho DOM como localizadores complementares.",
+    handoff_batch_blocks: "Cada bloco pinar-visual-context é uma página; captureId e pinId identificam a captura, não os reescreva.",
+    handoff_batch_empty: "Nenhum pin está aguardando o agente neste lote.",
   },
   es: {
     capture_destination_label: "Destino de captura",
@@ -508,6 +532,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_copied_link: "Enlace copiado · {count}",
     batch_copied_prompt: "Prompt copiado · {count}",
     batch_finished: "Lote finalizado · {count}",
+    batch_finish_failed: "Lote cerrado aquí, pero el servidor no respondió · {count}",
+    batch_copy_failed: "Lote cerrado · la copia falló · {count}",
     context_open_panel: "Abrir panel",
     batch_start: "Iniciar lote de capturas",
     batch_finish: "Finalizar lote de capturas",
@@ -645,6 +671,12 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_write_comment: "Escribe un comentario",
     overlay_add_pin_first: "Añade un pin",
     overlay_copy_failed: "Error al copiar",
+    handoff_instructions: "Implemente los comentarios de los pins a continuación. Use selector y ruta DOM como localizadores complementarios.",
+    handoff_screenshot_note: "Las insignias numeradas de la captura son superposiciones de anotación, no la IU de la página.",
+    handoff_full_context: "Contexto completo (recupere solo si los detalles anteriores son insuficientes): {url}",
+    handoff_batch_instructions: "Implemente los comentarios de los pins a continuación en {count} páginas. Use selector y ruta DOM como localizadores complementarios.",
+    handoff_batch_blocks: "Cada bloque pinar-visual-context es una página; captureId y pinId identifican la captura, no los reescriba.",
+    handoff_batch_empty: "No hay pins esperando al agente en este lote.",
   },
   fr: {
     capture_destination_label: "Destination de la capture",
@@ -669,6 +701,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_copied_link: "Lien copié · {count}",
     batch_copied_prompt: "Prompt copié · {count}",
     batch_finished: "Lot terminé · {count}",
+    batch_finish_failed: "Lot fermé ici, mais le serveur n’a pas répondu · {count}",
+    batch_copy_failed: "Lot fermé · copie échouée · {count}",
     context_open_panel: "Ouvrir le panneau",
     batch_start: "Démarrer un lot de captures",
     batch_finish: "Terminer le lot de captures",
@@ -806,6 +840,12 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_write_comment: "Écrivez un commentaire",
     overlay_add_pin_first: "Ajoutez une épingle",
     overlay_copy_failed: "Échec de la copie",
+    handoff_instructions: "Implémentez les commentaires des pins ci-dessous. Utilisez le sélecteur et le chemin DOM comme localisateurs complémentaires.",
+    handoff_screenshot_note: "Les badges numérotés de la capture sont des superpositions d'annotation, pas l'UI de la page.",
+    handoff_full_context: "Contexte complet (récupérez uniquement si les détails ci-dessus sont insuffisants) : {url}",
+    handoff_batch_instructions: "Implémentez les commentaires des pins ci-dessous sur {count} pages. Utilisez le sélecteur et le chemin DOM comme localisateurs complémentaires.",
+    handoff_batch_blocks: "Chaque bloc pinar-visual-context est une page ; captureId et pinId identifient la capture, ne les réécrivez pas.",
+    handoff_batch_empty: "Aucun pin n'attend l'agent dans ce lot.",
   },
   de: {
     capture_destination_label: "Aufnahmeziel",
@@ -830,6 +870,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_copied_link: "Link kopiert · {count}",
     batch_copied_prompt: "Prompt kopiert · {count}",
     batch_finished: "Stapel beendet · {count}",
+    batch_finish_failed: "Stapel hier geschlossen, aber der Server war nicht erreichbar · {count}",
+    batch_copy_failed: "Stapel geschlossen · Kopieren fehlgeschlagen · {count}",
     context_open_panel: "Panel öffnen",
     batch_start: "Aufnahme-Stapel starten",
     batch_finish: "Aufnahme-Stapel abschließen",
@@ -967,6 +1009,12 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_write_comment: "Zuerst einen Kommentar schreiben",
     overlay_add_pin_first: "Zuerst einen Pin setzen",
     overlay_copy_failed: "Kopieren fehlgeschlagen",
+    handoff_instructions: "Setzen Sie die Pin-Kommentare unten um. Verwenden Sie Selektor und DOM-Pfad als ergänzende Locator.",
+    handoff_screenshot_note: "Nummerierte Screenshot-Badges sind Annotations-Overlays, keine Seiten-UI.",
+    handoff_full_context: "Vollständiger Kontext (nur abrufen, wenn die Angaben oben nicht ausreichen): {url}",
+    handoff_batch_instructions: "Setzen Sie die Pin-Kommentare unten über {count} Seiten um. Verwenden Sie Selektor und DOM-Pfad als ergänzende Locator.",
+    handoff_batch_blocks: "Jeder pinar-visual-context-Block ist eine Seite; captureId und pinId identifizieren die Capture, schreiben Sie sie nicht um.",
+    handoff_batch_empty: "In diesem Batch warten keine Pins auf den Agenten.",
   },
   zh: {
     capture_destination_label: "捕获目标",
@@ -991,6 +1039,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_copied_link: "已复制链接 · {count}",
     batch_copied_prompt: "已复制提示 · {count}",
     batch_finished: "批次已结束 · {count}",
+    batch_finish_failed: "批次已在本地关闭，但无法连接服务器 · {count}",
+    batch_copy_failed: "批次已关闭 · 复制失败 · {count}",
     context_open_panel: "打开面板",
     batch_start: "开始捕获批次",
     batch_finish: "结束捕获批次",
@@ -1128,6 +1178,12 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_write_comment: "请先填写评论",
     overlay_add_pin_first: "请先添加图钉",
     overlay_copy_failed: "复制失败",
+    handoff_instructions: "实现下方图钉评论。将选择器和 DOM 路径作为互补定位器使用。",
+    handoff_screenshot_note: "截图上的编号徽章是标注叠加层，不是页面 UI。",
+    handoff_full_context: "完整上下文（仅在上述细节不足时获取）：{url}",
+    handoff_batch_instructions: "在 {count} 个页面上实现下方图钉评论。将选择器和 DOM 路径作为互补定位器使用。",
+    handoff_batch_blocks: "每个 pinar-visual-context 代码块对应一个页面；captureId 和 pinId 标识此次捕获，请勿改写。",
+    handoff_batch_empty: "此批次中没有等待智能体处理的图钉。",
   },
   ja: {
     capture_destination_label: "キャプチャ先",
@@ -1152,6 +1208,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     batch_copied_link: "リンクをコピーしました · {count}",
     batch_copied_prompt: "プロンプトをコピーしました · {count}",
     batch_finished: "バッチ終了 · {count}",
+    batch_finish_failed: "バッチはここで終了しましたが、サーバーに接続できません · {count}",
+    batch_copy_failed: "バッチを終了 · コピーに失敗 · {count}",
     context_open_panel: "パネルを開く",
     batch_start: "キャプチャバッチを開始",
     batch_finish: "キャプチャバッチを終了",
@@ -1289,6 +1347,12 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_write_comment: "コメントを入力",
     overlay_add_pin_first: "先にピンを追加",
     overlay_copy_failed: "コピーに失敗",
+    handoff_instructions: "以下のピンコメントを実装してください。セレクターと DOM パスを補完的なロケーターとして使用してください。",
+    handoff_screenshot_note: "スクリーンショット上の番号バッジは注釈オーバーレイであり、ページ UI ではありません。",
+    handoff_full_context: "完全なコンテキスト（上記の詳細では不十分な場合にのみ取得）: {url}",
+    handoff_batch_instructions: "以下のピンコメントを {count} ページにわたって実装してください。セレクターと DOM パスを補完的なロケーターとして使用してください。",
+    handoff_batch_blocks: "各 pinar-visual-context ブロックは 1 ページです。captureId と pinId はキャプチャを識別します。書き換えないでください。",
+    handoff_batch_empty: "このバッチにはエージェント待ちのピンはありません。",
   },
 };
 

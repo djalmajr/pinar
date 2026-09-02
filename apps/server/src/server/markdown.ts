@@ -14,9 +14,10 @@ import {
   type ProjectTreeCollection,
   type ProjectTreeProject,
   type Session,
+  type SupportedLanguage,
 } from "@pinar/shared";
 
-export type MarkdownDelivery = { handoffMode?: HandoffMode; includeScreenshot?: boolean };
+export type MarkdownDelivery = { handoffMode?: HandoffMode; includeScreenshot?: boolean; language?: SupportedLanguage | null };
 
 function deliverScreenshot(session: Session, delivery?: MarkdownDelivery) {
   return screenshotDeliveryEnabled(delivery?.includeScreenshot, session);
@@ -100,7 +101,7 @@ export function formatBatchMarkdown(
       viewerUrl: `${origin}/v/${session.id}.md`,
     });
   }
-  return formatBatchHandoff(batch.label, captures, delivery?.handoffMode === "full" ? "full" : "compact").trim();
+  return formatBatchHandoff(batch.label, captures, delivery?.handoffMode === "full" ? "full" : "compact", delivery?.language ?? "en").trim();
 }
 
 export function formatProjectMarkdown(

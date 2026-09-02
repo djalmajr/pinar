@@ -256,6 +256,13 @@ describe("copy on finish batch", () => {
     assert.match(backgroundSrc, /type: "clipboard:write"/);
     assert.match(backgroundSrc, /ensureOffscreen\(\)/);
     assert.match(backgroundSrc, /copyOnFinishBatch: "prompt"/);
-    assert.match(contentSrc, /if \(next\?\.toast\) flashStatus\(next\.toast, "ok"\)/);
+    // The toast carries its kind: a failed finish must not read as a success.
+    assert.match(contentSrc, /if \(next\?\.toast\) flashStatus\(next\.toast, next\.toastKind === "error" \? "error" : "ok"\)/);
+    assert.match(finish, /toastKind: failed \? "error" : "ok"/);
+    assert.match(finish, /serverError \? "batch_finish_failed" : copyError \? "batch_copy_failed"/);
+    // Finishing usually happens from the shortcut or the menu, with no toolbar
+    // open anywhere, so the outcome also goes out as a system notification.
+    assert.match(finish, /await notify\(`pinar-batch-\$\{batch\.id\}`, toast, failed\)/);
+    assert.match(backgroundSrc, /chrome\.notifications\.create\(/);
   });
 });

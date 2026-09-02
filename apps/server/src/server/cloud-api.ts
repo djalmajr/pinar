@@ -5618,13 +5618,14 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
         statusByPinId[review.pinId] = review.status;
       }
     }
+    const preferences = await readOwnerDeliveryPreferences(env, bundle.ownerId);
     return text(
       formatBatchMarkdown(
         bundle.batch,
         bundle.sessions,
         statusByPinId,
         url.origin,
-        await readOwnerDeliveryPreferences(env, bundle.ownerId),
+        { ...preferences, language: preferences.language ?? "en" },
       ),
       200,
       {

@@ -976,7 +976,7 @@
       shortcut: next?.shortcut || "",
     };
     renderChrome();
-    if (next?.toast) flashStatus(next.toast, "ok");
+    if (next?.toast) flashStatus(next.toast, next.toastKind === "error" ? "error" : "ok");
   }
 
   async function syncBatchLabel() {
@@ -1807,7 +1807,8 @@
       }).catch((error) => ({ error: String(error), ok: false }));
       const locallyCopied = copied?.plain ? await writePlainText(copied.plain) : false;
       if (!copied?.ok && !locallyCopied) throw new Error(copied?.error || "clipboard write failed");
-      setStatus(handoffStatusText(copied), "ok");
+      // A degraded copy (not saved, no screenshot) is a warning, not a success.
+      setStatus(handoffStatusText(copied), copied?.degraded ? "error" : "ok");
       // The confirmation always gets its full time on screen, even when the
       // user has already asked for the next toolbar (see toggle()): a copy the
       // user never saw confirmed reads as a copy that did not happen.

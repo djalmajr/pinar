@@ -187,4 +187,13 @@ describe("batch markdown", () => {
     assert.doesNotMatch(compact, /"number":1/);
     assert.match(full, /"number":1/);
   });
+
+  test("localizes instruction lines while keeping the JSON fence identical", () => {
+    const sessions = [session("one", "pin-a", "first page")];
+    const en = formatBatchMarkdown(batch, sessions, {}, "https://pinar.test");
+    const pt = formatBatchMarkdown(batch, sessions, {}, "https://pinar.test", { language: "pt" });
+    assert.match(pt, /Implemente os comentários dos pins abaixo em 1 páginas/);
+    const fences = (markdown: string) => [...markdown.matchAll(/```pinar-visual-context\n[\s\S]*?\n```/g)].map((match) => match[0]);
+    assert.deepEqual(fences(pt), fences(en));
+  });
 });

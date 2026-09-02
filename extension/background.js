@@ -778,11 +778,13 @@ async function copyBundle(message) {
     warning === "screenshot_missing" || warning === "helper_unavailable" || warning === "viewer_unavailable"
   ));
 
+  const language = getBestLanguage(remotePrefs?.language ?? settings.language);
   const payload = formatClipboardPayload({
     captureId: id,
     createdAt: message.createdAt,
     handoffMode,
     includeScreenshot,
+    messages: translations[language],
     page,
     pins,
     privacy,
@@ -831,6 +833,17 @@ async function ensureOffscreen() {
 // Markdown is not HTML. Offering it as `text/html` would let a contenteditable
 // composer pick that flavor, collapse the newlines and swallow anything shaped
 // like a tag, so this path publishes `text/plain` alone.
+async function notify(id, message, isError = false) {
+  if (!chrome.notifications) return;
+  await new Promise((resolve) => chrome.notifications.create(id, {
+    iconUrl: chrome.runtime.getURL("icons/icon-128.png"),
+    message,
+    priority: isError ? 2 : 0,
+    title: isError ? "Pinar · error" : "Pinar",
+    type: "basic",
+  }, () => { void chrome.runtime.lastError; resolve(); }));
+}
+
 async function writeClipboardPlain(text) {
   await ensureOffscreen();
   const written = await chrome.runtime.sendMessage({
@@ -1267,20 +1280,26 @@ async function finishBatch({ copy = true } = {}) {
   const helperBase = settings.storageMode === "cloud"
     ? cloudEndpoint(settings)
     : await findShotBase();
+  // A missing server must not keep the batch open, but the user must hear
+  // about it: the row stays open server-side until the next finish.
+  let serverError = null;
   try {
     if (settings.storageMode === "cloud") {
       await remoteFetch(helperBase, path, init);
     } else if (helperBase) {
       await localFetch(helperBase, path, init);
+    } else {
+      serverError = new Error("helper unavailable");
     }
-  } catch {
-    /* A missing server must not keep the batch open. */
+  } catch (error) {
+    serverError = error;
   }
   await writeBatch(null);
   const summary = batchSummary(batch);
   // A batch row only exists once a capture landed in it, so an empty batch has
   // nothing to hand over and its bundle URL would legitimately 404.
   let copied = null;
+  let copyError = null;
   if (copy && summary.saved > 0) {
     try {
       const result = await copyFinishedBatch({
@@ -1296,13 +1315,21 @@ async function finishBatch({ copy = true } = {}) {
       });
       copied = result.copied;
     } catch (error) {
+      copyError = error;
       console.error("Unable to copy the finished batch", error);
     }
   }
   const language = getBestLanguage(remotePrefs?.language ?? settings.language);
-  const toast = translations[language][copy ? finishedBatchToastKey(copied) : "batch_closed"].replace("{count}", String(summary.saved));
-  await syncBatchSurfaces({ toast });
-  return { copied, summary, toast };
+  const messages = translations[language];
+  const failed = Boolean(serverError || copyError);
+  const toastKey = serverError ? "batch_finish_failed" : copyError ? "batch_copy_failed" : copy ? finishedBatchToastKey(copied) : "batch_closed";
+  const toast = messages[toastKey].replace("{count}", String(summary.saved));
+  await syncBatchSurfaces({ toast, toastKind: failed ? "error" : "ok" });
+  // The overlay toast only exists on a tab with the toolbar open; the batch is
+  // usually finished from the shortcut or the action menu, so the outcome also
+  // goes out as a system notification - success and failure alike.
+  await notify(`pinar-batch-${batch.id}`, toast, failed);
+  return { copied, failed, summary, toast };
 }
 
 async function toggleBatch() {

@@ -540,6 +540,18 @@ function FilterRow({
         <Icon />
         <span>{item.label}</span>
       </SidebarMenuButton>
+      {/* Same guide a nested collection draws under its parent's icon. */}
+      {Array.from({ length: depth }, (_, level) => (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 z-10 w-px bg-sidebar-border"
+          data-collection-guide
+          key={level}
+          style={{
+            insetInlineStart: `${15 + level * COLLECTION_INDENTATION_WIDTH}px`,
+          }}
+        />
+      ))}
       <SidebarMenuBadge
         className={cn(
           "group-hover/menu-item:opacity-0",

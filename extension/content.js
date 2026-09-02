@@ -86,6 +86,10 @@
     status: null,
     statusTimer: 0,
     progress: 0,
+    progressLabel: null,
+    progressKind: "info",
+    progressShown: 0,
+    progressRaf: 0,
     pins: [],
     tabPinCount: 0,
     drag: null,
@@ -225,17 +229,18 @@
         z-index: 3;
       }
       .toast[hidden] { display: none; }
-      /* After Cmd+Enter the overlay is only a status: toolbar, picker, pins and
-         composer are gone, the toast alone reports the outcome where the
-         toolbar used to sit. */
-      :host([data-toast-only]) .toolbar, :host([data-toast-only]) .marker, :host([data-toast-only]) .outline,
-      :host([data-toast-only]) .composer, :host([data-toast-only]) .preview { display: none !important; }
-      :host([data-toast-only]) .toast { top: 16px; }
-      /* Progress reads as a fill growing left to right behind the text, the way
-         capture tools do; --progress is 0..1, set as the copy advances. */
-      .toast { overflow: hidden; }
-      .toast::before { background: rgba(15,23,42,.08); content: ""; inset: 0; position: absolute; transform: scaleX(var(--progress, 0)); transform-origin: left center; transition: transform 240ms ease; z-index: -1; }
-      .toast > span { position: relative; }
+      /* After Cmd+Enter the toolbar stays where it is and becomes the progress
+         report: its content switches to "Copying… 55%" and a fill grows left to
+         right behind it, the way capture tools do. Picker, pins and composer
+         leave; --progress is 0..1. */
+      :host([data-progress]) .marker, :host([data-progress]) .outline, :host([data-progress]) .composer,
+      :host([data-progress]) .preview, :host([data-progress]) .toast { display: none !important; }
+      .toolbar::before { background: rgba(15,23,42,.08); content: ""; inset: 0; position: absolute; transform: scaleX(var(--progress, 0)); transform-origin: left center; transition: transform 240ms ease; z-index: 0; }
+      .progress-view { gap: 10px; }
+      .progress-text { font-weight: 500; }
+      .progress-pct { color: #737373; font-variant-numeric: tabular-nums; min-width: 3ch; text-align: right; }
+      .toolbar[data-kind="error"] .progress-text { color: #E5484D; }
+      .toolbar[data-kind="ok"] .progress-text { color: #1F7A4D; }
       .toast[data-kind="error"] { color: #E5484D; }
       .toast[data-kind="ok"] { color: #1F7A4D; }
       .view { align-items: center; display: flex; gap: 12px; min-width: 0; position: relative; z-index: 1; }
@@ -540,6 +545,13 @@
           <span data-ref="batchPillText"></span>
         </span>
       </div>
+      <div class="view progress-view" data-ref="progressView" hidden>
+        <span class="state-icon" aria-hidden="true">
+          ${bubbleSvg({ className: "mark", variant: "dots" })}
+        </span>
+        <span class="progress-text" data-ref="progressText"></span>
+        <span class="progress-pct" data-ref="progressPct"></span>
+      </div>
     </div>
     <div class="toast" data-ref="toast" role="status" aria-live="polite" hidden></div>` : ""}
     <div class="outline" data-ref="outline"><span class="outline-badge" data-ref="outlineBadge"></span></div>
@@ -582,6 +594,10 @@
     toast: shadow.querySelector("[data-ref=toast]"),
     toolbar: shadow.querySelector(".toolbar"),
     toolbarStatus: shadow.querySelector("[data-ref=toolbarStatus]"),
+    onlineView: shadow.querySelector("[data-ref=onlineView]"),
+    progressView: shadow.querySelector("[data-ref=progressView]"),
+    progressText: shadow.querySelector("[data-ref=progressText]"),
+    progressPct: shadow.querySelector("[data-ref=progressPct]"),
     batchPill: shadow.querySelector("[data-ref=batchPill]"),
     batchPillKey: shadow.querySelector("[data-ref=batchPillKey]"),
     batchPillText: shadow.querySelector("[data-ref=batchPillText]"),
@@ -934,6 +950,16 @@
       ui.selectionTag.textContent = selectedTag ? `<${selectedTag}>` : "";
     }
     if (!ui.toolbar) return;
+    const inProgress = host.hasAttribute("data-progress");
+    if (ui.onlineView) ui.onlineView.hidden = inProgress;
+    if (ui.progressView) {
+      ui.progressView.hidden = !inProgress;
+      ui.progressText.textContent = state.progressLabel ?? "";
+      ui.toolbar.dataset.kind = inProgress ? state.progressKind : "";
+      ui.toolbar.style.setProperty("--progress", String(inProgress ? state.progress : 0));
+      if (inProgress) tweenProgressPercent();
+      else ui.progressPct.textContent = "";
+    }
     const hasStatus = Boolean(state.status);
     if (ui.instructions) ui.instructions.hidden = state.reviewMode;
     if (ui.toast) {
@@ -956,6 +982,36 @@
     }
     document.documentElement.toggleAttribute("data-pinar-mask-mode", state.maskMode);
     document.documentElement.toggleAttribute("data-pinar-review", state.reviewMode);
+  }
+
+  // The percentage catches up with the fill instead of jumping between phases.
+  function tweenProgressPercent() {
+    cancelAnimationFrame(state.progressRaf);
+    const step = () => {
+      const target = Math.round(state.progress * 100);
+      if (state.progressShown < target) state.progressShown = Math.min(target, state.progressShown + Math.max(1, Math.ceil((target - state.progressShown) / 8)));
+      else state.progressShown = target;
+      if (ui.progressPct) ui.progressPct.textContent = `${state.progressShown}%`;
+      if (state.progressShown !== target) state.progressRaf = requestAnimationFrame(step);
+    };
+    step();
+  }
+
+  function setProgress(label, progress, kind = "info") {
+    host.setAttribute("data-progress", "");
+    state.progressLabel = label;
+    state.progress = progress;
+    state.progressKind = kind;
+    renderChrome();
+  }
+
+  function clearProgress() {
+    cancelAnimationFrame(state.progressRaf);
+    host.removeAttribute("data-progress");
+    state.progressLabel = null;
+    state.progress = 0;
+    state.progressShown = 0;
+    state.progressKind = "info";
   }
 
   function reviewBannerText() {
@@ -1793,8 +1849,7 @@
       // From here on the overlay is a status display. The toolbar and picker
       // leave now, deliberately; the progress toast takes their place and runs
       // through the shot (out of frame for ~2 frames), the save and the copy.
-      host.setAttribute("data-toast-only", "");
-      setStatus(t("overlay_copying"), "info", 0.2);
+      setProgress(t("overlay_copying"), 0.2);
       await chrome.runtime.sendMessage({ hidden: true, type: "overlays:hidden" }).catch(() => null);
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const capture = await chrome.runtime.sendMessage({
@@ -1810,7 +1865,7 @@
       // way a capture tool's progress bar does. Child frames stay hidden until
       // session:end so their pins do not flash after the toolbar is gone.
       setHidden(false);
-      setStatus(t("overlay_copying"), "info", 0.55);
+      setProgress(t("overlay_copying"), 0.55);
       const sanitized = sanitizeCapture({
         fields: scan.fields,
         page: pageContext(),
@@ -1818,6 +1873,7 @@
         unevaluated: scan.unevaluated,
       }, { extraQueryKeys });
       const captureId = crypto.randomUUID();
+      setProgress(t("overlay_copying"), 0.8);
       const copied = await chrome.runtime.sendMessage({
         captureId,
         fields: scan.fields.map((field) => ({ attrs: field.attrs })),
@@ -1832,7 +1888,7 @@
       const locallyCopied = copied?.plain ? await writePlainText(copied.plain) : false;
       if (!copied?.ok && !locallyCopied) throw new Error(copied?.error || "clipboard write failed");
       // A degraded copy (not saved, no screenshot) is a warning, not a success.
-      setStatus(handoffStatusText(copied), copied?.degraded ? "error" : "ok", 1);
+      setProgress(handoffStatusText(copied), 1, copied?.degraded ? "error" : "ok");
       // The confirmation always gets its full time on screen, even when the
       // user has already asked for the next toolbar (see toggle()): a copy the
       // user never saw confirmed reads as a copy that did not happen.
@@ -1850,9 +1906,8 @@
       // Same shape as success: a toast alone, red, then the overlay closes.
       // Pins stay so the shortcut reopens the session for a retry.
       setHidden(false);
-      setStatus(t("overlay_copy_failed"), "error");
+      setProgress(t("overlay_copy_failed"), state.progress, "error");
       await new Promise((resolve) => setTimeout(resolve, COPY_ERROR_MS));
-      setStatus(null);
       setVisible(false);
       broadcast(FRAME_HIDE);
     } finally {
@@ -1958,7 +2013,7 @@
 
   function setVisible(visible) {
     if (visible && !host.isConnected) document.documentElement.append(host);
-    host.removeAttribute("data-toast-only");
+    clearProgress();
     state.active = visible;
     host.style.display = visible ? "" : "none";
     if (visible) {

@@ -41,7 +41,7 @@ export function FairSourceSupportCard({ className }: FairSourceSupportCardProps)
           <HeartIcon className="size-4 fill-pink-500 text-pink-500" />
           {title}
         </div>
-        <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+        <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
       </div>
       <div className="flex shrink-0 flex-wrap items-center justify-start gap-2.5">
         <Button
@@ -78,7 +78,7 @@ export function ServerFooter({ className, compact = false, note }: ServerFooterP
         </div>
       ) : null}
       <div
-        className={cn("mx-auto w-full max-w-6xl border-t border-border/60 text-[11px] font-normal leading-4 text-muted-foreground", note ? "mt-8" : "mt-6")}
+        className={cn("mx-auto w-full max-w-6xl border-t border-border/60 text-sm font-normal text-muted-foreground", note ? "mt-8" : "mt-6")}
       >
         <div
           className={cn(

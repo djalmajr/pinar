@@ -6,6 +6,7 @@ import {
   getBestLanguage,
   type HandoffMode,
   macosDesktopDmgUrl,
+  mergeDeliveryPreferences,
   type PinarSettings,
   type ProjectTree,
   type ProjectTreeCollection,
@@ -246,13 +247,19 @@ const DEFAULT_SETTINGS: PinarSettings = {
 };
 
 interface ExtensionResponse extends ExtensionResponseBase {
+  captureDestination?: CaptureDestination | null;
   code?: string;
+  copyOnFinishBatch?: CopyOnFinishBatch;
+  copyViewerContent?: boolean;
   destination?: CaptureDestination;
   error?: string;
   expiresAt?: string;
   handoffMode?: HandoffMode;
   includeScreenshot?: boolean;
+  includeViewer?: boolean;
+  language?: SupportedLanguage | null;
   ok?: boolean;
+  sensitiveQueryKeys?: string;
   session?: AuthSession;
   tree?: ProjectTree;
   url?: string;
@@ -298,6 +305,32 @@ async function extensionMessage(
 
 function areSettingsEqual(left: PinarSettings, right: PinarSettings) {
   return SETTINGS_KEYS.every((key) => left[key] === right[key]);
+}
+
+function applyDeliveryResponse(current: PinarSettings, patch: unknown): PinarSettings {
+  const language = (SUPPORTED_LANGUAGES as readonly string[]).includes(current.language)
+    ? current.language as SupportedLanguage
+    : null;
+  const merged = mergeDeliveryPreferences({
+    captureDestination: null,
+    copyOnFinishBatch: current.copyOnFinishBatch,
+    copyViewerContent: Boolean(current.copyViewerContent),
+    handoffMode: current.handoffMode === "full" ? "full" : "compact",
+    includeScreenshot: current.includeScreenshot !== false,
+    includeViewer: current.includeViewer !== false,
+    language,
+    sensitiveQueryKeys: typeof current.sensitiveQueryKeys === "string" ? current.sensitiveQueryKeys : "",
+  }, patch);
+  return {
+    ...current,
+    copyOnFinishBatch: merged.copyOnFinishBatch,
+    copyViewerContent: merged.copyViewerContent,
+    handoffMode: merged.handoffMode,
+    includeScreenshot: merged.includeScreenshot,
+    includeViewer: merged.includeViewer,
+    language: merged.language ?? current.language,
+    sensitiveQueryKeys: merged.sensitiveQueryKeys,
+  };
 }
 
 function flattenDestinationCollections(collections: ProjectTreeCollection[]) {
@@ -407,11 +440,18 @@ export function OptionsApp() {
   async function syncDeliveryPreferences(current: PinarSettings): Promise<PinarSettings> {
     const response = await extensionMessage({ type: "preferences:get" }, "");
     if (!response.ok || typeof response.includeScreenshot !== "boolean") return current;
-    const handoffMode: HandoffMode = response.handoffMode === "full" ? "full" : "compact";
-    if (response.includeScreenshot === current.includeScreenshot && handoffMode === current.handoffMode) return current;
-    const next = { ...current, handoffMode, includeScreenshot: response.includeScreenshot };
+    const next = applyDeliveryResponse(current, response);
+    if (areSettingsEqual(next, current)) return current;
     if (typeof chrome !== "undefined" && chrome.storage?.sync) {
-      await chrome.storage.sync.set({ handoffMode, includeScreenshot: response.includeScreenshot });
+      await chrome.storage.sync.set({
+        copyOnFinishBatch: next.copyOnFinishBatch,
+        copyViewerContent: next.copyViewerContent,
+        handoffMode: next.handoffMode,
+        includeScreenshot: next.includeScreenshot,
+        includeViewer: next.includeViewer,
+        language: next.language,
+        sensitiveQueryKeys: next.sensitiveQueryKeys,
+      });
     }
     return next;
   }
@@ -510,20 +550,29 @@ export function OptionsApp() {
       }
     }
     if (typeof chrome !== "undefined" && chrome.storage?.sync) await chrome.storage.sync.set(settings);
-    const prefs = await extensionMessage(
-      { handoffMode: settings.handoffMode, includeScreenshot: settings.includeScreenshot, type: "preferences:set" },
-      "",
-    );
+    const prefs = await extensionMessage({
+      copyOnFinishBatch: settings.copyOnFinishBatch,
+      copyViewerContent: settings.copyViewerContent,
+      handoffMode: settings.handoffMode,
+      includeScreenshot: settings.includeScreenshot,
+      includeViewer: settings.includeViewer,
+      language: settings.language,
+      sensitiveQueryKeys: settings.sensitiveQueryKeys,
+      type: "preferences:set",
+    }, "");
     const saved = prefs.ok && typeof prefs.includeScreenshot === "boolean"
-      ? {
-          ...settings,
-          handoffMode: prefs.handoffMode === "full" ? "full" as const : "compact" as const,
-          includeScreenshot: prefs.includeScreenshot,
-        }
+      ? applyDeliveryResponse(settings, prefs)
       : settings;
-    if ((saved.includeScreenshot !== settings.includeScreenshot || saved.handoffMode !== settings.handoffMode)
-      && typeof chrome !== "undefined" && chrome.storage?.sync) {
-      await chrome.storage.sync.set({ handoffMode: saved.handoffMode, includeScreenshot: saved.includeScreenshot });
+    if (!areSettingsEqual(saved, settings) && typeof chrome !== "undefined" && chrome.storage?.sync) {
+      await chrome.storage.sync.set({
+        copyOnFinishBatch: saved.copyOnFinishBatch,
+        copyViewerContent: saved.copyViewerContent,
+        handoffMode: saved.handoffMode,
+        includeScreenshot: saved.includeScreenshot,
+        includeViewer: saved.includeViewer,
+        language: saved.language,
+        sensitiveQueryKeys: saved.sensitiveQueryKeys,
+      });
     }
     setSavedLegalAccepted(legalAccepted);
     setSettings(saved);

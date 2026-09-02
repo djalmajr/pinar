@@ -57,6 +57,30 @@ const messages: UiMessages = {
   "settings.handoffModeDescription":
     "Kompakt kopiert nur den relevanten Kontext. Vollständig enthält alle erfassten Felder. Gespeicherte Aufnahmen und Viewer bleiben immer vollständig.",
   "settings.handoffModeFull": "Vollständig",
+  "settings.captureDestination": "Aufnahmeziel",
+  "settings.captureDestinationDefault": "Serverstandard (Inbox)",
+  "settings.captureDestinationDescription":
+    "Wohin neue Aufnahmen gespeichert werden. Der Serverstandard verwendet die Inbox des ersten Projekts.",
+  "settings.captureHeading": "Aufnahme",
+  "settings.collection": "Sammlung",
+  "settings.copyOnFinishBatch": "Beim Beenden eines Stapels kopieren",
+  "settings.copyOnFinishBatchDescription":
+    "Legt den abgeschlossenen Stapel in die Zwischenablage, damit Sie ihn in einen Agenten einfügen können.",
+  "settings.copyOnFinishBatchLink": "Link",
+  "settings.copyOnFinishBatchOff": "Aus",
+  "settings.copyOnFinishBatchPrompt": "Prompt",
+  "settings.copyViewerContent": "Markdown-Inhalt kopieren",
+  "settings.copyViewerContentDescription":
+    "Viewer-Markdown ist Zusatzkontext. captureId und pinId bleiben immer im kopierten Bundle.",
+  "settings.handoffHeading": "Übergabe an den Agenten",
+  "settings.includeViewer": "Web-Viewer kopieren",
+  "settings.includeViewerDescription":
+    "Hängt den Web-Viewer-Link an das Visual-Context-Bundle an.",
+  "settings.privacyHeading": "Datenschutz",
+  "settings.privacyQueryKeys": "Zusätzliche URL-Schlüssel ausblenden",
+  "settings.privacyQueryKeysDescription":
+    "Kommagetrennte Query- oder Hash-Schlüssel, die zusätzlich zu Tokens und Geheimnissen aus erfassten URLs entfernt werden.",
+  "settings.project": "Projekt",
   "settings.interface": "Oberfläche und Verhalten",
   "settings.interfaceDescription":
     "Lege fest, wie Pinar auf diesem Gerät aussieht und reagiert.",

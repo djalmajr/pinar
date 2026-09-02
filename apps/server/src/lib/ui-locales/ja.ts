@@ -57,6 +57,30 @@ const messages: UiMessages = {
   "settings.handoffModeDescription":
     "コンパクトは実行に必要な情報だけをコピーし、完全は全フィールドを含みます。保存済みキャプチャとビューアーは常に完全です。",
   "settings.handoffModeFull": "完全",
+  "settings.captureDestination": "キャプチャ先",
+  "settings.captureDestinationDefault": "サーバーの既定（Inbox）",
+  "settings.captureDestinationDescription":
+    "新しいキャプチャの保存先です。サーバーの既定は最初のプロジェクトの Inbox です。",
+  "settings.captureHeading": "キャプチャ",
+  "settings.collection": "コレクション",
+  "settings.copyOnFinishBatch": "バッチ終了時にコピー",
+  "settings.copyOnFinishBatchDescription":
+    "完了したバッチをクリップボードに置き、エージェントに貼り付けできるようにします。",
+  "settings.copyOnFinishBatchLink": "リンク",
+  "settings.copyOnFinishBatchOff": "オフ",
+  "settings.copyOnFinishBatchPrompt": "プロンプト",
+  "settings.copyViewerContent": "Markdown の内容をコピー",
+  "settings.copyViewerContentDescription":
+    "ビューアの Markdown は追加の文脈です。captureId と pinId は常にコピーしたバンドルに残ります。",
+  "settings.handoffHeading": "エージェントへの引き渡し",
+  "settings.includeViewer": "Webビューアをコピー",
+  "settings.includeViewerDescription":
+    "Web ビューアのリンクをビジュアルコンテキストのバンドルに追加します。",
+  "settings.privacyHeading": "プライバシー",
+  "settings.privacyQueryKeys": "追加で隠す URL キー",
+  "settings.privacyQueryKeysDescription":
+    "トークンやシークレットに加えて、キャプチャした URL から取り除く query / hash キーをカンマ区切りで指定します。",
+  "settings.project": "プロジェクト",
   "settings.interface": "インターフェースと動作",
   "settings.interfaceDescription":
     "このデバイスでの Pinar の外観と動作を選択します。",

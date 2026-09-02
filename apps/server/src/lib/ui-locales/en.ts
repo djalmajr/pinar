@@ -55,6 +55,30 @@ const messages = {
   "settings.handoffModeDescription":
     "Compact copies only actionable context. Full includes every captured field. Saved captures and the viewer are always complete.",
   "settings.handoffModeFull": "Full",
+  "settings.captureDestination": "Capture destination",
+  "settings.captureDestinationDefault": "Server default (Inbox)",
+  "settings.captureDestinationDescription":
+    "Where new captures land. Server default uses the Inbox of the first project.",
+  "settings.captureHeading": "Capture",
+  "settings.collection": "Collection",
+  "settings.copyOnFinishBatch": "Copy when a batch finishes",
+  "settings.copyOnFinishBatchDescription":
+    "Puts the finished batch on the clipboard so you can paste it into an agent.",
+  "settings.copyOnFinishBatchLink": "Link",
+  "settings.copyOnFinishBatchOff": "Off",
+  "settings.copyOnFinishBatchPrompt": "Prompt",
+  "settings.copyViewerContent": "Copy Markdown content",
+  "settings.copyViewerContentDescription":
+    "Viewer Markdown is extra context. captureId and pinId always stay in the copied bundle.",
+  "settings.handoffHeading": "Agent handoff",
+  "settings.includeViewer": "Copy Web Viewer",
+  "settings.includeViewerDescription":
+    "Appends the Web Viewer link to the visual context bundle.",
+  "settings.privacyHeading": "Privacy",
+  "settings.privacyQueryKeys": "Extra URL keys to hide",
+  "settings.privacyQueryKeysDescription":
+    "Comma-separated query or hash keys stripped from captured URLs, in addition to tokens and secrets.",
+  "settings.project": "Project",
   "settings.interface": "Interface & behavior",
   "settings.interfaceDescription":
     "Choose how Pinar looks and responds on this device.",

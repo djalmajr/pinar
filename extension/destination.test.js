@@ -81,8 +81,11 @@ describe("capture destination", () => {
     assert.match(optionsSrc, /t\.screenshot_label/);
     assert.match(optionsSrc, /t\.handoff_mode_label/);
     assert.match(optionsSrc, /type: "preferences:get"/);
-    assert.match(optionsSrc, /handoffMode: settings\.handoffMode, includeScreenshot: settings\.includeScreenshot, type: "preferences:set"/);
-    assert.match(backgroundSrc, /handoffMode: message\.handoffMode === "full" \? "full" : "compact"/);
+    assert.match(optionsSrc, /type: "preferences:set"/);
+    assert.match(optionsSrc, /copyOnFinishBatch: settings\.copyOnFinishBatch/);
+    assert.match(optionsSrc, /includeViewer: settings\.includeViewer/);
+    assert.match(optionsSrc, /includeScreenshot: settings\.includeScreenshot/);
+    assert.match(backgroundSrc, /patch\.handoffMode = message\.handoffMode === "full" \? "full" : "compact"/);
     assert.match(optionsSrc, /t\.btn_upgrade_pro/);
     assert.doesNotMatch(optionsSrc, /t\.btn_subscription/);
     assert.doesNotMatch(optionsSrc, /license|identity:regenerate|installationId/i);
@@ -103,5 +106,27 @@ describe("capture destination", () => {
   test("coalesces concurrent first-load registration requests for one installation", () => {
     assert.match(backgroundSrc, /const registerInstallationOnce = createSingleFlight\(\)/);
     assert.match(backgroundSrc, /return registerInstallationOnce\(cacheKey, async \(\) => \{/);
+  });
+
+  test("reconciles delivery preferences from the server and PATCHes on save", () => {
+    assert.match(backgroundSrc, /includeViewer/);
+    assert.match(backgroundSrc, /copyOnFinishBatch/);
+    assert.match(backgroundSrc, /captureDestination/);
+    assert.match(optionsSrc, /type: "preferences:get"/);
+    assert.match(optionsSrc, /applyDeliveryResponse\(current, response\)/);
+    assert.match(optionsSrc, /merged\.language \?\? current\.language/);
+    assert.match(backgroundSrc, /await cacheDeliveryPreferences\(remote, settings\)/);
+    assert.match(backgroundSrc, /if \(preferences\.language\) syncPatch\.language = preferences\.language/);
+    assert.match(backgroundSrc, /await storeDestination\(resolved, localBase, preferences\.captureDestination\)/);
+    assert.match(optionsSrc, /copyOnFinishBatch: settings\.copyOnFinishBatch/);
+    assert.match(optionsSrc, /copyViewerContent: settings\.copyViewerContent/);
+    assert.match(optionsSrc, /includeViewer: settings\.includeViewer/);
+    assert.match(optionsSrc, /language: settings\.language/);
+    assert.match(optionsSrc, /sensitiveQueryKeys: settings\.sensitiveQueryKeys/);
+    assert.match(optionsSrc, /type: "preferences:set"/);
+    assert.match(backgroundSrc, /method: "PATCH"/);
+    assert.match(backgroundSrc, /setDeliveryPreferences\(\{ captureDestination: destination \}\)/);
+    assert.match(backgroundSrc, /mode: remotePrefs\?\.copyOnFinishBatch \?\? settings\.copyOnFinishBatch/);
+    assert.match(backgroundSrc, /includeViewer = remotePrefs\?\.includeViewer \?\? settings\.includeViewer !== false/);
   });
 });

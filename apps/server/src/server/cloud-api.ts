@@ -36,6 +36,7 @@ import {
   planLoopMetricRequest,
   DEFAULT_DELIVERY_PREFERENCES,
   mergeDeliveryPreferences,
+  parseDeliveryPreferences,
   type DeliveryPreferences,
   type LoopMetric,
   type PinReview,
@@ -453,23 +454,47 @@ function batchFromRow(row: Record<string, unknown>): BatchRecord {
   };
 }
 
+function deliveryPreferencesFromOwnerRow(row: Record<string, unknown> | null | undefined): DeliveryPreferences {
+  if (!row) return { ...DEFAULT_DELIVERY_PREFERENCES };
+  const projectId = typeof row.capture_project_id === "string" ? row.capture_project_id : "";
+  const collectionId = typeof row.capture_collection_id === "string" ? row.capture_collection_id : "";
+  return parseDeliveryPreferences({
+    captureDestination: projectId && collectionId ? { collectionId, projectId } : null,
+    copyOnFinishBatch: row.copy_on_finish_batch,
+    copyViewerContent: row.copy_viewer_content,
+    handoffMode: row.handoff_mode,
+    includeScreenshot: row.include_screenshot,
+    includeViewer: row.include_viewer,
+    language: row.language,
+    sensitiveQueryKeys: row.sensitive_query_keys,
+  });
+}
+
 async function readOwnerDeliveryPreferences(env: CloudEnv, ownerId: string): Promise<DeliveryPreferences> {
   if (!ownerId) return { ...DEFAULT_DELIVERY_PREFERENCES };
   if (env.DB) {
     try {
-      const row = await env.DB.prepare(
-        "SELECT handoff_mode, include_screenshot FROM owner_preferences WHERE owner_id = ?",
-      ).bind(ownerId).first();
-      if (!row) return { ...DEFAULT_DELIVERY_PREFERENCES };
-      return {
-        handoffMode: row.handoff_mode === "full" ? "full" : "compact",
-        includeScreenshot: Number(row.include_screenshot) !== 0,
-      };
+      const row = await env.DB.prepare(`
+        SELECT
+          capture_collection_id,
+          capture_project_id,
+          copy_on_finish_batch,
+          copy_viewer_content,
+          handoff_mode,
+          include_screenshot,
+          include_viewer,
+          language,
+          sensitive_query_keys
+        FROM owner_preferences
+        WHERE owner_id = ?
+      `).bind(ownerId).first();
+      return deliveryPreferencesFromOwnerRow(row);
     } catch {
       return { ...DEFAULT_DELIVERY_PREFERENCES };
     }
   }
-  return memoryOwnerPreferences.get(ownerId) ?? { ...DEFAULT_DELIVERY_PREFERENCES };
+  const stored = memoryOwnerPreferences.get(ownerId);
+  return stored ? parseDeliveryPreferences(stored) : { ...DEFAULT_DELIVERY_PREFERENCES };
 }
 
 async function writeOwnerDeliveryPreferences(
@@ -481,13 +506,44 @@ async function writeOwnerDeliveryPreferences(
   const updatedAt = currentDate().toISOString();
   if (env.DB) {
     await env.DB.prepare(`
-      INSERT INTO owner_preferences (owner_id, handoff_mode, include_screenshot, updated_at)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO owner_preferences (
+        owner_id,
+        handoff_mode,
+        include_screenshot,
+        updated_at,
+        capture_project_id,
+        capture_collection_id,
+        copy_on_finish_batch,
+        copy_viewer_content,
+        include_viewer,
+        language,
+        sensitive_query_keys
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(owner_id) DO UPDATE SET
         handoff_mode = excluded.handoff_mode,
         include_screenshot = excluded.include_screenshot,
-        updated_at = excluded.updated_at
-    `).bind(ownerId, next.handoffMode, next.includeScreenshot ? 1 : 0, updatedAt).run();
+        updated_at = excluded.updated_at,
+        capture_project_id = excluded.capture_project_id,
+        capture_collection_id = excluded.capture_collection_id,
+        copy_on_finish_batch = excluded.copy_on_finish_batch,
+        copy_viewer_content = excluded.copy_viewer_content,
+        include_viewer = excluded.include_viewer,
+        language = excluded.language,
+        sensitive_query_keys = excluded.sensitive_query_keys
+    `).bind(
+      ownerId,
+      next.handoffMode,
+      next.includeScreenshot ? 1 : 0,
+      updatedAt,
+      next.captureDestination?.projectId ?? null,
+      next.captureDestination?.collectionId ?? null,
+      next.copyOnFinishBatch,
+      next.copyViewerContent ? 1 : 0,
+      next.includeViewer ? 1 : 0,
+      next.language,
+      next.sensitiveQueryKeys,
+    ).run();
   } else {
     memoryOwnerPreferences.set(ownerId, next);
   }
@@ -4756,7 +4812,12 @@ async function uploadShot(request: Request, env: CloudEnv) {
   }
   const origin = new URL(request.url).origin;
   const shotUrl = `${origin}/shots/${id}.png`;
-  const destination = await resolveDestination(env, principal, stringValue(body, "collectionId"));
+  const preferences = await readOwnerDeliveryPreferences(env, principal.id);
+  const destination = await resolveDestination(
+    env,
+    principal,
+    stringValue(body, "collectionId") || preferences.captureDestination?.collectionId || "",
+  );
   const batchId = await resolveCaptureBatchId(env, principal, body);
   if (batchId instanceof Response) return batchId;
   if (env.PINAR_BUCKET) {
@@ -4775,7 +4836,7 @@ async function uploadShot(request: Request, env: CloudEnv) {
     includeScreenshot: booleanValue(
       body,
       "includeScreenshot",
-      (await readOwnerDeliveryPreferences(env, principal.id)).includeScreenshot,
+      preferences.includeScreenshot,
     ),
     userId: principal.id,
   });

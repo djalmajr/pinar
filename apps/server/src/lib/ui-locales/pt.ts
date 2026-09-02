@@ -57,6 +57,30 @@ const messages: UiMessages = {
   "settings.handoffModeDescription":
     "Compacto copia apenas o contexto acionável. Completo inclui todos os campos capturados. A captura salva e o viewer são sempre completos.",
   "settings.handoffModeFull": "Completo",
+  "settings.captureDestination": "Destino da captura",
+  "settings.captureDestinationDefault": "Padrão do servidor (Inbox)",
+  "settings.captureDestinationDescription":
+    "Onde as novas capturas são salvas. O padrão do servidor usa a Inbox do primeiro projeto.",
+  "settings.captureHeading": "Captura",
+  "settings.collection": "Coleção",
+  "settings.copyOnFinishBatch": "Copiar ao finalizar um lote",
+  "settings.copyOnFinishBatchDescription":
+    "Coloca o lote finalizado na área de transferência para colar no agente.",
+  "settings.copyOnFinishBatchLink": "Link",
+  "settings.copyOnFinishBatchOff": "Desligado",
+  "settings.copyOnFinishBatchPrompt": "Prompt",
+  "settings.copyViewerContent": "Copiar conteúdo Markdown",
+  "settings.copyViewerContentDescription":
+    "O Markdown do viewer é contexto extra. captureId e pinId permanecem no bundle copiado.",
+  "settings.handoffHeading": "Entrega ao agente",
+  "settings.includeViewer": "Copiar Web Viewer",
+  "settings.includeViewerDescription":
+    "Anexa o link do Web Viewer ao bundle de contexto visual.",
+  "settings.privacyHeading": "Privacidade",
+  "settings.privacyQueryKeys": "Chaves extras da URL para ocultar",
+  "settings.privacyQueryKeysDescription":
+    "Chaves de query ou hash, separadas por vírgula, removidas das URLs capturadas além de tokens e segredos.",
+  "settings.project": "Projeto",
   "settings.interface": "Interface e comportamento",
   "settings.interfaceDescription":
     "Escolha como o Pinar se apresenta e responde neste dispositivo.",

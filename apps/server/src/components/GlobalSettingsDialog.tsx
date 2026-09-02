@@ -1,5 +1,8 @@
-import { type ReactNode, useEffect, useState } from "react";
-import { SUPPORTED_LANGUAGES } from "@pinar/shared";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
+import {
+  type ProjectTreeProject,
+  SUPPORTED_LANGUAGES,
+} from "@pinar/shared";
 import {
   Button,
   cn,
@@ -8,6 +11,7 @@ import {
   DialogContent,
   DialogDescription,
   DialogTitle,
+  Input,
   Select,
   SelectContent,
   SelectGroup,
@@ -19,6 +23,8 @@ import {
   TabsList,
   TabsTrigger,
 } from "@pinar/ui";
+import { isProjectTreeProject, isRecord } from "@/lib/api-data";
+import { flattenCollections } from "@/lib/collection-tree";
 import { useDeliveryPreferences } from "@/lib/delivery-preferences";
 import { useServerI18n } from "@/lib/i18n";
 import { isSupportedLanguage } from "@/lib/language";
@@ -45,6 +51,8 @@ interface SettingRowProps {
 }
 
 const THEME_STORAGE_KEY = "pinar-theme";
+const DEFAULT_DESTINATION = "__default__";
+const SECTION_HEADER = "text-[11px] font-semibold uppercase tracking-wider";
 
 function currentThemeMode(): ThemeMode {
   const stored = localStorage.getItem(THEME_STORAGE_KEY);
@@ -89,19 +97,48 @@ function SettingRow({ children, description, title }: SettingRowProps) {
 export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialogProps) {
   const {
     available,
+    captureDestination,
+    copyOnFinishBatch,
+    copyViewerContent,
     handoffMode,
     includeScreenshot,
-    setHandoffMode,
-    setIncludeScreenshot,
+    includeViewer,
+    patch,
+    sensitiveQueryKeys,
   } = useDeliveryPreferences();
   const { language, languageName, setLanguage, t } = useServerI18n();
   const [section, setSection] = useState<SettingsSection>("general");
   const [theme, setTheme] = useState<ThemeMode>("system");
+  const [projects, setProjects] = useState<ProjectTreeProject[]>([]);
+  const [sensitiveQueryKeysDraft, setSensitiveQueryKeysDraft] = useState("");
 
   useEffect(() => {
     if (!open) return;
     setSection("general");
     setTheme(currentThemeMode());
+    setSensitiveQueryKeysDraft(sensitiveQueryKeys);
+  }, [open, sensitiveQueryKeys]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/project-tree");
+        const body: unknown = await response.json().catch(() => null);
+        if (cancelled) return;
+        if (!response.ok || !isRecord(body) || !isRecord(body.tree) || !Array.isArray(body.tree.projects)) {
+          setProjects([]);
+          return;
+        }
+        setProjects(body.tree.projects.filter(isProjectTreeProject));
+      } catch {
+        if (!cancelled) setProjects([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
   useEffect(() => {
@@ -111,6 +148,28 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
     media.addEventListener("change", handleChange);
     return () => media.removeEventListener("change", handleChange);
   }, [theme]);
+
+  const selectedProject = projects.find((project) => project.id === captureDestination?.projectId);
+  const collectionEntries = useMemo(
+    () => selectedProject ? flattenCollections(selectedProject.collections) : [],
+    [selectedProject],
+  );
+  const projectItems = useMemo(
+    () => [
+      { label: t("settings.captureDestinationDefault"), value: DEFAULT_DESTINATION },
+      ...projects.map((project) => ({ label: project.name, value: project.id })),
+    ],
+    [projects, t],
+  );
+  const collectionItems = useMemo(
+    () => collectionEntries.map(({ collection }) => ({ label: collection.name, value: collection.id })),
+    [collectionEntries],
+  );
+  const copyOnFinishItems = [
+    { label: t("settings.copyOnFinishBatchPrompt"), value: "prompt" },
+    { label: t("settings.copyOnFinishBatchLink"), value: "link" },
+    { label: t("settings.copyOnFinishBatchOff"), value: "off" },
+  ];
 
   const sectionLabel = section === "capture"
     ? t("settings.capture")
@@ -126,6 +185,18 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
   function selectTheme(nextTheme: ThemeMode) {
     setTheme(nextTheme);
     applyTheme(nextTheme);
+  }
+
+  function selectCaptureProject(value: string | null) {
+    if (!value || value === DEFAULT_DESTINATION) {
+      void patch({ captureDestination: null });
+      return;
+    }
+    const project = projects.find((item) => item.id === value);
+    if (!project) return;
+    const inbox = project.collections.find((collection) => collection.isProtected) ?? project.collections[0];
+    if (!inbox) return;
+    void patch({ captureDestination: { collectionId: inbox.id, projectId: project.id } });
   }
 
   return (
@@ -193,7 +264,10 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                     items={SUPPORTED_LANGUAGES.map((candidate) => ({ label: languageName(candidate), value: candidate }))}
                     value={language}
                     onValueChange={(value) => {
-                      if (value && isSupportedLanguage(value)) setLanguage(value);
+                      if (value && isSupportedLanguage(value)) {
+                        setLanguage(value);
+                        void patch({ language: value });
+                      }
                     }}
                   >
                     <SelectTrigger aria-label={t("common.language")} className="w-full"><SelectValue /></SelectTrigger>
@@ -206,26 +280,132 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                 </SettingRow>
               </section>
               <section className={cn("flex flex-col gap-5", section !== "capture" && "hidden")}>
-                <SettingRow description={t("settings.handoffModeDescription")} title={t("settings.handoffMode")}>
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm text-muted-foreground">
-                      {handoffMode === "full" ? t("settings.handoffModeFull") : t("settings.handoffModeCompact")}
-                    </span>
+                <div className="flex flex-col gap-5">
+                  <span className={SECTION_HEADER}>{t("settings.captureHeading")}</span>
+                  <SettingRow description={t("settings.captureDestinationDescription")} title={t("settings.captureDestination")}>
+                    <div className="flex w-full flex-col gap-2">
+                      <Select
+                        disabled={!available}
+                        items={projectItems}
+                        value={captureDestination?.projectId ?? DEFAULT_DESTINATION}
+                        onValueChange={selectCaptureProject}
+                      >
+                        <SelectTrigger aria-label={t("settings.project")} className="w-full"><SelectValue /></SelectTrigger>
+                        <SelectContent align="end">
+                          <SelectGroup>
+                            <SelectItem value={DEFAULT_DESTINATION}>{t("settings.captureDestinationDefault")}</SelectItem>
+                            {projects.map((project) => (
+                              <SelectItem disabled={project.collections.length === 0} key={project.id} value={project.id}>
+                                {project.name}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                      {captureDestination ? (
+                        // Only meaningful once a project is chosen; an empty
+                        // second box under "server default" reads as broken.
+                        <Select
+                          disabled={!available}
+                          items={collectionItems}
+                          value={captureDestination.collectionId}
+                          onValueChange={(value) => {
+                            if (!value) return;
+                            if (!collectionEntries.some(({ collection }) => collection.id === value)) return;
+                            void patch({ captureDestination: { collectionId: value, projectId: captureDestination.projectId } });
+                          }}
+                        >
+                          <SelectTrigger aria-label={t("settings.collection")} className="w-full"><SelectValue /></SelectTrigger>
+                          <SelectContent align="end">
+                            <SelectGroup>
+                              {collectionEntries.map(({ collection, depth }) => (
+                                <SelectItem key={collection.id} value={collection.id}>
+                                  <span className="block truncate" style={{ paddingInlineStart: `${depth * 12}px` }}>
+                                    {collection.name}
+                                  </span>
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                      ) : null}
+                    </div>
+                  </SettingRow>
+                  <SettingRow description={t("settings.copyOnFinishBatchDescription")} title={t("settings.copyOnFinishBatch")}>
+                    <Select
+                      disabled={!available}
+                      items={copyOnFinishItems}
+                      value={copyOnFinishBatch}
+                      onValueChange={(value) => {
+                        if (value === "off" || value === "link" || value === "prompt") void patch({ copyOnFinishBatch: value });
+                      }}
+                    >
+                      <SelectTrigger aria-label={t("settings.copyOnFinishBatch")} className="w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent align="end">
+                        <SelectGroup>
+                          {copyOnFinishItems.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </SettingRow>
+                </div>
+                <div className="flex flex-col gap-5">
+                  <span className={SECTION_HEADER}>{t("settings.handoffHeading")}</span>
+                  <SettingRow description={t("settings.handoffModeDescription")} title={t("settings.handoffMode")}>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm text-muted-foreground">
+                        {handoffMode === "full" ? t("settings.handoffModeFull") : t("settings.handoffModeCompact")}
+                      </span>
+                      <Switch
+                        aria-label={t("settings.handoffMode")}
+                        checked={handoffMode === "full"}
+                        disabled={!available}
+                        onCheckedChange={(checked) => void patch({ handoffMode: checked ? "full" : "compact" })}
+                      />
+                    </div>
+                  </SettingRow>
+                  <SettingRow description={t("dashboard.includeScreenshotHint")} title={t("dashboard.includeScreenshot")}>
                     <Switch
-                      aria-label={t("settings.handoffMode")}
-                      checked={handoffMode === "full"}
-                      onCheckedChange={(checked) => void setHandoffMode(checked ? "full" : "compact")}
+                      aria-label={t("dashboard.includeScreenshot")}
+                      checked={includeScreenshot}
+                      disabled={!available}
+                      onCheckedChange={(value) => void patch({ includeScreenshot: value })}
                     />
-                  </div>
-                </SettingRow>
-                <SettingRow description={t("dashboard.includeScreenshotHint")} title={t("dashboard.includeScreenshot")}>
-                  <Switch
-                    aria-label={t("dashboard.includeScreenshot")}
-                    checked={includeScreenshot}
-                    disabled={!available}
-                    onCheckedChange={(value) => void setIncludeScreenshot(value)}
-                  />
-                </SettingRow>
+                  </SettingRow>
+                  <SettingRow description={t("settings.includeViewerDescription")} title={t("settings.includeViewer")}>
+                    <Switch
+                      aria-label={t("settings.includeViewer")}
+                      checked={includeViewer}
+                      disabled={!available}
+                      onCheckedChange={(value) => void patch({ includeViewer: value })}
+                    />
+                  </SettingRow>
+                  <SettingRow description={t("settings.copyViewerContentDescription")} title={t("settings.copyViewerContent")}>
+                    <Switch
+                      aria-label={t("settings.copyViewerContent")}
+                      checked={copyViewerContent}
+                      disabled={!available || !includeViewer}
+                      onCheckedChange={(value) => void patch({ copyViewerContent: value })}
+                    />
+                  </SettingRow>
+                </div>
+                <div className="flex flex-col gap-5">
+                  <span className={SECTION_HEADER}>{t("settings.privacyHeading")}</span>
+                  <SettingRow description={t("settings.privacyQueryKeysDescription")} title={t("settings.privacyQueryKeys")}>
+                    <Input
+                      aria-label={t("settings.privacyQueryKeys")}
+                      disabled={!available}
+                      maxLength={2000}
+                      value={sensitiveQueryKeysDraft}
+                      onBlur={() => {
+                        if (sensitiveQueryKeysDraft !== sensitiveQueryKeys) {
+                          void patch({ sensitiveQueryKeys: sensitiveQueryKeysDraft });
+                        }
+                      }}
+                      onChange={(event) => setSensitiveQueryKeysDraft(event.target.value)}
+                    />
+                  </SettingRow>
+                </div>
               </section>
               <section className={cn("flex flex-col gap-5", section !== "interface" && "hidden")}>
                 <SettingRow description={t("settings.themeDescription")} title={t("settings.theme")}>

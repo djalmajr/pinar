@@ -401,5 +401,12 @@ CREATE TABLE owner_preferences (
   owner_id TEXT PRIMARY KEY,
   include_screenshot INTEGER NOT NULL DEFAULT 1 CHECK (include_screenshot IN (0, 1)),
   updated_at TEXT NOT NULL,
-  handoff_mode TEXT NOT NULL DEFAULT 'compact' CHECK (handoff_mode IN ('compact', 'full'))
+  handoff_mode TEXT NOT NULL DEFAULT 'compact' CHECK (handoff_mode IN ('compact', 'full')),
+  capture_project_id TEXT,
+  capture_collection_id TEXT,
+  copy_on_finish_batch TEXT CHECK (copy_on_finish_batch IN ('off', 'link', 'prompt')),
+  copy_viewer_content INTEGER CHECK (copy_viewer_content IN (0, 1)),
+  include_viewer INTEGER CHECK (include_viewer IN (0, 1)),
+  language TEXT,
+  sensitive_query_keys TEXT
 );

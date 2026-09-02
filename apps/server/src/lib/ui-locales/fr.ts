@@ -57,6 +57,30 @@ const messages: UiMessages = {
   "settings.handoffModeDescription":
     "Compact ne copie que le contexte exploitable. Complet inclut tous les champs capturés. La capture enregistrée et le viewer restent toujours complets.",
   "settings.handoffModeFull": "Complet",
+  "settings.captureDestination": "Destination de la capture",
+  "settings.captureDestinationDefault": "Valeur par défaut du serveur (Inbox)",
+  "settings.captureDestinationDescription":
+    "Où atterrissent les nouvelles captures. La valeur par défaut du serveur utilise l’Inbox du premier projet.",
+  "settings.captureHeading": "Capture",
+  "settings.collection": "Collection",
+  "settings.copyOnFinishBatch": "Copier à la fin d’un lot",
+  "settings.copyOnFinishBatchDescription":
+    "Place le lot terminé dans le presse-papiers pour le coller dans un agent.",
+  "settings.copyOnFinishBatchLink": "Lien",
+  "settings.copyOnFinishBatchOff": "Désactivé",
+  "settings.copyOnFinishBatchPrompt": "Prompt",
+  "settings.copyViewerContent": "Copier le contenu Markdown",
+  "settings.copyViewerContentDescription":
+    "Le Markdown du visualiseur est un complément. captureId et pinId restent toujours dans le bundle copié.",
+  "settings.handoffHeading": "Transmission à l’agent",
+  "settings.includeViewer": "Copier le Visualiseur Web",
+  "settings.includeViewerDescription":
+    "Ajoute le lien du Visualiseur Web au bundle de contexte visuel.",
+  "settings.privacyHeading": "Confidentialité",
+  "settings.privacyQueryKeys": "Clés d’URL supplémentaires à masquer",
+  "settings.privacyQueryKeysDescription":
+    "Clés de requête ou de hash, séparées par des virgules, retirées des URL capturées en plus des jetons et secrets.",
+  "settings.project": "Projet",
   "settings.interface": "Interface et comportement",
   "settings.interfaceDescription":
     "Choisissez l’apparence et le comportement de Pinar sur cet appareil.",

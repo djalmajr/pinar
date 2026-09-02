@@ -305,10 +305,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "preferences:set") {
-    setDeliveryPreferences({
-      handoffMode: message.handoffMode === "full" ? "full" : "compact",
-      includeScreenshot: message.includeScreenshot !== false,
-    })
+    setDeliveryPreferences(deliveryPatchFromMessage(message))
       .then((prefs) => sendResponse({ ...prefs, ok: true }))
       .catch((error) => sendResponse({ error: String(error), ok: false }));
     return true;
@@ -485,88 +482,163 @@ async function getSettings() {
   return settings;
 }
 
+const SUPPORTED_PREF_LANGUAGES = new Set(["de", "en", "es", "fr", "ja", "pt", "zh"]);
+
+function booleanPref(value, fallback) {
+  if (typeof value === "boolean") return value;
+  if (value === 0 || value === "0" || value === "false") return false;
+  if (value === 1 || value === "1" || value === "true") return true;
+  return fallback;
+}
+
+function parseCaptureDestinationPref(value) {
+  if (value === null) return null;
+  if (typeof value !== "object") return undefined;
+  if (typeof value.projectId !== "string" || typeof value.collectionId !== "string") return undefined;
+  if (!value.projectId || !value.collectionId) return undefined;
+  return { collectionId: value.collectionId, projectId: value.projectId };
+}
+
+function localDeliveryPreferences(settings) {
+  return {
+    captureDestination: null,
+    copyOnFinishBatch: settings.copyOnFinishBatch === "off" || settings.copyOnFinishBatch === "link" || settings.copyOnFinishBatch === "prompt"
+      ? settings.copyOnFinishBatch
+      : "prompt",
+    copyViewerContent: settings.copyViewerContent === true,
+    handoffMode: settings.handoffMode === "full" ? "full" : "compact",
+    includeScreenshot: settings.includeScreenshot !== false,
+    includeViewer: settings.includeViewer !== false,
+    language: SUPPORTED_PREF_LANGUAGES.has(settings.language) ? settings.language : null,
+    sensitiveQueryKeys: typeof settings.sensitiveQueryKeys === "string" ? settings.sensitiveQueryKeys.slice(0, 2000) : "",
+  };
+}
+
+function mergeDeliveryPreferencesPatch(current, patch) {
+  if (!patch || typeof patch !== "object") return current;
+  const captureDestination = "captureDestination" in patch
+    ? parseCaptureDestinationPref(patch.captureDestination)
+    : current.captureDestination;
+  return {
+    captureDestination: captureDestination === undefined ? current.captureDestination : captureDestination,
+    copyOnFinishBatch: "copyOnFinishBatch" in patch
+      ? (patch.copyOnFinishBatch === "off" || patch.copyOnFinishBatch === "link" || patch.copyOnFinishBatch === "prompt"
+        ? patch.copyOnFinishBatch
+        : current.copyOnFinishBatch)
+      : current.copyOnFinishBatch,
+    copyViewerContent: "copyViewerContent" in patch
+      ? booleanPref(patch.copyViewerContent, current.copyViewerContent)
+      : current.copyViewerContent,
+    handoffMode: "handoffMode" in patch
+      ? (patch.handoffMode === "full" || patch.handoffMode === "compact" ? patch.handoffMode : current.handoffMode)
+      : current.handoffMode,
+    includeScreenshot: "includeScreenshot" in patch
+      ? booleanPref(patch.includeScreenshot, current.includeScreenshot)
+      : current.includeScreenshot,
+    includeViewer: "includeViewer" in patch
+      ? booleanPref(patch.includeViewer, current.includeViewer)
+      : current.includeViewer,
+    language: "language" in patch
+      ? (patch.language === null ? null : (SUPPORTED_PREF_LANGUAGES.has(patch.language) ? patch.language : current.language))
+      : current.language,
+    sensitiveQueryKeys: "sensitiveQueryKeys" in patch
+      ? (typeof patch.sensitiveQueryKeys === "string" ? patch.sensitiveQueryKeys.slice(0, 2000) : current.sensitiveQueryKeys)
+      : current.sensitiveQueryKeys,
+  };
+}
+
+function deliveryPatchFromMessage(message) {
+  const patch = {};
+  if ("captureDestination" in message) {
+    const destination = parseCaptureDestinationPref(message.captureDestination);
+    if (destination !== undefined) patch.captureDestination = destination;
+  }
+  if ("copyOnFinishBatch" in message) {
+    patch.copyOnFinishBatch = message.copyOnFinishBatch === "off" || message.copyOnFinishBatch === "link" || message.copyOnFinishBatch === "prompt"
+      ? message.copyOnFinishBatch
+      : "prompt";
+  }
+  if ("copyViewerContent" in message) patch.copyViewerContent = message.copyViewerContent === true;
+  if ("handoffMode" in message) patch.handoffMode = message.handoffMode === "full" ? "full" : "compact";
+  if ("includeScreenshot" in message) patch.includeScreenshot = message.includeScreenshot !== false;
+  if ("includeViewer" in message) patch.includeViewer = message.includeViewer !== false;
+  if ("language" in message) {
+    patch.language = message.language === null
+      ? null
+      : (SUPPORTED_PREF_LANGUAGES.has(message.language) ? message.language : undefined);
+    if (patch.language === undefined) delete patch.language;
+  }
+  if ("sensitiveQueryKeys" in message) {
+    patch.sensitiveQueryKeys = typeof message.sensitiveQueryKeys === "string" ? message.sensitiveQueryKeys.slice(0, 2000) : "";
+  }
+  return patch;
+}
+
+async function preferencesFetch(settings, init = {}) {
+  if (settings.storageMode === "cloud") {
+    return remoteFetch(cloudEndpoint(settings), "/api/preferences", init);
+  }
+  const base = await findShotBase();
+  if (!base) return null;
+  return localFetch(base, "/api/preferences", init);
+}
+
 async function fetchDeliveryPreferences(settings) {
   try {
-    if (settings.storageMode === "cloud") {
-      const response = await remoteFetch(cloudEndpoint(settings), "/api/preferences");
-      const body = await responseBody(response);
-      if (!response.ok || typeof body.includeScreenshot !== "boolean") return null;
-      return {
-        handoffMode: body.handoffMode === "full" ? "full" : "compact",
-        includeScreenshot: body.includeScreenshot,
-      };
-    }
-    const base = await findShotBase();
-    if (!base) return null;
-    const response = await localFetch(base, "/api/preferences");
+    const response = await preferencesFetch(settings);
+    if (!response) return null;
     const body = await responseBody(response);
     if (!response.ok || typeof body.includeScreenshot !== "boolean") return null;
-    return {
-      handoffMode: body.handoffMode === "full" ? "full" : "compact",
-      includeScreenshot: body.includeScreenshot,
-    };
+    return mergeDeliveryPreferencesPatch(localDeliveryPreferences(settings), body);
   } catch {
     return null;
   }
 }
 
-async function cacheDeliveryPreferences(preferences) {
+async function cacheDeliveryPreferences(preferences, settings) {
+  const syncPatch = {
+    copyOnFinishBatch: preferences.copyOnFinishBatch,
+    copyViewerContent: preferences.copyViewerContent,
+    handoffMode: preferences.handoffMode,
+    includeScreenshot: preferences.includeScreenshot,
+    includeViewer: preferences.includeViewer,
+    sensitiveQueryKeys: preferences.sensitiveQueryKeys,
+  };
+  if (preferences.language) syncPatch.language = preferences.language;
   try {
-    await chrome.storage.sync.set(preferences);
+    await chrome.storage.sync.set(syncPatch);
   } catch {
     /* ignore cache write */
   }
+  if (!preferences.captureDestination) return;
+  const resolved = settings || await getSettings();
+  const localBase = resolved.storageMode === "cloud" ? "" : (await findShotBase() || "");
+  await storeDestination(resolved, localBase, preferences.captureDestination);
 }
 
 async function getDeliveryPreferences() {
   const settings = await getSettings();
+  const local = localDeliveryPreferences(settings);
   const remote = await fetchDeliveryPreferences(settings);
-  if (!remote) return {
-    handoffMode: settings.handoffMode === "full" ? "full" : "compact",
-    includeScreenshot: settings.includeScreenshot !== false,
-  };
-  if (remote.includeScreenshot !== (settings.includeScreenshot !== false)
-    || remote.handoffMode !== settings.handoffMode) {
-    await cacheDeliveryPreferences(remote);
-  }
+  if (!remote) return local;
+  await cacheDeliveryPreferences(remote, settings);
   return remote;
 }
 
 async function setDeliveryPreferences(preferences) {
   const settings = await getSettings();
-  if (settings.storageMode === "cloud") {
-    const response = await remoteFetch(cloudEndpoint(settings), "/api/preferences", {
-      body: JSON.stringify(preferences),
-      headers: { "content-type": "application/json" },
-      method: "PATCH",
-    });
-    const body = await responseBody(response);
-    if (!response.ok || typeof body.includeScreenshot !== "boolean") {
-      throw new Error(body.error || "Unable to save screenshot preference");
-    }
-    const next = {
-      handoffMode: body.handoffMode === "full" ? "full" : "compact",
-      includeScreenshot: body.includeScreenshot,
-    };
-    await cacheDeliveryPreferences(next);
-    return next;
-  }
-  const base = await findShotBase();
-  if (!base) throw new Error("Local Pinar server is not running");
-  const response = await localFetch(base, "/api/preferences", {
+  const response = await preferencesFetch(settings, {
     body: JSON.stringify(preferences),
     headers: { "content-type": "application/json" },
     method: "PATCH",
   });
+  if (!response) throw new Error("Local Pinar server is not running");
   const body = await responseBody(response);
   if (!response.ok || typeof body.includeScreenshot !== "boolean") {
-    throw new Error(body.error || "Unable to save screenshot preference");
+    throw new Error(body.error || "Unable to save preferences");
   }
-  const next = {
-    handoffMode: body.handoffMode === "full" ? "full" : "compact",
-    includeScreenshot: body.includeScreenshot,
-  };
-  await cacheDeliveryPreferences(next);
+  const next = mergeDeliveryPreferencesPatch(localDeliveryPreferences(settings), body);
+  await cacheDeliveryPreferences(next, settings);
   return next;
 }
 
@@ -586,9 +658,14 @@ function generateNanoId(size = 12) {
 async function copyBundle(message) {
   const id = message.captureId || generateNanoId(12);
   const settings = await getSettings();
+  const remotePrefs = await fetchDeliveryPreferences(settings);
+  if (remotePrefs) await cacheDeliveryPreferences(remotePrefs, settings);
+  const includeScreenshot = remotePrefs?.includeScreenshot ?? settings.includeScreenshot !== false;
+  const includeViewer = remotePrefs?.includeViewer ?? settings.includeViewer !== false;
+  const handoffMode = remotePrefs?.handoffMode ?? (settings.handoffMode === "full" ? "full" : "compact");
   const privacyApi = globalThis.__pinarPrivacy;
   if (!privacyApi) throw new Error("privacy sanitizer is unavailable");
-  const extraQueryKeys = privacyApi.parseExtraKeys(settings.sensitiveQueryKeys);
+  const extraQueryKeys = privacyApi.parseExtraKeys(remotePrefs?.sensitiveQueryKeys ?? settings.sensitiveQueryKeys);
   const sanitized = privacyApi.sanitizeCapture({
     fields: message.fields,
     page: message.page,
@@ -606,13 +683,6 @@ async function copyBundle(message) {
     .then((context) => context.destination)
     .catch(() => null);
 
-  const remotePrefs = await fetchDeliveryPreferences(settings);
-  const includeScreenshot = remotePrefs?.includeScreenshot ?? settings.includeScreenshot !== false;
-  const handoffMode = remotePrefs?.handoffMode ?? (settings.handoffMode === "full" ? "full" : "compact");
-  if (remotePrefs && (remotePrefs.includeScreenshot !== (settings.includeScreenshot !== false)
-    || remotePrefs.handoffMode !== settings.handoffMode)) {
-    await cacheDeliveryPreferences(remotePrefs);
-  }
   // History can only be declined for the remote server; local captures always persist on-device.
   const plan = planCapturePersistence({
     enableHistory: settings.enableHistory,
@@ -646,8 +716,8 @@ async function copyBundle(message) {
   }
 
   const shot = includeScreenshot ? (savedResult?.path || message.shot || null) : null;
-  const viewerUrl = (settings.includeViewer && savedResult?.viewerUrl) ? savedResult.viewerUrl : null;
-  if (plan.historyAllowed && settings.includeViewer && !viewerUrl) warnings.push("viewer_unavailable");
+  const viewerUrl = (includeViewer && savedResult?.viewerUrl) ? savedResult.viewerUrl : null;
+  if (plan.historyAllowed && includeViewer && !viewerUrl) warnings.push("viewer_unavailable");
   const uniqueWarnings = [...new Set(warnings)];
   const degraded = uniqueWarnings.some((warning) => (
     warning === "screenshot_missing" || warning === "helper_unavailable" || warning === "viewer_unavailable"
@@ -988,6 +1058,10 @@ async function getCaptureDestinationContext(providedSettings) {
   const settings = providedSettings || await getSettings();
   const localBase = settings.storageMode === "cloud" ? "" : await findShotBase();
   const key = destinationKey(settings, localBase || "");
+  // The server owns the destination; a choice made in the workspace dialog
+  // must win over whatever this browser cached. Unreachable server: keep the
+  // cache, same as every other preference.
+  await getDeliveryPreferences().catch(() => null);
   const tree = await fetchDestinationTree(settings, localBase);
   const stored = await chrome.storage.local.get({ captureDestinations: {} });
   const destination = resolveDestinationPreference(tree, stored.captureDestinations[key]);
@@ -1014,6 +1088,11 @@ async function setCaptureDestination(collectionId) {
   const settings = await getSettings();
   const localBase = settings.storageMode === "cloud" ? "" : await findShotBase();
   await storeDestination(settings, localBase, destination);
+  try {
+    await setDeliveryPreferences({ captureDestination: destination });
+  } catch {
+    /* Local destination already saved. */
+  }
   return { ...context, destination };
 }
 
@@ -1122,6 +1201,8 @@ async function finishBatch() {
   const batch = await readBatch();
   if (!batch) return { summary: null };
   const settings = await getSettings();
+  const remotePrefs = await fetchDeliveryPreferences(settings);
+  if (remotePrefs) await cacheDeliveryPreferences(remotePrefs, settings);
   const path = `/api/batches/${encodeURIComponent(batch.id)}/finish`;
   const init = {
     body: JSON.stringify({ finishedAt: new Date().toISOString() }),
@@ -1155,7 +1236,7 @@ async function finishBatch() {
           if (!response.ok) throw new Error(`batch markdown ${response.status}`);
           return response.text();
         },
-        mode: settings.copyOnFinishBatch,
+        mode: remotePrefs?.copyOnFinishBatch ?? settings.copyOnFinishBatch,
         writeClipboard: writeClipboardPlain,
       });
       copied = result.copied;
@@ -1163,7 +1244,7 @@ async function finishBatch() {
       console.error("Unable to copy the finished batch", error);
     }
   }
-  const language = getBestLanguage(settings.language);
+  const language = getBestLanguage(remotePrefs?.language ?? settings.language);
   const toast = translations[language][finishedBatchToastKey(copied)].replace("{count}", String(summary.saved));
   await syncBatchSurfaces({ toast });
   return { copied, summary, toast };

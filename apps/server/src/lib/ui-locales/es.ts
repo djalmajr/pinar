@@ -57,6 +57,30 @@ const messages: UiMessages = {
   "settings.handoffModeDescription":
     "Compacto copia solo el contexto accionable. Completo incluye todos los campos capturados. La captura guardada y el visor siempre están completos.",
   "settings.handoffModeFull": "Completo",
+  "settings.captureDestination": "Destino de captura",
+  "settings.captureDestinationDefault": "Predeterminado del servidor (Inbox)",
+  "settings.captureDestinationDescription":
+    "Dónde se guardan las capturas nuevas. El valor predeterminado del servidor usa la Inbox del primer proyecto.",
+  "settings.captureHeading": "Captura",
+  "settings.collection": "Colección",
+  "settings.copyOnFinishBatch": "Copiar al finalizar un lote",
+  "settings.copyOnFinishBatchDescription":
+    "Pone el lote finalizado en el portapapeles para pegarlo en el agente.",
+  "settings.copyOnFinishBatchLink": "Enlace",
+  "settings.copyOnFinishBatchOff": "No",
+  "settings.copyOnFinishBatchPrompt": "Prompt",
+  "settings.copyViewerContent": "Copiar contenido Markdown",
+  "settings.copyViewerContentDescription":
+    "El Markdown del visor es contexto extra. captureId y pinId siempre quedan en el bundle copiado.",
+  "settings.handoffHeading": "Entrega al agente",
+  "settings.includeViewer": "Copiar Visor Web",
+  "settings.includeViewerDescription":
+    "Añade el enlace del Visor Web al bundle de contexto visual.",
+  "settings.privacyHeading": "Privacidad",
+  "settings.privacyQueryKeys": "Claves extra de URL para ocultar",
+  "settings.privacyQueryKeysDescription":
+    "Claves de query o hash, separadas por comas, que se eliminan de las URLs capturadas además de tokens y secretos.",
+  "settings.project": "Proyecto",
   "settings.interface": "Interfaz y comportamiento",
   "settings.interfaceDescription":
     "Elige cómo se ve y responde Pinar en este dispositivo.",

@@ -400,7 +400,10 @@ async function uploadShot(request: Request): Promise<Response> {
     return json({ error: "invalid PNG image" }, 400);
   }
   const saved = await writeShot(id, image, rootPath());
-  const destination = historyDatabase().resolveDestination(stringValue(body, "collectionId"));
+  const preferences = readDeliveryPreferences(rootPath());
+  const destination = historyDatabase().resolveDestination(
+    stringValue(body, "collectionId") || preferences.captureDestination?.collectionId,
+  );
   if (capture) {
     try {
       historyDatabase().saveSession({
@@ -416,7 +419,7 @@ async function uploadShot(request: Request): Promise<Response> {
         includeScreenshot: booleanValue(
           body,
           "includeScreenshot",
-          readDeliveryPreferences(rootPath()).includeScreenshot,
+          preferences.includeScreenshot,
         ),
         warnings: capture.warnings,
       });

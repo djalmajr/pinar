@@ -11,6 +11,9 @@ describe("Pinar.app release workflow", () => {
     expect(workflow).toContain("workflow_dispatch:");
     expect(workflow).toContain("ref: ${{ inputs.tag }}");
     expect(workflow).toContain("runs-on: macos-14");
+    expect(workflow).toContain("hutch/install.sh");
+    expect(workflow).toContain("--version 0.25.0");
+    expect(workflow).toContain('echo "$HOME/.hutch/bin" >> "$GITHUB_PATH"');
     expect(workflow).toContain("bun run release:check");
     expect(workflow).toContain("bun run build:tray");
   });

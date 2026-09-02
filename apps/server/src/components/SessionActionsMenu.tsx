@@ -1,6 +1,4 @@
 import type { Session } from "@pinar/shared";
-import ArrowDownIcon from "~icons/lucide/arrow-down";
-import ArrowUpIcon from "~icons/lucide/arrow-up";
 import CheckIcon from "~icons/lucide/check";
 import CopyIcon from "~icons/lucide/copy";
 import FileTextIcon from "~icons/lucide/file-text";
@@ -13,26 +11,20 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@pinar/ui";
 import type { Translate } from "../lib/i18n";
 
-export type SessionOrderDirection = "earlier" | "later";
-
 /**
- * The listing card and the viewer header offer the same actions, so they share
- * one menu: a session should not be reachable differently depending on which
- * surface you opened it from. Each item renders only when its handler is
- * supplied, which is how a surface opts out - the viewer omits "view", "review"
- * and "copy prompt" because its header already carries those as buttons, and
- * the standalone /v/ route has no list to move within or return to after a delete.
- * "Copy batch" appears only for a session that belongs to one.
+ * Listing cards and the workspace viewer share this menu so a session is not
+ * reachable differently from either surface. Each item renders only when its
+ * handler is supplied: the public /v/ route omits move and delete (no list to
+ * return to), and "view" stays off the viewer because that surface is already
+ * open. Empty groups must not render, or a stray separator sits above Open prompt *.md.
+ * "Copy prompt (batch)" appears only for a session that belongs to one.
  */
 export interface SessionActionsMenuProps {
   batchCopied?: boolean;
-  canMoveEarlier?: boolean;
-  canMoveLater?: boolean;
   copied?: boolean;
   session: Session;
   t: Translate;
@@ -40,7 +32,6 @@ export interface SessionActionsMenuProps {
   onCopyBatch?: (batchId: string) => void;
   onDelete?: (id: string) => void;
   onMove?: (id: string) => void;
-  onReorder?: (sessionId: string, direction: SessionOrderDirection) => void;
   onReview?: (id: string) => void;
   onView?: (id: string) => void;
 }
@@ -50,8 +41,6 @@ export const SESSION_MENU_WIDTH = "max-h-96 overflow-y-auto";
 
 export function SessionActionsMenu({
   batchCopied = false,
-  canMoveEarlier = false,
-  canMoveLater = false,
   copied = false,
   session,
   t,
@@ -59,29 +48,30 @@ export function SessionActionsMenu({
   onCopyBatch,
   onDelete,
   onMove,
-  onReorder,
   onReview,
   onView,
 }: SessionActionsMenuProps) {
-  const showOrder = Boolean(onReorder) && (canMoveEarlier || canMoveLater);
   const batchId = session.batchId ?? null;
+  const hasOpenGroup = Boolean(onView || onReview);
   return (
     <DropdownMenuContent align="end" className={SESSION_MENU_WIDTH}>
-      <DropdownMenuGroup>
-        {onView ? (
-          <DropdownMenuItem onClick={() => onView(session.id)}>
-            <Maximize2Icon />
-            {t("dashboard.view")}
-          </DropdownMenuItem>
-        ) : null}
-        {onReview ? (
-          <DropdownMenuItem onClick={() => onReview(session.id)}>
-            <ScanSearchIcon />
-            {t("dashboard.reviewOnPage")}
-          </DropdownMenuItem>
-        ) : null}
-      </DropdownMenuGroup>
-      <DropdownMenuSeparator />
+      {hasOpenGroup ? (
+        <DropdownMenuGroup>
+          {onView ? (
+            <DropdownMenuItem onClick={() => onView(session.id)}>
+              <Maximize2Icon />
+              {t("dashboard.view")}
+            </DropdownMenuItem>
+          ) : null}
+          {onReview ? (
+            <DropdownMenuItem onClick={() => onReview(session.id)}>
+              <ScanSearchIcon />
+              {t("dashboard.reviewOnPage")}
+            </DropdownMenuItem>
+          ) : null}
+        </DropdownMenuGroup>
+      ) : null}
+      {hasOpenGroup ? <DropdownMenuSeparator /> : null}
       <DropdownMenuGroup>
         {onCopy ? (
           <DropdownMenuItem closeOnClick={false} onClick={() => onCopy(session)}>
@@ -107,26 +97,6 @@ export function SessionActionsMenu({
             <FolderInputIcon />
             {t("dashboard.moveTo")}
           </DropdownMenuItem>
-        </>
-      ) : null}
-      {showOrder ? (
-        <>
-          <DropdownMenuSeparator />
-          <DropdownMenuGroup>
-            <DropdownMenuLabel>{t("dashboard.order")}</DropdownMenuLabel>
-            {canMoveEarlier ? (
-              <DropdownMenuItem onClick={() => onReorder?.(session.id, "earlier")}>
-                <ArrowUpIcon />
-                {t("dashboard.moveEarlier")}
-              </DropdownMenuItem>
-            ) : null}
-            {canMoveLater ? (
-              <DropdownMenuItem onClick={() => onReorder?.(session.id, "later")}>
-                <ArrowDownIcon />
-                {t("dashboard.moveLater")}
-              </DropdownMenuItem>
-            ) : null}
-          </DropdownMenuGroup>
         </>
       ) : null}
       {onDelete ? (

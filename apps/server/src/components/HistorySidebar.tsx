@@ -129,6 +129,7 @@ interface HistorySidebarProps {
   t: Translate;
   onCreate: (kind: ContainerKind, parentId?: string) => void;
   onDelete: (target: ContainerTarget) => void;
+  onDeleteAllFilters: () => void;
   onDeleteFilter: (id: string) => void;
   onRename: (target: RenameTarget) => void;
   onReorderCollections: (items: CollectionPlacement[]) => void;
@@ -572,17 +573,68 @@ function FilterRow({
   );
 }
 
+function BatchesGroupMenu({
+  canDeleteAll,
+  menuOpen,
+  t,
+  onActionFocusChange,
+  onDeleteAll,
+  onMenuOpenChange,
+}: {
+  canDeleteAll: boolean;
+  menuOpen: boolean;
+  t: Translate;
+  onActionFocusChange: (focused: boolean) => void;
+  onDeleteAll: () => void;
+  onMenuOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <DropdownMenu open={menuOpen} onOpenChange={onMenuOpenChange}>
+      <DropdownMenuTrigger
+        render={
+          <SidebarMenuAction
+            aria-label={t("dashboard.batchActions")}
+            className="size-6 peer-data-[size=default]/menu-button:top-1"
+            showOnHover
+            title={t("dashboard.batchActions")}
+            onBlur={() => onActionFocusChange(false)}
+            onFocus={() => onActionFocusChange(true)}
+          />
+        }
+      >
+        <MoreVerticalIcon />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" side="right" sideOffset={8}>
+        <DropdownMenuItem
+          disabled={!canDeleteAll}
+          variant="destructive"
+          onClick={onDeleteAll}
+        >
+          <TrashIcon />
+          {t("dashboard.deleteAllFilters")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function BatchesFolderRow({
+  canDeleteAll,
   count,
   expanded,
   t,
+  onDeleteAll,
   onToggle,
 }: {
+  canDeleteAll: boolean;
   count: number;
   expanded: boolean;
   t: Translate;
+  onDeleteAll: () => void;
   onToggle: () => void;
 }) {
+  const [menuActionFocused, setMenuActionFocused] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const label = t("dashboard.batches");
   return (
     <SidebarMenuItem>
@@ -613,7 +665,22 @@ function BatchesFolderRow({
       >
         <LayersIcon />
       </button>
-      <SidebarMenuBadge>{count}</SidebarMenuBadge>
+      <SidebarMenuBadge
+        className={cn(
+          "group-hover/menu-item:opacity-0",
+          (menuOpen || menuActionFocused) && "opacity-0",
+        )}
+      >
+        {count}
+      </SidebarMenuBadge>
+      <BatchesGroupMenu
+        canDeleteAll={canDeleteAll}
+        menuOpen={menuOpen}
+        t={t}
+        onActionFocusChange={setMenuActionFocused}
+        onDeleteAll={onDeleteAll}
+        onMenuOpenChange={setMenuOpen}
+      />
     </SidebarMenuItem>
   );
 }
@@ -625,6 +692,7 @@ function SidebarFilterGroup({
   title,
   t,
   onDelete,
+  onDeleteAll,
   onSelect,
 }: {
   icon: ComponentType<{ className?: string }>;
@@ -633,6 +701,7 @@ function SidebarFilterGroup({
   title: string;
   t: Translate;
   onDelete: (id: string) => void;
+  onDeleteAll: () => void;
   onSelect: (id: string | null) => void;
 }) {
   const [expanded, setExpanded] = useState(() => {
@@ -652,7 +721,6 @@ function SidebarFilterGroup({
     });
   }
 
-  if (!items.length) return null;
   return (
     <SidebarGroup className="pt-4">
       <SidebarGroupLabel
@@ -664,9 +732,11 @@ function SidebarFilterGroup({
       <SidebarGroupContent>
         <SidebarMenu>
           <BatchesFolderRow
+            canDeleteAll={items.length > 0}
             count={items.length}
             expanded={expanded}
             t={t}
+            onDeleteAll={onDeleteAll}
             onToggle={toggleExpanded}
           />
           {expanded
@@ -913,6 +983,7 @@ export function HistorySidebar({
   t,
   onCreate,
   onDelete,
+  onDeleteAllFilters,
   onDeleteFilter,
   onRename,
   onReorderCollections,
@@ -1154,6 +1225,7 @@ export function HistorySidebar({
           t={t}
           title={t("dashboard.filters")}
           onDelete={deleteFilter}
+          onDeleteAll={onDeleteAllFilters}
           onSelect={selectFilter}
         />
       </SidebarContent>

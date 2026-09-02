@@ -212,7 +212,7 @@ const messages: UiMessages = {
   "dashboard.moreActions": "その他のセッション操作",
   "dashboard.view": "表示",
   "dashboard.reviewOnPage": "元のページで確認",
-  "dashboard.markdown": "Markdown",
+  "dashboard.markdown": "プロンプトを開く *.md",
   "dashboard.copyPrompt": "プロンプトをコピー",
   "dashboard.includeScreenshot":
     "エージェント向けコピーにスクリーンショットを含める",
@@ -236,13 +236,18 @@ const messages: UiMessages = {
   "dashboard.filters": "フィルター",
   "dashboard.filtersEmpty": "フィルターなし",
   "dashboard.filterActions": "フィルター操作",
+  "dashboard.batchActions": "バッチ操作",
   "dashboard.batches": "バッチ",
   "dashboard.collapseBatches": "{name} を折りたたむ",
   "dashboard.expandBatches": "{name} を展開",
-  "dashboard.copyBatch": "バッチをコピー",
+  "dashboard.copyBatch": "プロンプトをコピー（バッチ）",
   "dashboard.deleteFilter": "削除",
   "dashboard.deleteFilterTitle": "このグループを外しますか？",
   "dashboard.deleteFilterConfirm":
+    "セッションはコレクションに残ります。グループ分けだけが消えます。",
+  "dashboard.deleteAllFilters": "すべて削除",
+  "dashboard.deleteAllFiltersTitle": "すべてのグループを外しますか？",
+  "dashboard.deleteAllFiltersConfirm":
     "セッションはコレクションに残ります。グループ分けだけが消えます。",
   "dashboard.create": "作成",
   "dashboard.deleteCollection": "コレクションを削除",

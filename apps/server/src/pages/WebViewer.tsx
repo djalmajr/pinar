@@ -49,6 +49,7 @@ import ChevronDownIcon from "~icons/lucide/chevron-down";
 import ChevronLeftIcon from "~icons/lucide/chevron-left";
 import ChevronRightIcon from "~icons/lucide/chevron-right";
 import CopyIcon from "~icons/lucide/copy";
+import LayersIcon from "~icons/lucide/layers";
 import ExternalLinkIcon from "~icons/lucide/external-link";
 import MessageCircleIcon from "~icons/lucide/message-circle";
 import ScanSearchIcon from "~icons/lucide/scan-search";
@@ -545,6 +546,8 @@ export function WebViewer({
   const selectedNumber = selectedPin ? pinNumber(selectedPin, Math.max(0, selectedIndex)) : 0;
   const selectedColor = selectedPin?.color || getPinColor(selectedNumber);
   const selectedMarkdown = selectedPin ? formatPinMarkdown(selectedPin, selectedNumber) : "";
+  const shareListingActions = isModal || Boolean(onMove || onDelete);
+  const batchId = session.batchId ?? null;
 
   return (
     <TooltipProvider delay={200}>
@@ -623,6 +626,17 @@ export function WebViewer({
               {pageCopied ? <CheckIcon data-icon="inline-start" /> : <CopyIcon data-icon="inline-start" />}
               <span className="hidden sm:inline">{pageCopied ? t("common.copied") : t("dashboard.copyPrompt")}</span>
             </Button>
+            {batchId ? (
+              <Button
+                aria-label={batchCopied ? t("common.copied") : t("dashboard.copyBatch")}
+                type="button"
+                variant="outline"
+                onClick={() => void copyBatch(batchId)}
+              >
+                {batchCopied ? <CheckIcon data-icon="inline-start" /> : <LayersIcon data-icon="inline-start" />}
+                <span className="hidden sm:inline">{batchCopied ? t("common.copied") : t("dashboard.copyBatch")}</span>
+              </Button>
+            ) : null}
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
@@ -638,11 +652,14 @@ export function WebViewer({
               </DropdownMenuTrigger>
               <SessionActionsMenu
                 batchCopied={batchCopied}
+                copied={pageCopied}
                 session={session}
                 t={t}
+                onCopy={shareListingActions ? () => void copyPage() : undefined}
                 onCopyBatch={(id) => void copyBatch(id)}
                 onDelete={onDelete}
                 onMove={onMove}
+                onReview={shareListingActions ? () => reopenOnPage() : undefined}
               />
             </DropdownMenu>
           </ButtonGroup>

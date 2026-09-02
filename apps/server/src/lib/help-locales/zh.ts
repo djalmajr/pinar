@@ -112,7 +112,7 @@ const locale = {
         {
           heading: "浏览器扩展",
           paragraphs: [
-            "从 Chrome Web Store 安装 Pinar。这是官方的浏览器安装路径；日常使用不需要 GitHub checkout 或未打包的扩展文件夹。",
+            "从 Chrome Web Store 安装 Pinar。这是官方的浏览器安装路径；日常使用不需要从 GitHub 检出代码，也不需要未打包的扩展文件夹。",
           ],
           bullets: [
             "在 Chrome 的扩展菜单中固定 Pinar 图标，让它保持可见。",
@@ -122,25 +122,25 @@ const locale = {
         {
           heading: "本地产品",
           paragraphs: [
-            "在 macOS 上，Pinar.app 位于菜单栏，运行内置 helper、注册受支持的智能体钩子，并检查 GitHub Releases 中的更新。Windows 和 Linux 目前使用独立的 helper 安装程序，而不是桌面应用。",
+            "在 macOS 上，Pinar.app 位于菜单栏，运行内置助手、注册受支持的智能体钩子，并检查 GitHub Releases 中的更新。Windows 和 Linux 目前使用独立的助手安装程序，而不是桌面应用。",
           ],
           bullets: [
-            "截图通常位于 `~/.pinar/shots`，历史位于 `~/.pinar/history.db`。托盘应用的「打开文件夹」操作会打开该目录；PINAR_HOME 可以覆盖它。",
-            "helper 会扫描 127.0.0.1 上的端口 17373 到 17382，并通过 GET `/api/health` 识别 Pinar。PINAR_PORT 会把发现固定到单一端口。",
-            "「登录时启动」在 macOS 上使用用户级 LaunchAgent。Pinar 在较旧系统上会回退到旧的 launchctl 路径，并把日志保留在 Pinar 主目录下。",
-            "如果本地 helper 不可用，图像裁剪会回退到 Downloads/pinar。",
+            "截图和历史会留在这台电脑上。使用菜单栏中的「打开文件夹」即可查看。",
+            "打开应用时，Pinar 会自动查找并启动本地服务。",
+            "在 macOS 上，「登录时启动」会在您登录这台电脑后让 Pinar 保持可用。",
+            "如果本地连接不可用，请从菜单栏打开 Pinar，然后重新捕获。",
           ],
         },
         {
-          heading: "确认 helper 并打开工作区",
+          heading: "确认助手并打开工作区",
           paragraphs: [
-            "固定扩展后，按文档中的一次性安装路径安装对应的本地产品：把 macOS 磁盘映像拖到 ~/Applications，在 Windows 上运行 PowerShell 安装程序，或在 Linux 上运行 curl 安装程序。这些脚本会把 helper 放到 ~/.pinar/bin（或 %USERPROFILE%\\.pinar\\bin），将该目录加入 PATH，并运行 pinar install-hooks，以便编码智能体接收粘贴的捕获。",
-            "在 macOS 上，Pinar.app 会隐藏 Dock 图标，通过 ~/.pinar/tray.pid 保持单一托盘实例，并在 GET `/api/health` 尚未返回 ok true 和 service pinar 时用 pinar ensure 启动 helper。状态为 Off 时，使用菜单栏的「启动」或「重新启动」，然后「打开工作区」以加载 http://127.0.0.1:<port>/app。如果某个智能体不再显示粘贴说明，请从 helper 重新运行 pinar install-hooks。",
+            "固定扩展后，按文档中的一次性安装路径安装对应的本地产品：把 macOS 磁盘映像拖到「应用程序」，在 Windows 上运行 PowerShell 安装程序，或在 Linux 上运行 curl 安装程序。这些安装程序会注册本地服务，以便编码智能体接收粘贴的捕获。",
+            "在 macOS 上，Pinar.app 位于菜单栏，并会为您启动本地服务。如果菜单栏显示「本地服务器：关闭」，请选择「启动」，然后选择「打开工作区」。如果某个智能体不再看到粘贴的捕获，请重新打开 Pinar 后再试。",
           ],
           bullets: [
             "Windows 安装：irm https://pinar.dev/install.ps1 | iex。Linux 安装：curl -fsSL https://pinar.dev/install.sh | sh。脚本需要 curl 或 wget 来下载二进制文件。",
-            "健康的 helper 会以 ok true 和 service pinar 响应 GET `/api/health`。在 macOS 上，「打开工作区」会使用发现到的端口打开 /app 工作区路径。",
-            "Chrome 扩展无法自行写入 `~/.pinar/shots`。如果裁剪没有进入该文件夹，请先启动本地产品，然后再捕获一次。",
+            "本地服务就绪后，「打开工作区」会从菜单栏加载您的工作区。",
+            "Chrome 扩展无法自行保存截图。如果某次捕获没有图像，请先启动本地产品，然后再捕获一次。",
           ],
         },
       ],
@@ -169,13 +169,13 @@ const locale = {
         {
           heading: "完成复制并保留身份",
           paragraphs: [
-            "只有在至少一个图钉已有评论后，Command/Ctrl+Enter 才会复制。叠加层会显示 Copying…，为截图隐藏图钉装饰，然后显示 Copied，工具栏随之关闭。之后再点击扩展图标只会显示或隐藏叠加层，不会删除已放置的图钉。如果所有剪贴板路径都失败，叠加层会恢复，以便重试。",
-            "把剪贴板内容当作一个整体：可读说明、可选的查看器 URL，以及带围栏的 pinar-visual-context JSON 代码块，其中包含 `captureId`、`pinId`、页面 URL、定位器（cssSelector、domPath、innerText），以及 helper 存文件后的截图 URL。图像上的编号徽章是标注叠加，不是页面 UI。粘贴给智能体时不要改写 `captureId` 或 `pinId`。若存在 Screenshot: /path/to/file.png 这一行，它就是包含所有图钉的那一张裁剪图。",
+            "只有在至少一个图钉已有评论后，Command/Ctrl+Enter 才会复制。叠加层会显示「正在保存标注…」，为截图隐藏图钉装饰，然后显示「复制成功！」，工具栏随之关闭。之后再点击扩展图标只会显示或隐藏叠加层，不会删除已放置的图钉。如果所有剪贴板路径都失败，叠加层会恢复，以便重试。",
+            "把剪贴板内容当作一个整体：可读说明、可选的查看器 URL，以及带围栏的 pinar-visual-context JSON 代码块，其中包含 `captureId`、`pinId`、页面 URL、定位器（cssSelector、domPath、innerText），以及助手存下文件后的截图 URL。图像上的编号徽章是标注叠加，不是页面 UI。粘贴给智能体时不要改写 `captureId` 或 `pinId`。若存在 Screenshot: /path/to/file.png 这一行，它就是包含所有图钉的那一张裁剪图。",
           ],
           bullets: [
-            "空的撰写框或没有任何图钉的捕获会中止复制，并闪现 Write a comment first 或 Add a pin first。",
-            "降级复制仍会粘贴评论和定位器，但工具栏可能在 Copied 之后附加 no screenshot、helper unavailable 或 no viewer。",
-            "尽量让 helper 保持运行，这样 PNG 裁剪会落入 `~/.pinar/shots`，数据包也可以包含用于完整上下文的 /v/<id>.md 查看器链接。",
+            "空的撰写框或没有任何图钉的捕获会中止复制，并闪现「请先填写评论」或「请先添加图钉」。",
+            "降级复制仍会粘贴评论和定位器，但工具栏可能在「复制成功！」之后附加「无截图」、「助手不可用」或「无查看器」。",
+            "尽量让本地 Pinar 保持运行，这样复制内容才能包含截图和用于完整上下文的查看器链接。",
           ],
         },
       ],
@@ -187,25 +187,25 @@ const locale = {
         {
           heading: "本地",
           paragraphs: [
-            "本地模式把历史保存在 SQLite 中，把截图保存在您的机器上。回环 API 只接受受信任的本地或扩展源，并使用受文件系统保护的能力令牌。",
+            "本地模式把历史和截图保存在这台电脑上。无需账户即可使用本地工作区。",
           ],
         },
         {
           heading: "云",
           paragraphs: [
-            "云模式把账户数据存在 D1，把截图存在 R2。它可以实现远程工作区访问、托管保留期、AI 摘要、计费以及未列出的分享链接。远程持久化前必须完成法律同意。",
+            "云模式可实现远程工作区访问、托管保留期、AI 摘要、计费以及未列出的分享链接。在任何内容被远程存储之前，您需要接受当前政策。",
           ],
         },
         {
           heading: "本地和云会话实际如何打开",
           paragraphs: [
-            "本地历史始终属于 owner local。首次使用时，数据库会创建受保护的 Personal 项目和受保护的 Inbox 集合，它们不能像用户创建的项目那样被嵌套或删除。已保存的捕获会标记 isPermanent true 且 plan free，PNG 文件写入 Pinar 主目录的 shots 目录，回环 API 通过 /shots/<id>.png 和 /v/<id>.md 呈现它们。变更该 API 需要 ~/.pinar/local-capability.json 中的能力密钥，以 x-pinar-capability 或 Authorization Bearer 令牌发送。该文件以 mode 0600 写入；轮换会让旧密钥在 24 小时内保持有效，除非 PINAR_CAPABILITY_GRACE_MS 另有规定。",
-            "在接受当前条款、隐私和可接受使用版本之前，云持久化会被阻止；API 返回 HTTP 428，code 为 legal_acceptance_required。随后远程 Free 会注册一次安装，并可签发五分钟、一次性配对码以打开 /app。付费或曾经付费的账户也可以验证六位数邮箱验证码。浏览器 cookie 有效期为 30 天；已认证的扩展设备有效期为 180 天。未列出的 Markdown 在 /v/、/p/ 和 /c/ 保持公开，截图在 /shots/ 保持公开。",
+            "本地历史会从受保护的 Personal 项目和 Inbox 集合开始，它们不能像普通文件夹那样被嵌套或删除。捕获会留在这台电脑上，您可以从本地工作区打开它们。",
+            "云存储会等到您接受当前的条款、隐私和可接受使用之后才开始。此后，Free 账户可以用短时验证码配对扩展，付费账户还可以确认六位数邮箱验证码。任何持有未列出 URL 的人都可以阅读分享链接。",
           ],
           bullets: [
-            "本地 GET /api/local/capability 会返回当前令牌；轮换和撤销是同一 /api/local/capability 前缀上的 POST 端点。",
-            "SQLite 位于 Pinar 主目录中的 `history.db`；如果 SQLite 无法打开，历史会回退到同一主目录中的 `history.json`。",
-            "云分享链接不需要工作区会话：任何持有未列出 URL 的人都可以在 /v/、/p/、/c/ 或 /shots/ 读取 Markdown 或 PNG。",
+            "本地工作区留在这台电脑上，不需要云账户。",
+            "如果本地历史无法打开惯用存储，Pinar 会恢复一份可用目录，而不是崩溃。",
+            "云分享链接不需要工作区会话：任何持有未列出 URL 的人都可以阅读 Markdown 或图像。",
           ],
         },
       ],
@@ -239,8 +239,8 @@ const locale = {
             "Arrow Up 会走到父元素并记住您离开的子节点，因此当它仍是子级时 Arrow Down 会回到该记住的节点；否则使用第一个子节点。在遮罩模式下，拖出一个区域即可隐藏它，点击已有遮罩即可恢复。文档上的键盘滚动仍然有效，但针对已聚焦页面控件的按键会被拦截，以免激活按钮或向宿主表单输入。",
           ],
           bullets: [
-            "Command/Ctrl+Enter 会先保存打开的草稿，再复制；没有评论时会显示 Write a comment first，而不是发送空图钉。",
-            "Escape 或复制之后，Pinar 会通过 keyup 继续占有该物理按键，以免宿主页面把同一次按键当成自己的取消或提交。",
+            "Command/Ctrl+Enter 会先保存打开的草稿，再复制；没有评论时会显示「请先填写评论」，而不是发送空图钉。",
+            "Escape 或复制之后，Pinar 会持续占有该物理按键直到抬起，以免宿主页面把同一次按键当成自己的取消或提交。",
             "区域图钉只有在指针移动大约六个像素后才开始；更短的点击仍会钉住悬停元素，而不是打开自由矩形。",
           ],
         },
@@ -342,7 +342,7 @@ const locale = {
         {
           heading: "稳健指纹",
           paragraphs: [
-            "元素图钉会组合稳定选择器、DOM 路径、标签、id、name、测试 id、role、类名、文本、标签和几何信息。重新打开时，Pinar 会评估选择器、结构、语义和几何，而不是只信任一条脆弱路径。",
+            "元素图钉会组合稳定选择器、DOM 路径、标签、id、名称、测试 id、角色、类名、文本、标签和几何信息。重新打开时，Pinar 会评估选择器、结构、语义和几何，而不是只信任一条脆弱路径。",
           ],
         },
         {
@@ -354,13 +354,13 @@ const locale = {
         {
           heading: "选择器回退与竞争匹配",
           paragraphs: [
-            "捕获时，Pinar 优先使用能通过 id、data-testid 或 data-test，或标签加 name 唯一匹配节点的选择器。如果这些都不唯一，它会改为存储结构化 CSS 路径。看起来像生成的类名会从指纹中去掉，以免哈希后的 CSS 模块成为唯一信号。",
+            "捕获时，Pinar 优先使用能通过 id、data-testid 或 data-test，或标签加名称唯一匹配节点的选择器。如果这些都不唯一，它会改为存储结构化 CSS 路径。看起来像生成的类名会从指纹中去掉，以免哈希后的 CSS 模块成为唯一信号。",
             "重新打开时，来自稳定选择器、结构、语义和几何策略的候选项会合并并排序。精确置信度需要高分的稳定选择器或结构命中；语义和几何匹配保持为可能。当前两个可行分数相差不到很窄的边距时，结果为歧义，不会选定任何元素。",
           ],
           bullets: [
             "当其他节点共享相同标签、文本和类名时，位置性 :nth-of-type 选择器得分更低。",
             "区域图钉在作为元素目标时会被拒绝，并在定位器评分期间保持未解析。",
-            "当 iframe 的 contentDocument 不可读时，重定位会以 cross-origin-frame 警告停止，而不是猜测。",
+            "当 iframe 的内容文档不可读时，重定位会以跨源 frame 警告停止，而不是猜测。",
           ],
         },
       ],
@@ -388,7 +388,7 @@ const locale = {
             "合并后的区域随捕获消息一起传递，因此会在剪贴板或存储之前绘制到截图上。单独的脱敏仍会从 URL、字段值和图钉文本中去除已知密钥；遮罩覆盖那些字符串规则无法分类的像素。",
           ],
           bullets: [
-            "用户遮罩使用唯一 id 和 manual 类别，因此可以独立于自动框删除。",
+            "用户遮罩使用唯一 id 和手动类别，因此可以独立于自动框删除。",
             "自动字段遮罩会被关闭而不是删除，以便后续扫描仍能报告底层字段。",
             "Escape 会离开遮罩绘制，但不会丢弃已经放在页面上的图钉。",
           ],
@@ -402,7 +402,7 @@ const locale = {
         {
           heading: "查看器控件",
           paragraphs: [
-            "捕获查看器支持指针平移、以光标为锚的滚轮缩放、双击缩放，以及 50% 到 800% 的控件。选择图钉会打开渲染后的 Preview 和逐字 Raw Markdown 标签。",
+            "捕获查看器支持指针平移、以光标为锚的滚轮缩放、双击缩放，以及 50% 到 800% 的控件。选择图钉会打开渲染后的「预览」和逐字「原始 Markdown」标签。",
           ],
           bullets: [
             "从查看器下载截图或复制会话 Markdown。",
@@ -418,12 +418,12 @@ const locale = {
         {
           heading: "从查看器复制以及重新打开门控",
           paragraphs: [
-            "查看器中的「复制页面」会写入与实时页面相同的关联 Markdown 数据包，交接模式取自已保存偏好中的 compact 或 full，`captureId` 会回退到会话 id。操作菜单会打开 /v/{id}.md 的公开 Markdown，或启动 ChatGPT 或 Claude，并带上指向该 URL 的提示。",
-            "「在页面上审阅」会派发带有会话 id 的重新打开事件。helper 仅在来自受信任的 Pinar 应用 URL，且该 id 匹配会话 id 或 `captureId`，并且标签页源仍等于捕获页面源时才会水合。把标签页导航离开该源会断开绑定，而不是把图钉注入错误站点。",
+            "查看器中的「复制页面」会写入与实时页面相同的关联 Markdown 数据包，交接模式取自已保存偏好中的精简或完整，`captureId` 会回退到会话 id。操作菜单会打开 /v/{id}.md 的公开 Markdown，或启动 ChatGPT 或 Claude，并带上指向该 URL 的提示。",
+            "「在页面上审阅」会派发带有会话 id 的重新打开事件。助手仅在来自受信任的 Pinar 应用 URL，且该 id 匹配会话 id 或 `captureId`，并且标签页源仍等于捕获页面源时才会水合。把标签页导航离开该源会断开绑定，而不是把图钉注入错误站点。",
           ],
           bullets: [
-            "如果没有重新打开结果到达，查看器会显示 helper 缺失提示，而不是无限等待。",
-            "无法读取偏好的公开或较旧查看器仍会使用 compact 交接来复制。",
+            "如果没有重新打开结果到达，查看器会显示助手缺失提示，而不是无限等待。",
+            "无法读取偏好的公开或较旧查看器仍会使用精简交接来复制。",
             "仍为 about:blank 的标签页会保持水合绑定；只有不同的源才会断开它。",
           ],
         },
@@ -449,7 +449,7 @@ const locale = {
         {
           heading: "如何把复制的数据包交给智能体",
           paragraphs: [
-            "Chrome 扩展从不会向智能体撰写框自动输入。Command/Ctrl+Enter 之后，请自行把剪贴板粘贴到 Cursor、Claude、Codex 或 Grok。文本以实现图钉评论、并把选择器和 DOM 路径当作互补定位器的说明开头，随后是带围栏的 pinar-visual-context JSON 代码块。如果包含 Viewer URL，仅在这些细节不够时再去获取。",
+            "Chrome 扩展从不会向智能体撰写框自动输入。Command/Ctrl+Enter 之后，请自行把剪贴板粘贴到 Cursor、Claude、Codex 或 Grok。文本以实现图钉评论、并把选择器和 DOM 路径当作互补定位器的说明开头，随后是带围栏的 pinar-visual-context JSON 代码块。如果包含查看器 URL，仅在这些细节不够时再去获取。",
             "把 `captureId` 和 `pinId` 当作身份，而不是可以改写的标签。Visual Context 目前编码 schemaVersion 1；parseVisualCapture 会拒绝缺失的 `captureId`，以及任何不是 1 或旧版 0 的 schemaVersion。只改图钉描述的内容。如果对方从未粘贴，请让他们从 Pinar 再复制一次，而不是凭记忆重建图钉。",
           ],
           bullets: [
@@ -463,12 +463,12 @@ const locale = {
     "handoff-formats": {
       title: "交接格式与目标",
       summary:
-        "在不改变捕获身份的前提下，选择 compact 或 full 上下文，以及面向特定智能体的呈现方式。",
+        "在不改变捕获身份的前提下，选择精简或完整上下文，以及面向特定智能体的呈现方式。",
       sections: [
         {
-          heading: "Compact 与 full",
+          heading: "精简与完整",
           paragraphs: [
-            "Compact 模式会去掉多余的定位器和几何噪声，同时保留关联。Full 模式保留未删减的载荷。另一项偏好决定是否包含截图；关闭后仍会保留元数据、图钉、定位器、审阅和交接，只是避免存储图像。内联图像数据会从文本载荷中剥离，以防提示过大。工作区「设置」对话框会把这些交付偏好与活动后端同步。",
+            "精简模式会去掉多余的定位器和几何噪声，同时保留关联。完整模式保留未删减的载荷。另一项偏好决定是否包含截图；关闭后仍会保留元数据、图钉、定位器、审阅和交接，只是避免存储图像。内联图像数据会从文本载荷中剥离，以防提示过大。工作区「设置」对话框会把这些交付偏好与活动后端同步。",
           ],
         },
         {
@@ -480,11 +480,11 @@ const locale = {
         {
           heading: "复制前在扩展选项中选择交付模式",
           paragraphs: [
-            "在扩展选项中，开关勾选时会把 handoffMode 设为 full，未勾选时设为 compact。Compact 是存储的默认值，每条有用事实只保留一次：`pinId`、comment、cssSelector、domPath 和 innerText，外加仅用于区域图钉或没有定位器的图钉的 box 或 coords。Full 保留未删减的捕获。两种投影仍会从 JSON 中去掉 data: 截图 URL；内联图像会存为 null URL 并带 screenshot_inline 警告，以便提示保持有界。",
-            "点击 Save，让 preferences:set 把 handoffMode 和 `includeScreenshot` 写入活动后端和 chrome.storage.sync。未知的 handoffMode 值会回退到 compact；`includeScreenshot` 默认为 true。适配器目标是 cursor、claude、codex 和 grok：各自会加上自己的前导说明，但 `captureId`、pinIds 和评论保持相同。只要 includeViewer 关闭，copy-viewer-content 开关就会被禁用。",
+            "在扩展选项中，开关勾选时会把 handoffMode 设为完整（full），未勾选时设为精简（compact）。精简是存储的默认值，每条有用事实只保留一次：`pinId`、comment、cssSelector、domPath 和 innerText，外加仅用于区域图钉或没有定位器的图钉的 box 或 coords。完整模式保留未删减的捕获。两种投影仍会从 JSON 中去掉 data: 截图 URL；内联图像会存为 null URL 并带 screenshot_inline 警告，以便提示保持有界。",
+            "点击「保存」，让 preferences:set 把 handoffMode 和 `includeScreenshot` 写入活动后端和 chrome.storage.sync。未知的 handoffMode 值会回退到精简；`includeScreenshot` 默认为 true。适配器目标是 cursor、claude、codex 和 grok：各自会加上自己的前导说明，但 `captureId`、pinIds 和评论保持相同。只要 includeViewer 关闭，copy-viewer-content 开关就会被禁用。",
           ],
           bullets: [
-            "设置 compact/full 开关和 `includeScreenshot` 开关，然后在下一次复制前点击 Save。",
+            "设置精简/完整开关和 `includeScreenshot` 开关，然后在下一次复制前点击「保存」。",
             "除非您有意只要元数据、图钉、定位器和交接而不存储图像，否则请保持 `includeScreenshot` 开启。",
             "保存后复制一次，确认每个适配器粘贴仍共享相同的 `captureId` 和 pinIds。",
           ],
@@ -505,7 +505,7 @@ const locale = {
         {
           heading: "人工核实",
           paragraphs: [
-            "changed 结果会把打开或重新打开的图钉移到待确认修正。只有人可以接受修正或重新打开已接受的图钉。智能体不能接受自己的工作，无效状态转换会被拒绝。",
+            "「已更改」结果会把打开或重新打开的图钉移到待确认修正。只有人可以接受修正或重新打开已接受的图钉。智能体不能接受自己的工作，无效状态转换会被拒绝。",
           ],
           bullets: [
             "正常流程：打开 → 待确认修正 → 已接受。",
@@ -515,12 +515,12 @@ const locale = {
         {
           heading: "记录一次执行并由人接受",
           paragraphs: [
-            "向 /api/agent-executions 发送 POST，agent 设为 claude、codex、cursor 或 grok，带上捕获的 `captureId`、8 到 128 个字符且匹配 [A-Za-z0-9_-] 的 idempotencyKey，以及非空的 results 数组。每个结果需要该捕获上已存在的 `pinId`、一个 status，以及最多 2000 个字符的 summary；可选 files 最多 50 条路径，pullRequest 必须是 http(s) URL。同一键下冲突的指纹是 idempotency_conflict（409）。未知 `pinId` 是 pin_not_found（400），且不会回显捕获评论；未知 `captureId` 是 capture_not_found（404）。",
-            "人工审阅是另一次 POST 到 /api/sessions/{id}/pins/{`pinId`}/review，action 为 accept 或 reopen。humanActionsForStatus 只在 correction_ready 提供 accept，只在 accepted 提供 reopen；open 和 reopened 不暴露人工操作，任何其他转换都是 invalid_transition（409）。人工 reopen 之后，第二次 changed 执行才是预期的重试。除非您选择加入，否则请关闭 Share anonymous loop metrics：即使 optIn 为 true，评论、URL、选择器和截图也会作为 forbidden_fields 被拒绝。",
+            "智能体会针对该捕获的 `captureId` 以及每个 `pinId` 报告工作。仅在结果未变化时，才用同一密钥重复交付；不同的摘要、文件或状态需要新密钥。未知图钉或捕获会被拒绝，且不会回显私人评论。",
+            "人员从审阅界面接受修正，或重新打开已接受的图钉。智能体不能接受自己的工作。人工重新打开之后，预期的重试是第二次「已更改」结果。除非您选择加入，否则请关闭匿名循环指标。",
           ],
           bullets: [
-            "为同一 `captureId` 和 `pinId` 发布 changed 结果，然后确认查看器在您接受前显示 correction_ready。",
-            "只有指纹相同时才复用 idempotencyKey；当文件、摘要或状态确实变化时，请签发新键。",
+            "为同一 `captureId` 和 `pinId` 发布「已更改」结果，然后确认查看器显示该图钉已可接受。",
+            "仅在结果完全相同时才复用交付密钥；当文件、摘要或状态确实变化时，请签发新密钥。",
             "如果核实失败，请以人工身份重新打开，发布第二次结果，再次接受，并保留前后两次捕获 id。",
           ],
         },
@@ -545,20 +545,20 @@ const locale = {
         {
           heading: "打开原始 URL 并放置待处理图钉",
           paragraphs: [
-            "session:reopen 只接受来自受信任 Pinar 应用源的请求：pinar.dev 或 *.pinar.dev 主机上的 https，或端口 17373 到 17382 的回环 http。helper 会获取 /api/sessions/{id}，并在已保存的页面 URL 打开新标签页。任何其他站点都会收到 untrusted_app。请求的 id 既不匹配 session.id 也不匹配 `captureId` 时是 session_mismatch；没有 page.url 的捕获是 missing_page。加载后，水合会注入每个 frame，并只保留 DOM 路径属于该 frame 的图钉。",
-            "只有在标签页源仍匹配捕获时，水合才会继续。导航离开会断开绑定，并显示 This page is not the original capture URL；about:blank 视为短暂状态，不会断开。歧义或未解析的定位器匹配会保持实时框不变，而不是吸附到相似元素。点击待处理图钉，再点击正确元素：选择器、路径和指纹保持冻结，location 变为 exact，证据为 manual-reposition，locationHistory 会追加一条 manual exact 记录。",
+            "「在页面上审阅」只能从 Pinar 应用、在原始捕获 URL 上打开。其他站点不能把已保存会话注入扩展。加载后，每个 frame 只显示属于该 frame 的图钉。",
+            "只有当标签页仍是被捕获的站点时，叠加层才会保持绑定。导航离开会显示「此页面不是原始捕获 URL」。歧义匹配会保留原始框，而不是吸附到相似元素。先点击待处理图钉，再点击正确元素，即可放置它。",
           ],
           bullets: [
             "从 Pinar 应用启动「在页面上审阅」，这样只有该会话会在捕获源上水合。",
-            "如果叠加层显示 This page is not the original capture URL，请回到捕获源，而不是放置图钉。",
-            "对于未解析图钉，点击标记，再点击实时元素，然后确认 locationHistory 增加了一条 manual exact 记录。",
+            "如果叠加层显示「此页面不是原始捕获 URL」，请回到捕获源，而不是放置图钉。",
+            "对于未解析图钉，先点击标记，再点击实时元素以放置它。",
           ],
         },
       ],
     },
     "handoff-troubleshooting": {
       title: "排查复制与交接警告",
-      summary: "从剪贴板、helper、截图或查看器失败中恢复，而不丢失标注。",
+      summary: "从剪贴板、助手、截图或查看器失败中恢复，而不丢失标注。",
       sections: [
         {
           heading: "剪贴板恢复",
@@ -575,13 +575,13 @@ const locale = {
         {
           heading: "工具栏报告失败时走一遍复制路径",
           paragraphs: [
-            "复制需要已保存的评论和至少一个图钉。工具栏显示 Copying…，隐藏叠加层，捕获截图，然后请离屏文档写入 text/html 和 text/plain。离屏文档先尝试 navigator.clipboard.write，再回退到 copy 事件加 execCommand。如果这次写入不是 ok，内容脚本仍会对返回的纯文本载荷尝试 writePlainText：clipboard.writeText，然后是隐藏 textarea 选择。",
-            "当所有复制路径都失败时，页面会发送 overlays:hidden 且 hidden 为 false，闪现 Copy failed，并让图钉保持可编辑。成功复制会显示 Copied，或 Copied 加上 no screenshot、helper unavailable 或 no viewer，然后结束会话。这些后缀对应 `screenshot_missing`、`helper_unavailable` 和 `viewer_unavailable`。screenshot_inline 不属于降级交接警告。没有闭合 pinar-visual-context 围栏的粘贴无法作为 JSON 解析。",
+            "复制需要已保存的评论和至少一个图钉。工具栏显示「正在保存标注…」，隐藏叠加层，捕获截图，然后请离屏文档写入 text/html 和 text/plain。离屏文档先尝试 navigator.clipboard.write，再回退到 copy 事件加 execCommand。如果这次写入未成功，内容脚本仍会对返回的纯文本载荷尝试 writePlainText：clipboard.writeText，然后是隐藏文本框选择。",
+            "当所有复制路径都失败时，页面会发送 overlays:hidden 且 hidden 为 false，闪现「复制失败」，并让图钉保持可编辑。成功复制会显示「复制成功！」，或「复制成功！」加上「无截图」、「助手不可用」或「无查看器」，然后结束会话。这些后缀对应 `screenshot_missing`、`helper_unavailable` 和 `viewer_unavailable`。screenshot_inline 不属于降级交接警告。没有闭合 pinar-visual-context 围栏的粘贴无法作为 JSON 解析。",
           ],
           bullets: [
-            "如果工具栏显示 Write a comment first 或 Add a pin first，请完成该图钉并再次按 Command/Ctrl+Enter。",
-            "如果出现 Copy failed，请确认图钉仍在页面上，按提示授予剪贴板权限，然后重试复制。",
-            "阅读 Copied 后缀：no screenshot、helper unavailable 和 no viewer 会指出要重试的缺失层，而无需丢弃评论。",
+            "如果工具栏显示「请先填写评论」或「请先添加图钉」，请完成该图钉并再次按 Command/Ctrl+Enter。",
+            "如果出现「复制失败」，请确认图钉仍在页面上，按提示授予剪贴板权限，然后重试复制。",
+            "阅读「复制成功！」后缀：「无截图」、「助手不可用」和「无查看器」会指出要重试的缺失层，而无需丢弃评论。",
           ],
         },
       ],
@@ -599,17 +599,17 @@ const locale = {
         {
           heading: "移动与排序",
           paragraphs: [
-            "在集合之间拖动会话、重新排序，或对选中集合使用批量「移动到」。在集合中，「向前移动」和「向后移动」会调整已保存的手动顺序。",
+            "在集合之间拖动会话以重新排序，或对选中集合使用批量「移动到」。",
           ],
         },
         {
           heading: "确认移动后的会话落点",
           paragraphs: [
-            "使用「向前移动」或「向后移动」前，请先打开一个集合。这些项只出现在集合视图中，会在已保存的位置列表里与相邻会话互换，并且在第一行或最后一行时什么也不做。随后仪表板会把完整 id 列表 POST 到 `/api/collections/{id}/sessions/reorder`。未选择集合时，列表按创建日期排序，而不是该已保存顺序。",
+            "打开一个集合，通过把会话拖到相邻项上来查看并更改已保存的手动顺序。未选择集合时，列表按创建日期排序，而不是该已保存顺序。",
             "拖动从卡片或表格行开始，而不是从搜索、复选框或操作菜单（`data-no-dnd`）。如果被拖动的会话已与其他会话一起选中，所有选中的 id 都会一起移动；否则只移动该会话。「移动到」会先询问项目，再询问该项目展平树中的集合；更改项目会清空集合字段，没有集合的项目会被禁用。会话会追加到目标中的下一个位置。删除 Personal 会被拒绝；删除其他项目会按现有顺序把它的会话追加到 Inbox，并移除该项目的集合。",
           ],
           bullets: [
-            "先选择一个集合，然后仅在存在相邻项时使用「向前移动」或「向后移动」；第一行不能再向前，最后一行不能再向后。",
+            "要在集合内更改顺序，请把会话拖到相邻项上。",
             "要移动多个会话，请先选中它们，然后拖动任一选中卡片或打开「移动到」；拖动未选中的卡片只会移动该会话。",
             "删除非 Personal 项目后，打开 Personal / Inbox，并在列表末尾查看追加的会话，然后再重新归档。",
           ],
@@ -635,11 +635,11 @@ const locale = {
         {
           heading: "缩进一个分支，然后核实父级",
           paragraphs: [
-            "拖动集合时，水平偏移按 18 像素的缩进步进测量。投影深度会被限制，不能比前一个兄弟深超过一级，也不能比下一个兄弟更浅。把分支放到它自己的后代上会被忽略，树保持原位。受保护集合停留在 depth 0，可排序列表把受保护集合的子项当作根，因此它们不能继续嵌套在该受保护容器下。",
+            "拖动集合时，水平偏移按 18 像素的缩进步进测量。投影深度会被限制，不能比前一个兄弟深超过一级，也不能比下一个兄弟更浅。把分支放到它自己的后代上会被忽略，树保持原位。受保护集合停留在深度 0，可排序列表把受保护集合的子项当作根，因此它们不能继续嵌套在该受保护容器下。",
             "在扩展的目标选择器中，`destination:get` 返回 CaptureDestination（`projectId` 和 `collectionId`）以及项目树，嵌套集合按每层深度缩进 16 像素。更改项目会立即保存该项目的受保护集合（若存在），否则保存其第一个集合。如果 `destination:set` 失败，选项页会显示目标不可用错误并重新加载 `destination:get`，以免缺失的集合保持选中。空树会显示禁用的 Inbox 占位符。",
           ],
           bullets: [
-            "向右拖动集合以嵌套到前一个兄弟下，或向左拖向根；如果放置被拒绝，parentId 列表保持不变。",
+            "向右拖动集合以嵌套到前一个兄弟下，或向左拖向根；如果放置被拒绝，父级列表保持不变。",
             "只有在需要更短侧栏时才折叠父级；隐藏的后代仍在树中，并仍会随拖动的分支一起移动。",
             "目标保存出错后，请重新打开扩展选项，并在下一次云捕获前确认项目和集合匹配一棵活动树中的条目。",
           ],
@@ -666,13 +666,13 @@ const locale = {
         {
           heading: "组合筛选，然后复制公开 Markdown",
           paragraphs: [
-            "搜索会去掉首尾空白，并按不区分大小写的子字符串匹配。仅含空白的查询会让每个会话都符合条件，直到图钉数量或审阅状态筛选排除它们。图钉数量复选框是 1、2–5 和 6 或更多这几个桶；会话必须匹配至少一个已选桶。审阅状态筛选对照存储的 reviewCounts；如果这些计数缺失，每个图钉都视为 open。更改搜索、任一筛选、集合或项目都会把分页重置到第一页。",
-            "网格全选只作用于当前页的卡片；表格全选使用当前表格页。网格或表格选择存储在 localStorage 的 `pinar-history-view`。批量删除会打开确认对话框，然后对每个选中 id 执行 DELETE `/api/history/{id}`。公开项目或集合查看器会加载 `/api/public/projects/{id}` 或 `/api/public/collections/{id}`，并从 `/p/{id}.md` 或 `/c/{id}.md` 复制合并后的 Markdown。如果该公开获取不是 ok，查看器会显示未找到状态，而不是列表。",
+            "搜索会去掉首尾空白，并按不区分大小写的子字符串匹配。仅含空白的查询会让每个会话都符合条件，直到图钉数量或审阅状态筛选排除它们。图钉数量复选框是 1、2–5 和 6 或更多这几个桶；会话必须匹配至少一个已选桶。审阅状态筛选对照存储的审阅计数；如果这些计数缺失，每个图钉都视为打开。更改搜索、任一筛选、集合或项目都会把分页重置到第一页。",
+            "网格全选只作用于当前页的卡片；表格全选使用当前表格页。网格或表格选择会在此浏览器中被记住。批量删除会要求确认，然后移除每个选中的会话。公开项目或集合查看器会从分享页复制合并后的 Markdown。如果该分享已不存在，查看器会显示未找到状态，而不是列表。",
           ],
           bullets: [
             "应用搜索或筛选后，确认分页跳到了第 1 页，以免阅读旧结果集中过期的一页。",
             "仅在复选框匹配您打算操作的会话后，才使用批量工具栏的「移动到」或「删除」；「清除选择」会清空集合，但不会更改存储。",
-            "在聚合查看器上，Copy Markdown 应粘贴一个标题、一个 `/p/` 或 `/c/` 查看器 URL，然后每个会话作为一个 `/v/{id}` 标题，包含 Page、Markdown、可选 Screenshot 以及带编号的图钉评论；如果复制失败并显示 Unable to load Markdown，请在浏览器中打开同一个 `.md` URL。",
+            "在聚合查看器上，「复制 Markdown」应粘贴一个标题、一个 `/p/` 或 `/c/` 查看器 URL，然后每个会话作为一个 `/v/{id}` 标题，包含 Page、Markdown、可选 Screenshot 以及带编号的图钉评论；如果复制失败并显示 Unable to load Markdown，请在浏览器中打开同一个 `.md` URL。",
           ],
         },
       ],
@@ -690,19 +690,19 @@ const locale = {
         {
           heading: "会话",
           paragraphs: [
-            "Web 会话持续 30 天，已认证的扩展设备持续 180 天。服务器存储验证码和会话令牌的哈希，而不是原始密钥值。",
+            "Web 会话持续 30 天，已认证的扩展设备持续 180 天。验证码会因安全原因过期。",
           ],
         },
         {
-          heading: "从扩展的 Account 标签完成配对",
+          heading: "从扩展的「账户」标签完成配对",
           paragraphs: [
-            "在远程 Free 安装上，打开扩展选项的 Account 标签并在那里生成临时验证码，然后复制它。从同一标签打开托管登录页；链接指向 /sign-in 且 returnTo=/app，因此成功兑换后会进入 Web 工作区。重新生成会先要求确认，因为服务器会在插入新的八字符值之前删除该所有者所有未使用的验证码。请把验证码粘贴到 pinar.dev 而不是回环：本地 helper 会把 /sign-in 重定向到托管源，并且自己不会签发云会话。",
-            "申请邮箱验证码始终报告 accepted 并带十分钟提示，包括未知地址、未付费账户或邮件服务缺失时，因此该表单不是账户神谕。真正的六位数邮件只会发送给曾经付费的账户；如果投递抛错，该挑战行会被删除。邮箱申请限制为每个 IP 10 次、每个地址每 15 分钟 5 次；验证限制为每个 IP 20 次、每个地址每 15 分钟 10 次。提交验证码以及安装身份会把该远程 Free 工作区迁移到付费账户，并签发 180 天设备令牌。退出登录会撤销 pinar_session cookie 以及同一请求上出示的任何设备 bearer。",
+            "在远程 Free 安装上，打开扩展选项的「账户」标签并在那里生成临时验证码，然后复制它。从同一标签打开托管登录页，以便成功兑换后进入 Web 工作区。重新生成会先要求确认，因为该账户尚未使用的验证码会被替换。请把验证码粘贴到 pinar.dev，而不是本地工作区页面。",
+            "申请邮箱验证码时，界面始终看起来一样，包括未知地址，因此该表单不会透露账户是否存在。真正的六位数邮件只会发送给符合条件的付费账户。「账户」标签上的退出登录会结束当前的 Web 会话和扩展会话。",
           ],
           bullets: [
-            "如果没有收到邮件，请等过 15 分钟的申请窗口再重试；429 表示触及了 IP 或地址限制，而静默的 accepted 响应可能意味着该地址未付费或未知。",
+            "如果没有收到邮件，请稍后再试；验证码会过期，尝试过多会被延迟。",
             "在使您仍打算在托管登录页输入的验证码失效之前，请先确认重新生成对话框。",
-            "需要立即撤销当前 Web cookie 或扩展设备会话时，请使用 Account 标签上的 Sign out，或 POST /api/auth/logout。",
+            "需要立即结束当前 Web 或扩展会话时，请使用「账户」标签上的「退出登录」。",
           ],
         },
       ],
@@ -726,13 +726,13 @@ const locale = {
         {
           heading: "用当前政策和正确货币开始 Checkout",
           paragraphs: [
-            "在接受当前条款、隐私政策和可接受使用版本之前，POST /api/stripe/checkout 会拒绝该优惠。Cloudflare 国家为 BR 时选择 BRL 目录和巴西 Stripe Price ID；其他国家使用 USD。Founder 结账会先插入按结账请求 id 和 claim 哈希键控的容量预留，再附加 Stripe session id；创建 Stripe 会话时如果没有可附加的预留，会释放该名额。FOUNDER_SALES_ENABLED 必须为 true 且 FOUNDER_CAPACITY_LIMIT 为正，否则处理程序返回 503；名额已满，或在复用的请求 id 上 claim 不匹配，会返回 409。",
-            "成功 URL 带有 session_id 和 claim；激活会把该 claim 与 Stripe metadata 做哈希比对，然后才授予优惠。GET /api/pricing 会把 founderState 公开为 closed、sold_out 或 available，以便「套餐」页隐藏结账会拒绝的群体。计费门户需要已认证且已有 stripeCustomerId 的账户，并返回 /app。当 Pro 计费不再处于活动状态时，该套餐上的会话会在付费资格结束后 90 天获得 retention_expires_at；Founder 和旧版终身账户会把会话标记为永久，而不是进入该过期路径。",
+            "只有在您接受当前条款、隐私政策和可接受使用之后，结账才会开始。巴西使用 BRL 价格；其他国家使用 USD。Founder 结账会预留有限名额，若您离开而未付款则会释放。当群体已满或销售暂停时，「套餐」页会隐藏该优惠。",
+            "付款成功后，优惠会授予已登录账户，您会返回工作区。付费结账完成后即可使用计费门户。当 Pro 订阅结束时，那些云会话会进入恢复窗口；Founder 和旧版终身账户则保持永久。",
           ],
           bullets: [
-            "付款前请在托管「套餐」流程中接受当前政策版本；缺少接受会返回 legal_acceptance_required，而不是 Stripe URL。",
-            "如果 Founder 结账返回 409，请重新加载 /api/pricing：closed 或 sold_out 意味着等待已释放的预留或选择 Pro，而不是用新的请求 id 重试同一个 claim。",
-            "如果门户返回 401 或 404 No Stripe customer found，请先完成一次已付款的 Checkout 以便存在客户 id，然后从账户会话重新打开「管理订阅」。",
+            "付款前请在托管「套餐」流程中接受当前政策版本。",
+            "如果 Founder 结账不可用，请等待名额或选择 Pro，而不是重试同一次结账。",
+            "如果「管理订阅」不可用，请先完成一次已付款的 Checkout，然后从已登录账户打开它。",
           ],
         },
       ],
@@ -754,15 +754,15 @@ const locale = {
           ],
         },
         {
-          heading: "用新的 request id 重试摘要并阅读账本",
+          heading: "用新的请求 id 重试摘要并阅读账本",
           paragraphs: [
-            "POST /api/ai/session-summary 需要唯一的 requestId 以及您拥有的会话。在该会话上复用同一 requestId 会返回已存储的成功载荷，或在推理仍被预留时返回 409 ai_request_in_progress。五分钟预留超时后，用量会作为 reservation_timeout 退还，下一次调用必须使用新的 requestId；超时重试若还不能退还，会返回 503 ai_refund_pending。失败或中止的推理会在可能时立即退还。余额不足返回 402 insufficient_ai_credits 并带上实时余额。缺少 Workers AI 返回 503 ai_unavailable。",
-            "授权选择器先花费非购买余额，然后是最快过期的授权，因此会在下个 UTC 月过期的每月包含积分会先于购买包被使用。购买的 1,000 积分包会以 12 个月的 expires_at 存储，该时间戳过后会从余额查询中消失。GET /api/account/entitlements 返回剩余积分合计、nextExpiryAt，以及 Founder 账户和 billing_status 为 active 的 Pro 账户的 nextRefillAt。请求的摘要语言必须是 de、en、es、fr、ja、pt 或 zh；任何其他值都会写成英语。",
+            "摘要只会在您拥有的会话上运行。如果已有摘要正在进行，请等待它完成，而不是再开一次。失败或中止的摘要会在可能时退还预留。如果余额过低，工作区会显示实时剩余积分。",
+            "包含的每月积分会先于购买包使用，且最快过期的余额会最先使用。购买的 1,000 积分包最长可用 12 个月。账户菜单会为有效的 Pro 和 Founder 账户显示剩余积分和下一次补充日期。当工作区语言属于七种受支持语言之一时，摘要会使用该语言。",
           ],
           bullets: [
-            "遇到 409 ai_request_in_progress 时，请等待进行中的 requestId 完成，而不是在同一会话上再开一次摘要。",
-            "遇到 ai_request_refunded 或 reservation_timeout 时，提交新的 requestId；重放过期 id 不会开始另一次推理。",
-            "如果工作区显示积分为零，请调用 /api/account/entitlements，并在购买另一个 1,000 积分优惠前，把 nextExpiryAt 与已购积分包比较。",
+            "如果该会话上已有摘要正在运行，请等待它完成，而不是再开一次。",
+            "如果预留过期或被退还，请开始一次新的摘要，而不是重试同一请求。",
+            "如果工作区显示积分为零，请在购买另一个 1,000 积分优惠前，先查看剩余积分包和下一次补充日期。",
           ],
         },
       ],
@@ -786,13 +786,13 @@ const locale = {
         {
           heading: "让替换内容符合配额，并使用 90 天恢复时钟",
           paragraphs: [
-            "配额是 `baseBytes` 加上仍然有效的加购字节。`canStoreBytes` 把覆盖视为 `usedBytes` 减去该会话已存储字节再加上传入大小，因此用更小的 PNG 替换更大的 PNG 可能成功，而全新捕获会超出配额。只要 `usedBytes` 已经达到或超过配额，`uploadAllowed` 就是 false。超额但没有 `latestExpiredAt` 时间戳是 over_quota 状态，没有宽限时钟。当 `latestExpiredAt` 来自过期加购或 `paidEligibilityEndedAt` 时，账户在 30 天内处于 grace，到第 90 天可恢复，然后是 cleanup_eligible；这三种状态下上传都保持禁止。",
-            "非永久的 Free 云会话在七天后成为可删除。超过 Free 配额的 Pro 内容在付费资格结束后遵循 30 天宽限和 90 天恢复窗口。Founder 和旧版终身内容不会仅仅因为没有经常性订阅就被设为可删除；它仍受已购配额、用户删除、滥用和法律冻结、账户关闭以及服务终止限制。设备上的仅本地历史永远不会被远程删除。删除资格不是立即移除的承诺，托管自动删除被有意关闭。",
+            "配额是套餐包含的存储加上仍然有效的加购。用更小的截图替换更大的截图，有时能成功，而全新捕获则不行。一旦账户达到或超过配额，上传就会暂停，宽限和恢复期间也是如此。",
+            "未标记为永久的 Free 云会话在七天后便有资格被清理。超过 Free 配额的 Pro 内容在付费资格结束后遵循 30 天宽限和 90 天恢复窗口。Founder 和旧版终身内容不会仅仅因为没有经常性订阅就被设为可清理。这台电脑上的仅本地历史永远不会被远程删除。资格并不承诺立即移除。",
           ],
           bullets: [
-            "当新捕获暂停时，请通过删除会话或替换过重截图把 `usedBytes` 降到剩余配额以下，或购买 5 GB 或 20 GB 的十二个月加购。",
-            "如果权益状态是 grace 或 recoverable，请在 `latestExpiredAt` 之后的第 90 天前导出仍需要的内容；cleanup_eligible 只标记超额，它本身不会删除。",
-            "不要指望卸载桌面应用会清除云对象，也不要指望云端会擦除 ~/.pinar 本地历史。",
+            "当新捕获暂停时，请通过删除会话或替换过重截图来腾出空间，或购买 5 GB 或 20 GB 的十二个月加购。",
+            "如果账户处于宽限或恢复期，请在第 90 天前导出仍需要的内容；资格只标记超额，它本身不会删除。",
+            "不要指望卸载桌面应用会清除云对象，也不要指望云端会擦除这台电脑上的本地历史。",
           ],
         },
       ],
@@ -816,13 +816,13 @@ const locale = {
         {
           heading: "复制公开 Markdown 投影并了解它会暴露什么",
           paragraphs: [
-            "未列出的 HTML 位于会话的 /v/{id}、项目的 /p/{id} 和集合的 /c/{id}。Markdown 投影是同一路径加上 .md 后缀。聚合查看器会在没有 auth cookie 的情况下加载 /api/public/projects/{id} 或 /api/public/collections/{id}；Copy Markdown 随后 GET /p/{id}.md 或 /c/{id}.md 并把文本写入剪贴板，每个会话卡片打开 /v/{id}。缺失或格式错误的 id 返回 Session not found、Project not found 或 Collection not found，而不是所有者邮箱、套餐或其他账户字段。",
-            "会话 Markdown 由交接数据包加上智能体结果和图钉审阅章节构成。项目和集合 Markdown 会列出每个嵌套会话，包含页面 URL、/v/{id}.md、可选截图 URL、图钉评论、`pinId`、DOM 路径、选择器和内部文本。只有所有者的 `includeScreenshot` 交付偏好允许时，才会出现 Screenshot 行。Markdown 和公开 JSON 缓存为 public max-age=60；截图 PNG 缓存 86400 秒。任何能打开链接的人都可以复制所见内容，因此未列出的 URL 不是授权，也不是数据最小化。",
+            "每个会话、项目或集合都有未列出的页面和一份 Markdown 副本。「复制 Markdown」会把该文本放到剪贴板，每张会话卡片会打开自己的查看器。缺失或无效的链接会显示未找到页面，而不是所有者邮箱、套餐或其他账户字段。",
+            "会话 Markdown 包含交接数据包以及智能体结果和图钉审阅。项目和集合 Markdown 会列出每个嵌套会话，包含页面 URL、图钉评论、`pinId` 和定位器。只有所有者允许交付截图时，才会出现截图行。任何能打开链接的人都可以复制所见内容，因此未列出的 URL 不是授权。",
           ],
           bullets: [
-            "发送 /p/{id} 或 /c/{id} 之前，请打开一次 Copy Markdown，检查每个嵌套会话、图钉评论和截图行是否可以公开。",
-            "如果投影应去掉图像 URL，请在所有者账户上关闭截图交付；至少等待 60 秒让公开 Markdown 缓存过期。",
-            "如果分享路径显示未找到，请把该 id 视为已消失或无效；公开处理程序永远不会把私人账户诊断加到该响应中。",
+            "发送项目或集合链接之前，请打开一次「复制 Markdown」，检查每个嵌套会话、图钉评论和截图行是否可以公开。",
+            "如果共享 Markdown 应去掉图像 URL，请在所有者账户上关闭截图交付。",
+            "如果分享路径显示未找到，请把该链接视为已消失或无效；该页面不会附加私人账户详情。",
           ],
         },
       ],
@@ -834,25 +834,25 @@ const locale = {
         {
           heading: "本地边界",
           paragraphs: [
-            "本地截图是 `~/.pinar/shots` 下的文件，本地历史是 `~/.pinar/history.db` 下的 SQLite，SQLite 不可用时回退到 JSON。视图、语言、主题和交付设置等浏览器偏好留在本地浏览器存储中，除非某项功能明确同步它们。",
+            "本地截图和历史会留在这台电脑上。视图、语言、主题和交付设置等浏览器偏好会留在此浏览器中，除非某项已登录功能明确同步它们。",
           ],
         },
         {
           heading: "云边界",
           paragraphs: [
-            "云账户记录和捕获元数据使用 Cloudflare D1；图像使用 R2。Stripe 处理计费，配置的邮件服务发送登录验证码，Workers AI 处理请求的摘要。「子处理方」页是外部服务角色的当前列表。",
+            "云账户记录、捕获元数据和图像存储在托管服务中。Stripe 处理计费，邮件服务发送登录验证码。「子处理方」页是外部服务角色的当前列表。",
           ],
         },
         {
           heading: "确认每次捕获实际保存在哪个存储中",
           paragraphs: [
-            "从 helper 主目录开始，检查哪个文件是活动的。截图作为 PNG 文件写入 shots 文件夹；会话历史优先使用 `history.db` 的 SQLite，只有在 `SqliteHistoryDb` 无法构造后才会打开 `history.json`。成功打开 SQLite 还会把嵌套的 shots/shots 路径前缀改写到规范的 shots 目录。主题仍是仅浏览器偏好：Interface 标签把 dark 或 light 存在 localStorage 键 pinar-theme 下，并在 system 时删除该键。语言以及 Capture 标签中交接模式（full 对 compact）和 include-screenshot 的开关在同一设置对话框中编辑，但已登录的云账户可以通过 GET 和 PATCH /api/preferences 把 handoff_mode 和 include_screenshot 持久化到 D1 owner_preferences。",
-            "托管捕获把元数据放在 D1，把 PNG 字节放在 R2。未认证的公开投影是 GET /shots/{id}.png（Cache-Control max-age 86400）、GET /v/{id}.md，以及 /p/ 和 /c/ 项目和集合路由。POST /api/auth/email-codes 只在 email_challenges 中存储哈希，十分钟后使挑战过期，即使 EMAIL 缺失或账户不是 everPaid 也会返回 202 和 { accepted: true, expiresInSeconds: 600 }，因此该响应不会揭示邮件是否已发送（429 是速率限制例外）。请求的摘要会在 POST /api/ai/session-summary 调用 Workers AI 模型 @cf/meta/llama-3.1-8b-instruct-fp8。「子处理方」页把 Cloudflare 用于 D1、R2、Workers AI 和事务邮件，把 Stripe 用于 Checkout，并注明 Pinar 不会收到完整卡号。GET /api/legal/current 报告政策版本 2026-08-25。",
+            "本地截图以 PNG 文件存储，会话历史留在这台电脑上。主题是「界面」标签上的仅浏览器偏好。语言和「捕获交付」开关位于同一设置对话框中；已登录的云账户可以把这些交付选择保存在托管工作区。",
+            "托管捕获把元数据和图像保存在云服务中。未列出的查看器和 Markdown 副本无需工作区会话即可使用。邮箱登录验证码会过期，表单不会透露账户是否存在。「子处理方」页会列出当前托管提供方，Pinar 不会收到完整卡号。当前政策版本发布在法律页面上。",
           ],
           bullets: [
-            "如果 `history.db` 缺失或 SQLite 打开失败，请把 ~/.pinar/history.json 当作活动的本地目录，并预期出现关于 JSON 回退的控制台警告。",
-            '在 /shots/{id}.png 打开托管截图，在 /v/{id}.md 打开其 markdown 投影；缺失的 R2 对象返回 JSON { error: "shot not found" }，状态为 404。',
-            "在设置中，通过 pinar-theme 确认 Interface 主题，然后区分 Capture 交付开关与登录后 D1 中云同步的 handoff_mode 和 include_screenshot。",
+            "如果本地历史无法打开，Pinar 会在这台电脑上恢复一份可用目录，而不是崩溃。",
+            "从分享页或 Markdown 查看器打开托管截图；缺失的图像会显示未找到，而不是账户详情。",
+            "在设置中，先在本地确认「界面」主题，登录后再区分「捕获交付」开关与云同步的交付选择。",
           ],
         },
       ],
@@ -865,25 +865,25 @@ const locale = {
         {
           heading: "敏感字段与 URL",
           paragraphs: [
-            "Pinar 会脱敏 password、payment、token 和 OTP 字段；移除 URL 片段；并剥离已知敏感查询键，例如 access_token、api_key、auth、password、secret、token 和 jwt。您可以在扩展设置中添加更多查询键名称。",
+            "Pinar 会脱敏密码、支付、令牌和一次性验证码字段；移除 URL 片段；并剥离已知敏感查询键，例如 access_token、api_key、auth、password、secret、token 和 jwt。您可以在扩展设置中添加更多查询键名称。",
           ],
         },
         {
           heading: "结构化交接",
           paragraphs: [
-            "视觉上下文解析器接受受支持的 schema 版本，并脱敏内部解析错误，而不是暴露原始密钥。内联截图数据会从文本交接中移除；数据包改用有界路径或 URL 引用。",
+            "视觉上下文解析器接受受支持的模式版本，并脱敏内部解析错误，而不是暴露原始密钥。内联截图数据会从文本交接中移除；数据包改用有界路径或 URL 引用。",
           ],
         },
         {
           heading: "观察脱敏报告和被丢弃的内联图像",
           paragraphs: [
-            "sanitizeCapture 会根据 input type、autocomplete 以及 name/id/ariaLabel/role 干草堆对 password、otp、payment 和 token 字段分类，然后脱敏页面 URL。敏感集合中的查询键，或 lookLikeSecret 的值（长度至少 12 且匹配 JWT，或带 sk_live_、ghp_、github_pat_ 和 AIza 等前缀），会被替换为 [redacted] 并标记为 secret-query 或 token；哈希参数使用 secret-hash。extraQueryKeys 和 extraHashKeys 中的额外名称会转小写，按空格、逗号或分号拆分，并与 DEFAULT_SENSITIVE_QUERY_KEYS 取并集，后者还包括 authorization、refresh_token、session、session_id、client_secret、bearer，以及简短概览列表之外的相关名称。收集到的密钥随后会替换 title、description、URL 和图钉中的匹配子字符串。即使字段已分类，短于四个字符的值也不会用作替换密钥；无法解析的 URL 会原样返回。",
-            "parseVisualCapture 接受 schemaVersion 1 或旧版 0，并抛出 VisualContextError，带有稳定消息 invalid visual context 以及代码 unsupported_schema、invalid_payload、invalid_pin 或 missing_capture_id，而不是回显原始正文。decodeVisualCaptureJson 在 JSON 或 schema 失败时，会返回带空图钉的该 `captureId`。screenshotFrom 和 captureForHandoffJson 会把 data: URL 的 screenshot.url 设为 null；交接路径在剥离内联字节时会添加警告 screenshot_inline，因此文本数据包保留文件系统路径或 http(s) 引用，而不是图像载荷。把 input.unevaluated 设为 true 会在隐私报告上记录 unevaluated，并添加警告 privacy_unevaluated。",
+            "Pinar 会脱敏密码、支付、令牌和一次性验证码字段，然后清理页面 URL。看起来像密钥的已知查询值会被替换为 [redacted]。您在设置中添加的额外名称也会包含在内。匹配的子字符串也会从标题、描述、URL 和图钉中移除。",
+            "即使数据包其余部分无法解析，复制出的视觉上下文代码块仍会保留 `captureId`。内联截图字节会从文本数据包中丢弃，因此复制内容会保留文件路径或查看器 URL。如果某些区域无法检查，粘贴内容会包含隐私警告。",
           ],
           bullets: [
-            "sanitizeCapture 之后，请阅读 privacy.redacted 以及警告 privacy_redacted 或 privacy_unevaluated；unevaluated true 表示某些区域未被检查。",
-            "以逗号、空格或分号分隔的标记添加额外查询键名称；匹配对内置集合不区分大小写，包括 authorization、session 和 refresh_token。",
-            "如果粘贴的交接 JSON 仍包含 data: 截图 URL，说明该捕获跳过了 captureForHandoffJson；受支持路径会把 url 置为 null，并可能添加 screenshot_inline。",
+            "复制后，请阅读粘贴内容中的隐私警告；某些区域可能被标记为未检查。",
+            "以逗号、空格或分号分隔的标记添加额外查询键名称；匹配不区分大小写。",
+            "如果粘贴的交接 JSON 仍包含 data: 截图 URL，请重新捕获，以便文本数据包改为保留路径或查看器 URL。",
           ],
         },
       ],
@@ -901,19 +901,19 @@ const locale = {
         {
           heading: "安全恢复",
           paragraphs: [
-            "过期的托盘 PID 锁会被替换，而活动实例保持不动。停止和重新启动首先使用 helper 的优雅路径；在 macOS 上，只有卡住的监听器在等待后仍保持响应才会被终止。损坏的回退历史 JSON 会重置为带有受保护 Personal 和 Inbox 的空白 schema。嵌套 shots/shots 路径下的旧截图会在不覆盖名称冲突的情况下迁移。",
+            "过期的托盘进程锁会被替换，而活动实例保持不动。停止和重新启动首先使用助手的优雅路径；在 macOS 上，只有卡住的监听器在等待后仍保持响应才会被终止。损坏的回退历史 JSON 会重置为带有受保护 Personal 和 Inbox 的空白结构。嵌套 shots/shots 路径下的旧截图会在不覆盖名称冲突的情况下迁移。",
           ],
         },
         {
           heading: "出示能力密钥并恢复损坏的本地存储",
           paragraphs: [
-            'helper 使用 0o600 临时文件和重命名，把 version-1 存储持久化到 local-capability.json。在 x-pinar-capability 标头或 Authorization Bearer 令牌中发送当前密钥。当 Origin 为空、127.0.0.1 / localhost / ::1 上的回环 HTTP，或带字母数字 id 的 chrome-extension:// 时，GET /api/local/capability 可以省略密钥；任何其他 Origin 都是敌对的，会收到 401 { error: "unauthorized" } 以及 Cache-Control no-store。HTTPS 回环不被视为回环。POST /api/local/capability/rotate 和 /revoke 需要匹配的密钥。轮换会写入新的 current 密钥，并保留 previous.secret 直到 expiresAt（默认 24 小时，可用 PINAR_CAPABILITY_GRACE_MS 覆盖；零会丢弃 previous）。撤销会删除该文件；下一次 readOrCreateLocalCapability 会签发新存储。普通回环请求跳过密钥；chrome-extension 请求需要匹配。分类为 public-min 或 local-public-projection 的条目跳过此门控。',
-            "claimInstanceLock 会留下活动的外部 PID 并调用 onDuplicate；缺失或不可读的锁被视为过期，并用本进程 id 覆盖。migrateNestedShots 把文件从 shots/shots 移到 shots，并跳过目标处已存在的名称；只有当 conflicts 列表为空时才会删除嵌套目录。截图 id 会被缩减为 A–Z、a–z、0–9、下划线和连字符，最长 80 个字符，否则文件是 pin.png。如果 `SqliteHistoryDb` 抛错，openHistoryDb 会发出警告并打开 `history.json`。损坏的 JSON 文件会解析为空数组，然后 _ensureDefaults 为 owner local 重建受保护的 Personal 项目和 Inbox 集合。失败的 JSON 写入会记录警告，但不会中止启动。当 `history.db` 不存在时，migrateLegacyHistoryDb 可能把 bin/ 或 shots/ 中残留的 history.sqlite 重命名为 `history.db`。",
+            "本地工作区只接受 Pinar 应用和官方扩展。轮换会让旧密钥在足够长的时间内保持有效，以便正在运行的进程跟上；撤销会强制重新授权。",
+            "如果另一 Pinar 实例已经在运行，该实例会保持原位。嵌套的截图文件夹会在不覆盖名称冲突的情况下迁移。如果本地历史无法打开，Pinar 会恢复可用的 Personal 项目和 Inbox，而不是崩溃。",
           ],
           bullets: [
-            "在 chrome-extension 调用上发送 x-pinar-capability 或 Bearer；GET /api/local/capability 从回环 HTTP 或 chrome-extension 引导，其他 Origin 收到 401 unauthorized。",
-            "撤销后 local-capability.json 消失；下一次 helper 启动会签发新密钥，客户端必须重新读取它，rotate 或 revoke 才能再次成功。",
-            "如果 `history.db` 无法打开，请预期 `history.json`；损坏的 JSON 文件会变成空目录，然后为 owner local 创建 Personal 和 Inbox，而不会让 helper 崩溃。",
+            "请继续使用官方扩展和 Pinar 应用；其他站点无法与本地工作区通信。",
+            "撤销本地访问后，请重新启动 Pinar，以便工作区再次授权。",
+            "如果本地历史无法打开，请预期会恢复 Personal 项目和 Inbox，而不是崩溃。",
           ],
         },
       ],
@@ -938,13 +938,13 @@ const locale = {
         {
           heading: "核实选择加入载荷和已发布的政策集",
           paragraphs: [
-            "循环指标默认关闭，因为 DEFAULT_LOOP_METRICS_OPT_IN 为 false。除非 optIn 严格为 true，否则 planLoopMetricRequest 返回 send false，reason 为 opt_in_off，loopMetricHttpStatus 把该代码映射为 HTTP 200。启用时，每个事件对象只能包含 agent、degraded、durationMs、event 和 locationConfidence。未知键，或 url、title、comment、screenshot、selector、path、`captureId`、sessionId、html、markdown、content、pin 和 page 等禁止键，或看起来像 http(s) URL、data: URI，或包含 { 或 < 的字符串值，都会变成 forbidden_fields（HTTP 400）。event 必须是 accepted、correction_ready、handoff、relocation_failed 或 reopened；agent 必须是 claude、codex、cursor 或 grok；locationConfidence 必须是 exact、probable、ambiguous 或 unresolved；durationMs 必须是不超过 86,400,000 的非负整数。空的或非数组的 events 值是 invalid_payload，不会被发送。",
-            "README 声明结账和远程 Free 注册会记录已接受的政策版本，并在 https://pinar.dev/legal/ 发布条款、隐私、可接受使用、保留、退款、Fair Source 和子处理方。legal-documents 把全部七个文档 id 的 CURRENT_LEGAL_VERSION 固定为 2026-08-25。条款写明从未联系托管服务的仅本地使用不需要托管账户；隐私写明从未离开设备的仅本地数据不在托管政策范围内。LICENSE 是 Functional Source License, Version 1.1, MIT Conversion：首次发布两年后 Change License 为 MIT，在 Change Date 之前您不得提供竞争性的商业托管视觉标注、截图预览或云持久化服务。Fair Source 声明服从 LICENSE，并且不是 OSI 认可的 Open Source。问题请发至 contact@pinar.dev 或 contato@pinar.dev。",
+            "除非您选择加入，否则循环指标保持关闭。启用时，只会发送运维事件。评论、标题、URL、选择器、截图以及类似内容会被拒绝。",
+            "结账和远程 Free 注册会记录已接受的政策版本。条款、隐私、可接受使用、保留、退款、Fair Source 和子处理方发布在 https://pinar.dev/legal/。从未联系托管服务的仅本地使用不需要托管账户。问题请发至 contact@pinar.dev 或 contato@pinar.dev。",
           ],
           bullets: [
-            "除非您有意把 optIn 设为 true，否则请保持循环指标禁用；禁用计划返回 send false 和 opt_in_off，并且不会传输该批次。",
-            "在托管持久化或结账前，从 https://pinar.dev/legal/terms、/privacy 和 /acceptable-use 打开版本 2026-08-25 的条款、隐私和可接受使用。",
-            "把 LICENSE 视为 FSL-1.1-MIT 竞争限制和 Change Date 的控制文本；当前点名的托管子处理方是 Cloudflare 和 Stripe。",
+            "除非您打算选择加入，否则请保持循环指标禁用；禁用设置不会传输批次。",
+            "在托管持久化或结账前，请从 https://pinar.dev/legal/terms、/privacy 和 /acceptable-use 打开条款、隐私和可接受使用。",
+            "把已发布的许可视为 Fair Source 限制的控制文本；当前点名的托管子处理方是 Cloudflare 和 Stripe。",
           ],
         },
       ],

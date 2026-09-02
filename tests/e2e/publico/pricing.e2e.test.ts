@@ -37,6 +37,13 @@ async function badgeColors(page: import("@playwright/test").Page, text: string):
   });
 }
 
+test("public desktop navigation keeps Home, Plans, What's new, and Help in that order", async ({ page }) => {
+  await page.goto("/?lang=pt");
+  const primaryNavigation = page.getByRole("navigation", { name: "Navegação principal" });
+
+  await expect(primaryNavigation.getByRole("link")).toHaveText(["Início", "Planos", "Novidades", "Ajuda"]);
+});
+
 // Mutation captured: changing the landing badge from `proSoft` to `pro` makes
 // its computed background differ from the matching pricing badge.
 test("public hero badges share the same soft Pro treatment", async ({ page }) => {

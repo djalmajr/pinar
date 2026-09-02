@@ -226,11 +226,11 @@ test("selected sessions move by drag and drop from table and grid views", async 
   await expect(page.getByRole("columnheader", { name: "Drag" })).toHaveCount(0);
   await expect(page.locator("[data-session-drag-handle]")).toHaveCount(0);
   expect(await alphaRow.evaluate((element) => getComputedStyle(element).cursor)).toBe("auto");
-  await expect(alphaRow.getByRole("button", { name: "Copy prompt" })).toBeVisible();
+  await expect(alphaRow.getByRole("button", { exact: true, name: "Copy prompt" })).toBeVisible();
   await alphaRow.getByRole("button", { name: "More session actions" }).click();
   const sessionMenu = page.getByRole("menu");
   await expect(sessionMenu.getByRole("menuitem", { name: "Move to…" })).toBeVisible();
-  await expect(sessionMenu.getByRole("menuitem", { name: "Copy prompt" })).toHaveCount(0);
+  await expect(sessionMenu.getByRole("menuitem", { exact: true, name: "Copy prompt" })).toBeVisible();
   await sessionMenu.getByRole("menuitem", { name: "Move to…" }).click();
   const individualMoveDialog = page.getByRole("dialog", { name: "Move to…" });
   await expect(individualMoveDialog.getByText("Choose the destination workspace and collection.")).toBeVisible();

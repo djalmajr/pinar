@@ -52,6 +52,7 @@ test("Pro account menu shows credit refill and expiry dates alongside Billing", 
 
   await openAccountMenu(page);
   await expect(page.locator("header").getByRole("button", { exact: true, name: "Account menu" })).toHaveCount(0);
+  await expect(page.locator("header").getByRole("button", { exact: true, name: "Settings" })).toHaveCount(0);
   await expect(page.getByRole("menu").getByText("djalmajr@example.test", { exact: true })).toBeVisible();
   const usage = page.getByTestId("account-usage");
   const credits = usage.getByTestId("account-credits");
@@ -65,7 +66,9 @@ test("Pro account menu shows credit refill and expiry dates alongside Billing", 
   await expect(storage.getByText("Storage add-on expires Oct 1, 2026", { exact: true })).toBeVisible();
   await expect(storage.getByRole("progressbar", { name: "Storage" })).toHaveAttribute("aria-valuenow", String(128 * 1024 ** 2));
   await expect(page.getByRole("menuitem", { exact: true, name: "Billing" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { exact: true, name: "Settings" })).toBeVisible();
   await expect(page.getByRole("menuitem", { exact: true, name: "Sign out" })).toBeVisible();
+  await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText(["Billing", "Settings", "Sign out"]);
   await expect(page.getByRole("menuitem", { exact: true, name: "Upgrade to Pro" })).toHaveCount(0);
   await expect(page.getByRole("menuitem", { exact: true, name: "Account" })).toHaveCount(0);
   await expect(page.getByRole("menuitem", { exact: true, name: "Notifications" })).toHaveCount(0);
@@ -100,8 +103,16 @@ test("Free installation offers upgrade from the same sidebar user panel", async 
   await openAccountMenu(page);
   await expect(page.getByTestId("account-credits").getByText("5 available", { exact: true })).toBeVisible();
   await expect(page.getByTestId("account-storage").getByText("0 B used of 250 MB", { exact: true })).toBeVisible();
+  await expect(page.locator("header").getByRole("button", { exact: true, name: "Settings" })).toHaveCount(0);
   await expect(page.getByRole("menuitem", { exact: true, name: "Upgrade to Pro" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { exact: true, name: "Settings" })).toBeVisible();
   await expect(page.getByRole("menuitem", { exact: true, name: "Billing" })).toHaveCount(0);
+  await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText(["Upgrade to Pro", "Settings", "Sign out"]);
+  await page.getByRole("menuitem", { exact: true, name: "Settings" }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.getByRole("button", { exact: true, name: "Close settings" }).click();
+  await expect(page.getByRole("dialog")).toBeHidden();
+  await openAccountMenu(page);
   await page.getByRole("menuitem", { exact: true, name: "Upgrade to Pro" }).click();
   await expect(page).toHaveURL(/\/pricing$/);
 });

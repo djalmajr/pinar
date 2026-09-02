@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { isMobileViewport, openWorkspaceSidebar } from "../helpers/ui";
 
 const createdAt = "2026-08-14T14:52:00.000Z";
 const pinComment = "Rotate this API key field.";
@@ -97,7 +98,7 @@ test("grid capture opens the zoom viewer modal without leaving the dashboard", a
   await expect(dialog.getByText("100%", { exact: true })).toBeVisible();
   await expect(dialog.getByText(pinComment)).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Review on page" })).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "Copy Page" })).toBeVisible();
+  await expect(dialog.getByRole("button", { exact: true, name: "Copy prompt" })).toBeVisible();
   await expect(page).toHaveURL(/\/app\?session=preview-e2e/);
 
   const originalPage = dialog.getByRole("link", { name: session.page.url });
@@ -112,6 +113,7 @@ test("grid capture opens the zoom viewer modal without leaving the dashboard", a
   await expect(dialog).toHaveCount(0);
   await expect(page).toHaveURL(/\/app\/?$/);
 
+  if (isMobileViewport(page)) await openWorkspaceSidebar(page, "Inbox");
   await page.locator('[data-sidebar="menu-button"]').filter({ hasText: "Inbox" }).click();
   await expect(card.getByText("Inbox", { exact: true })).toHaveCount(0);
 });
@@ -142,7 +144,7 @@ test("table view puts the mini-preview in the first column and opens the viewer"
   expect(pinsHeaderBox!.x).toBeLessThan(createdHeaderBox!.x);
   expect(reviewHeaderBox!.width).toBeLessThan(createdHeaderBox!.width);
   const firstRow = table.locator("tbody tr").first();
-  const copyButtonBox = await firstRow.getByRole("button", { name: "Copy prompt" }).boundingBox();
+  const copyButtonBox = await firstRow.getByRole("button", { exact: true, name: "Copy prompt" }).boundingBox();
   const actionsButtonBox = await firstRow.getByRole("button", { name: "More session actions" }).boundingBox();
   expect(copyButtonBox).not.toBeNull();
   expect(actionsButtonBox).not.toBeNull();

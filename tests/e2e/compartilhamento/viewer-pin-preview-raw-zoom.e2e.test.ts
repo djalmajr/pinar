@@ -198,7 +198,7 @@ test("copy and the Markdown endpoint preserve one session payload", async ({ pag
   }));
   await page.goto("/v/viewer-e2e");
 
-  await page.getByRole("button", { name: "Copy prompt" }).click();
+  await page.getByRole("button", { exact: true, name: "Copy prompt" }).click();
   await expect(page.getByRole("button", { name: "Copied" })).toBeVisible();
   const copiedPrompt = await readClipboardHarness(page);
   const contextMatch = copiedPrompt.match(/```pinar-visual-context\n([\s\S]*?)\n```/);
@@ -222,7 +222,7 @@ test("copy and the Markdown endpoint preserve one session payload", async ({ pag
 
   await page.getByRole("button", { name: "More page actions" }).click();
   const markdownPopupPromise = page.waitForEvent("popup");
-  await page.getByRole("menuitem", { name: "Markdown" }).click();
+  await page.getByRole("menuitem", { name: "Open prompt *.md" }).click();
   const markdownPopup = await markdownPopupPromise;
   await expect(markdownPopup.locator("body")).toContainText("Viewer fixture");
   await expect(markdownPopup.locator("body")).toContainText("https://example.test/settings");
@@ -230,9 +230,15 @@ test("copy and the Markdown endpoint preserve one session payload", async ({ pag
   await expect(markdownPopup.locator("body")).toContainText("Reduce the empty space in this region.");
   await markdownPopup.close();
 
-  // The menu offers no "open in assistant" entries: the handoff is the copied prompt.
+  // Local /v/: redirects into the workspace modal, which shares the listing actions.
   await page.getByRole("button", { name: "More page actions" }).click();
-  await expect(page.getByRole("menuitem")).toHaveText(["Markdown"]);
+  await expect(page.getByRole("menuitem")).toHaveText([
+    "Review on page",
+    "Copy prompt",
+    "Open prompt *.md",
+    "Move to…",
+    "Delete session",
+  ]);
   await page.keyboard.press("Escape");
 
   await expect(page.getByRole("heading", { name: "Viewer fixture" })).toBeVisible();

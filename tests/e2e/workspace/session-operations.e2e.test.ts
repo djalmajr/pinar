@@ -8,8 +8,9 @@ import {
 const createdAt = "2026-08-18T00:00:00.000Z";
 const ownerId = "ins_session_operations";
 
-function session(id: string, title: string, collectionId: string, position: number) {
+function session(id: string, title: string, collectionId: string, position: number, batchId?: string) {
   return {
+    ...(batchId ? { batchId } : {}),
     collectionId,
     createdAt: new Date(Date.parse(createdAt) + position * 1_000).toISOString(),
     id,
@@ -34,7 +35,7 @@ function openSessionMenu(page: Page) {
 
 test("move, manual order, copy and confirmed deletion remain precise and persistent", async ({ page }) => {
   await installClipboardHarness(page);
-  const moved = session("session_moved", "Moved capture", "col_a", 0);
+  const moved = session("session_moved", "Moved capture", "col_a", 0, "batch_ops");
   const second = session("session_second", "Second capture", "col_b", 0);
   const third = session("session_third", "Third capture", "col_b", 1);
   let collectionA = [moved];
@@ -128,29 +129,47 @@ test("move, manual order, copy and confirmed deletion remain precise and persist
   await openWorkspaceSidebar(page, "Collection B");
   await page.getByRole("button", { exact: true, name: "Collection B" }).click();
   await expect(page.locator('[data-slot="card-title"]')).toHaveText(["Second capture", "Third capture", "Moved capture"]);
-  for (let move = 0; move < 2; move += 1) {
-    await card(page, "Moved capture").getByRole("button", { name: "More session actions" }).click();
-    await openSessionMenu(page).getByRole("menuitem", { name: "Move earlier" }).click();
-  }
-  await expect(page.locator('[data-slot="card-title"]')).toHaveText(["Moved capture", "Second capture", "Third capture"]);
+  await card(page, "Moved capture").getByRole("button", { name: "More session actions" }).click();
+  await expect(openSessionMenu(page).getByRole("menuitem", { name: "Move earlier" })).toHaveCount(0);
+  await expect(openSessionMenu(page).getByText("Order", { exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
 
   await page.reload();
   await openWorkspaceSidebar(page, "Collection B");
   await page.getByRole("button", { exact: true, name: "Collection B" }).click();
-  await expect(page.locator('[data-slot="card-title"]')).toHaveText(["Moved capture", "Second capture", "Third capture"]);
+  await expect(page.locator('[data-slot="card-title"]')).toHaveText(["Second capture", "Third capture", "Moved capture"]);
 
   await card(page, "Moved capture").getByRole("button", { name: "More session actions" }).click();
   await expect(openSessionMenu(page).getByRole("menuitem", { name: "Review on page" })).toBeVisible();
+  await expect(openSessionMenu(page).getByRole("menuitem", { name: "Copy prompt (batch)" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await card(page, "Second capture").getByRole("button", { name: "More session actions" }).click();
+  await expect(openSessionMenu(page).getByRole("menuitem", { name: "Copy prompt (batch)" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await card(page, "Moved capture").getByRole("button", { name: "More session actions" }).click();
   await openSessionMenu(page).getByRole("menuitem", { exact: true, name: "View" }).click();
-  await expect(page.getByRole("dialog", { name: "Moved capture" })).toBeVisible();
+  const viewer = page.getByRole("dialog", { name: "Moved capture" });
+  await expect(viewer).toBeVisible();
+  await expect(viewer.getByRole("button", { name: "Copy prompt (batch)" })).toBeVisible();
+  await viewer.getByRole("button", { name: "More page actions" }).click();
+  const viewerMenu = page.getByRole("menu").filter({ has: page.getByRole("menuitem", { name: "Open prompt *.md" }) });
+  await expect(viewerMenu.getByRole("menuitem")).toHaveText([
+    "Review on page",
+    "Copy prompt",
+    "Copy prompt (batch)",
+    "Open prompt *.md",
+    "Move to…",
+    "Delete session",
+  ]);
+  await page.keyboard.press("Escape");
   await page.goBack();
   await openWorkspaceSidebar(page, "Collection B");
   await page.getByRole("button", { exact: true, name: "Collection B" }).click();
   await card(page, "Moved capture").getByRole("button", { name: "More session actions" }).click();
-  await expect(openSessionMenu(page).getByRole("menuitem", { name: "Copy prompt" })).toHaveCount(0);
-  await card(page, "Moved capture").getByRole("button", { name: "More session actions" }).click();
+  await expect(openSessionMenu(page).getByRole("menuitem", { exact: true, name: "Copy prompt" })).toBeVisible();
+  await page.keyboard.press("Escape");
   await expect(openSessionMenu(page)).toHaveCount(0);
-  await card(page, "Moved capture").getByRole("button", { name: "Copy prompt" }).click();
+  await card(page, "Moved capture").getByRole("button", { exact: true, name: "Copy prompt" }).click();
   const copied = await readClipboardHarness(page);
   expect(copied).toContain("Moved capture feedback");
   expect(copied).toContain("/v/session_moved.md");

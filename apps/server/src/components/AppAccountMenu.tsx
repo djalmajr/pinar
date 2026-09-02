@@ -14,6 +14,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@pinar/ui";
+import { useGlobalSettings } from "@/components/GlobalSettingsDialog";
 import {
   type AccountUsageSummary,
   accountMenuIdentity,
@@ -32,6 +33,7 @@ import CreditCardIcon from "~icons/lucide/credit-card";
 import HardDriveIcon from "~icons/lucide/hard-drive";
 import LogOutIcon from "~icons/lucide/log-out";
 import RefreshCwIcon from "~icons/lucide/refresh-cw";
+import SettingsIcon from "~icons/lucide/settings";
 import SparklesIcon from "~icons/lucide/sparkles";
 
 type UsageStatus = "error" | "loading" | "ready";
@@ -45,6 +47,7 @@ function planName(plan: AccountUsageSummary["plan"], t: ReturnType<typeof useSer
 
 export function AppAccountMenu() {
   const { language, t } = useServerI18n();
+  const openSettings = useGlobalSettings();
   const session = useAuthSession();
   const { isMobile } = useSidebar();
   const localRuntime = pinarRuntime() === "local";
@@ -86,7 +89,18 @@ export function AppAccountMenu() {
     window.location.href = "/sign-in";
   }
 
-  if (localRuntime || !session || session.kind === "local") return null;
+  if (localRuntime || !session || session.kind === "local") {
+    return (
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <SidebarMenuButton tooltip={t("settings.title")} onClick={openSettings}>
+            <SettingsIcon />
+            <span>{t("settings.title")}</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
+    );
+  }
 
   const identity = accountMenuIdentity(session, "Pinar Free", t("app.freePlan"));
   const currentPlan = usage?.plan ?? session.plan;
@@ -217,6 +231,10 @@ export function AppAccountMenu() {
                   {t("app.billing")}
                 </DropdownMenuItem>
               )}
+              <DropdownMenuItem onClick={openSettings}>
+                <SettingsIcon />
+                {t("settings.title")}
+              </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => void logout()}>

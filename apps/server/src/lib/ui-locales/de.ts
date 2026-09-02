@@ -211,7 +211,7 @@ const messages: UiMessages = {
   "dashboard.moreActions": "Weitere Sitzungsaktionen",
   "dashboard.view": "Ansehen",
   "dashboard.reviewOnPage": "Auf der Seite prüfen",
-  "dashboard.markdown": "Markdown",
+  "dashboard.markdown": "Prompt öffnen *.md",
   "dashboard.copyPrompt": "Prompt kopieren",
   "dashboard.includeScreenshot": "Screenshot in die Agenten-Kopie aufnehmen",
   "dashboard.includeScreenshotHint":
@@ -234,14 +234,19 @@ const messages: UiMessages = {
   "dashboard.filters": "Filter",
   "dashboard.filtersEmpty": "Keine Filter",
   "dashboard.filterActions": "Filteraktionen",
+  "dashboard.batchActions": "Stapelaktionen",
   "dashboard.batches": "Stapel",
   "dashboard.collapseBatches": "{name} einklappen",
   "dashboard.expandBatches": "{name} ausklappen",
-  "dashboard.copyBatch": "Stapel kopieren",
+  "dashboard.copyBatch": "Prompt kopieren (Stapel)",
   "dashboard.deleteFilter": "Entfernen",
   "dashboard.deleteFilterTitle": "Diese Gruppierung entfernen?",
   "dashboard.deleteFilterConfirm":
     "Die Sitzungen bleiben in ihren Sammlungen. Entfernt wird nur die Gruppierung.",
+  "dashboard.deleteAllFilters": "Alle entfernen",
+  "dashboard.deleteAllFiltersTitle": "Alle Gruppierungen entfernen?",
+  "dashboard.deleteAllFiltersConfirm":
+    "Die Sitzungen bleiben in ihren Sammlungen. Entfernt werden nur die Gruppierungen.",
   "dashboard.create": "Erstellen",
   "dashboard.deleteCollection": "Sammlung löschen",
   "dashboard.deleteContainerConfirm":

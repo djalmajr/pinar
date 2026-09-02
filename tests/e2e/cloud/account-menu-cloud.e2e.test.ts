@@ -47,5 +47,10 @@ test("isolated Cloudflare runtime authenticates the seeded Pro account and rende
   await expect(page.getByTestId("account-credits").getByText(/Some credits expire/)).toBeVisible();
   await expect(page.getByTestId("account-storage").getByText("128 MB used of 5 GB", { exact: true })).toBeVisible();
   await expect(page.getByTestId("account-usage").getByText("Pinar Pro", { exact: true })).toHaveCount(0);
+  await expect(page.locator("header").getByRole("button", { exact: true, name: "Settings" })).toHaveCount(0);
   await expect(page.getByRole("menuitem", { exact: true, name: "Billing" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { exact: true, name: "Settings" })).toBeVisible();
+  await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText(["Billing", "Settings", "Sign out"]);
+  await page.getByRole("menuitem", { exact: true, name: "Settings" }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
 });

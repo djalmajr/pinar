@@ -43,6 +43,7 @@ const messages = {
   "app.usageUnavailable": "Usage is temporarily unavailable.",
   "app.workspace": "Workspace",
   "settings.capture": "Capture & privacy",
+  "settings.captureNav": "Capture",
   "settings.captureDescription":
     "Control what Pinar includes when sharing captured sessions.",
   "settings.close": "Close settings",
@@ -80,6 +81,7 @@ const messages = {
     "Comma-separated query or hash keys stripped from captured URLs, in addition to tokens and secrets.",
   "settings.project": "Project",
   "settings.interface": "Interface & behavior",
+  "settings.interfaceNav": "Interface",
   "settings.interfaceDescription":
     "Choose how Pinar looks and responds on this device.",
   "settings.languageDescription":
@@ -96,7 +98,6 @@ const messages = {
   "settings.aboutTitle": "About Pinar",
   "settings.allReleases": "All releases",
   "settings.github": "GitHub",
-  "settings.helperName": "Pinar.app",
   "settings.linksHeading": "Links",
   "settings.openLink": "Open",
   "settings.privacyPolicy": "Privacy Policy",

@@ -122,7 +122,6 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
   const [projects, setProjects] = useState<ProjectTreeProject[]>([]);
   const [sensitiveQueryKeysDraft, setSensitiveQueryKeysDraft] = useState("");
   const runtime = pinarRuntime();
-  const [helperVersion, setHelperVersion] = useState("");
   const [currentRelease, setCurrentRelease] = useState<ProductRelease | null>();
 
   useEffect(() => {
@@ -157,23 +156,6 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    if (runtime === "local") {
-      void (async () => {
-        try {
-          const response = await fetch("/api/health");
-          const body: unknown = await response.json().catch(() => null);
-          if (cancelled) return;
-          const version = isRecord(body) && typeof body.version === "string"
-            ? body.version.trim()
-            : "";
-          setHelperVersion(response.ok ? version : "");
-        } catch {
-          if (!cancelled) setHelperVersion("");
-        }
-      })();
-    } else {
-      setHelperVersion("");
-    }
     void loadReleaseContent(language)
       .then((content) => {
         if (!cancelled) setCurrentRelease(findProductRelease(content, SERVER_VERSION));
@@ -184,7 +166,7 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
     return () => {
       cancelled = true;
     };
-  }, [language, open, runtime]);
+  }, [language, open]);
 
   useEffect(() => {
     if (theme !== "system") return;
@@ -275,7 +257,7 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                 onClick={() => setSection("capture")}
               >
                 <ShieldCheckIcon />
-                {t("settings.capture")}
+                {t("settings.captureNav")}
               </Button>
               <Button
                 aria-current={section === "interface" ? "page" : undefined}
@@ -284,7 +266,7 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                 onClick={() => setSection("interface")}
               >
                 <MonitorIcon />
-                {t("settings.interface")}
+                {t("settings.interfaceNav")}
               </Button>
               <Button
                 aria-current={section === "about" ? "page" : undefined}
@@ -312,8 +294,8 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
             </header>
             <nav aria-label={t("settings.title")} className="flex shrink-0 gap-1 overflow-x-auto border-b p-2 sm:hidden">
               <Button size="sm" variant={section === "general" ? "secondary" : "ghost"} onClick={() => setSection("general")}>{t("settings.general")}</Button>
-              <Button size="sm" variant={section === "capture" ? "secondary" : "ghost"} onClick={() => setSection("capture")}>{t("settings.capture")}</Button>
-              <Button size="sm" variant={section === "interface" ? "secondary" : "ghost"} onClick={() => setSection("interface")}>{t("settings.interface")}</Button>
+              <Button size="sm" variant={section === "capture" ? "secondary" : "ghost"} onClick={() => setSection("capture")}>{t("settings.captureNav")}</Button>
+              <Button size="sm" variant={section === "interface" ? "secondary" : "ghost"} onClick={() => setSection("interface")}>{t("settings.interfaceNav")}</Button>
               <Button size="sm" variant={section === "about" ? "secondary" : "ghost"} onClick={() => setSection("about")}>{t("settings.about")}</Button>
             </nav>
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
@@ -493,11 +475,6 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                       </Badge>
                     </div>
                   </SettingRow>
-                  {runtime === "local" && helperVersion ? (
-                    <SettingRow title={t("settings.helperName")}>
-                      <span className="text-sm tabular-nums">{helperVersion}</span>
-                    </SettingRow>
-                  ) : null}
                   <SettingRow
                     description={SERVER_BUILD
                       ? t("settings.whatsNewAhead", { version: SERVER_VERSION })

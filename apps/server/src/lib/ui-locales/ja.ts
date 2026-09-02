@@ -45,6 +45,7 @@ const messages: UiMessages = {
   "app.usageUnavailable": "使用状況は一時的に利用できません。",
   "app.workspace": "ワークスペース",
   "settings.capture": "キャプチャとプライバシー",
+  "settings.captureNav": "キャプチャ",
   "settings.captureDescription":
     "キャプチャしたセッションを共有するときに Pinar が含める内容を設定します。",
   "settings.close": "設定を閉じる",
@@ -82,6 +83,7 @@ const messages: UiMessages = {
     "トークンやシークレットに加えて、キャプチャした URL から取り除く query / hash キーをカンマ区切りで指定します。",
   "settings.project": "プロジェクト",
   "settings.interface": "インターフェースと動作",
+  "settings.interfaceNav": "表示",
   "settings.interfaceDescription":
     "このデバイスでの Pinar の外観と動作を選択します。",
   "settings.languageDescription":
@@ -98,7 +100,6 @@ const messages: UiMessages = {
   "settings.aboutTitle": "Pinar について",
   "settings.allReleases": "すべてのリリース",
   "settings.github": "GitHub",
-  "settings.helperName": "Pinar.app",
   "settings.linksHeading": "リンク",
   "settings.openLink": "開く",
   "settings.privacyPolicy": "プライバシーポリシー",

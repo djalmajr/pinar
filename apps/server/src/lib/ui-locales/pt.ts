@@ -45,6 +45,7 @@ const messages: UiMessages = {
   "app.usageUnavailable": "O uso está temporariamente indisponível.",
   "app.workspace": "Workspace",
   "settings.capture": "Captura e privacidade",
+  "settings.captureNav": "Captura",
   "settings.captureDescription":
     "Controle o que o Pinar inclui ao compartilhar sessões capturadas.",
   "settings.close": "Fechar configurações",
@@ -82,6 +83,7 @@ const messages: UiMessages = {
     "Chaves de query ou hash, separadas por vírgula, removidas das URLs capturadas além de tokens e segredos.",
   "settings.project": "Projeto",
   "settings.interface": "Interface e comportamento",
+  "settings.interfaceNav": "Interface",
   "settings.interfaceDescription":
     "Escolha como o Pinar se apresenta e responde neste dispositivo.",
   "settings.languageDescription": "Escolha o idioma usado em toda a aplicação.",
@@ -97,7 +99,6 @@ const messages: UiMessages = {
   "settings.aboutTitle": "Sobre o Pinar",
   "settings.allReleases": "Todas as versões",
   "settings.github": "GitHub",
-  "settings.helperName": "Pinar.app",
   "settings.linksHeading": "Links",
   "settings.openLink": "Abrir",
   "settings.privacyPolicy": "Política de Privacidade",

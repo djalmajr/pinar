@@ -124,7 +124,7 @@ function ViewerPageIdentity({
   const accessibleName = copy.title || copy.url || t("viewer.annotation");
   const titleClassName = "truncate text-sm font-medium";
   // No visible description here: the title and the URL already identify the page.
-  const linkClassName = "inline-flex min-w-0 items-center gap-1 overflow-hidden font-mono text-xs text-muted-foreground hover:text-primary";
+  const linkClassName = "inline-flex min-w-0 items-center gap-1 overflow-hidden text-sm text-muted-foreground hover:text-primary";
   return (
     <div className="min-w-0 flex-1 space-y-0.5">
       {copy.title ? (

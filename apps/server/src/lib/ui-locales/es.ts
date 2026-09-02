@@ -101,7 +101,6 @@ const messages: UiMessages = {
   "settings.allReleases": "Todas las versiones",
   "settings.github": "GitHub",
   "settings.linksHeading": "Enlaces",
-  "settings.openLink": "Abrir",
   "settings.privacyPolicy": "Política de Privacidad",
   "settings.productName": "Pinar",
   "settings.runtimeCloud": "Nube",

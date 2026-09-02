@@ -34,6 +34,7 @@ import { findProductRelease, loadReleaseContent, type ProductRelease } from "@/l
 import { pinarRuntime } from "@/lib/server-header";
 import { SERVER_BUILD, SERVER_VERSION, SERVER_VERSION_LABEL } from "@/lib/version";
 import InfoIcon from "~icons/lucide/info";
+import ExternalLinkIcon from "~icons/lucide/external-link";
 import LaptopIcon from "~icons/lucide/laptop";
 import MonitorIcon from "~icons/lucide/monitor";
 import MoonIcon from "~icons/lucide/moon";
@@ -79,6 +80,29 @@ function applyTheme(theme: ThemeMode) {
   document.documentElement.dataset.theme = dark ? "dark" : "light";
   if (theme === "system") localStorage.removeItem(THEME_STORAGE_KEY);
   else localStorage.setItem(THEME_STORAGE_KEY, theme);
+}
+
+// Every link in About reads the same way the rest of the workspace shows a
+// page URL: title, then the address itself as the link, with the new-tab mark.
+function AboutLink({ href, title }: { href: string; title: string }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <span className="text-sm font-medium">{title}</span>
+      <a
+        className="inline-flex max-w-full items-center gap-1 text-sm text-muted-foreground hover:text-primary"
+        href={href}
+        rel="noopener noreferrer"
+        target="_blank"
+      >
+        <span className="min-w-0 truncate">{href}</span>
+        <ExternalLinkIcon className="size-3.5 shrink-0" />
+      </a>
+    </div>
+  );
+}
+
+function absoluteUrl(path: string) {
+  return typeof window === "undefined" ? path : new URL(path, window.location.origin).toString();
 }
 
 function settingsNavButtonClass(isActive: boolean) {
@@ -496,42 +520,10 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                 </div>
                 <div className="flex flex-col gap-5">
                   <span className={SECTION_HEADER}>{t("settings.linksHeading")}</span>
-                  <SettingRow description={PINAR_WEBSITE_URL} title={t("settings.website")}>
-                    <Button
-                      render={<a href={PINAR_WEBSITE_URL} rel="noopener noreferrer" target="_blank" />}
-                      size="sm"
-                      variant="outline"
-                    >
-                      {t("settings.openLink")}
-                    </Button>
-                  </SettingRow>
-                  <SettingRow description={PINAR_GITHUB_URL} title={t("settings.github")}>
-                    <Button
-                      render={<a href={PINAR_GITHUB_URL} rel="noopener noreferrer" target="_blank" />}
-                      size="sm"
-                      variant="outline"
-                    >
-                      {t("settings.openLink")}
-                    </Button>
-                  </SettingRow>
-                  <SettingRow title={t("settings.terms")}>
-                    <Button
-                      render={<Link params={{ document: "terms" }} preload="intent" to="/legal/$document" />}
-                      size="sm"
-                      variant="outline"
-                    >
-                      {t("settings.openLink")}
-                    </Button>
-                  </SettingRow>
-                  <SettingRow title={t("settings.privacyPolicy")}>
-                    <Button
-                      render={<Link params={{ document: "privacy" }} preload="intent" to="/legal/$document" />}
-                      size="sm"
-                      variant="outline"
-                    >
-                      {t("settings.openLink")}
-                    </Button>
-                  </SettingRow>
+                  <AboutLink href={PINAR_WEBSITE_URL} title={t("settings.website")} />
+                  <AboutLink href={PINAR_GITHUB_URL} title={t("settings.github")} />
+                  <AboutLink href={absoluteUrl("/legal/terms")} title={t("settings.terms")} />
+                  <AboutLink href={absoluteUrl("/legal/privacy")} title={t("settings.privacyPolicy")} />
                 </div>
               </section>
             </div>

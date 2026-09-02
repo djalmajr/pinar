@@ -99,7 +99,6 @@ const messages = {
   "settings.allReleases": "All releases",
   "settings.github": "GitHub",
   "settings.linksHeading": "Links",
-  "settings.openLink": "Open",
   "settings.privacyPolicy": "Privacy Policy",
   "settings.productName": "Pinar",
   "settings.runtimeCloud": "Cloud",

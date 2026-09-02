@@ -114,7 +114,7 @@ function SessionPageLink({ url }: { url?: string }) {
   if (!url) return null;
   return (
     <a
-      className="inline-flex max-w-full items-center gap-1 font-mono text-xs text-muted-foreground hover:text-primary"
+      className="inline-flex max-w-full items-center gap-1 text-sm text-muted-foreground hover:text-primary"
       draggable={false}
       href={url}
       rel="noopener noreferrer"

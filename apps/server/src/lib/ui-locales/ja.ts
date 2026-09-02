@@ -101,7 +101,6 @@ const messages: UiMessages = {
   "settings.allReleases": "すべてのリリース",
   "settings.github": "GitHub",
   "settings.linksHeading": "リンク",
-  "settings.openLink": "開く",
   "settings.privacyPolicy": "プライバシーポリシー",
   "settings.productName": "Pinar",
   "settings.runtimeCloud": "クラウド",

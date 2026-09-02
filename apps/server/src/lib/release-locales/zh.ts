@@ -20,6 +20,16 @@ const locale = {
     whatChanged: "更新内容",
   },
   releases: {
+    "v0.3.0": {
+      title: "更清晰的工作区与捕获流程",
+      summary: "轻松整理不断增长的收藏，在统一设置中调整 Pinar，并通过更清晰的视觉反馈和帮助检查每次捕获。",
+      changes: {
+        "workspace-organization": { title: "工作区整理", description: "嵌套收藏现在可承载更大的资料库，并提供更清晰的层级、可调整大小的导航、紧凑控件以及全部项目视图中的收藏上下文。" },
+        "global-settings": { title: "全局设置", description: "专用设置区域统一管理常规、捕获、隐私、界面、主题和复制详细程度偏好。" },
+        "capture-feedback": { title: "更清晰的捕获反馈", description: "选择尺寸、自动聚焦的 Pin 评论、图片预览、隐藏区域处理和保存进度让捕获流程更流畅、更可预测。" },
+        "help-center": { title: "改进的帮助中心", description: "安装和首次捕获指南更加简洁清晰，图片支持缩放预览，长文章会突出显示当前可见章节。" },
+      },
+    },
     "v0.2.0": {
       title: "捕获批次与同步的偏好设置",
       summary:

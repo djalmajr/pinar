@@ -21,6 +21,17 @@ const locale = {
     whatChanged: "Qué cambió",
   },
   releases: {
+    "v0.3.0": {
+      title: "Un espacio de trabajo y una captura más claros",
+      summary:
+        "Organiza colecciones en crecimiento, ajusta Pinar desde una sola área y revisa cada captura con información visual y ayuda más claras.",
+      changes: {
+        "workspace-organization": { title: "Organización del espacio de trabajo", description: "Las colecciones anidadas admiten bibliotecas mayores con una jerarquía más clara, navegación redimensionable, controles compactos y contexto de colección en la vista de todos los elementos." },
+        "global-settings": { title: "Ajustes globales", description: "Un área dedicada reúne las preferencias generales, de captura, privacidad, interfaz, tema y detalle de copia en una experiencia coherente." },
+        "capture-feedback": { title: "Información de captura más clara", description: "Las dimensiones de selección, el foco del comentario, las vistas previas, las regiones ocultas y el progreso al guardar hacen que la captura sea más fluida y predecible." },
+        "help-center": { title: "Centro de ayuda mejorado", description: "Las guías de instalación y primera captura son más breves y claras, las imágenes se abren con zoom y los artículos largos resaltan la sección visible." },
+      },
+    },
     "v0.2.0": {
       title: "Lotes de captura y preferencias sincronizadas",
       summary:

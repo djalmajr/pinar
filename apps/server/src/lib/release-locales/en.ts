@@ -20,6 +20,33 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.3.0": {
+      title: "A clearer workspace and capture flow",
+      summary:
+        "Organize growing collections, tune Pinar from one settings area, and review every capture with clearer visual feedback and help.",
+      changes: {
+        "workspace-organization": {
+          title: "Workspace organization",
+          description:
+            "Nested collections now scale to larger libraries with clearer hierarchy, resizable navigation, compact controls, and collection context in the all-items view.",
+        },
+        "global-settings": {
+          title: "Global settings",
+          description:
+            "A dedicated settings area brings general, capture, privacy, interface, theme, and copy-detail preferences together in a consistent experience.",
+        },
+        "capture-feedback": {
+          title: "Clearer capture feedback",
+          description:
+            "Selection dimensions, focused pin comments, image previews, hidden-region handling, and save progress now provide a smoother and more predictable capture flow.",
+        },
+        "help-center": {
+          title: "Improved help center",
+          description:
+            "Installation and first-capture guides are shorter and clearer, screenshots open in a zoomable preview, and long articles highlight the section currently in view.",
+        },
+      },
+    },
     "v0.2.0": {
       title: "Capture batches and synced preferences",
       summary:

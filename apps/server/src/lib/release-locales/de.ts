@@ -22,6 +22,16 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.3.0": {
+      title: "Übersichtlicher Arbeitsbereich und Aufnahmeablauf",
+      summary: "Organisiere wachsende Sammlungen, passe Pinar zentral an und prüfe jede Aufnahme mit klarerem visuellem Feedback und besserer Hilfe.",
+      changes: {
+        "workspace-organization": { title: "Organisation des Arbeitsbereichs", description: "Verschachtelte Sammlungen unterstützen größere Bibliotheken mit klarerer Hierarchie, anpassbarer Navigation, kompakten Bedienelementen und Sammlungskontext in der Gesamtansicht." },
+        "global-settings": { title: "Globale Einstellungen", description: "Ein eigener Bereich bündelt allgemeine Einstellungen sowie Aufnahme, Datenschutz, Oberfläche, Design und Kopierdetails in einer einheitlichen Bedienung." },
+        "capture-feedback": { title: "Klareres Aufnahmefeedback", description: "Auswahlmaße, fokussierte Pin-Kommentare, Bildvorschauen, ausgeblendete Bereiche und Speicherfortschritt machen den Aufnahmeablauf flüssiger und vorhersehbarer." },
+        "help-center": { title: "Verbesserte Hilfe", description: "Installations- und Erste-Schritte-Anleitungen sind kürzer und klarer, Bilder öffnen sich mit Zoom und lange Artikel markieren den sichtbaren Abschnitt." },
+      },
+    },
     "v0.2.0": {
       title: "Aufnahme-Stapel und synchronisierte Einstellungen",
       summary:

@@ -76,7 +76,7 @@ describe("extension action entry points", () => {
   test("ships a coherent identity", () => {
     // The name heads the action menu, chrome://extensions and the store listing.
     assert.equal(manifest.name, "Pinar.dev");
-    assert.equal(manifest.version, "0.4.0");
+    assert.equal(manifest.version, "0.5.0");
     assert.equal(extensionPackage.version, manifest.version);
     assert.equal(manifest.homepage_url, "https://pinar.dev");
     assert.equal(manifest.default_locale, "en_US");

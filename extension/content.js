@@ -7,7 +7,7 @@
   const DRAG_THRESHOLD = 6;
   // How long the copy confirmation stays up before the overlay closes.
   const COPY_CONFIRMATION_MS = 2000;
-  // How long "Copying…" is shown before the overlay steps out of the frame for
+  // How long the in-progress status is shown before the overlay steps out for
   // the screenshot. The screenshot cannot include the toolbar, so the overlay
   // has to vanish for as long as the capture takes; this beat makes that read
   // as part of the sequence instead of the toolbar simply disappearing.

@@ -58,6 +58,7 @@ describe("extension package", () => {
 
   test("workflow never replaces the product Latest release", () => {
     const workflow = readFileSync(join(root, ".github/workflows/release-extension.yml"), "utf8");
+    expect(workflow).toContain("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1");
     expect(workflow).toContain('tags: ["extension-v*"]');
     expect(workflow).toContain("permissions:\n  contents: write");
     expect(workflow).toContain("--latest=false");

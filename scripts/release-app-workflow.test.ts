@@ -6,9 +6,11 @@ const root = join(import.meta.dir, "..");
 
 describe("Pinar.app release workflow", () => {
   const workflow = readFileSync(join(root, ".github/workflows/release-app.yml"), "utf8");
+  const checkoutV7 = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1";
 
   test("builds an existing product tag on a macOS runner", () => {
     expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain(checkoutV7);
     expect(workflow).toContain("ref: ${{ inputs.tag }}");
     expect(workflow).toContain("runs-on: macos-14");
     expect(workflow).toContain("hutch/install.sh");

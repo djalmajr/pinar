@@ -12,7 +12,7 @@ export function macosDesktopDmgUrl(arch = "arm64") {
 }
 
 export function windowsDesktopSetupFile() {
-  return "win-x64-Pinar-Setup.exe";
+  return "win-x64-Pinar-Setup.zip";
 }
 
 export function windowsDesktopSetupUrl() {

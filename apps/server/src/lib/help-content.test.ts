@@ -462,9 +462,11 @@ describe("help content", () => {
           ...(section.bullets ?? []),
         ])
         .join("\n");
-      assert.match(published, /win-x64-Pinar-Setup\.exe/);
+      assert.match(published, /win-x64-Pinar-Setup\.zip/);
+      assert.match(published, /Pinar-Setup\.exe/);
+      assert.match(published, /\.installer/);
       assert.doesNotMatch(published, /install\.ps1/);
-      assert.doesNotMatch(published, /Pinar-Setup\.zip/);
+      assert.doesNotMatch(published, /win-x64-Pinar-Setup\.exe/);
     }
   });
 

@@ -168,10 +168,23 @@ jobs:
           Write-Host "artifacts after collect:"
           Show-Files $artifacts
           $tarball = Join-Path $artifacts "stable-win-x64-Pinar.tar.zst"
+          $setupZip = Join-Path $artifacts "win-x64-Pinar-Setup.zip"
           $manifestPath = Join-Path $artifacts "stable-win-x64-update.json"
-          foreach ($path in @($setupDst, $tarball)) {
+          foreach ($path in @($setupDst, $tarball, $setupZip)) {
             if (-not (Test-Path $path)) { throw "Missing $path" }
             if ((Get-Item $path).Length -lt 1024) { throw "$path is too small" }
+          }
+          if ((Get-Item $setupZip).Length -lt 10MB) { throw "$setupZip is too small to contain .installer" }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $setupZip))
+          try {
+            $names = @($archive.Entries | ForEach-Object { $_.FullName })
+            if ($names -notcontains "Pinar-Setup.exe") { throw "zip missing Pinar-Setup.exe" }
+            if (-not ($names | Where-Object { $_ -match '\.installer/.+\.tar\.zst$' })) {
+              throw "zip missing .installer payload"
+            }
+          } finally {
+            $archive.Dispose()
           }
           if (-not (Test-Path $manifestPath)) { throw "Missing $manifestPath" }
           $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
@@ -191,6 +204,7 @@ jobs:
           gh release view $env:RELEASE_TAG | Out-Null
           $files = @(
             "apps/tray/artifacts/win-x64-Pinar-Setup.exe",
+            "apps/tray/artifacts/win-x64-Pinar-Setup.zip",
             "apps/tray/artifacts/stable-win-x64-Pinar.tar.zst",
             "apps/tray/artifacts/stable-win-x64-update.json"
           )

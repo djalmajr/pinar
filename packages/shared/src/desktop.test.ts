@@ -23,7 +23,7 @@ describe("desktop install URLs", () => {
   test("Windows uses the tray setup exe and Linux keeps the helper installer", () => {
     assert.equal(
       windowsDesktopSetupUrl(),
-      "https://github.com/djalmajr/pinar/releases/latest/download/win-x64-Pinar-Setup.exe",
+      "https://github.com/djalmajr/pinar/releases/latest/download/win-x64-Pinar-Setup.zip",
     );
     assert.equal(
       freeInstallUrl("Mozilla/5.0 (Windows NT 10.0; Win64; x64)"),

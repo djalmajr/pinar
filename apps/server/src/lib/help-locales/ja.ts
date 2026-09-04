@@ -256,7 +256,7 @@ const locale = {
           ],
           bullets: [
             "macOS: [Pinar アプリケーションをダウンロード](https://github.com/djalmajr/pinar/releases/latest/download/macos-arm64-Pinar.dmg)し、ディスクイメージを開いて 「アプリケーション」 へドラッグします。",
-            "Windows: [Pinar アプリケーションをダウンロード](https://github.com/djalmajr/pinar/releases/latest/download/win-x64-Pinar-Setup.exe)し、インストーラーを実行します。アイコンは通知領域に出ます。",
+            "Windows: [Pinar アプリケーションをダウンロード](https://github.com/djalmajr/pinar/releases/latest/download/win-x64-Pinar-Setup.zip)し、展開して `.installer` フォルダーの隣にある `Pinar-Setup.exe` を実行します。アイコンは通知領域に出ます。",
             "Windows: 初回実行で 「Windows によって PC が保護されました」 と出ることがあります。「詳細情報」 を選び、次に 「実行する」 を選びます。",
             "Linux: `curl -fsSL https://pinar.dev/install.sh | sh`",
           ],

@@ -52,6 +52,8 @@ describe("Pinar.app release workflow", () => {
       'Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $env:USERPROFILE ".hutch\\bin")',
     );
     expect(workflow).toContain("win-x64-Pinar-Setup.exe");
+    expect(workflow).toContain("win-x64-Pinar-Setup.zip");
+    expect(workflow).toContain(".installer/");
     expect(workflow).toContain("Pinar-Setup.exe");
     expect(workflow).toContain("Copy-Item $setupSrc $setupDst");
     expect(workflow).toContain("stable-win-x64-Pinar.tar.zst");

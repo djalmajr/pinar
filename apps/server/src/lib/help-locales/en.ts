@@ -256,7 +256,7 @@ const locale = {
           ],
           bullets: [
             "macOS: [download the Pinar application](https://github.com/djalmajr/pinar/releases/latest/download/macos-arm64-Pinar.dmg), open the disk image, and drag it into “Applications”.",
-            "Windows: [download the Pinar application](https://github.com/djalmajr/pinar/releases/latest/download/win-x64-Pinar-Setup.exe) and run the installer. It appears in the notification area.",
+            "Windows: [download the Pinar application](https://github.com/djalmajr/pinar/releases/latest/download/win-x64-Pinar-Setup.zip), extract it, and run `Pinar-Setup.exe` next to the `.installer` folder. It appears in the notification area.",
             "Windows: the first run may show “Windows protected your PC”. Choose “More info”, then “Run anyway”.",
             "Linux: `curl -fsSL https://pinar.dev/install.sh | sh`",
           ],

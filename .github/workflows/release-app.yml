@@ -156,21 +156,12 @@ jobs:
           }
           Write-Host "build:"
           Show-Files $build
-          Write-Host "artifacts before collect:"
-          Show-Files $artifacts
-          $setupSrc = Join-Path $build "Pinar-Setup.exe"
-          $setupDst = Join-Path $artifacts "win-x64-Pinar-Setup.exe"
-          if (-not (Test-Path $setupDst)) {
-            if (-not (Test-Path $setupSrc)) { throw "Missing $setupSrc" }
-            Copy-Item $setupSrc $setupDst
-            Write-Host "copied $setupSrc -> $setupDst"
-          }
-          Write-Host "artifacts after collect:"
+          Write-Host "artifacts:"
           Show-Files $artifacts
           $tarball = Join-Path $artifacts "stable-win-x64-Pinar.tar.zst"
           $setupZip = Join-Path $artifacts "win-x64-Pinar-Setup.zip"
           $manifestPath = Join-Path $artifacts "stable-win-x64-update.json"
-          foreach ($path in @($setupDst, $tarball, $setupZip)) {
+          foreach ($path in @($tarball, $setupZip)) {
             if (-not (Test-Path $path)) { throw "Missing $path" }
             if ((Get-Item $path).Length -lt 1024) { throw "$path is too small" }
           }
@@ -203,7 +194,6 @@ jobs:
           $ErrorActionPreference = "Stop"
           gh release view $env:RELEASE_TAG | Out-Null
           $files = @(
-            "apps/tray/artifacts/win-x64-Pinar-Setup.exe",
             "apps/tray/artifacts/win-x64-Pinar-Setup.zip",
             "apps/tray/artifacts/stable-win-x64-Pinar.tar.zst",
             "apps/tray/artifacts/stable-win-x64-update.json"

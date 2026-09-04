@@ -13,11 +13,11 @@ import {
   TabsList,
   TabsTrigger,
 } from "@pinar/ui";
+import { currentLegalAcceptance, LegalActionNotice } from "@/components/LegalActionNotice";
 import { FairSourceSupportCard } from "@/components/ServerFooter";
 import { ServerShell } from "@/components/ServerShell";
 import { isRecord } from "@/lib/api-data";
 import { useServerI18n } from "@/lib/i18n";
-import { CURRENT_LEGAL_VERSION } from "@/lib/legal-documents";
 import KeyRoundIcon from "~icons/lucide/key-round";
 import MailIcon from "~icons/lucide/mail";
 
@@ -26,7 +26,7 @@ interface SignInPageProps {
   returnTo: string;
 }
 
-type Step = "accept" | "request" | "verify";
+type Step = "request" | "verify";
 
 async function responseError(response: Response) {
   const data: unknown = await response.json().catch(() => ({}));
@@ -41,7 +41,6 @@ export function SignInPage({ extensionCode, returnTo }: SignInPageProps) {
   const [error, setError] = useState("");
   const autoExchangeStarted = useRef(false);
   const [loading, setLoading] = useState(false);
-  const [legalAccepted, setLegalAccepted] = useState(false);
   const [step, setStep] = useState<Step>("request");
 
   async function exchangeCode(value: string) {
@@ -104,23 +103,13 @@ export function SignInPage({ extensionCode, returnTo }: SignInPageProps) {
         body: JSON.stringify({
           code: emailCode,
           email,
-          legalAcceptance: step === "accept" ? {
-            acceptableUseVersion: CURRENT_LEGAL_VERSION,
-            accepted: legalAccepted,
-            locale: language === "pt" ? "pt" : "en",
-            privacyVersion: CURRENT_LEGAL_VERSION,
-            termsVersion: CURRENT_LEGAL_VERSION,
-          } : undefined,
+          legalAcceptance: currentLegalAcceptance(language === "pt" ? "pt" : "en"),
           returnTo,
         }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
       });
       const data: unknown = await response.json().catch(() => ({}));
-      if (response.status === 428 && isRecord(data) && data.code === "legal_acceptance_required") {
-        setStep("accept");
-        return;
-      }
       if (!response.ok) {
         throw new Error(isRecord(data) && typeof data.error === "string" ? data.error : "Request failed");
       }
@@ -135,7 +124,6 @@ export function SignInPage({ extensionCode, returnTo }: SignInPageProps) {
   function changeEmail() {
     setEmailCode("");
     setError("");
-    setLegalAccepted(false);
     setStep("request");
   }
 
@@ -185,9 +173,7 @@ export function SignInPage({ extensionCode, returnTo }: SignInPageProps) {
                     </div>
                     <CardDescription>{t(step === "request"
                       ? "signIn.accountDescription"
-                      : step === "accept"
-                        ? "signIn.legalDescription"
-                        : "signIn.emailSent")}</CardDescription>
+                      : "signIn.emailSent")}</CardDescription>
                   </CardHeader>
                   <CardContent>
                     {step === "request" ? (
@@ -198,37 +184,14 @@ export function SignInPage({ extensionCode, returnTo }: SignInPageProps) {
                         }} />
                         <Button className="w-full" disabled={loading} type="submit">{loading ? t("signIn.sending") : t("signIn.sendCode")}</Button>
                       </form>
-                    ) : step === "verify" ? (
+                    ) : (
                       <form className="flex flex-col gap-3" onSubmit={verifyEmailCode}>
                         <Input autoComplete="one-time-code" inputMode="numeric" maxLength={6} pattern="[0-9]{6}" placeholder="000000" required value={emailCode} onChange={(event) => {
                           setEmailCode(event.target.value.replace(/\D/g, ""));
                           setError("");
                         }} />
                         <Button className="w-full" disabled={loading || emailCode.length !== 6} type="submit">{loading ? t("signIn.entering") : t("signIn.verifyCode")}</Button>
-                        <Button className="w-full" type="button" variant="ghost" onClick={changeEmail}>{t("signIn.changeEmail")}</Button>
-                      </form>
-                    ) : (
-                      <form className="flex flex-col gap-3" onSubmit={verifyEmailCode}>
-                        <label className="flex cursor-pointer items-start gap-3 rounded-lg border bg-muted/30 p-3 text-sm">
-                          <input
-                            checked={legalAccepted}
-                            className="mt-0.5 size-4 shrink-0 accent-primary"
-                            type="checkbox"
-                            onChange={(event) => setLegalAccepted(event.currentTarget.checked)}
-                          />
-                          <span>
-                            {t("pricing.legalConsentPrefix")}{" "}
-                            <a className="font-medium underline underline-offset-4" href="/legal/terms" target="_blank">{t("pricing.legalTerms")}</a>
-                            {", "}
-                            <a className="font-medium underline underline-offset-4" href="/legal/privacy" target="_blank">{t("pricing.legalPrivacy")}</a>
-                            {" "}{t("pricing.legalAnd")}{" "}
-                            <a className="font-medium underline underline-offset-4" href="/legal/acceptable-use" target="_blank">{t("pricing.legalAcceptableUse")}</a>.
-                            <span className="mt-1 block text-xs text-muted-foreground">{t("pricing.legalDialogVersion", { version: CURRENT_LEGAL_VERSION })}</span>
-                          </span>
-                        </label>
-                        <Button className="w-full" disabled={loading || !legalAccepted} type="submit">
-                          {loading ? t("signIn.entering") : t("signIn.acceptAndEnter")}
-                        </Button>
+                        <LegalActionNotice />
                         <Button className="w-full" type="button" variant="ghost" onClick={changeEmail}>{t("signIn.changeEmail")}</Button>
                       </form>
                     )}

@@ -131,9 +131,6 @@ const messages: UiMessages = {
   "signIn.sendCode": "コードを送信",
   "signIn.sending": "送信中…",
   "signIn.verifyCode": "確認してログイン",
-  "signIn.legalDescription":
-    "このアカウントを有効化するには、現在のホステッドサービス規約に同意してください。",
-  "signIn.acceptAndEnter": "同意してログイン",
   "landing.badge": "AI ワークフロー向けビジュアルフィードバック",
   "landing.title": "問題を示し、完全なコンテキストを共有。",
   "landing.description":
@@ -429,19 +426,12 @@ const messages: UiMessages = {
   "pricing.checkoutFailed": "決済を開始できませんでした",
   "pricing.checkoutUnavailable":
     "決済は一時的に利用できません。後でもう一度お試しください。",
-  "pricing.legalConsentPrefix": "以下に同意します：",
-  "pricing.legalTerms": "利用規約",
-  "pricing.legalPrivacy": "プライバシーポリシー",
-  "pricing.legalAnd": "および",
   "pricing.legalAcceptableUse": "許容利用ポリシー",
-  "pricing.legalConsentVersion":
-    "バージョン {version}。安全な決済の前に同意が必要です。",
-  "pricing.legalConsentRequired": "決済前に現在のポリシーへ同意してください。",
-  "pricing.legalDialogTitle": "現在のポリシーを確認",
-  "pricing.legalDialogDescription":
-    "安全な決済の前に、現在の文書バージョンへの同意が一度だけ必要です。",
-  "pricing.legalDialogVersion": "バージョン {version}。",
-  "pricing.legalContinue": "同意して続行",
+  "pricing.legalAnd": "および",
+  "pricing.legalNoticePrefix": "続行すると、次に同意します：",
+  "pricing.legalNoticeVersion": "バージョン {version}。",
+  "pricing.legalPrivacy": "プライバシーポリシー",
+  "pricing.legalTerms": "利用規約",
   "pricing.networkError": "ネットワークエラー",
   "success.checkoutFailed": "購入の有効化に失敗しました",
   "success.sessionMissing": "決済セッションがありません",

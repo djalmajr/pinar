@@ -865,11 +865,11 @@ const locale = {
           heading:
             "Lancer Checkout avec les politiques actuelles et la bonne devise",
           paragraphs: [
-            "Le checkout ne démarre qu’après l’acceptation des Conditions, de la Politique de confidentialité et de l’Utilisation acceptable en vigueur. Le Brésil utilise les prix en BRL ; les autres pays utilisent l’USD. Le checkout Founder réserve un créneau limité et le libère si vous partez sans payer. Lorsque la cohorte est pleine ou que les ventes sont en pause, la page Plans masque cette offre.",
+            "Payer sur Plans accepte les Conditions, la Politique de confidentialité et l’Utilisation acceptable en vigueur. Le Brésil utilise les prix en BRL ; les autres pays utilisent l’USD. Le checkout Founder réserve un créneau limité et le libère si vous partez sans payer. Lorsque la cohorte est pleine ou que les ventes sont en pause, la page Plans masque cette offre.",
             "Après un paiement réussi, l’offre est accordée au compte connecté et vous revenez au workspace. Le portail de facturation est disponible après un checkout payant. Lorsqu’un abonnement Pro se termine, ces sessions cloud entrent dans une fenêtre de récupération ; les comptes Founder et lifetime hérités restent permanents à la place.",
           ],
           bullets: [
-            "Acceptez les versions de politique courantes dans le flux Plans hébergé avant de payer.",
+            "Poursuivre un checkout payant sur Plans accepte les versions de politique courantes.",
             "Si le checkout Founder est indisponible, attendez un créneau ou choisissez Pro plutôt que de réessayer le même checkout.",
             "Si Gérer l’abonnement est indisponible, terminez d’abord un Checkout payant, puis ouvrez-le depuis un compte connecté.",
           ],

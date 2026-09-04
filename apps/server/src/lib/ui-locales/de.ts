@@ -131,9 +131,6 @@ const messages: UiMessages = {
   "signIn.sendCode": "Code senden",
   "signIn.sending": "Wird gesendet…",
   "signIn.verifyCode": "Prüfen und anmelden",
-  "signIn.legalDescription":
-    "Akzeptiere die aktuellen Richtlinien des gehosteten Dienstes, um dieses Konto zu aktivieren.",
-  "signIn.acceptAndEnter": "Akzeptieren und anmelden",
   "landing.badge": "Visuelles Feedback für KI-Workflows",
   "landing.title": "Zeige auf das Problem. Teile den vollständigen Kontext.",
   "landing.description":
@@ -434,20 +431,12 @@ const messages: UiMessages = {
   "pricing.checkoutFailed": "Checkout konnte nicht gestartet werden",
   "pricing.checkoutUnavailable":
     "Der Checkout ist vorübergehend nicht verfügbar. Bitte versuche es später erneut.",
-  "pricing.legalConsentPrefix": "Ich stimme den",
-  "pricing.legalTerms": "Nutzungsbedingungen",
-  "pricing.legalPrivacy": "Datenschutzerklärung",
-  "pricing.legalAnd": "und der",
   "pricing.legalAcceptableUse": "Richtlinie zur zulässigen Nutzung",
-  "pricing.legalConsentVersion":
-    "Version {version}. Vor dem sicheren Checkout erforderlich.",
-  "pricing.legalConsentRequired":
-    "Akzeptiere vor dem Checkout die aktuellen Richtlinien.",
-  "pricing.legalDialogTitle": "Aktuelle Richtlinien prüfen",
-  "pricing.legalDialogDescription":
-    "Diese Zustimmung ist für die aktuelle Dokumentversion einmalig vor dem sicheren Checkout erforderlich.",
-  "pricing.legalDialogVersion": "Version {version}.",
-  "pricing.legalContinue": "Akzeptieren und fortfahren",
+  "pricing.legalAnd": "und der",
+  "pricing.legalNoticePrefix": "Mit dem Fortfahren akzeptierst du die",
+  "pricing.legalNoticeVersion": "Version {version}.",
+  "pricing.legalPrivacy": "Datenschutzerklärung",
+  "pricing.legalTerms": "Nutzungsbedingungen",
   "pricing.networkError": "Netzwerkfehler",
   "success.checkoutFailed": "Checkout-Aktivierung fehlgeschlagen",
   "success.sessionMissing": "Checkout-Sitzung fehlt",

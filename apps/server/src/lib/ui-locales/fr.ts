@@ -131,9 +131,6 @@ const messages: UiMessages = {
   "signIn.sendCode": "Envoyer le code",
   "signIn.sending": "Envoi…",
   "signIn.verifyCode": "Vérifier et entrer",
-  "signIn.legalDescription":
-    "Acceptez les politiques actuelles du service hébergé pour activer ce compte.",
-  "signIn.acceptAndEnter": "Accepter et entrer",
   "landing.badge": "Retours visuels pour les flux IA",
   "landing.title": "Montrez le problème. Partagez tout le contexte.",
   "landing.description":
@@ -435,20 +432,12 @@ const messages: UiMessages = {
   "pricing.checkoutFailed": "Impossible de démarrer le paiement",
   "pricing.checkoutUnavailable":
     "Le paiement est temporairement indisponible. Réessayez plus tard.",
-  "pricing.legalConsentPrefix": "J’accepte les",
-  "pricing.legalTerms": "Conditions d’utilisation",
-  "pricing.legalPrivacy": "Politique de confidentialité",
-  "pricing.legalAnd": "et la",
   "pricing.legalAcceptableUse": "Politique d’utilisation acceptable",
-  "pricing.legalConsentVersion":
-    "Version {version}. Requis avant le paiement sécurisé.",
-  "pricing.legalConsentRequired":
-    "Acceptez les politiques en vigueur avant le paiement.",
-  "pricing.legalDialogTitle": "Consultez les politiques actuelles",
-  "pricing.legalDialogDescription":
-    "Cette acceptation est requise une fois pour la version actuelle des documents avant le paiement sécurisé.",
-  "pricing.legalDialogVersion": "Version {version}.",
-  "pricing.legalContinue": "Accepter et continuer",
+  "pricing.legalAnd": "et la",
+  "pricing.legalNoticePrefix": "En continuant, vous acceptez les",
+  "pricing.legalNoticeVersion": "Version {version}.",
+  "pricing.legalPrivacy": "Politique de confidentialité",
+  "pricing.legalTerms": "Conditions d’utilisation",
   "pricing.networkError": "Erreur réseau",
   "success.checkoutFailed": "Échec de l’activation de l’achat",
   "success.sessionMissing": "La session de paiement est absente",

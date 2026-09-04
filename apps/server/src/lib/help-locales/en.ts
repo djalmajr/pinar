@@ -859,11 +859,11 @@ const locale = {
           heading:
             "Start Checkout with current policies and the right currency",
           paragraphs: [
-            "Checkout starts only after you accept the current Terms, Privacy Policy, and Acceptable Use. Brazil uses BRL prices; other countries use USD. Founder checkout reserves a limited slot and releases it if you leave without paying. When the cohort is full or sales are paused, the Plans page hides that offer.",
+            "Paying on Plans accepts the current Terms, Privacy Policy, and Acceptable Use. Brazil uses BRL prices; other countries use USD. Founder checkout reserves a limited slot and releases it if you leave without paying. When the cohort is full or sales are paused, the Plans page hides that offer.",
             "After a successful payment, the offer is granted on the signed-in account and you return to the workspace. The billing portal is available after a paid checkout. When a Pro subscription ends, those cloud sessions enter a recovery window; Founder and legacy lifetime accounts stay permanent instead.",
           ],
           bullets: [
-            "Accept the current policy versions on the hosted Plans flow before paying.",
+            "Continuing a paid checkout on Plans accepts the current policy versions.",
             "If Founder checkout is unavailable, wait for a slot or choose Pro rather than retrying the same checkout.",
             "If Manage subscription is unavailable, finish a paid Checkout first, then open it from a signed-in account.",
           ],

@@ -865,11 +865,11 @@ const locale = {
           heading:
             "Iniciar Checkout con las políticas vigentes y la moneda correcta",
           paragraphs: [
-            "Checkout empieza solo después de que aceptes los Términos, la Política de privacidad y el Uso aceptable vigentes. Brasil usa precios en BRL; otros países usan USD. El checkout de Founder reserva un cupo limitado y lo libera si sales sin pagar. Cuando la cohorte está llena o las ventas están en pausa, la página Planes oculta esa oferta.",
+            "Pagar en Planes acepta los Términos, la Política de privacidad y el Uso aceptable vigentes. Brasil usa precios en BRL; otros países usan USD. El checkout de Founder reserva un cupo limitado y lo libera si sales sin pagar. Cuando la cohorte está llena o las ventas están en pausa, la página Planes oculta esa oferta.",
             "Tras un pago correcto, la oferta se concede en la cuenta con sesión iniciada y vuelves al espacio de trabajo. El portal de facturación está disponible después de un checkout de pago. Cuando termina una suscripción Pro, esas sesiones en la nube entran en una ventana de recuperación; las cuentas Founder y las de lifetime heredadas permanecen permanentes.",
           ],
           bullets: [
-            "Acepta las versiones vigentes de las políticas en el flujo alojado de Planes antes de pagar.",
+            "Continuar un checkout de pago en Planes acepta las versiones vigentes de las políticas.",
             "Si el checkout de Founder no está disponible, espera un cupo o elige Pro en lugar de reintentar el mismo checkout.",
             "Si Manage subscription no está disponible, termina primero un Checkout de pago y luego ábrelo desde una cuenta con sesión iniciada.",
           ],

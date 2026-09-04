@@ -129,9 +129,6 @@ const messages = {
   "signIn.sendCode": "Send code",
   "signIn.sending": "Sending…",
   "signIn.verifyCode": "Verify and enter",
-  "signIn.legalDescription":
-    "Accept the current hosted-service policies to activate this account.",
-  "signIn.acceptAndEnter": "Accept and enter",
   "landing.badge": "Visual feedback for AI workflows",
   "landing.title": "Point to the problem. Share the complete context.",
   "landing.description":
@@ -428,20 +425,12 @@ const messages = {
   "pricing.checkoutFailed": "Failed to initialize checkout",
   "pricing.checkoutUnavailable":
     "Checkout is temporarily unavailable. Please try again later.",
-  "pricing.legalConsentPrefix": "I agree to the",
-  "pricing.legalTerms": "Terms of Service",
-  "pricing.legalPrivacy": "Privacy Policy",
-  "pricing.legalAnd": "and the",
   "pricing.legalAcceptableUse": "Acceptable Use Policy",
-  "pricing.legalConsentVersion":
-    "Version {version}. Required before secure checkout.",
-  "pricing.legalConsentRequired":
-    "Accept the current policies before checkout.",
-  "pricing.legalDialogTitle": "Review the current policies",
-  "pricing.legalDialogDescription":
-    "This acceptance is required once for the current document version before secure checkout.",
-  "pricing.legalDialogVersion": "Version {version}.",
-  "pricing.legalContinue": "Accept and continue",
+  "pricing.legalAnd": "and the",
+  "pricing.legalNoticePrefix": "By continuing, you accept the",
+  "pricing.legalNoticeVersion": "Version {version}.",
+  "pricing.legalPrivacy": "Privacy Policy",
+  "pricing.legalTerms": "Terms of Service",
   "pricing.networkError": "Network error",
   "success.checkoutFailed": "Checkout activation failed",
   "success.sessionMissing": "Checkout session is missing",

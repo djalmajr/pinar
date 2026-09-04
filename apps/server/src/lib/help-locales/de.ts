@@ -865,11 +865,11 @@ const locale = {
           heading:
             "Checkout mit aktuellen Richtlinien und der richtigen Währung starten",
           paragraphs: [
-            "Checkout startet erst, nachdem du die aktuellen Nutzungsbedingungen, die Datenschutzerklärung und die zulässige Nutzung akzeptiert hast. Brasilien verwendet BRL-Preise; andere Länder verwenden USD. Der Founder-Checkout reserviert einen begrenzten Platz und gibt ihn frei, wenn du ohne Zahlung gehst. Ist die Kohorte voll oder der Verkauf pausiert, blendet die Plans-Seite dieses Angebot aus.",
+            "Eine Zahlung auf Plans akzeptiert die aktuellen Nutzungsbedingungen, die Datenschutzerklärung und die zulässige Nutzung. Brasilien verwendet BRL-Preise; andere Länder verwenden USD. Der Founder-Checkout reserviert einen begrenzten Platz und gibt ihn frei, wenn du ohne Zahlung gehst. Ist die Kohorte voll oder der Verkauf pausiert, blendet die Plans-Seite dieses Angebot aus.",
             "Nach einer erfolgreichen Zahlung wird das Angebot dem angemeldeten Konto gewährt und du kehrst in den Workspace zurück. Das Abrechnungsportal ist nach einem bezahlten Checkout verfügbar. Endet ein Pro-Abonnement, treten diese Cloud-Sitzungen in ein Wiederherstellungsfenster ein; Founder- und Legacy-Lifetime-Konten bleiben stattdessen dauerhaft.",
           ],
           bullets: [
-            "Akzeptiere die aktuellen Richtlinienversionen im gehosteten Plans-Ablauf vor der Zahlung.",
+            "Ein bezahlter Checkout auf Plans akzeptiert die aktuellen Richtlinienversionen.",
             "Wenn der Founder-Checkout nicht verfügbar ist, warte auf einen Platz oder wähle Pro, statt denselben Checkout erneut zu versuchen.",
             "Wenn Manage subscription nicht verfügbar ist, schließe zuerst einen bezahlten Checkout ab und öffne es dann aus einem angemeldeten Konto.",
           ],

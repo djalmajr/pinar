@@ -131,9 +131,6 @@ const messages: UiMessages = {
   "signIn.sendCode": "Enviar código",
   "signIn.sending": "Enviando…",
   "signIn.verifyCode": "Verificar y entrar",
-  "signIn.legalDescription":
-    "Acepta las políticas actuales del servicio alojado para activar esta cuenta.",
-  "signIn.acceptAndEnter": "Aceptar y entrar",
   "landing.badge": "Feedback visual para flujos con IA",
   "landing.title": "Señala el problema. Comparte todo el contexto.",
   "landing.description":
@@ -434,20 +431,12 @@ const messages: UiMessages = {
   "pricing.checkoutFailed": "No se pudo iniciar el pago",
   "pricing.checkoutUnavailable":
     "El pago no está disponible temporalmente. Inténtalo de nuevo más tarde.",
-  "pricing.legalConsentPrefix": "Acepto los",
-  "pricing.legalTerms": "Términos del Servicio",
-  "pricing.legalPrivacy": "Política de Privacidad",
-  "pricing.legalAnd": "y la",
   "pricing.legalAcceptableUse": "Política de Uso Aceptable",
-  "pricing.legalConsentVersion":
-    "Versión {version}. Obligatorio antes del pago seguro.",
-  "pricing.legalConsentRequired":
-    "Acepta las políticas vigentes antes del pago.",
-  "pricing.legalDialogTitle": "Revisa las políticas actuales",
-  "pricing.legalDialogDescription":
-    "Esta aceptación se requiere una vez para la versión actual de los documentos antes del pago seguro.",
-  "pricing.legalDialogVersion": "Versión {version}.",
-  "pricing.legalContinue": "Aceptar y continuar",
+  "pricing.legalAnd": "y la",
+  "pricing.legalNoticePrefix": "Al continuar, aceptas los",
+  "pricing.legalNoticeVersion": "Versión {version}.",
+  "pricing.legalPrivacy": "Política de Privacidad",
+  "pricing.legalTerms": "Términos del Servicio",
   "pricing.networkError": "Error de red",
   "success.checkoutFailed": "Error al activar la compra",
   "success.sessionMissing": "Falta la sesión de pago",

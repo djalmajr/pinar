@@ -130,9 +130,6 @@ const messages: UiMessages = {
   "signIn.sendCode": "Enviar código",
   "signIn.sending": "Enviando…",
   "signIn.verifyCode": "Verificar e entrar",
-  "signIn.legalDescription":
-    "Aceite as políticas vigentes do serviço hospedado para ativar esta conta.",
-  "signIn.acceptAndEnter": "Aceitar e entrar",
   "landing.badge": "Feedback visual para fluxos com IA",
   "landing.title": "Aponte o problema. Compartilhe todo o contexto.",
   "landing.description":
@@ -428,20 +425,12 @@ const messages: UiMessages = {
   "pricing.checkoutFailed": "Não foi possível iniciar o checkout",
   "pricing.checkoutUnavailable":
     "O checkout está temporariamente indisponível. Tente novamente mais tarde.",
-  "pricing.legalConsentPrefix": "Concordo com os",
-  "pricing.legalTerms": "Termos de Serviço",
-  "pricing.legalPrivacy": "Política de Privacidade",
-  "pricing.legalAnd": "e a",
   "pricing.legalAcceptableUse": "Política de Uso Aceitável",
-  "pricing.legalConsentVersion":
-    "Versão {version}. Obrigatório antes do checkout seguro.",
-  "pricing.legalConsentRequired":
-    "Aceite as políticas vigentes antes do checkout.",
-  "pricing.legalDialogTitle": "Revise as políticas vigentes",
-  "pricing.legalDialogDescription":
-    "Este aceite é necessário uma vez para a versão vigente dos documentos antes do checkout seguro.",
-  "pricing.legalDialogVersion": "Versão {version}.",
-  "pricing.legalContinue": "Aceitar e continuar",
+  "pricing.legalAnd": "e a",
+  "pricing.legalNoticePrefix": "Ao continuar, você aceita os",
+  "pricing.legalNoticeVersion": "Versão {version}.",
+  "pricing.legalPrivacy": "Política de Privacidade",
+  "pricing.legalTerms": "Termos de Serviço",
   "pricing.networkError": "Erro de rede",
   "success.checkoutFailed": "Falha ao ativar a compra",
   "success.sessionMissing": "A sessão de checkout está ausente",

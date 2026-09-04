@@ -187,25 +187,12 @@ test("email OTP keeps responses non-enumerating, limits retries and resets recov
   await expect(page).toHaveURL(/\/app$/);
 });
 
-test("first remote account activation accepts the current policies after OTP verification", async ({ page }) => {
+test("first remote account activation accepts the current policies with OTP verification", async ({ page }) => {
   const verifyBodies: Record<string, unknown>[] = [];
   await page.route("**/api/auth/email-codes", (route) => route.fulfill({ json: { ok: true }, status: 202 }));
   await page.route("**/api/auth/email-codes/verify", async (route) => {
     const body = route.request().postDataJSON() as Record<string, unknown>;
     verifyBodies.push(body);
-    if (!body.legalAcceptance) {
-      await route.fulfill({
-        json: {
-          acceptableUseUrl: "/legal/acceptable-use",
-          code: "legal_acceptance_required",
-          privacyUrl: "/legal/privacy",
-          termsUrl: "/legal/terms",
-          version: "2026-08-18",
-        },
-        status: 428,
-      });
-      return;
-    }
     await route.fulfill({ json: { redirectTo: "/pricing?activated=1" } });
   });
 
@@ -213,23 +200,21 @@ test("first remote account activation accepts the current policies after OTP ver
   await page.getByRole("tab", { name: "Account" }).click();
   await page.getByPlaceholder("you@example.com").fill("founder@example.com");
   await page.getByRole("button", { name: "Send code" }).click();
+  await expect(page.getByText("By continuing, you accept the")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Terms of Service", exact: true }))
+    .toHaveAttribute("href", "/legal/terms");
+  await expect(page.getByText("Version 2026-08-25.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Accept and enter" })).toHaveCount(0);
   await page.getByPlaceholder("000000").fill("654321");
   await page.getByRole("button", { name: "Verify and enter" }).click();
-
-  await expect(page.getByText("Accept the current hosted-service policies to activate this account.")).toBeVisible();
-  const acceptButton = page.getByRole("button", { name: "Accept and enter" });
-  await expect(acceptButton).toBeDisabled();
-  await page.getByRole("checkbox", { name: /I agree to the Terms of Service/ }).check();
-  await acceptButton.click();
   await expect(page).toHaveURL(/\/pricing\?activated=1$/);
 
-  expect(verifyBodies).toHaveLength(2);
-  expect(verifyBodies[0].legalAcceptance).toBeUndefined();
-  expect(verifyBodies[1].legalAcceptance).toEqual({
-    acceptableUseVersion: "2026-08-18",
+  expect(verifyBodies).toHaveLength(1);
+  expect(verifyBodies[0].legalAcceptance).toEqual({
+    acceptableUseVersion: "2026-08-25",
     accepted: true,
     locale: "en",
-    privacyVersion: "2026-08-18",
-    termsVersion: "2026-08-18",
+    privacyVersion: "2026-08-25",
+    termsVersion: "2026-08-25",
   });
 });

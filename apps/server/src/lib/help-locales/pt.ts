@@ -862,11 +862,11 @@ const locale = {
           heading:
             "Inicie o Checkout com as políticas atuais e a moeda correta",
           paragraphs: [
-            "O Checkout só começa depois que você aceita os Termos, a Política de Privacidade e o Uso Aceitável atuais. O Brasil usa preços em BRL; outros países usam USD. O Checkout Founder reserva uma vaga limitada e a libera se você sair sem pagar. Quando a coorte está cheia ou as vendas estão pausadas, a página Planos oculta essa oferta.",
+            "Pagar em Planos aceita os Termos, a Política de Privacidade e o Uso Aceitável vigentes. O Brasil usa preços em BRL; outros países usam USD. O Checkout Founder reserva uma vaga limitada e a libera se você sair sem pagar. Quando a coorte está cheia ou as vendas estão pausadas, a página Planos oculta essa oferta.",
             "Depois de um pagamento bem-sucedido, a oferta é concedida na conta autenticada e você volta ao workspace. O portal de cobrança fica disponível depois de um checkout pago. Quando uma assinatura Pro termina, essas sessões na nuvem entram numa janela de recuperação; contas Founder e lifetime legado permanecem permanentes.",
           ],
           bullets: [
-            "Aceite as versões atuais das políticas no fluxo hospedado de Planos antes de pagar.",
+            "Continuar um checkout pago em Planos aceita as versões atuais das políticas.",
             "Se o Checkout Founder estiver indisponível, espere uma vaga ou escolha Pro em vez de repetir o mesmo checkout.",
             "Se Gerenciar assinatura estiver indisponível, conclua primeiro um Checkout pago e depois abra-o numa conta autenticada.",
           ],

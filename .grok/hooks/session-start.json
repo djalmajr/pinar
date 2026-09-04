@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "../../hooks/ensure.sh",
+            "command": "node hooks/ensure.mjs",
             "timeout": 8
           }
         ]

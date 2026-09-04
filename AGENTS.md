@@ -2,7 +2,7 @@
 
 The shared shadcn UI uses preset `b5J6exi2i` (Nova/Base UI, mist/sky, Inter), with the Switch geometry intentionally kept less rounded.
 
-On macOS, session-start hooks open **Pinar.app** (`/usr/bin/open -ga ~/Applications/Pinar.app`). The menu-bar app starts the local HTTP server if it is not already up. If the menu bar shows Local Server: Off, choose Start. Do not instruct `pinar` or `curl | sh`, and do not start a second long-lived process: any port in `127.0.0.1:17373`–`17382` that answers `GET /api/health` with `service: "pinar"` is enough. Shots land in `~/.pinar/shots` and history in `~/.pinar/history.db`. `PINAR_PORT` pins the server to a single port.
+On macOS, session-start hooks open **Pinar.app** (`/usr/bin/open -ga ~/Applications/Pinar.app`). The menu-bar app starts the local HTTP server if it is not already up. If the menu bar shows Local Server: Off, choose Start. On Windows, the project Grok hook runs `node hooks/ensure.mjs`. After `bun run build:tray` and install, the tray app lives in `%LOCALAPPDATA%\Programs\Pinar` and starts the local server. Do not instruct `pinar` or `curl | sh`, and do not start a second long-lived process: any port in `127.0.0.1:17373`–`17382` that answers `GET /api/health` with `service: "pinar"` is enough. Shots land in `~/.pinar/shots` (Windows: `%USERPROFILE%\.pinar\shots`) and history in `~/.pinar/history.db`. `PINAR_PORT` pins the server to a single port.
 
 From a checkout, developers can still build the tray and helper:
 
@@ -11,7 +11,7 @@ bun run build:tray
 bun apps/cli/src/cli.mjs install
 ```
 
-After every source modification, rebuild and reinstall the affected local Pinar artifacts before handing the work back. Rebuild and reinstall `Pinar.app`, then verify `/api/health`; when extension files change, also run `bun run build:ext` and explicitly reload the unpacked extension before claiming the new behavior is active.
+After every source modification, rebuild and reinstall the affected local Pinar artifacts before handing the work back. Rebuild and reinstall `Pinar.app` (Windows: `%LOCALAPPDATA%\Programs\Pinar`), then verify `/api/health`; when extension files change, also run `bun run build:ext` and explicitly reload the unpacked extension before claiming the new behavior is active.
 
 skills.sh does not install these hooks.
 

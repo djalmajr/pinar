@@ -6,9 +6,12 @@ import {
 	bundledHelperCandidates,
 	bundledHelperPath,
 	ensurePinarHome,
+	parseNetstatListeningPid,
 	pinarBin,
 	runningAppBundle,
+	runningAppRoot,
 	stopServer,
+	usesShell,
 } from "./local-server";
 
 describe("bundled helper paths", () => {
@@ -52,6 +55,32 @@ describe("bundled helper paths", () => {
 			if (previous == null) delete process.env.PINAR_BIN;
 			else process.env.PINAR_BIN = previous;
 		}
+	});
+
+	test("runningAppRoot finds a Windows app folder with Helpers/pinar.exe", () => {
+		const root = mkdtempSync(join(tmpdir(), "pinar-win-bundle-"));
+		const execPath = join(root, "runtime", "cottontail.exe");
+		const helper = join(root, "Helpers", "pinar.exe");
+		mkdirSync(dirname(execPath), { recursive: true });
+		mkdirSync(join(root, "Helpers"), { recursive: true });
+		writeFileSync(execPath, "");
+		writeFileSync(helper, "");
+		expect(runningAppRoot(execPath)).toBe(root);
+		expect(bundledHelperPath(execPath)).toBe(helper);
+		const previous = process.env.PINAR_BIN;
+		delete process.env.PINAR_BIN;
+		try {
+			expect(pinarBin(execPath)).toBe(helper);
+		} finally {
+			if (previous == null) delete process.env.PINAR_BIN;
+			else process.env.PINAR_BIN = previous;
+		}
+	});
+
+	test("usesShell is true only for Windows batch launchers", () => {
+		expect(usesShell("C:\\pinar\\bin\\pinar.cmd", "win32")).toBe(true);
+		expect(usesShell("C:\\pinar\\Helpers\\pinar.exe", "win32")).toBe(false);
+		expect(usesShell("/opt/pinar/hooks/ensure.mjs", "darwin")).toBe(false);
 	});
 
 	test("darwin does not fall back to ~/.pinar/bin", () => {
@@ -99,8 +128,16 @@ describe("stopServer", () => {
 		expect(killed).toEqual([]);
 	});
 
+	test("parses a Windows netstat LISTENING pid", () => {
+		const stdout = [
+			"  TCP    127.0.0.1:17373        0.0.0.0:0              LISTENING       41156",
+			"  TCP    127.0.0.1:443          0.0.0.0:0              LISTENING       4",
+		].join("\r\n");
+		expect(parseNetstatListeningPid(stdout, 17373)).toBe(41156);
+		expect(parseNetstatListeningPid(stdout, 17374)).toBeNull();
+	});
+
 	test("falls back to killing the listening pid when pinar stop leaves health up", async () => {
-		if (process.platform === "win32") return;
 		const killed: number[] = [];
 		let port: number | null = 17373;
 		await stopServer({

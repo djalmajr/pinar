@@ -96,3 +96,71 @@ jobs:
             apps/tray/artifacts/stable-macos-arm64-update.json \
             apps/tray/artifacts/stable-macos-arm64-*.patch
           gh release edit "$RELEASE_TAG" --draft=false --latest
+
+  windows:
+    name: Build and publish Windows installer
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag }}
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.0
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Install Hutch
+        run: |
+          $ErrorActionPreference = "Stop"
+          & ([scriptblock]::Create((irm https://hutch.blackboard.sh/hutch/install.ps1))) -Version 0.25.0 -NoModifyPath
+          Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $env:USERPROFILE ".hutch\bin")
+      - name: Validate release tag
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = bun -e "console.log(JSON.parse(await Bun.file('package.json').text()).version)"
+          if ($env:RELEASE_TAG -ne "v$version") {
+            throw "Tag $($env:RELEASE_TAG) does not match package.json $version"
+          }
+          $at = git describe --exact-match --tags HEAD
+          if ($at -ne $env:RELEASE_TAG) {
+            throw "HEAD is $at, expected $($env:RELEASE_TAG)"
+          }
+          bun run release:check
+      - name: Build Windows installer
+        run: bun run build:tray
+      - name: Verify Windows artifacts
+        run: |
+          $ErrorActionPreference = "Stop"
+          $required = @(
+            "apps/tray/artifacts/win-x64-Pinar-Setup.exe",
+            "apps/tray/artifacts/stable-win-x64-Pinar.tar.zst",
+            "apps/tray/artifacts/stable-win-x64-update.json"
+          )
+          foreach ($path in $required) {
+            if (-not (Test-Path $path)) { throw "Missing $path" }
+            if ((Get-Item $path).Length -lt 1024) { throw "$path is too small" }
+          }
+      - name: Upload Windows artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          gh release view $env:RELEASE_TAG | Out-Null
+          $files = @(
+            "apps/tray/artifacts/win-x64-Pinar-Setup.exe",
+            "apps/tray/artifacts/stable-win-x64-Pinar.tar.zst",
+            "apps/tray/artifacts/stable-win-x64-update.json"
+          )
+          $patches = Get-ChildItem "apps/tray/artifacts/stable-win-x64-*.patch" -ErrorAction SilentlyContinue
+          if ($patches) { $files += $patches.FullName }
+          gh release upload $env:RELEASE_TAG --clobber @files

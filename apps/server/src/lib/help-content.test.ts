@@ -8,7 +8,7 @@ import {
   loadHelpContent,
   searchHelpArticles,
 } from "./help-content";
-import { SUPPORTED_LANGUAGES } from "@pinar/shared";
+import { SUPPORTED_LANGUAGES, translations } from "@pinar/shared";
 
 const expectedArticleCounts = {
   agents: 5,
@@ -33,6 +33,13 @@ function markdownLinkTargets(text: string) {
   return [...text.matchAll(/\[(?:[^\]]*)\]\(([^)]+)\)/g)].map(
     (match) => match[1],
   );
+}
+
+function quoteHelpUiLabel(language: string, label: string) {
+  if (language === "de") return `„${label}“`;
+  if (language === "fr") return `« ${label} »`;
+  if (language === "ja" || language === "zh") return `「${label}」`;
+  return `“${label}”`;
 }
 
 describe("help content", () => {
@@ -147,6 +154,17 @@ describe("help content", () => {
           true,
           `missing help screenshot: ${article.screenshot.src}`,
         );
+        for (const section of article.sections) {
+          for (const screenshot of section.screenshots ?? []) {
+            assert.equal(
+              existsSync(
+                new URL(`../../public${screenshot.src}`, import.meta.url),
+              ),
+              true,
+              `missing help screenshot: ${screenshot.src}`,
+            );
+          }
+        }
         assert.equal(
           findHelpArticle(content, article.category, article.id),
           article,
@@ -235,6 +253,11 @@ describe("help content", () => {
       /founderState/,
       /~\/\.pinar/,
       /Workers AI/,
+      /Pinar\.app/,
+      /Pinar-App/,
+      /install\.ps1/,
+      /\bapp Pinar\b/i,
+      /aplicativo Pinar/i,
     ];
 
     for (const content of await loadEveryHelpLocale()) {
@@ -248,7 +271,12 @@ describe("help content", () => {
         published.push(category.title, category.description);
       }
       for (const article of content.articles) {
-        published.push(article.title, article.summary);
+        published.push(
+          article.title,
+          article.summary,
+          article.screenshot.alt,
+          article.screenshot.caption,
+        );
         for (const section of article.sections) {
           published.push(section.heading, ...section.paragraphs);
           if (section.bullets) published.push(...section.bullets);
@@ -307,6 +335,299 @@ describe("help content", () => {
             );
           }
         }
+      }
+    }
+  });
+
+  test("wraps keyboard shortcuts in code spans in every article", async () => {
+    const shortcutKeys = [
+      "Command/Ctrl+Enter",
+      "Command+Enter",
+      "Ctrl+Enter",
+      "Shift+Enter",
+      "Alt+Shift+P",
+      "Arrow Up",
+      "Arrow Down",
+      "Escape",
+      "Enter",
+    ];
+    const localizedShortcutKeys: Record<string, string[]> = {
+      pt: ["Seta para cima", "Seta para baixo"],
+    };
+
+    function textOutsideCodeSpans(text: string) {
+      return text.replace(/`[^`]+`/g, " ");
+    }
+
+    for (const content of await loadEveryHelpLocale()) {
+      const firstCapture = findHelpArticle(
+        content,
+        "getting-started",
+        "first-capture",
+      );
+      assert.ok(firstCapture);
+      const firstCaptureText = firstCapture.sections
+        .flatMap((section) => [
+          ...section.paragraphs,
+          ...(section.bullets ?? []),
+        ])
+        .join("\n");
+      assert.match(firstCaptureText, /`Command\/Ctrl\+Enter`/);
+      assert.match(firstCaptureText, /`Command\+Enter`/);
+      assert.match(firstCaptureText, /`Ctrl\+Enter`/);
+      assert.match(firstCaptureText, /`Shift\+Enter`/);
+      assert.match(firstCaptureText, /`Escape`/);
+      assert.match(firstCaptureText, /`Enter`/);
+
+      const keys = [
+        ...shortcutKeys,
+        ...(localizedShortcutKeys[content.language] ?? []),
+      ];
+      for (const article of content.articles) {
+        const published = article.sections.flatMap((section) => [
+          ...section.paragraphs,
+          ...(section.bullets ?? []),
+        ]);
+        for (const text of published) {
+          const leftover = textOutsideCodeSpans(text);
+          for (const key of keys) {
+            assert.equal(
+              leftover.includes(key),
+              false,
+              `${content.language}:${article.id} left ${key} outside a code span: ${text.slice(0, 180)}`,
+            );
+          }
+        }
+      }
+    }
+  });
+
+  test("install-pinar tells Windows users how to continue past the first-run block", async () => {
+    const expected = {
+      de: [
+        "Windows hat Ihren PC geschützt",
+        "Weitere Informationen",
+        "Trotzdem ausführen",
+      ],
+      en: ["Windows protected your PC", "More info", "Run anyway"],
+      es: ["Windows protegió tu PC", "Más información", "Ejecutar de todas formas"],
+      fr: ["Windows a protégé votre PC", "Plus d’infos", "Exécuter quand même"],
+      ja: [
+        "Windows によって PC が保護されました",
+        "詳細情報",
+        "実行する",
+      ],
+      pt: [
+        "O Windows protegeu seu PC",
+        "Mais informações",
+        "Executar mesmo assim",
+      ],
+      zh: ["Windows 已保护你的电脑", "更多信息", "仍要运行"],
+    } as const;
+
+    for (const content of await loadEveryHelpLocale()) {
+      const article = findHelpArticle(
+        content,
+        "getting-started",
+        "install-pinar",
+      );
+      assert.ok(article);
+      const published = article.sections
+        .flatMap((section) => [
+          ...section.paragraphs,
+          ...(section.bullets ?? []),
+        ])
+        .join("\n");
+      for (const label of expected[content.language]) {
+        assert.match(
+          published,
+          new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+          `${content.language}:${label}`,
+        );
+      }
+    }
+  });
+
+  test("install-pinar downloads a Windows exe installer like the macOS disk image", async () => {
+    for (const content of await loadEveryHelpLocale()) {
+      const article = findHelpArticle(
+        content,
+        "getting-started",
+        "install-pinar",
+      );
+      assert.ok(article);
+      const published = article.sections
+        .flatMap((section) => [
+          ...section.paragraphs,
+          ...(section.bullets ?? []),
+        ])
+        .join("\n");
+      assert.match(published, /win-x64-Pinar-Setup\.exe/);
+      assert.doesNotMatch(published, /install\.ps1/);
+      assert.doesNotMatch(published, /Pinar-Setup\.zip/);
+    }
+  });
+
+  test("gives every article its own cover file", async () => {
+    for (const content of await loadEveryHelpLocale()) {
+      const keys = content.articles.map((article) => article.screenshot.key);
+      assert.equal(keys.length, 27, content.language);
+      assert.equal(new Set(keys).size, 27, content.language);
+    }
+  });
+
+  test("illustrates overlay articles with the matching overlay cover", async () => {
+    const overlayArticles = {
+      "capture-types": "capture-types",
+      "first-capture": "capture-toolbar",
+      "full-page-capture": "capture-full-page",
+      "handoff-troubleshooting": "capture-copy-failed",
+      "pins-and-comments": "capture-pins",
+      "privacy-masks": "capture-masks",
+      "reopen-and-relocate": "capture-review",
+      "send-to-agent": "capture-copied",
+      "smart-selection": "capture-selection",
+    } as const;
+
+    for (const content of await loadEveryHelpLocale()) {
+      for (const [articleId, screenshotKey] of Object.entries(overlayArticles)) {
+        const article = content.articles.find((item) => item.id === articleId);
+        assert.ok(article, `${content.language}:${articleId}`);
+        assert.match(
+          article.screenshot.src,
+          new RegExp(`/${screenshotKey}\\.webp$`),
+          `${content.language}:${articleId}`,
+        );
+      }
+      const formats = findHelpArticle(content, "agents", "handoff-formats");
+      assert.ok(formats);
+      assert.match(formats.screenshot.src, /\/extension-preferences\.webp$/);
+    }
+  });
+
+  test("pairs every article hero with a screenshot of the UI that article describes", async () => {
+    const expected = {
+      "account-and-sign-in": "sign-in-email",
+      "ai-credits": "pricing-credits",
+      "automatic-sanitization": "preferences-privacy",
+      "capture-types": "capture-types",
+      "closed-loop-review": "workspace-review",
+      "copy-and-reopen": "capture-viewer",
+      "find-manage-share": "workspace-table",
+      "first-capture": "capture-toolbar",
+      "full-page-capture": "capture-full-page",
+      "handoff-formats": "extension-preferences",
+      "handoff-troubleshooting": "capture-copy-failed",
+      "install-pinar": "install-pinar",
+      "local-or-cloud": "extension-options",
+      "local-security-and-recovery": "workspace-security",
+      "nested-collections": "workspace-nested",
+      "organize-projects": "capture-workspace",
+      "pins-and-comments": "capture-pins",
+      "plans-and-billing": "pricing",
+      "privacy-masks": "capture-masks",
+      "reopen-and-relocate": "capture-review",
+      "send-to-agent": "capture-copied",
+      "sharing-links": "sharing-markdown",
+      "shortcuts-and-navigation": "capture-shortcuts",
+      "smart-selection": "capture-selection",
+      "storage-and-retention": "legal-retention",
+      "telemetry-and-policies": "privacy",
+      "where-data-lives": "options-local",
+    } as const;
+
+    for (const content of await loadEveryHelpLocale()) {
+      assert.deepEqual(
+        Object.fromEntries(
+          content.articles.map((article) => [article.id, article.screenshot.key]),
+        ),
+        expected,
+        content.language,
+      );
+    }
+  });
+
+  test("illustrates local-or-cloud with extension options and sign-in screenshots", async () => {
+    for (const content of await loadEveryHelpLocale()) {
+      const article = findHelpArticle(
+        content,
+        "getting-started",
+        "local-or-cloud",
+      );
+      assert.ok(article);
+      assert.match(article.screenshot.src, /\/extension-options\.webp$/);
+      const sectionScreenshots = article.sections.flatMap(
+        (section) => section.screenshots ?? [],
+      );
+      assert.deepEqual(
+        sectionScreenshots.map((screenshot) => screenshot.key),
+        ["sign-in-extension", "sign-in-email"],
+        content.language,
+      );
+    }
+  });
+
+  test("quotes workspace and legal UI labels in local-or-cloud", async () => {
+    for (const content of await loadEveryHelpLocale()) {
+      const article = findHelpArticle(
+        content,
+        "getting-started",
+        "local-or-cloud",
+      );
+      assert.ok(article);
+      const published = article.sections
+        .flatMap((section) => [
+          ...section.paragraphs,
+          ...(section.bullets ?? []),
+        ])
+        .join("\n");
+      const catalog = translations[content.language];
+      for (const label of [
+        "Personal",
+        "Inbox",
+        "Free",
+        catalog.legal_terms,
+        catalog.legal_privacy,
+        catalog.legal_acceptable_use,
+      ]) {
+        const quoted = quoteHelpUiLabel(content.language, label);
+        assert.ok(
+          published.includes(quoted),
+          `${content.language} missing quoted ${label}: ${quoted}`,
+        );
+      }
+    }
+  });
+
+  test("quotes overlay UI labels as citations in every locale", async () => {
+    const keys = [
+      "overlay_add_pin_first",
+      "overlay_copied",
+      "overlay_copy_failed",
+      "overlay_copying",
+      "overlay_helper_unavailable",
+      "overlay_no_screenshot",
+      "overlay_no_viewer",
+      "overlay_origin_mismatch",
+      "overlay_write_comment",
+    ] as const;
+
+    for (const content of await loadEveryHelpLocale()) {
+      const published = content.articles
+        .flatMap((article) =>
+          article.sections.flatMap((section) => [
+            ...section.paragraphs,
+            ...(section.bullets ?? []),
+          ]),
+        )
+        .join("\n");
+      const catalog = translations[content.language];
+      for (const key of keys) {
+        const quoted = quoteHelpUiLabel(content.language, catalog[key]);
+        assert.ok(
+          published.includes(quoted),
+          `${content.language} missing quoted ${key}: ${quoted}`,
+        );
       }
     }
   });

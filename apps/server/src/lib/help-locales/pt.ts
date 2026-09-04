@@ -83,10 +83,40 @@ const locale = {
       caption:
         "O workspace reúne páginas capturadas, contagem de pins, projetos, coleções, busca e estado da conta em uma visão operacional.",
     },
-    "getting-started": {
-      alt: "Página pública do Pinar com o fluxo local-first, acesso ao workspace e navegação para os planos.",
+    "capture-toolbar": {
+      alt: "Sobreposição de captura do Pinar com a barra superior, pins numerados, uma região selecionada e uma máscara de privacidade na página.",
       caption:
-        "Comece pela entrada pública do Pinar para abrir o workspace local, entender o fluxo de captura ou comparar os planos de nuvem.",
+        "A barra da sobreposição permanece na página com os atalhos de pin, seleção, copiar, máscara, região e cancelar enquanto você anota.",
+    },
+    "capture-review": {
+      alt: "Sobreposição do Pinar revisando uma sessão salva, com um pin pendente que precisa de posicionamento manual na página ao vivo.",
+      caption:
+        "Revisar na página recoloca os pins na URL original. Pins não resolvidos ficam pendentes até você clicar no marcador e depois no elemento certo.",
+    },
+    "capture-copy-failed": {
+      alt: "Barra da sobreposição do Pinar mostrando Falha ao copiar, com os pins numerados ainda editáveis na página.",
+      caption:
+        "Quando todos os caminhos da área de transferência falham, a barra mostra Falha ao copiar e restaura os pins para você tentar de novo sem perder comentários.",
+    },
+    "capture-full-page": {
+      alt: "Sobreposição do Pinar numa página longa que continua abaixo da primeira viewport, pronta para uma captura de página inteira costurada.",
+      caption:
+        "A captura de página inteira rola e costura o documento para o screenshot copiado incluir o conteúdo abaixo da dobra.",
+    },
+    "capture-viewer": {
+      alt: "Visualizador de captura do Pinar com o screenshot anotado, pins numerados, controles de zoom e ações da sessão.",
+      caption:
+        "O visualizador reúne o screenshot compartilhado, os comentários dos pins e as ações de copiar ou reabrir depois da captura.",
+    },
+    "extension-options": {
+      alt: "Opções da extensão Pinar na aba Armazenamento, com Servidor Local, Servidor Remoto e aceite dos documentos legais do serviço hospedado.",
+      caption:
+        "A aba Armazenamento escolhe um servidor local ou remoto e exige aceitar Termos, Privacidade e Uso Aceitável antes da captura na nuvem.",
+    },
+    "extension-preferences": {
+      alt: "Opções da extensão Pinar na aba Preferências, com o detalhamento compacto ou completo da cópia para IA e o interruptor de incluir captura de tela.",
+      caption:
+        "A aba Preferências define entrega compacta ou completa e se a próxima cópia inclui screenshot; Salvar grava essas escolhas antes da próxima cópia.",
     },
     "help-navigation": {
       alt: "Artigo de ajuda do Pinar com navegação por categorias, links de artigos relacionados, seções estruturadas e navegação na página.",
@@ -118,45 +148,119 @@ const locale = {
       caption:
         "As notas de versão publicadas tornam o comportamento instalado e as mudanças operacionais rastreáveis por versão.",
     },
+    "capture-shortcuts": {
+      alt: "Aba Atalhos das opções da extensão Pinar, com comandos do navegador e teclas da sobreposição durante a captura.",
+      caption:
+        "A aba Atalhos mostra os atalhos do Chrome ao lado das teclas da sobreposição para pin, seleção, máscara, copiar e cancelar.",
+    },
+    "capture-types": {
+      alt: "Sobreposição do Pinar com um pin numerado no título e uma região selecionada em volta do cartão de total do pedido.",
+      caption:
+        "Pins de elemento e regiões livres podem dividir a mesma sobreposição para o screenshot copiado guardar o alvo no DOM e o agrupamento visual.",
+    },
+    "capture-pins": {
+      alt: "Sobreposição do Pinar com três marcadores numerados no título, no e-mail do cliente e no botão de pagamento.",
+      caption:
+        "Cada pin guarda o próprio número e comentário para uma captura apontar vários elementos na mesma página.",
+    },
+    "capture-selection": {
+      alt: "Sobreposição do Pinar destacando um título com o contorno azul de seleção antes de confirmar o pin.",
+      caption:
+        "A seleção inteligente contorna o elemento sob o cursor para você percorrer o DOM com as setas antes de pinar.",
+    },
+    "capture-masks": {
+      alt: "Sobreposição do Pinar com uma máscara de privacidade cobrindo o e-mail do cliente e um pin numerado no título.",
+      caption:
+        "A máscara esconde pixels sensíveis no screenshot copiado sem remover os comentários dos pins que ainda descrevem a página.",
+    },
+    "capture-copied": {
+      alt: "Barra da sobreposição do Pinar mostrando Copiado com sucesso depois de o pacote anotado chegar à área de transferência.",
+      caption:
+        "Uma cópia bem-sucedida mostra Copiado com sucesso e fecha a sobreposição para você colar o mesmo pacote num agente.",
+    },
+    "install-pinar": {
+      alt: "Aba Armazenamento da extensão Pinar com o botão Baixar Pinar ao lado da opção Servidor Local.",
+      caption:
+        "A aba Armazenamento oferece o download da aplicação Pinar ao lado de Servidor Local para o auxiliar iniciar neste computador.",
+    },
+    "options-local": {
+      alt: "Aba Armazenamento da extensão Pinar com Servidor Local selecionado e as capturas ficando neste computador.",
+      caption:
+        "Servidor Local mantém histórico e screenshots neste computador e não exige aceite jurídico do serviço hospedado.",
+    },
+    "workspace-nested": {
+      alt: "Barra lateral do workspace do Pinar com uma coleção selecionada na árvore do projeto e os cartões de sessão correspondentes.",
+      caption:
+        "Selecionar uma coleção filtra o workspace para aquele ramo, deixando pastas aninhadas visíveis ao lado das sessões que elas guardam.",
+    },
+    "workspace-review": {
+      alt: "Tabela do workspace do Pinar com o filtro de status de Revisão aberto acima das linhas de sessão.",
+      caption:
+        "A visão em tabela combina busca com filtros de status de Revisão para varrer pins abertos, aceitos e reabertos entre sessões.",
+    },
+    "workspace-security": {
+      alt: "Seletor de projeto do workspace do Pinar aberto no projeto protegido Personal.",
+      caption:
+        "O workspace local recupera um projeto Personal e uma Inbox protegidos quando o histórico não abre, em vez de travar o aplicativo.",
+    },
+    "legal-retention": {
+      alt: "Central jurídica do Pinar aberta no documento de Retenção de Dados.",
+      caption:
+        "A política de Retenção de Dados diz por quanto tempo capturas hospedadas, registros de cobrança e dados de conta relacionados são guardados.",
+    },
+    "sharing-markdown": {
+      alt: "Visualizador público de projeto do Pinar com o botão Copiar Markdown acima dos cartões de sessão compartilhados.",
+      caption:
+        "Um link não listado de projeto ou coleção deixa qualquer pessoa com a URL copiar o Markdown combinado sem entrar na conta.",
+    },
+    "preferences-privacy": {
+      alt: "Aba Preferências da extensão Pinar mostrando métricas opcionais do ciclo e chaves extras de URL para ocultar.",
+      caption:
+        "As preferências de privacidade acrescentam chaves extras de query removidas das URLs capturadas e mantêm as métricas do ciclo desligadas até você optar.",
+    },
+    "pricing-credits": {
+      alt: "Cartão de adicional da página de preços do Pinar para 1.000 créditos de IA, com compra e validade de doze meses.",
+      caption:
+        "Os créditos de IA são vendidos como adicional com validade de doze meses, separados do armazenamento do plano e da periodicidade de cobrança.",
+    },
   },
   articles: {
     "install-pinar": {
       title: "Instalar o Pinar",
-      summary:
-        "Adicione a extensão oficial do Chrome e conecte o produto local compatível com sua plataforma.",
+      summary: "Instale a extensão do Chrome e abra a aplicação Pinar no seu computador.",
       sections: [
         {
           heading: "Extensão do navegador",
           paragraphs: [
-            "Instale o Pinar pela Chrome Web Store. Esse é o caminho oficial de instalação no navegador; um checkout do GitHub ou uma pasta de extensão descompactada não são necessários para o uso normal.",
+            "Instale o Pinar pela [Chrome Web Store](https://chromewebstore.google.com/detail/pinardev/idpeaokdndjedekacfdfbilcolpholbo).",
           ],
           bullets: [
             "Fixe o ícone do Pinar no menu de extensões do Chrome para mantê-lo visível.",
-            "A extensão aceita a origem publicada pinar.dev e os servidores locais do Pinar.",
+            "Abra a [página da Chrome Web Store](https://chromewebstore.google.com/detail/pinardev/idpeaokdndjedekacfdfbilcolpholbo) para adicionar a extensão oficial.",
           ],
         },
         {
-          heading: "Produto local",
+          heading: "A aplicação Pinar",
           paragraphs: [
-            "No macOS, o Pinar.app fica na barra de menus, executa o auxiliar integrado, registra os hooks de agentes compatíveis e verifica atualizações no GitHub Releases. Windows e Linux usam hoje o instalador independente do auxiliar, não um app de desktop.",
+            "No macOS, a aplicação Pinar fica na barra de menus. No Windows, fica na área de notificação. Abra a aplicação para começar a capturar. No Linux, instale com o comando abaixo.",
           ],
           bullets: [
-            "Screenshots e o histórico ficam neste computador. Use Open Folder na barra de menus para vê-los.",
-            "O Pinar encontra e inicia o serviço local automaticamente quando você abre o app.",
-            "No macOS, Start at Login mantém o Pinar disponível depois que você entra no computador.",
-            "Se a conexão local não estiver disponível, abra o Pinar na barra de menus e tente a captura de novo.",
+            "As capturas ficam neste computador. Use “Abrir pasta” para vê-las.",
+            "No macOS e no Windows, “Iniciar no login” mantém o Pinar disponível depois que você entra na conta.",
+            "Se uma captura não tiver imagem, abra o Pinar e tente de novo.",
           ],
         },
         {
-          heading: "Confirme o auxiliar e abra o workspace",
+          heading: "Instalar e abrir",
           paragraphs: [
-            "Com a extensão fixada, instale o produto local correspondente pelo caminho de um único passo documentado: arraste a imagem de disco do macOS para Applications, execute o instalador PowerShell no Windows ou o instalador curl no Linux. Esses instaladores registram o serviço local para que os agentes de código recebam as capturas coladas.",
-            "No macOS, o Pinar.app fica na barra de menus e inicia o serviço local para você. Se a barra de menus mostrar Local Server: Off, escolha Start e depois Open Workspace. Se um agente deixar de ver as capturas coladas, reabra o Pinar e tente de novo.",
+            "Baixe a aplicação Pinar pelos links abaixo, instale-a e abra-a.",
+            "Com o Pinar aberto, escolha “Abrir o workspace”. Se mostrar “Servidor local: desligado”, escolha “Iniciar”. Se as capturas coladas pararem de chegar, abra o Pinar de novo.",
           ],
           bullets: [
-            "Instalação no Windows: irm https://pinar.dev/install.ps1 | iex. No Linux: curl -fsSL https://pinar.dev/install.sh | sh. O script precisa de curl ou wget para baixar o binário.",
-            "Quando o serviço local estiver pronto, Open Workspace carrega o workspace pela barra de menus.",
-            "A extensão do Chrome não consegue guardar screenshots sozinha. Se uma captura não tiver imagem, inicie primeiro o produto local e capture de novo.",
+            "macOS: [baixe a aplicação Pinar](https://github.com/djalmajr/pinar/releases/latest/download/macos-arm64-Pinar.dmg), abra a imagem de disco e arraste-a para “Aplicativos”.",
+            "Windows: [baixe a aplicação Pinar](https://github.com/djalmajr/pinar/releases/latest/download/win-x64-Pinar-Setup.exe) e execute o instalador. O ícone aparece na área de notificação.",
+            "Windows: a primeira execução pode mostrar “O Windows protegeu seu PC”. Escolha “Mais informações” e depois “Executar mesmo assim”.",
+            "Linux: `curl -fsSL https://pinar.dev/install.sh | sh`",
           ],
         },
       ],
@@ -169,28 +273,28 @@ const locale = {
         {
           heading: "Pine a página",
           paragraphs: [
-            "Abra a página, selecione a extensão Pinar e clique em um elemento ou arraste uma área livre. Escreva o comentário e pressione Enter para adicionar o pin.",
+            "Abra a página, selecione a extensão Pinar e clique em um elemento ou arraste uma área livre. Escreva o comentário e pressione `Enter` para adicionar o pin.",
           ],
           bullets: [
             "Repita a seleção para colocar vários pins numerados na mesma captura.",
-            "Shift+Enter adiciona uma quebra de linha; Escape fecha o rascunho sem apagar os outros pins.",
+            "`Shift+Enter` adiciona uma quebra de linha; `Escape` fecha o rascunho sem apagar os outros pins.",
           ],
         },
         {
           heading: "Copie o pacote",
           paragraphs: [
-            "Pressione Command+Enter no macOS ou Ctrl+Enter nos outros sistemas. O Pinar copia Markdown legível, HTML e um bloco JSON pinar-visual-context que apontam para o mesmo screenshot e para as mesmas identidades de pins.",
+            "Pressione `Command+Enter` no macOS ou `Ctrl+Enter` nos outros sistemas. O Pinar copia Markdown legível, HTML e um bloco JSON pinar-visual-context que apontam para o mesmo screenshot e para as mesmas identidades de pins.",
           ],
         },
         {
           heading: "Conclua a cópia e preserve as identidades",
           paragraphs: [
-            "Command/Ctrl+Enter só copia depois que pelo menos um pin tem comentário. A sobreposição mostra Gravando as anotações…, esconde os pins para o screenshot, depois Copiado com sucesso!, e a barra fecha. Clicar no ícone da extensão depois só mostra ou esconde a sobreposição; não apaga pins já colocados. Se todos os caminhos de cópia falharem, a sobreposição volta para você tentar de novo.",
+            "`Command/Ctrl+Enter` só copia depois que pelo menos um pin tem comentário. A sobreposição mostra “Gravando as anotações…”, esconde os pins para o screenshot, depois “Copiado com sucesso!”, e a barra fecha. Clicar no ícone da extensão depois só mostra ou esconde a sobreposição; não apaga pins já colocados. Se todos os caminhos de cópia falharem, a sobreposição volta para você tentar de novo.",
             "Trate o conteúdo da área de transferência como uma unidade: instruções legíveis, uma URL opcional do visualizador e um bloco JSON pinar-visual-context delimitado com `captureId`, `pinId`, URL da página, localizadores (cssSelector, domPath, innerText) e uma URL de screenshot quando o auxiliar gravou um arquivo. Os badges numerados na imagem são sobreposições de anotação, não a interface da página. Não reescreva `captureId` nem `pinId` ao colar em um agente. A linha Screenshot: /path/to/file.png, quando existir, é o único recorte que contém todos os pins.",
           ],
           bullets: [
-            "Um campo de comentário vazio ou uma captura sem pins aborta a cópia e mostra Escreva um comentário ou Adicione um pin.",
-            "Cópias degradadas ainda colam comentários e localizadores, mas a barra pode acrescentar sem captura, auxiliar indisponível ou sem visualizador depois de Copiado com sucesso!.",
+            "Um campo de comentário vazio ou uma captura sem pins aborta a cópia e mostra “Escreva um comentário” ou “Adicione um pin”.",
+            "Cópias degradadas ainda colam comentários e localizadores, mas a barra pode acrescentar “sem captura”, “auxiliar indisponível” ou “sem visualizador” depois de “Copiado com sucesso!”.",
             "Prefira um Pinar local em execução para a cópia incluir um screenshot e um link do visualizador com o contexto completo.",
           ],
         },
@@ -216,8 +320,8 @@ const locale = {
         {
           heading: "Como as sessões local e na nuvem realmente abrem",
           paragraphs: [
-            "O histórico local começa com um projeto protegido Personal e uma coleção Inbox que você não pode aninhar ou excluir como pastas comuns. As capturas ficam neste computador, e você pode abri-las no workspace local.",
-            "O armazenamento na nuvem espera até você aceitar os Termos, a Privacidade e o Uso Aceitável atuais. Depois disso, contas Free podem parear a extensão com um código temporário, e contas pagas também podem confirmar um código de seis dígitos por e-mail. Os links de compartilhamento continuam legíveis por qualquer pessoa que tenha a URL não listada.",
+            "O histórico local começa com um projeto protegido “Personal” e uma coleção “Inbox” que você não pode aninhar ou excluir como pastas comuns. As capturas ficam neste computador, e você pode abri-las no workspace local.",
+            "O armazenamento na nuvem espera até você aceitar os “Termos”, a “Privacidade” e o “Uso Aceitável” atuais. Depois disso, contas “Free” podem parear a extensão com um código temporário, e contas pagas também podem confirmar um código de seis dígitos por e-mail. Os links de compartilhamento continuam legíveis por qualquer pessoa que tenha a URL não listada.",
           ],
           bullets: [
             "O workspace local permanece neste computador e não precisa de uma conta na nuvem.",
@@ -238,10 +342,11 @@ const locale = {
             "O Pinar intercepta apenas os atalhos da captura ativa para que a página não receba a mesma tecla.",
           ],
           bullets: [
-            "Enter pina o elemento sob o cursor; Seta para cima seleciona o pai e Seta para baixo retorna a um filho.",
-            "M alterna o desenho de máscaras de privacidade. Escape cancela um rascunho ou máscara; sem rascunho, limpa os pins e esconde a barra.",
-            "Command/Ctrl+Enter copia o pacote concluído.",
-            "Alt+Shift+P mostra ou esconde a barra sem cancelar a sessão, e você pode redefini-lo em `chrome://extensions/shortcuts`. Atalhos do navegador ficam inertes em páginas `chrome://`, na Chrome Web Store e antes de a sobreposição ser injetada.",
+            "`Enter` pina o elemento sob o cursor; `Seta para cima` seleciona o pai e `Seta para baixo` retorna a um filho.",
+            "`M` alterna o desenho de máscaras de privacidade. `Escape` cancela um rascunho ou máscara; sem rascunho, limpa os pins e esconde a barra.",
+            "`R` alterna a sobreposição ao vivo entre só os pins numerados e os pins com as regiões selecionadas. O screenshot copiado sempre inclui os dois.",
+            "`Command/Ctrl+Enter` copia o pacote concluído.",
+            "`Alt+Shift+P` mostra ou esconde a barra sem cancelar a sessão, e você pode redefini-lo em `chrome://extensions/shortcuts`. Atalhos do navegador ficam inertes em páginas `chrome://`, na Chrome Web Store e antes de a sobreposição ser injetada.",
           ],
         },
         {
@@ -253,12 +358,12 @@ const locale = {
         {
           heading: "Detalhes da sobreposição, do ícone e do passeio no DOM",
           paragraphs: [
-            "Os atalhos de captura só valem enquanto a sobreposição está ativa. O ícone da extensão alterna essa sobreposição; ele não apaga pins. Passar o cursor na barra sem um rascunho aberto a deixa atravessar cliques para você ainda clicar ou arrastar a página por baixo. Shift+Enter insere uma quebra de linha no campo de comentário, e atalhos da página digitados ali não saem desse campo.",
-            "Seta para cima sobe ao elemento pai e lembra o filho que você deixou, então Seta para baixo volta a esse nó lembrado se ele ainda for filho; senão usa o primeiro filho. No modo máscara, arraste uma região para escondê-la e clique numa máscara existente para restaurá-la. A rolagem pelo teclado continua no documento, mas teclas dirigidas a controles da página são bloqueadas para não ativar botões nem digitar no formulário.",
+            "Os atalhos de captura só valem enquanto a sobreposição está ativa. O ícone da extensão alterna essa sobreposição; ele não apaga pins. Passar o cursor na barra sem um rascunho aberto a deixa atravessar cliques para você ainda clicar ou arrastar a página por baixo. `Shift+Enter` insere uma quebra de linha no campo de comentário, e atalhos da página digitados ali não saem desse campo.",
+            "`Seta para cima` sobe ao elemento pai e lembra o filho que você deixou, então `Seta para baixo` volta a esse nó lembrado se ele ainda for filho; senão usa o primeiro filho. No modo máscara, arraste uma região para escondê-la e clique numa máscara existente para restaurá-la. A rolagem pelo teclado continua no documento, mas teclas dirigidas a controles da página são bloqueadas para não ativar botões nem digitar no formulário.",
           ],
           bullets: [
-            "Command/Ctrl+Enter grava o rascunho aberto e depois copia; sem comentário mostra Escreva um comentário em vez de enviar um pin vazio.",
-            "Depois de Escape ou da cópia, o Pinar continua dono dessa tecla física até ela ser solta, para a página não tratar o mesmo toque como cancelar ou enviar.",
+            "`Command/Ctrl+Enter` grava o rascunho aberto e depois copia; sem comentário mostra “Escreva um comentário” em vez de enviar um pin vazio.",
+            "Depois de `Escape` ou da cópia, o Pinar continua dono dessa tecla física até ela ser solta, para a página não tratar o mesmo toque como cancelar ou enviar.",
             "Um pin de área só começa depois que o ponteiro anda cerca de seis pixels; um clique mais curto ainda pina o elemento sob o cursor em vez de abrir um retângulo livre.",
           ],
         },
@@ -282,7 +387,7 @@ const locale = {
         {
           heading: "Clique, arraste e alvos em frames",
           paragraphs: [
-            "Clique um nó, ou pressione Enter no contorno atual, para abrir um pin de elemento. Arraste um retângulo de pelo menos seis pixels para abrir um pin de área. O clique inicial em um iframe ou frame é ignorado para que o documento interno faça a seleção.",
+            "Clique um nó, ou pressione `Enter` no contorno atual, para abrir um pin de elemento. Arraste um retângulo de pelo menos seis pixels para abrir um pin de área. O clique inicial em um iframe ou frame é ignorado para que o documento interno faça a seleção.",
             "Pins de elemento registram impressão digital, seletor e um caminho DOM que une frames ancestrais com um delimitador de fronteira. Pins de área guardam o retângulo e um rótulo em pixels, sem localizador. O screenshot copiado ainda costura em torno da união de todos os pins, inclusive os colocados em frames filhos.",
           ],
           bullets: [
@@ -412,7 +517,7 @@ const locale = {
           bullets: [
             "Máscaras do usuário usam um id único e a categoria manual para poderem ser apagadas sem as caixas automáticas.",
             "Máscaras automáticas de campo são dispensadas, não apagadas, para varreduras seguintes ainda reportarem o campo.",
-            "Escape sai do desenho de máscara sem descartar os pins já colocados na página.",
+            "`Escape` sai do desenho de máscara sem descartar os pins já colocados na página.",
           ],
         },
       ],
@@ -435,14 +540,14 @@ const locale = {
         {
           heading: "Revisar na página original",
           paragraphs: [
-            "Revisar na página abre a origem capturada e recoloca os pins. O Pinar rejeita divergência de origem, preserva cada âncora e caixa histórica, registra o histórico de realocação e permite reposicionar manualmente um pin não resolvido.",
+            "“Revisar na página” abre a origem capturada e recoloca os pins. O Pinar rejeita divergência de origem, preserva cada âncora e caixa histórica, registra o histórico de realocação e permite reposicionar manualmente um pin não resolvido.",
           ],
         },
         {
           heading: "Cópia no visualizador e checagem de origem",
           paragraphs: [
             "Copiar página no visualizador grava o mesmo pacote Markdown correlacionado da página ao vivo, no modo compacto ou completo das preferências salvas, com `captureId` caindo para o id da sessão. O menu de ações abre o Markdown público em /v/{id}.md, ou inicia o ChatGPT ou o Claude com um prompt apontando para essa URL.",
-            "Revisar na página dispara um evento de reabertura com o id da sessão. O auxiliar recoloca os pins só a partir de uma URL confiável do app Pinar quando esse id coincide com o id da sessão ou o `captureId` e a origem da aba ainda é a da página capturada. Sair dessa origem descarta o vínculo em vez de injetar pins no site errado.",
+            "“Revisar na página” dispara um evento de reabertura com o id da sessão. O auxiliar recoloca os pins só a partir de uma URL confiável da aplicação Pinar quando esse id coincide com o id da sessão ou o `captureId` e a origem da aba ainda é a da página capturada. Sair dessa origem descarta o vínculo em vez de injetar pins no site errado.",
           ],
           bullets: [
             "Se nenhum resultado de reabertura chegar, o visualizador mostra um aviso de auxiliar ausente em vez de esperar indefinidamente.",
@@ -472,13 +577,13 @@ const locale = {
         {
           heading: "Como entregar o pacote copiado a um agente",
           paragraphs: [
-            "A extensão do Chrome nunca digita no campo do agente. Depois de Command/Ctrl+Enter, cole você mesmo a área de transferência no Cursor, Claude, Codex ou Grok. O texto começa com instruções para implementar os comentários dos pins e tratar seletor e caminho DOM como localizadores complementares, seguidas de um bloco JSON pinar-visual-context. Se houver URL de visualizador, busque-a só quando esses detalhes não bastarem.",
-            "Trate `captureId` e `pinId` como identidade, não como rótulos a reescrever. O Visual Context grava hoje schemaVersion 1; o analisador rejeita um `captureId` ausente e qualquer schemaVersion que não seja 1 ou o legado 0. Altere só o que os pins descrevem. Se a pessoa não colou, peça para copiar de novo no Pinar em vez de reconstruir pins de memória.",
+            "A extensão do Chrome nunca digita no campo do agente. Depois de `Command/Ctrl+Enter`, cole você mesmo a área de transferência no Cursor, Claude, Codex ou Grok. O texto começa dizendo que as notas dos pins podem pedir uma alteração ou uma explicação, e para tratar seletor e caminho DOM como localizadores complementares, seguidas de um bloco JSON pinar-visual-context. Se houver URL de visualizador, busque-a só quando esses detalhes não bastarem.",
+            "Trate `captureId` e `pinId` como identidade, não como rótulos a reescrever. O Visual Context grava hoje schemaVersion 1; o analisador rejeita um `captureId` ausente e qualquer schemaVersion que não seja 1 ou o legado 0. Siga só o que os pins descrevem. Se a pessoa não colou, peça para copiar de novo no Pinar em vez de reconstruir pins de memória.",
           ],
           bullets: [
             "Cole a área de transferência inteira no agente; não redigite comentários nem invente um `captureId` novo.",
             "Confirme que o texto colado ainda contém a cerca fechada pinar-visual-context antes de editar código.",
-            "Se nada foi colado, peça Command/Ctrl+Enter no Pinar e implemente somente os comentários dos pins.",
+            "Se nada foi colado, peça `Command/Ctrl+Enter` no Pinar e siga somente as notas dos pins.",
           ],
         },
       ],
@@ -570,12 +675,12 @@ const locale = {
         {
           heading: "Abrir a URL original e posicionar pins pendentes",
           paragraphs: [
-            "Revisar na página abre somente a partir do app Pinar, na URL original da captura. Outro site não pode injetar uma sessão salva na extensão. Depois do carregamento, cada frame mostra só os pins que pertencem a ele.",
-            "A sobreposição permanece vinculada só enquanto a aba ainda é o site capturado. Navegar para outro lugar mostra This page is not the original capture URL. Correspondências ambíguas mantêm a caixa original em vez de encaixar num sósio. Clique num pin pendente e depois no elemento correto para posicioná-lo.",
+            "“Revisar na página” abre somente a partir da aplicação Pinar, na URL original da captura. Outro site não pode injetar uma sessão salva na extensão. Depois do carregamento, cada frame mostra só os pins que pertencem a ele.",
+            "A sobreposição permanece vinculada só enquanto a aba ainda é o site capturado. Navegar para outro lugar mostra “Esta página não é a URL original da captura”. Correspondências ambíguas mantêm a caixa original em vez de encaixar num sósio. Clique num pin pendente e depois no elemento correto para posicioná-lo.",
           ],
           bullets: [
-            "Inicie Revisar na página a partir do app Pinar para que só aquela sessão seja recolocada na origem capturada.",
-            "Se a sobreposição disser This page is not the original capture URL, volte à origem capturada em vez de posicionar pins.",
+            "Inicie “Revisar na página” a partir da aplicação Pinar para que só aquela sessão seja recolocada na origem capturada.",
+            "Se a sobreposição disser “Esta página não é a URL original da captura”, volte à origem capturada em vez de posicionar pins.",
             "Num pin não resolvido, clique no marcador e depois no elemento ao vivo para posicioná-lo.",
           ],
         },
@@ -601,13 +706,13 @@ const locale = {
         {
           heading: "Percorrer o caminho da cópia quando a barra relata falha",
           paragraphs: [
-            "A cópia exige um comentário salvo e pelo menos um pin. A barra mostra Gravando as anotações…, esconde as sobreposições, captura a imagem e pede a um documento em segundo plano para gravar text/html e text/plain. Esse documento tenta primeiro a API de área de transferência do navegador e recorre a um evento de cópia do documento. Se essa gravação não for bem-sucedida, a página ainda tenta copiar o texto simples devolvido, inclusive por uma seleção oculta em um campo de texto.",
-            "Quando todos os caminhos de cópia falham, a página restaura as sobreposições, mostra Falha ao copiar e deixa os pins editáveis. Uma cópia bem-sucedida mostra Copiado com sucesso!, ou Copiado com sucesso! seguido de sem captura, auxiliar indisponível ou sem visualizador, e então encerra a sessão. Esses sufixos correspondem a `screenshot_missing`, `helper_unavailable` e `viewer_unavailable`. screenshot_inline não é um dos avisos de entrega degradada. Um texto colado sem a cerca fechada pinar-visual-context não pode ser lido como JSON.",
+            "A cópia exige um comentário salvo e pelo menos um pin. A barra mostra “Gravando as anotações…”, esconde as sobreposições, captura a imagem e pede a um documento em segundo plano para gravar text/html e text/plain. Esse documento tenta primeiro a API de área de transferência do navegador e recorre a um evento de cópia do documento. Se essa gravação não for bem-sucedida, a página ainda tenta copiar o texto simples devolvido, inclusive por uma seleção oculta em um campo de texto.",
+            "Quando todos os caminhos de cópia falham, a página restaura as sobreposições, mostra “Falha ao copiar” e deixa os pins editáveis. Uma cópia bem-sucedida mostra “Copiado com sucesso!”, ou “Copiado com sucesso!” seguido de “sem captura”, “auxiliar indisponível” ou “sem visualizador”, e então encerra a sessão. Esses sufixos correspondem a `screenshot_missing`, `helper_unavailable` e `viewer_unavailable`. screenshot_inline não é um dos avisos de entrega degradada. Um texto colado sem a cerca fechada pinar-visual-context não pode ser lido como JSON.",
           ],
           bullets: [
-            "Se a barra disser Escreva um comentário ou Adicione um pin, conclua o pin e pressione Command/Ctrl+Enter de novo.",
-            "Se aparecer Falha ao copiar, confirme que os pins ainda estão na página, conceda permissão de área de transferência se pedirem e tente copiar de novo.",
-            "Leia o sufixo de Copiado com sucesso!: sem captura, auxiliar indisponível e sem visualizador nomeiam a camada ausente a retentar sem descartar comentários.",
+            "Se a barra disser “Escreva um comentário” ou “Adicione um pin”, conclua o pin e pressione `Command/Ctrl+Enter` de novo.",
+            "Se aparecer “Falha ao copiar”, confirme que os pins ainda estão na página, conceda permissão de área de transferência se pedirem e tente copiar de novo.",
+            "Leia o sufixo de “Copiado com sucesso!”: “sem captura”, “auxiliar indisponível” e “sem visualizador” nomeiam a camada ausente a retentar sem descartar comentários.",
           ],
         },
       ],
@@ -945,11 +1050,11 @@ const locale = {
           heading:
             "Apresente o segredo de capacidade e recupere o armazenamento local quebrado",
           paragraphs: [
-            "O workspace local aceita somente o app Pinar e a extensão oficial. A rotação mantém o segredo anterior válido o bastante para os processos em execução acompanharem; a revogação força uma autorização nova.",
+            "O workspace local aceita somente a aplicação Pinar e a extensão oficial. A rotação mantém o segredo anterior válido o bastante para os processos em execução acompanharem; a revogação força uma autorização nova.",
             "Se outra instância do Pinar já estiver em execução, essa instância permanece no lugar. Pastas aninhadas de screenshots são migradas sem sobrescrever conflitos de nome. Se o histórico local não abrir, o Pinar recupera um projeto Personal e uma Inbox utilizáveis em vez de travar.",
           ],
           bullets: [
-            "Continue usando a extensão oficial e o app Pinar; outros sites não conversam com o workspace local.",
+            "Continue usando a extensão oficial e a aplicação Pinar; outros sites não conversam com o workspace local.",
             "Depois de revogar o acesso local, reinicie o Pinar para o workspace autorizar de novo.",
             "Se o histórico local não abrir, espere um projeto Personal e uma Inbox recuperados, não um travamento.",
           ],

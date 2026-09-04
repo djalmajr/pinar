@@ -83,10 +83,40 @@ const locale = {
       caption:
         "Der Arbeitsbereich hält erfasste Seiten, Pin-Anzahlen, Projekte, Sammlungen, Suche und Kontostatus in einer operativen Ansicht zusammen.",
     },
-    "getting-started": {
-      alt: "Öffentliche Pinar-Startseite mit dem Local-First-Workflow, dem Einstieg in den Arbeitsbereich und der Plan-Navigation.",
+    "capture-toolbar": {
+      alt: "Pinar-Aufnahme-Overlay mit oberer Symbolleiste, nummerierten Pins, einem ausgewählten Bereich und einer Privacy-Maske auf der Seite.",
       caption:
-        "Starte über den öffentlichen Pinar-Einstieg, um den lokalen Arbeitsbereich zu öffnen, den Aufnahme-Workflow zu verstehen oder Cloud-Pläne zu vergleichen.",
+        "Die Overlay-Symbolleiste bleibt auf der Seite mit den Kurzbefehlen für Pin, Auswahl, Kopieren, Maske, Region und Abbrechen während der Annotation.",
+    },
+    "capture-review": {
+      alt: "Pinar-Overlay prüft eine gespeicherte Sitzung, mit einem ausstehenden Pin, der auf der Live-Seite manuell platziert werden muss.",
+      caption:
+        "Auf der Seite prüfen setzt Pins auf der Original-URL. Ungelöste Pins bleiben ausstehend, bis du den Marker und danach das richtige Element anklickst.",
+    },
+    "capture-copy-failed": {
+      alt: "Pinar-Overlay-Leiste mit Kopieren fehlgeschlagen, während nummerierte Pins auf der Seite editierbar bleiben.",
+      caption:
+        "Wenn alle Zwischenablagewege scheitern, zeigt die Leiste Kopieren fehlgeschlagen und stellt die Pins wieder her, damit du ohne Kommentarverlust erneut versuchst.",
+    },
+    "capture-full-page": {
+      alt: "Pinar-Overlay auf einem langen Dokument, das unter dem ersten Viewport weitergeht, bereit für eine zusammengesetzte Ganzseitenaufnahme.",
+      caption:
+        "Die Ganzseitenaufnahme scrollt und fügt das Dokument zusammen, damit der kopierte Screenshot Inhalte unterhalb des Falzes enthält.",
+    },
+    "capture-viewer": {
+      alt: "Pinar-Aufnahme-Viewer mit annotiertem Screenshot, nummerierten Pins, Zoom-Steuerung und Sitzungsaktionen.",
+      caption:
+        "Der Viewer hält den gemeinsamen Screenshot, die Pin-Kommentare und die Aktionen zum Kopieren oder erneuten Öffnen nach der Aufnahme zusammen.",
+    },
+    "extension-options": {
+      alt: "Pinar-Erweiterungsoptionen auf dem Tab Speicher, mit Lokaler Server, Remote-Server und der rechtlichen Zustimmung zum gehosteten Dienst.",
+      caption:
+        "Der Tab Speicher wählt einen lokalen oder Remote-Server und verlangt die Annahme von Bedingungen, Datenschutz und Zulässiger Nutzung vor Cloud-Captures.",
+    },
+    "extension-preferences": {
+      alt: "Pinar-Erweiterungsoptionen auf dem Tab Einstellungen, mit kompaktem oder vollständigem KI-Kopierdetail und dem Schalter zum Einbeziehen des Screenshots.",
+      caption:
+        "Einstellungen legt kompakte oder vollständige Übergabe fest und ob die nächste Kopie einen Screenshot enthält; Speichern schreibt diese Wahl vor der nächsten Kopie.",
     },
     "help-navigation": {
       alt: "Pinar-Hilfeartikel mit Kategorienavigation, Links zu verwandten Artikeln, strukturierten Abschnitten und Seitennavigation.",
@@ -118,45 +148,119 @@ const locale = {
       caption:
         "Veröffentlichte Release Notes machen installiertes Verhalten und operative Änderungen versionsbezogen nachvollziehbar.",
     },
+    "capture-shortcuts": {
+      alt: "Tab Kurzbefehle der Pinar-Erweiterungsoptionen mit Browserbefehlen und Overlay-Tasten während der Aufnahme.",
+      caption:
+        "Der Tab Kurzbefehle zeigt Chrome-Tastenkürzel neben den Overlay-Tasten für Pin, Auswahl, Maske, Kopieren und Abbrechen.",
+    },
+    "capture-types": {
+      alt: "Pinar-Overlay mit einem nummerierten Pin auf einer Überschrift und einem ausgewählten Bereich um die Bestellsummenkarte.",
+      caption:
+        "Element-Pins und freie Regionen können dasselbe Overlay teilen, damit der kopierte Screenshot das DOM-Ziel und die visuelle Gruppierung behält.",
+    },
+    "capture-pins": {
+      alt: "Pinar-Overlay mit drei nummerierten Markern auf einer Überschrift, einer Kunden-E-Mail und einer Zahlungsschaltfläche.",
+      caption:
+        "Jeder Pin behält eigene Nummer und Kommentar, damit eine Aufnahme mehrere Elemente derselben Seite zeigen kann.",
+    },
+    "capture-selection": {
+      alt: "Pinar-Overlay, das eine Überschrift mit blauem Auswahlrahmen hervorhebt, bevor der Pin bestätigt wird.",
+      caption:
+        "Die intelligente Auswahl umrandet das Element unter dem Cursor, damit du das DOM mit den Pfeiltasten durchläufst, bevor du pinnst.",
+    },
+    "capture-masks": {
+      alt: "Pinar-Overlay mit einer Privacy-Maske über einer Kunden-E-Mail und einem nummerierten Pin auf der Überschrift.",
+      caption:
+        "Eine Maske verbirgt sensible Pixel im kopierten Screenshot, ohne die Pin-Kommentare zu entfernen, die die Seite weiter beschreiben.",
+    },
+    "capture-copied": {
+      alt: "Pinar-Overlay-Leiste mit Erfolgreich kopiert, nachdem das annotierte Paket in der Zwischenablage angekommen ist.",
+      caption:
+        "Ein erfolgreiches Kopieren zeigt Erfolgreich kopiert und schließt das Overlay, damit du dasselbe Paket in einen Agenten einfügst.",
+    },
+    "install-pinar": {
+      alt: "Tab Speicher der Pinar-Erweiterung mit der Schaltfläche Pinar herunterladen neben der Option Lokaler Server.",
+      caption:
+        "Der Tab Speicher bietet den Download der Pinar-Anwendung neben Lokaler Server, damit der Helfer auf diesem Computer startet.",
+    },
+    "options-local": {
+      alt: "Tab Speicher der Pinar-Erweiterung mit ausgewähltem Lokaler Server und Captures, die auf diesem Computer bleiben.",
+      caption:
+        "Lokaler Server hält Verlauf und Screenshots auf diesem Computer und verlangt keine rechtliche Zustimmung zum gehosteten Dienst.",
+    },
+    "workspace-nested": {
+      alt: "Pinar-Arbeitsbereich-Seitenleiste mit einer ausgewählten Sammlung im Projektbaum und den passenden Sitzungskarten.",
+      caption:
+        "Das Auswählen einer Sammlung filtert den Arbeitsbereich auf diesen Zweig, damit verschachtelte Ordner neben den Sitzungen sichtbar bleiben.",
+    },
+    "workspace-review": {
+      alt: "Pinar-Arbeitsbereichstabelle mit geöffnetem Filter für den Prüfungsstatus über den Sitzungszeilen.",
+      caption:
+        "Die Tabellenansicht kombiniert Suche mit Prüfungsstatusfiltern, um offene, akzeptierte und wiedereröffnete Pins über Sitzungen zu scannen.",
+    },
+    "workspace-security": {
+      alt: "Projektumschalter des Pinar-Arbeitsbereichs, geöffnet auf dem geschützten Projekt Personal.",
+      caption:
+        "Der lokale Arbeitsbereich stellt ein geschütztes Projekt Personal und Inbox wieder her, wenn der Verlauf nicht öffnet, statt die App zu blockieren.",
+    },
+    "legal-retention": {
+      alt: "Pinar-Rechtscenter, geöffnet auf dem Dokument zur Datenaufbewahrung.",
+      caption:
+        "Die Datenaufbewahrungsrichtlinie nennt, wie lange gehostete Captures, Abrechnungsdaten und zugehörige Kontodaten gespeichert werden.",
+    },
+    "sharing-markdown": {
+      alt: "Öffentlicher Pinar-Projektviewer mit der Schaltfläche Markdown kopieren über geteilten Sitzungskarten.",
+      caption:
+        "Ein nicht gelisteter Projekt- oder Sammlungs-Link lässt jede Person mit der URL das kombinierte Markdown ohne Anmeldung kopieren.",
+    },
+    "preferences-privacy": {
+      alt: "Tab Einstellungen der Pinar-Erweiterung mit optionalen Loop-Metriken und zusätzlichen URL-Schlüsseln zum Ausblenden.",
+      caption:
+        "Datenschutz-Einstellungen fügen extra Query-Schlüssel hinzu, die aus erfassten URLs entfernt werden, und lassen Loop-Metriken aus, bis du zustimmst.",
+    },
+    "pricing-credits": {
+      alt: "Pinar-Preis-Add-on-Karte für 1.000 KI-Guthaben mit Kauf und zwölfmonatiger Gültigkeit.",
+      caption:
+        "KI-Guthaben werden als Add-on mit zwölfmonatiger Gültigkeit verkauft, getrennt vom Planspeicher und dem Abrechnungsrhythmus.",
+    },
   },
   articles: {
     "install-pinar": {
       title: "Pinar installieren",
-      summary:
-        "Füge die offizielle Chrome-Erweiterung hinzu und verbinde das unterstützte lokale Produkt für deine Plattform.",
+      summary: "Installiere die Chrome-Erweiterung und öffne die Pinar-Anwendung auf deinem Computer.",
       sections: [
         {
           heading: "Browsererweiterung",
           paragraphs: [
-            "Installiere Pinar aus dem Chrome Web Store. Das ist der offizielle Browser-Installationsweg; ein GitHub-Checkout oder ein entpackter Erweiterungsordner ist für den normalen Gebrauch nicht erforderlich.",
+            "Installiere Pinar aus dem [Chrome Web Store](https://chromewebstore.google.com/detail/pinardev/idpeaokdndjedekacfdfbilcolpholbo).",
           ],
           bullets: [
             "Hefte das Pinar-Symbol im Chrome-Menü für Erweiterungen an, damit es sichtbar bleibt.",
-            "Die Erweiterung unterstützt die veröffentlichte Origin pinar.dev und lokale Pinar-Server.",
+            "Öffne den [Chrome-Web-Store-Eintrag](https://chromewebstore.google.com/detail/pinardev/idpeaokdndjedekacfdfbilcolpholbo), um die offizielle Erweiterung hinzuzufügen.",
           ],
         },
         {
-          heading: "Lokales Produkt",
+          heading: "Die Pinar-Anwendung",
           paragraphs: [
-            "Unter macOS sitzt Pinar.app in der Menüleiste, führt den eingebetteten Helper aus, registriert unterstützte Agent-Hooks und prüft GitHub Releases auf Updates. Windows und Linux nutzen derzeit den eigenständigen Helper-Installer statt einer Desktop-App.",
+            "Unter macOS sitzt die Pinar-Anwendung in der Menüleiste. Unter Windows sitzt sie im Infobereich. Öffne die Pinar-Anwendung, um zu erfassen. Unter Linux installierst du mit dem Befehl unten.",
           ],
           bullets: [
-            "Screenshots und Verlauf bleiben auf diesem Computer. Nutze Open Folder in der Menüleiste, um sie zu sehen.",
-            "Pinar findet den lokalen Dienst und startet ihn automatisch, wenn du die App öffnest.",
-            "Unter macOS hält Start at Login Pinar bereit, nachdem du dich am Computer angemeldet hast.",
-            "Wenn die lokale Verbindung nicht verfügbar ist, öffne Pinar über die Menüleiste und versuche die Aufnahme erneut.",
+            "Aufnahmen bleiben auf diesem Computer. Wähle „Ordner öffnen“, um sie zu sehen.",
+            "Unter macOS und Windows hält „Bei Anmeldung starten“ Pinar bereit, nachdem du dich angemeldet hast.",
+            "Hat eine Aufnahme kein Bild, öffne Pinar und versuche es erneut.",
           ],
         },
         {
-          heading: "Helper bestätigen und Workspace öffnen",
+          heading: "Installieren und öffnen",
           paragraphs: [
-            "Nachdem die Erweiterung angeheftet ist, installiere das passende lokale Produkt über den dokumentierten Ein-Schritt-Weg: ziehe das macOS-Disk-Image nach Applications, führe unter Windows den PowerShell-Installer aus oder unter Linux den curl-Installer. Diese Installer registrieren den lokalen Dienst, damit Coding-Agents eingefügte Aufnahmen empfangen können.",
-            "Unter macOS sitzt Pinar.app in der Menüleiste und startet den lokalen Dienst für dich. Zeigt die Menüleiste Local Server: Off, wähle Start und dann Open Workspace. Sieht ein Agent eingefügte Aufnahmen nicht mehr, öffne Pinar erneut und versuche es noch einmal.",
+            "Lade die Pinar-Anwendung über die Links unten herunter, installiere sie und öffne sie.",
+            "Wenn Pinar offen ist, wähle „Workspace öffnen“. Zeigt sie „Lokaler Server: Aus“, wähle „Starten“. Kommen eingefügte Aufnahmen nicht mehr an, öffne Pinar erneut.",
           ],
           bullets: [
-            "Windows-Installation: irm https://pinar.dev/install.ps1 | iex. Linux-Installation: curl -fsSL https://pinar.dev/install.sh | sh. Das Skript benötigt curl oder wget, um die Binary herunterzuladen.",
-            "Wenn der lokale Dienst bereit ist, lädt Open Workspace deinen Arbeitsbereich aus der Menüleiste.",
-            "Die Chrome-Erweiterung kann Screenshots nicht selbst speichern. Hat eine Aufnahme kein Bild, starte zuerst das lokale Produkt und erfasse dann erneut.",
+            "macOS: [lade die Pinar-Anwendung herunter](https://github.com/djalmajr/pinar/releases/latest/download/macos-arm64-Pinar.dmg), öffne das Disk-Image und ziehe sie nach „Programme“.",
+            "Windows: [lade die Pinar-Anwendung herunter](https://github.com/djalmajr/pinar/releases/latest/download/win-x64-Pinar-Setup.exe) und führe den Installer aus. Das Symbol erscheint im Infobereich.",
+            "Windows: der erste Start kann „Windows hat Ihren PC geschützt“ zeigen. Wähle „Weitere Informationen“ und dann „Trotzdem ausführen“.",
+            "Linux: `curl -fsSL https://pinar.dev/install.sh | sh`",
           ],
         },
       ],
@@ -169,28 +273,28 @@ const locale = {
         {
           heading: "Die Seite pinnen",
           paragraphs: [
-            "Öffne die Seite, wähle die Pinar-Erweiterung, klicke dann auf ein Element oder ziehe einen Freiform-Bereich. Schreibe den Kommentar und drücke Enter, um den Pin hinzuzufügen.",
+            "Öffne die Seite, wähle die Pinar-Erweiterung, klicke dann auf ein Element oder ziehe einen Freiform-Bereich. Schreibe den Kommentar und drücke `Enter`, um den Pin hinzuzufügen.",
           ],
           bullets: [
             "Wiederhole die Auswahl, um mehrere nummerierte Pins in einem Capture zu setzen.",
-            "Shift+Enter fügt einen Zeilenumbruch ein; Escape schließt den Entwurf, ohne die anderen Pins zu löschen.",
+            "`Shift+Enter` fügt einen Zeilenumbruch ein; `Escape` schließt den Entwurf, ohne die anderen Pins zu löschen.",
           ],
         },
         {
           heading: "Das Bundle kopieren",
           paragraphs: [
-            "Drücke unter macOS Command+Enter, sonst Ctrl+Enter. Pinar kopiert menschenlesbares Markdown, HTML und einen pinar-visual-context-JSON-Block, die auf denselben Screenshot und dieselben Pin-Identitäten verweisen.",
+            "Drücke unter macOS `Command+Enter`, sonst `Ctrl+Enter`. Pinar kopiert menschenlesbares Markdown, HTML und einen pinar-visual-context-JSON-Block, die auf denselben Screenshot und dieselben Pin-Identitäten verweisen.",
           ],
         },
         {
           heading: "Kopieren abschließen und Identitäten behalten",
           paragraphs: [
-            "Command/Ctrl+Enter kopiert erst, wenn mindestens ein Pin einen Kommentar hat. Das Overlay zeigt Copying…, blendet die Pin-Chrome für den Screenshot aus, danach Copied, und die Symbolleiste schließt sich. Ein späterer Klick auf das Erweiterungssymbol blendet nur das Overlay ein oder aus; bereits gesetzte Pins werden nicht gelöscht. Scheitern alle Zwischenablagewege, wird das Overlay wiederhergestellt, damit du es erneut versuchen kannst.",
+            "`Command/Ctrl+Enter` kopiert erst, wenn mindestens ein Pin einen Kommentar hat. Das Overlay zeigt „Anmerkungen werden gespeichert…“, blendet die Pins für den Screenshot aus, danach „Erfolgreich kopiert!“, und die Symbolleiste schließt sich. Ein späterer Klick auf das Erweiterungssymbol blendet nur das Overlay ein oder aus; bereits gesetzte Pins werden nicht gelöscht. Scheitern alle Zwischenablagewege, wird das Overlay wiederhergestellt, damit du es erneut versuchen kannst.",
             "Behandle die Zwischenablage-Nutzlast als eine Einheit: lesbare Anweisungen, eine optionale Viewer-URL und einen abgegrenzten pinar-visual-context-JSON-Block mit `captureId`, `pinId`, Seiten-URL, Locators (cssSelector, domPath, innerText) und einer Screenshot-URL, wenn der Helper eine Datei gespeichert hat. Nummerierte Badges auf dem Bild sind Annotations-Overlays, keine Seiten-UI. Schreibe `captureId` oder `pinId` beim Einfügen in einen Agent nicht um. Eine Zeile Screenshot: /path/to/file.png ist, sofern vorhanden, der einzige Ausschnitt, der alle Pins enthält.",
           ],
           bullets: [
-            "Ein leerer Composer oder ein Capture ohne Pins bricht das Kopieren ab und blendet Write a comment first oder Add a pin first ein.",
-            "Eingeschränkte Kopien fügen weiterhin Kommentare und Locators ein, aber die Symbolleiste kann nach Copied no screenshot, helper unavailable oder no viewer ergänzen.",
+            "Ein leerer Composer oder ein Capture ohne Pins bricht das Kopieren ab und blendet „Zuerst einen Kommentar schreiben“ oder „Zuerst einen Pin setzen“ ein.",
+            "Eingeschränkte Kopien fügen weiterhin Kommentare und Locators ein, aber die Symbolleiste kann nach „Erfolgreich kopiert!“ „kein Screenshot“, „Helfer nicht verfügbar“ oder „kein Viewer“ ergänzen.",
             "Bevorzuge ein laufendes lokales Pinar, damit die Kopie einen Screenshot und einen Viewer-Link für den vollen Kontext enthalten kann.",
           ],
         },
@@ -216,8 +320,8 @@ const locale = {
         {
           heading: "Wie lokale und Cloud-Sitzungen wirklich geöffnet werden",
           paragraphs: [
-            "Der lokale Verlauf beginnt mit einem geschützten Projekt Personal und einer geschützten Collection Inbox, die du nicht wie gewöhnliche Ordner verschachteln oder löschen kannst. Aufnahmen bleiben auf diesem Computer, und du kannst sie im lokalen Workspace öffnen.",
-            "Cloud-Speicher wartet, bis du die aktuellen Nutzungsbedingungen, die Datenschutzerklärung und die zulässige Nutzung akzeptiert hast. Danach können Free-Konten die Erweiterung mit einem kurzlebigen Code koppeln, und bezahlte Konten können zusätzlich einen sechsstelligen E-Mail-Code bestätigen. Freigabelinks bleiben für alle lesbar, die die unlisted URL haben.",
+            "Der lokale Verlauf beginnt mit einem geschützten Projekt „Personal“ und einer geschützten Collection „Inbox“, die du nicht wie gewöhnliche Ordner verschachteln oder löschen kannst. Aufnahmen bleiben auf diesem Computer, und du kannst sie im lokalen Workspace öffnen.",
+            "Cloud-Speicher wartet, bis du die aktuellen „Bedingungen“, den „Datenschutz“ und die „Zulässige Nutzung“ akzeptiert hast. Danach können „Free“-Konten die Erweiterung mit einem kurzlebigen Code koppeln, und bezahlte Konten können zusätzlich einen sechsstelligen E-Mail-Code bestätigen. Freigabelinks bleiben für alle lesbar, die die unlisted URL haben.",
           ],
           bullets: [
             "Der lokale Workspace bleibt auf diesem Computer und braucht kein Cloud-Konto.",
@@ -238,10 +342,11 @@ const locale = {
             "Pinar fängt nur die aktiven Capture-Tastenkürzel ab, damit die Host-Seite denselben Tastendruck nicht erhält.",
           ],
           bullets: [
-            "Enter setzt einen Pin auf das Element unter dem Zeiger; Arrow Up wählt das Elternelement, Arrow Down kehrt zu einem Kind zurück.",
-            "M schaltet das Zeichnen der Privacy-Maske um. Escape bricht einen Entwurf oder eine Maske ab; ohne Entwurf werden Pins gelöscht und die Symbolleiste ausgeblendet.",
-            "Command/Ctrl+Enter kopiert das fertige Bundle.",
-            "Alt+Shift+P blendet die Toolbar ein oder aus, ohne die Sitzung abzubrechen, und lässt sich unter `chrome://extensions/shortcuts` neu belegen. Browser-Kurzbefehle bleiben auf `chrome://`-Seiten, im Chrome Web Store und vor der Injektion des Overlays wirkungslos.",
+            "`Enter` setzt einen Pin auf das Element unter dem Zeiger; `Arrow Up` wählt das Elternelement, `Arrow Down` kehrt zu einem Kind zurück.",
+            "`M` schaltet das Zeichnen der Privacy-Maske um. `Escape` bricht einen Entwurf oder eine Maske ab; ohne Entwurf werden Pins gelöscht und die Symbolleiste ausgeblendet.",
+            "`R` schaltet das Live-Overlay zwischen nur nummerierten Pins und Pins mit ihren Regionen um. Der kopierte Screenshot enthält immer beides.",
+            "`Command/Ctrl+Enter` kopiert das fertige Bundle.",
+            "`Alt+Shift+P` blendet die Toolbar ein oder aus, ohne die Sitzung abzubrechen, und lässt sich unter `chrome://extensions/shortcuts` neu belegen. Browser-Kurzbefehle bleiben auf `chrome://`-Seiten, im Chrome Web Store und vor der Injektion des Overlays wirkungslos.",
           ],
         },
         {
@@ -253,12 +358,12 @@ const locale = {
         {
           heading: "Details zu Overlay, Symbol und DOM-Durchlauf",
           paragraphs: [
-            "Capture-Tastenkürzel gelten nur, solange das Overlay aktiv ist. Das Erweiterungssymbol schaltet dieses Overlay um; Pins werden nicht gelöscht. Zeigst du ohne offenen Entwurf auf die Symbolleiste, wird sie pass-through, sodass du die Seite darunter weiter anklicken oder ziehen kannst. Shift+Enter fügt im Composer einen Zeilenumbruch ein, und Tastenkürzel der Host-Seite, die dort getippt werden, verlassen das Kommentarfeld nicht.",
-            "Arrow Up geht zum Elternelement und merkt sich das verlassene Kind, sodass Arrow Down zu diesem gemerkten Knoten zurückkehrt, wenn er noch ein Kind ist; sonst wird das erste Kind verwendet. Im Maskenmodus ziehst du einen Bereich, um ihn auszublenden, und klickst auf eine vorhandene Maske, um sie wiederherzustellen. Tastatur-Scrolling funktioniert weiterhin im Dokument, aber auf fokussierte Seitensteuerungen gerichtete Tasten werden blockiert, damit sie keine Schaltflächen auslösen oder in das Host-Formular schreiben.",
+            "Capture-Tastenkürzel gelten nur, solange das Overlay aktiv ist. Das Erweiterungssymbol schaltet dieses Overlay um; Pins werden nicht gelöscht. Zeigst du ohne offenen Entwurf auf die Symbolleiste, wird sie pass-through, sodass du die Seite darunter weiter anklicken oder ziehen kannst. `Shift+Enter` fügt im Composer einen Zeilenumbruch ein, und Tastenkürzel der Host-Seite, die dort getippt werden, verlassen das Kommentarfeld nicht.",
+            "`Arrow Up` geht zum Elternelement und merkt sich das verlassene Kind, sodass `Arrow Down` zu diesem gemerkten Knoten zurückkehrt, wenn er noch ein Kind ist; sonst wird das erste Kind verwendet. Im Maskenmodus ziehst du einen Bereich, um ihn auszublenden, und klickst auf eine vorhandene Maske, um sie wiederherzustellen. Tastatur-Scrolling funktioniert weiterhin im Dokument, aber auf fokussierte Seitensteuerungen gerichtete Tasten werden blockiert, damit sie keine Schaltflächen auslösen oder in das Host-Formular schreiben.",
           ],
           bullets: [
-            "Command/Ctrl+Enter speichert einen offenen Entwurf und kopiert anschließend; ohne Kommentar erscheint Write a comment first, statt einen leeren Pin zu senden.",
-            "Nach Escape oder dem Kopieren behält Pinar diese physische Taste bis keyup, damit die Host-Seite denselben Tastendruck nicht als eigenes Abbrechen oder Absenden wertet.",
+            "`Command/Ctrl+Enter` speichert einen offenen Entwurf und kopiert anschließend; ohne Kommentar erscheint „Zuerst einen Kommentar schreiben“, statt einen leeren Pin zu senden.",
+            "Nach `Escape` oder dem Kopieren behält Pinar diese physische Taste bis keyup, damit die Host-Seite denselben Tastendruck nicht als eigenes Abbrechen oder Absenden wertet.",
             "Ein Bereichs-Pin startet erst, wenn sich der Zeiger etwa sechs Pixel bewegt; ein kürzerer Klick setzt weiterhin einen Pin auf das Element unter dem Zeiger, statt ein Freiform-Rechteck zu öffnen.",
           ],
         },
@@ -282,7 +387,7 @@ const locale = {
         {
           heading: "Klicken, Ziehen und Frame-Zielwahl",
           paragraphs: [
-            "Klicke auf einen Knoten oder drücke Enter auf der aktuellen Umrandung, um einen Element-Pin zu öffnen. Ziehe ein Rechteck von mindestens sechs Pixeln, um stattdessen einen Bereichs-Pin zu öffnen. Der erste Druck auf ein iframe- oder frame-Element wird ignoriert, damit das Dokument in diesem Frame die Auswahl übernehmen kann.",
+            "Klicke auf einen Knoten oder drücke `Enter` auf der aktuellen Umrandung, um einen Element-Pin zu öffnen. Ziehe ein Rechteck von mindestens sechs Pixeln, um stattdessen einen Bereichs-Pin zu öffnen. Der erste Druck auf ein iframe- oder frame-Element wird ignoriert, damit das Dokument in diesem Frame die Auswahl übernehmen kann.",
             "Element-Pins speichern einen Fingerprint, einen Selektor und einen DOM-Pfad, der Vorfahren-Frames mit einem Frame-Grenz-Trennzeichen verbindet. Bereichs-Pins speichern das Rechteck und eine Pixelgrößen-Beschriftung ohne Locator. Der kopierte Screenshot kachelt weiterhin um die Vereinigung aller Pins, einschließlich Pins in Kind-Frames.",
           ],
           bullets: [
@@ -412,7 +517,7 @@ const locale = {
           bullets: [
             "Benutzermasken verwenden eine eindeutige id und eine manuelle Kategorie, damit sie unabhängig von automatischen Boxen gelöscht werden können.",
             "Automatische Feldmasken werden verworfen statt gelöscht, damit spätere Scans das zugrunde liegende Feld weiterhin melden können.",
-            "Escape beendet das Maskenzeichnen, ohne die bereits auf der Seite platzierten Pins zu verwerfen.",
+            "`Escape` beendet das Maskenzeichnen, ohne die bereits auf der Seite platzierten Pins zu verwerfen.",
           ],
         },
       ],
@@ -435,7 +540,7 @@ const locale = {
         {
           heading: "Auf der Originalseite prüfen",
           paragraphs: [
-            "Review on page öffnet den erfassten Origin und rehydriert die Pins. Pinar lehnt eine Origin-Abweichung ab, bewahrt jeden historischen Anker und jede Box, zeichnet die Relokationshistorie auf und lässt dich einen unresolved Pin manuell neu positionieren.",
+            "„Auf der Seite prüfen“ öffnet den erfassten Origin und rehydriert die Pins. Pinar lehnt eine Origin-Abweichung ab, bewahrt jeden historischen Anker und jede Box, zeichnet die Relokationshistorie auf und lässt dich einen unresolved Pin manuell neu positionieren.",
           ],
         },
         {
@@ -443,7 +548,7 @@ const locale = {
             "Zwischenablage aus dem Viewer und Gating beim erneuten Öffnen",
           paragraphs: [
             "Copy page im Viewer schreibt dasselbe korrelierte Markdown-Bundle wie auf der Live-Seite, mit compact- oder full-Handoff aus gespeicherten Präferenzen und `captureId` mit Fallback auf die Session-ID. Das Aktionsmenü öffnet das öffentliche Markdown unter /v/{id}.md oder startet ChatGPT oder Claude mit einem Prompt, der auf diese URL zeigt.",
-            "Review on page sendet ein reopen-Ereignis mit der Session-ID. Der Helper hydriert nur von einer vertrauenswürdigen Pinar-App-URL, wenn diese ID mit der Session-ID oder `captureId` übereinstimmt und der Tab-Origin weiterhin dem Origin der erfassten Seite entspricht. Das Navigieren des Tabs von diesem Origin weg löst die Bindung, statt Pins in die falsche Site zu injizieren.",
+            "„Auf der Seite prüfen“ sendet ein reopen-Ereignis mit der Session-ID. Der Helper hydriert nur von einer vertrauenswürdigen Pinar-Anwendung-URL, wenn diese ID mit der Session-ID oder `captureId` übereinstimmt und der Tab-Origin weiterhin dem Origin der erfassten Seite entspricht. Das Navigieren des Tabs von diesem Origin weg löst die Bindung, statt Pins in die falsche Site zu injizieren.",
           ],
           bullets: [
             "Wenn kein reopen-Ergebnis eintrifft, zeigt der Viewer einen missing-helper-Hinweis, statt unbegrenzt zu warten.",
@@ -473,13 +578,13 @@ const locale = {
         {
           heading: "Wie das kopierte Bundle an einen Agenten geliefert wird",
           paragraphs: [
-            "Die Chrome-Erweiterung tippt niemals in den Agent-Composer. Nach Command/Ctrl+Enter füge die Zwischenablage selbst in Cursor, Claude, Codex oder Grok ein. Der Text beginnt mit Anweisungen, die Pin-Kommentare umzusetzen und Selektor und DOM-Pfad als ergänzende Locator zu behandeln, gefolgt von einem abgegrenzten pinar-visual-context-JSON-Block. Wenn eine Viewer-URL enthalten ist, rufe sie nur ab, wenn diese Details nicht ausreichen.",
-            "Behandle `captureId` und `pinId` als Identität, nicht als Labels zum Umschreiben. Visual Context kodiert derzeit schemaVersion 1; parseVisualCapture lehnt eine fehlende `captureId` und jede schemaVersion außer 1 oder dem Legacy-Wert 0 ab. Ändere nur, was die Pins beschreiben. Wenn die Person nichts eingefügt hat, bitte sie, erneut aus Pinar zu kopieren, statt Pins aus dem Gedächtnis zu rekonstruieren.",
+            "Die Chrome-Erweiterung tippt niemals in den Agent-Composer. Nach `Command/Ctrl+Enter` füge die Zwischenablage selbst in Cursor, Claude, Codex oder Grok ein. Der Text beginnt damit, dass die Pin-Notizen eine Änderung oder eine Erklärung erbitten können, und Selektor und DOM-Pfad als ergänzende Locator zu behandeln, gefolgt von einem abgegrenzten pinar-visual-context-JSON-Block. Wenn eine Viewer-URL enthalten ist, rufe sie nur ab, wenn diese Details nicht ausreichen.",
+            "Behandle `captureId` und `pinId` als Identität, nicht als Labels zum Umschreiben. Visual Context kodiert derzeit schemaVersion 1; parseVisualCapture lehnt eine fehlende `captureId` und jede schemaVersion außer 1 oder dem Legacy-Wert 0 ab. Folge nur dem, was die Pins beschreiben. Wenn die Person nichts eingefügt hat, bitte sie, erneut aus Pinar zu kopieren, statt Pins aus dem Gedächtnis zu rekonstruieren.",
           ],
           bullets: [
             "Füge die gesamte Zwischenablage in den Agenten ein; tippe Kommentare nicht ab und erfinde keine neue `captureId`.",
             "Bestätige, dass der eingefügte Text noch einen geschlossenen pinar-visual-context-Fence enthält, bevor du Code bearbeitest.",
-            "Wenn nichts eingefügt wurde, bitte um Command/Ctrl+Enter in Pinar und setze nur die Pin-Kommentare um.",
+            "Wenn nichts eingefügt wurde, bitte um `Command/Ctrl+Enter` in Pinar und folge nur den Pin-Notizen.",
           ],
         },
       ],
@@ -572,12 +677,12 @@ const locale = {
           heading:
             "Die ursprüngliche URL öffnen und ausstehende Pins platzieren",
           paragraphs: [
-            "Review on page öffnet nur aus der Pinar-App, auf der ursprünglichen Capture-URL. Eine andere Site kann keine gespeicherte Sitzung in die Erweiterung injizieren. Nach dem Laden zeigt jeder Frame nur die Pins, die dorthin gehören.",
-            "Das Overlay bleibt nur gebunden, solange der Tab noch die erfasste Site ist. Wegnavigieren zeigt This page is not the original capture URL. Mehrdeutige Treffer behalten die ursprüngliche Box, statt auf ein ähnliches Element zu springen. Klicke auf einen ausstehenden Pin, dann auf das korrekte Element, um ihn zu platzieren.",
+            "„Auf der Seite prüfen“ öffnet nur aus der Pinar-Anwendung, auf der ursprünglichen Capture-URL. Eine andere Site kann keine gespeicherte Sitzung in die Erweiterung injizieren. Nach dem Laden zeigt jeder Frame nur die Pins, die dorthin gehören.",
+            "Das Overlay bleibt nur gebunden, solange der Tab noch die erfasste Site ist. Wegnavigieren zeigt „Diese Seite ist nicht die ursprüngliche Capture-URL“. Mehrdeutige Treffer behalten die ursprüngliche Box, statt auf ein ähnliches Element zu springen. Klicke auf einen ausstehenden Pin, dann auf das korrekte Element, um ihn zu platzieren.",
           ],
           bullets: [
-            "Starte Review on page aus der Pinar-App, damit nur diese Sitzung auf dem erfassten Origin hydriert.",
-            "Wenn das Overlay This page is not the original capture URL sagt, kehre zum erfassten Origin zurück, statt Pins zu platzieren.",
+            "Starte „Auf der Seite prüfen“ aus der Pinar-Anwendung, damit nur diese Sitzung auf dem erfassten Origin hydriert.",
+            "Wenn das Overlay „Diese Seite ist nicht die ursprüngliche Capture-URL“ sagt, kehre zum erfassten Origin zurück, statt Pins zu platzieren.",
             "Bei einem unresolved Pin klicke auf die Markierung und dann auf das Live-Element, um ihn zu platzieren.",
           ],
         },
@@ -604,13 +709,13 @@ const locale = {
           heading:
             "Den Kopierpfad nachvollziehen, wenn die Symbolleiste einen Fehler meldet",
           paragraphs: [
-            "Zum Kopieren sind ein gespeicherter Kommentar und mindestens ein Pin erforderlich. Die Symbolleiste zeigt Copying…, blendet Overlays aus, erfasst den Screenshot und fordert das Offscreen-Dokument auf, text/html und text/plain zu schreiben. Offscreen versucht zuerst navigator.clipboard.write und fällt auf ein copy-Ereignis plus execCommand zurück. Wenn dieses Schreiben nicht ok ist, versucht das Content-Skript weiterhin writePlainText auf der zurückgegebenen Plain-Payload: clipboard.writeText, dann eine versteckte Textarea-Auswahl.",
-            "Wenn jeder Kopierpfad fehlschlägt, sendet die Seite overlays:hidden mit hidden false, zeigt kurz Copy failed und lässt Pins bearbeitbar. Ein erfolgreiches Kopieren zeigt Copied oder Copied plus no screenshot, helper unavailable oder no viewer und beendet dann die Sitzung. Diese Suffixe entsprechen `screenshot_missing`, `helper_unavailable` und `viewer_unavailable`. screenshot_inline gehört nicht zu den eingeschränkten Übergabewarnungen. Ein Einfügen ohne geschlossene pinar-visual-context-Fence kann nicht als JSON geparst werden.",
+            "Zum Kopieren sind ein gespeicherter Kommentar und mindestens ein Pin erforderlich. Die Symbolleiste zeigt „Anmerkungen werden gespeichert…“, blendet Overlays aus, erfasst den Screenshot und fordert das Offscreen-Dokument auf, text/html und text/plain zu schreiben. Offscreen versucht zuerst navigator.clipboard.write und fällt auf ein copy-Ereignis plus execCommand zurück. Wenn dieses Schreiben nicht ok ist, versucht das Content-Skript weiterhin writePlainText auf der zurückgegebenen Plain-Payload: clipboard.writeText, dann eine versteckte Textarea-Auswahl.",
+            "Wenn jeder Kopierpfad fehlschlägt, sendet die Seite overlays:hidden mit hidden false, zeigt kurz „Kopieren fehlgeschlagen“ und lässt Pins bearbeitbar. Ein erfolgreiches Kopieren zeigt „Erfolgreich kopiert!“ oder „Erfolgreich kopiert!“ plus „kein Screenshot“, „Helfer nicht verfügbar“ oder „kein Viewer“ und beendet dann die Sitzung. Diese Suffixe entsprechen `screenshot_missing`, `helper_unavailable` und `viewer_unavailable`. screenshot_inline gehört nicht zu den eingeschränkten Übergabewarnungen. Ein Einfügen ohne geschlossene pinar-visual-context-Fence kann nicht als JSON geparst werden.",
           ],
           bullets: [
-            "Wenn die Symbolleiste Write a comment first oder Add a pin first anzeigt, schließe diesen Pin ab und drücke erneut Command/Ctrl+Enter.",
-            "Wenn Copy failed erscheint, bestätige, dass die Pins noch auf der Seite sind, erteile bei Aufforderung die Zwischenablageberechtigung und wiederhole das Kopieren.",
-            "Lies das Copied-Suffix: no screenshot, helper unavailable und no viewer benennen die fehlende Ebene, die du ohne Verwerfen der Kommentare erneut versuchen kannst.",
+            "Wenn die Symbolleiste „Zuerst einen Kommentar schreiben“ oder „Zuerst einen Pin setzen“ anzeigt, schließe diesen Pin ab und drücke erneut `Command/Ctrl+Enter`.",
+            "Wenn „Kopieren fehlgeschlagen“ erscheint, bestätige, dass die Pins noch auf der Seite sind, erteile bei Aufforderung die Zwischenablageberechtigung und wiederhole das Kopieren.",
+            "Lies das Suffix von „Erfolgreich kopiert!“: „kein Screenshot“, „Helfer nicht verfügbar“ und „kein Viewer“ benennen die fehlende Ebene, die du ohne Verwerfen der Kommentare erneut versuchen kannst.",
           ],
         },
       ],
@@ -950,11 +1055,11 @@ const locale = {
           heading:
             "Das Capability-Geheimnis vorlegen und einen beschädigten lokalen Store wiederherstellen",
           paragraphs: [
-            "Der lokale Workspace akzeptiert nur die Pinar-App und die offizielle Erweiterung. Die Rotation hält das vorherige Geheimnis lange genug gültig, damit laufende Prozesse nachziehen können; der Widerruf erzwingt eine neue Autorisierung.",
+            "Der lokale Workspace akzeptiert nur die Pinar-Anwendung und die offizielle Erweiterung. Die Rotation hält das vorherige Geheimnis lange genug gültig, damit laufende Prozesse nachziehen können; der Widerruf erzwingt eine neue Autorisierung.",
             "Läuft bereits eine andere Pinar-Instanz, bleibt diese Instanz an Ort und Stelle. Verschachtelte Screenshot-Ordner werden migriert, ohne Namenskonflikte zu überschreiben. Wenn der lokale Verlauf nicht geöffnet werden kann, stellt Pinar ein nutzbares Projekt Personal und Inbox wieder her, statt abzustürzen.",
           ],
           bullets: [
-            "Nutze weiter die offizielle Erweiterung und die Pinar-App; andere Sites können nicht mit dem lokalen Workspace sprechen.",
+            "Nutze weiter die offizielle Erweiterung und die Pinar-Anwendung; andere Sites können nicht mit dem lokalen Workspace sprechen.",
             "Nachdem du den lokalen Zugriff widerrufen hast, starte Pinar neu, damit der Workspace sich erneut autorisieren kann.",
             "Wenn der lokale Verlauf nicht geöffnet werden kann, erwarte ein wiederhergestelltes Projekt Personal und Inbox statt eines Absturzes.",
           ],

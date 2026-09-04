@@ -409,11 +409,7 @@ function CategorySidebar({
                 {category.title}
               </Link>
               {selectedCategory ? (
-                <div className="relative mt-1 space-y-0.5 pl-5">
-                  <span
-                    aria-hidden
-                    className="pointer-events-none absolute inset-y-0 left-4 w-px bg-sidebar-border"
-                  />
+                <div className="mt-1 ml-4 space-y-0.5 border-l border-sidebar-border">
                   {articlesInCategory(content, category.id).map((article) => (
                     <Link
                       aria-current={
@@ -421,10 +417,10 @@ function CategorySidebar({
                       }
                       activeOptions={{ exact: true }}
                       className={cn(
-                        "block rounded-md px-3 py-1.5 text-sm",
+                        "-ml-px block border-l-2 py-1.5 pl-3 text-sm leading-5 transition-colors",
                         article.id === activeArticle
-                          ? "bg-primary/10 font-medium text-primary"
-                          : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                          ? "border-primary font-medium text-primary"
+                          : "border-transparent text-muted-foreground hover:text-primary",
                       )}
                       key={article.id}
                       params={{ article: article.id, category: category.id }}
@@ -705,6 +701,9 @@ function HelpProse({
         p: inline
           ? ({ children }) => <span>{children}</span>
           : ({ children }) => <p>{children}</p>,
+        strong: ({ children }) => (
+          <strong className="font-semibold text-foreground">{children}</strong>
+        ),
       }}
     >
       {children}
@@ -881,12 +880,20 @@ function HelpArticlePageContent({
                               className="flex items-start gap-2"
                               key={`${article.id}-${sectionIndex}-bullet-${bulletIndex}`}
                             >
-                              <CheckCircleIcon className="mt-1 size-4 shrink-0 text-primary" />
+                              <span className="flex h-7 shrink-0 items-center">
+                                <CheckCircleIcon className="size-4 text-primary" />
+                              </span>
                               <HelpProse inline>{bullet}</HelpProse>
                             </li>
                           ))}
                         </ul>
                       ) : null}
+                      {section.screenshots?.map((screenshot) => (
+                        <HelpArticleFigure
+                          key={screenshot.src}
+                          screenshot={screenshot}
+                        />
+                      ))}
                     </div>
                   </section>
                 ))}

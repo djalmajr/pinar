@@ -42,4 +42,19 @@ describe("Pinar.app release workflow", () => {
     expect(workflow).toContain("stable-macos-arm64-update.json");
     expect(workflow).toContain('gh release edit "$RELEASE_TAG" --draft=false --latest');
   });
+
+  test("builds an unsigned Windows installer on a Windows runner", () => {
+    expect(workflow).toContain("runs-on: windows-latest");
+    expect(workflow).toContain("hutch/install.ps1");
+    expect(workflow).toContain("-Version 0.25.0");
+    expect(workflow).toContain("-NoModifyPath");
+    expect(workflow).toContain(
+      'Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $env:USERPROFILE ".hutch\\bin")',
+    );
+    expect(workflow).toContain("win-x64-Pinar-Setup.exe");
+    expect(workflow).toContain("stable-win-x64-Pinar.tar.zst");
+    expect(workflow).toContain("stable-win-x64-update.json");
+    expect(workflow).not.toContain("signtool");
+    expect(workflow).not.toContain("Get-AuthenticodeSignature");
+  });
 });

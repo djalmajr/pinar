@@ -227,7 +227,7 @@ describe("formatClipboard", () => {
     };
     const en = formatClipboard(input);
     const pt = formatClipboard({ ...input, messages: translations.pt });
-    assert.match(pt.plain, /Implemente os comentários dos pins abaixo/);
+    assert.match(pt.plain, /As notas dos pins abaixo podem pedir uma alteração ou uma explicação/);
     const fence = (plain) => {
       const match = plain.match(/```pinar-visual-context\n[\s\S]*?\n```/);
       assert.ok(match);

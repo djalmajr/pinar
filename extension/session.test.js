@@ -95,6 +95,27 @@ describe("session after copy", () => {
     assert.match(contentSrc, /state\.draft\?\.kind === "element"/);
   });
 
+  test("live overlay can show pin regions without changing the saved crop", () => {
+    const cropSrc = readFileSync(new URL("./crop.js", import.meta.url), "utf8");
+    assert.match(contentSrc, /showPinRegions:\s*true/);
+    assert.match(contentSrc, /function togglePinRegions/);
+    assert.match(contentSrc, /event\.key === "r"/);
+    assert.match(contentSrc, /class="pin-region/);
+    assert.match(contentSrc, /type: "overlays:hidden"/);
+    assert.doesNotMatch(cropSrc, /showPinRegions/);
+    const renderPins = cropSrc.slice(
+      cropSrc.indexOf("export async function renderPinsCrop"),
+      cropSrc.indexOf("return canvas.convertToBlob"),
+    );
+    assert.match(renderPins, /drawAreaBox/);
+    assert.match(renderPins, /drawPinMarker/);
+  });
+
+  test("hides the batch pill when Chrome has not bound a shortcut", () => {
+    assert.match(contentSrc, /\[hidden\] \{ display: none !important; \}/);
+    assert.match(contentSrc, /ui\.batchPill\.hidden = !shortcut/);
+  });
+
   test("extension controls use the same non-pill radius language as the app", () => {
     const toolbarStyles = contentSrc.slice(contentSrc.indexOf(".toolbar {"), contentSrc.indexOf(".toolbar.pass-through"));
     const composerStyles = contentSrc.slice(contentSrc.indexOf(".composer-card {"), contentSrc.indexOf(".privacy-mask {"));
@@ -117,7 +138,8 @@ describe("session after copy", () => {
   test("area pin overlay projection uses nested scroller offsets, not only window scroll", () => {
     // Mutation captured: Help articles scroll inside ScrollArea. The numbered
     // marker and dashed box stayed glued to the viewport while the selected
-    // region moved with the inner scroller.
+    // region moved with the inner scroller. Pin 1 of install-pinar landed in
+    // the gap between sections after that scroll.
     const viewportPin = contentSrc.slice(
       contentSrc.indexOf("function viewportPin"),
       contentSrc.indexOf("function cssPath"),
@@ -126,13 +148,24 @@ describe("session after copy", () => {
       contentSrc.indexOf("async function openAreaDraft"),
       contentSrc.indexOf("function onPointerUp"),
     );
+    const syncPins = contentSrc.slice(
+      contentSrc.indexOf("async function syncPins"),
+      contentSrc.indexOf("function cancelDraft"),
+    );
     assert.match(contentSrc, /function pinLayoutScroll\(/);
     assert.match(contentSrc, /function scrollRootsFromPoint\(/);
+    assert.match(contentSrc, /elementsFromPoint/);
+    assert.match(contentSrc, /data-slot="scroll-area-viewport"/);
+    assert.match(contentSrc, /function watchScrollRoots\(/);
+    assert.match(contentSrc, /unwatchScrollRoots\(\)/);
     assert.match(viewportPin, /projectPin\(pin, pinLayoutScroll\(pin\)\)/);
     assert.doesNotMatch(viewportPin, /projectPin\(pin, currentScroll\(\)\)/);
     assert.match(openAreaDraft, /scrollRootsFromPoint\(/);
-    assert.match(openAreaDraft, /layoutScroll:/);
+    assert.match(openAreaDraft, /layoutScroll\(scroll, scrollRoots\)/);
+    assert.match(openAreaDraft, /documentBox\(box, nestedScroll\)/);
     assert.match(openAreaDraft, /scrollRoots,/);
+    assert.match(syncPins, /working\.kind === "area"/);
+    assert.match(syncPins, /projectPin\(working, pinLayoutScroll\(working\)\)/);
   });
 
   test("fixed modal capture preserves the measured viewport rect", () => {

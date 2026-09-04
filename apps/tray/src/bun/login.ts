@@ -2,10 +2,12 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { pinarBin, pinarHome, runningAppBundle } from "./local-server";
 
 export const LOGIN_LABEL = "dev.pinar.local";
+export const WINDOWS_RUN_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+export const WINDOWS_RUN_VALUE = "Pinar";
 
 export function loginPlistPath() {
 	return join(homedir(), "Library", "LaunchAgents", `${LOGIN_LABEL}.plist`);
@@ -21,7 +23,51 @@ export function loginAppBundle() {
 	return runningAppBundle();
 }
 
+export function windowsInstallDir(home = homedir(), localAppData = process.env.LOCALAPPDATA) {
+	const base = localAppData || join(home, "AppData", "Local");
+	return join(base, "Programs", "Pinar");
+}
+
+export function isPinarWindowsExe(execPath: string) {
+	const name = basename(execPath).toLowerCase();
+	if (name === "pinar.exe" || name === "pinar-dev.exe") return true;
+	if (name !== "launcher.exe") return false;
+	return /[/\\]pinar[/\\]bin[/\\]launcher\.exe$/i.test(execPath);
+}
+
+export function windowsInstallExePath(
+	home = homedir(),
+	localAppData = process.env.LOCALAPPDATA,
+) {
+	const dest = windowsInstallDir(home, localAppData);
+	const launcher = join(dest, "bin", "launcher.exe");
+	const pinar = join(dest, "Pinar.exe");
+	if (existsSync(launcher) && existsSync(join(dest, "bin", "cottontail.exe"))) return launcher;
+	if (existsSync(pinar)) return pinar;
+	return launcher;
+}
+
+export function loginExePath(execPath = process.execPath) {
+	const installed = windowsInstallExePath();
+	if (existsSync(installed)) return installed;
+	if (isPinarWindowsExe(execPath) && existsSync(execPath)) return execPath;
+	return null;
+}
+
+export function windowsRunAddArgs(exePath: string) {
+	return ["add", WINDOWS_RUN_KEY, "/v", WINDOWS_RUN_VALUE, "/t", "REG_SZ", "/d", exePath, "/f"];
+}
+
+export function windowsRunDeleteArgs() {
+	return ["delete", WINDOWS_RUN_KEY, "/v", WINDOWS_RUN_VALUE, "/f"];
+}
+
+export function parseRegQueryHasValue(stdout: string, name = WINDOWS_RUN_VALUE) {
+	return stdout.toLowerCase().includes(name.toLowerCase());
+}
+
 export async function isServerLoginEnabled() {
+	if (process.platform === "win32") return isWindowsRunEnabled();
 	if (process.platform !== "darwin") return false;
 	try {
 		const text = await readFile(loginPlistPath(), "utf8");
@@ -56,6 +102,13 @@ export function shouldConfigureDefaultLogin(
 }
 
 export async function ensureDefaultLogin() {
+	if (process.platform === "win32") {
+		const prefs = await readPrefs();
+		if (loginExePath() && shouldConfigureDefaultLogin(prefs, await isWindowsRunEnabled())) {
+			await setServerLoginEnabled(true);
+		}
+		return;
+	}
 	if (process.platform !== "darwin") return;
 	const prefs = await readPrefs();
 	if (shouldConfigureDefaultLogin(prefs, existsSync(loginPlistPath()))) {
@@ -64,6 +117,12 @@ export async function ensureDefaultLogin() {
 }
 
 export async function setServerLoginEnabled(enabled: boolean) {
+	if (process.platform === "win32") {
+		if (enabled) await addWindowsRun();
+		else await removeWindowsRun();
+		await writePrefs({ loginConfigured: true, loginEnabled: enabled });
+		return;
+	}
 	if (process.platform !== "darwin") return;
 	const path = loginPlistPath();
 	if (!enabled) {
@@ -165,4 +224,37 @@ function runLaunchctl(args: string[]) {
 			else reject(new Error(`launchctl ${args[0]} exited ${code}`));
 		});
 	});
+}
+
+function runReg(args: string[]) {
+	return new Promise<{ code: number; stdout: string }>((resolve, reject) => {
+		const child = spawn("reg", args, { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+		let stdout = "";
+		child.stdout?.setEncoding("utf8");
+		child.stdout?.on("data", (chunk: string) => {
+			stdout += chunk;
+		});
+		child.on("error", reject);
+		child.on("close", (code) => resolve({ code: code ?? 1, stdout }));
+	});
+}
+
+async function isWindowsRunEnabled() {
+	try {
+		const result = await runReg(["query", WINDOWS_RUN_KEY, "/v", WINDOWS_RUN_VALUE]);
+		return result.code === 0 && parseRegQueryHasValue(result.stdout);
+	} catch {
+		return false;
+	}
+}
+
+async function addWindowsRun() {
+	const exe = loginExePath();
+	if (!exe) throw new Error("Pinar executable not found. Install the local server first.");
+	const result = await runReg(windowsRunAddArgs(exe));
+	if (result.code !== 0) throw new Error(`reg add ${WINDOWS_RUN_VALUE} exited ${result.code}`);
+}
+
+async function removeWindowsRun() {
+	await runReg(windowsRunDeleteArgs()).catch(() => undefined);
 }

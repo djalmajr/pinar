@@ -24,10 +24,12 @@ describe("extension action entry points", () => {
 
   test("the action menu mirrors the commands, in the extension's language", () => {
     // The toolbar fades under the pointer, so it cannot host a click. The menu
-    // is the pointer path: open the panel, start/finish the batch, and close
-    // it without copying while one runs. Every title is our own string set at
-    // runtime, so it follows the language chosen in Options - never the
-    // English catalog, which was the old menu's mistake.
+    // is the pointer path for every command except _execute_action: open the
+    // panel, start/finish the batch, and close it without copying. Close stays
+    // listed even with no batch so the menu matches the shortcuts page.
+    // Every title is our own string set at runtime, so it follows the language
+    // chosen in Options - never the English catalog, which was the old menu's
+    // mistake.
     assert.ok(manifest.permissions.includes("contextMenus"));
     const menu = backgroundSrc.slice(
       backgroundSrc.indexOf("function menuItem("),
@@ -38,7 +40,8 @@ describe("extension action entry points", () => {
     assert.match(menu, /messages\.context_open_panel/);
     assert.match(menu, /messages\.batch_finish/);
     assert.match(menu, /messages\.batch_start/);
-    assert.match(menu, /title: messages\.batch_close_menu, visible: active/);
+    assert.match(menu, /title: messages\.batch_close_menu, visible: true/);
+    assert.doesNotMatch(menu, /visible: active/);
     assert.match(menu, /finishBatch\(\{ copy: false \}\)/);
     assert.match(menu, /void toggleBatch\(\)/);
     assert.match(menu, /void openApp\(\)/);

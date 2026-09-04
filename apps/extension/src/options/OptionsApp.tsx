@@ -15,6 +15,7 @@ import {
   type ThemeMode,
   type TranslationDictionary,
   translations,
+  windowsDesktopSetupUrl,
 } from "@pinar/shared";
 import {
   AlertDialog,
@@ -94,6 +95,7 @@ const OVERLAY_SHORTCUTS = [
   { description: "shortcut_pin_element_desc", keys: "Enter", label: "shortcut_pin_element" },
   { description: "shortcut_walk_dom_desc", keys: "↑ / ↓", label: "shortcut_walk_dom" },
   { description: "shortcut_mask_desc", keys: "M", label: "shortcut_mask" },
+  { description: "shortcut_toggle_regions_desc", keys: "R", label: "shortcut_toggle_regions" },
   { description: "shortcut_cancel_desc", keys: "Esc", label: "shortcut_cancel" },
   { description: "shortcut_copy_desc", keys: "⌘/Ctrl + Enter", label: "shortcut_copy" },
 ] as const satisfies ReadonlyArray<{ description: keyof TranslationDictionary; keys: string; label: keyof TranslationDictionary }>;
@@ -416,9 +418,9 @@ export function OptionsApp() {
   const selectedDestinationCollectionId = captureDestination?.projectId === destinationProjectId
     ? captureDestination.collectionId
     : DEFAULT_COLLECTION_OPTION.value;
-  const installCommand = installPlatform === "win"
-    ? "irm https://pinar.dev/install.ps1 | iex"
-    : "curl -fsSL https://pinar.dev/install.sh | sh";
+  const installCommand = "curl -fsSL https://pinar.dev/install.sh | sh";
+  const desktopInstallUrl =
+    installPlatform === "win" ? windowsDesktopSetupUrl() : macosDesktopDmgUrl();
 
   async function loadLegalConsent(cloudUrl: string) {
     setLegalError(false);
@@ -760,16 +762,16 @@ export function OptionsApp() {
                     <span className="min-w-0 flex-1">
                       <span className="block text-xs font-semibold">{t.local_title}</span>
                       <span className="mt-0.5 block text-xs text-muted-foreground">{t.local_desc}</span>
-                      {installPlatform === "mac" ? null : (
+                      {installPlatform === "other" ? (
                         <span className="mt-2 flex items-center gap-1.5 rounded-lg border bg-muted/60 p-1.5 font-mono text-[11px]">
                           <ScrollArea className="min-w-0 flex-1"><code className="block whitespace-nowrap px-1 text-muted-foreground">{installCommand}</code><ScrollBar orientation="horizontal" /></ScrollArea>
                           <button className="shrink-0 rounded p-1 text-muted-foreground hover:bg-background hover:text-foreground" title={t.btn_copy} type="button" onClick={async (event) => { event.preventDefault(); await navigator.clipboard.writeText(installCommand); setCopiedInstall(true); window.setTimeout(() => setCopiedInstall(false), 2_000); }}>
                             {copiedInstall ? <IconCheck className="size-3.5 text-emerald-500" /> : <IconCopy className="size-3.5" />}
                           </button>
                         </span>
-                      )}
+                      ) : null}
                     </span>
-                    {installPlatform === "mac" ? <Button className="h-7 shrink-0 self-center text-xs" render={<a href={macosDesktopDmgUrl()} rel="noopener noreferrer" target="_blank" />} size="sm" variant="outline" onClick={(event) => event.stopPropagation()}>{t.btn_download_macos}<IconExternalLink data-icon="inline-end" /></Button> : null}
+                    {installPlatform === "other" ? null : <Button className="h-7 shrink-0 self-center text-xs" render={<a href={desktopInstallUrl} rel="noopener noreferrer" target="_blank" />} size="sm" variant="outline" onClick={(event) => event.stopPropagation()}>{t.btn_download_macos}<IconExternalLink data-icon="inline-end" /></Button>}
                   </label>
                   <label className="-mx-2 flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1 hover:bg-muted/50">
                     <input checked={settings.storageMode === "cloud"} className="mt-0.5 accent-primary" name="storageMode" type="radio" onChange={() => setSettings((current) => ({ ...current, storageMode: "cloud" }))} />

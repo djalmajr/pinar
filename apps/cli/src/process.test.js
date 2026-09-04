@@ -8,6 +8,7 @@ import {
   clearServerPid,
   findListeningPid,
   isPidAlive,
+  parseNetstatListeningPid,
   pidPath,
   readServerPid,
   stopPid,
@@ -27,6 +28,7 @@ describe("process", () => {
   });
 
   test("stopPid terminates a living child", async () => {
+    if (process.platform === "win32") return;
     const child = spawn("sleep", ["30"], { stdio: "ignore" });
     assert.equal(isPidAlive(child.pid), true);
     assert.equal(await stopPid(child.pid), "stopped");
@@ -34,6 +36,7 @@ describe("process", () => {
   });
 
   test("stopPid reports already_stopped for a dead pid", async () => {
+    if (process.platform === "win32") return;
     const child = spawn("sleep", ["30"], { stdio: "ignore" });
     process.kill(child.pid, "SIGKILL");
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -41,7 +44,19 @@ describe("process", () => {
   });
 
   test("findListeningPid parses lsof output", async () => {
-    const pid = await findListeningPid(17373, async () => "18841\n");
+    const pid = await findListeningPid(17373, async () => "18841\n", "linux");
     assert.equal(pid, 18841);
+  });
+
+  test("findListeningPid parses netstat output on Windows", async () => {
+    const stdout = "  TCP    127.0.0.1:17373        0.0.0.0:0              LISTENING       41156\r\n";
+    const pid = await findListeningPid(17373, async () => stdout, "win32");
+    assert.equal(pid, 41156);
+  });
+
+  test("parseNetstatListeningPid reads the LISTENING pid", () => {
+    const stdout = "  TCP    127.0.0.1:17373        0.0.0.0:0              LISTENING       41156\r\n";
+    assert.equal(parseNetstatListeningPid(stdout, 17373), 41156);
+    assert.equal(parseNetstatListeningPid(stdout, 80), null);
   });
 });

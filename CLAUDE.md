@@ -1,6 +1,6 @@
 # Pinar
 
-On macOS, session-start hooks open **Pinar.app** (`/usr/bin/open -ga ~/Applications/Pinar.app`). The menu-bar app starts the local HTTP server if it is not already up. If the menu bar shows Local Server: Off, choose Start. Do not instruct `pinar` or `curl | sh`, and do not start a second long-lived process: any port in `127.0.0.1:17373`–`17382` that answers `GET /api/health` with `service: "pinar"` is enough. Shots land in `~/.pinar/shots` and history in `~/.pinar/history.db`. `PINAR_PORT` pins the server to a single port.
+On macOS, session-start hooks open **Pinar.app** (`/usr/bin/open -ga ~/Applications/Pinar.app`). The menu-bar app starts the local HTTP server if it is not already up. If the menu bar shows Local Server: Off, choose Start. On Windows, the project Grok hook runs `node hooks/ensure.mjs`. After `bun run build:tray` and install, the tray app lives in `%LOCALAPPDATA%\Programs\Pinar` and starts the local server. Do not instruct `pinar` or `curl | sh`, and do not start a second long-lived process: any port in `127.0.0.1:17373`–`17382` that answers `GET /api/health` with `service: "pinar"` is enough. Shots land in `~/.pinar/shots` (Windows: `%USERPROFILE%\.pinar\shots`) and history in `~/.pinar/history.db`. `PINAR_PORT` pins the server to a single port.
 
 Visual page annotations are copied to the clipboard by the Chrome extension (⌘/Ctrl+Enter). The same action copies a human Markdown representation and a `pinar-visual-context` JSON block (Visual Context v1). `captureId` and `pinId` identify the capture; do not rewrite them.
 

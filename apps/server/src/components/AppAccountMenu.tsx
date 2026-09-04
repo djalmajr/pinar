@@ -25,16 +25,38 @@ import {
 } from "@/lib/account-menu";
 import { useAuthSession } from "@/lib/auth-session";
 import { useServerI18n } from "@/lib/i18n";
+import { pinarHomeLink } from "@/lib/pinar-home-menu";
 import { pinarRuntime } from "@/lib/server-header";
 import CalendarClockIcon from "~icons/lucide/calendar-clock";
 import ChevronsUpDownIcon from "~icons/lucide/chevrons-up-down";
 import CoinsIcon from "~icons/lucide/coins";
 import CreditCardIcon from "~icons/lucide/credit-card";
+import ExternalLinkIcon from "~icons/lucide/external-link";
 import HardDriveIcon from "~icons/lucide/hard-drive";
+import HouseIcon from "~icons/lucide/house";
 import LogOutIcon from "~icons/lucide/log-out";
 import RefreshCwIcon from "~icons/lucide/refresh-cw";
 import SettingsIcon from "~icons/lucide/settings";
 import SparklesIcon from "~icons/lucide/sparkles";
+
+function PinarHomeMenu() {
+  const { t } = useServerI18n();
+  const link = pinarHomeLink(pinarRuntime());
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        aria-label={t("app.homepage")}
+        data-testid="pinar-home-menu"
+        render={<a href={link.href} rel="noopener noreferrer" target="_blank" />}
+        tooltip={t("app.homepage")}
+      >
+        <HouseIcon />
+        <span>{t("app.homepage")}</span>
+        <ExternalLinkIcon className="ml-auto" />
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
 
 type UsageStatus = "error" | "loading" | "ready";
 
@@ -92,6 +114,7 @@ export function AppAccountMenu() {
   if (localRuntime || !session || session.kind === "local") {
     return (
       <SidebarMenu>
+        <PinarHomeMenu />
         <SidebarMenuItem>
           <SidebarMenuButton tooltip={t("settings.title")} onClick={openSettings}>
             <SettingsIcon />
@@ -107,6 +130,7 @@ export function AppAccountMenu() {
 
   return (
     <SidebarMenu>
+      <PinarHomeMenu />
       <SidebarMenuItem>
         <DropdownMenu>
           <DropdownMenuTrigger

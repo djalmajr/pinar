@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import trayPackage from "../../package.json" with { type: "json" };
+import {
+	formatTrayLabel,
+	type TrayMenuLabels,
+	trayMenuLabels,
+} from "./menu-labels";
 
 export const GITHUB_RELEASE_BASE_URL =
 	"https://github.com/djalmajr/pinar/releases/latest/download";
@@ -197,12 +202,17 @@ export async function downloadUpdateArtifact(
 	return file.size;
 }
 
-export function updateMenuItem(state: UpdateUiState) {
+export function updateMenuItem(
+	state: UpdateUiState,
+	labels: TrayMenuLabels = trayMenuLabels("en"),
+) {
 	if (state.checking && !state.ready) {
 		return {
 			action: "check-update",
 			enabled: false,
-			label: state.available ? `Downloading ${state.version}…` : "Checking for Updates…",
+			label: state.available
+				? formatTrayLabel(labels.downloading, state.version)
+				: labels.checkForUpdates,
 			type: "normal" as const,
 		};
 	}
@@ -210,14 +220,14 @@ export function updateMenuItem(state: UpdateUiState) {
 		return {
 			action: "apply-update",
 			enabled: true,
-			label: `Update to ${state.version}`,
+			label: formatTrayLabel(labels.updateTo, state.version),
 			type: "normal" as const,
 		};
 	}
 	return {
 		action: "check-update",
 		enabled: true,
-		label: "Check for Updates…",
+		label: labels.checkForUpdates,
 		type: "normal" as const,
 	};
 }

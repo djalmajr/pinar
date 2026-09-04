@@ -18,6 +18,8 @@ import {
 	waitUntilHealthy,
 	workspaceUrl,
 } from "./local-server";
+import { trayMenuLabels } from "./menu-labels";
+import { trayImageOptions } from "./tray-image";
 import { createQuitController } from "./tray-quit";
 import {
 	shouldOfferUpdate,
@@ -60,13 +62,7 @@ if (!ownsTrayLock) {
 	await new Promise<never>(() => {});
 }
 
-const tray = new Tray({
-	height: 22,
-	image: "views://assets/tray-on.pdf",
-	template: true,
-	title: "",
-	width: 22,
-});
+const tray = new Tray(trayImageOptions());
 
 let online = false;
 let loginEnabled = false;
@@ -79,35 +75,41 @@ let updateUi: UpdateUiState = {
 };
 
 function updateMenu() {
+	const labels = trayMenuLabels();
 	tray.setMenu([
 		versionMenuItem(),
 		{
+			enabled: false,
+			label: online ? labels.localServerOn : labels.localServerOff,
+			type: "normal",
+		},
+		{
 			action: "login",
 			checked: loginEnabled,
-			enabled: process.platform === "darwin" && !busy,
-			label: "Start at Login",
+			enabled: (process.platform === "darwin" || process.platform === "win32") && !busy,
+			label: labels.login,
 			type: "normal",
 		},
 		{ type: "divider" },
 		{
 			action: "start",
 			enabled: !busy,
-			label: online ? "Restart" : "Start",
+			label: online ? labels.restart : labels.start,
 			type: "normal",
 		},
-		{ action: "stop", enabled: !busy && online, label: "Stop", type: "normal" },
+		{ action: "stop", enabled: !busy && online, label: labels.stop, type: "normal" },
 		{ type: "divider" },
 		{
 			action: "open",
 			enabled: online,
-			label: "Open Workspace",
+			label: labels.openWorkspace,
 			type: "normal",
 		},
-		{ action: "folder", label: "Open Folder", type: "normal" },
+		{ action: "folder", label: labels.folder, type: "normal" },
 		{ type: "divider" },
-		updateMenuItem(updateUi),
+		updateMenuItem(updateUi, labels),
 		{ type: "divider" },
-		{ action: "quit", label: "Quit", type: "normal" },
+		{ action: "quit", label: labels.quit, type: "normal" },
 	]);
 }
 

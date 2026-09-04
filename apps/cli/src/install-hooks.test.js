@@ -11,6 +11,7 @@ import {
   ensureCommand,
   ensureCommandWindows,
   grokDocument,
+  grokEnsureCommand,
   hookExtensionPath,
   installHooks,
   isPinarEnsureCommand,
@@ -28,8 +29,24 @@ describe("install-hooks", () => {
   test("project Cursor hooks start the helper like Claude, Codex, and Grok", () => {
     const cursor = JSON.parse(readFileSync(join(root, ".cursor/hooks.json"), "utf8"));
     assert.equal(cursor.version, 1);
-    assert.match(cursor.hooks.sessionStart[0].command, /hooks\/ensure\.sh/);
+    assert.equal(cursor.hooks.sessionStart[0].command, "node hooks/ensure.mjs");
     assert.equal(cursor.hooks.sessionStart[0].timeout, 8);
+  });
+
+  test("project Grok SessionStart runs node ensure.mjs", () => {
+    const grok = JSON.parse(readFileSync(join(root, ".grok/hooks/session-start.json"), "utf8"));
+    const command = grok.hooks.SessionStart[0].hooks[0].command;
+    assert.equal(command, "node hooks/ensure.mjs");
+    assert.equal(grok.hooks.SessionStart[0].hooks[0].timeout, 8);
+    assert.equal(isPinarEnsureCommand(command), true);
+  });
+
+  test("grokEnsureCommand uses node ensure.mjs on Windows", () => {
+    const command = grokEnsureCommand("/opt/pinar", { platform: "win32" });
+    assert.match(command, /^node "/);
+    assert.match(command, /ensure\.mjs/);
+    assert.equal(isPinarEnsureCommand(command), true);
+    assert.equal(grokEnsureCommand("/opt/pinar", { platform: "linux" }), ensureCommand("/opt/pinar", { platform: "linux" }));
   });
 
   test("ensure command opens Pinar.app on Darwin and keeps scripts elsewhere", () => {
@@ -50,16 +67,29 @@ describe("install-hooks", () => {
       }),
       /printf/,
     );
-    assert.match(ensureCommand("/opt/pinar", { platform: "linux" }), /\/opt\/pinar\/hooks\/ensure\.sh/);
-    assert.match(ensureCommandWindows("/opt/pinar"), /ensure\.cmd/);
-    assert.match(ensureCommand("/opt/pinar", { json: true, platform: "win32" }), /^set PINAR_HOOK_JSON=1&& /);
     assert.equal(hookExtensionPath(root), join(root, "hooks", "pinar.js"));
     const helperDir = mkdtempSync(join(tmpdir(), "pinar-helper-ext-"));
     writeFileSync(join(helperDir, "pinar.js"), "");
     assert.equal(hookExtensionPath("/missing-pinar-root", join(helperDir, "pinar")), join(helperDir, "pinar.js"));
   });
 
+  test("ensure command uses node ensure.mjs off Darwin", () => {
+    assert.match(ensureCommand("/opt/pinar", { platform: "linux" }), /ensure\.mjs/);
+    assert.match(ensureCommandWindows("/opt/pinar"), /ensure\.mjs/);
+    assert.match(ensureCommand("/opt/pinar", { json: true, platform: "win32" }), /^set PINAR_HOOK_JSON=1&& node /);
+  });
+
+  test("isPinarEnsureCommand matches current and legacy ensure commands", () => {
+    assert.equal(isPinarEnsureCommand("node hooks/ensure.mjs"), true);
+    assert.equal(isPinarEnsureCommand('node "C:\\Users\\me\\.pinar\\hooks\\ensure.mjs"'), true);
+    assert.equal(isPinarEnsureCommand("../../hooks/ensure.sh"), true);
+    assert.equal(isPinarEnsureCommand("hooks\\ensure.cmd"), true);
+    assert.equal(isPinarEnsureCommand("bun hooks/ensure-run.mjs"), true);
+    assert.equal(isPinarEnsureCommand("echo other"), false);
+  });
+
   test("Darwin ensure command skips open while the tray PID is alive", () => {
+    if (process.platform !== "darwin") return;
     const home = mkdtempSync(join(tmpdir(), "pinar-running-tray-"));
     mkdirSync(join(home, ".pinar"), { recursive: true });
     writeFileSync(join(home, ".pinar", "tray.pid"), `${process.pid}\n`);
@@ -70,6 +100,7 @@ describe("install-hooks", () => {
   });
 
   test("Darwin ensure command serializes concurrent cold launches", async () => {
+    if (process.platform !== "darwin") return;
     const home = mkdtempSync(join(tmpdir(), "pinar-concurrent-launch-"));
     const pinarDir = join(home, ".pinar");
     const countPath = join(home, "open-count");
@@ -108,7 +139,7 @@ describe("install-hooks", () => {
     const moved = upsertSessionStart(first.hooks, ensureCommand("/home/me/.pinar", { platform: "linux" }));
     assert.equal(moved.changed, true);
     assert.equal(moved.hooks.SessionStart.length, 1);
-    assert.match(moved.hooks.SessionStart[0].hooks[0].command, /\.pinar\/hooks\/ensure\.sh/);
+    assert.match(moved.hooks.SessionStart[0].hooks[0].command, /ensure\.mjs/);
   });
 
   test("mergeSettingsFile keeps existing Claude hooks", () => {
@@ -182,7 +213,7 @@ describe("install-hooks", () => {
     const moved = mergeCursorHooks(first.doc, ensureCommand("/home/me/.pinar", { platform: "linux" }));
     assert.equal(moved.changed, true);
     assert.equal(moved.doc.hooks.sessionStart.length, 1);
-    assert.match(moved.doc.hooks.sessionStart[0].command, /ensure\.sh/);
+    assert.match(moved.doc.hooks.sessionStart[0].command, /ensure\.mjs/);
   });
 
   test("installHooks writes user files without clobbering siblings", async () => {
@@ -235,7 +266,7 @@ describe("install-hooks", () => {
     assert.equal(isPinarEnsureCommand(cursor.hooks.sessionStart[0].command), true);
 
     const codex = JSON.parse(await readFile(join(home, ".codex", "hooks.json"), "utf8"));
-    assert.ok(codex.hooks.SessionStart[0].hooks[0].commandWindows.includes("ensure.cmd"));
+    assert.ok(codex.hooks.SessionStart[0].hooks[0].commandWindows.includes("ensure.mjs"));
 
     const again = await installHooks({
       home,
@@ -245,5 +276,20 @@ describe("install-hooks", () => {
     });
     assert.deepEqual(again, []);
     assert.match(logs.join("\n"), /pinar hooks installed/);
+  });
+
+  test("installHooks writes a PowerShell-safe Grok command on Windows", async () => {
+    const home = await mkdtemp(join(tmpdir(), "pinar-hooks-win-"));
+    await installHooks({
+      home,
+      log: () => {},
+      platform: "win32",
+      root,
+    });
+    const grok = JSON.parse(await readFile(join(home, ".grok", "hooks", "pinar.json"), "utf8"));
+    const command = grok.hooks.SessionStart[0].hooks[0].command;
+    assert.match(command, /^node "/);
+    assert.match(command, /ensure\.mjs/);
+    assert.equal(isPinarEnsureCommand(command), true);
   });
 });

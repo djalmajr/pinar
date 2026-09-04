@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, readlinkSync } from "node:fs";
 import { copyFile, mkdir, readFile, rename, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { homedir as osHomedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export function defaultRoot() {
@@ -32,14 +32,18 @@ export function defaultRoot() {
   return process.cwd();
 }
 
+function darwinPath(...parts) {
+  return posix.join(...parts.map((part) => String(part).replaceAll("\\", "/")));
+}
+
 export function desktopAppPath(home = osHomedir()) {
-  return join(home, "Applications", "Pinar.app");
+  return darwinPath(home, "Applications", "Pinar.app");
 }
 
 export function darwinOpenAppCommand(home = osHomedir(), { opener = "/usr/bin/open" } = {}) {
-  const pinarDir = JSON.stringify(join(home, ".pinar"));
-  const pidFile = JSON.stringify(join(home, ".pinar", "tray.pid"));
-  const launchLock = JSON.stringify(join(home, ".pinar", "tray-launch.lock"));
+  const pinarDir = JSON.stringify(darwinPath(home, ".pinar"));
+  const pidFile = JSON.stringify(darwinPath(home, ".pinar", "tray.pid"));
+  const launchLock = JSON.stringify(darwinPath(home, ".pinar", "tray-launch.lock"));
   const app = JSON.stringify(desktopAppPath(home));
   const open = `${opener === "/usr/bin/open" ? opener : JSON.stringify(opener)} -ga ${app}`;
   return `pinar_dir=${pinarDir}; pid_file=${pidFile}; launch_lock=${launchLock}; /bin/mkdir -p "$pinar_dir"; if [ -r "$pid_file" ] && pid="$(/bin/cat "$pid_file" 2>/dev/null)" && [ -n "$pid" ] && /bin/kill -0 "$pid" 2>/dev/null; then :; elif /usr/bin/shlock -p "$$" -f "$launch_lock"; then trap '/bin/rm -f "$launch_lock"' 0 1 2 15; if [ -r "$pid_file" ] && pid="$(/bin/cat "$pid_file" 2>/dev/null)" && [ -n "$pid" ] && /bin/kill -0 "$pid" 2>/dev/null; then :; elif ${open}; then attempts=0; while [ "$attempts" -lt 100 ]; do if [ -r "$pid_file" ] && pid="$(/bin/cat "$pid_file" 2>/dev/null)" && [ -n "$pid" ] && /bin/kill -0 "$pid" 2>/dev/null; then break; fi; attempts=$((attempts + 1)); /bin/sleep 0.05; done; fi; else :; fi`;
@@ -49,22 +53,30 @@ export function darwinOpenAppCommandJson(home = osHomedir()) {
   return `${darwinOpenAppCommand(home)}; printf '%s\\n' '{}'`;
 }
 
-export function ensureScript(root, platform = process.platform) {
-  return join(root, "hooks", platform === "win32" ? "ensure.cmd" : "ensure.sh");
+export function ensureScript(root) {
+  return join(root, "hooks", "ensure.mjs");
+}
+
+export function nodeEnsureCommand(root, { json = false, platform = process.platform } = {}) {
+  const command = `node "${ensureScript(root)}"`;
+  if (!json) return command;
+  if (platform === "win32") return `set PINAR_HOOK_JSON=1&& ${command}`;
+  return `PINAR_HOOK_JSON=1 ${command}`;
 }
 
 export function ensureCommand(root, { json = false, platform = process.platform, home = osHomedir() } = {}) {
   if (platform === "darwin") {
     return json ? darwinOpenAppCommandJson(home) : darwinOpenAppCommand(home);
   }
-  const quoted = `"${ensureScript(root, platform)}"`;
-  if (!json) return quoted;
-  if (platform === "win32") return `set PINAR_HOOK_JSON=1&& ${quoted}`;
-  return `PINAR_HOOK_JSON=1 ${quoted}`;
+  return nodeEnsureCommand(root, { json, platform });
 }
 
 export function ensureCommandWindows(root, { json = false } = {}) {
   return ensureCommand(root, { json, platform: "win32" });
+}
+
+export function grokEnsureCommand(root, { platform = process.platform, home = osHomedir() } = {}) {
+  return ensureCommand(root, { home, platform });
 }
 
 export function hookExtensionPath(root, execPath = process.execPath) {
@@ -75,8 +87,10 @@ export function hookExtensionPath(root, execPath = process.execPath) {
 export function isPinarEnsureCommand(command = "") {
   return (
     /"?\/usr\/bin\/open"? -ga /.test(command) ||
+    /hooks[/\\]ensure\.mjs/.test(command) ||
+    /hooks[/\\]ensure-run\.mjs/.test(command) ||
     /hooks[/\\]ensure\.(sh|cmd)/.test(command) ||
-    /[/\\]\.pinar[/\\](bin[/\\]pinar(?:\.cmd)?|hooks[/\\]ensure\.(sh|cmd))/.test(command)
+    /[/\\]\.pinar[/\\](bin[/\\]pinar(?:\.cmd)?|hooks[/\\]ensure(?:\.mjs|\.(sh|cmd)))/.test(command)
   );
 }
 
@@ -174,7 +188,8 @@ export function mergeCursorHooks(doc, command) {
 
 export function mergeOmpConfig(text, extensionPath) {
   const current = text ?? "";
-  if (current.includes(extensionPath)) {
+  const encoded = JSON.stringify(extensionPath);
+  if (current.includes(extensionPath) || current.includes(encoded)) {
     return { text: current, changed: false };
   }
   if (/pinar\.(ts|js)/.test(current)) {
@@ -224,7 +239,12 @@ async function linkExtension(from, to) {
   if (!existsSync(from)) return false;
   await mkdir(dirname(to), { recursive: true });
   try {
-    if (lstatSync(to).isSymbolicLink() && readlinkSync(to) === from) return false;
+    const current = lstatSync(to);
+    if (current.isSymbolicLink() && readlinkSync(to) === from) return false;
+    if (current.isFile()) {
+      const [source, existing] = await Promise.all([readFile(from), readFile(to)]);
+      if (Buffer.compare(source, existing) === 0) return false;
+    }
   } catch {
     // missing
   }
@@ -271,7 +291,7 @@ export async function installHooks({
   }
 
   const grokPath = join(home, ".grok", "hooks", "pinar.json");
-  const grok = mergeGrokDocument(await readJson(grokPath, {}), command);
+  const grok = mergeGrokDocument(await readJson(grokPath, {}), grokEnsureCommand(root, { home, platform }));
   if (grok.changed) {
     await writeJson(grokPath, grok.doc);
     changed.push(grokPath);

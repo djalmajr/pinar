@@ -169,7 +169,7 @@ describe("batch markdown", () => {
     const sessions = [session("one", "pin-a", "first page"), session("two", "pin-b", "second page")];
     const markdown = formatBatchMarkdown(batch, sessions, {}, "https://pinar.test");
     assert.match(markdown, /^# Batch · test\n/);
-    assert.match(markdown, /Implement the pin comments below across 2 pages\. Use selector and DOM path/);
+    assert.match(markdown, /The pin notes below, across 2 pages, may ask for a change or an explanation\. Use selector and DOM path/);
     assert.equal(markdown.match(/```pinar-visual-context/g)?.length, 2);
     // Each fence is a parseable capture that keeps its own identity.
     const fences = [...markdown.matchAll(/```pinar-visual-context\n(.*)\n```/g)].map((m) => JSON.parse(m[1]));
@@ -192,7 +192,7 @@ describe("batch markdown", () => {
     const sessions = [session("one", "pin-a", "first page")];
     const en = formatBatchMarkdown(batch, sessions, {}, "https://pinar.test");
     const pt = formatBatchMarkdown(batch, sessions, {}, "https://pinar.test", { language: "pt" });
-    assert.match(pt, /Implemente os comentários dos pins abaixo em 1 páginas/);
+    assert.match(pt, /As notas dos pins abaixo, em 1 páginas, podem pedir uma alteração ou uma explicação/);
     const fences = (markdown: string) => [...markdown.matchAll(/```pinar-visual-context\n[\s\S]*?\n```/g)].map((match) => match[0]);
     assert.deepEqual(fences(pt), fences(en));
   });

@@ -10,6 +10,7 @@ export interface HelpSection {
   bullets?: string[];
   heading: string;
   paragraphs: string[];
+  screenshots?: HelpScreenshot[];
 }
 
 export interface HelpScreenshot {
@@ -140,8 +141,108 @@ export const helpScreenshotDefinitions = [
     width: 1280,
   },
   {
-    key: "getting-started",
+    key: "capture-toolbar",
     height: 720,
+    width: 1440,
+  },
+  {
+    key: "capture-review",
+    height: 720,
+    width: 1440,
+  },
+  {
+    key: "capture-copy-failed",
+    height: 720,
+    width: 1440,
+  },
+  {
+    key: "capture-full-page",
+    height: 720,
+    width: 1440,
+  },
+  {
+    key: "capture-shortcuts",
+    height: 720,
+    width: 1440,
+  },
+  {
+    key: "capture-types",
+    height: 720,
+    width: 1440,
+  },
+  {
+    key: "capture-pins",
+    height: 720,
+    width: 1440,
+  },
+  {
+    key: "capture-selection",
+    height: 720,
+    width: 1440,
+  },
+  {
+    key: "capture-masks",
+    height: 720,
+    width: 1440,
+  },
+  {
+    key: "capture-copied",
+    height: 720,
+    width: 1440,
+  },
+  {
+    key: "capture-viewer",
+    height: 1000,
+    width: 1440,
+  },
+  {
+    key: "install-pinar",
+    height: 1100,
+    width: 1280,
+  },
+  {
+    key: "options-local",
+    height: 1100,
+    width: 1280,
+  },
+  {
+    key: "workspace-nested",
+    height: 900,
+    width: 1280,
+  },
+  {
+    key: "workspace-review",
+    height: 1000,
+    width: 1440,
+  },
+  {
+    key: "workspace-security",
+    height: 900,
+    width: 1280,
+  },
+  {
+    key: "legal-retention",
+    height: 1000,
+    width: 1440,
+  },
+  {
+    key: "sharing-markdown",
+    height: 1000,
+    width: 1440,
+  },
+  {
+    key: "preferences-privacy",
+    height: 1100,
+    width: 1280,
+  },
+  {
+    key: "extension-options",
+    height: 1100,
+    width: 1280,
+  },
+  {
+    key: "extension-preferences",
+    height: 1100,
     width: 1280,
   },
   {
@@ -170,6 +271,11 @@ export const helpScreenshotDefinitions = [
     width: 1280,
   },
   {
+    key: "pricing-credits",
+    height: 720,
+    width: 1280,
+  },
+  {
     key: "updates",
     height: 1000,
     width: 1440,
@@ -181,14 +287,14 @@ export const helpArticleDefinitions = [
     id: "install-pinar",
     category: "getting-started",
     readMinutes: 4,
-    screenshotKey: "sign-in-extension",
+    screenshotKey: "install-pinar",
     sourceRefs: [
       "apps/server/src/lib/chrome-extension.ts",
       "README.md",
       "apps/tray/src/bun/index.ts",
       "apps/tray/src/bun/local-server.ts",
+      "apps/cli/src/install-desktop.mjs",
       "install.sh",
-      "install.ps1",
     ],
     popular: true,
   },
@@ -196,7 +302,7 @@ export const helpArticleDefinitions = [
     id: "first-capture",
     category: "getting-started",
     readMinutes: 3,
-    screenshotKey: "capture-workspace",
+    screenshotKey: "capture-toolbar",
     sourceRefs: [
       "README.md",
       "extension/content.js",
@@ -209,26 +315,32 @@ export const helpArticleDefinitions = [
     id: "local-or-cloud",
     category: "getting-started",
     readMinutes: 4,
-    screenshotKey: "getting-started",
+    screenshotKey: "extension-options",
+    sectionScreenshotKeys: [
+      [],
+      [],
+      ["sign-in-extension", "sign-in-email"],
+    ] as const,
     sourceRefs: [
       "apps/cli/src/history.mjs",
       "apps/server/src/server/api.local.ts",
       "apps/server/src/server/cloud-api.ts",
       "apps/server/src/server/local-capability.ts",
+      "apps/extension/src/options/OptionsApp.tsx",
     ],
   },
   {
     id: "shortcuts-and-navigation",
     category: "getting-started",
     readMinutes: 3,
-    screenshotKey: "help-navigation",
+    screenshotKey: "capture-shortcuts",
     sourceRefs: ["extension/content.js", "extension/keyboard.js", "README.md"],
   },
   {
     id: "capture-types",
     category: "captures",
     readMinutes: 4,
-    screenshotKey: "capture-workspace",
+    screenshotKey: "capture-types",
     sourceRefs: [
       "extension/content.js",
       "extension/full-page.js",
@@ -241,7 +353,7 @@ export const helpArticleDefinitions = [
     id: "pins-and-comments",
     category: "captures",
     readMinutes: 4,
-    screenshotKey: "capture-workspace",
+    screenshotKey: "capture-pins",
     sourceRefs: [
       "packages/shared/src/pins/colors.ts",
       "packages/shared/src/types/index.ts",
@@ -253,7 +365,7 @@ export const helpArticleDefinitions = [
     id: "full-page-capture",
     category: "captures",
     readMinutes: 3,
-    screenshotKey: "capture-workspace",
+    screenshotKey: "capture-full-page",
     sourceRefs: [
       "extension/full-page.js",
       "extension/background.js",
@@ -264,7 +376,7 @@ export const helpArticleDefinitions = [
     id: "smart-selection",
     category: "captures",
     readMinutes: 5,
-    screenshotKey: "capture-workspace",
+    screenshotKey: "capture-selection",
     sourceRefs: [
       "packages/shared/src/locators/fingerprint.ts",
       "packages/shared/src/locators/resolve.ts",
@@ -275,7 +387,7 @@ export const helpArticleDefinitions = [
     id: "privacy-masks",
     category: "captures",
     readMinutes: 3,
-    screenshotKey: "privacy",
+    screenshotKey: "capture-masks",
     sourceRefs: [
       "extension/content.js",
       "packages/shared/src/privacy/sanitize.ts",
@@ -286,7 +398,7 @@ export const helpArticleDefinitions = [
     id: "copy-and-reopen",
     category: "captures",
     readMinutes: 5,
-    screenshotKey: "workspace-table",
+    screenshotKey: "capture-viewer",
     sourceRefs: [
       "apps/server/src/pages/WebViewer.tsx",
       "apps/server/src/components/ImageZoomStage.tsx",
@@ -299,7 +411,7 @@ export const helpArticleDefinitions = [
     id: "send-to-agent",
     category: "agents",
     readMinutes: 4,
-    screenshotKey: "capture-workspace",
+    screenshotKey: "capture-copied",
     sourceRefs: [
       "packages/shared/src/handoff/index.ts",
       "packages/shared/src/visual-context/index.ts",
@@ -312,7 +424,7 @@ export const helpArticleDefinitions = [
     id: "handoff-formats",
     category: "agents",
     readMinutes: 4,
-    screenshotKey: "help-navigation",
+    screenshotKey: "extension-preferences",
     sourceRefs: [
       "packages/shared/src/handoff/index.ts",
       "packages/shared/src/types/index.ts",
@@ -323,7 +435,7 @@ export const helpArticleDefinitions = [
     id: "closed-loop-review",
     category: "agents",
     readMinutes: 6,
-    screenshotKey: "workspace-table",
+    screenshotKey: "workspace-review",
     sourceRefs: [
       "packages/shared/src/agent-results/index.ts",
       "packages/shared/src/pin-review/index.ts",
@@ -336,7 +448,7 @@ export const helpArticleDefinitions = [
     id: "reopen-and-relocate",
     category: "agents",
     readMinutes: 5,
-    screenshotKey: "capture-workspace",
+    screenshotKey: "capture-review",
     sourceRefs: [
       "packages/shared/src/session-reopen/index.ts",
       "extension/background.js",
@@ -348,7 +460,7 @@ export const helpArticleDefinitions = [
     id: "handoff-troubleshooting",
     category: "agents",
     readMinutes: 5,
-    screenshotKey: "help-navigation",
+    screenshotKey: "capture-copy-failed",
     sourceRefs: [
       "extension/offscreen.js",
       "extension/content.js",
@@ -372,7 +484,7 @@ export const helpArticleDefinitions = [
     id: "nested-collections",
     category: "workspace",
     readMinutes: 4,
-    screenshotKey: "capture-workspace",
+    screenshotKey: "workspace-nested",
     sourceRefs: [
       "apps/server/src/lib/collection-tree.ts",
       "apps/server/src/lib/workspace-dnd.ts",
@@ -422,7 +534,7 @@ export const helpArticleDefinitions = [
     id: "ai-credits",
     category: "cloud",
     readMinutes: 4,
-    screenshotKey: "pricing",
+    screenshotKey: "pricing-credits",
     sourceRefs: [
       "apps/server/src/lib/entitlements.ts",
       "apps/server/src/server/cloud-api.ts",
@@ -433,7 +545,7 @@ export const helpArticleDefinitions = [
     id: "storage-and-retention",
     category: "cloud",
     readMinutes: 6,
-    screenshotKey: "pricing",
+    screenshotKey: "legal-retention",
     sourceRefs: [
       "apps/server/src/lib/entitlements.ts",
       "apps/server/src/lib/retention.ts",
@@ -445,7 +557,7 @@ export const helpArticleDefinitions = [
     id: "sharing-links",
     category: "cloud",
     readMinutes: 5,
-    screenshotKey: "workspace-table",
+    screenshotKey: "sharing-markdown",
     sourceRefs: [
       "apps/server/src/pages/AggregateViewer.tsx",
       "apps/server/src/server/markdown.ts",
@@ -457,7 +569,7 @@ export const helpArticleDefinitions = [
     id: "where-data-lives",
     category: "privacy",
     readMinutes: 5,
-    screenshotKey: "privacy",
+    screenshotKey: "options-local",
     sourceRefs: [
       "apps/cli/src/history.mjs",
       "apps/server/src/server/cloud-api.ts",
@@ -470,7 +582,7 @@ export const helpArticleDefinitions = [
     id: "automatic-sanitization",
     category: "privacy",
     readMinutes: 5,
-    screenshotKey: "privacy",
+    screenshotKey: "preferences-privacy",
     sourceRefs: [
       "packages/shared/src/privacy/types.ts",
       "packages/shared/src/privacy/classify.ts",
@@ -484,7 +596,7 @@ export const helpArticleDefinitions = [
     id: "local-security-and-recovery",
     category: "privacy",
     readMinutes: 6,
-    screenshotKey: "updates",
+    screenshotKey: "workspace-security",
     sourceRefs: [
       "apps/server/src/server/local-capability.ts",
       "apps/server/src/server/local-api-policy.ts",
@@ -507,6 +619,24 @@ export const helpArticleDefinitions = [
   },
 ] as const;
 
+function resolveHelpScreenshot(
+  language: SupportedLanguage,
+  locale: HelpLocale,
+  key: HelpScreenshotKey,
+): HelpScreenshot {
+  const screenshotDefinition = helpScreenshotDefinitions.find(
+    (screenshot) => screenshot.key === key,
+  );
+  if (!screenshotDefinition) {
+    throw new Error(`Missing help screenshot definition: ${key}`);
+  }
+  return {
+    ...screenshotDefinition,
+    ...locale.screenshots[key],
+    src: `/help/screenshots/${language}/${key}.webp` as const,
+  };
+}
+
 export function createHelpContent(
   language: SupportedLanguage,
   locale: HelpLocale,
@@ -517,15 +647,15 @@ export function createHelpContent(
   }));
   const articles = helpArticleDefinitions.map((definition) => {
     const copy = locale.articles[definition.id];
-    const screenshotDefinition = helpScreenshotDefinitions.find(
-      (screenshot) => screenshot.key === definition.screenshotKey,
+    const screenshot = resolveHelpScreenshot(
+      language,
+      locale,
+      definition.screenshotKey,
     );
-    if (!screenshotDefinition) {
-      throw new Error(
-        `Missing help screenshot definition: ${definition.screenshotKey}`,
-      );
-    }
-    const screenshotCopy = locale.screenshots[definition.screenshotKey];
+    const sectionScreenshotKeys =
+      "sectionScreenshotKeys" in definition
+        ? definition.sectionScreenshotKeys
+        : [];
     return {
       category: definition.category,
       id: definition.id,
@@ -533,12 +663,17 @@ export function createHelpContent(
         ? { popular: true }
         : {}),
       readMinutes: definition.readMinutes,
-      screenshot: {
-        ...screenshotDefinition,
-        ...screenshotCopy,
-        src: `/help/screenshots/${language}/${definition.screenshotKey}.webp` as const,
-      },
-      sections: copy.sections,
+      screenshot,
+      sections: copy.sections.map((section, sectionIndex) => {
+        const keys = sectionScreenshotKeys[sectionIndex] ?? [];
+        if (keys.length === 0) return section;
+        return {
+          ...section,
+          screenshots: keys.map((key) =>
+            resolveHelpScreenshot(language, locale, key),
+          ),
+        };
+      }),
       sourceRefs: [...definition.sourceRefs],
       summary: copy.summary,
       title: copy.title,

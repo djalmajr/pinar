@@ -59,6 +59,11 @@ export interface ReleaseContent {
 
 export const releaseDefinitions = [
   {
+    tag: "v0.3.3",
+    date: "2026-09-04",
+    changes: ["local-account-menu", "free-without-ai"],
+  },
+  {
     tag: "v0.3.2",
     date: "2026-09-04",
     changes: ["windows-setup-zip", "windows-help-links"],

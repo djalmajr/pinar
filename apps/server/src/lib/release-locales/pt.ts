@@ -22,6 +22,23 @@ const locale = {
     whatChanged: "O que mudou",
   },
   releases: {
+    "v0.3.3": {
+      title: "Menu da conta no local e Free sem IA",
+      summary:
+        "O workspace local usa o mesmo popover da conta que o Free. A Página Inicial fica nesse menu, e o Free deixa de incluir créditos ou resumos de IA.",
+      changes: {
+        "local-account-menu": {
+          title: "Menu da conta no local",
+          description:
+            "O rodapé do workspace local agora abre o mesmo popover da conta que o Free. A Página Inicial fica dentro do menu. Sair some no local, porque não há sessão na nuvem para encerrar.",
+        },
+        "free-without-ai": {
+          title: "Free sem IA",
+          description:
+            "O Free deixa de conceder créditos de IA e de mostrar o resumo com IA. Os resumos ficam no Pro, Founder e Lifetime. Planos e ajuda passam a refletir esse limite.",
+        },
+      },
+    },
     "v0.3.2": {
       title: "Instalador Windows completo",
       summary:

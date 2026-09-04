@@ -22,6 +22,23 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.3.3": {
+      title: "Lokales Kontomenü und Free ohne KI",
+      summary:
+        "Der lokale Workspace nutzt dasselbe Konto-Popover wie Free. Die Startseite liegt in diesem Menü, und Free enthält keine KI-Guthaben und keine Zusammenfassungen mehr.",
+      changes: {
+        "local-account-menu": {
+          title: "Lokales Kontomenü",
+          description:
+            "Die Fußzeile des lokalen Workspace öffnet jetzt dasselbe Konto-Popover wie Free. Die Startseite liegt im Menü. Abmelden entfällt lokal, weil es keine Cloud-Sitzung zum Beenden gibt.",
+        },
+        "free-without-ai": {
+          title: "Free ohne KI",
+          description:
+            "Free vergibt keine KI-Guthaben mehr und zeigt keine KI-Zusammenfassung. Zusammenfassungen bleiben bei Pro, Founder und Lifetime. Pläne und Hilfe spiegeln diese Grenze.",
+        },
+      },
+    },
     "v0.3.2": {
       title: "Vollständiger Windows-Installer",
       summary:

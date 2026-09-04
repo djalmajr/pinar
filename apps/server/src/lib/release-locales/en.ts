@@ -20,6 +20,23 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.3.3": {
+      title: "Local account menu and Free without AI",
+      summary:
+        "The local workspace uses the same account popover as Free. Homepage lives in that menu, and Free no longer includes AI credits or summaries.",
+      changes: {
+        "local-account-menu": {
+          title: "Local account menu",
+          description:
+            "The local workspace footer now opens the same account popover as Free. Homepage is inside the menu. Sign out is hidden on local, because there is no cloud session to leave.",
+        },
+        "free-without-ai": {
+          title: "Free has no AI",
+          description:
+            "Free no longer grants AI credits or shows AI summary. Summaries stay on Pro, Founder, and Lifetime. Plans and help copy match that limit.",
+        },
+      },
+    },
     "v0.3.2": {
       title: "Complete Windows installer",
       summary:

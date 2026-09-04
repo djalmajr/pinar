@@ -20,6 +20,23 @@ const locale = {
     whatChanged: "更新内容",
   },
   releases: {
+    "v0.3.3": {
+      title: "本地账户菜单与不含 AI 的 Free",
+      summary:
+        "本地工作区使用与 Free 相同的账户弹出菜单。主页在该菜单中，Free 不再包含 AI 积分或摘要。",
+      changes: {
+        "local-account-menu": {
+          title: "本地账户菜单",
+          description:
+            "本地工作区页脚现在打开与 Free 相同的账户弹出菜单。主页在菜单内。本地没有可退出的云会话，因此不显示退出。",
+        },
+        "free-without-ai": {
+          title: "Free 不含 AI",
+          description:
+            "Free 不再发放 AI 积分，也不再显示 AI 摘要。摘要仍属于 Pro、Founder 和 Lifetime。套餐与帮助文案与此限制一致。",
+        },
+      },
+    },
     "v0.3.2": {
       title: "完整的 Windows 安装包",
       summary:

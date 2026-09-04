@@ -22,6 +22,23 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.3.3": {
+      title: "Menu de compte local et Free sans IA",
+      summary:
+        "L’espace de travail local utilise le même popover de compte que Free. La page d’accueil est dans ce menu, et Free n’inclut plus de crédits ni de résumés IA.",
+      changes: {
+        "local-account-menu": {
+          title: "Menu de compte local",
+          description:
+            "Le pied de l’espace de travail local ouvre désormais le même popover de compte que Free. La page d’accueil est dans le menu. Se déconnecter disparaît en local, car il n’y a pas de session cloud à quitter.",
+        },
+        "free-without-ai": {
+          title: "Free sans IA",
+          description:
+            "Free n’accorde plus de crédits IA et n’affiche plus le résumé IA. Les résumés restent sur Pro, Founder et Lifetime. Les plans et l’aide reflètent cette limite.",
+        },
+      },
+    },
     "v0.3.2": {
       title: "Installateur Windows complet",
       summary:

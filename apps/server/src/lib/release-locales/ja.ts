@@ -20,6 +20,23 @@ const locale = {
     whatChanged: "変更内容",
   },
   releases: {
+    "v0.3.3": {
+      title: "ローカルのアカウントメニューと AI なしの Free",
+      summary:
+        "ローカルワークスペースは Free と同じアカウントのポップオーバーを使います。ホームページはそのメニューにあり、Free には AI クレジットも要約も含まれません。",
+      changes: {
+        "local-account-menu": {
+          title: "ローカルのアカウントメニュー",
+          description:
+            "ローカルワークスペースのフッターは、Free と同じアカウントのポップオーバーを開きます。ホームページはメニュー内です。ローカルには終了するクラウドセッションがないため、サインアウトは出しません。",
+        },
+        "free-without-ai": {
+          title: "Free に AI なし",
+          description:
+            "Free は AI クレジットを付与せず、AI 要約も表示しません。要約は Pro、Founder、Lifetime に残します。プランとヘルプもその制限に合わせます。",
+        },
+      },
+    },
     "v0.3.2": {
       title: "完全な Windows インストーラー",
       summary:

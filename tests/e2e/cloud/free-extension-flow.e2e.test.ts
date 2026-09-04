@@ -96,7 +96,7 @@ test("the real extension registers a free installation, captures, and signs the 
     await app.goto(`${BASE_URL}/sign-in?extensionCode=${code}&returnTo=%2Fapp`);
     await expect(app).toHaveURL(/\/app$/);
 
-    // Free entitlements BEFORE any capture or consumption: 5 credits, 250 MB.
+    // Free entitlements: 250 MB cloud storage and no AI credits.
     const openAccountMenu = async () => {
       await app.locator('[data-sidebar="footer"]')
         .getByRole("button", { exact: true, name: "Account menu" })
@@ -104,7 +104,7 @@ test("the real extension registers a free installation, captures, and signs the 
     };
     await openAccountMenu();
     await expect(app.getByTestId("account-plan")).toHaveText("Free plan");
-    await expect(app.getByTestId("account-credits").getByText("5 available", { exact: true })).toBeVisible();
+    await expect(app.getByTestId("account-credits")).toHaveCount(0);
     await expect(app.getByTestId("account-storage").getByText(/of 250 MB/)).toBeVisible();
     await app.keyboard.press("Escape");
 
@@ -134,21 +134,11 @@ test("the real extension registers a free installation, captures, and signs the 
     expect(session.pinCount).toBeGreaterThan(0);
     expect(session.page.url).toContain("127.0.0.1:17384");
 
-    // The signed-in workspace lists the capture.
+    // The signed-in workspace lists the capture. Free has no AI summary.
     await app.goto(`${BASE_URL}/app`);
     await expect(app.getByText(session.page.title).first()).toBeVisible();
-
-    // Real credit-consuming action: AI summary of the captured session (5 -> 4).
     await app.goto(`${BASE_URL}/v/${session.id}`);
-    await app.getByRole("button", { name: "AI summary" }).click();
-    const summaryDialog = app.getByRole("dialog").filter({ hasText: "Annotation summary" });
-    await expect(summaryDialog).toBeVisible();
-    await expect(summaryDialog.getByText("Summarizing…")).toBeHidden({ timeout: 60_000 });
-    await app.keyboard.press("Escape");
-
-    await app.goto(`${BASE_URL}/app`);
-    await openAccountMenu();
-    await expect(app.getByTestId("account-credits").getByText("4 available", { exact: true })).toBeVisible();
+    await expect(app.getByRole("button", { name: "AI summary" })).toHaveCount(0);
   } finally {
     await context.close();
   }

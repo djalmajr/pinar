@@ -852,7 +852,7 @@ const locale = {
         {
           heading: "Planstruktur",
           paragraphs: [
-            "Free umfasst dauerhafte lokale Nutzung, 250 MB Cloud-Kontingent, siebentägige Cloud-Aufbewahrung und fünf initiale AI-Credits. Pro ist monatlich oder jährlich mit 5 GB und 200 nicht übertragbaren AI-Credits, die monatlich aufgefüllt werden. Founder ist eine begrenzte einmalige Kohorte mit 5 GB und 500 initialen Credits; eine monatliche Credit-Auffüllung ist nicht enthalten.",
+            "Free umfasst dauerhafte lokale Nutzung, 250 MB Cloud-Kontingent und siebentägige Cloud-Aufbewahrung. Pro ist monatlich oder jährlich mit 5 GB und 200 nicht übertragbaren AI-Credits, die monatlich aufgefüllt werden. Founder ist eine begrenzte einmalige Kohorte mit 5 GB und 500 initialen Credits; eine monatliche Credit-Auffüllung ist nicht enthalten.",
           ],
         },
         {

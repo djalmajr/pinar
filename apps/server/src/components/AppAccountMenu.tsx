@@ -39,22 +39,18 @@ import RefreshCwIcon from "~icons/lucide/refresh-cw";
 import SettingsIcon from "~icons/lucide/settings";
 import SparklesIcon from "~icons/lucide/sparkles";
 
-function PinarHomeMenu() {
+function PinarHomeMenuItem() {
   const { t } = useServerI18n();
   const link = pinarHomeLink(pinarRuntime());
   return (
-    <SidebarMenuItem>
-      <SidebarMenuButton
-        aria-label={t("app.homepage")}
-        data-testid="pinar-home-menu"
-        render={<a href={link.href} rel="noopener noreferrer" target="_blank" />}
-        tooltip={t("app.homepage")}
-      >
-        <HouseIcon />
-        <span>{t("app.homepage")}</span>
-        <ExternalLinkIcon className="ml-auto" />
-      </SidebarMenuButton>
-    </SidebarMenuItem>
+    <DropdownMenuItem
+      data-testid="pinar-home-menu"
+      render={<a href={link.href} rel="noopener noreferrer" target="_blank" />}
+    >
+      <HouseIcon />
+      {t("app.homepage")}
+      <ExternalLinkIcon className="ml-auto" />
+    </DropdownMenuItem>
   );
 }
 
@@ -76,8 +72,10 @@ export function AppAccountMenu() {
   const [usage, setUsage] = useState<AccountUsageSummary | null>(null);
   const [usageStatus, setUsageStatus] = useState<UsageStatus>("loading");
 
+  const cloudSession = session && session.kind !== "local" ? session : null;
+
   useEffect(() => {
-    if (localRuntime || !session || session.kind === "local") return;
+    if (!cloudSession) return;
     const controller = new AbortController();
     setUsage(null);
     setUsageStatus("loading");
@@ -96,7 +94,7 @@ export function AppAccountMenu() {
         if (!controller.signal.aborted) setUsageStatus("error");
       });
     return () => controller.abort();
-  }, [localRuntime, session]);
+  }, [cloudSession]);
 
   async function openBilling() {
     const response = await fetch("/api/stripe/portal", { method: "POST" });
@@ -111,26 +109,19 @@ export function AppAccountMenu() {
     window.location.href = "/sign-in";
   }
 
-  if (localRuntime || !session || session.kind === "local") {
-    return (
-      <SidebarMenu>
-        <PinarHomeMenu />
-        <SidebarMenuItem>
-          <SidebarMenuButton tooltip={t("settings.title")} onClick={openSettings}>
-            <SettingsIcon />
-            <span>{t("settings.title")}</span>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-      </SidebarMenu>
-    );
+  if (!localRuntime && !session) {
+    return <SidebarMenu />;
   }
 
-  const identity = accountMenuIdentity(session, "Pinar Free", t("app.freePlan"));
-  const currentPlan = usage?.plan ?? session.plan;
+  const identity = cloudSession
+    ? accountMenuIdentity(cloudSession, "Pinar Free", t("app.freePlan"))
+    : { detail: t("app.local"), initials: "PL", name: "Pinar Local" };
+  const currentPlan = cloudSession
+    ? planName(usage?.plan ?? cloudSession.plan, t)
+    : t("app.local");
 
   return (
     <SidebarMenu>
-      <PinarHomeMenu />
       <SidebarMenuItem>
         <DropdownMenu>
           <DropdownMenuTrigger
@@ -171,16 +162,19 @@ export function AppAccountMenu() {
                     className="ml-auto shrink-0 rounded-full border bg-muted/50 px-2 py-0.5 text-xs font-semibold"
                     data-testid="account-plan"
                   >
-                    {planName(currentPlan, t)}
+                    {currentPlan}
                   </span>
                 </div>
               </DropdownMenuLabel>
             </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
+            {cloudSession ? (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuGroup>
               <DropdownMenuLabel className="p-1.5 font-normal" data-testid="account-usage">
                 {usageStatus === "ready" && usage ? (
                   <div className="space-y-3">
+                    {usage.plan !== "free" ? (
                     <div className="rounded-lg border bg-card px-3 py-3" data-testid="account-credits">
                       <div className="flex items-center justify-between gap-3 text-xs">
                         <span className="flex items-center gap-2 font-medium"><CoinsIcon className="size-4 text-muted-foreground" />{t("app.aiCredits")}</span>
@@ -207,6 +201,7 @@ export function AppAccountMenu() {
                         </div>
                       )}
                     </div>
+                    ) : null}
                     <div className="rounded-lg border bg-card px-3 py-3" data-testid="account-storage">
                       <div className="flex items-center justify-between gap-3 text-xs">
                         <span className="flex items-center gap-2 font-medium"><HardDriveIcon className="size-4 text-muted-foreground" />{t("app.storage")}</span>
@@ -241,30 +236,35 @@ export function AppAccountMenu() {
                   </p>
                 )}
               </DropdownMenuLabel>
-            </DropdownMenuGroup>
+                </DropdownMenuGroup>
+              </>
+            ) : null}
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              {session.kind === "installation" ? (
+              {cloudSession?.kind === "installation" ? (
                 <DropdownMenuItem onClick={() => { window.location.href = "/pricing"; }}>
                   <SparklesIcon />
                   {t("app.upgradeToPro")}
                 </DropdownMenuItem>
-              ) : (
+              ) : cloudSession ? (
                 <DropdownMenuItem onClick={() => void openBilling()}>
                   <CreditCardIcon />
                   {t("app.billing")}
                 </DropdownMenuItem>
-              )}
+              ) : null}
               <DropdownMenuItem onClick={openSettings}>
                 <SettingsIcon />
                 {t("settings.title")}
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => void logout()}>
-              <LogOutIcon />
-              {t("app.signOut")}
-            </DropdownMenuItem>
+            <PinarHomeMenuItem />
+            {cloudSession ? (
+              <DropdownMenuItem onClick={() => void logout()}>
+                <LogOutIcon />
+                {t("app.signOut")}
+              </DropdownMenuItem>
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarMenuItem>

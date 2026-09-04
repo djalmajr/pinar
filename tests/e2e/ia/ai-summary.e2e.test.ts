@@ -13,6 +13,16 @@ const session = {
 };
 
 test.beforeEach(async ({ page }) => {
+  await page.route("**/api/auth/session", (route) => route.fulfill({
+    json: {
+      session: {
+        email: "pro@example.test",
+        kind: "account",
+        plan: "pro",
+        userId: "usr_ai_e2e",
+      },
+    },
+  }));
   await page.route("**/api/sessions/ai-viewer-e2e", (route) => route.fulfill({ json: { session } }));
   await page.route("**/shots/ai-viewer-e2e.svg", (route) => route.fulfill({
     body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500"><text x="20" y="40">AI fixture</text></svg>',
@@ -54,26 +64,32 @@ test("a successful summary reflects comments, charges once and reopens from memo
   expect(bodies).toHaveLength(1);
 });
 
-test("anonymous and creditless visitors receive distinct actionable recovery paths", async ({ page }) => {
-  let attempt = 0;
+test("anonymous and Free visitors do not see AI summary", async ({ page }) => {
+  await page.route("**/api/auth/session", (route) => route.fulfill({ json: { session: null } }));
+  await page.goto("/v/ai-viewer-e2e");
+  await expect(page.getByRole("button", { name: "AI summary" })).toHaveCount(0);
+
+  await page.route("**/api/auth/session", (route) => route.fulfill({
+    json: {
+      session: {
+        installationId: "ins_ai_free",
+        kind: "installation",
+        plan: "free",
+      },
+    },
+  }));
+  await page.goto("/v/ai-viewer-e2e");
+  await expect(page.getByRole("button", { name: "AI summary" })).toHaveCount(0);
+});
+
+test("creditless paid accounts get a plans recovery path", async ({ page }) => {
   await page.route("**/api/ai/session-summary", async (route) => {
-    attempt += 1;
-    if (attempt === 1) {
-      await route.fulfill({ json: { error: "Unauthorized" }, status: 401 });
-      return;
-    }
     await route.fulfill({ json: { code: "insufficient_ai_credits", error: "Insufficient credits" }, status: 402 });
   });
 
   await page.goto("/v/ai-viewer-e2e");
   await page.getByRole("button", { name: "AI summary" }).click();
-  let dialog = page.getByRole("dialog", { name: "Annotation summary" });
-  await expect(dialog.getByText("Sign in as the session owner to use AI.", { exact: true })).toBeVisible();
-  await expect(dialog.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", /\/sign-in\?returnTo=/);
-
-  await dialog.getByRole("button", { name: "Close" }).click();
-  await page.getByRole("button", { name: "AI summary" }).click();
-  dialog = page.getByRole("dialog", { name: "Annotation summary" });
+  const dialog = page.getByRole("dialog", { name: "Annotation summary" });
   await expect(dialog.getByText("You do not have enough AI credits.", { exact: true })).toBeVisible();
   await expect(dialog.getByRole("link", { name: "View plans" })).toHaveAttribute("href", "/pricing");
   await expect(dialog.getByRole("heading", { name: "Highlights" })).toHaveCount(0);

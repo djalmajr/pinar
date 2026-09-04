@@ -32,7 +32,6 @@ export interface StorageEntitlementInput {
   usedBytes: number;
 }
 
-export const FREE_AI_CREDITS = 5;
 export const FREE_STORAGE_BYTES = 250 * 1024 * 1024;
 export const FOUNDER_INITIAL_AI_CREDITS = 500;
 export const FOUNDER_STORAGE_BYTES = 5 * 1024 * 1024 * 1024;
@@ -84,6 +83,10 @@ export function addUtcMonths(date: Date, months: number) {
 
 export function addUtcYears(date: Date, years: number) {
   return addUtcMonths(date, years * 12);
+}
+
+export function planIncludesAi(plan: AccountPlan) {
+  return plan === "founder" || plan === "lifetime" || plan === "pro";
 }
 
 export function baseStorageBytes(plan: AccountPlan) {

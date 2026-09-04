@@ -50,7 +50,6 @@ import {
 } from "@pinar/shared/project-icons";
 import {
   FOUNDER_INITIAL_AI_CREDITS,
-  FREE_AI_CREDITS,
   LIFETIME_AI_CREDITS,
   PRO_MONTHLY_AI_CREDITS,
   PURCHASED_AI_CREDITS,
@@ -64,6 +63,7 @@ import {
   isSubscriptionOffer,
   legacyCheckoutOffer,
   planForOffer,
+  planIncludesAi,
   storageEntitlement,
   type CheckoutOffer,
   type StorageEntitlement,
@@ -1829,15 +1829,6 @@ async function registerInstallation(request: Request, env: CloudEnv) {
         if (!await recordRemoteFreeLegalAcceptance(env, installationId, legalEvidence)) {
           return json({ error: "Legal acceptance unavailable" }, 503);
         }
-        await grantAiCredits({
-          credits: FREE_AI_CREDITS,
-          env,
-          expiresAt: null,
-          ownerId: installationId,
-          ownerType: "installation",
-          sourceId: `free:${installationId}`,
-          sourceType: "free_initial",
-        });
         return json({ installationId, ok: true });
       }
       await env.DB.prepare(
@@ -1858,15 +1849,6 @@ async function registerInstallation(request: Request, env: CloudEnv) {
       if (!await recordRemoteFreeLegalAcceptance(env, installationId, legalEvidence)) {
         return json({ error: "Legal acceptance unavailable" }, 503);
       }
-      await grantAiCredits({
-        credits: FREE_AI_CREDITS,
-        env,
-        expiresAt: null,
-        ownerId: installationId,
-        ownerType: "installation",
-        sourceId: `free:${installationId}`,
-        sourceType: "free_initial",
-      });
       return json({ installationId, ok: true });
     }
     memoryInstallations.set(installationId, { status: "active", tokenHash });
@@ -1874,15 +1856,6 @@ async function registerInstallation(request: Request, env: CloudEnv) {
       return json({ error: "Legal acceptance unavailable" }, 503);
     }
   }
-  await grantAiCredits({
-    credits: FREE_AI_CREDITS,
-    env,
-    expiresAt: null,
-    ownerId: installationId,
-    ownerType: "installation",
-    sourceId: `free:${installationId}`,
-    sourceType: "free_initial",
-  });
   return json({ installationId, ok: true }, 201);
 }
 
@@ -4644,6 +4617,12 @@ async function summarizeSession(request: Request, env: CloudEnv) {
   }
   const session = await findOwnedSession(env, principal, sessionId);
   if (!session) return json({ error: "Session not found" }, 404);
+  if (principal.kind !== "account" || !planIncludesAi(principal.plan)) {
+    return json({
+      code: "ai_requires_paid",
+      error: "AI summaries require a paid plan",
+    }, 403);
+  }
   if (principal.kind === "account") {
     const account = await findAccountById(env, principal.id);
     if (account) await ensureIncludedMonthlyCredits(env, account);

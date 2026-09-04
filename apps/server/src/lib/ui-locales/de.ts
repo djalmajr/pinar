@@ -370,7 +370,6 @@ const messages: UiMessages = {
   "pricing.freeLocal": "100 % kostenlose lokale App",
   "pricing.freeRetention": "7 Tage Cloud-Aufbewahrung",
   "pricing.freeStorage": "250 MB Cloud-Speicher",
-  "pricing.freeAiCredits": "5 anfängliche KI-Guthaben",
   "pricing.standardViewer": "Standard-Web-Viewer",
   "pricing.clipboardPrompts": "KI-Prompts mit einem Klick kopieren",
   "pricing.projectsCollections": "Projekte und Sammlungen",

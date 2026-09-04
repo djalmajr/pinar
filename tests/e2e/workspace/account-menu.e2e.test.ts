@@ -68,7 +68,7 @@ test("Pro account menu shows credit refill and expiry dates alongside Billing", 
   await expect(page.getByRole("menuitem", { exact: true, name: "Billing" })).toBeVisible();
   await expect(page.getByRole("menuitem", { exact: true, name: "Settings" })).toBeVisible();
   await expect(page.getByRole("menuitem", { exact: true, name: "Sign out" })).toBeVisible();
-  await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText(["Billing", "Settings", "Sign out"]);
+  await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText(["Billing", "Settings", "Homepage", "Sign out"]);
   await expect(page.getByRole("menuitem", { exact: true, name: "Upgrade to Pro" })).toHaveCount(0);
   await expect(page.getByRole("menuitem", { exact: true, name: "Account" })).toHaveCount(0);
   await expect(page.getByRole("menuitem", { exact: true, name: "Notifications" })).toHaveCount(0);
@@ -101,13 +101,13 @@ test("Free installation offers upgrade from the same sidebar user panel", async 
   await page.goto("/app");
 
   await openAccountMenu(page);
-  await expect(page.getByTestId("account-credits").getByText("5 available", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("account-credits")).toHaveCount(0);
   await expect(page.getByTestId("account-storage").getByText("0 B used of 250 MB", { exact: true })).toBeVisible();
   await expect(page.locator("header").getByRole("button", { exact: true, name: "Settings" })).toHaveCount(0);
   await expect(page.getByRole("menuitem", { exact: true, name: "Upgrade to Pro" })).toBeVisible();
   await expect(page.getByRole("menuitem", { exact: true, name: "Settings" })).toBeVisible();
   await expect(page.getByRole("menuitem", { exact: true, name: "Billing" })).toHaveCount(0);
-  await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText(["Upgrade to Pro", "Settings", "Sign out"]);
+  await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText(["Upgrade to Pro", "Settings", "Homepage", "Sign out"]);
   await page.getByRole("menuitem", { exact: true, name: "Settings" }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByRole("button", { exact: true, name: "Close settings" }).click();

@@ -88,6 +88,14 @@ export async function openWorkspaceSidebar(page: Page, visibleControl: string) {
   });
 }
 
+export async function openWorkspaceAccountMenu(page: Page, triggerName = "Account menu") {
+  await openWorkspaceSidebar(page, triggerName);
+  const accountMenu = page.locator('[data-sidebar="footer"]')
+    .getByRole("button", { exact: true, name: triggerName });
+  await expect(accountMenu).toBeVisible();
+  await accountMenu.click();
+}
+
 export async function closeWorkspaceSidebar(page: Page) {
   if (!isMobileViewport(page)) return;
   const mobileSidebar = page.locator('[data-mobile="true"]');

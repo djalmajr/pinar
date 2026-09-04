@@ -849,7 +849,7 @@ const locale = {
         {
           heading: "Formato dos planos",
           paragraphs: [
-            "Free inclui uso local permanente, 250 MB de cota na nuvem, retenção na nuvem por sete dias e cinco créditos iniciais de IA. Pro é mensal ou anual, com 5 GB e 200 créditos não acumuláveis repostos mensalmente. Founder é uma coorte limitada de compra única, com 5 GB e 500 créditos iniciais; não inclui reposição mensal de créditos.",
+            "Free inclui uso local permanente, 250 MB de cota na nuvem e retenção na nuvem por sete dias. Pro é mensal ou anual, com 5 GB e 200 créditos não acumuláveis repostos mensalmente. Founder é uma coorte limitada de compra única, com 5 GB e 500 créditos iniciais; não inclui reposição mensal de créditos.",
           ],
         },
         {

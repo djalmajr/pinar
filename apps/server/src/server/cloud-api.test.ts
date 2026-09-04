@@ -124,6 +124,31 @@ function upload(identity: typeof identityA, id: string, title: string) {
   });
 }
 
+function uploadWithCookie(cookie: string, id: string, title: string, env: CloudEnv) {
+  return api("/api/shots", {
+    body: JSON.stringify({
+      id,
+      image: VALID_PNG,
+      page: { title, url: `https://example.test/${id}` },
+      pins: [{ comment: `Pin for ${title}`, number: 1 }],
+    }),
+    headers: { cookie, "content-type": "application/json" },
+    method: "POST",
+  }, env);
+}
+
+async function paidProCookie(env: CloudEnv, email = "ai-pro@example.test") {
+  const mail = emailBinding();
+  const signed = { ...env, EMAIL: mail.binding };
+  seedCloudAccountForTests({ billingStatus: "active", email, plan: "pro" });
+  await requestEmailCode(email, signed);
+  const response = await verifyEmailCode(email, mail.codes[0], signed);
+  assert.equal(response.status, 200);
+  const cookie = response.headers.get("set-cookie")?.split(";", 1)[0] || "";
+  assert.match(cookie, /^pinar_session=/);
+  return { cookie, env: signed };
+}
+
 function aiEnv(run: (model: string, input: unknown) => Promise<unknown>): CloudEnv {
   return {
     ...TEST_ENV,
@@ -1889,13 +1914,13 @@ describe("remote installation isolation", () => {
     }
   });
 
-  test("grants five initial credits and blocks new Free storage above 250 MB", async () => {
+  test("does not grant AI credits on Free and blocks new Free storage above 250 MB", async () => {
     await register(identityA);
     const initial = await jsonBody(await api("/api/account/entitlements", {
       headers: identityHeaders(identityA),
     }));
     assert.ok(isRecord(initial.aiCredits));
-    assert.equal(initial.aiCredits.balance, 5);
+    assert.equal(initial.aiCredits.balance, 0);
     assert.ok(isRecord(initial.storage));
     assert.equal(initial.storage.baseBytes, FREE_STORAGE_BYTES);
     assert.equal(initial.storage.quotaBytes, FREE_STORAGE_BYTES);
@@ -1909,6 +1934,25 @@ describe("remote installation isolation", () => {
     assert.equal((await jsonBody(blocked)).code, "storage_quota_exceeded");
     const replacement = await upload(identityA, "seeded_storage_usage", "Smaller replacement");
     assert.equal(replacement.status, 201);
+  });
+
+  test("rejects AI summaries on Free installations", async () => {
+    const env = aiEnv(async () => {
+      throw new Error("Free must not call the model");
+    });
+    assert.equal((await register(identityA)).status, 201);
+    assert.equal((await upload(identityA, "ai_free_session", "Free owner")).status, 201);
+    const response = await api("/api/ai/session-summary", {
+      body: JSON.stringify({
+        language: "en",
+        requestId: "ai_free_request_0001",
+        sessionId: "ai_free_session",
+      }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
+      method: "POST",
+    }, env);
+    assert.equal(response.status, 403);
+    assert.equal((await jsonBody(response)).code, "ai_requires_paid");
   });
 
   test("summarizes an owned session once, replays idempotently and refunds failures", async () => {
@@ -1925,8 +1969,8 @@ describe("remote installation isolation", () => {
         usage: { completion_tokens: 24, prompt_tokens: 120, total_tokens: 144 },
       };
     });
-    assert.equal((await register(identityA)).status, 201);
-    assert.equal((await upload(identityA, "ai_session_001", "AI owner")).status, 201);
+    const paid = await paidProCookie(env);
+    assert.equal((await uploadWithCookie(paid.cookie, "ai_session_001", "AI owner", paid.env)).status, 201);
 
     const request = () => api("/api/ai/session-summary", {
       body: JSON.stringify({
@@ -1934,16 +1978,16 @@ describe("remote installation isolation", () => {
         requestId: "ai_summary_request_0001",
         sessionId: "ai_session_001",
       }),
-      headers: identityHeaders(identityA, { "content-type": "application/json" }),
+      headers: { cookie: paid.cookie, "content-type": "application/json" },
       method: "POST",
-    }, env);
+    }, paid.env);
     const first = await request();
     assert.equal(first.status, 200);
     const firstBody = await jsonBody(first);
     assert.equal(firstBody.creditsCharged, 1);
     assert.equal(firstBody.idempotent, false);
     assert.ok(isRecord(firstBody.aiCredits));
-    assert.equal(firstBody.aiCredits.balance, 4);
+    assert.equal(firstBody.aiCredits.balance, 199);
     assert.ok(isRecord(firstBody.usage));
     assert.equal(firstBody.usage.costUsdMicros, 25);
     assert.equal(firstBody.usage.inputTokens, 120);
@@ -1962,19 +2006,19 @@ describe("remote installation isolation", () => {
     const replay = await jsonBody(await request());
     assert.equal(replay.idempotent, true);
     assert.ok(isRecord(replay.aiCredits));
-    assert.equal(replay.aiCredits.balance, 4);
+    assert.equal(replay.aiCredits.balance, 199);
     assert.deepEqual(replay.usage, firstBody.usage);
     assert.equal(calls.length, 1);
 
-    assert.equal((await upload(identityA, "ai_session_002", "Other resource")).status, 201);
+    assert.equal((await uploadWithCookie(paid.cookie, "ai_session_002", "Other resource", paid.env)).status, 201);
     const conflict = await api("/api/ai/session-summary", {
       body: JSON.stringify({
         requestId: "ai_summary_request_0001",
         sessionId: "ai_session_002",
       }),
-      headers: identityHeaders(identityA, { "content-type": "application/json" }),
+      headers: { cookie: paid.cookie, "content-type": "application/json" },
       method: "POST",
-    }, env);
+    }, paid.env);
     assert.equal(conflict.status, 409);
     assert.equal((await jsonBody(conflict)).code, "request_id_conflict");
 
@@ -1984,16 +2028,16 @@ describe("remote installation isolation", () => {
         requestId: "ai_summary_request_0002",
         sessionId: "ai_session_001",
       }),
-      headers: identityHeaders(identityA, { "content-type": "application/json" }),
+      headers: { cookie: paid.cookie, "content-type": "application/json" },
       method: "POST",
-    }, env);
+    }, paid.env);
     assert.equal(failed.status, 503);
     assert.match(String((await jsonBody(failed)).error), /refunded/i);
     const entitlements = await jsonBody(await api("/api/account/entitlements", {
-      headers: identityHeaders(identityA),
-    }, env));
+      headers: { cookie: paid.cookie },
+    }, paid.env));
     assert.ok(isRecord(entitlements.aiCredits));
-    assert.equal(entitlements.aiCredits.balance, 4);
+    assert.equal(entitlements.aiCredits.balance, 199);
   });
 
   test("rate limits repeated AI requests without consuming another credit", async () => {
@@ -2008,17 +2052,17 @@ describe("remote installation isolation", () => {
         usage: { completion_tokens: 8, prompt_tokens: 40, total_tokens: 48 },
       };
     });
-    assert.equal((await register(identityA)).status, 201);
-    assert.equal((await upload(identityA, "ai_rate_limit_session", "Rate limited AI")).status, 201);
+    const paid = await paidProCookie(env);
+    assert.equal((await uploadWithCookie(paid.cookie, "ai_rate_limit_session", "Rate limited AI", paid.env)).status, 201);
     const request = () => api("/api/ai/session-summary", {
       body: JSON.stringify({
         language: "en",
         requestId: "ai_rate_limit_request_0001",
         sessionId: "ai_rate_limit_session",
       }),
-      headers: identityHeaders(identityA, { "content-type": "application/json" }),
+      headers: { cookie: paid.cookie, "content-type": "application/json" },
       method: "POST",
-    }, env);
+    }, paid.env);
 
     assert.equal((await request()).status, 200);
     for (let attempt = 1; attempt < 10; attempt += 1) {
@@ -2032,10 +2076,10 @@ describe("remote installation isolation", () => {
     assert.equal(calls, 1);
 
     const entitlements = await jsonBody(await api("/api/account/entitlements", {
-      headers: identityHeaders(identityA),
-    }, env));
+      headers: { cookie: paid.cookie },
+    }, paid.env));
     assert.ok(isRecord(entitlements.aiCredits));
-    assert.equal(entitlements.aiCredits.balance, 4);
+    assert.equal(entitlements.aiCredits.balance, 199);
   });
 
   test("refills 200 Pro credits monthly without rollover on an annual subscription", async () => {

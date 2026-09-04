@@ -370,7 +370,6 @@ const messages: UiMessages = {
   "pricing.freeLocal": "App local 100 % gratuita",
   "pricing.freeRetention": "Retención de 7 días en la nube",
   "pricing.freeStorage": "250 MB de almacenamiento en la nube",
-  "pricing.freeAiCredits": "5 créditos iniciales de IA",
   "pricing.standardViewer": "Visor web estándar",
   "pricing.clipboardPrompts": "Prompts para IA con un clic",
   "pricing.projectsCollections": "Proyectos y colecciones",

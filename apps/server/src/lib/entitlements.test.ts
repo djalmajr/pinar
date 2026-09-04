@@ -13,6 +13,7 @@ import {
   legacyCheckoutOffer,
   isSubscriptionOffer,
   planForOffer,
+  planIncludesAi,
   storageEntitlement,
 } from "./entitlements";
 
@@ -52,6 +53,13 @@ describe("billing entitlements", () => {
     assert.equal(baseStorageBytes("pro"), PAID_STORAGE_BYTES);
     assert.equal(baseStorageBytes("lifetime"), FOUNDER_STORAGE_BYTES);
     assert.equal(FOUNDER_INITIAL_AI_CREDITS, 500);
+  });
+
+  test("keeps AI summaries on paid plans only", () => {
+    assert.equal(planIncludesAi("free"), false);
+    assert.equal(planIncludesAi("pro"), true);
+    assert.equal(planIncludesAi("founder"), true);
+    assert.equal(planIncludesAi("lifetime"), true);
   });
 
   test("moves expired overage through grace, recovery and cleanup eligibility", () => {

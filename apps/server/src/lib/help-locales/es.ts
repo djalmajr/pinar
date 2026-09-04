@@ -852,7 +852,7 @@ const locale = {
         {
           heading: "Forma del plan",
           paragraphs: [
-            "Free incluye uso local permanente, 250 MB de cuota en la nube, retención en la nube de siete días y cinco créditos de IA iniciales. Pro es mensual o anual, con 5 GB y 200 créditos de IA sin acumulación recargados cada mes. Founder es una cohorte limitada de una sola vez, con 5 GB y 500 créditos iniciales; no incluye recarga mensual de créditos.",
+            "Free incluye uso local permanente, 250 MB de cuota en la nube y retención en la nube de siete días. Pro es mensual o anual, con 5 GB y 200 créditos de IA sin acumulación recargados cada mes. Founder es una cohorte limitada de una sola vez, con 5 GB y 500 créditos iniciales; no incluye recarga mensual de créditos.",
           ],
         },
         {

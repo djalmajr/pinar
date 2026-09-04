@@ -364,7 +364,6 @@ const messages = {
   "pricing.freeLocal": "100% Free local app",
   "pricing.freeRetention": "7-Day Cloud Retention",
   "pricing.freeStorage": "250 MB of cloud storage",
-  "pricing.freeAiCredits": "5 initial AI credits",
   "pricing.standardViewer": "Standard Web Viewer",
   "pricing.clipboardPrompts": "One-Click Clipboard AI Prompts",
   "pricing.projectsCollections": "Projects and collections",

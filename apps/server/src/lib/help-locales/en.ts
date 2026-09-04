@@ -846,7 +846,7 @@ const locale = {
         {
           heading: "Plan shape",
           paragraphs: [
-            "Free includes permanent local use, 250 MB of cloud quota, seven-day cloud retention, and five initial AI credits. Pro is monthly or annual with 5 GB and 200 non-rollover AI credits refilled monthly. Founder is a limited one-time cohort with 5 GB and 500 initial credits; it does not include a monthly credit refill.",
+            "Free includes permanent local use, 250 MB of cloud quota, and seven-day cloud retention. Pro is monthly or annual with 5 GB and 200 non-rollover AI credits refilled monthly. Founder is a limited one-time cohort with 5 GB and 500 initial credits; it does not include a monthly credit refill.",
           ],
         },
         {

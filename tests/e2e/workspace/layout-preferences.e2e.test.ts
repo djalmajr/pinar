@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   closeWorkspaceSidebar,
   isMobileViewport,
+  openWorkspaceAccountMenu,
   openWorkspaceSidebar,
 } from "../helpers/ui";
 
@@ -98,11 +99,8 @@ test("global settings and viewer navigation preserve language, theme, and captur
   await gridViewTab.click();
   await expect(gridViewTab).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("header").getByRole("button", { exact: true, name: "Settings" })).toHaveCount(0);
-  await openWorkspaceSidebar(page, "Settings");
-  const settingsButton = page.locator('[data-sidebar="footer"]')
-    .getByRole("button", { exact: true, name: "Settings" });
-  await expect(settingsButton).toHaveText("Settings");
-  await settingsButton.click();
+  await openWorkspaceAccountMenu(page);
+  await page.getByRole("menuitem", { exact: true, name: "Settings" }).click();
   const settingsDialog = page.locator('[data-slot="dialog-content"]');
   await expect(settingsDialog).toBeVisible();
   await expect(settingsDialog.getByRole("button", { name: "General", exact: true })).toHaveText("General");
@@ -158,10 +156,8 @@ test("global settings and viewer navigation preserve language, theme, and captur
   await expect(page.locator("header").getByRole("button", { exact: true, name: "Configurações" })).toHaveCount(0);
   await expect(page.locator("html")).toHaveAttribute("lang", "pt");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  await openWorkspaceSidebar(page, "Configurações");
-  await page.locator('[data-sidebar="footer"]')
-    .getByRole("button", { exact: true, name: "Configurações" })
-    .click();
+  await openWorkspaceAccountMenu(page, "Menu da conta");
+  await page.getByRole("menuitem", { exact: true, name: "Configurações" }).click();
   await page.getByRole("button", { exact: true, name: "Captura" }).click();
   await expect(page.getByRole("switch", { name: "Detalhamento da cópia para IA" })).toBeChecked();
   await expect(page.getByRole("switch", { name: "Incluir captura no copy para agentes" })).not.toBeChecked();

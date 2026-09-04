@@ -367,7 +367,6 @@ const messages: UiMessages = {
   "pricing.freeLocal": "100% 無料のローカルアプリ",
   "pricing.freeRetention": "クラウドで7日間保存",
   "pricing.freeStorage": "250 MB のクラウドストレージ",
-  "pricing.freeAiCredits": "初回 AI クレジット 5 点",
   "pricing.standardViewer": "標準 Web ビューアー",
   "pricing.clipboardPrompts": "ワンクリックで AI プロンプトをコピー",
   "pricing.projectsCollections": "プロジェクトとコレクション",

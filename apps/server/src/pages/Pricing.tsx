@@ -289,10 +289,6 @@ export function PricingPage() {
               </li>
               <li className="flex items-center gap-2">
                 <IconCheck className="text-success w-4 h-4 shrink-0" />
-                {t("pricing.freeAiCredits")}
-              </li>
-              <li className="flex items-center gap-2">
-                <IconCheck className="text-success w-4 h-4 shrink-0" />
                 {t("pricing.standardViewer")}
               </li>
               <li className="flex items-center gap-2">

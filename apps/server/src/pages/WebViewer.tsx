@@ -8,6 +8,7 @@ import { copyBatchHandoff } from "../lib/session-actions";
 import { ServerShell } from "@/components/ServerShell";
 import { WorkspaceChrome } from "@/components/WorkspaceChrome";
 import { isRecord, isSession } from "@/lib/api-data";
+import { isPaidAuthSession, useAuthSession } from "@/lib/auth-session";
 import { useServerI18n, type ServerMessageKey } from "@/lib/i18n";
 import { formatPinMarkdown } from "@/lib/pin-markdown";
 import { pinarRuntime, shouldUseWorkspaceChrome } from "@/lib/server-header";
@@ -297,7 +298,8 @@ export function WebViewer({
   siblingIds = [],
 }: WebViewerProps) {
   const { language, t } = useServerI18n();
-  const showAiSummary = pinarRuntime() === "cloud";
+  const authSession = useAuthSession();
+  const showAiSummary = pinarRuntime() === "cloud" && isPaidAuthSession(authSession);
   const aiRequestId = useRef<string | null>(null);
   const [aiCreditsRemaining, setAiCreditsRemaining] = useState<number | null>(null);
   const [aiError, setAiError] = useState("");

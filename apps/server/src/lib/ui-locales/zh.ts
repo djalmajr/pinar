@@ -340,7 +340,6 @@ const messages: UiMessages = {
   "pricing.freeLocal": "100% 免费的本地应用",
   "pricing.freeRetention": "云端保留 7 天",
   "pricing.freeStorage": "250 MB 云存储",
-  "pricing.freeAiCredits": "5 个初始 AI 点数",
   "pricing.standardViewer": "标准 Web 查看器",
   "pricing.clipboardPrompts": "一键复制 AI 提示词",
   "pricing.projectsCollections": "项目和集合",

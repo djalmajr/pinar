@@ -22,6 +22,23 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.3.2": {
+      title: "Installateur Windows complet",
+      summary:
+        "Le téléchargement Windows est désormais le ZIP Setup complet. Extrayez-le et lancez Pinar-Setup.exe à côté du dossier .installer.",
+      changes: {
+        "windows-setup-zip": {
+          title: "ZIP Setup Windows complet",
+          description:
+            "GitHub Releases publie désormais win-x64-Pinar-Setup.zip, avec Pinar-Setup.exe et le payload .installer. L’exe de 1,2 Mo n’est plus listé, car il n’installe rien tout seul.",
+        },
+        "windows-help-links": {
+          title: "Liens d’installation Windows",
+          description:
+            "L’aide et les Options téléchargent le ZIP. Après extraction, gardez le dossier .installer à côté de Pinar-Setup.exe, puis passez SmartScreen si Windows l’affiche.",
+        },
+      },
+    },
     "v0.3.1": {
       title: "Application Windows et couvertures d’aide uniques",
       summary:

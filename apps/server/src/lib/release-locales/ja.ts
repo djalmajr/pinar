@@ -20,6 +20,23 @@ const locale = {
     whatChanged: "変更内容",
   },
   releases: {
+    "v0.3.2": {
+      title: "完全な Windows インストーラー",
+      summary:
+        "Windows のダウンロードは完全な Setup ZIP になりました。展開し、.installer フォルダーの隣の Pinar-Setup.exe を実行します。",
+      changes: {
+        "windows-setup-zip": {
+          title: "完全な Windows Setup ZIP",
+          description:
+            "GitHub Releases は win-x64-Pinar-Setup.zip を公開し、Pinar-Setup.exe と .installer のペイロードを同梱します。1.2 MB のスタブ exe は単体ではインストールできないため、一覧から外しました。",
+        },
+        "windows-help-links": {
+          title: "Windows インストールリンク",
+          description:
+            "ヘルプとオプションは ZIP をダウンロードします。展開後は .installer フォルダーを Pinar-Setup.exe の隣に置き、SmartScreen が出たら詳細情報から実行します。",
+        },
+      },
+    },
     "v0.3.1": {
       title: "Windows アプリと記事ごとのヘルプ表紙",
       summary:

@@ -20,6 +20,23 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.3.2": {
+      title: "Complete Windows installer",
+      summary:
+        "The Windows download is now the full Setup zip. Extract it and run Pinar-Setup.exe next to the .installer folder.",
+      changes: {
+        "windows-setup-zip": {
+          title: "Complete Windows Setup zip",
+          description:
+            "GitHub Releases now publish win-x64-Pinar-Setup.zip, with Pinar-Setup.exe and the .installer payload together. The 1.2 MB stub exe is no longer listed, because it cannot install on its own.",
+        },
+        "windows-help-links": {
+          title: "Windows install links",
+          description:
+            "Help and Options download the zip. After extracting, keep the .installer folder beside Pinar-Setup.exe, then continue past SmartScreen if Windows shows it.",
+        },
+      },
+    },
     "v0.3.1": {
       title: "Windows app and unique help covers",
       summary:

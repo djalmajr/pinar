@@ -20,6 +20,23 @@ const locale = {
     whatChanged: "更新内容",
   },
   releases: {
+    "v0.3.2": {
+      title: "完整的 Windows 安装包",
+      summary:
+        "Windows 下载现为完整的 Setup ZIP。解压后运行 .installer 文件夹旁边的 Pinar-Setup.exe。",
+      changes: {
+        "windows-setup-zip": {
+          title: "完整的 Windows Setup ZIP",
+          description:
+            "GitHub Releases 现在发布 win-x64-Pinar-Setup.zip，内含 Pinar-Setup.exe 与 .installer 载荷。1.2 MB 的残缺 exe 已不再列出，因为它无法单独完成安装。",
+        },
+        "windows-help-links": {
+          title: "Windows 安装链接",
+          description:
+            "帮助和选项会下载该 ZIP。解压后请将 .installer 文件夹留在 Pinar-Setup.exe 旁边；若 Windows 显示 SmartScreen，请打开更多信息并选择仍要运行。",
+        },
+      },
+    },
     "v0.3.1": {
       title: "Windows 应用与独立帮助封面",
       summary:

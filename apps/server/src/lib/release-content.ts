@@ -59,6 +59,11 @@ export interface ReleaseContent {
 
 export const releaseDefinitions = [
   {
+    tag: "v0.3.2",
+    date: "2026-09-04",
+    changes: ["windows-setup-zip", "windows-help-links"],
+  },
+  {
     tag: "v0.3.1",
     date: "2026-09-04",
     changes: ["windows-desktop-app", "unique-help-covers", "windows-first-run-help"],

@@ -138,6 +138,8 @@ jobs:
       - name: Build Windows installer
         run: bun run build:tray
       - name: Verify Windows artifacts
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
         run: |
           $ErrorActionPreference = "Stop"
           $artifacts = "apps/tray/artifacts"
@@ -165,14 +167,20 @@ jobs:
           }
           Write-Host "artifacts after collect:"
           Show-Files $artifacts
-          $required = @(
-            $setupDst,
-            (Join-Path $artifacts "stable-win-x64-Pinar.tar.zst"),
-            (Join-Path $artifacts "stable-win-x64-update.json")
-          )
-          foreach ($path in $required) {
+          $tarball = Join-Path $artifacts "stable-win-x64-Pinar.tar.zst"
+          $manifestPath = Join-Path $artifacts "stable-win-x64-update.json"
+          foreach ($path in @($setupDst, $tarball)) {
             if (-not (Test-Path $path)) { throw "Missing $path" }
             if ((Get-Item $path).Length -lt 1024) { throw "$path is too small" }
+          }
+          if (-not (Test-Path $manifestPath)) { throw "Missing $manifestPath" }
+          $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+          $expectedVersion = $env:RELEASE_TAG.TrimStart("v")
+          if ($manifest.version -ne $expectedVersion) {
+            throw "update.json version $($manifest.version) does not match $expectedVersion"
+          }
+          if ($manifest.artifact.file -ne "stable-win-x64-Pinar.tar.zst") {
+            throw "update.json artifact.file is $($manifest.artifact.file)"
           }
       - name: Upload Windows artifacts
         env:

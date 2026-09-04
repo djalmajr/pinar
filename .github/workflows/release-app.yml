@@ -140,10 +140,35 @@ jobs:
       - name: Verify Windows artifacts
         run: |
           $ErrorActionPreference = "Stop"
+          $artifacts = "apps/tray/artifacts"
+          $build = "apps/tray/build/stable-win-x64"
+          New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
+          function Show-Files([string] $path) {
+            if (-not (Test-Path $path)) {
+              Write-Host "missing directory $path"
+              return
+            }
+            Get-ChildItem $path -File | ForEach-Object {
+              Write-Host ("{0}`t{1}" -f $_.Length, $_.Name)
+            }
+          }
+          Write-Host "build:"
+          Show-Files $build
+          Write-Host "artifacts before collect:"
+          Show-Files $artifacts
+          $setupSrc = Join-Path $build "Pinar-Setup.exe"
+          $setupDst = Join-Path $artifacts "win-x64-Pinar-Setup.exe"
+          if (-not (Test-Path $setupDst)) {
+            if (-not (Test-Path $setupSrc)) { throw "Missing $setupSrc" }
+            Copy-Item $setupSrc $setupDst
+            Write-Host "copied $setupSrc -> $setupDst"
+          }
+          Write-Host "artifacts after collect:"
+          Show-Files $artifacts
           $required = @(
-            "apps/tray/artifacts/win-x64-Pinar-Setup.exe",
-            "apps/tray/artifacts/stable-win-x64-Pinar.tar.zst",
-            "apps/tray/artifacts/stable-win-x64-update.json"
+            $setupDst,
+            (Join-Path $artifacts "stable-win-x64-Pinar.tar.zst"),
+            (Join-Path $artifacts "stable-win-x64-update.json")
           )
           foreach ($path in $required) {
             if (-not (Test-Path $path)) { throw "Missing $path" }

@@ -13,5 +13,6 @@
       "@pinar/ui/*": ["../../packages/ui/src/*"]
     }
   },
-  "include": ["src/**/*", "vite.config.ts", "vite.local.config.ts", "worker-configuration.d.ts"]
+  "include": ["src/**/*", "vite.config.ts", "vite.local.config.ts", "worker-configuration.d.ts"],
+  "exclude": ["src/**/*.test.ts"]
 }

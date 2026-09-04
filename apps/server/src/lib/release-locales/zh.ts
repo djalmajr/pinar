@@ -20,6 +20,23 @@ const locale = {
     whatChanged: "更新内容",
   },
   releases: {
+    "v0.3.4": {
+      title: "继续即接受现行政策",
+      summary:
+        "在「套餐」页付款或验证账户验证码，即表示接受当前条款、隐私政策和可接受使用。没有额外对话框。",
+      changes: {
+        "checkout-policy-acceptance": {
+          title: "付款即表示同意",
+          description:
+            "在「套餐」页开始付费结账会记录当前条款、隐私政策和可接受使用。额外的确认对话框已取消。",
+        },
+        "sign-in-policy-acceptance": {
+          title: "登录即表示同意",
+          description:
+            "验证账户邮箱验证码会记录相同的现行政策。额外的接受步骤已取消。远程 Free 仍在扩展选项中接受。",
+        },
+      },
+    },
     "v0.3.3": {
       title: "本地账户菜单与不含 AI 的 Free",
       summary:

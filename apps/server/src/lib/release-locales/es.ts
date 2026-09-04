@@ -21,6 +21,23 @@ const locale = {
     whatChanged: "Qué cambió",
   },
   releases: {
+    "v0.3.4": {
+      title: "Políticas aceptadas al continuar",
+      summary:
+        "Pagar en Planes o verificar el código de la cuenta acepta los Términos, la Política de privacidad y el Uso aceptable vigentes. No hay un diálogo extra.",
+      changes: {
+        "checkout-policy-acceptance": {
+          title: "Pagar es aceptar",
+          description:
+            "Iniciar un checkout de pago en Planes registra los Términos, la Política de privacidad y el Uso aceptable vigentes. El diálogo extra desaparece.",
+        },
+        "sign-in-policy-acceptance": {
+          title: "Entrar es aceptar",
+          description:
+            "Verificar el código de la cuenta por correo registra las mismas políticas vigentes. El paso extra de aceptar desaparece. Free remoto sigue aceptando en las opciones de la extensión.",
+        },
+      },
+    },
     "v0.3.3": {
       title: "Menú de cuenta local y Free sin IA",
       summary:

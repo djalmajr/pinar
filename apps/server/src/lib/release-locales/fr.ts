@@ -22,6 +22,23 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.3.4": {
+      title: "Politiques acceptées en continuant",
+      summary:
+        "Payer sur Plans ou vérifier le code du compte accepte les Conditions, la Politique de confidentialité et l’Utilisation acceptable en vigueur. Il n’y a plus de dialogue supplémentaire.",
+      changes: {
+        "checkout-policy-acceptance": {
+          title: "Payer, c’est accepter",
+          description:
+            "Démarrer un checkout payant sur Plans enregistre les Conditions, la Politique de confidentialité et l’Utilisation acceptable en vigueur. Le dialogue supplémentaire disparaît.",
+        },
+        "sign-in-policy-acceptance": {
+          title: "Se connecter, c’est accepter",
+          description:
+            "Vérifier le code e-mail du compte enregistre les mêmes politiques en vigueur. L’étape d’acceptation supplémentaire disparaît. Le Free distant accepte toujours dans les options de l’extension.",
+        },
+      },
+    },
     "v0.3.3": {
       title: "Menu de compte local et Free sans IA",
       summary:

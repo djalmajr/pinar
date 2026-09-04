@@ -20,6 +20,23 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.3.4": {
+      title: "Policies accepted by continuing",
+      summary:
+        "Paying on Plans or verifying an account code accepts the current Terms, Privacy Policy, and Acceptable Use. There is no extra dialog.",
+      changes: {
+        "checkout-policy-acceptance": {
+          title: "Pay to accept",
+          description:
+            "Starting a paid checkout on Plans records the current Terms, Privacy Policy, and Acceptable Use. The extra review dialog is gone.",
+        },
+        "sign-in-policy-acceptance": {
+          title: "Sign in to accept",
+          description:
+            "Verifying an account email code records the same current policies. The extra accept step is gone. Remote Free still accepts in extension options.",
+        },
+      },
+    },
     "v0.3.3": {
       title: "Local account menu and Free without AI",
       summary:

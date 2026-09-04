@@ -22,6 +22,23 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.3.4": {
+      title: "Richtlinien gelten mit dem Fortfahren",
+      summary:
+        "Zahlen auf Plans oder das Bestätigen eines Konto-Codes akzeptiert die aktuellen Nutzungsbedingungen, die Datenschutzerklärung und die zulässige Nutzung. Es gibt keinen Extra-Dialog.",
+      changes: {
+        "checkout-policy-acceptance": {
+          title: "Zahlen bedeutet zustimmen",
+          description:
+            "Ein bezahlter Checkout auf Plans speichert die aktuellen Nutzungsbedingungen, die Datenschutzerklärung und die zulässige Nutzung. Der Extra-Dialog entfällt.",
+        },
+        "sign-in-policy-acceptance": {
+          title: "Anmelden bedeutet zustimmen",
+          description:
+            "Die Bestätigung des Konto-E-Mail-Codes speichert dieselben aktuellen Richtlinien. Der Extra-Annahme-Schritt entfällt. Remote-Free akzeptiert weiterhin in den Erweiterungsoptionen.",
+        },
+      },
+    },
     "v0.3.3": {
       title: "Lokales Kontomenü und Free ohne KI",
       summary:

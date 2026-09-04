@@ -59,6 +59,11 @@ export interface ReleaseContent {
 
 export const releaseDefinitions = [
   {
+    tag: "v0.3.4",
+    date: "2026-09-04",
+    changes: ["checkout-policy-acceptance", "sign-in-policy-acceptance"],
+  },
+  {
     tag: "v0.3.3",
     date: "2026-09-04",
     changes: ["local-account-menu", "free-without-ai"],

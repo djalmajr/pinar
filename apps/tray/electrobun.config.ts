@@ -62,6 +62,7 @@ export default {
 	},
 	scripts: {
 		postBuild: "scripts/post-build.mjs",
+		postPackage: "scripts/post-build.mjs",
 		postWrap: "scripts/post-build.mjs",
 	},
 	release: {

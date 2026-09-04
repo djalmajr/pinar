@@ -52,9 +52,16 @@ describe("Pinar.app release workflow", () => {
       'Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $env:USERPROFILE ".hutch\\bin")',
     );
     expect(workflow).toContain("win-x64-Pinar-Setup.exe");
+    expect(workflow).toContain("Pinar-Setup.exe");
+    expect(workflow).toContain("Copy-Item $setupSrc $setupDst");
     expect(workflow).toContain("stable-win-x64-Pinar.tar.zst");
     expect(workflow).toContain("stable-win-x64-update.json");
     expect(workflow).not.toContain("signtool");
     expect(workflow).not.toContain("Get-AuthenticodeSignature");
+  });
+
+  test("copies the Windows installer after Electrobun packaging", () => {
+    const config = readFileSync(join(root, "apps/tray/electrobun.config.ts"), "utf8");
+    expect(config).toContain('postPackage: "scripts/post-build.mjs"');
   });
 });

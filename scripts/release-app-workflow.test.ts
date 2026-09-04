@@ -56,6 +56,8 @@ describe("Pinar.app release workflow", () => {
     expect(workflow).toContain("Copy-Item $setupSrc $setupDst");
     expect(workflow).toContain("stable-win-x64-Pinar.tar.zst");
     expect(workflow).toContain("stable-win-x64-update.json");
+    expect(workflow).toContain("ConvertFrom-Json");
+    expect(workflow).toContain('$manifest.version -ne $expectedVersion');
     expect(workflow).not.toContain("signtool");
     expect(workflow).not.toContain("Get-AuthenticodeSignature");
   });

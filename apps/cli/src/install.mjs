@@ -4,7 +4,7 @@ import { chmod, cp, mkdir, readdir, readFile, rename, rm, writeFile } from "node
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { defaultRoot, installHooks } from "./install-hooks.mjs";
-import { installMacDesktopApp } from "./install-desktop.mjs";
+import { installMacDesktopApp, installWindowsDesktopApp } from "./install-desktop.mjs";
 import { pinarHome } from "./paths.mjs";
 
 export const RUNTIME_SCRIPTS = [
@@ -53,12 +53,11 @@ export async function installPlatformHooks(from, to, platform = process.platform
     await cp(hooksPinar, join(hooksDir, "pinar.js"), { force: true });
   }
 
-  const ensureName = platform === "win32" ? "ensure.cmd" : "ensure.sh";
-  const hooksEnsure = resolveRuntimeSource(from, `hooks/${ensureName}`);
-  if (hooksEnsure) {
+  const hooksEnsureJs = resolveRuntimeSource(from, "hooks/ensure.mjs");
+  if (hooksEnsureJs) {
     await mkdir(hooksDir, { recursive: true });
-    const destEnsure = join(hooksDir, ensureName);
-    await cp(hooksEnsure, destEnsure, { force: true });
+    const destEnsure = join(hooksDir, "ensure.mjs");
+    await cp(hooksEnsureJs, destEnsure, { force: true });
     if (platform !== "win32") await chmod(destEnsure, 0o755).catch(() => {});
   }
 }
@@ -195,7 +194,7 @@ export async function installApp({
   await rm(staging, { recursive: true, force: true });
   if (platform !== "win32") {
     if (existsSync(join(to, "bin", "pinar"))) await chmod(join(to, "bin", "pinar"), 0o755);
-    if (existsSync(join(to, "hooks", "ensure.sh"))) await chmod(join(to, "hooks", "ensure.sh"), 0o755);
+    if (existsSync(join(to, "hooks", "ensure.mjs"))) await chmod(join(to, "hooks", "ensure.mjs"), 0o755);
   }
   if (removed.length) log(`pinar removed ${removed.join(", ")}`);
   log(`pinar files -> ${to}`);
@@ -263,6 +262,7 @@ export async function runInstall({
   }
   await installApp({ arch, dest, log, platform, source });
   const pathResult = await ensureUserPath({ dest, home, log, platform });
+  if (platform === "win32") await installWindowsDesktopApp({ home, log, source });
   const hooksResult = await installHooks({
     dest,
     home,

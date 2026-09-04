@@ -185,9 +185,9 @@ chrome.commands?.onCommand.addListener((command) => {
   void toggleBatch().catch((error) => console.error("Unable to toggle the capture batch", error));
 });
 
-// The action's context menu mirrors the commands, for people who reach for
-// the mouse: open the panel, start or finish the batch, and - only while a
-// batch is running - close it without copying. Every title is our own string
+// The action's context menu mirrors every command except _execute_action
+// (the toolbar click already is that command): open the panel, start or
+// finish the batch, and close it without copying. Titles are our own strings
 // set at runtime in the language chosen in Options and refreshed whenever the
 // language or the batch changes; Chrome never sees a fixed English label.
 function menuItem(id, props) {
@@ -208,7 +208,10 @@ async function syncActionMenu(state) {
     : messages.batch_start;
   await menuItem(OPEN_PANEL_MENU_ID, { contexts, title: messages.context_open_panel });
   await menuItem(BATCH_MENU_ID, { contexts, title: batchTitle });
-  await menuItem(CANCEL_BATCH_MENU_ID, { contexts, title: messages.batch_close_menu, visible: active });
+  // Always shown so the menu matches chrome://extensions/shortcuts 1:1.
+  // visible: true also unhides the item for installs that previously hid it
+  // while no batch was running (update() keeps omitted properties).
+  await menuItem(CANCEL_BATCH_MENU_ID, { contexts, title: messages.batch_close_menu, visible: true });
 }
 
 chrome.contextMenus?.onClicked.addListener((info) => {

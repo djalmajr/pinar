@@ -18,6 +18,8 @@ test("i18n translations dictionary", () => {
     "overlay_copied",
     "overlay_saved",
     "overlay_hint_pin",
+    "overlay_hint_regions",
+    "overlay_regions_on",
     "overlay_write_comment",
   ];
 
@@ -68,6 +70,16 @@ test("getBestLanguage ignores browser language so the shipped extension stays En
   }
 });
 
+test("overlay hint long and short copy stay identical at every width", () => {
+  for (const lang of Object.keys(translations)) {
+    const pack = translations[lang];
+    assert.equal(pack.overlay_hint_tune_long, pack.overlay_hint_tune_short, lang);
+    assert.equal(pack.overlay_hint_copy_long, pack.overlay_hint_copy_short, lang);
+    assert.equal(pack.overlay_hint_mask_long, pack.overlay_hint_mask_short, lang);
+    assert.equal(pack.overlay_hint_clear_long, pack.overlay_hint_clear_short, lang);
+  }
+});
+
 test("overlay copy is served through ui:messages and falls back to English", () => {
   const contentSrc = readFileSync(new URL("./content.js", import.meta.url), "utf8");
   const backgroundSrc = readFileSync(new URL("./background.js", import.meta.url), "utf8");
@@ -81,17 +93,15 @@ test("overlay copy is served through ui:messages and falls back to English", () 
   const fallback = fallbackMatch[0];
   const outside = contentSrc.replace(fallback, "");
   const literals = [
-    "Click or drag to pin",
-    "to fine-tune selection",
-    "Fine-tune",
-    "to copy",
+    "Click or drag",
+    "Adjust selection",
     "Copy",
-    "hide region",
-    "Hide",
-    "to clear",
-    "Clear",
-    "Comment",
+    "Mask",
     "Cancel",
+    "Regions",
+    "Showing pins only",
+    "Showing pins and regions",
+    "Comment",
     "Add",
     "Original page is unavailable",
     "Click the correct element to place this pin",

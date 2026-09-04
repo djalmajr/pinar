@@ -72,10 +72,40 @@ const locale = {
       caption:
         "工作区把已捕获页面、图钉数量、项目、集合、搜索和账户状态集中在同一个操作视图中。",
     },
-    "getting-started": {
-      alt: "Pinar 公开落地页，展示本地优先工作流、工作区入口和套餐导航。",
+    "capture-toolbar": {
+      alt: "Pinar 捕获叠加层，含顶部工具栏、编号图钉、所选区域以及页面上的隐私遮罩。",
       caption:
-        "从公开的 Pinar 入口开始，打开本地工作区、了解捕获流程，或比较云套餐。",
+        "叠加层工具栏留在页面上，并在标注时提供图钉、选择、复制、遮罩、区域和取消快捷键。",
+    },
+    "capture-review": {
+      alt: "Pinar 叠加层正在审阅已保存会话，并有一枚需要在实况页面上手动放置的待放图钉。",
+      caption:
+        "在原页审阅会把图钉还原到原始 URL。未解析的图钉保持待放，直到你先点标记再点正确元素。",
+    },
+    "capture-copy-failed": {
+      alt: "Pinar 叠加层工具栏显示复制失败，编号图钉仍可在页面上编辑。",
+      caption:
+        "当所有剪贴板路径都失败时，工具栏显示复制失败并恢复图钉，以便在不丢失评论的情况下重试。",
+    },
+    "capture-full-page": {
+      alt: "Pinar 叠加层位于一篇超出首屏的长文档上，准备进行拼接的整页捕获。",
+      caption:
+        "整页捕获会滚动并拼接文档，使复制的截图包含折页以下的内容。",
+    },
+    "capture-viewer": {
+      alt: "Pinar 捕获查看器，含带标注的截图、编号图钉、缩放控件和会话操作。",
+      caption:
+        "查看器在捕获后把共享截图、图钉评论以及复制或重新打开的操作放在一起。",
+    },
+    "extension-options": {
+      alt: "Pinar 扩展的存储选项卡，含本地服务器、远程服务器以及托管服务的法律同意。",
+      caption:
+        "存储选项卡用于选择本地或远程服务器，并在云捕获前要求接受条款、隐私和可接受使用。",
+    },
+    "extension-preferences": {
+      alt: "Pinar 扩展的偏好设置选项卡，显示精简或完整的智能体复制详情以及是否包含截图的开关。",
+      caption:
+        "偏好设置用于选择精简或完整交接，以及下次复制是否包含截图；保存后会在下一次复制前生效。",
     },
     "help-navigation": {
       alt: "Pinar 帮助文章，包含分类导航、相关文章链接、结构化章节和页内导航。",
@@ -103,44 +133,106 @@ const locale = {
       alt: "Pinar 版本详情，显示发布日期、版本号、更新内容以及上一篇和下一篇版本导航。",
       caption: "已发布的更新说明让已安装行为和运维变更可以按版本追溯。",
     },
+    "capture-shortcuts": {
+      alt: "Pinar 扩展的快捷键选项卡，列出浏览器命令以及捕获过程中的叠加层按键。",
+      caption:
+        "快捷键选项卡在图钉、选择、遮罩、复制和取消的叠加层按键旁显示 Chrome 命令绑定。",
+    },
+    "capture-types": {
+      alt: "Pinar 叠加层在标题上有一枚编号图钉，并在订单合计卡片周围有所选区域。",
+      caption:
+        "元素图钉和自由区域可以共用同一叠加层，使复制的截图同时保留 DOM 目标和视觉分组。",
+    },
+    "capture-pins": {
+      alt: "Pinar 叠加层在标题、客户邮箱和支付按钮上有三枚编号标记。",
+      caption: "每枚图钉保留自己的编号和评论，一次捕获可以指向同一页面上的多个元素。",
+    },
+    "capture-selection": {
+      alt: "Pinar 叠加层在确认图钉前用蓝色选择轮廓高亮标题。",
+      caption: "智能选择会勾出光标下的元素，便于在钉住前用方向键遍历 DOM。",
+    },
+    "capture-masks": {
+      alt: "Pinar 叠加层用隐私遮罩盖住客户邮箱，标题上仍有一枚编号图钉。",
+      caption: "遮罩会隐藏复制截图中的敏感像素，但不会去掉仍在描述页面的图钉评论。",
+    },
+    "capture-copied": {
+      alt: "带注释的数据包到达剪贴板后，Pinar 叠加层工具栏显示复制成功。",
+      caption: "复制成功会闪现复制成功并关闭叠加层，以便把同一数据包粘贴给智能体。",
+    },
+    "install-pinar": {
+      alt: "Pinar 扩展的存储选项卡，在本地服务器选项旁有下载 Pinar 按钮。",
+      caption: "存储选项卡在本地服务器旁提供 Pinar 应用下载，以便助手在这台电脑上启动。",
+    },
+    "options-local": {
+      alt: "Pinar 扩展的存储选项卡已选中本地服务器，捕获留在这台电脑上。",
+      caption: "本地服务器把历史和截图留在这台电脑，不需要托管服务的法律同意。",
+    },
+    "workspace-nested": {
+      alt: "Pinar 工作区侧栏在项目树中选中一个集合，并显示对应的会话卡片。",
+      caption: "选中集合会把工作区筛到该分支，嵌套文件夹会显示在它们保存的会话旁边。",
+    },
+    "workspace-review": {
+      alt: "Pinar 工作区表格在会话行上方打开审阅状态筛选。",
+      caption: "表格视图把搜索与审阅状态筛选结合，便于扫读各会话中未处理、已接受和已重开的图钉。",
+    },
+    "workspace-security": {
+      alt: "Pinar 工作区的项目切换器打开在受保护的 Personal 项目上。",
+      caption: "本地历史无法打开时，工作区会恢复受保护的 Personal 项目和 Inbox，而不是卡住应用。",
+    },
+    "legal-retention": {
+      alt: "Pinar 法律中心打开在数据保留文档。",
+      caption: "数据保留政策说明托管捕获、账单记录和相关账户数据会保留多久。",
+    },
+    "sharing-markdown": {
+      alt: "公开的 Pinar 项目查看器，在共享会话卡片上方有复制 Markdown 按钮。",
+      caption: "未列出的项目或集合链接让任何拥有该 URL 的人无需登录即可复制合并后的 Markdown。",
+    },
+    "preferences-privacy": {
+      alt: "Pinar 扩展的偏好设置选项卡，显示可选循环指标以及要隐藏的额外 URL 键。",
+      caption: "隐私偏好会把额外查询键从捕获的 URL 中去掉，并在你选择加入前保持循环指标关闭。",
+    },
+    "pricing-credits": {
+      alt: "Pinar 定价页的 1,000 个 AI 点数加购卡片，含购买和十二个月有效期。",
+      caption: "AI 点数作为加购出售，有效期十二个月，与套餐存储和计费周期分开。",
+    },
   },
   articles: {
     "install-pinar": {
       title: "安装 Pinar",
-      summary: "添加官方 Chrome 扩展，并连接您平台上受支持的本地产品。",
+      summary: "安装 Chrome 扩展，并在这台电脑上打开 Pinar 应用。",
       sections: [
         {
           heading: "浏览器扩展",
           paragraphs: [
-            "从 Chrome Web Store 安装 Pinar。这是官方的浏览器安装路径；日常使用不需要从 GitHub 检出代码，也不需要未打包的扩展文件夹。",
+            "从 [Chrome Web Store](https://chromewebstore.google.com/detail/pinardev/idpeaokdndjedekacfdfbilcolpholbo) 安装 Pinar。",
           ],
           bullets: [
             "在 Chrome 的扩展菜单中固定 Pinar 图标，让它保持可见。",
-            "该扩展支持已发布的 pinar.dev 源以及本地 Pinar 服务器。",
+            "打开 [Chrome Web Store 商品页](https://chromewebstore.google.com/detail/pinardev/idpeaokdndjedekacfdfbilcolpholbo) 以添加官方扩展。",
           ],
         },
         {
-          heading: "本地产品",
+          heading: "Pinar 应用",
           paragraphs: [
-            "在 macOS 上，Pinar.app 位于菜单栏，运行内置助手、注册受支持的智能体钩子，并检查 GitHub Releases 中的更新。Windows 和 Linux 目前使用独立的助手安装程序，而不是桌面应用。",
+            "在 macOS 上，Pinar 应用位于菜单栏。在 Windows 上，位于通知区域。打开 Pinar 应用即可开始捕获。在 Linux 上，使用下面的命令安装。",
           ],
           bullets: [
-            "截图和历史会留在这台电脑上。使用菜单栏中的「打开文件夹」即可查看。",
-            "打开应用时，Pinar 会自动查找并启动本地服务。",
-            "在 macOS 上，「登录时启动」会在您登录这台电脑后让 Pinar 保持可用。",
-            "如果本地连接不可用，请从菜单栏打开 Pinar，然后重新捕获。",
+            "捕获会留在这台电脑上。选择 「打开文件夹」 即可查看。",
+            "在 macOS 和 Windows 上，「登录时启动」 会在您登录后让 Pinar 保持可用。",
+            "如果某次捕获没有图像，请打开 Pinar 后再试。",
           ],
         },
         {
-          heading: "确认助手并打开工作区",
+          heading: "安装并打开",
           paragraphs: [
-            "固定扩展后，按文档中的一次性安装路径安装对应的本地产品：把 macOS 磁盘映像拖到「应用程序」，在 Windows 上运行 PowerShell 安装程序，或在 Linux 上运行 curl 安装程序。这些安装程序会注册本地服务，以便编码智能体接收粘贴的捕获。",
-            "在 macOS 上，Pinar.app 位于菜单栏，并会为您启动本地服务。如果菜单栏显示「本地服务器：关闭」，请选择「启动」，然后选择「打开工作区」。如果某个智能体不再看到粘贴的捕获，请重新打开 Pinar 后再试。",
+            "通过下面的链接下载并安装 Pinar 应用，然后打开它。",
+            "打开 Pinar 后，选择 「打开工作区」。如果显示 「本地服务器：关闭」，请选择 「启动」。如果粘贴的捕获不再出现，请重新打开 Pinar。",
           ],
           bullets: [
-            "Windows 安装：irm https://pinar.dev/install.ps1 | iex。Linux 安装：curl -fsSL https://pinar.dev/install.sh | sh。脚本需要 curl 或 wget 来下载二进制文件。",
-            "本地服务就绪后，「打开工作区」会从菜单栏加载您的工作区。",
-            "Chrome 扩展无法自行保存截图。如果某次捕获没有图像，请先启动本地产品，然后再捕获一次。",
+            "macOS：[下载 Pinar 应用](https://github.com/djalmajr/pinar/releases/latest/download/macos-arm64-Pinar.dmg)，打开磁盘映像并拖到 「应用程序」。",
+            "Windows：[下载 Pinar 应用](https://github.com/djalmajr/pinar/releases/latest/download/win-x64-Pinar-Setup.exe)并运行安装程序。图标会出现在通知区域。",
+            "Windows：首次运行可能显示 「Windows 已保护你的电脑」。请选择 「更多信息」，然后选择 「仍要运行」。",
+            "Linux：`curl -fsSL https://pinar.dev/install.sh | sh`",
           ],
         },
       ],
@@ -153,23 +245,23 @@ const locale = {
         {
           heading: "在页面上添加图钉",
           paragraphs: [
-            "打开页面，选择 Pinar 扩展，然后点击一个元素或拖出一个自由区域。写下评论并按 Enter 添加图钉。",
+            "打开页面，选择 Pinar 扩展，然后点击一个元素或拖出一个自由区域。写下评论并按 `Enter` 添加图钉。",
           ],
           bullets: [
             "重复选择即可在同一次捕获中放置多个带编号的图钉。",
-            "Shift+Enter 会换行；Escape 会关闭草稿，但不会删除其他图钉。",
+            "`Shift+Enter` 会换行；`Escape` 会关闭草稿，但不会删除其他图钉。",
           ],
         },
         {
           heading: "复制数据包",
           paragraphs: [
-            "在 macOS 上按 Command+Enter，在其他系统上按 Ctrl+Enter。Pinar 会复制人类可读的 Markdown、HTML，以及指向同一截图和图钉身份的 pinar-visual-context JSON 代码块。",
+            "在 macOS 上按 `Command+Enter`，在其他系统上按 `Ctrl+Enter`。Pinar 会复制人类可读的 Markdown、HTML，以及指向同一截图和图钉身份的 pinar-visual-context JSON 代码块。",
           ],
         },
         {
           heading: "完成复制并保留身份",
           paragraphs: [
-            "只有在至少一个图钉已有评论后，Command/Ctrl+Enter 才会复制。叠加层会显示「正在保存标注…」，为截图隐藏图钉装饰，然后显示「复制成功！」，工具栏随之关闭。之后再点击扩展图标只会显示或隐藏叠加层，不会删除已放置的图钉。如果所有剪贴板路径都失败，叠加层会恢复，以便重试。",
+            "只有在至少一个图钉已有评论后，`Command/Ctrl+Enter` 才会复制。叠加层会显示「正在保存标注…」，为截图隐藏图钉装饰，然后显示「复制成功！」，工具栏随之关闭。之后再点击扩展图标只会显示或隐藏叠加层，不会删除已放置的图钉。如果所有剪贴板路径都失败，叠加层会恢复，以便重试。",
             "把剪贴板内容当作一个整体：可读说明、可选的查看器 URL，以及带围栏的 pinar-visual-context JSON 代码块，其中包含 `captureId`、`pinId`、页面 URL、定位器（cssSelector、domPath、innerText），以及助手存下文件后的截图 URL。图像上的编号徽章是标注叠加，不是页面 UI。粘贴给智能体时不要改写 `captureId` 或 `pinId`。若存在 Screenshot: /path/to/file.png 这一行，它就是包含所有图钉的那一张裁剪图。",
           ],
           bullets: [
@@ -199,8 +291,8 @@ const locale = {
         {
           heading: "本地和云会话实际如何打开",
           paragraphs: [
-            "本地历史会从受保护的 Personal 项目和 Inbox 集合开始，它们不能像普通文件夹那样被嵌套或删除。捕获会留在这台电脑上，您可以从本地工作区打开它们。",
-            "云存储会等到您接受当前的条款、隐私和可接受使用之后才开始。此后，Free 账户可以用短时验证码配对扩展，付费账户还可以确认六位数邮箱验证码。任何持有未列出 URL 的人都可以阅读分享链接。",
+            "本地历史会从受保护的「Personal」项目和「Inbox」集合开始，它们不能像普通文件夹那样被嵌套或删除。捕获会留在这台电脑上，您可以从本地工作区打开它们。",
+            "云存储会等到您接受当前的「条款」、「隐私」和「可接受使用」之后才开始。此后，「Free」账户可以用短时验证码配对扩展，付费账户还可以确认六位数邮箱验证码。任何持有未列出 URL 的人都可以阅读分享链接。",
           ],
           bullets: [
             "本地工作区留在这台电脑上，不需要云账户。",
@@ -220,10 +312,11 @@ const locale = {
             "Pinar 只拦截处于活动捕获状态的快捷键，因此宿主页面不会收到同一次按键。",
           ],
           bullets: [
-            "Enter 会钉住悬停的元素；Arrow Up 选择其父级，Arrow Down 返回子级。",
-            "M 切换隐私遮罩绘制。Escape 取消草稿或遮罩；若没有草稿，则会清除图钉并隐藏工具栏。",
-            "Command/Ctrl+Enter 复制已完成的数据包。",
-            "Alt+Shift+P 显示或隐藏工具栏而不取消会话，可在 `chrome://extensions/shortcuts` 中重新绑定。浏览器快捷键在 `chrome://` 页面、Chrome 网上应用店以及覆盖层注入之前不会生效。",
+            "`Enter` 会钉住悬停的元素；`Arrow Up` 选择其父级，`Arrow Down` 返回子级。",
+            "`M` 切换隐私遮罩绘制。`Escape` 取消草稿或遮罩；若没有草稿，则会清除图钉并隐藏工具栏。",
+            "`R` 在仅显示编号图钉与同时显示图钉及所选区域之间切换实时覆盖层。复制的截图始终包含两者。",
+            "`Command/Ctrl+Enter` 复制已完成的数据包。",
+            "`Alt+Shift+P` 显示或隐藏工具栏而不取消会话，可在 `chrome://extensions/shortcuts` 中重新绑定。浏览器快捷键在 `chrome://` 页面、Chrome 网上应用店以及覆盖层注入之前不会生效。",
           ],
         },
         {
@@ -235,12 +328,12 @@ const locale = {
         {
           heading: "叠加层、图标和 DOM 遍历细节",
           paragraphs: [
-            "只有叠加层处于活动状态时，捕获快捷键才归 Pinar 所有。扩展图标会切换该叠加层，但不会删除图钉。在没有打开草稿时悬停工具栏会让它穿透，以便您仍可点击或拖动下方页面。Shift+Enter 在撰写框中插入换行，在那里输入的宿主页面快捷键也不会离开评论字段。",
-            "Arrow Up 会走到父元素并记住您离开的子节点，因此当它仍是子级时 Arrow Down 会回到该记住的节点；否则使用第一个子节点。在遮罩模式下，拖出一个区域即可隐藏它，点击已有遮罩即可恢复。文档上的键盘滚动仍然有效，但针对已聚焦页面控件的按键会被拦截，以免激活按钮或向宿主表单输入。",
+            "只有叠加层处于活动状态时，捕获快捷键才归 Pinar 所有。扩展图标会切换该叠加层，但不会删除图钉。在没有打开草稿时悬停工具栏会让它穿透，以便您仍可点击或拖动下方页面。`Shift+Enter` 在撰写框中插入换行，在那里输入的宿主页面快捷键也不会离开评论字段。",
+            "`Arrow Up` 会走到父元素并记住您离开的子节点，因此当它仍是子级时 `Arrow Down` 会回到该记住的节点；否则使用第一个子节点。在遮罩模式下，拖出一个区域即可隐藏它，点击已有遮罩即可恢复。文档上的键盘滚动仍然有效，但针对已聚焦页面控件的按键会被拦截，以免激活按钮或向宿主表单输入。",
           ],
           bullets: [
-            "Command/Ctrl+Enter 会先保存打开的草稿，再复制；没有评论时会显示「请先填写评论」，而不是发送空图钉。",
-            "Escape 或复制之后，Pinar 会持续占有该物理按键直到抬起，以免宿主页面把同一次按键当成自己的取消或提交。",
+            "`Command/Ctrl+Enter` 会先保存打开的草稿，再复制；没有评论时会显示「请先填写评论」，而不是发送空图钉。",
+            "`Escape` 或复制之后，Pinar 会持续占有该物理按键直到抬起，以免宿主页面把同一次按键当成自己的取消或提交。",
             "区域图钉只有在指针移动大约六个像素后才开始；更短的点击仍会钉住悬停元素，而不是打开自由矩形。",
           ],
         },
@@ -263,7 +356,7 @@ const locale = {
         {
           heading: "点击、拖动和 frame 定位",
           paragraphs: [
-            "点击节点，或在当前轮廓上按 Enter，即可打开元素图钉。拖出至少六个像素的矩形则会打开区域图钉。对 iframe 或 frame 元素的第一次按下会被忽略，以便该 frame 内的文档接受选择。",
+            "点击节点，或在当前轮廓上按 `Enter`，即可打开元素图钉。拖出至少六个像素的矩形则会打开区域图钉。对 iframe 或 frame 元素的第一次按下会被忽略，以便该 frame 内的文档接受选择。",
             "元素图钉会记录指纹、选择器和用 frame 边界分隔符连接祖先 frame 的 DOM 路径。区域图钉存储矩形和像素尺寸标签，没有定位器。复制的截图仍会围绕所有图钉的并集拼贴，包括放在子 frame 中的图钉。",
           ],
           bullets: [
@@ -390,7 +483,7 @@ const locale = {
           bullets: [
             "用户遮罩使用唯一 id 和手动类别，因此可以独立于自动框删除。",
             "自动字段遮罩会被关闭而不是删除，以便后续扫描仍能报告底层字段。",
-            "Escape 会离开遮罩绘制，但不会丢弃已经放在页面上的图钉。",
+            "`Escape` 会离开遮罩绘制，但不会丢弃已经放在页面上的图钉。",
           ],
         },
       ],
@@ -412,14 +505,14 @@ const locale = {
         {
           heading: "在原始页面上审阅",
           paragraphs: [
-            "「在页面上审阅」会打开捕获的源并重新水合图钉。Pinar 会拒绝源不匹配，保留每条历史锚点和框，记录重定位历史，并允许您手动重新放置未解析的图钉。",
+            "「在原页审阅」会打开捕获的源并重新水合图钉。Pinar 会拒绝源不匹配，保留每条历史锚点和框，记录重定位历史，并允许您手动重新放置未解析的图钉。",
           ],
         },
         {
           heading: "从查看器复制以及重新打开门控",
           paragraphs: [
             "查看器中的「复制页面」会写入与实时页面相同的关联 Markdown 数据包，交接模式取自已保存偏好中的精简或完整，`captureId` 会回退到会话 id。操作菜单会打开 /v/{id}.md 的公开 Markdown，或启动 ChatGPT 或 Claude，并带上指向该 URL 的提示。",
-            "「在页面上审阅」会派发带有会话 id 的重新打开事件。助手仅在来自受信任的 Pinar 应用 URL，且该 id 匹配会话 id 或 `captureId`，并且标签页源仍等于捕获页面源时才会水合。把标签页导航离开该源会断开绑定，而不是把图钉注入错误站点。",
+            "「在原页审阅」会派发带有会话 id 的重新打开事件。助手仅在来自受信任的 Pinar 应用 URL，且该 id 匹配会话 id 或 `captureId`，并且标签页源仍等于捕获页面源时才会水合。把标签页导航离开该源会断开绑定，而不是把图钉注入错误站点。",
           ],
           bullets: [
             "如果没有重新打开结果到达，查看器会显示助手缺失提示，而不是无限等待。",
@@ -449,13 +542,13 @@ const locale = {
         {
           heading: "如何把复制的数据包交给智能体",
           paragraphs: [
-            "Chrome 扩展从不会向智能体撰写框自动输入。Command/Ctrl+Enter 之后，请自行把剪贴板粘贴到 Cursor、Claude、Codex 或 Grok。文本以实现图钉评论、并把选择器和 DOM 路径当作互补定位器的说明开头，随后是带围栏的 pinar-visual-context JSON 代码块。如果包含查看器 URL，仅在这些细节不够时再去获取。",
-            "把 `captureId` 和 `pinId` 当作身份，而不是可以改写的标签。Visual Context 目前编码 schemaVersion 1；parseVisualCapture 会拒绝缺失的 `captureId`，以及任何不是 1 或旧版 0 的 schemaVersion。只改图钉描述的内容。如果对方从未粘贴，请让他们从 Pinar 再复制一次，而不是凭记忆重建图钉。",
+            "Chrome 扩展从不会向智能体撰写框自动输入。`Command/Ctrl+Enter` 之后，请自行把剪贴板粘贴到 Cursor、Claude、Codex 或 Grok。文本开头会说明图钉备注可能是改动请求，也可能是解释问题，并把选择器和 DOM 路径当作互补定位器，随后是带围栏的 pinar-visual-context JSON 代码块。如果包含查看器 URL，仅在这些细节不够时再去获取。",
+            "把 `captureId` 和 `pinId` 当作身份，而不是可以改写的标签。Visual Context 目前编码 schemaVersion 1；parseVisualCapture 会拒绝缺失的 `captureId`，以及任何不是 1 或旧版 0 的 schemaVersion。只遵循图钉描述的内容。如果对方从未粘贴，请让他们从 Pinar 再复制一次，而不是凭记忆重建图钉。",
           ],
           bullets: [
             "把整份剪贴板粘贴给智能体；不要重打评论或编造新的 `captureId`。",
             "开始改代码前，确认粘贴的文本仍包含闭合的 pinar-visual-context 围栏。",
-            "如果什么都没粘贴，请对方在 Pinar 中按 Command/Ctrl+Enter，并且只实现图钉评论。",
+            "如果什么都没粘贴，请对方在 Pinar 中按 `Command/Ctrl+Enter`，并且只遵循图钉备注。",
           ],
         },
       ],
@@ -545,11 +638,11 @@ const locale = {
         {
           heading: "打开原始 URL 并放置待处理图钉",
           paragraphs: [
-            "「在页面上审阅」只能从 Pinar 应用、在原始捕获 URL 上打开。其他站点不能把已保存会话注入扩展。加载后，每个 frame 只显示属于该 frame 的图钉。",
+            "「在原页审阅」只能从 Pinar 应用、在原始捕获 URL 上打开。其他站点不能把已保存会话注入扩展。加载后，每个 frame 只显示属于该 frame 的图钉。",
             "只有当标签页仍是被捕获的站点时，叠加层才会保持绑定。导航离开会显示「此页面不是原始捕获 URL」。歧义匹配会保留原始框，而不是吸附到相似元素。先点击待处理图钉，再点击正确元素，即可放置它。",
           ],
           bullets: [
-            "从 Pinar 应用启动「在页面上审阅」，这样只有该会话会在捕获源上水合。",
+            "从 Pinar 应用启动「在原页审阅」，这样只有该会话会在捕获源上水合。",
             "如果叠加层显示「此页面不是原始捕获 URL」，请回到捕获源，而不是放置图钉。",
             "对于未解析图钉，先点击标记，再点击实时元素以放置它。",
           ],
@@ -579,7 +672,7 @@ const locale = {
             "当所有复制路径都失败时，页面会发送 overlays:hidden 且 hidden 为 false，闪现「复制失败」，并让图钉保持可编辑。成功复制会显示「复制成功！」，或「复制成功！」加上「无截图」、「助手不可用」或「无查看器」，然后结束会话。这些后缀对应 `screenshot_missing`、`helper_unavailable` 和 `viewer_unavailable`。screenshot_inline 不属于降级交接警告。没有闭合 pinar-visual-context 围栏的粘贴无法作为 JSON 解析。",
           ],
           bullets: [
-            "如果工具栏显示「请先填写评论」或「请先添加图钉」，请完成该图钉并再次按 Command/Ctrl+Enter。",
+            "如果工具栏显示「请先填写评论」或「请先添加图钉」，请完成该图钉并再次按 `Command/Ctrl+Enter`。",
             "如果出现「复制失败」，请确认图钉仍在页面上，按提示授予剪贴板权限，然后重试复制。",
             "阅读「复制成功！」后缀：「无截图」、「助手不可用」和「无查看器」会指出要重试的缺失层，而无需丢弃评论。",
           ],

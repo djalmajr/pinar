@@ -5,6 +5,19 @@ import type { ElectrobunConfig } from "electrobun";
 // bundle carries the same number.
 const version: string = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version;
 
+const helperCopy =
+	process.platform === "win32"
+		? {
+				"helpers/ensure.mjs": "Helpers/ensure.mjs",
+				"helpers/pinar.exe": "Helpers/pinar.exe",
+				"helpers/pinar.js": "Helpers/pinar.js",
+			}
+		: {
+				"helpers/ensure.mjs": "Helpers/ensure.mjs",
+				"helpers/pinar": "Helpers/pinar",
+				"helpers/pinar.js": "Helpers/pinar.js",
+			};
+
 export default {
 	app: {
 		name: "Pinar",
@@ -30,6 +43,7 @@ export default {
 		},
 		win: {
 			bundleCEF: false,
+			icon: "icon.ico",
 		},
 		copy: {
 			"src/assets/tray-on.svg": "views/assets/tray-on.svg",
@@ -38,9 +52,8 @@ export default {
 			"src/assets/tray-on.png": "views/assets/tray-on.png",
 			"src/assets/tray-on@2x.png": "views/assets/tray-on@2x.png",
 			"src/assets/tray-off.png": "views/assets/tray-off.png",
-			"helpers/pinar": "Helpers/pinar",
-			"helpers/pinar.js": "Helpers/pinar.js",
-			"helpers/ensure.sh": "Helpers/ensure.sh",
+			"icon.iconset/icon_32x32.png": "views/assets/tray-win.png",
+			...helperCopy,
 		},
 		cottontail: {
 			entrypoint: "src/bun/index.ts",
@@ -48,8 +61,8 @@ export default {
 		mainProcess: "cottontail",
 	},
 	scripts: {
-		postBuild: "scripts/macos-agent-app.mjs",
-		postWrap: "scripts/macos-agent-app.mjs",
+		postBuild: "scripts/post-build.mjs",
+		postWrap: "scripts/post-build.mjs",
 	},
 	release: {
 		baseUrl:

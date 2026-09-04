@@ -63,8 +63,24 @@ export async function stopPid(pid, { timeoutMs = 3000, kill = process.kill, wait
   return isPidAlive(pid) ? "failed" : "stopped";
 }
 
-export async function findListeningPid(port, run = runCommand) {
-  if (process.platform === "win32") return null;
+export function parseNetstatListeningPid(stdout, port) {
+  const suffix = `:${port}`;
+  for (const line of String(stdout).split(/\r?\n/)) {
+    if (!/LISTENING/i.test(line)) continue;
+    const cols = line.trim().split(/\s+/);
+    const local = cols[1] ?? "";
+    if (!local.endsWith(suffix)) continue;
+    const pid = Number(cols[cols.length - 1]);
+    if (Number.isInteger(pid) && pid > 0) return pid;
+  }
+  return null;
+}
+
+export async function findListeningPid(port, run = runCommand, platform = process.platform) {
+  if (platform === "win32") {
+    const stdout = await run(["netstat", "-ano", "-p", "tcp"]);
+    return parseNetstatListeningPid(stdout, port);
+  }
   const stdout = await run(["lsof", "-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"]);
   const pid = Number(String(stdout).trim().split(/\s+/)[0]);
   return Number.isInteger(pid) && pid > 0 ? pid : null;

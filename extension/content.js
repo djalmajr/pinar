@@ -47,6 +47,7 @@
   const FRAME_PATH_REPLY = "pinar:frame-path-reply";
   const FRAME_RECT_REQUEST = "pinar:frame-rect-request";
   const FRAME_RECT_REPLY = "pinar:frame-rect-reply";
+  const FRAME_REGIONS = "pinar:frame-regions";
   const FRAME_SEND = "pinar:frame-send";
   const FRAME_SHOW = "pinar:frame-show";
   const isEmbedded = globalThis.top !== globalThis;
@@ -101,6 +102,7 @@
     hoverPinId: null,
     pointer: null,
     maskMode: false,
+    showPinRegions: true,
     userMasks: [],
     dismissedMaskIds: new Set(),
     reviewMode: false,
@@ -150,20 +152,24 @@
     overlay_copying: "Saving the annotations…",
     overlay_saved: "Annotations saved successfully!",
     overlay_helper_unavailable: "helper unavailable",
-    overlay_hint_clear_long: "to clear",
-    overlay_hint_clear_short: "Clear",
-    overlay_hint_copy_long: "to copy",
+    overlay_hint_clear_long: "Cancel",
+    overlay_hint_clear_short: "Cancel",
+    overlay_hint_copy_long: "Copy",
     overlay_hint_copy_short: "Copy",
-    overlay_hint_mask_long: "hide region",
-    overlay_hint_mask_short: "Hide",
-    overlay_hint_pin: "Click or drag to pin",
-    overlay_hint_tune_long: "to fine-tune selection",
-    overlay_hint_tune_short: "Fine-tune",
+    overlay_hint_mask_long: "Mask",
+    overlay_hint_mask_short: "Mask",
+    overlay_hint_pin: "Click or drag",
+    overlay_hint_regions: "Regions",
+    overlay_hint_tune_long: "Adjust selection",
+    overlay_hint_tune_short: "Adjust selection",
     overlay_mask_mode: "Drag to hide a region · click a mask to restore",
     overlay_no_screenshot: "no screenshot",
     overlay_no_viewer: "no viewer",
+    overlay_origin_mismatch: "This page is not the original capture URL",
     overlay_page_unavailable: "Original page is unavailable",
     overlay_pin_mode: "Pin mode",
+    overlay_regions_off: "Showing pins only",
+    overlay_regions_on: "Showing pins and regions",
     overlay_place_pin: "Click the correct element to place this pin",
     overlay_region_hidden: "Region hidden · click the mask to restore",
     overlay_reviewing: "Reviewing saved session · pending pins need a manual place",
@@ -234,6 +240,7 @@
         z-index: 3;
       }
       .toast[hidden] { display: none; }
+      [hidden] { display: none !important; }
       /* After Cmd+Enter the toolbar stays where it is and becomes the progress
          report: its content switches to the saving label with a percentage and a fill grows left to
          right behind it, the way capture tools do. Picker, pins and composer
@@ -283,15 +290,6 @@
         padding: 0 6px;
         text-align: center;
       }
-      .hint + .hint::before {
-        background: #B7B7B7;
-        border-radius: 50%;
-        content: "";
-        flex: 0 0 3px;
-        height: 3px;
-        margin-right: 7px;
-        width: 3px;
-      }
       .short { display: none; }
       /* The bar degrades in stages instead of clipping: first the wording gets
          terse, then the hints leave one by one, least essential first. Batch state
@@ -302,12 +300,11 @@
       }
       @media (max-width: 1000px) {
         .hint[data-hint="pin"] { display: none; }
-        .hint[data-hint="tune"]::before { display: none; }
       }
+      @media (max-width: 920px) { .hint[data-hint="regions"] { display: none; } }
       @media (max-width: 860px) { .hint[data-hint="mask"] { display: none; } }
       @media (max-width: 760px) {
         .hint[data-hint="tune"] { display: none; }
-        .hint[data-hint="copy"]::before { display: none; }
       }
       @media (max-width: 660px) { .hint[data-hint="clear"] { display: none; } }
       .status { color: #262626; font-weight: 500; }
@@ -343,6 +340,17 @@
       .outline.area {
         background: rgba(87,148,255,.10);
         border: 2px dashed ${BLUE};
+        box-shadow: 0 0 0 1px rgba(255,255,255,.5), inset 0 0 0 1px rgba(255,255,255,.3);
+      }
+      .pin-region {
+        border: 2px solid;
+        box-sizing: border-box;
+        pointer-events: none;
+        position: fixed;
+        z-index: 1;
+      }
+      .pin-region.area {
+        border-style: dashed;
         box-shadow: 0 0 0 1px rgba(255,255,255,.5), inset 0 0 0 1px rgba(255,255,255,.3);
       }
       .outline.is-dragging {
@@ -435,24 +443,16 @@
         text-overflow: ellipsis;
         white-space: nowrap;
       }
-        /* The batch reads as one more hint: same colour, same separator. Its state
-         is the wording, not decoration - "Batch off" versus a live count. It only
-         differs in living outside .instructions, so the hints clip before it. */
+        /* The batch reads as one more hint. Its state is the wording, not
+         decoration - "Batch off" versus a live count. Hide it when Chrome has
+         not bound a shortcut, so an empty kbd does not sit in the bar. It
+         lives outside .instructions so the hints clip before it. */
       .batch-pill {
         align-items: center;
         display: inline-flex;
         flex: 0 0 auto;
         gap: 5px;
         white-space: nowrap;
-      }
-      .batch-pill::before {
-        background: #B7B7B7;
-        border-radius: 50%;
-        content: "";
-        flex: 0 0 3px;
-        height: 3px;
-        margin-right: 7px;
-        width: 3px;
       }
       .composer {
         background: transparent;
@@ -550,8 +550,9 @@
         <span class="instructions" data-ref="instructions">
           <span class="hint" data-hint="pin" data-i18n="overlay_hint_pin">${t("overlay_hint_pin")}</span>
           <span class="hint" data-hint="tune"><span class="keys"><kbd>↑</kbd><kbd>↓</kbd></span><span class="long" data-i18n="overlay_hint_tune_long">${t("overlay_hint_tune_long")}</span><span class="short" data-i18n="overlay_hint_tune_short">${t("overlay_hint_tune_short")}</span></span>
-          <span class="hint" data-hint="copy"><span class="keys"><kbd>${sendMod}</kbd><kbd>↵</kbd></span><span class="long" data-i18n="overlay_hint_copy_long">${t("overlay_hint_copy_long")}</span><span class="short" data-i18n="overlay_hint_copy_short">${t("overlay_hint_copy_short")}</span></span>
+          <span class="hint" data-hint="copy"><span class="keys"><kbd>${sendMod}+↵</kbd></span><span class="long" data-i18n="overlay_hint_copy_long">${t("overlay_hint_copy_long")}</span><span class="short" data-i18n="overlay_hint_copy_short">${t("overlay_hint_copy_short")}</span></span>
           <span class="hint" data-hint="mask"><span class="keys"><kbd>M</kbd></span><span class="long" data-i18n="overlay_hint_mask_long">${t("overlay_hint_mask_long")}</span><span class="short" data-i18n="overlay_hint_mask_short">${t("overlay_hint_mask_short")}</span></span>
+          <span class="hint" data-hint="regions"><span class="keys"><kbd>R</kbd></span><span data-i18n="overlay_hint_regions">${t("overlay_hint_regions")}</span></span>
           <span class="hint" data-hint="clear"><span class="keys"><kbd>esc</kbd></span><span class="long" data-i18n="overlay_hint_clear_long">${t("overlay_hint_clear_long")}</span><span class="short" data-i18n="overlay_hint_clear_short">${t("overlay_hint_clear_short")}</span></span>
         </span>
         <span class="status" data-ref="toolbarStatus" hidden></span>
@@ -837,6 +838,12 @@
   function isScrollContainer(element) {
     if (!element || element === document.documentElement || element === document.body) return false;
     if (element === host || host.contains(element)) return false;
+    // Help and the workspace scroll `[data-slot=scroll-area-viewport]`.
+    // Trust the slot even when a stylesheet hides the native scrollbar.
+    if (element.getAttribute?.("data-slot") === "scroll-area-viewport") {
+      return element.scrollHeight > element.clientHeight + 1
+        || element.scrollWidth > element.clientWidth + 1;
+    }
     const style = getComputedStyle(element);
     return isScrollContainerRecord({
       clientHeight: element.clientHeight,
@@ -851,21 +858,61 @@
   function scrollRootsFromPoint(x, y) {
     const roots = [];
     const seen = new Set();
-    let node = document.elementFromPoint(x, y);
-    while (node && node !== document.documentElement && node !== document.body) {
-      if (!seen.has(node) && isScrollContainer(node)) {
-        seen.add(node);
-        roots.push(node);
+    function consider(node) {
+      while (node && node !== document.documentElement && node !== document.body) {
+        if (!seen.has(node) && isScrollContainer(node)) {
+          seen.add(node);
+          roots.push(node);
+        }
+        node = node.parentElement;
       }
-      node = node.parentElement;
+    }
+    const hit = targetFromPoint(x, y);
+    if (hit) consider(hit);
+    for (const start of document.elementsFromPoint(x, y)) {
+      if (isHostNode(start)) continue;
+      consider(start);
+    }
+    for (const viewport of document.querySelectorAll('[data-slot="scroll-area-viewport"]')) {
+      const rect = viewport.getBoundingClientRect();
+      if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) continue;
+      consider(viewport);
     }
     return roots;
   }
 
+  const watchedScrollRoots = new Set();
+  function onLayoutScroll() {
+    if (!isMounted()) return;
+    updateOutline();
+    renderMarkers();
+  }
+  function watchScrollRoots(roots) {
+    for (const root of roots) {
+      if (!root || watchedScrollRoots.has(root)) continue;
+      watchedScrollRoots.add(root);
+      root.addEventListener("scroll", onLayoutScroll, { passive: true });
+    }
+  }
+  function unwatchScrollRoots() {
+    for (const root of watchedScrollRoots) {
+      root.removeEventListener("scroll", onLayoutScroll);
+    }
+    watchedScrollRoots.clear();
+  }
+
   function pinLayoutScroll(pin) {
-    const roots = Array.isArray(pin?.scrollRoots)
+    let roots = Array.isArray(pin?.scrollRoots)
       ? pin.scrollRoots.filter((element) => element?.isConnected)
       : [];
+    if (roots.length === 0 && pin?.box) {
+      roots = scrollRootsFromPoint(
+        pin.box.x + pin.box.width / 2,
+        pin.box.y + pin.box.height / 2,
+      );
+      if (pin && Array.isArray(pin.scrollRoots)) pin.scrollRoots = roots;
+    }
+    watchScrollRoots(roots);
     return layoutScroll(currentScroll(), roots);
   }
 
@@ -1035,9 +1082,11 @@
       ui.toolbarStatus.dataset.kind = state.reviewMode && state.unavailable ? "error" : "info";
     }
     if (ui.batchPill) {
+      const shortcut = (state.batch.shortcut ?? "").trim();
+      ui.batchPill.hidden = !shortcut;
       ui.batchPillText.textContent = state.batch.label;
-      ui.batchPillKey.textContent = state.batch.shortcut;
-      ui.batchPillKey.hidden = !state.batch.shortcut;
+      ui.batchPillKey.textContent = shortcut;
+      ui.batchPillKey.hidden = !shortcut;
     }
     document.documentElement.toggleAttribute("data-pinar-mask-mode", state.maskMode);
     document.documentElement.toggleAttribute("data-pinar-review", state.reviewMode);
@@ -1259,8 +1308,12 @@
     if (state.hoverPinId) {
       const pin = state.pins.find((item) => item.id === state.hoverPinId);
       if (pin?.box) {
-        const visiblePin = viewportPin(pin);
-        showOutline(visiblePin.box, pin.kind === "area", false, pin.color || pinColor(state.pins.indexOf(pin) + 1));
+        if (state.showPinRegions) {
+          hideOutline();
+        } else {
+          const visiblePin = viewportPin(pin);
+          showOutline(visiblePin.box, pin.kind === "area", false, pin.color || pinColor(state.pins.indexOf(pin) + 1));
+        }
         return;
       }
     }
@@ -1291,6 +1344,15 @@
     return `<span class="${cls}" data-draft="1"${confidence} style="left:${point.x}px;top:${point.y}px">${body}</span>`;
   }
 
+  function pinRegionHtml(pin, index) {
+    const visible = viewportPin(pin);
+    const box = visible.box;
+    if (!box || box.width <= 2 || box.height <= 2) return "";
+    const color = pin.color || pinColor(index + 1);
+    const area = pin.kind === "area";
+    return `<div class="pin-region${area ? " area" : ""}" style="background:${colorWithAlpha(color, area ? 0.1 : 0.055)};border-color:${color};height:${box.height}px;left:${box.x}px;top:${box.y}px;width:${box.width}px"></div>`;
+  }
+
   function renderMarkers() {
     const scroll = currentScroll();
     const masks = activeMaskRegions().map((mask) => {
@@ -1303,6 +1365,9 @@
       const label = mask.unevaluated ? "Can't inspect" : "Hidden";
       return `<button type="button" class="privacy-mask" data-privacy-mask="${escapeAttr(mask.id)}" data-source="${mask.source}" style="left:${box.x}px;top:${box.y}px;width:${box.width}px;height:${box.height}px"><span class="privacy-mask-label">${label}</span></button>`;
     });
+    const regions = state.showPinRegions
+      ? state.pins.map((pin, index) => pinRegionHtml(pin, index)).filter(Boolean)
+      : [];
     const markers = state.pins.map((pin, index) => {
       const visible = viewportPin(pin);
       return markerHtml(
@@ -1318,7 +1383,7 @@
       const visible = viewportPin(state.draft);
       markers.push(markerHtml(pinPoint(visible), state.pins.length, undefined, state.draft.color, visible.location));
     }
-    ui.layer.innerHTML = `${masks.join("")}${markers.join("")}`;
+    ui.layer.innerHTML = `${masks.join("")}${regions.join("")}${markers.join("")}`;
     placeComposer();
     placePreview();
   }
@@ -1376,6 +1441,24 @@
     state.maskMode = !state.maskMode;
     renderChrome();
     flashStatus(state.maskMode ? t("overlay_mask_mode") : t("overlay_pin_mode"), "ok");
+  }
+
+  function applyPinRegions(show, { flash = false } = {}) {
+    state.showPinRegions = Boolean(show);
+    renderMarkers();
+    updateOutline();
+    if (flash) {
+      flashStatus(state.showPinRegions ? t("overlay_regions_on") : t("overlay_regions_off"), "ok");
+    }
+  }
+
+  function togglePinRegions() {
+    if (isEmbedded) {
+      window.top.postMessage({ type: FRAME_REGIONS }, "*");
+      return;
+    }
+    applyPinRegions(!state.showPinRegions, { flash: true });
+    broadcastToChildFrames(FRAME_REGIONS, { show: state.showPinRegions });
   }
 
   function escapeAttr(value) {
@@ -1557,6 +1640,23 @@
 
       let liveBox;
       let working = freezeHistorical(pin);
+      if (working.kind === "area") {
+        // Area boxes are viewport rects plus nested layout scroll. Capture
+        // tiles the window, so convert the *current* projected viewport box
+        // into window-document space. Using the creation-time documentBox
+        // leaves the overlay glued to the viewport after a ScrollArea move.
+        const visible = projectPin(working, pinLayoutScroll(working));
+        const scroll = currentScroll();
+        return {
+          ...working,
+          anchor: documentPoint(visible.anchor, scroll),
+          box: documentBox(visible.box, scroll),
+          historicalAnchor: working.historicalAnchor,
+          historicalBox: working.historicalBox,
+          scroll: { x: 0, y: 0 },
+          topBox: documentBox(visible.box, scroll),
+        };
+      }
       if (working.kind === "element" && !working.viewportAnchored) {
         const located = locatePin(working);
         working = {
@@ -1631,9 +1731,9 @@
     broadcast(FRAME_CLEAR);
   }
 
-  function broadcastToChildFrames(type) {
+  function broadcastToChildFrames(type, extra = {}) {
     for (let index = 0; index < window.frames.length; index += 1) {
-      window.frames[index].postMessage({ type }, "*");
+      window.frames[index].postMessage({ type, ...extra }, "*");
     }
   }
 
@@ -1708,14 +1808,16 @@
       box.x + box.width / 2,
       box.y + box.height / 2,
     );
+    const nestedScroll = layoutScroll(scroll, scrollRoots);
+    watchScrollRoots(scrollRoots);
     openDraft({
       anchor,
       box,
-      documentAnchor: documentPoint(anchor, scroll),
-      documentBox: documentBox(box, scroll),
+      documentAnchor: documentPoint(anchor, nestedScroll),
+      documentBox: documentBox(box, nestedScroll),
       kind: "area",
       label: `selected area (${box.width}×${box.height}px)`,
-      layoutScroll: layoutScroll(scroll, scrollRoots),
+      layoutScroll: nestedScroll,
       scroll,
       scrollRoots,
     });
@@ -1850,6 +1952,17 @@
       if (target !== window && target !== document && target !== document.documentElement && target !== document.body) {
         event.preventDefault();
       }
+    }
+    if (
+      !path.includes(host)
+      && !event.metaKey
+      && !event.ctrlKey
+      && !event.altKey
+      && (event.key === "r" || event.key === "R")
+    ) {
+      event.preventDefault();
+      togglePinRegions();
+      return;
     }
     if (!canSelect() || state.draft) return;
     if (event.key === "m" || event.key === "M") {
@@ -2100,6 +2213,20 @@
       broadcastToChildFrames(FRAME_SHOW);
       return;
     }
+    if (event.data?.type === FRAME_REGIONS) {
+      if (isEmbedded) {
+        if (typeof event.data.show === "boolean") {
+          applyPinRegions(event.data.show);
+          broadcastToChildFrames(FRAME_REGIONS, { show: event.data.show });
+        } else {
+          window.top.postMessage({ type: FRAME_REGIONS }, "*");
+        }
+        return;
+      }
+      if (typeof event.data.show === "boolean") return;
+      togglePinRegions();
+      return;
+    }
     if (event.data?.type === FRAME_CANCEL) {
       resetLocalPins();
       setVisible(false);
@@ -2292,7 +2419,7 @@
     state.repositionPinId = null;
     state.pins = [];
     setStatus(reason === "origin_mismatch"
-      ? "This page is not the original capture URL"
+      ? t("overlay_origin_mismatch")
       : t("overlay_page_unavailable"), "error");
     renderChrome();
     renderMarkers();
@@ -2347,6 +2474,7 @@
     clearTimeout(state.statusTimer);
     clearTimeout(relocateTimer);
     relocateObserver.disconnect();
+    unwatchScrollRoots();
     state.active = false;
     document.documentElement.removeAttribute("data-pinar-active");
     document.documentElement.removeAttribute("data-pinar-mask-mode");

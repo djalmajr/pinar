@@ -16,7 +16,7 @@ Any composer / editor
 
 **macOS:** download [Pinar.app](https://github.com/djalmajr/pinar/releases/latest/download/macos-arm64-Pinar.dmg), open the disk image, and drag **Pinar.app** to `~/Applications`. The menu-bar app starts the local server and registers agent hooks. Shots stay in `~/.pinar/shots`.
 
-**Windows (PowerShell)** — helper until a desktop app exists:
+**Windows:** from a checkout, `bun run build:tray` then `bun apps/cli/src/cli.mjs install`. The tray app lands in `%LOCALAPPDATA%\Programs\Pinar` and starts the local server. The standalone helper remains:
 
 ```powershell
 irm https://pinar.dev/install.ps1 | iex
@@ -68,7 +68,7 @@ PNG crops go to `~/.pinar/shots` (Windows: `%USERPROFILE%\.pinar\shots`). The ex
 
 - `apps/server` is the single TanStack Start application. The Cloudflare build serves `pinar.dev` with marketing, accounts, Stripe, and AI. The Nitro/Bun helper serves the local installation: `/`, `/app`, `/v/*`, `/help/*`, `/releases/*`, `/legal/*`. Pasting `/pricing`, `/sign-in`, or `/success` on loopback redirects to the same path on `https://pinar.dev`. The local API does not proxy pricing or checkout.
 - `apps/cli` is the compiled local HTTP helper (embedded in Pinar.app on macOS; still the public installer on Windows/Linux).
-- `apps/tray` is the macOS menu-bar app.
+- `apps/tray` is the macOS menu-bar app and the Windows notification-area app.
 - `apps/extension` is the Chrome extension.
 - `packages/ui` and `packages/shared` are consumed by both browser surfaces.
 

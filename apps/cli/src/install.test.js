@@ -17,12 +17,11 @@ describe("install", () => {
     await writeFile(join(dest, "history.db"), "history");
     await writeFile(join(dest, "desktop.json"), '{"loginEnabled":true}\n');
     await writeFile(join(dest, "server.pid"), "4242\n");
-    const result = await installApp({ source, dest, log: () => {} });
+    const result = await installApp({ source, dest, log: () => {}, platform: "darwin" });
     assert.equal(result.copied, true);
     assert.ok(existsSync(launcherPath(dest, "darwin")));
     assert.equal(existsSync(join(dest, "bin", "pinar.cmd")), false);
-    assert.ok(existsSync(join(dest, "hooks", "ensure.sh")));
-    assert.equal(existsSync(join(dest, "hooks", "ensure.cmd")), false);
+    assert.ok(existsSync(join(dest, "hooks", "ensure.mjs")));
     assert.equal(existsSync(join(dest, "src")), false);
     assert.ok(existsSync(join(dest, "hooks", "pinar.js")));
     assert.equal(existsSync(join(dest, "extension")), false);
@@ -45,7 +44,7 @@ describe("install", () => {
     await writeFile(join(dest, "package.json"), "{}\n");
     await writeFile(join(dest, "src", "old.js"), "stale\n");
     await writeFile(join(dest, "legacy", "gone.txt"), "x\n");
-    const result = await installApp({ source, dest, log: () => {} });
+    const result = await installApp({ source, dest, log: () => {}, platform: "darwin" });
     assert.deepEqual(result.removed.sort(), ["AGENTS.md", "helper.json", "legacy", "package.json", "src"]);
     assert.equal(existsSync(join(dest, "src")), false);
     assert.equal(existsSync(join(dest, "legacy")), false);
@@ -75,7 +74,7 @@ describe("install", () => {
     });
     const text = await readFile(join(home, ".zshrc"), "utf8");
     assert.equal(first.changed.length, 1);
-    assert.match(text, /\.pinar\/bin/);
+    assert.match(text, /\.pinar[/\\]bin/);
     const again = await ensureUserPath({
       home,
       dest,
@@ -101,7 +100,9 @@ describe("install", () => {
     const dest = await mkdtemp(join(tmpdir(), "pinar-hooks-"));
     await installPlatformHooks(source, dest, "darwin");
 
-    assert.match(await readFile(join(dest, "hooks", "ensure.sh"), "utf8"), /\/usr\/bin\/shlock/);
-    assert.match(await readFile(join(dest, "hooks", "pinar.js"), "utf8"), /spawn\(ensure/);
+    assert.equal(existsSync(join(dest, "hooks", "ensure.sh")), false);
+    assert.equal(existsSync(join(dest, "hooks", "ensure.cmd")), false);
+    assert.match(await readFile(join(dest, "hooks", "ensure.mjs"), "utf8"), /darwinOpenArgs/);
+    assert.match(await readFile(join(dest, "hooks", "pinar.js"), "utf8"), /ensure\.mjs/);
   });
 });

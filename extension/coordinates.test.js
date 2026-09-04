@@ -56,6 +56,29 @@ describe("pin coordinate projection", () => {
     assert.deepEqual(plain(projected.box), { height: 180, width: 300, x: 50, y: 240 });
   });
 
+  test("an area pin's capture box tracks nested scroll, not the creation viewport", () => {
+    // Mutation captured: Help install-pinar pin 1 was drawn, then the article
+    // ScrollArea moved. The saved screenshot painted the original viewport
+    // rect onto the new contents, so the box sat in the empty gap.
+    const origin = layoutScroll({ x: 0, y: 0 }, [{ scrollLeft: 0, scrollTop: 1000 }]);
+    const current = layoutScroll({ x: 0, y: 0 }, [{ scrollLeft: 0, scrollTop: 1200 }]);
+    const pin = {
+      anchor: { x: 479, y: 413 },
+      box: { height: 34, width: 277, x: 479, y: 413 },
+      kind: "area",
+      layoutScroll: origin,
+      scroll: { x: 0, y: 0 },
+    };
+
+    const visible = projectPin(pin, current);
+    const captured = documentBox(visible.box, { x: 0, y: 0 });
+
+    assert.deepEqual(plain(origin), { x: 0, y: 1000 });
+    assert.deepEqual(plain(current), { x: 0, y: 1200 });
+    assert.deepEqual(plain(visible.box), { height: 34, width: 277, x: 479, y: 213 });
+    assert.deepEqual(plain(captured), { height: 34, width: 277, x: 479, y: 213 });
+  });
+
   test("an area pin follows a nested scroller even when the window does not move", () => {
     // Mutation captured: Help/app pages scroll `[data-slot=scroll-area-viewport]`.
     // Window scroll stays 0, so a window-only origin leaves the overlay glued

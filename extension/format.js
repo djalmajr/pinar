@@ -137,7 +137,7 @@ function completeHandoff({
 }
 
 const DEFAULT_HANDOFF_MESSAGES = {
-  handoff_instructions: "Implement the pin comments below. Use selector and DOM path as complementary locators.",
+  handoff_instructions: "The pin notes below may ask for a change or an explanation. Use selector and DOM path as complementary locators.",
   handoff_screenshot_note: "Numbered screenshot badges are annotation overlays, not page UI.",
   handoff_full_context: "Full context (fetch only if the details above are insufficient): {url}",
 };

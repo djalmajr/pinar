@@ -12,13 +12,10 @@ function resolveEnsure() {
   } catch {
     // keep the unresolved directory
   }
-  const names = process.platform === "win32" ? ["ensure.cmd", "ensure.sh"] : ["ensure.sh", "ensure.cmd"];
   const folders = [here, join(here, "../hooks"), join(here, "../../hooks")];
   for (const folder of folders) {
-    for (const name of names) {
-      const path = join(folder, name);
-      if (existsSync(path)) return path;
-    }
+    const path = join(folder, "ensure.mjs");
+    if (existsSync(path)) return path;
   }
   return null;
 }
@@ -26,13 +23,11 @@ function resolveEnsure() {
 export default function (pi) {
   const ensure = resolveEnsure();
   pi.on("session_start", () => {
-    const winCmd = Boolean(ensure && process.platform === "win32" && ensure.endsWith(".cmd"));
     let child;
     if (ensure) {
-      child = spawn(ensure, [], {
+      child = spawn("node", [ensure], {
         detached: true,
         stdio: "ignore",
-        shell: winCmd,
       });
     } else if (process.platform === "darwin") {
       const app = join(homedir(), "Applications", "Pinar.app");
@@ -46,7 +41,7 @@ export default function (pi) {
             stdio: "ignore",
           });
     } else {
-      child = spawn("pinar", [], {
+      child = spawn("pinar", ["ensure"], {
         detached: true,
         stdio: "ignore",
         shell: process.platform === "win32",

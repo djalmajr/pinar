@@ -81,10 +81,40 @@ const locale = {
       caption:
         "The workspace keeps captured pages, pin counts, projects, collections, search, and account state in one operational view.",
     },
-    "getting-started": {
-      alt: "Pinar public landing page with the local-first workflow, workspace entry point, and plan navigation.",
+    "capture-toolbar": {
+      alt: "Pinar capture overlay with the top toolbar, numbered pins, a selected region, and a privacy mask on the page.",
       caption:
-        "Start from the public Pinar entry point to open the local workspace, understand the capture workflow, or compare cloud plans.",
+        "The overlay toolbar stays on the page with pin, selection, copy, mask, region, and cancel shortcuts while you annotate.",
+    },
+    "capture-review": {
+      alt: "Pinar overlay reviewing a saved session, with a pending pin that needs manual placement on the live page.",
+      caption:
+        "Review on page hydrates pins on the original URL. Unresolved pins stay pending until you click the marker, then the correct element.",
+    },
+    "capture-copy-failed": {
+      alt: "Pinar overlay toolbar reporting Copy failed while numbered pins remain editable on the page.",
+      caption:
+        "When every clipboard path fails, the toolbar shows Copy failed and restores the pins so you can retry without losing comments.",
+    },
+    "capture-full-page": {
+      alt: "Pinar overlay on a long document that continues below the first viewport, ready for a stitched full-page capture.",
+      caption:
+        "Full-page capture scrolls and stitches the document so the copied screenshot includes content that sits below the fold.",
+    },
+    "capture-viewer": {
+      alt: "Pinar capture viewer with the annotated screenshot, numbered pins, zoom controls, and session actions.",
+      caption:
+        "The viewer keeps the shared screenshot, pin comments, and copy or reopen actions together after capture.",
+    },
+    "extension-options": {
+      alt: "Pinar extension options on the Storage tab, with Local Server, Remote Server, and hosted-service legal acceptance.",
+      caption:
+        "The Storage tab chooses a local or remote server and requires accepting Terms, Privacy, and Acceptable Use before cloud capture.",
+    },
+    "extension-preferences": {
+      alt: "Pinar extension options on the Preferences tab, showing compact or full agent copy detail and the include-screenshot switch.",
+      caption:
+        "Preferences sets compact or full handoff and whether the next copy includes a screenshot; Save writes those choices before the next copy.",
     },
     "help-navigation": {
       alt: "Pinar help article with category navigation, related article links, structured sections, and on-page navigation.",
@@ -116,45 +146,119 @@ const locale = {
       caption:
         "Published release notes make installed behavior and operational changes traceable by version.",
     },
+    "capture-shortcuts": {
+      alt: "Pinar extension Shortcuts tab listing browser commands and overlay keys used during capture.",
+      caption:
+        "The Shortcuts tab shows Chrome command bindings next to the overlay keys for pin, selection, mask, copy, and cancel.",
+    },
+    "capture-types": {
+      alt: "Pinar overlay with a numbered pin on a heading and a selected region around the order-total card.",
+      caption:
+        "Element pins and freeform regions can share one overlay so the copied screenshot keeps both the DOM target and the visual grouping.",
+    },
+    "capture-pins": {
+      alt: "Pinar overlay with three numbered pin markers on a heading, a customer email, and a payment button.",
+      caption:
+        "Each pin keeps its own number and comment so one capture can point at several elements on the same page.",
+    },
+    "capture-selection": {
+      alt: "Pinar overlay highlighting a heading with a blue selection outline before the pin is confirmed.",
+      caption:
+        "Smart selection outlines the element under the cursor so you can walk the DOM with the arrow keys before pinning.",
+    },
+    "capture-masks": {
+      alt: "Pinar overlay with a privacy mask covering a customer email while a numbered pin remains on the heading.",
+      caption:
+        "A mask hides sensitive pixels in the copied screenshot without removing the pin comments that still describe the page.",
+    },
+    "capture-copied": {
+      alt: "Pinar overlay toolbar reporting Copied successfully after the annotated bundle reached the clipboard.",
+      caption:
+        "A successful copy flashes Copied successfully, then closes the overlay so you can paste the same bundle into an agent.",
+    },
+    "install-pinar": {
+      alt: "Pinar extension Storage tab with a Download Pinar button next to the Local Server option.",
+      caption:
+        "The Storage tab offers the Pinar application download beside Local Server so the helper can start on this computer.",
+    },
+    "options-local": {
+      alt: "Pinar extension Storage tab with Local Server selected and captures staying on this computer.",
+      caption:
+        "Local Server keeps history and screenshots on this computer and does not require hosted-service legal acceptance.",
+    },
+    "workspace-nested": {
+      alt: "Pinar workspace sidebar with a selected collection in the project tree and the matching session cards.",
+      caption:
+        "Selecting a collection filters the workspace to that branch so nested folders stay visible beside the sessions they hold.",
+    },
+    "workspace-review": {
+      alt: "Pinar workspace table with the Review status filter open above session rows.",
+      caption:
+        "Table view combines search with Review status filters so you can scan open, accepted, and reopened pins across sessions.",
+    },
+    "workspace-security": {
+      alt: "Pinar workspace project switcher open on the protected Personal project.",
+      caption:
+        "The local workspace recovers a protected Personal project and Inbox when history cannot open, instead of blocking the app.",
+    },
+    "legal-retention": {
+      alt: "Pinar legal center open on the Data Retention document.",
+      caption:
+        "The Data Retention policy states how long hosted captures, billing records, and related account data are kept.",
+    },
+    "sharing-markdown": {
+      alt: "Public Pinar project viewer with a Copy Markdown button above shared session cards.",
+      caption:
+        "An unlisted project or collection link lets anyone with the URL copy the combined Markdown without signing in.",
+    },
+    "preferences-privacy": {
+      alt: "Pinar extension Preferences tab showing optional loop metrics and extra URL keys to hide.",
+      caption:
+        "Privacy preferences add extra query keys to strip from captured URLs and keep loop metrics off until you opt in.",
+    },
+    "pricing-credits": {
+      alt: "Pinar pricing add-on card for 1,000 AI credits with purchase and twelve-month validity.",
+      caption:
+        "AI credits are sold as an add-on with a twelve-month validity window, separate from plan storage and billing cadence.",
+    },
   },
   articles: {
     "install-pinar": {
       title: "Install Pinar",
-      summary:
-        "Add the official Chrome extension and connect the supported local product for your platform.",
+      summary: "Install the Chrome extension and open the Pinar application on your computer.",
       sections: [
         {
           heading: "Browser extension",
           paragraphs: [
-            "Install Pinar from the Chrome Web Store. This is the official browser install path; a GitHub checkout or unpacked extension folder is not required for normal use.",
+            "Install Pinar from the [Chrome Web Store](https://chromewebstore.google.com/detail/pinardev/idpeaokdndjedekacfdfbilcolpholbo).",
           ],
           bullets: [
             "Pin the Pinar icon from Chrome’s extensions menu so it stays visible.",
-            "The extension supports the published pinar.dev origin and local Pinar servers.",
+            "Open the [Chrome Web Store listing](https://chromewebstore.google.com/detail/pinardev/idpeaokdndjedekacfdfbilcolpholbo) to add the official extension.",
           ],
         },
         {
-          heading: "Local product",
+          heading: "The Pinar application",
           paragraphs: [
-            "On macOS, Pinar.app lives in the menu bar, runs the embedded helper, registers supported agent hooks, and checks GitHub Releases for updates. Windows and Linux currently use the standalone helper installer rather than a desktop app.",
+            "On macOS, the Pinar application lives in the menu bar. On Windows, it lives in the notification area. Open the Pinar application to start capturing. On Linux, install with the command below.",
           ],
           bullets: [
-            "Screenshots and history stay on this computer. Use Open Folder in the menu bar to see them.",
-            "Pinar finds and starts the local service automatically when you open the app.",
-            "On macOS, Start at Login keeps Pinar available after you sign in to the computer.",
-            "If the local connection is not available, open Pinar from the menu bar and try the capture again.",
+            "Captures stay on this computer. Choose “Open Folder” to see them.",
+            "On macOS and Windows, “Start at Login” keeps Pinar available after you sign in.",
+            "If a capture has no image, open Pinar and try again.",
           ],
         },
         {
-          heading: "Confirm the helper and open the workspace",
+          heading: "Install and open",
           paragraphs: [
-            "After the extension is pinned, install the matching local product from the documented one-shot path: drag the macOS disk image into Applications, run the PowerShell installer on Windows, or the curl installer on Linux. Those installers register the local service so coding agents can receive pasted captures.",
-            "On macOS, Pinar.app lives in the menu bar and starts the local service for you. If the menu bar shows Local Server: Off, choose Start, then Open Workspace. If an agent no longer sees pasted captures, reopen Pinar and try again.",
+            "Download the Pinar application from the links below, install it, and open it.",
+            "When Pinar is open, choose “Open Workspace”. If it shows “Local Server: Off”, choose “Start”. If pasted captures stop arriving, open Pinar again.",
           ],
           bullets: [
-            "Windows install: irm https://pinar.dev/install.ps1 | iex. Linux install: curl -fsSL https://pinar.dev/install.sh | sh. The script needs curl or wget to download the binary.",
-            "When the local service is ready, Open Workspace loads your workspace from the menu bar.",
-            "The Chrome extension cannot store screenshots by itself. If a capture has no image, start the local product first, then recapture.",
+            "macOS: [download the Pinar application](https://github.com/djalmajr/pinar/releases/latest/download/macos-arm64-Pinar.dmg), open the disk image, and drag it into “Applications”.",
+            "Windows: [download the Pinar application](https://github.com/djalmajr/pinar/releases/latest/download/win-x64-Pinar-Setup.exe) and run the installer. It appears in the notification area.",
+            "Windows: the first run may show “Windows protected your PC”. Choose “More info”, then “Run anyway”.",
+            "Linux: `curl -fsSL https://pinar.dev/install.sh | sh`",
           ],
         },
       ],
@@ -167,28 +271,28 @@ const locale = {
         {
           heading: "Pin the page",
           paragraphs: [
-            "Open the page, select the Pinar extension, then click an element or drag a freeform area. Write the comment and press Enter to add the pin.",
+            "Open the page, select the Pinar extension, then click an element or drag a freeform area. Write the comment and press `Enter` to add the pin.",
           ],
           bullets: [
             "Repeat the selection to place multiple numbered pins in one capture.",
-            "Shift+Enter adds a line break; Escape closes the draft without deleting the other pins.",
+            "`Shift+Enter` adds a line break; `Escape` closes the draft without deleting the other pins.",
           ],
         },
         {
           heading: "Copy the bundle",
           paragraphs: [
-            "Press Command+Enter on macOS or Ctrl+Enter elsewhere. Pinar copies human-readable Markdown, HTML, and a pinar-visual-context JSON block that refer to the same screenshot and pin identities.",
+            "Press `Command+Enter` on macOS or `Ctrl+Enter` elsewhere. Pinar copies human-readable Markdown, HTML, and a pinar-visual-context JSON block that refer to the same screenshot and pin identities.",
           ],
         },
         {
           heading: "Finish the copy and keep identities",
           paragraphs: [
-            "Command/Ctrl+Enter copies only after at least one pin has a comment. The overlay shows Copying…, hides pin chrome for the screenshot, then Copied, and the toolbar closes. Clicking the extension icon later only shows or hides the overlay; it does not delete pins you already placed. If every clipboard path fails, the overlay is restored so you can retry.",
+            "`Command/Ctrl+Enter` copies only after at least one pin has a comment. The overlay shows “Saving the annotations…”, hides the pins for the screenshot, then “Copied successfully!”, and the toolbar closes. Clicking the extension icon later only shows or hides the overlay; it does not delete pins you already placed. If every clipboard path fails, the overlay is restored so you can retry.",
             "Treat the clipboard payload as one unit: readable instructions, an optional viewer URL, and a fenced pinar-visual-context JSON block with `captureId`, `pinId`, page URL, locators (cssSelector, domPath, innerText), and a screenshot URL when the helper stored a file. Numbered badges on the image are annotation overlays, not page UI. Do not rewrite `captureId` or `pinId` when pasting to an agent. A Screenshot: /path/to/file.png line, when present, is the single crop that contains every pin.",
           ],
           bullets: [
-            "An empty composer or a capture with no pins aborts the copy and flashes Write a comment first or Add a pin first.",
-            "Degraded copies still paste comments and locators, but the toolbar may add no screenshot, helper unavailable, or no viewer after Copied.",
+            "An empty composer or a capture with no pins aborts the copy and flashes “Write a comment first” or “Add a pin first”.",
+            "Degraded copies still paste comments and locators, but the toolbar may add “no screenshot”, “helper unavailable”, or “no viewer” after “Copied successfully!”.",
             "Prefer a running local Pinar so the copy can include a screenshot and a viewer link for full context.",
           ],
         },
@@ -214,8 +318,8 @@ const locale = {
         {
           heading: "How local and cloud sessions actually open",
           paragraphs: [
-            "Local history starts with a protected Personal project and Inbox collection that you cannot nest or delete like ordinary folders. Captures stay on this computer, and you can open them from the local workspace.",
-            "Cloud storage waits until you accept the current Terms, Privacy, and Acceptable Use. After that, Free accounts can pair the extension with a short-lived code, and paid accounts can also confirm a six-digit email code. Share links stay readable by anyone who has the unlisted URL.",
+            "Local history starts with a protected “Personal” project and “Inbox” collection that you cannot nest or delete like ordinary folders. Captures stay on this computer, and you can open them from the local workspace.",
+            "Cloud storage waits until you accept the current “Terms”, “Privacy”, and “Acceptable Use”. After that, “Free” accounts can pair the extension with a short-lived code, and paid accounts can also confirm a six-digit email code. Share links stay readable by anyone who has the unlisted URL.",
           ],
           bullets: [
             "The local workspace stays on this computer and does not need a cloud account.",
@@ -236,10 +340,11 @@ const locale = {
             "Pinar intercepts only its active capture shortcuts so the host page does not receive the same keystroke.",
           ],
           bullets: [
-            "Enter pins the hovered element; Arrow Up selects its parent and Arrow Down returns to a child.",
-            "M toggles privacy-mask drawing. Escape cancels a draft or mask; with no draft it clears pins and hides the toolbar.",
-            "Command/Ctrl+Enter copies the completed bundle.",
-            "Alt+Shift+P shows or hides the toolbar without cancelling the session, and you can rebind it in `chrome://extensions/shortcuts`. Browser shortcuts stay inert on `chrome://` pages, on the Chrome Web Store, and before the overlay is injected.",
+            "`Enter` pins the hovered element; `Arrow Up` selects its parent and `Arrow Down` returns to a child.",
+            "`M` toggles privacy-mask drawing. `Escape` cancels a draft or mask; with no draft it clears pins and hides the toolbar.",
+            "`R` toggles the live overlay between numbered pins only and pins with their selected regions. The copied screenshot always includes both.",
+            "`Command/Ctrl+Enter` copies the completed bundle.",
+            "`Alt+Shift+P` shows or hides the toolbar without cancelling the session, and you can rebind it in `chrome://extensions/shortcuts`. Browser shortcuts stay inert on `chrome://` pages, on the Chrome Web Store, and before the overlay is injected.",
           ],
         },
         {
@@ -251,12 +356,12 @@ const locale = {
         {
           heading: "Overlay, icon, and DOM walk details",
           paragraphs: [
-            "Capture shortcuts are owned only while the overlay is active. The extension icon toggles that overlay; it does not delete pins. Hovering the toolbar without an open draft makes it pass-through so you can still click or drag the page underneath. Shift+Enter inserts a line break in the composer, and host-page shortcuts typed there are stopped from leaving the comment field.",
-            "Arrow Up walks to the parent element and remembers the child you left, so Arrow Down returns to that remembered node when it is still a child; otherwise it uses the first child. In mask mode, drag a region to hide it and click an existing mask to restore it. Keyboard scrolling still works on the document, but keys aimed at focused page controls are blocked so they cannot activate buttons or type into the host form.",
+            "Capture shortcuts are owned only while the overlay is active. The extension icon toggles that overlay; it does not delete pins. Hovering the toolbar without an open draft makes it pass-through so you can still click or drag the page underneath. `Shift+Enter` inserts a line break in the composer, and host-page shortcuts typed there are stopped from leaving the comment field.",
+            "`Arrow Up` walks to the parent element and remembers the child you left, so `Arrow Down` returns to that remembered node when it is still a child; otherwise it uses the first child. In mask mode, drag a region to hide it and click an existing mask to restore it. Keyboard scrolling still works on the document, but keys aimed at focused page controls are blocked so they cannot activate buttons or type into the host form.",
           ],
           bullets: [
-            "Command/Ctrl+Enter saves an open draft, then copies; without a comment it shows Write a comment first instead of sending an empty pin.",
-            "After Escape or copy, Pinar keeps owning that physical key through keyup so the host page does not treat the same keystroke as its own cancel or submit.",
+            "`Command/Ctrl+Enter` saves an open draft, then copies; without a comment it shows “Write a comment first” instead of sending an empty pin.",
+            "After `Escape` or copy, Pinar keeps owning that physical key through keyup so the host page does not treat the same keystroke as its own cancel or submit.",
             "An area pin starts only after the pointer moves about six pixels; a shorter click still pins the hovered element instead of opening a freeform rectangle.",
           ],
         },
@@ -280,7 +385,7 @@ const locale = {
         {
           heading: "Click, drag, and frame targeting",
           paragraphs: [
-            "Click a node, or press Enter on the current outline, to open an element pin. Drag a rectangle of at least six pixels to open an area pin instead. The first press on an iframe or frame element is ignored so the document inside that frame can take the selection.",
+            "Click a node, or press `Enter` on the current outline, to open an element pin. Drag a rectangle of at least six pixels to open an area pin instead. The first press on an iframe or frame element is ignored so the document inside that frame can take the selection.",
             "Element pins record a fingerprint, a selector, and a DOM path that joins ancestor frames with a frame-boundary delimiter. Area pins store the rectangle and a pixel-size label without a locator. The copied screenshot still tiles around the union of every pin, including pins placed in child frames.",
           ],
           bullets: [
@@ -410,7 +515,7 @@ const locale = {
           bullets: [
             "User masks use a unique id and a manual category so they can be deleted independently of automatic boxes.",
             "Automatic field masks are dismissed rather than deleted, so later scans can still report the underlying field.",
-            "Escape leaves mask drawing without discarding the pins already placed on the page.",
+            "`Escape` leaves mask drawing without discarding the pins already placed on the page.",
           ],
         },
       ],
@@ -433,14 +538,14 @@ const locale = {
         {
           heading: "Review on the original page",
           paragraphs: [
-            "Review on page opens the captured origin and rehydrates the pins. Pinar rejects an origin mismatch, preserves each historical anchor and box, records relocation history, and lets you manually reposition an unresolved pin.",
+            "“Review on page” opens the captured origin and rehydrates the pins. Pinar rejects an origin mismatch, preserves each historical anchor and box, records relocation history, and lets you manually reposition an unresolved pin.",
           ],
         },
         {
           heading: "Clipboard from the viewer and reopen gating",
           paragraphs: [
             "Copy page in the viewer writes the same correlated Markdown bundle used on the live page, using compact or full handoff from saved preferences and `captureId` falling back to the session id. The action menu opens the public Markdown at /v/{id}.md, or starts ChatGPT or Claude with a prompt that points at that URL.",
-            "Review on page dispatches a reopen event with the session id. The helper hydrates only from a trusted Pinar app URL when that id matches the session id or `captureId` and the tab origin still equals the captured page origin. Navigating the tab off that origin drops the binding instead of injecting pins into the wrong site.",
+            "“Review on page” dispatches a reopen event with the session id. The helper hydrates only from a trusted Pinar application URL when that id matches the session id or `captureId` and the tab origin still equals the captured page origin. Navigating the tab off that origin drops the binding instead of injecting pins into the wrong site.",
           ],
           bullets: [
             "If no reopen result arrives, the viewer shows a missing-helper hint instead of waiting indefinitely.",
@@ -470,13 +575,13 @@ const locale = {
         {
           heading: "How to deliver the copied bundle to an agent",
           paragraphs: [
-            "The Chrome extension never types into the agent composer. After Command/Ctrl+Enter, paste the clipboard yourself into Cursor, Claude, Codex, or Grok. The text begins with instructions to implement the pin comments and to treat selector and DOM path as complementary locators, followed by a fenced pinar-visual-context JSON block. If a Viewer URL is included, fetch it only when those details are not enough.",
-            "Treat `captureId` and `pinId` as identity, not labels to rewrite. Visual Context currently encodes schemaVersion 1; parseVisualCapture rejects a missing `captureId` and any schemaVersion other than 1 or the legacy 0. Change only what the pins describe. If the person never pasted, ask them to copy again from Pinar instead of reconstructing pins from memory.",
+            "The Chrome extension never types into the agent composer. After `Command/Ctrl+Enter`, paste the clipboard yourself into Cursor, Claude, Codex, or Grok. The text begins by saying the pin notes may ask for a change or an explanation, and to treat selector and DOM path as complementary locators, followed by a fenced pinar-visual-context JSON block. If a Viewer URL is included, fetch it only when those details are not enough.",
+            "Treat `captureId` and `pinId` as identity, not labels to rewrite. Visual Context currently encodes schemaVersion 1; parseVisualCapture rejects a missing `captureId` and any schemaVersion other than 1 or the legacy 0. Follow only what the pins describe. If the person never pasted, ask them to copy again from Pinar instead of reconstructing pins from memory.",
           ],
           bullets: [
             "Paste the whole clipboard into the agent; do not retype comments or invent a new `captureId`.",
             "Confirm the pasted text still contains a closed pinar-visual-context fence before you start editing code.",
-            "If nothing was pasted, ask for Command/Ctrl+Enter in Pinar and implement only the pin comments.",
+            "If nothing was pasted, ask for `Command/Ctrl+Enter` in Pinar and follow only the pin notes.",
           ],
         },
       ],
@@ -567,12 +672,12 @@ const locale = {
         {
           heading: "Open the original URL and place pending pins",
           paragraphs: [
-            "Review on page opens only from the Pinar app, on the original capture URL. Another site cannot inject a saved session into the extension. After load, each frame shows only the pins that belong there.",
-            "The overlay stays bound only while the tab is still the captured site. Navigating away shows This page is not the original capture URL. Ambiguous matches keep the original box instead of snapping to a lookalike. Click a pending pin, then the correct element, to place it.",
+            "“Review on page” opens only from the Pinar application, on the original capture URL. Another site cannot inject a saved session into the extension. After load, each frame shows only the pins that belong there.",
+            "The overlay stays bound only while the tab is still the captured site. Navigating away shows “This page is not the original capture URL”. Ambiguous matches keep the original box instead of snapping to a lookalike. Click a pending pin, then the correct element, to place it.",
           ],
           bullets: [
-            "Start Review on page from the Pinar app so only that session hydrates on the captured origin.",
-            "If the overlay says This page is not the original capture URL, return to the captured origin instead of placing pins.",
+            "Start “Review on page” from the Pinar application so only that session hydrates on the captured origin.",
+            "If the overlay says “This page is not the original capture URL”, return to the captured origin instead of placing pins.",
             "For an unresolved pin, click the marker, then click the live element to place it.",
           ],
         },
@@ -598,13 +703,13 @@ const locale = {
         {
           heading: "Walk the copy path when the toolbar reports failure",
           paragraphs: [
-            "Copy requires a saved comment and at least one pin. The toolbar shows Copying…, hides overlays, captures the shot, then asks the offscreen document to write text/html and text/plain. Offscreen tries navigator.clipboard.write first and falls back to a copy event plus execCommand. If that write is not ok, the content script still attempts writePlainText on the returned plain payload: clipboard.writeText, then a hidden textarea selection.",
-            "When every copy path fails, the page sends overlays:hidden with hidden false, flashes Copy failed, and leaves pins editable. A successful copy shows Copied, or Copied plus no screenshot, helper unavailable, or no viewer, then ends the session. Those suffixes map to `screenshot_missing`, `helper_unavailable`, and `viewer_unavailable`. screenshot_inline is not one of the degraded handoff warnings. A paste without a closed pinar-visual-context fence cannot be parsed as JSON.",
+            "Copy requires a saved comment and at least one pin. The toolbar shows “Saving the annotations…”, hides overlays, captures the shot, then asks the offscreen document to write text/html and text/plain. Offscreen tries navigator.clipboard.write first and falls back to a copy event plus execCommand. If that write is not ok, the content script still attempts writePlainText on the returned plain payload: clipboard.writeText, then a hidden textarea selection.",
+            "When every copy path fails, the page sends overlays:hidden with hidden false, flashes “Copy failed”, and leaves pins editable. A successful copy shows “Copied successfully!”, or “Copied successfully!” plus “no screenshot”, “helper unavailable”, or “no viewer”, then ends the session. Those suffixes map to `screenshot_missing`, `helper_unavailable`, and `viewer_unavailable`. screenshot_inline is not one of the degraded handoff warnings. A paste without a closed pinar-visual-context fence cannot be parsed as JSON.",
           ],
           bullets: [
-            "If the toolbar says Write a comment first or Add a pin first, finish that pin and press Command/Ctrl+Enter again.",
-            "If Copy failed appears, confirm the pins are still on the page, grant clipboard permission if prompted, and retry the copy.",
-            "Read the Copied suffix: no screenshot, helper unavailable, and no viewer name the missing layer to retry without discarding comments.",
+            "If the toolbar says “Write a comment first” or “Add a pin first”, finish that pin and press `Command/Ctrl+Enter` again.",
+            "If “Copy failed” appears, confirm the pins are still on the page, grant clipboard permission if prompted, and retry the copy.",
+            "Read the “Copied successfully!” suffix: “no screenshot”, “helper unavailable”, and “no viewer” name the missing layer to retry without discarding comments.",
           ],
         },
       ],
@@ -943,11 +1048,11 @@ const locale = {
           heading:
             "Present the capability secret and recover a broken local store",
           paragraphs: [
-            "The local workspace only accepts the Pinar app and the official extension. Rotation keeps the previous secret valid long enough for running processes to catch up; revocation forces a new authorization.",
+            "The local workspace only accepts the Pinar application and the official extension. Rotation keeps the previous secret valid long enough for running processes to catch up; revocation forces a new authorization.",
             "If another Pinar instance is already running, that instance stays in place. Nested screenshot folders are migrated without overwriting name conflicts. If local history cannot open, Pinar recovers a usable Personal project and Inbox instead of crashing.",
           ],
           bullets: [
-            "Keep using the official extension and the Pinar app; other sites cannot talk to the local workspace.",
+            "Keep using the official extension and the Pinar application; other sites cannot talk to the local workspace.",
             "After you revoke local access, restart Pinar so the workspace can authorize again.",
             "If local history cannot open, expect a recovered Personal project and Inbox rather than a crash.",
           ],

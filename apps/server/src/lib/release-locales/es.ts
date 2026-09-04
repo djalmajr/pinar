@@ -21,6 +21,28 @@ const locale = {
     whatChanged: "Qué cambió",
   },
   releases: {
+    "v0.3.1": {
+      title: "Aplicación para Windows y portadas únicas de ayuda",
+      summary:
+        "Ejecuta Pinar desde el área de notificación de Windows, descarga el instalador Setup y abre artículos de ayuda con portada propia.",
+      changes: {
+        "windows-desktop-app": {
+          title: "Aplicación de escritorio para Windows",
+          description:
+            "Pinar ahora incluye una aplicación de bandeja en Windows. Descarga win-x64-Pinar-Setup.exe, ejecuta el instalador e inicia el auxiliar local desde el área de notificación — el mismo flujo de captura local que en macOS.",
+        },
+        "unique-help-covers": {
+          title: "Portadas únicas de ayuda",
+          description:
+            "Cada uno de los 27 artículos de ayuda tiene ahora su propia imagen de portada, para que las guías de instalación, primera captura, atajos y facturación ya no compartan captura.",
+        },
+        "windows-first-run-help": {
+          title: "Ayuda en el primer arranque en Windows",
+          description:
+            "La guía de instalación ahora indica cómo continuar tras el bloqueo inicial de SmartScreen: abre “Más información” y elige “Ejecutar de todas formas”.",
+        },
+      },
+    },
     "v0.3.0": {
       title: "Un espacio de trabajo y una captura más claros",
       summary:

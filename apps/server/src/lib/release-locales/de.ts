@@ -22,6 +22,28 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.3.1": {
+      title: "Windows-App und eigene Hilfe-Titelbilder",
+      summary:
+        "Starte Pinar über den Infobereich unter Windows, lade den Setup-Installer herunter und öffne Hilfeartikel mit jeweils eigenem Titelbild.",
+      changes: {
+        "windows-desktop-app": {
+          title: "Windows-Desktop-App",
+          description:
+            "Pinar liefert jetzt eine Infobereich-App für Windows. Laden Sie win-x64-Pinar-Setup.exe herunter, führen Sie den Installer aus und starten Sie den lokalen Helfer über den Infobereich — denselben lokalen Aufnahmeablauf wie unter macOS.",
+        },
+        "unique-help-covers": {
+          title: "Eigene Hilfe-Titelbilder",
+          description:
+            "Jeder der 27 Hilfeartikel hat jetzt ein eigenes Titelbild, sodass Installations-, Erste-Aufnahme-, Tastaturkürzel- und Abrechnungsanleitungen nicht mehr dasselbe Screenshot teilen.",
+        },
+        "windows-first-run-help": {
+          title: "Hilfe beim ersten Start unter Windows",
+          description:
+            "Die Installationsanleitung erklärt jetzt, wie Sie den SmartScreen-Hinweis beim ersten Start umgehen: „Weitere Informationen“ öffnen und „Trotzdem ausführen“ wählen.",
+        },
+      },
+    },
     "v0.3.0": {
       title: "Übersichtlicher Arbeitsbereich und Aufnahmeablauf",
       summary: "Organisiere wachsende Sammlungen, passe Pinar zentral an und prüfe jede Aufnahme mit klarerem visuellem Feedback und besserer Hilfe.",

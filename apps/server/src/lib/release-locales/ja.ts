@@ -20,6 +20,28 @@ const locale = {
     whatChanged: "変更内容",
   },
   releases: {
+    "v0.3.1": {
+      title: "Windows アプリと記事ごとのヘルプ表紙",
+      summary:
+        "Windows の通知領域から Pinar を起動し、Setup インストーラーを入手し、各ヘルプ記事を専用の表紙で開けます。",
+      changes: {
+        "windows-desktop-app": {
+          title: "Windows デスクトップアプリ",
+          description:
+            "Pinar は Windows 向けのトレイアプリを同梱します。win-x64-Pinar-Setup.exe をダウンロードしてインストーラーを実行し、通知領域からローカルヘルパーを起動します。macOS と同じローカルキャプチャの流れです。",
+        },
+        "unique-help-covers": {
+          title: "記事ごとのヘルプ表紙",
+          description:
+            "27 件のヘルプ記事それぞれに専用の表紙画像が付き、インストール、初回キャプチャ、ショートカット、課金などのガイドが同じスクリーンショットを共有しなくなりました。",
+        },
+        "windows-first-run-help": {
+          title: "Windows 初回起動のヘルプ",
+          description:
+            "インストールガイドは、初回の SmartScreen ブロックを越える手順を案内します。「詳細情報」を開き、「実行」を選びます。",
+        },
+      },
+    },
     "v0.3.0": {
       title: "より分かりやすいワークスペースとキャプチャ",
       summary: "増え続けるコレクションを整理し、一か所で Pinar を設定し、より明確な視覚フィードバックとヘルプで各キャプチャを確認できます。",

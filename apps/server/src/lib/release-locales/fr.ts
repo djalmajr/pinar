@@ -22,6 +22,28 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.3.1": {
+      title: "Application Windows et couvertures d’aide uniques",
+      summary:
+        "Lancez Pinar depuis la zone de notification Windows, téléchargez l’installateur Setup et ouvrez des articles d’aide avec chacun sa couverture.",
+      changes: {
+        "windows-desktop-app": {
+          title: "Application de bureau Windows",
+          description:
+            "Pinar propose désormais une application de barre d’état Windows. Téléchargez win-x64-Pinar-Setup.exe, lancez l’installateur et démarrez l’assistant local depuis la zone de notification — le même flux de capture locale que sur macOS.",
+        },
+        "unique-help-covers": {
+          title: "Couvertures d’aide uniques",
+          description:
+            "Chacun des 27 articles d’aide a désormais sa propre image de couverture, afin que les guides d’installation, de première capture, de raccourcis et de facturation ne partagent plus la même capture.",
+        },
+        "windows-first-run-help": {
+          title: "Aide au premier lancement Windows",
+          description:
+            "Le guide d’installation explique désormais comment poursuivre après le blocage SmartScreen au premier lancement : ouvrez « Plus d’infos », puis choisissez « Exécuter quand même ».",
+        },
+      },
+    },
     "v0.3.0": {
       title: "Un espace de travail et une capture plus clairs",
       summary: "Organisez des collections grandissantes, réglez Pinar depuis un seul espace et révisez chaque capture avec des indications visuelles et une aide plus claires.",

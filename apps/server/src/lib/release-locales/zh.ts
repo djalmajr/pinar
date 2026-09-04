@@ -20,6 +20,28 @@ const locale = {
     whatChanged: "更新内容",
   },
   releases: {
+    "v0.3.1": {
+      title: "Windows 应用与独立帮助封面",
+      summary:
+        "从 Windows 通知区域运行 Pinar，下载 Setup 安装程序，并打开各有独立封面的帮助文章。",
+      changes: {
+        "windows-desktop-app": {
+          title: "Windows 桌面应用",
+          description:
+            "Pinar 现已提供 Windows 托盘应用。下载 win-x64-Pinar-Setup.exe，运行安装程序，并从通知区域启动本地助手——与 macOS 相同的本地捕获流程。",
+        },
+        "unique-help-covers": {
+          title: "独立帮助封面",
+          description:
+            "27 篇帮助文章现在各有独立封面图，安装、首次捕获、快捷键和账单等指南不再共用同一张截图。",
+        },
+        "windows-first-run-help": {
+          title: "Windows 首次运行帮助",
+          description:
+            "安装指南现在说明如何越过首次运行的 SmartScreen 拦截：打开“更多信息”，然后选择“仍要运行”。",
+        },
+      },
+    },
     "v0.3.0": {
       title: "更清晰的工作区与捕获流程",
       summary: "轻松整理不断增长的收藏，在统一设置中调整 Pinar，并通过更清晰的视觉反馈和帮助检查每次捕获。",

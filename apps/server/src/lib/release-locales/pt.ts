@@ -22,6 +22,28 @@ const locale = {
     whatChanged: "O que mudou",
   },
   releases: {
+    "v0.3.1": {
+      title: "Aplicação Windows e capas únicas na ajuda",
+      summary:
+        "Use o Pinar na área de notificação do Windows, baixe o instalador Setup e abra artigos de ajuda com capa própria.",
+      changes: {
+        "windows-desktop-app": {
+          title: "Aplicação para Windows",
+          description:
+            "O Pinar agora tem aplicação de bandeja no Windows. Baixe o win-x64-Pinar-Setup.exe, execute o instalador e inicie o auxiliar local pela área de notificação — o mesmo fluxo de captura local do macOS.",
+        },
+        "unique-help-covers": {
+          title: "Capas únicas na ajuda",
+          description:
+            "Cada um dos 27 artigos de ajuda agora tem a própria imagem de capa, para que guias como instalação, primeira captura, atalhos e cobrança não compartilhem mais a mesma captura.",
+        },
+        "windows-first-run-help": {
+          title: "Ajuda na primeira execução no Windows",
+          description:
+            "O guia de instalação agora explica como seguir depois do bloqueio inicial do SmartScreen: abra “Mais informações” e escolha “Executar mesmo assim”.",
+        },
+      },
+    },
     "v0.3.0": {
       title: "Workspace e captura mais claros",
       summary:

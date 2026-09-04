@@ -20,6 +20,28 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.3.1": {
+      title: "Windows app and unique help covers",
+      summary:
+        "Run Pinar from the Windows notification area, download the Setup installer, and open help articles that each have their own cover.",
+      changes: {
+        "windows-desktop-app": {
+          title: "Windows desktop app",
+          description:
+            "Pinar now ships a Windows tray application. Download win-x64-Pinar-Setup.exe, run the installer, and start the local helper from the notification area — the same local capture flow as on macOS.",
+        },
+        "unique-help-covers": {
+          title: "Unique help covers",
+          description:
+            "Each of the 27 help articles now has its own cover image, so guides such as install, first capture, shortcuts, and billing no longer share a screenshot.",
+        },
+        "windows-first-run-help": {
+          title: "Windows first-run help",
+          description:
+            "The install guide now tells Windows users how to continue past the first-run SmartScreen block: open “More info”, then choose “Run anyway”.",
+        },
+      },
+    },
     "v0.3.0": {
       title: "A clearer workspace and capture flow",
       summary:

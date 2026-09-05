@@ -10,6 +10,7 @@ describe("Worker deploy workflow", () => {
   test("classifies product tags and never listens for extension tags", () => {
     expect(workflow).toContain('tags:\n      - "v*"');
     expect(workflow).toContain("bun scripts/release-tag.mjs --github-output");
+    expect(workflow).toContain("ref: ${{ github.sha }}");
     expect(workflow).not.toContain("extension-v");
   });
 

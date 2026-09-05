@@ -14,6 +14,7 @@ describe("Pinar.app release workflow", () => {
     expect(workflow).toContain(checkoutV7);
     expect(workflow).toContain("bun scripts/release-tag.mjs --github-output");
     expect(workflow).toContain("needs.classify.outputs.kind == 'closed'");
+    expect(workflow).toContain("ref: ${{ github.sha }}");
     expect(workflow).toContain("ref: ${{ needs.classify.outputs.tag }}");
     expect(workflow).toContain("runs-on: macos-14");
     expect(workflow).toContain("hutch/install.sh");

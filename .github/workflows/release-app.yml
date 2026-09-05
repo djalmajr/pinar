@@ -2,7 +2,7 @@ name: Release Pinar.app
 
 # Closed product tags (v1.2.3) build macOS + Windows and become GitHub Latest
 # so the in-app updater can see them. Prerelease tags (v1.2.3-rc.1) skip this
-# workflow. Extension tags (extension-v*) have their own workflow.
+# workflow. Extension tags (ext-v*) have their own workflow.
 
 on:
   push:
@@ -27,11 +27,11 @@ jobs:
       tag: ${{ steps.tag.outputs.tag }}
       version: ${{ steps.tag.outputs.version }}
     steps:
-      - name: Check out the tagged source
+      - name: Check out the workflow scripts
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          ref: ${{ github.sha }}
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -48,11 +48,11 @@ jobs:
     if: needs.classify.outputs.kind == 'closed'
     runs-on: ubuntu-latest
     steps:
-      - name: Check out the tagged source
+      - name: Check out the workflow scripts
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          ref: ${{ needs.classify.outputs.tag }}
+          ref: ${{ github.sha }}
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:

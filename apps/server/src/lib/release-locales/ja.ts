@@ -20,6 +20,28 @@ const locale = {
     whatChanged: "変更内容",
   },
   releases: {
+    "v0.3.5": {
+      title: "アカウントタブ、一回払いの Founder のみ、より早いキャプチャコピー",
+      summary:
+        "拡張機能のアカウントタブは1行のコード帯です。一回払いプランは Founder だけです。キャプチャはコメントの準備ができ次第コピーし、Alt+Enter は Ctrl+Enter と同じです。",
+      changes: {
+        "account-tab-options": {
+          title: "アカウントタブのコード帯",
+          description:
+            "Free インストールはアイコン1行で一時コードを生成し、フィールドの下にカウントダウンを出します。有料アカウントはメールとプランを表示し、ログアウトは outline、請求管理は Pro だけです。",
+        },
+        "lifetime-folded-into-founder": {
+          title: "Lifetime は Founder",
+          description:
+            "一回払いプランは Pinar Founder だけです。チェックアウトは古い lifetime_founder メタデータをまだ受け付けます。Lifetime のラベル、env、Stripe Price の別名はありません。",
+        },
+        "capture-copy-sooner": {
+          title: "スクリーンショット保存より先にコピー",
+          description:
+            "Ctrl+Enter、Command+Enter、または Alt+Enter は、ヘルパーがスクリーンショットを保存している間に、先にコメントとロケータをコピーします。貼り付けの準備ができてからも進捗が 80% のままになりません。",
+        },
+      },
+    },
     "v0.3.4": {
       title: "続行で現行ポリシーに同意",
       summary:

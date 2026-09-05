@@ -20,6 +20,28 @@ const locale = {
     whatChanged: "更新内容",
   },
   releases: {
+    "v0.3.5": {
+      title: "账户选项卡、一次性套餐仅 Founder、更快完成复制",
+      summary:
+        "扩展的账户选项卡是一行代码条。一次性套餐只有 Founder。捕获会在注释就绪后立即复制，Alt+Enter 与 Ctrl+Enter 相同。",
+      changes: {
+        "account-tab-options": {
+          title: "账户选项卡代码条",
+          description:
+            "Free 安装用一行图标生成临时代码，倒计时显示在字段下方。付费账户显示邮箱和套餐；退出为描边按钮；管理订阅仅限 Pro。",
+        },
+        "lifetime-folded-into-founder": {
+          title: "Lifetime 即为 Founder",
+          description:
+            "一次性套餐只有 Pinar Founder。结账仍接受旧的 lifetime_founder 元数据。没有 Lifetime 标签、环境变量或 Stripe Price 别名。",
+        },
+        "capture-copy-sooner": {
+          title: "先复制再保存截图",
+          description:
+            "Ctrl+Enter、Command+Enter 或 Alt+Enter 会先复制注释和定位信息，同时助手仍在保存截图。粘贴已就绪后，进度不会停在 80%。",
+        },
+      },
+    },
     "v0.3.4": {
       title: "继续即接受现行政策",
       summary:

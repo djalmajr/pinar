@@ -21,6 +21,28 @@ const locale = {
     whatChanged: "Qué cambió",
   },
   releases: {
+    "v0.3.5": {
+      title: "Pestaña Cuenta, plan único solo Founder, captura copia antes",
+      summary:
+        "La pestaña Cuenta de la extensión es una franja de código en una línea. El plan único es solo Founder. La captura copia los comentarios en cuanto están listos, y Alt+Enter funciona como Ctrl+Enter.",
+      changes: {
+        "account-tab-options": {
+          title: "Franja de código en Cuenta",
+          description:
+            "Las instalaciones Free generan un código temporal en una fila de iconos, con la cuenta atrás bajo el campo. Las cuentas de pago muestran correo y plan; Salir es outline; Gestionar suscripción solo en Pro.",
+        },
+        "lifetime-folded-into-founder": {
+          title: "Lifetime es Founder",
+          description:
+            "El plan de pago único es solo Pinar Founder. El checkout sigue aceptando el metadata antiguo lifetime_founder. No hay etiqueta, env ni alias de Price Lifetime.",
+        },
+        "capture-copy-sooner": {
+          title: "Copiar antes de guardar la captura",
+          description:
+            "Ctrl+Enter, Command+Enter o Alt+Enter copia comentarios y localizadores primero, mientras el auxiliar aún guarda la captura. El progreso ya no se queda en 80% cuando el pegado ya está listo.",
+        },
+      },
+    },
     "v0.3.4": {
       title: "Políticas aceptadas al continuar",
       summary:

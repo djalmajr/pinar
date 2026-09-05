@@ -20,6 +20,28 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.3.5": {
+      title: "Account tab, Founder-only one-time plan, faster capture copy",
+      summary:
+        "The extension Account tab is a one-line code strip. The one-time plan is only Founder. Capture copies comments as soon as they are ready, and Alt+Enter works like Ctrl+Enter.",
+      changes: {
+        "account-tab-options": {
+          title: "Account tab code strip",
+          description:
+            "Free installations generate a temporary code in one row of icons, with a countdown under the field. Paid accounts show email and plan; Sign out is outline; Manage billing is only on Pro.",
+        },
+        "lifetime-folded-into-founder": {
+          title: "Lifetime is Founder",
+          description:
+            "The one-time plan is only Pinar Founder. Checkout still accepts the old lifetime_founder metadata. There is no Lifetime label, env, or Stripe Price alias.",
+        },
+        "capture-copy-sooner": {
+          title: "Copy before the screenshot is stored",
+          description:
+            "Ctrl+Enter, Command+Enter, or Alt+Enter copies comments and locators first, while the helper is still saving the screenshot. Progress no longer sits at 80% after the paste is already ready.",
+        },
+      },
+    },
     "v0.3.4": {
       title: "Policies accepted by continuing",
       summary:

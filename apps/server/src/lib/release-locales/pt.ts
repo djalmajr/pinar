@@ -22,6 +22,28 @@ const locale = {
     whatChanged: "O que mudou",
   },
   releases: {
+    "v0.3.5": {
+      title: "Aba Conta, pagamento único só Founder, captura copia mais cedo",
+      summary:
+        "A aba Conta da extensão é uma faixa de código numa linha. O plano único é só Founder. A captura copia os comentários assim que estão prontos, e Alt+Enter funciona como Ctrl+Enter.",
+      changes: {
+        "account-tab-options": {
+          title: "Faixa de código na aba Conta",
+          description:
+            "Instalações Free geram um código temporário numa fileira de ícones, com a contagem abaixo do campo. Contas pagas mostram e-mail e plano; Sair é outline; Gerenciar assinatura só no Pro.",
+        },
+        "lifetime-folded-into-founder": {
+          title: "Lifetime é Founder",
+          description:
+            "O plano de pagamento único é só Pinar Founder. O checkout ainda aceita o metadata antigo lifetime_founder. Não há rótulo, env nem alias de Price Lifetime.",
+        },
+        "capture-copy-sooner": {
+          title: "Copiar antes de gravar o screenshot",
+          description:
+            "Ctrl+Enter, Command+Enter ou Alt+Enter copia comentários e localizadores primeiro, enquanto o auxiliar ainda grava o screenshot. O progresso não fica em 80% depois que o paste já está pronto.",
+        },
+      },
+    },
     "v0.3.4": {
       title: "Políticas aceitas ao continuar",
       summary:

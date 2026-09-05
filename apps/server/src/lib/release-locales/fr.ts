@@ -22,6 +22,28 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.3.5": {
+      title: "Onglet Compte, paiement unique Founder seulement, copie plus tôt",
+      summary:
+        "L’onglet Compte de l’extension est une bande de code sur une ligne. Le plan unique est uniquement Founder. La capture copie les commentaires dès qu’ils sont prêts, et Alt+Enter fonctionne comme Ctrl+Enter.",
+      changes: {
+        "account-tab-options": {
+          title: "Bande de code dans Compte",
+          description:
+            "Les installations Free génèrent un code temporaire dans une rangée d’icônes, avec le compte à rebours sous le champ. Les comptes payants affichent e-mail et plan ; Se déconnecter est outline ; Gérer l’abonnement uniquement sur Pro.",
+        },
+        "lifetime-folded-into-founder": {
+          title: "Lifetime est Founder",
+          description:
+            "Le plan de paiement unique est uniquement Pinar Founder. Le checkout accepte encore l’ancien metadata lifetime_founder. Il n’y a plus de libellé, d’env ni d’alias de Price Lifetime.",
+        },
+        "capture-copy-sooner": {
+          title: "Copier avant d’enregistrer la capture",
+          description:
+            "Ctrl+Enter, Command+Enter ou Alt+Enter copie d’abord commentaires et localisateurs, pendant que l’assistant enregistre encore la capture. La progression ne reste plus à 80 % une fois le collage déjà prêt.",
+        },
+      },
+    },
     "v0.3.4": {
       title: "Politiques acceptées en continuant",
       summary:

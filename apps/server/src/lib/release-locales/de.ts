@@ -22,6 +22,28 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.3.5": {
+      title: "Konto-Tab, einmaliger Plan nur Founder, schnellere Capture-Kopie",
+      summary:
+        "Der Konto-Tab der Erweiterung ist eine einzeilige Codeleiste. Der Einmalplan ist nur Founder. Die Capture kopiert Kommentare, sobald sie bereit sind, und Alt+Enter wirkt wie Ctrl+Enter.",
+      changes: {
+        "account-tab-options": {
+          title: "Codeleiste im Konto-Tab",
+          description:
+            "Free-Installationen erzeugen einen temporären Code in einer Icon-Zeile, mit Countdown unter dem Feld. Bezahlte Konten zeigen E-Mail und Plan; Abmelden ist Outline; Abonnement verwalten nur bei Pro.",
+        },
+        "lifetime-folded-into-founder": {
+          title: "Lifetime ist Founder",
+          description:
+            "Der einmalige Plan ist nur Pinar Founder. Der Checkout akzeptiert weiterhin das alte lifetime_founder-Metadatum. Es gibt kein Lifetime-Label, keine Env und keinen Stripe-Price-Alias.",
+        },
+        "capture-copy-sooner": {
+          title: "Kopieren, bevor der Screenshot gespeichert ist",
+          description:
+            "Ctrl+Enter, Command+Enter oder Alt+Enter kopiert zuerst Kommentare und Locator, während der Helfer den Screenshot noch speichert. Der Fortschritt bleibt nicht mehr bei 80 %, wenn das Einfügen schon bereit ist.",
+        },
+      },
+    },
     "v0.3.4": {
       title: "Richtlinien gelten mit dem Fortfahren",
       summary:

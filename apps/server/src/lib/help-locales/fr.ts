@@ -283,13 +283,13 @@ const locale = {
         {
           heading: "Copier le paquet",
           paragraphs: [
-            "Appuyez sur `Command+Enter` sur macOS ou `Ctrl+Enter` ailleurs. Pinar copie du Markdown lisible, du HTML et un bloc JSON pinar-visual-context qui se réfèrent au même screenshot et aux mêmes identités de pins.",
+            "Appuyez sur `Command+Enter` sur macOS, `Ctrl+Enter` ailleurs, ou `Alt+Enter` dans les deux cas. Pinar copie du Markdown lisible, du HTML et un bloc JSON pinar-visual-context qui se réfèrent au même screenshot et aux mêmes identités de pins.",
           ],
         },
         {
           heading: "Terminer la copie et conserver les identités",
           paragraphs: [
-            "`Command/Ctrl+Enter` ne copie qu’après qu’au moins un pin a un commentaire. L’overlay affiche « Enregistrement des annotations… », masque les pins pour le screenshot, puis « Copié avec succès ! », et la barre d’outils se ferme. Un clic ultérieur sur l’icône de l’extension n’affiche ou ne masque que l’overlay ; il ne supprime pas les pins déjà posés. Si tous les chemins du presse-papiers échouent, l’overlay est restauré pour que vous puissiez réessayer.",
+            "`Command/Ctrl/Alt+Enter` ne copie qu’après qu’au moins un pin a un commentaire. L’overlay affiche « Enregistrement des annotations… », masque les pins pour le screenshot, puis « Copié avec succès ! », et la barre d’outils se ferme. Un clic ultérieur sur l’icône de l’extension n’affiche ou ne masque que l’overlay ; il ne supprime pas les pins déjà posés. Si tous les chemins du presse-papiers échouent, l’overlay est restauré pour que vous puissiez réessayer.",
             "Traitez le contenu du presse-papiers comme une unité : des instructions lisibles, une URL de visualiseur optionnelle, et un bloc JSON pinar-visual-context délimité avec `captureId`, `pinId`, URL de page, localisateurs (cssSelector, domPath, innerText), et une URL de screenshot lorsque le helper a stocké un fichier. Les badges numérotés sur l’image sont des overlays d’annotation, pas l’UI de la page. Ne réécrivez pas `captureId` ni `pinId` en collant vers un agent. Une ligne Screenshot: /path/to/file.png, lorsqu’elle est présente, est le recadrage unique qui contient tous les pins.",
           ],
           bullets: [
@@ -345,7 +345,7 @@ const locale = {
             "`Enter` épingle l’élément survolé ; `Arrow Up` sélectionne son parent et `Arrow Down` revient à un enfant.",
             "`M` bascule le dessin du masque de confidentialité. `Escape` annule un brouillon ou un masque ; sans brouillon, il efface les pins et masque la barre d’outils.",
             "`R` bascule l’overlay en direct entre les épingles numérotées seules et les épingles avec leurs régions. La capture copiée inclut toujours les deux.",
-            "`Command/Ctrl+Enter` copie le paquet terminé.",
+            "`Command/Ctrl/Alt+Enter` copie le paquet terminé.",
             "`Alt+Shift+P` affiche ou masque la barre d’outils sans annuler la session, et vous pouvez le réattribuer dans `chrome://extensions/shortcuts`. Les raccourcis du navigateur restent inertes sur les pages `chrome://`, sur le Chrome Web Store et avant l’injection de l’overlay.",
           ],
         },
@@ -362,7 +362,7 @@ const locale = {
             "`Arrow Up` remonte à l’élément parent et mémorise l’enfant que vous quittez, de sorte qu’`Arrow Down` revient à ce nœud mémorisé s’il est encore un enfant ; sinon il utilise le premier enfant. En mode masque, faites glisser une région pour la cacher et cliquez un masque existant pour le restaurer. Le défilement clavier fonctionne encore sur le document, mais les touches destinées aux contrôles de page focalisés sont bloquées afin qu’elles ne puissent pas activer des boutons ni taper dans le formulaire hôte.",
           ],
           bullets: [
-            "`Command/Ctrl+Enter` enregistre un brouillon ouvert, puis copie ; sans commentaire, il affiche « Écrivez un commentaire » au lieu d’envoyer un pin vide.",
+            "`Command/Ctrl/Alt+Enter` enregistre un brouillon ouvert, puis copie ; sans commentaire, il affiche « Écrivez un commentaire » au lieu d’envoyer un pin vide.",
             "Après `Escape` ou une copie, Pinar conserve la propriété de cette touche physique jusqu’au keyup, afin que la page hôte ne traite pas la même frappe comme sa propre annulation ou soumission.",
             "Un pin de zone ne commence qu’après que le pointeur a bougé d’environ six pixels ; un clic plus court épingle encore l’élément survolé, au lieu d’ouvrir un rectangle libre.",
           ],
@@ -578,13 +578,13 @@ const locale = {
         {
           heading: "Comment livrer le paquet copié à un agent",
           paragraphs: [
-            "L’extension Chrome ne tape jamais dans le composer de l’agent. Après `Command/Ctrl+Enter`, collez vous-même le presse-papiers dans Cursor, Claude, Codex ou Grok. Le texte commence en indiquant que les notes des pins peuvent demander un changement ou une explication, et à traiter sélecteur et chemin DOM comme des localisateurs complémentaires, suivies d’un bloc JSON pinar-visual-context délimité. Si une URL Viewer est incluse, ne la récupérez que lorsque ces détails ne suffisent pas.",
+            "L’extension Chrome ne tape jamais dans le composer de l’agent. Après `Command/Ctrl/Alt+Enter`, collez vous-même le presse-papiers dans Cursor, Claude, Codex ou Grok. Le texte commence en indiquant que les notes des pins peuvent demander un changement ou une explication, et à traiter sélecteur et chemin DOM comme des localisateurs complémentaires, suivies d’un bloc JSON pinar-visual-context délimité. Si une URL Viewer est incluse, ne la récupérez que lorsque ces détails ne suffisent pas.",
             "Traitez `captureId` et `pinId` comme des identités, pas des libellés à réécrire. Visual Context encode actuellement schemaVersion 1 ; parseVisualCapture rejette un `captureId` manquant et tout schemaVersion autre que 1 ou l’héritage 0. Suivez seulement ce que les pins décrivent. Si la personne n’a jamais collé, demandez-lui de copier à nouveau depuis Pinar plutôt que de reconstruire les pins de mémoire.",
           ],
           bullets: [
             "Collez tout le presse-papiers dans l’agent ; ne retapez pas les commentaires et n’inventez pas un nouveau `captureId`.",
             "Confirmez que le texte collé contient encore une clôture pinar-visual-context fermée avant de commencer à modifier le code.",
-            "Si rien n’a été collé, demandez `Command/Ctrl+Enter` dans Pinar et suivez seulement les notes des pins.",
+            "Si rien n’a été collé, demandez `Command/Ctrl/Alt+Enter` dans Pinar et suivez seulement les notes des pins.",
           ],
         },
       ],
@@ -712,7 +712,7 @@ const locale = {
             "Lorsque tous les chemins de copie échouent, la page envoie overlays:hidden avec hidden false, affiche brièvement « Échec de la copie », et laisse les pins modifiables. Une copie réussie affiche « Copié avec succès ! », ou « Copié avec succès ! » plus « pas de capture », « assistant indisponible » ou « pas de visionneuse », puis termine la session. Ces suffixes correspondent à `screenshot_missing`, `helper_unavailable` et `viewer_unavailable`. screenshot_inline n’est pas l’un des avertissements de handoff dégradé. Un collage sans clôture pinar-visual-context fermée ne peut pas être analysé comme JSON.",
           ],
           bullets: [
-            "Si la barre d’outils indique « Écrivez un commentaire » ou « Ajoutez une épingle », terminez ce pin et appuyez à nouveau sur `Command/Ctrl+Enter`.",
+            "Si la barre d’outils indique « Écrivez un commentaire » ou « Ajoutez une épingle », terminez ce pin et appuyez à nouveau sur `Command/Ctrl/Alt+Enter`.",
             "Si « Échec de la copie » apparaît, confirmez que les pins sont encore sur la page, accordez la permission du presse-papiers si elle est demandée, et réessayez la copie.",
             "Lisez le suffixe « Copié avec succès ! » : « pas de capture », « assistant indisponible » et « pas de visionneuse » nomment la couche manquante à réessayer sans jeter les commentaires.",
           ],
@@ -866,7 +866,7 @@ const locale = {
             "Lancer Checkout avec les politiques actuelles et la bonne devise",
           paragraphs: [
             "Payer sur Plans accepte les Conditions, la Politique de confidentialité et l’Utilisation acceptable en vigueur. Le Brésil utilise les prix en BRL ; les autres pays utilisent l’USD. Le checkout Founder réserve un créneau limité et le libère si vous partez sans payer. Lorsque la cohorte est pleine ou que les ventes sont en pause, la page Plans masque cette offre.",
-            "Après un paiement réussi, l’offre est accordée au compte connecté et vous revenez au workspace. Le portail de facturation est disponible après un checkout payant. Lorsqu’un abonnement Pro se termine, ces sessions cloud entrent dans une fenêtre de récupération ; les comptes Founder et lifetime hérités restent permanents à la place.",
+            "Après un paiement réussi, l’offre est accordée au compte connecté et vous revenez au workspace. Le portail de facturation est disponible après un checkout payant. Lorsqu’un abonnement Pro se termine, ces sessions cloud entrent dans une fenêtre de récupération ; les comptes Founder restent permanents à la place.",
           ],
           bullets: [
             "Poursuivre un checkout payant sur Plans accepte les versions de politique courantes.",
@@ -930,7 +930,7 @@ const locale = {
             "Faire tenir les remplacements sous le quota et utiliser l’horloge de récupération de 90 jours",
           paragraphs: [
             "Le quota est le stockage inclus de votre plan plus toute option encore active. Remplacer un screenshot plus lourd par un plus petit peut réussir lorsqu’une capture entièrement nouvelle échouerait. Les envois s’interrompent dès que le compte est au quota ou au-dessus, y compris pendant la grâce et la récupération.",
-            "Les sessions cloud Free qui ne sont pas marquées permanentes deviennent éligibles au nettoyage après sept jours. Le contenu Pro au-dessus du quota Free suit la grâce de 30 jours et la fenêtre de récupération de 90 jours après la fin de l’éligibilité payante. Le contenu Founder et lifetime hérité n’est pas rendu éligible simplement parce qu’il n’y a pas d’abonnement récurrent. L’historique uniquement local sur cet ordinateur n’est jamais supprimé à distance. L’éligibilité n’est pas une promesse de retrait immédiat.",
+            "Les sessions cloud Free qui ne sont pas marquées permanentes deviennent éligibles au nettoyage après sept jours. Le contenu Pro au-dessus du quota Free suit la grâce de 30 jours et la fenêtre de récupération de 90 jours après la fin de l’éligibilité payante. Le contenu Founder n’est pas rendu éligible simplement parce qu’il n’y a pas d’abonnement récurrent. L’historique uniquement local sur cet ordinateur n’est jamais supprimé à distance. L’éligibilité n’est pas une promesse de retrait immédiat.",
           ],
           bullets: [
             "Lorsque de nouvelles captures s’interrompent, libérez de l’espace en supprimant des sessions ou en remplaçant un screenshot lourd, ou achetez une option de douze mois de 5 Go ou 20 Go.",

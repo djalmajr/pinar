@@ -283,13 +283,13 @@ const locale = {
         {
           heading: "Copiar el paquete",
           paragraphs: [
-            "Pulsa `Command+Enter` en macOS o `Ctrl+Enter` en el resto. Pinar copia Markdown legible, HTML y un bloque JSON pinar-visual-context que apuntan al mismo screenshot y a las mismas identidades de pin.",
+            "Pulsa `Command+Enter` en macOS, `Ctrl+Enter` en el resto, o `Alt+Enter` en cualquiera. Pinar copia Markdown legible, HTML y un bloque JSON pinar-visual-context que apuntan al mismo screenshot y a las mismas identidades de pin.",
           ],
         },
         {
           heading: "Terminar la copia y conservar las identidades",
           paragraphs: [
-            "`Command/Ctrl+Enter` copia solo cuando al menos un pin tiene comentario. La superposición muestra “Guardando las anotaciones…”, oculta los pins para el screenshot, luego “¡Copiado con éxito!”, y la barra se cierra. Hacer clic después en el icono de la extensión solo muestra u oculta la superposición; no borra los pins que ya colocaste. Si fallan todos los caminos del portapapeles, se restaura la superposición para que puedas reintentar.",
+            "`Command/Ctrl/Alt+Enter` copia solo cuando al menos un pin tiene comentario. La superposición muestra “Guardando las anotaciones…”, oculta los pins para el screenshot, luego “¡Copiado con éxito!”, y la barra se cierra. Hacer clic después en el icono de la extensión solo muestra u oculta la superposición; no borra los pins que ya colocaste. Si fallan todos los caminos del portapapeles, se restaura la superposición para que puedas reintentar.",
             "Trata el contenido del portapapeles como una unidad: instrucciones legibles, una URL opcional del visor y un bloque JSON pinar-visual-context delimitado con `captureId`, `pinId`, URL de la página, localizadores (cssSelector, domPath, innerText) y una URL de screenshot cuando el helper guardó un archivo. Las insignias numeradas de la imagen son superposiciones de anotación, no UI de la página. No reescribas `captureId` ni `pinId` al pegar en un agente. Una línea Screenshot: /path/to/file.png, cuando existe, es el único recorte que contiene todos los pins.",
           ],
           bullets: [
@@ -345,7 +345,7 @@ const locale = {
             "`Enter` fija el elemento bajo el puntero; `Arrow Up` selecciona su padre y `Arrow Down` vuelve a un hijo.",
             "`M` activa o desactiva el dibujo de máscaras de privacidad. `Escape` cancela un borrador o una máscara; sin borrador, limpia los pins y oculta la barra.",
             "`R` alterna la superposición en vivo entre solo los pins numerados y los pins con sus regiones seleccionadas. La captura copiada siempre incluye ambos.",
-            "`Command/Ctrl+Enter` copia el paquete completado.",
+            "`Command/Ctrl/Alt+Enter` copia el paquete completado.",
             "`Alt+Shift+P` muestra u oculta la barra sin cancelar la sesión, y puedes reasignarlo en `chrome://extensions/shortcuts`. Los atajos del navegador quedan inertes en páginas `chrome://`, en la Chrome Web Store y antes de que se inyecte el overlay.",
           ],
         },
@@ -363,7 +363,7 @@ const locale = {
             "`Arrow Up` sube al elemento padre y recuerda el hijo que dejaste, de modo que `Arrow Down` vuelve a ese nodo recordado cuando sigue siendo un hijo; si no, usa el primer hijo. En modo máscara, arrastra una región para ocultarla y haz clic en una máscara existente para restaurarla. El desplazamiento con teclado sigue funcionando en el documento, pero las teclas dirigidas a controles de página enfocados se bloquean para que no activen botones ni escriban en el formulario anfitrión.",
           ],
           bullets: [
-            "`Command/Ctrl+Enter` guarda un borrador abierto y luego copia; sin comentario muestra “Escribe un comentario” en lugar de enviar un pin vacío.",
+            "`Command/Ctrl/Alt+Enter` guarda un borrador abierto y luego copia; sin comentario muestra “Escribe un comentario” en lugar de enviar un pin vacío.",
             "Después de `Escape` o de copiar, Pinar sigue poseyendo esa tecla física hasta keyup para que la página anfitriona no trate la misma pulsación como su propio cancel o submit.",
             "Un pin de área empieza solo después de que el puntero se mueva unos seis píxeles; un clic más corto sigue fijando el elemento bajo el puntero en lugar de abrir un rectángulo libre.",
           ],
@@ -578,13 +578,13 @@ const locale = {
         {
           heading: "Cómo entregar el paquete copiado a un agente",
           paragraphs: [
-            "La extensión de Chrome nunca escribe en el compositor del agente. Después de `Command/Ctrl+Enter`, pega tú mismo el portapapeles en Cursor, Claude, Codex o Grok. El texto empieza diciendo que las notas de los pins pueden pedir un cambio o una explicación, y tratar el selector y el camino DOM como localizadores complementarios, seguidas de un bloque JSON pinar-visual-context delimitado. Si se incluye una URL de Viewer, recupérala solo cuando esos detalles no basten.",
+            "La extensión de Chrome nunca escribe en el compositor del agente. Después de `Command/Ctrl/Alt+Enter`, pega tú mismo el portapapeles en Cursor, Claude, Codex o Grok. El texto empieza diciendo que las notas de los pins pueden pedir un cambio o una explicación, y tratar el selector y el camino DOM como localizadores complementarios, seguidas de un bloque JSON pinar-visual-context delimitado. Si se incluye una URL de Viewer, recupérala solo cuando esos detalles no basten.",
             "Trata `captureId` y `pinId` como identidad, no como etiquetas a reescribir. Visual Context actualmente codifica schemaVersion 1; parseVisualCapture rechaza un `captureId` ausente y cualquier schemaVersion distinto de 1 o el legado 0. Sigue solo lo que describen los pins. Si la persona nunca pegó, pídele que copie de nuevo desde Pinar en lugar de reconstruir pins de memoria.",
           ],
           bullets: [
             "Pega el portapapeles entero en el agente; no reescribas comentarios ni inventes un `captureId` nuevo.",
             "Confirma que el texto pegado aún contiene un cierre de cerca pinar-visual-context antes de empezar a editar código.",
-            "Si no se pegó nada, pide `Command/Ctrl+Enter` en Pinar y sigue solo las notas de los pins.",
+            "Si no se pegó nada, pide `Command/Ctrl/Alt+Enter` en Pinar y sigue solo las notas de los pins.",
           ],
         },
       ],
@@ -712,7 +712,7 @@ const locale = {
             "Cuando fallan todos los caminos de copia, la página envía overlays:hidden con hidden false, muestra “Error al copiar” y deja los pins editables. Una copia correcta muestra “¡Copiado con éxito!”, o “¡Copiado con éxito!” más “sin captura”, “ayudante no disponible” o “sin visor”, y luego termina la sesión. Esos sufijos corresponden a `screenshot_missing`, `helper_unavailable` y `viewer_unavailable`. screenshot_inline no es uno de los avisos de handoff degradado. Un pegado sin una cerca pinar-visual-context cerrada no se puede analizar como JSON.",
           ],
           bullets: [
-            "Si la barra dice “Escribe un comentario” o “Añade un pin”, termina ese pin y pulsa `Command/Ctrl+Enter` otra vez.",
+            "Si la barra dice “Escribe un comentario” o “Añade un pin”, termina ese pin y pulsa `Command/Ctrl/Alt+Enter` otra vez.",
             "Si aparece “Error al copiar”, confirma que los pins siguen en la página, concede el permiso de portapapeles si se pide y reintenta la copia.",
             "Lee el sufijo de “¡Copiado con éxito!”: “sin captura”, “ayudante no disponible” y “sin visor” nombran la capa que falta para reintentar sin descartar comentarios.",
           ],
@@ -866,7 +866,7 @@ const locale = {
             "Iniciar Checkout con las políticas vigentes y la moneda correcta",
           paragraphs: [
             "Pagar en Planes acepta los Términos, la Política de privacidad y el Uso aceptable vigentes. Brasil usa precios en BRL; otros países usan USD. El checkout de Founder reserva un cupo limitado y lo libera si sales sin pagar. Cuando la cohorte está llena o las ventas están en pausa, la página Planes oculta esa oferta.",
-            "Tras un pago correcto, la oferta se concede en la cuenta con sesión iniciada y vuelves al espacio de trabajo. El portal de facturación está disponible después de un checkout de pago. Cuando termina una suscripción Pro, esas sesiones en la nube entran en una ventana de recuperación; las cuentas Founder y las de lifetime heredadas permanecen permanentes.",
+            "Tras un pago correcto, la oferta se concede en la cuenta con sesión iniciada y vuelves al espacio de trabajo. El portal de facturación está disponible después de un checkout de pago. Cuando termina una suscripción Pro, esas sesiones en la nube entran en una ventana de recuperación; las cuentas Founder permanecen permanentes.",
           ],
           bullets: [
             "Continuar un checkout de pago en Planes acepta las versiones vigentes de las políticas.",
@@ -930,7 +930,7 @@ const locale = {
             "Ajustar reemplazos a la cuota y usar el reloj de recuperación de 90 días",
           paragraphs: [
             "La cuota es el almacenamiento incluido de tu plan más cualquier complemento aún activo. Reemplazar un screenshot más grande por uno más pequeño puede tener éxito cuando una captura nueva no lo tendría. Las subidas se pausan cuando la cuenta está en o por encima de la cuota, también durante la gracia y la recuperación.",
-            "Las sesiones en la nube de Free que no están marcadas como permanentes pasan a ser elegibles para limpieza a los siete días. El contenido de Pro por encima de la cuota de Free sigue la gracia de 30 días y la ventana de recuperación de 90 días tras terminar la elegibilidad de pago. El contenido Founder y el de lifetime heredado no se vuelve elegible solo porque no haya una suscripción recurrente. El historial solo local de este equipo nunca se elimina de forma remota. La elegibilidad no es una promesa de retirada inmediata.",
+            "Las sesiones en la nube de Free que no están marcadas como permanentes pasan a ser elegibles para limpieza a los siete días. El contenido de Pro por encima de la cuota de Free sigue la gracia de 30 días y la ventana de recuperación de 90 días tras terminar la elegibilidad de pago. El contenido Founder no se vuelve elegible solo porque no haya una suscripción recurrente. El historial solo local de este equipo nunca se elimina de forma remota. La elegibilidad no es una promesa de retirada inmediata.",
           ],
           bullets: [
             "Cuando se pausen las capturas nuevas, libera espacio eliminando sesiones o reemplazando un screenshot pesado, o compra un complemento de doce meses de 5 GB o 20 GB.",

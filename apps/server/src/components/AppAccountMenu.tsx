@@ -58,7 +58,6 @@ type UsageStatus = "error" | "loading" | "ready";
 
 function planName(plan: AccountUsageSummary["plan"], t: ReturnType<typeof useServerI18n>["t"]) {
   if (plan === "founder") return t("app.founderPlan");
-  if (plan === "lifetime") return t("app.lifetimePlan");
   if (plan === "pro") return t("app.proPlan");
   return t("app.freePlan");
 }

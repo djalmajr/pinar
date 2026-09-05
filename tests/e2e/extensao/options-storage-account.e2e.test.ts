@@ -152,9 +152,10 @@ async function installOptionsHarness(page: Page) {
           }
           if (message.type === "auth:extension-code") {
             extensionCodeIndex += 1;
+            const expired = localStorage.getItem("pinar-e2e-code-expired") === "1";
             return {
               code: extensionCodeIndex === 1 ? "ABCDE234" : "FGHJK567",
-              expiresAt: "2026-08-18T00:05:00.000Z",
+              expiresAt: new Date(Date.now() + (expired ? -1_000 : 5 * 60 * 1_000)).toISOString(),
               ok: true,
             };
           }
@@ -497,7 +498,6 @@ test("Free installation separates temporary-code guidance from the paid upgrade"
 
   const freeSection = page.getByRole("region", { name: "Continue with a Free installation" });
   const paidSection = page.getByRole("region", { name: "Paid account" });
-  const codeEntryLink = freeSection.getByRole("link", { name: "Open page to enter code" });
   const upgradeLink = paidSection.getByRole("link", { name: "Upgrade to Pro", exact: true });
   const generateCodeButton = freeSection.getByRole("button", { name: "Generate code", exact: true });
   const sendCodeButton = paidSection.getByRole("button", { name: "Send code", exact: true });
@@ -509,18 +509,11 @@ test("Free installation separates temporary-code guidance from the paid upgrade"
   await expect(freeSection.getByText(
     "Only the latest code can be used. Generating another code invalidates the current one.",
     { exact: true },
-  )).toBeVisible();
-  await expect(codeEntryLink).toHaveClass(/external-link/);
-  await expect(generateCodeButton).toHaveClass(/border-border/);
-  await expect(generateCodeButton).toHaveClass(/bg-background/);
+  )).toHaveCount(0);
+  await expect(freeSection.getByRole("link", { name: "Open Pinar on the web" })).toHaveCount(0);
+  await expect(freeSection.getByText("Click the key icon to generate a new code", { exact: true })).toBeVisible();
   await expect(sendCodeButton).toHaveClass(/border-border/);
   await expect(sendCodeButton).toHaveClass(/bg-background/);
-
-  const signInUrl = new URL(await codeEntryLink.getAttribute("href") || "about:blank");
-  expect(signInUrl.origin).toBe("https://pinar.dev");
-  expect(signInUrl.pathname).toBe("/sign-in");
-  expect(signInUrl.searchParams.get("extensionCode")).toBe("");
-  expect(signInUrl.searchParams.get("returnTo")).toBe("/app");
 
   await expect(freeSection.getByText(
     "Open “Sign in”, keep the “Extension” tab selected, and paste the code.",
@@ -536,22 +529,28 @@ test("Free installation separates temporary-code guidance from the paid upgrade"
 
   const freeBackground = await freeSection.evaluate((element) => getComputedStyle(element).backgroundColor);
   const paidBackground = await paidSection.evaluate((element) => getComputedStyle(element).backgroundColor);
-  const guidanceBackground = await codeEntryLink.locator("..").evaluate(
-    (element) => getComputedStyle(element).backgroundColor,
-  );
   const upgradeBackground = await paidSection.getByRole("group", { name: "Don't have a subscription yet?" })
     .evaluate((element) => getComputedStyle(element).backgroundColor);
   expect(freeBackground).toBe(paidBackground);
-  expect(guidanceBackground).toBe(upgradeBackground);
+  expect(upgradeBackground).not.toBe("rgba(0, 0, 0, 0)");
 
   await generateCodeButton.click();
   await expect(freeSection.getByText("ABCDE234", { exact: true })).toBeVisible();
+  const codeEntryLink = freeSection.getByRole("link", { name: "Open Pinar on the web" });
+  await expect(codeEntryLink).toBeVisible();
+  const signInUrl = new URL(await codeEntryLink.getAttribute("href") || "about:blank");
+  expect(signInUrl.origin).toBe("https://pinar.dev");
+  expect(signInUrl.pathname).toBe("/sign-in");
+  expect(signInUrl.searchParams.get("extensionCode")).toBe("");
+  expect(signInUrl.searchParams.get("returnTo")).toBe("/app");
+  await expect(freeSection.getByText(/Single-use · expires in \d+:\d+/)).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem("pinar-e2e-clipboard"))).toBeNull();
   await freeSection.getByRole("button", { name: "Copy code", exact: true }).click();
   expect(await page.evaluate(() => localStorage.getItem("pinar-e2e-clipboard"))).toBe("ABCDE234");
   await expect(freeSection.getByRole("button", { name: "Copied!", exact: true })).toBeVisible();
+  await expect(freeSection.getByText(/Copied · single-use · expires in \d+:\d+/)).toBeVisible();
 
-  await freeSection.getByRole("button", { name: "Generate another", exact: true }).click();
+  await freeSection.getByRole("button", { name: "Generate another code", exact: true }).click();
   const confirmation = page.getByRole("alertdialog");
   await expect(confirmation.getByRole("heading", { name: "Generate another code?", exact: true })).toBeVisible();
   await expect(confirmation.getByText(
@@ -562,7 +561,7 @@ test("Free installation separates temporary-code guidance from the paid upgrade"
   await expect(confirmation).toBeHidden();
   await expect(freeSection.getByText("ABCDE234", { exact: true })).toBeVisible();
 
-  await freeSection.getByRole("button", { name: "Generate another", exact: true }).click();
+  await freeSection.getByRole("button", { name: "Generate another code", exact: true }).click();
   await confirmation.getByRole("button", { name: "Invalidate and generate", exact: true }).click();
   await expect(freeSection.getByText("FGHJK567", { exact: true })).toBeVisible();
   await expect(freeSection.getByText("ABCDE234", { exact: true })).toHaveCount(0);
@@ -574,14 +573,33 @@ test("Free installation separates temporary-code guidance from the paid upgrade"
   expect(extensionCodeMessages).toHaveLength(2);
 });
 
+test("expired temporary code promotes generate-another to the primary action", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("pinar-e2e-extension-identity", "installation");
+    localStorage.setItem("pinar-e2e-code-expired", "1");
+  });
+  await installOptionsHarness(page);
+  await page.getByRole("tab", { name: "Account" }).click();
+  await page.getByRole("button", { name: "Generate code", exact: true }).click();
+  const freeSection = page.getByRole("region", { name: "Continue with a Free installation" });
+  await expect(freeSection.getByText("ABCDE234", { exact: true })).toBeVisible();
+  await expect(freeSection.getByText(
+    "Expired · generate another code · the previous one no longer works",
+    { exact: true },
+  )).toBeVisible();
+  await freeSection.getByRole("button", { name: "Generate another code", exact: true }).click();
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await expect(freeSection.getByText("FGHJK567", { exact: true })).toBeVisible();
+});
+
 test("temporary-code actions are localized in every supported language", async ({ page }) => {
   const cases = [
-    { code: "en", confirm: "Generate another code?", generate: "Generate code", generateAnother: "Generate another" },
-    { code: "pt", confirm: "Gerar outro código?", generate: "Gerar código", generateAnother: "Gerar outro" },
-    { code: "es", confirm: "¿Generar otro código?", generate: "Generar código", generateAnother: "Generar otro" },
-    { code: "fr", confirm: "Générer un autre code ?", generate: "Générer un code", generateAnother: "Générer un autre" },
-    { code: "de", confirm: "Einen weiteren Code erzeugen?", generate: "Code erzeugen", generateAnother: "Weiteren erzeugen" },
-    { code: "zh", confirm: "生成另一个代码？", generate: "生成代码", generateAnother: "生成另一个" },
+    { code: "en", confirm: "Generate another code?", generate: "Generate code", generateAnother: "Generate another code" },
+    { code: "pt", confirm: "Gerar outro código?", generate: "Gerar código", generateAnother: "Gerar outro código" },
+    { code: "es", confirm: "¿Generar otro código?", generate: "Generar código", generateAnother: "Generar otro código" },
+    { code: "fr", confirm: "Générer un autre code ?", generate: "Générer un code", generateAnother: "Générer un autre code" },
+    { code: "de", confirm: "Einen weiteren Code erzeugen?", generate: "Code erzeugen", generateAnother: "Weiteren Code erzeugen" },
+    { code: "zh", confirm: "生成另一个代码？", generate: "生成代码", generateAnother: "生成另一个代码" },
     { code: "ja", confirm: "別のコードを生成しますか？", generate: "コードを生成", generateAnother: "別のコードを生成" },
   ];
   await page.addInitScript(() => {

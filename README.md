@@ -98,8 +98,8 @@ service currently has Free and recurring Pro plans. **Pinar Founder** is a
 limited, server-controlled cohort sold as a one-time purchase with 5 GB of base
 cloud storage and 500 initial AI credits, without monthly refill. Founder is not
 a promise of unlimited usage or perpetual operation of the hosted service.
-Existing `lifetime` accounts and Stripe metadata remain supported only as a
-legacy compatibility path; new customer-facing copy uses Founder.
+Checkout metadata `lifetime_founder` and the old `interval: "lifetime"` map to
+Founder; they do not create a separate plan.
 
 Current hosted-service policies are versioned and published at:
 

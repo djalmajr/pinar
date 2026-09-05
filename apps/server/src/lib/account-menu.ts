@@ -62,14 +62,15 @@ export function accountUsageSummary(value: unknown): AccountUsageSummary | null 
   const quotaBytes = value.storage.quotaBytes;
   const storageExpireAt = entitlementDate(value.storage.nextExpiryAt);
   const usedBytes = value.storage.usedBytes;
-  if (plan !== "founder" && plan !== "free" && plan !== "lifetime" && plan !== "pro") return null;
+  const normalizedPlan = plan === "lifetime" ? "founder" : plan;
+  if (normalizedPlan !== "founder" && normalizedPlan !== "free" && normalizedPlan !== "pro") return null;
   if (!Number.isFinite(balance) || !Number.isFinite(quotaBytes) || !Number.isFinite(usedBytes)) return null;
   if (creditsExpireAt === undefined || creditsRefillAt === undefined || storageExpireAt === undefined) return null;
   return {
     aiCredits: Math.max(0, Number(balance)),
     aiCreditsExpireAt: creditsExpireAt,
     aiCreditsRefillAt: creditsRefillAt,
-    plan,
+    plan: normalizedPlan,
     storageExpireAt,
     storageQuotaBytes: Math.max(0, Number(quotaBytes)),
     storageUsedBytes: Math.max(0, Number(usedBytes)),

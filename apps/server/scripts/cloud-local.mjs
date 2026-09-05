@@ -29,12 +29,6 @@ export const CloudLocalProfiles = {
     credits: 5,
     plan: "free",
   },
-  lifetime: {
-    code: "LIFE2826",
-    credits: 500,
-    email: "lifetime.cloud-local@pinar.test",
-    plan: "lifetime",
-  },
   pro: {
     code: "PRCLD826",
     credits: 200,
@@ -151,7 +145,7 @@ export function buildCloudLocalSeedSql(fixture) {
   const collectionId = `col_cloud_local_${fixture.plan}`;
   const sessionId = `session_cloud_local_${fixture.plan}`;
   const monthlyCredits = fixture.plan === "pro" ? fixture.credits : 0;
-  const permanentSource = fixture.plan === "founder" ? "founder_initial" : "lifetime_initial";
+  const permanentSource = "founder_initial";
   const grants = fixture.plan === "pro"
     ? [
       `INSERT INTO ai_credit_grants (id, owner_type, owner_id, source_type, source_id, credits, consumed_credits, expires_at, created_at) VALUES (${sqlString(`grant_cloud_local_${fixture.plan}_monthly`)}, 'account', ${sqlString(fixture.userId)}, 'pro_monthly', ${sqlString(`cloud-local:${fixture.plan}:monthly`)}, ${monthlyCredits}, 20, ${sqlString(fixture.nextRefillAt)}, ${sqlString(fixture.now)});`,

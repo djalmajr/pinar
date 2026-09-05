@@ -28,20 +28,13 @@ describe("Founder deployment configuration", () => {
     expectFounderOpen(config.env.production.vars);
   });
 
-  test("reuses equivalent prices under Founder names without removing legacy aliases", () => {
+  test("keeps Founder Stripe prices on every environment and drops Lifetime aliases", () => {
     for (const vars of [config.vars, config.env.staging.vars, config.env.production.vars]) {
-      assert.equal(vars.STRIPE_PRICE_FOUNDER, vars.STRIPE_PRICE_LIFETIME);
-      assert.equal(vars.STRIPE_PRICE_BR_FOUNDER, vars.STRIPE_PRICE_BR_LIFETIME);
+      assert.match(vars.STRIPE_PRICE_FOUNDER, /^price_/);
+      assert.match(vars.STRIPE_PRICE_BR_FOUNDER, /^price_/);
+      assert.equal(vars.STRIPE_PRICE_LIFETIME, undefined);
+      assert.equal(vars.STRIPE_PRICE_BR_LIFETIME, undefined);
     }
-  });
-
-  test("keeps production Founder prices aliased to the live Lifetime catalog", () => {
-    const production = config.env.production.vars;
-
-    assert.match(production.STRIPE_PRICE_FOUNDER, /^price_/);
-    assert.match(production.STRIPE_PRICE_BR_FOUNDER, /^price_/);
-    assert.match(production.STRIPE_PRICE_LIFETIME, /^price_/);
-    assert.match(production.STRIPE_PRICE_BR_LIFETIME, /^price_/);
   });
 
   test("uses Founder pricing names and leaves old pricing names absent", () => {

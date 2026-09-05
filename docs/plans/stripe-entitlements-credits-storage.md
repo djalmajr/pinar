@@ -4,12 +4,12 @@
 
 O Pinar usa um catálogo fixo em BRL e USD, fulfillment idempotente e ledgers separados para créditos de IA, armazenamento e capacidade Founder. Esta documentação descreve o contrato atual do código; não autoriza deploy, migração remota nem alteração do catálogo Stripe de produção.
 
-O nome público do pagamento único é **Pinar Founder**. `lifetime_founder`, `lifetime_initial`, as variáveis `STRIPE_PRICE_*_LIFETIME` e o plano `lifetime` continuam apenas como identificadores legados para reconhecer compras anteriores sem quebrar seus direitos.
+O nome público do pagamento único é **Pinar Founder**. Metadata de checkout `lifetime_founder` e o intervalo legado `"lifetime"` são mapeados para Founder; não existe plano, Price ou env `lifetime` separado.
 
 ## Contratos
 
 - Ofertas públicas: `pro_month`, `pro_year`, `founder`, `ai_credits_1000`, `storage_5gb_12m` e `storage_20gb_12m`.
-- Identificador Stripe legado do Founder: `lifetime_founder`; ele não deve reaparecer na apresentação ao cliente.
+- Checkout ainda aceita `lifetime_founder` como alias de `founder`; a apresentação ao cliente usa só Founder.
 - Preços fixos: Pro US$ 2,99/mês ou US$ 19/ano; Founder US$ 39; add-ons US$ 2,99, US$ 2,99 e US$ 7,99. No Brasil: R$ 4,90/mês ou R$ 39,90/ano; Founder R$ 129,90; add-ons R$ 9,90, R$ 9,90 e R$ 29,90.
 - Free: 250 MB de nuvem e 5 créditos iniciais por instalação.
 - Pro: 5 GB e 200 créditos por mês, sem acúmulo; a recarga mensal independe do intervalo de cobrança.

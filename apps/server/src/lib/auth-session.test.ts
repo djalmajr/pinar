@@ -63,11 +63,14 @@ describe("paid authentication session", () => {
       plan: "pro",
       userId: "pro-account",
     }), true);
-    assert.equal(isPaidAuthSession({
+    const legacyLifetime = {
       email: "lifetime@example.test",
-      kind: "account",
+      kind: "account" as const,
       plan: "lifetime",
       userId: "lifetime-account",
-    }), true);
+    };
+    assert.equal(isAuthSession(legacyLifetime), true);
+    assert.equal(legacyLifetime.plan, "founder");
+    assert.equal(isPaidAuthSession(legacyLifetime), true);
   });
 });

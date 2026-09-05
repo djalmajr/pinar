@@ -25,7 +25,7 @@ The command:
 
 The sign-in URL exchanges the same single-use extension code used by the deployed application. It sets the real HttpOnly web-session cookie and exercises `/api/auth/session`, `/api/account/entitlements`, D1 migrations, and the account UI without API mocks.
 
-Available fixture profiles are `free`, `pro`, `founder`, and `lifetime`:
+Available fixture profiles are `free`, `pro`, and `founder`:
 
 ```sh
 bun run dev:cloud -- --profile founder

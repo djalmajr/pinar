@@ -31,7 +31,6 @@ const messages = {
   "app.founderPlan": "Pinar Founder",
   "app.freePlan": "Free plan",
   "app.homepage": "Homepage",
-  "app.lifetimePlan": "Pinar Lifetime",
   "app.local": "Local server",
   "app.openLocalHome": "Local home",
   "app.openRemoteHome": "pinar.dev",

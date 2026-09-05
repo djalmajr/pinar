@@ -283,13 +283,13 @@ const locale = {
         {
           heading: "Copie o pacote",
           paragraphs: [
-            "Pressione `Command+Enter` no macOS ou `Ctrl+Enter` nos outros sistemas. O Pinar copia Markdown legível, HTML e um bloco JSON pinar-visual-context que apontam para o mesmo screenshot e para as mesmas identidades de pins.",
+            "Pressione `Command+Enter` no macOS, `Ctrl+Enter` nos outros sistemas, ou `Alt+Enter` em qualquer um. O Pinar copia Markdown legível, HTML e um bloco JSON pinar-visual-context que apontam para o mesmo screenshot e para as mesmas identidades de pins.",
           ],
         },
         {
           heading: "Conclua a cópia e preserve as identidades",
           paragraphs: [
-            "`Command/Ctrl+Enter` só copia depois que pelo menos um pin tem comentário. A sobreposição mostra “Gravando as anotações…”, esconde os pins para o screenshot, depois “Copiado com sucesso!”, e a barra fecha. Clicar no ícone da extensão depois só mostra ou esconde a sobreposição; não apaga pins já colocados. Se todos os caminhos de cópia falharem, a sobreposição volta para você tentar de novo.",
+            "`Command/Ctrl/Alt+Enter` só copia depois que pelo menos um pin tem comentário. A sobreposição mostra “Gravando as anotações…”, esconde os pins para o screenshot, depois “Copiado com sucesso!”, e a barra fecha. Clicar no ícone da extensão depois só mostra ou esconde a sobreposição; não apaga pins já colocados. Se todos os caminhos de cópia falharem, a sobreposição volta para você tentar de novo.",
             "Trate o conteúdo da área de transferência como uma unidade: instruções legíveis, uma URL opcional do visualizador e um bloco JSON pinar-visual-context delimitado com `captureId`, `pinId`, URL da página, localizadores (cssSelector, domPath, innerText) e uma URL de screenshot quando o auxiliar gravou um arquivo. Os badges numerados na imagem são sobreposições de anotação, não a interface da página. Não reescreva `captureId` nem `pinId` ao colar em um agente. A linha Screenshot: /path/to/file.png, quando existir, é o único recorte que contém todos os pins.",
           ],
           bullets: [
@@ -345,7 +345,7 @@ const locale = {
             "`Enter` pina o elemento sob o cursor; `Seta para cima` seleciona o pai e `Seta para baixo` retorna a um filho.",
             "`M` alterna o desenho de máscaras de privacidade. `Escape` cancela um rascunho ou máscara; sem rascunho, limpa os pins e esconde a barra.",
             "`R` alterna a sobreposição ao vivo entre só os pins numerados e os pins com as regiões selecionadas. O screenshot copiado sempre inclui os dois.",
-            "`Command/Ctrl+Enter` copia o pacote concluído.",
+            "`Command/Ctrl/Alt+Enter` copia o pacote concluído.",
             "`Alt+Shift+P` mostra ou esconde a barra sem cancelar a sessão, e você pode redefini-lo em `chrome://extensions/shortcuts`. Atalhos do navegador ficam inertes em páginas `chrome://`, na Chrome Web Store e antes de a sobreposição ser injetada.",
           ],
         },
@@ -362,7 +362,7 @@ const locale = {
             "`Seta para cima` sobe ao elemento pai e lembra o filho que você deixou, então `Seta para baixo` volta a esse nó lembrado se ele ainda for filho; senão usa o primeiro filho. No modo máscara, arraste uma região para escondê-la e clique numa máscara existente para restaurá-la. A rolagem pelo teclado continua no documento, mas teclas dirigidas a controles da página são bloqueadas para não ativar botões nem digitar no formulário.",
           ],
           bullets: [
-            "`Command/Ctrl+Enter` grava o rascunho aberto e depois copia; sem comentário mostra “Escreva um comentário” em vez de enviar um pin vazio.",
+            "`Command/Ctrl/Alt+Enter` grava o rascunho aberto e depois copia; sem comentário mostra “Escreva um comentário” em vez de enviar um pin vazio.",
             "Depois de `Escape` ou da cópia, o Pinar continua dono dessa tecla física até ela ser solta, para a página não tratar o mesmo toque como cancelar ou enviar.",
             "Um pin de área só começa depois que o ponteiro anda cerca de seis pixels; um clique mais curto ainda pina o elemento sob o cursor em vez de abrir um retângulo livre.",
           ],
@@ -577,13 +577,13 @@ const locale = {
         {
           heading: "Como entregar o pacote copiado a um agente",
           paragraphs: [
-            "A extensão do Chrome nunca digita no campo do agente. Depois de `Command/Ctrl+Enter`, cole você mesmo a área de transferência no Cursor, Claude, Codex ou Grok. O texto começa dizendo que as notas dos pins podem pedir uma alteração ou uma explicação, e para tratar seletor e caminho DOM como localizadores complementares, seguidas de um bloco JSON pinar-visual-context. Se houver URL de visualizador, busque-a só quando esses detalhes não bastarem.",
+            "A extensão do Chrome nunca digita no campo do agente. Depois de `Command/Ctrl/Alt+Enter`, cole você mesmo a área de transferência no Cursor, Claude, Codex ou Grok. O texto começa dizendo que as notas dos pins podem pedir uma alteração ou uma explicação, e para tratar seletor e caminho DOM como localizadores complementares, seguidas de um bloco JSON pinar-visual-context. Se houver URL de visualizador, busque-a só quando esses detalhes não bastarem.",
             "Trate `captureId` e `pinId` como identidade, não como rótulos a reescrever. O Visual Context grava hoje schemaVersion 1; o analisador rejeita um `captureId` ausente e qualquer schemaVersion que não seja 1 ou o legado 0. Siga só o que os pins descrevem. Se a pessoa não colou, peça para copiar de novo no Pinar em vez de reconstruir pins de memória.",
           ],
           bullets: [
             "Cole a área de transferência inteira no agente; não redigite comentários nem invente um `captureId` novo.",
             "Confirme que o texto colado ainda contém a cerca fechada pinar-visual-context antes de editar código.",
-            "Se nada foi colado, peça `Command/Ctrl+Enter` no Pinar e siga somente as notas dos pins.",
+            "Se nada foi colado, peça `Command/Ctrl/Alt+Enter` no Pinar e siga somente as notas dos pins.",
           ],
         },
       ],
@@ -710,7 +710,7 @@ const locale = {
             "Quando todos os caminhos de cópia falham, a página restaura as sobreposições, mostra “Falha ao copiar” e deixa os pins editáveis. Uma cópia bem-sucedida mostra “Copiado com sucesso!”, ou “Copiado com sucesso!” seguido de “sem captura”, “auxiliar indisponível” ou “sem visualizador”, e então encerra a sessão. Esses sufixos correspondem a `screenshot_missing`, `helper_unavailable` e `viewer_unavailable`. screenshot_inline não é um dos avisos de entrega degradada. Um texto colado sem a cerca fechada pinar-visual-context não pode ser lido como JSON.",
           ],
           bullets: [
-            "Se a barra disser “Escreva um comentário” ou “Adicione um pin”, conclua o pin e pressione `Command/Ctrl+Enter` de novo.",
+            "Se a barra disser “Escreva um comentário” ou “Adicione um pin”, conclua o pin e pressione `Command/Ctrl/Alt+Enter` de novo.",
             "Se aparecer “Falha ao copiar”, confirme que os pins ainda estão na página, conceda permissão de área de transferência se pedirem e tente copiar de novo.",
             "Leia o sufixo de “Copiado com sucesso!”: “sem captura”, “auxiliar indisponível” e “sem visualizador” nomeiam a camada ausente a retentar sem descartar comentários.",
           ],
@@ -863,7 +863,7 @@ const locale = {
             "Inicie o Checkout com as políticas atuais e a moeda correta",
           paragraphs: [
             "Pagar em Planos aceita os Termos, a Política de Privacidade e o Uso Aceitável vigentes. O Brasil usa preços em BRL; outros países usam USD. O Checkout Founder reserva uma vaga limitada e a libera se você sair sem pagar. Quando a coorte está cheia ou as vendas estão pausadas, a página Planos oculta essa oferta.",
-            "Depois de um pagamento bem-sucedido, a oferta é concedida na conta autenticada e você volta ao workspace. O portal de cobrança fica disponível depois de um checkout pago. Quando uma assinatura Pro termina, essas sessões na nuvem entram numa janela de recuperação; contas Founder e lifetime legado permanecem permanentes.",
+            "Depois de um pagamento bem-sucedido, a oferta é concedida na conta autenticada e você volta ao workspace. O portal de cobrança fica disponível depois de um checkout pago. Quando uma assinatura Pro termina, essas sessões na nuvem entram numa janela de recuperação; contas Founder permanecem permanentes.",
           ],
           bullets: [
             "Continuar um checkout pago em Planos aceita as versões atuais das políticas.",
@@ -925,7 +925,7 @@ const locale = {
           heading: "Encaixe substituições na cota e use o relógio de 90 dias",
           paragraphs: [
             "A cota é o armazenamento incluso do plano mais qualquer adicional ainda ativo. Substituir um screenshot maior por um menor pode passar quando uma captura nova estouraria a cota. Uploads pausam quando a conta está na cota ou acima dela, inclusive durante a carência e a recuperação.",
-            "Sessões Free na nuvem que não estão marcadas como permanentes ficam elegíveis para limpeza após sete dias. Conteúdo Pro acima da cota Free segue carência de 30 dias e recuperação de 90 dias após o fim da elegibilidade paga. Conteúdo Founder e lifetime legado não se torna elegível só por não haver assinatura recorrente. Histórico só local neste computador nunca é apagado remotamente. Elegibilidade não é promessa de remoção imediata.",
+            "Sessões Free na nuvem que não estão marcadas como permanentes ficam elegíveis para limpeza após sete dias. Conteúdo Pro acima da cota Free segue carência de 30 dias e recuperação de 90 dias após o fim da elegibilidade paga. Conteúdo Founder não se torna elegível só por não haver assinatura recorrente. Histórico só local neste computador nunca é apagado remotamente. Elegibilidade não é promessa de remoção imediata.",
           ],
           bullets: [
             "Quando novas capturas pausarem, libere espaço excluindo sessões ou substituindo um screenshot pesado, ou compre um adicional de 5 GB ou 20 GB por doze meses.",

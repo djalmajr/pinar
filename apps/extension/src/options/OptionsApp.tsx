@@ -65,8 +65,6 @@ import IconFolder from "~icons/lucide/folder";
 import IconGithub from "~icons/radix-icons/github-logo";
 import IconHeart from "~icons/lucide/heart";
 import IconInbox from "~icons/lucide/inbox";
-import IconInfo from "~icons/lucide/info";
-import IconKeyRound from "~icons/lucide/key-round";
 import IconLaptop from "~icons/lucide/laptop";
 import IconLogOut from "~icons/lucide/log-out";
 import IconMail from "~icons/lucide/mail";
@@ -81,6 +79,8 @@ import {
   parseLegalBundle,
   type LegalBundle,
 } from "../../../../extension/legal-consent.js";
+import { AccountCodeStrip } from "./AccountCodeStrip";
+import { remainingCodeCountdown } from "./account-code-countdown";
 import {
   type ExtensionResponseBase,
   withExtensionResponseFallback,
@@ -97,7 +97,7 @@ const OVERLAY_SHORTCUTS = [
   { description: "shortcut_mask_desc", keys: "M", label: "shortcut_mask" },
   { description: "shortcut_toggle_regions_desc", keys: "R", label: "shortcut_toggle_regions" },
   { description: "shortcut_cancel_desc", keys: "Esc", label: "shortcut_cancel" },
-  { description: "shortcut_copy_desc", keys: "⌘/Ctrl + Enter", label: "shortcut_copy" },
+  { description: "shortcut_copy_desc", keys: "⌘/Ctrl/Alt + Enter", label: "shortcut_copy" },
 ] as const satisfies ReadonlyArray<{ description: keyof TranslationDictionary; keys: string; label: keyof TranslationDictionary }>;
 
 function ShortcutRow({ description, editLabel, keys, label, onEdit }: { description: string; editLabel?: string; keys: string; label: string; onEdit?: () => void }) {
@@ -393,6 +393,7 @@ export function OptionsApp() {
   const [temporaryCode, setTemporaryCode] = useState("");
   const [temporaryCodeExpiresAt, setTemporaryCodeExpiresAt] = useState("");
   const [copiedCode, setCopiedCode] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [regenerateCodeOpen, setRegenerateCodeOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [emailCode, setEmailCode] = useState("");
@@ -421,6 +422,9 @@ export function OptionsApp() {
   const installCommand = "curl -fsSL https://pinar.dev/install.sh | sh";
   const desktopInstallUrl =
     installPlatform === "win" ? windowsDesktopSetupUrl() : macosDesktopDmgUrl();
+  const codeCountdown = temporaryCode && temporaryCodeExpiresAt
+    ? remainingCodeCountdown(temporaryCodeExpiresAt, nowMs)
+    : null;
 
   async function loadLegalConsent(cloudUrl: string) {
     setLegalError(false);
@@ -542,6 +546,13 @@ export function OptionsApp() {
     }
     void initialize();
   }, []);
+
+  useEffect(() => {
+    if (!temporaryCode || !temporaryCodeExpiresAt) return;
+    setNowMs(Date.now());
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [temporaryCode, temporaryCodeExpiresAt]);
 
   async function saveSettings() {
     if (!hasUnsavedChanges) return;
@@ -708,6 +719,7 @@ export function OptionsApp() {
       if (!response.ok || !response.session) throw new Error(response.error || t.account_unavailable);
       setAuthSession(response.session);
       setTemporaryCode("");
+      setTemporaryCodeExpiresAt("");
       await loadCaptureDestination();
     } catch (cause) {
       setAuthError(cause instanceof Error ? cause.message : String(cause));
@@ -876,12 +888,20 @@ export function OptionsApp() {
                       <section className="flex flex-col">
                         <span className={SECTION_HEADER}>{t.account_title}</span>
                         <p className={SECTION_DESC}>{t.account_title_desc}</p>
-                        <div className="flex flex-col gap-2.5">
-                        <div className="rounded-lg border bg-muted/40 p-3"><p className="truncate text-sm font-semibold">{authSession.email}</p><p className="mt-1 text-xs capitalize text-muted-foreground">{authSession.plan}</p></div>
-                        <div className="flex flex-wrap gap-2">
-                          <Button size="sm" variant="outline" onClick={() => void openBilling()}>{t.btn_manage_sub}</Button>
-                          <Button size="sm" variant="ghost" onClick={() => void logout()}><IconLogOut data-icon="inline-start" />{t.btn_sign_out}</Button>
-                        </div>
+                        <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/40 p-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-xs font-semibold">{authSession.email}</p>
+                            <p className="mt-1 text-xs capitalize text-muted-foreground">{authSession.plan}</p>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            {authSession.plan === "pro" ? (
+                              <Button size="sm" type="button" variant="outline" onClick={() => void openBilling()}>{t.btn_manage_sub}</Button>
+                            ) : null}
+                            <Button size="sm" type="button" variant="outline" onClick={() => void logout()}>
+                              <IconLogOut data-icon="inline-start" />
+                              {t.btn_sign_out}
+                            </Button>
+                          </div>
                         </div>
                       </section>
                     ) : (
@@ -893,12 +913,24 @@ export function OptionsApp() {
                           </div>
                           <p className={SECTION_DESC}>{t.account_free_description}</p>
                           <div className="flex flex-col gap-2.5">
-                          <div className="flex items-stretch gap-2">
-                            {temporaryCode ? <><div className="min-w-0 flex-1 rounded-lg border bg-background px-3 py-2"><code className="text-base font-bold tracking-[0.16em]">{temporaryCode}</code>{temporaryCodeExpiresAt && <p className="mt-1 text-[11px] text-muted-foreground">{t.account_code_expires}</p>}</div><Button className="shrink-0" variant="outline" onClick={() => void copyTemporaryCode()}><IconCopy data-icon="inline-start" />{copiedCode ? t.status_copied : t.btn_copy_code}</Button></> : <Button disabled={authLoading} variant="outline" onClick={() => void generateTemporaryCode()}><IconKeyRound data-icon="inline-start" />{t.btn_generate_code}</Button>}
-                          </div>
-                          {temporaryCode && <Button className="h-auto px-0" size="xs" variant="link" onClick={() => setRegenerateCodeOpen(true)}>{t.btn_generate_another_code}</Button>}
-                          <div className="rounded-lg bg-muted/60 p-3"><p className="text-xs font-semibold">{t.account_code_entry_title}</p><a className="external-link mt-2 text-xs font-semibold text-primary" href={hostedSignInUrl(settings.cloudUrl, lang)} rel="noopener noreferrer" target="_blank">{t.btn_open_code_entry}</a></div>
-                          <p className="flex items-start gap-2 text-[11px] leading-relaxed text-muted-foreground"><IconInfo className="mt-0.5 size-3.5 shrink-0" />{t.account_code_regeneration_note}</p>
+                            <AccountCodeStrip
+                              caption={
+                                codeCountdown
+                                  ? (codeCountdown.expired ? t.account_code_expired : (copiedCode ? t.account_code_copied : t.account_code_expires)).replace("{time}", codeCountdown.time)
+                                  : t.account_code_hint
+                              }
+                              copiedCode={copiedCode}
+                              expired={Boolean(codeCountdown?.expired)}
+                              generating={authLoading && !temporaryCode}
+                              hostedSignInHref={hostedSignInUrl(settings.cloudUrl, lang)}
+                              t={t}
+                              temporaryCode={temporaryCode}
+                              onCopy={() => void copyTemporaryCode()}
+                              onGenerate={() => {
+                                if (!temporaryCode || codeCountdown?.expired) void generateTemporaryCode();
+                                else setRegenerateCodeOpen(true);
+                              }}
+                            />
                           </div>
                         </section>
                         <Separator />
@@ -915,7 +947,14 @@ export function OptionsApp() {
                           {!emailCodeRequested ? (
                             <form className="flex gap-2" onSubmit={requestEmailCode}><Input autoComplete="email" placeholder="you@example.com" required type="email" value={email} onChange={(event) => setEmail(event.target.value)} /><Button disabled={authLoading} type="submit" variant="outline"><IconMail data-icon="inline-start" />{t.btn_send_code}</Button></form>
                           ) : (
-                            <form className="space-y-2" onSubmit={verifyEmailCode}><label className="block text-xs font-semibold" htmlFor="account-email-code">{t.account_email_code_label}</label><div className="flex gap-2"><Input autoComplete="one-time-code" id="account-email-code" inputMode="numeric" maxLength={6} pattern="[0-9]{6}" placeholder="000000" required value={emailCode} onChange={(event) => setEmailCode(event.target.value.replace(/\D/g, ""))} /><Button disabled={authLoading || emailCode.length !== 6} type="submit">{t.btn_verify_code}</Button></div><Button size="xs" type="button" variant="link" onClick={() => setEmailCodeRequested(false)}>{t.btn_change_email}</Button></form>
+                            <form className="space-y-2" onSubmit={verifyEmailCode}>
+                              <label className="block text-xs font-semibold" htmlFor="account-email-code">{t.account_email_code_label}</label>
+                              <div className="flex gap-2">
+                                <Input autoComplete="one-time-code" id="account-email-code" inputMode="numeric" maxLength={6} pattern="[0-9]{6}" placeholder="000000" required value={emailCode} onChange={(event) => setEmailCode(event.target.value.replace(/\D/g, ""))} />
+                                <Button className="shrink-0" type="button" variant="outline" onClick={() => { setEmailCode(""); setEmailCodeRequested(false); }}>{t.btn_cancel}</Button>
+                                <Button className="shrink-0" disabled={authLoading || emailCode.length !== 6} type="submit">{t.btn_verify_code}</Button>
+                              </div>
+                            </form>
                           )}
                           <div aria-label={t.account_subscription_prompt_title} className="flex items-center justify-between gap-3 rounded-lg bg-muted/60 p-3" role="group">
                             <div className="min-w-0"><p className="text-xs font-semibold">{t.account_subscription_prompt_title}</p><p className="mt-0.5 text-xs text-muted-foreground">{t.account_subscription_prompt_description}</p></div>

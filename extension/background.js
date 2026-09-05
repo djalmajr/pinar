@@ -489,7 +489,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "clipboard") {
-    copyBundle(message)
+    copyBundle(message, sender.tab?.id)
       .then(sendResponse)
       .catch((error) => sendResponse({ error: String(error), ok: false }));
     return true;
@@ -712,7 +712,12 @@ function generateNanoId(size = 12) {
   return id;
 }
 
-async function copyBundle(message) {
+async function reportCopyProgress(tabId, progress) {
+  if (tabId == null) return;
+  await chrome.tabs.sendMessage(tabId, { progress, type: "copy:progress" }).catch(() => null);
+}
+
+async function copyBundle(message, tabId) {
   const id = message.captureId || generateNanoId(12);
   const settings = await getSettings();
   const remotePrefs = await fetchDeliveryPreferences(settings);
@@ -734,7 +739,6 @@ async function copyBundle(message) {
   const page = sanitized.page;
   const privacy = sanitized.privacy;
   const warnings = [...(sanitized.warnings || [])];
-  let savedResult = null;
   const activeBatch = await readBatch();
   const destination = await getCaptureDestinationContext(settings)
     .then((context) => context.destination)
@@ -747,6 +751,48 @@ async function copyBundle(message) {
     includeScreenshot,
     storageMode: settings.storageMode,
   });
+  const language = getBestLanguage(remotePrefs?.language ?? settings.language);
+
+  async function publishClipboard(shot, viewerUrl) {
+    const uniqueWarnings = [...new Set(warnings)];
+    const payload = formatClipboardPayload({
+      captureId: id,
+      createdAt: message.createdAt,
+      handoffMode,
+      includeScreenshot,
+      messages: translations[language],
+      page,
+      pins,
+      privacy,
+      schemaVersion: message.schemaVersion || 1,
+      shot,
+      viewerUrl,
+      viewport: message.viewport,
+      warnings: uniqueWarnings,
+    });
+    const degraded = uniqueWarnings.some((warning) => (
+      warning === "screenshot_missing" || warning === "helper_unavailable" || warning === "viewer_unavailable"
+    ));
+    try {
+      await ensureOffscreen();
+      const written = await chrome.runtime.sendMessage({
+        html: payload.html,
+        plain: payload.plain,
+        type: "clipboard:write",
+      });
+      if (!written?.ok) throw new Error(written?.error || "clipboard write failed");
+      return { degraded, ok: true, payload, uniqueWarnings };
+    } catch (error) {
+      return { degraded, error: String(error), ok: false, payload, uniqueWarnings };
+    }
+  }
+
+  // Comments and locators go on the clipboard first so paste is ready while
+  // the helper stores the screenshot. A second write fills in path and viewer.
+  let published = await publishClipboard(null, null);
+  await reportCopyProgress(tabId, 0.86);
+
+  let savedResult = null;
   if (plan.persist) {
     savedResult = await saveShot(
       message.shot,
@@ -772,44 +818,30 @@ async function copyBundle(message) {
     await syncBatchSurfaces();
   }
 
-  const shot = includeScreenshot ? (savedResult?.path || message.shot || null) : null;
+  const shot = includeScreenshot ? (savedResult?.path || null) : null;
   const viewerUrl = (includeViewer && savedResult?.viewerUrl) ? savedResult.viewerUrl : null;
   if (plan.historyAllowed && includeViewer && !viewerUrl) warnings.push("viewer_unavailable");
-  const uniqueWarnings = [...new Set(warnings)];
-  const degraded = uniqueWarnings.some((warning) => (
-    warning === "screenshot_missing" || warning === "helper_unavailable" || warning === "viewer_unavailable"
-  ));
+  await reportCopyProgress(tabId, 0.94);
+  const final = await publishClipboard(shot, viewerUrl);
+  if (final.ok) published = final;
+  else if (!published.ok) published = final;
 
-  const language = getBestLanguage(remotePrefs?.language ?? settings.language);
-  const payload = formatClipboardPayload({
-    captureId: id,
-    createdAt: message.createdAt,
-    handoffMode,
-    includeScreenshot,
-    messages: translations[language],
-    page,
-    pins,
-    privacy,
-    schemaVersion: message.schemaVersion || 1,
-    shot,
-    viewerUrl,
-    viewport: message.viewport,
-    warnings: uniqueWarnings,
-  });
-
-  try {
-    await ensureOffscreen();
-    const written = await chrome.runtime.sendMessage({
-      html: payload.html,
-      plain: payload.plain,
-      type: "clipboard:write",
-    });
-    if (!written?.ok) throw new Error(written?.error || "clipboard write failed");
-    return { degraded, ok: true, plain: payload.plain, warning: uniqueWarnings[0] || null, warnings: uniqueWarnings };
-  } catch (error) {
-    // Give the active page a final, user-gesture-compatible clipboard path.
-    return { degraded, error: String(error), ok: false, plain: payload.plain, warning: uniqueWarnings[0] || null, warnings: uniqueWarnings };
+  if (published.ok) {
+    return {
+      degraded: published.degraded,
+      ok: true,
+      warning: published.uniqueWarnings[0] || null,
+      warnings: published.uniqueWarnings,
+    };
   }
+  return {
+    degraded: published.degraded,
+    error: published.error,
+    ok: false,
+    plain: published.payload.plain,
+    warning: published.uniqueWarnings[0] || null,
+    warnings: published.uniqueWarnings,
+  };
 }
 
 async function ensureOffscreen() {

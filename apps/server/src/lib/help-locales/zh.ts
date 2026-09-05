@@ -255,13 +255,13 @@ const locale = {
         {
           heading: "复制数据包",
           paragraphs: [
-            "在 macOS 上按 `Command+Enter`，在其他系统上按 `Ctrl+Enter`。Pinar 会复制人类可读的 Markdown、HTML，以及指向同一截图和图钉身份的 pinar-visual-context JSON 代码块。",
+            "在 macOS 上按 `Command+Enter`，在其他系统上按 `Ctrl+Enter`，或在两者上按 `Alt+Enter`。Pinar 会复制人类可读的 Markdown、HTML，以及指向同一截图和图钉身份的 pinar-visual-context JSON 代码块。",
           ],
         },
         {
           heading: "完成复制并保留身份",
           paragraphs: [
-            "只有在至少一个图钉已有评论后，`Command/Ctrl+Enter` 才会复制。叠加层会显示「正在保存标注…」，为截图隐藏图钉装饰，然后显示「复制成功！」，工具栏随之关闭。之后再点击扩展图标只会显示或隐藏叠加层，不会删除已放置的图钉。如果所有剪贴板路径都失败，叠加层会恢复，以便重试。",
+            "只有在至少一个图钉已有评论后，`Command/Ctrl/Alt+Enter` 才会复制。叠加层会显示「正在保存标注…」，为截图隐藏图钉装饰，然后显示「复制成功！」，工具栏随之关闭。之后再点击扩展图标只会显示或隐藏叠加层，不会删除已放置的图钉。如果所有剪贴板路径都失败，叠加层会恢复，以便重试。",
             "把剪贴板内容当作一个整体：可读说明、可选的查看器 URL，以及带围栏的 pinar-visual-context JSON 代码块，其中包含 `captureId`、`pinId`、页面 URL、定位器（cssSelector、domPath、innerText），以及助手存下文件后的截图 URL。图像上的编号徽章是标注叠加，不是页面 UI。粘贴给智能体时不要改写 `captureId` 或 `pinId`。若存在 Screenshot: /path/to/file.png 这一行，它就是包含所有图钉的那一张裁剪图。",
           ],
           bullets: [
@@ -315,7 +315,7 @@ const locale = {
             "`Enter` 会钉住悬停的元素；`Arrow Up` 选择其父级，`Arrow Down` 返回子级。",
             "`M` 切换隐私遮罩绘制。`Escape` 取消草稿或遮罩；若没有草稿，则会清除图钉并隐藏工具栏。",
             "`R` 在仅显示编号图钉与同时显示图钉及所选区域之间切换实时覆盖层。复制的截图始终包含两者。",
-            "`Command/Ctrl+Enter` 复制已完成的数据包。",
+            "`Command/Ctrl/Alt+Enter` 复制已完成的数据包。",
             "`Alt+Shift+P` 显示或隐藏工具栏而不取消会话，可在 `chrome://extensions/shortcuts` 中重新绑定。浏览器快捷键在 `chrome://` 页面、Chrome 网上应用店以及覆盖层注入之前不会生效。",
           ],
         },
@@ -332,7 +332,7 @@ const locale = {
             "`Arrow Up` 会走到父元素并记住您离开的子节点，因此当它仍是子级时 `Arrow Down` 会回到该记住的节点；否则使用第一个子节点。在遮罩模式下，拖出一个区域即可隐藏它，点击已有遮罩即可恢复。文档上的键盘滚动仍然有效，但针对已聚焦页面控件的按键会被拦截，以免激活按钮或向宿主表单输入。",
           ],
           bullets: [
-            "`Command/Ctrl+Enter` 会先保存打开的草稿，再复制；没有评论时会显示「请先填写评论」，而不是发送空图钉。",
+            "`Command/Ctrl/Alt+Enter` 会先保存打开的草稿，再复制；没有评论时会显示「请先填写评论」，而不是发送空图钉。",
             "`Escape` 或复制之后，Pinar 会持续占有该物理按键直到抬起，以免宿主页面把同一次按键当成自己的取消或提交。",
             "区域图钉只有在指针移动大约六个像素后才开始；更短的点击仍会钉住悬停元素，而不是打开自由矩形。",
           ],
@@ -542,13 +542,13 @@ const locale = {
         {
           heading: "如何把复制的数据包交给智能体",
           paragraphs: [
-            "Chrome 扩展从不会向智能体撰写框自动输入。`Command/Ctrl+Enter` 之后，请自行把剪贴板粘贴到 Cursor、Claude、Codex 或 Grok。文本开头会说明图钉备注可能是改动请求，也可能是解释问题，并把选择器和 DOM 路径当作互补定位器，随后是带围栏的 pinar-visual-context JSON 代码块。如果包含查看器 URL，仅在这些细节不够时再去获取。",
+            "Chrome 扩展从不会向智能体撰写框自动输入。`Command/Ctrl/Alt+Enter` 之后，请自行把剪贴板粘贴到 Cursor、Claude、Codex 或 Grok。文本开头会说明图钉备注可能是改动请求，也可能是解释问题，并把选择器和 DOM 路径当作互补定位器，随后是带围栏的 pinar-visual-context JSON 代码块。如果包含查看器 URL，仅在这些细节不够时再去获取。",
             "把 `captureId` 和 `pinId` 当作身份，而不是可以改写的标签。Visual Context 目前编码 schemaVersion 1；parseVisualCapture 会拒绝缺失的 `captureId`，以及任何不是 1 或旧版 0 的 schemaVersion。只遵循图钉描述的内容。如果对方从未粘贴，请让他们从 Pinar 再复制一次，而不是凭记忆重建图钉。",
           ],
           bullets: [
             "把整份剪贴板粘贴给智能体；不要重打评论或编造新的 `captureId`。",
             "开始改代码前，确认粘贴的文本仍包含闭合的 pinar-visual-context 围栏。",
-            "如果什么都没粘贴，请对方在 Pinar 中按 `Command/Ctrl+Enter`，并且只遵循图钉备注。",
+            "如果什么都没粘贴，请对方在 Pinar 中按 `Command/Ctrl/Alt+Enter`，并且只遵循图钉备注。",
           ],
         },
       ],
@@ -672,7 +672,7 @@ const locale = {
             "当所有复制路径都失败时，页面会发送 overlays:hidden 且 hidden 为 false，闪现「复制失败」，并让图钉保持可编辑。成功复制会显示「复制成功！」，或「复制成功！」加上「无截图」、「助手不可用」或「无查看器」，然后结束会话。这些后缀对应 `screenshot_missing`、`helper_unavailable` 和 `viewer_unavailable`。screenshot_inline 不属于降级交接警告。没有闭合 pinar-visual-context 围栏的粘贴无法作为 JSON 解析。",
           ],
           bullets: [
-            "如果工具栏显示「请先填写评论」或「请先添加图钉」，请完成该图钉并再次按 `Command/Ctrl+Enter`。",
+            "如果工具栏显示「请先填写评论」或「请先添加图钉」，请完成该图钉并再次按 `Command/Ctrl/Alt+Enter`。",
             "如果出现「复制失败」，请确认图钉仍在页面上，按提示授予剪贴板权限，然后重试复制。",
             "阅读「复制成功！」后缀：「无截图」、「助手不可用」和「无查看器」会指出要重试的缺失层，而无需丢弃评论。",
           ],
@@ -820,7 +820,7 @@ const locale = {
           heading: "用当前政策和正确货币开始 Checkout",
           paragraphs: [
             "在「套餐」页付款即表示接受当前条款、隐私政策和可接受使用。巴西使用 BRL 价格；其他国家使用 USD。Founder 结账会预留有限名额，若您离开而未付款则会释放。当群体已满或销售暂停时，「套餐」页会隐藏该优惠。",
-            "付款成功后，优惠会授予已登录账户，您会返回工作区。付费结账完成后即可使用计费门户。当 Pro 订阅结束时，那些云会话会进入恢复窗口；Founder 和旧版终身账户则保持永久。",
+            "付款成功后，优惠会授予已登录账户，您会返回工作区。付费结账完成后即可使用计费门户。当 Pro 订阅结束时，那些云会话会进入恢复窗口；Founder 账户则保持永久。",
           ],
           bullets: [
             "在「套餐」页继续付费结账即表示接受当前政策版本。",
@@ -880,7 +880,7 @@ const locale = {
           heading: "让替换内容符合配额，并使用 90 天恢复时钟",
           paragraphs: [
             "配额是套餐包含的存储加上仍然有效的加购。用更小的截图替换更大的截图，有时能成功，而全新捕获则不行。一旦账户达到或超过配额，上传就会暂停，宽限和恢复期间也是如此。",
-            "未标记为永久的 Free 云会话在七天后便有资格被清理。超过 Free 配额的 Pro 内容在付费资格结束后遵循 30 天宽限和 90 天恢复窗口。Founder 和旧版终身内容不会仅仅因为没有经常性订阅就被设为可清理。这台电脑上的仅本地历史永远不会被远程删除。资格并不承诺立即移除。",
+            "未标记为永久的 Free 云会话在七天后便有资格被清理。超过 Free 配额的 Pro 内容在付费资格结束后遵循 30 天宽限和 90 天恢复窗口。Founder 内容不会仅仅因为没有经常性订阅就被设为可清理。这台电脑上的仅本地历史永远不会被远程删除。资格并不承诺立即移除。",
           ],
           bullets: [
             "当新捕获暂停时，请通过删除会话或替换过重截图来腾出空间，或购买 5 GB 或 20 GB 的十二个月加购。",

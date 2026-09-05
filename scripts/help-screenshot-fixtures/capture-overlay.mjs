@@ -262,7 +262,7 @@ export function overlayFixtureHtml(copy, { language, sendMod, batchShortcut, mod
       <span class="instructions"${isReview ? " hidden" : ""}>
         <span class="hint" data-hint="pin">${pin}</span>
         <span class="hint" data-hint="tune"><span class="keys"><kbd>↑</kbd><kbd>↓</kbd></span><span>${tune}</span></span>
-        <span class="hint" data-hint="copy"><span class="keys"><kbd>${send}+↵</kbd></span><span>${copyHint}</span></span>
+        <span class="hint" data-hint="copy"><span class="keys"><kbd>${send}+↵</kbd><kbd>Alt+↵</kbd></span><span>${copyHint}</span></span>
         <span class="hint" data-hint="mask"><span class="keys"><kbd>M</kbd></span><span>${mask}</span></span>
         <span class="hint" data-hint="regions"><span class="keys"><kbd>R</kbd></span><span>${regions}</span></span>
         <span class="hint" data-hint="clear"><span class="keys"><kbd>esc</kbd></span><span>${clear}</span></span>

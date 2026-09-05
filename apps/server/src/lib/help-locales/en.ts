@@ -281,13 +281,13 @@ const locale = {
         {
           heading: "Copy the bundle",
           paragraphs: [
-            "Press `Command+Enter` on macOS or `Ctrl+Enter` elsewhere. Pinar copies human-readable Markdown, HTML, and a pinar-visual-context JSON block that refer to the same screenshot and pin identities.",
+            "Press `Command+Enter` on macOS, `Ctrl+Enter` elsewhere, or `Alt+Enter` on either. Pinar copies human-readable Markdown, HTML, and a pinar-visual-context JSON block that refer to the same screenshot and pin identities.",
           ],
         },
         {
           heading: "Finish the copy and keep identities",
           paragraphs: [
-            "`Command/Ctrl+Enter` copies only after at least one pin has a comment. The overlay shows “Saving the annotations…”, hides the pins for the screenshot, then “Copied successfully!”, and the toolbar closes. Clicking the extension icon later only shows or hides the overlay; it does not delete pins you already placed. If every clipboard path fails, the overlay is restored so you can retry.",
+            "`Command/Ctrl/Alt+Enter` copies only after at least one pin has a comment. The overlay shows “Saving the annotations…”, hides the pins for the screenshot, then “Copied successfully!”, and the toolbar closes. Clicking the extension icon later only shows or hides the overlay; it does not delete pins you already placed. If every clipboard path fails, the overlay is restored so you can retry.",
             "Treat the clipboard payload as one unit: readable instructions, an optional viewer URL, and a fenced pinar-visual-context JSON block with `captureId`, `pinId`, page URL, locators (cssSelector, domPath, innerText), and a screenshot URL when the helper stored a file. Numbered badges on the image are annotation overlays, not page UI. Do not rewrite `captureId` or `pinId` when pasting to an agent. A Screenshot: /path/to/file.png line, when present, is the single crop that contains every pin.",
           ],
           bullets: [
@@ -343,7 +343,7 @@ const locale = {
             "`Enter` pins the hovered element; `Arrow Up` selects its parent and `Arrow Down` returns to a child.",
             "`M` toggles privacy-mask drawing. `Escape` cancels a draft or mask; with no draft it clears pins and hides the toolbar.",
             "`R` toggles the live overlay between numbered pins only and pins with their selected regions. The copied screenshot always includes both.",
-            "`Command/Ctrl+Enter` copies the completed bundle.",
+            "`Command/Ctrl/Alt+Enter` copies the completed bundle.",
             "`Alt+Shift+P` shows or hides the toolbar without cancelling the session, and you can rebind it in `chrome://extensions/shortcuts`. Browser shortcuts stay inert on `chrome://` pages, on the Chrome Web Store, and before the overlay is injected.",
           ],
         },
@@ -360,7 +360,7 @@ const locale = {
             "`Arrow Up` walks to the parent element and remembers the child you left, so `Arrow Down` returns to that remembered node when it is still a child; otherwise it uses the first child. In mask mode, drag a region to hide it and click an existing mask to restore it. Keyboard scrolling still works on the document, but keys aimed at focused page controls are blocked so they cannot activate buttons or type into the host form.",
           ],
           bullets: [
-            "`Command/Ctrl+Enter` saves an open draft, then copies; without a comment it shows “Write a comment first” instead of sending an empty pin.",
+            "`Command/Ctrl/Alt+Enter` saves an open draft, then copies; without a comment it shows “Write a comment first” instead of sending an empty pin.",
             "After `Escape` or copy, Pinar keeps owning that physical key through keyup so the host page does not treat the same keystroke as its own cancel or submit.",
             "An area pin starts only after the pointer moves about six pixels; a shorter click still pins the hovered element instead of opening a freeform rectangle.",
           ],
@@ -575,13 +575,13 @@ const locale = {
         {
           heading: "How to deliver the copied bundle to an agent",
           paragraphs: [
-            "The Chrome extension never types into the agent composer. After `Command/Ctrl+Enter`, paste the clipboard yourself into Cursor, Claude, Codex, or Grok. The text begins by saying the pin notes may ask for a change or an explanation, and to treat selector and DOM path as complementary locators, followed by a fenced pinar-visual-context JSON block. If a Viewer URL is included, fetch it only when those details are not enough.",
+            "The Chrome extension never types into the agent composer. After `Command/Ctrl/Alt+Enter`, paste the clipboard yourself into Cursor, Claude, Codex, or Grok. The text begins by saying the pin notes may ask for a change or an explanation, and to treat selector and DOM path as complementary locators, followed by a fenced pinar-visual-context JSON block. If a Viewer URL is included, fetch it only when those details are not enough.",
             "Treat `captureId` and `pinId` as identity, not labels to rewrite. Visual Context currently encodes schemaVersion 1; parseVisualCapture rejects a missing `captureId` and any schemaVersion other than 1 or the legacy 0. Follow only what the pins describe. If the person never pasted, ask them to copy again from Pinar instead of reconstructing pins from memory.",
           ],
           bullets: [
             "Paste the whole clipboard into the agent; do not retype comments or invent a new `captureId`.",
             "Confirm the pasted text still contains a closed pinar-visual-context fence before you start editing code.",
-            "If nothing was pasted, ask for `Command/Ctrl+Enter` in Pinar and follow only the pin notes.",
+            "If nothing was pasted, ask for `Command/Ctrl/Alt+Enter` in Pinar and follow only the pin notes.",
           ],
         },
       ],
@@ -707,7 +707,7 @@ const locale = {
             "When every copy path fails, the page sends overlays:hidden with hidden false, flashes “Copy failed”, and leaves pins editable. A successful copy shows “Copied successfully!”, or “Copied successfully!” plus “no screenshot”, “helper unavailable”, or “no viewer”, then ends the session. Those suffixes map to `screenshot_missing`, `helper_unavailable`, and `viewer_unavailable`. screenshot_inline is not one of the degraded handoff warnings. A paste without a closed pinar-visual-context fence cannot be parsed as JSON.",
           ],
           bullets: [
-            "If the toolbar says “Write a comment first” or “Add a pin first”, finish that pin and press `Command/Ctrl+Enter` again.",
+            "If the toolbar says “Write a comment first” or “Add a pin first”, finish that pin and press `Command/Ctrl/Alt+Enter` again.",
             "If “Copy failed” appears, confirm the pins are still on the page, grant clipboard permission if prompted, and retry the copy.",
             "Read the “Copied successfully!” suffix: “no screenshot”, “helper unavailable”, and “no viewer” name the missing layer to retry without discarding comments.",
           ],
@@ -860,7 +860,7 @@ const locale = {
             "Start Checkout with current policies and the right currency",
           paragraphs: [
             "Paying on Plans accepts the current Terms, Privacy Policy, and Acceptable Use. Brazil uses BRL prices; other countries use USD. Founder checkout reserves a limited slot and releases it if you leave without paying. When the cohort is full or sales are paused, the Plans page hides that offer.",
-            "After a successful payment, the offer is granted on the signed-in account and you return to the workspace. The billing portal is available after a paid checkout. When a Pro subscription ends, those cloud sessions enter a recovery window; Founder and legacy lifetime accounts stay permanent instead.",
+            "After a successful payment, the offer is granted on the signed-in account and you return to the workspace. The billing portal is available after a paid checkout. When a Pro subscription ends, those cloud sessions enter a recovery window; Founder accounts stay permanent instead.",
           ],
           bullets: [
             "Continuing a paid checkout on Plans accepts the current policy versions.",
@@ -923,7 +923,7 @@ const locale = {
             "Fit replacements under quota and use the 90-day recovery clock",
           paragraphs: [
             "Quota is your plan’s included storage plus any still-active add-on. Replacing a larger screenshot with a smaller one can succeed when a brand-new capture would not. Uploads pause once the account is at or above quota, including during grace and recovery.",
-            "Free cloud sessions that are not marked permanent become eligible for cleanup after seven days. Pro content above the Free quota follows the 30-day grace and 90-day recovery window after paid eligibility ends. Founder and legacy lifetime content is not made eligible merely because there is no recurring subscription. Local-only history on this computer is never deleted remotely. Eligibility is not a promise of immediate removal.",
+            "Free cloud sessions that are not marked permanent become eligible for cleanup after seven days. Pro content above the Free quota follows the 30-day grace and 90-day recovery window after paid eligibility ends. Founder content is not made eligible merely because there is no recurring subscription. Local-only history on this computer is never deleted remotely. Eligibility is not a promise of immediate removal.",
           ],
           bullets: [
             "When new captures pause, free space by deleting sessions or replacing a heavy screenshot, or purchase a 5 GB or 20 GB twelve-month add-on.",

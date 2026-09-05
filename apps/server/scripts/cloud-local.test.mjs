@@ -24,7 +24,7 @@ describe("local cloud runtime options", () => {
       parseCloudLocalOptions(["--profile", "free"]),
       { port: 3000, profile: "free", serve: false, statePath: ".wrangler/state/cloud-local" },
     );
-    assert.throws(() => parseCloudLocalOptions(["--profile", "enterprise"]), /founder, free, lifetime, pro/);
+    assert.throws(() => parseCloudLocalOptions(["--profile", "enterprise"]), /founder, free, pro/);
     assert.throws(() => parseCloudLocalOptions(["--port", "0"]), /between 1 and 65535/);
   });
 });
@@ -47,7 +47,7 @@ describe("local cloud account fixture", () => {
   });
 
   test("keeps one-time plans free of a monthly refill promise", () => {
-    for (const profile of ["founder", "lifetime"]) {
+    for (const profile of ["founder"]) {
       const fixture = buildCloudLocalFixture(profile, "test-pepper", new Date("2026-08-19T12:00:00.000Z"));
       assert.equal(fixture.nextRefillAt, null);
       assert.doesNotMatch(buildCloudLocalSeedSql(fixture), /'pro_monthly'/);

@@ -2,7 +2,7 @@
 CREATE TABLE users (
   id TEXT PRIMARY KEY,
   email TEXT NOT NULL COLLATE NOCASE UNIQUE,
-  plan TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'pro', 'founder', 'lifetime')),
+  plan TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'pro', 'founder')),
   ever_paid INTEGER NOT NULL DEFAULT 0 CHECK (ever_paid IN (0, 1)),
   billing_status TEXT NOT NULL DEFAULT 'active' CHECK (billing_status IN ('active', 'canceled', 'past_due')),
   stripe_customer_id TEXT UNIQUE,
@@ -33,7 +33,7 @@ CREATE TABLE ai_credit_grants (
   owner_type TEXT NOT NULL CHECK (owner_type IN ('account', 'installation')),
   owner_id TEXT NOT NULL,
   source_type TEXT NOT NULL CHECK (
-    source_type IN ('free_initial', 'pro_monthly', 'founder_initial', 'lifetime_initial', 'purchase')
+    source_type IN ('free_initial', 'pro_monthly', 'founder_initial', 'purchase')
   ),
   source_id TEXT NOT NULL UNIQUE,
   credits INTEGER NOT NULL CHECK (credits > 0),
@@ -311,7 +311,7 @@ CREATE TABLE sessions (
   pins_json TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL,
   user_id TEXT NOT NULL,
-  plan TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'pro', 'founder', 'lifetime')),
+  plan TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'pro', 'founder')),
   is_permanent INTEGER NOT NULL DEFAULT 0 CHECK (is_permanent IN (0, 1)),
   byte_size INTEGER NOT NULL DEFAULT 0,
   collection_id TEXT REFERENCES collections(id),

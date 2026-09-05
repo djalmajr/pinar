@@ -56,6 +56,7 @@ describe("cloud schema migrations", () => {
       "0011_handoff_mode.sql",
       "0012_batches.sql",
       "0013_delivery_preferences.sql",
+      "0014_drop_lifetime_plan.sql",
     ]);
     const migrated = new Database(":memory:");
     const canonical = new Database(":memory:");
@@ -674,6 +675,66 @@ describe("cloud schema migrations", () => {
       );
       assert.throws(
         () => db.query("UPDATE owner_preferences SET copy_on_finish_batch = 'always' WHERE owner_id = 'usr_existing'").run(),
+        /constraint/i,
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  test("folds leftover Lifetime rows into Founder and rejects new lifetime values", () => {
+    const db = new Database(":memory:");
+    try {
+      db.exec("PRAGMA foreign_keys = ON;");
+      applyMigrations(db, [
+        "0001_initial.sql",
+        "0002_billing_entitlements.sql",
+        "0003_ai_usage_and_storage_notices.sql",
+        "0004_stripe_subscription_ordering.sql",
+        "0005_founder_and_legal_acceptance.sql",
+        "0006_agent_executions.sql",
+        "0007_pin_reviews.sql",
+        "0008_loop_metrics.sql",
+        "0009_include_screenshot.sql",
+        "0010_owner_preferences.sql",
+        "0011_handoff_mode.sql",
+        "0012_batches.sql",
+        "0013_delivery_preferences.sql",
+      ]);
+      db.exec(`
+        INSERT INTO users (id, email, plan, ever_paid, created_at, updated_at)
+        VALUES ('usr_legacy', 'legacy@example.test', 'lifetime', 1,
+          '2026-08-16T00:00:00.000Z', '2026-08-16T00:00:00.000Z');
+        INSERT INTO sessions (id, created_at, user_id, plan, is_permanent, byte_size)
+        VALUES ('legacy_session', '2026-08-16T00:00:00.000Z', 'usr_legacy', 'lifetime', 1, 42);
+        INSERT INTO ai_credit_grants (
+          id, owner_type, owner_id, source_type, source_id, credits, created_at
+        ) VALUES (
+          'grant_legacy', 'account', 'usr_legacy', 'lifetime_initial',
+          'legacy:usr_legacy', 500, '2026-08-16T00:00:00.000Z'
+        );
+      `);
+
+      applyMigrations(db, ["0014_drop_lifetime_plan.sql"]);
+
+      assert.equal(
+        db.query<{ plan: string }, []>("SELECT plan FROM users WHERE id = 'usr_legacy'").get()?.plan,
+        "founder",
+      );
+      assert.equal(
+        db.query<{ plan: string }, []>("SELECT plan FROM sessions WHERE id = 'legacy_session'").get()?.plan,
+        "founder",
+      );
+      assert.equal(
+        db.query<{ source_type: string }, []>(
+          "SELECT source_type FROM ai_credit_grants WHERE id = 'grant_legacy'",
+        ).get()?.source_type,
+        "founder_initial",
+      );
+      assert.throws(
+        () => db.query(
+          "INSERT INTO users (id, email, plan, ever_paid, created_at, updated_at) VALUES ('usr_no', 'no@example.test', 'lifetime', 1, '2026-09-05T00:00:00.000Z', '2026-09-05T00:00:00.000Z')",
+        ).run(),
         /constraint/i,
       );
     } finally {

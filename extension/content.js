@@ -550,7 +550,7 @@
         <span class="instructions" data-ref="instructions">
           <span class="hint" data-hint="pin" data-i18n="overlay_hint_pin">${t("overlay_hint_pin")}</span>
           <span class="hint" data-hint="tune"><span class="keys"><kbd>↑</kbd><kbd>↓</kbd></span><span class="long" data-i18n="overlay_hint_tune_long">${t("overlay_hint_tune_long")}</span><span class="short" data-i18n="overlay_hint_tune_short">${t("overlay_hint_tune_short")}</span></span>
-          <span class="hint" data-hint="copy"><span class="keys"><kbd>${sendMod}+↵</kbd></span><span class="long" data-i18n="overlay_hint_copy_long">${t("overlay_hint_copy_long")}</span><span class="short" data-i18n="overlay_hint_copy_short">${t("overlay_hint_copy_short")}</span></span>
+          <span class="hint" data-hint="copy"><span class="keys"><kbd>${sendMod}+↵</kbd><kbd>Alt+↵</kbd></span><span class="long" data-i18n="overlay_hint_copy_long">${t("overlay_hint_copy_long")}</span><span class="short" data-i18n="overlay_hint_copy_short">${t("overlay_hint_copy_short")}</span></span>
           <span class="hint" data-hint="mask"><span class="keys"><kbd>M</kbd></span><span class="long" data-i18n="overlay_hint_mask_long">${t("overlay_hint_mask_long")}</span><span class="short" data-i18n="overlay_hint_mask_short">${t("overlay_hint_mask_short")}</span></span>
           <span class="hint" data-hint="regions"><span class="keys"><kbd>R</kbd></span><span data-i18n="overlay_hint_regions">${t("overlay_hint_regions")}</span></span>
           <span class="hint" data-hint="clear"><span class="keys"><kbd>esc</kbd></span><span class="long" data-i18n="overlay_hint_clear_long">${t("overlay_hint_clear_long")}</span><span class="short" data-i18n="overlay_hint_clear_short">${t("overlay_hint_clear_short")}</span></span>
@@ -1902,7 +1902,7 @@
   }
 
   function isModEnter(event) {
-    return event.key === "Enter" && (event.metaKey || event.ctrlKey);
+    return event.key === "Enter" && (event.metaKey || event.ctrlKey || event.altKey);
   }
 
   // Physical keys whose keydown we suppressed; their keyup/keypress must be
@@ -2534,6 +2534,13 @@
   globalThis.chrome?.runtime?.onMessage?.addListener?.((message, _sender, sendResponse) => {
     if (message?.type === "session:hydrate") {
       sendResponse({ ok: hydrateSession(message) });
+      return false;
+    }
+    if (message?.type === "copy:progress") {
+      if (state.sending && typeof message.progress === "number") {
+        setProgress(t("overlay_copying"), message.progress);
+      }
+      sendResponse({ ok: true });
       return false;
     }
     if (message?.type === "batch:changed") {

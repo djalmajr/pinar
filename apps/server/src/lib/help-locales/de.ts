@@ -283,13 +283,13 @@ const locale = {
         {
           heading: "Das Bundle kopieren",
           paragraphs: [
-            "Drücke unter macOS `Command+Enter`, sonst `Ctrl+Enter`. Pinar kopiert menschenlesbares Markdown, HTML und einen pinar-visual-context-JSON-Block, die auf denselben Screenshot und dieselben Pin-Identitäten verweisen.",
+            "Drücke unter macOS `Command+Enter`, sonst `Ctrl+Enter`, oder `Alt+Enter` auf beiden. Pinar kopiert menschenlesbares Markdown, HTML und einen pinar-visual-context-JSON-Block, die auf denselben Screenshot und dieselben Pin-Identitäten verweisen.",
           ],
         },
         {
           heading: "Kopieren abschließen und Identitäten behalten",
           paragraphs: [
-            "`Command/Ctrl+Enter` kopiert erst, wenn mindestens ein Pin einen Kommentar hat. Das Overlay zeigt „Anmerkungen werden gespeichert…“, blendet die Pins für den Screenshot aus, danach „Erfolgreich kopiert!“, und die Symbolleiste schließt sich. Ein späterer Klick auf das Erweiterungssymbol blendet nur das Overlay ein oder aus; bereits gesetzte Pins werden nicht gelöscht. Scheitern alle Zwischenablagewege, wird das Overlay wiederhergestellt, damit du es erneut versuchen kannst.",
+            "`Command/Ctrl/Alt+Enter` kopiert erst, wenn mindestens ein Pin einen Kommentar hat. Das Overlay zeigt „Anmerkungen werden gespeichert…“, blendet die Pins für den Screenshot aus, danach „Erfolgreich kopiert!“, und die Symbolleiste schließt sich. Ein späterer Klick auf das Erweiterungssymbol blendet nur das Overlay ein oder aus; bereits gesetzte Pins werden nicht gelöscht. Scheitern alle Zwischenablagewege, wird das Overlay wiederhergestellt, damit du es erneut versuchen kannst.",
             "Behandle die Zwischenablage-Nutzlast als eine Einheit: lesbare Anweisungen, eine optionale Viewer-URL und einen abgegrenzten pinar-visual-context-JSON-Block mit `captureId`, `pinId`, Seiten-URL, Locators (cssSelector, domPath, innerText) und einer Screenshot-URL, wenn der Helper eine Datei gespeichert hat. Nummerierte Badges auf dem Bild sind Annotations-Overlays, keine Seiten-UI. Schreibe `captureId` oder `pinId` beim Einfügen in einen Agent nicht um. Eine Zeile Screenshot: /path/to/file.png ist, sofern vorhanden, der einzige Ausschnitt, der alle Pins enthält.",
           ],
           bullets: [
@@ -345,7 +345,7 @@ const locale = {
             "`Enter` setzt einen Pin auf das Element unter dem Zeiger; `Arrow Up` wählt das Elternelement, `Arrow Down` kehrt zu einem Kind zurück.",
             "`M` schaltet das Zeichnen der Privacy-Maske um. `Escape` bricht einen Entwurf oder eine Maske ab; ohne Entwurf werden Pins gelöscht und die Symbolleiste ausgeblendet.",
             "`R` schaltet das Live-Overlay zwischen nur nummerierten Pins und Pins mit ihren Regionen um. Der kopierte Screenshot enthält immer beides.",
-            "`Command/Ctrl+Enter` kopiert das fertige Bundle.",
+            "`Command/Ctrl/Alt+Enter` kopiert das fertige Bundle.",
             "`Alt+Shift+P` blendet die Toolbar ein oder aus, ohne die Sitzung abzubrechen, und lässt sich unter `chrome://extensions/shortcuts` neu belegen. Browser-Kurzbefehle bleiben auf `chrome://`-Seiten, im Chrome Web Store und vor der Injektion des Overlays wirkungslos.",
           ],
         },
@@ -362,7 +362,7 @@ const locale = {
             "`Arrow Up` geht zum Elternelement und merkt sich das verlassene Kind, sodass `Arrow Down` zu diesem gemerkten Knoten zurückkehrt, wenn er noch ein Kind ist; sonst wird das erste Kind verwendet. Im Maskenmodus ziehst du einen Bereich, um ihn auszublenden, und klickst auf eine vorhandene Maske, um sie wiederherzustellen. Tastatur-Scrolling funktioniert weiterhin im Dokument, aber auf fokussierte Seitensteuerungen gerichtete Tasten werden blockiert, damit sie keine Schaltflächen auslösen oder in das Host-Formular schreiben.",
           ],
           bullets: [
-            "`Command/Ctrl+Enter` speichert einen offenen Entwurf und kopiert anschließend; ohne Kommentar erscheint „Zuerst einen Kommentar schreiben“, statt einen leeren Pin zu senden.",
+            "`Command/Ctrl/Alt+Enter` speichert einen offenen Entwurf und kopiert anschließend; ohne Kommentar erscheint „Zuerst einen Kommentar schreiben“, statt einen leeren Pin zu senden.",
             "Nach `Escape` oder dem Kopieren behält Pinar diese physische Taste bis keyup, damit die Host-Seite denselben Tastendruck nicht als eigenes Abbrechen oder Absenden wertet.",
             "Ein Bereichs-Pin startet erst, wenn sich der Zeiger etwa sechs Pixel bewegt; ein kürzerer Klick setzt weiterhin einen Pin auf das Element unter dem Zeiger, statt ein Freiform-Rechteck zu öffnen.",
           ],
@@ -578,13 +578,13 @@ const locale = {
         {
           heading: "Wie das kopierte Bundle an einen Agenten geliefert wird",
           paragraphs: [
-            "Die Chrome-Erweiterung tippt niemals in den Agent-Composer. Nach `Command/Ctrl+Enter` füge die Zwischenablage selbst in Cursor, Claude, Codex oder Grok ein. Der Text beginnt damit, dass die Pin-Notizen eine Änderung oder eine Erklärung erbitten können, und Selektor und DOM-Pfad als ergänzende Locator zu behandeln, gefolgt von einem abgegrenzten pinar-visual-context-JSON-Block. Wenn eine Viewer-URL enthalten ist, rufe sie nur ab, wenn diese Details nicht ausreichen.",
+            "Die Chrome-Erweiterung tippt niemals in den Agent-Composer. Nach `Command/Ctrl/Alt+Enter` füge die Zwischenablage selbst in Cursor, Claude, Codex oder Grok ein. Der Text beginnt damit, dass die Pin-Notizen eine Änderung oder eine Erklärung erbitten können, und Selektor und DOM-Pfad als ergänzende Locator zu behandeln, gefolgt von einem abgegrenzten pinar-visual-context-JSON-Block. Wenn eine Viewer-URL enthalten ist, rufe sie nur ab, wenn diese Details nicht ausreichen.",
             "Behandle `captureId` und `pinId` als Identität, nicht als Labels zum Umschreiben. Visual Context kodiert derzeit schemaVersion 1; parseVisualCapture lehnt eine fehlende `captureId` und jede schemaVersion außer 1 oder dem Legacy-Wert 0 ab. Folge nur dem, was die Pins beschreiben. Wenn die Person nichts eingefügt hat, bitte sie, erneut aus Pinar zu kopieren, statt Pins aus dem Gedächtnis zu rekonstruieren.",
           ],
           bullets: [
             "Füge die gesamte Zwischenablage in den Agenten ein; tippe Kommentare nicht ab und erfinde keine neue `captureId`.",
             "Bestätige, dass der eingefügte Text noch einen geschlossenen pinar-visual-context-Fence enthält, bevor du Code bearbeitest.",
-            "Wenn nichts eingefügt wurde, bitte um `Command/Ctrl+Enter` in Pinar und folge nur den Pin-Notizen.",
+            "Wenn nichts eingefügt wurde, bitte um `Command/Ctrl/Alt+Enter` in Pinar und folge nur den Pin-Notizen.",
           ],
         },
       ],
@@ -713,7 +713,7 @@ const locale = {
             "Wenn jeder Kopierpfad fehlschlägt, sendet die Seite overlays:hidden mit hidden false, zeigt kurz „Kopieren fehlgeschlagen“ und lässt Pins bearbeitbar. Ein erfolgreiches Kopieren zeigt „Erfolgreich kopiert!“ oder „Erfolgreich kopiert!“ plus „kein Screenshot“, „Helfer nicht verfügbar“ oder „kein Viewer“ und beendet dann die Sitzung. Diese Suffixe entsprechen `screenshot_missing`, `helper_unavailable` und `viewer_unavailable`. screenshot_inline gehört nicht zu den eingeschränkten Übergabewarnungen. Ein Einfügen ohne geschlossene pinar-visual-context-Fence kann nicht als JSON geparst werden.",
           ],
           bullets: [
-            "Wenn die Symbolleiste „Zuerst einen Kommentar schreiben“ oder „Zuerst einen Pin setzen“ anzeigt, schließe diesen Pin ab und drücke erneut `Command/Ctrl+Enter`.",
+            "Wenn die Symbolleiste „Zuerst einen Kommentar schreiben“ oder „Zuerst einen Pin setzen“ anzeigt, schließe diesen Pin ab und drücke erneut `Command/Ctrl/Alt+Enter`.",
             "Wenn „Kopieren fehlgeschlagen“ erscheint, bestätige, dass die Pins noch auf der Seite sind, erteile bei Aufforderung die Zwischenablageberechtigung und wiederhole das Kopieren.",
             "Lies das Suffix von „Erfolgreich kopiert!“: „kein Screenshot“, „Helfer nicht verfügbar“ und „kein Viewer“ benennen die fehlende Ebene, die du ohne Verwerfen der Kommentare erneut versuchen kannst.",
           ],
@@ -866,7 +866,7 @@ const locale = {
             "Checkout mit aktuellen Richtlinien und der richtigen Währung starten",
           paragraphs: [
             "Eine Zahlung auf Plans akzeptiert die aktuellen Nutzungsbedingungen, die Datenschutzerklärung und die zulässige Nutzung. Brasilien verwendet BRL-Preise; andere Länder verwenden USD. Der Founder-Checkout reserviert einen begrenzten Platz und gibt ihn frei, wenn du ohne Zahlung gehst. Ist die Kohorte voll oder der Verkauf pausiert, blendet die Plans-Seite dieses Angebot aus.",
-            "Nach einer erfolgreichen Zahlung wird das Angebot dem angemeldeten Konto gewährt und du kehrst in den Workspace zurück. Das Abrechnungsportal ist nach einem bezahlten Checkout verfügbar. Endet ein Pro-Abonnement, treten diese Cloud-Sitzungen in ein Wiederherstellungsfenster ein; Founder- und Legacy-Lifetime-Konten bleiben stattdessen dauerhaft.",
+            "Nach einer erfolgreichen Zahlung wird das Angebot dem angemeldeten Konto gewährt und du kehrst in den Workspace zurück. Das Abrechnungsportal ist nach einem bezahlten Checkout verfügbar. Endet ein Pro-Abonnement, treten diese Cloud-Sitzungen in ein Wiederherstellungsfenster ein; Founder-Konten bleiben stattdessen dauerhaft.",
           ],
           bullets: [
             "Ein bezahlter Checkout auf Plans akzeptiert die aktuellen Richtlinienversionen.",
@@ -930,7 +930,7 @@ const locale = {
             "Ersetzungen unter das Kontingent bringen und die 90-Tage-Wiederherstellungsuhr nutzen",
           paragraphs: [
             "Das Kontingent ist der im Plan enthaltene Speicher plus jedes noch aktive Add-on. Das Ersetzen eines größeren Screenshots durch einen kleineren kann gelingen, wenn eine brandneue Capture das nicht täte. Uploads pausieren, sobald das Konto am oder über dem Kontingent liegt, auch während Nachfrist und Wiederherstellung.",
-            "Free-Cloud-Sitzungen, die nicht als dauerhaft markiert sind, werden nach sieben Tagen bereinigungsberechtigt. Pro-Inhalte oberhalb des Free-Kontingents folgen nach Ende der bezahlten Berechtigung der 30-tägigen Nachfrist und dem 90-tägigen Wiederherstellungsfenster. Founder- und Legacy-Lifetime-Inhalte werden nicht allein deshalb berechtigt, weil kein wiederkehrendes Abonnement besteht. Ausschließlich lokaler Verlauf auf diesem Computer wird niemals remote gelöscht. Berechtigung ist kein Versprechen einer sofortigen Entfernung.",
+            "Free-Cloud-Sitzungen, die nicht als dauerhaft markiert sind, werden nach sieben Tagen bereinigungsberechtigt. Pro-Inhalte oberhalb des Free-Kontingents folgen nach Ende der bezahlten Berechtigung der 30-tägigen Nachfrist und dem 90-tägigen Wiederherstellungsfenster. Founder-Inhalte werden nicht allein deshalb berechtigt, weil kein wiederkehrendes Abonnement besteht. Ausschließlich lokaler Verlauf auf diesem Computer wird niemals remote gelöscht. Berechtigung ist kein Versprechen einer sofortigen Entfernung.",
           ],
           bullets: [
             "Wenn neue Captures pausieren, schaffe Platz, indem du Sitzungen löschst oder einen umfangreichen Screenshot ersetzt, oder erwirb ein zwölfmonatiges 5-GB- oder 20-GB-Add-on.",

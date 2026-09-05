@@ -65,13 +65,32 @@ describe("session after copy", () => {
     assert.equal(backgroundSrc.includes(LEGACY_GLOBAL), false);
   });
 
+  test("Cmd/Ctrl/Alt+Enter copies the finished bundle", () => {
+    assert.match(contentSrc, /event\.key === "Enter" && \(event\.metaKey \|\| event\.ctrlKey \|\| event\.altKey\)/);
+    assert.match(contentSrc, /<kbd>\$\{sendMod\}\+↵<\/kbd><kbd>Alt\+↵<\/kbd>/);
+  });
+
   test("Cmd/Ctrl+Enter keeps a page-level clipboard fallback before ending the session", () => {
     // Regression captured: an unavailable offscreen clipboard or a transient
     // Markdown endpoint used to leave the user with no copied content.
     assert.match(contentSrc, /async function writePlainText/);
     assert.match(contentSrc, /copied\?\.plain\s*\?\s*await writePlainText/);
     assert.match(contentSrc, /!copied\?\.ok\s*&&\s*!locallyCopied/);
-    assert.match(backgroundSrc, /return \{ degraded, error: String\(error\), ok: false, plain: payload\.plain, warning: uniqueWarnings\[0\] \|\| null, warnings: uniqueWarnings \}/);
+    assert.match(backgroundSrc, /ok: false,\s*\n\s*plain: published\.payload\.plain/);
+  });
+
+  test("clipboard is published before the helper stores the screenshot", () => {
+    // Mutation captured: waiting on saveShot before the first clipboard write
+    // left the overlay stuck at 80% after comments were already pasteable.
+    const copyBundle = backgroundSrc.slice(
+      backgroundSrc.indexOf("async function copyBundle"),
+      backgroundSrc.indexOf("async function ensureOffscreen"),
+    );
+    const firstWrite = copyBundle.indexOf("type: \"clipboard:write\"");
+    const save = copyBundle.indexOf("saveShot(");
+    assert.ok(firstWrite >= 0 && save > firstWrite);
+    assert.match(copyBundle, /reportCopyProgress\(tabId, 0\.86\)/);
+    assert.match(contentSrc, /message\?\.type === "copy:progress"/);
   });
 
   test("screenshot and helper failures still copy a correlatable bundle", () => {
@@ -84,7 +103,7 @@ describe("session after copy", () => {
     assert.match(backgroundSrc, /warnings\.push\("screenshot_missing"\)/);
     assert.match(backgroundSrc, /warnings\.push\("helper_unavailable"\)/);
     assert.match(backgroundSrc, /warnings\.push\("viewer_unavailable"\)/);
-    assert.match(backgroundSrc, /degraded, ok: true, plain: payload\.plain/);
+    assert.match(backgroundSrc, /degraded: published\.degraded,\s*\n\s*ok: true/);
     assert.match(backgroundSrc, /viewerUrl,/);
   });
 

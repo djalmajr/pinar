@@ -4,7 +4,7 @@ interface SessionFixture {
   email?: string;
   installationId?: string;
   kind: "account" | "installation";
-  plan: "founder" | "free" | "lifetime" | "pro";
+  plan: "founder" | "free" | "pro";
   userId?: string;
 }
 
@@ -25,7 +25,7 @@ test("Free installation keeps Fair Source sponsorship visible", async ({ page })
 
 // Mutation captured: rendering the support section after `isPaidAuthSession`
 // makes both paid cases fail because the region count changes from zero to one.
-for (const plan of ["pro", "founder", "lifetime"] as const) {
+for (const plan of ["pro", "founder"] as const) {
   test(`paid ${plan} account does not see Fair Source sponsorship`, async ({ page }) => {
     const session: SessionFixture = {
       email: `e2e_${plan}@example.com`,

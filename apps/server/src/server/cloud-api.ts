@@ -50,7 +50,6 @@ import {
 } from "@pinar/shared/project-icons";
 import {
   FOUNDER_INITIAL_AI_CREDITS,
-  LIFETIME_AI_CREDITS,
   PRO_MONTHLY_AI_CREDITS,
   PURCHASED_AI_CREDITS,
   STORAGE_20GB_BYTES,
@@ -152,13 +151,11 @@ export interface CloudEnv {
   STRIPE_PRICE_AI_CREDITS_1000?: string;
   STRIPE_PRICE_BR_AI_CREDITS_1000?: string;
   STRIPE_PRICE_BR_FOUNDER?: string;
-  STRIPE_PRICE_BR_LIFETIME?: string;
   STRIPE_PRICE_BR_MONTHLY?: string;
   STRIPE_PRICE_BR_STORAGE_20GB_12M?: string;
   STRIPE_PRICE_BR_STORAGE_5GB_12M?: string;
   STRIPE_PRICE_BR_YEARLY?: string;
   STRIPE_PRICE_FOUNDER?: string;
-  STRIPE_PRICE_LIFETIME?: string;
   STRIPE_PRICE_MONTHLY?: string;
   STRIPE_PRICE_STORAGE_20GB_12M?: string;
   STRIPE_PRICE_STORAGE_5GB_12M?: string;
@@ -246,7 +243,7 @@ interface LegalAcceptanceRecord extends CheckoutLegalEvidence {
   source: "account" | "checkout" | "remote_free";
 }
 
-type AiCreditSourceType = "founder_initial" | "free_initial" | "lifetime_initial" | "pro_monthly" | "purchase";
+type AiCreditSourceType = "founder_initial" | "free_initial" | "pro_monthly" | "purchase";
 
 interface AiCreditGrantRecord {
   consumedCredits: number;
@@ -701,7 +698,8 @@ function timingSafeEqual(left: string, right: string) {
 }
 
 function accountPlan(value: unknown): AccountPlan {
-  return value === "founder" || value === "lifetime" || value === "pro" ? value : "free";
+  if (value === "founder" || value === "lifetime") return "founder";
+  return value === "pro" ? "pro" : "free";
 }
 
 function accountFromRow(row: Record<string, unknown>): AccountRecord {
@@ -760,7 +758,7 @@ function accountAuthSession(account: AccountRecord): AccountAuthSession {
 function principalForAccount(account: AccountRecord): Principal {
   return {
     id: account.id,
-    isPermanent: account.plan === "founder" || account.plan === "lifetime" || account.plan === "pro",
+    isPermanent: account.plan === "founder" || account.plan === "pro",
     kind: "account",
     plan: account.plan,
   };
@@ -2583,9 +2581,6 @@ function stripePriceForOffer(env: CloudEnv, offer: CheckoutOffer, isBrazil: bool
   if (offer === "founder") {
     return isBrazil ? env.STRIPE_PRICE_BR_FOUNDER : env.STRIPE_PRICE_FOUNDER;
   }
-  if (offer === "lifetime_founder") {
-    return isBrazil ? env.STRIPE_PRICE_BR_LIFETIME : env.STRIPE_PRICE_LIFETIME;
-  }
   if (offer === "pro_month") {
     return isBrazil ? env.STRIPE_PRICE_BR_MONTHLY : env.STRIPE_PRICE_MONTHLY;
   }
@@ -2837,27 +2832,26 @@ async function upsertStripeAccount(input: UpsertStripeAccountInput) {
 }
 
 async function activateFounderAccount(env: CloudEnv, account: AccountRecord) {
-  const nextPlan = account.plan === "lifetime" ? "lifetime" : "founder";
   if (env.DB) {
     await env.DB.prepare(
-      "UPDATE users SET plan = ?, ever_paid = 1, billing_status = 'active', "
-      + "ai_credit_refill_at = CASE WHEN plan IN ('founder', 'lifetime') THEN ai_credit_refill_at ELSE NULL END, "
+      "UPDATE users SET plan = 'founder', ever_paid = 1, billing_status = 'active', "
+      + "ai_credit_refill_at = CASE WHEN plan = 'founder' THEN ai_credit_refill_at ELSE NULL END, "
       + "paid_eligibility_ended_at = NULL, updated_at = ? WHERE id = ?",
-    ).bind(nextPlan, currentDate().toISOString(), account.id).run();
+    ).bind(currentDate().toISOString(), account.id).run();
     return findAccountById(env, account.id);
   }
-  if (account.plan !== "founder" && account.plan !== "lifetime") account.aiCreditRefillAt = "";
+  if (account.plan !== "founder") account.aiCreditRefillAt = "";
   account.billingStatus = "active";
   account.everPaid = true;
   account.paidEligibilityEndedAt = "";
-  account.plan = nextPlan;
+  account.plan = "founder";
   return account;
 }
 
 function offerFromCheckoutSession(session: Record<string, unknown>) {
   const metadata = isRecord(session.metadata) ? session.metadata : {};
   return checkoutOffer(metadata.pinar_offer)
-    || legacyCheckoutOffer(session.mode === "subscription" ? "month" : "lifetime");
+    || (session.mode === "subscription" ? "pro_month" : "founder");
 }
 
 function checkoutIsPaid(session: Record<string, unknown>) {
@@ -3123,18 +3117,6 @@ async function fulfillCheckout(env: CloudEnv, session: Record<string, unknown>) 
     if (account.plan === "pro" && account.billingStatus === "active") {
       await preserveAccountSessions(env, account.id, account.plan);
     }
-  } else if (offer === "lifetime_founder") {
-    if (!sessionId) return null;
-    await grantAiCredits({
-      credits: LIFETIME_AI_CREDITS,
-      env,
-      expiresAt: null,
-      ownerId: account.id,
-      ownerType: "account",
-      sourceId: `checkout:${sessionId}:lifetime`,
-      sourceType: "lifetime_initial",
-    });
-    await preserveAccountSessions(env, account.id, account.plan);
   } else if (offer === "ai_credits_1000") {
     if (!sessionId) return null;
     await grantAiCredits({
@@ -3259,7 +3241,7 @@ async function recordStripeSubscriptionState(input: RecordStripeSubscriptionStat
 }
 
 async function applyPaidRetentionTransition(env: CloudEnv, account: AccountRecord) {
-  const permanentPlan = account.plan === "founder" || account.plan === "lifetime";
+  const permanentPlan = account.plan === "founder";
   if (permanentPlan || (account.plan === "pro" && account.billingStatus === "active")) {
     if (env.DB) {
       await env.DB.prepare("UPDATE users SET paid_eligibility_ended_at = NULL WHERE id = ?")
@@ -3310,7 +3292,7 @@ async function applyStripeSubscriptionState(env: CloudEnv, customerId: string, s
     if (!state || state.customerId !== customerId) return account;
     account.billingStatus = state.status;
     account.everPaid = true;
-    account.plan = account.plan === "founder" || account.plan === "lifetime"
+    account.plan = account.plan === "founder"
       ? account.plan
       : state.status === "active" ? "pro" : "free";
     account.stripeSubscriptionId ||= subscriptionId;

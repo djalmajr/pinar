@@ -33,7 +33,6 @@ const messages: UiMessages = {
   "app.founderPlan": "Pinar Founder",
   "app.freePlan": "Plano Free",
   "app.homepage": "Página Inicial",
-  "app.lifetimePlan": "Pinar Lifetime",
   "app.local": "Servidor local",
   "app.openLocalHome": "Início local",
   "app.openRemoteHome": "pinar.dev",

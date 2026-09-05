@@ -754,7 +754,7 @@ describe("remote installation isolation", () => {
   test("requires current policies on first activation and reuses acceptance on later logins", async () => {
     const mail = emailBinding();
     const env: CloudEnv = { ...TEST_ENV, EMAIL: mail.binding };
-    seedCloudAccountForTests({ email: "owner@example.test", plan: "lifetime" });
+    seedCloudAccountForTests({ email: "owner@example.test", plan: "founder" });
     await requestEmailCode("OWNER@example.test", env);
     const required = await verifyEmailCode("owner@example.test", mail.codes[0], env, undefined, false);
     assert.equal(required.status, 428);
@@ -775,7 +775,7 @@ describe("remote installation isolation", () => {
     const session = await jsonBody(await api("/api/auth/session", { headers: { cookie } }, env));
     assert.ok(isRecord(session.session));
     assert.equal(session.session.kind, "account");
-    assert.equal(session.session.plan, "lifetime");
+    assert.equal(session.session.plan, "founder");
     assert.equal((await verifyEmailCode("owner@example.test", mail.codes[0], env)).status, 400);
 
     await requestEmailCode("owner@example.test", env);
@@ -1737,7 +1737,7 @@ describe("remote installation isolation", () => {
     }
   });
 
-  test("routes all six paid offers to their BRL and USD Stripe prices", async () => {
+  test("routes Pro and add-on offers to their BRL and USD Stripe prices", async () => {
     const offers: Array<{
       brlPrice: string;
       mode: "payment" | "subscription";
@@ -1746,7 +1746,6 @@ describe("remote installation isolation", () => {
     }> = [
       { brlPrice: "price_br_month", mode: "subscription", offer: "pro_month", usdPrice: "price_us_month" },
       { brlPrice: "price_br_year", mode: "subscription", offer: "pro_year", usdPrice: "price_us_year" },
-      { brlPrice: "price_br_lifetime", mode: "payment", offer: "lifetime_founder", usdPrice: "price_us_lifetime" },
       { brlPrice: "price_br_ai", mode: "payment", offer: "ai_credits_1000", usdPrice: "price_us_ai" },
       { brlPrice: "price_br_storage_5", mode: "payment", offer: "storage_5gb_12m", usdPrice: "price_us_storage_5" },
       { brlPrice: "price_br_storage_20", mode: "payment", offer: "storage_20gb_12m", usdPrice: "price_us_storage_20" },
@@ -1755,12 +1754,10 @@ describe("remote installation isolation", () => {
       ...TEST_ENV,
       STRIPE_PRICE_AI_CREDITS_1000: "price_us_ai",
       STRIPE_PRICE_BR_AI_CREDITS_1000: "price_br_ai",
-      STRIPE_PRICE_BR_LIFETIME: "price_br_lifetime",
       STRIPE_PRICE_BR_MONTHLY: "price_br_month",
       STRIPE_PRICE_BR_STORAGE_20GB_12M: "price_br_storage_20",
       STRIPE_PRICE_BR_STORAGE_5GB_12M: "price_br_storage_5",
       STRIPE_PRICE_BR_YEARLY: "price_br_year",
-      STRIPE_PRICE_LIFETIME: "price_us_lifetime",
       STRIPE_PRICE_MONTHLY: "price_us_month",
       STRIPE_PRICE_STORAGE_20GB_12M: "price_us_storage_20",
       STRIPE_PRICE_STORAGE_5GB_12M: "price_us_storage_5",
@@ -1790,7 +1787,7 @@ describe("remote installation isolation", () => {
       globalThis.fetch = originalFetch;
     }
 
-    assert.equal(stripeRequests.length, 12);
+    assert.equal(stripeRequests.length, 10);
     let requestIndex = 0;
     for (const country of ["US", "BR"]) {
       for (const offer of offers) {
@@ -2313,54 +2310,23 @@ describe("remote installation isolation", () => {
     assert.equal(auth.session.plan, "free");
   });
 
-  test("fulfills Lifetime and purchased AI credits without duplicate grants", async () => {
-    const lifetimeClaim = "checkout_claim_lifetime_0001";
+  test("grants purchased AI credits without duplicate grants", async () => {
     const aiClaim = "checkout_claim_ai_credits_0001";
     const originalFetch = globalThis.fetch;
     setCloudNowForTests("2026-04-30T12:30:00.000Z");
-    const sessions = [
-      {
-        consent: ACCEPTED_CHECKOUT_CONSENT,
-        customer: "cus_lifetime",
-        customer_details: { email: "lifetime@example.test" },
-        id: "cs_lifetime",
-        metadata: await acceptedCheckoutMetadata(lifetimeClaim, {
-          pinar_offer: "lifetime_founder",
-        }),
-        mode: "payment",
-        payment_status: "paid",
-        status: "complete",
-      },
-      {
-        consent: ACCEPTED_CHECKOUT_CONSENT,
-        customer: "cus_ai",
-        customer_details: { email: "ai@example.test" },
-        id: "cs_ai",
-        metadata: await acceptedCheckoutMetadata(aiClaim, {
-          pinar_offer: "ai_credits_1000",
-        }),
-        mode: "payment",
-        payment_status: "paid",
-        status: "complete",
-      },
-    ];
-    let index = 0;
-    globalThis.fetch = async () => Response.json(sessions[index]);
+    globalThis.fetch = async () => Response.json({
+      consent: ACCEPTED_CHECKOUT_CONSENT,
+      customer: "cus_ai",
+      customer_details: { email: "ai@example.test" },
+      id: "cs_ai",
+      metadata: await acceptedCheckoutMetadata(aiClaim, {
+        pinar_offer: "ai_credits_1000",
+      }),
+      mode: "payment",
+      payment_status: "paid",
+      status: "complete",
+    });
     try {
-      const lifetime = await api(`/api/stripe/success?session_id=cs_lifetime&claim=${lifetimeClaim}`, {}, {
-        ...TEST_ENV,
-        STRIPE_SECRET_KEY: "sk_test_example",
-      });
-      const lifetimeCookie = lifetime.headers.get("set-cookie")?.split(";", 1)[0] || "";
-      const lifetimeEntitlements = await jsonBody(await api(
-        "/api/account/entitlements",
-        { headers: { cookie: lifetimeCookie } },
-      ));
-      assert.equal(lifetimeEntitlements.plan, "lifetime");
-      assert.ok(isRecord(lifetimeEntitlements.aiCredits));
-      assert.equal(lifetimeEntitlements.aiCredits.balance, 500);
-
-      index = 1;
       const ai = await api(`/api/stripe/success?session_id=cs_ai&claim=${aiClaim}`, {}, {
         ...TEST_ENV,
         STRIPE_SECRET_KEY: "sk_test_example",

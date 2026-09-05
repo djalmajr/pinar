@@ -341,9 +341,11 @@ describe("help content", () => {
 
   test("wraps keyboard shortcuts in code spans in every article", async () => {
     const shortcutKeys = [
+      "Command/Ctrl/Alt+Enter",
       "Command/Ctrl+Enter",
       "Command+Enter",
       "Ctrl+Enter",
+      "Alt+Enter",
       "Shift+Enter",
       "Alt+Shift+P",
       "Arrow Up",
@@ -372,9 +374,10 @@ describe("help content", () => {
           ...(section.bullets ?? []),
         ])
         .join("\n");
-      assert.match(firstCaptureText, /`Command\/Ctrl\+Enter`/);
+      assert.match(firstCaptureText, /`Command\/Ctrl\/Alt\+Enter`/);
       assert.match(firstCaptureText, /`Command\+Enter`/);
       assert.match(firstCaptureText, /`Ctrl\+Enter`/);
+      assert.match(firstCaptureText, /`Alt\+Enter`/);
       assert.match(firstCaptureText, /`Shift\+Enter`/);
       assert.match(firstCaptureText, /`Escape`/);
       assert.match(firstCaptureText, /`Enter`/);

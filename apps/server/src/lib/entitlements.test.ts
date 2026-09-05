@@ -23,9 +23,9 @@ describe("billing entitlements", () => {
     assert.equal(checkoutOffer("founder"), "founder");
     assert.equal(checkoutOffer("unknown"), null);
     assert.equal(legacyCheckoutOffer("year"), "pro_year");
-    assert.equal(legacyCheckoutOffer("lifetime"), "lifetime_founder");
+    assert.equal(legacyCheckoutOffer("lifetime"), "founder");
+    assert.equal(checkoutOffer("lifetime_founder"), "founder");
     assert.equal(planForOffer("ai_credits_1000"), null);
-    assert.equal(planForOffer("lifetime_founder"), "lifetime");
     assert.equal(planForOffer("founder"), "founder");
     assert.equal(planForOffer("pro_year"), "pro");
     assert.equal(isSubscriptionOffer("pro_month"), true);
@@ -51,7 +51,6 @@ describe("billing entitlements", () => {
     assert.equal(baseStorageBytes("free"), FREE_STORAGE_BYTES);
     assert.equal(baseStorageBytes("founder"), FOUNDER_STORAGE_BYTES);
     assert.equal(baseStorageBytes("pro"), PAID_STORAGE_BYTES);
-    assert.equal(baseStorageBytes("lifetime"), FOUNDER_STORAGE_BYTES);
     assert.equal(FOUNDER_INITIAL_AI_CREDITS, 500);
   });
 
@@ -59,7 +58,6 @@ describe("billing entitlements", () => {
     assert.equal(planIncludesAi("free"), false);
     assert.equal(planIncludesAi("pro"), true);
     assert.equal(planIncludesAi("founder"), true);
-    assert.equal(planIncludesAi("lifetime"), true);
   });
 
   test("moves expired overage through grace, recovery and cleanup eligibility", () => {

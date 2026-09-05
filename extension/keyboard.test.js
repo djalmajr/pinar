@@ -13,6 +13,7 @@ function createKeyboardEvent(overrides = {}) {
   return {
     calls,
     event: {
+      altKey: false,
       ctrlKey: false,
       key: "d",
       metaKey: false,
@@ -48,6 +49,14 @@ describe("composer keyboard isolation", () => {
 
   test("Shift+Enter keeps the multiline default without reaching the host page", () => {
     const { calls, event } = createKeyboardEvent({ key: "Enter", shiftKey: true });
+
+    assert.equal(handleComposerKeyDown(event), false);
+    assert.equal(calls.stopped, true);
+    assert.equal(calls.prevented, false);
+  });
+
+  test("Alt+Enter leaves the composer so capture can copy", () => {
+    const { calls, event } = createKeyboardEvent({ key: "Enter", altKey: true });
 
     assert.equal(handleComposerKeyDown(event), false);
     assert.equal(calls.stopped, true);

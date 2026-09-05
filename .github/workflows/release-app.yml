@@ -277,4 +277,4 @@ jobs:
           RELEASE_TAG: ${{ needs.classify.outputs.tag }}
         run: |
           set -euo pipefail
-          gh release edit "$RELEASE_TAG" --draft=false --latest
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest

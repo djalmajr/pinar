@@ -48,7 +48,7 @@ describe("Pinar.app release workflow", () => {
     expect(workflow).toContain("--draft");
     expect(workflow).toContain("Publish GitHub Latest");
     expect(workflow).toContain("needs: [classify, macos, windows]");
-    expect(workflow).toContain('gh release edit "$RELEASE_TAG" --draft=false --latest');
+    expect(workflow).toContain('gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest');
   });
 
   test("builds an unsigned Windows installer on a Windows runner", () => {

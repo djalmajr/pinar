@@ -8,10 +8,13 @@ describe("Pinar.app release workflow", () => {
   const workflow = readFileSync(join(root, ".github/workflows/release-app.yml"), "utf8");
   const checkoutV7 = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1";
 
-  test("builds an existing product tag on a macOS runner", () => {
+  test("builds closed product tags on a macOS runner", () => {
     expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain('tags:\n      - "v*"');
     expect(workflow).toContain(checkoutV7);
-    expect(workflow).toContain("ref: ${{ inputs.tag }}");
+    expect(workflow).toContain("bun scripts/release-tag.mjs --github-output");
+    expect(workflow).toContain("needs.classify.outputs.kind == 'closed'");
+    expect(workflow).toContain("ref: ${{ needs.classify.outputs.tag }}");
     expect(workflow).toContain("runs-on: macos-14");
     expect(workflow).toContain("hutch/install.sh");
     expect(workflow).toContain("--version 0.25.0");
@@ -40,6 +43,10 @@ describe("Pinar.app release workflow", () => {
     expect(workflow).toContain("macos-arm64-Pinar.dmg");
     expect(workflow).toContain("stable-macos-arm64-Pinar.app.tar.zst");
     expect(workflow).toContain("stable-macos-arm64-update.json");
+    expect(workflow).toContain("gh release create");
+    expect(workflow).toContain("--draft");
+    expect(workflow).toContain("Publish GitHub Latest");
+    expect(workflow).toContain("needs: [classify, macos, windows]");
     expect(workflow).toContain('gh release edit "$RELEASE_TAG" --draft=false --latest');
   });
 

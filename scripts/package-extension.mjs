@@ -93,7 +93,7 @@ export function validateManifestFiles({ entries, manifest, rootDirectory = root 
 }
 
 export function validateReleaseTag(tag, version) {
-  const expected = `extension-v${version}`;
+  const expected = `ext-v${version}`;
   if (tag !== expected) throw new Error(`extension release tag must be ${expected}; received ${tag}`);
 }
 

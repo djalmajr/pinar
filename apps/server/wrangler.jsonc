@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "pinar-dev",
+  "account_id": "1427e570ac9806fcc2626c20e0d38b3d",
   "main": "./src/worker-entry.ts",
   "compatibility_date": "2026-08-16",
   "compatibility_flags": ["nodejs_compat"],

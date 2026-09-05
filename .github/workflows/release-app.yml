@@ -1,10 +1,17 @@
 name: Release Pinar.app
 
+# Closed product tags (v1.2.3) build macOS + Windows and become GitHub Latest
+# so the in-app updater can see them. Prerelease tags (v1.2.3-rc.1) skip this
+# workflow. Extension tags (extension-v*) have their own workflow.
+
 on:
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing product release tag to build and publish
+        description: Closed product tag to build and publish (vX.Y.Z)
         required: true
         type: string
 
@@ -12,15 +19,70 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  classify:
+    name: Classify tag
+    runs-on: ubuntu-latest
+    outputs:
+      kind: ${{ steps.tag.outputs.kind }}
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.0
+      - id: tag
+        name: Classify the product tag
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: bun scripts/release-tag.mjs --github-output "$RELEASE_TAG"
+
+  create-release:
+    name: Open GitHub Release draft
+    needs: classify
+    if: needs.classify.outputs.kind == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.classify.outputs.tag }}
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.0
+      - name: Create a draft if the release is missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.classify.outputs.tag }}
+        run: |
+          set -euo pipefail
+          bun scripts/github-release-notes.mjs "$RELEASE_TAG" > "$RUNNER_TEMP/release-notes.md"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "GitHub Release $RELEASE_TAG already exists"
+          else
+            gh release create "$RELEASE_TAG" --draft \
+              --title "Pinar $RELEASE_TAG" \
+              --notes-file "$RUNNER_TEMP/release-notes.md"
+          fi
+
+  macos:
     name: Sign, notarize, and publish Pinar.app
+    needs: [classify, create-release]
+    if: needs.classify.outputs.kind == 'closed'
     runs-on: macos-14
     steps:
       - name: Check out the tagged source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          ref: ${{ inputs.tag }}
+          ref: ${{ needs.classify.outputs.tag }}
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -35,7 +97,7 @@ jobs:
           echo "$HOME/.hutch/bin" >> "$GITHUB_PATH"
       - name: Validate release tag
         env:
-          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ needs.classify.outputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
@@ -82,10 +144,10 @@ jobs:
           set -euo pipefail
           xcrun stapler validate apps/tray/artifacts/macos-arm64-Pinar.dmg
           spctl --assess --verbose=4 --type install apps/tray/artifacts/macos-arm64-Pinar.dmg
-      - name: Upload artifacts and publish release
+      - name: Upload macOS artifacts
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ needs.classify.outputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
@@ -95,10 +157,11 @@ jobs:
             apps/tray/artifacts/stable-macos-arm64-Pinar.app.tar.zst \
             apps/tray/artifacts/stable-macos-arm64-update.json \
             apps/tray/artifacts/stable-macos-arm64-*.patch
-          gh release edit "$RELEASE_TAG" --draft=false --latest
 
   windows:
     name: Build and publish Windows installer
+    needs: [classify, create-release]
+    if: needs.classify.outputs.kind == 'closed'
     runs-on: windows-latest
     timeout-minutes: 90
     defaults:
@@ -109,7 +172,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          ref: ${{ inputs.tag }}
+          ref: ${{ needs.classify.outputs.tag }}
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -123,7 +186,7 @@ jobs:
           Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $env:USERPROFILE ".hutch\bin")
       - name: Validate release tag
         env:
-          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ needs.classify.outputs.tag }}
         run: |
           $ErrorActionPreference = "Stop"
           $version = bun -e "console.log(JSON.parse(await Bun.file('package.json').text()).version)"
@@ -139,7 +202,7 @@ jobs:
         run: bun run build:tray
       - name: Verify Windows artifacts
         env:
-          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ needs.classify.outputs.tag }}
         run: |
           $ErrorActionPreference = "Stop"
           $artifacts = "apps/tray/artifacts"
@@ -189,7 +252,7 @@ jobs:
       - name: Upload Windows artifacts
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ needs.classify.outputs.tag }}
         run: |
           $ErrorActionPreference = "Stop"
           gh release view $env:RELEASE_TAG | Out-Null
@@ -201,3 +264,17 @@ jobs:
           $patches = Get-ChildItem "apps/tray/artifacts/stable-win-x64-*.patch" -ErrorAction SilentlyContinue
           if ($patches) { $files += $patches.FullName }
           gh release upload $env:RELEASE_TAG --clobber @files
+
+  finalize:
+    name: Publish GitHub Latest
+    needs: [classify, macos, windows]
+    if: needs.classify.outputs.kind == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark the closed tag as Latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.classify.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release edit "$RELEASE_TAG" --draft=false --latest

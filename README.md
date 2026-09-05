@@ -16,7 +16,7 @@ Any composer / editor
 
 **macOS:** download [Pinar.app](https://github.com/djalmajr/pinar/releases/latest/download/macos-arm64-Pinar.dmg), open the disk image, and drag **Pinar.app** to `~/Applications`. The menu-bar app starts the local server and registers agent hooks. Shots stay in `~/.pinar/shots`.
 
-**Windows:** from a checkout, `bun run build:tray` then `bun apps/cli/src/cli.mjs install`. The tray app lands in `%LOCALAPPDATA%\Programs\Pinar` and starts the local server. The standalone helper remains:
+**Windows:** download [Pinar Setup](https://github.com/djalmajr/pinar/releases/latest/download/win-x64-Pinar-Setup.zip), extract, and run **Pinar-Setup.exe**. The tray app lands in `%LOCALAPPDATA%\Programs\Pinar` and starts the local server. The standalone helper remains:
 
 ```powershell
 irm https://pinar.dev/install.ps1 | iex
@@ -28,7 +28,7 @@ irm https://pinar.dev/install.ps1 | iex
 curl -fsSL https://pinar.dev/install.sh | sh
 ```
 
-The macOS app checks GitHub Releases for updates (`stable-macos-arm64-update.json` on `/releases/latest/download`).
+The macOS and Windows apps check GitHub Releases for updates (`stable-macos-arm64-update.json` and `stable-win-x64-update.json` on `/releases/latest/download`). Closed tags (`vX.Y.Z`) publish that Latest channel. Prerelease tags do not.
 
 From a checkout (developers):
 
@@ -41,7 +41,7 @@ bun apps/cli/src/cli.mjs install
 
 Install the official [Pinar extension from the Chrome Web Store](https://chromewebstore.google.com/detail/pinardev/idpeaokdndjedekacfdfbilcolpholbo). A GitHub checkout or unpacked extension folder is not required for normal use.
 
-Independent [extension releases on GitHub](https://github.com/djalmajr/pinar/releases?q=extension-v) provide the same versioned installable package without waiting for Store approval. They can be loaded unpacked in compatible Chromium browsers: download and extract the ZIP, enable developer mode on the browser's extension-management page, choose **Load unpacked**, and select the directory containing `manifest.json`. Store installation remains recommended for automatic updates.
+Independent [extension releases on GitHub](https://github.com/djalmajr/pinar/releases?q=ext-v) provide the same versioned installable package without waiting for Store approval. They can be loaded unpacked in compatible Chromium browsers: download and extract the ZIP, enable developer mode on the browser's extension-management page, choose **Load unpacked**, and select the directory containing `manifest.json`. Store installation remains recommended for automatic updates.
 
 Extension contributors can still load a development build:
 

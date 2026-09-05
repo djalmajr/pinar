@@ -1,6 +1,6 @@
 # Extension releases
 
-The browser extension has an independent version and release channel. Product tags use `vX.Y.Z`; extension tags use `extension-vX.Y.Z`.
+The browser extension has an independent version and release channel. Closed product tags use `vX.Y.Z` (production Worker + desktop Latest); prerelease product tags use `vX.Y.Z-rc.1` (staging Worker only); extension tags use `ext-vX.Y.Z`.
 
 Extension releases are intentionally not marked as GitHub's global **Latest** release. Pinar.app resolves its update files through `/releases/latest/download`, so only a product release may own that channel.
 
@@ -26,8 +26,8 @@ The package command rebuilds the extension and writes `extension/pinar-extension
 After the release change reaches `main`, create and push the independent tag:
 
 ```sh
-git tag -a extension-vX.Y.Z -m extension-vX.Y.Z
-git push origin extension-vX.Y.Z
+git tag -a ext-vX.Y.Z -m ext-vX.Y.Z
+git push origin ext-vX.Y.Z
 ```
 
 The `Release extension` workflow repeats typechecking and extension-focused tests, builds the ZIP, and creates `Pinar Extension X.Y.Z` with the versioned notes. It passes `--latest=false` so the Pinar.app update channel remains unchanged.

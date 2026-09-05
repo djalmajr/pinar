@@ -47,8 +47,9 @@ describe("extension package", () => {
   });
 
   test("keeps extension tags independent from product tags", () => {
-    expect(() => validateReleaseTag("extension-v0.5.0", "0.5.0")).not.toThrow();
-    expect(() => validateReleaseTag("v0.5.0", "0.5.0")).toThrow("extension-v0.5.0");
+    expect(() => validateReleaseTag("ext-v0.5.0", "0.5.0")).not.toThrow();
+    expect(() => validateReleaseTag("v0.5.0", "0.5.0")).toThrow("ext-v0.5.0");
+    expect(() => validateReleaseTag("extension-v0.5.0", "0.5.0")).toThrow("ext-v0.5.0");
   });
 
   test("requires values for every packaging option", () => {
@@ -59,7 +60,7 @@ describe("extension package", () => {
   test("workflow never replaces the product Latest release", () => {
     const workflow = readFileSync(join(root, ".github/workflows/release-extension.yml"), "utf8");
     expect(workflow).toContain("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1");
-    expect(workflow).toContain('tags: ["extension-v*"]');
+    expect(workflow).toContain('tags: ["ext-v*"]');
     expect(workflow).toContain("permissions:\n  contents: write");
     expect(workflow).toContain("--latest=false");
     expect(workflow).toContain("bun run package:ext");

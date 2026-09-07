@@ -1416,12 +1416,156 @@ function sessionMatchesQuery(session: Session, query: string) {
   });
 }
 
-async function findPublicSession(env: CloudEnv, id: string) {
+// Share token types and functions
+interface ShareToken {
+  id: string;
+  token: string;
+  resourceType: "session" | "project" | "collection" | "batch";
+  resourceId: string;
+  ownerId: string;
+  status: "active" | "revoked";
+  expiresAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+function shareTokenFromRow(row: Record<string, unknown>): ShareToken {
+  return {
+    id: String(row.id || ""),
+    token: String(row.token || ""),
+    resourceType: String(row.resource_type || "") as ShareToken["resourceType"],
+    resourceId: String(row.resource_id || ""),
+    ownerId: String(row.owner_id || ""),
+    status: String(row.status || "active") as ShareToken["status"],
+    expiresAt: typeof row.expires_at === "string" ? row.expires_at : null,
+    createdAt: String(row.created_at || ""),
+    updatedAt: String(row.updated_at || ""),
+  };
+}
+
+function generateShareToken() {
+  return "sh_" + generateNanoId(32);
+}
+
+async function findActiveShareToken(
+  env: CloudEnv,
+  resourceType: ShareToken["resourceType"],
+  resourceId: string,
+): Promise<ShareToken | null> {
+  if (!env.DB) return null;
+  const now = currentDate().toISOString();
+  const row = await env.DB.prepare(
+    `SELECT * FROM share_tokens 
+     WHERE resource_type = ? AND resource_id = ? AND status = 'active' 
+     AND (expires_at IS NULL OR expires_at > ?)`,
+  ).bind(resourceType, resourceId, now).first();
+  return row ? shareTokenFromRow(row) : null;
+}
+
+async function validateShareToken(
+  env: CloudEnv,
+  token: string,
+): Promise<ShareToken | null> {
+  if (!env.DB) return null;
+  if (!token.startsWith("sh_")) return null;
+  const now = currentDate().toISOString();
+  const row = await env.DB.prepare(
+    `SELECT * FROM share_tokens 
+     WHERE token = ? AND status = 'active' 
+     AND (expires_at IS NULL OR expires_at > ?)`,
+  ).bind(token, now).first();
+  return row ? shareTokenFromRow(row) : null;
+}
+
+async function createShareToken(
+  env: CloudEnv,
+  resourceType: ShareToken["resourceType"],
+  resourceId: string,
+  ownerId: string,
+  expiresAt: string | null = null,
+): Promise<ShareToken | null> {
+  if (!env.DB) return null;
+  
+  const existing = await findActiveShareToken(env, resourceType, resourceId);
+  if (existing) return existing;
+  
+  const now = currentDate().toISOString();
+  const token = generateShareToken();
+  const id = "sht_" + generateNanoId(24);
+  
+  try {
+    await env.DB.prepare(
+      `INSERT INTO share_tokens 
+       (id, token, resource_type, resource_id, owner_id, status, expires_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
+    ).bind(id, token, resourceType, resourceId, ownerId, expiresAt, now, now).run();
+    
+    return {
+      id,
+      token,
+      resourceType,
+      resourceId,
+      ownerId,
+      status: "active",
+      expiresAt,
+      createdAt: now,
+      updatedAt: now,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function revokeShareToken(
+  env: CloudEnv,
+  resourceType: ShareToken["resourceType"],
+  resourceId: string,
+  ownerId: string,
+): Promise<boolean> {
+  if (!env.DB) return false;
+  const now = currentDate().toISOString();
+  
+  try {
+    await env.DB.prepare(
+      `UPDATE share_tokens 
+       SET status = 'revoked', updated_at = ?
+       WHERE resource_type = ? AND resource_id = ? AND owner_id = ? AND status = 'active'`,
+    ).bind(now, resourceType, resourceId, ownerId).run();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function listShareTokens(
+  env: CloudEnv,
+  ownerId: string,
+): Promise<ShareToken[]> {
+  if (!env.DB) return [];
+  const result = await env.DB.prepare(
+    "SELECT * FROM share_tokens WHERE owner_id = ? ORDER BY created_at DESC",
+  ).bind(ownerId).all();
+  return (result.results || []).map(shareTokenFromRow);
+}
+
+async function findPublicSession(env: CloudEnv, id: string, shareToken?: string) {
   if (!SESSION_ID_PATTERN.test(id)) return null;
   if (env.DB) {
     try {
       const row = await env.DB.prepare("SELECT * FROM sessions WHERE id = ?").bind(id).first();
-      return row ? sessionFromRow(row) : null;
+      if (!row) return null;
+      const session = sessionFromRow(row);
+      
+      // Check if access is allowed via share token
+      if (shareToken) {
+        const token = await validateShareToken(env, shareToken);
+        if (token && token.resourceType === "session" && token.resourceId === id) {
+          return session;
+        }
+      }
+      
+      // No valid share token provided - deny access
+      return null;
     } catch {
       return null;
     }
@@ -1429,10 +1573,22 @@ async function findPublicSession(env: CloudEnv, id: string) {
   return memorySessions.get(id) || null;
 }
 
-async function findPublicCollection(env: CloudEnv, id: string): Promise<ProjectTreeCollection | null> {
+async function findPublicCollection(env: CloudEnv, id: string, shareToken?: string): Promise<ProjectTreeCollection | null> {
   if (env.DB) {
     const row = await env.DB.prepare("SELECT * FROM collections WHERE id = ?").bind(id).first();
     if (!row) return null;
+    
+    // Check if access is allowed via share token
+    if (shareToken) {
+      const token = await validateShareToken(env, shareToken);
+      if (!token || token.resourceType !== "collection" || token.resourceId !== id) {
+        return null;
+      }
+    } else {
+      // No share token provided - deny access
+      return null;
+    }
+    
     const sessions = await env.DB.prepare(
       "SELECT * FROM sessions WHERE collection_id = ? ORDER BY position ASC",
     ).bind(id).all();
@@ -1448,10 +1604,22 @@ async function findPublicCollection(env: CloudEnv, id: string): Promise<ProjectT
   };
 }
 
-async function findPublicProject(env: CloudEnv, id: string): Promise<ProjectTreeProject | null> {
+async function findPublicProject(env: CloudEnv, id: string, shareToken?: string): Promise<ProjectTreeProject | null> {
   if (env.DB) {
     const row = await env.DB.prepare("SELECT * FROM projects WHERE id = ?").bind(id).first();
     if (!row) return null;
+    
+    // Check if access is allowed via share token
+    if (shareToken) {
+      const token = await validateShareToken(env, shareToken);
+      if (!token || token.resourceType !== "project" || token.resourceId !== id) {
+        return null;
+      }
+    } else {
+      // No share token provided - deny access
+      return null;
+    }
+    
     const result = await env.DB.prepare(
       "SELECT * FROM collections WHERE project_id = ? ORDER BY position ASC",
     ).bind(id).all();
@@ -1459,7 +1627,7 @@ async function findPublicProject(env: CloudEnv, id: string): Promise<ProjectTree
     return {
       ...projectFromRow(row),
       collections: await Promise.all(collections.map(async (collection) => {
-        const publicCollection = await findPublicCollection(env, collection.id);
+        const publicCollection = await findPublicCollection(env, collection.id, shareToken);
         if (!publicCollection) throw new Error("Collection disappeared while building project aggregate");
         return publicCollection;
       })),
@@ -1472,17 +1640,29 @@ async function findPublicProject(env: CloudEnv, id: string): Promise<ProjectTree
   return {
     ...project,
     collections: await Promise.all(collections.map(async (collection) => {
-      const publicCollection = await findPublicCollection(env, collection.id);
+      const publicCollection = await findPublicCollection(env, collection.id, shareToken);
       if (!publicCollection) throw new Error("Collection disappeared while building project aggregate");
       return publicCollection;
     })),
   };
 }
 
-async function findPublicBatch(env: CloudEnv, id: string) {
+async function findPublicBatch(env: CloudEnv, id: string, shareToken?: string) {
   if (env.DB) {
     const row = await env.DB.prepare("SELECT * FROM batches WHERE id = ?").bind(id).first();
     if (!row) return null;
+    
+    // Check if access is allowed via share token
+    if (shareToken) {
+      const token = await validateShareToken(env, shareToken);
+      if (!token || token.resourceType !== "batch" || token.resourceId !== id) {
+        return null;
+      }
+    } else {
+      // No share token provided - deny access
+      return null;
+    }
+    
     const ownerId = String(row.user_id || "");
     const sessions = await env.DB.prepare(
       "SELECT * FROM sessions WHERE user_id = ? AND batch_id = ? ORDER BY created_at DESC",
@@ -4195,7 +4375,19 @@ async function decorateCloudSessions(env: CloudEnv, sessions: Session[]) {
 }
 
 async function listPinReviews(env: CloudEnv, captureId: string): Promise<PinReview[]> {
-  const session = await findPublicSession(env, captureId);
+  // This is an internal helper - fetch session directly without share token requirement
+  if (!SESSION_ID_PATTERN.test(captureId)) return [];
+  let session: Session | null = null;
+  if (env.DB) {
+    try {
+      const row = await env.DB.prepare("SELECT * FROM sessions WHERE id = ?").bind(captureId).first();
+      session = row ? sessionFromRow(row) : null;
+    } catch {
+      return [];
+    }
+  } else {
+    session = memorySessions.get(captureId) || null;
+  }
   if (!session) return [];
   const pinIds = [...pinIdsFromPins(session.pins)];
   if (env.DB) {
@@ -5323,16 +5515,22 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
     return deleted ? json({ ok: true }) : json({ error: "batch not found" }, 404);
   }
   if (method === "GET" && path.startsWith("/api/public/projects/")) {
+    const url = new URL(request.url);
+    const shareToken = url.searchParams.get("token") || undefined;
     const project = await findPublicProject(
       env,
       decodeURIComponent(path.slice("/api/public/projects/".length)),
+      shareToken,
     );
     return project ? json({ ok: true, project }) : json({ error: "Not found" }, 404);
   }
   if (method === "GET" && path.startsWith("/api/public/collections/")) {
+    const url = new URL(request.url);
+    const shareToken = url.searchParams.get("token") || undefined;
     const collection = await findPublicCollection(
       env,
       decodeURIComponent(path.slice("/api/public/collections/".length)),
+      shareToken,
     );
     return collection ? json({ collection, ok: true }) : json({ error: "Not found" }, 404);
   }
@@ -5483,8 +5681,10 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
     });
   }
   if (method === "GET" && path.startsWith("/api/sessions/")) {
+    const url = new URL(request.url);
+    const shareToken = url.searchParams.get("token") || undefined;
     const id = decodeURIComponent(path.slice("/api/sessions/".length));
-    const session = await findPublicSession(env, id);
+    const session = await findPublicSession(env, id, shareToken);
     return session
       ? json(await sessionApiPayload(env, session), 200, { "Cache-Control": "public, max-age=60" })
       : json({ error: "Session not found" }, 404);
@@ -5496,13 +5696,96 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
     if (!checkAdminAuth(request, env)) return json({ error: "Unauthorized" }, 401);
     return json({ ok: true, ...(await cleanupOldRecords(env, Number(url.searchParams.get("days")) || 7)) });
   }
+  // Share token management endpoints
+  if (method === "POST" && path.startsWith("/api/shares/publish")) {
+    const principal = await resolvePrincipal(request, env);
+    if (!principal) return json({ error: "Unauthorized" }, 401);
+    const body = await readJson(request);
+    const resourceType = stringValue(body, "resourceType") as ShareToken["resourceType"];
+    const resourceId = stringValue(body, "resourceId");
+    const expiresAt = typeof body.expiresAt === "string" ? body.expiresAt : null;
+    
+    if (!resourceType || !resourceId) {
+      return json({ error: "resourceType and resourceId required" }, 400);
+    }
+    if (!["session", "project", "collection", "batch"].includes(resourceType)) {
+      return json({ error: "Invalid resourceType" }, 400);
+    }
+    
+    // Verify ownership
+    let ownerId: string | null = null;
+    if (resourceType === "session") {
+      const session = await findPublicSession(env, resourceId, undefined);
+      ownerId = session?.userId || null;
+    } else if (resourceType === "project") {
+      if (env.DB) {
+        const row = await env.DB.prepare("SELECT owner_id FROM projects WHERE id = ?").bind(resourceId).first();
+        ownerId = row ? String(row.owner_id) : null;
+      }
+    } else if (resourceType === "collection") {
+      if (env.DB) {
+        const row = await env.DB.prepare("SELECT owner_id FROM collections WHERE id = ?").bind(resourceId).first();
+        ownerId = row ? String(row.owner_id) : null;
+      }
+    } else if (resourceType === "batch") {
+      if (env.DB) {
+        const row = await env.DB.prepare("SELECT user_id FROM batches WHERE id = ?").bind(resourceId).first();
+        ownerId = row ? String(row.user_id) : null;
+      }
+    }
+    
+    if (!ownerId || ownerId !== principal.id) {
+      return json({ error: "Not found or unauthorized" }, 404);
+    }
+    
+    const shareToken = await createShareToken(env, resourceType, resourceId, principal.id, expiresAt);
+    return shareToken
+      ? json({ ok: true, shareToken: { token: shareToken.token, expiresAt: shareToken.expiresAt } }, 201)
+      : json({ error: "Failed to create share token" }, 500);
+  }
+  if (method === "POST" && path.startsWith("/api/shares/revoke")) {
+    const principal = await resolvePrincipal(request, env);
+    if (!principal) return json({ error: "Unauthorized" }, 401);
+    const body = await readJson(request);
+    const resourceType = stringValue(body, "resourceType") as ShareToken["resourceType"];
+    const resourceId = stringValue(body, "resourceId");
+    
+    if (!resourceType || !resourceId) {
+      return json({ error: "resourceType and resourceId required" }, 400);
+    }
+    
+    const revoked = await revokeShareToken(env, resourceType, resourceId, principal.id);
+    return revoked
+      ? json({ ok: true })
+      : json({ error: "Share token not found" }, 404);
+  }
+  if (method === "GET" && path === "/api/shares") {
+    const principal = await resolvePrincipal(request, env);
+    if (!principal) return json({ error: "Unauthorized" }, 401);
+    const tokens = await listShareTokens(env, principal.id);
+    return json({ ok: true, tokens });
+  }
   return json({ error: "Not found" }, 404);
 }
 
 export async function handleCloudPublicRequest(request: Request, env: CloudEnv) {
   const url = new URL(request.url);
+  const shareToken = url.searchParams.get("token") || undefined;
+  
   if (request.method === "GET" && url.pathname.startsWith("/shots/")) {
     const id = decodeURIComponent(url.pathname.slice("/shots/".length));
+    
+    // For screenshots, check if the corresponding session has a valid share token
+    if (shareToken) {
+      const token = await validateShareToken(env, shareToken);
+      if (!token || token.resourceType !== "session" || token.resourceId !== id) {
+        return text("Not found", 404);
+      }
+    } else {
+      // No share token provided - deny access
+      return text("Not found", 404);
+    }
+    
     const key = shotObjectKey(id);
     const object = env.PINAR_BUCKET ? await env.PINAR_BUCKET.get(key) : null;
     if (!object) return json({ error: "shot not found" }, 404);
@@ -5515,12 +5798,12 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
     const rawId = decodeURIComponent(url.pathname.slice("/v/".length));
     if (!rawId.endsWith(".md")) return json({ error: "Not found" }, 404);
     const id = rawId.slice(0, -3);
-    const session = await findPublicSession(env, id);
-    if (!session) return text("Session not found", 404);
+    const session = await findPublicSession(env, id, shareToken);
+    if (!session) return text("Not found", 404);
     return text(
       formatSessionMarkdown(
         session,
-        `${url.origin}/v/${id}`,
+        `${url.origin}/v/${id}?token=${shareToken}`,
         await listAgentExecutions(env, id),
         await listPinReviews(env, id),
         await readOwnerDeliveryPreferences(env, session.userId || ""),
@@ -5535,7 +5818,7 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
   if (request.method === "GET" && url.pathname.startsWith("/p/")) {
     const rawId = decodeURIComponent(url.pathname.slice("/p/".length));
     if (!rawId.endsWith(".md")) return json({ error: "Not found" }, 404);
-    const project = await findPublicProject(env, rawId.slice(0, -3));
+    const project = await findPublicProject(env, rawId.slice(0, -3), shareToken);
     return project
       ? text(
         formatProjectMarkdown(
@@ -5548,12 +5831,12 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
         "Cache-Control": "public, max-age=60",
         "Content-Type": "text/markdown; charset=utf-8",
       })
-      : text("Project not found", 404);
+      : text("Not found", 404);
   }
   if (request.method === "GET" && url.pathname.startsWith("/c/")) {
     const rawId = decodeURIComponent(url.pathname.slice("/c/".length));
     if (!rawId.endsWith(".md")) return json({ error: "Not found" }, 404);
-    const collection = await findPublicCollection(env, rawId.slice(0, -3));
+    const collection = await findPublicCollection(env, rawId.slice(0, -3), shareToken);
     return collection
       ? text(
         formatCollectionMarkdown(
@@ -5566,13 +5849,13 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
         "Cache-Control": "public, max-age=60",
         "Content-Type": "text/markdown; charset=utf-8",
       })
-      : text("Collection not found", 404);
+      : text("Not found", 404);
   }
   if (request.method === "GET" && url.pathname.startsWith("/b/")) {
     const rawId = decodeURIComponent(url.pathname.slice("/b/".length));
     if (!rawId.endsWith(".md")) return json({ error: "Not found" }, 404);
-    const bundle = await findPublicBatch(env, rawId.slice(0, -3));
-    if (!bundle) return text("Batch not found", 404);
+    const bundle = await findPublicBatch(env, rawId.slice(0, -3), shareToken);
+    if (!bundle) return text("Not found", 404);
     const statusByPinId: Record<string, PinReviewStatus> = {};
     for (const session of bundle.sessions) {
       for (const review of await listPinReviews(env, session.id)) {

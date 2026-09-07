@@ -410,3 +410,23 @@ CREATE TABLE owner_preferences (
   language TEXT,
   sensitive_query_keys TEXT
 );
+
+CREATE TABLE share_tokens (
+  id TEXT PRIMARY KEY,
+  token TEXT NOT NULL UNIQUE,
+  resource_type TEXT NOT NULL CHECK (resource_type IN ('session', 'project', 'collection', 'batch')),
+  resource_id TEXT NOT NULL,
+  owner_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked')),
+  expires_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX idx_share_tokens_token ON share_tokens(token);
+CREATE INDEX idx_share_tokens_resource ON share_tokens(resource_type, resource_id);
+CREATE INDEX idx_share_tokens_owner ON share_tokens(owner_id, created_at DESC);
+CREATE INDEX idx_share_tokens_expiry ON share_tokens(expires_at);
+CREATE UNIQUE INDEX idx_share_tokens_active_resource 
+  ON share_tokens(resource_type, resource_id) 
+  WHERE status = 'active';

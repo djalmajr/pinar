@@ -255,9 +255,11 @@ export async function exercisePinReviewIsolation(owner: ApiClient, other: ApiCli
     method: "POST",
   });
   assert.equal(accepted.status, 200);
-  const publicSession = await other(`/api/sessions/${id}`);
-  assert.equal(publicSession.status, 200);
-  const body = await jsonRecord(publicSession);
+  const deniedSession = await other(`/api/sessions/${id}`);
+  assert.equal(deniedSession.status, 404);
+  const ownerSession = await owner(`/api/sessions/${id}`);
+  assert.equal(ownerSession.status, 200);
+  const body = await jsonRecord(ownerSession);
   const review = reviewOf(body, "pin_owner");
   assert.equal(review.status, "accepted");
 }

@@ -360,11 +360,13 @@ describe("remote installation isolation", () => {
     const webHistory = await api("/api/history", { headers: { cookie: sessionCookie } });
     assert.deepEqual(sessionIds(await jsonBody(webHistory)), ["session_A_001"]);
 
-    const publicSession = await api("/api/sessions/session_A_001");
-    assert.equal(publicSession.status, 200);
+    const anonymousSession = await api("/api/sessions/session_A_001");
+    assert.equal(anonymousSession.status, 404);
+    const ownerSession = await api("/api/sessions/session_A_001", { headers: identityHeaders(identityA) });
+    assert.equal(ownerSession.status, 200);
+    assert.equal(ownerSession.headers.get("cache-control"), "private, no-store");
     const markdown = await handleCloudPublicRequest(new Request("https://pinar.test/v/session_A_001.md"), {});
-    assert.equal(markdown.status, 200);
-    assert.match(await markdown.text(), /Owner A/);
+    assert.equal(markdown.status, 404);
 
     assert.equal(
       (await api("/api/history/session_A_001", { headers: identityHeaders(identityB), method: "DELETE" })).status,
@@ -381,6 +383,30 @@ describe("remote installation isolation", () => {
     assert.equal((await api("/api/auth/browser-ticket", { method: "POST" })).status, 404);
     assert.equal((await api("/api/installations/rotate", { method: "POST" })).status, 404);
     assert.equal((await api("/api/auth/verify")).status, 404);
+  });
+
+  test("lets authenticated owners load GET /api/sessions/:id without a share token", async () => {
+    await register(identityA);
+    await register(identityB);
+    assert.equal((await upload(identityA, "session_owner_get_001", "Owner GET")).status, 201);
+
+    const anonymous = await api("/api/sessions/session_owner_get_001");
+    assert.equal(anonymous.status, 404);
+    assert.deepEqual(await jsonBody(anonymous), { error: "Session not found" });
+
+    const other = await api("/api/sessions/session_owner_get_001", { headers: identityHeaders(identityB) });
+    assert.equal(other.status, 404);
+    assert.deepEqual(await jsonBody(other), { error: "Session not found" });
+
+    const bogusToken = await api("/api/sessions/session_owner_get_001?token=sh_notarealtoken");
+    assert.equal(bogusToken.status, 404);
+
+    const owner = await api("/api/sessions/session_owner_get_001", { headers: identityHeaders(identityA) });
+    assert.equal(owner.status, 200);
+    assert.equal(owner.headers.get("cache-control"), "private, no-store");
+    const body = await jsonBody(owner);
+    assert.ok(isRecord(body.session));
+    assert.equal(body.session.id, "session_owner_get_001");
   });
 
   test("stores shots under the shots prefix inside the environment bucket", async () => {
@@ -405,8 +431,7 @@ describe("remote installation isolation", () => {
       new Request("https://pinar.test/shots/prefixed_shot_001.png"),
       env,
     );
-    assert.equal(served.status, 200);
-    assert.deepEqual(bucket.getKeys, ["shots/prefixed_shot_001.png"]);
+    assert.equal(served.status, 404);
 
     assert.equal((await api("/api/history/prefixed_shot_001", {
       headers: identityHeaders(identityA),
@@ -435,15 +460,17 @@ describe("remote installation isolation", () => {
       method: "POST",
     });
     assert.equal(uploaded.status, 201);
-    const publicSession = await jsonBody(await api("/api/sessions/session_live_pref_001"));
-    assert.ok(isRecord(publicSession.session));
-    assert.equal(publicSession.session.includeScreenshot, true);
-    assert.match(String(publicSession.session.shotUrl), /\/shots\/session_live_pref_001\.png/);
-    const withShot = await handleCloudPublicRequest(
+    const ownerSession = await jsonBody(await api("/api/sessions/session_live_pref_001", {
+      headers: identityHeaders(identityA),
+    }));
+    assert.ok(isRecord(ownerSession.session));
+    assert.equal(ownerSession.session.includeScreenshot, true);
+    assert.match(String(ownerSession.session.shotUrl), /\/shots\/session_live_pref_001\.png/);
+    const anonymousMarkdown = await handleCloudPublicRequest(
       new Request("https://pinar.test/v/session_live_pref_001.md"),
       {},
     );
-    assert.match(await withShot.text(), /Screenshot:/);
+    assert.equal(anonymousMarkdown.status, 404);
 
     const patched = await jsonBody(await api("/api/preferences", {
       body: JSON.stringify({ includeScreenshot: false }),
@@ -470,15 +497,15 @@ describe("remote installation isolation", () => {
     assert.equal(otherOwner.handoffMode, "compact");
     assert.equal(otherOwner.includeScreenshot, true);
 
+    const stillOwner = await api("/api/sessions/session_live_pref_001", {
+      headers: identityHeaders(identityA),
+    });
+    assert.equal(stillOwner.status, 200);
     const markdown = await handleCloudPublicRequest(
       new Request("https://pinar.test/v/session_live_pref_001.md"),
       {},
     );
-    assert.equal(markdown.status, 200);
-    const text = await markdown.text();
-    assert.match(text, /Fix the form/);
-    assert.doesNotMatch(text, /Screenshot:/);
-    assert.doesNotMatch(text, /screenshot_missing/);
+    assert.equal(markdown.status, 404);
   });
 
   test("falls back to captureDestination when a shot omits a collection", async () => {
@@ -944,10 +971,10 @@ describe("remote installation isolation", () => {
     }, env)).status, 400);
     setCloudNowForTests("2026-11-14T11:59:59.000Z");
     assert.equal((await cleanupOldRecords(env)).deletedCount, 0);
-    assert.equal((await api("/api/sessions/cancel_retention_session", {}, env)).status, 200);
+    assert.equal((await api("/api/sessions/cancel_retention_session", { headers }, env)).status, 200);
     setCloudNowForTests("2026-11-14T12:00:01.000Z");
     assert.equal((await cleanupOldRecords(env)).deletedCount, 1);
-    assert.equal((await api("/api/sessions/cancel_retention_session", {}, env)).status, 404);
+    assert.equal((await api("/api/sessions/cancel_retention_session", { headers }, env)).status, 404);
   });
 
   test("keeps a cancellation terminal when an older active event arrives later", async () => {
@@ -1016,7 +1043,7 @@ describe("remote installation isolation", () => {
 
     setCloudNowForTests(new Date((canceledAt + 60) * 1000 + 91 * 24 * 60 * 60 * 1000).toISOString());
     assert.equal((await cleanupOldRecords(env)).deletedCount, 0);
-    assert.equal((await api("/api/sessions/ordering_reactivated_session", {}, env)).status, 200);
+    assert.equal((await api("/api/sessions/ordering_reactivated_session", { headers }, env)).status, 200);
   });
 
   test("keeps Pro and monthly credits through flexible cancellation and reactivation events", async () => {
@@ -2191,7 +2218,9 @@ describe("remote installation isolation", () => {
     assert.equal(entitlements.storage.activeAddOnBytes, STORAGE_5GB_BYTES);
     assert.equal(entitlements.storage.nextExpiryAt, "2027-03-01T00:00:00.000Z");
     assert.equal(entitlements.storage.quotaBytes, FREE_STORAGE_BYTES + STORAGE_5GB_BYTES);
-    const preserved = await jsonBody(await api("/api/sessions/storage_existing_session"));
+    const preserved = await jsonBody(await api("/api/sessions/storage_existing_session", {
+      headers: { cookie },
+    }));
     assert.ok(isRecord(preserved.session));
     assert.equal(preserved.session.isPermanent, true);
 
@@ -2224,6 +2253,7 @@ describe("remote installation isolation", () => {
       ownerId: userId,
       sessionId: "storage_notice_session",
     });
+    const mail = emailBinding();
     const sent: Array<Record<string, unknown>> = [];
     const env: CloudEnv = {
       ...TEST_ENV,
@@ -2231,7 +2261,7 @@ describe("remote installation isolation", () => {
         async send(message: unknown) {
           assert.ok(isRecord(message));
           sent.push(message);
-          return { messageId: `notice-${sent.length}` };
+          return mail.binding.send(message);
         },
       } as unknown as NonNullable<CloudEnv["EMAIL"]>,
     };
@@ -2252,7 +2282,15 @@ describe("remote installation isolation", () => {
     setCloudNowForTests("2027-07-01T12:00:00.000Z");
     assert.equal((await sendStorageExpiryNotices(env)).delivered, 0);
     assert.equal(sent.length, 3);
-    assert.equal((await api("/api/sessions/storage_notice_session")).status, 200);
+    await requestEmailCode("storage-notice@example.test", env);
+    const login = await verifyEmailCode(
+      "storage-notice@example.test",
+      mail.codes.at(-1) || "",
+      env,
+    );
+    assert.equal(login.status, 200);
+    const cookie = login.headers.get("set-cookie")?.split(";", 1)[0] || "";
+    assert.equal((await api("/api/sessions/storage_notice_session", { headers: { cookie } }, env)).status, 200);
   });
 
   test("keeps the subscription customer when a signed-out account buys an add-on", async () => {
@@ -2400,8 +2438,7 @@ describe("remote installation isolation", () => {
       new Request(`https://pinar.test/p/${projectId}.md`),
       {},
     );
-    assert.equal(projectMarkdown.status, 200);
-    assert.match(await projectMarkdown.text(), /session_A_tree/);
+    assert.equal(projectMarkdown.status, 404);
 
     const uploadB = await api("/api/shots", {
       body: JSON.stringify({ collectionId, id: "session_B_tree", image: VALID_PNG, page: {}, pins: [] }),
@@ -2427,7 +2464,9 @@ describe("remote installation isolation", () => {
       headers: identityHeaders(identityA),
       method: "DELETE",
     })).status, 200);
-    const preserved = await jsonBody(await api("/api/sessions/session_A_tree"));
+    const preserved = await jsonBody(await api("/api/sessions/session_A_tree", {
+      headers: identityHeaders(identityA),
+    }));
     assert.ok(isRecord(preserved.session));
     assert.equal(preserved.session.collectionId, inboxA.id);
   });
@@ -2478,8 +2517,7 @@ describe("remote installation isolation", () => {
       new Request(`https://pinar.test/c/${collectionId}.md`),
       {},
     );
-    assert.equal(markdown.status, 200);
-    assert.doesNotMatch(await markdown.text(), /expired_session/);
+    assert.equal(markdown.status, 404);
   });
 
   test("matches the shared projects and collections API contract", async () => {
@@ -2497,7 +2535,6 @@ describe("remote installation isolation", () => {
         ...init,
         headers: identityHeaders(identityA, init.headers),
       }),
-      (path, init = {}) => handleCloudPublicRequest(new Request(`https://pinar.test${path}`, init), TEST_ENV),
     );
   });
 
@@ -2513,7 +2550,6 @@ describe("remote installation isolation", () => {
         ...init,
         headers: identityHeaders(identityA, init.headers),
       }),
-      (path, init = {}) => handleCloudPublicRequest(new Request(`https://pinar.test${path}`, init), TEST_ENV),
     );
   });
 
@@ -2544,7 +2580,6 @@ describe("remote installation isolation", () => {
         ...init,
         headers: identityHeaders(identityA, init.headers),
       }),
-      (path, init = {}) => handleCloudPublicRequest(new Request(`https://pinar.test${path}`, init), TEST_ENV),
     );
   });
 

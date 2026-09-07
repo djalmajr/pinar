@@ -345,6 +345,15 @@ const messages = {
     "The AI request failed and the credit refund is still processing. Retry safely in a few minutes.",
   "viewer.aiNetworkError":
     "The connection was interrupted. Try again to safely resume the same request.",
+  "share.publish": "Publish",
+  "share.revoke": "Revoke",
+  "share.copyLink": "Copy link",
+  "share.linkCopied": "Link copied",
+  "share.published": "Published",
+  "share.notPublished": "Not published",
+  "share.publishing": "Publishing…",
+  "share.revoking": "Revoking…",
+  "share.error": "Couldn’t update the share link",
   "pricing.badge": "Pinar Pro & Sponsors",
   "pricing.title": "Keep visual feedback organized and recoverable",
   "pricing.description":

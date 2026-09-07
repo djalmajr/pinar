@@ -349,6 +349,15 @@ const messages: UiMessages = {
     "AI リクエストに失敗し、クレジットの返還処理中です。数分後に安全に再試行してください。",
   "viewer.aiNetworkError":
     "接続が中断されました。再試行すると同じリクエストを安全に再開できます。",
+  "share.publish": "公開",
+  "share.revoke": "取り消す",
+  "share.copyLink": "リンクをコピー",
+  "share.linkCopied": "リンクをコピーしました",
+  "share.published": "公開済み",
+  "share.notPublished": "未公開",
+  "share.publishing": "公開しています…",
+  "share.revoking": "取り消しています…",
+  "share.error": "共有リンクを更新できませんでした",
   "pricing.badge": "Pinar Pro とスポンサー",
   "pricing.title": "ビジュアルフィードバックを整理し、復元可能に",
   "pricing.description":

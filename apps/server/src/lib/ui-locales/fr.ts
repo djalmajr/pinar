@@ -351,6 +351,15 @@ const messages: UiMessages = {
     "La requête IA a échoué et le remboursement du crédit est en cours. Réessayez en toute sécurité dans quelques minutes.",
   "viewer.aiNetworkError":
     "La connexion a été interrompue. Réessayez pour reprendre la même requête en toute sécurité.",
+  "share.publish": "Publier",
+  "share.revoke": "Révoquer",
+  "share.copyLink": "Copier le lien",
+  "share.linkCopied": "Lien copié",
+  "share.published": "Publié",
+  "share.notPublished": "Non publié",
+  "share.publishing": "Publication…",
+  "share.revoking": "Révocation…",
+  "share.error": "Impossible de mettre à jour le lien de partage",
   "pricing.badge": "Pinar Pro et sponsors",
   "pricing.title": "Gardez les retours visuels organisés et récupérables",
   "pricing.description":

@@ -41,7 +41,7 @@ bun apps/cli/src/cli.mjs install
 
 Install the official [Pinar extension from the Chrome Web Store](https://chromewebstore.google.com/detail/pinardev/idpeaokdndjedekacfdfbilcolpholbo). A GitHub checkout or unpacked extension folder is not required for normal use.
 
-Independent [extension releases on GitHub](https://github.com/djalmajr/pinar/releases?q=ext-v) provide the same versioned installable package without waiting for Store approval. They can be loaded unpacked in compatible Chromium browsers: download and extract the ZIP, enable developer mode on the browser's extension-management page, choose **Load unpacked**, and select the directory containing `manifest.json`. Store installation remains recommended for automatic updates.
+Independent [extension releases on GitHub](https://github.com/djalmajr/pinar/releases?q=extension) provide the same versioned installable package without waiting for Store approval. They can be loaded unpacked in compatible Chromium browsers: download and extract the ZIP, enable developer mode on the browser's extension-management page, choose **Load unpacked**, and select the directory containing `manifest.json`. Store installation remains recommended for automatic updates.
 
 Extension contributors can still load a development build:
 

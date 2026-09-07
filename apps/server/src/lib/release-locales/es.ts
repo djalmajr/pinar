@@ -21,6 +21,18 @@ const locale = {
     whatChanged: "Qué cambió",
   },
   releases: {
+    "v0.3.6": {
+      title: "La comprobación de actualización del tray es visible",
+      summary:
+        "La app de la barra de menú muestra Buscando actualizaciones, Está actualizado o Error al buscar actualizaciones, cada uno con una cuenta atrás de 10 segundos hasta volver a Buscar actualizaciones.",
+      changes: {
+        "tray-update-status": {
+          title: "Estado de la comprobación en el tray",
+          description:
+            "Buscar actualizaciones muestra Buscando actualizaciones mientras corre. Si ya estás al día, dice Está actualizado (10s). Si falla, dice Error al buscar actualizaciones (10s). Ambos cuentan atrás y vuelven a Buscar actualizaciones. Un clic durante la cuenta vuelve a comprobar.",
+        },
+      },
+    },
     "v0.3.5": {
       title: "Pestaña Cuenta, plan único solo Founder, captura copia antes",
       summary:

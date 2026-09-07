@@ -22,6 +22,18 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.3.6": {
+      title: "La vérification de mise à jour du menu est visible",
+      summary:
+        "L’app de la barre de menu affiche Recherche de mises à jour, À jour ou Échec de la vérification, chacun avec un compte à rebours de 10 secondes avant de revenir à Rechercher des mises à jour.",
+      changes: {
+        "tray-update-status": {
+          title: "État de la vérification dans le menu",
+          description:
+            "Rechercher des mises à jour affiche Recherche de mises à jour pendant le contrôle. Si vous êtes à jour, il affiche À jour (10s). En cas d’échec, Échec de la vérification (10s). Les deux comptent à rebours puis reviennent à Rechercher des mises à jour. Un clic pendant le compte relance la vérification.",
+        },
+      },
+    },
     "v0.3.5": {
       title: "Onglet Compte, paiement unique Founder seulement, copie plus tôt",
       summary:

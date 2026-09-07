@@ -22,6 +22,18 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.3.6": {
+      title: "Update-Prüfung in der Menüleiste ist sichtbar",
+      summary:
+        "Die Menüleisten-App zeigt Suche nach Updates, Aktuell oder Update-Prüfung fehlgeschlagen, jeweils mit einem 10-Sekunden-Countdown zurück zu Nach Updates suchen.",
+      changes: {
+        "tray-update-status": {
+          title: "Update-Status im Tray",
+          description:
+            "Nach Updates suchen zeigt Suche nach Updates, während die Prüfung läuft. Wenn Sie aktuell sind, steht Aktuell (10s). Bei einem Fehler steht Update-Prüfung fehlgeschlagen (10s). Beides zählt herunter und kehrt zu Nach Updates suchen zurück. Ein Klick während des Countdowns prüft erneut.",
+        },
+      },
+    },
     "v0.3.5": {
       title: "Konto-Tab, einmaliger Plan nur Founder, schnellere Capture-Kopie",
       summary:

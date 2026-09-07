@@ -22,6 +22,18 @@ const locale = {
     whatChanged: "O que mudou",
   },
   releases: {
+    "v0.3.6": {
+      title: "A verificação de atualização do tray fica visível",
+      summary:
+        "O app da barra de menu mostra Verificando atualizações, Tudo atualizado ou Falha ao verificar atualizações, cada um com uma contagem de 10 segundos até voltar a Verificar atualizações.",
+      changes: {
+        "tray-update-status": {
+          title: "Estado da verificação no tray",
+          description:
+            "Verificar atualizações passa a Verificando atualizações enquanto corre. Se já estiver na versão atual, mostra Tudo atualizado (10s). Se falhar, mostra Falha ao verificar atualizações (10s). Os dois contam até voltar a Verificar atualizações. Um clique durante a contagem verifica de novo.",
+        },
+      },
+    },
     "v0.3.5": {
       title: "Aba Conta, pagamento único só Founder, captura copia mais cedo",
       summary:

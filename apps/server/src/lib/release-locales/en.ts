@@ -20,6 +20,18 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.3.6": {
+      title: "Tray update check is visible",
+      summary:
+        "The menu-bar app shows Checking for Updates, You're updated, or Update check failed, each with a 10-second countdown back to Check for Updates.",
+      changes: {
+        "tray-update-status": {
+          title: "Update check status in the tray",
+          description:
+            "Check for Updates shows Checking for Updates while it runs. If you are current, it says You're updated (10s). If the check fails, it says Update check failed (10s). Both count down and return to Check for Updates. Clicking during the countdown checks again.",
+        },
+      },
+    },
     "v0.3.5": {
       title: "Account tab, Founder-only one-time plan, faster capture copy",
       summary:

@@ -59,6 +59,11 @@ export interface ReleaseContent {
 
 export const releaseDefinitions = [
   {
+    tag: "v0.3.6",
+    date: "2026-09-05",
+    changes: ["tray-update-status"],
+  },
+  {
     tag: "v0.3.5",
     date: "2026-09-05",
     changes: ["account-tab-options", "lifetime-folded-into-founder", "capture-copy-sooner"],

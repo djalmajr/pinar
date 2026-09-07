@@ -93,15 +93,19 @@ describe("Share tokens (DJA-117)", () => {
   });
 
   test("session requires share token for public access", async () => {
-    const createResponse = await api("/api/captures", {
-      body: JSON.stringify(checkoutRequest({ visualCapture: VALID_PNG })),
-      headers: identityHeaders(identityA),
+    // Create a session using the upload endpoint
+    const uploadResponse = await api("/api/shots", {
+      body: JSON.stringify({
+        id: "session_test_001",
+        image: VALID_PNG,
+        page: { title: "Test Page", url: "https://example.test/test" },
+        pins: [{ comment: "Test pin", number: 1 }],
+      }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
       method: "POST",
     });
-    assert.equal(createResponse.status, 201);
-    const createBody = await jsonBody(createResponse);
-    assert.equal(createBody.ok, true);
-    const sessionId = String(createBody.id);
+    assert.equal(uploadResponse.status, 201);
+    const sessionId = "session_test_001";
 
     // Anonymous access without token should fail
     const anonResponse = await handleCloudPublicRequest(
@@ -116,9 +120,22 @@ describe("Share tokens (DJA-117)", () => {
       headers: identityHeaders(identityA),
       method: "POST",
     });
+    
+    // Debug output if publish fails
+    if (publishResponse.status !== 201) {
+      const errorBody = await jsonBody(publishResponse);
+      throw new Error(`Publish failed with status ${publishResponse.status}: ${JSON.stringify(errorBody)}`);
+    }
+    
     assert.equal(publishResponse.status, 201);
     const publishBody = await jsonBody(publishResponse);
     assert.equal(publishBody.ok, true);
+    
+    // Check if shareToken exists
+    if (!publishBody.shareToken) {
+      throw new Error(`No shareToken in response: ${JSON.stringify(publishBody)}`);
+    }
+    
     assert.ok(isRecord(publishBody.shareToken));
     const token = String(publishBody.shareToken.token);
     assert.ok(token.startsWith("sh_"));
@@ -134,13 +151,18 @@ describe("Share tokens (DJA-117)", () => {
   });
 
   test("revoked share token denies access", async () => {
-    const createResponse = await api("/api/captures", {
-      body: JSON.stringify(checkoutRequest({ visualCapture: VALID_PNG })),
-      headers: identityHeaders(identityA),
+    const uploadResponse = await api("/api/shots", {
+      body: JSON.stringify({
+        id: "session_test_002",
+        image: VALID_PNG,
+        page: { title: "Test Page 2", url: "https://example.test/test2" },
+        pins: [{ comment: "Test pin 2", number: 1 }],
+      }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
       method: "POST",
     });
-    const createBody = await jsonBody(createResponse);
-    const sessionId = String(createBody.id);
+    assert.equal(uploadResponse.status, 201);
+    const sessionId = "session_test_002";
 
     // Publish
     const publishResponse = await api("/api/shares/publish", {
@@ -175,13 +197,18 @@ describe("Share tokens (DJA-117)", () => {
   });
 
   test("expired share token denies access", async () => {
-    const createResponse = await api("/api/captures", {
-      body: JSON.stringify(checkoutRequest({ visualCapture: VALID_PNG })),
-      headers: identityHeaders(identityA),
+    const uploadResponse = await api("/api/shots", {
+      body: JSON.stringify({
+        id: "session_test_003",
+        image: VALID_PNG,
+        page: { title: "Test Page 3", url: "https://example.test/test3" },
+        pins: [{ comment: "Test pin 3", number: 1 }],
+      }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
       method: "POST",
     });
-    const createBody = await jsonBody(createResponse);
-    const sessionId = String(createBody.id);
+    assert.equal(uploadResponse.status, 201);
+    const sessionId = "session_test_003";
 
     // Publish with expiry in 1 hour
     const expiresAt = "2025-01-15T13:00:00Z";
@@ -213,13 +240,18 @@ describe("Share tokens (DJA-117)", () => {
 
   test("account isolation - user cannot access other users sessions", async () => {
     // User A creates a session
-    const createResponseA = await api("/api/captures", {
-      body: JSON.stringify(checkoutRequest({ visualCapture: VALID_PNG })),
-      headers: identityHeaders(identityA),
+    const uploadResponseA = await api("/api/shots", {
+      body: JSON.stringify({
+        id: "session_test_004",
+        image: VALID_PNG,
+        page: { title: "Test Page 4", url: "https://example.test/test4" },
+        pins: [{ comment: "Test pin 4", number: 1 }],
+      }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
       method: "POST",
     });
-    const createBodyA = await jsonBody(createResponseA);
-    const sessionIdA = String(createBodyA.id);
+    assert.equal(uploadResponseA.status, 201);
+    const sessionIdA = "session_test_004";
 
     // User A publishes
     const publishResponseA = await api("/api/shares/publish", {
@@ -247,13 +279,18 @@ describe("Share tokens (DJA-117)", () => {
   });
 
   test("screenshot requires share token", async () => {
-    const createResponse = await api("/api/captures", {
-      body: JSON.stringify(checkoutRequest({ visualCapture: VALID_PNG })),
-      headers: identityHeaders(identityA),
+    const uploadResponse = await api("/api/shots", {
+      body: JSON.stringify({
+        id: "session_test_005",
+        image: VALID_PNG,
+        page: { title: "Test Page 5", url: "https://example.test/test5" },
+        pins: [{ comment: "Test pin 5", number: 1 }],
+      }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
       method: "POST",
     });
-    const createBody = await jsonBody(createResponse);
-    const sessionId = String(createBody.id);
+    assert.equal(uploadResponse.status, 201);
+    const sessionId = "session_test_005";
 
     // Anonymous access to screenshot without token should fail
     const anonResponse = await handleCloudPublicRequest(
@@ -283,13 +320,18 @@ describe("Share tokens (DJA-117)", () => {
   });
 
   test("republishing same resource returns existing token", async () => {
-    const createResponse = await api("/api/captures", {
-      body: JSON.stringify(checkoutRequest({ visualCapture: VALID_PNG })),
-      headers: identityHeaders(identityA),
+    const uploadResponse = await api("/api/shots", {
+      body: JSON.stringify({
+        id: "session_test_006",
+        image: VALID_PNG,
+        page: { title: "Test Page 6", url: "https://example.test/test6" },
+        pins: [{ comment: "Test pin 6", number: 1 }],
+      }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
       method: "POST",
     });
-    const createBody = await jsonBody(createResponse);
-    const sessionId = String(createBody.id);
+    assert.equal(uploadResponse.status, 201);
+    const sessionId = "session_test_006";
 
     // First publish
     const publish1 = await api("/api/shares/publish", {
@@ -315,19 +357,31 @@ describe("Share tokens (DJA-117)", () => {
 
   test("list share tokens", async () => {
     // Create two sessions
-    const create1 = await api("/api/captures", {
-      body: JSON.stringify(checkoutRequest({ visualCapture: VALID_PNG })),
-      headers: identityHeaders(identityA),
+    const upload1 = await api("/api/shots", {
+      body: JSON.stringify({
+        id: "session_test_007",
+        image: VALID_PNG,
+        page: { title: "Test Page 7", url: "https://example.test/test7" },
+        pins: [{ comment: "Test pin 7", number: 1 }],
+      }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
       method: "POST",
     });
-    const session1 = String((await jsonBody(create1)).id);
+    assert.equal(upload1.status, 201);
+    const session1 = "session_test_007";
 
-    const create2 = await api("/api/captures", {
-      body: JSON.stringify(checkoutRequest({ visualCapture: VALID_PNG })),
-      headers: identityHeaders(identityA),
+    const upload2 = await api("/api/shots", {
+      body: JSON.stringify({
+        id: "session_test_008",
+        image: VALID_PNG,
+        page: { title: "Test Page 8", url: "https://example.test/test8" },
+        pins: [{ comment: "Test pin 8", number: 1 }],
+      }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
       method: "POST",
     });
-    const session2 = String((await jsonBody(create2)).id);
+    assert.equal(upload2.status, 201);
+    const session2 = "session_test_008";
 
     // Publish both
     await api("/api/shares/publish", {
@@ -363,13 +417,18 @@ describe("Share tokens (DJA-117)", () => {
   });
 
   test("uniform not found response for missing and private resources", async () => {
-    const createResponse = await api("/api/captures", {
-      body: JSON.stringify(checkoutRequest({ visualCapture: VALID_PNG })),
-      headers: identityHeaders(identityA),
+    const uploadResponse = await api("/api/shots", {
+      body: JSON.stringify({
+        id: "session_test_009",
+        image: VALID_PNG,
+        page: { title: "Test Page 9", url: "https://example.test/test9" },
+        pins: [{ comment: "Test pin 9", number: 1 }],
+      }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
       method: "POST",
     });
-    const createBody = await jsonBody(createResponse);
-    const sessionId = String(createBody.id);
+    assert.equal(uploadResponse.status, 201);
+    const sessionId = "session_test_009";
 
     // Private resource (no share token)
     const privateResponse = await handleCloudPublicRequest(

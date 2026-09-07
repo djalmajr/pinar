@@ -29,19 +29,6 @@ function checkoutRequest(fields: Record<string, unknown>) {
   };
 }
 
-async function register(identity: typeof identityA, env: CloudEnv = TEST_ENV) {
-  return api("/api/installations", {
-    body: JSON.stringify({
-      installationId: identity.id,
-      installationToken: identity.token,
-      legalAcceptance: REMOTE_FREE_LEGAL_ACCEPTANCE,
-      locale: "en",
-    }),
-    headers: { "content-type": "application/json" },
-    method: "POST",
-  }, env);
-}
-
 function identityHeaders(identity: typeof identityA, extra: HeadersInit = {}) {
   return new Headers({
     authorization: `Bearer ${identity.token}`,
@@ -81,13 +68,28 @@ function api(path: string, init: RequestInit = {}, env: CloudEnv = TEST_ENV) {
   return handleCloudApiRequest(new Request(`https://pinar.test${path}`, init), env);
 }
 
+async function register(identity: typeof identityA, env: CloudEnv = TEST_ENV) {
+  return api("/api/installations", {
+    body: JSON.stringify({
+      installationId: identity.id,
+      installationToken: identity.token,
+      legalAcceptance: REMOTE_FREE_LEGAL_ACCEPTANCE,
+      locale: "en",
+    }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  }, env);
+}
+
 describe("Share tokens (DJA-117)", () => {
   beforeEach(async () => {
     resetCloudMemoryStateForTests();
     setCloudNowForTests("2025-01-15T12:00:00Z");
     // Register installations for testing
-    await register(identityA);
-    await register(identityB);
+    const regA = await register(identityA);
+    const regB = await register(identityB);
+    assert.equal(regA.status, 201, "Failed to register identityA");
+    assert.equal(regB.status, 201, "Failed to register identityB");
   });
 
   test("session requires share token for public access", async () => {

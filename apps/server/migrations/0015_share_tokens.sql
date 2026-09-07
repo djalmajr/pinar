@@ -25,3 +25,15 @@ CREATE INDEX idx_share_tokens_expiry ON share_tokens(expires_at);
 CREATE UNIQUE INDEX idx_share_tokens_active_resource 
   ON share_tokens(resource_type, resource_id) 
   WHERE status = 'active';
+
+-- Audit trail for share token lifecycle events
+CREATE TABLE share_token_events (
+  id TEXT PRIMARY KEY,
+  share_token_id TEXT NOT NULL REFERENCES share_tokens(id),
+  actor_id TEXT NOT NULL,
+  action TEXT NOT NULL CHECK (action IN ('created', 'revoked')),
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX idx_share_token_events_token ON share_token_events(share_token_id, created_at ASC);
+CREATE INDEX idx_share_token_events_actor ON share_token_events(actor_id, created_at DESC);

@@ -1500,6 +1500,13 @@ async function createShareToken(
        VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
     ).bind(id, token, resourceType, resourceId, ownerId, expiresAt, now, now).run();
     
+    // Record audit event
+    const eventId = "ste_" + generateNanoId(24);
+    await env.DB.prepare(
+      `INSERT INTO share_token_events (id, share_token_id, actor_id, action, created_at)
+       VALUES (?, ?, ?, 'created', ?)`,
+    ).bind(eventId, id, ownerId, now).run();
+    
     return {
       id,
       token,
@@ -1526,11 +1533,23 @@ async function revokeShareToken(
   const now = currentDate().toISOString();
   
   try {
+    // Get the token ID before revoking (for audit)
+    const token = await findActiveShareToken(env, resourceType, resourceId);
+    if (!token || token.ownerId !== ownerId) return false;
+    
     await env.DB.prepare(
       `UPDATE share_tokens 
        SET status = 'revoked', updated_at = ?
        WHERE resource_type = ? AND resource_id = ? AND owner_id = ? AND status = 'active'`,
     ).bind(now, resourceType, resourceId, ownerId).run();
+    
+    // Record audit event
+    const eventId = "ste_" + generateNanoId(24);
+    await env.DB.prepare(
+      `INSERT INTO share_token_events (id, share_token_id, actor_id, action, created_at)
+       VALUES (?, ?, ?, 'revoked', ?)`,
+    ).bind(eventId, token.id, ownerId, now).run();
+    
     return true;
   } catch {
     return false;

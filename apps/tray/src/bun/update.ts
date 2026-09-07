@@ -90,12 +90,35 @@ export type RemoteUpdateCheck = {
 	artifactUrl: string;
 };
 
+export const UPDATE_STATUS_SECONDS = 10;
+
 export type UpdateUiState = {
-	checking: boolean;
 	available: boolean;
+	checking: boolean;
+	failed: boolean;
 	ready: boolean;
+	secondsLeft: number;
+	updated: boolean;
 	version: string;
 };
+
+export function idleUpdateUi(): UpdateUiState {
+	return {
+		available: false,
+		checking: false,
+		failed: false,
+		ready: false,
+		secondsLeft: 0,
+		updated: false,
+		version: "",
+	};
+}
+
+export function tickUpdateStatus(state: UpdateUiState): UpdateUiState {
+	if (!state.failed && !state.updated) return state;
+	if (state.secondsLeft <= 1) return idleUpdateUi();
+	return { ...state, secondsLeft: state.secondsLeft - 1 };
+}
 
 export function platformPrefix(
 	channel: UpdateChannel = "stable",
@@ -212,7 +235,7 @@ export function updateMenuItem(
 			enabled: false,
 			label: state.available
 				? formatTrayLabel(labels.downloading, state.version)
-				: labels.checkForUpdates,
+				: labels.checkingForUpdates,
 			type: "normal" as const,
 		};
 	}
@@ -221,6 +244,22 @@ export function updateMenuItem(
 			action: "apply-update",
 			enabled: true,
 			label: formatTrayLabel(labels.updateTo, state.version),
+			type: "normal" as const,
+		};
+	}
+	if (state.failed) {
+		return {
+			action: "check-update",
+			enabled: true,
+			label: formatTrayLabel(labels.updateCheckFailed, { seconds: state.secondsLeft }),
+			type: "normal" as const,
+		};
+	}
+	if (state.updated) {
+		return {
+			action: "check-update",
+			enabled: true,
+			label: formatTrayLabel(labels.upToDate, { seconds: state.secondsLeft }),
 			type: "normal" as const,
 		};
 	}

@@ -14,6 +14,8 @@ import {
 	shouldOfferUpdate,
 	updateArtifactUrl,
 	updateManifestUrl,
+	idleUpdateUi,
+	tickUpdateStatus,
 	updateMenuItem,
 	versionMenuItem,
 } from "./update";
@@ -117,21 +119,32 @@ describe("GitHub Releases update contract", () => {
 		expect(appVersion(() => {
 			throw new Error("missing");
 		})).toMatch(/^\d+\.\d+\.\d+/);
-		expect(updateMenuItem({ available: false, checking: false, ready: false, version: "" }).label).toBe(
-			"Check for Updates…",
-		);
-		expect(updateMenuItem({ available: false, checking: true, ready: false, version: "" }).enabled).toBe(
-			false,
-		);
-		expect(updateMenuItem({ available: true, checking: true, ready: false, version: "0.1.2" }).label).toBe(
+		expect(updateMenuItem(idleUpdateUi()).label).toBe("Check for Updates…");
+		expect(updateMenuItem({ ...idleUpdateUi(), checking: true })).toEqual({
+			action: "check-update",
+			enabled: false,
+			label: "Checking for Updates…",
+			type: "normal",
+		});
+		expect(updateMenuItem({ ...idleUpdateUi(), available: true, checking: true, version: "0.1.2" }).label).toBe(
 			"Downloading 0.1.2…",
 		);
-		expect(updateMenuItem({ available: true, checking: false, ready: true, version: "0.1.2" })).toEqual({
+		expect(
+			updateMenuItem({ ...idleUpdateUi(), available: true, ready: true, version: "0.1.2" }),
+		).toEqual({
 			action: "apply-update",
 			enabled: true,
 			label: "Update to 0.1.2",
 			type: "normal",
 		});
+		expect(
+			updateMenuItem({ ...idleUpdateUi(), failed: true, secondsLeft: 10 }).label,
+		).toBe("Update check failed (10s)");
+		expect(
+			updateMenuItem({ ...idleUpdateUi(), secondsLeft: 7, updated: true }).label,
+		).toBe("You're updated (7s)");
+		expect(tickUpdateStatus({ ...idleUpdateUi(), failed: true, secondsLeft: 10 }).secondsLeft).toBe(9);
+		expect(tickUpdateStatus({ ...idleUpdateUi(), secondsLeft: 1, updated: true })).toEqual(idleUpdateUi());
 	});
 
 	test("offers only a newer release version when the installed version is known", () => {

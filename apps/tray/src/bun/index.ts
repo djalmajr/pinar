@@ -22,7 +22,10 @@ import { trayMenuLabels } from "./menu-labels";
 import { trayImageOptions } from "./tray-image";
 import { createQuitController } from "./tray-quit";
 import {
+	UPDATE_STATUS_SECONDS,
+	idleUpdateUi,
 	shouldOfferUpdate,
+	tickUpdateStatus,
 	updateMenuItem,
 	type UpdateUiState,
 	versionMenuItem,
@@ -67,12 +70,33 @@ const tray = new Tray(trayImageOptions());
 let online = false;
 let loginEnabled = false;
 let busy = false;
-let updateUi: UpdateUiState = {
-	available: false,
-	checking: false,
-	ready: false,
-	version: "",
-};
+let updateUi: UpdateUiState = idleUpdateUi();
+let statusCountdown: ReturnType<typeof setInterval> | null = null;
+
+function stopStatusCountdown() {
+	if (!statusCountdown) return;
+	clearInterval(statusCountdown);
+	statusCountdown = null;
+}
+
+function startStatusCountdown() {
+	stopStatusCountdown();
+	statusCountdown = setInterval(() => {
+		updateUi = tickUpdateStatus(updateUi);
+		if (!updateUi.failed && !updateUi.updated) stopStatusCountdown();
+		updateMenu();
+	}, 1000);
+}
+
+function showTransientStatus(status: "failed" | "updated") {
+	updateUi = {
+		...idleUpdateUi(),
+		failed: status === "failed",
+		secondsLeft: UPDATE_STATUS_SECONDS,
+		updated: status === "updated",
+	};
+	startStatusCountdown();
+}
 
 function updateMenu() {
 	const labels = trayMenuLabels();
@@ -115,7 +139,8 @@ function updateMenu() {
 
 async function syncUpdate() {
 	if (updateUi.checking) return;
-	updateUi = { ...updateUi, checking: true };
+	stopStatusCountdown();
+	updateUi = { ...idleUpdateUi(), checking: true };
 	updateMenu();
 	try {
 		const info = await Updater.checkForUpdate();
@@ -127,42 +152,41 @@ async function syncUpdate() {
 			remoteVersion: info.version,
 		});
 		if (!available) {
-			updateUi = {
-				available: false,
-				checking: false,
-				ready: false,
-				version: "",
-			};
-		} else {
-			updateUi = {
-				available: true,
-				checking: !info.updateReady,
-				ready: info.updateReady,
-				version: info.version,
-			};
+			showTransientStatus("updated");
 			updateMenu();
-			if (!info.updateReady) {
-				await Updater.downloadUpdate();
-				const ready = Updater.updateInfo();
-				const stillAvailable = shouldOfferUpdate({
-					localHash: local.hash,
-					localVersion: local.version,
-					remoteHash: ready.hash,
-					remoteVersion: ready.version,
-				});
-				updateUi = {
-					available: stillAvailable,
-					checking: false,
-					ready: stillAvailable && ready.updateReady,
-					version: stillAvailable ? ready.version : "",
-				};
+			return;
+		}
+		updateUi = {
+			...idleUpdateUi(),
+			available: true,
+			checking: !info.updateReady,
+			ready: info.updateReady,
+			version: info.version,
+		};
+		updateMenu();
+		if (!info.updateReady) {
+			await Updater.downloadUpdate();
+			const ready = Updater.updateInfo();
+			const stillAvailable = shouldOfferUpdate({
+				localHash: local.hash,
+				localVersion: local.version,
+				remoteHash: ready.hash,
+				remoteVersion: ready.version,
+			});
+			if (!stillAvailable) {
+				showTransientStatus("updated");
 			} else {
-				updateUi = { ...updateUi, checking: false };
+				updateUi = {
+					...idleUpdateUi(),
+					available: true,
+					ready: ready.updateReady,
+					version: ready.version,
+				};
 			}
 		}
 	} catch (error) {
 		console.error("pinar tray update check failed", error);
-		updateUi = { available: false, checking: false, ready: false, version: "" };
+		showTransientStatus("failed");
 	}
 	updateMenu();
 }
@@ -218,7 +242,10 @@ const quit = createQuitController({
 	quit: (code) => {
 		Utils.quit(code ?? 0);
 	},
-	releaseLock: releaseTrayLock,
+	releaseLock: () => {
+		stopStatusCountdown();
+		releaseTrayLock();
+	},
 	removeTray: () => tray.remove(),
 	stopServer,
 });

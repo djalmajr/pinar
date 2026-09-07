@@ -4,6 +4,7 @@ export type TrayLanguage = (typeof TRAY_LANGUAGES)[number];
 
 export interface TrayMenuLabels {
   checkForUpdates: string;
+  checkingForUpdates: string;
   downloading: string;
   folder: string;
   localServerOff: string;
@@ -14,12 +15,15 @@ export interface TrayMenuLabels {
   restart: string;
   start: string;
   stop: string;
+  upToDate: string;
+  updateCheckFailed: string;
   updateTo: string;
 }
 
 const labelsByLanguage: Record<TrayLanguage, TrayMenuLabels> = {
   de: {
     checkForUpdates: "Nach Updates suchen…",
+    checkingForUpdates: "Suche nach Updates…",
     downloading: "Lade {version} herunter…",
     folder: "Ordner öffnen",
     localServerOff: "Lokaler Server: Aus",
@@ -30,10 +34,13 @@ const labelsByLanguage: Record<TrayLanguage, TrayMenuLabels> = {
     restart: "Neu starten",
     start: "Starten",
     stop: "Stoppen",
+    upToDate: "Aktuell ({seconds}s)",
+    updateCheckFailed: "Update-Prüfung fehlgeschlagen ({seconds}s)",
     updateTo: "Auf {version} aktualisieren",
   },
   en: {
     checkForUpdates: "Check for Updates…",
+    checkingForUpdates: "Checking for Updates…",
     downloading: "Downloading {version}…",
     folder: "Open Folder",
     localServerOff: "Local Server: Off",
@@ -44,10 +51,13 @@ const labelsByLanguage: Record<TrayLanguage, TrayMenuLabels> = {
     restart: "Restart",
     start: "Start",
     stop: "Stop",
+    upToDate: "You're updated ({seconds}s)",
+    updateCheckFailed: "Update check failed ({seconds}s)",
     updateTo: "Update to {version}",
   },
   es: {
     checkForUpdates: "Buscar actualizaciones…",
+    checkingForUpdates: "Buscando actualizaciones…",
     downloading: "Descargando {version}…",
     folder: "Abrir carpeta",
     localServerOff: "Servidor local: desactivado",
@@ -58,10 +68,13 @@ const labelsByLanguage: Record<TrayLanguage, TrayMenuLabels> = {
     restart: "Reiniciar",
     start: "Iniciar",
     stop: "Detener",
+    upToDate: "Está actualizado ({seconds}s)",
+    updateCheckFailed: "Error al buscar actualizaciones ({seconds}s)",
     updateTo: "Actualizar a {version}",
   },
   fr: {
     checkForUpdates: "Rechercher des mises à jour…",
+    checkingForUpdates: "Recherche de mises à jour…",
     downloading: "Téléchargement de {version}…",
     folder: "Ouvrir le dossier",
     localServerOff: "Serveur local : désactivé",
@@ -72,10 +85,13 @@ const labelsByLanguage: Record<TrayLanguage, TrayMenuLabels> = {
     restart: "Redémarrer",
     start: "Démarrer",
     stop: "Arrêter",
+    upToDate: "À jour ({seconds}s)",
+    updateCheckFailed: "Échec de la vérification ({seconds}s)",
     updateTo: "Mettre à jour vers {version}",
   },
   ja: {
     checkForUpdates: "アップデートを確認…",
+    checkingForUpdates: "アップデートを確認中…",
     downloading: "{version} をダウンロード中…",
     folder: "フォルダーを開く",
     localServerOff: "ローカルサーバー: オフ",
@@ -86,10 +102,13 @@ const labelsByLanguage: Record<TrayLanguage, TrayMenuLabels> = {
     restart: "再起動",
     start: "開始",
     stop: "停止",
+    upToDate: "最新です ({seconds}s)",
+    updateCheckFailed: "アップデートの確認に失敗 ({seconds}s)",
     updateTo: "{version} に更新",
   },
   pt: {
     checkForUpdates: "Verificar atualizações…",
+    checkingForUpdates: "Verificando atualizações…",
     downloading: "Baixando {version}…",
     folder: "Abrir pasta",
     localServerOff: "Servidor local: desligado",
@@ -100,10 +119,13 @@ const labelsByLanguage: Record<TrayLanguage, TrayMenuLabels> = {
     restart: "Reiniciar",
     start: "Iniciar",
     stop: "Parar",
+    upToDate: "Tudo atualizado ({seconds}s)",
+    updateCheckFailed: "Falha ao verificar atualizações ({seconds}s)",
     updateTo: "Atualizar para {version}",
   },
   zh: {
     checkForUpdates: "检查更新…",
+    checkingForUpdates: "正在检查更新…",
     downloading: "正在下载 {version}…",
     folder: "打开文件夹",
     localServerOff: "本地服务器：关闭",
@@ -114,6 +136,8 @@ const labelsByLanguage: Record<TrayLanguage, TrayMenuLabels> = {
     restart: "重新启动",
     start: "启动",
     stop: "停止",
+    upToDate: "已是最新 ({seconds}s)",
+    updateCheckFailed: "检查更新失败 ({seconds}s)",
     updateTo: "更新到 {version}",
   },
 };
@@ -140,6 +164,14 @@ export function trayMenuLabels(
   return labelsByLanguage[language];
 }
 
-export function formatTrayLabel(template: string, version: string) {
-  return template.replaceAll("{version}", version);
+export function formatTrayLabel(
+  template: string,
+  values: string | Record<string, string | number>,
+) {
+  const replacements = typeof values === "string" ? { version: values } : values;
+  let result = template;
+  for (const [key, value] of Object.entries(replacements)) {
+    result = result.replaceAll(`{${key}}`, String(value));
+  }
+  return result;
 }

@@ -14,6 +14,7 @@ import {
   DropdownMenuSeparator,
 } from "@pinar/ui";
 import type { Translate } from "../lib/i18n";
+import { shareMarkdownPath } from "../lib/share-links";
 
 /**
  * Listing cards and the workspace viewer share this menu so a session is not
@@ -27,6 +28,7 @@ export interface SessionActionsMenuProps {
   batchCopied?: boolean;
   copied?: boolean;
   session: Session;
+  shareToken?: string | null;
   t: Translate;
   onCopy?: (session: Session) => void;
   onCopyBatch?: (batchId: string) => void;
@@ -43,6 +45,7 @@ export function SessionActionsMenu({
   batchCopied = false,
   copied = false,
   session,
+  shareToken,
   t,
   onCopy,
   onCopyBatch,
@@ -85,7 +88,7 @@ export function SessionActionsMenu({
             {batchCopied ? t("common.copied") : t("dashboard.copyBatch")}
           </DropdownMenuItem>
         ) : null}
-        <DropdownMenuItem render={<a href={`/v/${session.id}.md`} rel="noopener noreferrer" target="_blank" />}>
+        <DropdownMenuItem render={<a href={shareMarkdownPath(session.id, shareToken)} rel="noopener noreferrer" target="_blank" />}>
           <FileTextIcon />
           {t("dashboard.markdown")}
         </DropdownMenuItem>

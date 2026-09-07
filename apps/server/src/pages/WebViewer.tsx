@@ -15,6 +15,14 @@ import { pinarRuntime, shouldUseWorkspaceChrome } from "@/lib/server-header";
 import { formatSessionDate } from "@/lib/session-date";
 import { sessionListingCopy } from "@/lib/session-listing";
 import {
+  buildShareUrl,
+  canManageCloudShare,
+  fetchActiveShare,
+  publishShare,
+  revokeShare,
+  shareMarkdownPath,
+} from "@/lib/share-links";
+import {
   Badge,
   Button,
   ButtonGroup,
@@ -54,7 +62,9 @@ import LayersIcon from "~icons/lucide/layers";
 import ExternalLinkIcon from "~icons/lucide/external-link";
 import MessageCircleIcon from "~icons/lucide/message-circle";
 import ScanSearchIcon from "~icons/lucide/scan-search";
+import ShareIcon from "~icons/lucide/share-2";
 import SparklesIcon from "~icons/lucide/sparkles";
+import UnlinkIcon from "~icons/lucide/unlink";
 import XIcon from "~icons/lucide/x";
 
 interface WebViewerProps {
@@ -317,7 +327,12 @@ export function WebViewer({
   const [executions, setExecutions] = useState<AgentExecution[]>([]);
   const [selectedPin, setSelectedPin] = useState<Pin | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareError, setShareError] = useState("");
+  const [shareLinkCopied, setShareLinkCopied] = useState(false);
+  const [shareToken, setShareToken] = useState<string | null>(null);
   const siblingIndex = siblingIds.indexOf(sessionId);
+  const showShareControls = canManageCloudShare(pinarRuntime(), authSession, session);
   const zoom = useImageZoom(session?.shotUrl || sessionId);
   const isModal = presentation === "modal";
 
@@ -373,6 +388,25 @@ export function WebViewer({
   }, [sessionId]);
 
   useEffect(() => {
+    setShareBusy(false);
+    setShareError("");
+    setShareLinkCopied(false);
+    setShareToken(null);
+    if (!showShareControls) return;
+    let cancelled = false;
+    void fetchActiveShare("session", sessionId)
+      .then((token) => {
+        if (!cancelled) setShareToken(token);
+      })
+      .catch(() => {
+        if (!cancelled) setShareToken(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, showShareControls]);
+
+  useEffect(() => {
     function onResult(event: Event) {
       const detail = (event as CustomEvent<{ error?: string; ok?: boolean }>).detail;
       if (reopenWait.current != null) window.clearTimeout(reopenWait.current);
@@ -416,7 +450,41 @@ export function WebViewer({
   }
 
   function markdownUrl() {
-    return new URL(`/v/${sessionId}.md`, window.location.origin).toString();
+    return new URL(shareMarkdownPath(sessionId, shareToken), window.location.origin).toString();
+  }
+
+  async function copyShareLink() {
+    if (!shareToken) return;
+    await navigator.clipboard.writeText(buildShareUrl(sessionId, shareToken, window.location.origin));
+    setShareLinkCopied(true);
+    window.setTimeout(() => setShareLinkCopied(false), 2_000);
+  }
+
+  async function publishShareLink() {
+    if (shareBusy) return;
+    setShareBusy(true);
+    setShareError("");
+    try {
+      setShareToken(await publishShare("session", sessionId));
+    } catch {
+      setShareError(t("share.error"));
+    } finally {
+      setShareBusy(false);
+    }
+  }
+
+  async function revokeShareLink() {
+    if (shareBusy) return;
+    setShareBusy(true);
+    setShareError("");
+    try {
+      await revokeShare("session", sessionId);
+      setShareToken(null);
+    } catch {
+      setShareError(t("share.error"));
+    } finally {
+      setShareBusy(false);
+    }
   }
 
   async function copyBatch(batchId: string) {
@@ -623,6 +691,48 @@ export function WebViewer({
               <span className="hidden sm:inline">{aiLoading ? t("viewer.aiSummarizing") : t("viewer.aiSummary")}</span>
             </Button>
           ) : null}
+          {showShareControls ? (
+            shareToken ? (
+              <>
+                <Badge className="hidden sm:inline-flex" variant="successSoft">{t("share.published")}</Badge>
+                <ButtonGroup aria-label={t("share.published")}>
+                  <Button
+                    aria-label={shareLinkCopied ? t("share.linkCopied") : t("share.copyLink")}
+                    title={shareError || t("share.copyLink")}
+                    type="button"
+                    variant="outline"
+                    onClick={() => void copyShareLink()}
+                  >
+                    {shareLinkCopied ? <CheckIcon data-icon="inline-start" /> : <CopyIcon data-icon="inline-start" />}
+                    <span className="hidden sm:inline">{shareLinkCopied ? t("share.linkCopied") : t("share.copyLink")}</span>
+                  </Button>
+                  <Button
+                    aria-label={t("share.revoke")}
+                    disabled={shareBusy}
+                    title={shareError || t("share.revoke")}
+                    type="button"
+                    variant="outline"
+                    onClick={() => void revokeShareLink()}
+                  >
+                    <UnlinkIcon data-icon="inline-start" />
+                    <span className="hidden sm:inline">{shareBusy ? t("share.revoking") : t("share.revoke")}</span>
+                  </Button>
+                </ButtonGroup>
+              </>
+            ) : (
+              <Button
+                aria-label={t("share.publish")}
+                disabled={shareBusy}
+                title={shareError || t("share.publish")}
+                type="button"
+                variant="outline"
+                onClick={() => void publishShareLink()}
+              >
+                <ShareIcon data-icon="inline-start" />
+                <span className="hidden sm:inline">{shareBusy ? t("share.publishing") : t("share.publish")}</span>
+              </Button>
+            )
+          ) : null}
           <ButtonGroup aria-label={t("viewer.pageActions")}>
             <Button aria-label={pageCopied ? t("common.copied") : t("dashboard.copyPrompt")} type="button" variant="outline" onClick={copyPage}>
               {pageCopied ? <CheckIcon data-icon="inline-start" /> : <CopyIcon data-icon="inline-start" />}
@@ -656,6 +766,7 @@ export function WebViewer({
                 batchCopied={batchCopied}
                 copied={pageCopied}
                 session={session}
+                shareToken={shareToken}
                 t={t}
                 onCopy={shareListingActions ? () => void copyPage() : undefined}
                 onCopyBatch={(id) => void copyBatch(id)}

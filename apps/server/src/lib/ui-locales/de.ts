@@ -350,6 +350,15 @@ const messages: UiMessages = {
     "Die KI-Anfrage ist fehlgeschlagen und die Gutschrift wird noch verarbeitet. Versuche es in einigen Minuten sicher erneut.",
   "viewer.aiNetworkError":
     "Die Verbindung wurde unterbrochen. Versuche es erneut, um dieselbe Anfrage sicher fortzusetzen.",
+  "share.publish": "Veröffentlichen",
+  "share.revoke": "Widerrufen",
+  "share.copyLink": "Link kopieren",
+  "share.linkCopied": "Link kopiert",
+  "share.published": "Veröffentlicht",
+  "share.notPublished": "Nicht veröffentlicht",
+  "share.publishing": "Wird veröffentlicht…",
+  "share.revoking": "Wird widerrufen…",
+  "share.error": "Der Freigabelink konnte nicht aktualisiert werden",
   "pricing.badge": "Pinar Pro und Unterstützer",
   "pricing.title":
     "Visuelles Feedback organisiert und wiederherstellbar halten",

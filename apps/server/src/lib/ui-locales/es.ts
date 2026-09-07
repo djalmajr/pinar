@@ -351,6 +351,15 @@ const messages: UiMessages = {
     "La solicitud de IA falló y el reembolso del crédito aún se está procesando. Vuelve a intentarlo de forma segura en unos minutos.",
   "viewer.aiNetworkError":
     "La conexión se interrumpió. Inténtalo de nuevo para reanudar la misma solicitud de forma segura.",
+  "share.publish": "Publicar",
+  "share.revoke": "Revocar",
+  "share.copyLink": "Copiar enlace",
+  "share.linkCopied": "Enlace copiado",
+  "share.published": "Publicado",
+  "share.notPublished": "No publicado",
+  "share.publishing": "Publicando…",
+  "share.revoking": "Revocando…",
+  "share.error": "No se pudo actualizar el enlace para compartir",
   "pricing.badge": "Pinar Pro y patrocinadores",
   "pricing.title": "Mantén el feedback visual organizado y recuperable",
   "pricing.description":

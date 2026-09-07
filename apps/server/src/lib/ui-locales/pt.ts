@@ -345,6 +345,15 @@ const messages: UiMessages = {
     "A solicitação de IA falhou e o estorno do crédito ainda está sendo processado. Tente novamente com segurança em alguns minutos.",
   "viewer.aiNetworkError":
     "A conexão foi interrompida. Tente novamente para retomar a mesma solicitação com segurança.",
+  "share.publish": "Publicar",
+  "share.revoke": "Revogar",
+  "share.copyLink": "Copiar link",
+  "share.linkCopied": "Link copiado",
+  "share.published": "Publicado",
+  "share.notPublished": "Não publicado",
+  "share.publishing": "Publicando…",
+  "share.revoking": "Revogando…",
+  "share.error": "Não foi possível atualizar o link de compartilhamento",
   "pricing.badge": "Pinar Pro e apoiadores",
   "pricing.title": "Mantenha o feedback visual organizado e recuperável",
   "pricing.description":

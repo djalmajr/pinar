@@ -5679,6 +5679,13 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
     const url = new URL(request.url);
     const shareToken = url.searchParams.get("token") || undefined;
     const id = decodeURIComponent(path.slice("/api/sessions/".length));
+    const principal = await resolvePrincipal(request, env);
+    if (principal) {
+      const owned = await findOwnedSession(env, principal, id);
+      if (owned) {
+        return json(await sessionApiPayload(env, owned), 200, { "Cache-Control": "private, no-store" });
+      }
+    }
     const session = await findPublicSession(env, id, shareToken);
     return session
       ? json(await sessionApiPayload(env, session), 200, { "Cache-Control": "public, max-age=60" })

@@ -174,9 +174,11 @@ export async function exerciseAgentResultsIsolation(owner: ApiClient, other: Api
   });
   assert.equal(created.status, 201);
 
-  const publicSession = await other(`/api/sessions/${id}`);
-  assert.equal(publicSession.status, 200);
-  const body = await jsonRecord(publicSession);
+  const deniedSession = await other(`/api/sessions/${id}`);
+  assert.equal(deniedSession.status, 404);
+  const ownerSession = await owner(`/api/sessions/${id}`);
+  assert.equal(ownerSession.status, 200);
+  const body = await jsonRecord(ownerSession);
   assert.ok(Array.isArray(body.executions));
   assert.equal(body.executions.length, 1);
   assert.ok(isRecord(body.executions[0]));

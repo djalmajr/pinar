@@ -5712,25 +5712,44 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
       return json({ error: "Invalid resourceType" }, 400);
     }
     
-    // Verify ownership
+    // Verify ownership using authenticated internal lookups (not public access paths)
     let ownerId: string | null = null;
     if (resourceType === "session") {
-      const session = await findPublicSession(env, resourceId, undefined);
-      ownerId = session?.userId || null;
+      // Direct DB lookup for ownership check (bypass public access gate)
+      if (env.DB && SESSION_ID_PATTERN.test(resourceId)) {
+        try {
+          const row = await env.DB.prepare("SELECT user_id FROM sessions WHERE id = ?").bind(resourceId).first();
+          ownerId = row ? String(row.user_id) : null;
+        } catch {
+          ownerId = null;
+        }
+      } else if (!env.DB) {
+        const session = memorySessions.get(resourceId);
+        ownerId = session?.userId || null;
+      }
     } else if (resourceType === "project") {
       if (env.DB) {
         const row = await env.DB.prepare("SELECT owner_id FROM projects WHERE id = ?").bind(resourceId).first();
         ownerId = row ? String(row.owner_id) : null;
+      } else {
+        const project = memoryProjects.get(resourceId);
+        ownerId = project?.ownerId || null;
       }
     } else if (resourceType === "collection") {
       if (env.DB) {
         const row = await env.DB.prepare("SELECT owner_id FROM collections WHERE id = ?").bind(resourceId).first();
         ownerId = row ? String(row.owner_id) : null;
+      } else {
+        const collection = memoryCollections.get(resourceId);
+        ownerId = collection?.ownerId || null;
       }
     } else if (resourceType === "batch") {
       if (env.DB) {
         const row = await env.DB.prepare("SELECT user_id FROM batches WHERE id = ?").bind(resourceId).first();
         ownerId = row ? String(row.user_id) : null;
+      } else {
+        const batch = memoryBatches.get(resourceId);
+        ownerId = batch?.userId || null;
       }
     }
     

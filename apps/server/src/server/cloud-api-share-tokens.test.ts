@@ -7,7 +7,6 @@ import {
   handleCloudPublicRequest,
   resetCloudMemoryStateForTests,
   setCloudNowForTests,
-  seedCloudInstallationForTests,
 } from "./cloud-api";
 
 const identityA = { id: `ins_${"A".repeat(24)}`, token: `pit_${"a".repeat(43)}` };
@@ -28,6 +27,19 @@ function checkoutRequest(fields: Record<string, unknown>) {
     legalAcceptance: { ...REMOTE_FREE_LEGAL_ACCEPTANCE, locale },
     locale,
   };
+}
+
+async function register(identity: typeof identityA, env: CloudEnv = TEST_ENV) {
+  return api("/api/installations", {
+    body: JSON.stringify({
+      installationId: identity.id,
+      installationToken: identity.token,
+      legalAcceptance: REMOTE_FREE_LEGAL_ACCEPTANCE,
+      locale: "en",
+    }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  }, env);
 }
 
 function identityHeaders(identity: typeof identityA, extra: HeadersInit = {}) {
@@ -70,12 +82,12 @@ function api(path: string, init: RequestInit = {}, env: CloudEnv = TEST_ENV) {
 }
 
 describe("Share tokens (DJA-117)", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     resetCloudMemoryStateForTests();
     setCloudNowForTests("2025-01-15T12:00:00Z");
-    // Seed installations for testing
-    seedCloudInstallationForTests(identityA.id, identityA.token);
-    seedCloudInstallationForTests(identityB.id, identityB.token);
+    // Register installations for testing
+    await register(identityA);
+    await register(identityB);
   });
 
   test("session requires share token for public access", async () => {

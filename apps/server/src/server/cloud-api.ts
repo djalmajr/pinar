@@ -1569,42 +1569,43 @@ async function listShareTokens(
 
 async function findPublicSession(env: CloudEnv, id: string, shareToken?: string) {
   if (!SESSION_ID_PATTERN.test(id)) return null;
+  
+  // Require share token for anonymous access
+  if (!shareToken) return null;
+  
   if (env.DB) {
     try {
       const row = await env.DB.prepare("SELECT * FROM sessions WHERE id = ?").bind(id).first();
       if (!row) return null;
       const session = sessionFromRow(row);
       
-      // Check if access is allowed via share token
-      if (shareToken) {
-        const token = await validateShareToken(env, shareToken);
-        if (token && token.resourceType === "session" && token.resourceId === id) {
-          return session;
-        }
+      // Validate share token
+      const token = await validateShareToken(env, shareToken);
+      if (token && token.resourceType === "session" && token.resourceId === id) {
+        return session;
       }
       
-      // No valid share token provided - deny access
       return null;
     } catch {
       return null;
     }
   }
-  return memorySessions.get(id) || null;
+  
+  // Memory-only mode: share tokens not supported, deny all anonymous access
+  return null;
 }
 
 async function findPublicCollection(env: CloudEnv, id: string, shareToken?: string): Promise<ProjectTreeCollection | null> {
+  // Require share token for anonymous access
+  if (!shareToken) return null;
+  
   if (env.DB) {
     const row = await env.DB.prepare("SELECT * FROM collections WHERE id = ?").bind(id).first();
     if (!row) return null;
     
-    // Check if access is allowed via share token
-    if (shareToken) {
-      const token = await validateShareToken(env, shareToken);
-      if (!token || token.resourceType !== "collection" || token.resourceId !== id) {
-        return null;
-      }
-    } else {
-      // No share token provided - deny access
+    // Validate share token
+    const token = await validateShareToken(env, shareToken);
+    if (!token || token.resourceType !== "collection" || token.resourceId !== id) {
       return null;
     }
     
@@ -1613,29 +1614,22 @@ async function findPublicCollection(env: CloudEnv, id: string, shareToken?: stri
     ).bind(id).all();
     return { ...collectionFromRow(row), sessions: (sessions.results || []).map(sessionFromRow) };
   }
-  const collection = memoryCollections.get(id);
-  if (!collection) return null;
-  return {
-    ...collection,
-    sessions: Array.from(memorySessions.values())
-      .filter((session) => session.collectionId === id && session.userId === collection.ownerId)
-      .sort((left, right) => Number(left.position) - Number(right.position)),
-  };
+  
+  // Memory-only mode: share tokens not supported, deny all anonymous access
+  return null;
 }
 
 async function findPublicProject(env: CloudEnv, id: string, shareToken?: string): Promise<ProjectTreeProject | null> {
+  // Require share token for anonymous access
+  if (!shareToken) return null;
+  
   if (env.DB) {
     const row = await env.DB.prepare("SELECT * FROM projects WHERE id = ?").bind(id).first();
     if (!row) return null;
     
-    // Check if access is allowed via share token
-    if (shareToken) {
-      const token = await validateShareToken(env, shareToken);
-      if (!token || token.resourceType !== "project" || token.resourceId !== id) {
-        return null;
-      }
-    } else {
-      // No share token provided - deny access
+    // Validate share token
+    const token = await validateShareToken(env, shareToken);
+    if (!token || token.resourceType !== "project" || token.resourceId !== id) {
       return null;
     }
     
@@ -1652,33 +1646,22 @@ async function findPublicProject(env: CloudEnv, id: string, shareToken?: string)
       })),
     };
   }
-  const project = memoryProjects.get(id);
-  if (!project) return null;
-  const collections = sortCollections(Array.from(memoryCollections.values())
-    .filter((collection) => collection.projectId === id && collection.ownerId === project.ownerId));
-  return {
-    ...project,
-    collections: await Promise.all(collections.map(async (collection) => {
-      const publicCollection = await findPublicCollection(env, collection.id, shareToken);
-      if (!publicCollection) throw new Error("Collection disappeared while building project aggregate");
-      return publicCollection;
-    })),
-  };
+  
+  // Memory-only mode: share tokens not supported, deny all anonymous access
+  return null;
 }
 
 async function findPublicBatch(env: CloudEnv, id: string, shareToken?: string) {
+  // Require share token for anonymous access
+  if (!shareToken) return null;
+  
   if (env.DB) {
     const row = await env.DB.prepare("SELECT * FROM batches WHERE id = ?").bind(id).first();
     if (!row) return null;
     
-    // Check if access is allowed via share token
-    if (shareToken) {
-      const token = await validateShareToken(env, shareToken);
-      if (!token || token.resourceType !== "batch" || token.resourceId !== id) {
-        return null;
-      }
-    } else {
-      // No share token provided - deny access
+    // Validate share token
+    const token = await validateShareToken(env, shareToken);
+    if (!token || token.resourceType !== "batch" || token.resourceId !== id) {
       return null;
     }
     
@@ -1692,16 +1675,9 @@ async function findPublicBatch(env: CloudEnv, id: string, shareToken?: string) {
       sessions: (sessions.results || []).map(sessionFromRow),
     };
   }
-  const batch = memoryBatches.get(id);
-  if (!batch) return null;
-  return {
-    batch: memoryBatchRecord(batch),
-    ownerId: batch.userId,
-    sessions: Array.from(memorySessions.values())
-      .filter((session) => session.userId === batch.userId && cloudSessionBatchId(session) === id)
-      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-      .map((session) => withCloudBatchId(session)),
-  };
+  
+  // Memory-only mode: share tokens not supported, deny all anonymous access
+  return null;
 }
 
 async function listSessions(

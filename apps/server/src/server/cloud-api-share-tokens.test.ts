@@ -7,6 +7,7 @@ import {
   handleCloudPublicRequest,
   resetCloudMemoryStateForTests,
   setCloudNowForTests,
+  seedCloudInstallationForTests,
 } from "./cloud-api";
 
 const identityA = { id: `ins_${"A".repeat(24)}`, token: `pit_${"a".repeat(43)}` };
@@ -72,6 +73,9 @@ describe("Share tokens (DJA-117)", () => {
   beforeEach(() => {
     resetCloudMemoryStateForTests();
     setCloudNowForTests("2025-01-15T12:00:00Z");
+    // Seed installations for testing
+    seedCloudInstallationForTests(identityA.id, identityA.token);
+    seedCloudInstallationForTests(identityB.id, identityB.token);
   });
 
   test("session requires share token for public access", async () => {

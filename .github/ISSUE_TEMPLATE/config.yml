@@ -1,5 +1,1 @@
 blank_issues_enabled: false
-contact_links:
-  - name: Feature / planning (Linear)
-    url: https://linear.app/djalmajr
-    about: Planejamento e features só no Linear. GitHub Issues aqui ficam para Dependabot ou reporters externos.

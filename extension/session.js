@@ -33,11 +33,17 @@ export function planSessionEnd(tabId) {
 
 export const PINAR_HELPER_PORT_START = 17373;
 export const PINAR_HELPER_PORT_END = 17382;
+// Runs in the page's MAIN world before the content scripts, so the page's own
+// console.error calls and failed requests reach the evidence store.
+export const EVIDENCE_HOOK_FILES = ["evidence-hook.js"];
+
 export const CONTENT_INJECTION_FILES = [
   "coordinates.js",
   "frame-path.js",
   "locators.js",
   "privacy.js",
+  "snapshot.js",
+  "evidence.js",
   "keyboard.js",
   "content.js",
 ];

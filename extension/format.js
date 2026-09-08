@@ -61,15 +61,27 @@ function compactPinForHandoff(pin) {
   const area = pin.kind === "area" || pin.type === "area";
   const needsGeometry = area || !hasLocator;
   const box = pin.box || pin.areaBox;
+  // Mirrors compactPin in packages/shared/src/handoff: the snapshot stays
+  // behind the viewer link; an accepted diagnosis and technical evidence travel.
   return {
     box: needsGeometry ? box : undefined,
     comment: pin.comment || "",
     coords: needsGeometry && !box ? pin.coords : undefined,
+    diagnosis: pin.diagnosis?.acceptedAt ? pin.diagnosis : undefined,
+    evidence: pin.evidence?.items?.length ? pin.evidence : undefined,
     frameId: pin.frameId || undefined,
     kind: area ? "area" : undefined,
     locator: hasLocator ? locator : undefined,
     pinId: pin.pinId || pin.id || "",
     viewportAnchored: pin.viewportAnchored || undefined,
+  };
+}
+
+function reproductionForHandoff(reproduction) {
+  if (!reproduction || !Array.isArray(reproduction.steps) || reproduction.steps.length === 0) return undefined;
+  return {
+    ...reproduction,
+    steps: reproduction.steps.map(({ thumbnail, ...step }) => step),
   };
 }
 
@@ -79,6 +91,7 @@ function structuredHandoff({
   page = {},
   pins = [],
   privacy,
+  reproduction,
   shot,
   warnings,
   includeScreenshot = true,
@@ -99,6 +112,7 @@ function structuredHandoff({
     },
     pins: pins.map(compactPinForHandoff),
     privacy: privacy?.redacted?.length || privacy?.unevaluated ? privacy : undefined,
+    reproduction: reproductionForHandoff(reproduction),
     screenshot: shotUrlForJson(deliveredShot) ? { url: shotUrlForJson(deliveredShot) } : undefined,
     warnings: compactWarnings.length ? compactWarnings : undefined,
   });
@@ -111,6 +125,7 @@ function completeHandoff({
   page = {},
   pins = [],
   privacy,
+  reproduction,
   schemaVersion,
   shot,
   viewport,
@@ -124,8 +139,13 @@ function completeHandoff({
     captureId: captureId || "",
     createdAt,
     page,
-    pins: pins.map((pin) => ({ ...pin, pinId: pin.pinId || pin.id || "" })),
+    pins: pins.map((pin) => ({
+      ...pin,
+      diagnosis: pin.diagnosis?.acceptedAt ? pin.diagnosis : undefined,
+      pinId: pin.pinId || pin.id || "",
+    })),
     privacy,
+    reproduction: reproductionForHandoff(reproduction),
     schemaVersion: schemaVersion || 1,
     screenshot: {
       missing: includeScreenshot === false ? false : !deliveredShot,
@@ -158,6 +178,7 @@ function fillHandoff(template, vars) {
  *   page?: { title?: string, url?: string },
  *   pins?: object[],
  *   privacy?: { redacted?: string[], unevaluated?: boolean },
+ *   reproduction?: object,
  *   schemaVersion?: number,
  *   shot?: string,
  *   includeScreenshot?: boolean,
@@ -175,6 +196,7 @@ export function formatClipboard({
   page = {},
   pins = [],
   privacy,
+  reproduction,
   schemaVersion,
   shot,
   includeScreenshot = true,
@@ -195,6 +217,7 @@ export function formatClipboard({
     page,
     pins,
     privacy,
+    reproduction,
     schemaVersion,
     shot: deliveredShot,
     viewport,

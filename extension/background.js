@@ -26,9 +26,19 @@ import {
 } from "./identity.js";
 import { pinarPorts } from "./ports.js";
 import {
+  appendStep,
+  attachThumbnail,
+  createRecording,
+  finishRecording,
+  navigationStep,
+  recordingStatus,
+  wantsThumbnail,
+} from "./recorder.js";
+import {
   bindTabHydration,
   canInjectInto,
   CONTENT_INJECTION_FILES,
+  EVIDENCE_HOOK_FILES,
   dropHydrationIfTabLeftOrigin,
   endTabPins,
   hydrationForTab,
@@ -43,6 +53,9 @@ import "./privacy.js";
 
 const tabPins = new Map();
 const tabHydrations = new Map();
+// Reproduction recordings live here so a navigation mid-recording keeps the
+// steps; content scripts are re-injected and told to carry on.
+const tabRecordings = new Map();
 const registeredInstallations = new Set();
 const registerInstallationOnce = createSingleFlight();
 // Keeping the original command id preserves every shortcut a user already bound;
@@ -163,6 +176,7 @@ chrome.action.onClicked.addListener(async (tab) => {
   // deliberate no-op. Any other rejection is a real defect and stays visible.
   if (!tab.id || !canInjectInto(tab.url)) return;
   try {
+    await installEvidenceHook(tab.id, true);
     await chrome.scripting.executeScript({
       files: CONTENT_INJECTION_FILES,
       target: { allFrames: true, tabId: tab.id },
@@ -171,6 +185,61 @@ chrome.action.onClicked.addListener(async (tab) => {
     console.error("Unable to open the Pinar toolbar on this tab", tab.url, error);
   }
 });
+
+async function resumeRecordingOnTab(tabId) {
+  const [probe] = await chrome.scripting.executeScript({
+    func: () => Boolean(globalThis.__pinarResumeRecording),
+    target: { frameIds: [0], tabId },
+  }).catch(() => []);
+  if (!probe?.result) {
+    await installEvidenceHook(tabId, true);
+    await chrome.scripting.executeScript({
+      files: CONTENT_INJECTION_FILES,
+      target: { allFrames: true, tabId },
+    });
+  }
+  const status = recordingStatus(tabRecordings.get(tabId));
+  await chrome.scripting.executeScript({
+    args: [status],
+    func: (recordingState) => globalThis.__pinarResumeRecording?.(recordingState),
+    target: { frameIds: [0], tabId },
+  });
+}
+
+// A small JPEG per step keeps the viewer's timeline readable without turning
+// the capture into a video. captureVisibleTab needs the active tab; a step
+// taken while another tab is focused simply has no thumbnail.
+async function recordingThumbnail(windowId) {
+  const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: "jpeg", quality: 45 });
+  const bitmap = await dataUrlBitmap(dataUrl);
+  try {
+    const width = 320;
+    const height = Math.max(1, Math.round(bitmap.height * (width / bitmap.width)));
+    const canvas = new OffscreenCanvas(width, height);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    const blob = await canvas.convertToBlob({ quality: 0.55, type: "image/jpeg" });
+    return blobToDataUrl(blob);
+  } finally {
+    bitmap.close();
+  }
+}
+
+// Idempotent: the hook guards itself, so re-injection on toggle is harmless.
+// A page that refuses the MAIN world (a strict CSP sandbox) keeps working
+// without technical evidence rather than without Pinar.
+async function installEvidenceHook(tabId, allFrames) {
+  try {
+    await chrome.scripting.executeScript({
+      files: EVIDENCE_HOOK_FILES,
+      target: { allFrames, tabId },
+      world: "MAIN",
+    });
+  } catch (error) {
+    console.warn("Pinar technical evidence hook unavailable on this tab", error);
+  }
+}
 
 chrome.commands?.onCommand.addListener((command) => {
   if (command === PANEL_COMMAND) {
@@ -230,9 +299,19 @@ chrome.contextMenus?.onClicked.addListener((info) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   tabPins.delete(tabId);
   tabHydrations.delete(tabId);
+  tabRecordings.delete(tabId);
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  const recording = tabRecordings.get(tabId);
+  if (recording && !recording.finished && changeInfo.url) {
+    appendStep(recording, navigationStep(changeInfo.url, tab.title));
+  }
+  if (recording && !recording.finished && changeInfo.status === "complete" && canInjectInto(tab.url)) {
+    void resumeRecordingOnTab(tabId).catch((error) => {
+      console.warn("Unable to resume the Pinar recording after navigation", error);
+    });
+  }
   if (changeInfo.status !== "complete") return;
   const binding = hydrationForTab(tabHydrations, tabId);
   if (!binding) return;
@@ -452,6 +531,53 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "recorder:start") {
+    const tabId = sender.tab?.id;
+    if (tabId == null) {
+      sendResponse({ error: "missing tab", ok: false });
+      return false;
+    }
+    tabRecordings.set(tabId, createRecording());
+    sendResponse({ ok: true, ...recordingStatus(tabRecordings.get(tabId)) });
+    return false;
+  }
+
+  if (message.type === "recorder:status") {
+    sendResponse({ ok: true, ...recordingStatus(tabRecordings.get(sender.tab?.id)) });
+    return false;
+  }
+
+  if (message.type === "recorder:cancel") {
+    if (sender.tab?.id != null) tabRecordings.delete(sender.tab.id);
+    sendResponse({ ok: true });
+    return false;
+  }
+
+  if (message.type === "recorder:finish") {
+    const reproduction = finishRecording(tabRecordings.get(sender.tab?.id));
+    sendResponse({ ok: true, reproduction });
+    return false;
+  }
+
+  if (message.type === "recorder:step") {
+    const tabId = sender.tab?.id;
+    const recording = tabRecordings.get(tabId);
+    if (!recording) {
+      sendResponse({ error: "not recording", ok: false });
+      return false;
+    }
+    const step = appendStep(recording, message.step);
+    if (step && wantsThumbnail(recording, step) && sender.tab?.windowId != null) {
+      recordingThumbnail(sender.tab.windowId)
+        .then((thumbnail) => attachThumbnail(step, thumbnail))
+        .catch(() => null)
+        .finally(() => sendResponse({ ok: true, ...recordingStatus(recording) }));
+      return true;
+    }
+    sendResponse({ ok: true, ...recordingStatus(recording) });
+    return false;
+  }
+
   if (message.type === "session:end") {
     const plan = planSessionEnd(sender.tab?.id);
     if (!plan.ok) {
@@ -461,6 +587,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (plan.clearPins) {
       endTabPins(tabPins, plan.tabId);
       tabHydrations.delete(plan.tabId);
+      tabRecordings.delete(plan.tabId);
     }
     chrome.scripting
       .executeScript({
@@ -732,11 +859,13 @@ async function copyBundle(message, tabId) {
     fields: message.fields,
     page: message.page,
     pins: message.pins ?? [],
+    reproduction: message.reproduction,
     unevaluated: message.privacy?.unevaluated === true,
     warnings: message.warnings,
   }, { extraQueryKeys });
   const pins = sanitized.pins;
   const page = sanitized.page;
+  const reproduction = sanitized.reproduction || undefined;
   const privacy = sanitized.privacy;
   const warnings = [...(sanitized.warnings || [])];
   const activeBatch = await readBatch();
@@ -764,6 +893,7 @@ async function copyBundle(message, tabId) {
       page,
       pins,
       privacy,
+      reproduction,
       schemaVersion: message.schemaVersion || 1,
       shot,
       viewerUrl,
@@ -805,6 +935,7 @@ async function copyBundle(message, tabId) {
       warnings,
       includeScreenshot,
       activeBatch,
+      reproduction,
     );
     if (!savedResult) warnings.push("helper_unavailable");
   } else if (plan.warnScreenshotMissing) {
@@ -877,6 +1008,7 @@ async function ensureContentOnActiveTab() {
     target: { frameIds: [0], tabId: tab.id },
   }).catch(() => []);
   if (probe?.result) return;
+  await installEvidenceHook(tab.id, false);
   await chrome.scripting.executeScript({
     files: CONTENT_INJECTION_FILES,
     target: { allFrames: false, tabId: tab.id },
@@ -1133,6 +1265,7 @@ async function hydrateBoundTab(tabId, binding) {
   binding.hydrated = true;
   endTabPins(tabPins, tabId);
   if (!await tabHasHydrate(tabId)) {
+    await installEvidenceHook(tabId, true);
     await chrome.scripting.executeScript({
       files: CONTENT_INJECTION_FILES,
       target: { allFrames: true, tabId },
@@ -1513,7 +1646,7 @@ async function openApp() {
   return url;
 }
 
-async function saveShot(dataUrl, id, page = {}, pins = [], settings = {}, collectionId = "", privacy = null, warnings = [], includeScreenshot = true, batch = null) {
+async function saveShot(dataUrl, id, page = {}, pins = [], settings = {}, collectionId = "", privacy = null, warnings = [], includeScreenshot = true, batch = null, reproduction = undefined) {
   const payload = {
     captureId: id,
     collectionId,
@@ -1523,6 +1656,7 @@ async function saveShot(dataUrl, id, page = {}, pins = [], settings = {}, collec
     page,
     pins,
     privacy,
+    reproduction,
     schemaVersion: 1,
     warnings,
   };

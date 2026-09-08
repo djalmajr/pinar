@@ -321,6 +321,7 @@ function applyDeliveryResponse(current: PinarSettings, patch: unknown): PinarSet
     : null;
   const merged = mergeDeliveryPreferences({
     captureDestination: null,
+    componentTarget: null,
     copyOnFinishBatch: current.copyOnFinishBatch,
     copyViewerContent: Boolean(current.copyViewerContent),
     handoffMode: current.handoffMode === "full" ? "full" : "compact",

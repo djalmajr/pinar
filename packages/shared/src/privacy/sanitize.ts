@@ -153,6 +153,7 @@ export function sanitizeCapture(
     collectFromUnknown(pageIn.title, patternSecrets);
     collectFromUnknown(pageIn.description, patternSecrets);
   collectFromUnknown(input.pins, patternSecrets);
+  collectFromUnknown(input.reproduction, patternSecrets);
   const secrets = uniqueSecrets([...urlResult.secrets, ...fieldResult.secrets, ...patternSecrets]);
 
   const unevaluated = input.unevaluated === true;
@@ -174,10 +175,11 @@ export function sanitizeCapture(
   else delete page.description;
 
   const pins = sanitizeValue(input.pins ?? [], secrets) as unknown[];
+  const reproduction = input.reproduction === undefined ? undefined : sanitizeValue(input.reproduction, secrets);
   const warnings = [...new Set([
     ...(Array.isArray(input.warnings) ? input.warnings.filter((item): item is string => typeof item === "string") : []),
     ...privacyWarnings(privacy),
   ])];
 
-  return { page, pins, privacy, warnings };
+  return { page, pins, privacy, reproduction, warnings };
 }

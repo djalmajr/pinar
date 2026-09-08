@@ -1,6 +1,14 @@
 import type { PinLocation, VisualFingerprint } from "../locators/types.js";
 import type { PinReviewCounts } from "../pin-review/index.js";
 import type { PrivacyReport } from "../privacy/types.js";
+import type {
+  ComponentTarget,
+  ElementSnapshot,
+  PinComponent,
+  PinDiagnosis,
+  PinEvidence,
+  Reproduction,
+} from "../visual-context/fields.js";
 
 export type {
   LocateConfidence,
@@ -28,10 +36,13 @@ export interface Pin {
   box?: Box;
   color?: string;
   comment: string;
+  component?: PinComponent;
   coords: Point;
+  diagnosis?: PinDiagnosis;
   documentAnchor?: Point;
   documentBox?: Box;
   domPath?: string;
+  evidence?: PinEvidence;
   frameId?: number;
   id?: string;
   innerText?: string;
@@ -42,6 +53,7 @@ export interface Pin {
   pinId?: string;
   scroll?: Point;
   selector?: string;
+  snapshot?: ElementSnapshot;
   tag?: string;
   text?: string;
   topBox?: Box;
@@ -90,6 +102,7 @@ export interface Session {
   plan?: AccountPlan;
   position?: number;
   privacy?: PrivacyReport;
+  reproduction?: Reproduction;
   reviewCounts?: PinReviewCounts;
   schemaVersion?: number;
   shotId?: string;
@@ -215,6 +228,7 @@ export interface CaptureDestination {
 
 export interface DeliveryPreferences {
   captureDestination: CaptureDestination | null;
+  componentTarget: ComponentTarget | null;
   copyOnFinishBatch: CopyOnFinishBatch;
   copyViewerContent: boolean;
   handoffMode: HandoffMode;
@@ -226,6 +240,7 @@ export interface DeliveryPreferences {
 
 export const DEFAULT_DELIVERY_PREFERENCES: DeliveryPreferences = {
   captureDestination: null,
+  componentTarget: null,
   copyOnFinishBatch: "prompt",
   copyViewerContent: false,
   handoffMode: "compact",
@@ -247,6 +262,11 @@ function booleanValue(value: unknown, fallback: boolean) {
   if (value === 0 || value === "0" || value === "false") return false;
   if (value === 1 || value === "1" || value === "true") return true;
   return fallback;
+}
+
+function componentTargetValue(value: unknown, fallback: ComponentTarget | null): ComponentTarget | null {
+  if (value === null) return null;
+  return value === "html" || value === "react-tailwind" || value === "preact-htm" ? value : fallback;
 }
 
 function copyOnFinishBatchValue(value: unknown, fallback: CopyOnFinishBatch): CopyOnFinishBatch {
@@ -287,6 +307,7 @@ export function mergeDeliveryPreferences(
   );
   return {
     captureDestination: pick("captureDestination", captureDestinationValue),
+    componentTarget: pick("componentTarget", componentTargetValue),
     copyOnFinishBatch: pick("copyOnFinishBatch", copyOnFinishBatchValue),
     copyViewerContent: pick("copyViewerContent", booleanValue),
     handoffMode: pick("handoffMode", handoffModeValue),

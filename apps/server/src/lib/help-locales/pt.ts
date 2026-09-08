@@ -881,7 +881,14 @@ const locale = {
         {
           heading: "Custo do resumo",
           paragraphs: [
-            "Um resumo de sessão reserva 100 créditos de IA antes da inferência. No sucesso, a reserva é consumida. Uma inferência com falha ou abortada estorna imediatamente; uma reserva não concluída por mais de cinco minutos é estornada automaticamente. Resumos aceitam 10 pedidos por minuto por conta e 30 por minuto por IP; um pedido duplicado da mesma sessão aguarda o pedido ativo terminar.",
+            "Um resumo de sessão reserva 1 crédito de IA antes da inferência. No sucesso, a reserva é consumida. Uma inferência com falha ou abortada estorna imediatamente; uma reserva não concluída por mais de cinco minutos é estornada automaticamente. Resumos aceitam 10 pedidos por minuto por conta e 30 por minuto por IP; um pedido duplicado da mesma sessão aguarda o pedido ativo terminar.",
+          ],
+        },
+        {
+          heading: "Quanto custa cada recurso de IA",
+          paragraphs: [
+            "Todo recurso de IA reserva os créditos antes de rodar o modelo e os estorna quando o resultado é inutilizável, exatamente como o resumo. O custo é fixo por pedido, não por token: um resumo de sessão custa 1 crédito, um diagnóstico de pin 3, uma reprodução (passos escritos mais um teste Playwright) 5, salvar um pin como componente 10 e extrair o design system de uma coleção 15.",
+            "A evidência técnica e a estrutura do elemento são capturadas pela extensão sem nenhum modelo e não custam nada. Um pedido que não pode rodar (um pin sem estrutura capturada, uma coleção com menos de três snapshots do mesmo domínio) é recusado antes de qualquer reserva de crédito.",
           ],
         },
         {

@@ -877,7 +877,14 @@ const locale = {
         {
           heading: "Summary cost",
           paragraphs: [
-            "A session summary reserves 100 AI credits before model inference. On success, the reservation is consumed. A failed or aborted inference refunds it immediately; a reservation left unsettled for more than five minutes is refunded automatically. Summaries allow 10 requests per minute per account and 30 per minute per IP; a duplicate request for the same session waits for the active request to finish.",
+            "A session summary reserves 1 AI credit before model inference. On success, the reservation is consumed. A failed or aborted inference refunds it immediately; a reservation left unsettled for more than five minutes is refunded automatically. Summaries allow 10 requests per minute per account and 30 per minute per IP; a duplicate request for the same session waits for the active request to finish.",
+          ],
+        },
+        {
+          heading: "What each AI feature costs",
+          paragraphs: [
+            "Every AI feature reserves its credits before the model runs and refunds them when the result is unusable, exactly like the summary. Costs are fixed per request, not per token: a session summary costs 1 credit, a pin diagnosis 3, a reproduction (written steps plus a Playwright test) 5, saving a pin as a component 10, and extracting a collection’s design system 15.",
+            "Technical evidence and the element structure are captured by the extension without any model and cost nothing. A request that cannot run (a pin without a captured structure, a collection with fewer than three snapshots from the same domain) is refused before any credit is reserved.",
           ],
         },
         {

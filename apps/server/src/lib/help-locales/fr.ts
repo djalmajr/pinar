@@ -884,7 +884,14 @@ const locale = {
         {
           heading: "Coût du résumé",
           paragraphs: [
-            "Un résumé de session réserve 100 crédits IA avant l’inférence du modèle. En cas de succès, la réservation est consommée. Une inférence échouée ou abandonnée la rembourse immédiatement ; une réservation laissée non soldée plus de cinq minutes est remboursée automatiquement. Les résumés autorisent 10 requêtes par minute par compte et 30 par minute par IP ; une requête en double pour la même session attend la fin de la requête active.",
+            "Un résumé de session réserve 1 crédit IA avant l’inférence du modèle. En cas de succès, la réservation est consommée. Une inférence échouée ou abandonnée la rembourse immédiatement ; une réservation laissée non soldée plus de cinq minutes est remboursée automatiquement. Les résumés autorisent 10 requêtes par minute par compte et 30 par minute par IP ; une requête en double pour la même session attend la fin de la requête active.",
+          ],
+        },
+        {
+          heading: "Ce que coûte chaque fonction IA",
+          paragraphs: [
+            "Chaque fonction IA réserve ses crédits avant d’exécuter le modèle et les rembourse quand le résultat est inutilisable, exactement comme le résumé. Le coût est fixe par requête, pas par token : un résumé de session coûte 1 crédit, un diagnostic d’épingle 3, une reproduction (étapes rédigées plus un test Playwright) 5, l’enregistrement d’une épingle comme composant 10 et l’extraction du design system d’une collection 15.",
+            "Les preuves techniques et la structure de l’élément sont capturées par l’extension sans aucun modèle et ne coûtent rien. Une requête impossible à exécuter (une épingle sans structure capturée, une collection avec moins de trois instantanés du même domaine) est refusée avant toute réservation de crédit.",
           ],
         },
         {

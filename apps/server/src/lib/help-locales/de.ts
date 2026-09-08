@@ -884,7 +884,14 @@ const locale = {
         {
           heading: "Kosten der Zusammenfassung",
           paragraphs: [
-            "Eine Sitzungszusammenfassung reserviert 100 AI-Credits vor der Modellinferenz. Bei Erfolg wird die Reservierung verbraucht. Eine fehlgeschlagene oder abgebrochene Inferenz erstattet sie sofort; eine länger als fünf Minuten unerledigte Reservierung wird automatisch erstattet. Zusammenfassungen erlauben 10 Anfragen pro Minute pro Konto und 30 pro Minute pro IP; eine doppelte Anfrage für dieselbe Sitzung wartet, bis die aktive Anfrage fertig ist.",
+            "Eine Sitzungszusammenfassung reserviert 1 AI-Credit vor der Modellinferenz. Bei Erfolg wird die Reservierung verbraucht. Eine fehlgeschlagene oder abgebrochene Inferenz erstattet sie sofort; eine länger als fünf Minuten unerledigte Reservierung wird automatisch erstattet. Zusammenfassungen erlauben 10 Anfragen pro Minute pro Konto und 30 pro Minute pro IP; eine doppelte Anfrage für dieselbe Sitzung wartet, bis die aktive Anfrage fertig ist.",
+          ],
+        },
+        {
+          heading: "Was jede KI-Funktion kostet",
+          paragraphs: [
+            "Jede KI-Funktion reserviert ihre Credits, bevor das Modell läuft, und erstattet sie, wenn das Ergebnis unbrauchbar ist, genau wie die Zusammenfassung. Die Kosten sind pro Anfrage fest, nicht pro Token: eine Sitzungszusammenfassung kostet 1 Credit, eine Pin-Diagnose 3, eine Reproduktion (ausformulierte Schritte plus Playwright-Test) 5, das Speichern eines Pins als Komponente 10 und das Extrahieren des Design-Systems einer Sammlung 15.",
+            "Technische Belege und die Elementstruktur erfasst die Erweiterung ohne Modell und kostenlos. Eine Anfrage, die nicht laufen kann (ein Pin ohne erfasste Struktur, eine Sammlung mit weniger als drei Snapshots derselben Domain), wird abgelehnt, bevor ein Credit reserviert wird.",
           ],
         },
         {

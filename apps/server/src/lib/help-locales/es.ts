@@ -884,7 +884,14 @@ const locale = {
         {
           heading: "Coste del resumen",
           paragraphs: [
-            "Un resumen de sesión reserva 100 créditos de IA antes de la inferencia del modelo. Si tiene éxito, la reserva se consume. Una inferencia fallida o abortada la reembolsa de inmediato; una reserva sin liquidar durante más de cinco minutos se reembolsa automáticamente. Los resúmenes permiten 10 peticiones por minuto por cuenta y 30 por minuto por IP; una petición duplicada de la misma sesión espera a que termine la petición activa.",
+            "Un resumen de sesión reserva 1 crédito de IA antes de la inferencia del modelo. Si tiene éxito, la reserva se consume. Una inferencia fallida o abortada la reembolsa de inmediato; una reserva sin liquidar durante más de cinco minutos se reembolsa automáticamente. Los resúmenes permiten 10 peticiones por minuto por cuenta y 30 por minuto por IP; una petición duplicada de la misma sesión espera a que termine la petición activa.",
+          ],
+        },
+        {
+          heading: "Cuánto cuesta cada función de IA",
+          paragraphs: [
+            "Cada función de IA reserva sus créditos antes de ejecutar el modelo y los devuelve cuando el resultado no sirve, exactamente como el resumen. El coste es fijo por petición, no por token: un resumen de sesión cuesta 1 crédito, un diagnóstico de pin 3, una reproducción (pasos escritos más una prueba Playwright) 5, guardar un pin como componente 10 y extraer el sistema de diseño de una colección 15.",
+            "La evidencia técnica y la estructura del elemento las captura la extensión sin ningún modelo y no cuestan nada. Una petición que no puede ejecutarse (un pin sin estructura capturada, una colección con menos de tres snapshots del mismo dominio) se rechaza antes de reservar cualquier crédito.",
           ],
         },
         {

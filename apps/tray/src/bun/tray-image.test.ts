@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { trayImageOptions, windowsAppIconPath } from "./tray-image";
+import { trayImageOptions, windowsAppIconPath, windowsTrayIconPath } from "./tray-image";
 
 describe("tray image", () => {
 	test("macOS uses the template PDF", () => {
@@ -15,7 +15,24 @@ describe("tray image", () => {
 		});
 	});
 
-	test("Windows prefers the packaged app.ico next to the launcher", () => {
+	test("Windows prefers the dedicated tray glyph over the app icon", () => {
+		const root = mkdtempSync(join(tmpdir(), "pinar-tray-glyph-"));
+		mkdirSync(join(root, "Resources", "app", "views", "assets"), { recursive: true });
+		writeFileSync(join(root, "Resources", "app.ico"), "ico");
+		const glyph = join(root, "Resources", "app", "views", "assets", "tray-win.ico");
+		writeFileSync(glyph, "ico");
+		const execPath = join(root, "bin", "launcher.exe");
+		expect(windowsTrayIconPath(execPath)).toBe(glyph);
+		expect(trayImageOptions({ execPath, platform: "win32" })).toEqual({
+			height: 16,
+			image: glyph,
+			template: false,
+			title: "Pinar",
+			width: 16,
+		});
+	});
+
+	test("Windows falls back to the packaged app.ico when the glyph is missing", () => {
 		const root = mkdtempSync(join(tmpdir(), "pinar-tray-ico-"));
 		mkdirSync(join(root, "Resources"), { recursive: true });
 		const ico = join(root, "Resources", "app.ico");

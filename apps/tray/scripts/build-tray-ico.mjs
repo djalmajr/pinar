@@ -1,9 +1,10 @@
 // Builds src/assets/tray-win.ico from src/assets/tray-win.svg.
 //
 // The Windows notification area asks for 16, 20, 24 or 32 px depending on the
-// display scale, and picks the nearest entry of the .ico. A single glyph
+// display scale, and picks the nearest entry of the .ico. A single image
 // downscaled from the 512 px app icon looks soft at those sizes, so each entry
-// is rendered on its own with a stroke width rounded to whole device pixels.
+// renders the blue bubble with its white plus on its own, the plus stroke
+// rounded to whole device pixels.
 // Entries are stored as 32-bit BMPs (the safest format for tray icons).
 //
 //   node apps/tray/scripts/build-tray-ico.mjs
@@ -16,14 +17,14 @@ import { chromium } from "@playwright/test";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const svgPath = join(root, "src", "assets", "tray-win.svg");
 const icoPath = join(root, "src", "assets", "tray-win.ico");
-const VIEWBOX = 22;
-// Device pixels per size: thick enough to read, thin enough to keep the tail.
+const VIEWBOX = 24;
+// Device pixels of the white plus per size: whole pixels so the arms stay sharp.
 const SIZES = [
   { size: 16, stroke: 2 },
   { size: 20, stroke: 2.5 },
   { size: 24, stroke: 3 },
-  { size: 32, stroke: 3.5 },
-  { size: 48, stroke: 5 },
+  { size: 32, stroke: 4 },
+  { size: 48, stroke: 6 },
 ];
 
 function svgFor(strokePx, size) {

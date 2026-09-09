@@ -22,6 +22,48 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.3.7": {
+      title: "Structure de l’élément, preuves techniques et IA sur chaque pin",
+      summary:
+        "Les pins d’élément portent désormais leur structure et les preuves observées sur la page. Le visualiseur peut diagnostiquer un pin, l’enregistrer comme composant, transformer des étapes enregistrées en test Playwright et extraire le design system d’une collection. L’icône de la barre des tâches Windows est nette sur les écrans mis à l’échelle.",
+      changes: {
+        "element-structure": {
+          title: "Structure sur chaque pin d’élément",
+          description:
+            "Chaque pin d’élément stocke son arbre HTML, ses styles calculés non par défaut, ses polices, ses icônes et les éléments voisins. Le visualiseur l’affiche sous Structure, et elle voyage dans le bloc pinar-visual-context.",
+        },
+        "technical-evidence": {
+          title: "Preuves techniques",
+          description:
+            "Les erreurs de console, les requêtes échouées et l’environnement observés pendant que vous épingliez sont listés avec le pin, classés Après interaction ou Même page. Rien n’est déduit et aucun crédit n’est dépensé.",
+        },
+        "pin-diagnosis": {
+          title: "Diagnostiquer un pin (3 crédits)",
+          description:
+            "L’IA explique la cause probable du pin à partir de sa structure et propose un correctif CSS avec un niveau de confiance. Acceptez, modifiez ou rejetez-le ; seuls les diagnostics acceptés restent avec le pin.",
+        },
+        "save-as-component": {
+          title: "Enregistrer un pin comme composant (10 crédits)",
+          description:
+            "Transformez un élément capturé en HTML + CSS, React + Tailwind ou Preact + htm, avec fichiers, dépendances, notes de fidélité, aperçu, téléchargement ZIP et StackBlitz.",
+        },
+        "step-recording": {
+          title: "Enregistrer les étapes et générer un test Playwright (5 crédits)",
+          description:
+            "Appuyez sur G sur la page pour enregistrer clics, saisie, défilement et navigation. Rouvrez Pinar, épinglez et copiez pour joindre les étapes ; G à nouveau les abandonne. Le visualiseur génère des étapes rédigées et un test Playwright.",
+        },
+        "collection-design-system": {
+          title: "Design system d’une collection (15 crédits)",
+          description:
+            "Extrayez les couleurs, la typographie, les espacements, les rayons et les ombres partagés par les pins d’une collection. Exportez en variables CSS, thème Tailwind, tokens W3C ou DESIGN.md.",
+        },
+        "windows-tray-icon": {
+          title: "Icône Windows nette dans la barre des tâches",
+          description:
+            "L’icône de la zone de notification est rendue à la taille demandée par l’échelle de l’écran, elle n’est donc plus floue à 125 %, 150 % ou 200 %.",
+        },
+      },
+    },
     "v0.3.6": {
       title: "La vérification de mise à jour du menu est visible",
       summary:

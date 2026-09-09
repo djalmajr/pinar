@@ -22,6 +22,48 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.3.7": {
+      title: "Elementstruktur, technische Belege und KI an jedem Pin",
+      summary:
+        "Element-Pins tragen jetzt ihre Struktur und die auf der Seite beobachteten Belege. Der Viewer kann einen Pin diagnostizieren, ihn als Komponente speichern, aufgezeichnete Schritte in einen Playwright-Test verwandeln und das Design-System einer Collection extrahieren. Das Windows-Tray-Symbol ist auf skalierten Displays scharf.",
+      changes: {
+        "element-structure": {
+          title: "Struktur an jedem Element-Pin",
+          description:
+            "Jeder Element-Pin speichert seinen HTML-Baum, berechnete Stile abseits der Standardwerte, Schriften, Symbole und umgebende Elemente. Der Viewer zeigt sie unter Struktur, und sie reisen im pinar-visual-context-Block mit.",
+        },
+        "technical-evidence": {
+          title: "Technische Belege",
+          description:
+            "Konsolenfehler, fehlgeschlagene Anfragen und die während des Pinnens beobachtete Umgebung werden beim Pin aufgelistet, eingestuft als Nach Interaktion oder Gleiche Seite. Nichts wird abgeleitet und kein Credit verbraucht.",
+        },
+        "pin-diagnosis": {
+          title: "Einen Pin diagnostizieren (3 Credits)",
+          description:
+            "Die KI erklärt die wahrscheinliche Ursache des Pins anhand seiner Struktur und schlägt eine CSS-Korrektur mit Konfidenzstufe vor. Akzeptieren, bearbeiten oder verwerfen Sie sie; nur akzeptierte Diagnosen bleiben beim Pin.",
+        },
+        "save-as-component": {
+          title: "Einen Pin als Komponente speichern (10 Credits)",
+          description:
+            "Verwandeln Sie ein erfasstes Element in HTML + CSS, React + Tailwind oder Preact + htm, mit Dateien, Abhängigkeiten, Hinweisen zur Genauigkeit, Vorschau, ZIP-Download und StackBlitz.",
+        },
+        "step-recording": {
+          title: "Schritte aufzeichnen und einen Playwright-Test erzeugen (5 Credits)",
+          description:
+            "Drücken Sie G auf der Seite, um Klicks, Tippen, Scrollen und Navigation aufzuzeichnen. Öffnen Sie Pinar erneut, pinnen und kopieren Sie, um die Schritte anzuhängen; ein erneutes G verwirft sie. Der Viewer erzeugt ausformulierte Schritte und einen Playwright-Test.",
+        },
+        "collection-design-system": {
+          title: "Design-System einer Collection (15 Credits)",
+          description:
+            "Extrahieren Sie die gemeinsamen Farben, Typografie, Abstände, Radien und Schatten aus den Pins einer Collection. Exportieren Sie als CSS-Variablen, Tailwind-Theme, W3C-Tokens oder DESIGN.md.",
+        },
+        "windows-tray-icon": {
+          title: "Scharfes Windows-Tray-Symbol",
+          description:
+            "Das Symbol im Infobereich wird in der Größe gerendert, die die Display-Skalierung anfordert, und ist bei 125 %, 150 % oder 200 % nicht mehr unscharf.",
+        },
+      },
+    },
     "v0.3.6": {
       title: "Update-Prüfung in der Menüleiste ist sichtbar",
       summary:

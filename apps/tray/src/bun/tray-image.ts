@@ -25,9 +25,12 @@ export function windowsTrayIconPath(execPath = process.execPath) {
 export function trayImageOptions({
 	execPath = process.execPath,
 	platform = process.platform,
+	smallIconSize = 16,
 }: {
 	execPath?: string;
 	platform?: NodeJS.Platform;
+	/** Windows only: the shell's small-icon size for the display scale (see windows-dpi.ts). */
+	smallIconSize?: number;
 } = {}): TrayImageOptions {
 	if (platform === "darwin") {
 		return {
@@ -43,11 +46,11 @@ export function trayImageOptions({
 		const appIco = windowsAppIconPath(execPath);
 		const image = existsSync(trayIco) ? trayIco : existsSync(appIco) ? appIco : "views://assets/tray-win.png";
 		return {
-			height: 16,
+			height: smallIconSize,
 			image,
 			template: false,
 			title: "Pinar",
-			width: 16,
+			width: smallIconSize,
 		};
 	}
 	return {

@@ -30,6 +30,11 @@ describe("tray image", () => {
 			title: "Pinar",
 			width: 16,
 		});
+		expect(trayImageOptions({ execPath, platform: "win32", smallIconSize: 24 })).toMatchObject({
+			height: 24,
+			image: glyph,
+			width: 24,
+		});
 	});
 
 	test("Windows falls back to the packaged app.ico when the glyph is missing", () => {

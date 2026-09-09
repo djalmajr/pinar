@@ -347,6 +347,7 @@ const locale = {
             "`R` alterna la superposición en vivo entre solo los pins numerados y los pins con sus regiones seleccionadas. La captura copiada siempre incluye ambos.",
             "`Command/Ctrl/Alt+Enter` copia el paquete completado.",
             "`Alt+Shift+P` muestra u oculta la barra sin cancelar la sesión, y puedes reasignarlo en `chrome://extensions/shortcuts`. Los atajos del navegador quedan inertes en páginas `chrome://`, en la Chrome Web Store y antes de que se inyecte el overlay.",
+            "`G` empieza a grabar los pasos que das en la página. Vuelve a abrir Pinar, fija el resultado y copia con `Command/Ctrl/Alt+Enter` para adjuntar los pasos; pulsar `G` de nuevo descarta la grabación.",
           ],
         },
         {
@@ -426,6 +427,17 @@ const locale = {
             "Un compositor vacío no se puede copiar; el foco permanece en el campo hasta que exista un comentario.",
             "Al pasar el puntero por un marcador se previsualizan su número, comentario y la confianza actual del localizador en la página activa.",
             "Editar un pin existente actualiza solo su comentario; el id almacenado no cambia.",
+          ],
+        },
+        {
+          heading: "Estructura y evidencia técnica",
+          paragraphs: [
+            "Cada pin de elemento guarda además un snapshot de aquello a lo que apunta: el árbol HTML del elemento, los estilos computados que difieren de los valores por defecto del navegador, las fuentes e iconos que usa, y su padre y hermanos. El visor lo muestra en “Estructura”. Los elementos grandes se recortan para respetar el límite de captura, y el visor lo indica.",
+            "“Evidencia técnica” lista hechos que la extensión observó en la página mientras fijabas pins: errores de consola, peticiones fallidas y el entorno (navegador, viewport, idioma). Cada elemento se clasifica como “Tras la interacción” cuando ocurrió después de tu último clic o pulsación, o como “Misma página” cuando solo comparte la página. Nada se infiere y no se gasta ningún crédito de IA; quita un elemento antes de compartir si no guarda relación.",
+          ],
+          bullets: [
+            "Los pins de área no tienen estructura, así que “Diagnosticar” y “Guardar como componente” permanecen desactivados en ellos.",
+            "La estructura y la evidencia viajan dentro del bloque JSON pinar-visual-context, de modo que un agente las recibe con el pegado.",
           ],
         },
       ],
@@ -556,6 +568,17 @@ const locale = {
             "Una pestaña que aún está en about:blank mantiene el vínculo de hidratación; solo un origen distinto lo suelta.",
           ],
         },
+        {
+          heading: "Grabar pasos para reproducir",
+          paragraphs: [
+            "Pulsa `G` con Pinar abierto en la página para empezar a grabar. La barra se aparta y una pequeña insignia muestra cuántos pasos se han capturado. Usa la página como lo harías normalmente: clics, escritura, pulsaciones de teclas, desplazamiento y navegación se convierten en pasos con una miniatura cada uno, y la grabación sobrevive a los cambios de página.",
+            "Para terminar, vuelve a abrir Pinar, fija el elemento que muestra el problema y copia con `Command/Ctrl/Alt+Enter`. Los pasos se adjuntan a esa captura y aparecen en el visor en “Reproducción”. Pulsa `G` de nuevo para descartar la grabación en su lugar. El texto escrito en campos de contraseña, tarjeta y otros campos sensibles nunca se graba.",
+          ],
+          bullets: [
+            "En el visor, edita o quita pasos antes de generar. “Generar pasos y prueba” escribe pasos de reproducción numerados y una prueba Playwright por 5 créditos de IA.",
+            "Una captura copiada sin una grabación activa no tiene panel “Reproducción”.",
+          ],
+        },
       ],
     },
     "send-to-agent": {
@@ -585,6 +608,17 @@ const locale = {
             "Pega el portapapeles entero en el agente; no reescribas comentarios ni inventes un `captureId` nuevo.",
             "Confirma que el texto pegado aún contiene un cierre de cerca pinar-visual-context antes de empezar a editar código.",
             "Si no se pegó nada, pide `Command/Ctrl/Alt+Enter` en Pinar y sigue solo las notas de los pins.",
+          ],
+        },
+        {
+          heading: "Diagnosticar un pin y guardarlo como componente",
+          paragraphs: [
+            "En un pin con estructura capturada, “Diagnosticar” pide a la IA la causa probable de lo que comentaste y una propuesta de corrección CSS, con un nivel de confianza. Acepta, edita o descarta la propuesta; solo un diagnóstico aceptado se conserva con el pin y se copia con el paquete. Un diagnóstico cuesta 3 créditos de IA.",
+            "“Guardar como componente” convierte el elemento capturado en un componente aislado para tu stack: HTML + CSS, React + Tailwind o Preact + htm. El resultado lista archivos, dependencias y notas de fidelidad, con una previsualización junto al screenshot original. Copia los archivos, descarga un ZIP o abre el componente en StackBlitz. Cuesta 10 créditos de IA, y el stack elegido se recuerda para el siguiente pin.",
+          ],
+          bullets: [
+            "Ambas acciones necesitan la estructura del elemento; los pins de área y los pins capturados antes de esta versión no pueden usarlas.",
+            "Un diagnóstico de baja confianza es una hipótesis que verificar, no una conclusión que pegar como un hecho.",
           ],
         },
       ],
@@ -779,6 +813,13 @@ const locale = {
             "Tras un error al guardar el destino, vuelve a abrir las opciones de la extensión y confirma que el proyecto y la colección coinciden con una entrada viva del árbol antes de la siguiente captura en la nube.",
           ],
         },
+        {
+          heading: "Extraer el sistema de diseño de una colección",
+          paragraphs: [
+            "Desde el menú de una colección, “Extraer design system” lee la estructura de los pins de esa colección y deriva los tokens que comparten: colores, tipografía, espaciado, radios y sombras, además de la identidad del sitio. Necesita al menos tres pins con estructura capturada del mismo sitio, y cuesta 15 créditos de IA.",
+            "El resultado se abre como un diálogo con el tamaño de la muestra y los avisos que haya, como valores dispersos que no forman una escala. Expórtalo como variables CSS, un tema Tailwind, tokens de diseño W3C o un archivo DESIGN.md, y vuelve a extraer después de añadir más pins.",
+          ],
+        },
       ],
     },
     "find-manage-share": {
@@ -884,7 +925,14 @@ const locale = {
         {
           heading: "Coste del resumen",
           paragraphs: [
-            "Un resumen de sesión reserva 100 créditos de IA antes de la inferencia del modelo. Si tiene éxito, la reserva se consume. Una inferencia fallida o abortada la reembolsa de inmediato; una reserva sin liquidar durante más de cinco minutos se reembolsa automáticamente. Los resúmenes permiten 10 peticiones por minuto por cuenta y 30 por minuto por IP; una petición duplicada de la misma sesión espera a que termine la petición activa.",
+            "Un resumen de sesión reserva 1 crédito de IA antes de la inferencia del modelo. Si tiene éxito, la reserva se consume. Una inferencia fallida o abortada la reembolsa de inmediato; una reserva sin liquidar durante más de cinco minutos se reembolsa automáticamente. Los resúmenes permiten 10 peticiones por minuto por cuenta y 30 por minuto por IP; una petición duplicada de la misma sesión espera a que termine la petición activa.",
+          ],
+        },
+        {
+          heading: "Cuánto cuesta cada función de IA",
+          paragraphs: [
+            "Cada función de IA reserva sus créditos antes de ejecutar el modelo y los devuelve cuando el resultado no sirve, exactamente como el resumen. El coste es fijo por petición, no por token: un resumen de sesión cuesta 1 crédito, un diagnóstico de pin 3, una reproducción (pasos escritos más una prueba Playwright) 5, guardar un pin como componente 10 y extraer el sistema de diseño de una colección 15.",
+            "La evidencia técnica y la estructura del elemento las captura la extensión sin ningún modelo y no cuestan nada. Una petición que no puede ejecutarse (un pin sin estructura capturada, una colección con menos de tres snapshots del mismo dominio) se rechaza antes de reservar cualquier crédito.",
           ],
         },
         {

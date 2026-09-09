@@ -13,12 +13,24 @@ export function windowsAppIconPath(execPath = process.execPath) {
 	return join(dirname(execPath), "..", "Resources", "app.ico");
 }
 
+/**
+ * Glyph drawn for the notification area (16, 20, 24, 32 and 48 px entries,
+ * see scripts/build-tray-ico.mjs). The app icon downscaled from 512 px reads
+ * as a smudge at those sizes.
+ */
+export function windowsTrayIconPath(execPath = process.execPath) {
+	return join(dirname(execPath), "..", "Resources", "app", "views", "assets", "tray-win.ico");
+}
+
 export function trayImageOptions({
 	execPath = process.execPath,
 	platform = process.platform,
+	smallIconSize = 16,
 }: {
 	execPath?: string;
 	platform?: NodeJS.Platform;
+	/** Windows only: the shell's small-icon size for the display scale (see windows-dpi.ts). */
+	smallIconSize?: number;
 } = {}): TrayImageOptions {
 	if (platform === "darwin") {
 		return {
@@ -30,13 +42,15 @@ export function trayImageOptions({
 		};
 	}
 	if (platform === "win32") {
-		const ico = windowsAppIconPath(execPath);
+		const trayIco = windowsTrayIconPath(execPath);
+		const appIco = windowsAppIconPath(execPath);
+		const image = existsSync(trayIco) ? trayIco : existsSync(appIco) ? appIco : "views://assets/tray-win.png";
 		return {
-			height: 16,
-			image: existsSync(ico) ? ico : "views://assets/tray-win.png",
+			height: smallIconSize,
+			image,
 			template: false,
 			title: "Pinar",
-			width: 16,
+			width: smallIconSize,
 		};
 	}
 	return {

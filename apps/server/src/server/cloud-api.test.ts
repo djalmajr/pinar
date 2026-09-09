@@ -514,6 +514,7 @@ describe("remote installation isolation", () => {
     assert.deepEqual(defaults, {
       ok: true,
       captureDestination: null,
+      componentTarget: null,
       copyOnFinishBatch: "prompt",
       copyViewerContent: false,
       handoffMode: "compact",
@@ -2611,6 +2612,65 @@ describe("remote installation isolation", () => {
         headers: identityHeaders(identityA, init.headers),
       }),
     );
+  });
+
+  test("patches viewer-owned pin fields on an owned session only", async () => {
+    await register(identityA);
+    await register(identityB);
+    assert.equal((await upload(identityA, "patch_session_001", "Patchable")).status, 201);
+    const listed = await jsonBody(await api("/api/sessions/patch_session_001", {
+      headers: identityHeaders(identityA),
+    }));
+    assert.ok(isRecord(listed.session) && Array.isArray(listed.session.pins) && isRecord(listed.session.pins[0]));
+    const pinId = String(listed.session.pins[0].pinId);
+    const diagnosis = {
+      acceptedAt: "2026-09-08T00:00:00.000Z",
+      cause: "Flex container lacks align-items",
+      confidence: "high",
+      fix: ".row { align-items: center; }",
+      properties: ["align-items"],
+      version: 1,
+    };
+    const patch = (identity: typeof identityA, body: unknown) => api("/api/sessions/patch_session_001", {
+      body: JSON.stringify(body),
+      headers: identityHeaders(identity, { "content-type": "application/json" }),
+      method: "PATCH",
+    });
+    assert.equal((await patch(identityB, { pins: [{ diagnosis, pinId }] })).status, 404);
+    assert.equal((await patch(identityA, { pins: [{ diagnosis: { cause: "", version: 1 }, pinId }] })).status, 400);
+    assert.equal((await patch(identityA, { pins: [{ diagnosis, pinId: "unknown_pin" }] })).status, 400);
+
+    const patched = await jsonBody(await patch(identityA, {
+      pins: [{
+        diagnosis,
+        evidence: {
+          items: [{ at: "2026-09-08T00:00:01.000Z", grade: "same_page", kind: "error", message: "boom", origin: "https://example.test" }],
+          version: 1,
+        },
+        pinId,
+      }],
+      reproduction: {
+        steps: [{ at: "2026-09-08T00:00:00.000Z", kind: "navigate", url: "https://example.test/patch_session_001" }],
+        version: 1,
+      },
+    }));
+    assert.equal(patched.ok, true);
+    const stored = await jsonBody(await api("/api/sessions/patch_session_001", {
+      headers: identityHeaders(identityA),
+    }));
+    assert.ok(isRecord(stored.session) && Array.isArray(stored.session.pins) && isRecord(stored.session.pins[0]));
+    assert.ok(isRecord(stored.session.pins[0].diagnosis));
+    assert.equal(stored.session.pins[0].diagnosis.cause, "Flex container lacks align-items");
+    assert.ok(isRecord(stored.session.pins[0].evidence) && Array.isArray(stored.session.pins[0].evidence.items));
+    assert.equal(stored.session.pins[0].evidence.items.length, 1);
+    assert.ok(isRecord(stored.session.reproduction) && Array.isArray(stored.session.reproduction.steps));
+    assert.equal(stored.session.reproduction.steps.length, 1);
+
+    const cleared = await jsonBody(await patch(identityA, { pins: [{ evidence: null, pinId }], reproduction: null }));
+    assert.ok(isRecord(cleared.session) && Array.isArray(cleared.session.pins) && isRecord(cleared.session.pins[0]));
+    assert.equal(cleared.session.pins[0].evidence, undefined);
+    assert.equal(cleared.session.reproduction, undefined);
+    assert.ok(isRecord(cleared.session.pins[0].diagnosis));
   });
 
   test("keeps loop metrics isolated between installations", async () => {

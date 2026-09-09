@@ -20,6 +20,7 @@ import {
 } from "./local-server";
 import { trayMenuLabels } from "./menu-labels";
 import { trayImageOptions } from "./tray-image";
+import { windowsSmallIconSize } from "./windows-dpi";
 import { createQuitController } from "./tray-quit";
 import {
 	UPDATE_STATUS_SECONDS,
@@ -65,7 +66,7 @@ if (!ownsTrayLock) {
 	await new Promise<never>(() => {});
 }
 
-const tray = new Tray(trayImageOptions());
+const tray = new Tray(trayImageOptions({ smallIconSize: await windowsSmallIconSize() }));
 
 let online = false;
 let loginEnabled = false;

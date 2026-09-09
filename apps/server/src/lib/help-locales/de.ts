@@ -347,6 +347,7 @@ const locale = {
             "`R` schaltet das Live-Overlay zwischen nur nummerierten Pins und Pins mit ihren Regionen um. Der kopierte Screenshot enthält immer beides.",
             "`Command/Ctrl/Alt+Enter` kopiert das fertige Bundle.",
             "`Alt+Shift+P` blendet die Toolbar ein oder aus, ohne die Sitzung abzubrechen, und lässt sich unter `chrome://extensions/shortcuts` neu belegen. Browser-Kurzbefehle bleiben auf `chrome://`-Seiten, im Chrome Web Store und vor der Injektion des Overlays wirkungslos.",
+            "`G` startet die Aufzeichnung der Schritte, die du auf der Seite ausführst. Öffne Pinar erneut, pinne das Ergebnis und kopiere mit `Command/Ctrl/Alt+Enter`, um die Schritte anzuhängen; ein erneutes `G` verwirft die Aufzeichnung.",
           ],
         },
         {
@@ -425,6 +426,17 @@ const locale = {
             "Ein leerer Composer lässt sich nicht kopieren; der Fokus bleibt auf dem Feld, bis ein Kommentar existiert.",
             "Beim Zeigen auf eine Markierung siehst du Nummer, Kommentar und aktuelle Locator-Konfidenz auf der Live-Seite.",
             "Das Bearbeiten eines vorhandenen Pins aktualisiert nur den Kommentar; die gespeicherte id bleibt unverändert.",
+          ],
+        },
+        {
+          heading: "Struktur und technische Belege",
+          paragraphs: [
+            "Jeder Element-Pin speichert außerdem einen Snapshot dessen, worauf er zeigt: den HTML-Baum des Elements, die berechneten Stile, die von den Browser-Standardwerten abweichen, die verwendeten Schriften und Symbole sowie Eltern- und Geschwisterelemente. Der Viewer zeigt das unter „Struktur“. Große Elemente werden gekürzt, um innerhalb der Capture-Grenze zu bleiben, und der Viewer weist darauf hin.",
+            "„Technische Belege“ listet Fakten auf, die die Erweiterung während des Pinnens auf der Seite beobachtet hat: Konsolenfehler, fehlgeschlagene Anfragen und die Umgebung (Browser, Viewport, Sprache). Jeder Eintrag ist als „Nach Interaktion“ eingestuft, wenn er nach deinem letzten Klick oder Tastendruck aufgetreten ist, oder als „Gleiche Seite“, wenn er nur dieselbe Seite teilt. Nichts wird abgeleitet und kein KI-Credit verbraucht; entferne einen Eintrag vor dem Teilen, wenn er nichts damit zu tun hat.",
+          ],
+          bullets: [
+            "Bereichs-Pins haben keine Struktur, daher bleiben „Diagnostizieren“ und „Als Komponente speichern“ bei ihnen deaktiviert.",
+            "Struktur und Belege reisen im pinar-visual-context-JSON-Block mit, sodass ein Agent sie mit dem Einfügen erhält.",
           ],
         },
       ],
@@ -556,6 +568,17 @@ const locale = {
             "Ein Tab, der noch about:blank ist, behält die Hydrierungsbindung; nur ein anderer Origin löst sie.",
           ],
         },
+        {
+          heading: "Schritte zur Reproduktion aufzeichnen",
+          paragraphs: [
+            "Drücke `G`, während Pinar auf der Seite geöffnet ist, um die Aufzeichnung zu starten. Die Toolbar tritt beiseite, und ein kleines Badge zeigt, wie viele Schritte erfasst wurden. Benutze die Seite wie gewohnt: Klicks, Tippen, Tastendrücke, Scrollen und Navigation werden zu Schritten mit je einem Vorschaubild, und die Aufzeichnung übersteht Seitenwechsel.",
+            "Zum Abschließen öffne Pinar erneut, pinne das Element, das das Problem zeigt, und kopiere mit `Command/Ctrl/Alt+Enter`. Die Schritte werden an dieses Capture angehängt und erscheinen im Viewer unter „Reproduktion“. Drücke stattdessen erneut `G`, um die Aufzeichnung zu verwerfen. Text, der in Passwort-, Karten- und andere sensible Felder getippt wird, wird nie aufgezeichnet.",
+          ],
+          bullets: [
+            "Im Viewer kannst du Schritte vor dem Erzeugen bearbeiten oder entfernen. „Schritte und Test erzeugen“ schreibt nummerierte Reproduktionsschritte und einen Playwright-Test für 5 KI-Credits.",
+            "Ein Capture, das ohne aktive Aufzeichnung kopiert wurde, hat kein Panel „Reproduktion“.",
+          ],
+        },
       ],
     },
     "send-to-agent": {
@@ -585,6 +608,17 @@ const locale = {
             "Füge die gesamte Zwischenablage in den Agenten ein; tippe Kommentare nicht ab und erfinde keine neue `captureId`.",
             "Bestätige, dass der eingefügte Text noch einen geschlossenen pinar-visual-context-Fence enthält, bevor du Code bearbeitest.",
             "Wenn nichts eingefügt wurde, bitte um `Command/Ctrl/Alt+Enter` in Pinar und folge nur den Pin-Notizen.",
+          ],
+        },
+        {
+          heading: "Einen Pin diagnostizieren und als Komponente speichern",
+          paragraphs: [
+            "Bei einem Pin mit erfasster Struktur fragt „Diagnostizieren“ die KI nach der wahrscheinlichen Ursache dessen, was du kommentiert hast, und nach einem CSS-Korrekturvorschlag, mit einer Konfidenzstufe. Akzeptiere, bearbeite oder verwirf den Vorschlag; nur eine akzeptierte Diagnose bleibt beim Pin und wird mit dem Bundle kopiert. Eine Diagnose kostet 3 KI-Credits.",
+            "„Als Komponente speichern“ verwandelt das erfasste Element in eine isolierte Komponente für deinen Stack: HTML + CSS, React + Tailwind oder Preact + htm. Das Ergebnis listet Dateien, Abhängigkeiten und Hinweise zur Genauigkeit auf, mit einer Vorschau neben dem Original-Screenshot. Kopiere die Dateien, lade ein ZIP herunter oder öffne die Komponente in StackBlitz. Das kostet 10 KI-Credits, und der gewählte Stack wird für den nächsten Pin gemerkt.",
+          ],
+          bullets: [
+            "Beide Aktionen benötigen die Elementstruktur; Bereichs-Pins und Pins, die vor dieser Version erfasst wurden, können sie nicht nutzen.",
+            "Eine Diagnose mit niedriger Konfidenz ist eine zu prüfende Hypothese, keine Schlussfolgerung, die du als Tatsache einfügst.",
           ],
         },
       ],
@@ -780,6 +814,13 @@ const locale = {
             "Nach einem Fehler beim Speichern des Ziels öffne die Erweiterungsoptionen erneut und bestätige, dass Projekt und Collection einem aktuellen Baumeintrag entsprechen, bevor der nächste Cloud-Capture erfolgt.",
           ],
         },
+        {
+          heading: "Das Design-System einer Collection extrahieren",
+          paragraphs: [
+            "Aus dem Menü einer Collection liest „Design-System extrahieren“ die Struktur der Pins in dieser Collection und leitet die gemeinsamen Tokens ab: Farben, Typografie, Abstände, Radien und Schatten sowie die Identität der Site. Es braucht mindestens drei Pins mit erfasster Struktur von derselben Site und kostet 15 KI-Credits.",
+            "Das Ergebnis öffnet sich als Dialog mit der Stichprobengröße und etwaigen Warnungen, etwa verstreuten Werten, die keine Skala bilden. Exportiere es als CSS-Variablen, Tailwind-Theme, W3C-Design-Tokens oder DESIGN.md-Datei, und extrahiere erneut, nachdem du weitere Pins hinzugefügt hast.",
+          ],
+        },
       ],
     },
     "find-manage-share": {
@@ -884,7 +925,14 @@ const locale = {
         {
           heading: "Kosten der Zusammenfassung",
           paragraphs: [
-            "Eine Sitzungszusammenfassung reserviert 100 AI-Credits vor der Modellinferenz. Bei Erfolg wird die Reservierung verbraucht. Eine fehlgeschlagene oder abgebrochene Inferenz erstattet sie sofort; eine länger als fünf Minuten unerledigte Reservierung wird automatisch erstattet. Zusammenfassungen erlauben 10 Anfragen pro Minute pro Konto und 30 pro Minute pro IP; eine doppelte Anfrage für dieselbe Sitzung wartet, bis die aktive Anfrage fertig ist.",
+            "Eine Sitzungszusammenfassung reserviert 1 AI-Credit vor der Modellinferenz. Bei Erfolg wird die Reservierung verbraucht. Eine fehlgeschlagene oder abgebrochene Inferenz erstattet sie sofort; eine länger als fünf Minuten unerledigte Reservierung wird automatisch erstattet. Zusammenfassungen erlauben 10 Anfragen pro Minute pro Konto und 30 pro Minute pro IP; eine doppelte Anfrage für dieselbe Sitzung wartet, bis die aktive Anfrage fertig ist.",
+          ],
+        },
+        {
+          heading: "Was jede KI-Funktion kostet",
+          paragraphs: [
+            "Jede KI-Funktion reserviert ihre Credits, bevor das Modell läuft, und erstattet sie, wenn das Ergebnis unbrauchbar ist, genau wie die Zusammenfassung. Die Kosten sind pro Anfrage fest, nicht pro Token: eine Sitzungszusammenfassung kostet 1 Credit, eine Pin-Diagnose 3, eine Reproduktion (ausformulierte Schritte plus Playwright-Test) 5, das Speichern eines Pins als Komponente 10 und das Extrahieren des Design-Systems einer Sammlung 15.",
+            "Technische Belege und die Elementstruktur erfasst die Erweiterung ohne Modell und kostenlos. Eine Anfrage, die nicht laufen kann (ein Pin ohne erfasste Struktur, eine Sammlung mit weniger als drei Snapshots derselben Domain), wird abgelehnt, bevor ein Credit reserviert wird.",
           ],
         },
         {

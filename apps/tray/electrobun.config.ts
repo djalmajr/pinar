@@ -52,6 +52,7 @@ export default {
 			"src/assets/tray-on.png": "views/assets/tray-on.png",
 			"src/assets/tray-on@2x.png": "views/assets/tray-on@2x.png",
 			"src/assets/tray-off.png": "views/assets/tray-off.png",
+			"src/assets/tray-win.ico": "views/assets/tray-win.ico",
 			"icon.iconset/icon_32x32.png": "views/assets/tray-win.png",
 			...helperCopy,
 		},

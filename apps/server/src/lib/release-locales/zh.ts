@@ -20,6 +20,48 @@ const locale = {
     whatChanged: "更新内容",
   },
   releases: {
+    "v0.3.7": {
+      title: "元素结构、技术证据，以及每个图钉上的 AI",
+      summary:
+        "元素图钉现在会携带其结构和在页面上观察到的证据。查看器可以诊断图钉、将其保存为组件、把录制的步骤转换为 Playwright 测试，以及提取集合的设计系统。Windows 托盘图标在缩放显示器上清晰锐利。",
+      changes: {
+        "element-structure": {
+          title: "每个元素图钉都有结构",
+          description:
+            "每个元素图钉会保存其 HTML 树、非默认的计算样式、字体、图标和周围元素。查看器在“结构”下显示，并随 pinar-visual-context 代码块一起传递。",
+        },
+        "technical-evidence": {
+          title: "技术证据",
+          description:
+            "添加图钉时观察到的控制台错误、失败的请求和环境会随图钉列出，标为“交互之后”或“同一页面”。不做任何推断，也不消耗积分。",
+        },
+        "pin-diagnosis": {
+          title: "诊断图钉（3 积分）",
+          description:
+            "AI 会根据图钉的结构解释可能原因，并提出带置信度的 CSS 修复。可接受、编辑或丢弃；只有已接受的诊断会随图钉保留。",
+        },
+        "save-as-component": {
+          title: "将图钉保存为组件（10 积分）",
+          description:
+            "把捕获的元素转换为 HTML + CSS、React + Tailwind 或 Preact + htm，包含文件、依赖、保真度说明、预览、ZIP 下载和 StackBlitz。",
+        },
+        "step-recording": {
+          title: "录制步骤并生成 Playwright 测试（5 积分）",
+          description:
+            "在页面上按 G 即可录制点击、输入、滚动和导航。重新打开 Pinar，钉住并复制即可附上步骤；再按 G 则丢弃。查看器会生成文字步骤和一个 Playwright 测试。",
+        },
+        "collection-design-system": {
+          title: "集合的设计系统（15 积分）",
+          description:
+            "从集合的图钉中提取共有的颜色、排版、间距、圆角和阴影。可导出为 CSS 变量、Tailwind 主题、W3C 令牌或 DESIGN.md。",
+        },
+        "windows-tray-icon": {
+          title: "清晰的 Windows 托盘图标",
+          description:
+            "通知区域图标会按显示缩放所要求的尺寸渲染，因此在 125%、150% 或 200% 下不再模糊。",
+        },
+      },
+    },
     "v0.3.6": {
       title: "菜单栏更新检查现在可见",
       summary:

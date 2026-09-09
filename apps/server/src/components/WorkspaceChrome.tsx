@@ -54,10 +54,13 @@ import {
 } from "@/components/HistorySidebar";
 import { ProjectIconPicker } from "@/components/ProjectIcon";
 import { AppAccountMenu } from "@/components/AppAccountMenu";
+import { CollectionDesignSystemDialog } from "@/components/CollectionDesignSystemDialog";
 import { AppShell } from "@/components/AppShell";
 import { isProjectTreeProject, isRecord } from "@/lib/api-data";
 import { collectionAncestorPath } from "@/lib/collection-tree";
+import { isPaidAuthSession, useAuthSession } from "@/lib/auth-session";
 import { useServerI18n } from "@/lib/i18n";
+import { pinarRuntime } from "@/lib/server-header";
 import { flattenCollectionSessions } from "@/lib/session-listing";
 import { reorderIds, type OrderDirection } from "@/lib/session-order";
 import {
@@ -184,6 +187,9 @@ export function WorkspaceChrome({
   const { t } = useServerI18n();
   const [containerDelete, setContainerDelete] = useState<ContainerDelete | null>(null);
   const [containerEditor, setContainerEditor] = useState<ContainerEditor | null>(null);
+  const [designSystemTarget, setDesignSystemTarget] = useState<{ id: string; name: string } | null>(null);
+  const authSession = useAuthSession();
+  const showDesignSystem = pinarRuntime() === "cloud" && isPaidAuthSession(authSession);
   const [containerName, setContainerName] = useState("");
   const [loading, setLoading] = useState(true);
   const [projectIcon, setProjectIcon] = useState<ProjectIcon>(DEFAULT_PROJECT_ICON);
@@ -625,6 +631,7 @@ export function WorkspaceChrome({
             onDeleteFilter={setFilterDeleteId}
             onRename={({ id, kind, name }) => openContainerEditor({ id, kind, mode: "rename" }, name)}
             onReorderCollections={(items) => void reorderCollections(items)}
+            onDesignSystem={showDesignSystem ? (collection) => setDesignSystemTarget({ id: collection.id, name: collection.name }) : undefined}
             onSelectCollection={setSelectedCollectionId}
             onSelectFilter={setSelectedBatchId}
             onShare={(path) => void copyShare(path)}
@@ -634,6 +641,15 @@ export function WorkspaceChrome({
         onSelectWorkspace={setSelectedCollectionId}
       >
         {children}
+        {designSystemTarget ? (
+          <CollectionDesignSystemDialog
+            collectionId={designSystemTarget.id}
+            collectionName={designSystemTarget.name}
+            open
+            showAi={showDesignSystem}
+            onOpenChange={(open) => !open && setDesignSystemTarget(null)}
+          />
+        ) : null}
         <Dialog open={Boolean(containerEditor)} onOpenChange={(open) => !open && setContainerEditor(null)}>
           <DialogContent className={containerEditor?.kind === "project" ? "sm:max-w-lg" : undefined}>
             <form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); void submitContainerEditor(); }}>

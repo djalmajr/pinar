@@ -58,6 +58,7 @@ const LOCAL_OWNER_ID = "local";
  * @property {string | null} [shotPath]
  * @property {boolean} [includeScreenshot]
  * @property {string | null} [batchId]
+ * @property {import("@pinar/shared").Reproduction} [reproduction]
  */
 
 function generateNanoId(size = 12) {
@@ -206,6 +207,7 @@ function formatSession(row) {
     pins: capture.pins,
     position: row.position,
     privacy: capture.privacy,
+    reproduction: capture.reproduction,
     schemaVersion: capture.schemaVersion,
     shotId: row.shot_id,
     shotPath: row.shot_path,
@@ -316,6 +318,7 @@ function captureForSave(id, page, pins, shotId, shotPath, extras = {}) {
     page,
     pins,
     privacy: extras.privacy,
+    reproduction: extras.reproduction,
     screenshot: {
       id: shotId || id,
       missing: !shotPath,
@@ -463,11 +466,11 @@ class JsonHistoryDb {
   }
 
   /** @param {HistoryInput} input */
-  saveSession({ batchId = null, collectionId, createdAt, id, includeScreenshot = true, page = {}, pins = [], privacy, shotId = null, shotPath = null, warnings } = {}) {
+  saveSession({ batchId = null, collectionId, createdAt, id, includeScreenshot = true, page = {}, pins = [], privacy, reproduction, shotId = null, shotPath = null, warnings } = {}) {
     const destination = this.resolveDestination(collectionId);
     const existing = id ? this.data.sessions.find((item) => item.id === id) : null;
     const sid = id || generateNanoId();
-    const capture = captureForSave(sid, page, pins, shotId, shotPath, { privacy, warnings });
+    const capture = captureForSave(sid, page, pins, shotId, shotPath, { privacy, reproduction, warnings });
     const entry = {
       batch_id: batchId || null,
       collection_id: destination.collectionId,
@@ -1128,14 +1131,14 @@ class SqliteHistoryDb {
   }
 
   /** @param {HistoryInput} input */
-  saveSession({ batchId = null, collectionId, createdAt, id, includeScreenshot = true, page = {}, pins = [], privacy, shotId = null, shotPath = null, warnings } = {}) {
+  saveSession({ batchId = null, collectionId, createdAt, id, includeScreenshot = true, page = {}, pins = [], privacy, reproduction, shotId = null, shotPath = null, warnings } = {}) {
     const sid = id || generateNanoId();
     const destination = this.resolveDestination(collectionId);
     const existing = this.db.prepare("SELECT collection_id, position FROM sessions WHERE id = ?").get(sid);
     const position = existing?.collection_id === destination.collectionId
       ? existing.position
       : this._nextSessionPosition(destination.collectionId);
-    const capture = captureForSave(sid, page, pins, shotId, shotPath, { privacy, warnings });
+    const capture = captureForSave(sid, page, pins, shotId, shotPath, { privacy, reproduction, warnings });
     const includeFlag = includeScreenshot === false ? 0 : 1;
     this.db.prepare(`
       INSERT INTO sessions (

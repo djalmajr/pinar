@@ -57,6 +57,8 @@ describe("cloud schema migrations", () => {
       "0012_batches.sql",
       "0013_delivery_preferences.sql",
       "0014_drop_lifetime_plan.sql",
+      "0015_share_tokens.sql",
+      "0016_ai_features.sql",
     ]);
     const migrated = new Database(":memory:");
     const canonical = new Database(":memory:");

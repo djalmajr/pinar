@@ -73,6 +73,7 @@ import MoreVerticalIcon from "~icons/lucide/ellipsis-vertical";
 import PencilIcon from "~icons/lucide/pencil";
 import PlusIcon from "~icons/lucide/plus";
 import ShareIcon from "~icons/lucide/share-2";
+import PaletteIcon from "~icons/lucide/palette";
 import TrashIcon from "~icons/lucide/trash-2";
 import FilterIcon from "~icons/lucide/list-filter";
 import LayersIcon from "~icons/lucide/layers";
@@ -131,6 +132,7 @@ interface HistorySidebarProps {
   onDelete: (target: ContainerTarget) => void;
   onDeleteAllFilters: () => void;
   onDeleteFilter: (id: string) => void;
+  onDesignSystem?: (collection: ProjectTreeCollection) => void;
   onRename: (target: RenameTarget) => void;
   onReorderCollections: (items: CollectionPlacement[]) => void;
   onSelectCollection: (collectionId: string | null) => void;
@@ -167,6 +169,7 @@ interface SortableCollectionProps {
   t: Translate;
   onCreateChild: (parentId: string) => void;
   onDelete: (target: ContainerTarget) => void;
+  onDesignSystem?: (collection: ProjectTreeCollection) => void;
   onRename: (target: RenameTarget) => void;
   onSelect: (collectionId: string) => void;
   onShare: (path: string) => void;
@@ -180,6 +183,7 @@ interface CollectionMenuProps {
   onActionFocusChange: (focused: boolean) => void;
   onCreate: () => void;
   onDelete: (target: ContainerTarget) => void;
+  onDesignSystem?: (collection: ProjectTreeCollection) => void;
   onMenuOpenChange: (open: boolean) => void;
   onRename: (target: RenameTarget) => void;
   onShare: (path: string) => void;
@@ -192,6 +196,7 @@ function CollectionMenu({
   onActionFocusChange,
   onCreate,
   onDelete,
+  onDesignSystem,
   onMenuOpenChange,
   onRename,
   onShare,
@@ -240,6 +245,12 @@ function CollectionMenu({
               {t("dashboard.share")}
             </DropdownMenuItem>
           )}
+          {onDesignSystem ? (
+            <DropdownMenuItem onClick={() => onDesignSystem(collection)}>
+              <PaletteIcon />
+              {t("dashboard.designSystem")}
+            </DropdownMenuItem>
+          ) : null}
           {!collection.isProtected && (
             <>
               <DropdownMenuSeparator />
@@ -269,6 +280,7 @@ function SortableCollection({
   t,
   onCreateChild,
   onDelete,
+  onDesignSystem,
   onRename,
   onSelect,
   onShare,
@@ -371,6 +383,7 @@ function SortableCollection({
         onActionFocusChange={setMenuActionFocused}
         onCreate={() => onCreateChild(collection.id)}
         onDelete={onDelete}
+        onDesignSystem={onDesignSystem}
         onMenuOpenChange={setMenuOpen}
         onRename={onRename}
         onShare={onShare}
@@ -385,6 +398,7 @@ interface FixedCollectionProps {
   t: Translate;
   onCreate: () => void;
   onDelete: (target: ContainerTarget) => void;
+  onDesignSystem?: (collection: ProjectTreeCollection) => void;
   onRename: (target: RenameTarget) => void;
   onSelect: (collectionId: string) => void;
   onShare: (path: string) => void;
@@ -396,6 +410,7 @@ function FixedCollection({
   t,
   onCreate,
   onDelete,
+  onDesignSystem,
   onRename,
   onSelect,
   onShare,
@@ -437,6 +452,7 @@ function FixedCollection({
         onActionFocusChange={setMenuActionFocused}
         onCreate={onCreate}
         onDelete={onDelete}
+        onDesignSystem={onDesignSystem}
         onMenuOpenChange={setMenuOpen}
         onRename={onRename}
         onShare={onShare}
@@ -983,6 +999,7 @@ export function HistorySidebar({
   t,
   onCreate,
   onDelete,
+  onDesignSystem,
   onDeleteAllFilters,
   onDeleteFilter,
   onRename,
@@ -1158,6 +1175,7 @@ export function HistorySidebar({
                   t={t}
                   onCreate={() => create("collection")}
                   onDelete={deleteContainer}
+                  onDesignSystem={onDesignSystem}
                   onRename={rename}
                   onSelect={selectCollection}
                   onShare={onShare}
@@ -1200,6 +1218,7 @@ export function HistorySidebar({
                     t={t}
                     onCreateChild={(parentId) => create("collection", parentId)}
                     onDelete={deleteContainer}
+                    onDesignSystem={onDesignSystem}
                     onRename={rename}
                     onSelect={selectCollection}
                     onShare={onShare}

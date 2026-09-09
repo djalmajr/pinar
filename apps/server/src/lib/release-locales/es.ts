@@ -21,6 +21,48 @@ const locale = {
     whatChanged: "Qué cambió",
   },
   releases: {
+    "v0.3.7": {
+      title: "Estructura del elemento, evidencia técnica e IA en cada pin",
+      summary:
+        "Los pins de elemento ahora llevan su estructura y la evidencia observada en la página. El visor puede diagnosticar un pin, guardarlo como componente, convertir pasos grabados en una prueba Playwright y extraer el sistema de diseño de una colección. El icono del tray de Windows se ve nítido en pantallas escaladas.",
+      changes: {
+        "element-structure": {
+          title: "Estructura en cada pin de elemento",
+          description:
+            "Cada pin de elemento guarda su árbol HTML, los estilos computados no predeterminados, fuentes, iconos y elementos circundantes. El visor lo muestra en Estructura, y viaja en el bloque pinar-visual-context.",
+        },
+        "technical-evidence": {
+          title: "Evidencia técnica",
+          description:
+            "Los errores de consola, las peticiones fallidas y el entorno observados mientras fijabas pins se listan con el pin, clasificados como Tras la interacción o Misma página. Nada se infiere y no se gasta ningún crédito.",
+        },
+        "pin-diagnosis": {
+          title: "Diagnosticar un pin (3 créditos)",
+          description:
+            "La IA explica la causa probable del pin a partir de su estructura y propone una corrección CSS con un nivel de confianza. Acéptala, edítala o descártala; solo los diagnósticos aceptados se quedan con el pin.",
+        },
+        "save-as-component": {
+          title: "Guardar un pin como componente (10 créditos)",
+          description:
+            "Convierte un elemento capturado en HTML + CSS, React + Tailwind o Preact + htm, con archivos, dependencias, notas de fidelidad, previsualización, descarga en ZIP y StackBlitz.",
+        },
+        "step-recording": {
+          title: "Grabar pasos y generar una prueba Playwright (5 créditos)",
+          description:
+            "Pulsa G en la página para grabar clics, escritura, desplazamiento y navegación. Vuelve a abrir Pinar, fija y copia para adjuntar los pasos; G de nuevo los descarta. El visor genera pasos escritos y una prueba Playwright.",
+        },
+        "collection-design-system": {
+          title: "Sistema de diseño de una colección (15 créditos)",
+          description:
+            "Extrae los colores, tipografía, espaciado, radios y sombras compartidos por los pins de una colección. Expórtalo como variables CSS, un tema Tailwind, tokens W3C o DESIGN.md.",
+        },
+        "windows-tray-icon": {
+          title: "Icono del tray de Windows nítido",
+          description:
+            "El icono del área de notificación se renderiza al tamaño que pide la escala de pantalla, así que ya no se ve borroso al 125%, 150% o 200%.",
+        },
+      },
+    },
     "v0.3.6": {
       title: "La comprobación de actualización del tray es visible",
       summary:

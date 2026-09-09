@@ -71,18 +71,24 @@
     stableSelector,
   } = globalThis.__pinarLocators;
   const {
+    classifyFieldAttrs,
     documentBoxes,
     parseExtraKeys,
     scanSensitiveDocuments,
     sanitizeCapture,
+    sanitizeUrl,
   } = globalThis.__pinarPrivacy;
+  const evidenceStore = globalThis.__pinarEvidence?.store ?? null;
   const {
     handleComposerKeyDown,
     stopComposerKeyboardEvent,
   } = globalThis.__pinarKeyboardEvents;
+  const captureSnapshot = globalThis.__pinarSnapshot?.captureSnapshot ?? (() => undefined);
 
   const state = {
     active: true,
+    recording: false,
+    recordingCount: 0,
     batch: { active: false, label: "", shortcut: "" },
     sending: false,
     reopenAfterSend: false,
@@ -174,6 +180,11 @@
     overlay_region_hidden: "Region hidden · click the mask to restore",
     overlay_reviewing: "Reviewing saved session · pending pins need a manual place",
     overlay_write_comment: "Write a comment first",
+    overlay_hint_record_long: "Record steps",
+    overlay_hint_record_short: "Record",
+    overlay_record_started: "Recording steps · use the page, then reopen Pinar, pin and press {mod}+Enter to attach them",
+    overlay_record_cancelled: "Recording discarded",
+    overlay_recording_badge: "Pinar · recording {count} steps · reopen Pinar, pin and press {mod}+Enter to finish · G discards",
   };
   let messages = {};
   const t = (key) => messages[key] ?? FALLBACK_MESSAGES[key];
@@ -302,6 +313,7 @@
         .hint[data-hint="pin"] { display: none; }
       }
       @media (max-width: 920px) { .hint[data-hint="regions"] { display: none; } }
+      @media (max-width: 980px) { .hint[data-hint="record"] { display: none; } }
       @media (max-width: 860px) { .hint[data-hint="mask"] { display: none; } }
       @media (max-width: 760px) {
         .hint[data-hint="tune"] { display: none; }
@@ -553,6 +565,7 @@
           <span class="hint" data-hint="copy"><span class="keys"><kbd>${sendMod}+↵</kbd><kbd>Alt+↵</kbd></span><span class="long" data-i18n="overlay_hint_copy_long">${t("overlay_hint_copy_long")}</span><span class="short" data-i18n="overlay_hint_copy_short">${t("overlay_hint_copy_short")}</span></span>
           <span class="hint" data-hint="mask"><span class="keys"><kbd>M</kbd></span><span class="long" data-i18n="overlay_hint_mask_long">${t("overlay_hint_mask_long")}</span><span class="short" data-i18n="overlay_hint_mask_short">${t("overlay_hint_mask_short")}</span></span>
           <span class="hint" data-hint="regions"><span class="keys"><kbd>R</kbd></span><span data-i18n="overlay_hint_regions">${t("overlay_hint_regions")}</span></span>
+          <span class="hint" data-hint="record"><span class="keys"><kbd>G</kbd></span><span class="long" data-i18n="overlay_hint_record_long">${t("overlay_hint_record_long")}</span><span class="short" data-i18n="overlay_hint_record_short">${t("overlay_hint_record_short")}</span></span>
           <span class="hint" data-hint="clear"><span class="keys"><kbd>esc</kbd></span><span class="long" data-i18n="overlay_hint_clear_long">${t("overlay_hint_clear_long")}</span><span class="short" data-i18n="overlay_hint_clear_short">${t("overlay_hint_clear_short")}</span></span>
         </span>
         <span class="status" data-ref="toolbarStatus" hidden></span>
@@ -960,6 +973,217 @@
       node = node.parentElement;
     }
     return parts.join(" > ");
+  }
+
+  async function sensitiveQueryKeys() {
+    try {
+      const stored = await chrome.storage.sync.get({ sensitiveQueryKeys: "" });
+      return parseExtraKeys(stored.sensitiveQueryKeys);
+    } catch {
+      return [];
+    }
+  }
+
+  // Technical evidence is a list of facts recorded on this page during the
+  // session, graded by their link to the pinned element. URLs are redacted
+  // here, before the pin ever leaves the frame; nothing is inferred.
+  async function collectEvidence(element) {
+    if (!evidenceStore) return undefined;
+    try {
+      const extraKeys = await sensitiveQueryKeys();
+      return evidenceStore.collect(element, { redactUrl: (url) => sanitizeUrl(url, extraKeys).url });
+    } catch (error) {
+      console.warn("Pinar technical evidence skipped", error);
+      return undefined;
+    }
+  }
+
+  // The user's own clicks and typing on the page (not on the Pinar overlay)
+  // anchor the after_interaction grade. Listening in the capture phase sees
+  // them even when the page stops propagation.
+  function trackInteraction(event) {
+    if (fromUi(event)) return;
+    if (isMounted() && isVisible() && state.active) return;
+    evidenceStore?.interact(event.target);
+    if (state.recording) reportStep(event);
+  }
+
+  // --- Reproduction recording (DJA-171) -----------------------------------
+  // The user presses G, uses the page, then reopens Pinar to pin the result.
+  // Steps are kept by the background per tab so they survive navigations;
+  // the content script only describes what happened, with the same locators
+  // a pin carries. Typed values in sensitive fields are never recorded.
+
+  const recordingBadge = document.createElement("div");
+  recordingBadge.setAttribute("data-pinar", "recording");
+  Object.assign(recordingBadge.style, {
+    all: "initial",
+    background: "rgba(185, 28, 28, .96)",
+    borderRadius: "999px",
+    bottom: "16px",
+    boxShadow: "0 6px 20px rgba(15,23,42,.25)",
+    color: "#fff",
+    display: "none",
+    font: "600 12px/1.2 -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+    left: "16px",
+    padding: "8px 12px",
+    pointerEvents: "none",
+    position: "fixed",
+    zIndex: "2147483645",
+  });
+
+  function renderRecordingBadge(hidden = false) {
+    const show = state.recording && !hidden && !(isMounted() && isVisible() && state.active);
+    if (show) {
+      recordingBadge.textContent = `● ${t("overlay_recording_badge").replaceAll("{count}", String(state.recordingCount)).replaceAll("{mod}", sendMod)}`;
+      if (!recordingBadge.isConnected) document.documentElement.append(recordingBadge);
+    }
+    recordingBadge.style.display = show ? "" : "none";
+  }
+
+  function stepLocator(element) {
+    if (!element || element.nodeType !== 1) return undefined;
+    return {
+      cssSelector: stableSelector(document, element) || cssPath(element),
+      domPath: treePath(element),
+      fingerprint: captureFingerprint(element),
+      innerText: visibleText(element).slice(0, 60),
+      tag: element.tagName.toLowerCase(),
+    };
+  }
+
+  function fieldValue(element) {
+    const tag = element.tagName?.toLowerCase();
+    if (tag === "input") {
+      const type = (element.getAttribute("type") || element.type || "text").toLowerCase();
+      if (type === "checkbox" || type === "radio") return element.checked ? "checked" : "unchecked";
+      return String(element.value ?? "");
+    }
+    if (tag === "select" || tag === "textarea") return String(element.value ?? "");
+    if (element.isContentEditable) return String(element.textContent ?? "");
+    return "";
+  }
+
+  function sensitiveField(element) {
+    const attrs = {
+      ariaLabel: element.getAttribute?.("aria-label") || "",
+      autocomplete: element.getAttribute?.("autocomplete") || element.autocomplete || "",
+      id: element.id || "",
+      inputMode: element.getAttribute?.("inputmode") || "",
+      name: element.getAttribute?.("name") || "",
+      role: element.getAttribute?.("role") || "",
+      type: (element.getAttribute?.("type") || element.type || "").toLowerCase(),
+    };
+    return Boolean(classifyFieldAttrs(attrs)) || attrs.type === "password";
+  }
+
+  function stepFromEvent(event) {
+    const target = event.target;
+    if (!target || target.nodeType !== 1) return null;
+    const at = new Date().toISOString();
+    if (event.type === "click") return { at, kind: "click", locator: stepLocator(target) };
+    if (event.type === "input" || event.type === "change") {
+      const editable = ["input", "textarea", "select"].includes(target.tagName?.toLowerCase()) || target.isContentEditable;
+      if (!editable) return null;
+      const step = { at, kind: "input", locator: stepLocator(target) };
+      if (sensitiveField(target)) step.redacted = true;
+      else step.value = fieldValue(target).slice(0, 200);
+      return step;
+    }
+    if (event.type === "keydown") {
+      if (!["Enter", "Escape", "Tab"].includes(event.key)) return null;
+      return { at, kind: "key", locator: stepLocator(target), value: event.key };
+    }
+    return null;
+  }
+
+  function applyRecordingResponse(response) {
+    if (!response?.ok) return;
+    state.recordingCount = response.count ?? state.recordingCount;
+    renderRecordingBadge();
+  }
+
+  function reportStep(event) {
+    let step;
+    try {
+      step = stepFromEvent(event);
+    } catch {
+      step = null;
+    }
+    if (!step) return;
+    chrome.runtime.sendMessage({ step, type: "recorder:step" }).then(applyRecordingResponse).catch(() => null);
+  }
+
+  let lastRecordedScrollY = null;
+  let scrollStepTimer = 0;
+  function reportScrollStep() {
+    if (!state.recording || isEmbedded) return;
+    if (isMounted() && isVisible() && state.active) return;
+    clearTimeout(scrollStepTimer);
+    scrollStepTimer = setTimeout(() => {
+      const y = Math.round(window.scrollY || 0);
+      if (lastRecordedScrollY !== null && Math.abs(y - lastRecordedScrollY) < 200) return;
+      lastRecordedScrollY = y;
+      chrome.runtime.sendMessage({ step: { at: new Date().toISOString(), kind: "scroll", value: `${y}px` }, type: "recorder:step" })
+        .then(applyRecordingResponse)
+        .catch(() => null);
+    }, 400);
+  }
+
+  async function toggleRecording() {
+    if (state.recording) {
+      await chrome.runtime.sendMessage({ type: "recorder:cancel" }).catch(() => null);
+      state.recording = false;
+      state.recordingCount = 0;
+      renderRecordingBadge();
+      flashStatus(t("overlay_record_cancelled"));
+      return;
+    }
+    const started = await chrome.runtime.sendMessage({ type: "recorder:start" }).catch(() => null);
+    if (!started?.ok) return;
+    state.recording = true;
+    state.recordingCount = 0;
+    lastRecordedScrollY = Math.round(window.scrollY || 0);
+    flashStatus(t("overlay_record_started").replaceAll("{mod}", sendMod), "ok");
+    // Hand the page back to the user; the badge reminds them Pinar listens.
+    setTimeout(() => {
+      if (!state.recording) return;
+      setVisible(false);
+      renderRecordingBadge();
+    }, 900);
+  }
+
+  // After a navigation the background re-injects the content scripts and asks
+  // this frame to carry on: same recording, toolbar out of the way.
+  function resumeRecording(status) {
+    if (!status?.recording) return false;
+    state.recording = true;
+    state.recordingCount = status.count ?? 0;
+    lastRecordedScrollY = Math.round(window.scrollY || 0);
+    setVisible(false);
+    renderRecordingBadge();
+    return true;
+  }
+
+  async function syncRecordingStatus() {
+    if (isEmbedded) return;
+    try {
+      const status = await chrome.runtime.sendMessage({ type: "recorder:status" });
+      if (status?.ok) resumeRecording(status);
+    } catch {
+      /* No background, no recording. */
+    }
+  }
+
+  // The snapshot is best effort: a page that fights the baseline frame or an
+  // exotic element must never block the pin itself.
+  function safeSnapshot(element) {
+    try {
+      return captureSnapshot(element);
+    } catch (error) {
+      console.warn("Pinar snapshot skipped", error);
+      return undefined;
+    }
   }
 
   function labelFor(element) {
@@ -1744,7 +1968,11 @@
 
   function dismiss() {
     resetLocalPins();
+    evidenceStore?.reset();
+    state.recording = false;
+    state.recordingCount = 0;
     setVisible(false);
+    renderRecordingBadge();
   }
 
   function isMounted() {
@@ -1815,6 +2043,7 @@
       box,
       documentAnchor: documentPoint(anchor, nestedScroll),
       documentBox: documentBox(box, nestedScroll),
+      evidence: await collectEvidence(null),
       kind: "area",
       label: `selected area (${box.width}×${box.height}px)`,
       layoutScroll: nestedScroll,
@@ -1886,7 +2115,9 @@
       location: { confidence: "exact", evidence: ["captured"], score: 1, strategy: "stable-selector" },
       path,
       selector: stableSelector(document, element) || cssPath(element),
+      evidence: await collectEvidence(element),
       scroll,
+      snapshot: safeSnapshot(element),
       tag: element.tagName.toLowerCase(),
       text: visibleText(element),
       viewportAnchored: position === "fixed" || position === "sticky",
@@ -1968,6 +2199,11 @@
     if (event.key === "m" || event.key === "M") {
       event.preventDefault();
       toggleMaskMode();
+      return;
+    }
+    if ((event.key === "g" || event.key === "G") && !isEmbedded) {
+      event.preventDefault();
+      void toggleRecording();
       return;
     }
     if (event.key === "ArrowUp") {
@@ -2098,10 +2334,14 @@
       // session:end so their pins do not flash after the toolbar is gone.
       setHidden(false);
       setProgress(t("overlay_copying"), 0.55);
+      const finished = state.recording
+        ? await chrome.runtime.sendMessage({ type: "recorder:finish" }).catch(() => null)
+        : null;
       const sanitized = sanitizeCapture({
         fields: scan.fields,
         page: pageContext(),
         pins: pins.map((pin) => ({ ...pin, pinId: pin.pinId || pin.id })),
+        reproduction: finished?.reproduction || undefined,
         unevaluated: scan.unevaluated,
       }, { extraQueryKeys });
       const captureId = crypto.randomUUID();
@@ -2112,6 +2352,7 @@
         page: sanitized.page,
         pins: sanitized.pins,
         privacy: sanitized.privacy,
+        reproduction: sanitized.reproduction,
         schemaVersion: 1,
         shot,
         type: "clipboard",
@@ -2128,6 +2369,9 @@
       // Do not restore overlays first — that would flash iframe pins after
       // the top toolbar is already gone. session:end dismisses every frame.
       await chrome.runtime.sendMessage({ type: "session:end" }).catch(() => null);
+      state.recording = false;
+      state.recordingCount = 0;
+      renderRecordingBadge();
       await clearPins();
       broadcast(FRAME_CLEAR);
       setStatus(null);
@@ -2243,6 +2487,7 @@
   }
 
   function setHidden(hidden) {
+    renderRecordingBadge(hidden);
     host.style.display = hidden || !state.active ? "none" : "";
     if (hidden) {
       document.documentElement.removeAttribute("data-pinar-active");
@@ -2280,6 +2525,7 @@
     document.documentElement.removeAttribute("data-pinar-active");
     document.documentElement.removeAttribute("data-pinar-mask-mode");
     removeGlobalStyles();
+    renderRecordingBadge();
     hideOutline();
   }
 
@@ -2333,6 +2579,10 @@
     openPinEditor(pinId);
   });
 
+  window.addEventListener("click", trackInteraction, true);
+  window.addEventListener("input", trackInteraction, true);
+  window.addEventListener("change", trackInteraction, true);
+  window.addEventListener("keydown", trackInteraction, true);
   window.addEventListener("pointerdown", onPointerDown, true);
   window.addEventListener("pointermove", onPointerMove, true);
   window.addEventListener("pointerup", onPointerUp, true);
@@ -2344,6 +2594,7 @@
   window.addEventListener("keyup", onPageKeyEvent, true);
   window.addEventListener("message", onFrameMessage);
   window.addEventListener("scroll", () => {
+    reportScrollStep();
     if (isMounted()) {
       updateOutline();
       renderMarkers();
@@ -2501,6 +2752,8 @@
     delete globalThis.__pinarHydrateSession;
     delete globalThis.__pinarShowUnavailable;
     delete globalThis.__pinarRepositionPin;
+    delete globalThis.__pinarResumeRecording;
+    recordingBadge.remove();
   }
 
   function toggle() {
@@ -2531,6 +2784,7 @@
   globalThis.__pinarHydrateSession = hydrateSession;
   globalThis.__pinarShowUnavailable = showUnavailable;
   globalThis.__pinarRepositionPin = repositionPin;
+  globalThis.__pinarResumeRecording = resumeRecording;
   globalThis.chrome?.runtime?.onMessage?.addListener?.((message, _sender, sendResponse) => {
     if (message?.type === "session:hydrate") {
       sendResponse({ ok: hydrateSession(message) });
@@ -2566,4 +2820,5 @@
   renderMarkers();
   void syncBatchLabel();
   void syncUiMessages();
+  void syncRecordingStatus();
 })();

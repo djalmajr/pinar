@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import ReactMarkdown from "react-markdown";
-import { formatClipboardText, getPinColor, PINAR_REOPEN_SESSION_RESULT_EVENT, requestReopenSession, type AgentExecution, type Pin, type PinLocation, type PinReview, type PinReviewHumanAction, type PinReviewStatus, type Session } from "@pinar/shared";
+import { formatClipboardText, getPinColor, isComponentTarget, PINAR_REOPEN_SESSION_RESULT_EVENT, requestReopenSession, type AgentExecution, type ComponentTarget, type Pin, type PinLocation, type PinReview, type PinReviewHumanAction, type PinReviewStatus, type Reproduction, type Session } from "@pinar/shared";
 import { ImageZoomControls, ImageZoomStage, useImageZoom } from "@/components/ImageZoomStage";
+import { PinComponentPanel } from "@/components/PinComponentPanel";
+import { PinDiagnosisPanel } from "@/components/PinDiagnosisPanel";
+import { PinEvidence } from "@/components/PinEvidence";
+import { PinStructure } from "@/components/PinStructure";
+import { ReproductionTimeline } from "@/components/ReproductionTimeline";
 import { SessionActionsMenu } from "../components/SessionActionsMenu";
 import { copyBatchHandoff } from "../lib/session-actions";
 import { ServerShell } from "@/components/ServerShell";
@@ -333,6 +338,25 @@ export function WebViewer({
   const [shareToken, setShareToken] = useState<string | null>(null);
   const siblingIndex = siblingIds.indexOf(sessionId);
   const showShareControls = canManageCloudShare(pinarRuntime(), authSession, session);
+  const canEditPins = pinarRuntime() === "local" || canManageCloudShare(pinarRuntime(), authSession, session);
+  const [pinPatchBusy, setPinPatchBusy] = useState(false);
+  const [pinPatchError, setPinPatchError] = useState("");
+  const [preferredComponentTarget, setPreferredComponentTarget] = useState<ComponentTarget | null>(null);
+
+  useEffect(() => {
+    if (!showAiSummary) return;
+    let cancelled = false;
+    void fetch("/api/preferences")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: unknown) => {
+        if (cancelled || !isRecord(data)) return;
+        setPreferredComponentTarget(isComponentTarget(data.componentTarget) ? data.componentTarget : null);
+      })
+      .catch(() => null);
+    return () => {
+      cancelled = true;
+    };
+  }, [showAiSummary]);
   const zoom = useImageZoom(session?.shotUrl || sessionId);
   const isModal = presentation === "modal";
 
@@ -447,6 +471,59 @@ export function WebViewer({
     } finally {
       setReviewBusy(false);
     }
+  }
+
+  // Viewer edits on a pin (a trimmed evidence list, an accepted diagnosis, a
+  // generated component) are stored on the capture through one PATCH.
+  async function patchPin(pin: Pin, fields: Record<string, unknown>, failureMessage: ServerMessageKey) {
+    const pinId = pinLookupId(pin);
+    if (!pinId || pinPatchBusy) return false;
+    setPinPatchBusy(true);
+    setPinPatchError("");
+    try {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+        body: JSON.stringify({ pins: [{ ...fields, pinId }] }),
+        headers: { "content-type": "application/json" },
+        method: "PATCH",
+      });
+      if (!response.ok) {
+        setPinPatchError(t(failureMessage));
+        return false;
+      }
+      await loadSession();
+      return true;
+    } catch {
+      setPinPatchError(t(failureMessage));
+      return false;
+    } finally {
+      setPinPatchBusy(false);
+    }
+  }
+
+  async function persistReproduction(reproduction: Reproduction | null) {
+    if (pinPatchBusy) return false;
+    setPinPatchBusy(true);
+    setPinPatchError("");
+    try {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+        body: JSON.stringify({ reproduction }),
+        headers: { "content-type": "application/json" },
+        method: "PATCH",
+      });
+      if (!response.ok) return false;
+      await loadSession();
+      return true;
+    } catch {
+      return false;
+    } finally {
+      setPinPatchBusy(false);
+    }
+  }
+
+  async function removeEvidenceItem(pin: Pin, index: number) {
+    if (!pin.evidence) return;
+    const items = pin.evidence.items.filter((_item, position) => position !== index);
+    await patchPin(pin, { evidence: items.length ? { ...pin.evidence, items } : null }, "viewer.evidenceRemoveFailed");
   }
 
   function markdownUrl() {
@@ -829,6 +906,15 @@ export function WebViewer({
             </div>
             <ScrollArea className="min-h-0 flex-1">
               <div className="flex flex-col gap-3 p-4">
+                {session.reproduction ? (
+                  <ReproductionTimeline
+                    canEdit={canEditPins}
+                    reproduction={session.reproduction}
+                    sessionId={sessionId}
+                    showAi={showAiSummary && canEditPins}
+                    onPersist={persistReproduction}
+                  />
+                ) : null}
                 {(session.pins || []).map((pin, index) => {
                   const number = pinNumber(pin, index);
                   const color = pin.color || getPinColor(number);
@@ -953,6 +1039,7 @@ export function WebViewer({
                 <TabsList className="shrink-0" variant="segmented">
                   <TabsTrigger value="preview">{t("viewer.preview")}</TabsTrigger>
                   <TabsTrigger value="raw">{t("viewer.raw")}</TabsTrigger>
+                  {selectedPin.snapshot ? <TabsTrigger value="structure">{t("viewer.structure")}</TabsTrigger> : null}
                 </TabsList>
               </div>
               {(() => {
@@ -1022,6 +1109,31 @@ export function WebViewer({
                   </div>
                 );
               })()}
+              {selectedPin.evidence ? (
+                <PinEvidence
+                  busy={pinPatchBusy}
+                  canEdit={canEditPins}
+                  evidence={selectedPin.evidence}
+                  onRemove={(index) => void removeEvidenceItem(selectedPin, index)}
+                />
+              ) : null}
+              {pinPatchError ? <p className="text-xs text-destructive">{pinPatchError}</p> : null}
+              <PinDiagnosisPanel
+                canEdit={canEditPins}
+                pin={selectedPin}
+                sessionId={sessionId}
+                showAi={showAiSummary && canEditPins}
+                onPersist={(fields) => patchPin(selectedPin, fields, "viewer.evidenceRemoveFailed")}
+              />
+              <PinComponentPanel
+                canEdit={canEditPins}
+                pin={selectedPin}
+                preferredTarget={preferredComponentTarget}
+                session={session}
+                sessionId={sessionId}
+                showAi={showAiSummary && canEditPins}
+                onPersist={(fields) => patchPin(selectedPin, fields, "viewer.evidenceRemoveFailed")}
+              />
               <TabsContent value="preview">
                 <div className="rounded-lg border bg-card">
                   <article className="flex flex-col gap-4 p-5 text-sm leading-relaxed">
@@ -1047,6 +1159,13 @@ export function WebViewer({
                   </pre>
                 </div>
               </TabsContent>
+              {selectedPin.snapshot ? (
+                <TabsContent value="structure">
+                  <div className="rounded-lg border bg-card">
+                    <PinStructure snapshot={selectedPin.snapshot} />
+                  </div>
+                </TabsContent>
+              ) : null}
             </Tabs>
           )}
         </DialogContent>

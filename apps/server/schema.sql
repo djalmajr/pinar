@@ -52,7 +52,14 @@ CREATE TABLE ai_credit_usages (
   owner_type TEXT NOT NULL CHECK (owner_type IN ('account', 'installation')),
   owner_id TEXT NOT NULL,
   grant_id TEXT NOT NULL REFERENCES ai_credit_grants(id),
-  feature TEXT NOT NULL CHECK (feature IN ('session_summary')),
+  feature TEXT NOT NULL CHECK (feature IN (
+    'session_summary',
+    'component_export',
+    'pin_diagnosis',
+    'design_system',
+    'reproduction',
+    'voice_pin'
+  )),
   resource_id TEXT NOT NULL,
   model TEXT NOT NULL,
   credits INTEGER NOT NULL CHECK (credits > 0),
@@ -285,7 +292,8 @@ CREATE TABLE collections (
   position INTEGER NOT NULL DEFAULT 0,
   is_protected INTEGER NOT NULL DEFAULT 0 CHECK (is_protected IN (0, 1)),
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  design_system_json TEXT
 );
 
 CREATE INDEX idx_collections_owner ON collections(owner_id);
@@ -408,7 +416,8 @@ CREATE TABLE owner_preferences (
   copy_viewer_content INTEGER CHECK (copy_viewer_content IN (0, 1)),
   include_viewer INTEGER CHECK (include_viewer IN (0, 1)),
   language TEXT,
-  sensitive_query_keys TEXT
+  sensitive_query_keys TEXT,
+  component_target TEXT CHECK (component_target IN ('html', 'react-tailwind', 'preact-htm'))
 );
 
 CREATE TABLE share_tokens (

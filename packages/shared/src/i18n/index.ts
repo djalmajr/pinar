@@ -181,6 +181,11 @@ export interface TranslationDictionary {
   overlay_helper_unavailable: string;
   overlay_no_viewer: string;
   overlay_write_comment: string;
+  overlay_hint_record_long: string;
+  overlay_hint_record_short: string;
+  overlay_record_started: string;
+  overlay_record_cancelled: string;
+  overlay_recording_badge: string;
   overlay_add_pin_first: string;
   overlay_copy_failed: string;
   handoff_instructions: string;
@@ -373,6 +378,11 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_helper_unavailable: "helper unavailable",
     overlay_no_viewer: "no viewer",
     overlay_write_comment: "Write a comment first",
+    overlay_hint_record_long: "Record steps",
+    overlay_hint_record_short: "Record",
+    overlay_record_started: "Recording steps · use the page, then reopen Pinar, pin and press {mod}+Enter to attach them",
+    overlay_record_cancelled: "Recording discarded",
+    overlay_recording_badge: "Pinar · recording {count} steps · reopen Pinar, pin and press {mod}+Enter to finish · G discards",
     overlay_add_pin_first: "Add a pin first",
     overlay_copy_failed: "Copy failed",
     handoff_instructions: "The pin notes below may ask for a change or an explanation. Use selector and DOM path as complementary locators.",
@@ -563,6 +573,11 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_helper_unavailable: "auxiliar indisponível",
     overlay_no_viewer: "sem visualizador",
     overlay_write_comment: "Escreva um comentário",
+    overlay_hint_record_long: "Gravar passos",
+    overlay_hint_record_short: "Gravar",
+    overlay_record_started: "Gravando passos · use a página, reabra o Pinar, marque o pin e pressione {mod}+Enter para anexá-los",
+    overlay_record_cancelled: "Gravação descartada",
+    overlay_recording_badge: "Pinar · gravando {count} passos · reabra o Pinar, marque o pin e pressione {mod}+Enter para concluir · G descarta",
     overlay_add_pin_first: "Adicione um pin",
     overlay_copy_failed: "Falha ao copiar",
     handoff_instructions: "As notas dos pins abaixo podem pedir uma alteração ou uma explicação. Use seletor e caminho DOM como localizadores complementares.",
@@ -753,6 +768,11 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_helper_unavailable: "ayudante no disponible",
     overlay_no_viewer: "sin visor",
     overlay_write_comment: "Escribe un comentario",
+    overlay_hint_record_long: "Grabar pasos",
+    overlay_hint_record_short: "Grabar",
+    overlay_record_started: "Grabando pasos · usa la página, vuelve a abrir Pinar, marca el pin y pulsa {mod}+Enter para adjuntarlos",
+    overlay_record_cancelled: "Grabación descartada",
+    overlay_recording_badge: "Pinar · grabando {count} pasos · vuelve a abrir Pinar, marca el pin y pulsa {mod}+Enter para terminar · G descarta",
     overlay_add_pin_first: "Añade un pin",
     overlay_copy_failed: "Error al copiar",
     handoff_instructions: "Las notas de los pins a continuación pueden pedir un cambio o una explicación. Use selector y ruta DOM como localizadores complementarios.",
@@ -943,6 +963,11 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_helper_unavailable: "assistant indisponible",
     overlay_no_viewer: "pas de visionneuse",
     overlay_write_comment: "Écrivez un commentaire",
+    overlay_hint_record_long: "Enregistrer les étapes",
+    overlay_hint_record_short: "Enregistrer",
+    overlay_record_started: "Enregistrement des étapes · utilisez la page, rouvrez Pinar, épinglez puis appuyez sur {mod}+Entrée pour les joindre",
+    overlay_record_cancelled: "Enregistrement abandonné",
+    overlay_recording_badge: "Pinar · {count} étapes enregistrées · rouvrez Pinar, épinglez puis {mod}+Entrée pour terminer · G annule",
     overlay_add_pin_first: "Ajoutez une épingle",
     overlay_copy_failed: "Échec de la copie",
     handoff_instructions: "Les notes des pins ci-dessous peuvent demander un changement ou une explication. Utilisez le sélecteur et le chemin DOM comme localisateurs complémentaires.",
@@ -1133,6 +1158,11 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_helper_unavailable: "Helfer nicht verfügbar",
     overlay_no_viewer: "kein Viewer",
     overlay_write_comment: "Zuerst einen Kommentar schreiben",
+    overlay_hint_record_long: "Schritte aufzeichnen",
+    overlay_hint_record_short: "Aufzeichnen",
+    overlay_record_started: "Schritte werden aufgezeichnet · Seite benutzen, Pinar erneut öffnen, pinnen und {mod}+Enter drücken, um sie anzuhängen",
+    overlay_record_cancelled: "Aufzeichnung verworfen",
+    overlay_recording_badge: "Pinar · {count} Schritte aufgezeichnet · Pinar erneut öffnen, pinnen und {mod}+Enter zum Abschließen · G verwirft",
     overlay_add_pin_first: "Zuerst einen Pin setzen",
     overlay_copy_failed: "Kopieren fehlgeschlagen",
     handoff_instructions: "Die Pin-Notizen unten können eine Änderung oder eine Erklärung erbitten. Verwenden Sie Selektor und DOM-Pfad als ergänzende Locator.",
@@ -1323,6 +1353,11 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_helper_unavailable: "助手不可用",
     overlay_no_viewer: "无查看器",
     overlay_write_comment: "请先填写评论",
+    overlay_hint_record_long: "录制步骤",
+    overlay_hint_record_short: "录制",
+    overlay_record_started: "正在录制步骤 · 操作页面后重新打开 Pinar，标注并按 {mod}+Enter 附加步骤",
+    overlay_record_cancelled: "已放弃录制",
+    overlay_recording_badge: "Pinar · 已录制 {count} 个步骤 · 重新打开 Pinar，标注并按 {mod}+Enter 完成 · G 放弃",
     overlay_add_pin_first: "请先添加图钉",
     overlay_copy_failed: "复制失败",
     handoff_instructions: "下方图钉备注可能是改动请求，也可能是解释问题。将选择器和 DOM 路径作为互补定位器使用。",
@@ -1513,6 +1548,11 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_helper_unavailable: "ヘルパー利用不可",
     overlay_no_viewer: "ビューアなし",
     overlay_write_comment: "コメントを入力",
+    overlay_hint_record_long: "手順を記録",
+    overlay_hint_record_short: "記録",
+    overlay_record_started: "手順を記録中 · ページを操作し、Pinar を再度開いてピンを打ち、{mod}+Enter で手順を添付します",
+    overlay_record_cancelled: "記録を破棄しました",
+    overlay_recording_badge: "Pinar · {count} 手順を記録中 · Pinar を再度開いてピンを打ち、{mod}+Enter で完了 · G で破棄",
     overlay_add_pin_first: "先にピンを追加",
     overlay_copy_failed: "コピーに失敗",
     handoff_instructions: "以下のピン注記は変更の依頼か、説明を求める質問かもしれません。セレクターと DOM パスを補完的なロケーターとして使用してください。",

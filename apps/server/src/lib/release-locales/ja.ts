@@ -20,6 +20,48 @@ const locale = {
     whatChanged: "変更内容",
   },
   releases: {
+    "v0.3.7": {
+      title: "要素の構造、技術的な証拠、各ピンでの AI",
+      summary:
+        "要素ピンは構造と、ページで観測した証拠を持つようになりました。ビューアーはピンを診断し、コンポーネントとして保存し、記録した手順を Playwright テストに変え、コレクションのデザインシステムを抽出できます。Windows のトレイアイコンは拡大表示でも鮮明です。",
+      changes: {
+        "element-structure": {
+          title: "すべての要素ピンに構造",
+          description:
+            "各要素ピンは HTML ツリー、既定値と異なる計算済みスタイル、フォント、アイコン、周囲の要素を保存します。ビューアーは「構造」に表示し、pinar-visual-context ブロックに含まれます。",
+        },
+        "technical-evidence": {
+          title: "技術的な証拠",
+          description:
+            "ピン留め中に観測したコンソールエラー、失敗したリクエスト、環境をピンと一緒に列挙し、「操作直後」または「同じページ」に区分します。推測は含まれず、クレジットも消費しません。",
+        },
+        "pin-diagnosis": {
+          title: "ピンを診断する（3 クレジット）",
+          description:
+            "AI がピンの構造から推定原因を説明し、信頼度付きの CSS 修正案を提案します。受け入れ、編集、破棄を選べ、受け入れた診断だけがピンに残ります。",
+        },
+        "save-as-component": {
+          title: "ピンをコンポーネントとして保存（10 クレジット）",
+          description:
+            "取得した要素を HTML + CSS、React + Tailwind、Preact + htm に変換します。ファイル、依存関係、忠実度のメモ、プレビュー、ZIP ダウンロード、StackBlitz に対応します。",
+        },
+        "step-recording": {
+          title: "手順を記録して Playwright テストを生成（5 クレジット）",
+          description:
+            "ページで G を押すとクリック、入力、スクロール、ナビゲーションを記録します。Pinar を再び開き、ピンを付けてコピーすると手順が添付され、もう一度 G を押すと破棄されます。ビューアーは文章の手順と Playwright テストを生成します。",
+        },
+        "collection-design-system": {
+          title: "コレクションのデザインシステム（15 クレジット）",
+          description:
+            "コレクションのピンから共通する色、タイポグラフィ、余白、角丸、影を抽出します。CSS 変数、Tailwind テーマ、W3C トークン、DESIGN.md として書き出せます。",
+        },
+        "windows-tray-icon": {
+          title: "鮮明な Windows トレイアイコン",
+          description:
+            "通知領域のアイコンはディスプレイの拡大率が求めるサイズで描画されるため、125%、150%、200% でもぼやけません。",
+        },
+      },
+    },
     "v0.3.6": {
       title: "トレイのアップデート確認が見えるようになりました",
       summary:

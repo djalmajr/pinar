@@ -345,6 +345,7 @@ const locale = {
             "`R` toggles the live overlay between numbered pins only and pins with their selected regions. The copied screenshot always includes both.",
             "`Command/Ctrl/Alt+Enter` copies the completed bundle.",
             "`Alt+Shift+P` shows or hides the toolbar without cancelling the session, and you can rebind it in `chrome://extensions/shortcuts`. Browser shortcuts stay inert on `chrome://` pages, on the Chrome Web Store, and before the overlay is injected.",
+            "`G` starts recording the steps you take on the page. Reopen Pinar, pin the result, and copy with `Command/Ctrl/Alt+Enter` to attach the steps; pressing `G` again discards the recording.",
           ],
         },
         {
@@ -423,6 +424,17 @@ const locale = {
             "An empty composer cannot be copied; focus stays on the field until a comment exists.",
             "Hovering a marker previews its number, comment, and current locator confidence on the live page.",
             "Editing an existing pin updates only its comment; the stored id is left unchanged.",
+          ],
+        },
+        {
+          heading: "Structure and technical evidence",
+          paragraphs: [
+            "Each element pin also stores a snapshot of what it points at: the element’s HTML tree, the computed styles that differ from the browser defaults, the fonts and icons it uses, and its parent and siblings. The viewer shows this under “Structure”. Large elements are trimmed to stay within the capture limit, and the viewer says so.",
+            "“Technical evidence” lists facts the extension observed on the page while you pinned: console errors, failed requests, and the environment (browser, viewport, language). Each item is graded “After interaction” when it happened after your last click or keystroke, or “Same page” when it only shares the page. Nothing is inferred and no AI credit is spent; remove an item before sharing if it is unrelated.",
+          ],
+          bullets: [
+            "Area pins have no structure, so “Diagnose” and “Save as component” stay disabled on them.",
+            "Structure and evidence travel inside the pinar-visual-context JSON block, so an agent receives them with the paste.",
           ],
         },
       ],
@@ -553,6 +565,17 @@ const locale = {
             "A tab that is still about:blank keeps the hydration binding; only a different origin drops it.",
           ],
         },
+        {
+          heading: "Record steps to reproduce",
+          paragraphs: [
+            "Press `G` while Pinar is open on the page to start recording. The toolbar steps aside and a small badge shows how many steps were captured. Use the page as you normally would: clicks, typing, key presses, scrolling, and navigation become steps with a thumbnail each, and the recording survives page changes.",
+            "To finish, reopen Pinar, pin the element that shows the problem, and copy with `Command/Ctrl/Alt+Enter`. The steps are attached to that capture and appear in the viewer under “Reproduction”. Press `G` again to discard the recording instead. Text typed into password, card, and other sensitive fields is never recorded.",
+          ],
+          bullets: [
+            "In the viewer, edit or remove steps before generating. “Generate steps and test” writes numbered reproduction steps and a Playwright test for 5 AI credits.",
+            "A capture copied without an active recording has no “Reproduction” panel.",
+          ],
+        },
       ],
     },
     "send-to-agent": {
@@ -582,6 +605,17 @@ const locale = {
             "Paste the whole clipboard into the agent; do not retype comments or invent a new `captureId`.",
             "Confirm the pasted text still contains a closed pinar-visual-context fence before you start editing code.",
             "If nothing was pasted, ask for `Command/Ctrl/Alt+Enter` in Pinar and follow only the pin notes.",
+          ],
+        },
+        {
+          heading: "Diagnose a pin and save it as a component",
+          paragraphs: [
+            "On a pin with a captured structure, “Diagnose” asks AI for the probable cause of what you commented and a proposed CSS fix, with a confidence level. Accept, edit, or discard the proposal; only an accepted diagnosis is kept with the pin and copied with the bundle. A diagnosis costs 3 AI credits.",
+            "“Save as component” turns the captured element into an isolated component for your stack: HTML + CSS, React + Tailwind, or Preact + htm. The result lists files, dependencies, and fidelity notes, with a preview next to the original screenshot. Copy the files, download a ZIP, or open the component in StackBlitz. It costs 10 AI credits, and the chosen stack is remembered for the next pin.",
+          ],
+          bullets: [
+            "Both actions need the element structure; area pins and pins captured before this version cannot use them.",
+            "A low-confidence diagnosis is a hypothesis to verify, not a conclusion to paste as fact.",
           ],
         },
       ],
@@ -774,6 +808,13 @@ const locale = {
             "After a destination save error, reopen extension options and confirm project and collection match a live tree entry before the next cloud capture.",
           ],
         },
+        {
+          heading: "Extract a collection’s design system",
+          paragraphs: [
+            "From a collection’s menu, “Extract design system” reads the structure of the pins in that collection and derives the tokens they share: colors, typography, spacing, radii, and shadows, plus the site identity. It needs at least three pins with a captured structure from the same site, and it costs 15 AI credits.",
+            "The result opens as a dialog with the sample size and any warnings, such as scattered values that do not form a scale. Export it as CSS variables, a Tailwind theme, W3C design tokens, or a DESIGN.md file, and extract again after adding more pins.",
+          ],
+        },
       ],
     },
     "find-manage-share": {
@@ -877,7 +918,14 @@ const locale = {
         {
           heading: "Summary cost",
           paragraphs: [
-            "A session summary reserves 100 AI credits before model inference. On success, the reservation is consumed. A failed or aborted inference refunds it immediately; a reservation left unsettled for more than five minutes is refunded automatically. Summaries allow 10 requests per minute per account and 30 per minute per IP; a duplicate request for the same session waits for the active request to finish.",
+            "A session summary reserves 1 AI credit before model inference. On success, the reservation is consumed. A failed or aborted inference refunds it immediately; a reservation left unsettled for more than five minutes is refunded automatically. Summaries allow 10 requests per minute per account and 30 per minute per IP; a duplicate request for the same session waits for the active request to finish.",
+          ],
+        },
+        {
+          heading: "What each AI feature costs",
+          paragraphs: [
+            "Every AI feature reserves its credits before the model runs and refunds them when the result is unusable, exactly like the summary. Costs are fixed per request, not per token: a session summary costs 1 credit, a pin diagnosis 3, a reproduction (written steps plus a Playwright test) 5, saving a pin as a component 10, and extracting a collection’s design system 15.",
+            "Technical evidence and the element structure are captured by the extension without any model and cost nothing. A request that cannot run (a pin without a captured structure, a collection with fewer than three snapshots from the same domain) is refused before any credit is reserved.",
           ],
         },
         {

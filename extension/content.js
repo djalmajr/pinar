@@ -182,9 +182,9 @@
     overlay_write_comment: "Write a comment first",
     overlay_hint_record_long: "Record steps",
     overlay_hint_record_short: "Record",
-    overlay_record_started: "Recording steps · use the page, then reopen Pinar to pin the result",
+    overlay_record_started: "Recording steps · use the page, then reopen Pinar, pin and press {mod}+Enter to attach them",
     overlay_record_cancelled: "Recording discarded",
-    overlay_recording_badge: "Pinar · recording {count} steps · reopen Pinar to finish",
+    overlay_recording_badge: "Pinar · recording {count} steps · reopen Pinar, pin and press {mod}+Enter to finish · G discards",
   };
   let messages = {};
   const t = (key) => messages[key] ?? FALLBACK_MESSAGES[key];
@@ -1035,7 +1035,7 @@
   function renderRecordingBadge(hidden = false) {
     const show = state.recording && !hidden && !(isMounted() && isVisible() && state.active);
     if (show) {
-      recordingBadge.textContent = `● ${t("overlay_recording_badge").replaceAll("{count}", String(state.recordingCount))}`;
+      recordingBadge.textContent = `● ${t("overlay_recording_badge").replaceAll("{count}", String(state.recordingCount)).replaceAll("{mod}", sendMod)}`;
       if (!recordingBadge.isConnected) document.documentElement.append(recordingBadge);
     }
     recordingBadge.style.display = show ? "" : "none";
@@ -1144,7 +1144,7 @@
     state.recording = true;
     state.recordingCount = 0;
     lastRecordedScrollY = Math.round(window.scrollY || 0);
-    flashStatus(t("overlay_record_started"), "ok");
+    flashStatus(t("overlay_record_started").replaceAll("{mod}", sendMod), "ok");
     // Hand the page back to the user; the badge reminds them Pinar listens.
     setTimeout(() => {
       if (!state.recording) return;

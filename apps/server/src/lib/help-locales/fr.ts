@@ -347,6 +347,7 @@ const locale = {
             "`R` bascule l’overlay en direct entre les épingles numérotées seules et les épingles avec leurs régions. La capture copiée inclut toujours les deux.",
             "`Command/Ctrl/Alt+Enter` copie le paquet terminé.",
             "`Alt+Shift+P` affiche ou masque la barre d’outils sans annuler la session, et vous pouvez le réattribuer dans `chrome://extensions/shortcuts`. Les raccourcis du navigateur restent inertes sur les pages `chrome://`, sur le Chrome Web Store et avant l’injection de l’overlay.",
+            "`G` commence à enregistrer les étapes que vous effectuez sur la page. Rouvrez Pinar, épinglez le résultat et copiez avec `Command/Ctrl/Alt+Enter` pour joindre les étapes ; appuyer à nouveau sur `G` abandonne l’enregistrement.",
           ],
         },
         {
@@ -425,6 +426,17 @@ const locale = {
             "Un composer vide ne peut pas être copié ; le focus reste sur le champ jusqu’à ce qu’un commentaire existe.",
             "Survoler un marqueur prévisualise son numéro, son commentaire et la confiance courante du localisateur sur la page live.",
             "Modifier un pin existant ne met à jour que son commentaire ; l’id stocké reste inchangé.",
+          ],
+        },
+        {
+          heading: "Structure et preuves techniques",
+          paragraphs: [
+            "Chaque pin d’élément stocke aussi un instantané de ce qu’il désigne : l’arbre HTML de l’élément, les styles calculés qui diffèrent des valeurs par défaut du navigateur, les polices et icônes qu’il utilise, ainsi que son parent et ses frères. Le visualiseur l’affiche sous « Structure ». Les éléments volumineux sont tronqués pour rester dans la limite de capture, et le visualiseur l’indique.",
+            "« Preuves techniques » liste les faits que l’extension a observés sur la page pendant que vous épingliez : erreurs de console, requêtes échouées et environnement (navigateur, viewport, langue). Chaque élément est classé « Après interaction » s’il s’est produit après votre dernier clic ou dernière frappe, ou « Même page » s’il partage seulement la page. Rien n’est déduit et aucun crédit IA n’est dépensé ; retirez un élément avant de partager s’il est sans rapport.",
+          ],
+          bullets: [
+            "Les pins de zone n’ont pas de structure ; « Diagnostiquer » et « Enregistrer comme composant » restent donc désactivés sur eux.",
+            "La structure et les preuves voyagent dans le bloc JSON pinar-visual-context, si bien qu’un agent les reçoit avec le collage.",
           ],
         },
       ],
@@ -556,6 +568,17 @@ const locale = {
             "Un onglet encore en about:blank conserve le lien d’hydratation ; seule une origine différente le rompt.",
           ],
         },
+        {
+          heading: "Enregistrer les étapes pour reproduire",
+          paragraphs: [
+            "Appuyez sur `G` pendant que Pinar est ouvert sur la page pour commencer l’enregistrement. La barre d’outils s’efface et un petit badge indique combien d’étapes ont été capturées. Utilisez la page comme d’habitude : clics, saisie, frappes de touches, défilement et navigation deviennent des étapes avec chacune une vignette, et l’enregistrement survit aux changements de page.",
+            "Pour terminer, rouvrez Pinar, épinglez l’élément qui montre le problème et copiez avec `Command/Ctrl/Alt+Enter`. Les étapes sont jointes à cette capture et apparaissent dans le visualiseur sous « Reproduction ». Appuyez à nouveau sur `G` pour abandonner l’enregistrement à la place. Le texte saisi dans les champs de mot de passe, de carte bancaire et autres champs sensibles n’est jamais enregistré.",
+          ],
+          bullets: [
+            "Dans le visualiseur, modifiez ou retirez des étapes avant de générer. « Générer les étapes et le test » rédige des étapes de reproduction numérotées et un test Playwright pour 5 crédits IA.",
+            "Une capture copiée sans enregistrement actif n’a pas de panneau « Reproduction ».",
+          ],
+        },
       ],
     },
     "send-to-agent": {
@@ -585,6 +608,17 @@ const locale = {
             "Collez tout le presse-papiers dans l’agent ; ne retapez pas les commentaires et n’inventez pas un nouveau `captureId`.",
             "Confirmez que le texte collé contient encore une clôture pinar-visual-context fermée avant de commencer à modifier le code.",
             "Si rien n’a été collé, demandez `Command/Ctrl/Alt+Enter` dans Pinar et suivez seulement les notes des pins.",
+          ],
+        },
+        {
+          heading: "Diagnostiquer un pin et l’enregistrer comme composant",
+          paragraphs: [
+            "Sur un pin doté d’une structure capturée, « Diagnostiquer » demande à l’IA la cause probable de ce que vous avez commenté et une proposition de correctif CSS, avec un niveau de confiance. Acceptez, modifiez ou rejetez la proposition ; seul un diagnostic accepté est conservé avec le pin et copié avec le paquet. Un diagnostic coûte 3 crédits IA.",
+            "« Enregistrer comme composant » transforme l’élément capturé en un composant isolé pour votre stack : HTML + CSS, React + Tailwind ou Preact + htm. Le résultat liste les fichiers, les dépendances et des notes de fidélité, avec un aperçu à côté du screenshot original. Copiez les fichiers, téléchargez un ZIP ou ouvrez le composant dans StackBlitz. Cela coûte 10 crédits IA, et la stack choisie est mémorisée pour le prochain pin.",
+          ],
+          bullets: [
+            "Les deux actions ont besoin de la structure de l’élément ; les pins de zone et les pins capturés avant cette version ne peuvent pas les utiliser.",
+            "Un diagnostic à faible confiance est une hypothèse à vérifier, pas une conclusion à coller comme un fait.",
           ],
         },
       ],
@@ -777,6 +811,13 @@ const locale = {
             "Faites glisser une collection vers la droite pour l’imbriquer sous le frère précédent, ou vers la gauche vers la racine ; si le dépôt est rejeté, la liste parentId est inchangée.",
             "Ne repliez un parent que lorsque vous avez besoin d’une barre latérale plus courte ; les descendants masqués restent dans l’arbre et se déplacent encore avec la branche glissée.",
             "Après une erreur d’enregistrement de destination, rouvrez les options de l’extension et confirmez que le projet et la collection correspondent à une entrée d’arbre live avant la prochaine capture cloud.",
+          ],
+        },
+        {
+          heading: "Extraire le design system d’une collection",
+          paragraphs: [
+            "Depuis le menu d’une collection, « Extraire le design system » lit la structure des pins de cette collection et en dérive les tokens qu’ils partagent : couleurs, typographie, espacements, rayons et ombres, plus l’identité du site. Il faut au moins trois pins avec une structure capturée provenant du même site, et cela coûte 15 crédits IA.",
+            "Le résultat s’ouvre dans un dialogue avec la taille de l’échantillon et d’éventuels avertissements, comme des valeurs dispersées qui ne forment pas une échelle. Exportez-le en variables CSS, en thème Tailwind, en design tokens W3C ou en fichier DESIGN.md, et extrayez à nouveau après avoir ajouté d’autres pins.",
           ],
         },
       ],

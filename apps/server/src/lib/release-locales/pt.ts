@@ -22,7 +22,7 @@ const locale = {
     whatChanged: "O que mudou",
   },
   releases: {
-    "v0.3.7": {
+    "v0.4.0": {
       title: "Captura contínua, revisão unificada e IA em cada pin",
       summary:
         "Uma sessão de captura agora acompanha você entre páginas e salva cada screenshot e pin como um único registro. A revisão foi unificada no visualizador, a oferta Founder foi aposentada e os pins ganharam estrutura, evidência técnica e ações de IA.",

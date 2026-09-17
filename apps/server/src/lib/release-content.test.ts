@@ -12,10 +12,6 @@ import {
 
 const repositoryRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 
-function stableReleaseTag(version: string) {
-  return `v${version.replace(/^v/, "").split("-")[0]}`;
-}
-
 async function loadEveryReleaseLocale() {
   return Promise.all(
     SUPPORTED_LANGUAGES.map((language) => loadReleaseContent(language)),
@@ -30,7 +26,7 @@ describe("tagged release content", () => {
     assert.equal((await frenchContent).language, "fr");
   });
 
-  test("documents every public release, using the stable tag for a prerelease", async () => {
+  test("documents every closed public release without listing prerelease tags", async () => {
     const repositoryTags = execFileSync("git", ["tag", "--list", "v*"], {
       cwd: repositoryRoot,
       encoding: "utf8",
@@ -38,8 +34,7 @@ describe("tagged release content", () => {
       .trim()
       .split("\n")
       .filter(Boolean)
-      .map(stableReleaseTag)
-      .filter((tag, index, tags) => tags.indexOf(tag) === index)
+      .filter((tag) => /^v\d+\.\d+\.\d+$/.test(tag))
       .sort();
     const english = await loadReleaseContent("en");
     const documentedTags = english.releases
@@ -58,7 +53,7 @@ describe("tagged release content", () => {
     ) as { version: string };
     const english = await loadReleaseContent("en");
 
-    const expectedReleaseTag = stableReleaseTag(packageJson.version);
+    const expectedReleaseTag = `v${packageJson.version}`;
 
     assert.equal(english.releases[0]?.tag, expectedReleaseTag);
     assert.equal(

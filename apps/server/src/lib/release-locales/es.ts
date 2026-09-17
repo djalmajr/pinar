@@ -21,7 +21,7 @@ const locale = {
     whatChanged: "Qué cambió",
   },
   releases: {
-    "v0.3.7": {
+    "v0.4.0": {
       title: "Captura continua, revisión unificada e IA en cada pin",
       summary:
         "Una sesión de captura ahora te acompaña entre páginas y guarda cada captura de pantalla y pin como un único registro. La revisión está unificada en el visor, la oferta Founder se retiró y los pins incorporan estructura, evidencia técnica y acciones de IA.",

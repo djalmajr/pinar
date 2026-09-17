@@ -20,7 +20,7 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
-    "v0.3.7": {
+    "v0.4.0": {
       title: "Continuous capture, unified review, and AI on each pin",
       summary:
         "A capture session now follows you across pages and saves every screenshot and pin as one record. Review is unified in the viewer, the Founder offer is retired, and element pins gain structure, technical evidence, and AI actions.",

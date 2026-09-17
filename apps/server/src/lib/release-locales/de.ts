@@ -22,7 +22,7 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
-    "v0.3.7": {
+    "v0.4.0": {
       title: "Kontinuierliche Erfassung, gemeinsame Prüfung und KI an jedem Pin",
       summary:
         "Eine Erfassungssitzung begleitet Sie jetzt über mehrere Seiten und speichert jeden Screenshot und Pin als einen Eintrag. Die Prüfung ist im Viewer vereint, das Founder-Angebot wurde eingestellt und Pins erhalten Struktur, technische Belege und KI-Aktionen.",

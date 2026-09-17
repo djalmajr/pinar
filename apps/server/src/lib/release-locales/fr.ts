@@ -22,7 +22,7 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
-    "v0.3.7": {
+    "v0.4.0": {
       title: "Capture continue, révision unifiée et IA sur chaque pin",
       summary:
         "Une session de capture vous suit désormais entre les pages et enregistre chaque capture d’écran et chaque pin dans un seul élément. La révision est unifiée dans le visualiseur, l’offre Founder est retirée et les pins gagnent structure, preuves techniques et actions IA.",

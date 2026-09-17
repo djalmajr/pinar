@@ -18,8 +18,8 @@ de decidir comprar.
 
 1. Na landing, **ler o herói e os três pilares** → proposta, contexto preservado e entrega para IA são compreensíveis.
 2. **Clicar em "View plans"** → abre a página de planos pela navegação pública.
-3. **Conferir o preço anual selecionado inicialmente** → Pro anual e Founder mostram BRL e condições distintas.
-4. **Clicar em "Monthly"** → Pro muda para cobrança mensal sem alterar o Founder.
+3. **Conferir o preço anual selecionado inicialmente** → Pro anual mostra o preço em BRL e a cobrança anual.
+4. **Clicar em "Monthly"** → Pro muda para cobrança mensal preservando os benefícios Pro.
 5. **Clicar em "Yearly"** → preço e economia anual voltam ao estado inicial.
 6. **Percorrer a seção de adicionais** → 1.000 créditos, 5 GB e 20 GB exibem preço e validade de 12 meses.
 7. **Voltar pelo link "Home"** → retorna à landing sem URL digitada.

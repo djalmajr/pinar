@@ -59,6 +59,22 @@ export interface ReleaseContent {
 
 export const releaseDefinitions = [
   {
+    tag: "v0.3.7",
+    date: "2026-09-17",
+    changes: [
+      "continuous-capture-session",
+      "unified-session-review",
+      "founder-retired",
+      "element-structure",
+      "technical-evidence",
+      "pin-diagnosis",
+      "save-as-component",
+      "step-recording",
+      "collection-design-system",
+      "windows-tray-icon",
+    ],
+  },
+  {
     tag: "v0.3.6",
     date: "2026-09-05",
     changes: ["tray-update-status"],

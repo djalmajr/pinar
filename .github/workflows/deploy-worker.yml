@@ -71,6 +71,13 @@ jobs:
         run: bun run build:server
       - name: Inspect the production artifact
         run: bun scripts/assert-worker-artifact.mjs production
+      - name: Apply D1 migrations to pinar-prd
+        env:
+          CI: "1"
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        working-directory: apps/server
+        run: bunx wrangler d1 migrations apply pinar-prd --env production --remote
       - name: Deploy pinar-prd
         env:
           CI: "1"
@@ -116,6 +123,13 @@ jobs:
         run: bun run build:server
       - name: Inspect the staging artifact
         run: bun scripts/assert-worker-artifact.mjs staging
+      - name: Apply D1 migrations to pinar-stg
+        env:
+          CI: "1"
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        working-directory: apps/server
+        run: bunx wrangler d1 migrations apply pinar-stg --env staging --remote
       - name: Deploy pinar-stg
         env:
           CI: "1"

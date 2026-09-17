@@ -22,6 +22,63 @@ const locale = {
     whatChanged: "O que mudou",
   },
   releases: {
+    "v0.3.7": {
+      title: "Captura contínua, revisão unificada e IA em cada pin",
+      summary:
+        "Uma sessão de captura agora acompanha você entre páginas e salva cada screenshot e pin como um único registro. A revisão foi unificada no visualizador, a oferta Founder foi aposentada e os pins ganharam estrutura, evidência técnica e ações de IA.",
+      changes: {
+        "continuous-capture-session": {
+          title: "Uma sessão contínua entre páginas",
+          description:
+            "Pine em uma página, continue navegando e conclua uma única vez. O Pinar revisita cada página para capturar seu screenshot, preserva a numeração dos pins e salva toda a jornada em uma sessão, sem slots de lote.",
+        },
+        "unified-session-review": {
+          title: "Revise todas as telas e pins juntos",
+          description:
+            "Sessões com várias páginas abrem em um único pan-and-zoom, com todas as anotações no painel lateral. Tab revisa a captura ativa, Esc oculta a toolbar e sessões salvas permanecem no visualizador em vez de reabrir na página original.",
+        },
+        "founder-retired": {
+          title: "Oferta Founder aposentada",
+          description:
+            "Novas compras agora oferecem somente Free e Pro. Direitos Founder existentes continuam reconhecidos e recebem as mesmas capacidades do Pro, sem criar um novo compromisso Founder.",
+        },
+        "element-structure": {
+          title: "Estrutura em todo pin de elemento",
+          description:
+            "Cada pin de elemento guarda sua árvore HTML, os estilos computados fora do padrão, fontes, ícones e os elementos ao redor. O visualizador mostra isso em Estrutura, e tudo viaja no bloco pinar-visual-context.",
+        },
+        "technical-evidence": {
+          title: "Evidência técnica",
+          description:
+            "Erros de console, requisições com falha e o ambiente observados enquanto você pinava são listados com o pin, classificados como Após interação ou Mesma página. Nada é inferido e nenhum crédito é gasto.",
+        },
+        "pin-diagnosis": {
+          title: "Diagnosticar um pin (3 créditos)",
+          description:
+            "A IA explica a causa provável do pin a partir da estrutura e propõe uma correção em CSS com um nível de confiança. Aceite, edite ou descarte; só diagnósticos aceitos ficam com o pin.",
+        },
+        "save-as-component": {
+          title: "Salvar um pin como componente (10 créditos)",
+          description:
+            "Transforme um elemento capturado em HTML + CSS, React + Tailwind ou Preact + htm, com arquivos, dependências, notas de fidelidade, prévia, download em ZIP e StackBlitz.",
+        },
+        "step-recording": {
+          title: "Gravar passos e gerar um teste Playwright (5 créditos)",
+          description:
+            "Pressione G na página para gravar cliques, digitação, rolagem e navegação. Reabra o Pinar, pine e copie para anexar os passos; G de novo os descarta. O visualizador gera passos escritos e um teste Playwright.",
+        },
+        "collection-design-system": {
+          title: "Design system de uma coleção (15 créditos)",
+          description:
+            "Extraia cores, tipografia, espaçamento, raios e sombras compartilhados pelos pins de uma coleção. Exporte como variáveis CSS, tema Tailwind, tokens W3C ou DESIGN.md.",
+        },
+        "windows-tray-icon": {
+          title: "Ícone do tray nítido no Windows",
+          description:
+            "O ícone da área de notificação é renderizado no tamanho que a escala da tela pede, então não fica mais borrado em 125%, 150% ou 200%.",
+        },
+      },
+    },
     "v0.3.6": {
       title: "A verificação de atualização do tray fica visível",
       summary:

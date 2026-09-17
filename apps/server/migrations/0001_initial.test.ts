@@ -57,6 +57,9 @@ describe("cloud schema migrations", () => {
       "0012_batches.sql",
       "0013_delivery_preferences.sql",
       "0014_drop_lifetime_plan.sql",
+      "0015_share_tokens.sql",
+      "0016_ai_features.sql",
+      "0017_remove_founder.sql",
     ]);
     const migrated = new Database(":memory:");
     const canonical = new Database(":memory:");
@@ -271,6 +274,64 @@ describe("cloud schema migrations", () => {
     }
   });
 
+  test("preserves the complete AI usage row and credit balance through migration 0016", () => {
+    const db = new Database(":memory:");
+    try {
+      db.exec("PRAGMA foreign_keys = ON;");
+      applyMigrations(db, migrationFiles().filter((name) => name < "0016_ai_features.sql"));
+      db.exec(`
+        INSERT INTO users (id, email, plan, created_at, updated_at)
+        VALUES ('usr_ai_0016', 'ai-0016@example.test', 'pro', '2026-09-08', '2026-09-08');
+        INSERT INTO ai_credit_grants (
+          id, owner_type, owner_id, source_type, source_id, credits, created_at
+        ) VALUES (
+          'grant_ai_0016', 'account', 'usr_ai_0016', 'pro_monthly',
+          'period:2026-09', 200, '2026-09-08'
+        );
+        INSERT INTO ai_credit_usages (
+          id, request_id, owner_type, owner_id, grant_id, feature, resource_id,
+          model, credits, status, input_tokens, output_tokens, cost_usd_micros,
+          result_json, created_at, completed_at
+        ) VALUES (
+          'usage_ai_0016', 'request_ai_0016', 'account', 'usr_ai_0016',
+          'grant_ai_0016', 'session_summary', 'session_ai_0016', '@cf/test/model',
+          3, 'succeeded', 101, 29, 87, '{"ok":true}', '2026-09-08', '2026-09-08'
+        );
+      `);
+      const before = db.query("SELECT * FROM ai_credit_usages WHERE id = 'usage_ai_0016'").get();
+      const consumedBefore = db.query("SELECT consumed_credits FROM ai_credit_grants WHERE id = 'grant_ai_0016'").get();
+
+      applyMigrations(db, ["0016_ai_features.sql"]);
+
+      assert.deepEqual(db.query("SELECT * FROM ai_credit_usages WHERE id = 'usage_ai_0016'").get(), before);
+      assert.deepEqual(
+        db.query("SELECT consumed_credits FROM ai_credit_grants WHERE id = 'grant_ai_0016'").get(),
+        consumedBefore,
+      );
+      db.exec(`
+        INSERT INTO ai_credit_usages (
+          id, request_id, owner_type, owner_id, grant_id, feature, resource_id,
+          model, credits, status, created_at
+        ) VALUES (
+          'usage_component_0016', 'request_component_0016', 'account', 'usr_ai_0016',
+          'grant_ai_0016', 'component_export', 'session_ai_0016#pin', '@cf/test/model',
+          10, 'reserved', '2026-09-08'
+        );
+      `);
+      assert.deepEqual(
+        db.query("SELECT consumed_credits FROM ai_credit_grants WHERE id = 'grant_ai_0016'").get(),
+        { consumed_credits: 10 },
+      );
+      db.exec("UPDATE ai_credit_usages SET status = 'refunded' WHERE id = 'usage_component_0016'");
+      assert.deepEqual(
+        db.query("SELECT consumed_credits FROM ai_credit_grants WHERE id = 'grant_ai_0016'").get(),
+        { consumed_credits: 0 },
+      );
+    } finally {
+      db.close();
+    }
+  });
+
   test("keeps D1 subscription state monotonic and scoped to the current subscription", () => {
     const db = new Database(":memory:");
     try {
@@ -283,8 +344,6 @@ describe("cloud schema migrations", () => {
         ) VALUES
           ('usr_ordered', 'ordered@example.test', 'pro', 1, 'active', 'cus_ordered',
            'sub_ordered', '2026-08-17T00:00:00.000Z', '2026-08-17T00:00:00.000Z'),
-          ('usr_founder', 'founder@example.test', 'founder', 1, 'active', 'cus_founder',
-           'sub_founder', '2026-08-17T00:00:00.000Z', '2026-08-17T00:00:00.000Z'),
           ('usr_current', 'current@example.test', 'pro', 1, 'active', 'cus_current',
            'sub_current', '2026-08-17T00:00:00.000Z', '2026-08-17T00:00:00.000Z');
       `);
@@ -347,30 +406,6 @@ describe("cloud schema migrations", () => {
           "SELECT billing_status, plan FROM users WHERE id = 'usr_ordered'",
         ).get(),
         { billing_status: "canceled", plan: "free" },
-      );
-
-      upsert.run(
-        "sub_founder",
-        "cus_founder",
-        "canceled",
-        200,
-        "evt_founder_canceled",
-        "2026-08-17T00:03:20.000Z",
-      );
-      apply.run(
-        "sub_founder",
-        "sub_founder",
-        "sub_founder",
-        "2026-08-17T00:03:20.000Z",
-        "cus_founder",
-        "sub_founder",
-        "sub_founder",
-      );
-      assert.deepEqual(
-        db.query<{ billing_status: string; plan: string }, []>(
-          "SELECT billing_status, plan FROM users WHERE id = 'usr_founder'",
-        ).get(),
-        { billing_status: "canceled", plan: "founder" },
       );
 
       upsert.run(

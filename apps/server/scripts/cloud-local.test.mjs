@@ -17,14 +17,14 @@ describe("local cloud runtime options", () => {
       statePath: ".wrangler/state/cloud-local",
     });
     assert.deepEqual(
-      parseCloudLocalOptions(["--serve", "--profile", "founder", "--port", "17384", "--state-path", "fixture-state"]),
-      { port: 17384, profile: "founder", serve: true, statePath: "fixture-state" },
+      parseCloudLocalOptions(["--serve", "--profile", "pro", "--port", "17384", "--state-path", "fixture-state"]),
+      { port: 17384, profile: "pro", serve: true, statePath: "fixture-state" },
     );
     assert.deepEqual(
       parseCloudLocalOptions(["--profile", "free"]),
       { port: 3000, profile: "free", serve: false, statePath: ".wrangler/state/cloud-local" },
     );
-    assert.throws(() => parseCloudLocalOptions(["--profile", "enterprise"]), /founder, free, pro/);
+    assert.throws(() => parseCloudLocalOptions(["--profile", "enterprise"]), /free, pro/);
     assert.throws(() => parseCloudLocalOptions(["--port", "0"]), /between 1 and 65535/);
   });
 });
@@ -44,14 +44,6 @@ describe("local cloud account fixture", () => {
     assert.match(sql, /ai_credit_refill_at/);
     assert.doesNotMatch(sql, /INSERT INTO storage_grants/);
     assert.doesNotMatch(sql, /\b(?:BEGIN|COMMIT)\b/);
-  });
-
-  test("keeps one-time plans free of a monthly refill promise", () => {
-    for (const profile of ["founder"]) {
-      const fixture = buildCloudLocalFixture(profile, "test-pepper", new Date("2026-08-19T12:00:00.000Z"));
-      assert.equal(fixture.nextRefillAt, null);
-      assert.doesNotMatch(buildCloudLocalSeedSql(fixture), /'pro_monthly'/);
-    }
   });
 
   // Mutation captured: dropping any statement leaves the free installation unable to

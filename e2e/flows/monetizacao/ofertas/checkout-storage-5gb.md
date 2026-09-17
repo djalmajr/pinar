@@ -22,7 +22,7 @@ Adicionar 5 GB temporários sem mudar meu plano principal.
 5. **Abrir o app e consultar storage** → quota aumenta exatamente 5 GB.
 6. **Comprar outro pack igual** → quotas empilham.
 7. **Reentregar webhook** → pack não duplica.
-8. **Conferir plano** → permanece Free, Pro, Founder ou Lifetime legado original.
+8. **Conferir plano** → permanece Free ou Pro original.
 
 ## Expected result
 

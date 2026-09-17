@@ -70,11 +70,13 @@ test("getBestLanguage ignores browser language so the shipped extension stays En
   }
 });
 
-test("overlay hint long and short copy stay identical at every width", () => {
+test("compact toolbar labels use one word in every language", () => {
   for (const lang of Object.keys(translations)) {
     const pack = translations[lang];
-    assert.equal(pack.overlay_hint_tune_long, pack.overlay_hint_tune_short, lang);
-    assert.equal(pack.overlay_hint_copy_long, pack.overlay_hint_copy_short, lang);
+    for (const key of ["overlay_hint_tune_short", "overlay_hint_copy_short", "overlay_review_short"]) {
+      assert.ok(pack[key], `${lang}.${key}`);
+      assert.doesNotMatch(pack[key], /\s/, `${lang}.${key}`);
+    }
     assert.equal(pack.overlay_hint_mask_long, pack.overlay_hint_mask_short, lang);
     assert.equal(pack.overlay_hint_clear_long, pack.overlay_hint_clear_short, lang);
   }
@@ -95,7 +97,7 @@ test("overlay copy is served through ui:messages and falls back to English", () 
   const literals = [
     "Click or drag",
     "Adjust selection",
-    "Copy",
+    "Conclude and copy",
     "Mask",
     "Cancel",
     "Regions",
@@ -103,9 +105,6 @@ test("overlay copy is served through ui:messages and falls back to English", () 
     "Showing pins and regions",
     "Comment",
     "Add",
-    "Original page is unavailable",
-    "Click the correct element to place this pin",
-    "Reviewing saved session · pending pins need a manual place",
     "Region hidden · click the mask to restore",
     "Drag to hide a region · click a mask to restore",
     "Pin mode",

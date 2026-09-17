@@ -11,7 +11,7 @@ import {
 import { SUPPORTED_LANGUAGES, translations } from "@pinar/shared";
 
 const expectedArticleCounts = {
-  agents: 5,
+  agents: 4,
   captures: 6,
   cloud: 5,
   "getting-started": 4,
@@ -49,11 +49,11 @@ describe("help content", () => {
     assert.equal(loadHelpContent("fr"), frenchContent);
     assert.equal((await frenchContent).language, "fr");
   });
-  test("ships the designed six-category, 27-article catalog in every locale", async () => {
+  test("ships the designed six-category, 26-article catalog in every locale", async () => {
     const contents = await loadEveryHelpLocale();
     for (const content of contents) {
       assert.equal(content.categories.length, 6, content.language);
-      assert.equal(content.articles.length, 27, content.language);
+      assert.equal(content.articles.length, 26, content.language);
       for (const category of content.categories) {
         assert.equal(
           articlesInCategory(content, category.id).length,
@@ -476,8 +476,8 @@ describe("help content", () => {
   test("gives every article its own cover file", async () => {
     for (const content of await loadEveryHelpLocale()) {
       const keys = content.articles.map((article) => article.screenshot.key);
-      assert.equal(keys.length, 27, content.language);
-      assert.equal(new Set(keys).size, 27, content.language);
+      assert.equal(keys.length, 26, content.language);
+      assert.equal(new Set(keys).size, 26, content.language);
     }
   });
 
@@ -489,7 +489,6 @@ describe("help content", () => {
       "handoff-troubleshooting": "capture-copy-failed",
       "pins-and-comments": "capture-pins",
       "privacy-masks": "capture-masks",
-      "reopen-and-relocate": "capture-review",
       "send-to-agent": "capture-copied",
       "smart-selection": "capture-selection",
     } as const;
@@ -517,7 +516,7 @@ describe("help content", () => {
       "automatic-sanitization": "preferences-privacy",
       "capture-types": "capture-types",
       "closed-loop-review": "workspace-review",
-      "copy-and-reopen": "capture-viewer",
+      "copy-and-view": "capture-viewer",
       "find-manage-share": "workspace-table",
       "first-capture": "capture-toolbar",
       "full-page-capture": "capture-full-page",
@@ -531,7 +530,6 @@ describe("help content", () => {
       "pins-and-comments": "capture-pins",
       "plans-and-billing": "pricing",
       "privacy-masks": "capture-masks",
-      "reopen-and-relocate": "capture-review",
       "send-to-agent": "capture-copied",
       "sharing-links": "sharing-markdown",
       "shortcuts-and-navigation": "capture-shortcuts",
@@ -613,7 +611,6 @@ describe("help content", () => {
       "overlay_helper_unavailable",
       "overlay_no_screenshot",
       "overlay_no_viewer",
-      "overlay_origin_mismatch",
       "overlay_write_comment",
     ] as const;
 

@@ -12,14 +12,14 @@ const extensionPackage = JSON.parse(
 describe("extension action entry points", () => {
   test("every everyday action is a rebindable command", () => {
     assert.ok(manifest.commands["open-panel"]);
-    assert.ok(manifest.commands["finish-batch"]);
+    assert.equal(manifest.commands["finish-batch"], undefined);
     assert.ok(manifest.commands["cancel-batch"]);
     // Chrome allows four commands with a default key, _execute_action included.
     const withDefault = Object.values(manifest.commands).filter((c) => c.suggested_key?.default);
-    assert.equal(withDefault.length, 4);
+    assert.equal(withDefault.length, 3);
     assert.match(backgroundSrc, /command === PANEL_COMMAND/);
     assert.match(backgroundSrc, /command === CANCEL_BATCH_COMMAND/);
-    assert.match(backgroundSrc, /command !== BATCH_COMMAND/);
+    assert.doesNotMatch(backgroundSrc, /const BATCH_COMMAND/);
   });
 
   test("the action menu mirrors the commands, in the extension's language", () => {
@@ -39,11 +39,10 @@ describe("extension action entry points", () => {
     assert.doesNotMatch(menu, /translations\.en/);
     assert.match(menu, /messages\.context_open_panel/);
     assert.match(menu, /messages\.batch_finish/);
-    assert.match(menu, /messages\.batch_start/);
     assert.match(menu, /title: messages\.batch_close_menu, visible: true/);
     assert.doesNotMatch(menu, /visible: active/);
-    assert.match(menu, /finishBatch\(\{ copy: false \}\)/);
-    assert.match(menu, /void toggleBatch\(\)/);
+    assert.match(menu, /concludeReview\(\{ copy: false \}\)/);
+    assert.match(menu, /void concludeReview\(\)/);
     assert.match(menu, /void openApp\(\)/);
     for (const lang of Object.keys(translations)) {
       for (const key of ["context_open_panel", "batch_start", "batch_finish", "batch_close_menu"]) assert.ok(translations[lang][key], `${lang}.${key}`);
@@ -64,7 +63,7 @@ describe("extension action entry points", () => {
   test("closing without copying never touches the clipboard", () => {
     const finish = backgroundSrc.slice(
       backgroundSrc.indexOf("async function finishBatch("),
-      backgroundSrc.indexOf("async function toggleBatch"),
+      backgroundSrc.indexOf("async function getAuthSession"),
     );
     assert.match(finish, /\{ copy = true \} = \{\}/);
     assert.match(finish, /if \(copy && summary\.saved > 0\)/);
@@ -73,13 +72,14 @@ describe("extension action entry points", () => {
 
   test("opens the default workspace in the user's language", () => {
     assert.match(backgroundSrc, /withLanguage\(`\$\{base\}\/app`\)/);
-    assert.doesNotMatch(backgroundSrc, /browser-ticket|\/history/);
+    const openApp = backgroundSrc.slice(backgroundSrc.indexOf("async function openApp()"), backgroundSrc.indexOf("async function saveShot"));
+    assert.doesNotMatch(openApp, /browser-ticket|\/history/);
   });
 
   test("ships a coherent identity", () => {
     // The name heads the action menu, chrome://extensions and the store listing.
     assert.equal(manifest.name, "Pinar.dev");
-    assert.equal(manifest.version, "0.5.3");
+    assert.equal(manifest.version, "0.6.0");
     assert.equal(extensionPackage.version, manifest.version);
     assert.equal(manifest.homepage_url, "https://pinar.dev");
     assert.equal(manifest.default_locale, "en_US");

@@ -180,6 +180,7 @@ describe("local TanStack API", () => {
     assert.deepEqual(defaults, {
       ok: true,
       captureDestination: null,
+      componentTarget: null,
       copyOnFinishBatch: "prompt",
       copyViewerContent: false,
       handoffMode: "compact",
@@ -427,5 +428,45 @@ describe("local TanStack API", () => {
 
   test("matches the closed-loop pin, handoff, review and opt-in metrics contract", async () => {
     await exerciseClosedLoopContract(request);
+  });
+
+  test("patches viewer-owned pin fields and renders them in the session markdown", async () => {
+    const upload = await request("/api/shots", {
+      body: JSON.stringify({
+        id: "local_patch_001",
+        image: VALID_PNG,
+        page: { title: "Patchable", url: "https://example.test/patch" },
+        pins: [{ comment: "Misaligned", kind: "element", pinId: "pin_local_1", selector: "button.pay" }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(upload.status, 201);
+    const patch = (body: unknown) => request("/api/sessions/local_patch_001", {
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    });
+    assert.equal((await patch({ pins: [{ pinId: "nope" }] })).status, 400);
+    assert.equal((await request("/api/sessions/missing_session", { body: "{}", method: "PATCH" })).status, 404);
+    const patched = await jsonBody(await patch({
+      pins: [{
+        diagnosis: {
+          acceptedAt: "2026-09-08T00:00:00.000Z",
+          cause: "Padding differs from siblings",
+          confidence: "medium",
+          fix: "button.pay { padding: 8px 16px; }",
+          properties: ["padding"],
+          version: 1,
+        },
+        pinId: "pin_local_1",
+      }],
+    }));
+    assert.equal(patched.ok, true);
+    const markdown = await handlePublicRequest(new Request("http://127.0.0.1:17373/v/local_patch_001.md"));
+    assert.equal(markdown.status, 200);
+    const text = await markdown.text();
+    assert.match(text, /Diagnosis \(medium confidence\): Padding differs from siblings/);
+    assert.match(text, /"cause":"Padding differs from siblings"/);
   });
 });

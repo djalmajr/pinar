@@ -5,7 +5,6 @@ import FileTextIcon from "~icons/lucide/file-text";
 import FolderInputIcon from "~icons/lucide/folder-input";
 import LayersIcon from "~icons/lucide/layers";
 import Maximize2Icon from "~icons/lucide/maximize-2";
-import ScanSearchIcon from "~icons/lucide/scan-search";
 import TrashIcon from "~icons/lucide/trash-2";
 import {
   DropdownMenuContent,
@@ -15,6 +14,7 @@ import {
 } from "@pinar/ui";
 import type { Translate } from "../lib/i18n";
 import { shareMarkdownPath } from "../lib/share-links";
+import type { SessionGroup } from "../lib/session-groups";
 
 /**
  * Listing cards and the workspace viewer share this menu so a session is not
@@ -34,7 +34,6 @@ export interface SessionActionsMenuProps {
   onCopyBatch?: (batchId: string) => void;
   onDelete?: (id: string) => void;
   onMove?: (id: string) => void;
-  onReview?: (id: string) => void;
   onView?: (id: string) => void;
 }
 
@@ -51,11 +50,11 @@ export function SessionActionsMenu({
   onCopyBatch,
   onDelete,
   onMove,
-  onReview,
   onView,
 }: SessionActionsMenuProps) {
   const batchId = session.batchId ?? null;
-  const hasOpenGroup = Boolean(onView || onReview);
+  const grouped = Boolean((session as SessionGroup).captures);
+  const hasOpenGroup = Boolean(onView);
   return (
     <DropdownMenuContent align="end" className={SESSION_MENU_WIDTH}>
       {hasOpenGroup ? (
@@ -64,12 +63,6 @@ export function SessionActionsMenu({
             <DropdownMenuItem onClick={() => onView(session.id)}>
               <Maximize2Icon />
               {t("dashboard.view")}
-            </DropdownMenuItem>
-          ) : null}
-          {onReview ? (
-            <DropdownMenuItem onClick={() => onReview(session.id)}>
-              <ScanSearchIcon />
-              {t("dashboard.reviewOnPage")}
             </DropdownMenuItem>
           ) : null}
         </DropdownMenuGroup>
@@ -82,13 +75,13 @@ export function SessionActionsMenu({
             {copied ? t("common.copied") : t("dashboard.copyPrompt")}
           </DropdownMenuItem>
         ) : null}
-        {onCopyBatch && batchId ? (
+        {onCopyBatch && batchId && !grouped ? (
           <DropdownMenuItem closeOnClick={false} onClick={() => onCopyBatch(batchId)}>
             {batchCopied ? <CheckIcon /> : <LayersIcon />}
             {batchCopied ? t("common.copied") : t("dashboard.copyBatch")}
           </DropdownMenuItem>
         ) : null}
-        <DropdownMenuItem render={<a href={shareMarkdownPath(session.id, shareToken)} rel="noopener noreferrer" target="_blank" />}>
+        <DropdownMenuItem render={<a href={grouped && batchId ? `/api/batches/${encodeURIComponent(batchId)}/markdown` : shareMarkdownPath(session.id, shareToken)} rel="noopener noreferrer" target="_blank" />}>
           <FileTextIcon />
           {t("dashboard.markdown")}
         </DropdownMenuItem>

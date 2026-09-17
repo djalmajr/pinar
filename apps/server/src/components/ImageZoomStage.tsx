@@ -1,6 +1,7 @@
 import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
+  type ReactNode,
   type WheelEvent as ReactWheelEvent,
   useEffect,
   useRef,
@@ -96,6 +97,13 @@ export function useImageZoom(resetKey: string) {
   }
 
   return {
+    focusElement(element: HTMLElement) {
+      const stage = stageRef.current;
+      if (!stage) return;
+      const bounds = stage.getBoundingClientRect();
+      const target = element.getBoundingClientRect();
+      setTransform((current) => ({ ...current, x: current.x + bounds.left + bounds.width / 2 - target.left - target.width / 2, y: current.y + bounds.top + bounds.height / 2 - target.top - target.height / 2 }));
+    },
     dragging,
     handlePointerDown,
     handlePointerMove,
@@ -152,6 +160,7 @@ export function ImageZoomControls({
 }
 
 export function ImageZoomStage({
+  children,
   alt,
   src,
   transform,
@@ -163,6 +172,7 @@ export function ImageZoomStage({
   onWheel,
   onDoubleClick,
 }: {
+  children?: ReactNode;
   alt: string;
   src: string;
   transform: ImageTransform;
@@ -185,13 +195,13 @@ export function ImageZoomStage({
       onPointerUp={onPointerUp}
       onWheel={onWheel}
     >
-      <img
+      {children ? <div className="pointer-events-none w-full shrink-0 origin-center select-none" style={{ transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})` }}>{children}</div> : <img
         alt={alt}
         className="pointer-events-none block max-h-full max-w-full origin-center select-none object-contain"
         draggable={false}
         src={src}
         style={{ transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})` }}
-      />
+      />}
     </div>
   );
 }

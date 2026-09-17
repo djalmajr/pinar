@@ -1,5 +1,15 @@
 import type { Box, PageInfo, Pin, Point, PrivacyReport, RedactedCategory, Session } from "../types/index.js";
 import type { PinLocation, VisualFingerprint } from "../locators/types.js";
+import {
+  acceptedDiagnosis,
+  asElementSnapshot,
+  asPinComponent,
+  asPinDiagnosis,
+  asPinEvidence,
+  asReproduction,
+  describeEvidenceItem,
+  type Reproduction,
+} from "./fields.ts";
 
 export const VISUAL_CONTEXT_SCHEMA_VERSION = 1 as const;
 
@@ -76,6 +86,7 @@ export interface VisualCapture {
   page: PageInfo;
   pins: VisualPin[];
   privacy?: PrivacyReport;
+  reproduction?: Reproduction;
   schemaVersion: typeof VISUAL_CONTEXT_SCHEMA_VERSION;
   screenshot: VisualScreenshot;
   viewport?: VisualViewport;
@@ -217,10 +228,13 @@ export function normalizePin(value: unknown, captureId: string, index: number): 
     box: viewportBox,
     color: asString(value.color) || undefined,
     comment: asString(value.comment),
+    component: asPinComponent(value.component),
     coords,
+    diagnosis: asPinDiagnosis(value.diagnosis),
     documentAnchor: documentPoint,
     documentBox,
     domPath: locator.domPath,
+    evidence: asPinEvidence(value.evidence),
     fingerprint,
     frameId: asFiniteNumber(value.frameId),
     geometry,
@@ -235,6 +249,7 @@ export function normalizePin(value: unknown, captureId: string, index: number): 
     pinId,
     scroll: asPoint(value.scroll),
     selector: locator.cssSelector,
+    snapshot: asElementSnapshot(value.snapshot),
     tag: locator.tag,
     text: asString(value.text) || locator.innerText,
     type,
@@ -359,6 +374,7 @@ export function parseVisualCapture(input: unknown, fallbackCaptureId?: string): 
     },
     pins,
     privacy,
+    reproduction: asReproduction(input.reproduction),
     schemaVersion: VISUAL_CONTEXT_SCHEMA_VERSION,
     screenshot,
     viewport,
@@ -374,6 +390,7 @@ export function encodeVisualCaptureJson(capture: VisualCapture) {
     page: capture.page,
     pins: capture.pins,
     privacy: capture.privacy,
+    reproduction: capture.reproduction,
     schemaVersion: capture.schemaVersion,
     screenshot: capture.screenshot,
     viewport: capture.viewport,
@@ -421,6 +438,7 @@ export function captureFromSession(session: Session, extras: { shotPath?: string
     page: session.page,
     pins: session.pins,
     privacy: session.privacy,
+    reproduction: session.reproduction,
     schemaVersion: session.schemaVersion,
     screenshot: {
       id: session.shotId || session.id,
@@ -440,6 +458,7 @@ export function sessionFromCapture(capture: VisualCapture, extras: Partial<Sessi
     pinCount: capture.pins.length,
     pins: capture.pins,
     privacy: capture.privacy,
+    reproduction: capture.reproduction,
     schemaVersion: capture.schemaVersion,
     shotId: extras.shotId || capture.screenshot.id,
     shotUrl: extras.shotUrl !== undefined ? extras.shotUrl : capture.screenshot.url,
@@ -503,9 +522,51 @@ export function formatVisualContextMarkdown(capture: VisualCapture, viewerUrl?: 
         lines.push("Warning: cross-origin iframe is not readable");
       }
     }
+    if (pin.snapshot) {
+      lines.push(`Structure: ${pin.snapshot.nodeCount} nodes${pin.snapshot.truncated ? " (truncated)" : ""}`);
+    }
+    const diagnosis = acceptedDiagnosis(pin.diagnosis);
+    if (diagnosis) {
+      lines.push(`Diagnosis (${diagnosis.confidence} confidence): ${diagnosis.cause}`);
+      if (diagnosis.properties.length) lines.push(`Properties: ${diagnosis.properties.join(", ")}`);
+      if (diagnosis.fix) lines.push(`Suggested fix: ${diagnosis.fix.replace(/\s*\n\s*/g, " ").trim()}`);
+    }
+    if (pin.evidence?.items.length) {
+      lines.push("Technical evidence:");
+      for (const item of pin.evidence.items) {
+        lines.push(`- [${item.grade}] ${describeEvidenceItem(item)}`);
+      }
+    }
+    lines.push("");
+  }
+  if (capture.reproduction) {
+    lines.push("Reproduction:");
+    const steps = capture.reproduction.generated?.steps
+      ?? capture.reproduction.steps.map(describeReproductionStep);
+    for (const [index, step] of steps.entries()) lines.push(`${index + 1}. ${step}`);
     lines.push("");
   }
   return lines.join("\n").trim();
+}
+
+export function describeReproductionStep(step: Reproduction["steps"][number]) {
+  const target = step.locator?.innerText
+    ? `"${step.locator.innerText.replace(/\s+/g, " ").trim().slice(0, 60)}"`
+    : step.locator?.cssSelector || step.locator?.domPath || "";
+  switch (step.kind) {
+    case "click":
+      return `Click ${target || "the element"}`.trim();
+    case "input":
+      return `Type ${step.redacted ? "[redacted]" : JSON.stringify(step.value ?? "")} into ${target || "the field"}`;
+    case "key":
+      return `Press ${step.value || "a key"}${target ? ` on ${target}` : ""}`;
+    case "navigate":
+      return `Open ${step.url || "the page"}`;
+    case "scroll":
+      return `Scroll${target ? ` ${target}` : ""}${step.value ? ` to ${step.value}` : ""}`;
+    default:
+      return `Wait${step.value ? ` ${step.value}` : ""}`;
+  }
 }
 
 export function visualContextErrorBody(error: unknown) {

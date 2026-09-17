@@ -20,6 +20,63 @@ const locale = {
     whatChanged: "更新内容",
   },
   releases: {
+    "v0.3.7": {
+      title: "连续捕获、统一审阅，以及每个图钉上的 AI",
+      summary:
+        "捕获会话现在可以跨页面持续进行，并将每张截图和每个图钉保存为一条记录。审阅统一到查看器中，Founder 新购方案已下线，图钉还新增了结构、技术证据和 AI 操作。",
+      changes: {
+        "continuous-capture-session": {
+          title: "跨页面的一个连续会话",
+          description:
+            "在一个页面添加图钉后继续浏览，最后只需完成一次。Pinar 会重新访问每个页面获取截图，保持图钉连续编号，并在没有批次槽位的情况下将整个过程保存为一个会话。",
+        },
+        "unified-session-review": {
+          title: "一起审阅所有画面和图钉",
+          description:
+            "多页面会话在一个支持平移缩放的查看器中打开，所有注释都列在侧栏。Tab 审阅当前捕获，Esc 隐藏工具栏，已保存的会话保留在查看器中查看。",
+        },
+        "founder-retired": {
+          title: "Founder 新购方案已下线",
+          description:
+            "新购买现在仅提供 Free 和 Pro。现有 Founder 权益仍会被识别，并获得与 Pro 相同的产品能力，不再产生新的 Founder 承诺。",
+        },
+        "element-structure": {
+          title: "每个元素图钉都有结构",
+          description:
+            "每个元素图钉会保存其 HTML 树、非默认的计算样式、字体、图标和周围元素。查看器在“结构”下显示，并随 pinar-visual-context 代码块一起传递。",
+        },
+        "technical-evidence": {
+          title: "技术证据",
+          description:
+            "添加图钉时观察到的控制台错误、失败的请求和环境会随图钉列出，标为“交互之后”或“同一页面”。不做任何推断，也不消耗积分。",
+        },
+        "pin-diagnosis": {
+          title: "诊断图钉（3 积分）",
+          description:
+            "AI 会根据图钉的结构解释可能原因，并提出带置信度的 CSS 修复。可接受、编辑或丢弃；只有已接受的诊断会随图钉保留。",
+        },
+        "save-as-component": {
+          title: "将图钉保存为组件（10 积分）",
+          description:
+            "把捕获的元素转换为 HTML + CSS、React + Tailwind 或 Preact + htm，包含文件、依赖、保真度说明、预览、ZIP 下载和 StackBlitz。",
+        },
+        "step-recording": {
+          title: "录制步骤并生成 Playwright 测试（5 积分）",
+          description:
+            "在页面上按 G 即可录制点击、输入、滚动和导航。重新打开 Pinar，钉住并复制即可附上步骤；再按 G 则丢弃。查看器会生成文字步骤和一个 Playwright 测试。",
+        },
+        "collection-design-system": {
+          title: "集合的设计系统（15 积分）",
+          description:
+            "从集合的图钉中提取共有的颜色、排版、间距、圆角和阴影。可导出为 CSS 变量、Tailwind 主题、W3C 令牌或 DESIGN.md。",
+        },
+        "windows-tray-icon": {
+          title: "清晰的 Windows 托盘图标",
+          description:
+            "通知区域图标会按显示缩放所要求的尺寸渲染，因此在 125%、150% 或 200% 下不再模糊。",
+        },
+      },
+    },
     "v0.3.6": {
       title: "菜单栏更新检查现在可见",
       summary:

@@ -4,6 +4,7 @@ import {
   parseVisualCapture,
   type VisualCapture,
 } from "../visual-context/index.js";
+import { acceptedDiagnosis, reproductionForHandoff } from "../visual-context/fields.js";
 import { translations } from "../i18n/index.js";
 import type { SupportedLanguage } from "../types/index.js";
 
@@ -88,6 +89,11 @@ export function captureForHandoffJson(capture: VisualCapture): VisualCapture {
     : capture.warnings;
   return {
     ...capture,
+    pins: capture.pins.map((pin) => ({
+      ...pin,
+      diagnosis: acceptedDiagnosis(pin.diagnosis),
+    })),
+    reproduction: reproductionForHandoff(capture.reproduction),
     screenshot: {
       ...capture.screenshot,
       url: inline ? null : url ?? null,
@@ -107,10 +113,14 @@ function compactPin(pin: VisualCapture["pins"][number]) {
   };
   const hasLocator = Object.values(locator).some((value) => value !== undefined);
   const needsGeometry = pin.kind === "area" || !hasLocator;
+  // The snapshot stays behind the "full context" link: the compact paste keeps
+  // the small, high-signal facts (an accepted diagnosis, technical evidence).
   return {
     box: needsGeometry ? pin.box : undefined,
     comment: pin.comment,
     coords: needsGeometry && !pin.box ? pin.coords : undefined,
+    diagnosis: acceptedDiagnosis(pin.diagnosis),
+    evidence: pin.evidence,
     frameId: pin.frameId || undefined,
     kind: pin.kind === "area" ? "area" : undefined,
     locator: hasLocator ? locator : undefined,
@@ -144,6 +154,7 @@ export function compactCaptureForHandoff(capture: VisualCapture) {
     page,
     pins: capture.pins.map(compactPin),
     privacy,
+    reproduction: reproductionForHandoff(capture.reproduction),
     screenshot: screenshotUrl ? { url: screenshotUrl } : undefined,
     warnings: capture.warnings.length ? capture.warnings : undefined,
   };

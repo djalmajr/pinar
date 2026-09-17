@@ -6,7 +6,7 @@
  */
 export async function copyBatchHandoff(batchId: string): Promise<boolean> {
   try {
-    const response = await fetch(`/b/${encodeURIComponent(batchId)}.md`);
+    const response = await fetch(`/api/batches/${encodeURIComponent(batchId)}/markdown`, { cache: "no-store" });
     if (!response.ok) return false;
     await navigator.clipboard.writeText(await response.text());
     return true;

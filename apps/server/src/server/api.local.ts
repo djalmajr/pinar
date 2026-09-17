@@ -19,6 +19,7 @@ import {
   VisualContextError,
   agentResultErrorBody,
   agentResultHttpStatus,
+  applySessionPatch,
   generateNanoId,
   isPinReviewHumanAction,
   parseVisualCapture,
@@ -52,6 +53,7 @@ import {
 } from "./local-api-policy";
 import { localHealthDiscoveryBody } from "./local-api-trust";
 import { decodePngDataUrl } from "./png";
+import { SESSION_PATCH_MAX_BYTES } from "./session-patch";
 
 interface LocalSession extends Session {
   batchId?: string | null;
@@ -117,6 +119,7 @@ interface HistoryDatabase {
     page?: PageInfo;
     pins?: Pin[];
     privacy?: import("@pinar/shared").PrivacyReport;
+    reproduction?: import("@pinar/shared").Reproduction;
     shotId?: string | null;
     shotPath?: string | null;
     includeScreenshot?: boolean;
@@ -414,6 +417,7 @@ async function uploadShot(request: Request): Promise<Response> {
         page: capture.page,
         pins: capture.pins,
         privacy: capture.privacy,
+        reproduction: capture.reproduction,
         shotId: id,
         shotPath: saved,
         includeScreenshot: booleanValue(
@@ -456,6 +460,7 @@ async function saveHistory(request: Request): Promise<Response> {
       page: parsed.capture.page,
       pins: parsed.capture.pins,
       privacy: parsed.capture.privacy,
+      reproduction: parsed.capture.reproduction,
       shotId: stringValue(body, "shotId"),
       shotPath: stringValue(body, "shotPath"),
       includeScreenshot: booleanValue(
@@ -470,6 +475,38 @@ async function saveHistory(request: Request): Promise<Response> {
     if (error instanceof VisualContextError) return json(visualContextErrorBody(error), 400);
     throw error;
   }
+}
+
+async function updateSessionFields(request: Request, id: string, origin: string) {
+  const database = historyDatabase();
+  const existing = database.getSession(id);
+  if (!existing) return json({ error: "not found" }, 404);
+  const raw = await request.text();
+  if (raw.length > SESSION_PATCH_MAX_BYTES) return json({ error: "payload too large" }, 413);
+  let body: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed)) return json({ error: "invalid payload" }, 400);
+    body = parsed;
+  } catch {
+    return json({ error: "invalid payload" }, 400);
+  }
+  const patched = applySessionPatch(existing, body);
+  if (!patched) return json({ error: "invalid session patch" }, 400);
+  const saved = database.saveSession({
+    batchId: existing.batchId ?? null,
+    collectionId: existing.collectionId,
+    createdAt: existing.createdAt,
+    id: existing.id,
+    includeScreenshot: existing.includeScreenshot,
+    page: existing.page,
+    pins: patched.pins,
+    privacy: existing.privacy,
+    reproduction: patched.reproduction,
+    shotId: existing.shotId ?? null,
+    shotPath: existing.shotPath ?? null,
+  });
+  return json({ ok: true, session: presentSession(saved, origin) });
 }
 
 async function deleteHistory(id: string) {
@@ -546,6 +583,16 @@ async function routeLocalApi(request: Request): Promise<Response> {
     return json({ batches: historyDatabase().listBatches(), ok: true });
   }
   const batchFinishMatch = path.match(/^\/api\/batches\/([^/]+)\/finish$/);
+  const batchMarkdownMatch = path.match(/^\/api\/batches\/([^/]+)\/markdown$/);
+  if (batchMarkdownMatch && method === "GET") {
+    const origin = new URL(request.url).origin;
+    const bundle = publicBatch(decodeURIComponent(batchMarkdownMatch[1]), origin);
+    if (!bundle) return json({ error: "Session not found" }, 404);
+    const preferences = readDeliveryPreferences(rootPath());
+    return text(formatBatchMarkdown(bundle.batch, bundle.sessions, bundle.statusByPinId, origin, {
+      ...preferences, language: preferences.language ?? "en",
+    }), 200, { "Cache-Control": "no-store", "Content-Type": "text/markdown; charset=utf-8" });
+  }
   if (batchFinishMatch && method === "POST") {
     const body = await readJson(request);
     const finishedAt = stringValue(body, "finishedAt") || new Date().toISOString();
@@ -673,6 +720,10 @@ async function routeLocalApi(request: Request): Promise<Response> {
       return presentSession(session, url.origin);
     });
     return json({ ok: true, sessions });
+  }
+  const sessionMatch = path.match(/^\/api\/sessions\/([^/]+)$/);
+  if (sessionMatch && method === "PATCH") {
+    return updateSessionFields(request, decodeURIComponent(sessionMatch[1]), url.origin);
   }
   if (method === "GET" && path.startsWith("/api/sessions/")) {
     const id = decodeURIComponent(path.slice("/api/sessions/".length));

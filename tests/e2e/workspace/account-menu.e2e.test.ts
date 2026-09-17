@@ -124,7 +124,7 @@ test("Sign out revokes the web session from the sidebar panel", async ({ page })
       session: {
         email: "djalmajr@example.test",
         kind: "account",
-        plan: "lifetime",
+        plan: "pro",
         userId: "usr_account_menu_logout",
       },
     },

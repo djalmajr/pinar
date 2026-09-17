@@ -22,6 +22,7 @@ export interface FormatClipboardInput {
     redacted?: string[];
     unevaluated?: boolean;
   };
+  reproduction?: object;
   schemaVersion?: number;
   sentAt?: string;
   shot?: string;

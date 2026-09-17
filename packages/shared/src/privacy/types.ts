@@ -78,6 +78,7 @@ export interface SanitizeCaptureInput {
     [key: string]: unknown;
   };
   pins?: unknown[];
+  reproduction?: unknown;
   unevaluated?: boolean;
   warnings?: string[];
 }
@@ -95,5 +96,6 @@ export interface SanitizeCaptureResult {
   };
   pins: unknown[];
   privacy: PrivacyReport;
+  reproduction?: unknown;
   warnings: string[];
 }

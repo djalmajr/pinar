@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ComponentType, type CSSProperties, type ReactNode } from "react";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import type {
   CollectionPlacement,
   ProjectIcon,
@@ -6,6 +6,7 @@ import type {
   ProjectTreeCollection,
   ProjectTreeProject,
 } from "@pinar/shared";
+import { sessionGroupCount } from "../lib/session-groups";
 import {
   DragOverlay,
   useDndContext,
@@ -55,12 +56,10 @@ import {
   visibleCollections,
 } from "@/lib/collection-tree";
 import { COLLECTION_DND_TYPE, SESSION_DND_TYPE } from "@/lib/workspace-dnd";
-import { copyBatchHandoff } from "../lib/session-actions";
 import { ProjectIconGlyph } from "@/components/ProjectIcon";
 import type { ServerMessageKey } from "@/lib/i18n";
 import { pinarRuntime } from "@/lib/server-header";
 import CheckIcon from "~icons/lucide/check";
-import CopyIcon from "~icons/lucide/copy";
 import ArrowDownIcon from "~icons/lucide/arrow-down";
 import ArrowUpIcon from "~icons/lucide/arrow-up";
 import ChevronsUpDownIcon from "~icons/lucide/chevrons-up-down";
@@ -73,36 +72,14 @@ import MoreVerticalIcon from "~icons/lucide/ellipsis-vertical";
 import PencilIcon from "~icons/lucide/pencil";
 import PlusIcon from "~icons/lucide/plus";
 import ShareIcon from "~icons/lucide/share-2";
+import PaletteIcon from "~icons/lucide/palette";
 import TrashIcon from "~icons/lucide/trash-2";
-import FilterIcon from "~icons/lucide/list-filter";
-import LayersIcon from "~icons/lucide/layers";
 
 type ContainerKind = "collection" | "project";
 type Translate = (
   key: ServerMessageKey,
   values?: Record<string, number | string>,
 ) => string;
-
-const BATCHES_EXPANDED_KEY = "pinar-batches-expanded";
-
-function readStoredBatchesExpanded(): boolean | null {
-  try {
-    const stored = localStorage.getItem(BATCHES_EXPANDED_KEY);
-    if (stored === "true") return true;
-    if (stored === "false") return false;
-  } catch {
-    /* private mode */
-  }
-  return null;
-}
-
-function writeStoredBatchesExpanded(expanded: boolean) {
-  try {
-    localStorage.setItem(BATCHES_EXPANDED_KEY, String(expanded));
-  } catch {
-    /* private mode */
-  }
-}
 
 interface ContainerTarget {
   id: string;
@@ -131,6 +108,7 @@ interface HistorySidebarProps {
   onDelete: (target: ContainerTarget) => void;
   onDeleteAllFilters: () => void;
   onDeleteFilter: (id: string) => void;
+  onDesignSystem?: (collection: ProjectTreeCollection) => void;
   onRename: (target: RenameTarget) => void;
   onReorderCollections: (items: CollectionPlacement[]) => void;
   onSelectCollection: (collectionId: string | null) => void;
@@ -167,6 +145,7 @@ interface SortableCollectionProps {
   t: Translate;
   onCreateChild: (parentId: string) => void;
   onDelete: (target: ContainerTarget) => void;
+  onDesignSystem?: (collection: ProjectTreeCollection) => void;
   onRename: (target: RenameTarget) => void;
   onSelect: (collectionId: string) => void;
   onShare: (path: string) => void;
@@ -180,6 +159,7 @@ interface CollectionMenuProps {
   onActionFocusChange: (focused: boolean) => void;
   onCreate: () => void;
   onDelete: (target: ContainerTarget) => void;
+  onDesignSystem?: (collection: ProjectTreeCollection) => void;
   onMenuOpenChange: (open: boolean) => void;
   onRename: (target: RenameTarget) => void;
   onShare: (path: string) => void;
@@ -192,6 +172,7 @@ function CollectionMenu({
   onActionFocusChange,
   onCreate,
   onDelete,
+  onDesignSystem,
   onMenuOpenChange,
   onRename,
   onShare,
@@ -240,6 +221,12 @@ function CollectionMenu({
               {t("dashboard.share")}
             </DropdownMenuItem>
           )}
+          {onDesignSystem ? (
+            <DropdownMenuItem onClick={() => onDesignSystem(collection)}>
+              <PaletteIcon />
+              {t("dashboard.designSystem")}
+            </DropdownMenuItem>
+          ) : null}
           {!collection.isProtected && (
             <>
               <DropdownMenuSeparator />
@@ -269,6 +256,7 @@ function SortableCollection({
   t,
   onCreateChild,
   onDelete,
+  onDesignSystem,
   onRename,
   onSelect,
   onShare,
@@ -362,7 +350,7 @@ function SortableCollection({
           (menuOpen || menuActionFocused) && "opacity-0",
         )}
       >
-        {collection.sessions.length}
+        {sessionGroupCount(collection.sessions)}
       </SidebarMenuBadge>
       <CollectionMenu
         collection={collection}
@@ -371,6 +359,7 @@ function SortableCollection({
         onActionFocusChange={setMenuActionFocused}
         onCreate={() => onCreateChild(collection.id)}
         onDelete={onDelete}
+        onDesignSystem={onDesignSystem}
         onMenuOpenChange={setMenuOpen}
         onRename={onRename}
         onShare={onShare}
@@ -385,6 +374,7 @@ interface FixedCollectionProps {
   t: Translate;
   onCreate: () => void;
   onDelete: (target: ContainerTarget) => void;
+  onDesignSystem?: (collection: ProjectTreeCollection) => void;
   onRename: (target: RenameTarget) => void;
   onSelect: (collectionId: string) => void;
   onShare: (path: string) => void;
@@ -396,6 +386,7 @@ function FixedCollection({
   t,
   onCreate,
   onDelete,
+  onDesignSystem,
   onRename,
   onSelect,
   onShare,
@@ -428,7 +419,7 @@ function FixedCollection({
           (menuOpen || menuActionFocused) && "opacity-0",
         )}
       >
-        {collection.sessions.length}
+        {sessionGroupCount(collection.sessions)}
       </SidebarMenuBadge>
       <CollectionMenu
         collection={collection}
@@ -437,325 +428,12 @@ function FixedCollection({
         onActionFocusChange={setMenuActionFocused}
         onCreate={onCreate}
         onDelete={onDelete}
+        onDesignSystem={onDesignSystem}
         onMenuOpenChange={setMenuOpen}
         onRename={onRename}
         onShare={onShare}
       />
     </SidebarMenuItem>
-  );
-}
-
-function FilterMenu({
-  item,
-  menuOpen,
-  t,
-  onActionFocusChange,
-  onDelete,
-  onMenuOpenChange,
-}: {
-  item: SidebarFilterItem;
-  menuOpen: boolean;
-  t: Translate;
-  onActionFocusChange: (focused: boolean) => void;
-  onDelete: (id: string) => void;
-  onMenuOpenChange: (open: boolean) => void;
-}) {
-  const [copied, setCopied] = useState(false);
-
-  async function copyBatch() {
-    if (!await copyBatchHandoff(item.id)) return;
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 2_000);
-  }
-
-  return (
-    <DropdownMenu open={menuOpen} onOpenChange={onMenuOpenChange}>
-      <DropdownMenuTrigger
-        render={
-          <SidebarMenuAction
-            aria-label={`${item.label}: ${t("dashboard.filterActions")}`}
-            className="size-6 peer-data-[size=default]/menu-button:top-1"
-            showOnHover
-            title={t("dashboard.filterActions")}
-            onBlur={() => onActionFocusChange(false)}
-            onFocus={() => onActionFocusChange(true)}
-          />
-        }
-      >
-        <MoreVerticalIcon />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        side="right"
-        sideOffset={8}
-      >
-        <DropdownMenuGroup>
-          <DropdownMenuItem closeOnClick={false} onClick={() => void copyBatch()}>
-            {copied ? <CheckIcon /> : <CopyIcon />}
-            {copied ? t("common.copied") : t("dashboard.copyBatch")}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            variant="destructive"
-            onClick={() => onDelete(item.id)}
-          >
-            <TrashIcon />
-            {t("dashboard.deleteFilter")}
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function FilterRow({
-  depth = 0,
-  icon: Icon,
-  item,
-  isActive,
-  t,
-  onDelete,
-  onSelect,
-}: {
-  depth?: number;
-  icon: ComponentType<{ className?: string }>;
-  item: SidebarFilterItem;
-  isActive: boolean;
-  t: Translate;
-  onDelete: (id: string) => void;
-  onSelect: (id: string) => void;
-}) {
-  const [menuActionFocused, setMenuActionFocused] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const buttonStyle: CSSProperties | undefined = depth
-    ? { paddingInlineStart: `${8 + depth * COLLECTION_INDENTATION_WIDTH}px` }
-    : undefined;
-  return (
-    <SidebarMenuItem>
-      <SidebarMenuButton
-        isActive={isActive}
-        style={buttonStyle}
-        tooltip={item.label}
-        onClick={() => onSelect(item.id)}
-      >
-        <Icon />
-        <span>{item.label}</span>
-      </SidebarMenuButton>
-      {/* Same guide a nested collection draws under its parent's icon. */}
-      {Array.from({ length: depth }, (_, level) => (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-y-0 z-10 w-px bg-sidebar-border"
-          data-collection-guide
-          key={level}
-          style={{
-            insetInlineStart: `${15 + level * COLLECTION_INDENTATION_WIDTH}px`,
-          }}
-        />
-      ))}
-      <SidebarMenuBadge
-        className={cn(
-          "group-hover/menu-item:opacity-0",
-          (menuOpen || menuActionFocused) && "opacity-0",
-        )}
-      >
-        {item.count}
-      </SidebarMenuBadge>
-      <FilterMenu
-        item={item}
-        menuOpen={menuOpen}
-        t={t}
-        onActionFocusChange={setMenuActionFocused}
-        onDelete={onDelete}
-        onMenuOpenChange={setMenuOpen}
-      />
-    </SidebarMenuItem>
-  );
-}
-
-function BatchesGroupMenu({
-  canDeleteAll,
-  menuOpen,
-  t,
-  onActionFocusChange,
-  onDeleteAll,
-  onMenuOpenChange,
-}: {
-  canDeleteAll: boolean;
-  menuOpen: boolean;
-  t: Translate;
-  onActionFocusChange: (focused: boolean) => void;
-  onDeleteAll: () => void;
-  onMenuOpenChange: (open: boolean) => void;
-}) {
-  return (
-    <DropdownMenu open={menuOpen} onOpenChange={onMenuOpenChange}>
-      <DropdownMenuTrigger
-        render={
-          <SidebarMenuAction
-            aria-label={t("dashboard.batchActions")}
-            className="size-6 peer-data-[size=default]/menu-button:top-1"
-            showOnHover
-            title={t("dashboard.batchActions")}
-            onBlur={() => onActionFocusChange(false)}
-            onFocus={() => onActionFocusChange(true)}
-          />
-        }
-      >
-        <MoreVerticalIcon />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" side="right" sideOffset={8}>
-        <DropdownMenuItem
-          disabled={!canDeleteAll}
-          variant="destructive"
-          onClick={onDeleteAll}
-        >
-          <TrashIcon />
-          {t("dashboard.deleteAllFilters")}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function BatchesFolderRow({
-  canDeleteAll,
-  count,
-  expanded,
-  t,
-  onDeleteAll,
-  onToggle,
-}: {
-  canDeleteAll: boolean;
-  count: number;
-  expanded: boolean;
-  t: Translate;
-  onDeleteAll: () => void;
-  onToggle: () => void;
-}) {
-  const [menuActionFocused, setMenuActionFocused] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const label = t("dashboard.batches");
-  return (
-    <SidebarMenuItem>
-      <SidebarMenuButton
-        aria-expanded={expanded}
-        tooltip={label}
-        onClick={onToggle}
-      >
-        <span
-          aria-hidden
-          className="flex size-3.5 shrink-0 items-center justify-center"
-        />
-        <span>{label}</span>
-      </SidebarMenuButton>
-      {/* Same anatomy as a collection with children: the icon slot is the
-          toggle; no chevron. */}
-      <button
-        aria-expanded={expanded}
-        aria-label={t(
-          expanded ? "dashboard.collapseBatches" : "dashboard.expandBatches",
-          { name: label },
-        )}
-        className="absolute top-2 z-10 flex size-4 items-center justify-center rounded-sm text-sidebar-foreground outline-none after:absolute after:-inset-1 focus-visible:ring-2 focus-visible:ring-sidebar-ring [&_svg]:size-3.5"
-        data-batches-toggle
-        style={{ insetInlineStart: "8px" }}
-        type="button"
-        onClick={onToggle}
-      >
-        <LayersIcon />
-      </button>
-      <SidebarMenuBadge
-        className={cn(
-          "group-hover/menu-item:opacity-0",
-          (menuOpen || menuActionFocused) && "opacity-0",
-        )}
-      >
-        {count}
-      </SidebarMenuBadge>
-      <BatchesGroupMenu
-        canDeleteAll={canDeleteAll}
-        menuOpen={menuOpen}
-        t={t}
-        onActionFocusChange={setMenuActionFocused}
-        onDeleteAll={onDeleteAll}
-        onMenuOpenChange={setMenuOpen}
-      />
-    </SidebarMenuItem>
-  );
-}
-
-function SidebarFilterGroup({
-  icon,
-  items,
-  selectedId,
-  title,
-  t,
-  onDelete,
-  onDeleteAll,
-  onSelect,
-}: {
-  icon: ComponentType<{ className?: string }>;
-  items: SidebarFilterItem[];
-  selectedId: string | null;
-  title: string;
-  t: Translate;
-  onDelete: (id: string) => void;
-  onDeleteAll: () => void;
-  onSelect: (id: string | null) => void;
-}) {
-  const [expanded, setExpanded] = useState(() => {
-    if (selectedId) return true;
-    return readStoredBatchesExpanded() ?? false;
-  });
-
-  useEffect(() => {
-    if (selectedId) setExpanded(true);
-  }, [selectedId]);
-
-  function toggleExpanded() {
-    setExpanded((current) => {
-      const next = !current;
-      writeStoredBatchesExpanded(next);
-      return next;
-    });
-  }
-
-  return (
-    <SidebarGroup className="pt-4">
-      <SidebarGroupLabel
-        aria-label={title || t("dashboard.filtersEmpty")}
-        className="h-7 text-[11px] font-normal uppercase text-sidebar-foreground/60"
-      >
-        {title}
-      </SidebarGroupLabel>
-      <SidebarGroupContent>
-        <SidebarMenu>
-          <BatchesFolderRow
-            canDeleteAll={items.length > 0}
-            count={items.length}
-            expanded={expanded}
-            t={t}
-            onDeleteAll={onDeleteAll}
-            onToggle={toggleExpanded}
-          />
-          {expanded
-            ? items.map((item) => (
-                <FilterRow
-                  depth={1}
-                  icon={icon}
-                  isActive={selectedId === item.id}
-                  item={item}
-                  key={item.id}
-                  t={t}
-                  onDelete={onDelete}
-                  onSelect={(id) => onSelect(selectedId === id ? null : id)}
-                />
-              ))
-            : null}
-        </SidebarMenu>
-      </SidebarGroupContent>
-    </SidebarGroup>
   );
 }
 
@@ -768,11 +446,7 @@ export function ProjectSwitcher({
   onSelectProject,
 }: ProjectSwitcherProps) {
   const { isMobile } = useSidebar();
-  const totalSessions =
-    selectedProject?.collections.reduce(
-      (total, collection) => total + collection.sessions.length,
-      0,
-    ) ?? 0;
+  const totalSessions = sessionGroupCount(selectedProject?.collections.flatMap((collection) => collection.sessions) ?? []);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -975,7 +649,6 @@ export function ProjectActionsMenu({
 }
 
 export function HistorySidebar({
-  filters,
   footer,
   selectedCollectionId,
   selectedFilterId,
@@ -983,12 +656,10 @@ export function HistorySidebar({
   t,
   onCreate,
   onDelete,
-  onDeleteAllFilters,
-  onDeleteFilter,
+  onDesignSystem,
   onRename,
   onReorderCollections,
   onSelectCollection,
-  onSelectFilter,
   onShare,
 }: HistorySidebarProps) {
   const { setOpenMobile } = useSidebar();
@@ -1027,10 +698,7 @@ export function HistorySidebar({
   const activeCollection = sortableCollections.find(
     (collection) => collection.id === activeId,
   );
-  const totalSessions = collections.reduce(
-    (total, collection) => total + collection.sessions.length,
-    0,
-  );
+  const totalSessions = sessionGroupCount(collections.flatMap((collection) => collection.sessions));
 
   function closeMobile() {
     setOpenMobile(false);
@@ -1054,16 +722,6 @@ export function HistorySidebar({
   function selectCollection(collectionId: string | null) {
     onSelectCollection(collectionId);
     closeMobile();
-  }
-
-  function selectFilter(id: string | null) {
-    onSelectFilter(id);
-    closeMobile();
-  }
-
-  function deleteFilter(id: string) {
-    closeMobile();
-    onDeleteFilter(id);
   }
 
   function toggleCollection(collectionId: string) {
@@ -1158,6 +816,7 @@ export function HistorySidebar({
                   t={t}
                   onCreate={() => create("collection")}
                   onDelete={deleteContainer}
+                  onDesignSystem={onDesignSystem}
                   onRename={rename}
                   onSelect={selectCollection}
                   onShare={onShare}
@@ -1200,6 +859,7 @@ export function HistorySidebar({
                     t={t}
                     onCreateChild={(parentId) => create("collection", parentId)}
                     onDelete={deleteContainer}
+                    onDesignSystem={onDesignSystem}
                     onRename={rename}
                     onSelect={selectCollection}
                     onShare={onShare}
@@ -1218,16 +878,6 @@ export function HistorySidebar({
             </DragOverlay>
           </SidebarGroupContent>
         </SidebarGroup>
-        <SidebarFilterGroup
-          icon={FilterIcon}
-          items={filters}
-          selectedId={selectedFilterId}
-          t={t}
-          title={t("dashboard.filters")}
-          onDelete={deleteFilter}
-          onDeleteAll={onDeleteAllFilters}
-          onSelect={selectFilter}
-        />
       </SidebarContent>
       {footer ? <SidebarFooter>{footer}</SidebarFooter> : null}
     </Sidebar>

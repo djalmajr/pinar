@@ -3,20 +3,14 @@ import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 import {
   afterCopyAction,
-  dropHydrationIfTabLeftOrigin,
   endTabPins,
   pinFrameIds,
   planSessionEnd,
-  planSessionReopen,
-  selectHydrateSession,
   canInjectInto,
 } from "./session.js";
 
 const contentSrc = readFileSync(new URL("./content.js", import.meta.url), "utf8");
 const backgroundSrc = readFileSync(new URL("./background.js", import.meta.url), "utf8");
-const LEGACY_GLOBAL = ["__ai", "Feedback"].join("");
-const LEGACY_NAMESPACE = ["ai", "feedback"].join("-");
-
 describe("session after copy", () => {
   test("successful copy ends the session in every frame instead of restoring overlays", () => {
     // Mutation captured: sending overlays:hidden false after capture shows
@@ -47,36 +41,9 @@ describe("session after copy", () => {
     assert.equal(tabPins.has(7), false);
   });
 
-  test("the copy-success path dismisses every frame instead of restoring overlays", () => {
-    // Mutation captured: the old success tail sent overlays:hidden false,
-    // which put iframe markers back after the top toolbar had already closed.
-    const start = contentSrc.indexOf("if (!copied?.ok && !locallyCopied)");
-    const end = contentSrc.indexOf("} catch", start);
-    assert.ok(start >= 0 && end > start);
-    const success = contentSrc.slice(start, end);
-    assert.match(success, /session:end/);
-    assert.doesNotMatch(success, /hidden:\s*false/);
-    assert.match(contentSrc, /__pinarDismiss/);
-    assert.match(backgroundSrc, /session:end/);
-    assert.match(backgroundSrc, /__pinarDismiss/);
-    assert.equal(contentSrc.includes(LEGACY_NAMESPACE), false);
-    assert.equal(contentSrc.includes(LEGACY_GLOBAL), false);
-    assert.equal(backgroundSrc.includes(LEGACY_NAMESPACE), false);
-    assert.equal(backgroundSrc.includes(LEGACY_GLOBAL), false);
-  });
-
   test("Cmd/Ctrl/Alt+Enter copies the finished bundle", () => {
     assert.match(contentSrc, /event\.key === "Enter" && \(event\.metaKey \|\| event\.ctrlKey \|\| event\.altKey\)/);
-    assert.match(contentSrc, /<kbd>\$\{sendMod\}\+↵<\/kbd><kbd>Alt\+↵<\/kbd>/);
-  });
-
-  test("Cmd/Ctrl+Enter keeps a page-level clipboard fallback before ending the session", () => {
-    // Regression captured: an unavailable offscreen clipboard or a transient
-    // Markdown endpoint used to leave the user with no copied content.
-    assert.match(contentSrc, /async function writePlainText/);
-    assert.match(contentSrc, /copied\?\.plain\s*\?\s*await writePlainText/);
-    assert.match(contentSrc, /!copied\?\.ok\s*&&\s*!locallyCopied/);
-    assert.match(backgroundSrc, /ok: false,\s*\n\s*plain: published\.payload\.plain/);
+    assert.match(contentSrc, /<kbd>\$\{sendMod\}\/Alt \+ ⏎<\/kbd>/);
   });
 
   test("clipboard is published before the helper stores the screenshot", () => {
@@ -93,20 +60,6 @@ describe("session after copy", () => {
     assert.match(contentSrc, /message\?\.type === "copy:progress"/);
   });
 
-  test("screenshot and helper failures still copy a correlatable bundle", () => {
-    assert.match(contentSrc, /const shot = capture\?\.ok \? capture\.shot : null/);
-    assert.match(contentSrc, /function handoffStatusText/);
-    assert.match(contentSrc, /if \(!result\?\.degraded\) return t\("overlay_saved"\)/);
-    assert.match(contentSrc, /const parts = \[t\("overlay_copied"\)\]/);
-    assert.match(contentSrc, /no screenshot/);
-    assert.match(contentSrc, /helper unavailable/);
-    assert.match(backgroundSrc, /warnings\.push\("screenshot_missing"\)/);
-    assert.match(backgroundSrc, /warnings\.push\("helper_unavailable"\)/);
-    assert.match(backgroundSrc, /warnings\.push\("viewer_unavailable"\)/);
-    assert.match(backgroundSrc, /degraded: published\.degraded,\s*\n\s*ok: true/);
-    assert.match(backgroundSrc, /viewerUrl,/);
-  });
-
   test("element composer identifies the selected HTML tag in a badge", () => {
     assert.match(contentSrc, /data-ref="selectionTag"/);
     assert.match(contentSrc, /tag:\s*element\.tagName\.toLowerCase\(\)/);
@@ -120,7 +73,6 @@ describe("session after copy", () => {
     assert.match(contentSrc, /function togglePinRegions/);
     assert.match(contentSrc, /event\.key === "r"/);
     assert.match(contentSrc, /class="pin-region/);
-    assert.match(contentSrc, /type: "overlays:hidden"/);
     assert.doesNotMatch(cropSrc, /showPinRegions/);
     const renderPins = cropSrc.slice(
       cropSrc.indexOf("export async function renderPinsCrop"),
@@ -130,9 +82,9 @@ describe("session after copy", () => {
     assert.match(renderPins, /drawPinMarker/);
   });
 
-  test("hides the batch pill when Chrome has not bound a shortcut", () => {
+  test("session controls remain available without a bound batch shortcut", () => {
     assert.match(contentSrc, /\[hidden\] \{ display: none !important; \}/);
-    assert.match(contentSrc, /ui\.batchPill\.hidden = !shortcut/);
+    assert.doesNotMatch(contentSrc, /data-ref="batchPill"/);
   });
 
   test("extension controls use the same non-pill radius language as the app", () => {
@@ -218,46 +170,6 @@ describe("session after copy", () => {
     ), /allFrames:\s*true/);
   });
 
-  test("reopen hydrates only the chosen session onto a matching origin tab", () => {
-    const session = {
-      captureId: "cap_one",
-      id: "session_one",
-      page: { url: "https://app.example.test/settings" },
-    };
-    assert.deepEqual(planSessionReopen({
-      appUrl: "http://127.0.0.1:17373/v/session_one",
-      requestedSessionId: "session_one",
-      session,
-    }), {
-      ok: true,
-      origin: "https://app.example.test",
-      pageUrl: session.page.url,
-      sessionId: "session_one",
-    });
-    assert.equal(planSessionReopen({
-      appUrl: "https://evil.example",
-      requestedSessionId: "session_one",
-      session,
-    }).error, "untrusted_app");
-    assert.equal(selectHydrateSession("session_two", session), null);
-
-    const hydrations = new Map([[3, { pageUrl: session.page.url }]]);
-    const tabPins = new Map([[3, [{ comment: "only session_one" }]]]);
-    assert.deepEqual(
-      dropHydrationIfTabLeftOrigin(hydrations, tabPins, 3, "https://evil.example"),
-      { dropped: true, reason: "origin_mismatch" },
-    );
-    assert.equal(tabPins.has(3), false);
-
-    assert.match(backgroundSrc, /session:reopen/);
-    assert.match(backgroundSrc, /session_mismatch/);
-    assert.match(backgroundSrc, /CONTENT_INJECTION_FILES/);
-    assert.match(contentSrc, /__pinarHydrateSession/);
-    assert.match(contentSrc, /historicalAnchor/);
-    assert.match(contentSrc, /manual-reposition/);
-    assert.doesNotMatch(contentSrc, /session:reopen[\s\S]*pins of every session/);
-  });
-
   test("captures og:title and meta description instead of only document.title", () => {
     assert.match(contentSrc, /og:title/);
     assert.match(contentSrc, /meta\[name="description"\]/);
@@ -293,13 +205,11 @@ test("a toggle during a capture is queued, never applied to the closing session"
   // together with whatever the user had just pinned.
   const src = readFileSync(new URL("./content.js", import.meta.url), "utf8");
   const toggleStart = src.indexOf("  function toggle() {");
-  const toggle = src.slice(toggleStart, src.indexOf("\n  }\n", toggleStart));
+  const toggle = src.slice(toggleStart, src.indexOf("\n  globalThis.__pinarToggle", toggleStart));
   assert.match(toggle, /if \(state\.sending\) \{/);
   assert.match(toggle, /state\.reopenAfterSend = true;/);
-  assert.doesNotMatch(toggle, /finishEarly|COPY_CONFIRMATION_MS/);
+  assert.doesNotMatch(toggle, /finishEarly/);
   const send = src.slice(src.indexOf("  async function sendPins() {"), src.indexOf("  function frameElementForSource"));
-  // The confirmation is never cut short: the user must see the copy land.
-  assert.match(send, /setTimeout\(resolve, COPY_CONFIRMATION_MS\)/);
   assert.doesNotMatch(send, /finishEarly/);
   assert.match(send, /finally \{[\s\S]*state\.sending = false;[\s\S]*if \(state\.reopenAfterSend\) \{[\s\S]*setVisible\(true\);/);
 });

@@ -2,7 +2,7 @@
 CREATE TABLE users (
   id TEXT PRIMARY KEY,
   email TEXT NOT NULL COLLATE NOCASE UNIQUE,
-  plan TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'pro', 'founder')),
+  plan TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'pro')),
   ever_paid INTEGER NOT NULL DEFAULT 0 CHECK (ever_paid IN (0, 1)),
   billing_status TEXT NOT NULL DEFAULT 'active' CHECK (billing_status IN ('active', 'canceled', 'past_due')),
   stripe_customer_id TEXT UNIQUE,
@@ -33,7 +33,7 @@ CREATE TABLE ai_credit_grants (
   owner_type TEXT NOT NULL CHECK (owner_type IN ('account', 'installation')),
   owner_id TEXT NOT NULL,
   source_type TEXT NOT NULL CHECK (
-    source_type IN ('free_initial', 'pro_monthly', 'founder_initial', 'purchase')
+    source_type IN ('free_initial', 'pro_monthly', 'purchase')
   ),
   source_id TEXT NOT NULL UNIQUE,
   credits INTEGER NOT NULL CHECK (credits > 0),
@@ -52,7 +52,14 @@ CREATE TABLE ai_credit_usages (
   owner_type TEXT NOT NULL CHECK (owner_type IN ('account', 'installation')),
   owner_id TEXT NOT NULL,
   grant_id TEXT NOT NULL REFERENCES ai_credit_grants(id),
-  feature TEXT NOT NULL CHECK (feature IN ('session_summary')),
+  feature TEXT NOT NULL CHECK (feature IN (
+    'session_summary',
+    'component_export',
+    'pin_diagnosis',
+    'design_system',
+    'reproduction',
+    'voice_pin'
+  )),
   resource_id TEXT NOT NULL,
   model TEXT NOT NULL,
   credits INTEGER NOT NULL CHECK (credits > 0),
@@ -147,45 +154,6 @@ CREATE TABLE stripe_subscription_states (
 
 CREATE INDEX idx_stripe_subscription_states_customer
   ON stripe_subscription_states(customer_id, event_created DESC);
-
-CREATE TABLE founder_reservations (
-  id TEXT PRIMARY KEY,
-  checkout_request_id TEXT NOT NULL UNIQUE,
-  claim_hash TEXT NOT NULL,
-  checkout_session_id TEXT UNIQUE,
-  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'confirmed', 'released')),
-  expires_at TEXT NOT NULL,
-  confirmed_at TEXT,
-  released_at TEXT,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE INDEX idx_founder_reservations_capacity
-  ON founder_reservations(status, expires_at);
-
-CREATE TABLE founder_purchases (
-  id TEXT PRIMARY KEY,
-  reservation_id TEXT NOT NULL UNIQUE REFERENCES founder_reservations(id),
-  user_id TEXT NOT NULL REFERENCES users(id),
-  checkout_session_id TEXT NOT NULL UNIQUE,
-  stripe_customer_id TEXT NOT NULL,
-  purchased_at TEXT NOT NULL,
-  created_at TEXT NOT NULL
-);
-
-CREATE INDEX idx_founder_purchases_user ON founder_purchases(user_id);
-
-CREATE TRIGGER confirm_founder_purchase
-AFTER INSERT ON founder_purchases
-BEGIN
-  UPDATE founder_reservations
-  SET status = 'confirmed', confirmed_at = NEW.purchased_at, updated_at = NEW.purchased_at
-  WHERE id = NEW.reservation_id
-    AND status = 'active'
-    AND checkout_session_id = NEW.checkout_session_id;
-  SELECT (CASE WHEN changes() <> 1 THEN RAISE(ABORT, 'founder_reservation_not_active') END);
-END;
 
 CREATE TABLE legal_acceptances (
   id TEXT PRIMARY KEY,
@@ -285,7 +253,8 @@ CREATE TABLE collections (
   position INTEGER NOT NULL DEFAULT 0,
   is_protected INTEGER NOT NULL DEFAULT 0 CHECK (is_protected IN (0, 1)),
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  design_system_json TEXT
 );
 
 CREATE INDEX idx_collections_owner ON collections(owner_id);
@@ -311,14 +280,14 @@ CREATE TABLE sessions (
   pins_json TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL,
   user_id TEXT NOT NULL,
-  plan TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'pro', 'founder')),
+  plan TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'pro')),
   is_permanent INTEGER NOT NULL DEFAULT 0 CHECK (is_permanent IN (0, 1)),
   byte_size INTEGER NOT NULL DEFAULT 0,
   collection_id TEXT REFERENCES collections(id),
   position INTEGER NOT NULL DEFAULT 0,
   retention_expires_at TEXT,
   include_screenshot INTEGER NOT NULL DEFAULT 1 CHECK (include_screenshot IN (0, 1)),
-  batch_id TEXT REFERENCES batches(id)
+  batch_id TEXT
 );
 
 CREATE INDEX idx_sessions_created ON sessions(created_at DESC);
@@ -408,7 +377,8 @@ CREATE TABLE owner_preferences (
   copy_viewer_content INTEGER CHECK (copy_viewer_content IN (0, 1)),
   include_viewer INTEGER CHECK (include_viewer IN (0, 1)),
   language TEXT,
-  sensitive_query_keys TEXT
+  sensitive_query_keys TEXT,
+  component_target TEXT CHECK (component_target IN ('html', 'react-tailwind', 'preact-htm'))
 );
 
 CREATE TABLE share_tokens (

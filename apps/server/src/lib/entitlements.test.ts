@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
-  FOUNDER_INITIAL_AI_CREDITS,
-  FOUNDER_STORAGE_BYTES,
   FREE_STORAGE_BYTES,
   PAID_STORAGE_BYTES,
   addUtcMonths,
@@ -20,13 +18,12 @@ import {
 describe("billing entitlements", () => {
   test("recognizes only catalog offers and keeps legacy plan checkout compatible", () => {
     assert.equal(checkoutOffer("storage_5gb_12m"), "storage_5gb_12m");
-    assert.equal(checkoutOffer("founder"), "founder");
+    assert.equal(checkoutOffer("founder"), null);
     assert.equal(checkoutOffer("unknown"), null);
     assert.equal(legacyCheckoutOffer("year"), "pro_year");
-    assert.equal(legacyCheckoutOffer("lifetime"), "founder");
-    assert.equal(checkoutOffer("lifetime_founder"), "founder");
+    assert.equal(legacyCheckoutOffer("lifetime"), null);
+    assert.equal(checkoutOffer("lifetime_founder"), null);
     assert.equal(planForOffer("ai_credits_1000"), null);
-    assert.equal(planForOffer("founder"), "founder");
     assert.equal(planForOffer("pro_year"), "pro");
     assert.equal(isSubscriptionOffer("pro_month"), true);
     assert.equal(isSubscriptionOffer("storage_5gb_12m"), false);
@@ -49,15 +46,12 @@ describe("billing entitlements", () => {
 
   test("applies the approved base storage to Free and paid plans", () => {
     assert.equal(baseStorageBytes("free"), FREE_STORAGE_BYTES);
-    assert.equal(baseStorageBytes("founder"), FOUNDER_STORAGE_BYTES);
     assert.equal(baseStorageBytes("pro"), PAID_STORAGE_BYTES);
-    assert.equal(FOUNDER_INITIAL_AI_CREDITS, 500);
   });
 
   test("keeps AI summaries on paid plans only", () => {
     assert.equal(planIncludesAi("free"), false);
     assert.equal(planIncludesAi("pro"), true);
-    assert.equal(planIncludesAi("founder"), true);
   });
 
   test("moves expired overage through grace, recovery and cleanup eligibility", () => {

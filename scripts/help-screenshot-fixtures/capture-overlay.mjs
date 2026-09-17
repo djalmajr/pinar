@@ -37,11 +37,8 @@ export function overlayFixtureHtml(copy, { language, sendMod, batchShortcut, mod
   const batchIdle = escapeHtml(copy.batch_idle);
   const send = escapeHtml(sendMod);
   const batchKey = escapeHtml(batchShortcut);
-  const reviewing = escapeHtml(copy.overlay_reviewing);
-  const placePin = escapeHtml(copy.overlay_place_pin);
   const copyFailed = escapeHtml(copy.overlay_copy_failed);
   const copied = escapeHtml(copy.overlay_copied);
-  const isReview = mode === "review";
   const isCopyFailed = mode === "copy-failed";
   const isCopied = mode === "copied";
   const isFullPage = mode === "full-page";
@@ -53,7 +50,6 @@ export function overlayFixtureHtml(copy, { language, sendMod, batchShortcut, mod
   const showMask = mode === "capture" || isMasks;
   const showRegion = mode === "capture" || isFullPage || isTypes;
   const showPins = !isShortcuts;
-  const pendingFirst = isReview;
   const reportKind = isCopyFailed ? "error" : isCopied ? "ok" : "";
   const reportLabel = isCopyFailed ? copyFailed : copied;
   const reportIcon = isCopyFailed ? ALERT_SVG : CHECK_SVG;
@@ -259,7 +255,7 @@ export function overlayFixtureHtml(copy, { language, sendMod, batchShortcut, mod
   <div class="toolbar" data-overlay-toolbar="true"${reportKind ? ` data-kind="${reportKind}"` : ""}>
     <div class="view online-view"${isCopyFailed || isCopied ? " hidden" : ""}>
       <span class="state-icon" aria-hidden="true">${bubbleSvg(MARK, "dots")}</span>
-      <span class="instructions"${isReview ? " hidden" : ""}>
+      <span class="instructions">
         <span class="hint" data-hint="pin">${pin}</span>
         <span class="hint" data-hint="tune"><span class="keys"><kbd>↑</kbd><kbd>↓</kbd></span><span>${tune}</span></span>
         <span class="hint" data-hint="copy"><span class="keys"><kbd>${send}+↵</kbd><kbd>Alt+↵</kbd></span><span>${copyHint}</span></span>
@@ -267,8 +263,7 @@ export function overlayFixtureHtml(copy, { language, sendMod, batchShortcut, mod
         <span class="hint" data-hint="regions"><span class="keys"><kbd>R</kbd></span><span>${regions}</span></span>
         <span class="hint" data-hint="clear"><span class="keys"><kbd>esc</kbd></span><span>${clear}</span></span>
       </span>
-      <span class="status"${isReview ? ' data-kind="info"' : " hidden"}>${reviewing}</span>
-      <span class="batch-pill"${isReview || isCopyFailed || isCopied ? " hidden" : ""}>
+      <span class="batch-pill"${isCopyFailed || isCopied ? " hidden" : ""}>
         <kbd>${batchKey}</kbd>
         <span>${batchIdle}</span>
       </span>
@@ -278,7 +273,6 @@ export function overlayFixtureHtml(copy, { language, sendMod, batchShortcut, mod
       <span class="progress-text">${reportLabel}</span>
     </div>
   </div>
-  ${isReview ? `<div class="toast" data-kind="info">${placePin}</div>` : ""}
   <main class="page${isFullPage ? " long-doc" : ""}">
     <section class="shop">
       <header class="shop-bar">
@@ -313,7 +307,7 @@ export function overlayFixtureHtml(copy, { language, sendMod, batchShortcut, mod
   ${isSelection ? `<div class="outline" id="selection-outline"></div>` : ""}
   ${showRegion ? `<div class="pin-region" id="region-1"></div>` : `<div class="pin-region" id="region-1" hidden></div>`}
   ${showMask ? `<div class="privacy-mask" id="mask-1" data-source="user"><span class="privacy-mask-label">Hidden</span></div>` : `<div class="privacy-mask" id="mask-1" hidden></div>`}
-  ${showPins ? markerHtml(1, PIN_COLORS[0], pendingFirst) : ""}
+  ${showPins ? markerHtml(1, PIN_COLORS[0], false) : ""}
   ${showPins && !isSelection && !isMasks ? markerHtml(2, PIN_COLORS[1], false) : ""}
   ${isPins ? markerHtml(3, PIN_COLORS[2], false) : ""}
   <script>

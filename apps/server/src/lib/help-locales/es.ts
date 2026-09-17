@@ -88,11 +88,6 @@ const locale = {
       caption:
         "La barra de la superposición permanece en la página con los atajos de pin, selección, copiar, máscara, región y cancelar mientras anotas.",
     },
-    "capture-review": {
-      alt: "Superposición de Pinar revisando una sesión guardada, con un pin pendiente que necesita colocación manual en la página activa.",
-      caption:
-        "Revisar en la página recoloca los pins en la URL original. Los pins no resueltos quedan pendientes hasta que haces clic en el marcador y luego en el elemento correcto.",
-    },
     "capture-copy-failed": {
       alt: "Barra de la superposición de Pinar mostrando Error al copiar, con los pins numerados aún editables en la página.",
       caption:
@@ -104,9 +99,9 @@ const locale = {
         "La captura de página completa desplaza y cose el documento para que la captura copiada incluya el contenido bajo el pliegue.",
     },
     "capture-viewer": {
-      alt: "Visor de captura de Pinar con el screenshot anotado, pins numerados, controles de zoom y acciones de la sesión.",
+      alt: "Visor de capturas de Pinar con capturas anotadas, pines numerados, controles de zoom y acciones de sesión.",
       caption:
-        "El visor reúne el screenshot compartido, los comentarios de los pins y las acciones de copiar o reabrir después de la captura.",
+        "El visor reúne las capturas guardadas, los comentarios de los pines y las acciones de copia.",
     },
     "extension-options": {
       alt: "Opciones de la extensión Pinar en la pestaña Almacenamiento, con Servidor Local, Servidor Remoto y la aceptación legal del servicio alojado.",
@@ -139,7 +134,7 @@ const locale = {
         "Las cuentas registradas solicitan un código de corta duración por correo y completan la verificación en la misma superficie de acceso.",
     },
     pricing: {
-      alt: "Página de precios de Pinar que compara Free, Pro anual, Founder, complementos de almacenamiento y opciones de créditos de IA.",
+      alt: "Página de precios de Pinar que compara Free, Pro anual, complementos de almacenamiento y opciones de créditos de IA.",
       caption:
         "La superficie de precios muestra los límites del plan, la cadencia de facturación, los complementos de almacenamiento y las compras de créditos de IA antes del checkout.",
     },
@@ -347,6 +342,7 @@ const locale = {
             "`R` alterna la superposición en vivo entre solo los pins numerados y los pins con sus regiones seleccionadas. La captura copiada siempre incluye ambos.",
             "`Command/Ctrl/Alt+Enter` copia el paquete completado.",
             "`Alt+Shift+P` muestra u oculta la barra sin cancelar la sesión, y puedes reasignarlo en `chrome://extensions/shortcuts`. Los atajos del navegador quedan inertes en páginas `chrome://`, en la Chrome Web Store y antes de que se inyecte el overlay.",
+            "`G` empieza a grabar los pasos que das en la página. Vuelve a abrir Pinar, fija el resultado y copia con `Command/Ctrl/Alt+Enter` para adjuntar los pasos; pulsar `G` de nuevo descarta la grabación.",
           ],
         },
         {
@@ -428,6 +424,17 @@ const locale = {
             "Editar un pin existente actualiza solo su comentario; el id almacenado no cambia.",
           ],
         },
+        {
+          heading: "Estructura y evidencia técnica",
+          paragraphs: [
+            "Cada pin de elemento guarda además un snapshot de aquello a lo que apunta: el árbol HTML del elemento, los estilos computados que difieren de los valores por defecto del navegador, las fuentes e iconos que usa, y su padre y hermanos. El visor lo muestra en “Estructura”. Los elementos grandes se recortan para respetar el límite de captura, y el visor lo indica.",
+            "“Evidencia técnica” lista hechos que la extensión observó en la página mientras fijabas pins: errores de consola, peticiones fallidas y el entorno (navegador, viewport, idioma). Cada elemento se clasifica como “Tras la interacción” cuando ocurrió después de tu último clic o pulsación, o como “Misma página” cuando solo comparte la página. Nada se infiere y no se gasta ningún crédito de IA; quita un elemento antes de compartir si no guarda relación.",
+          ],
+          bullets: [
+            "Los pins de área no tienen estructura, así que “Diagnosticar” y “Guardar como componente” permanecen desactivados en ellos.",
+            "La estructura y la evidencia viajan dentro del bloque JSON pinar-visual-context, de modo que un agente las recibe con el pegado.",
+          ],
+        },
       ],
     },
     "full-page-capture": {
@@ -464,30 +471,25 @@ const locale = {
     "smart-selection": {
       title: "Localizadores inteligentes y selección del DOM",
       summary:
-        "Entiende cómo un pin sigue a un elemento después de que la página cambia y por qué Pinar puede pedir una colocación manual.",
+        "Comprende cómo un pin identifica un elemento mientras anotas una página que cambia.",
       sections: [
         {
           heading: "Huellas resistentes",
           paragraphs: [
-            "Un pin de elemento combina un selector estable, camino DOM, tag, id, name, test id, role, clases, texto, etiqueta y geometría. Al reabrir, Pinar evalúa selector, estructura, semántica y geometría en lugar de confiar en un camino frágil.",
+            "Un pin de elemento combina selector estable, ruta DOM, etiqueta, id, nombre, test id, rol, clases, texto, rótulo y geometría en vez de confiar en una sola ruta frágil.",
           ],
         },
         {
-          heading: "Confianza y ambigüedad",
+          heading: "Confianza en la página activa",
           paragraphs: [
-            "Una coincidencia puede ser exact, probable, ambiguous o unresolved. Cuando dos candidatos son demasiado similares, Pinar conserva alternativas en lugar de encajar el pin en el elemento equivocado. Los destinos de iframe de origen cruzado pueden permanecer unresolved.",
-          ],
-        },
-        {
-          heading: "Reserva de selector y coincidencias en competencia",
-          paragraphs: [
-            "En el momento de la captura, Pinar prefiere un selector que coincida de forma única con el nodo por id, data-testid o data-test, o tag más name. Si ninguno de esos es único, guarda un camino CSS estructural. Los nombres de clase que parecen generados se omiten de la huella para que los módulos CSS con hash no se conviertan en la única señal.",
-            "Al reabrir, se fusionan y ordenan los candidatos de las estrategias stable-selector, structure, semantic y geometry. La confianza exact exige un acierto de selector estable o de estructura con puntuación alta; las coincidencias semánticas y geométricas se quedan en probable. Cuando las dos puntuaciones viables más altas difieren en un margen estrecho, el resultado es ambiguous y no se elige ningún elemento.",
+            "Mientras el overlay de anotación está abierto, Pinar vuelve a evaluar el selector y la estructura para que los marcadores sigan a los elementos que se mueven.",
           ],
           bullets: [
-            "Un selector posicional :nth-of-type puntúa más bajo cuando otros nodos comparten el mismo tag, texto y clases.",
-            "Los pins de área se rechazan como destinos de elemento y permanecen unresolved durante la puntuación del localizador.",
-            "Cuando el contentDocument de un iframe no se puede leer, la reubicación se detiene con un aviso cross-origin-frame en lugar de adivinar.",
+            "Las clases que parecen generadas se excluyen de la huella.",
+            "Los frames de otro origen que no pueden leerse quedan sin resolver en vez de adivinarse.",
+            "Los ids únicos y test ids tienen prioridad cuando identifican un solo elemento.",
+            "Se guarda una ruta DOM estructural cuando ningún atributo estable es único.",
+            "Los pines de área usan su geometría y no simulan identificar un elemento DOM.",
           ],
         },
       ],
@@ -523,37 +525,28 @@ const locale = {
         },
       ],
     },
-    "copy-and-reopen": {
-      title: "Copiar, ver y reabrir una captura",
+    "copy-and-view": {
+      title: "Copiar y ver una captura",
       summary:
-        "Pasa de la página activa al espacio de trabajo y de vuelta sin perder las anclas originales.",
+        "Revisa capturas guardadas y copia su contexto correlacionado desde el espacio de trabajo.",
       sections: [
         {
           heading: "Controles del visor",
           paragraphs: [
-            "El visor de captura admite paneo con el puntero, zoom con la rueda anclado al cursor, zoom con doble clic y controles del 50% al 800%. Al seleccionar un pin se abren las pestañas Preview renderizado y Markdown Raw literal.",
+            "El visor permite desplazar con el puntero, hacer zoom con la rueda anclado al cursor, usar doble clic y ajustar entre 50 % y 800 %. Seleccionar un pin abre las pestañas Vista previa y Markdown sin procesar.",
           ],
           bullets: [
-            "Descarga el screenshot o copia el Markdown de la sesión desde el visor.",
-            "Abre el Markdown público en ChatGPT o Claude desde el menú de acciones del visor cuando el uso compartido esté disponible.",
+            "Descarga la captura o copia el Markdown de la sesión desde el visor.",
+            "Usa el enlace de la página original cuando necesites revisar el sitio actual por separado.",
+            "Selecciona un pin para alternar entre Vista previa y Markdown sin procesar.",
+            "Una sesión agrupada mantiene todas las capturas en el mismo visor.",
+            "El enlace de la página original se abre aparte sin cambiar la sesión guardada.",
           ],
         },
         {
-          heading: "Revisar en la página original",
+          heading: "Copiar desde el visor",
           paragraphs: [
-            "“Revisar en la página” abre el origen capturado y rehidrata los pins. Pinar rechaza un desajuste de origen, conserva cada ancla y caja históricas, registra el historial de reubicación y permite reposicionar a mano un pin unresolved.",
-          ],
-        },
-        {
-          heading: "Portapapeles desde el visor y control de la reapertura",
-          paragraphs: [
-            "Copiar página en el visor escribe el mismo paquete Markdown correlacionado de la página activa, usando el handoff compact o full de las preferencias guardadas y `captureId` cayendo al id de la sesión. El menú de acciones abre el Markdown público en /v/{id}.md, o inicia ChatGPT o Claude con un prompt que apunta a esa URL.",
-            "“Revisar en la página” despacha un evento de reapertura con el id de la sesión. El helper hidrata solo desde una URL de la aplicación Pinar de confianza cuando ese id coincide con el id de la sesión o `captureId` y el origen de la pestaña sigue siendo el origen de la página capturada. Navegar la pestaña fuera de ese origen suelta el vínculo en lugar de inyectar pins en el sitio equivocado.",
-          ],
-          bullets: [
-            "Si no llega ningún resultado de reapertura, el visor muestra un aviso de helper ausente en lugar de esperar indefinidamente.",
-            "Los visores públicos o antiguos que no pueden leer preferencias siguen copiando con handoff compact.",
-            "Una pestaña que aún está en about:blank mantiene el vínculo de hidratación; solo un origen distinto lo suelta.",
+            "Copiar prompt escribe el bloque Markdown correlacionado de la captura seleccionada. Abrir prompt *.md abre el Markdown público cuando está disponible para compartir.",
           ],
         },
       ],
@@ -585,6 +578,17 @@ const locale = {
             "Pega el portapapeles entero en el agente; no reescribas comentarios ni inventes un `captureId` nuevo.",
             "Confirma que el texto pegado aún contiene un cierre de cerca pinar-visual-context antes de empezar a editar código.",
             "Si no se pegó nada, pide `Command/Ctrl/Alt+Enter` en Pinar y sigue solo las notas de los pins.",
+          ],
+        },
+        {
+          heading: "Diagnosticar un pin y guardarlo como componente",
+          paragraphs: [
+            "En un pin con estructura capturada, “Diagnosticar” pide a la IA la causa probable de lo que comentaste y una propuesta de corrección CSS, con un nivel de confianza. Acepta, edita o descarta la propuesta; solo un diagnóstico aceptado se conserva con el pin y se copia con el paquete. Un diagnóstico cuesta 3 créditos de IA.",
+            "“Guardar como componente” convierte el elemento capturado en un componente aislado para tu stack: HTML + CSS, React + Tailwind o Preact + htm. El resultado lista archivos, dependencias y notas de fidelidad, con una previsualización junto al screenshot original. Copia los archivos, descarga un ZIP o abre el componente en StackBlitz. Cuesta 10 créditos de IA, y el stack elegido se recuerda para el siguiente pin.",
+          ],
+          bullets: [
+            "Ambas acciones necesitan la estructura del elemento; los pins de área y los pins capturados antes de esta versión no pueden usarlas.",
+            "Un diagnóstico de baja confianza es una hipótesis que verificar, no una conclusión que pegar como un hecho.",
           ],
         },
       ],
@@ -652,37 +656,6 @@ const locale = {
             "Publica un resultado changed para el mismo `captureId` y `pinId`, y confirma que el visor muestra el pin como listo para aceptar.",
             "Reutiliza una clave de entrega solo cuando el resultado es idéntico; genera una clave nueva cuando los archivos, el resumen o el estado hayan cambiado de verdad.",
             "Si la verificación falla, reabre como humano, publica un segundo resultado, acepta de nuevo y conserva los capture ids anterior y posterior.",
-          ],
-        },
-      ],
-    },
-    "reopen-and-relocate": {
-      title: "Reabrir y reubicar pins",
-      summary:
-        "Revisa la implementación en la página activa incluso después de que su DOM haya cambiado.",
-      sections: [
-        {
-          heading: "Rehidratación segura",
-          paragraphs: [
-            "Pinar abre la página guardada e hidrata solo cuando el origen de la pestaña activa coincide exactamente con la captura. Los orígenes de app de confianza pueden pedir una reapertura, pero un sitio no relacionado no puede inyectar una sesión en la extensión.",
-          ],
-        },
-        {
-          heading: "Corrección manual",
-          paragraphs: [
-            "Si un destino es ambiguous o unresolved, reposiciona el pin a mano. El ancla y la caja originales permanecen congeladas en el historial, y cada reubicación automática o manual se registra para una revisión posterior.",
-          ],
-        },
-        {
-          heading: "Abrir la URL original y colocar pins pendientes",
-          paragraphs: [
-            "“Revisar en la página” se abre solo desde la aplicación Pinar, en la URL original de la captura. Otro sitio no puede inyectar una sesión guardada en la extensión. Tras la carga, cada frame muestra solo los pins que le pertenecen.",
-            "La superposición permanece vinculada solo mientras la pestaña sigue siendo el sitio capturado. Si navegas a otro sitio, muestra “Esta página no es la URL original de la captura”. Las coincidencias ambiguas conservan la caja original en lugar de encajar en un sosias. Haz clic en un pin pendiente y luego en el elemento correcto para colocarlo.",
-          ],
-          bullets: [
-            "Inicia “Revisar en la página” desde la aplicación Pinar para que solo esa sesión se hidrate en el origen capturado.",
-            "Si la superposición dice “Esta página no es la URL original de la captura”, vuelve al origen capturado en lugar de colocar pins.",
-            "En un pin unresolved, haz clic en el marcador y luego en el elemento activo para colocarlo.",
           ],
         },
       ],
@@ -779,6 +752,13 @@ const locale = {
             "Tras un error al guardar el destino, vuelve a abrir las opciones de la extensión y confirma que el proyecto y la colección coinciden con una entrada viva del árbol antes de la siguiente captura en la nube.",
           ],
         },
+        {
+          heading: "Extraer el sistema de diseño de una colección",
+          paragraphs: [
+            "Desde el menú de una colección, “Extraer design system” lee la estructura de los pins de esa colección y deriva los tokens que comparten: colores, tipografía, espaciado, radios y sombras, además de la identidad del sitio. Necesita al menos tres pins con estructura capturada del mismo sitio, y cuesta 15 créditos de IA.",
+            "El resultado se abre como un diálogo con el tamaño de la muestra y los avisos que haya, como valores dispersos que no forman una escala. Expórtalo como variables CSS, un tema Tailwind, tokens de diseño W3C o un archivo DESIGN.md, y vuelve a extraer después de añadir más pins.",
+          ],
+        },
       ],
     },
     "find-manage-share": {
@@ -845,32 +825,32 @@ const locale = {
       ],
     },
     "plans-and-billing": {
-      title: "Free, Pro, Founder y facturación",
+      title: "Free, Pro y facturación",
       summary:
         "Compara los derechos del producto, gestiona una suscripción y trata la página de precios como la fuente actual de precios.",
       sections: [
         {
           heading: "Forma del plan",
           paragraphs: [
-            "Free incluye uso local permanente, 250 MB de cuota en la nube y retención en la nube de siete días. Pro es mensual o anual, con 5 GB y 200 créditos de IA sin acumulación recargados cada mes. Founder es una cohorte limitada de una sola vez, con 5 GB y 500 créditos iniciales; no incluye recarga mensual de créditos.",
+            "Free incluye uso local permanente, 250 MB de cuota en la nube y retención en la nube de siete días. Pro es mensual o anual, con 5 GB y 200 créditos de IA sin acumulación recargados cada mes.",
           ],
         },
         {
           heading: "Facturación y disponibilidad",
           paragraphs: [
-            "Los precios regionales en BRL o globales en USD, la disponibilidad de Founder y las ofertas actuales pertenecen a la página Planes. Stripe Checkout reserva un cupo Founder durante 15 minutos y lo libera cuando se abandona el checkout. El portal de clientes de Stripe gestiona cambios de plan, cancelación, métodos de pago y facturas.",
+            "Los precios regionales en BRL o globales en USD y las ofertas actuales pertenecen a la página Planes. El portal de clientes de Stripe gestiona cambios de plan, cancelación, métodos de pago y facturas.",
           ],
         },
         {
           heading:
             "Iniciar Checkout con las políticas vigentes y la moneda correcta",
           paragraphs: [
-            "Pagar en Planes acepta los Términos, la Política de privacidad y el Uso aceptable vigentes. Brasil usa precios en BRL; otros países usan USD. El checkout de Founder reserva un cupo limitado y lo libera si sales sin pagar. Cuando la cohorte está llena o las ventas están en pausa, la página Planes oculta esa oferta.",
-            "Tras un pago correcto, la oferta se concede en la cuenta con sesión iniciada y vuelves al espacio de trabajo. El portal de facturación está disponible después de un checkout de pago. Cuando termina una suscripción Pro, esas sesiones en la nube entran en una ventana de recuperación; las cuentas Founder permanecen permanentes.",
+            "Pagar en Planes acepta los Términos, la Política de privacidad y el Uso aceptable vigentes. Brasil usa precios en BRL; otros países usan USD.",
+            "Tras un pago correcto, la oferta se concede en la cuenta con sesión iniciada y vuelves al espacio de trabajo. El portal de facturación está disponible después de un checkout de pago. Cuando termina una suscripción Pro, esas sesiones en la nube entran en una ventana de recuperación.",
           ],
           bullets: [
             "Continuar un checkout de pago en Planes acepta las versiones vigentes de las políticas.",
-            "Si el checkout de Founder no está disponible, espera un cupo o elige Pro en lugar de reintentar el mismo checkout.",
+            "Los beneficios Pro requieren una suscripción activa; comprar un complemento no activa Pro.",
             "Si Manage subscription no está disponible, termina primero un Checkout de pago y luego ábrelo desde una cuenta con sesión iniciada.",
           ],
         },
@@ -884,13 +864,20 @@ const locale = {
         {
           heading: "Coste del resumen",
           paragraphs: [
-            "Un resumen de sesión reserva 100 créditos de IA antes de la inferencia del modelo. Si tiene éxito, la reserva se consume. Una inferencia fallida o abortada la reembolsa de inmediato; una reserva sin liquidar durante más de cinco minutos se reembolsa automáticamente. Los resúmenes permiten 10 peticiones por minuto por cuenta y 30 por minuto por IP; una petición duplicada de la misma sesión espera a que termine la petición activa.",
+            "Un resumen de sesión reserva 1 crédito de IA antes de la inferencia del modelo. Si tiene éxito, la reserva se consume. Una inferencia fallida o abortada la reembolsa de inmediato; una reserva sin liquidar durante más de cinco minutos se reembolsa automáticamente. Los resúmenes permiten 10 peticiones por minuto por cuenta y 30 por minuto por IP; una petición duplicada de la misma sesión espera a que termine la petición activa.",
+          ],
+        },
+        {
+          heading: "Cuánto cuesta cada función de IA",
+          paragraphs: [
+            "Cada función de IA reserva sus créditos antes de ejecutar el modelo y los devuelve cuando el resultado no sirve, exactamente como el resumen. El coste es fijo por petición, no por token: un resumen de sesión cuesta 1 crédito, un diagnóstico de pin 3, una reproducción (pasos escritos más una prueba Playwright) 5, guardar un pin como componente 10 y extraer el sistema de diseño de una colección 15.",
+            "La evidencia técnica y la estructura del elemento las captura la extensión sin ningún modelo y no cuestan nada. Una petición que no puede ejecutarse (un pin sin estructura capturada, una colección con menos de tres snapshots del mismo dominio) se rechaza antes de reservar cualquier crédito.",
           ],
         },
         {
           heading: "Saldos",
           paragraphs: [
-            "Los paquetes comprados añaden 1.000 créditos. La asignación mensual de 200 créditos de Pro no se acumula. Los 500 créditos de Founder son un saldo de activación, no una asignación mensual. El menú de cuenta muestra el saldo activo y la próxima fecha de recarga aplicable.",
+            "Los paquetes comprados añaden 1.000 créditos. La asignación mensual de 200 créditos de Pro no se acumula. El menú de cuenta muestra el saldo activo y la próxima fecha de recarga aplicable.",
           ],
         },
         {
@@ -898,7 +885,7 @@ const locale = {
             "Reintentar resúmenes con un request id nuevo y leer el libro mayor",
           paragraphs: [
             "Un resumen se ejecuta solo en una sesión de tu propiedad. Si ya hay uno en curso, espera a que termine en lugar de iniciar otro. Los resúmenes fallidos o abortados reembolsan la reserva cuando es posible. Si el saldo es demasiado bajo, el espacio de trabajo muestra los créditos restantes en vivo.",
-            "Los créditos mensuales incluidos se usan antes que los paquetes comprados, y se usa primero el saldo que caduca antes. Un paquete comprado de 1.000 créditos dura hasta 12 meses. El menú de cuenta muestra los créditos restantes y la próxima fecha de recarga para las cuentas Pro y Founder activas. Los resúmenes usan el idioma del espacio de trabajo cuando es uno de los siete idiomas compatibles.",
+            "Los créditos mensuales incluidos se usan antes que los paquetes comprados, y se usa primero el saldo que caduca antes. Un paquete comprado de 1.000 créditos dura hasta 12 meses. El menú de cuenta muestra los créditos restantes y la próxima fecha de recarga para las cuentas Pro activas. Los resúmenes usan el idioma del espacio de trabajo cuando es uno de los siete idiomas compatibles.",
           ],
           bullets: [
             "Si ya hay un resumen en curso en esa sesión, espera a que termine en lugar de iniciar un segundo.",
@@ -916,7 +903,7 @@ const locale = {
         {
           heading: "Cuota y complementos",
           paragraphs: [
-            "Free tiene 250 MB de almacenamiento base en la nube; Pro y Founder tienen 5 GB. Los complementos opcionales de 5 GB y 20 GB duran 12 meses, con correos de recordatorio siete días y un día antes de caducar. Las subidas de screenshot deben ser archivos PNG válidos y pasar una comprobación atómica de cuota antes del almacenamiento. Las subidas se pausan cuando los bytes resultantes superan la cuota actual.",
+            "Free tiene 250 MB de almacenamiento base en la nube; Pro tiene 5 GB. Los complementos opcionales de 5 GB y 20 GB duran 12 meses, con correos de recordatorio siete días y un día antes de caducar. Las subidas de screenshot deben ser archivos PNG válidos y pasar una comprobación atómica de cuota antes del almacenamiento. Las subidas se pausan cuando los bytes resultantes superan la cuota actual.",
           ],
         },
         {
@@ -930,7 +917,7 @@ const locale = {
             "Ajustar reemplazos a la cuota y usar el reloj de recuperación de 90 días",
           paragraphs: [
             "La cuota es el almacenamiento incluido de tu plan más cualquier complemento aún activo. Reemplazar un screenshot más grande por uno más pequeño puede tener éxito cuando una captura nueva no lo tendría. Las subidas se pausan cuando la cuenta está en o por encima de la cuota, también durante la gracia y la recuperación.",
-            "Las sesiones en la nube de Free que no están marcadas como permanentes pasan a ser elegibles para limpieza a los siete días. El contenido de Pro por encima de la cuota de Free sigue la gracia de 30 días y la ventana de recuperación de 90 días tras terminar la elegibilidad de pago. El contenido Founder no se vuelve elegible solo porque no haya una suscripción recurrente. El historial solo local de este equipo nunca se elimina de forma remota. La elegibilidad no es una promesa de retirada inmediata.",
+            "Las sesiones en la nube de Free que no están marcadas como permanentes pasan a ser elegibles para limpieza a los siete días. El contenido de Pro por encima de la cuota de Free sigue la gracia de 30 días y la ventana de recuperación de 90 días tras terminar la elegibilidad de pago. El historial solo local de este equipo nunca se elimina de forma remota. La elegibilidad no es una promesa de retirada inmediata.",
           ],
           bullets: [
             "Cuando se pausen las capturas nuevas, libera espacio eliminando sesiones o reemplazando un screenshot pesado, o compra un complemento de doce meses de 5 GB o 20 GB.",

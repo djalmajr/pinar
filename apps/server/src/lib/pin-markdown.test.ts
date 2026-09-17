@@ -83,4 +83,45 @@ describe("formatPinMarkdown", () => {
     assert.match(markdown, /Reset with \[redacted\]/);
     assert.doesNotMatch(markdown, /PINAR_FIXTURE/);
   });
+
+  test("renders structure, accepted diagnosis and technical evidence sections only when present", () => {
+    const plain: Pin = { comment: "Plain", coords: { x: 0, y: 0 }, number: 1, type: "point" };
+    const plainMarkdown = formatPinMarkdown(plain, 1);
+    assert.doesNotMatch(plainMarkdown, /## Structure|## Diagnosis|## Technical evidence/);
+
+    const rich: Pin = {
+      comment: "Misaligned",
+      coords: { x: 0, y: 0 },
+      diagnosis: {
+        acceptedAt: "2026-09-08T00:00:00.000Z",
+        cause: "Missing align-items",
+        confidence: "high",
+        fix: ".row { align-items: center; }",
+        properties: ["align-items"],
+        version: 1,
+      },
+      evidence: {
+        environment: { browser: "Chrome 140", devicePixelRatio: 2, viewport: { height: 900, width: 1440 } },
+        items: [{ at: "x", grade: "after_interaction", kind: "http", method: "POST", origin: "https://example.test", status: 500, url: "https://example.test/api" }],
+        version: 1,
+      },
+      number: 2,
+      snapshot: {
+        fonts: [{ family: "Inter", weight: "600" }],
+        icons: [{ kind: "class", name: "lucide-check" }],
+        nodeCount: 2,
+        root: { children: [{ tag: "span", text: "Pay" }], styles: { display: "flex" }, tag: "button" },
+        truncated: true,
+        version: 1,
+      },
+      type: "point",
+    };
+    const markdown = formatPinMarkdown(rich, 2);
+    assert.match(markdown, /## Diagnosis\n\n- \*\*Confidence:\*\* high\n- \*\*Cause:\*\* Missing align-items\n- \*\*Properties:\*\* `align-items`\n\n```css\n\.row \{ align-items: center; \}\n```/);
+    assert.match(markdown, /## Technical evidence\n\n- `after_interaction` POST https:\/\/example\.test\/api → 500\n\n- \*\*Environment:\*\* Chrome 140 · 1440×900 · dpr 2/);
+    assert.match(markdown, /## Structure\n\n- \*\*Nodes:\*\* 2 nodes, truncated\n- \*\*Fonts:\*\* Inter 600\n- \*\*Icons:\*\* lucide-check\n\n```html\n<button> \{ display: flex \}\n  <span> "Pay"\n```/);
+
+    const pending: Pin = { ...rich, diagnosis: { ...rich.diagnosis!, acceptedAt: undefined } };
+    assert.doesNotMatch(formatPinMarkdown(pending, 2), /## Diagnosis/);
+  });
 });

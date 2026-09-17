@@ -203,7 +203,7 @@ test("first remote account activation accepts the current policies with OTP veri
   await expect(page.getByText("By continuing, you accept the")).toBeVisible();
   await expect(page.getByRole("link", { name: "Terms of Service", exact: true }))
     .toHaveAttribute("href", "/legal/terms");
-  await expect(page.getByText("Version 2026-08-25.")).toBeVisible();
+  await expect(page.getByText("Version 2026-09-14.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Accept and enter" })).toHaveCount(0);
   await page.getByPlaceholder("000000").fill("654321");
   await page.getByRole("button", { name: "Verify and enter" }).click();
@@ -211,10 +211,10 @@ test("first remote account activation accepts the current policies with OTP veri
 
   expect(verifyBodies).toHaveLength(1);
   expect(verifyBodies[0].legalAcceptance).toEqual({
-    acceptableUseVersion: "2026-08-25",
+    acceptableUseVersion: "2026-09-14",
     accepted: true,
     locale: "en",
-    privacyVersion: "2026-08-25",
-    termsVersion: "2026-08-25",
+    privacyVersion: "2026-09-14",
+    termsVersion: "2026-09-14",
   });
 });

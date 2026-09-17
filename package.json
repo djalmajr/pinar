@@ -1,6 +1,6 @@
 {
   "name": "pinar",
-  "version": "0.3.6",
+  "version": "0.3.7-rc.1",
   "description": "Visual Annotations for AI Agents & Engineers",
   "private": true,
   "type": "module",
@@ -21,8 +21,8 @@
     "test:coverage:extension": "bun test --coverage extension/*.test.js apps/extension/src/options/*.test.ts",
     "test:coverage:server": "bun test --coverage apps/server/src",
     "test:e2e": "bun run build:local && bun run build:ext && playwright test",
+    "test:e2e:session": "bun run build:local && bun run build:ext && playwright test --config playwright.session.config.ts",
     "test:e2e:cloud": "bun run build:ext && playwright test --config playwright.cloud.config.ts",
-    "test:e2e:stripe-hosted": "bun scripts/run-stripe-hosted-e2e.mjs",
     "test:e2e:stripe-hosted-catalog": "bun scripts/run-stripe-hosted-catalog-e2e.mjs",
     "test:e2e:stripe-hosted-usd": "bun scripts/run-stripe-hosted-usd-e2e.mjs",
     "test:stripe-sandbox": "bun scripts/stripe-test-catalog-smoke.mjs",

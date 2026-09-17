@@ -88,11 +88,6 @@ const locale = {
       caption:
         "Die Overlay-Symbolleiste bleibt auf der Seite mit den Kurzbefehlen für Pin, Auswahl, Kopieren, Maske, Region und Abbrechen während der Annotation.",
     },
-    "capture-review": {
-      alt: "Pinar-Overlay prüft eine gespeicherte Sitzung, mit einem ausstehenden Pin, der auf der Live-Seite manuell platziert werden muss.",
-      caption:
-        "Auf der Seite prüfen setzt Pins auf der Original-URL. Ungelöste Pins bleiben ausstehend, bis du den Marker und danach das richtige Element anklickst.",
-    },
     "capture-copy-failed": {
       alt: "Pinar-Overlay-Leiste mit Kopieren fehlgeschlagen, während nummerierte Pins auf der Seite editierbar bleiben.",
       caption:
@@ -104,9 +99,9 @@ const locale = {
         "Die Ganzseitenaufnahme scrollt und fügt das Dokument zusammen, damit der kopierte Screenshot Inhalte unterhalb des Falzes enthält.",
     },
     "capture-viewer": {
-      alt: "Pinar-Aufnahme-Viewer mit annotiertem Screenshot, nummerierten Pins, Zoom-Steuerung und Sitzungsaktionen.",
+      alt: "Pinar-Capture-Viewer mit annotierten Screenshots, nummerierten Pins, Zoom-Steuerung und Session-Aktionen.",
       caption:
-        "Der Viewer hält den gemeinsamen Screenshot, die Pin-Kommentare und die Aktionen zum Kopieren oder erneuten Öffnen nach der Aufnahme zusammen.",
+        "Der Viewer bündelt gespeicherte Screenshots, Pin-Kommentare und Kopieraktionen.",
     },
     "extension-options": {
       alt: "Pinar-Erweiterungsoptionen auf dem Tab Speicher, mit Lokaler Server, Remote-Server und der rechtlichen Zustimmung zum gehosteten Dienst.",
@@ -139,7 +134,7 @@ const locale = {
         "Registrierte Konten fordern einen kurzlebigen Code per E-Mail an und schließen die Verifizierung in derselben Anmeldeoberfläche ab.",
     },
     pricing: {
-      alt: "Pinar-Preisseite mit Vergleich von Free, Pro jährlich, Founder, Speicher-Add-ons und KI-Credit-Optionen.",
+      alt: "Pinar-Preisseite mit Vergleich von Free, Pro jährlich, Speicher-Add-ons und KI-Credit-Optionen.",
       caption:
         "Die Preisseite zeigt Planlimits, Abrechnungsrhythmus, Speicher-Add-ons und KI-Credit-Käufe vor dem Checkout.",
     },
@@ -347,6 +342,7 @@ const locale = {
             "`R` schaltet das Live-Overlay zwischen nur nummerierten Pins und Pins mit ihren Regionen um. Der kopierte Screenshot enthält immer beides.",
             "`Command/Ctrl/Alt+Enter` kopiert das fertige Bundle.",
             "`Alt+Shift+P` blendet die Toolbar ein oder aus, ohne die Sitzung abzubrechen, und lässt sich unter `chrome://extensions/shortcuts` neu belegen. Browser-Kurzbefehle bleiben auf `chrome://`-Seiten, im Chrome Web Store und vor der Injektion des Overlays wirkungslos.",
+            "`G` startet die Aufzeichnung der Schritte, die du auf der Seite ausführst. Öffne Pinar erneut, pinne das Ergebnis und kopiere mit `Command/Ctrl/Alt+Enter`, um die Schritte anzuhängen; ein erneutes `G` verwirft die Aufzeichnung.",
           ],
         },
         {
@@ -427,6 +423,17 @@ const locale = {
             "Das Bearbeiten eines vorhandenen Pins aktualisiert nur den Kommentar; die gespeicherte id bleibt unverändert.",
           ],
         },
+        {
+          heading: "Struktur und technische Belege",
+          paragraphs: [
+            "Jeder Element-Pin speichert außerdem einen Snapshot dessen, worauf er zeigt: den HTML-Baum des Elements, die berechneten Stile, die von den Browser-Standardwerten abweichen, die verwendeten Schriften und Symbole sowie Eltern- und Geschwisterelemente. Der Viewer zeigt das unter „Struktur“. Große Elemente werden gekürzt, um innerhalb der Capture-Grenze zu bleiben, und der Viewer weist darauf hin.",
+            "„Technische Belege“ listet Fakten auf, die die Erweiterung während des Pinnens auf der Seite beobachtet hat: Konsolenfehler, fehlgeschlagene Anfragen und die Umgebung (Browser, Viewport, Sprache). Jeder Eintrag ist als „Nach Interaktion“ eingestuft, wenn er nach deinem letzten Klick oder Tastendruck aufgetreten ist, oder als „Gleiche Seite“, wenn er nur dieselbe Seite teilt. Nichts wird abgeleitet und kein KI-Credit verbraucht; entferne einen Eintrag vor dem Teilen, wenn er nichts damit zu tun hat.",
+          ],
+          bullets: [
+            "Bereichs-Pins haben keine Struktur, daher bleiben „Diagnostizieren“ und „Als Komponente speichern“ bei ihnen deaktiviert.",
+            "Struktur und Belege reisen im pinar-visual-context-JSON-Block mit, sodass ein Agent sie mit dem Einfügen erhält.",
+          ],
+        },
       ],
     },
     "full-page-capture": {
@@ -461,32 +468,27 @@ const locale = {
       ],
     },
     "smart-selection": {
-      title: "Intelligente Locator und DOM-Auswahl",
+      title: "Intelligente Selektoren und DOM-Auswahl",
       summary:
-        "Verstehe, wie ein Pin einem Element folgt, nachdem sich die Seite ändert, und warum Pinar eine manuelle Platzierung anfordern kann.",
+        "Verstehe, wie ein Pin ein Element erkennt, während du eine veränderliche Seite annotierst.",
       sections: [
         {
           heading: "Robuste Fingerprints",
           paragraphs: [
-            "Ein Element-Pin kombiniert einen stabilen Selektor, DOM-Pfad, Tag, id, name, test id, role, Klassen, Text, Label und Geometrie. Beim erneuten Öffnen bewertet Pinar Selektor, Struktur, Semantik und Geometrie, statt einem einzelnen fragilen Pfad zu vertrauen.",
+            "Ein Element-Pin kombiniert stabilen Selektor, DOM-Pfad, Tag, ID, Namen, Test-ID, Rolle, Klassen, Text, Beschriftung und Geometrie, statt nur einem fragilen Pfad zu vertrauen.",
           ],
         },
         {
-          heading: "Konfidenz und Mehrdeutigkeit",
+          heading: "Konfidenz auf der aktiven Seite",
           paragraphs: [
-            "Ein Treffer kann exact, probable, ambiguous oder unresolved sein. Wenn zwei Kandidaten zu ähnlich sind, behält Pinar Alternativen, statt den Pin auf das falsche Element zu setzen. Cross-Origin-iframe-Ziele können unresolved bleiben.",
-          ],
-        },
-        {
-          heading: "Selektor-Fallback und konkurrierende Treffer",
-          paragraphs: [
-            "Zum Capture-Zeitpunkt bevorzugt Pinar einen Selektor, der den Knoten eindeutig über id, data-testid oder data-test oder über Tag plus name trifft. Ist keiner davon eindeutig, speichert Pinar stattdessen einen strukturellen CSS-Pfad. Klassennamen, die generiert wirken, werden aus dem Fingerprint entfernt, damit gehashte CSS-Modules nicht zum einzigen Signal werden.",
-            "Beim erneuten Öffnen werden Kandidaten der Strategien stable-selector, structure, semantic und geometry zusammengeführt und bewertet. Exact-Konfidenz erfordert einen hoch bewerteten stable-selector- oder structure-Treffer; semantic- und geometry-Treffer bleiben probable. Unterscheiden sich die beiden besten gültigen Scores um weniger als eine schmale Marge, ist das Ergebnis ambiguous und es wird kein Element gewählt.",
+            "Solange das Annotations-Overlay geöffnet ist, bewertet Pinar Selektor und Struktur erneut, damit Marker verschobenen Elementen folgen.",
           ],
           bullets: [
-            "Ein positionaler :nth-of-type-Selektor wird niedriger bewertet, wenn andere Knoten denselben Tag, Text und dieselben Klassen teilen.",
-            "Flächen-Pins werden als Elementziele abgelehnt und bleiben während der Locator-Bewertung unresolved.",
-            "Wenn ein iframe-contentDocument unlesbar ist, stoppt die Relokation mit einer cross-origin-frame-Warnung, statt zu raten.",
+            "Offensichtlich generierte Klassennamen werden aus dem Fingerprint entfernt.",
+            "Nicht lesbare Cross-Origin-Frames bleiben unaufgelöst, statt erraten zu werden.",
+            "Eindeutige IDs und Test-IDs haben Vorrang, wenn sie genau ein Element bestimmen.",
+            "Ein struktureller DOM-Pfad wird gespeichert, wenn kein stabiles Attribut eindeutig ist.",
+            "Bereichs-Pins verwenden ihre Geometrie und geben nicht vor, ein DOM-Element zu bestimmen.",
           ],
         },
       ],
@@ -522,38 +524,28 @@ const locale = {
         },
       ],
     },
-    "copy-and-reopen": {
-      title: "Eine Capture kopieren, anzeigen und erneut öffnen",
+    "copy-and-view": {
+      title: "Capture kopieren und anzeigen",
       summary:
-        "Von der Live-Seite in den Workspace und zurück wechseln, ohne die ursprünglichen Anker zu verlieren.",
+        "Prüfe gespeicherte Screenshots und kopiere ihren verknüpften Kontext aus dem Workspace.",
       sections: [
         {
           heading: "Viewer-Steuerung",
           paragraphs: [
-            "Der Capture-Viewer unterstützt Zeiger-Schwenken, Mausrad-Zoom am Cursor, Doppelklick-Zoom und Steuerung von 50 % bis 800 %. Das Auswählen eines Pins öffnet die gerenderten Preview- und die wortgetreuen Raw-Markdown-Tabs.",
+            "Der Viewer unterstützt Ziehen, am Zeiger verankerten Mausrad-Zoom, Doppelklick-Zoom und Stufen von 50 % bis 800 %. Die Auswahl eines Pins öffnet die gerenderte Vorschau und das rohe Markdown.",
           ],
           bullets: [
-            "Lade den Screenshot herunter oder kopiere das Sitzungs-Markdown aus dem Viewer.",
-            "Öffne das öffentliche Markdown in ChatGPT oder Claude über das Viewer-Aktionsmenü, wenn das Teilen verfügbar ist.",
+            "Lade den Screenshot herunter oder kopiere das Session-Markdown aus dem Viewer.",
+            "Nutze den Link zur Originalseite, wenn du die aktuelle Website separat prüfen möchtest.",
+            "Wähle einen Pin, um zwischen Vorschau und rohem Markdown zu wechseln.",
+            "Eine gruppierte Session hält alle erfassten Screenshots im selben Viewer.",
+            "Der Link zur Originalseite öffnet separat, ohne die gespeicherte Session zu ändern.",
           ],
         },
         {
-          heading: "Auf der Originalseite prüfen",
+          heading: "Aus dem Viewer kopieren",
           paragraphs: [
-            "„Auf der Seite prüfen“ öffnet den erfassten Origin und rehydriert die Pins. Pinar lehnt eine Origin-Abweichung ab, bewahrt jeden historischen Anker und jede Box, zeichnet die Relokationshistorie auf und lässt dich einen unresolved Pin manuell neu positionieren.",
-          ],
-        },
-        {
-          heading:
-            "Zwischenablage aus dem Viewer und Gating beim erneuten Öffnen",
-          paragraphs: [
-            "Copy page im Viewer schreibt dasselbe korrelierte Markdown-Bundle wie auf der Live-Seite, mit compact- oder full-Handoff aus gespeicherten Präferenzen und `captureId` mit Fallback auf die Session-ID. Das Aktionsmenü öffnet das öffentliche Markdown unter /v/{id}.md oder startet ChatGPT oder Claude mit einem Prompt, der auf diese URL zeigt.",
-            "„Auf der Seite prüfen“ sendet ein reopen-Ereignis mit der Session-ID. Der Helper hydriert nur von einer vertrauenswürdigen Pinar-Anwendung-URL, wenn diese ID mit der Session-ID oder `captureId` übereinstimmt und der Tab-Origin weiterhin dem Origin der erfassten Seite entspricht. Das Navigieren des Tabs von diesem Origin weg löst die Bindung, statt Pins in die falsche Site zu injizieren.",
-          ],
-          bullets: [
-            "Wenn kein reopen-Ergebnis eintrifft, zeigt der Viewer einen missing-helper-Hinweis, statt unbegrenzt zu warten.",
-            "Öffentliche oder ältere Viewer, die Präferenzen nicht lesen können, kopieren weiterhin mit compact-Handoff.",
-            "Ein Tab, der noch about:blank ist, behält die Hydrierungsbindung; nur ein anderer Origin löst sie.",
+            "Prompt kopieren schreibt das verknüpfte Markdown-Bündel der ausgewählten Capture. Prompt *.md öffnen zeigt das öffentliche Markdown, wenn Teilen verfügbar ist.",
           ],
         },
       ],
@@ -585,6 +577,17 @@ const locale = {
             "Füge die gesamte Zwischenablage in den Agenten ein; tippe Kommentare nicht ab und erfinde keine neue `captureId`.",
             "Bestätige, dass der eingefügte Text noch einen geschlossenen pinar-visual-context-Fence enthält, bevor du Code bearbeitest.",
             "Wenn nichts eingefügt wurde, bitte um `Command/Ctrl/Alt+Enter` in Pinar und folge nur den Pin-Notizen.",
+          ],
+        },
+        {
+          heading: "Einen Pin diagnostizieren und als Komponente speichern",
+          paragraphs: [
+            "Bei einem Pin mit erfasster Struktur fragt „Diagnostizieren“ die KI nach der wahrscheinlichen Ursache dessen, was du kommentiert hast, und nach einem CSS-Korrekturvorschlag, mit einer Konfidenzstufe. Akzeptiere, bearbeite oder verwirf den Vorschlag; nur eine akzeptierte Diagnose bleibt beim Pin und wird mit dem Bundle kopiert. Eine Diagnose kostet 3 KI-Credits.",
+            "„Als Komponente speichern“ verwandelt das erfasste Element in eine isolierte Komponente für deinen Stack: HTML + CSS, React + Tailwind oder Preact + htm. Das Ergebnis listet Dateien, Abhängigkeiten und Hinweise zur Genauigkeit auf, mit einer Vorschau neben dem Original-Screenshot. Kopiere die Dateien, lade ein ZIP herunter oder öffne die Komponente in StackBlitz. Das kostet 10 KI-Credits, und der gewählte Stack wird für den nächsten Pin gemerkt.",
+          ],
+          bullets: [
+            "Beide Aktionen benötigen die Elementstruktur; Bereichs-Pins und Pins, die vor dieser Version erfasst wurden, können sie nicht nutzen.",
+            "Eine Diagnose mit niedriger Konfidenz ist eine zu prüfende Hypothese, keine Schlussfolgerung, die du als Tatsache einfügst.",
           ],
         },
       ],
@@ -652,38 +655,6 @@ const locale = {
             "Veröffentliche ein changed-Ergebnis für dieselbe `captureId` und `pinId` und bestätige, dass der Viewer den Pin als bereit zur Annahme zeigt.",
             "Verwende einen Zustellschlüssel nur erneut, wenn das Ergebnis identisch ist; erzeuge einen neuen Schlüssel, wenn sich Dateien, Zusammenfassung oder Status tatsächlich geändert haben.",
             "Wenn die Prüfung fehlschlägt, öffne als Mensch erneut, veröffentliche ein zweites Ergebnis, akzeptiere erneut und behalte die Capture-IDs vorher und nachher.",
-          ],
-        },
-      ],
-    },
-    "reopen-and-relocate": {
-      title: "Pins erneut öffnen und neu verorten",
-      summary:
-        "Prüfe die Umsetzung auf der Live-Seite, auch nachdem sich das DOM geändert hat.",
-      sections: [
-        {
-          heading: "Sichere Rehydrierung",
-          paragraphs: [
-            "Pinar öffnet die gespeicherte Seite und hydriert nur, wenn der Origin des aktiven Tabs exakt zur Capture passt. Vertrauenswürdige App-Origins können ein reopen anfordern, aber eine fremde Site kann keine Session in die Erweiterung injizieren.",
-          ],
-        },
-        {
-          heading: "Manuelle Korrektur",
-          paragraphs: [
-            "Wenn ein Ziel ambiguous oder unresolved ist, positioniere den Pin manuell neu. Der ursprüngliche Anker und die Box bleiben in der Historie eingefroren, und jede automatische oder manuelle Relokation wird für die spätere Prüfung aufgezeichnet.",
-          ],
-        },
-        {
-          heading:
-            "Die ursprüngliche URL öffnen und ausstehende Pins platzieren",
-          paragraphs: [
-            "„Auf der Seite prüfen“ öffnet nur aus der Pinar-Anwendung, auf der ursprünglichen Capture-URL. Eine andere Site kann keine gespeicherte Sitzung in die Erweiterung injizieren. Nach dem Laden zeigt jeder Frame nur die Pins, die dorthin gehören.",
-            "Das Overlay bleibt nur gebunden, solange der Tab noch die erfasste Site ist. Wegnavigieren zeigt „Diese Seite ist nicht die ursprüngliche Capture-URL“. Mehrdeutige Treffer behalten die ursprüngliche Box, statt auf ein ähnliches Element zu springen. Klicke auf einen ausstehenden Pin, dann auf das korrekte Element, um ihn zu platzieren.",
-          ],
-          bullets: [
-            "Starte „Auf der Seite prüfen“ aus der Pinar-Anwendung, damit nur diese Sitzung auf dem erfassten Origin hydriert.",
-            "Wenn das Overlay „Diese Seite ist nicht die ursprüngliche Capture-URL“ sagt, kehre zum erfassten Origin zurück, statt Pins zu platzieren.",
-            "Bei einem unresolved Pin klicke auf die Markierung und dann auf das Live-Element, um ihn zu platzieren.",
           ],
         },
       ],
@@ -780,6 +751,13 @@ const locale = {
             "Nach einem Fehler beim Speichern des Ziels öffne die Erweiterungsoptionen erneut und bestätige, dass Projekt und Collection einem aktuellen Baumeintrag entsprechen, bevor der nächste Cloud-Capture erfolgt.",
           ],
         },
+        {
+          heading: "Das Design-System einer Collection extrahieren",
+          paragraphs: [
+            "Aus dem Menü einer Collection liest „Design-System extrahieren“ die Struktur der Pins in dieser Collection und leitet die gemeinsamen Tokens ab: Farben, Typografie, Abstände, Radien und Schatten sowie die Identität der Site. Es braucht mindestens drei Pins mit erfasster Struktur von derselben Site und kostet 15 KI-Credits.",
+            "Das Ergebnis öffnet sich als Dialog mit der Stichprobengröße und etwaigen Warnungen, etwa verstreuten Werten, die keine Skala bilden. Exportiere es als CSS-Variablen, Tailwind-Theme, W3C-Design-Tokens oder DESIGN.md-Datei, und extrahiere erneut, nachdem du weitere Pins hinzugefügt hast.",
+          ],
+        },
       ],
     },
     "find-manage-share": {
@@ -845,32 +823,32 @@ const locale = {
       ],
     },
     "plans-and-billing": {
-      title: "Free, Pro, Founder und Abrechnung",
+      title: "Free, Pro und Abrechnung",
       summary:
         "Vergleiche Produktberechtigungen, verwalte ein Abonnement und behandle die Preisseite als aktuelle Preisquelle.",
       sections: [
         {
           heading: "Planstruktur",
           paragraphs: [
-            "Free umfasst dauerhafte lokale Nutzung, 250 MB Cloud-Kontingent und siebentägige Cloud-Aufbewahrung. Pro ist monatlich oder jährlich mit 5 GB und 200 nicht übertragbaren AI-Credits, die monatlich aufgefüllt werden. Founder ist eine begrenzte einmalige Kohorte mit 5 GB und 500 initialen Credits; eine monatliche Credit-Auffüllung ist nicht enthalten.",
+            "Free umfasst dauerhafte lokale Nutzung, 250 MB Cloud-Kontingent und siebentägige Cloud-Aufbewahrung. Pro ist monatlich oder jährlich mit 5 GB und 200 nicht übertragbaren AI-Credits, die monatlich aufgefüllt werden.",
           ],
         },
         {
           heading: "Abrechnung und Verfügbarkeit",
           paragraphs: [
-            "Regionale BRL- oder globale USD-Preise, Founder-Verfügbarkeit und aktuelle Angebote gehören zur Plans-Seite. Stripe Checkout reserviert einen Founder-Platz für 15 Minuten und gibt ihn frei, wenn der Checkout abgebrochen wird. Das Stripe-Kundenportal übernimmt Planänderungen, Kündigung, Zahlungsmethoden und Rechnungen.",
+            "Regionale BRL- oder globale USD-Preise und aktuelle Angebote gehören zur Plans-Seite. Das Stripe-Kundenportal übernimmt Planänderungen, Kündigung, Zahlungsmethoden und Rechnungen.",
           ],
         },
         {
           heading:
             "Checkout mit aktuellen Richtlinien und der richtigen Währung starten",
           paragraphs: [
-            "Eine Zahlung auf Plans akzeptiert die aktuellen Nutzungsbedingungen, die Datenschutzerklärung und die zulässige Nutzung. Brasilien verwendet BRL-Preise; andere Länder verwenden USD. Der Founder-Checkout reserviert einen begrenzten Platz und gibt ihn frei, wenn du ohne Zahlung gehst. Ist die Kohorte voll oder der Verkauf pausiert, blendet die Plans-Seite dieses Angebot aus.",
-            "Nach einer erfolgreichen Zahlung wird das Angebot dem angemeldeten Konto gewährt und du kehrst in den Workspace zurück. Das Abrechnungsportal ist nach einem bezahlten Checkout verfügbar. Endet ein Pro-Abonnement, treten diese Cloud-Sitzungen in ein Wiederherstellungsfenster ein; Founder-Konten bleiben stattdessen dauerhaft.",
+            "Eine Zahlung auf Plans akzeptiert die aktuellen Nutzungsbedingungen, die Datenschutzerklärung und die zulässige Nutzung. Brasilien verwendet BRL-Preise; andere Länder verwenden USD.",
+            "Nach einer erfolgreichen Zahlung wird das Angebot dem angemeldeten Konto gewährt und du kehrst in den Workspace zurück. Das Abrechnungsportal ist nach einem bezahlten Checkout verfügbar. Endet ein Pro-Abonnement, treten diese Cloud-Sitzungen in ein Wiederherstellungsfenster ein.",
           ],
           bullets: [
             "Ein bezahlter Checkout auf Plans akzeptiert die aktuellen Richtlinienversionen.",
-            "Wenn der Founder-Checkout nicht verfügbar ist, warte auf einen Platz oder wähle Pro, statt denselben Checkout erneut zu versuchen.",
+            "Pro-Vorteile erfordern ein aktives Abonnement; der Kauf eines Add-ons aktiviert Pro nicht.",
             "Wenn Manage subscription nicht verfügbar ist, schließe zuerst einen bezahlten Checkout ab und öffne es dann aus einem angemeldeten Konto.",
           ],
         },
@@ -884,13 +862,20 @@ const locale = {
         {
           heading: "Kosten der Zusammenfassung",
           paragraphs: [
-            "Eine Sitzungszusammenfassung reserviert 100 AI-Credits vor der Modellinferenz. Bei Erfolg wird die Reservierung verbraucht. Eine fehlgeschlagene oder abgebrochene Inferenz erstattet sie sofort; eine länger als fünf Minuten unerledigte Reservierung wird automatisch erstattet. Zusammenfassungen erlauben 10 Anfragen pro Minute pro Konto und 30 pro Minute pro IP; eine doppelte Anfrage für dieselbe Sitzung wartet, bis die aktive Anfrage fertig ist.",
+            "Eine Sitzungszusammenfassung reserviert 1 AI-Credit vor der Modellinferenz. Bei Erfolg wird die Reservierung verbraucht. Eine fehlgeschlagene oder abgebrochene Inferenz erstattet sie sofort; eine länger als fünf Minuten unerledigte Reservierung wird automatisch erstattet. Zusammenfassungen erlauben 10 Anfragen pro Minute pro Konto und 30 pro Minute pro IP; eine doppelte Anfrage für dieselbe Sitzung wartet, bis die aktive Anfrage fertig ist.",
+          ],
+        },
+        {
+          heading: "Was jede KI-Funktion kostet",
+          paragraphs: [
+            "Jede KI-Funktion reserviert ihre Credits, bevor das Modell läuft, und erstattet sie, wenn das Ergebnis unbrauchbar ist, genau wie die Zusammenfassung. Die Kosten sind pro Anfrage fest, nicht pro Token: eine Sitzungszusammenfassung kostet 1 Credit, eine Pin-Diagnose 3, eine Reproduktion (ausformulierte Schritte plus Playwright-Test) 5, das Speichern eines Pins als Komponente 10 und das Extrahieren des Design-Systems einer Sammlung 15.",
+            "Technische Belege und die Elementstruktur erfasst die Erweiterung ohne Modell und kostenlos. Eine Anfrage, die nicht laufen kann (ein Pin ohne erfasste Struktur, eine Sammlung mit weniger als drei Snapshots derselben Domain), wird abgelehnt, bevor ein Credit reserviert wird.",
           ],
         },
         {
           heading: "Guthaben",
           paragraphs: [
-            "Gekaufte Pakete fügen 1.000 Credits hinzu. Die monatliche 200-Credit-Zuteilung von Pro wird nicht übertragen. Die 500 Credits von Founder sind ein Aktivierungsguthaben, keine monatliche Zuteilung. Das Kontomenü zeigt das aktive Guthaben und das nächste zutreffende Auffülldatum.",
+            "Gekaufte Pakete fügen 1.000 Credits hinzu. Die monatliche 200-Credit-Zuteilung von Pro wird nicht übertragen. Das Kontomenü zeigt das aktive Guthaben und das nächste zutreffende Auffülldatum.",
           ],
         },
         {
@@ -898,7 +883,7 @@ const locale = {
             "Zusammenfassungen mit einer neuen request id wiederholen und das Ledger lesen",
           paragraphs: [
             "Eine Zusammenfassung läuft nur auf einer Sitzung, die dir gehört. Läuft bereits eine, warte, bis sie fertig ist, statt eine weitere zu starten. Fehlgeschlagene oder abgebrochene Zusammenfassungen erstatten die Reservierung, wenn möglich. Ist das Guthaben zu niedrig, zeigt der Workspace die aktuell verbleibenden Credits.",
-            "Enthaltene monatliche Credits werden vor gekauften Paketen verwendet, und das zuerst ablaufende Guthaben kommt zuerst. Ein gekauftes 1.000-Credit-Paket gilt bis zu 12 Monate. Das Kontomenü zeigt verbleibende Credits und das nächste Auffülldatum für aktive Pro- und Founder-Konten. Zusammenfassungen nutzen die Workspace-Sprache, wenn sie eine der sieben unterstützten Sprachen ist.",
+            "Enthaltene monatliche Credits werden vor gekauften Paketen verwendet, und das zuerst ablaufende Guthaben kommt zuerst. Ein gekauftes 1.000-Credit-Paket gilt bis zu 12 Monate. Das Kontomenü zeigt verbleibende Credits und das nächste Auffülldatum für aktive Pro-Konten. Zusammenfassungen nutzen die Workspace-Sprache, wenn sie eine der sieben unterstützten Sprachen ist.",
           ],
           bullets: [
             "Läuft auf dieser Sitzung bereits eine Zusammenfassung, warte, bis sie fertig ist, statt eine zweite zu starten.",
@@ -916,7 +901,7 @@ const locale = {
         {
           heading: "Kontingent und Add-ons",
           paragraphs: [
-            "Free hat 250 MB Basis-Cloud-Speicher; Pro und Founder haben 5 GB. Optionale 5-GB- und 20-GB-Speicher-Add-ons gelten 12 Monate, mit Erinnerungs-E-Mails sieben Tage und einen Tag vor Ablauf. Screenshot-Uploads müssen gültige PNG-Dateien sein und eine atomare Kontingentprüfung vor der Speicherung bestehen. Uploads werden pausiert, wenn die resultierenden Bytes das aktuelle Kontingent überschreiten.",
+            "Free hat 250 MB Basis-Cloud-Speicher; Pro hat 5 GB. Optionale 5-GB- und 20-GB-Speicher-Add-ons gelten 12 Monate, mit Erinnerungs-E-Mails sieben Tage und einen Tag vor Ablauf. Screenshot-Uploads müssen gültige PNG-Dateien sein und eine atomare Kontingentprüfung vor der Speicherung bestehen. Uploads werden pausiert, wenn die resultierenden Bytes das aktuelle Kontingent überschreiten.",
           ],
         },
         {
@@ -930,7 +915,7 @@ const locale = {
             "Ersetzungen unter das Kontingent bringen und die 90-Tage-Wiederherstellungsuhr nutzen",
           paragraphs: [
             "Das Kontingent ist der im Plan enthaltene Speicher plus jedes noch aktive Add-on. Das Ersetzen eines größeren Screenshots durch einen kleineren kann gelingen, wenn eine brandneue Capture das nicht täte. Uploads pausieren, sobald das Konto am oder über dem Kontingent liegt, auch während Nachfrist und Wiederherstellung.",
-            "Free-Cloud-Sitzungen, die nicht als dauerhaft markiert sind, werden nach sieben Tagen bereinigungsberechtigt. Pro-Inhalte oberhalb des Free-Kontingents folgen nach Ende der bezahlten Berechtigung der 30-tägigen Nachfrist und dem 90-tägigen Wiederherstellungsfenster. Founder-Inhalte werden nicht allein deshalb berechtigt, weil kein wiederkehrendes Abonnement besteht. Ausschließlich lokaler Verlauf auf diesem Computer wird niemals remote gelöscht. Berechtigung ist kein Versprechen einer sofortigen Entfernung.",
+            "Free-Cloud-Sitzungen, die nicht als dauerhaft markiert sind, werden nach sieben Tagen bereinigungsberechtigt. Pro-Inhalte oberhalb des Free-Kontingents folgen nach Ende der bezahlten Berechtigung der 30-tägigen Nachfrist und dem 90-tägigen Wiederherstellungsfenster. Ausschließlich lokaler Verlauf auf diesem Computer wird niemals remote gelöscht. Berechtigung ist kein Versprechen einer sofortigen Entfernung.",
           ],
           bullets: [
             "Wenn neue Captures pausieren, schaffe Platz, indem du Sitzungen löschst oder einen umfangreichen Screenshot ersetzt, oder erwirb ein zwölfmonatiges 5-GB- oder 20-GB-Add-on.",

@@ -88,11 +88,6 @@ const locale = {
       caption:
         "La barre de l’overlay reste sur la page avec les raccourcis pin, sélection, copier, masquer, région et annuler pendant l’annotation.",
     },
-    "capture-review": {
-      alt: "Overlay Pinar en relecture d’une session enregistrée, avec un pin en attente qui demande un placement manuel sur la page active.",
-      caption:
-        "Réviser sur la page replace les pins sur l’URL d’origine. Les pins non résolus restent en attente jusqu’à un clic sur le marqueur, puis sur l’élément correct.",
-    },
     "capture-copy-failed": {
       alt: "Barre d’overlay Pinar indiquant Échec de la copie, avec les pins numérotés encore modifiables sur la page.",
       caption:
@@ -104,9 +99,9 @@ const locale = {
         "La capture pleine page fait défiler et assemble le document pour que le screenshot copié inclue le contenu sous la ligne de flottaison.",
     },
     "capture-viewer": {
-      alt: "Visionneuse de capture Pinar avec le screenshot annoté, des pins numérotés, les contrôles de zoom et les actions de session.",
+      alt: "Visualiseur de captures Pinar avec captures annotées, épingles numérotées, commandes de zoom et actions de session.",
       caption:
-        "La visionneuse rassemble le screenshot partagé, les commentaires des pins et les actions copier ou réouvrir après la capture.",
+        "Le visualiseur regroupe les captures enregistrées, les commentaires des épingles et les actions de copie.",
     },
     "extension-options": {
       alt: "Options de l’extension Pinar sur l’onglet Stockage, avec Serveur Local, Serveur Distant et l’acceptation juridique du service hébergé.",
@@ -139,7 +134,7 @@ const locale = {
         "Les comptes enregistrés demandent un code à courte durée de vie par e-mail et terminent la vérification dans la même surface de connexion.",
     },
     pricing: {
-      alt: "Page tarifaire Pinar comparant Free, Pro annuel, Founder, les options de stockage et les crédits IA.",
+      alt: "Page tarifaire Pinar comparant Free, Pro annuel, les options de stockage et les crédits IA.",
       caption:
         "La surface tarifaire expose les limites de plan, la cadence de facturation, les options de stockage et les achats de crédits IA avant le paiement.",
     },
@@ -347,6 +342,7 @@ const locale = {
             "`R` bascule l’overlay en direct entre les épingles numérotées seules et les épingles avec leurs régions. La capture copiée inclut toujours les deux.",
             "`Command/Ctrl/Alt+Enter` copie le paquet terminé.",
             "`Alt+Shift+P` affiche ou masque la barre d’outils sans annuler la session, et vous pouvez le réattribuer dans `chrome://extensions/shortcuts`. Les raccourcis du navigateur restent inertes sur les pages `chrome://`, sur le Chrome Web Store et avant l’injection de l’overlay.",
+            "`G` commence à enregistrer les étapes que vous effectuez sur la page. Rouvrez Pinar, épinglez le résultat et copiez avec `Command/Ctrl/Alt+Enter` pour joindre les étapes ; appuyer à nouveau sur `G` abandonne l’enregistrement.",
           ],
         },
         {
@@ -427,6 +423,17 @@ const locale = {
             "Modifier un pin existant ne met à jour que son commentaire ; l’id stocké reste inchangé.",
           ],
         },
+        {
+          heading: "Structure et preuves techniques",
+          paragraphs: [
+            "Chaque pin d’élément stocke aussi un instantané de ce qu’il désigne : l’arbre HTML de l’élément, les styles calculés qui diffèrent des valeurs par défaut du navigateur, les polices et icônes qu’il utilise, ainsi que son parent et ses frères. Le visualiseur l’affiche sous « Structure ». Les éléments volumineux sont tronqués pour rester dans la limite de capture, et le visualiseur l’indique.",
+            "« Preuves techniques » liste les faits que l’extension a observés sur la page pendant que vous épingliez : erreurs de console, requêtes échouées et environnement (navigateur, viewport, langue). Chaque élément est classé « Après interaction » s’il s’est produit après votre dernier clic ou dernière frappe, ou « Même page » s’il partage seulement la page. Rien n’est déduit et aucun crédit IA n’est dépensé ; retirez un élément avant de partager s’il est sans rapport.",
+          ],
+          bullets: [
+            "Les pins de zone n’ont pas de structure ; « Diagnostiquer » et « Enregistrer comme composant » restent donc désactivés sur eux.",
+            "La structure et les preuves voyagent dans le bloc JSON pinar-visual-context, si bien qu’un agent les reçoit avec le collage.",
+          ],
+        },
       ],
     },
     "full-page-capture": {
@@ -463,30 +470,25 @@ const locale = {
     "smart-selection": {
       title: "Localisateurs intelligents et sélection DOM",
       summary:
-        "Comprenez comment un pin suit un élément après un changement de page et pourquoi Pinar peut demander un placement manuel.",
+        "Comprenez comment une épingle identifie un élément pendant l’annotation d’une page qui évolue.",
       sections: [
         {
           heading: "Empreintes résilientes",
           paragraphs: [
-            "Un pin d’élément combine un sélecteur stable, un chemin DOM, une balise, un id, un name, un test id, un role, des classes, du texte, un label et la géométrie. À la réouverture, Pinar évalue le sélecteur, la structure, la sémantique et la géométrie, plutôt que de se fier à un chemin fragile unique.",
+            "Une épingle d’élément combine sélecteur stable, chemin DOM, balise, id, nom, test id, rôle, classes, texte, libellé et géométrie au lieu de dépendre d’un seul chemin fragile.",
           ],
         },
         {
-          heading: "Confiance et ambiguïté",
+          heading: "Confiance sur la page active",
           paragraphs: [
-            "Une correspondance peut être exacte, probable, ambiguë ou non résolue. Lorsque deux candidats sont trop similaires, Pinar conserve des alternatives au lieu d’accrocher le pin au mauvais élément. Les cibles d’iframe cross-origin peuvent rester non résolues.",
-          ],
-        },
-        {
-          heading: "Repli de sélecteur et correspondances concurrentes",
-          paragraphs: [
-            "Au moment de la capture, Pinar préfère un sélecteur qui correspond de façon unique au nœud par id, data-testid ou data-test, ou tag plus name. Si aucun n’est unique, il stocke à la place un chemin CSS structurel. Les noms de classe qui semblent générés sont retirés de l’empreinte afin que les modules CSS hachés ne deviennent pas le seul signal.",
-            "À la réouverture, les candidats des stratégies stable-selector, structure, semantic et geometry sont fusionnés et classés. Une confiance exacte exige un sélecteur stable ou un hit de structure à score élevé ; les correspondances sémantiques et géométriques restent probables. Lorsque les deux meilleurs scores viables diffèrent de moins d’une marge étroite, le résultat est ambigu et aucun élément n’est choisi.",
+            "Tant que l’overlay d’annotation est ouvert, Pinar réévalue le sélecteur et la structure afin que les marqueurs suivent les éléments qui se déplacent.",
           ],
           bullets: [
-            "Un sélecteur positionnel :nth-of-type est moins bien noté lorsque d’autres nœuds partagent la même balise, le même texte et les mêmes classes.",
-            "Les pins de zone sont rejetés comme cibles d’élément et restent non résolus pendant le scoring du localisateur.",
-            "Lorsqu’un iframe contentDocument est illisible, la relocalisation s’arrête avec un avertissement cross-origin-frame au lieu de deviner.",
+            "Les classes qui semblent générées sont exclues de l’empreinte.",
+            "Les frames d’une autre origine qui sont illisibles restent non résolues au lieu d’être devinées.",
+            "Les identifiants uniques et test ids sont prioritaires lorsqu’ils désignent un seul élément.",
+            "Un chemin DOM structurel est conservé lorsqu’aucun attribut stable n’est unique.",
+            "Les épingles de zone utilisent leur géométrie sans prétendre identifier un élément DOM.",
           ],
         },
       ],
@@ -522,38 +524,28 @@ const locale = {
         },
       ],
     },
-    "copy-and-reopen": {
-      title: "Copier, voir et rouvrir une capture",
+    "copy-and-view": {
+      title: "Copier et afficher une capture",
       summary:
-        "Passez de la page live au workspace et revenez sans perdre les ancres d’origine.",
+        "Consultez les captures enregistrées et copiez leur contexte corrélé depuis l’espace de travail.",
       sections: [
         {
-          heading: "Contrôles du visualiseur",
+          heading: "Commandes du visualiseur",
           paragraphs: [
-            "Le visualiseur de capture prend en charge le panoramique au pointeur, le zoom à la molette ancré sur le curseur, le zoom par double-clic, et des contrôles de 50 % à 800 %. Sélectionner un pin ouvre les onglets Preview rendu et Markdown Raw verbatim.",
+            "Le visualiseur permet le déplacement au pointeur, le zoom à la molette ancré au curseur, le double-clic et un réglage de 50 % à 800 %. Sélectionner une épingle ouvre les onglets Aperçu et Markdown brut.",
           ],
           bullets: [
-            "Téléchargez le screenshot ou copiez le Markdown de la session depuis le visualiseur.",
-            "Ouvrez le Markdown public dans ChatGPT ou Claude depuis le menu d’actions du visualiseur lorsque le partage est disponible.",
+            "Téléchargez la capture ou copiez le Markdown de la session depuis le visualiseur.",
+            "Utilisez le lien de la page d’origine pour consulter séparément le site actuel.",
+            "Sélectionnez une épingle pour passer de l’Aperçu au Markdown brut.",
+            "Une session groupée conserve toutes les captures dans le même visualiseur.",
+            "Le lien de la page d’origine s’ouvre séparément sans modifier la session enregistrée.",
           ],
         },
         {
-          heading: "Revoir sur la page d’origine",
+          heading: "Copier depuis le visualiseur",
           paragraphs: [
-            "« Revoir sur la page » ouvre l’origine capturée et réhydrate les pins. Pinar rejette une divergence d’origine, préserve chaque ancre et boîte historiques, enregistre l’historique de relocalisation, et vous laisse repositionner manuellement un pin non résolu.",
-          ],
-        },
-        {
-          heading:
-            "Presse-papiers depuis le visualiseur et filtrage de réouverture",
-          paragraphs: [
-            "Copier la page dans le visualiseur écrit le même paquet Markdown corrélé utilisé sur la page live, en utilisant le handoff compact ou full des préférences enregistrées, et `captureId` se rabattant sur l’id de session. Le menu d’actions ouvre le Markdown public à /v/{id}.md, ou lance ChatGPT ou Claude avec un prompt qui pointe vers cette URL.",
-            "« Revoir sur la page » envoie un événement de réouverture avec l’id de session. Le helper n’hydrate que depuis une URL de l’application Pinar de confiance lorsque cet id correspond à l’id de session ou au `captureId` et que l’origine de l’onglet égale encore l’origine de la page capturée. Naviguer l’onglet hors de cette origine rompt le lien au lieu d’injecter des pins sur le mauvais site.",
-          ],
-          bullets: [
-            "Si aucun résultat de réouverture n’arrive, le visualiseur affiche un indice de helper manquant au lieu d’attendre indéfiniment.",
-            "Les visualiseurs publics ou plus anciens qui ne peuvent pas lire les préférences copient encore en handoff compact.",
-            "Un onglet encore en about:blank conserve le lien d’hydratation ; seule une origine différente le rompt.",
+            "Copier le prompt écrit le bloc Markdown corrélé de la capture sélectionnée. Ouvrir le prompt *.md ouvre le Markdown public lorsque le partage est disponible.",
           ],
         },
       ],
@@ -585,6 +577,17 @@ const locale = {
             "Collez tout le presse-papiers dans l’agent ; ne retapez pas les commentaires et n’inventez pas un nouveau `captureId`.",
             "Confirmez que le texte collé contient encore une clôture pinar-visual-context fermée avant de commencer à modifier le code.",
             "Si rien n’a été collé, demandez `Command/Ctrl/Alt+Enter` dans Pinar et suivez seulement les notes des pins.",
+          ],
+        },
+        {
+          heading: "Diagnostiquer un pin et l’enregistrer comme composant",
+          paragraphs: [
+            "Sur un pin doté d’une structure capturée, « Diagnostiquer » demande à l’IA la cause probable de ce que vous avez commenté et une proposition de correctif CSS, avec un niveau de confiance. Acceptez, modifiez ou rejetez la proposition ; seul un diagnostic accepté est conservé avec le pin et copié avec le paquet. Un diagnostic coûte 3 crédits IA.",
+            "« Enregistrer comme composant » transforme l’élément capturé en un composant isolé pour votre stack : HTML + CSS, React + Tailwind ou Preact + htm. Le résultat liste les fichiers, les dépendances et des notes de fidélité, avec un aperçu à côté du screenshot original. Copiez les fichiers, téléchargez un ZIP ou ouvrez le composant dans StackBlitz. Cela coûte 10 crédits IA, et la stack choisie est mémorisée pour le prochain pin.",
+          ],
+          bullets: [
+            "Les deux actions ont besoin de la structure de l’élément ; les pins de zone et les pins capturés avant cette version ne peuvent pas les utiliser.",
+            "Un diagnostic à faible confiance est une hypothèse à vérifier, pas une conclusion à coller comme un fait.",
           ],
         },
       ],
@@ -652,37 +655,6 @@ const locale = {
             "Publiez un résultat changed pour le même `captureId` et `pinId`, puis confirmez que le visualiseur affiche le pin comme prêt à accepter.",
             "Réutilisez une clé de livraison uniquement lorsque le résultat est identique ; créez une nouvelle clé lorsque les fichiers, le résumé ou le statut ont réellement changé.",
             "Si la vérification échoue, rouvrez en tant qu’humain, publiez un second résultat, acceptez à nouveau, et conservez les identifiants de capture avant et après.",
-          ],
-        },
-      ],
-    },
-    "reopen-and-relocate": {
-      title: "Rouvrir et relocaliser les pins",
-      summary:
-        "Relisez l’implémentation sur la page live même après que son DOM a changé.",
-      sections: [
-        {
-          heading: "Réhydratation sûre",
-          paragraphs: [
-            "Pinar ouvre la page enregistrée et n’hydrate que lorsque l’origine de l’onglet actif correspond exactement à la capture. Les origines d’app de confiance peuvent demander une réouverture, mais un site non lié ne peut pas injecter une session dans l’extension.",
-          ],
-        },
-        {
-          heading: "Correction manuelle",
-          paragraphs: [
-            "Si une cible est ambiguë ou non résolue, repositionnez le pin manuellement. L’ancre et la boîte d’origine restent figées dans l’historique, et chaque relocalisation automatisée ou manuelle est enregistrée pour une relecture ultérieure.",
-          ],
-        },
-        {
-          heading: "Ouvrir l’URL d’origine et placer les pins en attente",
-          paragraphs: [
-            "« Revoir sur la page » ne s’ouvre que depuis l’application Pinar, sur l’URL de capture d’origine. Un autre site ne peut pas injecter une session enregistrée dans l’extension. Après le chargement, chaque cadre n’affiche que les pins qui lui appartiennent.",
-            "L’overlay reste lié seulement tant que l’onglet est encore le site capturé. Naviguer ailleurs affiche « Cette page n’est pas l’URL de capture d’origine ». Les correspondances ambiguës conservent la boîte d’origine au lieu de s’accrocher à un sosie. Cliquez un pin en attente, puis l’élément correct, pour le placer.",
-          ],
-          bullets: [
-            "Lancez « Revoir sur la page » depuis l’application Pinar afin que seule cette session s’hydrate sur l’origine capturée.",
-            "Si l’overlay indique « Cette page n’est pas l’URL de capture d’origine », revenez à l’origine capturée au lieu de placer des pins.",
-            "Pour un pin non résolu, cliquez le marqueur, puis cliquez l’élément live pour le placer.",
           ],
         },
       ],
@@ -779,6 +751,13 @@ const locale = {
             "Après une erreur d’enregistrement de destination, rouvrez les options de l’extension et confirmez que le projet et la collection correspondent à une entrée d’arbre live avant la prochaine capture cloud.",
           ],
         },
+        {
+          heading: "Extraire le design system d’une collection",
+          paragraphs: [
+            "Depuis le menu d’une collection, « Extraire le design system » lit la structure des pins de cette collection et en dérive les tokens qu’ils partagent : couleurs, typographie, espacements, rayons et ombres, plus l’identité du site. Il faut au moins trois pins avec une structure capturée provenant du même site, et cela coûte 15 crédits IA.",
+            "Le résultat s’ouvre dans un dialogue avec la taille de l’échantillon et d’éventuels avertissements, comme des valeurs dispersées qui ne forment pas une échelle. Exportez-le en variables CSS, en thème Tailwind, en design tokens W3C ou en fichier DESIGN.md, et extrayez à nouveau après avoir ajouté d’autres pins.",
+          ],
+        },
       ],
     },
     "find-manage-share": {
@@ -845,32 +824,32 @@ const locale = {
       ],
     },
     "plans-and-billing": {
-      title: "Free, Pro, Founder et facturation",
+      title: "Free, Pro et facturation",
       summary:
         "Comparez les droits produit, gérez un abonnement et traitez la page tarifs comme la source de prix actuelle.",
       sections: [
         {
           heading: "Forme des plans",
           paragraphs: [
-            "Free inclut un usage local permanent, 250 Mo de quota cloud et une rétention cloud de sept jours. Pro est mensuel ou annuel avec 5 Go et 200 crédits IA non reportables rechargés chaque mois. Founder est une cohorte limitée unique avec 5 Go et 500 crédits initiaux ; il n’inclut pas de recharge mensuelle de crédits.",
+            "Free inclut un usage local permanent, 250 Mo de quota cloud et une rétention cloud de sept jours. Pro est mensuel ou annuel avec 5 Go et 200 crédits IA non reportables rechargés chaque mois.",
           ],
         },
         {
           heading: "Facturation et disponibilité",
           paragraphs: [
-            "Les prix régionaux BRL ou mondiaux USD, la disponibilité Founder et les offres actuelles appartiennent à la page Plans. Stripe Checkout réserve un créneau Founder pendant 15 minutes et le libère lorsque le paiement est abandonné. Le portail client Stripe gère les changements de plan, l’annulation, les moyens de paiement et les factures.",
+            "Les prix régionaux BRL ou mondiaux USD et les offres actuelles appartiennent à la page Plans. Le portail client Stripe gère les changements de plan, l’annulation, les moyens de paiement et les factures.",
           ],
         },
         {
           heading:
             "Lancer Checkout avec les politiques actuelles et la bonne devise",
           paragraphs: [
-            "Payer sur Plans accepte les Conditions, la Politique de confidentialité et l’Utilisation acceptable en vigueur. Le Brésil utilise les prix en BRL ; les autres pays utilisent l’USD. Le checkout Founder réserve un créneau limité et le libère si vous partez sans payer. Lorsque la cohorte est pleine ou que les ventes sont en pause, la page Plans masque cette offre.",
-            "Après un paiement réussi, l’offre est accordée au compte connecté et vous revenez au workspace. Le portail de facturation est disponible après un checkout payant. Lorsqu’un abonnement Pro se termine, ces sessions cloud entrent dans une fenêtre de récupération ; les comptes Founder restent permanents à la place.",
+            "Payer sur Plans accepte les Conditions, la Politique de confidentialité et l’Utilisation acceptable en vigueur. Le Brésil utilise les prix en BRL ; les autres pays utilisent l’USD.",
+            "Après un paiement réussi, l’offre est accordée au compte connecté et vous revenez au workspace. Le portail de facturation est disponible après un checkout payant. Lorsqu’un abonnement Pro se termine, ces sessions cloud entrent dans une fenêtre de récupération .",
           ],
           bullets: [
             "Poursuivre un checkout payant sur Plans accepte les versions de politique courantes.",
-            "Si le checkout Founder est indisponible, attendez un créneau ou choisissez Pro plutôt que de réessayer le même checkout.",
+            "Les avantages Pro nécessitent un abonnement actif ; acheter une option n’active pas Pro.",
             "Si Gérer l’abonnement est indisponible, terminez d’abord un Checkout payant, puis ouvrez-le depuis un compte connecté.",
           ],
         },
@@ -884,13 +863,20 @@ const locale = {
         {
           heading: "Coût du résumé",
           paragraphs: [
-            "Un résumé de session réserve 100 crédits IA avant l’inférence du modèle. En cas de succès, la réservation est consommée. Une inférence échouée ou abandonnée la rembourse immédiatement ; une réservation laissée non soldée plus de cinq minutes est remboursée automatiquement. Les résumés autorisent 10 requêtes par minute par compte et 30 par minute par IP ; une requête en double pour la même session attend la fin de la requête active.",
+            "Un résumé de session réserve 1 crédit IA avant l’inférence du modèle. En cas de succès, la réservation est consommée. Une inférence échouée ou abandonnée la rembourse immédiatement ; une réservation laissée non soldée plus de cinq minutes est remboursée automatiquement. Les résumés autorisent 10 requêtes par minute par compte et 30 par minute par IP ; une requête en double pour la même session attend la fin de la requête active.",
+          ],
+        },
+        {
+          heading: "Ce que coûte chaque fonction IA",
+          paragraphs: [
+            "Chaque fonction IA réserve ses crédits avant d’exécuter le modèle et les rembourse quand le résultat est inutilisable, exactement comme le résumé. Le coût est fixe par requête, pas par token : un résumé de session coûte 1 crédit, un diagnostic d’épingle 3, une reproduction (étapes rédigées plus un test Playwright) 5, l’enregistrement d’une épingle comme composant 10 et l’extraction du design system d’une collection 15.",
+            "Les preuves techniques et la structure de l’élément sont capturées par l’extension sans aucun modèle et ne coûtent rien. Une requête impossible à exécuter (une épingle sans structure capturée, une collection avec moins de trois instantanés du même domaine) est refusée avant toute réservation de crédit.",
           ],
         },
         {
           heading: "Soldes",
           paragraphs: [
-            "Les packs achetés ajoutent 1 000 crédits. L’allocation mensuelle de 200 crédits de Pro ne se reporte pas. Les 500 crédits de Founder sont un solde d’activation, pas une allocation mensuelle. Le menu du compte affiche le solde actif et la prochaine date de recharge applicable.",
+            "Les packs achetés ajoutent 1 000 crédits. L’allocation mensuelle de 200 crédits de Pro ne se reporte pas. Le menu du compte affiche le solde actif et la prochaine date de recharge applicable.",
           ],
         },
         {
@@ -898,7 +884,7 @@ const locale = {
             "Relancer les résumés avec un nouvel id de requête et lire le grand livre",
           paragraphs: [
             "Un résumé ne s’exécute que sur une session que vous possédez. Si un résumé est déjà en cours, attendez qu’il se termine au lieu d’en lancer un autre. Les résumés échoués ou abandonnés remboursent la réservation lorsque c’est possible. Si le solde est trop faible, le workspace affiche les crédits restants en direct.",
-            "Les crédits mensuels inclus sont utilisés avant les packs achetés, et le solde qui expire le plus tôt est utilisé en premier. Un pack acheté de 1 000 crédits dure jusqu’à 12 mois. Le menu du compte affiche les crédits restants et la prochaine date de recharge pour les comptes Pro et Founder actifs. Les résumés utilisent la langue du workspace lorsqu’elle fait partie des sept langues prises en charge.",
+            "Les crédits mensuels inclus sont utilisés avant les packs achetés, et le solde qui expire le plus tôt est utilisé en premier. Un pack acheté de 1 000 crédits dure jusqu’à 12 mois. Le menu du compte affiche les crédits restants et la prochaine date de recharge pour les comptes Pro actifs. Les résumés utilisent la langue du workspace lorsqu’elle fait partie des sept langues prises en charge.",
           ],
           bullets: [
             "Si un résumé est déjà en cours sur cette session, attendez qu’il se termine au lieu d’en lancer un second.",
@@ -916,7 +902,7 @@ const locale = {
         {
           heading: "Quota et options",
           paragraphs: [
-            "Free a 250 Mo de stockage cloud de base ; Pro et Founder ont 5 Go. Les options de stockage optionnelles de 5 Go et 20 Go durent 12 mois, avec des e-mails de rappel sept jours et un jour avant l’expiration. Les envois de screenshots doivent être des fichiers PNG valides et passer un contrôle de quota atomique avant le stockage. Les envois s’interrompent lorsque les octets résultants dépassent le quota courant.",
+            "Free a 250 Mo de stockage cloud de base ; Pro a 5 Go. Les options de stockage optionnelles de 5 Go et 20 Go durent 12 mois, avec des e-mails de rappel sept jours et un jour avant l’expiration. Les envois de screenshots doivent être des fichiers PNG valides et passer un contrôle de quota atomique avant le stockage. Les envois s’interrompent lorsque les octets résultants dépassent le quota courant.",
           ],
         },
         {
@@ -930,7 +916,7 @@ const locale = {
             "Faire tenir les remplacements sous le quota et utiliser l’horloge de récupération de 90 jours",
           paragraphs: [
             "Le quota est le stockage inclus de votre plan plus toute option encore active. Remplacer un screenshot plus lourd par un plus petit peut réussir lorsqu’une capture entièrement nouvelle échouerait. Les envois s’interrompent dès que le compte est au quota ou au-dessus, y compris pendant la grâce et la récupération.",
-            "Les sessions cloud Free qui ne sont pas marquées permanentes deviennent éligibles au nettoyage après sept jours. Le contenu Pro au-dessus du quota Free suit la grâce de 30 jours et la fenêtre de récupération de 90 jours après la fin de l’éligibilité payante. Le contenu Founder n’est pas rendu éligible simplement parce qu’il n’y a pas d’abonnement récurrent. L’historique uniquement local sur cet ordinateur n’est jamais supprimé à distance. L’éligibilité n’est pas une promesse de retrait immédiat.",
+            "Les sessions cloud Free qui ne sont pas marquées permanentes deviennent éligibles au nettoyage après sept jours. Le contenu Pro au-dessus du quota Free suit la grâce de 30 jours et la fenêtre de récupération de 90 jours après la fin de l’éligibilité payante. L’historique uniquement local sur cet ordinateur n’est jamais supprimé à distance. L’éligibilité n’est pas une promesse de retrait immédiat.",
           ],
           bullets: [
             "Lorsque de nouvelles captures s’interrompent, libérez de l’espace en supprimant des sessions ou en remplaçant un screenshot lourd, ou achetez une option de douze mois de 5 Go ou 20 Go.",

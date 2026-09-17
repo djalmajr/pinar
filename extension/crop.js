@@ -161,15 +161,15 @@ export async function renderPinsCrop(bitmap, pins, dpr, maskRegions = []) {
   pins.forEach((pin, index) => {
     const box = pin.topBox || pin.box;
     if (box && box.width > 2 && box.height > 2) {
-      drawAreaBox(ctx, pinBox(pin), crop, dpr, pin.kind !== "area", pin.color || getPinColor(index + 1));
+      drawAreaBox(ctx, pinBox(pin), crop, dpr, pin.kind !== "area", pin.color || getPinColor(pin.number || index + 1));
     }
   });
   pins.forEach((pin, index) => {
     drawPinMarker(
       ctx,
       markerPlacement(pinPoint(pin), crop, dpr),
-      index + 1,
-      pin.color || getPinColor(index + 1),
+      pin.number || index + 1,
+      pin.color || getPinColor(pin.number || index + 1),
     );
   });
   return canvas.convertToBlob({ type: "image/png" });

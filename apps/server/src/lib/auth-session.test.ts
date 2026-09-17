@@ -16,7 +16,7 @@ describe("authentication session contract", () => {
       kind: "account",
       plan: "founder",
       userId: "founder-account",
-    }), true);
+    }), false);
     assert.equal(isAuthSession({
       email: "pro@example.test",
       kind: "account",
@@ -52,12 +52,6 @@ describe("paid authentication session", () => {
       userId: "free-account",
     }), false);
     assert.equal(isPaidAuthSession({
-      email: "founder@example.test",
-      kind: "account",
-      plan: "founder",
-      userId: "founder-account",
-    }), true);
-    assert.equal(isPaidAuthSession({
       email: "pro@example.test",
       kind: "account",
       plan: "pro",
@@ -69,8 +63,7 @@ describe("paid authentication session", () => {
       plan: "lifetime",
       userId: "lifetime-account",
     };
-    assert.equal(isAuthSession(legacyLifetime), true);
-    assert.equal(legacyLifetime.plan, "founder");
-    assert.equal(isPaidAuthSession(legacyLifetime), true);
+    assert.equal(isAuthSession(legacyLifetime), false);
+    assert.equal(legacyLifetime.plan, "lifetime");
   });
 });

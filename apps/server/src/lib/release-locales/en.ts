@@ -20,6 +20,63 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.3.7": {
+      title: "Continuous capture, unified review, and AI on each pin",
+      summary:
+        "A capture session now follows you across pages and saves every screenshot and pin as one record. Review is unified in the viewer, the Founder offer is retired, and element pins gain structure, technical evidence, and AI actions.",
+      changes: {
+        "continuous-capture-session": {
+          title: "One continuous session across pages",
+          description:
+            "Pin on one page, continue browsing, and finish once. Pinar revisits each page for its screenshot, preserves pin numbering, and saves the complete journey as one session without batch slots.",
+        },
+        "unified-session-review": {
+          title: "Review every screen and pin together",
+          description:
+            "Multi-page sessions open in one pan-and-zoom viewer with every annotation in the side panel. Tab reviews the active capture, Esc hides the toolbar, and saved sessions stay in the viewer instead of reopening on the original page.",
+        },
+        "founder-retired": {
+          title: "Founder offer retired",
+          description:
+            "New purchases now offer Free and Pro only. Existing Founder entitlements remain recognized and receive the same product capabilities as Pro without creating a new Founder commitment.",
+        },
+        "element-structure": {
+          title: "Structure on every element pin",
+          description:
+            "Each element pin stores its HTML tree, non-default computed styles, fonts, icons, and surrounding elements. The viewer shows it under Structure, and it travels in the pinar-visual-context block.",
+        },
+        "technical-evidence": {
+          title: "Technical evidence",
+          description:
+            "Console errors, failed requests, and the environment observed while you pinned are listed with the pin, graded After interaction or Same page. Nothing is inferred and no credit is spent.",
+        },
+        "pin-diagnosis": {
+          title: "Diagnose a pin (3 credits)",
+          description:
+            "AI explains the probable cause of the pin from its structure and proposes a CSS fix with a confidence level. Accept, edit, or discard it; only accepted diagnoses stay with the pin.",
+        },
+        "save-as-component": {
+          title: "Save a pin as a component (10 credits)",
+          description:
+            "Turn a captured element into HTML + CSS, React + Tailwind, or Preact + htm, with files, dependencies, fidelity notes, a preview, ZIP download, and StackBlitz.",
+        },
+        "step-recording": {
+          title: "Record steps and generate a Playwright test (5 credits)",
+          description:
+            "Press G on the page to record clicks, typing, scrolling, and navigation. Reopen Pinar, pin, and copy to attach the steps; G again discards them. The viewer generates written steps and a Playwright test.",
+        },
+        "collection-design-system": {
+          title: "Design system of a collection (15 credits)",
+          description:
+            "Extract the shared colors, typography, spacing, radii, and shadows from a collection’s pins. Export as CSS variables, a Tailwind theme, W3C tokens, or DESIGN.md.",
+        },
+        "windows-tray-icon": {
+          title: "Crisp Windows tray icon",
+          description:
+            "The notification-area icon is rendered at the size the display scale requests, so it is no longer blurred at 125%, 150%, or 200%.",
+        },
+      },
+    },
     "v0.3.6": {
       title: "Tray update check is visible",
       summary:

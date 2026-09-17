@@ -10,7 +10,7 @@ const locale = {
     metaDescription: "Notas oficiales de cada versión etiquetada de Pinar.",
     next: "Siguiente",
     pageDescription:
-      "Cada nota corresponde a una tag publicada en el repositorio, sin mezclar trabajo aún no lanzado.",
+      "Cada nota corresponde a una versión publicada o preparada para el próximo lanzamiento, sin mezclar trabajo fuera de ese alcance.",
     pageTitle: "Novedades de Pinar",
     previous: "Anterior",
     releaseNavigation: "Navegación de versiones",
@@ -21,7 +21,7 @@ const locale = {
     whatChanged: "Qué cambió",
   },
   releases: {
-    "v0.3.7-rc.1": {
+    "v0.3.7": {
       title: "Captura continua, revisión unificada e IA en cada pin",
       summary:
         "Una sesión de captura ahora te acompaña entre páginas y guarda cada captura de pantalla y pin como un único registro. La revisión está unificada en el visor, la oferta Founder se retiró y los pins incorporan estructura, evidencia técnica y acciones de IA.",

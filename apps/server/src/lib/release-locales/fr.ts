@@ -22,7 +22,7 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
-    "v0.3.7": {
+    "v0.3.7-rc.1": {
       title: "Capture continue, révision unifiée et IA sur chaque pin",
       summary:
         "Une session de capture vous suit désormais entre les pages et enregistre chaque capture d’écran et chaque pin dans un seul élément. La révision est unifiée dans le visualiseur, l’offre Founder est retirée et les pins gagnent structure, preuves techniques et actions IA.",
@@ -30,7 +30,7 @@ const locale = {
         "continuous-capture-session": {
           title: "Une session continue entre les pages",
           description:
-            "Épinglez sur une page, continuez à naviguer et terminez une seule fois. Pinar revisite chaque page pour sa capture d’écran, conserve la numérotation des pins et enregistre tout le parcours dans une session, sans slots de lot.",
+            "Épinglez sur une page, continuez à naviguer et terminez une seule fois. Pinar capture chaque pin avant la navigation, conserve la numérotation entre les pages et enregistre tout le parcours dans une session, sans slots de lot.",
         },
         "unified-session-review": {
           title: "Réviser ensemble tous les écrans et pins",
@@ -40,7 +40,7 @@ const locale = {
         "founder-retired": {
           title: "Offre Founder retirée",
           description:
-            "Les nouveaux achats proposent uniquement Free et Pro. Les droits Founder existants restent reconnus et reçoivent les mêmes capacités que Pro, sans créer de nouvel engagement Founder.",
+            "Les nouveaux achats proposent uniquement Free et Pro. Puisqu’il n’existe aucun abonné Founder, la migration retire l’offre et s’arrête pour un traitement explicite si elle rencontre un compte, achat, octroi, capture ou réservation active Founder inattendu.",
         },
         "element-structure": {
           title: "Structure sur chaque pin d’élément",

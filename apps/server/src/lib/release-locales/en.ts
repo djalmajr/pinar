@@ -20,7 +20,7 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
-    "v0.3.7": {
+    "v0.3.7-rc.1": {
       title: "Continuous capture, unified review, and AI on each pin",
       summary:
         "A capture session now follows you across pages and saves every screenshot and pin as one record. Review is unified in the viewer, the Founder offer is retired, and element pins gain structure, technical evidence, and AI actions.",
@@ -28,7 +28,7 @@ const locale = {
         "continuous-capture-session": {
           title: "One continuous session across pages",
           description:
-            "Pin on one page, continue browsing, and finish once. Pinar revisits each page for its screenshot, preserves pin numbering, and saves the complete journey as one session without batch slots.",
+            "Pin on one page, continue browsing, and finish once. Pinar captures each pin before you navigate away, preserves numbering across pages, and saves the complete journey as one session without batch slots.",
         },
         "unified-session-review": {
           title: "Review every screen and pin together",
@@ -38,7 +38,7 @@ const locale = {
         "founder-retired": {
           title: "Founder offer retired",
           description:
-            "New purchases now offer Free and Pro only. Existing Founder entitlements remain recognized and receive the same product capabilities as Pro without creating a new Founder commitment.",
+            "New purchases now offer Free and Pro only. Because no Founder subscriptions exist, the migration removes the offer and stops for explicit handling if it encounters any unexpected Founder account, purchase, grant, capture, or active reservation.",
         },
         "element-structure": {
           title: "Structure on every element pin",

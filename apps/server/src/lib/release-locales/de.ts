@@ -22,7 +22,7 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
-    "v0.3.7": {
+    "v0.3.7-rc.1": {
       title: "Kontinuierliche Erfassung, gemeinsame Prüfung und KI an jedem Pin",
       summary:
         "Eine Erfassungssitzung begleitet Sie jetzt über mehrere Seiten und speichert jeden Screenshot und Pin als einen Eintrag. Die Prüfung ist im Viewer vereint, das Founder-Angebot wurde eingestellt und Pins erhalten Struktur, technische Belege und KI-Aktionen.",
@@ -30,7 +30,7 @@ const locale = {
         "continuous-capture-session": {
           title: "Eine fortlaufende Sitzung über mehrere Seiten",
           description:
-            "Pinnen Sie auf einer Seite, navigieren Sie weiter und schließen Sie nur einmal ab. Pinar besucht jede Seite erneut für ihren Screenshot, behält die Pin-Nummerierung bei und speichert den gesamten Ablauf als eine Sitzung ohne Batch-Slots.",
+            "Pinnen Sie auf einer Seite, navigieren Sie weiter und schließen Sie nur einmal ab. Pinar erfasst jeden Pin vor der Navigation, behält die Nummerierung seitenübergreifend bei und speichert den gesamten Ablauf als eine Sitzung ohne Batch-Slots.",
         },
         "unified-session-review": {
           title: "Alle Bildschirme und Pins gemeinsam prüfen",
@@ -40,7 +40,7 @@ const locale = {
         "founder-retired": {
           title: "Founder-Angebot eingestellt",
           description:
-            "Neue Käufe bieten nur noch Free und Pro. Bestehende Founder-Berechtigungen bleiben anerkannt und erhalten dieselben Produktfunktionen wie Pro, ohne eine neue Founder-Zusage zu schaffen.",
+            "Neue Käufe bieten nur noch Free und Pro. Da keine Founder-Abonnements bestehen, entfernt die Migration das Angebot und stoppt zur ausdrücklichen Behandlung, falls sie unerwartete Founder-Konten, Käufe, Zuweisungen, Captures oder aktive Reservierungen findet.",
         },
         "element-structure": {
           title: "Struktur an jedem Element-Pin",

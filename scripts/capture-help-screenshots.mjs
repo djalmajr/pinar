@@ -48,6 +48,9 @@ const SCREENSHOT_TARGETS = {
   },
   "capture-shortcuts": { path: "/extension-options/options.html" },
   "capture-toolbar": { path: "/screenshot-fixtures/capture-overlay" },
+  "capture-session-review": {
+    path: "/screenshot-fixtures/capture-overlay?mode=session-review",
+  },
   "capture-types": { path: "/screenshot-fixtures/capture-overlay?mode=types" },
   "capture-viewer": { path: "/app", view: "grid", openSession: true },
   "capture-workspace": { path: "/app", view: "grid" },
@@ -344,7 +347,6 @@ try {
           new URL(route.request().url()).searchParams.get("mode") || "capture";
         return route.fulfill({
           body: overlayFixtureHtml(translations[language], {
-            batchShortcut: "Alt+Shift+B",
             language,
             mode,
             sendMod: process.platform === "darwin" ? "⌘" : "Ctrl",
@@ -403,7 +405,13 @@ try {
             await page.getByRole("link", { name: copy.legal_terms, exact: true }).waitFor();
           }
         } else if (String(screenshot.path || "").includes("screenshot-fixtures/capture-overlay")) {
-          await page.locator("[data-overlay-toolbar]").waitFor();
+          await page
+            .locator(
+              screenshot.key === "capture-session-review"
+                ? ".review-card"
+                : "[data-overlay-toolbar]",
+            )
+            .waitFor();
           await page.evaluate(async () => {
             await document.fonts.ready;
           });

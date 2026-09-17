@@ -59,7 +59,7 @@ export interface ReleaseContent {
 
 export const releaseDefinitions = [
   {
-    tag: "v0.3.7",
+    tag: "v0.3.7-rc.1",
     date: "2026-09-17",
     changes: [
       "continuous-capture-session",

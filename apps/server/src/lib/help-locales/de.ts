@@ -84,14 +84,19 @@ const locale = {
         "Der Arbeitsbereich hält erfasste Seiten, Pin-Anzahlen, Projekte, Sammlungen, Suche und Kontostatus in einer operativen Ansicht zusammen.",
     },
     "capture-toolbar": {
-      alt: "Pinar-Aufnahme-Overlay mit oberer Symbolleiste, nummerierten Pins, einem ausgewählten Bereich und einer Privacy-Maske auf der Seite.",
+      alt: "Pinar-Aufnahmeleiste mit Steuerelementen zum Abschließen der Sitzung, Prüfen mit Tab und Ausblenden mit Escape.",
       caption:
-        "Die Overlay-Symbolleiste bleibt auf der Seite mit den Kurzbefehlen für Pin, Auswahl, Kopieren, Maske, Region und Abbrechen während der Annotation.",
+        "Eine fortlaufende Sitzung folgt der Navigation, behält die Pin-Nummerierung bei und bleibt nach Escape ausgeblendet, bis Pinar ausdrücklich wieder geöffnet wird.",
+    },
+    "capture-session-review": {
+      alt: "Undurchsichtige Pinar-Sitzungsprüfung mit editierbarem Kommentar, ausgewähltem Ziel, DOM-Pfad, Vorschaubild und Entfernen-Steuerung.",
+      caption:
+        "Tab ersetzt die Aufnahmeleiste durch die Sitzungsprüfung, in der Pins vor dem Abschließen oder Verwerfen bearbeitet und entfernt werden können.",
     },
     "capture-copy-failed": {
-      alt: "Pinar-Overlay-Leiste mit Kopieren fehlgeschlagen, während nummerierte Pins auf der Seite editierbar bleiben.",
+      alt: "Pinar meldet, dass die Sitzung nicht abgeschlossen werden konnte, und hält die Pins zur Prüfung und Wiederholung bereit.",
       caption:
-        "Wenn alle Zwischenablagewege scheitern, zeigt die Leiste Kopieren fehlgeschlagen und stellt die Pins wieder her, damit du ohne Kommentarverlust erneut versuchst.",
+        "Ein fehlgeschlagener Abschluss zeigt einen handlungsorientierten Fehler und bewahrt die vollständige Sitzung für Prüfung und erneuten Versuch auf.",
     },
     "capture-full-page": {
       alt: "Pinar-Overlay auf einem langen Dokument, das unter dem ersten Viewport weitergeht, bereit für eine zusammengesetzte Ganzseitenaufnahme.",
@@ -99,9 +104,9 @@ const locale = {
         "Die Ganzseitenaufnahme scrollt und fügt das Dokument zusammen, damit der kopierte Screenshot Inhalte unterhalb des Falzes enthält.",
     },
     "capture-viewer": {
-      alt: "Pinar-Capture-Viewer mit annotierten Screenshots, nummerierten Pins, Zoom-Steuerung und Session-Aktionen.",
+      alt: "Pinar-Sitzungsviewer mit allen annotierten Screenshots auf einer Pan-und-Zoom-Fläche und allen Pin-Notizen im rechten Bereich.",
       caption:
-        "Der Viewer bündelt gespeicherte Screenshots, Pin-Kommentare und Kopieraktionen.",
+        "Eine gespeicherte Sitzung öffnet sich unabhängig von der Seitenzahl als ein Eintrag mit allen Bildern und Annotationen.",
     },
     "extension-options": {
       alt: "Pinar-Erweiterungsoptionen auf dem Tab Speicher, mit Lokaler Server, Remote-Server und der rechtlichen Zustimmung zum gehosteten Dienst.",
@@ -169,9 +174,9 @@ const locale = {
         "Eine Maske verbirgt sensible Pixel im kopierten Screenshot, ohne die Pin-Kommentare zu entfernen, die die Seite weiter beschreiben.",
     },
     "capture-copied": {
-      alt: "Pinar-Overlay-Leiste mit Erfolgreich kopiert, nachdem das annotierte Paket in der Zwischenablage angekommen ist.",
+      alt: "Pinar bestätigt, dass die vollständige Aufnahmesitzung erfolgreich kopiert wurde.",
       caption:
-        "Ein erfolgreiches Kopieren zeigt Erfolgreich kopiert und schließt das Overlay, damit du dasselbe Paket in einen Agenten einfügst.",
+        "Ein erfolgreicher Abschluss bestätigt das Ergebnis, schließt das Overlay und legt ein zusammengehöriges Sitzungspaket in die Zwischenablage.",
     },
     "install-pinar": {
       alt: "Tab Speicher der Pinar-Erweiterung mit der Schaltfläche Pinar herunterladen neben der Option Lokaler Server.",
@@ -261,36 +266,41 @@ const locale = {
       ],
     },
     "first-capture": {
-      title: "Dein erstes Capture erstellen",
+      title: "Die erste Aufnahme erstellen",
       summary:
-        "Setze einen Pin auf ein sichtbares Element oder einen Bereich, schreibe Feedback und kopiere ein zusammenhängendes Bundle.",
+        "Elemente auf einer oder mehreren Seiten anheften, die fortlaufende Sitzung prüfen und ein zusammengehöriges Paket abschließen.",
       sections: [
         {
-          heading: "Die Seite pinnen",
+          heading: "Eine fortlaufende Sitzung aufbauen",
           paragraphs: [
-            "Öffne die Seite, wähle die Pinar-Erweiterung, klicke dann auf ein Element oder ziehe einen Freiform-Bereich. Schreibe den Kommentar und drücke `Enter`, um den Pin hinzuzufügen.",
+            "Öffne Pinar, klicke ein Element an oder ziehe einen freien Bereich auf, schreibe den Kommentar und drücke `Enter`. Der erste Pin startet eine Sitzung. Jeder Pin erfasst sofort seinen eigenen Screenshot, und du kannst vor dem Abschluss zu weiteren Seiten navigieren.",
           ],
           bullets: [
-            "Wiederhole die Auswahl, um mehrere nummerierte Pins in einem Capture zu setzen.",
-            "`Shift+Enter` fügt einen Zeilenumbruch ein; `Escape` schließt den Entwurf, ohne die anderen Pins zu löschen.",
+            "Die Pin-Nummerierung läuft auf allen Seiten derselben Sitzung weiter.",
+            "`Shift+Enter` fügt einen Zeilenumbruch ein. `Escape` schließt einen Entwurf oder blendet die Leiste aus, wenn kein Entwurf offen ist.",
+            "Nach dem Ausblenden bleibt die Leiste bei der Navigation verborgen, bis du die Erweiterung oder ihren Kurzbefehl erneut aufrufst.",
           ],
         },
         {
-          heading: "Das Bundle kopieren",
+          heading: "Vor dem Abschluss prüfen",
           paragraphs: [
-            "Drücke unter macOS `Command+Enter`, sonst `Ctrl+Enter`, oder `Alt+Enter` auf beiden. Pinar kopiert menschenlesbares Markdown, HTML und einen pinar-visual-context-JSON-Block, die auf denselben Screenshot und dieselben Pin-Identitäten verweisen.",
+            "Drücke `Tab`, um die Leiste durch die Sitzungsprüfung zu ersetzen. Bearbeite Kommentare, prüfe Element oder Bereich, Seitentitel, DOM-Pfad und Vorschaubild oder entferne einen Pin mit X. `Tab` kehrt zur Aufnahme zurück.",
+          ],
+          bullets: [
+            "Die Prüfung stellt den normalen Seitenzeiger wieder her und erhält nicht allein durch `Tab` den Fokus.",
+            "Im Kommentarfeld behält `Tab` die normale Tastaturnavigation bei.",
           ],
         },
         {
-          heading: "Kopieren abschließen und Identitäten behalten",
+          heading: "Sitzung abschließen oder abbrechen",
           paragraphs: [
-            "`Command/Ctrl/Alt+Enter` kopiert erst, wenn mindestens ein Pin einen Kommentar hat. Das Overlay zeigt „Anmerkungen werden gespeichert…“, blendet die Pins für den Screenshot aus, danach „Erfolgreich kopiert!“, und die Symbolleiste schließt sich. Ein späterer Klick auf das Erweiterungssymbol blendet nur das Overlay ein oder aus; bereits gesetzte Pins werden nicht gelöscht. Scheitern alle Zwischenablagewege, wird das Overlay wiederhergestellt, damit du es erneut versuchen kannst.",
-            "Behandle die Zwischenablage-Nutzlast als eine Einheit: lesbare Anweisungen, eine optionale Viewer-URL und einen abgegrenzten pinar-visual-context-JSON-Block mit `captureId`, `pinId`, Seiten-URL, Locators (cssSelector, domPath, innerText) und einer Screenshot-URL, wenn der Helper eine Datei gespeichert hat. Nummerierte Badges auf dem Bild sind Annotations-Overlays, keine Seiten-UI. Schreibe `captureId` oder `pinId` beim Einfügen in einen Agent nicht um. Eine Zeile Screenshot: /path/to/file.png ist, sofern vorhanden, der einzige Ausschnitt, der alle Pins enthält.",
+            "Nutze `Command/Ctrl/Alt+Enter`: Drücke unter macOS `Command+Enter`, sonst `Ctrl+Enter`, oder auf beiden Systemen `Alt+Enter`, um die vollständige Sitzung abzuschließen und zu kopieren. Pinar bestätigt den Erfolg sichtbar. Bei einem Fehler bleibt die Sitzung zur Prüfung und Wiederholung erhalten. Sitzung verwerfen beendet sie ohne Kopie.",
+            "Behandle den Inhalt der Zwischenablage als Einheit: lesbare Anweisungen, eine optionale Viewer-URL und je Seite einen abgegrenzten pinar-visual-context-Block. Jeder Block enthält seinen eigenen Screenshot sowie `captureId`, `pinId`, Seiten-URL und Locator-Daten. Nummerierte Badges sind Annotations-Overlays. Schreibe `captureId` und `pinId` nicht um.",
           ],
           bullets: [
-            "Ein leerer Composer oder ein Capture ohne Pins bricht das Kopieren ab und blendet „Zuerst einen Kommentar schreiben“ oder „Zuerst einen Pin setzen“ ein.",
-            "Eingeschränkte Kopien fügen weiterhin Kommentare und Locators ein, aber die Symbolleiste kann nach „Erfolgreich kopiert!“ „kein Screenshot“, „Helfer nicht verfügbar“ oder „kein Viewer“ ergänzen.",
-            "Bevorzuge ein laufendes lokales Pinar, damit die Kopie einen Screenshot und einen Viewer-Link für den vollen Kontext enthalten kann.",
+            "Eine Sitzung ohne gespeicherte Pins kann nicht abgeschlossen werden.",
+            "Lokaler und Cloud-Speicher verwenden dasselbe fortlaufende Sitzungsverhalten.",
+            "Lass Pinar bei lokalem Speicher laufen, damit Screenshots und Viewer verfügbar bleiben.",
           ],
         },
       ],
@@ -525,27 +535,27 @@ const locale = {
       ],
     },
     "copy-and-view": {
-      title: "Capture kopieren und anzeigen",
+      title: "Eine Sitzung kopieren und ansehen",
       summary:
-        "Prüfe gespeicherte Screenshots und kopiere ihren verknüpften Kontext aus dem Workspace.",
+        "Alle Screenshots und Annotationen einer gespeicherten Sitzung in einem Workspace-Eintrag prüfen.",
       sections: [
         {
           heading: "Viewer-Steuerung",
           paragraphs: [
-            "Der Viewer unterstützt Ziehen, am Zeiger verankerten Mausrad-Zoom, Doppelklick-Zoom und Stufen von 50 % bis 800 %. Die Auswahl eines Pins öffnet die gerenderte Vorschau und das rohe Markdown.",
+            "Der Sitzungsviewer unterstützt Verschieben, am Zeiger verankerten Mausrad-Zoom, Doppelklick-Zoom und Steuerung von 50 % bis 800 %. Die rechte Leiste zeigt alle Pins der Sitzung.",
           ],
           bullets: [
-            "Lade den Screenshot herunter oder kopiere das Session-Markdown aus dem Viewer.",
-            "Nutze den Link zur Originalseite, wenn du die aktuelle Website separat prüfen möchtest.",
-            "Wähle einen Pin, um zwischen Vorschau und rohem Markdown zu wechseln.",
-            "Eine gruppierte Session hält alle erfassten Screenshots im selben Viewer.",
-            "Der Link zur Originalseite öffnet separat, ohne die gespeicherte Session zu ändern.",
+            "Lade einen Screenshot herunter oder kopiere das Sitzungs-Markdown aus dem Viewer.",
+            "Nutze den Link zur Originalseite, um die aktuelle Website separat zu prüfen.",
+            "Wähle einen Pin, um zwischen Vorschau und Roh-Markdown zu wechseln.",
+            "Eine gruppierte Sitzung hält alle erfassten Screenshots auf derselben Pan-und-Zoom-Fläche.",
+            "Der Link zur Originalseite öffnet separat, ohne die gespeicherte Sitzung zu verändern.",
           ],
         },
         {
           heading: "Aus dem Viewer kopieren",
           paragraphs: [
-            "Prompt kopieren schreibt das verknüpfte Markdown-Bündel der ausgewählten Capture. Prompt *.md öffnen zeigt das öffentliche Markdown, wenn Teilen verfügbar ist.",
+            "Prompt kopieren schreibt das zusammengehörige Markdown-Paket der vollständigen gruppierten Sitzung. Prompt *.md öffnen öffnet das öffentliche Markdown, wenn Teilen verfügbar ist.",
           ],
         },
       ],

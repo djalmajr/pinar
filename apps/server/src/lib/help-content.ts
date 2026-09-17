@@ -146,6 +146,11 @@ export const helpScreenshotDefinitions = [
     width: 1440,
   },
   {
+    key: "capture-session-review",
+    height: 720,
+    width: 1440,
+  },
+  {
     key: "capture-copy-failed",
     height: 720,
     width: 1440,
@@ -298,6 +303,11 @@ export const helpArticleDefinitions = [
     category: "getting-started",
     readMinutes: 3,
     screenshotKey: "capture-toolbar",
+    sectionScreenshotKeys: [
+      [],
+      ["capture-session-review"],
+      ["capture-copied", "capture-copy-failed"],
+    ] as const,
     sourceRefs: [
       "README.md",
       "extension/content.js",

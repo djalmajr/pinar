@@ -27,18 +27,21 @@ function markerHtml(number, color, pending = false) {
 const ALERT_SVG = `<svg class="progress-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 2.6 17.2A2 2 0 0 0 4.3 20h15.4a2 2 0 0 0 1.7-2.8L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>`;
 const CHECK_SVG = `<svg class="progress-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>`;
 
-export function overlayFixtureHtml(copy, { language, sendMod, batchShortcut, mode = "capture" }) {
+export function overlayFixtureHtml(copy, { language, sendMod, mode = "capture" }) {
   const pin = escapeHtml(copy.overlay_hint_pin);
   const tune = escapeHtml(copy.overlay_hint_tune_long);
   const copyHint = escapeHtml(copy.overlay_hint_copy_long);
   const mask = escapeHtml(copy.overlay_hint_mask_long);
   const regions = escapeHtml(copy.overlay_hint_regions);
   const clear = escapeHtml(copy.overlay_hint_clear_long);
-  const batchIdle = escapeHtml(copy.batch_idle);
   const send = escapeHtml(sendMod);
-  const batchKey = escapeHtml(batchShortcut);
   const copyFailed = escapeHtml(copy.overlay_copy_failed);
   const copied = escapeHtml(copy.overlay_copied);
+  const review = escapeHtml(copy.overlay_session_review);
+  const saved = escapeHtml(copy.overlay_session_saved);
+  const finish = escapeHtml(copy.overlay_session_finish);
+  const discard = escapeHtml(copy.overlay_session_discard);
+  const remove = escapeHtml(copy.overlay_session_remove);
   const isCopyFailed = mode === "copy-failed";
   const isCopied = mode === "copied";
   const isFullPage = mode === "full-page";
@@ -47,9 +50,10 @@ export function overlayFixtureHtml(copy, { language, sendMod, batchShortcut, mod
   const isPins = mode === "pins";
   const isSelection = mode === "selection";
   const isMasks = mode === "masks";
+  const isReview = mode === "session-review";
   const showMask = mode === "capture" || isMasks;
   const showRegion = mode === "capture" || isFullPage || isTypes;
-  const showPins = !isShortcuts;
+  const showPins = !isShortcuts && !isReview;
   const reportKind = isCopyFailed ? "error" : isCopied ? "ok" : "";
   const reportLabel = isCopyFailed ? copyFailed : copied;
   const reportIcon = isCopyFailed ? ALERT_SVG : CHECK_SVG;
@@ -160,7 +164,7 @@ export function overlayFixtureHtml(copy, { language, sendMod, batchShortcut, mod
       padding: 0 6px;
       text-align: center;
     }
-    .batch-pill { align-items: center; display: inline-flex; flex: 0 0 auto; gap: 5px; white-space: nowrap; }
+    .session-pill { align-items: center; display: inline-flex; flex: 0 0 auto; gap: 5px; white-space: nowrap; }
     .pin-region {
       border: 2px solid;
       box-sizing: border-box;
@@ -249,10 +253,37 @@ export function overlayFixtureHtml(copy, { language, sendMod, batchShortcut, mod
     }
     .long-doc { max-width: 720px; padding-bottom: 80px; }
     .long-doc p { color: #475569; margin: 0 0 16px; }
+    .review-card {
+      background: #fff;
+      border: 1px solid #d8dde6;
+      border-radius: 12px;
+      box-shadow: 0 12px 32px rgba(15, 23, 42, .18);
+      box-sizing: border-box;
+      left: 50%;
+      padding: 14px;
+      position: fixed;
+      top: 16px;
+      transform: translateX(-50%);
+      width: min(620px, calc(100vw - 32px));
+      z-index: 4;
+    }
+    .review-head { align-items: center; display: flex; justify-content: space-between; }
+    .review-head strong { font-size: 14px; }
+    .review-close { background: transparent; border: 0; font-size: 20px; line-height: 1; padding: 4px 7px; }
+    .review-item { display: grid; gap: 12px; grid-template-columns: 1fr 132px; padding: 12px 0; }
+    .review-comment { border: 1px solid #cfd5df; border-radius: 7px; box-sizing: border-box; font: inherit; min-height: 58px; padding: 8px; resize: vertical; width: 100%; }
+    .review-meta { color: #64748b; font-size: 12px; margin-top: 7px; }
+    .review-path { background: #f2f4f7; border-radius: 6px; color: #64748b; font: 11px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; margin-top: 8px; padding: 7px; }
+    .review-thumb { align-self: stretch; background: linear-gradient(150deg, #f8fafc, #dbeafe); border: 1px solid #d8dde6; border-radius: 7px; display: grid; min-height: 96px; place-items: center; }
+    .review-thumb span { background: #fff; border: 1px solid #bfdbfe; border-radius: 5px; color: #0369a1; font-size: 11px; padding: 5px 7px; }
+    .review-actions { border-top: 1px solid #d8dde6; display: flex; gap: 8px; padding-top: 12px; }
+    .review-actions button { border: 0; border-radius: 7px; font: 600 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 10px 13px; }
+    .review-actions .primary { background: #6691f2; color: #fff; }
+    .review-actions .secondary { background: #f1f3f6; color: #20242b; }
   </style>
 </head>
 <body>
-  <div class="toolbar" data-overlay-toolbar="true"${reportKind ? ` data-kind="${reportKind}"` : ""}>
+  <div class="toolbar" data-overlay-toolbar="true"${reportKind ? ` data-kind="${reportKind}"` : ""}${isReview ? " hidden" : ""}>
     <div class="view online-view"${isCopyFailed || isCopied ? " hidden" : ""}>
       <span class="state-icon" aria-hidden="true">${bubbleSvg(MARK, "dots")}</span>
       <span class="instructions">
@@ -261,11 +292,12 @@ export function overlayFixtureHtml(copy, { language, sendMod, batchShortcut, mod
         <span class="hint" data-hint="copy"><span class="keys"><kbd>${send}+↵</kbd><kbd>Alt+↵</kbd></span><span>${copyHint}</span></span>
         <span class="hint" data-hint="mask"><span class="keys"><kbd>M</kbd></span><span>${mask}</span></span>
         <span class="hint" data-hint="regions"><span class="keys"><kbd>R</kbd></span><span>${regions}</span></span>
-        <span class="hint" data-hint="clear"><span class="keys"><kbd>esc</kbd></span><span>${clear}</span></span>
       </span>
-      <span class="batch-pill"${isCopyFailed || isCopied ? " hidden" : ""}>
-        <kbd>${batchKey}</kbd>
-        <span>${batchIdle}</span>
+      <span class="session-pill"${isCopyFailed || isCopied ? " hidden" : ""}>
+        <kbd>Tab</kbd>
+        <span>${review}</span>
+        <kbd>esc</kbd>
+        <span>${clear}</span>
       </span>
     </div>
     <div class="view progress-view"${isCopyFailed || isCopied ? "" : " hidden"}>
@@ -273,6 +305,19 @@ export function overlayFixtureHtml(copy, { language, sendMod, batchShortcut, mod
       <span class="progress-text">${reportLabel}</span>
     </div>
   </div>
+  ${isReview ? `<section class="review-card" aria-label="${review}">
+    <header class="review-head"><strong>${review}</strong><button class="review-close" type="button" aria-label="${remove}">×</button></header>
+    <div class="review-item">
+      <div>
+        <strong>Invoice 1842 — Harbor Supply</strong>
+        <textarea class="review-comment">Align the total with the invoice rows.</textarea>
+        <div class="review-meta">${saved} · Order total</div>
+        <div class="review-path">#totals-card &gt; div.line:nth-of-type(3)</div>
+      </div>
+      <div class="review-thumb"><span>Invoice 1842</span></div>
+    </div>
+    <div class="review-actions"><button class="primary" type="button">${finish}</button><button class="secondary" type="button">${discard}</button></div>
+  </section>` : ""}
   <main class="page${isFullPage ? " long-doc" : ""}">
     <section class="shop">
       <header class="shop-bar">

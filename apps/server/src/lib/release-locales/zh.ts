@@ -20,7 +20,7 @@ const locale = {
     whatChanged: "更新内容",
   },
   releases: {
-    "v0.3.7": {
+    "v0.3.7-rc.1": {
       title: "连续捕获、统一审阅，以及每个图钉上的 AI",
       summary:
         "捕获会话现在可以跨页面持续进行，并将每张截图和每个图钉保存为一条记录。审阅统一到查看器中，Founder 新购方案已下线，图钉还新增了结构、技术证据和 AI 操作。",
@@ -28,7 +28,7 @@ const locale = {
         "continuous-capture-session": {
           title: "跨页面的一个连续会话",
           description:
-            "在一个页面添加图钉后继续浏览，最后只需完成一次。Pinar 会重新访问每个页面获取截图，保持图钉连续编号，并在没有批次槽位的情况下将整个过程保存为一个会话。",
+            "在一个页面添加图钉后继续浏览，最后只需完成一次。Pinar 会在离开页面前捕获每个图钉，跨页面保持连续编号，并在没有批次槽位的情况下将整个过程保存为一个会话。",
         },
         "unified-session-review": {
           title: "一起审阅所有画面和图钉",
@@ -38,7 +38,7 @@ const locale = {
         "founder-retired": {
           title: "Founder 新购方案已下线",
           description:
-            "新购买现在仅提供 Free 和 Pro。现有 Founder 权益仍会被识别，并获得与 Pro 相同的产品能力，不再产生新的 Founder 承诺。",
+            "新购买现在仅提供 Free 和 Pro。由于目前没有 Founder 订阅者，迁移会移除该方案；如果发现任何意外的 Founder 账户、购买、授权、捕获或有效预留，则会停止并要求显式处理。",
         },
         "element-structure": {
           title: "每个元素图钉都有结构",

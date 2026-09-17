@@ -75,7 +75,7 @@
         }
       ],
       "secrets": {
-        "required": ["AUTH_PEPPER", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"]
+        "required": ["AUTH_PEPPER", "EXTENSION_ORIGIN", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"]
       },
       "routes": [
         { "pattern": "stg.pinar.dev", "custom_domain": true }
@@ -126,7 +126,7 @@
         }
       ],
       "secrets": {
-        "required": ["AUTH_PEPPER", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"]
+        "required": ["AUTH_PEPPER", "EXTENSION_ORIGIN", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"]
       },
       "routes": [
         { "pattern": "pinar.dev", "custom_domain": true },

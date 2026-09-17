@@ -11,7 +11,7 @@ const locale = {
     metaDescription: "Notes officielles de chaque version étiquetée de Pinar.",
     next: "Suivante",
     pageDescription:
-      "Chaque note correspond à une étiquette publiée dans le dépôt, sans y mêler le travail non publié.",
+      "Chaque note correspond à une version publiée ou préparée pour la prochaine sortie, sans y mêler du travail hors de ce périmètre.",
     pageTitle: "Nouveautés de Pinar",
     previous: "Précédente",
     releaseNavigation: "Navigation des versions",
@@ -22,7 +22,7 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
-    "v0.3.7-rc.1": {
+    "v0.3.7": {
       title: "Capture continue, révision unifiée et IA sur chaque pin",
       summary:
         "Une session de capture vous suit désormais entre les pages et enregistre chaque capture d’écran et chaque pin dans un seul élément. La révision est unifiée dans le visualiseur, l’offre Founder est retirée et les pins gagnent structure, preuves techniques et actions IA.",

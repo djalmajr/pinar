@@ -10,7 +10,7 @@ const locale = {
     metaDescription: "Official notes for every tagged Pinar release.",
     next: "Next",
     pageDescription:
-      "Every note maps to a published repository tag, without mixing in unreleased work.",
+      "Every note maps to a published version or the next prepared release, without mixing in unrelated work.",
     pageTitle: "What’s new in Pinar",
     previous: "Previous",
     releaseNavigation: "Release navigation",
@@ -20,7 +20,7 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
-    "v0.3.7-rc.1": {
+    "v0.3.7": {
       title: "Continuous capture, unified review, and AI on each pin",
       summary:
         "A capture session now follows you across pages and saves every screenshot and pin as one record. Review is unified in the viewer, the Founder offer is retired, and element pins gain structure, technical evidence, and AI actions.",

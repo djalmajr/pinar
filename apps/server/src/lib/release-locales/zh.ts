@@ -10,7 +10,7 @@ const locale = {
     metaDescription: "Pinar 每个已打标签版本的官方说明。",
     next: "下一篇",
     pageDescription:
-      "每条说明都对应仓库中已发布的标签，不会混入尚未发布的工作。",
+      "每条说明都对应已发布的版本或为下一次发布准备的版本，不会混入范围之外的工作。",
     pageTitle: "Pinar 新功能",
     previous: "上一篇",
     releaseNavigation: "版本导航",
@@ -20,7 +20,7 @@ const locale = {
     whatChanged: "更新内容",
   },
   releases: {
-    "v0.3.7-rc.1": {
+    "v0.3.7": {
       title: "连续捕获、统一审阅，以及每个图钉上的 AI",
       summary:
         "捕获会话现在可以跨页面持续进行，并将每张截图和每个图钉保存为一条记录。审阅统一到查看器中，Founder 新购方案已下线，图钉还新增了结构、技术证据和 AI 操作。",

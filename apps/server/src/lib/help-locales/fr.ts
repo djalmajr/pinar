@@ -84,14 +84,19 @@ const locale = {
         "Le workspace rassemble les pages capturées, les compteurs de pins, les projets, les collections, la recherche et l’état du compte dans une vue opérationnelle.",
     },
     "capture-toolbar": {
-      alt: "Overlay de capture Pinar avec la barre supérieure, des pins numérotés, une région sélectionnée et un masque de confidentialité sur la page.",
+      alt: "Barre de capture Pinar avec les commandes pour terminer la session, la revoir avec Tab et la masquer avec Échap.",
       caption:
-        "La barre de l’overlay reste sur la page avec les raccourcis pin, sélection, copier, masquer, région et annuler pendant l’annotation.",
+        "Une session continue suit la navigation, conserve la numérotation des pins et garde la barre masquée après Échap jusqu’à la réouverture explicite de Pinar.",
+    },
+    "capture-session-review": {
+      alt: "Panneau opaque de révision de session Pinar avec commentaire modifiable, cible sélectionnée, chemin DOM, miniature et commande de suppression.",
+      caption:
+        "Tab remplace la barre de capture par la révision de session, où les pins peuvent être modifiés ou supprimés avant de terminer ou d’abandonner.",
     },
     "capture-copy-failed": {
-      alt: "Barre d’overlay Pinar indiquant Échec de la copie, avec les pins numérotés encore modifiables sur la page.",
+      alt: "Pinar indique que la session n’a pas pu être terminée et conserve les pins pour révision et nouvel essai.",
       caption:
-        "Quand tous les chemins du presse-papiers échouent, la barre affiche Échec de la copie et restaure les pins pour réessayer sans perdre les commentaires.",
+        "Un échec affiche une erreur exploitable et conserve la session complète pour la revoir et réessayer.",
     },
     "capture-full-page": {
       alt: "Overlay Pinar sur un long document qui continue sous le premier viewport, prêt pour une capture pleine page assemblée.",
@@ -99,9 +104,9 @@ const locale = {
         "La capture pleine page fait défiler et assemble le document pour que le screenshot copié inclue le contenu sous la ligne de flottaison.",
     },
     "capture-viewer": {
-      alt: "Visualiseur de captures Pinar avec captures annotées, épingles numérotées, commandes de zoom et actions de session.",
+      alt: "Visualiseur de session Pinar avec toutes les captures annotées sur une même surface de déplacement et zoom et toutes les notes dans le panneau droit.",
       caption:
-        "Le visualiseur regroupe les captures enregistrées, les commentaires des épingles et les actions de copie.",
+        "Une session enregistrée s’ouvre comme un seul élément quel que soit le nombre de pages, avec toutes les images et annotations réunies.",
     },
     "extension-options": {
       alt: "Options de l’extension Pinar sur l’onglet Stockage, avec Serveur Local, Serveur Distant et l’acceptation juridique du service hébergé.",
@@ -169,9 +174,9 @@ const locale = {
         "Un masque cache les pixels sensibles dans le screenshot copié sans retirer les commentaires des pins qui décrivent encore la page.",
     },
     "capture-copied": {
-      alt: "Barre d’overlay Pinar indiquant Copié avec succès après l’arrivée du paquet annoté dans le presse-papiers.",
+      alt: "Pinar confirme que la session de capture complète a été copiée avec succès.",
       caption:
-        "Une copie réussie affiche Copié avec succès puis ferme l’overlay pour coller le même paquet dans un agent.",
+        "Une fin réussie confirme le résultat, ferme l’overlay et place un seul paquet de session corrélé dans le presse-papiers.",
     },
     "install-pinar": {
       alt: "Onglet Stockage de l’extension Pinar avec le bouton Télécharger Pinar à côté de l’option Serveur Local.",
@@ -261,36 +266,41 @@ const locale = {
       ],
     },
     "first-capture": {
-      title: "Faire votre première capture",
+      title: "Réaliser votre première capture",
       summary:
-        "Épinglez un élément ou une zone visible, rédigez le feedback et copiez un seul paquet corrélé.",
+        "Épinglez des éléments sur une ou plusieurs pages, révisez la session continue et terminez un seul paquet corrélé.",
       sections: [
         {
-          heading: "Épingler la page",
+          heading: "Créer une session continue",
           paragraphs: [
-            "Ouvrez la page, sélectionnez l’extension Pinar, puis cliquez un élément ou faites glisser une zone libre. Rédigez le commentaire et appuyez sur `Enter` pour ajouter le pin.",
+            "Ouvrez Pinar, cliquez sur un élément ou faites glisser une zone libre, rédigez le commentaire puis appuyez sur `Enter`. Le premier pin démarre une session. Chaque pin capture immédiatement sa propre image et vous pouvez naviguer vers d’autres pages avant de terminer.",
           ],
           bullets: [
-            "Répétez la sélection pour placer plusieurs pins numérotés dans une même capture.",
-            "`Shift+Enter` ajoute un saut de ligne ; `Escape` ferme le brouillon sans supprimer les autres pins.",
+            "La numérotation des pins continue sur toutes les pages de la même session.",
+            "`Shift+Enter` ajoute un saut de ligne. `Escape` ferme un brouillon ou masque la barre lorsqu’aucun brouillon n’est ouvert.",
+            "Une fois masquée, la barre le reste pendant la navigation jusqu’à ce que vous invoquiez à nouveau l’extension ou son raccourci.",
           ],
         },
         {
-          heading: "Copier le paquet",
+          heading: "Réviser avant de terminer",
           paragraphs: [
-            "Appuyez sur `Command+Enter` sur macOS, `Ctrl+Enter` ailleurs, ou `Alt+Enter` dans les deux cas. Pinar copie du Markdown lisible, du HTML et un bloc JSON pinar-visual-context qui se réfèrent au même screenshot et aux mêmes identités de pins.",
+            "Appuyez sur `Tab` pour remplacer la barre par la révision de session. Modifiez les commentaires, examinez l’élément ou la région, le titre, le chemin DOM et la miniature, ou supprimez un pin avec X. Appuyez à nouveau sur `Tab` pour revenir à la capture.",
+          ],
+          bullets: [
+            "La révision restaure le curseur normal de la page et ne reçoit pas le focus du seul fait d’appuyer sur `Tab`.",
+            "Dans l’éditeur de commentaire, `Tab` conserve la navigation clavier normale.",
           ],
         },
         {
-          heading: "Terminer la copie et conserver les identités",
+          heading: "Terminer ou annuler la session",
           paragraphs: [
-            "`Command/Ctrl/Alt+Enter` ne copie qu’après qu’au moins un pin a un commentaire. L’overlay affiche « Enregistrement des annotations… », masque les pins pour le screenshot, puis « Copié avec succès ! », et la barre d’outils se ferme. Un clic ultérieur sur l’icône de l’extension n’affiche ou ne masque que l’overlay ; il ne supprime pas les pins déjà posés. Si tous les chemins du presse-papiers échouent, l’overlay est restauré pour que vous puissiez réessayer.",
-            "Traitez le contenu du presse-papiers comme une unité : des instructions lisibles, une URL de visualiseur optionnelle, et un bloc JSON pinar-visual-context délimité avec `captureId`, `pinId`, URL de page, localisateurs (cssSelector, domPath, innerText), et une URL de screenshot lorsque le helper a stocké un fichier. Les badges numérotés sur l’image sont des overlays d’annotation, pas l’UI de la page. Ne réécrivez pas `captureId` ni `pinId` en collant vers un agent. Une ligne Screenshot: /path/to/file.png, lorsqu’elle est présente, est le recadrage unique qui contient tous les pins.",
+            "Utilisez `Command/Ctrl/Alt+Enter` : appuyez sur `Command+Enter` sous macOS, `Ctrl+Enter` ailleurs ou `Alt+Enter` sur les deux pour terminer et copier toute la session. Pinar confirme visiblement la réussite. En cas d’échec, une erreur exploitable s’affiche et la session reste disponible pour révision et nouvel essai. Abandonner la session la termine sans copie.",
+            "Traitez le presse-papiers comme une unité : instructions lisibles, URL facultative du visualiseur et un bloc pinar-visual-context délimité par page. Chaque bloc contient sa propre capture, `captureId`, `pinId`, l’URL et les localisateurs. Les badges numérotés sont des overlays d’annotation. Ne réécrivez ni `captureId` ni `pinId`.",
           ],
           bullets: [
-            "Un composer vide ou une capture sans pins interrompt la copie et affiche brièvement « Écrivez un commentaire » ou « Ajoutez une épingle ».",
-            "Les copies dégradées collent encore les commentaires et les localisateurs, mais la barre d’outils peut ajouter « pas de capture », « assistant indisponible » ou « pas de visionneuse » après « Copié avec succès ! ».",
-            "Préférez un Pinar local en cours d’exécution pour que la copie puisse inclure un screenshot et un lien de visualiseur pour le contexte complet.",
+            "Une session sans pin enregistré ne peut pas être terminée.",
+            "Le stockage local et distant utilisent le même comportement de session continue.",
+            "Gardez l’application Pinar locale active avec le stockage local pour conserver les captures et le visualiseur.",
           ],
         },
       ],
@@ -525,27 +535,27 @@ const locale = {
       ],
     },
     "copy-and-view": {
-      title: "Copier et afficher une capture",
+      title: "Copier et afficher une session",
       summary:
-        "Consultez les captures enregistrées et copiez leur contexte corrélé depuis l’espace de travail.",
+        "Révisez toutes les captures et annotations d’une session enregistrée dans un seul élément du workspace.",
       sections: [
         {
           heading: "Commandes du visualiseur",
           paragraphs: [
-            "Le visualiseur permet le déplacement au pointeur, le zoom à la molette ancré au curseur, le double-clic et un réglage de 50 % à 800 %. Sélectionner une épingle ouvre les onglets Aperçu et Markdown brut.",
+            "Le visualiseur de session permet le déplacement, le zoom à la molette ancré au pointeur, le double-clic et des commandes de 50 % à 800 %. Le panneau droit affiche tous les pins de la session.",
           ],
           bullets: [
-            "Téléchargez la capture ou copiez le Markdown de la session depuis le visualiseur.",
-            "Utilisez le lien de la page d’origine pour consulter séparément le site actuel.",
-            "Sélectionnez une épingle pour passer de l’Aperçu au Markdown brut.",
-            "Une session groupée conserve toutes les captures dans le même visualiseur.",
+            "Téléchargez une capture ou copiez le Markdown de la session depuis le visualiseur.",
+            "Utilisez le lien de la page d’origine pour examiner le site actuel séparément.",
+            "Sélectionnez un pin pour alterner entre Aperçu et Markdown brut.",
+            "Une session groupée garde toutes les captures sur la même surface de déplacement et zoom.",
             "Le lien de la page d’origine s’ouvre séparément sans modifier la session enregistrée.",
           ],
         },
         {
           heading: "Copier depuis le visualiseur",
           paragraphs: [
-            "Copier le prompt écrit le bloc Markdown corrélé de la capture sélectionnée. Ouvrir le prompt *.md ouvre le Markdown public lorsque le partage est disponible.",
+            "Copier le prompt écrit le paquet Markdown corrélé de toute la session groupée. Ouvrir le prompt *.md ouvre le Markdown public lorsque le partage est disponible.",
           ],
         },
       ],

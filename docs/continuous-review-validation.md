@@ -10,7 +10,7 @@
 - **Seleção sem obstrução:** a toolbar expandida fica transparente sob o ponteiro, liberando a página por baixo. Não existem mais as opções fixa/auto-hide ou o atalho H. Tab mantém a navegação normal entre campos no editor de comentários.
 - **Larguras menores:** os rótulos usam uma palavra até 1180px; até 1000px, a logo e “Clique ou arraste” saem. Em telas ainda menores, dicas secundárias saem progressivamente, preservando os atalhos principais.
 - **Concluir e copiar:** Ctrl/⌘+Enter durante a captura, ou o botão no painel de revisão. O sucesso mostra **Sessão copiada**; uma falha informa que a sessão não pôde ser concluída e mantém as evidências para revisão e nova tentativa. Não há um segundo atalho global configurável para essa ação.
-- **Concluir sem copiar:** Alt+Shift+X, por padrão. Conserva o histórico; não equivale a descartar.
+- **Cancelar sessão pelo menu da extensão:** Alt+Shift+X, por padrão. Encerra sem copiar e conserva o histórico; não equivale a descartar as evidências na revisão.
 
 Os atalhos globais podem ser alterados no navegador. Cada pin recebe sua própria screenshot quando a captura de imagens está habilitada. Uma sessão reúne essas evidências, inclusive diferentes estados da mesma página; não existe uma única imagem que substitua todas elas.
 
@@ -56,8 +56,8 @@ Validação automatizada isolada: `bun run test:e2e:session`. Ela inicia e encer
 7. Abra o histórico: haverá uma sessão. Clique nela para abrir diretamente o modal com todas as imagens no mesmo pan/zoom e todas as anotações no painel direito. Não há carrossel. Selecione uma anotação: sua imagem será centralizada e destacada, e os detalhes abertos. Copiar, mover e excluir no modal operam sobre a sessão completa.
 8. Repita interrompendo a conexão com o servidor depois da primeira captura. O rascunho deve ficar pendente. Restaure a conexão e tente novamente, sem precisar revisitar as páginas cujas screenshots já foram obtidas.
 9. Feche/reabra a extensão com um rascunho pendente. A revisão deve recuperar as anotações.
-10. Teste Concluir sem copiar e Descartar sessão separadamente: a primeira ação conserva o histórico; a segunda remove suas evidências.
+10. Teste Cancelar sessão e Descartar sessão separadamente: a primeira ação encerra sem copiar e conserva o histórico; a segunda remove suas evidências.
 
 Uma screenshot que não chegou a ser obtida não pode reconstruir o estado antigo por URL. Nessa situação, o comentário permanece na revisão para ser recriado na página original. O destino e a identidade da sessão ficam fixados para impedir que uma tentativa posterior envie dados para outra conta.
 
-O agrupamento utiliza os registros existentes de batches internamente por compatibilidade. A cópia privada usa `/api/batches/:id/markdown`, com autenticação no remoto e a proteção local habitual. `/b/:id.md` continua reservado aos links públicos já suportados; copiar uma sessão não a publica.
+A persistência mantém identificadores e endpoints legados de batch apenas por compatibilidade interna; o produto expõe uma sessão contínua, sem slots ou modo de captura em lotes. A cópia privada usa `/api/batches/:id/markdown`, com autenticação no remoto e a proteção local habitual. `/b/:id.md` continua reservado aos links públicos já suportados; copiar uma sessão não a publica.

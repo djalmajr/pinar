@@ -82,14 +82,19 @@ const locale = {
         "The workspace keeps captured pages, pin counts, projects, collections, search, and account state in one operational view.",
     },
     "capture-toolbar": {
-      alt: "Pinar capture overlay with the top toolbar, numbered pins, a selected region, and a privacy mask on the page.",
+      alt: "Pinar capture toolbar with controls to finish the session, review it with Tab, and hide the toolbar with Escape.",
       caption:
-        "The overlay toolbar stays on the page with pin, selection, copy, mask, region, and cancel shortcuts while you annotate.",
+        "One continuous session follows navigation, preserves pin numbering, and keeps the toolbar hidden after Escape until you explicitly reopen Pinar.",
+    },
+    "capture-session-review": {
+      alt: "Opaque Pinar session review card with an editable comment, selected target, DOM path, thumbnail, and removal control.",
+      caption:
+        "Tab replaces the capture toolbar with session review, where you can edit or remove pins before finishing or discarding the session.",
     },
     "capture-copy-failed": {
-      alt: "Pinar overlay toolbar reporting Copy failed while numbered pins remain editable on the page.",
+      alt: "Pinar reporting that the session could not be finished while keeping its pins available for review and retry.",
       caption:
-        "When every clipboard path fails, the toolbar shows Copy failed and restores the pins so you can retry without losing comments.",
+        "A failed finish shows an actionable error and keeps the complete session available for review and retry.",
     },
     "capture-full-page": {
       alt: "Pinar overlay on a long document that continues below the first viewport, ready for a stitched full-page capture.",
@@ -97,9 +102,9 @@ const locale = {
         "Full-page capture scrolls and stitches the document so the copied screenshot includes content that sits below the fold.",
     },
     "capture-viewer": {
-      alt: "Pinar capture viewer with annotated screenshots, numbered pins, zoom controls, and session actions.",
+      alt: "Pinar session viewer with every annotated screenshot in one pan-and-zoom canvas and all pin notes in the right panel.",
       caption:
-        "The viewer keeps captured screenshots, pin comments, and copy actions together after capture.",
+        "A saved session opens as one record regardless of page count, with all screenshots on the canvas and all annotations in the right panel.",
     },
     "extension-options": {
       alt: "Pinar extension options on the Storage tab, with Local Server, Remote Server, and hosted-service legal acceptance.",
@@ -167,9 +172,9 @@ const locale = {
         "A mask hides sensitive pixels in the copied screenshot without removing the pin comments that still describe the page.",
     },
     "capture-copied": {
-      alt: "Pinar overlay toolbar reporting Copied successfully after the annotated bundle reached the clipboard.",
+      alt: "Pinar confirming that the complete capture session was copied successfully.",
       caption:
-        "A successful copy flashes Copied successfully, then closes the overlay so you can paste the same bundle into an agent.",
+        "A successful finish confirms the result, closes the overlay, and leaves one correlated session bundle on the clipboard.",
     },
     "install-pinar": {
       alt: "Pinar extension Storage tab with a Download Pinar button next to the Local Server option.",
@@ -261,34 +266,39 @@ const locale = {
     "first-capture": {
       title: "Make your first capture",
       summary:
-        "Pin a visible element or area, write feedback, and copy one correlated bundle.",
+        "Pin elements across one or more pages, review the continuous session, and finish one correlated bundle.",
       sections: [
         {
-          heading: "Pin the page",
+          heading: "Build one continuous session",
           paragraphs: [
-            "Open the page, select the Pinar extension, then click an element or drag a freeform area. Write the comment and press `Enter` to add the pin.",
+            "Open Pinar, click an element or drag a freeform area, write the comment, and press `Enter`. The first pin starts a session. Each pin captures its own screenshot immediately, and you can navigate to other pages without finishing.",
           ],
           bullets: [
-            "Repeat the selection to place multiple numbered pins in one capture.",
-            "`Shift+Enter` adds a line break; `Escape` closes the draft without deleting the other pins.",
+            "Pin numbering continues across every page in the same session.",
+            "`Shift+Enter` adds a line break. `Escape` closes a draft, or hides the toolbar when no draft is open.",
+            "After being hidden, the toolbar stays hidden across navigation until you invoke the extension action or shortcut again.",
           ],
         },
         {
-          heading: "Copy the bundle",
+          heading: "Review before finishing",
           paragraphs: [
-            "Press `Command+Enter` on macOS, `Ctrl+Enter` elsewhere, or `Alt+Enter` on either. Pinar copies human-readable Markdown, HTML, and a pinar-visual-context JSON block that refer to the same screenshot and pin identities.",
+            "Press `Tab` to replace the toolbar with session review. Edit comments, inspect the selected element or region, page title, DOM path, and thumbnail, or remove a pin with the X control. Press `Tab` again to return to capture mode.",
+          ],
+          bullets: [
+            "Session review restores the normal page cursor and never receives focus just because you pressed `Tab`.",
+            "Inside a comment editor, `Tab` keeps normal keyboard navigation.",
           ],
         },
         {
-          heading: "Finish the copy and keep identities",
+          heading: "Finish or cancel the session",
           paragraphs: [
-            "`Command/Ctrl/Alt+Enter` copies only after at least one pin has a comment. The overlay shows “Saving the annotations…”, hides the pins for the screenshot, then “Copied successfully!”, and the toolbar closes. Clicking the extension icon later only shows or hides the overlay; it does not delete pins you already placed. If every clipboard path fails, the overlay is restored so you can retry.",
-            "Treat the clipboard payload as one unit: readable instructions, an optional viewer URL, and a fenced pinar-visual-context JSON block with `captureId`, `pinId`, page URL, locators (cssSelector, domPath, innerText), and a screenshot URL when the helper stored a file. Numbered badges on the image are annotation overlays, not page UI. Do not rewrite `captureId` or `pinId` when pasting to an agent. A Screenshot: /path/to/file.png line, when present, is the single crop that contains every pin.",
+            "Use `Command/Ctrl/Alt+Enter`: press `Command+Enter` on macOS, `Ctrl+Enter` elsewhere, or `Alt+Enter` on either to finish and copy the complete session. Pinar visibly confirms success. If finishing fails, it shows an actionable error and keeps the session available for review and retry. Discard session cancels it without copying.",
+            "Treat the clipboard payload as one unit: readable instructions, an optional viewer URL, and one fenced pinar-visual-context block per page. Each block carries its own screenshot plus `captureId`, `pinId`, page URL, and locators (cssSelector, domPath, innerText). Numbered badges are annotation overlays, not page UI. Do not rewrite `captureId` or `pinId` when pasting to an agent.",
           ],
           bullets: [
-            "An empty composer or a capture with no pins aborts the copy and flashes “Write a comment first” or “Add a pin first”.",
-            "Degraded copies still paste comments and locators, but the toolbar may add “no screenshot”, “helper unavailable”, or “no viewer” after “Copied successfully!”.",
-            "Prefer a running local Pinar so the copy can include a screenshot and a viewer link for full context.",
+            "A session with no saved pins cannot finish.",
+            "Local and cloud storage use the same continuous-session behavior.",
+            "Keep the local Pinar app running when using local storage so screenshots and the viewer remain available.",
           ],
         },
       ],
@@ -523,9 +533,9 @@ const locale = {
       ],
     },
     "copy-and-view": {
-      title: "Copy and view a capture",
+      title: "Copy and view a session",
       summary:
-        "Review saved screenshots and copy their correlated context from the workspace.",
+        "Review every screenshot and annotation from a saved session in one workspace record.",
       sections: [
         {
           heading: "Viewer controls",
@@ -543,7 +553,7 @@ const locale = {
         {
           heading: "Copy from the viewer",
           paragraphs: [
-            "Copy prompt writes the correlated Markdown bundle for the selected capture. Open prompt *.md opens the public Markdown when sharing is available.",
+            "Copy prompt writes the correlated Markdown bundle for the complete grouped session. Open prompt *.md opens the public Markdown when sharing is available.",
           ],
         },
       ],

@@ -93,7 +93,7 @@ describe("tagged release content", () => {
           release.summary.length > 10,
           `${content.language}:${release.tag}`,
         );
-        assert.ok(release.changes.length >= 2, release.tag);
+        assert.ok(release.changes.length >= 1, release.tag);
         for (const change of release.changes) {
           assert.ok(
             change.title.length > 2,

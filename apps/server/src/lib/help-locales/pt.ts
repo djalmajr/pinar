@@ -84,14 +84,19 @@ const locale = {
         "O workspace reúne páginas capturadas, contagem de pins, projetos, coleções, busca e estado da conta em uma visão operacional.",
     },
     "capture-toolbar": {
-      alt: "Sobreposição de captura do Pinar com a barra superior, pins numerados, uma região selecionada e uma máscara de privacidade na página.",
+      alt: "Barra de captura do Pinar com controles para concluir a sessão, revisá-la com Tab e ocultar a barra com Escape.",
       caption:
-        "A barra da sobreposição permanece na página com os atalhos de pin, seleção, copiar, máscara, região e cancelar enquanto você anota.",
+        "Uma sessão contínua acompanha a navegação, preserva a numeração dos pins e mantém a barra oculta após Escape até você reabrir o Pinar explicitamente.",
+    },
+    "capture-session-review": {
+      alt: "Painel opaco de revisão da sessão do Pinar com comentário editável, alvo selecionado, caminho DOM, miniatura e controle de remoção.",
+      caption:
+        "Tab substitui a barra de captura pela revisão da sessão, onde você pode editar ou remover pins antes de concluir ou cancelar.",
     },
     "capture-copy-failed": {
-      alt: "Barra da sobreposição do Pinar mostrando Falha ao copiar, com os pins numerados ainda editáveis na página.",
+      alt: "Pinar informando que não foi possível concluir a sessão e mantendo os pins disponíveis para revisão e nova tentativa.",
       caption:
-        "Quando todos os caminhos da área de transferência falham, a barra mostra Falha ao copiar e restaura os pins para você tentar de novo sem perder comentários.",
+        "Uma falha ao concluir mostra um erro acionável e mantém a sessão completa disponível para revisão e nova tentativa.",
     },
     "capture-full-page": {
       alt: "Sobreposição do Pinar numa página longa que continua abaixo da primeira viewport, pronta para uma captura de página inteira costurada.",
@@ -99,9 +104,9 @@ const locale = {
         "A captura de página inteira rola e costura o documento para o screenshot copiado incluir o conteúdo abaixo da dobra.",
     },
     "capture-viewer": {
-      alt: "Visualizador de capturas do Pinar com screenshots anotados, pins numerados, controles de zoom e ações da sessão.",
+      alt: "Visualizador de sessão do Pinar com todos os screenshots anotados no mesmo panzoom e todos os comentários no painel direito.",
       caption:
-        "O visualizador reúne screenshots capturados, comentários dos pins e ações de cópia.",
+        "Uma sessão salva abre como um único registro, independentemente da quantidade de páginas, com todas as imagens e anotações juntas.",
     },
     "extension-options": {
       alt: "Opções da extensão Pinar na aba Armazenamento, com Servidor Local, Servidor Remoto e aceite dos documentos legais do serviço hospedado.",
@@ -169,9 +174,9 @@ const locale = {
         "A máscara esconde pixels sensíveis no screenshot copiado sem remover os comentários dos pins que ainda descrevem a página.",
     },
     "capture-copied": {
-      alt: "Barra da sobreposição do Pinar mostrando Copiado com sucesso depois de o pacote anotado chegar à área de transferência.",
+      alt: "Pinar confirmando que a sessão de captura completa foi copiada com sucesso.",
       caption:
-        "Uma cópia bem-sucedida mostra Copiado com sucesso e fecha a sobreposição para você colar o mesmo pacote num agente.",
+        "Uma conclusão bem-sucedida confirma o resultado, fecha a sobreposição e deixa um único pacote correlacionado na área de transferência.",
     },
     "install-pinar": {
       alt: "Aba Armazenamento da extensão Pinar com o botão Baixar Pinar ao lado da opção Servidor Local.",
@@ -263,34 +268,39 @@ const locale = {
     "first-capture": {
       title: "Fazer a primeira captura",
       summary:
-        "Pine um elemento ou uma área visível, escreva o feedback e copie um único pacote correlacionado.",
+        "Pine elementos em uma ou mais páginas, revise a sessão contínua e conclua um único pacote correlacionado.",
       sections: [
         {
-          heading: "Pine a página",
+          heading: "Crie uma sessão contínua",
           paragraphs: [
-            "Abra a página, selecione a extensão Pinar e clique em um elemento ou arraste uma área livre. Escreva o comentário e pressione `Enter` para adicionar o pin.",
+            "Abra o Pinar, clique em um elemento ou arraste uma área livre, escreva o comentário e pressione `Enter`. O primeiro pin inicia uma sessão. Cada pin captura seu próprio screenshot imediatamente, e você pode navegar para outras páginas sem concluir.",
           ],
           bullets: [
-            "Repita a seleção para colocar vários pins numerados na mesma captura.",
-            "`Shift+Enter` adiciona uma quebra de linha; `Escape` fecha o rascunho sem apagar os outros pins.",
+            "A numeração dos pins continua em todas as páginas da mesma sessão.",
+            "`Shift+Enter` adiciona uma quebra de linha. `Escape` fecha um rascunho ou oculta a barra quando não há rascunho aberto.",
+            "Depois de ocultada, a barra permanece assim durante a navegação até você acionar novamente a extensão ou o atalho.",
           ],
         },
         {
-          heading: "Copie o pacote",
+          heading: "Revise antes de concluir",
           paragraphs: [
-            "Pressione `Command+Enter` no macOS, `Ctrl+Enter` nos outros sistemas, ou `Alt+Enter` em qualquer um. O Pinar copia Markdown legível, HTML e um bloco JSON pinar-visual-context que apontam para o mesmo screenshot e para as mesmas identidades de pins.",
+            "Pressione `Tab` para substituir a barra pela revisão da sessão. Edite comentários, confira o elemento ou região selecionada, o título da página, o caminho DOM e a miniatura, ou remova um pin pelo controle X. Pressione `Tab` novamente para voltar à captura.",
+          ],
+          bullets: [
+            "A revisão restaura o cursor normal da página e não recebe foco apenas porque você pressionou `Tab`.",
+            "Dentro do editor de comentários, `Tab` mantém a navegação normal do teclado.",
           ],
         },
         {
-          heading: "Conclua a cópia e preserve as identidades",
+          heading: "Conclua ou cancele a sessão",
           paragraphs: [
-            "`Command/Ctrl/Alt+Enter` só copia depois que pelo menos um pin tem comentário. A sobreposição mostra “Gravando as anotações…”, esconde os pins para o screenshot, depois “Copiado com sucesso!”, e a barra fecha. Clicar no ícone da extensão depois só mostra ou esconde a sobreposição; não apaga pins já colocados. Se todos os caminhos de cópia falharem, a sobreposição volta para você tentar de novo.",
-            "Trate o conteúdo da área de transferência como uma unidade: instruções legíveis, uma URL opcional do visualizador e um bloco JSON pinar-visual-context delimitado com `captureId`, `pinId`, URL da página, localizadores (cssSelector, domPath, innerText) e uma URL de screenshot quando o auxiliar gravou um arquivo. Os badges numerados na imagem são sobreposições de anotação, não a interface da página. Não reescreva `captureId` nem `pinId` ao colar em um agente. A linha Screenshot: /path/to/file.png, quando existir, é o único recorte que contém todos os pins.",
+            "Use `Command/Ctrl/Alt+Enter`: pressione `Command+Enter` no macOS, `Ctrl+Enter` nos outros sistemas, ou `Alt+Enter` em qualquer um para concluir e copiar a sessão completa. O Pinar confirma o sucesso visualmente. Se a conclusão falhar, mostra um erro acionável e mantém a sessão disponível para revisão e nova tentativa. Cancelar sessão a encerra sem copiar.",
+            "Trate o conteúdo da área de transferência como uma unidade: instruções legíveis, uma URL opcional do visualizador e um bloco pinar-visual-context delimitado por página. Cada bloco leva seu próprio screenshot, além de `captureId`, `pinId`, URL da página e localizadores (cssSelector, domPath, innerText). Os badges numerados são sobreposições de anotação, não a interface da página. Não reescreva `captureId` nem `pinId` ao colar em um agente.",
           ],
           bullets: [
-            "Um campo de comentário vazio ou uma captura sem pins aborta a cópia e mostra “Escreva um comentário” ou “Adicione um pin”.",
-            "Cópias degradadas ainda colam comentários e localizadores, mas a barra pode acrescentar “sem captura”, “auxiliar indisponível” ou “sem visualizador” depois de “Copiado com sucesso!”.",
-            "Prefira um Pinar local em execução para a cópia incluir um screenshot e um link do visualizador com o contexto completo.",
+            "Uma sessão sem pins salvos não pode ser concluída.",
+            "O armazenamento local e o remoto usam o mesmo comportamento de sessão contínua.",
+            "Mantenha o Pinar em execução ao usar o armazenamento local para preservar screenshots e o visualizador.",
           ],
         },
       ],
@@ -525,9 +535,9 @@ const locale = {
       ],
     },
     "copy-and-view": {
-      title: "Copiar e visualizar uma captura",
+      title: "Copiar e visualizar uma sessão",
       summary:
-        "Revise screenshots salvos e copie o contexto correlacionado pelo workspace.",
+        "Revise todos os screenshots e anotações de uma sessão salva em um único registro do workspace.",
       sections: [
         {
           heading: "Controles do visualizador",
@@ -545,7 +555,7 @@ const locale = {
         {
           heading: "Copiar pelo visualizador",
           paragraphs: [
-            "Copiar prompt grava o bloco Markdown correlacionado da captura selecionada. Abrir prompt *.md abre o Markdown público quando o compartilhamento está disponível.",
+            "Copiar prompt grava o pacote Markdown correlacionado da sessão agrupada completa. Abrir prompt *.md abre o Markdown público quando o compartilhamento está disponível.",
           ],
         },
       ],

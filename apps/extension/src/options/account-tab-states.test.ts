@@ -20,7 +20,6 @@ describe("ACCOUNT_TAB_STATES", () => {
       "free-email-invalid",
       "free-unavailable",
       "paid-pro",
-      "paid-founder",
     ]);
     assert.equal(new Set(ids).size, ids.length);
   });

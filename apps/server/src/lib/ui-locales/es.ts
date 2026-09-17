@@ -1,6 +1,7 @@
 import type { UiMessages } from "./en";
 
 const messages: UiMessages = {
+  "dashboard.sessionEvidence": "{pages} páginas · {count} capturas",
   "common.pinarHome": "Inicio de Pinar",
   "common.primaryNavigation": "Navegación principal",
   "common.home": "Inicio",
@@ -30,7 +31,6 @@ const messages: UiMessages = {
   "app.creditsAvailable": "{count} disponibles",
   "app.creditsExpire": "Algunos créditos vencen el {date}",
   "app.creditsRefill": "Reposición mensual el {date}",
-  "app.founderPlan": "Pinar Founder",
   "app.freePlan": "Plan Free",
   "app.homepage": "Página de inicio",
   "app.local": "Servidor local",
@@ -64,7 +64,7 @@ const messages: UiMessages = {
     "Dónde se guardan las capturas nuevas. El valor predeterminado del servidor usa la Inbox del primer proyecto.",
   "settings.captureHeading": "Captura",
   "settings.collection": "Colección",
-  "settings.copyOnFinishBatch": "Copiar al finalizar un lote",
+  "settings.copyOnFinishBatch": "Copiar al finalizar un sesión",
   "settings.copyOnFinishBatchDescription":
     "Pone el lote finalizado en el portapapeles para pegarlo en el agente.",
   "settings.copyOnFinishBatchLink": "Enlace",
@@ -210,7 +210,6 @@ const messages: UiMessages = {
   "dashboard.pinCount": "{count, plural, one {# pin} other {# pines}}",
   "dashboard.moreActions": "Más acciones de la sesión",
   "dashboard.view": "Ver",
-  "dashboard.reviewOnPage": "Revisar en la página",
   "dashboard.markdown": "Abrir prompt *.md",
   "dashboard.copyPrompt": "Copiar prompt",
   "dashboard.includeScreenshot": "Incluir captura en la copia para agentes",
@@ -234,11 +233,11 @@ const messages: UiMessages = {
   "dashboard.filters": "Filtros",
   "dashboard.filtersEmpty": "Sin filtros",
   "dashboard.filterActions": "Acciones del filtro",
-  "dashboard.batchActions": "Acciones de lotes",
-  "dashboard.batches": "Lotes",
+  "dashboard.batchActions": "Sesión",
+  "dashboard.batches": "Sesiones",
   "dashboard.collapseBatches": "Contraer {name}",
   "dashboard.expandBatches": "Expandir {name}",
-  "dashboard.copyBatch": "Copiar prompt (lote)",
+  "dashboard.copyBatch": "Copiar prompt (sesión)",
   "dashboard.deleteFilter": "Quitar",
   "dashboard.deleteFilterTitle": "¿Quitar esta agrupación?",
   "dashboard.deleteFilterConfirm":
@@ -299,7 +298,7 @@ const messages: UiMessages = {
   "viewer.locationExactHint":
     "Pinar puede volver a encontrar este elemento en la página original.",
   "viewer.locationProbableHint":
-    "Pinar encontró una coincidencia probable. Revisar en la página puede requerir comprobación.",
+    "Pinar encontró una coincidencia probable. Comprueba que el elemento seleccionado sea correcto.",
   "viewer.locationNeedsReviewHint":
     "Pinar puede no volver a encontrar este elemento en la página original.",
   "viewer.locationProbable": "Coincidencia probable",
@@ -449,11 +448,6 @@ const messages: UiMessages = {
   "viewer.noAgentResult": "Aún no hay resultado del agente",
   "viewer.reviewTimeline": "Historial de revisión",
   "viewer.reviewTransition": "{from} → {to}",
-  "viewer.reviewOnPage": "Revisar en la página",
-  "viewer.reviewOnPageHint":
-    "Instala la extensión de Pinar para reabrir esta sesión en la página original.",
-  "viewer.reviewOnPageFailed":
-    "No se pudo abrir la página original para revisión.",
   "viewer.aiSummary": "Resumen con IA",
   "viewer.aiSummaryTitle": "Resumen de anotaciones",
   "viewer.aiSummaryDescription":
@@ -505,7 +499,6 @@ const messages: UiMessages = {
   "pricing.projectsCollections": "Proyectos y colecciones",
   "pricing.useFree": "Usar gratis",
   "pricing.everythingFreePlus": "Todo lo de Gratis, más:",
-  "pricing.founderIncludes": "Todo lo de Pro Anual, más:",
   "pricing.proYearly": "Pro Anual",
   "pricing.proMonthly": "Pro Mensual",
   "pricing.proYearlyDescription":
@@ -524,18 +517,7 @@ const messages: UiMessages = {
   "pricing.storage5": "5 GB de almacenamiento dedicado en la nube",
   "pricing.proAiCredits": "200 créditos de IA al mes",
   "pricing.searchHistory": "Busca en todo tu historial en la nube",
-  "pricing.founder": "Pinar Founder",
-  "pricing.founderDescription":
-    "Oferta única de lanzamiento, válida mientras se ofrezca el servicio gestionado. Sin cobro recurrente.",
-  "pricing.oneTime": "pago único",
-  "pricing.founderAccess": "Acceso Founder sin suscripción",
-  "pricing.withinPolicies": "dentro de las cuotas y políticas",
-  "pricing.earlyAccess": "Acceso anticipado a nuevas funciones Pro",
-  "pricing.founderAiCredits": "500 créditos de IA de bonificación al activar",
   "pricing.unbrandedViewers": "Visores web sin la marca Pinar",
-  "pricing.getFounder": "Obtener Pinar Founder — {price}",
-  "pricing.founderSoldOut": "Cohorte Founder cerrada",
-  "pricing.founderClosed": "Founder abre pronto",
   "pricing.originalPrice": "Precio original",
   "pricing.regionalBrazil": "Precio exclusivo para Brasil",
   "pricing.addOnsTitle": "Añade capacidad cuando la necesites",
@@ -552,7 +534,6 @@ const messages: UiMessages = {
   "pricing.storage20Description":
     "Añade 20 GB a tu cuota actual en la nube y se acumula con otros paquetes.",
   "pricing.valid12Months": "válido por 12 meses",
-  "pricing.limitedLaunch": "LANZAMIENTO LIMITADO",
   "pricing.supportTitle": "Apoya el desarrollo Fair Source",
   "pricing.supportDescription":
     "¿Prefieres apoyar directamente el desarrollo con código público? Patrocina en GitHub o invita un café.",

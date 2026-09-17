@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Pinar.dev",
-  "version": "0.5.3",
+  "version": "0.6.0",
   "description": "Visual Annotations for AI Agents & Engineers",
   "default_locale": "en_US",
   "homepage_url": "https://pinar.dev",
@@ -54,12 +54,6 @@
         "default": "Alt+Shift+P"
       }
     },
-    "finish-batch": {
-      "suggested_key": {
-        "default": "Alt+Shift+B"
-      },
-      "description": "Start or finish the Pinar capture batch"
-    },
     "open-panel": {
       "description": "Open the Pinar panel",
       "suggested_key": {
@@ -67,7 +61,7 @@
       }
     },
     "cancel-batch": {
-      "description": "Close the Pinar capture batch without copying it",
+      "description": "Conclude the Pinar session without copying",
       "suggested_key": {
         "default": "Alt+Shift+X"
       }

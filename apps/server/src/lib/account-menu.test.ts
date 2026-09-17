@@ -74,15 +74,15 @@ describe("accountUsageSummary", () => {
   // Mutation captured: coercing a string balance into a number makes an
   // invalid server response look trustworthy in the account panel.
   test("rejects malformed responses instead of displaying invented quotas", () => {
-    assert.equal(accountUsageSummary({ aiCredits: { balance: 500 }, plan: "founder" }), null);
+    assert.equal(accountUsageSummary({ aiCredits: { balance: 500 }, plan: "pro" }), null);
     assert.equal(accountUsageSummary({
       aiCredits: { balance: "500", nextExpiryAt: null, nextRefillAt: null },
-      plan: "founder",
+      plan: "pro",
       storage: { nextExpiryAt: null, quotaBytes: 5 * 1024 ** 3, usedBytes: 0 },
     }), null);
     assert.equal(accountUsageSummary({
       aiCredits: { balance: 500, nextExpiryAt: "not-a-date", nextRefillAt: null },
-      plan: "founder",
+      plan: "pro",
       storage: { nextExpiryAt: null, quotaBytes: 5 * 1024 ** 3, usedBytes: 0 },
     }), null);
     assert.equal(accountUsageSummary({

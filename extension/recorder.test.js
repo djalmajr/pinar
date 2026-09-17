@@ -15,6 +15,7 @@ import {
 
 const backgroundSrc = readFileSync(new URL("./background.js", import.meta.url), "utf8");
 const contentSrc = readFileSync(new URL("./content.js", import.meta.url), "utf8");
+const continuousSessionSrc = readFileSync(new URL("./continuous-session.js", import.meta.url), "utf8");
 const privacySrc = readFileSync(new URL("./privacy.js", import.meta.url), "utf8");
 
 const T0 = Date.parse("2026-09-08T10:00:00.000Z");
@@ -27,7 +28,8 @@ describe("extension reproduction recorder", () => {
     assert.match(backgroundSrc, /recorder:cancel/);
     assert.match(backgroundSrc, /__pinarResumeRecording/);
     assert.match(contentSrc, /recorder:step/);
-    assert.match(contentSrc, /reproduction:/);
+    assert.match(backgroundSrc, /continuous\.attachReproduction/);
+    assert.match(continuousSessionSrc, /entry\.reproduction = reproduction/);
     assert.match(contentSrc, /data-hint="record"/);
     assert.match(privacySrc, /input\.reproduction/);
   });

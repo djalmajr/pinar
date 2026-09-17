@@ -4,7 +4,6 @@ import {
   batchSummary,
   copyFinishedBatch,
   markFailed,
-  openBatch,
   planCapturePersistence,
   savedCount,
 } from "./batch.js";
@@ -35,24 +34,18 @@ import {
   wantsThumbnail,
 } from "./recorder.js";
 import {
-  bindTabHydration,
   canInjectInto,
   CONTENT_INJECTION_FILES,
   EVIDENCE_HOOK_FILES,
-  dropHydrationIfTabLeftOrigin,
   endTabPins,
-  hydrationForTab,
-  isPinarHelperOrigin,
-  originOf,
   pinFrameIds,
   planSessionEnd,
-  planSessionReopen,
 } from "./session.js";
 import { createSingleFlight } from "./single-flight.js";
+import { createContinuousSession, continuousSummary, indexedDraftStore } from "./continuous-session.js";
 import "./privacy.js";
 
 const tabPins = new Map();
-const tabHydrations = new Map();
 // Reproduction recordings live here so a navigation mid-recording keeps the
 // steps; content scripts are re-injected and told to carry on.
 const tabRecordings = new Map();
@@ -60,16 +53,237 @@ const registeredInstallations = new Set();
 const registerInstallationOnce = createSingleFlight();
 // Keeping the original command id preserves every shortcut a user already bound;
 // Chrome keys bindings by name, so renaming it to "toggle-batch" would drop them.
-const BATCH_COMMAND = "finish-batch";
 const CANCEL_BATCH_COMMAND = "cancel-batch";
 const PANEL_COMMAND = "open-panel";
 const OPEN_PANEL_MENU_ID = "pinar-open-panel";
 const BATCH_MENU_ID = "pinar-batch-toggle";
 const CANCEL_BATCH_MENU_ID = "pinar-cancel-batch";
+const draftStore = indexedDraftStore(globalThis.indexedDB);
+const TOOLBAR_VISIBLE_KEY = "toolbarVisible";
+const continuous = createContinuousSession({
+  ...draftStore,
+  create: createReviewDraft,
+  capture: captureReviewEvidence,
+  save: saveReviewEvidence,
+  remove: removeReviewEvidence,
+  finish: finishReviewDraft,
+  publish: copyReviewDraft,
+  changed: () => syncBatchSurfaces().catch((error) => console.warn("Unable to refresh session controls", error)),
+});
+const reviewTabs = new Set();
+
+async function reviewScope(settings) {
+  if (settings.storageMode !== "cloud") return "local";
+  const installation = await ensureInstallationIdentity(chrome.storage.local);
+  const device = await getDeviceToken(chrome.storage.local);
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(device || installation.id));
+  const identity = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `cloud:${cloudEndpoint(settings)}:${identity}`;
+}
+
+async function createReviewDraft() {
+  const settings = await getSettings();
+  const remote = await fetchDeliveryPreferences(settings);
+  if (settings.storageMode === "cloud" && settings.enableHistory === false) throw new Error("session_history_required");
+  const destination = await getCaptureDestinationContext(settings).then((context) => context.destination).catch(async () => {
+    const stored = await chrome.storage.local.get({ captureDestinations: {} });
+    return stored.captureDestinations[settings.storageMode === "cloud" ? destinationKey(settings) : "local"] || null;
+  });
+  const startedAt = new Date().toISOString();
+  const language = getBestLanguage(remote?.language ?? settings.language);
+  return {
+    id: crypto.randomUUID(), startedAt,
+    label: translations[language].batch_label.replace("{when}", new Intl.DateTimeFormat(language, { dateStyle: "short", timeStyle: "short" }).format(new Date(startedAt))),
+    scope: await reviewScope(settings),
+    collectionId: destination?.collectionId || "",
+    includeScreenshot: remote?.includeScreenshot ?? settings.includeScreenshot !== false,
+  };
+}
+
+async function reviewDestination(draft) {
+  const settings = await getSettings();
+  if (await reviewScope(settings) !== draft.scope) throw new Error("session_destination_changed");
+  const base = settings.storageMode === "cloud" ? cloudEndpoint(settings) : await findShotBase();
+  if (!base) throw new Error("helper_unavailable");
+  let request = (path, init) => localFetch(base, path, init);
+  if (settings.storageMode === "cloud") {
+    const device = await getDeviceToken(chrome.storage.local);
+    const installation = await ensureInstallationIdentity(chrome.storage.local);
+    if (!device) await registerRemoteInstallation(base, installation);
+    const authHeaders = device ? deviceAuthHeaders(device) : installationAuthHeaders(installation);
+    // A 401 must keep the draft bound to its owner. The general remoteFetch
+    // fallback creates a fresh installation, which is wrong for an open draft.
+    request = (path, init = {}) => fetch(`${base}${path}`, { ...init, headers: { ...authHeaders, ...(init.headers || {}) } });
+  }
+  return { base, settings, request };
+}
+
+async function saveReviewEvidence(entry, draft) {
+  const { base, request } = await reviewDestination(draft);
+  const payload = {
+    id: entry.captureId, captureId: entry.captureId, createdAt: entry.createdAt,
+    page: entry.page, pins: [entry.pin], privacy: entry.privacy, warnings: entry.warnings, reproduction: entry.reproduction,
+    schemaVersion: 1, includeScreenshot: draft.includeScreenshot,
+    collectionId: draft.collectionId, batch: { id: draft.id, label: draft.label, startedAt: draft.startedAt },
+    ...(entry.shot ? { image: entry.shot } : {}),
+  };
+  const response = await request(entry.shot ? "/api/shots" : "/api/history", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error(`save_failed_${response.status}`);
+  const body = await response.json();
+  return { path: body.path || body.shotUrl || null, viewerUrl: `${base}/v/${entry.captureId}.md` };
+}
+
+async function removeReviewEvidence(entry, draft) {
+  const { request } = await reviewDestination(draft);
+  const response = await request(`/api/history/${encodeURIComponent(entry.captureId)}`, { method: "DELETE" });
+  if (!response.ok && response.status !== 404) throw new Error(`delete_failed_${response.status}`);
+}
+
+async function finishReviewDraft(draft) {
+  const { request } = await reviewDestination(draft);
+  const response = await request(`/api/batches/${encodeURIComponent(draft.id)}/finish`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ finishedAt: new Date().toISOString() }),
+  });
+  if (!response.ok) throw new Error(`finish_failed_${response.status}`);
+}
+
+async function copyReviewDraft(draft) {
+  const { request } = await reviewDestination(draft);
+  const response = await request(`/api/batches/${encodeURIComponent(draft.id)}/markdown`, { cache: "no-store" });
+  if (!response.ok) throw new Error(`copy_failed_${response.status}`);
+  await writeClipboardPlain(await response.text());
+}
+
+async function toolbarVisible() {
+  const stored = await chrome.storage.session.get({ [TOOLBAR_VISIBLE_KEY]: false });
+  return stored[TOOLBAR_VISIBLE_KEY] === true;
+}
+
+async function setToolbarVisible(visible) {
+  await chrome.storage.session.set({ [TOOLBAR_VISIBLE_KEY]: visible === true });
+}
+
+async function prepareInitialToolbarVisibility(tabId, visible) {
+  await chrome.scripting.executeScript({
+    args: [visible],
+    func: (nextVisible) => { globalThis.__pinarInitialVisible = nextVisible; },
+    target: { allFrames: true, tabId },
+  });
+}
+
+async function endReviewTabs(feedback = "finished") {
+  const tabs = await chrome.tabs.query({});
+  await Promise.all(tabs.map(async (tab) => {
+    tabPins.delete(tab.id);
+    tabRecordings.delete(tab.id);
+    await chrome.tabs.sendMessage(tab.id, { type: "review:ended", feedback }).catch(() => null);
+  }));
+  reviewTabs.clear();
+  await chrome.storage.session.set({ reviewTabs: [], [TOOLBAR_VISIBLE_KEY]: false });
+}
+
+async function concludeReview(options) {
+  for (const [tabId, recording] of tabRecordings) {
+    const reproduction = finishRecording(recording);
+    const sanitized = globalThis.__pinarPrivacy.sanitizeCapture({ pins: [], page: {}, reproduction });
+    await continuous.attachReproduction(tabId, sanitized.reproduction);
+  }
+  const result = await continuous.finish(options);
+  if (!result && await readBatch()) {
+    const legacy = await finishBatch(options);
+    if (legacy.failed) throw new Error("session_pending");
+  }
+  if (result) await endReviewTabs("finished");
+  return { ok: true };
+}
+
+async function removeReviewPin(captureId) {
+  const draft = await continuous.read();
+  const pin = draft?.entries.find((entry) => entry.captureId === captureId)?.pin;
+  await continuous.remove(captureId);
+  if (!pin) return;
+  const tabs = await chrome.tabs.query({});
+  await Promise.all(tabs.map((tab) => chrome.tabs.sendMessage(tab.id, { type: "review:pin-removed", pinId: pin.pinId || pin.id }).catch(() => null)));
+}
+
+let lastReviewShot = 0;
+async function captureReviewEvidence(entry, input) {
+  const { tabId, documentId } = input;
+  // Rate-limit the shutter, then verify the document and active tab again.
+  await wait(Math.max(0, 550 - (Date.now() - lastReviewShot)));
+  const [active] = await chrome.tabs.query({ active: true, windowId: input.windowId });
+  if (active?.id !== tabId) throw new Error("screenshot_tab_changed");
+  const target = { tabId, frameIds: [0] };
+  const [context] = await chrome.scripting.executeScript({ target, func: () => globalThis.__pinarReviewContext?.() });
+  if (!context?.result || context.result.documentId !== documentId) throw new Error("screenshot_page_changed");
+  const snapshot = context.result;
+  const point = pinPoint(entry.pin);
+  if (point.x < snapshot.scroll.x || point.y < snapshot.scroll.y || point.x > snapshot.scroll.x + snapshot.width || point.y > snapshot.scroll.y + snapshot.height) throw new Error("screenshot_pin_not_visible");
+  try {
+    await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: () => globalThis.__pinarSetHidden?.(true) });
+    lastReviewShot = Date.now();
+    const dataUrl = await chrome.tabs.captureVisibleTab(input.windowId, { format: "png" });
+    const [after] = await chrome.scripting.executeScript({ target, func: () => globalThis.__pinarReviewContext?.() });
+    const [stillActive] = await chrome.tabs.query({ active: true, windowId: input.windowId });
+    if (stillActive?.id !== tabId || after?.result?.documentId !== documentId || after.result.url !== snapshot.url || after.result.scroll.x !== snapshot.scroll.x || after.result.scroll.y !== snapshot.scroll.y) throw new Error("screenshot_page_changed");
+    const bitmap = await dataUrlBitmap(dataUrl);
+    try {
+      const dpr = bitmap.width / snapshot.width;
+      const blob = await renderPinsCrop(bitmap, shiftPinsToCapture([entry.pin], snapshot.scroll), dpr, shiftMaskRegionsToReview([...snapshot.masks, ...(input.masks || [])], snapshot.scroll));
+      return blob ? await blobToDataUrl(blob) : null;
+    } finally { bitmap.close(); }
+  } finally {
+    await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: () => globalThis.__pinarSetHidden?.(false) }).catch(() => null);
+  }
+}
+
+function shiftMaskRegionsToReview(masks, origin) {
+  return masks.map((mask) => ({ ...mask, box: { ...mask.box, x: mask.box.x - origin.x, y: mask.box.y - origin.y } }));
+}
+
+async function reportReviewError(error) {
+  console.warn("Pinar session is still pending", error);
+  const settings = await getSettings();
+  const messages = translations[getBestLanguage(settings.language)];
+  await syncBatchSurfaces({ toast: messages.overlay_session_pending, toastKind: "error" }).catch(() => null);
+}
+
+async function resumeReviewTab(tabId) {
+  const stored = await chrome.storage.session.get({ reviewTabs: [] });
+  if (!reviewTabs.has(tabId) && !stored.reviewTabs.includes(tabId)) return;
+  if (!await draftStore.read()) return;
+  await installEvidenceHook(tabId, true);
+  await prepareInitialToolbarVisibility(tabId, await toolbarVisible());
+  await chrome.scripting.executeScript({ files: CONTENT_INJECTION_FILES, target: { tabId, allFrames: true } });
+}
+
+async function persistReviewPins(message, sender, pins) {
+  const tabId = sender.tab.id;
+  reviewTabs.add(tabId);
+  const stored = await chrome.storage.session.get({ reviewTabs: [] });
+  await chrome.storage.session.set({ reviewTabs: [...new Set([...stored.reviewTabs, tabId])] });
+  const [context] = await chrome.scripting.executeScript({ target: { tabId, frameIds: [0] }, func: () => globalThis.__pinarReviewContext?.() });
+  if (!context?.result) throw new Error("screenshot_page_changed");
+  const snapshot = context.result;
+  const settings = await getSettings();
+  const sanitized = globalThis.__pinarPrivacy.sanitizeCapture({
+    fields: message.fields, pins, page: snapshot.page,
+    unevaluated: message.unevaluated || snapshot.unevaluated,
+  }, { extraQueryKeys: globalThis.__pinarPrivacy.parseExtraKeys(settings.sensitiveQueryKeys) });
+  const draft = await continuous.sync({
+    ...sanitized, tabId, windowId: sender.tab.windowId,
+    source: `${tabId}:${sender.documentId || ""}:${message.documentId}:${sender.frameId || 0}`,
+    documentId: sender.frameId ? snapshot.documentId : message.documentId,
+    masks: message.masks,
+  });
+  if (draft?.entries.some((entry) => entry.status === "pending")) await reportReviewError(new Error("session_pending"));
+}
 
 function normalizePins(pins = []) {
   return pins.map((pin, index) => {
-    const number = index + 1;
+    const number = pin.number || index + 1;
     const pinId = pin.pinId || pin.id;
     return {
       ...pin,
@@ -101,14 +315,19 @@ async function initializeInstallationIdentity() {
 async function batchState() {
   const settings = await getSettings();
   const messages = translations[getBestLanguage(settings.language)];
+  const review = continuousSummary(await draftStore.read());
+  if (review.active) return {
+    ...review,
+    label: messages.overlay_session_summary.replace("{pages}", String(review.count)).replace("{pins}", String(review.pins)) + (review.pending ? ` · ${messages.overlay_session_pending}` : ""),
+    shortcut: "Ctrl+Enter",
+  };
   const batch = await readBatch();
   const count = batch ? savedCount(batch) : 0;
-  const commands = await chrome.commands.getAll().catch(() => []);
   return {
     active: Boolean(batch),
     count,
     label: batch ? (count > 0 ? messages.batch_active.replace("{count}", String(count)) : messages.batch_on) : messages.batch_idle,
-    shortcut: commands.find((command) => command.name === BATCH_COMMAND)?.shortcut || "",
+    shortcut: "",
     summary: batchSummary(batch),
   };
 }
@@ -176,6 +395,14 @@ chrome.action.onClicked.addListener(async (tab) => {
   // deliberate no-op. Any other rejection is a real defect and stays visible.
   if (!tab.id || !canInjectInto(tab.url)) return;
   try {
+    const [probe] = await chrome.scripting.executeScript({
+      func: () => Boolean(globalThis.__pinarToggle),
+      target: { frameIds: [0], tabId: tab.id },
+    }).catch(() => []);
+    if (!probe?.result) {
+      await setToolbarVisible(true);
+      await prepareInitialToolbarVisibility(tab.id, true);
+    }
     await installEvidenceHook(tab.id, true);
     await chrome.scripting.executeScript({
       files: CONTENT_INJECTION_FILES,
@@ -247,11 +474,9 @@ chrome.commands?.onCommand.addListener((command) => {
     return;
   }
   if (command === CANCEL_BATCH_COMMAND) {
-    void finishBatch({ copy: false }).catch((error) => console.error("Unable to close the capture batch", error));
+    void concludeReview({ copy: false }).catch(reportReviewError);
     return;
   }
-  if (command !== BATCH_COMMAND) return;
-  void toggleBatch().catch((error) => console.error("Unable to toggle the capture batch", error));
 });
 
 // The action's context menu mirrors every command except _execute_action
@@ -272,11 +497,11 @@ async function syncActionMenu(state) {
   const messages = translations[getBestLanguage(settings.language)];
   const contexts = ["action"];
   const active = Boolean(state?.active);
-  const batchTitle = active
-    ? `${messages.batch_finish} · ${state.label}`
-    : messages.batch_start;
+  for (const id of ["toolbar-fixed", "toolbar-auto-hide", "review-session"]) {
+    chrome.contextMenus.remove(id, () => { void chrome.runtime.lastError; });
+  }
   await menuItem(OPEN_PANEL_MENU_ID, { contexts, title: messages.context_open_panel });
-  await menuItem(BATCH_MENU_ID, { contexts, title: batchTitle });
+  await menuItem(BATCH_MENU_ID, { contexts, title: messages.batch_finish, enabled: active });
   // Always shown so the menu matches chrome://extensions/shortcuts 1:1.
   // visible: true also unhides the item for installs that previously hid it
   // while no batch was running (update() keeps omitted properties).
@@ -289,20 +514,27 @@ chrome.contextMenus?.onClicked.addListener((info) => {
     return;
   }
   if (info.menuItemId === BATCH_MENU_ID) {
-    void toggleBatch().catch((error) => console.error("Unable to toggle the capture batch", error));
+    void concludeReview().catch(reportReviewError);
     return;
   }
   if (info.menuItemId !== CANCEL_BATCH_MENU_ID) return;
-  void finishBatch({ copy: false }).catch((error) => console.error("Unable to close the capture batch", error));
+  void concludeReview({ copy: false }).catch(reportReviewError);
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   tabPins.delete(tabId);
-  tabHydrations.delete(tabId);
   tabRecordings.delete(tabId);
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.url && reviewTabs.has(tabId)) {
+    tabPins.delete(tabId);
+    void chrome.tabs.sendMessage(tabId, { type: "review:navigated" }).catch(() => null);
+  }
+  if (changeInfo.status === "loading") tabPins.delete(tabId);
+  if (changeInfo.status === "complete" && canInjectInto(tab.url)) {
+    void resumeReviewTab(tabId).catch(reportReviewError);
+  }
   const recording = tabRecordings.get(tabId);
   if (recording && !recording.finished && changeInfo.url) {
     appendStep(recording, navigationStep(changeInfo.url, tab.title));
@@ -312,20 +544,71 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       console.warn("Unable to resume the Pinar recording after navigation", error);
     });
   }
-  if (changeInfo.status !== "complete") return;
-  const binding = hydrationForTab(tabHydrations, tabId);
-  if (!binding) return;
-  const dropped = dropHydrationIfTabLeftOrigin(tabHydrations, tabPins, tabId, tab.url || "");
-  if (dropped.dropped) {
-    void notifyTabUnavailable(tabId, dropped.reason);
-    return;
-  }
-  void hydrateBoundTab(tabId, binding).catch((error) => {
-    console.error("Unable to rehydrate Pinar session", error);
-  });
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === "toolbar:visibility") {
+    if (sender.frameId !== 0) {
+      sendResponse({ ok: true });
+      return false;
+    }
+    setToolbarVisible(message.visible)
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+  if (message.type === "app:language") {
+    let trusted = false;
+    try {
+      const url = new URL(sender.url);
+      trusted = Boolean(sender.tab) && sender.frameId === 0 && (
+        (url.protocol === "https:" && (url.hostname === "pinar.dev" || url.hostname.endsWith(".pinar.dev")))
+        || (url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname))
+      );
+    } catch { /* invalid sender */ }
+    if (!trusted || !SUPPORTED_PREF_LANGUAGES.has(message.language)) {
+      sendResponse({ ok: false });
+      return false;
+    }
+    chrome.storage.sync.set({ language: message.language })
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+  if (message.type === "review:preview") {
+    continuous.read().then(async (draft) => {
+      const entry = draft?.entries.find((item) => item.captureId === message.captureId && !item.deleted);
+      if (!entry?.shot) return sendResponse({ ok: true, preview: null });
+      const bitmap = await dataUrlBitmap(entry.shot);
+      try {
+        const scale = Math.min(1, 320 / bitmap.width, 180 / bitmap.height);
+        const canvas = new OffscreenCanvas(Math.max(1, Math.round(bitmap.width * scale)), Math.max(1, Math.round(bitmap.height * scale)));
+        canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        sendResponse({ ok: true, preview: await blobToDataUrl(await canvas.convertToBlob({ type: "image/png" })) });
+      } finally { bitmap.close(); }
+    }).catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+  if (message.type === "review:edit") {
+    const sanitized = globalThis.__pinarPrivacy.sanitizeCapture({ page: {}, pins: [{ comment: message.comment }] });
+    continuous.edit(message.captureId, sanitized.pins[0]?.comment).then(async (draft) => {
+      const entry = draft.entries.find((item) => item.captureId === message.captureId);
+      const pinId = entry.pin.pinId || entry.pin.id;
+      for (const pins of tabPins.values()) for (const pin of pins) if ((pin.pinId || pin.id) === pinId) pin.comment = entry.pin.comment;
+      const tabs = await chrome.tabs.query({});
+      await Promise.all(tabs.map((tab) => chrome.tabs.sendMessage(tab.id, { type: "review:pin-edited", pinId, comment: entry.pin.comment }).catch(() => null)));
+      sendResponse({ ok: entry.status === "saved" });
+    }).catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+  if (message.type === "review:finish" || message.type === "review:retry" || message.type === "review:discard" || message.type === "review:remove") {
+    const operation = message.type === "review:finish" ? concludeReview()
+      : message.type === "review:discard" ? continuous.discard().then(() => endReviewTabs("cancelled"))
+      : message.type === "review:remove" ? removeReviewPin(message.captureId)
+      : continuous.retry();
+    operation.then(() => sendResponse({ ok: true })).catch((error) => sendResponse({ ok: false, error: String(error.message || error) }));
+    return true;
+  }
   if (message.type === "app:open") {
     openApp()
       .then((url) => sendResponse({ ok: true, url }))
@@ -404,14 +687,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "batch:start") {
-    startBatch()
-      .then((batch) => sendResponse({ ok: true, summary: batchSummary(batch) }))
-      .catch((error) => sendResponse({ error: String(error), ok: false }));
-    return true;
+    sendResponse({ ok: false, error: "Sessions start automatically with the first pin" });
+    return false;
   }
 
   if (message.type === "batch:finish") {
-    finishBatch()
+    concludeReview()
       .then((result) => sendResponse({ ...result, ok: true }))
       .catch((error) => sendResponse({ error: String(error), ok: false }));
     return true;
@@ -420,7 +701,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "batch:cancel") {
     // Same door as the shortcut and the action menu: close without copying.
     // Forgetting the batch locally would leave its server row open forever.
-    finishBatch({ copy: false })
+    concludeReview({ copy: false })
       .then((result) => sendResponse({ ...result, ok: true }))
       .catch((error) => sendResponse({ error: String(error), ok: false }));
     return true;
@@ -447,23 +728,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.type === "session:reopen") {
-    reopenSavedSession(message.sessionId, sender)
-      .then((result) => sendResponse(result))
-      .catch((error) => sendResponse({ error: String(error), ok: false }));
-    return true;
-  }
-
   if (message.type === "pins:sync") {
     const tabId = sender.tab?.id;
     const frameId = sender.frameId ?? 0;
     if (tabId == null) {
       sendResponse({ ok: false, error: "missing tab" });
-      return false;
-    }
-    const hydration = hydrationForTab(tabHydrations, tabId);
-    if (hydration && message.sessionId && message.sessionId !== hydration.sessionId) {
-      sendResponse({ ok: false, error: "session_mismatch" });
       return false;
     }
     const existing = tabPins.get(tabId) ?? [];
@@ -472,6 +741,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       ...(message.pins ?? []).map((pin) => ({ ...pin, frameId })),
     ]);
     tabPins.set(tabId, next);
+    if (message.persist) {
+      persistReviewPins(message, sender, next.filter((pin) => pin.frameId === frameId))
+        .then(() => sendResponse({ ok: true, pins: next }))
+        .catch((error) => { reportReviewError(error); sendResponse({ ok: false, pins: next, error: String(error.message || error) }); });
+      return true;
+    }
     sendResponse({ ok: true, pins: next });
     return false;
   }
@@ -586,7 +861,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     if (plan.clearPins) {
       endTabPins(tabPins, plan.tabId);
-      tabHydrations.delete(plan.tabId);
       tabRecordings.delete(plan.tabId);
     }
     chrome.scripting
@@ -1215,92 +1489,6 @@ async function localFetch(base, path, init = {}) {
   return response;
 }
 
-async function fetchHydratePayload(appOrigin, sessionId) {
-  const path = `/api/sessions/${encodeURIComponent(sessionId)}`;
-  const response = isPinarHelperOrigin(appOrigin)
-    ? await localFetch(appOrigin, path)
-    : await remoteFetch(appOrigin, path);
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok || !body.session) throw new Error(body.error || "Session not found");
-  return {
-    reviews: Array.isArray(body.reviews) ? body.reviews : [],
-    session: body.session,
-  };
-}
-
-async function notifyTabUnavailable(tabId, reason) {
-  try {
-    await chrome.scripting.executeScript({
-      args: [reason || "unavailable"],
-      func: (unavailableReason) => globalThis.__pinarShowUnavailable?.(unavailableReason),
-      target: { allFrames: true, tabId },
-    });
-  } catch {
-    /* Tab may already be gone or not injectable. */
-  }
-}
-
-async function tabHasHydrate(tabId) {
-  try {
-    const results = await chrome.scripting.executeScript({
-      func: () => typeof globalThis.__pinarHydrateSession === "function",
-      target: { allFrames: false, tabId },
-    });
-    return results.some((entry) => entry?.result === true);
-  } catch {
-    return false;
-  }
-}
-
-async function hydrateBoundTab(tabId, binding) {
-  if (binding.hydrated) return { ok: true, tabId };
-  const payload = {
-    reviews: binding.payload.reviews,
-    session: binding.payload.session,
-    sessionId: binding.sessionId,
-  };
-  if (payload.session?.id !== binding.sessionId && payload.session?.captureId !== binding.sessionId) {
-    return { ok: false, error: "session_mismatch" };
-  }
-  binding.hydrated = true;
-  endTabPins(tabPins, tabId);
-  if (!await tabHasHydrate(tabId)) {
-    await installEvidenceHook(tabId, true);
-    await chrome.scripting.executeScript({
-      files: CONTENT_INJECTION_FILES,
-      target: { allFrames: true, tabId },
-    });
-  }
-  await chrome.scripting.executeScript({
-    args: [payload],
-    func: (hydratePayload) => globalThis.__pinarHydrateSession?.(hydratePayload),
-    target: { allFrames: true, tabId },
-  });
-  return { ok: true, tabId };
-}
-
-async function reopenSavedSession(sessionId, sender) {
-  const appUrl = sender?.url || "";
-  const appOrigin = originOf(appUrl);
-  const fetched = await fetchHydratePayload(appOrigin, sessionId);
-  const plan = planSessionReopen({
-    appUrl,
-    requestedSessionId: sessionId,
-    session: fetched.session,
-  });
-  if (!plan.ok) return plan;
-  const tab = await chrome.tabs.create({ url: plan.pageUrl });
-  if (tab.id == null) return { ok: false, error: "missing tab" };
-  bindTabHydration(tabHydrations, tab.id, {
-    hydrated: false,
-    origin: plan.origin,
-    pageUrl: plan.pageUrl,
-    payload: fetched,
-    sessionId: plan.sessionId,
-  });
-  return { ok: true, tabId: tab.id };
-}
-
 async function fetchDestinationTree(settings, localBase) {
   if (settings.storageMode === "cloud") {
     const endpoint = cloudEndpoint(settings);
@@ -1444,21 +1632,6 @@ async function writeBatch(batch) {
   return batch;
 }
 
-async function startBatch() {
-  const settings = await getSettings();
-  const language = getBestLanguage(settings.language);
-  const startedAt = new Date();
-  const when = new Intl.DateTimeFormat(language, { dateStyle: "short", timeStyle: "short" }).format(startedAt);
-  const label = translations[language].batch_label.replace("{when}", when);
-  const batch = await writeBatch(openBatch({
-    id: crypto.randomUUID(),
-    label,
-    startedAt: startedAt.toISOString(),
-  }));
-  await syncBatchSurfaces();
-  return batch;
-}
-
 async function finishBatch({ copy = true } = {}) {
   const batch = await readBatch();
   if (!batch) return { summary: null };
@@ -1521,12 +1694,6 @@ async function finishBatch({ copy = true } = {}) {
   await ensureContentOnActiveTab();
   await syncBatchSurfaces({ toast, toastKind: failed ? "error" : "ok" });
   return { copied, failed, summary, toast };
-}
-
-async function toggleBatch() {
-  const batch = await readBatch();
-  if (!batch) return startBatch();
-  return finishBatch();
 }
 
 async function getAuthSession() {

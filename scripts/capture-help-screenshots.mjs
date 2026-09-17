@@ -43,7 +43,6 @@ const SCREENSHOT_TARGETS = {
   },
   "capture-masks": { path: "/screenshot-fixtures/capture-overlay?mode=masks" },
   "capture-pins": { path: "/screenshot-fixtures/capture-overlay?mode=pins" },
-  "capture-review": { path: "/screenshot-fixtures/capture-overlay?mode=review" },
   "capture-selection": {
     path: "/screenshot-fixtures/capture-overlay?mode=selection",
   },

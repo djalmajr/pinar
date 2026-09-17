@@ -5,6 +5,16 @@
   }
 
   const DRAG_THRESHOLD = 6;
+  let reviewDocumentId = crypto.randomUUID();
+  let reviewDocumentUrl = location.href;
+  function currentReviewDocumentId() {
+    if (reviewDocumentUrl !== location.href) {
+      reviewDocumentUrl = location.href;
+      reviewDocumentId = crypto.randomUUID();
+    }
+    return reviewDocumentId;
+  }
+  let pendingReviewSync = Promise.resolve();
   // How long the copy confirmation stays up before the overlay closes.
   const COPY_CONFIRMATION_MS = 2000;
   // How long a copy error stays up before the overlay closes; the pins are kept
@@ -85,8 +95,10 @@
   } = globalThis.__pinarKeyboardEvents;
   const captureSnapshot = globalThis.__pinarSnapshot?.captureSnapshot ?? (() => undefined);
 
+  const initialVisible = globalThis.__pinarInitialVisible !== false;
+  delete globalThis.__pinarInitialVisible;
   const state = {
-    active: true,
+    active: initialVisible,
     recording: false,
     recordingCount: 0,
     batch: { active: false, label: "", shortcut: "" },
@@ -111,11 +123,6 @@
     showPinRegions: true,
     userMasks: [],
     dismissedMaskIds: new Set(),
-    reviewMode: false,
-    reviewSessionId: null,
-    reviews: [],
-    repositionPinId: null,
-    unavailable: false,
   };
 
   const selection = {
@@ -158,27 +165,38 @@
     overlay_copying: "Saving the annotations…",
     overlay_saved: "Annotations saved successfully!",
     overlay_helper_unavailable: "helper unavailable",
-    overlay_hint_clear_long: "Cancel",
-    overlay_hint_clear_short: "Cancel",
-    overlay_hint_copy_long: "Copy",
-    overlay_hint_copy_short: "Copy",
+    overlay_hint_clear_long: "Hide",
+    overlay_hint_clear_short: "Hide",
+    overlay_hint_copy_long: "Conclude and copy",
+    overlay_hint_copy_short: "Finish",
+    overlay_session_summary: "{pages} pages · {pins} pins",
+    overlay_session_start: "Add a pin to start a session",
+    overlay_session_review: "Review session",
+    overlay_review_short: "Review",
+    overlay_session_back: "Back to page",
+    overlay_session_saved: "Saved",
+    overlay_session_captured: "Captured",
+    overlay_session_cancelled: "Session cancelled",
+    overlay_session_pending: "Pending — review and retry",
+    overlay_session_finish: "Conclude and copy",
+    overlay_session_retry: "Retry",
+    overlay_session_discard: "Discard session",
+    overlay_session_remove: "Remove",
+    overlay_session_finished: "Session copied",
+    overlay_session_finish_failed: "Could not finish the session · review and retry",
     overlay_hint_mask_long: "Mask",
     overlay_hint_mask_short: "Mask",
     overlay_hint_pin: "Click or drag",
     overlay_hint_regions: "Regions",
     overlay_hint_tune_long: "Adjust selection",
-    overlay_hint_tune_short: "Adjust selection",
+    overlay_hint_tune_short: "Adjust",
     overlay_mask_mode: "Drag to hide a region · click a mask to restore",
     overlay_no_screenshot: "no screenshot",
     overlay_no_viewer: "no viewer",
-    overlay_origin_mismatch: "This page is not the original capture URL",
-    overlay_page_unavailable: "Original page is unavailable",
     overlay_pin_mode: "Pin mode",
     overlay_regions_off: "Showing pins only",
     overlay_regions_on: "Showing pins and regions",
-    overlay_place_pin: "Click the correct element to place this pin",
     overlay_region_hidden: "Region hidden · click the mask to restore",
-    overlay_reviewing: "Reviewing saved session · pending pins need a manual place",
     overlay_write_comment: "Write a comment first",
     overlay_hint_record_long: "Record steps",
     overlay_hint_record_short: "Record",
@@ -196,13 +214,14 @@
     inset: "0",
     pointerEvents: "none",
     position: "fixed",
+    display: initialVisible ? "" : "none",
     zIndex: "2147483646",
   });
   const shadow = host.attachShadow({ mode: "closed" });
   shadow.innerHTML = `
     <style>
       :host { all: initial; }
-      .toolbar, .composer, .preview {
+      .toolbar, .composer, .preview, .review-panel {
         cursor: default;
         -webkit-user-select: auto;
         user-select: auto;
@@ -234,6 +253,33 @@
         z-index: 3;
       }
       .toolbar.pass-through { opacity: 0; pointer-events: none; }
+      :host([data-review-open]) .toolbar { display: none; }
+      :host([data-review-open]) .marker, :host([data-review-open]) .preview,
+      :host([data-review-open]) .outline, :host([data-review-open]) .composer,
+      :host([data-review-open]) .privacy-mask, :host([data-review-open]) .toast { display: none !important; }
+      .review-panel button:disabled { opacity: .5; cursor: default !important; }
+      .review-panel { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); width: 420px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; box-sizing: border-box; padding: 12px; border: 1px solid rgba(15,23,42,.18); border-radius: 8px; background: #fff; color: #262626; box-shadow: 0 10px 28px rgba(15,23,42,.18), 0 1px 2px rgba(15,23,42,.10); pointer-events: auto; font: 14px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .review-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+      .review-row { padding: 12px; margin-bottom: 12px; border: 1px solid rgba(15,23,42,.12); border-radius: 12px; background: #fff; overflow-wrap: anywhere; }
+      .review-heading { display: flex; align-items: center; gap: 8px; }
+      .review-heading strong { flex: 1; min-width: 0; font-size: 12px; }
+      .review-remove { flex-shrink: 0; border: 0; background: none; color: #737373; width: 28px; height: 28px; border-radius: 6px; cursor: pointer; display: grid; place-items: center; }
+      .review-remove:hover { background: #f5f5f5; color: #262626; }
+      .review-pin { display: inline-grid; place-items: center; min-width: 24px; height: 24px; border-radius: 12px 12px 12px 2px; background: ${MARK}; color: #fff; font-size: 12px; font-weight: 600; }
+      .review-target { margin-top: 8px; font-size: 13px; font-weight: 600; }
+      .review-comment { box-sizing: border-box; display: block; width: 100%; resize: vertical; min-height: 48px; padding: 8px; margin: 4px 0; border: 1px solid transparent; border-radius: 6px; background: #fff; color: #262626; font: inherit; }
+      .review-comment:hover { border-color: #e5e5e5; }
+      .review-comment:focus { outline: 2px solid ${MARK}; outline-offset: 1px; }
+      .review-path { display: block; padding: 8px; background: #f1f3f3; border-radius: 6px; color: #647780; font: 10px/1.4 monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .review-preview { display: block; max-width: 100%; max-height: 100px; margin-top: 8px; border: 1px solid #e5e5e5; border-radius: 6px; object-fit: contain; }
+      .review-status { display: block; margin-top: 6px; font-size: 11px; }
+      .review-status-banner { padding: 9px 10px; margin-bottom: 12px; border: 1px solid rgba(15,23,42,.12); border-radius: 8px; color: #262626; font-size: 12px; font-weight: 500; }
+      .review-status-banner[data-kind="error"] { color: #E5484D; }
+      .review-status-banner[data-kind="ok"] { color: #1F7A4D; }
+      .review-actions { position: sticky; bottom: -12px; background: #fff; padding: 12px 0; border-top: 1px solid #e5e5e5; }
+      .review-row p { margin: 8px 0; }
+      .review-row small { color: #737373; }
+      .review-panel button:focus-visible { outline: 2px solid ${MARK}; outline-offset: 2px; }
       .toast {
         background: rgba(255,255,255,.96);
         border: 1px solid rgba(15,23,42,.18);
@@ -311,6 +357,7 @@
       }
       @media (max-width: 1000px) {
         .hint[data-hint="pin"] { display: none; }
+        .online-view > .state-icon { display: none; }
       }
       @media (max-width: 920px) { .hint[data-hint="regions"] { display: none; } }
       @media (max-width: 980px) { .hint[data-hint="record"] { display: none; } }
@@ -319,6 +366,9 @@
         .hint[data-hint="tune"] { display: none; }
       }
       @media (max-width: 660px) { .hint[data-hint="clear"] { display: none; } }
+      @media (max-width: 480px) {
+        .hint .long, .hint .short { display: none; }
+      }
       .status { color: #262626; font-weight: 500; }
       .status[data-kind="error"] { color: #E5484D; }
       .status[data-kind="ok"] { color: #1F7A4D; }
@@ -455,17 +505,6 @@
         text-overflow: ellipsis;
         white-space: nowrap;
       }
-        /* The batch reads as one more hint. Its state is the wording, not
-         decoration - "Batch off" versus a live count. Hide it when Chrome has
-         not bound a shortcut, so an empty kbd does not sit in the bar. It
-         lives outside .instructions so the hints clip before it. */
-      .batch-pill {
-        align-items: center;
-        display: inline-flex;
-        flex: 0 0 auto;
-        gap: 5px;
-        white-space: nowrap;
-      }
       .composer {
         background: transparent;
         display: none;
@@ -562,16 +601,12 @@
         <span class="instructions" data-ref="instructions">
           <span class="hint" data-hint="pin" data-i18n="overlay_hint_pin">${t("overlay_hint_pin")}</span>
           <span class="hint" data-hint="tune"><span class="keys"><kbd>↑</kbd><kbd>↓</kbd></span><span class="long" data-i18n="overlay_hint_tune_long">${t("overlay_hint_tune_long")}</span><span class="short" data-i18n="overlay_hint_tune_short">${t("overlay_hint_tune_short")}</span></span>
-          <span class="hint" data-hint="copy"><span class="keys"><kbd>${sendMod}+↵</kbd><kbd>Alt+↵</kbd></span><span class="long" data-i18n="overlay_hint_copy_long">${t("overlay_hint_copy_long")}</span><span class="short" data-i18n="overlay_hint_copy_short">${t("overlay_hint_copy_short")}</span></span>
+          <span class="hint" data-hint="copy"><span class="keys"><kbd>${sendMod}/Alt + ⏎</kbd></span><span class="long" data-i18n="overlay_hint_copy_long">${t("overlay_hint_copy_long")}</span><span class="short" data-i18n="overlay_hint_copy_short">${t("overlay_hint_copy_short")}</span></span>
           <span class="hint" data-hint="mask"><span class="keys"><kbd>M</kbd></span><span class="long" data-i18n="overlay_hint_mask_long">${t("overlay_hint_mask_long")}</span><span class="short" data-i18n="overlay_hint_mask_short">${t("overlay_hint_mask_short")}</span></span>
           <span class="hint" data-hint="regions"><span class="keys"><kbd>R</kbd></span><span data-i18n="overlay_hint_regions">${t("overlay_hint_regions")}</span></span>
           <span class="hint" data-hint="record"><span class="keys"><kbd>G</kbd></span><span class="long" data-i18n="overlay_hint_record_long">${t("overlay_hint_record_long")}</span><span class="short" data-i18n="overlay_hint_record_short">${t("overlay_hint_record_short")}</span></span>
+          <span class="hint" data-hint="review"><span class="keys"><kbd>Tab</kbd></span><span class="long" data-i18n="overlay_session_review">${t("overlay_session_review")}</span><span class="short" data-i18n="overlay_review_short">${t("overlay_review_short")}</span></span>
           <span class="hint" data-hint="clear"><span class="keys"><kbd>esc</kbd></span><span class="long" data-i18n="overlay_hint_clear_long">${t("overlay_hint_clear_long")}</span><span class="short" data-i18n="overlay_hint_clear_short">${t("overlay_hint_clear_short")}</span></span>
-        </span>
-        <span class="status" data-ref="toolbarStatus" hidden></span>
-        <span class="batch-pill" data-ref="batchPill">
-          <kbd data-ref="batchPillKey" hidden></kbd>
-          <span data-ref="batchPillText"></span>
         </span>
       </div>
       <div class="view progress-view" data-ref="progressView" hidden>
@@ -584,7 +619,16 @@
         <span class="progress-pct" data-ref="progressPct"></span>
       </div>
     </div>
-    <div class="toast" data-ref="toast" role="status" aria-live="polite" hidden></div>` : ""}
+    <div class="toast" data-ref="toast" role="status" aria-live="polite" hidden></div>
+    <section class="review-panel" data-ref="reviewPanel" role="dialog" aria-label="${t("overlay_session_review")}" hidden>
+      <div class="review-status-banner" data-ref="reviewStatus" role="status" aria-live="polite" hidden></div>
+      <div data-ref="reviewList"></div>
+      <div class="review-actions">
+        <button class="btn-add" type="button" data-ref="reviewFinish" data-i18n="overlay_session_finish">${t("overlay_session_finish")}</button>
+        <button class="btn-cancel" type="button" data-ref="reviewRetry" data-i18n="overlay_session_retry">${t("overlay_session_retry")}</button>
+        <button class="btn-cancel" type="button" data-ref="reviewDiscard" data-i18n="overlay_session_discard">${t("overlay_session_discard")}</button>
+      </div>
+    </section>` : ""}
     <div class="outline" data-ref="outline"><span class="outline-badge" data-ref="outlineBadge"></span></div>
     <div data-ref="layer"></div>
     <div class="preview" data-ref="preview" hidden>
@@ -609,6 +653,9 @@
   `;
 
   const ui = {
+    reviewPanel: shadow.querySelector("[data-ref=reviewPanel]"),
+    reviewStatus: shadow.querySelector("[data-ref=reviewStatus]"),
+    reviewList: shadow.querySelector("[data-ref=reviewList]"),
     cancel: shadow.querySelector("[data-ref=cancel]"),
     composer: shadow.querySelector("[data-ref=composer]"),
     deleteDraft: shadow.querySelector("[data-ref=deleteDraft]"),
@@ -624,14 +671,10 @@
     selectionTag: shadow.querySelector("[data-ref=selectionTag]"),
     toast: shadow.querySelector("[data-ref=toast]"),
     toolbar: shadow.querySelector(".toolbar"),
-    toolbarStatus: shadow.querySelector("[data-ref=toolbarStatus]"),
     onlineView: shadow.querySelector("[data-ref=onlineView]"),
     progressView: shadow.querySelector("[data-ref=progressView]"),
     progressText: shadow.querySelector("[data-ref=progressText]"),
     progressPct: shadow.querySelector("[data-ref=progressPct]"),
-    batchPill: shadow.querySelector("[data-ref=batchPill]"),
-    batchPillKey: shadow.querySelector("[data-ref=batchPillKey]"),
-    batchPillText: shadow.querySelector("[data-ref=batchPillText]"),
   };
 
   document.documentElement.append(host);
@@ -803,7 +846,6 @@
   }
 
   function locatePin(pin) {
-    pin = freezeHistorical(pin);
     if (pin.location?.evidence?.includes("manual-reposition")) {
       return { ...pin, location: pin.location };
     }
@@ -831,21 +873,6 @@
       };
     }
     return { ...projectPin(pin, currentScroll()), location };
-  }
-
-  function freezeHistorical(pin) {
-    if (!state.reviewMode) return pin;
-    return {
-      ...pin,
-      historicalAnchor: pin.historicalAnchor || pin.anchor,
-      historicalBox: pin.historicalBox || pin.box,
-    };
-  }
-
-  function reviewStatusFor(pin) {
-    const pinId = pin.id || pin.pinId;
-    const review = state.reviews.find((item) => item.pinId === pinId);
-    return review?.status || (state.reviewMode ? "open" : "");
   }
 
   function isScrollContainer(element) {
@@ -1291,29 +1318,18 @@
       }
     }
     const hasStatus = Boolean(state.status);
-    if (ui.instructions) ui.instructions.hidden = state.reviewMode;
     if (ui.toast) {
       ui.toast.hidden = !hasStatus;
       ui.toast.replaceChildren(Object.assign(document.createElement("span"), { textContent: state.status?.text ?? "" }));
       ui.toast.dataset.kind = state.status?.kind ?? "";
       ui.toast.style.setProperty("--progress", String(state.progress ?? 0));
     }
-    if (ui.toolbarStatus) {
-      // Review owns this slot; the batch pill has its own so one never hides the other.
-      const banner = state.reviewMode ? reviewBannerText() : "";
-      ui.toolbarStatus.hidden = !banner;
-      ui.toolbarStatus.textContent = banner;
-      ui.toolbarStatus.dataset.kind = state.reviewMode && state.unavailable ? "error" : "info";
-    }
-    if (ui.batchPill) {
-      const shortcut = (state.batch.shortcut ?? "").trim();
-      ui.batchPill.hidden = !shortcut;
-      ui.batchPillText.textContent = state.batch.label;
-      ui.batchPillKey.textContent = shortcut;
-      ui.batchPillKey.hidden = !shortcut;
+    if (ui.reviewStatus) {
+      ui.reviewStatus.hidden = !hasStatus;
+      ui.reviewStatus.textContent = state.status?.text ?? "";
+      ui.reviewStatus.dataset.kind = state.status?.kind ?? "";
     }
     document.documentElement.toggleAttribute("data-pinar-mask-mode", state.maskMode);
-    document.documentElement.toggleAttribute("data-pinar-review", state.reviewMode);
   }
 
   // The percentage moves with the fill (same 240ms as its transition) instead
@@ -1385,12 +1401,6 @@
     renderChrome();
   }
 
-  function reviewBannerText() {
-    if (state.unavailable) return t("overlay_page_unavailable");
-    if (state.repositionPinId) return t("overlay_place_pin");
-    return t("overlay_reviewing");
-  }
-
   function setStatus(text, kind = "info", progress = null) {
     clearTimeout(state.statusTimer);
     state.status = text ? { kind, text } : null;
@@ -1415,7 +1425,15 @@
       active: Boolean(next?.active),
       label: next?.label || "",
       shortcut: next?.shortcut || "",
+      entries: next?.entries || [],
+      nextNumber: next?.nextNumber || 1,
     };
+    for (const pin of state.pins) {
+      const entry = state.batch.entries.find((entry) => entry.pinId === (pin.pinId || pin.id));
+      if (entry?.number) { pin.number = entry.number; pin.color = pinColor(entry.number); }
+    }
+    renderMarkers();
+    renderReviewList();
     if (!next?.toast) {
       renderChrome();
       return;
@@ -1435,6 +1453,99 @@
     }, COPY_CONFIRMATION_MS);
   }
 
+  function renderReviewList() {
+    if (!ui.reviewList) return;
+    if (shadow.activeElement?.matches(".review-comment:not(:disabled)")) return;
+    for (const name of ["reviewFinish", "reviewDiscard"]) {
+      shadow.querySelector(`[data-ref=${name}]`).disabled = !state.batch.entries?.length;
+    }
+    shadow.querySelector("[data-ref=reviewRetry]").hidden = !state.batch.entries?.some((entry) => entry.status !== "saved");
+    ui.reviewList.replaceChildren();
+    for (const entry of state.batch.entries || []) {
+      const row = document.createElement("div");
+      row.className = "review-row";
+      const heading = document.createElement("div");
+      heading.className = "review-heading";
+      const badge = document.createElement("span");
+      badge.className = "review-pin";
+      badge.style.background = pinColor(entry.number);
+      badge.textContent = entry.number;
+      const title = document.createElement("strong");
+      title.textContent = entry.page.title || entry.page.url;
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "review-remove";
+      remove.title = t("overlay_session_remove");
+      remove.setAttribute("aria-label", t("overlay_session_remove"));
+      remove.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m6 6 12 12M6 18 18 6"/></svg>';
+      remove.addEventListener("click", async () => {
+        remove.disabled = true;
+        const response = await chrome.runtime.sendMessage({ type: "review:remove", captureId: entry.captureId });
+        if (!response?.ok) { remove.disabled = false; flashStatus(t("overlay_session_pending")); }
+      });
+      heading.append(badge, title, remove);
+      const target = document.createElement("div");
+      target.className = "review-target";
+      target.textContent = entry.type === "area" ? t("overlay_hint_regions") : entry.tag || "";
+      const comment = document.createElement("textarea");
+      comment.className = "review-comment";
+      comment.value = entry.comment;
+      comment.setAttribute("aria-label", t("overlay_comment"));
+      comment.rows = 2;
+      comment.addEventListener("keydown", (event) => event.stopPropagation());
+      comment.addEventListener("change", async () => {
+        if (!comment.value.trim()) { comment.value = entry.comment; return; }
+        comment.disabled = true;
+        const response = await chrome.runtime.sendMessage({ type: "review:edit", captureId: entry.captureId, comment: sanitizeCapture({ fields: activeScan().fields, page: pageContext(), pins: [{ comment: comment.value }] }).pins[0].comment });
+        comment.disabled = false;
+        status.textContent = t(response?.ok ? "overlay_session_saved" : "overlay_session_pending");
+      });
+      const status = document.createElement("small");
+      status.className = "review-status";
+      status.setAttribute("role", "status");
+      status.textContent = entry.status === "saved" ? t("overlay_session_captured") : t("overlay_session_pending");
+      row.append(heading, target, comment);
+      if (entry.path) {
+        const path = document.createElement("code");
+        path.className = "review-path";
+        path.textContent = entry.path;
+        path.title = entry.path;
+        row.append(path);
+      }
+      if (!ui.reviewPanel.hidden) chrome.runtime.sendMessage({ type: "review:preview", captureId: entry.captureId }).then((response) => {
+        if (!response?.preview || !row.isConnected) return;
+        const preview = document.createElement("img");
+        preview.className = "review-preview";
+        preview.src = response.preview;
+        preview.alt = title.textContent;
+        row.insertBefore(preview, status);
+      }).catch(() => null);
+      row.append(status);
+      ui.reviewList.append(row);
+    }
+    if (!state.batch.entries?.length) ui.reviewList.textContent = t("overlay_session_start");
+  }
+
+  function setReviewOpen(open) {
+    if (!ui.reviewPanel) return;
+    ui.reviewPanel.hidden = !open;
+    if (open) renderReviewList();
+    host.toggleAttribute("data-review-open", open);
+    document.documentElement.toggleAttribute("data-pinar-active", state.active && !open);
+    if (open) document.documentElement.removeAttribute("data-pinar-mask-mode");
+    hideOutline();
+  }
+  shadow.querySelector("[data-ref=reviewFinish]")?.addEventListener("click", () => void sendPins());
+  shadow.querySelector("[data-ref=reviewRetry]")?.addEventListener("click", async () => {
+    await syncPins(true);
+    const response = await chrome.runtime.sendMessage({ type: "review:retry" });
+    if (!response?.ok) flashStatus(t("overlay_session_pending"));
+  });
+  shadow.querySelector("[data-ref=reviewDiscard]")?.addEventListener("click", async () => {
+    const response = await chrome.runtime.sendMessage({ type: "review:discard" });
+    if (!response?.ok) flashStatus(t("overlay_session_pending"));
+  });
+
   async function syncBatchLabel() {
     try {
       const response = await chrome.runtime.sendMessage({ type: "batch:get" });
@@ -1449,10 +1560,12 @@
       node.textContent = t(node.getAttribute("data-i18n"));
     });
     if (ui.input) ui.input.placeholder = t("overlay_comment");
+    ui.reviewPanel?.setAttribute("aria-label", t("overlay_session_review"));
     renderChrome();
   }
 
   function applyUiMessages(next) {
+    ui.toolbar?.classList.remove("pass-through");
     if (!next?.messages || typeof next.messages !== "object") return;
     messages = next.messages;
     applyOverlayCopy();
@@ -1500,7 +1613,7 @@
   function canSelect() {
     // While a capture is being copied the overlay is a status display, not a
     // picker: no outline, no new pins, until it closes or reopens fresh.
-    return state.active && !state.sending && !state.unavailable && (!state.reviewMode || Boolean(state.repositionPinId));
+    return state.active && !host.hasAttribute("data-review-open") && !state.sending;
   }
 
   function updateOutline() {
@@ -1513,7 +1626,7 @@
         normBox(state.drag),
         true,
         true,
-        state.maskMode ? "#111827" : pinColor(state.pins.length + 1),
+        state.maskMode ? "#111827" : pinColor(nextPinNumber()),
         true,
       );
       return;
@@ -1524,7 +1637,7 @@
         draft.box,
         draft.kind === "area",
         false,
-        draft.color || pinColor(state.pins.length + 1),
+        draft.color || pinColor(nextPinNumber()),
         true,
       );
       return;
@@ -1556,14 +1669,13 @@
     };
   }
 
-  function markerHtml(point, index, pinId, color = pinColor(index + 1), location, reviewStatus) {
+  function markerHtml(point, index, pinId, color = pinColor(index + 1), location) {
     const body = `${bubbleSvg({ color })}<span class="marker-n">${index + 1}</span>`;
     const pending = isPendingLocation(location);
     const confidence = location?.confidence ? ` data-location-confidence="${escapeAttr(location.confidence)}"` : "";
-    const review = reviewStatus ? ` data-review-status="${escapeAttr(reviewStatus)}"` : "";
     const cls = pending ? "marker is-pending" : "marker";
     if (pinId) {
-      return `<button type="button" class="${cls}" data-pin="${pinId}"${confidence}${review} style="left:${point.x}px;top:${point.y}px">${body}</button>`;
+      return `<button type="button" class="${cls}" data-pin="${pinId}"${confidence} style="left:${point.x}px;top:${point.y}px">${body}</button>`;
     }
     return `<span class="${cls}" data-draft="1"${confidence} style="left:${point.x}px;top:${point.y}px">${body}</span>`;
   }
@@ -1596,16 +1708,15 @@
       const visible = viewportPin(pin);
       return markerHtml(
         pinPoint(visible),
-        index,
+        (pin.number || index + 1) - 1,
         pin.id,
         pin.color,
         visible.location,
-        reviewStatusFor(pin),
       );
     });
     if (state.draft && !state.draft.editId) {
       const visible = viewportPin(state.draft);
-      markers.push(markerHtml(pinPoint(visible), state.pins.length, undefined, state.draft.color, visible.location));
+      markers.push(markerHtml(pinPoint(visible), nextPinNumber() - 1, undefined, state.draft.color, visible.location));
     }
     ui.layer.innerHTML = `${masks.join("")}${regions.join("")}${markers.join("")}`;
     placeComposer();
@@ -1717,12 +1828,11 @@
     }
     const index = state.pins.indexOf(pin);
     const pos = pinAnchor(pin);
-    ui.previewN.textContent = String(index + 1);
+    ui.previewN.textContent = String(pin.number || index + 1);
     ui.previewN.style.background = pin.color || pinColor(index + 1);
     ui.previewText.textContent = pin.comment.replaceAll("\n", " ");
     const visible = viewportPin(pin);
     const bits = [];
-    if (state.reviewMode) bits.push(reviewStatusFor(pin) || "open");
     if (visible.location?.confidence) bits.push(visible.location.confidence);
     if (isPendingLocation(visible.location)) bits.push("Needs review");
     if (bits.length) ui.previewText.textContent = `${ui.previewText.textContent} · ${bits.join(" · ")}`;
@@ -1812,6 +1922,9 @@
     openDraft({ ...pin, editId: pin.id });
   }
 
+  function nextPinNumber() {
+    return Math.max(state.batch.nextNumber || 1, ...state.pins.map((pin) => (pin.number || 0) + 1));
+  }
   function saveDraft() {
     if (!state.draft) return true;
     const comment = ui.input.value.trim();
@@ -1825,14 +1938,15 @@
     } else {
       state.pins.push({
         ...state.draft,
-        color: state.draft.color || pinColor(state.pins.length + 1),
+        number: nextPinNumber(),
+        color: state.draft.color || pinColor(nextPinNumber()),
         comment,
         id: crypto.randomUUID(),
       });
     }
     state.draft = null;
     renderChrome();
-    void syncPins();
+    pendingReviewSync = syncPins(true);
     updateOutline();
     renderMarkers();
     return true;
@@ -1841,12 +1955,12 @@
   function deleteDraft() {
     if (state.draft?.editId) {
       state.pins = state.pins.filter((pin) => pin.id !== state.draft.editId);
-      void syncPins();
+      pendingReviewSync = syncPins(true);
     }
     cancelDraft();
   }
 
-  async function syncPins() {
+  async function syncPins(persist = false) {
     const { offset, topScroll } = await requestTopOffset();
     const pins = state.pins.map((pin) => {
       if (isEmbedded) {
@@ -1863,7 +1977,7 @@
       }
 
       let liveBox;
-      let working = freezeHistorical(pin);
+      let working = pin;
       if (working.kind === "area") {
         // Area boxes are viewport rects plus nested layout scroll. Capture
         // tiles the window, so convert the *current* projected viewport box
@@ -1906,13 +2020,22 @@
     });
     const response = await chrome.runtime.sendMessage({
       pins,
-      sessionId: state.reviewSessionId || undefined,
+      persist,
+      documentId: currentReviewDocumentId(),
+      ...(persist ? {
+        // Values stay inside the trusted extension long enough for the worker
+        // to redact matching secrets from comments/locators before persistence.
+        fields: activeScan().fields,
+        unevaluated: activeScan().unevaluated,
+        masks: activeMaskRegions().map((mask) => ({ ...mask, box: { ...mask.box, x: mask.box.x + (isEmbedded ? offset.x + topScroll.x - currentScroll().x : 0), y: mask.box.y + (isEmbedded ? offset.y + topScroll.y - currentScroll().y : 0) } })),
+      } : {}),
       type: "pins:sync",
     }).catch(() => null);
+    if (persist && !response?.ok) flashStatus(t("overlay_session_pending"));
     const synced = response?.ok === true;
     if (synced) {
       const colorsById = new Map(response.pins.map((pin) => [pin.id, pin.color]));
-      state.pins = state.pins.map((pin) => ({ ...pin, color: colorsById.get(pin.id) || pin.color }));
+      state.pins = state.pins.map((pin) => ({ ...pin, color: pin.number ? pinColor(pin.number) : colorsById.get(pin.id) || pin.color }));
       state.tabPinCount = response.pins.length;
     }
     renderChrome();
@@ -1935,11 +2058,6 @@
     state.maskMode = false;
     state.userMasks = [];
     state.dismissedMaskIds = new Set();
-    state.reviewMode = false;
-    state.reviewSessionId = null;
-    state.reviews = [];
-    state.repositionPinId = null;
-    state.unavailable = false;
     renderChrome();
     updateOutline();
     renderMarkers();
@@ -1951,6 +2069,9 @@
   }
 
   async function discardAnnotations() {
+    state.pins = [];
+    pendingReviewSync = syncPins(true);
+    await pendingReviewSync;
     await clearPins();
     broadcast(FRAME_CLEAR);
   }
@@ -2085,11 +2206,6 @@
       updateOutline();
       return;
     }
-    if (state.repositionPinId) {
-      applyManualPlace(state.repositionPinId, target);
-      event.preventDefault();
-      return;
-    }
     void openElementDraft(target, { x: event.clientX, y: event.clientY });
     event.preventDefault();
   }
@@ -2141,7 +2257,9 @@
   const ownedKeyCodes = new Set();
 
   function onKey(event) {
-    if (!isMounted() || !state.active) return;
+    if (!isMounted()) return;
+    if (!state.active) return;
+    if (event.composedPath()[0]?.matches?.(".review-comment")) return;
     // onKey fully owns these two keys: never let the page see them, even when
     // they originate inside the composer (e.g. Esc closing a page modal).
     if (isModEnter(event)) {
@@ -2149,6 +2267,14 @@
       event.stopImmediatePropagation();
       ownedKeyCodes.add(event.code);
       void sendPins();
+      return;
+    }
+    if (!state.draft && !state.sending && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && event.key === "Tab") {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      ownedKeyCodes.add(event.code);
+      if (isEmbedded) window.top.postMessage({ type: "pinar:frame-review" }, "*");
+      else setReviewOpen(!host.hasAttribute("data-review-open"));
       return;
     }
     if (event.key === "Escape") {
@@ -2164,11 +2290,11 @@
         renderChrome();
         return;
       }
-      void discardAnnotations().then(() => {
-        setVisible(false);
-        if (isEmbedded) window.top.postMessage({ type: FRAME_HIDE }, "*");
-        else broadcast(FRAME_HIDE);
-      });
+      if (host.hasAttribute("data-review-open")) { setReviewOpen(false); return; }
+      setVisible(false);
+      if (!isEmbedded) void chrome.runtime.sendMessage({ type: "toolbar:visibility", visible: false }).catch(() => null);
+      if (isEmbedded) window.top.postMessage({ type: FRAME_HIDE }, "*");
+      else broadcast(FRAME_HIDE);
       return;
     }
     // While pin mode is active the page app must never react to keys. Events
@@ -2242,37 +2368,6 @@
     if (!event.composedPath().includes(host)) event.stopImmediatePropagation();
   }
 
-  async function writePlainText(text) {
-    if (!text) return false;
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      const textarea = document.createElement("textarea");
-      textarea.value = text;
-      textarea.setAttribute("aria-hidden", "true");
-      textarea.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none";
-      document.documentElement.appendChild(textarea);
-      textarea.focus();
-      textarea.select();
-      try {
-        return document.execCommand("copy");
-      } finally {
-        textarea.remove();
-      }
-    }
-  }
-
-  function handoffStatusText(result) {
-    const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
-    if (!result?.degraded) return t("overlay_saved");
-    const parts = [t("overlay_copied")];
-    if (warnings.includes("screenshot_missing")) parts.push(t("overlay_no_screenshot"));
-    if (warnings.includes("helper_unavailable")) parts.push(t("overlay_helper_unavailable"));
-    else if (warnings.includes("viewer_unavailable")) parts.push(t("overlay_no_viewer"));
-    return parts.join(" · ");
-  }
-
   async function sendPins() {
     if (!isMounted() || !state.active || state.sending) return;
     if (isEmbedded) {
@@ -2281,6 +2376,7 @@
         return;
       }
       await syncPins();
+      await pendingReviewSync;
       window.top.postMessage({ type: FRAME_SEND }, "*");
       return;
     }
@@ -2288,109 +2384,25 @@
       flashStatus(t("overlay_write_comment"));
       return;
     }
-    if (state.pins.length === 0 && !state.draft) {
+    if (!state.batch.active && state.pins.length === 0) {
       flashStatus(t("overlay_add_pin_first"));
       return;
     }
-    let extraQueryKeys = [];
-    try {
-      const stored = await chrome.storage.sync.get({ sensitiveQueryKeys: "" });
-      extraQueryKeys = parseExtraKeys(stored.sensitiveQueryKeys);
-    } catch {
-      extraQueryKeys = [];
-    }
     state.sending = true;
-    hideOutline();
-    ui.toolbar?.classList.remove("pass-through");
-    setStatus(t("overlay_copying"));
+    host.setAttribute("aria-busy", "true");
     try {
-      const refreshed = await chrome.runtime.sendMessage({ type: "pins:refresh" }).catch(() => null);
-      if (!refreshed?.ok) throw new Error(refreshed?.error || "pin positions could not be refreshed");
-      const listed = await chrome.runtime.sendMessage({ type: "pins:list" }).catch(() => null);
-      const pins = listed?.pins ?? state.pins;
-      if (pins.length === 0) {
-        flashStatus(t("overlay_add_pin_first"));
-        return;
-      }
-      const scan = activeScan();
-      const maskRegions = activeMaskRegions();
-      // From here on the overlay is a status display. The toolbar and picker
-      // leave now, deliberately; the progress toast takes their place and runs
-      // through the shot (out of frame for ~2 frames), the save and the copy.
-      setProgress(t("overlay_copying"), 0.2);
-      await chrome.runtime.sendMessage({ hidden: true, type: "overlays:hidden" }).catch(() => null);
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      const capture = await chrome.runtime.sendMessage({
-        dpr: window.devicePixelRatio || 1,
-        maskRegions,
-        pins,
-        type: "capture",
-      }).catch((error) => ({ error: String(error), ok: false }));
-      const shot = capture?.ok ? capture.shot : null;
-      // The shutter is closed (the background already revealed this frame the
-      // moment the last pixel was taken). Back on screen as a status display:
-      // the fill behind the toast reports the rest - save and clipboard - the
-      // way a capture tool's progress bar does. Child frames stay hidden until
-      // session:end so their pins do not flash after the toolbar is gone.
-      setHidden(false);
-      setProgress(t("overlay_copying"), 0.55);
-      const finished = state.recording
-        ? await chrome.runtime.sendMessage({ type: "recorder:finish" }).catch(() => null)
-        : null;
-      const sanitized = sanitizeCapture({
-        fields: scan.fields,
-        page: pageContext(),
-        pins: pins.map((pin) => ({ ...pin, pinId: pin.pinId || pin.id })),
-        reproduction: finished?.reproduction || undefined,
-        unevaluated: scan.unevaluated,
-      }, { extraQueryKeys });
-      const captureId = crypto.randomUUID();
-      setProgress(t("overlay_copying"), 0.8);
-      const copied = await chrome.runtime.sendMessage({
-        captureId,
-        fields: scan.fields.map((field) => ({ attrs: field.attrs })),
-        page: sanitized.page,
-        pins: sanitized.pins,
-        privacy: sanitized.privacy,
-        reproduction: sanitized.reproduction,
-        schemaVersion: 1,
-        shot,
-        type: "clipboard",
-        warnings: sanitized.warnings,
-      }).catch((error) => ({ error: String(error), ok: false }));
-      const locallyCopied = copied?.plain ? await writePlainText(copied.plain) : false;
-      if (!copied?.ok && !locallyCopied) throw new Error(copied?.error || "clipboard write failed");
-      // A degraded copy (not saved, no screenshot) is a warning, not a success.
-      setProgress(handoffStatusText(copied), 1, copied?.degraded ? "error" : "ok");
-      // The confirmation always gets its full time on screen, even when the
-      // user has already asked for the next toolbar (see toggle()): a copy the
-      // user never saw confirmed reads as a copy that did not happen.
-      await new Promise((resolve) => setTimeout(resolve, COPY_CONFIRMATION_MS));
-      // Do not restore overlays first — that would flash iframe pins after
-      // the top toolbar is already gone. session:end dismisses every frame.
-      await chrome.runtime.sendMessage({ type: "session:end" }).catch(() => null);
-      state.recording = false;
-      state.recordingCount = 0;
-      renderRecordingBadge();
+      await pendingReviewSync;
+      const result = await chrome.runtime.sendMessage({ type: "review:finish" });
+      if (!result?.ok) throw new Error(result?.error || "session_pending");
       await clearPins();
       broadcast(FRAME_CLEAR);
-      setStatus(null);
-      setVisible(false);
-      broadcast(FRAME_HIDE);
-    } catch (error) {
-      console.warn("Pinar copy failed", error);
-      // Same shape as success: a toast alone, red, then the overlay closes.
-      // Pins stay so the shortcut reopens the session for a retry.
-      setHidden(false);
-      setProgress(t("overlay_copy_failed"), state.progress, "error");
-      await new Promise((resolve) => setTimeout(resolve, COPY_ERROR_MS));
-      setVisible(false);
-      broadcast(FRAME_HIDE);
+    } catch {
+      flashStatus(t("overlay_session_finish_failed"));
+      setReviewOpen(true);
     } finally {
       state.sending = false;
+      host.setAttribute("aria-busy", "false");
       if (state.reopenAfterSend) {
-        // The user asked for the toolbar while the previous capture was still
-        // closing: give them a fresh one now that the old state is gone.
         state.reopenAfterSend = false;
         setVisible(true);
         broadcast(FRAME_SHOW);
@@ -2452,6 +2464,11 @@
       broadcastToChildFrames(FRAME_HIDE);
       return;
     }
+    if (event.data?.type === "pinar:frame-review" && !isEmbedded) {
+      setVisible(true);
+      setReviewOpen(true);
+      return;
+    }
     if (event.data?.type === FRAME_SHOW) {
       setVisible(true);
       broadcastToChildFrames(FRAME_SHOW);
@@ -2492,7 +2509,7 @@
     if (hidden) {
       document.documentElement.removeAttribute("data-pinar-active");
       document.documentElement.removeAttribute("data-pinar-mask-mode");
-    } else if (state.active) {
+    } else if (state.active && !host.hasAttribute("data-review-open")) {
       document.documentElement.setAttribute("data-pinar-active", "true");
       applyGlobalStyles();
     }
@@ -2503,6 +2520,7 @@
   }
 
   function setVisible(visible) {
+    if (!visible) setReviewOpen(false);
     if (visible && !host.isConnected) document.documentElement.append(host);
     clearProgress();
     state.active = visible;
@@ -2569,13 +2587,6 @@
     event.preventDefault();
     event.stopPropagation();
     const pinId = button.getAttribute("data-pin");
-    const pin = state.pins.find((item) => item.id === pinId);
-    if (state.reviewMode && pin && isPendingLocation(viewportPin(pin).location)) {
-      state.repositionPinId = pinId;
-      renderChrome();
-      flashStatus(t("overlay_place_pin"), "ok");
-      return;
-    }
     openPinEditor(pinId);
   });
 
@@ -2633,93 +2644,6 @@
     subtree: true,
   });
 
-  function pinBelongsHere(pin) {
-    const parts = splitFrameDomPath(pin.path || pin.domPath || "");
-    if (isEmbedded) return parts.length > 1;
-    return parts.length <= 1;
-  }
-
-  function hydrateSession(payload) {
-    const session = payload?.session;
-    const sessionId = payload?.sessionId;
-    if (!session || (session.id !== sessionId && session.captureId !== sessionId)) return false;
-    state.reviewMode = true;
-    state.reviewSessionId = session.id || sessionId;
-    state.reviews = Array.isArray(payload.reviews) ? payload.reviews : [];
-    state.unavailable = false;
-    state.repositionPinId = null;
-    state.draft = null;
-    state.pins = (session.pins || []).filter(pinBelongsHere).map((pin) => freezeHistorical({
-      ...pin,
-      id: pin.id || pin.pinId,
-      kind: pin.kind || (pin.type === "area" ? "area" : "element"),
-    }));
-    if (!state.active) {
-      state.active = true;
-      document.documentElement.setAttribute("data-pinar-active", "true");
-      applyGlobalStyles();
-    }
-    renderChrome();
-    void syncPins();
-    return true;
-  }
-
-  function showUnavailable(reason) {
-    state.reviewMode = true;
-    state.unavailable = true;
-    state.repositionPinId = null;
-    state.pins = [];
-    setStatus(reason === "origin_mismatch"
-      ? t("overlay_origin_mismatch")
-      : t("overlay_page_unavailable"), "error");
-    renderChrome();
-    renderMarkers();
-    return true;
-  }
-
-  function applyManualPlace(pinId, element) {
-    const index = state.pins.findIndex((pin) => pin.id === pinId);
-    if (index < 0 || !element) return false;
-    const current = freezeHistorical(state.pins[index]);
-    const box = boxOf(element);
-    const historicalSelector = current.selector;
-    const historicalPath = current.path;
-    const historicalFingerprint = current.fingerprint;
-    current.anchor = anchorInBox(current, box);
-    current.box = box;
-    current.location = {
-      confidence: "exact",
-      evidence: ["manual-reposition"],
-      score: 1,
-      strategy: "geometry",
-    };
-    current.locationHistory = [
-      ...(current.locationHistory || []),
-      {
-        at: new Date().toISOString(),
-        confidence: "exact",
-        source: "manual",
-        strategy: "geometry",
-      },
-    ];
-    current.selector = historicalSelector;
-    current.path = historicalPath;
-    current.fingerprint = historicalFingerprint;
-    state.pins[index] = current;
-    state.repositionPinId = null;
-    void syncPins();
-    updateOutline();
-    renderMarkers();
-    renderChrome();
-    return true;
-  }
-
-  function repositionPin(pinId, selector) {
-    const element = selector ? document.querySelector(selector) : selection.current;
-    if (!element) return false;
-    return applyManualPlace(pinId, element);
-  }
-
   function teardown() {
     if (!host.isConnected && !state.active) return;
     clearTimeout(state.statusTimer);
@@ -2749,9 +2673,6 @@
     delete globalThis.__pinarPrepareCapture;
     delete globalThis.__pinarRestoreCapture;
     delete globalThis.__pinarScrollCapture;
-    delete globalThis.__pinarHydrateSession;
-    delete globalThis.__pinarShowUnavailable;
-    delete globalThis.__pinarRepositionPin;
     delete globalThis.__pinarResumeRecording;
     recordingBadge.remove();
   }
@@ -2767,7 +2688,9 @@
       state.reopenAfterSend = true;
       return;
     }
-    setVisible(!isVisible());
+    const visible = !isVisible();
+    setVisible(visible);
+    if (!isEmbedded) void chrome.runtime.sendMessage({ type: "toolbar:visibility", visible }).catch(() => null);
     globalThis.__pinarToggle = toggle;
     globalThis.__pinarSetHidden = setHidden;
     globalThis.__pinarDismiss = dismiss;
@@ -2781,13 +2704,44 @@
   globalThis.__pinarPrepareCapture = prepareCapture;
   globalThis.__pinarRestoreCapture = restoreCapture;
   globalThis.__pinarScrollCapture = scrollCapture;
-  globalThis.__pinarHydrateSession = hydrateSession;
-  globalThis.__pinarShowUnavailable = showUnavailable;
-  globalThis.__pinarRepositionPin = repositionPin;
   globalThis.__pinarResumeRecording = resumeRecording;
+  globalThis.__pinarReviewContext = () => ({
+    documentId: currentReviewDocumentId(), url: location.href, page: pageContext(),
+    scroll: currentScroll(), width: window.innerWidth, height: window.innerHeight,
+    masks: activeMaskRegions(), unevaluated: activeScan().unevaluated,
+  });
   globalThis.chrome?.runtime?.onMessage?.addListener?.((message, _sender, sendResponse) => {
-    if (message?.type === "session:hydrate") {
-      sendResponse({ ok: hydrateSession(message) });
+    if (message?.type === "review:navigated") {
+      resetLocalPins();
+      sendResponse({ ok: true });
+      return false;
+    }
+    if (message?.type === "review:pin-edited") {
+      for (const pin of state.pins) if ((pin.pinId || pin.id) === message.pinId) pin.comment = message.comment;
+      renderMarkers();
+      sendResponse({ ok: true });
+      return false;
+    }
+    if (message?.type === "review:pin-removed") {
+      state.pins = state.pins.filter((pin) => (pin.pinId || pin.id) !== message.pinId);
+      if (state.draft?.editId === message.pinId) state.draft = null;
+      void syncPins();
+      sendResponse({ ok: true });
+      return false;
+    }
+    if (message?.type === "review:ended") {
+      resetLocalPins();
+      state.recording = false;
+      state.recordingCount = 0;
+      renderRecordingBadge();
+      setReviewOpen(false);
+      setVisible(false);
+      if (message.feedback === "cancelled" || message.feedback === "finished") {
+        host.style.display = "";
+        showConfirm(t(message.feedback === "cancelled" ? "overlay_session_cancelled" : "overlay_session_finished"));
+        setTimeout(() => { host.removeAttribute("data-confirm"); host.style.display = "none"; }, COPY_CONFIRMATION_MS);
+      }
+      sendResponse({ ok: true });
       return false;
     }
     if (message?.type === "copy:progress") {
@@ -2802,19 +2756,23 @@
       sendResponse({ ok: true });
       return false;
     }
+    if (message?.type === "review:open") {
+      setVisible(true);
+      setReviewOpen(true);
+      sendResponse({ ok: true });
+      return false;
+    }
     if (message?.type === "ui:messages") {
       applyUiMessages(message);
       sendResponse({ ok: true });
       return false;
     }
-    if (message?.type === "session:unavailable") {
-      sendResponse({ ok: showUnavailable(message.reason) });
-      return false;
-    }
     return false;
   });
-  document.documentElement.setAttribute("data-pinar-active", "true");
-  applyGlobalStyles();
+  if (initialVisible) {
+    document.documentElement.setAttribute("data-pinar-active", "true");
+    applyGlobalStyles();
+  }
   renderChrome();
   updateOutline();
   renderMarkers();

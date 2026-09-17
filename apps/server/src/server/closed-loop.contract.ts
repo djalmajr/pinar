@@ -5,7 +5,6 @@ import {
   adaptHandoffAll,
   formatHandoffBundle,
   parseVisualCapture,
-  planSessionReopen,
 } from "@pinar/shared";
 
 const VALID_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
@@ -85,11 +84,6 @@ export async function exerciseClosedLoopContract(client: ApiClient) {
   assert.equal(reviewOf(session, "pin_cta").status, "open");
   assert.ok(isRecord(session.session) && isRecord(session.session.page));
   const pageUrl = String(session.session.page.url || "");
-  assert.equal(planSessionReopen({
-    appUrl: "http://127.0.0.1:17373/v/closed_loop_element",
-    requestedSessionId: id,
-    session: { id, page: { url: pageUrl } },
-  }).ok, true);
 
   const firstAgent = HANDOFF_AGENTS[0];
   const created = await client("/api/agent-executions", {

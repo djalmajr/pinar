@@ -2,7 +2,6 @@ import type { AccountPlan } from "@pinar/shared";
 
 export type CheckoutOffer =
   | "ai_credits_1000"
-  | "founder"
   | "pro_month"
   | "pro_year"
   | "storage_20gb_12m"
@@ -32,9 +31,7 @@ export interface StorageEntitlementInput {
 }
 
 export const FREE_STORAGE_BYTES = 250 * 1024 * 1024;
-export const FOUNDER_INITIAL_AI_CREDITS = 500;
-export const FOUNDER_STORAGE_BYTES = 5 * 1024 * 1024 * 1024;
-export const PAID_STORAGE_BYTES = FOUNDER_STORAGE_BYTES;
+export const PAID_STORAGE_BYTES = 5 * 1024 * 1024 * 1024;
 export const PRO_MONTHLY_AI_CREDITS = 200;
 export const PURCHASED_AI_CREDITS = 1_000;
 export const STORAGE_20GB_BYTES = 20 * 1024 * 1024 * 1024;
@@ -42,7 +39,6 @@ export const STORAGE_5GB_BYTES = 5 * 1024 * 1024 * 1024;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 export function checkoutOffer(value: unknown): CheckoutOffer | null {
-  if (value === "founder" || value === "lifetime_founder") return "founder";
   if (value === "ai_credits_1000"
     || value === "pro_month"
     || value === "pro_year"
@@ -51,14 +47,13 @@ export function checkoutOffer(value: unknown): CheckoutOffer | null {
   return null;
 }
 
-export function legacyCheckoutOffer(value: unknown): CheckoutOffer {
+export function legacyCheckoutOffer(value: unknown): CheckoutOffer | null {
   if (value === "year") return "pro_year";
-  if (value === "lifetime") return "founder";
-  return "pro_month";
+  if (value === undefined || value === "month") return "pro_month";
+  return null;
 }
 
 export function planForOffer(offer: CheckoutOffer): AccountPlan | null {
-  if (offer === "founder") return "founder";
   if (offer === "pro_month" || offer === "pro_year") return "pro";
   return null;
 }
@@ -82,12 +77,12 @@ export function addUtcYears(date: Date, years: number) {
 }
 
 export function planIncludesAi(plan: AccountPlan) {
-  return plan === "founder" || plan === "pro";
+  return plan === "pro";
 }
 
 export function baseStorageBytes(plan: AccountPlan) {
   if (plan === "free") return FREE_STORAGE_BYTES;
-  return FOUNDER_STORAGE_BYTES;
+  return PAID_STORAGE_BYTES;
 }
 
 export function storageEntitlement(input: StorageEntitlementInput): StorageEntitlement {

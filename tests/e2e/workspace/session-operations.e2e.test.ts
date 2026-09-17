@@ -140,7 +140,6 @@ test("move, manual order, copy and confirmed deletion remain precise and persist
   await expect(page.locator('[data-slot="card-title"]')).toHaveText(["Second capture", "Third capture", "Moved capture"]);
 
   await card(page, "Moved capture").getByRole("button", { name: "More session actions" }).click();
-  await expect(openSessionMenu(page).getByRole("menuitem", { name: "Review on page" })).toBeVisible();
   await expect(openSessionMenu(page).getByRole("menuitem", { name: "Copy prompt (batch)" })).toBeVisible();
   await page.keyboard.press("Escape");
   await card(page, "Second capture").getByRole("button", { name: "More session actions" }).click();
@@ -154,7 +153,6 @@ test("move, manual order, copy and confirmed deletion remain precise and persist
   await viewer.getByRole("button", { name: "More page actions" }).click();
   const viewerMenu = page.getByRole("menu").filter({ has: page.getByRole("menuitem", { name: "Open prompt *.md" }) });
   await expect(viewerMenu.getByRole("menuitem")).toHaveText([
-    "Review on page",
     "Copy prompt",
     "Copy prompt (batch)",
     "Open prompt *.md",

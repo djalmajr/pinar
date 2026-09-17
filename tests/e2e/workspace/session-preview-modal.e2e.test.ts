@@ -97,7 +97,7 @@ test("grid capture opens the zoom viewer modal without leaving the dashboard", a
   await expect(dialog.getByRole("img", { name: "Annotated page screenshot" })).toBeVisible();
   await expect(dialog.getByText("100%", { exact: true })).toBeVisible();
   await expect(dialog.getByText(pinComment)).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "Review on page" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Review on page" })).toHaveCount(0);
   await expect(dialog.getByRole("button", { exact: true, name: "Copy prompt" })).toBeVisible();
   await expect(page).toHaveURL(/\/app\?session=preview-e2e/);
 

@@ -47,7 +47,7 @@ const locale = {
     captures: {
       title: "Captures and pins",
       description:
-        "Select pages precisely, annotate them, mask sensitive areas, and reopen the result.",
+        "Select pages precisely, annotate them, mask sensitive areas, and inspect the result.",
     },
     agents: {
       title: "AI agents",
@@ -86,11 +86,6 @@ const locale = {
       caption:
         "The overlay toolbar stays on the page with pin, selection, copy, mask, region, and cancel shortcuts while you annotate.",
     },
-    "capture-review": {
-      alt: "Pinar overlay reviewing a saved session, with a pending pin that needs manual placement on the live page.",
-      caption:
-        "Review on page hydrates pins on the original URL. Unresolved pins stay pending until you click the marker, then the correct element.",
-    },
     "capture-copy-failed": {
       alt: "Pinar overlay toolbar reporting Copy failed while numbered pins remain editable on the page.",
       caption:
@@ -102,9 +97,9 @@ const locale = {
         "Full-page capture scrolls and stitches the document so the copied screenshot includes content that sits below the fold.",
     },
     "capture-viewer": {
-      alt: "Pinar capture viewer with the annotated screenshot, numbered pins, zoom controls, and session actions.",
+      alt: "Pinar capture viewer with annotated screenshots, numbered pins, zoom controls, and session actions.",
       caption:
-        "The viewer keeps the shared screenshot, pin comments, and copy or reopen actions together after capture.",
+        "The viewer keeps captured screenshots, pin comments, and copy actions together after capture.",
     },
     "extension-options": {
       alt: "Pinar extension options on the Storage tab, with Local Server, Remote Server, and hosted-service legal acceptance.",
@@ -137,7 +132,7 @@ const locale = {
         "Registered accounts request a short-lived code by email and complete verification in the same sign-in surface.",
     },
     pricing: {
-      alt: "Pinar pricing page comparing Free, Pro yearly, Founder, storage add-ons, and AI credit options.",
+      alt: "Pinar pricing page comparing Free, Pro yearly, storage add-ons, and AI credit options.",
       caption:
         "The pricing surface exposes plan limits, billing cadence, storage add-ons, and AI credit purchases before checkout.",
     },
@@ -392,7 +387,7 @@ const locale = {
           bullets: [
             "The capture toolbar stays on the top frame; child frames show markers and the comment composer only.",
             "If a parent frame does not reply with its path, the pin keeps the inner document path only.",
-            "Fixed or sticky elements are marked viewport-anchored so reopen does not treat them as document-scrolled boxes.",
+            "Fixed or sticky elements are marked viewport-anchored so scrolling does not treat them as document-scrolled boxes.",
           ],
         },
       ],
@@ -473,30 +468,25 @@ const locale = {
     "smart-selection": {
       title: "Smart locators and DOM selection",
       summary:
-        "Understand how a pin follows an element after the page changes and why Pinar may ask for manual placement.",
+        "Understand how a pin identifies an element while you annotate a changing page.",
       sections: [
         {
           heading: "Resilient fingerprints",
           paragraphs: [
-            "An element pin combines a stable selector, DOM path, tag, id, name, test id, role, classes, text, label, and geometry. During reopen, Pinar evaluates selector, structure, semantics, and geometry rather than trusting one fragile path.",
+            "An element pin combines a stable selector, DOM path, tag, id, name, test id, role, classes, text, label, and geometry instead of trusting one fragile path.",
           ],
         },
         {
-          heading: "Confidence and ambiguity",
+          heading: "Live-page confidence",
           paragraphs: [
-            "A match can be exact, probable, ambiguous, or unresolved. When two candidates are too similar, Pinar keeps alternatives instead of snapping the pin to the wrong element. Cross-origin iframe targets can remain unresolved.",
-          ],
-        },
-        {
-          heading: "Selector fallback and competing matches",
-          paragraphs: [
-            "At capture time Pinar prefers a selector that uniquely matches the node by id, data-testid or data-test, or tag plus name. If none of those is unique, it stores a structural CSS path instead. Class names that look generated are dropped from the fingerprint so hashed CSS modules do not become the only signal.",
-            "On reopen, candidates from stable-selector, structure, semantic, and geometry strategies are merged and ranked. Exact confidence requires a high-scoring stable selector or structure hit; semantic and geometry matches stay probable. When the top two viable scores differ by less than a narrow margin, the result is ambiguous and no element is chosen.",
+            "While the annotation overlay is open, Pinar reevaluates the selector and structure so markers follow elements that move as the page updates.",
           ],
           bullets: [
-            "A positional :nth-of-type selector is scored lower when other nodes share the same tag, text, and classes.",
-            "Area pins are rejected as element targets and remain unresolved during locator scoring.",
-            "When an iframe contentDocument is unreadable, relocation stops with a cross-origin-frame warning instead of guessing.",
+            "Generated-looking class names are dropped from the fingerprint.",
+            "Unreadable cross-origin frames remain unresolved instead of being guessed.",
+            "Unique ids and test ids take priority when they identify one element.",
+            "A structural DOM path is stored when no stable attribute is unique.",
+            "Area pins use their geometry and do not pretend to identify one DOM element.",
           ],
         },
       ],
@@ -532,10 +522,10 @@ const locale = {
         },
       ],
     },
-    "copy-and-reopen": {
-      title: "Copy, view, and reopen a capture",
+    "copy-and-view": {
+      title: "Copy and view a capture",
       summary:
-        "Move from the live page to the workspace and back without losing the original anchors.",
+        "Review saved screenshots and copy their correlated context from the workspace.",
       sections: [
         {
           heading: "Viewer controls",
@@ -544,36 +534,16 @@ const locale = {
           ],
           bullets: [
             "Download the screenshot or copy the session Markdown from the viewer.",
-            "Open the public Markdown in ChatGPT or Claude from the viewer action menu when sharing is available.",
+            "Use the original-page link when you need to inspect the current site separately.",
+            "Select a pin to switch between Preview and Raw Markdown.",
+            "A grouped session keeps every captured screenshot in the same viewer.",
+            "The original-page link opens separately without changing the saved session.",
           ],
         },
         {
-          heading: "Review on the original page",
+          heading: "Copy from the viewer",
           paragraphs: [
-            "“Review on page” opens the captured origin and rehydrates the pins. Pinar rejects an origin mismatch, preserves each historical anchor and box, records relocation history, and lets you manually reposition an unresolved pin.",
-          ],
-        },
-        {
-          heading: "Clipboard from the viewer and reopen gating",
-          paragraphs: [
-            "Copy page in the viewer writes the same correlated Markdown bundle used on the live page, using compact or full handoff from saved preferences and `captureId` falling back to the session id. The action menu opens the public Markdown at /v/{id}.md, or starts ChatGPT or Claude with a prompt that points at that URL.",
-            "“Review on page” dispatches a reopen event with the session id. The helper hydrates only from a trusted Pinar application URL when that id matches the session id or `captureId` and the tab origin still equals the captured page origin. Navigating the tab off that origin drops the binding instead of injecting pins into the wrong site.",
-          ],
-          bullets: [
-            "If no reopen result arrives, the viewer shows a missing-helper hint instead of waiting indefinitely.",
-            "Public or older viewers that cannot read preferences still copy using compact handoff.",
-            "A tab that is still about:blank keeps the hydration binding; only a different origin drops it.",
-          ],
-        },
-        {
-          heading: "Record steps to reproduce",
-          paragraphs: [
-            "Press `G` while Pinar is open on the page to start recording. The toolbar steps aside and a small badge shows how many steps were captured. Use the page as you normally would: clicks, typing, key presses, scrolling, and navigation become steps with a thumbnail each, and the recording survives page changes.",
-            "To finish, reopen Pinar, pin the element that shows the problem, and copy with `Command/Ctrl/Alt+Enter`. The steps are attached to that capture and appear in the viewer under “Reproduction”. Press `G` again to discard the recording instead. Text typed into password, card, and other sensitive fields is never recorded.",
-          ],
-          bullets: [
-            "In the viewer, edit or remove steps before generating. “Generate steps and test” writes numbered reproduction steps and a Playwright test for 5 AI credits.",
-            "A capture copied without an active recording has no “Reproduction” panel.",
+            "Copy prompt writes the correlated Markdown bundle for the selected capture. Open prompt *.md opens the public Markdown when sharing is available.",
           ],
         },
       ],
@@ -682,37 +652,6 @@ const locale = {
             "Publish a changed result for the same `captureId` and `pinId`, then confirm the viewer shows the pin as ready to accept.",
             "Reuse a delivery key only when the result is identical; mint a new key when the files, summary, or status actually changed.",
             "If verification fails, reopen as a human, publish a second result, accept again, and keep the before and after capture ids.",
-          ],
-        },
-      ],
-    },
-    "reopen-and-relocate": {
-      title: "Reopen and relocate pins",
-      summary:
-        "Review the implementation on the live page even after its DOM has changed.",
-      sections: [
-        {
-          heading: "Safe rehydration",
-          paragraphs: [
-            "Pinar opens the saved page and hydrates only when the active tab origin exactly matches the capture. Trusted app origins can request a reopen, but an unrelated site cannot inject a session into the extension.",
-          ],
-        },
-        {
-          heading: "Manual correction",
-          paragraphs: [
-            "If a target is ambiguous or unresolved, reposition the pin manually. The original anchor and box remain frozen in history, and each automated or manual relocation is recorded for later review.",
-          ],
-        },
-        {
-          heading: "Open the original URL and place pending pins",
-          paragraphs: [
-            "“Review on page” opens only from the Pinar application, on the original capture URL. Another site cannot inject a saved session into the extension. After load, each frame shows only the pins that belong there.",
-            "The overlay stays bound only while the tab is still the captured site. Navigating away shows “This page is not the original capture URL”. Ambiguous matches keep the original box instead of snapping to a lookalike. Click a pending pin, then the correct element, to place it.",
-          ],
-          bullets: [
-            "Start “Review on page” from the Pinar application so only that session hydrates on the captured origin.",
-            "If the overlay says “This page is not the original capture URL”, return to the captured origin instead of placing pins.",
-            "For an unresolved pin, click the marker, then click the live element to place it.",
           ],
         },
       ],
@@ -880,32 +819,32 @@ const locale = {
       ],
     },
     "plans-and-billing": {
-      title: "Free, Pro, Founder, and billing",
+      title: "Free, Pro, and billing",
       summary:
         "Compare product entitlements, manage a subscription, and treat the pricing page as the current price source.",
       sections: [
         {
           heading: "Plan shape",
           paragraphs: [
-            "Free includes permanent local use, 250 MB of cloud quota, and seven-day cloud retention. Pro is monthly or annual with 5 GB and 200 non-rollover AI credits refilled monthly. Founder is a limited one-time cohort with 5 GB and 500 initial credits; it does not include a monthly credit refill.",
+            "Free includes permanent local use, 250 MB of cloud quota, and seven-day cloud retention. Pro is monthly or annual with 5 GB and 200 non-rollover AI credits refilled monthly.",
           ],
         },
         {
           heading: "Billing and availability",
           paragraphs: [
-            "Regional BRL or global USD prices, Founder availability, and current offers belong to the Plans page. Stripe Checkout reserves a Founder slot for 15 minutes and releases it when checkout is abandoned. The Stripe customer portal handles plan changes, cancellation, payment methods, and invoices.",
+            "Regional BRL or global USD prices and current offers belong to the Plans page. The Stripe customer portal handles plan changes, cancellation, payment methods, and invoices.",
           ],
         },
         {
           heading:
             "Start Checkout with current policies and the right currency",
           paragraphs: [
-            "Paying on Plans accepts the current Terms, Privacy Policy, and Acceptable Use. Brazil uses BRL prices; other countries use USD. Founder checkout reserves a limited slot and releases it if you leave without paying. When the cohort is full or sales are paused, the Plans page hides that offer.",
-            "After a successful payment, the offer is granted on the signed-in account and you return to the workspace. The billing portal is available after a paid checkout. When a Pro subscription ends, those cloud sessions enter a recovery window; Founder accounts stay permanent instead.",
+            "Paying on Plans accepts the current Terms, Privacy Policy, and Acceptable Use. Brazil uses BRL prices; other countries use USD.",
+            "After a successful payment, the offer is granted on the signed-in account and you return to the workspace. The billing portal is available after a paid checkout. When a Pro subscription ends, those cloud sessions enter a recovery window.",
           ],
           bullets: [
             "Continuing a paid checkout on Plans accepts the current policy versions.",
-            "If Founder checkout is unavailable, wait for a slot or choose Pro rather than retrying the same checkout.",
+            "Pro benefits require an active subscription; buying an add-on does not activate Pro.",
             "If Manage subscription is unavailable, finish a paid Checkout first, then open it from a signed-in account.",
           ],
         },
@@ -931,7 +870,7 @@ const locale = {
         {
           heading: "Balances",
           paragraphs: [
-            "Purchased packs add 1,000 credits. Pro’s monthly 200-credit allowance does not roll over. Founder’s 500 credits are an activation balance, not a monthly allowance. The account menu shows the active balance and the next applicable refill date.",
+            "Purchased packs add 1,000 credits. Pro’s monthly 200-credit allowance does not roll over. The account menu shows the active balance and the next applicable refill date.",
           ],
         },
         {
@@ -939,7 +878,7 @@ const locale = {
             "Retry summaries with a fresh request id and read the ledger",
           paragraphs: [
             "A summary runs only on a session you own. If one is already in progress, wait for it to finish instead of starting another. Failed or aborted summaries refund the reservation when possible. If the balance is too low, the workspace shows the live remaining credits.",
-            "Included monthly credits are used before purchased packs, and the soonest-expiring balance is used first. A purchased 1,000-credit pack lasts up to 12 months. The account menu shows remaining credits and the next refill date for active Pro and Founder accounts. Summaries use the workspace language when it is one of the seven supported languages.",
+            "Included monthly credits are used before purchased packs, and the soonest-expiring balance is used first. A purchased 1,000-credit pack lasts up to 12 months. The account menu shows remaining credits and the next refill date for active Pro accounts. Summaries use the workspace language when it is one of the seven supported languages.",
           ],
           bullets: [
             "If a summary is already running on that session, wait for it to finish instead of starting a second one.",
@@ -957,7 +896,7 @@ const locale = {
         {
           heading: "Quota and add-ons",
           paragraphs: [
-            "Free has 250 MB of base cloud storage; Pro and Founder have 5 GB. Optional 5 GB and 20 GB storage add-ons last 12 months, with reminder emails seven days and one day before expiry. Screenshot uploads must be valid PNG files and pass an atomic quota check before storage. Uploads pause when the resulting bytes exceed the current quota.",
+            "Free has 250 MB of base cloud storage; Pro has 5 GB. Optional 5 GB and 20 GB storage add-ons last 12 months, with reminder emails seven days and one day before expiry. Screenshot uploads must be valid PNG files and pass an atomic quota check before storage. Uploads pause when the resulting bytes exceed the current quota.",
           ],
         },
         {
@@ -971,7 +910,7 @@ const locale = {
             "Fit replacements under quota and use the 90-day recovery clock",
           paragraphs: [
             "Quota is your plan’s included storage plus any still-active add-on. Replacing a larger screenshot with a smaller one can succeed when a brand-new capture would not. Uploads pause once the account is at or above quota, including during grace and recovery.",
-            "Free cloud sessions that are not marked permanent become eligible for cleanup after seven days. Pro content above the Free quota follows the 30-day grace and 90-day recovery window after paid eligibility ends. Founder content is not made eligible merely because there is no recurring subscription. Local-only history on this computer is never deleted remotely. Eligibility is not a promise of immediate removal.",
+            "Free cloud sessions that are not marked permanent become eligible for cleanup after seven days. Pro content above the Free quota follows the 30-day grace and 90-day recovery window after paid eligibility ends. Local-only history on this computer is never deleted remotely. Eligibility is not a promise of immediate removal.",
           ],
           bullets: [
             "When new captures pause, free space by deleting sessions or replacing a heavy screenshot, or purchase a 5 GB or 20 GB twelve-month add-on.",

@@ -114,6 +114,7 @@ interface WorkspaceChromeContextValue {
   setProjectTree: Dispatch<SetStateAction<ProjectTree>>;
   setSelectedCollectionId: (id: string | null) => void;
   selectedBatchId: string | null;
+  setSelectedBatchId: (id: string | null) => void;
 }
 
 const WorkspaceChromeContext = createContext<WorkspaceChromeContextValue | null>(null);
@@ -545,6 +546,7 @@ export function WorkspaceChrome({
     moveSessions,
     projectTree,
     selectedBatchId,
+    setSelectedBatchId,
     selectedCollection,
     selectedCollectionId,
     selectedProject,
@@ -558,6 +560,7 @@ export function WorkspaceChrome({
     moveSessions,
     projectTree,
     selectedBatchId,
+    setSelectedBatchId,
     selectedCollection,
     selectedCollectionId,
     selectedProject,

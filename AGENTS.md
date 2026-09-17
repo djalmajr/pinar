@@ -2,6 +2,16 @@
 
 The shared shadcn UI uses preset `b5J6exi2i` (Nova/Base UI, mist/sky, Inter), with the Switch geometry intentionally kept less rounded.
 
+Session review uses opaque cards consistent with the viewer annotation panel: numbered pin, selected element/region, page title, path, editable comment, screenshot thumbnail, and an accessible X aligned with the title for removal. Do not show workflow-status badges such as Open in the extension review.
+
+Opening session review must not programmatically focus or outline the panel container. Keep normal visible focus on interactive controls.
+
+Saved sessions are inspected in the viewer. Do not offer an action that reopens a saved session on its original page or rehydrates its pins into the extension.
+
+The annotation overlay must leave page selection unobstructed: do not duplicate the extension badge with a page/pin counter in the toolbar; session review replaces the toolbar instead of adding a second bar and restores the normal page cursor. Keep overlay controls consistent with the existing composer. Tab opens/closes session review; do not add a redundant return button. Esc hides the toolbar. Preserve normal Tab navigation inside the comment editor. At narrower widths, shorten labels to one word before hiding the logo and click/drag hint. Do not expose minimization, a floating logo, fixed/auto-hide modes, H/V shortcuts, or a session-review item in the extension menu.
+
+Once the user hides the annotation toolbar, keep it hidden across navigation and other pages until the user explicitly invokes the extension action or its shortcut. Finishing a session must visibly confirm success; a failed finish must show an actionable error and keep the session available for retry.
+
 On macOS, session-start hooks open **Pinar.app** (`/usr/bin/open -ga ~/Applications/Pinar.app`). The menu-bar app starts the local HTTP server if it is not already up. If the menu bar shows Local Server: Off, choose Start. On Windows, the project Grok hook runs `node hooks/ensure.mjs`. After `bun run build:tray` and install, the tray app lives in `%LOCALAPPDATA%\Programs\Pinar` and starts the local server. Do not instruct `pinar` or `curl | sh`, and do not start a second long-lived process: any port in `127.0.0.1:17373`–`17382` that answers `GET /api/health` with `service: "pinar"` is enough. Shots land in `~/.pinar/shots` (Windows: `%USERPROFILE%\.pinar\shots`) and history in `~/.pinar/history.db`. `PINAR_PORT` pins the server to a single port.
 
 From a checkout, developers can still build the tray and helper:

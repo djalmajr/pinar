@@ -16,33 +16,14 @@ const config = JSON.parse(
     .replace(/,\s*([}\]])/g, "$1"),
 ) as WranglerConfig;
 
-function expectFounderOpen(vars: Record<string, string>) {
-  assert.equal(vars.FOUNDER_SALES_ENABLED, "true");
-  assert.equal(vars.FOUNDER_CAPACITY_LIMIT, "100");
-}
-
-describe("Founder deployment configuration", () => {
-  test("opens the first 100-seat tranche for local, staging, and production", () => {
-    expectFounderOpen(config.vars);
-    expectFounderOpen(config.env.staging.vars);
-    expectFounderOpen(config.env.production.vars);
-  });
-
-  test("keeps Founder Stripe prices on every environment and drops Lifetime aliases", () => {
+describe("billing deployment configuration", () => {
+  test("keeps only subscription and add-on prices in every environment", () => {
     for (const vars of [config.vars, config.env.staging.vars, config.env.production.vars]) {
-      assert.match(vars.STRIPE_PRICE_FOUNDER, /^price_/);
-      assert.match(vars.STRIPE_PRICE_BR_FOUNDER, /^price_/);
-      assert.equal(vars.STRIPE_PRICE_LIFETIME, undefined);
-      assert.equal(vars.STRIPE_PRICE_BR_LIFETIME, undefined);
-    }
-  });
-
-  test("uses Founder pricing names and leaves old pricing names absent", () => {
-    for (const vars of [config.vars, config.env.staging.vars, config.env.production.vars]) {
-      assert.equal(vars.PRICING_FOUNDER_USD_CENTS, "3900");
-      assert.equal(vars.PRICING_FOUNDER_BRL_CENTS, "12990");
-      assert.equal(vars.PRICING_LIFETIME_USD_CENTS, undefined);
-      assert.equal(vars.PRICING_LIFETIME_BRL_CENTS, undefined);
+      assert.equal(Object.keys(vars).some((key) => /FOUNDER|LIFETIME/.test(key)), false);
+      for (const suffix of ["MONTHLY", "YEARLY", "AI_CREDITS_1000", "STORAGE_5GB_12M", "STORAGE_20GB_12M"]) {
+        assert.match(vars[`STRIPE_PRICE_${suffix}`], /^price_/);
+        assert.match(vars[`STRIPE_PRICE_BR_${suffix}`], /^price_/);
+      }
     }
   });
 });

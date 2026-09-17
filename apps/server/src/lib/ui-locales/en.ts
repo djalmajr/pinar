@@ -1,4 +1,5 @@
 const messages = {
+  "dashboard.sessionEvidence": "{pages} pages · {count} captures",
   "common.pinarHome": "Pinar home",
   "common.primaryNavigation": "Primary navigation",
   "common.home": "Home",
@@ -28,7 +29,6 @@ const messages = {
   "app.creditsAvailable": "{count} available",
   "app.creditsExpire": "Some credits expire {date}",
   "app.creditsRefill": "Monthly refill on {date}",
-  "app.founderPlan": "Pinar Founder",
   "app.freePlan": "Free plan",
   "app.homepage": "Homepage",
   "app.local": "Local server",
@@ -62,9 +62,9 @@ const messages = {
     "Where new captures land. Server default uses the Inbox of the first project.",
   "settings.captureHeading": "Capture",
   "settings.collection": "Collection",
-  "settings.copyOnFinishBatch": "Copy when a batch finishes",
+  "settings.copyOnFinishBatch": "Copy when a session finishes",
   "settings.copyOnFinishBatchDescription":
-    "Puts the finished batch on the clipboard so you can paste it into an agent.",
+    "Puts the finished session on the clipboard so you can paste it into an agent.",
   "settings.copyOnFinishBatchLink": "Link",
   "settings.copyOnFinishBatchOff": "Off",
   "settings.copyOnFinishBatchPrompt": "Prompt",
@@ -206,7 +206,6 @@ const messages = {
   "dashboard.pinCount": "{count, plural, one {# pin} other {# pins}}",
   "dashboard.moreActions": "More session actions",
   "dashboard.view": "View",
-  "dashboard.reviewOnPage": "Review on page",
   "dashboard.markdown": "Open prompt *.md",
   "dashboard.copyPrompt": "Copy prompt",
   "dashboard.includeScreenshot": "Include screenshot in agent copy",
@@ -230,11 +229,11 @@ const messages = {
   "dashboard.filters": "Filters",
   "dashboard.filtersEmpty": "No filters",
   "dashboard.filterActions": "Filter actions",
-  "dashboard.batchActions": "Batch actions",
-  "dashboard.batches": "Batches",
+  "dashboard.batchActions": "Session",
+  "dashboard.batches": "Sessions",
   "dashboard.collapseBatches": "Collapse {name}",
   "dashboard.expandBatches": "Expand {name}",
-  "dashboard.copyBatch": "Copy prompt (batch)",
+  "dashboard.copyBatch": "Copy prompt (session)",
   "dashboard.deleteFilter": "Remove",
   "dashboard.deleteFilterTitle": "Remove this grouping?",
   "dashboard.deleteFilterConfirm":
@@ -295,7 +294,7 @@ const messages = {
   "viewer.locationExactHint":
     "Pinar can find this element again on the original page.",
   "viewer.locationProbableHint":
-    "Pinar found a likely match. Review on page may need a check.",
+    "Pinar found a likely match. Check that the selected element is correct.",
   "viewer.locationNeedsReviewHint":
     "Pinar may not find this element again on the original page.",
   "viewer.locationProbable": "Probable match",
@@ -445,11 +444,6 @@ const messages = {
   "viewer.noAgentResult": "No agent result yet",
   "viewer.reviewTimeline": "Review history",
   "viewer.reviewTransition": "{from} → {to}",
-  "viewer.reviewOnPage": "Review on page",
-  "viewer.reviewOnPageHint":
-    "Install the Pinar extension to reopen this session on the original page.",
-  "viewer.reviewOnPageFailed":
-    "The original page could not be opened for review.",
   "viewer.aiSummary": "AI summary",
   "viewer.aiSummaryTitle": "Annotation summary",
   "viewer.aiSummaryDescription":
@@ -499,7 +493,6 @@ const messages = {
   "pricing.projectsCollections": "Projects and collections",
   "pricing.useFree": "Use Free",
   "pricing.everythingFreePlus": "Everything in Free, plus:",
-  "pricing.founderIncludes": "Everything in Pro Yearly, plus:",
   "pricing.proYearly": "Pro Yearly",
   "pricing.proMonthly": "Pro Monthly",
   "pricing.proYearlyDescription":
@@ -518,18 +511,7 @@ const messages = {
   "pricing.storage5": "5 GB Dedicated Cloud Storage",
   "pricing.proAiCredits": "200 AI credits every month",
   "pricing.searchHistory": "Search across your cloud history",
-  "pricing.founder": "Pinar Founder",
-  "pricing.founderDescription":
-    "One-time launch offer, valid while the managed service is offered. No recurring charge.",
-  "pricing.oneTime": "one-time payment",
-  "pricing.founderAccess": "Founder access without a subscription",
-  "pricing.withinPolicies": "within quotas and policies",
-  "pricing.earlyAccess": "Early access to new Pro features",
-  "pricing.founderAiCredits": "500 bonus AI credits at activation",
   "pricing.unbrandedViewers": "Unbranded Web Viewers",
-  "pricing.getFounder": "Get Pinar Founder — {price}",
-  "pricing.founderSoldOut": "Founder cohort closed",
-  "pricing.founderClosed": "Founder opens soon",
   "pricing.originalPrice": "Original price",
   "pricing.regionalBrazil": "Exclusive price for Brazil",
   "pricing.addOnsTitle": "Add capacity when you need it",
@@ -546,7 +528,6 @@ const messages = {
   "pricing.storage20Description":
     "Adds 20 GB to your current cloud quota and stacks with other packs.",
   "pricing.valid12Months": "valid for 12 months",
-  "pricing.limitedLaunch": "LIMITED LAUNCH",
   "pricing.supportTitle": "Support Fair Source development",
   "pricing.supportDescription":
     "Prefer supporting public source development directly? Sponsor on GitHub or buy a coffee.",

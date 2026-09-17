@@ -77,8 +77,6 @@ const TEST_ENV: CloudEnv = {
   EXTENSION_ORIGIN: "chrome-extension://pinar-test",
   PRICING_AI_CREDITS_1000_BRL_CENTS: "990",
   PRICING_AI_CREDITS_1000_USD_CENTS: "299",
-  PRICING_FOUNDER_BRL_CENTS: "12990",
-  PRICING_FOUNDER_USD_CENTS: "3900",
   PRICING_MONTHLY_BRL_CENTS: "490",
   PRICING_MONTHLY_USD_CENTS: "299",
   PRICING_STORAGE_20GB_12M_BRL_CENTS: "2990",
@@ -782,7 +780,7 @@ describe("remote installation isolation", () => {
   test("requires current policies on first activation and reuses acceptance on later logins", async () => {
     const mail = emailBinding();
     const env: CloudEnv = { ...TEST_ENV, EMAIL: mail.binding };
-    seedCloudAccountForTests({ email: "owner@example.test", plan: "founder" });
+    seedCloudAccountForTests({ email: "owner@example.test", plan: "pro" });
     await requestEmailCode("OWNER@example.test", env);
     const required = await verifyEmailCode("owner@example.test", mail.codes[0], env, undefined, false);
     assert.equal(required.status, 428);
@@ -803,7 +801,7 @@ describe("remote installation isolation", () => {
     const session = await jsonBody(await api("/api/auth/session", { headers: { cookie } }, env));
     assert.ok(isRecord(session.session));
     assert.equal(session.session.kind, "account");
-    assert.equal(session.session.plan, "founder");
+    assert.equal(session.session.plan, "pro");
     assert.equal((await verifyEmailCode("owner@example.test", mail.codes[0], env)).status, 400);
 
     await requestEmailCode("owner@example.test", env);
@@ -1331,9 +1329,9 @@ describe("remote installation isolation", () => {
     const pricing = await jsonBody(pricingResponse);
     assert.equal(pricing.country, "BR");
     assert.equal(pricing.currency, "BRL");
-    assert.equal(pricing.founderState, "closed");
+    assert.equal("founderState" in pricing, false);
     assert.ok(isRecord(pricing.prices));
-    assert.deepEqual(pricing.prices.founder, { amount: 12_990, originalAmount: null });
+    assert.equal("founder" in pricing.prices, false);
     assert.deepEqual(pricing.prices.year, { amount: 3_990, originalAmount: null });
     assert.deepEqual(pricing.prices.aiCredits1000, { amount: 990, originalAmount: null });
 
@@ -1427,313 +1425,52 @@ describe("remote installation isolation", () => {
     }, { STRIPE_SECRET_KEY: "sk_test_example" })).status, 400);
   });
 
-  // Mutation captured: skipping the backend reservation allows a second Checkout for the final Founder slot.
-  test("reserves the final Founder slot and requires versioned Terms consent", async () => {
-    setCloudNowForTests("2026-08-18T12:00:00.000Z");
-    const stripeRequests: RequestInit[] = [];
+  test("rejects retired offers and intervals before contacting Stripe", async () => {
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
-      stripeRequests.push(init || {});
-      return Response.json({
-        id: "cs_founder_reserved",
-        url: "https://checkout.stripe.test/founder",
-      });
-    };
-    const env: CloudEnv = {
-      ...TEST_ENV,
-      FOUNDER_CAPACITY_LIMIT: "1",
-      FOUNDER_SALES_ENABLED: "true",
-      STRIPE_PRICE_FOUNDER: "price_founder_test",
-      STRIPE_SECRET_KEY: "sk_test_example",
-    };
+    let stripeCalls = 0;
+    globalThis.fetch = async () => { stripeCalls++; throw new Error("Unexpected Stripe request"); };
     try {
-      const first = await api("/api/stripe/checkout", {
-        body: JSON.stringify(checkoutRequest({
-          checkoutClaim: "founder_claim_first_0001",
-          locale: "pt",
-          offer: "founder",
-          requestId: "founder_request_first_0001",
-        })),
-        headers: { "content-type": "application/json" },
-        method: "POST",
-      }, env);
-      const soldOutPricing = await jsonBody(await api("/api/pricing", {}, env));
-      const second = await api("/api/stripe/checkout", {
-        body: JSON.stringify(checkoutRequest({
-          checkoutClaim: "founder_claim_second_0002",
-          offer: "founder",
-          requestId: "founder_request_second_0002",
-        })),
-        headers: { "content-type": "application/json" },
-        method: "POST",
-      }, env);
-
-      assert.equal(first.status, 200);
-      assert.equal(soldOutPricing.founderState, "sold_out");
-      assert.equal(second.status, 409);
-      assert.equal((await jsonBody(second)).error, "founder_sold_out");
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-    assert.equal(stripeRequests.length, 1);
-    const params = new URLSearchParams(String(stripeRequests[0].body));
-    assert.equal(params.has("consent_collection[terms_of_service]"), false);
-    assert.equal(params.get("expires_at"), String(Date.parse("2026-08-18T12:31:00.000Z") / 1_000));
-    assert.equal(params.get("line_items[0][price]"), "price_founder_test");
-    assert.equal(params.get("metadata[pinar_offer]"), "founder");
-    assert.match(params.get("metadata[pinar_founder_reservation_id]") || "", /^fdr_[A-Za-z0-9_-]{24}$/);
-    assert.equal(params.get("metadata[pinar_acceptable_use_version]"), CURRENT_LEGAL_VERSION);
-    assert.equal(params.get("metadata[pinar_legal_acceptance_source]"), "app");
-    assert.equal(params.get("metadata[pinar_legal_accepted_at]"), "2026-08-18T12:00:00.000Z");
-    assert.equal(params.get("metadata[pinar_locale]"), "pt");
-    assert.equal(params.get("metadata[pinar_privacy_version]"), CURRENT_LEGAL_VERSION);
-    assert.equal(params.get("metadata[pinar_terms_version]"), CURRENT_LEGAL_VERSION);
-  });
-
-  test("keeps Founder closed by default and releases capacity after Stripe failure", async () => {
-    let fetchCount = 0;
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = async () => {
-      fetchCount += 1;
-      if (fetchCount === 1) return Response.json({ error: { message: "temporary" } }, { status: 500 });
-      return Response.json({ id: "cs_founder_retry", url: "https://checkout.stripe.test/founder-retry" });
-    };
-    const request = (requestId: string) => ({
-      body: JSON.stringify(checkoutRequest({
-        checkoutClaim: `${requestId}_claim`,
-        offer: "founder",
-        requestId,
-      })),
-      headers: { "content-type": "application/json" },
-      method: "POST",
-    });
-    const env: CloudEnv = {
-      ...TEST_ENV,
-      FOUNDER_CAPACITY_LIMIT: "1",
-      FOUNDER_SALES_ENABLED: "true",
-      STRIPE_PRICE_FOUNDER: "price_founder_test",
-      STRIPE_SECRET_KEY: "sk_test_example",
-    };
-    try {
-      const closed = await api("/api/stripe/checkout", request("founder_request_closed_001"), {
-        ...env,
-        FOUNDER_SALES_ENABLED: "false",
-      });
-      assert.equal(closed.status, 409);
-      assert.equal(fetchCount, 0);
-
-      const failed = await api("/api/stripe/checkout", request("founder_request_failed_001"), env);
-      const retry = await api("/api/stripe/checkout", request("founder_request_retry_0002"), env);
-      assert.equal(failed.status, 400);
-      assert.equal(retry.status, 200);
-      assert.equal(fetchCount, 2);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("releases attached Founder slots after expiration or an asynchronous payment failure", async () => {
-    const env: CloudEnv = {
-      ...TEST_ENV,
-      FOUNDER_CAPACITY_LIMIT: "1",
-      FOUNDER_SALES_ENABLED: "true",
-      STRIPE_PRICE_FOUNDER: "price_founder_test",
-      STRIPE_SECRET_KEY: "sk_test_example",
-      STRIPE_WEBHOOK_SECRET: "whsec_founder_expiry_test",
-    };
-    let checkoutCount = 0;
-    const reservationIds: string[] = [];
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
-      checkoutCount += 1;
-      const params = new URLSearchParams(String(init?.body));
-      reservationIds.push(params.get("metadata[pinar_founder_reservation_id]") || "");
-      return Response.json({
-        id: `cs_founder_${checkoutCount}`,
-        url: `https://checkout.stripe.test/founder-${checkoutCount}`,
-      });
-    };
-    const request = (suffix: string) => api("/api/stripe/checkout", {
-      body: JSON.stringify(checkoutRequest({
-        checkoutClaim: `founder_expiry_claim_${suffix}`,
-        offer: "founder",
-        requestId: `founder_expiry_request_${suffix}`,
-      })),
-      headers: { "content-type": "application/json" },
-      method: "POST",
-    }, env);
-    try {
-      setCloudNowForTests("2026-08-18T12:00:00.000Z");
-      assert.equal((await request("first_0001")).status, 200);
-
-      const expiredAt = Date.parse("2026-08-18T12:32:00.000Z") / 1_000;
-      setCloudNowForTests(new Date(expiredAt * 1_000).toISOString());
-      assert.equal((await request("blocked_0002")).status, 409);
-      assert.equal((await postStripeWebhook({
-        created: expiredAt,
-        data: {
-          object: {
-            id: "cs_founder_1",
-            metadata: {
-              pinar_founder_reservation_id: reservationIds[0],
-              pinar_offer: "founder",
-            },
-          },
-        },
-        id: "evt_founder_checkout_expired",
-        type: "checkout.session.expired",
-      }, env)).status, 200);
-      assert.equal((await request("replacement_0003")).status, 200);
-      assert.equal((await postStripeWebhook({
-        created: expiredAt,
-        data: {
-          object: {
-            id: "cs_founder_2",
-            metadata: {
-              pinar_founder_reservation_id: reservationIds[1],
-              pinar_offer: "founder",
-            },
-          },
-        },
-        id: "evt_founder_checkout_async_failed",
-        type: "checkout.session.async_payment_failed",
-      }, env)).status, 200);
-      assert.equal((await request("after_async_failure_0004")).status, 200);
-      assert.equal(checkoutCount, 3);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("rejects a paid Founder session without its attached backend reservation", async () => {
-    const checkoutClaim = "founder_claim_without_reservation_0001";
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = async () => Response.json({
-      consent: { terms_of_service: "accepted" },
-      customer: "cus_founder_unreserved",
-      customer_details: { email: "unreserved-founder@example.test" },
-      id: "cs_founder_unreserved",
-      metadata: {
-        pinar_checkout_claim_hash: await sha256(checkoutClaim),
-        pinar_founder_reservation_id: "fdr_unreserved_founder_0001",
-        pinar_offer: "founder",
-        pinar_terms_version: CURRENT_LEGAL_VERSION,
-      },
-      mode: "payment",
-      payment_status: "paid",
-      status: "complete",
-    });
-    try {
-      const response = await api(
-        `/api/stripe/success?session_id=cs_founder_unreserved&claim=${checkoutClaim}`,
-        {},
-        { ...TEST_ENV, STRIPE_SECRET_KEY: "sk_test_example" },
-      );
-
-      assert.equal(response.status, 503);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("confirms an attached Founder purchase once and grants its bonus and monthly credits", async () => {
-    const checkoutClaim = "founder_claim_fulfillment_0001";
-    const env: CloudEnv = {
-      ...TEST_ENV,
-      FOUNDER_CAPACITY_LIMIT: "1",
-      FOUNDER_SALES_ENABLED: "true",
-      STRIPE_PRICE_FOUNDER: "price_founder_test",
-      STRIPE_SECRET_KEY: "sk_test_example",
-    };
-    let reservationId = "";
-    const originalFetch = globalThis.fetch;
-    setCloudNowForTests("2027-01-31T09:30:00.000Z");
-    globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
-      if (init?.method === "POST") {
-        const params = new URLSearchParams(String(init.body));
-        reservationId = params.get("metadata[pinar_founder_reservation_id]") || "";
-        return Response.json({
-          id: "cs_founder_fulfillment",
-          url: "https://checkout.stripe.test/founder-fulfillment",
-        });
+      for (const value of ["founder", "lifetime_founder", "lifetime", "unknown"]) {
+        for (const field of ["offer", "interval"]) {
+          const response = await api("/api/stripe/checkout", {
+            method: "POST",
+            body: JSON.stringify(checkoutRequest({ [field]: value, checkoutClaim: "retired_offer_claim_0001" })),
+          }, { ...TEST_ENV, STRIPE_SECRET_KEY: "sk_test_example" });
+          assert.equal(response.status, 400);
+          assert.equal((await jsonBody(response)).error, "Invalid checkout offer");
+        }
       }
-      return Response.json({
-        customer: "cus_founder_fulfillment",
-        customer_details: { email: "founder@example.test" },
-        id: "cs_founder_fulfillment",
-        metadata: {
-          pinar_acceptable_use_version: CURRENT_LEGAL_VERSION,
-          pinar_checkout_claim_hash: await sha256(checkoutClaim),
-          pinar_founder_reservation_id: reservationId,
-          pinar_legal_acceptance_source: "app",
-          pinar_legal_accepted_at: "2026-08-18T09:30:00.000Z",
-          pinar_locale: "en",
-          pinar_offer: "founder",
-          pinar_privacy_version: CURRENT_LEGAL_VERSION,
-          pinar_terms_version: CURRENT_LEGAL_VERSION,
-        },
-        mode: "payment",
-        payment_status: "paid",
-        status: "complete",
-      });
-    };
+      assert.equal(stripeCalls, 0);
+    } finally { globalThis.fetch = originalFetch; }
+  });
+
+  test("paid retired or unidentified one-time sessions cannot grant access", async () => {
+    const originalFetch = globalThis.fetch;
+    const claim = "retired_session_claim_0001";
     try {
-      const checkout = await api("/api/stripe/checkout", {
-        body: JSON.stringify(checkoutRequest({
-          checkoutClaim,
-          offer: "founder",
-          requestId: "founder_request_fulfillment_0001",
-        })),
-        headers: { "content-type": "application/json" },
-        method: "POST",
-      }, env);
-      assert.equal(checkout.status, 200);
-
-      const first = await api(
-        `/api/stripe/success?session_id=cs_founder_fulfillment&claim=${checkoutClaim}`,
-        {},
-        env,
-      );
-      const replay = await api(
-        `/api/stripe/success?session_id=cs_founder_fulfillment&claim=${checkoutClaim}`,
-        {},
-        env,
-      );
-
-      assert.equal(first.status, 200);
-      assert.equal(replay.status, 200);
-      const firstBody = await jsonBody(first);
-      assert.ok(isRecord(firstBody.account));
-      assert.equal(firstBody.account.plan, "founder");
-      const cookie = first.headers.get("set-cookie")?.split(";", 1)[0] || "";
-      const entitlements = await jsonBody(await api("/api/account/entitlements", {
-        headers: { cookie },
-      }, env));
-      assert.equal(entitlements.plan, "founder");
-      assert.ok(isRecord(entitlements.aiCredits));
-      assert.equal(entitlements.aiCredits.balance, 700);
-      assert.equal(entitlements.aiCredits.nextRefillAt, "2027-02-28T09:30:00.000Z");
-      assert.ok(isRecord(entitlements.storage));
-      assert.equal(entitlements.storage.baseBytes, STORAGE_5GB_BYTES);
-      assert.equal(entitlements.storage.quotaBytes, STORAGE_5GB_BYTES);
-      assert.ok(isRecord(entitlements.legalAcceptance));
-      assert.equal(entitlements.legalAcceptance.acceptedAt, "2026-08-18T09:30:00.000Z");
-      assert.equal(entitlements.legalAcceptance.acceptableUseVersion, CURRENT_LEGAL_VERSION);
-      assert.equal(entitlements.legalAcceptance.evidenceId, "cs_founder_fulfillment");
-      assert.equal(entitlements.legalAcceptance.locale, "en");
-      assert.equal(entitlements.legalAcceptance.privacyVersion, CURRENT_LEGAL_VERSION);
-      assert.equal(entitlements.legalAcceptance.termsVersion, CURRENT_LEGAL_VERSION);
-
-      setCloudNowForTests("2027-02-28T09:30:00.000Z");
-      const renewed = await jsonBody(await api("/api/account/entitlements", {
-        headers: { cookie },
-      }, env));
-      assert.ok(isRecord(renewed.aiCredits));
-      assert.equal(renewed.aiCredits.balance, 700);
-      assert.equal(renewed.aiCredits.nextRefillAt, "2027-03-28T09:30:00.000Z");
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+      for (const offer of ["founder", "lifetime_founder", "lifetime", "unknown", undefined]) {
+        for (const mode of offer ? ["payment", "subscription"] : ["payment"]) {
+          globalThis.fetch = async () => Response.json({
+            customer: "cus_retired", customer_details: { email: "retired@example.test" },
+            id: "cs_retired", mode, payment_status: "paid", status: "complete",
+            consent: ACCEPTED_CHECKOUT_CONSENT,
+            metadata: {
+              pinar_offer: offer,
+              pinar_checkout_claim_hash: await sha256(claim),
+              pinar_terms_version: CURRENT_LEGAL_VERSION,
+              pinar_privacy_version: CURRENT_LEGAL_VERSION,
+              pinar_acceptable_use_version: CURRENT_LEGAL_VERSION,
+              pinar_locale: "en",
+            },
+          });
+          const response = await api(`/api/stripe/success?session_id=cs_retired&claim=${claim}`, {}, {
+            ...TEST_ENV, STRIPE_SECRET_KEY: "sk_test_example",
+          });
+          assert.equal(response.status, 503);
+          assert.equal(response.headers.get("set-cookie"), null);
+        }
+      }
+    } finally { globalThis.fetch = originalFetch; }
   });
 
   test("does not activate a paid Checkout without versioned Terms acceptance", async () => {

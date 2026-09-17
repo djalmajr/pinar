@@ -23,10 +23,25 @@ const locale = {
   },
   releases: {
     "v0.3.7": {
-      title: "Elementstruktur, technische Belege und KI an jedem Pin",
+      title: "Kontinuierliche Erfassung, gemeinsame Prüfung und KI an jedem Pin",
       summary:
-        "Element-Pins tragen jetzt ihre Struktur und die auf der Seite beobachteten Belege. Der Viewer kann einen Pin diagnostizieren, ihn als Komponente speichern, aufgezeichnete Schritte in einen Playwright-Test verwandeln und das Design-System einer Collection extrahieren. Das Windows-Tray-Symbol ist auf skalierten Displays scharf.",
+        "Eine Erfassungssitzung begleitet Sie jetzt über mehrere Seiten und speichert jeden Screenshot und Pin als einen Eintrag. Die Prüfung ist im Viewer vereint, das Founder-Angebot wurde eingestellt und Pins erhalten Struktur, technische Belege und KI-Aktionen.",
       changes: {
+        "continuous-capture-session": {
+          title: "Eine fortlaufende Sitzung über mehrere Seiten",
+          description:
+            "Pinnen Sie auf einer Seite, navigieren Sie weiter und schließen Sie nur einmal ab. Pinar besucht jede Seite erneut für ihren Screenshot, behält die Pin-Nummerierung bei und speichert den gesamten Ablauf als eine Sitzung ohne Batch-Slots.",
+        },
+        "unified-session-review": {
+          title: "Alle Bildschirme und Pins gemeinsam prüfen",
+          description:
+            "Mehrseitige Sitzungen öffnen sich in einem Pan-und-Zoom-Viewer mit allen Anmerkungen im Seitenbereich. Tab prüft die aktive Erfassung, Esc blendet die Toolbar aus und gespeicherte Sitzungen bleiben im Viewer.",
+        },
+        "founder-retired": {
+          title: "Founder-Angebot eingestellt",
+          description:
+            "Neue Käufe bieten nur noch Free und Pro. Bestehende Founder-Berechtigungen bleiben anerkannt und erhalten dieselben Produktfunktionen wie Pro, ohne eine neue Founder-Zusage zu schaffen.",
+        },
         "element-structure": {
           title: "Struktur an jedem Element-Pin",
           description:

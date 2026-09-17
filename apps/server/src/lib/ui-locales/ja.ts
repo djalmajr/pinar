@@ -1,6 +1,7 @@
 import type { UiMessages } from "./en";
 
 const messages: UiMessages = {
+  "dashboard.sessionEvidence": "{pages} ページ · {count} キャプチャ",
   "common.pinarHome": "Pinar ホーム",
   "common.primaryNavigation": "メインナビゲーション",
   "common.home": "ホーム",
@@ -30,7 +31,6 @@ const messages: UiMessages = {
   "app.creditsAvailable": "{count} 利用可能",
   "app.creditsExpire": "一部のクレジットは {date} に期限切れになります",
   "app.creditsRefill": "月次補充日: {date}",
-  "app.founderPlan": "Pinar Founder",
   "app.freePlan": "無料プラン",
   "app.homepage": "ホームページ",
   "app.local": "ローカルサーバー",
@@ -64,7 +64,7 @@ const messages: UiMessages = {
     "新しいキャプチャの保存先です。サーバーの既定は最初のプロジェクトの Inbox です。",
   "settings.captureHeading": "キャプチャ",
   "settings.collection": "コレクション",
-  "settings.copyOnFinishBatch": "バッチ終了時にコピー",
+  "settings.copyOnFinishBatch": "セッション終了時にコピー",
   "settings.copyOnFinishBatchDescription":
     "完了したバッチをクリップボードに置き、エージェントに貼り付けできるようにします。",
   "settings.copyOnFinishBatchLink": "リンク",
@@ -210,7 +210,6 @@ const messages: UiMessages = {
   "dashboard.pinCount": "{count, plural, other {# ピン}}",
   "dashboard.moreActions": "その他のセッション操作",
   "dashboard.view": "表示",
-  "dashboard.reviewOnPage": "元のページで確認",
   "dashboard.markdown": "プロンプトを開く *.md",
   "dashboard.copyPrompt": "プロンプトをコピー",
   "dashboard.includeScreenshot":
@@ -235,11 +234,11 @@ const messages: UiMessages = {
   "dashboard.filters": "フィルター",
   "dashboard.filtersEmpty": "フィルターなし",
   "dashboard.filterActions": "フィルター操作",
-  "dashboard.batchActions": "バッチ操作",
-  "dashboard.batches": "バッチ",
+  "dashboard.batchActions": "セッション",
+  "dashboard.batches": "セッション",
   "dashboard.collapseBatches": "{name} を折りたたむ",
   "dashboard.expandBatches": "{name} を展開",
-  "dashboard.copyBatch": "プロンプトをコピー（バッチ）",
+  "dashboard.copyBatch": "プロンプトをコピー（セッション）",
   "dashboard.deleteFilter": "削除",
   "dashboard.deleteFilterTitle": "このグループを外しますか？",
   "dashboard.deleteFilterConfirm":
@@ -298,7 +297,7 @@ const messages: UiMessages = {
   "viewer.locationExact": "完全一致",
   "viewer.locationExactHint": "Pinar は元のページでこの要素を再検出できます。",
   "viewer.locationProbableHint":
-    "Pinar は有力な一致を見つけました。ページで確認するとき、目視が必要になる場合があります。",
+    "Pinar が一致する可能性の高い要素を見つけました。選択された要素が正しいか確認してください。",
   "viewer.locationNeedsReviewHint":
     "Pinar は元のページでこの要素を再検出できない場合があります。",
   "viewer.locationProbable": "ほぼ一致",
@@ -448,10 +447,6 @@ const messages: UiMessages = {
   "viewer.noAgentResult": "エージェント結果はまだありません",
   "viewer.reviewTimeline": "レビュー履歴",
   "viewer.reviewTransition": "{from} → {to}",
-  "viewer.reviewOnPage": "元のページで確認",
-  "viewer.reviewOnPageHint":
-    "Pinar 拡張機能をインストールすると、元のページでこのセッションを再開できます。",
-  "viewer.reviewOnPageFailed": "元のページを確認用に開けませんでした。",
   "viewer.aiSummary": "AI 要約",
   "viewer.aiSummaryTitle": "注釈の要約",
   "viewer.aiSummaryDescription":
@@ -502,7 +497,6 @@ const messages: UiMessages = {
   "pricing.projectsCollections": "プロジェクトとコレクション",
   "pricing.useFree": "無料で使う",
   "pricing.everythingFreePlus": "無料プランの全機能に加えて：",
-  "pricing.founderIncludes": "Pro 年払いの全機能に加えて：",
   "pricing.proYearly": "Pro 年払い",
   "pricing.proMonthly": "Pro 月払い",
   "pricing.proYearlyDescription": "有効期間中のクラウド保存を月額約{price}で。",
@@ -519,18 +513,7 @@ const messages: UiMessages = {
   "pricing.storage5": "5 GB 専用クラウドストレージ",
   "pricing.proAiCredits": "毎月 200 AI クレジット",
   "pricing.searchHistory": "クラウド履歴全体を検索",
-  "pricing.founder": "Pinar Founder",
-  "pricing.founderDescription":
-    "買い切りのローンチオファー。マネージドサービスの提供期間中有効で、継続課金はありません。",
-  "pricing.oneTime": "一括払い",
-  "pricing.founderAccess": "サブスクリプション不要の Founder アクセス",
-  "pricing.withinPolicies": "クォータとポリシーの範囲内",
-  "pricing.earlyAccess": "新しい Pro 機能への先行アクセス",
-  "pricing.founderAiCredits": "有効化時にボーナス AI クレジット 500 点",
   "pricing.unbrandedViewers": "Pinar ブランドなしの Web ビューアー",
-  "pricing.getFounder": "Pinar Founder を購入 — {price}",
-  "pricing.founderSoldOut": "Founder 募集終了",
-  "pricing.founderClosed": "Founder は近日開始",
   "pricing.originalPrice": "通常価格",
   "pricing.regionalBrazil": "ブラジル限定価格",
   "pricing.addOnsTitle": "必要なときに容量を追加",
@@ -547,7 +530,6 @@ const messages: UiMessages = {
   "pricing.storage20Description":
     "現在のクラウド上限に 20 GB を追加し、他のパックと併用できます。",
   "pricing.valid12Months": "12か月有効",
-  "pricing.limitedLaunch": "限定ローンチ",
   "pricing.supportTitle": "Fair Source 開発を支援",
   "pricing.supportDescription":
     "公開ソースの開発を直接支援しますか？GitHub スポンサーまたはコーヒーで応援できます。",

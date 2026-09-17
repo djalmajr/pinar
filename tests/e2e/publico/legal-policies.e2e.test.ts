@@ -14,7 +14,7 @@ test("visitor reads every versioned legal document and switches it to Portuguese
   await page.goto("/legal/terms");
 
   await expect(page.getByRole("heading", { name: "Terms of Service", level: 1 })).toBeVisible();
-  await expect(page.getByText("Version and effective date: 2026-08-25", { exact: true })).toBeVisible();
+  await expect(page.getByText("Version and effective date: 2026-09-14", { exact: true })).toBeVisible();
   await expect(page.getByText("Djalma Júnior", { exact: false }).first()).toBeVisible();
   await expect(page.getByText("contact@pinar.dev", { exact: false }).first()).toBeVisible();
 
@@ -29,7 +29,7 @@ test("visitor reads every versioned legal document and switches it to Portuguese
   await page.getByRole("button", { name: "Language" }).click();
   await page.getByRole("menuitem", { name: "Português" }).click();
   await expect(page.getByRole("heading", { name: "Provedores de Serviço e Suboperadores", level: 1 })).toBeVisible();
-  await expect(page.getByText("Versão e vigência: 2026-08-25", { exact: true })).toBeVisible();
+  await expect(page.getByText("Versão e vigência: 2026-09-14", { exact: true })).toBeVisible();
   await expect(page.getByText("contato@pinar.dev", { exact: false }).first()).toBeVisible();
   await expect(page.getByRole("tablist", { name: "Documentos legais" })).toBeVisible();
 

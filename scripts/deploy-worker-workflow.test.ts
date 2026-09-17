@@ -15,18 +15,25 @@ describe("Worker deploy workflow", () => {
   });
 
   test("deploys production only on closed tags", () => {
+    const migration = "bunx wrangler d1 migrations apply pinar-prd --env production --remote";
+    const deploy = "bunx wrangler deploy --env production";
     expect(workflow).toContain("needs.classify.outputs.kind == 'closed'");
     expect(workflow).toContain("CLOUDFLARE_ENV: production");
     expect(workflow).toContain("bun scripts/assert-worker-artifact.mjs production");
-    expect(workflow).toContain("bunx wrangler deploy --env production");
+    expect(workflow).toContain(migration);
+    expect(workflow).toContain(deploy);
+    expect(workflow.indexOf(migration)).toBeLessThan(workflow.indexOf(deploy));
     expect(workflow).toContain("https://pinar.dev/api/health");
   });
 
   test("deploys staging only on prerelease tags", () => {
+    const migration = "bunx wrangler d1 migrations apply pinar-stg --env staging --remote";
+    const deploy = "bunx wrangler deploy --env staging";
     expect(workflow).toContain("needs.classify.outputs.kind == 'prerelease'");
     expect(workflow).toContain("CLOUDFLARE_ENV: staging");
     expect(workflow).toContain("bun scripts/assert-worker-artifact.mjs staging");
-    expect(workflow).toContain("bunx wrangler deploy --env staging");
-    expect(workflow).not.toContain("d1 migrations apply");
+    expect(workflow).toContain(migration);
+    expect(workflow).toContain(deploy);
+    expect(workflow.indexOf(migration)).toBeLessThan(workflow.indexOf(deploy));
   });
 });

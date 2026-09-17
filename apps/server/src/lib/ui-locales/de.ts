@@ -1,6 +1,7 @@
 import type { UiMessages } from "./en";
 
 const messages: UiMessages = {
+  "dashboard.sessionEvidence": "{pages} Seiten · {count} Aufnahmen",
   "common.pinarHome": "Pinar-Startseite",
   "common.primaryNavigation": "Hauptnavigation",
   "common.home": "Start",
@@ -30,7 +31,6 @@ const messages: UiMessages = {
   "app.creditsAvailable": "{count} verfügbar",
   "app.creditsExpire": "Einige Guthaben verfallen am {date}",
   "app.creditsRefill": "Monatliche Auffüllung am {date}",
-  "app.founderPlan": "Pinar Founder",
   "app.freePlan": "Kostenloser Tarif",
   "app.homepage": "Startseite",
   "app.local": "Lokaler Server",
@@ -209,7 +209,6 @@ const messages: UiMessages = {
   "dashboard.pinCount": "{count, plural, one {# Pin} other {# Pins}}",
   "dashboard.moreActions": "Weitere Sitzungsaktionen",
   "dashboard.view": "Ansehen",
-  "dashboard.reviewOnPage": "Auf der Seite prüfen",
   "dashboard.markdown": "Prompt öffnen *.md",
   "dashboard.copyPrompt": "Prompt kopieren",
   "dashboard.includeScreenshot": "Screenshot in die Agenten-Kopie aufnehmen",
@@ -233,11 +232,11 @@ const messages: UiMessages = {
   "dashboard.filters": "Filter",
   "dashboard.filtersEmpty": "Keine Filter",
   "dashboard.filterActions": "Filteraktionen",
-  "dashboard.batchActions": "Stapelaktionen",
-  "dashboard.batches": "Stapel",
+  "dashboard.batchActions": "Sitzung",
+  "dashboard.batches": "Sitzungen",
   "dashboard.collapseBatches": "{name} einklappen",
   "dashboard.expandBatches": "{name} ausklappen",
-  "dashboard.copyBatch": "Prompt kopieren (Stapel)",
+  "dashboard.copyBatch": "Prompt kopieren (Sitzung)",
   "dashboard.deleteFilter": "Entfernen",
   "dashboard.deleteFilterTitle": "Diese Gruppierung entfernen?",
   "dashboard.deleteFilterConfirm":
@@ -298,7 +297,7 @@ const messages: UiMessages = {
   "viewer.locationExactHint":
     "Pinar findet dieses Element auf der Originalseite wieder.",
   "viewer.locationProbableHint":
-    "Pinar hat eine wahrscheinliche Übereinstimmung gefunden. „Review on page“ kann eine Prüfung brauchen.",
+    "Pinar hat eine wahrscheinliche Übereinstimmung gefunden. Prüfe, ob das ausgewählte Element korrekt ist.",
   "viewer.locationNeedsReviewHint":
     "Pinar findet dieses Element auf der Originalseite möglicherweise nicht wieder.",
   "viewer.locationProbable": "Wahrscheinliche Übereinstimmung",
@@ -448,11 +447,6 @@ const messages: UiMessages = {
   "viewer.noAgentResult": "Noch kein Agentenergebnis",
   "viewer.reviewTimeline": "Prüfungsverlauf",
   "viewer.reviewTransition": "{from} → {to}",
-  "viewer.reviewOnPage": "Auf der Seite prüfen",
-  "viewer.reviewOnPageHint":
-    "Installiere die Pinar-Erweiterung, um diese Sitzung auf der Originalseite zu öffnen.",
-  "viewer.reviewOnPageFailed":
-    "Die Originalseite konnte nicht zur Prüfung geöffnet werden.",
   "viewer.aiSummary": "KI-Zusammenfassung",
   "viewer.aiSummaryTitle": "Zusammenfassung der Anmerkungen",
   "viewer.aiSummaryDescription":
@@ -505,7 +499,6 @@ const messages: UiMessages = {
   "pricing.projectsCollections": "Projekte und Sammlungen",
   "pricing.useFree": "Kostenlos nutzen",
   "pricing.everythingFreePlus": "Alles aus Kostenlos, plus:",
-  "pricing.founderIncludes": "Alles aus Pro Jährlich, plus:",
   "pricing.proYearly": "Pro Jährlich",
   "pricing.proMonthly": "Pro Monatlich",
   "pricing.proYearlyDescription":
@@ -524,18 +517,7 @@ const messages: UiMessages = {
   "pricing.storage5": "5 GB dedizierter Cloud-Speicher",
   "pricing.proAiCredits": "200 KI-Guthaben pro Monat",
   "pricing.searchHistory": "Suche im gesamten Cloud-Verlauf",
-  "pricing.founder": "Pinar Founder",
-  "pricing.founderDescription":
-    "Einmaliges Startangebot, gültig solange der verwaltete Dienst angeboten wird. Keine wiederkehrende Gebühr.",
-  "pricing.oneTime": "Einmalzahlung",
-  "pricing.founderAccess": "Founder-Zugang ohne Abonnement",
-  "pricing.withinPolicies": "innerhalb der Kontingente und Richtlinien",
-  "pricing.earlyAccess": "Frühzeitiger Zugriff auf neue Pro-Funktionen",
-  "pricing.founderAiCredits": "500 zusätzliche KI-Guthaben bei Aktivierung",
   "pricing.unbrandedViewers": "Web-Viewer ohne Pinar-Branding",
-  "pricing.getFounder": "Pinar Founder erhalten — {price}",
-  "pricing.founderSoldOut": "Founder-Kohorte geschlossen",
-  "pricing.founderClosed": "Founder startet bald",
   "pricing.originalPrice": "Ursprünglicher Preis",
   "pricing.regionalBrazil": "Exklusivpreis für Brasilien",
   "pricing.addOnsTitle": "Kapazität bei Bedarf hinzufügen",
@@ -552,7 +534,6 @@ const messages: UiMessages = {
   "pricing.storage20Description":
     "Fügt deinem aktuellen Cloud-Kontingent 20 GB hinzu und ist stapelbar.",
   "pricing.valid12Months": "12 Monate gültig",
-  "pricing.limitedLaunch": "LIMITIERTER START",
   "pricing.supportTitle": "Fair-Source-Entwicklung unterstützen",
   "pricing.supportDescription":
     "Möchtest du die Entwicklung mit öffentlichem Quellcode direkt unterstützen? Sponsere auf GitHub oder spendiere einen Kaffee.",

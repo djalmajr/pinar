@@ -1,6 +1,7 @@
 import type { UiMessages } from "./en";
 
 const messages: UiMessages = {
+  "dashboard.sessionEvidence": "{pages} 个页面 · {count} 张截图",
   "common.pinarHome": "Pinar 首页",
   "common.primaryNavigation": "主导航",
   "common.home": "首页",
@@ -30,7 +31,6 @@ const messages: UiMessages = {
   "app.creditsAvailable": "可用 {count}",
   "app.creditsExpire": "部分点数将于 {date} 到期",
   "app.creditsRefill": "每月补充：{date}",
-  "app.founderPlan": "Pinar Founder",
   "app.freePlan": "免费方案",
   "app.homepage": "主页",
   "app.local": "本地服务器",
@@ -61,8 +61,8 @@ const messages: UiMessages = {
   "settings.captureDestinationDescription": "新捕获的保存位置。服务器默认使用第一个项目的 Inbox。",
   "settings.captureHeading": "捕获",
   "settings.collection": "集合",
-  "settings.copyOnFinishBatch": "批次结束时复制",
-  "settings.copyOnFinishBatchDescription": "将完成的批次放入剪贴板，以便粘贴给代理。",
+  "settings.copyOnFinishBatch": "会话结束时复制",
+  "settings.copyOnFinishBatchDescription": "将完成的会话放入剪贴板，以便粘贴给代理。",
   "settings.copyOnFinishBatchLink": "链接",
   "settings.copyOnFinishBatchOff": "关闭",
   "settings.copyOnFinishBatchPrompt": "提示",
@@ -192,7 +192,6 @@ const messages: UiMessages = {
   "dashboard.pinCount": "{count, plural, other {# 个标记}}",
   "dashboard.moreActions": "更多会话操作",
   "dashboard.view": "查看",
-  "dashboard.reviewOnPage": "在原页审阅",
   "dashboard.markdown": "打开提示 *.md",
   "dashboard.copyPrompt": "复制提示词",
   "dashboard.includeScreenshot": "在代理副本中包含截图",
@@ -215,11 +214,11 @@ const messages: UiMessages = {
   "dashboard.filters": "筛选",
   "dashboard.filtersEmpty": "无筛选",
   "dashboard.filterActions": "筛选操作",
-  "dashboard.batchActions": "批次操作",
-  "dashboard.batches": "批次",
+  "dashboard.batchActions": "会话",
+  "dashboard.batches": "会话",
   "dashboard.collapseBatches": "收起 {name}",
   "dashboard.expandBatches": "展开 {name}",
-  "dashboard.copyBatch": "复制提示（批次）",
+  "dashboard.copyBatch": "复制提示（会话）",
   "dashboard.deleteFilter": "移除",
   "dashboard.deleteFilterTitle": "移除此分组？",
   "dashboard.deleteFilterConfirm":
@@ -278,7 +277,7 @@ const messages: UiMessages = {
   "viewer.locationExact": "精确匹配",
   "viewer.locationExactHint": "Pinar 可以在原始页面上再次找到此元素。",
   "viewer.locationProbableHint":
-    "Pinar 找到了可能的匹配。在页面上复查时可能需要核对。",
+    "Pinar 找到了可能的匹配项。请确认所选元素是否正确。",
   "viewer.locationNeedsReviewHint":
     "Pinar 可能无法在原始页面上再次找到此元素。",
   "viewer.locationProbable": "可能匹配",
@@ -428,9 +427,6 @@ const messages: UiMessages = {
   "viewer.noAgentResult": "尚无代理结果",
   "viewer.reviewTimeline": "审阅历史",
   "viewer.reviewTransition": "{from} → {to}",
-  "viewer.reviewOnPage": "在原页审阅",
-  "viewer.reviewOnPageHint": "安装 Pinar 扩展后即可在原始页面重新打开此会话。",
-  "viewer.reviewOnPageFailed": "无法打开原始页面进行审阅。",
   "viewer.aiSummary": "AI 摘要",
   "viewer.aiSummaryTitle": "注释摘要",
   "viewer.aiSummaryDescription":
@@ -476,7 +472,6 @@ const messages: UiMessages = {
   "pricing.projectsCollections": "项目和集合",
   "pricing.useFree": "免费使用",
   "pricing.everythingFreePlus": "包含免费版的全部功能，另加：",
-  "pricing.founderIncludes": "包含 Pro 年付的全部功能，另加：",
   "pricing.proYearly": "Pro 年付",
   "pricing.proMonthly": "Pro 月付",
   "pricing.proYearlyDescription": "方案有效期间提供云端保留，每月约 {price}。",
@@ -493,18 +488,7 @@ const messages: UiMessages = {
   "pricing.storage5": "5 GB 专属云存储",
   "pricing.proAiCredits": "每月 200 个 AI 点数",
   "pricing.searchHistory": "搜索全部云端历史记录",
-  "pricing.founder": "Pinar Founder",
-  "pricing.founderDescription":
-    "一次性首发优惠，在托管服务持续提供期间有效，无周期性收费。",
-  "pricing.oneTime": "一次性付款",
-  "pricing.founderAccess": "无需订阅的 Founder 权限",
-  "pricing.withinPolicies": "受配额与政策约束",
-  "pricing.earlyAccess": "提前体验新的 Pro 功能",
-  "pricing.founderAiCredits": "激活时额外赠送 500 个 AI 点数",
   "pricing.unbrandedViewers": "无 Pinar 品牌标识的 Web 查看器",
-  "pricing.getFounder": "购买 Pinar Founder — {price}",
-  "pricing.founderSoldOut": "Founder 名额已结束",
-  "pricing.founderClosed": "Founder 即将开放",
   "pricing.originalPrice": "原价",
   "pricing.regionalBrazil": "巴西专享价格",
   "pricing.addOnsTitle": "按需增加容量",
@@ -521,7 +505,6 @@ const messages: UiMessages = {
   "pricing.storage20Description":
     "为当前云端配额增加 20 GB，并可与其他套餐叠加。",
   "pricing.valid12Months": "有效期 12 个月",
-  "pricing.limitedLaunch": "限量首发",
   "pricing.supportTitle": "支持 Fair Source 开发",
   "pricing.supportDescription":
     "想直接支持公开源码开发？可在 GitHub 赞助或请我们喝杯咖啡。",

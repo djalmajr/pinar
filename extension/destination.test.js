@@ -55,7 +55,7 @@ describe("capture destination", () => {
     assert.match(backgroundSrc, /getCaptureDestinationContext\(settings\)/);
     assert.match(backgroundSrc, /JSON\.stringify\(payload\)/);
     assert.match(backgroundSrc, /includeScreenshot,/);
-    assert.equal((backgroundSrc.match(/body: JSON\.stringify\(payload\)/g) || []).length, 2);
+    assert.match(backgroundSrc, /collectionId: draft\.collectionId/);
     assert.match(backgroundSrc, /privacy,/);
     assert.match(backgroundSrc, /storeDestination\(settings, "", body\.destination\)/);
     assert.match(backgroundSrc, /localFetch\(base, "\/api\/shots"/);
@@ -99,12 +99,11 @@ describe("capture destination", () => {
     assert.match(interfaceSection, /<SettingRow size="xs" description=\{t\.language_desc\} title=\{t\.language_label\}>/);
     assert.match(interfaceSection, /<SettingRow size="xs" description=\{t\.theme_desc\} title=\{t\.theme_label\}>/);
     assert.match(optionsSrc, /<SettingRow size="xs" description=\{t\.handoff_mode_desc\}/);
-    assert.match(optionsSrc, /<SettingRow size="xs" description=\{t\.copy_on_finish_batch_desc\} title=\{t\.copy_on_finish_batch_label\}>/);
+    assert.doesNotMatch(optionsSrc, /<SettingRow size="xs" description=\{t\.copy_on_finish_batch_desc\}/);
     assert.match(optionsSrc, /<SettingRow layout="stack" size="xs" description=\{t\.privacy_query_keys_desc\} title=\{t\.privacy_query_keys_label\}>/);
     // Mutation captured: w-52 + w-full stretches the trigger; the menu then inherits --anchor-width and looks padded.
     assert.doesNotMatch(optionsSrc, /controlClassName="w-52"/);
     assert.match(interfaceSection, /SelectTrigger aria-label=\{t\.language_label\}><SelectValue \/>/);
-    assert.match(optionsSrc, /SelectTrigger aria-label=\{t\.copy_on_finish_batch_label\}><SelectValue \/>/);
     assert.match(interfaceSection, /SelectContent align="end" alignItemWithTrigger=\{false\} className="w-max min-w-min"/);
     assert.match(optionsSrc, /SelectContent align="end" alignItemWithTrigger=\{false\} className="w-max min-w-min"/);
     assert.match(interfaceSection, /variant="segmented"/);
@@ -169,7 +168,8 @@ describe("capture destination", () => {
     assert.match(optionsSrc, /type: "app:open"/);
     assert.match(backgroundSrc, /withLanguage\(`\$\{base\}\/app`\)/);
     assert.doesNotMatch(backgroundSrc, /withLanguage\(`\$\{base\}\/`\)/);
-    assert.doesNotMatch(backgroundSrc, /browser-ticket|\/history/);
+    const openApp = backgroundSrc.slice(backgroundSrc.indexOf("async function openApp()"), backgroundSrc.indexOf("async function saveShot"));
+    assert.doesNotMatch(openApp, /browser-ticket|\/history/);
   });
 
   test("carries the current remote legal acceptance into account activation", () => {

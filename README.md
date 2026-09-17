@@ -5,9 +5,13 @@
 
 Pin comments on elements or areas in Chrome and **copy** the bundle (comment, DOM path, coordinates, screenshot) to the clipboard. Paste it anywhere — Grok, Claude, Codex, Slack, notes.
 
+The first saved pin starts a continuous review session, in both local and remote storage. Add comments, press **Esc** to browse, and continue on another page. Once hidden, the toolbar stays hidden across navigation until the extension action or its shortcut is invoked. Pinar captures evidence while the page is still open; it does not revisit URLs at the end. Use **Conclude and copy** or **Ctrl/⌘+Enter** to hand over all pages together. A visible confirmation reports success, while a failed finish keeps the session available for review and retry. The history shows one session with its individual screenshots.
+
+Press **Tab** while annotating to review saved/pending annotations, retry, remove or discard. The review replaces the toolbar until you return to the page. Upload failures keep the local draft and its screenshots for retry. If a screenshot could not be taken before the page changed, recreate that annotation on the original page and remove the pending entry. Finish the draft before changing its server/account. The former manual batch mode is retired; stored captures and existing share links remain compatible.
+
 ```
 Chrome (Pinar + pins + ⌘↵)
-        │  clipboard (text/plain + text/html with images)
+        │  clipboard (Markdown + visual context per capture)
         ▼
 Any composer / editor
 ```
@@ -52,6 +56,8 @@ Extension contributors can still load a development build:
 
 ## Usage
 
+A history record is a session containing one or more captures. Opening it always shows a modal; all captures appear together in one pan/zoom canvas, with all annotations in the right panel. Selecting an annotation centers and highlights its image and opens its details. Closing the modal returns to the unchanged history list.
+
 1. Open the page you want to annotate
 2. Click the Pinar icon in the Chrome toolbar (pin it from the puzzle-piece menu if it is hidden)
 3. Click an element or drag an area, write the comment, press **Enter** to add
@@ -59,8 +65,12 @@ Extension contributors can still load a development build:
 
 - **Enter** adds the pin
 - **Shift+Enter** inserts a newline
-- **Esc** in the composer closes only the draft; with no draft, it clears all pins and hides the toolbar
-- The extension icon only shows or hides the overlay — it does not delete pins
+- **Esc** in the composer cancels only the unsaved comment; in masking mode, it exits that mode; otherwise, it hides the toolbar and preserves the session and saved pins
+- **Tab** opens/closes session review. Inside the comment editor, Tab keeps normal focus navigation.
+- The extension icon (or Alt+Shift+P) shows/hides the overlay without deleting pins. After Esc hides everything, use it to reopen Pinar.
+- In the review panel, **Discard session** deletes the active session and its evidence. Tab returns to annotation; the page uses its normal cursor while reviewing.
+- Hovering the expanded toolbar makes it transparent and passes pointer input to the page. There is no fixed/auto-hide setting or H shortcut.
+- See the [continuous session validation guide](docs/continuous-review-validation.md) for the full flow and screenshots.
 
 PNG crops go to `~/.pinar/shots` (Windows: `%USERPROFILE%\.pinar\shots`). The extension cannot write that folder by itself — on macOS, **Pinar.app** starts the local service (menu bar: Start if it shows Off). If the connection is not available, open Pinar and try the capture again.
 
@@ -80,7 +90,7 @@ The Cloudflare build expects `AUTH_PEPPER`, `STRIPE_SECRET_KEY`, and `STRIPE_WEB
 
 For hosted-feature development without a deploy, use the isolated Cloudflare runtime described in [Local cloud development](docs/local-cloud-development.md). It runs the Worker code locally with local D1/R2 data and a seeded paid account; it never turns the ordinary local helper into a hosted account.
 
-A public release is not ready until the [closed-loop release gate](docs/release-closed-loop.md) has been proven: pin → agent return → `correction_ready` → accepted, including reopen and a second return. Loop metrics stay off unless the user opts in, and never include comments, URLs, selectors, screenshots, or DOM.
+A public release is not ready until the [closed-loop release gate](docs/release-closed-loop.md) has been proven: pin → agent return → `correction_ready` → accepted, followed by a human review reopen and a second return. Loop metrics stay off unless the user opts in, and never include comments, URLs, selectors, screenshots, or DOM.
 
 Stripe Price IDs and the fixed BRL/USD catalog are non-secret Worker vars in `apps/server/wrangler.jsonc`. Checkout writes the selected offer into Stripe metadata, webhook fulfillment is idempotent, and `/api/account/entitlements` exposes the authenticated credit balance and storage quota. The daily Worker schedule refills active Pro accounts with 200 non-rollover credits each month. Storage add-ons expire after 12 months; uploads above the current quota are blocked, while automatic deletion is intentionally not enabled. Production rollout must subscribe the signed webhook to Checkout completion (including asynchronous success) and subscription update/deletion events before enabling sales.
 
@@ -94,12 +104,10 @@ the standardized [FSL-1.1-MIT](https://fsl.software/) template remains pending
 legal review; this documentation does not silently change that license.
 
 The code license and the hosted service are separate contracts. The hosted
-service currently has Free and recurring Pro plans. **Pinar Founder** is a
-limited, server-controlled cohort sold as a one-time purchase with 5 GB of base
-cloud storage and 500 initial AI credits, without monthly refill. Founder is not
-a promise of unlimited usage or perpetual operation of the hosted service.
-Checkout metadata `lifetime_founder` and the old `interval: "lifetime"` map to
-Founder; they do not create a separate plan.
+service has Free and recurring Pro plans. Pro includes 5 GB of base cloud
+storage and 200 monthly AI credits without rollover while the subscription is
+active. Optional AI-credit and storage packs remain available. The retired
+Founder and Lifetime checkout offers are rejected; there is no one-time plan.
 
 Current hosted-service policies are versioned and published at:
 
@@ -112,11 +120,9 @@ Current hosted-service policies are versioned and published at:
 - [Subprocessors](https://pinar.dev/legal/subprocessors)
 
 Checkout and remote Free registration record the accepted policy versions.
-Founder uses configurable tranches rather than a permanent hard-coded limit.
-Local and staging currently expose the first 100-seat tranche; production
-remains closed until a separate authorization configures its switch, capacity,
-and both regional Stripe Price IDs. Reaching the configured cap closes new
-checkout reservations without deleting the historical Stripe Price.
+Migration `0017_remove_founder.sql` removes the retired plan's structures only
+when no Founder accounts, credits, captures, purchases, or active/confirmed
+reservations remain. Existing records require explicit review before migration.
 
 ## Session hooks
 

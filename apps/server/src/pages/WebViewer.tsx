@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import ReactMarkdown from "react-markdown";
-import { formatClipboardText, getPinColor, isComponentTarget, PINAR_REOPEN_SESSION_RESULT_EVENT, requestReopenSession, type AgentExecution, type ComponentTarget, type Pin, type PinLocation, type PinReview, type PinReviewHumanAction, type PinReviewStatus, type Reproduction, type Session } from "@pinar/shared";
+import { formatClipboardText, getPinColor, isComponentTarget, type AgentExecution, type ComponentTarget, type Pin, type PinLocation, type PinReview, type PinReviewHumanAction, type PinReviewStatus, type Reproduction, type Session } from "@pinar/shared";
 import { ImageZoomControls, ImageZoomStage, useImageZoom } from "@/components/ImageZoomStage";
 import { PinComponentPanel } from "@/components/PinComponentPanel";
 import { PinDiagnosisPanel } from "@/components/PinDiagnosisPanel";
@@ -60,13 +60,10 @@ import ArrowLeftIcon from "~icons/lucide/arrow-left";
 import CalendarIcon from "~icons/lucide/calendar-days";
 import CheckIcon from "~icons/lucide/check";
 import ChevronDownIcon from "~icons/lucide/chevron-down";
-import ChevronLeftIcon from "~icons/lucide/chevron-left";
-import ChevronRightIcon from "~icons/lucide/chevron-right";
 import CopyIcon from "~icons/lucide/copy";
 import LayersIcon from "~icons/lucide/layers";
 import ExternalLinkIcon from "~icons/lucide/external-link";
 import MessageCircleIcon from "~icons/lucide/message-circle";
-import ScanSearchIcon from "~icons/lucide/scan-search";
 import ShareIcon from "~icons/lucide/share-2";
 import SparklesIcon from "~icons/lucide/sparkles";
 import UnlinkIcon from "~icons/lucide/unlink";
@@ -78,9 +75,6 @@ interface WebViewerProps {
   // leaves them out rather than stranding the reader on a dead session.
   onDelete?: (sessionId: string) => void;
   onMove?: (sessionId: string) => void;
-  // Walking captures needs the surrounding list; the standalone route has none,
-  // so the arrows simply do not render there.
-  onNavigate?: (sessionId: string) => void;
   presentation?: "modal" | "page";
   sessionId: string;
   siblingIds?: string[];
@@ -128,12 +122,10 @@ function PrivacyBadges({ session, t }: { session: Session; t: (key: ServerMessag
 
 function ViewerPageIdentity({
   isModal,
-  reopenHint,
   session,
   t,
 }: {
   isModal: boolean;
-  reopenHint: "failed" | "missing" | null;
   session: Session;
   t: (key: ServerMessageKey, values?: Record<string, string | number>) => string;
 }) {
@@ -169,11 +161,6 @@ function ViewerPageIdentity({
       ) : (
         <PrivacyBadges session={session} t={t} />
       )}
-      {reopenHint ? (
-        <p className="mt-1.5 text-xs text-muted-foreground">
-          {t(reopenHint === "missing" ? "viewer.reviewOnPageHint" : "viewer.reviewOnPageFailed")}
-        </p>
-      ) : null}
     </div>
   );
 }
@@ -307,7 +294,6 @@ export function WebViewer({
   onClose,
   onDelete,
   onMove,
-  onNavigate,
   presentation = "page",
   sessionId,
   siblingIds = [],
@@ -325,8 +311,6 @@ export function WebViewer({
   const [loading, setLoading] = useState(true);
   const [pageCopied, setPageCopied] = useState(false);
   const [batchCopied, setBatchCopied] = useState(false);
-  const [reopenHint, setReopenHint] = useState<"failed" | "missing" | null>(null);
-  const reopenWait = useRef<number | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviews, setReviews] = useState<PinReview[]>([]);
   const [executions, setExecutions] = useState<AgentExecution[]>([]);
@@ -336,7 +320,12 @@ export function WebViewer({
   const [shareError, setShareError] = useState("");
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [shareToken, setShareToken] = useState<string | null>(null);
-  const siblingIndex = siblingIds.indexOf(sessionId);
+  const [captures, setCaptures] = useState<Session[]>([]);
+  const [highlightedCapture, setHighlightedCapture] = useState<string | null>(null);
+  const imageRefs = useRef(new Map<string, HTMLDivElement>());
+  const captureKey = (presentation === "modal" && siblingIds.length ? siblingIds : [sessionId]).join(",");
+  const pinOwner = (pin: Pin) => captures.find((capture) => capture.pins.some((item) => pinLookupId(item) === pinLookupId(pin))) || session;
+  const selectedCapture = selectedPin ? pinOwner(selectedPin) : session;
   const showShareControls = canManageCloudShare(pinarRuntime(), authSession, session);
   const canEditPins = pinarRuntime() === "local" || canManageCloudShare(pinarRuntime(), authSession, session);
   const [pinPatchBusy, setPinPatchBusy] = useState(false);
@@ -357,59 +346,27 @@ export function WebViewer({
       cancelled = true;
     };
   }, [showAiSummary]);
-  const zoom = useImageZoom(session?.shotUrl || sessionId);
+  const zoom = useImageZoom(captureKey);
   const isModal = presentation === "modal";
 
-  const stepCapture = useCallback((delta: number) => {
-    const next = siblingIds[siblingIds.indexOf(sessionId) + delta];
-    if (next) onNavigate?.(next);
-  }, [onNavigate, sessionId, siblingIds]);
-
-  useEffect(() => {
-    if (siblingIds.length < 2) return;
-    function onKey(event: KeyboardEvent) {
-      // Let the pin dialog, the summary and any text field keep their arrows.
-      if (selectedPin || aiSummaryOpen) return;
-      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
-      // The target is not always an Element - a keydown aimed at the document
-      // has no closest() - so narrow before asking about form fields.
-      const target = event.target;
-      if (target instanceof Element && target.closest("input, textarea, select, [contenteditable='true']")) return;
-      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-      event.preventDefault();
-      stepCapture(event.key === "ArrowLeft" ? -1 : 1);
-    }
-    // Capture phase: the dialog stops keydown from bubbling, and focus lives
-    // inside it, so a bubble listener on window would never see these keys.
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [aiSummaryOpen, selectedPin, siblingIds, stepCapture]);
-
   async function loadSession() {
-    const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`);
-    const data: unknown = await response.json();
-    if (response.ok && isRecord(data) && isSession(data.session)) {
-      const nextSession = data.session;
-      setSession(nextSession);
-      setReviews(asReviews(data.reviews));
-      setExecutions(asExecutions(data.executions));
-      setSelectedPin((current) => {
-        if (!current) return current;
-        return nextSession.pins.find((pin) => pinLookupId(pin) === pinLookupId(current)) || current;
-      });
-    }
+    const results = await Promise.all(captureKey.split(",").map(async (id) => {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(id)}`);
+      const data: unknown = await response.json();
+      if (!response.ok || !isRecord(data) || !isSession(data.session)) throw new Error("Capture unavailable");
+      return { session: data.session, reviews: asReviews(data.reviews), executions: asExecutions(data.executions) };
+    }));
+    setCaptures(results.map((item) => item.session));
+    setSession(results.find((item) => item.session.id === sessionId)?.session || results[0].session);
+    setReviews(results.flatMap((item) => item.reviews));
+    setExecutions(results.flatMap((item) => item.executions));
+    setSelectedPin((current) => current ? results.flatMap((item) => item.session.pins).find((pin) => pinLookupId(pin) === pinLookupId(current)) || null : null);
   }
 
   useEffect(() => {
-    async function load() {
-      try {
-        await loadSession();
-      } finally {
-        setLoading(false);
-      }
-    }
-    void load();
-  }, [sessionId]);
+    setLoading(true);
+    void loadSession().catch(() => setSession(null)).finally(() => setLoading(false));
+  }, [captureKey]);
 
   useEffect(() => {
     setShareBusy(false);
@@ -430,37 +387,13 @@ export function WebViewer({
     };
   }, [sessionId, showShareControls]);
 
-  useEffect(() => {
-    function onResult(event: Event) {
-      const detail = (event as CustomEvent<{ error?: string; ok?: boolean }>).detail;
-      if (reopenWait.current != null) window.clearTimeout(reopenWait.current);
-      reopenWait.current = null;
-      setReopenHint(detail?.ok ? null : "failed");
-    }
-    window.addEventListener(PINAR_REOPEN_SESSION_RESULT_EVENT, onResult);
-    return () => {
-      window.removeEventListener(PINAR_REOPEN_SESSION_RESULT_EVENT, onResult);
-      if (reopenWait.current != null) window.clearTimeout(reopenWait.current);
-    };
-  }, []);
-
-  function reopenOnPage() {
-    if (!session) return;
-    setReopenHint(null);
-    if (reopenWait.current != null) window.clearTimeout(reopenWait.current);
-    requestReopenSession(session.id);
-    reopenWait.current = window.setTimeout(() => {
-      setReopenHint("missing");
-    }, 800);
-  }
-
   async function submitReview(pin: Pin, action: PinReviewHumanAction) {
     const pinId = pinLookupId(pin);
     if (!pinId || reviewBusy) return;
     setReviewBusy(true);
     try {
       const response = await fetch(
-        `/api/sessions/${encodeURIComponent(sessionId)}/pins/${encodeURIComponent(pinId)}/review`,
+        `/api/sessions/${encodeURIComponent(pinOwner(pin)?.id || sessionId)}/pins/${encodeURIComponent(pinId)}/review`,
         {
           body: JSON.stringify({ action }),
           headers: { "content-type": "application/json" },
@@ -481,7 +414,7 @@ export function WebViewer({
     setPinPatchBusy(true);
     setPinPatchError("");
     try {
-      const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(pinOwner(pin)?.id || sessionId)}`, {
         body: JSON.stringify({ pins: [{ ...fields, pinId }] }),
         headers: { "content-type": "application/json" },
         method: "PATCH",
@@ -500,12 +433,12 @@ export function WebViewer({
     }
   }
 
-  async function persistReproduction(reproduction: Reproduction | null) {
+  async function persistReproduction(reproduction: Reproduction | null, captureId = sessionId) {
     if (pinPatchBusy) return false;
     setPinPatchBusy(true);
     setPinPatchError("");
     try {
-      const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(captureId)}`, {
         body: JSON.stringify({ reproduction }),
         headers: { "content-type": "application/json" },
         method: "PATCH",
@@ -572,6 +505,12 @@ export function WebViewer({
 
   async function copyPage() {
     if (!session) return;
+    if (isModal && session.batchId) {
+      if (!await copyBatchHandoff(session.batchId)) return;
+      setPageCopied(true);
+      window.setTimeout(() => setPageCopied(false), 2_000);
+      return;
+    }
     let handoffMode: "compact" | "full" = "compact";
     try {
       const response = await fetch("/api/preferences");
@@ -689,7 +628,7 @@ export function WebViewer({
     );
   }
 
-  const selectedIndex = selectedPin ? session.pins.indexOf(selectedPin) : -1;
+  const selectedIndex = selectedPin ? (selectedCapture?.pins || []).indexOf(selectedPin) : -1;
   const selectedNumber = selectedPin ? pinNumber(selectedPin, Math.max(0, selectedIndex)) : 0;
   const selectedColor = selectedPin?.color || getPinColor(selectedNumber);
   const selectedMarkdown = selectedPin ? formatPinMarkdown(selectedPin, selectedNumber) : "";
@@ -715,53 +654,11 @@ export function WebViewer({
           )}
           <ViewerPageIdentity
             isModal={isModal}
-            reopenHint={reopenHint}
             session={session}
             t={t}
           />
         </div>
         <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-          {siblingIndex >= 0 && siblingIds.length > 1 ? (
-            <div className="flex shrink-0 items-center gap-2">
-              <span className="text-xs text-muted-foreground tabular-nums" role="status">
-                {t("viewer.capturePosition", { current: siblingIndex + 1, total: siblingIds.length })}
-              </span>
-              <ButtonGroup aria-label={t("viewer.captureNavigation")}>
-                <Button
-                  aria-label={t("viewer.previousCapture")}
-                  disabled={siblingIndex <= 0}
-                  size="icon"
-                  title={t("viewer.previousCapture")}
-                  type="button"
-                  variant="outline"
-                  onClick={() => stepCapture(-1)}
-                >
-                  <ChevronLeftIcon />
-                </Button>
-                <Button
-                  aria-label={t("viewer.nextCapture")}
-                  disabled={siblingIndex >= siblingIds.length - 1}
-                  size="icon"
-                  title={t("viewer.nextCapture")}
-                  type="button"
-                  variant="outline"
-                  onClick={() => stepCapture(1)}
-                >
-                  <ChevronRightIcon />
-                </Button>
-              </ButtonGroup>
-            </div>
-          ) : null}
-          <Button
-            aria-label={t("viewer.reviewOnPage")}
-            title={t("viewer.reviewOnPage")}
-            type="button"
-            variant="outline"
-            onClick={reopenOnPage}
-          >
-            <ScanSearchIcon data-icon="inline-start" />
-            <span className="hidden sm:inline">{t("viewer.reviewOnPage")}</span>
-          </Button>
           {showAiSummary ? (
             <Button aria-label={t("viewer.aiSummary")} disabled={aiLoading} type="button" variant="outline" onClick={() => void generateAiSummary()}>
               <SparklesIcon data-icon="inline-start" />
@@ -815,7 +712,7 @@ export function WebViewer({
               {pageCopied ? <CheckIcon data-icon="inline-start" /> : <CopyIcon data-icon="inline-start" />}
               <span className="hidden sm:inline">{pageCopied ? t("common.copied") : t("dashboard.copyPrompt")}</span>
             </Button>
-            {batchId ? (
+            {batchId && !isModal ? (
               <Button
                 aria-label={batchCopied ? t("common.copied") : t("dashboard.copyBatch")}
                 type="button"
@@ -846,10 +743,9 @@ export function WebViewer({
                 shareToken={shareToken}
                 t={t}
                 onCopy={shareListingActions ? () => void copyPage() : undefined}
-                onCopyBatch={(id) => void copyBatch(id)}
+                onCopyBatch={isModal ? undefined : (id) => void copyBatch(id)}
                 onDelete={onDelete}
                 onMove={onMove}
-                onReview={shareListingActions ? () => reopenOnPage() : undefined}
               />
             </DropdownMenu>
           </ButtonGroup>
@@ -862,11 +758,11 @@ export function WebViewer({
         </div>
       </header>
       <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,3fr)_minmax(12rem,2fr)] md:grid-cols-[minmax(0,1fr)_22rem] md:grid-rows-1">
-        {session.shotUrl ? (
+        {captures.some((capture) => capture.shotUrl) ? (
           <div className="relative flex min-h-0 min-w-0 flex-col">
             <ImageZoomStage
               alt={t("viewer.annotatedScreenshot")}
-              src={session.shotUrl}
+              src={session.shotUrl || ""}
               stageRef={zoom.stageRef}
               transform={zoom.transform}
               onDoubleClick={() => zoom.transform.scale <= 1 ? zoom.zoomBy(2) : zoom.resetZoom()}
@@ -875,7 +771,18 @@ export function WebViewer({
               onPointerMove={zoom.handlePointerMove}
               onPointerUp={zoom.handlePointerUp}
               onWheel={zoom.handleWheel}
-            />
+            >
+              {captures.length > 1 ? (
+                <div className="grid w-full gap-6 p-8" style={{ gridTemplateColumns: `repeat(${Math.ceil(Math.sqrt(captures.length))}, minmax(0, 1fr))` }}>
+                  {captures.map((capture) => (
+                    <div key={capture.id} data-capture-image={capture.id} ref={(node) => { if (node) imageRefs.current.set(capture.id, node); else imageRefs.current.delete(capture.id); }} className={`overflow-hidden rounded-lg border bg-card shadow-sm ${highlightedCapture === capture.id ? "ring-2 ring-primary" : ""}`}>
+                      <div className="truncate border-b px-3 py-2 text-xs font-medium">{capture.page.title || capture.page.url}</div>
+                      {capture.shotUrl ? <img alt={capture.page.title || t("viewer.annotatedScreenshot")} src={capture.shotUrl} draggable={false} className="pointer-events-none block w-full select-none" /> : <p className="p-6 text-xs">{t("viewer.screenshotUnavailable")}</p>}
+                    </div>
+                  ))}
+                </div>
+              ) : undefined}
+            </ImageZoomStage>
             <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center">
               <div className="pointer-events-auto">
                 <ImageZoomControls scale={zoom.transform.scale} onReset={zoom.resetZoom} onZoomBy={zoom.zoomBy} />
@@ -900,22 +807,23 @@ export function WebViewer({
                 </time>
                 <h2 className="inline-flex shrink-0 items-center gap-1.5">
                   <MessageCircleIcon className="text-primary" />
-                  {t("dashboard.pinCount", { count: session.pins?.length || 0 })}
+                  {t("dashboard.pinCount", { count: captures.reduce((count, capture) => count + capture.pins.length, 0) })}
                 </h2>
               </div>
             </div>
             <ScrollArea className="min-h-0 flex-1">
               <div className="flex flex-col gap-3 p-4">
-                {session.reproduction ? (
+                {captures.filter((capture) => capture.reproduction).map((capture) => (
                   <ReproductionTimeline
                     canEdit={canEditPins}
-                    reproduction={session.reproduction}
-                    sessionId={sessionId}
+                    key={capture.id}
+                    reproduction={capture.reproduction!}
+                    sessionId={capture.id}
                     showAi={showAiSummary && canEditPins}
-                    onPersist={persistReproduction}
+                    onPersist={(value) => persistReproduction(value, capture.id)}
                   />
-                ) : null}
-                {(session.pins || []).map((pin, index) => {
+                ))}
+                {captures.flatMap((capture) => capture.pins.map((pin, index) => ({ capture, pin, index }))).map(({ capture, pin, index }) => {
                   const number = pinNumber(pin, index);
                   const color = pin.color || getPinColor(number);
                   const isArea = pin.type === "area" || pin.kind === "area";
@@ -923,10 +831,10 @@ export function WebViewer({
                   return (
                     <Button
                       className="h-auto w-full justify-start p-0 text-left whitespace-normal"
-                      key={`${session.id}-${number}`}
+                      key={`${capture.id}-${pinLookupId(pin)}`}
                       title={t("viewer.openPin", { number })}
                       variant="ghost"
-                      onClick={() => setSelectedPin(pin)}
+                      onClick={() => { setHighlightedCapture(capture.id); const image = imageRefs.current.get(capture.id); if (image) zoom.focusElement(image); setSelectedPin(pin); }}
                     >
                       <Card className="w-full gap-3 py-3 transition-colors hover:ring-primary/35">
                         <CardHeader className="grid grid-cols-[auto_1fr] items-start gap-x-2 px-3">
@@ -938,6 +846,7 @@ export function WebViewer({
                             <CardDescription className="mt-1 line-clamp-3 whitespace-pre-wrap text-xs text-foreground">
                               {pin.comment}
                             </CardDescription>
+                            {captures.length > 1 ? <p className="mt-1 truncate text-xs text-muted-foreground">{capture.page.title || capture.page.url}</p> : null}
                             <div className="mt-2 flex flex-wrap gap-1.5">
                               {review ? (
                                 <Badge variant={reviewStatusBadge(review.status)}>
@@ -1019,9 +928,9 @@ export function WebViewer({
         </Dialog>
       ) : null}
       <Dialog open={Boolean(selectedPin)} onOpenChange={(open) => !open && setSelectedPin(null)}>
-        <DialogContent className="sm:max-w-5xl" outsideScroll showCloseButton>
+        <DialogContent className="min-w-0 max-w-[calc(100vw-2rem)] overflow-x-hidden sm:max-w-5xl" outsideScroll showCloseButton>
           {selectedPin && (
-            <Tabs defaultValue="preview">
+            <Tabs className="min-w-0" defaultValue="preview">
               <div className="flex items-start justify-between gap-4 pr-9">
                 <DialogHeader className="min-w-0">
                   <div className="flex items-center gap-3">
@@ -1121,7 +1030,7 @@ export function WebViewer({
               <PinDiagnosisPanel
                 canEdit={canEditPins}
                 pin={selectedPin}
-                sessionId={sessionId}
+                sessionId={selectedCapture?.id || sessionId}
                 showAi={showAiSummary && canEditPins}
                 onPersist={(fields) => patchPin(selectedPin, fields, "viewer.evidenceRemoveFailed")}
               />
@@ -1129,14 +1038,14 @@ export function WebViewer({
                 canEdit={canEditPins}
                 pin={selectedPin}
                 preferredTarget={preferredComponentTarget}
-                session={session}
-                sessionId={sessionId}
+                session={selectedCapture || session}
+                sessionId={selectedCapture?.id || sessionId}
                 showAi={showAiSummary && canEditPins}
                 onPersist={(fields) => patchPin(selectedPin, fields, "viewer.evidenceRemoveFailed")}
               />
-              <TabsContent value="preview">
-                <div className="rounded-lg border bg-card">
-                  <article className="flex flex-col gap-4 p-5 text-sm leading-relaxed">
+              <TabsContent className="min-w-0" value="preview">
+                <div className="min-w-0 overflow-hidden rounded-lg border bg-card">
+                  <article className="min-w-0 flex flex-col gap-4 p-5 text-sm leading-relaxed">
                     <ReactMarkdown
                       components={{
                         h1: (props) => <h1 className="text-xl font-semibold tracking-tight" {...props} />,
@@ -1152,16 +1061,16 @@ export function WebViewer({
                   </article>
                 </div>
               </TabsContent>
-              <TabsContent value="raw">
-                <div className="rounded-lg border bg-muted/40">
+              <TabsContent className="min-w-0" value="raw">
+                <div className="min-w-0 overflow-hidden rounded-lg border bg-muted/40">
                   <pre className="whitespace-pre-wrap break-words p-5 font-mono text-xs leading-relaxed text-foreground [overflow-wrap:anywhere]">
                     <code>{selectedMarkdown}</code>
                   </pre>
                 </div>
               </TabsContent>
               {selectedPin.snapshot ? (
-                <TabsContent value="structure">
-                  <div className="rounded-lg border bg-card">
+                <TabsContent className="min-w-0" value="structure">
+                  <div className="min-w-0 overflow-hidden rounded-lg border bg-card">
                     <PinStructure snapshot={selectedPin.snapshot} />
                   </div>
                 </TabsContent>

@@ -18,12 +18,6 @@ const LOCAL_DEV_SECRETS = {
 };
 
 export const CloudLocalProfiles = {
-  founder: {
-    code: "FNDR2826",
-    credits: 500,
-    email: "founder.cloud-local@pinar.test",
-    plan: "founder",
-  },
   free: {
     code: "FRCLD826",
     credits: 5,
@@ -144,15 +138,10 @@ export function buildCloudLocalSeedSql(fixture) {
   const projectId = `prj_cloud_local_${fixture.plan}`;
   const collectionId = `col_cloud_local_${fixture.plan}`;
   const sessionId = `session_cloud_local_${fixture.plan}`;
-  const monthlyCredits = fixture.plan === "pro" ? fixture.credits : 0;
-  const permanentSource = "founder_initial";
-  const grants = fixture.plan === "pro"
-    ? [
+  const monthlyCredits = fixture.credits;
+  const grants = [
       `INSERT INTO ai_credit_grants (id, owner_type, owner_id, source_type, source_id, credits, consumed_credits, expires_at, created_at) VALUES (${sqlString(`grant_cloud_local_${fixture.plan}_monthly`)}, 'account', ${sqlString(fixture.userId)}, 'pro_monthly', ${sqlString(`cloud-local:${fixture.plan}:monthly`)}, ${monthlyCredits}, 20, ${sqlString(fixture.nextRefillAt)}, ${sqlString(fixture.now)});`,
       `INSERT INTO ai_credit_grants (id, owner_type, owner_id, source_type, source_id, credits, consumed_credits, expires_at, created_at) VALUES (${sqlString(`grant_cloud_local_${fixture.plan}_expiring`)}, 'account', ${sqlString(fixture.userId)}, 'purchase', ${sqlString(`cloud-local:${fixture.plan}:expiring`)}, 20, 0, ${sqlString(fixture.creditExpiry)}, ${sqlString(fixture.now)});`,
-    ]
-    : [
-      `INSERT INTO ai_credit_grants (id, owner_type, owner_id, source_type, source_id, credits, consumed_credits, expires_at, created_at) VALUES (${sqlString(`grant_cloud_local_${fixture.plan}`)}, 'account', ${sqlString(fixture.userId)}, ${sqlString(permanentSource)}, ${sqlString(`cloud-local:${fixture.plan}:initial`)}, ${fixture.credits}, 0, NULL, ${sqlString(fixture.now)});`,
     ];
   return [
     `INSERT INTO users (id, email, plan, ever_paid, billing_status, created_at, updated_at, ai_credit_refill_at) VALUES (${sqlString(fixture.userId)}, ${sqlString(fixture.email)}, ${sqlString(fixture.plan)}, 1, 'active', ${sqlString(fixture.now)}, ${sqlString(fixture.now)}, ${fixture.nextRefillAt ? sqlString(fixture.nextRefillAt) : "NULL"}) ON CONFLICT(id) DO UPDATE SET email=excluded.email, plan=excluded.plan, ever_paid=1, billing_status='active', updated_at=excluded.updated_at, ai_credit_refill_at=excluded.ai_credit_refill_at;`,

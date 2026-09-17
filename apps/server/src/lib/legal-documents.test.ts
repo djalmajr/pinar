@@ -49,7 +49,7 @@ describe("public legal documents", () => {
     assert.doesNotMatch(termsPt, /Araújo/);
     assert.doesNotMatch(termsEn, /\("Pinar", "we", "us"\)/);
     assert.doesNotMatch(termsPt, /\("Pinar", "nós"\)/);
-    assert.equal(CURRENT_LEGAL_VERSION, "2026-08-25");
+    assert.equal(CURRENT_LEGAL_VERSION, "2026-09-14");
     for (const documentId of LegalDocumentIds) {
       const english = legalDocument(documentId, "en").body;
       const portuguese = legalDocument(documentId, "pt").body;
@@ -62,13 +62,13 @@ describe("public legal documents", () => {
     }
   });
 
-  it("keeps Founder as a limited cohort without a perpetual hosting promise", () => {
+  it("describes Pro benefits without offering a one-time plan", () => {
     const terms = legalDocument("terms", "en").body;
     const fairSource = legalDocument("fair-source", "en").body;
     assert.match(terms, /5 GB/);
     assert.match(terms, /200 AI credits refilled monthly/);
-    assert.match(terms, /500 bonus AI credits/);
-    assert.match(terms, /does not create a perpetual hosting obligation/);
+    assert.doesNotMatch(terms, /Founder|Lifetime|500 bonus AI credits/);
+    assert.match(fairSource, /active subscription/);
     assert.match(fairSource, /not OSI-approved Open Source/);
   });
 });

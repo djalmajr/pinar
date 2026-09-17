@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { describeReproductionStep, type Reproduction, type ReproductionStep } from "@pinar/shared";
 import { Badge, Button, Input } from "@pinar/ui";
 import { useServerI18n, type ServerMessageKey } from "@/lib/i18n";
 import { isRecord } from "@/lib/api-data";
+import { mergeGeneratedReproduction } from "@/lib/reproduction-result";
 import CheckIcon from "~icons/lucide/check";
 import CopyIcon from "~icons/lucide/copy";
 import ListVideoIcon from "~icons/lucide/list-video";
@@ -51,6 +52,7 @@ export function ReproductionTimeline({ canEdit, reproduction, sessionId, showAi,
   const [error, setError] = useState("");
   const [generating, setGenerating] = useState(false);
   const [recovery, setRecovery] = useState<Recovery>(null);
+  const aiRequestId = useRef<string | null>(null);
   const generated = reproduction.generated;
 
   async function persistSteps(steps: ReproductionStep[]) {
@@ -89,19 +91,27 @@ export function ReproductionTimeline({ canEdit, reproduction, sessionId, showAi,
     setGenerating(true);
     setError("");
     setRecovery(null);
+    aiRequestId.current ||= requestId();
     try {
       const response = await fetch("/api/ai/reproduction", {
-        body: JSON.stringify({ language, requestId: requestId(), sessionId }),
+        body: JSON.stringify({ language, requestId: aiRequestId.current, sessionId }),
         headers: { "content-type": "application/json" },
         method: "POST",
       });
       const data: unknown = await response.json().catch(() => null);
       const code = isRecord(data) && typeof data.code === "string" ? data.code : "";
-      if (response.ok) {
-        // The server persisted the result; reloading the session brings it in.
-        await onPersist(reproduction);
+      const merged = isRecord(data) ? mergeGeneratedReproduction(reproduction, data.result) : null;
+      if (response.ok && merged) {
+        const persisted = await onPersist(merged);
+        if (!persisted) {
+          setError(t("viewer.reproductionSaveFailed"));
+          setRecovery("retry");
+          return;
+        }
+        aiRequestId.current = null;
         return;
       }
+      if (code !== "ai_request_in_progress" && code !== "ai_refund_pending") aiRequestId.current = null;
       if (response.status === 401) {
         setError(t("viewer.aiSignIn"));
         setRecovery("signIn");

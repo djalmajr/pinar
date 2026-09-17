@@ -14,8 +14,7 @@ export function isAuthSession(value: unknown): value is AuthSession {
   if (value.kind !== "account" || typeof value.email !== "string" || typeof value.userId !== "string") {
     return false;
   }
-  if (value.plan === "lifetime") value.plan = "founder";
-  return value.plan === "founder" || value.plan === "free" || value.plan === "pro";
+  return value.plan === "free" || value.plan === "pro";
 }
 
 function notifyAuthSession(session: AuthSession | null) {
@@ -55,5 +54,5 @@ export function useAuthSession() {
 
 export function isPaidAuthSession(session: AuthSession | null) {
   return session?.kind === "account"
-    && (session.plan === "founder" || session.plan === "pro");
+    && session.plan === "pro";
 }

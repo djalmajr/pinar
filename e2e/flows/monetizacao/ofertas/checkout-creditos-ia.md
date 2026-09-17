@@ -22,7 +22,7 @@ Adicionar créditos avulsos e confirmar saldo e validade sem mudar meu plano.
 5. **Abrir uma sessão e gerar resumo** → saldo inclui 1.000 créditos comprados.
 6. **Conferir ordem de consumo** → créditos mensais são usados antes do pack.
 7. **Reentregar webhook** → concessão não duplica.
-8. **Manter plano original** → compra não altera Free/Pro/Founder/Lifetime legado.
+8. **Manter plano original** → compra não altera Free/Pro.
 
 ## Expected result
 

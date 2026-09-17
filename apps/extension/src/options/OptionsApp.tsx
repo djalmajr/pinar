@@ -986,7 +986,7 @@ export function OptionsApp() {
                   <span className={SECTION_HEADER}>{t.section_handoff}</span>
                   <p className={SECTION_DESC}>{t.section_handoff_desc}</p>
                   <div className="flex flex-col gap-3">
-                  <SettingRow size="xs" description={t.handoff_mode_desc} title={`${t.handoff_mode_label} · ${settings.handoffMode === "full" ? t.handoff_mode_full : t.handoff_mode_compact}`}>
+                  <SettingRow size="xs" description={t.handoff_mode_desc} title={`${t.handoff_mode_label}: ${settings.handoffMode === "full" ? t.handoff_mode_full : t.handoff_mode_compact}`}>
                     <Switch aria-label={t.handoff_mode_label} checked={settings.handoffMode === "full"} onCheckedChange={(checked) => setSettings((current) => ({ ...current, handoffMode: checked ? "full" : "compact" }))} />
                   </SettingRow>
                   <SettingRow size="xs" description={t.viewer_desc} title={t.viewer_label}>
@@ -997,9 +997,6 @@ export function OptionsApp() {
                   </SettingRow>
                   <SettingRow size="xs" description={t.screenshot_desc} title={t.screenshot_label}>
                     <Switch aria-label={t.screenshot_label} checked={settings.includeScreenshot} onCheckedChange={(value) => setSettings((current) => ({ ...current, includeScreenshot: value }))} />
-                  </SettingRow>
-                  <SettingRow size="xs" description={t.copy_on_finish_batch_desc} title={t.copy_on_finish_batch_label}>
-                    <Select items={[{ label: t.copy_on_finish_batch_prompt, value: "prompt" }, { label: t.copy_on_finish_batch_link, value: "link" }, { label: t.copy_on_finish_batch_off, value: "off" }]} value={settings.copyOnFinishBatch || "prompt"} onValueChange={(value) => setSettings((current) => ({ ...current, copyOnFinishBatch: (value === "off" || value === "link" ? value : "prompt") as CopyOnFinishBatch }))}><SelectTrigger aria-label={t.copy_on_finish_batch_label}><SelectValue /></SelectTrigger><SelectContent align="end" alignItemWithTrigger={false} className="w-max min-w-min"><SelectGroup><SelectItem value="prompt">{t.copy_on_finish_batch_prompt}</SelectItem><SelectItem value="link">{t.copy_on_finish_batch_link}</SelectItem><SelectItem value="off">{t.copy_on_finish_batch_off}</SelectItem></SelectGroup></SelectContent></Select>
                   </SettingRow>
                   </div>
                 </section>

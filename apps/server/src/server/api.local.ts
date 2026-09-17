@@ -53,6 +53,7 @@ import {
 } from "./local-api-policy";
 import { localHealthDiscoveryBody } from "./local-api-trust";
 import { decodePngDataUrl } from "./png";
+import { SESSION_PATCH_MAX_BYTES } from "./session-patch";
 
 interface LocalSession extends Session {
   batchId?: string | null;
@@ -476,8 +477,6 @@ async function saveHistory(request: Request): Promise<Response> {
   }
 }
 
-const SESSION_PATCH_MAX_BYTES = 512_000;
-
 async function updateSessionFields(request: Request, id: string, origin: string) {
   const database = historyDatabase();
   const existing = database.getSession(id);
@@ -584,6 +583,16 @@ async function routeLocalApi(request: Request): Promise<Response> {
     return json({ batches: historyDatabase().listBatches(), ok: true });
   }
   const batchFinishMatch = path.match(/^\/api\/batches\/([^/]+)\/finish$/);
+  const batchMarkdownMatch = path.match(/^\/api\/batches\/([^/]+)\/markdown$/);
+  if (batchMarkdownMatch && method === "GET") {
+    const origin = new URL(request.url).origin;
+    const bundle = publicBatch(decodeURIComponent(batchMarkdownMatch[1]), origin);
+    if (!bundle) return json({ error: "Session not found" }, 404);
+    const preferences = readDeliveryPreferences(rootPath());
+    return text(formatBatchMarkdown(bundle.batch, bundle.sessions, bundle.statusByPinId, origin, {
+      ...preferences, language: preferences.language ?? "en",
+    }), 200, { "Cache-Control": "no-store", "Content-Type": "text/markdown; charset=utf-8" });
+  }
   if (batchFinishMatch && method === "POST") {
     const body = await readJson(request);
     const finishedAt = stringValue(body, "finishedAt") || new Date().toISOString();

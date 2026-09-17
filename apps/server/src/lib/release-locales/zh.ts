@@ -21,10 +21,25 @@ const locale = {
   },
   releases: {
     "v0.3.7": {
-      title: "元素结构、技术证据，以及每个图钉上的 AI",
+      title: "连续捕获、统一审阅，以及每个图钉上的 AI",
       summary:
-        "元素图钉现在会携带其结构和在页面上观察到的证据。查看器可以诊断图钉、将其保存为组件、把录制的步骤转换为 Playwright 测试，以及提取集合的设计系统。Windows 托盘图标在缩放显示器上清晰锐利。",
+        "捕获会话现在可以跨页面持续进行，并将每张截图和每个图钉保存为一条记录。审阅统一到查看器中，Founder 新购方案已下线，图钉还新增了结构、技术证据和 AI 操作。",
       changes: {
+        "continuous-capture-session": {
+          title: "跨页面的一个连续会话",
+          description:
+            "在一个页面添加图钉后继续浏览，最后只需完成一次。Pinar 会重新访问每个页面获取截图，保持图钉连续编号，并在没有批次槽位的情况下将整个过程保存为一个会话。",
+        },
+        "unified-session-review": {
+          title: "一起审阅所有画面和图钉",
+          description:
+            "多页面会话在一个支持平移缩放的查看器中打开，所有注释都列在侧栏。Tab 审阅当前捕获，Esc 隐藏工具栏，已保存的会话保留在查看器中查看。",
+        },
+        "founder-retired": {
+          title: "Founder 新购方案已下线",
+          description:
+            "新购买现在仅提供 Free 和 Pro。现有 Founder 权益仍会被识别，并获得与 Pro 相同的产品能力，不再产生新的 Founder 承诺。",
+        },
         "element-structure": {
           title: "每个元素图钉都有结构",
           description:

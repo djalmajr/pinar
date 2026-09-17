@@ -46,7 +46,7 @@ function freeState(overrides: Partial<AccountTabStateFixture> & Pick<AccountTabS
 }
 
 function paidState(
-  plan: "founder" | "pro",
+  plan: "pro",
   email: string,
   label: string,
 ): AccountTabStateFixture {
@@ -156,5 +156,4 @@ export const ACCOUNT_TAB_STATES: AccountTabStateFixture[] = [
     session: null,
   }),
   paidState("pro", "ada@pinar.dev", "Paga — Pro autenticada neste navegador"),
-  paidState("founder", "djalma@pinar.dev", "Paga — Founder autenticada neste navegador"),
 ];

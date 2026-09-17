@@ -60,8 +60,11 @@ export interface ReleaseContent {
 export const releaseDefinitions = [
   {
     tag: "v0.3.7",
-    date: "2026-09-09",
+    date: "2026-09-17",
     changes: [
+      "continuous-capture-session",
+      "unified-session-review",
+      "founder-retired",
       "element-structure",
       "technical-evidence",
       "pin-diagnosis",

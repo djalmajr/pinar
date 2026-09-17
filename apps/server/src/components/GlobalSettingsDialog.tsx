@@ -122,7 +122,6 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
   const {
     available,
     captureDestination,
-    copyOnFinishBatch,
     copyViewerContent,
     handoffMode,
     includeScreenshot,
@@ -206,11 +205,6 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
     () => collectionEntries.map(({ collection }) => ({ label: collection.name, value: collection.id })),
     [collectionEntries],
   );
-  const copyOnFinishItems = [
-    { label: t("settings.copyOnFinishBatchPrompt"), value: "prompt" },
-    { label: t("settings.copyOnFinishBatchLink"), value: "link" },
-    { label: t("settings.copyOnFinishBatchOff"), value: "off" },
-  ];
 
   const sectionLabel = section === "about"
     ? t("settings.aboutTitle")
@@ -385,23 +379,6 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                         </Select>
                       ) : null}
                     </div>
-                  </SettingRow>
-                  <SettingRow controlClassName="w-52" description={t("settings.copyOnFinishBatchDescription")} title={t("settings.copyOnFinishBatch")}>
-                    <Select
-                      disabled={!available}
-                      items={copyOnFinishItems}
-                      value={copyOnFinishBatch}
-                      onValueChange={(value) => {
-                        if (value === "off" || value === "link" || value === "prompt") void patch({ copyOnFinishBatch: value });
-                      }}
-                    >
-                      <SelectTrigger aria-label={t("settings.copyOnFinishBatch")} className="w-full"><SelectValue /></SelectTrigger>
-                      <SelectContent align="end">
-                        <SelectGroup>
-                          {copyOnFinishItems.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
                   </SettingRow>
                 </div>
                 <div className="flex flex-col gap-5">

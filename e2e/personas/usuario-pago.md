@@ -6,7 +6,7 @@ name: Usuário com oferta paga
 
 ## Quem é
 
-Comprou Pro mensal, Pro anual, Founder, Lifetime legado ou capacidade adicional e espera que
+Comprou Pro mensal, Pro anual ou capacidade adicional e espera que
 preço, créditos, storage, retenção e cobrança correspondam exatamente à oferta.
 
 ## Lente

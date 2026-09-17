@@ -4,7 +4,6 @@ import { useDraggable } from "@dnd-kit/core";
 import {
   formatClipboardText,
   PIN_REVIEW_STATUSES,
-  requestReopenSession,
   type PinReviewStatus,
   type Session,
 } from "@pinar/shared";
@@ -75,6 +74,7 @@ import {
   type PinCountFilter,
 } from "@/lib/session-filters";
 import { sessionListingCopy } from "@/lib/session-listing";
+import { expandSessionIds, groupSessions, sessionCaptureIds, type SessionGroup } from "@/lib/session-groups";
 import {
   SESSION_DND_TYPE,
   sessionDragId,
@@ -144,10 +144,13 @@ function SessionIdentity({
   heading?: boolean;
   session: Session;
 }) {
+  const { t } = useServerI18n();
+  const captures = (session as SessionGroup).captures;
   const { description, title, url } = sessionListingCopy(session.page);
   const collectionLabel = <CollectionChip name={collectionName} />;
   return (
     <div className="flex min-w-0 flex-col items-start gap-0.5">
+      {captures ? <Badge variant="secondary">{t("dashboard.sessionEvidence", { pages: new Set(captures.map((capture) => capture.page.url)).size, count: captures.length })}</Badge> : null}
       {title ? (
         heading ? (
           <CardTitle className="line-clamp-1">{title}</CardTitle>
@@ -224,7 +227,6 @@ function SessionActions({
           onMove={onMove}
           batchCopied={batchCopied}
           onCopyBatch={onCopyBatch}
-          onReview={requestReopenSession}
           onView={onView}
         />
       </DropdownMenu>
@@ -384,6 +386,7 @@ function DraggableSessionTableRow({
 }) {
   const sessionIds = sessionIdsForDrop(session.id, selectedIds);
   const draggable = useDraggable({
+    disabled: Boolean((session as SessionGroup).captures),
     data: {
       sessionId: session.id,
       sessionIds,
@@ -399,7 +402,7 @@ function DraggableSessionTableRow({
       data-session-drag-surface={session.id}
       data-session-id={session.id}
       data-state={selected ? "selected" : undefined}
-      {...draggable.attributes}
+      {...((session as SessionGroup).captures ? {} : draggable.attributes)}
       {...draggable.listeners}
       role="row"
       onClick={onClick}
@@ -422,6 +425,7 @@ function DraggableSessionCard({
 }) {
   const sessionIds = sessionIdsForDrop(session.id, selectedIds);
   const draggable = useDraggable({
+    disabled: Boolean((session as SessionGroup).captures),
     data: {
       sessionId: session.id,
       sessionIds,
@@ -441,7 +445,7 @@ function DraggableSessionCard({
       data-session-drag-surface={session.id}
       data-session-id={session.id}
       size="sm"
-      {...draggable.attributes}
+      {...((session as SessionGroup).captures ? {} : draggable.attributes)}
       {...draggable.listeners}
       role={undefined}
     >
@@ -506,25 +510,20 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
   );
   const moveCollectionIds = moveCollectionTree.map(({ collection }) => collection.id);
 
+  const sessionGroups = useMemo(() => groupSessions(sessions), [sessions]);
   const filteredSessions = useMemo(
-    () => filterSessions(sessions, search, pinFilters, reviewFilters),
-    [pinFilters, reviewFilters, search, sessions],
+    () => filterSessions(sessionGroups, search, pinFilters, reviewFilters)
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()),
+    [pinFilters, reviewFilters, search, sessionGroups],
   );
   const gridSessions = useMemo(() => {
     const start = pagination.pageIndex * pagination.pageSize;
-    const ordered = selectedCollection
-      ? filteredSessions
-      : [...filteredSessions].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
-    return ordered.slice(start, start + pagination.pageSize);
-  }, [filteredSessions, pagination.pageIndex, pagination.pageSize, selectedCollection]);
-  // The viewer steps through the whole filtered set in display order, so the
-  // arrows keep working past the end of the current page.
+    return filteredSessions.slice(start, start + pagination.pageSize);
+  }, [filteredSessions, pagination.pageIndex, pagination.pageSize]);
+  // A carousel contains only the evidence belonging to the opened session.
   const orderedSessionIds = useMemo(() => {
-    const ordered = selectedCollection
-      ? filteredSessions
-      : [...filteredSessions].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
-    return ordered.map((session) => session.id);
-  }, [filteredSessions, selectedCollection]);
+    return viewerSessionId ? sessionCaptureIds(sessionGroups, viewerSessionId) : [];
+  }, [viewerSessionId, sessionGroups]);
   const pageCount = Math.max(1, Math.ceil(filteredSessions.length / pagination.pageSize));
   const rowSelection = useMemo(
     () => Object.fromEntries([...selectedIds].map((id) => [id, true])),
@@ -583,6 +582,10 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
   }
 
   async function copyPrompt(session: Session) {
+    if ((session as SessionGroup).captures && session.batchId) {
+      await copyBatch(session.batchId);
+      return;
+    }
     await navigator.clipboard.writeText(formatClipboardText(
       session.page,
       session.pins,
@@ -605,7 +608,10 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
 
   async function deleteSessions() {
     if (!deleteIds.length) return;
-    await Promise.all(deleteIds.map((id) => fetch(`/api/history/${id}`, { method: "DELETE" })));
+    await Promise.all(expandSessionIds(deleteIds, sessionGroups).map(async (id) => {
+      const response = await fetch(`/api/history/${id}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("Unable to delete session evidence");
+    }));
     setSelectedIds((current) => {
       const removed = new Set(deleteIds);
       return new Set([...current].filter((id) => !removed.has(id)));
@@ -627,7 +633,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
     if (!moveIds.length || !moveCollectionId || moving) return;
     setMoving(true);
     try {
-      await moveSessions(moveIds, moveCollectionId);
+      await moveSessions(expandSessionIds(moveIds, sessionGroups), moveCollectionId);
       setSelectedIds((current) => {
         const movedIds = new Set(moveIds);
         return new Set([...current].filter((id) => !movedIds.has(id)));
@@ -1013,9 +1019,8 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
           sessionId={viewerSessionId}
           siblingIds={orderedSessionIds}
           onClose={closeViewer}
-          onDelete={(id) => { closeViewer(); setDeleteIds([id]); }}
-          onMove={(id) => { closeViewer(); openMoveDialog([id]); }}
-          onNavigate={openViewer}
+          onDelete={(id) => { closeViewer(); setDeleteIds(sessionCaptureIds(sessionGroups, id)); }}
+          onMove={(id) => { closeViewer(); openMoveDialog(sessionCaptureIds(sessionGroups, id)); }}
         />
       ) : null}
       <Dialog open={moveIds.length > 0} onOpenChange={(open) => !open && setMoveIds([])}>

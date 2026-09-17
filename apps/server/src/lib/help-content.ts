@@ -146,11 +146,6 @@ export const helpScreenshotDefinitions = [
     width: 1440,
   },
   {
-    key: "capture-review",
-    height: 720,
-    width: 1440,
-  },
-  {
     key: "capture-copy-failed",
     height: 720,
     width: 1440,
@@ -395,15 +390,13 @@ export const helpArticleDefinitions = [
     ],
   },
   {
-    id: "copy-and-reopen",
+    id: "copy-and-view",
     category: "captures",
     readMinutes: 5,
     screenshotKey: "capture-viewer",
     sourceRefs: [
       "apps/server/src/pages/WebViewer.tsx",
       "apps/server/src/components/ImageZoomStage.tsx",
-      "packages/shared/src/session-reopen/index.ts",
-      "extension/session.js",
     ],
     popular: true,
   },
@@ -443,18 +436,6 @@ export const helpArticleDefinitions = [
       "apps/server/src/server/closed-loop.contract.ts",
     ],
     popular: true,
-  },
-  {
-    id: "reopen-and-relocate",
-    category: "agents",
-    readMinutes: 5,
-    screenshotKey: "capture-review",
-    sourceRefs: [
-      "packages/shared/src/session-reopen/index.ts",
-      "extension/background.js",
-      "extension/content.js",
-      "extension/session.js",
-    ],
   },
   {
     id: "handoff-troubleshooting",
@@ -525,7 +506,6 @@ export const helpArticleDefinitions = [
       "apps/server/src/lib/entitlements.ts",
       "apps/server/src/lib/retention.ts",
       "apps/server/src/lib/pricing.ts",
-      "apps/server/src/server/founder-capacity-store.ts",
       "apps/server/src/server/cloud-api.ts",
     ],
     popular: true,

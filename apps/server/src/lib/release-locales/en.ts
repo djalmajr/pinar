@@ -21,10 +21,25 @@ const locale = {
   },
   releases: {
     "v0.3.7": {
-      title: "Element structure, technical evidence, and AI on each pin",
+      title: "Continuous capture, unified review, and AI on each pin",
       summary:
-        "Element pins now carry their structure and the evidence observed on the page. The viewer can diagnose a pin, save it as a component, turn recorded steps into a Playwright test, and extract a collection’s design system. The Windows tray icon is crisp on scaled displays.",
+        "A capture session now follows you across pages and saves every screenshot and pin as one record. Review is unified in the viewer, the Founder offer is retired, and element pins gain structure, technical evidence, and AI actions.",
       changes: {
+        "continuous-capture-session": {
+          title: "One continuous session across pages",
+          description:
+            "Pin on one page, continue browsing, and finish once. Pinar revisits each page for its screenshot, preserves pin numbering, and saves the complete journey as one session without batch slots.",
+        },
+        "unified-session-review": {
+          title: "Review every screen and pin together",
+          description:
+            "Multi-page sessions open in one pan-and-zoom viewer with every annotation in the side panel. Tab reviews the active capture, Esc hides the toolbar, and saved sessions stay in the viewer instead of reopening on the original page.",
+        },
+        "founder-retired": {
+          title: "Founder offer retired",
+          description:
+            "New purchases now offer Free and Pro only. Existing Founder entitlements remain recognized and receive the same product capabilities as Pro without creating a new Founder commitment.",
+        },
         "element-structure": {
           title: "Structure on every element pin",
           description:

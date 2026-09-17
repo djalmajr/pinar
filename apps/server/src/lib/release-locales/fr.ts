@@ -23,10 +23,25 @@ const locale = {
   },
   releases: {
     "v0.3.7": {
-      title: "Structure de l’élément, preuves techniques et IA sur chaque pin",
+      title: "Capture continue, révision unifiée et IA sur chaque pin",
       summary:
-        "Les pins d’élément portent désormais leur structure et les preuves observées sur la page. Le visualiseur peut diagnostiquer un pin, l’enregistrer comme composant, transformer des étapes enregistrées en test Playwright et extraire le design system d’une collection. L’icône de la barre des tâches Windows est nette sur les écrans mis à l’échelle.",
+        "Une session de capture vous suit désormais entre les pages et enregistre chaque capture d’écran et chaque pin dans un seul élément. La révision est unifiée dans le visualiseur, l’offre Founder est retirée et les pins gagnent structure, preuves techniques et actions IA.",
       changes: {
+        "continuous-capture-session": {
+          title: "Une session continue entre les pages",
+          description:
+            "Épinglez sur une page, continuez à naviguer et terminez une seule fois. Pinar revisite chaque page pour sa capture d’écran, conserve la numérotation des pins et enregistre tout le parcours dans une session, sans slots de lot.",
+        },
+        "unified-session-review": {
+          title: "Réviser ensemble tous les écrans et pins",
+          description:
+            "Les sessions multipages s’ouvrent dans un seul visualiseur panoramique et zoomable avec toutes les annotations dans le panneau latéral. Tab révise la capture active, Échap masque la barre et les sessions enregistrées restent dans le visualiseur.",
+        },
+        "founder-retired": {
+          title: "Offre Founder retirée",
+          description:
+            "Les nouveaux achats proposent uniquement Free et Pro. Les droits Founder existants restent reconnus et reçoivent les mêmes capacités que Pro, sans créer de nouvel engagement Founder.",
+        },
         "element-structure": {
           title: "Structure sur chaque pin d’élément",
           description:

@@ -22,10 +22,25 @@ const locale = {
   },
   releases: {
     "v0.3.7": {
-      title: "Estructura del elemento, evidencia técnica e IA en cada pin",
+      title: "Captura continua, revisión unificada e IA en cada pin",
       summary:
-        "Los pins de elemento ahora llevan su estructura y la evidencia observada en la página. El visor puede diagnosticar un pin, guardarlo como componente, convertir pasos grabados en una prueba Playwright y extraer el sistema de diseño de una colección. El icono del tray de Windows se ve nítido en pantallas escaladas.",
+        "Una sesión de captura ahora te acompaña entre páginas y guarda cada captura de pantalla y pin como un único registro. La revisión está unificada en el visor, la oferta Founder se retiró y los pins incorporan estructura, evidencia técnica y acciones de IA.",
       changes: {
+        "continuous-capture-session": {
+          title: "Una sesión continua entre páginas",
+          description:
+            "Fija contenido en una página, sigue navegando y termina una sola vez. Pinar vuelve a cada página para tomar su captura, conserva la numeración de los pins y guarda todo el recorrido como una sesión, sin slots de lote.",
+        },
+        "unified-session-review": {
+          title: "Revisa todas las pantallas y pins juntos",
+          description:
+            "Las sesiones con varias páginas se abren en un único visor con paneo y zoom, con todas las anotaciones en el panel lateral. Tab revisa la captura activa, Esc oculta la barra y las sesiones guardadas permanecen en el visor.",
+        },
+        "founder-retired": {
+          title: "Oferta Founder retirada",
+          description:
+            "Las nuevas compras ofrecen solo Free y Pro. Los derechos Founder existentes siguen reconocidos y reciben las mismas capacidades que Pro, sin crear un nuevo compromiso Founder.",
+        },
         "element-structure": {
           title: "Estructura en cada pin de elemento",
           description:

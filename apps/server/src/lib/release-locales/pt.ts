@@ -23,10 +23,25 @@ const locale = {
   },
   releases: {
     "v0.3.7": {
-      title: "Estrutura do elemento, evidência técnica e IA em cada pin",
+      title: "Captura contínua, revisão unificada e IA em cada pin",
       summary:
-        "Pins de elemento agora carregam sua estrutura e a evidência observada na página. O visualizador pode diagnosticar um pin, salvá-lo como componente, transformar passos gravados em um teste Playwright e extrair o design system de uma coleção. O ícone do tray no Windows fica nítido em telas com escala.",
+        "Uma sessão de captura agora acompanha você entre páginas e salva cada screenshot e pin como um único registro. A revisão foi unificada no visualizador, a oferta Founder foi aposentada e os pins ganharam estrutura, evidência técnica e ações de IA.",
       changes: {
+        "continuous-capture-session": {
+          title: "Uma sessão contínua entre páginas",
+          description:
+            "Pine em uma página, continue navegando e conclua uma única vez. O Pinar revisita cada página para capturar seu screenshot, preserva a numeração dos pins e salva toda a jornada em uma sessão, sem slots de lote.",
+        },
+        "unified-session-review": {
+          title: "Revise todas as telas e pins juntos",
+          description:
+            "Sessões com várias páginas abrem em um único pan-and-zoom, com todas as anotações no painel lateral. Tab revisa a captura ativa, Esc oculta a toolbar e sessões salvas permanecem no visualizador em vez de reabrir na página original.",
+        },
+        "founder-retired": {
+          title: "Oferta Founder aposentada",
+          description:
+            "Novas compras agora oferecem somente Free e Pro. Direitos Founder existentes continuam reconhecidos e recebem as mesmas capacidades do Pro, sem criar um novo compromisso Founder.",
+        },
         "element-structure": {
           title: "Estrutura em todo pin de elemento",
           description:

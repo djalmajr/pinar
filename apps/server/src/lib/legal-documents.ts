@@ -1,6 +1,6 @@
 import type { SupportedLanguage } from "@pinar/shared";
 
-export const CURRENT_LEGAL_VERSION = "2026-08-25";
+export const CURRENT_LEGAL_VERSION = "2026-09-14";
 export const OPERATOR_CONTACT_EMAIL = {
   en: "contact@pinar.dev",
   pt: "contato@pinar.dev",
@@ -80,8 +80,7 @@ You are responsible for the email address, devices, access codes, extension toke
 ## 4. Plans, billing, and quotas
 
 - **Free** provides limited cloud retention, storage, and introductory AI credits.
-- **Pro** is a recurring monthly or annual subscription. Included storage, AI-credit refills, and paid retention apply only while the subscription remains eligible, subject to the Retention Policy.
-- **Pinar Founder** is a limited-cohort, one-time purchase with the Pro entitlements available while the managed service is offered, including 5 GB of base cloud storage, 200 AI credits refilled monthly without rollover, and 500 bonus AI credits granted at activation. It is not a promise that the hosted service, every feature, or unlimited operating cost will continue forever.
+- **Pro** is a recurring monthly or annual subscription with 5 GB of base cloud storage and 200 AI credits refilled monthly without rollover. Included storage, AI-credit refills, and paid retention apply only while the subscription remains eligible, subject to the Retention Policy.
 - Storage and AI-credit add-ons have the amount, validity, and consumption rules shown before purchase.
 
 Prices, taxes, currency, renewal interval, and the applicable offer are shown at Checkout. Stripe processes payments. You may cancel a recurring plan before its next renewal. Cancellation stops future renewals but does not automatically refund an already-started billing period.
@@ -96,7 +95,7 @@ AI output may be incomplete, inaccurate, or unsuitable. You must review it befor
 
 ## 7. Availability and changes
 
-We aim to operate Pinar reliably but do not guarantee uninterrupted or error-free availability. Features, models, quotas, and integrations may change for security, legal, sustainability, or product reasons. Material adverse changes to a paid plan will receive reasonable notice when practicable. If the hosted service is discontinued, we will use reasonable efforts to provide advance notice and an export opportunity, but Founder status does not create a perpetual hosting obligation.
+We aim to operate Pinar reliably but do not guarantee uninterrupted or error-free availability. Features, models, quotas, and integrations may change for security, legal, sustainability, or product reasons. Material adverse changes to a paid plan will receive reasonable notice when practicable. If the hosted service is discontinued, we will use reasonable efforts to provide advance notice and an export opportunity.
 
 ## 8. Suspension and termination
 
@@ -126,8 +125,7 @@ Você é responsável pelo endereço de e-mail, dispositivos, códigos de acesso
 ## 4. Planos, cobrança e cotas
 
 - **Free** oferece retenção em nuvem, armazenamento e créditos iniciais de IA limitados.
-- **Pro** é uma assinatura mensal ou anual recorrente. Armazenamento incluído, recargas de créditos de IA e retenção paga aplicam-se somente enquanto a assinatura permanecer elegível, conforme a Política de Retenção.
-- **Pinar Founder** é uma compra única para uma coorte limitada, com os benefícios Pro disponíveis enquanto o serviço gerenciado for oferecido, incluindo 5 GB de armazenamento-base em nuvem, 200 créditos de IA recarregados mensalmente sem acúmulo e 500 créditos de IA de bônus concedidos na ativação. Não é uma promessa de que o serviço hospedado, todos os recursos ou custos operacionais ilimitados continuarão para sempre.
+- **Pro** é uma assinatura mensal ou anual recorrente com 5 GB de armazenamento-base em nuvem e 200 créditos de IA recarregados mensalmente sem acúmulo. Armazenamento incluído, recargas de créditos de IA e retenção paga aplicam-se somente enquanto a assinatura permanecer elegível, conforme a Política de Retenção.
 - Adicionais de armazenamento e créditos de IA seguem a quantidade, a validade e as regras de consumo exibidas antes da compra.
 
 Preços, tributos, moeda, intervalo de renovação e oferta aplicável são exibidos no Checkout. O Stripe processa os pagamentos. Você pode cancelar um plano recorrente antes da próxima renovação. O cancelamento impede renovações futuras, mas não gera automaticamente reembolso de um período de cobrança já iniciado.
@@ -142,7 +140,7 @@ Resultados de IA podem ser incompletos, imprecisos ou inadequados. Você deve re
 
 ## 7. Disponibilidade e alterações
 
-Buscamos operar o Pinar de forma confiável, mas não garantimos disponibilidade ininterrupta ou sem erros. Recursos, modelos, cotas e integrações podem mudar por motivos de segurança, legais, de sustentabilidade ou de produto. Alterações materiais desfavoráveis em um plano pago receberão aviso prévio razoável quando viável. Se o serviço hospedado for encerrado, empregaremos esforços razoáveis para avisar com antecedência e oferecer oportunidade de exportação, mas o status Founder não cria obrigação de hospedagem perpétua.
+Buscamos operar o Pinar de forma confiável, mas não garantimos disponibilidade ininterrupta ou sem erros. Recursos, modelos, cotas e integrações podem mudar por motivos de segurança, legais, de sustentabilidade ou de produto. Alterações materiais desfavoráveis em um plano pago receberão aviso prévio razoável quando viável. Se o serviço hospedado for encerrado, empregaremos esforços razoáveis para avisar com antecedência e oferecer oportunidade de exportação.
 
 ## 8. Suspensão e encerramento
 
@@ -293,7 +291,6 @@ Local Pinar data remains on your device until you delete it or uninstall and rem
 
 - **Free:** non-permanent cloud sessions and their screenshots are eligible for automatic deletion after 7 days.
 - **Pro:** cloud sessions are retained while the subscription is active. When paid eligibility ends, new uploads may pause. Content above the Free quota enters a 30-day grace period followed by a recovery-only window ending 90 days after paid eligibility ended; after that it is eligible for deletion.
-- **Founder and legacy Lifetime:** content is not made deletion-eligible merely because there is no recurring subscription. It remains subject to the purchased quota, user deletion, abuse and legal requirements, account closure, and service discontinuation provisions in the Terms.
 - **Storage add-ons:** capacity lasts 12 months from purchase. If expiry leaves usage above the remaining quota, uploads pause; the overage receives a 30-day grace period and remains recoverable until 90 days after expiry, after which over-quota content is eligible for deletion.
 
 Deletion eligibility is not a promise of immediate deletion at the exact boundary. Users should maintain their own backups of important content.
@@ -313,7 +310,6 @@ Os dados locais do Pinar permanecem no seu dispositivo até que você os exclua 
 
 - **Free:** sessões não permanentes em nuvem e seus screenshots tornam-se elegíveis para exclusão automática após 7 dias.
 - **Pro:** sessões em nuvem são retidas enquanto a assinatura estiver ativa. Quando a elegibilidade paga termina, novos envios podem ser suspensos. O conteúdo acima da cota Free entra em carência de 30 dias e depois em janela exclusiva de recuperação, encerrada 90 dias após o fim da elegibilidade paga; depois disso, torna-se elegível para exclusão.
-- **Founder e Lifetime legado:** o conteúdo não se torna elegível para exclusão apenas pela inexistência de assinatura recorrente. Ele permanece sujeito à cota adquirida, exclusão pelo usuário, requisitos legais e de abuso, encerramento da conta e disposições de descontinuação do serviço presentes nos Termos.
 - **Adicionais de armazenamento:** a capacidade vale por 12 meses a partir da compra. Se a expiração deixar o uso acima da cota restante, novos envios são suspensos; o excedente recebe carência de 30 dias e permanece recuperável até 90 dias após a expiração, quando conteúdo acima da cota se torna elegível para exclusão.
 
 Elegibilidade para exclusão não significa promessa de exclusão imediata no instante exato do limite. Usuários devem manter seus próprios backups de conteúdo importante.
@@ -333,7 +329,7 @@ This Policy does not reduce mandatory consumer rights. In Brazil, a consumer who
 
 ## 2. Voluntary 14-day policy
 
-In addition to non-waivable legal rights, you may request a refund within 14 calendar days of the initial Founder purchase or the first paid Pro charge. An unused storage or AI-credit add-on may also be refunded within 14 days. This voluntary extension does not automatically apply to later subscription renewals, substantially consumed add-ons, fraudulent activity, chargeback abuse, or accounts terminated for serious Acceptable Use violations; mandatory law still prevails.
+In addition to non-waivable legal rights, you may request a refund within 14 calendar days of the first paid Pro charge. An unused storage or AI-credit add-on may also be refunded within 14 days. This voluntary extension does not automatically apply to later subscription renewals, substantially consumed add-ons, fraudulent activity, chargeback abuse, or accounts terminated for serious Acceptable Use violations; mandatory law still prevails.
 
 ## 3. Billing errors and cancellation
 
@@ -348,7 +344,7 @@ Esta Política não reduz direitos obrigatórios do consumidor. No Brasil, o con
 
 ## 2. Política voluntária de 14 dias
 
-Além dos direitos legais irrenunciáveis, você pode solicitar reembolso em até 14 dias corridos após a compra inicial do Founder ou a primeira cobrança paga do Pro. Um adicional de armazenamento ou de créditos de IA não utilizado também pode ser reembolsado em até 14 dias. Essa extensão voluntária não se aplica automaticamente a renovações posteriores da assinatura, adicionais substancialmente consumidos, fraude, abuso de chargeback ou contas encerradas por violações graves da Política de Uso Aceitável; a lei obrigatória sempre prevalece.
+Além dos direitos legais irrenunciáveis, você pode solicitar reembolso em até 14 dias corridos após a primeira cobrança paga do Pro. Um adicional de armazenamento ou de créditos de IA não utilizado também pode ser reembolsado em até 14 dias. Essa extensão voluntária não se aplica automaticamente a renovações posteriores da assinatura, adicionais substancialmente consumidos, fraude, abuso de chargeback ou contas encerradas por violações graves da Política de Uso Aceitável; a lei obrigatória sempre prevalece.
 
 ## 3. Erros de cobrança e cancelamento
 
@@ -367,9 +363,9 @@ Pinar publishes its source code under a Fair Source model so people can inspect,
 
 The LICENSE file in the applicable source release is the legal authority for copying, modification, distribution, competitive use, the Change Date, and the later Change License. This notice explains the product model but does not replace or expand the license. Trademarks, hosted-service accounts, Stripe products, domains, secrets, and user data are not licensed with the source code.
 
-## 3. Hosted service and Founder
+## 3. Hosted service
 
-Purchasing Pro or Founder buys hosted-service entitlements under the Terms; it does not buy ownership of the code or an unrestricted commercial license. Founder is a limited commercial offer with stated quotas, not a promise of unlimited or perpetual infrastructure.
+Purchasing Pro buys hosted-service entitlements under the Terms; it does not buy ownership of the code or an unrestricted commercial license. Pro entitlements depend on an active subscription and the stated quotas.
 
 ## 4. Contributions and questions
 
@@ -382,9 +378,9 @@ O Pinar publica seu código-fonte sob um modelo Fair Source para que as pessoas 
 
 O arquivo LICENSE da versão aplicável do código é a autoridade jurídica para cópia, modificação, distribuição, uso concorrente, Data de Mudança e licença posterior. Este aviso explica o modelo do produto, mas não substitui nem amplia a licença. Marcas, contas do serviço hospedado, produtos do Stripe, domínios, segredos e dados de usuários não são licenciados junto com o código-fonte.
 
-## 3. Serviço hospedado e Founder
+## 3. Serviço hospedado
 
-Comprar Pro ou Founder adquire direitos de uso do serviço hospedado conforme os Termos; não adquire a titularidade do código nem uma licença comercial irrestrita. Founder é uma oferta comercial limitada com cotas declaradas, não uma promessa de infraestrutura ilimitada ou perpétua.
+Comprar Pro adquire direitos de uso do serviço hospedado conforme os Termos; não adquire a titularidade do código nem uma licença comercial irrestrita. Os benefícios Pro dependem de uma assinatura ativa e das cotas declaradas.
 
 ## 4. Contribuições e dúvidas
 

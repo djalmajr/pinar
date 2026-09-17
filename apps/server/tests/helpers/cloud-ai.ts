@@ -21,8 +21,6 @@ export const TEST_ENV: CloudEnv = {
   EXTENSION_ORIGIN: "chrome-extension://pinar-test",
   PRICING_AI_CREDITS_1000_BRL_CENTS: "990",
   PRICING_AI_CREDITS_1000_USD_CENTS: "299",
-  PRICING_FOUNDER_BRL_CENTS: "12990",
-  PRICING_FOUNDER_USD_CENTS: "3900",
   PRICING_MONTHLY_BRL_CENTS: "490",
   PRICING_MONTHLY_USD_CENTS: "299",
   PRICING_STORAGE_20GB_12M_BRL_CENTS: "2990",
@@ -72,7 +70,7 @@ function emailBinding() {
  * Signs in a seeded paid account and returns its session cookie plus the env
  * (with the email binding) every later request must reuse.
  */
-export async function paidProCookie(env: CloudEnv, email = "ai-pro@example.test", plan: "founder" | "pro" = "pro") {
+export async function paidProCookie(env: CloudEnv, email = "ai-pro@example.test", plan: "pro" = "pro") {
   const mail = emailBinding();
   const signed = { ...env, EMAIL: mail.binding };
   seedCloudAccountForTests({ billingStatus: "active", email, plan });

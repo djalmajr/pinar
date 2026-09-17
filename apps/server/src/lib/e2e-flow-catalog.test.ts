@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { describe, test } from "node:test";
+import { fileURLToPath } from "node:url";
 
-const ROOT = resolve(dirname(new URL(import.meta.url).pathname), "../../../..");
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 const FLOWS_DIR = join(ROOT, "e2e", "flows");
 const MAPPING_PATH = join(ROOT, "e2e", "coverage", "automated-tests.json");
 const SURFACES_PATH = join(ROOT, "e2e", "coverage", "product-surfaces.json");
@@ -21,12 +22,12 @@ function parseId(path: string) {
 }
 
 describe("E2E flow catalog", () => {
-  test("keeps 64 unique categorized flows with complete frontmatter", () => {
+  test("keeps 63 unique categorized flows with complete frontmatter", () => {
     const paths = listMarkdown(FLOWS_DIR);
     const ids = paths.map(parseId);
 
-    assert.equal(paths.length, 64);
-    assert.equal(new Set(ids).size, 64);
+    assert.equal(paths.length, 63);
+    assert.equal(new Set(ids).size, 63);
     for (const path of paths) {
       const body = readFileSync(path, "utf8");
       assert.match(body, /^name:\s*.+$/m, basename(path));

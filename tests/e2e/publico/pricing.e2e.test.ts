@@ -7,10 +7,8 @@ const BrazilPricing = {
   country: "BR",
   currency: "BRL",
   discountPercent: null,
-  founderState: "available",
   prices: {
     aiCredits1000: { amount: 990, originalAmount: null },
-    founder: { amount: 12_990, originalAmount: null },
     free: { amount: 0, originalAmount: null },
     month: { amount: 490, originalAmount: null },
     storage20Gb12M: { amount: 2_990, originalAmount: null },
@@ -63,13 +61,13 @@ test("visitor compares every BRL offer without opening checkout", async ({ page 
 
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Point to the problem. Share the complete context." })).toBeVisible();
-  await page.getByRole("link", { exact: true, name: "View plans" }).click();
+  await (await primaryNavigationItem(page, "Plans")).click();
 
   await expect(page.getByRole("button", { exact: true, name: "Yearly" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("heading", { name: "Pro Yearly" })).toBeVisible();
   await expect(page.getByText("R$39.90", { exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Pinar Founder" })).toBeVisible();
-  await expect(page.getByText("R$129.90", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Pinar Founder" })).toHaveCount(0);
+  await expect(page.getByText("R$129.90", { exact: true })).toHaveCount(0);
 
   await page.getByRole("button", { exact: true, name: "Monthly" }).click();
   await expect(page.getByRole("heading", { name: "Pro Monthly" })).toBeVisible();
@@ -116,20 +114,20 @@ test("paid checkout sends current consent on the first click", async ({ page }) 
   });
 
   await page.goto("/pricing");
-  const founderFooter = page.getByRole("button", { name: "Get Pinar Founder — R$129.90" })
+  const proFooter = page.getByRole("button", { name: "Get Pro Yearly — R$39.90/yr" })
     .locator("xpath=ancestor::*[@data-slot='card-footer']");
-  await expect(founderFooter.getByText("By continuing, you accept the")).toBeVisible();
-  await expect(founderFooter.getByRole("link", { name: "Terms of Service", exact: true }))
+  await expect(proFooter.getByText("By continuing, you accept the")).toBeVisible();
+  await expect(proFooter.getByRole("link", { name: "Terms of Service", exact: true }))
     .toHaveAttribute("href", "/legal/terms");
-  await expect(founderFooter.getByText("Version 2026-08-25.")).toBeVisible();
+  await expect(proFooter.getByText("Version 2026-09-14.")).toBeVisible();
   const freeFooter = page.getByRole("link", { exact: true, name: "Use Free" })
     .locator("xpath=ancestor::*[@data-slot='card-footer']");
   await expect(freeFooter.getByText("By continuing, you accept the")).toHaveCount(0);
   await expect(page.getByRole("dialog")).toHaveCount(0);
 
-  const founderCheckout = page.getByRole("button", { name: "Get Pinar Founder — R$129.90" });
-  await expect(founderCheckout).toBeEnabled();
-  await founderCheckout.click();
+  const proCheckout = page.getByRole("button", { name: "Get Pro Yearly — R$39.90/yr" });
+  await expect(proCheckout).toBeEnabled();
+  await proCheckout.click();
   await expect(page).toHaveURL(/\/pricing\?checkout=ready$/);
   await expect(page.getByRole("dialog")).toHaveCount(0);
 
@@ -158,13 +156,13 @@ test("pricing footer keeps Stripe checkout note above legal links", async ({ pag
 
 function assertCheckoutConsent(body: Record<string, unknown> | null) {
   expect(body).not.toBeNull();
-  expect(body?.offer).toBe("founder");
+  expect(body?.offer).toBe("pro_year");
   expect(body?.locale).toBe("en");
   expect(body?.legalAcceptance).toEqual({
-    acceptableUseVersion: "2026-08-25",
+    acceptableUseVersion: "2026-09-14",
     accepted: true,
     locale: "en",
-    privacyVersion: "2026-08-25",
-    termsVersion: "2026-08-25",
+    privacyVersion: "2026-09-14",
+    termsVersion: "2026-09-14",
   });
 }

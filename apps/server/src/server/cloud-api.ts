@@ -50,7 +50,6 @@ import {
   isProjectIcon,
 } from "@pinar/shared/project-icons";
 import {
-  FOUNDER_INITIAL_AI_CREDITS,
   PRO_MONTHLY_AI_CREDITS,
   PURCHASED_AI_CREDITS,
   STORAGE_20GB_BYTES,
@@ -68,30 +67,14 @@ import {
   type CheckoutOffer,
   type StorageEntitlement,
 } from "../lib/entitlements";
-import {
-  FOUNDER_SOLD_OUT_ERROR,
-  evaluateFounderCapacity,
-} from "../lib/founder-capacity";
 import { CURRENT_LEGAL_VERSION } from "../lib/legal-documents";
 import { exportComponent } from "./ai/component-export";
 import { extractDesignSystem, readDesignSystem } from "./ai/design-system";
 import { diagnosePin } from "./ai/pin-diagnosis";
 import { generateReproduction } from "./ai/reproduction";
+import { SESSION_PATCH_MAX_BYTES } from "./session-patch";
 import { type PricingConfig, pricingForCountry } from "../lib/pricing";
 import { laterExpiry, paidRetentionExpiresAt } from "../lib/retention";
-import {
-  attachFounderCheckoutSession,
-  confirmFounderPurchase,
-  findFounderCheckoutReservation,
-  founderPurchaseRecord,
-  founderReservationRecord,
-  releaseFounderSlot,
-  reserveFounderSlot,
-  type FounderCapacityStore,
-  type FounderPurchaseRecord,
-  type FounderReservationRecord,
-  type ReserveFounderSlotResult,
-} from "./founder-capacity-store";
 import { formatBatchMarkdown, formatCollectionMarkdown, formatProjectMarkdown, formatSessionMarkdown } from "./markdown";
 import { installerResponse } from "./installers";
 import { decodePngDataUrl } from "./png";
@@ -138,13 +121,9 @@ export interface CloudEnv {
   DB?: D1Database;
   EMAIL?: SendEmail;
   EXTENSION_ORIGIN?: string;
-  FOUNDER_CAPACITY_LIMIT?: string;
-  FOUNDER_SALES_ENABLED?: string;
   PINAR_BUCKET?: R2Bucket;
   PRICING_AI_CREDITS_1000_BRL_CENTS?: string;
   PRICING_AI_CREDITS_1000_USD_CENTS?: string;
-  PRICING_FOUNDER_BRL_CENTS?: string;
-  PRICING_FOUNDER_USD_CENTS?: string;
   PRICING_MONTHLY_BRL_CENTS?: string;
   PRICING_MONTHLY_USD_CENTS?: string;
   PRICING_STORAGE_20GB_12M_BRL_CENTS?: string;
@@ -155,12 +134,10 @@ export interface CloudEnv {
   PRICING_YEARLY_USD_CENTS?: string;
   STRIPE_PRICE_AI_CREDITS_1000?: string;
   STRIPE_PRICE_BR_AI_CREDITS_1000?: string;
-  STRIPE_PRICE_BR_FOUNDER?: string;
   STRIPE_PRICE_BR_MONTHLY?: string;
   STRIPE_PRICE_BR_STORAGE_20GB_12M?: string;
   STRIPE_PRICE_BR_STORAGE_5GB_12M?: string;
   STRIPE_PRICE_BR_YEARLY?: string;
-  STRIPE_PRICE_FOUNDER?: string;
   STRIPE_PRICE_MONTHLY?: string;
   STRIPE_PRICE_STORAGE_20GB_12M?: string;
   STRIPE_PRICE_STORAGE_5GB_12M?: string;
@@ -225,11 +202,6 @@ interface StripeSubscriptionStateRecord {
   subscriptionId: string;
 }
 
-interface FounderSalesConfig {
-  enabled: boolean;
-  limit: number;
-}
-
 type LegalAcceptanceLocale = "en" | "pt";
 
 interface CheckoutLegalEvidence {
@@ -248,7 +220,7 @@ interface LegalAcceptanceRecord extends CheckoutLegalEvidence {
   source: "account" | "checkout" | "remote_free";
 }
 
-type AiCreditSourceType = "founder_initial" | "free_initial" | "pro_monthly" | "purchase";
+type AiCreditSourceType = "free_initial" | "pro_monthly" | "purchase";
 
 interface AiCreditGrantRecord {
   consumedCredits: number;
@@ -438,7 +410,6 @@ const AI_FEATURES = new Set<AiFeature>([
 function aiFeatureValue(value: unknown): AiFeature {
   return AI_FEATURES.has(value as AiFeature) ? (value as AiFeature) : "session_summary";
 }
-const FOUNDER_CHECKOUT_TTL_MS = 31 * 60 * 1000;
 const LEGAL_VERSION_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const WEB_SESSION_COOKIE = "pinar_session";
 const WEB_SESSION_PATTERN = /^pws_[A-Za-z0-9_-]{43}$/;
@@ -460,8 +431,6 @@ const memoryCollectionDesignSystems = new Map<string, string>();
 const memoryDeviceSessions = new Map<string, DeviceSessionRecord>();
 const memoryEmailChallenges = new Map<string, EmailChallengeRecord>();
 const memoryExtensionCodes = new Map<string, ExtensionCodeRecord>();
-const memoryFounderPurchases = new Map<string, FounderPurchaseRecord>();
-const memoryFounderReservations = new Map<string, FounderReservationRecord>();
 const memoryInstallations = new Map<string, InstallationRecord>();
 const memoryLegalAcceptances = new Map<string, LegalAcceptanceRecord>();
 const memoryProjects = new Map<string, Project>();
@@ -782,7 +751,6 @@ function timingSafeEqual(left: string, right: string) {
 }
 
 function accountPlan(value: unknown): AccountPlan {
-  if (value === "founder" || value === "lifetime") return "founder";
   return value === "pro" ? "pro" : "free";
 }
 
@@ -842,7 +810,7 @@ function accountAuthSession(account: AccountRecord): AccountAuthSession {
 function principalForAccount(account: AccountRecord): Principal {
   return {
     id: account.id,
-    isPermanent: account.plan === "founder" || account.plan === "pro",
+    isPermanent: account.plan === "pro",
     kind: "account",
     plan: account.plan,
   };
@@ -873,8 +841,6 @@ function pricingConfig(env: CloudEnv): PricingConfig | null {
   const config: PricingConfig = {
     aiCredits1000BrlCents: Number(env.PRICING_AI_CREDITS_1000_BRL_CENTS),
     aiCredits1000UsdCents: Number(env.PRICING_AI_CREDITS_1000_USD_CENTS),
-    founderBrlCents: Number(env.PRICING_FOUNDER_BRL_CENTS),
-    founderUsdCents: Number(env.PRICING_FOUNDER_USD_CENTS),
     monthlyBrlCents: Number(env.PRICING_MONTHLY_BRL_CENTS),
     monthlyUsdCents: Number(env.PRICING_MONTHLY_USD_CENTS),
     storage20Gb12MBrlCents: Number(env.PRICING_STORAGE_20GB_12M_BRL_CENTS),
@@ -1373,8 +1339,7 @@ async function setAccountRefillAt(env: CloudEnv, account: AccountRecord, refillA
 }
 
 async function ensureIncludedMonthlyCredits(env: CloudEnv, account: AccountRecord) {
-  const eligible = account.plan === "founder"
-    || (account.plan === "pro" && account.billingStatus === "active");
+  const eligible = account.plan === "pro" && account.billingStatus === "active";
   if (!eligible) return;
   const now = currentDate();
   if (account.aiCreditRefillAt && account.aiCreditRefillAt > now.toISOString()) return;
@@ -2663,220 +2628,9 @@ async function logout(request: Request, env: CloudEnv) {
   });
 }
 
-function d1FounderCapacityStore(db: D1Database): FounderCapacityStore {
-  return {
-    async firstPurchase(sql, values) {
-      return founderPurchaseRecord(await db.prepare(sql).bind(...values).first());
-    },
-    async firstReservation(sql, values) {
-      return founderReservationRecord(await db.prepare(sql).bind(...values).first());
-    },
-  };
-}
-
-function founderSalesConfig(env: CloudEnv): FounderSalesConfig | null {
-  const parsedLimit = Number(env.FOUNDER_CAPACITY_LIMIT);
-  const hasValidLimit = Number.isInteger(parsedLimit) && parsedLimit > 0;
-  if (env.FOUNDER_SALES_ENABLED !== "true") {
-    return { enabled: false, limit: hasValidLimit ? parsedLimit : 1 };
-  }
-  return hasValidLimit ? { enabled: true, limit: parsedLimit } : null;
-}
-
-async function founderPricingState(env: CloudEnv) {
-  const config = founderSalesConfig(env);
-  if (!config?.enabled) return "closed" as const;
-  const now = currentDate();
-  if (env.DB) {
-    try {
-      const row = await env.DB.prepare(
-        "SELECT (SELECT COUNT(*) FROM founder_purchases) AS sold, "
-        + "(SELECT COUNT(*) FROM founder_reservations WHERE status = 'active' "
-        + "AND (checkout_session_id IS NOT NULL OR expires_at > ?)) AS active_reservations",
-      ).bind(now.toISOString()).first();
-      return evaluateFounderCapacity({
-        enabled: true,
-        limit: config.limit,
-        now,
-        reservations: Array.from({ length: Number(row?.active_reservations || 0) }, () => ({
-          checkoutAttached: true,
-          expiresAt: now.toISOString(),
-          status: "active" as const,
-        })),
-        sold: Number(row?.sold || 0),
-      }).state;
-    } catch {
-      return "closed" as const;
-    }
-  }
-  return evaluateFounderCapacity({
-    enabled: true,
-    limit: config.limit,
-    now,
-    reservations: Array.from(memoryFounderReservations.values()).map((reservation) => ({
-      checkoutAttached: Boolean(reservation.checkout_session_id),
-      expiresAt: reservation.expires_at,
-      status: reservation.status,
-    })),
-    sold: memoryFounderPurchases.size,
-  }).state;
-}
-
-function reserveMemoryFounderSlot(input: {
-  claimHash: string;
-  config: FounderSalesConfig;
-  id: string;
-  now: Date;
-  requestId: string;
-}): ReserveFounderSlotResult {
-  const existing = memoryFounderReservations.get(input.requestId);
-  if (existing) {
-    if (existing.claim_hash !== input.claimHash) return { reservation: null, status: "conflict" };
-    if (existing.status === "active" && Date.parse(existing.expires_at) > input.now.getTime()) {
-      return { reservation: existing, status: "existing" };
-    }
-  }
-  const capacity = evaluateFounderCapacity({
-    enabled: input.config.enabled,
-    limit: input.config.limit,
-    now: input.now,
-    reservations: Array.from(memoryFounderReservations.values()).map((reservation) => ({
-      checkoutAttached: Boolean(reservation.checkout_session_id),
-      expiresAt: reservation.expires_at,
-      status: reservation.status,
-    })),
-    sold: memoryFounderPurchases.size,
-  });
-  if (!capacity.available) return { reservation: null, status: "sold_out" };
-  const reservation: FounderReservationRecord = {
-    checkout_request_id: input.requestId,
-    checkout_session_id: null,
-    claim_hash: input.claimHash,
-    expires_at: new Date(input.now.getTime() + FOUNDER_CHECKOUT_TTL_MS).toISOString(),
-    id: input.id,
-    status: "active",
-  };
-  memoryFounderReservations.set(input.requestId, reservation);
-  return { reservation, status: "reserved" };
-}
-
-async function reserveFounderCheckout(input: {
-  claimHash: string;
-  config: FounderSalesConfig;
-  env: CloudEnv;
-  id: string;
-  now: Date;
-  requestId: string;
-}) {
-  if (!input.env.DB) return reserveMemoryFounderSlot(input);
-  return reserveFounderSlot(d1FounderCapacityStore(input.env.DB), {
-    claimHash: input.claimHash,
-    enabled: input.config.enabled,
-    id: input.id,
-    limit: input.config.limit,
-    now: input.now,
-    requestId: input.requestId,
-    ttlMs: FOUNDER_CHECKOUT_TTL_MS,
-  });
-}
-
-async function attachFounderCheckout(input: {
-  env: CloudEnv;
-  now: Date;
-  reservationId: string;
-  sessionId: string;
-}) {
-  if (input.env.DB) {
-    return Boolean(await attachFounderCheckoutSession(d1FounderCapacityStore(input.env.DB), input));
-  }
-  const reservation = Array.from(memoryFounderReservations.values())
-    .find((item) => item.id === input.reservationId);
-  if (!reservation || reservation.status !== "active") return false;
-  if (reservation.checkout_session_id && reservation.checkout_session_id !== input.sessionId) return false;
-  reservation.checkout_session_id = input.sessionId;
-  return true;
-}
-
-async function releaseFounderCheckout(env: CloudEnv, reservationId: string) {
-  if (env.DB) {
-    await releaseFounderSlot(d1FounderCapacityStore(env.DB), {
-      now: currentDate(),
-      reservationId,
-    });
-    return;
-  }
-  const reservation = Array.from(memoryFounderReservations.values())
-    .find((item) => item.id === reservationId);
-  if (reservation?.status === "active") reservation.status = "released";
-}
-
-async function findAttachedFounderReservation(input: {
-  env: CloudEnv;
-  reservationId: string;
-  sessionId: string;
-}) {
-  if (input.env.DB) {
-    return findFounderCheckoutReservation(d1FounderCapacityStore(input.env.DB), input);
-  }
-  return Array.from(memoryFounderReservations.values()).find((reservation) => (
-    reservation.id === input.reservationId
-    && reservation.checkout_session_id === input.sessionId
-    && (reservation.status === "active" || reservation.status === "confirmed")
-  )) || null;
-}
-
-async function confirmFounderCheckoutPurchase(input: {
-  account: AccountRecord;
-  env: CloudEnv;
-  reservationId: string;
-  sessionId: string;
-}) {
-  const stripeCustomerId = input.account.stripeCustomerId;
-  if (!stripeCustomerId) return null;
-  if (input.env.DB) {
-    try {
-      return await confirmFounderPurchase(d1FounderCapacityStore(input.env.DB), {
-        checkoutSessionId: input.sessionId,
-        id: `fdp_${generateNanoId(24)}`,
-        now: currentDate(),
-        reservationId: input.reservationId,
-        stripeCustomerId,
-        userId: input.account.id,
-      });
-    } catch {
-      return null;
-    }
-  }
-  const existing = memoryFounderPurchases.get(input.sessionId);
-  if (existing) {
-    return existing.reservation_id === input.reservationId
-      && existing.stripe_customer_id === stripeCustomerId
-      && existing.user_id === input.account.id
-      ? existing
-      : null;
-  }
-  const reservation = await findAttachedFounderReservation(input);
-  if (!reservation) return null;
-  const now = currentDate().toISOString();
-  const purchase: FounderPurchaseRecord = {
-    checkout_session_id: input.sessionId,
-    id: `fdp_${generateNanoId(24)}`,
-    purchased_at: now,
-    reservation_id: input.reservationId,
-    stripe_customer_id: stripeCustomerId,
-    user_id: input.account.id,
-  };
-  memoryFounderPurchases.set(input.sessionId, purchase);
-  reservation.status = "confirmed";
-  return purchase;
-}
-
 function stripePriceForOffer(env: CloudEnv, offer: CheckoutOffer, isBrazil: boolean) {
   if (offer === "ai_credits_1000") {
     return isBrazil ? env.STRIPE_PRICE_BR_AI_CREDITS_1000 : env.STRIPE_PRICE_AI_CREDITS_1000;
-  }
-  if (offer === "founder") {
-    return isBrazil ? env.STRIPE_PRICE_BR_FOUNDER : env.STRIPE_PRICE_FOUNDER;
   }
   if (offer === "pro_month") {
     return isBrazil ? env.STRIPE_PRICE_BR_MONTHLY : env.STRIPE_PRICE_MONTHLY;
@@ -2896,6 +2650,7 @@ async function createCheckout(request: Request, env: CloudEnv) {
   const explicitOffer = checkoutOffer(body.offer);
   if (body.offer !== undefined && !explicitOffer) return json({ error: "Invalid checkout offer" }, 400);
   const offer = explicitOffer || legacyCheckoutOffer(body.interval);
+  if (!offer) return json({ error: "Invalid checkout offer" }, 400);
   const requestIdInput = stringValue(body, "requestId");
   if (requestIdInput && !REQUEST_ID_PATTERN.test(requestIdInput)) {
     return json({ error: "Invalid checkout request id" }, 400);
@@ -2954,25 +2709,6 @@ async function createCheckout(request: Request, env: CloudEnv) {
     if (!subscription) params.set("customer_creation", "always");
   }
 
-  let founderReservation: FounderReservationRecord | null = null;
-  if (offer === "founder") {
-    const config = founderSalesConfig(env);
-    if (!config) return json({ error: "Founder capacity is not configured" }, 503);
-    const result = await reserveFounderCheckout({
-      claimHash: checkoutClaimHash,
-      config,
-      env,
-      id: `fdr_${generateNanoId(24)}`,
-      now,
-      requestId,
-    });
-    if (result.status === "conflict") return json({ error: "Checkout request conflict" }, 409);
-    if (!result.reservation) return json({ error: FOUNDER_SOLD_OUT_ERROR }, 409);
-    founderReservation = result.reservation;
-    params.set("expires_at", String(Math.floor(Date.parse(founderReservation.expires_at) / 1_000)));
-    params.set("metadata[pinar_founder_reservation_id]", founderReservation.id);
-  }
-
   let response: Response;
   try {
     response = await fetch("https://api.stripe.com/v1/checkout/sessions", {
@@ -2985,28 +2721,14 @@ async function createCheckout(request: Request, env: CloudEnv) {
       method: "POST",
     });
   } catch {
-    if (founderReservation) await releaseFounderCheckout(env, founderReservation.id);
     return json({ error: "Checkout unavailable" }, 503);
   }
   const data = await readJson(response);
   if (!response.ok) {
-    if (founderReservation) await releaseFounderCheckout(env, founderReservation.id);
     const error = isRecord(data.error) ? stringValue(data.error, "message") : "";
     return json({ error: error || "Checkout failed" }, 400);
   }
-  const sessionId = stringValue(data, "id");
   const checkoutUrl = stringValue(data, "url");
-  if (founderReservation) {
-    if (!sessionId || !checkoutUrl || !await attachFounderCheckout({
-      env,
-      now,
-      reservationId: founderReservation.id,
-      sessionId,
-    })) {
-      await releaseFounderCheckout(env, founderReservation.id);
-      return json({ error: "Founder checkout unavailable" }, 503);
-    }
-  }
   return json({ offer, ok: true, url: checkoutUrl });
 }
 
@@ -3067,7 +2789,7 @@ async function upsertStripeAccount(input: UpsertStripeAccountInput) {
         "UPDATE users SET email = ?, plan = ?, ever_paid = 1, "
         + "billing_status = CASE WHEN ? IS NOT NULL THEN 'active' ELSE billing_status END, "
         + "stripe_customer_id = ?, stripe_subscription_id = COALESCE(NULLIF(?, ''), stripe_subscription_id), "
-        + "ai_credit_refill_at = CASE WHEN ? IN ('pro', 'founder') THEN ai_credit_refill_at ELSE NULL END, "
+        + "ai_credit_refill_at = CASE WHEN ? = 'pro' THEN ai_credit_refill_at ELSE NULL END, "
         + "paid_eligibility_ended_at = CASE WHEN ? IS NOT NULL THEN NULL ELSE paid_eligibility_ended_at END, "
         + "updated_at = ? "
         + "WHERE id = ?",
@@ -3123,32 +2845,15 @@ async function upsertStripeAccount(input: UpsertStripeAccountInput) {
     }
     if (plan || !account.stripeCustomerId) account.stripeCustomerId = customerId;
     if (subscriptionId) account.stripeSubscriptionId = subscriptionId;
-    if (account.plan !== "pro" && account.plan !== "founder") account.aiCreditRefillAt = "";
+    if (account.plan !== "pro") account.aiCreditRefillAt = "";
   }
-  return account;
-}
-
-async function activateFounderAccount(env: CloudEnv, account: AccountRecord) {
-  if (env.DB) {
-    await env.DB.prepare(
-      "UPDATE users SET plan = 'founder', ever_paid = 1, billing_status = 'active', "
-      + "ai_credit_refill_at = CASE WHEN plan = 'founder' THEN ai_credit_refill_at ELSE NULL END, "
-      + "paid_eligibility_ended_at = NULL, updated_at = ? WHERE id = ?",
-    ).bind(currentDate().toISOString(), account.id).run();
-    return findAccountById(env, account.id);
-  }
-  if (account.plan !== "founder") account.aiCreditRefillAt = "";
-  account.billingStatus = "active";
-  account.everPaid = true;
-  account.paidEligibilityEndedAt = "";
-  account.plan = "founder";
   return account;
 }
 
 function offerFromCheckoutSession(session: Record<string, unknown>) {
   const metadata = isRecord(session.metadata) ? session.metadata : {};
-  return checkoutOffer(metadata.pinar_offer)
-    || (session.mode === "subscription" ? "pro_month" : "founder");
+  if (metadata.pinar_offer !== undefined) return checkoutOffer(metadata.pinar_offer);
+  return session.mode === "subscription" ? "pro_month" : null;
 }
 
 function checkoutIsPaid(session: Record<string, unknown>) {
@@ -3363,44 +3068,12 @@ async function hasCurrentRemoteFreeLegalAcceptance(env: CloudEnv, installationId
     && acceptance.acceptableUseVersion === CURRENT_LEGAL_VERSION;
 }
 
-async function fulfillFounderCheckout(
-  env: CloudEnv,
-  evidence: CheckoutLegalEvidence,
-  session: Record<string, unknown>,
-) {
-  const metadata = isRecord(session.metadata) ? session.metadata : {};
-  const reservationId = stringValue(metadata, "pinar_founder_reservation_id");
-  const sessionId = stringValue(session, "id");
-  if (!reservationId || !sessionId) return null;
-  const reservation = await findAttachedFounderReservation({ env, reservationId, sessionId });
-  if (!reservation) return null;
-  let account = await upsertStripeAccount({ env, plan: null, session });
-  if (!account) return null;
-  const purchase = await confirmFounderCheckoutPurchase({ account, env, reservationId, sessionId });
-  if (!purchase) return null;
-  if (!await recordCheckoutLegalAcceptance(env, account, evidence)) return null;
-  account = await activateFounderAccount(env, account);
-  if (!account) return null;
-  await grantAiCredits({
-    credits: FOUNDER_INITIAL_AI_CREDITS,
-    env,
-    expiresAt: null,
-    ownerId: account.id,
-    ownerType: "account",
-    sourceId: `checkout:${sessionId}:founder`,
-    sourceType: "founder_initial",
-  });
-  await ensureIncludedMonthlyCredits(env, account);
-  await preserveAccountSessions(env, account.id, account.plan);
-  return { account, offer: "founder" as const };
-}
-
 async function fulfillCheckout(env: CloudEnv, session: Record<string, unknown>) {
   if (!checkoutIsPaid(session)) return null;
   const evidence = checkoutLegalEvidence(session);
   if (!evidence) return null;
   const offer = offerFromCheckoutSession(session);
-  if (offer === "founder") return fulfillFounderCheckout(env, evidence, session);
+  if (!offer) return null;
   let account = await upsertStripeAccount({ env, plan: planForOffer(offer), session });
   if (!account) return null;
   if (!await recordCheckoutLegalAcceptance(env, account, evidence)) return null;
@@ -3538,8 +3211,7 @@ async function recordStripeSubscriptionState(input: RecordStripeSubscriptionStat
 }
 
 async function applyPaidRetentionTransition(env: CloudEnv, account: AccountRecord) {
-  const permanentPlan = account.plan === "founder";
-  if (permanentPlan || (account.plan === "pro" && account.billingStatus === "active")) {
+  if (account.plan === "pro" && account.billingStatus === "active") {
     if (env.DB) {
       await env.DB.prepare("UPDATE users SET paid_eligibility_ended_at = NULL WHERE id = ?")
         .bind(account.id).run();
@@ -3589,9 +3261,7 @@ async function applyStripeSubscriptionState(env: CloudEnv, customerId: string, s
     if (!state || state.customerId !== customerId) return account;
     account.billingStatus = state.status;
     account.everPaid = true;
-    account.plan = account.plan === "founder"
-      ? account.plan
-      : state.status === "active" ? "pro" : "free";
+    account.plan = state.status === "active" ? "pro" : "free";
     account.stripeSubscriptionId ||= subscriptionId;
   }
   const updated = await findAccountById(env, account.id);
@@ -3625,18 +3295,6 @@ async function handleWebhook(request: Request, env: CloudEnv) {
   if (eventType === "checkout.session.completed" || eventType === "checkout.session.async_payment_succeeded") {
     if (checkoutIsPaid(data) && !await fulfillCheckout(env, data)) {
       return json({ error: "Checkout fulfillment unavailable" }, 503);
-    }
-  } else if (
-    eventType === "checkout.session.expired"
-    || eventType === "checkout.session.async_payment_failed"
-  ) {
-    const metadata = isRecord(data.metadata) ? data.metadata : {};
-    if (checkoutOffer(metadata.pinar_offer) === "founder") {
-      const reservationId = stringValue(metadata, "pinar_founder_reservation_id");
-      const sessionId = stringValue(data, "id");
-      if (!reservationId || !sessionId) return json({ error: "Invalid Founder terminal event" }, 400);
-      const reservation = await findAttachedFounderReservation({ env, reservationId, sessionId });
-      if (reservation?.status === "active") await releaseFounderCheckout(env, reservationId);
     }
   } else if (eventType === "customer.subscription.deleted" || eventType === "customer.subscription.updated") {
     const customerId = stringValue(data, "customer");
@@ -4796,7 +4454,7 @@ async function accountEntitlements(request: Request, env: CloudEnv) {
     const account = await findAccountById(env, principal.id);
     if (account) {
       await ensureIncludedMonthlyCredits(env, account);
-      if (account.plan === "founder" || (account.plan === "pro" && account.billingStatus === "active")) {
+      if (account.plan === "pro" && account.billingStatus === "active") {
         nextRefillAt = account.aiCreditRefillAt || null;
       }
     }
@@ -5168,8 +4826,6 @@ async function summarizeSession(request: Request, env: CloudEnv) {
   });
 }
 
-const SESSION_PATCH_MAX_BYTES = 512_000;
-
 /**
  * PATCH /api/sessions/:id — the viewer persists what it produced or pruned on
  * a capture the account owns: an accepted diagnosis, a generated component,
@@ -5394,14 +5050,13 @@ export async function reconcileBillingEntitlements(env: CloudEnv) {
   let accounts: AccountRecord[];
   if (env.DB) {
     const result = await env.DB.prepare(
-      "SELECT * FROM users WHERE (plan = 'founder' OR (plan = 'pro' AND billing_status = 'active')) "
+      "SELECT * FROM users WHERE (plan = 'pro' AND billing_status = 'active') "
       + "AND (ai_credit_refill_at IS NULL OR ai_credit_refill_at <= ?)",
     ).bind(now).all();
     accounts = (result.results || []).map(accountFromRow);
   } else {
     accounts = Array.from(memoryAccounts.values()).filter(
-      (account) => (account.plan === "founder"
-        || (account.plan === "pro" && account.billingStatus === "active"))
+      (account) => (account.plan === "pro" && account.billingStatus === "active")
         && (!account.aiCreditRefillAt || account.aiCreditRefillAt <= now),
     );
   }
@@ -5723,7 +5378,7 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
   if (method === "GET" && path === "/api/pricing") {
     const config = pricingConfig(env);
     if (!config) return json({ code: "pricing_unavailable", error: "Pricing is not configured" }, 503);
-    return json(pricingForCountry(requestCountry(request), config, await founderPricingState(env)), 200, {
+    return json(pricingForCountry(requestCountry(request), config), 200, {
       "Cache-Control": "private, no-store",
       Vary: "CF-IPCountry",
     });
@@ -5773,6 +5428,26 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
     return json({ ok: true, batches: await listBatches(env, principal) }, 200, { "Cache-Control": "no-store" });
   }
   const batchFinishMatch = path.match(/^\/api\/batches\/([^/]+)\/finish$/);
+  const batchMarkdownMatch = path.match(/^\/api\/batches\/([^/]+)\/markdown$/);
+  if (batchMarkdownMatch && method === "GET") {
+    const principal = await resolvePrincipal(request, env);
+    if (!principal) return json({ error: "Unauthorized" }, 401);
+    const id = decodeURIComponent(batchMarkdownMatch[1]);
+    const batch = await getBatch(env, principal, id);
+    if (!batch) return json({ error: "Session not found" }, 404);
+    const sessions: Session[] = [];
+    for (let offset = 0; ; offset += 100) {
+      const page = await listSessions(env, principal, "", "100", "", id, String(offset));
+      sessions.push(...page);
+      if (page.length < 100) break;
+    }
+    const statusByPinId: Record<string, PinReviewStatus> = {};
+    for (const session of sessions) for (const review of await listPinReviews(env, session.id)) statusByPinId[review.pinId] = review.status;
+    const preferences = await readOwnerDeliveryPreferences(env, principal.id);
+    return text(formatBatchMarkdown(batch, sessions, statusByPinId, new URL(request.url).origin, {
+      ...preferences, language: preferences.language ?? "en",
+    }), 200, { "Cache-Control": "no-store", "Content-Type": "text/markdown; charset=utf-8" });
+  }
   if (batchFinishMatch && method === "POST") {
     const principal = await resolvePrincipal(request, env);
     if (!principal) return json({ error: "Unauthorized" }, 401);
@@ -6203,8 +5878,6 @@ export function resetCloudMemoryStateForTests() {
   memoryDeviceSessions.clear();
   memoryEmailChallenges.clear();
   memoryExtensionCodes.clear();
-  memoryFounderPurchases.clear();
-  memoryFounderReservations.clear();
   memoryInstallations.clear();
   memoryLegalAcceptances.clear();
   memoryProjects.clear();

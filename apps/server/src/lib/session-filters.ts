@@ -1,4 +1,5 @@
 import { sessionMatchesReviewFilters, type PinReviewStatus, type Session } from "@pinar/shared";
+import type { SessionGroup } from "./session-groups";
 
 export type PinCountFilter = "one" | "twoToFive" | "sixOrMore";
 
@@ -28,6 +29,7 @@ export function filterSessions(
     if (pinFilters.length > 0 && !pinFilters.includes(pinCountFilterValue(pinCount(session)))) return false;
     if (!sessionMatchesReviewFilters(effectiveReviewCounts(session), reviewFilters)) return false;
     if (!query) return true;
+    if ((session as SessionGroup).captures?.some((capture) => filterSessions([capture], query, [], []).length > 0)) return true;
     return session.page.title.toLowerCase().includes(query)
       || (session.page.description || "").toLowerCase().includes(query)
       || session.page.url.toLowerCase().includes(query)

@@ -156,17 +156,6 @@ export function PricingPage() {
     : isYearly
       ? t("pricing.getYearly", { price: proPriceText })
       : t("pricing.getMonthly", { price: proPriceText });
-  const founderPriceText = pricing
-    ? formatAmount(pricing.prices.founder.amount, pricing.currency, language)
-    : "—";
-  const founderAvailable = pricing?.founderState === "available";
-  const founderCheckoutLabel = loadingOffer === "founder"
-    ? t("pricing.redirecting")
-    : pricing?.founderState === "sold_out"
-      ? t("pricing.founderSoldOut")
-      : pricing?.founderState === "closed"
-        ? t("pricing.founderClosed")
-        : t("pricing.getFounder", { price: founderPriceText });
   const yearlySavings = pricing
     ? Math.round((1 - pricing.prices.year.amount / (pricing.prices.month.amount * 12)) * 100)
     : 0;
@@ -240,7 +229,7 @@ export function PricingPage() {
             {t("pricing.regionalBrazil")}
           </Badge>
         </div>
-        <div className="max-w-5xl w-full grid grid-cols-1 md:grid-cols-3 gap-6 mb-12 pt-3">
+        <div className="max-w-3xl w-full grid grid-cols-1 md:grid-cols-2 gap-6 mb-12 pt-3">
         {/* Free Card */}
         <Card className="flex flex-col justify-between">
           <CardHeader>
@@ -358,62 +347,6 @@ export function PricingPage() {
               <Badge variant="proSoft">{t("pricing.save45", { percent: yearlySavings })}</Badge>
             </div>
           )}
-        </div>
-
-        {/* Founder Card */}
-        <div className="relative flex">
-          <Card className="h-full w-full border-success/50 shadow-md">
-            <CardHeader>
-              <CardTitle className="text-xl">{t("pricing.founder")}</CardTitle>
-              <CardDescription className="min-h-[38px]">
-                {t("pricing.founderDescription")}
-              </CardDescription>
-              <PricingAmount
-                currency={pricing?.currency}
-                language={language}
-                originalLabel={t("pricing.originalPrice")}
-                price={pricing?.prices.founder}
-                suffix={t("pricing.oneTime")}
-              />
-            </CardHeader>
-            <CardContent className="flex-1">
-              <p className="mb-3 text-xs text-muted-foreground">
-                {t("pricing.founderIncludes")}
-              </p>
-              <ul className="flex flex-col gap-2.5 text-xs">
-                <li className="flex items-center gap-2">
-                  <IconCheck className="text-success w-4 h-4 shrink-0" />
-                  <span><strong>{t("pricing.founderAccess")}</strong> ({t("pricing.withinPolicies")})</span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <IconCheck className="text-success w-4 h-4 shrink-0" />
-                  <span><strong>{t("pricing.earlyAccess")}</strong></span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <IconCheck className="text-success w-4 h-4 shrink-0" />
-                  <span><strong>{t("pricing.founderAiCredits")}</strong></span>
-                </li>
-              </ul>
-            </CardContent>
-            <CardFooter className="flex-col items-stretch gap-2">
-              <Button
-                className="w-full bg-success text-success-foreground hover:bg-success/90"
-                disabled={loadingOffer !== null || !founderAvailable}
-                onClick={() => startCheckout("founder")}
-              >
-                {founderCheckoutLabel}
-              </Button>
-              <LegalActionNotice />
-            </CardFooter>
-          </Card>
-          <div className="absolute -top-3 right-6">
-            <Badge
-              variant="successSoft"
-              className="bg-emerald-50 text-[10px] font-extrabold tracking-wider dark:bg-emerald-950"
-            >
-              {t("pricing.limitedLaunch")}
-            </Badge>
-          </div>
         </div>
         </div>
 

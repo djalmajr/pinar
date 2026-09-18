@@ -94,7 +94,13 @@
     stopComposerKeyboardEvent,
   } = globalThis.__pinarKeyboardEvents;
   const captureSnapshot = globalThis.__pinarSnapshot?.captureSnapshot ?? (() => undefined);
-  const { boundedVoiceDuration, formatVoiceComment, preferredVoiceMimeType } = globalThis.__pinarVoice;
+  const {
+    boundedVoiceDuration,
+    formatVoiceComment,
+    preferredVoiceMimeType,
+    voiceSignalLevel,
+    voiceWaveHeights,
+  } = globalThis.__pinarVoice;
 
   const initialVisible = globalThis.__pinarInitialVisible !== false;
   delete globalThis.__pinarInitialVisible;
@@ -589,17 +595,15 @@
       .voice-status[data-kind="error"] { color: #B91C1C; }
       .voice-wave { align-items: center; display: inline-flex; gap: 2px; height: 16px; }
       .voice-wave[hidden], .voice-processing-indicator[hidden] { display: none; }
-      .voice-wave i { animation: pinar-voice-wave .8s ease-in-out infinite alternate; background: ${MARK}; border-radius: 2px; display: block; height: 5px; width: 2px; }
-      .voice-wave i:nth-child(2), .voice-wave i:nth-child(4) { animation-delay: -.45s; }
-      .voice-wave i:nth-child(3) { animation-delay: -.7s; }
+      .voice-wave i { background: ${MARK}; border-radius: 2px; display: block; height: var(--voice-bar-height, 3px); opacity: var(--voice-bar-opacity, .45); transition: height 70ms ease-out, opacity 70ms ease-out; width: 2px; }
       .voice-processing-indicator { align-items: center; display: inline-flex; gap: 3px; height: 16px; }
       .voice-processing-indicator i { animation: pinar-voice-processing 1s ease-in-out infinite; background: ${MARK}; border-radius: 50%; display: block; height: 5px; opacity: .35; width: 5px; }
       .voice-processing-indicator i:nth-child(2) { animation-delay: .15s; }
       .voice-processing-indicator i:nth-child(3) { animation-delay: .3s; }
-      @keyframes pinar-voice-wave { from { height: 4px; opacity: .5; } to { height: 15px; opacity: 1; } }
       @keyframes pinar-voice-processing { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
       @media (prefers-reduced-motion: reduce) {
-        .voice-wave i, .voice-processing-indicator i { animation: none; opacity: 1; transform: none; }
+        .voice-wave i { transition: none; }
+        .voice-processing-indicator i { animation: none; opacity: 1; transform: none; }
       }
       .voice-review {
         background: #F8FAFC;
@@ -1952,6 +1956,12 @@
   let voiceStartedAt = 0;
   let voiceTimer = 0;
   let voiceLimitTimer = 0;
+  let voiceAudioContext = null;
+  let voiceAudioSource = null;
+  let voiceAnalyser = null;
+  let voiceWaveData = null;
+  let voiceWaveFrame = 0;
+  let voiceWaveLevel = 0;
   let voiceProcessing = false;
   let voiceTranscriptComment = "";
   const cancelledVoiceRecorders = new WeakSet();
@@ -1996,7 +2006,59 @@
     voiceLimitTimer = 0;
   }
 
+  function renderVoiceWave(level, timestamp = 0) {
+    const heights = voiceWaveHeights(level, timestamp / 140);
+    for (const [index, bar] of [...ui.voiceWave.children].entries()) {
+      bar.style.setProperty("--voice-bar-height", `${heights[index] || 3}px`);
+      bar.style.setProperty("--voice-bar-opacity", String(0.45 + Math.min(1, level) * 0.55));
+    }
+  }
+
+  function stopVoiceMeter() {
+    cancelAnimationFrame(voiceWaveFrame);
+    voiceWaveFrame = 0;
+    try { voiceAudioSource?.disconnect(); } catch { /* already disconnected */ }
+    try { voiceAnalyser?.disconnect(); } catch { /* already disconnected */ }
+    const context = voiceAudioContext;
+    voiceAudioContext = null;
+    voiceAudioSource = null;
+    voiceAnalyser = null;
+    voiceWaveData = null;
+    voiceWaveLevel = 0;
+    renderVoiceWave(0);
+    if (context?.state !== "closed") void context?.close?.().catch(() => null);
+  }
+
+  function startVoiceMeter(stream) {
+    stopVoiceMeter();
+    const AudioContextClass = globalThis.AudioContext || globalThis.webkitAudioContext;
+    if (!AudioContextClass) return;
+    try {
+      voiceAudioContext = new AudioContextClass();
+      voiceAudioSource = voiceAudioContext.createMediaStreamSource(stream);
+      voiceAnalyser = voiceAudioContext.createAnalyser();
+      voiceAnalyser.fftSize = 256;
+      voiceAudioSource.connect(voiceAnalyser);
+      voiceWaveData = new Uint8Array(voiceAnalyser.fftSize);
+      void voiceAudioContext.resume?.().catch(() => null);
+      const sample = (timestamp) => {
+        if (!voiceAnalyser || voiceStream !== stream) return;
+        voiceAnalyser.getByteTimeDomainData(voiceWaveData);
+        const measured = voiceSignalLevel(voiceWaveData);
+        const smoothing = measured > voiceWaveLevel ? 0.55 : 0.18;
+        voiceWaveLevel += (measured - voiceWaveLevel) * smoothing;
+        if (voiceWaveLevel < 0.015) voiceWaveLevel = 0;
+        renderVoiceWave(voiceWaveLevel, timestamp);
+        voiceWaveFrame = requestAnimationFrame(sample);
+      };
+      voiceWaveFrame = requestAnimationFrame(sample);
+    } catch {
+      stopVoiceMeter();
+    }
+  }
+
   function closeVoiceStream() {
+    stopVoiceMeter();
     for (const track of voiceStream?.getTracks?.() || []) track.stop();
     voiceStream = null;
   }
@@ -2038,6 +2100,7 @@
 
   async function finishVoiceRecording(recorder, stream, chunks) {
     clearVoiceTimers();
+    stopVoiceMeter();
     for (const track of stream?.getTracks?.() || []) track.stop();
     if (voiceStream === stream) voiceStream = null;
     if (voiceRecorder === recorder) voiceRecorder = null;
@@ -2117,6 +2180,7 @@
       }, { once: true });
       voiceStartedAt = performance.now();
       recorder.start(1_000);
+      startVoiceMeter(stream);
       const updateElapsed = () => {
         const seconds = Math.min(120, Math.max(0, Math.floor((performance.now() - voiceStartedAt) / 1000)));
         setVoiceStatus(t("overlay_voice_recording").replace("{seconds}", String(seconds)));

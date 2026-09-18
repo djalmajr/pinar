@@ -1599,7 +1599,11 @@ function registerRemoteInstallation(endpoint, identity, force = false) {
       method: "POST",
     });
     const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.error || "Remote installation registration failed");
+    if (!response.ok) {
+      const error = new Error(body.error || "Remote installation registration failed");
+      error.status = response.status;
+      throw error;
+    }
     registeredInstallations.add(cacheKey);
     return legalAcceptance;
   });
@@ -1645,7 +1649,16 @@ async function remoteFetch(endpoint, path, init = {}) {
     if (response.status !== 401) return response;
     await resetToFreshInstallation(endpoint);
   }
-  return installationFetch(endpoint, path, await initializeInstallationIdentity(), init);
+  const identity = await initializeInstallationIdentity();
+  try {
+    return await installationFetch(endpoint, path, identity, init);
+  } catch (error) {
+    // Account activation migrates the anonymous installation on that server.
+    // If its endpoint-scoped account token is later absent, that migrated id
+    // cannot be registered again. Recover with a fresh anonymous identity.
+    if (error?.status !== 409) throw error;
+    return installationFetch(endpoint, path, await resetToFreshInstallation(endpoint), init);
+  }
 }
 
 function audioBlobFromDataUrl(value) {

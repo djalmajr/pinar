@@ -103,6 +103,8 @@ describe("installation identity", () => {
     const storage = memoryStorage({ deviceToken: token });
 
     assert.equal(await getDeviceToken(storage, "https://stg.pinar.dev/app"), "");
+    await clearDeviceToken(storage, "https://stg.pinar.dev");
+    assert.equal(storage.values.deviceToken, token);
     assert.equal(storage.values.deviceTokenEndpoint, undefined);
     assert.equal(await getDeviceToken(storage, "https://pinar.dev/account"), token);
     assert.equal(storage.values.deviceTokenEndpoint, "https://pinar.dev");

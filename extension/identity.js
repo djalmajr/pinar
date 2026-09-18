@@ -145,7 +145,8 @@ export async function clearDeviceToken(storage, endpoint = "") {
   delete tokens[normalized];
   await storage.set({ [DEVICE_TOKENS_KEY]: tokens });
   const legacyEndpoint = normalizeAuthEndpoint(current[DEVICE_TOKEN_ENDPOINT_KEY]);
-  if (!legacyEndpoint || legacyEndpoint === normalized) {
+  const legacyOwner = legacyEndpoint || LEGACY_DEVICE_TOKEN_ENDPOINT;
+  if (legacyOwner === normalized) {
     if (typeof storage.remove === "function") {
       await storage.remove(DEVICE_TOKEN_KEY);
       await storage.remove(DEVICE_TOKEN_ENDPOINT_KEY);

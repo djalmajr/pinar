@@ -184,6 +184,21 @@ describe("capture destination", () => {
     assert.match(backgroundSrc, /return registerInstallationOnce\(cacheKey, async \(\) => \{/);
   });
 
+  test("recovers when an account migration made the anonymous installation id unusable", () => {
+    const registration = backgroundSrc.slice(
+      backgroundSrc.indexOf("function registerRemoteInstallation("),
+      backgroundSrc.indexOf("async function installationFetch("),
+    );
+    const remote = backgroundSrc.slice(
+      backgroundSrc.indexOf("async function remoteFetch("),
+      backgroundSrc.indexOf("function audioBlobFromDataUrl("),
+    );
+    assert.match(registration, /error\.status = response\.status/);
+    assert.match(remote, /if \(error\?\.status !== 409\) throw error/);
+    assert.match(remote, /resetToFreshInstallation\(endpoint\)/);
+    assert.match(remote, /return installationFetch\(endpoint, path, await resetToFreshInstallation\(endpoint\), init\)/);
+  });
+
   test("reconciles delivery preferences from the server and PATCHes on save", () => {
     assert.match(backgroundSrc, /includeViewer/);
     assert.match(backgroundSrc, /copyOnFinishBatch/);

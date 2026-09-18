@@ -437,6 +437,7 @@ export function OptionsApp() {
   const installCommand = "curl -fsSL https://pinar.dev/install.sh | sh";
   const desktopInstallUrl =
     installPlatform === "win" ? windowsDesktopSetupUrl() : macosDesktopDmgUrl();
+  const localStorageDescription = installPlatform === "win" ? t.local_desc_windows : t.local_desc;
   const codeCountdown = temporaryCode && temporaryCodeExpiresAt
     ? remainingCodeCountdown(temporaryCodeExpiresAt, nowMs)
     : null;
@@ -796,7 +797,7 @@ export function OptionsApp() {
                     <input checked={settings.storageMode === "local"} className="mt-0.5 accent-primary" name="storageMode" type="radio" onChange={() => setSettings((current) => ({ ...current, storageMode: "local" }))} />
                     <span className="min-w-0 flex-1">
                       <span className="block text-xs font-semibold">{t.local_title}</span>
-                      <span className="mt-0.5 block text-xs text-muted-foreground">{t.local_desc}</span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">{localStorageDescription}</span>
                       {installPlatform === "other" ? (
                         <span className="mt-2 flex items-center gap-1.5 rounded-lg border bg-muted/60 p-1.5 font-mono text-[11px]">
                           <ScrollArea className="min-w-0 flex-1"><code className="block whitespace-nowrap px-1 text-muted-foreground">{installCommand}</code><ScrollBar orientation="horizontal" /></ScrollArea>

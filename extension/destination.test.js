@@ -201,6 +201,11 @@ describe("capture destination", () => {
     assert.match(optionsSrc, /stagingEndpoint \? t\.staging_desc : t\.remote_desc/);
   });
 
+  test("uses a Windows-specific local storage path description", () => {
+    assert.match(optionsSrc, /installPlatform === "win" \? t\.local_desc_windows : t\.local_desc/);
+    assert.match(optionsSrc, /\{localStorageDescription\}/);
+  });
+
   test("recovers when an account migration made the anonymous installation id unusable", () => {
     const registration = backgroundSrc.slice(
       backgroundSrc.indexOf("function registerRemoteInstallation("),

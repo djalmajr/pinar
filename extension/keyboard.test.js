@@ -6,7 +6,12 @@ import vm from "node:vm";
 const source = readFileSync(new URL("./keyboard.js", import.meta.url), "utf8");
 const context = vm.createContext({});
 vm.runInContext(source, context);
-const { handleComposerKeyDown, stopComposerKeyboardEvent } = context.__pinarKeyboardEvents;
+const {
+  copyShortcutLabel,
+  handleComposerKeyDown,
+  isCopyShortcut,
+  stopComposerKeyboardEvent,
+} = context.__pinarKeyboardEvents;
 
 function createKeyboardEvent(overrides = {}) {
   const calls = { prevented: false, stopped: false };
@@ -55,7 +60,7 @@ describe("composer keyboard isolation", () => {
     assert.equal(calls.prevented, false);
   });
 
-  test("Alt+Enter leaves the composer so capture can copy", () => {
+  test("modified Enter is left for the platform shortcut handler", () => {
     const { calls, event } = createKeyboardEvent({ key: "Enter", altKey: true });
 
     assert.equal(handleComposerKeyDown(event), false);
@@ -69,5 +74,25 @@ describe("composer keyboard isolation", () => {
     stopComposerKeyboardEvent(event);
     assert.equal(calls.stopped, true);
     assert.equal(calls.prevented, false);
+  });
+});
+
+describe("copy shortcut by platform", () => {
+  test("macOS accepts only Command+Enter", () => {
+    assert.equal(copyShortcutLabel(true), "⌘ + Enter");
+    assert.equal(isCopyShortcut(createKeyboardEvent({ key: "Enter", metaKey: true }).event, true), true);
+    assert.equal(isCopyShortcut(createKeyboardEvent({ key: "Enter", altKey: true }).event, true), false);
+    assert.equal(isCopyShortcut(createKeyboardEvent({ key: "Enter", ctrlKey: true }).event, true), false);
+    assert.equal(isCopyShortcut(createKeyboardEvent({ key: "Enter", metaKey: true, shiftKey: true }).event, true), false);
+    assert.equal(isCopyShortcut(createKeyboardEvent({ key: "Enter", altKey: true, metaKey: true }).event, true), false);
+  });
+
+  test("Windows and Linux accept only Alt+Enter", () => {
+    assert.equal(copyShortcutLabel(false), "Alt + Enter");
+    assert.equal(isCopyShortcut(createKeyboardEvent({ key: "Enter", altKey: true }).event, false), true);
+    assert.equal(isCopyShortcut(createKeyboardEvent({ key: "Enter", ctrlKey: true }).event, false), false);
+    assert.equal(isCopyShortcut(createKeyboardEvent({ key: "Enter", metaKey: true }).event, false), false);
+    assert.equal(isCopyShortcut(createKeyboardEvent({ key: "Enter", altKey: true, shiftKey: true }).event, false), false);
+    assert.equal(isCopyShortcut(createKeyboardEvent({ key: "Enter", altKey: true, ctrlKey: true }).event, false), false);
   });
 });

@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import { pinarBin, pinarHome, runningAppBundle } from "./local-server";
 
 export const LOGIN_LABEL = "dev.pinar.local";
@@ -29,7 +29,7 @@ export function windowsInstallDir(home = homedir(), localAppData = process.env.L
 }
 
 export function isPinarWindowsExe(execPath: string) {
-	const name = basename(execPath).toLowerCase();
+	const name = execPath.split(/[/\\]/).at(-1)?.toLowerCase() ?? "";
 	if (name === "pinar.exe" || name === "pinar-dev.exe") return true;
 	if (name !== "launcher.exe") return false;
 	return /[/\\]pinar[/\\]bin[/\\]launcher\.exe$/i.test(execPath);

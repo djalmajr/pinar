@@ -50,25 +50,25 @@ const locale = {
         "technical-evidence": {
           title: "Evidência técnica",
           description:
-            "Erros de console, requisições com falha e o ambiente observados enquanto você pinava são listados com o pin, classificados como Após interação ou Mesma página. Nada é inferido e nenhum crédito é gasto.",
+            "Erros de console, requisições com falha e o ambiente observados enquanto você pinava são listados com o pin, classificados como Após interação ou Mesma página. Nada é inferido e nenhum crédito do Pinar Cloud é gasto.",
         },
         "pin-diagnosis": {
-          title: "Diagnosticar um pin (3 créditos)",
+          title: "Diagnosticar um pin no Pinar Cloud (3 créditos)",
           description:
             "A IA explica a causa provável do pin a partir da estrutura e propõe uma correção em CSS com um nível de confiança. Aceite, edite ou descarte; só diagnósticos aceitos ficam com o pin.",
         },
         "save-as-component": {
-          title: "Salvar um pin como componente (10 créditos)",
+          title: "Salvar um pin como componente no Pinar Cloud (10 créditos)",
           description:
             "Transforme um elemento capturado em HTML + CSS, React + Tailwind ou Preact + htm, com arquivos, dependências, notas de fidelidade, prévia, download em ZIP e StackBlitz.",
         },
         "step-recording": {
-          title: "Gravar passos e gerar um teste Playwright (5 créditos)",
+          title: "Gerar um teste Playwright no Pinar Cloud (5 créditos)",
           description:
             "Pressione G na página para gravar cliques, digitação, rolagem e navegação. Reabra o Pinar, pine e copie para anexar os passos; G de novo os descarta. O visualizador gera passos escritos e um teste Playwright.",
         },
         "collection-design-system": {
-          title: "Design system de uma coleção (15 créditos)",
+          title: "Design system de uma coleção no Pinar Cloud (15 créditos)",
           description:
             "Extraia cores, tipografia, espaçamento, raios e sombras compartilhados pelos pins de uma coleção. Exporte como variáveis CSS, tema Tailwind, tokens W3C ou DESIGN.md.",
         },

@@ -11,7 +11,7 @@ import {
 import { SUPPORTED_LANGUAGES, translations } from "@pinar/shared";
 
 const expectedArticleCounts = {
-  agents: 4,
+  agents: 5,
   captures: 6,
   cloud: 5,
   "getting-started": 4,
@@ -49,11 +49,11 @@ describe("help content", () => {
     assert.equal(loadHelpContent("fr"), frenchContent);
     assert.equal((await frenchContent).language, "fr");
   });
-  test("ships the designed six-category, 26-article catalog in every locale", async () => {
+  test("ships the designed six-category, 27-article catalog in every locale", async () => {
     const contents = await loadEveryHelpLocale();
     for (const content of contents) {
       assert.equal(content.categories.length, 6, content.language);
-      assert.equal(content.articles.length, 26, content.language);
+      assert.equal(content.articles.length, 27, content.language);
       for (const category of content.categories) {
         assert.equal(
           articlesInCategory(content, category.id).length,
@@ -169,6 +169,38 @@ describe("help content", () => {
           findHelpArticle(content, article.category, article.id),
           article,
         );
+      }
+    }
+  });
+
+  test("attributes AI credit consumption to Pinar Cloud in every locale", async () => {
+    const creditTerms = /credit|cr[eé]dito|crédit|guthaben|クレジット|积分/i;
+    const costTerms = /\b(?:1|3|5|10|15)\b/;
+
+    for (const content of await loadEveryHelpLocale()) {
+      const creditArticle = content.articles.find((article) => article.id === "ai-credits");
+      assert.ok(creditArticle, `${content.language}:ai-credits`);
+      assert.match(creditArticle.summary, /Pinar Cloud/, `${content.language}:ai-credits:summary`);
+      for (const section of creditArticle.sections.slice(0, 3)) {
+        assert.match(
+          section.paragraphs[0] ?? "",
+          /Pinar Cloud/,
+          `${content.language}:ai-credits:${section.heading}`,
+        );
+      }
+
+      for (const article of content.articles) {
+        if (article.id === "ai-credits" || article.id === "plans-and-billing") continue;
+        for (const section of article.sections) {
+          for (const paragraph of section.paragraphs) {
+            if (!creditTerms.test(paragraph) || !costTerms.test(paragraph)) continue;
+            assert.match(
+              paragraph,
+              /Pinar Cloud/,
+              `${content.language}:${article.id}:${section.heading}`,
+            );
+          }
+        }
       }
     }
   });
@@ -341,10 +373,7 @@ describe("help content", () => {
 
   test("wraps keyboard shortcuts in code spans in every article", async () => {
     const shortcutKeys = [
-      "Command/Ctrl/Alt+Enter",
-      "Command/Ctrl+Enter",
       "Command+Enter",
-      "Ctrl+Enter",
       "Alt+Enter",
       "Shift+Enter",
       "Alt+Shift+P",
@@ -374,10 +403,9 @@ describe("help content", () => {
           ...(section.bullets ?? []),
         ])
         .join("\n");
-      assert.match(firstCaptureText, /`Command\/Ctrl\/Alt\+Enter`/);
       assert.match(firstCaptureText, /`Command\+Enter`/);
-      assert.match(firstCaptureText, /`Ctrl\+Enter`/);
       assert.match(firstCaptureText, /`Alt\+Enter`/);
+      assert.doesNotMatch(firstCaptureText, /Ctrl\+Enter/);
       assert.match(firstCaptureText, /`Shift\+Enter`/);
       assert.match(firstCaptureText, /`Escape`/);
       assert.match(firstCaptureText, /`Enter`/);
@@ -476,8 +504,8 @@ describe("help content", () => {
   test("gives every article its own cover file", async () => {
     for (const content of await loadEveryHelpLocale()) {
       const keys = content.articles.map((article) => article.screenshot.key);
-      assert.equal(keys.length, 26, content.language);
-      assert.equal(new Set(keys).size, 26, content.language);
+      assert.equal(keys.length, 27, content.language);
+      assert.equal(new Set(keys).size, 27, content.language);
     }
   });
 
@@ -512,6 +540,7 @@ describe("help content", () => {
   test("pairs every article hero with a screenshot of the UI that article describes", async () => {
     const expected = {
       "account-and-sign-in": "sign-in-email",
+      "ai-features": "capture-review",
       "ai-credits": "pricing-credits",
       "automatic-sanitization": "preferences-privacy",
       "capture-types": "capture-types",

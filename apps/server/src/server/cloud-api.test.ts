@@ -308,6 +308,22 @@ describe("remote installation isolation", () => {
     });
   });
 
+  test("staging registers and authorizes test installations without legal acceptance", async () => {
+    const env: CloudEnv = { ...TEST_ENV, DEPLOYMENT_ENV: "staging" };
+    const registered = await api("/api/installations", {
+      body: JSON.stringify({ installationId: identityA.id, installationToken: identityA.token }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }, env);
+    assert.equal(registered.status, 201);
+
+    const entitlements = await api("/api/account/entitlements", {
+      headers: identityHeaders(identityA),
+    }, env);
+    assert.equal(entitlements.status, 200);
+    assert.equal((await jsonBody(entitlements)).legalAcceptance, null);
+  });
+
   test("data and extension-code web sessions remain installation-scoped", async () => {
     assert.equal((await register(identityA)).status, 201);
     assert.equal((await register(identityB)).status, 201);

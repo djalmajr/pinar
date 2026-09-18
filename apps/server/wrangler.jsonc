@@ -31,6 +31,7 @@
   },
   "triggers": { "crons": ["0 3 * * *"] },
   "vars": {
+    "DEPLOYMENT_ENV": "local",
     "PRICING_AI_CREDITS_1000_BRL_CENTS": "990",
     "PRICING_AI_CREDITS_1000_USD_CENTS": "299",
     "PRICING_MONTHLY_BRL_CENTS": "490",
@@ -82,6 +83,7 @@
       ],
       "triggers": { "crons": ["0 3 * * *"] },
       "vars": {
+        "DEPLOYMENT_ENV": "staging",
         "PRICING_AI_CREDITS_1000_BRL_CENTS": "990",
         "PRICING_AI_CREDITS_1000_USD_CENTS": "299",
         "PRICING_MONTHLY_BRL_CENTS": "490",
@@ -134,6 +136,7 @@
       ],
       "triggers": { "crons": ["0 3 * * *"] },
       "vars": {
+        "DEPLOYMENT_ENV": "production",
         "PRICING_AI_CREDITS_1000_BRL_CENTS": "990",
         "PRICING_AI_CREDITS_1000_USD_CENTS": "299",
         "PRICING_MONTHLY_BRL_CENTS": "490",

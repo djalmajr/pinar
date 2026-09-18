@@ -50,25 +50,25 @@ const locale = {
         "technical-evidence": {
           title: "Technische Belege",
           description:
-            "Konsolenfehler, fehlgeschlagene Anfragen und die während des Pinnens beobachtete Umgebung werden beim Pin aufgelistet, eingestuft als Nach Interaktion oder Gleiche Seite. Nichts wird abgeleitet und kein Credit verbraucht.",
+            "Konsolenfehler, fehlgeschlagene Anfragen und die während des Pinnens beobachtete Umgebung werden beim Pin aufgelistet, eingestuft als Nach Interaktion oder Gleiche Seite. Nichts wird abgeleitet und kein Pinar-Cloud-Credit verbraucht.",
         },
         "pin-diagnosis": {
-          title: "Einen Pin diagnostizieren (3 Credits)",
+          title: "Einen Pin in Pinar Cloud diagnostizieren (3 Credits)",
           description:
             "Die KI erklärt die wahrscheinliche Ursache des Pins anhand seiner Struktur und schlägt eine CSS-Korrektur mit Konfidenzstufe vor. Akzeptieren, bearbeiten oder verwerfen Sie sie; nur akzeptierte Diagnosen bleiben beim Pin.",
         },
         "save-as-component": {
-          title: "Einen Pin als Komponente speichern (10 Credits)",
+          title: "Einen Pin in Pinar Cloud als Komponente speichern (10 Credits)",
           description:
             "Verwandeln Sie ein erfasstes Element in HTML + CSS, React + Tailwind oder Preact + htm, mit Dateien, Abhängigkeiten, Hinweisen zur Genauigkeit, Vorschau, ZIP-Download und StackBlitz.",
         },
         "step-recording": {
-          title: "Schritte aufzeichnen und einen Playwright-Test erzeugen (5 Credits)",
+          title: "Einen Playwright-Test in Pinar Cloud erzeugen (5 Credits)",
           description:
             "Drücken Sie G auf der Seite, um Klicks, Tippen, Scrollen und Navigation aufzuzeichnen. Öffnen Sie Pinar erneut, pinnen und kopieren Sie, um die Schritte anzuhängen; ein erneutes G verwirft sie. Der Viewer erzeugt ausformulierte Schritte und einen Playwright-Test.",
         },
         "collection-design-system": {
-          title: "Design-System einer Collection (15 Credits)",
+          title: "Design-System einer Collection in Pinar Cloud (15 Credits)",
           description:
             "Extrahieren Sie die gemeinsamen Farben, Typografie, Abstände, Radien und Schatten aus den Pins einer Collection. Exportieren Sie als CSS-Variablen, Tailwind-Theme, W3C-Tokens oder DESIGN.md.",
         },

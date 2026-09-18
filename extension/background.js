@@ -9,10 +9,12 @@ import {
 } from "./batch.js";
 import { CAPTURE_TILE_DELAY_MS, planFullPageCapture, shiftMaskRegions, shiftPinsToCapture } from "./full-page.js";
 import { collectionDestination, destinationKey, resolveDestinationPreference } from "./destination.js";
+import { requiresExplicitLegalConsent, resolveCloudUrl } from "./environment.js";
 import { formatClipboardPayload } from "./format.js";
 import { getBestLanguage, translations } from "./i18n.js";
 import { acceptedRemoteLegalAcceptance, parseLegalBundle } from "./legal-consent.js";
 import { getPinColor } from "./pin-colors.js";
+import { remoteProfileStorage } from "./remote-profile.js";
 import {
   clearDeviceToken,
   createInstallationIdentity,
@@ -76,8 +78,9 @@ const reviewTabs = new Set();
 async function reviewScope(settings) {
   if (settings.storageMode !== "cloud") return "local";
   const endpoint = cloudEndpoint(settings);
-  const installation = await ensureInstallationIdentity(chrome.storage.local);
-  const device = await getDeviceToken(chrome.storage.local, endpoint);
+  const storage = remoteProfileStorage(chrome.storage.local, endpoint);
+  const installation = await ensureInstallationIdentity(storage);
+  const device = await getDeviceToken(storage);
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(device || installation.id));
   const identity = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
   return `cloud:${endpoint}:${identity}`;
@@ -109,8 +112,9 @@ async function reviewDestination(draft) {
   if (!base) throw new Error("helper_unavailable");
   let request = (path, init) => localFetch(base, path, init);
   if (settings.storageMode === "cloud") {
-    const device = await getDeviceToken(chrome.storage.local, base);
-    const installation = await ensureInstallationIdentity(chrome.storage.local);
+    const storage = remoteProfileStorage(chrome.storage.local, base);
+    const device = await getDeviceToken(storage);
+    const installation = await ensureInstallationIdentity(storage);
     if (!device) await registerRemoteInstallation(base, installation);
     const authHeaders = device ? deviceAuthHeaders(device) : installationAuthHeaders(installation);
     // A 401 must keep the draft bound to its owner. The general remoteFetch
@@ -315,23 +319,25 @@ function normalizePins(pins = []) {
   });
 }
 
-async function initializeInstallationIdentity() {
+async function initializeInstallationIdentity(endpoint) {
   try {
     await chrome.storage.local.setAccessLevel?.({ accessLevel: "TRUSTED_CONTEXTS" });
   } catch {
     /* Older Chromium versions do not expose storage access levels. */
   }
-  return ensureInstallationIdentity(chrome.storage.local);
+  const remoteEndpoint = endpoint || cloudEndpoint(await getSettings());
+  return ensureInstallationIdentity(remoteProfileStorage(chrome.storage.local, remoteEndpoint));
 }
 
 async function batchState() {
   const settings = await getSettings();
   const messages = translations[getBestLanguage(settings.language)];
   const review = continuousSummary(await draftStore.read());
+  const platform = await chrome.runtime.getPlatformInfo().catch(() => ({ os: "" }));
   if (review.active) return {
     ...review,
     label: messages.overlay_session_summary.replace("{pages}", String(review.count)).replace("{pins}", String(review.pins)) + (review.pending ? ` · ${messages.overlay_session_pending}` : ""),
-    shortcut: "Ctrl+Enter",
+    shortcut: platform.os === "mac" ? "Command+Enter" : "Alt+Enter",
   };
   const batch = await readBatch();
   const count = batch ? savedCount(batch) : 0;
@@ -350,8 +356,8 @@ async function batchState() {
 async function syncBatchSurfaces(extra = {}) {
   const state = await batchState();
   await syncActionMenu(state).catch(() => null);
-  // The badge mirrors the toolbar: "on" while the batch is empty, then the count.
-  const badge = state.active ? (state.count > 0 ? String(state.count) : "on") : "";
+  // The badge shows the review workload: "on" while empty, then the pin count.
+  const badge = state.active ? (state.pins > 0 ? String(state.pins) : "on") : "";
   await chrome.action.setBadgeText({ text: badge }).catch(() => null);
   await chrome.action.setBadgeBackgroundColor({ color: "#5794FF" }).catch(() => null);
   await chrome.action.setBadgeTextColor({ color: "#FFFFFF" }).catch(() => null);
@@ -961,11 +967,11 @@ async function getSettings() {
     };
   }
 
-  // Migrate any old URLs stored in Chrome sync storage
-  if (!settings.cloudUrl || settings.cloudUrl.includes("workers.dev") || settings.cloudUrl.includes("djalmajr.dev")) {
-    settings.cloudUrl = "https://pinar.dev";
+  const cloudUrl = resolveCloudUrl(chrome.runtime.getManifest(), settings.cloudUrl);
+  if (settings.cloudUrl !== cloudUrl) {
+    settings.cloudUrl = cloudUrl;
     try {
-      chrome.storage.sync.set({ cloudUrl: "https://pinar.dev" });
+      chrome.storage.sync.set({ cloudUrl });
     } catch {}
   }
 
@@ -1481,7 +1487,7 @@ async function findShotBase() {
 }
 
 function cloudEndpoint(settings) {
-  return (settings.cloudUrl || "https://pinar.dev").replace(/\/+$/, "");
+  return resolveCloudUrl(chrome.runtime.getManifest(), settings.cloudUrl);
 }
 
 async function storeDestination(settings, localBase, destination) {
@@ -1587,18 +1593,26 @@ async function setCaptureDestination(collectionId) {
 function registerRemoteInstallation(endpoint, identity, force = false) {
   const cacheKey = `${endpoint}:${identity.id}`;
   return registerInstallationOnce(cacheKey, async () => {
-    const [legalResponse, stored] = await Promise.all([
-      fetch(`${endpoint}/api/legal/current`),
-      chrome.storage.local.get({ remoteLegalAcceptance: null }),
-    ]);
-    const legalBundle = parseLegalBundle(await legalResponse.json().catch(() => null));
-    const legalAcceptance = acceptedRemoteLegalAcceptance(stored.remoteLegalAcceptance, legalBundle);
-    if (!legalResponse.ok || !legalBundle || !legalAcceptance) {
-      throw new Error("Accept the current Pinar Terms in the extension settings before using remote storage");
+    let legalAcceptance = null;
+    if (requiresExplicitLegalConsent(chrome.runtime.getManifest(), endpoint)) {
+      const storage = remoteProfileStorage(chrome.storage.local, endpoint);
+      const [legalResponse, stored] = await Promise.all([
+        fetch(`${endpoint}/api/legal/current`),
+        storage.get({ remoteLegalAcceptance: null }),
+      ]);
+      const legalBundle = parseLegalBundle(await legalResponse.json().catch(() => null));
+      legalAcceptance = acceptedRemoteLegalAcceptance(stored.remoteLegalAcceptance, legalBundle);
+      if (!legalResponse.ok || !legalBundle || !legalAcceptance) {
+        throw new Error("Accept the current Pinar Terms in the extension settings before using remote storage");
+      }
     }
     if (!force && registeredInstallations.has(cacheKey)) return legalAcceptance;
     const response = await fetch(`${endpoint}/api/installations`, {
-      body: JSON.stringify({ installationId: identity.id, installationToken: identity.token, legalAcceptance }),
+      body: JSON.stringify({
+        installationId: identity.id,
+        installationToken: identity.token,
+        ...(legalAcceptance ? { legalAcceptance } : {}),
+      }),
       headers: { "content-type": "application/json" },
       method: "POST",
     });
@@ -1633,9 +1647,10 @@ async function installationFetch(endpoint, path, identity, init = {}) {
 
 async function resetToFreshInstallation(endpoint) {
   return resetInstallationOnce(endpoint, async () => {
+    const storage = remoteProfileStorage(chrome.storage.local, endpoint);
     const replacement = createInstallationIdentity();
-    await clearDeviceToken(chrome.storage.local, endpoint);
-    await replaceInstallationIdentity(chrome.storage.local, replacement);
+    await clearDeviceToken(storage);
+    await replaceInstallationIdentity(storage, replacement);
     registeredInstallations.clear();
     await registerRemoteInstallation(endpoint, replacement, true);
     return replacement;
@@ -1643,7 +1658,8 @@ async function resetToFreshInstallation(endpoint) {
 }
 
 async function remoteFetch(endpoint, path, init = {}) {
-  const deviceToken = await getDeviceToken(chrome.storage.local, endpoint);
+  const storage = remoteProfileStorage(chrome.storage.local, endpoint);
+  const deviceToken = await getDeviceToken(storage);
   if (deviceToken) {
     const response = await fetch(`${endpoint}${path}`, {
       ...init,
@@ -1655,7 +1671,7 @@ async function remoteFetch(endpoint, path, init = {}) {
     if (response.status !== 401) return response;
     await resetToFreshInstallation(endpoint);
   }
-  const identity = await initializeInstallationIdentity();
+  const identity = await initializeInstallationIdentity(endpoint);
   try {
     return await installationFetch(endpoint, path, identity, init);
   } catch (error) {
@@ -1837,7 +1853,7 @@ async function requestAccountEmailCode(email) {
 async function verifyAccountEmailCode(email, code) {
   const settings = await getSettings();
   const endpoint = cloudEndpoint(settings);
-  const identity = await initializeInstallationIdentity();
+  const identity = await initializeInstallationIdentity(endpoint);
   const legalAcceptance = await registerRemoteInstallation(endpoint, identity);
   const response = await fetch(`${endpoint}/api/auth/email-codes/verify`, {
     body: JSON.stringify({
@@ -1854,7 +1870,7 @@ async function verifyAccountEmailCode(email, code) {
   if (!response.ok || !body.device?.token || !body.session) {
     throw new Error(body.error || "The code is invalid or expired");
   }
-  await storeDeviceToken(chrome.storage.local, body.device.token, endpoint);
+  await storeDeviceToken(remoteProfileStorage(chrome.storage.local, endpoint), body.device.token);
   registeredInstallations.clear();
   return body.session;
 }
@@ -1862,7 +1878,7 @@ async function verifyAccountEmailCode(email, code) {
 async function logoutAccount() {
   const settings = await getSettings();
   const endpoint = cloudEndpoint(settings);
-  const token = await getDeviceToken(chrome.storage.local, endpoint);
+  const token = await getDeviceToken(remoteProfileStorage(chrome.storage.local, endpoint));
   if (token) {
     const response = await fetch(`${endpoint}/api/auth/logout`, {
       headers: deviceAuthHeaders(token),

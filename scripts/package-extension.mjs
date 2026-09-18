@@ -11,6 +11,7 @@ import {
   rmSync,
   statSync,
   utimesSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
@@ -43,6 +44,12 @@ export function extensionVersions(rootDirectory = root) {
     throw new Error(`extension version mismatch: manifest=${manifest.version}, package=${extensionPackage.version}`);
   }
   return { manifest, version: manifest.version };
+}
+
+export function releaseManifest(manifest) {
+  const release = { ...manifest };
+  delete release.key;
+  return release;
 }
 
 export function collectExtensionEntries(rootDirectory = root) {
@@ -135,7 +142,8 @@ export function packageExtension({ expectedVersion, output, rootDirectory = root
       const source = join(rootDirectory, "extension", entry);
       const destination = join(stagingDirectory, entry);
       mkdirSync(dirname(destination), { recursive: true });
-      copyFileSync(source, destination);
+      if (entry === "manifest.json") writeFileSync(destination, `${JSON.stringify(releaseManifest(manifest), null, 2)}\n`);
+      else copyFileSync(source, destination);
       utimesSync(destination, ARCHIVE_EPOCH, ARCHIVE_EPOCH);
     }
     execFileSync("zip", ["-q", "-X", temporaryArchive, ...entries], {

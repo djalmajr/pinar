@@ -23,8 +23,8 @@ describe("tray menu labels", () => {
     expect(labels.localServerOff).toBe("Local Server: Off");
     expect(labels.start).toBe("Start");
     expect(labels.checkingForUpdates).toBe("Checking for Updates…");
-    expect(labels.upToDate).toBe("You're updated ({seconds}s)");
-    expect(labels.updateCheckFailed).toBe("Update check failed ({seconds}s)");
+    expect(labels.upToDate).toBe("You're updated");
+    expect(labels.updateCheckFailed).toBe("Update check failed");
   });
 
   test("detects PINAR_LANGUAGE before the OS locale", () => {
@@ -40,12 +40,6 @@ describe("tray menu labels", () => {
     );
     expect(formatTrayLabel(trayMenuLabels("pt").downloading, "0.3.0")).toBe(
       "Baixando 0.3.0…",
-    );
-    expect(formatTrayLabel(trayMenuLabels("en").upToDate, { seconds: 10 })).toBe(
-      "You're updated (10s)",
-    );
-    expect(formatTrayLabel(trayMenuLabels("en").updateCheckFailed, { seconds: 1 })).toBe(
-      "Update check failed (1s)",
     );
   });
 });

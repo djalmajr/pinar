@@ -69,4 +69,22 @@ describe("ui message catalogs", () => {
       }
     }
   });
+
+  test("keeps the generic AI summary description free of cloud credit billing", async () => {
+    const creditTerms = /credit|cr[eé]dito|crédit|guthaben|クレジット|积分/i;
+    for (const { language, messages } of await loadEveryUiLocale()) {
+      assert.doesNotMatch(
+        messages["viewer.aiSummaryDescription"],
+        creditTerms,
+        `${language}:viewer.aiSummaryDescription`,
+      );
+    }
+  });
+
+  test("names Pinar Cloud in credit balance and refund errors", async () => {
+    for (const { language, messages } of await loadEveryUiLocale()) {
+      assert.match(messages["viewer.aiNoCredits"], /Pinar Cloud/, `${language}:viewer.aiNoCredits`);
+      assert.match(messages["viewer.aiRefundPending"], /Pinar Cloud/, `${language}:viewer.aiRefundPending`);
+    }
+  });
 });

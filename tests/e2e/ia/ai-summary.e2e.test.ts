@@ -5,7 +5,21 @@ const session = {
   id: "ai-viewer-e2e",
   page: { title: "AI review fixture", url: "https://example.test/checkout" },
   pins: [
-    { comment: "Clarify the annual price.", coords: { x: 24, y: 48 }, number: 1, type: "point" },
+    {
+      comment: "Clarify the annual price.",
+      coords: { x: 24, y: 48 },
+      number: 1,
+      pinId: "pin_ai_fixture_1",
+      snapshot: {
+        fonts: [],
+        icons: [],
+        nodeCount: 1,
+        root: { styles: { display: "inline-flex" }, tag: "button", text: "Buy" },
+        truncated: false,
+        version: 1,
+      },
+      type: "point",
+    },
     { comment: "Move the primary action above the fold.", coords: { x: 80, y: 120 }, number: 2, type: "point" },
   ],
   shotId: "ai-viewer-e2e",
@@ -30,6 +44,16 @@ test.beforeEach(async ({ page }) => {
   }));
 });
 
+test("an element pin exposes diagnosis and component generation in its viewer dialog", async ({ page }) => {
+  await page.goto("/v/ai-viewer-e2e");
+  await page.getByTitle("Open pin 1").click();
+
+  const dialog = page.getByRole("dialog", { name: "Pin 1" });
+  await expect(dialog.getByRole("button", { name: "Diagnose" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Save as component" })).toBeVisible();
+  await expect(dialog.getByRole("tab", { name: "Structure" })).toBeVisible();
+});
+
 test("a successful summary reflects comments, charges once and reopens from memory", async ({ page }) => {
   const bodies: Array<{ requestId: string; sessionId: string }> = [];
   await page.route("**/api/ai/session-summary", async (route) => {
@@ -49,11 +73,15 @@ test("a successful summary reflects comments, charges once and reopens from memo
   await page.goto("/v/ai-viewer-e2e");
   await page.getByRole("button", { name: "AI summary" }).click();
   const dialog = page.getByRole("dialog", { name: "Annotation summary" });
+  await expect(dialog.getByText("Pinar analyzes only the page title, URL, and pin comments.", { exact: true })).toBeVisible();
+  const creditHint = dialog.getByRole("button", { name: "Uses 1 Pinar Cloud AI credit." });
+  await expect(creditHint).toBeVisible();
+  await creditHint.hover();
+  await expect(page.getByRole("tooltip")).toHaveText("Uses 1 Pinar Cloud AI credit.");
   await expect(dialog.getByText("Summarizing…", { exact: true })).toBeVisible();
   await expect(dialog.getByText("The review asks for clearer pricing and a more prominent primary action.")).toBeVisible();
   await expect(dialog.getByText("Clarify annual pricing", { exact: true })).toBeVisible();
   await expect(dialog.getByText("Prioritize the main action", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("1 AI credit used · 199 remaining", { exact: true })).toBeVisible();
   expect(bodies).toHaveLength(1);
   expect(bodies[0].sessionId).toBe("ai-viewer-e2e");
   expect(bodies[0].requestId).toMatch(/^ai_[a-z0-9]+$/);
@@ -90,7 +118,7 @@ test("creditless paid accounts get a plans recovery path", async ({ page }) => {
   await page.goto("/v/ai-viewer-e2e");
   await page.getByRole("button", { name: "AI summary" }).click();
   const dialog = page.getByRole("dialog", { name: "Annotation summary" });
-  await expect(dialog.getByText("You do not have enough AI credits.", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("You do not have enough Pinar Cloud AI credits.", { exact: true })).toBeVisible();
   await expect(dialog.getByRole("link", { name: "View plans" })).toHaveAttribute("href", "/pricing");
   await expect(dialog.getByRole("heading", { name: "Highlights" })).toHaveCount(0);
 });
@@ -120,9 +148,9 @@ test("provider failure and pending refund retry safely without duplicate request
   await page.goto("/v/ai-viewer-e2e");
   await page.getByRole("button", { name: "AI summary" }).click();
   const dialog = page.getByRole("dialog", { name: "Annotation summary" });
-  await expect(dialog.getByText("The AI summary is unavailable. No credit was charged.", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("AI is temporarily unavailable. Try again.", { exact: true })).toBeVisible();
   await dialog.getByRole("button", { name: "Try again" }).click();
-  await expect(dialog.getByText("The AI request failed and the credit refund is still processing. Retry safely in a few minutes.", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("The AI request failed and the Pinar Cloud credit refund is still processing. Retry safely in a few minutes.", { exact: true })).toBeVisible();
   await dialog.getByRole("button", { name: "Try again" }).click();
   await expect(dialog.getByText("Recovered summary", { exact: true })).toBeVisible();
 

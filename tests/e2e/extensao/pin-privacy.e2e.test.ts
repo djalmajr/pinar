@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { resolve } from "node:path";
+import { pressCopyShortcut } from "../helpers/extension-shortcut";
 
 const extensionPath = (file: string) => resolve(process.cwd(), "extension", file);
 const SECRET = "PINAR_FIXTURE_SECRET_s3cretValue";
@@ -103,9 +104,9 @@ test("redacts secrets and lets the user add or remove mask regions before copy",
   await page.keyboard.press("m");
 
   await createPin(page, "#save", `Do not leak ${SECRET}`);
-  await page.keyboard.press("Control+Enter");
+  await pressCopyShortcut(page);
   await expect(page.locator('[data-pinar="host"]')).toBeVisible();
-  await page.keyboard.press("Control+Enter");
+  await pressCopyShortcut(page);
   await expect(page.locator('[data-pinar="host"]')).toBeHidden();
 
   const clipboardMessage = await page.evaluate(() => {
@@ -148,7 +149,7 @@ test("copies on the first shortcut when only password and email fields are prese
   await expect(page.locator('[data-pinar="host"] [data-privacy-mask]')).toHaveCount(0);
 
   await createPin(page, "#save", `Do not leak ${SECRET}`);
-  await page.keyboard.press("Control+Enter");
+  await pressCopyShortcut(page);
   await expect(page.locator('[data-pinar="host"]')).toBeHidden();
 
   const clipboardMessage = await page.evaluate(() => {

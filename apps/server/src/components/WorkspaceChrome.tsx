@@ -190,7 +190,7 @@ export function WorkspaceChrome({
   const [containerEditor, setContainerEditor] = useState<ContainerEditor | null>(null);
   const [designSystemTarget, setDesignSystemTarget] = useState<{ id: string; name: string } | null>(null);
   const authSession = useAuthSession();
-  const showDesignSystem = pinarRuntime() === "cloud" && isPaidAuthSession(authSession);
+  const showDesignSystem = pinarRuntime() === "local" || isPaidAuthSession(authSession);
   const [containerName, setContainerName] = useState("");
   const [loading, setLoading] = useState(true);
   const [projectIcon, setProjectIcon] = useState<ProjectIcon>(DEFAULT_PROJECT_ICON);

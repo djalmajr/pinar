@@ -277,7 +277,7 @@ function stripOuterFence(text: string) {
  * `===DEPENDENCIES===` and `===NOTES===` lines). Returns null when the reply
  * is empty, malformed, misses a required file or ships scripts in the preview.
  */
-export function parseComponentOutput(text: string, target: ComponentTarget, model?: string): PinComponent | null {
+export function parseComponentOutput(text: string, target: ComponentTarget, model?: string, provider?: string): PinComponent | null {
   if (!text || !text.trim()) return null;
   const body = stripOuterFence(text);
   const files: ComponentFile[] = [];
@@ -300,6 +300,7 @@ export function parseComponentOutput(text: string, target: ComponentTarget, mode
     files: files.filter((file) => file.path !== COMPONENT_PREVIEW_FILE),
     generatedAt: new Date().toISOString(),
     model,
+    provider,
     notes: sectionLines(body, "NOTES"),
     preview: preview.content,
     target,

@@ -91,6 +91,10 @@ const locale = {
       caption:
         "Tab replaces the capture toolbar with session review, where you can edit or remove pins before finishing or discarding the session.",
     },
+    "capture-review": {
+      alt: "A page with element pins ready to be reviewed and enriched by Pinar's AI features.",
+      caption: "Element pins preserve the captured structure needed by diagnosis, component generation, and design-system extraction.",
+    },
     "capture-copy-failed": {
       alt: "Pinar reporting that the session could not be finished while keeping its pins available for review and retry.",
       caption:
@@ -292,7 +296,7 @@ const locale = {
         {
           heading: "Finish or cancel the session",
           paragraphs: [
-            "Use `Command/Ctrl/Alt+Enter`: press `Command+Enter` on macOS, `Ctrl+Enter` elsewhere, or `Alt+Enter` on either to finish and copy the complete session. Pinar visibly confirms success. If finishing fails, it shows an actionable error and keeps the session available for review and retry. Discard session cancels it without copying.",
+            "Use `Command+Enter` on macOS or `Alt+Enter` on Windows and Linux to finish and copy the complete session. Pinar visibly confirms success. If finishing fails, it shows an actionable error and keeps the session available for review and retry. Discard session cancels it without copying.",
             "Treat the clipboard payload as one unit: readable instructions, an optional viewer URL, and one fenced pinar-visual-context block per page. Each block carries its own screenshot plus `captureId`, `pinId`, page URL, and locators (cssSelector, domPath, innerText). Numbered badges are annotation overlays, not page UI. Do not rewrite `captureId` or `pinId` when pasting to an agent.",
           ],
           bullets: [
@@ -317,7 +321,7 @@ const locale = {
         {
           heading: "Cloud",
           paragraphs: [
-            "Cloud mode enables remote workspace access, managed retention, AI summaries, billing, and unlisted share links. You accept the current policies before anything is stored remotely.",
+            "Cloud mode enables remote workspace access, managed retention, Pinar Cloud AI summaries, billing, and unlisted share links. Local AI and BYOK remain available without using Pinar Cloud credits. You accept the current policies before anything is stored remotely.",
           ],
         },
         {
@@ -348,9 +352,9 @@ const locale = {
             "`Enter` pins the hovered element; `Arrow Up` selects its parent and `Arrow Down` returns to a child.",
             "`M` toggles privacy-mask drawing. `Escape` cancels a draft or mask; with no draft it clears pins and hides the toolbar.",
             "`R` toggles the live overlay between numbered pins only and pins with their selected regions. The copied screenshot always includes both.",
-            "`Command/Ctrl/Alt+Enter` copies the completed bundle.",
+            "`Command+Enter` / `Alt+Enter` copies the completed bundle.",
             "`Alt+Shift+P` shows or hides the toolbar without cancelling the session, and you can rebind it in `chrome://extensions/shortcuts`. Browser shortcuts stay inert on `chrome://` pages, on the Chrome Web Store, and before the overlay is injected.",
-            "`G` starts recording the steps you take on the page. Reopen Pinar, pin the result, and copy with `Command/Ctrl/Alt+Enter` to attach the steps; pressing `G` again discards the recording.",
+            "`G` starts recording the steps you take on the page. Reopen Pinar, pin the result, and copy with `Command+Enter` / `Alt+Enter` to attach the steps; pressing `G` again discards the recording.",
           ],
         },
         {
@@ -366,7 +370,7 @@ const locale = {
             "`Arrow Up` walks to the parent element and remembers the child you left, so `Arrow Down` returns to that remembered node when it is still a child; otherwise it uses the first child. In mask mode, drag a region to hide it and click an existing mask to restore it. Keyboard scrolling still works on the document, but keys aimed at focused page controls are blocked so they cannot activate buttons or type into the host form.",
           ],
           bullets: [
-            "`Command/Ctrl/Alt+Enter` saves an open draft, then copies; without a comment it shows “Write a comment first” instead of sending an empty pin.",
+            "`Command+Enter` / `Alt+Enter` saves an open draft, then copies; without a comment it shows “Write a comment first” instead of sending an empty pin.",
             "After `Escape` or copy, Pinar keeps owning that physical key through keyup so the host page does not treat the same keystroke as its own cancel or submit.",
             "An area pin starts only after the pointer moves about six pixels; a shorter click still pins the hovered element instead of opening a freeform rectangle.",
           ],
@@ -578,20 +582,20 @@ const locale = {
         {
           heading: "How to deliver the copied bundle to an agent",
           paragraphs: [
-            "The Chrome extension never types into the agent composer. After `Command/Ctrl/Alt+Enter`, paste the clipboard yourself into Cursor, Claude, Codex, or Grok. The text begins by saying the pin notes may ask for a change or an explanation, and to treat selector and DOM path as complementary locators, followed by a fenced pinar-visual-context JSON block. If a Viewer URL is included, fetch it only when those details are not enough.",
+            "The Chrome extension never types into the agent composer. After `Command+Enter` / `Alt+Enter`, paste the clipboard yourself into Cursor, Claude, Codex, or Grok. The text begins by saying the pin notes may ask for a change or an explanation, and to treat selector and DOM path as complementary locators, followed by a fenced pinar-visual-context JSON block. If a Viewer URL is included, fetch it only when those details are not enough.",
             "Treat `captureId` and `pinId` as identity, not labels to rewrite. Visual Context currently encodes schemaVersion 1; parseVisualCapture rejects a missing `captureId` and any schemaVersion other than 1 or the legacy 0. Follow only what the pins describe. If the person never pasted, ask them to copy again from Pinar instead of reconstructing pins from memory.",
           ],
           bullets: [
             "Paste the whole clipboard into the agent; do not retype comments or invent a new `captureId`.",
             "Confirm the pasted text still contains a closed pinar-visual-context fence before you start editing code.",
-            "If nothing was pasted, ask for `Command/Ctrl/Alt+Enter` in Pinar and follow only the pin notes.",
+            "If nothing was pasted, ask for `Command+Enter` / `Alt+Enter` in Pinar and follow only the pin notes.",
           ],
         },
         {
           heading: "Diagnose a pin and save it as a component",
           paragraphs: [
-            "On a pin with a captured structure, “Diagnose” asks AI for the probable cause of what you commented and a proposed CSS fix, with a confidence level. Accept, edit, or discard the proposal; only an accepted diagnosis is kept with the pin and copied with the bundle. A diagnosis costs 3 AI credits.",
-            "“Save as component” turns the captured element into an isolated component for your stack: HTML + CSS, React + Tailwind, or Preact + htm. The result lists files, dependencies, and fidelity notes, with a preview next to the original screenshot. Copy the files, download a ZIP, or open the component in StackBlitz. It costs 10 AI credits, and the chosen stack is remembered for the next pin.",
+            "On a pin with a captured structure, “Diagnose” asks AI for the probable cause of what you commented and a proposed CSS fix, with a confidence level. Accept, edit, or discard the proposal; only an accepted diagnosis is kept with the pin and copied with the bundle. With Pinar Cloud AI, a diagnosis costs 3 credits.",
+            "“Save as component” turns the captured element into an isolated component for your stack: HTML + CSS, React + Tailwind, or Preact + htm. The result lists files, dependencies, and fidelity notes, with a preview next to the original screenshot. Copy the files, download a ZIP, or open the component in StackBlitz. With Pinar Cloud AI it costs 10 credits, and the chosen stack is remembered for the next pin.",
           ],
           bullets: [
             "Both actions need the element structure; area pins and pins captured before this version cannot use them.",
@@ -627,6 +631,44 @@ const locale = {
             "Set the compact/full switch and the `includeScreenshot` switch, then click Save before the next copy.",
             "Leave `includeScreenshot` on unless you intentionally want metadata, pins, locators, and handoff without image storage.",
             "After saving, copy once and confirm every adapter paste still shares the same `captureId` and pinIds.",
+          ],
+        },
+      ],
+    },
+    "ai-features": {
+      title: "AI features and how to test them",
+      summary: "Find every AI feature in one place, understand its prerequisites, and run a complete local, BYOK, or Pinar Cloud test.",
+      sections: [
+        {
+          heading: "Choose the provider first",
+          paragraphs: [
+            "On the local server, open Settings → AI Assistant, choose Local AI or BYOK, enter the OpenAI-compatible endpoint and model, then use Test and save. Local AI and BYOK do not use Pinar credits. In Pinar Cloud, AI is available to eligible signed-in accounts; the question-mark icon beside an action shows its current Pinar Cloud credit consumption.",
+          ],
+        },
+        {
+          heading: "Session summary",
+          paragraphs: [
+            "Open a saved session by clicking its screenshot thumbnail. In the viewer header, choose Summarize annotations. The result uses the page title, URL, and pin comments and appears in a review dialog.",
+          ],
+        },
+        {
+          heading: "Pin diagnosis and component generation",
+          paragraphs: [
+            "Create a new element pin by clicking an element, finish the session, open its thumbnail, and select that pin in the viewer. The pin dialog shows Diagnose and Save as component. Diagnosis proposes a cause and fix that you can edit and accept. Component generation exports HTML, React with Tailwind, or Preact with HTM.",
+            "Both features need an element pin with captured structure. Area pins and older pins without that structure show the prerequisite instead of the action; create a fresh element pin with the current extension to test them.",
+          ],
+        },
+        {
+          heading: "Automated reproduction",
+          paragraphs: [
+            "Open the Pinar capture toolbar and press `G` to start recording. Use the page normally, reopen Pinar, add a pin, and finish with `Command+Enter` on macOS or `Alt+Enter` on Windows and Linux. Open the saved session: the Reproduction section lists the recorded actions and Generate steps and test produces written steps plus a Playwright test.",
+          ],
+        },
+        {
+          heading: "Design-system extraction",
+          paragraphs: [
+            "Send at least three fresh element pins from pages on the same site to the same collection. In the collection menu, choose Extract design system. Pinar counts only pins that contain captured element structure; screenshots, area pins, and older pins without structure do not qualify. The dialog shows the eligible count before extraction.",
+            "The generated result groups colors, typography, spacing, radii, shadows, and fonts and can be copied or downloaded as W3C tokens, CSS variables, a Tailwind theme, or DESIGN.md.",
           ],
         },
       ],
@@ -690,7 +732,7 @@ const locale = {
             "When every copy path fails, the page sends overlays:hidden with hidden false, flashes “Copy failed”, and leaves pins editable. A successful copy shows “Copied successfully!”, or “Copied successfully!” plus “no screenshot”, “helper unavailable”, or “no viewer”, then ends the session. Those suffixes map to `screenshot_missing`, `helper_unavailable`, and `viewer_unavailable`. screenshot_inline is not one of the degraded handoff warnings. A paste without a closed pinar-visual-context fence cannot be parsed as JSON.",
           ],
           bullets: [
-            "If the toolbar says “Write a comment first” or “Add a pin first”, finish that pin and press `Command/Ctrl/Alt+Enter` again.",
+            "If the toolbar says “Write a comment first” or “Add a pin first”, finish that pin and press `Command+Enter` / `Alt+Enter` again.",
             "If “Copy failed” appears, confirm the pins are still on the page, grant clipboard permission if prompted, and retry the copy.",
             "Read the “Copied successfully!” suffix: “no screenshot”, “helper unavailable”, and “no viewer” name the missing layer to retry without discarding comments.",
           ],
@@ -760,7 +802,7 @@ const locale = {
         {
           heading: "Extract a collection’s design system",
           paragraphs: [
-            "From a collection’s menu, “Extract design system” reads the structure of the pins in that collection and derives the tokens they share: colors, typography, spacing, radii, and shadows, plus the site identity. It needs at least three pins with a captured structure from the same site, and it costs 15 AI credits.",
+            "From a collection’s menu, “Extract design system” reads the structure of the pins in that collection and derives the tokens they share: colors, typography, spacing, radii, and shadows, plus the site identity. It needs at least three pins with a captured structure from the same site. With Pinar Cloud AI, it costs 15 credits.",
             "The result opens as a dialog with the sample size and any warnings, such as scattered values that do not form a scale. Export it as CSS variables, a Tailwind theme, W3C design tokens, or a DESIGN.md file, and extract again after adding more pins.",
           ],
         },
@@ -861,26 +903,26 @@ const locale = {
       ],
     },
     "ai-credits": {
-      title: "AI summaries and credits",
-      summary: "Know when credits are reserved, spent, refilled, or refunded.",
+      title: "Pinar Cloud AI summaries and credits",
+      summary: "Know when Pinar Cloud credits are reserved, spent, refilled, or refunded.",
       sections: [
         {
           heading: "Summary cost",
           paragraphs: [
-            "A session summary reserves 1 AI credit before model inference. On success, the reservation is consumed. A failed or aborted inference refunds it immediately; a reservation left unsettled for more than five minutes is refunded automatically. Summaries allow 10 requests per minute per account and 30 per minute per IP; a duplicate request for the same session waits for the active request to finish.",
+            "In Pinar Cloud, a session summary reserves 1 AI credit before model inference. On success, the reservation is consumed. A failed or aborted inference refunds it immediately; a reservation left unsettled for more than five minutes is refunded automatically. Summaries allow 10 requests per minute per account and 30 per minute per IP; a duplicate request for the same session waits for the active request to finish.",
           ],
         },
         {
           heading: "What each AI feature costs",
           paragraphs: [
-            "Every AI feature reserves its credits before the model runs and refunds them when the result is unusable, exactly like the summary. Costs are fixed per request, not per token: a session summary costs 1 credit, a pin diagnosis 3, a reproduction (written steps plus a Playwright test) 5, saving a pin as a component 10, and extracting a collection’s design system 15.",
+            "Every Pinar Cloud AI feature reserves its credits before the model runs and refunds them when the result is unusable, exactly like the summary. Costs are fixed per request, not per token: a session summary costs 1 credit, a pin diagnosis 3, a reproduction (written steps plus a Playwright test) 5, saving a pin as a component 10, and extracting a collection’s design system 15.",
             "Technical evidence and the element structure are captured by the extension without any model and cost nothing. A request that cannot run (a pin without a captured structure, a collection with fewer than three snapshots from the same domain) is refused before any credit is reserved.",
           ],
         },
         {
           heading: "Balances",
           paragraphs: [
-            "Purchased packs add 1,000 credits. Pro’s monthly 200-credit allowance does not roll over. The account menu shows the active balance and the next applicable refill date.",
+            "Purchased Pinar Cloud packs add 1,000 credits. Pro’s monthly 200-credit allowance does not roll over. The account menu shows the active balance and the next applicable refill date.",
           ],
         },
         {

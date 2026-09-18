@@ -48,25 +48,25 @@ const locale = {
         "technical-evidence": {
           title: "技术证据",
           description:
-            "添加图钉时观察到的控制台错误、失败的请求和环境会随图钉列出，标为“交互之后”或“同一页面”。不做任何推断，也不消耗积分。",
+            "添加图钉时观察到的控制台错误、失败的请求和环境会随图钉列出，标为“交互之后”或“同一页面”。不做任何推断，也不消耗 Pinar Cloud 积分。",
         },
         "pin-diagnosis": {
-          title: "诊断图钉（3 积分）",
+          title: "在 Pinar Cloud 中诊断图钉（3 积分）",
           description:
             "AI 会根据图钉的结构解释可能原因，并提出带置信度的 CSS 修复。可接受、编辑或丢弃；只有已接受的诊断会随图钉保留。",
         },
         "save-as-component": {
-          title: "将图钉保存为组件（10 积分）",
+          title: "在 Pinar Cloud 中将图钉保存为组件（10 积分）",
           description:
             "把捕获的元素转换为 HTML + CSS、React + Tailwind 或 Preact + htm，包含文件、依赖、保真度说明、预览、ZIP 下载和 StackBlitz。",
         },
         "step-recording": {
-          title: "录制步骤并生成 Playwright 测试（5 积分）",
+          title: "在 Pinar Cloud 中生成 Playwright 测试（5 积分）",
           description:
             "在页面上按 G 即可录制点击、输入、滚动和导航。重新打开 Pinar，钉住并复制即可附上步骤；再按 G 则丢弃。查看器会生成文字步骤和一个 Playwright 测试。",
         },
         "collection-design-system": {
-          title: "集合的设计系统（15 积分）",
+          title: "在 Pinar Cloud 中生成集合的设计系统（15 积分）",
           description:
             "从集合的图钉中提取共有的颜色、排版、间距、圆角和阴影。可导出为 CSS 变量、Tailwind 主题、W3C 令牌或 DESIGN.md。",
         },

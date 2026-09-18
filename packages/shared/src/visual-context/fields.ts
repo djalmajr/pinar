@@ -134,6 +134,7 @@ export interface PinDiagnosis {
   edited?: boolean;
   fix: string;
   model?: string;
+  provider?: string;
   properties: string[];
   version: typeof PIN_DIAGNOSIS_VERSION;
 }
@@ -148,6 +149,7 @@ export interface PinComponent {
   files: ComponentFile[];
   generatedAt: string;
   model?: string;
+  provider?: string;
   notes: string[];
   preview?: string;
   target: ComponentTarget;
@@ -176,6 +178,7 @@ export interface ReproductionStep {
 export interface ReproductionGenerated {
   generatedAt: string;
   model?: string;
+  provider?: string;
   steps: string[];
   test: string;
 }
@@ -400,9 +403,11 @@ export function asPinDiagnosis(value: unknown): PinDiagnosis | undefined {
   };
   const acceptedAt = asOptionalText(value.acceptedAt, 40);
   const model = asOptionalText(value.model, 120);
+  const provider = asOptionalText(value.provider, 80);
   if (acceptedAt) diagnosis.acceptedAt = acceptedAt;
   if (value.edited === true) diagnosis.edited = true;
   if (model) diagnosis.model = model;
+  if (provider) diagnosis.provider = provider;
   return diagnosis;
 }
 
@@ -435,8 +440,10 @@ export function asPinComponent(value: unknown): PinComponent | undefined {
     version: PIN_COMPONENT_VERSION,
   };
   const model = asOptionalText(value.model, 120);
+  const provider = asOptionalText(value.provider, 80);
   const preview = typeof value.preview === "string" ? value.preview.slice(0, 80_000) : "";
   if (model) component.model = model;
+  if (provider) component.provider = provider;
   if (preview) component.preview = preview;
   return component;
 }
@@ -503,7 +510,9 @@ export function asReproduction(value: unknown): Reproduction | undefined {
         test,
       };
       const model = asOptionalText(value.generated.model, 120);
+      const provider = asOptionalText(value.generated.provider, 80);
       if (model) reproduction.generated.model = model;
+      if (provider) reproduction.generated.provider = provider;
     }
   }
   return reproduction;

@@ -123,4 +123,27 @@ describe("tagged release content", () => {
       );
     }
   });
+
+  test("qualifies AI credit costs as Pinar Cloud usage in every locale", async () => {
+    const aiChangeIds = new Set([
+      "pin-diagnosis",
+      "save-as-component",
+      "step-recording",
+      "collection-design-system",
+    ]);
+
+    for (const content of await loadEveryReleaseLocale()) {
+      const release = findProductRelease(content, "v0.4.0");
+      assert.ok(release, content.language);
+
+      for (const change of release.changes) {
+        if (!aiChangeIds.has(change.id)) continue;
+        assert.match(
+          change.title,
+          /Pinar Cloud/,
+          `${content.language}:${change.id}`,
+        );
+      }
+    }
+  });
 });

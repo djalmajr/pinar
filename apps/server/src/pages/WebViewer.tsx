@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import ReactMarkdown from "react-markdown";
-import { formatClipboardText, getPinColor, isComponentTarget, type AgentExecution, type ComponentTarget, type Pin, type PinLocation, type PinReview, type PinReviewHumanAction, type PinReviewStatus, type Reproduction, type Session } from "@pinar/shared";
+import { formatClipboardText, getPinColor, type AgentExecution, type Pin, type PinLocation, type PinReview, type PinReviewHumanAction, type PinReviewStatus, type Reproduction, type Session } from "@pinar/shared";
 import { ImageZoomControls, ImageZoomStage, useImageZoom } from "@/components/ImageZoomStage";
+import { AiCreditCostHint } from "@/components/AiCreditCostHint";
+import { useGlobalSettings } from "@/components/GlobalSettingsDialog";
 import { PinComponentPanel } from "@/components/PinComponentPanel";
+import { PinDiagnosisPanel } from "@/components/PinDiagnosisPanel";
 import { PinEvidence } from "@/components/PinEvidence";
 import { PinStructure } from "@/components/PinStructure";
 import { ReproductionTimeline } from "@/components/ReproductionTimeline";
@@ -12,7 +15,9 @@ import { copyBatchHandoff } from "../lib/session-actions";
 import { ServerShell } from "@/components/ServerShell";
 import { WorkspaceChrome } from "@/components/WorkspaceChrome";
 import { isRecord, isSession } from "@/lib/api-data";
+import { aiErrorPresentation, type AiRecovery } from "@/lib/ai-error-presentation";
 import { isPaidAuthSession, useAuthSession } from "@/lib/auth-session";
+import { useDeliveryPreferences } from "@/lib/delivery-preferences";
 import { useServerI18n, type ServerMessageKey } from "@/lib/i18n";
 import { formatPinMarkdown } from "@/lib/pin-markdown";
 import { pinarRuntime, shouldUseWorkspaceChrome } from "@/lib/server-header";
@@ -81,15 +86,20 @@ interface WebViewerProps {
 
 interface AiSummaryResult {
   highlights: string[];
+  model?: string;
+  provider?: string;
   summary: string;
 }
-
-type AiRecovery = "pricing" | "retry" | "signIn" | null;
 
 function aiSummaryResult(value: unknown): AiSummaryResult | null {
   if (!isRecord(value) || typeof value.summary !== "string" || !Array.isArray(value.highlights)) return null;
   const highlights = value.highlights.filter((item): item is string => typeof item === "string");
-  return { highlights, summary: value.summary };
+  return {
+    highlights,
+    model: typeof value.model === "string" ? value.model : undefined,
+    provider: typeof value.provider === "string" ? value.provider : undefined,
+    summary: value.summary,
+  };
 }
 
 function pinNumber(pin: Pin, index: number) {
@@ -298,8 +308,10 @@ export function WebViewer({
   siblingIds = [],
 }: WebViewerProps) {
   const { language, t } = useServerI18n();
+  const openSettings = useGlobalSettings();
+  const { componentTarget: preferredComponentTarget, handoffMode } = useDeliveryPreferences();
   const authSession = useAuthSession();
-  const showAiSummary = pinarRuntime() === "cloud" && isPaidAuthSession(authSession);
+  const showAiSummary = pinarRuntime() === "local" || isPaidAuthSession(authSession);
   const aiRequestId = useRef<string | null>(null);
   const [aiError, setAiError] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
@@ -328,22 +340,6 @@ export function WebViewer({
   const canEditPins = pinarRuntime() === "local" || canManageCloudShare(pinarRuntime(), authSession, session);
   const [pinPatchBusy, setPinPatchBusy] = useState(false);
   const [pinPatchError, setPinPatchError] = useState("");
-  const [preferredComponentTarget, setPreferredComponentTarget] = useState<ComponentTarget | null>(null);
-
-  useEffect(() => {
-    if (!showAiSummary) return;
-    let cancelled = false;
-    void fetch("/api/preferences")
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data: unknown) => {
-        if (cancelled || !isRecord(data)) return;
-        setPreferredComponentTarget(isComponentTarget(data.componentTarget) ? data.componentTarget : null);
-      })
-      .catch(() => null);
-    return () => {
-      cancelled = true;
-    };
-  }, [showAiSummary]);
   const zoom = useImageZoom(captureKey);
   const isModal = presentation === "modal";
 
@@ -509,14 +505,6 @@ export function WebViewer({
       window.setTimeout(() => setPageCopied(false), 2_000);
       return;
     }
-    let handoffMode: "compact" | "full" = "compact";
-    try {
-      const response = await fetch("/api/preferences");
-      const preferences: unknown = await response.json();
-      if (response.ok && isRecord(preferences) && preferences.handoffMode === "full") handoffMode = "full";
-    } catch {
-      // Public viewers and older servers keep the compact default.
-    }
     await navigator.clipboard.writeText(formatClipboardText(
       session.page,
       session.pins,
@@ -550,22 +538,9 @@ export function WebViewer({
       if (!response.ok || !result) {
         const code = isRecord(data) && typeof data.code === "string" ? data.code : "";
         if (code !== "ai_request_in_progress" && code !== "ai_refund_pending") aiRequestId.current = null;
-        if (response.status === 401) {
-          setAiError(t("viewer.aiSignIn"));
-          setAiRecovery("signIn");
-        } else if (code === "insufficient_ai_credits") {
-          setAiError(t("viewer.aiNoCredits"));
-          setAiRecovery("pricing");
-        } else if (code === "ai_rate_limited") {
-          setAiError(t("viewer.aiRateLimited"));
-          setAiRecovery("retry");
-        } else if (code === "ai_refund_pending") {
-          setAiError(t("viewer.aiRefundPending"));
-          setAiRecovery("retry");
-        } else {
-          setAiError(t("viewer.aiUnavailable"));
-          setAiRecovery("retry");
-        }
+        const presentation = aiErrorPresentation(response.status, code);
+        setAiError(t(presentation.messageKey));
+        setAiRecovery(presentation.recovery);
         return;
       }
       setAiSummary(result);
@@ -876,7 +851,10 @@ export function WebViewer({
           <DialogContent className="sm:max-w-2xl" showCloseButton>
             <DialogHeader>
               <DialogTitle>{t("viewer.aiSummaryTitle")}</DialogTitle>
-              <DialogDescription>{t("viewer.aiSummaryDescription")}</DialogDescription>
+              <div className="flex items-start gap-1">
+                <DialogDescription>{t("viewer.aiSummaryDescription")}</DialogDescription>
+                <AiCreditCostHint label={t("viewer.aiCloudCreditCost", { count: 1 })} />
+              </div>
             </DialogHeader>
             {aiLoading ? (
               <p className="py-8 text-center text-sm text-muted-foreground">{t("viewer.aiSummarizing")}</p>
@@ -899,6 +877,10 @@ export function WebViewer({
                   ) : aiRecovery === "retry" ? (
                     <Button size="sm" type="button" variant="outline" onClick={() => void generateAiSummary()}>
                       {t("viewer.aiRetry")}
+                    </Button>
+                  ) : aiRecovery === "settings" ? (
+                    <Button size="sm" type="button" variant="outline" onClick={() => openSettings("aiUsage")}>
+                      {t("settings.ai")}
                     </Button>
                   ) : null}
                 </CardContent>
@@ -1019,6 +1001,13 @@ export function WebViewer({
                 />
               ) : null}
               {pinPatchError ? <p className="text-xs text-destructive">{pinPatchError}</p> : null}
+              <PinDiagnosisPanel
+                canEdit={canEditPins}
+                pin={selectedPin}
+                sessionId={selectedCapture?.id || sessionId}
+                showAi={showAiSummary && canEditPins}
+                onPersist={(fields) => patchPin(selectedPin, fields, "viewer.evidenceRemoveFailed")}
+              />
               <PinComponentPanel
                 canEdit={canEditPins}
                 pin={selectedPin}

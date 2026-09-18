@@ -6,6 +6,7 @@ import {
   collectExtensionEntries,
   extensionVersions,
   parseOptions,
+  releaseManifest,
   validateEntryPaths,
   validateManifestFiles,
   validateReleaseTag,
@@ -32,6 +33,13 @@ describe("extension package", () => {
     writeFileSync(join(fixture, "extension/manifest.json"), JSON.stringify({ version: "0.5.0" }));
     writeFileSync(join(fixture, "apps/extension/package.json"), JSON.stringify({ version: "0.4.0" }));
     expect(() => extensionVersions(fixture)).toThrow("extension version mismatch");
+  });
+
+  test("removes the unpacked development key from the Store manifest", () => {
+    const { manifest } = extensionVersions(root);
+    expect(manifest.key).toBeString();
+    expect(releaseManifest(manifest).key).toBeUndefined();
+    expect(releaseManifest(manifest).version).toBe(manifest.version);
   });
 
   test("rejects files that caused the malformed 0.5.0 asset", () => {

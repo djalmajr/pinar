@@ -21,6 +21,7 @@ function runtimeEnv(source: Cloudflare.Env & SecretEnv): CloudEnv {
     AI: source.AI,
     AUTH_PEPPER: source.AUTH_PEPPER,
     DB: source.DB,
+    DEPLOYMENT_ENV: source.DEPLOYMENT_ENV,
     EMAIL: source.EMAIL,
     EXTENSION_ORIGIN: source.EXTENSION_ORIGIN,
     PINAR_BUCKET: source.PINAR_BUCKET,

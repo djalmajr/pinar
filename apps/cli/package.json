@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./ai-settings": "./src/ai-settings.mjs",
     "./history": "./src/history.mjs",
     "./paths": "./src/paths.mjs",
     "./preferences": "./src/preferences.mjs",

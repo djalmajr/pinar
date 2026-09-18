@@ -48,25 +48,25 @@ const locale = {
         "technical-evidence": {
           title: "Technical evidence",
           description:
-            "Console errors, failed requests, and the environment observed while you pinned are listed with the pin, graded After interaction or Same page. Nothing is inferred and no credit is spent.",
+            "Console errors, failed requests, and the environment observed while you pinned are listed with the pin, graded After interaction or Same page. Nothing is inferred and no Pinar Cloud credit is spent.",
         },
         "pin-diagnosis": {
-          title: "Diagnose a pin (3 credits)",
+          title: "Diagnose a pin in Pinar Cloud (3 credits)",
           description:
             "AI explains the probable cause of the pin from its structure and proposes a CSS fix with a confidence level. Accept, edit, or discard it; only accepted diagnoses stay with the pin.",
         },
         "save-as-component": {
-          title: "Save a pin as a component (10 credits)",
+          title: "Save a pin as a component in Pinar Cloud (10 credits)",
           description:
             "Turn a captured element into HTML + CSS, React + Tailwind, or Preact + htm, with files, dependencies, fidelity notes, a preview, ZIP download, and StackBlitz.",
         },
         "step-recording": {
-          title: "Record steps and generate a Playwright test (5 credits)",
+          title: "Generate a Playwright test in Pinar Cloud (5 credits)",
           description:
             "Press G on the page to record clicks, typing, scrolling, and navigation. Reopen Pinar, pin, and copy to attach the steps; G again discards them. The viewer generates written steps and a Playwright test.",
         },
         "collection-design-system": {
-          title: "Design system of a collection (15 credits)",
+          title: "Design system of a collection in Pinar Cloud (15 credits)",
           description:
             "Extract the shared colors, typography, spacing, radii, and shadows from a collection’s pins. Export as CSS variables, a Tailwind theme, W3C tokens, or DESIGN.md.",
         },

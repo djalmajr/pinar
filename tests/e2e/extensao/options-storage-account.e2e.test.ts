@@ -1,6 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
+import { DEVELOPMENT_EXTENSION_KEY, PRODUCTION_CLOUD_URL, STAGING_CLOUD_URL } from "../../../extension/environment.js";
+import { remoteProfileKey } from "../../../extension/remote-profile.js";
 import { expectScrollableComboboxList } from "../helpers/ui";
 
 const extensionDist = resolve(process.cwd(), "extension", "dist");
@@ -12,9 +14,9 @@ const contentTypes: Record<string, string> = {
   ".woff2": "font/woff2",
 };
 
-async function installOptionsHarness(page: Page) {
+async function installOptionsHarness(page: Page, { development = false, platform = "mac" } = {}) {
   let legalVersion = "2026-08-18";
-  await page.addInitScript(() => {
+  await page.addInitScript(({ development, developmentKey, platform }) => {
     const SETTINGS_KEY = "pinar-e2e-extension-settings";
     const IDENTITY_KEY = "pinar-e2e-extension-identity";
     const MESSAGES_KEY = "pinar-e2e-extension-messages";
@@ -109,8 +111,8 @@ async function installOptionsHarness(page: Page) {
     });
     (globalThis as any).chrome = {
       runtime: {
-        getManifest: () => ({ version: "0.2.0-e2e" }),
-        getPlatformInfo: async () => ({ os: "mac" }),
+        getManifest: () => ({ key: development ? developmentKey : undefined, version: "0.2.0-e2e" }),
+        getPlatformInfo: async () => ({ os: platform }),
         id: "pinar-e2e",
         sendMessage: async (message: any) => {
           remember(message);
@@ -173,10 +175,16 @@ async function installOptionsHarness(page: Page) {
       },
       storage: {
         local: {
-          get: async (defaults: Record<string, unknown>) => ({ ...defaults, ...localValues() }),
-          remove: async (key: string) => {
+          get: async (keys: Record<string, unknown> | string[]) => {
             const current = localValues();
-            delete current[key];
+            if (Array.isArray(keys)) {
+              return Object.fromEntries(keys.filter((key) => key in current).map((key) => [key, current[key]]));
+            }
+            return { ...keys, ...current };
+          },
+          remove: async (keys: string | string[]) => {
+            const current = localValues();
+            for (const key of Array.isArray(keys) ? keys : [keys]) delete current[key];
             localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(current));
           },
           set: async (values: Record<string, unknown>) => {
@@ -191,7 +199,7 @@ async function installOptionsHarness(page: Page) {
         },
       },
     };
-  });
+  }, { development, developmentKey: DEVELOPMENT_EXTENSION_KEY, platform });
 
   await page.route("**/api/legal/current", (route) => route.fulfill({
     json: {
@@ -303,6 +311,25 @@ test("storage mode and destination identity persist without mixing local and clo
   await expect(page.getByRole("combobox", { name: "Project" })).toHaveValue("Account Local");
 });
 
+test("the unpacked development profile exposes staging without console configuration", async ({ page }) => {
+  await installOptionsHarness(page, { development: true });
+
+  await expect(page.getByRole("radio", { name: /Staging/ })).toBeVisible();
+  const settings = await page.evaluate(() => JSON.parse(
+    localStorage.getItem("pinar-e2e-extension-settings") || "{}",
+  ));
+  expect(settings.cloudUrl).toBe(STAGING_CLOUD_URL);
+
+  await page.getByRole("radio", { name: /Staging/ }).check();
+  await expect(page.getByText("STAGING", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("checkbox", {
+    name: "I accept the current documents for Pinar's hosted service.",
+  })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Terms", exact: true })).toHaveCount(0);
+  await expect(page.getByText("Development environment with isolated test data.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+});
+
 test("language and theme sit on their own preference rows", async ({ page }) => {
   await installOptionsHarness(page);
   await page.getByRole("tab", { name: "Preferences" }).click();
@@ -311,7 +338,7 @@ test("language and theme sit on their own preference rows", async ({ page }) => 
   await expect(language).toBeVisible();
   await expect(page.getByText("Language", { exact: true })).toHaveCSS("font-size", "12px");
   await expect(page.getByText("Theme", { exact: true })).toHaveCSS("font-size", "12px");
-  await expect(page.getByText("Copy when a batch finishes", { exact: true })).toHaveCSS("font-size", "12px");
+  await expect(page.getByText("Agent copy detail: Compact", { exact: true })).toHaveCSS("font-size", "12px");
   await expect(page.getByText("Choose the language used across the extension.", { exact: true })).toHaveCSS("font-size", "12px");
   await expect(page.getByText("Follow the system appearance or choose a fixed theme.", { exact: true })).toBeVisible();
   await expect(page.getByText("Language and appearance used across the extension.", { exact: true })).toBeVisible();
@@ -359,12 +386,6 @@ test("language and theme sit on their own preference rows", async ({ page }) => 
   expect(languageMenuBox?.width ?? 999).toBeLessThan(180);
   await page.getByRole("option", { name: "Português" }).click();
   await expect(page.getByRole("combobox", { name: "Idioma" })).toContainText("Português");
-
-  await page.getByRole("combobox", { name: "Copiar ao finalizar um lote" }).click();
-  const copyMenu = page.locator("[data-slot=select-content][data-open]");
-  await expect(copyMenu).toBeVisible();
-  const copyMenuBox = await copyMenu.boundingBox();
-  expect(copyMenuBox?.width ?? 999).toBeLessThan(160);
 });
 
 test("each options tab separates its sections", async ({ page }) => {
@@ -375,6 +396,8 @@ test("each options tab separates its sections", async ({ page }) => {
   await expect(page.getByRole("tabpanel").locator("[data-slot=separator]")).toHaveCount(2);
 
   await page.getByRole("tab", { name: "Shortcuts" }).click();
+  await expect(page.getByText("⌘ + Enter", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Ctrl.*Enter/)).toHaveCount(0);
   await expect(page.getByRole("tabpanel").locator("[data-slot=separator]")).toHaveCount(1);
   const shortcutsHeading = page.getByText("Browser shortcuts", { exact: true });
   const shortcutsDesc = page.getByText(
@@ -388,6 +411,14 @@ test("each options tab separates its sections", async ({ page }) => {
 
   await page.getByRole("tab", { name: "Account" }).click();
   await expect(page.getByRole("tabpanel").locator("[data-slot=separator]")).toHaveCount(0);
+});
+
+test("Windows and Linux show only Alt+Enter for concluding a capture", async ({ page }) => {
+  await installOptionsHarness(page, { platform: "win" });
+  await page.getByRole("tab", { name: "Shortcuts" }).click();
+  await expect(page.getByText("Alt + Enter", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Ctrl.*Enter/)).toHaveCount(0);
+  await expect(page.getByText(/⌘.*Enter/)).toHaveCount(0);
 });
 
 test("privacy URL keys input sits under its description", async ({ page }) => {
@@ -417,7 +448,7 @@ test("preference copy uses tight line-height and reaches the control", async ({ 
   await expect(handoff).toHaveCSS("font-size", "12px");
   await expect(handoff).toHaveCSS("line-height", "16px");
 
-  const title = page.getByText("Agent copy detail · Compact", { exact: true });
+  const title = page.getByText("Agent copy detail: Compact", { exact: true });
   const titleBox = await title.boundingBox();
   const descBox = await handoff.boundingBox();
   expect(titleBox && descBox, "title and description should be measurable").toBeTruthy();
@@ -440,11 +471,11 @@ test("agent copy detail persists independently from the complete saved capture",
   await page.getByRole("tab", { name: "Preferences" }).click();
 
   const detail = page.getByRole("switch", { name: "Agent copy detail" });
-  await expect(page.getByText("Agent copy detail · Compact", { exact: true })).toBeVisible();
+  await expect(page.getByText("Agent copy detail: Compact", { exact: true })).toBeVisible();
   await expect(detail).not.toBeChecked();
   await detail.click();
   await expect(detail).toBeChecked();
-  await expect(page.getByText("Agent copy detail · Full", { exact: true })).toBeVisible();
+  await expect(page.getByText("Agent copy detail: Full", { exact: true })).toBeVisible();
   await save(page);
 
   const saved = await page.evaluate(() => JSON.parse(
@@ -688,10 +719,10 @@ test("remote Free requires current legal consent while local mode remains indepe
 
   await acceptance.check();
   await save(page);
-  const storedVersion = await page.evaluate(() => {
+  const storedVersion = await page.evaluate((legalKey) => {
     const values = JSON.parse(localStorage.getItem("pinar-e2e-extension-local") || "{}");
-    return values.remoteLegalAcceptance?.termsVersion;
-  });
+    return values[legalKey]?.termsVersion;
+  }, remoteProfileKey(PRODUCTION_CLOUD_URL, "remoteLegalAcceptance"));
   expect(storedVersion).toBe("2026-08-18");
 
   await page.reload();

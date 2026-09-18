@@ -41,9 +41,9 @@ describe("session after copy", () => {
     assert.equal(tabPins.has(7), false);
   });
 
-  test("Cmd/Ctrl/Alt+Enter copies the finished bundle", () => {
-    assert.match(contentSrc, /event\.key === "Enter" && \(event\.metaKey \|\| event\.ctrlKey \|\| event\.altKey\)/);
-    assert.match(contentSrc, /<kbd>\$\{sendMod\}\/Alt \+ ⏎<\/kbd>/);
+  test("uses the platform-specific copy shortcut", () => {
+    assert.match(contentSrc, /isCopyShortcut\(event, apple\)/);
+    assert.match(contentSrc, /<kbd>\$\{copyShortcutLabel\(apple\)\}<\/kbd>/);
   });
 
   test("clipboard is published before the helper stores the screenshot", () => {

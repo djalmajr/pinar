@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { resolve } from "node:path";
+import { pressCopyShortcut } from "../helpers/extension-shortcut";
 
 const extensionPath = (file: string) => resolve(process.cwd(), "extension", file);
 
@@ -91,7 +92,7 @@ async function createPin(page: Page, target: string, comment: string) {
 test("complete copy keeps captureId and pinId without editing the bundle", async ({ page }) => {
   await installHarness(page);
   await createPin(page, "#save", "Make the CTA bolder");
-  await page.keyboard.press("Control+Enter");
+  await pressCopyShortcut(page);
   await expect(page.locator('[data-pinar="host"] [data-ref="status"]')).toHaveText("Copied");
   await expect(page.locator('[data-pinar="host"]')).toBeHidden();
 
@@ -108,7 +109,7 @@ test("complete copy keeps captureId and pinId without editing the bundle", async
 test("screenshot failure still copies comment and DOM context", async ({ page }) => {
   await installHarness(page, { failCapture: true });
   await createPin(page, "#save", "Still useful without pixels");
-  await page.keyboard.press("Control+Enter");
+  await pressCopyShortcut(page);
   await expect(page.locator('[data-pinar="host"] [data-ref="status"]')).toContainText("no screenshot");
   await expect(page.locator('[data-pinar="host"]')).toBeHidden();
 

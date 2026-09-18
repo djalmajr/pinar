@@ -21,6 +21,14 @@ Extension releases are intentionally not marked as GitHub's global **Latest** re
 
 The package command rebuilds the extension and writes `extension/pinar-extension-X.Y.Z.zip`. It fails when versions differ, `manifest.json` is not at the archive root, a manifest reference is missing, or the package contains tests, declarations, source maps, or nested archives.
 
+The repository manifest includes the public key for Pinar's stable unpacked
+development ID. `package:ext` deliberately removes that key from the staged
+Store manifest before creating the ZIP. Always inspect the packaged manifest to
+confirm it has no `key`; this keeps the Store release on its Store-owned ID and
+production endpoint while unpacked development builds use staging. Only the
+unpacked staging profile omits legal-consent UI and evidence; Store/production
+continues to require explicit acceptance of the current documents.
+
 ## Publish
 
 After the release change reaches `main`, create and push the independent tag:
@@ -42,5 +50,7 @@ unzip -p extension/pinar-extension-X.Y.Z.zip manifest.json
 unzip -Z1 extension/pinar-extension-X.Y.Z.zip
 shasum -a 256 extension/pinar-extension-X.Y.Z.zip
 ```
+
+The inspected packaged manifest must not contain a top-level `key` field.
 
 Reload the unpacked extension after every source change before claiming browser behavior is active.

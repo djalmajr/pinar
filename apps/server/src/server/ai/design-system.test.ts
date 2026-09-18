@@ -127,6 +127,14 @@ describe("design system extraction", () => {
     assert.equal(body.minimum, 3);
     assert.equal(calls, 0);
     assert.equal(await creditBalance(paid.cookie, paid.env), 200);
+    const eligibility = await jsonBody(await getJson(`/api/collections/${collectionId}/design-system`, paid.cookie, paid.env));
+    assert.deepEqual(eligibility.eligibility, {
+      domain: "acme.test",
+      eligiblePins: 2,
+      minimum: 3,
+      snapshotPins: 2,
+      totalPins: 2,
+    });
   });
 
   test("extracts, names and stores the design system of a collection", async () => {
@@ -191,6 +199,13 @@ describe("design system extraction", () => {
     assert.equal(stored.status, 200);
     const storedBody = await jsonBody(stored);
     assert.deepEqual(storedBody.designSystem, result);
+    assert.deepEqual(storedBody.eligibility, {
+      domain: "acme.test",
+      eligiblePins: 10,
+      minimum: 3,
+      snapshotPins: 10,
+      totalPins: 10,
+    });
     assert.ok(isRecord(storedBody.exports));
     assert.match(String(storedBody.exports.css), /^:root \{\n {2}--color-primary: #0069a8;/);
     assert.ok(String(storedBody.exports.tailwind).startsWith("@theme {\n"));

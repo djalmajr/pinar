@@ -2,6 +2,7 @@ import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { type BrowserContext, chromium, expect, test, type Worker } from "@playwright/test";
+import { pressCopyShortcut } from "../helpers/extension-shortcut";
 
 const EXTENSION_DIR = resolve(process.cwd(), "extension");
 const BASE_URL = "http://127.0.0.1:17384";
@@ -123,7 +124,7 @@ test("the real extension registers a free installation, captures, and signs the 
     await expect(target.locator('[data-pinar="host"]')).toBeVisible();
     await target.mouse.click(400, 300);
     await target.keyboard.type("Free flow capture");
-    await target.keyboard.press("Control+Enter");
+    await pressCopyShortcut(target);
     // sendPins hides the overlay only after the cloud upload + handoff succeed.
     await expect(target.locator('[data-pinar="host"]')).toBeHidden({ timeout: 30_000 });
 

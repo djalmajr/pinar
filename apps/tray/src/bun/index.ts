@@ -23,10 +23,9 @@ import { trayImageOptions } from "./tray-image";
 import { windowsSmallIconSize } from "./windows-dpi";
 import { createQuitController } from "./tray-quit";
 import {
-	UPDATE_STATUS_SECONDS,
+	UPDATE_STATUS_DURATION_MS,
 	idleUpdateUi,
 	shouldOfferUpdate,
-	tickUpdateStatus,
 	updateMenuItem,
 	type UpdateUiState,
 	versionMenuItem,
@@ -75,31 +74,30 @@ let online = false;
 let loginEnabled = false;
 let busy = false;
 let updateUi: UpdateUiState = idleUpdateUi();
-let statusCountdown: ReturnType<typeof setInterval> | null = null;
+let statusResetTimer: ReturnType<typeof setTimeout> | null = null;
 
-function stopStatusCountdown() {
-	if (!statusCountdown) return;
-	clearInterval(statusCountdown);
-	statusCountdown = null;
+function stopStatusResetTimer() {
+	if (!statusResetTimer) return;
+	clearTimeout(statusResetTimer);
+	statusResetTimer = null;
 }
 
-function startStatusCountdown() {
-	stopStatusCountdown();
-	statusCountdown = setInterval(() => {
-		updateUi = tickUpdateStatus(updateUi);
-		if (!updateUi.failed && !updateUi.updated) stopStatusCountdown();
+function scheduleStatusReset() {
+	stopStatusResetTimer();
+	statusResetTimer = setTimeout(() => {
+		statusResetTimer = null;
+		updateUi = idleUpdateUi();
 		updateMenu();
-	}, 1000);
+	}, UPDATE_STATUS_DURATION_MS);
 }
 
 function showTransientStatus(status: "failed" | "updated") {
 	updateUi = {
 		...idleUpdateUi(),
 		failed: status === "failed",
-		secondsLeft: UPDATE_STATUS_SECONDS,
 		updated: status === "updated",
 	};
-	startStatusCountdown();
+	scheduleStatusReset();
 }
 
 function updateMenu() {
@@ -143,7 +141,7 @@ function updateMenu() {
 
 async function syncUpdate() {
 	if (updateUi.checking) return;
-	stopStatusCountdown();
+	stopStatusResetTimer();
 	updateUi = { ...idleUpdateUi(), checking: true };
 	updateMenu();
 	try {
@@ -247,7 +245,7 @@ const quit = createQuitController({
 		Utils.quit(code ?? 0);
 	},
 	releaseLock: () => {
-		stopStatusCountdown();
+		stopStatusResetTimer();
 		releaseTrayLock();
 	},
 	removeTray: () => tray.remove(),

@@ -77,5 +77,6 @@ export function asDesignSystem(value: unknown): DesignSystem | null {
   };
   if (typeof value.identity === "string" && value.identity.trim()) system.identity = value.identity;
   if (typeof value.model === "string" && value.model) system.model = value.model;
+  if (typeof value.provider === "string" && value.provider) system.provider = value.provider;
   return system;
 }

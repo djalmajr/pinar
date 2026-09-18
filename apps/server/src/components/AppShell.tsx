@@ -9,12 +9,10 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@pinar/ui";
-import { GlobalSettingsProvider } from "@/components/GlobalSettingsDialog";
 import {
   ResizableSidebarPanel,
   SIDEBAR_DEFAULT_WIDTH,
 } from "@/components/ResizableSidebarPanel";
-import { DeliveryPreferencesProvider } from "@/lib/delivery-preferences";
 import { useServerI18n } from "@/lib/i18n";
 import ChevronRightIcon from "~icons/lucide/chevron-right";
 
@@ -148,23 +146,19 @@ export function AppShell({
   const sidebarStyle = { "--sidebar-width": `${sidebarWidth}px` } as CSSProperties;
 
   return (
-    <DeliveryPreferencesProvider>
-      <GlobalSettingsProvider>
-        <SidebarProvider
-          className={cn("h-screen min-h-0 flex-col overflow-hidden bg-background text-foreground", className)}
-          style={sidebarStyle}
-        >
-          <AppHeader
-            onSelectWorkspace={onSelectWorkspace}
-            projectActions={projectActions}
-            projectSelector={projectSelector}
-            workspaceCrumbs={workspaceCrumbs}
-          />
-          <AppWorkspace sidebar={sidebar} onSidebarWidthChange={setSidebarWidth}>
-            {children}
-          </AppWorkspace>
-        </SidebarProvider>
-      </GlobalSettingsProvider>
-    </DeliveryPreferencesProvider>
+    <SidebarProvider
+      className={cn("h-screen min-h-0 flex-col overflow-hidden bg-background text-foreground", className)}
+      style={sidebarStyle}
+    >
+      <AppHeader
+        onSelectWorkspace={onSelectWorkspace}
+        projectActions={projectActions}
+        projectSelector={projectSelector}
+        workspaceCrumbs={workspaceCrumbs}
+      />
+      <AppWorkspace sidebar={sidebar} onSidebarWidthChange={setSidebarWidth}>
+        {children}
+      </AppWorkspace>
+    </SidebarProvider>
   );
 }

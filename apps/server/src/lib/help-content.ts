@@ -151,6 +151,11 @@ export const helpScreenshotDefinitions = [
     width: 1440,
   },
   {
+    key: "capture-review",
+    height: 720,
+    width: 1440,
+  },
+  {
     key: "capture-copy-failed",
     height: 720,
     width: 1440,
@@ -433,6 +438,22 @@ export const helpArticleDefinitions = [
       "packages/shared/src/types/index.ts",
       "apps/extension/src/options/OptionsApp.tsx",
     ],
+  },
+  {
+    id: "ai-features",
+    category: "agents",
+    readMinutes: 8,
+    screenshotKey: "capture-review",
+    sourceRefs: [
+      "apps/server/src/pages/WebViewer.tsx",
+      "apps/server/src/components/PinDiagnosisPanel.tsx",
+      "apps/server/src/components/PinComponentPanel.tsx",
+      "apps/server/src/components/ReproductionTimeline.tsx",
+      "apps/server/src/components/CollectionDesignSystemDialog.tsx",
+      "apps/server/src/server/ai/local-ai.ts",
+      "extension/content.js",
+    ],
+    popular: true,
   },
   {
     id: "closed-loop-review",

@@ -1,8 +1,11 @@
 import { useRef, useState } from "react";
 import { describeReproductionStep, type Reproduction, type ReproductionStep } from "@pinar/shared";
 import { Badge, Button, Input } from "@pinar/ui";
+import { AiCreditCostHint } from "@/components/AiCreditCostHint";
+import { useGlobalSettings } from "@/components/GlobalSettingsDialog";
 import { useServerI18n, type ServerMessageKey } from "@/lib/i18n";
 import { isRecord } from "@/lib/api-data";
+import { aiErrorPresentation, type AiRecovery } from "@/lib/ai-error-presentation";
 import { mergeGeneratedReproduction } from "@/lib/reproduction-result";
 import CheckIcon from "~icons/lucide/check";
 import CopyIcon from "~icons/lucide/copy";
@@ -19,8 +22,6 @@ interface ReproductionTimelineProps {
   showAi: boolean;
   onPersist: (reproduction: Reproduction | null) => Promise<boolean>;
 }
-
-type Recovery = "plans" | "retry" | "signIn" | null;
 
 function requestId() {
   return crypto.randomUUID().replaceAll("-", "");
@@ -45,13 +46,14 @@ function stepKindLabel(step: ReproductionStep): ServerMessageKey {
 
 export function ReproductionTimeline({ canEdit, reproduction, sessionId, showAi, onPersist }: ReproductionTimelineProps) {
   const { language, t } = useServerI18n();
+  const openSettings = useGlobalSettings();
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingValue, setEditingValue] = useState("");
   const [error, setError] = useState("");
   const [generating, setGenerating] = useState(false);
-  const [recovery, setRecovery] = useState<Recovery>(null);
+  const [recovery, setRecovery] = useState<AiRecovery>(null);
   const aiRequestId = useRef<string | null>(null);
   const generated = reproduction.generated;
 
@@ -112,22 +114,9 @@ export function ReproductionTimeline({ canEdit, reproduction, sessionId, showAi,
         return;
       }
       if (code !== "ai_request_in_progress" && code !== "ai_refund_pending") aiRequestId.current = null;
-      if (response.status === 401) {
-        setError(t("viewer.aiSignIn"));
-        setRecovery("signIn");
-      } else if (code === "insufficient_ai_credits" || code === "ai_requires_paid") {
-        setError(t("viewer.aiNoCredits"));
-        setRecovery("plans");
-      } else if (code === "ai_rate_limited") {
-        setError(t("viewer.aiRateLimited"));
-        setRecovery("retry");
-      } else if (code === "ai_refund_pending") {
-        setError(t("viewer.aiRefundPending"));
-        setRecovery("retry");
-      } else {
-        setError(t("viewer.aiUnavailable"));
-        setRecovery("retry");
-      }
+      const presentation = aiErrorPresentation(response.status, code);
+      setError(t(presentation.messageKey));
+      setRecovery(presentation.recovery);
     } catch {
       setError(t("viewer.aiNetworkError"));
       setRecovery("retry");
@@ -154,11 +143,11 @@ export function ReproductionTimeline({ canEdit, reproduction, sessionId, showAi,
           <p className="text-xs text-muted-foreground">{t("viewer.reproductionDescription")}</p>
         </div>
         {showAi ? (
-          <div className="flex flex-col items-end gap-1">
+          <div className="flex flex-wrap items-center gap-1">
             <Button disabled={generating || busy || !reproduction.steps.length} size="sm" type="button" onClick={() => void generate()}>
               {generating ? t("viewer.reproductionGenerating") : generated ? t("viewer.reproductionRegenerate") : t("viewer.reproductionGenerate")}
             </Button>
-            <span className="text-[11px] text-muted-foreground">{t("viewer.reproductionCreditCost")}</span>
+            <AiCreditCostHint label={t("viewer.aiCloudCreditCost", { count: REPRODUCTION_CREDITS })} />
           </div>
         ) : null}
       </div>
@@ -168,12 +157,17 @@ export function ReproductionTimeline({ canEdit, reproduction, sessionId, showAi,
           {recovery === "retry" ? (
             <Button size="sm" type="button" variant="outline" onClick={() => void generate()}>{t("viewer.aiRetry")}</Button>
           ) : null}
-          {recovery === "plans" ? (
+          {recovery === "pricing" ? (
             <Button render={<a href="/pricing" />} size="sm" variant="outline">{t("viewer.aiViewPlans")}</Button>
           ) : null}
           {recovery === "signIn" ? (
             <Button render={<a href={`/sign-in?returnTo=${encodeURIComponent(`/v/${sessionId}`)}`} />} size="sm" variant="outline">
               {t("viewer.aiSignInAction")}
+            </Button>
+          ) : null}
+          {recovery === "settings" ? (
+            <Button size="sm" type="button" variant="outline" onClick={() => openSettings("aiUsage")}>
+              {t("settings.ai")}
             </Button>
           ) : null}
         </p>

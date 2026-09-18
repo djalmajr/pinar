@@ -196,10 +196,10 @@ describe("capture destination", () => {
     assert.match(contentSrc, /\.voice-btn\[hidden\] \{ display: none; \}/);
   });
 
-  test("identifies the staging endpoint in extension settings", () => {
-    assert.match(optionsSrc, /hostname === "stg\.pinar\.dev"/);
-    assert.match(optionsSrc, /stagingEndpoint \? t\.staging_title : t\.remote_title/);
-    assert.match(optionsSrc, /stagingEndpoint \? t\.staging_desc : t\.remote_desc/);
+  test("uses the build-authorized environment in extension settings", () => {
+    assert.match(optionsSrc, /cloudEnvironment\(manifest, settings\.cloudUrl\)/);
+    assert.match(optionsSrc, /environment === "staging" \? t\.staging_title : t\.remote_title/);
+    assert.match(optionsSrc, /environment === "staging" \? t\.staging_desc : t\.remote_desc/);
   });
 
   test("uses a Windows-specific local storage path description", () => {

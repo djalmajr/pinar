@@ -8,7 +8,9 @@ import {
 import type { SupportedLanguage } from "@pinar/shared";
 import { Toaster } from "@pinar/ui";
 import appCss from "@pinar/ui/styles.css?url";
+import { GlobalSettingsProvider } from "@/components/GlobalSettingsDialog";
 import { RoutePending } from "@/components/RoutePending";
+import { DeliveryPreferencesProvider } from "@/lib/delivery-preferences";
 import { loadUiMessages, ServerI18nProvider } from "@/lib/i18n";
 import {
   canonicalHref,
@@ -49,6 +51,14 @@ function RootDocument() {
     }),
   });
   const indexable = isIndexablePath(pathname);
+  const usesWorkspaceProviders = pathname === "/app" || pathname.startsWith("/v/");
+  const routeContent = (
+    <>
+      <RoutePending />
+      <Outlet />
+      <Toaster />
+    </>
+  );
 
   return (
     <html lang={language} suppressHydrationWarning>
@@ -87,9 +97,13 @@ function RootDocument() {
           initialLanguage={language}
           initialMessages={messages}
         >
-          <RoutePending />
-          <Outlet />
-          <Toaster position="bottom-center" />
+          {usesWorkspaceProviders ? (
+            <DeliveryPreferencesProvider>
+              <GlobalSettingsProvider key={pathname}>
+                {routeContent}
+              </GlobalSettingsProvider>
+            </DeliveryPreferencesProvider>
+          ) : routeContent}
         </ServerI18nProvider>
         <Scripts />
       </body>

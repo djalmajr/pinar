@@ -93,6 +93,10 @@ const locale = {
       caption:
         "Tab remplace la barre de capture par la révision de session, où les pins peuvent être modifiés ou supprimés avant de terminer ou d’abandonner.",
     },
+    "capture-review": {
+      alt: "Page avec des épingles d’élément prêtes à être examinées et enrichies par les fonctions d’IA de Pinar.",
+      caption: "Les épingles d’élément conservent la structure capturée nécessaire au diagnostic, à la génération de composants et à l’extraction du design system.",
+    },
     "capture-copy-failed": {
       alt: "Pinar indique que la session n’a pas pu être terminée et conserve les pins pour révision et nouvel essai.",
       caption:
@@ -294,7 +298,7 @@ const locale = {
         {
           heading: "Terminer ou annuler la session",
           paragraphs: [
-            "Utilisez `Command/Ctrl/Alt+Enter` : appuyez sur `Command+Enter` sous macOS, `Ctrl+Enter` ailleurs ou `Alt+Enter` sur les deux pour terminer et copier toute la session. Pinar confirme visiblement la réussite. En cas d’échec, une erreur exploitable s’affiche et la session reste disponible pour révision et nouvel essai. Abandonner la session la termine sans copie.",
+            "Utilisez `Command+Enter` sous macOS ou `Alt+Enter` sous Windows et Linux pour terminer et copier toute la session. Pinar confirme visiblement la réussite. En cas d’échec, une erreur exploitable s’affiche et la session reste disponible pour révision et nouvel essai. Abandonner la session la termine sans copie.",
             "Traitez le presse-papiers comme une unité : instructions lisibles, URL facultative du visualiseur et un bloc pinar-visual-context délimité par page. Chaque bloc contient sa propre capture, `captureId`, `pinId`, l’URL et les localisateurs. Les badges numérotés sont des overlays d’annotation. Ne réécrivez ni `captureId` ni `pinId`.",
           ],
           bullets: [
@@ -319,7 +323,7 @@ const locale = {
         {
           heading: "Cloud",
           paragraphs: [
-            "Le mode cloud active l’accès distant au workspace, la rétention gérée, les résumés IA, la facturation et les liens de partage non listés. Vous acceptez les politiques en vigueur avant que quoi que ce soit ne soit stocké à distance.",
+            "Le mode cloud active l’accès distant au workspace, la rétention gérée, les résumés avec l’IA Pinar Cloud, la facturation et les liens de partage non listés. L’IA locale et le BYOK restent disponibles sans utiliser de crédits Pinar Cloud. Vous acceptez les politiques en vigueur avant que quoi que ce soit ne soit stocké à distance.",
           ],
         },
         {
@@ -350,9 +354,9 @@ const locale = {
             "`Enter` épingle l’élément survolé ; `Arrow Up` sélectionne son parent et `Arrow Down` revient à un enfant.",
             "`M` bascule le dessin du masque de confidentialité. `Escape` annule un brouillon ou un masque ; sans brouillon, il efface les pins et masque la barre d’outils.",
             "`R` bascule l’overlay en direct entre les épingles numérotées seules et les épingles avec leurs régions. La capture copiée inclut toujours les deux.",
-            "`Command/Ctrl/Alt+Enter` copie le paquet terminé.",
+            "`Command+Enter` / `Alt+Enter` copie le paquet terminé.",
             "`Alt+Shift+P` affiche ou masque la barre d’outils sans annuler la session, et vous pouvez le réattribuer dans `chrome://extensions/shortcuts`. Les raccourcis du navigateur restent inertes sur les pages `chrome://`, sur le Chrome Web Store et avant l’injection de l’overlay.",
-            "`G` commence à enregistrer les étapes que vous effectuez sur la page. Rouvrez Pinar, épinglez le résultat et copiez avec `Command/Ctrl/Alt+Enter` pour joindre les étapes ; appuyer à nouveau sur `G` abandonne l’enregistrement.",
+            "`G` commence à enregistrer les étapes que vous effectuez sur la page. Rouvrez Pinar, épinglez le résultat et copiez avec `Command+Enter` / `Alt+Enter` pour joindre les étapes ; appuyer à nouveau sur `G` abandonne l’enregistrement.",
           ],
         },
         {
@@ -368,7 +372,7 @@ const locale = {
             "`Arrow Up` remonte à l’élément parent et mémorise l’enfant que vous quittez, de sorte qu’`Arrow Down` revient à ce nœud mémorisé s’il est encore un enfant ; sinon il utilise le premier enfant. En mode masque, faites glisser une région pour la cacher et cliquez un masque existant pour le restaurer. Le défilement clavier fonctionne encore sur le document, mais les touches destinées aux contrôles de page focalisés sont bloquées afin qu’elles ne puissent pas activer des boutons ni taper dans le formulaire hôte.",
           ],
           bullets: [
-            "`Command/Ctrl/Alt+Enter` enregistre un brouillon ouvert, puis copie ; sans commentaire, il affiche « Écrivez un commentaire » au lieu d’envoyer un pin vide.",
+            "`Command+Enter` / `Alt+Enter` enregistre un brouillon ouvert, puis copie ; sans commentaire, il affiche « Écrivez un commentaire » au lieu d’envoyer un pin vide.",
             "Après `Escape` ou une copie, Pinar conserve la propriété de cette touche physique jusqu’au keyup, afin que la page hôte ne traite pas la même frappe comme sa propre annulation ou soumission.",
             "Un pin de zone ne commence qu’après que le pointeur a bougé d’environ six pixels ; un clic plus court épingle encore l’élément survolé, au lieu d’ouvrir un rectangle libre.",
           ],
@@ -580,20 +584,20 @@ const locale = {
         {
           heading: "Comment livrer le paquet copié à un agent",
           paragraphs: [
-            "L’extension Chrome ne tape jamais dans le composer de l’agent. Après `Command/Ctrl/Alt+Enter`, collez vous-même le presse-papiers dans Cursor, Claude, Codex ou Grok. Le texte commence en indiquant que les notes des pins peuvent demander un changement ou une explication, et à traiter sélecteur et chemin DOM comme des localisateurs complémentaires, suivies d’un bloc JSON pinar-visual-context délimité. Si une URL Viewer est incluse, ne la récupérez que lorsque ces détails ne suffisent pas.",
+            "L’extension Chrome ne tape jamais dans le composer de l’agent. Après `Command+Enter` / `Alt+Enter`, collez vous-même le presse-papiers dans Cursor, Claude, Codex ou Grok. Le texte commence en indiquant que les notes des pins peuvent demander un changement ou une explication, et à traiter sélecteur et chemin DOM comme des localisateurs complémentaires, suivies d’un bloc JSON pinar-visual-context délimité. Si une URL Viewer est incluse, ne la récupérez que lorsque ces détails ne suffisent pas.",
             "Traitez `captureId` et `pinId` comme des identités, pas des libellés à réécrire. Visual Context encode actuellement schemaVersion 1 ; parseVisualCapture rejette un `captureId` manquant et tout schemaVersion autre que 1 ou l’héritage 0. Suivez seulement ce que les pins décrivent. Si la personne n’a jamais collé, demandez-lui de copier à nouveau depuis Pinar plutôt que de reconstruire les pins de mémoire.",
           ],
           bullets: [
             "Collez tout le presse-papiers dans l’agent ; ne retapez pas les commentaires et n’inventez pas un nouveau `captureId`.",
             "Confirmez que le texte collé contient encore une clôture pinar-visual-context fermée avant de commencer à modifier le code.",
-            "Si rien n’a été collé, demandez `Command/Ctrl/Alt+Enter` dans Pinar et suivez seulement les notes des pins.",
+            "Si rien n’a été collé, demandez `Command+Enter` / `Alt+Enter` dans Pinar et suivez seulement les notes des pins.",
           ],
         },
         {
           heading: "Diagnostiquer un pin et l’enregistrer comme composant",
           paragraphs: [
-            "Sur un pin doté d’une structure capturée, « Diagnostiquer » demande à l’IA la cause probable de ce que vous avez commenté et une proposition de correctif CSS, avec un niveau de confiance. Acceptez, modifiez ou rejetez la proposition ; seul un diagnostic accepté est conservé avec le pin et copié avec le paquet. Un diagnostic coûte 3 crédits IA.",
-            "« Enregistrer comme composant » transforme l’élément capturé en un composant isolé pour votre stack : HTML + CSS, React + Tailwind ou Preact + htm. Le résultat liste les fichiers, les dépendances et des notes de fidélité, avec un aperçu à côté du screenshot original. Copiez les fichiers, téléchargez un ZIP ou ouvrez le composant dans StackBlitz. Cela coûte 10 crédits IA, et la stack choisie est mémorisée pour le prochain pin.",
+            "Sur un pin doté d’une structure capturée, « Diagnostiquer » demande à l’IA la cause probable de ce que vous avez commenté et une proposition de correctif CSS, avec un niveau de confiance. Acceptez, modifiez ou rejetez la proposition ; seul un diagnostic accepté est conservé avec le pin et copié avec le paquet. Avec l’IA Pinar Cloud, un diagnostic coûte 3 crédits.",
+            "« Enregistrer comme composant » transforme l’élément capturé en un composant isolé pour votre stack : HTML + CSS, React + Tailwind ou Preact + htm. Le résultat liste les fichiers, les dépendances et des notes de fidélité, avec un aperçu à côté du screenshot original. Copiez les fichiers, téléchargez un ZIP ou ouvrez le composant dans StackBlitz. Avec l’IA Pinar Cloud, cela coûte 10 crédits, et la stack choisie est mémorisée pour le prochain pin.",
           ],
           bullets: [
             "Les deux actions ont besoin de la structure de l’élément ; les pins de zone et les pins capturés avant cette version ne peuvent pas les utiliser.",
@@ -630,6 +634,44 @@ const locale = {
             "Réglez l’interrupteur compact/full et l’interrupteur `includeScreenshot`, puis cliquez Enregistrer avant la prochaine copie.",
             "Laissez `includeScreenshot` activé sauf si vous voulez volontairement les métadonnées, pins, localisateurs et le handoff sans stockage d’image.",
             "Après l’enregistrement, copiez une fois et confirmez que chaque collage d’adaptateur partage encore le même `captureId` et les mêmes pinIds.",
+          ],
+        },
+      ],
+    },
+    "ai-features": {
+      title: "Fonctions d’IA et comment les tester",
+      summary: "Retrouvez toutes les fonctions d’IA au même endroit, leurs prérequis et un parcours de test pour l’IA locale, BYOK ou Pinar Cloud.",
+      sections: [
+        {
+          heading: "Choisir d’abord le fournisseur",
+          paragraphs: [
+            "Sur le serveur local, ouvrez Paramètres → Assistant IA, choisissez IA locale ou BYOK, indiquez le point de terminaison compatible OpenAI et le modèle, puis utilisez Tester et enregistrer. L’IA locale et BYOK n’utilisent pas de crédits Pinar. Dans Pinar Cloud, l’IA est proposée aux comptes connectés éligibles ; l’icône en forme de point d’interrogation près d’une action affiche sa consommation actuelle de crédits Pinar Cloud.",
+          ],
+        },
+        {
+          heading: "Résumé de session",
+          paragraphs: [
+            "Ouvrez une session enregistrée en cliquant sur la miniature de sa capture. Dans l’en-tête du visualiseur, choisissez Résumer les annotations. Le résultat utilise le titre, l’URL et les commentaires des épingles.",
+          ],
+        },
+        {
+          heading: "Diagnostic d’épingle et génération de composant",
+          paragraphs: [
+            "Créez une nouvelle épingle d’élément, terminez la session, ouvrez sa miniature puis sélectionnez cette épingle dans le visualiseur. La boîte de dialogue affiche Diagnostiquer et Enregistrer comme composant, avec des sorties HTML, React avec Tailwind ou Preact avec HTM.",
+            "Ces deux fonctions exigent une épingle d’élément avec une structure capturée. Les épingles de zone et les anciennes épingles sans structure affichent le prérequis ; créez une nouvelle épingle d’élément avec l’extension actuelle pour les tester.",
+          ],
+        },
+        {
+          heading: "Reproduction automatisée",
+          paragraphs: [
+            "Ouvrez la barre de capture et appuyez sur `G` pour enregistrer. Utilisez la page, rouvrez Pinar, ajoutez une épingle et terminez avec `Command+Enter` sous macOS ou `Alt+Enter` sous Windows et Linux. Dans la session enregistrée, Reproduction affiche les actions et Générer les étapes et le test produit les étapes ainsi qu’un test Playwright.",
+          ],
+        },
+        {
+          heading: "Extraction du design system",
+          paragraphs: [
+            "Envoyez au moins trois nouvelles épingles d’élément provenant de pages du même site vers la même collection, puis choisissez Extraire le design system dans son menu. Seules les épingles avec une structure capturée comptent ; les captures d’écran, épingles de zone et anciennes épingles sans structure sont exclues. La boîte de dialogue affiche le nombre éligible avant l’extraction.",
+            "Le résultat regroupe couleurs, typographie, espacements, rayons, ombres et polices et s’exporte en tokens W3C, variables CSS, thème Tailwind ou DESIGN.md.",
           ],
         },
       ],
@@ -694,7 +736,7 @@ const locale = {
             "Lorsque tous les chemins de copie échouent, la page envoie overlays:hidden avec hidden false, affiche brièvement « Échec de la copie », et laisse les pins modifiables. Une copie réussie affiche « Copié avec succès ! », ou « Copié avec succès ! » plus « pas de capture », « assistant indisponible » ou « pas de visionneuse », puis termine la session. Ces suffixes correspondent à `screenshot_missing`, `helper_unavailable` et `viewer_unavailable`. screenshot_inline n’est pas l’un des avertissements de handoff dégradé. Un collage sans clôture pinar-visual-context fermée ne peut pas être analysé comme JSON.",
           ],
           bullets: [
-            "Si la barre d’outils indique « Écrivez un commentaire » ou « Ajoutez une épingle », terminez ce pin et appuyez à nouveau sur `Command/Ctrl/Alt+Enter`.",
+            "Si la barre d’outils indique « Écrivez un commentaire » ou « Ajoutez une épingle », terminez ce pin et appuyez à nouveau sur `Command+Enter` / `Alt+Enter`.",
             "Si « Échec de la copie » apparaît, confirmez que les pins sont encore sur la page, accordez la permission du presse-papiers si elle est demandée, et réessayez la copie.",
             "Lisez le suffixe « Copié avec succès ! » : « pas de capture », « assistant indisponible » et « pas de visionneuse » nomment la couche manquante à réessayer sans jeter les commentaires.",
           ],
@@ -764,7 +806,7 @@ const locale = {
         {
           heading: "Extraire le design system d’une collection",
           paragraphs: [
-            "Depuis le menu d’une collection, « Extraire le design system » lit la structure des pins de cette collection et en dérive les tokens qu’ils partagent : couleurs, typographie, espacements, rayons et ombres, plus l’identité du site. Il faut au moins trois pins avec une structure capturée provenant du même site, et cela coûte 15 crédits IA.",
+            "Depuis le menu d’une collection, « Extraire le design system » lit la structure des pins de cette collection et en dérive les tokens qu’ils partagent : couleurs, typographie, espacements, rayons et ombres, plus l’identité du site. Il faut au moins trois pins avec une structure capturée provenant du même site. Avec l’IA Pinar Cloud, cela coûte 15 crédits.",
             "Le résultat s’ouvre dans un dialogue avec la taille de l’échantillon et d’éventuels avertissements, comme des valeurs dispersées qui ne forment pas une échelle. Exportez-le en variables CSS, en thème Tailwind, en design tokens W3C ou en fichier DESIGN.md, et extrayez à nouveau après avoir ajouté d’autres pins.",
           ],
         },
@@ -866,27 +908,27 @@ const locale = {
       ],
     },
     "ai-credits": {
-      title: "Résumés IA et crédits",
+      title: "Résumés et crédits de l’IA Pinar Cloud",
       summary:
-        "Sachez quand les crédits sont réservés, dépensés, rechargés ou remboursés.",
+        "Sachez quand les crédits Pinar Cloud sont réservés, dépensés, rechargés ou remboursés.",
       sections: [
         {
           heading: "Coût du résumé",
           paragraphs: [
-            "Un résumé de session réserve 1 crédit IA avant l’inférence du modèle. En cas de succès, la réservation est consommée. Une inférence échouée ou abandonnée la rembourse immédiatement ; une réservation laissée non soldée plus de cinq minutes est remboursée automatiquement. Les résumés autorisent 10 requêtes par minute par compte et 30 par minute par IP ; une requête en double pour la même session attend la fin de la requête active.",
+            "Dans Pinar Cloud, un résumé de session réserve 1 crédit IA avant l’inférence du modèle. En cas de succès, la réservation est consommée. Une inférence échouée ou abandonnée la rembourse immédiatement ; une réservation laissée non soldée plus de cinq minutes est remboursée automatiquement. Les résumés autorisent 10 requêtes par minute par compte et 30 par minute par IP ; une requête en double pour la même session attend la fin de la requête active.",
           ],
         },
         {
           heading: "Ce que coûte chaque fonction IA",
           paragraphs: [
-            "Chaque fonction IA réserve ses crédits avant d’exécuter le modèle et les rembourse quand le résultat est inutilisable, exactement comme le résumé. Le coût est fixe par requête, pas par token : un résumé de session coûte 1 crédit, un diagnostic d’épingle 3, une reproduction (étapes rédigées plus un test Playwright) 5, l’enregistrement d’une épingle comme composant 10 et l’extraction du design system d’une collection 15.",
+            "Chaque fonction IA de Pinar Cloud réserve ses crédits avant d’exécuter le modèle et les rembourse quand le résultat est inutilisable, exactement comme le résumé. Le coût est fixe par requête, pas par token : un résumé de session coûte 1 crédit, un diagnostic d’épingle 3, une reproduction (étapes rédigées plus un test Playwright) 5, l’enregistrement d’une épingle comme composant 10 et l’extraction du design system d’une collection 15.",
             "Les preuves techniques et la structure de l’élément sont capturées par l’extension sans aucun modèle et ne coûtent rien. Une requête impossible à exécuter (une épingle sans structure capturée, une collection avec moins de trois instantanés du même domaine) est refusée avant toute réservation de crédit.",
           ],
         },
         {
           heading: "Soldes",
           paragraphs: [
-            "Les packs achetés ajoutent 1 000 crédits. L’allocation mensuelle de 200 crédits de Pro ne se reporte pas. Le menu du compte affiche le solde actif et la prochaine date de recharge applicable.",
+            "Les packs Pinar Cloud achetés ajoutent 1 000 crédits. L’allocation mensuelle de 200 crédits de Pro ne se reporte pas. Le menu du compte affiche le solde actif et la prochaine date de recharge applicable.",
           ],
         },
         {

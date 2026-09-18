@@ -31,6 +31,7 @@ function Toaster(props: ToasterProps) {
         success: <IconCircleCheck className="size-4" />,
         warning: <IconTriangleAlert className="size-4" />,
       }}
+      position="bottom-right"
       style={toasterStyle}
       toastOptions={{ classNames: { toast: "cn-toast" } }}
       {...props}

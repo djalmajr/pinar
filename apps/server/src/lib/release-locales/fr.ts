@@ -50,25 +50,25 @@ const locale = {
         "technical-evidence": {
           title: "Preuves techniques",
           description:
-            "Les erreurs de console, les requêtes échouées et l’environnement observés pendant que vous épingliez sont listés avec le pin, classés Après interaction ou Même page. Rien n’est déduit et aucun crédit n’est dépensé.",
+            "Les erreurs de console, les requêtes échouées et l’environnement observés pendant que vous épingliez sont listés avec le pin, classés Après interaction ou Même page. Rien n’est déduit et aucun crédit Pinar Cloud n’est dépensé.",
         },
         "pin-diagnosis": {
-          title: "Diagnostiquer un pin (3 crédits)",
+          title: "Diagnostiquer un pin dans Pinar Cloud (3 crédits)",
           description:
             "L’IA explique la cause probable du pin à partir de sa structure et propose un correctif CSS avec un niveau de confiance. Acceptez, modifiez ou rejetez-le ; seuls les diagnostics acceptés restent avec le pin.",
         },
         "save-as-component": {
-          title: "Enregistrer un pin comme composant (10 crédits)",
+          title: "Enregistrer un pin comme composant dans Pinar Cloud (10 crédits)",
           description:
             "Transformez un élément capturé en HTML + CSS, React + Tailwind ou Preact + htm, avec fichiers, dépendances, notes de fidélité, aperçu, téléchargement ZIP et StackBlitz.",
         },
         "step-recording": {
-          title: "Enregistrer les étapes et générer un test Playwright (5 crédits)",
+          title: "Générer un test Playwright dans Pinar Cloud (5 crédits)",
           description:
             "Appuyez sur G sur la page pour enregistrer clics, saisie, défilement et navigation. Rouvrez Pinar, épinglez et copiez pour joindre les étapes ; G à nouveau les abandonne. Le visualiseur génère des étapes rédigées et un test Playwright.",
         },
         "collection-design-system": {
-          title: "Design system d’une collection (15 crédits)",
+          title: "Design system d’une collection dans Pinar Cloud (15 crédits)",
           description:
             "Extrayez les couleurs, la typographie, les espacements, les rayons et les ombres partagés par les pins d’une collection. Exportez en variables CSS, thème Tailwind, tokens W3C ou DESIGN.md.",
         },

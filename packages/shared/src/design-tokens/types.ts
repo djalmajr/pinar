@@ -46,6 +46,8 @@ export interface DesignSystem {
   identity?: string;
   /** Model that named the tokens, absent for a purely deterministic result. */
   model?: string;
+  /** Inference provider used to name the tokens. */
+  provider?: string;
   radii: DesignToken[];
   sample: DesignSample;
   shadows: DesignToken[];
@@ -82,6 +84,7 @@ export interface DesignSystemOptions {
   generatedAt?: string;
   identity?: string;
   model?: string;
+  provider?: string;
   names?: TokenNames;
 }
 

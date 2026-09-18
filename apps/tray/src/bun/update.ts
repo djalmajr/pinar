@@ -90,14 +90,13 @@ export type RemoteUpdateCheck = {
 	artifactUrl: string;
 };
 
-export const UPDATE_STATUS_SECONDS = 10;
+export const UPDATE_STATUS_DURATION_MS = 10_000;
 
 export type UpdateUiState = {
 	available: boolean;
 	checking: boolean;
 	failed: boolean;
 	ready: boolean;
-	secondsLeft: number;
 	updated: boolean;
 	version: string;
 };
@@ -108,16 +107,9 @@ export function idleUpdateUi(): UpdateUiState {
 		checking: false,
 		failed: false,
 		ready: false,
-		secondsLeft: 0,
 		updated: false,
 		version: "",
 	};
-}
-
-export function tickUpdateStatus(state: UpdateUiState): UpdateUiState {
-	if (!state.failed && !state.updated) return state;
-	if (state.secondsLeft <= 1) return idleUpdateUi();
-	return { ...state, secondsLeft: state.secondsLeft - 1 };
 }
 
 export function platformPrefix(
@@ -251,7 +243,7 @@ export function updateMenuItem(
 		return {
 			action: "check-update",
 			enabled: true,
-			label: formatTrayLabel(labels.updateCheckFailed, { seconds: state.secondsLeft }),
+			label: labels.updateCheckFailed,
 			type: "normal" as const,
 		};
 	}
@@ -259,7 +251,7 @@ export function updateMenuItem(
 		return {
 			action: "check-update",
 			enabled: true,
-			label: formatTrayLabel(labels.upToDate, { seconds: state.secondsLeft }),
+			label: labels.upToDate,
 			type: "normal" as const,
 		};
 	}

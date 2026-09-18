@@ -2,7 +2,10 @@ import { useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { asPinDiagnosis, type DiagnosisConfidence, type Pin, type PinDiagnosis } from "@pinar/shared";
 import { Badge, Button } from "@pinar/ui";
+import { AiCreditCostHint } from "@/components/AiCreditCostHint";
+import { useGlobalSettings } from "@/components/GlobalSettingsDialog";
 import { isRecord } from "@/lib/api-data";
+import { aiErrorPresentation, type AiRecovery } from "@/lib/ai-error-presentation";
 import { useServerI18n, type ServerMessageKey } from "@/lib/i18n";
 import CheckIcon from "~icons/lucide/check";
 import LoaderCircleIcon from "~icons/lucide/loader-circle";
@@ -25,8 +28,6 @@ interface PinDiagnosisPanelProps {
 interface DiagnosisBodyProps {
   diagnosis: PinDiagnosis;
 }
-
-type AiRecovery = "pricing" | "retry" | "signIn" | null;
 
 const CONFIDENCE_LABELS: Record<DiagnosisConfidence, ServerMessageKey> = {
   high: "viewer.diagnosisConfidenceHigh",
@@ -87,11 +88,11 @@ function DiagnosisBody({ diagnosis }: DiagnosisBodyProps) {
 
 export function PinDiagnosisPanel({ canEdit, pin, sessionId, showAi, onPersist }: PinDiagnosisPanelProps) {
   const { language, t } = useServerI18n();
+  const openSettings = useGlobalSettings();
   const [proposal, setProposal] = useState<PinDiagnosis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [recovery, setRecovery] = useState<AiRecovery>(null);
-  const [creditsRemaining, setCreditsRemaining] = useState<number | null>(null);
   const [editing, setEditing] = useState(false);
   const [draftCause, setDraftCause] = useState("");
   const [draftFix, setDraftFix] = useState("");
@@ -120,29 +121,15 @@ export function PinDiagnosisPanel({ canEdit, pin, sessionId, showAi, onPersist }
       if (!response.ok || !result) {
         const code = isRecord(data) && typeof data.code === "string" ? data.code : "";
         if (code !== "ai_request_in_progress" && code !== "ai_refund_pending") requestId.current = null;
-        if (response.status === 401) {
-          setError(t("viewer.aiSignIn"));
-          setRecovery("signIn");
-        } else if (code === "ai_requires_paid" || code === "insufficient_ai_credits") {
-          setError(t("viewer.aiNoCredits"));
-          setRecovery("pricing");
-        } else if (code === "ai_rate_limited") {
-          setError(t("viewer.aiRateLimited"));
-          setRecovery("retry");
-        } else if (code === "ai_refund_pending") {
-          setError(t("viewer.aiRefundPending"));
-          setRecovery("retry");
-        } else if (code === "snapshot_required") {
+        if (code === "snapshot_required") {
           setError(t("viewer.diagnosisNeedsSnapshot"));
           setRecovery(null);
         } else {
-          setError(t("viewer.aiUnavailable"));
-          setRecovery("retry");
+          const presentation = aiErrorPresentation(response.status, code);
+          setError(t(presentation.messageKey));
+          setRecovery(presentation.recovery);
         }
         return;
-      }
-      if (isRecord(data) && isRecord(data.aiCredits) && typeof data.aiCredits.balance === "number") {
-        setCreditsRemaining(data.aiCredits.balance);
       }
       requestId.current = null;
       setProposal(result);
@@ -291,9 +278,6 @@ export function PinDiagnosisPanel({ canEdit, pin, sessionId, showAi, onPersist }
             </div>
           </>
         )}
-        {creditsRemaining !== null ? (
-          <p className="text-xs text-muted-foreground">{t("viewer.diagnosisCreditsRemaining", { count: creditsRemaining })}</p>
-        ) : null}
         {saveError}
       </div>
     );
@@ -306,11 +290,13 @@ export function PinDiagnosisPanel({ canEdit, pin, sessionId, showAi, onPersist }
           <p className="text-sm font-medium">{t("viewer.diagnosis")}</p>
           <p className="text-xs text-muted-foreground">{t("viewer.diagnosisDescription")}</p>
         </div>
-        <Button disabled={loading} size="sm" type="button" variant="outline" onClick={() => void diagnose()}>
-          {loading ? <LoaderCircleIcon className="size-3.5 animate-spin" /> : <StethoscopeIcon className="size-3.5" />}
-          {loading ? t("viewer.diagnosisLoading") : t("viewer.diagnosisAction")}
-          {loading ? null : <span className="text-muted-foreground">· {t("viewer.diagnosisCost", { count: PIN_DIAGNOSIS_CREDITS })}</span>}
-        </Button>
+        <div className="flex flex-wrap items-center gap-1">
+          <Button disabled={loading} size="sm" type="button" variant="outline" onClick={() => void diagnose()}>
+            {loading ? <LoaderCircleIcon className="size-3.5 animate-spin" /> : <StethoscopeIcon className="size-3.5" />}
+            {loading ? t("viewer.diagnosisLoading") : t("viewer.diagnosisAction")}
+          </Button>
+          <AiCreditCostHint label={t("viewer.aiCloudCreditCost", { count: PIN_DIAGNOSIS_CREDITS })} />
+        </div>
       </div>
       {error ? (
         <div className="flex flex-col items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -326,6 +312,10 @@ export function PinDiagnosisPanel({ canEdit, pin, sessionId, showAi, onPersist }
           ) : recovery === "retry" ? (
             <Button size="sm" type="button" variant="outline" onClick={() => void diagnose()}>
               {t("viewer.aiRetry")}
+            </Button>
+          ) : recovery === "settings" ? (
+            <Button size="sm" type="button" variant="outline" onClick={() => openSettings("aiUsage")}>
+              {t("settings.ai")}
             </Button>
           ) : null}
         </div>

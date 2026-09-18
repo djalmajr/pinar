@@ -344,6 +344,7 @@ class JsonHistoryDb {
             agent_executions: [],
             batches: [],
             collections: [],
+            design_systems: [],
             loop_metrics: [],
             pin_review_events: [],
             pin_reviews: [],
@@ -356,6 +357,7 @@ class JsonHistoryDb {
             agent_executions: Array.isArray(stored.agent_executions) ? stored.agent_executions : [],
             batches: Array.isArray(stored.batches) ? stored.batches : [],
             collections: Array.isArray(stored.collections) ? stored.collections : [],
+            design_systems: Array.isArray(stored.design_systems) ? stored.design_systems : [],
             loop_metrics: Array.isArray(stored.loop_metrics) ? stored.loop_metrics : [],
             pin_review_events: Array.isArray(stored.pin_review_events) ? stored.pin_review_events : [],
             pin_reviews: Array.isArray(stored.pin_reviews) ? stored.pin_reviews : [],
@@ -371,6 +373,7 @@ class JsonHistoryDb {
       agent_executions: [],
       batches: [],
       collections: [],
+      design_systems: [],
       loop_metrics: [],
       pin_review_events: [],
       pin_reviews: [],
@@ -463,6 +466,20 @@ class JsonHistoryDb {
     return collection
       ? { collectionId: collection.id, projectId: collection.project_id }
       : this.getDefaultDestination();
+  }
+
+  readCollectionDesignSystem(collectionId) {
+    return this.data.design_systems.find((item) => item.collection_id === collectionId)?.value ?? null;
+  }
+
+  writeCollectionDesignSystem(collectionId, value) {
+    if (!this.data.collections.some((item) => item.id === collectionId)) return false;
+    this.data.design_systems = [
+      { collection_id: collectionId, updated_at: now(), value },
+      ...this.data.design_systems.filter((item) => item.collection_id !== collectionId),
+    ];
+    this._save();
+    return true;
   }
 
   /** @param {HistoryInput} input */
@@ -1027,6 +1044,11 @@ class SqliteHistoryDb {
         degraded INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS collection_design_systems (
+        collection_id TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
       CREATE INDEX IF NOT EXISTS idx_projects_owner_position ON projects(owner_id, position);
       CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions(created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_agent_executions_capture ON agent_executions(capture_id, created_at);
@@ -1128,6 +1150,26 @@ class SqliteHistoryDb {
     return row
       ? { collectionId: row.id, projectId: row.project_id }
       : this.getDefaultDestination();
+  }
+
+  readCollectionDesignSystem(collectionId) {
+    const row = this.db.prepare(
+      "SELECT value FROM collection_design_systems WHERE collection_id = ?",
+    ).get(collectionId);
+    return row?.value ?? null;
+  }
+
+  writeCollectionDesignSystem(collectionId, value) {
+    const collection = this.db.prepare(
+      "SELECT id FROM collections WHERE id = ? AND owner_id = ?",
+    ).get(collectionId, LOCAL_OWNER_ID);
+    if (!collection) return false;
+    this.db.prepare(`
+      INSERT INTO collection_design_systems (collection_id, value, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(collection_id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `).run(collectionId, value, now());
+    return true;
   }
 
   /** @param {HistoryInput} input */

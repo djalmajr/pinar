@@ -48,7 +48,7 @@
   const apple = /mac|iphone|ipad|ipod/i.test(
     `${navigator.userAgentData?.platform ?? ""} ${navigator.platform ?? ""} ${navigator.userAgent ?? ""}`,
   );
-  const sendMod = apple ? "⌘" : "Ctrl";
+  const sendMod = apple ? "⌘" : "Alt";
   const FRAME_ACTIVITY = "pinar:frame-activity";
   const FRAME_CANCEL = "pinar:frame-cancel";
   const FRAME_CLEAR = "pinar:frame-clear";
@@ -90,7 +90,9 @@
   } = globalThis.__pinarPrivacy;
   const evidenceStore = globalThis.__pinarEvidence?.store ?? null;
   const {
+    copyShortcutLabel,
     handleComposerKeyDown,
+    isCopyShortcut,
     stopComposerKeyboardEvent,
   } = globalThis.__pinarKeyboardEvents;
   const captureSnapshot = globalThis.__pinarSnapshot?.captureSnapshot ?? (() => undefined);
@@ -307,15 +309,17 @@
         background: rgba(255,255,255,.96);
         border: 1px solid rgba(15,23,42,.18);
         border-radius: 8px;
+        bottom: 16px;
         box-shadow: 0 8px 20px rgba(15,23,42,.14), 0 1px 2px rgba(15,23,42,.08);
         color: #262626;
         font: 500 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        left: 50%;
+        max-width: calc(100vw - 32px);
+        overflow: hidden;
         padding: 7px 10px;
         pointer-events: none;
         position: fixed;
-        top: 68px;
-        transform: translateX(-50%);
+        right: 16px;
+        text-overflow: ellipsis;
         white-space: nowrap;
         z-index: 3;
       }
@@ -661,7 +665,7 @@
         <span class="instructions" data-ref="instructions">
           <span class="hint" data-hint="pin" data-i18n="overlay_hint_pin">${t("overlay_hint_pin")}</span>
           <span class="hint" data-hint="tune"><span class="keys"><kbd>↑</kbd><kbd>↓</kbd></span><span class="long" data-i18n="overlay_hint_tune_long">${t("overlay_hint_tune_long")}</span><span class="short" data-i18n="overlay_hint_tune_short">${t("overlay_hint_tune_short")}</span></span>
-          <span class="hint" data-hint="copy"><span class="keys"><kbd>${sendMod}/Alt + ⏎</kbd></span><span class="long" data-i18n="overlay_hint_copy_long">${t("overlay_hint_copy_long")}</span><span class="short" data-i18n="overlay_hint_copy_short">${t("overlay_hint_copy_short")}</span></span>
+          <span class="hint" data-hint="copy"><span class="keys"><kbd>${copyShortcutLabel(apple)}</kbd></span><span class="long" data-i18n="overlay_hint_copy_long">${t("overlay_hint_copy_long")}</span><span class="short" data-i18n="overlay_hint_copy_short">${t("overlay_hint_copy_short")}</span></span>
           <span class="hint" data-hint="mask"><span class="keys"><kbd>M</kbd></span><span class="long" data-i18n="overlay_hint_mask_long">${t("overlay_hint_mask_long")}</span><span class="short" data-i18n="overlay_hint_mask_short">${t("overlay_hint_mask_short")}</span></span>
           <span class="hint" data-hint="regions"><span class="keys"><kbd>R</kbd></span><span data-i18n="overlay_hint_regions">${t("overlay_hint_regions")}</span></span>
           <span class="hint" data-hint="record"><span class="keys"><kbd>G</kbd></span><span class="long" data-i18n="overlay_hint_record_long">${t("overlay_hint_record_long")}</span><span class="short" data-i18n="overlay_hint_record_short">${t("overlay_hint_record_short")}</span></span>
@@ -2595,10 +2599,6 @@
     }
   }
 
-  function isModEnter(event) {
-    return event.key === "Enter" && (event.metaKey || event.ctrlKey || event.altKey);
-  }
-
   // Physical keys whose keydown we suppressed; their keyup/keypress must be
   // suppressed too, even if the same key deactivated pin mode meanwhile.
   const ownedKeyCodes = new Set();
@@ -2609,7 +2609,7 @@
     if (event.composedPath()[0]?.matches?.(".review-comment")) return;
     // onKey fully owns these two keys: never let the page see them, even when
     // they originate inside the composer (e.g. Esc closing a page modal).
-    if (isModEnter(event)) {
+    if (isCopyShortcut(event, apple)) {
       event.preventDefault();
       event.stopImmediatePropagation();
       ownedKeyCodes.add(event.code);
@@ -2707,8 +2707,8 @@
     }
     if (!isMounted() || !state.active) return;
     // Keys onKey owns on keydown stay owned here too, regardless of origin:
-    // apps may react to Escape/Mod+Enter on keyup even with keydown blocked.
-    if (event.key === "Escape" || isModEnter(event)) {
+    // apps may react to Escape or the copy shortcut on keyup even with keydown blocked.
+    if (event.key === "Escape" || isCopyShortcut(event, apple)) {
       event.stopImmediatePropagation();
       return;
     }

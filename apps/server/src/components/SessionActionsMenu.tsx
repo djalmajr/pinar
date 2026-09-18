@@ -4,7 +4,6 @@ import CopyIcon from "~icons/lucide/copy";
 import FileTextIcon from "~icons/lucide/file-text";
 import FolderInputIcon from "~icons/lucide/folder-input";
 import LayersIcon from "~icons/lucide/layers";
-import Maximize2Icon from "~icons/lucide/maximize-2";
 import TrashIcon from "~icons/lucide/trash-2";
 import {
   DropdownMenuContent,
@@ -20,8 +19,8 @@ import type { SessionGroup } from "../lib/session-groups";
  * Listing cards and the workspace viewer share this menu so a session is not
  * reachable differently from either surface. Each item renders only when its
  * handler is supplied: the public /v/ route omits move and delete (no list to
- * return to), and "view" stays off the viewer because that surface is already
- * open. Empty groups must not render, or a stray separator sits above Open prompt *.md.
+ * return to). Empty groups must not render, or a stray separator sits above
+ * Open prompt *.md.
  * "Copy prompt (batch)" appears only for a session that belongs to one.
  */
 export interface SessionActionsMenuProps {
@@ -34,7 +33,6 @@ export interface SessionActionsMenuProps {
   onCopyBatch?: (batchId: string) => void;
   onDelete?: (id: string) => void;
   onMove?: (id: string) => void;
-  onView?: (id: string) => void;
 }
 
 // Width comes from the primitive, which sizes every menu to its own content.
@@ -50,24 +48,11 @@ export function SessionActionsMenu({
   onCopyBatch,
   onDelete,
   onMove,
-  onView,
 }: SessionActionsMenuProps) {
   const batchId = session.batchId ?? null;
   const grouped = Boolean((session as SessionGroup).captures);
-  const hasOpenGroup = Boolean(onView);
   return (
     <DropdownMenuContent align="end" className={SESSION_MENU_WIDTH}>
-      {hasOpenGroup ? (
-        <DropdownMenuGroup>
-          {onView ? (
-            <DropdownMenuItem onClick={() => onView(session.id)}>
-              <Maximize2Icon />
-              {t("dashboard.view")}
-            </DropdownMenuItem>
-          ) : null}
-        </DropdownMenuGroup>
-      ) : null}
-      {hasOpenGroup ? <DropdownMenuSeparator /> : null}
       <DropdownMenuGroup>
         {onCopy ? (
           <DropdownMenuItem closeOnClick={false} onClick={() => onCopy(session)}>

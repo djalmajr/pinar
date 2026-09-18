@@ -250,7 +250,7 @@ export function AppAccountMenu() {
                   {t("app.billing")}
                 </DropdownMenuItem>
               ) : null}
-              <DropdownMenuItem onClick={openSettings}>
+              <DropdownMenuItem onClick={() => openSettings()}>
                 <SettingsIcon />
                 {t("settings.title")}
               </DropdownMenuItem>

@@ -445,5 +445,6 @@ export function designSystemFromSample(sample: AggregatedSample, options: Design
   };
   if (options.identity) system.identity = options.identity;
   if (options.model) system.model = options.model;
+  if (options.provider) system.provider = options.provider;
   return system;
 }

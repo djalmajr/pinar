@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, test } from "node:test";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -15,6 +15,7 @@ import { exerciseVisualContextContract } from "./visual-context.contract";
 import { exerciseAgentResultsContract } from "./agent-results.contract";
 import { exercisePinReviewContract } from "./pin-review.contract";
 import { exerciseClosedLoopContract } from "./closed-loop.contract";
+import { setLocalAiDependenciesForTests } from "./ai/local-ai";
 
 const VALID_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 
@@ -471,5 +472,124 @@ describe("local TanStack API", () => {
     const text = await markdown.text();
     assert.match(text, /Diagnosis \(medium confidence\): Padding differs from siblings/);
     assert.match(text, /"cause":"Padding differs from siblings"/);
+  });
+
+  test("configures OpenAI-compatible local AI and summarizes without Pinar credits", async () => {
+    const secrets = new Map<string, string>();
+    setLocalAiDependenciesForTests({
+      vault: {
+        clear: async () => { secrets.clear(); },
+        get: async () => secrets.get("key") ?? null,
+        set: async (value) => { secrets.set("key", value); },
+      },
+      fetch: async (input, init) => {
+        if (String(input).endsWith("/models")) {
+          return Response.json({ data: [{ id: "llama3.2" }] });
+        }
+        assert.equal(String(input), "http://127.0.0.1:11434/v1/chat/completions");
+        assert.equal(new Headers(init?.headers).has("Authorization"), false);
+        return Response.json({
+          choices: [{ message: { content: '{"summary":"Local summary","highlights":["First pin"]}' } }],
+          model: "llama3.2-q4",
+          usage: { completion_tokens: 8, prompt_tokens: 12 },
+        });
+      },
+    });
+
+    const configured = await jsonBody(await request("/api/ai/settings", {
+      body: JSON.stringify({
+        endpoint: "http://127.0.0.1:11434/v1",
+        mode: "local",
+        model: "llama3.2",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    }));
+    assert.equal(configured.ok, true);
+    assert.equal(configured.mode, "local");
+    assert.equal(configured.hasApiKey, false);
+    assert.doesNotMatch(readFileSync(join(root, "ai.json"), "utf8"), /apiKey/);
+
+    await request("/api/history", {
+      body: JSON.stringify({
+        id: "local_ai_session",
+        page: { title: "Local AI", url: "https://example.test/ai" },
+        pins: [{ comment: "First pin", kind: "element" }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const response = await request("/api/ai/session-summary", {
+      body: JSON.stringify({ language: "en", requestId: "local_request_001", sessionId: "local_ai_session" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(response.status, 200);
+    const generated = await jsonBody(response);
+    assert.equal(generated.creditsCharged, 0);
+    assert.deepEqual(generated.result, {
+      highlights: ["First pin"],
+      model: "llama3.2-q4",
+      provider: "local",
+      summary: "Local summary",
+    });
+    assert.deepEqual(generated.usage, {
+      inputTokens: 12,
+      model: "llama3.2-q4",
+      outputTokens: 8,
+      provider: "local",
+    });
+  });
+
+  test("returns only a masked preview for a stored BYOK key", async () => {
+    // Mutation captured: omitting apiKeyPreview or returning the stored secret exposes no safe key identity to the UI.
+    const secret = "sk-proj-1234567890abcdef";
+    const secrets = new Map<string, string>();
+    setLocalAiDependenciesForTests({
+      vault: {
+        clear: async () => { secrets.clear(); },
+        get: async () => secrets.get("key") ?? null,
+        set: async (value) => { secrets.set("key", value); },
+      },
+      fetch: async (_input, init) => {
+        assert.equal(new Headers(init?.headers).get("Authorization"), `Bearer ${secret}`);
+        return Response.json({ data: [{ id: "qwen3.8-27b" }] });
+      },
+    });
+
+    const configuredResponse = await request("/api/ai/settings", {
+      body: JSON.stringify({
+        apiKey: secret,
+        endpoint: "https://provider.example/v1",
+        mode: "byok",
+        model: "qwen3.8-27b",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    });
+    const configuredText = await configuredResponse.text();
+    assert.doesNotMatch(configuredText, new RegExp(secret));
+    const configured: unknown = JSON.parse(configuredText);
+    assert.ok(isRecord(configured));
+    assert.equal(configured.apiKeyPreview, "sk-p••••cdef");
+
+    const storedResponse = await request("/api/ai/settings");
+    const storedText = await storedResponse.text();
+    assert.doesNotMatch(storedText, new RegExp(secret));
+    const stored: unknown = JSON.parse(storedText);
+    assert.ok(isRecord(stored));
+    assert.equal(stored.apiKeyPreview, "sk-p••••cdef");
+    assert.doesNotMatch(readFileSync(join(root, "ai.json"), "utf8"), new RegExp(secret));
+
+    const clearedResponse = await request("/api/ai/settings/key", { method: "DELETE" });
+    assert.equal(clearedResponse.status, 200);
+    const cleared = await jsonBody(clearedResponse);
+    assert.equal(cleared.ok, true);
+    assert.equal(cleared.hasApiKey, false);
+    assert.equal(cleared.apiKeyPreview, "");
+    assert.equal(cleared.endpoint, "https://provider.example/v1");
+    assert.equal(cleared.mode, "byok");
+    assert.equal(cleared.model, "qwen3.8-27b");
+    assert.equal(secrets.size, 0);
   });
 });

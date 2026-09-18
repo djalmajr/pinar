@@ -8,6 +8,43 @@ Pinar has three intentionally different runtime targets:
 | Local cloud runtime | `bun run dev:cloud` | Cloudflare Worker code with isolated local D1/R2 and a deterministic paid fixture |
 | Staging | `https://stg.pinar.dev` | Deployed Worker, staging D1/R2, email and Stripe Test/Sandbox lifecycle |
 
+## Use the unpacked extension against staging
+
+The repository manifest carries a public development key, so every unpacked
+checkout has the stable extension origin
+`chrome-extension://bobfbkbogoiemdcjchoakflgepmekdeh`. Staging trusts that
+origin through its `EXTENSION_ORIGIN` secret.
+
+Build the extension and reload the unpacked `extension/` directory:
+
+```sh
+bun run build:ext
+```
+
+When adopting the stable development key for the first time, Chrome may still
+show the previous path-derived unpacked ID. Remove only that old unpacked entry
+and use **Load unpacked** on this repository's `extension/` directory once. Do
+not remove the Chrome Web Store installation. Subsequent source changes need
+only the normal Reload action.
+
+The unpacked build identifies itself as a development build, pins its hosted
+endpoint to `https://stg.pinar.dev`, and labels the remote storage choice as
+**Staging** in Options. Select Staging and save. The staging profile does not
+show or record legal acceptance: the staging Worker explicitly permits test
+installations without legal evidence. Production and the isolated local-cloud
+profile continue to require the current documents. Do not edit `chrome.storage`,
+clear local state, or change the URL in DevTools.
+
+Remote installation identity, device login, and production/local-cloud legal
+acceptance are stored per endpoint. Switching runtime targets cannot reuse
+production credentials or consent elsewhere. Legacy unscoped state migrates
+only to the production profile.
+
+The isolated cloud E2E may override the development endpoint with an HTTP
+loopback URL. Other custom or external URLs are rejected by the runtime profile.
+The Chrome Web Store package removes the development key and pins the hosted
+endpoint to `https://pinar.dev`.
+
 ## Run hosted features locally
 
 From the repository root:

@@ -49,25 +49,25 @@ const locale = {
         "technical-evidence": {
           title: "Evidencia técnica",
           description:
-            "Los errores de consola, las peticiones fallidas y el entorno observados mientras fijabas pins se listan con el pin, clasificados como Tras la interacción o Misma página. Nada se infiere y no se gasta ningún crédito.",
+            "Los errores de consola, las peticiones fallidas y el entorno observados mientras fijabas pins se listan con el pin, clasificados como Tras la interacción o Misma página. Nada se infiere y no se gasta ningún crédito de Pinar Cloud.",
         },
         "pin-diagnosis": {
-          title: "Diagnosticar un pin (3 créditos)",
+          title: "Diagnosticar un pin en Pinar Cloud (3 créditos)",
           description:
             "La IA explica la causa probable del pin a partir de su estructura y propone una corrección CSS con un nivel de confianza. Acéptala, edítala o descártala; solo los diagnósticos aceptados se quedan con el pin.",
         },
         "save-as-component": {
-          title: "Guardar un pin como componente (10 créditos)",
+          title: "Guardar un pin como componente en Pinar Cloud (10 créditos)",
           description:
             "Convierte un elemento capturado en HTML + CSS, React + Tailwind o Preact + htm, con archivos, dependencias, notas de fidelidad, previsualización, descarga en ZIP y StackBlitz.",
         },
         "step-recording": {
-          title: "Grabar pasos y generar una prueba Playwright (5 créditos)",
+          title: "Generar una prueba Playwright en Pinar Cloud (5 créditos)",
           description:
             "Pulsa G en la página para grabar clics, escritura, desplazamiento y navegación. Vuelve a abrir Pinar, fija y copia para adjuntar los pasos; G de nuevo los descarta. El visor genera pasos escritos y una prueba Playwright.",
         },
         "collection-design-system": {
-          title: "Sistema de diseño de una colección (15 créditos)",
+          title: "Sistema de diseño de una colección en Pinar Cloud (15 créditos)",
           description:
             "Extrae los colores, tipografía, espaciado, radios y sombras compartidos por los pins de una colección. Expórtalo como variables CSS, un tema Tailwind, tokens W3C o DESIGN.md.",
         },

@@ -55,6 +55,22 @@ describe("extension action entry points", () => {
     assert.doesNotMatch(state, /translations\.en/);
   });
 
+  test("the action badge counts pins instead of pages", () => {
+    const surfaces = backgroundSrc.slice(
+      backgroundSrc.indexOf("async function syncBatchSurfaces"),
+      backgroundSrc.indexOf("function overlayMessages"),
+    );
+    assert.match(surfaces, /state\.pins > 0 \? String\(state\.pins\) : "on"/);
+    assert.doesNotMatch(surfaces, /state\.count > 0 \? String\(state\.count\) : "on"/);
+  });
+
+  test("the batch shortcut follows the browser platform without a Ctrl fallback", () => {
+    const state = backgroundSrc.slice(backgroundSrc.indexOf("async function batchState()"), backgroundSrc.indexOf("async function syncBatchSurfaces"));
+    assert.match(state, /getPlatformInfo/);
+    assert.match(state, /platform\.os === "mac" \? "Command\+Enter" : "Alt\+Enter"/);
+    assert.doesNotMatch(state, /Ctrl\+Enter/);
+  });
+
   test("the menu title is refreshed when the language or the batch changes", () => {
     assert.match(backgroundSrc, /async function syncBatchSurfaces[\s\S]*?await syncActionMenu\(state\)/);
     assert.match(backgroundSrc, /changes\.language[\s\S]*?syncActionMenu/);

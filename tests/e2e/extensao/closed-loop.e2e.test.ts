@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { resolve } from "node:path";
+import { pressCopyShortcut } from "../helpers/extension-shortcut";
 
 const extensionPath = (file: string) => resolve(process.cwd(), "extension", file);
 const VALID_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
@@ -95,7 +96,7 @@ test("pin copy keeps capture ids for the four-agent handoff", async ({ page }) =
   await expect(composer).toBeVisible();
   await composer.locator("textarea").fill("Make the CTA bolder");
   await composer.getByRole("button", { name: "Add" }).click();
-  await page.keyboard.press("Control+Enter");
+  await pressCopyShortcut(page);
   await expect(page.locator('[data-pinar="host"] [data-ref="status"]')).toHaveText("Copied");
 
   const clipboardMessage = await page.evaluate(() => {

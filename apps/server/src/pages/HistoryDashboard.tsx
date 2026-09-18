@@ -88,7 +88,6 @@ import ExternalLinkIcon from "~icons/lucide/external-link";
 import FolderIcon from "~icons/lucide/folder";
 import GridIcon from "~icons/lucide/layout-grid";
 import ListFilterIcon from "~icons/lucide/list-filter";
-import Maximize2Icon from "~icons/lucide/maximize-2";
 import MessageCircleIcon from "~icons/lucide/message-circle";
 import MoreVerticalIcon from "~icons/lucide/ellipsis-vertical";
 import FolderInputIcon from "~icons/lucide/folder-input";
@@ -187,7 +186,6 @@ function SessionActions({
   onCopyBatch,
   onDelete,
   onMove,
-  onView,
   t,
 }: {
   batchCopied: boolean;
@@ -197,7 +195,6 @@ function SessionActions({
   onCopyBatch: (batchId: string) => void;
   onDelete: (id: string) => void;
   onMove: (id: string) => void;
-  onView: (sessionId: string) => void;
   t: Translate;
 }) {
   return (
@@ -227,7 +224,6 @@ function SessionActions({
           onMove={onMove}
           batchCopied={batchCopied}
           onCopyBatch={onCopyBatch}
-          onView={onView}
         />
       </DropdownMenu>
     </div>
@@ -276,7 +272,7 @@ function SessionPreview({
   return (
     <button
       aria-label={t("dashboard.openPreview")}
-      className="group relative block h-32 w-full overflow-hidden border-b bg-muted"
+      className="group block h-32 w-full overflow-hidden border-b bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       data-no-dnd=""
       type="button"
       onClick={onOpen}
@@ -288,10 +284,6 @@ function SessionPreview({
         src={previewUrl}
         onError={() => setFailed(true)}
       />
-      <span className="pointer-events-none absolute inset-0 flex items-center justify-center gap-1.5 bg-black/45 text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
-        <Maximize2Icon />
-        {t("dashboard.openPreview")}
-      </span>
     </button>
   );
 }
@@ -414,13 +406,11 @@ function DraggableSessionTableRow({
 
 function DraggableSessionCard({
   children,
-  onOpen,
   selected,
   selectedIds,
   session,
 }: {
   children: ReactNode;
-  onOpen: () => void;
   selected: boolean;
   selectedIds: ReadonlySet<string>;
   session: Session;
@@ -440,7 +430,7 @@ function DraggableSessionCard({
     <Card
       ref={draggable.setNodeRef}
       className={cn(
-        "group/card relative cursor-pointer gap-0 py-0 transition-colors hover:ring-primary/35 focus-visible:ring-2 focus-visible:ring-ring/50",
+        "group/card relative gap-0 py-0 transition-colors hover:ring-primary/35",
         selected && "ring-primary/50",
         draggable.isDragging && "cursor-grabbing opacity-40",
       )}
@@ -450,12 +440,6 @@ function DraggableSessionCard({
       {...((session as SessionGroup).captures ? {} : draggable.attributes)}
       {...draggable.listeners}
       role="article"
-      onClick={(event) => {
-        if (event.defaultPrevented) return;
-        const target = event.target;
-        if (target instanceof Element && target.closest("a, button, input, [data-no-dnd]")) return;
-        onOpen();
-      }}
     >
       {children}
     </Card>
@@ -750,7 +734,6 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
           onCopyBatch={(id) => void copyBatch(id)}
           onDelete={(id) => setDeleteIds([id])}
           onMove={(id) => openMoveDialog([id])}
-          onView={openViewer}
           t={t}
         />
       ),
@@ -948,7 +931,6 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
                     return (
                       <DraggableSessionCard
                         key={session.id}
-                        onOpen={() => openViewer(session.id)}
                         selected={selectedIds.has(session.id)}
                         selectedIds={selectedIds}
                         session={session}
@@ -978,7 +960,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
                           className="absolute top-2 right-2 z-10 flex items-center rounded-md bg-card/85 opacity-0 backdrop-blur-sm transition-opacity group-hover/card:opacity-100 group-focus-within/card:opacity-100 has-[[aria-expanded=true]]:opacity-100 pointer-coarse:opacity-100"
                           data-grid-actions
                         >
-                          <SessionActions batchCopied={copiedBatchId != null && copiedBatchId === session.batchId} copied={copiedId === session.id} session={session} onCopy={(current) => void copyPrompt(current)} onCopyBatch={(id) => void copyBatch(id)} onDelete={(id) => setDeleteIds([id])} onMove={(id) => openMoveDialog([id])} onView={openViewer} t={t} />
+                          <SessionActions batchCopied={copiedBatchId != null && copiedBatchId === session.batchId} copied={copiedId === session.id} session={session} onCopy={(current) => void copyPrompt(current)} onCopyBatch={(id) => void copyBatch(id)} onDelete={(id) => setDeleteIds([id])} onMove={(id) => openMoveDialog([id])} t={t} />
                         </div>
                         <SessionPreview session={session} t={t} onOpen={() => openViewer(session.id)} />
                         <CardHeader className="py-3">

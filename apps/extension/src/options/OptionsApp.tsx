@@ -73,12 +73,19 @@ import IconSave from "~icons/lucide/save";
 import IconSparkles from "~icons/lucide/sparkles";
 import IconSun from "~icons/lucide/sun";
 import extensionPackage from "../../package.json";
+import "../../../../extension/keyboard.js";
+import {
+  cloudEnvironment,
+  requiresExplicitLegalConsent,
+  resolveCloudUrl,
+} from "../../../../extension/environment.js";
 import {
   acceptedRemoteLegalAcceptance,
   createRemoteLegalAcceptance,
   parseLegalBundle,
   type LegalBundle,
 } from "../../../../extension/legal-consent.js";
+import { remoteProfileStorage } from "../../../../extension/remote-profile.js";
 import { AccountCodeStrip } from "./AccountCodeStrip";
 import { remainingCodeCountdown } from "./account-code-countdown";
 import {
@@ -97,7 +104,7 @@ const OVERLAY_SHORTCUTS = [
   { description: "shortcut_mask_desc", keys: "M", label: "shortcut_mask" },
   { description: "shortcut_toggle_regions_desc", keys: "R", label: "shortcut_toggle_regions" },
   { description: "shortcut_cancel_desc", keys: "Esc", label: "shortcut_cancel" },
-  { description: "shortcut_copy_desc", keys: "⌘/Ctrl/Alt + Enter", label: "shortcut_copy" },
+  { description: "shortcut_copy_desc", keys: "copy", label: "shortcut_copy" },
 ] as const satisfies ReadonlyArray<{ description: keyof TranslationDictionary; keys: string; label: keyof TranslationDictionary }>;
 
 function ShortcutRow({ description, editLabel, keys, label, onEdit }: { description: string; editLabel?: string; keys: string; label: string; onEdit?: () => void }) {
@@ -129,7 +136,7 @@ function commandText(command: chrome.commands.Command, t: TranslationDictionary)
   return { description: t[keys.description], label: t[keys.label] };
 }
 
-function ShortcutsTab({ t }: { t: TranslationDictionary }) {
+function ShortcutsTab({ platform, t }: { platform: "mac" | "win" | "other"; t: TranslationDictionary }) {
   const [commands, setCommands] = useState<chrome.commands.Command[]>([]);
 
   useEffect(() => {
@@ -162,7 +169,14 @@ function ShortcutsTab({ t }: { t: TranslationDictionary }) {
         <span className={SECTION_HEADER}>{t.shortcuts_overlay_title}</span>
         <p className={SECTION_DESC}>{t.shortcuts_overlay_desc}</p>
         <ul className="flex flex-col gap-2">
-          {OVERLAY_SHORTCUTS.map((item) => <ShortcutRow description={t[item.description]} key={item.keys} keys={item.keys} label={t[item.label]} />)}
+          {OVERLAY_SHORTCUTS.map((item) => (
+            <ShortcutRow
+              description={t[item.description]}
+              key={item.keys}
+              keys={item.keys === "copy" ? globalThis.__pinarKeyboardEvents.copyShortcutLabel(platform === "mac") : item.keys}
+              label={t[item.label]}
+            />
+          ))}
         </ul>
       </section>
     </div>
@@ -300,18 +314,15 @@ function hostedSignInUrl(cloudUrl: string, language: SupportedLanguage) {
   return url.toString();
 }
 
-function isStagingEndpoint(cloudUrl: string) {
-  try {
-    const hostname = new URL(cloudUrl).hostname.toLowerCase();
-    return hostname === "stg.pinar.dev" || hostname.startsWith("staging.") || hostname.startsWith("stg.");
-  } catch {
-    return false;
-  }
-}
-
 function accountSessionError(message: string, unavailable: string, legalRequired: string) {
   if (/Accept the current Pinar Terms/i.test(message)) return legalRequired;
   return message || unavailable;
+}
+
+function destinationFailureMessage(message: string, t: TranslationDictionary) {
+  if (/Invalid request origin/i.test(message)) return t.extension_origin_rejected;
+  if (/Accept the current Pinar Terms/i.test(message)) return t.legal_acceptance_required;
+  return message || t.destination_unavailable;
 }
 
 async function extensionMessage(
@@ -419,8 +430,11 @@ export function OptionsApp() {
   const [savedLegalAccepted, setSavedLegalAccepted] = useState(false);
 
   const t = translations[lang] || translations.en;
+  const manifest = isExtensionContext() ? chrome.runtime.getManifest() : {};
+  const environment = cloudEnvironment(manifest, settings.cloudUrl);
+  const explicitLegalConsent = requiresExplicitLegalConsent(manifest, settings.cloudUrl);
   const hasUnsavedChanges = !areSettingsEqual(settings, savedSettings)
-    || legalAccepted !== savedLegalAccepted;
+    || (explicitLegalConsent && legalAccepted !== savedLegalAccepted);
   const destinationProjects = destinationTree?.projects ?? [];
   const destinationProject = destinationProjects.find((project) => project.id === destinationProjectId);
   const destinationCollections = destinationProject?.collections ?? [];
@@ -441,18 +455,26 @@ export function OptionsApp() {
   const codeCountdown = temporaryCode && temporaryCodeExpiresAt
     ? remainingCodeCountdown(temporaryCodeExpiresAt, nowMs)
     : null;
-  const stagingEndpoint = isStagingEndpoint(settings.cloudUrl || DEFAULT_SETTINGS.cloudUrl);
   const voiceAvailable = settings.storageMode === "cloud"
     && authSession?.kind === "account"
     && authSession.plan === "pro";
 
   async function loadLegalConsent(cloudUrl: string) {
     setLegalError(false);
+    if (!requiresExplicitLegalConsent(manifest, cloudUrl)) {
+      setLegalAccepted(true);
+      setLegalBundle(null);
+      setSavedLegalAccepted(true);
+      return true;
+    }
     try {
+      const storage = typeof chrome !== "undefined" && chrome.storage?.local
+        ? remoteProfileStorage(chrome.storage.local, cloudUrl)
+        : null;
       const [response, stored] = await Promise.all([
         fetch(`${cloudUrl.replace(/\/+$/, "")}/api/legal/current`),
-        typeof chrome !== "undefined" && chrome.storage?.local
-          ? chrome.storage.local.get({ remoteLegalAcceptance: null })
+        storage
+          ? storage.get({ remoteLegalAcceptance: null })
           : Promise.resolve({ remoteLegalAcceptance: null }),
       ]);
       const bundle = parseLegalBundle(await response.json().catch(() => null));
@@ -461,11 +483,13 @@ export function OptionsApp() {
       setLegalAccepted(accepted);
       setLegalBundle(bundle);
       setSavedLegalAccepted(accepted);
+      return accepted;
     } catch {
       setLegalAccepted(false);
       setLegalBundle(null);
       setLegalError(true);
       setSavedLegalAccepted(false);
+      return false;
     }
   }
 
@@ -500,11 +524,14 @@ export function OptionsApp() {
       setCaptureDestination(response.destination);
       setDestinationProjectId(response.destination.projectId);
       setDestinationTree(response.tree);
-    } catch {
+    } catch (cause) {
       setCaptureDestination(null);
       setDestinationProjectId("");
       setDestinationTree(null);
-      setDestinationError(t.destination_unavailable);
+      setDestinationError(destinationFailureMessage(
+        cause instanceof Error ? cause.message : String(cause),
+        t,
+      ));
     } finally {
       setDestinationLoading(false);
     }
@@ -538,9 +565,7 @@ export function OptionsApp() {
       let loaded: PinarSettings = DEFAULT_SETTINGS;
       if (typeof chrome !== "undefined" && chrome.storage?.sync) {
         const items = await chrome.storage.sync.get(DEFAULT_SETTINGS);
-        const cloudUrl = !items.cloudUrl || items.cloudUrl.includes("workers.dev") || items.cloudUrl.includes("djalmajr.dev")
-          ? "https://pinar.dev"
-          : items.cloudUrl;
+        const cloudUrl = resolveCloudUrl(chrome.runtime.getManifest(), items.cloudUrl);
         loaded = {
           cloudUrl,
           copyOnFinishBatch: items.copyOnFinishBatch === "off" || items.copyOnFinishBatch === "link" ? items.copyOnFinishBatch : "prompt",
@@ -563,8 +588,16 @@ export function OptionsApp() {
       setLang(loaded.language as SupportedLanguage);
       setSettings(loaded);
       setSavedSettings(loaded);
-      await loadLegalConsent(loaded.cloudUrl || DEFAULT_SETTINGS.cloudUrl);
-      await Promise.all([loadCaptureDestination(), loadAuthSession()]);
+      const hasLegalConsent = await loadLegalConsent(loaded.cloudUrl || DEFAULT_SETTINGS.cloudUrl);
+      if (loaded.storageMode === "cloud" && !hasLegalConsent) {
+        setCaptureDestination(null);
+        setDestinationLoading(false);
+        setDestinationProjectId("");
+        setDestinationTree(null);
+        await loadAuthSession();
+      } else {
+        await Promise.all([loadCaptureDestination(), loadAuthSession()]);
+      }
     }
     void initialize();
   }, []);
@@ -578,16 +611,17 @@ export function OptionsApp() {
 
   async function saveSettings() {
     if (!hasUnsavedChanges) return;
-    if (settings.storageMode === "cloud" && (!legalBundle || !legalAccepted)) {
+    if (settings.storageMode === "cloud" && explicitLegalConsent && (!legalBundle || !legalAccepted)) {
       toast.error(t.legal_acceptance_required);
       return;
     }
-    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+    if (explicitLegalConsent && typeof chrome !== "undefined" && chrome.storage?.local) {
+      const storage = remoteProfileStorage(chrome.storage.local, settings.cloudUrl);
       if (legalAccepted && legalBundle && !savedLegalAccepted) {
         const acceptance = createRemoteLegalAcceptance(legalBundle, settings.language || lang);
-        if (acceptance) await chrome.storage.local.set({ remoteLegalAcceptance: acceptance });
+        if (acceptance) await storage.set({ remoteLegalAcceptance: acceptance });
       } else if (!legalAccepted && savedLegalAccepted) {
-        await chrome.storage.local.remove("remoteLegalAcceptance");
+        await storage.remove("remoteLegalAcceptance");
       }
     }
     if (typeof chrome !== "undefined" && chrome.storage?.sync) await chrome.storage.sync.set(settings);
@@ -811,9 +845,14 @@ export function OptionsApp() {
                   </label>
                   <label className="-mx-2 flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1 hover:bg-muted/50">
                     <input checked={settings.storageMode === "cloud"} className="mt-0.5 accent-primary" name="storageMode" type="radio" onChange={() => setSettings((current) => ({ ...current, storageMode: "cloud" }))} />
-                    <span className="min-w-0 flex-1"><span className="block text-xs font-semibold">{stagingEndpoint ? t.staging_title : t.remote_title}</span><span className="mt-0.5 block text-xs text-muted-foreground">{stagingEndpoint ? t.staging_desc : t.remote_desc}</span></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2 text-xs font-semibold">
+                        {environment === "staging" ? t.staging_title : t.remote_title}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">{environment === "staging" ? t.staging_desc : t.remote_desc}</span>
+                    </span>
                   </label>
-                  {settings.storageMode === "cloud" ? (
+                  {settings.storageMode === "cloud" && explicitLegalConsent ? (
                     <div className="ml-4 rounded-lg border bg-muted/40 p-3">
                       <label className="flex cursor-pointer items-start gap-2 text-xs">
                         <input checked={legalAccepted} className="mt-0.5 accent-primary" disabled={!legalBundle} type="checkbox" onChange={(event) => setLegalAccepted(event.target.checked)} />
@@ -915,7 +954,7 @@ export function OptionsApp() {
                           </ComboboxContent>
                         </Combobox>
                       </label>
-                      {destinationError && <p className="text-xs text-destructive sm:col-span-2">{t.destination_unavailable}</p>}
+                      {destinationError && <p className="text-xs text-destructive sm:col-span-2">{destinationError}</p>}
                     </CardContent>
                   </Card>
                 </section>
@@ -1054,18 +1093,18 @@ export function OptionsApp() {
               </TabsContent>
 
               <TabsContent value="shortcuts">
-                <ShortcutsTab t={t} />
+                <ShortcutsTab platform={installPlatform} t={t} />
               </TabsContent>
             </Tabs>
 
             <footer className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex gap-2"><Button className="h-8 text-xs" disabled={!hasUnsavedChanges || (settings.storageMode === "cloud" && (!legalBundle || !legalAccepted))} size="sm" onClick={() => void saveSettings()}><IconSave className="size-3.5" />{t.btn_save}</Button><Button className="h-8 text-xs" size="sm" variant="outline" onClick={() => void openApp()}>{t.btn_open_app}<IconExternalLink data-icon="inline-end" /></Button></div>
+              <div className="flex gap-2"><Button className="h-8 text-xs" disabled={!hasUnsavedChanges || (settings.storageMode === "cloud" && explicitLegalConsent && (!legalBundle || !legalAccepted))} size="sm" onClick={() => void saveSettings()}><IconSave className="size-3.5" />{t.btn_save}</Button><Button className="h-8 text-xs" size="sm" variant="outline" onClick={() => void openApp()}>{t.btn_open_app}<IconExternalLink data-icon="inline-end" /></Button></div>
               <div className="flex gap-2"><Button className="h-8 text-xs" render={<a href="https://buymeacoffee.com/djalmajr" rel="noopener noreferrer" target="_blank" />} size="sm" variant="coffee"><IconCoffee />{t.btn_coffee}</Button><Button className="h-8 text-xs" render={<a href="https://github.com/sponsors/djalmajr" rel="noopener noreferrer" target="_blank" />} size="sm" variant="sponsor"><IconHeart className="fill-current" />{t.btn_sponsor}</Button></div>
             </footer>
           </div>
         </div>
       </ScrollArea>
-      <Toaster position="bottom-center" theme={settings.theme} />
+      <Toaster theme={settings.theme} />
     </div>
   );
 }

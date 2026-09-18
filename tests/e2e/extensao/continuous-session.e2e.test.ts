@@ -1,5 +1,6 @@
 import { chromium, expect, test, type Worker } from "@playwright/test";
 import { resolve } from "node:path";
+import { pressCopyShortcut } from "../helpers/extension-shortcut";
 
 // Real MV3 service worker, IndexedDB, content scripts and screenshot API.
 // Only the transport is stubbed; backend parity is covered by the API contract.
@@ -158,11 +159,11 @@ for (const mode of ["local", "cloud"]) test(`continuous session captures multipl
     await page.keyboard.press("Enter");
     await expect.poll(async () => (await readDraft())?.entries.length).toBe(3);
     await expect.poll(async () => Boolean((await readDraft())?.entries[2]?.shot)).toBe(true);
-    await page.keyboard.press("Control+Enter");
+    await pressCopyShortcut(page);
     await expect.poll(async () => (await readDraft())?.entries[2]?.status).toBe("pending");
     await expect(page.locator('[data-pinar="host"]')).toHaveAttribute("aria-busy", "false");
     await worker.evaluate(() => { (globalThis as any).__reviewOffline = false; });
-    await page.keyboard.press("Control+Enter");
+    await pressCopyShortcut(page);
     await expect.poll(readDraft).toBeNull();
     await expect(page.locator('[data-pinar="host"]')).toHaveAttribute("data-confirm", "");
     await page.screenshot({ path: testInfo.outputPath("session-finished.png") });
@@ -181,7 +182,7 @@ for (const mode of ["local", "cloud"]) test(`continuous session captures multipl
     await page.keyboard.type("Cancel this session");
     await page.keyboard.press("Enter");
     await expect.poll(async () => (await readDraft())?.entries[0]?.status).toBe("pending");
-    await page.keyboard.press("Control+Enter");
+    await pressCopyShortcut(page);
     await expect(page.locator('[data-ref="reviewStatus"]')).toBeVisible();
     await expect(page.locator('[data-ref="reviewStatus"]')).toContainText("Could not finish the session");
     await page.screenshot({ path: testInfo.outputPath("session-finish-failed.png") });

@@ -15,7 +15,6 @@ import {
 	updateArtifactUrl,
 	updateManifestUrl,
 	idleUpdateUi,
-	tickUpdateStatus,
 	updateMenuItem,
 	versionMenuItem,
 } from "./update";
@@ -137,14 +136,12 @@ describe("GitHub Releases update contract", () => {
 			label: "Update to 0.1.2",
 			type: "normal",
 		});
-		expect(
-			updateMenuItem({ ...idleUpdateUi(), failed: true, secondsLeft: 10 }).label,
-		).toBe("Update check failed (10s)");
-		expect(
-			updateMenuItem({ ...idleUpdateUi(), secondsLeft: 7, updated: true }).label,
-		).toBe("You're updated (7s)");
-		expect(tickUpdateStatus({ ...idleUpdateUi(), failed: true, secondsLeft: 10 }).secondsLeft).toBe(9);
-		expect(tickUpdateStatus({ ...idleUpdateUi(), secondsLeft: 1, updated: true })).toEqual(idleUpdateUi());
+		expect(updateMenuItem({ ...idleUpdateUi(), failed: true }).label).toBe(
+			"Update check failed",
+		);
+		expect(updateMenuItem({ ...idleUpdateUi(), updated: true }).label).toBe(
+			"You're updated",
+		);
 	});
 
 	test("offers only a newer release version when the installed version is known", () => {

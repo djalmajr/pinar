@@ -93,6 +93,10 @@ const locale = {
       caption:
         "Tab ersetzt die Aufnahmeleiste durch die Sitzungsprüfung, in der Pins vor dem Abschließen oder Verwerfen bearbeitet und entfernt werden können.",
     },
+    "capture-review": {
+      alt: "Seite mit Element-Pins, die für Prüfung und KI-Funktionen von Pinar bereit sind.",
+      caption: "Element-Pins bewahren die erfasste Struktur für Diagnose, Komponentengenerierung und Design-System-Extraktion.",
+    },
     "capture-copy-failed": {
       alt: "Pinar meldet, dass die Sitzung nicht abgeschlossen werden konnte, und hält die Pins zur Prüfung und Wiederholung bereit.",
       caption:
@@ -294,7 +298,7 @@ const locale = {
         {
           heading: "Sitzung abschließen oder abbrechen",
           paragraphs: [
-            "Nutze `Command/Ctrl/Alt+Enter`: Drücke unter macOS `Command+Enter`, sonst `Ctrl+Enter`, oder auf beiden Systemen `Alt+Enter`, um die vollständige Sitzung abzuschließen und zu kopieren. Pinar bestätigt den Erfolg sichtbar. Bei einem Fehler bleibt die Sitzung zur Prüfung und Wiederholung erhalten. Sitzung verwerfen beendet sie ohne Kopie.",
+            "Nutze unter macOS `Command+Enter` oder unter Windows und Linux `Alt+Enter`, um die vollständige Sitzung abzuschließen und zu kopieren. Pinar bestätigt den Erfolg sichtbar. Bei einem Fehler bleibt die Sitzung zur Prüfung und Wiederholung erhalten. Sitzung verwerfen beendet sie ohne Kopie.",
             "Behandle den Inhalt der Zwischenablage als Einheit: lesbare Anweisungen, eine optionale Viewer-URL und je Seite einen abgegrenzten pinar-visual-context-Block. Jeder Block enthält seinen eigenen Screenshot sowie `captureId`, `pinId`, Seiten-URL und Locator-Daten. Nummerierte Badges sind Annotations-Overlays. Schreibe `captureId` und `pinId` nicht um.",
           ],
           bullets: [
@@ -319,7 +323,7 @@ const locale = {
         {
           heading: "Cloud",
           paragraphs: [
-            "Der Cloud-Modus ermöglicht Remote-Zugriff auf den Workspace, verwaltete Aufbewahrung, KI-Zusammenfassungen, Abrechnung und unlisted Freigabelinks. Du akzeptierst die aktuellen Richtlinien, bevor etwas remote gespeichert wird.",
+            "Der Cloud-Modus ermöglicht Remote-Zugriff auf den Workspace, verwaltete Aufbewahrung, Zusammenfassungen mit Pinar Cloud AI, Abrechnung und unlisted Freigabelinks. Lokale KI und BYOK bleiben ohne Pinar-Cloud-Credits verfügbar. Du akzeptierst die aktuellen Richtlinien, bevor etwas remote gespeichert wird.",
           ],
         },
         {
@@ -350,9 +354,9 @@ const locale = {
             "`Enter` setzt einen Pin auf das Element unter dem Zeiger; `Arrow Up` wählt das Elternelement, `Arrow Down` kehrt zu einem Kind zurück.",
             "`M` schaltet das Zeichnen der Privacy-Maske um. `Escape` bricht einen Entwurf oder eine Maske ab; ohne Entwurf werden Pins gelöscht und die Symbolleiste ausgeblendet.",
             "`R` schaltet das Live-Overlay zwischen nur nummerierten Pins und Pins mit ihren Regionen um. Der kopierte Screenshot enthält immer beides.",
-            "`Command/Ctrl/Alt+Enter` kopiert das fertige Bundle.",
+            "`Command+Enter` / `Alt+Enter` kopiert das fertige Bundle.",
             "`Alt+Shift+P` blendet die Toolbar ein oder aus, ohne die Sitzung abzubrechen, und lässt sich unter `chrome://extensions/shortcuts` neu belegen. Browser-Kurzbefehle bleiben auf `chrome://`-Seiten, im Chrome Web Store und vor der Injektion des Overlays wirkungslos.",
-            "`G` startet die Aufzeichnung der Schritte, die du auf der Seite ausführst. Öffne Pinar erneut, pinne das Ergebnis und kopiere mit `Command/Ctrl/Alt+Enter`, um die Schritte anzuhängen; ein erneutes `G` verwirft die Aufzeichnung.",
+            "`G` startet die Aufzeichnung der Schritte, die du auf der Seite ausführst. Öffne Pinar erneut, pinne das Ergebnis und kopiere mit `Command+Enter` / `Alt+Enter`, um die Schritte anzuhängen; ein erneutes `G` verwirft die Aufzeichnung.",
           ],
         },
         {
@@ -368,7 +372,7 @@ const locale = {
             "`Arrow Up` geht zum Elternelement und merkt sich das verlassene Kind, sodass `Arrow Down` zu diesem gemerkten Knoten zurückkehrt, wenn er noch ein Kind ist; sonst wird das erste Kind verwendet. Im Maskenmodus ziehst du einen Bereich, um ihn auszublenden, und klickst auf eine vorhandene Maske, um sie wiederherzustellen. Tastatur-Scrolling funktioniert weiterhin im Dokument, aber auf fokussierte Seitensteuerungen gerichtete Tasten werden blockiert, damit sie keine Schaltflächen auslösen oder in das Host-Formular schreiben.",
           ],
           bullets: [
-            "`Command/Ctrl/Alt+Enter` speichert einen offenen Entwurf und kopiert anschließend; ohne Kommentar erscheint „Zuerst einen Kommentar schreiben“, statt einen leeren Pin zu senden.",
+            "`Command+Enter` / `Alt+Enter` speichert einen offenen Entwurf und kopiert anschließend; ohne Kommentar erscheint „Zuerst einen Kommentar schreiben“, statt einen leeren Pin zu senden.",
             "Nach `Escape` oder dem Kopieren behält Pinar diese physische Taste bis keyup, damit die Host-Seite denselben Tastendruck nicht als eigenes Abbrechen oder Absenden wertet.",
             "Ein Bereichs-Pin startet erst, wenn sich der Zeiger etwa sechs Pixel bewegt; ein kürzerer Klick setzt weiterhin einen Pin auf das Element unter dem Zeiger, statt ein Freiform-Rechteck zu öffnen.",
           ],
@@ -580,20 +584,20 @@ const locale = {
         {
           heading: "Wie das kopierte Bundle an einen Agenten geliefert wird",
           paragraphs: [
-            "Die Chrome-Erweiterung tippt niemals in den Agent-Composer. Nach `Command/Ctrl/Alt+Enter` füge die Zwischenablage selbst in Cursor, Claude, Codex oder Grok ein. Der Text beginnt damit, dass die Pin-Notizen eine Änderung oder eine Erklärung erbitten können, und Selektor und DOM-Pfad als ergänzende Locator zu behandeln, gefolgt von einem abgegrenzten pinar-visual-context-JSON-Block. Wenn eine Viewer-URL enthalten ist, rufe sie nur ab, wenn diese Details nicht ausreichen.",
+            "Die Chrome-Erweiterung tippt niemals in den Agent-Composer. Nach `Command+Enter` / `Alt+Enter` füge die Zwischenablage selbst in Cursor, Claude, Codex oder Grok ein. Der Text beginnt damit, dass die Pin-Notizen eine Änderung oder eine Erklärung erbitten können, und Selektor und DOM-Pfad als ergänzende Locator zu behandeln, gefolgt von einem abgegrenzten pinar-visual-context-JSON-Block. Wenn eine Viewer-URL enthalten ist, rufe sie nur ab, wenn diese Details nicht ausreichen.",
             "Behandle `captureId` und `pinId` als Identität, nicht als Labels zum Umschreiben. Visual Context kodiert derzeit schemaVersion 1; parseVisualCapture lehnt eine fehlende `captureId` und jede schemaVersion außer 1 oder dem Legacy-Wert 0 ab. Folge nur dem, was die Pins beschreiben. Wenn die Person nichts eingefügt hat, bitte sie, erneut aus Pinar zu kopieren, statt Pins aus dem Gedächtnis zu rekonstruieren.",
           ],
           bullets: [
             "Füge die gesamte Zwischenablage in den Agenten ein; tippe Kommentare nicht ab und erfinde keine neue `captureId`.",
             "Bestätige, dass der eingefügte Text noch einen geschlossenen pinar-visual-context-Fence enthält, bevor du Code bearbeitest.",
-            "Wenn nichts eingefügt wurde, bitte um `Command/Ctrl/Alt+Enter` in Pinar und folge nur den Pin-Notizen.",
+            "Wenn nichts eingefügt wurde, bitte um `Command+Enter` / `Alt+Enter` in Pinar und folge nur den Pin-Notizen.",
           ],
         },
         {
           heading: "Einen Pin diagnostizieren und als Komponente speichern",
           paragraphs: [
-            "Bei einem Pin mit erfasster Struktur fragt „Diagnostizieren“ die KI nach der wahrscheinlichen Ursache dessen, was du kommentiert hast, und nach einem CSS-Korrekturvorschlag, mit einer Konfidenzstufe. Akzeptiere, bearbeite oder verwirf den Vorschlag; nur eine akzeptierte Diagnose bleibt beim Pin und wird mit dem Bundle kopiert. Eine Diagnose kostet 3 KI-Credits.",
-            "„Als Komponente speichern“ verwandelt das erfasste Element in eine isolierte Komponente für deinen Stack: HTML + CSS, React + Tailwind oder Preact + htm. Das Ergebnis listet Dateien, Abhängigkeiten und Hinweise zur Genauigkeit auf, mit einer Vorschau neben dem Original-Screenshot. Kopiere die Dateien, lade ein ZIP herunter oder öffne die Komponente in StackBlitz. Das kostet 10 KI-Credits, und der gewählte Stack wird für den nächsten Pin gemerkt.",
+            "Bei einem Pin mit erfasster Struktur fragt „Diagnostizieren“ die KI nach der wahrscheinlichen Ursache dessen, was du kommentiert hast, und nach einem CSS-Korrekturvorschlag, mit einer Konfidenzstufe. Akzeptiere, bearbeite oder verwirf den Vorschlag; nur eine akzeptierte Diagnose bleibt beim Pin und wird mit dem Bundle kopiert. Mit Pinar Cloud AI kostet eine Diagnose 3 Credits.",
+            "„Als Komponente speichern“ verwandelt das erfasste Element in eine isolierte Komponente für deinen Stack: HTML + CSS, React + Tailwind oder Preact + htm. Das Ergebnis listet Dateien, Abhängigkeiten und Hinweise zur Genauigkeit auf, mit einer Vorschau neben dem Original-Screenshot. Kopiere die Dateien, lade ein ZIP herunter oder öffne die Komponente in StackBlitz. Mit Pinar Cloud AI kostet das 10 Credits, und der gewählte Stack wird für den nächsten Pin gemerkt.",
           ],
           bullets: [
             "Beide Aktionen benötigen die Elementstruktur; Bereichs-Pins und Pins, die vor dieser Version erfasst wurden, können sie nicht nutzen.",
@@ -630,6 +634,44 @@ const locale = {
             "Setze den compact/full-Schalter und den `includeScreenshot`-Schalter und klicke vor dem nächsten Kopieren auf Save.",
             "Lass `includeScreenshot` an, es sei denn, du willst bewusst Metadaten, Pins, Locator und Handoff ohne Bildspeicherung.",
             "Kopiere nach dem Speichern einmal und bestätige, dass jedes Einfügen über einen Adapter weiterhin dieselbe `captureId` und dieselben pinIds teilt.",
+          ],
+        },
+      ],
+    },
+    "ai-features": {
+      title: "KI-Funktionen und ihre Tests",
+      summary: "Alle KI-Funktionen, Voraussetzungen und Testabläufe für lokale KI, BYOK oder Pinar Cloud an einem Ort.",
+      sections: [
+        {
+          heading: "Zuerst den Anbieter wählen",
+          paragraphs: [
+            "Öffne auf dem lokalen Server Einstellungen → KI-Assistent, wähle Lokale KI oder BYOK, trage den OpenAI-kompatiblen Endpunkt und das Modell ein und nutze Testen und speichern. Lokale KI und BYOK verbrauchen keine Pinar-Guthaben. In Pinar Cloud steht KI berechtigten angemeldeten Konten zur Verfügung; das Fragezeichen neben einer Aktion zeigt den aktuellen Verbrauch von Pinar-Cloud-Guthaben.",
+          ],
+        },
+        {
+          heading: "Sitzungszusammenfassung",
+          paragraphs: [
+            "Öffne eine gespeicherte Sitzung über die Screenshot-Miniatur. Wähle im Kopf des Viewers Anmerkungen zusammenfassen. Das Ergebnis verwendet Seitentitel, URL und Pin-Kommentare.",
+          ],
+        },
+        {
+          heading: "Pin-Diagnose und Komponentengenerierung",
+          paragraphs: [
+            "Erstelle einen neuen Element-Pin, beende die Sitzung, öffne die Miniatur und wähle den Pin im Viewer. Der Dialog zeigt Diagnostizieren und Als Komponente speichern mit HTML, React mit Tailwind oder Preact mit HTM.",
+            "Beide Funktionen benötigen einen Element-Pin mit erfasster Struktur. Bereichs-Pins und ältere Pins ohne Struktur zeigen die Voraussetzung; erstelle zum Testen einen frischen Element-Pin mit der aktuellen Erweiterung.",
+          ],
+        },
+        {
+          heading: "Automatisierte Reproduktion",
+          paragraphs: [
+            "Öffne die Erfassungsleiste und drücke `G`, um aufzuzeichnen. Benutze die Seite, öffne Pinar erneut, setze einen Pin und schließe unter macOS mit `Command+Enter` oder unter Windows und Linux mit `Alt+Enter` ab. In der gespeicherten Sitzung zeigt Reproduktion die Aktionen; Schritte und Test generieren erstellt Schritte und einen Playwright-Test.",
+          ],
+        },
+        {
+          heading: "Design-System-Extraktion",
+          paragraphs: [
+            "Sende mindestens drei neue Element-Pins von Seiten derselben Website an dieselbe Sammlung und wähle im Sammlungsmenü Design-System extrahieren. Nur Pins mit erfasster Struktur zählen; Screenshots, Bereichs-Pins und ältere Pins ohne Struktur sind ausgeschlossen. Der Dialog zeigt die geeignete Anzahl vor der Extraktion.",
+            "Das Ergebnis gruppiert Farben, Typografie, Abstände, Radien, Schatten und Schriften und lässt sich als W3C-Tokens, CSS-Variablen, Tailwind-Theme oder DESIGN.md exportieren.",
           ],
         },
       ],
@@ -694,7 +736,7 @@ const locale = {
             "Wenn jeder Kopierpfad fehlschlägt, sendet die Seite overlays:hidden mit hidden false, zeigt kurz „Kopieren fehlgeschlagen“ und lässt Pins bearbeitbar. Ein erfolgreiches Kopieren zeigt „Erfolgreich kopiert!“ oder „Erfolgreich kopiert!“ plus „kein Screenshot“, „Helfer nicht verfügbar“ oder „kein Viewer“ und beendet dann die Sitzung. Diese Suffixe entsprechen `screenshot_missing`, `helper_unavailable` und `viewer_unavailable`. screenshot_inline gehört nicht zu den eingeschränkten Übergabewarnungen. Ein Einfügen ohne geschlossene pinar-visual-context-Fence kann nicht als JSON geparst werden.",
           ],
           bullets: [
-            "Wenn die Symbolleiste „Zuerst einen Kommentar schreiben“ oder „Zuerst einen Pin setzen“ anzeigt, schließe diesen Pin ab und drücke erneut `Command/Ctrl/Alt+Enter`.",
+            "Wenn die Symbolleiste „Zuerst einen Kommentar schreiben“ oder „Zuerst einen Pin setzen“ anzeigt, schließe diesen Pin ab und drücke erneut `Command+Enter` / `Alt+Enter`.",
             "Wenn „Kopieren fehlgeschlagen“ erscheint, bestätige, dass die Pins noch auf der Seite sind, erteile bei Aufforderung die Zwischenablageberechtigung und wiederhole das Kopieren.",
             "Lies das Suffix von „Erfolgreich kopiert!“: „kein Screenshot“, „Helfer nicht verfügbar“ und „kein Viewer“ benennen die fehlende Ebene, die du ohne Verwerfen der Kommentare erneut versuchen kannst.",
           ],
@@ -764,7 +806,7 @@ const locale = {
         {
           heading: "Das Design-System einer Collection extrahieren",
           paragraphs: [
-            "Aus dem Menü einer Collection liest „Design-System extrahieren“ die Struktur der Pins in dieser Collection und leitet die gemeinsamen Tokens ab: Farben, Typografie, Abstände, Radien und Schatten sowie die Identität der Site. Es braucht mindestens drei Pins mit erfasster Struktur von derselben Site und kostet 15 KI-Credits.",
+            "Aus dem Menü einer Collection liest „Design-System extrahieren“ die Struktur der Pins in dieser Collection und leitet die gemeinsamen Tokens ab: Farben, Typografie, Abstände, Radien und Schatten sowie die Identität der Site. Es braucht mindestens drei Pins mit erfasster Struktur von derselben Site. Mit Pinar Cloud AI kostet es 15 Credits.",
             "Das Ergebnis öffnet sich als Dialog mit der Stichprobengröße und etwaigen Warnungen, etwa verstreuten Werten, die keine Skala bilden. Exportiere es als CSS-Variablen, Tailwind-Theme, W3C-Design-Tokens oder DESIGN.md-Datei, und extrahiere erneut, nachdem du weitere Pins hinzugefügt hast.",
           ],
         },
@@ -865,27 +907,27 @@ const locale = {
       ],
     },
     "ai-credits": {
-      title: "AI-Zusammenfassungen und Credits",
+      title: "Pinar Cloud AI-Zusammenfassungen und Credits",
       summary:
-        "Erfahre, wann Credits reserviert, verbraucht, aufgefüllt oder erstattet werden.",
+        "Erfahre, wann Pinar Cloud Credits reserviert, verbraucht, aufgefüllt oder erstattet werden.",
       sections: [
         {
           heading: "Kosten der Zusammenfassung",
           paragraphs: [
-            "Eine Sitzungszusammenfassung reserviert 1 AI-Credit vor der Modellinferenz. Bei Erfolg wird die Reservierung verbraucht. Eine fehlgeschlagene oder abgebrochene Inferenz erstattet sie sofort; eine länger als fünf Minuten unerledigte Reservierung wird automatisch erstattet. Zusammenfassungen erlauben 10 Anfragen pro Minute pro Konto und 30 pro Minute pro IP; eine doppelte Anfrage für dieselbe Sitzung wartet, bis die aktive Anfrage fertig ist.",
+            "In Pinar Cloud reserviert eine Sitzungszusammenfassung 1 AI-Credit vor der Modellinferenz. Bei Erfolg wird die Reservierung verbraucht. Eine fehlgeschlagene oder abgebrochene Inferenz erstattet sie sofort; eine länger als fünf Minuten unerledigte Reservierung wird automatisch erstattet. Zusammenfassungen erlauben 10 Anfragen pro Minute pro Konto und 30 pro Minute pro IP; eine doppelte Anfrage für dieselbe Sitzung wartet, bis die aktive Anfrage fertig ist.",
           ],
         },
         {
           heading: "Was jede KI-Funktion kostet",
           paragraphs: [
-            "Jede KI-Funktion reserviert ihre Credits, bevor das Modell läuft, und erstattet sie, wenn das Ergebnis unbrauchbar ist, genau wie die Zusammenfassung. Die Kosten sind pro Anfrage fest, nicht pro Token: eine Sitzungszusammenfassung kostet 1 Credit, eine Pin-Diagnose 3, eine Reproduktion (ausformulierte Schritte plus Playwright-Test) 5, das Speichern eines Pins als Komponente 10 und das Extrahieren des Design-Systems einer Sammlung 15.",
+            "Jede KI-Funktion von Pinar Cloud reserviert ihre Credits, bevor das Modell läuft, und erstattet sie, wenn das Ergebnis unbrauchbar ist, genau wie die Zusammenfassung. Die Kosten sind pro Anfrage fest, nicht pro Token: eine Sitzungszusammenfassung kostet 1 Credit, eine Pin-Diagnose 3, eine Reproduktion (ausformulierte Schritte plus Playwright-Test) 5, das Speichern eines Pins als Komponente 10 und das Extrahieren des Design-Systems einer Sammlung 15.",
             "Technische Belege und die Elementstruktur erfasst die Erweiterung ohne Modell und kostenlos. Eine Anfrage, die nicht laufen kann (ein Pin ohne erfasste Struktur, eine Sammlung mit weniger als drei Snapshots derselben Domain), wird abgelehnt, bevor ein Credit reserviert wird.",
           ],
         },
         {
           heading: "Guthaben",
           paragraphs: [
-            "Gekaufte Pakete fügen 1.000 Credits hinzu. Die monatliche 200-Credit-Zuteilung von Pro wird nicht übertragen. Das Kontomenü zeigt das aktive Guthaben und das nächste zutreffende Auffülldatum.",
+            "Gekaufte Pinar Cloud Pakete fügen 1.000 Credits hinzu. Die monatliche 200-Credit-Zuteilung von Pro wird nicht übertragen. Das Kontomenü zeigt das aktive Guthaben und das nächste zutreffende Auffülldatum.",
           ],
         },
         {

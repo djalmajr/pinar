@@ -19,7 +19,10 @@ import {
   TabsList,
   TabsTrigger,
 } from "@pinar/ui";
+import { AiCreditCostHint } from "@/components/AiCreditCostHint";
+import { useGlobalSettings } from "@/components/GlobalSettingsDialog";
 import { isRecord } from "@/lib/api-data";
+import { aiErrorPresentation, type AiRecovery } from "@/lib/ai-error-presentation";
 import { type ServerMessageKey, useServerI18n } from "@/lib/i18n";
 import CheckIcon from "~icons/lucide/check";
 import CopyIcon from "~icons/lucide/copy";
@@ -48,7 +51,13 @@ interface DesignSystemViewProps {
   exports: DesignSystemExports;
 }
 
-type AiRecovery = "pricing" | "retry" | "signIn" | null;
+interface DesignSystemEligibility {
+  domain: string;
+  eligiblePins: number;
+  minimum: number;
+  snapshotPins: number;
+  totalPins: number;
+}
 
 export const DESIGN_SYSTEM_CREDITS = 15;
 
@@ -72,6 +81,19 @@ function asExports(value: unknown): DesignSystemExports | null {
   const { css, markdown, tailwind, tokens } = value;
   if (typeof css !== "string" || typeof markdown !== "string" || typeof tailwind !== "string" || typeof tokens !== "string") return null;
   return { css, markdown, tailwind, tokens };
+}
+
+function asEligibility(value: unknown): DesignSystemEligibility | null {
+  if (!isRecord(value)) return null;
+  const { domain, eligiblePins, minimum, snapshotPins, totalPins } = value;
+  if (
+    typeof domain !== "string"
+    || typeof eligiblePins !== "number"
+    || typeof minimum !== "number"
+    || typeof snapshotPins !== "number"
+    || typeof totalPins !== "number"
+  ) return null;
+  return { domain, eligiblePins, minimum, snapshotPins, totalPins };
 }
 
 function downloadText(fileName: string, contentType: string, content: string) {
@@ -273,14 +295,15 @@ export function CollectionDesignSystemDialog({
   onOpenChange,
 }: CollectionDesignSystemDialogProps) {
   const { language, t } = useServerI18n();
+  const openSettings = useGlobalSettings();
   const [designSystem, setDesignSystem] = useState<DesignSystem | null>(null);
   const [exports, setExports] = useState<DesignSystemExports | null>(null);
+  const [eligibility, setEligibility] = useState<DesignSystemEligibility | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [extracting, setExtracting] = useState(false);
   const [aiError, setAiError] = useState("");
   const [aiRecovery, setAiRecovery] = useState<AiRecovery>(null);
-  const [creditsRemaining, setCreditsRemaining] = useState<number | null>(null);
   const requestId = useRef<string | null>(null);
 
   useEffect(() => {
@@ -298,6 +321,7 @@ export function CollectionDesignSystemDialog({
           return;
         }
         setDesignSystem(asDesignSystem(data.designSystem));
+        setEligibility(asEligibility(data.eligibility));
         setExports(asExports(data.exports));
       } catch {
         if (!cancelled) setLoadError(t("workspace.designSystem.loadFailed"));
@@ -315,6 +339,7 @@ export function CollectionDesignSystemDialog({
     const data: unknown = await response.json();
     if (!response.ok || !isRecord(data)) return;
     setDesignSystem(asDesignSystem(data.designSystem));
+    setEligibility(asEligibility(data.eligibility));
     setExports(asExports(data.exports));
   }
 
@@ -335,33 +360,19 @@ export function CollectionDesignSystemDialog({
       if (!response.ok || !result) {
         const code = isRecord(data) && typeof data.code === "string" ? data.code : "";
         if (code !== "ai_request_in_progress" && code !== "ai_refund_pending") requestId.current = null;
-        if (response.status === 401) {
-          setAiError(t("viewer.aiSignIn"));
-          setAiRecovery("signIn");
-        } else if (code === "insufficient_sample") {
+        if (code === "insufficient_sample") {
           const pins = isRecord(data) && typeof data.pins === "number" ? data.pins : 0;
           const minimum = isRecord(data) && typeof data.minimum === "number" ? data.minimum : 3;
           setAiError(t("workspace.designSystem.insufficientSample", { count: pins, minimum }));
           setAiRecovery(null);
-        } else if (code === "insufficient_ai_credits") {
-          setAiError(t("viewer.aiNoCredits"));
-          setAiRecovery("pricing");
-        } else if (code === "ai_rate_limited") {
-          setAiError(t("viewer.aiRateLimited"));
-          setAiRecovery("retry");
-        } else if (code === "ai_refund_pending") {
-          setAiError(t("viewer.aiRefundPending"));
-          setAiRecovery("retry");
         } else {
-          setAiError(t("viewer.aiUnavailable"));
-          setAiRecovery("retry");
+          const presentation = aiErrorPresentation(response.status, code);
+          setAiError(t(presentation.messageKey));
+          setAiRecovery(presentation.recovery);
         }
         return;
       }
       requestId.current = null;
-      if (isRecord(data) && isRecord(data.aiCredits) && typeof data.aiCredits.balance === "number") {
-        setCreditsRemaining(data.aiCredits.balance);
-      }
       setDesignSystem(result);
       await reloadExports();
     } catch {
@@ -384,12 +395,8 @@ export function CollectionDesignSystemDialog({
           </div>
           {showAi ? (
             <div className="flex flex-wrap items-center gap-2">
-              {creditsRemaining !== null ? (
-                <span className="text-xs text-muted-foreground">{t("workspace.designSystem.creditsRemaining", { count: creditsRemaining })}</span>
-              ) : null}
               <Button
-                disabled={extracting || loading}
-                title={t("workspace.designSystem.cost", { count: DESIGN_SYSTEM_CREDITS })}
+                disabled={extracting || loading || Boolean(eligibility && eligibility.eligiblePins < eligibility.minimum)}
                 type="button"
                 variant="outline"
                 onClick={() => void extract()}
@@ -400,8 +407,8 @@ export function CollectionDesignSystemDialog({
                   : designSystem
                     ? t("workspace.designSystem.extractAgain")
                     : t("workspace.designSystem.extract")}
-                <Badge className="ml-1" variant="secondary">{t("workspace.designSystem.cost", { count: DESIGN_SYSTEM_CREDITS })}</Badge>
               </Button>
+              <AiCreditCostHint label={t("viewer.aiCloudCreditCost", { count: DESIGN_SYSTEM_CREDITS })} />
             </div>
           ) : null}
         </div>
@@ -421,6 +428,10 @@ export function CollectionDesignSystemDialog({
                 <Button size="sm" type="button" variant="outline" onClick={() => void extract()}>
                   {t("viewer.aiRetry")}
                 </Button>
+              ) : aiRecovery === "settings" ? (
+                <Button size="sm" type="button" variant="outline" onClick={() => openSettings("aiUsage")}>
+                  {t("settings.ai")}
+                </Button>
               ) : null}
             </div>
           ) : null}
@@ -436,9 +447,33 @@ export function CollectionDesignSystemDialog({
           ) : designSystem && exports ? (
             <DesignSystemView designSystem={designSystem} exports={exports} />
           ) : (
-            <div className="flex flex-col gap-1 text-sm text-muted-foreground">
+            <div className="flex flex-col gap-2 text-sm text-muted-foreground">
               <p>{t("workspace.designSystem.empty")}</p>
-              <p>{t("workspace.designSystem.emptyHint")}</p>
+              {eligibility ? (
+                <p>
+                  {t("workspace.designSystem.eligibility", {
+                    count: eligibility.eligiblePins,
+                    minimum: eligibility.minimum,
+                    total: eligibility.totalPins,
+                  })}
+                </p>
+              ) : (
+                <p>{t("workspace.designSystem.emptyHint")}</p>
+              )}
+              <Button
+                className="w-fit px-0"
+                render={(
+                  <Link
+                    params={{ article: "ai-features", category: "agents" }}
+                    preload="intent"
+                    to="/help/$category/$article"
+                  />
+                )}
+                size="sm"
+                variant="link"
+              >
+                {t("workspace.designSystem.learnMore")}
+              </Button>
             </div>
           )}
         </div>

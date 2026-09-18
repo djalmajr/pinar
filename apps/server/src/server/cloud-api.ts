@@ -73,6 +73,11 @@ import { extractDesignSystem, readDesignSystem } from "./ai/design-system";
 import { diagnosePin } from "./ai/pin-diagnosis";
 import { generateReproduction } from "./ai/reproduction";
 import { transcribeVoicePin } from "./ai/voice-pin";
+import {
+  AiInferenceError,
+  cloudflareAiProvider,
+  type AiPrompt,
+} from "./ai/inference";
 import { SESSION_PATCH_MAX_BYTES } from "./session-patch";
 import { type PricingConfig, pricingForCountry } from "../lib/pricing";
 import { laterExpiry, paidRetentionExpiresAt } from "../lib/retention";
@@ -120,6 +125,7 @@ export interface CloudEnv {
   AI?: Ai;
   AUTH_PEPPER?: string;
   DB?: D1Database;
+  DEPLOYMENT_ENV?: "local" | "production" | "staging";
   EMAIL?: SendEmail;
   EXTENSION_ORIGIN?: string;
   PINAR_BUCKET?: R2Bucket;
@@ -145,6 +151,10 @@ export interface CloudEnv {
   STRIPE_PRICE_YEARLY?: string;
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
+}
+
+function requiresLegalAcceptance(env: CloudEnv) {
+  return env.DEPLOYMENT_ENV !== "staging";
 }
 
 export interface Principal {
@@ -1059,12 +1069,12 @@ async function listAiUsageHistory(env: CloudEnv, principal: Principal, limit = 2
 
   if (env.DB) {
     const result = await env.DB.prepare(
-      "SELECT * FROM ai_credit_usages WHERE owner_type = ? AND owner_id = ? AND feature != 'pin_diagnosis' ORDER BY created_at DESC LIMIT ?",
+      "SELECT * FROM ai_credit_usages WHERE owner_type = ? AND owner_id = ? AND feature != 'pin_diagnosis' ORDER BY created_at DESC, rowid DESC LIMIT ?",
     ).bind(principal.kind, principal.id, limit).all();
     return (result.results || []).map(aiUsageFromRow).map(toEntry).filter((entry): entry is AiUsageHistoryEntry => entry !== null);
   }
 
-  return Array.from(memoryAiCreditUsages.values())
+  return Array.from(memoryAiCreditUsages.values()).reverse()
     .filter((usage) => usage.ownerType === principal.kind && usage.ownerId === principal.id)
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
     .slice(0, limit)
@@ -2022,11 +2032,11 @@ async function principalFromOwner(env: CloudEnv, ownerType: Principal["kind"], o
     const installation = await env.DB.prepare(
       "SELECT id FROM installations WHERE id = ? AND status = 'active'",
     ).bind(ownerId).first();
-    if (!installation || !await hasCurrentRemoteFreeLegalAcceptance(env, ownerId)) return null;
+    if (!installation || (requiresLegalAcceptance(env) && !await hasCurrentRemoteFreeLegalAcceptance(env, ownerId))) return null;
     return installationPrincipal(String(installation.id));
   }
   return memoryInstallations.get(ownerId)?.status === "active"
-    && await hasCurrentRemoteFreeLegalAcceptance(env, ownerId)
+    && (!requiresLegalAcceptance(env) || await hasCurrentRemoteFreeLegalAcceptance(env, ownerId))
     ? installationPrincipal(ownerId)
     : null;
 }
@@ -2086,7 +2096,7 @@ export async function resolvePrincipal(request: Request, env: CloudEnv): Promise
       const installation = await env.DB.prepare(
         "SELECT id FROM installations WHERE id = ? AND token_hash = ? AND status = 'active'",
       ).bind(installationId, tokenHash).first();
-      if (!installation || !await hasCurrentRemoteFreeLegalAcceptance(env, installationId)) return null;
+      if (!installation || (requiresLegalAcceptance(env) && !await hasCurrentRemoteFreeLegalAcceptance(env, installationId))) return null;
       await env.DB.prepare("UPDATE installations SET last_seen_at = ?, updated_at = ? WHERE id = ?")
         .bind(now, now, installationId).run();
       return installationPrincipal(String(installation.id));
@@ -2098,7 +2108,7 @@ export async function resolvePrincipal(request: Request, env: CloudEnv): Promise
   if (!installation
     || installation.status !== "active"
     || installation.tokenHash !== tokenHash
-    || !await hasCurrentRemoteFreeLegalAcceptance(env, installationId)) return null;
+    || (requiresLegalAcceptance(env) && !await hasCurrentRemoteFreeLegalAcceptance(env, installationId))) return null;
   return installationPrincipal(installationId);
 }
 
@@ -2110,7 +2120,7 @@ async function registerInstallation(request: Request, env: CloudEnv) {
     return json({ error: "Invalid installation identity" }, 400);
   }
   const legalEvidence = remoteFreeLegalEvidence(body, installationId);
-  if (!legalEvidence) {
+  if (requiresLegalAcceptance(env) && !legalEvidence) {
     return json({
       acceptableUseUrl: "/legal/acceptable-use",
       code: "legal_acceptance_required",
@@ -2132,7 +2142,7 @@ async function registerInstallation(request: Request, env: CloudEnv) {
         }
         await env.DB.prepare("UPDATE installations SET last_seen_at = ?, updated_at = ? WHERE id = ?")
           .bind(now, now, installationId).run();
-        if (!await recordRemoteFreeLegalAcceptance(env, installationId, legalEvidence)) {
+        if (legalEvidence && !await recordRemoteFreeLegalAcceptance(env, installationId, legalEvidence)) {
           return json({ error: "Legal acceptance unavailable" }, 503);
         }
         return json({ installationId, ok: true });
@@ -2140,7 +2150,7 @@ async function registerInstallation(request: Request, env: CloudEnv) {
       await env.DB.prepare(
         "INSERT INTO installations (id, token_hash, status, created_at, updated_at, last_seen_at) VALUES (?, ?, 'active', ?, ?, ?)",
       ).bind(installationId, tokenHash, now, now, now).run();
-      if (!await recordRemoteFreeLegalAcceptance(env, installationId, legalEvidence)) {
+      if (legalEvidence && !await recordRemoteFreeLegalAcceptance(env, installationId, legalEvidence)) {
         return json({ error: "Legal acceptance unavailable" }, 503);
       }
     } catch {
@@ -2152,13 +2162,13 @@ async function registerInstallation(request: Request, env: CloudEnv) {
       return json({ error: "Installation identity already exists" }, 409);
     }
     if (existing) {
-      if (!await recordRemoteFreeLegalAcceptance(env, installationId, legalEvidence)) {
+      if (legalEvidence && !await recordRemoteFreeLegalAcceptance(env, installationId, legalEvidence)) {
         return json({ error: "Legal acceptance unavailable" }, 503);
       }
       return json({ installationId, ok: true });
     }
     memoryInstallations.set(installationId, { status: "active", tokenHash });
-    if (!await recordRemoteFreeLegalAcceptance(env, installationId, legalEvidence)) {
+    if (legalEvidence && !await recordRemoteFreeLegalAcceptance(env, installationId, legalEvidence)) {
       return json({ error: "Legal acceptance unavailable" }, 503);
     }
   }
@@ -2616,7 +2626,7 @@ async function verifyEmailCode(request: Request, env: CloudEnv) {
 
   const accountPrincipal = principalForAccount(account);
   const currentAcceptance = await latestLegalAcceptance(env, accountPrincipal);
-  if (!isCurrentLegalAcceptance(currentAcceptance)) {
+  if (requiresLegalAcceptance(env) && !isCurrentLegalAcceptance(currentAcceptance)) {
     const evidence = currentAppLegalEvidence(
       body,
       `account:${account.id}:${CURRENT_LEGAL_VERSION}`,
@@ -4518,6 +4528,8 @@ async function accountEntitlements(request: Request, env: CloudEnv) {
 
 interface AiSessionSummary {
   highlights: string[];
+  model: string;
+  provider: string;
   summary: string;
 }
 
@@ -4527,7 +4539,7 @@ export function aiOutputLanguage(requested: string) {
   return AI_OUTPUT_LANGUAGES.has(requested) ? requested : "en";
 }
 
-function sessionSummaryInput(session: Session) {
+export function sessionSummaryInput(session: Session) {
   const annotations: Array<{ comment: string; label: string; number: number }> = [];
   let remainingCharacters = 12_000;
   for (const [index, pin] of session.pins.slice(0, 50).entries()) {
@@ -4547,45 +4559,6 @@ function sessionSummaryInput(session: Session) {
   };
 }
 
-function aiResponseText(output: unknown) {
-  if (typeof output === "string") return output;
-  if (!isRecord(output)) return "";
-  if (typeof output.response === "string") return output.response;
-  if (Array.isArray(output.choices) && isRecord(output.choices[0])) {
-    const message = output.choices[0].message;
-    return isRecord(message) && typeof message.content === "string" ? message.content : "";
-  }
-  // OpenAI Responses API shape (gpt-oss on Workers AI).
-  if (typeof output.output_text === "string") return output.output_text;
-  if (Array.isArray(output.output)) {
-    const texts: string[] = [];
-    for (const item of output.output) {
-      if (!isRecord(item) || item.type !== "message" || !Array.isArray(item.content)) continue;
-      for (const part of item.content) {
-        if (isRecord(part) && part.type === "output_text" && typeof part.text === "string") texts.push(part.text);
-      }
-    }
-    return texts.join("\n");
-  }
-  return "";
-}
-
-function aiResponseUsage(output: unknown, input: string, response: string, spec: AiFeatureSpec) {
-  const usage = isRecord(output) && isRecord(output.usage) ? output.usage : {};
-  const inputTokens = Math.max(0, numberValue(usage, "prompt_tokens"), numberValue(usage, "input_tokens"))
-    || Math.ceil(input.length / 4);
-  const outputTokens = Math.max(0, numberValue(usage, "completion_tokens"), numberValue(usage, "output_tokens"))
-    || Math.ceil(response.length / 4);
-  return {
-    costUsdMicros: Math.ceil(
-      inputTokens * spec.inputUsdPerMillionTokens
-      + outputTokens * spec.outputUsdPerMillionTokens,
-    ),
-    inputTokens,
-    outputTokens,
-  };
-}
-
 /** Lenient JSON object extraction from a model reply that may wrap it in prose or fences. */
 export function extractJsonObject(value: string): Record<string, unknown> | null {
   const firstBrace = value.indexOf("{");
@@ -4599,7 +4572,7 @@ export function extractJsonObject(value: string): Record<string, unknown> | null
   }
 }
 
-function parseAiSessionSummary(value: string): AiSessionSummary | null {
+export function parseAiSessionSummary(value: string, model = AI_FEATURE_SPECS.session_summary.model, provider = "pinar_cloud"): AiSessionSummary | null {
   const parsed = extractJsonObject(value);
   if (!parsed || typeof parsed.summary !== "string") return null;
   const summary = parsed.summary.trim().slice(0, 1_200);
@@ -4611,7 +4584,7 @@ function parseAiSessionSummary(value: string): AiSessionSummary | null {
       .filter(Boolean)
       .slice(0, 5)
     : [];
-  return { highlights, summary };
+  return { highlights, model, provider, summary };
 }
 
 export async function findOwnedSession(env: CloudEnv, principal: Principal, id: string) {
@@ -4623,18 +4596,6 @@ export async function findOwnedSession(env: CloudEnv, principal: Principal, id: 
   }
   const session = memorySessions.get(id);
   return session?.userId === principal.id ? session : null;
-}
-
-export interface AiPromptMessage {
-  content: string;
-  role: "system" | "user";
-}
-
-export interface AiPrompt {
-  /** Chat models honor `json_object`; the Responses API models take the instruction from the prompt. */
-  jsonObject?: boolean;
-  messages: AiPromptMessage[];
-  temperature?: number;
 }
 
 export interface RunAiFeatureInput<T> {
@@ -4670,30 +4631,6 @@ export interface RunMeteredAiFeatureInput<T> {
   spec: AiFeatureSpec;
   unavailableMessage: string;
 }
-
-function isResponsesApiModel(model: string) {
-  return model.startsWith("@cf/openai/gpt-oss");
-}
-
-function aiRunInput(prompt: AiPrompt, spec: AiFeatureSpec): Record<string, unknown> {
-  if (isResponsesApiModel(spec.model)) {
-    const instructions = prompt.messages.filter((message) => message.role === "system").map((message) => message.content).join("\n\n");
-    const input = prompt.messages.filter((message) => message.role === "user").map((message) => message.content).join("\n\n");
-    return {
-      input,
-      instructions,
-      max_output_tokens: spec.maxTokens,
-      reasoning: { effort: "low" },
-    };
-  }
-  return {
-    max_tokens: spec.maxTokens,
-    messages: prompt.messages,
-    ...(prompt.jsonObject ? { response_format: { type: "json_object" } } : {}),
-    temperature: prompt.temperature ?? 0.1,
-  };
-}
-
 /**
  * Every AI feature runs through the same gate: paid plan, monthly refill,
  * rate limit, credit reservation, idempotent replay, inference, settlement or
@@ -4759,6 +4696,7 @@ export async function runMeteredAiFeature<T>(input: RunMeteredAiFeatureInput<T>)
             inputTokens: reservation.usage.inputTokens,
             model: reservation.usage.model,
             outputTokens: reservation.usage.outputTokens,
+            provider: "pinar_cloud",
           },
         }, 200, { "Cache-Control": "no-store" });
       }
@@ -4796,10 +4734,11 @@ export async function runMeteredAiFeature<T>(input: RunMeteredAiFeatureInput<T>)
       idempotent: false,
       ok: true,
       result,
-      usage: { ...telemetry, model: spec.model },
+      usage: { ...telemetry, model: spec.model, provider: "pinar_cloud" },
     }, 200, { "Cache-Control": "no-store" });
   } catch (error) {
-    const errorCode = error instanceof Error && error.message === "invalid_ai_response"
+    const errorCode = (error instanceof Error && error.message === "invalid_ai_response")
+      || (error instanceof AiInferenceError && error.code === "invalid_ai_response")
       ? "invalid_ai_response"
       : "ai_inference_failed";
     let refunded = false;
@@ -4834,18 +4773,22 @@ export async function runAiFeature<T>(input: RunAiFeatureInput<T>): Promise<Resp
     ...input,
     execute: async () => {
       const prompt = input.buildPrompt();
-      const content = prompt.messages.map((message) => message.content).join("\n");
-      const inference: unknown = await input.env.AI!.run(
-        input.spec.model as Parameters<Ai["run"]>[0],
-        aiRunInput(prompt, input.spec) as Parameters<Ai["run"]>[1],
-        { signal: AbortSignal.timeout(input.spec.timeoutMs) },
-      );
-      const responseText = aiResponseText(inference);
-      const result = input.parse(responseText);
+      const inference = await cloudflareAiProvider(input.env.AI!, input.spec.model).run(prompt, {
+        maxTokens: input.spec.maxTokens,
+        timeoutMs: input.spec.timeoutMs,
+      });
+      const result = input.parse(inference.text);
       if (!result) throw new Error("invalid_ai_response");
       return {
         result,
-        telemetry: aiResponseUsage(inference, content, responseText, input.spec),
+        telemetry: {
+          costUsdMicros: Math.ceil(
+            inference.usage.inputTokens * input.spec.inputUsdPerMillionTokens
+            + inference.usage.outputTokens * input.spec.outputUsdPerMillionTokens,
+          ),
+          inputTokens: inference.usage.inputTokens,
+          outputTokens: inference.usage.outputTokens,
+        },
       };
     },
   });

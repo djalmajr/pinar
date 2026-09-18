@@ -15,6 +15,7 @@ const config = JSON.parse(
     .replace(/^\s*\/\/.*$/gm, "")
     .replace(/,\s*([}\]])/g, "$1"),
 ) as WranglerConfig;
+const apiSource = readFileSync(new URL("../server/api.ts", import.meta.url), "utf8");
 
 describe("billing deployment configuration", () => {
   test("keeps only subscription and add-on prices in every environment", () => {
@@ -25,5 +26,12 @@ describe("billing deployment configuration", () => {
         assert.match(vars[`STRIPE_PRICE_BR_${suffix}`], /^price_/);
       }
     }
+  });
+
+  test("passes the explicit deployment environment into the cloud API", () => {
+    assert.equal(config.vars.DEPLOYMENT_ENV, "local");
+    assert.equal(config.env.staging.vars.DEPLOYMENT_ENV, "staging");
+    assert.equal(config.env.production.vars.DEPLOYMENT_ENV, "production");
+    assert.match(apiSource, /DEPLOYMENT_ENV: source\.DEPLOYMENT_ENV/);
   });
 });

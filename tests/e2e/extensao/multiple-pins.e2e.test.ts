@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { resolve } from "node:path";
+import { pressCopyShortcut } from "../helpers/extension-shortcut";
 
 const extensionPath = (file: string) => resolve(process.cwd(), "extension", file);
 
@@ -210,7 +211,7 @@ test("power user edits, deletes, clears and preserves pin order through the view
   await page.evaluate(() => (globalThis as any).__pinarToggle());
   await createPin(page, "#target-c", "First bundled comment");
   await createPin(page, "#target-a", "Second bundled comment");
-  await page.keyboard.press("Control+Enter");
+  await pressCopyShortcut(page);
   await expect(page.locator('[data-pinar="host"]')).toBeHidden();
 
   const clipboardMessage = await page.evaluate(() => {

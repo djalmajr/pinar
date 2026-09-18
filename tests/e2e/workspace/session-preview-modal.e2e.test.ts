@@ -88,6 +88,11 @@ test("grid capture opens the zoom viewer modal without leaving the dashboard", a
   expect(selectionBox?.x ?? Infinity).toBeLessThan((previewBox?.x ?? 0) + 40);
   expect(selectionBox?.y ?? Infinity).toBeLessThan((previewBox?.y ?? 0) + 40);
 
+  await card.getByRole("button", { name: "More session actions" }).click();
+  const actions = page.getByRole("menu");
+  await expect(actions.getByRole("menuitem", { exact: true, name: "View" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
   await preview.click();
   const dialog = page.getByRole("dialog", { name: "Lowcode Studio" });
   await expect(dialog).toBeVisible();

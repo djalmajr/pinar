@@ -93,6 +93,10 @@ const locale = {
       caption:
         "Tab sustituye la barra de captura por la revisión de la sesión, donde puedes editar o eliminar pins antes de finalizar o descartar.",
     },
+    "capture-review": {
+      alt: "Página con pines de elemento listos para revisión y enriquecimiento mediante las funciones de IA de Pinar.",
+      caption: "Los pines de elemento conservan la estructura capturada que requieren el diagnóstico, la generación de componentes y la extracción del sistema de diseño.",
+    },
     "capture-copy-failed": {
       alt: "Pinar informa de que no se pudo finalizar la sesión y mantiene los pins disponibles para revisar y reintentar.",
       caption:
@@ -294,7 +298,7 @@ const locale = {
         {
           heading: "Finaliza o cancela la sesión",
           paragraphs: [
-            "Usa `Command/Ctrl/Alt+Enter`: pulsa `Command+Enter` en macOS, `Ctrl+Enter` en los demás sistemas o `Alt+Enter` en cualquiera para finalizar y copiar la sesión completa. Pinar confirma el éxito de forma visible. Si falla, muestra un error accionable y conserva la sesión para revisarla y reintentar. Descartar sesión la termina sin copiar.",
+            "Usa `Command+Enter` en macOS o `Alt+Enter` en Windows y Linux para finalizar y copiar la sesión completa. Pinar confirma el éxito de forma visible. Si falla, muestra un error accionable y conserva la sesión para revisarla y reintentar. Descartar sesión la termina sin copiar.",
             "Trata el contenido del portapapeles como una unidad: instrucciones legibles, una URL opcional del visor y un bloque delimitado pinar-visual-context por página. Cada bloque incluye su propia captura, `captureId`, `pinId`, URL y localizadores. Los distintivos numerados son superposiciones de anotación. No reescribas `captureId` ni `pinId`.",
           ],
           bullets: [
@@ -319,7 +323,7 @@ const locale = {
         {
           heading: "Nube",
           paragraphs: [
-            "El modo nube habilita el acceso remoto al espacio de trabajo, la retención gestionada, los resúmenes de IA, la facturación y los enlaces de uso compartido no listados. Aceptas las políticas vigentes antes de que se almacene nada de forma remota.",
+            "El modo nube habilita el acceso remoto al espacio de trabajo, la retención gestionada, los resúmenes con la IA de Pinar Cloud, la facturación y los enlaces de uso compartido no listados. La IA local y BYOK siguen disponibles sin usar créditos de Pinar Cloud. Aceptas las políticas vigentes antes de que se almacene nada de forma remota.",
           ],
         },
         {
@@ -350,9 +354,9 @@ const locale = {
             "`Enter` fija el elemento bajo el puntero; `Arrow Up` selecciona su padre y `Arrow Down` vuelve a un hijo.",
             "`M` activa o desactiva el dibujo de máscaras de privacidad. `Escape` cancela un borrador o una máscara; sin borrador, limpia los pins y oculta la barra.",
             "`R` alterna la superposición en vivo entre solo los pins numerados y los pins con sus regiones seleccionadas. La captura copiada siempre incluye ambos.",
-            "`Command/Ctrl/Alt+Enter` copia el paquete completado.",
+            "`Command+Enter` / `Alt+Enter` copia el paquete completado.",
             "`Alt+Shift+P` muestra u oculta la barra sin cancelar la sesión, y puedes reasignarlo en `chrome://extensions/shortcuts`. Los atajos del navegador quedan inertes en páginas `chrome://`, en la Chrome Web Store y antes de que se inyecte el overlay.",
-            "`G` empieza a grabar los pasos que das en la página. Vuelve a abrir Pinar, fija el resultado y copia con `Command/Ctrl/Alt+Enter` para adjuntar los pasos; pulsar `G` de nuevo descarta la grabación.",
+            "`G` empieza a grabar los pasos que das en la página. Vuelve a abrir Pinar, fija el resultado y copia con `Command+Enter` / `Alt+Enter` para adjuntar los pasos; pulsar `G` de nuevo descarta la grabación.",
           ],
         },
         {
@@ -369,7 +373,7 @@ const locale = {
             "`Arrow Up` sube al elemento padre y recuerda el hijo que dejaste, de modo que `Arrow Down` vuelve a ese nodo recordado cuando sigue siendo un hijo; si no, usa el primer hijo. En modo máscara, arrastra una región para ocultarla y haz clic en una máscara existente para restaurarla. El desplazamiento con teclado sigue funcionando en el documento, pero las teclas dirigidas a controles de página enfocados se bloquean para que no activen botones ni escriban en el formulario anfitrión.",
           ],
           bullets: [
-            "`Command/Ctrl/Alt+Enter` guarda un borrador abierto y luego copia; sin comentario muestra “Escribe un comentario” en lugar de enviar un pin vacío.",
+            "`Command+Enter` / `Alt+Enter` guarda un borrador abierto y luego copia; sin comentario muestra “Escribe un comentario” en lugar de enviar un pin vacío.",
             "Después de `Escape` o de copiar, Pinar sigue poseyendo esa tecla física hasta keyup para que la página anfitriona no trate la misma pulsación como su propio cancel o submit.",
             "Un pin de área empieza solo después de que el puntero se mueva unos seis píxeles; un clic más corto sigue fijando el elemento bajo el puntero en lugar de abrir un rectángulo libre.",
           ],
@@ -581,20 +585,20 @@ const locale = {
         {
           heading: "Cómo entregar el paquete copiado a un agente",
           paragraphs: [
-            "La extensión de Chrome nunca escribe en el compositor del agente. Después de `Command/Ctrl/Alt+Enter`, pega tú mismo el portapapeles en Cursor, Claude, Codex o Grok. El texto empieza diciendo que las notas de los pins pueden pedir un cambio o una explicación, y tratar el selector y el camino DOM como localizadores complementarios, seguidas de un bloque JSON pinar-visual-context delimitado. Si se incluye una URL de Viewer, recupérala solo cuando esos detalles no basten.",
+            "La extensión de Chrome nunca escribe en el compositor del agente. Después de `Command+Enter` / `Alt+Enter`, pega tú mismo el portapapeles en Cursor, Claude, Codex o Grok. El texto empieza diciendo que las notas de los pins pueden pedir un cambio o una explicación, y tratar el selector y el camino DOM como localizadores complementarios, seguidas de un bloque JSON pinar-visual-context delimitado. Si se incluye una URL de Viewer, recupérala solo cuando esos detalles no basten.",
             "Trata `captureId` y `pinId` como identidad, no como etiquetas a reescribir. Visual Context actualmente codifica schemaVersion 1; parseVisualCapture rechaza un `captureId` ausente y cualquier schemaVersion distinto de 1 o el legado 0. Sigue solo lo que describen los pins. Si la persona nunca pegó, pídele que copie de nuevo desde Pinar en lugar de reconstruir pins de memoria.",
           ],
           bullets: [
             "Pega el portapapeles entero en el agente; no reescribas comentarios ni inventes un `captureId` nuevo.",
             "Confirma que el texto pegado aún contiene un cierre de cerca pinar-visual-context antes de empezar a editar código.",
-            "Si no se pegó nada, pide `Command/Ctrl/Alt+Enter` en Pinar y sigue solo las notas de los pins.",
+            "Si no se pegó nada, pide `Command+Enter` / `Alt+Enter` en Pinar y sigue solo las notas de los pins.",
           ],
         },
         {
           heading: "Diagnosticar un pin y guardarlo como componente",
           paragraphs: [
-            "En un pin con estructura capturada, “Diagnosticar” pide a la IA la causa probable de lo que comentaste y una propuesta de corrección CSS, con un nivel de confianza. Acepta, edita o descarta la propuesta; solo un diagnóstico aceptado se conserva con el pin y se copia con el paquete. Un diagnóstico cuesta 3 créditos de IA.",
-            "“Guardar como componente” convierte el elemento capturado en un componente aislado para tu stack: HTML + CSS, React + Tailwind o Preact + htm. El resultado lista archivos, dependencias y notas de fidelidad, con una previsualización junto al screenshot original. Copia los archivos, descarga un ZIP o abre el componente en StackBlitz. Cuesta 10 créditos de IA, y el stack elegido se recuerda para el siguiente pin.",
+            "En un pin con estructura capturada, “Diagnosticar” pide a la IA la causa probable de lo que comentaste y una propuesta de corrección CSS, con un nivel de confianza. Acepta, edita o descarta la propuesta; solo un diagnóstico aceptado se conserva con el pin y se copia con el paquete. Con la IA de Pinar Cloud, un diagnóstico cuesta 3 créditos.",
+            "“Guardar como componente” convierte el elemento capturado en un componente aislado para tu stack: HTML + CSS, React + Tailwind o Preact + htm. El resultado lista archivos, dependencias y notas de fidelidad, con una previsualización junto al screenshot original. Copia los archivos, descarga un ZIP o abre el componente en StackBlitz. Con la IA de Pinar Cloud cuesta 10 créditos, y el stack elegido se recuerda para el siguiente pin.",
           ],
           bullets: [
             "Ambas acciones necesitan la estructura del elemento; los pins de área y los pins capturados antes de esta versión no pueden usarlas.",
@@ -631,6 +635,44 @@ const locale = {
             "Ajusta el interruptor compact/full y el de `includeScreenshot`, y haz clic en Save antes de la siguiente copia.",
             "Deja `includeScreenshot` activado salvo que quieras a propósito metadatos, pins, localizadores y handoff sin almacenamiento de imagen.",
             "Después de guardar, copia una vez y confirma que cada pegado de adaptador sigue compartiendo el mismo `captureId` y los mismos pinIds.",
+          ],
+        },
+      ],
+    },
+    "ai-features": {
+      title: "Funciones de IA y cómo probarlas",
+      summary: "Encuentra todas las funciones de IA en un solo lugar, conoce sus requisitos y prueba IA local, BYOK o Pinar Cloud.",
+      sections: [
+        {
+          heading: "Elige primero el proveedor",
+          paragraphs: [
+            "En el servidor local, abre Configuración → Asistente de IA, elige IA local o BYOK, indica el endpoint compatible con OpenAI y el modelo, y usa Probar y guardar. IA local y BYOK no usan créditos de Pinar. En Pinar Cloud, la IA está disponible para las cuentas autenticadas aptas; el icono de interrogación junto a una acción muestra su consumo actual de créditos de Pinar Cloud.",
+          ],
+        },
+        {
+          heading: "Resumen de la sesión",
+          paragraphs: [
+            "Abre una sesión guardada haciendo clic en la miniatura de su captura. En el encabezado del visor, elige Resumir anotaciones. El resultado usa el título, la URL y los comentarios de los pines.",
+          ],
+        },
+        {
+          heading: "Diagnóstico del pin y generación de componentes",
+          paragraphs: [
+            "Crea un pin de elemento nuevo, termina la sesión, abre su miniatura y selecciona ese pin en el visor. El diálogo muestra Diagnosticar y Guardar como componente, con salidas HTML, React con Tailwind o Preact con HTM.",
+            "Ambas funciones requieren un pin de elemento con estructura capturada. Los pines de área y los pines antiguos sin estructura muestran el requisito; crea un pin de elemento nuevo con la extensión actual para probarlas.",
+          ],
+        },
+        {
+          heading: "Reproducción automatizada",
+          paragraphs: [
+            "Abre la barra de captura y pulsa `G` para grabar. Usa la página, vuelve a abrir Pinar, añade un pin y termina con `Command+Enter` en macOS o `Alt+Enter` en Windows y Linux. En la sesión guardada, Reproducción muestra las acciones y Generar pasos y prueba crea los pasos y una prueba Playwright.",
+          ],
+        },
+        {
+          heading: "Extracción del sistema de diseño",
+          paragraphs: [
+            "Envía al menos tres pines de elemento nuevos de páginas del mismo sitio a la misma colección y elige Extraer sistema de diseño en su menú. Solo cuentan los pines con estructura capturada; las capturas de pantalla, los pines de área y los pines antiguos sin estructura no cuentan. El diálogo muestra la cantidad apta antes de extraer.",
+            "El resultado agrupa colores, tipografía, espaciado, radios, sombras y fuentes y se exporta como tokens W3C, variables CSS, tema Tailwind o DESIGN.md.",
           ],
         },
       ],
@@ -695,7 +737,7 @@ const locale = {
             "Cuando fallan todos los caminos de copia, la página envía overlays:hidden con hidden false, muestra “Error al copiar” y deja los pins editables. Una copia correcta muestra “¡Copiado con éxito!”, o “¡Copiado con éxito!” más “sin captura”, “ayudante no disponible” o “sin visor”, y luego termina la sesión. Esos sufijos corresponden a `screenshot_missing`, `helper_unavailable` y `viewer_unavailable`. screenshot_inline no es uno de los avisos de handoff degradado. Un pegado sin una cerca pinar-visual-context cerrada no se puede analizar como JSON.",
           ],
           bullets: [
-            "Si la barra dice “Escribe un comentario” o “Añade un pin”, termina ese pin y pulsa `Command/Ctrl/Alt+Enter` otra vez.",
+            "Si la barra dice “Escribe un comentario” o “Añade un pin”, termina ese pin y pulsa `Command+Enter` / `Alt+Enter` otra vez.",
             "Si aparece “Error al copiar”, confirma que los pins siguen en la página, concede el permiso de portapapeles si se pide y reintenta la copia.",
             "Lee el sufijo de “¡Copiado con éxito!”: “sin captura”, “ayudante no disponible” y “sin visor” nombran la capa que falta para reintentar sin descartar comentarios.",
           ],
@@ -765,7 +807,7 @@ const locale = {
         {
           heading: "Extraer el sistema de diseño de una colección",
           paragraphs: [
-            "Desde el menú de una colección, “Extraer design system” lee la estructura de los pins de esa colección y deriva los tokens que comparten: colores, tipografía, espaciado, radios y sombras, además de la identidad del sitio. Necesita al menos tres pins con estructura capturada del mismo sitio, y cuesta 15 créditos de IA.",
+            "Desde el menú de una colección, “Extraer design system” lee la estructura de los pins de esa colección y deriva los tokens que comparten: colores, tipografía, espaciado, radios y sombras, además de la identidad del sitio. Necesita al menos tres pins con estructura capturada del mismo sitio. Con la IA de Pinar Cloud cuesta 15 créditos.",
             "El resultado se abre como un diálogo con el tamaño de la muestra y los avisos que haya, como valores dispersos que no forman una escala. Expórtalo como variables CSS, un tema Tailwind, tokens de diseño W3C o un archivo DESIGN.md, y vuelve a extraer después de añadir más pins.",
           ],
         },
@@ -867,27 +909,27 @@ const locale = {
       ],
     },
     "ai-credits": {
-      title: "Resúmenes de IA y créditos",
+      title: "Resúmenes y créditos de la IA de Pinar Cloud",
       summary:
-        "Sabe cuándo se reservan, gastan, recargan o reembolsan los créditos.",
+        "Sabe cuándo se reservan, gastan, recargan o reembolsan los créditos de Pinar Cloud.",
       sections: [
         {
           heading: "Coste del resumen",
           paragraphs: [
-            "Un resumen de sesión reserva 1 crédito de IA antes de la inferencia del modelo. Si tiene éxito, la reserva se consume. Una inferencia fallida o abortada la reembolsa de inmediato; una reserva sin liquidar durante más de cinco minutos se reembolsa automáticamente. Los resúmenes permiten 10 peticiones por minuto por cuenta y 30 por minuto por IP; una petición duplicada de la misma sesión espera a que termine la petición activa.",
+            "En Pinar Cloud, un resumen de sesión reserva 1 crédito de IA antes de la inferencia del modelo. Si tiene éxito, la reserva se consume. Una inferencia fallida o abortada la reembolsa de inmediato; una reserva sin liquidar durante más de cinco minutos se reembolsa automáticamente. Los resúmenes permiten 10 peticiones por minuto por cuenta y 30 por minuto por IP; una petición duplicada de la misma sesión espera a que termine la petición activa.",
           ],
         },
         {
           heading: "Cuánto cuesta cada función de IA",
           paragraphs: [
-            "Cada función de IA reserva sus créditos antes de ejecutar el modelo y los devuelve cuando el resultado no sirve, exactamente como el resumen. El coste es fijo por petición, no por token: un resumen de sesión cuesta 1 crédito, un diagnóstico de pin 3, una reproducción (pasos escritos más una prueba Playwright) 5, guardar un pin como componente 10 y extraer el sistema de diseño de una colección 15.",
+            "Cada función de IA de Pinar Cloud reserva sus créditos antes de ejecutar el modelo y los devuelve cuando el resultado no sirve, exactamente como el resumen. El coste es fijo por petición, no por token: un resumen de sesión cuesta 1 crédito, un diagnóstico de pin 3, una reproducción (pasos escritos más una prueba Playwright) 5, guardar un pin como componente 10 y extraer el sistema de diseño de una colección 15.",
             "La evidencia técnica y la estructura del elemento las captura la extensión sin ningún modelo y no cuestan nada. Una petición que no puede ejecutarse (un pin sin estructura capturada, una colección con menos de tres snapshots del mismo dominio) se rechaza antes de reservar cualquier crédito.",
           ],
         },
         {
           heading: "Saldos",
           paragraphs: [
-            "Los paquetes comprados añaden 1.000 créditos. La asignación mensual de 200 créditos de Pro no se acumula. El menú de cuenta muestra el saldo activo y la próxima fecha de recarga aplicable.",
+            "Los paquetes comprados de Pinar Cloud añaden 1.000 créditos. La asignación mensual de 200 créditos de Pro no se acumula. El menú de cuenta muestra el saldo activo y la próxima fecha de recarga aplicable.",
           ],
         },
         {

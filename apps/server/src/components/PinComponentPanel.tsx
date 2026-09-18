@@ -22,7 +22,10 @@ import {
   TabsList,
   TabsTrigger,
 } from "@pinar/ui";
+import { AiCreditCostHint } from "@/components/AiCreditCostHint";
+import { useGlobalSettings } from "@/components/GlobalSettingsDialog";
 import { isRecord } from "@/lib/api-data";
+import { aiErrorPresentation, type AiRecovery } from "@/lib/ai-error-presentation";
 import { COMPONENT_EXPORT_CREDITS, componentBundleFiles, stackblitzForm, storeZip } from "@/lib/component-export";
 import { type ServerMessageKey, useServerI18n } from "@/lib/i18n";
 import CheckIcon from "~icons/lucide/check";
@@ -57,8 +60,6 @@ interface ComponentResultProps {
   session: Session;
   onRegenerate: () => void;
 }
-
-type AiRecovery = "pricing" | "retry" | "signIn" | null;
 
 const STACKBLITZ_RUN_URL = "https://stackblitz.com/run";
 
@@ -258,6 +259,7 @@ function ComponentResult({ busy, canEdit, component, pin, session, onRegenerate 
 
 export function PinComponentPanel({ canEdit, pin, preferredTarget, session, sessionId, showAi, onPersist }: PinComponentPanelProps) {
   const { t } = useServerI18n();
+  const openSettings = useGlobalSettings();
   const requestId = useRef<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -284,23 +286,13 @@ export function PinComponentPanel({ canEdit, pin, preferredTarget, session, sess
       if (!response.ok || !result) {
         const code = isRecord(data) && typeof data.code === "string" ? data.code : "";
         if (code !== "ai_request_in_progress" && code !== "ai_refund_pending") requestId.current = null;
-        if (response.status === 401) {
-          setError(t("viewer.aiSignIn"));
-          setRecovery("signIn");
-        } else if (code === "snapshot_required") {
+        if (code === "snapshot_required") {
           setError(t("viewer.componentSnapshotRequired"));
-        } else if (code === "insufficient_ai_credits") {
-          setError(t("viewer.aiNoCredits"));
-          setRecovery("pricing");
-        } else if (code === "ai_rate_limited") {
-          setError(t("viewer.aiRateLimited"));
-          setRecovery("retry");
-        } else if (code === "ai_refund_pending") {
-          setError(t("viewer.aiRefundPending"));
-          setRecovery("retry");
+          setRecovery(null);
         } else {
-          setError(t("viewer.aiUnavailable"));
-          setRecovery("retry");
+          const presentation = aiErrorPresentation(response.status, code);
+          setError(t(presentation.messageKey));
+          setRecovery(presentation.recovery);
         }
         return;
       }
@@ -379,9 +371,7 @@ export function PinComponentPanel({ canEdit, pin, preferredTarget, session, sess
           <SparklesIcon data-icon="inline-start" />
           {busy ? t("viewer.componentGenerating") : t("viewer.componentGenerate")}
         </Button>
-        <span className="text-xs text-muted-foreground">
-          {t("viewer.componentCost", { count: COMPONENT_EXPORT_CREDITS })}
-        </span>
+        <AiCreditCostHint label={t("viewer.aiCloudCreditCost", { count: COMPONENT_EXPORT_CREDITS })} />
       </div>
       {error ? (
         <div className="flex flex-col items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
@@ -401,6 +391,10 @@ export function PinComponentPanel({ canEdit, pin, preferredTarget, session, sess
           ) : recovery === "retry" ? (
             <Button size="sm" type="button" variant="outline" onClick={() => void generate()}>
               {t("viewer.aiRetry")}
+            </Button>
+          ) : recovery === "settings" ? (
+            <Button size="sm" type="button" variant="outline" onClick={() => openSettings("aiUsage")}>
+              {t("settings.ai")}
             </Button>
           ) : null}
         </div>

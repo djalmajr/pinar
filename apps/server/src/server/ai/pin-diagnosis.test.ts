@@ -230,7 +230,7 @@ describe("POST /api/ai/pin-diagnosis", () => {
       assert.equal(body.usage.inputTokens, 900);
       assert.equal(body.usage.outputTokens, 120);
       const expected = FIXTURE_REPLIES[pinId];
-      assert.deepEqual(body.result, { ...expected, model: MODEL, version: 1 });
+      assert.deepEqual(body.result, { ...expected, model: MODEL, provider: "pinar_cloud", version: 1 });
 
       assert.equal(calls.length, 1);
       assert.equal(calls[0].model, MODEL);

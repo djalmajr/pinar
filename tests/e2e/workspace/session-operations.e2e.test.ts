@@ -29,7 +29,7 @@ function card(page: Page, title: string) {
 
 function openSessionMenu(page: Page) {
   return page.locator('[role="menu"][data-open]').filter({
-    has: page.getByRole("menuitem", { exact: true, name: "View" }),
+    has: page.getByRole("menuitem", { exact: true, name: "Open prompt *.md" }),
   });
 }
 
@@ -146,7 +146,9 @@ test("move, manual order, copy and confirmed deletion remain precise and persist
   await expect(openSessionMenu(page).getByRole("menuitem", { name: "Copy prompt (batch)" })).toHaveCount(0);
   await page.keyboard.press("Escape");
   await card(page, "Moved capture").getByRole("button", { name: "More session actions" }).click();
-  await openSessionMenu(page).getByRole("menuitem", { exact: true, name: "View" }).click();
+  await expect(openSessionMenu(page).getByRole("menuitem", { exact: true, name: "View" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await card(page, "Moved capture").getByRole("button", { name: "View capture" }).click();
   const viewer = page.getByRole("dialog", { name: "Moved capture" });
   await expect(viewer).toBeVisible();
   await expect(viewer.getByRole("button", { name: "Copy prompt (batch)" })).toBeVisible();

@@ -584,6 +584,7 @@
       .composer-tools { display: flex; gap: 4px; margin-right: auto; }
       .composer-actions .icon-btn { display: inline-flex; }
       .voice-btn.is-recording { background: ${MARK}; color: #fff; }
+      .voice-btn[hidden] { display: none; }
       .voice-btn:disabled { cursor: not-allowed !important; opacity: .45; }
       .voice-feedback { align-items: center; display: flex; gap: 8px; min-height: 16px; padding: 0 4px; }
       .voice-status {
@@ -1969,6 +1970,7 @@
   function renderVoiceControls() {
     if (!ui.voice) return;
     const recording = voiceRecorder?.state === "recording";
+    ui.voice.hidden = !voiceAvailable;
     const title = !voiceAvailable
       ? t("overlay_voice_local_only")
       : recording ? t("overlay_voice_stop") : t("overlay_voice_start");

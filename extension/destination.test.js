@@ -117,7 +117,7 @@ describe("capture destination", () => {
     // Mutation captured: dropping the separators leaves preference sections as an undifferentiated stack.
     assert.match(optionsSrc, /\{t\.section_interface\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.section_handoff\}/);
     assert.match(optionsSrc, /\{t\.section_handoff\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.section_privacy\}/);
-    assert.match(optionsSrc, /\{t\.storage_title\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.storage_status_title\}/);
+    assert.match(optionsSrc, /\{t\.storage_title\}[\s\S]*\{voiceAvailable \? <>[\s\S]*\{t\.voice_settings_title\}[\s\S]*\{t\.storage_status_title\}/);
     assert.match(optionsSrc, /\{t\.storage_status_title\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.capture_destination_label\}/);
     assert.match(optionsSrc, /\{t\.shortcuts_browser_title\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.shortcuts_overlay_title\}/);
     assert.match(optionsSrc, /\{t\.account_free_title\}[\s\S]*<\/section>\s*<Separator \/>/);
@@ -129,8 +129,11 @@ describe("capture destination", () => {
     assert.match(optionsSrc, /\{t\.section_privacy_desc\}<\/p>\s*<div className="flex flex-col gap-3">/);
     assert.doesNotMatch(optionsSrc, /SECTION_LEAD/);
     assert.equal([...optionsSrc.matchAll(/className=\{SECTION_DESC\}/g)].length, 12);
-    assert.match(optionsSrc, /checked=\{settings\.storageMode === "cloud" && settings\.voicePostProcessing\}/);
-    assert.match(optionsSrc, /disabled=\{settings\.storageMode !== "cloud"\}/);
+    assert.match(optionsSrc, /const voiceAvailable = settings\.storageMode === "cloud"[\s\S]*authSession\?\.kind === "account"[\s\S]*authSession\.plan === "pro"/);
+    assert.match(optionsSrc, /\{voiceAvailable \? <>[\s\S]*\{t\.voice_settings_title\}/);
+    const voiceBlock = optionsSrc.slice(optionsSrc.indexOf("{voiceAvailable ? <>"), optionsSrc.indexOf("{t.storage_status_title}"));
+    assert.match(voiceBlock, /checked=\{settings\.voicePostProcessing\}/);
+    assert.doesNotMatch(voiceBlock, /disabled=/);
     assert.match(optionsSrc, /\{t\.section_interface_desc\}/);
     assert.match(optionsSrc, /\{t\.section_handoff_desc\}/);
     assert.match(optionsSrc, /\{t\.section_privacy_desc\}/);
@@ -182,6 +185,20 @@ describe("capture destination", () => {
   test("coalesces concurrent first-load registration requests for one installation", () => {
     assert.match(backgroundSrc, /const registerInstallationOnce = createSingleFlight\(\)/);
     assert.match(backgroundSrc, /return registerInstallationOnce\(cacheKey, async \(\) => \{/);
+  });
+
+  test("coalesces concurrent installation recovery and exposes voice only to signed-in Pro accounts", () => {
+    assert.match(backgroundSrc, /const resetInstallationOnce = createSingleFlight\(\)/);
+    assert.match(backgroundSrc, /return resetInstallationOnce\(endpoint, async \(\) => \{/);
+    assert.match(backgroundSrc, /settings\.storageMode === "cloud" && session\.kind === "account" && session\.plan === "pro"/);
+    assert.match(contentSrc, /ui\.voice\.hidden = !voiceAvailable/);
+    assert.match(contentSrc, /\.voice-btn\[hidden\] \{ display: none; \}/);
+  });
+
+  test("identifies the staging endpoint in extension settings", () => {
+    assert.match(optionsSrc, /hostname === "stg\.pinar\.dev"/);
+    assert.match(optionsSrc, /stagingEndpoint \? t\.staging_title : t\.remote_title/);
+    assert.match(optionsSrc, /stagingEndpoint \? t\.staging_desc : t\.remote_desc/);
   });
 
   test("recovers when an account migration made the anonymous installation id unusable", () => {

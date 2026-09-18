@@ -300,6 +300,15 @@ function hostedSignInUrl(cloudUrl: string, language: SupportedLanguage) {
   return url.toString();
 }
 
+function isStagingEndpoint(cloudUrl: string) {
+  try {
+    const hostname = new URL(cloudUrl).hostname.toLowerCase();
+    return hostname === "stg.pinar.dev" || hostname.startsWith("staging.") || hostname.startsWith("stg.");
+  } catch {
+    return false;
+  }
+}
+
 function accountSessionError(message: string, unavailable: string, legalRequired: string) {
   if (/Accept the current Pinar Terms/i.test(message)) return legalRequired;
   return message || unavailable;
@@ -431,6 +440,10 @@ export function OptionsApp() {
   const codeCountdown = temporaryCode && temporaryCodeExpiresAt
     ? remainingCodeCountdown(temporaryCodeExpiresAt, nowMs)
     : null;
+  const stagingEndpoint = isStagingEndpoint(settings.cloudUrl || DEFAULT_SETTINGS.cloudUrl);
+  const voiceAvailable = settings.storageMode === "cloud"
+    && authSession?.kind === "account"
+    && authSession.plan === "pro";
 
   async function loadLegalConsent(cloudUrl: string) {
     setLegalError(false);
@@ -797,7 +810,7 @@ export function OptionsApp() {
                   </label>
                   <label className="-mx-2 flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1 hover:bg-muted/50">
                     <input checked={settings.storageMode === "cloud"} className="mt-0.5 accent-primary" name="storageMode" type="radio" onChange={() => setSettings((current) => ({ ...current, storageMode: "cloud" }))} />
-                    <span className="min-w-0 flex-1"><span className="block text-xs font-semibold">{t.remote_title}</span><span className="mt-0.5 block text-xs text-muted-foreground">{t.remote_desc}</span></span>
+                    <span className="min-w-0 flex-1"><span className="block text-xs font-semibold">{stagingEndpoint ? t.staging_title : t.remote_title}</span><span className="mt-0.5 block text-xs text-muted-foreground">{stagingEndpoint ? t.staging_desc : t.remote_desc}</span></span>
                   </label>
                   {settings.storageMode === "cloud" ? (
                     <div className="ml-4 rounded-lg border bg-muted/40 p-3">
@@ -818,21 +831,20 @@ export function OptionsApp() {
                   ) : null}
                   </div>
                 </section>
-                <Separator />
-                <section className="flex flex-col">
-                  <span className={SECTION_HEADER}>{t.voice_settings_title}</span>
-                  <p className={SECTION_DESC}>{t.voice_settings_desc}</p>
-                  <div className={cn(settings.storageMode !== "cloud" && "opacity-50")}>
+                {voiceAvailable ? <>
+                  <Separator />
+                  <section className="flex flex-col">
+                    <span className={SECTION_HEADER}>{t.voice_settings_title}</span>
+                    <p className={SECTION_DESC}>{t.voice_settings_desc}</p>
                     <SettingRow size="xs" description={t.voice_post_processing_desc} title={t.voice_post_processing_label}>
                       <Switch
                         aria-label={t.voice_post_processing_label}
-                        checked={settings.storageMode === "cloud" && settings.voicePostProcessing}
-                        disabled={settings.storageMode !== "cloud"}
+                        checked={settings.voicePostProcessing}
                         onCheckedChange={(value) => setSettings((current) => ({ ...current, voicePostProcessing: value }))}
                       />
                     </SettingRow>
-                  </div>
-                </section>
+                  </section>
+                </> : null}
                 <Separator />
                 <section className="flex flex-col">
                   <span className={SECTION_HEADER}>{t.storage_status_title}</span>

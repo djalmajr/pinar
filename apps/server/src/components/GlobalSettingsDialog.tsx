@@ -35,6 +35,7 @@ import {
   TabsTrigger,
 } from "@pinar/ui";
 import { isProjectTreeProject, isRecord } from "@/lib/api-data";
+import { isPaidAuthSession, useAuthSession } from "@/lib/auth-session";
 import { flattenCollections } from "@/lib/collection-tree";
 import { useDeliveryPreferences } from "@/lib/delivery-preferences";
 import { useServerI18n } from "@/lib/i18n";
@@ -188,6 +189,8 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
   const [projects, setProjects] = useState<ProjectTreeProject[]>([]);
   const [sensitiveQueryKeysDraft, setSensitiveQueryKeysDraft] = useState("");
   const runtime = pinarRuntime();
+  const authSession = useAuthSession();
+  const showPaidAi = runtime === "cloud" && isPaidAuthSession(authSession);
   const [currentRelease, setCurrentRelease] = useState<ProductRelease | null>();
 
   useEffect(() => {
@@ -220,7 +223,7 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
   }, [open]);
 
   useEffect(() => {
-    if (!open || runtime !== "cloud") return undefined;
+    if (!open || !showPaidAi) return undefined;
     const controller = new AbortController();
     setAiUsage([]);
     setAiUsageStatus("loading");
@@ -240,7 +243,7 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
         if (!controller.signal.aborted) setAiUsageStatus("unavailable");
       });
     return () => controller.abort();
-  }, [open, runtime]);
+  }, [open, showPaidAi]);
 
   useEffect(() => {
     if (!open) return;
@@ -356,7 +359,7 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                 <MonitorIcon />
                 {t("settings.interfaceNav")}
               </Button>
-              {runtime === "cloud" ? (
+              {showPaidAi ? (
                 <Button
                   aria-current={section === "aiUsage" ? "page" : undefined}
                   className={settingsNavButtonClass(section === "aiUsage")}
@@ -395,7 +398,7 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
               <Button size="sm" variant={section === "general" ? "secondary" : "ghost"} onClick={() => setSection("general")}>{t("settings.general")}</Button>
               <Button size="sm" variant={section === "capture" ? "secondary" : "ghost"} onClick={() => setSection("capture")}>{t("settings.captureNav")}</Button>
               <Button size="sm" variant={section === "interface" ? "secondary" : "ghost"} onClick={() => setSection("interface")}>{t("settings.interfaceNav")}</Button>
-              {runtime === "cloud" ? <Button size="sm" variant={section === "aiUsage" ? "secondary" : "ghost"} onClick={() => setSection("aiUsage")}>{t("settings.aiUsage")}</Button> : null}
+              {showPaidAi ? <Button size="sm" variant={section === "aiUsage" ? "secondary" : "ghost"} onClick={() => setSection("aiUsage")}>{t("settings.aiUsage")}</Button> : null}
               <Button size="sm" variant={section === "about" ? "secondary" : "ghost"} onClick={() => setSection("about")}>{t("settings.about")}</Button>
             </nav>
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
@@ -542,7 +545,7 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                   </Tabs>
                 </SettingRow>
               </section>
-              <section className={cn("flex flex-col gap-3", section !== "aiUsage" && "hidden")}>
+              {showPaidAi ? <section className={cn("flex flex-col gap-3", section !== "aiUsage" && "hidden")}>
                 <SettingRow
                   description={t("settings.voicePostProcessingDescription")}
                   title={t("settings.voicePostProcessing")}
@@ -575,7 +578,7 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                     </div>
                   </div>
                 ))}
-              </section>
+              </section> : null}
               <section className={cn("flex flex-col gap-5", section !== "about" && "hidden")}>
                 <div className="flex flex-col gap-5">
                   <SectionHeading>{t("settings.versionHeading")}</SectionHeading>

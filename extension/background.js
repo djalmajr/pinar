@@ -51,6 +51,7 @@ const tabPins = new Map();
 const tabRecordings = new Map();
 const registeredInstallations = new Set();
 const registerInstallationOnce = createSingleFlight();
+const resetInstallationOnce = createSingleFlight();
 // Keeping the original command id preserves every shortcut a user already bound;
 // Chrome keys bindings by name, so renaming it to "toggle-batch" would drop them.
 const CANCEL_BATCH_COMMAND = "cancel-batch";
@@ -587,8 +588,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message.type === "voice:availability") {
-    getSettings()
-      .then((settings) => sendResponse({ available: settings.storageMode === "cloud", ok: true }))
+    Promise.all([getSettings(), getAuthSession()])
+      .then(([settings, session]) => sendResponse({
+        available: settings.storageMode === "cloud" && session.kind === "account" && session.plan === "pro",
+        ok: true,
+      }))
       .catch((error) => sendResponse({ error: String(error), ok: false }));
     return true;
   }
@@ -1628,12 +1632,14 @@ async function installationFetch(endpoint, path, identity, init = {}) {
 }
 
 async function resetToFreshInstallation(endpoint) {
-  const replacement = createInstallationIdentity();
-  await clearDeviceToken(chrome.storage.local, endpoint);
-  await replaceInstallationIdentity(chrome.storage.local, replacement);
-  registeredInstallations.clear();
-  await registerRemoteInstallation(endpoint, replacement, true);
-  return replacement;
+  return resetInstallationOnce(endpoint, async () => {
+    const replacement = createInstallationIdentity();
+    await clearDeviceToken(chrome.storage.local, endpoint);
+    await replaceInstallationIdentity(chrome.storage.local, replacement);
+    registeredInstallations.clear();
+    await registerRemoteInstallation(endpoint, replacement, true);
+    return replacement;
+  });
 }
 
 async function remoteFetch(endpoint, path, init = {}) {

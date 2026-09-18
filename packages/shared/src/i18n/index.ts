@@ -87,6 +87,8 @@ export interface TranslationDictionary {
   local_desc: string;
   remote_title: string;
   remote_desc: string;
+  staging_title: string;
+  staging_desc: string;
   legal_acceptance_label: string;
   legal_acceptance_required: string;
   legal_acceptable_use: string;
@@ -315,6 +317,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     local_desc: "Everything stays 100% local and private on this device at ~/.pinar/shots/.",
     remote_title: "Remote Server",
     remote_desc: "Uploads to remote server. 7-day retention. Data is never shared or sold.",
+    staging_title: "Staging Server",
+    staging_desc: "Uploads to Pinar staging for pre-release validation.",
     legal_acceptance_label: "I accept the current documents for Pinar's hosted service.",
     legal_acceptance_required: "Accept the current legal documents before using remote storage.",
     legal_acceptable_use: "Acceptable Use",
@@ -541,6 +545,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     local_desc: "Tudo fica 100% local e privado neste dispositivo em ~/.pinar/shots/.",
     remote_title: "Servidor Remoto",
     remote_desc: "Salva no servidor remoto. Retenção de 7 dias. Dados nunca são vendidos.",
+    staging_title: "Servidor staging",
+    staging_desc: "Salva no staging do Pinar para validação antes da publicação.",
     legal_acceptance_label: "Aceito os documentos vigentes do serviço hospedado do Pinar.",
     legal_acceptance_required: "Aceite os documentos legais vigentes antes de usar o armazenamento remoto.",
     legal_acceptable_use: "Uso Aceitável",
@@ -767,6 +773,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     local_desc: "Todo permanece 100% local y privado en este dispositivo en ~/.pinar/shots/.",
     remote_title: "Servidor Remoto",
     remote_desc: "Sube al servidor remoto. Retención de 7 días. Los datos nunca se comparten.",
+    staging_title: "Servidor staging",
+    staging_desc: "Sube al staging de Pinar para validar antes de publicar.",
     legal_acceptance_label: "Acepto los documentos vigentes del servicio alojado de Pinar.",
     legal_acceptance_required: "Acepta los documentos legales vigentes antes de usar el almacenamiento remoto.",
     legal_acceptable_use: "Uso Aceptable",
@@ -993,6 +1001,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     local_desc: "Tout reste 100 % local et privé sur cet appareil dans ~/.pinar/shots/.",
     remote_title: "Serveur Distant",
     remote_desc: "Téléverse vers le serveur distant. Rétention de 7 jours. Données jamais vendues.",
+    staging_title: "Serveur staging",
+    staging_desc: "Téléverse vers le staging de Pinar pour validation avant publication.",
     legal_acceptance_label: "J’accepte les documents en vigueur du service hébergé de Pinar.",
     legal_acceptance_required: "Acceptez les documents juridiques en vigueur avant d’utiliser le stockage distant.",
     legal_acceptable_use: "Utilisation acceptable",
@@ -1219,6 +1229,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     local_desc: "Alles bleibt zu 100 % lokal und privat auf diesem Gerät unter ~/.pinar/shots/.",
     remote_title: "Remote-Server",
     remote_desc: "Lädt auf den Remote-Server hoch. 7 Tage Aufbewahrung. Daten werden nie verkauft.",
+    staging_title: "Staging-Server",
+    staging_desc: "Lädt zur Prüfung vor der Veröffentlichung in Pinars Staging-Umgebung hoch.",
     legal_acceptance_label: "Ich akzeptiere die aktuellen Dokumente für Pinars gehosteten Dienst.",
     legal_acceptance_required: "Akzeptiere die aktuellen Rechtsdokumente, bevor du Remote-Speicher verwendest.",
     legal_acceptable_use: "Zulässige Nutzung",
@@ -1445,6 +1457,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     local_desc: "所有数据均 100% 保存在此设备的 ~/.pinar/shots/，并保持私密。",
     remote_title: "远程服务器",
     remote_desc: "上传到远程服务器。7天保留期。数据从不出售。",
+    staging_title: "预发布服务器",
+    staging_desc: "上传到 Pinar 预发布环境，以便在发布前验证。",
     legal_acceptance_label: "我接受 Pinar 托管服务的现行文件。",
     legal_acceptance_required: "使用远程存储前，请接受现行法律文件。",
     legal_acceptable_use: "可接受使用",
@@ -1671,6 +1685,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     local_desc: "すべてのデータはこのデバイスの ~/.pinar/shots/ にのみ保存され、完全に非公開です。",
     remote_title: "リモートサーバー",
     remote_desc: "リモートサーバーに保存。7日間の保持期間。データは共有・販売されません。",
+    staging_title: "ステージングサーバー",
+    staging_desc: "公開前の検証用に Pinar のステージング環境へ保存します。",
     legal_acceptance_label: "Pinar のホステッドサービスに関する現行文書に同意します。",
     legal_acceptance_required: "リモートストレージを使用する前に、現行の法的文書に同意してください。",
     legal_acceptable_use: "許容される利用",

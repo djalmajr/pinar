@@ -129,6 +129,11 @@ export function createContinuousSession({ read, write, create, capture, save, re
       await persist(null);
       return draft;
     }),
+    abandon: () => serial(async () => {
+      const draft = await read();
+      await persist(null);
+      return draft;
+    }),
   };
 }
 

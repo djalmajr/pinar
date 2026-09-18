@@ -41,7 +41,7 @@ describe("extension action entry points", () => {
     assert.match(menu, /messages\.batch_finish/);
     assert.match(menu, /title: messages\.batch_close_menu, visible: true/);
     assert.doesNotMatch(menu, /visible: active/);
-    assert.match(menu, /concludeReview\(\{ copy: false \}\)/);
+    assert.match(menu, /cancelReview\(\)/);
     assert.match(menu, /void concludeReview\(\)/);
     assert.match(menu, /void openApp\(\)/);
     for (const lang of Object.keys(translations)) {
@@ -68,6 +68,18 @@ describe("extension action entry points", () => {
     assert.match(finish, /\{ copy = true \} = \{\}/);
     assert.match(finish, /if \(copy && summary\.saved > 0\)/);
     assert.match(finish, /copy \? "batch_finished" : "batch_closed"/);
+  });
+
+  test("cancelling abandons pending local work and always closes review", () => {
+    const cancel = backgroundSrc.slice(
+      backgroundSrc.indexOf("async function cancelReview()"),
+      backgroundSrc.indexOf("async function removeReviewPin("),
+    );
+    assert.match(cancel, /continuous\.abandon\(\)/);
+    assert.match(cancel, /finishReviewDraft\(draft\)\.catch/);
+    assert.match(cancel, /endReviewTabs\("cancelled"\)/);
+    assert.doesNotMatch(cancel, /continuous\.finish|session_pending/);
+    assert.match(backgroundSrc, /message\.type === "batch:cancel"[\s\S]*?cancelReview\(\)/);
   });
 
   test("opens the default workspace in the user's language", () => {

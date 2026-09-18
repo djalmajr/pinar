@@ -127,6 +127,19 @@ test("finish without copying and discard are distinct operations", async () => {
   assert.equal(f.state(), null);
 });
 
+test("abandon cancels a pending session locally without retrying network work", async () => {
+  const f = fixture({ save: async () => { throw new Error("offline"); } });
+  await f.engine.sync(input("page", ["a"]));
+  assert.equal(f.state().entries[0].status, "pending");
+  const callsBeforeCancel = structuredClone(f.calls);
+
+  const abandoned = await f.engine.abandon();
+
+  assert.equal(abandoned.entries[0].status, "pending");
+  assert.equal(f.state(), null);
+  assert.deepEqual(f.calls, callsBeforeCancel);
+});
+
 test("text-only preference persists without capturing pixels", async () => {
   const f = fixture({ create: async () => ({ id: "review", includeScreenshot: false }) });
   await f.engine.sync(input("page", ["a"]));

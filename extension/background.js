@@ -74,11 +74,12 @@ const reviewTabs = new Set();
 
 async function reviewScope(settings) {
   if (settings.storageMode !== "cloud") return "local";
+  const endpoint = cloudEndpoint(settings);
   const installation = await ensureInstallationIdentity(chrome.storage.local);
-  const device = await getDeviceToken(chrome.storage.local);
+  const device = await getDeviceToken(chrome.storage.local, endpoint);
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(device || installation.id));
   const identity = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-  return `cloud:${cloudEndpoint(settings)}:${identity}`;
+  return `cloud:${endpoint}:${identity}`;
 }
 
 async function createReviewDraft() {
@@ -107,7 +108,7 @@ async function reviewDestination(draft) {
   if (!base) throw new Error("helper_unavailable");
   let request = (path, init) => localFetch(base, path, init);
   if (settings.storageMode === "cloud") {
-    const device = await getDeviceToken(chrome.storage.local);
+    const device = await getDeviceToken(chrome.storage.local, base);
     const installation = await ensureInstallationIdentity(chrome.storage.local);
     if (!device) await registerRemoteInstallation(base, installation);
     const authHeaders = device ? deviceAuthHeaders(device) : installationAuthHeaders(installation);
@@ -196,6 +197,16 @@ async function concludeReview(options) {
     if (legacy.failed) throw new Error("session_pending");
   }
   if (result) await endReviewTabs("finished");
+  return { ok: true };
+}
+
+async function cancelReview() {
+  const draft = await continuous.abandon();
+  if (draft?.entries.some((entry) => entry.status === "saved" && !entry.deleted)) {
+    await finishReviewDraft(draft).catch((error) => console.warn("Unable to close the cancelled session on the server", error));
+  }
+  await writeBatch(null);
+  await endReviewTabs("cancelled");
   return { ok: true };
 }
 
@@ -474,7 +485,7 @@ chrome.commands?.onCommand.addListener((command) => {
     return;
   }
   if (command === CANCEL_BATCH_COMMAND) {
-    void concludeReview({ copy: false }).catch(reportReviewError);
+    void cancelReview().catch(reportReviewError);
     return;
   }
 });
@@ -518,7 +529,7 @@ chrome.contextMenus?.onClicked.addListener((info) => {
     return;
   }
   if (info.menuItemId !== CANCEL_BATCH_MENU_ID) return;
-  void concludeReview({ copy: false }).catch(reportReviewError);
+  void cancelReview().catch(reportReviewError);
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -716,9 +727,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "batch:cancel") {
-    // Same door as the shortcut and the action menu: close without copying.
-    // Forgetting the batch locally would leave its server row open forever.
-    concludeReview({ copy: false })
+    cancelReview()
       .then((result) => sendResponse({ ...result, ok: true }))
       .catch((error) => sendResponse({ error: String(error), ok: false }));
     return true;
@@ -1616,7 +1625,7 @@ async function installationFetch(endpoint, path, identity, init = {}) {
 
 async function resetToFreshInstallation(endpoint) {
   const replacement = createInstallationIdentity();
-  await clearDeviceToken(chrome.storage.local);
+  await clearDeviceToken(chrome.storage.local, endpoint);
   await replaceInstallationIdentity(chrome.storage.local, replacement);
   registeredInstallations.clear();
   await registerRemoteInstallation(endpoint, replacement, true);
@@ -1624,7 +1633,7 @@ async function resetToFreshInstallation(endpoint) {
 }
 
 async function remoteFetch(endpoint, path, init = {}) {
-  const deviceToken = await getDeviceToken(chrome.storage.local);
+  const deviceToken = await getDeviceToken(chrome.storage.local, endpoint);
   if (deviceToken) {
     const response = await fetch(`${endpoint}${path}`, {
       ...init,
@@ -1826,7 +1835,7 @@ async function verifyAccountEmailCode(email, code) {
   if (!response.ok || !body.device?.token || !body.session) {
     throw new Error(body.error || "The code is invalid or expired");
   }
-  await storeDeviceToken(chrome.storage.local, body.device.token);
+  await storeDeviceToken(chrome.storage.local, body.device.token, endpoint);
   registeredInstallations.clear();
   return body.session;
 }
@@ -1834,7 +1843,7 @@ async function verifyAccountEmailCode(email, code) {
 async function logoutAccount() {
   const settings = await getSettings();
   const endpoint = cloudEndpoint(settings);
-  const token = await getDeviceToken(chrome.storage.local);
+  const token = await getDeviceToken(chrome.storage.local, endpoint);
   if (token) {
     const response = await fetch(`${endpoint}/api/auth/logout`, {
       headers: deviceAuthHeaders(token),

@@ -8,6 +8,7 @@ import {
   getDeviceToken,
   installationAuthHeaders,
   isInstallationIdentity,
+  normalizeAuthEndpoint,
   replaceInstallationIdentity,
   storeDeviceToken,
 } from "./identity.js";
@@ -79,6 +80,41 @@ describe("installation identity", () => {
     await clearDeviceToken(storage);
     assert.equal(await getDeviceToken(storage), "");
     assert.equal("deviceToken" in storage.values, false);
+  });
+
+  test("keeps authenticated device tokens isolated by cloud endpoint", async () => {
+    const storage = memoryStorage();
+    const production = `pdt_${"p".repeat(43)}`;
+    const staging = `pdt_${"s".repeat(43)}`;
+    await storeDeviceToken(storage, production, "https://pinar.dev/account");
+    await storeDeviceToken(storage, staging, "https://STG.PINAR.DEV/");
+
+    assert.equal(await getDeviceToken(storage, "https://pinar.dev"), production);
+    assert.equal(await getDeviceToken(storage, "https://stg.pinar.dev/app"), staging);
+    assert.equal(await getDeviceToken(storage, "https://preview.pinar.dev"), "");
+
+    await clearDeviceToken(storage, "https://stg.pinar.dev");
+    assert.equal(await getDeviceToken(storage, "https://stg.pinar.dev"), "");
+    assert.equal(await getDeviceToken(storage, "https://pinar.dev"), production);
+  });
+
+  test("migrates legacy production tokens without exposing them to another endpoint", async () => {
+    const token = `pdt_${"l".repeat(43)}`;
+    const storage = memoryStorage({ deviceToken: token });
+
+    assert.equal(await getDeviceToken(storage, "https://stg.pinar.dev/app"), "");
+    assert.equal(storage.values.deviceTokenEndpoint, undefined);
+    assert.equal(await getDeviceToken(storage, "https://pinar.dev/account"), token);
+    assert.equal(storage.values.deviceTokenEndpoint, "https://pinar.dev");
+    assert.equal(storage.values.deviceTokens["https://pinar.dev"], token);
+    assert.equal(await getDeviceToken(storage, "https://stg.pinar.dev"), "");
+  });
+
+  test("normalizes only HTTP cloud endpoints", () => {
+    assert.equal(normalizeAuthEndpoint("https://STG.PINAR.DEV/app"), "https://stg.pinar.dev");
+    assert.equal(normalizeAuthEndpoint("http://127.0.0.1:17373/app"), "http://127.0.0.1:17373");
+    assert.equal(normalizeAuthEndpoint("chrome-extension://example"), "");
+    assert.equal(normalizeAuthEndpoint("not a URL"), "");
   });
 
   test("rejects malformed device tokens", async () => {

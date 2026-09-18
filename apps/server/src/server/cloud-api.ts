@@ -522,6 +522,7 @@ function deliveryPreferencesFromOwnerRow(row: Record<string, unknown> | null | u
     includeViewer: row.include_viewer,
     language: row.language,
     sensitiveQueryKeys: row.sensitive_query_keys,
+    voicePostProcessing: row.voice_post_processing,
   });
 }
 
@@ -540,7 +541,8 @@ export async function readOwnerDeliveryPreferences(env: CloudEnv, ownerId: strin
           include_screenshot,
           include_viewer,
           language,
-          sensitive_query_keys
+          sensitive_query_keys,
+          voice_post_processing
         FROM owner_preferences
         WHERE owner_id = ?
       `).bind(ownerId).first();
@@ -574,9 +576,10 @@ export async function writeOwnerDeliveryPreferences(
         include_viewer,
         language,
         sensitive_query_keys,
-        component_target
+        component_target,
+        voice_post_processing
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(owner_id) DO UPDATE SET
         handoff_mode = excluded.handoff_mode,
         include_screenshot = excluded.include_screenshot,
@@ -588,7 +591,8 @@ export async function writeOwnerDeliveryPreferences(
         include_viewer = excluded.include_viewer,
         language = excluded.language,
         sensitive_query_keys = excluded.sensitive_query_keys,
-        component_target = excluded.component_target
+        component_target = excluded.component_target,
+        voice_post_processing = excluded.voice_post_processing
     `).bind(
       ownerId,
       next.handoffMode,
@@ -602,6 +606,7 @@ export async function writeOwnerDeliveryPreferences(
       next.language,
       next.sensitiveQueryKeys,
       next.componentTarget,
+      next.voicePostProcessing ? 1 : 0,
     ).run();
   } else {
     memoryOwnerPreferences.set(ownerId, next);

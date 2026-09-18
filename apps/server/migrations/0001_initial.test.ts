@@ -60,6 +60,7 @@ describe("cloud schema migrations", () => {
       "0015_share_tokens.sql",
       "0016_ai_features.sql",
       "0017_remove_founder.sql",
+      "0018_voice_post_processing.sql",
     ]);
     const migrated = new Database(":memory:");
     const canonical = new Database(":memory:");

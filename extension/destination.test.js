@@ -121,14 +121,16 @@ describe("capture destination", () => {
     assert.match(optionsSrc, /\{t\.storage_status_title\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.capture_destination_label\}/);
     assert.match(optionsSrc, /\{t\.shortcuts_browser_title\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.shortcuts_overlay_title\}/);
     assert.match(optionsSrc, /\{t\.account_free_title\}[\s\S]*<\/section>\s*<Separator \/>/);
-    assert.equal([...optionsSrc.matchAll(/<Separator \/>/g)].length, 6);
+    assert.equal([...optionsSrc.matchAll(/<Separator \/>/g)].length, 7);
     // Mutation captured: mb-8 under the section description is larger than the gap-5 between preference rows.
     assert.match(optionsSrc, /const SECTION_DESC = "mt-0\.5 mb-5 text-xs text-muted-foreground"/);
     assert.match(optionsSrc, /\{t\.section_interface_desc\}<\/p>\s*<div className="flex flex-col gap-3">/);
     assert.match(optionsSrc, /\{t\.section_handoff_desc\}<\/p>\s*<div className="flex flex-col gap-3">/);
     assert.match(optionsSrc, /\{t\.section_privacy_desc\}<\/p>\s*<div className="flex flex-col gap-3">/);
     assert.doesNotMatch(optionsSrc, /SECTION_LEAD/);
-    assert.equal([...optionsSrc.matchAll(/className=\{SECTION_DESC\}/g)].length, 11);
+    assert.equal([...optionsSrc.matchAll(/className=\{SECTION_DESC\}/g)].length, 12);
+    assert.match(optionsSrc, /checked=\{settings\.storageMode === "cloud" && settings\.voicePostProcessing\}/);
+    assert.match(optionsSrc, /disabled=\{settings\.storageMode !== "cloud"\}/);
     assert.match(optionsSrc, /\{t\.section_interface_desc\}/);
     assert.match(optionsSrc, /\{t\.section_handoff_desc\}/);
     assert.match(optionsSrc, /\{t\.section_privacy_desc\}/);

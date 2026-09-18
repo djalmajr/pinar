@@ -236,6 +236,7 @@ export interface DeliveryPreferences {
   includeViewer: boolean;
   language: SupportedLanguage | null;
   sensitiveQueryKeys: string;
+  voicePostProcessing: boolean;
 }
 
 export const DEFAULT_DELIVERY_PREFERENCES: DeliveryPreferences = {
@@ -248,6 +249,7 @@ export const DEFAULT_DELIVERY_PREFERENCES: DeliveryPreferences = {
   includeViewer: true,
   language: null,
   sensitiveQueryKeys: "",
+  voicePostProcessing: false,
 };
 
 function handoffModeValue(
@@ -315,6 +317,7 @@ export function mergeDeliveryPreferences(
     includeViewer: pick("includeViewer", booleanValue),
     language: pick("language", languageValue),
     sensitiveQueryKeys: pick("sensitiveQueryKeys", sensitiveQueryKeysValue),
+    voicePostProcessing: pick("voicePostProcessing", booleanValue),
   };
 }
 
@@ -331,4 +334,5 @@ export interface PinarSettings {
   sensitiveQueryKeys?: string;
   storageMode: StorageMode;
   theme?: ThemeMode;
+  voicePostProcessing: boolean;
 }

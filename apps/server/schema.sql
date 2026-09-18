@@ -378,7 +378,8 @@ CREATE TABLE owner_preferences (
   include_viewer INTEGER CHECK (include_viewer IN (0, 1)),
   language TEXT,
   sensitive_query_keys TEXT,
-  component_target TEXT CHECK (component_target IN ('html', 'react-tailwind', 'preact-htm'))
+  component_target TEXT CHECK (component_target IN ('html', 'react-tailwind', 'preact-htm')),
+  voice_post_processing INTEGER NOT NULL DEFAULT 0 CHECK (voice_post_processing IN (0, 1))
 );
 
 CREATE TABLE share_tokens (

@@ -178,6 +178,7 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
     includeViewer,
     patch,
     sensitiveQueryKeys,
+    voicePostProcessing,
   } = useDeliveryPreferences();
   const { language, languageName, setLanguage, t } = useServerI18n();
   const [section, setSection] = useState<SettingsSection>("general");
@@ -542,6 +543,17 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                 </SettingRow>
               </section>
               <section className={cn("flex flex-col gap-3", section !== "aiUsage" && "hidden")}>
+                <SettingRow
+                  description={t("settings.voicePostProcessingDescription")}
+                  title={t("settings.voicePostProcessing")}
+                >
+                  <Switch
+                    aria-label={t("settings.voicePostProcessing")}
+                    checked={voicePostProcessing}
+                    disabled={!available}
+                    onCheckedChange={(value) => void patch({ voicePostProcessing: value })}
+                  />
+                </SettingRow>
                 {aiUsageStatus === "loading" || aiUsageStatus === "idle" ? (
                   <p className="rounded-lg border bg-card px-3 py-3 text-sm text-muted-foreground">{t("settings.aiUsageLoading")}</p>
                 ) : aiUsageStatus === "unavailable" ? (

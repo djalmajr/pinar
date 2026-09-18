@@ -237,6 +237,7 @@ const SETTINGS_KEYS: (keyof PinarSettings)[] = [
   "sensitiveQueryKeys",
   "storageMode",
   "theme",
+  "voicePostProcessing",
 ];
 
 const DEFAULT_SETTINGS: PinarSettings = {
@@ -252,6 +253,7 @@ const DEFAULT_SETTINGS: PinarSettings = {
   sensitiveQueryKeys: "",
   storageMode: "local",
   theme: "system",
+  voicePostProcessing: false,
 };
 
 interface ExtensionResponse extends ExtensionResponseBase {
@@ -268,6 +270,7 @@ interface ExtensionResponse extends ExtensionResponseBase {
   language?: SupportedLanguage | null;
   ok?: boolean;
   sensitiveQueryKeys?: string;
+  voicePostProcessing?: boolean;
   session?: AuthSession;
   tree?: ProjectTree;
   url?: string;
@@ -329,6 +332,7 @@ function applyDeliveryResponse(current: PinarSettings, patch: unknown): PinarSet
     includeViewer: current.includeViewer !== false,
     language,
     sensitiveQueryKeys: typeof current.sensitiveQueryKeys === "string" ? current.sensitiveQueryKeys : "",
+    voicePostProcessing: current.voicePostProcessing === true,
   }, patch);
   return {
     ...current,
@@ -339,6 +343,7 @@ function applyDeliveryResponse(current: PinarSettings, patch: unknown): PinarSet
     includeViewer: merged.includeViewer,
     language: merged.language ?? current.language,
     sensitiveQueryKeys: merged.sensitiveQueryKeys,
+    voicePostProcessing: merged.voicePostProcessing,
   };
 }
 
@@ -464,6 +469,7 @@ export function OptionsApp() {
         includeViewer: next.includeViewer,
         language: next.language,
         sensitiveQueryKeys: next.sensitiveQueryKeys,
+        voicePostProcessing: next.voicePostProcessing,
       });
     }
     return next;
@@ -534,6 +540,7 @@ export function OptionsApp() {
           sensitiveQueryKeys: typeof items.sensitiveQueryKeys === "string" ? items.sensitiveQueryKeys : "",
           storageMode: items.storageMode === "cloud" ? "cloud" : "local",
           theme: items.theme === "dark" || items.theme === "light" ? items.theme : "system",
+          voicePostProcessing: items.voicePostProcessing === true,
         };
         if (cloudUrl !== items.cloudUrl) await chrome.storage.sync.set({ cloudUrl });
       }
@@ -578,6 +585,7 @@ export function OptionsApp() {
       includeViewer: settings.includeViewer,
       language: settings.language,
       sensitiveQueryKeys: settings.sensitiveQueryKeys,
+      voicePostProcessing: settings.storageMode === "cloud" && settings.voicePostProcessing,
       type: "preferences:set",
     }, "");
     const saved = prefs.ok && typeof prefs.includeScreenshot === "boolean"
@@ -592,6 +600,7 @@ export function OptionsApp() {
         includeViewer: saved.includeViewer,
         language: saved.language,
         sensitiveQueryKeys: saved.sensitiveQueryKeys,
+        voicePostProcessing: saved.voicePostProcessing,
       });
     }
     setSavedLegalAccepted(legalAccepted);
@@ -807,6 +816,21 @@ export function OptionsApp() {
                       {legalError ? <p className="mt-2 pl-5 text-xs text-destructive">{t.legal_acceptance_required}</p> : null}
                     </div>
                   ) : null}
+                  </div>
+                </section>
+                <Separator />
+                <section className="flex flex-col">
+                  <span className={SECTION_HEADER}>{t.voice_settings_title}</span>
+                  <p className={SECTION_DESC}>{t.voice_settings_desc}</p>
+                  <div className={cn(settings.storageMode !== "cloud" && "opacity-50")}>
+                    <SettingRow size="xs" description={t.voice_post_processing_desc} title={t.voice_post_processing_label}>
+                      <Switch
+                        aria-label={t.voice_post_processing_label}
+                        checked={settings.storageMode === "cloud" && settings.voicePostProcessing}
+                        disabled={settings.storageMode !== "cloud"}
+                        onCheckedChange={(value) => setSettings((current) => ({ ...current, voicePostProcessing: value }))}
+                      />
+                    </SettingRow>
                   </div>
                 </section>
                 <Separator />

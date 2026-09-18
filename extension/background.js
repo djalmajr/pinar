@@ -584,7 +584,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "voice:transcribe") {
     transcribeVoiceComment(message)
       .then((result) => sendResponse({ ok: true, result }))
-      .catch((error) => sendResponse({ error: String(error.message || error), ok: false }));
+      .catch((error) => sendResponse({
+        code: typeof error?.code === "string" ? error.code : "network_error",
+        error: String(error?.message || error),
+        ok: false,
+        status: Number(error?.status) || 0,
+      }));
     return true;
   }
   if (message.type === "review:preview") {
@@ -925,6 +930,7 @@ async function getSettings() {
       language: "",
       sensitiveQueryKeys: "",
       storageMode: "local",
+      voicePostProcessing: false,
     });
   } catch {
     settings = {
@@ -938,6 +944,7 @@ async function getSettings() {
       language: "",
       sensitiveQueryKeys: "",
       storageMode: "local",
+      voicePostProcessing: false,
     };
   }
 
@@ -981,6 +988,7 @@ function localDeliveryPreferences(settings) {
     includeViewer: settings.includeViewer !== false,
     language: SUPPORTED_PREF_LANGUAGES.has(settings.language) ? settings.language : null,
     sensitiveQueryKeys: typeof settings.sensitiveQueryKeys === "string" ? settings.sensitiveQueryKeys.slice(0, 2000) : "",
+    voicePostProcessing: settings.voicePostProcessing === true,
   };
 }
 
@@ -1014,6 +1022,9 @@ function mergeDeliveryPreferencesPatch(current, patch) {
     sensitiveQueryKeys: "sensitiveQueryKeys" in patch
       ? (typeof patch.sensitiveQueryKeys === "string" ? patch.sensitiveQueryKeys.slice(0, 2000) : current.sensitiveQueryKeys)
       : current.sensitiveQueryKeys,
+    voicePostProcessing: "voicePostProcessing" in patch
+      ? booleanPref(patch.voicePostProcessing, current.voicePostProcessing)
+      : current.voicePostProcessing,
   };
 }
 
@@ -1041,6 +1052,7 @@ function deliveryPatchFromMessage(message) {
   if ("sensitiveQueryKeys" in message) {
     patch.sensitiveQueryKeys = typeof message.sensitiveQueryKeys === "string" ? message.sensitiveQueryKeys.slice(0, 2000) : "";
   }
+  if ("voicePostProcessing" in message) patch.voicePostProcessing = message.voicePostProcessing === true;
   return patch;
 }
 
@@ -1073,6 +1085,7 @@ async function cacheDeliveryPreferences(preferences, settings) {
     includeScreenshot: preferences.includeScreenshot,
     includeViewer: preferences.includeViewer,
     sensitiveQueryKeys: preferences.sensitiveQueryKeys,
+    voicePostProcessing: preferences.voicePostProcessing,
   };
   if (preferences.language) syncPatch.language = preferences.language;
   try {
@@ -1652,7 +1665,12 @@ async function transcribeVoiceComment(message) {
   form.set("requestId", typeof message.requestId === "string" ? message.requestId : "");
   const response = await remoteFetch(cloudEndpoint(settings), "/api/ai/voice-pin", { body: form, method: "POST" });
   const body = await responseBody(response);
-  if (!response.ok || !body.result) throw new Error(body.error || "Voice transcription failed");
+  if (!response.ok || !body.result) {
+    const error = new Error(body.error || "Voice transcription failed");
+    error.code = typeof body.code === "string" ? body.code : "voice_transcription_failed";
+    error.status = response.status;
+    throw error;
+  }
   return body.result;
 }
 

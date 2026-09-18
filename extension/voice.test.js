@@ -38,7 +38,15 @@ describe("voice pin recording helpers", () => {
     assert.match(contentSource, /sanitizeCapture\(\{[\s\S]*pins: \[\{ comment: structured \}\]/);
     assert.match(contentSource, /pins: \[\{ comment: transcript \}\]/);
     assert.match(contentSource, /voiceUseTranscript\.addEventListener/);
+    assert.match(contentSource, /class="voice-wave"/);
+    assert.match(contentSource, /class="voice-processing-indicator"/);
+    assert.match(contentSource, /data-ref="voiceStop"/);
+    assert.match(contentSource, /\.voice-btn\.is-recording \{ background: \$\{MARK\}; color: #fff; \}/);
+    assert.match(contentSource, /response\?\.code === "ai_inference_failed"/);
+    assert.match(contentSource, /ui\.voiceReview\.hidden = transcript === structured/);
     assert.match(backgroundSource, /settings\.storageMode !== "cloud"/);
+    assert.match(backgroundSource, /voicePostProcessing: false/);
+    assert.match(backgroundSource, /voicePostProcessing: preferences\.voicePostProcessing/);
     assert.match(backgroundSource, /"\/api\/ai\/voice-pin"/);
     assert.doesNotMatch(backgroundSource, /chrome\.storage\.[a-z]+\.set\([^)]*audioDataUrl/);
   });

@@ -9,6 +9,7 @@ import {
   paidProCookie,
 } from "../../../tests/helpers/cloud-ai";
 import { resetCloudMemoryStateForTests } from "../cloud-api";
+import { voicePinStructuringInstructions } from "./voice-pin";
 
 const TRANSCRIPTION_MODEL = "@cf/openai/whisper-large-v3-turbo";
 const STRUCTURING_MODEL = "@cf/openai/gpt-oss-20b";
@@ -31,13 +32,42 @@ async function credits(cookie: string, env: Parameters<typeof getJson>[2]) {
 describe("POST /api/ai/voice-pin", () => {
   beforeEach(() => resetCloudMemoryStateForTests());
 
-  test("transcribes and structures a short Portuguese pin without returning audio", async () => {
+  test("returns the raw transcription by default without a second AI call", async () => {
+    const calls: Array<{ input: unknown; model: string }> = [];
+    const transcript = "É, tipo, o botão precisa ficar alinhado.";
+    const env = aiEnv(async (model, input) => {
+      calls.push({ input, model });
+      return { text: transcript, transcription_info: { duration: 30, language: "pt" } };
+    });
+    const paid = await paidProCookie(env);
+
+    const response = await api("/api/ai/voice-pin", {
+      body: voiceForm("voice_request_raw_default_01"),
+      headers: { cookie: paid.cookie },
+      method: "POST",
+    }, paid.env);
+
+    assert.equal(response.status, 200, await response.clone().text());
+    const body = await jsonBody(response);
+    assert.ok(isRecord(body.result));
+    assert.equal(body.result.transcript, transcript);
+    assert.equal(body.result.comment, transcript);
+    assert.deepEqual(body.result.acceptanceCriteria, []);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].model, TRANSCRIPTION_MODEL);
+    assert.ok(isRecord(calls[0].input));
+    assert.ok(isRecord(calls[0].input.audio));
+    assert.match(String(calls[0].input.audio.contentType), /^(?:audio|video)\/webm$/);
+    assert.ok(calls[0].input.audio.body instanceof ReadableStream);
+  });
+
+  test("removes disfluencies when cloud post-processing is enabled while preserving the raw transcript", async () => {
     const calls: Array<{ input: unknown; model: string }> = [];
     const env = aiEnv(async (model, input) => {
       calls.push({ input, model });
       if (model === TRANSCRIPTION_MODEL) {
         return {
-          text: "O botão precisa ficar alinhado com o título e manter oito pixels de espaço.",
+          text: "É, tipo, o botão, o botão precisa... quer dizer, deve ficar alinhado com o título e manter oito pixels, né, de espaço.",
           transcription_info: { duration: 30, language: "pt" },
         };
       }
@@ -51,6 +81,12 @@ describe("POST /api/ai/voice-pin", () => {
       };
     });
     const paid = await paidProCookie(env);
+    const preferenceResponse = await api("/api/preferences", {
+      body: JSON.stringify({ voicePostProcessing: true }),
+      headers: { cookie: paid.cookie, "content-type": "application/json" },
+      method: "PATCH",
+    }, paid.env);
+    assert.equal(preferenceResponse.status, 200);
 
     const response = await api("/api/ai/voice-pin", {
       body: voiceForm("voice_request_success_01"),
@@ -63,16 +99,29 @@ describe("POST /api/ai/voice-pin", () => {
     assert.equal(body.creditsCharged, 1);
     assert.equal(body.idempotent, false);
     assert.ok(isRecord(body.result));
-    assert.equal(body.result.transcript, "O botão precisa ficar alinhado com o título e manter oito pixels de espaço.");
+    assert.equal(body.result.transcript, "É, tipo, o botão, o botão precisa... quer dizer, deve ficar alinhado com o título e manter oito pixels, né, de espaço.");
     assert.equal(body.result.comment, "Alinhe o botão ao título e mantenha 8 px de espaço.");
     assert.equal(body.result.detectedLanguage, "pt");
     assert.equal(JSON.stringify(body).includes("AQIDBA=="), false);
     assert.equal(calls.length, 2);
     assert.equal(calls[0].model, TRANSCRIPTION_MODEL);
     assert.ok(isRecord(calls[0].input));
-    assert.equal(calls[0].input.audio, "AQIDBA==");
+    assert.ok(isRecord(calls[0].input.audio));
+    assert.match(String(calls[0].input.audio.contentType), /^(?:audio|video)\/webm$/);
     assert.equal(calls[1].model, STRUCTURING_MODEL);
+    assert.ok(isRecord(calls[1].input));
+    assert.match(String(calls[1].input.instructions), /remove stutters, filler words, repeated fragments, false starts/);
+    assert.match(String(calls[1].input.instructions), /prefer the final correction/);
+    assert.match(String(calls[1].input.instructions), /preserving concrete details, negations, numbers, conditions, and constraints/);
+    assert.match(String(calls[1].input.input), /quer dizer, deve ficar alinhado/);
     assert.equal(await credits(paid.cookie, paid.env), 199);
+  });
+
+  test("guards intent recovery against guessing and lost constraints", () => {
+    const instructions = voicePinStructuringInstructions();
+    assert.match(instructions, /If intent remains ambiguous, state the ambiguity concisely instead of guessing/);
+    assert.match(instructions, /Do not remove repetition that is clearly intentional/);
+    assert.match(instructions, /Do not turn uncertainty into certainty or invent requirements/);
   });
 
   test("charges proportionally by started minute and replays idempotently", async () => {
@@ -100,7 +149,7 @@ describe("POST /api/ai/voice-pin", () => {
     assert.equal(first.creditsCharged, 2);
     assert.equal(replay.idempotent, true);
     assert.equal(replay.creditsCharged, 2);
-    assert.equal(callCount, 2);
+    assert.equal(callCount, 1);
     assert.equal(await credits(paid.cookie, paid.env), 198);
   });
 

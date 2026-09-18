@@ -173,6 +173,11 @@
     overlay_voice_local_only: "Voice comments require the Pinar cloud server",
     overlay_voice_permission: "Allow microphone access to dictate a comment",
     overlay_voice_failed: "The voice comment could not be processed",
+    overlay_voice_network: "Pinar Cloud could not be reached. Check your connection and try again.",
+    overlay_voice_auth: "Connect the extension to your Pinar Cloud account and try again.",
+    overlay_voice_credits: "No AI credits are available for this transcription.",
+    overlay_voice_refunded: "Transcription failed temporarily. Your AI credit was refunded; try again.",
+    overlay_voice_invalid: "The recording is empty or unsupported. Record it again.",
     overlay_voice_acceptance: "Acceptance criteria",
     overlay_copying: "Saving the annotations…",
     overlay_saved: "Annotations saved successfully!",
@@ -572,16 +577,30 @@
       }
       .composer-tools { display: flex; gap: 4px; margin-right: auto; }
       .composer-actions .icon-btn { display: inline-flex; }
-      .voice-btn.is-recording { background: #FEE2E2; color: #DC2626; }
+      .voice-btn.is-recording { background: ${MARK}; color: #fff; }
       .voice-btn:disabled { cursor: not-allowed !important; opacity: .45; }
+      .voice-feedback { align-items: center; display: flex; gap: 8px; min-height: 16px; padding: 0 4px; }
       .voice-status {
         color: #525252;
         font: 500 12px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         min-height: 16px;
-        padding: 0 4px;
       }
       .voice-status:empty { display: none; }
       .voice-status[data-kind="error"] { color: #B91C1C; }
+      .voice-wave { align-items: center; display: inline-flex; gap: 2px; height: 16px; }
+      .voice-wave[hidden], .voice-processing-indicator[hidden] { display: none; }
+      .voice-wave i { animation: pinar-voice-wave .8s ease-in-out infinite alternate; background: ${MARK}; border-radius: 2px; display: block; height: 5px; width: 2px; }
+      .voice-wave i:nth-child(2), .voice-wave i:nth-child(4) { animation-delay: -.45s; }
+      .voice-wave i:nth-child(3) { animation-delay: -.7s; }
+      .voice-processing-indicator { align-items: center; display: inline-flex; gap: 3px; height: 16px; }
+      .voice-processing-indicator i { animation: pinar-voice-processing 1s ease-in-out infinite; background: ${MARK}; border-radius: 50%; display: block; height: 5px; opacity: .35; width: 5px; }
+      .voice-processing-indicator i:nth-child(2) { animation-delay: .15s; }
+      .voice-processing-indicator i:nth-child(3) { animation-delay: .3s; }
+      @keyframes pinar-voice-wave { from { height: 4px; opacity: .5; } to { height: 15px; opacity: 1; } }
+      @keyframes pinar-voice-processing { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
+      @media (prefers-reduced-motion: reduce) {
+        .voice-wave i, .voice-processing-indicator i { animation: none; opacity: 1; transform: none; }
+      }
       .voice-review {
         background: #F8FAFC;
         border: 1px solid #E2E8F0;
@@ -680,7 +699,11 @@
           <p data-ref="voiceTranscript"></p>
           <button type="button" data-ref="voiceUseTranscript">${t("overlay_voice_use_transcript")}</button>
         </div>
-        <div class="voice-status" data-ref="voiceStatus" role="status" aria-live="polite"></div>
+        <div class="voice-feedback">
+          <span class="voice-wave" data-ref="voiceWave" aria-hidden="true" hidden><i></i><i></i><i></i><i></i><i></i></span>
+          <span class="voice-processing-indicator" data-ref="voiceProcessingIndicator" aria-hidden="true" hidden><i></i><i></i><i></i></span>
+          <div class="voice-status" data-ref="voiceStatus" role="status" aria-live="polite"></div>
+        </div>
         <div class="composer-actions">
           <span class="composer-tools">
             <button type="button" class="icon-btn is-ready" data-ref="deleteDraft" title="Delete" aria-label="Delete">
@@ -689,8 +712,11 @@
               </svg>
             </button>
             <button type="button" class="icon-btn is-ready voice-btn" data-ref="voice" title="${t("overlay_voice_start")}" aria-label="${t("overlay_voice_start")}">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
+              <svg data-ref="voiceMic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
                 <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z M19 10v2a7 7 0 0 1-14 0v-2 M12 19v3 M8 22h8"/>
+              </svg>
+              <svg data-ref="voiceStop" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" hidden>
+                <rect x="7" y="7" width="10" height="10" rx="1" fill="currentColor" />
               </svg>
             </button>
           </span>
@@ -726,6 +752,10 @@
     progressPct: shadow.querySelector("[data-ref=progressPct]"),
     voice: shadow.querySelector("[data-ref=voice]"),
     voiceReview: shadow.querySelector("[data-ref=voiceReview]"),
+    voiceMic: shadow.querySelector("[data-ref=voiceMic]"),
+    voiceStop: shadow.querySelector("[data-ref=voiceStop]"),
+    voiceWave: shadow.querySelector("[data-ref=voiceWave]"),
+    voiceProcessingIndicator: shadow.querySelector("[data-ref=voiceProcessingIndicator]"),
     voiceStatus: shadow.querySelector("[data-ref=voiceStatus]"),
     voiceTranscript: shadow.querySelector("[data-ref=voiceTranscript]"),
     voiceTranscriptLabel: shadow.querySelector("[data-ref=voiceTranscriptLabel]"),
@@ -1936,12 +1966,27 @@
     ui.voice.setAttribute("aria-label", title);
     ui.voice.disabled = voiceProcessing;
     ui.voice.classList.toggle("is-recording", recording);
+    ui.voiceMic.hidden = recording;
+    ui.voiceStop.hidden = !recording;
+    ui.voiceWave.hidden = !recording;
+    ui.voiceProcessingIndicator.hidden = !voiceProcessing;
     ui.save.disabled = voiceProcessing || recording;
   }
 
   function setVoiceStatus(text = "", kind = "info") {
     ui.voiceStatus.textContent = text;
     ui.voiceStatus.dataset.kind = kind;
+  }
+
+  function voiceErrorMessage(response) {
+    if (response?.status === 401 || response?.status === 403) return t("overlay_voice_auth");
+    if (response?.status === 402 || response?.code === "insufficient_ai_credits") return t("overlay_voice_credits");
+    if (response?.code === "invalid_audio" || response?.code === "invalid_audio_duration" || response?.code === "unsupported_audio") {
+      return t("overlay_voice_invalid");
+    }
+    if (response?.code === "ai_inference_failed") return t("overlay_voice_refunded");
+    if (response?.code === "network_error") return t("overlay_voice_network");
+    return t("overlay_voice_failed");
   }
 
   function clearVoiceTimers() {
@@ -2011,7 +2056,7 @@
         requestId: crypto.randomUUID(),
         type: "voice:transcribe",
       });
-      if (!response?.ok) throw new Error(response?.error || "Voice transcription failed");
+      if (!response?.ok) throw response || { code: "network_error" };
       const transcript = typeof response.result?.transcript === "string" ? response.result.transcript.trim() : "";
       const structured = formatVoiceComment(response.result, t("overlay_voice_acceptance"));
       if (!transcript || !structured) throw new Error("Voice transcription was empty");
@@ -2026,14 +2071,14 @@
         page: pageContext(),
         pins: [{ comment: transcript }],
       }).pins[0]?.comment || "";
-      ui.voiceReview.hidden = false;
+      ui.voiceReview.hidden = transcript === structured;
       ui.input.value = sanitized;
       fitInput();
       setVoiceStatus(t("overlay_voice_ready"));
       ui.input.focus({ preventScroll: true });
       ui.input.setSelectionRange(ui.input.value.length, ui.input.value.length);
-    } catch {
-      setVoiceStatus(t("overlay_voice_failed"), "error");
+    } catch (error) {
+      setVoiceStatus(voiceErrorMessage(error), "error");
     } finally {
       voiceProcessing = false;
       renderVoiceControls();

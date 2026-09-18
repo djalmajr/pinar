@@ -66,6 +66,8 @@ const messages: UiMessages = {
   "settings.aiUsageReproduction": "Reproduction",
   "settings.aiUsageSessionSummary": "Résumé de session",
   "settings.aiUsageVoicePin": "Épingle vocale",
+  "settings.voicePostProcessing": "Nettoyer les transcriptions vocales",
+  "settings.voicePostProcessingDescription": "Supprime les hésitations et faux départs et restitue le commentaire voulu. Disponible uniquement dans Pinar Cloud et désactivé par défaut.",
   "settings.generalDescription":
     "Valeurs par défaut appliquées dans toute l’application Pinar.",
   "settings.handoffMode": "Niveau de détail de la copie IA",

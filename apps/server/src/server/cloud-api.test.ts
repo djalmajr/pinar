@@ -528,6 +528,7 @@ describe("remote installation isolation", () => {
       includeViewer: true,
       language: null,
       sensitiveQueryKeys: "",
+      voicePostProcessing: false,
     });
 
     const tree = await jsonBody(await api("/api/project-tree", { headers: identityHeaders(identityA) }));
@@ -558,6 +559,7 @@ describe("remote installation isolation", () => {
       body: JSON.stringify({
         captureDestination: { collectionId, projectId },
         copyOnFinishBatch: "link",
+        voicePostProcessing: true,
       }),
       headers: identityHeaders(identityA, { "content-type": "application/json" }),
       method: "PATCH",
@@ -565,6 +567,7 @@ describe("remote installation isolation", () => {
     assert.deepEqual(patched.captureDestination, { collectionId, projectId });
     assert.equal(patched.copyOnFinishBatch, "link");
     assert.equal(patched.includeScreenshot, true);
+    assert.equal(patched.voicePostProcessing, true);
 
     const preferred = await jsonBody(await api("/api/shots", {
       body: JSON.stringify({

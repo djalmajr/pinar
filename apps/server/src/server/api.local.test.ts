@@ -188,6 +188,7 @@ describe("local TanStack API", () => {
       includeViewer: true,
       language: null,
       sensitiveQueryKeys: "",
+      voicePostProcessing: false,
     });
 
     const tree = await jsonBody(await request("/api/project-tree"));
@@ -218,6 +219,7 @@ describe("local TanStack API", () => {
       body: JSON.stringify({
         captureDestination: { collectionId, projectId },
         copyOnFinishBatch: "link",
+        voicePostProcessing: true,
       }),
       headers: { "content-type": "application/json" },
       method: "PATCH",
@@ -225,6 +227,7 @@ describe("local TanStack API", () => {
     assert.deepEqual(patched.captureDestination, { collectionId, projectId });
     assert.equal(patched.copyOnFinishBatch, "link");
     assert.equal(patched.includeScreenshot, true);
+    assert.equal(patched.voicePostProcessing, true);
 
     const preferred = await jsonBody(await request("/api/shots", {
       body: JSON.stringify({

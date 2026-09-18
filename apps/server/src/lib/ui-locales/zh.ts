@@ -65,6 +65,8 @@ const messages: UiMessages = {
   "settings.aiUsageReproduction": "复现",
   "settings.aiUsageSessionSummary": "会话摘要",
   "settings.aiUsageVoicePin": "语音标注",
+  "settings.voicePostProcessing": "清理语音转录",
+  "settings.voicePostProcessingDescription": "移除口头禅和错误开头，并恢复预期评论。仅在 Pinar Cloud 中可用，默认关闭。",
   "settings.generalDescription": "应用于整个 Pinar 应用的默认设置。",
   "settings.handoffMode": "AI 副本详细程度",
   "settings.handoffModeDescription":

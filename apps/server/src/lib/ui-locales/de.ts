@@ -66,6 +66,8 @@ const messages: UiMessages = {
   "settings.aiUsageReproduction": "Reproduktion",
   "settings.aiUsageSessionSummary": "Sitzungszusammenfassung",
   "settings.aiUsageVoicePin": "Sprach-Pin",
+  "settings.voicePostProcessing": "Sprachtranskriptionen bereinigen",
+  "settings.voicePostProcessingDescription": "Entfernt Füllwörter und Fehlstarts und stellt den beabsichtigten Kommentar wieder her. Nur in Pinar Cloud verfügbar und standardmäßig deaktiviert.",
   "settings.generalDescription":
     "Standardeinstellungen für die gesamte Pinar-Anwendung.",
   "settings.handoffMode": "Detailgrad der KI-Kopie",

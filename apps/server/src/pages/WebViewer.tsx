@@ -4,7 +4,6 @@ import ReactMarkdown from "react-markdown";
 import { formatClipboardText, getPinColor, isComponentTarget, type AgentExecution, type ComponentTarget, type Pin, type PinLocation, type PinReview, type PinReviewHumanAction, type PinReviewStatus, type Reproduction, type Session } from "@pinar/shared";
 import { ImageZoomControls, ImageZoomStage, useImageZoom } from "@/components/ImageZoomStage";
 import { PinComponentPanel } from "@/components/PinComponentPanel";
-import { PinDiagnosisPanel } from "@/components/PinDiagnosisPanel";
 import { PinEvidence } from "@/components/PinEvidence";
 import { PinStructure } from "@/components/PinStructure";
 import { ReproductionTimeline } from "@/components/ReproductionTimeline";
@@ -302,7 +301,6 @@ export function WebViewer({
   const authSession = useAuthSession();
   const showAiSummary = pinarRuntime() === "cloud" && isPaidAuthSession(authSession);
   const aiRequestId = useRef<string | null>(null);
-  const [aiCreditsRemaining, setAiCreditsRemaining] = useState<number | null>(null);
   const [aiError, setAiError] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [aiRecovery, setAiRecovery] = useState<AiRecovery>(null);
@@ -570,9 +568,6 @@ export function WebViewer({
         }
         return;
       }
-      if (isRecord(data) && isRecord(data.aiCredits) && typeof data.aiCredits.balance === "number") {
-        setAiCreditsRemaining(data.aiCredits.balance);
-      }
       setAiSummary(result);
       setAiRecovery(null);
     } catch {
@@ -659,6 +654,9 @@ export function WebViewer({
           />
         </div>
         <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+          {showShareControls && shareToken ? (
+            <Badge className="hidden sm:inline-flex" variant="successSoft">{t("share.published")}</Badge>
+          ) : null}
           {showAiSummary ? (
             <Button aria-label={t("viewer.aiSummary")} disabled={aiLoading} type="button" variant="outline" onClick={() => void generateAiSummary()}>
               <SparklesIcon data-icon="inline-start" />
@@ -668,7 +666,6 @@ export function WebViewer({
           {showShareControls ? (
             shareToken ? (
               <>
-                <Badge className="hidden sm:inline-flex" variant="successSoft">{t("share.published")}</Badge>
                 <ButtonGroup aria-label={t("share.published")}>
                   <Button
                     aria-label={shareLinkCopied ? t("share.linkCopied") : t("share.copyLink")}
@@ -917,11 +914,6 @@ export function WebViewer({
                     </ul>
                   </div>
                 )}
-                <p className="text-xs text-muted-foreground">
-                  {aiCreditsRemaining === null
-                    ? t("viewer.aiCreditCost")
-                    : t("viewer.aiCreditsRemaining", { count: aiCreditsRemaining })}
-                </p>
               </div>
             ) : null}
           </DialogContent>
@@ -1027,13 +1019,6 @@ export function WebViewer({
                 />
               ) : null}
               {pinPatchError ? <p className="text-xs text-destructive">{pinPatchError}</p> : null}
-              <PinDiagnosisPanel
-                canEdit={canEditPins}
-                pin={selectedPin}
-                sessionId={selectedCapture?.id || sessionId}
-                showAi={showAiSummary && canEditPins}
-                onPersist={(fields) => patchPin(selectedPin, fields, "viewer.evidenceRemoveFailed")}
-              />
               <PinComponentPanel
                 canEdit={canEditPins}
                 pin={selectedPin}

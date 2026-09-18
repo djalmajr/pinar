@@ -44,6 +44,7 @@ import { pinarRuntime } from "@/lib/server-header";
 import { SERVER_BUILD, SERVER_VERSION, SERVER_VERSION_LABEL } from "@/lib/version";
 import InfoIcon from "~icons/lucide/info";
 import ExternalLinkIcon from "~icons/lucide/external-link";
+import HistoryIcon from "~icons/lucide/history";
 import LaptopIcon from "~icons/lucide/laptop";
 import MonitorIcon from "~icons/lucide/monitor";
 import MoonIcon from "~icons/lucide/moon";
@@ -52,8 +53,18 @@ import SlidersHorizontalIcon from "~icons/lucide/sliders-horizontal";
 import SunIcon from "~icons/lucide/sun";
 import XIcon from "~icons/lucide/x";
 
-type SettingsSection = "about" | "capture" | "general" | "interface";
+type SettingsSection = "about" | "aiUsage" | "capture" | "general" | "interface";
 type ThemeMode = "dark" | "light" | "system";
+type AiUsageStatus = "idle" | "loading" | "ready" | "unavailable";
+type AiUsageFeature = "component_export" | "design_system" | "reproduction" | "session_summary" | "voice_pin";
+
+interface AiUsageHistoryEntry {
+  completedAt: string | null;
+  createdAt: string;
+  credits: number;
+  feature: AiUsageFeature;
+  status: "refunded" | "reserved" | "succeeded";
+}
 
 interface GlobalSettingsDialogProps {
   open: boolean;
@@ -66,6 +77,45 @@ const THEME_STORAGE_KEY = "pinar-theme";
 const DEFAULT_DESTINATION = "__default__";
 const PINAR_GITHUB_URL = "https://github.com/djalmajr/pinar";
 const PINAR_WEBSITE_URL = "https://pinar.dev";
+const AI_USAGE_FEATURES = new Set<AiUsageFeature>([
+  "component_export",
+  "design_system",
+  "reproduction",
+  "session_summary",
+  "voice_pin",
+]);
+const AI_USAGE_FEATURE_LABELS = {
+  component_export: "settings.aiUsageComponentExport",
+  design_system: "settings.aiUsageDesignSystem",
+  reproduction: "settings.aiUsageReproduction",
+  session_summary: "settings.aiUsageSessionSummary",
+  voice_pin: "settings.aiUsageVoicePin",
+} as const;
+
+function aiUsageHistory(value: unknown): AiUsageHistoryEntry[] | null {
+  if (!isRecord(value) || !Array.isArray(value.aiUsage)) return null;
+  const entries: AiUsageHistoryEntry[] = [];
+  for (const item of value.aiUsage) {
+    if (!isRecord(item)
+      || !AI_USAGE_FEATURES.has(item.feature as AiUsageFeature)
+      || typeof item.credits !== "number"
+      || !Number.isFinite(item.credits)
+      || Number(item.credits) <= 0
+      || typeof item.createdAt !== "string"
+      || Number.isNaN(Date.parse(item.createdAt))
+      || (item.status !== "refunded" && item.status !== "reserved" && item.status !== "succeeded")
+      || (item.completedAt !== null && typeof item.completedAt !== "string")) continue;
+    entries.push({
+      completedAt: item.completedAt,
+      createdAt: item.createdAt,
+      credits: Number(item.credits),
+      feature: item.feature as AiUsageFeature,
+      status: item.status,
+    });
+  }
+  return entries;
+}
+
 function currentThemeMode(): ThemeMode {
   const stored = localStorage.getItem(THEME_STORAGE_KEY);
   if (stored === "dark" || stored === "light") return stored;
@@ -131,6 +181,8 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
   } = useDeliveryPreferences();
   const { language, languageName, setLanguage, t } = useServerI18n();
   const [section, setSection] = useState<SettingsSection>("general");
+  const [aiUsage, setAiUsage] = useState<AiUsageHistoryEntry[]>([]);
+  const [aiUsageStatus, setAiUsageStatus] = useState<AiUsageStatus>("idle");
   const [theme, setTheme] = useState<ThemeMode>("system");
   const [projects, setProjects] = useState<ProjectTreeProject[]>([]);
   const [sensitiveQueryKeysDraft, setSensitiveQueryKeysDraft] = useState("");
@@ -165,6 +217,29 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
       cancelled = true;
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!open || runtime !== "cloud") return undefined;
+    const controller = new AbortController();
+    setAiUsage([]);
+    setAiUsageStatus("loading");
+    void fetch("/api/account/entitlements", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => response.ok ? response.json() as Promise<unknown> : null)
+      .then((value) => {
+        if (controller.signal.aborted) return;
+        const history = aiUsageHistory(value);
+        if (history === null) {
+          setAiUsageStatus("unavailable");
+          return;
+        }
+        setAiUsage(history);
+        setAiUsageStatus("ready");
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setAiUsageStatus("unavailable");
+      });
+    return () => controller.abort();
+  }, [open, runtime]);
 
   useEffect(() => {
     if (!open) return;
@@ -208,6 +283,8 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
 
   const sectionLabel = section === "about"
     ? t("settings.aboutTitle")
+    : section === "aiUsage"
+      ? t("settings.aiUsage")
     : section === "capture"
       ? t("settings.capture")
       : section === "interface"
@@ -215,6 +292,8 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
         : t("settings.general");
   const sectionDescription = section === "about"
     ? t("settings.aboutDescription")
+    : section === "aiUsage"
+      ? t("settings.aiUsageDescription")
     : section === "capture"
       ? t("settings.captureDescription")
       : section === "interface"
@@ -276,6 +355,17 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                 <MonitorIcon />
                 {t("settings.interfaceNav")}
               </Button>
+              {runtime === "cloud" ? (
+                <Button
+                  aria-current={section === "aiUsage" ? "page" : undefined}
+                  className={settingsNavButtonClass(section === "aiUsage")}
+                  variant="ghost"
+                  onClick={() => setSection("aiUsage")}
+                >
+                  <HistoryIcon />
+                  {t("settings.aiUsage")}
+                </Button>
+              ) : null}
               <Button
                 aria-current={section === "about" ? "page" : undefined}
                 className={settingsNavButtonClass(section === "about")}
@@ -304,6 +394,7 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
               <Button size="sm" variant={section === "general" ? "secondary" : "ghost"} onClick={() => setSection("general")}>{t("settings.general")}</Button>
               <Button size="sm" variant={section === "capture" ? "secondary" : "ghost"} onClick={() => setSection("capture")}>{t("settings.captureNav")}</Button>
               <Button size="sm" variant={section === "interface" ? "secondary" : "ghost"} onClick={() => setSection("interface")}>{t("settings.interfaceNav")}</Button>
+              {runtime === "cloud" ? <Button size="sm" variant={section === "aiUsage" ? "secondary" : "ghost"} onClick={() => setSection("aiUsage")}>{t("settings.aiUsage")}</Button> : null}
               <Button size="sm" variant={section === "about" ? "secondary" : "ghost"} onClick={() => setSection("about")}>{t("settings.about")}</Button>
             </nav>
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
@@ -449,6 +540,29 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
                     </TabsList>
                   </Tabs>
                 </SettingRow>
+              </section>
+              <section className={cn("flex flex-col gap-3", section !== "aiUsage" && "hidden")}>
+                {aiUsageStatus === "loading" || aiUsageStatus === "idle" ? (
+                  <p className="rounded-lg border bg-card px-3 py-3 text-sm text-muted-foreground">{t("settings.aiUsageLoading")}</p>
+                ) : aiUsageStatus === "unavailable" ? (
+                  <p className="rounded-lg border bg-card px-3 py-3 text-sm text-muted-foreground">{t("settings.aiUsageUnavailable")}</p>
+                ) : aiUsage.length === 0 ? (
+                  <p className="rounded-lg border bg-card px-3 py-3 text-sm text-muted-foreground">{t("settings.aiUsageEmpty")}</p>
+                ) : aiUsage.map((entry) => (
+                  <div className="flex items-center justify-between gap-4 rounded-lg border bg-card px-3 py-3" key={`${entry.createdAt}-${entry.feature}`}>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">{t(AI_USAGE_FEATURE_LABELS[entry.feature])}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" }).format(new Date(entry.completedAt || entry.createdAt))}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {entry.status === "reserved" ? <Badge variant="secondary">{t("settings.aiUsagePending")}</Badge> : null}
+                      {entry.status === "refunded" ? <Badge variant="outline">{t("settings.aiUsageRefunded")}</Badge> : null}
+                      <span className="text-sm font-medium tabular-nums">{t("settings.aiUsageCredits", { count: entry.credits })}</span>
+                    </div>
+                  </div>
+                ))}
               </section>
               <section className={cn("flex flex-col gap-5", section !== "about" && "hidden")}>
                 <div className="flex flex-col gap-5">

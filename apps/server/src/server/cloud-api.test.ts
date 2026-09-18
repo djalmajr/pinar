@@ -431,6 +431,14 @@ describe("remote installation isolation", () => {
     );
     assert.equal(served.status, 404);
 
+    const ownerShot = await handleCloudPublicRequest(
+      new Request("https://pinar.test/shots/prefixed_shot_001.png", { headers: identityHeaders(identityA) }),
+      env,
+    );
+    assert.equal(ownerShot.status, 200);
+    assert.equal(ownerShot.headers.get("cache-control"), "private, no-store");
+    assert.deepEqual(bucket.getKeys, ["shots/prefixed_shot_001.png"]);
+
     assert.equal((await api("/api/history/prefixed_shot_001", {
       headers: identityHeaders(identityA),
       method: "DELETE",
@@ -1800,6 +1808,14 @@ describe("remote installation isolation", () => {
     }, paid.env));
     assert.ok(isRecord(entitlements.aiCredits));
     assert.equal(entitlements.aiCredits.balance, 199);
+    assert.ok(Array.isArray(entitlements.aiUsage));
+    assert.deepEqual(
+      entitlements.aiUsage.map((usage) => ({ credits: usage.credits, feature: usage.feature, status: usage.status })),
+      [
+        { credits: 1, feature: "session_summary", status: "refunded" },
+        { credits: 1, feature: "session_summary", status: "succeeded" },
+      ],
+    );
   });
 
   test("rate limits repeated AI requests without consuming another credit", async () => {

@@ -254,6 +254,14 @@ interface AiCreditUsageRecord {
   status: "refunded" | "reserved" | "succeeded";
 }
 
+interface AiUsageHistoryEntry {
+  completedAt: string | null;
+  createdAt: string;
+  credits: number;
+  feature: Exclude<AiFeature, "pin_diagnosis">;
+  status: AiCreditUsageRecord["status"];
+}
+
 interface StorageGrantRecord {
   byteCount: number;
   createdAt: string;
@@ -1024,6 +1032,38 @@ async function findAiCreditUsage(env: CloudEnv, principal: Principal, requestId:
     return row ? aiUsageFromRow(row) : null;
   }
   return memoryAiCreditUsages.get(aiUsageKey(principal, requestId)) || null;
+}
+
+/**
+ * The account view is a compact billing history, not inference telemetry. Keep
+ * model names, prompts, resource ids, and the retired diagnosis feature out of
+ * the response that reaches the browser.
+ */
+async function listAiUsageHistory(env: CloudEnv, principal: Principal, limit = 25): Promise<AiUsageHistoryEntry[]> {
+  const toEntry = (usage: AiCreditUsageRecord): AiUsageHistoryEntry | null => {
+    if (usage.feature === "pin_diagnosis") return null;
+    return {
+      completedAt: usage.completedAt,
+      createdAt: usage.createdAt,
+      credits: usage.credits,
+      feature: usage.feature,
+      status: usage.status,
+    };
+  };
+
+  if (env.DB) {
+    const result = await env.DB.prepare(
+      "SELECT * FROM ai_credit_usages WHERE owner_type = ? AND owner_id = ? AND feature != 'pin_diagnosis' ORDER BY created_at DESC LIMIT ?",
+    ).bind(principal.kind, principal.id, limit).all();
+    return (result.results || []).map(aiUsageFromRow).map(toEntry).filter((entry): entry is AiUsageHistoryEntry => entry !== null);
+  }
+
+  return Array.from(memoryAiCreditUsages.values())
+    .filter((usage) => usage.ownerType === principal.kind && usage.ownerId === principal.id)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .slice(0, limit)
+    .map(toEntry)
+    .filter((entry): entry is AiUsageHistoryEntry => entry !== null);
 }
 
 async function nextAiCreditGrantId(env: CloudEnv, principal: Principal, credits: number) {
@@ -4462,6 +4502,7 @@ async function accountEntitlements(request: Request, env: CloudEnv) {
   const aiCredits = await aiCreditBalance(env, principal);
   return json({
     aiCredits: { ...aiCredits, nextRefillAt },
+    aiUsage: await listAiUsageHistory(env, principal),
     legalAcceptance: await latestLegalAcceptance(env, principal),
     ok: true,
     plan: principal.plan,
@@ -5753,23 +5794,28 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
   const shareToken = url.searchParams.get("token") || undefined;
   
   if (request.method === "GET" && url.pathname.startsWith("/shots/")) {
-    const id = decodeURIComponent(url.pathname.slice("/shots/".length));
-    
-    // For screenshots, check if the corresponding session has a valid share token
-    if (shareToken) {
+    const filename = decodeURIComponent(url.pathname.slice("/shots/".length));
+    if (!filename.endsWith(".png")) return text("Not found", 404);
+    const id = filename.slice(0, -".png".length);
+    const principal = await resolvePrincipal(request, env);
+    const owned = principal ? await findOwnedSession(env, principal, id) : null;
+
+    if (!owned && shareToken) {
       const token = await validateShareToken(env, shareToken);
       if (!token || token.resourceType !== "session" || token.resourceId !== id) {
         return text("Not found", 404);
       }
-    } else {
-      // No share token provided - deny access
+    } else if (!owned) {
       return text("Not found", 404);
     }
-    
+
     const key = shotObjectKey(id);
     const object = env.PINAR_BUCKET ? await env.PINAR_BUCKET.get(key) : null;
     if (!object) return json({ error: "shot not found" }, 404);
-    const headers = corsHeaders({ "Cache-Control": "public, max-age=86400", "Content-Type": "image/png" });
+    const headers = corsHeaders({
+      "Cache-Control": owned ? "private, no-store" : "public, max-age=86400",
+      "Content-Type": "image/png",
+    });
     object.writeHttpMetadata(headers);
     headers.set("ETag", object.httpEtag);
     return new Response(object.body, { headers });

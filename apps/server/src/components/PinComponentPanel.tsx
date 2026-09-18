@@ -173,9 +173,6 @@ function ComponentResult({ busy, canEdit, component, pin, session, onRegenerate 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="secondary">{t(TARGET_LABEL_KEYS[component.target])}</Badge>
-          {component.model ? (
-            <span className="text-xs text-muted-foreground">{t("viewer.componentGeneratedWith", { model: component.model })}</span>
-          ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" type="button" variant="outline" onClick={() => downloadZip(pin, component)}>
@@ -263,7 +260,6 @@ export function PinComponentPanel({ canEdit, pin, preferredTarget, session, sess
   const { t } = useServerI18n();
   const requestId = useRef<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [creditsRemaining, setCreditsRemaining] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [fresh, setFresh] = useState<PinComponent | null>(null);
   const [recovery, setRecovery] = useState<AiRecovery>(null);
@@ -307,9 +303,6 @@ export function PinComponentPanel({ canEdit, pin, preferredTarget, session, sess
           setRecovery("retry");
         }
         return;
-      }
-      if (isRecord(data) && isRecord(data.aiCredits) && typeof data.aiCredits.balance === "number") {
-        setCreditsRemaining(data.aiCredits.balance);
       }
       requestId.current = null;
       setFresh(result);
@@ -387,9 +380,7 @@ export function PinComponentPanel({ canEdit, pin, preferredTarget, session, sess
           {busy ? t("viewer.componentGenerating") : t("viewer.componentGenerate")}
         </Button>
         <span className="text-xs text-muted-foreground">
-          {creditsRemaining === null
-            ? t("viewer.componentCost", { count: COMPONENT_EXPORT_CREDITS })
-            : t("viewer.aiCreditsRemaining", { count: creditsRemaining })}
+          {t("viewer.componentCost", { count: COMPONENT_EXPORT_CREDITS })}
         </span>
       </div>
       {error ? (

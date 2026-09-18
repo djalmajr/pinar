@@ -414,11 +414,13 @@ function DraggableSessionTableRow({
 
 function DraggableSessionCard({
   children,
+  onOpen,
   selected,
   selectedIds,
   session,
 }: {
   children: ReactNode;
+  onOpen: () => void;
   selected: boolean;
   selectedIds: ReadonlySet<string>;
   session: Session;
@@ -438,7 +440,7 @@ function DraggableSessionCard({
     <Card
       ref={draggable.setNodeRef}
       className={cn(
-        "relative gap-0 py-0 transition-colors hover:ring-primary/35",
+        "group/card relative cursor-pointer gap-0 py-0 transition-colors hover:ring-primary/35 focus-visible:ring-2 focus-visible:ring-ring/50",
         selected && "ring-primary/50",
         draggable.isDragging && "cursor-grabbing opacity-40",
       )}
@@ -447,7 +449,13 @@ function DraggableSessionCard({
       size="sm"
       {...((session as SessionGroup).captures ? {} : draggable.attributes)}
       {...draggable.listeners}
-      role={undefined}
+      role="article"
+      onClick={(event) => {
+        if (event.defaultPrevented) return;
+        const target = event.target;
+        if (target instanceof Element && target.closest("a, button, input, [data-no-dnd]")) return;
+        onOpen();
+      }}
     >
       {children}
     </Card>
@@ -940,6 +948,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
                     return (
                       <DraggableSessionCard
                         key={session.id}
+                        onOpen={() => openViewer(session.id)}
                         selected={selectedIds.has(session.id)}
                         selectedIds={selectedIds}
                         session={session}

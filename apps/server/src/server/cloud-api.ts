@@ -72,6 +72,7 @@ import { exportComponent } from "./ai/component-export";
 import { extractDesignSystem, readDesignSystem } from "./ai/design-system";
 import { diagnosePin } from "./ai/pin-diagnosis";
 import { generateReproduction } from "./ai/reproduction";
+import { transcribeVoicePin } from "./ai/voice-pin";
 import { SESSION_PATCH_MAX_BYTES } from "./session-patch";
 import { type PricingConfig, pricingForCountry } from "../lib/pricing";
 import { laterExpiry, paidRetentionExpiresAt } from "../lib/retention";
@@ -4646,6 +4647,25 @@ export interface RunAiFeatureInput<T> {
   unavailableMessage: string;
 }
 
+export interface AiFeatureTelemetry {
+  costUsdMicros: number;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+export interface RunMeteredAiFeatureInput<T> {
+  env: CloudEnv;
+  execute: () => Promise<{ result: T; telemetry: AiFeatureTelemetry }>;
+  onSuccess?: (result: T, usage: AiCreditUsageRecord) => Promise<void>;
+  parse: (text: string) => T | null;
+  principal: Principal;
+  request: Request;
+  requestId: string;
+  resourceId: string;
+  spec: AiFeatureSpec;
+  unavailableMessage: string;
+}
+
 function isResponsesApiModel(model: string) {
   return model.startsWith("@cf/openai/gpt-oss");
 }
@@ -4674,7 +4694,7 @@ function aiRunInput(prompt: AiPrompt, spec: AiFeatureSpec): Record<string, unkno
  * rate limit, credit reservation, idempotent replay, inference, settlement or
  * refund. Features only differ by their spec, prompt and parser.
  */
-export async function runAiFeature<T>(input: RunAiFeatureInput<T>): Promise<Response> {
+export async function runMeteredAiFeature<T>(input: RunMeteredAiFeatureInput<T>): Promise<Response> {
   const { env, principal, request, requestId, resourceId, spec } = input;
   if (!env.AI) return json({ code: "ai_unavailable", error: "AI is not configured" }, 503);
   if (principal.kind !== "account" || !planIncludesAi(principal.plan)) {
@@ -4745,18 +4765,8 @@ export async function runAiFeature<T>(input: RunAiFeatureInput<T>): Promise<Resp
     }, status);
   }
 
-  const prompt = input.buildPrompt();
-  const content = prompt.messages.map((message) => message.content).join("\n");
   try {
-    const inference: unknown = await env.AI.run(
-      spec.model as Parameters<Ai["run"]>[0],
-      aiRunInput(prompt, spec) as Parameters<Ai["run"]>[1],
-      { signal: AbortSignal.timeout(spec.timeoutMs) },
-    );
-    const responseText = aiResponseText(inference);
-    const result = input.parse(responseText);
-    if (!result) throw new Error("invalid_ai_response");
-    const telemetry = aiResponseUsage(inference, content, responseText, spec);
+    const { result, telemetry } = await input.execute();
     if (input.onSuccess) await input.onSuccess(result, reservation.usage);
     await completeAiCreditUsage(
       env,
@@ -4811,6 +4821,29 @@ export async function runAiFeature<T>(input: RunAiFeatureInput<T>): Promise<Resp
         : `${input.unavailableMessage}; credit refund pending`,
     }, 503);
   }
+}
+
+/** Text-model adapter for the shared metering and idempotency pipeline. */
+export async function runAiFeature<T>(input: RunAiFeatureInput<T>): Promise<Response> {
+  return runMeteredAiFeature({
+    ...input,
+    execute: async () => {
+      const prompt = input.buildPrompt();
+      const content = prompt.messages.map((message) => message.content).join("\n");
+      const inference: unknown = await input.env.AI!.run(
+        input.spec.model as Parameters<Ai["run"]>[0],
+        aiRunInput(prompt, input.spec) as Parameters<Ai["run"]>[1],
+        { signal: AbortSignal.timeout(input.spec.timeoutMs) },
+      );
+      const responseText = aiResponseText(inference);
+      const result = input.parse(responseText);
+      if (!result) throw new Error("invalid_ai_response");
+      return {
+        result,
+        telemetry: aiResponseUsage(inference, content, responseText, input.spec),
+      };
+    },
+  });
 }
 
 export interface AiSessionScope {
@@ -5449,6 +5482,7 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
   if (method === "POST" && path === "/api/ai/component-export") return exportComponent(request, env);
   if (method === "POST" && path === "/api/ai/design-system") return extractDesignSystem(request, env);
   if (method === "POST" && path === "/api/ai/reproduction") return generateReproduction(request, env);
+  if (method === "POST" && path === "/api/ai/voice-pin") return transcribeVoicePin(request, env);
   const collectionDesignMatch = path.match(/^\/api\/collections\/([^/]+)\/design-system$/);
   if (collectionDesignMatch && method === "GET") {
     return readDesignSystem(request, env, decodeURIComponent(collectionDesignMatch[1]));

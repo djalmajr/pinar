@@ -43,5 +43,6 @@ export const CONTENT_INJECTION_FILES = [
   "snapshot.js",
   "evidence.js",
   "keyboard.js",
+  "voice.js",
   "content.js",
 ];

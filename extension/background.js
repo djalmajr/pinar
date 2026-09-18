@@ -575,6 +575,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch(() => sendResponse({ ok: false }));
     return true;
   }
+  if (message.type === "voice:availability") {
+    getSettings()
+      .then((settings) => sendResponse({ available: settings.storageMode === "cloud", ok: true }))
+      .catch((error) => sendResponse({ error: String(error), ok: false }));
+    return true;
+  }
+  if (message.type === "voice:transcribe") {
+    transcribeVoiceComment(message)
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((error) => sendResponse({ error: String(error.message || error), ok: false }));
+    return true;
+  }
   if (message.type === "review:preview") {
     continuous.read().then(async (draft) => {
       const entry = draft?.entries.find((item) => item.captureId === message.captureId && !item.deleted);
@@ -1612,6 +1624,36 @@ async function remoteFetch(endpoint, path, init = {}) {
     await resetToFreshInstallation(endpoint);
   }
   return installationFetch(endpoint, path, await initializeInstallationIdentity(), init);
+}
+
+function audioBlobFromDataUrl(value) {
+  const match = typeof value === "string" ? value.match(/^data:((?:audio|video)\/[a-z0-9.+-]+(?:;[^,]*)?);base64,([A-Za-z0-9+/=]+)$/i) : null;
+  if (!match) throw new Error("Invalid voice recording");
+  const mimeType = match[1].split(";", 1)[0].toLowerCase();
+  const binary = atob(match[2]);
+  if (!binary.length || binary.length > 5 * 1024 * 1024) throw new Error("Voice recording is empty or too large");
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return new Blob([bytes], { type: mimeType });
+}
+
+async function transcribeVoiceComment(message) {
+  const settings = await getSettings();
+  if (settings.storageMode !== "cloud") throw new Error("Voice comments require the Pinar cloud server");
+  const durationSeconds = Number(message.durationSeconds);
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || durationSeconds > 120) {
+    throw new Error("Voice recording must be between 1 and 120 seconds");
+  }
+  const audio = audioBlobFromDataUrl(message.audioDataUrl);
+  const form = new FormData();
+  form.set("audio", audio, `pin.${audio.type.includes("ogg") ? "ogg" : audio.type.includes("mp4") ? "m4a" : "webm"}`);
+  form.set("durationSeconds", String(durationSeconds));
+  form.set("language", getBestLanguage(settings.language));
+  form.set("requestId", typeof message.requestId === "string" ? message.requestId : "");
+  const response = await remoteFetch(cloudEndpoint(settings), "/api/ai/voice-pin", { body: form, method: "POST" });
+  const body = await responseBody(response);
+  if (!response.ok || !body.result) throw new Error(body.error || "Voice transcription failed");
+  return body.result;
 }
 
 async function responseBody(response) {

@@ -94,6 +94,7 @@
     stopComposerKeyboardEvent,
   } = globalThis.__pinarKeyboardEvents;
   const captureSnapshot = globalThis.__pinarSnapshot?.captureSnapshot ?? (() => undefined);
+  const { boundedVoiceDuration, formatVoiceComment, preferredVoiceMimeType } = globalThis.__pinarVoice;
 
   const initialVisible = globalThis.__pinarInitialVisible !== false;
   delete globalThis.__pinarInitialVisible;
@@ -162,6 +163,17 @@
     overlay_comment: "Comment",
     overlay_copied: "Copied successfully!",
     overlay_copy_failed: "Copy failed",
+    overlay_voice_start: "Speak comment",
+    overlay_voice_stop: "Stop recording",
+    overlay_voice_recording: "Listening… {seconds}s of 120s",
+    overlay_voice_processing: "Transcribing and organizing…",
+    overlay_voice_transcript: "Transcription",
+    overlay_voice_use_transcript: "Use transcription",
+    overlay_voice_ready: "Voice comment ready to review",
+    overlay_voice_local_only: "Voice comments require the Pinar cloud server",
+    overlay_voice_permission: "Allow microphone access to dictate a comment",
+    overlay_voice_failed: "The voice comment could not be processed",
+    overlay_voice_acceptance: "Acceptance criteria",
     overlay_copying: "Saving the annotations…",
     overlay_saved: "Annotations saved successfully!",
     overlay_helper_unavailable: "helper unavailable",
@@ -522,9 +534,9 @@
         display: flex;
         flex-direction: column;
         gap: 10px;
-        min-width: 260px;
+        min-width: 300px;
         padding: 10px 10px 8px;
-        width: 280px;
+        width: 340px;
       }
       .composer-target {
         align-items: center;
@@ -558,7 +570,30 @@
         justify-content: flex-end;
         padding: 0;
       }
-      .composer-actions .icon-btn { display: inline-flex; margin-right: auto; }
+      .composer-tools { display: flex; gap: 4px; margin-right: auto; }
+      .composer-actions .icon-btn { display: inline-flex; }
+      .voice-btn.is-recording { background: #FEE2E2; color: #DC2626; }
+      .voice-btn:disabled { cursor: not-allowed !important; opacity: .45; }
+      .voice-status {
+        color: #525252;
+        font: 500 12px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        min-height: 16px;
+        padding: 0 4px;
+      }
+      .voice-status:empty { display: none; }
+      .voice-status[data-kind="error"] { color: #B91C1C; }
+      .voice-review {
+        background: #F8FAFC;
+        border: 1px solid #E2E8F0;
+        border-radius: 6px;
+        color: #475569;
+        padding: 8px;
+      }
+      .voice-review[hidden] { display: none; }
+      .voice-review strong { color: #334155; display: block; font: 600 11px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin-bottom: 4px; }
+      .voice-review p { font: 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; max-height: 72px; overflow: auto; white-space: pre-wrap; }
+      .voice-review button { background: transparent; border: 0; color: ${MARK}; cursor: pointer; font: 600 11px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin-top: 6px; padding: 0; }
+      .voice-review button { background: transparent; border: 0; color: ${MARK}; cursor: pointer; font: 600 11px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin-top: 6px; padding: 0; }
       .btn-cancel, .btn-add {
         border: 0;
         border-radius: 6px;
@@ -568,6 +603,7 @@
       }
       .btn-cancel { background: #f4f4f5; color: #111; }
       .btn-add { background: ${MARK}; color: #fff; }
+      .btn-add:disabled { cursor: not-allowed !important; opacity: .55; }
       .privacy-mask {
         background: rgba(17, 24, 39, 0.72);
         border: 2px solid #111827;
@@ -639,12 +675,25 @@
       <div class="composer-card">
         <span class="composer-target" data-ref="selectionTag" hidden></span>
         <textarea data-ref="input" rows="1" placeholder="${t("overlay_comment")}"></textarea>
+        <div class="voice-review" data-ref="voiceReview" hidden>
+          <strong data-ref="voiceTranscriptLabel">${t("overlay_voice_transcript")}</strong>
+          <p data-ref="voiceTranscript"></p>
+          <button type="button" data-ref="voiceUseTranscript">${t("overlay_voice_use_transcript")}</button>
+        </div>
+        <div class="voice-status" data-ref="voiceStatus" role="status" aria-live="polite"></div>
         <div class="composer-actions">
-          <button type="button" class="icon-btn is-ready" data-ref="deleteDraft" title="Delete" aria-label="Delete">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
-              <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 11v6m-4-6v6M6 7v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7M4 7h16M7 7l2-4h6l2 4"/>
-            </svg>
-          </button>
+          <span class="composer-tools">
+            <button type="button" class="icon-btn is-ready" data-ref="deleteDraft" title="Delete" aria-label="Delete">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 11v6m-4-6v6M6 7v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7M4 7h16M7 7l2-4h6l2 4"/>
+              </svg>
+            </button>
+            <button type="button" class="icon-btn is-ready voice-btn" data-ref="voice" title="${t("overlay_voice_start")}" aria-label="${t("overlay_voice_start")}">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z M19 10v2a7 7 0 0 1-14 0v-2 M12 19v3 M8 22h8"/>
+              </svg>
+            </button>
+          </span>
           <button type="button" class="btn-cancel" data-ref="cancel" data-i18n="overlay_cancel">${t("overlay_cancel")}</button>
           <button type="button" class="btn-add" data-ref="save" data-i18n="overlay_add">${t("overlay_add")}</button>
         </div>
@@ -675,6 +724,12 @@
     progressView: shadow.querySelector("[data-ref=progressView]"),
     progressText: shadow.querySelector("[data-ref=progressText]"),
     progressPct: shadow.querySelector("[data-ref=progressPct]"),
+    voice: shadow.querySelector("[data-ref=voice]"),
+    voiceReview: shadow.querySelector("[data-ref=voiceReview]"),
+    voiceStatus: shadow.querySelector("[data-ref=voiceStatus]"),
+    voiceTranscript: shadow.querySelector("[data-ref=voiceTranscript]"),
+    voiceTranscriptLabel: shadow.querySelector("[data-ref=voiceTranscriptLabel]"),
+    voiceUseTranscript: shadow.querySelector("[data-ref=voiceUseTranscript]"),
   };
 
   document.documentElement.append(host);
@@ -1560,7 +1615,10 @@
       node.textContent = t(node.getAttribute("data-i18n"));
     });
     if (ui.input) ui.input.placeholder = t("overlay_comment");
+    if (ui.voiceTranscriptLabel) ui.voiceTranscriptLabel.textContent = t("overlay_voice_transcript");
+    if (ui.voiceUseTranscript) ui.voiceUseTranscript.textContent = t("overlay_voice_use_transcript");
     ui.reviewPanel?.setAttribute("aria-label", t("overlay_session_review"));
+    renderVoiceControls();
     renderChrome();
   }
 
@@ -1858,6 +1916,179 @@
   let composerFocusRetryTimer = 0;
   let composerFocusRetries = 0;
   let claimingComposerFocus = false;
+  let voiceAvailable = false;
+  let voiceRecorder = null;
+  let voiceStream = null;
+  let voiceStartedAt = 0;
+  let voiceTimer = 0;
+  let voiceLimitTimer = 0;
+  let voiceProcessing = false;
+  let voiceTranscriptComment = "";
+  const cancelledVoiceRecorders = new WeakSet();
+
+  function renderVoiceControls() {
+    if (!ui.voice) return;
+    const recording = voiceRecorder?.state === "recording";
+    const title = !voiceAvailable
+      ? t("overlay_voice_local_only")
+      : recording ? t("overlay_voice_stop") : t("overlay_voice_start");
+    ui.voice.title = title;
+    ui.voice.setAttribute("aria-label", title);
+    ui.voice.disabled = voiceProcessing;
+    ui.voice.classList.toggle("is-recording", recording);
+    ui.save.disabled = voiceProcessing || recording;
+  }
+
+  function setVoiceStatus(text = "", kind = "info") {
+    ui.voiceStatus.textContent = text;
+    ui.voiceStatus.dataset.kind = kind;
+  }
+
+  function clearVoiceTimers() {
+    clearInterval(voiceTimer);
+    clearTimeout(voiceLimitTimer);
+    voiceTimer = 0;
+    voiceLimitTimer = 0;
+  }
+
+  function closeVoiceStream() {
+    for (const track of voiceStream?.getTracks?.() || []) track.stop();
+    voiceStream = null;
+  }
+
+  function discardVoiceRecording() {
+    clearVoiceTimers();
+    if (voiceRecorder?.state === "recording") {
+      cancelledVoiceRecorders.add(voiceRecorder);
+      voiceRecorder.stop();
+    }
+    closeVoiceStream();
+    voiceRecorder = null;
+    voiceProcessing = false;
+    renderVoiceControls();
+  }
+
+  function resetVoiceUi() {
+    discardVoiceRecording();
+    ui.voiceReview.hidden = true;
+    ui.voiceTranscript.textContent = "";
+    voiceTranscriptComment = "";
+    setVoiceStatus();
+  }
+
+  async function refreshVoiceAvailability() {
+    const response = await chrome.runtime.sendMessage({ type: "voice:availability" }).catch(() => null);
+    voiceAvailable = response?.ok === true && response.available === true;
+    renderVoiceControls();
+  }
+
+  function blobDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.addEventListener("load", () => resolve(String(reader.result || "")), { once: true });
+      reader.addEventListener("error", () => reject(reader.error || new Error("Unable to read recording")), { once: true });
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function finishVoiceRecording(recorder, stream, chunks) {
+    clearVoiceTimers();
+    for (const track of stream?.getTracks?.() || []) track.stop();
+    if (voiceStream === stream) voiceStream = null;
+    if (voiceRecorder === recorder) voiceRecorder = null;
+    renderVoiceControls();
+    if (cancelledVoiceRecorders.has(recorder)) return;
+    const durationSeconds = boundedVoiceDuration(voiceStartedAt, performance.now());
+    const blob = new Blob(chunks, { type: recorder?.mimeType || "audio/webm" });
+    if (!blob.size || !state.draft) return;
+    voiceProcessing = true;
+    setVoiceStatus(t("overlay_voice_processing"));
+    renderVoiceControls();
+    try {
+      const response = await chrome.runtime.sendMessage({
+        audioDataUrl: await blobDataUrl(blob),
+        durationSeconds,
+        requestId: crypto.randomUUID(),
+        type: "voice:transcribe",
+      });
+      if (!response?.ok) throw new Error(response?.error || "Voice transcription failed");
+      const transcript = typeof response.result?.transcript === "string" ? response.result.transcript.trim() : "";
+      const structured = formatVoiceComment(response.result, t("overlay_voice_acceptance"));
+      if (!transcript || !structured) throw new Error("Voice transcription was empty");
+      const sanitized = sanitizeCapture({
+        fields: activeScan().fields,
+        page: pageContext(),
+        pins: [{ comment: structured }],
+      }).pins[0]?.comment || "";
+      ui.voiceTranscript.textContent = transcript;
+      voiceTranscriptComment = sanitizeCapture({
+        fields: activeScan().fields,
+        page: pageContext(),
+        pins: [{ comment: transcript }],
+      }).pins[0]?.comment || "";
+      ui.voiceReview.hidden = false;
+      ui.input.value = sanitized;
+      fitInput();
+      setVoiceStatus(t("overlay_voice_ready"));
+      ui.input.focus({ preventScroll: true });
+      ui.input.setSelectionRange(ui.input.value.length, ui.input.value.length);
+    } catch {
+      setVoiceStatus(t("overlay_voice_failed"), "error");
+    } finally {
+      voiceProcessing = false;
+      renderVoiceControls();
+    }
+  }
+
+  async function startVoiceRecording() {
+    if (!state.draft || voiceProcessing) return;
+    if (voiceRecorder?.state === "recording") {
+      voiceRecorder.stop();
+      return;
+    }
+    await refreshVoiceAvailability();
+    if (!voiceAvailable) {
+      setVoiceStatus(t("overlay_voice_local_only"), "error");
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setVoiceStatus(t("overlay_voice_permission"), "error");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      voiceStream = stream;
+      const mimeType = preferredVoiceMimeType(MediaRecorder);
+      const chunks = [];
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      voiceRecorder = recorder;
+      recorder.addEventListener("dataavailable", (event) => {
+        if (event.data?.size) chunks.push(event.data);
+      });
+      recorder.addEventListener("stop", () => void finishVoiceRecording(recorder, stream, chunks), { once: true });
+      recorder.addEventListener("error", () => {
+        discardVoiceRecording();
+        setVoiceStatus(t("overlay_voice_failed"), "error");
+      }, { once: true });
+      voiceStartedAt = performance.now();
+      recorder.start(1_000);
+      const updateElapsed = () => {
+        const seconds = Math.min(120, Math.max(0, Math.floor((performance.now() - voiceStartedAt) / 1000)));
+        setVoiceStatus(t("overlay_voice_recording").replace("{seconds}", String(seconds)));
+      };
+      updateElapsed();
+      voiceTimer = setInterval(updateElapsed, 1_000);
+      voiceLimitTimer = setTimeout(() => {
+        if (voiceRecorder?.state === "recording") voiceRecorder.stop();
+      }, 120_000);
+      renderVoiceControls();
+    } catch {
+      closeVoiceStream();
+      voiceRecorder = null;
+      setVoiceStatus(t("overlay_voice_permission"), "error");
+      renderVoiceControls();
+    }
+  }
 
   function claimComposerFocus() {
     if (!state.draft) return;
@@ -1886,6 +2117,8 @@
     if (!canSelect()) return;
     state.hoverPinId = null;
     state.draft = draft;
+    resetVoiceUi();
+    void refreshVoiceAvailability();
     ui.input.value = draft.comment ?? "";
     renderChrome();
     updateOutline();
@@ -1927,6 +2160,7 @@
   }
   function saveDraft() {
     if (!state.draft) return true;
+    if (voiceProcessing || voiceRecorder?.state === "recording") return false;
     const comment = ui.input.value.trim();
     if (!comment) {
       ui.input.focus();
@@ -2044,6 +2278,7 @@
   }
 
   function cancelDraft() {
+    resetVoiceUi();
     state.draft = null;
     renderChrome();
     updateOutline();
@@ -2051,6 +2286,7 @@
   }
 
   function resetLocalPins() {
+    resetVoiceUi();
     state.pins = [];
     state.draft = null;
     state.tabPinCount = 0;
@@ -2520,7 +2756,10 @@
   }
 
   function setVisible(visible) {
-    if (!visible) setReviewOpen(false);
+    if (!visible) {
+      setReviewOpen(false);
+      discardVoiceRecording();
+    }
     if (visible && !host.isConnected) document.documentElement.append(host);
     clearProgress();
     state.active = visible;
@@ -2561,6 +2800,13 @@
 
   ui.cancel.addEventListener("click", () => cancelDraft());
   ui.deleteDraft.addEventListener("click", () => deleteDraft());
+  ui.voice.addEventListener("click", () => void startVoiceRecording());
+  ui.voiceUseTranscript.addEventListener("click", () => {
+    if (!voiceTranscriptComment) return;
+    ui.input.value = voiceTranscriptComment;
+    fitInput();
+    ui.input.focus({ preventScroll: true });
+  });
   ui.save.addEventListener("click", () => saveDraft());
   ui.layer.addEventListener("pointerover", (event) => {
     const button = event.target.closest("[data-pin]");

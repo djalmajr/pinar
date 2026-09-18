@@ -6,6 +6,7 @@ import { collectionDestination, defaultDestination, destinationKey, resolveDesti
 const backgroundSrc = readFileSync(new URL("./background.js", import.meta.url), "utf8");
 const contentSrc = readFileSync(new URL("./content.js", import.meta.url), "utf8");
 const optionsSrc = readFileSync(new URL("../apps/extension/src/options/OptionsApp.tsx", import.meta.url), "utf8");
+const i18nSrc = readFileSync(new URL("../packages/shared/src/i18n/index.ts", import.meta.url), "utf8");
 
 const tree = {
   projects: [{
@@ -204,6 +205,7 @@ describe("capture destination", () => {
   test("uses a Windows-specific local storage path description", () => {
     assert.match(optionsSrc, /installPlatform === "win" \? t\.local_desc_windows : t\.local_desc/);
     assert.match(optionsSrc, /\{localStorageDescription\}/);
+    assert.equal(i18nSrc.includes('$HOME\\\\.pinar\\\\shots'), true);
   });
 
   test("recovers when an account migration made the anonymous installation id unusable", () => {

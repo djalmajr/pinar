@@ -60,7 +60,10 @@ Electrobun.events.on("reopen", () => {
 	handledInitialReopen = true;
 	hideDock();
 });
-const ownsTrayLock = claimInstanceLock(trayPidPath(), () => Utils.quit(0));
+const ownsTrayLock = await claimInstanceLock(trayPidPath(), (existingPid) => {
+	console.error(`pinar tray already running with PID ${existingPid}; refusing duplicate startup`);
+	Utils.quit(0);
+});
 if (!ownsTrayLock) {
 	// Keep Cottontail idle while the native runtime completes Utils.quit().
 	await new Promise<never>(() => {});

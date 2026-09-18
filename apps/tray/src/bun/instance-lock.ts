@@ -1,22 +1,67 @@
 import { readFileSync, writeFileSync } from "node:fs";
 
 type InstanceLockOptions = {
-	isProcessAlive?: (pid: number) => boolean;
+	isProcessAlive?: (pid: number) => boolean | Promise<boolean>;
 	pid?: number;
 };
 
-function processIsAlive(pid: number) {
+type ProcessIsAliveOptions = {
+	platform?: NodeJS.Platform;
+	signalProcess?: (pid: number) => void;
+	windowsProcessExists?: (pid: number) => boolean | Promise<boolean>;
+};
+
+const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+
+async function windowsProcessExists(pid: number) {
+	const { dlopen, FFIType } = await import("bun:ffi");
+	const kernel32 = dlopen("kernel32.dll", {
+		CloseHandle: { args: [FFIType.ptr], returns: FFIType.i32 },
+		OpenProcess: {
+			args: [FFIType.u32, FFIType.i32, FFIType.u32],
+			returns: FFIType.ptr,
+		},
+	});
 	try {
-		process.kill(pid, 0);
+		const handle = kernel32.symbols.OpenProcess(
+			PROCESS_QUERY_LIMITED_INFORMATION,
+			0,
+			pid,
+		);
+		if (!handle) return false;
+		kernel32.symbols.CloseHandle(handle);
+		return true;
+	} finally {
+		kernel32.close();
+	}
+}
+
+export async function processIsAlive(
+	pid: number,
+	{
+		platform = process.platform,
+		signalProcess = (candidate) => process.kill(candidate, 0),
+		windowsProcessExists: probeWindowsProcess = windowsProcessExists,
+	}: ProcessIsAliveOptions = {},
+) {
+	if (platform === "win32") {
+		try {
+			return await probeWindowsProcess(pid);
+		} catch (error) {
+			console.error(`pinar tray could not inspect Windows process ${pid}`, error);
+		}
+	}
+	try {
+		signalProcess(pid);
 		return true;
 	} catch {
 		return false;
 	}
 }
 
-export function claimInstanceLock(
+export async function claimInstanceLock(
 	path: string,
-	onDuplicate: () => void,
+	onDuplicate: (existingPid: number) => void,
 	{
 		isProcessAlive = processIsAlive,
 		pid = process.pid,
@@ -28,9 +73,9 @@ export function claimInstanceLock(
 			Number.isInteger(existing) &&
 			existing > 0 &&
 			existing !== pid &&
-			isProcessAlive(existing)
+			(await isProcessAlive(existing))
 		) {
-			onDuplicate();
+			onDuplicate(existing);
 			return false;
 		}
 	} catch {

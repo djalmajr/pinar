@@ -19,10 +19,17 @@ export function currentLegalAcceptance(locale: "en" | "pt"): CurrentLegalAccepta
   };
 }
 
-export function LegalActionNotice() {
+interface LegalActionNoticeProps {
+  id?: string;
+  marker?: string;
+}
+
+export function LegalActionNotice({ id, marker }: LegalActionNoticeProps = {}) {
   const { t } = useServerI18n();
   return (
-    <p className="text-xs leading-5 text-muted-foreground">
+    <p className="text-xs leading-5 text-muted-foreground" id={id}>
+      {marker ? <sup aria-hidden="true">{marker}</sup> : null}
+      {marker ? " " : null}
       {t("pricing.legalNoticePrefix")}{" "}
       <a
         className="font-medium underline underline-offset-4"

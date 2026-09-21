@@ -25,7 +25,7 @@ export const CloudLocalProfiles = {
   },
   pro: {
     code: "PRCLD826",
-    credits: 200,
+    credits: 500,
     email: "pro.cloud-local@pinar.test",
     plan: "pro",
   },
@@ -95,7 +95,7 @@ export function installationTokenHash(token) {
 export function buildCloudLocalFixture(profileName, pepper, now = new Date()) {
   const profile = CloudLocalProfiles[profileName];
   if (!profile) throw new Error(`Unknown cloud-local profile: ${profileName}`);
-  const nextMonth = addUtcMonths(now, 1).toISOString();
+  const initialCreditExpiry = addUtcMonths(now, 12).toISOString();
   const creditExpiry = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
   const suffix = profile.plan;
   if (profile.plan === "free") {
@@ -105,6 +105,7 @@ export function buildCloudLocalFixture(profileName, pepper, now = new Date()) {
       extensionCodeHash: extensionCodeHash(pepper, profile.code),
       installationId: "ins_cloud_local_free00000000",
       installationToken: `pit_${"cloudlocalfree".padEnd(43, "0")}`,
+      initialCreditExpiry: null,
       nextRefillAt: null,
       now: now.toISOString(),
       userId: null,
@@ -114,7 +115,8 @@ export function buildCloudLocalFixture(profileName, pepper, now = new Date()) {
     ...profile,
     creditExpiry,
     extensionCodeHash: extensionCodeHash(pepper, profile.code),
-    nextRefillAt: profile.plan === "pro" ? nextMonth : null,
+    initialCreditExpiry,
+    nextRefillAt: null,
     now: now.toISOString(),
     userId: `usr_cloud_local_${suffix}`,
   };
@@ -138,9 +140,8 @@ export function buildCloudLocalSeedSql(fixture) {
   const projectId = `prj_cloud_local_${fixture.plan}`;
   const collectionId = `col_cloud_local_${fixture.plan}`;
   const sessionId = `session_cloud_local_${fixture.plan}`;
-  const monthlyCredits = fixture.credits;
   const grants = [
-      `INSERT INTO ai_credit_grants (id, owner_type, owner_id, source_type, source_id, credits, consumed_credits, expires_at, created_at) VALUES (${sqlString(`grant_cloud_local_${fixture.plan}_monthly`)}, 'account', ${sqlString(fixture.userId)}, 'pro_monthly', ${sqlString(`cloud-local:${fixture.plan}:monthly`)}, ${monthlyCredits}, 20, ${sqlString(fixture.nextRefillAt)}, ${sqlString(fixture.now)});`,
+      `INSERT INTO ai_credit_grants (id, owner_type, owner_id, source_type, source_id, credits, consumed_credits, expires_at, created_at) VALUES (${sqlString(`grant_cloud_local_${fixture.plan}_initial`)}, 'account', ${sqlString(fixture.userId)}, 'pro_initial', ${sqlString(`pro_initial:${fixture.userId}`)}, ${fixture.credits}, 20, ${sqlString(fixture.initialCreditExpiry)}, ${sqlString(fixture.now)});`,
       `INSERT INTO ai_credit_grants (id, owner_type, owner_id, source_type, source_id, credits, consumed_credits, expires_at, created_at) VALUES (${sqlString(`grant_cloud_local_${fixture.plan}_expiring`)}, 'account', ${sqlString(fixture.userId)}, 'purchase', ${sqlString(`cloud-local:${fixture.plan}:expiring`)}, 20, 0, ${sqlString(fixture.creditExpiry)}, ${sqlString(fixture.now)});`,
     ];
   return [

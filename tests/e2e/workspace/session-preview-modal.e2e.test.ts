@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { isMobileViewport, openWorkspaceSidebar } from "../helpers/ui";
 
 const createdAt = "2026-08-14T14:52:00.000Z";
@@ -24,6 +24,27 @@ const session = {
   shotUrl: "/shots/preview-e2e.svg",
 };
 
+function siblingSession(id: string, title: string, createdAtValue: string) {
+  return {
+    ...session,
+    createdAt: createdAtValue,
+    id,
+    page: {
+      ...session.page,
+      title,
+      url: `http://localhost:4000/${id}`,
+    },
+    pins: [{ ...session.pins[0], comment: `${title} feedback.` }],
+    shotId: id,
+    shotUrl: `/shots/${id}.svg`,
+  };
+}
+
+const inboxSibling = siblingSession("preview-inbox-two", "Inbox second capture", "2026-08-14T14:51:00.000Z");
+const collectionFirst = siblingSession("preview-collection-one", "Collection first capture", "2026-08-14T14:50:00.000Z");
+const collectionSecond = siblingSession("preview-collection-two", "Collection second capture", "2026-08-14T14:49:00.000Z");
+const previewSessions = [session, inboxSibling, collectionFirst, collectionSecond];
+
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => localStorage.clear());
   await page.route("**/api/auth/session", (route) => route.fulfill({
@@ -42,7 +63,18 @@ test.beforeEach(async ({ page }) => {
             parentId: null,
             position: 0,
             projectId: "prj_preview",
-            sessions: [session],
+            sessions: [session, inboxSibling],
+            updatedAt: createdAt,
+          }, {
+            createdAt,
+            id: "col_preview_collection",
+            isProtected: false,
+            name: "Research",
+            ownerId: "ins_preview",
+            parentId: null,
+            position: 1,
+            projectId: "prj_preview",
+            sessions: [collectionFirst, collectionSecond],
             updatedAt: createdAt,
           }],
           createdAt,
@@ -57,13 +89,85 @@ test.beforeEach(async ({ page }) => {
       },
     },
   }));
-  await page.route("**/api/sessions/preview-e2e", (route) => route.fulfill({
-    json: { session },
-  }));
-  await page.route("**/shots/preview-e2e.svg", (route) => route.fulfill({
-    body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500"><text x="20" y="40">API keys</text></svg>',
-    contentType: "image/svg+xml",
-  }));
+  for (const previewSession of previewSessions) {
+    await page.route(`**/api/sessions/${previewSession.id}`, (route) => route.fulfill({
+      json: { session: previewSession },
+    }));
+    await page.route(`**/shots/${previewSession.id}.svg`, (route) => route.fulfill({
+      body: `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500"><text x="20" y="40">${previewSession.page.title}</text></svg>`,
+      contentType: "image/svg+xml",
+    }));
+  }
+});
+
+async function openPreview(page: Page, title: string) {
+  const card = page.locator('[data-slot="card"]').filter({ hasText: title }).first();
+  await card.getByRole("button", { name: "View capture" }).click();
+  return page.getByRole("dialog", { name: title });
+}
+
+// Mutation captured: replacing the viewer loading shell with centered text removes
+// its skeleton structure and the controls needed to navigate or close the modal.
+test("loading viewer preserves its structure and available header controls", async ({ page }) => {
+  let releaseFirstLoad = () => {};
+  const firstLoad = new Promise<void>((resolve) => {
+    releaseFirstLoad = resolve;
+  });
+  await page.route("**/api/sessions/preview-e2e", async (route) => {
+    await firstLoad;
+    await route.fulfill({ json: { session } });
+  });
+  await page.goto("/app");
+
+  const card = page.locator('[data-slot="card"]').filter({ hasText: "Lowcode Studio" }).first();
+  await card.getByRole("button", { name: "View capture" }).click();
+
+  const loadingDialog = page.getByRole("dialog", { name: /Loading viewer/ });
+  await expect(loadingDialog).toBeVisible();
+  await expect(loadingDialog.locator("[data-viewer-loading-stage] [data-slot='skeleton']")).toBeVisible();
+  await expect(loadingDialog.locator("[data-viewer-loading-sidebar]")).toBeVisible();
+  await expect(loadingDialog.getByRole("status")).toHaveText("1 of 4");
+  await expect(loadingDialog.getByRole("button", { name: "Previous capture" })).toBeDisabled();
+  await expect(loadingDialog.getByRole("button", { name: "Next capture" })).toBeEnabled();
+  await expect(loadingDialog.getByRole("button", { exact: true, name: "Copy prompt" })).toBeDisabled();
+  await expect(loadingDialog.getByRole("button", { name: "More page actions" })).toBeDisabled();
+  await expect(loadingDialog.getByRole("button", { name: "Close" })).toBeEnabled();
+
+  await loadingDialog.getByRole("button", { name: "Next capture" }).click();
+  await expect(page).toHaveURL(/session=preview-inbox-two/);
+  await expect(page.getByRole("dialog", { name: "Inbox second capture" })).toBeVisible();
+
+  const staleResponse = page.waitForResponse(/\/api\/sessions\/preview-e2e$/);
+  releaseFirstLoad();
+  await staleResponse;
+  await expect(page.getByRole("dialog", { name: "Inbox second capture" })).toBeVisible();
+});
+
+test("preview navigation follows All sessions, Inbox and collection contexts", async ({ page }) => {
+  await page.goto("/app");
+
+  let dialog = await openPreview(page, "Lowcode Studio");
+  await expect(dialog.getByRole("status")).toHaveText("1 of 4");
+  await dialog.getByRole("button", { name: "Next capture" }).click();
+  await expect(page).toHaveURL(/session=preview-inbox-two/);
+  await expect(page.getByRole("dialog", { name: "Inbox second capture" })).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  if (isMobileViewport(page)) await openWorkspaceSidebar(page, "Inbox");
+  await page.locator('[data-sidebar="menu-button"]').filter({ hasText: "Inbox" }).click();
+  dialog = await openPreview(page, "Lowcode Studio");
+  await expect(dialog.getByRole("status")).toHaveText("1 of 2");
+  await page.keyboard.press("ArrowRight");
+  await expect(page).toHaveURL(/session=preview-inbox-two/);
+  await page.keyboard.press("Escape");
+
+  if (isMobileViewport(page)) await openWorkspaceSidebar(page, "Research");
+  await page.locator('[data-sidebar="menu-button"]').filter({ hasText: "Research" }).click();
+  dialog = await openPreview(page, "Collection first capture");
+  await expect(dialog.getByRole("status")).toHaveText("1 of 2");
+  await dialog.getByRole("button", { name: "Next capture" }).click();
+  await expect(page).toHaveURL(/session=preview-collection-two/);
+  await expect(page.getByRole("dialog", { name: "Collection second capture" })).toBeVisible();
 });
 
 test("grid capture opens the zoom viewer modal without leaving the dashboard", async ({ page }) => {
@@ -91,7 +195,8 @@ test("grid capture opens the zoom viewer modal without leaving the dashboard", a
   await card.getByRole("button", { name: "More session actions" }).click();
   const actions = page.getByRole("menu");
   await expect(actions.getByRole("menuitem", { exact: true, name: "View" })).toHaveCount(0);
-  await page.keyboard.press("Escape");
+  await actions.press("Escape");
+  await expect(actions).toBeHidden();
 
   await preview.click();
   const dialog = page.getByRole("dialog", { name: "Lowcode Studio" });

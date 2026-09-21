@@ -23,11 +23,13 @@ export function filterSessions(
   search: string,
   pinFilters: PinCountFilter[],
   reviewFilters: PinReviewStatus[] = [],
+  sharedOnly = false,
 ) {
   const query = search.trim().toLowerCase();
   return sessions.filter((session) => {
     if (pinFilters.length > 0 && !pinFilters.includes(pinCountFilterValue(pinCount(session)))) return false;
     if (!sessionMatchesReviewFilters(effectiveReviewCounts(session), reviewFilters)) return false;
+    if (sharedOnly && !session.isShared) return false;
     if (!query) return true;
     if ((session as SessionGroup).captures?.some((capture) => filterSessions([capture], query, [], []).length > 0)) return true;
     return session.page.title.toLowerCase().includes(query)

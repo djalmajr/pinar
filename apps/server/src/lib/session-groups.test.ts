@@ -23,3 +23,10 @@ test("different review sessions at the same URL remain separate", () => {
   b.page = a.page;
   expect(groupSessions([a, b])).toHaveLength(2);
 });
+
+test("a grouped session is shared when any capture in the group is shared", () => {
+  const privateCapture = capture("a", "review");
+  const sharedCapture = { ...capture("b", "review"), isShared: true };
+  const [group] = groupSessions([privateCapture, sharedCapture]);
+  expect(group?.isShared).toBe(true);
+});

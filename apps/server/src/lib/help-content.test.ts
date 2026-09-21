@@ -181,13 +181,11 @@ describe("help content", () => {
       const creditArticle = content.articles.find((article) => article.id === "ai-credits");
       assert.ok(creditArticle, `${content.language}:ai-credits`);
       assert.match(creditArticle.summary, /Pinar Cloud/, `${content.language}:ai-credits:summary`);
-      for (const section of creditArticle.sections.slice(0, 3)) {
-        assert.match(
-          section.paragraphs[0] ?? "",
-          /Pinar Cloud/,
-          `${content.language}:ai-credits:${section.heading}`,
-        );
-      }
+      assert.match(
+        creditArticle.sections[0]?.paragraphs[0] ?? "",
+        /Pinar Cloud/,
+        `${content.language}:ai-credits:cost`,
+      );
 
       for (const article of content.articles) {
         if (article.id === "ai-credits" || article.id === "plans-and-billing") continue;

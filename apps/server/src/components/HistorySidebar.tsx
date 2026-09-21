@@ -68,11 +68,11 @@ import FolderOpenIcon from "~icons/lucide/folder-open";
 import FolderPlusIcon from "~icons/lucide/folder-plus";
 import InboxIcon from "~icons/lucide/inbox";
 import LayoutGridIcon from "~icons/lucide/layout-grid";
+import LinkIcon from "~icons/lucide/link-2";
 import MoreVerticalIcon from "~icons/lucide/ellipsis-vertical";
 import PencilIcon from "~icons/lucide/pencil";
 import PlusIcon from "~icons/lucide/plus";
 import ShareIcon from "~icons/lucide/share-2";
-import PaletteIcon from "~icons/lucide/palette";
 import TrashIcon from "~icons/lucide/trash-2";
 
 type ContainerKind = "collection" | "project";
@@ -103,16 +103,18 @@ interface HistorySidebarProps {
   selectedCollectionId: string | null;
   selectedFilterId: string | null;
   selectedProject?: ProjectTreeProject;
+  sharedCount: number;
+  sharedOnly: boolean;
   t: Translate;
   onCreate: (kind: ContainerKind, parentId?: string) => void;
   onDelete: (target: ContainerTarget) => void;
   onDeleteAllFilters: () => void;
   onDeleteFilter: (id: string) => void;
-  onDesignSystem?: (collection: ProjectTreeCollection) => void;
   onRename: (target: RenameTarget) => void;
   onReorderCollections: (items: CollectionPlacement[]) => void;
   onSelectCollection: (collectionId: string | null) => void;
   onSelectFilter: (id: string | null) => void;
+  onSelectShared: () => void;
   onShare: (path: string) => void;
 }
 
@@ -145,7 +147,6 @@ interface SortableCollectionProps {
   t: Translate;
   onCreateChild: (parentId: string) => void;
   onDelete: (target: ContainerTarget) => void;
-  onDesignSystem?: (collection: ProjectTreeCollection) => void;
   onRename: (target: RenameTarget) => void;
   onSelect: (collectionId: string) => void;
   onShare: (path: string) => void;
@@ -159,7 +160,6 @@ interface CollectionMenuProps {
   onActionFocusChange: (focused: boolean) => void;
   onCreate: () => void;
   onDelete: (target: ContainerTarget) => void;
-  onDesignSystem?: (collection: ProjectTreeCollection) => void;
   onMenuOpenChange: (open: boolean) => void;
   onRename: (target: RenameTarget) => void;
   onShare: (path: string) => void;
@@ -172,7 +172,6 @@ function CollectionMenu({
   onActionFocusChange,
   onCreate,
   onDelete,
-  onDesignSystem,
   onMenuOpenChange,
   onRename,
   onShare,
@@ -221,12 +220,6 @@ function CollectionMenu({
               {t("dashboard.share")}
             </DropdownMenuItem>
           )}
-          {onDesignSystem ? (
-            <DropdownMenuItem onClick={() => onDesignSystem(collection)}>
-              <PaletteIcon />
-              {t("dashboard.designSystem")}
-            </DropdownMenuItem>
-          ) : null}
           {!collection.isProtected && (
             <>
               <DropdownMenuSeparator />
@@ -256,7 +249,6 @@ function SortableCollection({
   t,
   onCreateChild,
   onDelete,
-  onDesignSystem,
   onRename,
   onSelect,
   onShare,
@@ -359,7 +351,6 @@ function SortableCollection({
         onActionFocusChange={setMenuActionFocused}
         onCreate={() => onCreateChild(collection.id)}
         onDelete={onDelete}
-        onDesignSystem={onDesignSystem}
         onMenuOpenChange={setMenuOpen}
         onRename={onRename}
         onShare={onShare}
@@ -374,7 +365,6 @@ interface FixedCollectionProps {
   t: Translate;
   onCreate: () => void;
   onDelete: (target: ContainerTarget) => void;
-  onDesignSystem?: (collection: ProjectTreeCollection) => void;
   onRename: (target: RenameTarget) => void;
   onSelect: (collectionId: string) => void;
   onShare: (path: string) => void;
@@ -386,7 +376,6 @@ function FixedCollection({
   t,
   onCreate,
   onDelete,
-  onDesignSystem,
   onRename,
   onSelect,
   onShare,
@@ -428,7 +417,6 @@ function FixedCollection({
         onActionFocusChange={setMenuActionFocused}
         onCreate={onCreate}
         onDelete={onDelete}
-        onDesignSystem={onDesignSystem}
         onMenuOpenChange={setMenuOpen}
         onRename={onRename}
         onShare={onShare}
@@ -653,13 +641,15 @@ export function HistorySidebar({
   selectedCollectionId,
   selectedFilterId,
   selectedProject,
+  sharedCount,
+  sharedOnly,
   t,
   onCreate,
   onDelete,
-  onDesignSystem,
   onRename,
   onReorderCollections,
   onSelectCollection,
+  onSelectShared,
   onShare,
 }: HistorySidebarProps) {
   const { setOpenMobile } = useSidebar();
@@ -721,6 +711,11 @@ export function HistorySidebar({
 
   function selectCollection(collectionId: string | null) {
     onSelectCollection(collectionId);
+    closeMobile();
+  }
+
+  function selectShared() {
+    onSelectShared();
     closeMobile();
   }
 
@@ -799,7 +794,7 @@ export function HistorySidebar({
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  isActive={selectedCollectionId === null && selectedFilterId === null}
+                  isActive={selectedCollectionId === null && selectedFilterId === null && !sharedOnly}
                   tooltip={t("dashboard.allSessions")}
                   onClick={() => selectCollection(null)}
                 >
@@ -816,12 +811,24 @@ export function HistorySidebar({
                   t={t}
                   onCreate={() => create("collection")}
                   onDelete={deleteContainer}
-                  onDesignSystem={onDesignSystem}
                   onRename={rename}
                   onSelect={selectCollection}
                   onShare={onShare}
                 />
               ))}
+              {pinarRuntime() === "cloud" ? (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    isActive={sharedOnly}
+                    tooltip={t("dashboard.shared")}
+                    onClick={selectShared}
+                  >
+                    <LinkIcon />
+                    <span>{t("dashboard.shared")}</span>
+                  </SidebarMenuButton>
+                  <SidebarMenuBadge>{sharedCount}</SidebarMenuBadge>
+                </SidebarMenuItem>
+              ) : null}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -859,7 +866,6 @@ export function HistorySidebar({
                     t={t}
                     onCreateChild={(parentId) => create("collection", parentId)}
                     onDelete={deleteContainer}
-                    onDesignSystem={onDesignSystem}
                     onRename={rename}
                     onSelect={selectCollection}
                     onShare={onShare}

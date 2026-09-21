@@ -5,8 +5,6 @@ import { isPublicPricing, pricingForCountry, type PricingConfig } from "./pricin
 const PRICING_CONFIG: PricingConfig = {
   aiCredits1000BrlCents: 990,
   aiCredits1000UsdCents: 299,
-  monthlyBrlCents: 490,
-  monthlyUsdCents: 299,
   storage20Gb12MBrlCents: 2_990,
   storage20Gb12MUsdCents: 799,
   storage5Gb12MBrlCents: 990,
@@ -24,7 +22,6 @@ describe("regional pricing", () => {
     assert.deepEqual(pricing.prices, {
       aiCredits1000: { amount: 990, originalAmount: null },
       free: { amount: 0, originalAmount: null },
-      month: { amount: 490, originalAmount: null },
       storage20Gb12M: { amount: 2_990, originalAmount: null },
       storage5Gb12M: { amount: 990, originalAmount: null },
       year: { amount: 3_990, originalAmount: null },
@@ -38,7 +35,6 @@ describe("regional pricing", () => {
     assert.deepEqual(pricing.prices, {
       aiCredits1000: { amount: 299, originalAmount: null },
       free: { amount: 0, originalAmount: null },
-      month: { amount: 299, originalAmount: null },
       storage20Gb12M: { amount: 799, originalAmount: null },
       storage5Gb12M: { amount: 299, originalAmount: null },
       year: { amount: 1_900, originalAmount: null },
@@ -65,7 +61,7 @@ describe("regional pricing", () => {
     assert.equal(isPublicPricing({ ...pricing, regional: "yes" }), false);
     assert.equal(isPublicPricing({
       ...pricing,
-      prices: { ...pricing.prices, month: { amount: -1, originalAmount: null } },
+      prices: { ...pricing.prices, aiCredits1000: { amount: -1, originalAmount: null } },
     }), false);
     assert.equal(isPublicPricing({
       ...pricing,

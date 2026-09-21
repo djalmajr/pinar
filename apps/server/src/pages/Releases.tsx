@@ -245,7 +245,7 @@ function ReleaseDetailPageContent({ version }: { version: string }) {
                 </span>
                 {previousRelease ? (
                   <Link
-                    className="font-semibold text-primary underline-offset-4 hover:underline"
+                    className="text-sm font-semibold text-primary underline-offset-4 hover:underline"
                     params={{ version: previousRelease.tag.slice(1) }}
                     preload="intent"
                     to="/releases/$version"
@@ -264,7 +264,7 @@ function ReleaseDetailPageContent({ version }: { version: string }) {
                 </span>
                 {nextRelease ? (
                   <Link
-                    className="font-semibold text-primary underline-offset-4 hover:underline"
+                    className="text-sm font-semibold text-primary underline-offset-4 hover:underline"
                     params={{ version: nextRelease.tag.slice(1) }}
                     preload="intent"
                     to="/releases/$version"

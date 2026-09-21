@@ -5,6 +5,7 @@ import {
   canManageCloudShare,
   fetchActiveShare,
   isActiveShareToken,
+  markSharedSessions,
   publishShare,
   revokeShare,
   shareMarkdownPath,
@@ -25,6 +26,101 @@ async function withFetch<T>(
 }
 
 describe("share link helpers", () => {
+  test("marks sessions shared directly or through their project, collection, or batch", () => {
+    const project = {
+      collections: [{
+        createdAt: "2026-09-21T00:00:00.000Z",
+        id: "collection_1",
+        isProtected: false,
+        name: "Collection",
+        ownerId: "owner_1",
+        parentId: null,
+        position: 0,
+        projectId: "project_1",
+        sessions: ["direct", "collection", "project", "batch", "private"].map((id) => ({
+          batchId: id === "batch" ? "batch_1" : null,
+          createdAt: "2026-09-21T00:00:00.000Z",
+          id,
+          page: { title: id, url: `https://example.test/${id}` },
+          pins: [],
+        })),
+        updatedAt: "2026-09-21T00:00:00.000Z",
+      }],
+      createdAt: "2026-09-21T00:00:00.000Z",
+      icon: "folder",
+      id: "project_1",
+      isProtected: false,
+      name: "Project",
+      ownerId: "owner_1",
+      position: 0,
+      updatedAt: "2026-09-21T00:00:00.000Z",
+    };
+    const token = (resourceType: string, resourceId: string) => ({
+      resourceId,
+      resourceType,
+      status: "active",
+      token: `sh_${resourceType}_${resourceId}`,
+    });
+
+    const direct = markSharedSessions([project], [token("session", "direct")]);
+    assert.deepEqual(direct[0]?.collections[0]?.sessions.map(({ id, isShared }) => [id, Boolean(isShared)]), [
+      ["direct", true],
+      ["collection", false],
+      ["project", false],
+      ["batch", false],
+      ["private", false],
+    ]);
+
+    for (const [resourceType, resourceId, expected] of [
+      ["collection", "collection_1", [true, true, true, true, true]],
+      ["project", "project_1", [true, true, true, true, true]],
+      ["batch", "batch_1", [false, false, false, true, false]],
+    ] as const) {
+      const marked = markSharedSessions([project], [token(resourceType, resourceId)]);
+      assert.deepEqual(
+        marked[0]?.collections[0]?.sessions.map(({ isShared }) => Boolean(isShared)),
+        expected,
+      );
+    }
+  });
+
+  test("ignores revoked, expired, malformed, and unrelated share tokens", () => {
+    const project = {
+      collections: [{
+        createdAt: "2026-09-21T00:00:00.000Z",
+        id: "collection_1",
+        isProtected: false,
+        name: "Collection",
+        ownerId: "owner_1",
+        parentId: null,
+        position: 0,
+        projectId: "project_1",
+        sessions: [{
+          createdAt: "2026-09-21T00:00:00.000Z",
+          id: "session_1",
+          page: { title: "Session", url: "https://example.test" },
+          pins: [],
+        }],
+        updatedAt: "2026-09-21T00:00:00.000Z",
+      }],
+      createdAt: "2026-09-21T00:00:00.000Z",
+      icon: "folder",
+      id: "project_1",
+      isProtected: false,
+      name: "Project",
+      ownerId: "owner_1",
+      position: 0,
+      updatedAt: "2026-09-21T00:00:00.000Z",
+    };
+    const marked = markSharedSessions([project], [
+      { resourceId: "session_1", resourceType: "session", status: "revoked", token: "sh_revoked" },
+      { expiresAt: "2026-09-20T00:00:00.000Z", resourceId: "session_1", resourceType: "session", status: "active", token: "sh_expired" },
+      { resourceId: "session_1", resourceType: "unknown", status: "active", token: "sh_unknown" },
+      null,
+    ], Date.parse("2026-09-21T00:00:00.000Z"));
+    assert.equal(marked[0]?.collections[0]?.sessions[0]?.isShared, false);
+  });
+
   test("buildShareUrl writes the canonical tokenized markdown URL", () => {
     assert.equal(
       buildShareUrl("sess_1", "sh_abc", "https://pinar.dev"),

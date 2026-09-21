@@ -54,14 +54,14 @@ import {
 } from "@/components/HistorySidebar";
 import { ProjectIconPicker } from "@/components/ProjectIcon";
 import { AppAccountMenu } from "@/components/AppAccountMenu";
-import { CollectionDesignSystemDialog } from "@/components/CollectionDesignSystemDialog";
 import { AppShell } from "@/components/AppShell";
 import { isProjectTreeProject, isRecord } from "@/lib/api-data";
 import { collectionAncestorPath } from "@/lib/collection-tree";
-import { isPaidAuthSession, useAuthSession } from "@/lib/auth-session";
 import { useServerI18n } from "@/lib/i18n";
-import { pinarRuntime } from "@/lib/server-header";
 import { flattenCollectionSessions } from "@/lib/session-listing";
+import { sessionGroupCount } from "@/lib/session-groups";
+import { markSharedSessions } from "@/lib/share-links";
+import { pinarRuntime } from "@/lib/server-header";
 import { reorderIds, type OrderDirection } from "@/lib/session-order";
 import {
   WORKSPACE_TREE_POLL_MS,
@@ -110,6 +110,7 @@ interface WorkspaceChromeContextValue {
   selectedCollectionId: string | null;
   selectedProject: ProjectTreeProject | undefined;
   selectedProjectIndex: number;
+  sharedOnly: boolean;
   sessions: Session[];
   setProjectTree: Dispatch<SetStateAction<ProjectTree>>;
   setSelectedCollectionId: (id: string | null) => void;
@@ -188,9 +189,6 @@ export function WorkspaceChrome({
   const { t } = useServerI18n();
   const [containerDelete, setContainerDelete] = useState<ContainerDelete | null>(null);
   const [containerEditor, setContainerEditor] = useState<ContainerEditor | null>(null);
-  const [designSystemTarget, setDesignSystemTarget] = useState<{ id: string; name: string } | null>(null);
-  const authSession = useAuthSession();
-  const showDesignSystem = pinarRuntime() === "local" || isPaidAuthSession(authSession);
   const [containerName, setContainerName] = useState("");
   const [loading, setLoading] = useState(true);
   const [projectIcon, setProjectIcon] = useState<ProjectIcon>(DEFAULT_PROJECT_ICON);
@@ -202,6 +200,7 @@ export function WorkspaceChrome({
   const [filterDeleteId, setFilterDeleteId] = useState<string | null>(null);
   const [selectedBatchId, setSelectedBatchIdState] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [sharedOnly, setSharedOnly] = useState(false);
   const fingerprintRef = useRef("");
   const generationRef = useRef(0);
   const mutatingRef = useRef(0);
@@ -225,6 +224,7 @@ export function WorkspaceChrome({
   const setSelectedCollectionId = useCallback((id: string | null) => {
     setSelectedCollectionIdState(id);
     setSelectedBatchIdState(null);
+    setSharedOnly(false);
     writeStoredCollectionId(id);
     if (navigateOnCollectionSelect) void navigate({ search: { session: undefined }, to: "/app" });
   }, [navigate, navigateOnCollectionSelect]);
@@ -233,6 +233,15 @@ export function WorkspaceChrome({
     setSelectedBatchIdState(id);
     if (id === null) return;
     setSelectedCollectionIdState(null);
+    setSharedOnly(false);
+    writeStoredCollectionId(null);
+    if (navigateOnCollectionSelect) void navigate({ search: { session: undefined }, to: "/app" });
+  }, [navigate, navigateOnCollectionSelect]);
+
+  const selectSharedSessions = useCallback(() => {
+    setSharedOnly(true);
+    setSelectedCollectionIdState(null);
+    setSelectedBatchIdState(null);
     writeStoredCollectionId(null);
     if (navigateOnCollectionSelect) void navigate({ search: { session: undefined }, to: "/app" });
   }, [navigate, navigateOnCollectionSelect]);
@@ -282,15 +291,25 @@ export function WorkspaceChrome({
     }
     const generation = ++generationRef.current;
     try {
-      const [response, batchesResponse] = await Promise.all([
+      const [response, batchesResponse, sharesResponse] = await Promise.all([
         fetch("/api/project-tree", { cache: "no-store" }),
         fetch("/api/batches", { cache: "no-store" }).catch(() => null),
+        pinarRuntime() === "cloud"
+          ? fetch("/api/shares", { cache: "no-store" }).catch(() => null)
+          : Promise.resolve(null),
       ]);
       const data: unknown = await response.json();
       if (generation !== generationRef.current) return;
       if (!response.ok || !isRecord(data) || !isRecord(data.tree) || !Array.isArray(data.tree.projects)) return;
+      let projects = data.tree.projects.filter(isProjectTreeProject);
+      if (sharesResponse?.ok) {
+        const sharesData: unknown = await sharesResponse.json();
+        if (isRecord(sharesData) && Array.isArray(sharesData.tokens)) {
+          projects = markSharedSessions(projects, sharesData.tokens);
+        }
+      }
       applyProjects(
-        data.tree.projects.filter(isProjectTreeProject),
+        projects,
         preferredProjectId || selectedProjectIdRef.current,
       );
       if (!batchesResponse?.ok) return;
@@ -532,13 +551,15 @@ export function WorkspaceChrome({
   }
 
   const selectedBatch = batches.find((batch) => batch.id === selectedBatchId);
-  const workspaceCrumbs = selectedBatch
-    ? [{ id: null, name: selectedBatch.label }]
-    : workspaceCrumbsFor(
-      selectedProject?.collections ?? [],
-      selectedCollection,
-      t("dashboard.allSessions"),
-    );
+  const workspaceCrumbs = sharedOnly
+    ? [{ id: null, name: t("dashboard.shared") }]
+    : selectedBatch
+      ? [{ id: null, name: selectedBatch.label }]
+      : workspaceCrumbsFor(
+        selectedProject?.collections ?? [],
+        selectedCollection,
+        t("dashboard.allSessions"),
+      );
 
   const contextValue = useMemo<WorkspaceChromeContextValue>(() => ({
     fetchTree,
@@ -551,6 +572,7 @@ export function WorkspaceChrome({
     selectedCollectionId,
     selectedProject,
     selectedProjectIndex,
+    sharedOnly,
     sessions,
     setProjectTree: setProjectTreeAndLock,
     setSelectedCollectionId,
@@ -565,6 +587,7 @@ export function WorkspaceChrome({
     selectedCollectionId,
     selectedProject,
     selectedProjectIndex,
+    sharedOnly,
     sessions,
     setProjectTreeAndLock,
     setSelectedCollectionId,
@@ -609,6 +632,7 @@ export function WorkspaceChrome({
               localStorage.setItem(SELECTED_PROJECT_KEY, projectId);
               setSelectedCollectionIdState(null);
               setSelectedBatchIdState(null);
+              setSharedOnly(false);
               writeStoredCollectionId(null);
               if (navigateOnCollectionSelect) void navigate({ search: { session: undefined }, to: "/app" });
             }}
@@ -625,6 +649,10 @@ export function WorkspaceChrome({
             selectedCollectionId={selectedCollectionId}
             selectedFilterId={selectedBatchId}
             selectedProject={selectedProject}
+            sharedCount={sessionGroupCount(
+              flattenCollectionSessions(selectedProject?.collections).filter((session) => session.isShared),
+            )}
+            sharedOnly={sharedOnly}
             t={t}
             onCreate={(kind, parentId) => openContainerEditor({ kind, mode: "create", parentId })}
             onDelete={setContainerDelete}
@@ -634,9 +662,9 @@ export function WorkspaceChrome({
             onDeleteFilter={setFilterDeleteId}
             onRename={({ id, kind, name }) => openContainerEditor({ id, kind, mode: "rename" }, name)}
             onReorderCollections={(items) => void reorderCollections(items)}
-            onDesignSystem={showDesignSystem ? (collection) => setDesignSystemTarget({ id: collection.id, name: collection.name }) : undefined}
             onSelectCollection={setSelectedCollectionId}
             onSelectFilter={setSelectedBatchId}
+            onSelectShared={selectSharedSessions}
             onShare={(path) => void copyShare(path)}
           />
         )}
@@ -644,15 +672,6 @@ export function WorkspaceChrome({
         onSelectWorkspace={setSelectedCollectionId}
       >
         {children}
-        {designSystemTarget ? (
-          <CollectionDesignSystemDialog
-            collectionId={designSystemTarget.id}
-            collectionName={designSystemTarget.name}
-            open
-            showAi={showDesignSystem}
-            onOpenChange={(open) => !open && setDesignSystemTarget(null)}
-          />
-        ) : null}
         <Dialog open={Boolean(containerEditor)} onOpenChange={(open) => !open && setContainerEditor(null)}>
           <DialogContent className={containerEditor?.kind === "project" ? "sm:max-w-lg" : undefined}>
             <form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); void submitContainerEditor(); }}>

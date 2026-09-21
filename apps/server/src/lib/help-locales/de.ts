@@ -13,6 +13,7 @@ const locale = {
     categoryArticles: "Artikel",
     categoryNotFound: "Kategorie nicht gefunden",
     categoryNotFoundDescription: "Diese Kategorie existiert nicht.",
+    clearSearch: "Suche löschen",
     explore: "Entdecken",
     help: "Hilfe",
     helpCategories: "Hilfe-Kategorien",
@@ -94,8 +95,8 @@ const locale = {
         "Tab ersetzt die Aufnahmeleiste durch die Sitzungsprüfung, in der Pins vor dem Abschließen oder Verwerfen bearbeitet und entfernt werden können.",
     },
     "capture-review": {
-      alt: "Seite mit Element-Pins, die für Prüfung und KI-Funktionen von Pinar bereit sind.",
-      caption: "Element-Pins bewahren die erfasste Struktur für Diagnose, Komponentengenerierung und Design-System-Extraktion.",
+      alt: "Seite mit Element-Pins, die mit erfasster Struktur und technischen Belegen zur Prüfung bereit sind.",
+      caption: "Element-Pins bewahren die erfasste Struktur und technischen Belege, die den Kommentar bei der Übergabe an den Agenten begleiten.",
     },
     "capture-copy-failed": {
       alt: "Pinar meldet, dass die Sitzung nicht abgeschlossen werden konnte, und hält die Pins zur Prüfung und Wiederholung bereit.",
@@ -323,7 +324,7 @@ const locale = {
         {
           heading: "Cloud",
           paragraphs: [
-            "Der Cloud-Modus ermöglicht Remote-Zugriff auf den Workspace, verwaltete Aufbewahrung, Zusammenfassungen mit Pinar Cloud AI, Abrechnung und unlisted Freigabelinks. Lokale KI und BYOK bleiben ohne Pinar-Cloud-Credits verfügbar. Du akzeptierst die aktuellen Richtlinien, bevor etwas remote gespeichert wird.",
+            "Der Cloud-Modus ermöglicht Remote-Zugriff auf den Workspace, verwaltete Aufbewahrung, Sprachtranskription und Reproduktionsgenerierung mit Pinar Cloud, Abrechnung und unlisted Freigabelinks. Lokale KI und BYOK bleiben ohne Pinar-Cloud-Credits verfügbar. Du akzeptierst die aktuellen Richtlinien, bevor etwas remote gespeichert wird.",
           ],
         },
         {
@@ -444,7 +445,7 @@ const locale = {
             "„Technische Belege“ listet Fakten auf, die die Erweiterung während des Pinnens auf der Seite beobachtet hat: Konsolenfehler, fehlgeschlagene Anfragen und die Umgebung (Browser, Viewport, Sprache). Jeder Eintrag ist als „Nach Interaktion“ eingestuft, wenn er nach deinem letzten Klick oder Tastendruck aufgetreten ist, oder als „Gleiche Seite“, wenn er nur dieselbe Seite teilt. Nichts wird abgeleitet und kein KI-Credit verbraucht; entferne einen Eintrag vor dem Teilen, wenn er nichts damit zu tun hat.",
           ],
           bullets: [
-            "Bereichs-Pins haben keine Struktur, daher bleiben „Diagnostizieren“ und „Als Komponente speichern“ bei ihnen deaktiviert.",
+            "Bereichs-Pins haben keine Struktur; verwende einen Element-Pin, wenn der Agent DOM-Kontext und robuste Locator benötigt.",
             "Struktur und Belege reisen im pinar-visual-context-JSON-Block mit, sodass ein Agent sie mit dem Einfügen erhält.",
           ],
         },
@@ -593,17 +594,6 @@ const locale = {
             "Wenn nichts eingefügt wurde, bitte um `Command+Enter` / `Alt+Enter` in Pinar und folge nur den Pin-Notizen.",
           ],
         },
-        {
-          heading: "Einen Pin diagnostizieren und als Komponente speichern",
-          paragraphs: [
-            "Bei einem Pin mit erfasster Struktur fragt „Diagnostizieren“ die KI nach der wahrscheinlichen Ursache dessen, was du kommentiert hast, und nach einem CSS-Korrekturvorschlag, mit einer Konfidenzstufe. Akzeptiere, bearbeite oder verwirf den Vorschlag; nur eine akzeptierte Diagnose bleibt beim Pin und wird mit dem Bundle kopiert. Mit Pinar Cloud AI kostet eine Diagnose 3 Credits.",
-            "„Als Komponente speichern“ verwandelt das erfasste Element in eine isolierte Komponente für deinen Stack: HTML + CSS, React + Tailwind oder Preact + htm. Das Ergebnis listet Dateien, Abhängigkeiten und Hinweise zur Genauigkeit auf, mit einer Vorschau neben dem Original-Screenshot. Kopiere die Dateien, lade ein ZIP herunter oder öffne die Komponente in StackBlitz. Mit Pinar Cloud AI kostet das 10 Credits, und der gewählte Stack wird für den nächsten Pin gemerkt.",
-          ],
-          bullets: [
-            "Beide Aktionen benötigen die Elementstruktur; Bereichs-Pins und Pins, die vor dieser Version erfasst wurden, können sie nicht nutzen.",
-            "Eine Diagnose mit niedriger Konfidenz ist eine zu prüfende Hypothese, keine Schlussfolgerung, die du als Tatsache einfügst.",
-          ],
-        },
       ],
     },
     "handoff-formats": {
@@ -640,38 +630,30 @@ const locale = {
     },
     "ai-features": {
       title: "KI-Funktionen und ihre Tests",
-      summary: "Alle KI-Funktionen, Voraussetzungen und Testabläufe für lokale KI, BYOK oder Pinar Cloud an einem Ort.",
+      summary: "Teste Sprachtranskription und verwandle einen aufgezeichneten Browserablauf in knappe, ausformulierte Reproduktionsschritte.",
       sections: [
         {
-          heading: "Zuerst den Anbieter wählen",
+          heading: "Anbieter für die Reproduktion wählen",
           paragraphs: [
-            "Öffne auf dem lokalen Server Einstellungen → KI-Assistent, wähle Lokale KI oder BYOK, trage den OpenAI-kompatiblen Endpunkt und das Modell ein und nutze Testen und speichern. Lokale KI und BYOK verbrauchen keine Pinar-Guthaben. In Pinar Cloud steht KI berechtigten angemeldeten Konten zur Verfügung; das Fragezeichen neben einer Aktion zeigt den aktuellen Verbrauch von Pinar-Cloud-Guthaben.",
+            "Öffne auf dem lokalen Server Einstellungen → KI-Assistent, wähle Lokale KI oder BYOK, trage den OpenAI-kompatiblen Endpunkt und das Modell ein und nutze Testen und speichern. Lokale KI und BYOK verbrauchen keine Pinar-Guthaben. In Pinar Cloud steht die Reproduktion berechtigten angemeldeten Konten zur Verfügung, ohne KI-Guthaben abzuziehen.",
           ],
         },
         {
-          heading: "Sitzungszusammenfassung",
+          heading: "Sprachkommentar transkribieren",
           paragraphs: [
-            "Öffne eine gespeicherte Sitzung über die Screenshot-Miniatur. Wähle im Kopf des Viewers Anmerkungen zusammenfassen. Das Ergebnis verwendet Seitentitel, URL und Pin-Kommentare.",
+            "Verbinde die Erweiterung mit einem Pinar-Cloud-Pro-Konto, beginne einen Pin-Kommentar und wähle das Mikrofon. Nimm bis zu 120 Sekunden auf, stoppe zum Einfügen der Transkription oder sende sie direkt. Der Leitfaden Sprachtranskription und Pinar-Cloud-KI-Credits erklärt die aktuellen Kostenstufen und Erstattungen.",
           ],
         },
         {
-          heading: "Pin-Diagnose und Komponentengenerierung",
+          heading: "Ausformulierte Reproduktionsschritte erzeugen",
           paragraphs: [
-            "Erstelle einen neuen Element-Pin, beende die Sitzung, öffne die Miniatur und wähle den Pin im Viewer. Der Dialog zeigt Diagnostizieren und Als Komponente speichern mit HTML, React mit Tailwind oder Preact mit HTM.",
-            "Beide Funktionen benötigen einen Element-Pin mit erfasster Struktur. Bereichs-Pins und ältere Pins ohne Struktur zeigen die Voraussetzung; erstelle zum Testen einen frischen Element-Pin mit der aktuellen Erweiterung.",
+            "Öffne die Erfassungsleiste und drücke `G`, um aufzuzeichnen. Benutze die Seite, öffne Pinar erneut, setze einen Pin und schließe unter macOS mit `Command+Enter` oder unter Windows und Linux mit `Alt+Enter` ab. Die Erweiterung erfasst Navigation, Klicks, Eingaben, Tasten und relevante Scrollbewegungen; sensible Werte bleiben verborgen.",
+            "Öffne die gespeicherte Sitzung. Reproduktion zeigt die rohe Zeitleiste, die du vor Ausformulierte Schritte erzeugen bearbeiten kannst. Die KI erstellt daraus und aus den Pin-Kommentaren knappe Anweisungen, speichert sie mit der Sitzung und fügt sie der Übergabe an deinen lokalen Agenten hinzu.",
           ],
-        },
-        {
-          heading: "Automatisierte Reproduktion",
-          paragraphs: [
-            "Öffne die Erfassungsleiste und drücke `G`, um aufzuzeichnen. Benutze die Seite, öffne Pinar erneut, setze einen Pin und schließe unter macOS mit `Command+Enter` oder unter Windows und Linux mit `Alt+Enter` ab. In der gespeicherten Sitzung zeigt Reproduktion die Aktionen; Schritte und Test generieren erstellt Schritte und einen Playwright-Test.",
-          ],
-        },
-        {
-          heading: "Design-System-Extraktion",
-          paragraphs: [
-            "Sende mindestens drei neue Element-Pins von Seiten derselben Website an dieselbe Sammlung und wähle im Sammlungsmenü Design-System extrahieren. Nur Pins mit erfasster Struktur zählen; Screenshots, Bereichs-Pins und ältere Pins ohne Struktur sind ausgeschlossen. Der Dialog zeigt die geeignete Anzahl vor der Extraktion.",
-            "Das Ergebnis gruppiert Farben, Typografie, Abstände, Radien, Schatten und Schriften und lässt sich als W3C-Tokens, CSS-Variablen, Tailwind-Theme oder DESIGN.md exportieren.",
+          bullets: [
+            "Bearbeite oder entferne störende Zeitleistenereignisse vor der Generierung.",
+            "Prüfe die erzeugten Anweisungen vor der Übergabe an deinen lokalen Agenten.",
+            "Überlasse projektspezifische automatisierte Tests dem lokalen Agenten, der Repository und Konventionen im Kontext hat.",
           ],
         },
       ],
@@ -803,13 +785,6 @@ const locale = {
             "Nach einem Fehler beim Speichern des Ziels öffne die Erweiterungsoptionen erneut und bestätige, dass Projekt und Collection einem aktuellen Baumeintrag entsprechen, bevor der nächste Cloud-Capture erfolgt.",
           ],
         },
-        {
-          heading: "Das Design-System einer Collection extrahieren",
-          paragraphs: [
-            "Aus dem Menü einer Collection liest „Design-System extrahieren“ die Struktur der Pins in dieser Collection und leitet die gemeinsamen Tokens ab: Farben, Typografie, Abstände, Radien und Schatten sowie die Identität der Site. Es braucht mindestens drei Pins mit erfasster Struktur von derselben Site. Mit Pinar Cloud AI kostet es 15 Credits.",
-            "Das Ergebnis öffnet sich als Dialog mit der Stichprobengröße und etwaigen Warnungen, etwa verstreuten Werten, die keine Skala bilden. Exportiere es als CSS-Variablen, Tailwind-Theme, W3C-Design-Tokens oder DESIGN.md-Datei, und extrahiere erneut, nachdem du weitere Pins hinzugefügt hast.",
-          ],
-        },
       ],
     },
     "find-manage-share": {
@@ -882,7 +857,7 @@ const locale = {
         {
           heading: "Planstruktur",
           paragraphs: [
-            "Free umfasst dauerhafte lokale Nutzung, 250 MB Cloud-Kontingent und siebentägige Cloud-Aufbewahrung. Pro ist monatlich oder jährlich mit 5 GB und 200 nicht übertragbaren AI-Credits, die monatlich aufgefüllt werden.",
+            "Free umfasst dauerhafte lokale Nutzung, 250 MB Cloud-Kontingent und sieben Tage Cloud-Aufbewahrung. Pro ist jährlich, mit 5 GB und einmalig 500 KI-Credits beim ersten Abonnement des Kontos.",
           ],
         },
         {
@@ -907,40 +882,33 @@ const locale = {
       ],
     },
     "ai-credits": {
-      title: "Pinar Cloud AI-Zusammenfassungen und Credits",
+      title: "Sprachtranskription und Pinar-Cloud-KI-Credits",
       summary:
-        "Erfahre, wann Pinar Cloud Credits reserviert, verbraucht, aufgefüllt oder erstattet werden.",
+        "Erfahre, wie Sprachaufnahmen Pinar Cloud Credits reservieren, verbrauchen, auffüllen oder erstatten.",
       sections: [
         {
-          heading: "Kosten der Zusammenfassung",
+          heading: "Kosten der Sprachtranskription",
           paragraphs: [
-            "In Pinar Cloud reserviert eine Sitzungszusammenfassung 1 AI-Credit vor der Modellinferenz. Bei Erfolg wird die Reservierung verbraucht. Eine fehlgeschlagene oder abgebrochene Inferenz erstattet sie sofort; eine länger als fünf Minuten unerledigte Reservierung wird automatisch erstattet. Zusammenfassungen erlauben 10 Anfragen pro Minute pro Konto und 30 pro Minute pro IP; eine doppelte Anfrage für dieselbe Sitzung wartet, bis die aktive Anfrage fertig ist.",
-          ],
-        },
-        {
-          heading: "Was jede KI-Funktion kostet",
-          paragraphs: [
-            "Jede KI-Funktion von Pinar Cloud reserviert ihre Credits, bevor das Modell läuft, und erstattet sie, wenn das Ergebnis unbrauchbar ist, genau wie die Zusammenfassung. Die Kosten sind pro Anfrage fest, nicht pro Token: eine Sitzungszusammenfassung kostet 1 Credit, eine Pin-Diagnose 3, eine Reproduktion (ausformulierte Schritte plus Playwright-Test) 5, das Speichern eines Pins als Komponente 10 und das Extrahieren des Design-Systems einer Sammlung 15.",
-            "Technische Belege und die Elementstruktur erfasst die Erweiterung ohne Modell und kostenlos. Eine Anfrage, die nicht laufen kann (ein Pin ohne erfasste Struktur, eine Sammlung mit weniger als drei Snapshots derselben Domain), wird abgelehnt, bevor ein Credit reserviert wird.",
+            "Die Sprachtranskription von Pinar Cloud ist die einzige Pinar-Funktion, die KI-Credits verbraucht. Eine Aufnahme bis 60 Sekunden reserviert 1 Credit; 61 bis 120 Sekunden reservieren 2. Bei Erfolg wird die Reservierung verbraucht. Eine fehlgeschlagene Transkription erstattet sie; eine länger als fünf Minuten unerledigte Reservierung wird automatisch erstattet.",
+            "Das Aufzeichnen einer Reproduktionszeitleiste und das Erzeugen ihrer ausformulierten Schritte zieht keine KI-Credits ab. Lokale KI und BYOK nutzen ebenfalls nie das Pinar-Cloud-Guthaben.",
           ],
         },
         {
           heading: "Guthaben",
           paragraphs: [
-            "Gekaufte Pinar Cloud Pakete fügen 1.000 Credits hinzu. Die monatliche 200-Credit-Zuteilung von Pro wird nicht übertragen. Das Kontomenü zeigt das aktive Guthaben und das nächste zutreffende Auffülldatum.",
+            "Das erste Pro-Abonnement des Kontos gewährt einmalig 500 Credits. Verlängerung, Reaktivierung oder Planwechsel gewähren sie nicht erneut. Gekaufte Pakete fügen 1.000 Credits für bis zu 12 Monate hinzu.",
           ],
         },
         {
-          heading:
-            "Zusammenfassungen mit einer neuen request id wiederholen und das Ledger lesen",
+          heading: "Sprachtranskription wiederholen und Verlauf prüfen",
           paragraphs: [
-            "Eine Zusammenfassung läuft nur auf einer Sitzung, die dir gehört. Läuft bereits eine, warte, bis sie fertig ist, statt eine weitere zu starten. Fehlgeschlagene oder abgebrochene Zusammenfassungen erstatten die Reservierung, wenn möglich. Ist das Guthaben zu niedrig, zeigt der Workspace die aktuell verbleibenden Credits.",
-            "Enthaltene monatliche Credits werden vor gekauften Paketen verwendet, und das zuerst ablaufende Guthaben kommt zuerst. Ein gekauftes 1.000-Credit-Paket gilt bis zu 12 Monate. Das Kontomenü zeigt verbleibende Credits und das nächste Auffülldatum für aktive Pro-Konten. Zusammenfassungen nutzen die Workspace-Sprache, wenn sie eine der sieben unterstützten Sprachen ist.",
+            "Läuft in Pinar Cloud bereits eine Transkription, warte auf ihren Abschluss, statt die Aufnahme erneut zu senden. Fehlgeschlagene Anfragen erstatten die Reservierung, wenn möglich. Bei zu niedrigem Guthaben behält die Erweiterung den geschriebenen Kommentar und meldet den zusätzlichen Bedarf.",
+            "Das zuerst ablaufende Guthaben wird zuerst verwendet. Das Kontomenü zeigt die verbleibenden Credits; es gibt keine monatliche oder jährliche Auffüllung.",
           ],
           bullets: [
-            "Läuft auf dieser Sitzung bereits eine Zusammenfassung, warte, bis sie fertig ist, statt eine zweite zu starten.",
-            "Läuft eine Reservierung ab oder wird sie erstattet, starte eine neue Zusammenfassung, statt dieselbe Anfrage zu wiederholen.",
-            "Zeigt der Workspace null Credits, prüfe verbleibende Pakete und das nächste Auffülldatum, bevor du ein weiteres 1.000-Credit-Angebot kaufst.",
+            "Läuft bereits eine Transkription, warte auf ihren Abschluss, statt dieselbe Aufnahme erneut zu senden.",
+            "Läuft eine Reservierung ab oder wird sie erstattet, nimm den Sprachkommentar erneut auf oder sende ihn noch einmal.",
+            "Zeigt der Workspace null Credits, prüfe das Restguthaben, bevor du ein weiteres 1.000-Credit-Paket kaufst.",
           ],
         },
       ],
@@ -953,7 +921,7 @@ const locale = {
         {
           heading: "Kontingent und Add-ons",
           paragraphs: [
-            "Free hat 250 MB Basis-Cloud-Speicher; Pro hat 5 GB. Optionale 5-GB- und 20-GB-Speicher-Add-ons gelten 12 Monate, mit Erinnerungs-E-Mails sieben Tage und einen Tag vor Ablauf. Screenshot-Uploads müssen gültige PNG-Dateien sein und eine atomare Kontingentprüfung vor der Speicherung bestehen. Uploads werden pausiert, wenn die resultierenden Bytes das aktuelle Kontingent überschreiten.",
+            "Free hat 250 MB Basis-Cloud-Speicher; Pro hat 5 GB. 5-GB- und 20-GB-Add-ons gelten 12 Monate. Läuft ein Add-on bei einer Nutzung über dem Restkontingent ab, werden neue Uploads bis zur Verlängerung oder Reduzierung pausiert. Bestehende Inhalte werden nicht automatisch gelöscht.",
           ],
         },
         {

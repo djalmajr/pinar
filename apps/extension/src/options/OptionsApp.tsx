@@ -66,6 +66,7 @@ import IconGithub from "~icons/radix-icons/github-logo";
 import IconHeart from "~icons/lucide/heart";
 import IconInbox from "~icons/lucide/inbox";
 import IconLaptop from "~icons/lucide/laptop";
+import IconLoaderCircle from "~icons/lucide/loader-circle";
 import IconLogOut from "~icons/lucide/log-out";
 import IconMail from "~icons/lucide/mail";
 import IconMoon from "~icons/lucide/moon";
@@ -404,6 +405,7 @@ function applyTheme(mode: ThemeMode) {
 export function OptionsApp() {
   const [settings, setSettings] = useState<PinarSettings>(DEFAULT_SETTINGS);
   const [savedSettings, setSavedSettings] = useState<PinarSettings>(DEFAULT_SETTINGS);
+  const [settingsSaving, setSettingsSaving] = useState(false);
   const [lang, setLang] = useState<SupportedLanguage>(DEFAULT_LANGUAGE);
   const [installPlatform, setInstallPlatform] = useState<"mac" | "win" | "other">("mac");
   const [copiedInstall, setCopiedInstall] = useState(false);
@@ -414,16 +416,19 @@ export function OptionsApp() {
   const [destinationError, setDestinationError] = useState("");
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
   const [authReady, setAuthReady] = useState(false);
-  const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState("");
   const [temporaryCode, setTemporaryCode] = useState("");
   const [temporaryCodeExpiresAt, setTemporaryCodeExpiresAt] = useState("");
+  const [temporaryCodeLoading, setTemporaryCodeLoading] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [regenerateCodeOpen, setRegenerateCodeOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [emailCode, setEmailCode] = useState("");
   const [emailCodeRequested, setEmailCodeRequested] = useState(false);
+  const [emailCodeRequestLoading, setEmailCodeRequestLoading] = useState(false);
+  const [emailCodeVerificationLoading, setEmailCodeVerificationLoading] = useState(false);
+  const [logoutLoading, setLogoutLoading] = useState(false);
   const [legalAccepted, setLegalAccepted] = useState(false);
   const [legalBundle, setLegalBundle] = useState<LegalBundle | null>(null);
   const [legalError, setLegalError] = useState(false);
@@ -538,7 +543,6 @@ export function OptionsApp() {
   }
 
   async function loadAuthSession() {
-    setAuthLoading(true);
     setAuthError("");
     try {
       const response = await extensionMessage({ type: "auth:get" }, t.account_unavailable);
@@ -552,7 +556,6 @@ export function OptionsApp() {
         t.legal_acceptance_required,
       ));
     } finally {
-      setAuthLoading(false);
       setAuthReady(true);
     }
   }
@@ -610,52 +613,57 @@ export function OptionsApp() {
   }, [temporaryCode, temporaryCodeExpiresAt]);
 
   async function saveSettings() {
-    if (!hasUnsavedChanges) return;
+    if (!hasUnsavedChanges || settingsSaving) return;
     if (settings.storageMode === "cloud" && explicitLegalConsent && (!legalBundle || !legalAccepted)) {
       toast.error(t.legal_acceptance_required);
       return;
     }
-    if (explicitLegalConsent && typeof chrome !== "undefined" && chrome.storage?.local) {
-      const storage = remoteProfileStorage(chrome.storage.local, settings.cloudUrl);
-      if (legalAccepted && legalBundle && !savedLegalAccepted) {
-        const acceptance = createRemoteLegalAcceptance(legalBundle, settings.language || lang);
-        if (acceptance) await storage.set({ remoteLegalAcceptance: acceptance });
-      } else if (!legalAccepted && savedLegalAccepted) {
-        await storage.remove("remoteLegalAcceptance");
+    setSettingsSaving(true);
+    try {
+      if (explicitLegalConsent && typeof chrome !== "undefined" && chrome.storage?.local) {
+        const storage = remoteProfileStorage(chrome.storage.local, settings.cloudUrl);
+        if (legalAccepted && legalBundle && !savedLegalAccepted) {
+          const acceptance = createRemoteLegalAcceptance(legalBundle, settings.language || lang);
+          if (acceptance) await storage.set({ remoteLegalAcceptance: acceptance });
+        } else if (!legalAccepted && savedLegalAccepted) {
+          await storage.remove("remoteLegalAcceptance");
+        }
       }
+      if (typeof chrome !== "undefined" && chrome.storage?.sync) await chrome.storage.sync.set(settings);
+      const prefs = await extensionMessage({
+        copyOnFinishBatch: settings.copyOnFinishBatch,
+        copyViewerContent: settings.copyViewerContent,
+        handoffMode: settings.handoffMode,
+        includeScreenshot: settings.includeScreenshot,
+        includeViewer: settings.includeViewer,
+        language: settings.language,
+        sensitiveQueryKeys: settings.sensitiveQueryKeys,
+        voicePostProcessing: settings.storageMode === "cloud" && settings.voicePostProcessing,
+        type: "preferences:set",
+      }, "");
+      const saved = prefs.ok && typeof prefs.includeScreenshot === "boolean"
+        ? applyDeliveryResponse(settings, prefs)
+        : settings;
+      if (!areSettingsEqual(saved, settings) && typeof chrome !== "undefined" && chrome.storage?.sync) {
+        await chrome.storage.sync.set({
+          copyOnFinishBatch: saved.copyOnFinishBatch,
+          copyViewerContent: saved.copyViewerContent,
+          handoffMode: saved.handoffMode,
+          includeScreenshot: saved.includeScreenshot,
+          includeViewer: saved.includeViewer,
+          language: saved.language,
+          sensitiveQueryKeys: saved.sensitiveQueryKeys,
+          voicePostProcessing: saved.voicePostProcessing,
+        });
+      }
+      setSavedLegalAccepted(legalAccepted);
+      setSettings(saved);
+      setSavedSettings(saved);
+      toast.success(t.status_saved);
+      await Promise.all([loadCaptureDestination(), loadAuthSession()]);
+    } finally {
+      setSettingsSaving(false);
     }
-    if (typeof chrome !== "undefined" && chrome.storage?.sync) await chrome.storage.sync.set(settings);
-    const prefs = await extensionMessage({
-      copyOnFinishBatch: settings.copyOnFinishBatch,
-      copyViewerContent: settings.copyViewerContent,
-      handoffMode: settings.handoffMode,
-      includeScreenshot: settings.includeScreenshot,
-      includeViewer: settings.includeViewer,
-      language: settings.language,
-      sensitiveQueryKeys: settings.sensitiveQueryKeys,
-      voicePostProcessing: settings.storageMode === "cloud" && settings.voicePostProcessing,
-      type: "preferences:set",
-    }, "");
-    const saved = prefs.ok && typeof prefs.includeScreenshot === "boolean"
-      ? applyDeliveryResponse(settings, prefs)
-      : settings;
-    if (!areSettingsEqual(saved, settings) && typeof chrome !== "undefined" && chrome.storage?.sync) {
-      await chrome.storage.sync.set({
-        copyOnFinishBatch: saved.copyOnFinishBatch,
-        copyViewerContent: saved.copyViewerContent,
-        handoffMode: saved.handoffMode,
-        includeScreenshot: saved.includeScreenshot,
-        includeViewer: saved.includeViewer,
-        language: saved.language,
-        sensitiveQueryKeys: saved.sensitiveQueryKeys,
-        voicePostProcessing: saved.voicePostProcessing,
-      });
-    }
-    setSavedLegalAccepted(legalAccepted);
-    setSettings(saved);
-    setSavedSettings(saved);
-    toast.success(t.status_saved);
-    await Promise.all([loadCaptureDestination(), loadAuthSession()]);
   }
 
   async function saveCaptureDestination(collectionId: string) {
@@ -697,7 +705,7 @@ export function OptionsApp() {
   }
 
   async function generateTemporaryCode() {
-    setAuthLoading(true);
+    setTemporaryCodeLoading(true);
     setAuthError("");
     try {
       const response = await extensionMessage({ type: "auth:extension-code" }, t.account_unavailable);
@@ -710,7 +718,7 @@ export function OptionsApp() {
       setAuthError(cause instanceof Error ? cause.message : String(cause));
       return false;
     } finally {
-      setAuthLoading(false);
+      setTemporaryCodeLoading(false);
     }
   }
 
@@ -732,7 +740,7 @@ export function OptionsApp() {
 
   async function requestEmailCode(event: FormEvent) {
     event.preventDefault();
-    setAuthLoading(true);
+    setEmailCodeRequestLoading(true);
     setAuthError("");
     try {
       const response = await extensionMessage(
@@ -744,13 +752,13 @@ export function OptionsApp() {
     } catch (cause) {
       setAuthError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setAuthLoading(false);
+      setEmailCodeRequestLoading(false);
     }
   }
 
   async function verifyEmailCode(event: FormEvent) {
     event.preventDefault();
-    setAuthLoading(true);
+    setEmailCodeVerificationLoading(true);
     setAuthError("");
     try {
       const response = await extensionMessage(
@@ -765,12 +773,12 @@ export function OptionsApp() {
     } catch (cause) {
       setAuthError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setAuthLoading(false);
+      setEmailCodeVerificationLoading(false);
     }
   }
 
   async function logout() {
-    setAuthLoading(true);
+    setLogoutLoading(true);
     setAuthError("");
     try {
       const response = await extensionMessage({ type: "auth:logout" }, t.account_unavailable);
@@ -782,7 +790,7 @@ export function OptionsApp() {
     } catch (cause) {
       setAuthError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setAuthLoading(false);
+      setLogoutLoading(false);
     }
   }
 
@@ -974,7 +982,7 @@ export function OptionsApp() {
                             {authSession.plan === "pro" ? (
                               <Button size="sm" type="button" variant="outline" onClick={() => void openBilling()}>{t.btn_manage_sub}</Button>
                             ) : null}
-                            <Button size="sm" type="button" variant="outline" onClick={() => void logout()}>
+                            <Button disabled={logoutLoading} size="sm" type="button" variant="outline" onClick={() => void logout()}>
                               <IconLogOut data-icon="inline-start" />
                               {t.btn_sign_out}
                             </Button>
@@ -998,7 +1006,7 @@ export function OptionsApp() {
                               }
                               copiedCode={copiedCode}
                               expired={Boolean(codeCountdown?.expired)}
-                              generating={authLoading && !temporaryCode}
+                              generating={temporaryCodeLoading}
                               hostedSignInHref={hostedSignInUrl(settings.cloudUrl, lang)}
                               t={t}
                               temporaryCode={temporaryCode}
@@ -1014,7 +1022,7 @@ export function OptionsApp() {
                         <AlertDialog open={regenerateCodeOpen} onOpenChange={setRegenerateCodeOpen}>
                           <AlertDialogContent>
                             <AlertDialogHeader><AlertDialogTitle>{t.account_code_regeneration_title}</AlertDialogTitle><AlertDialogDescription>{t.account_code_regeneration_description.replace("{code}", temporaryCode)}</AlertDialogDescription></AlertDialogHeader>
-                            <AlertDialogFooter><AlertDialogCancel>{t.btn_cancel}</AlertDialogCancel><AlertDialogAction disabled={authLoading} onClick={() => void regenerateTemporaryCode()}>{t.btn_invalidate_and_generate}</AlertDialogAction></AlertDialogFooter>
+                            <AlertDialogFooter><AlertDialogCancel>{t.btn_cancel}</AlertDialogCancel><AlertDialogAction disabled={temporaryCodeLoading} onClick={() => void regenerateTemporaryCode()}>{t.btn_invalidate_and_generate}</AlertDialogAction></AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>
                         <section aria-labelledby="account-email-title" className="flex flex-col">
@@ -1022,14 +1030,14 @@ export function OptionsApp() {
                           <p className={SECTION_DESC}>{emailCodeRequested ? t.account_email_sent : t.account_email_description}</p>
                           <div className="flex flex-col gap-2.5">
                           {!emailCodeRequested ? (
-                            <form className="flex gap-2" onSubmit={requestEmailCode}><Input autoComplete="email" placeholder="you@example.com" required type="email" value={email} onChange={(event) => setEmail(event.target.value)} /><Button disabled={authLoading} type="submit" variant="outline"><IconMail data-icon="inline-start" />{t.btn_send_code}</Button></form>
+                            <form className="flex gap-2" onSubmit={requestEmailCode}><Input autoComplete="email" placeholder="you@example.com" required type="email" value={email} onChange={(event) => setEmail(event.target.value)} /><Button aria-busy={emailCodeRequestLoading || undefined} disabled={emailCodeRequestLoading} type="submit" variant="outline">{emailCodeRequestLoading ? <IconLoaderCircle className="animate-spin" data-icon="inline-start" /> : <IconMail data-icon="inline-start" />}{t.btn_send_code}</Button></form>
                           ) : (
                             <form className="space-y-2" onSubmit={verifyEmailCode}>
                               <label className="block text-xs font-semibold" htmlFor="account-email-code">{t.account_email_code_label}</label>
                               <div className="flex gap-2">
                                 <Input autoComplete="one-time-code" id="account-email-code" inputMode="numeric" maxLength={6} pattern="[0-9]{6}" placeholder="000000" required value={emailCode} onChange={(event) => setEmailCode(event.target.value.replace(/\D/g, ""))} />
-                                <Button className="shrink-0" type="button" variant="outline" onClick={() => { setEmailCode(""); setEmailCodeRequested(false); }}>{t.btn_cancel}</Button>
-                                <Button className="shrink-0" disabled={authLoading || emailCode.length !== 6} type="submit">{t.btn_verify_code}</Button>
+                                <Button className="shrink-0" disabled={emailCodeVerificationLoading} type="button" variant="outline" onClick={() => { setEmailCode(""); setEmailCodeRequested(false); }}>{t.btn_cancel}</Button>
+                                <Button aria-busy={emailCodeVerificationLoading || undefined} className="shrink-0" disabled={emailCodeVerificationLoading || emailCode.length !== 6} type="submit">{emailCodeVerificationLoading ? <IconLoaderCircle className="animate-spin" data-icon="inline-start" /> : <IconCheck data-icon="inline-start" />}{t.btn_verify_code}</Button>
                               </div>
                             </form>
                           )}
@@ -1098,7 +1106,7 @@ export function OptionsApp() {
             </Tabs>
 
             <footer className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex gap-2"><Button className="h-8 text-xs" disabled={!hasUnsavedChanges || (settings.storageMode === "cloud" && explicitLegalConsent && (!legalBundle || !legalAccepted))} size="sm" onClick={() => void saveSettings()}><IconSave className="size-3.5" />{t.btn_save}</Button><Button className="h-8 text-xs" size="sm" variant="outline" onClick={() => void openApp()}>{t.btn_open_app}<IconExternalLink data-icon="inline-end" /></Button></div>
+              <div className="flex gap-2"><Button aria-busy={settingsSaving || undefined} className="h-8 text-xs" disabled={settingsSaving || !hasUnsavedChanges || (settings.storageMode === "cloud" && explicitLegalConsent && (!legalBundle || !legalAccepted))} size="sm" onClick={() => void saveSettings()}>{settingsSaving ? <IconLoaderCircle className="size-3.5 animate-spin" /> : <IconSave className="size-3.5" />}{t.btn_save}</Button><Button className="h-8 text-xs" size="sm" variant="outline" onClick={() => void openApp()}>{t.btn_open_app}<IconExternalLink data-icon="inline-end" /></Button></div>
               <div className="flex gap-2"><Button className="h-8 text-xs" render={<a href="https://buymeacoffee.com/djalmajr" rel="noopener noreferrer" target="_blank" />} size="sm" variant="coffee"><IconCoffee />{t.btn_coffee}</Button><Button className="h-8 text-xs" render={<a href="https://github.com/sponsors/djalmajr" rel="noopener noreferrer" target="_blank" />} size="sm" variant="sponsor"><IconHeart className="fill-current" />{t.btn_sponsor}</Button></div>
             </footer>
           </div>

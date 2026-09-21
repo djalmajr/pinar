@@ -467,6 +467,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
     selectedCollection,
     selectedCollectionId,
     selectedProject,
+    sharedOnly,
     sessions,
   } = useWorkspaceChrome();
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -504,19 +505,34 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
 
   const sessionGroups = useMemo(() => groupSessions(sessions), [sessions]);
   const filteredSessions = useMemo(
-    () => filterSessions(sessionGroups, search, pinFilters, reviewFilters)
+    () => filterSessions(sessionGroups, search, pinFilters, reviewFilters, sharedOnly)
       .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()),
-    [pinFilters, reviewFilters, search, sessionGroups],
+    [pinFilters, reviewFilters, search, sessionGroups, sharedOnly],
   );
   const gridSessions = useMemo(() => {
     const start = pagination.pageIndex * pagination.pageSize;
     return filteredSessions.slice(start, start + pagination.pageSize);
   }, [filteredSessions, pagination.pageIndex, pagination.pageSize]);
-  // A carousel contains only the evidence belonging to the opened session.
-  const orderedSessionIds = useMemo(() => {
+  // The preview loads every capture that belongs to the opened continuous
+  // session, while its arrows walk the groups in the current filtered view.
+  // Keeping those lists separate prevents a multi-page session from replacing
+  // navigation across All sessions, Inbox or a collection.
+  const viewerCaptureIds = useMemo(() => {
     return viewerSessionId ? sessionCaptureIds(sessionGroups, viewerSessionId) : [];
   }, [viewerSessionId, sessionGroups]);
+  const viewerNavigationSession = useMemo(() => {
+    if (!viewerSessionId) return undefined;
+    return sessionGroups.find((group) => (
+      group.id === viewerSessionId || group.captures?.some((capture) => capture.id === viewerSessionId)
+    ));
+  }, [viewerSessionId, sessionGroups]);
+  const viewerNavigationId = viewerNavigationSession?.id ?? viewerSessionId;
+  const orderedSessionIds = useMemo(
+    () => filteredSessions.map((session) => session.id),
+    [filteredSessions],
+  );
   const pageCount = Math.max(1, Math.ceil(filteredSessions.length / pagination.pageSize));
+  const hasActiveFilters = Boolean(search.trim() || pinFilters.length || reviewFilters.length || sharedOnly);
   const rowSelection = useMemo(
     () => Object.fromEntries([...selectedIds].map((id) => [id, true])),
     [selectedIds],
@@ -548,7 +564,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
     setPagination((current) => current.pageIndex === 0
       ? current
       : { ...current, pageIndex: 0 });
-  }, [pinFilters, reviewFilters, search, selectedBatchId, selectedCollectionId, selectedProject?.id]);
+  }, [pinFilters, reviewFilters, search, selectedBatchId, selectedCollectionId, selectedProject?.id, sharedOnly]);
 
   useEffect(() => {
     if (pagination.pageIndex < pageCount) return;
@@ -873,8 +889,8 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
             {loading ? <DashboardSkeleton /> : filteredSessions.length === 0 ? (
               <Card className="border-dashed py-16 text-center">
                 <CardHeader>
-                  <CardTitle>{t("dashboard.emptyTitle")}</CardTitle>
-                  <CardDescription>{t("dashboard.emptyDescription")}</CardDescription>
+                  <CardTitle>{t(hasActiveFilters ? "dashboard.filteredEmpty" : "dashboard.emptyTitle")}</CardTitle>
+                  {!hasActiveFilters && <CardDescription>{t("dashboard.emptyDescription")}</CardDescription>}
                 </CardHeader>
               </Card>
             ) : view === "table" ? (
@@ -1006,12 +1022,17 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
       </SidebarInset>
       {viewerSessionId ? (
         <WebViewer
+          captureIds={viewerCaptureIds}
+          initialSession={viewerNavigationSession}
+          navigationId={viewerNavigationId}
           presentation="modal"
           sessionId={viewerSessionId}
           siblingIds={orderedSessionIds}
           onClose={closeViewer}
           onDelete={(id) => { closeViewer(); setDeleteIds(sessionCaptureIds(sessionGroups, id)); }}
           onMove={(id) => { closeViewer(); openMoveDialog(sessionCaptureIds(sessionGroups, id)); }}
+          onNavigate={openViewer}
+          onShareChange={() => fetchTree(selectedProject?.id)}
         />
       ) : null}
       <Dialog open={moveIds.length > 0} onOpenChange={(open) => !open && setMoveIds([])}>

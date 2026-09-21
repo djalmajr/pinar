@@ -97,11 +97,13 @@
   } = globalThis.__pinarKeyboardEvents;
   const captureSnapshot = globalThis.__pinarSnapshot?.captureSnapshot ?? (() => undefined);
   const {
+    MAX_VOICE_SECONDS,
+    appendVoiceWaveLevel,
     boundedVoiceDuration,
     formatVoiceComment,
+    insertVoiceComment,
     preferredVoiceMimeType,
     voiceSignalLevel,
-    voiceWaveHeights,
   } = globalThis.__pinarVoice;
 
   const initialVisible = globalThis.__pinarInitialVisible !== false;
@@ -173,12 +175,17 @@
     overlay_copy_failed: "Copy failed",
     overlay_voice_start: "Speak comment",
     overlay_voice_stop: "Stop recording",
-    overlay_voice_recording: "Listening… {seconds}s of 120s",
+    overlay_voice_recording: "Listening… {seconds}s of {limit}s",
+    overlay_voice_duration: "{seconds}s / {limit}s",
     overlay_voice_processing: "Transcribing and organizing…",
     overlay_voice_transcript: "Transcription",
     overlay_voice_use_transcript: "Use transcription",
     overlay_voice_ready: "Voice comment ready to review",
-    overlay_voice_local_only: "Voice comments require the Pinar cloud server",
+    overlay_voice_local_only: "Voice comments are available with Pinar Cloud on Pro.",
+    overlay_voice_checking: "Checking voice availability…",
+    overlay_voice_sign_in_required: "Sign in to Pinar Cloud to use voice comments.",
+    overlay_voice_pro_required: "Voice comments are included with Pinar Pro. Upgrade to enable them.",
+    overlay_voice_unavailable: "Voice availability could not be checked. Try again.",
     overlay_voice_permission: "Allow microphone access to dictate a comment",
     overlay_voice_failed: "The voice comment could not be processed",
     overlay_voice_network: "Pinar Cloud could not be reached. Check your connection and try again.",
@@ -231,6 +238,19 @@
   };
   let messages = {};
   const t = (key) => messages[key] ?? FALLBACK_MESSAGES[key];
+  const formatVoiceDuration = (seconds) => t("overlay_voice_duration")
+    .replace("{seconds}", String(seconds))
+    .replace("{limit}", String(MAX_VOICE_SECONDS));
+  const formatVoiceRecordingLabel = (seconds) => t("overlay_voice_recording")
+    .replace("{seconds}", String(seconds))
+    .replace("{limit}", String(MAX_VOICE_SECONDS));
+  const VOICE_AVAILABILITY_MESSAGE_KEYS = {
+    checking: "overlay_voice_checking",
+    cloud_required: "overlay_voice_local_only",
+    pro_required: "overlay_voice_pro_required",
+    sign_in_required: "overlay_voice_sign_in_required",
+    unavailable: "overlay_voice_unavailable",
+  };
 
   const host = document.createElement("div");
   host.setAttribute("data-pinar", "host");
@@ -330,10 +350,12 @@
          right behind it, the way capture tools do. Picker, pins and composer
          leave; --progress is 0..1. */
       :host([data-progress]) .marker, :host([data-progress]) .outline, :host([data-progress]) .composer,
-      :host([data-progress]) .preview, :host([data-progress]) .toast { display: none !important; }
+      :host([data-progress]) .preview, :host([data-progress]) .review-panel,
+      :host([data-progress]) .toast { display: none !important; }
       .toolbar::before { background: rgba(15,23,42,.08); content: ""; inset: 0; position: absolute; transform: scaleX(var(--progress, 0)); transform-origin: left center; transition: transform 240ms ease; z-index: 0; }
       .progress-view { gap: 12px; }
       :host([data-progress]) .toolbar, :host([data-confirm]) .toolbar { padding-left: 14px; padding-right: 14px; }
+      :host([data-indeterminate]) .toolbar::before, :host([data-indeterminate]) .progress-pct { display: none; }
       /* Batch finish reuses that confirmation chrome without a fill or a percentage. */
       :host([data-confirm]) .marker, :host([data-confirm]) .outline, :host([data-confirm]) .composer,
       :host([data-confirm]) .preview, :host([data-confirm]) .toast { display: none !important; }
@@ -551,6 +573,7 @@
         gap: 10px;
         min-width: 300px;
         padding: 10px 10px 8px;
+        position: relative;
         width: 340px;
       }
       .composer-target {
@@ -580,35 +603,107 @@
       }
       .composer-actions {
         align-items: center;
+        box-sizing: border-box;
         display: flex;
         gap: 8px;
+        height: 40px;
         justify-content: flex-end;
-        padding: 0;
+        padding: 0 4px;
       }
+      .composer-actions[hidden] { display: none; }
       .composer-tools { display: flex; gap: 4px; margin-right: auto; }
       .composer-actions .icon-btn { display: inline-flex; }
-      .voice-btn.is-recording { background: ${MARK}; color: #fff; }
-      .voice-btn[hidden] { display: none; }
       .voice-btn:disabled { cursor: not-allowed !important; opacity: .45; }
-      .voice-feedback { align-items: center; display: flex; gap: 8px; min-height: 16px; padding: 0 4px; }
+      .voice-control { display: inline-flex; position: relative; }
+      .voice-control:focus { outline: none; }
+      .voice-control:focus-visible { border-radius: 6px; outline: 2px solid ${MARK}; outline-offset: 2px; }
+      .voice-tooltip {
+        background: #111827;
+        border-radius: 6px;
+        bottom: calc(100% + 8px);
+        color: #fff;
+        font: 500 11px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        left: 0;
+        max-width: 240px;
+        opacity: 0;
+        padding: 7px 9px;
+        pointer-events: none;
+        position: absolute;
+        transform: translateY(3px);
+        transition: opacity 120ms ease, transform 120ms ease;
+        visibility: hidden;
+        white-space: normal;
+        width: max-content;
+        z-index: 2;
+      }
+      .voice-tooltip[hidden] { display: none; }
+      .voice-control.has-tooltip:hover .voice-tooltip,
+      .voice-control.has-tooltip:focus .voice-tooltip {
+        opacity: 1;
+        transform: translateY(0);
+        visibility: visible;
+      }
+      .voice-session {
+        align-items: center;
+        background: #F8FAFC;
+        border: 1px solid rgba(15,23,42,.10);
+        border-radius: 8px;
+        box-sizing: border-box;
+        display: flex;
+        gap: 8px;
+        height: 40px;
+        padding: 0 4px;
+        width: 100%;
+      }
+      .voice-session[hidden] { display: none; }
+      .voice-session-button {
+        align-items: center;
+        background: transparent;
+        border: 0;
+        border-radius: 6px;
+        color: #475569;
+        cursor: pointer;
+        display: inline-flex;
+        flex: 0 0 32px;
+        height: 32px;
+        justify-content: center;
+        padding: 0;
+        width: 32px;
+      }
+      .voice-session-button:hover { background: #E2E8F0; }
+      .voice-session-button:disabled { cursor: not-allowed; opacity: .4; }
+      .voice-session-button svg { height: 17px; width: 17px; }
+      .voice-session-send { background: ${MARK}; color: #fff; }
+      .voice-session-send:hover { background: #4F7DE0; }
+      .voice-meter { align-items: center; display: flex; flex: 1 1 auto; gap: 7px; min-width: 0; }
+      .voice-meta { align-items: center; color: #94A3B8; display: inline-flex; flex: 0 0 auto; font: 500 10px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; gap: 3px; }
+      .voice-meta svg { height: 14px; width: 14px; }
+      .voice-feedback {
+        background: #fff;
+        border: 1px solid rgba(15,23,42,.14);
+        border-radius: 6px;
+        box-shadow: 0 8px 20px rgba(15,23,42,.12);
+        left: 0;
+        padding: 8px 10px;
+        position: absolute;
+        right: 0;
+        top: calc(100% + 6px);
+      }
+      .voice-feedback[hidden] { display: none; }
       .voice-status {
         color: #525252;
         font: 500 12px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        min-height: 16px;
       }
       .voice-status:empty { display: none; }
       .voice-status[data-kind="error"] { color: #B91C1C; }
-      .voice-wave { align-items: center; display: inline-flex; gap: 2px; height: 16px; }
-      .voice-wave[hidden], .voice-processing-indicator[hidden] { display: none; }
-      .voice-wave i { background: ${MARK}; border-radius: 2px; display: block; height: var(--voice-bar-height, 3px); opacity: var(--voice-bar-opacity, .45); transition: height 70ms ease-out, opacity 70ms ease-out; width: 2px; }
-      .voice-processing-indicator { align-items: center; display: inline-flex; gap: 3px; height: 16px; }
-      .voice-processing-indicator i { animation: pinar-voice-processing 1s ease-in-out infinite; background: ${MARK}; border-radius: 50%; display: block; height: 5px; opacity: .35; width: 5px; }
-      .voice-processing-indicator i:nth-child(2) { animation-delay: .15s; }
-      .voice-processing-indicator i:nth-child(3) { animation-delay: .3s; }
-      @keyframes pinar-voice-processing { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
+      .voice-wave { align-items: center; display: flex; flex: 1 1 auto; height: 24px; min-width: 0; overflow: hidden; }
+      .voice-wave-track { align-items: center; display: flex; gap: 2px; height: 24px; justify-content: flex-end; min-width: 100%; }
+      .voice-wave i { background: ${MARK}; border-radius: 2px; display: block; flex: 1 1 2px; height: var(--voice-bar-height, 3px); max-width: 3px; min-width: 2px; opacity: var(--voice-bar-opacity, .25); transform-origin: center; transition: height 80ms linear, opacity 80ms linear; }
+      .voice-session.is-processing .voice-wave i { animation: pinar-voice-processing-wave 900ms ease-in-out infinite alternate; animation-delay: calc(var(--voice-bar-index, 0) * -28ms); }
+      @keyframes pinar-voice-processing-wave { from { opacity: .25; } to { opacity: .85; } }
       @media (prefers-reduced-motion: reduce) {
         .voice-wave i { transition: none; }
-        .voice-processing-indicator i { animation: none; opacity: 1; transform: none; }
+        .voice-session.is-processing .voice-wave i { animation: none; opacity: .6; }
       }
       .voice-review {
         background: #F8FAFC;
@@ -620,7 +715,6 @@
       .voice-review[hidden] { display: none; }
       .voice-review strong { color: #334155; display: block; font: 600 11px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin-bottom: 4px; }
       .voice-review p { font: 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; max-height: 72px; overflow: auto; white-space: pre-wrap; }
-      .voice-review button { background: transparent; border: 0; color: ${MARK}; cursor: pointer; font: 600 11px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin-top: 6px; padding: 0; }
       .voice-review button { background: transparent; border: 0; color: ${MARK}; cursor: pointer; font: 600 11px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin-top: 6px; padding: 0; }
       .btn-cancel, .btn-add {
         border: 0;
@@ -708,26 +802,40 @@
           <p data-ref="voiceTranscript"></p>
           <button type="button" data-ref="voiceUseTranscript">${t("overlay_voice_use_transcript")}</button>
         </div>
-        <div class="voice-feedback">
-          <span class="voice-wave" data-ref="voiceWave" aria-hidden="true" hidden><i></i><i></i><i></i><i></i><i></i></span>
-          <span class="voice-processing-indicator" data-ref="voiceProcessingIndicator" aria-hidden="true" hidden><i></i><i></i><i></i></span>
-          <div class="voice-status" data-ref="voiceStatus" role="status" aria-live="polite"></div>
+        <div class="voice-session" data-ref="voiceSession" hidden>
+          <button type="button" class="voice-session-button" data-ref="voiceCancel" title="${t("overlay_cancel")}" aria-label="${t("overlay_cancel")}">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+          <div class="voice-meter">
+            <span class="voice-meta" data-ref="voiceMeta">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z M19 10v2a7 7 0 0 1-14 0v-2 M12 19v3 M8 22h8"/></svg>
+              <span data-ref="voiceElapsed">${formatVoiceDuration(0)}</span>
+            </span>
+            <span class="voice-wave" data-ref="voiceWave" aria-hidden="true"><span class="voice-wave-track" data-ref="voiceWaveTrack">${Array.from({ length: 48 }, (_, index) => `<i style="--voice-bar-index:${index}"></i>`).join("")}</span></span>
+          </div>
+          <button type="button" class="voice-session-button" data-ref="voiceStop" title="${t("overlay_voice_stop")}" aria-label="${t("overlay_voice_stop")}">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" fill="currentColor"/></svg>
+          </button>
+          <button type="button" class="voice-session-button voice-session-send" data-ref="voiceSend" title="${t("overlay_add")}" aria-label="${t("overlay_add")}">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m5 12 7-7 7 7M12 5v14"/></svg>
+          </button>
         </div>
-        <div class="composer-actions">
+        <div class="voice-feedback" data-ref="voiceFeedback" hidden><div class="voice-status" data-ref="voiceStatus" role="status" aria-live="polite"></div></div>
+        <div class="composer-actions" data-ref="composerActions">
           <span class="composer-tools">
             <button type="button" class="icon-btn is-ready" data-ref="deleteDraft" title="Delete" aria-label="Delete">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
                 <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 11v6m-4-6v6M6 7v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7M4 7h16M7 7l2-4h6l2 4"/>
               </svg>
             </button>
-            <button type="button" class="icon-btn is-ready voice-btn" data-ref="voice" title="${t("overlay_voice_start")}" aria-label="${t("overlay_voice_start")}">
-              <svg data-ref="voiceMic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
-                <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z M19 10v2a7 7 0 0 1-14 0v-2 M12 19v3 M8 22h8"/>
-              </svg>
-              <svg data-ref="voiceStop" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" hidden>
-                <rect x="7" y="7" width="10" height="10" rx="1" fill="currentColor" />
-              </svg>
-            </button>
+            <span class="voice-control" data-ref="voiceControl">
+              <button type="button" class="icon-btn is-ready voice-btn" data-ref="voice" title="${t("overlay_voice_start")}" aria-label="${t("overlay_voice_start")}">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
+                  <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z M19 10v2a7 7 0 0 1-14 0v-2 M12 19v3 M8 22h8"/>
+                </svg>
+              </button>
+              <span class="voice-tooltip" data-ref="voiceTooltip" id="pinar-voice-tooltip" role="tooltip" hidden></span>
+            </span>
           </span>
           <button type="button" class="btn-cancel" data-ref="cancel" data-i18n="overlay_cancel">${t("overlay_cancel")}</button>
           <button type="button" class="btn-add" data-ref="save" data-i18n="overlay_add">${t("overlay_add")}</button>
@@ -742,6 +850,7 @@
     reviewList: shadow.querySelector("[data-ref=reviewList]"),
     cancel: shadow.querySelector("[data-ref=cancel]"),
     composer: shadow.querySelector("[data-ref=composer]"),
+    composerActions: shadow.querySelector("[data-ref=composerActions]"),
     deleteDraft: shadow.querySelector("[data-ref=deleteDraft]"),
     input: shadow.querySelector("[data-ref=input]"),
     instructions: shadow.querySelector("[data-ref=instructions]"),
@@ -760,12 +869,19 @@
     progressText: shadow.querySelector("[data-ref=progressText]"),
     progressPct: shadow.querySelector("[data-ref=progressPct]"),
     voice: shadow.querySelector("[data-ref=voice]"),
+    voiceCancel: shadow.querySelector("[data-ref=voiceCancel]"),
+    voiceControl: shadow.querySelector("[data-ref=voiceControl]"),
+    voiceElapsed: shadow.querySelector("[data-ref=voiceElapsed]"),
+    voiceFeedback: shadow.querySelector("[data-ref=voiceFeedback]"),
+    voiceMeta: shadow.querySelector("[data-ref=voiceMeta]"),
     voiceReview: shadow.querySelector("[data-ref=voiceReview]"),
-    voiceMic: shadow.querySelector("[data-ref=voiceMic]"),
+    voiceSend: shadow.querySelector("[data-ref=voiceSend]"),
+    voiceSession: shadow.querySelector("[data-ref=voiceSession]"),
     voiceStop: shadow.querySelector("[data-ref=voiceStop]"),
     voiceWave: shadow.querySelector("[data-ref=voiceWave]"),
-    voiceProcessingIndicator: shadow.querySelector("[data-ref=voiceProcessingIndicator]"),
+    voiceWaveTrack: shadow.querySelector("[data-ref=voiceWaveTrack]"),
     voiceStatus: shadow.querySelector("[data-ref=voiceStatus]"),
+    voiceTooltip: shadow.querySelector("[data-ref=voiceTooltip]"),
     voiceTranscript: shadow.querySelector("[data-ref=voiceTranscript]"),
     voiceTranscriptLabel: shadow.querySelector("[data-ref=voiceTranscriptLabel]"),
     voiceUseTranscript: shadow.querySelector("[data-ref=voiceUseTranscript]"),
@@ -1456,7 +1572,9 @@
   }
 
   function setProgress(label, progress, kind = "info") {
+    host.setAttribute("aria-label", label);
     host.removeAttribute("data-confirm");
+    host.removeAttribute("data-indeterminate");
     host.setAttribute("data-progress", "");
     state.progress = progress;
     if (progress >= 1 && kind !== "info") {
@@ -1469,10 +1587,27 @@
     renderChrome();
   }
 
+  function showPending(label) {
+    cancelAnimationFrame(state.progressRaf);
+    host.setAttribute("aria-label", label);
+    host.removeAttribute("data-confirm");
+    host.setAttribute("data-progress", "");
+    host.setAttribute("data-indeterminate", "");
+    state.progress = 0;
+    state.progressShown = 0;
+    state.progressTweened = null;
+    state.progressFinal = null;
+    state.progressLabel = label;
+    state.progressKind = "info";
+    renderChrome();
+  }
+
   function clearProgress() {
     cancelAnimationFrame(state.progressRaf);
+    host.removeAttribute("aria-label");
     host.removeAttribute("data-progress");
     host.removeAttribute("data-confirm");
+    host.removeAttribute("data-indeterminate");
     state.progressFinal = null;
     state.progressLabel = null;
     state.progress = 0;
@@ -1482,7 +1617,9 @@
 
   function showConfirm(label, kind = "ok") {
     cancelAnimationFrame(state.progressRaf);
+    host.setAttribute("aria-label", label);
     host.removeAttribute("data-progress");
+    host.removeAttribute("data-indeterminate");
     host.setAttribute("data-confirm", "");
     state.progressFinal = null;
     state.progress = 0;
@@ -1654,6 +1791,18 @@
       node.textContent = t(node.getAttribute("data-i18n"));
     });
     if (ui.input) ui.input.placeholder = t("overlay_comment");
+    if (ui.voiceCancel) {
+      ui.voiceCancel.title = t("overlay_cancel");
+      ui.voiceCancel.setAttribute("aria-label", t("overlay_cancel"));
+    }
+    if (ui.voiceSend) {
+      ui.voiceSend.title = t("overlay_add");
+      ui.voiceSend.setAttribute("aria-label", t("overlay_add"));
+    }
+    if (ui.voiceStop) {
+      ui.voiceStop.title = t("overlay_voice_stop");
+      ui.voiceStop.setAttribute("aria-label", t("overlay_voice_stop"));
+    }
     if (ui.voiceTranscriptLabel) ui.voiceTranscriptLabel.textContent = t("overlay_voice_transcript");
     if (ui.voiceUseTranscript) ui.voiceUseTranscript.textContent = t("overlay_voice_use_transcript");
     ui.reviewPanel?.setAttribute("aria-label", t("overlay_session_review"));
@@ -1956,6 +2105,7 @@
   let composerFocusRetries = 0;
   let claimingComposerFocus = false;
   let voiceAvailable = false;
+  let voiceAvailabilityReason = "checking";
   let voiceRecorder = null;
   let voiceStream = null;
   let voiceStartedAt = 0;
@@ -1966,32 +2116,50 @@
   let voiceAnalyser = null;
   let voiceWaveData = null;
   let voiceWaveFrame = 0;
+  let voiceWaveHistory = [];
+  let voiceWaveLastSampleAt = 0;
   let voiceWaveLevel = 0;
   let voiceProcessing = false;
+  let voiceRequestGeneration = 0;
+  let voiceElapsedSeconds = 0;
+  let voiceInsertedRange = null;
   let voiceTranscriptComment = "";
   const cancelledVoiceRecorders = new WeakSet();
+  const submittedVoiceRecorders = new WeakSet();
+
+  function voiceAvailabilityMessage() {
+    return t(VOICE_AVAILABILITY_MESSAGE_KEYS[voiceAvailabilityReason] || "overlay_voice_unavailable");
+  }
 
   function renderVoiceControls() {
     if (!ui.voice) return;
     const recording = voiceRecorder?.state === "recording";
-    ui.voice.hidden = !voiceAvailable;
-    const title = !voiceAvailable
-      ? t("overlay_voice_local_only")
-      : recording ? t("overlay_voice_stop") : t("overlay_voice_start");
-    ui.voice.title = title;
+    const active = recording || voiceProcessing;
+    const unavailableMessage = voiceAvailabilityMessage();
+    const title = voiceAvailable ? t("overlay_voice_start") : unavailableMessage;
+    ui.voice.hidden = false;
+    ui.voice.title = voiceAvailable ? title : "";
     ui.voice.setAttribute("aria-label", title);
-    ui.voice.disabled = voiceProcessing;
-    ui.voice.classList.toggle("is-recording", recording);
-    ui.voiceMic.hidden = recording;
-    ui.voiceStop.hidden = !recording;
-    ui.voiceWave.hidden = !recording;
-    ui.voiceProcessingIndicator.hidden = !voiceProcessing;
-    ui.save.disabled = voiceProcessing || recording;
+    ui.voice.disabled = !voiceAvailable || active;
+    ui.voiceControl.classList.toggle("has-tooltip", !voiceAvailable && !active);
+    ui.voiceControl.tabIndex = !voiceAvailable && !active ? 0 : -1;
+    ui.voiceControl.setAttribute("aria-label", title);
+    ui.voiceControl.setAttribute("aria-disabled", String(!voiceAvailable));
+    ui.voiceTooltip.textContent = unavailableMessage;
+    ui.voiceTooltip.hidden = voiceAvailable || active;
+    ui.voiceSession.hidden = !active;
+    ui.voiceSession.classList.toggle("is-processing", voiceProcessing);
+    ui.voiceSession.setAttribute("aria-label", voiceProcessing ? t("overlay_voice_processing") : formatVoiceRecordingLabel(voiceElapsedSeconds));
+    ui.voiceStop.disabled = voiceProcessing;
+    ui.voiceSend.disabled = voiceProcessing;
+    ui.composerActions.hidden = active;
+    ui.save.disabled = active;
   }
 
   function setVoiceStatus(text = "", kind = "info") {
     ui.voiceStatus.textContent = text;
     ui.voiceStatus.dataset.kind = kind;
+    ui.voiceFeedback.hidden = !text;
   }
 
   function voiceErrorMessage(response) {
@@ -2012,12 +2180,22 @@
     voiceLimitTimer = 0;
   }
 
-  function renderVoiceWave(level, timestamp = 0) {
-    const heights = voiceWaveHeights(level, timestamp / 140);
-    for (const [index, bar] of [...ui.voiceWave.children].entries()) {
-      bar.style.setProperty("--voice-bar-height", `${heights[index] || 3}px`);
-      bar.style.setProperty("--voice-bar-opacity", String(0.45 + Math.min(1, level) * 0.55));
+  function renderVoiceWave() {
+    const bars = [...ui.voiceWaveTrack.children];
+    const history = voiceWaveHistory.slice(-bars.length);
+    const historyOffset = bars.length - history.length;
+    for (const [index, bar] of bars.entries()) {
+      const level = history[index - historyOffset] ?? 0;
+      const height = Math.round((3 + 12 * level) * 10) / 10;
+      bar.style.setProperty("--voice-bar-height", `${height}px`);
+      bar.style.setProperty("--voice-bar-opacity", String(0.25 + level * 0.75));
     }
+  }
+
+  function resetVoiceWave() {
+    voiceWaveHistory = [];
+    voiceWaveLastSampleAt = 0;
+    renderVoiceWave();
   }
 
   function stopVoiceMeter() {
@@ -2031,12 +2209,12 @@
     voiceAnalyser = null;
     voiceWaveData = null;
     voiceWaveLevel = 0;
-    renderVoiceWave(0);
     if (context?.state !== "closed") void context?.close?.().catch(() => null);
   }
 
   function startVoiceMeter(stream) {
     stopVoiceMeter();
+    resetVoiceWave();
     const AudioContextClass = globalThis.AudioContext || globalThis.webkitAudioContext;
     if (!AudioContextClass) return;
     try {
@@ -2054,7 +2232,11 @@
         const smoothing = measured > voiceWaveLevel ? 0.55 : 0.18;
         voiceWaveLevel += (measured - voiceWaveLevel) * smoothing;
         if (voiceWaveLevel < 0.015) voiceWaveLevel = 0;
-        renderVoiceWave(voiceWaveLevel, timestamp);
+        if (timestamp - voiceWaveLastSampleAt >= 80) {
+          voiceWaveLastSampleAt = timestamp;
+          voiceWaveHistory = appendVoiceWaveLevel(voiceWaveHistory, voiceWaveLevel, ui.voiceWaveTrack.children.length);
+          renderVoiceWave();
+        }
         voiceWaveFrame = requestAnimationFrame(sample);
       };
       voiceWaveFrame = requestAnimationFrame(sample);
@@ -2070,6 +2252,7 @@
   }
 
   function discardVoiceRecording() {
+    voiceRequestGeneration += 1;
     clearVoiceTimers();
     if (voiceRecorder?.state === "recording") {
       cancelledVoiceRecorders.add(voiceRecorder);
@@ -2078,6 +2261,9 @@
     closeVoiceStream();
     voiceRecorder = null;
     voiceProcessing = false;
+    voiceElapsedSeconds = 0;
+    ui.voiceElapsed.textContent = formatVoiceDuration(0);
+    resetVoiceWave();
     renderVoiceControls();
   }
 
@@ -2086,12 +2272,19 @@
     ui.voiceReview.hidden = true;
     ui.voiceTranscript.textContent = "";
     voiceTranscriptComment = "";
+    voiceInsertedRange = null;
     setVoiceStatus();
   }
 
   async function refreshVoiceAvailability() {
+    voiceAvailable = false;
+    voiceAvailabilityReason = "checking";
+    renderVoiceControls();
     const response = await chrome.runtime.sendMessage({ type: "voice:availability" }).catch(() => null);
     voiceAvailable = response?.ok === true && response.available === true;
+    voiceAvailabilityReason = voiceAvailable
+      ? "available"
+      : Object.hasOwn(VOICE_AVAILABILITY_MESSAGE_KEYS, response?.reason) ? response.reason : "unavailable";
     renderVoiceControls();
   }
 
@@ -2104,19 +2297,25 @@
     });
   }
 
-  async function finishVoiceRecording(recorder, stream, chunks) {
+  async function finishVoiceRecording(recorder, stream, chunks, requestGeneration) {
     clearVoiceTimers();
     stopVoiceMeter();
     for (const track of stream?.getTracks?.() || []) track.stop();
     if (voiceStream === stream) voiceStream = null;
     if (voiceRecorder === recorder) voiceRecorder = null;
-    renderVoiceControls();
-    if (cancelledVoiceRecorders.has(recorder)) return;
+    if (cancelledVoiceRecorders.has(recorder) || requestGeneration !== voiceRequestGeneration) {
+      renderVoiceControls();
+      return;
+    }
+    const submitAfterTranscription = submittedVoiceRecorders.has(recorder);
     const durationSeconds = boundedVoiceDuration(voiceStartedAt, performance.now());
     const blob = new Blob(chunks, { type: recorder?.mimeType || "audio/webm" });
-    if (!blob.size || !state.draft) return;
+    if (!blob.size || !state.draft) {
+      renderVoiceControls();
+      return;
+    }
     voiceProcessing = true;
-    setVoiceStatus(t("overlay_voice_processing"));
+    setVoiceStatus();
     renderVoiceControls();
     try {
       const response = await chrome.runtime.sendMessage({
@@ -2125,6 +2324,7 @@
         requestId: crypto.randomUUID(),
         type: "voice:transcribe",
       });
+      if (requestGeneration !== voiceRequestGeneration || !state.draft) return;
       if (!response?.ok) throw response || { code: "network_error" };
       const transcript = typeof response.result?.transcript === "string" ? response.result.transcript.trim() : "";
       const structured = formatVoiceComment(response.result, t("overlay_voice_acceptance"));
@@ -2141,28 +2341,51 @@
         pins: [{ comment: transcript }],
       }).pins[0]?.comment || "";
       ui.voiceReview.hidden = transcript === structured;
-      ui.input.value = sanitized;
+      const insertion = insertVoiceComment(
+        ui.input.value,
+        sanitized,
+        ui.input.selectionStart,
+        ui.input.selectionEnd,
+      );
+      ui.input.value = insertion.value;
+      voiceInsertedRange = {
+        end: insertion.insertedEnd,
+        start: insertion.insertedStart,
+        text: sanitized,
+      };
       fitInput();
-      setVoiceStatus(t("overlay_voice_ready"));
-      ui.input.focus({ preventScroll: true });
-      ui.input.setSelectionRange(ui.input.value.length, ui.input.value.length);
+      setVoiceStatus();
+      if (submitAfterTranscription) {
+        voiceProcessing = false;
+        renderVoiceControls();
+        saveDraft();
+      } else {
+        ui.input.focus({ preventScroll: true });
+        ui.input.setSelectionRange(insertion.cursor, insertion.cursor);
+      }
     } catch (error) {
+      if (requestGeneration !== voiceRequestGeneration) return;
       setVoiceStatus(voiceErrorMessage(error), "error");
     } finally {
-      voiceProcessing = false;
-      renderVoiceControls();
+      if (requestGeneration === voiceRequestGeneration) {
+        voiceProcessing = false;
+        renderVoiceControls();
+      }
     }
+  }
+
+  function stopVoiceRecording(submitAfterTranscription = false) {
+    if (voiceRecorder?.state !== "recording") return;
+    if (submitAfterTranscription) submittedVoiceRecorders.add(voiceRecorder);
+    voiceRecorder.stop();
   }
 
   async function startVoiceRecording() {
     if (!state.draft || voiceProcessing) return;
-    if (voiceRecorder?.state === "recording") {
-      voiceRecorder.stop();
-      return;
-    }
+    if (voiceRecorder?.state === "recording") return;
     await refreshVoiceAvailability();
     if (!voiceAvailable) {
-      setVoiceStatus(t("overlay_voice_local_only"), "error");
+      setVoiceStatus(voiceAvailabilityMessage(), "error");
       return;
     }
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
@@ -2170,16 +2393,23 @@
       return;
     }
     try {
+      setVoiceStatus();
+      ui.voiceReview.hidden = true;
+      ui.voiceTranscript.textContent = "";
+      voiceTranscriptComment = "";
+      voiceInsertedRange = null;
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       voiceStream = stream;
       const mimeType = preferredVoiceMimeType(MediaRecorder);
       const chunks = [];
       const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      voiceRequestGeneration += 1;
+      const requestGeneration = voiceRequestGeneration;
       voiceRecorder = recorder;
       recorder.addEventListener("dataavailable", (event) => {
         if (event.data?.size) chunks.push(event.data);
       });
-      recorder.addEventListener("stop", () => void finishVoiceRecording(recorder, stream, chunks), { once: true });
+      recorder.addEventListener("stop", () => void finishVoiceRecording(recorder, stream, chunks, requestGeneration), { once: true });
       recorder.addEventListener("error", () => {
         discardVoiceRecording();
         setVoiceStatus(t("overlay_voice_failed"), "error");
@@ -2188,14 +2418,16 @@
       recorder.start(1_000);
       startVoiceMeter(stream);
       const updateElapsed = () => {
-        const seconds = Math.min(120, Math.max(0, Math.floor((performance.now() - voiceStartedAt) / 1000)));
-        setVoiceStatus(t("overlay_voice_recording").replace("{seconds}", String(seconds)));
+        const seconds = Math.min(MAX_VOICE_SECONDS, Math.max(0, Math.floor((performance.now() - voiceStartedAt) / 1000)));
+        voiceElapsedSeconds = seconds;
+        ui.voiceElapsed.textContent = formatVoiceDuration(seconds);
+        ui.voiceSession.setAttribute("aria-label", formatVoiceRecordingLabel(seconds));
       };
       updateElapsed();
       voiceTimer = setInterval(updateElapsed, 1_000);
       voiceLimitTimer = setTimeout(() => {
-        if (voiceRecorder?.state === "recording") voiceRecorder.stop();
-      }, 120_000);
+        stopVoiceRecording();
+      }, MAX_VOICE_SECONDS * 1_000);
       renderVoiceControls();
     } catch {
       closeVoiceStream();
@@ -2737,6 +2969,8 @@
     }
     state.sending = true;
     host.setAttribute("aria-busy", "true");
+    setReviewOpen(false);
+    showPending(t("overlay_copying"));
     try {
       await pendingReviewSync;
       const result = await chrome.runtime.sendMessage({ type: "review:finish" });
@@ -2744,6 +2978,7 @@
       await clearPins();
       broadcast(FRAME_CLEAR);
     } catch {
+      clearProgress();
       flashStatus(t("overlay_session_finish_failed"));
       setReviewOpen(true);
     } finally {
@@ -2912,11 +3147,29 @@
   ui.cancel.addEventListener("click", () => cancelDraft());
   ui.deleteDraft.addEventListener("click", () => deleteDraft());
   ui.voice.addEventListener("click", () => void startVoiceRecording());
+  ui.voiceCancel.addEventListener("click", () => resetVoiceUi());
+  ui.voiceSend.addEventListener("click", () => stopVoiceRecording(true));
+  ui.voiceStop.addEventListener("click", () => stopVoiceRecording());
   ui.voiceUseTranscript.addEventListener("click", () => {
     if (!voiceTranscriptComment) return;
-    ui.input.value = voiceTranscriptComment;
+    const rangeMatches = voiceInsertedRange
+      && ui.input.value.slice(voiceInsertedRange.start, voiceInsertedRange.end) === voiceInsertedRange.text;
+    const insertion = insertVoiceComment(
+      ui.input.value,
+      voiceTranscriptComment,
+      rangeMatches ? voiceInsertedRange.start : ui.input.selectionStart,
+      rangeMatches ? voiceInsertedRange.end : ui.input.selectionEnd,
+    );
+    ui.input.value = insertion.value;
+    voiceInsertedRange = {
+      end: insertion.insertedEnd,
+      start: insertion.insertedStart,
+      text: voiceTranscriptComment,
+    };
     fitInput();
     ui.input.focus({ preventScroll: true });
+    ui.input.setSelectionRange(insertion.cursor, insertion.cursor);
+    ui.voiceReview.hidden = true;
   });
   ui.save.addEventListener("click", () => saveDraft());
   ui.layer.addEventListener("pointerover", (event) => {

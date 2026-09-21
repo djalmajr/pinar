@@ -127,6 +127,8 @@ async function installOptionsHarness(page: Page, { development = false, platform
             };
           }
           if (message.type === "preferences:set") {
+            const delay = Number(localStorage.getItem("pinar-e2e-preferences-save-delay") || 0);
+            if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
             return {
               handoffMode: message.handoffMode === "full" ? "full" : "compact",
               includeScreenshot: message.includeScreenshot !== false,
@@ -144,10 +146,14 @@ async function installOptionsHarness(page: Page, { development = false, platform
             return { ok: true, session: authSession() };
           }
           if (message.type === "auth:email-code:request") {
+            const delay = Number(localStorage.getItem("pinar-e2e-email-request-delay") || 0);
+            if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
             localStorage.setItem("pinar-e2e-email", String(message.email));
             return { ok: true };
           }
           if (message.type === "auth:email-code:verify") {
+            const delay = Number(localStorage.getItem("pinar-e2e-email-verify-delay") || 0);
+            if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
             if (message.code !== "123456") return { error: "Invalid code", ok: false };
             localStorage.setItem(IDENTITY_KEY, "account");
             return { ok: true, session: authSession() };
@@ -328,6 +334,24 @@ test("the unpacked development profile exposes staging without console configura
   await expect(page.getByRole("link", { name: "Terms", exact: true })).toHaveCount(0);
   await expect(page.getByText("Development environment with isolated test data.", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+});
+
+test("save button replaces its disk with a loading icon while preferences are persisted", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("pinar-e2e-preferences-save-delay", "750");
+  });
+  await installOptionsHarness(page, { development: true });
+  await page.getByRole("radio", { name: /Staging/ }).check();
+
+  const saveButton = page.getByRole("button", { name: "Save", exact: true });
+  await expect(saveButton).toBeEnabled();
+  await expect(saveButton.locator("svg.animate-spin")).toHaveCount(0);
+  await saveButton.click();
+  await expect(saveButton).toBeDisabled();
+  await expect(saveButton).toHaveAttribute("aria-busy", "true");
+  await expect(saveButton.locator("svg.animate-spin")).toBeVisible();
+  await expect(saveButton).not.toHaveAttribute("aria-busy", "true");
+  await expect(saveButton.locator("svg.animate-spin")).toHaveCount(0);
 });
 
 test("language and theme sit on their own preference rows", async ({ page }) => {
@@ -602,6 +626,42 @@ test("Free installation separates temporary-code guidance from the paid upgrade"
     localStorage.getItem("pinar-e2e-extension-messages") || "[]",
   ).filter((message: { type?: string }) => message.type === "auth:extension-code"));
   expect(extensionCodeMessages).toHaveLength(2);
+});
+
+test("email-code request and verification do not appear as temporary-code generation", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("pinar-e2e-extension-identity", "installation");
+    localStorage.setItem("pinar-e2e-email-request-delay", "750");
+    localStorage.setItem("pinar-e2e-email-verify-delay", "750");
+  });
+  await installOptionsHarness(page);
+  await page.getByRole("tab", { name: "Account" }).click();
+
+  const freeSection = page.getByRole("region", { name: "Continue with a Free installation" });
+  const paidSection = page.getByRole("region", { name: "Paid account" });
+  const idleMessage = freeSection.getByText("Click the key icon to generate a new code", { exact: true });
+  const generatingMessage = freeSection.getByText("Generating a one-time code…", { exact: true });
+
+  await paidSection.getByPlaceholder("you@example.com").fill("contato@pinar.dev");
+  const sendCodeButton = paidSection.getByRole("button", { name: "Send code", exact: true });
+  await sendCodeButton.click();
+  await expect(sendCodeButton).toBeDisabled();
+  await expect(sendCodeButton).toHaveAttribute("aria-busy", "true");
+  await expect(sendCodeButton.locator("svg.animate-spin")).toBeVisible();
+  await expect(generatingMessage).toHaveCount(0);
+  await expect(idleMessage).toBeVisible();
+
+  const emailCodeInput = paidSection.getByPlaceholder("000000");
+  await expect(emailCodeInput).toBeVisible();
+  await emailCodeInput.fill("123456");
+  const verifyButton = paidSection.getByRole("button", { name: "Verify", exact: true });
+  await verifyButton.click();
+  await expect(verifyButton).toBeDisabled();
+  await expect(verifyButton).toHaveAttribute("aria-busy", "true");
+  await expect(verifyButton.locator("svg.animate-spin")).toBeVisible();
+  await expect(generatingMessage).toHaveCount(0);
+  await expect(idleMessage).toBeVisible();
+  await expect(page.getByText("contato@pinar.dev", { exact: true })).toBeVisible();
 });
 
 test("expired temporary code promotes generate-another to the primary action", async ({ page }) => {

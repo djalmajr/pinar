@@ -93,6 +93,28 @@ test("finish waits for concurrent saves", async () => {
   assert.deepEqual(f.calls.map(([kind]) => kind), ["save", "finish", "copy"]);
 });
 
+test("attaching a recording stays durable without announcing a second saving state", async () => {
+  const notifications = [];
+  const f = fixture({
+    changed: async (draft) => notifications.push(continuousSummary(draft)),
+  });
+  await f.engine.sync(input("tab-a:page", ["a"]));
+  notifications.length = 0;
+
+  await f.engine.attachReproduction("tab-a", {
+    startedAt: "2026-09-21T16:00:00.000Z",
+    steps: [{ at: "2026-09-21T16:00:01.000Z", kind: "click" }],
+    version: 1,
+  });
+
+  assert.equal(f.state().entries[0].status, "pending");
+  assert.equal(f.state().entries[0].reproduction.steps.length, 1);
+  assert.deepEqual(notifications, []);
+
+  await f.engine.finish();
+  assert.equal(notifications.some((summary) => summary.pending > 0), false);
+});
+
 test("removing pins only affects their source document", async () => {
   const f = fixture();
   await f.engine.sync(input("a", ["a"]));

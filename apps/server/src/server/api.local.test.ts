@@ -474,71 +474,19 @@ describe("local TanStack API", () => {
     assert.match(text, /"cause":"Padding differs from siblings"/);
   });
 
-  test("configures OpenAI-compatible local AI and summarizes without Pinar credits", async () => {
-    const secrets = new Map<string, string>();
-    setLocalAiDependenciesForTests({
-      vault: {
-        clear: async () => { secrets.clear(); },
-        get: async () => secrets.get("key") ?? null,
-        set: async (value) => { secrets.set("key", value); },
-      },
-      fetch: async (input, init) => {
-        if (String(input).endsWith("/models")) {
-          return Response.json({ data: [{ id: "llama3.2" }] });
-        }
-        assert.equal(String(input), "http://127.0.0.1:11434/v1/chat/completions");
-        assert.equal(new Headers(init?.headers).has("Authorization"), false);
-        return Response.json({
-          choices: [{ message: { content: '{"summary":"Local summary","highlights":["First pin"]}' } }],
-          model: "llama3.2-q4",
-          usage: { completion_tokens: 8, prompt_tokens: 12 },
-        });
-      },
-    });
+  test("does not expose retired local AI generation endpoints", async () => {
+    const requests = [
+      ["/api/ai/session-summary", "POST"],
+      ["/api/ai/pin-diagnosis", "POST"],
+      ["/api/ai/component-export", "POST"],
+      ["/api/ai/design-system", "POST"],
+      ["/api/collections/retired_collection/design-system", "GET"],
+    ] as const;
 
-    const configured = await jsonBody(await request("/api/ai/settings", {
-      body: JSON.stringify({
-        endpoint: "http://127.0.0.1:11434/v1",
-        mode: "local",
-        model: "llama3.2",
-      }),
-      headers: { "content-type": "application/json" },
-      method: "PATCH",
-    }));
-    assert.equal(configured.ok, true);
-    assert.equal(configured.mode, "local");
-    assert.equal(configured.hasApiKey, false);
-    assert.doesNotMatch(readFileSync(join(root, "ai.json"), "utf8"), /apiKey/);
-
-    await request("/api/history", {
-      body: JSON.stringify({
-        id: "local_ai_session",
-        page: { title: "Local AI", url: "https://example.test/ai" },
-        pins: [{ comment: "First pin", kind: "element" }],
-      }),
-      headers: { "content-type": "application/json" },
-      method: "POST",
-    });
-    const response = await request("/api/ai/session-summary", {
-      body: JSON.stringify({ language: "en", requestId: "local_request_001", sessionId: "local_ai_session" }),
-      headers: { "content-type": "application/json" },
-      method: "POST",
-    });
-    assert.equal(response.status, 200);
-    const generated = await jsonBody(response);
-    assert.equal(generated.creditsCharged, 0);
-    assert.deepEqual(generated.result, {
-      highlights: ["First pin"],
-      model: "llama3.2-q4",
-      provider: "local",
-      summary: "Local summary",
-    });
-    assert.deepEqual(generated.usage, {
-      inputTokens: 12,
-      model: "llama3.2-q4",
-      outputTokens: 8,
-      provider: "local",
-    });
+    for (const [path, method] of requests) {
+      const response = await request(path, { method });
+      assert.equal(response.status, 404, `${method} ${path}`);
+    }
   });
 
   test("returns only a masked preview for a stored BYOK key", async () => {

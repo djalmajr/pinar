@@ -191,9 +191,10 @@ describe("capture destination", () => {
   test("coalesces concurrent installation recovery and exposes voice only to signed-in Pro accounts", () => {
     assert.match(backgroundSrc, /const resetInstallationOnce = createSingleFlight\(\)/);
     assert.match(backgroundSrc, /return resetInstallationOnce\(endpoint, async \(\) => \{/);
-    assert.match(backgroundSrc, /settings\.storageMode === "cloud" && session\.kind === "account" && session\.plan === "pro"/);
-    assert.match(contentSrc, /ui\.voice\.hidden = !voiceAvailable/);
-    assert.match(contentSrc, /\.voice-btn\[hidden\] \{ display: none; \}/);
+    assert.match(backgroundSrc, /resolveVoiceAvailability\(settings\.storageMode, session\)/);
+    assert.match(contentSrc, /ui\.voice\.hidden = false/);
+    assert.match(contentSrc, /ui\.voice\.disabled = !voiceAvailable \|\| active/);
+    assert.match(contentSrc, /class="voice-tooltip"/);
   });
 
   test("uses the build-authorized environment in extension settings", () => {

@@ -127,11 +127,18 @@ describe("visual context optional fields", () => {
     assert.equal(component?.files[0].path, "Card.tsx");
     assert.equal(component?.preview, "<html></html>");
     const reproduction = asReproduction({
+      generated: {
+        generatedAt: "2026-09-08T00:01:00.000Z",
+        steps: ["Select Sign in"],
+        test: "legacy generated test is ignored",
+      },
       steps: [{ at: "2026-09-08T00:00:00.000Z", kind: "click" }, { kind: "click" }],
       version: 1,
     });
     assert.equal(reproduction?.steps.length, 1);
     assert.equal(reproduction?.startedAt, "2026-09-08T00:00:00.000Z");
+    assert.deepEqual(reproduction?.generated?.steps, ["Select Sign in"]);
+    assert.equal(reproduction?.generated && "test" in reproduction.generated, false);
   });
 
   test("markdown lists structure, accepted diagnosis, technical evidence and reproduction", () => {
@@ -142,7 +149,7 @@ describe("visual context optional fields", () => {
     assert.match(markdown, /Suggested fix: button\.pay \{ line-height: 1\.5; \}/);
     assert.match(markdown, /Technical evidence:\n- \[after_interaction\] POST https:\/\/example\.test\/api\/pay\?token=\[redacted\] → 500/);
     assert.match(markdown, /- \[same_page\] console\.error: Warning: each child should have a key/);
-    assert.match(markdown, /Reproduction:\n1\. Open https:\/\/example\.test\/checkout\n2\. Type "user@example\.test" into input\[name=email\]\n3\. Click "Pay now"/);
+    assert.match(markdown, /Reproduction:\n1\. https:\/\/example\.test\/checkout\n2\. Type "user@example\.test" into input\[name=email\]\n3\. "Pay now"/);
     assert.doesNotMatch(markdown, /Guess without acceptance/);
   });
 

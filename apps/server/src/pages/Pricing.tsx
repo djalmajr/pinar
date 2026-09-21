@@ -15,8 +15,6 @@ import {
   CardTitle,
   ScrollArea,
   toast,
-  ToggleGroup,
-  ToggleGroupItem,
 } from "@pinar/ui";
 import IconCheck from "~icons/lucide/check";
 import IconLock from "~icons/lucide/lock";
@@ -29,8 +27,6 @@ import {
   type PublicPricing,
   isPublicPricing,
 } from "@/lib/pricing";
-
-type BillingInterval = "month" | "year";
 
 interface PricingAmountProps {
   currency: PricingCurrency | undefined;
@@ -45,6 +41,8 @@ interface AddOnCardProps {
   currency: PricingCurrency | undefined;
   description: string;
   language: SupportedLanguage;
+  legalNoteId: string;
+  legalNoteMarker: string;
   loading: boolean;
   price: PublicPrice | undefined;
   suffix: string;
@@ -84,6 +82,8 @@ function AddOnCard({
   currency,
   description,
   language,
+  legalNoteId,
+  legalNoteMarker,
   loading,
   price,
   suffix,
@@ -106,10 +106,18 @@ function AddOnCard({
         />
       </CardContent>
       <CardFooter className="flex-col items-stretch gap-2">
-        <Button className="w-full" disabled={loading || !price} variant="outline" onClick={onPurchase}>
-          {buttonLabel}
+        <Button
+          aria-describedby={legalNoteId}
+          className="w-full"
+          disabled={loading || !price}
+          variant="outline"
+          onClick={onPurchase}
+        >
+          <span>
+            {buttonLabel}
+            <sup aria-hidden="true">{legalNoteMarker}</sup>
+          </span>
         </Button>
-        <LegalActionNotice />
       </CardFooter>
     </Card>
   );
@@ -117,7 +125,6 @@ function AddOnCard({
 
 export function PricingPage() {
   const { language, t } = useServerI18n();
-  const [billingInterval, setBillingInterval] = useState<BillingInterval>("year");
   const [loadingOffer, setLoadingOffer] = useState<CheckoutOffer | null>(null);
   const [pricing, setPricing] = useState<PublicPricing | null>(null);
   const [freeHref, setFreeHref] = useState(() => freeInstallUrl());
@@ -137,34 +144,20 @@ export function PricingPage() {
     return () => controller.abort();
   }, []);
 
-  const isYearly = billingInterval === "year";
-  const proOffer: CheckoutOffer = isYearly ? "pro_year" : "pro_month";
-  const proPrice = pricing?.prices[billingInterval];
+  const proOffer: CheckoutOffer = "pro_year";
+  const proPrice = pricing?.prices.year;
   const proPriceText = pricing && proPrice
     ? formatAmount(proPrice.amount, pricing.currency, language)
     : "—";
   const yearlyMonthlyPrice = pricing
     ? formatAmount(Math.round(pricing.prices.year.amount / 12), pricing.currency, language)
     : "—";
-  const proDescription = isYearly
-    ? t("pricing.proYearlyDescription", { price: yearlyMonthlyPrice })
-    : t("pricing.proMonthlyDescription");
-  const proPriceSuffix = isYearly ? t("pricing.perYear") : t("pricing.perMonth");
-  const proTitle = isYearly ? t("pricing.proYearly") : t("pricing.proMonthly");
+  const proDescription = t("pricing.proYearlyDescription", { price: yearlyMonthlyPrice });
+  const proPriceSuffix = t("pricing.perYear");
+  const proTitle = t("pricing.proYearly");
   const proCheckoutLabel = loadingOffer === proOffer
     ? t("pricing.redirecting")
-    : isYearly
-      ? t("pricing.getYearly", { price: proPriceText })
-      : t("pricing.getMonthly", { price: proPriceText });
-  const yearlySavings = pricing
-    ? Math.round((1 - pricing.prices.year.amount / (pricing.prices.month.amount * 12)) * 100)
-    : 0;
-
-  function selectBillingInterval(values: string[]) {
-    const nextInterval = values[0];
-    if (nextInterval !== "month" && nextInterval !== "year") return;
-    setBillingInterval(nextInterval);
-  }
+    : t("pricing.getYearly", { price: proPriceText });
 
   async function startCheckout(offer: CheckoutOffer) {
     setLoadingOffer(offer);
@@ -213,23 +206,12 @@ export function PricingPage() {
             {t("pricing.description")}
           </p>
         </div>
-        <ToggleGroup
-          aria-label={t("pricing.billingInterval")}
-          className="mb-6 bg-background"
-          spacing={0}
-          value={[billingInterval]}
-          variant="outline"
-          onValueChange={selectBillingInterval}
-        >
-          <ToggleGroupItem value="month">{t("pricing.monthly")}</ToggleGroupItem>
-          <ToggleGroupItem value="year">{t("pricing.yearly")}</ToggleGroupItem>
-        </ToggleGroup>
         <div className="mb-3 h-6">
           <Badge className={pricing?.regional ? "" : "invisible"} variant="proSoft">
             {t("pricing.regionalBrazil")}
           </Badge>
         </div>
-        <div className="max-w-3xl w-full grid grid-cols-1 md:grid-cols-2 gap-6 mb-12 pt-3">
+        <div className="max-w-3xl w-full grid grid-cols-1 md:grid-cols-2 gap-6 mb-3 pt-3">
         {/* Free Card */}
         <Card className="flex flex-col justify-between">
           <CardHeader>
@@ -242,7 +224,7 @@ export function PricingPage() {
               language={language}
               originalLabel={t("pricing.originalPrice")}
               price={pricing?.prices.free}
-              suffix={t("pricing.localOnly")}
+              suffix={t("pricing.freeScope")}
             />
           </CardHeader>
           <CardContent className="flex-1">
@@ -325,41 +307,41 @@ export function PricingPage() {
                   <IconCheck className="text-success w-4 h-4 shrink-0" />
                   <span>{t("pricing.searchHistory")}</span>
                 </li>
-                <li className="flex items-center gap-2">
-                  <IconCheck className="text-success w-4 h-4 shrink-0" />
-                  <span>{t("pricing.unbrandedViewers")}</span>
-                </li>
               </ul>
             </CardContent>
             <CardFooter className="flex-col items-stretch gap-2">
               <Button
+                aria-describedby="pricing-pro-legal-note"
                 className="w-full"
                 disabled={loadingOffer !== null || !pricing}
                 onClick={() => startCheckout(proOffer)}
               >
-                {proCheckoutLabel}
+                <span>
+                  {proCheckoutLabel}
+                  <sup aria-hidden="true">1</sup>
+                </span>
               </Button>
-              <LegalActionNotice />
             </CardFooter>
           </Card>
-          {isYearly && (
-            <div className="absolute -top-3 right-6">
-              <Badge variant="proSoft">{t("pricing.save45", { percent: yearlySavings })}</Badge>
-            </div>
-          )}
         </div>
+        </div>
+
+        <div className="mb-12 w-full max-w-3xl px-1">
+          <LegalActionNotice id="pricing-pro-legal-note" marker="1" />
         </div>
 
         <div className="mb-5 max-w-3xl text-center">
           <h2 className="text-2xl font-bold">{t("pricing.addOnsTitle")}</h2>
           <p className="mt-2 text-sm text-muted-foreground">{t("pricing.addOnsDescription")}</p>
         </div>
-        <div className="mb-12 grid w-full max-w-5xl grid-cols-1 gap-6 md:grid-cols-3">
+        <div className="mb-3 grid w-full max-w-5xl grid-cols-1 gap-6 md:grid-cols-3">
           <AddOnCard
             buttonLabel={loadingOffer === "ai_credits_1000" ? t("pricing.redirecting") : t("pricing.buyAddOn")}
             currency={pricing?.currency}
             description={t("pricing.aiCreditsDescription")}
             language={language}
+            legalNoteId="pricing-addons-legal-note"
+            legalNoteMarker="2"
             loading={loadingOffer !== null}
             price={pricing?.prices.aiCredits1000}
             suffix={t("pricing.valid12Months")}
@@ -371,6 +353,8 @@ export function PricingPage() {
             currency={pricing?.currency}
             description={t("pricing.storage5Description")}
             language={language}
+            legalNoteId="pricing-addons-legal-note"
+            legalNoteMarker="2"
             loading={loadingOffer !== null}
             price={pricing?.prices.storage5Gb12M}
             suffix={t("pricing.valid12Months")}
@@ -382,12 +366,17 @@ export function PricingPage() {
             currency={pricing?.currency}
             description={t("pricing.storage20Description")}
             language={language}
+            legalNoteId="pricing-addons-legal-note"
+            legalNoteMarker="2"
             loading={loadingOffer !== null}
             price={pricing?.prices.storage20Gb12M}
             suffix={t("pricing.valid12Months")}
             title={t("pricing.storage20Title")}
             onPurchase={() => startCheckout("storage_20gb_12m")}
           />
+        </div>
+        <div className="mb-12 w-full max-w-5xl px-1">
+          <LegalActionNotice id="pricing-addons-legal-note" marker="2" />
         </div>
 
         <ServerFooter

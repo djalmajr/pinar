@@ -25,7 +25,7 @@ describe("billing entitlements", () => {
     assert.equal(checkoutOffer("lifetime_founder"), null);
     assert.equal(planForOffer("ai_credits_1000"), null);
     assert.equal(planForOffer("pro_year"), "pro");
-    assert.equal(isSubscriptionOffer("pro_month"), true);
+    assert.equal(checkoutOffer("pro_month"), null);
     assert.equal(isSubscriptionOffer("storage_5gb_12m"), false);
   });
 
@@ -49,7 +49,7 @@ describe("billing entitlements", () => {
     assert.equal(baseStorageBytes("pro"), PAID_STORAGE_BYTES);
   });
 
-  test("keeps AI summaries on paid plans only", () => {
+  test("keeps hosted AI features on paid plans only", () => {
     assert.equal(planIncludesAi("free"), false);
     assert.equal(planIncludesAi("pro"), true);
   });

@@ -2,7 +2,7 @@
 // bookkeeping for the background service worker: one recording per tab,
 // bounded steps, coalesced typing, navigation steps from the tabs API. The
 // content script decides what a step is; the AI (server) turns the timeline
-// into prose and a Playwright test later.
+// into concise written reproduction steps later.
 // Keep the limits in sync with REPRODUCTION_LIMITS in packages/shared.
 
 export const REPRODUCTION_VERSION = 1;

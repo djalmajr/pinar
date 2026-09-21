@@ -8,9 +8,9 @@ export function createContinuousSession({ read, write, create, capture, save, re
     tail = result.catch(() => {});
     return result;
   };
-  async function persist(draft) {
+  async function persist(draft, { notify = true } = {}) {
     await write(draft);
-    await changed(draft);
+    if (notify) await changed(draft);
   }
   async function deliver(draft) {
     for (const entry of draft.entries) {
@@ -82,7 +82,10 @@ export function createContinuousSession({ read, write, create, capture, save, re
       if (!entry) return;
       entry.reproduction = reproduction;
       entry.status = "pending";
-      await persist(draft);
+      // The reproduction must survive a service-worker restart, but announcing
+      // this internal transition would make the UI flash saved → saving just
+      // before finish() delivers the final capture.
+      await persist(draft, { notify: false });
     }),
     edit: (captureId, comment) => serial(async () => {
       const draft = await read();

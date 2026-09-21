@@ -54,11 +54,13 @@ import BotIcon from "~icons/lucide/bot";
 import CheckCircleIcon from "~icons/lucide/circle-check-big";
 import ClockIcon from "~icons/lucide/clock-3";
 import CloudIcon from "~icons/lucide/cloud";
+import CommandIcon from "~icons/lucide/command";
 import FolderTreeIcon from "~icons/lucide/folder-tree";
 import LockIcon from "~icons/lucide/lock-keyhole";
 import MapPinIcon from "~icons/lucide/map-pin";
 import SearchIcon from "~icons/lucide/search";
 import SparklesIcon from "~icons/lucide/sparkles";
+import XIcon from "~icons/lucide/x";
 
 const categoryIcons: Record<
   HelpCategoryId,
@@ -156,7 +158,7 @@ function HelpSearch({ className }: { className?: string } = {}) {
         aria-haspopup="listbox"
         aria-label={ui.searchLabel}
         autoComplete="off"
-        className="h-12 rounded-xl bg-background pl-12 pr-24 text-base shadow-sm"
+        className="h-12 rounded-xl bg-background pl-12 pr-28 text-base shadow-sm"
         onChange={(event) => {
           setQuery(event.currentTarget.value);
           setActiveIndex(-1);
@@ -190,12 +192,33 @@ function HelpSearch({ className }: { className?: string } = {}) {
         placeholder={ui.searchPlaceholder}
         ref={inputRef}
         role="combobox"
-        type="search"
+        type="text"
         value={query}
       />
-      <kbd className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 rounded-md border bg-muted px-2 py-1 font-mono text-[11px] text-foreground sm:block">
-        ⌘ K
-      </kbd>
+      <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-3">
+        <Button
+          aria-label={ui.clearSearch}
+          className={cn(
+            "size-7 text-muted-foreground",
+            !showResults && "pointer-events-none invisible",
+          )}
+          onClick={() => {
+            setQuery("");
+            setActiveIndex(-1);
+            inputRef.current?.focus();
+          }}
+          size="icon-sm"
+          title={ui.clearSearch}
+          type="button"
+          variant="ghost"
+        >
+          <XIcon className="size-4" />
+        </Button>
+        <kbd className="pointer-events-none hidden h-7 items-center gap-1 rounded-md border bg-muted px-2 font-mono text-sm leading-none text-foreground sm:flex">
+          <CommandIcon className="size-3.5" />
+          <span>K</span>
+        </kbd>
+      </div>
       <p aria-live="polite" className="sr-only">
         {showResults
           ? formatMessage(ui.articlesFound, content.language, {
@@ -204,63 +227,67 @@ function HelpSearch({ className }: { className?: string } = {}) {
           : ""}
       </p>
       {showResults ? (
-        <ScrollArea
-          aria-label={ui.searchResults}
+        <div
           className={cn(
-            "absolute inset-x-0 top-full z-40 mt-2 rounded-xl border bg-popover text-popover-foreground shadow-lg",
+            "absolute inset-x-0 top-full z-40 mt-2",
             resultsHeightClass,
           )}
-          id="help-search-results"
-          role="listbox"
         >
-          <div className="p-2">
-            {results.length ? (
-              results.map((article, index) => {
-                const category = findHelpCategory(content, article.category);
-                const selected = index === activeIndex;
-                return (
-                  <Link
-                    aria-selected={selected}
-                    className={cn(
-                      "flex items-start justify-between gap-4 rounded-lg px-3 py-3 hover:bg-accent",
-                      selected && "bg-accent",
-                    )}
-                    id={`help-search-result-${article.category}-${article.id}`}
-                    key={`${article.category}/${article.id}`}
-                    onClick={() => {
-                      setQuery("");
-                      setActiveIndex(-1);
-                    }}
-                    onFocus={() => setActiveIndex(index)}
-                    onMouseEnter={() => setActiveIndex(index)}
-                    params={{ article: article.id, category: article.category }}
-                    preload="intent"
-                    ref={(element) => {
-                      resultRefs.current[index] = element;
-                    }}
-                    role="option"
-                    tabIndex={-1}
-                    to="/help/$category/$article"
-                  >
-                    <span>
-                      <span className="block text-sm font-medium">
-                        {article.title}
+          <ScrollArea
+            aria-label={ui.searchResults}
+            className="size-full rounded-xl border bg-popover text-popover-foreground shadow-lg"
+            id="help-search-results"
+            role="listbox"
+          >
+            <div className="p-2">
+              {results.length ? (
+                results.map((article, index) => {
+                  const category = findHelpCategory(content, article.category);
+                  const selected = index === activeIndex;
+                  return (
+                    <Link
+                      aria-selected={selected}
+                      className={cn(
+                        "flex items-start justify-between gap-4 rounded-lg px-3 py-3 hover:bg-accent",
+                        selected && "bg-accent",
+                      )}
+                      id={`help-search-result-${article.category}-${article.id}`}
+                      key={`${article.category}/${article.id}`}
+                      onClick={() => {
+                        setQuery("");
+                        setActiveIndex(-1);
+                      }}
+                      onFocus={() => setActiveIndex(index)}
+                      onMouseEnter={() => setActiveIndex(index)}
+                      params={{ article: article.id, category: article.category }}
+                      preload="intent"
+                      ref={(element) => {
+                        resultRefs.current[index] = element;
+                      }}
+                      role="option"
+                      tabIndex={-1}
+                      to="/help/$category/$article"
+                    >
+                      <span>
+                        <span className="block text-sm font-medium">
+                          {article.title}
+                        </span>
+                        <span className="mt-0.5 block text-xs text-muted-foreground">
+                          {category ? category.title : ""}
+                        </span>
                       </span>
-                      <span className="mt-0.5 block text-xs text-muted-foreground">
-                        {category ? category.title : ""}
-                      </span>
-                    </span>
-                    <ArrowRightIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                  </Link>
-                );
-              })
-            ) : (
-              <p className="px-3 py-6 text-center text-sm text-muted-foreground">
-                {ui.noArticlesFound}
-              </p>
-            )}
-          </div>
-        </ScrollArea>
+                      <ArrowRightIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                    </Link>
+                  );
+                })
+              ) : (
+                <p className="px-3 py-6 text-center text-sm text-muted-foreground">
+                  {ui.noArticlesFound}
+                </p>
+              )}
+            </div>
+          </ScrollArea>
+        </div>
       ) : null}
     </div>
   );

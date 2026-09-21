@@ -77,8 +77,6 @@ const TEST_ENV: CloudEnv = {
   EXTENSION_ORIGIN: "chrome-extension://pinar-test",
   PRICING_AI_CREDITS_1000_BRL_CENTS: "990",
   PRICING_AI_CREDITS_1000_USD_CENTS: "299",
-  PRICING_MONTHLY_BRL_CENTS: "490",
-  PRICING_MONTHLY_USD_CENTS: "299",
   PRICING_STORAGE_20GB_12M_BRL_CENTS: "2990",
   PRICING_STORAGE_20GB_12M_USD_CENTS: "799",
   PRICING_STORAGE_5GB_12M_BRL_CENTS: "990",
@@ -1072,7 +1070,7 @@ describe("remote installation isolation", () => {
     assert.equal((await api("/api/sessions/ordering_reactivated_session", { headers }, env)).status, 200);
   });
 
-  test("keeps Pro and monthly credits through flexible cancellation and reactivation events", async () => {
+  test("keeps Pro and does not regrant initial credits through cancellation changes", async () => {
     const checkoutClaim = "checkout_claim_flexible_cancel_reactivate";
     const email = "flexible-cycle@example.test";
     const env: CloudEnv = {
@@ -1114,7 +1112,7 @@ describe("remote installation isolation", () => {
     }, env));
     assert.equal(initial.plan, "pro");
     assert.ok(isRecord(initial.aiCredits));
-    assert.equal(initial.aiCredits.balance, 200);
+    assert.equal(initial.aiCredits.balance, 500);
 
     const canceledAt = 1_787_023_324;
     const cancelAt = 1_818_557_602;
@@ -1165,7 +1163,7 @@ describe("remote installation isolation", () => {
     }, env));
     assert.equal(scheduled.plan, "pro");
     assert.ok(isRecord(scheduled.aiCredits));
-    assert.equal(scheduled.aiCredits.balance, 200);
+    assert.equal(scheduled.aiCredits.balance, 500);
 
     const reactivatedAt = 1_787_023_745;
     setCloudNowForTests(new Date(reactivatedAt * 1000).toISOString());
@@ -1196,7 +1194,7 @@ describe("remote installation isolation", () => {
     }, env));
     assert.equal(reactivated.plan, "pro");
     assert.ok(isRecord(reactivated.aiCredits));
-    assert.equal(reactivated.aiCredits.balance, 200);
+    assert.equal(reactivated.aiCredits.balance, 500);
   });
 
   test("does not let an old subscription cancellation demote the current subscription", async () => {
@@ -1398,13 +1396,13 @@ describe("remote installation isolation", () => {
     // Mutation captured: falling back to the global price makes the UI show BRL while Stripe charges USD.
     const response = await handleCloudApiRequest(
       requestForCountry("/api/stripe/checkout", "BR", {
-        body: JSON.stringify({ checkoutClaim: "checkout_claim_missing_price", interval: "month" }),
+        body: JSON.stringify(checkoutRequest({ checkoutClaim: "checkout_claim_missing_price", offer: "pro_year" })),
         headers: { "content-type": "application/json" },
         method: "POST",
       }),
       {
         ...TEST_ENV,
-        STRIPE_PRICE_MONTHLY: "price_us_monthly_test",
+        STRIPE_PRICE_YEARLY: "price_us_yearly_test",
         STRIPE_SECRET_KEY: "sk_test_example",
       },
     );
@@ -1536,7 +1534,6 @@ describe("remote installation isolation", () => {
       offer: string;
       usdPrice: string;
     }> = [
-      { brlPrice: "price_br_month", mode: "subscription", offer: "pro_month", usdPrice: "price_us_month" },
       { brlPrice: "price_br_year", mode: "subscription", offer: "pro_year", usdPrice: "price_us_year" },
       { brlPrice: "price_br_ai", mode: "payment", offer: "ai_credits_1000", usdPrice: "price_us_ai" },
       { brlPrice: "price_br_storage_5", mode: "payment", offer: "storage_5gb_12m", usdPrice: "price_us_storage_5" },
@@ -1546,11 +1543,9 @@ describe("remote installation isolation", () => {
       ...TEST_ENV,
       STRIPE_PRICE_AI_CREDITS_1000: "price_us_ai",
       STRIPE_PRICE_BR_AI_CREDITS_1000: "price_br_ai",
-      STRIPE_PRICE_BR_MONTHLY: "price_br_month",
       STRIPE_PRICE_BR_STORAGE_20GB_12M: "price_br_storage_20",
       STRIPE_PRICE_BR_STORAGE_5GB_12M: "price_br_storage_5",
       STRIPE_PRICE_BR_YEARLY: "price_br_year",
-      STRIPE_PRICE_MONTHLY: "price_us_month",
       STRIPE_PRICE_STORAGE_20GB_12M: "price_us_storage_20",
       STRIPE_PRICE_STORAGE_5GB_12M: "price_us_storage_5",
       STRIPE_PRICE_YEARLY: "price_us_year",
@@ -1579,7 +1574,7 @@ describe("remote installation isolation", () => {
       globalThis.fetch = originalFetch;
     }
 
-    assert.equal(stripeRequests.length, 10);
+    assert.equal(stripeRequests.length, 8);
     let requestIndex = 0;
     for (const country of ["US", "BR"]) {
       for (const offer of offers) {
@@ -1725,161 +1720,22 @@ describe("remote installation isolation", () => {
     assert.equal(replacement.status, 201);
   });
 
-  test("rejects AI summaries on Free installations", async () => {
-    const env = aiEnv(async () => {
-      throw new Error("Free must not call the model");
-    });
-    assert.equal((await register(identityA)).status, 201);
-    assert.equal((await upload(identityA, "ai_free_session", "Free owner")).status, 201);
-    const response = await api("/api/ai/session-summary", {
-      body: JSON.stringify({
-        language: "en",
-        requestId: "ai_free_request_0001",
-        sessionId: "ai_free_session",
-      }),
-      headers: identityHeaders(identityA, { "content-type": "application/json" }),
-      method: "POST",
-    }, env);
-    assert.equal(response.status, 403);
-    assert.equal((await jsonBody(response)).code, "ai_requires_paid");
-  });
+  test("does not expose retired AI generation endpoints", async () => {
+    const requests = [
+      ["/api/ai/session-summary", "POST"],
+      ["/api/ai/pin-diagnosis", "POST"],
+      ["/api/ai/component-export", "POST"],
+      ["/api/ai/design-system", "POST"],
+      ["/api/collections/retired_collection/design-system", "GET"],
+    ] as const;
 
-  test("summarizes an owned session once, replays idempotently and refunds failures", async () => {
-    const calls: Array<{ input: unknown; model: string }> = [];
-    let shouldFail = false;
-    const env = aiEnv(async (model, input) => {
-      calls.push({ input, model });
-      if (shouldFail) throw new Error("upstream unavailable");
-      return {
-        choices: [{ message: { content: JSON.stringify({
-          highlights: ["Clarify the primary action", "Improve contrast"],
-          summary: "The annotations focus on clarity and visual hierarchy.",
-        }) } }],
-        usage: { completion_tokens: 24, prompt_tokens: 120, total_tokens: 144 },
-      };
-    });
-    const paid = await paidProCookie(env);
-    assert.equal((await uploadWithCookie(paid.cookie, "ai_session_001", "AI owner", paid.env)).status, 201);
-
-    const request = () => api("/api/ai/session-summary", {
-      body: JSON.stringify({
-        language: "pt",
-        requestId: "ai_summary_request_0001",
-        sessionId: "ai_session_001",
-      }),
-      headers: { cookie: paid.cookie, "content-type": "application/json" },
-      method: "POST",
-    }, paid.env);
-    const first = await request();
-    assert.equal(first.status, 200);
-    const firstBody = await jsonBody(first);
-    assert.equal(firstBody.creditsCharged, 1);
-    assert.equal(firstBody.idempotent, false);
-    assert.ok(isRecord(firstBody.aiCredits));
-    assert.equal(firstBody.aiCredits.balance, 199);
-    assert.ok(isRecord(firstBody.usage));
-    assert.equal(firstBody.usage.costUsdMicros, 25);
-    assert.equal(firstBody.usage.inputTokens, 120);
-    assert.equal(firstBody.usage.outputTokens, 24);
-    assert.equal(firstBody.usage.model, "@cf/meta/llama-3.1-8b-instruct-fp8");
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].model, "@cf/meta/llama-3.1-8b-instruct-fp8");
-    assert.ok(isRecord(calls[0].input));
-    assert.ok(Array.isArray(calls[0].input.messages));
-    const messages = calls[0].input.messages;
-    assert.ok(isRecord(messages[0]));
-    assert.match(String(messages[0].content), /untrusted data/);
-    assert.match(String(messages[0].content), /property names must be exactly/);
-    assert.equal(calls[0].input.max_tokens, 256);
-
-    const replay = await jsonBody(await request());
-    assert.equal(replay.idempotent, true);
-    assert.ok(isRecord(replay.aiCredits));
-    assert.equal(replay.aiCredits.balance, 199);
-    assert.deepEqual(replay.usage, firstBody.usage);
-    assert.equal(calls.length, 1);
-
-    assert.equal((await uploadWithCookie(paid.cookie, "ai_session_002", "Other resource", paid.env)).status, 201);
-    const conflict = await api("/api/ai/session-summary", {
-      body: JSON.stringify({
-        requestId: "ai_summary_request_0001",
-        sessionId: "ai_session_002",
-      }),
-      headers: { cookie: paid.cookie, "content-type": "application/json" },
-      method: "POST",
-    }, paid.env);
-    assert.equal(conflict.status, 409);
-    assert.equal((await jsonBody(conflict)).code, "request_id_conflict");
-
-    shouldFail = true;
-    const failed = await api("/api/ai/session-summary", {
-      body: JSON.stringify({
-        requestId: "ai_summary_request_0002",
-        sessionId: "ai_session_001",
-      }),
-      headers: { cookie: paid.cookie, "content-type": "application/json" },
-      method: "POST",
-    }, paid.env);
-    assert.equal(failed.status, 503);
-    assert.match(String((await jsonBody(failed)).error), /refunded/i);
-    const entitlements = await jsonBody(await api("/api/account/entitlements", {
-      headers: { cookie: paid.cookie },
-    }, paid.env));
-    assert.ok(isRecord(entitlements.aiCredits));
-    assert.equal(entitlements.aiCredits.balance, 199);
-    assert.ok(Array.isArray(entitlements.aiUsage));
-    assert.deepEqual(
-      entitlements.aiUsage.map((usage) => ({ credits: usage.credits, feature: usage.feature, status: usage.status })),
-      [
-        { credits: 1, feature: "session_summary", status: "refunded" },
-        { credits: 1, feature: "session_summary", status: "succeeded" },
-      ],
-    );
-  });
-
-  test("rate limits repeated AI requests without consuming another credit", async () => {
-    let calls = 0;
-    const env = aiEnv(async () => {
-      calls += 1;
-      return {
-        choices: [{ message: { content: JSON.stringify({
-          highlights: [],
-          summary: "A concise summary.",
-        }) } }],
-        usage: { completion_tokens: 8, prompt_tokens: 40, total_tokens: 48 },
-      };
-    });
-    const paid = await paidProCookie(env);
-    assert.equal((await uploadWithCookie(paid.cookie, "ai_rate_limit_session", "Rate limited AI", paid.env)).status, 201);
-    const request = () => api("/api/ai/session-summary", {
-      body: JSON.stringify({
-        language: "en",
-        requestId: "ai_rate_limit_request_0001",
-        sessionId: "ai_rate_limit_session",
-      }),
-      headers: { cookie: paid.cookie, "content-type": "application/json" },
-      method: "POST",
-    }, paid.env);
-
-    assert.equal((await request()).status, 200);
-    for (let attempt = 1; attempt < 10; attempt += 1) {
-      const replay = await request();
-      assert.equal(replay.status, 200);
-      assert.equal((await jsonBody(replay)).idempotent, true);
+    for (const [path, method] of requests) {
+      const response = await api(path, { method });
+      assert.equal(response.status, 404, `${method} ${path}`);
     }
-    const limited = await request();
-    assert.equal(limited.status, 429);
-    assert.equal((await jsonBody(limited)).code, "ai_rate_limited");
-    assert.equal(calls, 1);
-
-    const entitlements = await jsonBody(await api("/api/account/entitlements", {
-      headers: { cookie: paid.cookie },
-    }, paid.env));
-    assert.ok(isRecord(entitlements.aiCredits));
-    assert.equal(entitlements.aiCredits.balance, 199);
   });
 
-  test("refills 200 Pro credits monthly without rollover on an annual subscription", async () => {
+  test("grants 500 Pro credits once without renewal or reactivation grants", async () => {
     const checkoutClaim = "checkout_claim_annual_0001";
     const originalFetch = globalThis.fetch;
     setCloudNowForTests("2026-01-31T12:30:00.000Z");
@@ -1909,19 +1765,19 @@ describe("remote installation isolation", () => {
     }
     const first = await jsonBody(await api("/api/account/entitlements", { headers: { cookie } }));
     assert.ok(isRecord(first.aiCredits));
-    assert.equal(first.aiCredits.balance, 200);
-    assert.equal(first.aiCredits.nextExpiryAt, "2026-02-28T12:30:00.000Z");
-    assert.equal(first.aiCredits.nextRefillAt, "2026-02-28T12:30:00.000Z");
+    assert.equal(first.aiCredits.balance, 500);
+    assert.equal(first.aiCredits.nextExpiryAt, "2027-01-31T12:30:00.000Z");
+    assert.equal(first.aiCredits.nextRefillAt, null);
 
     setCloudNowForTests("2026-02-28T12:30:00.000Z");
     const renewed = await jsonBody(await api("/api/account/entitlements", { headers: { cookie } }));
     assert.ok(isRecord(renewed.aiCredits));
-    assert.equal(renewed.aiCredits.balance, 200);
-    assert.equal(renewed.aiCredits.nextExpiryAt, "2026-03-28T12:30:00.000Z");
-    assert.equal(renewed.aiCredits.nextRefillAt, "2026-03-28T12:30:00.000Z");
+    assert.equal(renewed.aiCredits.balance, 500);
+    assert.equal(renewed.aiCredits.nextExpiryAt, "2027-01-31T12:30:00.000Z");
+    assert.equal(renewed.aiCredits.nextRefillAt, null);
     const duplicate = await jsonBody(await api("/api/account/entitlements", { headers: { cookie } }));
     assert.ok(isRecord(duplicate.aiCredits));
-    assert.equal(duplicate.aiCredits.balance, 200);
+    assert.equal(duplicate.aiCredits.balance, 500);
   });
 
   test("fulfills a storage add-on once across webhook retries and success polling", async () => {

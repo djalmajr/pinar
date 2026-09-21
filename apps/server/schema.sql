@@ -33,7 +33,7 @@ CREATE TABLE ai_credit_grants (
   owner_type TEXT NOT NULL CHECK (owner_type IN ('account', 'installation')),
   owner_id TEXT NOT NULL,
   source_type TEXT NOT NULL CHECK (
-    source_type IN ('free_initial', 'pro_monthly', 'purchase')
+    source_type IN ('free_initial', 'pro_initial', 'pro_monthly', 'purchase')
   ),
   source_id TEXT NOT NULL UNIQUE,
   credits INTEGER NOT NULL CHECK (credits > 0),

@@ -114,7 +114,7 @@ describe("POST /api/ai/voice-pin", () => {
     assert.match(String(calls[1].input.instructions), /prefer the final correction/);
     assert.match(String(calls[1].input.instructions), /preserving concrete details, negations, numbers, conditions, and constraints/);
     assert.match(String(calls[1].input.input), /quer dizer, deve ficar alinhado/);
-    assert.equal(await credits(paid.cookie, paid.env), 199);
+    assert.equal(await credits(paid.cookie, paid.env), 499);
   });
 
   test("guards intent recovery against guessing and lost constraints", () => {
@@ -122,6 +122,29 @@ describe("POST /api/ai/voice-pin", () => {
     assert.match(instructions, /If intent remains ambiguous, state the ambiguity concisely instead of guessing/);
     assert.match(instructions, /Do not remove repetition that is clearly intentional/);
     assert.match(instructions, /Do not turn uncertainty into certainty or invent requirements/);
+  });
+
+  test("charges one credit through 60 seconds and two credits from 61 through 120 seconds", async () => {
+    const env = aiEnv(async () => ({
+      text: "Ajuste o alinhamento.",
+      transcription_info: { language: "pt" },
+    }));
+    const paid = await paidProCookie(env);
+
+    const oneMinute = await jsonBody(await api("/api/ai/voice-pin", {
+      body: voiceForm("voice_request_boundary_60", 60),
+      headers: { cookie: paid.cookie },
+      method: "POST",
+    }, paid.env));
+    const overOneMinute = await jsonBody(await api("/api/ai/voice-pin", {
+      body: voiceForm("voice_request_boundary_61", 61),
+      headers: { cookie: paid.cookie },
+      method: "POST",
+    }, paid.env));
+
+    assert.equal(oneMinute.creditsCharged, 1);
+    assert.equal(overOneMinute.creditsCharged, 2);
+    assert.equal(await credits(paid.cookie, paid.env), 497);
   });
 
   test("charges proportionally by started minute and replays idempotently", async () => {
@@ -150,7 +173,7 @@ describe("POST /api/ai/voice-pin", () => {
     assert.equal(replay.idempotent, true);
     assert.equal(replay.creditsCharged, 2);
     assert.equal(callCount, 1);
-    assert.equal(await credits(paid.cookie, paid.env), 198);
+    assert.equal(await credits(paid.cookie, paid.env), 498);
   });
 
   test("refunds the reserved credit when transcription fails", async () => {
@@ -167,7 +190,7 @@ describe("POST /api/ai/voice-pin", () => {
     const body = await jsonBody(response);
     assert.equal(body.code, "ai_inference_failed");
     assert.match(String(body.error), /credit refunded/);
-    assert.equal(await credits(paid.cookie, paid.env), 200);
+    assert.equal(await credits(paid.cookie, paid.env), 500);
   });
 
   test("rejects clips longer than two minutes before inference", async () => {
@@ -184,6 +207,6 @@ describe("POST /api/ai/voice-pin", () => {
     assert.equal(response.status, 400);
     assert.equal((await jsonBody(response)).code, "invalid_audio_duration");
     assert.equal(called, false);
-    assert.equal(await credits(paid.cookie, paid.env), 200);
+    assert.equal(await credits(paid.cookie, paid.env), 500);
   });
 });

@@ -24,6 +24,7 @@ export function groupSessions(sessions: Session[]): SessionGroup[] {
     }
     existing.captures!.push(session);
     existing.pins.push(...session.pins);
+    existing.isShared ||= session.isShared;
   }
   for (const group of groups.values()) {
     if (!group.captures) continue;

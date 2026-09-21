@@ -61,7 +61,7 @@ type ThemeMode = "dark" | "light" | "system";
 type AiUsageStatus = "idle" | "loading" | "ready" | "unavailable";
 type AiMode = "byok" | "disabled" | "local";
 type AiSettingsStatus = "clearing" | "idle" | "loading" | "ready" | "saving";
-type AiUsageFeature = "component_export" | "design_system" | "reproduction" | "session_summary" | "voice_pin";
+type AiUsageFeature = "voice_pin";
 
 interface AiUsageHistoryEntry {
   completedAt: string | null;
@@ -96,17 +96,9 @@ const PINAR_GITHUB_URL = "https://github.com/djalmajr/pinar";
 const PINAR_WEBSITE_URL = "https://pinar.dev";
 const AI_SETTINGS_TOAST_ID = "ai-settings-feedback";
 const AI_USAGE_FEATURES = new Set<AiUsageFeature>([
-  "component_export",
-  "design_system",
-  "reproduction",
-  "session_summary",
   "voice_pin",
 ]);
 const AI_USAGE_FEATURE_LABELS = {
-  component_export: "settings.aiUsageComponentExport",
-  design_system: "settings.aiUsageDesignSystem",
-  reproduction: "settings.aiUsageReproduction",
-  session_summary: "settings.aiUsageSessionSummary",
   voice_pin: "settings.aiUsageVoicePin",
 } as const;
 

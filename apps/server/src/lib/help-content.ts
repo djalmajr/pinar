@@ -51,6 +51,7 @@ export interface HelpUi {
   categoryArticles: string;
   categoryNotFound: string;
   categoryNotFoundDescription: string;
+  clearSearch: string;
   explore: string;
   help: string;
   helpCategories: string;
@@ -446,10 +447,9 @@ export const helpArticleDefinitions = [
     screenshotKey: "capture-review",
     sourceRefs: [
       "apps/server/src/pages/WebViewer.tsx",
-      "apps/server/src/components/PinDiagnosisPanel.tsx",
-      "apps/server/src/components/PinComponentPanel.tsx",
       "apps/server/src/components/ReproductionTimeline.tsx",
-      "apps/server/src/components/CollectionDesignSystemDialog.tsx",
+      "apps/server/src/server/ai/reproduction.ts",
+      "apps/server/src/server/ai/voice-pin.ts",
       "apps/server/src/server/ai/local-ai.ts",
       "extension/content.js",
     ],

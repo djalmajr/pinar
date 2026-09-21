@@ -17,6 +17,8 @@ for (const mode of ["local", "cloud"]) test(`continuous session captures multipl
       const saved: Record<string, any> = {};
       (globalThis as any).__reviewSaved = saved;
       (globalThis as any).__reviewOffline = false;
+      (globalThis as any).__reviewFinishCalls = 0;
+      (globalThis as any).__reviewFinishBlocked = false;
       const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
       const originalFetch = globalThis.fetch.bind(globalThis);
       globalThis.fetch = async (input, init) => {
@@ -36,6 +38,13 @@ for (const mode of ["local", "cloud"]) test(`continuous session captures multipl
         }
         if (path.startsWith("/api/history/") && init?.method === "DELETE") { delete saved[path.split("/").pop()!]; return json({ ok: true }); }
         if (path.startsWith("/api/batches/") && path.endsWith("/markdown")) return new Response(Object.values(saved).flatMap((entry) => entry.pins.map((pin: any) => pin.comment)).join("\n"));
+        if (path.startsWith("/api/batches/") && path.endsWith("/finish")) {
+          (globalThis as any).__reviewFinishCalls += 1;
+          while ((globalThis as any).__reviewFinishBlocked) {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+          return json({ ok: true });
+        }
         if (path.startsWith("/api/batches/")) return json({ ok: true });
         if (path.startsWith("/b/")) return new Response(Object.values(saved).flatMap((entry) => entry.pins.map((pin: any) => pin.comment)).join("\n"));
         throw new Error(`Unexpected test request: ${path}`);
@@ -65,7 +74,7 @@ for (const mode of ["local", "cloud"]) test(`continuous session captures multipl
         const attach = Element.prototype.attachShadow;
         Element.prototype.attachShadow = function (options) { return attach.call(this, { ...options, mode: "open" }); };
       } });
-      await chrome.scripting.executeScript({ target: { tabId: tab.id! }, files: ["coordinates.js", "frame-path.js", "locators.js", "privacy.js", "snapshot.js", "evidence.js", "keyboard.js", "content.js"] });
+      await chrome.scripting.executeScript({ target: { tabId: tab.id! }, files: ["coordinates.js", "frame-path.js", "locators.js", "privacy.js", "snapshot.js", "evidence.js", "keyboard.js", "voice.js", "content.js"] });
     });
     await inject(worker);
     await expect(page.locator('[data-pinar="host"]')).toBeVisible();
@@ -162,8 +171,27 @@ for (const mode of ["local", "cloud"]) test(`continuous session captures multipl
     await pressCopyShortcut(page);
     await expect.poll(async () => (await readDraft())?.entries[2]?.status).toBe("pending");
     await expect(page.locator('[data-pinar="host"]')).toHaveAttribute("aria-busy", "false");
-    await worker.evaluate(() => { (globalThis as any).__reviewOffline = false; });
+    await expect(page.locator('[data-pinar="host"]')).not.toHaveAttribute("data-progress", "");
+    await worker.evaluate(() => {
+      (globalThis as any).__reviewOffline = false;
+      (globalThis as any).__reviewFinishBlocked = true;
+    });
     await pressCopyShortcut(page);
+    await expect(page.locator('[data-pinar="host"]')).toHaveAttribute("aria-busy", "true");
+    await expect(page.locator('[data-pinar="host"]')).toHaveAttribute("aria-label", "Saving the annotations…");
+    await expect(page.locator('[data-pinar="host"]')).toHaveAttribute("data-progress", "");
+    await expect(page.locator('[data-pinar="host"]')).toHaveAttribute("data-indeterminate", "");
+    await expect(page.locator('[data-pinar="host"]')).not.toHaveAttribute("data-review-open", "");
+    await page.mouse.click(180, 160);
+    await expect.poll(async () => (await readDraft())?.entries.length).toBe(3);
+    await pressCopyShortcut(page);
+    await expect.poll(() => worker.evaluate(() => (globalThis as any).__reviewFinishCalls)).toBe(1);
+    await page.screenshot({ path: testInfo.outputPath("session-finishing.png") });
+    await page.setViewportSize({ width: 360, height: 640 });
+    await expect(page.locator('[data-pinar="host"]')).toHaveAttribute("aria-label", "Saving the annotations…");
+    await page.screenshot({ path: testInfo.outputPath("session-finishing-narrow.png") });
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await worker.evaluate(() => { (globalThis as any).__reviewFinishBlocked = false; });
     await expect.poll(readDraft).toBeNull();
     await expect(page.locator('[data-pinar="host"]')).toHaveAttribute("data-confirm", "");
     await page.screenshot({ path: testInfo.outputPath("session-finished.png") });

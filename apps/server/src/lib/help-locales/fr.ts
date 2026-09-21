@@ -13,6 +13,7 @@ const locale = {
     categoryArticles: "articles",
     categoryNotFound: "Catégorie introuvable",
     categoryNotFoundDescription: "Cette catégorie n’existe pas.",
+    clearSearch: "Effacer la recherche",
     explore: "Explorer",
     help: "Aide",
     helpCategories: "Catégories d’aide",
@@ -94,8 +95,8 @@ const locale = {
         "Tab remplace la barre de capture par la révision de session, où les pins peuvent être modifiés ou supprimés avant de terminer ou d’abandonner.",
     },
     "capture-review": {
-      alt: "Page avec des épingles d’élément prêtes à être examinées et enrichies par les fonctions d’IA de Pinar.",
-      caption: "Les épingles d’élément conservent la structure capturée nécessaire au diagnostic, à la génération de composants et à l’extraction du design system.",
+      alt: "Page avec des pins d’élément prêts à être examinés avec leur structure et leurs preuves techniques capturées.",
+      caption: "Les pins d’élément conservent la structure capturée et les preuves techniques qui accompagnent le commentaire remis à l’agent.",
     },
     "capture-copy-failed": {
       alt: "Pinar indique que la session n’a pas pu être terminée et conserve les pins pour révision et nouvel essai.",
@@ -323,7 +324,7 @@ const locale = {
         {
           heading: "Cloud",
           paragraphs: [
-            "Le mode cloud active l’accès distant au workspace, la rétention gérée, les résumés avec l’IA Pinar Cloud, la facturation et les liens de partage non listés. L’IA locale et le BYOK restent disponibles sans utiliser de crédits Pinar Cloud. Vous acceptez les politiques en vigueur avant que quoi que ce soit ne soit stocké à distance.",
+            "Le mode cloud active l’accès distant au workspace, la rétention gérée, la transcription vocale et la génération de reproductions avec Pinar Cloud, la facturation et les liens de partage non listés. L’IA locale et le BYOK restent disponibles sans utiliser de crédits Pinar Cloud. Vous acceptez les politiques en vigueur avant que quoi que ce soit ne soit stocké à distance.",
           ],
         },
         {
@@ -444,7 +445,7 @@ const locale = {
             "« Preuves techniques » liste les faits que l’extension a observés sur la page pendant que vous épingliez : erreurs de console, requêtes échouées et environnement (navigateur, viewport, langue). Chaque élément est classé « Après interaction » s’il s’est produit après votre dernier clic ou dernière frappe, ou « Même page » s’il partage seulement la page. Rien n’est déduit et aucun crédit IA n’est dépensé ; retirez un élément avant de partager s’il est sans rapport.",
           ],
           bullets: [
-            "Les pins de zone n’ont pas de structure ; « Diagnostiquer » et « Enregistrer comme composant » restent donc désactivés sur eux.",
+            "Les pins de zone n’ont pas de structure ; utilisez un pin d’élément lorsque l’agent a besoin du contexte DOM et de localisateurs robustes.",
             "La structure et les preuves voyagent dans le bloc JSON pinar-visual-context, si bien qu’un agent les reçoit avec le collage.",
           ],
         },
@@ -593,17 +594,6 @@ const locale = {
             "Si rien n’a été collé, demandez `Command+Enter` / `Alt+Enter` dans Pinar et suivez seulement les notes des pins.",
           ],
         },
-        {
-          heading: "Diagnostiquer un pin et l’enregistrer comme composant",
-          paragraphs: [
-            "Sur un pin doté d’une structure capturée, « Diagnostiquer » demande à l’IA la cause probable de ce que vous avez commenté et une proposition de correctif CSS, avec un niveau de confiance. Acceptez, modifiez ou rejetez la proposition ; seul un diagnostic accepté est conservé avec le pin et copié avec le paquet. Avec l’IA Pinar Cloud, un diagnostic coûte 3 crédits.",
-            "« Enregistrer comme composant » transforme l’élément capturé en un composant isolé pour votre stack : HTML + CSS, React + Tailwind ou Preact + htm. Le résultat liste les fichiers, les dépendances et des notes de fidélité, avec un aperçu à côté du screenshot original. Copiez les fichiers, téléchargez un ZIP ou ouvrez le composant dans StackBlitz. Avec l’IA Pinar Cloud, cela coûte 10 crédits, et la stack choisie est mémorisée pour le prochain pin.",
-          ],
-          bullets: [
-            "Les deux actions ont besoin de la structure de l’élément ; les pins de zone et les pins capturés avant cette version ne peuvent pas les utiliser.",
-            "Un diagnostic à faible confiance est une hypothèse à vérifier, pas une conclusion à coller comme un fait.",
-          ],
-        },
       ],
     },
     "handoff-formats": {
@@ -640,38 +630,30 @@ const locale = {
     },
     "ai-features": {
       title: "Fonctions d’IA et comment les tester",
-      summary: "Retrouvez toutes les fonctions d’IA au même endroit, leurs prérequis et un parcours de test pour l’IA locale, BYOK ou Pinar Cloud.",
+      summary: "Testez la transcription vocale et transformez un parcours enregistré dans le navigateur en étapes rédigées concises.",
       sections: [
         {
-          heading: "Choisir d’abord le fournisseur",
+          heading: "Choisir un fournisseur pour la reproduction",
           paragraphs: [
-            "Sur le serveur local, ouvrez Paramètres → Assistant IA, choisissez IA locale ou BYOK, indiquez le point de terminaison compatible OpenAI et le modèle, puis utilisez Tester et enregistrer. L’IA locale et BYOK n’utilisent pas de crédits Pinar. Dans Pinar Cloud, l’IA est proposée aux comptes connectés éligibles ; l’icône en forme de point d’interrogation près d’une action affiche sa consommation actuelle de crédits Pinar Cloud.",
+            "Sur le serveur local, ouvrez Paramètres → Assistant IA, choisissez IA locale ou BYOK, indiquez le point de terminaison compatible OpenAI et le modèle, puis utilisez Tester et enregistrer. L’IA locale et BYOK n’utilisent pas de crédits Pinar. Dans Pinar Cloud, la reproduction est proposée aux comptes connectés éligibles sans débiter de crédits IA.",
           ],
         },
         {
-          heading: "Résumé de session",
+          heading: "Transcrire un commentaire vocal",
           paragraphs: [
-            "Ouvrez une session enregistrée en cliquant sur la miniature de sa capture. Dans l’en-tête du visualiseur, choisissez Résumer les annotations. Le résultat utilise le titre, l’URL et les commentaires des épingles.",
+            "Connectez l’extension à un compte Pinar Cloud Pro, commencez le commentaire d’une épingle et choisissez le microphone. Enregistrez jusqu’à 120 secondes, arrêtez pour insérer la transcription dans le commentaire ou envoyez-la directement. Le guide Transcription vocale et crédits IA Pinar Cloud détaille les paliers de facturation en vigueur et les remboursements.",
           ],
         },
         {
-          heading: "Diagnostic d’épingle et génération de composant",
+          heading: "Générer des étapes de reproduction rédigées",
           paragraphs: [
-            "Créez une nouvelle épingle d’élément, terminez la session, ouvrez sa miniature puis sélectionnez cette épingle dans le visualiseur. La boîte de dialogue affiche Diagnostiquer et Enregistrer comme composant, avec des sorties HTML, React avec Tailwind ou Preact avec HTM.",
-            "Ces deux fonctions exigent une épingle d’élément avec une structure capturée. Les épingles de zone et les anciennes épingles sans structure affichent le prérequis ; créez une nouvelle épingle d’élément avec l’extension actuelle pour les tester.",
+            "Ouvrez la barre de capture et appuyez sur `G` pour enregistrer. Utilisez la page, rouvrez Pinar, ajoutez une épingle et terminez avec `Command+Enter` sous macOS ou `Alt+Enter` sous Windows et Linux. L’extension enregistre la navigation, les clics, les valeurs saisies, les touches et les défilements utiles ; les valeurs sensibles restent masquées.",
+            "Ouvrez la session enregistrée. Reproduction affiche la chronologie brute, modifiable avant de choisir Générer les étapes rédigées. L’IA transforme cette chronologie et les commentaires en instructions concises, enregistrées avec la session et incluses dans la remise à votre agent local.",
           ],
-        },
-        {
-          heading: "Reproduction automatisée",
-          paragraphs: [
-            "Ouvrez la barre de capture et appuyez sur `G` pour enregistrer. Utilisez la page, rouvrez Pinar, ajoutez une épingle et terminez avec `Command+Enter` sous macOS ou `Alt+Enter` sous Windows et Linux. Dans la session enregistrée, Reproduction affiche les actions et Générer les étapes et le test produit les étapes ainsi qu’un test Playwright.",
-          ],
-        },
-        {
-          heading: "Extraction du design system",
-          paragraphs: [
-            "Envoyez au moins trois nouvelles épingles d’élément provenant de pages du même site vers la même collection, puis choisissez Extraire le design system dans son menu. Seules les épingles avec une structure capturée comptent ; les captures d’écran, épingles de zone et anciennes épingles sans structure sont exclues. La boîte de dialogue affiche le nombre éligible avant l’extraction.",
-            "Le résultat regroupe couleurs, typographie, espacements, rayons, ombres et polices et s’exporte en tokens W3C, variables CSS, thème Tailwind ou DESIGN.md.",
+          bullets: [
+            "Modifiez ou supprimez les événements parasites de la chronologie avant la génération.",
+            "Relisez les instructions générées avant de les remettre à votre agent local.",
+            "Laissez l’agent local créer des tests automatisés adaptés avec le dépôt et ses conventions en contexte.",
           ],
         },
       ],
@@ -803,13 +785,6 @@ const locale = {
             "Après une erreur d’enregistrement de destination, rouvrez les options de l’extension et confirmez que le projet et la collection correspondent à une entrée d’arbre live avant la prochaine capture cloud.",
           ],
         },
-        {
-          heading: "Extraire le design system d’une collection",
-          paragraphs: [
-            "Depuis le menu d’une collection, « Extraire le design system » lit la structure des pins de cette collection et en dérive les tokens qu’ils partagent : couleurs, typographie, espacements, rayons et ombres, plus l’identité du site. Il faut au moins trois pins avec une structure capturée provenant du même site. Avec l’IA Pinar Cloud, cela coûte 15 crédits.",
-            "Le résultat s’ouvre dans un dialogue avec la taille de l’échantillon et d’éventuels avertissements, comme des valeurs dispersées qui ne forment pas une échelle. Exportez-le en variables CSS, en thème Tailwind, en design tokens W3C ou en fichier DESIGN.md, et extrayez à nouveau après avoir ajouté d’autres pins.",
-          ],
-        },
       ],
     },
     "find-manage-share": {
@@ -883,7 +858,7 @@ const locale = {
         {
           heading: "Forme des plans",
           paragraphs: [
-            "Free inclut un usage local permanent, 250 Mo de quota cloud et une rétention cloud de sept jours. Pro est mensuel ou annuel avec 5 Go et 200 crédits IA non reportables rechargés chaque mois.",
+            "Free inclut un usage local permanent, 250 Mo de quota cloud et sept jours de rétention. Pro est annuel, avec 5 Go et une allocation unique de 500 crédits IA lors du premier abonnement du compte.",
           ],
         },
         {
@@ -908,40 +883,33 @@ const locale = {
       ],
     },
     "ai-credits": {
-      title: "Résumés et crédits de l’IA Pinar Cloud",
+      title: "Transcription vocale et crédits IA Pinar Cloud",
       summary:
-        "Sachez quand les crédits Pinar Cloud sont réservés, dépensés, rechargés ou remboursés.",
+        "Comprenez comment les enregistrements vocaux réservent, dépensent, rechargent ou remboursent les crédits Pinar Cloud.",
       sections: [
         {
-          heading: "Coût du résumé",
+          heading: "Coût de la transcription vocale",
           paragraphs: [
-            "Dans Pinar Cloud, un résumé de session réserve 1 crédit IA avant l’inférence du modèle. En cas de succès, la réservation est consommée. Une inférence échouée ou abandonnée la rembourse immédiatement ; une réservation laissée non soldée plus de cinq minutes est remboursée automatiquement. Les résumés autorisent 10 requêtes par minute par compte et 30 par minute par IP ; une requête en double pour la même session attend la fin de la requête active.",
-          ],
-        },
-        {
-          heading: "Ce que coûte chaque fonction IA",
-          paragraphs: [
-            "Chaque fonction IA de Pinar Cloud réserve ses crédits avant d’exécuter le modèle et les rembourse quand le résultat est inutilisable, exactement comme le résumé. Le coût est fixe par requête, pas par token : un résumé de session coûte 1 crédit, un diagnostic d’épingle 3, une reproduction (étapes rédigées plus un test Playwright) 5, l’enregistrement d’une épingle comme composant 10 et l’extraction du design system d’une collection 15.",
-            "Les preuves techniques et la structure de l’élément sont capturées par l’extension sans aucun modèle et ne coûtent rien. Une requête impossible à exécuter (une épingle sans structure capturée, une collection avec moins de trois instantanés du même domaine) est refusée avant toute réservation de crédit.",
+            "La transcription vocale Pinar Cloud est la seule fonction Pinar qui consomme des crédits IA. Un enregistrement jusqu’à 60 secondes réserve 1 crédit ; de 61 à 120 secondes, 2 crédits. En cas de succès, la réservation est consommée. Une transcription échouée la rembourse et une réservation non soldée après cinq minutes est remboursée automatiquement.",
+            "Enregistrer une chronologie de reproduction et générer ses étapes rédigées ne débite aucun crédit IA. L’IA locale et BYOK n’utilisent jamais non plus le solde Pinar Cloud.",
           ],
         },
         {
           heading: "Soldes",
           paragraphs: [
-            "Les packs Pinar Cloud achetés ajoutent 1 000 crédits. L’allocation mensuelle de 200 crédits de Pro ne se reporte pas. Le menu du compte affiche le solde actif et la prochaine date de recharge applicable.",
+            "Le premier abonnement Pro du compte accorde 500 crédits une seule fois. Un renouvellement, une réactivation ou un changement de plan ne les accorde pas de nouveau. Les packs achetés ajoutent 1 000 crédits pour 12 mois.",
           ],
         },
         {
-          heading:
-            "Relancer les résumés avec un nouvel id de requête et lire le grand livre",
+          heading: "Relancer la transcription vocale et consulter l’historique",
           paragraphs: [
-            "Un résumé ne s’exécute que sur une session que vous possédez. Si un résumé est déjà en cours, attendez qu’il se termine au lieu d’en lancer un autre. Les résumés échoués ou abandonnés remboursent la réservation lorsque c’est possible. Si le solde est trop faible, le workspace affiche les crédits restants en direct.",
-            "Les crédits mensuels inclus sont utilisés avant les packs achetés, et le solde qui expire le plus tôt est utilisé en premier. Un pack acheté de 1 000 crédits dure jusqu’à 12 mois. Le menu du compte affiche les crédits restants et la prochaine date de recharge pour les comptes Pro actifs. Les résumés utilisent la langue du workspace lorsqu’elle fait partie des sept langues prises en charge.",
+            "Dans Pinar Cloud, si une transcription est déjà en cours, attendez sa fin au lieu de renvoyer l’enregistrement. Les requêtes échouées remboursent la réservation lorsque c’est possible. Si le solde est trop faible, l’extension conserve le commentaire saisi et indique qu’il faut davantage de crédits.",
+            "Le solde qui expire le plus tôt est utilisé en premier. Le menu du compte affiche les crédits restants ; il n’y a pas de recharge mensuelle ou annuelle.",
           ],
           bullets: [
-            "Si un résumé est déjà en cours sur cette session, attendez qu’il se termine au lieu d’en lancer un second.",
-            "Si une réservation expire ou est remboursée, lancez un nouveau résumé plutôt que de réessayer la même requête.",
-            "Si le workspace affiche zéro crédit, vérifiez les packs restants et la prochaine date de recharge avant d’acheter une autre offre de 1 000 crédits.",
+            "Si une transcription est déjà en cours, attendez sa fin au lieu de renvoyer le même enregistrement.",
+            "Si une réservation expire ou est remboursée, enregistrez ou envoyez de nouveau le commentaire vocal.",
+            "Si le workspace affiche zéro crédit, vérifiez le solde avant d’acheter un autre pack de 1 000 crédits.",
           ],
         },
       ],
@@ -954,7 +922,7 @@ const locale = {
         {
           heading: "Quota et options",
           paragraphs: [
-            "Free a 250 Mo de stockage cloud de base ; Pro a 5 Go. Les options de stockage optionnelles de 5 Go et 20 Go durent 12 mois, avec des e-mails de rappel sept jours et un jour avant l’expiration. Les envois de screenshots doivent être des fichiers PNG valides et passer un contrôle de quota atomique avant le stockage. Les envois s’interrompent lorsque les octets résultants dépassent le quota courant.",
+            "Free a 250 Mo de stockage cloud de base ; Pro a 5 Go. Les options de 5 Go et 20 Go durent 12 mois. Si une option expire au-dessus du quota restant, les nouveaux envois sont suspendus jusqu’au renouvellement ou à la réduction de l’usage. Le contenu existant n’est pas supprimé automatiquement.",
           ],
         },
         {

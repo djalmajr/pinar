@@ -108,6 +108,7 @@ export interface Session {
   shotId?: string;
   shotUrl?: string | null;
   includeScreenshot?: boolean;
+  isShared?: boolean;
   userId?: string | null;
   viewerUrl?: string | null;
 }

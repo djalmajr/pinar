@@ -66,4 +66,15 @@ describe("session filters", () => {
     assert.deepEqual(filterSessions(mixed, "", [], ["accepted", "reopened"]).map(({ id }) => id), ["gamma"]);
     assert.deepEqual(filterSessions(mixed, "checkout", ["twoToFive"], ["correction_ready"]).map(({ id }) => id), ["beta"]);
   });
+
+  test("intersects the shared-only filter with the existing filters", () => {
+    const mixed = [
+      sessions[0]!,
+      { ...sessions[1]!, isShared: true },
+      { ...sessions[2]!, isShared: true },
+    ];
+    assert.deepEqual(filterSessions(mixed, "", [], [], true).map(({ id }) => id), ["beta", "gamma"]);
+    assert.deepEqual(filterSessions(mixed, "checkout", ["twoToFive"], [], true).map(({ id }) => id), ["beta"]);
+    assert.deepEqual(filterSessions(mixed, "alpha", [], [], true).map(({ id }) => id), []);
+  });
 });

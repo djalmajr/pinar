@@ -1,19 +1,15 @@
 import { useRef, useState } from "react";
 import { describeReproductionStep, type Reproduction, type ReproductionStep } from "@pinar/shared";
 import { Badge, Button, Input } from "@pinar/ui";
-import { AiCreditCostHint } from "@/components/AiCreditCostHint";
 import { useGlobalSettings } from "@/components/GlobalSettingsDialog";
 import { useServerI18n, type ServerMessageKey } from "@/lib/i18n";
 import { isRecord } from "@/lib/api-data";
 import { aiErrorPresentation, type AiRecovery } from "@/lib/ai-error-presentation";
 import { mergeGeneratedReproduction } from "@/lib/reproduction-result";
 import CheckIcon from "~icons/lucide/check";
-import CopyIcon from "~icons/lucide/copy";
 import ListVideoIcon from "~icons/lucide/list-video";
 import PencilIcon from "~icons/lucide/pencil";
 import Trash2Icon from "~icons/lucide/trash-2";
-
-export const REPRODUCTION_CREDITS = 5;
 
 interface ReproductionTimelineProps {
   canEdit: boolean;
@@ -48,7 +44,6 @@ export function ReproductionTimeline({ canEdit, reproduction, sessionId, showAi,
   const { language, t } = useServerI18n();
   const openSettings = useGlobalSettings();
   const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingValue, setEditingValue] = useState("");
   const [error, setError] = useState("");
@@ -125,13 +120,6 @@ export function ReproductionTimeline({ canEdit, reproduction, sessionId, showAi,
     }
   }
 
-  async function copyTest() {
-    if (!generated) return;
-    await navigator.clipboard.writeText(generated.test);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 2_000);
-  }
-
   return (
     <section className="flex flex-col gap-3 rounded-lg border bg-muted/30 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -143,12 +131,9 @@ export function ReproductionTimeline({ canEdit, reproduction, sessionId, showAi,
           <p className="text-xs text-muted-foreground">{t("viewer.reproductionDescription")}</p>
         </div>
         {showAi ? (
-          <div className="flex flex-wrap items-center gap-1">
-            <Button disabled={generating || busy || !reproduction.steps.length} size="sm" type="button" onClick={() => void generate()}>
-              {generating ? t("viewer.reproductionGenerating") : generated ? t("viewer.reproductionRegenerate") : t("viewer.reproductionGenerate")}
-            </Button>
-            <AiCreditCostHint label={t("viewer.aiCloudCreditCost", { count: REPRODUCTION_CREDITS })} />
-          </div>
+          <Button disabled={generating || busy || !reproduction.steps.length} size="sm" type="button" onClick={() => void generate()}>
+            {generating ? t("viewer.reproductionGenerating") : generated ? t("viewer.reproductionRegenerate") : t("viewer.reproductionGenerate")}
+          </Button>
         ) : null}
       </div>
       {error ? (
@@ -208,7 +193,9 @@ export function ReproductionTimeline({ canEdit, reproduction, sessionId, showAi,
                 ) : (
                   <p className="mt-1 text-foreground [overflow-wrap:anywhere]">{describeReproductionStep(step)}</p>
                 )}
-                {step.url ? <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">{step.url}</p> : null}
+                {step.url && describeReproductionStep(step) !== step.url ? (
+                  <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">{step.url}</p>
+                ) : null}
               </div>
               {canEdit ? (
                 <div className="flex shrink-0 items-center gap-1">
@@ -247,18 +234,6 @@ export function ReproductionTimeline({ canEdit, reproduction, sessionId, showAi,
             <ol className="mt-1 flex list-decimal flex-col gap-1 pl-5 text-xs text-foreground">
               {generated.steps.map((step, index) => <li key={`${index}-${step.slice(0, 24)}`}>{step}</li>)}
             </ol>
-          </div>
-          <div>
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-xs font-medium">{t("viewer.reproductionTest")}</p>
-              <Button size="sm" type="button" variant="outline" onClick={() => void copyTest()}>
-                {copied ? <CheckIcon data-icon="inline-start" /> : <CopyIcon data-icon="inline-start" />}
-                {copied ? t("viewer.reproductionCopied") : t("viewer.reproductionCopyTest")}
-              </Button>
-            </div>
-            <pre className="mt-1 max-h-80 overflow-auto rounded-md border bg-muted p-3 font-mono text-[11px] leading-relaxed text-foreground">
-              <code>{generated.test}</code>
-            </pre>
           </div>
         </div>
       ) : null}

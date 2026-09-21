@@ -61,9 +61,9 @@ const locale = {
             "把捕获的元素转换为 HTML + CSS、React + Tailwind 或 Preact + htm，包含文件、依赖、保真度说明、预览、ZIP 下载和 StackBlitz。",
         },
         "step-recording": {
-          title: "在 Pinar Cloud 中生成 Playwright 测试（5 积分）",
+          title: "录制并整理复现步骤",
           description:
-            "在页面上按 G 即可录制点击、输入、滚动和导航。重新打开 Pinar，钉住并复制即可附上步骤；再按 G 则丢弃。查看器会生成文字步骤和一个 Playwright 测试。",
+            "在页面上按 G 即可录制点击、输入、滚动和导航。重新打开 Pinar，钉住并复制即可附上时间线；再按 G 则丢弃。查看器会把录制内容转换为供本地智能体使用的简洁文字步骤。",
         },
         "collection-design-system": {
           title: "在 Pinar Cloud 中生成集合的设计系统（15 积分）",

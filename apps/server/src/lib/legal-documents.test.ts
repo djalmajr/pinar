@@ -49,7 +49,7 @@ describe("public legal documents", () => {
     assert.doesNotMatch(termsPt, /Araújo/);
     assert.doesNotMatch(termsEn, /\("Pinar", "we", "us"\)/);
     assert.doesNotMatch(termsPt, /\("Pinar", "nós"\)/);
-    assert.equal(CURRENT_LEGAL_VERSION, "2026-09-14");
+    assert.equal(CURRENT_LEGAL_VERSION, "2026-09-21");
     for (const documentId of LegalDocumentIds) {
       const english = legalDocument(documentId, "en").body;
       const portuguese = legalDocument(documentId, "pt").body;
@@ -66,7 +66,7 @@ describe("public legal documents", () => {
     const terms = legalDocument("terms", "en").body;
     const fairSource = legalDocument("fair-source", "en").body;
     assert.match(terms, /5 GB/);
-    assert.match(terms, /200 AI credits refilled monthly/);
+    assert.match(terms, /one-time allocation of 500 AI credits/);
     assert.doesNotMatch(terms, /Founder|Lifetime|500 bonus AI credits/);
     assert.match(fairSource, /active subscription/);
     assert.match(fairSource, /not OSI-approved Open Source/);

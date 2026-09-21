@@ -1,8 +1,17 @@
-import type { AuthSession, Session } from "@pinar/shared";
+import type { AuthSession, ProjectTreeProject, Session } from "@pinar/shared";
 import { isRecord, readResponseRecord } from "./api-data";
 import type { PinarRuntime } from "./server-header";
 
 export type ShareResourceType = "session" | "project" | "collection" | "batch";
+
+interface ShareTokenRecord {
+  expiresAt?: string | null;
+  resourceId?: string;
+  resourceType?: ShareResourceType;
+  revokedAt?: string | null;
+  status?: string;
+  token?: string;
+}
 
 export function shareMarkdownPath(sessionId: string, token?: string | null) {
   const path = `/v/${sessionId}.md`;
@@ -25,6 +34,43 @@ export function isActiveShareToken(value: unknown, now = Date.now()) {
     if (Number.isFinite(expiresAt) && expiresAt <= now) return false;
   }
   return true;
+}
+
+export function markSharedSessions(
+  projects: ProjectTreeProject[],
+  tokens: unknown[],
+  now = Date.now(),
+): ProjectTreeProject[] {
+  const active = tokens.filter((token): token is ShareTokenRecord => (
+    isRecord(token)
+    && typeof token.resourceId === "string"
+    && typeof token.resourceType === "string"
+    && isActiveShareToken(token, now)
+  ));
+  const shared = new Map<ShareResourceType, Set<string>>([
+    ["session", new Set()],
+    ["project", new Set()],
+    ["collection", new Set()],
+    ["batch", new Set()],
+  ]);
+  for (const token of active) {
+    if (!token.resourceId || !token.resourceType || !shared.has(token.resourceType)) continue;
+    shared.get(token.resourceType)?.add(token.resourceId);
+  }
+
+  return projects.map((project) => ({
+    ...project,
+    collections: project.collections.map((collection) => ({
+      ...collection,
+      sessions: collection.sessions.map((session) => ({
+        ...session,
+        isShared: shared.get("session")?.has(session.id)
+          || shared.get("collection")?.has(collection.id)
+          || shared.get("project")?.has(project.id)
+          || Boolean(session.batchId && shared.get("batch")?.has(session.batchId)),
+      })),
+    })),
+  }));
 }
 
 function matchingActiveToken(

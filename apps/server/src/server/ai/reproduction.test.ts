@@ -25,18 +25,6 @@ const RECORDING = {
 
 const GENERATED = {
   steps: ["Open https://example.test/login", "Type user@example.test into Email", "Type <password> into Password", "Click Sign in"],
-  test: [
-    "import { expect, test } from \"@playwright/test\";",
-    "test.describe(\"login\", () => {",
-    "  test(\"shows the dashboard after signing in\", async ({ page }) => {",
-    "    await page.goto(\"https://example.test/login\");",
-    "    await page.getByLabel(\"Email\").fill(\"user@example.test\");",
-    "    await page.getByLabel(\"Password\").fill(process.env.PINAR_PASSWORD ?? \"\");",
-    "    await page.getByRole(\"button\", { name: \"Sign in\" }).click();",
-    "    await expect(page.getByText(\"Something went wrong\")).toBeHidden();",
-    "  });",
-    "});",
-  ].join("\n"),
 };
 
 function responsesApi(text: string) {
@@ -70,12 +58,12 @@ describe("POST /api/ai/reproduction", () => {
     assert.equal(input.steps[1].value, "user@example.test");
     assert.equal(JSON.stringify(input).includes("thumbnail"), false);
     assert.equal(input.pins[0].comment, "The error toast never appears");
-    assert.match(input.steps[3].described, /Click "Sign in"/);
+    assert.equal(input.steps[3].described, '"Sign in"');
   });
 
-  test("generates steps and a test, charges 5 credits, persists and replays idempotently", async () => {
+  test("generates and persists written steps without consuming voice credits", async () => {
     const calls: Array<{ input: unknown; model: string }> = [];
-    let reply = JSON.stringify(GENERATED);
+    const reply = JSON.stringify(GENERATED);
     const env = aiEnv(async (model, input) => {
       calls.push({ input, model });
       return responsesApi(reply);
@@ -87,16 +75,15 @@ describe("POST /api/ai/reproduction", () => {
       reproduction: RECORDING,
     }, paid.env)).status, 201);
 
-    const request = () => postJson("/api/ai/reproduction", {
+    const response = await postJson("/api/ai/reproduction", {
       language: "pt",
       requestId: "repro_request_000001",
       sessionId: "repro_session_001",
     }, paid.cookie, paid.env);
-    const first = await jsonBody(await request());
+    const first = await jsonBody(response);
     assert.equal(first.ok, true);
-    assert.equal(first.creditsCharged, 5);
-    assert.ok(isRecord(first.aiCredits));
-    assert.equal(first.aiCredits.balance, 195);
+    assert.equal(first.creditsCharged, 0);
+    assert.equal(first.aiCredits, undefined);
     assert.ok(isRecord(first.result) && Array.isArray(first.result.steps));
     assert.equal(first.result.steps.length, 4);
     assert.equal(calls.length, 1);
@@ -104,6 +91,7 @@ describe("POST /api/ai/reproduction", () => {
     assert.ok(isRecord(calls[0].input));
     assert.equal(calls[0].input.max_output_tokens, 2048);
     assert.match(String(calls[0].input.instructions), /untrusted data/);
+    assert.doesNotMatch(String(calls[0].input.instructions), /Playwright|@playwright|\"test\"/i);
     const prompt = String(calls[0].input.input);
     assert.match(prompt, /user@example\.test/);
     assert.match(prompt, /"redacted":true/);
@@ -113,18 +101,16 @@ describe("POST /api/ai/reproduction", () => {
     const stored = await jsonBody(await getJson("/api/sessions/repro_session_001", paid.cookie, paid.env));
     assert.ok(isRecord(stored.session) && isRecord(stored.session.reproduction) && isRecord(stored.session.reproduction.generated));
     assert.equal(stored.session.reproduction.generated.model, "@cf/openai/gpt-oss-20b");
-    assert.match(String(stored.session.reproduction.generated.test), /@playwright\/test/);
+    assert.equal("test" in stored.session.reproduction.generated, false);
     assert.equal(Array.isArray(stored.session.reproduction.steps) && stored.session.reproduction.steps.length, 4);
 
-    reply = "{}";
-    const replay = await jsonBody(await request());
-    assert.equal(replay.idempotent, true);
-    assert.equal(calls.length, 1);
-    assert.ok(isRecord(replay.aiCredits));
-    assert.equal(replay.aiCredits.balance, 195);
+    const entitlements = await jsonBody(await getJson("/api/account/entitlements", paid.cookie, paid.env));
+    assert.ok(isRecord(entitlements.aiCredits));
+    assert.equal(entitlements.aiCredits.balance, 500);
+    assert.deepEqual(entitlements.aiUsage, []);
   });
 
-  test("rejects captures without a recording and refunds unusable output", async () => {
+  test("rejects captures without a recording and leaves voice credits untouched on unusable output", async () => {
     const env = aiEnv(async () => responsesApi("not json at all"));
     const paid = await paidProCookie(env);
     assert.equal((await uploadCapture(paid.cookie, { id: "repro_session_002", pins: [{ comment: "x", number: 1 }] }, paid.env)).status, 201);
@@ -148,6 +134,6 @@ describe("POST /api/ai/reproduction", () => {
     assert.equal((await jsonBody(failed)).code, "invalid_ai_response");
     const entitlements = await jsonBody(await getJson("/api/account/entitlements", paid.cookie, paid.env));
     assert.ok(isRecord(entitlements.aiCredits));
-    assert.equal(entitlements.aiCredits.balance, 200);
+    assert.equal(entitlements.aiCredits.balance, 500);
   });
 });

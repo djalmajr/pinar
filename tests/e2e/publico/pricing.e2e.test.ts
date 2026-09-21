@@ -10,7 +10,6 @@ const BrazilPricing = {
   prices: {
     aiCredits1000: { amount: 990, originalAmount: null },
     free: { amount: 0, originalAmount: null },
-    month: { amount: 490, originalAmount: null },
     storage20Gb12M: { amount: 2_990, originalAmount: null },
     storage5Gb12M: { amount: 990, originalAmount: null },
     year: { amount: 3_990, originalAmount: null },
@@ -54,29 +53,25 @@ test("public hero badges share the same soft Pro treatment", async ({ page }) =>
   expect(landingColors).toEqual(pricingColors);
 });
 
-// Mutation captured: forcing `isYearly = true` leaves the Monthly click on the
-// annual card; this test fails while waiting for the observable Pro Monthly UI.
-test("visitor compares every BRL offer without opening checkout", async ({ page }) => {
+test("visitor compares the annual BRL plan and add-ons without opening checkout", async ({ page }) => {
   await page.route("**/api/pricing", (route) => route.fulfill({ json: BrazilPricing }));
 
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Point to the problem. Share the complete context." })).toBeVisible();
   await (await primaryNavigationItem(page, "Plans")).click();
 
-  await expect(page.getByRole("button", { exact: true, name: "Yearly" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("heading", { name: "Pro Yearly" })).toBeVisible();
   await expect(page.getByText("R$39.90", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Pinar Founder" })).toHaveCount(0);
   await expect(page.getByText("R$129.90", { exact: true })).toHaveCount(0);
 
-  await page.getByRole("button", { exact: true, name: "Monthly" }).click();
-  await expect(page.getByRole("heading", { name: "Pro Monthly" })).toBeVisible();
-  await expect(page.getByText("R$4.90", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Pro Monthly" })).toHaveCount(0);
+  await expect(page.getByText("R$4.90", { exact: true })).toHaveCount(0);
 
   await expect(page.getByRole("heading", { name: "1,000 AI credits" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "+5 GB storage" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "+20 GB storage" })).toBeVisible();
-  await expect(page.getByText("valid for 12 months")).toHaveCount(3);
+  await expect(page.getByText("valid for 12 months", { exact: true })).toHaveCount(3);
 
   await (await primaryNavigationItem(page, "Home")).click();
   await expect(page).toHaveURL("/");
@@ -114,18 +109,23 @@ test("paid checkout sends current consent on the first click", async ({ page }) 
   });
 
   await page.goto("/pricing");
-  const proFooter = page.getByRole("button", { name: "Get Pro Yearly — R$39.90/yr" })
+  const proCheckout = page.getByRole("button", { name: "Get Pro Yearly — R$39.90/yr" });
+  const proFooter = proCheckout
     .locator("xpath=ancestor::*[@data-slot='card-footer']");
-  await expect(proFooter.getByText("By continuing, you accept the")).toBeVisible();
-  await expect(proFooter.getByRole("link", { name: "Terms of Service", exact: true }))
+  const legalNote = page.locator("#pricing-pro-legal-note");
+  await expect(proFooter.getByText("By continuing, you accept the")).toHaveCount(0);
+  await expect(proCheckout).toHaveAttribute("aria-describedby", "pricing-pro-legal-note");
+  await expect(proCheckout.locator("sup")).toHaveText("1");
+  await expect(legalNote).toBeVisible();
+  await expect(legalNote.locator("sup")).toHaveText("1");
+  await expect(legalNote.getByRole("link", { name: "Terms of Service", exact: true }))
     .toHaveAttribute("href", "/legal/terms");
-  await expect(proFooter.getByText("Version 2026-09-14.")).toBeVisible();
+  await expect(legalNote.getByText("Version 2026-09-21.")).toBeVisible();
   const freeFooter = page.getByRole("link", { exact: true, name: "Use Free" })
     .locator("xpath=ancestor::*[@data-slot='card-footer']");
   await expect(freeFooter.getByText("By continuing, you accept the")).toHaveCount(0);
   await expect(page.getByRole("dialog")).toHaveCount(0);
 
-  const proCheckout = page.getByRole("button", { name: "Get Pro Yearly — R$39.90/yr" });
   await expect(proCheckout).toBeEnabled();
   await proCheckout.click();
   await expect(page).toHaveURL(/\/pricing\?checkout=ready$/);
@@ -159,10 +159,10 @@ function assertCheckoutConsent(body: Record<string, unknown> | null) {
   expect(body?.offer).toBe("pro_year");
   expect(body?.locale).toBe("en");
   expect(body?.legalAcceptance).toEqual({
-    acceptableUseVersion: "2026-09-14",
+    acceptableUseVersion: "2026-09-21",
     accepted: true,
     locale: "en",
-    privacyVersion: "2026-09-14",
-    termsVersion: "2026-09-14",
+    privacyVersion: "2026-09-21",
+    termsVersion: "2026-09-21",
   });
 }

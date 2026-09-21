@@ -44,6 +44,7 @@ import {
   planSessionEnd,
 } from "./session.js";
 import { createSingleFlight } from "./single-flight.js";
+import { resolveVoiceAvailability } from "./voice-access.js";
 import { createContinuousSession, continuousSummary, indexedDraftStore } from "./continuous-session.js";
 import "./privacy.js";
 
@@ -54,6 +55,7 @@ const tabRecordings = new Map();
 const registeredInstallations = new Set();
 const registerInstallationOnce = createSingleFlight();
 const resetInstallationOnce = createSingleFlight();
+const concludeReviewOnce = createSingleFlight();
 // Keeping the original command id preserves every shortcut a user already bound;
 // Chrome keys bindings by name, so renaming it to "toggle-batch" would drop them.
 const CANCEL_BATCH_COMMAND = "cancel-batch";
@@ -190,7 +192,7 @@ async function endReviewTabs(feedback = "finished") {
   await chrome.storage.session.set({ reviewTabs: [], [TOOLBAR_VISIBLE_KEY]: false });
 }
 
-async function concludeReview(options) {
+async function performConcludeReview(options) {
   for (const [tabId, recording] of tabRecordings) {
     const reproduction = finishRecording(recording);
     const sanitized = globalThis.__pinarPrivacy.sanitizeCapture({ pins: [], page: {}, reproduction });
@@ -203,6 +205,10 @@ async function concludeReview(options) {
   }
   if (result) await endReviewTabs("finished");
   return { ok: true };
+}
+
+function concludeReview(options) {
+  return concludeReviewOnce("active-review", () => performConcludeReview(options));
 }
 
 async function cancelReview() {
@@ -596,10 +602,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "voice:availability") {
     Promise.all([getSettings(), getAuthSession()])
       .then(([settings, session]) => sendResponse({
-        available: settings.storageMode === "cloud" && session.kind === "account" && session.plan === "pro",
+        ...resolveVoiceAvailability(settings.storageMode, session),
         ok: true,
       }))
-      .catch((error) => sendResponse({ error: String(error), ok: false }));
+      .catch((error) => sendResponse({ available: false, error: String(error), ok: false, reason: "unavailable" }));
     return true;
   }
   if (message.type === "voice:transcribe") {

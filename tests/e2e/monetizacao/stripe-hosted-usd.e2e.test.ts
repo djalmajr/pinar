@@ -84,36 +84,36 @@ async function stripeCustomerId(sessionId: string) {
   return customerId;
 }
 
-test("Stripe Test USD Pro monthly and add-ons fulfill on staging", async ({ context, page }) => {
+test("Stripe Test USD Pro annual and add-ons fulfill on staging", async ({ context, page }) => {
   expect(buyerEmail).toMatch(/^pinar-usd-e2e\+[a-z0-9-]+@example\.com$/);
   expect(secretKey.startsWith("rk_test_")).toBe(true);
   await attachStagingAccess(context);
   test.setTimeout(360_000);
 
-  const monthly = await createUsdCheckout({
+  const annual = await createUsdCheckout({
     email: buyerEmail,
     mode: "subscription",
-    offer: "pro_month",
-    priceId: process.env.STRIPE_TEST_PRICE_MONTHLY || "",
+    offer: "pro_year",
+    priceId: process.env.STRIPE_TEST_PRICE_YEARLY || "",
   });
-  await page.goto(monthly.url);
+  await page.goto(annual.url);
   await payStripeTestCheckout(page, { email: buyerEmail, name: "Pinar USD E2E" });
   await expect(page).toHaveURL(new RegExp(`^${STAGING_ORIGIN}/success(?:\\?|$)`), { timeout: 60_000 });
   await expect(page.getByText("Payment confirmed", { exact: true })).toBeVisible();
-  const customerId = await stripeCustomerId(monthly.id);
+  const customerId = await stripeCustomerId(annual.id);
   await page.getByRole("link", { exact: true, name: "Open app" }).click();
 
   let entitlements = await readEntitlements(page);
   expect(entitlements.ok).toBe(true);
   expect(entitlements.body).toMatchObject({
-    aiCredits: { balance: 200 },
+    aiCredits: { balance: 500 },
     plan: "pro",
     storage: { quotaBytes: 5 * gigabyte },
   });
 
   const addOns = [
     {
-      expected: { aiCredits: { balance: 1_200 }, storage: { quotaBytes: 5 * gigabyte } },
+      expected: { aiCredits: { balance: 1_500 }, storage: { quotaBytes: 5 * gigabyte } },
       offer: "ai_credits_1000",
       priceId: process.env.STRIPE_TEST_PRICE_AI_CREDITS_1000 || "",
     },

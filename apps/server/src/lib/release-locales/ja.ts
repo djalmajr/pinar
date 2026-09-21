@@ -61,9 +61,9 @@ const locale = {
             "取得した要素を HTML + CSS、React + Tailwind、Preact + htm に変換します。ファイル、依存関係、忠実度のメモ、プレビュー、ZIP ダウンロード、StackBlitz に対応します。",
         },
         "step-recording": {
-          title: "Pinar Cloud で Playwright テストを生成（5 クレジット）",
+          title: "再現手順を記録して整理",
           description:
-            "ページで G を押すとクリック、入力、スクロール、ナビゲーションを記録します。Pinar を再び開き、ピンを付けてコピーすると手順が添付され、もう一度 G を押すと破棄されます。ビューアーは文章の手順と Playwright テストを生成します。",
+            "ページで G を押すとクリック、入力、スクロール、ナビゲーションを記録します。Pinar を再び開き、ピンを付けてコピーするとタイムラインが添付され、もう一度 G を押すと破棄されます。ビューアーは記録をローカルエージェント向けの簡潔な文章の手順に変換します。",
         },
         "collection-design-system": {
           title: "Pinar Cloud でコレクションのデザインシステムを生成（15 クレジット）",

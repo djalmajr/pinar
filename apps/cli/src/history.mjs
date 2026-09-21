@@ -468,20 +468,6 @@ class JsonHistoryDb {
       : this.getDefaultDestination();
   }
 
-  readCollectionDesignSystem(collectionId) {
-    return this.data.design_systems.find((item) => item.collection_id === collectionId)?.value ?? null;
-  }
-
-  writeCollectionDesignSystem(collectionId, value) {
-    if (!this.data.collections.some((item) => item.id === collectionId)) return false;
-    this.data.design_systems = [
-      { collection_id: collectionId, updated_at: now(), value },
-      ...this.data.design_systems.filter((item) => item.collection_id !== collectionId),
-    ];
-    this._save();
-    return true;
-  }
-
   /** @param {HistoryInput} input */
   saveSession({ batchId = null, collectionId, createdAt, id, includeScreenshot = true, page = {}, pins = [], privacy, reproduction, shotId = null, shotPath = null, warnings } = {}) {
     const destination = this.resolveDestination(collectionId);
@@ -1150,26 +1136,6 @@ class SqliteHistoryDb {
     return row
       ? { collectionId: row.id, projectId: row.project_id }
       : this.getDefaultDestination();
-  }
-
-  readCollectionDesignSystem(collectionId) {
-    const row = this.db.prepare(
-      "SELECT value FROM collection_design_systems WHERE collection_id = ?",
-    ).get(collectionId);
-    return row?.value ?? null;
-  }
-
-  writeCollectionDesignSystem(collectionId, value) {
-    const collection = this.db.prepare(
-      "SELECT id FROM collections WHERE id = ? AND owner_id = ?",
-    ).get(collectionId, LOCAL_OWNER_ID);
-    if (!collection) return false;
-    this.db.prepare(`
-      INSERT INTO collection_design_systems (collection_id, value, updated_at)
-      VALUES (?, ?, ?)
-      ON CONFLICT(collection_id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-    `).run(collectionId, value, now());
-    return true;
   }
 
   /** @param {HistoryInput} input */

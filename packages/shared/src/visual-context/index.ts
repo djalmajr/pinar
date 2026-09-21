@@ -555,13 +555,13 @@ export function describeReproductionStep(step: Reproduction["steps"][number]) {
     : step.locator?.cssSelector || step.locator?.domPath || "";
   switch (step.kind) {
     case "click":
-      return `Click ${target || "the element"}`.trim();
+      return target || "the element";
     case "input":
       return `Type ${step.redacted ? "[redacted]" : JSON.stringify(step.value ?? "")} into ${target || "the field"}`;
     case "key":
       return `Press ${step.value || "a key"}${target ? ` on ${target}` : ""}`;
     case "navigate":
-      return `Open ${step.url || "the page"}`;
+      return step.title || step.url || "the page";
     case "scroll":
       return `Scroll${target ? ` ${target}` : ""}${step.value ? ` to ${step.value}` : ""}`;
     default:

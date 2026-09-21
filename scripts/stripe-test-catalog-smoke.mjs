@@ -97,8 +97,6 @@ if (!secretKey.startsWith("rk_test_")) {
 }
 
 const offers = [
-  { currency: "usd", mode: "subscription", offer: "pro_month", price: "STRIPE_TEST_PRICE_MONTHLY", unitAmount: 299 },
-  { currency: "brl", mode: "subscription", offer: "pro_month", price: "STRIPE_TEST_PRICE_BR_MONTHLY", unitAmount: 490 },
   { currency: "usd", mode: "subscription", offer: "pro_year", price: "STRIPE_TEST_PRICE_YEARLY", unitAmount: 1900 },
   { currency: "brl", mode: "subscription", offer: "pro_year", price: "STRIPE_TEST_PRICE_BR_YEARLY", unitAmount: 3990 },
   { currency: "usd", mode: "payment", offer: "ai_credits_1000", price: "STRIPE_TEST_PRICE_AI_CREDITS_1000", unitAmount: 299 },

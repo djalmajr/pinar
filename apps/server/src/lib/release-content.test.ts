@@ -128,7 +128,6 @@ describe("tagged release content", () => {
     const aiChangeIds = new Set([
       "pin-diagnosis",
       "save-as-component",
-      "step-recording",
       "collection-design-system",
     ]);
 

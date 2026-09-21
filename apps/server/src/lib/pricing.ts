@@ -8,7 +8,6 @@ export interface PublicPrice {
 export interface PublicPricingPrices {
   aiCredits1000: PublicPrice;
   free: PublicPrice;
-  month: PublicPrice;
   storage20Gb12M: PublicPrice;
   storage5Gb12M: PublicPrice;
   year: PublicPrice;
@@ -25,8 +24,6 @@ export interface PublicPricing {
 export interface PricingConfig {
   aiCredits1000BrlCents: number;
   aiCredits1000UsdCents: number;
-  monthlyBrlCents: number;
-  monthlyUsdCents: number;
   storage20Gb12MBrlCents: number;
   storage20Gb12MUsdCents: number;
   storage5Gb12MBrlCents: number;
@@ -54,7 +51,6 @@ export function isPublicPricing(value: unknown): value is PublicPricing {
     && (value.discountPercent === null || Number.isInteger(value.discountPercent))
     && isPublicPrice(value.prices.aiCredits1000)
     && isPublicPrice(value.prices.free)
-    && isPublicPrice(value.prices.month)
     && isPublicPrice(value.prices.storage20Gb12M)
     && isPublicPrice(value.prices.storage5Gb12M)
     && isPublicPrice(value.prices.year)
@@ -69,7 +65,6 @@ function pricesForBrazil(config: PricingConfig): PublicPricingPrices {
   return {
     aiCredits1000: publicPrice(config.aiCredits1000BrlCents),
     free: publicPrice(0),
-    month: publicPrice(config.monthlyBrlCents),
     storage20Gb12M: publicPrice(config.storage20Gb12MBrlCents),
     storage5Gb12M: publicPrice(config.storage5Gb12MBrlCents),
     year: publicPrice(config.yearlyBrlCents),
@@ -80,7 +75,6 @@ function pricesForGlobal(config: PricingConfig): PublicPricingPrices {
   return {
     aiCredits1000: publicPrice(config.aiCredits1000UsdCents),
     free: publicPrice(0),
-    month: publicPrice(config.monthlyUsdCents),
     storage20Gb12M: publicPrice(config.storage20Gb12MUsdCents),
     storage5Gb12M: publicPrice(config.storage5Gb12MUsdCents),
     year: publicPrice(config.yearlyUsdCents),

@@ -60,6 +60,20 @@ describe("session after copy", () => {
     assert.match(contentSrc, /message\?\.type === "copy:progress"/);
   });
 
+  test("finishing immediately replaces the pin toolbar with a single-flight saving state", () => {
+    const send = contentSrc.slice(
+      contentSrc.indexOf("  async function sendPins() {"),
+      contentSrc.indexOf("  function frameElementForSource"),
+    );
+    const markSending = send.indexOf("state.sending = true;");
+    const showPending = send.indexOf('showPending(t("overlay_copying"));');
+    const finishRequest = send.indexOf('type: "review:finish"');
+    assert.ok(markSending >= 0 && showPending > markSending && finishRequest > showPending);
+    assert.match(send, /catch \{[\s\S]*clearProgress\(\);[\s\S]*setReviewOpen\(true\);/);
+    assert.match(contentSrc, /:host\(\[data-indeterminate\]\) \.toolbar::before/);
+    assert.match(backgroundSrc, /concludeReviewOnce\("active-review", \(\) => performConcludeReview\(options\)\)/);
+  });
+
   test("element composer identifies the selected HTML tag in a badge", () => {
     assert.match(contentSrc, /data-ref="selectionTag"/);
     assert.match(contentSrc, /tag:\s*element\.tagName\.toLowerCase\(\)/);

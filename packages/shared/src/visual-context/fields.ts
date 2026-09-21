@@ -180,7 +180,6 @@ export interface ReproductionGenerated {
   model?: string;
   provider?: string;
   steps: string[];
-  test: string;
 }
 
 export interface Reproduction {
@@ -502,12 +501,10 @@ export function asReproduction(value: unknown): Reproduction | undefined {
   };
   if (isRecord(value.generated)) {
     const generatedSteps = asStringList(value.generated.steps, 60, 400);
-    const test = typeof value.generated.test === "string" ? value.generated.test.slice(0, 20_000) : "";
-    if (generatedSteps.length && test) {
+    if (generatedSteps.length) {
       reproduction.generated = {
         generatedAt: asText(value.generated.generatedAt, 40) || new Date(0).toISOString(),
         steps: generatedSteps,
-        test,
       };
       const model = asOptionalText(value.generated.model, 120);
       const provider = asOptionalText(value.generated.provider, 80);

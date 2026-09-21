@@ -1,12 +1,8 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import ReactMarkdown from "react-markdown";
 import { formatClipboardText, getPinColor, type AgentExecution, type Pin, type PinLocation, type PinReview, type PinReviewHumanAction, type PinReviewStatus, type Reproduction, type Session } from "@pinar/shared";
 import { ImageZoomControls, ImageZoomStage, useImageZoom } from "@/components/ImageZoomStage";
-import { AiCreditCostHint } from "@/components/AiCreditCostHint";
-import { useGlobalSettings } from "@/components/GlobalSettingsDialog";
-import { PinComponentPanel } from "@/components/PinComponentPanel";
-import { PinDiagnosisPanel } from "@/components/PinDiagnosisPanel";
 import { PinEvidence } from "@/components/PinEvidence";
 import { PinStructure } from "@/components/PinStructure";
 import { ReproductionTimeline } from "@/components/ReproductionTimeline";
@@ -15,7 +11,6 @@ import { copyBatchHandoff } from "../lib/session-actions";
 import { ServerShell } from "@/components/ServerShell";
 import { WorkspaceChrome } from "@/components/WorkspaceChrome";
 import { isRecord, isSession } from "@/lib/api-data";
-import { aiErrorPresentation, type AiRecovery } from "@/lib/ai-error-presentation";
 import { isPaidAuthSession, useAuthSession } from "@/lib/auth-session";
 import { useDeliveryPreferences } from "@/lib/delivery-preferences";
 import { useServerI18n, type ServerMessageKey } from "@/lib/i18n";
@@ -55,6 +50,7 @@ import {
   PinBadge,
   ScrollArea,
   SidebarInset,
+  Skeleton,
   Tabs,
   TabsContent,
   TabsList,
@@ -64,42 +60,30 @@ import ArrowLeftIcon from "~icons/lucide/arrow-left";
 import CalendarIcon from "~icons/lucide/calendar-days";
 import CheckIcon from "~icons/lucide/check";
 import ChevronDownIcon from "~icons/lucide/chevron-down";
+import ChevronLeftIcon from "~icons/lucide/chevron-left";
+import ChevronRightIcon from "~icons/lucide/chevron-right";
 import CopyIcon from "~icons/lucide/copy";
 import LayersIcon from "~icons/lucide/layers";
 import ExternalLinkIcon from "~icons/lucide/external-link";
 import MessageCircleIcon from "~icons/lucide/message-circle";
 import ShareIcon from "~icons/lucide/share-2";
-import SparklesIcon from "~icons/lucide/sparkles";
 import UnlinkIcon from "~icons/lucide/unlink";
 import XIcon from "~icons/lucide/x";
 
 interface WebViewerProps {
+  captureIds?: string[];
+  initialSession?: Session;
+  navigationId?: string;
   onClose?: () => void;
   // Moving and deleting need a list to return to, so the standalone /v/ route
   // leaves them out rather than stranding the reader on a dead session.
   onDelete?: (sessionId: string) => void;
   onMove?: (sessionId: string) => void;
+  onNavigate?: (sessionId: string) => void;
+  onShareChange?: () => Promise<void> | void;
   presentation?: "modal" | "page";
   sessionId: string;
   siblingIds?: string[];
-}
-
-interface AiSummaryResult {
-  highlights: string[];
-  model?: string;
-  provider?: string;
-  summary: string;
-}
-
-function aiSummaryResult(value: unknown): AiSummaryResult | null {
-  if (!isRecord(value) || typeof value.summary !== "string" || !Array.isArray(value.highlights)) return null;
-  const highlights = value.highlights.filter((item): item is string => typeof item === "string");
-  return {
-    highlights,
-    model: typeof value.model === "string" ? value.model : undefined,
-    provider: typeof value.provider === "string" ? value.provider : undefined,
-    summary: value.summary,
-  };
 }
 
 function pinNumber(pin: Pin, index: number) {
@@ -299,25 +283,197 @@ function ViewerFrame({ children, className }: { children: ReactNode; className?:
   return <ServerShell className={className}>{children}</ServerShell>;
 }
 
+interface ViewerNavigationProps {
+  siblingCount: number;
+  siblingIndex: number;
+  t: (key: ServerMessageKey, values?: Record<string, string | number>) => string;
+  onStep: (delta: number) => void;
+}
+
+function ViewerNavigation({ siblingCount, siblingIndex, t, onStep }: ViewerNavigationProps) {
+  if (siblingIndex < 0 || siblingCount <= 1) return null;
+  return (
+    <div className="flex shrink-0 items-center gap-2">
+      <span className="text-xs text-muted-foreground tabular-nums" role="status">
+        {t("viewer.capturePosition", { current: siblingIndex + 1, total: siblingCount })}
+      </span>
+      <ButtonGroup aria-label={t("viewer.captureNavigation")}>
+        <Button
+          aria-label={t("viewer.previousCapture")}
+          disabled={siblingIndex <= 0}
+          size="icon"
+          title={t("viewer.previousCapture")}
+          type="button"
+          variant="outline"
+          onClick={() => onStep(-1)}
+        >
+          <ChevronLeftIcon />
+        </Button>
+        <Button
+          aria-label={t("viewer.nextCapture")}
+          disabled={siblingIndex >= siblingCount - 1}
+          size="icon"
+          title={t("viewer.nextCapture")}
+          type="button"
+          variant="outline"
+          onClick={() => onStep(1)}
+        >
+          <ChevronRightIcon />
+        </Button>
+      </ButtonGroup>
+    </div>
+  );
+}
+
+function ViewerCloseButton() {
+  return (
+    <DialogClose render={<Button aria-label="Close" size="icon" title="Close" variant="outline" />}>
+      <XIcon />
+      <span className="sr-only">Close</span>
+    </DialogClose>
+  );
+}
+
+interface ViewerLoadingStateProps {
+  isModal: boolean;
+  shareState: "hidden" | "shared" | "unshared";
+  siblingCount: number;
+  siblingIndex: number;
+  t: (key: ServerMessageKey, values?: Record<string, string | number>) => string;
+  onStep: (delta: number) => void;
+}
+
+function ViewerLoadingState({
+  isModal,
+  shareState,
+  siblingCount,
+  siblingIndex,
+  t,
+  onStep,
+}: ViewerLoadingStateProps) {
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-viewer-loading>
+      {isModal ? (
+        <DialogHeader className="sr-only">
+          <DialogTitle>{t("viewer.loading")}</DialogTitle>
+        </DialogHeader>
+      ) : null}
+      <header className="relative z-20 flex min-h-14 shrink-0 flex-wrap items-center gap-2 border-b bg-card px-3 py-2 sm:gap-4 sm:px-5">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          {isModal ? null : (
+            <Button
+              aria-label={t("viewer.backHistory")}
+              render={<Link preload="intent" search={{ session: undefined }} to="/app" />}
+              size="icon-sm"
+              title={t("viewer.backHistory")}
+              variant="ghost"
+            >
+              <ArrowLeftIcon />
+            </Button>
+          )}
+          <div className="min-w-0 flex-1 space-y-1.5" data-viewer-loading-identity>
+            <Skeleton className="h-4 w-40 max-w-2/3" />
+            <Skeleton className="h-3 w-64 max-w-4/5" />
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+          <ViewerNavigation
+            siblingCount={siblingCount}
+            siblingIndex={siblingIndex}
+            t={t}
+            onStep={onStep}
+          />
+          {shareState === "shared" ? (
+            <ButtonGroup aria-label={t("dashboard.share")}>
+              <Button aria-label={t("share.copyLink")} disabled type="button" variant="outline">
+                <CopyIcon data-icon="inline-start" />
+                <span className="hidden sm:inline">{t("share.copyLink")}</span>
+              </Button>
+              <Button aria-label={t("share.revoke")} disabled type="button" variant="outline">
+                <UnlinkIcon data-icon="inline-start" />
+                <span className="hidden sm:inline">{t("share.revoke")}</span>
+              </Button>
+            </ButtonGroup>
+          ) : shareState === "unshared" ? (
+            <Button aria-label={t("share.publish")} disabled type="button" variant="outline">
+              <ShareIcon data-icon="inline-start" />
+              <span className="hidden sm:inline">{t("share.publish")}</span>
+            </Button>
+          ) : null}
+          <ButtonGroup aria-label={t("viewer.pageActions")}>
+            <Button aria-label={t("dashboard.copyPrompt")} disabled type="button" variant="outline">
+              <CopyIcon data-icon="inline-start" />
+              <span className="hidden sm:inline">{t("dashboard.copyPrompt")}</span>
+            </Button>
+            <Button
+              aria-label={t("viewer.moreActions")}
+              disabled
+              size="icon"
+              title={t("viewer.moreActions")}
+              type="button"
+              variant="outline"
+            >
+              <ChevronDownIcon />
+            </Button>
+          </ButtonGroup>
+          {isModal ? <ViewerCloseButton /> : null}
+        </div>
+      </header>
+      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,3fr)_minmax(12rem,2fr)] md:grid-cols-[minmax(0,1fr)_22rem] md:grid-rows-1">
+        <div className="min-h-0 min-w-0 bg-muted/20 p-6" data-viewer-loading-stage>
+          <Skeleton className="size-full rounded-lg" />
+        </div>
+        <aside className="flex min-h-0 flex-col border-t bg-card md:border-t-0 md:border-l" data-viewer-loading-sidebar>
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3">
+            <div className="flex items-center gap-1.5">
+              <CalendarIcon className="shrink-0 text-primary" />
+              <Skeleton className="h-3 w-24" />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <MessageCircleIcon className="text-primary" />
+              <Skeleton className="h-3 w-12" />
+            </div>
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-4">
+            {[0, 1, 2].map((item) => (
+              <Card className="w-full gap-3 py-3" key={item}>
+                <CardHeader className="grid grid-cols-[auto_1fr] items-start gap-x-2 px-3">
+                  <Skeleton className="size-6 rounded-full" />
+                  <div className="min-w-0 space-y-2">
+                    <Skeleton className="h-4 w-2/5" />
+                    <Skeleton className="h-3 w-full" />
+                    <Skeleton className="h-3 w-4/5" />
+                  </div>
+                </CardHeader>
+                <CardContent className="px-3">
+                  <Skeleton className="h-6 w-full rounded-md" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
 export function WebViewer({
+  captureIds = [],
+  initialSession,
+  navigationId,
   onClose,
   onDelete,
   onMove,
+  onNavigate,
+  onShareChange,
   presentation = "page",
   sessionId,
   siblingIds = [],
 }: WebViewerProps) {
   const { language, t } = useServerI18n();
-  const openSettings = useGlobalSettings();
-  const { componentTarget: preferredComponentTarget, handoffMode } = useDeliveryPreferences();
+  const { handoffMode } = useDeliveryPreferences();
   const authSession = useAuthSession();
-  const showAiSummary = pinarRuntime() === "local" || isPaidAuthSession(authSession);
-  const aiRequestId = useRef<string | null>(null);
-  const [aiError, setAiError] = useState("");
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiRecovery, setAiRecovery] = useState<AiRecovery>(null);
-  const [aiSummary, setAiSummary] = useState<AiSummaryResult | null>(null);
-  const [aiSummaryOpen, setAiSummaryOpen] = useState(false);
+  const showAiReproduction = pinarRuntime() === "local" || isPaidAuthSession(authSession);
   const [loading, setLoading] = useState(true);
   const [pageCopied, setPageCopied] = useState(false);
   const [batchCopied, setBatchCopied] = useState(false);
@@ -333,7 +489,7 @@ export function WebViewer({
   const [captures, setCaptures] = useState<Session[]>([]);
   const [highlightedCapture, setHighlightedCapture] = useState<string | null>(null);
   const imageRefs = useRef(new Map<string, HTMLDivElement>());
-  const captureKey = (presentation === "modal" && siblingIds.length ? siblingIds : [sessionId]).join(",");
+  const captureKey = (presentation === "modal" && captureIds.length ? captureIds : [sessionId]).join(",");
   const pinOwner = (pin: Pin) => captures.find((capture) => capture.pins.some((item) => pinLookupId(item) === pinLookupId(pin))) || session;
   const selectedCapture = selectedPin ? pinOwner(selectedPin) : session;
   const showShareControls = canManageCloudShare(pinarRuntime(), authSession, session);
@@ -342,14 +498,41 @@ export function WebViewer({
   const [pinPatchError, setPinPatchError] = useState("");
   const zoom = useImageZoom(captureKey);
   const isModal = presentation === "modal";
+  const activeNavigationId = navigationId ?? sessionId;
+  const siblingIndex = siblingIds.indexOf(activeNavigationId);
+  const loadingShareState = initialSession && canManageCloudShare(pinarRuntime(), authSession, initialSession)
+    ? initialSession.isShared ? "shared" : "unshared"
+    : "hidden";
 
-  async function loadSession() {
+  const stepCapture = useCallback((delta: number) => {
+    const next = siblingIds[siblingIds.indexOf(activeNavigationId) + delta];
+    if (next) onNavigate?.(next);
+  }, [activeNavigationId, onNavigate, siblingIds]);
+
+  useEffect(() => {
+    if (!isModal || siblingIds.length < 2) return;
+    function onKey(event: KeyboardEvent) {
+      // Pin details and form controls keep their own arrow-key behavior.
+      if (selectedPin) return;
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      const target = event.target;
+      if (target instanceof Element && target.closest("input, textarea, select, [contenteditable='true'], [role='menu'], [role='listbox'], [role='combobox']")) return;
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      stepCapture(event.key === "ArrowLeft" ? -1 : 1);
+    }
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [isModal, selectedPin, siblingIds, stepCapture]);
+
+  async function loadSession(isCurrent: () => boolean = () => true) {
     const results = await Promise.all(captureKey.split(",").map(async (id) => {
       const response = await fetch(`/api/sessions/${encodeURIComponent(id)}`);
       const data: unknown = await response.json();
       if (!response.ok || !isRecord(data) || !isSession(data.session)) throw new Error("Capture unavailable");
       return { session: data.session, reviews: asReviews(data.reviews), executions: asExecutions(data.executions) };
     }));
+    if (!isCurrent()) return;
     setCaptures(results.map((item) => item.session));
     setSession(results.find((item) => item.session.id === sessionId)?.session || results[0].session);
     setReviews(results.flatMap((item) => item.reviews));
@@ -358,8 +541,14 @@ export function WebViewer({
   }
 
   useEffect(() => {
+    let current = true;
     setLoading(true);
-    void loadSession().catch(() => setSession(null)).finally(() => setLoading(false));
+    void loadSession(() => current)
+      .catch(() => { if (current) setSession(null); })
+      .finally(() => { if (current) setLoading(false); });
+    return () => {
+      current = false;
+    };
   }, [captureKey]);
 
   useEffect(() => {
@@ -470,6 +659,7 @@ export function WebViewer({
     setShareError("");
     try {
       setShareToken(await publishShare("session", sessionId));
+      await onShareChange?.();
     } catch {
       setShareError(t("share.error"));
     } finally {
@@ -484,6 +674,7 @@ export function WebViewer({
     try {
       await revokeShare("session", sessionId);
       setShareToken(null);
+      await onShareChange?.();
     } catch {
       setShareError(t("share.error"));
     } finally {
@@ -520,39 +711,6 @@ export function WebViewer({
   }
 
 
-  async function generateAiSummary() {
-    setAiSummaryOpen(true);
-    if (aiSummary || aiLoading) return;
-    setAiError("");
-    setAiRecovery(null);
-    setAiLoading(true);
-    aiRequestId.current ||= `ai_${crypto.randomUUID().replaceAll("-", "")}`;
-    try {
-      const response = await fetch("/api/ai/session-summary", {
-        body: JSON.stringify({ language, requestId: aiRequestId.current, sessionId }),
-        headers: { "content-type": "application/json" },
-        method: "POST",
-      });
-      const data: unknown = await response.json();
-      const result = isRecord(data) ? aiSummaryResult(data.result) : null;
-      if (!response.ok || !result) {
-        const code = isRecord(data) && typeof data.code === "string" ? data.code : "";
-        if (code !== "ai_request_in_progress" && code !== "ai_refund_pending") aiRequestId.current = null;
-        const presentation = aiErrorPresentation(response.status, code);
-        setAiError(t(presentation.messageKey));
-        setAiRecovery(presentation.recovery);
-        return;
-      }
-      setAiSummary(result);
-      setAiRecovery(null);
-    } catch {
-      setAiError(t("viewer.aiNetworkError"));
-      setAiRecovery("retry");
-    } finally {
-      setAiLoading(false);
-    }
-  }
-
   function wrapFrame(body: ReactNode, frameClassName?: string) {
     if (!isModal) {
       return <ViewerFrame className={frameClassName}>{body}</ViewerFrame>;
@@ -568,16 +726,14 @@ export function WebViewer({
 
   if (loading) {
     return wrapFrame(
-      <>
-        {isModal ? (
-          <DialogHeader className="sr-only">
-            <DialogTitle>{t("viewer.loading")}</DialogTitle>
-          </DialogHeader>
-        ) : null}
-        <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
-          {t("viewer.loading")}
-        </div>
-      </>,
+      <ViewerLoadingState
+        isModal={isModal}
+        shareState={loadingShareState}
+        siblingCount={siblingIds.length}
+        siblingIndex={siblingIndex}
+        t={t}
+        onStep={stepCapture}
+      />,
     );
   }
 
@@ -629,19 +785,16 @@ export function WebViewer({
           />
         </div>
         <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-          {showShareControls && shareToken ? (
-            <Badge className="hidden sm:inline-flex" variant="successSoft">{t("share.published")}</Badge>
-          ) : null}
-          {showAiSummary ? (
-            <Button aria-label={t("viewer.aiSummary")} disabled={aiLoading} type="button" variant="outline" onClick={() => void generateAiSummary()}>
-              <SparklesIcon data-icon="inline-start" />
-              <span className="hidden sm:inline">{aiLoading ? t("viewer.aiSummarizing") : t("viewer.aiSummary")}</span>
-            </Button>
-          ) : null}
+          <ViewerNavigation
+            siblingCount={siblingIds.length}
+            siblingIndex={siblingIndex}
+            t={t}
+            onStep={stepCapture}
+          />
           {showShareControls ? (
             shareToken ? (
               <>
-                <ButtonGroup aria-label={t("share.published")}>
+                <ButtonGroup aria-label={t("dashboard.share")}>
                   <Button
                     aria-label={shareLinkCopied ? t("share.linkCopied") : t("share.copyLink")}
                     title={shareError || t("share.copyLink")}
@@ -721,12 +874,7 @@ export function WebViewer({
               />
             </DropdownMenu>
           </ButtonGroup>
-          {isModal ? (
-            <DialogClose render={<Button aria-label="Close" size="icon" title="Close" variant="outline" />}>
-              <XIcon />
-              <span className="sr-only">Close</span>
-            </DialogClose>
-          ) : null}
+          {isModal ? <ViewerCloseButton /> : null}
         </div>
       </header>
       <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,3fr)_minmax(12rem,2fr)] md:grid-cols-[minmax(0,1fr)_22rem] md:grid-rows-1">
@@ -791,7 +939,7 @@ export function WebViewer({
                     key={capture.id}
                     reproduction={capture.reproduction!}
                     sessionId={capture.id}
-                    showAi={showAiSummary && canEditPins}
+                    showAi={showAiReproduction && canEditPins}
                     onPersist={(value) => persistReproduction(value, capture.id)}
                   />
                 ))}
@@ -846,61 +994,6 @@ export function WebViewer({
       </div>
       </div>,
     )}
-      {showAiSummary ? (
-        <Dialog open={aiSummaryOpen} onOpenChange={setAiSummaryOpen}>
-          <DialogContent className="sm:max-w-2xl" showCloseButton>
-            <DialogHeader>
-              <DialogTitle>{t("viewer.aiSummaryTitle")}</DialogTitle>
-              <div className="flex items-start gap-1">
-                <DialogDescription>{t("viewer.aiSummaryDescription")}</DialogDescription>
-                <AiCreditCostHint label={t("viewer.aiCloudCreditCost", { count: 1 })} />
-              </div>
-            </DialogHeader>
-            {aiLoading ? (
-              <p className="py-8 text-center text-sm text-muted-foreground">{t("viewer.aiSummarizing")}</p>
-            ) : aiError ? (
-              <Card className="border-destructive/30 bg-destructive/5">
-                <CardContent className="flex flex-col items-start gap-3 text-sm text-destructive">
-                  <p>{aiError}</p>
-                  {aiRecovery === "signIn" ? (
-                    <Button
-                      render={<a href={`/sign-in?returnTo=${encodeURIComponent(`/v/${sessionId}`)}`} />}
-                      size="sm"
-                      variant="outline"
-                    >
-                      {t("viewer.aiSignInAction")}
-                    </Button>
-                  ) : aiRecovery === "pricing" ? (
-                    <Button render={<Link preload="intent" to="/pricing" />} size="sm" variant="outline">
-                      {t("viewer.aiViewPlans")}
-                    </Button>
-                  ) : aiRecovery === "retry" ? (
-                    <Button size="sm" type="button" variant="outline" onClick={() => void generateAiSummary()}>
-                      {t("viewer.aiRetry")}
-                    </Button>
-                  ) : aiRecovery === "settings" ? (
-                    <Button size="sm" type="button" variant="outline" onClick={() => openSettings("aiUsage")}>
-                      {t("settings.ai")}
-                    </Button>
-                  ) : null}
-                </CardContent>
-              </Card>
-            ) : aiSummary ? (
-              <div className="flex flex-col gap-5">
-                <p className="text-sm leading-relaxed text-foreground">{aiSummary.summary}</p>
-                {aiSummary.highlights.length > 0 && (
-                  <div>
-                    <h3 className="mb-2 text-sm font-semibold">{t("viewer.aiHighlights")}</h3>
-                    <ul className="flex list-disc flex-col gap-2 pl-5 text-sm text-foreground">
-                      {aiSummary.highlights.map((highlight) => <li key={highlight}>{highlight}</li>)}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            ) : null}
-          </DialogContent>
-        </Dialog>
-      ) : null}
       <Dialog open={Boolean(selectedPin)} onOpenChange={(open) => !open && setSelectedPin(null)}>
         <DialogContent className="min-w-0 max-w-[calc(100vw-2rem)] overflow-x-hidden sm:max-w-5xl" outsideScroll showCloseButton>
           {selectedPin && (
@@ -1001,22 +1094,6 @@ export function WebViewer({
                 />
               ) : null}
               {pinPatchError ? <p className="text-xs text-destructive">{pinPatchError}</p> : null}
-              <PinDiagnosisPanel
-                canEdit={canEditPins}
-                pin={selectedPin}
-                sessionId={selectedCapture?.id || sessionId}
-                showAi={showAiSummary && canEditPins}
-                onPersist={(fields) => patchPin(selectedPin, fields, "viewer.evidenceRemoveFailed")}
-              />
-              <PinComponentPanel
-                canEdit={canEditPins}
-                pin={selectedPin}
-                preferredTarget={preferredComponentTarget}
-                session={selectedCapture || session}
-                sessionId={selectedCapture?.id || sessionId}
-                showAi={showAiSummary && canEditPins}
-                onPersist={(fields) => patchPin(selectedPin, fields, "viewer.evidenceRemoveFailed")}
-              />
               <TabsContent className="min-w-0" value="preview">
                 <div className="min-w-0 overflow-hidden rounded-lg border bg-card">
                   <article className="min-w-0 flex flex-col gap-4 p-5 text-sm leading-relaxed">

@@ -97,7 +97,6 @@ interface HistoryDatabase {
   listCollections(projectId: string): Collection[];
   listBatches(): HistoryBatch[];
   listProjects(): Project[];
-  readCollectionDesignSystem(collectionId: string): string | null;
   listSessions(options: {
     batchId?: string;
     collectionId?: string;
@@ -130,7 +129,6 @@ interface HistoryDatabase {
   updateCollection(id: string, name: string): Collection | null;
   upsertBatch(input: { id: string; label: string; startedAt: string }): HistoryBatch;
   updateProject(id: string, name: string, icon?: ProjectIcon): Project | null;
-  writeCollectionDesignSystem(collectionId: string, value: string): boolean;
 }
 
 let activeDatabase: HistoryDatabase | null = null;
@@ -535,8 +533,7 @@ async function routeLocalApi(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const { method } = request;
   const path = url.pathname;
-  const isLocalAiRoute = path.startsWith("/api/ai/")
-    || /^\/api\/collections\/[^/]+\/design-system$/.test(path);
+  const isLocalAiRoute = path.startsWith("/api/ai/");
   if (isLocalAiRoute) {
     const aiResponse = await handleLocalAiRequest(request, rootPath(), historyDatabase());
     if (aiResponse) return aiResponse;

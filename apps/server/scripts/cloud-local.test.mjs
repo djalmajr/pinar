@@ -31,14 +31,15 @@ describe("local cloud runtime options", () => {
 
 describe("local cloud account fixture", () => {
   // Mutation captured: removing either expiring grant changes the real entitlement balance or its nearest expiry.
-  test("seeds an internally consistent Pro account with 200 available credits", () => {
+  test("seeds an internally consistent Pro account with one initial credit grant", () => {
     const fixture = buildCloudLocalFixture("pro", "test-pepper", new Date("2026-08-19T12:00:00.000Z"));
     const sql = buildCloudLocalSeedSql(fixture);
 
-    assert.equal(fixture.nextRefillAt, "2026-09-19T12:00:00.000Z");
+    assert.equal(fixture.nextRefillAt, null);
+    assert.equal(fixture.initialCreditExpiry, "2027-08-19T12:00:00.000Z");
     assert.equal(fixture.creditExpiry, "2026-08-26T12:00:00.000Z");
     assert.equal(fixture.extensionCodeHash, extensionCodeHash("test-pepper", "PRCLD826"));
-    assert.match(sql, /'pro_monthly'.*200, 20/);
+    assert.match(sql, /'pro_initial'.*500, 20/);
     assert.match(sql, /'purchase'.*20, 0/);
     assert.match(sql, /134217728/);
     assert.match(sql, /ai_credit_refill_at/);

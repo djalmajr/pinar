@@ -13,6 +13,7 @@ const locale = {
     categoryArticles: "articles",
     categoryNotFound: "Category not found",
     categoryNotFoundDescription: "This category does not exist.",
+    clearSearch: "Clear search",
     explore: "Explore",
     help: "Help",
     helpCategories: "Help categories",
@@ -92,8 +93,8 @@ const locale = {
         "Tab replaces the capture toolbar with session review, where you can edit or remove pins before finishing or discarding the session.",
     },
     "capture-review": {
-      alt: "A page with element pins ready to be reviewed and enriched by Pinar's AI features.",
-      caption: "Element pins preserve the captured structure needed by diagnosis, component generation, and design-system extraction.",
+      alt: "A page with element pins ready to be reviewed with their captured structure and technical evidence.",
+      caption: "Element pins preserve DOM structure, resilient locators, and observed technical evidence for the agent handoff.",
     },
     "capture-copy-failed": {
       alt: "Pinar reporting that the session could not be finished while keeping its pins available for review and retry.",
@@ -321,7 +322,7 @@ const locale = {
         {
           heading: "Cloud",
           paragraphs: [
-            "Cloud mode enables remote workspace access, managed retention, Pinar Cloud AI summaries, billing, and unlisted share links. Local AI and BYOK remain available without using Pinar Cloud credits. You accept the current policies before anything is stored remotely.",
+            "Cloud mode enables remote workspace access, managed retention, Pinar Cloud voice transcription and reproduction generation, billing, and unlisted share links. Local AI and BYOK remain available without using Pinar Cloud credits. You accept the current policies before anything is stored remotely.",
           ],
         },
         {
@@ -442,7 +443,7 @@ const locale = {
             "“Technical evidence” lists facts the extension observed on the page while you pinned: console errors, failed requests, and the environment (browser, viewport, language). Each item is graded “After interaction” when it happened after your last click or keystroke, or “Same page” when it only shares the page. Nothing is inferred and no AI credit is spent; remove an item before sharing if it is unrelated.",
           ],
           bullets: [
-            "Area pins have no structure, so “Diagnose” and “Save as component” stay disabled on them.",
+            "Area pins have no element structure; use an element pin when the agent needs DOM context and resilient locators.",
             "Structure and evidence travel inside the pinar-visual-context JSON block, so an agent receives them with the paste.",
           ],
         },
@@ -591,17 +592,6 @@ const locale = {
             "If nothing was pasted, ask for `Command+Enter` / `Alt+Enter` in Pinar and follow only the pin notes.",
           ],
         },
-        {
-          heading: "Diagnose a pin and save it as a component",
-          paragraphs: [
-            "On a pin with a captured structure, “Diagnose” asks AI for the probable cause of what you commented and a proposed CSS fix, with a confidence level. Accept, edit, or discard the proposal; only an accepted diagnosis is kept with the pin and copied with the bundle. With Pinar Cloud AI, a diagnosis costs 3 credits.",
-            "“Save as component” turns the captured element into an isolated component for your stack: HTML + CSS, React + Tailwind, or Preact + htm. The result lists files, dependencies, and fidelity notes, with a preview next to the original screenshot. Copy the files, download a ZIP, or open the component in StackBlitz. With Pinar Cloud AI it costs 10 credits, and the chosen stack is remembered for the next pin.",
-          ],
-          bullets: [
-            "Both actions need the element structure; area pins and pins captured before this version cannot use them.",
-            "A low-confidence diagnosis is a hypothesis to verify, not a conclusion to paste as fact.",
-          ],
-        },
       ],
     },
     "handoff-formats": {
@@ -637,38 +627,30 @@ const locale = {
     },
     "ai-features": {
       title: "AI features and how to test them",
-      summary: "Find every AI feature in one place, understand its prerequisites, and run a complete local, BYOK, or Pinar Cloud test.",
+      summary: "Test voice transcription and turn a recorded browser flow into concise written reproduction steps.",
       sections: [
         {
-          heading: "Choose the provider first",
+          heading: "Choose a provider for reproduction",
           paragraphs: [
-            "On the local server, open Settings → AI Assistant, choose Local AI or BYOK, enter the OpenAI-compatible endpoint and model, then use Test and save. Local AI and BYOK do not use Pinar credits. In Pinar Cloud, AI is available to eligible signed-in accounts; the question-mark icon beside an action shows its current Pinar Cloud credit consumption.",
+            "On the local server, open Settings → AI Assistant, choose Local AI or BYOK, enter the OpenAI-compatible endpoint and model, then use Test and save. Local AI and BYOK do not use Pinar credits. In Pinar Cloud, reproduction is available to eligible signed-in accounts without debiting AI credits.",
           ],
         },
         {
-          heading: "Session summary",
+          heading: "Transcribe a voice comment",
           paragraphs: [
-            "Open a saved session by clicking its screenshot thumbnail. In the viewer header, choose Summarize annotations. The result uses the page title, URL, and pin comments and appears in a review dialog.",
+            "Connect the extension to a Pinar Cloud Pro account, start a pin comment, and choose the microphone. Record for up to 120 seconds, stop to place the transcription in the comment, or send it directly. The Voice transcription and Pinar Cloud AI credits guide explains the current charging tiers and refunds.",
           ],
         },
         {
-          heading: "Pin diagnosis and component generation",
+          heading: "Generate written reproduction steps",
           paragraphs: [
-            "Create a new element pin by clicking an element, finish the session, open its thumbnail, and select that pin in the viewer. The pin dialog shows Diagnose and Save as component. Diagnosis proposes a cause and fix that you can edit and accept. Component generation exports HTML, React with Tailwind, or Preact with HTM.",
-            "Both features need an element pin with captured structure. Area pins and older pins without that structure show the prerequisite instead of the action; create a fresh element pin with the current extension to test them.",
+            "Open the Pinar capture toolbar and press `G` to start recording. Use the page normally, reopen Pinar, add a pin, and finish with `Command+Enter` on macOS or `Alt+Enter` on Windows and Linux. The extension records navigation, clicks, typed values, keys, and relevant scrolling; sensitive values remain redacted.",
+            "Open the saved session. Reproduction shows the raw timeline, which you can edit before choosing Generate written steps. AI turns that timeline and the pin comments into concise instructions saved with the session and included in the handoff to your local agent.",
           ],
-        },
-        {
-          heading: "Automated reproduction",
-          paragraphs: [
-            "Open the Pinar capture toolbar and press `G` to start recording. Use the page normally, reopen Pinar, add a pin, and finish with `Command+Enter` on macOS or `Alt+Enter` on Windows and Linux. Open the saved session: the Reproduction section lists the recorded actions and Generate steps and test produces written steps plus a Playwright test.",
-          ],
-        },
-        {
-          heading: "Design-system extraction",
-          paragraphs: [
-            "Send at least three fresh element pins from pages on the same site to the same collection. In the collection menu, choose Extract design system. Pinar counts only pins that contain captured element structure; screenshots, area pins, and older pins without structure do not qualify. The dialog shows the eligible count before extraction.",
-            "The generated result groups colors, typography, spacing, radii, shadows, and fonts and can be copied or downloaded as W3C tokens, CSS variables, a Tailwind theme, or DESIGN.md.",
+          bullets: [
+            "Edit or remove noisy timeline events before generation.",
+            "Review the generated instructions before handing them to your local agent.",
+            "Let the local agent create project-specific automated tests with the repository and its conventions in context.",
           ],
         },
       ],
@@ -799,13 +781,6 @@ const locale = {
             "After a destination save error, reopen extension options and confirm project and collection match a live tree entry before the next cloud capture.",
           ],
         },
-        {
-          heading: "Extract a collection’s design system",
-          paragraphs: [
-            "From a collection’s menu, “Extract design system” reads the structure of the pins in that collection and derives the tokens they share: colors, typography, spacing, radii, and shadows, plus the site identity. It needs at least three pins with a captured structure from the same site. With Pinar Cloud AI, it costs 15 credits.",
-            "The result opens as a dialog with the sample size and any warnings, such as scattered values that do not form a scale. Export it as CSS variables, a Tailwind theme, W3C design tokens, or a DESIGN.md file, and extract again after adding more pins.",
-          ],
-        },
       ],
     },
     "find-manage-share": {
@@ -878,7 +853,7 @@ const locale = {
         {
           heading: "Plan shape",
           paragraphs: [
-            "Free includes permanent local use, 250 MB of cloud quota, and seven-day cloud retention. Pro is monthly or annual with 5 GB and 200 non-rollover AI credits refilled monthly.",
+            "Free includes permanent local use, 250 MB of cloud quota, and seven-day cloud retention. Pro is annual, with 5 GB and a one-time allocation of 500 AI credits on the account’s first subscription.",
           ],
         },
         {
@@ -903,39 +878,32 @@ const locale = {
       ],
     },
     "ai-credits": {
-      title: "Pinar Cloud AI summaries and credits",
-      summary: "Know when Pinar Cloud credits are reserved, spent, refilled, or refunded.",
+      title: "Voice transcription and Pinar Cloud AI credits",
+      summary: "Know how voice recordings reserve, spend, purchase, or refund Pinar Cloud credits.",
       sections: [
         {
-          heading: "Summary cost",
+          heading: "Voice transcription cost",
           paragraphs: [
-            "In Pinar Cloud, a session summary reserves 1 AI credit before model inference. On success, the reservation is consumed. A failed or aborted inference refunds it immediately; a reservation left unsettled for more than five minutes is refunded automatically. Summaries allow 10 requests per minute per account and 30 per minute per IP; a duplicate request for the same session waits for the active request to finish.",
-          ],
-        },
-        {
-          heading: "What each AI feature costs",
-          paragraphs: [
-            "Every Pinar Cloud AI feature reserves its credits before the model runs and refunds them when the result is unusable, exactly like the summary. Costs are fixed per request, not per token: a session summary costs 1 credit, a pin diagnosis 3, a reproduction (written steps plus a Playwright test) 5, saving a pin as a component 10, and extracting a collection’s design system 15.",
-            "Technical evidence and the element structure are captured by the extension without any model and cost nothing. A request that cannot run (a pin without a captured structure, a collection with fewer than three snapshots from the same domain) is refused before any credit is reserved.",
+            "Pinar Cloud voice transcription is the only Pinar feature that consumes AI credits. A recording up to 60 seconds reserves 1 credit; a recording from 61 to 120 seconds reserves 2. On success, the reservation is consumed. A failed transcription refunds it, and a reservation left unsettled for more than five minutes is refunded automatically.",
+            "Recording a reproduction timeline and generating its written steps do not debit AI credits. Local AI and BYOK also never use the Pinar Cloud balance.",
           ],
         },
         {
           heading: "Balances",
           paragraphs: [
-            "Purchased Pinar Cloud packs add 1,000 credits. Pro’s monthly 200-credit allowance does not roll over. The account menu shows the active balance and the next applicable refill date.",
+            "The account’s first Pro subscription grants 500 credits once. Renewing, canceling and reactivating, or changing plans does not grant them again. Purchased Pinar Cloud packs add 1,000 credits and last up to 12 months.",
           ],
         },
         {
-          heading:
-            "Retry summaries with a fresh request id and read the ledger",
+          heading: "Retry voice transcription and read the ledger",
           paragraphs: [
-            "A summary runs only on a session you own. If one is already in progress, wait for it to finish instead of starting another. Failed or aborted summaries refund the reservation when possible. If the balance is too low, the workspace shows the live remaining credits.",
-            "Included monthly credits are used before purchased packs, and the soonest-expiring balance is used first. A purchased 1,000-credit pack lasts up to 12 months. The account menu shows remaining credits and the next refill date for active Pro accounts. Summaries use the workspace language when it is one of the seven supported languages.",
+            "In Pinar Cloud, if a transcription is already in progress, wait for it to finish instead of sending the recording again. Failed requests refund the reservation when possible. If the balance is too low, the extension keeps the typed comment and reports that more credits are required.",
+            "The soonest-expiring balance is used first. The account menu shows the remaining credits; there is no monthly or annual refill.",
           ],
           bullets: [
-            "If a summary is already running on that session, wait for it to finish instead of starting a second one.",
-            "If a reservation expires or is refunded, start a new summary rather than retrying the same request.",
-            "If the workspace shows zero credits, check remaining packs and the next refill date before buying another 1,000-credit offer.",
+            "If a transcription is already running, wait for it to finish instead of sending the same recording again.",
+            "If a reservation expires or is refunded, record or send the voice comment again.",
+            "If the workspace shows zero credits, check the remaining balance before buying another 1,000-credit pack.",
           ],
         },
       ],
@@ -948,13 +916,13 @@ const locale = {
         {
           heading: "Quota and add-ons",
           paragraphs: [
-            "Free has 250 MB of base cloud storage; Pro has 5 GB. Optional 5 GB and 20 GB storage add-ons last 12 months, with reminder emails seven days and one day before expiry. Screenshot uploads must be valid PNG files and pass an atomic quota check before storage. Uploads pause when the resulting bytes exceed the current quota.",
+            "Free has 250 MB of base cloud storage; Pro has 5 GB. Optional 5 GB and 20 GB storage add-ons last 12 months, with reminder emails seven days and one day before expiry. If an add-on expires while usage is above the remaining quota, new uploads pause until you renew storage or reduce usage. Existing content is not automatically deleted because an add-on expired.",
           ],
         },
         {
           heading: "After entitlement expiry",
           paragraphs: [
-            "If an expiring entitlement leaves the account over quota, Pinar grants a 30-day grace period followed by recovery access through day 90. After that, excess data becomes eligible for cleanup. Automatic deletion is not currently enabled, so eligibility is not a promise of immediate deletion.",
+            "Storage add-on expiry lowers the quota and can block new uploads, but it does not schedule automatic deletion. Subscription cancellation follows the separate paid-retention recovery policy described below.",
           ],
         },
         {

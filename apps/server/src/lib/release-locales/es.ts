@@ -62,9 +62,9 @@ const locale = {
             "Convierte un elemento capturado en HTML + CSS, React + Tailwind o Preact + htm, con archivos, dependencias, notas de fidelidad, previsualización, descarga en ZIP y StackBlitz.",
         },
         "step-recording": {
-          title: "Generar una prueba Playwright en Pinar Cloud (5 créditos)",
+          title: "Graba y organiza pasos de reproducción",
           description:
-            "Pulsa G en la página para grabar clics, escritura, desplazamiento y navegación. Vuelve a abrir Pinar, fija y copia para adjuntar los pasos; G de nuevo los descarta. El visor genera pasos escritos y una prueba Playwright.",
+            "Pulsa G en la página para grabar clics, escritura, desplazamiento y navegación. Vuelve a abrir Pinar, fija y copia para adjuntar la línea temporal; G de nuevo la descarta. El visor convierte la grabación en pasos escritos concisos para tu agente local.",
         },
         "collection-design-system": {
           title: "Sistema de diseño de una colección en Pinar Cloud (15 créditos)",

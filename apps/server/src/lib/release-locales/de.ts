@@ -63,9 +63,9 @@ const locale = {
             "Verwandeln Sie ein erfasstes Element in HTML + CSS, React + Tailwind oder Preact + htm, mit Dateien, Abhängigkeiten, Hinweisen zur Genauigkeit, Vorschau, ZIP-Download und StackBlitz.",
         },
         "step-recording": {
-          title: "Einen Playwright-Test in Pinar Cloud erzeugen (5 Credits)",
+          title: "Reproduktionsschritte aufzeichnen und ordnen",
           description:
-            "Drücken Sie G auf der Seite, um Klicks, Tippen, Scrollen und Navigation aufzuzeichnen. Öffnen Sie Pinar erneut, pinnen und kopieren Sie, um die Schritte anzuhängen; ein erneutes G verwirft sie. Der Viewer erzeugt ausformulierte Schritte und einen Playwright-Test.",
+            "Drücken Sie G auf der Seite, um Klicks, Tippen, Scrollen und Navigation aufzuzeichnen. Öffnen Sie Pinar erneut, pinnen und kopieren Sie, um die Zeitleiste anzuhängen; ein erneutes G verwirft sie. Der Viewer macht daraus knappe, ausformulierte Schritte für Ihren lokalen Agenten.",
         },
         "collection-design-system": {
           title: "Design-System einer Collection in Pinar Cloud (15 Credits)",

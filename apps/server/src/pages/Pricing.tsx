@@ -29,6 +29,7 @@ import {
 } from "@/lib/pricing";
 
 interface PricingAmountProps {
+  compact?: boolean;
   currency: PricingCurrency | undefined;
   language: SupportedLanguage;
   originalLabel: string;
@@ -54,20 +55,21 @@ function formatAmount(amount: number, currency: PricingCurrency, language: Suppo
   return new Intl.NumberFormat(locale, { currency, style: "currency" }).format(amount / 100);
 }
 
-function PricingAmount({ currency, language, originalLabel, price, suffix }: PricingAmountProps) {
+function PricingAmount({ compact = false, currency, language, originalLabel, price, suffix }: PricingAmountProps) {
   const originalAmount = price?.originalAmount;
   const hasOriginalAmount = currency !== undefined && typeof originalAmount === "number";
-  const originalText = hasOriginalAmount ? formatAmount(originalAmount, currency, language) : "\u00a0";
+  const originalText = hasOriginalAmount ? formatAmount(originalAmount, currency, language) : null;
   const priceText = currency && price ? formatAmount(price.amount, currency, language) : "—";
   return (
-    <div className="pt-4">
-      <div
-        aria-hidden={!hasOriginalAmount}
-        aria-label={hasOriginalAmount ? originalLabel : undefined}
-        className={`h-5 text-sm text-muted-foreground line-through ${hasOriginalAmount ? "" : "invisible"}`}
-      >
-        {originalText}
-      </div>
+    <div className={compact ? "" : "pt-2"}>
+      {hasOriginalAmount ? (
+        <div
+          aria-label={originalLabel}
+          className="h-5 text-sm text-muted-foreground line-through"
+        >
+          {originalText}
+        </div>
+      ) : null}
       <div className="flex items-baseline gap-1">
         <span className="text-3xl font-bold">{priceText}</span>
         {suffix ? <span className="text-sm text-muted-foreground">{suffix}</span> : null}
@@ -96,8 +98,9 @@ function AddOnCard({
           {description}<sup aria-hidden="true">{legalNoteMarker}</sup>
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="mt-auto">
         <PricingAmount
+          compact
           currency={currency}
           language={language}
           originalLabel=""

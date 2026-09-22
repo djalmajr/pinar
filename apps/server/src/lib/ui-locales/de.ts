@@ -537,7 +537,7 @@ const messages: UiMessages = {
   "pricing.buyAddOn": "Zusatzpaket kaufen",
   "pricing.aiCreditsTitle": "500 KI-Guthaben",
   "pricing.aiCreditsDescription":
-    "Zusätzliches Guthaben für Sprachtranskription.",
+    "Für Sprachtranskription.",
   "pricing.storage1Title": "+1 GB Speicher",
   "pricing.storage1Description":
     "Erhöht das Speicherkontingent um 1 GB.",

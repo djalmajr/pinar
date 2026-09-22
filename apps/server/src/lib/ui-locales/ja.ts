@@ -534,7 +534,7 @@ const messages: UiMessages = {
   "pricing.buyAddOn": "追加パックを購入",
   "pricing.aiCreditsTitle": "500 AI クレジット",
   "pricing.aiCreditsDescription":
-    "音声文字起こし用の追加クレジットです。",
+    "音声文字起こしに使用します。",
   "pricing.storage1Title": "+1 GB ストレージ",
   "pricing.storage1Description":
     "ストレージ容量に 1 GB を追加します。",

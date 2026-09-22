@@ -531,7 +531,7 @@ const messages = {
   "pricing.buyAddOn": "Buy add-on",
   "pricing.aiCreditsTitle": "500 AI credits",
   "pricing.aiCreditsDescription":
-    "Additional credits for voice transcription.",
+    "For voice transcription.",
   "pricing.storage1Title": "+1 GB storage",
   "pricing.storage1Description":
     "Adds 1 GB to your storage allowance.",

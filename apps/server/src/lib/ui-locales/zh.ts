@@ -511,7 +511,7 @@ const messages: UiMessages = {
   "pricing.buyAddOn": "购买附加包",
   "pricing.aiCreditsTitle": "500 个 AI 点数",
   "pricing.aiCreditsDescription":
-    "用于语音转录的额外点数。",
+    "用于语音转录。",
   "pricing.storage1Title": "+1 GB 存储",
   "pricing.storage1Description":
     "增加 1 GB 存储配额。",

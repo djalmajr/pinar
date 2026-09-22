@@ -537,7 +537,7 @@ const messages: UiMessages = {
   "pricing.buyAddOn": "Comprar adicional",
   "pricing.aiCreditsTitle": "500 créditos de IA",
   "pricing.aiCreditsDescription":
-    "Créditos adicionales para transcripción de voz.",
+    "Para transcripción de voz.",
   "pricing.storage1Title": "+1 GB de almacenamiento",
   "pricing.storage1Description":
     "Añade 1 GB a tu cuota de almacenamiento.",

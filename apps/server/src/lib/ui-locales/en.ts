@@ -531,13 +531,13 @@ const messages = {
   "pricing.buyAddOn": "Buy add-on",
   "pricing.aiCreditsTitle": "500 AI credits",
   "pricing.aiCreditsDescription":
-    "Additional voice transcription credits, valid for 12 months after purchase.",
+    "Additional credits for voice transcription.",
   "pricing.storage1Title": "+1 GB storage",
   "pricing.storage1Description":
-    "Adds 1 GB for 12 months. Then renew or reduce usage to keep uploading.",
+    "Adds 1 GB to your storage allowance.",
   "pricing.storage5Title": "+5 GB storage",
   "pricing.storage5Description":
-    "Adds 5 GB for 12 months. Then renew or reduce usage to keep uploading.",
+    "Adds 5 GB to your storage allowance.",
   "pricing.valid12Months": "valid for 12 months",
   "pricing.supportTitle": "Support Fair Source development",
   "pricing.supportDescription":

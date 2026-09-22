@@ -511,13 +511,13 @@ const messages: UiMessages = {
   "pricing.buyAddOn": "购买附加包",
   "pricing.aiCreditsTitle": "500 个 AI 点数",
   "pricing.aiCreditsDescription":
-    "用于语音转录的额外点数，购买后 12 个月内有效。",
+    "用于语音转录的额外点数。",
   "pricing.storage1Title": "+1 GB 存储",
   "pricing.storage1Description":
-    "增加 1 GB 配额，有效期 12 个月。到期后请续购或减少用量以继续上传。",
+    "增加 1 GB 存储配额。",
   "pricing.storage5Title": "+5 GB 存储",
   "pricing.storage5Description":
-    "增加 5 GB 配额，有效期 12 个月。到期后请续购或减少用量以继续上传。",
+    "增加 5 GB 存储配额。",
   "pricing.valid12Months": "有效期 12 个月",
   "pricing.supportTitle": "支持 Fair Source 开发",
   "pricing.supportDescription":

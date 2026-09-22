@@ -537,13 +537,13 @@ const messages: UiMessages = {
   "pricing.buyAddOn": "Comprar adicional",
   "pricing.aiCreditsTitle": "500 créditos de IA",
   "pricing.aiCreditsDescription":
-    "Créditos adicionales para transcripción de voz, válidos durante 12 meses tras la compra.",
+    "Créditos adicionales para transcripción de voz.",
   "pricing.storage1Title": "+1 GB de almacenamiento",
   "pricing.storage1Description":
-    "Añade 1 GB durante 12 meses. Después, renueva o reduce el uso para seguir cargando.",
+    "Añade 1 GB a tu cuota de almacenamiento.",
   "pricing.storage5Title": "+5 GB de almacenamiento",
   "pricing.storage5Description":
-    "Añade 5 GB durante 12 meses. Después, renueva o reduce el uso para seguir cargando.",
+    "Añade 5 GB a tu cuota de almacenamiento.",
   "pricing.valid12Months": "válido por 12 meses",
   "pricing.supportTitle": "Apoya el desarrollo Fair Source",
   "pricing.supportDescription":

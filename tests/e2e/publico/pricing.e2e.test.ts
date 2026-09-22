@@ -71,10 +71,12 @@ test("visitor compares the annual BRL plan and add-ons without opening checkout"
   await expect(page.getByRole("heading", { name: "500 AI credits" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "+1 GB storage" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "+5 GB storage" })).toBeVisible();
-  const addOnValidity = page.getByText("valid for 12 months", { exact: false })
-    .filter({ has: page.locator("sup") });
-  await expect(addOnValidity).toHaveCount(3);
-  await expect(addOnValidity.locator("sup")).toHaveText(["2", "2", "2"]);
+  const addOnCards = page.getByRole("heading", { name: /500 AI credits|\+1 GB storage|\+5 GB storage/ })
+    .locator("xpath=ancestor::*[@data-slot='card']");
+  await expect(addOnCards).toHaveCount(3);
+  await expect(addOnCards.locator("[data-slot='card-description'] sup")).toHaveText(["2", "2", "2"]);
+  await expect(addOnCards.getByText("valid for 12 months")).toHaveCount(0);
+  await expect(page.locator("#pricing-addons-validity")).toContainText("valid for 12 months");
 
   await (await primaryNavigationItem(page, "Home")).click();
   await expect(page).toHaveURL("/");
@@ -115,21 +117,22 @@ test("paid checkout sends current consent on the first click", async ({ page }) 
   const proCheckout = page.getByRole("button", { name: "Get Pro Yearly — R$99.00/yr" });
   const proFooter = proCheckout
     .locator("xpath=ancestor::*[@data-slot='card-footer']");
-  const legalNote = page.locator("#pricing-pro-legal-note");
+  const legalNote = page.locator("#pricing-legal-note");
   const footer = page.getByRole("contentinfo");
   await expect(proFooter.getByText("By continuing, you accept the")).toHaveCount(0);
-  await expect(proCheckout).toHaveAttribute("aria-describedby", "pricing-pro-legal-note");
+  await expect(proCheckout).toHaveAttribute("aria-describedby", "pricing-legal-note");
   await expect(proCheckout.locator("sup")).toHaveText("1");
-  await expect(footer.locator("#pricing-pro-legal-note")).toBeVisible();
-  await expect(footer.locator("#pricing-addons-legal-note")).toBeVisible();
-  await expect(legalNote.locator("sup")).toHaveText("1");
+  await expect(footer.locator("#pricing-legal-note")).toBeVisible();
+  await expect(footer.locator("#pricing-addons-validity")).toBeVisible();
+  await expect(legalNote.locator("sup")).toHaveText("1, 2");
+  await expect(footer.getByText("By continuing, you accept the")).toHaveCount(1);
   const notesPrecedeSupport = await footer.evaluate((element) => {
     const support = element.querySelector("section");
-    const pro = element.querySelector("#pricing-pro-legal-note");
-    const addOns = element.querySelector("#pricing-addons-legal-note");
-    return Boolean(support && pro && addOns
-      && (pro.compareDocumentPosition(support) & Node.DOCUMENT_POSITION_FOLLOWING)
-      && (addOns.compareDocumentPosition(support) & Node.DOCUMENT_POSITION_FOLLOWING));
+    const legal = element.querySelector("#pricing-legal-note");
+    const validity = element.querySelector("#pricing-addons-validity");
+    return Boolean(support && legal && validity
+      && (legal.compareDocumentPosition(support) & Node.DOCUMENT_POSITION_FOLLOWING)
+      && (validity.compareDocumentPosition(support) & Node.DOCUMENT_POSITION_FOLLOWING));
   });
   expect(notesPrecedeSupport).toBe(true);
   await expect(legalNote.getByRole("link", { name: "Terms of Service", exact: true }))

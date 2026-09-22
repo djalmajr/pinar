@@ -34,7 +34,6 @@ interface PricingAmountProps {
   originalLabel: string;
   price: PublicPrice | undefined;
   suffix: string;
-  suffixMarker?: string;
 }
 
 interface AddOnCardProps {
@@ -46,7 +45,6 @@ interface AddOnCardProps {
   legalNoteMarker: string;
   loading: boolean;
   price: PublicPrice | undefined;
-  suffix: string;
   title: string;
   onPurchase(): void;
 }
@@ -56,7 +54,7 @@ function formatAmount(amount: number, currency: PricingCurrency, language: Suppo
   return new Intl.NumberFormat(locale, { currency, style: "currency" }).format(amount / 100);
 }
 
-function PricingAmount({ currency, language, originalLabel, price, suffix, suffixMarker }: PricingAmountProps) {
+function PricingAmount({ currency, language, originalLabel, price, suffix }: PricingAmountProps) {
   const originalAmount = price?.originalAmount;
   const hasOriginalAmount = currency !== undefined && typeof originalAmount === "number";
   const originalText = hasOriginalAmount ? formatAmount(originalAmount, currency, language) : "\u00a0";
@@ -72,9 +70,7 @@ function PricingAmount({ currency, language, originalLabel, price, suffix, suffi
       </div>
       <div className="flex items-baseline gap-1">
         <span className="text-3xl font-bold">{priceText}</span>
-        <span className="text-sm text-muted-foreground">
-          {suffix}{suffixMarker ? <sup aria-hidden="true">{suffixMarker}</sup> : null}
-        </span>
+        {suffix ? <span className="text-sm text-muted-foreground">{suffix}</span> : null}
       </div>
     </div>
   );
@@ -89,7 +85,6 @@ function AddOnCard({
   legalNoteMarker,
   loading,
   price,
-  suffix,
   title,
   onPurchase,
 }: AddOnCardProps) {
@@ -97,21 +92,22 @@ function AddOnCard({
     <Card className="flex flex-col">
       <CardHeader>
         <CardTitle className="text-lg">{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
+        <CardDescription>
+          {description}<sup aria-hidden="true">{legalNoteMarker}</sup>
+        </CardDescription>
       </CardHeader>
-      <CardContent className="mt-auto">
+      <CardContent>
         <PricingAmount
           currency={currency}
           language={language}
           originalLabel=""
           price={price}
-          suffix={suffix}
-          suffixMarker={legalNoteMarker}
+          suffix=""
         />
       </CardContent>
       <CardFooter className="flex-col items-stretch gap-2">
         <Button
-          aria-describedby={legalNoteId}
+          aria-describedby={`${legalNoteId} pricing-addons-validity`}
           className="w-full"
           disabled={loading || !price}
           variant="outline"
@@ -312,7 +308,7 @@ export function PricingPage() {
             </CardContent>
             <CardFooter className="flex-col items-stretch gap-2">
               <Button
-                aria-describedby="pricing-pro-legal-note"
+                aria-describedby="pricing-legal-note"
                 className="w-full"
                 disabled={loadingOffer !== null || !pricing}
                 onClick={() => startCheckout(proOffer)}
@@ -337,11 +333,10 @@ export function PricingPage() {
             currency={pricing?.currency}
             description={t("pricing.aiCreditsDescription")}
             language={language}
-            legalNoteId="pricing-addons-legal-note"
+            legalNoteId="pricing-legal-note"
             legalNoteMarker="2"
             loading={loadingOffer !== null}
             price={pricing?.prices.aiCredits500}
-            suffix={t("pricing.valid12Months")}
             title={t("pricing.aiCreditsTitle")}
             onPurchase={() => startCheckout("ai_credits_500")}
           />
@@ -350,11 +345,10 @@ export function PricingPage() {
             currency={pricing?.currency}
             description={t("pricing.storage1Description")}
             language={language}
-            legalNoteId="pricing-addons-legal-note"
+            legalNoteId="pricing-legal-note"
             legalNoteMarker="2"
             loading={loadingOffer !== null}
             price={pricing?.prices.storage1Gb12M}
-            suffix={t("pricing.valid12Months")}
             title={t("pricing.storage1Title")}
             onPurchase={() => startCheckout("storage_1gb_12m")}
           />
@@ -363,20 +357,22 @@ export function PricingPage() {
             currency={pricing?.currency}
             description={t("pricing.storage5Description")}
             language={language}
-            legalNoteId="pricing-addons-legal-note"
+            legalNoteId="pricing-legal-note"
             legalNoteMarker="2"
             loading={loadingOffer !== null}
             price={pricing?.prices.storage5Gb12M}
-            suffix={t("pricing.valid12Months")}
             title={t("pricing.storage5Title")}
             onPurchase={() => startCheckout("storage_5gb_12m")}
           />
         </div>
         <ServerFooter
+          className="pt-4"
           beforeSupport={(
-            <div className="mx-auto mb-8 flex w-full max-w-5xl flex-col gap-2 px-1">
-              <LegalActionNotice id="pricing-pro-legal-note" marker="1" />
-              <LegalActionNotice id="pricing-addons-legal-note" marker="2" />
+            <div className="mx-auto mb-4 flex w-full max-w-5xl flex-col gap-1 px-1">
+              <LegalActionNotice id="pricing-legal-note" marker="1, 2" />
+              <p className="text-xs leading-5 text-muted-foreground" id="pricing-addons-validity">
+                <sup aria-hidden="true">2</sup> {t("pricing.valid12Months")}.
+              </p>
             </div>
           )}
           note={(

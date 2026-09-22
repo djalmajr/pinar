@@ -534,13 +534,13 @@ const messages: UiMessages = {
   "pricing.buyAddOn": "追加パックを購入",
   "pricing.aiCreditsTitle": "500 AI クレジット",
   "pricing.aiCreditsDescription":
-    "音声文字起こし用の追加クレジットです。購入後 12 か月間有効です。",
+    "音声文字起こし用の追加クレジットです。",
   "pricing.storage1Title": "+1 GB ストレージ",
   "pricing.storage1Description":
-    "12 か月間 1 GB を追加します。その後は更新するか、使用量を減らしてください。",
+    "ストレージ容量に 1 GB を追加します。",
   "pricing.storage5Title": "+5 GB ストレージ",
   "pricing.storage5Description":
-    "12 か月間 5 GB を追加します。その後は更新するか、使用量を減らしてください。",
+    "ストレージ容量に 5 GB を追加します。",
   "pricing.valid12Months": "12か月有効",
   "pricing.supportTitle": "Fair Source 開発を支援",
   "pricing.supportDescription":

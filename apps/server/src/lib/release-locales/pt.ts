@@ -22,6 +22,20 @@ const locale = {
     whatChanged: "O que mudou",
   },
   releases: {
+    "v0.4.4": {
+      title: "Contas por e-mail e plano anual",
+      summary: "O Free no Pinar Cloud agora começa com acesso por e-mail. O Pro tem somente preço anual, com retenção, armazenamento e adicionais mais claros.",
+      changes: {
+        "email-first-cloud": {
+          title: "Acesso por e-mail ao Cloud",
+          description: "Crie uma conta Free ou entre com um código de seis dígitos enviado por e-mail. Domínios temporários são bloqueados, domínios próprios são aceitos e a extensão deixa de gerar códigos temporários de acesso.",
+        },
+        "annual-only-pricing": {
+          title: "Um único plano Pro anual",
+          description: "Novas assinaturas Pro custam R$ 99 por ano no Brasil ou US$ 29 por ano nos demais países. Assinaturas existentes mantêm seu preço atual. A retenção Free no Cloud é de 30 dias; o Pro inclui 2 GB e 500 créditos iniciais de IA. As ofertas mensal e Founder foram retiradas, e as notas legais da página de preços ficam no rodapé.",
+        },
+      },
+    },
     "v0.4.3": {
       title: "Versão sem o rótulo de lugar",
       summary: "Configurações mostra só o número da versão. O endereço já diz se você está na nuvem ou neste computador.",

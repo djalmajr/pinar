@@ -21,6 +21,20 @@ const locale = {
     whatChanged: "Qué cambió",
   },
   releases: {
+    "v0.4.4": {
+      title: "Cuentas por correo y planes anuales",
+      summary: "Pinar Cloud Free ahora comienza con acceso por correo. Pro tiene un único precio anual, con retención, almacenamiento y complementos más claros.",
+      changes: {
+        "email-first-cloud": {
+          title: "Acceso por correo a Cloud",
+          description: "Crea una cuenta Free o entra con un código de seis dígitos enviado por correo. Se bloquean los dominios temporales, se aceptan los dominios propios y la extensión deja de generar códigos temporales de acceso.",
+        },
+        "annual-only-pricing": {
+          title: "Un solo plan Pro anual",
+          description: "Las nuevas suscripciones Pro cuestan R$ 99 al año en Brasil o US$ 29 al año en otros países. Las suscripciones existentes conservan su precio. La retención Free en Cloud es de 30 días; Pro incluye 2 GB y 500 créditos iniciales de IA. Se retiran las ofertas mensual y Founder, y las notas legales de precios pasan al pie de página.",
+        },
+      },
+    },
     "v0.4.3": {
       title: "Versión sin la etiqueta de lugar",
       summary: "Configuración muestra solo el número de versión. La dirección ya indica si estás en la nube o en este equipo.",

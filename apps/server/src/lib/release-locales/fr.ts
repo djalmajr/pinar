@@ -22,6 +22,20 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.4.4": {
+      title: "Comptes par e-mail et forfait annuel",
+      summary: "Pinar Cloud Free commence désormais par une connexion par e-mail. Pro propose un seul tarif annuel, avec une rétention, un stockage et des modules complémentaires plus clairs.",
+      changes: {
+        "email-first-cloud": {
+          title: "Connexion à Cloud par e-mail",
+          description: "Créez un compte Free ou connectez-vous avec un code à six chiffres reçu par e-mail. Les domaines temporaires sont bloqués, les domaines personnalisés sont acceptés et l’extension ne génère plus de codes temporaires de connexion.",
+        },
+        "annual-only-pricing": {
+          title: "Un seul forfait Pro annuel",
+          description: "Les nouveaux abonnements Pro coûtent 99 R$ par an au Brésil ou 29 $US par an ailleurs. Les abonnements existants conservent leur tarif. La rétention Free sur Cloud passe à 30 jours ; Pro comprend 2 Go et 500 crédits IA initiaux. Les offres mensuelle et Founder sont retirées, et les mentions légales des tarifs figurent dans le pied de page.",
+        },
+      },
+    },
     "v0.4.3": {
       title: "Version sans l’étiquette de lieu",
       summary: "Les réglages n’affichent que le numéro de version. L’adresse indique déjà si vous êtes sur le cloud ou sur cet ordinateur.",

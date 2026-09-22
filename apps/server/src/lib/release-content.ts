@@ -59,6 +59,11 @@ export interface ReleaseContent {
 
 export const releaseDefinitions = [
   {
+    tag: "v0.4.4",
+    date: "2026-09-22",
+    changes: ["email-first-cloud", "annual-only-pricing"],
+  },
+  {
     tag: "v0.4.3",
     date: "2026-09-22",
     changes: ["version-without-runtime-badge"],

@@ -22,6 +22,20 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.4.4": {
+      title: "E-Mail-Konten und Jahresabo",
+      summary: "Pinar Cloud Free beginnt jetzt mit der Anmeldung per E-Mail. Pro hat einen einzigen Jahrespreis mit klareren Angaben zu Aufbewahrung, Speicher und Zusatzpaketen.",
+      changes: {
+        "email-first-cloud": {
+          title: "Cloud-Anmeldung per E-Mail",
+          description: "Erstellen Sie ein Free-Konto oder melden Sie sich mit einem sechsstelligen Code aus einer E-Mail an. Temporäre E-Mail-Domains werden gesperrt, eigene Domains akzeptiert und die Erweiterung erzeugt keine temporären Anmeldecodes mehr.",
+        },
+        "annual-only-pricing": {
+          title: "Ein einziges Pro-Jahresabo",
+          description: "Neue Pro-Abos kosten in Brasilien R$ 99 pro Jahr und andernorts US$ 29 pro Jahr. Bestehende Abos behalten ihren Preis. Free-Daten bleiben in der Cloud 30 Tage erhalten; Pro enthält 2 GB und anfangs 500 KI-Credits. Monats- und Founder-Angebote entfallen, und die Rechtshinweise der Preisseite stehen im Footer.",
+        },
+      },
+    },
     "v0.4.3": {
       title: "Version ohne Ortskennzeichnung",
       summary: "Die Einstellungen zeigen nur die Versionsnummer. Die Adresse sagt bereits, ob du in der Cloud oder auf diesem Computer bist.",

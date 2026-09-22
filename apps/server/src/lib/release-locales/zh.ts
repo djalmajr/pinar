@@ -20,6 +20,20 @@ const locale = {
     whatChanged: "更新内容",
   },
   releases: {
+    "v0.4.4": {
+      title: "邮箱账户与年度方案",
+      summary: "Pinar Cloud Free 现在通过邮箱验证码开始使用。Pro 只提供年度价格，保留期、存储空间和附加包说明更加清晰。",
+      changes: {
+        "email-first-cloud": {
+          title: "通过邮箱登录 Cloud",
+          description: "使用邮件中的六位验证码创建 Free 账户或登录。临时邮箱域名会被阻止，自有域名可以使用，扩展程序也不再生成临时登录码。",
+        },
+        "annual-only-pricing": {
+          title: "仅提供 Pro 年度方案",
+          description: "新的 Pro 订阅在巴西为每年 99 雷亚尔，其他地区为每年 29 美元。现有订阅保留原价格。Free Cloud 内容保留 30 天；Pro 包含 2 GB 空间和首次赠送的 500 个 AI 积分。月付和 Founder 套餐已下架，价格页的法律说明移至页脚。",
+        },
+      },
+    },
     "v0.4.3": {
       title: "版本旁不再显示位置标签",
       summary: "设置里只显示版本号。网址本身已经说明你是在云端还是在这台电脑上。",

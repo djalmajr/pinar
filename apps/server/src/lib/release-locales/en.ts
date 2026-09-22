@@ -20,6 +20,20 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.4.4": {
+      title: "Email accounts and annual plans",
+      summary: "Pinar Cloud Free now starts with email sign-in. Pro has one annual price, with clearer retention, storage, and add-ons.",
+      changes: {
+        "email-first-cloud": {
+          title: "Email sign-in for Cloud",
+          description: "Create a Free account or sign in with a six-digit code sent by email. Disposable email domains are blocked, custom domains are accepted, and the extension no longer generates temporary sign-in codes.",
+        },
+        "annual-only-pricing": {
+          title: "One annual Pro plan",
+          description: "New Pro subscriptions cost R$99 per year in Brazil or US$29 per year elsewhere. Existing subscriptions keep their current price. Free Cloud retention is 30 days; Pro includes 2 GB and 500 initial AI credits. Monthly and Founder offers are retired, and the pricing page keeps its legal notes in the footer.",
+        },
+      },
+    },
     "v0.4.3": {
       title: "Version without a place label",
       summary: "Settings shows the version number only. The address already says whether you are on the cloud or on this computer.",

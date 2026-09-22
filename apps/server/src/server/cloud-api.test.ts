@@ -81,8 +81,8 @@ const TEST_ENV: CloudEnv = {
   PRICING_STORAGE_5GB_12M_USD_CENTS: "799",
   PRICING_STORAGE_1GB_12M_BRL_CENTS: "990",
   PRICING_STORAGE_1GB_12M_USD_CENTS: "299",
-  PRICING_YEARLY_BRL_CENTS: "3990",
-  PRICING_YEARLY_USD_CENTS: "1900",
+  PRICING_YEARLY_BRL_CENTS: "9900",
+  PRICING_YEARLY_USD_CENTS: "2900",
 };
 
 function api(path: string, init: RequestInit = {}, env: CloudEnv = TEST_ENV) {
@@ -107,9 +107,10 @@ function register(identity: typeof identityA) {
   });
 }
 
-function upload(identity: typeof identityA, id: string, title: string) {
+function upload(identity: typeof identityA, id: string, title: string, createdAt?: string) {
   return api("/api/shots", {
     body: JSON.stringify({
+      createdAt,
       id,
       image: VALID_PNG,
       page: { title, url: `https://example.test/${id}` },
@@ -306,7 +307,7 @@ describe("remote installation isolation", () => {
     });
   });
 
-  test("staging registers and authorizes test installations without legal acceptance", async () => {
+  test("staging permits registration but requires an email account for Cloud access", async () => {
     const env: CloudEnv = { ...TEST_ENV, DEPLOYMENT_ENV: "staging" };
     const registered = await api("/api/installations", {
       body: JSON.stringify({ installationId: identityA.id, installationToken: identityA.token }),
@@ -318,8 +319,7 @@ describe("remote installation isolation", () => {
     const entitlements = await api("/api/account/entitlements", {
       headers: identityHeaders(identityA),
     }, env);
-    assert.equal(entitlements.status, 200);
-    assert.equal((await jsonBody(entitlements)).legalAcceptance, null);
+    assert.equal(entitlements.status, 401);
   });
 
   test("installation bearer is used when the website session cookie cannot authorize", async () => {
@@ -758,6 +758,24 @@ describe("remote installation isolation", () => {
     assert.equal(result.deletedWebSessionCount, 1);
   });
 
+  test("keeps Free cloud captures for 30 days even when cleanup requests a shorter window", async () => {
+    setCloudNowForTests("2026-09-01T12:00:00.000Z");
+    assert.equal((await register(identityA)).status, 201);
+    assert.equal((await upload(identityA, "free_retention_30_days", "Free retention", "2026-09-01T12:00:00.000Z")).status, 201);
+
+    setCloudNowForTests("2026-09-30T12:00:00.000Z");
+    assert.equal((await cleanupOldRecords({}, 7)).deletedCount, 0);
+    assert.equal((await api("/api/sessions/free_retention_30_days", {
+      headers: identityHeaders(identityA),
+    })).status, 200);
+
+    setCloudNowForTests("2026-10-01T12:00:01.000Z");
+    assert.equal((await cleanupOldRecords({})).deletedCount, 1);
+    assert.equal((await api("/api/sessions/free_retention_30_days", {
+      headers: identityHeaders(identityA),
+    })).status, 404);
+  });
+
   test("cleans D1 auth records without touching capture objects in R2", async () => {
     type FakeStatement = {
       all(): Promise<{ results: Record<string, unknown>[] }>;
@@ -816,13 +834,15 @@ describe("remote installation isolation", () => {
     })).status, 429);
   });
 
-  test("does not enumerate accounts and rejects a sixth email-code attempt", async () => {
+  test("does not reveal blocked disposable signups and rejects a sixth email-code attempt", async () => {
     const mail = emailBinding();
     const env: CloudEnv = { ...TEST_ENV, EMAIL: mail.binding };
     seedCloudAccountForTests({ email: "paid@example.test", plan: "pro" });
     const known = await requestEmailCode("paid@example.test", env);
-    const unknown = await requestEmailCode("unknown@example.test", env);
+    const unknown = await requestEmailCode("unknown@mailinator.com", env);
+    const subdomain = await requestEmailCode("unknown@sub.mailinator.com", env);
     assert.equal(known.status, 202);
+    assert.equal(subdomain.status, 202);
     assert.equal(unknown.status, 202);
     assert.deepEqual(await jsonBody(known), await jsonBody(unknown));
     assert.equal(mail.codes.length, 1);
@@ -833,6 +853,88 @@ describe("remote installation isolation", () => {
     const locked = await verifyEmailCode("paid@example.test", mail.codes[0], env);
     assert.equal(locked.status, 400);
     assert.equal(locked.headers.get("set-cookie"), null);
+  });
+
+  test("creates a Free account only after verifying a custom-domain email", async () => {
+    const mail = emailBinding();
+    const env: CloudEnv = { ...TEST_ENV, EMAIL: mail.binding };
+    const email = "person@studio.example";
+    assert.equal((await requestEmailCode(email, env)).status, 202);
+    assert.equal(mail.codes.length, 1);
+    assert.equal((await verifyEmailCode(email, "000000", env)).status, 400);
+    const response = await verifyEmailCode(email, mail.codes[0], env);
+    assert.equal(response.status, 200);
+    const cookie = response.headers.get("set-cookie")?.split(";", 1)[0] || "";
+    const session = await jsonBody(await api("/api/auth/session", {
+      headers: { cookie },
+    }, env));
+    assert.ok(isRecord(session.session));
+    assert.equal(session.session.kind, "account");
+    assert.equal(session.session.plan, "free");
+    assert.equal(session.session.email, email);
+    assert.equal((await verifyEmailCode(email, mail.codes[0], env)).status, 400);
+    await requestEmailCode(email, env);
+    assert.equal(mail.codes.length, 2);
+  });
+
+  test("hosted Cloud requires verified email before an installation can save", async () => {
+    const mail = emailBinding();
+    const env: CloudEnv = { ...TEST_ENV, DEPLOYMENT_ENV: "production", EMAIL: mail.binding };
+    assert.equal((await api("/api/installations", {
+      body: JSON.stringify({
+        installationId: identityA.id,
+        installationToken: identityA.token,
+        legalAcceptance: REMOTE_FREE_LEGAL_ACCEPTANCE,
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }, env)).status, 201);
+    assert.equal((await api("/api/shots", {
+      body: JSON.stringify({
+        id: "anonymous_capture",
+        image: VALID_PNG,
+        page: { title: "Before login", url: "https://example.test" },
+        pins: [],
+      }),
+      headers: identityHeaders(identityA, { "content-type": "application/json" }),
+      method: "POST",
+    }, env)).status, 401);
+    assert.equal(await authorizeCloudAppRequest(new Request("https://pinar.test/app", {
+      headers: identityHeaders(identityA),
+    }), env), false);
+    assert.equal((await api("/api/auth/extension-codes", {
+      headers: identityHeaders(identityA),
+      method: "POST",
+    }, env)).status, 410);
+    assert.equal((await api("/api/auth/extension-codes/exchange", {
+      body: JSON.stringify({ code: "ABCDEFGH" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }, env)).status, 410);
+
+    const email = "free@studio.example";
+    await requestEmailCode(email, env);
+    const verified = await verifyEmailCode(email, mail.codes[0], env, identityA);
+    assert.equal(verified.status, 200);
+    const body = await jsonBody(verified);
+    assert.ok(isRecord(body.session));
+    assert.equal(body.session.kind, "account");
+    assert.equal(body.session.plan, "free");
+    assert.ok(isRecord(body.device));
+    assert.equal(typeof body.device.token, "string");
+    assert.equal((await api("/api/shots", {
+      body: JSON.stringify({
+        id: "verified_capture",
+        image: VALID_PNG,
+        page: { title: "After login", url: "https://example.test" },
+        pins: [],
+      }),
+      headers: {
+        authorization: `Bearer ${body.device.token}`,
+        "content-type": "application/json",
+      },
+      method: "POST",
+    }, env)).status, 201);
   });
 
   test("requires current policies on first activation and reuses acceptance on later logins", async () => {
@@ -1390,7 +1492,7 @@ describe("remote installation isolation", () => {
     assert.equal("founderState" in pricing, false);
     assert.ok(isRecord(pricing.prices));
     assert.equal("founder" in pricing.prices, false);
-    assert.deepEqual(pricing.prices.year, { amount: 3_990, originalAmount: null });
+    assert.deepEqual(pricing.prices.year, { amount: 9_900, originalAmount: null });
     assert.deepEqual(pricing.prices.aiCredits500, { amount: 990, originalAmount: null });
 
     const originalFetch = globalThis.fetch;

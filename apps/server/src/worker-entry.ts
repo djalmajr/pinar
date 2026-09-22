@@ -5,6 +5,7 @@ import {
   sendStorageExpiryNotices,
   type CloudEnv,
 } from "./server/cloud-api";
+import { FREE_CLOUD_RETENTION_DAYS } from "./lib/retention";
 
 type TanstackFetch = typeof import("./tanstack-server-entry")["default"]["fetch"];
 
@@ -30,7 +31,7 @@ export default {
   },
   async scheduled(_controller: ScheduledController, env: CloudEnv, context: ExecutionContext) {
     context.waitUntil(Promise.all([
-      cleanupOldRecords(env, 7),
+      cleanupOldRecords(env, FREE_CLOUD_RETENTION_DAYS),
       reconcileBillingEntitlements(env),
       refundStaleAiReservations(env),
       sendStorageExpiryNotices(env),

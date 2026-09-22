@@ -214,7 +214,8 @@ CREATE INDEX idx_extension_codes_expiry ON extension_codes(expires_at);
 
 CREATE TABLE email_challenges (
   id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id),
+  email TEXT NOT NULL COLLATE NOCASE,
+  user_id TEXT REFERENCES users(id),
   code_hash TEXT NOT NULL,
   attempts INTEGER NOT NULL DEFAULT 0,
   expires_at TEXT NOT NULL,
@@ -222,7 +223,7 @@ CREATE TABLE email_challenges (
   created_at TEXT NOT NULL
 );
 
-CREATE INDEX idx_email_challenges_user ON email_challenges(user_id, created_at DESC);
+CREATE INDEX idx_email_challenges_email ON email_challenges(email, created_at DESC);
 CREATE INDEX idx_email_challenges_expiry ON email_challenges(expires_at);
 
 CREATE TABLE auth_rate_limits (

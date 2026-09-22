@@ -331,7 +331,7 @@ const locale = {
           heading: "Como as sessões local e na nuvem realmente abrem",
           paragraphs: [
             "O histórico local começa com um projeto protegido “Personal” e uma coleção “Inbox” que você não pode aninhar ou excluir como pastas comuns. As capturas ficam neste computador, e você pode abri-las no workspace local.",
-            "O armazenamento na nuvem espera até você aceitar os “Termos”, a “Privacidade” e o “Uso Aceitável” atuais. Depois disso, contas “Free” podem parear a extensão com um código temporário, e contas pagas também podem confirmar um código de seis dígitos por e-mail. Os links de compartilhamento continuam legíveis por qualquer pessoa que tenha a URL não listada.",
+            "O armazenamento na nuvem começa depois de você aceitar os “Termos”, a “Privacidade” e o “Uso Aceitável” atuais e confirmar um código por e-mail. Contas “Free” e Pro usam o mesmo acesso. Os links de compartilhamento continuam legíveis por qualquer pessoa que tenha a URL não listada.",
           ],
           bullets: [
             "O workspace local permanece neste computador e não precisa de uma conta na nuvem.",
@@ -823,9 +823,9 @@ const locale = {
         "Conecte a extensão, abra o workspace web e entenda a expiração de códigos e sessões.",
       sections: [
         {
-          heading: "Dois fluxos de código",
+          heading: "Código por e-mail para Free e Pro",
           paragraphs: [
-            "Instalações Free remotas podem abrir o app web com um código da extensão de uso único válido por cinco minutos. Criar um novo código de oito caracteres invalida o anterior; a geração aceita 10 pedidos a cada cinco minutos por IP e conta, e a troca aceita 20 tentativas a cada cinco minutos por IP. Contas pagas e anteriormente pagas também podem pedir um código de seis dígitos por e-mail; ele expira em dez minutos e bloqueia após cinco tentativas inválidas.",
+            "Informe seu e-mail na extensão ou em pinar.dev. O código de seis dígitos expira em dez minutos e bloqueia após cinco tentativas inválidas. A conta Free só é criada depois da confirmação do código. Provedores temporários são bloqueados para novas contas; domínios próprios são aceitos.",
           ],
         },
         {
@@ -835,14 +835,14 @@ const locale = {
           ],
         },
         {
-          heading: "Conclua o pareamento pela aba Conta da extensão",
+          heading: "Entre pela aba Conta da extensão",
           paragraphs: [
-            "Em uma instalação Free remota, abra a aba Conta das opções da extensão, gere o código temporário ali e copie-o. Abra a página hospedada de acesso pelo mesmo painel para que a troca bem-sucedida chegue ao workspace web. Gerar outro código pede confirmação porque códigos não usados daquela conta são substituídos. Cole o código em pinar.dev, não em uma página de workspace local.",
-            "Pedir um código por e-mail sempre parece igual, inclusive para endereços desconhecidos, para o formulário não revelar se a conta existe. Uma mensagem real de seis dígitos só sai para uma conta paga elegível. Sair na aba Conta encerra as sessões atuais da web e da extensão.",
+            "Abra a aba Conta, informe seu e-mail e solicite um código. Digite o código recebido para conectar a extensão à sua conta. Capturas de uma instalação anônima antiga são movidas para a conta durante a confirmação.",
+            "A solicitação do código mostra a mesma resposta para endereços desconhecidos ou bloqueados, sem revelar se a conta existe. Sair encerra a sessão atual da extensão.",
           ],
           bullets: [
             "Se nenhum e-mail chegar, espere antes de tentar de novo; os códigos expiram, e tentativas demais são adiadas.",
-            "Confirme o diálogo de regeneração antes de invalidar um código que você ainda pretende digitar na página hospedada.",
+            "Use um código atual recebido por e-mail; a extensão não oferece mais códigos de pareamento.",
             "Use Sair na aba Conta quando precisar encerrar imediatamente a sessão atual da web ou da extensão.",
           ],
         },
@@ -856,7 +856,7 @@ const locale = {
         {
           heading: "Formato dos planos",
           paragraphs: [
-            "Free inclui uso local permanente, 250 MB de cota na nuvem e retenção na nuvem por sete dias. Pro é anual, com 2 GB e uma concessão única de 500 créditos de IA na primeira assinatura da conta.",
+            "Free inclui uso local permanente, 250 MB de cota na nuvem e retenção na nuvem por 30 dias. Pro é anual, com 2 GB e uma concessão única de 500 créditos de IA na primeira assinatura da conta.",
           ],
         },
         {
@@ -933,7 +933,7 @@ const locale = {
           heading: "Encaixe substituições na cota e use o relógio de 90 dias",
           paragraphs: [
             "A cota é o armazenamento incluso do plano mais qualquer adicional ainda ativo. Substituir um screenshot maior por um menor pode passar quando uma captura nova estouraria a cota. Uploads pausam quando a conta está na cota ou acima dela, inclusive durante a carência e a recuperação.",
-            "Sessões Free na nuvem que não estão marcadas como permanentes ficam elegíveis para limpeza após sete dias. Conteúdo Pro acima da cota Free segue carência de 30 dias e recuperação de 90 dias após o fim da elegibilidade paga. Histórico só local neste computador nunca é apagado remotamente. Elegibilidade não é promessa de remoção imediata.",
+            "Sessões Free na nuvem que não estão marcadas como permanentes ficam elegíveis para limpeza após 30 dias. Conteúdo Pro acima da cota Free segue carência de 30 dias e recuperação de 90 dias após o fim da elegibilidade paga. Histórico só local neste computador nunca é apagado remotamente. Elegibilidade não é promessa de remoção imediata.",
           ],
           bullets: [
             "Quando novas capturas pausarem, libere espaço excluindo sessões ou substituindo um screenshot pesado, ou compre um adicional de 1 GB ou 5 GB por doze meses.",

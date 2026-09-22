@@ -121,7 +121,7 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
               {headerCta === "open-app" ? (
                 <DropdownMenuItem render={<Link preload="intent" search={{ session: undefined }} to="/app" />}><PanelsTopLeftIcon />{t("common.openApp")}</DropdownMenuItem>
               ) : (
-                <DropdownMenuItem render={<Link preload="intent" search={{ extensionCode: "", returnTo: "/app" }} to="/sign-in" />}><LogInIcon />{t("common.signIn")}</DropdownMenuItem>
+                <DropdownMenuItem render={<Link preload="intent" search={{ returnTo: "/app" }} to="/sign-in" />}><LogInIcon />{t("common.signIn")}</DropdownMenuItem>
               )}
             </DropdownMenuContent>
           </DropdownMenu>
@@ -175,7 +175,7 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
           ) : (
             <Button
               className="hidden md:inline-flex"
-              render={<Link aria-current={activePage === "signIn" ? "page" : undefined} preload="intent" search={{ extensionCode: "", returnTo: "/app" }} to="/sign-in" />}
+              render={<Link aria-current={activePage === "signIn" ? "page" : undefined} preload="intent" search={{ returnTo: "/app" }} to="/sign-in" />}
               size="sm"
               variant="pro"
             >

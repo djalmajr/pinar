@@ -147,20 +147,13 @@ const messages: UiMessages = {
   "settings.whatsNewAhead": "Cette version est en avance sur la dernière publication, v{version}. Ses notes apparaîtront à sa sortie.",
   "settings.title": "Paramètres",
   "signIn.accountDescription":
-    "Les comptes payants ou anciennement payants reçoivent un code à six chiffres par e-mail.",
-  "signIn.accountTab": "Compte",
+    "Saisissez votre e-mail pour créer un compte gratuit ou vous connecter. Nous vous enverrons un code à six chiffres.",
   "signIn.accountTitle": "Se connecter à votre compte",
   "signIn.changeEmail": "Utiliser un autre e-mail",
   "signIn.codeInvalid": "Le code est invalide ou expiré.",
   "signIn.emailSent":
-    "Si cet e-mail correspond à un compte éligible, un code est en route.",
+    "Si cette adresse peut recevoir le code, il est en route.",
   "signIn.entering": "Connexion…",
-  "signIn.extensionPlaceholder": "Code à 8 caractères",
-  "signIn.extensionTab": "Extension",
-  "signIn.freeDescription":
-    "Les utilisateurs gratuits peuvent saisir le code temporaire affiché par l’extension Pinar.",
-  "signIn.freeTitle": "Continuer avec l’extension",
-  "signIn.openApp": "Ouvrir l’app",
   "signIn.requestFailed": "Impossible de demander un code.",
   "signIn.sendCode": "Envoyer le code",
   "signIn.sending": "Envoi…",
@@ -190,7 +183,7 @@ const messages: UiMessages = {
   "landing.openLocalDashboard": "Ouvrir le tableau local",
   "landing.shareTitle": "Partagez quand nécessaire",
   "landing.shareDescription":
-    "Utilisez le serveur distant pour des liens non répertoriés du visualiseur et Markdown, conservés sept jours en Gratuit ou pendant qu’un forfait payant est actif.",
+    "Utilisez le serveur distant pour des liens non répertoriés du visualiseur et Markdown, conservés 30 jours en Gratuit ou pendant qu’un forfait payant est actif.",
   "landing.sameExperience":
     "La même expérience de capture et de visualisation fonctionne en local comme à distance.",
   "landing.comparePlans": "Comparer les forfaits",
@@ -320,7 +313,7 @@ const messages: UiMessages = {
   "viewer.pageActions": "Actions de la page",
   "viewer.moreActions": "Plus d’actions pour la page",
   "viewer.annotation": "Annotation",
-  "viewer.retention": "Conservation de 7 jours",
+  "viewer.retention": "Conservation de 30 jours",
   "viewer.annotatedScreenshot": "Capture annotée de la page",
   "viewer.nextCapture": "Capture suivante",
   "viewer.previousCapture": "Capture précédente",
@@ -511,15 +504,11 @@ const messages: UiMessages = {
   "pricing.title": "Gardez les retours visuels organisés et récupérables",
   "pricing.description":
     "Conservation cloud, crédits IA et stockage qui évoluent avec votre flux.",
-  "pricing.billingInterval": "Période de facturation",
-  "pricing.monthly": "Mensuel",
-  "pricing.yearly": "Annuel",
-  "pricing.save45": "Économisez {percent} %",
   "pricing.free": "Gratuit",
   "pricing.freeDescription":
     "Application locale privée, avec des services cloud gratuits limités.",
   "pricing.freeLocal": "Application locale (gratuite et privée)",
-  "pricing.freeRetention": "Cloud gratuit (conservation de 7 jours)",
+  "pricing.freeRetention": "Cloud gratuit (conservation de 30 jours)",
   "pricing.freeScope": "(local + cloud gratuit)",
   "pricing.freeStorage": "Cloud gratuit (250 Mo de stockage)",
   "pricing.standardViewer": "Visualiseur web standard",
@@ -528,16 +517,11 @@ const messages: UiMessages = {
   "pricing.useFree": "Utiliser gratuitement",
   "pricing.everythingFreePlus": "Tout ce qui est inclus dans Gratuit, plus :",
   "pricing.proYearly": "Pro Annuel",
-  "pricing.proMonthly": "Pro Mensuel",
   "pricing.proYearlyDescription":
-    "Conservation cloud pendant l’abonnement actif pour environ {price}/mois.",
-  "pricing.proMonthlyDescription":
-    "Conservation cloud pendant l’abonnement actif, avec facturation mensuelle flexible.",
+    "Facturation annuelle avec conservation cloud tant que Pro est actif.",
   "pricing.perYear": "/ an",
-  "pricing.perMonth": "/ mois",
   "pricing.redirecting": "Redirection…",
   "pricing.getYearly": "Choisir Pro Annuel — {price}/an",
-  "pricing.getMonthly": "Choisir Pro Mensuel — {price}/mois",
   "pricing.activePlanRetention":
     "Conservation pendant que le forfait est actif",
   "pricing.retentionPolicy": "délai de grâce et récupération après résiliation",

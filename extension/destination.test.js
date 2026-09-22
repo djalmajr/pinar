@@ -74,7 +74,7 @@ describe("capture destination", () => {
     assert.match(optionsSrc, /<TabsTrigger value="storage">\{t\.tab_storage\}<\/TabsTrigger>/);
     assert.match(optionsSrc, /<TabsTrigger value="preferences">\{t\.tab_preferences\}<\/TabsTrigger>/);
     assert.match(optionsSrc, /<TabsTrigger value="account">\{t\.tab_account\}<\/TabsTrigger>/);
-    assert.match(optionsSrc, /type: "auth:extension-code"/);
+    assert.doesNotMatch(optionsSrc, /type: "auth:extension-code"/);
     assert.match(optionsSrc, /type: "auth:email-code:verify"/);
     assert.match(optionsSrc, /type: "auth:logout"/);
     assert.match(optionsSrc, /authSession\?\.kind === "account"/);
@@ -121,15 +121,15 @@ describe("capture destination", () => {
     assert.match(optionsSrc, /\{t\.storage_title\}[\s\S]*\{voiceAvailable \? <>[\s\S]*\{t\.voice_settings_title\}[\s\S]*\{t\.storage_status_title\}/);
     assert.match(optionsSrc, /\{t\.storage_status_title\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.capture_destination_label\}/);
     assert.match(optionsSrc, /\{t\.shortcuts_browser_title\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.shortcuts_overlay_title\}/);
-    assert.match(optionsSrc, /\{t\.account_free_title\}[\s\S]*<\/section>\s*<Separator \/>/);
-    assert.equal([...optionsSrc.matchAll(/<Separator \/>/g)].length, 7);
+    assert.match(optionsSrc, /\{t\.account_email_title\}[\s\S]*t\.account_email_description/);
+    assert.equal([...optionsSrc.matchAll(/<Separator \/>/g)].length, 6);
     // Mutation captured: mb-8 under the section description is larger than the gap-5 between preference rows.
     assert.match(optionsSrc, /const SECTION_DESC = "mt-0\.5 mb-5 text-xs text-muted-foreground"/);
     assert.match(optionsSrc, /\{t\.section_interface_desc\}<\/p>\s*<div className="flex flex-col gap-3">/);
     assert.match(optionsSrc, /\{t\.section_handoff_desc\}<\/p>\s*<div className="flex flex-col gap-3">/);
     assert.match(optionsSrc, /\{t\.section_privacy_desc\}<\/p>\s*<div className="flex flex-col gap-3">/);
     assert.doesNotMatch(optionsSrc, /SECTION_LEAD/);
-    assert.equal([...optionsSrc.matchAll(/className=\{SECTION_DESC\}/g)].length, 12);
+    assert.equal([...optionsSrc.matchAll(/className=\{SECTION_DESC\}/g)].length, 11);
     assert.match(optionsSrc, /const voiceAvailable = settings\.storageMode === "cloud"[\s\S]*authSession\?\.kind === "account"[\s\S]*authSession\.plan === "pro"/);
     assert.match(optionsSrc, /\{voiceAvailable \? <>[\s\S]*\{t\.voice_settings_title\}/);
     const voiceBlock = optionsSrc.slice(optionsSrc.indexOf("{voiceAvailable ? <>"), optionsSrc.indexOf("{t.storage_status_title}"));
@@ -188,9 +188,7 @@ describe("capture destination", () => {
     assert.match(backgroundSrc, /return registerInstallationOnce\(cacheKey, async \(\) => \{/);
   });
 
-  test("coalesces concurrent installation recovery and exposes voice only to signed-in Pro accounts", () => {
-    assert.match(backgroundSrc, /const resetInstallationOnce = createSingleFlight\(\)/);
-    assert.match(backgroundSrc, /return resetInstallationOnce\(endpoint, async \(\) => \{/);
+  test("exposes voice only to signed-in Pro accounts", () => {
     assert.match(backgroundSrc, /resolveVoiceAvailability\(settings\.storageMode, session\)/);
     assert.match(contentSrc, /ui\.voice\.hidden = false/);
     assert.match(contentSrc, /ui\.voice\.disabled = !voiceAvailable \|\| active/);
@@ -209,19 +207,16 @@ describe("capture destination", () => {
     assert.equal(i18nSrc.includes('$HOME\\\\.pinar\\\\shots'), true);
   });
 
-  test("recovers when an account migration made the anonymous installation id unusable", () => {
-    const registration = backgroundSrc.slice(
-      backgroundSrc.indexOf("function registerRemoteInstallation("),
-      backgroundSrc.indexOf("async function installationFetch("),
-    );
+  test("requires a device token for Cloud requests and never falls back to an anonymous installation", () => {
     const remote = backgroundSrc.slice(
       backgroundSrc.indexOf("async function remoteFetch("),
       backgroundSrc.indexOf("function audioBlobFromDataUrl("),
     );
-    assert.match(registration, /error\.status = response\.status/);
-    assert.match(remote, /if \(error\?\.status !== 409\) throw error/);
-    assert.match(remote, /resetToFreshInstallation\(endpoint\)/);
-    assert.match(remote, /return installationFetch\(endpoint, path, await resetToFreshInstallation\(endpoint\), init\)/);
+    assert.match(remote, /if \(!deviceToken\) throw new Error/);
+    assert.match(remote, /deviceAuthHeaders\(deviceToken\)/);
+    assert.match(remote, /if \(response.status === 401\) await clearDeviceToken\(storage\)/);
+    assert.doesNotMatch(remote, /installationAuthHeaders|resetToFreshInstallation/);
+    assert.match(backgroundSrc, /if \(!device\) throw new Error\("Sign in with email/);
   });
 
   test("reconciles delivery preferences from the server and PATCHes on save", () => {

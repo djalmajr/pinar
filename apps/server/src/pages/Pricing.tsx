@@ -34,6 +34,7 @@ interface PricingAmountProps {
   originalLabel: string;
   price: PublicPrice | undefined;
   suffix: string;
+  suffixMarker?: string;
 }
 
 interface AddOnCardProps {
@@ -55,7 +56,7 @@ function formatAmount(amount: number, currency: PricingCurrency, language: Suppo
   return new Intl.NumberFormat(locale, { currency, style: "currency" }).format(amount / 100);
 }
 
-function PricingAmount({ currency, language, originalLabel, price, suffix }: PricingAmountProps) {
+function PricingAmount({ currency, language, originalLabel, price, suffix, suffixMarker }: PricingAmountProps) {
   const originalAmount = price?.originalAmount;
   const hasOriginalAmount = currency !== undefined && typeof originalAmount === "number";
   const originalText = hasOriginalAmount ? formatAmount(originalAmount, currency, language) : "\u00a0";
@@ -71,7 +72,9 @@ function PricingAmount({ currency, language, originalLabel, price, suffix }: Pri
       </div>
       <div className="flex items-baseline gap-1">
         <span className="text-3xl font-bold">{priceText}</span>
-        <span className="text-sm text-muted-foreground">{suffix}</span>
+        <span className="text-sm text-muted-foreground">
+          {suffix}{suffixMarker ? <sup aria-hidden="true">{suffixMarker}</sup> : null}
+        </span>
       </div>
     </div>
   );
@@ -103,6 +106,7 @@ function AddOnCard({
           originalLabel=""
           price={price}
           suffix={suffix}
+          suffixMarker={legalNoteMarker}
         />
       </CardContent>
       <CardFooter className="flex-col items-stretch gap-2">
@@ -149,10 +153,7 @@ export function PricingPage() {
   const proPriceText = pricing && proPrice
     ? formatAmount(proPrice.amount, pricing.currency, language)
     : "—";
-  const yearlyMonthlyPrice = pricing
-    ? formatAmount(Math.round(pricing.prices.year.amount / 12), pricing.currency, language)
-    : "—";
-  const proDescription = t("pricing.proYearlyDescription", { price: yearlyMonthlyPrice });
+  const proDescription = t("pricing.proYearlyDescription");
   const proPriceSuffix = t("pricing.perYear");
   const proTitle = t("pricing.proYearly");
   const proCheckoutLabel = loadingOffer === proOffer
@@ -326,10 +327,6 @@ export function PricingPage() {
         </div>
         </div>
 
-        <div className="mb-12 w-full max-w-3xl px-1">
-          <LegalActionNotice id="pricing-pro-legal-note" marker="1" />
-        </div>
-
         <div className="mb-5 max-w-3xl text-center">
           <h2 className="text-2xl font-bold">{t("pricing.addOnsTitle")}</h2>
           <p className="mt-2 text-sm text-muted-foreground">{t("pricing.addOnsDescription")}</p>
@@ -375,11 +372,13 @@ export function PricingPage() {
             onPurchase={() => startCheckout("storage_5gb_12m")}
           />
         </div>
-        <div className="mb-12 w-full max-w-5xl px-1">
-          <LegalActionNotice id="pricing-addons-legal-note" marker="2" />
-        </div>
-
         <ServerFooter
+          beforeSupport={(
+            <div className="mx-auto mb-8 flex w-full max-w-5xl flex-col gap-2 px-1">
+              <LegalActionNotice id="pricing-pro-legal-note" marker="1" />
+              <LegalActionNotice id="pricing-addons-legal-note" marker="2" />
+            </div>
+          )}
           note={(
             <span className="inline-flex items-center gap-1.5">
               <IconLock className="size-3.5" />

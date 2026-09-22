@@ -330,7 +330,7 @@ export const helpArticleDefinitions = [
     sectionScreenshotKeys: [
       [],
       [],
-      ["sign-in-extension", "sign-in-email"],
+      ["sign-in-email"],
     ] as const,
     sourceRefs: [
       "apps/cli/src/history.mjs",

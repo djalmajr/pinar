@@ -329,7 +329,7 @@ const locale = {
           heading: "How local and cloud sessions actually open",
           paragraphs: [
             "Local history starts with a protected “Personal” project and “Inbox” collection that you cannot nest or delete like ordinary folders. Captures stay on this computer, and you can open them from the local workspace.",
-            "Cloud storage waits until you accept the current “Terms”, “Privacy”, and “Acceptable Use”. After that, “Free” accounts can pair the extension with a short-lived code, and paid accounts can also confirm a six-digit email code. Share links stay readable by anyone who has the unlisted URL.",
+            "Cloud storage starts after you accept the current “Terms”, “Privacy”, and “Acceptable Use” and confirm an email code. “Free” and Pro accounts use the same sign-in flow. Share links stay readable by anyone who has the unlisted URL.",
           ],
           bullets: [
             "The local workspace stays on this computer and does not need a cloud account.",
@@ -820,9 +820,9 @@ const locale = {
         "Connect the extension, open the web workspace, and understand code and session expiry.",
       sections: [
         {
-          heading: "Two code flows",
+          heading: "Email code for Free and Pro",
           paragraphs: [
-            "Remote Free installations can open the web app with a five-minute, single-use extension code. Creating a new eight-character code invalidates the previous active one; generation allows 10 requests per five minutes per IP and account, and exchange allows 20 attempts per five minutes per IP. Paid and previously paid accounts can also request a six-digit email code; it expires after ten minutes and locks after five invalid attempts.",
+            "Provide your email in the extension or on pinar.dev. A six-digit code expires after ten minutes and locks after five invalid attempts. A new Free account is created only after the code is confirmed. Disposable email providers are blocked for new accounts; custom domains are accepted.",
           ],
         },
         {
@@ -832,14 +832,14 @@ const locale = {
           ],
         },
         {
-          heading: "Finish pairing from the extension Account tab",
+          heading: "Sign in from the extension Account tab",
           paragraphs: [
-            "On a remote Free installation, open the extension options Account tab and generate the temporary code there, then copy it. Open the hosted sign-in page from that same tab so a successful exchange lands in the web workspace. Regenerating asks for confirmation first because unused codes for that account are replaced. Paste the code on pinar.dev rather than on a local workspace page.",
-            "Requesting an email code always looks the same, including for unknown addresses, so the form does not reveal whether an account exists. A real six-digit message is sent only to an eligible paid account. Sign-out on the Account tab ends the current web and extension sessions.",
+            "Open the Account tab, enter your email, and request a code. Use the code you receive to connect this extension to your account. Any captures from an older anonymous installation move to the account during verification.",
+            "Email-code requests show the same result for unknown or blocked addresses, so the form does not reveal whether an account exists. Sign out ends the current extension device session.",
           ],
           bullets: [
             "If no email arrives, wait before retrying; codes expire, and too many attempts are delayed.",
-            "Confirm the regenerate dialog before invalidating a code you still intend to type on the hosted sign-in page.",
+            "Use a current code sent to your email address; extension pairing codes are no longer offered.",
             "Use Sign out on the Account tab when you need the current web or extension session ended immediately.",
           ],
         },
@@ -853,7 +853,7 @@ const locale = {
         {
           heading: "Plan shape",
           paragraphs: [
-            "Free includes permanent local use, 250 MB of cloud quota, and seven-day cloud retention. Pro is annual, with 2 GB and a one-time allocation of 500 AI credits on the account’s first subscription.",
+            "Free includes permanent local use, 250 MB of cloud quota, and 30-day cloud retention. Pro is annual, with 2 GB and a one-time allocation of 500 AI credits on the account’s first subscription.",
           ],
         },
         {
@@ -930,7 +930,7 @@ const locale = {
             "Fit replacements under quota and use the 90-day recovery clock",
           paragraphs: [
             "Quota is your plan’s included storage plus any still-active add-on. Replacing a larger screenshot with a smaller one can succeed when a brand-new capture would not. Uploads pause once the account is at or above quota, including during grace and recovery.",
-            "Free cloud sessions that are not marked permanent become eligible for cleanup after seven days. Pro content above the Free quota follows the 30-day grace and 90-day recovery window after paid eligibility ends. Local-only history on this computer is never deleted remotely. Eligibility is not a promise of immediate removal.",
+            "Free cloud sessions that are not marked permanent become eligible for cleanup after 30 days. Pro content above the Free quota follows the 30-day grace and 90-day recovery window after paid eligibility ends. Local-only history on this computer is never deleted remotely. Eligibility is not a promise of immediate removal.",
           ],
           bullets: [
             "When new captures pause, free space by deleting sessions or replacing a heavy screenshot, or purchase a 1 GB or 5 GB twelve-month add-on.",

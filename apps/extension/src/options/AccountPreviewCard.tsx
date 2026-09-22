@@ -1,10 +1,8 @@
 import type { TranslationDictionary } from "@pinar/shared";
 import {
-  Badge,
   Button,
   Input,
   PinarMark,
-  Separator,
   Tabs,
   TabsList,
   TabsTrigger,
@@ -17,7 +15,6 @@ import IconLogOut from "~icons/lucide/log-out";
 import IconMail from "~icons/lucide/mail";
 import IconSave from "~icons/lucide/save";
 import IconSparkles from "~icons/lucide/sparkles";
-import { AccountCodeStrip } from "./AccountCodeStrip";
 import type { AccountTabStateFixture } from "./account-tab-states";
 import extensionPackage from "../../package.json";
 
@@ -26,7 +23,6 @@ const SECTION_DESC = "mt-0.5 mb-5 text-xs text-muted-foreground";
 
 interface AccountPreviewCardProps {
   hostedPricingHref: string;
-  hostedSignInHref: string;
   state: AccountTabStateFixture;
   t: TranslationDictionary;
 }
@@ -35,18 +31,8 @@ function ignoreSubmit(event: { preventDefault(): void }) {
   event.preventDefault();
 }
 
-function codeCaption(state: AccountTabStateFixture, t: TranslationDictionary) {
-  if (!state.temporaryCode) return t.account_code_hint;
-  if (state.expired) return t.account_code_expired;
-  if (state.copiedCode) {
-    return t.account_code_copied.replace("{time}", state.temporaryCodeCountdown);
-  }
-  return t.account_code_expires.replace("{time}", state.temporaryCodeCountdown);
-}
-
 function AccountBody({
   hostedPricingHref,
-  hostedSignInHref,
   state,
   t,
 }: AccountPreviewCardProps) {
@@ -84,33 +70,13 @@ function AccountBody({
     );
   }
 
-  const generating = state.id === "free-generating";
-  const sendingEmail = state.id === "free-email-sending";
-  const verifying = state.id === "free-email-verifying";
+  const sendingEmail = state.id === "email-sending";
+  const verifying = state.id === "email-verifying";
   const sendLabel = sendingEmail ? "Enviando…" : t.btn_send_code;
   const verifyLabel = verifying ? "Verificando…" : t.btn_verify_code;
 
   return (
     <>
-      <section aria-labelledby="account-free-title" className="flex flex-col">
-        <div className="flex items-start justify-between gap-3">
-          <span className={SECTION_HEADER} id="account-free-title">{t.account_free_title}</span>
-          <Badge className="shrink-0 bg-muted text-muted-foreground" variant="outline">{t.account_free_badge}</Badge>
-        </div>
-        <p className={SECTION_DESC}>{t.account_free_description}</p>
-        <div className="flex flex-col gap-2.5">
-          <AccountCodeStrip
-            caption={codeCaption(state, t)}
-            copiedCode={state.copiedCode}
-            expired={state.expired}
-            generating={generating}
-            hostedSignInHref={hostedSignInHref}
-            t={t}
-            temporaryCode={state.temporaryCode}
-          />
-        </div>
-      </section>
-      <Separator />
       <section aria-labelledby="account-email-title" className="flex flex-col">
         <span className={SECTION_HEADER} id="account-email-title">{t.account_email_title}</span>
         <p className={SECTION_DESC}>{state.emailCodeRequested ? t.account_email_sent : t.account_email_description}</p>
@@ -167,7 +133,6 @@ function AccountBody({
 
 export function AccountPreviewCard({
   hostedPricingHref,
-  hostedSignInHref,
   state,
   t,
 }: AccountPreviewCardProps) {
@@ -201,7 +166,6 @@ export function AccountPreviewCard({
         <div className="flex flex-col gap-5">
           <AccountBody
             hostedPricingHref={hostedPricingHref}
-            hostedSignInHref={hostedSignInHref}
             state={state}
             t={t}
           />
@@ -230,23 +194,6 @@ export function AccountPreviewCard({
           </Button>
         </div>
       </footer>
-
-      {state.regenerateCodeOpen ? (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/45 p-6">
-          <div className="flex w-full max-w-sm flex-col gap-4 rounded-xl bg-popover p-4 text-popover-foreground ring-1 ring-foreground/10">
-            <div className="flex flex-col gap-1.5">
-              <p className="text-base font-medium">{t.account_code_regeneration_title}</p>
-              <p className="text-sm text-muted-foreground">
-                {t.account_code_regeneration_description.replace("{code}", state.temporaryCode)}
-              </p>
-            </div>
-            <div className="-mx-4 -mb-4 flex justify-end gap-2 rounded-b-xl border-t bg-muted/50 p-4">
-              <Button type="button" variant="outline">{t.btn_cancel}</Button>
-              <Button type="button">{t.btn_invalidate_and_generate}</Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

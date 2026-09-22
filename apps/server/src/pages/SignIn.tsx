@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useState } from "react";
 import {
   Button,
   Card,
@@ -8,21 +8,15 @@ import {
   CardTitle,
   Input,
   ScrollArea,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
 } from "@pinar/ui";
 import { currentLegalAcceptance, LegalActionNotice } from "@/components/LegalActionNotice";
 import { FairSourceSupportCard } from "@/components/ServerFooter";
 import { ServerShell } from "@/components/ServerShell";
 import { isRecord } from "@/lib/api-data";
 import { useServerI18n } from "@/lib/i18n";
-import KeyRoundIcon from "~icons/lucide/key-round";
 import MailIcon from "~icons/lucide/mail";
 
 interface SignInPageProps {
-  extensionCode: string;
   returnTo: string;
 }
 
@@ -33,47 +27,13 @@ async function responseError(response: Response) {
   return isRecord(data) && typeof data.error === "string" ? data.error : "Request failed";
 }
 
-export function SignInPage({ extensionCode, returnTo }: SignInPageProps) {
+export function SignInPage({ returnTo }: SignInPageProps) {
   const { language, t } = useServerI18n();
-  const [code, setCode] = useState(extensionCode);
   const [email, setEmail] = useState("");
   const [emailCode, setEmailCode] = useState("");
   const [error, setError] = useState("");
-  const autoExchangeStarted = useRef(false);
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<Step>("request");
-
-  async function exchangeCode(value: string) {
-    const normalized = value.replace(/[\s-]/g, "").toUpperCase();
-    if (normalized.length !== 8) return;
-    setLoading(true);
-    setError("");
-    try {
-      const response = await fetch("/api/auth/extension-codes/exchange", {
-        body: JSON.stringify({ code: normalized, returnTo }),
-        headers: { "Content-Type": "application/json" },
-        method: "POST",
-      });
-      if (!response.ok) throw new Error(await responseError(response));
-      const data: unknown = await response.json();
-      window.location.href = isRecord(data) && typeof data.redirectTo === "string" ? data.redirectTo : returnTo;
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t("signIn.codeInvalid"));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    if (!extensionCode || autoExchangeStarted.current) return;
-    autoExchangeStarted.current = true;
-    void exchangeCode(extensionCode);
-  }, [extensionCode]);
-
-  async function submitExtensionCode(event: FormEvent) {
-    event.preventDefault();
-    await exchangeCode(code);
-  }
 
   async function requestEmailCode(event: FormEvent) {
     event.preventDefault();
@@ -132,40 +92,7 @@ export function SignInPage({ extensionCode, returnTo }: SignInPageProps) {
       <ScrollArea className="min-h-0 flex-1">
         <main className="mx-auto flex min-h-full w-full max-w-5xl flex-col px-5 py-10">
           <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center">
-            <Tabs className="w-full" defaultValue="extension" onValueChange={() => setError("")}>
-              <TabsList className="w-full" variant="segmented">
-                <TabsTrigger value="extension">{t("signIn.extensionTab")}</TabsTrigger>
-                <TabsTrigger value="account">{t("signIn.accountTab")}</TabsTrigger>
-              </TabsList>
-              <Card>
-                <TabsContent className="flex flex-col gap-4" value="extension">
-                  <CardHeader>
-                    <div className="flex items-center gap-2 text-card-foreground" data-testid="extension-sign-in-heading">
-                      <KeyRoundIcon className="size-4 shrink-0 text-current" />
-                      <CardTitle>{t("signIn.freeTitle")}</CardTitle>
-                    </div>
-                    <CardDescription>{t("signIn.freeDescription")}</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <form className="flex flex-col gap-3" onSubmit={submitExtensionCode}>
-                      <Input
-                        autoComplete="one-time-code"
-                        inputMode="text"
-                        maxLength={11}
-                        placeholder={t("signIn.extensionPlaceholder")}
-                        value={code}
-                        onChange={(event) => {
-                          setCode(event.target.value.toUpperCase());
-                          setError("");
-                        }}
-                      />
-                      <Button className="w-full" disabled={loading || code.replace(/[\s-]/g, "").length !== 8} type="submit">
-                        {loading ? t("signIn.entering") : t("signIn.openApp")}
-                      </Button>
-                    </form>
-                  </CardContent>
-                </TabsContent>
-                <TabsContent className="flex flex-col gap-4" value="account">
+            <Card>
                   <CardHeader>
                     <div className="flex items-center gap-2 text-card-foreground" data-testid="account-sign-in-heading">
                       <MailIcon className="size-4 shrink-0 text-current" />
@@ -196,14 +123,12 @@ export function SignInPage({ extensionCode, returnTo }: SignInPageProps) {
                       </form>
                     )}
                   </CardContent>
-                </TabsContent>
                 {error && (
                   <CardContent>
                     <p className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive" role="alert">{error}</p>
                   </CardContent>
                 )}
               </Card>
-            </Tabs>
           </div>
           <FairSourceSupportCard className="mt-auto" />
         </main>

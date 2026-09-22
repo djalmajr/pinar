@@ -9,8 +9,8 @@ const PRICING_CONFIG: PricingConfig = {
   storage5Gb12MUsdCents: 799,
   storage1Gb12MBrlCents: 990,
   storage1Gb12MUsdCents: 299,
-  yearlyBrlCents: 3_990,
-  yearlyUsdCents: 1_900,
+  yearlyBrlCents: 9_900,
+  yearlyUsdCents: 2_900,
 };
 
 describe("regional pricing", () => {
@@ -24,7 +24,7 @@ describe("regional pricing", () => {
       free: { amount: 0, originalAmount: null },
       storage5Gb12M: { amount: 2_990, originalAmount: null },
       storage1Gb12M: { amount: 990, originalAmount: null },
-      year: { amount: 3_990, originalAmount: null },
+      year: { amount: 9_900, originalAmount: null },
     });
   });
 
@@ -37,7 +37,7 @@ describe("regional pricing", () => {
       free: { amount: 0, originalAmount: null },
       storage5Gb12M: { amount: 799, originalAmount: null },
       storage1Gb12M: { amount: 299, originalAmount: null },
-      year: { amount: 1_900, originalAmount: null },
+      year: { amount: 2_900, originalAmount: null },
     });
   });
 
@@ -65,7 +65,7 @@ describe("regional pricing", () => {
     }), false);
     assert.equal(isPublicPricing({
       ...pricing,
-      prices: { ...pricing.prices, year: { amount: 3_990, originalAmount: 3_900 } },
+      prices: { ...pricing.prices, year: { amount: 9_900, originalAmount: 9_800 } },
     }), false);
   });
 

@@ -63,6 +63,7 @@ describe("cloud schema migrations", () => {
       "0018_voice_post_processing.sql",
       "0019_one_time_pro_credits.sql",
       "0020_storage_1gb_add_on.sql",
+      "0021_email_first_accounts.sql",
     ]);
     const migrated = new Database(":memory:");
     const canonical = new Database(":memory:");

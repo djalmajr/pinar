@@ -17,12 +17,9 @@ import { getPinColor } from "./pin-colors.js";
 import { remoteProfileStorage } from "./remote-profile.js";
 import {
   clearDeviceToken,
-  createInstallationIdentity,
   deviceAuthHeaders,
   ensureInstallationIdentity,
   getDeviceToken,
-  installationAuthHeaders,
-  replaceInstallationIdentity,
   storeDeviceToken,
 } from "./identity.js";
 import { pinarPorts } from "./ports.js";
@@ -54,7 +51,6 @@ const tabPins = new Map();
 const tabRecordings = new Map();
 const registeredInstallations = new Set();
 const registerInstallationOnce = createSingleFlight();
-const resetInstallationOnce = createSingleFlight();
 const concludeReviewOnce = createSingleFlight();
 // Keeping the original command id preserves every shortcut a user already bound;
 // Chrome keys bindings by name, so renaming it to "toggle-batch" would drop them.
@@ -116,11 +112,8 @@ async function reviewDestination(draft) {
   if (settings.storageMode === "cloud") {
     const storage = remoteProfileStorage(chrome.storage.local, base);
     const device = await getDeviceToken(storage);
-    const installation = await ensureInstallationIdentity(storage);
-    if (!device) await registerRemoteInstallation(base, installation);
-    const authHeaders = device ? deviceAuthHeaders(device) : installationAuthHeaders(installation);
-    // A 401 must keep the draft bound to its owner. The general remoteFetch
-    // fallback creates a fresh installation, which is wrong for an open draft.
+    if (!device) throw new Error("Sign in with email before saving to Pinar Cloud");
+    const authHeaders = deviceAuthHeaders(device);
     request = (path, init = {}) => cloudFetch(`${base}${path}`, { ...init, headers: { ...authHeaders, ...(init.headers || {}) } });
   }
   return { base, settings, request };
@@ -674,13 +667,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "auth:get") {
     getAuthSession()
       .then((session) => sendResponse({ ok: true, session }))
-      .catch((error) => sendResponse({ error: String(error), ok: false }));
-    return true;
-  }
-
-  if (message.type === "auth:extension-code") {
-    createExtensionCodeForCurrentSession()
-      .then((challenge) => sendResponse({ ...challenge, ok: true }))
       .catch((error) => sendResponse({ error: String(error), ok: false }));
     return true;
   }
@@ -1651,60 +1637,19 @@ function registerRemoteInstallation(endpoint, identity, force = false) {
   });
 }
 
-async function installationFetch(endpoint, path, identity, init = {}) {
-  await registerRemoteInstallation(endpoint, identity);
-  const request = () => cloudFetch(`${endpoint}${path}`, {
-    ...init,
-    headers: {
-      ...installationAuthHeaders(identity),
-      ...(init.headers || {}),
-    },
-  });
-  let response = await request();
-  if (response.status === 401) {
-    registeredInstallations.delete(`${endpoint}:${identity.id}`);
-    await registerRemoteInstallation(endpoint, identity, true);
-    response = await request();
-  }
-  return response;
-}
-
-async function resetToFreshInstallation(endpoint) {
-  return resetInstallationOnce(endpoint, async () => {
-    const storage = remoteProfileStorage(chrome.storage.local, endpoint);
-    const replacement = createInstallationIdentity();
-    await clearDeviceToken(storage);
-    await replaceInstallationIdentity(storage, replacement);
-    registeredInstallations.clear();
-    await registerRemoteInstallation(endpoint, replacement, true);
-    return replacement;
-  });
-}
-
 async function remoteFetch(endpoint, path, init = {}) {
   const storage = remoteProfileStorage(chrome.storage.local, endpoint);
   const deviceToken = await getDeviceToken(storage);
-  if (deviceToken) {
-    const response = await cloudFetch(`${endpoint}${path}`, {
-      ...init,
-      headers: {
-        ...deviceAuthHeaders(deviceToken),
-        ...(init.headers || {}),
-      },
-    });
-    if (response.status !== 401) return response;
-    await resetToFreshInstallation(endpoint);
-  }
-  const identity = await initializeInstallationIdentity(endpoint);
-  try {
-    return await installationFetch(endpoint, path, identity, init);
-  } catch (error) {
-    // Account activation migrates the anonymous installation on that server.
-    // If its endpoint-scoped account token is later absent, that migrated id
-    // cannot be registered again. Recover with a fresh anonymous identity.
-    if (error?.status !== 409) throw error;
-    return installationFetch(endpoint, path, await resetToFreshInstallation(endpoint), init);
-  }
+  if (!deviceToken) throw new Error("Sign in with email before using Pinar Cloud");
+  const response = await cloudFetch(`${endpoint}${path}`, {
+    ...init,
+    headers: {
+      ...deviceAuthHeaders(deviceToken),
+      ...(init.headers || {}),
+    },
+  });
+  if (response.status === 401) await clearDeviceToken(storage);
+  return response;
 }
 
 function audioBlobFromDataUrl(value) {
@@ -1828,8 +1773,10 @@ async function getAuthSession() {
   const settings = await getSettings();
   if (settings.storageMode !== "cloud") return { kind: "local", plan: "free" };
   const endpoint = cloudEndpoint(settings);
+  if (!await getDeviceToken(remoteProfileStorage(chrome.storage.local, endpoint))) return null;
   const response = await remoteFetch(endpoint, "/api/auth/session");
   const body = await responseBody(response);
+  if (response.status === 401) return null;
   if (!response.ok || !body.session) throw new Error(body.error || "Account session is unavailable");
   return body.session;
 }
@@ -1850,16 +1797,6 @@ async function getStorageStatus() {
     uploadAllowed: storage.uploadAllowed !== false,
     usedBytes: Number(storage.usedBytes || 0),
   };
-}
-
-async function createExtensionCodeForCurrentSession() {
-  const settings = await getSettings();
-  if (settings.storageMode !== "cloud") throw new Error("Temporary codes are only used by the remote server");
-  const endpoint = cloudEndpoint(settings);
-  const response = await remoteFetch(endpoint, "/api/auth/extension-codes", { method: "POST" });
-  const body = await responseBody(response);
-  if (!response.ok || !body.code) throw new Error(body.error || "Temporary code is unavailable");
-  return { code: body.code, expiresAt: body.expiresAt };
 }
 
 async function requestAccountEmailCode(email) {
@@ -1913,8 +1850,8 @@ async function logoutAccount() {
       throw new Error(body.error || "Unable to sign out");
     }
   }
-  const identity = await resetToFreshInstallation(endpoint);
-  return { installationId: identity.id, kind: "installation", plan: "free" };
+  await clearDeviceToken(remoteProfileStorage(chrome.storage.local, endpoint));
+  return null;
 }
 
 async function openBillingPortal() {

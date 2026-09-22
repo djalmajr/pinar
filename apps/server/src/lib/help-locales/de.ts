@@ -331,7 +331,7 @@ const locale = {
           heading: "Wie lokale und Cloud-Sitzungen wirklich geöffnet werden",
           paragraphs: [
             "Der lokale Verlauf beginnt mit einem geschützten Projekt „Personal“ und einer geschützten Collection „Inbox“, die du nicht wie gewöhnliche Ordner verschachteln oder löschen kannst. Aufnahmen bleiben auf diesem Computer, und du kannst sie im lokalen Workspace öffnen.",
-            "Cloud-Speicher wartet, bis du die aktuellen „Bedingungen“, den „Datenschutz“ und die „Zulässige Nutzung“ akzeptiert hast. Danach können „Free“-Konten die Erweiterung mit einem kurzlebigen Code koppeln, und bezahlte Konten können zusätzlich einen sechsstelligen E-Mail-Code bestätigen. Freigabelinks bleiben für alle lesbar, die die unlisted URL haben.",
+            "Cloud-Speicher beginnt nach Annahme der aktuellen „Bedingungen“, „Datenschutz“ und „Zulässige Nutzung“ sowie Bestätigung eines E-Mail-Codes. „Free“- und Pro-Konten nutzen dieselbe Anmeldung. Freigabelinks bleiben für alle mit der nicht gelisteten URL lesbar.",
           ],
           bullets: [
             "Der lokale Workspace bleibt auf diesem Computer und braucht kein Cloud-Konto.",
@@ -824,9 +824,9 @@ const locale = {
         "Verbinde die Erweiterung, öffne den Web-Workspace und verstehe den Ablauf von Codes und Sitzungen.",
       sections: [
         {
-          heading: "Zwei Code-Abläufe",
+          heading: "E-Mail-Code für Free und Pro",
           paragraphs: [
-            "Remote-Free-Installationen können die Web-App mit einem fünf Minuten gültigen, einmaligen Erweiterungscode öffnen. Das Erstellen eines neuen achtstelligen Codes macht den zuvor aktiven ungültig; die Erzeugung erlaubt 10 Anfragen pro fünf Minuten pro IP und Konto, der Austausch erlaubt 20 Versuche pro fünf Minuten pro IP. Bezahlte und zuvor bezahlte Konten können außerdem einen sechsstelligen E-Mail-Code anfordern; er läuft nach zehn Minuten ab und sperrt nach fünf ungültigen Versuchen.",
+            "Gib deine E-Mail-Adresse in der Erweiterung oder auf pinar.dev ein. Der sechsstellige Code läuft nach zehn Minuten ab und wird nach fünf falschen Versuchen gesperrt. Ein Free-Konto entsteht erst nach Bestätigung des Codes. Wegwerf-Anbieter werden für neue Konten gesperrt; eigene Domains sind erlaubt.",
           ],
         },
         {
@@ -836,14 +836,14 @@ const locale = {
           ],
         },
         {
-          heading: "Kopplung im Account-Tab der Erweiterung abschließen",
+          heading: "Im Konto-Tab der Erweiterung anmelden",
           paragraphs: [
-            "Öffne bei einer Remote-Free-Installation den Account-Tab der Erweiterungsoptionen, erzeuge dort den temporären Code und kopiere ihn. Öffne die gehostete Anmeldeseite über denselben Tab, damit ein erfolgreicher Austausch im Web-Workspace landet. Das erneute Erzeugen fragt zuerst nach Bestätigung, weil ungenutzte Codes dieses Kontos ersetzt werden. Füge den Code auf pinar.dev ein, nicht auf einer lokalen Workspace-Seite.",
-            "Das Anfordern eines E-Mail-Codes sieht immer gleich aus, auch bei unbekannten Adressen, sodass das Formular nicht verrät, ob ein Konto existiert. Eine echte sechsstellige Nachricht wird nur an ein berechtigtes bezahltes Konto gesendet. Sign-out im Account-Tab beendet die aktuelle Web- und Erweiterungssitzung.",
+            "Öffne den Konto-Tab, gib deine E-Mail-Adresse ein und fordere einen Code an. Gib den erhaltenen Code ein, um die Erweiterung mit deinem Konto zu verbinden. Aufnahmen einer älteren anonymen Installation werden bei der Bestätigung übertragen.",
+            "Die Anfrage zeigt für unbekannte oder gesperrte Adressen dieselbe Antwort und verrät nicht, ob ein Konto existiert. Abmelden beendet die aktuelle Erweiterungssitzung.",
           ],
           bullets: [
             "Wenn keine E-Mail ankommt, warte vor einem erneuten Versuch; Codes laufen ab, und zu viele Versuche werden verzögert.",
-            "Bestätige den Regenerieren-Dialog, bevor du einen Code ungültig machst, den du noch auf der gehosteten Anmeldeseite eingeben willst.",
+            "Verwende einen aktuellen E-Mail-Code; die Erweiterung bietet keine Kopplungscodes mehr an.",
             "Nutze Sign out im Account-Tab, wenn die aktuelle Web- oder Erweiterungssitzung sofort beendet werden soll.",
           ],
         },
@@ -857,7 +857,7 @@ const locale = {
         {
           heading: "Planstruktur",
           paragraphs: [
-            "Free umfasst dauerhafte lokale Nutzung, 250 MB Cloud-Kontingent und sieben Tage Cloud-Aufbewahrung. Pro ist jährlich, mit 2 GB und einmalig 500 KI-Credits beim ersten Abonnement des Kontos.",
+            "Free umfasst dauerhafte lokale Nutzung, 250 MB Cloud-Kontingent und 30 Tage Cloud-Aufbewahrung. Pro ist jährlich, mit 2 GB und einmalig 500 KI-Credits beim ersten Abonnement des Kontos.",
           ],
         },
         {
@@ -935,7 +935,7 @@ const locale = {
             "Ersetzungen unter das Kontingent bringen und die 90-Tage-Wiederherstellungsuhr nutzen",
           paragraphs: [
             "Das Kontingent ist der im Plan enthaltene Speicher plus jedes noch aktive Add-on. Das Ersetzen eines größeren Screenshots durch einen kleineren kann gelingen, wenn eine brandneue Capture das nicht täte. Uploads pausieren, sobald das Konto am oder über dem Kontingent liegt, auch während Nachfrist und Wiederherstellung.",
-            "Free-Cloud-Sitzungen, die nicht als dauerhaft markiert sind, werden nach sieben Tagen bereinigungsberechtigt. Pro-Inhalte oberhalb des Free-Kontingents folgen nach Ende der bezahlten Berechtigung der 30-tägigen Nachfrist und dem 90-tägigen Wiederherstellungsfenster. Ausschließlich lokaler Verlauf auf diesem Computer wird niemals remote gelöscht. Berechtigung ist kein Versprechen einer sofortigen Entfernung.",
+            "Free-Cloud-Sitzungen, die nicht als dauerhaft markiert sind, werden nach 30 Tagen bereinigungsberechtigt. Pro-Inhalte oberhalb des Free-Kontingents folgen nach Ende der bezahlten Berechtigung der 30-tägigen Nachfrist und dem 90-tägigen Wiederherstellungsfenster. Ausschließlich lokaler Verlauf auf diesem Computer wird niemals remote gelöscht. Berechtigung ist kein Versprechen einer sofortigen Entfernung.",
           ],
           bullets: [
             "Wenn neue Captures pausieren, schaffe Platz, indem du Sitzungen löschst oder einen umfangreichen Screenshot ersetzt, oder erwirb ein zwölfmonatiges 1-GB- oder 5-GB-Add-on.",

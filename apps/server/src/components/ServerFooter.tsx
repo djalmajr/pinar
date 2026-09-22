@@ -15,6 +15,7 @@ interface FairSourceSupportCardProps {
 }
 
 interface ServerFooterProps extends FairSourceSupportCardProps {
+  beforeSupport?: ReactNode;
   note?: ReactNode;
 }
 
@@ -65,12 +66,13 @@ export function FairSourceSupportCard({ className }: FairSourceSupportCardProps)
   );
 }
 
-export function ServerFooter({ className, compact = false, note }: ServerFooterProps) {
+export function ServerFooter({ beforeSupport, className, compact = false, note }: ServerFooterProps) {
   const { language, t } = useServerI18n();
   const currentYear = footerYear();
 
   return (
     <footer className={cn("mt-auto w-full pt-8", className)} role="contentinfo">
+      {beforeSupport}
       <FairSourceSupportCard compact={compact} />
       {note ? (
         <div className="mx-auto mt-6 flex min-h-9 w-full max-w-6xl items-center justify-center px-1 py-2 text-center text-[11px] font-normal leading-4 text-muted-foreground">

@@ -1,6 +1,6 @@
 ---
 id: publico-explorar-proposta-planos
-name: Explorar proposta, planos e seis ofertas
+name: Explorar proposta, planos e cinco ofertas
 reference: apps/server/src/pages/Landing.tsx; apps/server/src/pages/Pricing.tsx; apps/server/src/lib/pricing.ts
 persona: skeptical
 entry: "https://stg.pinar.dev/"
@@ -11,7 +11,7 @@ preconditions:
 
 ## User goal
 
-Entender o Pinar, comparar mensal e anual e identificar as seis ofertas antes
+Entender o Pinar, comparar Free e Pro anual e identificar as cinco ofertas antes
 de decidir comprar.
 
 ## Steps
@@ -19,12 +19,11 @@ de decidir comprar.
 1. Na landing, **ler o herói e os três pilares** → proposta, contexto preservado e entrega para IA são compreensíveis.
 2. **Clicar em "View plans"** → abre a página de planos pela navegação pública.
 3. **Conferir o preço anual selecionado inicialmente** → Pro anual mostra o preço em BRL e a cobrança anual.
-4. **Clicar em "Monthly"** → Pro muda para cobrança mensal preservando os benefícios Pro.
-5. **Clicar em "Yearly"** → preço e economia anual voltam ao estado inicial.
-6. **Percorrer a seção de adicionais** → 1.000 créditos, 5 GB e 20 GB exibem preço e validade de 12 meses.
-7. **Voltar pelo link "Home"** → retorna à landing sem URL digitada.
+4. **Conferir Free e Pro** → retenção, armazenamento e créditos refletem as cotas atuais.
+5. **Percorrer a seção de adicionais** → 500 créditos, 1 GB e 5 GB exibem preço e validade de 12 meses.
+6. **Voltar pelo link "Home"** → retorna à landing sem URL digitada.
 
 ## Expected result
 
-O visitante encontra as seis ofertas, entende periodicidade, validade e retenção
+O visitante encontra as cinco ofertas, entende periodicidade, validade e retenção
 e retorna à landing somente por ações visíveis.

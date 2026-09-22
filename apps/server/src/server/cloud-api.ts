@@ -70,6 +70,7 @@ import {
   type PurchasableCheckoutOffer,
   type StorageEntitlement,
 } from "../lib/entitlements";
+import { isDisposableEmail } from "../lib/email-policy";
 import { CURRENT_LEGAL_VERSION } from "../lib/legal-documents";
 import { generateReproduction } from "./ai/reproduction";
 import { transcribeVoicePin } from "./ai/voice-pin";
@@ -80,7 +81,7 @@ import {
 } from "./ai/inference";
 import { SESSION_PATCH_MAX_BYTES } from "./session-patch";
 import { type PricingConfig, pricingForCountry } from "../lib/pricing";
-import { laterExpiry, paidRetentionExpiresAt } from "../lib/retention";
+import { FREE_CLOUD_RETENTION_DAYS, laterExpiry, paidRetentionExpiresAt } from "../lib/retention";
 import { formatBatchMarkdown, formatCollectionMarkdown, formatProjectMarkdown, formatSessionMarkdown } from "./markdown";
 import { installerResponse } from "./installers";
 import { decodePngDataUrl } from "./png";
@@ -324,10 +325,11 @@ interface EmailChallengeRecord {
   attempts: number;
   codeHash: string;
   createdAt: string;
+  email: string;
   expiresAt: string;
   id: string;
   usedAt: string | null;
-  userId: string;
+  userId: string | null;
 }
 
 interface RateLimitRecord {
@@ -869,6 +871,32 @@ async function findAccountByEmail(env: CloudEnv, email: string) {
     return row ? accountFromRow(row) : null;
   }
   return Array.from(memoryAccounts.values()).find((account) => account.email === email) || null;
+}
+
+async function createFreeAccount(env: CloudEnv, email: string) {
+  const existing = await findAccountByEmail(env, email);
+  if (existing) return existing;
+  const now = currentDate().toISOString();
+  const account: AccountRecord = {
+    aiCreditRefillAt: "",
+    billingStatus: "active",
+    email,
+    everPaid: false,
+    id: "usr_" + generateNanoId(24),
+    paidEligibilityEndedAt: "",
+    plan: "free",
+    stripeCustomerId: "",
+    stripeSubscriptionId: "",
+  };
+  if (env.DB) {
+    await env.DB.prepare(
+      "INSERT OR IGNORE INTO users (id, email, plan, ever_paid, billing_status, created_at, updated_at) "
+      + "VALUES (?, ?, 'free', 0, 'active', ?, ?)",
+    ).bind(account.id, email, now, now).run();
+    return findAccountByEmail(env, email);
+  }
+  memoryAccounts.set(account.id, account);
+  return account;
 }
 
 async function findAccountByStripeCustomer(env: CloudEnv, customerId: string) {
@@ -2044,9 +2072,14 @@ async function bearerPrincipal(request: Request, env: CloudEnv, now: string) {
 
 export async function resolvePrincipal(request: Request, env: CloudEnv): Promise<Principal | null> {
   const now = currentDate().toISOString();
-  // The extension sends its installation bearer on every remote call and Chrome
-  // also attaches the website cookie. A stale pinar_session must not hide that bearer.
-  return await bearerPrincipal(request, env, now) || webSessionPrincipal(request, env, now);
+  // Chrome may attach a website cookie alongside an extension bearer. Prefer
+  // verified accounts and reject installation identities in Cloud deployments.
+  const bearer = await bearerPrincipal(request, env, now);
+  if (bearer?.kind === "account") return bearer;
+  const web = await webSessionPrincipal(request, env, now);
+  if (web?.kind === "account") return web;
+  // In-memory legacy fixtures omit both the deployment marker and D1.
+  return env.DEPLOYMENT_ENV || env.DB ? null : bearer || web;
 }
 
 async function registerInstallation(request: Request, env: CloudEnv) {
@@ -2246,9 +2279,12 @@ async function requestEmailCode(request: Request, env: CloudEnv) {
   );
   if (!allowed) return json({ error: "Too many requests" }, 429);
   const account = await findAccountByEmail(env, email);
+  if (!account && isDisposableEmail(email)) {
+    return json(generic, 202, { "Cache-Control": "no-store" });
+  }
   const code = generateEmailCode();
   const codeHash = await hashCode(env, "email-code", email + ":" + code);
-  if (!account?.everPaid || !codeHash || !env.EMAIL) {
+  if (!codeHash || !env.EMAIL) {
     return json(generic, 202, { "Cache-Control": "no-store" });
   }
   const now = currentDate();
@@ -2256,16 +2292,18 @@ async function requestEmailCode(request: Request, env: CloudEnv) {
     attempts: 0,
     codeHash,
     createdAt: now.toISOString(),
+    email,
     expiresAt: new Date(now.getTime() + 10 * 60 * 1000).toISOString(),
     id: "emc_" + generateNanoId(24),
     usedAt: null,
-    userId: account.id,
+    userId: account?.id || null,
   };
   if (env.DB) {
     await env.DB.prepare(
-      "INSERT INTO email_challenges (id, user_id, code_hash, attempts, expires_at, used_at, created_at) VALUES (?, ?, ?, 0, ?, NULL, ?)",
+      "INSERT INTO email_challenges (id, email, user_id, code_hash, attempts, expires_at, used_at, created_at) VALUES (?, ?, ?, ?, 0, ?, NULL, ?)",
     ).bind(
       challenge.id,
+      challenge.email,
       challenge.userId,
       challenge.codeHash,
       challenge.expiresAt,
@@ -2280,7 +2318,7 @@ async function requestEmailCode(request: Request, env: CloudEnv) {
       html: "<p>Your Pinar sign-in code is:</p><p><strong>" + code + "</strong></p><p>This code expires in 10 minutes.</p>",
       subject: "Your Pinar sign-in code",
       text: "Your Pinar sign-in code is " + code + ". It expires in 10 minutes.",
-      to: account.email,
+      to: email,
     });
   } catch (error) {
     console.error(JSON.stringify({
@@ -2296,25 +2334,26 @@ async function requestEmailCode(request: Request, env: CloudEnv) {
   return json(generic, 202, { "Cache-Control": "no-store" });
 }
 
-async function latestEmailChallenge(env: CloudEnv, userId: string) {
+async function latestEmailChallenge(env: CloudEnv, email: string) {
   if (env.DB) {
     const row = await env.DB.prepare(
-      "SELECT * FROM email_challenges WHERE user_id = ? AND used_at IS NULL ORDER BY created_at DESC LIMIT 1",
-    ).bind(userId).first();
+      "SELECT * FROM email_challenges WHERE email = ? COLLATE NOCASE AND used_at IS NULL ORDER BY created_at DESC LIMIT 1",
+    ).bind(email).first();
     return row
       ? {
         attempts: Number(row.attempts || 0),
         codeHash: String(row.code_hash || ""),
         createdAt: String(row.created_at || ""),
+        email: String(row.email || ""),
         expiresAt: String(row.expires_at || ""),
         id: String(row.id || ""),
         usedAt: typeof row.used_at === "string" ? row.used_at : null,
-        userId: String(row.user_id || ""),
+        userId: typeof row.user_id === "string" ? row.user_id : null,
       } satisfies EmailChallengeRecord
       : null;
   }
   return Array.from(memoryEmailChallenges.values())
-    .filter((challenge) => challenge.userId === userId && !challenge.usedAt)
+    .filter((challenge) => challenge.email === email && !challenge.usedAt)
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0] || null;
 }
 
@@ -2542,9 +2581,8 @@ async function verifyEmailCode(request: Request, env: CloudEnv) {
     15 * 60 * 1000,
   );
   if (!allowed) return json({ error: "Too many requests" }, 429);
-  const account = await findAccountByEmail(env, email);
-  if (!account?.everPaid) return invalid();
-  const challenge = await latestEmailChallenge(env, account.id);
+  let account = await findAccountByEmail(env, email);
+  const challenge = await latestEmailChallenge(env, email);
   const now = currentDate().toISOString();
   if (!challenge || challenge.usedAt || challenge.attempts >= 5 || challenge.expiresAt <= now) return invalid();
   const candidateHash = await hashCode(env, "email-code", email + ":" + code);
@@ -2561,28 +2599,37 @@ async function verifyEmailCode(request: Request, env: CloudEnv) {
     return invalid();
   }
 
-  const accountPrincipal = principalForAccount(account);
-  const currentAcceptance = await latestLegalAcceptance(env, accountPrincipal);
+  const currentAcceptance = account
+    ? await latestLegalAcceptance(env, principalForAccount(account))
+    : null;
+  const evidence = currentAppLegalEvidence(
+    body,
+    account
+      ? `account:${account.id}:${CURRENT_LEGAL_VERSION}`
+      : `signup:${challenge.id}:${CURRENT_LEGAL_VERSION}`,
+  );
   if (requiresLegalAcceptance(env) && !isCurrentLegalAcceptance(currentAcceptance)) {
-    const evidence = currentAppLegalEvidence(
-      body,
-      `account:${account.id}:${CURRENT_LEGAL_VERSION}`,
-    );
     if (!evidence) return legalAcceptanceRequiredResponse(428);
+  }
+
+  if (!await claimEmailChallenge(env, challenge)) return invalid();
+  if (!account) {
+    account = await createFreeAccount(env, email);
+    if (!account) return json({ error: "Account registration unavailable" }, 503);
+  }
+  if (requiresLegalAcceptance(env) && !isCurrentLegalAcceptance(currentAcceptance) && evidence) {
     if (!await recordAccountLegalAcceptance(env, account, evidence, "account")) {
       return json({ error: "Unable to record legal acceptance" }, 503);
     }
   }
 
   if (installationId || installationToken) {
-    if (!await claimEmailChallenge(env, challenge)) return invalid();
     const device = await migrateInstallationToAccount(env, account, installationId);
     return device
       ? json({ device, ok: true, session: device.session }, 200, { "Cache-Control": "no-store" })
       : json({ error: "Account migration failed" }, 409);
   }
 
-  if (!await claimEmailChallenge(env, challenge)) return invalid();
   const principal = principalForAccount(account);
   const issued = await issueWebSession(env, principal);
   return json({ ok: true, redirectTo: internalReturnTo(stringValue(body, "returnTo")), session: accountAuthSession(account) }, 200, {
@@ -5189,10 +5236,13 @@ export async function sendStorageExpiryNotices(env: CloudEnv) {
   return { delivered, failed, pending };
 }
 
-export async function cleanupOldRecords(env: CloudEnv, days = 7) {
+export async function cleanupOldRecords(env: CloudEnv, days = FREE_CLOUD_RETENTION_DAYS) {
   const now = currentDate();
   const nowIso = now.toISOString();
-  const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
+  const retentionDays = Number.isFinite(days)
+    ? Math.max(FREE_CLOUD_RETENTION_DAYS, days)
+    : FREE_CLOUD_RETENTION_DAYS;
+  const cutoff = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
   let deletedCount = 0;
   let deletedExtensionCodeCount = 0;
   let deletedWebSessionCount = 0;
@@ -5313,9 +5363,9 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
   if (method === "GET" && path === "/api/auth/session") return authSession(request, env);
   if (method === "GET" && path === "/api/preferences") return readPreferences(request, env);
   if (method === "PATCH" && path === "/api/preferences") return updatePreferences(request, env);
-  if (method === "POST" && path === "/api/auth/extension-codes") return createExtensionCode(request, env);
-  if (method === "POST" && path === "/api/auth/extension-codes/exchange") {
-    return exchangeExtensionCode(request, env);
+  if (method === "POST" && (path === "/api/auth/extension-codes" || path === "/api/auth/extension-codes/exchange")) {
+    if (env.DEPLOYMENT_ENV || env.DB) return json({ error: "Sign in with an email code" }, 410);
+    return path.endsWith("/exchange") ? exchangeExtensionCode(request, env) : createExtensionCode(request, env);
   }
   if (method === "POST" && path === "/api/auth/email-codes") return requestEmailCode(request, env);
   if (method === "POST" && path === "/api/auth/email-codes/verify") return verifyEmailCode(request, env);
@@ -5566,7 +5616,7 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
   }
   if (method === "POST" && path === "/api/cleanup") {
     if (!checkAdminAuth(request, env)) return json({ error: "Unauthorized" }, 401);
-    return json({ ok: true, ...(await cleanupOldRecords(env, Number(url.searchParams.get("days")) || 7)) });
+    return json({ ok: true, ...(await cleanupOldRecords(env, Number(url.searchParams.get("days")) || FREE_CLOUD_RETENTION_DAYS)) });
   }
   // Share token management endpoints
   if (method === "POST" && path.startsWith("/api/shares/publish")) {

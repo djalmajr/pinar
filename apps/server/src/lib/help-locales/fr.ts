@@ -331,7 +331,7 @@ const locale = {
           heading: "Comment les sessions locales et cloud s’ouvrent réellement",
           paragraphs: [
             "L’historique local commence avec un projet protégé « Personal » et une collection « Inbox », que vous ne pouvez pas imbriquer ni supprimer comme des dossiers ordinaires. Les captures restent sur cet ordinateur, et vous pouvez les ouvrir depuis le workspace local.",
-            "Le stockage cloud attend que vous acceptiez les « Conditions », la « Confidentialité » et l’« Utilisation acceptable » en vigueur. Ensuite, les comptes « Free » peuvent associer l’extension avec un code à courte durée de vie, et les comptes payants peuvent aussi confirmer un code e-mail à six chiffres. Les liens de partage restent lisibles par quiconque possède l’URL non listée.",
+            "Le stockage cloud commence après l’acceptation des « Conditions », de la « Confidentialité » et de l’« Utilisation acceptable » en vigueur et la confirmation d’un code e-mail. Les comptes « Free » et Pro utilisent la même connexion. Toute personne possédant l’URL non listée peut lire les liens de partage.",
           ],
           bullets: [
             "Le workspace local reste sur cet ordinateur et n’a pas besoin de compte cloud.",
@@ -824,9 +824,9 @@ const locale = {
         "Connectez l’extension, ouvrez le workspace web et comprenez l’expiration des codes et des sessions.",
       sections: [
         {
-          heading: "Deux flux de code",
+          heading: "Code e-mail pour Free et Pro",
           paragraphs: [
-            "Les installations Free distantes peuvent ouvrir l’app web avec un code d’extension à usage unique de cinq minutes. Créer un nouveau code de huit caractères invalide le précédent encore actif ; la génération autorise 10 demandes par cinq minutes par IP et compte, et l’échange autorise 20 tentatives par cinq minutes par IP. Les comptes payants et précédemment payants peuvent aussi demander un code e-mail à six chiffres ; il expire après dix minutes et se verrouille après cinq tentatives invalides.",
+            "Saisissez votre e-mail dans l’extension ou sur pinar.dev. Le code à six chiffres expire après dix minutes et se bloque après cinq essais incorrects. Un compte Free est créé seulement après confirmation du code. Les fournisseurs temporaires sont bloqués pour les nouveaux comptes ; les domaines personnalisés sont acceptés.",
           ],
         },
         {
@@ -836,15 +836,14 @@ const locale = {
           ],
         },
         {
-          heading:
-            "Terminer l’association depuis l’onglet Compte de l’extension",
+          heading: "Se connecter depuis l’onglet Compte",
           paragraphs: [
-            "Sur une installation Free distante, ouvrez l’onglet Compte des options de l’extension, générez-y le code temporaire, puis copiez-le. Ouvrez la page de connexion hébergée depuis ce même onglet afin qu’un échange réussi atterrisse dans le workspace web. Régénérer demande d’abord une confirmation parce que les codes inutilisés de ce compte sont remplacés. Collez le code sur pinar.dev plutôt que sur une page de workspace local.",
-            "Demander un code e-mail a toujours la même apparence, y compris pour des adresses inconnues, afin que le formulaire ne révèle pas si un compte existe. Un véritable message à six chiffres n’est envoyé qu’à un compte payant éligible. Se déconnecter dans l’onglet Compte termine les sessions web et d’extension courantes.",
+            "Ouvrez l’onglet Compte, saisissez votre e-mail et demandez un code. Entrez le code reçu pour relier l’extension à votre compte. Les captures d’une ancienne installation anonyme sont transférées au compte lors de la vérification.",
+            "La demande affiche la même réponse pour les adresses inconnues ou bloquées, sans révéler si un compte existe. La déconnexion termine la session actuelle de l’extension.",
           ],
           bullets: [
             "Si aucun e-mail n’arrive, attendez avant de réessayer ; les codes expirent, et trop de tentatives sont retardées.",
-            "Confirmez la boîte de régénération avant d’invalider un code que vous comptez encore saisir sur la page de connexion hébergée.",
+            "Utilisez un code reçu par e-mail ; l’extension ne propose plus de code d’association.",
             "Utilisez Se déconnecter dans l’onglet Compte lorsque vous devez terminer immédiatement la session web ou d’extension courante.",
           ],
         },
@@ -858,7 +857,7 @@ const locale = {
         {
           heading: "Forme des plans",
           paragraphs: [
-            "Free inclut un usage local permanent, 250 Mo de quota cloud et sept jours de rétention. Pro est annuel, avec 2 Go et une allocation unique de 500 crédits IA lors du premier abonnement du compte.",
+            "Free inclut un usage local permanent, 250 Mo de quota cloud et 30 jours de rétention. Pro est annuel, avec 2 Go et une allocation unique de 500 crédits IA lors du premier abonnement du compte.",
           ],
         },
         {
@@ -936,7 +935,7 @@ const locale = {
             "Faire tenir les remplacements sous le quota et utiliser l’horloge de récupération de 90 jours",
           paragraphs: [
             "Le quota est le stockage inclus de votre plan plus toute option encore active. Remplacer un screenshot plus lourd par un plus petit peut réussir lorsqu’une capture entièrement nouvelle échouerait. Les envois s’interrompent dès que le compte est au quota ou au-dessus, y compris pendant la grâce et la récupération.",
-            "Les sessions cloud Free qui ne sont pas marquées permanentes deviennent éligibles au nettoyage après sept jours. Le contenu Pro au-dessus du quota Free suit la grâce de 30 jours et la fenêtre de récupération de 90 jours après la fin de l’éligibilité payante. L’historique uniquement local sur cet ordinateur n’est jamais supprimé à distance. L’éligibilité n’est pas une promesse de retrait immédiat.",
+            "Les sessions cloud Free qui ne sont pas marquées permanentes deviennent éligibles au nettoyage après 30 jours. Le contenu Pro au-dessus du quota Free suit la grâce de 30 jours et la fenêtre de récupération de 90 jours après la fin de l’éligibilité payante. L’historique uniquement local sur cet ordinateur n’est jamais supprimé à distance. L’éligibilité n’est pas une promesse de retrait immédiat.",
           ],
           bullets: [
             "Lorsque de nouvelles captures s’interrompent, libérez de l’espace en supprimant des sessions ou en remplaçant un screenshot lourd, ou achetez une option de douze mois de 1 Go ou 5 Go.",

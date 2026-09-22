@@ -25,8 +25,8 @@ export const TEST_ENV: CloudEnv = {
   PRICING_STORAGE_5GB_12M_USD_CENTS: "799",
   PRICING_STORAGE_1GB_12M_BRL_CENTS: "990",
   PRICING_STORAGE_1GB_12M_USD_CENTS: "299",
-  PRICING_YEARLY_BRL_CENTS: "3990",
-  PRICING_YEARLY_USD_CENTS: "1900",
+  PRICING_YEARLY_BRL_CENTS: "9900",
+  PRICING_YEARLY_USD_CENTS: "2900",
 };
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

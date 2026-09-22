@@ -6,29 +6,17 @@ describe("ACCOUNT_TAB_STATES", () => {
   test("covers each account-tab branch with a unique id", () => {
     const ids = ACCOUNT_TAB_STATES.map((state) => state.id);
     assert.deepEqual(ids, [
-      "loading",
-      "free-no-code",
-      "free-generating",
-      "free-code-ready",
-      "free-copied",
-      "free-regenerate",
-      "free-expired",
-      "free-email-sending",
-      "free-email-sent",
-      "free-email-filled",
-      "free-email-verifying",
-      "free-email-invalid",
-      "free-unavailable",
-      "paid-pro",
+      "loading", "email-entry", "email-sending", "email-sent", "email-filled",
+      "email-verifying", "email-invalid", "unavailable", "free-account", "paid-pro",
     ]);
     assert.equal(new Set(ids).size, ids.length);
   });
 
-  test("keeps paid mocks on account sessions and free mocks off them", () => {
-    const paid = ACCOUNT_TAB_STATES.filter((state) => state.id.startsWith("paid-"));
-    assert.ok(paid.every((state) => state.session?.kind === "account"));
-    assert.equal(ACCOUNT_TAB_STATES.find((state) => state.id === "free-code-ready")?.session?.kind, "installation");
+  test("shows signed-out email flow and signed-in Free and Pro accounts", () => {
+    assert.equal(ACCOUNT_TAB_STATES.find((state) => state.id === "email-entry")?.session, null);
+    assert.equal(ACCOUNT_TAB_STATES.find((state) => state.id === "free-account")?.session?.kind, "account");
+    assert.equal(ACCOUNT_TAB_STATES.find((state) => state.id === "paid-pro")?.session?.kind, "account");
     assert.equal(ACCOUNT_TAB_STATES.find((state) => state.id === "loading")?.authReady, false);
-    assert.ok(ACCOUNT_TAB_STATES.find((state) => state.id === "free-unavailable")?.authError);
+    assert.ok(ACCOUNT_TAB_STATES.find((state) => state.id === "unavailable")?.authError);
   });
 });

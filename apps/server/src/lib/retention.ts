@@ -1,6 +1,6 @@
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export const FREE_CLOUD_RETENTION_DAYS = 7;
+export const FREE_CLOUD_RETENTION_DAYS = 30;
 export const PAID_RECOVERY_DAYS = 90;
 
 export function laterExpiry(left: string | null, right: string | null) {

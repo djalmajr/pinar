@@ -11,19 +11,19 @@ preconditions:
 
 ## User goal
 
-Adicionar 5 GB temporários sem mudar meu plano principal.
+Adicionar 5 GB temporários e diferenciar claramente o pack maior.
 
 ## Steps
 
-1. Em Plans, **localizar +5 GB storage** → preço e validade de 12 meses aparecem.
-2. **Clicar Buy add-on no card de 5 GB** → Checkout identifica o pack correto.
-3. **Conferir R$ 9,90 e pagamento único** → não há recorrência.
+1. Em Plans, **localizar +5 GB storage** → R$ 29,90 e validade aparecem.
+2. **Clicar Buy add-on no card de 5 GB** → Checkout identifica o pack maior.
+3. **Conferir total e pagamento único** → não confunde com 1 GB.
 4. **Pagar com cartão de teste** → Success confirma add-on.
 5. **Abrir o app e consultar storage** → quota aumenta exatamente 5 GB.
-6. **Comprar outro pack igual** → quotas empilham.
+6. **Combinar com pack de 1 GB** → soma total é 6 GB além da base.
 7. **Reentregar webhook** → pack não duplica.
-8. **Conferir plano** → permanece Free ou Pro original.
+8. **Conferir plano** → permanece inalterado.
 
 ## Expected result
 
-Cada compra soma 5 GB por 12 meses de forma idempotente.
+O pack maior soma 5 GB por 12 meses e empilha com outros grants.

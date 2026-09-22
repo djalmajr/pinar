@@ -49,7 +49,7 @@ describe("public legal documents", () => {
     assert.doesNotMatch(termsPt, /Araújo/);
     assert.doesNotMatch(termsEn, /\("Pinar", "we", "us"\)/);
     assert.doesNotMatch(termsPt, /\("Pinar", "nós"\)/);
-    assert.equal(CURRENT_LEGAL_VERSION, "2026-09-21");
+    assert.equal(CURRENT_LEGAL_VERSION, "2026-09-22");
     for (const documentId of LegalDocumentIds) {
       const english = legalDocument(documentId, "en").body;
       const portuguese = legalDocument(documentId, "pt").body;

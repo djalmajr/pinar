@@ -15,7 +15,7 @@ Entender a recusa e tentar outro cartão sem ganhar acesso não pago.
 
 ## Steps
 
-1. Em Plans, **iniciar Pro mensal** → Checkout abre com a oferta correta.
+1. Em Plans, **iniciar Pro anual** → Checkout abre com a oferta correta.
 2. **Preencher e-mail e cartão de recusa Stripe Test** → dados são aceitos para envio.
 3. **Confirmar Subscribe** → Checkout exibe recusa legível e permanece na página.
 4. **Conferir que Success não abriu** → app não anuncia ativação.

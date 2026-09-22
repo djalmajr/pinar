@@ -1,6 +1,6 @@
 import type { SupportedLanguage } from "@pinar/shared";
 
-export const CURRENT_LEGAL_VERSION = "2026-09-21";
+export const CURRENT_LEGAL_VERSION = "2026-09-22";
 export const OPERATOR_CONTACT_EMAIL = {
   en: "contact@pinar.dev",
   pt: "contato@pinar.dev",
@@ -79,7 +79,7 @@ You are responsible for the email address, devices, access codes, extension toke
 
 ## 4. Plans, billing, and quotas
 
-- **Free** provides limited cloud retention, storage, and introductory AI credits.
+- **Free** provides limited cloud retention and storage, without included AI credits.
 - **Pro** is an annual subscription with 2 GB of base cloud storage and a one-time allocation of 500 AI credits on the account's first subscription. The initial allocation is not granted again on renewal, cancellation followed by reactivation, or plan changes. Included storage and paid retention apply only while the subscription remains eligible, subject to the Retention Policy.
 - Storage and AI-credit add-ons have the amount, validity, and consumption rules shown before purchase.
 
@@ -124,7 +124,7 @@ Você é responsável pelo endereço de e-mail, dispositivos, códigos de acesso
 
 ## 4. Planos, cobrança e cotas
 
-- **Free** oferece retenção em nuvem, armazenamento e créditos iniciais de IA limitados.
+- **Free** oferece retenção e armazenamento limitados em nuvem, sem créditos de IA incluídos.
 - **Pro** é uma assinatura anual com 2 GB de armazenamento-base em nuvem e uma concessão única de 500 créditos de IA na primeira assinatura da conta. A concessão inicial não é repetida em renovações, cancelamento seguido de reativação ou mudanças de plano. O armazenamento incluído e a retenção paga aplicam-se somente enquanto a assinatura permanecer elegível, conforme a Política de Retenção.
 - Adicionais de armazenamento e créditos de IA seguem a quantidade, a validade e as regras de consumo exibidas antes da compra.
 
@@ -289,7 +289,7 @@ Local Pinar data remains on your device until you delete it or uninstall and rem
 
 ## 2. Hosted content by plan
 
-- **Free:** non-permanent cloud sessions and their screenshots are eligible for automatic deletion after 7 days.
+- **Free:** non-permanent cloud sessions and their screenshots are eligible for automatic deletion after 30 days.
 - **Pro:** cloud sessions are retained while the subscription is active. When paid eligibility ends, new uploads may pause. Content above the Free quota enters a 30-day grace period followed by a recovery-only window ending 90 days after paid eligibility ended; after that it is eligible for deletion.
 - **Storage add-ons:** capacity lasts 12 months from purchase. If expiry leaves usage above the remaining quota, uploads pause; the overage receives a 30-day grace period and remains recoverable until 90 days after expiry, after which over-quota content is eligible for deletion.
 
@@ -308,7 +308,7 @@ Os dados locais do Pinar permanecem no seu dispositivo até que você os exclua 
 
 ## 2. Conteúdo hospedado por plano
 
-- **Free:** sessões não permanentes em nuvem e seus screenshots tornam-se elegíveis para exclusão automática após 7 dias.
+- **Free:** sessões não permanentes em nuvem e seus screenshots tornam-se elegíveis para exclusão automática após 30 dias.
 - **Pro:** sessões em nuvem são retidas enquanto a assinatura estiver ativa. Quando a elegibilidade paga termina, novos envios podem ser suspensos. O conteúdo acima da cota Free entra em carência de 30 dias e depois em janela exclusiva de recuperação, encerrada 90 dias após o fim da elegibilidade paga; depois disso, torna-se elegível para exclusão.
 - **Adicionais de armazenamento:** a capacidade vale por 12 meses a partir da compra. Se a expiração deixar o uso acima da cota restante, novos envios são suspensos; o excedente recebe carência de 30 dias e permanece recuperável até 90 dias após a expiração, quando conteúdo acima da cota se torna elegível para exclusão.
 

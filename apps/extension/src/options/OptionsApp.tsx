@@ -18,15 +18,6 @@ import {
   windowsDesktopSetupUrl,
 } from "@pinar/shared";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  Badge,
   Button,
   Card,
   CardContent,
@@ -87,8 +78,6 @@ import {
   type LegalBundle,
 } from "../../../../extension/legal-consent.js";
 import { remoteProfileStorage } from "../../../../extension/remote-profile.js";
-import { AccountCodeStrip } from "./AccountCodeStrip";
-import { remainingCodeCountdown } from "./account-code-countdown";
 import {
   type ExtensionResponseBase,
   withExtensionResponseFallback,
@@ -307,14 +296,6 @@ function hostedPricingUrl(cloudUrl: string, language: SupportedLanguage) {
   return url.toString();
 }
 
-function hostedSignInUrl(cloudUrl: string, language: SupportedLanguage) {
-  const url = new URL(`${(cloudUrl || "https://pinar.dev").replace(/\/+$/, "")}/sign-in`);
-  url.searchParams.set("extensionCode", "");
-  url.searchParams.set("returnTo", "/app");
-  if (language) url.searchParams.set("lang", language);
-  return url.toString();
-}
-
 function accountSessionError(message: string, unavailable: string, legalRequired: string) {
   if (/Accept the current Pinar Terms/i.test(message)) return legalRequired;
   return message || unavailable;
@@ -417,12 +398,6 @@ export function OptionsApp() {
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [authError, setAuthError] = useState("");
-  const [temporaryCode, setTemporaryCode] = useState("");
-  const [temporaryCodeExpiresAt, setTemporaryCodeExpiresAt] = useState("");
-  const [temporaryCodeLoading, setTemporaryCodeLoading] = useState(false);
-  const [copiedCode, setCopiedCode] = useState(false);
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  const [regenerateCodeOpen, setRegenerateCodeOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [emailCode, setEmailCode] = useState("");
   const [emailCodeRequested, setEmailCodeRequested] = useState(false);
@@ -457,9 +432,6 @@ export function OptionsApp() {
   const desktopInstallUrl =
     installPlatform === "win" ? windowsDesktopSetupUrl() : macosDesktopDmgUrl();
   const localStorageDescription = installPlatform === "win" ? t.local_desc_windows : t.local_desc;
-  const codeCountdown = temporaryCode && temporaryCodeExpiresAt
-    ? remainingCodeCountdown(temporaryCodeExpiresAt, nowMs)
-    : null;
   const voiceAvailable = settings.storageMode === "cloud"
     && authSession?.kind === "account"
     && authSession.plan === "pro";
@@ -546,8 +518,8 @@ export function OptionsApp() {
     setAuthError("");
     try {
       const response = await extensionMessage({ type: "auth:get" }, t.account_unavailable);
-      if (!response.ok || !response.session) throw new Error(response.error || t.account_unavailable);
-      setAuthSession(response.session);
+      if (!response.ok) throw new Error(response.error || t.account_unavailable);
+      setAuthSession(response.session ?? null);
     } catch (cause) {
       setAuthSession(null);
       setAuthError(accountSessionError(
@@ -604,13 +576,6 @@ export function OptionsApp() {
     }
     void initialize();
   }, []);
-
-  useEffect(() => {
-    if (!temporaryCode || !temporaryCodeExpiresAt) return;
-    setNowMs(Date.now());
-    const timer = window.setInterval(() => setNowMs(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, [temporaryCode, temporaryCodeExpiresAt]);
 
   async function saveSettings() {
     if (!hasUnsavedChanges || settingsSaving) return;
@@ -704,40 +669,6 @@ export function OptionsApp() {
     if (!response.ok) setAuthError(response.error || t.account_unavailable);
   }
 
-  async function generateTemporaryCode() {
-    setTemporaryCodeLoading(true);
-    setAuthError("");
-    try {
-      const response = await extensionMessage({ type: "auth:extension-code" }, t.account_unavailable);
-      if (!response.ok || !response.code) throw new Error(response.error || t.account_unavailable);
-      setTemporaryCode(response.code);
-      setTemporaryCodeExpiresAt(response.expiresAt || "");
-      setCopiedCode(false);
-      return true;
-    } catch (cause) {
-      setAuthError(cause instanceof Error ? cause.message : String(cause));
-      return false;
-    } finally {
-      setTemporaryCodeLoading(false);
-    }
-  }
-
-  async function copyTemporaryCode() {
-    if (!temporaryCode) return;
-    setAuthError("");
-    try {
-      await navigator.clipboard.writeText(temporaryCode);
-      setCopiedCode(true);
-      window.setTimeout(() => setCopiedCode(false), 2_000);
-    } catch (cause) {
-      setAuthError(cause instanceof Error ? cause.message : String(cause));
-    }
-  }
-
-  async function regenerateTemporaryCode() {
-    if (await generateTemporaryCode()) setRegenerateCodeOpen(false);
-  }
-
   async function requestEmailCode(event: FormEvent) {
     event.preventDefault();
     setEmailCodeRequestLoading(true);
@@ -782,10 +713,8 @@ export function OptionsApp() {
     setAuthError("");
     try {
       const response = await extensionMessage({ type: "auth:logout" }, t.account_unavailable);
-      if (!response.ok || !response.session) throw new Error(response.error || t.account_unavailable);
-      setAuthSession(response.session);
-      setTemporaryCode("");
-      setTemporaryCodeExpiresAt("");
+      if (!response.ok) throw new Error(response.error || t.account_unavailable);
+      setAuthSession(null);
       await loadCaptureDestination();
     } catch (cause) {
       setAuthError(cause instanceof Error ? cause.message : String(cause));
@@ -991,40 +920,6 @@ export function OptionsApp() {
                       </section>
                     ) : (
                       <>
-                        <section aria-labelledby="account-free-title" className="flex flex-col">
-                          <div className="flex items-start justify-between gap-3">
-                            <span className={SECTION_HEADER} id="account-free-title">{t.account_free_title}</span>
-                            <Badge className="shrink-0 bg-muted text-muted-foreground" variant="outline">{t.account_free_badge}</Badge>
-                          </div>
-                          <p className={SECTION_DESC}>{t.account_free_description}</p>
-                          <div className="flex flex-col gap-2.5">
-                            <AccountCodeStrip
-                              caption={
-                                codeCountdown
-                                  ? (codeCountdown.expired ? t.account_code_expired : (copiedCode ? t.account_code_copied : t.account_code_expires)).replace("{time}", codeCountdown.time)
-                                  : t.account_code_hint
-                              }
-                              copiedCode={copiedCode}
-                              expired={Boolean(codeCountdown?.expired)}
-                              generating={temporaryCodeLoading}
-                              hostedSignInHref={hostedSignInUrl(settings.cloudUrl, lang)}
-                              t={t}
-                              temporaryCode={temporaryCode}
-                              onCopy={() => void copyTemporaryCode()}
-                              onGenerate={() => {
-                                if (!temporaryCode || codeCountdown?.expired) void generateTemporaryCode();
-                                else setRegenerateCodeOpen(true);
-                              }}
-                            />
-                          </div>
-                        </section>
-                        <Separator />
-                        <AlertDialog open={regenerateCodeOpen} onOpenChange={setRegenerateCodeOpen}>
-                          <AlertDialogContent>
-                            <AlertDialogHeader><AlertDialogTitle>{t.account_code_regeneration_title}</AlertDialogTitle><AlertDialogDescription>{t.account_code_regeneration_description.replace("{code}", temporaryCode)}</AlertDialogDescription></AlertDialogHeader>
-                            <AlertDialogFooter><AlertDialogCancel>{t.btn_cancel}</AlertDialogCancel><AlertDialogAction disabled={temporaryCodeLoading} onClick={() => void regenerateTemporaryCode()}>{t.btn_invalidate_and_generate}</AlertDialogAction></AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
                         <section aria-labelledby="account-email-title" className="flex flex-col">
                           <span className={SECTION_HEADER} id="account-email-title">{t.account_email_title}</span>
                           <p className={SECTION_DESC}>{emailCodeRequested ? t.account_email_sent : t.account_email_description}</p>

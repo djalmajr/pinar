@@ -12,7 +12,7 @@ const BrazilPricing = {
     free: { amount: 0, originalAmount: null },
     storage5Gb12M: { amount: 2_990, originalAmount: null },
     storage1Gb12M: { amount: 990, originalAmount: null },
-    year: { amount: 3_990, originalAmount: null },
+    year: { amount: 9_900, originalAmount: null },
   },
   regional: true,
 };
@@ -61,7 +61,7 @@ test("visitor compares the annual BRL plan and add-ons without opening checkout"
   await (await primaryNavigationItem(page, "Plans")).click();
 
   await expect(page.getByRole("heading", { name: "Pro Yearly" })).toBeVisible();
-  await expect(page.getByText("R$39.90", { exact: true })).toBeVisible();
+  await expect(page.getByText("R$99.00", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Pinar Founder" })).toHaveCount(0);
   await expect(page.getByText("R$129.90", { exact: true })).toHaveCount(0);
 
@@ -71,7 +71,10 @@ test("visitor compares the annual BRL plan and add-ons without opening checkout"
   await expect(page.getByRole("heading", { name: "500 AI credits" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "+1 GB storage" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "+5 GB storage" })).toBeVisible();
-  await expect(page.getByText("valid for 12 months", { exact: true })).toHaveCount(3);
+  const addOnValidity = page.getByText("valid for 12 months", { exact: false })
+    .filter({ has: page.locator("sup") });
+  await expect(addOnValidity).toHaveCount(3);
+  await expect(addOnValidity.locator("sup")).toHaveText(["2", "2", "2"]);
 
   await (await primaryNavigationItem(page, "Home")).click();
   await expect(page).toHaveURL("/");
@@ -109,18 +112,29 @@ test("paid checkout sends current consent on the first click", async ({ page }) 
   });
 
   await page.goto("/pricing");
-  const proCheckout = page.getByRole("button", { name: "Get Pro Yearly — R$39.90/yr" });
+  const proCheckout = page.getByRole("button", { name: "Get Pro Yearly — R$99.00/yr" });
   const proFooter = proCheckout
     .locator("xpath=ancestor::*[@data-slot='card-footer']");
   const legalNote = page.locator("#pricing-pro-legal-note");
+  const footer = page.getByRole("contentinfo");
   await expect(proFooter.getByText("By continuing, you accept the")).toHaveCount(0);
   await expect(proCheckout).toHaveAttribute("aria-describedby", "pricing-pro-legal-note");
   await expect(proCheckout.locator("sup")).toHaveText("1");
-  await expect(legalNote).toBeVisible();
+  await expect(footer.locator("#pricing-pro-legal-note")).toBeVisible();
+  await expect(footer.locator("#pricing-addons-legal-note")).toBeVisible();
   await expect(legalNote.locator("sup")).toHaveText("1");
+  const notesPrecedeSupport = await footer.evaluate((element) => {
+    const support = element.querySelector("section");
+    const pro = element.querySelector("#pricing-pro-legal-note");
+    const addOns = element.querySelector("#pricing-addons-legal-note");
+    return Boolean(support && pro && addOns
+      && (pro.compareDocumentPosition(support) & Node.DOCUMENT_POSITION_FOLLOWING)
+      && (addOns.compareDocumentPosition(support) & Node.DOCUMENT_POSITION_FOLLOWING));
+  });
+  expect(notesPrecedeSupport).toBe(true);
   await expect(legalNote.getByRole("link", { name: "Terms of Service", exact: true }))
     .toHaveAttribute("href", "/legal/terms");
-  await expect(legalNote.getByText("Version 2026-09-21.")).toBeVisible();
+  await expect(legalNote.getByText("Version 2026-09-22.")).toBeVisible();
   const freeFooter = page.getByRole("link", { exact: true, name: "Use Free" })
     .locator("xpath=ancestor::*[@data-slot='card-footer']");
   await expect(freeFooter.getByText("By continuing, you accept the")).toHaveCount(0);
@@ -159,10 +173,10 @@ function assertCheckoutConsent(body: Record<string, unknown> | null) {
   expect(body?.offer).toBe("pro_year");
   expect(body?.locale).toBe("en");
   expect(body?.legalAcceptance).toEqual({
-    acceptableUseVersion: "2026-09-21",
+    acceptableUseVersion: "2026-09-22",
     accepted: true,
     locale: "en",
-    privacyVersion: "2026-09-21",
-    termsVersion: "2026-09-21",
+    privacyVersion: "2026-09-22",
+    termsVersion: "2026-09-22",
   });
 }

@@ -331,7 +331,7 @@ const locale = {
           heading: "Cómo se abren de verdad las sesiones locales y en la nube",
           paragraphs: [
             "El historial local empieza con un proyecto “Personal” protegido y una colección “Inbox” protegida que no puedes anidar ni eliminar como las carpetas normales. Las capturas permanecen en este equipo y puedes abrirlas desde el espacio de trabajo local.",
-            "El almacenamiento en la nube espera a que aceptes los “Términos”, la “Privacidad” y el “Uso Aceptable” vigentes. Después, las cuentas “Free” pueden emparejar la extensión con un código de corta duración, y las cuentas de pago también pueden confirmar un código de seis dígitos por correo. Los enlaces de uso compartido siguen siendo legibles para cualquiera que tenga la URL no listada.",
+            "El almacenamiento en la nube comienza después de aceptar los “Términos”, la “Privacidad” y el “Uso Aceptable” vigentes y confirmar un código por correo. Las cuentas “Free” y Pro usan el mismo acceso. Los enlaces compartidos siguen siendo legibles para cualquiera que tenga la URL no listada.",
           ],
           bullets: [
             "El espacio de trabajo local permanece en este equipo y no necesita una cuenta en la nube.",
@@ -825,9 +825,9 @@ const locale = {
         "Conecta la extensión, abre el espacio de trabajo web y entiende la caducidad de códigos y sesiones.",
       sections: [
         {
-          heading: "Dos flujos de código",
+          heading: "Código por correo para Free y Pro",
           paragraphs: [
-            "Las instalaciones Remote Free pueden abrir la app web con un código de extensión de un solo uso, válido cinco minutos. Crear un código nuevo de ocho caracteres invalida el anterior activo; la generación permite 10 peticiones por cinco minutos por IP y cuenta, y el intercambio permite 20 intentos por cinco minutos por IP. Las cuentas de pago y las que ya pagaron también pueden solicitar un código de seis dígitos por correo; caduca a los diez minutos y se bloquea tras cinco intentos no válidos.",
+            "Introduce tu correo en la extensión o en pinar.dev. El código de seis dígitos caduca en diez minutos y se bloquea tras cinco intentos incorrectos. La cuenta Free solo se crea después de confirmar el código. Los proveedores temporales se bloquean para cuentas nuevas; se aceptan dominios propios.",
           ],
         },
         {
@@ -837,15 +837,14 @@ const locale = {
           ],
         },
         {
-          heading:
-            "Terminar el emparejado desde la pestaña Account de la extensión",
+          heading: "Iniciar sesión desde la pestaña Cuenta",
           paragraphs: [
-            "En una instalación Remote Free, abre la pestaña Account de las opciones de la extensión, genera ahí el código temporal y cópialo. Abre la página de acceso alojada desde esa misma pestaña para que un intercambio correcto aterrice en el espacio de trabajo web. Regenerar pide confirmación primero porque se reemplazan los códigos no usados de esa cuenta. Pega el código en pinar.dev y no en una página del espacio de trabajo local.",
-            "Solicitar un código por correo siempre se ve igual, también para direcciones desconocidas, de modo que el formulario no revela si existe una cuenta. Un mensaje real de seis dígitos se envía solo a una cuenta de pago elegible. Cerrar sesión en la pestaña Account termina las sesiones web y de extensión actuales.",
+            "Abre la pestaña Cuenta, introduce tu correo y solicita un código. Introduce el código recibido para conectar la extensión a tu cuenta. Las capturas de una instalación anónima anterior se trasladan a la cuenta al verificar.",
+            "La solicitud muestra la misma respuesta para direcciones desconocidas o bloqueadas, sin revelar si existe una cuenta. Cerrar sesión termina la sesión actual de la extensión.",
           ],
           bullets: [
             "Si no llega ningún correo, espera antes de reintentar; los códigos caducan y demasiados intentos se retrasan.",
-            "Confirma el diálogo de regeneración antes de invalidar un código que aún pretendes escribir en la página de acceso alojada.",
+            "Usa un código actual recibido por correo; la extensión ya no ofrece códigos de emparejamiento.",
             "Usa Sign out en la pestaña Account cuando necesites terminar de inmediato la sesión web o de extensión actual.",
           ],
         },
@@ -859,7 +858,7 @@ const locale = {
         {
           heading: "Forma del plan",
           paragraphs: [
-            "Free incluye uso local permanente, 250 MB de cuota en la nube y retención de siete días. Pro es anual, con 2 GB y una concesión única de 500 créditos de IA en la primera suscripción de la cuenta.",
+            "Free incluye uso local permanente, 250 MB de cuota en la nube y retención de 30 días. Pro es anual, con 2 GB y una concesión única de 500 créditos de IA en la primera suscripción de la cuenta.",
           ],
         },
         {
@@ -937,7 +936,7 @@ const locale = {
             "Ajustar reemplazos a la cuota y usar el reloj de recuperación de 90 días",
           paragraphs: [
             "La cuota es el almacenamiento incluido de tu plan más cualquier complemento aún activo. Reemplazar un screenshot más grande por uno más pequeño puede tener éxito cuando una captura nueva no lo tendría. Las subidas se pausan cuando la cuenta está en o por encima de la cuota, también durante la gracia y la recuperación.",
-            "Las sesiones en la nube de Free que no están marcadas como permanentes pasan a ser elegibles para limpieza a los siete días. El contenido de Pro por encima de la cuota de Free sigue la gracia de 30 días y la ventana de recuperación de 90 días tras terminar la elegibilidad de pago. El historial solo local de este equipo nunca se elimina de forma remota. La elegibilidad no es una promesa de retirada inmediata.",
+            "Las sesiones en la nube de Free que no están marcadas como permanentes pasan a ser elegibles para limpieza a los 30 días. El contenido de Pro por encima de la cuota de Free sigue la gracia de 30 días y la ventana de recuperación de 90 días tras terminar la elegibilidad de pago. El historial solo local de este equipo nunca se elimina de forma remota. La elegibilidad no es una promesa de retirada inmediata.",
           ],
           bullets: [
             "Cuando se pausen las capturas nuevas, libera espacio eliminando sesiones o reemplazando un screenshot pesado, o compra un complemento de doce meses de 1 GB o 5 GB.",

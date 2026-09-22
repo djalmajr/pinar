@@ -591,7 +591,7 @@ describe("help content", () => {
       );
       assert.deepEqual(
         sectionScreenshots.map((screenshot) => screenshot.key),
-        ["sign-in-extension", "sign-in-email"],
+        ["sign-in-email"],
         content.language,
       );
     }

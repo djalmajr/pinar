@@ -11,19 +11,19 @@ preconditions:
 
 ## User goal
 
-Assinar o Pro anual vendo economia e mensalidade equivalente corretas.
+Assinar o Pro anual com preço e benefícios corretos.
 
 ## Steps
 
-1. Na landing, **clicar View plans** → Yearly inicia selecionado.
-2. **Conferir R$ 39,90/ano, equivalente mensal e economia** → valores são coerentes.
-3. **Clicar Get Pro Yearly** → Checkout mostra R$ 39,90 por ano.
+1. Na landing, **clicar View plans** → o Pro anual é a única opção de assinatura.
+2. **Conferir R$ 99/ano, 2 GB e 500 créditos iniciais** → valores e benefícios são coerentes.
+3. **Clicar Get Pro Yearly** → Checkout mostra R$ 99 por ano.
 4. **Preencher e-mail e cartão de teste** → dados correspondem à oferta anual.
 5. **Confirmar a assinatura de teste** → retorna a Success.
 6. **Abrir o app** → conta aparece como Pro.
-7. **Conferir créditos mensais** → 200 créditos são mensais mesmo com cobrança anual.
+7. **Conferir créditos iniciais** → 500 créditos são concedidos na primeira assinatura da conta, sem recarga mensal.
 8. **Abrir Manage billing** → portal identifica cobrança anual.
 
 ## Expected result
 
-O anual ativa Pro sem transformar créditos mensais em um lote anual.
+O anual ativa Pro com o preço novo e preserva as assinaturas existentes no preço contratado.

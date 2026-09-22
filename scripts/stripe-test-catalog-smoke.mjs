@@ -97,14 +97,14 @@ if (!secretKey.startsWith("rk_test_")) {
 }
 
 const offers = [
-  { currency: "usd", mode: "subscription", offer: "pro_year", price: "STRIPE_TEST_PRICE_YEARLY", unitAmount: 1900 },
-  { currency: "brl", mode: "subscription", offer: "pro_year", price: "STRIPE_TEST_PRICE_BR_YEARLY", unitAmount: 3990 },
-  { currency: "usd", mode: "payment", offer: "ai_credits_1000", price: "STRIPE_TEST_PRICE_AI_CREDITS_1000", unitAmount: 299 },
-  { currency: "brl", mode: "payment", offer: "ai_credits_1000", price: "STRIPE_TEST_PRICE_BR_AI_CREDITS_1000", unitAmount: 990 },
-  { currency: "usd", mode: "payment", offer: "storage_5gb_12m", price: "STRIPE_TEST_PRICE_STORAGE_5GB_12M", unitAmount: 299 },
-  { currency: "brl", mode: "payment", offer: "storage_5gb_12m", price: "STRIPE_TEST_PRICE_BR_STORAGE_5GB_12M", unitAmount: 990 },
-  { currency: "usd", mode: "payment", offer: "storage_20gb_12m", price: "STRIPE_TEST_PRICE_STORAGE_20GB_12M", unitAmount: 799 },
-  { currency: "brl", mode: "payment", offer: "storage_20gb_12m", price: "STRIPE_TEST_PRICE_BR_STORAGE_20GB_12M", unitAmount: 2990 },
+  { currency: "usd", mode: "subscription", offer: "pro_year", price: "STRIPE_TEST_PRICE_YEARLY", unitAmount: 2900 },
+  { currency: "brl", mode: "subscription", offer: "pro_year", price: "STRIPE_TEST_PRICE_BR_YEARLY", unitAmount: 9900 },
+  { currency: "usd", mode: "payment", offer: "ai_credits_500", price: "STRIPE_TEST_PRICE_AI_CREDITS_500", unitAmount: 299 },
+  { currency: "brl", mode: "payment", offer: "ai_credits_500", price: "STRIPE_TEST_PRICE_BR_AI_CREDITS_500", unitAmount: 990 },
+  { currency: "usd", mode: "payment", offer: "storage_1gb_12m", price: "STRIPE_TEST_PRICE_STORAGE_1GB_12M", unitAmount: 299 },
+  { currency: "brl", mode: "payment", offer: "storage_1gb_12m", price: "STRIPE_TEST_PRICE_BR_STORAGE_1GB_12M", unitAmount: 990 },
+  { currency: "usd", mode: "payment", offer: "storage_5gb_12m", price: "STRIPE_TEST_PRICE_STORAGE_5GB_12M", unitAmount: 799 },
+  { currency: "brl", mode: "payment", offer: "storage_5gb_12m", price: "STRIPE_TEST_PRICE_BR_STORAGE_5GB_12M", unitAmount: 2990 },
 ];
 
 const runId = crypto.randomUUID().replaceAll("-", "");

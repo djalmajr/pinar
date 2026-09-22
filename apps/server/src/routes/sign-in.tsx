@@ -10,12 +10,11 @@ function internalReturnTo(value: unknown) {
 
 function SignInRoute() {
   const search = Route.useSearch();
-  return <SignInPage extensionCode={search.extensionCode} returnTo={search.returnTo} />;
+  return <SignInPage returnTo={search.returnTo} />;
 }
 
 export const Route = createFileRoute("/sign-in")({
   validateSearch: (search: Record<string, unknown>) => ({
-    extensionCode: typeof search.extensionCode === "string" ? search.extensionCode : "",
     returnTo: internalReturnTo(search.returnTo),
   }),
   beforeLoad: ({ location }) => {

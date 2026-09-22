@@ -3,7 +3,6 @@ import { translations } from "@pinar/shared";
 import { AccountPreviewCard } from "./AccountPreviewCard";
 import { ACCOUNT_TAB_STATES } from "./account-tab-states";
 
-const HOSTED_SIGN_IN = "https://pinar.dev/sign-in?extensionCode=&returnTo=%2Fapp&lang=pt";
 const HOSTED_PRICING = "https://pinar.dev/pricing?lang=pt";
 
 export function AccountStatesPreview() {
@@ -24,7 +23,7 @@ export function AccountStatesPreview() {
         </p>
         <h1 className="text-lg font-semibold tracking-tight">Todos os estados da aba Conta</h1>
         <p className="text-sm text-muted-foreground">
-          Dados mocados. Layout A. A extensão real continua com o layout atual até a A ser aplicada.
+          Dados de demonstração do fluxo de login por e-mail.
         </p>
       </header>
       <div className="mx-auto grid max-w-[1400px] gap-10 lg:grid-cols-2">
@@ -35,7 +34,6 @@ export function AccountStatesPreview() {
             </figcaption>
             <AccountPreviewCard
               hostedPricingHref={HOSTED_PRICING}
-              hostedSignInHref={HOSTED_SIGN_IN}
               state={state}
               t={t}
             />

@@ -25,11 +25,11 @@
     },
     "apps/cli": {
       "name": "@pinar/cli",
-      "version": "0.4.3",
+      "version": "0.4.4",
     },
     "apps/extension": {
       "name": "@pinar/extension",
-      "version": "0.6.2",
+      "version": "0.6.3",
       "dependencies": {
         "@pinar/shared": "workspace:*",
         "@pinar/ui": "workspace:*",
@@ -50,7 +50,7 @@
     },
     "apps/server": {
       "name": "@pinar/server",
-      "version": "0.4.3",
+      "version": "0.4.4",
       "dependencies": {
         "@dnd-kit/core": "6.3.1",
         "@dnd-kit/sortable": "10.0.0",

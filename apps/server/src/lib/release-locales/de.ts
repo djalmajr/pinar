@@ -22,6 +22,28 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.4.1": {
+      title: "Nachhaltige KI-Guthaben und passender Speicher",
+      summary:
+        "Pro startet jetzt einmalig mit 500 Pinar-Cloud-KI-Guthaben und 2 GB Cloud-Speicher. Zusatzpakete sind kleiner und klarer und bleiben 12 Monate gültig, ohne monatliche Erneuerung der Guthaben.",
+      changes: {
+        "sustainable-ai-credits": {
+          title: "500 anfängliche Pinar-Cloud-KI-Guthaben",
+          description:
+            "Das erste Pro-Abonnement gewährt einmalig 500 Pinar-Cloud-KI-Guthaben. Sprachtranskription kostet bis 60 Sekunden ein Guthaben und von 61 bis 120 Sekunden zwei; weitere Guthaben gibt es in Paketen zu 500 mit 12 Monaten Gültigkeit.",
+        },
+        "right-sized-storage": {
+          title: "2 GB in Pro mit 1-GB- und 5-GB-Paketen",
+          description:
+            "Pro umfasst 2 GB Cloud-Speicher. Kaufbare Pakete enthalten nun 1 GB oder 5 GB, sind stapelbar und 12 Monate gültig; zuvor gekaufte 5-GB- und 20-GB-Zuteilungen bleiben erhalten.",
+        },
+        "storage-expiry-protection": {
+          title: "Ein klarer Ablauf nach Speicherablauf",
+          description:
+            "Übersteigt die Nutzung das verbleibende Kontingent, werden neue Uploads beim Ablauf pausiert. Der Überschuss erhält 30 Tage Schonfrist und bleibt bis Tag 90 wiederherstellbar, bevor er für einen separat geprüften Bereinigungsprozess infrage kommt.",
+        },
+      },
+    },
     "v0.4.0": {
       title: "Kontinuierliche Erfassung, gemeinsame Prüfung und KI an jedem Pin",
       summary:

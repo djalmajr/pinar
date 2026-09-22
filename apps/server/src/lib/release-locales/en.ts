@@ -20,6 +20,28 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.4.1": {
+      title: "Sustainable AI credits and right-sized storage",
+      summary:
+        "Pro now starts with a one-time balance of 500 Pinar Cloud AI credits and 2 GB of cloud storage. Add-ons are smaller, clearer, and keep their 12-month validity without monthly credit replenishment.",
+      changes: {
+        "sustainable-ai-credits": {
+          title: "500 initial Pinar Cloud AI credits",
+          description:
+            "A first Pro subscription grants 500 Pinar Cloud AI credits once. Voice transcription uses one credit through 60 seconds and two credits from 61 through 120 seconds; additional credits come in 500-credit packs valid for 12 months.",
+        },
+        "right-sized-storage": {
+          title: "2 GB in Pro, with 1 GB and 5 GB add-ons",
+          description:
+            "Pro includes 2 GB of cloud storage. The purchasable storage packs are now 1 GB and 5 GB, both stackable and valid for 12 months, while previously purchased 5 GB and 20 GB grants remain honored.",
+        },
+        "storage-expiry-protection": {
+          title: "A clear path after storage expires",
+          description:
+            "If usage exceeds the remaining quota, new uploads pause when storage expires. Existing overage receives 30 days of grace and remains recoverable through day 90 before it becomes eligible for a separately audited cleanup process.",
+        },
+      },
+    },
     "v0.4.0": {
       title: "Continuous capture, unified review, and AI on each pin",
       summary:

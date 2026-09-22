@@ -22,6 +22,28 @@ const locale = {
     whatChanged: "O que mudou",
   },
   releases: {
+    "v0.4.1": {
+      title: "Créditos de IA sustentáveis e armazenamento sob medida",
+      summary:
+        "O Pro agora começa com um saldo único de 500 créditos de IA do Pinar Cloud e 2 GB de armazenamento na nuvem. Os adicionais ficaram menores, mais claros e mantêm validade de 12 meses, sem reposição mensal de créditos.",
+      changes: {
+        "sustainable-ai-credits": {
+          title: "500 créditos iniciais de IA do Pinar Cloud",
+          description:
+            "A primeira assinatura Pro concede 500 créditos de IA do Pinar Cloud uma única vez. A transcrição de voz usa um crédito até 60 segundos e dois créditos entre 61 e 120 segundos; créditos adicionais vêm em pacotes de 500 válidos por 12 meses.",
+        },
+        "right-sized-storage": {
+          title: "2 GB no Pro, com adicionais de 1 GB e 5 GB",
+          description:
+            "O Pro inclui 2 GB de armazenamento na nuvem. Os pacotes disponíveis passam a ser de 1 GB e 5 GB, acumuláveis e válidos por 12 meses, enquanto adicionais de 5 GB e 20 GB comprados anteriormente continuam respeitados.",
+        },
+        "storage-expiry-protection": {
+          title: "Um caminho claro após o armazenamento expirar",
+          description:
+            "Se o uso superar a cota restante, novos uploads pausam quando o armazenamento expira. O excedente recebe 30 dias de carência e permanece recuperável até o dia 90 antes de se tornar elegível para um processo de limpeza auditado separadamente.",
+        },
+      },
+    },
     "v0.4.0": {
       title: "Captura contínua, revisão unificada e IA em cada pin",
       summary:

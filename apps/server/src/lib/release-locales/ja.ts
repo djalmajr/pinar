@@ -20,6 +20,28 @@ const locale = {
     whatChanged: "変更内容",
   },
   releases: {
+    "v0.4.1": {
+      title: "持続可能な AI クレジットと適正なストレージ",
+      summary:
+        "Pro は初回に一度だけ 500 Pinar Cloud AI クレジットと 2 GB のクラウドストレージを付与します。追加パックは小さく分かりやすくなり、毎月の補充なしで 12 か月間有効です。",
+      changes: {
+        "sustainable-ai-credits": {
+          title: "初回 500 Pinar Cloud AI クレジット",
+          description:
+            "最初の Pro 契約で 500 Pinar Cloud AI クレジットを一度だけ付与します。音声文字起こしは 60 秒まで 1 クレジット、61～120 秒は 2 クレジットを使用し、追加分は 12 か月有効の 500 クレジットパックで購入できます。",
+        },
+        "right-sized-storage": {
+          title: "Pro は 2 GB、追加は 1 GB と 5 GB",
+          description:
+            "Pro には 2 GB のクラウドストレージが含まれます。購入できる追加パックは 1 GB と 5 GB で、積み重ね可能かつ 12 か月有効です。以前購入した 5 GB と 20 GB の付与分も維持されます。",
+        },
+        "storage-expiry-protection": {
+          title: "ストレージ期限後の明確な流れ",
+          description:
+            "使用量が残りの上限を超える場合、期限切れ時に新規アップロードを停止します。超過分には 30 日の猶予があり、90 日目までは復元可能で、その後に別途監査される削除処理の対象候補になります。",
+        },
+      },
+    },
     "v0.4.0": {
       title: "連続キャプチャ、統合レビュー、各ピンでの AI",
       summary:

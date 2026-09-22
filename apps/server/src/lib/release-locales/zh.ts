@@ -20,6 +20,28 @@ const locale = {
     whatChanged: "更新内容",
   },
   releases: {
+    "v0.4.1": {
+      title: "可持续的 AI 点数与更合适的存储空间",
+      summary:
+        "Pro 现在首次提供一次性的 500 个 Pinar Cloud AI 点数和 2 GB 云存储。附加包更小、更清晰，保持 12 个月有效期，不再每月补充点数。",
+      changes: {
+        "sustainable-ai-credits": {
+          title: "初始 500 个 Pinar Cloud AI 点数",
+          description:
+            "首次订阅 Pro 会一次性获得 500 个 Pinar Cloud AI 点数。语音转写在 60 秒内使用 1 点，61 到 120 秒使用 2 点；额外点数以 500 点、有效期 12 个月的附加包提供。",
+        },
+        "right-sized-storage": {
+          title: "Pro 含 2 GB，并提供 1 GB 与 5 GB 附加包",
+          description:
+            "Pro 包含 2 GB 云存储。可购买的存储包现为 1 GB 和 5 GB，可叠加且有效期为 12 个月；此前购买的 5 GB 和 20 GB 配额仍会保留。",
+        },
+        "storage-expiry-protection": {
+          title: "存储到期后的明确处理路径",
+          description:
+            "如果使用量超过剩余配额，存储到期时会暂停新的上传。超额数据享有 30 天宽限期，并可恢复至第 90 天，之后才会进入单独审计的清理流程候选范围。",
+        },
+      },
+    },
     "v0.4.0": {
       title: "连续捕获、统一审阅，以及每个图钉上的 AI",
       summary:

@@ -20,6 +20,18 @@ const locale = {
     whatChanged: "変更内容",
   },
   releases: {
+    "v0.4.2": {
+      title: "拡張機能はサインインしたまま",
+      summary:
+        "ブラウザに Pinar のウェブサイトセッションがあっても、拡張機能は Unauthorized を表示しなくなります。",
+      changes: {
+        "extension-session-isolation": {
+          title: "拡張機能のサインインはサイトと独立",
+          description:
+            "リモート保存は拡張機能自身の資格情報を使います。ウェブサイトのセッションは、拡張機能が資格情報を送らなかったときだけ使われるため、古いサイトログインが拡張機能を止めません。",
+        },
+      },
+    },
     "v0.4.1": {
       title: "持続可能な AI クレジットと適正なストレージ",
       summary:

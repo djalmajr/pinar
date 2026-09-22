@@ -59,6 +59,11 @@ export interface ReleaseContent {
 
 export const releaseDefinitions = [
   {
+    tag: "v0.4.2",
+    date: "2026-09-22",
+    changes: ["extension-session-isolation"],
+  },
+  {
     tag: "v0.4.1",
     date: "2026-09-22",
     changes: ["sustainable-ai-credits", "right-sized-storage", "storage-expiry-protection"],

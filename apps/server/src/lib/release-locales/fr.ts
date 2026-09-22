@@ -22,6 +22,18 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.4.2": {
+      title: "L’extension reste connectée",
+      summary:
+        "L’extension n’affiche plus Unauthorized lorsque le navigateur a aussi une session du site Pinar.",
+      changes: {
+        "extension-session-isolation": {
+          title: "La connexion de l’extension est indépendante du site",
+          description:
+            "Le stockage distant utilise l’identifiant de l’extension. La session du site n’est utilisée que lorsque l’extension n’a pas envoyé le sien, donc une ancienne connexion au site ne bloque plus l’extension.",
+        },
+      },
+    },
     "v0.4.1": {
       title: "Crédits IA durables et stockage adapté",
       summary:

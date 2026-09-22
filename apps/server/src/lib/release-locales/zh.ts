@@ -20,6 +20,17 @@ const locale = {
     whatChanged: "更新内容",
   },
   releases: {
+    "v0.4.2": {
+      title: "扩展保持登录",
+      summary: "当浏览器里同时有 Pinar 网站会话时，扩展不再显示 Unauthorized。",
+      changes: {
+        "extension-session-isolation": {
+          title: "扩展登录与网站分开",
+          description:
+            "远程存储使用扩展自己的凭据。只有扩展没有发送凭据时才会使用网站会话，因此过期的网站登录不会挡住扩展。",
+        },
+      },
+    },
     "v0.4.1": {
       title: "可持续的 AI 点数与更合适的存储空间",
       summary:

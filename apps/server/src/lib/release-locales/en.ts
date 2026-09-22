@@ -20,6 +20,18 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.4.2": {
+      title: "The extension stays signed in",
+      summary:
+        "The browser extension no longer shows Unauthorized when this browser also has a Pinar website session.",
+      changes: {
+        "extension-session-isolation": {
+          title: "Extension sign-in stands on its own",
+          description:
+            "Remote storage uses the extension’s own credential. A website session is used only when the extension did not send one, so an older site login cannot block the extension.",
+        },
+      },
+    },
     "v0.4.1": {
       title: "Sustainable AI credits and right-sized storage",
       summary:

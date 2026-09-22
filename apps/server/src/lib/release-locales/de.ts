@@ -22,6 +22,18 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.4.2": {
+      title: "Die Erweiterung bleibt angemeldet",
+      summary:
+        "Die Erweiterung zeigt kein Unauthorized mehr, wenn der Browser auch eine Sitzung der Pinar-Website hat.",
+      changes: {
+        "extension-session-isolation": {
+          title: "Die Anmeldung der Erweiterung steht für sich",
+          description:
+            "Der Remote-Speicher nutzt die eigene Anmeldung der Erweiterung. Die Website-Sitzung gilt nur, wenn die Erweiterung keine eigene gesendet hat, sodass eine ältere Website-Anmeldung die Erweiterung nicht blockiert.",
+        },
+      },
+    },
     "v0.4.1": {
       title: "Nachhaltige KI-Guthaben und passender Speicher",
       summary:

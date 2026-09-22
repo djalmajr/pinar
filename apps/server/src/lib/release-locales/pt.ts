@@ -22,6 +22,18 @@ const locale = {
     whatChanged: "O que mudou",
   },
   releases: {
+    "v0.4.2": {
+      title: "A extensão permanece conectada",
+      summary:
+        "A extensão deixa de mostrar Unauthorized quando o navegador também tem uma sessão do site Pinar.",
+      changes: {
+        "extension-session-isolation": {
+          title: "O acesso da extensão fica independente do site",
+          description:
+            "O armazenamento remoto usa a credencial da própria extensão. A sessão do site só entra quando a extensão não enviou a dela, então um login antigo do site não bloqueia a extensão.",
+        },
+      },
+    },
     "v0.4.1": {
       title: "Créditos de IA sustentáveis e armazenamento sob medida",
       summary:

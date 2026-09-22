@@ -322,6 +322,39 @@ describe("remote installation isolation", () => {
     assert.equal((await jsonBody(entitlements)).legalAcceptance, null);
   });
 
+  test("installation bearer is used when the website session cookie cannot authorize", async () => {
+    assert.equal((await register(identityA)).status, 201);
+    assert.equal((await register(identityB)).status, 201);
+    const codeResponse = await api("/api/auth/extension-codes", {
+      headers: identityHeaders(identityA),
+      method: "POST",
+    });
+    assert.equal(codeResponse.status, 201);
+    const exchange = await api("/api/auth/extension-codes/exchange", {
+      body: JSON.stringify({ code: (await jsonBody(codeResponse)).code }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const sessionCookie = exchange.headers.get("set-cookie")?.split(";", 1)[0] || "";
+    assert.match(sessionCookie, /^pinar_session=pws_/);
+
+    const tree = await jsonBody(await api("/api/project-tree", {
+      headers: identityHeaders(identityB, { cookie: sessionCookie }),
+    }));
+    assert.ok(isRecord(tree.tree));
+    assert.ok(Array.isArray(tree.tree.projects));
+    assert.equal(tree.tree.projects.length, 1);
+    assert.ok(isRecord(tree.tree.projects[0]));
+    assert.equal(tree.tree.projects[0].ownerId, identityB.id);
+
+    const session = await jsonBody(await api("/api/auth/session", {
+      headers: identityHeaders(identityB, { cookie: sessionCookie }),
+    }));
+    assert.ok(isRecord(session.session));
+    assert.equal(session.session.installationId, identityB.id);
+    assert.equal(session.session.kind, "installation");
+  });
+
   test("data and extension-code web sessions remain installation-scoped", async () => {
     assert.equal((await register(identityA)).status, 201);
     assert.equal((await register(identityB)).status, 201);

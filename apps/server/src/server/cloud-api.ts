@@ -1972,31 +1972,30 @@ async function principalFromOwner(env: CloudEnv, ownerType: Principal["kind"], o
     : null;
 }
 
-export async function resolvePrincipal(request: Request, env: CloudEnv): Promise<Principal | null> {
-  const now = currentDate().toISOString();
+async function webSessionPrincipal(request: Request, env: CloudEnv, now: string) {
   const webToken = cookieValue(request, WEB_SESSION_COOKIE);
-  if (WEB_SESSION_PATTERN.test(webToken)) {
-    const tokenHash = await hashCredential(webToken);
-    if (env.DB) {
-      try {
-        const session = await env.DB.prepare(`
-          SELECT owner_id, owner_type FROM web_sessions
-          WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ?
-        `).bind(tokenHash, now).first();
-        if (session && (session.owner_type === "account" || session.owner_type === "installation")) {
-          return principalFromOwner(env, session.owner_type, String(session.owner_id));
-        }
-      } catch {
-        return null;
+  if (!WEB_SESSION_PATTERN.test(webToken)) return null;
+  const tokenHash = await hashCredential(webToken);
+  if (env.DB) {
+    try {
+      const session = await env.DB.prepare(`
+        SELECT owner_id, owner_type FROM web_sessions
+        WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ?
+      `).bind(tokenHash, now).first();
+      if (session && (session.owner_type === "account" || session.owner_type === "installation")) {
+        return principalFromOwner(env, session.owner_type, String(session.owner_id));
       }
-    } else {
-      const session = memoryWebSessions.get(tokenHash);
-      if (session && !session.revokedAt && session.expiresAt > now) {
-        return principalFromOwner(env, session.ownerType, session.ownerId);
-      }
+    } catch {
+      return null;
     }
+    return null;
   }
+  const session = memoryWebSessions.get(tokenHash);
+  if (!session || session.revokedAt || session.expiresAt <= now) return null;
+  return principalFromOwner(env, session.ownerType, session.ownerId);
+}
 
+async function bearerPrincipal(request: Request, env: CloudEnv, now: string) {
   const token = bearerToken(request);
   if (DEVICE_TOKEN_PATTERN.test(token)) {
     const tokenHash = await hashCredential(token);
@@ -2041,6 +2040,13 @@ export async function resolvePrincipal(request: Request, env: CloudEnv): Promise
     || installation.tokenHash !== tokenHash
     || (requiresLegalAcceptance(env) && !await hasCurrentRemoteFreeLegalAcceptance(env, installationId))) return null;
   return installationPrincipal(installationId);
+}
+
+export async function resolvePrincipal(request: Request, env: CloudEnv): Promise<Principal | null> {
+  const now = currentDate().toISOString();
+  // The extension sends its installation bearer on every remote call and Chrome
+  // also attaches the website cookie. A stale pinar_session must not hide that bearer.
+  return await bearerPrincipal(request, env, now) || webSessionPrincipal(request, env, now);
 }
 
 async function registerInstallation(request: Request, env: CloudEnv) {

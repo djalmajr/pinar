@@ -121,7 +121,7 @@ async function reviewDestination(draft) {
     const authHeaders = device ? deviceAuthHeaders(device) : installationAuthHeaders(installation);
     // A 401 must keep the draft bound to its owner. The general remoteFetch
     // fallback creates a fresh installation, which is wrong for an open draft.
-    request = (path, init = {}) => fetch(`${base}${path}`, { ...init, headers: { ...authHeaders, ...(init.headers || {}) } });
+    request = (path, init = {}) => cloudFetch(`${base}${path}`, { ...init, headers: { ...authHeaders, ...(init.headers || {}) } });
   }
   return { base, settings, request };
 }
@@ -606,6 +606,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         ok: true,
       }))
       .catch((error) => sendResponse({ available: false, error: String(error), ok: false, reason: "unavailable" }));
+    return true;
+  }
+  if (message.type === "voice:copy-transcript") {
+    const transcript = typeof message.text === "string" ? message.text.trim() : "";
+    if (!transcript) {
+      sendResponse({ error: "missing transcript", ok: false });
+      return false;
+    }
+    writeClipboardPlain(transcript)
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ error: String(error), ok: false }));
     return true;
   }
   if (message.type === "voice:transcribe") {
@@ -1496,6 +1507,13 @@ function cloudEndpoint(settings) {
   return resolveCloudUrl(chrome.runtime.getManifest(), settings.cloudUrl);
 }
 
+function cloudFetch(url, init = {}) {
+  // Chrome attaches the pinar.dev website cookie to extension requests. The
+  // bearer is the extension credential; omit cookies so a stale session cannot
+  // be selected ahead of it by an older server.
+  return fetch(url, { ...init, credentials: "omit" });
+}
+
 async function storeDestination(settings, localBase, destination) {
   if (!destination) return;
   const key = destinationKey(settings, localBase);
@@ -1603,7 +1621,7 @@ function registerRemoteInstallation(endpoint, identity, force = false) {
     if (requiresExplicitLegalConsent(chrome.runtime.getManifest(), endpoint)) {
       const storage = remoteProfileStorage(chrome.storage.local, endpoint);
       const [legalResponse, stored] = await Promise.all([
-        fetch(`${endpoint}/api/legal/current`),
+        cloudFetch(`${endpoint}/api/legal/current`),
         storage.get({ remoteLegalAcceptance: null }),
       ]);
       const legalBundle = parseLegalBundle(await legalResponse.json().catch(() => null));
@@ -1613,7 +1631,7 @@ function registerRemoteInstallation(endpoint, identity, force = false) {
       }
     }
     if (!force && registeredInstallations.has(cacheKey)) return legalAcceptance;
-    const response = await fetch(`${endpoint}/api/installations`, {
+    const response = await cloudFetch(`${endpoint}/api/installations`, {
       body: JSON.stringify({
         installationId: identity.id,
         installationToken: identity.token,
@@ -1635,7 +1653,7 @@ function registerRemoteInstallation(endpoint, identity, force = false) {
 
 async function installationFetch(endpoint, path, identity, init = {}) {
   await registerRemoteInstallation(endpoint, identity);
-  const request = () => fetch(`${endpoint}${path}`, {
+  const request = () => cloudFetch(`${endpoint}${path}`, {
     ...init,
     headers: {
       ...installationAuthHeaders(identity),
@@ -1667,7 +1685,7 @@ async function remoteFetch(endpoint, path, init = {}) {
   const storage = remoteProfileStorage(chrome.storage.local, endpoint);
   const deviceToken = await getDeviceToken(storage);
   if (deviceToken) {
-    const response = await fetch(`${endpoint}${path}`, {
+    const response = await cloudFetch(`${endpoint}${path}`, {
       ...init,
       headers: {
         ...deviceAuthHeaders(deviceToken),
@@ -1847,7 +1865,7 @@ async function createExtensionCodeForCurrentSession() {
 async function requestAccountEmailCode(email) {
   const settings = await getSettings();
   const endpoint = cloudEndpoint(settings);
-  const response = await fetch(`${endpoint}/api/auth/email-codes`, {
+  const response = await cloudFetch(`${endpoint}/api/auth/email-codes`, {
     body: JSON.stringify({ email }),
     headers: { "content-type": "application/json" },
     method: "POST",
@@ -1861,7 +1879,7 @@ async function verifyAccountEmailCode(email, code) {
   const endpoint = cloudEndpoint(settings);
   const identity = await initializeInstallationIdentity(endpoint);
   const legalAcceptance = await registerRemoteInstallation(endpoint, identity);
-  const response = await fetch(`${endpoint}/api/auth/email-codes/verify`, {
+  const response = await cloudFetch(`${endpoint}/api/auth/email-codes/verify`, {
     body: JSON.stringify({
       code,
       email,
@@ -1886,7 +1904,7 @@ async function logoutAccount() {
   const endpoint = cloudEndpoint(settings);
   const token = await getDeviceToken(remoteProfileStorage(chrome.storage.local, endpoint));
   if (token) {
-    const response = await fetch(`${endpoint}/api/auth/logout`, {
+    const response = await cloudFetch(`${endpoint}/api/auth/logout`, {
       headers: deviceAuthHeaders(token),
       method: "POST",
     });

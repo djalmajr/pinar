@@ -8,6 +8,6 @@ test("retired one-time plans cannot become a catalog offer or a subscription", (
   }
   expect(legacyCheckoutOffer("month")).toBeNull();
   expect(legacyCheckoutOffer("year")).toBe("pro_year");
-  expect(baseStorageBytes("pro")).toBe(5 * 1024 ** 3);
+  expect(baseStorageBytes("pro")).toBe(2 * 1024 ** 3);
   expect(PRO_INITIAL_AI_CREDITS).toBe(500);
 });

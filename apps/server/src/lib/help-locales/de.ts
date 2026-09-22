@@ -224,7 +224,7 @@ const locale = {
         "Datenschutz-Einstellungen fügen extra Query-Schlüssel hinzu, die aus erfassten URLs entfernt werden, und lassen Loop-Metriken aus, bis du zustimmst.",
     },
     "pricing-credits": {
-      alt: "Pinar-Preis-Add-on-Karte für 1.000 KI-Guthaben mit Kauf und zwölfmonatiger Gültigkeit.",
+      alt: "Pinar-Preis-Add-on-Karte für 500 KI-Guthaben mit Kauf und zwölfmonatiger Gültigkeit.",
       caption:
         "KI-Guthaben werden als Add-on mit zwölfmonatiger Gültigkeit verkauft, getrennt vom Planspeicher und dem Abrechnungsrhythmus.",
     },
@@ -857,7 +857,7 @@ const locale = {
         {
           heading: "Planstruktur",
           paragraphs: [
-            "Free umfasst dauerhafte lokale Nutzung, 250 MB Cloud-Kontingent und sieben Tage Cloud-Aufbewahrung. Pro ist jährlich, mit 5 GB und einmalig 500 KI-Credits beim ersten Abonnement des Kontos.",
+            "Free umfasst dauerhafte lokale Nutzung, 250 MB Cloud-Kontingent und sieben Tage Cloud-Aufbewahrung. Pro ist jährlich, mit 2 GB und einmalig 500 KI-Credits beim ersten Abonnement des Kontos.",
           ],
         },
         {
@@ -896,7 +896,7 @@ const locale = {
         {
           heading: "Guthaben",
           paragraphs: [
-            "Das erste Pro-Abonnement des Kontos gewährt einmalig 500 Credits. Verlängerung, Reaktivierung oder Planwechsel gewähren sie nicht erneut. Gekaufte Pakete fügen 1.000 Credits für bis zu 12 Monate hinzu.",
+            "Das erste Pro-Abonnement des Kontos gewährt einmalig 500 Credits. Verlängerung, Reaktivierung oder Planwechsel gewähren sie nicht erneut. Gekaufte Pakete fügen 500 Credits für bis zu 12 Monate hinzu.",
           ],
         },
         {
@@ -908,7 +908,7 @@ const locale = {
           bullets: [
             "Läuft bereits eine Transkription, warte auf ihren Abschluss, statt dieselbe Aufnahme erneut zu senden.",
             "Läuft eine Reservierung ab oder wird sie erstattet, nimm den Sprachkommentar erneut auf oder sende ihn noch einmal.",
-            "Zeigt der Workspace null Credits, prüfe das Restguthaben, bevor du ein weiteres 1.000-Credit-Paket kaufst.",
+            "Zeigt der Workspace null Credits, prüfe das Restguthaben, bevor du ein weiteres 500-Credit-Paket kaufst.",
           ],
         },
       ],
@@ -921,7 +921,7 @@ const locale = {
         {
           heading: "Kontingent und Add-ons",
           paragraphs: [
-            "Free hat 250 MB Basis-Cloud-Speicher; Pro hat 5 GB. 5-GB- und 20-GB-Add-ons gelten 12 Monate. Läuft ein Add-on bei einer Nutzung über dem Restkontingent ab, werden neue Uploads bis zur Verlängerung oder Reduzierung pausiert. Bestehende Inhalte werden nicht automatisch gelöscht.",
+            "Free hat 250 MB Basis-Cloud-Speicher; Pro hat 2 GB. 1-GB- und 5-GB-Add-ons gelten 12 Monate. Läuft ein Add-on über dem Kontingent ab, werden Uploads pausiert; der Überschuss hat 30 Tage Kulanz und bleibt bis Tag 90 wiederherstellbar, bevor er gelöscht werden darf.",
           ],
         },
         {
@@ -938,7 +938,7 @@ const locale = {
             "Free-Cloud-Sitzungen, die nicht als dauerhaft markiert sind, werden nach sieben Tagen bereinigungsberechtigt. Pro-Inhalte oberhalb des Free-Kontingents folgen nach Ende der bezahlten Berechtigung der 30-tägigen Nachfrist und dem 90-tägigen Wiederherstellungsfenster. Ausschließlich lokaler Verlauf auf diesem Computer wird niemals remote gelöscht. Berechtigung ist kein Versprechen einer sofortigen Entfernung.",
           ],
           bullets: [
-            "Wenn neue Captures pausieren, schaffe Platz, indem du Sitzungen löschst oder einen umfangreichen Screenshot ersetzt, oder erwirb ein zwölfmonatiges 5-GB- oder 20-GB-Add-on.",
+            "Wenn neue Captures pausieren, schaffe Platz, indem du Sitzungen löschst oder einen umfangreichen Screenshot ersetzt, oder erwirb ein zwölfmonatiges 1-GB- oder 5-GB-Add-on.",
             "Ist das Konto in der Nachfrist oder Wiederherstellung, exportiere alles noch Benötigte vor Tag 90; Berechtigung kennzeichnet nur den Überschuss und löscht selbst nicht.",
             "Erwarte nicht, dass das Deinstallieren der Desktop-App Cloud-Objekte bereinigt, und erwarte nicht, dass die Cloud den lokalen Verlauf auf diesem Computer löscht.",
           ],

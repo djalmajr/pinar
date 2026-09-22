@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, test } from "node:test";
-import { FREE_STORAGE_BYTES, STORAGE_5GB_BYTES } from "../lib/entitlements";
+import { FREE_STORAGE_BYTES, STORAGE_1GB_BYTES } from "../lib/entitlements";
 import { CURRENT_LEGAL_VERSION } from "../lib/legal-documents";
 import {
   authorizeCloudAppRequest,
@@ -75,12 +75,12 @@ function sessionIds(body: Record<string, unknown>) {
 const TEST_ENV: CloudEnv = {
   AUTH_PEPPER: "test-auth-pepper",
   EXTENSION_ORIGIN: "chrome-extension://pinar-test",
-  PRICING_AI_CREDITS_1000_BRL_CENTS: "990",
-  PRICING_AI_CREDITS_1000_USD_CENTS: "299",
-  PRICING_STORAGE_20GB_12M_BRL_CENTS: "2990",
-  PRICING_STORAGE_20GB_12M_USD_CENTS: "799",
-  PRICING_STORAGE_5GB_12M_BRL_CENTS: "990",
-  PRICING_STORAGE_5GB_12M_USD_CENTS: "299",
+  PRICING_AI_CREDITS_500_BRL_CENTS: "990",
+  PRICING_AI_CREDITS_500_USD_CENTS: "299",
+  PRICING_STORAGE_5GB_12M_BRL_CENTS: "2990",
+  PRICING_STORAGE_5GB_12M_USD_CENTS: "799",
+  PRICING_STORAGE_1GB_12M_BRL_CENTS: "990",
+  PRICING_STORAGE_1GB_12M_USD_CENTS: "299",
   PRICING_YEARLY_BRL_CENTS: "3990",
   PRICING_YEARLY_USD_CENTS: "1900",
 };
@@ -1358,7 +1358,7 @@ describe("remote installation isolation", () => {
     assert.ok(isRecord(pricing.prices));
     assert.equal("founder" in pricing.prices, false);
     assert.deepEqual(pricing.prices.year, { amount: 3_990, originalAmount: null });
-    assert.deepEqual(pricing.prices.aiCredits1000, { amount: 990, originalAmount: null });
+    assert.deepEqual(pricing.prices.aiCredits500, { amount: 990, originalAmount: null });
 
     const originalFetch = globalThis.fetch;
     let stripeInit: RequestInit | undefined;
@@ -1420,14 +1420,14 @@ describe("remote installation isolation", () => {
     try {
       const response = await api("/api/stripe/checkout", {
         body: JSON.stringify(checkoutRequest({
-          offer: "storage_20gb_12m",
+          offer: "storage_5gb_12m",
           checkoutClaim: "checkout_claim_storage_0001",
           requestId: "checkout_request_123456",
         })),
         headers: { "content-type": "application/json" },
         method: "POST",
       }, {
-        STRIPE_PRICE_STORAGE_20GB_12M: "price_storage_20_test",
+        STRIPE_PRICE_STORAGE_5GB_12M: "price_storage_5_test",
         STRIPE_SECRET_KEY: "sk_test_example",
       });
       assert.equal(response.status, 200);
@@ -1436,12 +1436,12 @@ describe("remote installation isolation", () => {
     }
     const params = new URLSearchParams(String(stripeInit?.body));
     assert.equal(params.get("customer_creation"), "always");
-    assert.equal(params.get("line_items[0][price]"), "price_storage_20_test");
-    assert.equal(params.get("metadata[pinar_offer]"), "storage_20gb_12m");
+    assert.equal(params.get("line_items[0][price]"), "price_storage_5_test");
+    assert.equal(params.get("metadata[pinar_offer]"), "storage_5gb_12m");
     assert.equal(params.get("mode"), "payment");
     assert.equal(
       new Headers(stripeInit?.headers).get("idempotency-key"),
-      "pinar:checkout:storage_20gb_12m:checkout_request_123456",
+      "pinar:checkout:storage_5gb_12m:checkout_request_123456",
     );
     assert.equal((await api("/api/stripe/checkout", {
       body: JSON.stringify({ offer: "unknown_offer" }),
@@ -1455,7 +1455,14 @@ describe("remote installation isolation", () => {
     let stripeCalls = 0;
     globalThis.fetch = async () => { stripeCalls++; throw new Error("Unexpected Stripe request"); };
     try {
-      for (const value of ["founder", "lifetime_founder", "lifetime", "unknown"]) {
+      for (const value of [
+        "ai_credits_1000",
+        "founder",
+        "lifetime_founder",
+        "lifetime",
+        "storage_20gb_12m",
+        "unknown",
+      ]) {
         for (const field of ["offer", "interval"]) {
           const response = await api("/api/stripe/checkout", {
             method: "POST",
@@ -1535,19 +1542,19 @@ describe("remote installation isolation", () => {
       usdPrice: string;
     }> = [
       { brlPrice: "price_br_year", mode: "subscription", offer: "pro_year", usdPrice: "price_us_year" },
-      { brlPrice: "price_br_ai", mode: "payment", offer: "ai_credits_1000", usdPrice: "price_us_ai" },
+      { brlPrice: "price_br_ai", mode: "payment", offer: "ai_credits_500", usdPrice: "price_us_ai" },
+      { brlPrice: "price_br_storage_1", mode: "payment", offer: "storage_1gb_12m", usdPrice: "price_us_storage_1" },
       { brlPrice: "price_br_storage_5", mode: "payment", offer: "storage_5gb_12m", usdPrice: "price_us_storage_5" },
-      { brlPrice: "price_br_storage_20", mode: "payment", offer: "storage_20gb_12m", usdPrice: "price_us_storage_20" },
     ];
     const env: CloudEnv = {
       ...TEST_ENV,
-      STRIPE_PRICE_AI_CREDITS_1000: "price_us_ai",
-      STRIPE_PRICE_BR_AI_CREDITS_1000: "price_br_ai",
-      STRIPE_PRICE_BR_STORAGE_20GB_12M: "price_br_storage_20",
+      STRIPE_PRICE_AI_CREDITS_500: "price_us_ai",
+      STRIPE_PRICE_BR_AI_CREDITS_500: "price_br_ai",
       STRIPE_PRICE_BR_STORAGE_5GB_12M: "price_br_storage_5",
+      STRIPE_PRICE_BR_STORAGE_1GB_12M: "price_br_storage_1",
       STRIPE_PRICE_BR_YEARLY: "price_br_year",
-      STRIPE_PRICE_STORAGE_20GB_12M: "price_us_storage_20",
       STRIPE_PRICE_STORAGE_5GB_12M: "price_us_storage_5",
+      STRIPE_PRICE_STORAGE_1GB_12M: "price_us_storage_1",
       STRIPE_PRICE_YEARLY: "price_us_year",
       STRIPE_SECRET_KEY: "sk_test_example",
     };
@@ -1802,7 +1809,7 @@ describe("remote installation isolation", () => {
       customer_details: { email: "storage@example.test" },
       id: "cs_storage",
       metadata: await acceptedCheckoutMetadata(checkoutClaim, {
-        pinar_offer: "storage_5gb_12m",
+        pinar_offer: "storage_1gb_12m",
       }),
       mode: "payment",
       payment_status: "paid",
@@ -1844,9 +1851,9 @@ describe("remote installation isolation", () => {
     const entitlements = await jsonBody(await api("/api/account/entitlements", { headers: { cookie } }));
     assert.equal(entitlements.plan, "free");
     assert.ok(isRecord(entitlements.storage));
-    assert.equal(entitlements.storage.activeAddOnBytes, STORAGE_5GB_BYTES);
+    assert.equal(entitlements.storage.activeAddOnBytes, STORAGE_1GB_BYTES);
     assert.equal(entitlements.storage.nextExpiryAt, "2027-03-01T00:00:00.000Z");
-    assert.equal(entitlements.storage.quotaBytes, FREE_STORAGE_BYTES + STORAGE_5GB_BYTES);
+    assert.equal(entitlements.storage.quotaBytes, FREE_STORAGE_BYTES + STORAGE_1GB_BYTES);
     const preserved = await jsonBody(await api("/api/sessions/storage_existing_session", {
       headers: { cookie },
     }));
@@ -1867,7 +1874,7 @@ describe("remote installation isolation", () => {
     assert.equal((await jsonBody(addedDuringPack)).isPermanent, true);
   });
 
-  test("sends storage expiry notices at 30, 7 and 1 days without deleting content", async () => {
+  test("sends storage expiry notices at 30, 7 and 1 days with the recovery deadline", async () => {
     const userId = "usr_storage_notice";
     const expiresAt = "2027-06-30T12:00:00.000Z";
     setCloudNowForTests("2027-05-31T12:00:00.000Z");
@@ -1897,7 +1904,7 @@ describe("remote installation isolation", () => {
 
     assert.deepEqual(await sendStorageExpiryNotices(env), { delivered: 1, failed: 0, pending: 0 });
     assert.match(String(sent[0].subject), /30 days/);
-    assert.match(String(sent[0].text), /not be automatically deleted/i);
+    assert.match(String(sent[0].text), /recoverable until day 90/i);
     assert.equal((await sendStorageExpiryNotices(env)).delivered, 0);
 
     setCloudNowForTests("2027-06-23T12:00:00.000Z");
@@ -1938,7 +1945,7 @@ describe("remote installation isolation", () => {
       customer_details: { email },
       id: "cs_existing_addon",
       metadata: await acceptedCheckoutMetadata(checkoutClaim, {
-        pinar_offer: "ai_credits_1000",
+        pinar_offer: "ai_credits_500",
       }),
       mode: "payment",
       payment_status: "paid",
@@ -1987,7 +1994,7 @@ describe("remote installation isolation", () => {
       customer_details: { email: "ai@example.test" },
       id: "cs_ai",
       metadata: await acceptedCheckoutMetadata(aiClaim, {
-        pinar_offer: "ai_credits_1000",
+        pinar_offer: "ai_credits_500",
       }),
       mode: "payment",
       payment_status: "paid",
@@ -2008,7 +2015,7 @@ describe("remote installation isolation", () => {
         { headers: { cookie: aiCookie } },
       ));
       assert.ok(isRecord(aiEntitlements.aiCredits));
-      assert.equal(aiEntitlements.aiCredits.balance, 1_000);
+      assert.equal(aiEntitlements.aiCredits.balance, 500);
       assert.equal(aiEntitlements.aiCredits.nextExpiryAt, "2027-04-30T12:30:00.000Z");
     } finally {
       globalThis.fetch = originalFetch;

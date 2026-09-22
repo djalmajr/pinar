@@ -536,24 +536,24 @@ const messages = {
   "pricing.retentionPolicy": "grace and recovery after cancellation",
   "pricing.activePlanViewers": "Web viewers while the plan is active",
   "pricing.forPrs": "for PRs",
-  "pricing.storage5": "5 GB Dedicated Cloud Storage",
+  "pricing.storage2": "2 GB Dedicated Cloud Storage",
   "pricing.proAiCredits": "500 AI credits with the first subscription",
   "pricing.searchHistory": "Search across your cloud history",
   "pricing.originalPrice": "Original price",
   "pricing.regionalBrazil": "Exclusive price for Brazil",
   "pricing.addOnsTitle": "Add capacity when you need it",
   "pricing.addOnsDescription":
-    "Packs stack and expire 12 months after purchase. If storage expires above your current quota, new uploads pause; existing content is not deleted automatically.",
+    "Packs stack and expire 12 months after purchase. If storage expires above your quota, uploads pause; overage gets 30 days of grace and remains recoverable for 90 days before becoming eligible for deletion.",
   "pricing.buyAddOn": "Buy add-on",
-  "pricing.aiCreditsTitle": "1,000 AI credits",
+  "pricing.aiCreditsTitle": "500 AI credits",
   "pricing.aiCreditsDescription":
     "Additional voice transcription credits, valid for 12 months after purchase.",
+  "pricing.storage1Title": "+1 GB storage",
+  "pricing.storage1Description":
+    "Adds 1 GB for 12 months. Then renew or reduce usage to keep uploading.",
   "pricing.storage5Title": "+5 GB storage",
   "pricing.storage5Description":
     "Adds 5 GB for 12 months. Then renew or reduce usage to keep uploading.",
-  "pricing.storage20Title": "+20 GB storage",
-  "pricing.storage20Description":
-    "Adds 20 GB for 12 months. Then renew or reduce usage to keep uploading.",
   "pricing.valid12Months": "valid for 12 months",
   "pricing.supportTitle": "Support Fair Source development",
   "pricing.supportDescription":

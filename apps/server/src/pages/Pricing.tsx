@@ -297,7 +297,7 @@ export function PricingPage() {
                 </li>
                 <li className="flex items-center gap-2">
                   <IconCheck className="text-success w-4 h-4 shrink-0" />
-                  <span><strong>{t("pricing.storage5")}</strong></span>
+                  <span><strong>{t("pricing.storage2")}</strong></span>
                 </li>
                 <li className="flex items-center gap-2">
                   <IconCheck className="text-success w-4 h-4 shrink-0" />
@@ -336,17 +336,30 @@ export function PricingPage() {
         </div>
         <div className="mb-3 grid w-full max-w-5xl grid-cols-1 gap-6 md:grid-cols-3">
           <AddOnCard
-            buttonLabel={loadingOffer === "ai_credits_1000" ? t("pricing.redirecting") : t("pricing.buyAddOn")}
+            buttonLabel={loadingOffer === "ai_credits_500" ? t("pricing.redirecting") : t("pricing.buyAddOn")}
             currency={pricing?.currency}
             description={t("pricing.aiCreditsDescription")}
             language={language}
             legalNoteId="pricing-addons-legal-note"
             legalNoteMarker="2"
             loading={loadingOffer !== null}
-            price={pricing?.prices.aiCredits1000}
+            price={pricing?.prices.aiCredits500}
             suffix={t("pricing.valid12Months")}
             title={t("pricing.aiCreditsTitle")}
-            onPurchase={() => startCheckout("ai_credits_1000")}
+            onPurchase={() => startCheckout("ai_credits_500")}
+          />
+          <AddOnCard
+            buttonLabel={loadingOffer === "storage_1gb_12m" ? t("pricing.redirecting") : t("pricing.buyAddOn")}
+            currency={pricing?.currency}
+            description={t("pricing.storage1Description")}
+            language={language}
+            legalNoteId="pricing-addons-legal-note"
+            legalNoteMarker="2"
+            loading={loadingOffer !== null}
+            price={pricing?.prices.storage1Gb12M}
+            suffix={t("pricing.valid12Months")}
+            title={t("pricing.storage1Title")}
+            onPurchase={() => startCheckout("storage_1gb_12m")}
           />
           <AddOnCard
             buttonLabel={loadingOffer === "storage_5gb_12m" ? t("pricing.redirecting") : t("pricing.buyAddOn")}
@@ -360,19 +373,6 @@ export function PricingPage() {
             suffix={t("pricing.valid12Months")}
             title={t("pricing.storage5Title")}
             onPurchase={() => startCheckout("storage_5gb_12m")}
-          />
-          <AddOnCard
-            buttonLabel={loadingOffer === "storage_20gb_12m" ? t("pricing.redirecting") : t("pricing.buyAddOn")}
-            currency={pricing?.currency}
-            description={t("pricing.storage20Description")}
-            language={language}
-            legalNoteId="pricing-addons-legal-note"
-            legalNoteMarker="2"
-            loading={loadingOffer !== null}
-            price={pricing?.prices.storage20Gb12M}
-            suffix={t("pricing.valid12Months")}
-            title={t("pricing.storage20Title")}
-            onPurchase={() => startCheckout("storage_20gb_12m")}
           />
         </div>
         <div className="mb-12 w-full max-w-5xl px-1">

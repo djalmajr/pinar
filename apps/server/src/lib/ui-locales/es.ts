@@ -542,24 +542,24 @@ const messages: UiMessages = {
   "pricing.retentionPolicy": "gracia y recuperación tras cancelar",
   "pricing.activePlanViewers": "Visores web mientras el plan esté activo",
   "pricing.forPrs": "para PR",
-  "pricing.storage5": "5 GB de almacenamiento dedicado en la nube",
+  "pricing.storage2": "2 GB de almacenamiento dedicado en la nube",
   "pricing.proAiCredits": "500 créditos de IA con la primera suscripción",
   "pricing.searchHistory": "Busca en todo tu historial en la nube",
   "pricing.originalPrice": "Precio original",
   "pricing.regionalBrazil": "Precio exclusivo para Brasil",
   "pricing.addOnsTitle": "Añade capacidad cuando la necesites",
   "pricing.addOnsDescription":
-    "Los paquetes se acumulan y vencen 12 meses después de la compra. Si el almacenamiento vence por encima de tu cuota, se pausan las nuevas cargas; el contenido existente no se elimina automáticamente.",
+    "Los paquetes se acumulan y vencen 12 meses después de la compra. Si el uso supera la cuota al vencer, se pausan las cargas; el excedente tiene 30 días de gracia y puede recuperarse durante 90 días antes de poder eliminarse.",
   "pricing.buyAddOn": "Comprar adicional",
-  "pricing.aiCreditsTitle": "1.000 créditos de IA",
+  "pricing.aiCreditsTitle": "500 créditos de IA",
   "pricing.aiCreditsDescription":
     "Créditos adicionales para transcripción de voz, válidos durante 12 meses tras la compra.",
+  "pricing.storage1Title": "+1 GB de almacenamiento",
+  "pricing.storage1Description":
+    "Añade 1 GB durante 12 meses. Después, renueva o reduce el uso para seguir cargando.",
   "pricing.storage5Title": "+5 GB de almacenamiento",
   "pricing.storage5Description":
     "Añade 5 GB durante 12 meses. Después, renueva o reduce el uso para seguir cargando.",
-  "pricing.storage20Title": "+20 GB de almacenamiento",
-  "pricing.storage20Description":
-    "Añade 20 GB durante 12 meses. Después, renueva o reduce el uso para seguir cargando.",
   "pricing.valid12Months": "válido por 12 meses",
   "pricing.supportTitle": "Apoya el desarrollo Fair Source",
   "pricing.supportDescription":

@@ -543,24 +543,24 @@ const messages: UiMessages = {
   "pricing.retentionPolicy": "délai de grâce et récupération après résiliation",
   "pricing.activePlanViewers": "Web Viewers pendant que le forfait est actif",
   "pricing.forPrs": "pour les PR",
-  "pricing.storage5": "5 Go de stockage cloud dédié",
+  "pricing.storage2": "2 Go de stockage cloud dédié",
   "pricing.proAiCredits": "500 crédits IA avec le premier abonnement",
   "pricing.searchHistory": "Recherche dans tout votre historique cloud",
   "pricing.originalPrice": "Prix initial",
   "pricing.regionalBrazil": "Tarif exclusif pour le Brésil",
   "pricing.addOnsTitle": "Ajoutez de la capacité quand nécessaire",
   "pricing.addOnsDescription":
-    "Les packs se cumulent et expirent 12 mois après l’achat. Si le stockage expire au-dessus du quota, les nouveaux envois sont suspendus ; le contenu existant n’est pas supprimé automatiquement.",
+    "Les packs se cumulent et expirent 12 mois après l’achat. Si l’usage dépasse le quota, les envois sont suspendus ; l’excédent bénéficie de 30 jours de grâce et reste récupérable 90 jours avant de pouvoir être supprimé.",
   "pricing.buyAddOn": "Acheter l’option",
-  "pricing.aiCreditsTitle": "1 000 crédits IA",
+  "pricing.aiCreditsTitle": "500 crédits IA",
   "pricing.aiCreditsDescription":
     "Crédits supplémentaires pour la transcription vocale, valables 12 mois après l’achat.",
+  "pricing.storage1Title": "+1 Go de stockage",
+  "pricing.storage1Description":
+    "Ajoute 1 Go pendant 12 mois. Renouvelez ensuite ou réduisez l’usage pour continuer les envois.",
   "pricing.storage5Title": "+5 Go de stockage",
   "pricing.storage5Description":
     "Ajoute 5 Go pendant 12 mois. Renouvelez ensuite ou réduisez l’usage pour continuer les envois.",
-  "pricing.storage20Title": "+20 Go de stockage",
-  "pricing.storage20Description":
-    "Ajoute 20 Go pendant 12 mois. Renouvelez ensuite ou réduisez l’usage pour continuer les envois.",
   "pricing.valid12Months": "valable 12 mois",
   "pricing.supportTitle": "Soutenez le développement Fair Source",
   "pricing.supportDescription":

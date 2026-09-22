@@ -14,17 +14,16 @@ const gigabyte = 1024 ** 3;
 
 test.skip(!enabled, "Run through scripts/run-stripe-hosted-catalog-e2e.mjs against Stripe Test and staging");
 
-test("Stripe-hosted Pro monthly activates in BRL", async ({ context, page }) => {
+test("Stripe-hosted Pro annual activates in BRL", async ({ context, page }) => {
   expect(buyerEmail).toMatch(/^pinar-catalog-e2e\+[a-z0-9-]+@example\.com$/);
   await attachStagingAccess(context);
   test.setTimeout(120_000);
 
   await page.goto("/pricing");
-  await page.getByRole("button", { exact: true, name: "Monthly" }).click();
   await acceptLegalIfPrompted(page);
-  const monthlyCta = page.getByRole("button", { name: /Get Pro Monthly — R\$4\.90/ });
-  await expect(monthlyCta).toBeEnabled();
-  await monthlyCta.click();
+  const annualCta = page.getByRole("button", { name: /Get Pro Yearly — R\$39\.90\/year/ });
+  await expect(annualCta).toBeEnabled();
+  await annualCta.click();
   await payStripeTestCheckout(page, { email: buyerEmail, name: "Pinar Catalog E2E" });
 
   await expect(page).toHaveURL(new RegExp(`^${STAGING_ORIGIN}/success(?:\\?|$)`), { timeout: 60_000 });
@@ -35,9 +34,9 @@ test("Stripe-hosted Pro monthly activates in BRL", async ({ context, page }) => 
   const entitlements = await readEntitlements(page);
   expect(entitlements.ok).toBe(true);
   expect(entitlements.body).toMatchObject({
-    aiCredits: { balance: 200 },
+    aiCredits: { balance: 500 },
     plan: "pro",
-    storage: { quotaBytes: 5 * gigabyte },
+    storage: { quotaBytes: 2 * gigabyte },
   });
 });
 
@@ -47,9 +46,8 @@ test("Stripe-hosted AI credit add-on activates in BRL", async ({ context, page }
   test.setTimeout(180_000);
 
   await page.goto("/pricing");
-  await page.getByRole("button", { exact: true, name: "Monthly" }).click();
   await acceptLegalIfPrompted(page);
-  await page.getByRole("button", { name: /Get Pro Monthly — R\$4\.90/ }).click();
+  await page.getByRole("button", { name: /Get Pro Yearly — R\$39\.90\/year/ }).click();
   await payStripeTestCheckout(page, { email: addOnEmail, name: "Pinar Catalog E2E" });
   await expect(page).toHaveURL(new RegExp(`^${STAGING_ORIGIN}/success(?:\\?|$)`), { timeout: 60_000 });
   await expect(page.getByText("Payment confirmed", { exact: true })).toBeVisible();
@@ -64,8 +62,8 @@ test("Stripe-hosted AI credit add-on activates in BRL", async ({ context, page }
   const entitlements = await readEntitlements(page);
   expect(entitlements.ok).toBe(true);
   expect(entitlements.body).toMatchObject({
-    aiCredits: { balance: 1_200 },
+    aiCredits: { balance: 1_000 },
     plan: "pro",
-    storage: { quotaBytes: 5 * gigabyte },
+    storage: { quotaBytes: 2 * gigabyte },
   });
 });

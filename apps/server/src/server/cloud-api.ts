@@ -50,9 +50,11 @@ import {
   isProjectIcon,
 } from "@pinar/shared/project-icons";
 import {
+  LEGACY_PURCHASED_AI_CREDITS,
+  LEGACY_STORAGE_20GB_BYTES,
   PRO_INITIAL_AI_CREDITS,
   PURCHASED_AI_CREDITS,
-  STORAGE_20GB_BYTES,
+  STORAGE_1GB_BYTES,
   STORAGE_5GB_BYTES,
   addUtcYears,
   baseStorageBytes,
@@ -62,8 +64,10 @@ import {
   legacyCheckoutOffer,
   planForOffer,
   planIncludesAi,
+  purchasableCheckoutOffer,
   storageEntitlement,
   type CheckoutOffer,
+  type PurchasableCheckoutOffer,
   type StorageEntitlement,
 } from "../lib/entitlements";
 import { CURRENT_LEGAL_VERSION } from "../lib/legal-documents";
@@ -125,20 +129,20 @@ export interface CloudEnv {
   EMAIL?: SendEmail;
   EXTENSION_ORIGIN?: string;
   PINAR_BUCKET?: R2Bucket;
-  PRICING_AI_CREDITS_1000_BRL_CENTS?: string;
-  PRICING_AI_CREDITS_1000_USD_CENTS?: string;
-  PRICING_STORAGE_20GB_12M_BRL_CENTS?: string;
-  PRICING_STORAGE_20GB_12M_USD_CENTS?: string;
+  PRICING_AI_CREDITS_500_BRL_CENTS?: string;
+  PRICING_AI_CREDITS_500_USD_CENTS?: string;
+  PRICING_STORAGE_1GB_12M_BRL_CENTS?: string;
+  PRICING_STORAGE_1GB_12M_USD_CENTS?: string;
   PRICING_STORAGE_5GB_12M_BRL_CENTS?: string;
   PRICING_STORAGE_5GB_12M_USD_CENTS?: string;
   PRICING_YEARLY_BRL_CENTS?: string;
   PRICING_YEARLY_USD_CENTS?: string;
-  STRIPE_PRICE_AI_CREDITS_1000?: string;
-  STRIPE_PRICE_BR_AI_CREDITS_1000?: string;
-  STRIPE_PRICE_BR_STORAGE_20GB_12M?: string;
+  STRIPE_PRICE_AI_CREDITS_500?: string;
+  STRIPE_PRICE_BR_AI_CREDITS_500?: string;
+  STRIPE_PRICE_BR_STORAGE_1GB_12M?: string;
   STRIPE_PRICE_BR_STORAGE_5GB_12M?: string;
   STRIPE_PRICE_BR_YEARLY?: string;
-  STRIPE_PRICE_STORAGE_20GB_12M?: string;
+  STRIPE_PRICE_STORAGE_1GB_12M?: string;
   STRIPE_PRICE_STORAGE_5GB_12M?: string;
   STRIPE_PRICE_YEARLY?: string;
   STRIPE_SECRET_KEY?: string;
@@ -271,7 +275,7 @@ interface StorageGrantRecord {
   expiresAt: string;
   id: string;
   sourceId: string;
-  sourceType: "storage_20gb_12m" | "storage_5gb_12m";
+  sourceType: "storage_1gb_12m" | "storage_20gb_12m" | "storage_5gb_12m";
   startsAt: string;
   userId: string;
 }
@@ -818,10 +822,10 @@ function requestCountry(request: Request) {
 
 function pricingConfig(env: CloudEnv): PricingConfig | null {
   const config: PricingConfig = {
-    aiCredits1000BrlCents: Number(env.PRICING_AI_CREDITS_1000_BRL_CENTS),
-    aiCredits1000UsdCents: Number(env.PRICING_AI_CREDITS_1000_USD_CENTS),
-    storage20Gb12MBrlCents: Number(env.PRICING_STORAGE_20GB_12M_BRL_CENTS),
-    storage20Gb12MUsdCents: Number(env.PRICING_STORAGE_20GB_12M_USD_CENTS),
+    aiCredits500BrlCents: Number(env.PRICING_AI_CREDITS_500_BRL_CENTS),
+    aiCredits500UsdCents: Number(env.PRICING_AI_CREDITS_500_USD_CENTS),
+    storage1Gb12MBrlCents: Number(env.PRICING_STORAGE_1GB_12M_BRL_CENTS),
+    storage1Gb12MUsdCents: Number(env.PRICING_STORAGE_1GB_12M_USD_CENTS),
     storage5Gb12MBrlCents: Number(env.PRICING_STORAGE_5GB_12M_BRL_CENTS),
     storage5Gb12MUsdCents: Number(env.PRICING_STORAGE_5GB_12M_USD_CENTS),
     yearlyBrlCents: Number(env.PRICING_YEARLY_BRL_CENTS),
@@ -2611,15 +2615,15 @@ async function logout(request: Request, env: CloudEnv) {
   });
 }
 
-function stripePriceForOffer(env: CloudEnv, offer: CheckoutOffer, isBrazil: boolean) {
-  if (offer === "ai_credits_1000") {
-    return isBrazil ? env.STRIPE_PRICE_BR_AI_CREDITS_1000 : env.STRIPE_PRICE_AI_CREDITS_1000;
+function stripePriceForOffer(env: CloudEnv, offer: PurchasableCheckoutOffer, isBrazil: boolean) {
+  if (offer === "ai_credits_500") {
+    return isBrazil ? env.STRIPE_PRICE_BR_AI_CREDITS_500 : env.STRIPE_PRICE_AI_CREDITS_500;
   }
   if (offer === "pro_year") {
     return isBrazil ? env.STRIPE_PRICE_BR_YEARLY : env.STRIPE_PRICE_YEARLY;
   }
-  if (offer === "storage_20gb_12m") {
-    return isBrazil ? env.STRIPE_PRICE_BR_STORAGE_20GB_12M : env.STRIPE_PRICE_STORAGE_20GB_12M;
+  if (offer === "storage_1gb_12m") {
+    return isBrazil ? env.STRIPE_PRICE_BR_STORAGE_1GB_12M : env.STRIPE_PRICE_STORAGE_1GB_12M;
   }
   return isBrazil ? env.STRIPE_PRICE_BR_STORAGE_5GB_12M : env.STRIPE_PRICE_STORAGE_5GB_12M;
 }
@@ -2627,7 +2631,7 @@ function stripePriceForOffer(env: CloudEnv, offer: CheckoutOffer, isBrazil: bool
 async function createCheckout(request: Request, env: CloudEnv) {
   if (!env.STRIPE_SECRET_KEY) return json({ error: "STRIPE_SECRET_KEY not configured" }, 500);
   const body = await readJson(request);
-  const explicitOffer = checkoutOffer(body.offer);
+  const explicitOffer = purchasableCheckoutOffer(body.offer);
   if (body.offer !== undefined && !explicitOffer) return json({ error: "Invalid checkout offer" }, 400);
   const offer = explicitOffer || legacyCheckoutOffer(body.interval);
   if (!offer) return json({ error: "Invalid checkout offer" }, 400);
@@ -3071,10 +3075,10 @@ async function fulfillCheckout(env: CloudEnv, session: Record<string, unknown>) 
     if (account.plan === "pro" && account.billingStatus === "active") {
       await preserveAccountSessions(env, account.id, account.plan);
     }
-  } else if (offer === "ai_credits_1000") {
+  } else if (offer === "ai_credits_500" || offer === "ai_credits_1000") {
     if (!sessionId) return null;
     await grantAiCredits({
-      credits: PURCHASED_AI_CREDITS,
+      credits: offer === "ai_credits_1000" ? LEGACY_PURCHASED_AI_CREDITS : PURCHASED_AI_CREDITS,
       env,
       expiresAt: addUtcYears(currentDate(), 1).toISOString(),
       ownerId: account.id,
@@ -3086,7 +3090,11 @@ async function fulfillCheckout(env: CloudEnv, session: Record<string, unknown>) 
     if (!sessionId) return null;
     const startsAt = currentDate().toISOString();
     await grantStorage({
-      byteCount: offer === "storage_20gb_12m" ? STORAGE_20GB_BYTES : STORAGE_5GB_BYTES,
+      byteCount: offer === "storage_1gb_12m"
+        ? STORAGE_1GB_BYTES
+        : offer === "storage_20gb_12m"
+          ? LEGACY_STORAGE_20GB_BYTES
+          : STORAGE_5GB_BYTES,
       env,
       expiresAt: addUtcYears(currentDate(), 1).toISOString(),
       sourceId: `checkout:${sessionId}:storage`,
@@ -4967,6 +4975,17 @@ interface StorageNoticeCandidate {
   sourceType: StorageGrantRecord["sourceType"];
 }
 
+function storageGrantSourceType(value: unknown): StorageGrantRecord["sourceType"] {
+  if (value === "storage_1gb_12m" || value === "storage_20gb_12m") return value;
+  return "storage_5gb_12m";
+}
+
+function storagePackLabel(sourceType: StorageGrantRecord["sourceType"]) {
+  if (sourceType === "storage_1gb_12m") return "1 GB";
+  if (sourceType === "storage_20gb_12m") return "20 GB";
+  return "5 GB";
+}
+
 function storageNoticeFromRow(row: Record<string, unknown>): StorageExpiryNoticeRecord {
   return {
     claimedAt: typeof row.claimed_at === "string" ? row.claimed_at : null,
@@ -5045,9 +5064,7 @@ async function dueStorageNoticeCandidates(env: CloudEnv, now: string): Promise<S
       LIMIT 100
     `).bind(now, now).all();
     return (result.results || []).flatMap((row): StorageNoticeCandidate[] => {
-      const sourceType = row.source_type === "storage_20gb_12m"
-        ? "storage_20gb_12m"
-        : "storage_5gb_12m";
+      const sourceType = storageGrantSourceType(row.source_type);
       const email = String(row.email || "");
       const expiresAt = String(row.expires_at || "");
       if (!isEmail(email) || !expiresAt) return [];
@@ -5127,7 +5144,7 @@ export async function sendStorageExpiryNotices(env: CloudEnv) {
       expiresAt: String(row.expires_at || ""),
       id: String(row.id || ""),
       sourceId: String(row.source_id || ""),
-      sourceType: row.source_type === "storage_20gb_12m" ? "storage_20gb_12m" : "storage_5gb_12m",
+      sourceType: storageGrantSourceType(row.source_type),
       startsAt: String(row.starts_at || ""),
       userId: String(row.user_id || ""),
     }));
@@ -5143,15 +5160,15 @@ export async function sendStorageExpiryNotices(env: CloudEnv) {
   let failed = 0;
   for (const candidate of candidates) {
     if (!await claimStorageNotice(env, candidate.notice)) continue;
-    const pack = candidate.sourceType === "storage_20gb_12m" ? "20 GB" : "5 GB";
+    const pack = storagePackLabel(candidate.sourceType);
     const days = candidate.daysBefore;
     const dayLabel = days === 1 ? "day" : "days";
     try {
       await env.EMAIL.send({
         from: { email: "noreply@pinar.dev", name: "Pinar" },
-        html: `<p>Your Pinar ${pack} storage add-on expires in <strong>${days} ${dayLabel}</strong>.</p><p>Existing content will not be automatically deleted. If your usage is above the remaining quota, new uploads will pause until you renew storage or reduce usage.</p><p>Seu adicional de armazenamento de ${pack} expira em <strong>${days} dia${days === 1 ? "" : "s"}</strong>. O conteúdo existente não será excluído automaticamente.</p>`,
+        html: `<p>Your Pinar ${pack} storage add-on expires in <strong>${days} ${dayLabel}</strong>.</p><p>If usage remains above the quota, uploads pause at expiry. Overage gets 30 days of grace and remains recoverable until day 90 before becoming eligible for deletion.</p><p>Seu adicional de armazenamento de ${pack} expira em <strong>${days} dia${days === 1 ? "" : "s"}</strong>. Se o uso continuar acima da cota, os uploads pausam; o excedente tem 30 dias de carência e permanece recuperável até o dia 90.</p>`,
         subject: `Pinar storage expires in ${days} ${dayLabel}`,
-        text: `Your Pinar ${pack} storage add-on expires in ${days} ${dayLabel} (${candidate.expiresAt}). Existing content will not be automatically deleted. If usage exceeds the remaining quota, new uploads will pause.\n\nSeu adicional de ${pack} expira em ${days} dia${days === 1 ? "" : "s"}. O conteúdo existente não será excluído automaticamente.`,
+        text: `Your Pinar ${pack} storage add-on expires in ${days} ${dayLabel} (${candidate.expiresAt}). If usage remains above the quota, uploads pause at expiry. Overage gets 30 days of grace and remains recoverable until day 90 before becoming eligible for deletion.\n\nSeu adicional de ${pack} expira em ${days} dia${days === 1 ? "" : "s"}. Se o uso continuar acima da cota, os uploads pausam; o excedente tem 30 dias de carência e permanece recuperável até o dia 90.`,
         to: candidate.email,
       });
       await finishStorageNotice(env, candidate.notice, null);

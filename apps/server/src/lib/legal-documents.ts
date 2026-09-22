@@ -80,7 +80,7 @@ You are responsible for the email address, devices, access codes, extension toke
 ## 4. Plans, billing, and quotas
 
 - **Free** provides limited cloud retention, storage, and introductory AI credits.
-- **Pro** is an annual subscription with 5 GB of base cloud storage and a one-time allocation of 500 AI credits on the account's first subscription. The initial allocation is not granted again on renewal, cancellation followed by reactivation, or plan changes. Included storage and paid retention apply only while the subscription remains eligible, subject to the Retention Policy.
+- **Pro** is an annual subscription with 2 GB of base cloud storage and a one-time allocation of 500 AI credits on the account's first subscription. The initial allocation is not granted again on renewal, cancellation followed by reactivation, or plan changes. Included storage and paid retention apply only while the subscription remains eligible, subject to the Retention Policy.
 - Storage and AI-credit add-ons have the amount, validity, and consumption rules shown before purchase.
 
 Prices, taxes, currency, renewal interval, and the applicable offer are shown at Checkout. Stripe processes payments. You may cancel a recurring plan before its next renewal. Cancellation stops future renewals but does not automatically refund an already-started billing period.
@@ -125,7 +125,7 @@ Você é responsável pelo endereço de e-mail, dispositivos, códigos de acesso
 ## 4. Planos, cobrança e cotas
 
 - **Free** oferece retenção em nuvem, armazenamento e créditos iniciais de IA limitados.
-- **Pro** é uma assinatura anual com 5 GB de armazenamento-base em nuvem e uma concessão única de 500 créditos de IA na primeira assinatura da conta. A concessão inicial não é repetida em renovações, cancelamento seguido de reativação ou mudanças de plano. O armazenamento incluído e a retenção paga aplicam-se somente enquanto a assinatura permanecer elegível, conforme a Política de Retenção.
+- **Pro** é uma assinatura anual com 2 GB de armazenamento-base em nuvem e uma concessão única de 500 créditos de IA na primeira assinatura da conta. A concessão inicial não é repetida em renovações, cancelamento seguido de reativação ou mudanças de plano. O armazenamento incluído e a retenção paga aplicam-se somente enquanto a assinatura permanecer elegível, conforme a Política de Retenção.
 - Adicionais de armazenamento e créditos de IA seguem a quantidade, a validade e as regras de consumo exibidas antes da compra.
 
 Preços, tributos, moeda, intervalo de renovação e oferta aplicável são exibidos no Checkout. O Stripe processa os pagamentos. Você pode cancelar um plano recorrente antes da próxima renovação. O cancelamento impede renovações futuras, mas não gera automaticamente reembolso de um período de cobrança já iniciado.

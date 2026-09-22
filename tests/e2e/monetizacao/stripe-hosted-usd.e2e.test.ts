@@ -108,24 +108,24 @@ test("Stripe Test USD Pro annual and add-ons fulfill on staging", async ({ conte
   expect(entitlements.body).toMatchObject({
     aiCredits: { balance: 500 },
     plan: "pro",
-    storage: { quotaBytes: 5 * gigabyte },
+    storage: { quotaBytes: 2 * gigabyte },
   });
 
   const addOns = [
     {
-      expected: { aiCredits: { balance: 1_500 }, storage: { quotaBytes: 5 * gigabyte } },
-      offer: "ai_credits_1000",
-      priceId: process.env.STRIPE_TEST_PRICE_AI_CREDITS_1000 || "",
+      expected: { aiCredits: { balance: 1_000 }, storage: { quotaBytes: 2 * gigabyte } },
+      offer: "ai_credits_500",
+      priceId: process.env.STRIPE_TEST_PRICE_AI_CREDITS_500 || "",
     },
     {
-      expected: { aiCredits: { balance: 1_200 }, storage: { quotaBytes: 10 * gigabyte } },
+      expected: { aiCredits: { balance: 1_000 }, storage: { quotaBytes: 3 * gigabyte } },
+      offer: "storage_1gb_12m",
+      priceId: process.env.STRIPE_TEST_PRICE_STORAGE_1GB_12M || "",
+    },
+    {
+      expected: { aiCredits: { balance: 1_000 }, storage: { quotaBytes: 8 * gigabyte } },
       offer: "storage_5gb_12m",
       priceId: process.env.STRIPE_TEST_PRICE_STORAGE_5GB_12M || "",
-    },
-    {
-      expected: { aiCredits: { balance: 1_200 }, storage: { quotaBytes: 30 * gigabyte } },
-      offer: "storage_20gb_12m",
-      priceId: process.env.STRIPE_TEST_PRICE_STORAGE_20GB_12M || "",
     },
   ] as const;
 

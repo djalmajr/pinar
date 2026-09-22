@@ -224,7 +224,7 @@ const locale = {
         "Les préférences de confidentialité ajoutent des clés de requête extra retirées des URL capturées et gardent les métriques de cycle désactivées jusqu’à l’opt-in.",
     },
     "pricing-credits": {
-      alt: "Carte d’option tarifaire Pinar pour 1 000 crédits IA, avec achat et validité de douze mois.",
+      alt: "Carte d’option tarifaire Pinar pour 500 crédits IA, avec achat et validité de douze mois.",
       caption:
         "Les crédits IA sont vendus en option avec une validité de douze mois, séparés du stockage du plan et de la cadence de facturation.",
     },
@@ -858,7 +858,7 @@ const locale = {
         {
           heading: "Forme des plans",
           paragraphs: [
-            "Free inclut un usage local permanent, 250 Mo de quota cloud et sept jours de rétention. Pro est annuel, avec 5 Go et une allocation unique de 500 crédits IA lors du premier abonnement du compte.",
+            "Free inclut un usage local permanent, 250 Mo de quota cloud et sept jours de rétention. Pro est annuel, avec 2 Go et une allocation unique de 500 crédits IA lors du premier abonnement du compte.",
           ],
         },
         {
@@ -897,7 +897,7 @@ const locale = {
         {
           heading: "Soldes",
           paragraphs: [
-            "Le premier abonnement Pro du compte accorde 500 crédits une seule fois. Un renouvellement, une réactivation ou un changement de plan ne les accorde pas de nouveau. Les packs achetés ajoutent 1 000 crédits pour 12 mois.",
+            "Le premier abonnement Pro du compte accorde 500 crédits une seule fois. Un renouvellement, une réactivation ou un changement de plan ne les accorde pas de nouveau. Les packs achetés ajoutent 500 crédits pour 12 mois.",
           ],
         },
         {
@@ -909,7 +909,7 @@ const locale = {
           bullets: [
             "Si une transcription est déjà en cours, attendez sa fin au lieu de renvoyer le même enregistrement.",
             "Si une réservation expire ou est remboursée, enregistrez ou envoyez de nouveau le commentaire vocal.",
-            "Si le workspace affiche zéro crédit, vérifiez le solde avant d’acheter un autre pack de 1 000 crédits.",
+            "Si le workspace affiche zéro crédit, vérifiez le solde avant d’acheter un autre pack de 500 crédits.",
           ],
         },
       ],
@@ -922,7 +922,7 @@ const locale = {
         {
           heading: "Quota et options",
           paragraphs: [
-            "Free a 250 Mo de stockage cloud de base ; Pro a 5 Go. Les options de 5 Go et 20 Go durent 12 mois. Si une option expire au-dessus du quota restant, les nouveaux envois sont suspendus jusqu’au renouvellement ou à la réduction de l’usage. Le contenu existant n’est pas supprimé automatiquement.",
+            "Free a 250 Mo de stockage cloud de base ; Pro a 2 Go. Les options de 1 Go et 5 Go durent 12 mois. Si une option expire au-dessus du quota, les envois sont suspendus ; l’excédent bénéficie de 30 jours de grâce et reste récupérable jusqu’au jour 90 avant de pouvoir être supprimé.",
           ],
         },
         {
@@ -939,7 +939,7 @@ const locale = {
             "Les sessions cloud Free qui ne sont pas marquées permanentes deviennent éligibles au nettoyage après sept jours. Le contenu Pro au-dessus du quota Free suit la grâce de 30 jours et la fenêtre de récupération de 90 jours après la fin de l’éligibilité payante. L’historique uniquement local sur cet ordinateur n’est jamais supprimé à distance. L’éligibilité n’est pas une promesse de retrait immédiat.",
           ],
           bullets: [
-            "Lorsque de nouvelles captures s’interrompent, libérez de l’espace en supprimant des sessions ou en remplaçant un screenshot lourd, ou achetez une option de douze mois de 5 Go ou 20 Go.",
+            "Lorsque de nouvelles captures s’interrompent, libérez de l’espace en supprimant des sessions ou en remplaçant un screenshot lourd, ou achetez une option de douze mois de 1 Go ou 5 Go.",
             "Si le compte est en grâce ou en récupération, exportez ce dont vous avez encore besoin avant le jour 90 ; l’éligibilité ne fait que marquer le dépassement, elle ne supprime pas elle-même.",
             "N’attendez pas que la désinstallation de l’app de bureau purge les objets cloud, et n’attendez pas que le cloud efface l’historique local sur cet ordinateur.",
           ],

@@ -224,7 +224,7 @@ const locale = {
         "Las preferencias de privacidad añaden claves extra de consulta que se eliminan de las URL capturadas y mantienen las métricas del ciclo apagadas hasta que optas.",
     },
     "pricing-credits": {
-      alt: "Tarjeta de complemento de la página de precios de Pinar para 1.000 créditos de IA, con compra y validez de doce meses.",
+      alt: "Tarjeta de complemento de la página de precios de Pinar para 500 créditos de IA, con compra y validez de doce meses.",
       caption:
         "Los créditos de IA se venden como complemento con validez de doce meses, separados del almacenamiento del plan y de la cadencia de facturación.",
     },
@@ -859,7 +859,7 @@ const locale = {
         {
           heading: "Forma del plan",
           paragraphs: [
-            "Free incluye uso local permanente, 250 MB de cuota en la nube y retención de siete días. Pro es anual, con 5 GB y una concesión única de 500 créditos de IA en la primera suscripción de la cuenta.",
+            "Free incluye uso local permanente, 250 MB de cuota en la nube y retención de siete días. Pro es anual, con 2 GB y una concesión única de 500 créditos de IA en la primera suscripción de la cuenta.",
           ],
         },
         {
@@ -898,7 +898,7 @@ const locale = {
         {
           heading: "Saldos",
           paragraphs: [
-            "La primera suscripción Pro de la cuenta concede 500 créditos una sola vez. Renovar, cancelar y reactivar o cambiar de plan no los vuelve a conceder. Los paquetes comprados añaden 1.000 créditos y duran hasta 12 meses.",
+            "La primera suscripción Pro de la cuenta concede 500 créditos una sola vez. Renovar, cancelar y reactivar o cambiar de plan no los vuelve a conceder. Los paquetes comprados añaden 500 créditos y duran hasta 12 meses.",
           ],
         },
         {
@@ -910,7 +910,7 @@ const locale = {
           bullets: [
             "Si ya hay una transcripción en curso, espera a que termine en lugar de enviar la misma grabación otra vez.",
             "Si una reserva caduca o se reembolsa, graba o envía de nuevo el comentario por voz.",
-            "Si el espacio de trabajo muestra cero créditos, comprueba el saldo antes de comprar otro paquete de 1.000 créditos.",
+            "Si el espacio de trabajo muestra cero créditos, comprueba el saldo antes de comprar otro paquete de 500 créditos.",
           ],
         },
       ],
@@ -923,7 +923,7 @@ const locale = {
         {
           heading: "Cuota y complementos",
           paragraphs: [
-            "Free tiene 250 MB de almacenamiento base en la nube; Pro tiene 5 GB. Los complementos de 5 GB y 20 GB duran 12 meses. Si uno vence con el uso por encima de la cuota restante, se pausan las nuevas cargas hasta renovar o reducir el uso. El contenido existente no se elimina automáticamente por el vencimiento.",
+            "Free tiene 250 MB de almacenamiento base en la nube; Pro tiene 2 GB. Los complementos de 1 GB y 5 GB duran 12 meses. Si uno vence por encima de la cuota, se pausan las cargas; el excedente tiene 30 días de gracia y puede recuperarse hasta el día 90 antes de poder eliminarse.",
           ],
         },
         {
@@ -940,7 +940,7 @@ const locale = {
             "Las sesiones en la nube de Free que no están marcadas como permanentes pasan a ser elegibles para limpieza a los siete días. El contenido de Pro por encima de la cuota de Free sigue la gracia de 30 días y la ventana de recuperación de 90 días tras terminar la elegibilidad de pago. El historial solo local de este equipo nunca se elimina de forma remota. La elegibilidad no es una promesa de retirada inmediata.",
           ],
           bullets: [
-            "Cuando se pausen las capturas nuevas, libera espacio eliminando sesiones o reemplazando un screenshot pesado, o compra un complemento de doce meses de 5 GB o 20 GB.",
+            "Cuando se pausen las capturas nuevas, libera espacio eliminando sesiones o reemplazando un screenshot pesado, o compra un complemento de doce meses de 1 GB o 5 GB.",
             "Si la cuenta está en gracia o recuperación, exporta lo que aún necesites antes del día 90; la elegibilidad solo marca el excedente, no elimina por sí misma.",
             "No esperes que desinstalar la app de escritorio borre objetos en la nube, ni que la nube borre el historial local de este equipo.",
           ],

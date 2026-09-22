@@ -1,10 +1,17 @@
 import type { AccountPlan } from "@pinar/shared";
 
 export type CheckoutOffer =
+  | "ai_credits_500"
   | "ai_credits_1000"
   | "pro_year"
+  | "storage_1gb_12m"
   | "storage_20gb_12m"
   | "storage_5gb_12m";
+
+export type PurchasableCheckoutOffer = Exclude<
+  CheckoutOffer,
+  "ai_credits_1000" | "storage_20gb_12m"
+>;
 
 export type StorageState = "available" | "cleanup_eligible" | "grace" | "over_quota" | "recoverable";
 
@@ -30,22 +37,34 @@ export interface StorageEntitlementInput {
 }
 
 export const FREE_STORAGE_BYTES = 250 * 1024 * 1024;
-export const PAID_STORAGE_BYTES = 5 * 1024 * 1024 * 1024;
+export const LEGACY_PURCHASED_AI_CREDITS = 1_000;
+export const LEGACY_STORAGE_20GB_BYTES = 20 * 1024 * 1024 * 1024;
+export const PAID_STORAGE_BYTES = 2 * 1024 * 1024 * 1024;
 export const PRO_INITIAL_AI_CREDITS = 500;
-export const PURCHASED_AI_CREDITS = 1_000;
-export const STORAGE_20GB_BYTES = 20 * 1024 * 1024 * 1024;
+export const PURCHASED_AI_CREDITS = 500;
+export const STORAGE_1GB_BYTES = 1024 * 1024 * 1024;
 export const STORAGE_5GB_BYTES = 5 * 1024 * 1024 * 1024;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 export function checkoutOffer(value: unknown): CheckoutOffer | null {
-  if (value === "ai_credits_1000"
+  if (value === "ai_credits_500"
+    || value === "ai_credits_1000"
     || value === "pro_year"
     || value === "storage_20gb_12m"
+    || value === "storage_1gb_12m"
     || value === "storage_5gb_12m") return value;
   return null;
 }
 
-export function legacyCheckoutOffer(value: unknown): CheckoutOffer | null {
+export function purchasableCheckoutOffer(value: unknown): PurchasableCheckoutOffer | null {
+  if (value === "ai_credits_500"
+    || value === "pro_year"
+    || value === "storage_1gb_12m"
+    || value === "storage_5gb_12m") return value;
+  return null;
+}
+
+export function legacyCheckoutOffer(value: unknown): "pro_year" | null {
   if (value === undefined || value === "year") return "pro_year";
   return null;
 }

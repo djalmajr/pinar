@@ -514,24 +514,24 @@ const messages: UiMessages = {
   "pricing.retentionPolicy": "取消后提供宽限与恢复期",
   "pricing.activePlanViewers": "方案有效期间的 Web 查看器",
   "pricing.forPrs": "用于 PR",
-  "pricing.storage5": "5 GB 专属云存储",
+  "pricing.storage2": "2 GB 专属云存储",
   "pricing.proAiCredits": "首次订阅时提供 500 个 AI 点数",
   "pricing.searchHistory": "搜索全部云端历史记录",
   "pricing.originalPrice": "原价",
   "pricing.regionalBrazil": "巴西专享价格",
   "pricing.addOnsTitle": "按需增加容量",
   "pricing.addOnsDescription":
-    "套餐可叠加，并在购买 12 个月后到期。若到期后超出当前配额，系统会暂停新上传；现有内容不会被自动删除。",
+    "套餐在购买 12 个月后到期。若用量超过配额，系统会暂停上传；超额内容享有 30 天宽限期，并可在 90 天内恢复，之后才可被删除。",
   "pricing.buyAddOn": "购买附加包",
-  "pricing.aiCreditsTitle": "1,000 个 AI 点数",
+  "pricing.aiCreditsTitle": "500 个 AI 点数",
   "pricing.aiCreditsDescription":
     "用于语音转录的额外点数，购买后 12 个月内有效。",
+  "pricing.storage1Title": "+1 GB 存储",
+  "pricing.storage1Description":
+    "增加 1 GB 配额，有效期 12 个月。到期后请续购或减少用量以继续上传。",
   "pricing.storage5Title": "+5 GB 存储",
   "pricing.storage5Description":
     "增加 5 GB 配额，有效期 12 个月。到期后请续购或减少用量以继续上传。",
-  "pricing.storage20Title": "+20 GB 存储",
-  "pricing.storage20Description":
-    "增加 20 GB 配额，有效期 12 个月。到期后请续购或减少用量以继续上传。",
   "pricing.valid12Months": "有效期 12 个月",
   "pricing.supportTitle": "支持 Fair Source 开发",
   "pricing.supportDescription":

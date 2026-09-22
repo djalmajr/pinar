@@ -538,24 +538,24 @@ const messages: UiMessages = {
   "pricing.retentionPolicy": "解約後の猶予・復元期間あり",
   "pricing.activePlanViewers": "プラン有効期間中の Web ビューアー",
   "pricing.forPrs": "PR 向け",
-  "pricing.storage5": "5 GB 専用クラウドストレージ",
+  "pricing.storage2": "2 GB 専用クラウドストレージ",
   "pricing.proAiCredits": "初回購読時に 500 AI クレジット",
   "pricing.searchHistory": "クラウド履歴全体を検索",
   "pricing.originalPrice": "通常価格",
   "pricing.regionalBrazil": "ブラジル限定価格",
   "pricing.addOnsTitle": "必要なときに容量を追加",
   "pricing.addOnsDescription":
-    "パックは追加購入でき、購入から12か月後に期限切れになります。期限切れ後に上限を超える場合、新規アップロードは停止しますが、既存コンテンツは自動削除されません。",
+    "パックは購入から12か月後に期限切れになります。使用量が上限を超える場合はアップロードを停止し、超過分は30日の猶予と90日の復旧期間後に削除対象となります。",
   "pricing.buyAddOn": "追加パックを購入",
-  "pricing.aiCreditsTitle": "1,000 AI クレジット",
+  "pricing.aiCreditsTitle": "500 AI クレジット",
   "pricing.aiCreditsDescription":
     "音声文字起こし用の追加クレジットです。購入後 12 か月間有効です。",
+  "pricing.storage1Title": "+1 GB ストレージ",
+  "pricing.storage1Description":
+    "12 か月間 1 GB を追加します。その後は更新するか、使用量を減らしてください。",
   "pricing.storage5Title": "+5 GB ストレージ",
   "pricing.storage5Description":
     "12 か月間 5 GB を追加します。その後は更新するか、使用量を減らしてください。",
-  "pricing.storage20Title": "+20 GB ストレージ",
-  "pricing.storage20Description":
-    "12 か月間 20 GB を追加します。その後は更新するか、使用量を減らしてください。",
   "pricing.valid12Months": "12か月有効",
   "pricing.supportTitle": "Fair Source 開発を支援",
   "pricing.supportDescription":

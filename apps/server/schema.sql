@@ -107,7 +107,9 @@ END;
 CREATE TABLE storage_grants (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id),
-  source_type TEXT NOT NULL CHECK (source_type IN ('storage_5gb_12m', 'storage_20gb_12m')),
+  source_type TEXT NOT NULL CHECK (
+    source_type IN ('storage_1gb_12m', 'storage_5gb_12m', 'storage_20gb_12m')
+  ),
   source_id TEXT NOT NULL UNIQUE,
   byte_count INTEGER NOT NULL CHECK (byte_count > 0),
   starts_at TEXT NOT NULL,

@@ -6,9 +6,9 @@ export interface PublicPrice {
 }
 
 export interface PublicPricingPrices {
-  aiCredits1000: PublicPrice;
+  aiCredits500: PublicPrice;
   free: PublicPrice;
-  storage20Gb12M: PublicPrice;
+  storage1Gb12M: PublicPrice;
   storage5Gb12M: PublicPrice;
   year: PublicPrice;
 }
@@ -22,10 +22,10 @@ export interface PublicPricing {
 }
 
 export interface PricingConfig {
-  aiCredits1000BrlCents: number;
-  aiCredits1000UsdCents: number;
-  storage20Gb12MBrlCents: number;
-  storage20Gb12MUsdCents: number;
+  aiCredits500BrlCents: number;
+  aiCredits500UsdCents: number;
+  storage1Gb12MBrlCents: number;
+  storage1Gb12MUsdCents: number;
   storage5Gb12MBrlCents: number;
   storage5Gb12MUsdCents: number;
   yearlyBrlCents: number;
@@ -49,9 +49,9 @@ export function isPublicPricing(value: unknown): value is PublicPricing {
   return (value.country === null || typeof value.country === "string")
     && (value.currency === "BRL" || value.currency === "USD")
     && (value.discountPercent === null || Number.isInteger(value.discountPercent))
-    && isPublicPrice(value.prices.aiCredits1000)
+    && isPublicPrice(value.prices.aiCredits500)
     && isPublicPrice(value.prices.free)
-    && isPublicPrice(value.prices.storage20Gb12M)
+    && isPublicPrice(value.prices.storage1Gb12M)
     && isPublicPrice(value.prices.storage5Gb12M)
     && isPublicPrice(value.prices.year)
     && typeof value.regional === "boolean";
@@ -63,9 +63,9 @@ function publicPrice(amount: number): PublicPrice {
 
 function pricesForBrazil(config: PricingConfig): PublicPricingPrices {
   return {
-    aiCredits1000: publicPrice(config.aiCredits1000BrlCents),
+    aiCredits500: publicPrice(config.aiCredits500BrlCents),
     free: publicPrice(0),
-    storage20Gb12M: publicPrice(config.storage20Gb12MBrlCents),
+    storage1Gb12M: publicPrice(config.storage1Gb12MBrlCents),
     storage5Gb12M: publicPrice(config.storage5Gb12MBrlCents),
     year: publicPrice(config.yearlyBrlCents),
   };
@@ -73,9 +73,9 @@ function pricesForBrazil(config: PricingConfig): PublicPricingPrices {
 
 function pricesForGlobal(config: PricingConfig): PublicPricingPrices {
   return {
-    aiCredits1000: publicPrice(config.aiCredits1000UsdCents),
+    aiCredits500: publicPrice(config.aiCredits500UsdCents),
     free: publicPrice(0),
-    storage20Gb12M: publicPrice(config.storage20Gb12MUsdCents),
+    storage1Gb12M: publicPrice(config.storage1Gb12MUsdCents),
     storage5Gb12M: publicPrice(config.storage5Gb12MUsdCents),
     year: publicPrice(config.yearlyUsdCents),
   };

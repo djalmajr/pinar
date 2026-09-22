@@ -8,10 +8,10 @@ const BrazilPricing = {
   currency: "BRL",
   discountPercent: null,
   prices: {
-    aiCredits1000: { amount: 990, originalAmount: null },
+    aiCredits500: { amount: 990, originalAmount: null },
     free: { amount: 0, originalAmount: null },
-    storage20Gb12M: { amount: 2_990, originalAmount: null },
-    storage5Gb12M: { amount: 990, originalAmount: null },
+    storage5Gb12M: { amount: 2_990, originalAmount: null },
+    storage1Gb12M: { amount: 990, originalAmount: null },
     year: { amount: 3_990, originalAmount: null },
   },
   regional: true,
@@ -68,9 +68,9 @@ test("visitor compares the annual BRL plan and add-ons without opening checkout"
   await expect(page.getByRole("heading", { name: "Pro Monthly" })).toHaveCount(0);
   await expect(page.getByText("R$4.90", { exact: true })).toHaveCount(0);
 
-  await expect(page.getByRole("heading", { name: "1,000 AI credits" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "500 AI credits" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "+1 GB storage" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "+5 GB storage" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "+20 GB storage" })).toBeVisible();
   await expect(page.getByText("valid for 12 months", { exact: true })).toHaveCount(3);
 
   await (await primaryNavigationItem(page, "Home")).click();

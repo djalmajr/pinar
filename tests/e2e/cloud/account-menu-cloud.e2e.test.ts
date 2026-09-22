@@ -32,7 +32,7 @@ test("isolated Cloudflare runtime renders Pro entitlements and manages shared se
     aiCredits: { balance: 500, nextRefillAt: null },
     plan: "pro",
     storage: {
-      quotaBytes: 5 * 1024 ** 3,
+      quotaBytes: 2 * 1024 ** 3,
       usedBytes: 128 * 1024 ** 2,
     },
   });
@@ -44,7 +44,7 @@ test("isolated Cloudflare runtime renders Pro entitlements and manages shared se
   await expect(page.getByTestId("account-credits").getByText("500 available", { exact: true })).toBeVisible();
   await expect(page.getByTestId("account-credits").getByText(/Monthly refill on/)).toHaveCount(0);
   await expect(page.getByTestId("account-credits").getByText(/Some credits expire/)).toBeVisible();
-  await expect(page.getByTestId("account-storage").getByText("128 MB used of 5 GB", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("account-storage").getByText("128 MB used of 2 GB", { exact: true })).toBeVisible();
   await expect(page.getByTestId("account-usage").getByText("Pinar Pro", { exact: true })).toHaveCount(0);
   await expect(page.locator("header").getByRole("button", { exact: true, name: "Settings" })).toHaveCount(0);
   await expect(page.getByRole("menuitem", { exact: true, name: "Billing" })).toBeVisible();

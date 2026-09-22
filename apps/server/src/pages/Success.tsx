@@ -53,8 +53,10 @@ export function SuccessPage({ checkoutClaim, sessionId }: SuccessPageProps) {
   }, [checkoutClaim, sessionId]);
 
   const activation = state.status === "active" ? state.activation : null;
-  const isAddOn = activation?.offer === "ai_credits_1000"
+  const isAddOn = activation?.offer === "ai_credits_500"
+    || activation?.offer === "ai_credits_1000"
     || activation?.offer === "storage_20gb_12m"
+    || activation?.offer === "storage_1gb_12m"
     || activation?.offer === "storage_5gb_12m";
 
   return (

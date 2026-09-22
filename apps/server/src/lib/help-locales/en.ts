@@ -222,7 +222,7 @@ const locale = {
         "Privacy preferences add extra query keys to strip from captured URLs and keep loop metrics off until you opt in.",
     },
     "pricing-credits": {
-      alt: "Pinar pricing add-on card for 1,000 AI credits with purchase and twelve-month validity.",
+      alt: "Pinar pricing add-on card for 500 AI credits with purchase and twelve-month validity.",
       caption:
         "AI credits are sold as an add-on with a twelve-month validity window, separate from plan storage and billing cadence.",
     },
@@ -853,7 +853,7 @@ const locale = {
         {
           heading: "Plan shape",
           paragraphs: [
-            "Free includes permanent local use, 250 MB of cloud quota, and seven-day cloud retention. Pro is annual, with 5 GB and a one-time allocation of 500 AI credits on the account’s first subscription.",
+            "Free includes permanent local use, 250 MB of cloud quota, and seven-day cloud retention. Pro is annual, with 2 GB and a one-time allocation of 500 AI credits on the account’s first subscription.",
           ],
         },
         {
@@ -891,7 +891,7 @@ const locale = {
         {
           heading: "Balances",
           paragraphs: [
-            "The account’s first Pro subscription grants 500 credits once. Renewing, canceling and reactivating, or changing plans does not grant them again. Purchased Pinar Cloud packs add 1,000 credits and last up to 12 months.",
+            "The account’s first Pro subscription grants 500 credits once. Renewing, canceling and reactivating, or changing plans does not grant them again. Purchased Pinar Cloud packs add 500 credits and last up to 12 months.",
           ],
         },
         {
@@ -903,7 +903,7 @@ const locale = {
           bullets: [
             "If a transcription is already running, wait for it to finish instead of sending the same recording again.",
             "If a reservation expires or is refunded, record or send the voice comment again.",
-            "If the workspace shows zero credits, check the remaining balance before buying another 1,000-credit pack.",
+            "If the workspace shows zero credits, check the remaining balance before buying another 500-credit pack.",
           ],
         },
       ],
@@ -916,7 +916,7 @@ const locale = {
         {
           heading: "Quota and add-ons",
           paragraphs: [
-            "Free has 250 MB of base cloud storage; Pro has 5 GB. Optional 5 GB and 20 GB storage add-ons last 12 months, with reminder emails seven days and one day before expiry. If an add-on expires while usage is above the remaining quota, new uploads pause until you renew storage or reduce usage. Existing content is not automatically deleted because an add-on expired.",
+            "Free has 250 MB of base cloud storage; Pro has 2 GB. Optional 1 GB and 5 GB storage add-ons last 12 months, with reminder emails before expiry. If an add-on expires above the remaining quota, uploads pause; overage gets 30 days of grace and remains recoverable until day 90 before becoming eligible for deletion.",
           ],
         },
         {
@@ -933,7 +933,7 @@ const locale = {
             "Free cloud sessions that are not marked permanent become eligible for cleanup after seven days. Pro content above the Free quota follows the 30-day grace and 90-day recovery window after paid eligibility ends. Local-only history on this computer is never deleted remotely. Eligibility is not a promise of immediate removal.",
           ],
           bullets: [
-            "When new captures pause, free space by deleting sessions or replacing a heavy screenshot, or purchase a 5 GB or 20 GB twelve-month add-on.",
+            "When new captures pause, free space by deleting sessions or replacing a heavy screenshot, or purchase a 1 GB or 5 GB twelve-month add-on.",
             "If the account is in grace or recovery, export anything you still need before day 90; eligibility only marks overage, it does not itself delete.",
             "Do not expect uninstalling the desktop app to purge cloud objects, and do not expect the cloud to erase local history on this computer.",
           ],

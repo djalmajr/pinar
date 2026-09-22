@@ -12,21 +12,28 @@ import {
   isSubscriptionOffer,
   planForOffer,
   planIncludesAi,
+  purchasableCheckoutOffer,
   storageEntitlement,
 } from "./entitlements";
 
 describe("billing entitlements", () => {
   test("recognizes only catalog offers and keeps legacy plan checkout compatible", () => {
-    assert.equal(checkoutOffer("storage_5gb_12m"), "storage_5gb_12m");
+    assert.equal(checkoutOffer("storage_1gb_12m"), "storage_1gb_12m");
+    assert.equal(checkoutOffer("ai_credits_1000"), "ai_credits_1000");
+    assert.equal(checkoutOffer("storage_20gb_12m"), "storage_20gb_12m");
+    assert.equal(purchasableCheckoutOffer("ai_credits_500"), "ai_credits_500");
+    assert.equal(purchasableCheckoutOffer("storage_1gb_12m"), "storage_1gb_12m");
+    assert.equal(purchasableCheckoutOffer("ai_credits_1000"), null);
+    assert.equal(purchasableCheckoutOffer("storage_20gb_12m"), null);
     assert.equal(checkoutOffer("founder"), null);
     assert.equal(checkoutOffer("unknown"), null);
     assert.equal(legacyCheckoutOffer("year"), "pro_year");
     assert.equal(legacyCheckoutOffer("lifetime"), null);
     assert.equal(checkoutOffer("lifetime_founder"), null);
-    assert.equal(planForOffer("ai_credits_1000"), null);
+    assert.equal(planForOffer("ai_credits_500"), null);
     assert.equal(planForOffer("pro_year"), "pro");
     assert.equal(checkoutOffer("pro_month"), null);
-    assert.equal(isSubscriptionOffer("storage_5gb_12m"), false);
+    assert.equal(isSubscriptionOffer("storage_1gb_12m"), false);
   });
 
   test("clamps monthly credit periods at the end of shorter months", () => {

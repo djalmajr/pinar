@@ -21,7 +21,7 @@ describe("billing deployment configuration", () => {
   test("keeps only subscription and add-on prices in every environment", () => {
     for (const vars of [config.vars, config.env.staging.vars, config.env.production.vars]) {
       assert.equal(Object.keys(vars).some((key) => /FOUNDER|LIFETIME/.test(key)), false);
-      for (const suffix of ["YEARLY", "AI_CREDITS_1000", "STORAGE_5GB_12M", "STORAGE_20GB_12M"]) {
+      for (const suffix of ["YEARLY", "AI_CREDITS_500", "STORAGE_1GB_12M", "STORAGE_5GB_12M"]) {
         assert.match(vars[`STRIPE_PRICE_${suffix}`], /^price_/);
         assert.match(vars[`STRIPE_PRICE_BR_${suffix}`], /^price_/);
       }

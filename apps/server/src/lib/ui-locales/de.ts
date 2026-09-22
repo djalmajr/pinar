@@ -542,24 +542,24 @@ const messages: UiMessages = {
   "pricing.retentionPolicy": "Karenz und Wiederherstellung nach Kündigung",
   "pricing.activePlanViewers": "Web-Viewer während der aktiven Laufzeit",
   "pricing.forPrs": "für PRs",
-  "pricing.storage5": "5 GB dedizierter Cloud-Speicher",
+  "pricing.storage2": "2 GB dedizierter Cloud-Speicher",
   "pricing.proAiCredits": "500 KI-Guthaben beim ersten Abonnement",
   "pricing.searchHistory": "Suche im gesamten Cloud-Verlauf",
   "pricing.originalPrice": "Ursprünglicher Preis",
   "pricing.regionalBrazil": "Exklusivpreis für Brasilien",
   "pricing.addOnsTitle": "Kapazität bei Bedarf hinzufügen",
   "pricing.addOnsDescription":
-    "Pakete sind stapelbar und verfallen 12 Monate nach dem Kauf. Liegt die Nutzung danach über dem Kontingent, werden neue Uploads pausiert; bestehende Inhalte werden nicht automatisch gelöscht.",
+    "Pakete sind stapelbar und verfallen 12 Monate nach dem Kauf. Liegt die Nutzung über dem Kontingent, werden Uploads pausiert; der Überschuss hat 30 Tage Kulanz und bleibt 90 Tage wiederherstellbar, bevor er gelöscht werden darf.",
   "pricing.buyAddOn": "Zusatzpaket kaufen",
-  "pricing.aiCreditsTitle": "1.000 KI-Guthaben",
+  "pricing.aiCreditsTitle": "500 KI-Guthaben",
   "pricing.aiCreditsDescription":
     "Zusätzliches Guthaben für Sprachtranskription, 12 Monate nach dem Kauf gültig.",
+  "pricing.storage1Title": "+1 GB Speicher",
+  "pricing.storage1Description":
+    "Erhöht das Kontingent 12 Monate lang um 1 GB. Danach verlängern oder Nutzung reduzieren.",
   "pricing.storage5Title": "+5 GB Speicher",
   "pricing.storage5Description":
     "Erhöht das Kontingent 12 Monate lang um 5 GB. Danach verlängern oder Nutzung reduzieren.",
-  "pricing.storage20Title": "+20 GB Speicher",
-  "pricing.storage20Description":
-    "Erhöht das Kontingent 12 Monate lang um 20 GB. Danach verlängern oder Nutzung reduzieren.",
   "pricing.valid12Months": "12 Monate gültig",
   "pricing.supportTitle": "Fair-Source-Entwicklung unterstützen",
   "pricing.supportDescription":

@@ -224,7 +224,7 @@ const locale = {
         "As preferências de privacidade acrescentam chaves extras de query removidas das URLs capturadas e mantêm as métricas do ciclo desligadas até você optar.",
     },
     "pricing-credits": {
-      alt: "Cartão de adicional da página de preços do Pinar para 1.000 créditos de IA, com compra e validade de doze meses.",
+      alt: "Cartão de adicional da página de preços do Pinar para 500 créditos de IA, com compra e validade de doze meses.",
       caption:
         "Os créditos de IA são vendidos como adicional com validade de doze meses, separados do armazenamento do plano e da periodicidade de cobrança.",
     },
@@ -856,7 +856,7 @@ const locale = {
         {
           heading: "Formato dos planos",
           paragraphs: [
-            "Free inclui uso local permanente, 250 MB de cota na nuvem e retenção na nuvem por sete dias. Pro é anual, com 5 GB e uma concessão única de 500 créditos de IA na primeira assinatura da conta.",
+            "Free inclui uso local permanente, 250 MB de cota na nuvem e retenção na nuvem por sete dias. Pro é anual, com 2 GB e uma concessão única de 500 créditos de IA na primeira assinatura da conta.",
           ],
         },
         {
@@ -895,7 +895,7 @@ const locale = {
         {
           heading: "Saldos",
           paragraphs: [
-            "A primeira assinatura Pro da conta concede 500 créditos uma única vez. Renovar, cancelar e reativar ou trocar de plano não concede os créditos novamente. Pacotes comprados adicionam 1.000 créditos e duram até 12 meses.",
+            "A primeira assinatura Pro da conta concede 500 créditos uma única vez. Renovar, cancelar e reativar ou trocar de plano não concede os créditos novamente. Pacotes comprados adicionam 500 créditos e duram até 12 meses.",
           ],
         },
         {
@@ -907,7 +907,7 @@ const locale = {
           bullets: [
             "Se uma transcrição já estiver em andamento, espere terminar em vez de enviar a mesma gravação outra vez.",
             "Se uma reserva expirar ou for estornada, grave ou envie o comentário por voz novamente.",
-            "Se o workspace mostrar zero créditos, confira o saldo restante antes de comprar outro pacote de 1.000 créditos.",
+            "Se o workspace mostrar zero créditos, confira o saldo restante antes de comprar outro pacote de 500 créditos.",
           ],
         },
       ],
@@ -920,7 +920,7 @@ const locale = {
         {
           heading: "Cota e adicionais",
           paragraphs: [
-            "Free tem 250 MB de armazenamento base na nuvem; Pro tem 5 GB. Adicionais de 5 GB e 20 GB duram 12 meses, com avisos por e-mail sete dias e um dia antes da expiração. Se um adicional vencer enquanto o uso estiver acima da cota restante, novos uploads pausam até você renovar o armazenamento ou reduzir o uso. O conteúdo existente não é apagado automaticamente porque o adicional expirou.",
+            "Free tem 250 MB de armazenamento base na nuvem; Pro tem 2 GB. Adicionais de 1 GB e 5 GB duram 12 meses, com avisos por e-mail antes da expiração. Se um adicional vencer acima da cota restante, novos uploads pausam; o excedente tem 30 dias de carência e permanece recuperável até o dia 90 antes de ficar elegível para exclusão.",
           ],
         },
         {
@@ -936,7 +936,7 @@ const locale = {
             "Sessões Free na nuvem que não estão marcadas como permanentes ficam elegíveis para limpeza após sete dias. Conteúdo Pro acima da cota Free segue carência de 30 dias e recuperação de 90 dias após o fim da elegibilidade paga. Histórico só local neste computador nunca é apagado remotamente. Elegibilidade não é promessa de remoção imediata.",
           ],
           bullets: [
-            "Quando novas capturas pausarem, libere espaço excluindo sessões ou substituindo um screenshot pesado, ou compre um adicional de 5 GB ou 20 GB por doze meses.",
+            "Quando novas capturas pausarem, libere espaço excluindo sessões ou substituindo um screenshot pesado, ou compre um adicional de 1 GB ou 5 GB por doze meses.",
             "Se a conta estiver em carência ou recuperação, exporte o que ainda precisar antes do dia 90; a elegibilidade só marca o excedente, não apaga por si só.",
             "Não espere que desinstalar o app de desktop apague objetos na nuvem, nem que a nuvem apague o histórico local neste computador.",
           ],

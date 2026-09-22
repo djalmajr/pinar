@@ -65,7 +65,7 @@ describe("public legal documents", () => {
   it("describes Pro benefits without offering a one-time plan", () => {
     const terms = legalDocument("terms", "en").body;
     const fairSource = legalDocument("fair-source", "en").body;
-    assert.match(terms, /5 GB/);
+    assert.match(terms, /2 GB/);
     assert.match(terms, /one-time allocation of 500 AI credits/);
     assert.doesNotMatch(terms, /Founder|Lifetime|500 bonus AI credits/);
     assert.match(fairSource, /active subscription/);

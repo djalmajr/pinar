@@ -20,6 +20,16 @@ const locale = {
     whatChanged: "変更内容",
   },
   releases: {
+    "v0.4.3": {
+      title: "バージョンから場所の表示を外す",
+      summary: "設定にはバージョン番号だけを表示します。クラウドかこのコンピュータかは、アドレスを見れば分かります。",
+      changes: {
+        "version-without-runtime-badge": {
+          title: "バージョン横のクラウド表示を削除",
+          description: "バージョンの横にクラウドやローカルを繰り返さなくなりました。どちらかはサイトのアドレスが示しています。",
+        },
+      },
+    },
     "v0.4.2": {
       title: "拡張機能はサインインしたまま",
       summary:

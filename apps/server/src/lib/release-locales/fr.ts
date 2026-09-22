@@ -22,6 +22,16 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.4.3": {
+      title: "Version sans l’étiquette de lieu",
+      summary: "Les réglages n’affichent que le numéro de version. L’adresse indique déjà si vous êtes sur le cloud ou sur cet ordinateur.",
+      changes: {
+        "version-without-runtime-badge": {
+          title: "L’étiquette Cloud à côté de la version disparaît",
+          description: "À propos ne répète plus Cloud ou Local à côté de la version. L’adresse du site indique déjà lequel des deux est utilisé.",
+        },
+      },
+    },
     "v0.4.2": {
       title: "L’extension reste connectée",
       summary:

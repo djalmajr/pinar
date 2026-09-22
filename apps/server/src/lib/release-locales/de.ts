@@ -22,6 +22,16 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.4.3": {
+      title: "Version ohne Ortskennzeichnung",
+      summary: "Die Einstellungen zeigen nur die Versionsnummer. Die Adresse sagt bereits, ob du in der Cloud oder auf diesem Computer bist.",
+      changes: {
+        "version-without-runtime-badge": {
+          title: "Die Cloud-Kennzeichnung neben der Version entfällt",
+          description: "Über wiederholt Cloud oder Lokal nicht mehr neben der Version. Die Adresse der Website zeigt bereits, welche von beiden genutzt wird.",
+        },
+      },
+    },
     "v0.4.2": {
       title: "Die Erweiterung bleibt angemeldet",
       summary:

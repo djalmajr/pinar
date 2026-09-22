@@ -22,6 +22,16 @@ const locale = {
     whatChanged: "O que mudou",
   },
   releases: {
+    "v0.4.3": {
+      title: "Versão sem o rótulo de lugar",
+      summary: "Configurações mostra só o número da versão. O endereço já diz se você está na nuvem ou neste computador.",
+      changes: {
+        "version-without-runtime-badge": {
+          title: "O rótulo Nuvem ao lado da versão saiu",
+          description: "A seção Sobre não repete mais Nuvem ou Local ao lado da versão. O endereço do site já mostra qual dos dois está em uso.",
+        },
+      },
+    },
     "v0.4.2": {
       title: "A extensão permanece conectada",
       summary:

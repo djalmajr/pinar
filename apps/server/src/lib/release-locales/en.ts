@@ -20,6 +20,16 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.4.3": {
+      title: "Version without a place label",
+      summary: "Settings shows the version number only. The address already says whether you are on the cloud or on this computer.",
+      changes: {
+        "version-without-runtime-badge": {
+          title: "The Cloud label next to the version is gone",
+          description: "About no longer repeats Cloud or Local beside the version. The site address already shows which one you are using.",
+        },
+      },
+    },
     "v0.4.2": {
       title: "The extension stays signed in",
       summary:

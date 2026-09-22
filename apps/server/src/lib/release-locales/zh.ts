@@ -20,6 +20,16 @@ const locale = {
     whatChanged: "更新内容",
   },
   releases: {
+    "v0.4.3": {
+      title: "版本旁不再显示位置标签",
+      summary: "设置里只显示版本号。网址本身已经说明你是在云端还是在这台电脑上。",
+      changes: {
+        "version-without-runtime-badge": {
+          title: "版本旁边的云端标签已去掉",
+          description: "关于页面不再在版本号旁边重复云端或本地。网站地址已经表明当前使用的是哪一种。",
+        },
+      },
+    },
     "v0.4.2": {
       title: "扩展保持登录",
       summary: "当浏览器里同时有 Pinar 网站会话时，扩展不再显示 Unauthorized。",

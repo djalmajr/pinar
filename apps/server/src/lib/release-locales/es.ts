@@ -21,6 +21,16 @@ const locale = {
     whatChanged: "Qué cambió",
   },
   releases: {
+    "v0.4.3": {
+      title: "Versión sin la etiqueta de lugar",
+      summary: "Configuración muestra solo el número de versión. La dirección ya indica si estás en la nube o en este equipo.",
+      changes: {
+        "version-without-runtime-badge": {
+          title: "La etiqueta Nube junto a la versión desaparece",
+          description: "Acerca de ya no repite Nube o Local junto a la versión. La dirección del sitio ya muestra cuál de los dos estás usando.",
+        },
+      },
+    },
     "v0.4.2": {
       title: "La extensión sigue conectada",
       summary:

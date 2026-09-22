@@ -783,12 +783,7 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
                 <div className="flex flex-col gap-5">
                   <SectionHeading>{t("settings.versionHeading")}</SectionHeading>
                   <SettingRow controlClassName="w-52" title={t("settings.productName")}>
-                    <div className="flex flex-wrap items-center justify-end gap-2">
-                      <span className="text-sm tabular-nums">{SERVER_VERSION_LABEL}</span>
-                      <Badge variant="secondary">
-                        {runtime === "local" ? t("settings.runtimeLocal") : t("settings.runtimeCloud")}
-                      </Badge>
-                    </div>
+                    <span className="text-sm tabular-nums">{SERVER_VERSION_LABEL}</span>
                   </SettingRow>
                 </div>
                 <div className="flex flex-col gap-5">

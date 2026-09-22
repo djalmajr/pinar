@@ -105,6 +105,12 @@
     preferredVoiceMimeType,
     voiceSignalLevel,
   } = globalThis.__pinarVoice;
+  const fitFloatingPosition = globalThis.__pinarFitFloating ?? (({ anchor }) => ({
+    left: anchor.left,
+    maxHeight: null,
+    tooltipBelow: false,
+    top: anchor.top,
+  }));
 
   const initialVisible = globalThis.__pinarInitialVisible !== false;
   delete globalThis.__pinarInitialVisible;
@@ -184,7 +190,7 @@
     overlay_voice_local_only: "Voice comments are available with Pinar Cloud on Pro.",
     overlay_voice_checking: "Checking voice availability…",
     overlay_voice_sign_in_required: "Sign in to Pinar Cloud to use voice comments.",
-    overlay_voice_pro_required: "Voice comments are included with Pinar Pro. Upgrade to enable them.",
+    overlay_voice_pro_required: "Voice comments are available only to Pinar Pro subscribers.",
     overlay_voice_unavailable: "Voice availability could not be checked. Try again.",
     overlay_voice_permission: "Allow microphone access to dictate a comment",
     overlay_voice_failed: "The voice comment could not be processed",
@@ -568,13 +574,14 @@
         border: 1px solid rgba(15,23,42,.14);
         border-radius: 8px;
         box-shadow: 0 12px 32px rgba(15,23,42,.16);
+        box-sizing: border-box;
         display: flex;
         flex-direction: column;
         gap: 10px;
-        min-width: 300px;
+        min-width: min(300px, calc(100vw - 16px));
         padding: 10px 10px 8px;
         position: relative;
-        width: 340px;
+        width: min(340px, calc(100vw - 16px));
       }
       .composer-target {
         align-items: center;
@@ -643,6 +650,10 @@
         transform: translateY(0);
         visibility: visible;
       }
+      .composer.tooltip-below .voice-tooltip {
+        bottom: auto;
+        top: calc(100% + 8px);
+      }
       .voice-session {
         align-items: center;
         background: #F8FAFC;
@@ -700,10 +711,13 @@
       .voice-wave-track { align-items: center; display: flex; gap: 2px; height: 24px; justify-content: flex-end; min-width: 100%; }
       .voice-wave i { background: ${MARK}; border-radius: 2px; display: block; flex: 1 1 2px; height: var(--voice-bar-height, 3px); max-width: 3px; min-width: 2px; opacity: var(--voice-bar-opacity, .25); transform-origin: center; transition: height 80ms linear, opacity 80ms linear; }
       .voice-session.is-processing .voice-wave i { animation: pinar-voice-processing-wave 900ms ease-in-out infinite alternate; animation-delay: calc(var(--voice-bar-index, 0) * -28ms); }
-      @keyframes pinar-voice-processing-wave { from { opacity: .25; } to { opacity: .85; } }
+      @keyframes pinar-voice-processing-wave {
+        from { opacity: .35; transform: scaleY(.45); }
+        to { opacity: .9; transform: scaleY(1); }
+      }
       @media (prefers-reduced-motion: reduce) {
         .voice-wave i { transition: none; }
-        .voice-session.is-processing .voice-wave i { animation: none; opacity: .6; }
+        .voice-session.is-processing .voice-wave i { animation: none; opacity: .6; transform: none; }
       }
       .voice-review {
         background: #F8FAFC;
@@ -2057,12 +2071,24 @@
     };
   }
 
-  function pinAnchor(pin) {
+  function floatingAnchor(pin) {
     const point = pinPoint(viewportPin(pin));
-    return {
-      left: Math.min(window.innerWidth - 340, Math.max(8, point.x + 28)),
-      top: Math.min(window.innerHeight - 180, Math.max(56, point.y - 8)),
-    };
+    return { left: point.x + 28, top: Math.max(8, point.y - 8) };
+  }
+
+  function placeInViewport(element, pin) {
+    const anchor = floatingAnchor(pin);
+    element.style.left = `${anchor.left}px`;
+    element.style.top = `${anchor.top}px`;
+    const rect = element.getBoundingClientRect();
+    const fitted = fitFloatingPosition({
+      anchor,
+      size: { height: rect.height, width: rect.width },
+      viewport: { height: window.innerHeight, width: window.innerWidth },
+    });
+    element.style.left = `${fitted.left}px`;
+    element.style.top = `${fitted.top}px`;
+    return fitted;
   }
 
   function placePreview() {
@@ -2073,7 +2099,6 @@
       return;
     }
     const index = state.pins.indexOf(pin);
-    const pos = pinAnchor(pin);
     ui.previewN.textContent = String(pin.number || index + 1);
     ui.previewN.style.background = pin.color || pinColor(index + 1);
     ui.previewText.textContent = pin.comment.replaceAll("\n", " ");
@@ -2082,23 +2107,33 @@
     if (visible.location?.confidence) bits.push(visible.location.confidence);
     if (isPendingLocation(visible.location)) bits.push("Needs review");
     if (bits.length) ui.previewText.textContent = `${ui.previewText.textContent} · ${bits.join(" · ")}`;
-    ui.preview.style.left = `${pos.left}px`;
-    ui.preview.style.top = `${pos.top}px`;
     ui.preview.hidden = false;
     ui.preview.classList.add("is-open");
+    placeInViewport(ui.preview, pin);
   }
 
   function placeComposer() {
     if (!state.draft) {
       ui.composer.hidden = true;
-      ui.composer.classList.remove("is-open");
+      ui.composer.classList.remove("is-open", "tooltip-below");
+      ui.input.style.maxHeight = "";
+      ui.input.style.overflowY = "";
       return;
     }
-    const pos = pinAnchor(state.draft);
-    ui.composer.style.left = `${pos.left}px`;
-    ui.composer.style.top = `${pos.top}px`;
+    ui.input.style.maxHeight = "";
+    ui.input.style.overflowY = "";
     ui.composer.hidden = false;
     ui.composer.classList.add("is-open");
+    let fitted = placeInViewport(ui.composer, state.draft);
+    if (fitted.maxHeight) {
+      const inputRect = ui.input.getBoundingClientRect();
+      const composerRect = ui.composer.getBoundingClientRect();
+      const chrome = Math.max(0, composerRect.height - inputRect.height);
+      ui.input.style.maxHeight = `${Math.max(48, fitted.maxHeight - chrome)}px`;
+      ui.input.style.overflowY = "auto";
+      fitted = placeInViewport(ui.composer, state.draft);
+    }
+    ui.composer.classList.toggle("tooltip-below", fitted.tooltipBelow);
   }
 
   let composerFocusRetryTimer = 0;
@@ -2340,6 +2375,12 @@
         page: pageContext(),
         pins: [{ comment: transcript }],
       }).pins[0]?.comment || "";
+      if (voiceTranscriptComment) {
+        await chrome.runtime.sendMessage({
+          text: voiceTranscriptComment,
+          type: "voice:copy-transcript",
+        }).catch(() => null);
+      }
       ui.voiceReview.hidden = transcript === structured;
       const insertion = insertVoiceComment(
         ui.input.value,
@@ -3135,6 +3176,7 @@
   function fitInput() {
     ui.input.style.height = "0";
     ui.input.style.height = `${Math.max(24, ui.input.scrollHeight)}px`;
+    placeComposer();
   }
 
   ui.input.addEventListener("input", fitInput);

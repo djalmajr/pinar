@@ -21,7 +21,6 @@ const {
 } = context.__pinarVoice;
 
 describe("voice pin recording helpers", () => {
-  // Mutation captured: treating an installation session as an account exposes a paid feature before sign-in.
   test("explains every voice entitlement state", () => {
     assert.deepEqual(resolveVoiceAvailability("local", { kind: "account", plan: "pro" }), {
       available: false,
@@ -29,7 +28,7 @@ describe("voice pin recording helpers", () => {
     });
     assert.deepEqual(resolveVoiceAvailability("cloud", { kind: "installation", plan: "free" }), {
       available: false,
-      reason: "sign_in_required",
+      reason: "pro_required",
     });
     assert.deepEqual(resolveVoiceAvailability("cloud", { kind: "account", plan: "free" }), {
       available: false,
@@ -100,6 +99,8 @@ describe("voice pin recording helpers", () => {
     assert.ok(sessionSource.indexOf('"voice.js"') < sessionSource.indexOf('"content.js"'));
     assert.match(contentSource, /navigator\.mediaDevices\.getUserMedia\(\{ audio: true \}\)/);
     assert.match(contentSource, /type: "voice:transcribe"/);
+    assert.match(contentSource, /type: "voice:copy-transcript"/);
+    assert.match(contentSource, /voice:copy-transcript"[\s\S]*?\.catch\(\(\) => null\)/);
     assert.match(contentSource, /sanitizeCapture\(\{[\s\S]*pins: \[\{ comment: structured \}\]/);
     assert.match(contentSource, /pins: \[\{ comment: transcript \}\]/);
     assert.match(contentSource, /voiceUseTranscript\.addEventListener/);
@@ -123,6 +124,7 @@ describe("voice pin recording helpers", () => {
     assert.match(backgroundSource, /voicePostProcessing: false/);
     assert.match(backgroundSource, /voicePostProcessing: preferences\.voicePostProcessing/);
     assert.match(backgroundSource, /"\/api\/ai\/voice-pin"/);
+    assert.match(backgroundSource, /message\.type === "voice:copy-transcript"[\s\S]*?writeClipboardPlain\(transcript\)/);
     assert.doesNotMatch(backgroundSource, /chrome\.storage\.[a-z]+\.set\([^)]*audioDataUrl/);
   });
 

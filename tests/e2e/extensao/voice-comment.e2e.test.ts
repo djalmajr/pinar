@@ -31,7 +31,7 @@ async function installVoiceHarness(
   }));
   await page.goto("/voice-comment-fixture");
   await page.evaluate((availability) => {
-    const runtimeState = { messages: [] as any[], pins: [] as any[] };
+    const runtimeState = { clipboard: "", messages: [] as any[], pins: [] as any[] };
     (globalThis as any).__pinarRuntimeState = runtimeState;
     (globalThis as any).chrome = {
       runtime: {
@@ -48,6 +48,10 @@ async function installVoiceHarness(
                 transcript: "Align the button",
               },
             };
+          }
+          if (message.type === "voice:copy-transcript") {
+            runtimeState.clipboard = message.text;
+            return { ok: true };
           }
           if (message.type === "pins:sync") {
             runtimeState.pins = structuredClone(message.pins);
@@ -197,8 +201,14 @@ test("voice timeline supports review, direct send and cancellation without redun
   // Mutation captured: fully rounded controls ignore the extension's established six-pixel button radius.
   expect(geometry.cancelRadius).toBe("6px");
   expect(geometry.sendRadius).toBe("6px");
-  expect(geometry.actionSizes).toEqual([[32, 32], [32, 32], [32, 32]]);
-  expect(geometry.iconSizes).toEqual([[17, 17], [17, 17], [17, 17]]);
+  for (const size of geometry.actionSizes) {
+    expect(size?.[0]).toBeCloseTo(32, 2);
+    expect(size?.[1]).toBeCloseTo(32, 2);
+  }
+  for (const size of geometry.iconSizes) {
+    expect(size?.[0]).toBeCloseTo(17, 2);
+    expect(size?.[1]).toBeCloseTo(17, 2);
+  }
   expect(geometry.stopGlyphSize?.[0]).toBeGreaterThan(10);
   expect(geometry.stopGlyphSize?.[1]).toBeGreaterThan(10);
   expect(geometry.stopPadding).toBe("0px");
@@ -227,17 +237,32 @@ test("voice timeline supports review, direct send and cancellation without redun
   await composer.getByRole("button", { name: "Stop recording" }).click();
   await expect(session).toHaveClass(/is-processing/);
   await expect(composer.getByText("Transcribing and organizing…")).toHaveCount(0);
-  // Mutation captured: scaling the processing bars makes the waveform visibly shorter than the recording timeline.
-  const processingBarHeight = await composer.locator("[data-ref=voiceWaveTrack] i").evaluateAll((bars) => {
-    for (const bar of bars) {
-      for (const animation of bar.getAnimations()) {
-        animation.pause();
-        animation.currentTime = 0;
-      }
-    }
-    return Math.max(...bars.map((bar) => bar.getBoundingClientRect().height));
+  // Mutation captured: opacity-only processing leaves the waveform shape visibly frozen.
+  const processingWave = await composer.locator("[data-ref=voiceWaveTrack]").evaluate((track) => {
+    const bars = [...track.children] as HTMLElement[];
+    const tallest = bars.reduce((current, bar) => (
+      Number.parseFloat(getComputedStyle(bar).height) > Number.parseFloat(getComputedStyle(current).height) ? bar : current
+    ));
+    const processingAnimation = (bar: HTMLElement) => bar.getAnimations().find((candidate) => (
+      (candidate.effect as KeyframeEffect).getKeyframes().some((frame) => String(frame.transform).includes("scaleY"))
+    ));
+    const animation = processingAnimation(tallest);
+    if (!animation) return null;
+    const effect = animation.effect as KeyframeEffect;
+    const transforms = effect.getKeyframes().map((frame) => frame.transform);
+    return {
+      animationCount: bars.filter((bar) => Boolean(processingAnimation(bar))).length,
+      baseHeight: Number.parseFloat(getComputedStyle(tallest).height),
+      duration: effect.getTiming().duration,
+      transforms,
+    };
   });
-  expect(processingBarHeight).toBeCloseTo(recordingBarHeight, 1);
+  expect(processingWave).not.toBeNull();
+  expect(processingWave?.animationCount).toBe(48);
+  expect(processingWave?.baseHeight).toBeCloseTo(recordingBarHeight, 1);
+  expect(processingWave?.duration).toBe(900);
+  expect(processingWave?.transforms).toContain("scaleY(0.45)");
+  expect(processingWave?.transforms).toContain("scaleY(1)");
   const processingComposerBox = await composer.locator(".composer-card").boundingBox();
   expect(processingComposerBox).not.toBeNull();
   if (!processingComposerBox) throw new Error("Composer geometry is unavailable while processing");
@@ -245,6 +270,7 @@ test("voice timeline supports review, direct send and cancellation without redun
     expect(processingComposerBox[axis]).toBeCloseTo(idleComposerBox[axis], 1);
   }
   await expect(input).toHaveValue("Start Align the button end");
+  await expect.poll(() => page.evaluate(() => (globalThis as any).__pinarRuntimeState.clipboard)).toBe("Align the button");
   await expect(session).toBeHidden();
   await expect(actions).toBeVisible();
   await expect(composer.getByText("Voice comment ready to review")).toHaveCount(0);

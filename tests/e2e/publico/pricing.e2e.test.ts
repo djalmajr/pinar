@@ -138,6 +138,7 @@ test("paid checkout sends current consent on the first click", async ({ page }) 
   await expect(legalNote.getByRole("link", { name: "Terms of Service", exact: true }))
     .toHaveAttribute("href", "/legal/terms");
   await expect(legalNote.getByText("Version 2026-09-22.")).toBeVisible();
+  await expect(legalNote.getByText("Version 2026-09-22.")).toHaveCSS("display", "inline");
   const freeFooter = page.getByRole("link", { exact: true, name: "Use Free" })
     .locator("xpath=ancestor::*[@data-slot='card-footer']");
   await expect(freeFooter.getByText("By continuing, you accept the")).toHaveCount(0);

@@ -372,7 +372,7 @@ export function PricingPage() {
           className="pt-4"
           beforeSupport={(
             <div className="mx-auto mb-4 flex w-full max-w-5xl flex-col gap-1 px-1">
-              <LegalActionNotice id="pricing-legal-note" marker="1, 2" />
+              <LegalActionNotice id="pricing-legal-note" inlineVersion marker="1, 2" />
               <p className="text-xs leading-5 text-muted-foreground" id="pricing-addons-validity">
                 <sup aria-hidden="true">2</sup> {t("pricing.valid12Months")}.
               </p>

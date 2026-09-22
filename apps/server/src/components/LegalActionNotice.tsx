@@ -21,10 +21,11 @@ export function currentLegalAcceptance(locale: "en" | "pt"): CurrentLegalAccepta
 
 interface LegalActionNoticeProps {
   id?: string;
+  inlineVersion?: boolean;
   marker?: string;
 }
 
-export function LegalActionNotice({ id, marker }: LegalActionNoticeProps = {}) {
+export function LegalActionNotice({ id, inlineVersion = false, marker }: LegalActionNoticeProps = {}) {
   const { t } = useServerI18n();
   return (
     <p className="text-xs leading-5 text-muted-foreground" id={id}>
@@ -58,7 +59,7 @@ export function LegalActionNotice({ id, marker }: LegalActionNoticeProps = {}) {
         {t("pricing.legalAcceptableUse")}
       </a>
       .
-      <span className="mt-1 block">
+      <span className={inlineVersion ? "ml-1 inline" : "mt-1 block"}>
         {t("pricing.legalNoticeVersion", { version: CURRENT_LEGAL_VERSION })}
       </span>
     </p>

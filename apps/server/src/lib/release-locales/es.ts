@@ -21,6 +21,16 @@ const locale = {
     whatChanged: "Qué cambió",
   },
   releases: {
+    "v0.4.6": {
+      title: "Acceso por correo y Pro más claros",
+      summary: "La verificación por correo tiene un aviso legal más sencillo. Las cuentas con Pro concedido reciben las cuotas normales del plan.",
+      changes: {
+        "sign-in-and-complimentary-pro": {
+          title: "Verificación por correo y ventajas Pro",
+          description: "La pantalla de acceso deja de mostrar la versión de los documentos legales y presenta la acción para cambiar de correo con borde. Las cuentas con Pro de cortesía reciben el almacenamiento y los créditos de IA normales del plan.",
+        },
+      },
+    },
     "v0.4.5": {
       title: "Pie de página y menú de cuenta más claros",
       summary: "El pie de la página de inicio sigue al contenido. El menú de cuenta muestra acciones de planes y facturación solo cuando están disponibles.",

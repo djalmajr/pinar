@@ -20,6 +20,16 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.4.6": {
+      title: "Clearer sign-in and Pro access",
+      summary: "Email verification has a simpler legal notice. Accounts granted Pro receive their standard plan limits.",
+      changes: {
+        "sign-in-and-complimentary-pro": {
+          title: "Email verification and Pro entitlements",
+          description: "The sign-in notice omits the legal document version, and the email change action is outlined. Complimentary Pro accounts receive the standard Pro storage and AI credit quotas.",
+        },
+      },
+    },
     "v0.4.5": {
       title: "Clearer footer and account menu",
       summary: "The home page footer follows its content. The account menu shows plan and billing actions only when they are available.",

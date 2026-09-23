@@ -59,6 +59,11 @@ export interface ReleaseContent {
 
 export const releaseDefinitions = [
   {
+    tag: "v0.4.6",
+    date: "2026-09-23",
+    changes: ["sign-in-and-complimentary-pro"],
+  },
+  {
     tag: "v0.4.5",
     date: "2026-09-23",
     changes: ["landing-footer-and-account-menu"],

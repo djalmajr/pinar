@@ -22,6 +22,16 @@ const locale = {
     whatChanged: "O que mudou",
   },
   releases: {
+    "v0.4.6": {
+      title: "Acesso por e-mail e Pro mais claros",
+      summary: "A confirmação por e-mail tem um aviso legal mais simples. Contas com Pro concedido recebem as cotas normais do plano.",
+      changes: {
+        "sign-in-and-complimentary-pro": {
+          title: "Confirmação por e-mail e benefícios Pro",
+          description: "A tela de login deixa de exibir a versão dos documentos legais e mostra a ação de trocar e-mail com contorno. Contas com Pro cortesia recebem o armazenamento e os créditos de IA normais do plano.",
+        },
+      },
+    },
     "v0.4.5": {
       title: "Rodapé e menu da conta mais claros",
       summary: "O rodapé da página inicial acompanha o conteúdo. O menu da conta mostra ações de planos e cobrança somente quando elas estão disponíveis.",

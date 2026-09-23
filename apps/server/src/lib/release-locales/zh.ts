@@ -20,6 +20,16 @@ const locale = {
     whatChanged: "更新内容",
   },
   releases: {
+    "v0.4.6": {
+      title: "优化邮箱登录和 Pro 权益",
+      summary: "邮箱验证页面的法律提示更加简洁。获赠 Pro 的账户可使用标准套餐额度。",
+      changes: {
+        "sign-in-and-complimentary-pro": {
+          title: "邮箱验证和 Pro 权益",
+          description: "登录页面不再显示法律文件版本，切换邮箱按钮改为描边样式。获赠 Pro 的账户可使用标准的 Pro 存储空间和 AI 点数。",
+        },
+      },
+    },
     "v0.4.5": {
       title: "更清晰的页脚和账户菜单",
       summary: "首页页脚现在紧跟内容。账户菜单只显示可用的套餐和账单操作。",

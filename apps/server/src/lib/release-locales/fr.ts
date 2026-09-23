@@ -22,6 +22,16 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.4.6": {
+      title: "Connexion par e-mail et accès Pro clarifiés",
+      summary: "La vérification par e-mail présente un avis juridique plus simple. Les comptes bénéficiant de Pro disposent des quotas normaux du forfait.",
+      changes: {
+        "sign-in-and-complimentary-pro": {
+          title: "Vérification par e-mail et avantages Pro",
+          description: "L’écran de connexion n’affiche plus la version des documents juridiques et présente l’action de changement d’e-mail avec un contour. Les comptes Pro offerts disposent du stockage et des crédits IA normaux du forfait.",
+        },
+      },
+    },
     "v0.4.5": {
       title: "Pied de page et menu du compte plus clairs",
       summary: "Le pied de la page d’accueil suit son contenu. Le menu du compte affiche les actions de forfait et de facturation uniquement lorsqu’elles sont disponibles.",

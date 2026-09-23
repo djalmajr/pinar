@@ -22,6 +22,16 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.4.6": {
+      title: "Klarere E-Mail-Anmeldung und Pro-Zugang",
+      summary: "Die E-Mail-Bestätigung zeigt einen einfacheren Rechtshinweis. Konten mit gewährtem Pro erhalten die regulären Tariflimits.",
+      changes: {
+        "sign-in-and-complimentary-pro": {
+          title: "E-Mail-Bestätigung und Pro-Leistungen",
+          description: "Die Anmeldung zeigt keine Versionsnummer der Rechtstexte mehr und stellt die Aktion zum E-Mail-Wechsel mit Umrandung dar. Kostenlose Pro-Konten erhalten den regulären Pro-Speicher und die üblichen KI-Guthaben.",
+        },
+      },
+    },
     "v0.4.5": {
       title: "Übersichtlicher Fußbereich und Kontomenü",
       summary: "Der Fußbereich der Startseite folgt direkt auf den Inhalt. Das Kontomenü zeigt Plan- und Abrechnungsaktionen nur, wenn sie verfügbar sind.",

@@ -125,6 +125,7 @@ export interface CloudEnv {
   ADMIN_API_KEY?: string;
   AI?: Ai;
   AUTH_PEPPER?: string;
+  COMPLIMENTARY_PRO_USER_IDS?: string;
   DB?: D1Database;
   DEPLOYMENT_ENV?: "local" | "production" | "staging";
   EMAIL?: SendEmail;
@@ -193,6 +194,7 @@ interface InstallationRecord {
 interface AccountRecord {
   aiCreditRefillAt: string;
   billingStatus: StripeSubscriptionStatus;
+  complimentaryPro: boolean;
   email: string;
   everPaid: boolean;
   id: string;
@@ -739,15 +741,27 @@ function accountPlan(value: unknown): AccountPlan {
   return value === "pro" ? "pro" : "free";
 }
 
-function accountFromRow(row: Record<string, unknown>): AccountRecord {
+function complimentaryProUser(env: CloudEnv, userId: string) {
+  return env.COMPLIMENTARY_PRO_USER_IDS?.split(",")
+    .some((entry) => entry.trim() === userId) || false;
+}
+
+function effectiveAccountPlan(account: AccountRecord): AccountPlan {
+  return account.complimentaryPro ? "pro" : account.plan;
+}
+
+function accountFromRow(row: Record<string, unknown>, env: CloudEnv): AccountRecord {
+  const email = String(row.email || "");
+  const id = String(row.id || "");
   return {
     aiCreditRefillAt: String(row.ai_credit_refill_at || ""),
     billingStatus: row.billing_status === "canceled" || row.billing_status === "past_due"
       ? row.billing_status
       : "active",
-    email: String(row.email || ""),
+    complimentaryPro: complimentaryProUser(env, id),
+    email,
     everPaid: Number(row.ever_paid) === 1,
-    id: String(row.id || ""),
+    id,
     paidEligibilityEndedAt: String(row.paid_eligibility_ended_at || ""),
     plan: accountPlan(row.plan),
     stripeCustomerId: String(row.stripe_customer_id || ""),
@@ -785,19 +799,21 @@ function legalAcceptanceFromRow(row: Record<string, unknown> | null): LegalAccep
 
 function accountAuthSession(account: AccountRecord): AccountAuthSession {
   return {
+    billingAvailable: Boolean(account.stripeCustomerId),
     email: account.email,
     kind: "account",
-    plan: account.plan,
+    plan: effectiveAccountPlan(account),
     userId: account.id,
   };
 }
 
 function principalForAccount(account: AccountRecord): Principal {
+  const plan = effectiveAccountPlan(account);
   return {
     id: account.id,
-    isPermanent: account.plan === "pro",
+    isPermanent: plan === "pro",
     kind: "account",
-    plan: account.plan,
+    plan,
   };
 }
 
@@ -859,30 +875,36 @@ function webSessionCookie(token: string, maxAge: number) {
 async function findAccountById(env: CloudEnv, id: string) {
   if (env.DB) {
     const row = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(id).first();
-    return row ? accountFromRow(row) : null;
+    return row ? accountFromRow(row, env) : null;
   }
-  return memoryAccounts.get(id) || null;
+  const account = memoryAccounts.get(id);
+  if (account) account.complimentaryPro = complimentaryProUser(env, account.id);
+  return account || null;
 }
 
 async function findAccountByEmail(env: CloudEnv, email: string) {
   if (env.DB) {
     const row = await env.DB.prepare("SELECT * FROM users WHERE email = ? COLLATE NOCASE")
       .bind(email).first();
-    return row ? accountFromRow(row) : null;
+    return row ? accountFromRow(row, env) : null;
   }
-  return Array.from(memoryAccounts.values()).find((account) => account.email === email) || null;
+  const account = Array.from(memoryAccounts.values()).find((entry) => entry.email === email);
+  if (account) account.complimentaryPro = complimentaryProUser(env, account.id);
+  return account || null;
 }
 
 async function createFreeAccount(env: CloudEnv, email: string) {
   const existing = await findAccountByEmail(env, email);
   if (existing) return existing;
   const now = currentDate().toISOString();
+  const userId = "usr_" + generateNanoId(24);
   const account: AccountRecord = {
     aiCreditRefillAt: "",
     billingStatus: "active",
+    complimentaryPro: complimentaryProUser(env, userId),
     email,
     everPaid: false,
-    id: "usr_" + generateNanoId(24),
+    id: userId,
     paidEligibilityEndedAt: "",
     plan: "free",
     stripeCustomerId: "",
@@ -904,11 +926,13 @@ async function findAccountByStripeCustomer(env: CloudEnv, customerId: string) {
   if (env.DB) {
     const row = await env.DB.prepare("SELECT * FROM users WHERE stripe_customer_id = ?")
       .bind(customerId).first();
-    return row ? accountFromRow(row) : null;
+    return row ? accountFromRow(row, env) : null;
   }
-  return Array.from(memoryAccounts.values()).find(
+  const account = Array.from(memoryAccounts.values()).find(
     (account) => account.stripeCustomerId === customerId,
-  ) || null;
+  );
+  if (account) account.complimentaryPro = complimentaryProUser(env, account.id);
+  return account || null;
 }
 
 interface GrantAiCreditsInput {
@@ -1382,7 +1406,8 @@ async function clearLegacyAccountRefill(env: CloudEnv, account: AccountRecord) {
 }
 
 async function ensureInitialProCredits(env: CloudEnv, account: AccountRecord) {
-  const eligible = account.plan === "pro" && account.billingStatus === "active";
+  const eligible = effectiveAccountPlan(account) === "pro"
+    && (account.billingStatus === "active" || account.complimentaryPro);
   if (!eligible) return;
   const now = currentDate();
   await grantAiCredits({
@@ -2433,7 +2458,7 @@ async function migrateInstallationToAccount(
         ).bind(target.collectionId, Number(inboxPosition?.next_position || 0), installationId, source.collectionId),
         env.DB.prepare(
           "UPDATE sessions SET user_id = ?, plan = ?, is_permanent = ? WHERE user_id = ?",
-        ).bind(account.id, account.plan, account.plan === "free" ? 0 : 1, installationId),
+        ).bind(account.id, effectiveAccountPlan(account), effectiveAccountPlan(account) === "free" ? 0 : 1, installationId),
         env.DB.prepare("UPDATE batches SET user_id = ? WHERE user_id = ?")
           .bind(account.id, installationId),
         env.DB.prepare(
@@ -2509,8 +2534,8 @@ async function migrateInstallationToAccount(
     for (const session of memorySessions.values()) {
       if (session.userId !== installationId) continue;
       session.userId = account.id;
-      session.plan = account.plan;
-      session.isPermanent = account.plan !== "free";
+      session.plan = effectiveAccountPlan(account);
+      session.isPermanent = effectiveAccountPlan(account) !== "free";
       if (session.collectionId === source.collectionId) {
         session.collectionId = target.collectionId;
         session.position = Number(session.position || 0) + inboxPosition;
@@ -2860,12 +2885,14 @@ async function upsertStripeAccount(input: UpsertStripeAccountInput) {
   }
   let account = existing;
   if (!account) {
+    const userId = "usr_" + generateNanoId(24);
     account = {
       aiCreditRefillAt: "",
       billingStatus: plan ? "active" : "canceled",
+      complimentaryPro: complimentaryProUser(env, userId),
       email,
       everPaid: true,
-      id: "usr_" + generateNanoId(24),
+      id: userId,
       paidEligibilityEndedAt: "",
       plan: plan || "free",
       stripeCustomerId: customerId,
@@ -2875,6 +2902,7 @@ async function upsertStripeAccount(input: UpsertStripeAccountInput) {
   } else {
     account.everPaid = true;
     account.email = email;
+    account.complimentaryPro = complimentaryProUser(env, account.id);
     if (plan) {
       account.billingStatus = "active";
       account.paidEligibilityEndedAt = "";
@@ -3125,8 +3153,8 @@ async function fulfillCheckout(env: CloudEnv, session: Record<string, unknown>) 
       account = await applyStripeSubscriptionState(env, account.stripeCustomerId, subscriptionId) || account;
     }
     await ensureInitialProCredits(env, account);
-    if (account.plan === "pro" && account.billingStatus === "active") {
-      await preserveAccountSessions(env, account.id, account.plan);
+    if (effectiveAccountPlan(account) === "pro" && (account.billingStatus === "active" || account.complimentaryPro)) {
+      await preserveAccountSessions(env, account.id, "pro");
     }
   } else if (offer === "ai_credits_500" || offer === "ai_credits_1000") {
     if (!sessionId) return null;
@@ -3256,13 +3284,13 @@ async function recordStripeSubscriptionState(input: RecordStripeSubscriptionStat
 }
 
 async function applyPaidRetentionTransition(env: CloudEnv, account: AccountRecord) {
-  if (account.plan === "pro" && account.billingStatus === "active") {
+  if (effectiveAccountPlan(account) === "pro" && (account.billingStatus === "active" || account.complimentaryPro)) {
     if (env.DB) {
       await env.DB.prepare("UPDATE users SET paid_eligibility_ended_at = NULL WHERE id = ?")
         .bind(account.id).run();
     }
     account.paidEligibilityEndedAt = "";
-    await preserveAccountSessions(env, account.id, account.plan);
+    await preserveAccountSessions(env, account.id, "pro");
     return;
   }
   const eligibilityEndedAt = account.paidEligibilityEndedAt || currentDate().toISOString();
@@ -4496,7 +4524,10 @@ async function accountEntitlements(request: Request, env: CloudEnv) {
   if (!principal) return json({ error: "Unauthorized" }, 401);
   if (principal.kind === "account") {
     const account = await findAccountById(env, principal.id);
-    if (account) await ensureInitialProCredits(env, account);
+    if (account) {
+      if (account.complimentaryPro) await applyPaidRetentionTransition(env, account);
+      await ensureInitialProCredits(env, account);
+    }
   }
   const aiCredits = await aiCreditBalance(env, principal);
   return json({
@@ -5010,10 +5041,10 @@ export async function reconcileBillingEntitlements(env: CloudEnv) {
     const result = await env.DB.prepare(
       "SELECT * FROM users WHERE plan = 'pro' AND billing_status = 'active'",
     ).all();
-    accounts = (result.results || []).map(accountFromRow);
+    accounts = (result.results || []).map((row) => accountFromRow(row, env));
   } else {
     accounts = Array.from(memoryAccounts.values()).filter(
-      (account) => account.plan === "pro" && account.billingStatus === "active",
+      (account) => effectiveAccountPlan(account) === "pro" && (account.billingStatus === "active" || account.complimentaryPro),
     );
   }
   for (const account of accounts) await ensureInitialProCredits(env, account);
@@ -5873,6 +5904,7 @@ export function seedCloudAccountForTests(input: {
   const account: AccountRecord = {
     aiCreditRefillAt: input.aiCreditRefillAt || "",
     billingStatus: input.billingStatus || "active",
+    complimentaryPro: false,
     email: normalizeEmail(input.email),
     everPaid: input.everPaid ?? true,
     id: input.id || "usr_" + generateNanoId(24),

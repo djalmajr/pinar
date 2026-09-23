@@ -127,6 +127,7 @@ export interface InstallationAuthSession {
 }
 
 export interface AccountAuthSession {
+  billingAvailable?: boolean;
   email: string;
   kind: "account";
   plan: AccountPlan;

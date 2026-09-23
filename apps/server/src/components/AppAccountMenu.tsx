@@ -117,6 +117,10 @@ export function AppAccountMenu() {
   const currentPlan = cloudSession
     ? planName(usage?.plan ?? cloudSession.plan, t)
     : t("app.local");
+  const showUpgrade = cloudSession?.kind === "installation"
+    || (cloudSession?.kind === "account"
+      && (usage?.plan ?? cloudSession.plan) === "free"
+      && cloudSession.billingAvailable === false);
 
   return (
     <SidebarMenu>
@@ -239,12 +243,12 @@ export function AppAccountMenu() {
             ) : null}
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              {cloudSession?.kind === "installation" ? (
+              {showUpgrade ? (
                 <DropdownMenuItem onClick={() => { window.location.href = "/pricing"; }}>
                   <SparklesIcon />
                   {t("app.upgradeToPro")}
                 </DropdownMenuItem>
-              ) : cloudSession ? (
+              ) : cloudSession && cloudSession.billingAvailable !== false ? (
                 <DropdownMenuItem onClick={() => void openBilling()}>
                   <CreditCardIcon />
                   {t("app.billing")}

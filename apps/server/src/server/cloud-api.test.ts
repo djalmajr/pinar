@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, test } from "node:test";
-import { FREE_STORAGE_BYTES, STORAGE_1GB_BYTES } from "../lib/entitlements";
+import { FREE_STORAGE_BYTES, PAID_STORAGE_BYTES, STORAGE_1GB_BYTES } from "../lib/entitlements";
 import { CURRENT_LEGAL_VERSION } from "../lib/legal-documents";
 import {
   authorizeCloudAppRequest,
@@ -875,6 +875,67 @@ describe("remote installation isolation", () => {
     assert.equal((await verifyEmailCode(email, mail.codes[0], env)).status, 400);
     await requestEmailCode(email, env);
     assert.equal(mail.codes.length, 2);
+  });
+
+  test("grants standard Pro entitlements to a verified complimentary account ID", async () => {
+    const mail = emailBinding();
+    const env: CloudEnv = { ...TEST_ENV, EMAIL: mail.binding };
+    const email = "owner@example.test";
+    assert.equal((await requestEmailCode(email, env)).status, 202);
+    assert.equal((await api("/api/account/entitlements", {}, env)).status, 401);
+    const verified = await verifyEmailCode(email, mail.codes[0], env);
+    assert.equal(verified.status, 200);
+    const cookie = verified.headers.get("set-cookie")?.split(";", 1)[0] || "";
+    const freeSession = await jsonBody(await api("/api/auth/session", { headers: { cookie } }, env));
+    assert.ok(isRecord(freeSession.session));
+    assert.equal(freeSession.session.plan, "free");
+    const userId = freeSession.session.userId;
+    assert.equal(typeof userId, "string");
+    const grantedEnv = { ...env, COMPLIMENTARY_PRO_USER_IDS: `usr_other, ${userId}` };
+    const session = await jsonBody(await api("/api/auth/session", { headers: { cookie } }, grantedEnv));
+    assert.ok(isRecord(session.session));
+    assert.equal(session.session.plan, "pro");
+    assert.equal(session.session.billingAvailable, false);
+    const entitlements = await jsonBody(await api("/api/account/entitlements", { headers: { cookie } }, grantedEnv));
+    assert.equal(entitlements.plan, "pro");
+    assert.ok(isRecord(entitlements.aiCredits));
+    assert.equal(entitlements.aiCredits.balance, 500);
+    assert.ok(isRecord(entitlements.storage));
+    assert.equal(entitlements.storage.baseBytes, PAID_STORAGE_BYTES);
+
+    const downgraded = await jsonBody(await api("/api/auth/session", { headers: { cookie } }, env));
+    assert.ok(isRecord(downgraded.session));
+    assert.equal(downgraded.session.plan, "free");
+  });
+
+  test("keeps a complimentary Pro grant when Stripe cancels a subscription", async () => {
+    const mail = emailBinding();
+    const userId = "usr_complimentary_owner";
+    const env: CloudEnv = {
+      ...TEST_ENV,
+      COMPLIMENTARY_PRO_USER_IDS: userId,
+      EMAIL: mail.binding,
+      STRIPE_WEBHOOK_SECRET: "whsec_complimentary_test",
+    };
+    seedCloudAccountForTests({
+      email: "owner@example.test",
+      id: userId,
+      plan: "pro",
+      stripeCustomerId: "cus_complimentary",
+      stripeSubscriptionId: "sub_complimentary",
+    });
+    await requestEmailCode("owner@example.test", env);
+    const verified = await verifyEmailCode("owner@example.test", mail.codes[0], env);
+    const cookie = verified.headers.get("set-cookie")?.split(";", 1)[0] || "";
+    assert.equal((await postStripeWebhook({
+      created: Math.floor(Date.now() / 1000),
+      data: { object: { customer: "cus_complimentary", id: "sub_complimentary", status: "canceled" } },
+      id: "evt_complimentary_canceled",
+      type: "customer.subscription.deleted",
+    }, env)).status, 200);
+    const session = await jsonBody(await api("/api/auth/session", { headers: { cookie } }, env));
+    assert.ok(isRecord(session.session));
+    assert.equal(session.session.plan, "pro");
   });
 
   test("hosted Cloud requires verified email before an installation can save", async () => {

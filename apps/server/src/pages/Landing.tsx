@@ -39,7 +39,7 @@ export function LandingPage() {
   return (
     <ServerShell activePage="home">
       <ScrollArea className="min-h-0 flex-1">
-        <main className="mx-auto flex min-h-full w-full max-w-6xl flex-col px-5 py-14">
+        <main className="mx-auto w-full max-w-6xl px-5 py-14">
           <section className="mx-auto flex max-w-3xl flex-col items-center text-center">
             <Badge variant="proSoft">
               <SparklesIcon data-icon="inline-start" />

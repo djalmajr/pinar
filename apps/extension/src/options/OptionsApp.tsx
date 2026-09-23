@@ -531,7 +531,6 @@ export function OptionsApp() {
                           <SettingRow size="xs" description={t.history_desc} title={t.history_label}>
                             <Switch aria-label={t.history_label} checked={settings.enableHistory} onCheckedChange={(value) => setSettings((current) => ({ ...current, enableHistory: value }))} />
                           </SettingRow>
-                          <Separator />
                     {!authReady ? <p className="text-xs text-muted-foreground">…</p> : authSession?.kind === "account" ? (
                       <section className="flex flex-col">
                         <span className={SECTION_HEADER}>{t.account_title}</span>
@@ -550,13 +549,19 @@ export function OptionsApp() {
                         </div>
                       </section>
                     ) : (
-                        <section aria-labelledby="account-email-title" className="flex flex-col">
-                          <span className={SECTION_HEADER} id="account-email-title">{t.account_email_title}</span>
-                          <p className={SECTION_DESC}>{emailCodeRequested ? t.account_email_sent : t.account_email_description}</p>
-                          <div className="flex flex-col gap-2.5">
-                            {!emailCodeRequested ? (
-                              <form className="flex gap-2" onSubmit={requestEmailCode}><Input autoComplete="email" className="h-8 text-xs" placeholder="you@example.com" required type="email" value={email} onChange={(event) => setEmail(event.target.value)} /><Button aria-busy={emailCodeRequestLoading || undefined} className="h-8 shrink-0 text-xs" disabled={emailCodeRequestLoading} size="sm" type="submit" variant="outline">{emailCodeRequestLoading ? <IconLoaderCircle className="animate-spin" data-icon="inline-start" /> : <IconMail data-icon="inline-start" />}{t.btn_send_code}</Button></form>
-                            ) : (
+                        <section className="flex flex-col gap-0.5">
+                          {!emailCodeRequested ? (
+                            <>
+                              <label className="text-xs font-semibold" htmlFor="account-email">{t.account_email_title}</label>
+                              <form className="flex flex-wrap gap-2" onSubmit={requestEmailCode}>
+                                <Input autoComplete="email" className="h-8 min-w-[11rem] flex-1 text-xs" id="account-email" placeholder="you@example.com" required type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+                                <Button aria-busy={emailCodeRequestLoading || undefined} className="h-8 shrink-0 text-xs" disabled={emailCodeRequestLoading} size="sm" type="submit" variant="outline">{emailCodeRequestLoading ? <IconLoaderCircle className="animate-spin" data-icon="inline-start" /> : <IconMail data-icon="inline-start" />}{t.btn_send_code}</Button>
+                                <Button className="h-8 shrink-0 text-xs" render={<a href={hostedSignInUrl(settings.cloudUrl, lang)} rel="noopener noreferrer" target="_blank" />} size="sm" variant="outline">{t.account_create_on_web}<IconExternalLink data-icon="inline-end" /></Button>
+                              </form>
+                            </>
+                          ) : (
+                            <>
+                              <p className="text-xs text-muted-foreground">{t.account_email_sent}</p>
                               <form className="space-y-2" onSubmit={verifyEmailCode}>
                                 <label className="block text-xs font-semibold" htmlFor="account-email-code">{t.account_email_code_label}</label>
                                 <div className="flex gap-2">
@@ -565,9 +570,8 @@ export function OptionsApp() {
                                   <Button aria-busy={emailCodeVerificationLoading || undefined} className="h-8 shrink-0 text-xs" disabled={emailCodeVerificationLoading || emailCode.length !== 6} size="sm" type="submit">{emailCodeVerificationLoading ? <IconLoaderCircle className="animate-spin" data-icon="inline-start" /> : <IconCheck data-icon="inline-start" />}{t.btn_verify_code}</Button>
                                 </div>
                               </form>
-                            )}
-                            <a className="w-fit text-xs text-primary underline underline-offset-4" href={hostedSignInUrl(settings.cloudUrl, lang)} rel="noopener noreferrer" target="_blank">{t.account_create_on_web}<IconExternalLink className="ml-1 inline size-3" /></a>
-                          </div>
+                            </>
+                          )}
                         </section>
                     )}
                           {authError && <p className="text-xs font-medium text-destructive" role="alert">{authError}</p>}

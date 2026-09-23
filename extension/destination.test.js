@@ -122,7 +122,8 @@ describe("capture destination", () => {
     assert.match(optionsSrc, /\{t\.storage_title\}[\s\S]*\{t\.account_email_title\}[\s\S]*\{voiceAvailable \? <>[\s\S]*\{t\.voice_settings_title\}/);
     assert.doesNotMatch(optionsSrc, /\{t\.storage_status_title\}|\{t\.capture_destination_label\}/);
     assert.match(optionsSrc, /\{t\.shortcuts_browser_title\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.shortcuts_overlay_title\}/);
-    assert.match(optionsSrc, /\{t\.account_email_title\}[\s\S]*t\.account_email_description/);
+    assert.match(optionsSrc, /<label className="text-xs font-semibold" htmlFor="account-email">\{t\.account_email_title\}<\/label>/);
+    assert.doesNotMatch(optionsSrc, /t\.account_email_description/);
     // Mutation captured: mb-8 under the section description is larger than the gap-5 between preference rows.
     assert.match(optionsSrc, /const SECTION_DESC = "mt-0\.5 mb-5 text-xs text-muted-foreground"/);
     assert.match(optionsSrc, /\{t\.section_interface_desc\}<\/p>\s*<div className="flex flex-col gap-3">/);
@@ -143,6 +144,10 @@ describe("capture destination", () => {
     assert.match(optionsSrc, /px-3 py-2 hover:bg-muted\/50">\s*<input checked=\{settings\.storageMode === "cloud"\}/);
     assert.match(optionsSrc, /<div className="overflow-hidden rounded-lg border">\s*<label[\s\S]*<\/label>\s*\{settings\.storageMode === "cloud" \? \([\s\S]*\{t\.account_email_title\}/);
     assert.match(optionsSrc, /className="h-8 shrink-0 text-xs" disabled=\{emailCodeRequestLoading\} size="sm" type="submit"/);
+    assert.match(optionsSrc, /<form className="flex flex-wrap gap-2" onSubmit=\{requestEmailCode\}>[\s\S]*\{t\.btn_send_code\}[\s\S]*render=\{<a href=\{hostedSignInUrl\(settings\.cloudUrl, lang\)\}/);
+    assert.match(optionsSrc, /\{t\.account_create_on_web\}<IconExternalLink data-icon="inline-end" \/>/);
+    assert.match(i18nSrc, /account_email_title: "Entrar com e-mail"/);
+    assert.match(i18nSrc, /account_create_on_web: 'Criar conta'/);
     assert.doesNotMatch(optionsSrc, /\{t\.storage_status_title_desc\}|\{t\.capture_destination_desc\}/);
     assert.match(optionsSrc, /\{t\.account_title_desc\}/);
   });

@@ -22,6 +22,16 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.4.5": {
+      title: "Übersichtlicher Fußbereich und Kontomenü",
+      summary: "Der Fußbereich der Startseite folgt direkt auf den Inhalt. Das Kontomenü zeigt Plan- und Abrechnungsaktionen nur, wenn sie verfügbar sind.",
+      changes: {
+        "landing-footer-and-account-menu": {
+          title: "Weniger Leerraum auf der Startseite",
+          description: "Unterstützungskarte und Fußbereich stehen direkt nach dem Inhalt. Kostenlose Konten ohne Stripe-Kunden können die Pläne öffnen; Konten ohne Abrechnung sehen keinen nicht verfügbaren Abrechnungslink mehr.",
+        },
+      },
+    },
     "v0.4.4": {
       title: "E-Mail-Konten und Jahresabo",
       summary: "Pinar Cloud Free beginnt jetzt mit der Anmeldung per E-Mail. Pro hat einen einzigen Jahrespreis mit klareren Angaben zu Aufbewahrung, Speicher und Zusatzpaketen.",

@@ -22,6 +22,16 @@ const locale = {
     whatChanged: "O que mudou",
   },
   releases: {
+    "v0.4.5": {
+      title: "Rodapé e menu da conta mais claros",
+      summary: "O rodapé da página inicial acompanha o conteúdo. O menu da conta mostra ações de planos e cobrança somente quando elas estão disponíveis.",
+      changes: {
+        "landing-footer-and-account-menu": {
+          title: "Menos espaço vazio na página inicial",
+          description: "O card de apoio e o rodapé vêm logo após o conteúdo. Contas Free sem cliente Stripe oferecem acesso aos planos, e contas sem cobrança não mostram um link de cobrança indisponível.",
+        },
+      },
+    },
     "v0.4.4": {
       title: "Contas por e-mail e plano anual",
       summary: "O Free no Pinar Cloud agora começa com acesso por e-mail. O Pro tem somente preço anual, com retenção, armazenamento e adicionais mais claros.",

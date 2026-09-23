@@ -22,6 +22,16 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.4.5": {
+      title: "Pied de page et menu du compte plus clairs",
+      summary: "Le pied de la page d’accueil suit son contenu. Le menu du compte affiche les actions de forfait et de facturation uniquement lorsqu’elles sont disponibles.",
+      changes: {
+        "landing-footer-and-account-menu": {
+          title: "Moins d’espace vide sur la page d’accueil",
+          description: "La carte de soutien et le pied de page suivent directement le contenu. Les comptes Free sans client Stripe peuvent consulter les forfaits ; les comptes sans facturation ne voient plus de lien de facturation indisponible.",
+        },
+      },
+    },
     "v0.4.4": {
       title: "Comptes par e-mail et forfait annuel",
       summary: "Pinar Cloud Free commence désormais par une connexion par e-mail. Pro propose un seul tarif annuel, avec une rétention, un stockage et des modules complémentaires plus clairs.",

@@ -21,6 +21,16 @@ const locale = {
     whatChanged: "Qué cambió",
   },
   releases: {
+    "v0.4.5": {
+      title: "Pie de página y menú de cuenta más claros",
+      summary: "El pie de la página de inicio sigue al contenido. El menú de cuenta muestra acciones de planes y facturación solo cuando están disponibles.",
+      changes: {
+        "landing-footer-and-account-menu": {
+          title: "Menos espacio vacío en la página de inicio",
+          description: "La tarjeta de apoyo y el pie aparecen justo después del contenido. Las cuentas Free sin cliente de Stripe pueden abrir los planes; las cuentas sin facturación ya no muestran un enlace de cobro no disponible.",
+        },
+      },
+    },
     "v0.4.4": {
       title: "Cuentas por correo y planes anuales",
       summary: "Pinar Cloud Free ahora comienza con acceso por correo. Pro tiene un único precio anual, con retención, almacenamiento y complementos más claros.",

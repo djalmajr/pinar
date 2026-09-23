@@ -20,6 +20,16 @@ const locale = {
     whatChanged: "更新内容",
   },
   releases: {
+    "v0.4.5": {
+      title: "更清晰的页脚和账户菜单",
+      summary: "首页页脚现在紧跟内容。账户菜单只显示可用的套餐和账单操作。",
+      changes: {
+        "landing-footer-and-account-menu": {
+          title: "减少首页空白",
+          description: "支持卡片和页脚紧跟内容。没有 Stripe 客户记录的 Free 账户可以查看套餐；没有账单的账户不再显示不可用的账单链接。",
+        },
+      },
+    },
     "v0.4.4": {
       title: "邮箱账户与年度方案",
       summary: "Pinar Cloud Free 现在通过邮箱验证码开始使用。Pro 只提供年度价格，保留期、存储空间和附加包说明更加清晰。",

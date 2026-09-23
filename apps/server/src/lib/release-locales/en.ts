@@ -20,6 +20,16 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.4.5": {
+      title: "Clearer footer and account menu",
+      summary: "The home page footer follows its content. The account menu shows plan and billing actions only when they are available.",
+      changes: {
+        "landing-footer-and-account-menu": {
+          title: "Less empty space on the home page",
+          description: "The support card and footer appear just after the content. Free accounts without a Stripe customer can open plans, while accounts without billing no longer show an unavailable billing link.",
+        },
+      },
+    },
     "v0.4.4": {
       title: "Email accounts and annual plans",
       summary: "Pinar Cloud Free now starts with email sign-in. Pro has one annual price, with clearer retention, storage, and add-ons.",

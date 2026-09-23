@@ -118,8 +118,8 @@ export function SignInPage({ returnTo }: SignInPageProps) {
                           setError("");
                         }} />
                         <Button className="w-full" disabled={loading || emailCode.length !== 6} type="submit">{loading ? t("signIn.entering") : t("signIn.verifyCode")}</Button>
-                        <LegalActionNotice />
-                        <Button className="w-full" type="button" variant="ghost" onClick={changeEmail}>{t("signIn.changeEmail")}</Button>
+                        <LegalActionNotice showVersion={false} />
+                        <Button className="w-full" type="button" variant="outline" onClick={changeEmail}>{t("signIn.changeEmail")}</Button>
                       </form>
                     )}
                   </CardContent>

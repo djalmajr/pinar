@@ -23,9 +23,10 @@ interface LegalActionNoticeProps {
   id?: string;
   inlineVersion?: boolean;
   marker?: string;
+  showVersion?: boolean;
 }
 
-export function LegalActionNotice({ id, inlineVersion = false, marker }: LegalActionNoticeProps = {}) {
+export function LegalActionNotice({ id, inlineVersion = false, marker, showVersion = true }: LegalActionNoticeProps = {}) {
   const { t } = useServerI18n();
   return (
     <p className="text-xs leading-5 text-muted-foreground" id={id}>
@@ -59,9 +60,11 @@ export function LegalActionNotice({ id, inlineVersion = false, marker }: LegalAc
         {t("pricing.legalAcceptableUse")}
       </a>
       .
-      <span className={inlineVersion ? "ml-1 inline" : "mt-1 block"}>
-        {t("pricing.legalNoticeVersion", { version: CURRENT_LEGAL_VERSION })}
-      </span>
+      {showVersion && (
+        <span className={inlineVersion ? "ml-1 inline" : "mt-1 block"}>
+          {t("pricing.legalNoticeVersion", { version: CURRENT_LEGAL_VERSION })}
+        </span>
+      )}
     </p>
   );
 }

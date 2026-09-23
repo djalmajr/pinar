@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
+import { runtimeEnv } from "../server/cloud-env";
 
 interface WranglerConfig {
   env: {
@@ -15,8 +16,6 @@ const config = JSON.parse(
     .replace(/^\s*\/\/.*$/gm, "")
     .replace(/,\s*([}\]])/g, "$1"),
 ) as WranglerConfig;
-const apiSource = readFileSync(new URL("../server/api.ts", import.meta.url), "utf8");
-
 describe("billing deployment configuration", () => {
   test("keeps only subscription and add-on prices in every environment", () => {
     for (const vars of [config.vars, config.env.staging.vars, config.env.production.vars]) {
@@ -33,6 +32,6 @@ describe("billing deployment configuration", () => {
     assert.equal(config.vars.DEPLOYMENT_ENV, "local");
     assert.equal(config.env.staging.vars.DEPLOYMENT_ENV, "staging");
     assert.equal(config.env.production.vars.DEPLOYMENT_ENV, "production");
-    assert.match(apiSource, /DEPLOYMENT_ENV: source\.DEPLOYMENT_ENV/);
+    assert.equal(runtimeEnv({ DEPLOYMENT_ENV: "staging" }).DEPLOYMENT_ENV, "staging");
   });
 });

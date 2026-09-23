@@ -16,6 +16,7 @@ import {
   setCloudMigrationFailureForTests,
   setCloudNowForTests,
 } from "./cloud-api";
+import { runtimeEnv } from "./cloud-env";
 import { exerciseProjectApiContract } from "./project-api.contract";
 import { exerciseVisualContextContract } from "./visual-context.contract";
 import { exerciseAgentResultsContract, exerciseAgentResultsIsolation } from "./agent-results.contract";
@@ -891,7 +892,7 @@ describe("remote installation isolation", () => {
     assert.equal(freeSession.session.plan, "free");
     const userId = freeSession.session.userId;
     assert.equal(typeof userId, "string");
-    const grantedEnv = { ...env, COMPLIMENTARY_PRO_USER_IDS: `usr_other, ${userId}` };
+    const grantedEnv = runtimeEnv({ ...env, COMPLIMENTARY_PRO_USER_IDS: `usr_other, ${userId}` });
     const session = await jsonBody(await api("/api/auth/session", { headers: { cookie } }, grantedEnv));
     assert.ok(isRecord(session.session));
     assert.equal(session.session.plan, "pro");

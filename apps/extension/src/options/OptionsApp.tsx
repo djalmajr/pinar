@@ -488,14 +488,14 @@ export function OptionsApp() {
               </Button>
             </header>
 
-            <Tabs className="gap-4" defaultValue="storage">
+            <Tabs className="gap-4" defaultValue="preferences">
               <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="storage">{t.tab_storage}</TabsTrigger>
                 <TabsTrigger value="preferences">{t.tab_preferences}</TabsTrigger>
+                <TabsTrigger value="capture">{t.tab_capture}</TabsTrigger>
                 <TabsTrigger value="shortcuts">{t.tab_shortcuts}</TabsTrigger>
               </TabsList>
 
-              <TabsContent className="flex flex-col gap-5" value="storage">
+              <TabsContent className="flex flex-col gap-5" value="preferences">
                 <section className="flex flex-col">
                   <span className={SECTION_HEADER}>{t.storage_title}</span>
                   <p className={SECTION_DESC}>{t.storage_title_desc}</p>
@@ -594,9 +594,7 @@ export function OptionsApp() {
                     </div>
                   </div>
                 </section>
-              </TabsContent>
-
-              <TabsContent className="flex flex-col gap-5" value="preferences">
+                <Separator />
                 <section className="flex flex-col">
                   <span className={SECTION_HEADER}>{t.section_interface}</span>
                   <p className={SECTION_DESC}>{t.section_interface_desc}</p>
@@ -609,7 +607,9 @@ export function OptionsApp() {
                   </SettingRow>
                   </div>
                 </section>
-                <Separator />
+              </TabsContent>
+
+              <TabsContent className="flex flex-col gap-5" value="capture">
                 <section className="flex flex-col">
                   <span className={SECTION_HEADER}>{t.section_handoff}</span>
                   <p className={SECTION_DESC}>{t.section_handoff_desc}</p>

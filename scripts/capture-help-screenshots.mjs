@@ -43,6 +43,7 @@ const SCREENSHOT_TARGETS = {
   },
   "capture-masks": { path: "/screenshot-fixtures/capture-overlay?mode=masks" },
   "capture-pins": { path: "/screenshot-fixtures/capture-overlay?mode=pins" },
+  "capture-review": { path: "/screenshot-fixtures/capture-overlay?mode=pins" },
   "capture-selection": {
     path: "/screenshot-fixtures/capture-overlay?mode=selection",
   },
@@ -386,7 +387,7 @@ try {
             screenshot.key === "extension-preferences" ||
             screenshot.key === "preferences-privacy"
           ) {
-            await page.getByRole("tab", { name: copy.tab_preferences }).click();
+            await page.getByRole("tab", { name: copy.tab_capture }).click();
             if (screenshot.key === "preferences-privacy") {
               await page.getByText(copy.privacy_query_keys_label).waitFor();
             } else {
@@ -402,7 +403,7 @@ try {
           } else if (screenshot.key === "install-pinar") {
             await page.getByRole("link", { name: copy.btn_download_macos }).waitFor();
           } else {
-            await page.getByRole("link", { name: copy.legal_terms, exact: true }).waitFor();
+            await page.getByRole("link", { name: copy.account_create_on_web, exact: true }).waitFor();
           }
         } else if (String(screenshot.path || "").includes("screenshot-fixtures/capture-overlay")) {
           await page

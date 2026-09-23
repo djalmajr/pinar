@@ -114,14 +114,14 @@ const locale = {
         "Una sesión guardada se abre como un solo registro sin importar el número de páginas, con todas las imágenes y anotaciones juntas.",
     },
     "extension-options": {
-      alt: "Opciones de la extensión Pinar en la pestaña Almacenamiento, con Servidor Local, Servidor Remoto y la aceptación legal del servicio alojado.",
+      alt: "Opciones de la extensión Pinar en la pestaña Preferencias, con destinos local y remoto, idioma y tema.",
       caption:
-        "La pestaña Almacenamiento elige un servidor local o remoto y exige aceptar Términos, Privacidad y Uso Aceptable antes de capturar en la nube.",
+        "La pestaña Preferencias reúne el destino de almacenamiento, el idioma y la apariencia de la extensión.",
     },
     "extension-preferences": {
-      alt: "Opciones de la extensión Pinar en la pestaña Preferencias, con el detalle compacto o completo de la copia para IA y el interruptor de incluir captura.",
+      alt: "Opciones de la extensión Pinar en la pestaña Captura, con el detalle compacto o completo de la copia para IA y el interruptor de incluir captura.",
       caption:
-        "Preferencias define la entrega compacta o completa y si la siguiente copia incluye captura; Guardar escribe esas opciones antes de la próxima copia.",
+        "Captura define la entrega compacta o completa y si la siguiente copia incluye captura; Guardar escribe esas opciones antes de la próxima copia.",
     },
     "help-navigation": {
       alt: "Artículo de ayuda de Pinar con navegación por categorías, enlaces a artículos relacionados, secciones estructuradas y navegación en la página.",
@@ -184,12 +184,12 @@ const locale = {
         "Una finalización correcta confirma el resultado, cierra la superposición y deja un único paquete correlacionado en el portapapeles.",
     },
     "install-pinar": {
-      alt: "Pestaña Almacenamiento de la extensión Pinar con el botón Descargar Pinar junto a la opción Servidor Local.",
+      alt: "Pestaña Preferencias de la extensión Pinar con el botón Descargar Pinar junto a la opción Servidor Local.",
       caption:
-        "La pestaña Almacenamiento ofrece la descarga de la aplicación Pinar junto a Servidor Local para que el auxiliar arranque en este equipo.",
+        "La pestaña Preferencias ofrece la descarga de la aplicación Pinar junto a Servidor Local para que el auxiliar arranque en este equipo.",
     },
     "options-local": {
-      alt: "Pestaña Almacenamiento de la extensión Pinar con Servidor Local seleccionado y las capturas quedando en este equipo.",
+      alt: "Pestaña Preferencias de la extensión Pinar con Servidor Local seleccionado y las capturas quedando en este equipo.",
       caption:
         "Servidor Local guarda el historial y las capturas en este equipo y no exige la aceptación legal del servicio alojado.",
     },
@@ -219,7 +219,7 @@ const locale = {
         "Un enlace no listado de proyecto o colección permite a cualquiera con la URL copiar el Markdown combinado sin iniciar sesión.",
     },
     "preferences-privacy": {
-      alt: "Pestaña Preferencias de la extensión Pinar mostrando métricas opcionales del ciclo y claves extra de URL para ocultar.",
+      alt: "Pestaña Captura de la extensión Pinar mostrando métricas opcionales del ciclo y claves extra de URL para ocultar.",
       caption:
         "Las preferencias de privacidad añaden claves extra de consulta que se eliminan de las URL capturadas y mantienen las métricas del ciclo apagadas hasta que optas.",
     },

@@ -25,7 +25,7 @@ export interface TranslationDictionary {
   header_desc: string;
   storage_title: string;
   storage_title_desc: string;
-  tab_storage: string;
+  tab_capture: string;
   tab_preferences: string;
   tab_account: string;
   tab_shortcuts: string;
@@ -250,7 +250,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     header_desc: "Configure storage destination and feedback preferences",
     storage_title: "Storage Destination",
     storage_title_desc: "Keep new captures on this device or send them to a remote Pinar server.",
-    tab_storage: "Storage",
+    tab_capture: "Capture",
     tab_preferences: "Preferences",
     tab_account: "Account",
     tab_shortcuts: "Shortcuts",
@@ -473,7 +473,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     header_desc: "Configure o destino de armazenamento e preferências de feedback",
     storage_title: "Destino de Armazenamento",
     storage_title_desc: "Mantenha as novas capturas neste dispositivo ou envie-as a um servidor Pinar remoto.",
-    tab_storage: "Armazenamento",
+    tab_capture: "Captura",
     tab_preferences: "Preferências",
     tab_account: "Conta",
     tab_shortcuts: "Atalhos",
@@ -696,7 +696,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     header_desc: "Configura el destino de almacenamiento y preferencias de feedback",
     storage_title: "Destino de Almacenamiento",
     storage_title_desc: "Mantén las capturas nuevas en este dispositivo o envíalas a un servidor Pinar remoto.",
-    tab_storage: "Almacenamiento",
+    tab_capture: "Captura",
     tab_preferences: "Preferencias",
     tab_account: "Cuenta",
     tab_shortcuts: "Atajos",
@@ -919,7 +919,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     header_desc: "Configurez la destination de stockage et les préférences de feedback",
     storage_title: "Destination de Stockage",
     storage_title_desc: "Gardez les nouvelles captures sur cet appareil ou envoyez-les vers un serveur Pinar distant.",
-    tab_storage: "Stockage",
+    tab_capture: "Capture",
     tab_preferences: "Préférences",
     tab_account: "Compte",
     tab_shortcuts: "Raccourcis",
@@ -1142,7 +1142,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     header_desc: "Konfigurieren Sie Speicherziel und Feedback-Einstellungen",
     storage_title: "Speicherziel",
     storage_title_desc: "Neue Aufnahmen auf diesem Gerät behalten oder an einen entfernten Pinar-Server senden.",
-    tab_storage: "Speicher",
+    tab_capture: "Erfassung",
     tab_preferences: "Einstellungen",
     tab_account: "Konto",
     tab_shortcuts: "Kurzbefehle",
@@ -1365,7 +1365,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     header_desc: "配置存储目标和反馈偏好",
     storage_title: "存储目标",
     storage_title_desc: "将新捕获保存在此设备，或发送到远程 Pinar 服务器。",
-    tab_storage: "存储",
+    tab_capture: "捕获",
     tab_preferences: "偏好设置",
     tab_account: "账户",
     tab_shortcuts: "快捷键",
@@ -1588,7 +1588,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     header_desc: "ストレージの保存先とフィードバック設定を構成",
     storage_title: "保存先",
     storage_title_desc: "新しいキャプチャをこのデバイスに残すか、リモートの Pinar サーバーへ送ります。",
-    tab_storage: "保存先",
+    tab_capture: "キャプチャ",
     tab_preferences: "環境設定",
     tab_account: "アカウント",
     tab_shortcuts: "ショートカット",

@@ -68,9 +68,9 @@ describe("capture destination", () => {
     assert.doesNotMatch(backgroundSrc, /console\.(?:log|info|debug|warn)\([^)]*token/);
   });
 
-  test("keeps account sign-in in storage settings without a separate account tab", () => {
-    assert.match(optionsSrc, /<TabsTrigger value="storage">\{t\.tab_storage\}<\/TabsTrigger>/);
+  test("keeps account sign-in in general preferences without a separate account tab", () => {
     assert.match(optionsSrc, /<TabsTrigger value="preferences">\{t\.tab_preferences\}<\/TabsTrigger>/);
+    assert.match(optionsSrc, /<TabsTrigger value="capture">\{t\.tab_capture\}<\/TabsTrigger>/);
     assert.match(optionsSrc, /<TabsTrigger value="shortcuts">\{t\.tab_shortcuts\}<\/TabsTrigger>/);
     assert.doesNotMatch(optionsSrc, /<TabsTrigger value="account"/);
     assert.doesNotMatch(optionsSrc, /type: "auth:extension-code"/);
@@ -117,7 +117,7 @@ describe("capture destination", () => {
     assert.doesNotMatch(interfaceSection, /\{t\.theme_light\}<\/TabsTrigger>/);
     assert.doesNotMatch(interfaceSection, /\{t\.theme_dark\}<\/TabsTrigger>/);
     // Mutation captured: dropping the separators leaves preference sections as an undifferentiated stack.
-    assert.match(optionsSrc, /\{t\.section_interface\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.section_handoff\}/);
+    assert.match(optionsSrc, /\{t\.storage_title\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.section_interface\}/);
     assert.match(optionsSrc, /\{t\.section_handoff\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.section_privacy\}/);
     assert.match(optionsSrc, /\{t\.storage_title\}[\s\S]*\{t\.account_email_title\}[\s\S]*\{voiceAvailable \? <>[\s\S]*\{t\.voice_settings_title\}/);
     assert.doesNotMatch(optionsSrc, /\{t\.storage_status_title\}|\{t\.capture_destination_label\}/);

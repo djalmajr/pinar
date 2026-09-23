@@ -114,14 +114,14 @@ const locale = {
         "Une session enregistrée s’ouvre comme un seul élément quel que soit le nombre de pages, avec toutes les images et annotations réunies.",
     },
     "extension-options": {
-      alt: "Options de l’extension Pinar sur l’onglet Stockage, avec Serveur Local, Serveur Distant et l’acceptation juridique du service hébergé.",
+      alt: "Options de l’extension Pinar sur l’onglet Préférences, avec les destinations locale et distante, la langue et le thème.",
       caption:
-        "L’onglet Stockage choisit un serveur local ou distant et exige d’accepter Conditions, Confidentialité et Utilisation acceptable avant la capture cloud.",
+        "L’onglet Préférences réunit la destination de stockage, la langue et l’apparence de l’extension.",
     },
     "extension-preferences": {
-      alt: "Options de l’extension Pinar sur l’onglet Préférences, avec le détail compact ou complet de la copie IA et l’interrupteur d’inclusion de screenshot.",
+      alt: "Options de l’extension Pinar sur l’onglet Capture, avec le détail compact ou complet de la copie IA et l’interrupteur d’inclusion de screenshot.",
       caption:
-        "Préférences définit la livraison compacte ou complète et si la copie suivante inclut un screenshot ; Enregistrer écrit ces choix avant la copie suivante.",
+        "Capture définit la livraison compacte ou complète et si la copie suivante inclut un screenshot ; Enregistrer écrit ces choix avant la copie suivante.",
     },
     "help-navigation": {
       alt: "Article d’aide Pinar avec navigation par catégorie, liens d’articles liés, sections structurées et navigation dans la page.",
@@ -184,12 +184,12 @@ const locale = {
         "Une fin réussie confirme le résultat, ferme l’overlay et place un seul paquet de session corrélé dans le presse-papiers.",
     },
     "install-pinar": {
-      alt: "Onglet Stockage de l’extension Pinar avec le bouton Télécharger Pinar à côté de l’option Serveur Local.",
+      alt: "Onglet Préférences de l’extension Pinar avec le bouton Télécharger Pinar à côté de l’option Serveur Local.",
       caption:
-        "L’onglet Stockage propose le téléchargement de l’application Pinar à côté de Serveur Local pour démarrer l’assistant sur cet ordinateur.",
+        "L’onglet Préférences propose le téléchargement de l’application Pinar à côté de Serveur Local pour démarrer l’assistant sur cet ordinateur.",
     },
     "options-local": {
-      alt: "Onglet Stockage de l’extension Pinar avec Serveur Local sélectionné et les captures restant sur cet ordinateur.",
+      alt: "Onglet Préférences de l’extension Pinar avec Serveur Local sélectionné et les captures restant sur cet ordinateur.",
       caption:
         "Serveur Local conserve l’historique et les screenshots sur cet ordinateur et n’exige pas l’acceptation juridique du service hébergé.",
     },
@@ -219,7 +219,7 @@ const locale = {
         "Un lien non listé de projet ou de collection permet à quiconque a l’URL de copier le Markdown combiné sans se connecter.",
     },
     "preferences-privacy": {
-      alt: "Onglet Préférences de l’extension Pinar montrant les métriques de cycle facultatives et les clés d’URL supplémentaires à masquer.",
+      alt: "Onglet Capture de l’extension Pinar montrant les métriques de cycle facultatives et les clés d’URL supplémentaires à masquer.",
       caption:
         "Les préférences de confidentialité ajoutent des clés de requête extra retirées des URL capturées et gardent les métriques de cycle désactivées jusqu’à l’opt-in.",
     },

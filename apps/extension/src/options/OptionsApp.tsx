@@ -1,15 +1,12 @@
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import {
   type AuthSession,
-  type CaptureDestination,
   type CopyOnFinishBatch,
   getBestLanguage,
   type HandoffMode,
   macosDesktopDmgUrl,
   mergeDeliveryPreferences,
   type PinarSettings,
-  type ProjectTree,
-  type ProjectTreeCollection,
   SUPPORTED_LANGUAGES,
   type SupportedLanguage,
   type ThemeMode,
@@ -19,14 +16,6 @@ import {
 } from "@pinar/shared";
 import {
   Button,
-  Card,
-  CardContent,
-  Combobox,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxInput,
-  ComboboxItem,
-  ComboboxList,
   Input,
   PinarMark,
   ScrollArea,
@@ -46,38 +35,26 @@ import {
   TabsTrigger,
   Toaster,
   toast,
-  cn,
 } from "@pinar/ui";
 import IconCheck from "~icons/lucide/check";
 import IconCoffee from "~icons/lucide/coffee";
 import IconCopy from "~icons/lucide/copy";
 import IconExternalLink from "~icons/lucide/external-link";
-import IconFolder from "~icons/lucide/folder";
 import IconGithub from "~icons/radix-icons/github-logo";
 import IconHeart from "~icons/lucide/heart";
-import IconInbox from "~icons/lucide/inbox";
 import IconLaptop from "~icons/lucide/laptop";
 import IconLoaderCircle from "~icons/lucide/loader-circle";
 import IconLogOut from "~icons/lucide/log-out";
 import IconMail from "~icons/lucide/mail";
 import IconMoon from "~icons/lucide/moon";
 import IconSave from "~icons/lucide/save";
-import IconSparkles from "~icons/lucide/sparkles";
 import IconSun from "~icons/lucide/sun";
 import extensionPackage from "../../package.json";
 import "../../../../extension/keyboard.js";
 import {
   cloudEnvironment,
-  requiresExplicitLegalConsent,
   resolveCloudUrl,
 } from "../../../../extension/environment.js";
-import {
-  acceptedRemoteLegalAcceptance,
-  createRemoteLegalAcceptance,
-  parseLegalBundle,
-  type LegalBundle,
-} from "../../../../extension/legal-consent.js";
-import { remoteProfileStorage } from "../../../../extension/remote-profile.js";
 import {
   type ExtensionResponseBase,
   withExtensionResponseFallback,
@@ -173,61 +150,7 @@ function ShortcutsTab({ platform, t }: { platform: "mac" | "win" | "other"; t: T
   );
 }
 
-function formatBytes(value: number, locale: string) {
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const index = value > 0 ? Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1) : 0;
-  const scaled = value / 1024 ** index;
-  return `${new Intl.NumberFormat(locale, { maximumFractionDigits: index > 0 && scaled < 10 ? 1 : 0 }).format(scaled)} ${units[index]}`;
-}
-
-function StorageStatusPanel({ mode, t }: { mode: PinarSettings["storageMode"]; t: TranslationDictionary }) {
-  const [status, setStatus] = useState<Record<string, unknown> | null>(null);
-  const [checking, setChecking] = useState(false);
-
-  const refresh = useCallback(async () => {
-    setChecking(true);
-    const response = await extensionMessage({ type: "storage:status" }, t.account_unavailable);
-    setStatus(response.ok ? (response as unknown as Record<string, unknown>) : null);
-    setChecking(false);
-  }, [t.account_unavailable]);
-
-  useEffect(() => { void refresh(); }, [mode, refresh]);
-
-  if (mode === "cloud") {
-    const used = Number(status?.usedBytes ?? 0);
-    const quota = Number(status?.quotaBytes ?? 0);
-    const paused = status ? status.uploadAllowed === false : false;
-    return (
-      <div className="flex flex-col gap-2 py-1">
-        <div className="flex items-center justify-between gap-3">
-          <span className="min-w-0">
-            <span className="block text-xs font-semibold">{quota > 0 ? t.storage_cloud_usage.replace("{used}", formatBytes(used, "en")).replace("{quota}", formatBytes(quota, "en")) : "—"}</span>
-            <span className={cn("mt-0.5 block text-xs", paused ? "text-destructive" : "text-muted-foreground")}>{paused ? t.storage_cloud_paused : t.storage_status_desc}</span>
-          </span>
-          <Button className="h-7 shrink-0 text-xs" disabled={checking} size="sm" variant="outline" onClick={() => void refresh()}>{t.storage_recheck}</Button>
-        </div>
-        {quota > 0 ? <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted"><div className={cn("h-full rounded-full", paused ? "bg-destructive" : "bg-primary")} style={{ width: `${Math.min(100, Math.round((used / quota) * 100))}%` }} /></div> : null}
-      </div>
-    );
-  }
-
-  const reachable = status?.reachable === true;
-  return (
-    <div className="flex items-center justify-between gap-3 py-1">
-      <span className="min-w-0">
-        <span className={cn("block text-xs font-semibold", reachable ? "text-foreground" : "text-destructive")}>
-          {reachable ? t.storage_local_connected.replace("{port}", String(status?.port ?? "")) : t.storage_local_missing}
-        </span>
-        <span className="mt-0.5 block text-xs text-muted-foreground">{t.storage_status_desc}</span>
-      </span>
-      <Button className="h-7 shrink-0 text-xs" disabled={checking} size="sm" variant="outline" onClick={() => void refresh()}>{t.storage_recheck}</Button>
-    </div>
-  );
-}
-
 const DEFAULT_LANGUAGE: SupportedLanguage = "en";
-const DEFAULT_PROJECT_OPTION = { label: "Personal", value: "__pinar_default_project__" };
-const DEFAULT_COLLECTION_OPTION = { label: "Inbox", value: "__pinar_default_collection__" };
 const SETTINGS_KEYS: (keyof PinarSettings)[] = [
   "cloudUrl",
   "copyOnFinishBatch",
@@ -261,13 +184,10 @@ const DEFAULT_SETTINGS: PinarSettings = {
 };
 
 interface ExtensionResponse extends ExtensionResponseBase {
-  captureDestination?: CaptureDestination | null;
   code?: string;
   copyOnFinishBatch?: CopyOnFinishBatch;
   copyViewerContent?: boolean;
-  destination?: CaptureDestination;
   error?: string;
-  expiresAt?: string;
   handoffMode?: HandoffMode;
   includeScreenshot?: boolean;
   includeViewer?: boolean;
@@ -276,7 +196,6 @@ interface ExtensionResponse extends ExtensionResponseBase {
   sensitiveQueryKeys?: string;
   voicePostProcessing?: boolean;
   session?: AuthSession;
-  tree?: ProjectTree;
   url?: string;
 }
 
@@ -290,21 +209,11 @@ function isExtensionContext() {
   return typeof chrome !== "undefined" && Boolean(chrome.runtime?.id) && Boolean(chrome.runtime?.sendMessage);
 }
 
-function hostedPricingUrl(cloudUrl: string, language: SupportedLanguage) {
-  const url = new URL(`${(cloudUrl || "https://pinar.dev").replace(/\/+$/, "")}/pricing`);
+function hostedSignInUrl(cloudUrl: string, language: SupportedLanguage) {
+  const url = new URL(`${(cloudUrl || "https://pinar.dev").replace(/\/+$/, "")}/sign-in`);
+  url.searchParams.set("returnTo", "/app");
   if (language) url.searchParams.set("lang", language);
   return url.toString();
-}
-
-function accountSessionError(message: string, unavailable: string, legalRequired: string) {
-  if (/Accept the current Pinar Terms/i.test(message)) return legalRequired;
-  return message || unavailable;
-}
-
-function destinationFailureMessage(message: string, t: TranslationDictionary) {
-  if (/Invalid request origin/i.test(message)) return t.extension_origin_rejected;
-  if (/Accept the current Pinar Terms/i.test(message)) return t.legal_acceptance_required;
-  return message || t.destination_unavailable;
 }
 
 async function extensionMessage(
@@ -349,33 +258,6 @@ function applyDeliveryResponse(current: PinarSettings, patch: unknown): PinarSet
   };
 }
 
-function flattenDestinationCollections(collections: ProjectTreeCollection[]) {
-  const byId = new Map(collections.map((collection) => [collection.id, collection]));
-  const children = new Map<string | null, ProjectTreeCollection[]>();
-  for (const collection of collections) {
-    const parentId = collection.parentId && byId.has(collection.parentId) ? collection.parentId : null;
-    const siblings = children.get(parentId) ?? [];
-    siblings.push(collection);
-    children.set(parentId, siblings);
-  }
-  for (const siblings of children.values()) siblings.sort((left, right) => left.position - right.position);
-  const result: Array<{ collection: ProjectTreeCollection; depth: number }> = [];
-  const visited = new Set<string>();
-  function visit(parentId: string | null, depth: number) {
-    for (const collection of children.get(parentId) ?? []) {
-      if (visited.has(collection.id)) continue;
-      visited.add(collection.id);
-      result.push({ collection, depth });
-      visit(collection.id, depth + 1);
-    }
-  }
-  visit(null, 0);
-  for (const collection of collections) {
-    if (!visited.has(collection.id)) result.push({ collection, depth: 0 });
-  }
-  return result;
-}
-
 function applyTheme(mode: ThemeMode) {
   const dark = mode === "dark" || (mode === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
   document.documentElement.classList.toggle("dark", dark);
@@ -390,11 +272,6 @@ export function OptionsApp() {
   const [lang, setLang] = useState<SupportedLanguage>(DEFAULT_LANGUAGE);
   const [installPlatform, setInstallPlatform] = useState<"mac" | "win" | "other">("mac");
   const [copiedInstall, setCopiedInstall] = useState(false);
-  const [captureDestination, setCaptureDestination] = useState<CaptureDestination | null>(null);
-  const [destinationTree, setDestinationTree] = useState<ProjectTree | null>(null);
-  const [destinationProjectId, setDestinationProjectId] = useState("");
-  const [destinationLoading, setDestinationLoading] = useState(true);
-  const [destinationError, setDestinationError] = useState("");
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [authError, setAuthError] = useState("");
@@ -404,30 +281,11 @@ export function OptionsApp() {
   const [emailCodeRequestLoading, setEmailCodeRequestLoading] = useState(false);
   const [emailCodeVerificationLoading, setEmailCodeVerificationLoading] = useState(false);
   const [logoutLoading, setLogoutLoading] = useState(false);
-  const [legalAccepted, setLegalAccepted] = useState(false);
-  const [legalBundle, setLegalBundle] = useState<LegalBundle | null>(null);
-  const [legalError, setLegalError] = useState(false);
-  const [savedLegalAccepted, setSavedLegalAccepted] = useState(false);
 
   const t = translations[lang] || translations.en;
   const manifest = isExtensionContext() ? chrome.runtime.getManifest() : {};
   const environment = cloudEnvironment(manifest, settings.cloudUrl);
-  const explicitLegalConsent = requiresExplicitLegalConsent(manifest, settings.cloudUrl);
-  const hasUnsavedChanges = !areSettingsEqual(settings, savedSettings)
-    || (explicitLegalConsent && legalAccepted !== savedLegalAccepted);
-  const destinationProjects = destinationTree?.projects ?? [];
-  const destinationProject = destinationProjects.find((project) => project.id === destinationProjectId);
-  const destinationCollections = destinationProject?.collections ?? [];
-  const destinationCollectionTree = flattenDestinationCollections(destinationCollections);
-  const destinationProjectIds = destinationProjects.length
-    ? destinationProjects.map((project) => project.id)
-    : [DEFAULT_PROJECT_OPTION.value];
-  const destinationCollectionIds = destinationCollections.length
-    ? destinationCollections.map((collection) => collection.id)
-    : [DEFAULT_COLLECTION_OPTION.value];
-  const selectedDestinationCollectionId = captureDestination?.projectId === destinationProjectId
-    ? captureDestination.collectionId
-    : DEFAULT_COLLECTION_OPTION.value;
+  const hasUnsavedChanges = !areSettingsEqual(settings, savedSettings);
   const installCommand = "curl -fsSL https://pinar.dev/install.sh | sh";
   const desktopInstallUrl =
     installPlatform === "win" ? windowsDesktopSetupUrl() : macosDesktopDmgUrl();
@@ -435,40 +293,6 @@ export function OptionsApp() {
   const voiceAvailable = settings.storageMode === "cloud"
     && authSession?.kind === "account"
     && authSession.plan === "pro";
-
-  async function loadLegalConsent(cloudUrl: string) {
-    setLegalError(false);
-    if (!requiresExplicitLegalConsent(manifest, cloudUrl)) {
-      setLegalAccepted(true);
-      setLegalBundle(null);
-      setSavedLegalAccepted(true);
-      return true;
-    }
-    try {
-      const storage = typeof chrome !== "undefined" && chrome.storage?.local
-        ? remoteProfileStorage(chrome.storage.local, cloudUrl)
-        : null;
-      const [response, stored] = await Promise.all([
-        fetch(`${cloudUrl.replace(/\/+$/, "")}/api/legal/current`),
-        storage
-          ? storage.get({ remoteLegalAcceptance: null })
-          : Promise.resolve({ remoteLegalAcceptance: null }),
-      ]);
-      const bundle = parseLegalBundle(await response.json().catch(() => null));
-      if (!response.ok || !bundle) throw new Error("Legal bundle unavailable");
-      const accepted = Boolean(acceptedRemoteLegalAcceptance(stored.remoteLegalAcceptance, bundle));
-      setLegalAccepted(accepted);
-      setLegalBundle(bundle);
-      setSavedLegalAccepted(accepted);
-      return accepted;
-    } catch {
-      setLegalAccepted(false);
-      setLegalBundle(null);
-      setLegalError(true);
-      setSavedLegalAccepted(false);
-      return false;
-    }
-  }
 
   async function syncDeliveryPreferences(current: PinarSettings): Promise<PinarSettings> {
     const response = await extensionMessage({ type: "preferences:get" }, "");
@@ -490,43 +314,14 @@ export function OptionsApp() {
     return next;
   }
 
-  async function loadCaptureDestination() {
-    setDestinationLoading(true);
-    setDestinationError("");
-    try {
-      const response = await extensionMessage({ type: "destination:get" }, t.destination_unavailable);
-      if (!response.ok || !response.destination || !response.tree) {
-        throw new Error(response.error || t.destination_unavailable);
-      }
-      setCaptureDestination(response.destination);
-      setDestinationProjectId(response.destination.projectId);
-      setDestinationTree(response.tree);
-    } catch (cause) {
-      setCaptureDestination(null);
-      setDestinationProjectId("");
-      setDestinationTree(null);
-      setDestinationError(destinationFailureMessage(
-        cause instanceof Error ? cause.message : String(cause),
-        t,
-      ));
-    } finally {
-      setDestinationLoading(false);
-    }
-  }
-
   async function loadAuthSession() {
     setAuthError("");
     try {
       const response = await extensionMessage({ type: "auth:get" }, t.account_unavailable);
       if (!response.ok) throw new Error(response.error || t.account_unavailable);
       setAuthSession(response.session ?? null);
-    } catch (cause) {
+    } catch {
       setAuthSession(null);
-      setAuthError(accountSessionError(
-        cause instanceof Error ? cause.message : t.account_unavailable,
-        t.account_unavailable,
-        t.legal_acceptance_required,
-      ));
     } finally {
       setAuthReady(true);
     }
@@ -563,37 +358,15 @@ export function OptionsApp() {
       setLang(loaded.language as SupportedLanguage);
       setSettings(loaded);
       setSavedSettings(loaded);
-      const hasLegalConsent = await loadLegalConsent(loaded.cloudUrl || DEFAULT_SETTINGS.cloudUrl);
-      if (loaded.storageMode === "cloud" && !hasLegalConsent) {
-        setCaptureDestination(null);
-        setDestinationLoading(false);
-        setDestinationProjectId("");
-        setDestinationTree(null);
-        await loadAuthSession();
-      } else {
-        await Promise.all([loadCaptureDestination(), loadAuthSession()]);
-      }
+      await loadAuthSession();
     }
     void initialize();
   }, []);
 
   async function saveSettings() {
     if (!hasUnsavedChanges || settingsSaving) return;
-    if (settings.storageMode === "cloud" && explicitLegalConsent && (!legalBundle || !legalAccepted)) {
-      toast.error(t.legal_acceptance_required);
-      return;
-    }
     setSettingsSaving(true);
     try {
-      if (explicitLegalConsent && typeof chrome !== "undefined" && chrome.storage?.local) {
-        const storage = remoteProfileStorage(chrome.storage.local, settings.cloudUrl);
-        if (legalAccepted && legalBundle && !savedLegalAccepted) {
-          const acceptance = createRemoteLegalAcceptance(legalBundle, settings.language || lang);
-          if (acceptance) await storage.set({ remoteLegalAcceptance: acceptance });
-        } else if (!legalAccepted && savedLegalAccepted) {
-          await storage.remove("remoteLegalAcceptance");
-        }
-      }
       if (typeof chrome !== "undefined" && chrome.storage?.sync) await chrome.storage.sync.set(settings);
       const prefs = await extensionMessage({
         copyOnFinishBatch: settings.copyOnFinishBatch,
@@ -621,46 +394,13 @@ export function OptionsApp() {
           voicePostProcessing: saved.voicePostProcessing,
         });
       }
-      setSavedLegalAccepted(legalAccepted);
       setSettings(saved);
       setSavedSettings(saved);
       toast.success(t.status_saved);
-      await Promise.all([loadCaptureDestination(), loadAuthSession()]);
+      await loadAuthSession();
     } finally {
       setSettingsSaving(false);
     }
-  }
-
-  async function saveCaptureDestination(collectionId: string) {
-    setDestinationLoading(true);
-    setDestinationError("");
-    try {
-      const response = await extensionMessage(
-        { collectionId, type: "destination:set" },
-        t.destination_unavailable,
-      );
-      if (!response.ok || !response.destination || !response.tree) {
-        throw new Error(response.error || t.destination_unavailable);
-      }
-      setCaptureDestination(response.destination);
-      setDestinationProjectId(response.destination.projectId);
-      setDestinationTree(response.tree);
-      toast.success(t.status_saved);
-    } catch {
-      setDestinationError(t.destination_unavailable);
-      toast.error(t.destination_unavailable);
-      await loadCaptureDestination();
-    } finally {
-      setDestinationLoading(false);
-    }
-  }
-
-  function changeDestinationProject(projectId: string) {
-    const project = destinationProjects.find((item) => item.id === projectId);
-    const collection = project?.collections.find((item) => item.isProtected) ?? project?.collections[0];
-    if (!collection) return;
-    setDestinationProjectId(projectId);
-    void saveCaptureDestination(collection.id);
   }
 
   async function openApp() {
@@ -696,11 +436,14 @@ export function OptionsApp() {
         { code: emailCode, email, type: "auth:email-code:verify" },
         t.account_code_invalid,
       );
-      if (!response.ok || !response.session) throw new Error(response.error || t.account_code_invalid);
+      if (!response.ok || !response.session) {
+        if (response.code === "account_registration_required") throw new Error(t.account_registration_required);
+        if (response.code === "legal_acceptance_required") throw new Error(t.account_legal_update_required);
+        throw new Error(response.error || t.account_code_invalid);
+      }
       setAuthSession(response.session);
       setEmailCode("");
       setEmailCodeRequested(false);
-      await loadCaptureDestination();
     } catch (cause) {
       setAuthError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -715,17 +458,11 @@ export function OptionsApp() {
       const response = await extensionMessage({ type: "auth:logout" }, t.account_unavailable);
       if (!response.ok) throw new Error(response.error || t.account_unavailable);
       setAuthSession(null);
-      await loadCaptureDestination();
     } catch (cause) {
       setAuthError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setLogoutLoading(false);
     }
-  }
-
-  async function openBilling() {
-    const response = await extensionMessage({ type: "auth:billing" }, t.account_unavailable);
-    if (!response.ok) setAuthError(response.error || t.account_unavailable);
   }
 
   return (
@@ -752,152 +489,49 @@ export function OptionsApp() {
             </header>
 
             <Tabs className="gap-4" defaultValue="storage">
-              <TabsList className="grid w-full grid-cols-4">
+              <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="storage">{t.tab_storage}</TabsTrigger>
                 <TabsTrigger value="preferences">{t.tab_preferences}</TabsTrigger>
                 <TabsTrigger value="shortcuts">{t.tab_shortcuts}</TabsTrigger>
-                <TabsTrigger value="account">{t.tab_account}</TabsTrigger>
               </TabsList>
 
               <TabsContent className="flex flex-col gap-5" value="storage">
                 <section className="flex flex-col">
                   <span className={SECTION_HEADER}>{t.storage_title}</span>
                   <p className={SECTION_DESC}>{t.storage_title_desc}</p>
-                  <div className="flex flex-col gap-1">
-                  <label className="-mx-2 flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1 hover:bg-muted/50">
-                    <input checked={settings.storageMode === "local"} className="mt-0.5 accent-primary" name="storageMode" type="radio" onChange={() => setSettings((current) => ({ ...current, storageMode: "local" }))} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-xs font-semibold">{t.local_title}</span>
-                      <span className="mt-0.5 block text-xs text-muted-foreground">{localStorageDescription}</span>
-                      {installPlatform === "other" ? (
-                        <span className="mt-2 flex items-center gap-1.5 rounded-lg border bg-muted/60 p-1.5 font-mono text-[11px]">
-                          <ScrollArea className="min-w-0 flex-1"><code className="block whitespace-nowrap px-1 text-muted-foreground">{installCommand}</code><ScrollBar orientation="horizontal" /></ScrollArea>
-                          <button className="shrink-0 rounded p-1 text-muted-foreground hover:bg-background hover:text-foreground" title={t.btn_copy} type="button" onClick={async (event) => { event.preventDefault(); await navigator.clipboard.writeText(installCommand); setCopiedInstall(true); window.setTimeout(() => setCopiedInstall(false), 2_000); }}>
-                            {copiedInstall ? <IconCheck className="size-3.5 text-emerald-500" /> : <IconCopy className="size-3.5" />}
-                          </button>
-                        </span>
-                      ) : null}
-                    </span>
-                    {installPlatform === "other" ? null : <Button className="h-7 shrink-0 self-center text-xs" render={<a href={desktopInstallUrl} rel="noopener noreferrer" target="_blank" />} size="sm" variant="outline" onClick={(event) => event.stopPropagation()}>{t.btn_download_macos}<IconExternalLink data-icon="inline-end" /></Button>}
-                  </label>
-                  <label className="-mx-2 flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1 hover:bg-muted/50">
-                    <input checked={settings.storageMode === "cloud"} className="mt-0.5 accent-primary" name="storageMode" type="radio" onChange={() => setSettings((current) => ({ ...current, storageMode: "cloud" }))} />
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-2 text-xs font-semibold">
-                        {environment === "staging" ? t.staging_title : t.remote_title}
+                  <div className="flex flex-col gap-2">
+                    <label className="flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 hover:bg-muted/50">
+                      <input checked={settings.storageMode === "local"} className="mt-0.5 accent-primary" name="storageMode" type="radio" onChange={() => setSettings((current) => ({ ...current, storageMode: "local" }))} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-xs font-semibold">{t.local_title}</span>
+                        <span className="mt-0.5 block text-xs text-muted-foreground">{localStorageDescription}</span>
+                        {installPlatform === "other" ? (
+                          <span className="mt-2 flex items-center gap-1.5 rounded-lg border bg-muted/60 p-1.5 font-mono text-[11px]">
+                            <ScrollArea className="min-w-0 flex-1"><code className="block whitespace-nowrap px-1 text-muted-foreground">{installCommand}</code><ScrollBar orientation="horizontal" /></ScrollArea>
+                            <button className="shrink-0 rounded p-1 text-muted-foreground hover:bg-background hover:text-foreground" title={t.btn_copy} type="button" onClick={async (event) => { event.preventDefault(); await navigator.clipboard.writeText(installCommand); setCopiedInstall(true); window.setTimeout(() => setCopiedInstall(false), 2_000); }}>
+                              {copiedInstall ? <IconCheck className="size-3.5 text-emerald-500" /> : <IconCopy className="size-3.5" />}
+                            </button>
+                          </span>
+                        ) : null}
                       </span>
-                      <span className="mt-0.5 block text-xs text-muted-foreground">{environment === "staging" ? t.staging_desc : t.remote_desc}</span>
-                    </span>
-                  </label>
-                  {settings.storageMode === "cloud" && explicitLegalConsent ? (
-                    <div className="ml-4 rounded-lg border bg-muted/40 p-3">
-                      <label className="flex cursor-pointer items-start gap-2 text-xs">
-                        <input checked={legalAccepted} className="mt-0.5 accent-primary" disabled={!legalBundle} type="checkbox" onChange={(event) => setLegalAccepted(event.target.checked)} />
-                        <span>{t.legal_acceptance_label}</span>
+                      {installPlatform === "other" ? null : <Button className="h-7 shrink-0 self-center text-xs" render={<a href={desktopInstallUrl} rel="noopener noreferrer" target="_blank" />} size="sm" variant="outline" onClick={(event) => event.stopPropagation()}>{t.btn_download_macos}<IconExternalLink data-icon="inline-end" /></Button>}
+                    </label>
+                    <div className="overflow-hidden rounded-lg border">
+                      <label className="flex cursor-pointer items-start gap-2 px-3 py-2 hover:bg-muted/50">
+                        <input checked={settings.storageMode === "cloud"} className="mt-0.5 accent-primary" name="storageMode" type="radio" onChange={() => setSettings((current) => ({ ...current, storageMode: "cloud" }))} />
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-center gap-2 text-xs font-semibold">
+                            {environment === "staging" ? t.staging_title : t.remote_title}
+                          </span>
+                          <span className="mt-0.5 block text-xs text-muted-foreground">{environment === "staging" ? t.staging_desc : t.remote_desc}</span>
+                        </span>
                       </label>
-                      {legalBundle ? (
-                        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 pl-5 text-xs">
-                          <a className="external-link text-primary underline underline-offset-4" href={`${(settings.cloudUrl || DEFAULT_SETTINGS.cloudUrl).replace(/\/+$/, "")}${legalBundle.termsUrl}`} rel="noopener noreferrer" target="_blank">{t.legal_terms}</a>
-                          <a className="external-link text-primary underline underline-offset-4" href={`${(settings.cloudUrl || DEFAULT_SETTINGS.cloudUrl).replace(/\/+$/, "")}${legalBundle.privacyUrl}`} rel="noopener noreferrer" target="_blank">{t.legal_privacy}</a>
-                          <a className="external-link text-primary underline underline-offset-4" href={`${(settings.cloudUrl || DEFAULT_SETTINGS.cloudUrl).replace(/\/+$/, "")}${legalBundle.acceptableUseUrl}`} rel="noopener noreferrer" target="_blank">{t.legal_acceptable_use}</a>
-                          <span className="text-muted-foreground">v{legalBundle.version}</span>
-                        </div>
-                      ) : null}
-                      {legalError ? <p className="mt-2 pl-5 text-xs text-destructive">{t.legal_acceptance_required}</p> : null}
-                    </div>
-                  ) : null}
-                  </div>
-                </section>
-                {voiceAvailable ? <>
-                  <Separator />
-                  <section className="flex flex-col">
-                    <span className={SECTION_HEADER}>{t.voice_settings_title}</span>
-                    <p className={SECTION_DESC}>{t.voice_settings_desc}</p>
-                    <SettingRow size="xs" description={t.voice_post_processing_desc} title={t.voice_post_processing_label}>
-                      <Switch
-                        aria-label={t.voice_post_processing_label}
-                        checked={settings.voicePostProcessing}
-                        onCheckedChange={(value) => setSettings((current) => ({ ...current, voicePostProcessing: value }))}
-                      />
-                    </SettingRow>
-                  </section>
-                </> : null}
-                <Separator />
-                <section className="flex flex-col">
-                  <span className={SECTION_HEADER}>{t.storage_status_title}</span>
-                  <p className={SECTION_DESC}>{t.storage_status_title_desc}</p>
-                  <div className="flex flex-col gap-2.5">
-                  <StorageStatusPanel mode={settings.storageMode} t={t} />
-                  <div className={cn(settings.storageMode !== "cloud" && "opacity-50")}>
-                    <SettingRow size="xs" description={t.history_desc} title={t.history_label}>
-                      <Switch aria-label={t.history_label} checked={settings.storageMode === "cloud" ? settings.enableHistory : true} disabled={settings.storageMode !== "cloud"} onCheckedChange={(value) => setSettings((current) => ({ ...current, enableHistory: value }))} />
-                    </SettingRow>
-                  </div>
-                  </div>
-                </section>
-                <Separator />
-                <section className="flex flex-col">
-                  <span className={SECTION_HEADER}>{t.capture_destination_label}</span>
-                  <p className={SECTION_DESC}>{t.capture_destination_desc}</p>
-                  <Card className="gap-3 overflow-visible rounded-none py-0 ring-0" size="sm">
-                    <CardContent className="grid gap-3 px-0 sm:grid-cols-2">
-                      <label className="flex min-w-0 flex-col gap-1.5">
-                        <span className="text-xs font-semibold">{t.project_label}</span>
-                        <Combobox autoHighlight disabled={destinationLoading || !destinationProjects.length} itemToStringLabel={(projectId) => destinationProjects.find((project) => project.id === String(projectId))?.name ?? DEFAULT_PROJECT_OPTION.label} itemToStringValue={(projectId) => String(projectId)} items={destinationProjectIds} value={destinationProjectId || DEFAULT_PROJECT_OPTION.value} onValueChange={(value) => changeDestinationProject(String(value ?? ""))}>
-                          <ComboboxInput aria-label={t.project_label} className="w-full" placeholder={destinationLoading ? "…" : t.project_label} />
-                          <ComboboxContent><ComboboxEmpty>{t.no_projects_found}</ComboboxEmpty><ComboboxList>{(projectId) => { const project = destinationProjects.find((item) => item.id === String(projectId)); return project ? <ComboboxItem disabled={!project.collections.length} key={project.id} value={project.id}>{project.name}</ComboboxItem> : null; }}</ComboboxList></ComboboxContent>
-                        </Combobox>
-                      </label>
-                      <label className="flex min-w-0 flex-col gap-1.5">
-                        <span className="text-xs font-semibold">{t.collection_label}</span>
-                        <Combobox
-                          autoHighlight
-                          disabled={destinationLoading || !destinationCollections.length}
-                          itemToStringLabel={(collectionId) => destinationCollections.find((collection) => collection.id === String(collectionId))?.name ?? DEFAULT_COLLECTION_OPTION.label}
-                          itemToStringValue={(collectionId) => String(collectionId)}
-                          items={destinationCollectionIds}
-                          value={selectedDestinationCollectionId}
-                          onValueChange={(value) => {
-                            const collectionId = String(value ?? "");
-                            if (destinationCollections.some((collection) => collection.id === collectionId)) {
-                              void saveCaptureDestination(collectionId);
-                            }
-                          }}
-                        >
-                          <ComboboxInput aria-label={t.collection_label} className="w-full" placeholder={destinationLoading ? "…" : t.collection_label} />
-                          <ComboboxContent>
-                            <ComboboxEmpty>{t.no_collections_found}</ComboboxEmpty>
-                            <ComboboxList>
-                              {(collectionId) => {
-                                const entry = destinationCollectionTree.find(({ collection }) => collection.id === String(collectionId));
-                                return entry ? (
-                                  <ComboboxItem key={entry.collection.id} value={entry.collection.id}>
-                                    <span
-                                      className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden"
-                                      style={{ paddingInlineStart: `${entry.depth * 16}px` }}
-                                    >
-                                      {entry.collection.isProtected ? <IconInbox /> : <IconFolder />}
-                                      <span className="min-w-0 flex-1 truncate">{entry.collection.name}</span>
-                                    </span>
-                                  </ComboboxItem>
-                                ) : (
-                                  <ComboboxItem disabled key={String(collectionId)} value={String(collectionId)}>
-                                    <IconInbox />
-                                    Inbox
-                                  </ComboboxItem>
-                                );
-                              }}
-                            </ComboboxList>
-                          </ComboboxContent>
-                        </Combobox>
-                      </label>
-                      {destinationError && <p className="text-xs text-destructive sm:col-span-2">{destinationError}</p>}
-                    </CardContent>
-                  </Card>
-                </section>
-              </TabsContent>
-
-              <TabsContent className="flex flex-col gap-5" value="account">
+                      {settings.storageMode === "cloud" ? (
+                        <div className="flex flex-col gap-4 border-t p-3">
+                          <SettingRow size="xs" description={t.history_desc} title={t.history_label}>
+                            <Switch aria-label={t.history_label} checked={settings.enableHistory} onCheckedChange={(value) => setSettings((current) => ({ ...current, enableHistory: value }))} />
+                          </SettingRow>
+                          <Separator />
                     {!authReady ? <p className="text-xs text-muted-foreground">…</p> : authSession?.kind === "account" ? (
                       <section className="flex flex-col">
                         <span className={SECTION_HEADER}>{t.account_title}</span>
@@ -908,9 +542,6 @@ export function OptionsApp() {
                             <p className="mt-1 text-xs capitalize text-muted-foreground">{authSession.plan}</p>
                           </div>
                           <div className="flex shrink-0 items-center gap-2">
-                            {authSession.plan === "pro" ? (
-                              <Button size="sm" type="button" variant="outline" onClick={() => void openBilling()}>{t.btn_manage_sub}</Button>
-                            ) : null}
                             <Button disabled={logoutLoading} size="sm" type="button" variant="outline" onClick={() => void logout()}>
                               <IconLogOut data-icon="inline-start" />
                               {t.btn_sign_out}
@@ -919,32 +550,46 @@ export function OptionsApp() {
                         </div>
                       </section>
                     ) : (
-                      <>
                         <section aria-labelledby="account-email-title" className="flex flex-col">
                           <span className={SECTION_HEADER} id="account-email-title">{t.account_email_title}</span>
                           <p className={SECTION_DESC}>{emailCodeRequested ? t.account_email_sent : t.account_email_description}</p>
                           <div className="flex flex-col gap-2.5">
-                          {!emailCodeRequested ? (
-                            <form className="flex gap-2" onSubmit={requestEmailCode}><Input autoComplete="email" placeholder="you@example.com" required type="email" value={email} onChange={(event) => setEmail(event.target.value)} /><Button aria-busy={emailCodeRequestLoading || undefined} disabled={emailCodeRequestLoading} type="submit" variant="outline">{emailCodeRequestLoading ? <IconLoaderCircle className="animate-spin" data-icon="inline-start" /> : <IconMail data-icon="inline-start" />}{t.btn_send_code}</Button></form>
-                          ) : (
-                            <form className="space-y-2" onSubmit={verifyEmailCode}>
-                              <label className="block text-xs font-semibold" htmlFor="account-email-code">{t.account_email_code_label}</label>
-                              <div className="flex gap-2">
-                                <Input autoComplete="one-time-code" id="account-email-code" inputMode="numeric" maxLength={6} pattern="[0-9]{6}" placeholder="000000" required value={emailCode} onChange={(event) => setEmailCode(event.target.value.replace(/\D/g, ""))} />
-                                <Button className="shrink-0" disabled={emailCodeVerificationLoading} type="button" variant="outline" onClick={() => { setEmailCode(""); setEmailCodeRequested(false); }}>{t.btn_cancel}</Button>
-                                <Button aria-busy={emailCodeVerificationLoading || undefined} className="shrink-0" disabled={emailCodeVerificationLoading || emailCode.length !== 6} type="submit">{emailCodeVerificationLoading ? <IconLoaderCircle className="animate-spin" data-icon="inline-start" /> : <IconCheck data-icon="inline-start" />}{t.btn_verify_code}</Button>
-                              </div>
-                            </form>
-                          )}
-                          <div aria-label={t.account_subscription_prompt_title} className="flex items-center justify-between gap-3 rounded-lg bg-muted/60 p-3" role="group">
-                            <div className="min-w-0"><p className="text-xs font-semibold">{t.account_subscription_prompt_title}</p><p className="mt-0.5 text-xs text-muted-foreground">{t.account_subscription_prompt_description}</p></div>
-                            <Button className="shrink-0" render={<a href={hostedPricingUrl(settings.cloudUrl, lang)} rel="noopener noreferrer" target="_blank" />} variant="pro"><IconSparkles data-icon="inline-start" />{t.btn_upgrade_pro}</Button>
-                          </div>
+                            {!emailCodeRequested ? (
+                              <form className="flex gap-2" onSubmit={requestEmailCode}><Input autoComplete="email" className="h-8 text-xs" placeholder="you@example.com" required type="email" value={email} onChange={(event) => setEmail(event.target.value)} /><Button aria-busy={emailCodeRequestLoading || undefined} className="h-8 shrink-0 text-xs" disabled={emailCodeRequestLoading} size="sm" type="submit" variant="outline">{emailCodeRequestLoading ? <IconLoaderCircle className="animate-spin" data-icon="inline-start" /> : <IconMail data-icon="inline-start" />}{t.btn_send_code}</Button></form>
+                            ) : (
+                              <form className="space-y-2" onSubmit={verifyEmailCode}>
+                                <label className="block text-xs font-semibold" htmlFor="account-email-code">{t.account_email_code_label}</label>
+                                <div className="flex gap-2">
+                                  <Input autoComplete="one-time-code" className="h-8 text-xs" id="account-email-code" inputMode="numeric" maxLength={6} pattern="[0-9]{6}" placeholder="000000" required value={emailCode} onChange={(event) => setEmailCode(event.target.value.replace(/\D/g, ""))} />
+                                  <Button className="h-8 shrink-0 text-xs" disabled={emailCodeVerificationLoading} size="sm" type="button" variant="outline" onClick={() => { setEmailCode(""); setEmailCodeRequested(false); }}>{t.btn_cancel}</Button>
+                                  <Button aria-busy={emailCodeVerificationLoading || undefined} className="h-8 shrink-0 text-xs" disabled={emailCodeVerificationLoading || emailCode.length !== 6} size="sm" type="submit">{emailCodeVerificationLoading ? <IconLoaderCircle className="animate-spin" data-icon="inline-start" /> : <IconCheck data-icon="inline-start" />}{t.btn_verify_code}</Button>
+                                </div>
+                              </form>
+                            )}
+                            <a className="w-fit text-xs text-primary underline underline-offset-4" href={hostedSignInUrl(settings.cloudUrl, lang)} rel="noopener noreferrer" target="_blank">{t.account_create_on_web}<IconExternalLink className="ml-1 inline size-3" /></a>
                           </div>
                         </section>
-                      </>
                     )}
-                    {authError && <p className="text-xs font-medium text-destructive" role="alert">{authError}</p>}
+                          {authError && <p className="text-xs font-medium text-destructive" role="alert">{authError}</p>}
+                          {voiceAvailable ? <>
+                            <Separator />
+                            <section className="flex flex-col">
+                              <span className={SECTION_HEADER}>{t.voice_settings_title}</span>
+                              <p className={SECTION_DESC}>{t.voice_settings_desc}</p>
+                              <SettingRow size="xs" description={t.voice_post_processing_desc} title={t.voice_post_processing_label}>
+                                <Switch
+                                  aria-label={t.voice_post_processing_label}
+                                  checked={settings.voicePostProcessing}
+                                  onCheckedChange={(value) => setSettings((current) => ({ ...current, voicePostProcessing: value }))}
+                                />
+                              </SettingRow>
+                            </section>
+                          </> : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </section>
               </TabsContent>
 
               <TabsContent className="flex flex-col gap-5" value="preferences">
@@ -1001,7 +646,7 @@ export function OptionsApp() {
             </Tabs>
 
             <footer className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex gap-2"><Button aria-busy={settingsSaving || undefined} className="h-8 text-xs" disabled={settingsSaving || !hasUnsavedChanges || (settings.storageMode === "cloud" && explicitLegalConsent && (!legalBundle || !legalAccepted))} size="sm" onClick={() => void saveSettings()}>{settingsSaving ? <IconLoaderCircle className="size-3.5 animate-spin" /> : <IconSave className="size-3.5" />}{t.btn_save}</Button><Button className="h-8 text-xs" size="sm" variant="outline" onClick={() => void openApp()}>{t.btn_open_app}<IconExternalLink data-icon="inline-end" /></Button></div>
+              <div className="flex gap-2"><Button aria-busy={settingsSaving || undefined} className="h-8 text-xs" disabled={settingsSaving || !hasUnsavedChanges} size="sm" onClick={() => void saveSettings()}>{settingsSaving ? <IconLoaderCircle className="size-3.5 animate-spin" /> : <IconSave className="size-3.5" />}{t.btn_save}</Button><Button className="h-8 text-xs" size="sm" variant="outline" onClick={() => void openApp()}>{t.btn_open_app}<IconExternalLink data-icon="inline-end" /></Button></div>
               <div className="flex gap-2"><Button className="h-8 text-xs" render={<a href="https://buymeacoffee.com/djalmajr" rel="noopener noreferrer" target="_blank" />} size="sm" variant="coffee"><IconCoffee />{t.btn_coffee}</Button><Button className="h-8 text-xs" render={<a href="https://github.com/sponsors/djalmajr" rel="noopener noreferrer" target="_blank" />} size="sm" variant="sponsor"><IconHeart className="fill-current" />{t.btn_sponsor}</Button></div>
             </footer>
           </div>

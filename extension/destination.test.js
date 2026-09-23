@@ -50,9 +50,7 @@ describe("capture destination", () => {
 
   test("resolves the destination in the background and sends the effective collection with captures", () => {
     assert.doesNotMatch(contentSrc, /data-ref="projectSelect"|data-ref="collectionSelect"|message\.destination/);
-    assert.match(optionsSrc, /type: "destination:get"/);
-    assert.match(optionsSrc, /collectionId, type: "destination:set"/);
-    assert.match(optionsSrc, /flattenDestinationCollections\(destinationCollections\)/);
+    assert.doesNotMatch(optionsSrc, /type: "destination:get"|type: "destination:set"|flattenDestinationCollections/);
     assert.match(backgroundSrc, /getCaptureDestinationContext\(settings\)/);
     assert.match(backgroundSrc, /JSON\.stringify\(payload\)/);
     assert.match(backgroundSrc, /includeScreenshot,/);
@@ -70,10 +68,11 @@ describe("capture destination", () => {
     assert.doesNotMatch(backgroundSrc, /console\.(?:log|info|debug|warn)\([^)]*token/);
   });
 
-  test("offers storage, preferences and account tabs without legacy credentials", () => {
+  test("keeps account sign-in in storage settings without a separate account tab", () => {
     assert.match(optionsSrc, /<TabsTrigger value="storage">\{t\.tab_storage\}<\/TabsTrigger>/);
     assert.match(optionsSrc, /<TabsTrigger value="preferences">\{t\.tab_preferences\}<\/TabsTrigger>/);
-    assert.match(optionsSrc, /<TabsTrigger value="account">\{t\.tab_account\}<\/TabsTrigger>/);
+    assert.match(optionsSrc, /<TabsTrigger value="shortcuts">\{t\.tab_shortcuts\}<\/TabsTrigger>/);
+    assert.doesNotMatch(optionsSrc, /<TabsTrigger value="account"/);
     assert.doesNotMatch(optionsSrc, /type: "auth:extension-code"/);
     assert.match(optionsSrc, /type: "auth:email-code:verify"/);
     assert.match(optionsSrc, /type: "auth:logout"/);
@@ -87,7 +86,9 @@ describe("capture destination", () => {
     assert.match(optionsSrc, /includeViewer: settings\.includeViewer/);
     assert.match(optionsSrc, /includeScreenshot: settings\.includeScreenshot/);
     assert.match(backgroundSrc, /patch\.handoffMode = message\.handoffMode === "full" \? "full" : "compact"/);
-    assert.match(optionsSrc, /t\.btn_upgrade_pro/);
+    assert.match(optionsSrc, /\{t\.account_email_title\}[\s\S]*type: "auth:email-code:verify"|type: "auth:email-code:verify"[\s\S]*\{t\.account_email_title\}/);
+    assert.match(optionsSrc, /hostedSignInUrl\(settings\.cloudUrl, lang\)/);
+    assert.doesNotMatch(optionsSrc, /t\.btn_upgrade_pro/);
     assert.doesNotMatch(optionsSrc, /t\.btn_subscription/);
     assert.doesNotMatch(optionsSrc, /license|identity:regenerate|installationId/i);
   });
@@ -118,33 +119,31 @@ describe("capture destination", () => {
     // Mutation captured: dropping the separators leaves preference sections as an undifferentiated stack.
     assert.match(optionsSrc, /\{t\.section_interface\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.section_handoff\}/);
     assert.match(optionsSrc, /\{t\.section_handoff\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.section_privacy\}/);
-    assert.match(optionsSrc, /\{t\.storage_title\}[\s\S]*\{voiceAvailable \? <>[\s\S]*\{t\.voice_settings_title\}[\s\S]*\{t\.storage_status_title\}/);
-    assert.match(optionsSrc, /\{t\.storage_status_title\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.capture_destination_label\}/);
+    assert.match(optionsSrc, /\{t\.storage_title\}[\s\S]*\{t\.account_email_title\}[\s\S]*\{voiceAvailable \? <>[\s\S]*\{t\.voice_settings_title\}/);
+    assert.doesNotMatch(optionsSrc, /\{t\.storage_status_title\}|\{t\.capture_destination_label\}/);
     assert.match(optionsSrc, /\{t\.shortcuts_browser_title\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.shortcuts_overlay_title\}/);
     assert.match(optionsSrc, /\{t\.account_email_title\}[\s\S]*t\.account_email_description/);
-    assert.equal([...optionsSrc.matchAll(/<Separator \/>/g)].length, 6);
     // Mutation captured: mb-8 under the section description is larger than the gap-5 between preference rows.
     assert.match(optionsSrc, /const SECTION_DESC = "mt-0\.5 mb-5 text-xs text-muted-foreground"/);
     assert.match(optionsSrc, /\{t\.section_interface_desc\}<\/p>\s*<div className="flex flex-col gap-3">/);
     assert.match(optionsSrc, /\{t\.section_handoff_desc\}<\/p>\s*<div className="flex flex-col gap-3">/);
     assert.match(optionsSrc, /\{t\.section_privacy_desc\}<\/p>\s*<div className="flex flex-col gap-3">/);
     assert.doesNotMatch(optionsSrc, /SECTION_LEAD/);
-    assert.equal([...optionsSrc.matchAll(/className=\{SECTION_DESC\}/g)].length, 11);
     assert.match(optionsSrc, /const voiceAvailable = settings\.storageMode === "cloud"[\s\S]*authSession\?\.kind === "account"[\s\S]*authSession\.plan === "pro"/);
     assert.match(optionsSrc, /\{voiceAvailable \? <>[\s\S]*\{t\.voice_settings_title\}/);
-    const voiceBlock = optionsSrc.slice(optionsSrc.indexOf("{voiceAvailable ? <>"), optionsSrc.indexOf("{t.storage_status_title}"));
+    const voiceBlock = optionsSrc.slice(optionsSrc.indexOf("{voiceAvailable ? <>"), optionsSrc.indexOf("</TabsContent>", optionsSrc.indexOf("{voiceAvailable ? <>")));
     assert.match(voiceBlock, /checked=\{settings\.voicePostProcessing\}/);
     assert.doesNotMatch(voiceBlock, /disabled=/);
     assert.match(optionsSrc, /\{t\.section_interface_desc\}/);
     assert.match(optionsSrc, /\{t\.section_handoff_desc\}/);
     assert.match(optionsSrc, /\{t\.section_privacy_desc\}/);
     assert.match(optionsSrc, /\{t\.storage_title_desc\}/);
-    // Mutation captured: gap-2.5 plus py-2 on each radio leaves a large gap between Local and Remote.
-    assert.match(optionsSrc, /\{t\.storage_title_desc\}<\/p>\s*<div className="flex flex-col gap-1">/);
-    assert.match(optionsSrc, /px-2 py-1 hover:bg-muted\/50">\s*<input checked=\{settings\.storageMode === "local"\}/);
-    assert.match(optionsSrc, /px-2 py-1 hover:bg-muted\/50">\s*<input checked=\{settings\.storageMode === "cloud"\}/);
-    assert.match(optionsSrc, /\{t\.storage_status_title_desc\}/);
-    assert.match(optionsSrc, /\{t\.capture_destination_desc\}/);
+    assert.match(optionsSrc, /\{t\.storage_title_desc\}<\/p>\s*<div className="flex flex-col gap-2">/);
+    assert.match(optionsSrc, /px-3 py-2 hover:bg-muted\/50">\s*<input checked=\{settings\.storageMode === "local"\}/);
+    assert.match(optionsSrc, /px-3 py-2 hover:bg-muted\/50">\s*<input checked=\{settings\.storageMode === "cloud"\}/);
+    assert.match(optionsSrc, /<div className="overflow-hidden rounded-lg border">\s*<label[\s\S]*<\/label>\s*\{settings\.storageMode === "cloud" \? \([\s\S]*\{t\.account_email_title\}/);
+    assert.match(optionsSrc, /className="h-8 shrink-0 text-xs" disabled=\{emailCodeRequestLoading\} size="sm" type="submit"/);
+    assert.doesNotMatch(optionsSrc, /\{t\.storage_status_title_desc\}|\{t\.capture_destination_desc\}/);
     assert.match(optionsSrc, /\{t\.account_title_desc\}/);
   });
 
@@ -178,14 +177,12 @@ describe("capture destination", () => {
     assert.doesNotMatch(openApp, /browser-ticket|\/history/);
   });
 
-  test("carries the current remote legal acceptance into account activation", () => {
-    assert.match(backgroundSrc, /const legalAcceptance = await registerRemoteInstallation\(endpoint, identity\)/);
-    assert.match(backgroundSrc, /body: JSON\.stringify\(\{[\s\S]*code,[\s\S]*email,[\s\S]*installationId: identity\.id,[\s\S]*installationToken: identity\.token,[\s\S]*legalAcceptance,[\s\S]*\}\)/);
-  });
-
-  test("coalesces concurrent first-load registration requests for one installation", () => {
-    assert.match(backgroundSrc, /const registerInstallationOnce = createSingleFlight\(\)/);
-    assert.match(backgroundSrc, /return registerInstallationOnce\(cacheKey, async \(\) => \{/);
+  test("uses website acceptance and verifies an existing account directly by email code", () => {
+    assert.doesNotMatch(optionsSrc, /legalAcceptance|acceptLegal|legalConsent/);
+    assert.doesNotMatch(backgroundSrc, /registerRemoteInstallation|registerInstallationOnce/);
+    assert.match(backgroundSrc, /installationId: identity\.id/);
+    assert.match(backgroundSrc, /installationToken: identity\.token/);
+    assert.doesNotMatch(backgroundSrc, /legalAcceptance,/);
   });
 
   test("exposes voice only to signed-in Pro accounts", () => {

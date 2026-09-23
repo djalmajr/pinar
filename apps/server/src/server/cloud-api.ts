@@ -187,6 +187,7 @@ interface MemoryBatch {
 }
 
 interface InstallationRecord {
+  migratedToUserId?: string;
   status: "active" | "migrated" | "revoked";
   tokenHash: string;
 }
@@ -2406,23 +2407,61 @@ async function claimEmailChallenge(env: CloudEnv, challenge: EmailChallengeRecor
   return true;
 }
 
-async function verifyInstallationCredentials(
+async function prepareInstallationForAccountLogin(
   env: CloudEnv,
+  account: AccountRecord,
   installationId: string,
   installationToken: string,
-) {
-  if (!INSTALLATION_ID_PATTERN.test(installationId) || !INSTALLATION_TOKEN_PATTERN.test(installationToken)) {
-    return false;
-  }
+): Promise<"active" | "migrated" | null> {
+  if (!INSTALLATION_ID_PATTERN.test(installationId) || !INSTALLATION_TOKEN_PATTERN.test(installationToken)) return null;
   const tokenHash = await hashCredential(installationToken);
   if (env.DB) {
-    const installation = await env.DB.prepare(
-      "SELECT id FROM installations WHERE id = ? AND token_hash = ? AND status = 'active'",
-    ).bind(installationId, tokenHash).first();
-    return Boolean(installation);
+    const existing = await env.DB.prepare(
+      "SELECT token_hash, status, migrated_to_user_id FROM installations WHERE id = ?",
+    ).bind(installationId).first();
+    if (existing) {
+      if (existing.token_hash !== tokenHash) return null;
+      if (existing.status === "active") return "active";
+      return existing.status === "migrated" && existing.migrated_to_user_id === account.id ? "migrated" : null;
+    }
+    const now = currentDate().toISOString();
+    try {
+      await env.DB.prepare(
+        "INSERT INTO installations (id, token_hash, status, created_at, updated_at, last_seen_at) VALUES (?, ?, 'active', ?, ?, ?)",
+      ).bind(installationId, tokenHash, now, now, now).run();
+    } catch {
+      return null;
+    }
+    return "active";
   }
-  const installation = memoryInstallations.get(installationId);
-  return installation?.status === "active" && installation.tokenHash === tokenHash;
+  const existing = memoryInstallations.get(installationId);
+  if (existing) {
+    if (existing.tokenHash !== tokenHash) return null;
+    if (existing.status === "active") return "active";
+    return existing.status === "migrated" && existing.migratedToUserId === account.id ? "migrated" : null;
+  }
+  memoryInstallations.set(installationId, { status: "active", tokenHash });
+  return "active";
+}
+
+async function issueAccountDeviceSession(env: CloudEnv, account: AccountRecord, installationId: string) {
+  const token = randomCredential("pdt_");
+  const tokenHash = await hashCredential(token);
+  const now = currentDate();
+  const nowIso = now.toISOString();
+  const expiresAt = new Date(now.getTime() + 180 * 24 * 60 * 60 * 1000).toISOString();
+  if (env.DB) {
+    try {
+      await env.DB.prepare(
+        "INSERT INTO device_sessions (id, token_hash, user_id, installation_id, expires_at, revoked_at, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)",
+      ).bind("dev_" + generateNanoId(24), tokenHash, account.id, installationId, expiresAt, nowIso, nowIso).run();
+    } catch {
+      return null;
+    }
+  } else {
+    memoryDeviceSessions.set(tokenHash, { expiresAt, installationId, revokedAt: null, userId: account.id });
+  }
+  return { expiresAt, session: accountAuthSession(account), token };
 }
 
 async function migrateInstallationToAccount(
@@ -2564,7 +2603,10 @@ async function migrateInstallationToAccount(
     memoryProjects.delete(source.projectId);
     await moveAiCreditsToAccount(env, installationId, account.id);
     const installation = memoryInstallations.get(installationId);
-    if (installation) installation.status = "migrated";
+    if (installation) {
+      installation.status = "migrated";
+      installation.migratedToUserId = account.id;
+    }
     for (const session of memoryWebSessions.values()) {
       if (session.ownerType === "installation" && session.ownerId === installationId) {
         session.revokedAt = nowIso;
@@ -2619,10 +2661,8 @@ async function verifyEmailCode(request: Request, env: CloudEnv) {
 
   const installationId = stringValue(body, "installationId");
   const installationToken = stringValue(body, "installationToken");
-  if ((installationId || installationToken)
-    && !await verifyInstallationCredentials(env, installationId, installationToken)) {
-    return invalid();
-  }
+  const extensionLogin = Boolean(installationId || installationToken);
+  if (extensionLogin && (!INSTALLATION_ID_PATTERN.test(installationId) || !INSTALLATION_TOKEN_PATTERN.test(installationToken))) return invalid();
 
   const currentAcceptance = account
     ? await latestLegalAcceptance(env, principalForAccount(account))
@@ -2633,9 +2673,16 @@ async function verifyEmailCode(request: Request, env: CloudEnv) {
       ? `account:${account.id}:${CURRENT_LEGAL_VERSION}`
       : `signup:${challenge.id}:${CURRENT_LEGAL_VERSION}`,
   );
+  if (extensionLogin && !account) {
+    return json({ code: "account_registration_required", error: "Create an account on the Pinar website before signing in to the extension" }, 403);
+  }
   if (requiresLegalAcceptance(env) && !isCurrentLegalAcceptance(currentAcceptance)) {
     if (!evidence) return legalAcceptanceRequiredResponse(428);
   }
+  const installationState = extensionLogin && account
+    ? await prepareInstallationForAccountLogin(env, account, installationId, installationToken)
+    : null;
+  if (extensionLogin && !installationState) return invalid();
 
   if (!await claimEmailChallenge(env, challenge)) return invalid();
   if (!account) {
@@ -2649,7 +2696,9 @@ async function verifyEmailCode(request: Request, env: CloudEnv) {
   }
 
   if (installationId || installationToken) {
-    const device = await migrateInstallationToAccount(env, account, installationId);
+    const device = installationState === "migrated"
+      ? await issueAccountDeviceSession(env, account, installationId)
+      : await migrateInstallationToAccount(env, account, installationId);
     return device
       ? json({ device, ok: true, session: device.session }, 200, { "Cache-Control": "no-store" })
       : json({ error: "Account migration failed" }, 409);

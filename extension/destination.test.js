@@ -144,8 +144,8 @@ describe("capture destination", () => {
     assert.match(optionsSrc, /px-3 py-2 hover:bg-muted\/50">\s*<input checked=\{settings\.storageMode === "cloud"\}/);
     assert.match(optionsSrc, /<div className="overflow-hidden rounded-lg border">\s*<label[\s\S]*<\/label>\s*\{settings\.storageMode === "cloud" \? \([\s\S]*\{t\.account_email_title\}/);
     assert.match(optionsSrc, /className="h-8 shrink-0 text-xs" disabled=\{emailCodeRequestLoading\} size="sm" type="submit"/);
-    assert.match(optionsSrc, /<form className="flex flex-wrap gap-2" onSubmit=\{requestEmailCode\}>[\s\S]*\{t\.btn_send_code\}[\s\S]*render=\{<a href=\{hostedSignInUrl\(settings\.cloudUrl, lang\)\}/);
-    assert.match(optionsSrc, /\{t\.account_create_on_web\}<IconExternalLink data-icon="inline-end" \/>/);
+    assert.match(optionsSrc, /\{environment === "staging" \? t\.staging_desc : t\.remote_desc\}<\/span>[\s\S]*render=\{<a href=\{hostedSignInUrl\(settings\.cloudUrl, lang\)\}[\s\S]*onClick=\{\(event\) => event\.stopPropagation\(\)\}>\{t\.account_create_on_web\}<IconExternalLink data-icon="inline-end" \/><\/Button>\s*<\/label>/);
+    assert.match(optionsSrc, /<form className="flex flex-wrap gap-2" onSubmit=\{requestEmailCode\}>[\s\S]*\{t\.btn_send_code\}<\/Button>\s*<\/form>/);
     assert.match(i18nSrc, /account_email_title: "Entrar com e-mail"/);
     assert.match(i18nSrc, /account_create_on_web: 'Criar conta'/);
     assert.doesNotMatch(optionsSrc, /\{t\.storage_status_title_desc\}|\{t\.capture_destination_desc\}/);

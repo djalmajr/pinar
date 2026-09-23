@@ -525,6 +525,7 @@ export function OptionsApp() {
                           </span>
                           <span className="mt-0.5 block text-xs text-muted-foreground">{environment === "staging" ? t.staging_desc : t.remote_desc}</span>
                         </span>
+                        <Button className="h-7 shrink-0 self-center text-xs" render={<a href={hostedSignInUrl(settings.cloudUrl, lang)} rel="noopener noreferrer" target="_blank" />} size="sm" variant="outline" onClick={(event) => event.stopPropagation()}>{t.account_create_on_web}<IconExternalLink data-icon="inline-end" /></Button>
                       </label>
                       {settings.storageMode === "cloud" ? (
                         <div className="flex flex-col gap-4 border-t p-3">
@@ -556,7 +557,6 @@ export function OptionsApp() {
                               <form className="flex flex-wrap gap-2" onSubmit={requestEmailCode}>
                                 <Input autoComplete="email" className="h-8 min-w-[11rem] flex-1 text-xs" id="account-email" placeholder="you@example.com" required type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
                                 <Button aria-busy={emailCodeRequestLoading || undefined} className="h-8 shrink-0 text-xs" disabled={emailCodeRequestLoading} size="sm" type="submit" variant="outline">{emailCodeRequestLoading ? <IconLoaderCircle className="animate-spin" data-icon="inline-start" /> : <IconMail data-icon="inline-start" />}{t.btn_send_code}</Button>
-                                <Button className="h-8 shrink-0 text-xs" render={<a href={hostedSignInUrl(settings.cloudUrl, lang)} rel="noopener noreferrer" target="_blank" />} size="sm" variant="outline">{t.account_create_on_web}<IconExternalLink data-icon="inline-end" /></Button>
                               </form>
                             </>
                           ) : (

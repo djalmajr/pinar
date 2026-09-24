@@ -21,6 +21,16 @@ const locale = {
     whatChanged: "Qué cambió",
   },
   releases: {
+    "v0.4.7": {
+      title: "Acceso a Cloud en los ajustes de la extensión",
+      summary: "La extensión accede a Pinar Cloud con un código enviado al correo de una cuenta creada en el sitio. Los ajustes se organizan en Preferencias y Captura.",
+      changes: {
+        "extension-cloud-account-settings": {
+          title: "Acceso por correo y ajustes más claros",
+          description: "Crea una cuenta en pinar.dev y después solicita un código por correo en los ajustes de Servidor remoto de la extensión. La aceptación legal se realiza en el sitio. Preferencias reúne almacenamiento, idioma y tema; Captura reúne la entrega al agente y la privacidad.",
+        },
+      },
+    },
     "v0.4.6": {
       title: "Acceso por correo y Pro más claros",
       summary: "La verificación por correo tiene un aviso legal más sencillo. Las cuentas con Pro concedido reciben las cuotas normales del plan.",

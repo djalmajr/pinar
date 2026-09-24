@@ -516,10 +516,10 @@ async function syncActionMenu(state) {
   }
   await menuItem(OPEN_PANEL_MENU_ID, { contexts, title: messages.context_open_panel });
   await menuItem(BATCH_MENU_ID, { contexts, title: messages.batch_finish, enabled: active });
-  // Always shown so the menu matches chrome://extensions/shortcuts 1:1.
-  // visible: true also unhides the item for installs that previously hid it
-  // while no batch was running (update() keeps omitted properties).
-  await menuItem(CANCEL_BATCH_MENU_ID, { contexts, title: messages.batch_close_menu, visible: true });
+  // Keep the command visible to match chrome://extensions/shortcuts, but only
+  // allow cancelling while a session is active. visible: true also unhides the
+  // item for installs that previously hid it (update() keeps omitted properties).
+  await menuItem(CANCEL_BATCH_MENU_ID, { contexts, title: messages.batch_close_menu, enabled: active, visible: true });
 }
 
 chrome.contextMenus?.onClicked.addListener((info) => {

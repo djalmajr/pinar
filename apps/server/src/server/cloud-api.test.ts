@@ -976,7 +976,12 @@ describe("remote installation isolation", () => {
 
     const email = "free@studio.example";
     await requestEmailCode(email, env);
-    const verified = await verifyEmailCode(email, mail.codes[0], env, identityA);
+    const unregistered = await verifyEmailCode(email, mail.codes[0], env, identityB, false);
+    assert.equal(unregistered.status, 403);
+    assert.equal((await jsonBody(unregistered)).code, "account_registration_required");
+    assert.equal((await verifyEmailCode(email, mail.codes[0], env)).status, 200);
+    await requestEmailCode(email, env);
+    const verified = await verifyEmailCode(email, mail.codes.at(-1) || "", env, identityB, false);
     assert.equal(verified.status, 200);
     const body = await jsonBody(verified);
     assert.ok(isRecord(body.session));
@@ -997,6 +1002,11 @@ describe("remote installation isolation", () => {
       },
       method: "POST",
     }, env)).status, 201);
+
+    await requestEmailCode(email, env);
+    const repeated = await verifyEmailCode(email, mail.codes.at(-1) || "", env, identityB, false);
+    assert.equal(repeated.status, 200);
+    assert.ok(isRecord((await jsonBody(repeated)).device));
   });
 
   test("requires current policies on first activation and reuses acceptance on later logins", async () => {
@@ -1015,6 +1025,9 @@ describe("remote installation isolation", () => {
       version: CURRENT_LEGAL_VERSION,
     });
     assert.equal(required.headers.get("set-cookie"), null);
+    const extensionWithoutWebsiteAcceptance = await verifyEmailCode("owner@example.test", mail.codes[0], env, identityB, false);
+    assert.equal(extensionWithoutWebsiteAcceptance.status, 428);
+    assert.equal((await jsonBody(extensionWithoutWebsiteAcceptance)).code, "legal_acceptance_required");
 
     const response = await verifyEmailCode("owner@example.test", mail.codes[0], env);
     assert.equal(response.status, 200);
@@ -1026,6 +1039,9 @@ describe("remote installation isolation", () => {
     assert.equal(session.session.plan, "pro");
     assert.equal((await verifyEmailCode("owner@example.test", mail.codes[0], env)).status, 400);
 
+    await requestEmailCode("owner@example.test", env);
+    const extensionAfterWebsiteAcceptance = await verifyEmailCode("owner@example.test", mail.codes.at(-1) || "", env, identityB, false);
+    assert.equal(extensionAfterWebsiteAcceptance.status, 200);
     await requestEmailCode("owner@example.test", env);
     const laterLogin = await verifyEmailCode("owner@example.test", mail.codes.at(-1) || "", env, undefined, false);
     assert.equal(laterLogin.status, 200);

@@ -112,14 +112,14 @@ const locale = {
         "A saved session opens as one record regardless of page count, with all screenshots on the canvas and all annotations in the right panel.",
     },
     "extension-options": {
-      alt: "Pinar extension options on the Storage tab, with Local Server, Remote Server, and hosted-service legal acceptance.",
+      alt: "Pinar extension options on the Preferences tab, with local and remote storage choices plus language and theme controls.",
       caption:
-        "The Storage tab chooses a local or remote server and requires accepting Terms, Privacy, and Acceptable Use before cloud capture.",
+        "The Preferences tab chooses the storage destination and sets the language and appearance used across the extension.",
     },
     "extension-preferences": {
-      alt: "Pinar extension options on the Preferences tab, showing compact or full agent copy detail and the include-screenshot switch.",
+      alt: "Pinar extension options on the Capture tab, showing compact or full agent copy detail and the include-screenshot switch.",
       caption:
-        "Preferences sets compact or full handoff and whether the next copy includes a screenshot; Save writes those choices before the next copy.",
+        "Capture sets compact or full handoff and whether the next copy includes a screenshot; Save writes those choices before the next copy.",
     },
     "help-navigation": {
       alt: "Pinar help article with category navigation, related article links, structured sections, and on-page navigation.",
@@ -182,12 +182,12 @@ const locale = {
         "A successful finish confirms the result, closes the overlay, and leaves one correlated session bundle on the clipboard.",
     },
     "install-pinar": {
-      alt: "Pinar extension Storage tab with a Download Pinar button next to the Local Server option.",
+      alt: "Pinar extension Preferences tab with a Download Pinar button next to the Local Server option.",
       caption:
-        "The Storage tab offers the Pinar application download beside Local Server so the helper can start on this computer.",
+        "The Preferences tab offers the Pinar application download beside Local Server so the helper can start on this computer.",
     },
     "options-local": {
-      alt: "Pinar extension Storage tab with Local Server selected and captures staying on this computer.",
+      alt: "Pinar extension Preferences tab with Local Server selected and captures staying on this computer.",
       caption:
         "Local Server keeps history and screenshots on this computer and does not require hosted-service legal acceptance.",
     },
@@ -217,7 +217,7 @@ const locale = {
         "An unlisted project or collection link lets anyone with the URL copy the combined Markdown without signing in.",
     },
     "preferences-privacy": {
-      alt: "Pinar extension Preferences tab showing optional loop metrics and extra URL keys to hide.",
+      alt: "Pinar extension Capture tab showing optional loop metrics and extra URL keys to hide.",
       caption:
         "Privacy preferences add extra query keys to strip from captured URLs and keep loop metrics off until you opt in.",
     },

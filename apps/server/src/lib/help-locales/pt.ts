@@ -114,14 +114,14 @@ const locale = {
         "Uma sessão salva abre como um único registro, independentemente da quantidade de páginas, com todas as imagens e anotações juntas.",
     },
     "extension-options": {
-      alt: "Opções da extensão Pinar na aba Armazenamento, com Servidor Local, Servidor Remoto e aceite dos documentos legais do serviço hospedado.",
+      alt: "Opções da extensão Pinar na aba Preferências, com destinos local e remoto, idioma e tema.",
       caption:
-        "A aba Armazenamento escolhe um servidor local ou remoto e exige aceitar Termos, Privacidade e Uso Aceitável antes da captura na nuvem.",
+        "A aba Preferências reúne o destino de armazenamento, o idioma e a aparência usados na extensão.",
     },
     "extension-preferences": {
-      alt: "Opções da extensão Pinar na aba Preferências, com o detalhamento compacto ou completo da cópia para IA e o interruptor de incluir captura de tela.",
+      alt: "Opções da extensão Pinar na aba Captura, com o detalhamento compacto ou completo da cópia para IA e o interruptor de incluir captura de tela.",
       caption:
-        "A aba Preferências define entrega compacta ou completa e se a próxima cópia inclui screenshot; Salvar grava essas escolhas antes da próxima cópia.",
+        "A aba Captura define entrega compacta ou completa e se a próxima cópia inclui screenshot; Salvar grava essas escolhas antes da próxima cópia.",
     },
     "help-navigation": {
       alt: "Artigo de ajuda do Pinar com navegação por categorias, links de artigos relacionados, seções estruturadas e navegação na página.",
@@ -184,12 +184,12 @@ const locale = {
         "Uma conclusão bem-sucedida confirma o resultado, fecha a sobreposição e deixa um único pacote correlacionado na área de transferência.",
     },
     "install-pinar": {
-      alt: "Aba Armazenamento da extensão Pinar com o botão Baixar Pinar ao lado da opção Servidor Local.",
+      alt: "Aba Preferências da extensão Pinar com o botão Baixar Pinar ao lado da opção Servidor Local.",
       caption:
-        "A aba Armazenamento oferece o download da aplicação Pinar ao lado de Servidor Local para o auxiliar iniciar neste computador.",
+        "A aba Preferências oferece o download da aplicação Pinar ao lado de Servidor Local para o auxiliar iniciar neste computador.",
     },
     "options-local": {
-      alt: "Aba Armazenamento da extensão Pinar com Servidor Local selecionado e as capturas ficando neste computador.",
+      alt: "Aba Preferências da extensão Pinar com Servidor Local selecionado e as capturas ficando neste computador.",
       caption:
         "Servidor Local mantém histórico e screenshots neste computador e não exige aceite jurídico do serviço hospedado.",
     },
@@ -219,7 +219,7 @@ const locale = {
         "Um link não listado de projeto ou coleção deixa qualquer pessoa com a URL copiar o Markdown combinado sem entrar na conta.",
     },
     "preferences-privacy": {
-      alt: "Aba Preferências da extensão Pinar mostrando métricas opcionais do ciclo e chaves extras de URL para ocultar.",
+      alt: "Aba Captura da extensão Pinar mostrando métricas opcionais do ciclo e chaves extras de URL para ocultar.",
       caption:
         "As preferências de privacidade acrescentam chaves extras de query removidas das URLs capturadas e mantêm as métricas do ciclo desligadas até você optar.",
     },

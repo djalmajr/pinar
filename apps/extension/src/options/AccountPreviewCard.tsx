@@ -158,8 +158,8 @@ export function AccountPreviewCard({
 
       <Tabs className="gap-4" value="account" onValueChange={() => undefined}>
         <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="storage">{t.tab_storage}</TabsTrigger>
           <TabsTrigger value="preferences">{t.tab_preferences}</TabsTrigger>
+          <TabsTrigger value="capture">{t.tab_capture}</TabsTrigger>
           <TabsTrigger value="shortcuts">{t.tab_shortcuts}</TabsTrigger>
           <TabsTrigger value="account">{t.tab_account}</TabsTrigger>
         </TabsList>

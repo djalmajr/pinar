@@ -9,10 +9,9 @@ import {
 } from "./batch.js";
 import { CAPTURE_TILE_DELAY_MS, planFullPageCapture, shiftMaskRegions, shiftPinsToCapture } from "./full-page.js";
 import { collectionDestination, destinationKey, resolveDestinationPreference } from "./destination.js";
-import { requiresExplicitLegalConsent, resolveCloudUrl } from "./environment.js";
+import { resolveCloudUrl } from "./environment.js";
 import { formatClipboardPayload } from "./format.js";
 import { getBestLanguage, translations } from "./i18n.js";
-import { acceptedRemoteLegalAcceptance, parseLegalBundle } from "./legal-consent.js";
 import { getPinColor } from "./pin-colors.js";
 import { remoteProfileStorage } from "./remote-profile.js";
 import {
@@ -49,8 +48,6 @@ const tabPins = new Map();
 // Reproduction recordings live here so a navigation mid-recording keeps the
 // steps; content scripts are re-injected and told to carry on.
 const tabRecordings = new Map();
-const registeredInstallations = new Set();
-const registerInstallationOnce = createSingleFlight();
 const concludeReviewOnce = createSingleFlight();
 // Keeping the original command id preserves every shortcut a user already bound;
 // Chrome keys bindings by name, so renaming it to "toggle-batch" would drop them.
@@ -681,7 +678,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "auth:email-code:verify") {
     verifyAccountEmailCode(message.email, message.code)
       .then((session) => sendResponse({ ok: true, session }))
-      .catch((error) => sendResponse({ error: String(error), ok: false }));
+      .catch((error) => sendResponse({ code: error.code, error: String(error.message || error), ok: false }));
     return true;
   }
 
@@ -1600,43 +1597,6 @@ async function setCaptureDestination(collectionId) {
   return { ...context, destination };
 }
 
-function registerRemoteInstallation(endpoint, identity, force = false) {
-  const cacheKey = `${endpoint}:${identity.id}`;
-  return registerInstallationOnce(cacheKey, async () => {
-    let legalAcceptance = null;
-    if (requiresExplicitLegalConsent(chrome.runtime.getManifest(), endpoint)) {
-      const storage = remoteProfileStorage(chrome.storage.local, endpoint);
-      const [legalResponse, stored] = await Promise.all([
-        cloudFetch(`${endpoint}/api/legal/current`),
-        storage.get({ remoteLegalAcceptance: null }),
-      ]);
-      const legalBundle = parseLegalBundle(await legalResponse.json().catch(() => null));
-      legalAcceptance = acceptedRemoteLegalAcceptance(stored.remoteLegalAcceptance, legalBundle);
-      if (!legalResponse.ok || !legalBundle || !legalAcceptance) {
-        throw new Error("Accept the current Pinar Terms in the extension settings before using remote storage");
-      }
-    }
-    if (!force && registeredInstallations.has(cacheKey)) return legalAcceptance;
-    const response = await cloudFetch(`${endpoint}/api/installations`, {
-      body: JSON.stringify({
-        installationId: identity.id,
-        installationToken: identity.token,
-        ...(legalAcceptance ? { legalAcceptance } : {}),
-      }),
-      headers: { "content-type": "application/json" },
-      method: "POST",
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const error = new Error(body.error || "Remote installation registration failed");
-      error.status = response.status;
-      throw error;
-    }
-    registeredInstallations.add(cacheKey);
-    return legalAcceptance;
-  });
-}
-
 async function remoteFetch(endpoint, path, init = {}) {
   const storage = remoteProfileStorage(chrome.storage.local, endpoint);
   const deviceToken = await getDeviceToken(storage);
@@ -1815,24 +1775,23 @@ async function verifyAccountEmailCode(email, code) {
   const settings = await getSettings();
   const endpoint = cloudEndpoint(settings);
   const identity = await initializeInstallationIdentity(endpoint);
-  const legalAcceptance = await registerRemoteInstallation(endpoint, identity);
   const response = await cloudFetch(`${endpoint}/api/auth/email-codes/verify`, {
     body: JSON.stringify({
       code,
       email,
       installationId: identity.id,
       installationToken: identity.token,
-      legalAcceptance,
     }),
     headers: { "content-type": "application/json" },
     method: "POST",
   });
   const body = await responseBody(response);
   if (!response.ok || !body.device?.token || !body.session) {
-    throw new Error(body.error || "The code is invalid or expired");
+    const error = new Error(body.error || "The code is invalid or expired");
+    error.code = typeof body.code === "string" ? body.code : "account_code_invalid";
+    throw error;
   }
   await storeDeviceToken(remoteProfileStorage(chrome.storage.local, endpoint), body.device.token);
-  registeredInstallations.clear();
   return body.session;
 }
 

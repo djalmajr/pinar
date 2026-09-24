@@ -114,14 +114,14 @@ const locale = {
         "Eine gespeicherte Sitzung öffnet sich unabhängig von der Seitenzahl als ein Eintrag mit allen Bildern und Annotationen.",
     },
     "extension-options": {
-      alt: "Pinar-Erweiterungsoptionen auf dem Tab Speicher, mit Lokaler Server, Remote-Server und der rechtlichen Zustimmung zum gehosteten Dienst.",
+      alt: "Pinar-Erweiterungsoptionen auf dem Tab Einstellungen mit lokalem und Remote-Speicher, Sprache und Design.",
       caption:
-        "Der Tab Speicher wählt einen lokalen oder Remote-Server und verlangt die Annahme von Bedingungen, Datenschutz und Zulässiger Nutzung vor Cloud-Captures.",
+        "Der Tab Einstellungen vereint Speicherziel, Sprache und Erscheinungsbild der Erweiterung.",
     },
     "extension-preferences": {
-      alt: "Pinar-Erweiterungsoptionen auf dem Tab Einstellungen, mit kompaktem oder vollständigem KI-Kopierdetail und dem Schalter zum Einbeziehen des Screenshots.",
+      alt: "Pinar-Erweiterungsoptionen auf dem Tab Erfassung mit kompaktem oder vollständigem KI-Kopierdetail und dem Schalter zum Einbeziehen des Screenshots.",
       caption:
-        "Einstellungen legt kompakte oder vollständige Übergabe fest und ob die nächste Kopie einen Screenshot enthält; Speichern schreibt diese Wahl vor der nächsten Kopie.",
+        "Erfassung legt kompakte oder vollständige Übergabe fest und ob die nächste Kopie einen Screenshot enthält; Speichern schreibt diese Wahl vor der nächsten Kopie.",
     },
     "help-navigation": {
       alt: "Pinar-Hilfeartikel mit Kategorienavigation, Links zu verwandten Artikeln, strukturierten Abschnitten und Seitennavigation.",
@@ -184,12 +184,12 @@ const locale = {
         "Ein erfolgreicher Abschluss bestätigt das Ergebnis, schließt das Overlay und legt ein zusammengehöriges Sitzungspaket in die Zwischenablage.",
     },
     "install-pinar": {
-      alt: "Tab Speicher der Pinar-Erweiterung mit der Schaltfläche Pinar herunterladen neben der Option Lokaler Server.",
+      alt: "Tab Einstellungen der Pinar-Erweiterung mit der Schaltfläche Pinar herunterladen neben der Option Lokaler Server.",
       caption:
-        "Der Tab Speicher bietet den Download der Pinar-Anwendung neben Lokaler Server, damit der Helfer auf diesem Computer startet.",
+        "Der Tab Einstellungen bietet den Download der Pinar-Anwendung neben Lokaler Server, damit der Helfer auf diesem Computer startet.",
     },
     "options-local": {
-      alt: "Tab Speicher der Pinar-Erweiterung mit ausgewähltem Lokaler Server und Captures, die auf diesem Computer bleiben.",
+      alt: "Tab Einstellungen der Pinar-Erweiterung mit ausgewähltem Lokaler Server und Captures, die auf diesem Computer bleiben.",
       caption:
         "Lokaler Server hält Verlauf und Screenshots auf diesem Computer und verlangt keine rechtliche Zustimmung zum gehosteten Dienst.",
     },
@@ -219,7 +219,7 @@ const locale = {
         "Ein nicht gelisteter Projekt- oder Sammlungs-Link lässt jede Person mit der URL das kombinierte Markdown ohne Anmeldung kopieren.",
     },
     "preferences-privacy": {
-      alt: "Tab Einstellungen der Pinar-Erweiterung mit optionalen Loop-Metriken und zusätzlichen URL-Schlüsseln zum Ausblenden.",
+      alt: "Tab Erfassung der Pinar-Erweiterung mit optionalen Loop-Metriken und zusätzlichen URL-Schlüsseln zum Ausblenden.",
       caption:
         "Datenschutz-Einstellungen fügen extra Query-Schlüssel hinzu, die aus erfassten URLs entfernt werden, und lassen Loop-Metriken aus, bis du zustimmst.",
     },

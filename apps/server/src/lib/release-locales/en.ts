@@ -20,6 +20,16 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.4.7": {
+      title: "Cloud sign-in in extension settings",
+      summary: "The extension signs in to Pinar Cloud with an email code from an existing website account. Its settings are now grouped into Preferences and Capture.",
+      changes: {
+        "extension-cloud-account-settings": {
+          title: "Email sign-in and clearer settings",
+          description: "Create an account on pinar.dev first, then request an email code in the extension's Remote Server settings. The website handles legal acceptance, while the extension groups storage, language and theme under Preferences and agent handoff and privacy under Capture.",
+        },
+      },
+    },
     "v0.4.6": {
       title: "Clearer sign-in and Pro access",
       summary: "Email verification has a simpler legal notice. Accounts granted Pro receive their standard plan limits.",

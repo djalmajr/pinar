@@ -22,6 +22,16 @@ const locale = {
     whatChanged: "O que mudou",
   },
   releases: {
+    "v0.4.7": {
+      title: "Acesso ao Cloud nas configurações da extensão",
+      summary: "A extensão entra no Pinar Cloud com um código enviado ao e-mail de uma conta já criada no site. As opções agora estão organizadas em Preferências e Captura.",
+      changes: {
+        "extension-cloud-account-settings": {
+          title: "Acesso por e-mail e opções mais claras",
+          description: "Crie a conta em pinar.dev e depois peça o código por e-mail nas opções de Servidor Remoto da extensão. O aceite legal fica no site. Na extensão, Preferências reúne armazenamento, idioma e tema; Captura reúne a entrega ao agente e a privacidade.",
+        },
+      },
+    },
     "v0.4.6": {
       title: "Acesso por e-mail e Pro mais claros",
       summary: "A confirmação por e-mail tem um aviso legal mais simples. Contas com Pro concedido recebem as cotas normais do plano.",

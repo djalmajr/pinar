@@ -22,6 +22,16 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.4.7": {
+      title: "Cloud-Anmeldung in den Erweiterungseinstellungen",
+      summary: "Die Erweiterung meldet sich mit einem E-Mail-Code eines bereits auf der Website erstellten Kontos bei Pinar Cloud an. Die Einstellungen sind jetzt in Einstellungen und Erfassung gegliedert.",
+      changes: {
+        "extension-cloud-account-settings": {
+          title: "E-Mail-Anmeldung und übersichtlichere Einstellungen",
+          description: "Erstellen Sie zuerst ein Konto auf pinar.dev und fordern Sie dann in den Einstellungen für den Remote-Server der Erweiterung einen E-Mail-Code an. Die Zustimmung zu den Nutzungsbedingungen erfolgt auf der Website. Einstellungen bündelt Speicherort, Sprache und Design; Erfassung bündelt die Übergabe an den Agenten und den Datenschutz.",
+        },
+      },
+    },
     "v0.4.6": {
       title: "Klarere E-Mail-Anmeldung und Pro-Zugang",
       summary: "Die E-Mail-Bestätigung zeigt einen einfacheren Rechtshinweis. Konten mit gewährtem Pro erhalten die regulären Tariflimits.",

@@ -20,6 +20,16 @@ const locale = {
     whatChanged: "更新内容",
   },
   releases: {
+    "v0.4.7": {
+      title: "在扩展设置中登录云端",
+      summary: "扩展使用已在网站创建的账户，通过邮件验证码登录 Pinar Cloud。设置现分为“偏好设置”和“捕获”。",
+      changes: {
+        "extension-cloud-account-settings": {
+          title: "邮件登录与更清晰的设置",
+          description: "请先在 pinar.dev 创建账户，再到扩展的远程服务器设置中获取邮件验证码。法律条款在网站上接受。偏好设置包含存储位置、语言和主题；捕获包含向代理交付内容和隐私选项。",
+        },
+      },
+    },
     "v0.4.6": {
       title: "优化邮箱登录和 Pro 权益",
       summary: "邮箱验证页面的法律提示更加简洁。获赠 Pro 的账户可使用标准套餐额度。",

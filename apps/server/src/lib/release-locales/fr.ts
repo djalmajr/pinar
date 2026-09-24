@@ -22,6 +22,16 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.4.7": {
+      title: "Connexion Cloud dans les réglages de l’extension",
+      summary: "L’extension se connecte à Pinar Cloud avec un code envoyé à l’adresse e-mail d’un compte déjà créé sur le site. Les réglages sont regroupés dans Préférences et Capture.",
+      changes: {
+        "extension-cloud-account-settings": {
+          title: "Connexion par e-mail et réglages clarifiés",
+          description: "Créez d’abord un compte sur pinar.dev, puis demandez un code par e-mail dans les réglages du serveur distant de l’extension. L’acceptation des conditions reste sur le site. Préférences regroupe le stockage, la langue et le thème ; Capture regroupe la transmission à l’agent et la confidentialité.",
+        },
+      },
+    },
     "v0.4.6": {
       title: "Connexion par e-mail et accès Pro clarifiés",
       summary: "La vérification par e-mail présente un avis juridique plus simple. Les comptes bénéficiant de Pro disposent des quotas normaux du forfait.",

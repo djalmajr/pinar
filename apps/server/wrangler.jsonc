@@ -80,6 +80,7 @@
       "triggers": { "crons": ["0 3 * * *"] },
       "vars": {
         "DEPLOYMENT_ENV": "staging",
+        "CLOUD_TRIAL_ENABLED": "true",
         "PRICING_AI_CREDITS_500_BRL_CENTS": "990",
         "PRICING_AI_CREDITS_500_USD_CENTS": "299",
         "PRICING_STORAGE_5GB_12M_BRL_CENTS": "2990",
@@ -129,6 +130,7 @@
       "triggers": { "crons": ["0 3 * * *"] },
       "vars": {
         "DEPLOYMENT_ENV": "production",
+        "CLOUD_TRIAL_ENABLED": "true",
         "PRICING_AI_CREDITS_500_BRL_CENTS": "990",
         "PRICING_AI_CREDITS_500_USD_CENTS": "299",
         "PRICING_STORAGE_5GB_12M_BRL_CENTS": "2990",

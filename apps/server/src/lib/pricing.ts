@@ -19,6 +19,7 @@ export interface PublicPricing {
   discountPercent: number | null;
   prices: PublicPricingPrices;
   regional: boolean;
+  trialEnabled?: boolean;
 }
 
 export interface PricingConfig {
@@ -54,7 +55,8 @@ export function isPublicPricing(value: unknown): value is PublicPricing {
     && isPublicPrice(value.prices.storage1Gb12M)
     && isPublicPrice(value.prices.storage5Gb12M)
     && isPublicPrice(value.prices.year)
-    && typeof value.regional === "boolean";
+    && typeof value.regional === "boolean"
+    && (value.trialEnabled === undefined || typeof value.trialEnabled === "boolean");
 }
 
 function publicPrice(amount: number): PublicPrice {
@@ -84,6 +86,7 @@ function pricesForGlobal(config: PricingConfig): PublicPricingPrices {
 export function pricingForCountry(
   country: string | null,
   config: PricingConfig,
+  trialEnabled = false,
 ): PublicPricing {
   const normalizedCountry = country?.trim().toUpperCase() || null;
   const regional = normalizedCountry === "BR";
@@ -93,5 +96,6 @@ export function pricingForCountry(
     discountPercent: null,
     prices: regional ? pricesForBrazil(config) : pricesForGlobal(config),
     regional,
+    trialEnabled,
   };
 }

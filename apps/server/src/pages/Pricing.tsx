@@ -28,6 +28,20 @@ import {
   isPublicPricing,
 } from "@/lib/pricing";
 
+export function pricingCheckoutMessage(
+  status: number,
+  data: unknown,
+  copy: { addonRequiresPro: string; unavailable: string },
+): string {
+  if (status === 402 && isRecord(data) && data.code === "cloud_pro_required_for_addon") {
+    return copy.addonRequiresPro;
+  }
+  if (isRecord(data) && data.code !== "checkout_unavailable" && typeof data.error === "string") {
+    return data.error;
+  }
+  return copy.unavailable;
+}
+
 interface PricingAmountProps {
   compact?: boolean;
   currency: PricingCurrency | undefined;
@@ -132,6 +146,12 @@ export function PricingPage() {
   const [pricing, setPricing] = useState<PublicPricing | null>(null);
   const [freeHref, setFreeHref] = useState(() => freeInstallUrl());
 
+  const trialEnabled = Boolean(
+    pricing &&
+      "trialEnabled" in pricing &&
+      (pricing as { trialEnabled?: boolean }).trialEnabled === true,
+  );
+
   useEffect(() => {
     setFreeHref(freeInstallUrl(navigator.userAgent));
   }, []);
@@ -179,12 +199,10 @@ export function PricingPage() {
       if (res.ok && isRecord(data) && typeof data.url === "string") {
         window.location.href = data.url;
       } else {
-        const message = isRecord(data)
-          && data.code !== "checkout_unavailable"
-          && typeof data.error === "string"
-          ? data.error
-          : t("pricing.checkoutUnavailable");
-        toast.error(message);
+        toast.error(pricingCheckoutMessage(res.status, data, {
+          addonRequiresPro: t("pricing.addonRequiresPro"),
+          unavailable: t("pricing.checkoutUnavailable"),
+        }));
       }
     } catch {
       toast.error(t("pricing.networkError"));
@@ -215,16 +233,24 @@ export function PricingPage() {
         {/* Free Card */}
         <Card className="flex flex-col justify-between">
           <CardHeader>
-            <CardTitle className="text-xl">{t("pricing.free")}</CardTitle>
+            <CardTitle className="text-xl">
+              {trialEnabled ? t("pricing.freeLocalTitle") : t("pricing.free")}
+            </CardTitle>
             <CardDescription className="min-h-[38px]">
-              {t("pricing.freeDescription")}
+              {trialEnabled
+                ? t("pricing.freeLocalDescription")
+                : t("pricing.freeDescription")}
             </CardDescription>
             <PricingAmount
               currency={pricing?.currency}
               language={language}
               originalLabel={t("pricing.originalPrice")}
               price={pricing?.prices.free}
-              suffix={t("pricing.freeScope")}
+              suffix={
+                trialEnabled
+                  ? t("pricing.freeLocalScope")
+                  : t("pricing.freeScope")
+              }
             />
           </CardHeader>
           <CardContent className="flex-1">
@@ -233,14 +259,23 @@ export function PricingPage() {
                 <IconCheck className="text-success w-4 h-4 shrink-0" />
                 {t("pricing.freeLocal")}
               </li>
-              <li className="flex items-center gap-2">
-                <IconCheck className="text-success w-4 h-4 shrink-0" />
-                {t("pricing.freeRetention")}
-              </li>
-              <li className="flex items-center gap-2">
-                <IconCheck className="text-success w-4 h-4 shrink-0" />
-                {t("pricing.freeStorage")}
-              </li>
+              {trialEnabled ? (
+                <li className="flex items-center gap-2">
+                  <IconCheck className="text-success w-4 h-4 shrink-0" />
+                  {t("pricing.freeSelfHosted")}
+                </li>
+              ) : (
+                <>
+                  <li className="flex items-center gap-2">
+                    <IconCheck className="text-success w-4 h-4 shrink-0" />
+                    {t("pricing.freeRetention")}
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <IconCheck className="text-success w-4 h-4 shrink-0" />
+                    {t("pricing.freeStorage")}
+                  </li>
+                </>
+              )}
               <li className="flex items-center gap-2">
                 <IconCheck className="text-success w-4 h-4 shrink-0" />
                 {t("pricing.standardViewer")}
@@ -261,7 +296,7 @@ export function PricingPage() {
               render={<a href={freeHref} rel="noopener noreferrer" target="_blank" />}
               variant="outline"
             >
-              {t("pricing.useFree")}
+              {trialEnabled ? t("pricing.installLocal") : t("pricing.useFree")}
             </Button>
           </CardFooter>
         </Card>
@@ -284,7 +319,9 @@ export function PricingPage() {
             </CardHeader>
             <CardContent className="flex-1">
               <p className="mb-3 text-xs text-muted-foreground">
-                {t("pricing.everythingFreePlus")}
+                {trialEnabled
+                  ? t("pricing.everythingLocalPlus")
+                  : t("pricing.everythingFreePlus")}
               </p>
               <ul className="flex flex-col gap-2.5 text-xs">
                 <li className="flex items-center gap-2">
@@ -321,6 +358,21 @@ export function PricingPage() {
                   <sup aria-hidden="true">1</sup>
                 </span>
               </Button>
+              {trialEnabled ? (
+                <div className="flex flex-col items-center gap-1.5 pt-1 text-center">
+                  <Button
+                    className="w-full"
+                    render={<a href="/sign-in?returnTo=%2Fapp" />}
+                    size="sm"
+                    variant="outline"
+                  >
+                    {t("pricing.startTrial")}
+                  </Button>
+                  <p className="text-[11px] text-muted-foreground">
+                    {t("pricing.trialDetails")}
+                  </p>
+                </div>
+              ) : null}
             </CardFooter>
           </Card>
         </div>
@@ -329,6 +381,9 @@ export function PricingPage() {
         <div className="mb-5 max-w-3xl text-center">
           <h2 className="text-2xl font-bold">{t("pricing.addOnsTitle")}</h2>
           <p className="mt-2 text-sm text-muted-foreground">{t("pricing.addOnsDescription")}</p>
+          {trialEnabled ? (
+            <p className="mt-1 text-sm text-muted-foreground">{t("pricing.addOnsTrialNote")}</p>
+          ) : null}
         </div>
         <div className="mb-3 grid w-full max-w-5xl grid-cols-1 gap-6 md:grid-cols-3">
           <AddOnCard

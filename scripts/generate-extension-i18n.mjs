@@ -14,6 +14,7 @@ const MV3_KEYS = [
   "overlay_session_captured",
   "overlay_session_cancelled",
   "overlay_session_pending",
+  "overlay_cloud_subscription_required",
   "overlay_session_finish",
   "overlay_session_retry",
   "overlay_session_discard",

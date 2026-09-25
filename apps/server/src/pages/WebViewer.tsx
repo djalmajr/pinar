@@ -26,6 +26,7 @@ import {
   revokeShare,
   shareMarkdownPath,
 } from "@/lib/share-links";
+import { shareControlState, type ShareOperation } from "@/lib/share-control-state";
 import {
   Badge,
   Button,
@@ -482,10 +483,16 @@ export function WebViewer({
   const [executions, setExecutions] = useState<AgentExecution[]>([]);
   const [selectedPin, setSelectedPin] = useState<Pin | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  const [shareBusy, setShareBusy] = useState(false);
+  const [shareOperation, setShareOperation] = useState<ShareOperation>(null);
+  const [revokeSettled, setRevokeSettled] = useState(false);
   const [shareError, setShareError] = useState("");
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [shareToken, setShareToken] = useState<string | null>(null);
+  const shareControls = shareControlState({
+    operation: shareOperation,
+    revokeSettled,
+    token: shareToken,
+  });
   const [captures, setCaptures] = useState<Session[]>([]);
   const [highlightedCapture, setHighlightedCapture] = useState<string | null>(null);
   const imageRefs = useRef(new Map<string, HTMLDivElement>());
@@ -552,7 +559,8 @@ export function WebViewer({
   }, [captureKey]);
 
   useEffect(() => {
-    setShareBusy(false);
+    setShareOperation(null);
+    setRevokeSettled(false);
     setShareError("");
     setShareLinkCopied(false);
     setShareToken(null);
@@ -647,15 +655,16 @@ export function WebViewer({
   }
 
   async function copyShareLink() {
-    if (!shareToken) return;
+    if (!shareControls.copyEnabled || !shareToken) return;
     await navigator.clipboard.writeText(buildShareUrl(sessionId, shareToken, window.location.origin));
     setShareLinkCopied(true);
     window.setTimeout(() => setShareLinkCopied(false), 2_000);
   }
 
   async function publishShareLink() {
-    if (shareBusy) return;
-    setShareBusy(true);
+    if (shareOperation) return;
+    setShareOperation("publish");
+    setRevokeSettled(false);
     setShareError("");
     try {
       setShareToken(await publishShare("session", sessionId));
@@ -663,22 +672,25 @@ export function WebViewer({
     } catch {
       setShareError(t("share.error"));
     } finally {
-      setShareBusy(false);
+      setShareOperation(null);
     }
   }
 
   async function revokeShareLink() {
-    if (shareBusy) return;
-    setShareBusy(true);
+    if (shareOperation) return;
+    setShareOperation("revoke");
+    setRevokeSettled(false);
     setShareError("");
     try {
       await revokeShare("session", sessionId);
+      setRevokeSettled(true);
       setShareToken(null);
       await onShareChange?.();
     } catch {
       setShareError(t("share.error"));
     } finally {
-      setShareBusy(false);
+      setShareOperation(null);
+      setRevokeSettled(false);
     }
   }
 
@@ -792,11 +804,12 @@ export function WebViewer({
             onStep={stepCapture}
           />
           {showShareControls ? (
-            shareToken ? (
+            shareControls.branch === "shared" ? (
               <>
                 <ButtonGroup aria-label={t("dashboard.share")}>
                   <Button
                     aria-label={shareLinkCopied ? t("share.linkCopied") : t("share.copyLink")}
+                    disabled={!shareControls.copyEnabled}
                     title={shareError || t("share.copyLink")}
                     type="button"
                     variant="outline"
@@ -806,29 +819,29 @@ export function WebViewer({
                     <span className="hidden sm:inline">{shareLinkCopied ? t("share.linkCopied") : t("share.copyLink")}</span>
                   </Button>
                   <Button
-                    aria-label={t("share.revoke")}
-                    disabled={shareBusy}
+                    aria-label={shareControls.revokeLabel === "revoking" ? t("share.revoking") : t("share.revoke")}
+                    disabled={shareControls.revokeDisabled}
                     title={shareError || t("share.revoke")}
                     type="button"
                     variant="outline"
                     onClick={() => void revokeShareLink()}
                   >
                     <UnlinkIcon data-icon="inline-start" />
-                    <span className="hidden sm:inline">{shareBusy ? t("share.revoking") : t("share.revoke")}</span>
+                    <span className="hidden sm:inline">{shareControls.revokeLabel === "revoking" ? t("share.revoking") : t("share.revoke")}</span>
                   </Button>
                 </ButtonGroup>
               </>
             ) : (
               <Button
-                aria-label={t("share.publish")}
-                disabled={shareBusy}
+                aria-label={shareControls.publishLabel === "publishing" ? t("share.publishing") : t("share.publish")}
+                disabled={shareControls.publishDisabled}
                 title={shareError || t("share.publish")}
                 type="button"
                 variant="outline"
                 onClick={() => void publishShareLink()}
               >
                 <ShareIcon data-icon="inline-start" />
-                <span className="hidden sm:inline">{shareBusy ? t("share.publishing") : t("share.publish")}</span>
+                <span className="hidden sm:inline">{shareControls.publishLabel === "publishing" ? t("share.publishing") : t("share.publish")}</span>
               </Button>
             )
           ) : null}

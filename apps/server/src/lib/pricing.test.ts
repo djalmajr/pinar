@@ -67,6 +67,20 @@ describe("regional pricing", () => {
       ...pricing,
       prices: { ...pricing.prices, year: { amount: 9_900, originalAmount: 9_800 } },
     }), false);
+    assert.equal(isPublicPricing({ ...pricing, trialEnabled: "yes" }), false);
+    const withoutTrial = { ...pricing };
+    delete withoutTrial.trialEnabled;
+    assert.equal(isPublicPricing(withoutTrial), true);
+  });
+
+  test("publishes trialEnabled without changing the catalog", () => {
+    const disabled = pricingForCountry("BR", PRICING_CONFIG);
+    const enabled = pricingForCountry("BR", PRICING_CONFIG, true);
+    assert.equal(disabled.trialEnabled, false);
+    assert.equal(enabled.trialEnabled, true);
+    assert.deepEqual(disabled.prices, enabled.prices);
+    assert.equal(disabled.currency, enabled.currency);
+    assert.equal(disabled.regional, enabled.regional);
   });
 
   // Mutation captured: removing trim preserves whitespace as an invalid country code.

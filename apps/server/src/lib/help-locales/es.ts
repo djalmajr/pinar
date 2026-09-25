@@ -324,7 +324,7 @@ const locale = {
         {
           heading: "Nube",
           paragraphs: [
-            "El modo nube habilita el acceso remoto al espacio de trabajo, la retención gestionada, la transcripción de voz y la generación de reproducciones con Pinar Cloud, la facturación y los enlaces de uso compartido no listados. La IA local y BYOK siguen disponibles sin usar créditos de Pinar Cloud. Aceptas las políticas vigentes antes de que se almacene nada de forma remota.",
+            "Cuando la cuenta autenticada es elegible en la oferta actual, el modo nube ofrece acceso remoto al espacio de trabajo, retención gestionada, facturación y enlaces de uso compartido no listados. La aplicación local y un servidor self-hosted siguen siendo gratuitos. La transcripción de voz de Pinar Cloud sigue siendo un beneficio de Pro y no forma parte de una evaluación. La IA local y BYOK siguen disponibles sin usar créditos de Pinar Cloud. Aceptas las políticas vigentes antes de que se almacene nada de forma remota.",
           ],
         },
         {
@@ -715,7 +715,7 @@ const locale = {
           heading:
             "Recorrer el camino de copia cuando la barra informa de un fallo",
           paragraphs: [
-            "La copia exige un comentario guardado y al menos un pin. La barra muestra “Guardando las anotaciones…”, oculta las superposiciones, captura el shot y pide al documento offscreen que escriba text/html y text/plain. El offscreen intenta primero navigator.clipboard.write y cae a un evento copy más execCommand. Si esa escritura no es ok, el content script aún intenta writePlainText sobre el payload plain devuelto: clipboard.writeText y luego una selección oculta en un textarea.",
+            "La copia exige un comentario guardado y al menos un pin. La barra muestra “Guardando la sesión…”, oculta las superposiciones, captura el shot y pide al documento offscreen que escriba text/html y text/plain. El offscreen intenta primero navigator.clipboard.write y cae a un evento copy más execCommand. Si esa escritura no es ok, el content script aún intenta writePlainText sobre el payload plain devuelto: clipboard.writeText y luego una selección oculta en un textarea.",
             "Cuando fallan todos los caminos de copia, la página envía overlays:hidden con hidden false, muestra “Error al copiar” y deja los pins editables. Una copia correcta muestra “¡Copiado con éxito!”, o “¡Copiado con éxito!” más “sin captura”, “ayudante no disponible” o “sin visor”, y luego termina la sesión. Esos sufijos corresponden a `screenshot_missing`, `helper_unavailable` y `viewer_unavailable`. screenshot_inline no es uno de los avisos de handoff degradado. Un pegado sin una cerca pinar-visual-context cerrada no se puede analizar como JSON.",
           ],
           bullets: [
@@ -858,7 +858,7 @@ const locale = {
         {
           heading: "Forma del plan",
           paragraphs: [
-            "Free incluye uso local permanente, 250 MB de cuota en la nube y retención de 30 días. Pro es anual, con 2 GB y una concesión única de 500 créditos de IA en la primera suscripción de la cuenta.",
+            "La aplicación local y un servidor self-hosted siguen siendo gratuitos. Pinar Cloud alojado sigue la oferta actual y la elegibilidad de esa cuenta: una cuenta nueva puede recibir una evaluación temporal, y una cuenta anterior puede conservar la elegibilidad heredada. No hay un plazo único para todas las cuentas. Pro es un plan anual de pago, con 2 GB y una concesión única de 500 créditos de IA en la primera suscripción de la cuenta. La transcripción de voz sigue siendo un beneficio de Pro. La página Planes y los derechos de la cuenta muestran la oferta y la cuota que valen ahora. Las capturas ya guardadas en la nube siguen sujetas a retención y exportación.",
           ],
         },
         {
@@ -922,7 +922,7 @@ const locale = {
         {
           heading: "Cuota y complementos",
           paragraphs: [
-            "Free tiene 250 MB de almacenamiento base en la nube; Pro tiene 2 GB. Los complementos de 1 GB y 5 GB duran 12 meses. Si uno vence por encima de la cuota, se pausan las cargas; el excedente tiene 30 días de gracia y puede recuperarse hasta el día 90 antes de poder eliminarse.",
+            "La cuota en la nube alojada es el almacenamiento que la cuenta autenticada incluye ahora, más cualquier complemento todavía activo. Pro incluye 2 GB. Los complementos de 1 GB y 5 GB duran 12 meses. Si uno vence por encima de la cuota, se pausan las cargas; el excedente tiene 30 días de gracia y puede recuperarse hasta el día 90 antes de poder eliminarse. Comprar un complemento depende de la oferta actual; consulta la página Planes y los derechos de la cuenta.",
           ],
         },
         {
@@ -936,10 +936,10 @@ const locale = {
             "Ajustar reemplazos a la cuota y usar el reloj de recuperación de 90 días",
           paragraphs: [
             "La cuota es el almacenamiento incluido de tu plan más cualquier complemento aún activo. Reemplazar un screenshot más grande por uno más pequeño puede tener éxito cuando una captura nueva no lo tendría. Las subidas se pausan cuando la cuenta está en o por encima de la cuota, también durante la gracia y la recuperación.",
-            "Las sesiones en la nube de Free que no están marcadas como permanentes pasan a ser elegibles para limpieza a los 30 días. El contenido de Pro por encima de la cuota de Free sigue la gracia de 30 días y la ventana de recuperación de 90 días tras terminar la elegibilidad de pago. El historial solo local de este equipo nunca se elimina de forma remota. La elegibilidad no es una promesa de retirada inmediata.",
+            "Las sesiones ya almacenadas en una elegibilidad Free y no marcadas como permanentes pasan a ser elegibles para limpieza a los 30 días. El contenido de Pro por encima de la cuota de Free sigue la gracia de 30 días y la ventana de recuperación de 90 días tras terminar la elegibilidad de pago. El historial solo local de este equipo nunca se elimina de forma remota. La elegibilidad no es una promesa de retirada inmediata.",
           ],
           bullets: [
-            "Cuando se pausen las capturas nuevas, libera espacio eliminando sesiones o reemplazando un screenshot pesado, o compra un complemento de doce meses de 1 GB o 5 GB.",
+            "Cuando se pausen las capturas nuevas, libera espacio eliminando sesiones o reemplazando un screenshot pesado. Compra un complemento de doce meses de 1 GB o 5 GB solo cuando la página Planes y los derechos de la cuenta muestren esa compra.",
             "Si la cuenta está en gracia o recuperación, exporta lo que aún necesites antes del día 90; la elegibilidad solo marca el excedente, no elimina por sí misma.",
             "No esperes que desinstalar la app de escritorio borre objetos en la nube, ni que la nube borre el historial local de este equipo.",
           ],

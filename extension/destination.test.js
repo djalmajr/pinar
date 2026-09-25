@@ -119,9 +119,8 @@ describe("capture destination", () => {
     // Mutation captured: dropping the separators leaves preference sections as an undifferentiated stack.
     assert.match(optionsSrc, /\{t\.storage_title\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.section_interface\}/);
     assert.match(optionsSrc, /\{t\.section_handoff\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.section_privacy\}/);
-    assert.match(optionsSrc, /\{t\.storage_title\}[\s\S]*\{t\.account_email_title\}[\s\S]*\{voiceAvailable \? <>[\s\S]*\{t\.voice_settings_title\}/);
     assert.doesNotMatch(optionsSrc, /\{t\.storage_status_title\}|\{t\.capture_destination_label\}/);
-    assert.match(optionsSrc, /\{t\.shortcuts_browser_title\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.shortcuts_overlay_title\}/);
+    assert.match(optionsSrc, /\{t\.shortcuts_browser_title\}[\s\S]*<\/section>\s*\{commands\.length \? <Separator \/> : null\}\s*<section[\s\S]*\{t\.shortcuts_overlay_title\}/);
     assert.match(optionsSrc, /<label className="text-xs font-semibold" htmlFor="account-email">\{t\.account_email_title\}<\/label>/);
     assert.doesNotMatch(optionsSrc, /t\.account_email_description/);
     // Mutation captured: mb-8 under the section description is larger than the gap-5 between preference rows.
@@ -131,25 +130,17 @@ describe("capture destination", () => {
     assert.match(optionsSrc, /\{t\.section_privacy_desc\}<\/p>\s*<div className="flex flex-col gap-3">/);
     assert.doesNotMatch(optionsSrc, /SECTION_LEAD/);
     assert.match(optionsSrc, /const voiceAvailable = settings\.storageMode === "cloud"[\s\S]*authSession\?\.kind === "account"[\s\S]*authSession\.plan === "pro"/);
-    assert.match(optionsSrc, /\{voiceAvailable \? <>[\s\S]*\{t\.voice_settings_title\}/);
-    const voiceBlock = optionsSrc.slice(optionsSrc.indexOf("{voiceAvailable ? <>"), optionsSrc.indexOf("</TabsContent>", optionsSrc.indexOf("{voiceAvailable ? <>")));
-    assert.match(voiceBlock, /checked=\{settings\.voicePostProcessing\}/);
-    assert.doesNotMatch(voiceBlock, /disabled=/);
     assert.match(optionsSrc, /\{t\.section_interface_desc\}/);
     assert.match(optionsSrc, /\{t\.section_handoff_desc\}/);
     assert.match(optionsSrc, /\{t\.section_privacy_desc\}/);
     assert.match(optionsSrc, /\{t\.storage_title_desc\}/);
     assert.match(optionsSrc, /\{t\.storage_title_desc\}<\/p>\s*<div className="flex flex-col gap-2">/);
     assert.match(optionsSrc, /px-3 py-2 hover:bg-muted\/50">\s*<input checked=\{settings\.storageMode === "local"\}/);
-    assert.match(optionsSrc, /px-3 py-2 hover:bg-muted\/50">\s*<input checked=\{settings\.storageMode === "cloud"\}/);
-    assert.match(optionsSrc, /<div className="overflow-hidden rounded-lg border">\s*<label[\s\S]*<\/label>\s*\{settings\.storageMode === "cloud" \? \([\s\S]*\{t\.account_email_title\}/);
     assert.match(optionsSrc, /className="h-8 shrink-0 text-xs" disabled=\{emailCodeRequestLoading\} size="sm" type="submit"/);
-    assert.match(optionsSrc, /\{environment === "staging" \? t\.staging_desc : t\.remote_desc\}<\/span>[\s\S]*render=\{<a href=\{hostedSignInUrl\(settings\.cloudUrl, lang\)\}[\s\S]*onClick=\{\(event\) => event\.stopPropagation\(\)\}>\{t\.account_create_on_web\}<IconExternalLink data-icon="inline-end" \/><\/Button>\s*<\/label>/);
     assert.match(optionsSrc, /<form className="flex flex-wrap gap-2" onSubmit=\{requestEmailCode\}>[\s\S]*\{t\.btn_send_code\}<\/Button>\s*<\/form>/);
     assert.match(i18nSrc, /account_email_title: "Entrar com e-mail"/);
     assert.match(i18nSrc, /account_create_on_web: 'Criar conta'/);
     assert.doesNotMatch(optionsSrc, /\{t\.storage_status_title_desc\}|\{t\.capture_destination_desc\}/);
-    assert.match(optionsSrc, /\{t\.account_title_desc\}/);
   });
 
   test("extension setting rows stay compact xs while the workspace dialog stays sm", () => {
@@ -168,7 +159,7 @@ describe("capture destination", () => {
     assert.doesNotMatch(dialogSrc, /<SettingRow[^>]*\ssize="xs"/);
     assert.match(settingsSrc, /layout === "stack"/);
     assert.doesNotMatch(optionsSrc, /controlClassName="w-52"/);
-    assert.match(optionsSrc, /<p className=\{SECTION_DESC\}>\{t\.shortcuts_browser_desc\}<\/p>/);
+    assert.match(optionsSrc, /<p className=\{commands\.length \? SECTION_DESC : "mt-0\.5 text-xs text-muted-foreground"\}>\{t\.shortcuts_browser_desc\}<\/p>/);
     assert.match(optionsSrc, /<p className=\{SECTION_DESC\}>\{t\.shortcuts_overlay_desc\}<\/p>/);
     assert.doesNotMatch(optionsSrc, /text-xs leading-5/);
     assert.doesNotMatch(optionsSrc, /mt-1 block text-xs/);

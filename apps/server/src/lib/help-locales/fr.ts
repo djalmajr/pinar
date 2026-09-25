@@ -324,7 +324,7 @@ const locale = {
         {
           heading: "Cloud",
           paragraphs: [
-            "Le mode cloud active l’accès distant au workspace, la rétention gérée, la transcription vocale et la génération de reproductions avec Pinar Cloud, la facturation et les liens de partage non listés. L’IA locale et le BYOK restent disponibles sans utiliser de crédits Pinar Cloud. Vous acceptez les politiques en vigueur avant que quoi que ce soit ne soit stocké à distance.",
+            "Lorsque le compte connecté est éligible dans l’offre actuelle, le mode cloud fournit l’accès distant au workspace, la rétention gérée, la facturation et les liens de partage non listés. L’application locale et un serveur auto-hébergé restent gratuits. La transcription vocale Pinar Cloud reste un avantage Pro et ne fait pas partie d’une évaluation. L’IA locale et le BYOK restent disponibles sans utiliser de crédits Pinar Cloud. Vous acceptez les politiques en vigueur avant que quoi que ce soit ne soit stocké à distance.",
           ],
         },
         {
@@ -714,7 +714,7 @@ const locale = {
           heading:
             "Parcourir le chemin de copie lorsque la barre d’outils signale un échec",
           paragraphs: [
-            "La copie exige un commentaire enregistré et au moins un pin. La barre d’outils affiche « Enregistrement des annotations… », masque les overlays, capture le cliché, puis demande au document offscreen d’écrire text/html et text/plain. Offscreen essaie d’abord navigator.clipboard.write puis se rabat sur un événement copy plus execCommand. Si cette écriture n’est pas ok, le content script tente encore writePlainText sur la charge plain renvoyée : clipboard.writeText, puis une sélection textarea cachée.",
+            "La copie exige un commentaire enregistré et au moins un pin. La barre d’outils affiche « Enregistrement de la session… », masque les overlays, capture le cliché, puis demande au document offscreen d’écrire text/html et text/plain. Offscreen essaie d’abord navigator.clipboard.write puis se rabat sur un événement copy plus execCommand. Si cette écriture n’est pas ok, le content script tente encore writePlainText sur la charge plain renvoyée : clipboard.writeText, puis une sélection textarea cachée.",
             "Lorsque tous les chemins de copie échouent, la page envoie overlays:hidden avec hidden false, affiche brièvement « Échec de la copie », et laisse les pins modifiables. Une copie réussie affiche « Copié avec succès ! », ou « Copié avec succès ! » plus « pas de capture », « assistant indisponible » ou « pas de visionneuse », puis termine la session. Ces suffixes correspondent à `screenshot_missing`, `helper_unavailable` et `viewer_unavailable`. screenshot_inline n’est pas l’un des avertissements de handoff dégradé. Un collage sans clôture pinar-visual-context fermée ne peut pas être analysé comme JSON.",
           ],
           bullets: [
@@ -857,7 +857,7 @@ const locale = {
         {
           heading: "Forme des plans",
           paragraphs: [
-            "Free inclut un usage local permanent, 250 Mo de quota cloud et 30 jours de rétention. Pro est annuel, avec 2 Go et une allocation unique de 500 crédits IA lors du premier abonnement du compte.",
+            "L’application locale et un serveur auto-hébergé restent gratuits. Pinar Cloud hébergé suit l’offre actuelle et l’éligibilité de ce compte : un nouveau compte peut recevoir une évaluation temporaire, et un compte antérieur peut conserver une éligibilité héritée. Il n’y a pas une seule échéance pour tous les comptes. Pro est un plan annuel payant, avec 2 Go et une allocation unique de 500 crédits IA lors du premier abonnement du compte. La transcription vocale reste un avantage Pro. La page Plans et les droits du compte indiquent l’offre et le quota qui s’appliquent maintenant. Les captures déjà stockées dans le cloud restent soumises à la rétention et à l’export.",
           ],
         },
         {
@@ -921,7 +921,7 @@ const locale = {
         {
           heading: "Quota et options",
           paragraphs: [
-            "Free a 250 Mo de stockage cloud de base ; Pro a 2 Go. Les options de 1 Go et 5 Go durent 12 mois. Si une option expire au-dessus du quota, les envois sont suspendus ; l’excédent bénéficie de 30 jours de grâce et reste récupérable jusqu’au jour 90 avant de pouvoir être supprimé.",
+            "Le quota cloud hébergé est le stockage que le compte connecté inclut actuellement, plus toute option encore active. Pro inclut 2 Go. Les options de 1 Go et 5 Go durent 12 mois. Si une option expire au-dessus du quota, les envois sont suspendus ; l’excédent bénéficie de 30 jours de grâce et reste récupérable jusqu’au jour 90 avant de pouvoir être supprimé. L’achat d’une option dépend de l’offre actuelle ; consultez la page Plans et les droits du compte.",
           ],
         },
         {
@@ -935,10 +935,10 @@ const locale = {
             "Faire tenir les remplacements sous le quota et utiliser l’horloge de récupération de 90 jours",
           paragraphs: [
             "Le quota est le stockage inclus de votre plan plus toute option encore active. Remplacer un screenshot plus lourd par un plus petit peut réussir lorsqu’une capture entièrement nouvelle échouerait. Les envois s’interrompent dès que le compte est au quota ou au-dessus, y compris pendant la grâce et la récupération.",
-            "Les sessions cloud Free qui ne sont pas marquées permanentes deviennent éligibles au nettoyage après 30 jours. Le contenu Pro au-dessus du quota Free suit la grâce de 30 jours et la fenêtre de récupération de 90 jours après la fin de l’éligibilité payante. L’historique uniquement local sur cet ordinateur n’est jamais supprimé à distance. L’éligibilité n’est pas une promesse de retrait immédiat.",
+            "Les sessions déjà stockées sur une éligibilité Free et non marquées permanentes deviennent éligibles au nettoyage après 30 jours. Le contenu Pro au-dessus du quota Free suit la grâce de 30 jours et la fenêtre de récupération de 90 jours après la fin de l’éligibilité payante. L’historique uniquement local sur cet ordinateur n’est jamais supprimé à distance. L’éligibilité n’est pas une promesse de retrait immédiat.",
           ],
           bullets: [
-            "Lorsque de nouvelles captures s’interrompent, libérez de l’espace en supprimant des sessions ou en remplaçant un screenshot lourd, ou achetez une option de douze mois de 1 Go ou 5 Go.",
+            "Lorsque de nouvelles captures s’interrompent, libérez de l’espace en supprimant des sessions ou en remplaçant un screenshot lourd. Achetez une option de douze mois de 1 Go ou 5 Go seulement lorsque la page Plans et les droits du compte affichent cet achat.",
             "Si le compte est en grâce ou en récupération, exportez ce dont vous avez encore besoin avant le jour 90 ; l’éligibilité ne fait que marquer le dépassement, elle ne supprime pas elle-même.",
             "N’attendez pas que la désinstallation de l’app de bureau purge les objets cloud, et n’attendez pas que le cloud efface l’historique local sur cet ordinateur.",
           ],

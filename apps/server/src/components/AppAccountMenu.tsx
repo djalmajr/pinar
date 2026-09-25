@@ -151,7 +151,7 @@ export function AppAccountMenu() {
             sideOffset={4}
           >
             <DropdownMenuGroup>
-              <DropdownMenuLabel className="p-0 font-normal">
+              <DropdownMenuLabel className="p-0 font-normal text-popover-foreground">
                 <div className="flex items-start gap-2 px-1 py-1.5 text-left text-sm">
                   <Avatar>
                     <AvatarFallback>{identity.initials}</AvatarFallback>
@@ -173,7 +173,7 @@ export function AppAccountMenu() {
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>
-              <DropdownMenuLabel className="p-1.5 font-normal" data-testid="account-usage">
+              <DropdownMenuLabel className="p-1.5 font-normal text-popover-foreground" data-testid="account-usage">
                 {usageStatus === "ready" && usage ? (
                   <div className="space-y-3">
                     {usage.plan !== "free" ? (

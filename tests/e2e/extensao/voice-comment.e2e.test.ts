@@ -18,6 +18,7 @@ const fixture = `<!doctype html>
 async function installVoiceHarness(
   page: Page,
   voiceAvailability = { available: true, ok: true, reason: null as string | null },
+  deferVoiceAvailability = false,
 ) {
   await page.addInitScript(() => {
     const original = Element.prototype.attachShadow;
@@ -30,14 +31,21 @@ async function installVoiceHarness(
     contentType: "text/html",
   }));
   await page.goto("/voice-comment-fixture");
-  await page.evaluate((availability) => {
+  await page.evaluate(({ availability, deferVoiceAvailability }) => {
     const runtimeState = { clipboard: "", messages: [] as any[], pins: [] as any[] };
     (globalThis as any).__pinarRuntimeState = runtimeState;
     (globalThis as any).chrome = {
       runtime: {
         sendMessage: async (message: any) => {
           runtimeState.messages.push(structuredClone(message));
-          if (message.type === "voice:availability") return availability;
+          if (message.type === "voice:availability") {
+            if (deferVoiceAvailability) {
+              return new Promise((resolve) => {
+                (globalThis as any).__releaseVoiceAvailability = () => resolve(availability);
+              });
+            }
+            return availability;
+          }
           if (message.type === "voice:transcribe") {
             await new Promise((resolvePromise) => setTimeout(resolvePromise, 350));
             return {
@@ -106,7 +114,7 @@ async function installVoiceHarness(
 
     (globalThis as any).AudioContext = FakeAudioContext;
     (globalThis as any).MediaRecorder = FakeMediaRecorder;
-  }, voiceAvailability);
+  }, { availability: voiceAvailability, deferVoiceAvailability });
 
   for (const file of ["coordinates.js", "frame-path.js", "locators.js", "privacy.js", "keyboard.js", "voice.js", "content.js"]) {
     await page.addScriptTag({ path: extensionPath(file) });
@@ -122,6 +130,23 @@ async function openComposer(page: Page, selector: string) {
   await expect(page.locator('[data-pinar="host"] [data-ref="composer"]')).toBeVisible();
 }
 
+test("checking availability does not leave a tooltip on an enabled microphone", async ({ page }) => {
+  await installVoiceHarness(page, { available: true, ok: true, reason: null }, true);
+  await openComposer(page, "#first");
+  const composer = page.locator('[data-pinar="host"] [data-ref="composer"]');
+  const voice = composer.locator('[data-ref="voice"]');
+  const voiceControl = composer.locator('[data-ref="voiceControl"]');
+  const tooltip = composer.locator('[data-ref="voiceTooltip"]');
+
+  await expect(voice).toBeDisabled();
+  await voiceControl.hover();
+  await expect(tooltip).toBeHidden();
+  await page.evaluate(() => (globalThis as any).__releaseVoiceAvailability());
+  await expect(voice).toBeEnabled();
+  await expect(tooltip).toBeHidden();
+  await expect(voiceControl).not.toHaveClass(/has-tooltip/);
+});
+
 // Mutation captured: hiding an unavailable voice control removes the plan explanation entirely.
 test("unavailable voice control stays visible and explains the Pro requirement", async ({ page }) => {
   await installVoiceHarness(page, { available: false, ok: true, reason: "pro_required" });
@@ -136,11 +161,23 @@ test("unavailable voice control stays visible and explains the Pro requirement",
   await expect(voice).toHaveAttribute("aria-label", /Pinar Pro/);
   await expect(voiceControl).toHaveAttribute("tabindex", "0");
   await voiceControl.hover();
-  await expect(tooltip).toContainText("Voice comments are included with Pinar Pro");
+  await expect(tooltip).toContainText("Voice comments are available only to Pinar Pro subscribers.");
   await expect(tooltip).toHaveCSS("opacity", "1");
   await page.mouse.move(0, 0);
   await voiceControl.focus();
   await expect(tooltip).toHaveCSS("opacity", "1");
+});
+
+test("local storage explains why the microphone is disabled", async ({ page }) => {
+  await installVoiceHarness(page, { available: false, ok: true, reason: "cloud_required" });
+  await openComposer(page, "#first");
+  const composer = page.locator('[data-pinar="host"] [data-ref="composer"]');
+  const voice = composer.locator('[data-ref="voice"]');
+  const tooltip = composer.locator('[data-ref="voiceTooltip"]');
+
+  await expect(voice).toBeDisabled();
+  await composer.locator('[data-ref="voiceControl"]').hover();
+  await expect(tooltip).toContainText("Voice comments are available with Pinar Cloud on Pro.");
 });
 
 // Mutation captured: leaving the standard actions visible makes the recorder overlap the composer footer.

@@ -9,7 +9,7 @@
 - **Voltar da revisão:** pressione Tab novamente ou Esc. Não há botão de voltar. A revisão substitui a toolbar e usa o cursor normal; nunca ficam duas barras sobre a página.
 - **Seleção sem obstrução:** a toolbar expandida fica transparente sob o ponteiro, liberando a página por baixo. Não existem mais as opções fixa/auto-hide ou o atalho H. Tab mantém a navegação normal entre campos no editor de comentários.
 - **Larguras menores:** os rótulos usam uma palavra até 1180px; até 1000px, a logo e “Clique ou arraste” saem. Em telas ainda menores, dicas secundárias saem progressivamente, preservando os atalhos principais.
-- **Concluir e copiar:** Ctrl/⌘+Enter durante a captura, ou o botão no painel de revisão. O sucesso mostra **Sessão copiada**; uma falha informa que a sessão não pôde ser concluída e mantém as evidências para revisão e nova tentativa. Não há um segundo atalho global configurável para essa ação.
+- **Concluir e copiar:** Ctrl/⌘+Enter durante a captura, ou o botão no painel de revisão. O sucesso mostra **Sessão salva**; uma falha informa que a sessão não pôde ser concluída e mantém as evidências para revisão e nova tentativa. Não há um segundo atalho global configurável para essa ação.
 - **Cancelar sessão pelo menu da extensão:** Alt+Shift+X, por padrão. Encerra sem copiar e conserva o histórico; não equivale a descartar as evidências na revisão.
 
 Os atalhos globais podem ser alterados no navegador. Cada pin recebe sua própria screenshot quando a captura de imagens está habilitada. Uma sessão reúne essas evidências, inclusive diferentes estados da mesma página; não existe uma única imagem que substitua todas elas.

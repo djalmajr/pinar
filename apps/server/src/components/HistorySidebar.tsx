@@ -47,6 +47,7 @@ import {
   cn,
   useSidebar,
 } from "@pinar/ui";
+import { useNavigate } from "@tanstack/react-router";
 import {
   COLLECTION_INDENTATION_WIDTH,
   flattenCollections,
@@ -59,6 +60,10 @@ import { COLLECTION_DND_TYPE, SESSION_DND_TYPE } from "@/lib/workspace-dnd";
 import { ProjectIconGlyph } from "@/components/ProjectIcon";
 import type { ServerMessageKey } from "@/lib/i18n";
 import { pinarRuntime } from "@/lib/server-header";
+import type {
+  CollectionInvitationRecord,
+  SharedCollectionRecord,
+} from "@/lib/collection-collaborators";
 import CheckIcon from "~icons/lucide/check";
 import ArrowDownIcon from "~icons/lucide/arrow-down";
 import ArrowUpIcon from "~icons/lucide/arrow-up";
@@ -69,11 +74,13 @@ import FolderPlusIcon from "~icons/lucide/folder-plus";
 import InboxIcon from "~icons/lucide/inbox";
 import LayoutGridIcon from "~icons/lucide/layout-grid";
 import LinkIcon from "~icons/lucide/link-2";
+import MailIcon from "~icons/lucide/mail";
 import MoreVerticalIcon from "~icons/lucide/ellipsis-vertical";
 import PencilIcon from "~icons/lucide/pencil";
 import PlusIcon from "~icons/lucide/plus";
 import ShareIcon from "~icons/lucide/share-2";
 import TrashIcon from "~icons/lucide/trash-2";
+import UsersIcon from "~icons/lucide/users";
 
 type ContainerKind = "collection" | "project";
 type Translate = (
@@ -98,11 +105,16 @@ export interface SidebarFilterItem {
 }
 
 interface HistorySidebarProps {
+  canManageCollaborators?: boolean;
   filters: SidebarFilterItem[];
   footer?: ReactNode;
+  onManageCollaborators?: (collection: ProjectTreeCollection) => void;
+  onOpenInvitations?: () => void;
+  pendingInvitations?: CollectionInvitationRecord[];
   selectedCollectionId: string | null;
   selectedFilterId: string | null;
   selectedProject?: ProjectTreeProject;
+  sharedCollections?: SharedCollectionRecord[];
   sharedCount: number;
   sharedOnly: boolean;
   t: Translate;
@@ -139,6 +151,7 @@ interface ProjectActionsMenuProps {
 }
 
 interface SortableCollectionProps {
+  canManageCollaborators?: boolean;
   collection: ProjectTreeCollection;
   depth: number;
   hasChildren: boolean;
@@ -147,6 +160,7 @@ interface SortableCollectionProps {
   t: Translate;
   onCreateChild: (parentId: string) => void;
   onDelete: (target: ContainerTarget) => void;
+  onManageCollaborators?: (collection: ProjectTreeCollection) => void;
   onRename: (target: RenameTarget) => void;
   onSelect: (collectionId: string) => void;
   onShare: (path: string) => void;
@@ -154,24 +168,28 @@ interface SortableCollectionProps {
 }
 
 interface CollectionMenuProps {
+  canManageCollaborators?: boolean;
   collection: ProjectTreeCollection;
   menuOpen: boolean;
   t: Translate;
   onActionFocusChange: (focused: boolean) => void;
   onCreate: () => void;
   onDelete: (target: ContainerTarget) => void;
+  onManageCollaborators?: (collection: ProjectTreeCollection) => void;
   onMenuOpenChange: (open: boolean) => void;
   onRename: (target: RenameTarget) => void;
   onShare: (path: string) => void;
 }
 
 function CollectionMenu({
+  canManageCollaborators,
   collection,
   menuOpen,
   t,
   onActionFocusChange,
   onCreate,
   onDelete,
+  onManageCollaborators,
   onMenuOpenChange,
   onRename,
   onShare,
@@ -220,6 +238,12 @@ function CollectionMenu({
               {t("dashboard.share")}
             </DropdownMenuItem>
           )}
+          {pinarRuntime() === "cloud" && canManageCollaborators && onManageCollaborators && (
+            <DropdownMenuItem onClick={() => onManageCollaborators(collection)}>
+              <UsersIcon />
+              {t("dashboard.collaborators")}
+            </DropdownMenuItem>
+          )}
           {!collection.isProtected && (
             <>
               <DropdownMenuSeparator />
@@ -241,6 +265,7 @@ function CollectionMenu({
 }
 
 function SortableCollection({
+  canManageCollaborators,
   collection,
   depth,
   hasChildren,
@@ -249,6 +274,7 @@ function SortableCollection({
   t,
   onCreateChild,
   onDelete,
+  onManageCollaborators,
   onRename,
   onSelect,
   onShare,
@@ -345,12 +371,14 @@ function SortableCollection({
         {sessionGroupCount(collection.sessions)}
       </SidebarMenuBadge>
       <CollectionMenu
+        canManageCollaborators={canManageCollaborators}
         collection={collection}
         menuOpen={menuOpen}
         t={t}
         onActionFocusChange={setMenuActionFocused}
         onCreate={() => onCreateChild(collection.id)}
         onDelete={onDelete}
+        onManageCollaborators={onManageCollaborators}
         onMenuOpenChange={setMenuOpen}
         onRename={onRename}
         onShare={onShare}
@@ -360,22 +388,26 @@ function SortableCollection({
 }
 
 interface FixedCollectionProps {
+  canManageCollaborators?: boolean;
   collection: ProjectTreeCollection;
   isActive: boolean;
   t: Translate;
   onCreate: () => void;
   onDelete: (target: ContainerTarget) => void;
+  onManageCollaborators?: (collection: ProjectTreeCollection) => void;
   onRename: (target: RenameTarget) => void;
   onSelect: (collectionId: string) => void;
   onShare: (path: string) => void;
 }
 
 function FixedCollection({
+  canManageCollaborators,
   collection,
   isActive,
   t,
   onCreate,
   onDelete,
+  onManageCollaborators,
   onRename,
   onSelect,
   onShare,
@@ -411,12 +443,14 @@ function FixedCollection({
         {sessionGroupCount(collection.sessions)}
       </SidebarMenuBadge>
       <CollectionMenu
+        canManageCollaborators={canManageCollaborators}
         collection={collection}
         menuOpen={menuOpen}
         t={t}
         onActionFocusChange={setMenuActionFocused}
         onCreate={onCreate}
         onDelete={onDelete}
+        onManageCollaborators={onManageCollaborators}
         onMenuOpenChange={setMenuOpen}
         onRename={onRename}
         onShare={onShare}
@@ -637,10 +671,15 @@ export function ProjectActionsMenu({
 }
 
 export function HistorySidebar({
+  canManageCollaborators,
   footer,
+  onManageCollaborators,
+  onOpenInvitations,
+  pendingInvitations = [],
   selectedCollectionId,
   selectedFilterId,
   selectedProject,
+  sharedCollections = [],
   sharedCount,
   sharedOnly,
   t,
@@ -652,6 +691,7 @@ export function HistorySidebar({
   onSelectShared,
   onShare,
 }: HistorySidebarProps) {
+  const navigate = useNavigate();
   const { setOpenMobile } = useSidebar();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [collapsedCollectionIds, setCollapsedCollectionIds] = useState<
@@ -805,12 +845,14 @@ export function HistorySidebar({
               </SidebarMenuItem>
               {fixedCollections.map((collection) => (
                 <FixedCollection
+                  canManageCollaborators={canManageCollaborators}
                   collection={collection}
                   isActive={selectedCollectionId === collection.id}
                   key={collection.id}
                   t={t}
                   onCreate={() => create("collection")}
                   onDelete={deleteContainer}
+                  onManageCollaborators={onManageCollaborators}
                   onRename={rename}
                   onSelect={selectCollection}
                   onShare={onShare}
@@ -853,6 +895,7 @@ export function HistorySidebar({
               <SidebarMenu>
                 {visibleFlattened.map(({ collection, depth }) => (
                   <SortableCollection
+                    canManageCollaborators={canManageCollaborators}
                     collection={collection}
                     depth={
                       collection.id === activeId && projection
@@ -866,6 +909,7 @@ export function HistorySidebar({
                     t={t}
                     onCreateChild={(parentId) => create("collection", parentId)}
                     onDelete={deleteContainer}
+                    onManageCollaborators={onManageCollaborators}
                     onRename={rename}
                     onSelect={selectCollection}
                     onShare={onShare}
@@ -884,6 +928,71 @@ export function HistorySidebar({
             </DragOverlay>
           </SidebarGroupContent>
         </SidebarGroup>
+        {pinarRuntime() === "cloud" && pendingInvitations.length > 0 && (
+          <SidebarGroup className="pt-2">
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    className="font-medium text-primary hover:bg-primary/10 hover:text-primary"
+                    tooltip={t("dashboard.pendingInvitations")}
+                    onClick={() => {
+                      closeMobile();
+                      onOpenInvitations?.();
+                    }}
+                  >
+                    <MailIcon />
+                    <span>{t("dashboard.pendingInvitations")}</span>
+                  </SidebarMenuButton>
+                  <SidebarMenuBadge className="bg-primary text-primary-foreground font-semibold">
+                    {pendingInvitations.length}
+                  </SidebarMenuBadge>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+        {pinarRuntime() === "cloud" && sharedCollections.length > 0 && (
+          <SidebarGroup className="pt-4">
+            <SidebarGroupLabel className="h-7 text-[11px] font-normal uppercase text-sidebar-foreground/60">
+              {t("dashboard.sharedCollections")}
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {sharedCollections.map((col) => (
+                  <SidebarMenuItem key={col.id}>
+                    <SidebarMenuButton
+                      className={cn(col.isSuspended && "cursor-not-allowed opacity-60")}
+                      disabled={col.isSuspended}
+                      tooltip={
+                        col.isSuspended
+                          ? `${col.name} — ${t("dashboard.sharedCollectionSuspendedTooltip")}`
+                          : col.ownerEmail
+                            ? `${col.name} (${t("dashboard.sharedBy", { owner: col.ownerEmail })})`
+                            : col.name
+                      }
+                      onClick={() => {
+                        if (col.isSuspended) return;
+                        closeMobile();
+                        void navigate({ to: `/c/${encodeURIComponent(col.id)}` });
+                      }}
+                    >
+                      <UsersIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                      <span className="truncate">{col.name}</span>
+                    </SidebarMenuButton>
+                    {col.isSuspended ? (
+                      <SidebarMenuBadge className="bg-muted text-[10px] text-muted-foreground">
+                        {t("dashboard.sharedCollectionSuspended")}
+                      </SidebarMenuBadge>
+                    ) : typeof col.sessionCount === "number" ? (
+                      <SidebarMenuBadge>{col.sessionCount}</SidebarMenuBadge>
+                    ) : null}
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
       {footer ? <SidebarFooter>{footer}</SidebarFooter> : null}
     </Sidebar>

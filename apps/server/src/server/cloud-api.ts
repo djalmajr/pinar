@@ -80,6 +80,7 @@ import {
   type AiPrompt,
 } from "./ai/inference";
 import { SESSION_PATCH_MAX_BYTES } from "./session-patch";
+import { cloudTrialAccess, newCloudTrialWindow, type CloudTrialAccess } from "../lib/cloud-trial";
 import { type PricingConfig, pricingForCountry } from "../lib/pricing";
 import { FREE_CLOUD_RETENTION_DAYS, laterExpiry, paidRetentionExpiresAt } from "../lib/retention";
 import { formatBatchMarkdown, formatCollectionMarkdown, formatProjectMarkdown, formatSessionMarkdown } from "./markdown";
@@ -94,6 +95,7 @@ import {
 } from "./stripe-subscription-state";
 
 interface D1Result {
+  meta?: { changes?: number };
   results?: Record<string, unknown>[];
 }
 
@@ -101,7 +103,7 @@ interface D1Statement {
   all(): Promise<D1Result>;
   bind(...values: unknown[]): D1Statement;
   first(): Promise<Record<string, unknown> | null>;
-  run(): Promise<unknown>;
+  run(): Promise<D1Result>;
 }
 
 interface D1Database {
@@ -125,6 +127,7 @@ export interface CloudEnv {
   ADMIN_API_KEY?: string;
   AI?: Ai;
   AUTH_PEPPER?: string;
+  CLOUD_TRIAL_ENABLED?: string;
   COMPLIMENTARY_PRO_USER_IDS?: string;
   DB?: D1Database;
   DEPLOYMENT_ENV?: "local" | "production" | "staging";
@@ -156,10 +159,47 @@ function requiresLegalAcceptance(env: CloudEnv) {
 }
 
 export interface Principal {
+  email?: string;
   id: string;
   isPermanent: boolean;
   kind: "account" | "installation";
   plan: AccountPlan;
+}
+
+export type CollaboratorStatus = "pending" | "accepted" | "revoked";
+
+export interface CollectionCollaborator {
+  acceptedAt?: string | null;
+  collectionId: string;
+  createdAt: string;
+  email: string;
+  id: string;
+  ownerId: string;
+  revokedAt?: string | null;
+  role?: string;
+  status: CollaboratorStatus;
+  updatedAt: string;
+  userId?: string | null;
+}
+
+export interface CollectionInvitationView {
+  collectionId: string;
+  collectionName: string;
+  createdAt: string;
+  id: string;
+  ownerEmail: string;
+}
+
+export interface SharedCollectionView {
+  createdAt?: string;
+  id: string;
+  isSuspended?: boolean;
+  name: string;
+  ownerEmail?: string;
+  role?: string;
+  sessionCount?: number;
+  status?: "active" | "suspended";
+  updatedAt?: string;
 }
 
 export type CloudSession = Session & { batchId: string | null };
@@ -195,6 +235,8 @@ interface InstallationRecord {
 interface AccountRecord {
   aiCreditRefillAt: string;
   billingStatus: StripeSubscriptionStatus;
+  cloudTrialEndsAt: string | null;
+  cloudTrialStartedAt: string | null;
   complimentaryPro: boolean;
   email: string;
   everPaid: boolean;
@@ -411,6 +453,7 @@ const memoryPinReviewEvents: Array<PinReviewEvent & { captureId: string }> = [];
 const memoryAiCreditGrants = new Map<string, AiCreditGrantRecord>();
 const memoryAiCreditUsages = new Map<string, AiCreditUsageRecord>();
 const memoryCollections = new Map<string, Collection>();
+const memoryCollectionCollaborators = new Map<string, CollectionCollaborator>();
 const memoryDeviceSessions = new Map<string, DeviceSessionRecord>();
 const memoryEmailChallenges = new Map<string, EmailChallengeRecord>();
 const memoryExtensionCodes = new Map<string, ExtensionCodeRecord>();
@@ -751,6 +794,28 @@ function effectiveAccountPlan(account: AccountRecord): AccountPlan {
   return account.complimentaryPro ? "pro" : account.plan;
 }
 
+function cloudTrialEnabled(env: CloudEnv) {
+  return env.CLOUD_TRIAL_ENABLED === "true";
+}
+
+function optionalTimestamp(value: unknown) {
+  return typeof value === "string" && value ? value : null;
+}
+
+function cloudTrialForAccount(env: CloudEnv, account: AccountRecord): CloudTrialAccess {
+  return cloudTrialAccess({
+    enabled: cloudTrialEnabled(env),
+    endsAt: account.cloudTrialEndsAt,
+    now: currentDate(),
+    plan: effectiveAccountPlan(account),
+    startedAt: account.cloudTrialStartedAt,
+  });
+}
+
+function newAccountTrial(env: CloudEnv) {
+  return cloudTrialEnabled(env) ? newCloudTrialWindow(currentDate()) : null;
+}
+
 function accountFromRow(row: Record<string, unknown>, env: CloudEnv): AccountRecord {
   const email = String(row.email || "");
   const id = String(row.id || "");
@@ -759,6 +824,8 @@ function accountFromRow(row: Record<string, unknown>, env: CloudEnv): AccountRec
     billingStatus: row.billing_status === "canceled" || row.billing_status === "past_due"
       ? row.billing_status
       : "active",
+    cloudTrialEndsAt: optionalTimestamp(row.cloud_trial_ends_at),
+    cloudTrialStartedAt: optionalTimestamp(row.cloud_trial_started_at),
     complimentaryPro: complimentaryProUser(env, id),
     email,
     everPaid: Number(row.ever_paid) === 1,
@@ -811,6 +878,7 @@ function accountAuthSession(account: AccountRecord): AccountAuthSession {
 function principalForAccount(account: AccountRecord): Principal {
   const plan = effectiveAccountPlan(account);
   return {
+    email: account.email,
     id: account.id,
     isPermanent: plan === "pro",
     kind: "account",
@@ -899,9 +967,12 @@ async function createFreeAccount(env: CloudEnv, email: string) {
   if (existing) return existing;
   const now = currentDate().toISOString();
   const userId = "usr_" + generateNanoId(24);
+  const trial = newAccountTrial(env);
   const account: AccountRecord = {
     aiCreditRefillAt: "",
     billingStatus: "active",
+    cloudTrialEndsAt: trial?.endsAt ?? null,
+    cloudTrialStartedAt: trial?.startedAt ?? null,
     complimentaryPro: complimentaryProUser(env, userId),
     email,
     everPaid: false,
@@ -913,9 +984,10 @@ async function createFreeAccount(env: CloudEnv, email: string) {
   };
   if (env.DB) {
     await env.DB.prepare(
-      "INSERT OR IGNORE INTO users (id, email, plan, ever_paid, billing_status, created_at, updated_at) "
-      + "VALUES (?, ?, 'free', 0, 'active', ?, ?)",
-    ).bind(account.id, email, now, now).run();
+      "INSERT OR IGNORE INTO users (id, email, plan, ever_paid, billing_status, created_at, updated_at, "
+      + "cloud_trial_started_at, cloud_trial_ends_at) "
+      + "VALUES (?, ?, 'free', 0, 'active', ?, ?, ?, ?)",
+    ).bind(account.id, email, now, now, account.cloudTrialStartedAt, account.cloudTrialEndsAt).run();
     return findAccountByEmail(env, email);
   }
   memoryAccounts.set(account.id, account);
@@ -1808,12 +1880,20 @@ async function listSessions(
 ) {
   const limit = Math.min(Math.max(Number(requestedLimit) || 50, 1), 100);
   const offset = Math.max(Number(requestedOffset) || 0, 0);
+  const isCollab = collectionId ? await isCollectionCollaborator(env, principal, collectionId) : false;
   if (env.DB) {
-    const clauses = ["user_id = ?"];
-    const values: unknown[] = [principal.id];
-    if (collectionId) {
+    const clauses: string[] = [];
+    const values: unknown[] = [];
+    if (isCollab) {
       clauses.push("collection_id = ?");
       values.push(collectionId);
+    } else {
+      clauses.push("user_id = ?");
+      values.push(principal.id);
+      if (collectionId) {
+        clauses.push("collection_id = ?");
+        values.push(collectionId);
+      }
     }
     if (batchId) {
       clauses.push("batch_id = ?");
@@ -1833,10 +1913,14 @@ async function listSessions(
   return decorateCloudSessions(
     env,
     Array.from(memorySessions.values())
-      .filter((session) => session.userId === principal.id
-        && (!collectionId || session.collectionId === collectionId)
-        && (!batchId || cloudSessionBatchId(session) === batchId)
-        && sessionMatchesQuery(session, query))
+      .filter((session) => {
+        const matchesOwnerOrCollab = isCollab
+          ? session.collectionId === collectionId
+          : session.userId === principal.id && (!collectionId || session.collectionId === collectionId);
+        return matchesOwnerOrCollab
+          && (!batchId || cloudSessionBatchId(session) === batchId)
+          && sessionMatchesQuery(session, query);
+      })
       .sort((left, right) => collectionId
         ? Number(left.position) - Number(right.position)
         : right.createdAt.localeCompare(left.createdAt))
@@ -1845,16 +1929,19 @@ async function listSessions(
 }
 
 export async function listCollectionSessions(env: CloudEnv, principal: Principal, collectionId: string) {
+  const isCollab = await isCollectionCollaborator(env, principal, collectionId);
   if (env.DB) {
-    const result = await env.DB.prepare(`
-      SELECT * FROM sessions
-      WHERE user_id = ? AND collection_id = ?
-      ORDER BY position ASC
-    `).bind(principal.id, collectionId).all();
+    const query = isCollab
+      ? "SELECT * FROM sessions WHERE collection_id = ? ORDER BY position ASC"
+      : "SELECT * FROM sessions WHERE user_id = ? AND collection_id = ? ORDER BY position ASC";
+    const statement = isCollab
+      ? env.DB.prepare(query).bind(collectionId)
+      : env.DB.prepare(query).bind(principal.id, collectionId);
+    const result = await statement.all();
     return (result.results || []).map(sessionFromRow);
   }
   return Array.from(memorySessions.values())
-    .filter((session) => session.userId === principal.id && session.collectionId === collectionId)
+    .filter((session) => (isCollab ? session.collectionId === collectionId : session.userId === principal.id && session.collectionId === collectionId))
     .sort((left, right) => Number(left.position) - Number(right.position))
     .map((session) => withCloudBatchId(session));
 }
@@ -1868,6 +1955,467 @@ export async function findOwnedCollection(env: CloudEnv, principal: Principal, i
   }
   const collection = memoryCollections.get(id);
   return collection?.ownerId === principal.id ? collection : null;
+}
+
+function escapeHtml(text: string) {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+async function isOwnerPro(env: CloudEnv, ownerId: string): Promise<boolean> {
+  if (!ownerId) return false;
+  const owner = await findAccountById(env, ownerId);
+  return owner ? effectiveAccountPlan(owner) === "pro" : false;
+}
+
+async function getRawCollection(env: CloudEnv, collectionId: string): Promise<Collection | null> {
+  if (!collectionId) return null;
+  if (env.DB) {
+    try {
+      const row = await env.DB.prepare("SELECT * FROM collections WHERE id = ?").bind(collectionId).first();
+      return row ? collectionFromRow(row) : null;
+    } catch {
+      return null;
+    }
+  }
+  return memoryCollections.get(collectionId) || null;
+}
+
+async function getRawSession(env: CloudEnv, sessionId: string): Promise<Session | null> {
+  if (!sessionId) return null;
+  if (env.DB) {
+    try {
+      const row = await env.DB.prepare("SELECT * FROM sessions WHERE id = ?").bind(sessionId).first();
+      return row ? sessionFromRow(row) : null;
+    } catch {
+      return null;
+    }
+  }
+  return memorySessions.get(sessionId) || null;
+}
+
+async function suspendedCollectionResponse(env: CloudEnv, principal: Principal, sessionId: string) {
+  if (principal.kind !== "account") return null;
+  const session = await getRawSession(env, sessionId);
+  if (!session?.collectionId) return null;
+  const collab = await findAcceptedCollaborator(env, principal.id, session.collectionId);
+  if (!collab || await isOwnerPro(env, collab.ownerId)) return null;
+  return json({ code: "collection_suspended", error: "Collection access is suspended" }, 403);
+}
+
+async function findAcceptedCollaborator(
+  env: CloudEnv,
+  userId: string,
+  collectionId: string,
+): Promise<{ collectionId: string; id: string; ownerId: string; status: string; userId?: string } | null> {
+  if (!userId || !collectionId) return null;
+  if (env.DB) {
+    try {
+      const row = await env.DB.prepare(`
+        SELECT id, collection_id, owner_id, status, user_id
+        FROM collection_collaborators
+        WHERE collection_id = ? AND user_id = ? AND status = 'accepted'
+        LIMIT 1
+      `).bind(collectionId, userId).first();
+      if (!row) return null;
+      return {
+        collectionId: String(row.collection_id),
+        id: String(row.id),
+        ownerId: String(row.owner_id),
+        status: String(row.status),
+        userId: typeof row.user_id === "string" ? row.user_id : undefined,
+      };
+    } catch {
+      return null;
+    }
+  }
+  for (const collab of memoryCollectionCollaborators.values()) {
+    if (
+      collab.collectionId === collectionId
+      && collab.status === "accepted"
+      && collab.userId === userId
+    ) {
+      return {
+        collectionId: collab.collectionId,
+        id: collab.id,
+        ownerId: collab.ownerId,
+        status: collab.status,
+        userId: collab.userId || undefined,
+      };
+    }
+  }
+  return null;
+}
+
+export async function isCollectionCollaborator(
+  env: CloudEnv,
+  principal: Principal,
+  collectionId: string,
+): Promise<boolean> {
+  if (!collectionId || principal.kind !== "account") return false;
+  let ownerId: string | null = null;
+  if (env.DB) {
+    try {
+      const row = await env.DB.prepare(`
+        SELECT owner_id FROM collection_collaborators
+        WHERE collection_id = ?
+          AND user_id = ?
+          AND status = 'accepted'
+        LIMIT 1
+      `).bind(collectionId, principal.id).first();
+      if (!row) return false;
+      ownerId = typeof row.owner_id === "string" ? row.owner_id : null;
+    } catch {
+      return false;
+    }
+  } else {
+    for (const collab of memoryCollectionCollaborators.values()) {
+      if (
+        collab.collectionId === collectionId
+        && collab.status === "accepted"
+        && collab.userId === principal.id
+      ) {
+        ownerId = collab.ownerId;
+        break;
+      }
+    }
+  }
+  if (!ownerId) return false;
+  return await isOwnerPro(env, ownerId);
+}
+
+export async function findAccessibleCollection(
+  env: CloudEnv,
+  principal: Principal,
+  collectionId: string,
+): Promise<Collection | null> {
+  if (!collectionId) return null;
+  const owned = await findOwnedCollection(env, principal, collectionId);
+  if (owned) return owned;
+  const isCollab = await isCollectionCollaborator(env, principal, collectionId);
+  if (!isCollab) return null;
+  if (env.DB) {
+    try {
+      const row = await env.DB.prepare("SELECT * FROM collections WHERE id = ?").bind(collectionId).first();
+      return row ? collectionFromRow(row) : null;
+    } catch {
+      return null;
+    }
+  }
+  return memoryCollections.get(collectionId) || null;
+}
+
+export async function findAccessibleSession(
+  env: CloudEnv,
+  principal: Principal,
+  sessionId: string,
+): Promise<Session | null> {
+  if (!sessionId) return null;
+  const owned = await findOwnedSession(env, principal, sessionId);
+  if (owned) return owned;
+  let session: Session | null = null;
+  if (env.DB) {
+    try {
+      const row = await env.DB.prepare("SELECT * FROM sessions WHERE id = ?").bind(sessionId).first();
+      session = row ? sessionFromRow(row) : null;
+    } catch {
+      return null;
+    }
+  } else {
+    session = memorySessions.get(sessionId) || null;
+  }
+  if (session && session.collectionId) {
+    const isCollab = await isCollectionCollaborator(env, principal, session.collectionId);
+    if (isCollab) return session;
+  }
+  return null;
+}
+
+async function listCollectionCollaborators(
+  env: CloudEnv,
+  collectionId: string,
+): Promise<Array<{ createdAt?: string; email: string; id: string; role?: string; status: "accepted" | "pending"; userId?: string }>> {
+  if (env.DB) {
+    const result = await env.DB.prepare(`
+      SELECT id, email, status, created_at, user_id
+      FROM collection_collaborators
+      WHERE collection_id = ? AND status IN ('pending', 'accepted')
+      ORDER BY created_at ASC
+    `).bind(collectionId).all();
+    return (result.results || []).map((row) => ({
+      createdAt: typeof row.created_at === "string" ? row.created_at : undefined,
+      email: String(row.email || ""),
+      id: String(row.id || ""),
+      role: "reviewer",
+      status: row.status === "accepted" ? "accepted" : "pending",
+      userId: typeof row.user_id === "string" ? row.user_id : undefined,
+    }));
+  }
+  return Array.from(memoryCollectionCollaborators.values())
+    .filter((collab) => collab.collectionId === collectionId && (collab.status === "pending" || collab.status === "accepted"))
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .map((collab) => ({
+      createdAt: collab.createdAt,
+      email: collab.email,
+      id: collab.id,
+      role: "reviewer",
+      status: collab.status as "accepted" | "pending",
+      userId: collab.userId || undefined,
+    }));
+}
+
+async function createCollectionInvitation(
+  env: CloudEnv,
+  collection: Collection,
+  ownerPrincipal: Principal,
+  email: string,
+): Promise<{ createdAt: string; email: string; id: string; role: string; status: "pending" }> {
+  const normalizedEmail = normalizeEmail(email);
+  const id = "collab_" + generateNanoId(24);
+  const now = currentDate().toISOString();
+
+  if (env.DB) {
+    await env.DB.prepare(`
+      INSERT INTO collection_collaborators (id, collection_id, owner_id, email, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'pending', ?, ?)
+    `).bind(id, collection.id, ownerPrincipal.id, normalizedEmail, now, now).run();
+  } else {
+    memoryCollectionCollaborators.set(id, {
+      collectionId: collection.id,
+      createdAt: now,
+      email: normalizedEmail,
+      id,
+      ownerId: ownerPrincipal.id,
+      status: "pending",
+      updatedAt: now,
+    });
+  }
+
+  if (env.EMAIL) {
+    try {
+      await env.EMAIL.send({
+        from: { email: "noreply@pinar.dev", name: "Pinar" },
+        html: `<p>You have been invited to collaborate on collection <strong>${escapeHtml(collection.name)}</strong>.</p>`,
+        subject: `Invitation to collaborate on ${collection.name}`,
+        text: `You have been invited to collaborate on collection ${collection.name}.`,
+        to: normalizedEmail,
+      });
+    } catch (error) {
+      console.error(JSON.stringify({
+        error: error instanceof Error ? error.message : String(error),
+        message: "collection_invitation_email_failed",
+      }));
+    }
+  }
+
+  return {
+    createdAt: now,
+    email: normalizedEmail,
+    id,
+    role: "reviewer",
+    status: "pending",
+  };
+}
+
+async function revokeCollectionCollaborator(
+  env: CloudEnv,
+  collectionId: string,
+  membershipId: string,
+  ownerId: string,
+): Promise<boolean> {
+  const now = currentDate().toISOString();
+  if (env.DB) {
+    const result = await env.DB.prepare(`
+      UPDATE collection_collaborators
+      SET status = 'revoked', revoked_at = ?, updated_at = ?
+      WHERE id = ? AND collection_id = ? AND owner_id = ? AND status IN ('pending', 'accepted')
+    `).bind(now, now, membershipId, collectionId, ownerId).run();
+    return (result.meta?.changes ?? 0) > 0;
+  }
+  const collab = memoryCollectionCollaborators.get(membershipId);
+  if (!collab || collab.collectionId !== collectionId || collab.ownerId !== ownerId || (collab.status !== "pending" && collab.status !== "accepted")) {
+    return false;
+  }
+  collab.status = "revoked";
+  collab.revokedAt = now;
+  collab.updatedAt = now;
+  return true;
+}
+
+async function listPendingInvitationsForEmail(
+  env: CloudEnv,
+  email: string,
+): Promise<CollectionInvitationView[]> {
+  const normalized = normalizeEmail(email);
+  if (env.DB) {
+    const result = await env.DB.prepare(`
+      SELECT
+        cc.id,
+        cc.collection_id AS collectionId,
+        c.name AS collectionName,
+        u.email AS ownerEmail,
+        cc.created_at AS createdAt
+      FROM collection_collaborators cc
+      JOIN collections c ON c.id = cc.collection_id
+      JOIN users u ON u.id = cc.owner_id
+      WHERE cc.email = ? AND cc.status = 'pending'
+      ORDER BY cc.created_at DESC
+    `).bind(normalized).all();
+    return (result.results || []).map((row) => ({
+      collectionId: String(row.collectionId || ""),
+      collectionName: String(row.collectionName || "Coleção"),
+      createdAt: String(row.createdAt || ""),
+      id: String(row.id || ""),
+      ownerEmail: String(row.ownerEmail || ""),
+    }));
+  }
+  const invitations: CollectionInvitationView[] = [];
+  for (const item of memoryCollectionCollaborators.values()) {
+    if (normalizeEmail(item.email) === normalized && item.status === "pending") {
+      const collection = memoryCollections.get(item.collectionId);
+      const owner = memoryAccounts.get(item.ownerId);
+      invitations.push({
+        collectionId: item.collectionId,
+        collectionName: collection?.name || "Coleção",
+        createdAt: item.createdAt,
+        id: item.id,
+        ownerEmail: owner?.email || "",
+      });
+    }
+  }
+  return invitations.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+async function acceptCollectionInvitation(
+  env: CloudEnv,
+  invitationId: string,
+  principal: Principal,
+): Promise<{ collection: Collection | null; collectionId: string } | null> {
+  const now = currentDate().toISOString();
+  if (env.DB) {
+    const existing = await env.DB.prepare(`
+      SELECT * FROM collection_collaborators WHERE id = ?
+    `).bind(invitationId).first();
+    if (!existing || existing.status !== "pending") return null;
+    const invEmail = normalizeEmail(String(existing.email || ""));
+    const userEmail = normalizeEmail(principal.email || "");
+    if (invEmail !== userEmail) {
+      const err = new Error("forbidden_email_mismatch");
+      (err as unknown as { code: string }).code = "forbidden_email_mismatch";
+      throw err;
+    }
+    const updateResult = await env.DB.prepare(`
+      UPDATE collection_collaborators
+      SET status = 'accepted', user_id = ?, accepted_at = ?, updated_at = ?
+      WHERE id = ? AND status = 'pending'
+    `).bind(principal.id, now, now, invitationId).run();
+    if ((updateResult.meta?.changes ?? 0) === 0) {
+      return null;
+    }
+    const colRow = await env.DB.prepare("SELECT * FROM collections WHERE id = ?")
+      .bind(existing.collection_id).first();
+    return {
+      collection: colRow ? collectionFromRow(colRow) : null,
+      collectionId: String(existing.collection_id),
+    };
+  }
+  const item = memoryCollectionCollaborators.get(invitationId);
+  if (!item || item.status !== "pending") return null;
+  const invEmail = normalizeEmail(item.email);
+  const userEmail = normalizeEmail(principal.email || "");
+  if (invEmail !== userEmail) {
+    const err = new Error("forbidden_email_mismatch");
+    (err as unknown as { code: string }).code = "forbidden_email_mismatch";
+    throw err;
+  }
+  if (item.status !== "pending") return null;
+  item.status = "accepted";
+  item.userId = principal.id;
+  item.acceptedAt = now;
+  item.updatedAt = now;
+  const col = memoryCollections.get(item.collectionId) || null;
+  return {
+    collection: col,
+    collectionId: item.collectionId,
+  };
+}
+
+async function listSharedCollectionsForUser(
+  env: CloudEnv,
+  principal: Principal,
+): Promise<SharedCollectionView[]> {
+  if (principal.kind !== "account") return [];
+  if (env.DB) {
+    const result = await env.DB.prepare(`
+      SELECT
+        c.id,
+        c.name,
+        c.owner_id AS ownerId,
+        c.created_at AS createdAt,
+        c.updated_at AS updatedAt,
+        u.email AS ownerEmail,
+        COUNT(s.id) AS sessionCount
+      FROM collection_collaborators cc
+      JOIN collections c ON c.id = cc.collection_id
+      JOIN users u ON u.id = cc.owner_id
+      LEFT JOIN sessions s ON s.collection_id = c.id
+      WHERE cc.user_id = ? AND cc.status = 'accepted'
+      GROUP BY c.id
+      ORDER BY c.updated_at DESC
+    `).bind(principal.id).all();
+    const rows = result.results || [];
+    const shared: SharedCollectionView[] = [];
+    for (const row of rows) {
+      const ownerId = String(row.ownerId || "");
+      const pro = await isOwnerPro(env, ownerId);
+      shared.push({
+        createdAt: typeof row.createdAt === "string" ? row.createdAt : undefined,
+        id: String(row.id || ""),
+        isSuspended: !pro,
+        name: String(row.name || "Coleção compartilhada"),
+        ownerEmail: typeof row.ownerEmail === "string" ? row.ownerEmail : undefined,
+        role: "reviewer",
+        sessionCount: Number(row.sessionCount || 0),
+        status: pro ? "active" : "suspended",
+        updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : undefined,
+      });
+    }
+    return shared;
+  }
+  const collections: SharedCollectionView[] = [];
+  const seenIds = new Set<string>();
+  for (const item of memoryCollectionCollaborators.values()) {
+    if (
+      item.status === "accepted"
+      && item.userId === principal.id
+      && !seenIds.has(item.collectionId)
+    ) {
+      seenIds.add(item.collectionId);
+      const collection = memoryCollections.get(item.collectionId);
+      if (!collection) continue;
+      const owner = memoryAccounts.get(collection.ownerId);
+      const pro = await isOwnerPro(env, collection.ownerId);
+      const sessionCount = Array.from(memorySessions.values()).filter(
+        (session) => session.collectionId === collection.id,
+      ).length;
+      collections.push({
+        createdAt: collection.createdAt,
+        id: collection.id,
+        isSuspended: !pro,
+        name: collection.name,
+        ownerEmail: owner?.email,
+        role: "reviewer",
+        sessionCount,
+        status: pro ? "active" : "suspended",
+        updatedAt: collection.updatedAt,
+      });
+    }
+  }
+  return collections.sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
 }
 
 const BATCH_SELECT = `
@@ -2779,6 +3327,15 @@ async function createCheckout(request: Request, env: CloudEnv) {
   if (!priceId) return json({ error: "Stripe price is not configured" }, 500);
   const principal = await resolvePrincipal(request, env);
   const account = principal?.kind === "account" ? await findAccountById(env, principal.id) : null;
+  if (!subscription && cloudTrialEnabled(env)) {
+    const trial = account ? cloudTrialForAccount(env, account) : null;
+    if (!trial || trial.state === "active" || trial.state === "expired") {
+      return json({
+        code: "cloud_pro_required_for_addon",
+        error: "Pro subscription required for add-ons",
+      }, 402);
+    }
+  }
   const storedAcceptance = account ? await latestLegalAcceptance(env, principalForAccount(account)) : null;
   const legalLocale: LegalAcceptanceLocale = body.locale === "pt" ? "pt" : "en";
   const submittedEvidence = currentAppLegalEvidence(body, `checkout:${checkoutClaimHash}`);
@@ -2907,11 +3464,13 @@ async function upsertStripeAccount(input: UpsertStripeAccountInput) {
       ).bind(email, nextPlan, plan, nextCustomerId, subscriptionId, nextPlan, plan, now, existing.id).run();
       return findAccountById(env, existing.id);
     }
+    const trial = newAccountTrial(env);
     try {
       await env.DB.prepare(
         "INSERT INTO users "
-        + "(id, email, plan, ever_paid, billing_status, stripe_customer_id, stripe_subscription_id, created_at, updated_at) "
-        + "VALUES (?, ?, ?, 1, ?, ?, NULLIF(?, ''), ?, ?)",
+        + "(id, email, plan, ever_paid, billing_status, stripe_customer_id, stripe_subscription_id, created_at, updated_at, "
+        + "cloud_trial_started_at, cloud_trial_ends_at) "
+        + "VALUES (?, ?, ?, 1, ?, ?, NULLIF(?, ''), ?, ?, ?, ?)",
       ).bind(
         "usr_" + generateNanoId(24),
         email,
@@ -2921,6 +3480,8 @@ async function upsertStripeAccount(input: UpsertStripeAccountInput) {
         subscriptionId,
         now,
         now,
+        trial?.startedAt ?? null,
+        trial?.endsAt ?? null,
       ).run();
     } catch {
       const concurrent = await findAccountByEmail(env, email);
@@ -2935,9 +3496,12 @@ async function upsertStripeAccount(input: UpsertStripeAccountInput) {
   let account = existing;
   if (!account) {
     const userId = "usr_" + generateNanoId(24);
+    const trial = newAccountTrial(env);
     account = {
       aiCreditRefillAt: "",
       billingStatus: plan ? "active" : "canceled",
+      cloudTrialEndsAt: trial?.endsAt ?? null,
+      cloudTrialStartedAt: trial?.startedAt ?? null,
       complimentaryPro: complimentaryProUser(env, userId),
       email,
       everPaid: true,
@@ -3922,7 +4486,7 @@ async function deleteCollectionContainer(env: CloudEnv, principal: Principal, id
     ? await env.DB.prepare("SELECT * FROM collections WHERE id = ? AND owner_id = ?")
       .bind(id, principal.id).first()
     : memoryCollections.get(id);
-  if (!collection || protectedValue(collection)) return false;
+  if (!collection || protectedValue(collection) || (!env.DB && (collection as Collection).ownerId !== principal.id)) return false;
   const current = env.DB
     ? collectionFromRow(collection as Record<string, unknown>)
     : collection as Collection;
@@ -3947,6 +4511,7 @@ async function deleteCollectionContainer(env: CloudEnv, principal: Principal, id
       `).bind(current.parentId, index, timestamp, item.id, principal.id)).filter(
         (item): item is D1Statement => Boolean(item),
       ),
+      env.DB.prepare("DELETE FROM collection_collaborators WHERE collection_id = ?").bind(id),
       env.DB.prepare("DELETE FROM collections WHERE id = ? AND owner_id = ?").bind(id, principal.id),
     ]);
   } else {
@@ -3963,6 +4528,9 @@ async function deleteCollectionContainer(env: CloudEnv, principal: Principal, id
       item.position = index;
       item.updatedAt = timestamp;
     });
+    for (const [collabId, collab] of memoryCollectionCollaborators) {
+      if (collab.collectionId === id) memoryCollectionCollaborators.delete(collabId);
+    }
     memoryCollections.delete(id);
   }
   return true;
@@ -3973,7 +4541,7 @@ async function deleteProjectContainer(env: CloudEnv, principal: Principal, id: s
     ? await env.DB.prepare("SELECT * FROM projects WHERE id = ? AND owner_id = ?")
       .bind(id, principal.id).first()
     : memoryProjects.get(id);
-  if (!project || protectedValue(project)) return false;
+  if (!project || protectedValue(project) || (!env.DB && (project as Project).ownerId !== principal.id)) return false;
   const collections = await listCollections(env, principal, id);
   for (const collection of collections) {
     await deleteCollectionContainer(env, principal, collection.id);
@@ -4435,8 +5003,12 @@ function deleteMemoryReviewsForCapture(captureId: string) {
 async function reviewPin(request: Request, env: CloudEnv, captureId: string, pinId: string) {
   const principal = await resolvePrincipal(request, env);
   if (!principal) return json({ error: "Unauthorized" }, 401);
-  const session = await findOwnedSession(env, principal, captureId);
-  if (!session) return json({ error: "Not found" }, 404);
+  const session = await findAccessibleSession(env, principal, captureId);
+  if (!session) {
+    const suspended = await suspendedCollectionResponse(env, principal, captureId);
+    if (suspended) return suspended;
+    return json({ error: "Not found" }, 404);
+  }
   const body = await readJson(request);
   if (!isPinReviewHumanAction(body.action)) {
     return json(pinReviewErrorBody(new PinReviewError("invalid_payload")), 400);
@@ -4579,14 +5151,32 @@ async function accountEntitlements(request: Request, env: CloudEnv) {
     }
   }
   const aiCredits = await aiCreditBalance(env, principal);
+  const account = principal.kind === "account" ? await findAccountById(env, principal.id) : null;
+  const trial = account ? cloudTrialForAccount(env, account) : null;
+  const storage = await storageForPrincipal(env, principal);
+  if (trial) storage.uploadAllowed = storage.uploadAllowed && trial.uploadAllowed;
   return json({
     aiCredits: { ...aiCredits, nextRefillAt: null },
     aiUsage: await listAiUsageHistory(env, principal),
     legalAcceptance: await latestLegalAcceptance(env, principal),
     ok: true,
     plan: principal.plan,
-    storage: await storageForPrincipal(env, principal),
+    storage,
+    ...(trial ? { trial } : {}),
   }, 200, { "Cache-Control": "no-store" });
+}
+
+async function cloudTrialWriteResponse(env: CloudEnv, principal: Principal) {
+  if (principal.kind !== "account") return null;
+  const account = await findAccountById(env, principal.id);
+  if (!account) return null;
+  const trial = cloudTrialForAccount(env, account);
+  if (trial.uploadAllowed) return null;
+  return json({
+    code: "cloud_subscription_required",
+    error: "Cloud subscription required",
+    trial,
+  }, 402);
 }
 
 const AI_OUTPUT_LANGUAGES = new Set(["de", "en", "es", "fr", "ja", "pt", "zh"]);
@@ -4899,6 +5489,8 @@ async function updateSessionFields(request: Request, env: CloudEnv, id: string) 
 async function uploadShot(request: Request, env: CloudEnv) {
   const principal = await resolvePrincipal(request, env);
   if (!principal) return json({ error: "Unauthorized" }, 401);
+  const trialDenied = await cloudTrialWriteResponse(env, principal);
+  if (trialDenied) return trialDenied;
   const body = await readJson(request);
   const id = stringValue(body, "id") || stringValue(body, "captureId");
   const image = stringValue(body, "image");
@@ -4976,6 +5568,8 @@ async function uploadShot(request: Request, env: CloudEnv) {
 async function saveHistory(request: Request, env: CloudEnv) {
   const principal = await resolvePrincipal(request, env);
   if (!principal) return json({ error: "Unauthorized" }, 401);
+  const trialDenied = await cloudTrialWriteResponse(env, principal);
+  if (trialDenied) return trialDenied;
   const body = await readJson(request);
   const id = stringValue(body, "id") || stringValue(body, "captureId") || generateNanoId();
   if (!SESSION_ID_PATTERN.test(id)) return json({ error: "invalid session id" }, 400);
@@ -5426,7 +6020,7 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
   if (method === "GET" && path === "/api/pricing") {
     const config = pricingConfig(env);
     if (!config) return json({ code: "pricing_unavailable", error: "Pricing is not configured" }, 503);
-    return json(pricingForCountry(requestCountry(request), config), 200, {
+    return json(pricingForCountry(requestCountry(request), config, cloudTrialEnabled(env)), 200, {
       "Cache-Control": "private, no-store",
       Vary: "CF-IPCountry",
     });
@@ -5620,7 +6214,112 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
     const deleted = await deleteProjectContainer(env, principal, decodeURIComponent(projectMatch[1]));
     return deleted ? json({ deleted, ok: true }) : json({ error: "protected or not found" }, 409);
   }
+  if (method === "GET" && path === "/api/collection-invitations") {
+    const principal = await resolvePrincipal(request, env);
+    if (!principal || principal.kind !== "account" || !principal.email) {
+      return json({ error: "Unauthorized" }, 401);
+    }
+    const invitations = await listPendingInvitationsForEmail(env, principal.email);
+    return json({ invitations, ok: true }, 200, { "Cache-Control": "no-store" });
+  }
+  const invitationAcceptMatch = path.match(/^\/api\/collection-invitations\/([^/]+)\/accept$/);
+  if (invitationAcceptMatch && method === "POST") {
+    const principal = await resolvePrincipal(request, env);
+    if (!principal || principal.kind !== "account") return json({ error: "Unauthorized" }, 401);
+    const invitationId = decodeURIComponent(invitationAcceptMatch[1]);
+    try {
+      const result = await acceptCollectionInvitation(env, invitationId, principal);
+      if (!result) return json({ error: "Invitation not found" }, 404);
+      return json({ collection: result.collection, collectionId: result.collectionId, ok: true });
+    } catch (error) {
+      if ((error as { code?: string })?.code === "forbidden_email_mismatch") {
+        return json({ error: "Email mismatch" }, 403);
+      }
+      throw error;
+    }
+  }
+  if (method === "GET" && path === "/api/shared-collections") {
+    const principal = await resolvePrincipal(request, env);
+    if (!principal || principal.kind !== "account") return json({ error: "Unauthorized" }, 401);
+    const collections = await listSharedCollectionsForUser(env, principal);
+    return json({ collections, ok: true }, 200, { "Cache-Control": "no-store" });
+  }
+  const collectionCollaboratorsMatch = path.match(/^\/api\/collections\/([^/]+)\/collaborators$/);
+  if (collectionCollaboratorsMatch && method === "GET") {
+    const principal = await resolvePrincipal(request, env);
+    if (!principal) return json({ error: "Unauthorized" }, 401);
+    const collectionId = decodeURIComponent(collectionCollaboratorsMatch[1]);
+    const collection = await findOwnedCollection(env, principal, collectionId);
+    if (!collection) return json({ error: "Collection not found" }, 404);
+    const collaborators = await listCollectionCollaborators(env, collectionId);
+    return json({ collaborators, ok: true }, 200, { "Cache-Control": "no-store" });
+  }
+  if (collectionCollaboratorsMatch && method === "POST") {
+    const principal = await resolvePrincipal(request, env);
+    if (!principal) return json({ error: "Unauthorized" }, 401);
+    const collectionId = decodeURIComponent(collectionCollaboratorsMatch[1]);
+    const collection = await findOwnedCollection(env, principal, collectionId);
+    if (!collection) return json({ error: "Collection not found" }, 404);
+    if (principal.kind !== "account" || principal.plan !== "pro") {
+      return json({ error: "Pro plan required to invite collaborators" }, 403);
+    }
+    const body = await readJson(request);
+    const rawEmail = stringValue(body, "email").trim();
+    if (!isEmail(rawEmail)) return json({ error: "Valid email required" }, 400);
+    const email = normalizeEmail(rawEmail);
+    if (principal.email && email === normalizeEmail(principal.email)) {
+      return json({ error: "Cannot invite yourself" }, 400);
+    }
+    if (env.DB) {
+      const existing = await env.DB.prepare(`
+        SELECT id FROM collection_collaborators
+        WHERE collection_id = ? AND email = ? AND status IN ('pending', 'accepted')
+      `).bind(collectionId, email).first();
+      if (existing) return json({ error: "Collaborator already invited or accepted" }, 409);
+    } else {
+      const existing = Array.from(memoryCollectionCollaborators.values()).find(
+        (c) => c.collectionId === collectionId && normalizeEmail(c.email) === email && (c.status === "pending" || c.status === "accepted"),
+      );
+      if (existing) return json({ error: "Collaborator already invited or accepted" }, 409);
+    }
+    const collaborator = await createCollectionInvitation(env, collection, principal, email);
+    return json({ collaborator, ok: true }, 201);
+  }
+  const collectionCollaboratorDeleteMatch = path.match(/^\/api\/collections\/([^/]+)\/collaborators\/([^/]+)$/);
+  if (collectionCollaboratorDeleteMatch && method === "DELETE") {
+    const principal = await resolvePrincipal(request, env);
+    if (!principal) return json({ error: "Unauthorized" }, 401);
+    const collectionId = decodeURIComponent(collectionCollaboratorDeleteMatch[1]);
+    const membershipId = decodeURIComponent(collectionCollaboratorDeleteMatch[2]);
+    const collection = await findOwnedCollection(env, principal, collectionId);
+    if (!collection) return json({ error: "Collection not found" }, 404);
+    const revoked = await revokeCollectionCollaborator(env, collectionId, membershipId, principal.id);
+    return revoked ? json({ ok: true }) : json({ error: "Collaborator not found" }, 404);
+  }
   const collectionMatch = path.match(/^\/api\/collections\/([^/]+)$/);
+  if (collectionMatch && method === "GET") {
+    const principal = await resolvePrincipal(request, env);
+    if (!principal) return json({ error: "Unauthorized" }, 401);
+    const collectionId = decodeURIComponent(collectionMatch[1]);
+    const collection = await findAccessibleCollection(env, principal, collectionId);
+    if (!collection) {
+      if (principal.kind === "account") {
+        const rawCollection = await getRawCollection(env, collectionId);
+        if (rawCollection) {
+          const acceptedCollab = await findAcceptedCollaborator(env, principal.id, collectionId);
+          if (acceptedCollab) {
+            const ownerPro = await isOwnerPro(env, rawCollection.ownerId);
+            if (!ownerPro) {
+              return json({ code: "collection_suspended", error: "Collection access is suspended" }, 403);
+            }
+          }
+        }
+      }
+      return json({ error: "Collection not found" }, 404);
+    }
+    const sessions = await listCollectionSessions(env, principal, collectionId);
+    return json({ collection: { ...collection, sessions }, ok: true });
+  }
   if (collectionMatch && method === "PATCH") {
     const principal = await resolvePrincipal(request, env);
     if (!principal) return json({ error: "Unauthorized" }, 401);
@@ -5664,8 +6363,10 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
   if (sessionReorderMatch && method === "POST") {
     const principal = await resolvePrincipal(request, env);
     if (!principal) return json({ error: "Unauthorized" }, 401);
-    const body = await readJson(request);
     const collectionId = decodeURIComponent(sessionReorderMatch[1]);
+    const owned = await findOwnedCollection(env, principal, collectionId);
+    if (!owned) return json({ error: "Collection not found" }, 404);
+    const body = await readJson(request);
     return json({
       ok: true,
       sessions: await reorderSessionIds(env, principal, collectionId, stringArrayValue(body, "ids")),
@@ -5681,15 +6382,20 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
     const id = decodeURIComponent(path.slice("/api/sessions/".length));
     const principal = await resolvePrincipal(request, env);
     if (principal) {
-      const owned = await findOwnedSession(env, principal, id);
-      if (owned) {
-        return json(await sessionApiPayload(env, owned), 200, { "Cache-Control": "private, no-store" });
+      const accessible = await findAccessibleSession(env, principal, id);
+      if (accessible) {
+        return json(await sessionApiPayload(env, accessible), 200, { "Cache-Control": "private, no-store" });
       }
     }
     const session = await findPublicSession(env, id, shareToken);
-    return session
-      ? json(await sessionApiPayload(env, session), 200, { "Cache-Control": "public, max-age=60" })
-      : json({ error: "Session not found" }, 404);
+    if (session) {
+      return json(await sessionApiPayload(env, session), 200, { "Cache-Control": "public, max-age=60" });
+    }
+    if (principal) {
+      const suspended = await suspendedCollectionResponse(env, principal, id);
+      if (suspended) return suspended;
+    }
+    return json({ error: "Session not found" }, 404);
   }
   if (method === "DELETE" && path.startsWith("/api/history/")) {
     return deleteHistory(request, env, decodeURIComponent(path.slice("/api/history/".length)));
@@ -5798,14 +6504,14 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
     if (!filename.endsWith(".png")) return text("Not found", 404);
     const id = filename.slice(0, -".png".length);
     const principal = await resolvePrincipal(request, env);
-    const owned = principal ? await findOwnedSession(env, principal, id) : null;
+    const accessible = principal ? await findAccessibleSession(env, principal, id) : null;
 
-    if (!owned && shareToken) {
+    if (!accessible && shareToken) {
       const token = await validateShareToken(env, shareToken);
       if (!token || token.resourceType !== "session" || token.resourceId !== id) {
         return text("Not found", 404);
       }
-    } else if (!owned) {
+    } else if (!accessible) {
       return text("Not found", 404);
     }
 
@@ -5813,7 +6519,7 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
     const object = env.PINAR_BUCKET ? await env.PINAR_BUCKET.get(key) : null;
     if (!object) return json({ error: "shot not found" }, 404);
     const headers = corsHeaders({
-      "Cache-Control": owned ? "private, no-store" : "public, max-age=86400",
+      "Cache-Control": accessible ? "private, no-store" : "public, max-age=86400",
       "Content-Type": "image/png",
     });
     object.writeHttpMetadata(headers);
@@ -5824,19 +6530,21 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
     const rawId = decodeURIComponent(url.pathname.slice("/v/".length));
     if (!rawId.endsWith(".md")) return json({ error: "Not found" }, 404);
     const id = rawId.slice(0, -3);
-    const session = await findPublicSession(env, id, shareToken);
+    const principal = await resolvePrincipal(request, env);
+    const accessible = principal ? await findAccessibleSession(env, principal, id) : null;
+    const session = accessible ?? await findPublicSession(env, id, shareToken);
     if (!session) return text("Not found", 404);
     return text(
       formatSessionMarkdown(
         session,
-        `${url.origin}/v/${id}?token=${shareToken}`,
+        `${url.origin}/v/${id}?token=${shareToken || ""}`,
         await listAgentExecutions(env, id),
         await listPinReviews(env, id),
         await readOwnerDeliveryPreferences(env, session.userId || ""),
       ),
       200,
       {
-        "Cache-Control": "public, max-age=60",
+        "Cache-Control": accessible ? "private, no-store" : "public, max-age=60",
         "Content-Type": "text/markdown; charset=utf-8",
       },
     );
@@ -5862,7 +6570,21 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
   if (request.method === "GET" && url.pathname.startsWith("/c/")) {
     const rawId = decodeURIComponent(url.pathname.slice("/c/".length));
     if (!rawId.endsWith(".md")) return json({ error: "Not found" }, 404);
-    const collection = await findPublicCollection(env, rawId.slice(0, -3), shareToken);
+    const id = rawId.slice(0, -3);
+    const principal = await resolvePrincipal(request, env);
+    let collection: ProjectTreeCollection | null = null;
+    let authorizedCollection = false;
+    if (principal) {
+      const accessible = await findAccessibleCollection(env, principal, id);
+      if (accessible) {
+        const sessions = await listCollectionSessions(env, principal, id);
+        collection = { ...accessible, sessions };
+        authorizedCollection = true;
+      }
+    }
+    if (!collection) {
+      collection = await findPublicCollection(env, id, shareToken);
+    }
     return collection
       ? text(
         formatCollectionMarkdown(
@@ -5872,7 +6594,7 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
         ),
         200,
         {
-        "Cache-Control": "public, max-age=60",
+        "Cache-Control": authorizedCollection ? "private, no-store" : "public, max-age=60",
         "Content-Type": "text/markdown; charset=utf-8",
       })
       : text("Not found", 404);
@@ -5920,6 +6642,7 @@ export function resetCloudMemoryStateForTests() {
   memoryAiCreditGrants.clear();
   memoryAiCreditUsages.clear();
   memoryCollections.clear();
+  memoryCollectionCollaborators.clear();
   memoryDeviceSessions.clear();
   memoryEmailChallenges.clear();
   memoryExtensionCodes.clear();
@@ -5942,6 +6665,8 @@ export function resetCloudMemoryStateForTests() {
 export function seedCloudAccountForTests(input: {
   aiCreditRefillAt?: string;
   billingStatus?: AccountRecord["billingStatus"];
+  cloudTrialEndsAt?: string | null;
+  cloudTrialStartedAt?: string | null;
   email: string;
   everPaid?: boolean;
   id?: string;
@@ -5953,6 +6678,8 @@ export function seedCloudAccountForTests(input: {
   const account: AccountRecord = {
     aiCreditRefillAt: input.aiCreditRefillAt || "",
     billingStatus: input.billingStatus || "active",
+    cloudTrialEndsAt: input.cloudTrialEndsAt ?? null,
+    cloudTrialStartedAt: input.cloudTrialStartedAt ?? null,
     complimentaryPro: false,
     email: normalizeEmail(input.email),
     everPaid: input.everPaid ?? true,
@@ -6015,4 +6742,64 @@ export function setCloudMigrationFailureForTests(value: boolean) {
 
 export function setCloudNowForTests(value: string | number | null) {
   testNow = value === null ? null : new Date(value).getTime();
+}
+
+export function seedCloudCollaboratorForTests(input: {
+  acceptedAt?: string;
+  collectionId: string;
+  createdAt?: string;
+  email: string;
+  id?: string;
+  ownerId: string;
+  role?: string;
+  status?: CollaboratorStatus;
+  updatedAt?: string;
+  userId?: string;
+}) {
+  const id = input.id || "collab_" + generateNanoId(24);
+  const now = currentDate().toISOString();
+  const item: CollectionCollaborator = {
+    acceptedAt: input.acceptedAt !== undefined ? input.acceptedAt : input.status === "accepted" ? now : null,
+    collectionId: input.collectionId,
+    createdAt: input.createdAt || now,
+    email: normalizeEmail(input.email),
+    id,
+    ownerId: input.ownerId,
+    revokedAt: input.status === "revoked" ? now : null,
+    role: input.role || "reviewer",
+    status: input.status || "pending",
+    updatedAt: input.updatedAt || now,
+    userId: input.userId || null,
+  };
+  memoryCollectionCollaborators.set(id, item);
+  return item;
+}
+
+export async function seedCloudWebSessionForTests(
+  account: { email: string; id?: string; plan?: AccountPlan },
+  env: CloudEnv = {},
+) {
+  const accountId = account.id || "usr_" + generateNanoId(24);
+  const normalizedEmail = normalizeEmail(account.email);
+  seedCloudAccountForTests({
+    billingStatus: "active",
+    email: normalizedEmail,
+    id: accountId,
+    plan: account.plan || "free",
+  });
+  const principal: Principal = {
+    email: normalizedEmail,
+    id: accountId,
+    isPermanent: account.plan === "pro",
+    kind: "account",
+    plan: account.plan || "free",
+  };
+  const { token } = await issueWebSession(env, principal);
+  return {
+    accountId,
+    cookie: `pinar_session=${token}`,
+    email: normalizedEmail,
+    principal,
+    token,
+  };
 }

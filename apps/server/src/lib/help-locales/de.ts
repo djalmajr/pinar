@@ -324,7 +324,7 @@ const locale = {
         {
           heading: "Cloud",
           paragraphs: [
-            "Der Cloud-Modus ermöglicht Remote-Zugriff auf den Workspace, verwaltete Aufbewahrung, Sprachtranskription und Reproduktionsgenerierung mit Pinar Cloud, Abrechnung und unlisted Freigabelinks. Lokale KI und BYOK bleiben ohne Pinar-Cloud-Credits verfügbar. Du akzeptierst die aktuellen Richtlinien, bevor etwas remote gespeichert wird.",
+            "Wenn das angemeldete Konto im aktuellen Angebot berechtigt ist, bietet der Cloud-Modus Remote-Zugriff auf den Workspace, verwaltete Aufbewahrung, Abrechnung und unlisted Freigabelinks. Die lokale App und ein selbst gehosteter Server bleiben kostenlos. Die Sprachtranskription von Pinar Cloud bleibt ein Pro-Vorteil und gehört nicht zu einer Evaluierung. Lokale KI und BYOK bleiben ohne Pinar-Cloud-Credits verfügbar. Du akzeptierst die aktuellen Richtlinien, bevor etwas remote gespeichert wird.",
           ],
         },
         {
@@ -714,7 +714,7 @@ const locale = {
           heading:
             "Den Kopierpfad nachvollziehen, wenn die Symbolleiste einen Fehler meldet",
           paragraphs: [
-            "Zum Kopieren sind ein gespeicherter Kommentar und mindestens ein Pin erforderlich. Die Symbolleiste zeigt „Anmerkungen werden gespeichert…“, blendet Overlays aus, erfasst den Screenshot und fordert das Offscreen-Dokument auf, text/html und text/plain zu schreiben. Offscreen versucht zuerst navigator.clipboard.write und fällt auf ein copy-Ereignis plus execCommand zurück. Wenn dieses Schreiben nicht ok ist, versucht das Content-Skript weiterhin writePlainText auf der zurückgegebenen Plain-Payload: clipboard.writeText, dann eine versteckte Textarea-Auswahl.",
+            "Zum Kopieren sind ein gespeicherter Kommentar und mindestens ein Pin erforderlich. Die Symbolleiste zeigt „Sitzung wird gespeichert…“, blendet Overlays aus, erfasst den Screenshot und fordert das Offscreen-Dokument auf, text/html und text/plain zu schreiben. Offscreen versucht zuerst navigator.clipboard.write und fällt auf ein copy-Ereignis plus execCommand zurück. Wenn dieses Schreiben nicht ok ist, versucht das Content-Skript weiterhin writePlainText auf der zurückgegebenen Plain-Payload: clipboard.writeText, dann eine versteckte Textarea-Auswahl.",
             "Wenn jeder Kopierpfad fehlschlägt, sendet die Seite overlays:hidden mit hidden false, zeigt kurz „Kopieren fehlgeschlagen“ und lässt Pins bearbeitbar. Ein erfolgreiches Kopieren zeigt „Erfolgreich kopiert!“ oder „Erfolgreich kopiert!“ plus „kein Screenshot“, „Helfer nicht verfügbar“ oder „kein Viewer“ und beendet dann die Sitzung. Diese Suffixe entsprechen `screenshot_missing`, `helper_unavailable` und `viewer_unavailable`. screenshot_inline gehört nicht zu den eingeschränkten Übergabewarnungen. Ein Einfügen ohne geschlossene pinar-visual-context-Fence kann nicht als JSON geparst werden.",
           ],
           bullets: [
@@ -857,7 +857,7 @@ const locale = {
         {
           heading: "Planstruktur",
           paragraphs: [
-            "Free umfasst dauerhafte lokale Nutzung, 250 MB Cloud-Kontingent und 30 Tage Cloud-Aufbewahrung. Pro ist jährlich, mit 2 GB und einmalig 500 KI-Credits beim ersten Abonnement des Kontos.",
+            "Die lokale App und ein selbst gehosteter Server bleiben kostenlos. Gehostetes Pinar Cloud folgt dem aktuellen Angebot und der Berechtigung dieses Kontos: Ein neues Konto kann eine zeitlich begrenzte Evaluierung erhalten, und ein älteres Konto kann eine bestehende Berechtigung behalten. Es gibt keine einheitliche Frist für alle Konten. Pro ist ein bezahlter Jahresplan, mit 2 GB und einmalig 500 KI-Credits beim ersten Abonnement des Kontos. Sprachtranskription bleibt ein Pro-Vorteil. Die Plans-Seite und die Kontoberechtigungen zeigen das Angebot und das Kontingent, die jetzt gelten. Bereits in der Cloud gespeicherte Captures bleiben Aufbewahrung und Export unterworfen.",
           ],
         },
         {
@@ -921,7 +921,7 @@ const locale = {
         {
           heading: "Kontingent und Add-ons",
           paragraphs: [
-            "Free hat 250 MB Basis-Cloud-Speicher; Pro hat 2 GB. 1-GB- und 5-GB-Add-ons gelten 12 Monate. Läuft ein Add-on über dem Kontingent ab, werden Uploads pausiert; der Überschuss hat 30 Tage Kulanz und bleibt bis Tag 90 wiederherstellbar, bevor er gelöscht werden darf.",
+            "Das gehostete Cloud-Kontingent ist der Speicher, den das angemeldete Konto aktuell enthält, plus jedes noch aktive Add-on. Pro umfasst 2 GB. 1-GB- und 5-GB-Add-ons gelten 12 Monate. Läuft ein Add-on über dem Kontingent ab, werden Uploads pausiert; der Überschuss hat 30 Tage Kulanz und bleibt bis Tag 90 wiederherstellbar, bevor er gelöscht werden darf. Ob ein Add-on gekauft werden kann, hängt vom aktuellen Angebot ab; prüfe die Plans-Seite und die Kontoberechtigungen.",
           ],
         },
         {
@@ -935,10 +935,10 @@ const locale = {
             "Ersetzungen unter das Kontingent bringen und die 90-Tage-Wiederherstellungsuhr nutzen",
           paragraphs: [
             "Das Kontingent ist der im Plan enthaltene Speicher plus jedes noch aktive Add-on. Das Ersetzen eines größeren Screenshots durch einen kleineren kann gelingen, wenn eine brandneue Capture das nicht täte. Uploads pausieren, sobald das Konto am oder über dem Kontingent liegt, auch während Nachfrist und Wiederherstellung.",
-            "Free-Cloud-Sitzungen, die nicht als dauerhaft markiert sind, werden nach 30 Tagen bereinigungsberechtigt. Pro-Inhalte oberhalb des Free-Kontingents folgen nach Ende der bezahlten Berechtigung der 30-tägigen Nachfrist und dem 90-tägigen Wiederherstellungsfenster. Ausschließlich lokaler Verlauf auf diesem Computer wird niemals remote gelöscht. Berechtigung ist kein Versprechen einer sofortigen Entfernung.",
+            "Bereits gespeicherte Cloud-Sitzungen auf einer Free-Berechtigung, die nicht als dauerhaft markiert sind, werden nach 30 Tagen bereinigungsberechtigt. Pro-Inhalte oberhalb des Free-Kontingents folgen nach Ende der bezahlten Berechtigung der 30-tägigen Nachfrist und dem 90-tägigen Wiederherstellungsfenster. Ausschließlich lokaler Verlauf auf diesem Computer wird niemals remote gelöscht. Berechtigung ist kein Versprechen einer sofortigen Entfernung.",
           ],
           bullets: [
-            "Wenn neue Captures pausieren, schaffe Platz, indem du Sitzungen löschst oder einen umfangreichen Screenshot ersetzt, oder erwirb ein zwölfmonatiges 1-GB- oder 5-GB-Add-on.",
+            "Wenn neue Captures pausieren, schaffe Platz, indem du Sitzungen löschst oder einen umfangreichen Screenshot ersetzt. Erwirb ein zwölfmonatiges 1-GB- oder 5-GB-Add-on nur, wenn die Plans-Seite und die Kontoberechtigungen diesen Kauf anzeigen.",
             "Ist das Konto in der Nachfrist oder Wiederherstellung, exportiere alles noch Benötigte vor Tag 90; Berechtigung kennzeichnet nur den Überschuss und löscht selbst nicht.",
             "Erwarte nicht, dass das Deinstallieren der Desktop-App Cloud-Objekte bereinigt, und erwarte nicht, dass die Cloud den lokalen Verlauf auf diesem Computer löscht.",
           ],

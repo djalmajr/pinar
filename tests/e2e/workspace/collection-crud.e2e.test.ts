@@ -40,6 +40,12 @@ test("nested collection CRUD protects Inbox and preserves sessions through conta
   const nestedCapture = capture();
   let inbox = collection("col_personal_inbox", "Inbox", 0, null, [], true);
   let workspaceCollections: ReturnType<typeof collection>[] = [];
+  let failFirstCreate = true;
+  let holdTreeRefresh = false;
+  let releaseFirstCreate!: () => void;
+  const firstCreatePending = new Promise<void>((resolve) => { releaseFirstCreate = resolve; });
+  let releaseTreeRefresh!: () => void;
+  const treeRefreshPending = new Promise<void>((resolve) => { releaseTreeRefresh = resolve; });
   const personal = () => ({
     collections: [inbox],
     createdAt,
@@ -72,11 +78,21 @@ test("nested collection CRUD protects Inbox and preserves sessions through conta
   await page.route("**/api/auth/session", (route) => route.fulfill({
     json: { session: { installationId: ownerId, kind: "installation", plan: "free" } },
   }));
-  await page.route("**/api/project-tree", (route) => route.fulfill({
-    json: { tree: { projects: [personal(), workspace()] } },
-  }));
+  await page.route("**/api/project-tree", async (route) => {
+    if (holdTreeRefresh) {
+      holdTreeRefresh = false;
+      await treeRefreshPending;
+    }
+    await route.fulfill({ json: { tree: { projects: [personal(), workspace()] } } });
+  });
   await page.route("**/api/projects/prj_workspace/collections", async (route) => {
     const body = route.request().postDataJSON() as { name: string; parentId?: string };
+    if (body.name === "Parent" && failFirstCreate) {
+      failFirstCreate = false;
+      await route.fulfill({ json: { error: "temporary failure" }, status: 503 });
+      return;
+    }
+    if (body.name === "Parent") await firstCreatePending;
     const id = body.name === "Parent" ? "col_parent" : "col_child";
     const created = collection(
       id,
@@ -85,6 +101,7 @@ test("nested collection CRUD protects Inbox and preserves sessions through conta
       body.parentId || null,
     );
     workspaceCollections = [...workspaceCollections, created];
+    if (body.name === "Parent") holdTreeRefresh = true;
     await route.fulfill({ json: { collection: created }, status: 201 });
   });
   await page.route("**/api/collections/col_child", async (route) => {
@@ -118,12 +135,22 @@ test("nested collection CRUD protects Inbox and preserves sessions through conta
 
   await page.goto("/app");
   await expect(page.getByRole("button", { name: "Workspace" }).first()).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("data-pinar-workspace-view", '["prj_workspace",null,null,false]');
   await openWorkspaceSidebar(page, "New collection");
   await page.getByRole("button", { name: "New collection" }).click();
   let dialog = page.getByRole("dialog", { name: "New collection" });
   await dialog.getByRole("textbox", { name: "Name" }).fill("Parent");
   await dialog.getByRole("button", { name: "Create" }).click();
+  await expect(dialog.getByRole("alert")).toHaveText("Couldn’t save. Try again.");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Create" }).click();
+  await expect(dialog.getByRole("button", { name: "Creating…" })).toBeDisabled();
+  await expect(dialog).toBeVisible();
+  releaseFirstCreate();
   await expect(dialog).not.toBeVisible();
+  await expect(page.getByRole("button", { exact: true, name: "Parent" })).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("data-pinar-workspace-view", '["prj_workspace","col_parent",null,false]');
+  releaseTreeRefresh();
   await openWorkspaceSidebar(page, "Parent");
   await expect(page.getByRole("button", { exact: true, name: "Parent" })).toBeVisible();
 

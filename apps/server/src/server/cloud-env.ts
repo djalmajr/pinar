@@ -5,6 +5,7 @@ export function runtimeEnv(source: CloudEnv): CloudEnv {
     ADMIN_API_KEY: source.ADMIN_API_KEY,
     AI: source.AI,
     AUTH_PEPPER: source.AUTH_PEPPER,
+    CLOUD_TRIAL_ENABLED: source.CLOUD_TRIAL_ENABLED,
     COMPLIMENTARY_PRO_USER_IDS: source.COMPLIMENTARY_PRO_USER_IDS,
     DB: source.DB,
     DEPLOYMENT_ENV: source.DEPLOYMENT_ENV,

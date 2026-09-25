@@ -413,6 +413,8 @@ describe("remote installation isolation", () => {
     assert.equal(ownerSession.headers.get("cache-control"), "private, no-store");
     const markdown = await handleCloudPublicRequest(new Request("https://pinar.test/v/session_A_001.md"), {});
     assert.equal(markdown.status, 404);
+    assert.equal(await markdown.text(), "Not found");
+    assert.equal(markdown.headers.get("cache-control"), null);
 
     assert.equal(
       (await api("/api/history/session_A_001", { headers: identityHeaders(identityB), method: "DELETE" })).status,
@@ -2367,6 +2369,8 @@ describe("remote installation isolation", () => {
       {},
     );
     assert.equal(markdown.status, 404);
+    assert.equal(await markdown.text(), "Not found");
+    assert.equal(markdown.headers.get("cache-control"), null);
   });
 
   test("matches the shared projects and collections API contract", async () => {

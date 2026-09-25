@@ -1,6 +1,5 @@
 {
   "manifest_version": 3,
-  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmkNabf6ZtL0IPuCEEFlnf8YxL9j92z9eIbPksunV62jHw001fI3JLiou3NVyfV8qyT5Qp7suOkKwImuqvzWwRlHQCObEhtCMhnq7TAYvPT5k9WiB6pUs8t1RJzuwS3vLicklGxGPHPyWnNHbPmh/Ovn2iZWIhp55eQxujsGUzZ9P66WIDYR8459GBa0o3x4AQ2l2hlP0ANsyeJjg/f+3T038ulOfQr0TMvgsmLN/Ca+OByAKKR9f5wWIl2y7EdJMCBfZ8hWLlmy/vaM4tF6n9U+E/W4h9nwzQfgd/VuAZnSBS01KORSrv6JEbdKoo9LRR0mdvramaVNDhUzQDLOLpwIDAQAB",
   "name": "Pinar.dev",
   "version": "0.6.4",
   "description": "Visual Annotations for AI Agents & Engineers",
@@ -73,5 +72,6 @@
     "32": "icons/icon-32.png",
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
-  }
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAs4GNk+Y7qUYEDxmfXQid38tICmGg81x+EpHftKZ+JsnLjqPE24eWNmyM8muS2hzcT8UjFNWHxAvm0RTDCodMzu0QaE9hWSflU/pLVch8EDzo3y8MSHH5VuBzWsTlCdbxUkM8LoBB7r//B2F5Q62h7CYjaWON1OcJpiFlP7oByMoWwNCdT6lgBU/3IrrgAnCvD3wQMfd9DAwJtalr/uqu8LWgHzmyiHVHRZGww9EUO0jPw2dn9FIpqPM2JbP/r/svJqrC02ygewWASLx83cOjJMDzySGfxCBaB+aFfrk5mC+Vl5Sb8LAJL8aaU0BeNlZrv+bc5u6mBhf9tJIoicQEwwIDAQAB"
 }

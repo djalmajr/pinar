@@ -324,7 +324,7 @@ const locale = {
         {
           heading: "Nuvem",
           paragraphs: [
-            "O modo na nuvem habilita acesso remoto ao workspace, retenção gerenciada, transcrição de voz e geração de reprodução pelo Pinar Cloud, cobrança e links não listados. IA local e BYOK continuam disponíveis sem usar créditos do Pinar Cloud. Você aceita as políticas atuais antes de qualquer coisa ser armazenada remotamente.",
+            "Quando a conta autenticada é elegível na oferta atual, o modo na nuvem oferece acesso remoto ao workspace, retenção gerenciada, cobrança e links não listados. O aplicativo local e um servidor self-hosted continuam gratuitos. A transcrição de voz do Pinar Cloud continua um benefício Pro e não faz parte de uma avaliação. IA local e BYOK continuam disponíveis sem usar créditos do Pinar Cloud. Você aceita as políticas atuais antes de qualquer coisa ser armazenada remotamente.",
           ],
         },
         {
@@ -713,7 +713,7 @@ const locale = {
         {
           heading: "Percorrer o caminho da cópia quando a barra relata falha",
           paragraphs: [
-            "A cópia exige um comentário salvo e pelo menos um pin. A barra mostra “Gravando as anotações…”, esconde as sobreposições, captura a imagem e pede a um documento em segundo plano para gravar text/html e text/plain. Esse documento tenta primeiro a API de área de transferência do navegador e recorre a um evento de cópia do documento. Se essa gravação não for bem-sucedida, a página ainda tenta copiar o texto simples devolvido, inclusive por uma seleção oculta em um campo de texto.",
+            "A cópia exige um comentário salvo e pelo menos um pin. A barra mostra “Salvando sessão…”, esconde as sobreposições, captura a imagem e pede a um documento em segundo plano para gravar text/html e text/plain. Esse documento tenta primeiro a API de área de transferência do navegador e recorre a um evento de cópia do documento. Se essa gravação não for bem-sucedida, a página ainda tenta copiar o texto simples devolvido, inclusive por uma seleção oculta em um campo de texto.",
             "Quando todos os caminhos de cópia falham, a página restaura as sobreposições, mostra “Falha ao copiar” e deixa os pins editáveis. Uma cópia bem-sucedida mostra “Copiado com sucesso!”, ou “Copiado com sucesso!” seguido de “sem captura”, “auxiliar indisponível” ou “sem visualizador”, e então encerra a sessão. Esses sufixos correspondem a `screenshot_missing`, `helper_unavailable` e `viewer_unavailable`. screenshot_inline não é um dos avisos de entrega degradada. Um texto colado sem a cerca fechada pinar-visual-context não pode ser lido como JSON.",
           ],
           bullets: [
@@ -856,7 +856,7 @@ const locale = {
         {
           heading: "Formato dos planos",
           paragraphs: [
-            "Free inclui uso local permanente, 250 MB de cota na nuvem e retenção na nuvem por 30 dias. Pro é anual, com 2 GB e uma concessão única de 500 créditos de IA na primeira assinatura da conta.",
+            "O aplicativo local e um servidor self-hosted continuam gratuitos. O Pinar Cloud hospedado segue a oferta atual e a elegibilidade da conta: uma conta nova pode receber uma avaliação temporária, e uma conta anterior pode manter elegibilidade legada. Não há um prazo único para todas as contas. Pro é um plano anual pago, com 2 GB e uma concessão única de 500 créditos de IA na primeira assinatura da conta. A transcrição por voz continua um benefício Pro. A página Planos e os direitos da conta mostram a oferta e a cota que valem agora. Capturas já guardadas na nuvem continuam sujeitas a retenção e exportação.",
           ],
         },
         {
@@ -920,7 +920,7 @@ const locale = {
         {
           heading: "Cota e adicionais",
           paragraphs: [
-            "Free tem 250 MB de armazenamento base na nuvem; Pro tem 2 GB. Adicionais de 1 GB e 5 GB duram 12 meses, com avisos por e-mail antes da expiração. Se um adicional vencer acima da cota restante, novos uploads pausam; o excedente tem 30 dias de carência e permanece recuperável até o dia 90 antes de ficar elegível para exclusão.",
+            "A cota na nuvem hospedada é o armazenamento que a conta autenticada inclui agora, mais qualquer adicional ainda ativo. Pro inclui 2 GB. Adicionais de 1 GB e 5 GB duram 12 meses, com avisos por e-mail antes da expiração. Se um adicional vencer acima da cota restante, novos uploads pausam; o excedente tem 30 dias de carência e permanece recuperável até o dia 90 antes de ficar elegível para exclusão. A compra de um adicional depende da oferta atual; confira a página Planos e os direitos da conta.",
           ],
         },
         {
@@ -933,10 +933,10 @@ const locale = {
           heading: "Encaixe substituições na cota e use o relógio de 90 dias",
           paragraphs: [
             "A cota é o armazenamento incluso do plano mais qualquer adicional ainda ativo. Substituir um screenshot maior por um menor pode passar quando uma captura nova estouraria a cota. Uploads pausam quando a conta está na cota ou acima dela, inclusive durante a carência e a recuperação.",
-            "Sessões Free na nuvem que não estão marcadas como permanentes ficam elegíveis para limpeza após 30 dias. Conteúdo Pro acima da cota Free segue carência de 30 dias e recuperação de 90 dias após o fim da elegibilidade paga. Histórico só local neste computador nunca é apagado remotamente. Elegibilidade não é promessa de remoção imediata.",
+            "Sessões já armazenadas numa elegibilidade Free e não marcadas como permanentes ficam elegíveis para limpeza após 30 dias. Conteúdo Pro acima da cota Free segue carência de 30 dias e recuperação de 90 dias após o fim da elegibilidade paga. Histórico só local neste computador nunca é apagado remotamente. Elegibilidade não é promessa de remoção imediata.",
           ],
           bullets: [
-            "Quando novas capturas pausarem, libere espaço excluindo sessões ou substituindo um screenshot pesado, ou compre um adicional de 1 GB ou 5 GB por doze meses.",
+            "Quando novas capturas pausarem, libere espaço excluindo sessões ou substituindo um screenshot pesado. Compre um adicional de 1 GB ou 5 GB por doze meses só quando a página Planos e os direitos da conta mostrarem essa compra.",
             "Se a conta estiver em carência ou recuperação, exporte o que ainda precisar antes do dia 90; a elegibilidade só marca o excedente, não apaga por si só.",
             "Não espere que desinstalar o app de desktop apague objetos na nuvem, nem que a nuvem apague o histórico local neste computador.",
           ],

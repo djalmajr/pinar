@@ -61,6 +61,7 @@ import {
   cn,
 } from "@pinar/ui";
 import { WorkspaceChrome, useWorkspaceChrome } from "@/components/WorkspaceChrome";
+import { PendingInvitationsBanner } from "@/components/PendingInvitationsBanner";
 import { copyBatchHandoff } from "../lib/session-actions";
 import { SessionActionsMenu } from "../components/SessionActionsMenu";
 import { useDeliveryPreferences } from "@/lib/delivery-preferences";
@@ -462,6 +463,8 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
     fetchTree,
     loading,
     moveSessions,
+    onOpenInvitations,
+    pendingInvitations,
     projectTree,
     selectedBatchId,
     selectedCollection,
@@ -871,6 +874,12 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
           data-dashboard-scroll-area
         >
           <div className="mx-auto flex min-h-full w-full max-w-[1600px] flex-col gap-4 p-4">
+            {pendingInvitations && pendingInvitations.length > 0 && onOpenInvitations ? (
+              <PendingInvitationsBanner
+                invitations={pendingInvitations}
+                onOpenInvitations={onOpenInvitations}
+              />
+            ) : null}
             {(view !== "table" || filteredSessions.length === 0) && (
               <div className="flex min-w-0 flex-col gap-2">
                 <div className="flex min-w-0 flex-wrap items-center gap-2" role="toolbar">

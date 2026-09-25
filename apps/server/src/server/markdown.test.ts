@@ -176,8 +176,11 @@ describe("batch markdown", () => {
     assert.deepEqual(fences.map((f) => f.captureId), ["one", "two"]);
     assert.deepEqual(fences.map((f) => f.pins[0].pinId), ["pin-a", "pin-b"]);
     assert.equal(fences[0].pins[0].comment, "first page");
-    // The per-page full-context link sits above its own fence.
-    assert.match(markdown, /## one\nFull context \(fetch only if the details above are insufficient\): https:\/\/pinar.test\/v\/one.md/);
+    // A batch has one shared context hint, with page links ordered before the capture blocks.
+    assert.equal(markdown.match(/Full context by page \(open only if the details below are insufficient\):/g)?.length, 1);
+    assert.match(markdown, /Full context by page \(open only if the details below are insufficient\):\n1\. https:\/\/pinar.test\/v\/one.md\n2\. https:\/\/pinar.test\/v\/two.md/);
+    assert.ok(markdown.indexOf("2. https://pinar.test/v/two.md") < markdown.indexOf("## one"));
+    assert.doesNotMatch(markdown, /## one\nFull context/);
   });
 
   test("full handoff mode carries the complete pin rather than the compact projection", () => {
@@ -193,6 +196,7 @@ describe("batch markdown", () => {
     const en = formatBatchMarkdown(batch, sessions, {}, "https://pinar.test");
     const pt = formatBatchMarkdown(batch, sessions, {}, "https://pinar.test", { language: "pt" });
     assert.match(pt, /As notas dos pins abaixo, em 1 páginas, podem pedir uma alteração ou uma explicação/);
+    assert.match(pt, /Contexto completo por página \(acesse apenas se os detalhes abaixo forem insuficientes\):/);
     const fences = (markdown: string) => [...markdown.matchAll(/```pinar-visual-context\n[\s\S]*?\n```/g)].map((match) => match[0]);
     assert.deepEqual(fences(pt), fences(en));
   });

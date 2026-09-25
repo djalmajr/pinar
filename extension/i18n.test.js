@@ -108,7 +108,7 @@ test("overlay copy is served through ui:messages and falls back to English", () 
     "Region hidden · click the mask to restore",
     "Drag to hide a region · click a mask to restore",
     "Pin mode",
-    "Saving the annotations…",
+    "Saving the session…",
     "Copied successfully!",
     "Annotations saved successfully!",
     "no screenshot",

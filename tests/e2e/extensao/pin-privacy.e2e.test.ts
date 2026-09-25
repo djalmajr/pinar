@@ -41,11 +41,17 @@ async function installHarness(page: Page, html = fixture, path = `/privacy-fixtu
   await page.goto(path);
   await page.evaluate(() => {
     const runtimeState = { clipboard: "", messages: [] as unknown[], pins: [] as unknown[] };
+    const messageListeners: ((message: unknown, sender: unknown, sendResponse: (response: unknown) => void) => void)[] = [];
     (globalThis as any).__pinarRuntimeState = runtimeState;
     (globalThis as any).chrome = {
       runtime: {
+        onMessage: { addListener: (listener: (message: unknown, sender: unknown, sendResponse: (response: unknown) => void) => void) => messageListeners.push(listener) },
         sendMessage: async (message: any) => {
           runtimeState.messages.push(structuredClone(message));
+          if (message.type === "review:finish") {
+            for (const listener of messageListeners) listener({ type: "review:ended", feedback: "finished" }, {}, () => {});
+            return { ok: true };
+          }
           if (message.type === "pins:sync") {
             runtimeState.pins = structuredClone(message.pins);
             return { ok: true, pins: structuredClone(runtimeState.pins) };
@@ -70,6 +76,8 @@ async function installHarness(page: Page, html = fixture, path = `/privacy-fixtu
   await page.addScriptTag({ path: extensionPath("locators.js") });
   await page.addScriptTag({ path: extensionPath("privacy.js") });
   await page.addScriptTag({ path: extensionPath("keyboard.js") });
+  await page.addScriptTag({ path: extensionPath("floating.js") });
+  await page.addScriptTag({ path: extensionPath("voice.js") });
   await page.addScriptTag({ path: extensionPath("content.js") });
   await expect(page.locator('[data-pinar="host"]')).toBeVisible();
 }
@@ -104,23 +112,38 @@ test("redacts secrets and lets the user add or remove mask regions before copy",
   await page.keyboard.press("m");
 
   await createPin(page, "#save", `Do not leak ${SECRET}`);
-  await pressCopyShortcut(page);
-  await expect(page.locator('[data-pinar="host"]')).toBeVisible();
+  await page.keyboard.press("m");
+  await page.mouse.move(220, 200);
+  await page.mouse.down();
+  await page.mouse.move(340, 320);
+  await page.mouse.up();
+  await expect(page.locator('[data-pinar="host"] [data-privacy-mask][data-source="user"]')).toHaveCount(1);
   await pressCopyShortcut(page);
   await expect(page.locator('[data-pinar="host"]')).toBeHidden();
 
-  const clipboardMessage = await page.evaluate(() => {
+  const { sanitized, masks, finished } = await page.evaluate(() => {
     const messages = (globalThis as any).__pinarRuntimeState.messages as any[];
-    return messages.findLast((message) => message.type === "clipboard");
+    const persisted = messages.findLast((message) => message.type === "pins:sync" && message.persist);
+    return {
+      finished: messages.filter((message) => message.type === "review:finish").length,
+      masks: persisted.masks,
+      sanitized: (globalThis as any).__pinarPrivacy.sanitizeCapture({
+        fields: persisted.fields,
+        page: { title: document.title, url: location.href },
+        pins: persisted.pins,
+        unevaluated: persisted.unevaluated,
+      }),
+    };
   });
-  const payload = JSON.stringify(clipboardMessage);
+  const payload = JSON.stringify(sanitized);
   expect(payload.includes(SECRET)).toBe(false);
   expect(payload.includes(TOKEN)).toBe(false);
-  expect(clipboardMessage.page.url).toMatch(/access_token=/);
-  expect(clipboardMessage.page.url.includes(TOKEN)).toBe(false);
-  expect(clipboardMessage.privacy.redacted).toEqual(expect.arrayContaining(["password", "token", "secret-query"]));
-  expect(clipboardMessage.pins[0].comment).toContain("[redacted]");
-  expect(clipboardMessage.maskRegions || clipboardMessage.fields).toBeTruthy();
+  expect(finished).toBe(1);
+  expect(masks).toHaveLength(1);
+  expect(sanitized.page.url).toMatch(/access_token=/);
+  expect(sanitized.page.url.includes(TOKEN)).toBe(false);
+  expect(sanitized.privacy.redacted).toEqual(expect.arrayContaining(["password", "token", "secret-query"]));
+  expect(sanitized.pins[0].comment).toContain("[redacted]");
 });
 
 const loginFixture = `<!doctype html>
@@ -152,13 +175,23 @@ test("copies on the first shortcut when only password and email fields are prese
   await pressCopyShortcut(page);
   await expect(page.locator('[data-pinar="host"]')).toBeHidden();
 
-  const clipboardMessage = await page.evaluate(() => {
+  const { sanitized, finished } = await page.evaluate(() => {
     const messages = (globalThis as any).__pinarRuntimeState.messages as any[];
-    return messages.findLast((message) => message.type === "clipboard");
+    const persisted = messages.findLast((message) => message.type === "pins:sync" && message.persist);
+    return {
+      finished: messages.filter((message) => message.type === "review:finish").length,
+      sanitized: (globalThis as any).__pinarPrivacy.sanitizeCapture({
+        fields: persisted.fields,
+        page: { title: document.title, url: location.href },
+        pins: persisted.pins,
+        unevaluated: persisted.unevaluated,
+      }),
+    };
   });
-  const payload = JSON.stringify(clipboardMessage);
+  const payload = JSON.stringify(sanitized);
   expect(payload.includes(SECRET)).toBe(false);
-  expect(clipboardMessage.privacy.redacted).toEqual(["password"]);
-  expect(clipboardMessage.privacy.redacted).not.toContain("email");
-  expect(clipboardMessage.pins[0].comment).toContain("[redacted]");
+  expect(finished).toBe(1);
+  expect(sanitized.privacy.redacted).toEqual(["password"]);
+  expect(sanitized.privacy.redacted).not.toContain("email");
+  expect(sanitized.pins[0].comment).toContain("[redacted]");
 });

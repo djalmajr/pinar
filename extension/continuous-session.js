@@ -18,7 +18,9 @@ export function createContinuousSession({ read, write, create, capture, save, re
       try {
         if (entry.deleted) await remove(entry, draft);
         else {
-          if (draft.includeScreenshot && !entry.shot) throw new Error(entry.error || "screenshot_missing");
+          if (draft.includeScreenshot && (!entry.shot || entry.refreshPending)) {
+            throw new Error(entry.error || "screenshot_missing");
+          }
           entry.result = await save(entry, draft);
         }
         entry.status = "saved";
@@ -58,7 +60,24 @@ export function createContinuousSession({ read, write, create, capture, save, re
           entry.pin = { ...entry.pin, comment: pin.comment };
           entry.status = "pending";
         }
-        if (!entry.shot && draft.includeScreenshot) {
+        if ((input.refreshShot || entry.refreshPending) && draft.includeScreenshot) {
+          // A mask added after the first save must replace the already uploaded
+          // image. Keep the draft pending if that replacement cannot be captured.
+          // Never persist shot: null before recapture, which would corrupt the
+          // session irreversibly if the tab navigates before or during capture.
+          entry.status = "pending";
+          entry.refreshPending = true;
+          await persist(draft);
+          try {
+            const nextShot = await capture(entry, input);
+            if (!nextShot) throw new Error("screenshot_missing");
+            entry.shot = nextShot;
+            entry.error = null;
+            entry.refreshPending = false;
+          } catch (error) {
+            entry.error = String(error.message || error);
+          }
+        } else if (!entry.shot && draft.includeScreenshot) {
           try {
             entry.shot = await capture(entry, input);
             if (!entry.shot) throw new Error("screenshot_missing");

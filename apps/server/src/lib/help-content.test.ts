@@ -203,6 +203,36 @@ describe("help content", () => {
     }
   });
 
+  test("describes hosted Cloud by current offer instead of a permanent Free quota", async () => {
+    const banned = /250\s*(?:MB|Mo)|armazenamento base na nuvem|almacenamiento base en la nube|stockage cloud de base|Basis-Cloud-Speicher|基本クラウドストレージは 250|基础云存储/;
+    const required = {
+      en: /temporary evaluation.*legacy eligibility.*Voice transcription stays a Pro benefit.*Plans page.*account entitlements/s,
+      pt: /avaliação temporária.*elegibilidade legada.*benefício Pro.*página Planos.*direitos da conta/s,
+      es: /evaluación temporal.*elegibilidad heredada.*beneficio de Pro.*página Planes.*derechos de la cuenta/s,
+      fr: /évaluation temporaire.*éligibilité héritée.*avantage Pro.*page Plans.*droits du compte/s,
+      de: /zeitlich begrenzte Evaluierung.*bestehende Berechtigung.*Pro-Vorteil.*Plans-Seite.*Kontoberechtigungen/s,
+      ja: /一時的な評価.*従来の対象条件.*Pro の特典.*プランページ.*アカウントの権利/s,
+      zh: /临时评估.*原有资格.*Pro 权益.*定价页.*账户权益/s,
+    } as const;
+
+    for (const content of await loadEveryHelpLocale()) {
+      const plans = content.articles.find((article) => article.id === "plans-and-billing");
+      const storage = content.articles.find((article) => article.id === "storage-and-retention");
+      assert.ok(plans, content.language);
+      assert.ok(storage, content.language);
+      const plansText = plans.sections.flatMap((section) => section.paragraphs).join(" ");
+      const storageText = [
+        ...storage.sections.flatMap((section) => section.paragraphs),
+        ...storage.sections.flatMap((section) => section.bullets ?? []),
+      ].join(" ");
+      const catalog = [plansText, storageText].join(" ");
+      assert.doesNotMatch(catalog, banned, content.language);
+      assert.match(plansText, required[content.language], content.language);
+      assert.match(storageText, /30/, `${content.language}:retention`);
+      assert.match(storageText, /90/, `${content.language}:recovery`);
+    }
+  });
+
   test("searches the active locale without an English fallback", async () => {
     for (const content of await loadEveryHelpLocale()) {
       const article = content.articles.find(

@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import {
   type AuthSession,
   type CopyOnFinishBatch,
@@ -51,6 +51,8 @@ import IconSave from "~icons/lucide/save";
 import IconSun from "~icons/lucide/sun";
 import extensionPackage from "../../package.json";
 import "../../../../extension/keyboard.js";
+import { accountTypeLabel, normalizeCloudTrial } from "../../../../extension/cloud-trial.js";
+import { beginTrialLoad, decideAuthLoad, decideTrialLoad, type TrialLoadClock } from "./cloud-trial-load";
 import {
   cloudEnvironment,
   resolveCloudUrl,
@@ -121,17 +123,19 @@ function ShortcutsTab({ platform, t }: { platform: "mac" | "win" | "other"; t: T
   }, []);
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className={`flex flex-col ${commands.length ? "gap-5" : "gap-2"}`}>
       <section className="flex flex-col">
         <span className={SECTION_HEADER}>{t.shortcuts_browser_title}</span>
-        <p className={SECTION_DESC}>{t.shortcuts_browser_desc}</p>
-        <ul className="flex flex-col gap-2">
-          {commands.map((command) => (
-            <ShortcutRow editLabel={t.shortcuts_customize} key={command.name} keys={command.shortcut || t.shortcuts_unassigned} {...commandText(command, t)} onEdit={() => void chrome.tabs.create({ url: "chrome://extensions/shortcuts" })} />
-          ))}
-        </ul>
+        <p className={commands.length ? SECTION_DESC : "mt-0.5 text-xs text-muted-foreground"}>{t.shortcuts_browser_desc}</p>
+        {commands.length ? (
+          <ul className="flex flex-col gap-2">
+            {commands.map((command) => (
+              <ShortcutRow editLabel={t.shortcuts_customize} key={command.name} keys={command.shortcut || t.shortcuts_unassigned} {...commandText(command, t)} onEdit={() => void chrome.tabs.create({ url: "chrome://extensions/shortcuts" })} />
+            ))}
+          </ul>
+        ) : null}
       </section>
-      <Separator />
+      {commands.length ? <Separator /> : null}
       <section className="flex flex-col">
         <span className={SECTION_HEADER}>{t.shortcuts_overlay_title}</span>
         <p className={SECTION_DESC}>{t.shortcuts_overlay_desc}</p>
@@ -195,7 +199,9 @@ interface ExtensionResponse extends ExtensionResponseBase {
   ok?: boolean;
   sensitiveQueryKeys?: string;
   voicePostProcessing?: boolean;
+  mode?: string;
   session?: AuthSession;
+  trial?: unknown;
   url?: string;
 }
 
@@ -209,9 +215,19 @@ function isExtensionContext() {
   return typeof chrome !== "undefined" && Boolean(chrome.runtime?.id) && Boolean(chrome.runtime?.sendMessage);
 }
 
+function hostedAccountUrl(cloudUrl: string, path: "/sign-in" | "/pricing") {
+  return new URL(`${(cloudUrl || "https://pinar.dev").replace(/\/+$/, "")}${path}`);
+}
+
 function hostedSignInUrl(cloudUrl: string, language: SupportedLanguage) {
-  const url = new URL(`${(cloudUrl || "https://pinar.dev").replace(/\/+$/, "")}/sign-in`);
+  const url = hostedAccountUrl(cloudUrl, "/sign-in");
   url.searchParams.set("returnTo", "/app");
+  if (language) url.searchParams.set("lang", language);
+  return url.toString();
+}
+
+function hostedPricingUrl(cloudUrl: string, language: SupportedLanguage) {
+  const url = hostedAccountUrl(cloudUrl, "/pricing");
   if (language) url.searchParams.set("lang", language);
   return url.toString();
 }
@@ -269,10 +285,13 @@ export function OptionsApp() {
   const [settings, setSettings] = useState<PinarSettings>(DEFAULT_SETTINGS);
   const [savedSettings, setSavedSettings] = useState<PinarSettings>(DEFAULT_SETTINGS);
   const [settingsSaving, setSettingsSaving] = useState(false);
+  const [storageModeSaving, setStorageModeSaving] = useState(false);
   const [lang, setLang] = useState<SupportedLanguage>(DEFAULT_LANGUAGE);
   const [installPlatform, setInstallPlatform] = useState<"mac" | "win" | "other">("mac");
   const [copiedInstall, setCopiedInstall] = useState(false);
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
+  const [cloudTrial, setCloudTrial] = useState<ReturnType<typeof normalizeCloudTrial>>(null);
+  const trialLoad = useRef<TrialLoadClock>({ id: 0 });
   const [authReady, setAuthReady] = useState(false);
   const [authError, setAuthError] = useState("");
   const [email, setEmail] = useState("");
@@ -314,16 +333,94 @@ export function OptionsApp() {
     return next;
   }
 
-  async function loadAuthSession() {
+  function startTrialLoad() {
+    const requestId = beginTrialLoad(trialLoad.current);
+    setCloudTrial(null);
+    return requestId;
+  }
+
+  function commitTrial(decision: ReturnType<typeof decideTrialLoad>) {
+    if (decision.type === "ignore") return;
+    setCloudTrial(decision.type === "apply" ? decision.trial : null);
+  }
+
+  async function loadCloudTrial(
+    storageMode: PinarSettings["storageMode"],
+    session: AuthSession | null,
+    requestId: number,
+  ) {
+    if (storageMode !== "cloud" || session?.kind !== "account") {
+      commitTrial(decideTrialLoad({
+        activeId: trialLoad.current.id,
+        requestId,
+        sessionKind: session?.kind ?? null,
+        storageMode,
+      }));
+      return;
+    }
+    try {
+      const response = await extensionMessage({ type: "storage:status" }, "");
+      commitTrial(decideTrialLoad({
+        activeId: trialLoad.current.id,
+        requestId,
+        responseMode: response.mode,
+        responseOk: response.ok === true,
+        sessionKind: session.kind,
+        storageMode,
+        trial: response.trial,
+      }));
+    } catch {
+      commitTrial(decideTrialLoad({
+        activeId: trialLoad.current.id,
+        failed: true,
+        requestId,
+        sessionKind: session.kind,
+        storageMode,
+      }));
+    }
+  }
+
+  async function loadAuthSession(storageMode: PinarSettings["storageMode"] = settings.storageMode) {
+    const requestId = startTrialLoad();
     setAuthError("");
     try {
       const response = await extensionMessage({ type: "auth:get" }, t.account_unavailable);
+      const auth = decideAuthLoad({
+        activeId: trialLoad.current.id,
+        ok: response.ok === true,
+        requestId,
+        session: response.ok ? response.session ?? null : null,
+      });
+      if (auth.type === "ignore") return;
       if (!response.ok) throw new Error(response.error || t.account_unavailable);
-      setAuthSession(response.session ?? null);
+      const session = auth.session;
+      setAuthSession(session);
+      await loadCloudTrial(storageMode, session, requestId);
     } catch {
+      if (requestId !== trialLoad.current.id) return;
       setAuthSession(null);
+      setCloudTrial(null);
     } finally {
+      if (requestId === trialLoad.current.id) setAuthReady(true);
+    }
+  }
+
+  async function selectStorageMode(storageMode: PinarSettings["storageMode"]) {
+    if (storageModeSaving || settingsSaving || storageMode === settings.storageMode) return;
+    const previousMode = settings.storageMode;
+    setStorageModeSaving(true);
+    setAuthReady(false);
+    setSettings((current) => ({ ...current, storageMode }));
+    try {
+      await chrome.storage.sync.set({ storageMode });
+      setSavedSettings((current) => ({ ...current, storageMode }));
+      await loadAuthSession(storageMode);
+    } catch (cause) {
+      setSettings((current) => ({ ...current, storageMode: previousMode }));
+      setAuthError(cause instanceof Error ? cause.message : String(cause));
       setAuthReady(true);
+    } finally {
+      setStorageModeSaving(false);
     }
   }
 
@@ -358,13 +455,13 @@ export function OptionsApp() {
       setLang(loaded.language as SupportedLanguage);
       setSettings(loaded);
       setSavedSettings(loaded);
-      await loadAuthSession();
+      await loadAuthSession(loaded.storageMode);
     }
     void initialize();
   }, []);
 
   async function saveSettings() {
-    if (!hasUnsavedChanges || settingsSaving) return;
+    if (!hasUnsavedChanges || settingsSaving || storageModeSaving) return;
     setSettingsSaving(true);
     try {
       if (typeof chrome !== "undefined" && chrome.storage?.sync) await chrome.storage.sync.set(settings);
@@ -397,7 +494,7 @@ export function OptionsApp() {
       setSettings(saved);
       setSavedSettings(saved);
       toast.success(t.status_saved);
-      await loadAuthSession();
+      await loadAuthSession(saved.storageMode);
     } finally {
       setSettingsSaving(false);
     }
@@ -441,9 +538,11 @@ export function OptionsApp() {
         if (response.code === "legal_acceptance_required") throw new Error(t.account_legal_update_required);
         throw new Error(response.error || t.account_code_invalid);
       }
+      const requestId = startTrialLoad();
       setAuthSession(response.session);
       setEmailCode("");
       setEmailCodeRequested(false);
+      await loadCloudTrial(settings.storageMode, response.session, requestId);
     } catch (cause) {
       setAuthError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -452,18 +551,29 @@ export function OptionsApp() {
   }
 
   async function logout() {
+    const requestId = startTrialLoad();
     setLogoutLoading(true);
     setAuthError("");
     try {
       const response = await extensionMessage({ type: "auth:logout" }, t.account_unavailable);
+      if (requestId !== trialLoad.current.id) return;
       if (!response.ok) throw new Error(response.error || t.account_unavailable);
       setAuthSession(null);
+      setCloudTrial(null);
     } catch (cause) {
+      if (requestId !== trialLoad.current.id) return;
       setAuthError(cause instanceof Error ? cause.message : String(cause));
+      await loadCloudTrial(settings.storageMode, authSession, requestId);
     } finally {
       setLogoutLoading(false);
     }
   }
+
+  const signedInCloud = authSession?.kind === "account" && settings.storageMode === "cloud";
+  const trialForAccount = signedInCloud ? cloudTrial : null;
+  const accountLabel = signedInCloud
+    ? `${authSession.email} (${accountTypeLabel(authSession.plan, trialForAccount, t, lang)})`
+    : "";
 
   return (
     <div className="h-screen w-full overflow-hidden bg-muted/50 font-sans text-foreground dark:bg-background">
@@ -501,7 +611,7 @@ export function OptionsApp() {
                   <p className={SECTION_DESC}>{t.storage_title_desc}</p>
                   <div className="flex flex-col gap-2">
                     <label className="flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 hover:bg-muted/50">
-                      <input checked={settings.storageMode === "local"} className="mt-0.5 accent-primary" name="storageMode" type="radio" onChange={() => setSettings((current) => ({ ...current, storageMode: "local" }))} />
+                      <input checked={settings.storageMode === "local"} className="mt-0.5 accent-primary" disabled={settingsSaving || storageModeSaving} name="storageMode" type="radio" onChange={() => void selectStorageMode("local")} />
                       <span className="min-w-0 flex-1">
                         <span className="block text-xs font-semibold">{t.local_title}</span>
                         <span className="mt-0.5 block text-xs text-muted-foreground">{localStorageDescription}</span>
@@ -517,39 +627,38 @@ export function OptionsApp() {
                       {installPlatform === "other" ? null : <Button className="h-7 shrink-0 self-center text-xs" render={<a href={desktopInstallUrl} rel="noopener noreferrer" target="_blank" />} size="sm" variant="outline" onClick={(event) => event.stopPropagation()}>{t.btn_download_macos}<IconExternalLink data-icon="inline-end" /></Button>}
                     </label>
                     <div className="overflow-hidden rounded-lg border">
-                      <label className="flex cursor-pointer items-start gap-2 px-3 py-2 hover:bg-muted/50">
-                        <input checked={settings.storageMode === "cloud"} className="mt-0.5 accent-primary" name="storageMode" type="radio" onChange={() => setSettings((current) => ({ ...current, storageMode: "cloud" }))} />
-                        <span className="min-w-0 flex-1">
-                          <span className="flex items-center gap-2 text-xs font-semibold">
-                            {environment === "staging" ? t.staging_title : t.remote_title}
+                      <div className="flex items-center gap-2 px-3 py-2">
+                        <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-2">
+                          <input checked={settings.storageMode === "cloud"} className="mt-0.5 accent-primary" disabled={settingsSaving || storageModeSaving} name="storageMode" type="radio" onChange={() => void selectStorageMode("cloud")} />
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-xs font-semibold">{environment === "staging" ? t.staging_title : t.remote_title}</span>
+                            <span className={`mt-0.5 block text-xs text-muted-foreground${signedInCloud ? " truncate" : ""}`}>
+                              {signedInCloud
+                                ? accountLabel
+                                : environment === "staging" ? t.staging_desc : t.remote_desc}
+                            </span>
+                            {trialForAccount?.state === "expired" ? (
+                              <span className="mt-0.5 block text-xs text-muted-foreground">
+                                {t.account_trial_expired}{" "}
+                                <a className="font-semibold text-foreground underline" href={hostedPricingUrl(settings.cloudUrl, lang)} rel="noopener noreferrer" target="_blank" onClick={(event) => event.stopPropagation()}>{t.account_trial_subscribe}</a>
+                              </span>
+                            ) : null}
                           </span>
-                          <span className="mt-0.5 block text-xs text-muted-foreground">{environment === "staging" ? t.staging_desc : t.remote_desc}</span>
-                        </span>
-                        <Button className="h-7 shrink-0 self-center text-xs" render={<a href={hostedSignInUrl(settings.cloudUrl, lang)} rel="noopener noreferrer" target="_blank" />} size="sm" variant="outline" onClick={(event) => event.stopPropagation()}>{t.account_create_on_web}<IconExternalLink data-icon="inline-end" /></Button>
-                      </label>
+                        </label>
+                        {authSession?.kind === "account" && settings.storageMode === "cloud" ? (
+                          <Button className="h-7 shrink-0 text-xs" disabled={logoutLoading} size="sm" type="button" variant="outline" onClick={() => void logout()}><IconLogOut data-icon="inline-start" />{t.btn_sign_out}</Button>
+                        ) : (
+                          <Button className="h-7 shrink-0 text-xs" render={<a href={hostedSignInUrl(settings.cloudUrl, lang)} rel="noopener noreferrer" target="_blank" />} size="sm" variant="outline">{t.account_create_on_web}<IconExternalLink data-icon="inline-end" /></Button>
+                        )}
+                      </div>
                       {settings.storageMode === "cloud" ? (
                         <div className="flex flex-col gap-4 border-t p-3">
-                          <SettingRow size="xs" description={t.history_desc} title={t.history_label}>
-                            <Switch aria-label={t.history_label} checked={settings.enableHistory} onCheckedChange={(value) => setSettings((current) => ({ ...current, enableHistory: value }))} />
-                          </SettingRow>
-                    {!authReady ? <p className="text-xs text-muted-foreground">…</p> : authSession?.kind === "account" ? (
-                      <section className="flex flex-col">
-                        <span className={SECTION_HEADER}>{t.account_title}</span>
-                        <p className={SECTION_DESC}>{t.account_title_desc}</p>
-                        <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/40 p-3">
-                          <div className="min-w-0">
-                            <p className="truncate text-xs font-semibold">{authSession.email}</p>
-                            <p className="mt-1 text-xs capitalize text-muted-foreground">{authSession.plan}</p>
-                          </div>
-                          <div className="flex shrink-0 items-center gap-2">
-                            <Button disabled={logoutLoading} size="sm" type="button" variant="outline" onClick={() => void logout()}>
-                              <IconLogOut data-icon="inline-start" />
-                              {t.btn_sign_out}
-                            </Button>
-                          </div>
-                        </div>
-                      </section>
-                    ) : (
+                          {authReady && authSession?.kind === "account" ? (
+                            <SettingRow size="xs" description={t.history_desc} title={t.history_label}>
+                              <Switch aria-label={t.history_label} checked={settings.enableHistory} onCheckedChange={(value) => setSettings((current) => ({ ...current, enableHistory: value }))} />
+                            </SettingRow>
+                          ) : null}
+                          {!authReady ? <p aria-live="polite" className="flex items-center gap-2 text-xs text-muted-foreground" role="status"><IconLoaderCircle aria-hidden="true" className="size-3.5 animate-spin" />{t.account_session_loading}</p> : authSession?.kind === "account" ? null : (
                         <section className="flex flex-col gap-0.5">
                           {!emailCodeRequested ? (
                             <>
@@ -573,22 +682,17 @@ export function OptionsApp() {
                             </>
                           )}
                         </section>
-                    )}
+                          )}
                           {authError && <p className="text-xs font-medium text-destructive" role="alert">{authError}</p>}
-                          {voiceAvailable ? <>
-                            <Separator />
-                            <section className="flex flex-col">
-                              <span className={SECTION_HEADER}>{t.voice_settings_title}</span>
-                              <p className={SECTION_DESC}>{t.voice_settings_desc}</p>
-                              <SettingRow size="xs" description={t.voice_post_processing_desc} title={t.voice_post_processing_label}>
-                                <Switch
-                                  aria-label={t.voice_post_processing_label}
-                                  checked={settings.voicePostProcessing}
-                                  onCheckedChange={(value) => setSettings((current) => ({ ...current, voicePostProcessing: value }))}
-                                />
-                              </SettingRow>
-                            </section>
-                          </> : null}
+                          {voiceAvailable ? (
+                            <SettingRow size="xs" description={t.voice_post_processing_desc} title={t.voice_post_processing_label}>
+                              <Switch
+                                aria-label={t.voice_post_processing_label}
+                                checked={settings.voicePostProcessing}
+                                onCheckedChange={(value) => setSettings((current) => ({ ...current, voicePostProcessing: value }))}
+                              />
+                            </SettingRow>
+                          ) : null}
                         </div>
                       ) : null}
                     </div>
@@ -650,7 +754,7 @@ export function OptionsApp() {
             </Tabs>
 
             <footer className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex gap-2"><Button aria-busy={settingsSaving || undefined} className="h-8 text-xs" disabled={settingsSaving || !hasUnsavedChanges} size="sm" onClick={() => void saveSettings()}>{settingsSaving ? <IconLoaderCircle className="size-3.5 animate-spin" /> : <IconSave className="size-3.5" />}{t.btn_save}</Button><Button className="h-8 text-xs" size="sm" variant="outline" onClick={() => void openApp()}>{t.btn_open_app}<IconExternalLink data-icon="inline-end" /></Button></div>
+              <div className="flex gap-2"><Button aria-busy={settingsSaving || undefined} className="h-8 text-xs" disabled={settingsSaving || storageModeSaving || !hasUnsavedChanges} size="sm" onClick={() => void saveSettings()}>{settingsSaving ? <IconLoaderCircle className="size-3.5 animate-spin" /> : <IconSave className="size-3.5" />}{t.btn_save}</Button><Button className="h-8 text-xs" disabled={storageModeSaving} size="sm" variant="outline" onClick={() => void openApp()}>{t.btn_open_app}<IconExternalLink data-icon="inline-end" /></Button></div>
               <div className="flex gap-2"><Button className="h-8 text-xs" render={<a href="https://buymeacoffee.com/djalmajr" rel="noopener noreferrer" target="_blank" />} size="sm" variant="coffee"><IconCoffee />{t.btn_coffee}</Button><Button className="h-8 text-xs" render={<a href="https://github.com/sponsors/djalmajr" rel="noopener noreferrer" target="_blank" />} size="sm" variant="sponsor"><IconHeart className="fill-current" />{t.btn_sponsor}</Button></div>
             </footer>
           </div>

@@ -17,3 +17,4 @@ coverage/
 .wrangler/
 test-results/
 !e2e/usability/screenshots/**/*.png
+.herdr-agents/

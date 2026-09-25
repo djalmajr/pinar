@@ -34,7 +34,6 @@ test("first pin starts one durable session across pages and tabs", async () => {
   assert.equal(f.state(), null);
   assert.deepEqual(f.calls.slice(-2), [["finish"], ["copy"]]);
 });
-
 test("empty page does not start a session", async () => {
   const f = fixture();
   await f.engine.sync(input("page", []));
@@ -184,4 +183,111 @@ test("review editing preserves evidence and capture identity across pages", asyn
   assert.equal(edited.captureId, original.captureId);
   assert.equal(edited.status, "saved");
   assert.equal(f.calls.filter(([kind]) => kind === "capture").length, 2);
+});
+
+test("failed recapture keeps previous shot and preserves draft pending for recovery", async () => {
+  let failCapture = false;
+  const f = fixture({
+    capture: async (entry) => {
+      if (failCapture) throw new Error("capture_transient_error");
+      return `image:${entry.captureId}`;
+    },
+  });
+  await f.engine.sync(input("page", ["a"]));
+  assert.equal(f.state().entries[0].status, "saved");
+  const originalShot = f.state().entries[0].shot;
+  const captureId = f.state().entries[0].captureId;
+
+  // Drawing a mask triggers shot refresh; capture failure keeps session pending
+  // without persisting shot: null, which would corrupt the session if navigation occurs
+  failCapture = true;
+  await f.engine.sync({ ...input("page", ["a"]), refreshShot: true });
+  assert.equal(f.state().entries[0].status, "pending");
+  assert.equal(f.state().entries[0].shot, originalShot);
+  assert.equal(f.state().entries[0].refreshPending, true);
+  await assert.rejects(f.engine.finish(), /session_pending/);
+
+  // Restarting service worker preserves the pending state and the screenshot evidence
+  const restarted = f.restart();
+  assert.equal(f.state().entries[0].status, "pending");
+  assert.equal(f.state().entries[0].shot, originalShot);
+  await assert.rejects(restarted.finish(), /session_pending/);
+
+  // Retry without active page capture also cannot deliver unmasked shot as saved
+  await restarted.retry();
+  assert.equal(f.state().entries[0].status, "pending");
+
+  // Recovery while page is available: sync from active page (e.g. review retry)
+  // recaptures even without refreshShot because entry.refreshPending is true
+  failCapture = false;
+  await restarted.sync(input("page", ["a"]));
+  assert.equal(f.state().entries[0].status, "saved");
+  assert.equal(f.state().entries[0].captureId, captureId);
+  assert.notEqual(f.state().entries[0].shot, null);
+  await restarted.finish();
+  assert.equal(f.state(), null);
+});
+
+test("recapture persists its pending guard before waiting for a new screenshot", async () => {
+  let startCapture;
+  let releaseCapture;
+  let captureCount = 0;
+  const started = new Promise((resolve) => { startCapture = resolve; });
+  const gate = new Promise((resolve) => { releaseCapture = resolve; });
+  const f = fixture({
+    capture: async () => {
+      captureCount += 1;
+      if (captureCount === 1) return "original-image";
+      startCapture();
+      await gate;
+      return "masked-image";
+    },
+  });
+  await f.engine.sync(input("page", ["a"]));
+
+  const recapture = f.engine.sync({ ...input("page", ["a"]), refreshShot: true });
+  await started;
+  assert.equal(f.state().entries[0].status, "pending");
+  assert.equal(f.state().entries[0].refreshPending, true);
+  assert.equal(f.state().entries[0].shot, "original-image");
+  await assert.rejects(f.restart().finish(), /session_pending/);
+
+  releaseCapture();
+  await recapture;
+  assert.equal(f.state().entries[0].status, "saved");
+  assert.equal(f.state().entries[0].shot, "masked-image");
+});
+
+test("failed recapture remains pending after navigation until removed or discarded", async () => {
+  let failCapture = false;
+  const f = fixture({
+    capture: async (entry) => {
+      if (failCapture) throw new Error("capture_transient_error");
+      return `image:${entry.captureId}`;
+    },
+  });
+  await f.engine.sync(input("page-one", ["a"]));
+  assert.equal(f.state().entries[0].status, "saved");
+  const originalShot = f.state().entries[0].shot;
+  const captureId = f.state().entries[0].captureId;
+
+  // Mask refresh fails on page-one
+  failCapture = true;
+  await f.engine.sync({ ...input("page-one", ["a"]), refreshShot: true });
+  assert.equal(f.state().entries[0].status, "pending");
+  assert.equal(f.state().entries[0].shot, originalShot);
+
+  // User navigates to page-two: entry-a remains pending with original shot preserved
+  failCapture = false;
+  await f.engine.sync(input("page-two", ["b"]));
+  assert.equal(f.state().entries.length, 2);
+  const entryA = f.state().entries.find((e) => e.captureId === captureId);
+  assert.equal(entryA.status, "pending");
+  assert.equal(entryA.shot, originalShot);
+  await assert.rejects(f.engine.finish(), /session_pending/);
+
+  // Removing the pending entry from review allows completing the session
+  await f.engine.remove(captureId);
+  await f.engine.finish();
+  assert.equal(f.state(), null);
 });

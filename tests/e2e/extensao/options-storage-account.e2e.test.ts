@@ -1,9 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
-import { DEVELOPMENT_EXTENSION_KEY, PRODUCTION_CLOUD_URL, STAGING_CLOUD_URL } from "../../../extension/environment.js";
-import { remoteProfileKey } from "../../../extension/remote-profile.js";
-import { expectScrollableComboboxList } from "../helpers/ui";
+import { DEVELOPMENT_EXTENSION_KEY, STAGING_CLOUD_URL } from "../../../extension/environment.js";
 
 const extensionDist = resolve(process.cwd(), "extension", "dist");
 
@@ -29,8 +27,8 @@ async function installOptionsHarness(page: Page, { development = false, platform
       messages.push(message);
       localStorage.setItem(MESSAGES_KEY, JSON.stringify(messages));
     };
-    const authSession = () => identity() === "account"
-      ? { email: "contato@pinar.dev", kind: "account", plan: "pro", userId: "user-pro" }
+    const authSession = () => identity() === "account" || identity() === "free-account"
+      ? { email: "contato@pinar.dev", kind: "account", plan: identity() === "account" ? "pro" : "free", userId: "user-pro" }
       : null;
     const destination = () => {
       const mode = settings().storageMode === "cloud" ? "cloud" : "local";
@@ -135,6 +133,8 @@ async function installOptionsHarness(page: Page, { development = false, platform
             };
           }
           if (message.type === "auth:get") {
+            const delay = Number(localStorage.getItem("pinar-e2e-auth-delay") || 0);
+            if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
             if (localStorage.getItem("pinar-e2e-auth-fail") === "1") {
               return { error: "Account service is unavailable.", ok: false };
             }
@@ -246,11 +246,38 @@ async function expectActionPopup(page: Page, buttonName: string, pathname: strin
   await popup.close();
 }
 
-test("storage mode and destination identity persist without mixing local and cloud", async ({ page }) => {
+test("selecting remote saves the destination and shows signed-in controls inline", async ({ page }) => {
+  await installOptionsHarness(page);
+  await page.getByRole("radio", { name: /Remote Server/ }).check();
+
+  const remoteCard = page.getByRole("radio", { name: /Remote Server/ }).locator("../../..");
+  await expect(remoteCard.getByText("contato@pinar.dev (PRO)")).toBeVisible();
+  await expect(remoteCard.getByRole("button", { name: "Sign out" })).toBeVisible();
+  await expect(remoteCard.getByRole("switch", { name: "Save Annotation History" })).toBeVisible();
+  await expect(remoteCard.getByRole("link", { name: "Create account" })).toHaveCount(0);
+  await expect(remoteCard.getByText("Account and plan", { exact: true })).toHaveCount(0);
+  await expect(remoteCard.getByText("Voice comments", { exact: true })).toHaveCount(0);
+  await expect(remoteCard.getByText("Clean up transcription with AI", { exact: true })).toBeVisible();
+  await expect(remoteCard.locator("[data-slot=separator]")).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("pinar-e2e-extension-settings") || "{}").storageMode)).toBe("cloud");
+  await expectActionPopup(page, "Open app", "/extension-open/cloud/account");
+});
+
+test("remote account loading explains what is happening before the session arrives", async ({ page }) => {
+  await installOptionsHarness(page);
+  await page.evaluate(() => localStorage.setItem("pinar-e2e-auth-delay", "1000"));
+  await page.getByRole("radio", { name: /Remote Server/ }).check();
+
+  await expect(page.getByRole("status").getByText("Loading your account…")).toBeVisible();
+  await expect(page.getByRole("status")).toHaveCount(0);
+  await expect(page.getByText("contato@pinar.dev (PRO)")).toBeVisible();
+});
+
+test("storage mode persists immediately and opens the matching app", async ({ page }) => {
   await installOptionsHarness(page);
 
   await expect(page.getByRole("radio", { name: /Local Server/ })).toBeChecked();
-  await expect(page.getByRole("tabpanel").locator("[data-slot=separator]")).toHaveCount(2);
+  await expect(page.getByRole("tabpanel").locator("[data-slot=separator]")).toHaveCount(1);
   await expect(page.getByText("Keep new captures on this device or send them to a remote Pinar server.", { exact: true })).toBeVisible();
   const downloadLink = page.getByRole("link", { name: "Download Pinar" });
   await expect(downloadLink).toHaveAttribute(
@@ -258,53 +285,19 @@ test("storage mode and destination identity persist without mixing local and clo
     "https://github.com/djalmajr/pinar/releases/latest/download/macos-arm64-Pinar.dmg",
   );
   await expect(downloadLink).toHaveAttribute("target", "_blank");
-  const projectCombobox = page.getByRole("combobox", { name: "Project" });
-  await expect(projectCombobox).toHaveValue("Account Local");
-  await projectCombobox.click();
-  await expectScrollableComboboxList(page);
-  await projectCombobox.fill("missing workspace");
-  await expect(page.getByText("No projects found.", { exact: true })).toBeVisible();
-  await projectCombobox.fill("Account Local");
-  await page.getByRole("option", { name: "Account Local" }).click();
-
-  const collectionCombobox = page.getByRole("combobox", { name: "Collection" });
-  await expect(collectionCombobox).toHaveValue("Inbox");
-  await collectionCombobox.click();
-  await expectScrollableComboboxList(page);
-  await collectionCombobox.fill("Scale collection 47");
-  const deepCollection = page.getByRole("option", { name: "Scale collection 47 — International customer experience" });
-  await expect(deepCollection).toBeVisible();
-  await expect(deepCollection.locator(":scope > span").first()).toHaveCSS("padding-inline-start", "80px");
-  await collectionCombobox.fill("missing collection");
-  await expect(page.getByText("No collections found.", { exact: true })).toBeVisible();
-  await collectionCombobox.fill("Inbox");
-  await collectionCombobox.press("Enter");
-  await expect(collectionCombobox).toHaveValue("Inbox");
-
   await page.getByRole("radio", { name: /Remote Server/ }).check();
   await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
-  await page.getByRole("checkbox", {
-    name: "I accept the current documents for Pinar's hosted service.",
-  }).check();
-  await save(page);
-  await expect(page.getByRole("combobox", { name: "Project" })).toHaveValue("Account Cloud");
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("pinar-e2e-extension-settings") || "{}").storageMode)).toBe("cloud");
   await expectActionPopup(page, "Open app", "/extension-open/cloud/account");
 
   await page.reload();
   await expect(page.getByRole("radio", { name: /Remote Server/ })).toBeChecked();
-  await expect(page.getByRole("checkbox", {
-    name: "I accept the current documents for Pinar's hosted service.",
-  })).toBeChecked();
-  await expect(page.getByRole("combobox", { name: "Project" })).toHaveValue("Account Cloud");
-
   await page.getByRole("radio", { name: /Local Server/ }).check();
-  await save(page);
-  await expect(page.getByRole("combobox", { name: "Project" })).toHaveValue("Account Local");
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("pinar-e2e-extension-settings") || "{}").storageMode)).toBe("local");
   await expectActionPopup(page, "Open app", "/extension-open/local/account");
 
   await page.reload();
   await expect(page.getByRole("radio", { name: /Local Server/ })).toBeChecked();
-  await expect(page.getByRole("combobox", { name: "Project" })).toHaveValue("Account Local");
 });
 
 test("the unpacked development profile exposes staging without console configuration", async ({ page }) => {
@@ -322,8 +315,8 @@ test("the unpacked development profile exposes staging without console configura
     name: "I accept the current documents for Pinar's hosted service.",
   })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Terms", exact: true })).toHaveCount(0);
-  await expect(page.getByText("Development environment with isolated test data.", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+  await expect(page.getByText("contato@pinar.dev (PRO)", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
 });
 
 test("save button replaces its disk with a loading icon while preferences are persisted", async ({ page }) => {
@@ -332,6 +325,7 @@ test("save button replaces its disk with a loading icon while preferences are pe
   });
   await installOptionsHarness(page, { development: true });
   await page.getByRole("radio", { name: /Staging/ }).check();
+  await page.getByRole("tab", { name: "Dark", exact: true }).click();
 
   const saveButton = page.getByRole("button", { name: "Save", exact: true });
   await expect(saveButton).toBeEnabled();
@@ -346,40 +340,29 @@ test("save button replaces its disk with a loading icon while preferences are pe
 
 test("language and theme sit on their own preference rows", async ({ page }) => {
   await installOptionsHarness(page);
-  await page.getByRole("tab", { name: "Preferences" }).click();
 
   const language = page.getByRole("combobox", { name: "Language" });
   await expect(language).toBeVisible();
   await expect(page.getByText("Language", { exact: true })).toHaveCSS("font-size", "12px");
   await expect(page.getByText("Theme", { exact: true })).toHaveCSS("font-size", "12px");
-  await expect(page.getByText("Agent copy detail: Compact", { exact: true })).toHaveCSS("font-size", "12px");
   await expect(page.getByText("Choose the language used across the extension.", { exact: true })).toHaveCSS("font-size", "12px");
   await expect(page.getByText("Follow the system appearance or choose a fixed theme.", { exact: true })).toBeVisible();
   await expect(page.getByText("Language and appearance used across the extension.", { exact: true })).toBeVisible();
-  await expect(page.getByText("What is copied to the agent and what stays complete on the server.", { exact: true })).toBeVisible();
-  await expect(page.getByText("Optional metrics and extra URL keys stripped from captured addresses.", { exact: true })).toBeVisible();
 
   const panel = page.getByRole("tabpanel");
   const separators = panel.locator("[data-slot=separator]");
-  await expect(separators).toHaveCount(2);
+  await expect(separators).toHaveCount(1);
   const interfaceHeading = page.getByText("Interface", { exact: true });
   const languageTitle = page.getByText("Language", { exact: true });
   const themeTitle = page.getByText("Theme", { exact: true });
-  const handoffHeading = page.getByText("Agent handoff", { exact: true });
-  const privacyHeading = page.getByText("Privacy", { exact: true });
   const interfaceBox = await interfaceHeading.boundingBox();
   const languageBox = await languageTitle.boundingBox();
   const themeBox = await themeTitle.boundingBox();
-  const handoffBox = await handoffHeading.boundingBox();
-  const privacyBox = await privacyHeading.boundingBox();
   const firstSep = await separators.nth(0).boundingBox();
-  const secondSep = await separators.nth(1).boundingBox();
-  expect(interfaceBox && languageBox && themeBox && handoffBox && privacyBox && firstSep && secondSep).toBeTruthy();
+  expect(interfaceBox && languageBox && themeBox && firstSep).toBeTruthy();
   expect((languageBox!.y) - (interfaceBox!.y + interfaceBox!.height)).toBeGreaterThanOrEqual(24);
-  expect(firstSep!.y).toBeGreaterThan(themeBox!.y);
-  expect(firstSep!.y).toBeLessThan(handoffBox!.y);
-  expect(secondSep!.y).toBeGreaterThan(handoffBox!.y);
-  expect(secondSep!.y).toBeLessThan(privacyBox!.y);
+  expect(firstSep!.y).toBeLessThan(interfaceBox!.y);
+  expect(themeBox!.y).toBeGreaterThan(languageBox!.y);
 
   const theme = page.getByRole("tablist", { name: "Theme" });
   await expect(theme).toBeVisible();
@@ -402,17 +385,17 @@ test("language and theme sit on their own preference rows", async ({ page }) => 
   await expect(page.getByRole("combobox", { name: "Idioma" })).toContainText("Português");
 });
 
-test("each options tab separates its sections", async ({ page }) => {
+test("shortcuts without browser commands do not leave an empty section gap", async ({ page }) => {
   await installOptionsHarness(page);
-  await expect(page.getByRole("tabpanel").locator("[data-slot=separator]")).toHaveCount(2);
+  await expect(page.getByRole("tabpanel").locator("[data-slot=separator]")).toHaveCount(1);
 
-  await page.getByRole("tab", { name: "Preferences" }).click();
-  await expect(page.getByRole("tabpanel").locator("[data-slot=separator]")).toHaveCount(2);
+  await page.getByRole("tab", { name: "Capture" }).click();
+  await expect(page.getByRole("tabpanel").locator("[data-slot=separator]")).toHaveCount(1);
 
   await page.getByRole("tab", { name: "Shortcuts" }).click();
   await expect(page.getByText("⌘ + Enter", { exact: true })).toBeVisible();
   await expect(page.getByText(/Ctrl.*Enter/)).toHaveCount(0);
-  await expect(page.getByRole("tabpanel").locator("[data-slot=separator]")).toHaveCount(1);
+  await expect(page.getByRole("tabpanel").locator("[data-slot=separator]")).toHaveCount(0);
   const shortcutsHeading = page.getByText("Browser shortcuts", { exact: true });
   const shortcutsDesc = page.getByText(
     "Assigned by Chrome and rebindable per browser. They stay inert on chrome:// pages, on the Web Store, and before the overlay is injected.",
@@ -420,11 +403,10 @@ test("each options tab separates its sections", async ({ page }) => {
   );
   const shortcutsHeadingBox = await shortcutsHeading.boundingBox();
   const shortcutsDescBox = await shortcutsDesc.boundingBox();
+  const captureHeadingBox = await page.getByText("During capture", { exact: true }).boundingBox();
   expect(shortcutsHeadingBox && shortcutsDescBox).toBeTruthy();
   expect((shortcutsDescBox!.y) - (shortcutsHeadingBox!.y + shortcutsHeadingBox!.height)).toBeLessThan(8);
-
-  await page.getByRole("tab", { name: "Account" }).click();
-  await expect(page.getByRole("tabpanel").locator("[data-slot=separator]")).toHaveCount(0);
+  expect(captureHeadingBox!.y - (shortcutsDescBox!.y + shortcutsDescBox!.height)).toBeLessThan(16);
 });
 
 test("Windows and Linux show only Alt+Enter for concluding a capture", async ({ page }) => {
@@ -437,23 +419,26 @@ test("Windows and Linux show only Alt+Enter for concluding a capture", async ({ 
 
 test("privacy URL keys input sits under its description", async ({ page }) => {
   await installOptionsHarness(page);
-  await page.getByRole("tab", { name: "Preferences" }).click();
+  await page.getByRole("tab", { name: "Capture" }).click();
 
   const description = page.getByText(
     "Comma-separated query or hash keys stripped from captured URLs, in addition to tokens and secrets.",
     { exact: true },
   );
   const input = page.getByRole("textbox", { name: "Extra URL keys to hide" });
-  const descriptionBox = await description.boundingBox();
-  const inputBox = await input.boundingBox();
-  expect(descriptionBox && inputBox, "privacy copy and input should be measurable").toBeTruthy();
-  expect(inputBox!.y).toBeGreaterThan((descriptionBox!.y + descriptionBox!.height) - 1);
-  expect(inputBox!.width).toBeGreaterThan(280);
+  await expect(input).toBeVisible();
+  const geometry = await description.evaluate((element) => {
+    const input = element.closest('[data-slot="setting-row"]')?.querySelector("input");
+    return { descriptionBottom: element.getBoundingClientRect().bottom, inputBox: input?.getBoundingClientRect() };
+  });
+  expect(geometry.inputBox, "privacy copy and input should be measurable").toBeTruthy();
+  expect(geometry.inputBox!.top).toBeGreaterThan(geometry.descriptionBottom - 1);
+  expect(geometry.inputBox!.width).toBeGreaterThan(280);
 });
 
 test("preference copy uses tight line-height and reaches the control", async ({ page }) => {
   await installOptionsHarness(page);
-  await page.getByRole("tab", { name: "Preferences" }).click();
+  await page.getByRole("tab", { name: "Capture" }).click();
 
   const handoff = page.getByText(
     "Compact copies only actionable context. Full includes every captured field. Saved captures and the viewer are always complete.",
@@ -482,7 +467,7 @@ test("preference copy uses tight line-height and reaches the control", async ({ 
 
 test("agent copy detail persists independently from the complete saved capture", async ({ page }) => {
   await installOptionsHarness(page);
-  await page.getByRole("tab", { name: "Preferences" }).click();
+  await page.getByRole("tab", { name: "Capture" }).click();
 
   const detail = page.getByRole("switch", { name: "Agent copy detail" });
   await expect(page.getByText("Agent copy detail: Compact", { exact: true })).toBeVisible();
@@ -502,19 +487,17 @@ test("agent copy detail persists independently from the complete saved capture",
   expect(preferenceMessages.at(-1)).toMatchObject({ handoffMode: "full" });
 
   await page.reload();
-  await page.getByRole("tab", { name: "Preferences" }).click();
+  await page.getByRole("tab", { name: "Capture" }).click();
   await expect(page.getByRole("switch", { name: "Agent copy detail" })).toBeChecked();
 });
 
-test("email sign-in stays on the Account tab when the session service is down", async ({ page }) => {
+test("email sign-in remains available in remote settings when the session service is down", async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem("pinar-e2e-auth-fail", "1");
   });
   await installOptionsHarness(page);
-  await page.getByRole("tab", { name: "Account" }).click();
+  await page.getByRole("radio", { name: /Remote Server/ }).check();
 
-  await expect(page.getByText("Account service is unavailable.", { exact: true })).toBeVisible();
-  await expect(page.getByText("Free", { exact: true })).toHaveCount(0);
   const emailInput = page.getByPlaceholder("you@example.com");
   const sendCodeButton = page.getByRole("button", { name: "Send code", exact: true });
   await expect(emailInput).toBeVisible();
@@ -525,11 +508,6 @@ test("email sign-in stays on the Account tab when the session service is down", 
       inputHeight: (await emailInput.boundingBox())?.height,
     }))
     .toEqual({ buttonHeight: 32, inputHeight: 32 });
-  await expect(page.getByRole("link", { name: "Upgrade to Pro", exact: true })).toHaveCount(1);
-  await expect(page.getByRole("link", { name: "Upgrade to Pro", exact: true })).toHaveAttribute(
-    "href",
-    /https:\/\/pinar\.dev\/pricing/,
-  );
   await expect(page.getByRole("button", { name: "Generate code", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Open app", exact: true })).toHaveCount(1);
 });
@@ -539,47 +517,38 @@ test("signed-out Cloud asks for email and never offers an extension pairing code
     localStorage.setItem("pinar-e2e-extension-identity", "installation");
   });
   await installOptionsHarness(page);
-  await page.getByRole("tab", { name: "Account" }).click();
+  await page.getByRole("radio", { name: /Remote Server/ }).check();
 
   await expect(page.getByPlaceholder("you@example.com")).toBeVisible();
   await expect(page.getByRole("button", { name: "Send code" })).toBeEnabled();
+  await expect(page.getByRole("switch", { name: "Save Annotation History" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Generate code" })).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "Upgrade to Pro" })).toHaveCount(1);
+  await expect(page.getByRole("link", { name: "Create account" })).toHaveCount(1);
   await page.getByPlaceholder("you@example.com").fill("contato@pinar.dev");
   await page.getByRole("button", { name: "Send code" }).click();
   await page.getByPlaceholder("000000").fill("123456");
   await page.getByRole("button", { name: "Verify" }).click();
-  await expect(page.getByText("contato@pinar.dev", { exact: true })).toBeVisible();
+  await expect(page.getByText("contato@pinar.dev (PRO)", { exact: true })).toBeVisible();
+  await expect(page.getByRole("switch", { name: "Save Annotation History" })).toBeVisible();
   const extensionCodeMessages = await page.evaluate(() => JSON.parse(
     localStorage.getItem("pinar-e2e-extension-messages") || "[]",
   ).filter((message: { type?: string }) => message.type === "auth:extension-code"));
   expect(extensionCodeMessages).toHaveLength(0);
 });
 
-test("Pro account opens app and billing, signs out, and returns by email without duplicating its tree", async ({ page }) => {
+test("Pro account signs out and returns by email without duplicating its tree", async ({ page }) => {
   await installOptionsHarness(page);
-  await page.getByRole("tab", { name: "Account" }).click();
+  await page.getByRole("radio", { name: /Remote Server/ }).check();
 
-  await expect(page.getByText("contato@pinar.dev", { exact: true })).toBeVisible();
-  await expect(page.getByText("pro", { exact: true })).toBeVisible();
-  await expect(page.locator('[data-slot="badge"]').getByText("pro", { exact: true })).toHaveCount(0);
-  await expectActionPopup(page, "Open app", "/extension-open/local/account");
-  await expectActionPopup(page, "Manage Billing", "/extension-billing/customer-pro");
-  await expect(page.getByText("contato@pinar.dev", { exact: true })).toBeVisible();
+  await expect(page.getByText("contato@pinar.dev (PRO)", { exact: true })).toBeVisible();
+  await expectActionPopup(page, "Open app", "/extension-open/cloud/account");
 
   await page.getByRole("button", { name: "Sign out" }).click();
-  await expect(page.locator('[data-slot="badge"]').getByText("Free", { exact: true })).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "Upgrade to Pro", exact: true })).toHaveCount(1);
-  await expect(page.getByRole("link", { name: "Upgrade to Pro", exact: true })).toHaveAttribute(
-    "href",
-    /https:\/\/pinar\.dev\/pricing/,
-  );
+  await expect(page.getByRole("switch", { name: "Save Annotation History" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Create account" })).toHaveCount(1);
   await expect(page.getByRole("button", { name: "Generate code", exact: true })).toHaveCount(0);
-  await page.getByRole("tab", { name: "Storage" }).click();
-  await expect(page.getByRole("combobox", { name: "Project" })).toHaveValue("Installation Local");
-  await expectActionPopup(page, "Open app", "/extension-open/local/installation");
+  await expectActionPopup(page, "Open app", "/extension-open/cloud/installation");
 
-  await page.getByRole("tab", { name: "Account" }).click();
   await page.getByPlaceholder("you@example.com").fill("contato@pinar.dev");
   await page.getByRole("button", { name: "Send code" }).click();
   const emailCodeInput = page.getByPlaceholder("000000");
@@ -592,53 +561,18 @@ test("Pro account opens app and billing, signs out, and returns by email without
     .toEqual({ buttonHeight: 32, inputHeight: 32 });
   await emailCodeInput.fill("123456");
   await verifyButton.click();
-  await expect(page.getByText("contato@pinar.dev", { exact: true })).toBeVisible();
-  await expect(page.getByText("pro", { exact: true })).toBeVisible();
-  await expect(page.locator('[data-slot="badge"]').getByText("pro", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("contato@pinar.dev (PRO)", { exact: true })).toBeVisible();
+  await expect(page.getByRole("switch", { name: "Save Annotation History" })).toBeVisible();
 
-  await page.getByRole("tab", { name: "Storage" }).click();
-  await expect(page.getByRole("combobox", { name: "Project" })).toHaveValue("Account Local");
 });
 
-test("remote Free requires current legal consent while local mode remains independent", async ({ page }) => {
-  const legal = await installOptionsHarness(page);
-
+test("remote Free account shows its plan but does not show Pro voice preferences", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("pinar-e2e-extension-identity", "free-account"));
+  await installOptionsHarness(page);
   await page.getByRole("radio", { name: /Remote Server/ }).check();
-  const acceptance = page.getByRole("checkbox", {
-    name: "I accept the current documents for Pinar's hosted service.",
-  });
-  await expect(acceptance).not.toBeChecked();
-  await expect(page.getByText("v2026-08-18", { exact: true })).toBeVisible();
-  const termsLink = page.getByRole("link", { name: "Terms", exact: true });
-  const privacyLink = page.getByRole("link", { name: "Privacy", exact: true });
-  const acceptableUseLink = page.getByRole("link", { name: "Acceptable Use", exact: true });
-  await expect(termsLink).toHaveAttribute("href", "https://pinar.dev/legal/terms");
-  await expect(privacyLink).toHaveAttribute("href", "https://pinar.dev/legal/privacy");
-  await expect(acceptableUseLink).toHaveAttribute("href", "https://pinar.dev/legal/acceptable-use");
-  await expect(termsLink).toHaveClass(/external-link/);
-  await expect(privacyLink).toHaveClass(/external-link/);
-  await expect(acceptableUseLink).toHaveClass(/external-link/);
-  await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
 
-  await acceptance.check();
-  await save(page);
-  const storedVersion = await page.evaluate((legalKey) => {
-    const values = JSON.parse(localStorage.getItem("pinar-e2e-extension-local") || "{}");
-    return values[legalKey]?.termsVersion;
-  }, remoteProfileKey(PRODUCTION_CLOUD_URL, "remoteLegalAcceptance"));
-  expect(storedVersion).toBe("2026-08-18");
-
-  await page.reload();
-  await expect(page.getByRole("radio", { name: /Remote Server/ })).toBeChecked();
-  await expect(acceptance).toBeChecked();
-
-  legal.setLegalVersion("2026-08-19");
-  await page.reload();
-  await expect(page.getByText("v2026-08-19", { exact: true })).toBeVisible();
-  await expect(acceptance).not.toBeChecked();
-  await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
-
-  await page.getByRole("radio", { name: /Local Server/ }).check();
-  await save(page);
-  await expect(page.getByRole("radio", { name: /Local Server/ })).toBeChecked();
+  await expect(page.getByText("contato@pinar.dev (FREE)", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+  await expect(page.getByRole("switch", { name: "Save Annotation History" })).toBeVisible();
+  await expect(page.getByRole("switch", { name: "Clean up transcription with AI" })).toHaveCount(0);
 });

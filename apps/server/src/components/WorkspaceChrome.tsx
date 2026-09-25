@@ -11,6 +11,7 @@ import {
   type SetStateAction,
 } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import IconLoaderCircle from "~icons/lucide/loader-circle";
 import type {
   CollectionPlacement,
   ProjectIcon,
@@ -55,7 +56,18 @@ import {
 import { ProjectIconPicker } from "@/components/ProjectIcon";
 import { AppAccountMenu } from "@/components/AppAccountMenu";
 import { AppShell } from "@/components/AppShell";
-import { isProjectTreeProject, isRecord } from "@/lib/api-data";
+import { CollectionCollaboratorsDialog } from "@/components/CollectionCollaboratorsDialog";
+import { CollectionInvitationsDialog } from "@/components/CollectionInvitationsDialog";
+import { isProjectTreeCollection, isProjectTreeProject, isRecord } from "@/lib/api-data";
+import { useAuthSession } from "@/lib/auth-session";
+import {
+  acceptCollectionInvitation,
+  canManageCollectionCollaborators,
+  fetchCollectionInvitations,
+  fetchSharedCollections,
+  type CollectionInvitationRecord,
+  type SharedCollectionRecord,
+} from "@/lib/collection-collaborators";
 import { collectionAncestorPath } from "@/lib/collection-tree";
 import { useServerI18n } from "@/lib/i18n";
 import { flattenCollectionSessions } from "@/lib/session-listing";
@@ -105,6 +117,8 @@ interface WorkspaceChromeContextValue {
   fetchTree: (preferredProjectId?: string, options?: { silent?: boolean }) => Promise<void>;
   loading: boolean;
   moveSessions: (sessionIds: string[], collectionId: string) => Promise<void>;
+  onOpenInvitations: () => void;
+  pendingInvitations: CollectionInvitationRecord[];
   projectTree: ProjectTree;
   selectedCollection: ProjectTreeCollection | undefined;
   selectedCollectionId: string | null;
@@ -189,6 +203,8 @@ export function WorkspaceChrome({
   const { t } = useServerI18n();
   const [containerDelete, setContainerDelete] = useState<ContainerDelete | null>(null);
   const [containerEditor, setContainerEditor] = useState<ContainerEditor | null>(null);
+  const [containerSubmitting, setContainerSubmitting] = useState(false);
+  const [containerError, setContainerError] = useState(false);
   const [containerName, setContainerName] = useState("");
   const [loading, setLoading] = useState(true);
   const [projectIcon, setProjectIcon] = useState<ProjectIcon>(DEFAULT_PROJECT_ICON);
@@ -209,10 +225,49 @@ export function WorkspaceChrome({
   selectedCollectionIdRef.current = selectedCollectionId;
   selectedProjectIdRef.current = selectedProjectId;
 
+  const session = useAuthSession();
+  const canManageCollaborators = canManageCollectionCollaborators(session, pinarRuntime());
+  const [collaboratorCollection, setCollaboratorCollection] = useState<ProjectTreeCollection | null>(null);
+  const [sharedCollections, setSharedCollections] = useState<SharedCollectionRecord[]>([]);
+  const [pendingInvitations, setPendingInvitations] = useState<CollectionInvitationRecord[]>([]);
+  const [invitationsOpen, setInvitationsOpen] = useState(false);
+
+  const fetchCollaborationData = useCallback(async () => {
+    if (pinarRuntime() !== "cloud" || !session || session.kind !== "account") return;
+    try {
+      const [invitationsResult, sharedResult] = await Promise.all([
+        fetchCollectionInvitations().catch(() => []),
+        fetchSharedCollections().catch(() => []),
+      ]);
+      setPendingInvitations(invitationsResult);
+      setSharedCollections(sharedResult);
+    } catch {
+      // non-blocking
+    }
+  }, [session]);
+
+  useEffect(() => {
+    void fetchCollaborationData();
+  }, [fetchCollaborationData]);
+
+  const handleAcceptInvitation = useCallback(async (invitationId: string) => {
+    const result = await acceptCollectionInvitation(invitationId);
+    await fetchCollaborationData();
+    return result.collectionId;
+  }, [fetchCollaborationData]);
+
   const selectedProject = projectTree.projects.find((project) => project.id === selectedProjectId)
     ?? projectTree.projects[0];
   const selectedProjectIndex = projectTree.projects.findIndex(({ id }) => id === selectedProject?.id);
   const selectedCollection = selectedProject?.collections.find((collection) => collection.id === selectedCollectionId);
+  const workspaceView = JSON.stringify([selectedProject?.id ?? "", selectedCollectionId, selectedBatchId, sharedOnly]);
+  useEffect(() => {
+    const root = document.documentElement;
+    root.setAttribute("data-pinar-workspace-view", workspaceView);
+    return () => {
+      if (root.getAttribute("data-pinar-workspace-view") === workspaceView) root.removeAttribute("data-pinar-workspace-view");
+    };
+  }, [workspaceView]);
   const sessions = useMemo(() => {
     const listed = selectedCollection
       ? selectedCollection.sessions
@@ -392,6 +447,7 @@ export function WorkspaceChrome({
     let timer = 0;
     function poll() {
       void fetchTree(selectedProjectIdRef.current, { silent: true });
+      void fetchCollaborationData();
     }
     function arm() {
       window.clearInterval(timer);
@@ -400,7 +456,9 @@ export function WorkspaceChrome({
     }
     function onVisible() {
       arm();
-      if (document.visibilityState === "visible") poll();
+      if (document.visibilityState === "visible") {
+        poll();
+      }
     }
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
@@ -410,14 +468,13 @@ export function WorkspaceChrome({
       window.removeEventListener("focus", onVisible);
       window.clearInterval(timer);
     };
-  }, [fetchTree]);
+  }, [fetchCollaborationData, fetchTree]);
 
   async function createProject(name: string, icon: ProjectIcon) {
     const response = await requestJson("/api/projects", "POST", { icon, name });
     const data: unknown = await response.json();
-    if (response.ok && isRecord(data) && isRecord(data.project) && typeof data.project.id === "string") {
-      await fetchTree(data.project.id);
-    }
+    if (!response.ok || !isRecord(data) || !isRecord(data.project) || typeof data.project.id !== "string") throw new Error("project_create_failed");
+    await fetchTree(data.project.id);
   }
 
   async function createCollection(name: string, parentId?: string) {
@@ -428,12 +485,22 @@ export function WorkspaceChrome({
       { name, parentId },
     );
     const data: unknown = await response.json();
-    if (response.ok && isRecord(data) && isRecord(data.collection) && typeof data.collection.id === "string") {
-      await fetchTree(selectedProject.id);
-      setSelectedCollectionIdState(data.collection.id);
-      writeStoredCollectionId(data.collection.id);
-      setSelectedBatchIdState(null);
-    }
+    if (!response.ok || !isRecord(data) || !isRecord(data.collection) || typeof data.collection.id !== "string") throw new Error("collection_create_failed");
+    const created: unknown = { ...data.collection, sessions: [] };
+    if (!isProjectTreeCollection(created)) throw new Error("collection_create_failed");
+    generationRef.current += 1;
+    setLoading(false);
+    fingerprintRef.current = "";
+    setProjectTree((current) => ({
+      projects: current.projects.map((project) => project.id === selectedProject.id
+        ? { ...project, collections: [...project.collections, created] }
+        : project),
+    }));
+    selectedCollectionIdRef.current = created.id;
+    setSelectedCollectionIdState(created.id);
+    writeStoredCollectionId(created.id);
+    setSelectedBatchIdState(null);
+    void fetchTree(selectedProject.id, { silent: true }).catch(() => null);
   }
 
   async function renameContainer(
@@ -442,7 +509,8 @@ export function WorkspaceChrome({
     name: string,
     icon?: ProjectIcon,
   ) {
-    await requestJson(`/api/${kind}s/${id}`, "PATCH", { icon, name });
+    const response = await requestJson(`/api/${kind}s/${id}`, "PATCH", { icon, name });
+    if (!response.ok) throw new Error("container_rename_failed");
     await fetchTree(selectedProjectId);
   }
 
@@ -480,6 +548,7 @@ export function WorkspaceChrome({
     name = "",
     icon = DEFAULT_PROJECT_ICON,
   ) {
+    setContainerError(false);
     setContainerName(name);
     setContainerEditor(editor);
     setProjectIcon(icon);
@@ -487,19 +556,27 @@ export function WorkspaceChrome({
 
   async function submitContainerEditor() {
     const name = containerName.trim();
-    if (!containerEditor || !name) return;
-    if (containerEditor.mode === "create") {
-      if (containerEditor.kind === "project") await createProject(name, projectIcon);
-      else await createCollection(name, containerEditor.parentId);
-    } else if (containerEditor.id) {
-      await renameContainer(
-        containerEditor.kind,
-        containerEditor.id,
-        name,
-        containerEditor.kind === "project" ? projectIcon : undefined,
-      );
+    if (!containerEditor || !name || containerSubmitting) return;
+    setContainerSubmitting(true);
+    setContainerError(false);
+    try {
+      if (containerEditor.mode === "create") {
+        if (containerEditor.kind === "project") await createProject(name, projectIcon);
+        else await createCollection(name, containerEditor.parentId);
+      } else if (containerEditor.id) {
+        await renameContainer(
+          containerEditor.kind,
+          containerEditor.id,
+          name,
+          containerEditor.kind === "project" ? projectIcon : undefined,
+        );
+      }
+      setContainerEditor(null);
+    } catch {
+      setContainerError(true);
+    } finally {
+      setContainerSubmitting(false);
     }
-    setContainerEditor(null);
   }
 
   async function reorderCollections(items: CollectionPlacement[]) {
@@ -561,10 +638,16 @@ export function WorkspaceChrome({
         t("dashboard.allSessions"),
       );
 
+  const openInvitations = useCallback(() => {
+    setInvitationsOpen(true);
+  }, []);
+
   const contextValue = useMemo<WorkspaceChromeContextValue>(() => ({
     fetchTree,
     loading,
     moveSessions,
+    onOpenInvitations: openInvitations,
+    pendingInvitations,
     projectTree,
     selectedBatchId,
     setSelectedBatchId,
@@ -580,6 +663,8 @@ export function WorkspaceChrome({
     fetchTree,
     loading,
     moveSessions,
+    openInvitations,
+    pendingInvitations,
     projectTree,
     selectedBatchId,
     setSelectedBatchId,
@@ -640,15 +725,20 @@ export function WorkspaceChrome({
         )}
         sidebar={(
           <HistorySidebar
+            canManageCollaborators={canManageCollaborators}
             filters={batches.map((batch) => ({
               count: batch.sessionCount,
               id: batch.id,
               label: batch.label,
             }))}
             footer={<AppAccountMenu />}
+            onManageCollaborators={setCollaboratorCollection}
+            onOpenInvitations={openInvitations}
+            pendingInvitations={pendingInvitations}
             selectedCollectionId={selectedCollectionId}
             selectedFilterId={selectedBatchId}
             selectedProject={selectedProject}
+            sharedCollections={sharedCollections}
             sharedCount={sessionGroupCount(
               flattenCollectionSessions(selectedProject?.collections).filter((session) => session.isShared),
             )}
@@ -672,7 +762,7 @@ export function WorkspaceChrome({
         onSelectWorkspace={setSelectedCollectionId}
       >
         {children}
-        <Dialog open={Boolean(containerEditor)} onOpenChange={(open) => !open && setContainerEditor(null)}>
+        <Dialog open={Boolean(containerEditor)} onOpenChange={(open) => !open && !containerSubmitting && setContainerEditor(null)}>
           <DialogContent className={containerEditor?.kind === "project" ? "sm:max-w-lg" : undefined}>
             <form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); void submitContainerEditor(); }}>
               <DialogHeader>
@@ -688,7 +778,7 @@ export function WorkspaceChrome({
                       : t("dashboard.renamePrompt", { kind: t("dashboard.collection") })}
                 </DialogTitle>
               </DialogHeader>
-              <Input autoFocus aria-label={t("dashboard.name")} placeholder={t("dashboard.name")} value={containerName} onChange={(event) => setContainerName(event.target.value)} />
+              <Input autoFocus aria-label={t("dashboard.name")} disabled={containerSubmitting} placeholder={t("dashboard.name")} value={containerName} onChange={(event) => setContainerName(event.target.value)} />
               {containerEditor?.kind === "project" ? (
                 <ProjectIconPicker
                   emptyMessage={t("dashboard.noProjectIcons")}
@@ -698,9 +788,15 @@ export function WorkspaceChrome({
                   onValueChange={setProjectIcon}
                 />
               ) : null}
+              {containerError ? <p className="text-sm text-destructive" role="alert">{t("dashboard.containerSaveFailed")}</p> : null}
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setContainerEditor(null)}>{t("common.cancel")}</Button>
-                <Button disabled={!containerName.trim()} type="submit">{t(containerEditor?.mode === "create" ? "dashboard.create" : "dashboard.save")}</Button>
+                <Button disabled={containerSubmitting} type="button" variant="outline" onClick={() => setContainerEditor(null)}>{t("common.cancel")}</Button>
+                <Button aria-busy={containerSubmitting || undefined} disabled={containerSubmitting || !containerName.trim()} type="submit">
+                  {containerSubmitting ? <IconLoaderCircle aria-hidden="true" className="size-4 animate-spin" data-icon="inline-start" /> : null}
+                  {t(containerSubmitting
+                    ? containerEditor?.mode === "create" ? "dashboard.creatingContainer" : "dashboard.savingContainer"
+                    : containerEditor?.mode === "create" ? "dashboard.create" : "dashboard.save")}
+                </Button>
               </DialogFooter>
             </form>
           </DialogContent>
@@ -743,6 +839,17 @@ export function WorkspaceChrome({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+        <CollectionCollaboratorsDialog
+          collection={collaboratorCollection}
+          open={Boolean(collaboratorCollection)}
+          onOpenChange={(open) => !open && setCollaboratorCollection(null)}
+        />
+        <CollectionInvitationsDialog
+          invitations={pendingInvitations}
+          open={invitationsOpen}
+          onAccept={handleAcceptInvitation}
+          onOpenChange={setInvitationsOpen}
+        />
       </AppShell>
       <DragOverlay dropAnimation={null} zIndex={100}>
         {activeSessionDrag ? (

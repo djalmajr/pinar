@@ -41,6 +41,7 @@ import {
 } from "./session.js";
 import { createSingleFlight } from "./single-flight.js";
 import { resolveVoiceAvailability } from "./voice-access.js";
+import { cloudSubscriptionRequired, normalizeCloudTrial } from "./cloud-trial.js";
 import { createContinuousSession, continuousSummary, indexedDraftStore } from "./continuous-session.js";
 import "./privacy.js";
 
@@ -128,8 +129,15 @@ async function saveReviewEvidence(entry, draft) {
   const response = await request(entry.shot ? "/api/shots" : "/api/history", {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
   });
-  if (!response.ok) throw new Error(`save_failed_${response.status}`);
-  const body = await response.json();
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    if (cloudSubscriptionRequired(response.status, body)) {
+      const error = new Error("cloud_subscription_required");
+      error.code = "cloud_subscription_required";
+      throw error;
+    }
+    throw new Error(`save_failed_${response.status}`);
+  }
   return { path: body.path || body.shotUrl || null, viewerUrl: `${base}/v/${entry.captureId}.md` };
 }
 
@@ -220,6 +228,52 @@ async function removeReviewPin(captureId) {
   await Promise.all(tabs.map((tab) => chrome.tabs.sendMessage(tab.id, { type: "review:pin-removed", pinId: pin.pinId || pin.id }).catch(() => null)));
 }
 
+// Runs in every frame and returns immediately. Hidden iframes pause
+// requestAnimationFrame, so this must not wait for a frame.
+function hidePinarHostsForCapture() {
+  globalThis.__pinarSetHidden?.(true);
+}
+
+// Runs in the top frame only. Resolves true after the host has been out of
+// layout for two frames. A paused top frame must not wait forever: the timer
+// resolves false and the caller skips the shutter.
+function confirmPinarHostConcealed() {
+  return new Promise((resolve) => {
+    let frames = 0;
+    let settled = false;
+    const timer = setTimeout(() => finish(false), 1000);
+    function finish(ok) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(ok);
+    }
+    const tick = () => {
+      if (settled) return;
+      frames += 1;
+      const node = document.querySelector('[data-pinar="host"]');
+      const removed = !node || node.getClientRects().length === 0;
+      if (removed && frames >= 2) finish(true);
+      else requestAnimationFrame(tick);
+    };
+    const host = document.querySelector('[data-pinar="host"]');
+    if (host) void host.getClientRects();
+    requestAnimationFrame(tick);
+  });
+}
+
+async function concealPinarForCapture(tabId) {
+  await chrome.scripting.executeScript({
+    func: hidePinarHostsForCapture,
+    target: { allFrames: true, tabId },
+  });
+  const [confirmed] = await chrome.scripting.executeScript({
+    func: confirmPinarHostConcealed,
+    target: { frameIds: [0], tabId },
+  });
+  if (confirmed?.result !== true) throw new Error("screenshot_missing");
+}
+
 let lastReviewShot = 0;
 async function captureReviewEvidence(entry, input) {
   const { tabId, documentId } = input;
@@ -234,7 +288,7 @@ async function captureReviewEvidence(entry, input) {
   const point = pinPoint(entry.pin);
   if (point.x < snapshot.scroll.x || point.y < snapshot.scroll.y || point.x > snapshot.scroll.x + snapshot.width || point.y > snapshot.scroll.y + snapshot.height) throw new Error("screenshot_pin_not_visible");
   try {
-    await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: () => globalThis.__pinarSetHidden?.(true) });
+    await concealPinarForCapture(tabId);
     lastReviewShot = Date.now();
     const dataUrl = await chrome.tabs.captureVisibleTab(input.windowId, { format: "png" });
     const [after] = await chrome.scripting.executeScript({ target, func: () => globalThis.__pinarReviewContext?.() });
@@ -259,7 +313,13 @@ async function reportReviewError(error) {
   console.warn("Pinar session is still pending", error);
   const settings = await getSettings();
   const messages = translations[getBestLanguage(settings.language)];
-  await syncBatchSurfaces({ toast: messages.overlay_session_pending, toastKind: "error" }).catch(() => null);
+  const draft = await draftStore.read().catch(() => null);
+  const subscriptionRequired = error?.message === "cloud_subscription_required"
+    || draft?.entries?.some((entry) => entry.status !== "saved" && entry.error === "cloud_subscription_required");
+  const toast = subscriptionRequired
+    ? messages.overlay_cloud_subscription_required
+    : messages.overlay_session_pending;
+  await syncBatchSurfaces({ toast, toastKind: "error" }).catch(() => null);
 }
 
 async function resumeReviewTab(tabId) {
@@ -289,8 +349,12 @@ async function persistReviewPins(message, sender, pins) {
     source: `${tabId}:${sender.documentId || ""}:${message.documentId}:${sender.frameId || 0}`,
     documentId: sender.frameId ? snapshot.documentId : message.documentId,
     masks: message.masks,
+    refreshShot: message.refreshShot === true,
   });
-  if (draft?.entries.some((entry) => entry.status === "pending")) await reportReviewError(new Error("session_pending"));
+  const subscriptionRequired = draft?.entries.some((entry) => entry.error === "cloud_subscription_required");
+  if (draft?.entries.some((entry) => entry.status === "pending")) {
+    await reportReviewError(new Error(subscriptionRequired ? "cloud_subscription_required" : "session_pending"));
+  }
 }
 
 function normalizePins(pins = []) {
@@ -541,7 +605,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.url && reviewTabs.has(tabId)) {
+  if (changeInfo.url) {
     tabPins.delete(tabId);
     void chrome.tabs.sendMessage(tabId, { type: "review:navigated" }).catch(() => null);
   }
@@ -1424,7 +1488,7 @@ async function renderCaptureFrames(frames, pins, metrics, maskRegions = []) {
 async function revealTopOverlay(tabId) {
   await chrome.scripting.executeScript({
     func: () => { globalThis.__pinarSetHidden?.(false); },
-    target: { frameIds: [0], tabId },
+    target: { allFrames: true, tabId },
   }).catch(() => null);
 }
 
@@ -1436,16 +1500,21 @@ async function captureTabBundle(tabId, windowId, pins, maskRegions = []) {
 
   // One tile at the current scroll position - the common case - needs none of
   // the full-page machinery: no fixed-to-absolute rewrite of the page, no
-  // scrolling, no settle waits. The overlay is already out of the frame, so
-  // the shutter can fire right away; the perceived gap is the shot itself.
+  // scrolling. The host still has to leave the composited frame before the shutter.
   const currentY = metrics.originalScroll?.y ?? 0;
-  if (plan.scrollYs.length === 1 && Math.abs(plan.scrollYs[0] - currentY) < 1) {
-    const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: "png" });
+  let revealed = false;
+  const reveal = async () => {
+    if (revealed) return;
+    revealed = true;
     await revealTopOverlay(tabId);
-    return renderCaptureFrames([{ dataUrl, scrollY: currentY }], pins, metrics, maskRegions);
-  }
-
+  };
   try {
+    await concealPinarForCapture(tabId);
+    if (plan.scrollYs.length === 1 && Math.abs(plan.scrollYs[0] - currentY) < 1) {
+      const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: "png" });
+      await reveal();
+      return renderCaptureFrames([{ dataUrl, scrollY: currentY }], pins, metrics, maskRegions);
+    }
     await prepareCapture(tabId, plan.scrollYs[0]);
     for (let index = 0; index < plan.scrollYs.length; index += 1) {
       if (index > 0) await wait(CAPTURE_TILE_DELAY_MS);
@@ -1456,9 +1525,10 @@ async function captureTabBundle(tabId, windowId, pins, maskRegions = []) {
     // The shutter is closed: only the pixels needed the overlay out of the
     // frame. Badges, masks and the scroll restore that follow can run with the
     // status back on screen, which is most of the perceived gap.
-    await revealTopOverlay(tabId);
+    await reveal();
     return await renderCaptureFrames(frames, pins, metrics, maskRegions);
   } finally {
+    await reveal();
     await restoreCapture(tabId).catch(() => {});
   }
 }
@@ -1750,13 +1820,16 @@ async function getStorageStatus() {
   const response = await remoteFetch(cloudEndpoint(settings), "/api/account/entitlements");
   const body = await responseBody(response);
   const storage = body.storage || {};
-  return {
+  const status = {
     mode: "cloud",
     quotaBytes: Number(storage.quotaBytes || 0),
     reachable: response.ok,
     uploadAllowed: storage.uploadAllowed !== false,
     usedBytes: Number(storage.usedBytes || 0),
   };
+  const trial = response.ok ? normalizeCloudTrial(body.trial) : null;
+  if (trial) status.trial = trial;
+  return status;
 }
 
 async function requestAccountEmailCode(email) {

@@ -322,7 +322,7 @@ const locale = {
         {
           heading: "Cloud",
           paragraphs: [
-            "Cloud mode enables remote workspace access, managed retention, Pinar Cloud voice transcription and reproduction generation, billing, and unlisted share links. Local AI and BYOK remain available without using Pinar Cloud credits. You accept the current policies before anything is stored remotely.",
+            "When the signed-in account is eligible under the current offer, cloud mode provides remote workspace access, managed retention, billing, and unlisted share links. The local app and a self-hosted server stay free. Pinar Cloud voice transcription remains a Pro benefit and is not part of an evaluation. Local AI and BYOK remain available without using Pinar Cloud credits. You accept the current policies before anything is stored remotely.",
           ],
         },
         {
@@ -710,7 +710,7 @@ const locale = {
         {
           heading: "Walk the copy path when the toolbar reports failure",
           paragraphs: [
-            "Copy requires a saved comment and at least one pin. The toolbar shows “Saving the annotations…”, hides overlays, captures the shot, then asks the offscreen document to write text/html and text/plain. Offscreen tries navigator.clipboard.write first and falls back to a copy event plus execCommand. If that write is not ok, the content script still attempts writePlainText on the returned plain payload: clipboard.writeText, then a hidden textarea selection.",
+            "Copy requires a saved comment and at least one pin. The toolbar shows “Saving the session…”, hides overlays, captures the shot, then asks the offscreen document to write text/html and text/plain. Offscreen tries navigator.clipboard.write first and falls back to a copy event plus execCommand. If that write is not ok, the content script still attempts writePlainText on the returned plain payload: clipboard.writeText, then a hidden textarea selection.",
             "When every copy path fails, the page sends overlays:hidden with hidden false, flashes “Copy failed”, and leaves pins editable. A successful copy shows “Copied successfully!”, or “Copied successfully!” plus “no screenshot”, “helper unavailable”, or “no viewer”, then ends the session. Those suffixes map to `screenshot_missing`, `helper_unavailable`, and `viewer_unavailable`. screenshot_inline is not one of the degraded handoff warnings. A paste without a closed pinar-visual-context fence cannot be parsed as JSON.",
           ],
           bullets: [
@@ -853,7 +853,7 @@ const locale = {
         {
           heading: "Plan shape",
           paragraphs: [
-            "Free includes permanent local use, 250 MB of cloud quota, and 30-day cloud retention. Pro is annual, with 2 GB and a one-time allocation of 500 AI credits on the account’s first subscription.",
+            "The local app and a self-hosted server stay free. Hosted Pinar Cloud follows the current offer and that account’s eligibility: a new account may receive a temporary evaluation, and an earlier account may keep legacy eligibility. There is no single deadline for every account. Pro is a paid annual plan, with 2 GB and a one-time allocation of 500 AI credits on the account’s first subscription. Voice transcription stays a Pro benefit. The Plans page and the account entitlements show the offer and quota that apply now. Captures already stored in the cloud remain subject to retention and export.",
           ],
         },
         {
@@ -916,7 +916,7 @@ const locale = {
         {
           heading: "Quota and add-ons",
           paragraphs: [
-            "Free has 250 MB of base cloud storage; Pro has 2 GB. Optional 1 GB and 5 GB storage add-ons last 12 months, with reminder emails before expiry. If an add-on expires above the remaining quota, uploads pause; overage gets 30 days of grace and remains recoverable until day 90 before becoming eligible for deletion.",
+            "Hosted cloud quota is the storage the signed-in account currently includes, plus any still-active add-on. Pro includes 2 GB. Optional 1 GB and 5 GB storage add-ons last 12 months, with reminder emails before expiry. If an add-on expires above the remaining quota, uploads pause; overage gets 30 days of grace and remains recoverable until day 90 before becoming eligible for deletion. Whether an add-on can be bought is part of the current offer; check the Plans page and the account entitlements.",
           ],
         },
         {
@@ -930,10 +930,10 @@ const locale = {
             "Fit replacements under quota and use the 90-day recovery clock",
           paragraphs: [
             "Quota is your plan’s included storage plus any still-active add-on. Replacing a larger screenshot with a smaller one can succeed when a brand-new capture would not. Uploads pause once the account is at or above quota, including during grace and recovery.",
-            "Free cloud sessions that are not marked permanent become eligible for cleanup after 30 days. Pro content above the Free quota follows the 30-day grace and 90-day recovery window after paid eligibility ends. Local-only history on this computer is never deleted remotely. Eligibility is not a promise of immediate removal.",
+            "Cloud sessions already stored on a Free entitlement and not marked permanent become eligible for cleanup after 30 days. Pro content above the Free quota follows the 30-day grace and 90-day recovery window after paid eligibility ends. Local-only history on this computer is never deleted remotely. Eligibility is not a promise of immediate removal.",
           ],
           bullets: [
-            "When new captures pause, free space by deleting sessions or replacing a heavy screenshot, or purchase a 1 GB or 5 GB twelve-month add-on.",
+            "When new captures pause, free space by deleting sessions or replacing a heavy screenshot. Buy a 1 GB or 5 GB twelve-month add-on only when the Plans page and the account entitlements show that purchase.",
             "If the account is in grace or recovery, export anything you still need before day 90; eligibility only marks overage, it does not itself delete.",
             "Do not expect uninstalling the desktop app to purge cloud objects, and do not expect the cloud to erase local history on this computer.",
           ],

@@ -207,8 +207,8 @@ export interface BatchHandoffCapture {
  * A batch is handed to an agent in the same shape as a single capture - one
  * instruction block, then `pinar-visual-context` fences - so whatever already
  * parses a paste keeps working when several pages arrive at once. Each fence
- * is one page and keeps its own captureId; the per-capture "full context" link
- * sits right above its fence instead of in the shared instructions.
+ * is one page and keeps its own captureId; viewer links are listed once in
+ * the shared header in the same order as the page blocks.
  */
 export function formatBatchHandoff(
   title: string,
@@ -229,9 +229,10 @@ export function formatBatchHandoff(
     t.handoff_batch_blocks,
     ...(anyScreenshot ? [t.handoff_screenshot_note] : []),
   ];
-  const blocks = captures.map(({ capture, viewerUrl }) => [
+  const viewerLinks = captures.flatMap(({ viewerUrl }, index) => viewerUrl ? [`${index + 1}. ${viewerUrl}`] : []);
+  if (viewerLinks.length) instructions.push("", t.handoff_batch_full_context, ...viewerLinks);
+  const blocks = captures.map(({ capture }) => [
     `## ${capture.page.title || capture.page.url}`,
-    ...(viewerUrl ? [fillHandoff(t.handoff_full_context, { url: viewerUrl })] : []),
     "",
     formatHandoffJsonFence(JSON.stringify(project(capture))),
   ].join("\n"));

@@ -15,6 +15,22 @@
     return reviewDocumentId;
   }
   let pendingReviewSync = Promise.resolve();
+  function currentWorkspaceView() {
+    const marked = document.documentElement?.getAttribute("data-pinar-workspace-view");
+    if (marked !== null) return marked;
+    const host = location.hostname;
+    if (location.pathname !== "/app" || !(host === "pinar.dev" || host.endsWith(".pinar.dev") || host === "localhost" || host === "127.0.0.1")) return null;
+    try {
+      return JSON.stringify([
+        localStorage.getItem("pinar-selected-project"),
+        localStorage.getItem("pinar-selected-collection"),
+      ]);
+    } catch {
+      return null;
+    }
+  }
+  const currentPageKey = () => JSON.stringify([location.href, currentWorkspaceView()]);
+  let localPageKey = currentPageKey();
   // How long the copy confirmation stays up before the overlay closes.
   const COPY_CONFIRMATION_MS = 2000;
   // How long a copy error stays up before the overlay closes; the pins are kept
@@ -200,7 +216,7 @@
     overlay_voice_refunded: "Transcription failed temporarily. Your AI credit was refunded; try again.",
     overlay_voice_invalid: "The recording is empty or unsupported. Record it again.",
     overlay_voice_acceptance: "Acceptance criteria",
-    overlay_copying: "Saving the annotations…",
+    overlay_copying: "Saving the session…",
     overlay_saved: "Annotations saved successfully!",
     overlay_helper_unavailable: "helper unavailable",
     overlay_hint_clear_long: "Hide",
@@ -220,7 +236,7 @@
     overlay_session_retry: "Retry",
     overlay_session_discard: "Discard session",
     overlay_session_remove: "Remove",
-    overlay_session_finished: "Session copied",
+    overlay_session_finished: "Session saved",
     overlay_session_finish_failed: "Could not finish the session · review and retry",
     overlay_hint_mask_long: "Mask",
     overlay_hint_mask_short: "Mask",
@@ -384,6 +400,15 @@
       .mark { display: block; height: 20px; width: 20px; }
       .instructions { align-items: center; display: flex; gap: 12px; min-width: 0; overflow: hidden; }
       .hint { align-items: center; display: inline-flex; gap: 5px; }
+      .hint[data-hint="mask"] { background: transparent; border-radius: 6px; padding: 3px 5px; }
+      .hint[data-hint="mask"][data-active] { background: #F3F7FF; }
+      .hint[data-hint="mask"][data-active] kbd {
+        background: #E8F0FF;
+        border-color: #1F5AA6;
+        color: #174A9A;
+      }
+      .hint[data-hint="mask"][data-active] .long,
+      .hint[data-hint="mask"][data-active] .short { color: #174A9A; font-weight: 400; }
       .keys { align-items: center; display: inline-flex; gap: 3px; }
       kbd {
         align-items: center;
@@ -1524,6 +1549,7 @@
       ui.selectionTag.textContent = selectedTag ? `<${selectedTag}>` : "";
     }
     if (!ui.toolbar) return;
+    ui.toolbar.querySelector('[data-hint="mask"]')?.toggleAttribute("data-active", state.maskMode);
     const inProgress = host.hasAttribute("data-progress");
     const inConfirm = host.hasAttribute("data-confirm");
     const report = inProgress || inConfirm;
@@ -1950,6 +1976,9 @@
   }
 
   function renderMarkers() {
+    resetPinsAfterNavigation();
+    const currentUrl = location.href;
+    const documentPins = state.pins.filter((pin) => !pin.pageUrl || pin.pageUrl === currentUrl);
     const scroll = currentScroll();
     const masks = activeMaskRegions().map((mask) => {
       const box = {
@@ -1962,9 +1991,9 @@
       return `<button type="button" class="privacy-mask" data-privacy-mask="${escapeAttr(mask.id)}" data-source="${mask.source}" style="left:${box.x}px;top:${box.y}px;width:${box.width}px;height:${box.height}px"><span class="privacy-mask-label">${label}</span></button>`;
     });
     const regions = state.showPinRegions
-      ? state.pins.map((pin, index) => pinRegionHtml(pin, index)).filter(Boolean)
+      ? documentPins.map((pin, index) => pinRegionHtml(pin, index)).filter(Boolean)
       : [];
-    const markers = state.pins.map((pin, index) => {
+    const markers = documentPins.map((pin, index) => {
       const visible = viewportPin(pin);
       return markerHtml(
         pinPoint(visible),
@@ -2018,6 +2047,7 @@
       },
     ];
     renderMarkers();
+    if (state.pins.length) pendingReviewSync = syncPins(true, true);
     flashStatus(t("overlay_region_hidden"), "ok");
   }
 
@@ -2029,6 +2059,7 @@
       state.dismissedMaskIds.add(id);
     }
     renderMarkers();
+    if (state.pins.length) pendingReviewSync = syncPins(true, true);
   }
 
   function toggleMaskMode() {
@@ -2104,7 +2135,6 @@
     ui.previewText.textContent = pin.comment.replaceAll("\n", " ");
     const visible = viewportPin(pin);
     const bits = [];
-    if (visible.location?.confidence) bits.push(visible.location.confidence);
     if (isPendingLocation(visible.location)) bits.push("Needs review");
     if (bits.length) ui.previewText.textContent = `${ui.previewText.textContent} · ${bits.join(" · ")}`;
     ui.preview.hidden = false;
@@ -2502,6 +2532,7 @@
   }
 
   function openDraft(draft) {
+    resetPinsAfterNavigation();
     if (!canSelect()) return;
     state.hoverPinId = null;
     state.draft = draft;
@@ -2547,6 +2578,7 @@
     return Math.max(state.batch.nextNumber || 1, ...state.pins.map((pin) => (pin.number || 0) + 1));
   }
   function saveDraft() {
+    resetPinsAfterNavigation();
     if (!state.draft) return true;
     if (voiceProcessing || voiceRecorder?.state === "recording") return false;
     const comment = ui.input.value.trim();
@@ -2564,6 +2596,7 @@
         color: state.draft.color || pinColor(nextPinNumber()),
         comment,
         id: crypto.randomUUID(),
+        pageUrl: location.href,
       });
     }
     state.draft = null;
@@ -2582,9 +2615,12 @@
     cancelDraft();
   }
 
-  async function syncPins(persist = false) {
+  async function syncPins(persist = false, refreshShot = false) {
+    resetPinsAfterNavigation();
+    const currentUrl = location.href;
+    const documentPins = state.pins.filter((pin) => !pin.pageUrl || pin.pageUrl === currentUrl);
     const { offset, topScroll } = await requestTopOffset();
-    const pins = state.pins.map((pin) => {
+    const pins = documentPins.map((pin) => {
       if (isEmbedded) {
         const visiblePin = viewportPin(pin);
         return {
@@ -2643,6 +2679,7 @@
     const response = await chrome.runtime.sendMessage({
       pins,
       persist,
+      refreshShot,
       documentId: currentReviewDocumentId(),
       ...(persist ? {
         // Values stay inside the trusted extension long enough for the worker
@@ -2682,9 +2719,27 @@
     state.maskMode = false;
     state.userMasks = [];
     state.dismissedMaskIds = new Set();
+    selection.current = document.body;
+    selection.rememberedChildren.clear();
     renderChrome();
     updateOutline();
     renderMarkers();
+  }
+
+  function clearNavigationPins() {
+    if (!isEmbedded) {
+      broadcastToChildFrames(FRAME_CLEAR);
+      void chrome.runtime.sendMessage({ type: "pins:clear" }).catch(() => null);
+    }
+    localPageKey = currentPageKey();
+    reviewDocumentUrl = location.href;
+    reviewDocumentId = crypto.randomUUID();
+    resetLocalPins();
+  }
+
+  function resetPinsAfterNavigation() {
+    if (localPageKey === currentPageKey()) return;
+    clearNavigationPins();
   }
 
   async function clearPins() {
@@ -2730,6 +2785,7 @@
 
   function onPointerMove(event) {
     if (!isMounted() || !state.active) return;
+    resetPinsAfterNavigation();
     state.pointer = { x: event.clientX, y: event.clientY };
     activateFrame();
     if (!canSelect()) {
@@ -2764,6 +2820,7 @@
 
   function onPointerDown(event) {
     if (!isMounted()) return;
+    resetPinsAfterNavigation();
     // Page apps must not react to pointer input while pin mode is active —
     // e.g. dialogs dismiss on "outside" presses because the event target is
     // our overlay, not the dialog subtree.
@@ -2865,6 +2922,7 @@
   }
 
   function onClick(event) {
+    resetPinsAfterNavigation();
     if (!isMounted() || fromUi(event)) return;
     if (state.active) {
       event.preventDefault();
@@ -3078,8 +3136,9 @@
       return;
     }
     if (event.data?.type === FRAME_CLEAR) {
-      resetLocalPins();
       broadcastToChildFrames(FRAME_CLEAR);
+      localPageKey = currentPageKey();
+      resetLocalPins();
       return;
     }
     if (event.data?.type === FRAME_HIDE) {
@@ -3143,6 +3202,7 @@
   }
 
   function setVisible(visible) {
+    resetPinsAfterNavigation();
     if (!visible) {
       setReviewOpen(false);
       discardVoiceRecording();
@@ -3256,6 +3316,30 @@
   window.addEventListener("keypress", onPageKeyEvent, true);
   window.addEventListener("keyup", onPageKeyEvent, true);
   window.addEventListener("message", onFrameMessage);
+  function onPopState() {
+    resetPinsAfterNavigation();
+  }
+  function onHashChange() {
+    resetPinsAfterNavigation();
+  }
+  window.addEventListener("popstate", onPopState, true);
+  window.addEventListener("hashchange", onHashChange, true);
+  const nativePushState = history.pushState?.bind(history);
+  if (nativePushState) {
+    history.pushState = function (...args) {
+      const res = nativePushState.apply(this, args);
+      resetPinsAfterNavigation();
+      return res;
+    };
+  }
+  const nativeReplaceState = history.replaceState?.bind(history);
+  if (nativeReplaceState) {
+    history.replaceState = function (...args) {
+      const res = nativeReplaceState.apply(this, args);
+      resetPinsAfterNavigation();
+      return res;
+    };
+  }
   window.addEventListener("scroll", () => {
     reportScrollStep();
     if (isMounted()) {
@@ -3279,6 +3363,7 @@
     }, 32);
   }
   const relocateObserver = new MutationObserver((records) => {
+    resetPinsAfterNavigation();
     for (const record of records) {
       if (record.target === host || host.contains(record.target)) continue;
       if (record.type === "childList") {
@@ -3290,7 +3375,7 @@
     }
   });
   relocateObserver.observe(document.documentElement, {
-    attributeFilter: ["aria-label", "class", "data-testid", "id", "name"],
+    attributeFilter: ["aria-label", "class", "data-pinar-workspace-view", "data-testid", "id", "name"],
     attributes: true,
     childList: true,
     subtree: true,
@@ -3317,6 +3402,10 @@
     window.removeEventListener("keypress", onPageKeyEvent, true);
     window.removeEventListener("keyup", onPageKeyEvent, true);
     window.removeEventListener("message", onFrameMessage);
+    window.removeEventListener("popstate", onPopState, true);
+    window.removeEventListener("hashchange", onHashChange, true);
+    if (nativePushState) history.pushState = nativePushState;
+    if (nativeReplaceState) history.replaceState = nativeReplaceState;
     delete globalThis.__pinarToggle;
     delete globalThis.__pinarSetHidden;
     delete globalThis.__pinarDismiss;
@@ -3364,7 +3453,7 @@
   });
   globalThis.chrome?.runtime?.onMessage?.addListener?.((message, _sender, sendResponse) => {
     if (message?.type === "review:navigated") {
-      resetLocalPins();
+      clearNavigationPins();
       sendResponse({ ok: true });
       return false;
     }

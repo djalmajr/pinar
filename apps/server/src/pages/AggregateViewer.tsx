@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ProjectTreeCollection, ProjectTreeProject } from "@pinar/shared";
 import {
+  Badge,
   Button,
   Card,
   CardContent,
@@ -15,12 +16,14 @@ import {
   isProjectTreeProject,
   isRecord,
 } from "@/lib/api-data";
+import { fetchSharedCollections } from "@/lib/collection-collaborators";
 import { useServerI18n } from "@/lib/i18n";
 import CheckIcon from "~icons/lucide/check";
 import CopyIcon from "~icons/lucide/copy";
 import FileTextIcon from "~icons/lucide/file-text";
 import FolderIcon from "~icons/lucide/folder";
 import FolderKanbanIcon from "~icons/lucide/folder-kanban";
+import UsersIcon from "~icons/lucide/users";
 
 type Aggregate = ProjectTreeCollection | ProjectTreeProject;
 
@@ -40,25 +43,57 @@ export function AggregateViewer({ id, kind }: AggregateViewerProps) {
   const [aggregate, setAggregate] = useState<Aggregate | null>(null);
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [isSharedWithUser, setIsSharedWithUser] = useState(false);
+  const [isSuspended, setIsSuspended] = useState(false);
 
   useEffect(() => {
+    let active = true;
+    setAggregate(null);
+    setIsSharedWithUser(false);
+    setIsSuspended(false);
+    setLoading(true);
+
     async function loadAggregate() {
       try {
         const plural = kind === "project" ? "projects" : "collections";
-        const response = await fetch(
-          `/api/public/${plural}/${encodeURIComponent(id)}`,
-        );
+        const token = new URLSearchParams(window.location.search).get("token");
+        const path = kind === "collection" && !token
+          ? `/api/collections/${encodeURIComponent(id)}`
+          : `/api/public/${plural}/${encodeURIComponent(id)}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+        const sharedCollections = kind === "collection"
+          ? fetchSharedCollections().catch(() => [])
+          : Promise.resolve([]);
+        const response = await fetch(path);
         const data: unknown = await response.json();
-        if (!response.ok || !isRecord(data)) return;
+        const shared = await sharedCollections;
+        if (!active) return;
+        const match = shared.find((collection) => collection.id === id);
+        setIsSharedWithUser(Boolean(match));
+        if (!token && match?.isSuspended) setIsSuspended(true);
+        if (!response.ok) {
+          if (isRecord(data) && data.code === "collection_suspended") {
+            setIsSuspended(true);
+          }
+          return;
+        }
+        if (!isRecord(data)) return;
+        if (data.status === "suspended" || data.isSuspended === true) {
+          setIsSuspended(true);
+          return;
+        }
         if (kind === "project" && isProjectTreeProject(data.project))
           setAggregate(data.project);
         if (kind === "collection" && isProjectTreeCollection(data.collection))
           setAggregate(data.collection);
+      } catch {
+        // Keep the unavailable state; an accepted guest still sees the
+        // suspended state when the shared-collections request succeeds.
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     }
     void loadAggregate();
+    return () => { active = false; };
   }, [id, kind]);
 
   async function copyMarkdown() {
@@ -75,6 +110,25 @@ export function AggregateViewer({ id, kind }: AggregateViewerProps) {
       <ServerShell>
         <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
           {t("aggregate.loading")}
+        </div>
+      </ServerShell>
+    );
+  }
+
+  if (isSuspended) {
+    return (
+      <ServerShell>
+        <div className="flex min-h-0 flex-1 items-center justify-center p-6">
+          <Card className="max-w-md text-center">
+            <CardHeader>
+              <CardTitle className="text-base">
+                {t("aggregate.sharedCollectionSuspendedTitle")}
+              </CardTitle>
+              <CardDescription className="mt-2 text-sm text-muted-foreground">
+                {t("aggregate.sharedCollectionSuspendedDescription")}
+              </CardDescription>
+            </CardHeader>
+          </Card>
         </div>
       </ServerShell>
     );
@@ -111,7 +165,15 @@ export function AggregateViewer({ id, kind }: AggregateViewerProps) {
             <FolderIcon className="size-5" />
           )}
           <div className="min-w-0">
-            <h1 className="truncate text-sm font-semibold">{aggregate.name}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="truncate text-sm font-semibold">{aggregate.name}</h1>
+              {isSharedWithUser ? (
+                <Badge className="gap-1 px-1.5 text-[10px]" variant="outline">
+                  <UsersIcon className="size-3" />
+                  {t("dashboard.sharedCollectionGuestBadge")}
+                </Badge>
+              ) : null}
+            </div>
             <p className="text-xs text-muted-foreground">
               {t("aggregate.sessionCount", { count: sessionCount })}
             </p>

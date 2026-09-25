@@ -113,6 +113,10 @@ test("move, manual order, copy and confirmed deletion remain precise and persist
     body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500"><text x="20" y="40">Session</text></svg>',
     contentType: "image/svg+xml",
   }));
+  await page.route("**/api/batches/batch_ops/markdown", (route) => route.fulfill({
+    body: "# Aggregated prompt\n\nMoved capture feedback",
+    contentType: "text/markdown; charset=utf-8",
+  }));
 
   await page.goto("/app");
   await openWorkspaceSidebar(page, "Collection A");
@@ -128,7 +132,7 @@ test("move, manual order, copy and confirmed deletion remain precise and persist
 
   await openWorkspaceSidebar(page, "Collection B");
   await page.getByRole("button", { exact: true, name: "Collection B" }).click();
-  await expect(page.locator('[data-slot="card-title"]')).toHaveText(["Second capture", "Third capture", "Moved capture"]);
+  await expect(page.locator('[data-slot="card-title"]')).toHaveText(["Third capture", "Second capture", "Moved capture"]);
   await card(page, "Moved capture").getByRole("button", { name: "More session actions" }).click();
   await expect(openSessionMenu(page).getByRole("menuitem", { name: "Move earlier" })).toHaveCount(0);
   await expect(openSessionMenu(page).getByText("Order", { exact: true })).toHaveCount(0);
@@ -137,13 +141,17 @@ test("move, manual order, copy and confirmed deletion remain precise and persist
   await page.reload();
   await openWorkspaceSidebar(page, "Collection B");
   await page.getByRole("button", { exact: true, name: "Collection B" }).click();
-  await expect(page.locator('[data-slot="card-title"]')).toHaveText(["Second capture", "Third capture", "Moved capture"]);
+  await expect(page.locator('[data-slot="card-title"]')).toHaveText(["Third capture", "Second capture", "Moved capture"]);
 
   await card(page, "Moved capture").getByRole("button", { name: "More session actions" }).click();
-  await expect(openSessionMenu(page).getByRole("menuitem", { name: "Copy prompt (batch)" })).toBeVisible();
+  await expect(openSessionMenu(page).getByRole("menuitem", { name: "Copy prompt (session)" })).toHaveCount(0);
+  await expect(openSessionMenu(page).getByRole("menuitem", { exact: true, name: "Copy prompt" })).toHaveCount(0);
+  await expect(openSessionMenu(page).getByRole("menuitem", { name: "Open prompt *.md" })).toBeVisible();
   await page.keyboard.press("Escape");
   await card(page, "Second capture").getByRole("button", { name: "More session actions" }).click();
-  await expect(openSessionMenu(page).getByRole("menuitem", { name: "Copy prompt (batch)" })).toHaveCount(0);
+  await expect(openSessionMenu(page).getByRole("menuitem", { name: "Copy prompt (session)" })).toHaveCount(0);
+  await expect(openSessionMenu(page).getByRole("menuitem", { exact: true, name: "Copy prompt" })).toHaveCount(0);
+  await expect(openSessionMenu(page).getByRole("menuitem", { name: "Open prompt *.md" })).toBeVisible();
   await page.keyboard.press("Escape");
   await card(page, "Moved capture").getByRole("button", { name: "More session actions" }).click();
   await expect(openSessionMenu(page).getByRole("menuitem", { exact: true, name: "View" })).toHaveCount(0);
@@ -151,12 +159,13 @@ test("move, manual order, copy and confirmed deletion remain precise and persist
   await card(page, "Moved capture").getByRole("button", { name: "View capture" }).click();
   const viewer = page.getByRole("dialog", { name: "Moved capture" });
   await expect(viewer).toBeVisible();
-  await expect(viewer.getByRole("button", { name: "Copy prompt (batch)" })).toBeVisible();
+  await viewer.getByRole("button", { exact: true, name: "Copy prompt" }).click();
+  await expect(viewer.getByRole("button", { exact: true, name: "Copied" })).toBeVisible();
+  expect(await readClipboardHarness(page)).toContain("Aggregated prompt");
   await viewer.getByRole("button", { name: "More page actions" }).click();
   const viewerMenu = page.getByRole("menu").filter({ has: page.getByRole("menuitem", { name: "Open prompt *.md" }) });
+  await expect(viewerMenu.getByRole("menuitem", { exact: true, name: "Copy prompt" })).toHaveCount(0);
   await expect(viewerMenu.getByRole("menuitem")).toHaveText([
-    "Copy prompt",
-    "Copy prompt (batch)",
     "Open prompt *.md",
     "Move to…",
     "Delete session",
@@ -166,13 +175,15 @@ test("move, manual order, copy and confirmed deletion remain precise and persist
   await openWorkspaceSidebar(page, "Collection B");
   await page.getByRole("button", { exact: true, name: "Collection B" }).click();
   await card(page, "Moved capture").getByRole("button", { name: "More session actions" }).click();
-  await expect(openSessionMenu(page).getByRole("menuitem", { exact: true, name: "Copy prompt" })).toBeVisible();
+  await expect(openSessionMenu(page).getByRole("menuitem", { exact: true, name: "Copy prompt" })).toHaveCount(0);
+  await expect(openSessionMenu(page).getByRole("menuitem", { name: "Copy prompt (session)" })).toHaveCount(0);
+  await expect(openSessionMenu(page).getByRole("menuitem", { name: "Open prompt *.md" })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(openSessionMenu(page)).toHaveCount(0);
   await card(page, "Moved capture").getByRole("button", { exact: true, name: "Copy prompt" }).click();
   const copied = await readClipboardHarness(page);
+  expect(copied).toContain("Aggregated prompt");
   expect(copied).toContain("Moved capture feedback");
-  expect(copied).toContain("/v/session_moved.md");
 
   await card(page, "Second capture").getByRole("button", { name: "More session actions" }).click();
   await openSessionMenu(page).getByRole("menuitem", { name: "Delete session" }).click();

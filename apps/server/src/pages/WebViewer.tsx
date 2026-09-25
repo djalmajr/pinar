@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import ReactMarkdown from "react-markdown";
 import { formatClipboardText, getPinColor, type AgentExecution, type Pin, type PinLocation, type PinReview, type PinReviewHumanAction, type PinReviewStatus, type Reproduction, type Session } from "@pinar/shared";
@@ -7,7 +7,7 @@ import { PinEvidence } from "@/components/PinEvidence";
 import { PinStructure } from "@/components/PinStructure";
 import { ReproductionTimeline } from "@/components/ReproductionTimeline";
 import { SessionActionsMenu } from "../components/SessionActionsMenu";
-import { copyBatchHandoff } from "../lib/session-actions";
+import { batchPromptRevision, copyBatchHandoff, createBatchPromptCache } from "../lib/session-actions";
 import { ServerShell } from "@/components/ServerShell";
 import { WorkspaceChrome } from "@/components/WorkspaceChrome";
 import { isRecord, isSession } from "@/lib/api-data";
@@ -458,6 +458,24 @@ function ViewerLoadingState({
   );
 }
 
+type CopyPromptPhase = "idle" | "preparing" | "copied" | "error";
+
+function CopyPromptLabel({ active, labels }: { active: string; labels: readonly string[] }) {
+  return (
+    <span className="hidden whitespace-nowrap sm:inline-grid">
+      {labels.map((label) => (
+        <span
+          aria-hidden={label !== active}
+          className={label === active ? "col-start-1 row-start-1" : "invisible col-start-1 row-start-1"}
+          key={label}
+        >
+          {label}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 export function WebViewer({
   captureIds = [],
   initialSession,
@@ -478,6 +496,8 @@ export function WebViewer({
   const [loading, setLoading] = useState(true);
   const [pageCopied, setPageCopied] = useState(false);
   const [batchCopied, setBatchCopied] = useState(false);
+  const [copyPhase, setCopyPhase] = useState<CopyPromptPhase>("idle");
+  const promptCache = useMemo(() => createBatchPromptCache(), []);
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviews, setReviews] = useState<PinReview[]>([]);
   const [executions, setExecutions] = useState<AgentExecution[]>([]);
@@ -694,6 +714,20 @@ export function WebViewer({
     }
   }
 
+  const aggregateBatchId = isModal && session?.batchId ? session.batchId : null;
+  const promptRevision = aggregateBatchId ? batchPromptRevision(captures, reviews) : "";
+  const promptRevisionRef = useRef(promptRevision);
+  promptRevisionRef.current = promptRevision;
+
+  useEffect(() => {
+    if (!aggregateBatchId) return;
+    void promptCache.prepare(aggregateBatchId, promptRevision).catch(() => undefined);
+  }, [aggregateBatchId, promptCache, promptRevision]);
+
+  useEffect(() => {
+    setCopyPhase("idle");
+  }, [aggregateBatchId, promptRevision]);
+
   async function copyBatch(batchId: string) {
     if (!await copyBatchHandoff(batchId)) return;
     setBatchCopied(true);
@@ -702,10 +736,21 @@ export function WebViewer({
 
   async function copyPage() {
     if (!session) return;
-    if (isModal && session.batchId) {
-      if (!await copyBatchHandoff(session.batchId)) return;
-      setPageCopied(true);
-      window.setTimeout(() => setPageCopied(false), 2_000);
+    if (aggregateBatchId) {
+      if (copyPhase === "preparing") return;
+      const revision = promptRevision;
+      const waiting = promptCache.prepared(aggregateBatchId, revision) === undefined;
+      if (waiting) setCopyPhase("preparing");
+      try {
+        const text = await promptCache.prepare(aggregateBatchId, revision);
+        await navigator.clipboard.writeText(text);
+        if (promptRevisionRef.current !== revision) return;
+        setCopyPhase("copied");
+        window.setTimeout(() => setCopyPhase((phase) => phase === "copied" ? "idle" : phase), 2_000);
+      } catch {
+        if (promptRevisionRef.current !== revision) return;
+        setCopyPhase("error");
+      }
       return;
     }
     await navigator.clipboard.writeText(formatClipboardText(
@@ -721,6 +766,23 @@ export function WebViewer({
     setPageCopied(true);
     window.setTimeout(() => setPageCopied(false), 2_000);
   }
+
+  const copyPromptLabels = [
+    t("dashboard.copyPrompt"),
+    t("dashboard.copyPromptPreparing"),
+    t("common.copied"),
+    t("dashboard.copyPromptFailed"),
+  ] as const;
+  const copyPromptLabel = aggregateBatchId
+    ? copyPhase === "preparing"
+      ? t("dashboard.copyPromptPreparing")
+      : copyPhase === "copied"
+        ? t("common.copied")
+        : copyPhase === "error"
+          ? t("dashboard.copyPromptFailed")
+          : t("dashboard.copyPrompt")
+    : pageCopied ? t("common.copied") : t("dashboard.copyPrompt");
+  const copyPromptCopied = aggregateBatchId ? copyPhase === "copied" : pageCopied;
 
 
   function wrapFrame(body: ReactNode, frameClassName?: string) {
@@ -770,7 +832,6 @@ export function WebViewer({
   const selectedNumber = selectedPin ? pinNumber(selectedPin, Math.max(0, selectedIndex)) : 0;
   const selectedColor = selectedPin?.color || getPinColor(selectedNumber);
   const selectedMarkdown = selectedPin ? formatPinMarkdown(selectedPin, selectedNumber) : "";
-  const shareListingActions = isModal || Boolean(onMove || onDelete);
   const batchId = session.batchId ?? null;
 
   return (
@@ -846,9 +907,22 @@ export function WebViewer({
             )
           ) : null}
           <ButtonGroup aria-label={t("viewer.pageActions")}>
-            <Button aria-label={pageCopied ? t("common.copied") : t("dashboard.copyPrompt")} type="button" variant="outline" onClick={copyPage}>
-              {pageCopied ? <CheckIcon data-icon="inline-start" /> : <CopyIcon data-icon="inline-start" />}
-              <span className="hidden sm:inline">{pageCopied ? t("common.copied") : t("dashboard.copyPrompt")}</span>
+            <Button
+              aria-busy={aggregateBatchId && copyPhase === "preparing" ? true : undefined}
+              aria-invalid={aggregateBatchId && copyPhase === "error" ? true : undefined}
+              aria-label={copyPromptLabel}
+              disabled={Boolean(aggregateBatchId && copyPhase === "preparing")}
+              title={copyPromptLabel}
+              type="button"
+              variant="outline"
+              onClick={() => void copyPage()}
+            >
+              {copyPromptCopied ? <CheckIcon data-icon="inline-start" /> : <CopyIcon data-icon="inline-start" />}
+              {aggregateBatchId ? (
+                <CopyPromptLabel active={copyPromptLabel} labels={copyPromptLabels} />
+              ) : (
+                <span className="hidden sm:inline">{copyPromptLabel}</span>
+              )}
             </Button>
             {batchId && !isModal ? (
               <Button
@@ -880,8 +954,6 @@ export function WebViewer({
                 session={session}
                 shareToken={shareToken}
                 t={t}
-                onCopy={shareListingActions ? () => void copyPage() : undefined}
-                onCopyBatch={isModal ? undefined : (id) => void copyBatch(id)}
                 onDelete={onDelete}
                 onMove={onMove}
               />

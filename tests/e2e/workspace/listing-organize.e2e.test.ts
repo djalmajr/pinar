@@ -1,8 +1,10 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   expectScrollableComboboxList,
+  installClipboardHarness,
   isMobileViewport,
   openWorkspaceSidebar,
+  readClipboardHarness,
 } from "../helpers/ui";
 
 const createdAt = "2026-08-18T00:00:00.000Z";
@@ -68,6 +70,7 @@ async function selectCollection(page: Page, name: string) {
 }
 
 test("selected sessions move by drag and drop from table and grid views", async ({ page }) => {
+  await installClipboardHarness(page);
   const alpha = session("session_alpha", "Alpha capture", "col_a", 0);
   const beta = session("session_beta", "Beta capture", "col_a", 1);
   const gamma = session("session_gamma", "Gamma capture", "col_b", 0);
@@ -226,11 +229,15 @@ test("selected sessions move by drag and drop from table and grid views", async 
   await expect(page.getByRole("columnheader", { name: "Drag" })).toHaveCount(0);
   await expect(page.locator("[data-session-drag-handle]")).toHaveCount(0);
   expect(await alphaRow.evaluate((element) => getComputedStyle(element).cursor)).toBe("auto");
-  await expect(alphaRow.getByRole("button", { exact: true, name: "Copy prompt" })).toBeVisible();
+  const copyPrompt = alphaRow.getByRole("button", { exact: true, name: "Copy prompt" });
+  await expect(copyPrompt).toBeVisible();
+  await copyPrompt.click();
+  expect(await readClipboardHarness(page)).toContain("Alpha capture feedback");
   await alphaRow.getByRole("button", { name: "More session actions" }).click();
   const sessionMenu = page.getByRole("menu");
   await expect(sessionMenu.getByRole("menuitem", { name: "Move to…" })).toBeVisible();
-  await expect(sessionMenu.getByRole("menuitem", { exact: true, name: "Copy prompt" })).toBeVisible();
+  await expect(sessionMenu.getByRole("menuitem", { exact: true, name: "Copy prompt" })).toHaveCount(0);
+  await expect(sessionMenu.getByRole("menuitem", { name: "Open prompt *.md" })).toBeVisible();
   await sessionMenu.getByRole("menuitem", { name: "Move to…" }).click();
   const individualMoveDialog = page.getByRole("dialog", { name: "Move to…" });
   await expect(individualMoveDialog.getByText("Choose the destination workspace and collection.")).toBeVisible();

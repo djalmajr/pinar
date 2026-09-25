@@ -224,6 +224,8 @@ const messages: UiMessages = {
   "dashboard.view": "查看",
   "dashboard.markdown": "打开提示 *.md",
   "dashboard.copyPrompt": "复制提示词",
+  "dashboard.copyPromptPreparing": "正在准备提示词…",
+  "dashboard.copyPromptFailed": "无法准备提示词",
   "dashboard.includeScreenshot": "在代理副本中包含截图",
   "dashboard.includeScreenshotHint":
     "将打印的截图加入复制的提示词以及每条记录的 .md 链接。",

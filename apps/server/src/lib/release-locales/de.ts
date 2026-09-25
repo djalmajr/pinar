@@ -22,6 +22,28 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.5.0": {
+      title: "Sammlungsprüfer und eine ruhigere Arbeitsfläche",
+      summary: "Ein Pro-Konto kann Prüfer zu einer Sammlung einladen. Gehostetes Cloud folgt dem aktuellen Angebot jedes Kontos. Die Ansicht bereitet Prompt kopieren beim Öffnen einer Sitzung vor, und die Arbeitsliste aktualisiert sich mit weniger Hintergrundladen.",
+      changes: {
+        "cloud-offer-eligibility": {
+          title: "Die Cloud-Berechtigung folgt dem aktuellen Angebot",
+          description: "Die lokale App und ein selbst gehosteter Server bleiben kostenlos. Gehostetes Pinar Cloud folgt dem aktuellen Angebot und der Berechtigung dieses Kontos: Ein neues Konto kann eine zeitlich begrenzte Bewertung erhalten, und ein früheres Konto kann die Berechtigung behalten, die es schon hat. Es gibt keine einheitliche Frist für alle Konten. Wenn die Seite mit den Tarifen eine Bewertung anbietet, sind es 14 Tage Pinar Cloud, bis zu 250 MB, ohne Kreditkarte. Die Sprachtranskription bleibt ein Pro-Vorteil. Während einer Bewertung verlangen Speicher- und KI-Guthaben-Zusätze Pro.",
+        },
+        "collection-reviewers": {
+          title: "Prüfer zu einer Sammlung einladen",
+          description: "Ein Pro-Konto kann jemanden per E-Mail einladen, eine einzelne Sammlung anzusehen und zu prüfen. Der Gast meldet sich an und nimmt die Einladung in der App an. Der Eigentümer kann den Zugriff widerrufen. Endet das Pro des Eigentümers, bleibt die Sammlung in der Liste, aber die Prüfung pausiert, bis Pro wieder aktiv ist. Die Einladung gilt nicht für andere Sammlungen.",
+        },
+        "viewer-prompt-ready": {
+          title: "Prompt kopieren ist bereit, wenn die Ansicht öffnet",
+          description: "Das Öffnen einer gruppierten Sitzung bereitet Prompt kopieren im Hintergrund vor. Die Schaltfläche zeigt Prompt wird vorbereitet… während des Ladens und Prompt konnte nicht vorbereitet werden, wenn es fehlschlägt. Prompt kopieren bleibt die Hauptaktion. Prompt öffnen *.md bleibt im Sitzungsmenü.",
+        },
+        "quieter-workspace-refresh": {
+          title: "Die Arbeitsliste aktualisiert sich seltener",
+          description: "Die Sitzungsliste sucht etwa alle 30 Sekunden nach Änderungen von außen, statt alle paar Sekunden. Zurück zum Tab, oder Erstellen, Verschieben, Löschen oder Teilen, aktualisiert Stapel und Freigabelinks sofort. Bereits geteilte Sitzungen bleiben zwischen diesen Aktualisierungen markiert.",
+        },
+      },
+    },
     "v0.4.7": {
       title: "Cloud-Anmeldung in den Erweiterungseinstellungen",
       summary: "Die Erweiterung meldet sich mit einem E-Mail-Code eines bereits auf der Website erstellten Kontos bei Pinar Cloud an. Die Einstellungen sind jetzt in Einstellungen und Erfassung gegliedert.",

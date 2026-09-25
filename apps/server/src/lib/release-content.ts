@@ -59,6 +59,16 @@ export interface ReleaseContent {
 
 export const releaseDefinitions = [
   {
+    tag: "v0.5.0",
+    date: "2026-09-25",
+    changes: [
+      "cloud-offer-eligibility",
+      "collection-reviewers",
+      "viewer-prompt-ready",
+      "quieter-workspace-refresh",
+    ],
+  },
+  {
     tag: "v0.4.7",
     date: "2026-09-23",
     changes: ["extension-cloud-account-settings"],

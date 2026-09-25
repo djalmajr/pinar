@@ -20,6 +20,28 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.5.0": {
+      title: "Collection reviewers and a calmer workspace",
+      summary: "A Pro account can invite reviewers to one collection. Hosted Cloud follows the current offer for each account. The viewer prepares Copy prompt when a session opens, and the workspace list refreshes with less background loading.",
+      changes: {
+        "cloud-offer-eligibility": {
+          title: "Cloud eligibility follows the current offer",
+          description: "The local app and a self-hosted server stay free. Hosted Pinar Cloud follows the current offer and that account’s eligibility: a new account may receive a temporary evaluation, and an earlier account may keep the eligibility it already has. There is no single deadline for every account. When the Plans page offers an evaluation, it is 14 days of Pinar Cloud, up to 250 MB, with no credit card. Voice transcription stays a Pro benefit. During an evaluation, storage and AI credit add-ons require Pro.",
+        },
+        "collection-reviewers": {
+          title: "Invite reviewers to one collection",
+          description: "A Pro account can invite someone by email to view and review a single collection. The guest signs in and accepts in the app. The owner can revoke access. If the owner’s Pro plan ends, the collection stays listed but review pauses until Pro is active again. The invitation does not cover other collections.",
+        },
+        "viewer-prompt-ready": {
+          title: "Copy prompt is ready when the viewer opens",
+          description: "Opening a grouped session prepares Copy prompt in the background. The button shows Preparing prompt… while it loads and Couldn't prepare the prompt if it fails. Copy prompt stays the main action. Open prompt *.md remains in the session menu.",
+        },
+        "quieter-workspace-refresh": {
+          title: "The workspace list refreshes less often",
+          description: "The session list checks for outside changes about every 30 seconds instead of every few seconds. Returning to the tab, or creating, moving, deleting, or sharing, refreshes batches and share links right away. Sessions that are already shared stay marked between those refreshes.",
+        },
+      },
+    },
     "v0.4.7": {
       title: "Cloud sign-in in extension settings",
       summary: "The extension signs in to Pinar Cloud with an email code from an existing website account. Its settings are now grouped into Preferences and Capture.",

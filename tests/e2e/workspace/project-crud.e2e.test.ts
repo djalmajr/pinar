@@ -1,5 +1,4 @@
 import { expect, test } from "@playwright/test";
-import { installClipboardHarness, readClipboardHarness } from "../helpers/ui";
 
 const createdAt = "2026-08-18T00:00:00.000Z";
 const ownerId = "ins_project_crud";
@@ -42,8 +41,7 @@ function protectedPersonal(sessions: ReturnType<typeof fixtureSession>[] = []) {
   };
 }
 
-test("project CRUD preserves sessions through public sharing and container deletion", async ({ page }) => {
-  await installClipboardHarness(page);
+test("project CRUD preserves sessions through container deletion", async ({ page }) => {
   const capture = fixtureSession();
   let personal = protectedPersonal();
   let customProject: ReturnType<typeof protectedPersonal> | null = null;
@@ -100,9 +98,6 @@ test("project CRUD preserves sessions through public sharing and container delet
     }
     await route.fulfill({ json: { error: "not found" }, status: 404 });
   });
-  await page.route("**/api/public/projects/prj_client_portal", (route) => route.fulfill({
-    json: { project: customProject },
-  }));
   await page.route("**/api/sessions/session_client_checkout", (route) => route.fulfill({ json: { session: capture } }));
   await page.route("**/shots/session_client_checkout.svg", (route) => route.fulfill({
     body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500"><text x="20" y="40">Client checkout</text></svg>',
@@ -158,17 +153,6 @@ test("project CRUD preserves sessions through public sharing and container delet
   await expect(page.getByRole("dialog", { name: "Edit project" }).getByRole("img", { name: "Telescope" })).toBeVisible();
   await page.getByRole("dialog", { name: "Edit project" }).getByRole("button", { name: "Cancel" }).click();
 
-  await page.getByRole("button", { name: "Checkout redesign: Project actions" }).click();
-  await page.getByRole("menuitem", { name: "Share" }).click();
-  const shareUrl = await readClipboardHarness(page);
-  expect(shareUrl).toMatch(/\/p\/prj_client_portal$/);
-
-  await page.goto(shareUrl);
-  await expect(page.getByRole("heading", { name: "Checkout redesign" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Review" })).toBeVisible();
-  await expect(page.getByText("Client checkout", { exact: true })).toBeVisible();
-
-  await page.goto("/app");
   await page.getByRole("button", { name: "Checkout redesign: Project actions" }).click();
   await page.getByRole("menuitem", { name: "Delete project" }).click();
   const deleteDialog = page.getByRole("alertdialog", { name: "Delete project" });

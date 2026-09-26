@@ -21,6 +21,28 @@ const locale = {
     whatChanged: "Qué cambió",
   },
   releases: {
+    "v0.5.0": {
+      title: "Revisores en la colección y un espacio más tranquilo",
+      summary: "Una cuenta Pro puede invitar revisores a una colección. Cloud alojado sigue la oferta actual de cada cuenta. El visor prepara Copiar prompt al abrir la sesión, y la lista del espacio de trabajo se actualiza con menos carga en segundo plano.",
+      changes: {
+        "cloud-offer-eligibility": {
+          title: "La elegibilidad de Cloud sigue la oferta actual",
+          description: "La aplicación local y un servidor autoalojado siguen siendo gratuitos. Pinar Cloud alojado sigue la oferta actual y la elegibilidad de esa cuenta: una cuenta nueva puede recibir una evaluación temporal, y una cuenta anterior puede conservar la elegibilidad que ya tenía. No hay un único plazo para todas las cuentas. Cuando la página de planes ofrece una evaluación, son 14 días de Pinar Cloud, hasta 250 MB, sin tarjeta. La transcripción de voz sigue siendo un beneficio Pro. Durante una evaluación, los complementos de almacenamiento y de créditos de IA requieren Pro.",
+        },
+        "collection-reviewers": {
+          title: "Invita revisores a una colección",
+          description: "Una cuenta Pro puede invitar a alguien por correo para ver y revisar una sola colección. El invitado inicia sesión y acepta en la aplicación. El propietario puede revocar el acceso. Si el Pro del propietario termina, la colección sigue en la lista, pero la revisión se pausa hasta que Pro vuelva a estar activo. La invitación no cubre otras colecciones.",
+        },
+        "viewer-prompt-ready": {
+          title: "Copiar prompt queda listo al abrir el visor",
+          description: "Abrir una sesión agrupada prepara Copiar prompt en segundo plano. El botón muestra Preparando el prompt… mientras carga y No se pudo preparar el prompt si falla. Copiar prompt sigue siendo la acción principal. Abrir prompt *.md permanece en el menú de la sesión.",
+        },
+        "quieter-workspace-refresh": {
+          title: "La lista del espacio de trabajo se actualiza con menos frecuencia",
+          description: "La lista de sesiones busca cambios externos aproximadamente cada 30 segundos, en lugar de cada pocos segundos. Volver a la pestaña, o crear, mover, eliminar o compartir, actualiza lotes y enlaces de uso compartido al momento. Las sesiones que ya están compartidas siguen marcadas entre esas actualizaciones.",
+        },
+      },
+    },
     "v0.4.7": {
       title: "Acceso a Cloud en los ajustes de la extensión",
       summary: "La extensión accede a Pinar Cloud con un código enviado al correo de una cuenta creada en el sitio. Los ajustes se organizan en Preferencias y Captura.",

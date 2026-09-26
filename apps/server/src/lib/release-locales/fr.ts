@@ -22,6 +22,28 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.5.0": {
+      title: "Relecteurs de collection et un espace plus calme",
+      summary: "Un compte Pro peut inviter des relecteurs sur une collection. Le Cloud hébergé suit l’offre en cours de chaque compte. La visionneuse prépare Copier le prompt à l’ouverture de la session, et la liste de l’espace se met à jour avec moins de chargement en arrière-plan.",
+      changes: {
+        "cloud-offer-eligibility": {
+          title: "L’éligibilité Cloud suit l’offre en cours",
+          description: "L’application locale et un serveur auto-hébergé restent gratuits. Pinar Cloud hébergé suit l’offre en cours et l’éligibilité de ce compte : un nouveau compte peut recevoir une évaluation temporaire, et un compte antérieur peut conserver l’éligibilité qu’il a déjà. Il n’y a pas une seule échéance pour tous les comptes. Lorsque la page des forfaits propose une évaluation, il s’agit de 14 jours de Pinar Cloud, jusqu’à 250 Mo, sans carte bancaire. La transcription vocale reste un avantage Pro. Pendant une évaluation, les extensions de stockage et de crédits d’IA exigent Pro.",
+        },
+        "collection-reviewers": {
+          title: "Invitez des relecteurs sur une collection",
+          description: "Un compte Pro peut inviter quelqu’un par e-mail à consulter et relire une seule collection. L’invité se connecte et accepte dans l’application. Le propriétaire peut révoquer l’accès. Si le forfait Pro du propriétaire se termine, la collection reste dans la liste, mais la relecture est suspendue jusqu’au retour de Pro. L’invitation ne couvre pas les autres collections.",
+        },
+        "viewer-prompt-ready": {
+          title: "Copier le prompt est prêt à l’ouverture de la visionneuse",
+          description: "Ouvrir une session groupée prépare Copier le prompt en arrière-plan. Le bouton affiche Préparation du prompt… pendant le chargement et Impossible de préparer le prompt en cas d’échec. Copier le prompt reste l’action principale. Ouvrir le prompt *.md reste dans le menu de la session.",
+        },
+        "quieter-workspace-refresh": {
+          title: "La liste de l’espace se met à jour moins souvent",
+          description: "La liste des sessions cherche les changements externes environ toutes les 30 secondes, au lieu de toutes les quelques secondes. Revenir à l’onglet, ou créer, déplacer, supprimer ou partager, actualise tout de suite les lots et les liens de partage. Les sessions déjà partagées restent marquées entre ces actualisations.",
+        },
+      },
+    },
     "v0.4.7": {
       title: "Connexion Cloud dans les réglages de l’extension",
       summary: "L’extension se connecte à Pinar Cloud avec un code envoyé à l’adresse e-mail d’un compte déjà créé sur le site. Les réglages sont regroupés dans Préférences et Capture.",

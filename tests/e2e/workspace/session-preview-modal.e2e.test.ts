@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { isMobileViewport, openWorkspaceSidebar } from "../helpers/ui";
 
 const createdAt = "2026-08-14T14:52:00.000Z";
@@ -100,6 +100,22 @@ test.beforeEach(async ({ page }) => {
   }
 });
 
+async function controlBox(control: Locator) {
+  const box = await control.boundingBox();
+  expect(box).not.toBeNull();
+  return box!;
+}
+
+function expectSameBox(
+  before: { x: number; y: number; width: number; height: number },
+  after: { x: number; y: number; width: number; height: number },
+) {
+  expect(Math.abs(before.x - after.x)).toBeLessThan(1);
+  expect(Math.abs(before.y - after.y)).toBeLessThan(1);
+  expect(Math.abs(before.width - after.width)).toBeLessThan(1);
+  expect(Math.abs(before.height - after.height)).toBeLessThan(1);
+}
+
 async function openPreview(page: Page, title: string) {
   const card = page.locator('[data-slot="card"]').filter({ hasText: title }).first();
   await card.getByRole("button", { name: "View capture" }).click();
@@ -195,6 +211,8 @@ test("grid capture opens the zoom viewer modal without leaving the dashboard", a
   await card.getByRole("button", { name: "More session actions" }).click();
   const actions = page.getByRole("menu");
   await expect(actions.getByRole("menuitem", { exact: true, name: "View" })).toHaveCount(0);
+  await expect(actions.getByRole("menuitem", { exact: true, name: "Copy prompt" })).toHaveCount(0);
+  await expect(actions.getByRole("menuitem", { name: "Open prompt *.md" })).toBeVisible();
   await actions.press("Escape");
   await expect(actions).toBeHidden();
 
@@ -209,6 +227,12 @@ test("grid capture opens the zoom viewer modal without leaving the dashboard", a
   await expect(dialog.getByText(pinComment)).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Review on page" })).toHaveCount(0);
   await expect(dialog.getByRole("button", { exact: true, name: "Copy prompt" })).toBeVisible();
+  await dialog.getByRole("button", { name: "More page actions" }).click();
+  const pageMenu = page.getByRole("menu");
+  await expect(pageMenu.getByRole("menuitem", { exact: true, name: "Copy prompt" })).toHaveCount(0);
+  await expect(pageMenu.getByRole("menuitem", { name: "Open prompt *.md" })).toBeVisible();
+  await dialog.getByRole("button", { name: "More page actions" }).click();
+  await expect(pageMenu).toBeHidden();
   await expect(page).toHaveURL(/\/app\?session=preview-e2e/);
 
   const originalPage = dialog.getByRole("link", { name: session.page.url });
@@ -301,4 +325,111 @@ test("table view puts the mini-preview in the first column and opens the viewer"
   await expect(dialog.getByText("Project API keys for Lowcode Studio.")).toBeVisible();
   await expect(dialog.getByRole("link", { name: session.page.url })).toBeVisible();
   await expect(page).toHaveURL(/\/app\?session=preview-e2e/);
+});
+
+test("modal viewer prepares a batch prompt once and shows the wait before it is copied", async ({ page }) => {
+  const batchSession = { ...session, batchId: "batch-preview" };
+  await page.route("**/api/sessions/preview-e2e", (route) => route.fulfill({
+    json: { session: batchSession },
+  }));
+  let markdownRequests = 0;
+  let releaseMarkdown = () => {};
+  const markdownGate = new Promise<void>((resolve) => {
+    releaseMarkdown = resolve;
+  });
+  await page.route("**/api/batches/batch-preview/markdown", async (route) => {
+    markdownRequests += 1;
+    await markdownGate;
+    await route.fulfill({
+      body: "# Aggregated prompt\n\nRotate this API key field.",
+      contentType: "text/markdown; charset=utf-8",
+    });
+  });
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/app");
+
+  const dialog = await openPreview(page, "Lowcode Studio");
+  await expect.poll(() => markdownRequests).toBe(1);
+  await dialog.getByRole("button", { name: "More page actions" }).click();
+  const menu = page.getByRole("menu");
+  await expect(menu.getByRole("menuitem", { exact: true, name: "Copy prompt" })).toHaveCount(0);
+  await expect(menu.getByRole("menuitem", { name: "Open prompt *.md" })).toBeVisible();
+  await dialog.getByRole("button", { name: "More page actions" }).click();
+  await expect(menu).toBeHidden();
+
+  const pageActions = dialog.getByRole("group", { name: "Page actions" });
+  const moreActions = pageActions.getByRole("button", { name: "More page actions" });
+  const closeViewer = pageActions.locator("xpath=..").getByRole("button", { exact: true, name: "Close" });
+  const before = {
+    actions: await controlBox(pageActions),
+    close: await controlBox(closeViewer),
+    more: await controlBox(moreActions),
+  };
+  await dialog.getByRole("button", { exact: true, name: "Copy prompt" }).click();
+  const preparing = dialog.getByRole("button", { exact: true, name: "Preparing prompt…" });
+  await expect(preparing).toBeDisabled();
+  const during = {
+    actions: await controlBox(pageActions),
+    close: await controlBox(closeViewer),
+    more: await controlBox(moreActions),
+  };
+  expect(markdownRequests).toBe(1);
+  releaseMarkdown();
+  const copied = dialog.getByRole("button", { exact: true, name: "Copied" });
+  await expect(copied).toBeEnabled();
+  const after = {
+    actions: await controlBox(pageActions),
+    close: await controlBox(closeViewer),
+    more: await controlBox(moreActions),
+  };
+  expectSameBox(before.actions, during.actions);
+  expectSameBox(during.actions, after.actions);
+  expectSameBox(before.more, during.more);
+  expectSameBox(during.more, after.more);
+  expectSameBox(before.close, during.close);
+  expectSameBox(during.close, after.close);
+  expect(markdownRequests).toBe(1);
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("Aggregated prompt");
+});
+
+test("a failed batch copy shows the error and retries without saying copied", async ({ page }) => {
+  const batchSession = { ...session, batchId: "batch-preview-fail" };
+  await page.route("**/api/sessions/preview-e2e", (route) => route.fulfill({
+    json: { session: batchSession },
+  }));
+  let markdownRequests = 0;
+  let releaseFailure = () => {};
+  const failureGate = new Promise<void>((resolve) => {
+    releaseFailure = resolve;
+  });
+  await page.route("**/api/batches/batch-preview-fail/markdown", async (route) => {
+    markdownRequests += 1;
+    if (markdownRequests === 1) {
+      await route.fulfill({ status: 500, body: "unavailable" });
+      return;
+    }
+    if (markdownRequests === 2) {
+      await failureGate;
+      await route.fulfill({ status: 500, body: "unavailable" });
+      return;
+    }
+    await route.fulfill({
+      body: "# Aggregated prompt\n\nRetry.",
+      contentType: "text/markdown; charset=utf-8",
+    });
+  });
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/app");
+
+  const dialog = await openPreview(page, "Lowcode Studio");
+  await expect.poll(() => markdownRequests).toBe(1);
+  await dialog.getByRole("button", { exact: true, name: "Copy prompt" }).click();
+  await expect(dialog.getByRole("button", { exact: true, name: "Preparing prompt…" })).toBeDisabled();
+  releaseFailure();
+  const failed = dialog.getByRole("button", { exact: true, name: "Couldn't prepare the prompt" });
+  await expect(failed).toBeEnabled();
+  await expect(dialog.getByRole("button", { exact: true, name: "Copied" })).toHaveCount(0);
+  await failed.click();
+  await expect(dialog.getByRole("button", { exact: true, name: "Copied" })).toBeEnabled();
+  expect(markdownRequests).toBe(3);
 });

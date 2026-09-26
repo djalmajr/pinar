@@ -241,6 +241,8 @@ const messages: UiMessages = {
   "dashboard.view": "Ver",
   "dashboard.markdown": "Abrir prompt *.md",
   "dashboard.copyPrompt": "Copiar prompt",
+  "dashboard.copyPromptPreparing": "Preparando el prompt…",
+  "dashboard.copyPromptFailed": "No se pudo preparar el prompt",
   "dashboard.includeScreenshot": "Incluir captura en la copia para agentes",
   "dashboard.includeScreenshotHint":
     "Añade la captura impresa a los prompts copiados y a la URL .md de cada elemento.",

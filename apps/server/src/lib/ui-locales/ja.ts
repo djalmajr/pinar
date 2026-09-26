@@ -241,6 +241,8 @@ const messages: UiMessages = {
   "dashboard.view": "表示",
   "dashboard.markdown": "プロンプトを開く *.md",
   "dashboard.copyPrompt": "プロンプトをコピー",
+  "dashboard.copyPromptPreparing": "プロンプトを準備しています…",
+  "dashboard.copyPromptFailed": "プロンプトを準備できませんでした",
   "dashboard.includeScreenshot":
     "エージェント向けコピーにスクリーンショットを含める",
   "dashboard.includeScreenshotHint":

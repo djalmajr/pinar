@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { WORKSPACE_TREE_POLL_MS } from "../../../apps/server/src/lib/workspace-tree-sync";
 
 const createdAt = "2026-08-18T00:00:00.000Z";
 
@@ -69,4 +70,69 @@ test("listing picks up agent review changes without a full page reload", async (
   });
   await expect(page.getByText(/1 (Open|Aberto)/)).toHaveCount(0);
   await expect(page).toHaveURL(/\/app\/?$/);
+});
+
+test("focus refresh is not repeated while a tree request is still open, and the slow poll skips batches and shares", async ({ page }) => {
+  await page.clock.install();
+  await page.addInitScript(() => localStorage.clear());
+  const counts = { batches: 0, shares: 0, tree: 0 };
+  let holdTree = false;
+  let releaseTree = () => {};
+  let heldTree = Promise.resolve();
+  await page.route("**/api/auth/session", (route) => route.fulfill({
+    json: { session: { installationId: "ins_live", kind: "installation", plan: "free" } },
+  }));
+  await page.route("**/api/project-tree", async (route) => {
+    counts.tree += 1;
+    if (holdTree) await heldTree;
+    await route.fulfill({
+      json: {
+        tree: tree({ accepted: 0, correction_ready: 0, open: 1, reopened: 0 }),
+      },
+    });
+  });
+  await page.route("**/api/batches", async (route) => {
+    counts.batches += 1;
+    await route.fulfill({ json: { batches: [] } });
+  });
+  await page.route("**/api/shares", async (route) => {
+    counts.shares += 1;
+    await route.fulfill({ json: { tokens: [] } });
+  });
+
+  await page.goto("/app");
+  await expect(page.getByRole("heading", { name: "Live review session" })).toBeVisible();
+  const loaded = { ...counts };
+
+  heldTree = new Promise((resolve) => {
+    releaseTree = resolve;
+  });
+  holdTree = true;
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event("focus"));
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect.poll(() => counts.tree).toBe(loaded.tree + 1);
+  await expect.poll(() => counts.batches).toBe(loaded.batches + 1);
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event("focus"));
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.clock.fastForward(500);
+  expect(counts.tree).toBe(loaded.tree + 1);
+  expect(counts.batches).toBe(loaded.batches + 1);
+  const sharesAfterFocus = counts.shares;
+  const released = page.waitForResponse((response) => response.url().includes("/api/project-tree"));
+  releaseTree();
+  holdTree = false;
+  await released;
+  await page.evaluate(async () => {
+    await Promise.resolve();
+  });
+  expect(counts.tree).toBe(loaded.tree + 1);
+
+  await page.clock.fastForward(WORKSPACE_TREE_POLL_MS);
+  await expect.poll(() => counts.tree).toBe(loaded.tree + 2);
+  expect(counts.batches).toBe(loaded.batches + 1);
+  expect(counts.shares).toBe(sharesAfterFocus);
 });

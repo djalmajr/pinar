@@ -237,6 +237,8 @@ const messages = {
   "dashboard.view": "View",
   "dashboard.markdown": "Open prompt *.md",
   "dashboard.copyPrompt": "Copy prompt",
+  "dashboard.copyPromptPreparing": "Preparing prompt…",
+  "dashboard.copyPromptFailed": "Couldn't prepare the prompt",
   "dashboard.includeScreenshot": "Include screenshot in agent copy",
   "dashboard.includeScreenshotHint":
     "Adds the printed screenshot to copied prompts and to each item's .md URL.",

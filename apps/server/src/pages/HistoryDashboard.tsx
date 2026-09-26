@@ -220,7 +220,6 @@ function SessionActions({
           copied={copied}
           session={session}
           t={t}
-          onCopy={onCopy}
           onDelete={onDelete}
           onMove={onMove}
           batchCopied={batchCopied}

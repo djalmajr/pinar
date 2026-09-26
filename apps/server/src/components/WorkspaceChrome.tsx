@@ -72,14 +72,19 @@ import { collectionAncestorPath } from "@/lib/collection-tree";
 import { useServerI18n } from "@/lib/i18n";
 import { flattenCollectionSessions } from "@/lib/session-listing";
 import { sessionGroupCount } from "@/lib/session-groups";
-import { markSharedSessions } from "@/lib/share-links";
 import { pinarRuntime } from "@/lib/server-header";
 import { reorderIds, type OrderDirection } from "@/lib/session-order";
 import {
+  applyRememberedShareTokens,
+  beginWorkspaceTreeRefresh,
+  finishWorkspaceTreeRefresh,
   WORKSPACE_TREE_POLL_MS,
+  type WorkspaceShareTokenCache,
   isAbortError,
   projectTreeFingerprint,
   resolveSelectedCollectionId,
+  type WorkspaceTreeRefresh,
+  type WorkspaceTreeRefreshFlight,
 } from "@/lib/workspace-tree-sync";
 import {
   collectionIdFromOver,
@@ -114,7 +119,7 @@ interface BatchRecord {
 }
 
 interface WorkspaceChromeContextValue {
-  fetchTree: (preferredProjectId?: string, options?: { silent?: boolean }) => Promise<void>;
+  fetchTree: (preferredProjectId?: string, options?: { metadata?: boolean; silent?: boolean }) => Promise<void>;
   loading: boolean;
   moveSessions: (sessionIds: string[], collectionId: string) => Promise<void>;
   onOpenInvitations: () => void;
@@ -219,6 +224,7 @@ export function WorkspaceChrome({
   const [sharedOnly, setSharedOnly] = useState(false);
   const fingerprintRef = useRef("");
   const generationRef = useRef(0);
+  const shareTokensRef = useRef<WorkspaceShareTokenCache>({ ready: false, tokens: [] });
   const mutatingRef = useRef(0);
   const selectedCollectionIdRef = useRef(selectedCollectionId);
   const selectedProjectIdRef = useRef(selectedProjectId);
@@ -337,19 +343,22 @@ export function WorkspaceChrome({
 
   const fetchTree = useCallback(async (
     preferredProjectId?: string,
-    options?: { silent?: boolean },
+    options?: { metadata?: boolean; silent?: boolean },
   ) => {
     if (options?.silent && mutatingRef.current > 0) return;
     if (!options?.silent) {
       mutatingRef.current += 1;
       setLoading(true);
     }
+    const includeMetadata = options?.metadata !== false;
     const generation = ++generationRef.current;
     try {
       const [response, batchesResponse, sharesResponse] = await Promise.all([
         fetch("/api/project-tree", { cache: "no-store" }),
-        fetch("/api/batches", { cache: "no-store" }).catch(() => null),
-        pinarRuntime() === "cloud"
+        includeMetadata
+          ? fetch("/api/batches", { cache: "no-store" }).catch(() => null)
+          : Promise.resolve(null),
+        includeMetadata && pinarRuntime() === "cloud"
           ? fetch("/api/shares", { cache: "no-store" }).catch(() => null)
           : Promise.resolve(null),
       ]);
@@ -357,14 +366,17 @@ export function WorkspaceChrome({
       if (generation !== generationRef.current) return;
       if (!response.ok || !isRecord(data) || !isRecord(data.tree) || !Array.isArray(data.tree.projects)) return;
       let projects = data.tree.projects.filter(isProjectTreeProject);
+      let nextTokens: unknown[] | null = null;
       if (sharesResponse?.ok) {
         const sharesData: unknown = await sharesResponse.json();
-        if (isRecord(sharesData) && Array.isArray(sharesData.tokens)) {
-          projects = markSharedSessions(projects, sharesData.tokens);
-        }
+        if (generation !== generationRef.current) return;
+        if (isRecord(sharesData) && Array.isArray(sharesData.tokens)) nextTokens = sharesData.tokens;
       }
+      const shared = applyRememberedShareTokens(projects, shareTokensRef.current, nextTokens);
+      if (generation !== generationRef.current) return;
+      shareTokensRef.current = shared.cache;
       applyProjects(
-        projects,
+        shared.projects,
         preferredProjectId || selectedProjectIdRef.current,
       );
       if (!batchesResponse?.ok) return;
@@ -445,20 +457,35 @@ export function WorkspaceChrome({
 
   useEffect(() => {
     let timer = 0;
-    function poll() {
-      void fetchTree(selectedProjectIdRef.current, { silent: true });
-      void fetchCollaborationData();
+    let flight: WorkspaceTreeRefreshFlight = { active: null, queued: null };
+    async function execute(refresh: WorkspaceTreeRefresh) {
+      try {
+        await Promise.all([
+          fetchTree(selectedProjectIdRef.current, {
+            metadata: refresh !== "poll",
+            silent: true,
+          }),
+          fetchCollaborationData(),
+        ]);
+      } finally {
+        const finished = finishWorkspaceTreeRefresh(flight);
+        flight = finished.flight;
+        if (finished.next) void execute(finished.next);
+      }
+    }
+    function requestRefresh(refresh: WorkspaceTreeRefresh) {
+      const decision = beginWorkspaceTreeRefresh(flight, refresh);
+      flight = decision.flight;
+      if (decision.started) void execute(refresh);
     }
     function arm() {
       window.clearInterval(timer);
       if (document.visibilityState !== "visible") return;
-      timer = window.setInterval(poll, WORKSPACE_TREE_POLL_MS);
+      timer = window.setInterval(() => requestRefresh("poll"), WORKSPACE_TREE_POLL_MS);
     }
     function onVisible() {
       arm();
-      if (document.visibilityState === "visible") {
-        poll();
-      }
+      if (document.visibilityState === "visible") requestRefresh("focus");
     }
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);

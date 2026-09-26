@@ -59,6 +59,11 @@ export interface ReleaseContent {
 
 export const releaseDefinitions = [
   {
+    tag: "v0.5.1",
+    date: "2026-09-26",
+    changes: ["cloud-agent-access", "agent-mcp-operations", "viewer-sharing-followups"],
+  },
+  {
     tag: "v0.5.0",
     date: "2026-09-25",
     changes: [

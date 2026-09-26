@@ -22,6 +22,28 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.5.1": {
+      title: "Cloud-Zugriff für Agenten und klarere Pin-Prüfungen",
+      summary:
+        "Pro-Konten können Agenten bereichsgebundene Cloud-Schlüssel bereitstellen und manuell konfigurierte MCP-Operationen nutzen. Der Viewer bündelt Pin-Unterhaltungen und Prüfaktionen und bietet klarere Freigabesteuerung.",
+      changes: {
+        "cloud-agent-access": {
+          title: "Bereichsgebundene Schlüssel für Agenten",
+          description:
+            "Konten von Pinar Cloud Pro können persönliche Agentenschlüssel mit Ressourcenbereich, Berechtigung und Ablaufdatum erstellen, deren Status und letzte Verwendung einsehen und sie widerrufen. Schlüssel, deren Berechtigung Lesezugriff umfasst, können private Markdown-Inhalte und Bilder innerhalb ihres Bereichs lesen. Pinar Local stellt diese Schlüssel nicht aus.",
+        },
+        "agent-mcp-operations": {
+          title: "Pinar-Cloud-Operationen über MCP",
+          description:
+            "Ein kompatibler MCP-Client kann Cloud-Operationen nutzen, nachdem du seinen HTTP-Endpunkt und einen Authorization: Bearer-Header mit einem Agentenschlüssel manuell konfiguriert hast. Die verfügbaren Tools lesen Daten zu Projekten, Sammlungen, Sitzungen und Stapeln im erlaubten Bereich, organisieren Ressourcen und veröffentlichen oder widerrufen Freigabelinks ausdrücklich, wenn der Schlüssel die nötige kontoweite Berechtigung besitzt. OAuth, automatische Erkennung, Löschen und Abrechnungsfunktionen sind nicht enthalten.",
+        },
+        "viewer-sharing-followups": {
+          title: "Pin-Unterhaltungen und klarere Freigabesteuerung",
+          description:
+            "Der Viewer führt ursprüngliche Pin-Notizen, spätere Kommentare und Agentenergebnisse in der Unterhaltung jedes Pins zusammen. Berechtigte Personen können kommentieren sowie eine Prüfung abschließen oder wieder öffnen. Vorschaubilder von Aufnahmen lassen sich in einer zoombaren Ansicht öffnen; Pin-Bezeichnungen sind klarer und ein Datenschutzhinweis erscheint, wenn Teile einer Aufnahme nicht geprüft wurden. Freigabelinks lassen sich veröffentlichen, kopieren und widerrufen. Beim gebündelten Widerruf werden nur direkte Sitzungslinks erfasst, nicht geerbte Links eines Projekts, einer Sammlung oder eines Stapels.",
+        },
+      },
+    },
     "v0.5.0": {
       title: "Sammlungsprüfer und eine ruhigere Arbeitsfläche",
       summary: "Ein Pro-Konto kann Prüfer zu einer Sammlung einladen. Gehostetes Cloud folgt dem aktuellen Angebot jedes Kontos. Die Ansicht bereitet Prompt kopieren beim Öffnen einer Sitzung vor, und die Arbeitsliste aktualisiert sich mit weniger Hintergrundladen.",

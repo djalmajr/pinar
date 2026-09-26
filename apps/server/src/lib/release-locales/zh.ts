@@ -20,6 +20,28 @@ const locale = {
     whatChanged: "更新内容",
   },
   releases: {
+    "v0.5.1": {
+      title: "面向代理的 Cloud 访问与更清晰的 pin 审阅",
+      summary:
+        "Pro 账户可以为代理提供限定范围的 Cloud 密钥，并使用手动配置的 MCP 操作。查看器整合了每个 pin 的对话和审阅操作，共享链接的管理也更加清晰。",
+      changes: {
+        "cloud-agent-access": {
+          title: "限定范围的代理密钥",
+          description:
+            "Pinar Cloud Pro 账户可以创建个人代理密钥，为其设置资源范围、权限和过期时间，查看密钥状态及最后使用时间，并随时撤销。具备读取权限的密钥可以访问其范围内的私有 Markdown 和图片。Pinar Local 不会签发这些密钥。",
+        },
+        "agent-mcp-operations": {
+          title: "通过 MCP 使用 Pinar Cloud 操作",
+          description:
+            "兼容的 MCP 客户端可以使用 Cloud 操作；使用前需手动配置 HTTP 端点，并通过代理密钥设置 Authorization: Bearer 请求头。可用工具能够读取范围内的项目、集合、会话和批次数据、整理资源，并在密钥具备所需的账户级权限时显式发布或撤销共享链接。不包含 OAuth、自动发现、删除或计费操作。",
+        },
+        "viewer-sharing-followups": {
+          title: "pin 对话与更清晰的共享控制",
+          description:
+            "查看器会将 pin 的原始备注、后续评论和代理执行结果整合到每个 pin 的对话中。获授权的用户可以发表评论，并完成或重新打开审阅。捕获缩略图可在支持缩放的视图中打开，pin 标签也更加清晰；如果捕获中有未检查的区域，还会显示隐私提醒。共享链接可以发布、复制和撤销；批量撤销仅针对会话的直接链接，不会撤销从项目、集合或批次继承的链接。",
+        },
+      },
+    },
     "v0.5.0": {
       title: "集合审阅者，以及更安静的工作区",
       summary: "Pro 账户可以邀请审阅者加入一个集合。托管 Cloud 遵循该账户当前的方案。打开会话时，查看器会准备复制提示词，工作区列表也会减少后台加载。",

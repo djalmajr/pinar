@@ -20,6 +20,28 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.5.1": {
+      title: "Cloud access for agents and clearer pin reviews",
+      summary:
+        "Pro accounts can give agents scoped Cloud keys and use MCP operations configured by hand. The viewer brings pin conversations and review actions together, with clearer controls for sharing links.",
+      changes: {
+        "cloud-agent-access": {
+          title: "Scoped keys for agent access",
+          description:
+            "Pinar Cloud Pro accounts can create personal agent keys with a resource scope, permission, and expiration, check their status and last use, and revoke them. Keys with a read-capable permission can access private Markdown and images within their scope. Pinar Local does not issue these keys.",
+        },
+        "agent-mcp-operations": {
+          title: "Pinar Cloud operations through MCP",
+          description:
+            "A compatible MCP client can use Cloud operations after you manually configure its HTTP endpoint and an Authorization: Bearer header with an agent key. Available tools read scoped project, collection, session, and batch data; organize resources; and explicitly publish or revoke share links when the key has the required account-level permission. OAuth, automatic discovery, deletion, and billing operations are not included.",
+        },
+        "viewer-sharing-followups": {
+          title: "Pin conversations and clearer share controls",
+          description:
+            "The viewer brings original pin notes, later comments, and agent results into each pin’s conversation. Authorized editors can add comments and conclude or reopen a pin review. Capture thumbnails open in a zoomable view, with clearer pin labels and a privacy reminder when parts of a capture were not checked. Share links can be published, copied, and revoked; bulk revocation targets direct session links without revoking links inherited from a project, collection, or batch.",
+        },
+      },
+    },
     "v0.5.0": {
       title: "Collection reviewers and a calmer workspace",
       summary: "A Pro account can invite reviewers to one collection. Hosted Cloud follows the current offer for each account. The viewer prepares Copy prompt when a session opens, and the workspace list refreshes with less background loading.",

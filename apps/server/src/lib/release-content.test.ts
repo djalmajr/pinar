@@ -53,13 +53,25 @@ describe("tagged release content", () => {
     ) as { version: string };
     const english = await loadReleaseContent("en");
 
-    const expectedReleaseTag = `v${packageJson.version}`;
+    const isPrerelease = packageJson.version.includes("-");
+    const expectedReleaseTag = isPrerelease
+      ? execFileSync("git", ["tag", "--list", "--sort=-version:refname", "v*"], {
+          cwd: repositoryRoot,
+          encoding: "utf8",
+        })
+          .split("\n")
+          .find((tag) => /^v\d+\.\d+\.\d+$/.test(tag))
+      : `v${packageJson.version}`;
 
+    assert.ok(expectedReleaseTag);
     assert.equal(english.releases[0]?.tag, expectedReleaseTag);
     assert.equal(
       findProductRelease(english, expectedReleaseTag)?.tag,
       expectedReleaseTag,
     );
+    if (isPrerelease) {
+      assert.equal(findProductRelease(english, `v${packageJson.version}`), null);
+    }
     assert.equal(
       findProductRelease(english, expectedReleaseTag.slice(1))?.tag,
       expectedReleaseTag,

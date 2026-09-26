@@ -59,16 +59,21 @@ import {
   TabsList,
   TabsTrigger,
   cn,
+  toast,
 } from "@pinar/ui";
 import { WorkspaceChrome, useWorkspaceChrome } from "@/components/WorkspaceChrome";
 import { PendingInvitationsBanner } from "@/components/PendingInvitationsBanner";
-import { copyBatchHandoff } from "../lib/session-actions";
+import { copyBatchHandoff, copySessionHandoff } from "../lib/session-actions";
 import { SessionActionsMenu } from "../components/SessionActionsMenu";
 import { useDeliveryPreferences } from "@/lib/delivery-preferences";
+import { collectionDisplayName } from "@/lib/collection-display-name";
 import { useDocumentMeta } from "@/lib/document-meta";
 import { type Translate, useServerI18n } from "@/lib/i18n";
 import { formatSessionDate } from "@/lib/session-date";
 import { flattenCollections } from "@/lib/collection-tree";
+import { readResponseRecord } from "@/lib/api-data";
+import { revokeShare } from "@/lib/share-links";
+import { directSessionShareIds, selectedSharedCaptures, type SharedCaptureTarget } from "@/lib/shared-capture-selection";
 import {
   filterSessions,
   pinCount,
@@ -84,17 +89,20 @@ import {
 import { WebViewer } from "@/pages/WebViewer";
 import CalendarIcon from "~icons/lucide/calendar-days";
 import CheckIcon from "~icons/lucide/check";
+import CircleAlertIcon from "~icons/lucide/circle-alert";
 import CopyIcon from "~icons/lucide/copy";
 import ExternalLinkIcon from "~icons/lucide/external-link";
 import FolderIcon from "~icons/lucide/folder";
 import GridIcon from "~icons/lucide/layout-grid";
 import ListFilterIcon from "~icons/lucide/list-filter";
+import LoaderCircleIcon from "~icons/lucide/loader-circle";
 import MessageCircleIcon from "~icons/lucide/message-circle";
 import MoreVerticalIcon from "~icons/lucide/ellipsis-vertical";
 import FolderInputIcon from "~icons/lucide/folder-input";
 import SearchIcon from "~icons/lucide/search";
 import TableIcon from "~icons/lucide/table-2";
 import TrashIcon from "~icons/lucide/trash-2";
+import UnlinkIcon from "~icons/lucide/unlink";
 import XIcon from "~icons/lucide/x";
 
 const HISTORY_VIEW_KEY = "pinar-history-view";
@@ -181,7 +189,11 @@ function SessionIdentity({
 
 function SessionActions({
   batchCopied,
+  batchCopyFailed,
+  batchCopying,
   copied,
+  copyFailed,
+  copying,
   session,
   onCopy,
   onCopyBatch,
@@ -190,7 +202,11 @@ function SessionActions({
   t,
 }: {
   batchCopied: boolean;
+  batchCopyFailed: boolean;
+  batchCopying: boolean;
   copied: boolean;
+  copyFailed: boolean;
+  copying: boolean;
   session: Session;
   onCopy: (session: Session) => void;
   onCopyBatch: (batchId: string) => void;
@@ -201,14 +217,15 @@ function SessionActions({
   return (
     <div className="flex items-center justify-end gap-0.5" data-session-actions>
       <Button
-        aria-label={copied ? t("common.copied") : t("dashboard.copyPrompt")}
+        aria-label={copying ? t("dashboard.copyPromptPreparing") : copyFailed ? t("dashboard.copyPromptFailed") : copied ? t("common.copied") : t("dashboard.copyPrompt")}
         data-no-dnd=""
+        disabled={copying}
         size="icon-sm"
-        title={copied ? t("common.copied") : t("dashboard.copyPrompt")}
+        title={copying ? t("dashboard.copyPromptPreparing") : copyFailed ? t("dashboard.copyPromptFailed") : copied ? t("common.copied") : t("dashboard.copyPrompt")}
         variant="ghost"
         onClick={() => onCopy(session)}
       >
-        {copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
+        {copied ? <CheckIcon className="size-3.5" /> : copying ? <LoaderCircleIcon className="size-3.5 animate-spin" /> : copyFailed ? <CircleAlertIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger
@@ -218,11 +235,16 @@ function SessionActions({
         </DropdownMenuTrigger>
         <SessionActionsMenu
           copied={copied}
+          copyFailed={copyFailed}
+          copying={copying}
+          privateMarkdown
           session={session}
           t={t}
           onDelete={onDelete}
           onMove={onMove}
           batchCopied={batchCopied}
+          batchCopyFailed={batchCopyFailed}
+          batchCopying={batchCopying}
           onCopyBatch={onCopyBatch}
         />
       </DropdownMenu>
@@ -456,7 +478,8 @@ export function HistoryDashboard({ viewerSessionId }: { viewerSessionId?: string
 
 function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string }) {
   const { language, t } = useServerI18n();
-  const { handoffMode, includeScreenshot } = useDeliveryPreferences();
+  const { copyViewerContent, handoffMode, includeScreenshot, includeViewer } = useDeliveryPreferences();
+  const viewerContentEnabled = includeViewer && copyViewerContent;
   const navigate = useNavigate();
   const {
     fetchTree,
@@ -474,7 +497,15 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
   } = useWorkspaceChrome();
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copiedBatchId, setCopiedBatchId] = useState<string | null>(null);
+  const [copyErrorId, setCopyErrorId] = useState<string | null>(null);
+  const [copyErrorBatchId, setCopyErrorBatchId] = useState<string | null>(null);
+  const [copyingId, setCopyingId] = useState<string | null>(null);
+  const [copyingBatchId, setCopyingBatchId] = useState<string | null>(null);
   const [deleteIds, setDeleteIds] = useState<string[]>([]);
+  const [revokeTargets, setRevokeTargets] = useState<SharedCaptureTarget[]>([]);
+  const [revokePreparing, setRevokePreparing] = useState(false);
+  const [revokeBusy, setRevokeBusy] = useState(false);
+  const [revokeError, setRevokeError] = useState(false);
   const [moveIds, setMoveIds] = useState<string[]>([]);
   const [moveProjectId, setMoveProjectId] = useState("");
   const [moveCollectionId, setMoveCollectionId] = useState("");
@@ -488,16 +519,17 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [view, setView] = useState<HistoryView>("grid");
-  useDocumentMeta(selectedCollection?.name || t("dashboard.allSessions"));
+  const inboxLabel = t("dashboard.protectedInbox");
+  useDocumentMeta(selectedCollection ? collectionDisplayName(selectedCollection, inboxLabel) : t("dashboard.allSessions"));
   const collectionNameBySessionId = useMemo(() => {
     const names = new Map<string, string>();
     for (const collection of selectedProject?.collections ?? []) {
       for (const session of collection.sessions) {
-        if (!names.has(session.id)) names.set(session.id, collection.name);
+        if (!names.has(session.id)) names.set(session.id, collectionDisplayName(collection, inboxLabel));
       }
     }
     return names;
-  }, [selectedProject]);
+  }, [inboxLabel, selectedProject]);
   const moveProjects = projectTree.projects;
   const moveProjectIds = moveProjects.map((project) => project.id);
   const moveCollectionTree = flattenCollections(
@@ -511,6 +543,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
       .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()),
     [pinFilters, reviewFilters, search, sessionGroups, sharedOnly],
   );
+  const visibleSelectedShares = filteredSessions.some((session) => selectedIds.has(session.id) && session.isShared);
   const gridSessions = useMemo(() => {
     const start = pagination.pageIndex * pagination.pageSize;
     return filteredSessions.slice(start, start + pagination.pageSize);
@@ -596,24 +629,47 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
       await copyBatch(session.batchId);
       return;
     }
-    await navigator.clipboard.writeText(formatClipboardText(
-      session.page,
-      session.pins,
-      session.shotUrl,
-      session.viewerUrl || `/v/${session.id}.md`,
-      session.captureId || session.id,
-      includeScreenshot,
-      handoffMode,
-      language,
-    ));
-    setCopiedId(session.id);
-    window.setTimeout(() => setCopiedId(null), 2_000);
+    if (copyingId || copyingBatchId) return;
+    setCopyingId(session.id);
+    setCopyErrorId(null);
+    setCopiedId(null);
+    try {
+      const copied = viewerContentEnabled
+        ? await copySessionHandoff(session.id, true)
+        : await navigator.clipboard.writeText(formatClipboardText(
+          session.page,
+          session.pins,
+          session.shotUrl,
+          session.viewerUrl || `/v/${session.id}.md`,
+          session.captureId || session.id,
+          includeScreenshot,
+          handoffMode,
+          language,
+        )).then(() => true);
+      if (!copied) throw new Error("session prompt unavailable");
+      setCopiedId(session.id);
+      window.setTimeout(() => setCopiedId(null), 2_000);
+    } catch {
+      setCopyErrorId(session.id);
+    } finally {
+      setCopyingId(null);
+    }
   }
 
   async function copyBatch(batchId: string) {
-    if (!await copyBatchHandoff(batchId)) return;
-    setCopiedBatchId(batchId);
-    window.setTimeout(() => setCopiedBatchId(null), 2_000);
+    if (copyingBatchId || copyingId) return;
+    setCopyingBatchId(batchId);
+    setCopyErrorBatchId(null);
+    setCopiedBatchId(null);
+    try {
+      if (!await copyBatchHandoff(batchId, viewerContentEnabled)) throw new Error("batch prompt unavailable");
+      setCopiedBatchId(batchId);
+      window.setTimeout(() => setCopiedBatchId(null), 2_000);
+    } catch {
+      setCopyErrorBatchId(batchId);
+    } finally {
+      setCopyingBatchId(null);
+    }
   }
 
   async function deleteSessions() {
@@ -628,6 +684,60 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
     });
     setDeleteIds([]);
     await fetchTree(selectedProject?.id);
+  }
+
+  async function revokeSelectedShares() {
+    if (revokeBusy || !revokeTargets.length) return;
+    setRevokeBusy(true);
+    setRevokeError(false);
+    try {
+      const results = await Promise.allSettled(
+        revokeTargets.map((target) => revokeShare("session", target.captureId)),
+      );
+      const failed = revokeTargets.filter((_, index) => results[index]?.status === "rejected");
+      const attemptedGroups = new Set(revokeTargets.map((target) => target.groupId));
+      const failedGroups = new Set(failed.map((target) => target.groupId));
+      setSelectedIds((current) => new Set([...current].filter((id) => (
+        !attemptedGroups.has(id) || failedGroups.has(id)
+      ))));
+      setRevokeTargets(failed);
+      setRevokeError(failed.length > 0);
+      try {
+        await fetchTree(selectedProject?.id);
+      } catch {
+        toast.error(t("dashboard.shareRefreshError"));
+      }
+    } catch {
+      setRevokeError(true);
+    } finally {
+      setRevokeBusy(false);
+    }
+  }
+
+  async function openRevokeDialog() {
+    if (revokePreparing) return;
+    setRevokePreparing(true);
+    try {
+      const response = await fetch("/api/shares", { cache: "no-store" });
+      const data = await readResponseRecord(response);
+      if (!response.ok || !data || !Array.isArray(data.tokens)) throw new Error("share_list_failed");
+      const targets = selectedSharedCaptures({
+        directlySharedCaptureIds: directSessionShareIds(data.tokens),
+        groups: sessionGroups,
+        selectedGroupIds: selectedIds,
+        visibleGroupIds: new Set(filteredSessions.map((session) => session.id)),
+      });
+      if (!targets.length) {
+        toast.info(t("dashboard.noDirectShareLinks"));
+        return;
+      }
+      setRevokeError(false);
+      setRevokeTargets(targets);
+    } catch {
+      toast.error(t("share.error"));
+    } finally {
+      setRevokePreparing(false);
+    }
   }
 
   function openMoveDialog(ids: string[]) {
@@ -746,7 +856,11 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
       cell: ({ row }) => (
         <SessionActions
           batchCopied={copiedBatchId != null && copiedBatchId === row.original.batchId}
+          batchCopyFailed={copyErrorBatchId != null && copyErrorBatchId === row.original.batchId}
+          batchCopying={copyingBatchId != null && copyingBatchId === row.original.batchId}
           copied={copiedId === row.original.id}
+          copyFailed={copyErrorId === row.original.id}
+          copying={copyingId === row.original.id}
           session={row.original}
           onCopy={(session) => void copyPrompt(session)}
           onCopyBatch={(id) => void copyBatch(id)}
@@ -762,7 +876,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
       meta: { align: "right", label: t("dashboard.actions") },
       size: 76,
     },
-  ], [collectionNameBySessionId, copiedBatchId, copiedId, handoffMode, includeScreenshot, language, projectTree.projects, selectedCollection, selectedProject, t]);
+  ], [collectionNameBySessionId, copiedBatchId, copyErrorBatchId, copyErrorId, copiedId, copyingBatchId, copyingId, handoffMode, includeScreenshot, includeViewer, language, projectTree.projects, selectedCollection, selectedProject, t, viewerContentEnabled]);
 
   const searchControl = (
     <div className="relative min-w-0 flex-1 sm:w-56 sm:min-w-40 sm:flex-none">
@@ -826,14 +940,21 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
     <div className="flex shrink-0 items-center gap-2" data-bulk-toolbar>
       <Button variant="outline" onClick={() => openMoveDialog([...selectedIds])}>
         <FolderInputIcon data-icon="inline-start" />
-        {t("dashboard.moveTo")}
+        {t("dashboard.move")}…
       </Button>
+      {sharedOnly && visibleSelectedShares ? (
+        <Button disabled={revokePreparing} variant="destructiveOutline" onClick={() => void openRevokeDialog()}>
+          {revokePreparing ? <LoaderCircleIcon className="animate-spin" data-icon="inline-start" /> : <UnlinkIcon data-icon="inline-start" />}
+          {t("dashboard.revokeLinks")}
+        </Button>
+      ) : null}
       <Button variant="destructiveOutline" onClick={() => setDeleteIds([...selectedIds])}>
         <TrashIcon data-icon="inline-start" />
         {t("dashboard.delete")}
       </Button>
-      <Button variant="ghost" onClick={() => setSelectedIds(new Set())}>
-        {t("dashboard.clearSelection")}
+      <Button variant="outline" onClick={() => setSelectedIds(new Set())}>
+        <XIcon data-icon="inline-start" />
+        {t("dashboard.clear")}
       </Button>
     </div>
   ) : null;
@@ -984,7 +1105,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
                           className="absolute top-2 right-2 z-10 flex items-center rounded-md bg-card/85 opacity-0 backdrop-blur-sm transition-opacity group-hover/card:opacity-100 group-focus-within/card:opacity-100 has-[[aria-expanded=true]]:opacity-100 pointer-coarse:opacity-100"
                           data-grid-actions
                         >
-                          <SessionActions batchCopied={copiedBatchId != null && copiedBatchId === session.batchId} copied={copiedId === session.id} session={session} onCopy={(current) => void copyPrompt(current)} onCopyBatch={(id) => void copyBatch(id)} onDelete={(id) => setDeleteIds([id])} onMove={(id) => openMoveDialog([id])} t={t} />
+                          <SessionActions batchCopied={copiedBatchId != null && copiedBatchId === session.batchId} batchCopyFailed={copyErrorBatchId != null && copyErrorBatchId === session.batchId} batchCopying={copyingBatchId != null && copyingBatchId === session.batchId} copied={copiedId === session.id} copyFailed={copyErrorId === session.id} copying={copyingId === session.id} session={session} onCopy={(current) => void copyPrompt(current)} onCopyBatch={(id) => void copyBatch(id)} onDelete={(id) => setDeleteIds([id])} onMove={(id) => openMoveDialog([id])} t={t} />
                         </div>
                         <SessionPreview session={session} t={t} onOpen={() => openViewer(session.id)} />
                         <CardHeader className="py-3">
@@ -1087,7 +1208,10 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
                 <Combobox
                   autoHighlight
                   disabled={!moveProjectId || !moveCollectionIds.length}
-                  itemToStringLabel={(collectionId) => moveCollectionTree.find(({ collection }) => collection.id === String(collectionId))?.collection.name ?? ""}
+                  itemToStringLabel={(collectionId) => {
+                    const entry = moveCollectionTree.find(({ collection }) => collection.id === String(collectionId));
+                    return entry ? collectionDisplayName(entry.collection, inboxLabel) : "";
+                  }}
                   itemToStringValue={(collectionId) => String(collectionId)}
                   items={moveCollectionIds}
                   value={moveCollectionId}
@@ -1102,7 +1226,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
                         return entry ? (
                           <ComboboxItem key={entry.collection.id} value={entry.collection.id}>
                             <span className="min-w-0 truncate" style={{ paddingInlineStart: `${entry.depth * 16}px` }}>
-                              {entry.collection.name}
+                              {collectionDisplayName(entry.collection, inboxLabel)}
                             </span>
                           </ComboboxItem>
                         ) : null;
@@ -1137,6 +1261,28 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction variant="destructive" onClick={() => void deleteSessions()}>
               {t("dashboard.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={revokeTargets.length > 0} onOpenChange={(open) => !open && !revokeBusy && setRevokeTargets([])}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("dashboard.revokeLinks")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("dashboard.revokeLinksDescription", { count: revokeTargets.length })}</AlertDialogDescription>
+          </AlertDialogHeader>
+          {revokeError ? <p className="text-sm text-destructive" role="alert">{t("dashboard.revokeLinksError", { count: revokeTargets.length })}</p> : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={revokeBusy}>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              aria-busy={revokeBusy || undefined}
+              className="min-w-36"
+              disabled={revokeBusy}
+              variant="destructive"
+              onClick={(event) => { event.preventDefault(); void revokeSelectedShares(); }}
+            >
+              <LoaderCircleIcon className={cn("size-4", revokeBusy ? "animate-spin" : "invisible")} data-icon="inline-start" />
+              {t(revokeBusy ? "share.revoking" : "share.revoke")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

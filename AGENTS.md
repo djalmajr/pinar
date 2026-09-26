@@ -25,6 +25,10 @@ After every source modification, rebuild and reinstall the affected local Pinar 
 
 skills.sh does not install these hooks.
 
+For Herdr agent work in this repository, keep the configured build lane on Cursor/Grok high and the review lane on Agy/Gemini Flash high. Use Agy medium for narrowly scoped UI or extension reviews when that effort is sufficient. Every review brief must identify the commit SHA or exact diff being reviewed. For polling or cached state, it must require at least one observable transition across requests (for example: shared session loaded, metadata-free poll, then revoked share on focus) and report the evidence separately from static inspection.
+
+If Agy reaches its quota, temporarily switch only the review lane in the current Herdr session to Codex/Luna high (`lane.review.kind=codex`, `lane.review.model=gpt-6-luna`, `lane.review.effort=high`). Clear those three session overrides when Agy is available again; keep the project defaults intact. Run `herdr-agents` and `herdr` commands with approved execution outside the Codex filesystem sandbox, because the sandbox blocks the Herdr socket; a sandbox `PermissionDenied` does not mean a worker failed or lost its task.
+
 Visual page annotations are copied to the clipboard by the Chrome extension (⌘/Ctrl+Enter). The same action copies a human Markdown representation and a `pinar-visual-context` JSON block (Visual Context v1). `captureId` and `pinId` identify the capture; do not rewrite them.
 
 When the user pastes annotations, or says they copied/annotated a page:

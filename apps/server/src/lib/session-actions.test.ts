@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import type { Session } from "@pinar/shared";
-import { batchPromptRevision, createBatchPromptCache } from "./session-actions";
+import type { AgentExecution, Session } from "@pinar/shared";
+import { batchHandoffRevision, batchPromptRevision, copyPromptIfCurrentRevision, createBatchPromptCache, sessionPromptRevision } from "./session-actions";
 
 function capture(comment: string, extra: Partial<Session> = {}): Session {
   return {
@@ -45,6 +45,98 @@ describe("batch prompt preparation", () => {
     assert.equal(calls, 2);
   });
 
+  test("does not write or report a single-page prompt after navigation changes the revision", async () => {
+    let resolveFetch!: (text: string) => void;
+    let currentRevision = "capture-old\nrevision-1";
+    let writes = 0;
+    const fetched = new Promise<string>((resolve) => { resolveFetch = resolve; });
+    const copy = copyPromptIfCurrentRevision(
+      () => fetched,
+      "capture-old\nrevision-1",
+      () => currentRevision,
+      async () => { writes += 1; },
+    );
+
+    currentRevision = "capture-new\nrevision-2";
+    resolveFetch("old session prompt");
+
+    assert.equal(await copy, "stale");
+    assert.equal(writes, 0);
+  });
+
+  test("does not copy a stale single-page prompt after review and execution state changes", async () => {
+    const delivery = { copyViewerContent: true, handoffMode: "full" as const, includeScreenshot: true, language: "en" as const };
+    const source = capture("Fix the key");
+    const openRevision = sessionPromptRevision(source, [{ pinId: "pin-1", status: "open" }], [], delivery, "capture");
+    let currentRevision = openRevision;
+    let resolveFetch!: (text: string) => void;
+    let writes = 0;
+    const fetched = new Promise<string>((resolve) => { resolveFetch = resolve; });
+    const copy = copyPromptIfCurrentRevision(
+      () => fetched,
+      openRevision,
+      () => currentRevision,
+      async () => { writes += 1; },
+    );
+
+    currentRevision = sessionPromptRevision(source, [{ pinId: "pin-1", status: "accepted" }], [{
+      agent: "codex",
+      captureId: source.id,
+      createdAt: "2026-09-25T00:00:00.000Z",
+      id: "execution-1",
+      idempotencyKey: "execution_1",
+      results: [{
+        createdAt: "2026-09-25T00:00:00.000Z",
+        files: [],
+        pinId: "pin-1",
+        status: "changed",
+        summary: "Changed the key",
+      }],
+    }], delivery, "capture");
+    resolveFetch("open session prompt");
+
+    assert.notEqual(currentRevision, openRevision);
+    assert.equal(await copy, "stale");
+    assert.equal(writes, 0);
+  });
+
+  test("does not report copied when navigation changes during clipboard writing", async () => {
+    let currentRevision = "capture-old\nrevision-1";
+    const result = await copyPromptIfCurrentRevision(
+      async () => "old session prompt",
+      "capture-old\nrevision-1",
+      () => currentRevision,
+      async () => {
+        currentRevision = "capture-new\nrevision-2";
+      },
+    );
+
+    assert.equal(result, "stale");
+  });
+
+  test("does not copy a stale batch prompt after navigation changes batches", async () => {
+    const delivery = { copyViewerContent: true, handoffMode: "full" as const, includeScreenshot: true, language: "en" as const };
+    const source = capture("Fix the key");
+    const batchARevision = batchHandoffRevision("batch-a", source, [], [], delivery, "capture-a");
+    let currentRevision = batchARevision;
+    let resolveFetch!: (text: string) => void;
+    let writes = 0;
+    const fetched = new Promise<string>((resolve) => { resolveFetch = resolve; });
+    const copy = copyPromptIfCurrentRevision(
+      () => fetched,
+      batchARevision,
+      () => currentRevision,
+      async () => { writes += 1; },
+    );
+
+    currentRevision = batchHandoffRevision("batch-b", capture("Fix the other key", { id: "capture-b" }), [], [], delivery, "capture-b");
+    resolveFetch("batch A prompt");
+
+    assert.notEqual(currentRevision, batchARevision);
+    assert.equal(await copy, "stale");
+    assert.equal(writes, 0);
+  });
+
   test("a failed preparation stays retryable and is not treated as copied text", async () => {
     let calls = 0;
     const fetchText = async () => {
@@ -58,6 +150,65 @@ describe("batch prompt preparation", () => {
     assert.equal(cache.prepared("batch-preview", revision), undefined);
     assert.equal(await cache.prepare("batch-preview", revision), "aggregated prompt");
     assert.equal(calls, 2);
+  });
+
+  test("re-fetches when delivery preferences or stored agent results change", async () => {
+    let calls = 0;
+    const cache = createBatchPromptCache(async () => {
+      calls += 1;
+      return `prompt-${calls}`;
+    });
+    const executions: AgentExecution[] = [{
+      agent: "codex",
+      captureId: "capture",
+      createdAt: "2026-09-25T00:00:00.000Z",
+      id: "execution-1",
+      idempotencyKey: "execution_1",
+      results: [{
+        createdAt: "2026-09-25T00:00:00.000Z",
+        files: [],
+        pinId: "pin-1",
+        status: "changed",
+        summary: "Changed the pin",
+      }],
+    }];
+    const base = batchPromptRevision([capture("Rotate the key")], [], [], {
+      copyViewerContent: false,
+      handoffMode: "compact",
+      includeScreenshot: true,
+      language: "en",
+    });
+    assert.equal(await cache.prepare("batch-preview", base), "prompt-1");
+    const full = batchPromptRevision([capture("Rotate the key")], [], [], {
+      copyViewerContent: true,
+      handoffMode: "full",
+      includeScreenshot: false,
+      language: "pt",
+    });
+    assert.notEqual(full, base);
+    assert.equal(await cache.prepare("batch-preview", full), "prompt-2");
+    const withExecution = batchPromptRevision([capture("Rotate the key")], [], executions, {
+      copyViewerContent: true,
+      handoffMode: "full",
+      includeScreenshot: false,
+      language: "pt",
+    });
+    assert.notEqual(withExecution, full);
+    assert.equal(await cache.prepare("batch-preview", withExecution), "prompt-3");
+    assert.equal(calls, 3);
+  });
+
+  test("passes the current viewer-content intent to every batch preparation request", async () => {
+    const intents: Array<boolean | undefined> = [];
+    const cache = createBatchPromptCache(async (_batchId, includeViewerContent) => {
+      intents.push(includeViewerContent);
+      return includeViewerContent ? "full prompt" : "compact prompt";
+    });
+    const compactRevision = batchPromptRevision([capture("Compact")], [], [], { copyViewerContent: false });
+    const fullRevision = batchPromptRevision([capture("Full")], [], [], { copyViewerContent: true });
+    assert.equal(await cache.prepare("batch-preview", compactRevision, false), "compact prompt");
+    assert.equal(await cache.prepare("batch-preview", fullRevision, true), "full prompt");
+    assert.deepEqual(intents, [false, true]);
   });
 
   test("an older request cannot replace a newer revision or another viewer cache", async () => {

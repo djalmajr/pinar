@@ -9,7 +9,15 @@ async function openAccountMenu(page: Page) {
 
 // Mutation captured: replacing the cloud API with the local-only adapter redirects this flow away from the paid workspace.
 test("isolated Cloudflare runtime renders Pro entitlements and manages shared sessions", async ({ page }) => {
-  await page.goto("/sign-in?extensionCode=PRCLD826&returnTo=%2Fapp");
+  const signIn = await page.request.post("/api/auth/email-codes/verify", {
+    data: {
+      code: "826826",
+      email: "pro.cloud-local@pinar.test",
+      returnTo: "/app",
+    },
+  });
+  expect(signIn.ok()).toBe(true);
+  await page.goto("/app");
   await expect(page).toHaveURL(/\/app$/);
 
   const contracts = await page.evaluate(async () => {
@@ -47,9 +55,9 @@ test("isolated Cloudflare runtime renders Pro entitlements and manages shared se
   await expect(page.getByTestId("account-storage").getByText("128 MB used of 2 GB", { exact: true })).toBeVisible();
   await expect(page.getByTestId("account-usage").getByText("Pinar Pro", { exact: true })).toHaveCount(0);
   await expect(page.locator("header").getByRole("button", { exact: true, name: "Settings" })).toHaveCount(0);
-  await expect(page.getByRole("menuitem", { exact: true, name: "Billing" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { exact: true, name: "Billing" })).toHaveCount(0);
   await expect(page.getByRole("menuitem", { exact: true, name: "Settings" })).toBeVisible();
-  await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText(["Billing", "Settings", "Homepage", "Sign out"]);
+  await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText(["Settings", "Homepage", "Sign out"]);
   await page.getByRole("menuitem", { exact: true, name: "Settings" }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.keyboard.press("Escape");

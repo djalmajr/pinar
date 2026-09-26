@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import type { ProjectTreeProject, Session } from "@pinar/shared";
-import { formatBatchMarkdown, formatProjectMarkdown, formatSessionMarkdown } from "./markdown";
+import type { AgentExecution, PinReview, ProjectTreeProject, Session } from "@pinar/shared";
+import { formatBatchMarkdown, formatProjectMarkdown, formatSessionHandoffMarkdown, formatSessionMarkdown, viewerReferenceMarkdown } from "./markdown";
 
 describe("aggregate markdown", () => {
   test("preserves manual collection, session, and pin order with live links", () => {
@@ -121,6 +121,85 @@ describe("aggregate markdown", () => {
     assert.doesNotMatch(markdown, /Screenshot:/);
     assert.doesNotMatch(markdown, /screenshot_missing/);
   });
+
+  test("keeps the localized handoff primary before appending private reference context", () => {
+    const session: Session = {
+      createdAt: "2026-01-02T00:00:00.000Z",
+      id: "session-two",
+      page: { title: "Second capture", url: "https://example.test/second" },
+      pins: [{ comment: "First pin", coords: { x: 1, y: 2 }, number: 1, type: "point" }],
+    };
+    const compact = formatSessionHandoffMarkdown(session, "https://pinar.test/v/session-two", [], [], {
+      includeViewerContent: true,
+      language: "en",
+      handoffMode: "compact",
+    });
+    const fullPortuguese = formatSessionHandoffMarkdown(session, "https://pinar.test/v/session-two", [], [], {
+      includeViewerContent: true,
+      language: "pt",
+      handoffMode: "full",
+    });
+    assert.match(compact, /The pin notes below may ask for a change or an explanation/);
+    assert.doesNotMatch(compact.split("## Reference only: full viewer Markdown")[0], /"number":1/);
+    assert.match(fullPortuguese, /As notas dos pins abaixo podem pedir uma alteração ou uma explicação/);
+    assert.match(fullPortuguese.split("## Reference only: full viewer Markdown")[0], /"number":1/);
+  });
+
+  test("renames unexpected visual-context fence variants without dropping their payload", () => {
+    const converted = viewerReferenceMarkdown("```pinar-visual-context-v1\r\nline one\r\nline two\r\n```");
+    assert.match(converted, /```pinar-viewer-reference/);
+    assert.match(converted, /line one\r?\nline two/);
+    assert.doesNotMatch(converted, /pinar-visual-context/);
+  });
+
+  test("keeps resolved pins out of the canonical single-page handoff while preserving full reference history", () => {
+    const session: Session = {
+      createdAt: "2026-01-02T00:00:00.000Z",
+      id: "session-resolved",
+      page: { title: "Resolved page", url: "https://example.test/resolved" },
+      pins: [
+        { comment: "Still open", coords: { x: 1, y: 2 }, id: "pin-open", number: 1, type: "point" },
+        { comment: "Already accepted", coords: { x: 3, y: 4 }, id: "pin-done", number: 2, type: "point" },
+      ],
+    };
+    const inline = formatSessionHandoffMarkdown(session, "https://pinar.test/v/session-resolved", [{
+      agent: "codex",
+      captureId: session.id,
+      createdAt: "2026-01-03T00:00:00.000Z",
+      id: "execution-resolved",
+      idempotencyKey: "execution_resolved",
+      results: [{
+        createdAt: "2026-01-03T00:00:00.000Z",
+        files: [],
+        pinId: "pin-done",
+        status: "changed",
+        summary: "Resolved result",
+      }],
+    }], [{
+      actions: ["accept"],
+      pinId: "pin-done",
+      status: "accepted",
+      timeline: [],
+      updatedAt: "2026-01-03T00:00:00.000Z",
+    }], { includeViewerContent: true, language: "en" });
+    assert.equal(inline.match(/```pinar-visual-context/g)?.length, 1);
+    assert.match(inline, /Still open/);
+    assert.match(inline, /## Reference only: full viewer Markdown/);
+    assert.match(inline, /Already accepted/);
+    assert.match(inline, /Resolved result/);
+    assert.match(inline, /status: accepted/);
+    assert.match(inline, /```pinar-viewer-reference/);
+    assert.match(inline, /"referenceOnly":true/);
+    assert.doesNotMatch(inline.split("## Reference only: full viewer Markdown")[1], /```pinar-visual-context/);
+    const compactDefault = formatSessionHandoffMarkdown(session, "https://pinar.test/v/session-resolved", [], [{
+      actions: ["accept"],
+      pinId: "pin-done",
+      status: "accepted",
+      timeline: [],
+      updatedAt: "2026-01-03T00:00:00.000Z",
+    }], { includeViewerContent: false });
+    assert.match(compactDefault, /pin-done/);
+  });
 });
 
 describe("batch markdown", () => {
@@ -189,6 +268,94 @@ describe("batch markdown", () => {
     const full = formatBatchMarkdown(batch, sessions, {}, "https://pinar.test", { handoffMode: "full" });
     assert.doesNotMatch(compact, /"number":1/);
     assert.match(full, /"number":1/);
+  });
+
+  test("can append full viewer Markdown as non-canonical reference while preserving actionable JSON blocks", () => {
+    const sessions = [session("one", "pin-a", "first page"), session("two", "pin-b", "second page")];
+    const executions: AgentExecution[] = [{
+      agent: "codex",
+      captureId: "one",
+      createdAt: "2026-09-26T00:00:00.000Z",
+      id: "execution-one",
+      idempotencyKey: "execution_one",
+      results: [{
+        createdAt: "2026-09-26T00:00:00.000Z",
+        files: ["src/button.tsx"],
+        pinId: "pin-a",
+        status: "changed",
+        summary: "Updated the button",
+      }],
+    }];
+    const reviews: PinReview[] = [{
+      actions: ["accept"],
+      pinId: "pin-a",
+      status: "open",
+      timeline: [],
+      updatedAt: "2026-09-26T00:00:00.000Z",
+    }, {
+      actions: ["accept"],
+      pinId: "pin-b",
+      status: "accepted",
+      timeline: [],
+      updatedAt: "2026-09-26T00:00:00.000Z",
+    }];
+    const inline = formatBatchMarkdown(batch, sessions, {}, "https://pinar.test", {
+      includeViewerContent: true,
+      viewerContent: { executions: { one: executions }, reviews: { one: reviews } },
+    });
+    assert.equal(inline.match(/```pinar-visual-context/g)?.length, 1);
+    assert.match(inline, /## Reference only: full viewer Markdown/);
+    assert.match(inline, /The filtered canonical blocks above are authoritative/);
+    assert.match(inline, /URL: https:\/\/example\.test\/one/);
+    assert.match(inline, /Viewer: https:\/\/pinar\.test\/v\/one/);
+    assert.match(inline, /URL: https:\/\/example\.test\/two/);
+    assert.match(inline, /captureId":"one"/);
+    assert.match(inline, /pinId":"pin-a"/);
+    assert.match(inline, /Updated the button/);
+    assert.match(inline, /pin-a: open/);
+    assert.match(inline, /```pinar-viewer-reference/);
+    assert.match(inline, /"referenceOnly":true/);
+    assert.doesNotMatch(inline, /token=/);
+  });
+
+  test("does not append a completed page or a second actionable fence", () => {
+    const completed = formatBatchMarkdown(
+      batch,
+      [session("done", "pin-done", "already accepted")],
+      { "pin-done": "accepted" },
+      "https://pinar.test",
+      {
+        includeViewerContent: true,
+        viewerContent: {
+          executions: { done: [] },
+          reviews: { done: [{ actions: ["reopen"], pinId: "pin-done", status: "accepted", timeline: [], updatedAt: "2026-09-26T00:00:00.000Z" }] },
+        },
+      },
+    );
+    assert.match(completed, /No pins are waiting/);
+    assert.doesNotMatch(completed, /```pinar-visual-context/);
+    assert.match(completed, /already accepted/);
+    assert.match(completed, /pin-done/);
+    assert.match(completed, /status: accepted/);
+  });
+
+  test("localizes the reference-only full viewer Markdown in every supported language", () => {
+    const expected = {
+      de: "vollständiges Viewer-Markdown",
+      en: "full viewer Markdown",
+      es: "Markdown completo del visor",
+      fr: "Markdown complet du viewer",
+      ja: "完全なビューアーMarkdown",
+      pt: "Markdown completo do viewer",
+      zh: "完整查看器 Markdown",
+    } as const;
+    for (const [language, heading] of Object.entries(expected)) {
+      const localized = formatBatchMarkdown(batch, [session("one", "pin-a", "first page")], {}, "https://pinar.test", {
+        includeViewerContent: true,
+        language: language as keyof typeof expected,
+      });
+      assert.match(localized, new RegExp(heading));
+    }
   });
 
   test("localizes instruction lines while keeping the JSON fence identical", () => {

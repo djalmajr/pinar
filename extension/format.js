@@ -170,6 +170,14 @@ function fillHandoff(template, vars) {
   return text;
 }
 
+function viewerMarkdownBlock(content) {
+  if (typeof content !== "string") return { html: "", plain: "" };
+  return {
+    html: `<hr/><p><strong>Pinar viewer Markdown</strong></p><pre data-pinar="viewer-markdown">${escapeHtml(content)}</pre>`,
+    plain: `\n\n--- BEGIN PINAR VIEWER MARKDOWN ---\n${content}\n--- END PINAR VIEWER MARKDOWN ---\n`,
+  };
+}
+
 /**
  * @param {{
  *   capabilities?: { fullPage?: boolean, iframe?: boolean },
@@ -183,6 +191,7 @@ function fillHandoff(template, vars) {
  *   shot?: string,
  *   includeScreenshot?: boolean,
  *   handoffMode?: "compact" | "full",
+ *   viewerContent?: string,
  *   viewerUrl?: string,
  *   viewport?: object,
  *   warnings?: string[],
@@ -201,6 +210,7 @@ export function formatClipboard({
   shot,
   includeScreenshot = true,
   handoffMode = "compact",
+  viewerContent,
   viewport,
   viewerUrl,
   warnings,
@@ -229,7 +239,8 @@ export function formatClipboard({
     ...(deliveredShot ? [copy.handoff_screenshot_note] : []),
     ...(finalViewer ? [fillHandoff(copy.handoff_full_context, { url: finalViewer })] : []),
   ];
-  const plain = `${instructions.join("\n")}\n\n\`\`\`pinar-visual-context\n${json}\n\`\`\`\n`;
+  const viewerMarkdown = viewerMarkdownBlock(viewerContent);
+  const plain = `${instructions.join("\n")}\n\n\`\`\`pinar-visual-context\n${json}\n\`\`\`\n${viewerMarkdown.plain}`;
 
   const htmlParts = [
     `<meta charset="utf-8"/>`,
@@ -237,6 +248,7 @@ export function formatClipboard({
     ...shotHtml(deliveredShot),
   ];
   htmlParts.push(`<pre data-pinar="pinar-visual-context">${escapeHtml(json)}</pre>`);
+  if (viewerMarkdown.html) htmlParts.push(viewerMarkdown.html);
 
   return { html: htmlParts.join("\n"), plain };
 }

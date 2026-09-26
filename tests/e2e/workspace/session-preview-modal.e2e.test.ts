@@ -327,6 +327,35 @@ test("table view puts the mini-preview in the first column and opens the viewer"
   await expect(page).toHaveURL(/\/app\?session=preview-e2e/);
 });
 
+test("a pin thumbnail opens that capture and the privacy note stays beside the image", async ({ page }) => {
+  await page.route("**/api/sessions/preview-e2e", (route) => route.fulfill({
+    json: { session: { ...session, privacy: { unevaluated: true } } },
+  }));
+  await page.goto("/app");
+  const dialog = await openPreview(page, "Lowcode Studio");
+  const note = "Some areas in this capture were not checked. Review the image before you share it.";
+  await expect(dialog.getByRole("note")).toHaveText(note);
+  await expect(dialog.locator("header")).not.toContainText(note);
+  const copy = dialog.getByRole("button", { exact: true, name: "Copy prompt" });
+  const copyBox = await copy.boundingBox();
+  expect(copyBox).not.toBeNull();
+  expect(copyBox!.width).toBeLessThan(48);
+  const thumb = dialog.getByRole("button", { name: "Open this capture" });
+  await thumb.focus();
+  await expect(thumb).toBeFocused();
+  await page.keyboard.press("Enter");
+  const shot = page.getByRole("dialog", { name: "Open this capture" });
+  await expect(shot).toBeVisible();
+  await expect(shot.getByRole("img", { name: "Lowcode Studio" })).toBeVisible();
+  const zoomIn = shot.getByRole("button", { name: "Zoom in" });
+  await zoomIn.focus();
+  await expect(zoomIn).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(shot).toBeHidden();
+  await expect(dialog).toBeVisible();
+  await expect(page).toHaveURL(/\/app/);
+});
+
 test("modal viewer prepares a batch prompt once and shows the wait before it is copied", async ({ page }) => {
   const batchSession = { ...session, batchId: "batch-preview" };
   await page.route("**/api/sessions/preview-e2e", (route) => route.fulfill({

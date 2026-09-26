@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Pinar.dev",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "Visual Annotations for AI Agents & Engineers",
   "default_locale": "en_US",
   "homepage_url": "https://pinar.dev",

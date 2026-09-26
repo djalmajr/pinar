@@ -331,6 +331,18 @@ describe("cloud collection collaborators and ACL", () => {
     const sessionData = sessionBody.session as Record<string, unknown>;
     assert.equal(sessionData.id, sessionId);
     assert.equal((sessionData.page as Record<string, unknown>).title, "Payment Screen");
+    const guestPreferences = await handleCloudApiRequest(new Request("https://pinar.test/api/preferences", {
+      body: JSON.stringify({ copyViewerContent: true }),
+      headers: { cookie: guest.cookie, "content-type": "application/json" },
+      method: "PATCH",
+    }), env);
+    assert.equal(guestPreferences.status, 200);
+    const privateMarkdownRes = await handleCloudApiRequest(new Request(`https://pinar.test/api/sessions/${sessionId}/markdown`, {
+      headers: { cookie: guest.cookie },
+      method: "GET",
+    }), env);
+    assert.equal(privateMarkdownRes.status, 200);
+    assert.match(await privateMarkdownRes.text(), /Reference only: full viewer Markdown/);
 
     // 7. Guest loads shot image directly without public share token
     const shotImageRes = await handleCloudPublicRequest(new Request(`https://pinar.test/shots/${sessionId}.png`, {
@@ -697,6 +709,11 @@ describe("cloud collection collaborators and ACL", () => {
       method: "GET",
     }), env);
     assert.equal(afterSessRes.status, 404);
+    const revokedPrivateMarkdown = await handleCloudApiRequest(new Request(`https://pinar.test/api/sessions/${sessionId}/markdown`, {
+      headers: { cookie: guest.cookie },
+      method: "GET",
+    }), env);
+    assert.equal(revokedPrivateMarkdown.status, 404);
 
     // 3. GET /shots/:id.png -> 404
     const afterShotRes = await handleCloudPublicRequest(new Request(`https://pinar.test/shots/${sessionId}.png`, {
@@ -937,8 +954,24 @@ describe("cloud collection collaborators and ACL", () => {
       headers: { cookie: guest1.cookie, "content-type": "application/json" },
       method: "POST",
     }), env);
-    assert.equal(restoredReviewRes.status, 409);
-    assert.equal((await jsonBody(restoredReviewRes)).code, "invalid_transition");
+    assert.equal(restoredReviewRes.status, 200);
+    const restoredReviewBody = await jsonBody(restoredReviewRes);
+    assert.equal(restoredReviewBody.ok, true);
+    assert.equal((restoredReviewBody.review as Record<string, unknown>).status, "accepted");
+
+    const persistedRes = await handleCloudApiRequest(new Request(`https://pinar.test/api/sessions/${sessionId}`, {
+      headers: { cookie: guest1.cookie },
+      method: "GET",
+    }), env);
+    assert.equal(persistedRes.status, 200);
+    const persistedBody = await jsonBody(persistedRes);
+    const persistedReviews = persistedBody.reviews;
+    assert.ok(Array.isArray(persistedReviews));
+    const persistedReview = persistedReviews.find((item) => (
+      typeof item === "object" && item !== null && (item as Record<string, unknown>).pinId === "pin_susp"
+    ));
+    assert.ok(persistedReview && typeof persistedReview === "object");
+    assert.equal((persistedReview as Record<string, unknown>).status, "accepted");
   });
 
   test("Account-bound authorization: strictly uses user_id, no email fallback once accepted", async () => {
@@ -1265,6 +1298,7 @@ describe("cloud collection collaborators and ACL", () => {
       const sessionId = "d1_share_session_01";
       const saved = await handleCloudApiRequest(new Request("https://pinar.test/api/history", {
         body: JSON.stringify({
+          batch: { id: "d1_share_batch_01", label: "D1 shared batch", startedAt: now },
           collectionId,
           id: sessionId,
           page: { title: "Shared Screen", url: "https://example.test/shared" },
@@ -1279,12 +1313,18 @@ describe("cloud collection collaborators and ACL", () => {
         headers: { cookie: ownerCookie, "content-type": "application/json" },
         method: "POST",
       }), env));
+      const batchShare = await jsonBody(await handleCloudApiRequest(new Request("https://pinar.test/api/shares/publish", {
+        body: JSON.stringify({ resourceId: "d1_share_batch_01", resourceType: "batch" }),
+        headers: { cookie: ownerCookie, "content-type": "application/json" },
+        method: "POST",
+      }), env));
       const collectionShare = await jsonBody(await handleCloudApiRequest(new Request("https://pinar.test/api/shares/publish", {
         body: JSON.stringify({ resourceId: collectionId, resourceType: "collection" }),
         headers: { cookie: ownerCookie, "content-type": "application/json" },
         method: "POST",
       }), env));
       const sessionToken = (sessionShare.shareToken as Record<string, unknown>).token;
+      const batchToken = (batchShare.shareToken as Record<string, unknown>).token;
       const collectionToken = (collectionShare.shareToken as Record<string, unknown>).token;
       const anonymousSession = await handleCloudPublicRequest(
         new Request(`https://pinar.test/v/${sessionId}.md?token=${sessionToken}`),
@@ -1311,6 +1351,12 @@ describe("cloud collection collaborators and ACL", () => {
       assert.equal(ownerSession.status, 200);
       assert.match(await ownerSession.text(), /Shared Screen/);
       assert.equal(ownerSession.headers.get("cache-control"), "private, no-store");
+      const anonymousBatch = await handleCloudPublicRequest(
+        new Request(`https://pinar.test/b/d1_share_batch_01.md?token=${batchToken}`),
+        env,
+      );
+      assert.equal(anonymousBatch.status, 200);
+      assert.doesNotMatch(await anonymousBatch.text(), /Reference only: full viewer Markdown/);
       const anonymousCollection = await handleCloudPublicRequest(
         new Request(`https://pinar.test/c/${collectionId}.md?token=${collectionToken}`),
         env,

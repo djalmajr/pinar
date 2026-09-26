@@ -309,7 +309,8 @@ export function OptionsApp() {
   const desktopInstallUrl =
     installPlatform === "win" ? windowsDesktopSetupUrl() : macosDesktopDmgUrl();
   const localStorageDescription = installPlatform === "win" ? t.local_desc_windows : t.local_desc;
-  const voiceAvailable = settings.storageMode === "cloud"
+  const voiceAvailable = authReady
+    && settings.storageMode === "cloud"
     && authSession?.kind === "account"
     && authSession.plan === "pro";
 
@@ -382,6 +383,7 @@ export function OptionsApp() {
 
   async function loadAuthSession(storageMode: PinarSettings["storageMode"] = settings.storageMode) {
     const requestId = startTrialLoad();
+    setAuthReady(false);
     setAuthError("");
     try {
       const response = await extensionMessage({ type: "auth:get" }, t.account_unavailable);
@@ -410,6 +412,7 @@ export function OptionsApp() {
     const previousMode = settings.storageMode;
     setStorageModeSaving(true);
     setAuthReady(false);
+    setAuthError("");
     setSettings((current) => ({ ...current, storageMode }));
     try {
       await chrome.storage.sync.set({ storageMode });
@@ -528,6 +531,7 @@ export function OptionsApp() {
     event.preventDefault();
     setEmailCodeVerificationLoading(true);
     setAuthError("");
+    let requestId: number | null = null;
     try {
       const response = await extensionMessage(
         { code: emailCode, email, type: "auth:email-code:verify" },
@@ -538,7 +542,8 @@ export function OptionsApp() {
         if (response.code === "legal_acceptance_required") throw new Error(t.account_legal_update_required);
         throw new Error(response.error || t.account_code_invalid);
       }
-      const requestId = startTrialLoad();
+      requestId = startTrialLoad();
+      setAuthReady(false);
       setAuthSession(response.session);
       setEmailCode("");
       setEmailCodeRequested(false);
@@ -546,6 +551,7 @@ export function OptionsApp() {
     } catch (cause) {
       setAuthError(cause instanceof Error ? cause.message : String(cause));
     } finally {
+      if (requestId === trialLoad.current.id) setAuthReady(true);
       setEmailCodeVerificationLoading(false);
     }
   }
@@ -553,6 +559,7 @@ export function OptionsApp() {
   async function logout() {
     const requestId = startTrialLoad();
     setLogoutLoading(true);
+    setAuthReady(false);
     setAuthError("");
     try {
       const response = await extensionMessage({ type: "auth:logout" }, t.account_unavailable);
@@ -565,11 +572,12 @@ export function OptionsApp() {
       setAuthError(cause instanceof Error ? cause.message : String(cause));
       await loadCloudTrial(settings.storageMode, authSession, requestId);
     } finally {
+      if (requestId === trialLoad.current.id) setAuthReady(true);
       setLogoutLoading(false);
     }
   }
 
-  const signedInCloud = authSession?.kind === "account" && settings.storageMode === "cloud";
+  const signedInCloud = authReady && authSession?.kind === "account" && settings.storageMode === "cloud";
   const trialForAccount = signedInCloud ? cloudTrial : null;
   const accountLabel = signedInCloud
     ? `${authSession.email} (${accountTypeLabel(authSession.plan, trialForAccount, t, lang)})`
@@ -645,11 +653,11 @@ export function OptionsApp() {
                             ) : null}
                           </span>
                         </label>
-                        {authSession?.kind === "account" && settings.storageMode === "cloud" ? (
+                        {authReady && authSession?.kind === "account" && settings.storageMode === "cloud" ? (
                           <Button className="h-7 shrink-0 text-xs" disabled={logoutLoading} size="sm" type="button" variant="outline" onClick={() => void logout()}><IconLogOut data-icon="inline-start" />{t.btn_sign_out}</Button>
-                        ) : (
+                        ) : authReady ? (
                           <Button className="h-7 shrink-0 text-xs" render={<a href={hostedSignInUrl(settings.cloudUrl, lang)} rel="noopener noreferrer" target="_blank" />} size="sm" variant="outline">{t.account_create_on_web}<IconExternalLink data-icon="inline-end" /></Button>
-                        )}
+                        ) : null}
                       </div>
                       {settings.storageMode === "cloud" ? (
                         <div className="flex flex-col gap-4 border-t p-3">
@@ -683,7 +691,7 @@ export function OptionsApp() {
                           )}
                         </section>
                           )}
-                          {authError && <p className="text-xs font-medium text-destructive" role="alert">{authError}</p>}
+                          {authReady && authError && <p className="text-xs font-medium text-destructive" role="alert">{authError}</p>}
                           {voiceAvailable ? (
                             <SettingRow size="xs" description={t.voice_post_processing_desc} title={t.voice_post_processing_label}>
                               <Switch

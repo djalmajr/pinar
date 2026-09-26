@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import ReactMarkdown from "react-markdown";
-import { formatClipboardText, getPinColor, type AgentExecution, type Pin, type PinLocation, type PinReview, type PinReviewHumanAction, type PinReviewStatus, type Reproduction, type Session } from "@pinar/shared";
+import { formatClipboardText, getPinColor, type AgentExecution, type Pin, type PinComment, type PinLocation, type PinReview, type PinReviewHumanAction, type Reproduction, type Session } from "@pinar/shared";
 import { ImageZoomControls, ImageZoomStage, useImageZoom } from "@/components/ImageZoomStage";
 import { PinEvidence } from "@/components/PinEvidence";
 import { PinStructure } from "@/components/PinStructure";
 import { ReproductionTimeline } from "@/components/ReproductionTimeline";
 import { SessionActionsMenu } from "../components/SessionActionsMenu";
-import { batchPromptRevision, copyBatchHandoff, createBatchPromptCache } from "../lib/session-actions";
+import { batchHandoffRevision, batchPromptRevision, copyPromptIfCurrentRevision, createBatchPromptCache, fetchBatchHandoff, fetchSessionHandoff, sessionPromptRevision } from "../lib/session-actions";
 import { ServerShell } from "@/components/ServerShell";
 import { WorkspaceChrome } from "@/components/WorkspaceChrome";
 import { isRecord, isSession } from "@/lib/api-data";
@@ -15,6 +15,8 @@ import { isPaidAuthSession, useAuthSession } from "@/lib/auth-session";
 import { useDeliveryPreferences } from "@/lib/delivery-preferences";
 import { useServerI18n, type ServerMessageKey } from "@/lib/i18n";
 import { formatPinMarkdown } from "@/lib/pin-markdown";
+import { cardOmitsLocationMethod, pinCardTitle } from "./pin-card-title";
+import { cardShowsConcluded, pinConversation } from "./pin-conversation";
 import { pinarRuntime, shouldUseWorkspaceChrome } from "@/lib/server-header";
 import { formatSessionDate } from "@/lib/session-date";
 import { sessionListingCopy } from "@/lib/session-listing";
@@ -24,7 +26,6 @@ import {
   fetchActiveShare,
   publishShare,
   revokeShare,
-  shareMarkdownPath,
 } from "@/lib/share-links";
 import { shareControlState, type ShareOperation } from "@/lib/share-control-state";
 import {
@@ -63,7 +64,9 @@ import CheckIcon from "~icons/lucide/check";
 import ChevronDownIcon from "~icons/lucide/chevron-down";
 import ChevronLeftIcon from "~icons/lucide/chevron-left";
 import ChevronRightIcon from "~icons/lucide/chevron-right";
+import CircleAlertIcon from "~icons/lucide/circle-alert";
 import CopyIcon from "~icons/lucide/copy";
+import LoaderCircleIcon from "~icons/lucide/loader-circle";
 import LayersIcon from "~icons/lucide/layers";
 import ExternalLinkIcon from "~icons/lucide/external-link";
 import MessageCircleIcon from "~icons/lucide/message-circle";
@@ -105,12 +108,12 @@ function OriginalPageAnchor({ className, url }: { className?: string; url: strin
   );
 }
 
-function PrivacyBadges({ session, t }: { session: Session; t: (key: ServerMessageKey, values?: Record<string, string | number>) => string }) {
+function CapturePrivacyNote({ session, t }: { session: Session; t: (key: ServerMessageKey, values?: Record<string, string | number>) => string }) {
   if (!session.privacy?.unevaluated) return null;
   return (
-    <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-      <Badge variant="destructive">{t("viewer.privacyUnevaluated")}</Badge>
-    </div>
+    <p className="shrink-0 border-b bg-card px-4 py-2 text-xs text-foreground" role="note">
+      {t("viewer.privacyUnevaluated")}
+    </p>
   );
 }
 
@@ -148,13 +151,8 @@ function ViewerPageIdentity({
         </DialogDescription>
       ) : null}
       {copy.url ? (
-        <div className="flex min-w-0 items-center gap-2">
-          <OriginalPageAnchor className={linkClassName} url={copy.url} />
-          <PrivacyBadges session={session} t={t} />
-        </div>
-      ) : (
-        <PrivacyBadges session={session} t={t} />
-      )}
+        <OriginalPageAnchor className={linkClassName} url={copy.url} />
+      ) : null}
     </div>
   );
 }
@@ -201,7 +199,7 @@ function LocationConfidenceBadge({
   t: (key: ServerMessageKey, vars?: Record<string, string | number>) => string;
 }) {
   const badge = locationBadge(t, location);
-  if (!badge || location?.confidence === "exact") return null;
+  if (!badge || cardOmitsLocationMethod(location)) return null;
   return (
     <Tooltip>
       <TooltipTrigger render={<span className="inline-flex max-w-full" />}>
@@ -216,23 +214,6 @@ function LocationConfidenceBadge({
 
 function pinLookupId(pin: Pin) {
   return pin.pinId || pin.id || "";
-}
-
-function reviewStatusLabel(
-  t: (key: ServerMessageKey, vars?: Record<string, string | number>) => string,
-  status: PinReviewStatus,
-) {
-  if (status === "correction_ready") return t("viewer.reviewCorrectionReady");
-  if (status === "accepted") return t("viewer.reviewAccepted");
-  if (status === "reopened") return t("viewer.reviewReopened");
-  return t("viewer.reviewOpen");
-}
-
-function reviewStatusBadge(status: PinReviewStatus) {
-  if (status === "correction_ready") return "warning" as const;
-  if (status === "accepted") return "successSoft" as const;
-  if (status === "reopened") return "secondary" as const;
-  return "outline" as const;
 }
 
 function asReviews(value: unknown): PinReview[] {
@@ -261,14 +242,19 @@ function reviewForPin(reviews: PinReview[], pin: Pin) {
   return reviews.find((review) => review.pinId === pinId);
 }
 
-function lastAgentResult(executions: AgentExecution[], pin: Pin) {
-  const pinId = pinLookupId(pin);
-  for (let index = executions.length - 1; index >= 0; index -= 1) {
-    const execution = executions[index];
-    const result = execution?.results.find((item) => item.pinId === pinId);
-    if (execution && result) return { agent: execution.agent, result };
-  }
-  return null;
+function asComments(value: unknown): PinComment[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is PinComment => (
+    isRecord(item)
+    && typeof item.id === "string"
+    && typeof item.captureId === "string"
+    && typeof item.pinId === "string"
+    && typeof item.actorId === "string"
+    && typeof item.actorLabel === "string"
+    && item.actorType === "human"
+    && typeof item.body === "string"
+    && typeof item.createdAt === "string"
+  ));
 }
 
 function ViewerFrame({ children, className }: { children: ReactNode; className?: string }) {
@@ -402,9 +388,8 @@ function ViewerLoadingState({
             </Button>
           ) : null}
           <ButtonGroup aria-label={t("viewer.pageActions")}>
-            <Button aria-label={t("dashboard.copyPrompt")} disabled type="button" variant="outline">
-              <CopyIcon data-icon="inline-start" />
-              <span className="hidden sm:inline">{t("dashboard.copyPrompt")}</span>
+            <Button aria-label={t("dashboard.copyPrompt")} disabled size="icon" title={t("dashboard.copyPrompt")} type="button" variant="outline">
+              <CopyIcon />
             </Button>
             <Button
               aria-label={t("viewer.moreActions")}
@@ -460,22 +445,6 @@ function ViewerLoadingState({
 
 type CopyPromptPhase = "idle" | "preparing" | "copied" | "error";
 
-function CopyPromptLabel({ active, labels }: { active: string; labels: readonly string[] }) {
-  return (
-    <span className="hidden whitespace-nowrap sm:inline-grid">
-      {labels.map((label) => (
-        <span
-          aria-hidden={label !== active}
-          className={label === active ? "col-start-1 row-start-1" : "invisible col-start-1 row-start-1"}
-          key={label}
-        >
-          {label}
-        </span>
-      ))}
-    </span>
-  );
-}
-
 export function WebViewer({
   captureIds = [],
   initialSession,
@@ -490,16 +459,24 @@ export function WebViewer({
   siblingIds = [],
 }: WebViewerProps) {
   const { language, t } = useServerI18n();
-  const { handoffMode } = useDeliveryPreferences();
+  const { copyViewerContent, handoffMode, includeScreenshot, includeViewer } = useDeliveryPreferences();
+  const viewerContentEnabled = includeViewer && copyViewerContent;
   const authSession = useAuthSession();
-  const showAiReproduction = pinarRuntime() === "local" || isPaidAuthSession(authSession);
+  const isLocalViewer = pinarRuntime() === "local";
+  const showAiReproduction = isLocalViewer || isPaidAuthSession(authSession);
   const [loading, setLoading] = useState(true);
   const [pageCopied, setPageCopied] = useState(false);
-  const [batchCopied, setBatchCopied] = useState(false);
+  const [pageCopyError, setPageCopyError] = useState(false);
+  const [batchCopyPhase, setBatchCopyPhase] = useState<CopyPromptPhase>("idle");
   const [copyPhase, setCopyPhase] = useState<CopyPromptPhase>("idle");
   const promptCache = useMemo(() => createBatchPromptCache(), []);
   const [reviewBusy, setReviewBusy] = useState(false);
+  const [reviewError, setReviewError] = useState("");
   const [reviews, setReviews] = useState<PinReview[]>([]);
+  const [comments, setComments] = useState<PinComment[]>([]);
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [commentErrors, setCommentErrors] = useState<Record<string, string>>({});
+  const [commentBusy, setCommentBusy] = useState(false);
   const [executions, setExecutions] = useState<AgentExecution[]>([]);
   const [selectedPin, setSelectedPin] = useState<Pin | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -515,6 +492,7 @@ export function WebViewer({
   });
   const [captures, setCaptures] = useState<Session[]>([]);
   const [highlightedCapture, setHighlightedCapture] = useState<string | null>(null);
+  const [isolatedShot, setIsolatedShot] = useState<{ id: string; src: string; title: string } | null>(null);
   const imageRefs = useRef(new Map<string, HTMLDivElement>());
   const captureKey = (presentation === "modal" && captureIds.length ? captureIds : [sessionId]).join(",");
   const pinOwner = (pin: Pin) => captures.find((capture) => capture.pins.some((item) => pinLookupId(item) === pinLookupId(pin))) || session;
@@ -524,6 +502,7 @@ export function WebViewer({
   const [pinPatchBusy, setPinPatchBusy] = useState(false);
   const [pinPatchError, setPinPatchError] = useState("");
   const zoom = useImageZoom(captureKey);
+  const isolatedZoom = useImageZoom(isolatedShot?.id ?? "none");
   const isModal = presentation === "modal";
   const activeNavigationId = navigationId ?? sessionId;
   const siblingIndex = siblingIds.indexOf(activeNavigationId);
@@ -553,17 +532,25 @@ export function WebViewer({
   }, [isModal, selectedPin, siblingIds, stepCapture]);
 
   async function loadSession(isCurrent: () => boolean = () => true) {
+    const localViewer = pinarRuntime() === "local";
     const results = await Promise.all(captureKey.split(",").map(async (id) => {
       const response = await fetch(`/api/sessions/${encodeURIComponent(id)}`);
       const data: unknown = await response.json();
       if (!response.ok || !isRecord(data) || !isSession(data.session)) throw new Error("Capture unavailable");
-      return { session: data.session, reviews: asReviews(data.reviews), executions: asExecutions(data.executions) };
+      return {
+        comments: asComments(data.comments),
+        // Pinar Local never loads agent feedback, even when older rows exist.
+        executions: localViewer ? [] : asExecutions(data.executions),
+        reviews: asReviews(data.reviews),
+        session: data.session,
+      };
     }));
     if (!isCurrent()) return;
     setCaptures(results.map((item) => item.session));
     setSession(results.find((item) => item.session.id === sessionId)?.session || results[0].session);
     setReviews(results.flatMap((item) => item.reviews));
-    setExecutions(results.flatMap((item) => item.executions));
+    setComments(results.flatMap((item) => item.comments));
+    setExecutions(localViewer ? [] : results.flatMap((item) => item.executions));
     setSelectedPin((current) => current ? results.flatMap((item) => item.session.pins).find((pin) => pinLookupId(pin) === pinLookupId(current)) || null : null);
   }
 
@@ -602,6 +589,7 @@ export function WebViewer({
     const pinId = pinLookupId(pin);
     if (!pinId || reviewBusy) return;
     setReviewBusy(true);
+    setReviewError("");
     try {
       const response = await fetch(
         `/api/sessions/${encodeURIComponent(pinOwner(pin)?.id || sessionId)}/pins/${encodeURIComponent(pinId)}/review`,
@@ -611,9 +599,43 @@ export function WebViewer({
           method: "POST",
         },
       );
-      if (response.ok) await loadSession();
+      if (!response.ok) {
+        setReviewError(t("viewer.reviewActionFailed"));
+        return;
+      }
+      await loadSession();
+    } catch {
+      setReviewError(t("viewer.reviewActionFailed"));
     } finally {
       setReviewBusy(false);
+    }
+  }
+
+  async function sendComment(pin: Pin) {
+    const pinId = pinLookupId(pin);
+    const draft = commentDrafts[pinId] ?? "";
+    if (!pinId || commentBusy || !draft.trim()) return;
+    setCommentBusy(true);
+    setCommentErrors((current) => ({ ...current, [pinId]: "" }));
+    try {
+      const response = await fetch(
+        `/api/sessions/${encodeURIComponent(pinOwner(pin)?.id || sessionId)}/pins/${encodeURIComponent(pinId)}/comments`,
+        {
+          body: JSON.stringify({ body: draft }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        },
+      );
+      if (!response.ok) {
+        setCommentErrors((current) => ({ ...current, [pinId]: t("viewer.commentFailed") }));
+        return;
+      }
+      setCommentDrafts((current) => ({ ...current, [pinId]: "" }));
+      await loadSession();
+    } catch {
+      setCommentErrors((current) => ({ ...current, [pinId]: t("viewer.commentFailed") }));
+    } finally {
+      setCommentBusy(false);
     }
   }
 
@@ -670,8 +692,8 @@ export function WebViewer({
     await patchPin(pin, { evidence: items.length ? { ...pin.evidence, items } : null }, "viewer.evidenceRemoveFailed");
   }
 
-  function markdownUrl() {
-    return new URL(shareMarkdownPath(sessionId, shareToken), window.location.origin).toString();
+  function clipboardViewerUrl() {
+    return new URL(`/v/${encodeURIComponent(sessionId)}`, window.location.origin).toString();
   }
 
   async function copyShareLink() {
@@ -715,23 +737,70 @@ export function WebViewer({
   }
 
   const aggregateBatchId = isModal && session?.batchId ? session.batchId : null;
-  const promptRevision = aggregateBatchId ? batchPromptRevision(captures, reviews) : "";
+  // Local prompts never carry agent feedback; Cloud keeps the current behavior.
+  const visibleExecutions = isLocalViewer ? [] : executions;
+  const promptRevision = aggregateBatchId
+    ? batchPromptRevision(captures, reviews, visibleExecutions, {
+      copyViewerContent: viewerContentEnabled,
+      handoffMode,
+      includeScreenshot,
+      language,
+    })
+    : "";
   const promptRevisionRef = useRef(promptRevision);
   promptRevisionRef.current = promptRevision;
+  const singlePromptRevision = sessionPromptRevision(session, reviews, visibleExecutions, {
+    copyViewerContent: viewerContentEnabled,
+    handoffMode,
+    includeScreenshot,
+    language,
+  }, captureKey);
+  const singlePromptRevisionRef = useRef(singlePromptRevision);
+  singlePromptRevisionRef.current = singlePromptRevision;
+  const batchCopyRevision = session?.batchId
+    ? batchHandoffRevision(session.batchId, session, reviews, visibleExecutions, {
+      copyViewerContent: viewerContentEnabled,
+      handoffMode,
+      includeScreenshot,
+      language,
+    }, captureKey)
+    : "";
+  const batchCopyRevisionRef = useRef(batchCopyRevision);
+  batchCopyRevisionRef.current = batchCopyRevision;
 
   useEffect(() => {
     if (!aggregateBatchId) return;
-    void promptCache.prepare(aggregateBatchId, promptRevision).catch(() => undefined);
-  }, [aggregateBatchId, promptCache, promptRevision]);
+    void promptCache.prepare(aggregateBatchId, promptRevision, viewerContentEnabled).catch(() => undefined);
+  }, [aggregateBatchId, promptCache, promptRevision, viewerContentEnabled]);
 
   useEffect(() => {
     setCopyPhase("idle");
-  }, [aggregateBatchId, promptRevision]);
+    setBatchCopyPhase("idle");
+    setPageCopyError(false);
+  }, [aggregateBatchId, batchCopyRevision, promptRevision, sessionId, singlePromptRevision, viewerContentEnabled]);
 
   async function copyBatch(batchId: string) {
-    if (!await copyBatchHandoff(batchId)) return;
-    setBatchCopied(true);
-    window.setTimeout(() => setBatchCopied(false), 2_000);
+    if (batchCopyPhase === "preparing") return;
+    if (!session || session.batchId !== batchId) return;
+    const revision = batchCopyRevision;
+    if (!revision) return;
+    setBatchCopyPhase("preparing");
+    try {
+      const result = await copyPromptIfCurrentRevision(
+        () => fetchBatchHandoff(batchId, viewerContentEnabled),
+        revision,
+        () => batchCopyRevisionRef.current,
+        (text) => navigator.clipboard.writeText(text),
+      );
+      if (result === "stale" || batchCopyRevisionRef.current !== revision) return;
+      setBatchCopyPhase("copied");
+      window.setTimeout(() => {
+        setBatchCopyPhase((phase) => phase === "copied" ? "idle" : phase);
+      }, 2_000);
+    } catch {
+      if (batchCopyRevisionRef.current !== revision) return;
+      setBatchCopyPhase("error");
+    }
   }
 
   async function copyPage() {
@@ -742,7 +811,8 @@ export function WebViewer({
       const waiting = promptCache.prepared(aggregateBatchId, revision) === undefined;
       if (waiting) setCopyPhase("preparing");
       try {
-        const text = await promptCache.prepare(aggregateBatchId, revision);
+        const text = await promptCache.prepare(aggregateBatchId, revision, viewerContentEnabled);
+        if (promptRevisionRef.current !== revision) return;
         await navigator.clipboard.writeText(text);
         if (promptRevisionRef.current !== revision) return;
         setCopyPhase("copied");
@@ -753,27 +823,49 @@ export function WebViewer({
       }
       return;
     }
-    await navigator.clipboard.writeText(formatClipboardText(
-      session.page,
-      session.pins,
-      session.shotUrl,
-      markdownUrl(),
-      session.captureId || session.id,
-      session.includeScreenshot !== false,
-      handoffMode,
-      language,
-    ));
-    setPageCopied(true);
-    window.setTimeout(() => setPageCopied(false), 2_000);
+    if (viewerContentEnabled) {
+      if (session.id !== sessionId) return;
+      if (copyPhase === "preparing") return;
+      const requestedSessionId = session.id;
+      const revision = singlePromptRevision;
+      setCopyPhase("preparing");
+      try {
+        const result = await copyPromptIfCurrentRevision(
+          () => fetchSessionHandoff(requestedSessionId, true),
+          revision,
+          () => singlePromptRevisionRef.current,
+          (text) => navigator.clipboard.writeText(text),
+        );
+        if (result === "stale" || singlePromptRevisionRef.current !== revision) return;
+        setCopyPhase("copied");
+        window.setTimeout(() => setCopyPhase((phase) => phase === "copied" ? "idle" : phase), 2_000);
+      } catch {
+        if (singlePromptRevisionRef.current !== revision) return;
+        setCopyPhase("error");
+      }
+      return;
+    }
+    setPageCopyError(false);
+    setPageCopied(false);
+    try {
+      await navigator.clipboard.writeText(formatClipboardText(
+        session.page,
+        session.pins,
+        session.shotUrl,
+        clipboardViewerUrl(),
+        session.captureId || session.id,
+        session.includeScreenshot !== false,
+        handoffMode,
+        language,
+      ));
+      setPageCopied(true);
+      window.setTimeout(() => setPageCopied(false), 2_000);
+    } catch {
+      setPageCopyError(true);
+    }
   }
 
-  const copyPromptLabels = [
-    t("dashboard.copyPrompt"),
-    t("dashboard.copyPromptPreparing"),
-    t("common.copied"),
-    t("dashboard.copyPromptFailed"),
-  ] as const;
-  const copyPromptLabel = aggregateBatchId
+  const copyPromptLabel = aggregateBatchId || viewerContentEnabled
     ? copyPhase === "preparing"
       ? t("dashboard.copyPromptPreparing")
       : copyPhase === "copied"
@@ -781,8 +873,17 @@ export function WebViewer({
         : copyPhase === "error"
           ? t("dashboard.copyPromptFailed")
           : t("dashboard.copyPrompt")
-    : pageCopied ? t("common.copied") : t("dashboard.copyPrompt");
-  const copyPromptCopied = aggregateBatchId ? copyPhase === "copied" : pageCopied;
+    : pageCopied ? t("common.copied") : pageCopyError ? t("dashboard.copyPromptFailed") : t("dashboard.copyPrompt");
+  const copyPromptCopied = aggregateBatchId || viewerContentEnabled ? copyPhase === "copied" : pageCopied;
+  const copyPromptPreparing = aggregateBatchId || viewerContentEnabled ? copyPhase === "preparing" : false;
+  const copyPromptFailed = aggregateBatchId || viewerContentEnabled ? copyPhase === "error" : pageCopyError;
+  const batchCopyLabel = batchCopyPhase === "preparing"
+    ? t("dashboard.copyPromptPreparing")
+    : batchCopyPhase === "copied"
+      ? t("common.copied")
+      : batchCopyPhase === "error"
+        ? t("dashboard.copyPromptFailed")
+        : t("dashboard.copyBatch");
 
 
   function wrapFrame(body: ReactNode, frameClassName?: string) {
@@ -908,31 +1009,30 @@ export function WebViewer({
           ) : null}
           <ButtonGroup aria-label={t("viewer.pageActions")}>
             <Button
-              aria-busy={aggregateBatchId && copyPhase === "preparing" ? true : undefined}
-              aria-invalid={aggregateBatchId && copyPhase === "error" ? true : undefined}
+              aria-busy={copyPromptPreparing ? true : undefined}
+              aria-invalid={copyPromptFailed ? true : undefined}
               aria-label={copyPromptLabel}
-              disabled={Boolean(aggregateBatchId && copyPhase === "preparing")}
+              disabled={copyPromptPreparing}
+              size="icon"
               title={copyPromptLabel}
               type="button"
               variant="outline"
               onClick={() => void copyPage()}
             >
-              {copyPromptCopied ? <CheckIcon data-icon="inline-start" /> : <CopyIcon data-icon="inline-start" />}
-              {aggregateBatchId ? (
-                <CopyPromptLabel active={copyPromptLabel} labels={copyPromptLabels} />
-              ) : (
-                <span className="hidden sm:inline">{copyPromptLabel}</span>
-              )}
+              {copyPromptCopied ? <CheckIcon /> : copyPromptPreparing ? <LoaderCircleIcon className="animate-spin" /> : copyPromptFailed ? <CircleAlertIcon /> : <CopyIcon />}
             </Button>
             {batchId && !isModal ? (
               <Button
-                aria-label={batchCopied ? t("common.copied") : t("dashboard.copyBatch")}
+                aria-busy={batchCopyPhase === "preparing" ? true : undefined}
+                aria-invalid={batchCopyPhase === "error" ? true : undefined}
+                aria-label={batchCopyLabel}
+                disabled={batchCopyPhase === "preparing"}
                 type="button"
                 variant="outline"
                 onClick={() => void copyBatch(batchId)}
               >
-                {batchCopied ? <CheckIcon data-icon="inline-start" /> : <LayersIcon data-icon="inline-start" />}
-                <span className="hidden sm:inline">{batchCopied ? t("common.copied") : t("dashboard.copyBatch")}</span>
+                {batchCopyPhase === "copied" ? <CheckIcon data-icon="inline-start" /> : batchCopyPhase === "preparing" ? <LoaderCircleIcon className="animate-spin" data-icon="inline-start" /> : batchCopyPhase === "error" ? <CircleAlertIcon data-icon="inline-start" /> : <LayersIcon data-icon="inline-start" />}
+                <span className="hidden sm:inline">{batchCopyLabel}</span>
               </Button>
             ) : null}
             <DropdownMenu>
@@ -949,8 +1049,13 @@ export function WebViewer({
                 <ChevronDownIcon />
               </DropdownMenuTrigger>
               <SessionActionsMenu
-                batchCopied={batchCopied}
-                copied={pageCopied}
+                batchCopied={batchCopyPhase === "copied"}
+                batchCopyFailed={batchCopyPhase === "error"}
+                batchCopying={batchCopyPhase === "preparing"}
+                copied={copyPromptCopied}
+                copyFailed={copyPromptFailed}
+                copying={copyPromptPreparing}
+                privateMarkdown={pinarRuntime() === "local" || showShareControls}
                 session={session}
                 shareToken={shareToken}
                 t={t}
@@ -965,6 +1070,7 @@ export function WebViewer({
       <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,3fr)_minmax(12rem,2fr)] md:grid-cols-[minmax(0,1fr)_22rem] md:grid-rows-1">
         {captures.some((capture) => capture.shotUrl) ? (
           <div className="relative flex min-h-0 min-w-0 flex-col">
+            <CapturePrivacyNote session={session} t={t} />
             <ImageZoomStage
               alt={t("viewer.annotatedScreenshot")}
               src={session.shotUrl || ""}
@@ -1031,12 +1137,25 @@ export function WebViewer({
                 {captures.flatMap((capture) => capture.pins.map((pin, index) => ({ capture, pin, index }))).map(({ capture, pin, index }) => {
                   const number = pinNumber(pin, index);
                   const color = pin.color || getPinColor(number);
-                  const isArea = pin.type === "area" || pin.kind === "area";
                   const review = reviewForPin(reviews, pin);
                   return (
+                    <div className="flex flex-col gap-2" key={`${capture.id}-${pinLookupId(pin)}`}>
+                    {capture.shotUrl ? (
+                      <button
+                        aria-label={t("viewer.openCapture")}
+                        className="overflow-hidden rounded-md border bg-muted text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        type="button"
+                        onClick={() => setIsolatedShot({
+                          id: capture.id,
+                          src: capture.shotUrl!,
+                          title: capture.page.title || capture.page.url,
+                        })}
+                      >
+                        <img alt="" className="h-24 w-full object-cover object-top" draggable={false} src={capture.shotUrl} />
+                      </button>
+                    ) : null}
                     <Button
                       className="h-auto w-full justify-start p-0 text-left whitespace-normal"
-                      key={`${capture.id}-${pinLookupId(pin)}`}
                       title={t("viewer.openPin", { number })}
                       variant="ghost"
                       onClick={() => { setHighlightedCapture(capture.id); const image = imageRefs.current.get(capture.id); if (image) zoom.focusElement(image); setSelectedPin(pin); }}
@@ -1046,17 +1165,15 @@ export function WebViewer({
                           <PinBadge color={color} number={number} />
                           <div className="min-w-0">
                             <CardTitle className="text-sm">
-                              {isArea ? t("viewer.areaSelection") : pin.tag || pin.label || t("viewer.element")}
+                              {pinCardTitle(pin, { area: t("viewer.areaSelection"), element: t("viewer.element") })}
                             </CardTitle>
                             <CardDescription className="mt-1 line-clamp-3 whitespace-pre-wrap text-xs text-foreground">
                               {pin.comment}
                             </CardDescription>
                             {captures.length > 1 ? <p className="mt-1 truncate text-xs text-muted-foreground">{capture.page.title || capture.page.url}</p> : null}
                             <div className="mt-2 flex flex-wrap gap-1.5">
-                              {review ? (
-                                <Badge variant={reviewStatusBadge(review.status)}>
-                                  {reviewStatusLabel(t, review.status)}
-                                </Badge>
+                              {review && cardShowsConcluded(review.status) ? (
+                                <Badge variant="successSoft">{t("viewer.pinConcluded")}</Badge>
                               ) : null}
                               <LocationConfidenceBadge location={pin.location} t={t} />
                             </div>
@@ -1071,6 +1188,7 @@ export function WebViewer({
                         )}
                       </Card>
                     </Button>
+                    </div>
                   );
                 })}
               </div>
@@ -1080,10 +1198,10 @@ export function WebViewer({
       </div>,
     )}
       <Dialog open={Boolean(selectedPin)} onOpenChange={(open) => !open && setSelectedPin(null)}>
-        <DialogContent className="min-w-0 max-w-[calc(100vw-2rem)] overflow-x-hidden sm:max-w-5xl" outsideScroll showCloseButton>
+        <DialogContent className="min-w-0 max-w-[calc(100vw-2rem)] overflow-x-hidden sm:max-w-5xl" outsideScroll>
           {selectedPin && (
             <Tabs className="min-w-0" defaultValue="preview">
-              <div className="flex items-start justify-between gap-4 pr-9">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <DialogHeader className="min-w-0">
                   <div className="flex items-center gap-3">
                     <PinBadge color={selectedColor} number={selectedNumber} />
@@ -1097,34 +1215,40 @@ export function WebViewer({
                     </div>
                   </div>
                 </DialogHeader>
-                <TabsList className="shrink-0" variant="segmented">
-                  <TabsTrigger value="preview">{t("viewer.preview")}</TabsTrigger>
-                  <TabsTrigger value="raw">{t("viewer.raw")}</TabsTrigger>
-                  {selectedPin.snapshot ? <TabsTrigger value="structure">{t("viewer.structure")}</TabsTrigger> : null}
-                </TabsList>
+                <div className="flex min-w-0 items-center gap-2">
+                  <TabsList className="min-w-0 flex-1 overflow-hidden sm:flex-none" variant="segmented">
+                    <TabsTrigger value="preview">{t("viewer.preview")}</TabsTrigger>
+                    <TabsTrigger value="raw">{t("viewer.raw")}</TabsTrigger>
+                    {selectedPin.snapshot ? <TabsTrigger value="structure">{t("viewer.structure")}</TabsTrigger> : null}
+                  </TabsList>
+                  <DialogClose
+                    render={<Button aria-label="Close" className="shrink-0" size="icon-sm" title="Close" variant="ghost" />}
+                  >
+                    <XIcon />
+                    <span className="sr-only">Close</span>
+                  </DialogClose>
+                </div>
               </div>
               {(() => {
                 const review = reviewForPin(reviews, selectedPin);
-                const last = lastAgentResult(executions, selectedPin);
-                if (!review) return null;
+                const concluded = cardShowsConcluded(review?.status);
+                const pinId = pinLookupId(selectedPin);
+                const owner = pinOwner(selectedPin);
+                const thread = pinConversation({
+                  agentExecutions: isLocalViewer ? [] : executions,
+                  captureCreatedAt: owner?.createdAt || "",
+                  captureId: owner?.id || sessionId,
+                  comments,
+                  pin: selectedPin,
+                  pinAuthor: t("viewer.originalPinComment"),
+                });
+                const draft = commentDrafts[pinId] ?? "";
                 return (
-                  <div className="flex flex-col gap-3 rounded-lg border bg-muted/30 p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <Badge variant={reviewStatusBadge(review.status)}>
-                        {reviewStatusLabel(t, review.status)}
-                      </Badge>
+                  <div className="flex min-w-0 flex-col gap-3 rounded-lg border bg-muted/30 p-4">
+                    <div className="flex flex-wrap items-center justify-end gap-3">
+                      {concluded ? <Badge variant="successSoft">{t("viewer.pinConcluded")}</Badge> : null}
                       <div className="flex flex-wrap gap-2">
-                        {review.actions.includes("accept") ? (
-                          <Button
-                            disabled={reviewBusy}
-                            size="sm"
-                            type="button"
-                            onClick={() => void submitReview(selectedPin, "accept")}
-                          >
-                            {t("viewer.acceptCorrection")}
-                          </Button>
-                        ) : null}
-                        {review.actions.includes("reopen") ? (
+                        {concluded ? (
                           <Button
                             disabled={reviewBusy}
                             size="sm"
@@ -1132,41 +1256,64 @@ export function WebViewer({
                             variant="outline"
                             onClick={() => void submitReview(selectedPin, "reopen")}
                           >
+                            {reviewBusy ? <LoaderCircleIcon className="animate-spin" /> : null}
                             {t("viewer.reopenPin")}
                           </Button>
-                        ) : null}
+                        ) : (
+                          <Button
+                            disabled={reviewBusy}
+                            size="sm"
+                            type="button"
+                            onClick={() => void submitReview(selectedPin, "accept")}
+                          >
+                            {reviewBusy ? <LoaderCircleIcon className="animate-spin" /> : null}
+                            {t("viewer.concludePin")}
+                          </Button>
+                        )}
                       </div>
                     </div>
-                    <div className="text-sm">
-                      <p className="font-medium">{t("viewer.lastAgentResult")}</p>
-                      {last ? (
-                        <p className="mt-1 text-muted-foreground">
-                          {last.agent}: {last.result.status}
-                          {last.result.summary ? ` — ${last.result.summary}` : ""}
-                        </p>
-                      ) : (
-                        <p className="mt-1 text-muted-foreground">{t("viewer.noAgentResult")}</p>
-                      )}
-                    </div>
-                    {review.timeline.length > 0 ? (
-                      <div className="text-sm">
-                        <p className="font-medium">{t("viewer.reviewTimeline")}</p>
-                        <ul className="mt-1 flex flex-col gap-1 text-xs text-muted-foreground">
-                          {review.timeline.map((event) => (
-                            <li key={event.id}>
-                              {t("viewer.reviewTransition", {
-                                from: reviewStatusLabel(t, event.fromStatus),
-                                to: reviewStatusLabel(t, event.toStatus),
-                              })}
-                              {" · "}
-                              {event.origin}
-                              {" · "}
-                              {event.actorType}
+                    {reviewError ? <p className="text-sm text-destructive" role="alert">{reviewError}</p> : null}
+                    <section aria-label={t("viewer.comments")} className="flex min-w-0 flex-col gap-3">
+                      <h3 className="text-sm font-medium">{t("viewer.comments")}</h3>
+                      {thread.length > 0 ? (
+                        <ol className="flex min-w-0 flex-col gap-2">
+                          {thread.map((message) => (
+                            <li className="min-w-0 rounded-md border bg-card px-3 py-2" key={message.id}>
+                              <p className="text-xs font-medium text-foreground">{message.author}</p>
+                              <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground [overflow-wrap:anywhere]">{message.text}</p>
                             </li>
                           ))}
-                        </ul>
-                      </div>
-                    ) : null}
+                        </ol>
+                      ) : null}
+                      {canEditPins ? (
+                        <form
+                          className="flex min-w-0 flex-col gap-2"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            void sendComment(selectedPin);
+                          }}
+                        >
+                          <label className="min-w-0">
+                            <span className="sr-only">{t("viewer.commentLabel")}</span>
+                            <textarea
+                              className="border-input bg-background focus-visible:ring-ring min-h-20 w-full rounded-md border px-3 py-2 text-sm outline-none focus-visible:ring-2"
+                              value={draft}
+                              onChange={(event) => {
+                                const value = event.target.value;
+                                setCommentDrafts((current) => ({ ...current, [pinId]: value }));
+                              }}
+                            />
+                          </label>
+                          <div>
+                            <Button disabled={commentBusy || !draft.trim()} size="sm" type="submit">
+                              {commentBusy ? <LoaderCircleIcon className="animate-spin" /> : null}
+                              {t("viewer.sendComment")}
+                            </Button>
+                          </div>
+                          {commentErrors[pinId] ? <p className="text-sm text-destructive" role="alert">{commentErrors[pinId]}</p> : null}
+                        </form>
+                      ) : null}
+                    </section>
                   </div>
                 );
               })()}
@@ -1213,6 +1360,35 @@ export function WebViewer({
               ) : null}
             </Tabs>
           )}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={Boolean(isolatedShot)} onOpenChange={(open) => { if (!open) setIsolatedShot(null); }}>
+        <DialogContent className="flex h-[min(90vh,48rem)] min-w-0 max-w-[calc(100vw-2rem)] flex-col overflow-hidden sm:max-w-5xl" showCloseButton>
+          <DialogHeader>
+            <DialogTitle>{t("viewer.openCapture")}</DialogTitle>
+            <DialogDescription>{isolatedShot?.title || t("viewer.annotatedScreenshot")}</DialogDescription>
+          </DialogHeader>
+          {isolatedShot ? (
+            <div className="relative flex min-h-0 flex-1 flex-col">
+              <ImageZoomStage
+                alt={isolatedShot.title}
+                src={isolatedShot.src}
+                stageRef={isolatedZoom.stageRef}
+                transform={isolatedZoom.transform}
+                onDoubleClick={() => isolatedZoom.transform.scale <= 1 ? isolatedZoom.zoomBy(2) : isolatedZoom.resetZoom()}
+                onPointerCancel={isolatedZoom.handlePointerUp}
+                onPointerDown={isolatedZoom.handlePointerDown}
+                onPointerMove={isolatedZoom.handlePointerMove}
+                onPointerUp={isolatedZoom.handlePointerUp}
+                onWheel={isolatedZoom.handleWheel}
+              />
+              <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center">
+                <div className="pointer-events-auto">
+                  <ImageZoomControls scale={isolatedZoom.transform.scale} onReset={isolatedZoom.resetZoom} onZoomBy={isolatedZoom.zoomBy} />
+                </div>
+              </div>
+            </div>
+          ) : null}
         </DialogContent>
       </Dialog>
     </TooltipProvider>

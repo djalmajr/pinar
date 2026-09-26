@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -300,7 +301,7 @@ describe("history", () => {
     assert.equal(opened.length, 1);
     assert.equal(opened[0].pinId, "pin_cta");
     assert.equal(opened[0].status, "open");
-    assert.deepEqual(opened[0].actions, []);
+    assert.deepEqual(opened[0].actions, ["accept"]);
     assert.deepEqual(opened[0].timeline, []);
 
     const first = db.saveAgentExecution({
@@ -373,5 +374,65 @@ describe("history", () => {
     assert.equal(session.collectionId, destination.collectionId);
     assert.equal(db.resolveDestination("missing").projectId, destination.projectId);
     db.close();
+  });
+
+  test("sqlite pin comments survive a restart and stay inside their capture", () => {
+    const db = openHistoryDb(tempDir);
+    db.saveSession({
+      id: "capture_comment_a",
+      page: { title: "A" },
+      pins: [
+        { comment: "one", kind: "element", pinId: "pin_one" },
+        { comment: "two", kind: "element", pinId: "pin_two" },
+      ],
+    });
+    db.saveSession({
+      id: "capture_comment_b",
+      page: { title: "B" },
+      pins: [{ comment: "other", kind: "element", pinId: "pin_one" }],
+    });
+    const first = db.addPinComment("capture_comment_a", "pin_one", "  hello  ");
+    assert.equal(first.body, "hello");
+    assert.equal(first.actorId, "local");
+    assert.equal(first.actorLabel, "Local");
+    assert.equal(first.actorType, "human");
+    db.addPinComment("capture_comment_a", "pin_two", "later");
+    assert.throws(
+      () => db.addPinComment("capture_comment_a", "pin_missing", "nope"),
+      (error) => error?.code === "pin_not_found",
+    );
+    db.close();
+
+    const reopened = openHistoryDb(tempDir);
+    assert.deepEqual(reopened.listPinComments("capture_comment_a").map((item) => item.body), ["hello", "later"]);
+    assert.deepEqual(reopened.listPinComments("capture_comment_a").map((item) => item.pinId), ["pin_one", "pin_two"]);
+    assert.deepEqual(reopened.listPinComments("capture_comment_b"), []);
+    assert.equal(reopened.deleteSession("capture_comment_a"), true);
+    assert.deepEqual(reopened.listPinComments("capture_comment_a"), []);
+    reopened.addPinComment("capture_comment_b", "pin_one", "kept");
+    reopened.clearHistory();
+    assert.deepEqual(reopened.listPinComments("capture_comment_b"), []);
+    reopened.close();
+  });
+
+  test("json history fallback keeps pin comments across a restart", () => {
+    mkdirSync(join(tempDir, "history.db"));
+    const db = openHistoryDb(tempDir);
+    db.saveSession({
+      id: "json_comment_capture",
+      page: { title: "JSON" },
+      pins: [{ comment: "pin", kind: "element", pinId: "pin_json" }],
+    });
+    db.addPinComment("json_comment_capture", "pin_json", "from disk");
+    db.close();
+
+    const reopened = openHistoryDb(tempDir);
+    const comments = reopened.listPinComments("json_comment_capture");
+    assert.equal(comments.length, 1);
+    assert.equal(comments[0].body, "from disk");
+    assert.equal(comments[0].actorLabel, "Local");
+    reopened.deleteSession("json_comment_capture");
+    assert.deepEqual(reopened.listPinComments("json_comment_capture"), []);
+    reopened.close();
   });
 });

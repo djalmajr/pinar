@@ -97,7 +97,9 @@ export function AggregateViewer({ id, kind }: AggregateViewerProps) {
   }, [id, kind]);
 
   async function copyMarkdown() {
-    const response = await fetch(`/${kind === "project" ? "p" : "c"}/${id}.md`);
+    const token = new URLSearchParams(window.location.search).get("token");
+    const query = token ? `?token=${encodeURIComponent(token)}` : "";
+    const response = await fetch(`/${kind === "project" ? "p" : "c"}/${id}.md${query}`);
     if (!response.ok)
       throw new Error(`Unable to load Markdown (${response.status})`);
     await navigator.clipboard.writeText(await response.text());
@@ -155,6 +157,10 @@ export function AggregateViewer({ id, kind }: AggregateViewerProps) {
     (count, collection) => count + collection.sessions.length,
     0,
   );
+  const token = typeof window === "undefined"
+    ? null
+    : new URLSearchParams(window.location.search).get("token");
+  const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : "";
   return (
     <ServerShell>
       <header className="flex min-h-14 shrink-0 items-center gap-4 border-b bg-card px-5 py-2">
@@ -216,7 +222,7 @@ export function AggregateViewer({ id, kind }: AggregateViewerProps) {
                         })}
                       </span>
                       <Button
-                        render={<a href={`/v/${session.id}`} />}
+                        render={<a href={`/v/${session.id}${tokenQuery}`} />}
                         size="sm"
                         variant="outline"
                       >

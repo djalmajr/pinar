@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import {
   buildCloudLocalFixture,
   buildCloudLocalSeedSql,
+  emailCodeHash,
   extensionCodeHash,
   parseCloudLocalOptions,
 } from "./cloud-local.mjs";
@@ -39,7 +40,11 @@ describe("local cloud account fixture", () => {
     assert.equal(fixture.initialCreditExpiry, "2027-08-19T12:00:00.000Z");
     assert.equal(fixture.creditExpiry, "2026-08-26T12:00:00.000Z");
     assert.equal(fixture.extensionCodeHash, extensionCodeHash("test-pepper", "PRCLD826"));
+    assert.equal(fixture.emailCodeHash, emailCodeHash("test-pepper", "pro.cloud-local@pinar.test", "826826"));
+    assert.match(sql, /INSERT INTO email_challenges /);
+    assert.match(sql, /INSERT OR IGNORE INTO legal_acceptances .*'account'/);
     assert.match(sql, /'pro_initial'.*500, 20/);
+    assert.match(sql, /DELETE FROM ai_credit_grants .*'pro_initial:usr_cloud_local_pro'/);
     assert.match(sql, /'purchase'.*20, 0/);
     assert.match(sql, /134217728/);
     assert.match(sql, /ai_credit_refill_at/);

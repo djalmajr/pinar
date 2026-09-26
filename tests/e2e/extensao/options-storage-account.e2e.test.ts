@@ -140,6 +140,16 @@ async function installOptionsHarness(page: Page, { development = false, platform
             }
             return { ok: true, session: authSession() };
           }
+          if (message.type === "storage:status") {
+            const requestNumber = JSON.parse(localStorage.getItem(MESSAGES_KEY) || "[]")
+              .filter((entry: { type?: string }) => entry.type === "storage:status").length;
+            if (localStorage.getItem(`pinar-e2e-storage-status-pending-${requestNumber}`) === "1") {
+              await new Promise<void>((resolve) => {
+                window.addEventListener(`pinar-e2e-release-storage-status-${requestNumber}`, () => resolve(), { once: true });
+              });
+            }
+            return { mode: "cloud", ok: true };
+          }
           if (message.type === "auth:logout") {
             localStorage.setItem(IDENTITY_KEY, "installation");
             return { ok: true, session: authSession() };
@@ -238,6 +248,16 @@ async function save(page: Page) {
   await button.click();
 }
 
+async function expectStorageStatusRequest(page: Page, requestNumber: number) {
+  await expect.poll(() => page.evaluate((expected) => JSON.parse(
+    localStorage.getItem("pinar-e2e-extension-messages") || "[]",
+  ).filter((message: { type?: string }) => message.type === "storage:status").length >= expected, requestNumber)).toBe(true);
+}
+
+async function releaseStorageStatus(page: Page, requestNumber: number) {
+  await page.evaluate((id) => window.dispatchEvent(new Event(`pinar-e2e-release-storage-status-${id}`)), requestNumber);
+}
+
 async function expectActionPopup(page: Page, buttonName: string, pathname: string) {
   const popupPromise = page.waitForEvent("popup");
   await page.getByRole("button", { name: buttonName, exact: true }).last().click();
@@ -271,6 +291,99 @@ test("remote account loading explains what is happening before the session arriv
   await expect(page.getByRole("status").getByText("Loading your account…")).toBeVisible();
   await expect(page.getByRole("status")).toHaveCount(0);
   await expect(page.getByText("contato@pinar.dev (PRO)")).toBeVisible();
+});
+
+test("remote account stays hidden until its storage status arrives", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("pinar-e2e-extension-settings", JSON.stringify({ storageMode: "cloud" }));
+    localStorage.setItem("pinar-e2e-storage-status-pending-1", "1");
+  });
+  await installOptionsHarness(page);
+
+  await expectStorageStatusRequest(page, 1);
+  await expect(page.getByRole("status").getByText("Loading your account…")).toBeVisible();
+  await expect(page.getByRole("status")).toHaveCount(1);
+  await expect(page.getByText("contato@pinar.dev (PRO)", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Sign out", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Create account", exact: true })).toHaveCount(0);
+  await expect(page.getByPlaceholder("you@example.com")).toHaveCount(0);
+  await expect(page.getByRole("switch", { name: "Save Annotation History" })).toHaveCount(0);
+  await expect(page.getByRole("switch", { name: "Clean up transcription with AI" })).toHaveCount(0);
+
+  await releaseStorageStatus(page, 1);
+
+  await expect(page.getByRole("status")).toHaveCount(0);
+  await expect(page.getByText("contato@pinar.dev (PRO)", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
+  await expect(page.getByRole("switch", { name: "Save Annotation History" })).toBeVisible();
+  await expect(page.getByRole("switch", { name: "Clean up transcription with AI" })).toBeVisible();
+});
+
+test("email sign-in stays pending until its storage status arrives", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("pinar-e2e-extension-settings", JSON.stringify({ storageMode: "cloud" }));
+    localStorage.setItem("pinar-e2e-extension-identity", "installation");
+    localStorage.setItem("pinar-e2e-storage-status-pending-1", "1");
+  });
+  await installOptionsHarness(page);
+
+  await page.getByPlaceholder("you@example.com").fill("contato@pinar.dev");
+  await page.getByRole("button", { name: "Send code", exact: true }).click();
+  await page.getByPlaceholder("000000").fill("123456");
+  await page.getByRole("button", { name: "Verify", exact: true }).click();
+
+  await expectStorageStatusRequest(page, 1);
+  await expect(page.getByRole("status").getByText("Loading your account…")).toBeVisible();
+  await expect(page.getByRole("status")).toHaveCount(1);
+  await expect(page.getByText("contato@pinar.dev (PRO)", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Sign out", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Create account", exact: true })).toHaveCount(0);
+  await expect(page.getByPlaceholder("you@example.com")).toHaveCount(0);
+  await expect(page.getByRole("switch", { name: "Save Annotation History" })).toHaveCount(0);
+  await expect(page.getByRole("switch", { name: "Clean up transcription with AI" })).toHaveCount(0);
+
+  await releaseStorageStatus(page, 1);
+
+  await expect(page.getByRole("status")).toHaveCount(0);
+  await expect(page.getByText("contato@pinar.dev (PRO)", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
+  await expect(page.getByRole("switch", { name: "Save Annotation History" })).toBeVisible();
+  await expect(page.getByRole("switch", { name: "Clean up transcription with AI" })).toBeVisible();
+});
+
+test("an older account status cannot finish a newer storage mode load", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("pinar-e2e-extension-settings", JSON.stringify({ storageMode: "cloud" }));
+    localStorage.setItem("pinar-e2e-storage-status-pending-1", "1");
+    localStorage.setItem("pinar-e2e-storage-status-pending-2", "1");
+  });
+  await installOptionsHarness(page);
+  await expectStorageStatusRequest(page, 1);
+  await expect(page.getByRole("status").getByText("Loading your account…")).toBeVisible();
+
+  const localMode = page.getByRole("radio", { name: /Local Server/ });
+  await localMode.check();
+  await expect(localMode).toBeChecked();
+  await expect(page.getByRole("status")).toHaveCount(0);
+
+  const remoteMode = page.getByRole("radio", { name: /Remote Server/ });
+  await expect(remoteMode).toBeEnabled();
+  await remoteMode.check();
+  await expectStorageStatusRequest(page, 2);
+  await expect(page.getByRole("status").getByText("Loading your account…")).toBeVisible();
+  await expect(page.getByText("contato@pinar.dev (PRO)", { exact: true })).toHaveCount(0);
+
+  await releaseStorageStatus(page, 1);
+
+  await expect(page.getByRole("status").getByText("Loading your account…")).toBeVisible();
+  await expect(page.getByRole("status")).toHaveCount(1);
+  await expect(page.getByText("contato@pinar.dev (PRO)", { exact: true })).toHaveCount(0);
+
+  await releaseStorageStatus(page, 2);
+
+  await expect(page.getByRole("status")).toHaveCount(0);
+  await expect(page.getByText("contato@pinar.dev (PRO)", { exact: true })).toBeVisible();
+  await expect(page.getByRole("switch", { name: "Save Annotation History" })).toBeVisible();
 });
 
 test("storage mode persists immediately and opens the matching app", async ({ page }) => {

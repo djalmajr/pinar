@@ -33,6 +33,17 @@ function openSessionMenu(page: Page) {
   });
 }
 
+async function expectRightSurplus(menu: ReturnType<Page["locator"]>) {
+  const padding = await menu.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return {
+      left: Number.parseFloat(style.paddingLeft),
+      right: Number.parseFloat(style.paddingRight),
+    };
+  });
+  expect(padding.right).toBeGreaterThan(padding.left);
+}
+
 test("move, manual order, copy and confirmed deletion remain precise and persistent", async ({ page }) => {
   await installClipboardHarness(page);
   const moved = session("session_moved", "Moved capture", "col_a", 0, "batch_ops");
@@ -155,7 +166,8 @@ test("move, manual order, copy and confirmed deletion remain precise and persist
   await page.keyboard.press("Escape");
   await card(page, "Moved capture").getByRole("button", { name: "More session actions" }).click();
   await expect(openSessionMenu(page).getByRole("menuitem", { exact: true, name: "View" })).toHaveCount(0);
-  await page.keyboard.press("Escape");
+  await card(page, "Moved capture").getByRole("button", { name: "More session actions" }).click();
+  await expect(openSessionMenu(page)).toHaveCount(0);
   await card(page, "Moved capture").getByRole("button", { name: "View capture" }).click();
   const viewer = page.getByRole("dialog", { name: "Moved capture" });
   await expect(viewer).toBeVisible();
@@ -170,10 +182,38 @@ test("move, manual order, copy and confirmed deletion remain precise and persist
     "Move to…",
     "Delete session",
   ]);
-  await page.keyboard.press("Escape");
+  const openPrompt = viewerMenu.getByRole("menuitem", { name: "Open prompt *.md" });
+  await expect(openPrompt).toHaveAttribute("href", "/v/session_moved.md");
+  const menuFits = await viewerMenu.evaluate((node) => node.scrollWidth <= node.clientWidth + 1);
+  expect(menuFits).toBe(true);
+  await expectRightSurplus(viewerMenu);
+  await page.context().route("**/v/session_moved.md", (route) => route.fulfill({
+    body: "# Moved capture\n\nhttps://example.test/session_moved",
+    contentType: "text/markdown; charset=utf-8",
+  }));
+  const markdownPopupPromise = page.waitForEvent("popup");
+  await openPrompt.click();
+  const markdownPopup = await markdownPopupPromise;
+  await expect(markdownPopup).toHaveURL(/\/v\/session_moved\.md$/);
+  await expect(markdownPopup.locator("body")).toContainText("Moved capture");
+  await markdownPopup.close();
   await page.goBack();
   await openWorkspaceSidebar(page, "Collection B");
   await page.getByRole("button", { exact: true, name: "Collection B" }).click();
+  const projectActions = page.getByRole("button", { name: "Workspace: Project actions" });
+  await projectActions.click();
+  const projectMenu = page.getByRole("menu");
+  await expectRightSurplus(projectMenu);
+  await projectActions.click();
+  await expect(projectMenu).toBeHidden();
+  const collectionRow = page.getByRole("button", { exact: true, name: "Collection B" });
+  await collectionRow.hover();
+  const collectionActions = page.getByRole("button", { name: "Collection B: Collection actions" });
+  await collectionActions.click();
+  const collectionMenu = page.getByRole("menu");
+  await expectRightSurplus(collectionMenu);
+  await collectionActions.click();
+  await expect(collectionMenu).toBeHidden();
   await card(page, "Moved capture").getByRole("button", { name: "More session actions" }).click();
   await expect(openSessionMenu(page).getByRole("menuitem", { exact: true, name: "Copy prompt" })).toHaveCount(0);
   await expect(openSessionMenu(page).getByRole("menuitem", { name: "Copy prompt (session)" })).toHaveCount(0);

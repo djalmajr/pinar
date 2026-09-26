@@ -28,6 +28,7 @@ import {
   parseVisualCapture,
   applySessionPatch,
   pinIdsFromPins,
+  parsePinCommentBody,
   pinReviewErrorBody,
   pinReviewHttpStatus,
   presentAgentExecution,
@@ -40,6 +41,7 @@ import {
   parseDeliveryPreferences,
   type DeliveryPreferences,
   type LoopMetric,
+  type PinComment,
   type PinReview,
   type PinReviewEvent,
   type PinReviewStatus,
@@ -83,9 +85,27 @@ import { SESSION_PATCH_MAX_BYTES } from "./session-patch";
 import { cloudTrialAccess, newCloudTrialWindow, type CloudTrialAccess } from "../lib/cloud-trial";
 import { type PricingConfig, pricingForCountry } from "../lib/pricing";
 import { FREE_CLOUD_RETENTION_DAYS, laterExpiry, paidRetentionExpiresAt } from "../lib/retention";
-import { formatBatchMarkdown, formatCollectionMarkdown, formatProjectMarkdown, formatSessionMarkdown } from "./markdown";
+import { formatBatchMarkdown, formatCollectionMarkdown, formatProjectMarkdown, formatSessionHandoffMarkdown, formatSessionMarkdown, type ViewerContent } from "./markdown";
 import { installerResponse } from "./installers";
 import { decodePngDataUrl } from "./png";
+import {
+  authenticateAgentKey,
+  agentKeyPermission,
+  agentKeyResourceType,
+  createAgentKey,
+  isAgentKeyToken,
+  listAgentKeys,
+  newAgentKeyId,
+  revokeAgentKey,
+  type AgentKeyRecord,
+  type AgentKeyResourceType,
+} from "./agent-keys";
+import {
+  handleMcpProtocolRequest,
+  McpToolError,
+  type McpProtocolHandlers,
+  type McpToolDefinition,
+} from "./mcp-protocol";
 import {
   APPLY_STRIPE_SUBSCRIPTION_STATE_SQL,
   UPSERT_STRIPE_SUBSCRIPTION_STATE_SQL,
@@ -450,6 +470,7 @@ const memoryLoopMetrics: Array<LoopMetric & { createdAt: string; id: string; own
 const memoryOwnerPreferences = new Map<string, DeliveryPreferences>();
 const memoryPinReviews = new Map<string, { lastExecutionId: string | null; status: PinReviewStatus; updatedAt: string }>();
 const memoryPinReviewEvents: Array<PinReviewEvent & { captureId: string }> = [];
+const memoryPinComments: PinComment[] = [];
 const memoryAiCreditGrants = new Map<string, AiCreditGrantRecord>();
 const memoryAiCreditUsages = new Map<string, AiCreditUsageRecord>();
 const memoryCollections = new Map<string, Collection>();
@@ -570,6 +591,12 @@ export async function readOwnerDeliveryPreferences(env: CloudEnv, ownerId: strin
   }
   const stored = memoryOwnerPreferences.get(ownerId);
   return stored ? parseDeliveryPreferences(stored) : { ...DEFAULT_DELIVERY_PREFERENCES };
+}
+
+function includeViewerContentForRequest(request: Request, preferences: { copyViewerContent: boolean; includeViewer: boolean }) {
+  const requested = new URL(request.url).searchParams.get("includeViewerContent");
+  const include = requested == null ? preferences.copyViewerContent : requested === "1";
+  return preferences.includeViewer && include;
 }
 
 export async function writeOwnerDeliveryPreferences(
@@ -1756,56 +1783,59 @@ async function listShareTokens(
   return (result.results || []).map(shareTokenFromRow);
 }
 
+interface PublicSessionShare {
+  row: Record<string, unknown>;
+  token: ShareToken;
+}
+
+function shareTokenAuthorizesSession(token: ShareToken, row: Record<string, unknown>) {
+  if (token.resourceType === "session") return token.resourceId === String(row.id || "");
+  if (token.resourceType === "collection") return token.resourceId === String(row.collection_id || "");
+  if (token.resourceType === "project") return token.resourceId === String(row.project_id || "");
+  return token.resourceType === "batch" && token.resourceId === String(row.batch_id || "");
+}
+
+async function findPublicSessionShare(
+  env: CloudEnv,
+  id: string,
+  shareToken: string | undefined,
+  matchShotId = false,
+): Promise<PublicSessionShare | null> {
+  if (!shareToken || !env.DB) return null;
+  const token = await validateShareToken(env, shareToken);
+  if (!token) return null;
+  const row = await env.DB.prepare(
+    matchShotId
+      ? "SELECT s.*, c.project_id AS project_id FROM sessions s LEFT JOIN collections c ON c.id = s.collection_id WHERE s.id = ? OR s.shot_id = ? LIMIT 1"
+      : "SELECT s.*, c.project_id AS project_id FROM sessions s LEFT JOIN collections c ON c.id = s.collection_id WHERE s.id = ?",
+  ).bind(...(matchShotId ? [id, id] : [id])).first();
+  return row && shareTokenAuthorizesSession(token, row) ? { row, token } : null;
+}
+
 async function findPublicSession(env: CloudEnv, id: string, shareToken?: string) {
   if (!SESSION_ID_PATTERN.test(id)) return null;
-  
-  // Require share token for anonymous access
-  if (!shareToken) return null;
-  
-  if (env.DB) {
-    try {
-      const row = await env.DB.prepare("SELECT * FROM sessions WHERE id = ?").bind(id).first();
-      if (!row) return null;
-      const session = sessionFromRow(row);
-      
-      // Validate share token
-      const token = await validateShareToken(env, shareToken);
-      if (token && token.resourceType === "session" && token.resourceId === id) {
-        return session;
-      }
-      
-      return null;
-    } catch {
-      return null;
-    }
+  try {
+    const access = await findPublicSessionShare(env, id, shareToken);
+    return access ? sessionFromRow(access.row) : null;
+  } catch {
+    return null;
   }
-  
-  // Memory-only mode: share tokens not supported, deny all anonymous access
-  return null;
 }
 
 async function findPublicCollection(env: CloudEnv, id: string, shareToken?: string): Promise<ProjectTreeCollection | null> {
-  // Require share token for anonymous access
-  if (!shareToken) return null;
-  
-  if (env.DB) {
-    const row = await env.DB.prepare("SELECT * FROM collections WHERE id = ?").bind(id).first();
-    if (!row) return null;
-    
-    // Validate share token
-    const token = await validateShareToken(env, shareToken);
-    if (!token || token.resourceType !== "collection" || token.resourceId !== id) {
-      return null;
-    }
-    
-    const sessions = await env.DB.prepare(
-      "SELECT * FROM sessions WHERE collection_id = ? ORDER BY position ASC",
-    ).bind(id).all();
-    return { ...collectionFromRow(row), sessions: (sessions.results || []).map(sessionFromRow) };
-  }
-  
-  // Memory-only mode: share tokens not supported, deny all anonymous access
-  return null;
+  if (!shareToken || !env.DB) return null;
+  const row = await env.DB.prepare("SELECT * FROM collections WHERE id = ?").bind(id).first();
+  if (!row) return null;
+  const token = await validateShareToken(env, shareToken);
+  const authorized = token && (
+    (token.resourceType === "collection" && token.resourceId === id)
+    || (token.resourceType === "project" && token.resourceId === String(row.project_id || ""))
+  );
+  if (!authorized) return null;
+  const sessions = await env.DB.prepare(
+    "SELECT * FROM sessions WHERE collection_id = ? ORDER BY position ASC",
+  ).bind(id).all();
+  return { ...collectionFromRow(row), sessions: (sessions.results || []).map(sessionFromRow) };
 }
 
 async function findPublicProject(env: CloudEnv, id: string, shareToken?: string): Promise<ProjectTreeProject | null> {
@@ -1829,9 +1859,12 @@ async function findPublicProject(env: CloudEnv, id: string, shareToken?: string)
     return {
       ...projectFromRow(row),
       collections: await Promise.all(collections.map(async (collection) => {
-        const publicCollection = await findPublicCollection(env, collection.id, shareToken);
-        if (!publicCollection) throw new Error("Collection disappeared while building project aggregate");
-        return publicCollection;
+        // The project share already authorizes its children. A collection
+        // token is a different credential and cannot validate this link.
+        const sessions = await env.DB?.prepare(
+          "SELECT * FROM sessions WHERE collection_id = ? ORDER BY position ASC",
+        ).bind(collection.id).all();
+        return { ...collection, sessions: (sessions?.results || []).map(sessionFromRow) };
       })),
     };
   }
@@ -2418,6 +2451,84 @@ async function listSharedCollectionsForUser(
   return collections.sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
 }
 
+export interface AgentKeySharedSession {
+  id: string;
+  title: string;
+}
+
+export interface AgentKeySharedCollection {
+  id: string;
+  name: string;
+  ownerEmail?: string;
+  sessions: AgentKeySharedSession[];
+}
+
+async function listAgentKeySharedResources(
+  env: CloudEnv,
+  principal: Principal,
+): Promise<AgentKeySharedCollection[]> {
+  if (principal.kind !== "account") return [];
+  const shared = (await listSharedCollectionsForUser(env, principal))
+    .filter((collection) => collection.status === "active" && !collection.isSuspended);
+  if (shared.length === 0) return [];
+  const activeIds = new Set(shared.map((collection) => collection.id));
+  // Single lightweight metadata query across all active shared collections:
+  // no pins_json, no per-collection query, no silent LIMIT truncation.
+  let rows: Array<{ collectionId: string; id: string; title: string }> = [];
+  if (env.DB) {
+    const ids = shared.map((collection) => collection.id);
+    const placeholders = ids.map(() => "?").join(", ");
+    try {
+      const result = await env.DB.prepare(
+        `SELECT id, collection_id AS collectionId, title FROM sessions `
+        + `WHERE collection_id IN (${placeholders}) ORDER BY position ASC, rowid ASC`,
+      ).bind(...ids).all();
+      rows = (result.results || []).flatMap((row) => {
+        const id = String(row.id || "");
+        const collectionId = String(row.collectionId || "");
+        if (!id || !activeIds.has(collectionId)) return [];
+        return [{ collectionId, id, title: String(row.title || "") }];
+      });
+    } catch {
+      rows = [];
+    }
+  } else {
+    rows = Array.from(memorySessions.values())
+      .filter((session): session is typeof session & { collectionId: string } => typeof session.collectionId === "string" && activeIds.has(session.collectionId))
+      .sort((left, right) => Number(left.position) - Number(right.position))
+      .map((session) => ({
+        collectionId: session.collectionId,
+        id: session.id,
+        title: session.page?.title || "",
+      }));
+  }
+  const sessionsByCollection = new Map<string, AgentKeySharedSession[]>();
+  for (const row of rows) {
+    const list = sessionsByCollection.get(row.collectionId) || [];
+    list.push({ id: row.id, title: row.title });
+    sessionsByCollection.set(row.collectionId, list);
+  }
+  return shared.map((collection) => ({
+    id: collection.id,
+    name: collection.name,
+    ownerEmail: collection.ownerEmail,
+    sessions: sessionsByCollection.get(collection.id) || [],
+  }));
+}
+
+async function readAgentKeySharedResources(request: Request, env: CloudEnv) {
+  // Consistent with agent-key management: web session only, pak_ never accesses.
+  if (explicitAgentKeyToken(request) !== null) return json({ error: "Unauthorized" }, 401);
+  const account = await managementAccount(request, env);
+  if (!account) return json({ error: "Unauthorized" }, 401);
+  if (effectiveAccountPlan(account) !== "pro") return json({ error: "Pro plan required" }, 403);
+  return json(
+    { ok: true, shared: await listAgentKeySharedResources(env, principalForAccount(account)) },
+    200,
+    { "Cache-Control": "no-store" },
+  );
+}
+
 const BATCH_SELECT = `
   SELECT
     b.id,
@@ -2645,6 +2756,9 @@ async function bearerPrincipal(request: Request, env: CloudEnv, now: string) {
 }
 
 export async function resolvePrincipal(request: Request, env: CloudEnv): Promise<Principal | null> {
+  // An explicit agent credential is never a browser session, including when
+  // the browser attaches a valid cookie to the same request.
+  if (explicitAgentKeyToken(request) !== null) return null;
   const now = currentDate().toISOString();
   // Chrome may attach a website cookie alongside an extension bearer. Prefer
   // verified accounts and reject installation identities in Cloud deployments.
@@ -2654,6 +2768,207 @@ export async function resolvePrincipal(request: Request, env: CloudEnv): Promise
   if (web?.kind === "account") return web;
   // In-memory legacy fixtures omit both the deployment marker and D1.
   return env.DEPLOYMENT_ENV || env.DB ? null : bearer || web;
+}
+
+export interface AgentKeyReadContext {
+  key: AgentKeyRecord;
+  principal: Principal;
+}
+
+function explicitAgentKeyToken(request: Request) {
+  const authorization = request.headers.get("authorization")?.trim() || "";
+  const bearer = /^Bearer\s+(.+)$/i.exec(authorization);
+  if (!bearer) return null;
+  const token = bearer[1].trim();
+  return token.startsWith("pak_") ? token : null;
+}
+
+/** Authenticate only a pak_ credential; this is deliberately not a Principal resolver for mutations. */
+export async function authenticateAgentKeyContext(
+  request: Request,
+  env: CloudEnv,
+): Promise<AgentKeyReadContext | null> {
+  const token = explicitAgentKeyToken(request);
+  if (!token || !isAgentKeyToken(token)) return null;
+  const key = await authenticateAgentKey(env, token, currentDate().toISOString());
+  if (!key) return null;
+  const account = await findAccountById(env, key.accountId);
+  if (!account || effectiveAccountPlan(account) !== "pro") return null;
+  return { key, principal: principalForAccount(account) };
+}
+
+/** Authenticate a pak_ credential that is allowed to read private Markdown. */
+export async function authenticateAgentKeyRead(
+  request: Request,
+  env: CloudEnv,
+): Promise<AgentKeyReadContext | null> {
+  const context = await authenticateAgentKeyContext(request, env);
+  return context?.key.permission === "share" ? null : context;
+}
+
+export async function agentKeyAllowsRead(
+  env: CloudEnv,
+  context: AgentKeyReadContext,
+  resourceType: Exclude<AgentKeyResourceType, "account">,
+  resourceId: string,
+) {
+  const { key } = context;
+  if (key.resourceType === "account") return true;
+  if (key.resourceType === resourceType && key.resourceId === resourceId) return true;
+  if (!env.DB || !resourceId) return false;
+  if (key.resourceType === "project" && resourceType === "collection") {
+    const row = await env.DB.prepare(
+      "SELECT id FROM collections WHERE id = ? AND project_id = ?",
+    ).bind(resourceId, key.resourceId).first();
+    return Boolean(row);
+  }
+  if (key.resourceType === "project" && resourceType === "session") {
+    const row = await env.DB.prepare(
+      "SELECT s.id FROM sessions s JOIN collections c ON c.id = s.collection_id "
+        + "WHERE s.id = ? AND c.project_id = ?",
+    ).bind(resourceId, key.resourceId).first();
+    return Boolean(row);
+  }
+  if (key.resourceType === "collection" && resourceType === "session") {
+    const row = await env.DB.prepare(
+      "SELECT id FROM sessions WHERE id = ? AND collection_id = ?",
+    ).bind(resourceId, key.resourceId).first();
+    return Boolean(row);
+  }
+  if (key.resourceType === "batch" && resourceType === "session") {
+    const row = await env.DB.prepare(
+      "SELECT id FROM sessions WHERE id = ? AND batch_id = ?",
+    ).bind(resourceId, key.resourceId).first();
+    return Boolean(row);
+  }
+  return false;
+}
+
+interface CloudReadAccess {
+  agentKey: AgentKeyReadContext | null;
+  explicitAgentKey: boolean;
+  principal: Principal | null;
+}
+
+async function readAccessForRequest(request: Request, env: CloudEnv): Promise<CloudReadAccess> {
+  const explicitAgentKey = explicitAgentKeyToken(request) !== null;
+  if (explicitAgentKey) {
+    const agentKey = await authenticateAgentKeyRead(request, env);
+    return { agentKey, explicitAgentKey: true, principal: agentKey?.principal || null };
+  }
+  return { agentKey: null, explicitAgentKey: false, principal: await resolvePrincipal(request, env) };
+}
+
+async function managementAccount(request: Request, env: CloudEnv) {
+  if (explicitAgentKeyToken(request) !== null) return null;
+  const principal = await webSessionPrincipal(request, env, currentDate().toISOString());
+  if (!principal || principal.kind !== "account") return null;
+  return findAccountById(env, principal.id);
+}
+
+function agentKeyResponse(key: AgentKeyRecord) {
+  const now = currentDate().toISOString();
+  return {
+    createdAt: key.createdAt,
+    expiresAt: key.expiresAt,
+    id: key.id,
+    label: key.name,
+    lastUsedAt: key.lastUsedAt,
+    name: key.name,
+    permission: key.permission,
+    prefix: key.prefix,
+    resourceId: key.resourceId,
+    resourceType: key.resourceType,
+    revokedAt: key.revokedAt,
+    status: key.revokedAt ? "revoked" : key.expiresAt <= now ? "expired" : "active",
+  };
+}
+
+async function canCreateAgentKeyForResource(
+  env: CloudEnv,
+  account: AccountRecord,
+  resourceType: AgentKeyResourceType,
+  resourceId: string | null,
+) {
+  if (resourceType === "account") return true;
+  if (!resourceId) return false;
+  const principal = principalForAccount(account);
+  if (resourceType === "project") {
+    return (await listProjects(env, principal)).some((project) => project.id === resourceId);
+  }
+  if (resourceType === "collection") return Boolean(await findAccessibleCollection(env, principal, resourceId));
+  if (resourceType === "session") return Boolean(await findAccessibleSession(env, principal, resourceId));
+  return Boolean(await getBatch(env, principal, resourceId));
+}
+
+async function manageAgentKeys(request: Request, env: CloudEnv, pathId = "") {
+  if ((request.method === "POST" || request.method === "DELETE")
+    && request.headers.get("origin") !== new URL(request.url).origin) {
+    return json({ error: "Invalid request origin" }, 403);
+  }
+  const account = await managementAccount(request, env);
+  if (!account) return json({ error: "Unauthorized" }, 401);
+  if (!env.DB) return json({ error: "Agent keys are unavailable" }, 503, { "Cache-Control": "no-store" });
+  const now = currentDate();
+  if (request.method === "GET") {
+    return json({ keys: (await listAgentKeys(env, account.id)).map(agentKeyResponse), ok: true }, 200, {
+      "Cache-Control": "no-store",
+    });
+  }
+  if (request.method === "POST") {
+    if (effectiveAccountPlan(account) !== "pro") return json({ error: "Pro plan required" }, 403);
+    const body = await readJson(request);
+    const resourceType = agentKeyResourceType(body.resourceType);
+    const resourceId = stringValue(body, "resourceId").trim() || null;
+    const expiresAt = stringValue(body, "expiresAt").trim();
+    const permission = agentKeyPermission(body.permission === undefined ? "read" : body.permission);
+    const parsedExpiry = Date.parse(expiresAt);
+    if (!resourceType) return json({ error: "Invalid resourceType" }, 400);
+    if (resourceType === "account" ? resourceId !== null : resourceId === null) {
+      return json({ error: "resourceId is required only for non-account scopes" }, 400);
+    }
+    if (!permission) return json({ error: "Invalid permission" }, 400);
+    if (permission !== "read" && resourceType !== "account") {
+      return json({ error: "Write and share permissions require account scope" }, 400);
+    }
+    if (resourceId && (resourceId.length > 128 || !/^[A-Za-z0-9_-]+$/.test(resourceId))) {
+      return json({ error: "Invalid resourceId" }, 400);
+    }
+    if (!await canCreateAgentKeyForResource(env, account, resourceType, resourceId)) {
+      return json({ error: "Resource not found" }, 404);
+    }
+    if (!expiresAt || !Number.isFinite(parsedExpiry) || parsedExpiry <= now.getTime()
+      || parsedExpiry > now.getTime() + 90 * 24 * 60 * 60 * 1000) {
+      return json({ error: "expiresAt must be in the future and within 90 days" }, 400);
+    }
+    const name = stringValue(body, "name").trim() || stringValue(body, "label").trim() || "Agent key";
+    if (name.length > 120) return json({ error: "name is too long" }, 400);
+    const created = await createAgentKey(env, {
+      accountId: account.id,
+      expiresAt: new Date(parsedExpiry).toISOString(),
+      id: newAgentKeyId(),
+      name,
+      now: now.toISOString(),
+      permission,
+      resourceId,
+      resourceType,
+    });
+    if (!created) return json({ error: "Maximum of 20 active keys reached or key storage unavailable" }, 409);
+    return json({ key: created.token, metadata: agentKeyResponse(created.key), ok: true }, 201, {
+      "Cache-Control": "no-store",
+    });
+  }
+  if (request.method === "DELETE") {
+    const body = await readJson(request);
+    const url = new URL(request.url);
+    const id = pathId || stringValue(body, "id").trim() || url.searchParams.get("id")?.trim() || "";
+    if (!id) return json({ error: "id required" }, 400);
+    const revoked = await revokeAgentKey(env, account.id, id, now.toISOString());
+    return revoked
+      ? json({ ok: true }, 200, { "Cache-Control": "no-store" })
+      : json({ error: "Agent key not found" }, 404, { "Cache-Control": "no-store" });
+  }
+  return json({ error: "Method not allowed" }, 405);
 }
 
 async function registerInstallation(request: Request, env: CloudEnv) {
@@ -4662,6 +4977,20 @@ async function listAgentExecutions(env: CloudEnv, captureId: string): Promise<Ag
     .map((item) => presentAgentExecution(item.execution));
 }
 
+async function mapCloudBatch<T, R>(items: T[], worker: (item: T) => Promise<R>, concurrency = 8): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  async function consume() {
+    while (true) {
+      const index = next++;
+      if (index >= items.length) return;
+      results[index] = await worker(items[index]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => consume()));
+  return results;
+}
+
 async function persistAgentExecution(
   env: CloudEnv,
   principal: Principal,
@@ -4998,6 +5327,72 @@ function deleteMemoryReviewsForCapture(captureId: string) {
   for (let index = memoryPinReviewEvents.length - 1; index >= 0; index -= 1) {
     if (memoryPinReviewEvents[index]?.captureId === captureId) memoryPinReviewEvents.splice(index, 1);
   }
+  for (let index = memoryPinComments.length - 1; index >= 0; index -= 1) {
+    if (memoryPinComments[index]?.captureId === captureId) memoryPinComments.splice(index, 1);
+  }
+}
+
+function commentFromRow(row: Record<string, unknown>): PinComment {
+  return {
+    actorId: String(row.actor_id || ""),
+    actorLabel: String(row.actor_label || ""),
+    actorType: "human",
+    body: String(row.body || ""),
+    captureId: String(row.capture_id || ""),
+    createdAt: String(row.created_at || ""),
+    id: String(row.id || ""),
+    pinId: String(row.pin_id || ""),
+  };
+}
+
+async function listPinComments(env: CloudEnv, captureId: string): Promise<PinComment[]> {
+  if (env.DB) {
+    const rows = await env.DB.prepare(
+      "SELECT * FROM pin_comments WHERE capture_id = ? ORDER BY created_at ASC, rowid ASC",
+    ).bind(captureId).all();
+    return (rows.results || []).map(commentFromRow);
+  }
+  return memoryPinComments
+    .filter((comment) => comment.captureId === captureId)
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
+async function insertPinComment(
+  env: CloudEnv,
+  session: Session,
+  pinId: string,
+  actor: { actorId: string; actorLabel: string },
+  body: string,
+): Promise<PinComment> {
+  if (!pinIdsFromPins(session.pins).has(pinId)) throw new PinReviewError("pin_not_found");
+  const comment: PinComment = {
+    actorId: actor.actorId,
+    actorLabel: actor.actorLabel,
+    actorType: "human",
+    body,
+    captureId: session.id,
+    createdAt: currentDate().toISOString(),
+    id: generateNanoId(),
+    pinId,
+  };
+  if (env.DB) {
+    await env.DB.prepare(`
+      INSERT INTO pin_comments (
+        id, capture_id, pin_id, actor_id, actor_label, actor_type, body, created_at
+      ) VALUES (?, ?, ?, ?, ?, 'human', ?, ?)
+    `).bind(
+      comment.id,
+      comment.captureId,
+      comment.pinId,
+      comment.actorId,
+      comment.actorLabel,
+      comment.body,
+      comment.createdAt,
+    ).run();
+    return comment;
+  }
+  memoryPinComments.push(comment);
+  return comment;
 }
 
 async function reviewPin(request: Request, env: CloudEnv, captureId: string, pinId: string) {
@@ -5133,11 +5528,41 @@ async function queryLoopMetrics(request: Request, env: CloudEnv) {
 
 async function sessionApiPayload(env: CloudEnv, session: Session) {
   return {
+    comments: await listPinComments(env, session.id),
     executions: await listAgentExecutions(env, session.id),
     ok: true,
     reviews: await listPinReviews(env, session.id),
     session: await decorateCloudSession(env, session),
   };
+}
+
+async function createPinComment(request: Request, env: CloudEnv, captureId: string, pinId: string) {
+  const principal = await resolvePrincipal(request, env);
+  if (!principal) return json({ error: "Unauthorized" }, 401);
+  const actorLabel = principal.email?.trim() || "";
+  if (!actorLabel) return json({ error: "Unauthorized" }, 401);
+  const session = await findAccessibleSession(env, principal, captureId);
+  if (!session) {
+    const suspended = await suspendedCollectionResponse(env, principal, captureId);
+    if (suspended) return suspended;
+    return json({ error: "Not found" }, 404);
+  }
+  const payload = await readJson(request);
+  try {
+    const comment = await insertPinComment(
+      env,
+      session,
+      pinId,
+      { actorId: principal.id, actorLabel },
+      parsePinCommentBody(payload.body),
+    );
+    return json({ comment, ok: true });
+  } catch (error) {
+    if (error instanceof PinReviewError) {
+      return json(pinReviewErrorBody(error), pinReviewHttpStatus(error));
+    }
+    throw error;
+  }
 }
 
 async function accountEntitlements(request: Request, env: CloudEnv) {
@@ -5655,6 +6080,7 @@ async function deleteHistory(request: Request, env: CloudEnv, id: string) {
           .bind(id, principal.id),
         env.DB.prepare("DELETE FROM pin_review_events WHERE capture_id = ?").bind(id),
         env.DB.prepare("DELETE FROM pin_reviews WHERE capture_id = ?").bind(id),
+        env.DB.prepare("DELETE FROM pin_comments WHERE capture_id = ?").bind(id),
         env.DB.prepare("DELETE FROM sessions WHERE id = ? AND user_id = ?").bind(id, principal.id),
       ]);
     } catch {
@@ -5946,6 +6372,9 @@ export async function cleanupOldRecords(env: CloudEnv, days = FREE_CLOUD_RETENTI
     await env.DB.prepare(
       "DELETE FROM pin_reviews WHERE capture_id NOT IN (SELECT id FROM sessions)",
     ).run();
+    await env.DB.prepare(
+      "DELETE FROM pin_comments WHERE capture_id NOT IN (SELECT id FROM sessions)",
+    ).run();
     deletedCount = sessions.length;
     const cleanupResults = await env.DB.batch([
       env.DB.prepare(
@@ -5992,6 +6421,558 @@ export async function authorizeCloudAppRequest(request: Request, env: CloudEnv) 
   return Boolean(await resolvePrincipal(request, env));
 }
 
+const MCP_MAX_ARGUMENT_LENGTH = 256;
+const MCP_MAX_AGGREGATE_SESSIONS = 200;
+const MCP_MAX_AGGREGATE_PINS_BYTES = 512 * 1024;
+const MCP_MAX_LIST_SIZE = 100;
+const MCP_MAX_NAME_LENGTH = 200;
+const MCP_RESOURCE_TYPES: ShareToken["resourceType"][] = ["batch", "collection", "project", "session"];
+const MCP_PAGE_PROPERTIES = {
+  limit: { maximum: MCP_MAX_LIST_SIZE, minimum: 1, type: "integer" },
+  offset: { maximum: 10_000, minimum: 0, type: "integer" },
+};
+
+interface CloudMcpContext {
+  env: CloudEnv;
+  key: AgentKeyRecord;
+  origin: string;
+  principal: Principal;
+}
+
+function mcpTextArg(args: Record<string, unknown>, name: string, maxLength = MCP_MAX_ARGUMENT_LENGTH) {
+  const value = args[name];
+  if (typeof value !== "string") throw new McpToolError(`${name} is required`);
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > maxLength || /[\u0000-\u001f\u007f]/.test(trimmed)) {
+    throw new McpToolError(`${name} is invalid`);
+  }
+  return trimmed;
+}
+
+function mcpOptionalTextArg(args: Record<string, unknown>, name: string, maxLength = MCP_MAX_ARGUMENT_LENGTH) {
+  const value = args[name];
+  if (value === undefined || value === null || value === "") return null;
+  return mcpTextArg(args, name, maxLength);
+}
+
+function mcpResourceIdArg(args: Record<string, unknown>, name: string) {
+  const value = mcpTextArg(args, name, MCP_MAX_ARGUMENT_LENGTH);
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(value)) throw new McpToolError(`${name} is invalid`);
+  return value;
+}
+
+function mcpNameArg(args: Record<string, unknown>) {
+  return mcpTextArg(args, "name", MCP_MAX_NAME_LENGTH);
+}
+
+function mcpStringArrayArg(args: Record<string, unknown>, name: string, required = true) {
+  const raw = args[name];
+  if (raw === undefined && !required) return [];
+  if (!Array.isArray(raw) || raw.length > MCP_MAX_LIST_SIZE) {
+    throw new McpToolError(`${name} must contain at most ${MCP_MAX_LIST_SIZE} items`);
+  }
+  const values = raw.map((value) => {
+    if (typeof value !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(value)) {
+      throw new McpToolError(`${name} contains an invalid id`);
+    }
+    return value;
+  });
+  if (new Set(values).size !== values.length) throw new McpToolError(`${name} contains duplicates`);
+  return values;
+}
+
+function mcpCapabilityAllowed(key: AgentKeyRecord, capability: "manage" | "read" | "share") {
+  if (capability === "read") return key.permission === "read" || key.permission === "manage" || key.permission === "full";
+  return key.permission === "full" || key.permission === capability;
+}
+
+function mcpRequireMutation(context: CloudMcpContext, capability: "manage" | "share") {
+  if (!mcpCapabilityAllowed(context.key, capability)) {
+    throw new McpToolError(`${capability} permission required`);
+  }
+  if (context.key.resourceType !== "account") {
+    throw new McpToolError("Mutations require an account-scoped key");
+  }
+}
+
+async function mcpRequireRead(
+  context: CloudMcpContext,
+  resourceType: Exclude<AgentKeyResourceType, "account">,
+  resourceId: string,
+) {
+  if (!mcpCapabilityAllowed(context.key, "read")) throw new McpToolError("read permission required");
+  if (!await agentKeyAllowsRead(context.env, { key: context.key, principal: context.principal }, resourceType, resourceId)) {
+    throw new McpToolError("Resource not found");
+  }
+}
+
+function mcpLimitArg(args: Record<string, unknown>, name: string, fallback: number) {
+  const value = args[name];
+  if (value === undefined) return fallback;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > MCP_MAX_LIST_SIZE) {
+    throw new McpToolError(`${name} must be an integer between 1 and ${MCP_MAX_LIST_SIZE}`);
+  }
+  return value;
+}
+
+function mcpOffsetArg(args: Record<string, unknown>) {
+  const value = args.offset;
+  if (value === undefined) return 0;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 10_000) {
+    throw new McpToolError("offset must be an integer between 0 and 10000");
+  }
+  return value;
+}
+
+function mcpResourceTypeArg(args: Record<string, unknown>) {
+  const value = mcpTextArg(args, "resourceType", 32);
+  if (!isMcpResourceType(value)) {
+    throw new McpToolError("resourceType is invalid");
+  }
+  return value;
+}
+
+function isMcpResourceType(value: string): value is ShareToken["resourceType"] {
+  return MCP_RESOURCE_TYPES.some((resourceType) => resourceType === value);
+}
+
+function mcpTool(
+  name: string,
+  description: string,
+  properties: Record<string, unknown> = {},
+  required: string[] = [],
+): McpToolDefinition {
+  return {
+    description,
+    inputSchema: { properties, required, type: "object" },
+    name,
+  };
+}
+
+export const CLOUD_MCP_TOOLS: McpToolDefinition[] = [
+  mcpTool("pinar.key_scope", "Show this key's permission and resource scope, including its resource ID."),
+  mcpTool("pinar.list_projects", "List projects visible to this key.", MCP_PAGE_PROPERTIES),
+  mcpTool("pinar.get_project_markdown", "Read private Markdown for an owned project.", { projectId: { type: "string" } }, ["projectId"]),
+  mcpTool("pinar.list_collections", "List collections in a visible project.", { ...MCP_PAGE_PROPERTIES, projectId: { type: "string" } }, ["projectId"]),
+  mcpTool("pinar.get_collection_markdown", "Read private Markdown for an owned collection.", { collectionId: { type: "string" } }, ["collectionId"]),
+  mcpTool("pinar.list_sessions", "List visible sessions with optional bounded filtering.", {
+    batchId: { type: "string" },
+    collectionId: { type: "string" },
+    limit: { maximum: MCP_MAX_LIST_SIZE, minimum: 1, type: "integer" },
+    offset: { maximum: 10_000, minimum: 0, type: "integer" },
+    query: { maxLength: MCP_MAX_ARGUMENT_LENGTH, type: "string" },
+  }),
+  mcpTool("pinar.get_session_markdown", "Read private Markdown for an owned session.", { sessionId: { type: "string" } }, ["sessionId"]),
+  mcpTool("pinar.list_batches", "List visible session batches.", MCP_PAGE_PROPERTIES),
+  mcpTool("pinar.get_batch_markdown", "Read private Markdown for an owned batch.", { batchId: { type: "string" } }, ["batchId"]),
+  mcpTool("pinar.create_project", "Create a project in the account workspace.", { name: { type: "string" } }, ["name"]),
+  mcpTool("pinar.rename_project", "Rename an owned project.", { name: { type: "string" }, projectId: { type: "string" } }, ["projectId", "name"]),
+  mcpTool("pinar.reorder_projects", "Set the order of owned projects.", { ids: { items: { type: "string" }, type: "array" } }, ["ids"]),
+  mcpTool("pinar.create_collection", "Create a collection in an owned project.", { name: { type: "string" }, parentId: { type: "string" }, projectId: { type: "string" } }, ["projectId", "name"]),
+  mcpTool("pinar.rename_collection", "Rename an owned collection.", { collectionId: { type: "string" }, name: { type: "string" } }, ["collectionId", "name"]),
+  mcpTool("pinar.reorder_collections", "Set the order and parent relationships of owned collections.", {
+    items: { items: { properties: { id: { type: "string" }, parentId: { type: ["string", "null"] } }, type: "object" }, type: "array" },
+    projectId: { type: "string" },
+  }, ["projectId", "items"]),
+  mcpTool("pinar.move_session", "Move an owned session to an owned collection.", { collectionId: { type: "string" }, sessionId: { type: "string" } }, ["sessionId", "collectionId"]),
+  mcpTool("pinar.reorder_sessions", "Set the order of sessions in an owned collection.", { collectionId: { type: "string" }, ids: { items: { type: "string" }, type: "array" } }, ["collectionId", "ids"]),
+  mcpTool("pinar.publish_share", "Explicitly publish a share link for an owned resource.", {
+    expiresAt: { type: "string" },
+    resourceId: { type: "string" },
+    resourceType: { enum: MCP_RESOURCE_TYPES, type: "string" },
+  }, ["resourceType", "resourceId"]),
+  mcpTool("pinar.revoke_share", "Revoke an active share link for an owned resource.", {
+    resourceId: { type: "string" },
+    resourceType: { enum: MCP_RESOURCE_TYPES, type: "string" },
+  }, ["resourceType", "resourceId"]),
+];
+
+async function mcpProjectIdsForKey(context: CloudMcpContext) {
+  const projects = await listProjects(context.env, context.principal);
+  if (context.key.resourceType === "account") return new Set(projects.map((project) => project.id));
+  if (context.key.resourceType === "project") return new Set([context.key.resourceId || ""]);
+  let projectId = "";
+  if (context.key.resourceType === "collection") {
+    projectId = (await getRawCollection(context.env, context.key.resourceId || ""))?.projectId || "";
+  } else if (context.key.resourceType === "session") {
+    const session = await getRawSession(context.env, context.key.resourceId || "");
+    projectId = session?.collectionId
+      ? (await getRawCollection(context.env, session.collectionId))?.projectId || ""
+      : "";
+  } else if (context.key.resourceType === "batch") {
+    const sessions = await listSessions(context.env, context.principal, "", "1", "", context.key.resourceId || "", "0");
+    projectId = sessions[0]?.collectionId
+      ? (await getRawCollection(context.env, sessions[0].collectionId))?.projectId || ""
+      : "";
+  }
+  return new Set(projectId ? [projectId] : []);
+}
+
+async function mcpRequireAggregateLimit(env: CloudEnv, query: string, ...values: string[]) {
+  if (!env.DB) throw new McpToolError("Cloud storage unavailable");
+  const row = await env.DB.prepare(query).bind(...values).first();
+  if (Number(row?.count || 0) > MCP_MAX_AGGREGATE_SESSIONS
+    || Number(row?.bytes || 0) > MCP_MAX_AGGREGATE_PINS_BYTES) {
+    throw new McpToolError("Aggregate is too large; list and read individual sessions instead");
+  }
+}
+
+async function mcpProjectMarkdown(context: CloudMcpContext, projectId: string) {
+  await mcpRequireRead(context, "project", projectId);
+  await mcpRequireAggregateLimit(
+    context.env,
+    "SELECT COUNT(*) AS count, COALESCE(SUM(LENGTH(s.pins_json)), 0) AS bytes FROM sessions s JOIN collections c ON c.id = s.collection_id WHERE c.project_id = ? AND s.user_id = ?",
+    projectId,
+    context.principal.id,
+  );
+  const project = await findPrivateProject(context.env, context.principal, projectId);
+  if (!project) throw new McpToolError("Project not found");
+  const preferences = await readOwnerDeliveryPreferences(context.env, context.principal.id);
+  return formatProjectMarkdown(project, context.origin, { ...preferences, includeViewerContent: false });
+}
+
+async function mcpCollectionMarkdown(context: CloudMcpContext, collectionId: string) {
+  await mcpRequireRead(context, "collection", collectionId);
+  await mcpRequireAggregateLimit(
+    context.env,
+    "SELECT COUNT(*) AS count, COALESCE(SUM(LENGTH(pins_json)), 0) AS bytes FROM sessions WHERE collection_id = ?",
+    collectionId,
+  );
+  const collection = await findAccessibleCollection(context.env, context.principal, collectionId);
+  if (!collection) throw new McpToolError("Collection not found");
+  const sessions = await listCollectionSessions(context.env, context.principal, collectionId);
+  const preferences = await readOwnerDeliveryPreferences(context.env, context.principal.id);
+  const tree: ProjectTreeCollection = { ...collection, sessions };
+  return formatCollectionMarkdown(tree, context.origin, { ...preferences, includeViewerContent: false });
+}
+
+async function mcpSessionFullMarkdown(context: CloudMcpContext, sessionId: string) {
+  await mcpRequireRead(context, "session", sessionId);
+  await mcpRequireAggregateLimit(
+    context.env,
+    "SELECT COUNT(*) AS count, COALESCE(SUM(LENGTH(pins_json)), 0) AS bytes FROM sessions WHERE id = ?",
+    sessionId,
+  );
+  const accessible = await findAccessibleSession(context.env, context.principal, sessionId);
+  if (!accessible) throw new McpToolError("Session not found");
+  const session = await decorateCloudSession(context.env, accessible);
+  const preferences = await readOwnerDeliveryPreferences(context.env, context.principal.id);
+  return formatSessionMarkdown(
+    session,
+    `${context.origin}/v/${sessionId}`,
+    await listAgentExecutions(context.env, sessionId),
+    await listPinReviews(context.env, sessionId),
+    preferences,
+  );
+}
+
+async function mcpBatchMarkdown(context: CloudMcpContext, batchId: string) {
+  await mcpRequireRead(context, "batch", batchId);
+  const batch = await getBatch(context.env, context.principal, batchId);
+  if (!batch) throw new McpToolError("Batch not found");
+  await mcpRequireAggregateLimit(
+    context.env,
+    "SELECT COUNT(*) AS count, COALESCE(SUM(LENGTH(pins_json)), 0) AS bytes FROM sessions WHERE batch_id = ? AND user_id = ?",
+    batchId,
+    context.principal.id,
+  );
+  const sessions: Session[] = [];
+  for (let offset = 0; ; offset += MCP_MAX_LIST_SIZE) {
+    const page = await listSessions(
+      context.env,
+      context.principal,
+      "",
+      String(MCP_MAX_LIST_SIZE),
+      "",
+      batchId,
+      String(offset),
+    );
+    sessions.push(...page);
+    if (page.length < MCP_MAX_LIST_SIZE) break;
+  }
+  const preferences = await readOwnerDeliveryPreferences(context.env, context.principal.id);
+  const pageData = await mapCloudBatch(sessions, async (session) => {
+    return { executions: [], reviews: await listPinReviews(context.env, session.id), session };
+  });
+  const statusByPinId: Record<string, PinReviewStatus> = {};
+  for (const { reviews } of pageData) {
+    for (const review of reviews) statusByPinId[review.pinId] = review.status;
+  }
+  return formatBatchMarkdown(batch, sessions, statusByPinId, context.origin, { ...preferences, includeViewerContent: false });
+}
+
+async function mcpOwnedResource(
+  context: CloudMcpContext,
+  resourceType: ShareToken["resourceType"],
+  resourceId: string,
+) {
+  if (resourceType === "session") return Boolean(await findOwnedSession(context.env, context.principal, resourceId));
+  if (resourceType === "collection") return Boolean(await findOwnedCollection(context.env, context.principal, resourceId));
+  if (resourceType === "batch") return Boolean(await getBatch(context.env, context.principal, resourceId));
+  return (await listProjects(context.env, context.principal)).some((project) => project.id === resourceId);
+}
+
+async function mcpSessionSummaries(
+  context: CloudMcpContext,
+  query: string,
+  limit: number,
+  collectionId: string,
+  batchId: string,
+  offset: number,
+) {
+  if (!context.env.DB) {
+    const sessions = await listSessions(context.env, context.principal, query, String(limit), collectionId, batchId, String(offset));
+    return sessions.map((session) => ({
+      batchId: session.batchId,
+      collectionId: session.collectionId,
+      createdAt: session.createdAt,
+      id: session.id,
+      pinCount: session.pinCount ?? session.pins.length,
+      title: session.page.title,
+      url: session.page.url,
+    }));
+  }
+  const collaborator = collectionId ? await isCollectionCollaborator(context.env, context.principal, collectionId) : false;
+  const clauses = [collaborator ? "collection_id = ?" : "user_id = ?"];
+  const values: Array<number | string> = [collaborator ? collectionId : context.principal.id];
+  if (collectionId && !collaborator) {
+    clauses.push("collection_id = ?");
+    values.push(collectionId);
+  }
+  if (batchId) {
+    clauses.push("batch_id = ?");
+    values.push(batchId);
+  }
+  if (query) {
+    clauses.push("(title LIKE ? OR url LIKE ? OR pins_json LIKE ?)");
+    values.push(`%${query}%`, `%${query}%`, `%${query}%`);
+  }
+  const order = collectionId ? "position ASC" : "created_at DESC";
+  const rows = await context.env.DB.prepare(
+    `SELECT id, title, url, pin_count, created_at, collection_id, batch_id FROM sessions WHERE ${clauses.join(" AND ")} ORDER BY ${order} LIMIT ? OFFSET ?`,
+  ).bind(...values, limit, offset).all();
+  return (rows.results || []).map((row) => ({
+    batchId: row.batch_id || null,
+    collectionId: row.collection_id || null,
+    createdAt: row.created_at,
+    id: row.id,
+    pinCount: row.pin_count,
+    title: row.title,
+    url: row.url,
+  }));
+}
+
+function mcpCollectionPlacementsArg(args: Record<string, unknown>) {
+  const raw = args.items;
+  if (!Array.isArray(raw) || raw.length > MCP_MAX_LIST_SIZE) {
+    throw new McpToolError(`items must contain at most ${MCP_MAX_LIST_SIZE} items`);
+  }
+  const seen = new Set<string>();
+  return raw.map((value) => {
+    if (!isRecord(value)) {
+      throw new McpToolError("items contains an invalid placement");
+    }
+    const id = value.id;
+    if (typeof id !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(id) || seen.has(id)) {
+      throw new McpToolError("items contains an invalid or duplicate id");
+    }
+    seen.add(id);
+    const parentId = value.parentId;
+    if (parentId !== null && parentId !== undefined
+      && (typeof parentId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(parentId))) {
+      throw new McpToolError("items contains an invalid parentId");
+    }
+    return { id, parentId: typeof parentId === "string" ? parentId : null };
+  });
+}
+
+function mcpShareExpiry(args: Record<string, unknown>) {
+  const value = mcpOptionalTextArg(args, "expiresAt", 64);
+  if (!value) return null;
+  const timestamp = Date.parse(value);
+  const now = currentDate().getTime();
+  if (!Number.isFinite(timestamp) || timestamp <= now || timestamp > now + 365 * 24 * 60 * 60 * 1000) {
+    throw new McpToolError("expiresAt must be in the future and within one year");
+  }
+  return new Date(timestamp).toISOString();
+}
+
+function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
+  return {
+    async callTool(name, args) {
+      switch (name) {
+        case "pinar.key_scope":
+          return {
+            permission: context.key.permission,
+            resourceId: context.key.resourceId,
+            resourceType: context.key.resourceType,
+          };
+        case "pinar.list_projects": {
+          if (!mcpCapabilityAllowed(context.key, "read")) throw new McpToolError("read permission required");
+          const projectIds = await mcpProjectIdsForKey(context);
+          const limit = mcpLimitArg(args, "limit", MCP_MAX_LIST_SIZE);
+          const offset = mcpOffsetArg(args);
+          const projects = (await listProjects(context.env, context.principal))
+            .filter((project) => projectIds.has(project.id))
+            .slice(offset, offset + limit);
+          return { limit, offset, projects };
+        }
+        case "pinar.get_project_markdown":
+          return mcpProjectMarkdown(context, mcpResourceIdArg(args, "projectId"));
+        case "pinar.list_collections": {
+          const projectId = mcpResourceIdArg(args, "projectId");
+          await mcpRequireRead(context, "project", projectId);
+          const limit = mcpLimitArg(args, "limit", MCP_MAX_LIST_SIZE);
+          const offset = mcpOffsetArg(args);
+          const collections = await listCollections(context.env, context.principal, projectId);
+          const filtered = [];
+          for (const collection of collections) {
+            if (await agentKeyAllowsRead(context.env, { key: context.key, principal: context.principal }, "collection", collection.id)) {
+              filtered.push(collection);
+            }
+          }
+          return { collections: filtered.slice(offset, offset + limit), limit, offset };
+        }
+        case "pinar.get_collection_markdown":
+          return mcpCollectionMarkdown(context, mcpResourceIdArg(args, "collectionId"));
+        case "pinar.list_sessions": {
+          if (!mcpCapabilityAllowed(context.key, "read")) throw new McpToolError("read permission required");
+          const collectionId = mcpOptionalTextArg(args, "collectionId", MCP_MAX_ARGUMENT_LENGTH) || "";
+          const batchId = mcpOptionalTextArg(args, "batchId", MCP_MAX_ARGUMENT_LENGTH) || "";
+          const query = mcpOptionalTextArg(args, "query", MCP_MAX_ARGUMENT_LENGTH) || "";
+          const limit = mcpLimitArg(args, "limit", MCP_MAX_LIST_SIZE);
+          const offset = mcpOffsetArg(args);
+          if (collectionId) await mcpRequireRead(context, "collection", collectionId);
+          if (batchId) await mcpRequireRead(context, "batch", batchId);
+          const sessions = await mcpSessionSummaries(context, query, limit, collectionId, batchId, offset);
+          const visible = [];
+          for (const session of sessions) {
+            if (context.key.resourceType === "session" && session.id !== context.key.resourceId) continue;
+            if (await agentKeyAllowsRead(context.env, { key: context.key, principal: context.principal }, "session", String(session.id))) visible.push(session);
+          }
+          return { limit, offset, sessions: visible };
+        }
+        case "pinar.get_session_markdown":
+          return mcpSessionFullMarkdown(context, mcpResourceIdArg(args, "sessionId"));
+        case "pinar.list_batches": {
+          if (!mcpCapabilityAllowed(context.key, "read")) throw new McpToolError("read permission required");
+          const limit = mcpLimitArg(args, "limit", MCP_MAX_LIST_SIZE);
+          const offset = mcpOffsetArg(args);
+          const batches = await listBatches(context.env, context.principal);
+          return {
+            batches: context.key.resourceType === "account"
+              ? batches.slice(offset, offset + limit)
+              : context.key.resourceType === "batch"
+                ? batches.filter((batch) => batch.id === context.key.resourceId).slice(offset, offset + limit)
+                : [],
+            limit,
+            offset,
+          };
+        }
+        case "pinar.get_batch_markdown":
+          return mcpBatchMarkdown(context, mcpResourceIdArg(args, "batchId"));
+        case "pinar.create_project": {
+          mcpRequireMutation(context, "manage");
+          return { project: await createProject(context.env, context.principal, mcpNameArg(args), DEFAULT_PROJECT_ICON) };
+        }
+        case "pinar.rename_project": {
+          mcpRequireMutation(context, "manage");
+          const project = await renameProject(context.env, context.principal, mcpResourceIdArg(args, "projectId"), mcpNameArg(args));
+          if (!project) throw new McpToolError("Project not found");
+          return { project };
+        }
+        case "pinar.reorder_projects": {
+          mcpRequireMutation(context, "manage");
+          return { projects: await reorderProjects(context.env, context.principal, mcpStringArrayArg(args, "ids")) };
+        }
+        case "pinar.create_collection": {
+          mcpRequireMutation(context, "manage");
+          const collection = await createCollection(
+            context.env,
+            context.principal,
+            mcpResourceIdArg(args, "projectId"),
+            mcpNameArg(args),
+            mcpOptionalTextArg(args, "parentId", MCP_MAX_ARGUMENT_LENGTH),
+          );
+          if (!collection) throw new McpToolError("Project not found");
+          return { collection };
+        }
+        case "pinar.rename_collection": {
+          mcpRequireMutation(context, "manage");
+          const collection = await renameCollection(context.env, context.principal, mcpResourceIdArg(args, "collectionId"), mcpNameArg(args));
+          if (!collection) throw new McpToolError("Collection not found");
+          return { collection };
+        }
+        case "pinar.reorder_collections": {
+          mcpRequireMutation(context, "manage");
+          const collections = await reorderCollections(
+            context.env,
+            context.principal,
+            mcpResourceIdArg(args, "projectId"),
+            mcpCollectionPlacementsArg(args),
+          );
+          if (!collections) throw new McpToolError("Invalid collection hierarchy");
+          return { collections };
+        }
+        case "pinar.move_session": {
+          mcpRequireMutation(context, "manage");
+          const session = await moveSession(
+            context.env,
+            context.principal,
+            mcpResourceIdArg(args, "sessionId"),
+            mcpResourceIdArg(args, "collectionId"),
+          );
+          if (!session) throw new McpToolError("Session or collection not found");
+          return { session };
+        }
+        case "pinar.reorder_sessions": {
+          mcpRequireMutation(context, "manage");
+          const sessions = await reorderSessionIds(
+            context.env,
+            context.principal,
+            mcpResourceIdArg(args, "collectionId"),
+            mcpStringArrayArg(args, "ids"),
+          );
+          return { sessions };
+        }
+        case "pinar.publish_share": {
+          mcpRequireMutation(context, "share");
+          const resourceType = mcpResourceTypeArg(args);
+          const resourceId = mcpResourceIdArg(args, "resourceId");
+          if (!await mcpOwnedResource(context, resourceType, resourceId)) throw new McpToolError("Resource not found");
+          const shareToken = await createShareToken(context.env, resourceType, resourceId, context.principal.id, mcpShareExpiry(args));
+          if (!shareToken) throw new McpToolError("Share publication unavailable");
+          return { expiresAt: shareToken.expiresAt, resourceId, resourceType, token: shareToken.token };
+        }
+        case "pinar.revoke_share": {
+          mcpRequireMutation(context, "share");
+          const resourceType = mcpResourceTypeArg(args);
+          const resourceId = mcpResourceIdArg(args, "resourceId");
+          if (!await mcpOwnedResource(context, resourceType, resourceId)) throw new McpToolError("Resource not found");
+          if (!await revokeShareToken(context.env, resourceType, resourceId, context.principal.id)) {
+            throw new McpToolError("Share token not found");
+          }
+          return { ok: true, resourceId, resourceType };
+        }
+        default:
+          throw new McpToolError("Unknown tool");
+      }
+    },
+    tools: CLOUD_MCP_TOOLS,
+  };
+}
+
+export async function handleCloudMcpRequest(request: Request, env: CloudEnv) {
+  const context = await authenticateAgentKeyContext(request, env);
+  if (!context) return json({ error: "Unauthorized" }, 401, { "Cache-Control": "no-store" });
+  return handleMcpProtocolRequest(request, mcpHandlers({
+    env,
+    key: context.key,
+    origin: new URL(request.url).origin,
+    principal: context.principal,
+  }));
+}
+
 export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
   const url = new URL(request.url);
   const { method } = request;
@@ -6000,6 +6981,7 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
   if (["DELETE", "PATCH", "POST", "PUT"].includes(method) && !validMutationOrigin(request, env)) {
     return json({ error: "Invalid request origin" }, 403);
   }
+  if (path === "/api/mcp") return handleCloudMcpRequest(request, env);
   if (method === "GET" && path === "/api/health") {
     return json({
       hasAdminAuth: Boolean(env.ADMIN_API_KEY),
@@ -6035,6 +7017,11 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
   }
   if (method === "POST" && path === "/api/installations") return registerInstallation(request, env);
   if (method === "GET" && path === "/api/auth/session") return authSession(request, env);
+  const agentKeysMatch = path.match(/^\/api\/agent-keys(?:\/([^/]+))?$/);
+  if (agentKeysMatch && ["DELETE", "GET", "POST"].includes(method)) {
+    if (agentKeysMatch[1] && method !== "DELETE") return json({ error: "Not found" }, 404);
+    return manageAgentKeys(request, env, agentKeysMatch[1] ? decodeURIComponent(agentKeysMatch[1]) : "");
+  }
   if (method === "GET" && path === "/api/preferences") return readPreferences(request, env);
   if (method === "PATCH" && path === "/api/preferences") return updatePreferences(request, env);
   if (method === "POST" && (path === "/api/auth/extension-codes" || path === "/api/auth/extension-codes/exchange")) {
@@ -6076,11 +7063,33 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
       sessions.push(...page);
       if (page.length < 100) break;
     }
-    const statusByPinId: Record<string, PinReviewStatus> = {};
-    for (const session of sessions) for (const review of await listPinReviews(env, session.id)) statusByPinId[review.pinId] = review.status;
     const preferences = await readOwnerDeliveryPreferences(env, principal.id);
+    const includeViewerContent = includeViewerContentForRequest(request, preferences);
+    const pageData = await mapCloudBatch(sessions, async (session) => {
+      const [reviews, executions] = await Promise.all([
+        listPinReviews(env, session.id),
+        includeViewerContent ? listAgentExecutions(env, session.id) : Promise.resolve([] as AgentExecution[]),
+      ]);
+      return { executions, reviews, session };
+    });
+    const statusByPinId: Record<string, PinReviewStatus> = {};
+    for (const { reviews } of pageData) {
+      for (const review of reviews) statusByPinId[review.pinId] = review.status;
+    }
+    const viewerContent: ViewerContent | undefined = includeViewerContent
+      ? { executions: {}, reviews: {} }
+      : undefined;
+    if (viewerContent) {
+      for (const { executions, reviews, session } of pageData) {
+        viewerContent.executions[session.id] = executions;
+        viewerContent.reviews[session.id] = reviews;
+      }
+    }
     return text(formatBatchMarkdown(batch, sessions, statusByPinId, new URL(request.url).origin, {
-      ...preferences, language: preferences.language ?? "en",
+      ...preferences,
+      includeViewerContent,
+      language: preferences.language ?? "en",
+      viewerContent,
     }), 200, { "Cache-Control": "no-store", "Content-Type": "text/markdown; charset=utf-8" });
   }
   if (batchFinishMatch && method === "POST") {
@@ -6238,6 +7247,9 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
       throw error;
     }
   }
+  if (method === "GET" && path === "/api/agent-key-shared-resources") {
+    return readAgentKeySharedResources(request, env);
+  }
   if (method === "GET" && path === "/api/shared-collections") {
     const principal = await resolvePrincipal(request, env);
     if (!principal || principal.kind !== "account") return json({ error: "Unauthorized" }, 401);
@@ -6335,6 +7347,15 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
     const deleted = await deleteCollectionContainer(env, principal, decodeURIComponent(collectionMatch[1]));
     return deleted ? json({ deleted, ok: true }) : json({ error: "protected or not found" }, 409);
   }
+  const pinCommentMatch = path.match(/^\/api\/sessions\/([^/]+)\/pins\/([^/]+)\/comments$/);
+  if (pinCommentMatch && method === "POST") {
+    return createPinComment(
+      request,
+      env,
+      decodeURIComponent(pinCommentMatch[1]),
+      decodeURIComponent(pinCommentMatch[2]),
+    );
+  }
   const pinReviewMatch = path.match(/^\/api\/sessions\/([^/]+)\/pins\/([^/]+)\/review$/);
   if (pinReviewMatch && method === "POST") {
     return reviewPin(
@@ -6375,6 +7396,35 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
   const sessionMatch = path.match(/^\/api\/sessions\/([^/]+)$/);
   if (sessionMatch && method === "PATCH") {
     return updateSessionFields(request, env, decodeURIComponent(sessionMatch[1]));
+  }
+  const sessionMarkdownMatch = path.match(/^\/api\/sessions\/([^/]+)\/markdown$/);
+  if (sessionMarkdownMatch && method === "GET") {
+    const access = await readAccessForRequest(request, env);
+    const principal = access.principal;
+    if (!principal) return json({ error: "Unauthorized" }, 401);
+    const id = decodeURIComponent(sessionMarkdownMatch[1]);
+    if (access.agentKey && !await agentKeyAllowsRead(env, access.agentKey, "session", id)) {
+      return json({ error: "Session not found" }, 404);
+    }
+    const accessible = await findAccessibleSession(env, principal, id);
+    if (!accessible) {
+      const suspended = await suspendedCollectionResponse(env, principal, id);
+      if (suspended) return suspended;
+      return json({ error: "Session not found" }, 404);
+    }
+    const session = await decorateCloudSession(env, accessible);
+    const preferences = await readOwnerDeliveryPreferences(env, principal.id);
+    return text(
+      formatSessionHandoffMarkdown(
+        session,
+        `${new URL(request.url).origin}/v/${id}`,
+        await listAgentExecutions(env, id),
+        await listPinReviews(env, id),
+        { ...preferences, includeViewerContent: includeViewerContentForRequest(request, preferences) },
+      ),
+      200,
+      { "Cache-Control": "private, no-store", "Content-Type": "text/markdown; charset=utf-8" },
+    );
   }
   if (method === "GET" && path.startsWith("/api/sessions/")) {
     const url = new URL(request.url);
@@ -6495,6 +7545,39 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
   return json({ error: "Not found" }, 404);
 }
 
+async function findPrivateProject(
+  env: CloudEnv,
+  principal: Principal,
+  projectId: string,
+): Promise<ProjectTreeProject | null> {
+  const project = (await listProjects(env, principal)).find((item) => item.id === projectId);
+  if (!project) return null;
+  const collections = await listCollections(env, principal, projectId);
+  return {
+    ...project,
+    collections: await Promise.all(collections.map(async (collection) => ({
+      ...collection,
+      sessions: await listCollectionSessions(env, principal, collection.id),
+    }))),
+  };
+}
+
+async function findPrivateBatch(
+  env: CloudEnv,
+  principal: Principal,
+  batchId: string,
+) {
+  const batch = await getBatch(env, principal, batchId);
+  if (!batch) return null;
+  const sessions: Session[] = [];
+  for (let offset = 0; ; offset += 100) {
+    const page = await listSessions(env, principal, "", "100", "", batchId, String(offset));
+    sessions.push(...page);
+    if (page.length < 100) break;
+  }
+  return { batch, ownerId: principal.id, sessions };
+}
+
 export async function handleCloudPublicRequest(request: Request, env: CloudEnv) {
   const url = new URL(request.url);
   const shareToken = url.searchParams.get("token") || undefined;
@@ -6503,15 +7586,18 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
     const filename = decodeURIComponent(url.pathname.slice("/shots/".length));
     if (!filename.endsWith(".png")) return text("Not found", 404);
     const id = filename.slice(0, -".png".length);
-    const principal = await resolvePrincipal(request, env);
+    const access = await readAccessForRequest(request, env);
+    const principal = access.principal;
+    if (access.explicitAgentKey && !access.agentKey) return text("Not found", 404);
+    if (access.agentKey && !await agentKeyAllowsRead(env, access.agentKey, "session", id)) {
+      return text("Not found", 404);
+    }
     const accessible = principal ? await findAccessibleSession(env, principal, id) : null;
 
-    if (!accessible && shareToken) {
-      const token = await validateShareToken(env, shareToken);
-      if (!token || token.resourceType !== "session" || token.resourceId !== id) {
-        return text("Not found", 404);
-      }
-    } else if (!accessible) {
+    const publicSessionShare = !accessible && !access.explicitAgentKey
+      ? await findPublicSessionShare(env, id, shareToken, true)
+      : null;
+    if (!accessible && !publicSessionShare) {
       return text("Not found", 404);
     }
 
@@ -6530,17 +7616,28 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
     const rawId = decodeURIComponent(url.pathname.slice("/v/".length));
     if (!rawId.endsWith(".md")) return json({ error: "Not found" }, 404);
     const id = rawId.slice(0, -3);
-    const principal = await resolvePrincipal(request, env);
+    const access = await readAccessForRequest(request, env);
+    const principal = access.principal;
+    if (access.explicitAgentKey && !access.agentKey) return text("Not found", 404);
+    if (access.agentKey && !await agentKeyAllowsRead(env, access.agentKey, "session", id)) {
+      return text("Not found", 404);
+    }
     const accessible = principal ? await findAccessibleSession(env, principal, id) : null;
-    const session = accessible ?? await findPublicSession(env, id, shareToken);
+    const session = accessible ?? (access.explicitAgentKey ? null : await findPublicSession(env, id, shareToken));
     if (!session) return text("Not found", 404);
+    const viewerUrl = !accessible && shareToken
+      ? `${url.origin}/v/${id}?token=${shareToken}`
+      : `${url.origin}/v/${id}`;
     return text(
       formatSessionMarkdown(
         session,
-        `${url.origin}/v/${id}?token=${shareToken || ""}`,
+        viewerUrl,
         await listAgentExecutions(env, id),
         await listPinReviews(env, id),
-        await readOwnerDeliveryPreferences(env, session.userId || ""),
+        {
+          ...(await readOwnerDeliveryPreferences(env, session.userId || "")),
+          shareToken: !accessible ? shareToken : undefined,
+        },
       ),
       200,
       {
@@ -6552,17 +7649,27 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
   if (request.method === "GET" && url.pathname.startsWith("/p/")) {
     const rawId = decodeURIComponent(url.pathname.slice("/p/".length));
     if (!rawId.endsWith(".md")) return json({ error: "Not found" }, 404);
-    const project = await findPublicProject(env, rawId.slice(0, -3), shareToken);
+    const id = rawId.slice(0, -3);
+    const access = await readAccessForRequest(request, env);
+    if (access.explicitAgentKey && !access.agentKey) return text("Not found", 404);
+    const scoped = access.agentKey && await agentKeyAllowsRead(env, access.agentKey, "project", id);
+    if (access.agentKey && !scoped) return text("Not found", 404);
+    const project = access.agentKey && access.principal
+      ? await findPrivateProject(env, access.principal, id)
+      : await findPublicProject(env, id, shareToken);
     return project
       ? text(
         formatProjectMarkdown(
           project,
           url.origin,
-          await readOwnerDeliveryPreferences(env, project.ownerId),
+          {
+            ...(await readOwnerDeliveryPreferences(env, project.ownerId)),
+            shareToken: access.agentKey ? undefined : shareToken,
+          },
         ),
         200,
         {
-        "Cache-Control": "public, max-age=60",
+        "Cache-Control": access.agentKey ? "private, no-store" : "public, max-age=60",
         "Content-Type": "text/markdown; charset=utf-8",
       })
       : text("Not found", 404);
@@ -6571,7 +7678,12 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
     const rawId = decodeURIComponent(url.pathname.slice("/c/".length));
     if (!rawId.endsWith(".md")) return json({ error: "Not found" }, 404);
     const id = rawId.slice(0, -3);
-    const principal = await resolvePrincipal(request, env);
+    const access = await readAccessForRequest(request, env);
+    if (access.explicitAgentKey && !access.agentKey) return text("Not found", 404);
+    if (access.agentKey && !await agentKeyAllowsRead(env, access.agentKey, "collection", id)) {
+      return text("Not found", 404);
+    }
+    const principal = access.principal;
     let collection: ProjectTreeCollection | null = null;
     let authorizedCollection = false;
     if (principal) {
@@ -6582,7 +7694,7 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
         authorizedCollection = true;
       }
     }
-    if (!collection) {
+    if (!collection && !access.explicitAgentKey) {
       collection = await findPublicCollection(env, id, shareToken);
     }
     return collection
@@ -6590,7 +7702,10 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
         formatCollectionMarkdown(
           collection,
           url.origin,
-          await readOwnerDeliveryPreferences(env, collection.ownerId),
+          {
+            ...(await readOwnerDeliveryPreferences(env, collection.ownerId)),
+            shareToken: authorizedCollection ? undefined : shareToken,
+          },
         ),
         200,
         {
@@ -6602,7 +7717,15 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
   if (request.method === "GET" && url.pathname.startsWith("/b/")) {
     const rawId = decodeURIComponent(url.pathname.slice("/b/".length));
     if (!rawId.endsWith(".md")) return json({ error: "Not found" }, 404);
-    const bundle = await findPublicBatch(env, rawId.slice(0, -3), shareToken);
+    const id = rawId.slice(0, -3);
+    const access = await readAccessForRequest(request, env);
+    if (access.explicitAgentKey && !access.agentKey) return text("Not found", 404);
+    if (access.agentKey && !await agentKeyAllowsRead(env, access.agentKey, "batch", id)) {
+      return text("Not found", 404);
+    }
+    const bundle = access.agentKey && access.principal
+      ? await findPrivateBatch(env, access.principal, id)
+      : await findPublicBatch(env, id, shareToken);
     if (!bundle) return text("Not found", 404);
     const statusByPinId: Record<string, PinReviewStatus> = {};
     for (const session of bundle.sessions) {
@@ -6617,7 +7740,12 @@ export async function handleCloudPublicRequest(request: Request, env: CloudEnv) 
         bundle.sessions,
         statusByPinId,
         url.origin,
-        { ...preferences, language: preferences.language ?? "en" },
+        {
+          ...preferences,
+          includeViewerContent: false,
+          language: preferences.language ?? "en",
+          shareToken: access.agentKey ? undefined : shareToken,
+        },
       ),
       200,
       {
@@ -6639,6 +7767,7 @@ export function resetCloudMemoryStateForTests() {
   memoryOwnerPreferences.clear();
   memoryPinReviews.clear();
   memoryPinReviewEvents.length = 0;
+  memoryPinComments.length = 0;
   memoryAiCreditGrants.clear();
   memoryAiCreditUsages.clear();
   memoryCollections.clear();

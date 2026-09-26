@@ -88,6 +88,10 @@ export function extensionCodeHash(pepper, code) {
   return createHmac("sha256", pepper).update(`extension-code:${code}`).digest("hex");
 }
 
+export function emailCodeHash(pepper, email, code) {
+  return createHmac("sha256", pepper).update(`email-code:${email}:${code}`).digest("hex");
+}
+
 export function installationTokenHash(token) {
   return createHash("sha256").update(token).digest("hex");
 }
@@ -114,6 +118,8 @@ export function buildCloudLocalFixture(profileName, pepper, now = new Date()) {
   return {
     ...profile,
     creditExpiry,
+    emailCode: "826826",
+    emailCodeHash: emailCodeHash(pepper, profile.email, "826826"),
     extensionCodeHash: extensionCodeHash(pepper, profile.code),
     initialCreditExpiry,
     nextRefillAt: null,
@@ -140,13 +146,17 @@ export function buildCloudLocalSeedSql(fixture) {
   const projectId = `prj_cloud_local_${fixture.plan}`;
   const collectionId = `col_cloud_local_${fixture.plan}`;
   const sessionId = `session_cloud_local_${fixture.plan}`;
+  const emailCodeExpiresAt = new Date(Date.parse(fixture.now) + 24 * 60 * 60 * 1000).toISOString();
   const grants = [
       `INSERT INTO ai_credit_grants (id, owner_type, owner_id, source_type, source_id, credits, consumed_credits, expires_at, created_at) VALUES (${sqlString(`grant_cloud_local_${fixture.plan}_initial`)}, 'account', ${sqlString(fixture.userId)}, 'pro_initial', ${sqlString(`pro_initial:${fixture.userId}`)}, ${fixture.credits}, 20, ${sqlString(fixture.initialCreditExpiry)}, ${sqlString(fixture.now)});`,
       `INSERT INTO ai_credit_grants (id, owner_type, owner_id, source_type, source_id, credits, consumed_credits, expires_at, created_at) VALUES (${sqlString(`grant_cloud_local_${fixture.plan}_expiring`)}, 'account', ${sqlString(fixture.userId)}, 'purchase', ${sqlString(`cloud-local:${fixture.plan}:expiring`)}, 20, 0, ${sqlString(fixture.creditExpiry)}, ${sqlString(fixture.now)});`,
     ];
   return [
     `INSERT INTO users (id, email, plan, ever_paid, billing_status, created_at, updated_at, ai_credit_refill_at) VALUES (${sqlString(fixture.userId)}, ${sqlString(fixture.email)}, ${sqlString(fixture.plan)}, 1, 'active', ${sqlString(fixture.now)}, ${sqlString(fixture.now)}, ${fixture.nextRefillAt ? sqlString(fixture.nextRefillAt) : "NULL"}) ON CONFLICT(id) DO UPDATE SET email=excluded.email, plan=excluded.plan, ever_paid=1, billing_status='active', updated_at=excluded.updated_at, ai_credit_refill_at=excluded.ai_credit_refill_at;`,
+    `INSERT INTO email_challenges (id, email, user_id, code_hash, attempts, expires_at, used_at, created_at) VALUES ('emc_cloud_local_pro', ${sqlString(fixture.email)}, ${sqlString(fixture.userId)}, ${sqlString(fixture.emailCodeHash)}, 0, ${sqlString(emailCodeExpiresAt)}, NULL, ${sqlString(fixture.now)}) ON CONFLICT(id) DO UPDATE SET code_hash=excluded.code_hash, attempts=0, expires_at=excluded.expires_at, used_at=NULL, created_at=excluded.created_at;`,
+    `INSERT OR IGNORE INTO legal_acceptances (id, owner_type, owner_id, terms_version, privacy_version, acceptable_use_version, locale, source, evidence_id, accepted_at, created_at) VALUES ('lga_cloud_local_pro', 'account', ${sqlString(fixture.userId)}, ${sqlString(CURRENT_LEGAL_VERSION)}, ${sqlString(CURRENT_LEGAL_VERSION)}, ${sqlString(CURRENT_LEGAL_VERSION)}, 'en', 'account', ${sqlString(`account:${fixture.userId}:${CURRENT_LEGAL_VERSION}`)}, ${sqlString(fixture.now)}, ${sqlString(fixture.now)});`,
     `DELETE FROM ai_credit_grants WHERE owner_type = 'account' AND owner_id = ${sqlString(fixture.userId)} AND source_id LIKE 'cloud-local:%';`,
+    `DELETE FROM ai_credit_grants WHERE owner_type = 'account' AND owner_id = ${sqlString(fixture.userId)} AND source_id = ${sqlString(`pro_initial:${fixture.userId}`)};`,
     ...grants,
     `DELETE FROM storage_grants WHERE user_id = ${sqlString(fixture.userId)} AND source_id LIKE 'cloud-local:%';`,
     `INSERT INTO projects (id, owner_id, name, icon, position, is_protected, created_at, updated_at) VALUES (${sqlString(projectId)}, ${sqlString(fixture.userId)}, 'Personal', 'user-round', 0, 1, ${sqlString(fixture.now)}, ${sqlString(fixture.now)}) ON CONFLICT(id) DO UPDATE SET owner_id=excluded.owner_id, updated_at=excluded.updated_at;`,

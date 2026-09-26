@@ -14,20 +14,22 @@ import type {
   Session,
 } from "@pinar/shared";
 import {
-  AgentResultError,
   PinReviewError,
   VisualContextError,
-  agentResultErrorBody,
-  agentResultHttpStatus,
   applySessionPatch,
+  countPinReviews,
   generateNanoId,
+  humanActionsForStatus,
   isPinReviewHumanAction,
   parseVisualCapture,
+  pinIdsFromPins,
   pinReviewErrorBody,
   pinReviewHttpStatus,
   planLoopMetricRequest,
   visualContextErrorBody,
   type AgentExecution,
+  type PinComment,
+  type PinReview,
   type VisualCapture,
 } from "@pinar/shared";
 import { DEFAULT_PROJECT_ICON, isProjectIcon } from "@pinar/shared/project-icons";
@@ -35,7 +37,7 @@ import { openHistoryDb } from "@pinar/cli/history";
 import { pinarHome, shotsDir } from "@pinar/cli/paths";
 import { readDeliveryPreferences, writeDeliveryPreferences } from "@pinar/cli/preferences";
 import { writeShot } from "@pinar/cli/shots";
-import { formatBatchMarkdown, formatCollectionMarkdown, formatProjectMarkdown, formatSessionMarkdown } from "./markdown";
+import { formatBatchMarkdown, formatCollectionMarkdown, formatProjectMarkdown, formatSessionHandoffMarkdown, formatSessionMarkdown } from "./markdown";
 import { installerResponse } from "./installers";
 import {
   capabilitySecretFromRequest,
@@ -83,6 +85,8 @@ interface HistoryDatabase {
   getSession(id: string): LocalSession | null;
   listAgentExecutions(captureId: string): AgentExecution[];
   listPinReviews(captureId: string): import("@pinar/shared").PinReview[];
+  listPinComments(captureId: string): PinComment[];
+  addPinComment(captureId: string, pinId: string, body: unknown): PinComment;
   applyPinReview(
     captureId: string,
     pinId: string,
@@ -138,11 +142,17 @@ function rootPath() {
   return pinarHome();
 }
 
+function includeViewerContentForRequest(request: Request, preferences: { copyViewerContent: boolean; includeViewer: boolean }) {
+  const requested = new URL(request.url).searchParams.get("includeViewerContent");
+  const include = requested == null ? preferences.copyViewerContent : requested === "1";
+  return preferences.includeViewer && include;
+}
+
 function historyDatabase(): HistoryDatabase {
   const root = rootPath();
   if (!activeDatabase || activeRoot !== root) {
     activeDatabase?.close();
-    activeDatabase = openHistoryDb(root);
+    activeDatabase = openHistoryDb(root) as HistoryDatabase;
     activeRoot = root;
   }
   if (!activeDatabase) throw new Error("Unable to initialize local history database");
@@ -264,21 +274,77 @@ function presentSession(session: LocalSession | null, origin: string): Session |
     captureId: session.captureId || session.id,
     isPermanent: true,
     plan: "free",
+    // Counts follow the same human-only view as the reviews payload below,
+    // so legacy agent states never surface as dashboard badges or filters.
+    reviewCounts: countPinReviews(
+      pinIdsFromPins(session.pins),
+      Object.fromEntries(visiblePinReviews(session.id).map((review) => [review.pinId, review.status])),
+    ),
     schemaVersion: session.schemaVersion ?? 1,
     shotUrl: shotId ? `${origin}/shots/${shotId}.png` : null,
     viewerUrl: `${origin}/v/${session.id}.md`,
   };
 }
 
+/**
+ * Pinar Local no longer runs the agent loop, but older databases may still
+ * hold its traces: executions, `correction_ready` reviews and `agent_result`
+ * timeline events, including agent events recorded after human ones. Stored
+ * rows stay untouched (nothing is erased), yet every Local presentation shows
+ * only the human side: the visible state follows the last human event, each
+ * visible `fromStatus` follows the previous human `toStatus` (`open` for the
+ * first), and agent-only history reads as open. The stored rows remain
+ * actionable through the human accept/reopen endpoints.
+ */
+function visiblePinReviews(captureId: string): PinReview[] {
+  const visible: PinReview[] = [];
+  for (const review of historyDatabase().listPinReviews(captureId)) {
+    const humanEvents = review.timeline.filter((event) => event.origin === "human");
+    const last = humanEvents[humanEvents.length - 1];
+    if (!last) continue;
+    let fromStatus: PinReviewStatus = "open";
+    const timeline = humanEvents.map((event) => {
+      const next = { ...event, fromStatus };
+      fromStatus = event.toStatus;
+      return next;
+    });
+    visible.push({
+      ...review,
+      actions: humanActionsForStatus(last.toStatus),
+      status: last.toStatus,
+      timeline,
+      updatedAt: last.createdAt,
+    });
+  }
+  return visible;
+}
+
 function sessionPayload(session: LocalSession | null, origin: string) {
   const presented = presentSession(session, origin);
   if (!presented) return json({ error: "not found" }, 404);
+  // Pinar Local does not receive or display agent feedback: the payload always
+  // reports an empty execution list and human-only reviews, even when older
+  // agent rows still exist locally.
   return json({
-    executions: historyDatabase().listAgentExecutions(presented.id),
+    comments: historyDatabase().listPinComments(presented.id),
+    executions: [],
     ok: true,
-    reviews: historyDatabase().listPinReviews(presented.id),
+    reviews: visiblePinReviews(presented.id),
     session: presented,
   });
+}
+
+async function createPinComment(request: Request, captureId: string, pinId: string) {
+  const body = await readJson(request);
+  try {
+    const comment = historyDatabase().addPinComment(captureId, pinId, body.body);
+    return json({ comment, ok: true });
+  } catch (error) {
+    if (error instanceof PinReviewError) {
+      return json(pinReviewErrorBody(error), pinReviewHttpStatus(error));
+    }
+    throw error;
+  }
 }
 
 async function reviewPin(request: Request, captureId: string, pinId: string) {
@@ -302,17 +368,17 @@ async function reviewPin(request: Request, captureId: string, pinId: string) {
   }
 }
 
-async function publishAgentExecution(request: Request) {
-  const body = await readJson(request);
-  try {
-    const saved = historyDatabase().saveAgentExecution(body);
-    return json({ created: saved.created, execution: saved.execution, ok: true }, saved.created ? 201 : 200);
-  } catch (error) {
-    if (error instanceof AgentResultError) {
-      return json(agentResultErrorBody(error), agentResultHttpStatus(error));
-    }
-    throw error;
-  }
+async function publishAgentExecution() {
+  // Pinar Local keeps captures, Markdown, human comments, and pin completion,
+  // but no longer accepts agent feedback. Reject explicitly without persisting.
+  return json(
+    {
+      error: "agent_feedback_disabled",
+      message: "Pinar Local does not accept agent feedback. Agent results are available in Pinar Cloud.",
+      ok: false,
+    },
+    410,
+  );
 }
 
 async function publishLoopMetrics(request: Request) {
@@ -378,7 +444,7 @@ function publicBatch(id: string, origin: string) {
       for (const session of collection.sessions) {
         if (session.batchId !== id) continue;
         sessions.push(session);
-        for (const review of historyDatabase().listPinReviews(session.id)) {
+        for (const review of visiblePinReviews(session.id)) {
           statusByPinId[review.pinId] = review.status;
         }
       }
@@ -565,7 +631,7 @@ async function routeLocalApi(request: Request): Promise<Response> {
   if (method === "POST" && path === "/api/auth/logout") return json({ ok: true });
   if (method === "POST" && path === "/api/shots") return uploadShot(request);
   if (method === "POST" && path === "/api/history") return saveHistory(request);
-  if (method === "POST" && path === "/api/agent-executions") return publishAgentExecution(request);
+  if (method === "POST" && path === "/api/agent-executions") return publishAgentExecution();
   if (method === "POST" && path === "/api/loop-metrics") return publishLoopMetrics(request);
   if (method === "GET" && path === "/api/loop-metrics") return listLoopMetrics();
   if (method === "GET" && path.startsWith("/api/public/projects/")) {
@@ -595,8 +661,19 @@ async function routeLocalApi(request: Request): Promise<Response> {
     const bundle = publicBatch(decodeURIComponent(batchMarkdownMatch[1]), origin);
     if (!bundle) return json({ error: "Session not found" }, 404);
     const preferences = readDeliveryPreferences(rootPath());
+    const includeViewerContent = includeViewerContentForRequest(request, preferences);
+    const viewerContent = includeViewerContent
+      ? {
+        // Agent feedback stays out of Local handoffs: only human reviews shape the bundle.
+        executions: Object.fromEntries(bundle.sessions.map((session) => [session.id, []])),
+        reviews: Object.fromEntries(bundle.sessions.map((session) => [session.id, visiblePinReviews(session.id)])),
+      }
+      : undefined;
     return text(formatBatchMarkdown(bundle.batch, bundle.sessions, bundle.statusByPinId, origin, {
-      ...preferences, language: preferences.language ?? "en",
+      ...preferences,
+      includeViewerContent,
+      language: preferences.language ?? "en",
+      viewerContent,
     }), 200, { "Cache-Control": "no-store", "Content-Type": "text/markdown; charset=utf-8" });
   }
   if (batchFinishMatch && method === "POST") {
@@ -687,6 +764,14 @@ async function routeLocalApi(request: Request): Promise<Response> {
     const deleted = historyDatabase().deleteCollection(decodeURIComponent(collectionMatch[1]));
     return deleted ? json({ deleted, ok: true }) : json({ error: "protected or not found" }, 409);
   }
+  const pinCommentMatch = path.match(/^\/api\/sessions\/([^/]+)\/pins\/([^/]+)\/comments$/);
+  if (pinCommentMatch && method === "POST") {
+    return createPinComment(
+      request,
+      decodeURIComponent(pinCommentMatch[1]),
+      decodeURIComponent(pinCommentMatch[2]),
+    );
+  }
   const pinReviewMatch = path.match(/^\/api\/sessions\/([^/]+)\/pins\/([^/]+)\/review$/);
   if (pinReviewMatch && method === "POST") {
     return reviewPin(
@@ -731,6 +816,24 @@ async function routeLocalApi(request: Request): Promise<Response> {
   if (sessionMatch && method === "PATCH") {
     return updateSessionFields(request, decodeURIComponent(sessionMatch[1]), url.origin);
   }
+  const sessionMarkdownMatch = path.match(/^\/api\/sessions\/([^/]+)\/markdown$/);
+  if (sessionMarkdownMatch && method === "GET") {
+    const id = decodeURIComponent(sessionMarkdownMatch[1]);
+    const session = presentSession(historyDatabase().getSession(id), url.origin);
+    if (!session) return text("Session not found", 404);
+    const preferences = readDeliveryPreferences(rootPath());
+    return text(
+      formatSessionHandoffMarkdown(
+        session,
+        `${url.origin}/v/${id}`,
+        [],
+        visiblePinReviews(id),
+        { ...preferences, includeViewerContent: includeViewerContentForRequest(request, preferences) },
+      ),
+      200,
+      { "Cache-Control": "no-store", "Content-Type": "text/markdown; charset=utf-8" },
+    );
+  }
   if (method === "GET" && path.startsWith("/api/sessions/")) {
     const id = decodeURIComponent(path.slice("/api/sessions/".length));
     return sessionPayload(historyDatabase().getSession(id), url.origin);
@@ -774,8 +877,8 @@ export async function handlePublicRequest(request: Request): Promise<Response> {
       formatSessionMarkdown(
         session,
         `${url.origin}/v/${id}`,
-        historyDatabase().listAgentExecutions(id),
-        historyDatabase().listPinReviews(id),
+        [],
+        visiblePinReviews(id),
         delivery,
       ),
       200,
@@ -816,6 +919,7 @@ export async function handlePublicRequest(request: Request): Promise<Response> {
       ? text(
         formatBatchMarkdown(bundle.batch, bundle.sessions, bundle.statusByPinId, url.origin, {
           ...preferences,
+          includeViewerContent: false,
           language: preferences.language ?? "en",
         }),
         200,

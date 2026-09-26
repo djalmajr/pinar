@@ -160,12 +160,14 @@ export function AppAccountMenu() {
                     <span className="truncate font-medium">{identity.name}</span>
                     <span className="truncate text-xs text-muted-foreground">{identity.detail}</span>
                   </div>
-                  <span
-                    className="ml-auto shrink-0 rounded-full border bg-muted/50 px-2 py-0.5 text-xs font-semibold"
-                    data-testid="account-plan"
-                  >
-                    {currentPlan}
-                  </span>
+                  {cloudSession ? (
+                    <span
+                      className="ml-auto shrink-0 rounded-full border bg-muted/50 px-2 py-0.5 text-xs font-semibold"
+                      data-testid="account-plan"
+                    >
+                      {currentPlan}
+                    </span>
+                  ) : null}
                 </div>
               </DropdownMenuLabel>
             </DropdownMenuGroup>

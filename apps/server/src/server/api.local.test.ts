@@ -12,9 +12,7 @@ import {
 } from "./api.local";
 import { exerciseProjectApiContract } from "./project-api.contract";
 import { exerciseVisualContextContract } from "./visual-context.contract";
-import { exerciseAgentResultsContract } from "./agent-results.contract";
-import { exercisePinReviewContract } from "./pin-review.contract";
-import { exerciseClosedLoopContract } from "./closed-loop.contract";
+import { openHistoryDb } from "@pinar/cli/history";
 import { setLocalAiDependenciesForTests } from "./ai/local-ai";
 
 const VALID_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
@@ -418,20 +416,359 @@ describe("local TanStack API", () => {
     ));
   });
 
-  test("matches the shared agent results contract", async () => {
-    await exerciseAgentResultsContract(request, (path, init) => (
-      handlePublicRequest(new Request(`http://127.0.0.1:17373${path}`, init))
-    ));
+  test("rejects agent feedback locally without persisting", async () => {
+    const upload = await request("/api/shots", {
+      body: JSON.stringify({
+        id: "local_no_agents",
+        image: VALID_PNG,
+        page: { title: "No agents", url: "https://example.test/no-agents" },
+        pins: [{ comment: "Human pin", kind: "element", pinId: "pin_cta" }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(upload.status, 201);
+
+    const payload = {
+      agent: "cursor",
+      captureId: "local_no_agents",
+      idempotencyKey: "exec_local_blocked_01",
+      results: [{ pinId: "pin_cta", status: "changed", summary: "Agent correction" }],
+    };
+    const blocked = await request("/api/agent-executions", {
+      body: JSON.stringify(payload),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(blocked.status, 410);
+    const blockedBody = await jsonBody(blocked);
+    assert.equal(blockedBody.ok, false);
+    assert.equal(blockedBody.error, "agent_feedback_disabled");
+
+    const replay = await request("/api/agent-executions", {
+      body: JSON.stringify(payload),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(replay.status, 410);
+
+    const session = await jsonBody(await request("/api/sessions/local_no_agents"));
+    assert.deepEqual(session.executions, []);
+    assert.ok(Array.isArray(session.reviews));
+
+    const markdown = await handlePublicRequest(
+      new Request("http://127.0.0.1:17373/v/local_no_agents.md"),
+    );
+    assert.equal(markdown.status, 200);
+    const text = await markdown.text();
+    assert.match(text, /Human pin/);
+    assert.doesNotMatch(text, /## Agent results/);
+    assert.doesNotMatch(text, /Agent correction/);
+
+    const handoff = await request("/api/sessions/local_no_agents/markdown?includeViewerContent=1");
+    assert.equal(handoff.status, 200);
+    const handoffText = await handoff.text();
+    assert.match(handoffText, /Human pin/);
+    assert.doesNotMatch(handoffText, /Agent correction/);
   });
 
-  test("matches the shared pin review contract", async () => {
-    await exercisePinReviewContract(request, (path, init) => (
-      handlePublicRequest(new Request(`http://127.0.0.1:17373${path}`, init))
-    ));
+  test("keeps human pin review in Local without agent results", async () => {
+    const upload = await request("/api/shots", {
+      body: JSON.stringify({
+        id: "local_human_review",
+        image: VALID_PNG,
+        page: { title: "Human review", url: "https://example.test/human-review" },
+        pins: [{ comment: "Review me", kind: "element", pinId: "pin_cta" }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(upload.status, 201);
+
+    const review = (action: string) => request("/api/sessions/local_human_review/pins/pin_cta/review", {
+      body: JSON.stringify({ action }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal((await review("accept")).status, 200);
+    assert.equal((await review("accept")).status, 409);
+    assert.equal((await review("reopen")).status, 200);
+    const acceptedAgain = await jsonBody(await review("accept"));
+    assert.equal(acceptedAgain.ok, true);
+    assert.ok(isRecord(acceptedAgain.review));
+    assert.equal(acceptedAgain.review.status, "accepted");
+
+    const session = await jsonBody(await request("/api/sessions/local_human_review"));
+    assert.deepEqual(session.executions, []);
+    assert.ok(Array.isArray(session.reviews));
+    const stored = session.reviews.find((item) => isRecord(item) && item.pinId === "pin_cta");
+    assert.ok(isRecord(stored));
+    assert.equal(stored.status, "accepted");
   });
 
-  test("matches the closed-loop pin, handoff, review and opt-in metrics contract", async () => {
-    await exerciseClosedLoopContract(request);
+  test("hides legacy agent feedback in Local while keeping human review", async () => {
+    const upload = await request("/api/shots", {
+      body: JSON.stringify({
+        batch: { id: "local_legacy_batch", label: "Legacy batch", startedAt: new Date().toISOString() },
+        id: "local_legacy_agent",
+        image: VALID_PNG,
+        page: { title: "Legacy agent", url: "https://example.test/legacy-agent" },
+        pins: [
+          { comment: "Human pin A", kind: "element", pinId: "pin_a" },
+          { comment: "Human pin B", kind: "element", pinId: "pin_b" },
+        ],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(upload.status, 201);
+
+    const acceptA = await request("/api/sessions/local_legacy_agent/pins/pin_a/review", {
+      body: JSON.stringify({ action: "accept" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(acceptA.status, 200);
+
+    // Rows written by a previous agent run can only pre-exist: the Local API
+    // rejects new agent feedback with 410, so seed them directly in history.
+    const legacyDb = openHistoryDb(root);
+    try {
+      legacyDb.saveAgentExecution({
+        agent: "cursor",
+        captureId: "local_legacy_agent",
+        idempotencyKey: "legacy_exec_01",
+        results: [{ pinId: "pin_b", status: "changed", summary: "Legacy agent summary" }],
+      });
+    } finally {
+      legacyDb.close();
+    }
+
+    const session = await jsonBody(await request("/api/sessions/local_legacy_agent"));
+    assert.deepEqual(session.executions, []);
+    assert.ok(Array.isArray(session.reviews));
+    for (const item of session.reviews) {
+      assert.ok(isRecord(item));
+      assert.notEqual(item.status, "correction_ready");
+      const timeline = Array.isArray(item.timeline) ? item.timeline : [];
+      for (const event of timeline) {
+        assert.ok(isRecord(event));
+        assert.notEqual(event.origin, "agent_result");
+      }
+    }
+    const acceptedA = session.reviews.find((item) => isRecord(item) && item.pinId === "pin_a");
+    assert.ok(isRecord(acceptedA));
+    assert.equal(acceptedA.status, "accepted");
+
+    const markdown = await handlePublicRequest(
+      new Request("http://127.0.0.1:17373/v/local_legacy_agent.md"),
+    );
+    assert.equal(markdown.status, 200);
+    const text = await markdown.text();
+    assert.match(text, /Human pin A/);
+    assert.match(text, /Human pin B/);
+    assert.doesNotMatch(text, /Legacy agent summary/);
+    assert.doesNotMatch(text, /## Agent results/);
+    assert.doesNotMatch(text, /correction_ready/);
+    assert.doesNotMatch(text, /agent_result/);
+
+    const handoff = await request("/api/sessions/local_legacy_agent/markdown?includeViewerContent=1");
+    assert.equal(handoff.status, 200);
+    const handoffText = await handoff.text();
+    assert.match(handoffText, /Human pin A/);
+    assert.match(handoffText, /Human pin B/);
+    assert.doesNotMatch(handoffText, /Legacy agent summary/);
+    assert.doesNotMatch(handoffText, /correction_ready/);
+    assert.doesNotMatch(handoffText, /agent_result/);
+
+    const history = await jsonBody(await request("/api/history"));
+    assert.ok(Array.isArray(history.sessions));
+    const listed = history.sessions.find((item) => isRecord(item) && item.id === "local_legacy_agent");
+    assert.ok(isRecord(listed) && isRecord(listed.reviewCounts));
+    assert.equal(listed.reviewCounts.correction_ready ?? 0, 0);
+    assert.equal(listed.reviewCounts.accepted, 1);
+
+    const batch = await request("/api/batches/local_legacy_batch/markdown");
+    assert.equal(batch.status, 200);
+    const batchText = await batch.text();
+    assert.match(batchText, /Human pin B/);
+    assert.doesNotMatch(batchText, /Legacy agent summary/);
+    assert.doesNotMatch(batchText, /correction_ready/);
+    assert.doesNotMatch(batchText, /agent_result/);
+
+    const blocked = await request("/api/agent-executions", {
+      body: JSON.stringify({
+        agent: "cursor",
+        captureId: "local_legacy_agent",
+        idempotencyKey: "legacy_exec_02",
+        results: [{ pinId: "pin_b", status: "changed", summary: "New agent feedback" }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(blocked.status, 410);
+
+    const acceptB = await request("/api/sessions/local_legacy_agent/pins/pin_b/review", {
+      body: JSON.stringify({ action: "accept" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(acceptB.status, 200);
+    const afterAccept = await jsonBody(await request("/api/sessions/local_legacy_agent"));
+    const reviewB = afterAccept.reviews.find((item) => isRecord(item) && item.pinId === "pin_b");
+    assert.ok(isRecord(reviewB));
+    assert.equal(reviewB.status, "accepted");
+    const acceptedTimeline = Array.isArray(reviewB.timeline) ? reviewB.timeline : [];
+    assert.ok(acceptedTimeline.length > 0);
+    for (const event of acceptedTimeline) {
+      assert.ok(isRecord(event));
+      assert.notEqual(event.origin, "agent_result");
+    }
+
+    const markdownAfterAccept = await handlePublicRequest(
+      new Request("http://127.0.0.1:17373/v/local_legacy_agent.md"),
+    );
+    assert.equal(markdownAfterAccept.status, 200);
+    const textAfterAccept = await markdownAfterAccept.text();
+    assert.match(textAfterAccept, /Human pin B/);
+    assert.doesNotMatch(textAfterAccept, /Legacy agent summary/);
+    assert.doesNotMatch(textAfterAccept, /correction_ready/);
+    assert.doesNotMatch(textAfterAccept, /agent_result/);
+  });
+
+  test("reflects the last human state after interleaved legacy agent events", async () => {
+    const upload = await request("/api/shots", {
+      body: JSON.stringify({
+        id: "local_legacy_interleaved",
+        image: VALID_PNG,
+        page: { title: "Interleaved", url: "https://example.test/interleaved" },
+        pins: [{ comment: "Human pin", kind: "element", pinId: "pin_mixed" }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(upload.status, 201);
+
+    // agent_result → human accept → human reopen → agent_result, seeded
+    // directly: the Local API rejects new agent feedback with 410.
+    const legacyDb = openHistoryDb(root);
+    const human = { actorId: "local", actorType: "human" as const, origin: "human" as const };
+    try {
+      legacyDb.saveAgentExecution({
+        agent: "cursor",
+        captureId: "local_legacy_interleaved",
+        idempotencyKey: "legacy_exec_mixed_01",
+        results: [{ pinId: "pin_mixed", status: "changed", summary: "Legacy agent summary" }],
+      });
+      legacyDb.applyPinReview("local_legacy_interleaved", "pin_mixed", "accept", human);
+      legacyDb.applyPinReview("local_legacy_interleaved", "pin_mixed", "reopen", human);
+      legacyDb.saveAgentExecution({
+        agent: "cursor",
+        captureId: "local_legacy_interleaved",
+        idempotencyKey: "legacy_exec_mixed_02",
+        results: [{ pinId: "pin_mixed", status: "changed", summary: "Second legacy agent summary" }],
+      });
+    } finally {
+      legacyDb.close();
+    }
+
+    const session = await jsonBody(await request("/api/sessions/local_legacy_interleaved"));
+    assert.deepEqual(session.executions, []);
+    assert.ok(Array.isArray(session.reviews));
+    const review = session.reviews.find((item) => isRecord(item) && item.pinId === "pin_mixed");
+    assert.ok(isRecord(review));
+    assert.equal(review.status, "reopened");
+    assert.deepEqual(review.actions, ["accept"]);
+    const timeline = Array.isArray(review.timeline) ? review.timeline : [];
+    assert.equal(timeline.length, 2);
+    assert.deepEqual(timeline.map((event) => isRecord(event) && event.fromStatus), ["open", "accepted"]);
+    assert.deepEqual(timeline.map((event) => isRecord(event) && event.toStatus), ["accepted", "reopened"]);
+    for (const event of timeline) {
+      assert.ok(isRecord(event));
+      assert.equal(event.origin, "human");
+    }
+    assert.ok(isRecord(timeline[1]));
+    assert.equal(review.updatedAt, timeline[1].createdAt);
+    assert.ok(isRecord(session.session) && isRecord(session.session.reviewCounts));
+    assert.equal(session.session.reviewCounts.correction_ready, 0);
+    assert.equal(session.session.reviewCounts.reopened, 1);
+    assert.doesNotMatch(JSON.stringify(session.reviews), /correction_ready/);
+    assert.doesNotMatch(JSON.stringify(session.reviews), /agent_result/);
+    assert.doesNotMatch(JSON.stringify(session.reviews), /Legacy agent summary/);
+
+    const history = await jsonBody(await request("/api/history"));
+    const listed = (Array.isArray(history.sessions) ? history.sessions : [])
+      .find((item) => isRecord(item) && item.id === "local_legacy_interleaved");
+    assert.ok(isRecord(listed) && isRecord(listed.reviewCounts));
+    assert.equal(listed.reviewCounts.correction_ready ?? 0, 0);
+    assert.equal(listed.reviewCounts.reopened, 1);
+
+    const markdown = await handlePublicRequest(
+      new Request("http://127.0.0.1:17373/v/local_legacy_interleaved.md"),
+    );
+    assert.equal(markdown.status, 200);
+    const text = await markdown.text();
+    assert.match(text, /Human pin/);
+    assert.doesNotMatch(text, /Legacy agent summary/);
+    assert.doesNotMatch(text, /Second legacy agent summary/);
+    assert.doesNotMatch(text, /correction_ready/);
+    assert.doesNotMatch(text, /agent_result/);
+
+    // The human review API still operates on the real stored row.
+    const accept = await request("/api/sessions/local_legacy_interleaved/pins/pin_mixed/review", {
+      body: JSON.stringify({ action: "accept" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(accept.status, 200);
+    const afterAccept = await jsonBody(await request("/api/sessions/local_legacy_interleaved"));
+    const accepted = afterAccept.reviews.find((item) => isRecord(item) && item.pinId === "pin_mixed");
+    assert.ok(isRecord(accepted));
+    assert.equal(accepted.status, "accepted");
+  });
+
+  test("keeps loop-metrics opt-in behavior without agent feedback", async () => {
+    const off = await request("/api/loop-metrics", {
+      body: JSON.stringify({
+        events: [{ comment: "Make the CTA bolder", event: "handoff", url: "https://example.test/cta" }],
+        optIn: false,
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(off.status, 200);
+    assert.equal((await jsonBody(off)).stored, 0);
+
+    const forbidden = await request("/api/loop-metrics", {
+      body: JSON.stringify({
+        events: [{
+          comment: "secret comment",
+          event: "handoff",
+          selector: "#cta",
+          screenshot: VALID_PNG,
+          url: "https://example.test/cta",
+        }],
+        optIn: true,
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(forbidden.status, 400);
+
+    const on = await request("/api/loop-metrics", {
+      body: JSON.stringify({
+        events: [
+          { agent: "cursor", durationMs: 40, event: "handoff" },
+          { event: "correction_ready", locationConfidence: "exact" },
+          { event: "accepted" },
+        ],
+        optIn: true,
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(on.status, 201);
+    assert.equal((await jsonBody(on)).stored, 3);
   });
 
   test("patches viewer-owned pin fields and renders them in the session markdown", async () => {
@@ -539,5 +876,99 @@ describe("local TanStack API", () => {
     assert.equal(cleared.mode, "byok");
     assert.equal(cleared.model, "qwen3.8-27b");
     assert.equal(secrets.size, 0);
+  });
+
+  test("stores local pin comments, reloads them, and drops them with the capture", async () => {
+    const upload = await request("/api/shots", {
+      body: JSON.stringify({
+        id: "local_comment_capture",
+        image: VALID_PNG,
+        page: { title: "Local comments", url: "https://example.test/local-comments" },
+        pins: [
+          { comment: "One", kind: "element", pinId: "pin_one" },
+          { comment: "Two", kind: "element", pinId: "pin_two" },
+        ],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(upload.status, 201);
+    const other = await request("/api/shots", {
+      body: JSON.stringify({
+        id: "local_comment_other",
+        image: VALID_PNG,
+        page: { title: "Other", url: "https://example.test/local-other" },
+        pins: [{ comment: "Other", kind: "element", pinId: "pin_one" }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(other.status, 201);
+
+    const created = await request("/api/sessions/local_comment_capture/pins/pin_one/comments", {
+      body: JSON.stringify({
+        actorId: "browser",
+        actorLabel: "Spoofed",
+        actorType: "agent",
+        body: "  local note  ",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(created.status, 200);
+    const createdBody = await jsonBody(created);
+    assert.equal(createdBody.ok, true);
+    assert.ok(isRecord(createdBody.comment));
+    assert.equal(createdBody.comment.body, "local note");
+    assert.equal(createdBody.comment.actorId, "local");
+    assert.equal(createdBody.comment.actorLabel, "Local");
+    assert.equal(createdBody.comment.actorType, "human");
+    assert.equal(createdBody.comment.pinId, "pin_one");
+
+    const second = await request("/api/sessions/local_comment_capture/pins/pin_two/comments", {
+      body: JSON.stringify({ body: "second local note" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(second.status, 200);
+    assert.equal((await request("/api/sessions/local_comment_capture/pins/pin_one/comments", {
+      body: JSON.stringify({ body: "   " }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    })).status, 400);
+    assert.equal((await request("/api/sessions/local_comment_capture/pins/pin_missing/comments", {
+      body: JSON.stringify({ body: "missing pin" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    })).status, 404);
+
+    resetLocalApiForTests();
+    const listed = await jsonBody(await request("/api/sessions/local_comment_capture"));
+    assert.ok(Array.isArray(listed.comments));
+    assert.deepEqual(listed.comments.map((item) => {
+      assert.ok(isRecord(item));
+      return item.body;
+    }), ["local note", "second local note"]);
+    assert.deepEqual(listed.comments.map((item) => {
+      assert.ok(isRecord(item));
+      return item.pinId;
+    }), ["pin_one", "pin_two"]);
+    const isolated = await jsonBody(await request("/api/sessions/local_comment_other"));
+    assert.deepEqual(isolated.comments, []);
+
+    assert.equal((await request("/api/history/local_comment_capture", { method: "DELETE" })).status, 200);
+    const recreated = await request("/api/shots", {
+      body: JSON.stringify({
+        id: "local_comment_capture",
+        image: VALID_PNG,
+        page: { title: "Local comments", url: "https://example.test/local-comments" },
+        pins: [{ comment: "One", kind: "element", pinId: "pin_one" }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(recreated.status, 201);
+    const afterDelete = await jsonBody(await request("/api/sessions/local_comment_capture"));
+    assert.deepEqual(afterDelete.comments, []);
   });
 });

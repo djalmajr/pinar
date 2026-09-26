@@ -22,6 +22,7 @@ import {
   defaultPinReviewStatus,
   humanActionsForStatus,
   isPinReviewStatus,
+  parsePinCommentBody,
   resolvePinReviewTransition,
 } from "../../../packages/shared/src/pin-review/index.ts";
 import {
@@ -306,6 +307,19 @@ function formatPinReview(pinId, row, events) {
   };
 }
 
+function formatPinComment(row) {
+  return {
+    actorId: row.actor_id,
+    actorLabel: row.actor_label,
+    actorType: "human",
+    body: row.body,
+    captureId: row.capture_id,
+    createdAt: row.created_at,
+    id: row.id,
+    pinId: row.pin_id,
+  };
+}
+
 function requirePinReview(reviews, pinId) {
   const review = reviews.find((item) => item.pinId === pinId);
   if (!review) throw new PinReviewError("pin_not_found");
@@ -346,6 +360,7 @@ class JsonHistoryDb {
             collections: [],
             design_systems: [],
             loop_metrics: [],
+            pin_comments: [],
             pin_review_events: [],
             pin_reviews: [],
             projects: [],
@@ -359,6 +374,7 @@ class JsonHistoryDb {
             collections: Array.isArray(stored.collections) ? stored.collections : [],
             design_systems: Array.isArray(stored.design_systems) ? stored.design_systems : [],
             loop_metrics: Array.isArray(stored.loop_metrics) ? stored.loop_metrics : [],
+            pin_comments: Array.isArray(stored.pin_comments) ? stored.pin_comments : [],
             pin_review_events: Array.isArray(stored.pin_review_events) ? stored.pin_review_events : [],
             pin_reviews: Array.isArray(stored.pin_reviews) ? stored.pin_reviews : [],
             projects: Array.isArray(stored.projects) ? stored.projects : [],
@@ -375,6 +391,7 @@ class JsonHistoryDb {
       collections: [],
       design_systems: [],
       loop_metrics: [],
+      pin_comments: [],
       pin_review_events: [],
       pin_reviews: [],
       projects: [],
@@ -566,6 +583,32 @@ class JsonHistoryDb {
     });
   }
 
+  listPinComments(captureId) {
+    return this.data.pin_comments
+      .filter((item) => item.capture_id === captureId)
+      .sort((left, right) => String(left.created_at).localeCompare(String(right.created_at)))
+      .map(formatPinComment);
+  }
+
+  addPinComment(captureId, pinId, body) {
+    const text = parsePinCommentBody(body);
+    const session = this.getSession(captureId);
+    if (!session || !pinIdsFromPins(session.pins).has(pinId)) throw new PinReviewError("pin_not_found");
+    const row = {
+      actor_id: LOCAL_OWNER_ID,
+      actor_label: "Local",
+      actor_type: "human",
+      body: text,
+      capture_id: captureId,
+      created_at: now(),
+      id: generateNanoId(),
+      pin_id: pinId,
+    };
+    this.data.pin_comments.push(row);
+    this._save();
+    return formatPinComment(row);
+  }
+
   applyPinReview(captureId, pinId, action, actor) {
     const session = this.getSession(captureId);
     if (!session || !pinIdsFromPins(session.pins).has(pinId)) throw new PinReviewError("pin_not_found");
@@ -684,6 +727,7 @@ class JsonHistoryDb {
     this.data.agent_executions = this.data.agent_executions.filter((item) => item.capture_id !== id);
     this.data.pin_reviews = this.data.pin_reviews.filter((item) => item.capture_id !== id);
     this.data.pin_review_events = this.data.pin_review_events.filter((item) => item.capture_id !== id);
+    this.data.pin_comments = this.data.pin_comments.filter((item) => item.capture_id !== id);
     this._save();
     return previousLength !== this.data.sessions.length;
   }
@@ -694,6 +738,7 @@ class JsonHistoryDb {
     this.data.loop_metrics = [];
     this.data.pin_reviews = [];
     this.data.pin_review_events = [];
+    this.data.pin_comments = [];
     this._save();
     return true;
   }
@@ -1039,7 +1084,18 @@ class SqliteHistoryDb {
       CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions(created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_agent_executions_capture ON agent_executions(capture_id, created_at);
       CREATE INDEX IF NOT EXISTS idx_agent_pin_results_execution ON agent_pin_results(execution_id);
+      CREATE TABLE IF NOT EXISTS pin_comments (
+        id TEXT PRIMARY KEY,
+        capture_id TEXT NOT NULL,
+        pin_id TEXT NOT NULL,
+        actor_id TEXT NOT NULL,
+        actor_label TEXT NOT NULL,
+        actor_type TEXT NOT NULL CHECK (actor_type = 'human'),
+        body TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
       CREATE INDEX IF NOT EXISTS idx_pin_review_events_pin ON pin_review_events(capture_id, pin_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_pin_comments_capture ON pin_comments(capture_id, created_at);
       CREATE INDEX IF NOT EXISTS idx_loop_metrics_created ON loop_metrics(created_at);
     `);
     const projectColumns = new Set(
@@ -1260,6 +1316,43 @@ class SqliteHistoryDb {
     ));
   }
 
+  listPinComments(captureId) {
+    return this.db.prepare(
+      "SELECT * FROM pin_comments WHERE capture_id = ? ORDER BY created_at ASC, rowid ASC",
+    ).all(captureId).map(formatPinComment);
+  }
+
+  addPinComment(captureId, pinId, body) {
+    const text = parsePinCommentBody(body);
+    const session = this.getSession(captureId);
+    if (!session || !pinIdsFromPins(session.pins).has(pinId)) throw new PinReviewError("pin_not_found");
+    const row = {
+      actor_id: LOCAL_OWNER_ID,
+      actor_label: "Local",
+      actor_type: "human",
+      body: text,
+      capture_id: captureId,
+      created_at: now(),
+      id: generateNanoId(),
+      pin_id: pinId,
+    };
+    this.db.prepare(`
+      INSERT INTO pin_comments (
+        id, capture_id, pin_id, actor_id, actor_label, actor_type, body, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      row.id,
+      row.capture_id,
+      row.pin_id,
+      row.actor_id,
+      row.actor_label,
+      row.actor_type,
+      row.body,
+      row.created_at,
+    );
+    return formatPinComment(row);
+  }
+
   applyPinReview(captureId, pinId, action, actor) {
     const session = this.getSession(captureId);
     if (!session || !pinIdsFromPins(session.pins).has(pinId)) throw new PinReviewError("pin_not_found");
@@ -1432,11 +1525,12 @@ class SqliteHistoryDb {
     this.db.prepare("DELETE FROM agent_executions WHERE capture_id = ?").run(id);
     this.db.prepare("DELETE FROM pin_review_events WHERE capture_id = ?").run(id);
     this.db.prepare("DELETE FROM pin_reviews WHERE capture_id = ?").run(id);
+    this.db.prepare("DELETE FROM pin_comments WHERE capture_id = ?").run(id);
     return this.db.prepare("DELETE FROM sessions WHERE id = ?").run(id).changes > 0;
   }
 
   clearHistory() {
-    this.db.exec("DELETE FROM loop_metrics; DELETE FROM agent_pin_results; DELETE FROM agent_executions; DELETE FROM pin_review_events; DELETE FROM pin_reviews; DELETE FROM sessions;");
+    this.db.exec("DELETE FROM loop_metrics; DELETE FROM agent_pin_results; DELETE FROM agent_executions; DELETE FROM pin_review_events; DELETE FROM pin_reviews; DELETE FROM pin_comments; DELETE FROM sessions;");
     return true;
   }
 

@@ -1,8 +1,7 @@
 (() => {
-  if (globalThis.__pinarToggle) {
-    globalThis.__pinarToggle();
-    return;
-  }
+  // A later injection (review resume, a completed iframe, a site modal) must
+  // not flip the toolbar. The action and its shortcut call __pinarToggle().
+  if (globalThis.__pinarToggle) return;
 
   const DRAG_THRESHOLD = 6;
   let reviewDocumentId = crypto.randomUUID();
@@ -2773,6 +2772,7 @@
     state.recordingCount = 0;
     setVisible(false);
     renderRecordingBadge();
+    if (!isEmbedded) void chrome.runtime.sendMessage({ type: "toolbar:visibility", visible: false }).catch(() => null);
   }
 
   function isMounted() {

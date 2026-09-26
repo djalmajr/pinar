@@ -35,11 +35,13 @@ import {
   TabsTrigger,
   toast,
 } from "@pinar/ui";
+import { AgentAccessSettings } from "@/components/AgentAccessSettings";
 import { isProjectTreeProject, isRecord } from "@/lib/api-data";
 import { isPaidAuthSession, useAuthSession } from "@/lib/auth-session";
 import { flattenCollections } from "@/lib/collection-tree";
 import { useDeliveryPreferences } from "@/lib/delivery-preferences";
 import { useServerI18n } from "@/lib/i18n";
+import { collectionDisplayName } from "@/lib/collection-display-name";
 import { isSupportedLanguage } from "@/lib/language";
 import { findProductRelease, loadReleaseContent, type ProductRelease } from "@/lib/release-content";
 import { pinarRuntime } from "@/lib/server-header";
@@ -47,6 +49,7 @@ import { SERVER_BUILD, SERVER_VERSION, SERVER_VERSION_LABEL } from "@/lib/versio
 import InfoIcon from "~icons/lucide/info";
 import ExternalLinkIcon from "~icons/lucide/external-link";
 import HistoryIcon from "~icons/lucide/history";
+import KeyRoundIcon from "~icons/lucide/key-round";
 import LaptopIcon from "~icons/lucide/laptop";
 import MonitorIcon from "~icons/lucide/monitor";
 import MoonIcon from "~icons/lucide/moon";
@@ -56,7 +59,7 @@ import SlidersHorizontalIcon from "~icons/lucide/sliders-horizontal";
 import SunIcon from "~icons/lucide/sun";
 import XIcon from "~icons/lucide/x";
 
-type SettingsSection = "about" | "aiUsage" | "capture" | "general" | "interface";
+type SettingsSection = "about" | "agentAccess" | "aiUsage" | "capture" | "general" | "interface";
 type ThemeMode = "dark" | "light" | "system";
 type AiUsageStatus = "idle" | "loading" | "ready" | "unavailable";
 type AiMode = "byok" | "disabled" | "local";
@@ -203,14 +206,15 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
   const authSession = useAuthSession();
   const showPaidAi = runtime === "cloud" && isPaidAuthSession(authSession);
   const showAiSettings = runtime === "local" || showPaidAi;
+  const showAgentAccess = runtime === "cloud";
   const [currentRelease, setCurrentRelease] = useState<ProductRelease | null>();
 
   useEffect(() => {
     if (!open) return;
-    setSection(initialSection);
+    setSection(initialSection === "agentAccess" && !showAgentAccess ? "general" : initialSection);
     setTheme(currentThemeMode());
     setSensitiveQueryKeysDraft(sensitiveQueryKeys);
-  }, [initialSection, open, sensitiveQueryKeys]);
+  }, [initialSection, open, sensitiveQueryKeys, showAgentAccess]);
 
   useEffect(() => {
     if (!open) return;
@@ -308,6 +312,7 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
   }, [theme]);
 
   const selectedProject = projects.find((project) => project.id === captureDestination?.projectId);
+  const inboxLabel = t("dashboard.protectedInbox");
   const collectionEntries = useMemo(
     () => selectedProject ? flattenCollections(selectedProject.collections) : [],
     [selectedProject],
@@ -320,12 +325,14 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
     [projects, t],
   );
   const collectionItems = useMemo(
-    () => collectionEntries.map(({ collection }) => ({ label: collection.name, value: collection.id })),
-    [collectionEntries],
+    () => collectionEntries.map(({ collection }) => ({ label: collectionDisplayName(collection, inboxLabel), value: collection.id })),
+    [collectionEntries, inboxLabel],
   );
 
   const sectionLabel = section === "about"
     ? t("settings.aboutTitle")
+    : section === "agentAccess"
+      ? t("settings.agentAccess")
     : section === "aiUsage"
       ? t("settings.ai")
     : section === "capture"
@@ -335,6 +342,8 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
         : t("settings.general");
   const sectionDescription = section === "about"
     ? t("settings.aboutDescription")
+    : section === "agentAccess"
+      ? t("settings.agentAccessDescription")
     : section === "aiUsage"
       ? runtime === "local" ? t("settings.aiDescription") : t("settings.aiUsageDescription")
     : section === "capture"
@@ -447,6 +456,17 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
                 <ShieldCheckIcon />
                 {t("settings.captureNav")}
               </Button>
+              {showAgentAccess ? (
+                <Button
+                  aria-current={section === "agentAccess" ? "page" : undefined}
+                  className={settingsNavButtonClass(section === "agentAccess")}
+                  variant="ghost"
+                  onClick={() => setSection("agentAccess")}
+                >
+                  <KeyRoundIcon />
+                  {t("settings.agentAccess")}
+                </Button>
+              ) : null}
               <Button
                 aria-current={section === "interface" ? "page" : undefined}
                 className={settingsNavButtonClass(section === "interface")}
@@ -494,6 +514,7 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
             <nav aria-label={t("settings.title")} className="flex shrink-0 gap-1 overflow-x-auto border-b p-2 sm:hidden">
               <Button size="sm" variant={section === "general" ? "secondary" : "ghost"} onClick={() => setSection("general")}>{t("settings.general")}</Button>
               <Button size="sm" variant={section === "capture" ? "secondary" : "ghost"} onClick={() => setSection("capture")}>{t("settings.captureNav")}</Button>
+              {showAgentAccess ? <Button size="sm" variant={section === "agentAccess" ? "secondary" : "ghost"} onClick={() => setSection("agentAccess")}><KeyRoundIcon />{t("settings.agentAccess")}</Button> : null}
               <Button size="sm" variant={section === "interface" ? "secondary" : "ghost"} onClick={() => setSection("interface")}>{t("settings.interfaceNav")}</Button>
               {showAiSettings ? <Button size="sm" variant={section === "aiUsage" ? "secondary" : "ghost"} onClick={() => setSection("aiUsage")}>{t("settings.ai")}</Button> : null}
               <Button size="sm" variant={section === "about" ? "secondary" : "ghost"} onClick={() => setSection("about")}>{t("settings.about")}</Button>
@@ -562,7 +583,7 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
                               {collectionEntries.map(({ collection, depth }) => (
                                 <SelectItem key={collection.id} value={collection.id}>
                                   <span className="block truncate" style={{ paddingInlineStart: `${depth * 12}px` }}>
-                                    {collection.name}
+                                    {collectionDisplayName(collection, inboxLabel)}
                                   </span>
                                 </SelectItem>
                               ))}
@@ -642,6 +663,9 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
                   </Tabs>
                 </SettingRow>
               </section>
+              {showAgentAccess ? <section className={cn("flex flex-col gap-5", section !== "agentAccess" && "hidden")}>
+                <AgentAccessSettings canCreate={showPaidAi} open={open && section === "agentAccess"} projects={projects} />
+              </section> : null}
               {showAiSettings ? <section className={cn("flex flex-col gap-3", section !== "aiUsage" && "hidden")}>
                 {runtime === "local" ? (
                   <div className="flex flex-col gap-5">

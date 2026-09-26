@@ -30,11 +30,12 @@ export function shareViewerPath(
 
 export function sessionMarkdownHref(
   session: { batchId?: string | null; id: string },
-  options: { grouped: boolean; shareToken?: string | null },
+  options: { grouped: boolean; privateMarkdown?: boolean; shareToken?: string | null },
 ) {
   if (options.grouped && session.batchId) {
     return `/api/batches/${encodeURIComponent(session.batchId)}/markdown`;
   }
+  if (options.privateMarkdown) return `/api/sessions/${encodeURIComponent(session.id)}/markdown`;
   return shareMarkdownPath(session.id, options.shareToken);
 }
 

@@ -56,6 +56,46 @@ describe("formatClipboardPayload", () => {
     assert.equal(payload.plain, markdown);
     assert.equal(payload.html, "<pre># Visual feedback\n\nComment: Fix this &lt;button&gt;</pre>");
   });
+
+  test("keeps the structured handoff and adds opt-in viewer Markdown with fenced code intact", () => {
+    // Mutation captured: replacing the structured handoff with viewer Markdown drops captureId and pinId.
+    const markdown = "# Visual feedback\n\n```js\nconst token = '[redacted]';\n```";
+    const payload = formatClipboardPayload({
+      captureId: "capture-1",
+      page: { title: "App", url: "https://app.example.test" },
+      pins: [{ comment: "Fix this", id: "pin-1" }],
+      privacy: { redacted: ["token"] },
+      shot: "/Users/me/.pinar/shots/capture-1.png",
+      viewerContent: markdown,
+      viewerUrl: "https://pinar.example.test/v/capture-1.md",
+    });
+
+    const context = contextFrom(payload.plain);
+    assert.equal(context.captureId, "capture-1");
+    assert.equal(context.pins[0].pinId, "pin-1");
+    assert.deepEqual(context.privacy, { redacted: ["token"] });
+    assert.deepEqual(context.screenshot, { url: "/Users/me/.pinar/shots/capture-1.png" });
+    assert.equal((payload.plain.match(/```pinar-visual-context/g) || []).length, 1);
+    assert.match(payload.plain, /--- BEGIN PINAR VIEWER MARKDOWN ---/);
+    assert.match(payload.plain, /```js\nconst token = '\[redacted\]';\n```/);
+    assert.match(payload.plain, /--- END PINAR VIEWER MARKDOWN ---/);
+    assert.match(payload.html, /data-pinar="viewer-markdown"/);
+    assert.doesNotMatch(payload.plain, /s3cret/);
+    assert.doesNotMatch(payload.plain, /(?:deviceToken|capability)=/i);
+  });
+
+  test("keeps the compact handoff when viewer content is disabled", () => {
+    const payload = formatClipboardPayload({
+      captureId: "capture-compact",
+      page: { title: "App", url: "https://app.example.test" },
+      pins: [{ comment: "Keep this compact", id: "pin-compact" }],
+      viewerUrl: "https://pinar.example.test/v/capture-compact.md",
+    });
+
+    assert.equal(contextFrom(payload.plain).captureId, "capture-compact");
+    assert.doesNotMatch(payload.plain, /BEGIN PINAR VIEWER MARKDOWN/);
+    assert.doesNotMatch(payload.html, /data-pinar="viewer-markdown"/);
+  });
 });
 
 describe("formatViewerContent", () => {

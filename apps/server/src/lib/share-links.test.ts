@@ -304,6 +304,10 @@ describe("share link helpers", () => {
       sessionMarkdownHref({ batchId: null, id: "sess_1" }, { grouped: false, shareToken: "sh_abc" }),
       "/v/sess_1.md?token=sh_abc",
     );
+    assert.equal(
+      sessionMarkdownHref({ batchId: null, id: "sess_1" }, { grouped: false, privateMarkdown: true, shareToken: "sh_abc" }),
+      "/api/sessions/sess_1/markdown",
+    );
   });
 
   test("revokeShare treats 404 as already unpublished", async () => {

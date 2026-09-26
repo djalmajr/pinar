@@ -43,6 +43,7 @@ import { createSingleFlight } from "./single-flight.js";
 import { resolveVoiceAvailability } from "./voice-access.js";
 import { cloudSubscriptionRequired, normalizeCloudTrial } from "./cloud-trial.js";
 import { createContinuousSession, continuousSummary, indexedDraftStore } from "./continuous-session.js";
+import { MAX_VIEWER_MARKDOWN_BYTES, readOptionalViewerMarkdown } from "./viewer-markdown.js";
 import "./privacy.js";
 
 const tabPins = new Map();
@@ -1253,13 +1254,14 @@ async function reportCopyProgress(tabId, progress) {
   await chrome.tabs.sendMessage(tabId, { progress, type: "copy:progress" }).catch(() => null);
 }
 
-async function copyBundle(message, tabId) {
+export async function copyBundle(message, tabId) {
   const id = message.captureId || generateNanoId(12);
   const settings = await getSettings();
   const remotePrefs = await fetchDeliveryPreferences(settings);
   if (remotePrefs) await cacheDeliveryPreferences(remotePrefs, settings);
   const includeScreenshot = remotePrefs?.includeScreenshot ?? settings.includeScreenshot !== false;
   const includeViewer = remotePrefs?.includeViewer ?? settings.includeViewer !== false;
+  const copyViewerContent = remotePrefs?.copyViewerContent ?? settings.copyViewerContent === true;
   const handoffMode = remotePrefs?.handoffMode ?? (settings.handoffMode === "full" ? "full" : "compact");
   const privacyApi = globalThis.__pinarPrivacy;
   if (!privacyApi) throw new Error("privacy sanitizer is unavailable");
@@ -1291,7 +1293,7 @@ async function copyBundle(message, tabId) {
   });
   const language = getBestLanguage(remotePrefs?.language ?? settings.language);
 
-  async function publishClipboard(shot, viewerUrl) {
+  async function publishClipboard(shot, viewerUrl, viewerContent = null) {
     const uniqueWarnings = [...new Set(warnings)];
     const payload = formatClipboardPayload({
       captureId: id,
@@ -1305,12 +1307,14 @@ async function copyBundle(message, tabId) {
       reproduction,
       schemaVersion: message.schemaVersion || 1,
       shot,
+      viewerContent,
       viewerUrl,
       viewport: message.viewport,
       warnings: uniqueWarnings,
     });
     const degraded = uniqueWarnings.some((warning) => (
       warning === "screenshot_missing" || warning === "helper_unavailable" || warning === "viewer_unavailable"
+      || warning === "viewer_content_unavailable"
     ));
     try {
       await ensureOffscreen();
@@ -1361,8 +1365,16 @@ async function copyBundle(message, tabId) {
   const shot = includeScreenshot ? (savedResult?.path || null) : null;
   const viewerUrl = (includeViewer && savedResult?.viewerUrl) ? savedResult.viewerUrl : null;
   if (plan.historyAllowed && includeViewer && !viewerUrl) warnings.push("viewer_unavailable");
+  let viewerContent = null;
+  if (copyViewerContent && includeViewer && savedResult) {
+    try {
+      viewerContent = await fetchSavedViewerMarkdown(settings, id);
+    } catch {
+      warnings.push("viewer_content_unavailable");
+    }
+  }
   await reportCopyProgress(tabId, 0.94);
-  const final = await publishClipboard(shot, viewerUrl);
+  const final = await publishClipboard(shot, viewerUrl, viewerContent);
   if (final.ok) published = final;
   else if (!published.ok) published = final;
 
@@ -1636,6 +1648,21 @@ async function localFetch(base, path, init = {}) {
     response = await send(true);
   }
   return response;
+}
+
+async function fetchSavedViewerMarkdown(settings, captureId) {
+  const path = `/v/${encodeURIComponent(captureId)}.md`;
+  const response = settings.storageMode === "cloud"
+    ? await remoteFetch(cloudEndpoint(settings), path, { cache: "no-store", redirect: "error" })
+    : await (async () => {
+      const base = await findShotBase();
+      if (!base) throw new Error("helper_unavailable");
+      return localFetch(base, path, { cache: "no-store", redirect: "error" });
+    })();
+  if (!response.ok) throw new Error(`viewer_content_${response.status}`);
+  const result = await readOptionalViewerMarkdown(response, MAX_VIEWER_MARKDOWN_BYTES);
+  if (result.warning) throw new Error(result.warning);
+  return result.content;
 }
 
 async function fetchDestinationTree(settings, localBase) {

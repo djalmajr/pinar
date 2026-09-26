@@ -129,7 +129,7 @@ describe("capture destination", () => {
     assert.match(optionsSrc, /\{t\.section_handoff_desc\}<\/p>\s*<div className="flex flex-col gap-3">/);
     assert.match(optionsSrc, /\{t\.section_privacy_desc\}<\/p>\s*<div className="flex flex-col gap-3">/);
     assert.doesNotMatch(optionsSrc, /SECTION_LEAD/);
-    assert.match(optionsSrc, /const voiceAvailable = settings\.storageMode === "cloud"[\s\S]*authSession\?\.kind === "account"[\s\S]*authSession\.plan === "pro"/);
+    assert.match(optionsSrc, /const voiceAvailable = authReady\s*&&[\s\S]*settings\.storageMode === "cloud"[\s\S]*authSession\?\.kind === "account"[\s\S]*authSession\.plan === "pro"/);
     assert.match(optionsSrc, /\{t\.section_interface_desc\}/);
     assert.match(optionsSrc, /\{t\.section_handoff_desc\}/);
     assert.match(optionsSrc, /\{t\.section_privacy_desc\}/);

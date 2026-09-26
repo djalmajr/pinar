@@ -63,7 +63,7 @@ import {
 } from "@pinar/ui";
 import { WorkspaceChrome, useWorkspaceChrome } from "@/components/WorkspaceChrome";
 import { PendingInvitationsBanner } from "@/components/PendingInvitationsBanner";
-import { copyBatchHandoff } from "../lib/session-actions";
+import { copyBatchHandoff, copySessionHandoff } from "../lib/session-actions";
 import { SessionActionsMenu } from "../components/SessionActionsMenu";
 import { useDeliveryPreferences } from "@/lib/delivery-preferences";
 import { collectionDisplayName } from "@/lib/collection-display-name";
@@ -89,6 +89,7 @@ import {
 import { WebViewer } from "@/pages/WebViewer";
 import CalendarIcon from "~icons/lucide/calendar-days";
 import CheckIcon from "~icons/lucide/check";
+import CircleAlertIcon from "~icons/lucide/circle-alert";
 import CopyIcon from "~icons/lucide/copy";
 import ExternalLinkIcon from "~icons/lucide/external-link";
 import FolderIcon from "~icons/lucide/folder";
@@ -188,7 +189,11 @@ function SessionIdentity({
 
 function SessionActions({
   batchCopied,
+  batchCopyFailed,
+  batchCopying,
   copied,
+  copyFailed,
+  copying,
   session,
   onCopy,
   onCopyBatch,
@@ -197,7 +202,11 @@ function SessionActions({
   t,
 }: {
   batchCopied: boolean;
+  batchCopyFailed: boolean;
+  batchCopying: boolean;
   copied: boolean;
+  copyFailed: boolean;
+  copying: boolean;
   session: Session;
   onCopy: (session: Session) => void;
   onCopyBatch: (batchId: string) => void;
@@ -208,14 +217,15 @@ function SessionActions({
   return (
     <div className="flex items-center justify-end gap-0.5" data-session-actions>
       <Button
-        aria-label={copied ? t("common.copied") : t("dashboard.copyPrompt")}
+        aria-label={copying ? t("dashboard.copyPromptPreparing") : copyFailed ? t("dashboard.copyPromptFailed") : copied ? t("common.copied") : t("dashboard.copyPrompt")}
         data-no-dnd=""
+        disabled={copying}
         size="icon-sm"
-        title={copied ? t("common.copied") : t("dashboard.copyPrompt")}
+        title={copying ? t("dashboard.copyPromptPreparing") : copyFailed ? t("dashboard.copyPromptFailed") : copied ? t("common.copied") : t("dashboard.copyPrompt")}
         variant="ghost"
         onClick={() => onCopy(session)}
       >
-        {copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
+        {copied ? <CheckIcon className="size-3.5" /> : copying ? <LoaderCircleIcon className="size-3.5 animate-spin" /> : copyFailed ? <CircleAlertIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger
@@ -225,11 +235,16 @@ function SessionActions({
         </DropdownMenuTrigger>
         <SessionActionsMenu
           copied={copied}
+          copyFailed={copyFailed}
+          copying={copying}
+          privateMarkdown
           session={session}
           t={t}
           onDelete={onDelete}
           onMove={onMove}
           batchCopied={batchCopied}
+          batchCopyFailed={batchCopyFailed}
+          batchCopying={batchCopying}
           onCopyBatch={onCopyBatch}
         />
       </DropdownMenu>
@@ -463,7 +478,8 @@ export function HistoryDashboard({ viewerSessionId }: { viewerSessionId?: string
 
 function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string }) {
   const { language, t } = useServerI18n();
-  const { handoffMode, includeScreenshot } = useDeliveryPreferences();
+  const { copyViewerContent, handoffMode, includeScreenshot, includeViewer } = useDeliveryPreferences();
+  const viewerContentEnabled = includeViewer && copyViewerContent;
   const navigate = useNavigate();
   const {
     fetchTree,
@@ -481,6 +497,10 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
   } = useWorkspaceChrome();
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copiedBatchId, setCopiedBatchId] = useState<string | null>(null);
+  const [copyErrorId, setCopyErrorId] = useState<string | null>(null);
+  const [copyErrorBatchId, setCopyErrorBatchId] = useState<string | null>(null);
+  const [copyingId, setCopyingId] = useState<string | null>(null);
+  const [copyingBatchId, setCopyingBatchId] = useState<string | null>(null);
   const [deleteIds, setDeleteIds] = useState<string[]>([]);
   const [revokeTargets, setRevokeTargets] = useState<SharedCaptureTarget[]>([]);
   const [revokePreparing, setRevokePreparing] = useState(false);
@@ -609,24 +629,47 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
       await copyBatch(session.batchId);
       return;
     }
-    await navigator.clipboard.writeText(formatClipboardText(
-      session.page,
-      session.pins,
-      session.shotUrl,
-      session.viewerUrl || `/v/${session.id}.md`,
-      session.captureId || session.id,
-      includeScreenshot,
-      handoffMode,
-      language,
-    ));
-    setCopiedId(session.id);
-    window.setTimeout(() => setCopiedId(null), 2_000);
+    if (copyingId || copyingBatchId) return;
+    setCopyingId(session.id);
+    setCopyErrorId(null);
+    setCopiedId(null);
+    try {
+      const copied = viewerContentEnabled
+        ? await copySessionHandoff(session.id, true)
+        : await navigator.clipboard.writeText(formatClipboardText(
+          session.page,
+          session.pins,
+          session.shotUrl,
+          session.viewerUrl || `/v/${session.id}.md`,
+          session.captureId || session.id,
+          includeScreenshot,
+          handoffMode,
+          language,
+        )).then(() => true);
+      if (!copied) throw new Error("session prompt unavailable");
+      setCopiedId(session.id);
+      window.setTimeout(() => setCopiedId(null), 2_000);
+    } catch {
+      setCopyErrorId(session.id);
+    } finally {
+      setCopyingId(null);
+    }
   }
 
   async function copyBatch(batchId: string) {
-    if (!await copyBatchHandoff(batchId)) return;
-    setCopiedBatchId(batchId);
-    window.setTimeout(() => setCopiedBatchId(null), 2_000);
+    if (copyingBatchId || copyingId) return;
+    setCopyingBatchId(batchId);
+    setCopyErrorBatchId(null);
+    setCopiedBatchId(null);
+    try {
+      if (!await copyBatchHandoff(batchId, viewerContentEnabled)) throw new Error("batch prompt unavailable");
+      setCopiedBatchId(batchId);
+      window.setTimeout(() => setCopiedBatchId(null), 2_000);
+    } catch {
+      setCopyErrorBatchId(batchId);
+    } finally {
+      setCopyingBatchId(null);
+    }
   }
 
   async function deleteSessions() {
@@ -813,7 +856,11 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
       cell: ({ row }) => (
         <SessionActions
           batchCopied={copiedBatchId != null && copiedBatchId === row.original.batchId}
+          batchCopyFailed={copyErrorBatchId != null && copyErrorBatchId === row.original.batchId}
+          batchCopying={copyingBatchId != null && copyingBatchId === row.original.batchId}
           copied={copiedId === row.original.id}
+          copyFailed={copyErrorId === row.original.id}
+          copying={copyingId === row.original.id}
           session={row.original}
           onCopy={(session) => void copyPrompt(session)}
           onCopyBatch={(id) => void copyBatch(id)}
@@ -829,7 +876,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
       meta: { align: "right", label: t("dashboard.actions") },
       size: 76,
     },
-  ], [collectionNameBySessionId, copiedBatchId, copiedId, handoffMode, includeScreenshot, language, projectTree.projects, selectedCollection, selectedProject, t]);
+  ], [collectionNameBySessionId, copiedBatchId, copyErrorBatchId, copyErrorId, copiedId, copyingBatchId, copyingId, handoffMode, includeScreenshot, includeViewer, language, projectTree.projects, selectedCollection, selectedProject, t, viewerContentEnabled]);
 
   const searchControl = (
     <div className="relative min-w-0 flex-1 sm:w-56 sm:min-w-40 sm:flex-none">
@@ -1058,7 +1105,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
                           className="absolute top-2 right-2 z-10 flex items-center rounded-md bg-card/85 opacity-0 backdrop-blur-sm transition-opacity group-hover/card:opacity-100 group-focus-within/card:opacity-100 has-[[aria-expanded=true]]:opacity-100 pointer-coarse:opacity-100"
                           data-grid-actions
                         >
-                          <SessionActions batchCopied={copiedBatchId != null && copiedBatchId === session.batchId} copied={copiedId === session.id} session={session} onCopy={(current) => void copyPrompt(current)} onCopyBatch={(id) => void copyBatch(id)} onDelete={(id) => setDeleteIds([id])} onMove={(id) => openMoveDialog([id])} t={t} />
+                          <SessionActions batchCopied={copiedBatchId != null && copiedBatchId === session.batchId} batchCopyFailed={copyErrorBatchId != null && copyErrorBatchId === session.batchId} batchCopying={copyingBatchId != null && copyingBatchId === session.batchId} copied={copiedId === session.id} copyFailed={copyErrorId === session.id} copying={copyingId === session.id} session={session} onCopy={(current) => void copyPrompt(current)} onCopyBatch={(id) => void copyBatch(id)} onDelete={(id) => setDeleteIds([id])} onMove={(id) => openMoveDialog([id])} t={t} />
                         </div>
                         <SessionPreview session={session} t={t} onOpen={() => openViewer(session.id)} />
                         <CardHeader className="py-3">

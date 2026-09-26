@@ -7,7 +7,7 @@ import { PinEvidence } from "@/components/PinEvidence";
 import { PinStructure } from "@/components/PinStructure";
 import { ReproductionTimeline } from "@/components/ReproductionTimeline";
 import { SessionActionsMenu } from "../components/SessionActionsMenu";
-import { batchPromptRevision, copyBatchHandoff, createBatchPromptCache } from "../lib/session-actions";
+import { batchHandoffRevision, batchPromptRevision, copyPromptIfCurrentRevision, createBatchPromptCache, fetchBatchHandoff, fetchSessionHandoff, sessionPromptRevision } from "../lib/session-actions";
 import { ServerShell } from "@/components/ServerShell";
 import { WorkspaceChrome } from "@/components/WorkspaceChrome";
 import { isRecord, isSession } from "@/lib/api-data";
@@ -26,7 +26,6 @@ import {
   fetchActiveShare,
   publishShare,
   revokeShare,
-  shareMarkdownPath,
 } from "@/lib/share-links";
 import { shareControlState, type ShareOperation } from "@/lib/share-control-state";
 import {
@@ -460,12 +459,15 @@ export function WebViewer({
   siblingIds = [],
 }: WebViewerProps) {
   const { language, t } = useServerI18n();
-  const { handoffMode } = useDeliveryPreferences();
+  const { copyViewerContent, handoffMode, includeScreenshot, includeViewer } = useDeliveryPreferences();
+  const viewerContentEnabled = includeViewer && copyViewerContent;
   const authSession = useAuthSession();
-  const showAiReproduction = pinarRuntime() === "local" || isPaidAuthSession(authSession);
+  const isLocalViewer = pinarRuntime() === "local";
+  const showAiReproduction = isLocalViewer || isPaidAuthSession(authSession);
   const [loading, setLoading] = useState(true);
   const [pageCopied, setPageCopied] = useState(false);
-  const [batchCopied, setBatchCopied] = useState(false);
+  const [pageCopyError, setPageCopyError] = useState(false);
+  const [batchCopyPhase, setBatchCopyPhase] = useState<CopyPromptPhase>("idle");
   const [copyPhase, setCopyPhase] = useState<CopyPromptPhase>("idle");
   const promptCache = useMemo(() => createBatchPromptCache(), []);
   const [reviewBusy, setReviewBusy] = useState(false);
@@ -530,13 +532,15 @@ export function WebViewer({
   }, [isModal, selectedPin, siblingIds, stepCapture]);
 
   async function loadSession(isCurrent: () => boolean = () => true) {
+    const localViewer = pinarRuntime() === "local";
     const results = await Promise.all(captureKey.split(",").map(async (id) => {
       const response = await fetch(`/api/sessions/${encodeURIComponent(id)}`);
       const data: unknown = await response.json();
       if (!response.ok || !isRecord(data) || !isSession(data.session)) throw new Error("Capture unavailable");
       return {
         comments: asComments(data.comments),
-        executions: asExecutions(data.executions),
+        // Pinar Local never loads agent feedback, even when older rows exist.
+        executions: localViewer ? [] : asExecutions(data.executions),
         reviews: asReviews(data.reviews),
         session: data.session,
       };
@@ -546,7 +550,7 @@ export function WebViewer({
     setSession(results.find((item) => item.session.id === sessionId)?.session || results[0].session);
     setReviews(results.flatMap((item) => item.reviews));
     setComments(results.flatMap((item) => item.comments));
-    setExecutions(results.flatMap((item) => item.executions));
+    setExecutions(localViewer ? [] : results.flatMap((item) => item.executions));
     setSelectedPin((current) => current ? results.flatMap((item) => item.session.pins).find((pin) => pinLookupId(pin) === pinLookupId(current)) || null : null);
   }
 
@@ -688,8 +692,8 @@ export function WebViewer({
     await patchPin(pin, { evidence: items.length ? { ...pin.evidence, items } : null }, "viewer.evidenceRemoveFailed");
   }
 
-  function markdownUrl() {
-    return new URL(shareMarkdownPath(sessionId, shareToken), window.location.origin).toString();
+  function clipboardViewerUrl() {
+    return new URL(`/v/${encodeURIComponent(sessionId)}`, window.location.origin).toString();
   }
 
   async function copyShareLink() {
@@ -733,23 +737,70 @@ export function WebViewer({
   }
 
   const aggregateBatchId = isModal && session?.batchId ? session.batchId : null;
-  const promptRevision = aggregateBatchId ? batchPromptRevision(captures, reviews) : "";
+  // Local prompts never carry agent feedback; Cloud keeps the current behavior.
+  const visibleExecutions = isLocalViewer ? [] : executions;
+  const promptRevision = aggregateBatchId
+    ? batchPromptRevision(captures, reviews, visibleExecutions, {
+      copyViewerContent: viewerContentEnabled,
+      handoffMode,
+      includeScreenshot,
+      language,
+    })
+    : "";
   const promptRevisionRef = useRef(promptRevision);
   promptRevisionRef.current = promptRevision;
+  const singlePromptRevision = sessionPromptRevision(session, reviews, visibleExecutions, {
+    copyViewerContent: viewerContentEnabled,
+    handoffMode,
+    includeScreenshot,
+    language,
+  }, captureKey);
+  const singlePromptRevisionRef = useRef(singlePromptRevision);
+  singlePromptRevisionRef.current = singlePromptRevision;
+  const batchCopyRevision = session?.batchId
+    ? batchHandoffRevision(session.batchId, session, reviews, visibleExecutions, {
+      copyViewerContent: viewerContentEnabled,
+      handoffMode,
+      includeScreenshot,
+      language,
+    }, captureKey)
+    : "";
+  const batchCopyRevisionRef = useRef(batchCopyRevision);
+  batchCopyRevisionRef.current = batchCopyRevision;
 
   useEffect(() => {
     if (!aggregateBatchId) return;
-    void promptCache.prepare(aggregateBatchId, promptRevision).catch(() => undefined);
-  }, [aggregateBatchId, promptCache, promptRevision]);
+    void promptCache.prepare(aggregateBatchId, promptRevision, viewerContentEnabled).catch(() => undefined);
+  }, [aggregateBatchId, promptCache, promptRevision, viewerContentEnabled]);
 
   useEffect(() => {
     setCopyPhase("idle");
-  }, [aggregateBatchId, promptRevision]);
+    setBatchCopyPhase("idle");
+    setPageCopyError(false);
+  }, [aggregateBatchId, batchCopyRevision, promptRevision, sessionId, singlePromptRevision, viewerContentEnabled]);
 
   async function copyBatch(batchId: string) {
-    if (!await copyBatchHandoff(batchId)) return;
-    setBatchCopied(true);
-    window.setTimeout(() => setBatchCopied(false), 2_000);
+    if (batchCopyPhase === "preparing") return;
+    if (!session || session.batchId !== batchId) return;
+    const revision = batchCopyRevision;
+    if (!revision) return;
+    setBatchCopyPhase("preparing");
+    try {
+      const result = await copyPromptIfCurrentRevision(
+        () => fetchBatchHandoff(batchId, viewerContentEnabled),
+        revision,
+        () => batchCopyRevisionRef.current,
+        (text) => navigator.clipboard.writeText(text),
+      );
+      if (result === "stale" || batchCopyRevisionRef.current !== revision) return;
+      setBatchCopyPhase("copied");
+      window.setTimeout(() => {
+        setBatchCopyPhase((phase) => phase === "copied" ? "idle" : phase);
+      }, 2_000);
+    } catch {
+      if (batchCopyRevisionRef.current !== revision) return;
+      setBatchCopyPhase("error");
+    }
   }
 
   async function copyPage() {
@@ -760,7 +811,8 @@ export function WebViewer({
       const waiting = promptCache.prepared(aggregateBatchId, revision) === undefined;
       if (waiting) setCopyPhase("preparing");
       try {
-        const text = await promptCache.prepare(aggregateBatchId, revision);
+        const text = await promptCache.prepare(aggregateBatchId, revision, viewerContentEnabled);
+        if (promptRevisionRef.current !== revision) return;
         await navigator.clipboard.writeText(text);
         if (promptRevisionRef.current !== revision) return;
         setCopyPhase("copied");
@@ -771,21 +823,49 @@ export function WebViewer({
       }
       return;
     }
-    await navigator.clipboard.writeText(formatClipboardText(
-      session.page,
-      session.pins,
-      session.shotUrl,
-      markdownUrl(),
-      session.captureId || session.id,
-      session.includeScreenshot !== false,
-      handoffMode,
-      language,
-    ));
-    setPageCopied(true);
-    window.setTimeout(() => setPageCopied(false), 2_000);
+    if (viewerContentEnabled) {
+      if (session.id !== sessionId) return;
+      if (copyPhase === "preparing") return;
+      const requestedSessionId = session.id;
+      const revision = singlePromptRevision;
+      setCopyPhase("preparing");
+      try {
+        const result = await copyPromptIfCurrentRevision(
+          () => fetchSessionHandoff(requestedSessionId, true),
+          revision,
+          () => singlePromptRevisionRef.current,
+          (text) => navigator.clipboard.writeText(text),
+        );
+        if (result === "stale" || singlePromptRevisionRef.current !== revision) return;
+        setCopyPhase("copied");
+        window.setTimeout(() => setCopyPhase((phase) => phase === "copied" ? "idle" : phase), 2_000);
+      } catch {
+        if (singlePromptRevisionRef.current !== revision) return;
+        setCopyPhase("error");
+      }
+      return;
+    }
+    setPageCopyError(false);
+    setPageCopied(false);
+    try {
+      await navigator.clipboard.writeText(formatClipboardText(
+        session.page,
+        session.pins,
+        session.shotUrl,
+        clipboardViewerUrl(),
+        session.captureId || session.id,
+        session.includeScreenshot !== false,
+        handoffMode,
+        language,
+      ));
+      setPageCopied(true);
+      window.setTimeout(() => setPageCopied(false), 2_000);
+    } catch {
+      setPageCopyError(true);
+    }
   }
 
-  const copyPromptLabel = aggregateBatchId
+  const copyPromptLabel = aggregateBatchId || viewerContentEnabled
     ? copyPhase === "preparing"
       ? t("dashboard.copyPromptPreparing")
       : copyPhase === "copied"
@@ -793,8 +873,17 @@ export function WebViewer({
         : copyPhase === "error"
           ? t("dashboard.copyPromptFailed")
           : t("dashboard.copyPrompt")
-    : pageCopied ? t("common.copied") : t("dashboard.copyPrompt");
-  const copyPromptCopied = aggregateBatchId ? copyPhase === "copied" : pageCopied;
+    : pageCopied ? t("common.copied") : pageCopyError ? t("dashboard.copyPromptFailed") : t("dashboard.copyPrompt");
+  const copyPromptCopied = aggregateBatchId || viewerContentEnabled ? copyPhase === "copied" : pageCopied;
+  const copyPromptPreparing = aggregateBatchId || viewerContentEnabled ? copyPhase === "preparing" : false;
+  const copyPromptFailed = aggregateBatchId || viewerContentEnabled ? copyPhase === "error" : pageCopyError;
+  const batchCopyLabel = batchCopyPhase === "preparing"
+    ? t("dashboard.copyPromptPreparing")
+    : batchCopyPhase === "copied"
+      ? t("common.copied")
+      : batchCopyPhase === "error"
+        ? t("dashboard.copyPromptFailed")
+        : t("dashboard.copyBatch");
 
 
   function wrapFrame(body: ReactNode, frameClassName?: string) {
@@ -920,27 +1009,30 @@ export function WebViewer({
           ) : null}
           <ButtonGroup aria-label={t("viewer.pageActions")}>
             <Button
-              aria-busy={aggregateBatchId && copyPhase === "preparing" ? true : undefined}
-              aria-invalid={aggregateBatchId && copyPhase === "error" ? true : undefined}
+              aria-busy={copyPromptPreparing ? true : undefined}
+              aria-invalid={copyPromptFailed ? true : undefined}
               aria-label={copyPromptLabel}
-              disabled={Boolean(aggregateBatchId && copyPhase === "preparing")}
+              disabled={copyPromptPreparing}
               size="icon"
               title={copyPromptLabel}
               type="button"
               variant="outline"
               onClick={() => void copyPage()}
             >
-              {copyPromptCopied ? <CheckIcon /> : aggregateBatchId && copyPhase === "preparing" ? <LoaderCircleIcon className="animate-spin" /> : aggregateBatchId && copyPhase === "error" ? <CircleAlertIcon /> : <CopyIcon />}
+              {copyPromptCopied ? <CheckIcon /> : copyPromptPreparing ? <LoaderCircleIcon className="animate-spin" /> : copyPromptFailed ? <CircleAlertIcon /> : <CopyIcon />}
             </Button>
             {batchId && !isModal ? (
               <Button
-                aria-label={batchCopied ? t("common.copied") : t("dashboard.copyBatch")}
+                aria-busy={batchCopyPhase === "preparing" ? true : undefined}
+                aria-invalid={batchCopyPhase === "error" ? true : undefined}
+                aria-label={batchCopyLabel}
+                disabled={batchCopyPhase === "preparing"}
                 type="button"
                 variant="outline"
                 onClick={() => void copyBatch(batchId)}
               >
-                {batchCopied ? <CheckIcon data-icon="inline-start" /> : <LayersIcon data-icon="inline-start" />}
-                <span className="hidden sm:inline">{batchCopied ? t("common.copied") : t("dashboard.copyBatch")}</span>
+                {batchCopyPhase === "copied" ? <CheckIcon data-icon="inline-start" /> : batchCopyPhase === "preparing" ? <LoaderCircleIcon className="animate-spin" data-icon="inline-start" /> : batchCopyPhase === "error" ? <CircleAlertIcon data-icon="inline-start" /> : <LayersIcon data-icon="inline-start" />}
+                <span className="hidden sm:inline">{batchCopyLabel}</span>
               </Button>
             ) : null}
             <DropdownMenu>
@@ -957,8 +1049,13 @@ export function WebViewer({
                 <ChevronDownIcon />
               </DropdownMenuTrigger>
               <SessionActionsMenu
-                batchCopied={batchCopied}
-                copied={pageCopied}
+                batchCopied={batchCopyPhase === "copied"}
+                batchCopyFailed={batchCopyPhase === "error"}
+                batchCopying={batchCopyPhase === "preparing"}
+                copied={copyPromptCopied}
+                copyFailed={copyPromptFailed}
+                copying={copyPromptPreparing}
+                privateMarkdown={pinarRuntime() === "local" || showShareControls}
                 session={session}
                 shareToken={shareToken}
                 t={t}
@@ -1138,7 +1235,7 @@ export function WebViewer({
                 const pinId = pinLookupId(selectedPin);
                 const owner = pinOwner(selectedPin);
                 const thread = pinConversation({
-                  agentExecutions: executions,
+                  agentExecutions: isLocalViewer ? [] : executions,
                   captureCreatedAt: owner?.createdAt || "",
                   captureId: owner?.id || sessionId,
                   comments,

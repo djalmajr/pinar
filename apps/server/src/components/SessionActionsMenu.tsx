@@ -1,9 +1,11 @@
 import type { Session } from "@pinar/shared";
 import CheckIcon from "~icons/lucide/check";
+import CircleAlertIcon from "~icons/lucide/circle-alert";
 import CopyIcon from "~icons/lucide/copy";
 import FileTextIcon from "~icons/lucide/file-text";
 import FolderInputIcon from "~icons/lucide/folder-input";
 import LayersIcon from "~icons/lucide/layers";
+import LoaderCircleIcon from "~icons/lucide/loader-circle";
 import TrashIcon from "~icons/lucide/trash-2";
 import {
   DropdownMenuContent,
@@ -25,7 +27,12 @@ import type { SessionGroup } from "../lib/session-groups";
  */
 export interface SessionActionsMenuProps {
   batchCopied?: boolean;
+  batchCopyFailed?: boolean;
+  batchCopying?: boolean;
   copied?: boolean;
+  copyFailed?: boolean;
+  copying?: boolean;
+  privateMarkdown?: boolean;
   session: Session;
   shareToken?: string | null;
   t: Translate;
@@ -42,7 +49,12 @@ export const SESSION_MENU_WIDTH = `max-h-96 overflow-y-auto ${MENU_LABEL_FIT}`;
 
 export function SessionActionsMenu({
   batchCopied = false,
+  batchCopyFailed = false,
+  batchCopying = false,
   copied = false,
+  copyFailed = false,
+  copying = false,
+  privateMarkdown = false,
   session,
   shareToken,
   t,
@@ -53,20 +65,34 @@ export function SessionActionsMenu({
 }: SessionActionsMenuProps) {
   const batchId = session.batchId ?? null;
   const grouped = Boolean((session as SessionGroup).captures);
-  const markdownHref = sessionMarkdownHref(session, { grouped, shareToken });
+  const markdownHref = sessionMarkdownHref(session, { grouped, privateMarkdown, shareToken });
+  const copyLabel = copying
+    ? t("dashboard.copyPromptPreparing")
+    : copyFailed
+      ? t("dashboard.copyPromptFailed")
+      : copied
+        ? t("common.copied")
+        : t("dashboard.copyPrompt");
+  const batchCopyLabel = batchCopying
+    ? t("dashboard.copyPromptPreparing")
+    : batchCopyFailed
+      ? t("dashboard.copyPromptFailed")
+      : batchCopied
+        ? t("common.copied")
+        : t("dashboard.copyBatch");
   return (
     <DropdownMenuContent align="end" className={SESSION_MENU_WIDTH}>
       <DropdownMenuGroup>
         {onCopy ? (
           <DropdownMenuItem closeOnClick={false} onClick={() => onCopy(session)}>
-            {copied ? <CheckIcon /> : <CopyIcon />}
-            {copied ? t("common.copied") : t("dashboard.copyPrompt")}
+            {copied ? <CheckIcon /> : copying ? <LoaderCircleIcon className="animate-spin" /> : copyFailed ? <CircleAlertIcon /> : <CopyIcon />}
+            {copyLabel}
           </DropdownMenuItem>
         ) : null}
         {onCopyBatch && batchId && !grouped ? (
           <DropdownMenuItem closeOnClick={false} onClick={() => onCopyBatch(batchId)}>
-            {batchCopied ? <CheckIcon /> : <LayersIcon />}
-            {batchCopied ? t("common.copied") : t("dashboard.copyBatch")}
+            {batchCopied ? <CheckIcon /> : batchCopying ? <LoaderCircleIcon className="animate-spin" /> : batchCopyFailed ? <CircleAlertIcon /> : <LayersIcon />}
+            {batchCopyLabel}
           </DropdownMenuItem>
         ) : null}
         <DropdownMenuItem render={<a href={markdownHref} rel="noopener noreferrer" target="_blank" />}>

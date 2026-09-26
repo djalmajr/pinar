@@ -411,6 +411,18 @@ describe("remote installation isolation", () => {
     const ownerSession = await api("/api/sessions/session_A_001", { headers: identityHeaders(identityA) });
     assert.equal(ownerSession.status, 200);
     assert.equal(ownerSession.headers.get("cache-control"), "private, no-store");
+    const ownerMarkdown = await handleCloudPublicRequest(
+      new Request("https://pinar.test/v/session_A_001.md", { headers: identityHeaders(identityA) }),
+      TEST_ENV,
+    );
+    assert.equal(ownerMarkdown.status, 200);
+    assert.doesNotMatch(await ownerMarkdown.text(), /\?token=/);
+    const ownerWithToken = await handleCloudPublicRequest(
+      new Request("https://pinar.test/v/session_A_001.md?token=sh_not_for_clipboard", { headers: identityHeaders(identityA) }),
+      TEST_ENV,
+    );
+    assert.equal(ownerWithToken.status, 200);
+    assert.doesNotMatch(await ownerWithToken.text(), /\?token=sh_not_for_clipboard/);
     const markdown = await handleCloudPublicRequest(new Request("https://pinar.test/v/session_A_001.md"), {});
     assert.equal(markdown.status, 404);
     assert.equal(await markdown.text(), "Not found");

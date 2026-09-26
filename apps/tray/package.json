@@ -1,6 +1,6 @@
 {
 	"name": "@pinar/tray",
 	"private": true,
-	"version": "0.5.0-rc.1",
+	"version": "0.5.0",
 	"type": "module"
 }

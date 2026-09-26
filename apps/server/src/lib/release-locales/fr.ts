@@ -22,6 +22,28 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.5.1": {
+      title: "Accès des agents à Cloud et révision des pins clarifiée",
+      summary:
+        "Les comptes Pro peuvent fournir aux agents des clés Cloud limitées à un périmètre et utiliser des opérations MCP configurées manuellement. La visionneuse réunit les conversations et les actions de révision de chaque pin, avec des commandes de partage de liens plus claires.",
+      changes: {
+        "cloud-agent-access": {
+          title: "Clés d’accès des agents limitées à un périmètre",
+          description:
+            "Les comptes Pinar Cloud Pro peuvent créer des clés personnelles pour les agents, avec un périmètre de ressource, une autorisation et une expiration, consulter leur état et leur dernière utilisation, puis les révoquer. Les clés dont l’autorisation inclut la lecture peuvent accéder au Markdown et aux images privés compris dans leur périmètre. Pinar Local ne délivre pas ces clés.",
+        },
+        "agent-mcp-operations": {
+          title: "Opérations Pinar Cloud via MCP",
+          description:
+            "Un client MCP compatible peut utiliser les opérations Cloud après configuration manuelle de son point de terminaison HTTP et d’un en-tête Authorization: Bearer contenant une clé d’agent. Les outils disponibles lisent les données des projets, collections, sessions et lots dans le périmètre autorisé, organisent les ressources et publient ou révoquent explicitement des liens de partage si la clé possède l’autorisation requise au niveau du compte. OAuth, la découverte automatique, la suppression et la facturation ne sont pas inclus.",
+        },
+        "viewer-sharing-followups": {
+          title: "Conversations des pins et commandes de partage clarifiées",
+          description:
+            "La visionneuse réunit la note d’origine du pin, les commentaires ultérieurs et les résultats d’agents dans sa conversation. Les personnes autorisées peuvent commenter et clôturer ou rouvrir une révision. Les vignettes des captures s’ouvrent dans une vue zoomable, avec des libellés de pins plus clairs et un avertissement de confidentialité si certaines zones n’ont pas été vérifiées. Les liens peuvent être publiés, copiés et révoqués ; la révocation groupée cible les liens directs de sessions sans révoquer ceux hérités d’un projet, d’une collection ou d’un lot.",
+        },
+      },
+    },
     "v0.5.0": {
       title: "Relecteurs de collection et un espace plus calme",
       summary: "Un compte Pro peut inviter des relecteurs sur une collection. Le Cloud hébergé suit l’offre en cours de chaque compte. La visionneuse prépare Copier le prompt à l’ouverture de la session, et la liste de l’espace se met à jour avec moins de chargement en arrière-plan.",

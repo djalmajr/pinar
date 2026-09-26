@@ -21,6 +21,28 @@ const locale = {
     whatChanged: "Qué cambió",
   },
   releases: {
+    "v0.5.1": {
+      title: "Acceso de agentes a Cloud y revisión de pins más clara",
+      summary:
+        "Las cuentas Pro pueden proporcionar a los agentes claves de Cloud con alcance y usar operaciones MCP configuradas manualmente. El visor reúne las conversaciones y las acciones de revisión de cada pin, con controles más claros para compartir enlaces.",
+      changes: {
+        "cloud-agent-access": {
+          title: "Claves con alcance para agentes",
+          description:
+            "Las cuentas Pinar Cloud Pro pueden crear claves personales para agentes con un alcance de recurso, permiso y vencimiento, consultar su estado y último uso, y revocarlas. Las claves con permisos que incluyen lectura pueden acceder a Markdown e imágenes privados dentro de su alcance. Pinar Local no emite estas claves.",
+        },
+        "agent-mcp-operations": {
+          title: "Operaciones de Pinar Cloud mediante MCP",
+          description:
+            "Un cliente MCP compatible puede usar las operaciones de Cloud después de que configures manualmente su endpoint HTTP y un encabezado Authorization: Bearer con una clave de agente. Las herramientas disponibles leen datos de proyectos, colecciones, sesiones y lotes dentro del alcance; organizan recursos; y publican o revocan enlaces de forma explícita cuando la clave tiene el permiso necesario a nivel de cuenta. No incluye OAuth, descubrimiento automático, eliminación ni operaciones de facturación.",
+        },
+        "viewer-sharing-followups": {
+          title: "Conversaciones de pins y controles para compartir más claros",
+          description:
+            "El visor reúne la nota original del pin, los comentarios posteriores y los resultados de agentes en la conversación de cada pin. Los usuarios autorizados pueden comentar y concluir o reabrir una revisión. Las miniaturas de capturas se abren en una vista con zoom, con etiquetas de pin más claras y un aviso de privacidad cuando no se revisaron algunas partes. Se pueden publicar, copiar y revocar enlaces; la revocación en bloque afecta solo los enlaces directos de sesiones, no los heredados de un proyecto, colección o lote.",
+        },
+      },
+    },
     "v0.5.0": {
       title: "Revisores en la colección y un espacio más tranquilo",
       summary: "Una cuenta Pro puede invitar revisores a una colección. Cloud alojado sigue la oferta actual de cada cuenta. El visor prepara Copiar prompt al abrir la sesión, y la lista del espacio de trabajo se actualiza con menos carga en segundo plano.",

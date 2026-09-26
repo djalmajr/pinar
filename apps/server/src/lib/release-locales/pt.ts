@@ -22,6 +22,28 @@ const locale = {
     whatChanged: "O que mudou",
   },
   releases: {
+    "v0.5.1": {
+      title: "Acesso de agentes ao Cloud e revisão de pins mais clara",
+      summary:
+        "Contas Pro podem fornecer chaves Cloud com escopo para agentes e usar operações MCP configuradas manualmente. O viewer reúne a conversa e a revisão de cada pin, com controles mais claros para links de compartilhamento.",
+      changes: {
+        "cloud-agent-access": {
+          title: "Chaves com escopo para agentes",
+          description:
+            "Contas Pro do Pinar Cloud podem criar chaves pessoais de agente com escopo de recurso, permissão e expiração, consultar o status e o último uso e revogá-las. Chaves com permissões que incluem leitura podem acessar Markdown e imagens privados dentro do escopo. O Pinar Local não emite essas chaves.",
+        },
+        "agent-mcp-operations": {
+          title: "Operações do Pinar Cloud pelo MCP",
+          description:
+            "Um cliente MCP compatível pode usar as operações do Cloud depois que você configurar manualmente o endpoint HTTP e um header Authorization: Bearer com uma chave de agente. As ferramentas disponíveis leem dados de projetos, coleções, sessões e lotes dentro do escopo; organizam recursos; e publicam ou revogam links explicitamente quando a chave tem a permissão necessária em nível de conta. Não há OAuth, descoberta automática, exclusão nem operações de cobrança.",
+        },
+        "viewer-sharing-followups": {
+          title: "Conversas de pins e controles de compartilhamento mais claros",
+          description:
+            "O viewer reúne o comentário original do pin, comentários posteriores e resultados de agentes na conversa de cada pin. Usuários autorizados podem comentar e concluir ou reabrir a revisão. Miniaturas das capturas abrem em uma visualização com zoom, com rótulos de pin mais claros e um aviso de privacidade quando partes da captura não foram verificadas. É possível publicar, copiar e revogar links; a revogação em lote atua nos links diretos de sessões, sem revogar links herdados de um projeto, coleção ou lote.",
+        },
+      },
+    },
     "v0.5.0": {
       title: "Revisores na coleção e um workspace mais calmo",
       summary: "Uma conta Pro pode convidar revisores para uma coleção. O Cloud hospedado segue a oferta atual de cada conta. O viewer prepara Copiar prompt ao abrir a sessão, e a lista do workspace atualiza com menos carga em segundo plano.",

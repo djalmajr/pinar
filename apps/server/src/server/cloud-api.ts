@@ -28,6 +28,7 @@ import {
   parseVisualCapture,
   applySessionPatch,
   pinIdsFromPins,
+  parsePinCommentBody,
   pinReviewErrorBody,
   pinReviewHttpStatus,
   presentAgentExecution,
@@ -40,6 +41,7 @@ import {
   parseDeliveryPreferences,
   type DeliveryPreferences,
   type LoopMetric,
+  type PinComment,
   type PinReview,
   type PinReviewEvent,
   type PinReviewStatus,
@@ -450,6 +452,7 @@ const memoryLoopMetrics: Array<LoopMetric & { createdAt: string; id: string; own
 const memoryOwnerPreferences = new Map<string, DeliveryPreferences>();
 const memoryPinReviews = new Map<string, { lastExecutionId: string | null; status: PinReviewStatus; updatedAt: string }>();
 const memoryPinReviewEvents: Array<PinReviewEvent & { captureId: string }> = [];
+const memoryPinComments: PinComment[] = [];
 const memoryAiCreditGrants = new Map<string, AiCreditGrantRecord>();
 const memoryAiCreditUsages = new Map<string, AiCreditUsageRecord>();
 const memoryCollections = new Map<string, Collection>();
@@ -4998,6 +5001,72 @@ function deleteMemoryReviewsForCapture(captureId: string) {
   for (let index = memoryPinReviewEvents.length - 1; index >= 0; index -= 1) {
     if (memoryPinReviewEvents[index]?.captureId === captureId) memoryPinReviewEvents.splice(index, 1);
   }
+  for (let index = memoryPinComments.length - 1; index >= 0; index -= 1) {
+    if (memoryPinComments[index]?.captureId === captureId) memoryPinComments.splice(index, 1);
+  }
+}
+
+function commentFromRow(row: Record<string, unknown>): PinComment {
+  return {
+    actorId: String(row.actor_id || ""),
+    actorLabel: String(row.actor_label || ""),
+    actorType: "human",
+    body: String(row.body || ""),
+    captureId: String(row.capture_id || ""),
+    createdAt: String(row.created_at || ""),
+    id: String(row.id || ""),
+    pinId: String(row.pin_id || ""),
+  };
+}
+
+async function listPinComments(env: CloudEnv, captureId: string): Promise<PinComment[]> {
+  if (env.DB) {
+    const rows = await env.DB.prepare(
+      "SELECT * FROM pin_comments WHERE capture_id = ? ORDER BY created_at ASC, rowid ASC",
+    ).bind(captureId).all();
+    return (rows.results || []).map(commentFromRow);
+  }
+  return memoryPinComments
+    .filter((comment) => comment.captureId === captureId)
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
+async function insertPinComment(
+  env: CloudEnv,
+  session: Session,
+  pinId: string,
+  actor: { actorId: string; actorLabel: string },
+  body: string,
+): Promise<PinComment> {
+  if (!pinIdsFromPins(session.pins).has(pinId)) throw new PinReviewError("pin_not_found");
+  const comment: PinComment = {
+    actorId: actor.actorId,
+    actorLabel: actor.actorLabel,
+    actorType: "human",
+    body,
+    captureId: session.id,
+    createdAt: currentDate().toISOString(),
+    id: generateNanoId(),
+    pinId,
+  };
+  if (env.DB) {
+    await env.DB.prepare(`
+      INSERT INTO pin_comments (
+        id, capture_id, pin_id, actor_id, actor_label, actor_type, body, created_at
+      ) VALUES (?, ?, ?, ?, ?, 'human', ?, ?)
+    `).bind(
+      comment.id,
+      comment.captureId,
+      comment.pinId,
+      comment.actorId,
+      comment.actorLabel,
+      comment.body,
+      comment.createdAt,
+    ).run();
+    return comment;
+  }
+  memoryPinComments.push(comment);
+  return comment;
 }
 
 async function reviewPin(request: Request, env: CloudEnv, captureId: string, pinId: string) {
@@ -5133,11 +5202,41 @@ async function queryLoopMetrics(request: Request, env: CloudEnv) {
 
 async function sessionApiPayload(env: CloudEnv, session: Session) {
   return {
+    comments: await listPinComments(env, session.id),
     executions: await listAgentExecutions(env, session.id),
     ok: true,
     reviews: await listPinReviews(env, session.id),
     session: await decorateCloudSession(env, session),
   };
+}
+
+async function createPinComment(request: Request, env: CloudEnv, captureId: string, pinId: string) {
+  const principal = await resolvePrincipal(request, env);
+  if (!principal) return json({ error: "Unauthorized" }, 401);
+  const actorLabel = principal.email?.trim() || "";
+  if (!actorLabel) return json({ error: "Unauthorized" }, 401);
+  const session = await findAccessibleSession(env, principal, captureId);
+  if (!session) {
+    const suspended = await suspendedCollectionResponse(env, principal, captureId);
+    if (suspended) return suspended;
+    return json({ error: "Not found" }, 404);
+  }
+  const payload = await readJson(request);
+  try {
+    const comment = await insertPinComment(
+      env,
+      session,
+      pinId,
+      { actorId: principal.id, actorLabel },
+      parsePinCommentBody(payload.body),
+    );
+    return json({ comment, ok: true });
+  } catch (error) {
+    if (error instanceof PinReviewError) {
+      return json(pinReviewErrorBody(error), pinReviewHttpStatus(error));
+    }
+    throw error;
+  }
 }
 
 async function accountEntitlements(request: Request, env: CloudEnv) {
@@ -5655,6 +5754,7 @@ async function deleteHistory(request: Request, env: CloudEnv, id: string) {
           .bind(id, principal.id),
         env.DB.prepare("DELETE FROM pin_review_events WHERE capture_id = ?").bind(id),
         env.DB.prepare("DELETE FROM pin_reviews WHERE capture_id = ?").bind(id),
+        env.DB.prepare("DELETE FROM pin_comments WHERE capture_id = ?").bind(id),
         env.DB.prepare("DELETE FROM sessions WHERE id = ? AND user_id = ?").bind(id, principal.id),
       ]);
     } catch {
@@ -5945,6 +6045,9 @@ export async function cleanupOldRecords(env: CloudEnv, days = FREE_CLOUD_RETENTI
     ).run();
     await env.DB.prepare(
       "DELETE FROM pin_reviews WHERE capture_id NOT IN (SELECT id FROM sessions)",
+    ).run();
+    await env.DB.prepare(
+      "DELETE FROM pin_comments WHERE capture_id NOT IN (SELECT id FROM sessions)",
     ).run();
     deletedCount = sessions.length;
     const cleanupResults = await env.DB.batch([
@@ -6335,6 +6438,15 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
     const deleted = await deleteCollectionContainer(env, principal, decodeURIComponent(collectionMatch[1]));
     return deleted ? json({ deleted, ok: true }) : json({ error: "protected or not found" }, 409);
   }
+  const pinCommentMatch = path.match(/^\/api\/sessions\/([^/]+)\/pins\/([^/]+)\/comments$/);
+  if (pinCommentMatch && method === "POST") {
+    return createPinComment(
+      request,
+      env,
+      decodeURIComponent(pinCommentMatch[1]),
+      decodeURIComponent(pinCommentMatch[2]),
+    );
+  }
   const pinReviewMatch = path.match(/^\/api\/sessions\/([^/]+)\/pins\/([^/]+)\/review$/);
   if (pinReviewMatch && method === "POST") {
     return reviewPin(
@@ -6639,6 +6751,7 @@ export function resetCloudMemoryStateForTests() {
   memoryOwnerPreferences.clear();
   memoryPinReviews.clear();
   memoryPinReviewEvents.length = 0;
+  memoryPinComments.length = 0;
   memoryAiCreditGrants.clear();
   memoryAiCreditUsages.clear();
   memoryCollections.clear();

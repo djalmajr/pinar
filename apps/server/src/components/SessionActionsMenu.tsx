@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
 } from "@pinar/ui";
 import type { Translate } from "../lib/i18n";
-import { shareMarkdownPath } from "../lib/share-links";
+import { sessionMarkdownHref } from "../lib/share-links";
 import type { SessionGroup } from "../lib/session-groups";
 
 /**
@@ -35,8 +35,10 @@ export interface SessionActionsMenuProps {
   onMove?: (id: string) => void;
 }
 
-// Width comes from the primitive, which sizes every menu to its own content.
-export const SESSION_MENU_WIDTH = "max-h-96 overflow-y-auto";
+// Same fit for session, project, and collection menus: content width, then a
+// little padding past the longest label. The extra is only on the right.
+export const MENU_LABEL_FIT = "w-max max-w-[min(40rem,calc(100vw-2rem))] whitespace-nowrap pr-3";
+export const SESSION_MENU_WIDTH = `max-h-96 overflow-y-auto ${MENU_LABEL_FIT}`;
 
 export function SessionActionsMenu({
   batchCopied = false,
@@ -51,6 +53,7 @@ export function SessionActionsMenu({
 }: SessionActionsMenuProps) {
   const batchId = session.batchId ?? null;
   const grouped = Boolean((session as SessionGroup).captures);
+  const markdownHref = sessionMarkdownHref(session, { grouped, shareToken });
   return (
     <DropdownMenuContent align="end" className={SESSION_MENU_WIDTH}>
       <DropdownMenuGroup>
@@ -66,7 +69,7 @@ export function SessionActionsMenu({
             {batchCopied ? t("common.copied") : t("dashboard.copyBatch")}
           </DropdownMenuItem>
         ) : null}
-        <DropdownMenuItem render={<a href={grouped && batchId ? `/api/batches/${encodeURIComponent(batchId)}/markdown` : shareMarkdownPath(session.id, shareToken)} rel="noopener noreferrer" target="_blank" />}>
+        <DropdownMenuItem render={<a href={markdownHref} rel="noopener noreferrer" target="_blank" />}>
           <FileTextIcon />
           {t("dashboard.markdown")}
         </DropdownMenuItem>

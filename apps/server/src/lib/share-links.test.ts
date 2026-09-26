@@ -3,11 +3,13 @@ import { describe, test } from "node:test";
 import {
   buildShareUrl,
   canManageCloudShare,
+  copyPublishedShare,
   fetchActiveShare,
   isActiveShareToken,
   markSharedSessions,
   publishShare,
   revokeShare,
+  sessionMarkdownHref,
   shareMarkdownPath,
 } from "./share-links";
 
@@ -201,6 +203,107 @@ describe("share link helpers", () => {
     }, async () => {
       assert.equal(await publishShare("session", "sess_1"), "sh_new");
     });
+  });
+
+  test("publishes a collection when no token is active and copies only the tokenized URL", async () => {
+    const writes: string[] = [];
+    await withFetch(async (input, init) => {
+      const url = String(input);
+      if (url === "/api/shares") return Response.json({ ok: true, tokens: [] });
+      assert.equal(url, "/api/shares/publish");
+      assert.equal(init?.method, "POST");
+      assert.deepEqual(JSON.parse(String(init?.body)), {
+        resourceId: "col_1",
+        resourceType: "collection",
+      });
+      return Response.json({ shareToken: { token: "sh_col" } }, { status: 201 });
+    }, async () => {
+      const copied = await copyPublishedShare({
+        id: "col_1",
+        kind: "collection",
+        origin: "https://pinar.dev",
+        writeText: async (value) => {
+          writes.push(value);
+        },
+      });
+      assert.equal(copied, "https://pinar.dev/c/col_1?token=sh_col");
+      assert.deepEqual(writes, ["https://pinar.dev/c/col_1?token=sh_col"]);
+    });
+  });
+
+  test("reuses an active project token and does not copy when publish fails", async () => {
+    const writes: string[] = [];
+    await withFetch(async (input) => {
+      assert.equal(String(input), "/api/shares");
+      return Response.json({
+        ok: true,
+        tokens: [{
+          resourceId: "prj_1",
+          resourceType: "project",
+          status: "active",
+          token: "sh_prj",
+        }],
+      });
+    }, async () => {
+      assert.equal(
+        await copyPublishedShare({
+          id: "prj_1",
+          kind: "project",
+          origin: "https://pinar.dev",
+          writeText: async (value) => {
+            writes.push(value);
+          },
+        }),
+        "https://pinar.dev/p/prj_1?token=sh_prj",
+      );
+    });
+    assert.deepEqual(writes, ["https://pinar.dev/p/prj_1?token=sh_prj"]);
+
+    writes.length = 0;
+    await withFetch(async (input) => {
+      if (String(input) === "/api/shares") return Response.json({ ok: true, tokens: [] });
+      return new Response("no", { status: 500 });
+    }, async () => {
+      await assert.rejects(() => copyPublishedShare({
+        id: "col_1",
+        kind: "collection",
+        origin: "https://pinar.dev",
+        writeText: async (value) => {
+          writes.push(value);
+        },
+      }));
+    });
+    assert.deepEqual(writes, []);
+  });
+
+  test("a clipboard failure rejects and does not leave a token-less url", async () => {
+    const writes: string[] = [];
+    await withFetch(async (input) => {
+      if (String(input) === "/api/shares") return Response.json({ ok: true, tokens: [] });
+      return Response.json({ shareToken: { token: "sh_col" } }, { status: 201 });
+    }, async () => {
+      await assert.rejects(() => copyPublishedShare({
+        id: "col_1",
+        kind: "collection",
+        origin: "https://pinar.dev",
+        writeText: async (value) => {
+          writes.push(value);
+          throw new Error("clipboard_failed");
+        },
+      }));
+    });
+    assert.deepEqual(writes, ["https://pinar.dev/c/col_1?token=sh_col"]);
+  });
+
+  test("session markdown opens the batch document or the tokenized session", () => {
+    assert.equal(
+      sessionMarkdownHref({ batchId: "batch_1", id: "sess_1" }, { grouped: true }),
+      "/api/batches/batch_1/markdown",
+    );
+    assert.equal(
+      sessionMarkdownHref({ batchId: null, id: "sess_1" }, { grouped: false, shareToken: "sh_abc" }),
+      "/v/sess_1.md?token=sh_abc",
+    );
   });
 
   test("revokeShare treats 404 as already unpublished", async () => {

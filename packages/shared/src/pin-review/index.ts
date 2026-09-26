@@ -58,6 +58,26 @@ export interface PinReview {
   updatedAt: string;
 }
 
+export interface PinComment {
+  id: string;
+  captureId: string;
+  pinId: string;
+  actorId: string;
+  actorLabel: string;
+  actorType: "human";
+  body: string;
+  createdAt: string;
+}
+
+const PIN_COMMENT_MAX_BODY_LENGTH = 2000;
+
+export function parsePinCommentBody(value: unknown): string {
+  if (typeof value !== "string") throw new PinReviewError("invalid_payload");
+  const body = value.trim();
+  if (!body || body.length > PIN_COMMENT_MAX_BODY_LENGTH) throw new PinReviewError("invalid_payload");
+  return body;
+}
+
 export function isPinReviewStatus(value: unknown): value is PinReviewStatus {
   return typeof value === "string" && (PIN_REVIEW_STATUSES as readonly string[]).includes(value);
 }
@@ -75,9 +95,8 @@ export function emptyPinReviewCounts(): PinReviewCounts {
 }
 
 export function humanActionsForStatus(status: PinReviewStatus): PinReviewHumanAction[] {
-  if (status === "correction_ready") return ["accept"];
   if (status === "accepted") return ["reopen"];
-  return [];
+  return ["accept"];
 }
 
 export function resolvePinReviewTransition(
@@ -92,8 +111,10 @@ export function resolvePinReviewTransition(
     throw new PinReviewError("invalid_transition");
   }
   if (action === "accept") {
-    if (current !== "correction_ready") throw new PinReviewError("invalid_transition");
-    return { changed: true, next: "accepted" };
+    if (current === "open" || current === "correction_ready" || current === "reopened") {
+      return { changed: true, next: "accepted" };
+    }
+    throw new PinReviewError("invalid_transition");
   }
   if (current !== "accepted") throw new PinReviewError("invalid_transition");
   return { changed: true, next: "reopened" };

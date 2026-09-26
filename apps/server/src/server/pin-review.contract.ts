@@ -60,7 +60,7 @@ export async function exercisePinReviewContract(client: ApiClient, publicClient?
   const opened = await jsonRecord(await client(`/api/sessions/${id}`));
   const openReview = reviewOf(opened, "pin_cta");
   assert.equal(openReview.status, "open");
-  assert.deepEqual(openReview.actions, []);
+  assert.deepEqual(openReview.actions, ["accept"]);
   assert.ok(Array.isArray(openReview.timeline));
   assert.equal(openReview.timeline.length, 0);
   assert.ok(isRecord(opened.session) && isRecord(opened.session.reviewCounts));
@@ -90,17 +90,6 @@ export async function exercisePinReviewContract(client: ApiClient, publicClient?
   const stillOpen = reviewOf(await jsonRecord(await client(`/api/sessions/${id}`)), "pin_cta");
   assert.equal(stillOpen.status, "open");
   assert.equal(Array.isArray(stillOpen.timeline) ? stillOpen.timeline.length : -1, 0);
-
-  const invalidAccept = await client(`/api/sessions/${id}/pins/pin_cta/review`, {
-    body: JSON.stringify({ action: "accept" }),
-    headers: { "content-type": "application/json" },
-    method: "POST",
-  });
-  assert.equal(invalidAccept.status, 409);
-  assert.deepEqual(await jsonRecord(invalidAccept), pinReviewErrorBody(new PinReviewError("invalid_transition")));
-  const unchanged = reviewOf(await jsonRecord(await client(`/api/sessions/${id}`)), "pin_cta");
-  assert.equal(unchanged.status, "open");
-  assert.equal(Array.isArray(unchanged.timeline) ? unchanged.timeline.length : -1, 0);
 
   const created = await client("/api/agent-executions", {
     body: JSON.stringify(executionPayload(id)),
@@ -197,7 +186,7 @@ export async function exercisePinReviewContract(client: ApiClient, publicClient?
   const reopenedBody = await jsonRecord(reopened);
   assert.ok(isRecord(reopenedBody.review));
   assert.equal(reopenedBody.review.status, "reopened");
-  assert.deepEqual(reopenedBody.review.actions, []);
+  assert.deepEqual(reopenedBody.review.actions, ["accept"]);
   assert.ok(Array.isArray(reopenedBody.review.timeline));
   assert.equal(reopenedBody.review.timeline.length, 3);
 
@@ -214,6 +203,49 @@ export async function exercisePinReviewContract(client: ApiClient, publicClient?
   assert.equal(readyAgain.status, "correction_ready");
   assert.deepEqual(readyAgain.actions, ["accept"]);
   assert.equal(Array.isArray(readyAgain.timeline) ? readyAgain.timeline.length : -1, 4);
+
+  const directId = "pin_review_direct_close";
+  await uploadCapture(client, directId);
+  const closed = await client(`/api/sessions/${directId}/pins/pin_cta/review`, {
+    body: JSON.stringify({ action: "accept" }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  assert.equal(closed.status, 200);
+  const closedBody = await jsonRecord(closed);
+  assert.ok(isRecord(closedBody.review));
+  assert.equal(closedBody.review.status, "accepted");
+  assert.deepEqual(closedBody.review.actions, ["reopen"]);
+  const lateDirect = await client("/api/agent-executions", {
+    body: JSON.stringify(executionPayload(directId, {
+      idempotencyKey: "exec_review_direct_after_accept",
+      results: [{ pinId: "pin_cta", status: "changed", summary: "Must not reopen a concluded pin" }],
+    })),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  assert.equal(lateDirect.status, 201);
+  const stillClosed = reviewOf(await jsonRecord(await client(`/api/sessions/${directId}`)), "pin_cta");
+  assert.equal(stillClosed.status, "accepted");
+  const openedAgain = await client(`/api/sessions/${directId}/pins/pin_cta/review`, {
+    body: JSON.stringify({ action: "reopen" }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  assert.equal(openedAgain.status, 200);
+  const openedAgainBody = await jsonRecord(openedAgain);
+  assert.ok(isRecord(openedAgainBody.review));
+  assert.equal(openedAgainBody.review.status, "reopened");
+  assert.deepEqual(openedAgainBody.review.actions, ["accept"]);
+  const closedAgain = await client(`/api/sessions/${directId}/pins/pin_cta/review`, {
+    body: JSON.stringify({ action: "accept" }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  assert.equal(closedAgain.status, 200);
+  const closedAgainBody = await jsonRecord(closedAgain);
+  assert.ok(isRecord(closedAgainBody.review));
+  assert.equal(closedAgainBody.review.status, "accepted");
 }
 
 export async function exercisePinReviewIsolation(owner: ApiClient, other: ApiClient) {

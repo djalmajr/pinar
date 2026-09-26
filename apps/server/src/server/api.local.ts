@@ -28,6 +28,7 @@ import {
   planLoopMetricRequest,
   visualContextErrorBody,
   type AgentExecution,
+  type PinComment,
   type VisualCapture,
 } from "@pinar/shared";
 import { DEFAULT_PROJECT_ICON, isProjectIcon } from "@pinar/shared/project-icons";
@@ -83,6 +84,8 @@ interface HistoryDatabase {
   getSession(id: string): LocalSession | null;
   listAgentExecutions(captureId: string): AgentExecution[];
   listPinReviews(captureId: string): import("@pinar/shared").PinReview[];
+  listPinComments(captureId: string): PinComment[];
+  addPinComment(captureId: string, pinId: string, body: unknown): PinComment;
   applyPinReview(
     captureId: string,
     pinId: string,
@@ -142,7 +145,7 @@ function historyDatabase(): HistoryDatabase {
   const root = rootPath();
   if (!activeDatabase || activeRoot !== root) {
     activeDatabase?.close();
-    activeDatabase = openHistoryDb(root);
+    activeDatabase = openHistoryDb(root) as HistoryDatabase;
     activeRoot = root;
   }
   if (!activeDatabase) throw new Error("Unable to initialize local history database");
@@ -274,11 +277,25 @@ function sessionPayload(session: LocalSession | null, origin: string) {
   const presented = presentSession(session, origin);
   if (!presented) return json({ error: "not found" }, 404);
   return json({
+    comments: historyDatabase().listPinComments(presented.id),
     executions: historyDatabase().listAgentExecutions(presented.id),
     ok: true,
     reviews: historyDatabase().listPinReviews(presented.id),
     session: presented,
   });
+}
+
+async function createPinComment(request: Request, captureId: string, pinId: string) {
+  const body = await readJson(request);
+  try {
+    const comment = historyDatabase().addPinComment(captureId, pinId, body.body);
+    return json({ comment, ok: true });
+  } catch (error) {
+    if (error instanceof PinReviewError) {
+      return json(pinReviewErrorBody(error), pinReviewHttpStatus(error));
+    }
+    throw error;
+  }
 }
 
 async function reviewPin(request: Request, captureId: string, pinId: string) {
@@ -686,6 +703,14 @@ async function routeLocalApi(request: Request): Promise<Response> {
   if (collectionMatch && method === "DELETE") {
     const deleted = historyDatabase().deleteCollection(decodeURIComponent(collectionMatch[1]));
     return deleted ? json({ deleted, ok: true }) : json({ error: "protected or not found" }, 409);
+  }
+  const pinCommentMatch = path.match(/^\/api\/sessions\/([^/]+)\/pins\/([^/]+)\/comments$/);
+  if (pinCommentMatch && method === "POST") {
+    return createPinComment(
+      request,
+      decodeURIComponent(pinCommentMatch[1]),
+      decodeURIComponent(pinCommentMatch[2]),
+    );
   }
   const pinReviewMatch = path.match(/^\/api\/sessions\/([^/]+)\/pins\/([^/]+)\/review$/);
   if (pinReviewMatch && method === "POST") {

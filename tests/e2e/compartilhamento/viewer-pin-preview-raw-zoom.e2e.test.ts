@@ -216,10 +216,9 @@ test("copy and the Markdown endpoint preserve one session payload", async ({ pag
   await expect(markdownPopup.locator("body")).toContainText("Reduce the empty space in this region.");
   await markdownPopup.close();
 
-  // Local /v/: redirects into the workspace modal, which shares the listing actions.
+  // Copy prompt stays the header button. The menu keeps the document and the list actions.
   await page.getByRole("button", { name: "More page actions" }).click();
   await expect(page.getByRole("menuitem")).toHaveText([
-    "Copy prompt",
     "Open prompt *.md",
     "Move to…",
     "Delete session",
@@ -237,7 +236,7 @@ test("visitor inspects element and area pins in Preview and Raw", async ({ page 
   let dialog = page.getByRole("dialog", { name: "Pin 1" });
   await expect(dialog.getByRole("tab", { name: "Preview", selected: true })).toBeVisible();
   await expect(dialog.getByText("Pinar may not find this element again on the original page.")).toBeVisible();
-  await expect(dialog.getByText(elementComment, { exact: true })).toBeVisible();
+  await expect(dialog.locator("article").getByText(elementComment, { exact: true })).toBeVisible();
   await expect(dialog.getByText(elementSelector, { exact: true })).toBeVisible();
   await expect(dialog.getByText(elementDomPath, { exact: true })).toBeVisible();
   await expect(dialog.getByText("x=24, y=48", { exact: true })).toBeVisible();

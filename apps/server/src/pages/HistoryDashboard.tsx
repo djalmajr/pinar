@@ -59,16 +59,21 @@ import {
   TabsList,
   TabsTrigger,
   cn,
+  toast,
 } from "@pinar/ui";
 import { WorkspaceChrome, useWorkspaceChrome } from "@/components/WorkspaceChrome";
 import { PendingInvitationsBanner } from "@/components/PendingInvitationsBanner";
 import { copyBatchHandoff } from "../lib/session-actions";
 import { SessionActionsMenu } from "../components/SessionActionsMenu";
 import { useDeliveryPreferences } from "@/lib/delivery-preferences";
+import { collectionDisplayName } from "@/lib/collection-display-name";
 import { useDocumentMeta } from "@/lib/document-meta";
 import { type Translate, useServerI18n } from "@/lib/i18n";
 import { formatSessionDate } from "@/lib/session-date";
 import { flattenCollections } from "@/lib/collection-tree";
+import { readResponseRecord } from "@/lib/api-data";
+import { revokeShare } from "@/lib/share-links";
+import { directSessionShareIds, selectedSharedCaptures, type SharedCaptureTarget } from "@/lib/shared-capture-selection";
 import {
   filterSessions,
   pinCount,
@@ -89,12 +94,14 @@ import ExternalLinkIcon from "~icons/lucide/external-link";
 import FolderIcon from "~icons/lucide/folder";
 import GridIcon from "~icons/lucide/layout-grid";
 import ListFilterIcon from "~icons/lucide/list-filter";
+import LoaderCircleIcon from "~icons/lucide/loader-circle";
 import MessageCircleIcon from "~icons/lucide/message-circle";
 import MoreVerticalIcon from "~icons/lucide/ellipsis-vertical";
 import FolderInputIcon from "~icons/lucide/folder-input";
 import SearchIcon from "~icons/lucide/search";
 import TableIcon from "~icons/lucide/table-2";
 import TrashIcon from "~icons/lucide/trash-2";
+import UnlinkIcon from "~icons/lucide/unlink";
 import XIcon from "~icons/lucide/x";
 
 const HISTORY_VIEW_KEY = "pinar-history-view";
@@ -475,6 +482,10 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copiedBatchId, setCopiedBatchId] = useState<string | null>(null);
   const [deleteIds, setDeleteIds] = useState<string[]>([]);
+  const [revokeTargets, setRevokeTargets] = useState<SharedCaptureTarget[]>([]);
+  const [revokePreparing, setRevokePreparing] = useState(false);
+  const [revokeBusy, setRevokeBusy] = useState(false);
+  const [revokeError, setRevokeError] = useState(false);
   const [moveIds, setMoveIds] = useState<string[]>([]);
   const [moveProjectId, setMoveProjectId] = useState("");
   const [moveCollectionId, setMoveCollectionId] = useState("");
@@ -488,16 +499,17 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [view, setView] = useState<HistoryView>("grid");
-  useDocumentMeta(selectedCollection?.name || t("dashboard.allSessions"));
+  const inboxLabel = t("dashboard.protectedInbox");
+  useDocumentMeta(selectedCollection ? collectionDisplayName(selectedCollection, inboxLabel) : t("dashboard.allSessions"));
   const collectionNameBySessionId = useMemo(() => {
     const names = new Map<string, string>();
     for (const collection of selectedProject?.collections ?? []) {
       for (const session of collection.sessions) {
-        if (!names.has(session.id)) names.set(session.id, collection.name);
+        if (!names.has(session.id)) names.set(session.id, collectionDisplayName(collection, inboxLabel));
       }
     }
     return names;
-  }, [selectedProject]);
+  }, [inboxLabel, selectedProject]);
   const moveProjects = projectTree.projects;
   const moveProjectIds = moveProjects.map((project) => project.id);
   const moveCollectionTree = flattenCollections(
@@ -511,6 +523,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
       .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()),
     [pinFilters, reviewFilters, search, sessionGroups, sharedOnly],
   );
+  const visibleSelectedShares = filteredSessions.some((session) => selectedIds.has(session.id) && session.isShared);
   const gridSessions = useMemo(() => {
     const start = pagination.pageIndex * pagination.pageSize;
     return filteredSessions.slice(start, start + pagination.pageSize);
@@ -628,6 +641,60 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
     });
     setDeleteIds([]);
     await fetchTree(selectedProject?.id);
+  }
+
+  async function revokeSelectedShares() {
+    if (revokeBusy || !revokeTargets.length) return;
+    setRevokeBusy(true);
+    setRevokeError(false);
+    try {
+      const results = await Promise.allSettled(
+        revokeTargets.map((target) => revokeShare("session", target.captureId)),
+      );
+      const failed = revokeTargets.filter((_, index) => results[index]?.status === "rejected");
+      const attemptedGroups = new Set(revokeTargets.map((target) => target.groupId));
+      const failedGroups = new Set(failed.map((target) => target.groupId));
+      setSelectedIds((current) => new Set([...current].filter((id) => (
+        !attemptedGroups.has(id) || failedGroups.has(id)
+      ))));
+      setRevokeTargets(failed);
+      setRevokeError(failed.length > 0);
+      try {
+        await fetchTree(selectedProject?.id);
+      } catch {
+        toast.error(t("dashboard.shareRefreshError"));
+      }
+    } catch {
+      setRevokeError(true);
+    } finally {
+      setRevokeBusy(false);
+    }
+  }
+
+  async function openRevokeDialog() {
+    if (revokePreparing) return;
+    setRevokePreparing(true);
+    try {
+      const response = await fetch("/api/shares", { cache: "no-store" });
+      const data = await readResponseRecord(response);
+      if (!response.ok || !data || !Array.isArray(data.tokens)) throw new Error("share_list_failed");
+      const targets = selectedSharedCaptures({
+        directlySharedCaptureIds: directSessionShareIds(data.tokens),
+        groups: sessionGroups,
+        selectedGroupIds: selectedIds,
+        visibleGroupIds: new Set(filteredSessions.map((session) => session.id)),
+      });
+      if (!targets.length) {
+        toast.info(t("dashboard.noDirectShareLinks"));
+        return;
+      }
+      setRevokeError(false);
+      setRevokeTargets(targets);
+    } catch {
+      toast.error(t("share.error"));
+    } finally {
+      setRevokePreparing(false);
+    }
   }
 
   function openMoveDialog(ids: string[]) {
@@ -826,14 +893,21 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
     <div className="flex shrink-0 items-center gap-2" data-bulk-toolbar>
       <Button variant="outline" onClick={() => openMoveDialog([...selectedIds])}>
         <FolderInputIcon data-icon="inline-start" />
-        {t("dashboard.moveTo")}
+        {t("dashboard.move")}…
       </Button>
+      {sharedOnly && visibleSelectedShares ? (
+        <Button disabled={revokePreparing} variant="destructiveOutline" onClick={() => void openRevokeDialog()}>
+          {revokePreparing ? <LoaderCircleIcon className="animate-spin" data-icon="inline-start" /> : <UnlinkIcon data-icon="inline-start" />}
+          {t("dashboard.revokeLinks")}
+        </Button>
+      ) : null}
       <Button variant="destructiveOutline" onClick={() => setDeleteIds([...selectedIds])}>
         <TrashIcon data-icon="inline-start" />
         {t("dashboard.delete")}
       </Button>
-      <Button variant="ghost" onClick={() => setSelectedIds(new Set())}>
-        {t("dashboard.clearSelection")}
+      <Button variant="outline" onClick={() => setSelectedIds(new Set())}>
+        <XIcon data-icon="inline-start" />
+        {t("dashboard.clear")}
       </Button>
     </div>
   ) : null;
@@ -1087,7 +1161,10 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
                 <Combobox
                   autoHighlight
                   disabled={!moveProjectId || !moveCollectionIds.length}
-                  itemToStringLabel={(collectionId) => moveCollectionTree.find(({ collection }) => collection.id === String(collectionId))?.collection.name ?? ""}
+                  itemToStringLabel={(collectionId) => {
+                    const entry = moveCollectionTree.find(({ collection }) => collection.id === String(collectionId));
+                    return entry ? collectionDisplayName(entry.collection, inboxLabel) : "";
+                  }}
                   itemToStringValue={(collectionId) => String(collectionId)}
                   items={moveCollectionIds}
                   value={moveCollectionId}
@@ -1102,7 +1179,7 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
                         return entry ? (
                           <ComboboxItem key={entry.collection.id} value={entry.collection.id}>
                             <span className="min-w-0 truncate" style={{ paddingInlineStart: `${entry.depth * 16}px` }}>
-                              {entry.collection.name}
+                              {collectionDisplayName(entry.collection, inboxLabel)}
                             </span>
                           </ComboboxItem>
                         ) : null;
@@ -1137,6 +1214,28 @@ function HistoryDashboardContent({ viewerSessionId }: { viewerSessionId?: string
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction variant="destructive" onClick={() => void deleteSessions()}>
               {t("dashboard.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={revokeTargets.length > 0} onOpenChange={(open) => !open && !revokeBusy && setRevokeTargets([])}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("dashboard.revokeLinks")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("dashboard.revokeLinksDescription", { count: revokeTargets.length })}</AlertDialogDescription>
+          </AlertDialogHeader>
+          {revokeError ? <p className="text-sm text-destructive" role="alert">{t("dashboard.revokeLinksError", { count: revokeTargets.length })}</p> : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={revokeBusy}>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              aria-busy={revokeBusy || undefined}
+              className="min-w-36"
+              disabled={revokeBusy}
+              variant="destructive"
+              onClick={(event) => { event.preventDefault(); void revokeSelectedShares(); }}
+            >
+              <LoaderCircleIcon className={cn("size-4", revokeBusy ? "animate-spin" : "invisible")} data-icon="inline-start" />
+              {t(revokeBusy ? "share.revoking" : "share.revoke")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

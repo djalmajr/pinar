@@ -162,13 +162,31 @@ async function copyReviewDraft(draft) {
   await writeClipboardPlain(await response.text());
 }
 
-async function toolbarVisible() {
-  const stored = await chrome.storage.session.get({ [TOOLBAR_VISIBLE_KEY]: false });
-  return stored[TOOLBAR_VISIBLE_KEY] === true;
+function toolbarVisibilityMap(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const map = {};
+  for (const [key, visible] of Object.entries(value)) {
+    if (visible === true) map[key] = true;
+  }
+  return map;
 }
 
-async function setToolbarVisible(visible) {
-  await chrome.storage.session.set({ [TOOLBAR_VISIBLE_KEY]: visible === true });
+async function readToolbarVisibility() {
+  const stored = await chrome.storage.session.get({ [TOOLBAR_VISIBLE_KEY]: {} });
+  return toolbarVisibilityMap(stored[TOOLBAR_VISIBLE_KEY]);
+}
+
+async function toolbarVisibleForTab(tabId) {
+  const map = await readToolbarVisibility();
+  return map[String(tabId)] === true;
+}
+
+async function setToolbarVisible(tabId, visible) {
+  const map = await readToolbarVisibility();
+  const key = String(tabId);
+  if (visible) map[key] = true;
+  else delete map[key];
+  await chrome.storage.session.set({ [TOOLBAR_VISIBLE_KEY]: map });
 }
 
 async function prepareInitialToolbarVisibility(tabId, visible) {
@@ -187,7 +205,7 @@ async function endReviewTabs(feedback = "finished") {
     await chrome.tabs.sendMessage(tab.id, { type: "review:ended", feedback }).catch(() => null);
   }));
   reviewTabs.clear();
-  await chrome.storage.session.set({ reviewTabs: [], [TOOLBAR_VISIBLE_KEY]: false });
+  await chrome.storage.session.set({ reviewTabs: [], [TOOLBAR_VISIBLE_KEY]: {} });
 }
 
 async function performConcludeReview(options) {
@@ -327,7 +345,9 @@ async function resumeReviewTab(tabId) {
   if (!reviewTabs.has(tabId) && !stored.reviewTabs.includes(tabId)) return;
   if (!await draftStore.read()) return;
   await installEvidenceHook(tabId, true);
-  await prepareInitialToolbarVisibility(tabId, await toolbarVisible());
+  const recording = tabRecordings.get(tabId);
+  const visible = recording && !recording.finished ? false : await toolbarVisibleForTab(tabId);
+  await prepareInitialToolbarVisibility(tabId, visible);
   await chrome.scripting.executeScript({ files: CONTENT_INJECTION_FILES, target: { tabId, allFrames: true } });
 }
 
@@ -477,10 +497,15 @@ chrome.action.onClicked.addListener(async (tab) => {
       func: () => Boolean(globalThis.__pinarToggle),
       target: { frameIds: [0], tabId: tab.id },
     }).catch(() => []);
-    if (!probe?.result) {
-      await setToolbarVisible(true);
-      await prepareInitialToolbarVisibility(tab.id, true);
+    if (probe?.result) {
+      await chrome.scripting.executeScript({
+        func: () => { globalThis.__pinarToggle?.(); },
+        target: { frameIds: [0], tabId: tab.id },
+      });
+      return;
     }
+    await setToolbarVisible(tab.id, true);
+    await prepareInitialToolbarVisibility(tab.id, true);
     await installEvidenceHook(tab.id, true);
     await chrome.scripting.executeScript({
       files: CONTENT_INJECTION_FILES,
@@ -498,6 +523,7 @@ async function resumeRecordingOnTab(tabId) {
   }).catch(() => []);
   if (!probe?.result) {
     await installEvidenceHook(tabId, true);
+    await prepareInitialToolbarVisibility(tabId, false);
     await chrome.scripting.executeScript({
       files: CONTENT_INJECTION_FILES,
       target: { allFrames: true, tabId },
@@ -602,6 +628,7 @@ chrome.contextMenus?.onClicked.addListener((info) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   tabPins.delete(tabId);
   tabRecordings.delete(tabId);
+  void setToolbarVisible(tabId, false);
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
@@ -626,11 +653,11 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "toolbar:visibility") {
-    if (sender.frameId !== 0) {
+    if (sender.frameId !== 0 || sender.tab?.id == null) {
       sendResponse({ ok: true });
       return false;
     }
-    setToolbarVisible(message.visible)
+    setToolbarVisible(sender.tab.id, message.visible)
       .then(() => sendResponse({ ok: true }))
       .catch(() => sendResponse({ ok: false }));
     return true;
@@ -1383,13 +1410,14 @@ async function ensureOffscreen() {
 async function ensureContentOnActiveTab() {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []);
   if (!tab?.id || !canInjectInto(tab.url)) return;
-  // Re-injecting content.js toggles the overlay. Probe first so a finish toast
-  // cannot flip a hidden session open or a live one closed.
+  // content.js no longer toggles on reinjection. Probe first so a finish toast
+  // does not replace a live session, and seed this tab's intent when it is missing.
   const [probe] = await chrome.scripting.executeScript({
     func: () => Boolean(globalThis.__pinarToggle),
     target: { frameIds: [0], tabId: tab.id },
   }).catch(() => []);
   if (probe?.result) return;
+  await prepareInitialToolbarVisibility(tab.id, await toolbarVisibleForTab(tab.id));
   await installEvidenceHook(tab.id, false);
   await chrome.scripting.executeScript({
     files: CONTENT_INJECTION_FILES,

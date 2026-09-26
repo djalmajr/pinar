@@ -264,9 +264,9 @@ test("selected sessions move by drag and drop from table and grid views", async 
   await expect(page.locator("[data-bulk-toolbar]")).not.toContainText("2 selected");
   await expect(page.getByText("Drag any selected session to a collection.")).toHaveCount(0);
   const bulkToolbar = page.locator("[data-bulk-toolbar]");
-  await expect(bulkToolbar.getByRole("button", { name: "Move to…" })).toBeVisible();
+  await expect(bulkToolbar.getByRole("button", { name: "Move…" })).toBeVisible();
   await expect(bulkToolbar.getByRole("button", { name: "Delete" })).toHaveClass(/border-destructive/);
-  await expect(bulkToolbar.getByRole("button", { name: "Clear selection" })).toHaveClass(/border-transparent/);
+  await expect(bulkToolbar.getByRole("button", { name: "Clear" })).toHaveClass(/border-border/);
   const tableBox = await page.getByRole("table").boundingBox();
   const selectedCountBox = await page.locator("[data-selected-count]").boundingBox();
   expect(tableBox).toBeTruthy();

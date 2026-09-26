@@ -540,4 +540,98 @@ describe("local TanStack API", () => {
     assert.equal(cleared.model, "qwen3.8-27b");
     assert.equal(secrets.size, 0);
   });
+
+  test("stores local pin comments, reloads them, and drops them with the capture", async () => {
+    const upload = await request("/api/shots", {
+      body: JSON.stringify({
+        id: "local_comment_capture",
+        image: VALID_PNG,
+        page: { title: "Local comments", url: "https://example.test/local-comments" },
+        pins: [
+          { comment: "One", kind: "element", pinId: "pin_one" },
+          { comment: "Two", kind: "element", pinId: "pin_two" },
+        ],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(upload.status, 201);
+    const other = await request("/api/shots", {
+      body: JSON.stringify({
+        id: "local_comment_other",
+        image: VALID_PNG,
+        page: { title: "Other", url: "https://example.test/local-other" },
+        pins: [{ comment: "Other", kind: "element", pinId: "pin_one" }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(other.status, 201);
+
+    const created = await request("/api/sessions/local_comment_capture/pins/pin_one/comments", {
+      body: JSON.stringify({
+        actorId: "browser",
+        actorLabel: "Spoofed",
+        actorType: "agent",
+        body: "  local note  ",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(created.status, 200);
+    const createdBody = await jsonBody(created);
+    assert.equal(createdBody.ok, true);
+    assert.ok(isRecord(createdBody.comment));
+    assert.equal(createdBody.comment.body, "local note");
+    assert.equal(createdBody.comment.actorId, "local");
+    assert.equal(createdBody.comment.actorLabel, "Local");
+    assert.equal(createdBody.comment.actorType, "human");
+    assert.equal(createdBody.comment.pinId, "pin_one");
+
+    const second = await request("/api/sessions/local_comment_capture/pins/pin_two/comments", {
+      body: JSON.stringify({ body: "second local note" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(second.status, 200);
+    assert.equal((await request("/api/sessions/local_comment_capture/pins/pin_one/comments", {
+      body: JSON.stringify({ body: "   " }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    })).status, 400);
+    assert.equal((await request("/api/sessions/local_comment_capture/pins/pin_missing/comments", {
+      body: JSON.stringify({ body: "missing pin" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    })).status, 404);
+
+    resetLocalApiForTests();
+    const listed = await jsonBody(await request("/api/sessions/local_comment_capture"));
+    assert.ok(Array.isArray(listed.comments));
+    assert.deepEqual(listed.comments.map((item) => {
+      assert.ok(isRecord(item));
+      return item.body;
+    }), ["local note", "second local note"]);
+    assert.deepEqual(listed.comments.map((item) => {
+      assert.ok(isRecord(item));
+      return item.pinId;
+    }), ["pin_one", "pin_two"]);
+    const isolated = await jsonBody(await request("/api/sessions/local_comment_other"));
+    assert.deepEqual(isolated.comments, []);
+
+    assert.equal((await request("/api/history/local_comment_capture", { method: "DELETE" })).status, 200);
+    const recreated = await request("/api/shots", {
+      body: JSON.stringify({
+        id: "local_comment_capture",
+        image: VALID_PNG,
+        page: { title: "Local comments", url: "https://example.test/local-comments" },
+        pins: [{ comment: "One", kind: "element", pinId: "pin_one" }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(recreated.status, 201);
+    const afterDelete = await jsonBody(await request("/api/sessions/local_comment_capture"));
+    assert.deepEqual(afterDelete.comments, []);
+  });
 });

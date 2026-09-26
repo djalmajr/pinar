@@ -937,8 +937,24 @@ describe("cloud collection collaborators and ACL", () => {
       headers: { cookie: guest1.cookie, "content-type": "application/json" },
       method: "POST",
     }), env);
-    assert.equal(restoredReviewRes.status, 409);
-    assert.equal((await jsonBody(restoredReviewRes)).code, "invalid_transition");
+    assert.equal(restoredReviewRes.status, 200);
+    const restoredReviewBody = await jsonBody(restoredReviewRes);
+    assert.equal(restoredReviewBody.ok, true);
+    assert.equal((restoredReviewBody.review as Record<string, unknown>).status, "accepted");
+
+    const persistedRes = await handleCloudApiRequest(new Request(`https://pinar.test/api/sessions/${sessionId}`, {
+      headers: { cookie: guest1.cookie },
+      method: "GET",
+    }), env);
+    assert.equal(persistedRes.status, 200);
+    const persistedBody = await jsonBody(persistedRes);
+    const persistedReviews = persistedBody.reviews;
+    assert.ok(Array.isArray(persistedReviews));
+    const persistedReview = persistedReviews.find((item) => (
+      typeof item === "object" && item !== null && (item as Record<string, unknown>).pinId === "pin_susp"
+    ));
+    assert.ok(persistedReview && typeof persistedReview === "object");
+    assert.equal((persistedReview as Record<string, unknown>).status, "accepted");
   });
 
   test("Account-bound authorization: strictly uses user_id, no email fallback once accepted", async () => {

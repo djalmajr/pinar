@@ -4,6 +4,7 @@ import {
   PinReviewError,
   countPinReviews,
   humanActionsForStatus,
+  parsePinCommentBody,
   resolvePinReviewTransition,
   sessionMatchesReviewFilters,
 } from "./pin-review/index.js";
@@ -26,14 +27,18 @@ describe("pin review workflow", () => {
       () => resolvePinReviewTransition("accepted", "agent_changed"),
       (error: unknown) => error instanceof PinReviewError && error.code === "invalid_transition",
     );
-    assert.throws(
-      () => resolvePinReviewTransition("open", "accept"),
-      (error: unknown) => error instanceof PinReviewError && error.code === "invalid_transition",
-    );
+    assert.deepEqual(resolvePinReviewTransition("open", "accept"), {
+      changed: true,
+      next: "accepted",
+    });
   });
 
-  test("only humans accept from correction_ready and reopen from accepted", () => {
+  test("accept concludes an open, ready, or reopened pin and reopen stays on accepted", () => {
     assert.deepEqual(resolvePinReviewTransition("correction_ready", "accept"), {
+      changed: true,
+      next: "accepted",
+    });
+    assert.deepEqual(resolvePinReviewTransition("reopened", "accept"), {
       changed: true,
       next: "accepted",
     });
@@ -41,9 +46,14 @@ describe("pin review workflow", () => {
       changed: true,
       next: "reopened",
     });
+    assert.deepEqual(humanActionsForStatus("open"), ["accept"]);
     assert.deepEqual(humanActionsForStatus("correction_ready"), ["accept"]);
+    assert.deepEqual(humanActionsForStatus("reopened"), ["accept"]);
     assert.deepEqual(humanActionsForStatus("accepted"), ["reopen"]);
-    assert.deepEqual(humanActionsForStatus("open"), []);
+    assert.throws(
+      () => resolvePinReviewTransition("accepted", "accept"),
+      (error: unknown) => error instanceof PinReviewError && error.code === "invalid_transition",
+    );
     assert.throws(
       () => resolvePinReviewTransition("open", "reopen"),
       (error: unknown) => error instanceof PinReviewError && error.code === "invalid_transition",
@@ -63,5 +73,22 @@ describe("pin review workflow", () => {
     assert.equal(sessionMatchesReviewFilters(counts, []), true);
     assert.equal(sessionMatchesReviewFilters(counts, ["accepted"]), false);
     assert.equal(sessionMatchesReviewFilters(counts, ["open", "accepted"]), true);
+  });
+
+  test("trims a human comment and rejects an empty or oversized body", () => {
+    assert.equal(parsePinCommentBody("  shipped  "), "shipped");
+    assert.equal(parsePinCommentBody("a".repeat(2000)).length, 2000);
+    assert.throws(
+      () => parsePinCommentBody("   "),
+      (error: unknown) => error instanceof PinReviewError && error.code === "invalid_payload",
+    );
+    assert.throws(
+      () => parsePinCommentBody("a".repeat(2001)),
+      (error: unknown) => error instanceof PinReviewError && error.code === "invalid_payload",
+    );
+    assert.throws(
+      () => parsePinCommentBody({ actorId: "browser", body: "nope" }),
+      (error: unknown) => error instanceof PinReviewError && error.code === "invalid_payload",
+    );
   });
 });

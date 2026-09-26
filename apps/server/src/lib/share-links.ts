@@ -19,6 +19,47 @@ export function shareMarkdownPath(sessionId: string, token?: string | null) {
   return `${path}?token=${encodeURIComponent(token)}`;
 }
 
+export function shareViewerPath(
+  kind: "collection" | "project",
+  id: string,
+  token: string,
+) {
+  const segment = kind === "project" ? "p" : "c";
+  return `/${segment}/${encodeURIComponent(id)}?token=${encodeURIComponent(token)}`;
+}
+
+export function sessionMarkdownHref(
+  session: { batchId?: string | null; id: string },
+  options: { grouped: boolean; shareToken?: string | null },
+) {
+  if (options.grouped && session.batchId) {
+    return `/api/batches/${encodeURIComponent(session.batchId)}/markdown`;
+  }
+  return shareMarkdownPath(session.id, options.shareToken);
+}
+
+export async function publishedShareUrl(
+  kind: "collection" | "project",
+  id: string,
+  origin: string,
+) {
+  const token = await fetchActiveShare(kind, id) ?? await publishShare(kind, id);
+  const url = new URL(shareViewerPath(kind, id, token), origin);
+  if (url.searchParams.get("token") !== token) throw new Error("share_url_invalid");
+  return url.toString();
+}
+
+export async function copyPublishedShare(input: {
+  id: string;
+  kind: "collection" | "project";
+  origin: string;
+  writeText: (value: string) => Promise<void>;
+}) {
+  const url = await publishedShareUrl(input.kind, input.id, input.origin);
+  await input.writeText(url);
+  return url;
+}
+
 export function buildShareUrl(sessionId: string, token: string, origin?: string) {
   const base = origin
     ?? (typeof window !== "undefined" ? window.location.origin : "http://localhost");

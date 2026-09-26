@@ -40,6 +40,7 @@ import { isPaidAuthSession, useAuthSession } from "@/lib/auth-session";
 import { flattenCollections } from "@/lib/collection-tree";
 import { useDeliveryPreferences } from "@/lib/delivery-preferences";
 import { useServerI18n } from "@/lib/i18n";
+import { collectionDisplayName } from "@/lib/collection-display-name";
 import { isSupportedLanguage } from "@/lib/language";
 import { findProductRelease, loadReleaseContent, type ProductRelease } from "@/lib/release-content";
 import { pinarRuntime } from "@/lib/server-header";
@@ -308,6 +309,7 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
   }, [theme]);
 
   const selectedProject = projects.find((project) => project.id === captureDestination?.projectId);
+  const inboxLabel = t("dashboard.protectedInbox");
   const collectionEntries = useMemo(
     () => selectedProject ? flattenCollections(selectedProject.collections) : [],
     [selectedProject],
@@ -320,8 +322,8 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
     [projects, t],
   );
   const collectionItems = useMemo(
-    () => collectionEntries.map(({ collection }) => ({ label: collection.name, value: collection.id })),
-    [collectionEntries],
+    () => collectionEntries.map(({ collection }) => ({ label: collectionDisplayName(collection, inboxLabel), value: collection.id })),
+    [collectionEntries, inboxLabel],
   );
 
   const sectionLabel = section === "about"
@@ -562,7 +564,7 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
                               {collectionEntries.map(({ collection, depth }) => (
                                 <SelectItem key={collection.id} value={collection.id}>
                                   <span className="block truncate" style={{ paddingInlineStart: `${depth * 12}px` }}>
-                                    {collection.name}
+                                    {collectionDisplayName(collection, inboxLabel)}
                                   </span>
                                 </SelectItem>
                               ))}

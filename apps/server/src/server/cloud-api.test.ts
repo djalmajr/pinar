@@ -2539,4 +2539,132 @@ describe("remote installation isolation", () => {
       }),
     );
   });
+
+  test("stores human pin comments for the signed-in account and hides them from everyone else", async () => {
+    const ownerMail = "comments-owner@example.test";
+    const owner = await paidProCookie(TEST_ENV, ownerMail);
+    const other = await paidProCookie(owner.env, "comments-other@example.test");
+    const env = other.env;
+    const auth = await jsonBody(await api("/api/auth/session", { headers: { cookie: owner.cookie } }, env));
+    assert.ok(isRecord(auth.session));
+    assert.equal(auth.session.email, ownerMail);
+    const actorId = auth.session.userId;
+    assert.equal(typeof actorId, "string");
+
+    const secret = "owner only text";
+    assert.equal((await api("/api/shots", {
+      body: JSON.stringify({
+        id: "comment_capture_a",
+        image: VALID_PNG,
+        page: { title: "Comments", url: "https://example.test/comments" },
+        pins: [
+          { comment: "One", kind: "element", pinId: "pin_one" },
+          { comment: "Two", kind: "element", pinId: "pin_two" },
+        ],
+      }),
+      headers: { cookie: owner.cookie, "content-type": "application/json" },
+      method: "POST",
+    }, env)).status, 201);
+    assert.equal((await api("/api/shots", {
+      body: JSON.stringify({
+        id: "comment_capture_b",
+        image: VALID_PNG,
+        page: { title: "Other comments", url: "https://example.test/comments-b" },
+        pins: [{ comment: "Other", kind: "element", pinId: "pin_one" }],
+      }),
+      headers: { cookie: owner.cookie, "content-type": "application/json" },
+      method: "POST",
+    }, env)).status, 201);
+
+    const created = await api("/api/sessions/comment_capture_a/pins/pin_one/comments", {
+      body: JSON.stringify({
+        actorId: "browser-user",
+        actorLabel: "Spoofed",
+        actorType: "agent",
+        body: `  ${secret}  `,
+      }),
+      headers: { cookie: owner.cookie, "content-type": "application/json" },
+      method: "POST",
+    }, env);
+    assert.equal(created.status, 200);
+    const createdBody = await jsonBody(created);
+    assert.equal(createdBody.ok, true);
+    assert.ok(isRecord(createdBody.comment));
+    assert.equal(createdBody.comment.body, secret);
+    assert.equal(createdBody.comment.actorId, actorId);
+    assert.equal(createdBody.comment.actorLabel, ownerMail);
+    assert.equal(createdBody.comment.actorType, "human");
+    assert.equal(createdBody.comment.pinId, "pin_one");
+    assert.equal(createdBody.comment.captureId, "comment_capture_a");
+
+    assert.equal((await api("/api/sessions/comment_capture_a/pins/pin_two/comments", {
+      body: JSON.stringify({ body: "second note" }),
+      headers: { cookie: owner.cookie, "content-type": "application/json" },
+      method: "POST",
+    }, env)).status, 200);
+    assert.equal((await api("/api/sessions/comment_capture_a/pins/pin_one/comments", {
+      body: JSON.stringify({ body: "   " }),
+      headers: { cookie: owner.cookie, "content-type": "application/json" },
+      method: "POST",
+    }, env)).status, 400);
+    assert.equal((await api("/api/sessions/comment_capture_a/pins/pin_one/comments", {
+      body: JSON.stringify({ body: "a".repeat(2001) }),
+      headers: { cookie: owner.cookie, "content-type": "application/json" },
+      method: "POST",
+    }, env)).status, 400);
+    const missingPin = await api("/api/sessions/comment_capture_a/pins/pin_missing/comments", {
+      body: JSON.stringify({ body: "does not belong" }),
+      headers: { cookie: owner.cookie, "content-type": "application/json" },
+      method: "POST",
+    }, env);
+    assert.equal(missingPin.status, 404);
+    assert.equal(JSON.stringify(await missingPin.json()).includes("does not belong"), false);
+
+    const listed = await jsonBody(await api("/api/sessions/comment_capture_a", {
+      headers: { cookie: owner.cookie },
+    }, env));
+    assert.ok(Array.isArray(listed.comments));
+    assert.deepEqual(listed.comments.map((item) => {
+      assert.ok(isRecord(item));
+      return item.body;
+    }), [secret, "second note"]);
+    assert.deepEqual(listed.comments.map((item) => {
+      assert.ok(isRecord(item));
+      return item.pinId;
+    }), ["pin_one", "pin_two"]);
+    const isolated = await jsonBody(await api("/api/sessions/comment_capture_b", {
+      headers: { cookie: owner.cookie },
+    }, env));
+    assert.deepEqual(isolated.comments, []);
+
+    const denied = await api("/api/sessions/comment_capture_a", { headers: { cookie: other.cookie } }, env);
+    assert.equal(denied.status, 404);
+    assert.equal(JSON.stringify(await denied.json()).includes(secret), false);
+    const anonymous = await api("/api/sessions/comment_capture_a/pins/pin_one/comments", {
+      body: JSON.stringify({ body: secret }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }, env);
+    assert.equal(anonymous.status, 401);
+    assert.equal(JSON.stringify(await anonymous.json()).includes(secret), false);
+
+    assert.equal((await api("/api/history/comment_capture_a", {
+      headers: { cookie: owner.cookie },
+      method: "DELETE",
+    }, env)).status, 200);
+    assert.equal((await api("/api/shots", {
+      body: JSON.stringify({
+        id: "comment_capture_a",
+        image: VALID_PNG,
+        page: { title: "Comments", url: "https://example.test/comments" },
+        pins: [{ comment: "One", kind: "element", pinId: "pin_one" }],
+      }),
+      headers: { cookie: owner.cookie, "content-type": "application/json" },
+      method: "POST",
+    }, env)).status, 201);
+    const afterDelete = await jsonBody(await api("/api/sessions/comment_capture_a", {
+      headers: { cookie: owner.cookie },
+    }, env));
+    assert.deepEqual(afterDelete.comments, []);
+  });
 });

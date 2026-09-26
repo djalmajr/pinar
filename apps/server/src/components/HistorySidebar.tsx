@@ -6,6 +6,8 @@ import type {
   ProjectTreeCollection,
   ProjectTreeProject,
 } from "@pinar/shared";
+import { MENU_LABEL_FIT } from "./SessionActionsMenu";
+import { collectionDisplayName } from "../lib/collection-display-name";
 import { sessionGroupCount } from "../lib/session-groups";
 import {
   DragOverlay,
@@ -83,6 +85,13 @@ import TrashIcon from "~icons/lucide/trash-2";
 import UsersIcon from "~icons/lucide/users";
 
 type ContainerKind = "collection" | "project";
+function visibleCollectionName(
+  collection: { isProtected: boolean; name: string },
+  t: Translate,
+) {
+  return collectionDisplayName(collection, t("dashboard.protectedInbox"));
+}
+
 type Translate = (
   key: ServerMessageKey,
   values?: Record<string, number | string>,
@@ -127,7 +136,7 @@ interface HistorySidebarProps {
   onSelectCollection: (collectionId: string | null) => void;
   onSelectFilter: (id: string | null) => void;
   onSelectShared: () => void;
-  onShare: (path: string) => void;
+  onShare: (target: { id: string; kind: "collection" | "project" }) => void;
 }
 
 interface ProjectSwitcherProps {
@@ -147,7 +156,7 @@ interface ProjectActionsMenuProps {
   onDelete: (target: ContainerTarget) => void;
   onRename: (target: RenameTarget) => void;
   onReorder: (direction: "earlier" | "later") => void;
-  onShare: (path: string) => void;
+  onShare: (target: { id: string; kind: "collection" | "project" }) => void;
 }
 
 interface SortableCollectionProps {
@@ -163,7 +172,7 @@ interface SortableCollectionProps {
   onManageCollaborators?: (collection: ProjectTreeCollection) => void;
   onRename: (target: RenameTarget) => void;
   onSelect: (collectionId: string) => void;
-  onShare: (path: string) => void;
+  onShare: (target: { id: string; kind: "collection" | "project" }) => void;
   onToggle: (collectionId: string) => void;
 }
 
@@ -178,7 +187,7 @@ interface CollectionMenuProps {
   onManageCollaborators?: (collection: ProjectTreeCollection) => void;
   onMenuOpenChange: (open: boolean) => void;
   onRename: (target: RenameTarget) => void;
-  onShare: (path: string) => void;
+  onShare: (target: { id: string; kind: "collection" | "project" }) => void;
 }
 
 function CollectionMenu({
@@ -199,7 +208,7 @@ function CollectionMenu({
       <DropdownMenuTrigger
         render={
           <SidebarMenuAction
-            aria-label={`${collection.name}: ${t("dashboard.collectionActions")}`}
+            aria-label={`${visibleCollectionName(collection, t)}: ${t("dashboard.collectionActions")}`}
             className="size-6 peer-data-[size=default]/menu-button:top-1"
             showOnHover
             title={t("dashboard.collectionActions")}
@@ -212,6 +221,7 @@ function CollectionMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="start"
+        className={MENU_LABEL_FIT}
         side="right"
         sideOffset={8}
       >
@@ -233,7 +243,7 @@ function CollectionMenu({
             {t("dashboard.rename")}
           </DropdownMenuItem>
           {pinarRuntime() === "cloud" && (
-            <DropdownMenuItem onClick={() => onShare(`/c/${collection.id}`)}>
+            <DropdownMenuItem onClick={() => onShare({ id: collection.id, kind: "collection" })}>
               <ShareIcon />
               {t("dashboard.share")}
             </DropdownMenuItem>
@@ -320,7 +330,7 @@ function SortableCollection({
         aria-expanded={hasChildren ? isExpanded : undefined}
         isActive={isActive}
         style={buttonStyle}
-        tooltip={collection.name}
+        tooltip={visibleCollectionName(collection, t)}
         onClick={() => onSelect(collection.id)}
       >
         <span
@@ -329,7 +339,7 @@ function SortableCollection({
         >
           {!hasChildren && <FolderIcon />}
         </span>
-        <span>{collection.name}</span>
+        <span>{visibleCollectionName(collection, t)}</span>
       </SidebarMenuButton>
       {Array.from({ length: depth }, (_, level) => (
         <span
@@ -350,7 +360,7 @@ function SortableCollection({
               ? "dashboard.collapseCollection"
               : "dashboard.expandCollection",
             {
-              name: collection.name,
+              name: visibleCollectionName(collection, t),
             },
           )}
           className="absolute top-2 z-10 flex size-4 items-center justify-center rounded-sm text-sidebar-foreground outline-none after:absolute after:-inset-1 focus-visible:ring-2 focus-visible:ring-sidebar-ring [&_svg]:size-3.5"
@@ -397,7 +407,7 @@ interface FixedCollectionProps {
   onManageCollaborators?: (collection: ProjectTreeCollection) => void;
   onRename: (target: RenameTarget) => void;
   onSelect: (collectionId: string) => void;
-  onShare: (path: string) => void;
+  onShare: (target: { id: string; kind: "collection" | "project" }) => void;
 }
 
 function FixedCollection({
@@ -428,11 +438,11 @@ function FixedCollection({
           sessionDropTarget && "bg-sidebar-accent ring-1 ring-sidebar-ring",
         )}
         isActive={isActive}
-        tooltip={collection.name}
+        tooltip={visibleCollectionName(collection, t)}
         onClick={() => onSelect(collection.id)}
       >
         <InboxIcon />
-        <span>{collection.name}</span>
+        <span>{visibleCollectionName(collection, t)}</span>
       </SidebarMenuButton>
       <SidebarMenuBadge
         className={cn(
@@ -602,7 +612,7 @@ export function ProjectActionsMenu({
       >
         <MoreVerticalIcon />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent align="end" className={MENU_LABEL_FIT}>
         <DropdownMenuGroup>
           <DropdownMenuItem
             className="gap-2.5"
@@ -621,7 +631,7 @@ export function ProjectActionsMenu({
           {pinarRuntime() === "cloud" && (
             <DropdownMenuItem
               className="gap-2.5"
-              onClick={() => onShare(`/p/${selectedProject.id}`)}
+              onClick={() => onShare({ id: selectedProject.id, kind: "project" })}
             >
               <ShareIcon />
               {t("dashboard.share")}
@@ -922,7 +932,7 @@ export function HistorySidebar({
               {activeCollection ? (
                 <div className="flex h-8 items-center gap-2 rounded-md bg-popover px-2 text-sm text-popover-foreground shadow-md ring-1 ring-border">
                   <FolderIcon />
-                  <span className="truncate">{activeCollection.name}</span>
+                  <span className="truncate">{visibleCollectionName(activeCollection, t)}</span>
                 </div>
               ) : null}
             </DragOverlay>

@@ -21,6 +21,7 @@ import type {
   Session,
 } from "@pinar/shared";
 import { DEFAULT_PROJECT_ICON } from "@pinar/shared/project-icons";
+import { collectionDisplayName } from "@/lib/collection-display-name";
 import {
   DndContext,
   DragOverlay,
@@ -42,6 +43,7 @@ import {
   AlertDialogTitle,
   Button,
   Dialog,
+  toast,
   DialogContent,
   DialogFooter,
   DialogHeader,
@@ -70,6 +72,7 @@ import {
 } from "@/lib/collection-collaborators";
 import { collectionAncestorPath } from "@/lib/collection-tree";
 import { useServerI18n } from "@/lib/i18n";
+import { copyPublishedShare } from "@/lib/share-links";
 import { flattenCollectionSessions } from "@/lib/session-listing";
 import { sessionGroupCount } from "@/lib/session-groups";
 import { pinarRuntime } from "@/lib/server-header";
@@ -149,11 +152,13 @@ function workspaceCrumbsFor(
   collections: ProjectTreeCollection[],
   selectedCollection: ProjectTreeCollection | undefined,
   allSessionsLabel: string,
+  inboxLabel: string,
 ) {
   if (!selectedCollection) return [{ id: null, name: allSessionsLabel }];
   const path = collectionAncestorPath(collections, selectedCollection.id);
-  if (path.length) return path.map((collection) => ({ id: collection.id, name: collection.name }));
-  return [{ id: selectedCollection.id, name: selectedCollection.name }];
+  const nameFor = (collection: ProjectTreeCollection) => collectionDisplayName(collection, inboxLabel);
+  if (path.length) return path.map((collection) => ({ id: collection.id, name: nameFor(collection) }));
+  return [{ id: selectedCollection.id, name: nameFor(selectedCollection) }];
 }
 
 async function requestJson(path: string, method: string, body?: unknown) {
@@ -209,6 +214,8 @@ export function WorkspaceChrome({
   const [containerDelete, setContainerDelete] = useState<ContainerDelete | null>(null);
   const [containerEditor, setContainerEditor] = useState<ContainerEditor | null>(null);
   const [containerSubmitting, setContainerSubmitting] = useState(false);
+  const [containerDeleting, setContainerDeleting] = useState(false);
+  const [containerDeleteError, setContainerDeleteError] = useState(false);
   const [containerError, setContainerError] = useState(false);
   const [containerName, setContainerName] = useState("");
   const [loading, setLoading] = useState(true);
@@ -224,6 +231,7 @@ export function WorkspaceChrome({
   const [sharedOnly, setSharedOnly] = useState(false);
   const fingerprintRef = useRef("");
   const generationRef = useRef(0);
+  const containerDeletingRef = useRef(false);
   const shareTokensRef = useRef<WorkspaceShareTokenCache>({ ready: false, tokens: [] });
   const mutatingRef = useRef(0);
   const selectedCollectionIdRef = useRef(selectedCollectionId);
@@ -542,10 +550,20 @@ export function WorkspaceChrome({
   }
 
   async function deleteContainer(kind: ContainerKind, id: string) {
-    const response = await requestJson(`/api/${kind}s/${id}`, "DELETE");
-    if (response.ok) {
+    if (containerDeletingRef.current) return;
+    containerDeletingRef.current = true;
+    setContainerDeleting(true);
+    setContainerDeleteError(false);
+    try {
+      const response = await requestJson(`/api/${kind}s/${id}`, "DELETE");
+      if (!response.ok) throw new Error("container_delete_failed");
       setContainerDelete(null);
       await fetchTree();
+    } catch {
+      setContainerDeleteError(true);
+    } finally {
+      containerDeletingRef.current = false;
+      setContainerDeleting(false);
     }
   }
 
@@ -650,8 +668,17 @@ export function WorkspaceChrome({
     await fetchTree(selectedProject.id);
   }
 
-  async function copyShare(path: string) {
-    await navigator.clipboard.writeText(new URL(path, window.location.origin).toString());
+  async function copyShare(target: { id: string; kind: "collection" | "project" }) {
+    try {
+      await copyPublishedShare({
+        ...target,
+        origin: window.location.origin,
+        writeText: (value) => navigator.clipboard.writeText(value),
+      });
+      toast.success(t("share.linkCopied"));
+    } catch {
+      toast.error(t("share.error"));
+    }
   }
 
   const selectedBatch = batches.find((batch) => batch.id === selectedBatchId);
@@ -663,6 +690,7 @@ export function WorkspaceChrome({
         selectedProject?.collections ?? [],
         selectedCollection,
         t("dashboard.allSessions"),
+        t("dashboard.protectedInbox"),
       );
 
   const openInvitations = useCallback(() => {
@@ -722,14 +750,17 @@ export function WorkspaceChrome({
             canMoveLater={selectedProjectIndex >= 0 && selectedProjectIndex < projectTree.projects.length - 1}
             selectedProject={selectedProject}
             t={t}
-            onDelete={setContainerDelete}
+            onDelete={(target) => {
+              setContainerDeleteError(false);
+              setContainerDelete(target);
+            }}
             onRename={({ icon, id, kind, name }) => openContainerEditor(
               { id, kind, mode: "rename" },
               name,
               icon,
             )}
             onReorder={(direction) => void reorderProject(direction)}
-            onShare={(path) => void copyShare(path)}
+            onShare={(target) => void copyShare(target)}
           />
         )}
         projectSelector={(compact) => (
@@ -772,7 +803,10 @@ export function WorkspaceChrome({
             sharedOnly={sharedOnly}
             t={t}
             onCreate={(kind, parentId) => openContainerEditor({ kind, mode: "create", parentId })}
-            onDelete={setContainerDelete}
+            onDelete={(target) => {
+              setContainerDeleteError(false);
+              setContainerDelete(target);
+            }}
             onDeleteAllFilters={() => {
               if (batches.length) setFilterDeleteAllOpen(true);
             }}
@@ -782,7 +816,7 @@ export function WorkspaceChrome({
             onSelectCollection={setSelectedCollectionId}
             onSelectFilter={setSelectedBatchId}
             onSelectShared={selectSharedSessions}
-            onShare={(path) => void copyShare(path)}
+            onShare={(target) => void copyShare(target)}
           />
         )}
         workspaceCrumbs={workspaceCrumbs}
@@ -828,7 +862,14 @@ export function WorkspaceChrome({
             </form>
           </DialogContent>
         </Dialog>
-        <AlertDialog open={Boolean(containerDelete)} onOpenChange={(open) => !open && setContainerDelete(null)}>
+        <AlertDialog
+          open={Boolean(containerDelete)}
+          onOpenChange={(open) => {
+            if (open || containerDeleting) return;
+            setContainerDelete(null);
+            setContainerDeleteError(false);
+          }}
+        >
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>{t(containerDelete?.kind === "project" ? "dashboard.deleteProject" : "dashboard.deleteCollection")}</AlertDialogTitle>
@@ -836,9 +877,27 @@ export function WorkspaceChrome({
                 {t("dashboard.deleteContainerConfirm", { kind: t(containerDelete?.kind === "project" ? "dashboard.project" : "dashboard.collection") })}
               </AlertDialogDescription>
             </AlertDialogHeader>
+            {containerDeleteError ? <p className="text-sm text-destructive" role="alert">{t("dashboard.containerDeleteFailed")}</p> : null}
             <AlertDialogFooter>
-              <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-              <AlertDialogAction variant="destructive" onClick={() => containerDelete && void deleteContainer(containerDelete.kind, containerDelete.id)}>{t("dashboard.delete")}</AlertDialogAction>
+              <AlertDialogCancel disabled={containerDeleting}>{t("common.cancel")}</AlertDialogCancel>
+              <AlertDialogAction
+                aria-busy={containerDeleting || undefined}
+                disabled={containerDeleting}
+                variant="destructive"
+                onClick={(event) => {
+                  event.preventDefault();
+                  if (!containerDelete) return;
+                  void deleteContainer(containerDelete.kind, containerDelete.id);
+                }}
+              >
+                <span className="grid">
+                  <span className={containerDeleting ? "invisible col-start-1 row-start-1" : "col-start-1 row-start-1"}>{t("dashboard.delete")}</span>
+                  <span className={containerDeleting ? "col-start-1 row-start-1 inline-flex items-center justify-center" : "invisible col-start-1 row-start-1 inline-flex items-center justify-center"}>
+                    <IconLoaderCircle aria-hidden="true" className="size-4 animate-spin" data-icon="inline-start" />
+                    {t("dashboard.deletingContainer")}
+                  </span>
+                </span>
+              </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>

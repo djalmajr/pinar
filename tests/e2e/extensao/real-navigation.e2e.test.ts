@@ -54,6 +54,17 @@ test("pins from another Pinar collection do not return when the toolbar reopens"
         const attach = Element.prototype.attachShadow;
         Element.prototype.attachShadow = function (options) { return attach.call(this, { ...options, mode: "open" }); };
       } });
+      const [probe] = await chrome.scripting.executeScript({
+        func: () => Boolean(globalThis.__pinarToggle),
+        target: { frameIds: [0], tabId: tab.id! },
+      });
+      if (probe?.result) {
+        await chrome.scripting.executeScript({
+          func: () => { globalThis.__pinarToggle?.(); },
+          target: { frameIds: [0], tabId: tab.id! },
+        });
+        return;
+      }
       await chrome.scripting.executeScript({
         files: ["coordinates.js", "frame-path.js", "locators.js", "privacy.js", "snapshot.js", "evidence.js", "keyboard.js", "voice.js", "content.js"],
         target: { allFrames: true, tabId: tab.id! },

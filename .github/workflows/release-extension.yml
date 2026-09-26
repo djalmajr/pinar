@@ -49,8 +49,10 @@ jobs:
         run: bun run typecheck
       - name: Test extension release surface
         run: bun run test:ext
-      - name: Build and package extension
+      - name: Build and package Store-ready extension
         run: bun run package:ext -- --expected-version "${{ steps.extension.outputs.version }}"
+      - name: Package unpacked production-ID extension
+        run: bun run package:ext -- --expected-version "${{ steps.extension.outputs.version }}" --unpacked
       - name: Publish independent extension release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -59,6 +61,7 @@ jobs:
         run: >-
           gh release create "$GITHUB_REF_NAME"
           "extension/pinar-extension-$VERSION.zip"
+          "extension/pinar-extension-$VERSION-unpacked.zip"
           --latest=false
           --notes-file "$NOTES"
           --title "Pinar Extension $VERSION"

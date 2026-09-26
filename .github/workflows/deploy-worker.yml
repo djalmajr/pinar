@@ -90,15 +90,24 @@ jobs:
           EXPECTED: ${{ needs.classify.outputs.version }}
         run: |
           set -euo pipefail
-          body="$(curl -fsS https://pinar.dev/api/health)"
-          echo "$body"
-          echo "$body" | bun -e '
-            const json = JSON.parse(await Bun.stdin.text());
-            const expected = process.env.EXPECTED;
-            if (json.ok !== true || json.service !== "pinar" || json.version !== expected) {
-              throw new Error(`health ${JSON.stringify(json)} does not match ${expected}`);
-            }
-          '
+          for attempt in {1..12}; do
+            body=""
+            if body="$(curl -fsS https://pinar.dev/api/health)" &&
+              echo "$body" | bun -e '
+                const json = JSON.parse(await Bun.stdin.text());
+                const expected = process.env.EXPECTED;
+                if (json.ok !== true || json.service !== "pinar" || json.version !== expected) {
+                  process.exit(1);
+                }
+              '; then
+              echo "Production health reached $EXPECTED on attempt $attempt"
+              exit 0
+            fi
+            echo "Production health has not reached $EXPECTED (attempt $attempt/12): $body"
+            sleep 5
+          done
+          echo "Production health did not reach $EXPECTED within 60 seconds" >&2
+          exit 1
 
   staging:
     name: Deploy staging Worker

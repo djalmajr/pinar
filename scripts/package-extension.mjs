@@ -18,6 +18,8 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ARCHIVE_EPOCH = new Date("1980-01-01T00:00:00.000Z");
+const UNPACKED_EXTENSION_ID = "idpeaokdndjedekacfdfbilcolpholbo";
+const BASE64_PUBLIC_KEY = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const RUNTIME_DIRECTORIES = ["_locales", "dist", "icons"];
 const RUNTIME_FILES = ["manifest.json", "offscreen.html"];
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -46,9 +48,29 @@ export function extensionVersions(rootDirectory = root) {
   return { manifest, version: manifest.version };
 }
 
-export function releaseManifest(manifest) {
+function extensionIdFromManifestKey(key) {
+  if (typeof key !== "string" || !key || key.trim() !== key || !BASE64_PUBLIC_KEY.test(key)) {
+    throw new Error("unpacked packaging requires a non-empty valid manifest.key");
+  }
+  const publicKey = Buffer.from(key, "base64");
+  if (!publicKey.length || publicKey.toString("base64") !== key) {
+    throw new Error("unpacked packaging requires a non-empty valid manifest.key");
+  }
+  const digest = createHash("sha256").update(publicKey).digest();
+  return [...digest.subarray(0, 16)]
+    .map((byte) => String.fromCharCode(97 + (byte >> 4), 97 + (byte & 15)))
+    .join("");
+}
+
+export function releaseManifest(manifest, { unpacked = false } = {}) {
   const release = { ...manifest };
-  delete release.key;
+  if (unpacked) {
+    if (extensionIdFromManifestKey(release.key) !== UNPACKED_EXTENSION_ID) {
+      throw new Error("unpacked manifest.key does not match the expected extension ID");
+    }
+  } else {
+    delete release.key;
+  }
   return release;
 }
 
@@ -105,9 +127,13 @@ export function validateReleaseTag(tag, version) {
 }
 
 export function parseOptions(args) {
-  const options = {};
+  const options = { unpacked: false };
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
+    if (argument === "--unpacked") {
+      options.unpacked = true;
+      continue;
+    }
     if (argument !== "--expected-version" && argument !== "--output") {
       throw new Error(`unknown option: ${argument}`);
     }
@@ -120,18 +146,20 @@ export function parseOptions(args) {
   return options;
 }
 
-export function packageExtension({ expectedVersion, output, rootDirectory = root, runBuild = true } = {}) {
+export function packageExtension({ expectedVersion, output, unpacked = false, rootDirectory = root, runBuild = true } = {}) {
   if (runBuild) execFileSync("bun", ["run", "build:ext"], { cwd: rootDirectory, stdio: "inherit" });
   const { manifest, version } = extensionVersions(rootDirectory);
   if (expectedVersion && expectedVersion !== version) {
     throw new Error(`expected extension ${expectedVersion}; source is ${version}`);
   }
 
+  const packagedManifest = releaseManifest(manifest, { unpacked });
   const entries = collectExtensionEntries(rootDirectory);
   validateEntryPaths(entries);
   validateManifestFiles({ entries, manifest, rootDirectory });
 
-  const outputPath = resolve(rootDirectory, output ?? `extension/pinar-extension-${version}.zip`);
+  const suffix = unpacked ? "-unpacked" : "";
+  const outputPath = resolve(rootDirectory, output ?? `extension/pinar-extension-${version}${suffix}.zip`);
   const outputDirectory = dirname(outputPath);
   mkdirSync(outputDirectory, { recursive: true });
   const stagingDirectory = mkdtempSync(join(tmpdir(), "pinar-extension-package-"));
@@ -142,7 +170,7 @@ export function packageExtension({ expectedVersion, output, rootDirectory = root
       const source = join(rootDirectory, "extension", entry);
       const destination = join(stagingDirectory, entry);
       mkdirSync(dirname(destination), { recursive: true });
-      if (entry === "manifest.json") writeFileSync(destination, `${JSON.stringify(releaseManifest(manifest), null, 2)}\n`);
+      if (entry === "manifest.json") writeFileSync(destination, `${JSON.stringify(packagedManifest, null, 2)}\n`);
       else copyFileSync(source, destination);
       utimesSync(destination, ARCHIVE_EPOCH, ARCHIVE_EPOCH);
     }

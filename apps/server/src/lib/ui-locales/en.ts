@@ -153,7 +153,7 @@ const messages = {
   "settings.copyOnFinishBatchPrompt": "Prompt",
   "settings.copyViewerContent": "Copy Markdown content",
   "settings.copyViewerContentDescription":
-    "Viewer Markdown is extra context. captureId and pinId always stay in the copied bundle.",
+    "Copies only the saved Markdown document instead of the visual context bundle.",
   "settings.handoffHeading": "Agent handoff",
   "settings.includeViewer": "Copy Web Viewer",
   "settings.includeViewerDescription":
@@ -360,7 +360,9 @@ const messages = {
   "dashboard.designSystem": "Extract design system",
   "dashboard.collaborators": "Collaborators",
   "dashboard.collaboratorsTitle": "Collaborators for {name}",
-  "dashboard.collaboratorsDescription": "Invite reviewers by email to view and review this collection.",
+  "dashboard.collaboratorsDescription": "Invite reviewers by email to view and review this collection.",
+  "dashboard.collectionAccessTitle": "Access to {name}",
+  "dashboard.collectionAccessDescription": "Manage access to this collection.",
   "dashboard.collaboratorEmailPlaceholder": "teammate@example.com",
   "dashboard.invite": "Invite",
   "dashboard.inviting": "Inviting…",
@@ -421,6 +423,8 @@ const messages = {
   "viewer.screenshotUnavailable": "Screenshot unavailable",
   "viewer.openPin": "Open pin {number}",
   "viewer.openCapture": "Open this capture",
+  "viewer.imageActions": "Image actions",
+  "viewer.openImageNewTab": "Open image in new tab",
   "viewer.areaSelection": "Area selection",
   "viewer.element": "Element",
   "viewer.locationExact": "Exact match",

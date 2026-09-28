@@ -42,9 +42,9 @@ export interface SessionActionsMenuProps {
   onMove?: (id: string) => void;
 }
 
-// Same fit for session, project, and collection menus: content width, then a
-// little padding past the longest label. The extra is only on the right.
-export const MENU_LABEL_FIT = "w-max max-w-[min(40rem,calc(100vw-2rem))] whitespace-nowrap pr-3";
+// Same fit for session, project, and collection menus: content width without
+// adding spacing beyond the menu item's own horizontal padding.
+export const MENU_LABEL_FIT = "w-max max-w-[min(40rem,calc(100vw-2rem))] whitespace-nowrap";
 export const SESSION_MENU_WIDTH = `max-h-96 overflow-y-auto ${MENU_LABEL_FIT}`;
 
 export function SessionActionsMenu({

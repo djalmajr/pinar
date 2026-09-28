@@ -155,7 +155,7 @@ const messages: UiMessages = {
   "settings.copyOnFinishBatchPrompt": "Prompt",
   "settings.copyViewerContent": "Copier le contenu Markdown",
   "settings.copyViewerContentDescription":
-    "Le Markdown du visualiseur est un complément. captureId et pinId restent toujours dans le bundle copié.",
+    "Copie uniquement le document Markdown enregistré à la place du bundle de contexte visuel.",
   "settings.handoffHeading": "Transmission à l’agent",
   "settings.includeViewer": "Copier le Visualiseur Web",
   "settings.includeViewerDescription":
@@ -364,7 +364,9 @@ const messages: UiMessages = {
   "dashboard.designSystem": "Extraire le design system",
   "dashboard.collaborators": "Collaborateurs",
   "dashboard.collaboratorsTitle": "Collaborateurs pour {name}",
-  "dashboard.collaboratorsDescription": "Invitez des réviseurs par e-mail pour afficher et réviser cette collection.",
+  "dashboard.collaboratorsDescription": "Invitez des réviseurs par e-mail pour afficher et réviser cette collection.",
+  "dashboard.collectionAccessTitle": "Accès à {name}",
+  "dashboard.collectionAccessDescription": "Gérez les accès à cette collection.",
   "dashboard.collaboratorEmailPlaceholder": "collegue@exemple.fr",
   "dashboard.invite": "Inviter",
   "dashboard.inviting": "Invitation…",
@@ -425,6 +427,8 @@ const messages: UiMessages = {
   "viewer.screenshotUnavailable": "Capture indisponible",
   "viewer.openPin": "Ouvrir le pin {number}",
   "viewer.openCapture": "Ouvrir cette capture",
+  "viewer.imageActions": "Actions pour cette image",
+  "viewer.openImageNewTab": "Ouvrir l’image dans un nouvel onglet",
   "viewer.areaSelection": "Sélection de zone",
   "viewer.element": "Élément",
   "viewer.locationExact": "Correspondance exacte",

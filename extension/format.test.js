@@ -57,8 +57,7 @@ describe("formatClipboardPayload", () => {
     assert.equal(payload.html, "<pre># Visual feedback\n\nComment: Fix this &lt;button&gt;</pre>");
   });
 
-  test("keeps the structured handoff and adds opt-in viewer Markdown with fenced code intact", () => {
-    // Mutation captured: replacing the structured handoff with viewer Markdown drops captureId and pinId.
+  test("produces exclusively the saved Markdown when viewerContent is provided", () => {
     const markdown = "# Visual feedback\n\n```js\nconst token = '[redacted]';\n```";
     const payload = formatClipboardPayload({
       captureId: "capture-1",
@@ -70,18 +69,10 @@ describe("formatClipboardPayload", () => {
       viewerUrl: "https://pinar.example.test/v/capture-1.md",
     });
 
-    const context = contextFrom(payload.plain);
-    assert.equal(context.captureId, "capture-1");
-    assert.equal(context.pins[0].pinId, "pin-1");
-    assert.deepEqual(context.privacy, { redacted: ["token"] });
-    assert.deepEqual(context.screenshot, { url: "/Users/me/.pinar/shots/capture-1.png" });
-    assert.equal((payload.plain.match(/```pinar-visual-context/g) || []).length, 1);
-    assert.match(payload.plain, /--- BEGIN PINAR VIEWER MARKDOWN ---/);
-    assert.match(payload.plain, /```js\nconst token = '\[redacted\]';\n```/);
-    assert.match(payload.plain, /--- END PINAR VIEWER MARKDOWN ---/);
-    assert.match(payload.html, /data-pinar="viewer-markdown"/);
-    assert.doesNotMatch(payload.plain, /s3cret/);
-    assert.doesNotMatch(payload.plain, /(?:deviceToken|capability)=/i);
+    assert.equal(payload.plain, markdown);
+    assert.equal(payload.html, "<pre># Visual feedback\n\n```js\nconst token = '[redacted]';\n```</pre>");
+    assert.doesNotMatch(payload.plain, /pinar-visual-context/);
+    assert.doesNotMatch(payload.plain, /BEGIN PINAR VIEWER MARKDOWN/);
   });
 
   test("keeps the compact handoff when viewer content is disabled", () => {

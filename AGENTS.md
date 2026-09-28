@@ -29,7 +29,7 @@ For Herdr agent work in this repository, keep the configured build lane on Curso
 
 If Agy reaches its quota, temporarily switch only the review lane in the current Herdr session to Codex/Luna high (`lane.review.kind=codex`, `lane.review.model=gpt-6-luna`, `lane.review.effort=high`). Clear those three session overrides when Agy is available again; keep the project defaults intact. Run `herdr-agents` and `herdr` commands with approved execution outside the Codex filesystem sandbox, because the sandbox blocks the Herdr socket; a sandbox `PermissionDenied` does not mean a worker failed or lost its task.
 
-Visual page annotations are copied to the clipboard by the Chrome extension (⌘/Ctrl+Enter). The same action copies a human Markdown representation and a `pinar-visual-context` JSON block (Visual Context v1). `captureId` and `pinId` identify the capture; do not rewrite them.
+Visual page annotations are copied to the clipboard by the Chrome extension (⌘/Ctrl+Enter). By default, the same action copies a human Markdown representation and a `pinar-visual-context` JSON block (Visual Context v1). When “Copy Markdown content” is enabled, it instead copies only the saved viewer `.md` document. `captureId` and `pinId` identify the capture; do not rewrite them.
 
 When the user pastes annotations, or says they copied/annotated a page:
 

@@ -322,7 +322,8 @@
       :host([data-review-open]) .toolbar { display: none; }
       :host([data-review-open]) .marker, :host([data-review-open]) .preview,
       :host([data-review-open]) .outline, :host([data-review-open]) .composer,
-      :host([data-review-open]) .privacy-mask, :host([data-review-open]) .toast { display: none !important; }
+      :host([data-review-open]) .privacy-mask, :host([data-review-open]) .pin-region,
+      :host([data-review-open]) .toast { display: none !important; }
       .review-panel button:disabled { opacity: .5; cursor: default !important; }
       .review-panel { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); width: 420px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; box-sizing: border-box; padding: 12px; border: 1px solid rgba(15,23,42,.18); border-radius: 8px; background: #fff; color: #262626; box-shadow: 0 10px 28px rgba(15,23,42,.18), 0 1px 2px rgba(15,23,42,.10); pointer-events: auto; font: 14px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
       .review-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
@@ -350,17 +351,18 @@
         background: rgba(255,255,255,.96);
         border: 1px solid rgba(15,23,42,.18);
         border-radius: 8px;
-        bottom: 16px;
         box-shadow: 0 8px 20px rgba(15,23,42,.14), 0 1px 2px rgba(15,23,42,.08);
         color: #262626;
         font: 500 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        left: 50%;
         max-width: calc(100vw - 32px);
         overflow: hidden;
         padding: 7px 10px;
         pointer-events: none;
         position: fixed;
-        right: 16px;
         text-overflow: ellipsis;
+        top: 68px;
+        transform: translateX(-50%);
         white-space: nowrap;
         z-index: 3;
       }
@@ -399,15 +401,19 @@
       .mark { display: block; height: 20px; width: 20px; }
       .instructions { align-items: center; display: flex; gap: 12px; min-width: 0; overflow: hidden; }
       .hint { align-items: center; display: inline-flex; gap: 5px; }
-      .hint[data-hint="mask"] { background: transparent; border-radius: 6px; padding: 3px 5px; }
-      .hint[data-hint="mask"][data-active] { background: #F3F7FF; }
-      .hint[data-hint="mask"][data-active] kbd {
+      .hint[data-hint="mask"],
+      .hint[data-hint="regions"] { background: transparent; border-radius: 6px; padding: 3px 5px; }
+      .hint[data-hint="mask"][data-active],
+      .hint[data-hint="regions"][data-active] { background: #F3F7FF; }
+      .hint[data-hint="mask"][data-active] kbd,
+      .hint[data-hint="regions"][data-active] kbd {
         background: #E8F0FF;
         border-color: #1F5AA6;
         color: #174A9A;
       }
       .hint[data-hint="mask"][data-active] .long,
-      .hint[data-hint="mask"][data-active] .short { color: #174A9A; font-weight: 400; }
+      .hint[data-hint="mask"][data-active] .short,
+      .hint[data-hint="regions"][data-active] span:not(.keys) { color: #174A9A; font-weight: 400; }
       .keys { align-items: center; display: inline-flex; gap: 3px; }
       kbd {
         align-items: center;
@@ -1549,6 +1555,7 @@
     }
     if (!ui.toolbar) return;
     ui.toolbar.querySelector('[data-hint="mask"]')?.toggleAttribute("data-active", state.maskMode);
+    ui.toolbar.querySelector('[data-hint="regions"]')?.toggleAttribute("data-active", state.showPinRegions);
     const inProgress = host.hasAttribute("data-progress");
     const inConfirm = host.hasAttribute("data-confirm");
     const report = inProgress || inConfirm;
@@ -1802,7 +1809,13 @@
     if (open) renderReviewList();
     host.toggleAttribute("data-review-open", open);
     document.documentElement.toggleAttribute("data-pinar-active", state.active && !open);
-    if (open) document.documentElement.removeAttribute("data-pinar-mask-mode");
+    if (open) {
+      document.documentElement.removeAttribute("data-pinar-mask-mode");
+    } else {
+      document.documentElement.toggleAttribute("data-pinar-mask-mode", Boolean(state.maskMode));
+      renderChrome();
+      renderMarkers();
+    }
     hideOutline();
   }
   shadow.querySelector("[data-ref=reviewFinish]")?.addEventListener("click", () => void sendPins());
@@ -2070,6 +2083,7 @@
 
   function applyPinRegions(show, { flash = false } = {}) {
     state.showPinRegions = Boolean(show);
+    renderChrome();
     renderMarkers();
     updateOutline();
     if (flash) {
@@ -2959,6 +2973,7 @@
       event.preventDefault();
       event.stopImmediatePropagation();
       ownedKeyCodes.add(event.code);
+      if (host.hasAttribute("data-review-open")) { setReviewOpen(false); return; }
       if (state.draft) {
         cancelDraft();
         return;
@@ -2968,7 +2983,6 @@
         renderChrome();
         return;
       }
-      if (host.hasAttribute("data-review-open")) { setReviewOpen(false); return; }
       setVisible(false);
       if (!isEmbedded) void chrome.runtime.sendMessage({ type: "toolbar:visibility", visible: false }).catch(() => null);
       if (isEmbedded) window.top.postMessage({ type: FRAME_HIDE }, "*");
@@ -2995,6 +3009,7 @@
       && !event.altKey
       && (event.key === "r" || event.key === "R")
     ) {
+      if (!canSelect()) return;
       event.preventDefault();
       togglePinRegions();
       return;

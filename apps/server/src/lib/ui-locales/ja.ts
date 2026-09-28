@@ -155,7 +155,7 @@ const messages: UiMessages = {
   "settings.copyOnFinishBatchPrompt": "プロンプト",
   "settings.copyViewerContent": "Markdown の内容をコピー",
   "settings.copyViewerContentDescription":
-    "ビューアの Markdown は追加の文脈です。captureId と pinId は常にコピーしたバンドルに残ります。",
+    "ビジュアルコンテキストのバンドルではなく、保存された Markdown ドキュメントのみをコピーします。",
   "settings.handoffHeading": "エージェントへの引き渡し",
   "settings.includeViewer": "Webビューアをコピー",
   "settings.includeViewerDescription":
@@ -365,7 +365,9 @@ const messages: UiMessages = {
   "dashboard.designSystem": "デザインシステムを抽出",
   "dashboard.collaborators": "共同作業者",
   "dashboard.collaboratorsTitle": "{name} の共同作業者",
-  "dashboard.collaboratorsDescription": "メールでレビュー担当者を招待し、このコレクションを閲覧・レビューしてもらいます。",
+  "dashboard.collaboratorsDescription": "メールでレビュー担当者を招待し、このコレクションを閲覧・レビューしてもらいます。",
+  "dashboard.collectionAccessTitle": "{name} へのアクセス",
+  "dashboard.collectionAccessDescription": "このコレクションへのアクセスを管理します。",
   "dashboard.collaboratorEmailPlaceholder": "colleague@example.com",
   "dashboard.invite": "招待",
   "dashboard.inviting": "招待中…",
@@ -425,6 +427,8 @@ const messages: UiMessages = {
   "viewer.screenshotUnavailable": "スクリーンショットを利用できません",
   "viewer.openPin": "ピン {number} を開く",
   "viewer.openCapture": "このキャプチャを開く",
+  "viewer.imageActions": "画像の操作",
+  "viewer.openImageNewTab": "新しいタブで画像を開く",
   "viewer.areaSelection": "範囲選択",
   "viewer.element": "要素",
   "viewer.locationExact": "完全一致",

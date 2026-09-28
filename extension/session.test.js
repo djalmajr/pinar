@@ -46,7 +46,7 @@ describe("session after copy", () => {
     assert.match(contentSrc, /<kbd>\$\{copyShortcutLabel\(apple\)\}<\/kbd>/);
   });
 
-  test("clipboard is published before the helper stores the screenshot", () => {
+  test("compact clipboard is published before the helper stores the screenshot", () => {
     // Mutation captured: waiting on saveShot before the first clipboard write
     // left the overlay stuck at 80% after comments were already pasteable.
     const copyBundle = backgroundSrc.slice(
@@ -56,6 +56,7 @@ describe("session after copy", () => {
     const firstWrite = copyBundle.indexOf("type: \"clipboard:write\"");
     const save = copyBundle.indexOf("saveShot(");
     assert.ok(firstWrite >= 0 && save > firstWrite);
+    assert.match(copyBundle, /copyViewerContent \? null : await publishClipboard\(null, null\)/);
     assert.match(copyBundle, /reportCopyProgress\(tabId, 0\.86\)/);
     assert.match(contentSrc, /message\?\.type === "copy:progress"/);
   });
@@ -99,6 +100,56 @@ describe("session after copy", () => {
   test("session controls remain available without a bound batch shortcut", () => {
     assert.match(contentSrc, /\[hidden\] \{ display: none !important; \}/);
     assert.doesNotMatch(contentSrc, /data-ref="batchPill"/);
+  });
+
+  test("toast is centered immediately below the toolbar instead of the bottom-right corner", () => {
+    const toastStyles = contentSrc.slice(contentSrc.indexOf(".toast {"), contentSrc.indexOf(".toast[hidden]"));
+    assert.match(toastStyles, /left:\s*50%/);
+    assert.match(toastStyles, /top:\s*68px/);
+    assert.match(toastStyles, /transform:\s*translateX\(-50%\)/);
+    assert.doesNotMatch(toastStyles, /bottom:\s*16px/);
+    assert.doesNotMatch(toastStyles, /right:\s*16px/);
+  });
+
+  test("regions toggle shares the active visual treatment with mask mode", () => {
+    assert.match(contentSrc, /ui\.toolbar\.querySelector\('\[data-hint="regions"\]'\)\?\.toggleAttribute\("data-active", state\.showPinRegions\)/);
+    assert.match(contentSrc, /\.hint\[data-hint="mask"\],\s*\.hint\[data-hint="regions"\]\s*\{[^}]*background:\s*transparent;/);
+    assert.match(contentSrc, /\.hint\[data-hint="mask"\]\[data-active\],\s*\.hint\[data-hint="regions"\]\[data-active\]\s*\{[^}]*background:\s*#F3F7FF;/);
+    assert.match(contentSrc, /\.hint\[data-hint="mask"\]\[data-active\]\s*kbd,\s*\.hint\[data-hint="regions"\]\[data-active\]\s*kbd\s*\{[^}]*background:\s*#E8F0FF;/);
+    const applyRegions = contentSrc.slice(
+      contentSrc.indexOf("function applyPinRegions("),
+      contentSrc.indexOf("function togglePinRegions("),
+    );
+    assert.match(applyRegions, /renderChrome\(\)/);
+  });
+
+  test("opening review hides toolbar, pins, regions, and masks, and closing review restores prior active states", () => {
+    const reviewOpenSelector = contentSrc.slice(
+      contentSrc.indexOf(":host([data-review-open]) .marker"),
+      contentSrc.indexOf(".review-panel button:disabled"),
+    );
+    assert.match(reviewOpenSelector, /\.privacy-mask/);
+    assert.match(reviewOpenSelector, /\.pin-region/);
+    assert.match(reviewOpenSelector, /\.composer/);
+    assert.match(reviewOpenSelector, /\.outline/);
+    assert.match(reviewOpenSelector, /\.preview/);
+    assert.match(reviewOpenSelector, /display:\s*none !important;/);
+
+    const setReviewOpenSrc = contentSrc.slice(
+      contentSrc.indexOf("function setReviewOpen(open) {"),
+      contentSrc.indexOf("shadow.querySelector(\"[data-ref=reviewFinish]\")"),
+    );
+    assert.match(setReviewOpenSrc, /if \(open\) \{[\s\S]*document\.documentElement\.removeAttribute\("data-pinar-mask-mode"\);[\s\S]*\} else \{[\s\S]*document\.documentElement\.toggleAttribute\("data-pinar-mask-mode", Boolean\(state\.maskMode\)\);[\s\S]*renderChrome\(\);[\s\S]*renderMarkers\(\);[\s\S]*\}/);
+
+    const onKeySrc = contentSrc.slice(
+      contentSrc.indexOf("if (event.key === \"Escape\") {"),
+      contentSrc.indexOf("setVisible(false);\n      if (!isEmbedded)"),
+    );
+    assert.ok(
+      onKeySrc.indexOf('host.hasAttribute("data-review-open")')
+        < onKeySrc.indexOf("state.maskMode = false;"),
+      "Escape closes review before clearing mask mode",
+    );
   });
 
   test("extension controls use the same non-pill radius language as the app", () => {

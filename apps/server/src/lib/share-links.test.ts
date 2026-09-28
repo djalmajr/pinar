@@ -188,6 +188,12 @@ describe("share link helpers", () => {
     });
   });
 
+  test("fetchActiveShare rejects failed requests instead of treating them as unpublished", async () => {
+    await withFetch(async () => Response.json({ error: "unavailable" }, { status: 503 }), async () => {
+      await assert.rejects(() => fetchActiveShare("session", "sess_1"), /share_fetch_failed/);
+    });
+  });
+
   test("publishShare reads the token from a 201 body", async () => {
     await withFetch(async (input, init) => {
       assert.equal(String(input), "/api/shares/publish");

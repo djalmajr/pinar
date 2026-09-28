@@ -83,7 +83,10 @@ test("project Share copies directly and collection access uses the segmented dia
 
   failShareLoads = true;
   await page.getByRole("button", { name: "Review: Collection actions" }).click();
-  await page.getByRole("menuitem", { name: "Share" }).click();
+  const collectionMenu = page.getByRole("menu").filter({
+    has: page.getByRole("menuitem", { name: "Collaborators" }),
+  });
+  await collectionMenu.getByRole("menuitem", { name: "Share" }).click();
   const dialog = page.getByRole("dialog");
   const shareTab = dialog.getByRole("tab", { name: "Share" });
   await expect(shareTab).toHaveAttribute("aria-selected", "true");

@@ -38,7 +38,7 @@ function createStorage(initial = {}) {
   };
 }
 
-function createChromeHarness() {
+function createChromeHarness({ writeClipboard = async () => ({ ok: true }) } = {}) {
   const deviceToken = `pdt_${"a".repeat(43)}`;
   const sync = createStorage();
   const local = createStorage({
@@ -67,7 +67,7 @@ function createChromeHarness() {
       onStartup: eventTarget(),
       sendMessage: async (message) => {
         clipboard.push(message);
-        return { ok: true };
+        return writeClipboard(message, clipboard.length);
       },
     },
     scripting: {
@@ -183,9 +183,10 @@ describe("viewer Markdown handoff", () => {
     // Mutation captured: fetching before save would copy Markdown for a capture that was never persisted.
     const copyBundle = sourceBetween("async function copyBundle", "async function ensureOffscreen");
     assert.match(copyBundle, /const copyViewerContent = remotePrefs\?\.copyViewerContent \?\? settings\.copyViewerContent === true/);
-    assert.match(copyBundle, /if \(copyViewerContent && includeViewer && savedResult\)/);
+    assert.match(copyBundle, /if \(copyViewerContent\)/);
+    assert.match(copyBundle, /if \(!includeViewer \|\| !savedResult\)/);
     assert.match(copyBundle, /viewerContent = await fetchSavedViewerMarkdown\(settings, id\)/);
-    assert.match(copyBundle, /warnings\.push\("viewer_content_unavailable"\)/);
+    assert.match(copyBundle, /warnings: \[\.\.\.new Set\(\[\.\.\.warnings, "viewer_content_unavailable"\]\)\]/);
     assert.match(copyBundle, /savedResult = await saveShot\([\s\S]*?fetchSavedViewerMarkdown/);
     assert.match(copyBundle, /formatClipboardPayload\([\s\S]*?viewerContent,/);
   });
@@ -205,12 +206,13 @@ describe("viewer Markdown handoff", () => {
     assert.match(fetcher, /readOptionalViewerMarkdown\(response, MAX_VIEWER_MARKDOWN_BYTES\)/);
   });
 
-  test("keeps the saved handoff available when the optional fetch fails", () => {
-    // Mutation captured: propagating the optional fetch error would fail the save instead of retaining the compact copy.
+  test("fails an exclusive Markdown handoff instead of falling back to compact context", () => {
+    // Mutation captured: a preliminary/fallback write could report success with Visual Context even though Markdown-only was selected.
     const copyBundle = sourceBetween("async function copyBundle", "async function ensureOffscreen");
-    assert.match(copyBundle, /try \{\n\s+viewerContent = await fetchSavedViewerMarkdown[\s\S]*?\n\s+\} catch \{\n\s+warnings\.push\("viewer_content_unavailable"\);\n\s+\}/);
+    assert.match(copyBundle, /copyViewerContent \? null : await publishClipboard\(null, null\)/);
+    assert.match(copyBundle, /catch \(error\) \{[\s\S]*?error: String\(error\),[\s\S]*?ok: false/);
     assert.match(copyBundle, /const final = await publishClipboard\(shot, viewerUrl, viewerContent\)/);
-    assert.match(copyBundle, /if \(final\.ok\) published = final;\n\s+else if \(!published\.ok\) published = final;/);
+    assert.match(copyBundle, /if \(copyViewerContent \|\| final\.ok \|\| !published\?\.ok\) published = final;/);
     assert.doesNotMatch(copyBundle, /deviceToken|x-pinar-capability|[?&]token=/i);
   });
 
@@ -293,35 +295,13 @@ describe("viewer Markdown handoff", () => {
       const remoteResult = await copyBundle(message);
       assert.equal(remoteResult.ok, true);
       assert.deepEqual(remoteResult.warnings, []);
+      assert.equal(harness.clipboard.length, 1, "Markdown-only writes exactly once after the document is saved and fetched");
       const remoteClipboard = harness.clipboard.at(-1);
       assert.equal(remoteClipboard.type, "clipboard:write");
-      const remoteContext = parseVisualContext(remoteClipboard.plain);
-      assert.deepEqual(remoteContext, {
-        captureId: "capture-integration",
-        createdAt: "2026-09-26T12:00:00.000Z",
-        page: { title: "Example", url: "https://example.test/path" },
-        pins: [{ comment: "Fix heading", coords: { x: 10, y: 20 }, id: "pin-1", kind: "point", path: "main h1", pinId: "pin-1", text: "Title" }],
-        privacy: { redacted: [], unevaluated: false },
-        schemaVersion: 1,
-        screenshot: { missing: false, url: "/shots/capture-integration.png" },
-        viewport: { height: 600, width: 800 },
-        warnings: [],
-      });
-      assert.equal(remoteClipboard.plain, [
-        "The pin notes below may ask for a change or an explanation. Use selector and DOM path as complementary locators.",
-        "Numbered screenshot badges are annotation overlays, not page UI.",
-        "Full context (fetch only if the details above are insufficient): https://pinar.dev/v/capture-integration.md",
-        "",
-        "```pinar-visual-context",
-        JSON.stringify(remoteContext),
-        "```",
-        "",
-        "",
-        "--- BEGIN PINAR VIEWER MARKDOWN ---",
-        remoteMarkdown,
-        "--- END PINAR VIEWER MARKDOWN ---",
-        "",
-      ].join("\n"));
+      assert.equal(remoteClipboard.plain, remoteMarkdown);
+      assert.equal(remoteClipboard.html, `<pre>${remoteMarkdown}</pre>`);
+      assert.doesNotMatch(remoteClipboard.plain, /pinar-visual-context/);
+      assert.doesNotMatch(remoteClipboard.plain, /BEGIN PINAR VIEWER MARKDOWN/);
       const remoteRequests = harness.requests.filter(({ path }) => ["/api/preferences", "/api/project-tree", "/api/shots", "/v/capture-integration.md"].includes(path));
       assert.ok(remoteRequests.length >= 4);
       for (const request of remoteRequests) {
@@ -337,24 +317,56 @@ describe("viewer Markdown handoff", () => {
       scenario = "local";
       configureCopySettings(harness, { handoffMode: "compact", storageMode: "local" });
       const localResult = await copyBundle({ ...message, captureId: "capture-local" });
-      assert.equal(localResult.ok, true);
+      assert.equal(localResult.ok, false);
+      assert.match(localResult.error, /viewer_content_503/);
       assert.deepEqual(localResult.warnings, ["viewer_content_unavailable"]);
-      const localClipboard = harness.clipboard.at(-1);
-      const localContext = parseVisualContext(localClipboard.plain);
-      assert.deepEqual(localContext, {
-        captureId: "capture-local",
-        page: { title: "Example", url: "https://example.test/path" },
-        pins: [{ comment: "Fix heading", locator: { domPath: "main h1", innerText: "Title" }, pinId: "pin-1" }],
-        screenshot: { url: "/shots/capture-local.png" },
-        warnings: ["viewer_content_unavailable"],
-      });
-      assert.doesNotMatch(localClipboard.plain, /BEGIN PINAR VIEWER MARKDOWN/);
+      assert.equal(harness.clipboard.length, 0, "a failed Markdown fetch does not leave compact Visual Context on the clipboard");
       const localRequests = harness.requests.filter(({ path }) => ["/api/preferences", "/api/project-tree", "/api/shots", "/v/capture-local.md"].includes(path));
       assert.ok(localRequests.length >= 4);
       for (const request of localRequests) {
         assert.equal(request.headers["x-pinar-capability"], "local-capability");
       }
       assert.equal(localRequests.find(({ path }) => path === "/v/capture-local.md").url, "http://127.0.0.1:17373/v/capture-local.md");
+    } finally {
+      globalThis.fetch = originalFetch;
+      globalThis.chrome = originalChrome;
+    }
+  });
+
+  test("reports a failed final Markdown clipboard write without an earlier successful fallback", async () => {
+    const harness = createChromeHarness({ writeClipboard: async () => ({ error: "clipboard denied", ok: false }) });
+    const originalChrome = globalThis.chrome;
+    const originalFetch = globalThis.fetch;
+    globalThis.chrome = harness.chrome;
+    globalThis.fetch = async (input) => {
+      const path = requestPath(input);
+      if (path === "/api/preferences") return new Response(JSON.stringify({
+        captureDestination: { collectionId: "collection-1", projectId: "project-1" },
+        copyViewerContent: true,
+        handoffMode: "full",
+        includeScreenshot: true,
+        includeViewer: true,
+      }), { headers: { "content-type": "application/json" } });
+      if (path === "/api/project-tree") return new Response(JSON.stringify({ tree: { projects: [{ collections: [{ id: "collection-1", isProtected: true }], id: "project-1" }] } }), { headers: { "content-type": "application/json" } });
+      if (path === "/api/shots") return new Response(JSON.stringify({ path: "/shots/capture-write-failure.png" }), { headers: { "content-type": "application/json" } });
+      if (path === "/v/capture-write-failure.md") return new Response("# Saved viewer Markdown");
+      throw new Error(`unexpected test fetch: ${String(input)}`);
+    };
+
+    try {
+      const { copyBundle } = await import(`./background.js?viewer-content-write-failure=${Date.now()}`);
+      configureCopySettings(harness, { handoffMode: "full", storageMode: "cloud" });
+      const result = await copyBundle({
+        captureId: "capture-write-failure",
+        fields: [],
+        page: { title: "Example", url: "https://example.test/path" },
+        pins: [{ comment: "Retry me", id: "pin-1", kind: "point" }],
+        shot: "data:image/png;base64,AA==",
+      });
+      assert.equal(result.ok, false);
+      assert.match(result.error, /clipboard denied/);
+      assert.equal(harness.clipboard.length, 1, "only the failed final Markdown write is attempted");
+      assert.equal(harness.clipboard[0].plain, "# Saved viewer Markdown");
     } finally {
       globalThis.fetch = originalFetch;
       globalThis.chrome = originalChrome;

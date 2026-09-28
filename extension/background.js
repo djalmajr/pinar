@@ -1330,9 +1330,11 @@ export async function copyBundle(message, tabId) {
     }
   }
 
-  // Comments and locators go on the clipboard first so paste is ready while
-  // the helper stores the screenshot. A second write fills in path and viewer.
-  let published = await publishClipboard(null, null);
+  // Compact/full handoffs go on the clipboard first so paste is ready while
+  // the helper stores the screenshot. Markdown-only handoffs must remain
+  // exclusive: do not leave Visual Context behind if fetching or writing the
+  // saved Markdown later fails.
+  let published = copyViewerContent ? null : await publishClipboard(null, null);
   await reportCopyProgress(tabId, 0.86);
 
   let savedResult = null;
@@ -1366,17 +1368,31 @@ export async function copyBundle(message, tabId) {
   const viewerUrl = (includeViewer && savedResult?.viewerUrl) ? savedResult.viewerUrl : null;
   if (plan.historyAllowed && includeViewer && !viewerUrl) warnings.push("viewer_unavailable");
   let viewerContent = null;
-  if (copyViewerContent && includeViewer && savedResult) {
+  if (copyViewerContent) {
+    if (!includeViewer || !savedResult) {
+      return {
+        degraded: true,
+        error: "viewer_content_unavailable",
+        ok: false,
+        warning: "viewer_content_unavailable",
+        warnings: [...new Set([...warnings, "viewer_content_unavailable"])],
+      };
+    }
     try {
       viewerContent = await fetchSavedViewerMarkdown(settings, id);
-    } catch {
-      warnings.push("viewer_content_unavailable");
+    } catch (error) {
+      return {
+        degraded: true,
+        error: String(error),
+        ok: false,
+        warning: "viewer_content_unavailable",
+        warnings: [...new Set([...warnings, "viewer_content_unavailable"])],
+      };
     }
   }
   await reportCopyProgress(tabId, 0.94);
   const final = await publishClipboard(shot, viewerUrl, viewerContent);
-  if (final.ok) published = final;
-  else if (!published.ok) published = final;
+  if (copyViewerContent || final.ok || !published?.ok) published = final;
 
   if (published.ok) {
     return {

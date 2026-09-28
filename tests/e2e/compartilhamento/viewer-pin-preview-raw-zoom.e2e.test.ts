@@ -66,7 +66,7 @@ const session = {
   ],
   privacy: { redacted: ["secret-query"], unevaluated: false },
   shotId: "viewer-e2e",
-  shotUrl: "/shots/viewer-e2e.svg",
+  shotUrl: "/shots/viewer-e2e.png",
 };
 
 test.beforeEach(async ({ page }) => {
@@ -108,7 +108,7 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/sessions/viewer-e2e", (route) => route.fulfill({
     json: { session },
   }));
-  await page.route("**/shots/viewer-e2e.svg", (route) => route.fulfill({
+  await page.route(/.*\/shots\/viewer-e2e\.(svg|png)/, (route) => route.fulfill({
     body: '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800"><rect width="1200" height="800" fill="#e0f2fe"/><rect x="240" y="180" width="720" height="440" rx="24" fill="#fff"/><text x="600" y="400" text-anchor="middle" font-family="sans-serif" font-size="48">Viewer fixture</text></svg>',
     contentType: "image/svg+xml",
   }));
@@ -210,10 +210,13 @@ test("copy and the Markdown endpoint preserve one session payload", async ({ pag
   const markdownPopupPromise = page.waitForEvent("popup");
   await page.getByRole("menuitem", { name: "Open prompt *.md" }).click();
   const markdownPopup = await markdownPopupPromise;
-  await expect(markdownPopup.locator("body")).toContainText("Viewer fixture");
-  await expect(markdownPopup.locator("body")).toContainText("https://example.test/settings");
-  await expect(markdownPopup.locator("body")).toContainText("Align this action with the right edge.");
-  await expect(markdownPopup.locator("body")).toContainText("Reduce the empty space in this region.");
+  const markdownText = await page.evaluate(async () => (
+    fetch("/v/viewer-e2e.md").then((response) => response.text())
+  ));
+  expect(markdownText).toContain("Viewer fixture");
+  expect(markdownText).toContain("https://example.test/settings");
+  expect(markdownText).toContain("Align this action with the right edge.");
+  expect(markdownText).toContain("Reduce the empty space in this region.");
   await markdownPopup.close();
 
   // Copy prompt stays the header button. The menu keeps the document and the list actions.
@@ -234,6 +237,8 @@ test("visitor inspects element and area pins in Preview and Raw", async ({ page 
 
   await page.getByTitle("Open pin 1").click();
   let dialog = page.getByRole("dialog", { name: "Pin 1" });
+  await expect(dialog.getByRole("tab", { name: "Comments", selected: true })).toBeVisible();
+  await dialog.getByRole("tab", { name: "Preview" }).click();
   await expect(dialog.getByRole("tab", { name: "Preview", selected: true })).toBeVisible();
   await expect(dialog.getByText("Pinar may not find this element again on the original page.")).toBeVisible();
   await expect(dialog.locator("article").getByText(elementComment, { exact: true })).toBeVisible();
@@ -255,9 +260,32 @@ test("visitor inspects element and area pins in Preview and Raw", async ({ page 
   await dialog.getByRole("button", { name: "Close" }).click();
   await page.getByTitle("Open pin 2").click();
   dialog = page.getByRole("dialog", { name: "Pin 2" });
+  await dialog.getByRole("tab", { name: "Preview" }).click();
   await expect(dialog.getByText(/Type:\s*Area selection/)).toBeVisible();
   await expect(dialog.getByText(/Area:\s*320 × 180px at x=80, y=120/)).toBeVisible();
   await dialog.getByRole("button", { name: "Close" }).click();
+});
+
+test("sidebar thumbnail opens zoom and ellipsis menu opens direct PNG in popup", async ({ page }) => {
+  await page.goto("/v/viewer-e2e");
+
+  const sidebar = page.locator("aside");
+  const thumbnail = sidebar.locator(".group\\/thumbnail").first();
+  await expect(thumbnail).toBeVisible();
+
+  await thumbnail.getByRole("button", { name: "Image actions" }).click();
+  const popupPromise = page.waitForEvent("popup");
+  await page.getByRole("menuitem", { name: "Open image in new tab" }).click();
+  const popup = await popupPromise;
+  expect(popup.url()).toMatch(/\.png$/);
+  expect(popup.url()).toContain("/shots/viewer-e2e.png");
+  await popup.close();
+
+  await thumbnail.getByRole("button", { name: "Open this capture" }).click();
+  const zoomDialog = page.getByRole("dialog", { name: "Open this capture" });
+  await expect(zoomDialog).toBeVisible();
+  await zoomDialog.getByRole("button", { name: "Close" }).click();
+  await expect(zoomDialog).toHaveCount(0);
 });
 
 test("screenshot zoom is the default viewer and keeps the pins sidebar", async ({ page }) => {

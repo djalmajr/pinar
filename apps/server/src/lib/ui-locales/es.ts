@@ -155,7 +155,7 @@ const messages: UiMessages = {
   "settings.copyOnFinishBatchPrompt": "Prompt",
   "settings.copyViewerContent": "Copiar contenido Markdown",
   "settings.copyViewerContentDescription":
-    "El Markdown del visor es contexto extra. captureId y pinId siempre quedan en el bundle copiado.",
+    "Copia solo el documento Markdown guardado en lugar del bundle de contexto visual.",
   "settings.handoffHeading": "Entrega al agente",
   "settings.includeViewer": "Copiar Visor Web",
   "settings.includeViewerDescription":
@@ -364,7 +364,9 @@ const messages: UiMessages = {
   "dashboard.designSystem": "Extraer sistema de diseño",
   "dashboard.collaborators": "Colaboradores",
   "dashboard.collaboratorsTitle": "Colaboradores de {name}",
-  "dashboard.collaboratorsDescription": "Invita revisores por correo electrónico para ver y revisar esta colección.",
+  "dashboard.collaboratorsDescription": "Invita revisores por correo electrónico para ver y revisar esta colección.",
+  "dashboard.collectionAccessTitle": "Acceso a {name}",
+  "dashboard.collectionAccessDescription": "Gestiona el acceso a esta colección.",
   "dashboard.collaboratorEmailPlaceholder": "colega@ejemplo.com",
   "dashboard.invite": "Invitar",
   "dashboard.inviting": "Invitando…",
@@ -425,6 +427,8 @@ const messages: UiMessages = {
   "viewer.screenshotUnavailable": "Captura no disponible",
   "viewer.openPin": "Abrir pin {number}",
   "viewer.openCapture": "Abrir esta captura",
+  "viewer.imageActions": "Acciones de imagen",
+  "viewer.openImageNewTab": "Abrir imagen en una nueva pestaña",
   "viewer.areaSelection": "Selección de área",
   "viewer.element": "Elemento",
   "viewer.locationExact": "Coincidencia exacta",

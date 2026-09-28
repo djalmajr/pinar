@@ -58,7 +58,10 @@ import {
 import { ProjectIconPicker } from "@/components/ProjectIcon";
 import { AppAccountMenu } from "@/components/AppAccountMenu";
 import { AppShell } from "@/components/AppShell";
-import { CollectionCollaboratorsDialog } from "@/components/CollectionCollaboratorsDialog";
+import {
+  CollectionCollaboratorsDialog,
+  type CollectionAccessTab,
+} from "@/components/CollectionCollaboratorsDialog";
 import { CollectionInvitationsDialog } from "@/components/CollectionInvitationsDialog";
 import { isProjectTreeCollection, isProjectTreeProject, isRecord } from "@/lib/api-data";
 import { useAuthSession } from "@/lib/auth-session";
@@ -242,6 +245,8 @@ export function WorkspaceChrome({
   const session = useAuthSession();
   const canManageCollaborators = canManageCollectionCollaborators(session, pinarRuntime());
   const [collaboratorCollection, setCollaboratorCollection] = useState<ProjectTreeCollection | null>(null);
+  const [collectionAccessTab, setCollectionAccessTab] = useState<CollectionAccessTab>("collaborators");
+  const [collectionAccessInstance, setCollectionAccessInstance] = useState(0);
   const [sharedCollections, setSharedCollections] = useState<SharedCollectionRecord[]>([]);
   const [pendingInvitations, setPendingInvitations] = useState<CollectionInvitationRecord[]>([]);
   const [invitationsOpen, setInvitationsOpen] = useState(false);
@@ -669,6 +674,17 @@ export function WorkspaceChrome({
   }
 
   async function copyShare(target: { id: string; kind: "collection" | "project" }) {
+    if (target.kind === "collection") {
+      const collection = projectTree.projects
+        .flatMap((project) => project.collections)
+        .find(({ id }) => id === target.id);
+      if (!collection) return;
+      setCollectionAccessTab("share");
+      setCollectionAccessInstance((current) => current + 1);
+      setCollaboratorCollection(collection);
+      return;
+    }
+
     try {
       await copyPublishedShare({
         ...target,
@@ -790,7 +806,11 @@ export function WorkspaceChrome({
               label: batch.label,
             }))}
             footer={<AppAccountMenu />}
-            onManageCollaborators={setCollaboratorCollection}
+            onManageCollaborators={(collection) => {
+              setCollectionAccessTab("collaborators");
+              setCollectionAccessInstance((current) => current + 1);
+              setCollaboratorCollection(collection);
+            }}
             onOpenInvitations={openInvitations}
             pendingInvitations={pendingInvitations}
             selectedCollectionId={selectedCollectionId}
@@ -926,7 +946,10 @@ export function WorkspaceChrome({
           </AlertDialogContent>
         </AlertDialog>
         <CollectionCollaboratorsDialog
+          key={collectionAccessInstance}
+          canManageCollaborators={canManageCollaborators}
           collection={collaboratorCollection}
+          initialTab={collectionAccessTab}
           open={Boolean(collaboratorCollection)}
           onOpenChange={(open) => !open && setCollaboratorCollection(null)}
         />

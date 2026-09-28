@@ -133,7 +133,8 @@ export async function fetchActiveShare(
 ) {
   const response = await fetch("/api/shares", { cache: "no-store" });
   const data = await readResponseRecord(response);
-  if (!response.ok || !data || !Array.isArray(data.tokens)) return null;
+  if (!response.ok) throw new Error("share_fetch_failed");
+  if (!data || !Array.isArray(data.tokens)) return null;
   const now = Date.now();
   for (const token of data.tokens) {
     const match = matchingActiveToken(token, resourceType, resourceId, now);

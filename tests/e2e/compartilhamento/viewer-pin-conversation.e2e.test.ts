@@ -164,13 +164,33 @@ test("pin dialog concludes, reopens, and keeps comments on their pin", async ({ 
 
   await cards.nth(0).click();
   const dialog = page.getByRole("dialog", { name: "Pin 1" });
+  await expect(dialog.getByRole("tab", { name: "Comments", selected: true })).toBeVisible();
+  await expect(dialog.getByRole("tab")).toHaveText(["Comments", "Preview", "Raw"]);
+
+  const captureLink = dialog.getByRole("link", { name: "Open this capture" });
+  await expect(captureLink).toBeVisible();
+  await expect(captureLink).toHaveAttribute("href", session.shotUrl);
+  await expect(captureLink).toHaveAttribute("target", "_blank");
+  await expect(captureLink).toHaveAttribute("rel", "noopener noreferrer");
+  await expect(captureLink.getByRole("img")).toBeVisible();
+
+  const screenshotBox = await captureLink.boundingBox();
+  const commentsSection = dialog.getByRole("region", { name: "Comments" });
+  const commentsBox = await commentsSection.boundingBox();
+  const concludeBox = await dialog.getByRole("button", { name: "Conclude pin" }).boundingBox();
+  expect(screenshotBox).not.toBeNull();
+  expect(commentsBox).not.toBeNull();
+  expect(concludeBox).not.toBeNull();
+  expect((screenshotBox?.y ?? 0) + (screenshotBox?.height ?? 0)).toBeLessThanOrEqual(commentsBox?.y ?? 0);
+  expect((commentsBox?.y ?? 0) + (commentsBox?.height ?? 0)).toBeLessThanOrEqual(concludeBox?.y ?? 0);
+
   await expect(dialog.getByRole("button", { name: "Conclude pin" })).toBeVisible();
   await expect(dialog.getByText("Last agent result")).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: "Accept correction" })).toHaveCount(0);
   await expect(dialog.getByText("changed", { exact: true })).toHaveCount(0);
-  await expect(dialog.getByText("Raised the contrast")).toBeVisible();
-  await expect(dialog.getByText("The label was too light")).toBeVisible();
-  await expect(dialog.getByText("cursor", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Raised the contrast")).toHaveCount(0);
+  await expect(dialog.getByText("The label was too light")).toHaveCount(0);
+  await expect(dialog.getByText("cursor", { exact: true })).toHaveCount(0);
   await expect(dialog.getByText("Only on pin 2")).toHaveCount(0);
 
   const readsBeforeTyping = await page.evaluate(() => (window as unknown as { __sessionReads?: () => number }).__sessionReads?.() ?? -1);

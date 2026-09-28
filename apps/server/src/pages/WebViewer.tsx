@@ -44,6 +44,9 @@ import {
   DialogHeader,
   DialogTitle,
   DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -66,6 +69,7 @@ import ChevronLeftIcon from "~icons/lucide/chevron-left";
 import ChevronRightIcon from "~icons/lucide/chevron-right";
 import CircleAlertIcon from "~icons/lucide/circle-alert";
 import CopyIcon from "~icons/lucide/copy";
+import EllipsisIcon from "~icons/lucide/ellipsis";
 import LoaderCircleIcon from "~icons/lucide/loader-circle";
 import LayersIcon from "~icons/lucide/layers";
 import ExternalLinkIcon from "~icons/lucide/external-link";
@@ -1141,18 +1145,45 @@ export function WebViewer({
                   return (
                     <div className="flex flex-col gap-2" key={`${capture.id}-${pinLookupId(pin)}`}>
                     {capture.shotUrl ? (
-                      <button
-                        aria-label={t("viewer.openCapture")}
-                        className="overflow-hidden rounded-md border bg-muted text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        type="button"
-                        onClick={() => setIsolatedShot({
-                          id: capture.id,
-                          src: capture.shotUrl!,
-                          title: capture.page.title || capture.page.url,
-                        })}
-                      >
-                        <img alt="" className="h-24 w-full object-cover object-top" draggable={false} src={capture.shotUrl} />
-                      </button>
+                      <div className="group/thumbnail relative overflow-hidden rounded-md border bg-muted">
+                        <button
+                          aria-label={t("viewer.openCapture")}
+                          className="block w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          type="button"
+                          onClick={() => setIsolatedShot({
+                            id: capture.id,
+                            src: capture.shotUrl!,
+                            title: capture.page.title || capture.page.url,
+                          })}
+                        >
+                          <img alt="" className="h-24 w-full object-cover object-top" draggable={false} src={capture.shotUrl} />
+                        </button>
+                        <div className="absolute top-1.5 right-1.5 z-10">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger
+                              render={
+                                <Button
+                                  aria-label={t("viewer.imageActions")}
+                                  className="size-7 rounded-md bg-background/85 text-foreground shadow-xs backdrop-blur-xs hover:bg-background"
+                                  size="icon-xs"
+                                  title={t("viewer.imageActions")}
+                                  variant="ghost"
+                                />
+                              }
+                            >
+                              <EllipsisIcon className="size-3.5" />
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuGroup>
+                                <DropdownMenuItem render={<a href={capture.shotUrl} rel="noopener noreferrer" target="_blank" />}>
+                                  <ExternalLinkIcon />
+                                  {t("viewer.openImageNewTab")}
+                                </DropdownMenuItem>
+                              </DropdownMenuGroup>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      </div>
                     ) : null}
                     <Button
                       className="h-auto w-full justify-start p-0 text-left whitespace-normal"
@@ -1200,7 +1231,7 @@ export function WebViewer({
       <Dialog open={Boolean(selectedPin)} onOpenChange={(open) => !open && setSelectedPin(null)}>
         <DialogContent className="min-w-0 max-w-[calc(100vw-2rem)] overflow-x-hidden sm:max-w-5xl" outsideScroll>
           {selectedPin && (
-            <Tabs className="min-w-0" defaultValue="preview">
+            <Tabs className="min-w-0" defaultValue="comments">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <DialogHeader className="min-w-0">
                   <div className="flex items-center gap-3">
@@ -1217,6 +1248,7 @@ export function WebViewer({
                 </DialogHeader>
                 <div className="flex min-w-0 items-center gap-2">
                   <TabsList className="min-w-0 flex-1 overflow-hidden sm:flex-none" variant="segmented">
+                    <TabsTrigger value="comments">{t("viewer.comments")}</TabsTrigger>
                     <TabsTrigger value="preview">{t("viewer.preview")}</TabsTrigger>
                     <TabsTrigger value="raw">{t("viewer.raw")}</TabsTrigger>
                     {selectedPin.snapshot ? <TabsTrigger value="structure">{t("viewer.structure")}</TabsTrigger> : null}
@@ -1229,104 +1261,123 @@ export function WebViewer({
                   </DialogClose>
                 </div>
               </div>
-              {(() => {
-                const review = reviewForPin(reviews, selectedPin);
-                const concluded = cardShowsConcluded(review?.status);
-                const pinId = pinLookupId(selectedPin);
-                const owner = pinOwner(selectedPin);
-                const thread = pinConversation({
-                  agentExecutions: isLocalViewer ? [] : executions,
-                  captureCreatedAt: owner?.createdAt || "",
-                  captureId: owner?.id || sessionId,
-                  comments,
-                  pin: selectedPin,
-                  pinAuthor: t("viewer.originalPinComment"),
-                });
-                const draft = commentDrafts[pinId] ?? "";
-                return (
-                  <div className="flex min-w-0 flex-col gap-3 rounded-lg border bg-muted/30 p-4">
-                    <div className="flex flex-wrap items-center justify-end gap-3">
-                      {concluded ? <Badge variant="successSoft">{t("viewer.pinConcluded")}</Badge> : null}
-                      <div className="flex flex-wrap gap-2">
-                        {concluded ? (
-                          <Button
-                            disabled={reviewBusy}
-                            size="sm"
-                            type="button"
-                            variant="outline"
-                            onClick={() => void submitReview(selectedPin, "reopen")}
-                          >
-                            {reviewBusy ? <LoaderCircleIcon className="animate-spin" /> : null}
-                            {t("viewer.reopenPin")}
-                          </Button>
-                        ) : (
-                          <Button
-                            disabled={reviewBusy}
-                            size="sm"
-                            type="button"
-                            onClick={() => void submitReview(selectedPin, "accept")}
-                          >
-                            {reviewBusy ? <LoaderCircleIcon className="animate-spin" /> : null}
-                            {t("viewer.concludePin")}
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                    {reviewError ? <p className="text-sm text-destructive" role="alert">{reviewError}</p> : null}
-                    <section aria-label={t("viewer.comments")} className="flex min-w-0 flex-col gap-3">
-                      <h3 className="text-sm font-medium">{t("viewer.comments")}</h3>
-                      {thread.length > 0 ? (
-                        <ol className="flex min-w-0 flex-col gap-2">
-                          {thread.map((message) => (
-                            <li className="min-w-0 rounded-md border bg-card px-3 py-2" key={message.id}>
-                              <p className="text-xs font-medium text-foreground">{message.author}</p>
-                              <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground [overflow-wrap:anywhere]">{message.text}</p>
-                            </li>
-                          ))}
-                        </ol>
-                      ) : null}
-                      {canEditPins ? (
-                        <form
-                          className="flex min-w-0 flex-col gap-2"
-                          onSubmit={(event) => {
-                            event.preventDefault();
-                            void sendComment(selectedPin);
-                          }}
+              <TabsContent className="min-w-0" value="comments">
+                {(() => {
+                  const review = reviewForPin(reviews, selectedPin);
+                  const concluded = cardShowsConcluded(review?.status);
+                  const pinId = pinLookupId(selectedPin);
+                  const owner = pinOwner(selectedPin);
+                  const thread = pinConversation({
+                    agentExecutions: isLocalViewer ? [] : executions,
+                    captureCreatedAt: owner?.createdAt || "",
+                    captureId: owner?.id || sessionId,
+                    comments,
+                    pin: selectedPin,
+                    pinAuthor: t("viewer.originalPinComment"),
+                  });
+                  const draft = commentDrafts[pinId] ?? "";
+                  return (
+                    <div className="flex min-w-0 flex-col gap-3 rounded-lg border bg-muted/30 p-4">
+                      {owner?.shotUrl ? (
+                        <a
+                          aria-label={t("viewer.openCapture")}
+                          className="block overflow-hidden rounded-md border bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          href={owner.shotUrl}
+                          rel="noopener noreferrer"
+                          target="_blank"
                         >
-                          <label className="min-w-0">
-                            <span className="sr-only">{t("viewer.commentLabel")}</span>
-                            <textarea
-                              className="border-input bg-background focus-visible:ring-ring min-h-20 w-full rounded-md border px-3 py-2 text-sm outline-none focus-visible:ring-2"
-                              value={draft}
-                              onChange={(event) => {
-                                const value = event.target.value;
-                                setCommentDrafts((current) => ({ ...current, [pinId]: value }));
-                              }}
-                            />
-                          </label>
-                          <div>
-                            <Button disabled={commentBusy || !draft.trim()} size="sm" type="submit">
-                              {commentBusy ? <LoaderCircleIcon className="animate-spin" /> : null}
-                              {t("viewer.sendComment")}
-                            </Button>
-                          </div>
-                          {commentErrors[pinId] ? <p className="text-sm text-destructive" role="alert">{commentErrors[pinId]}</p> : null}
-                        </form>
+                          <img
+                            alt={owner.page?.title || owner.page?.url || t("viewer.annotatedScreenshot")}
+                            className="max-h-72 w-full object-contain"
+                            draggable={false}
+                            src={owner.shotUrl}
+                          />
+                        </a>
                       ) : null}
-                    </section>
-                  </div>
-                );
-              })()}
-              {selectedPin.evidence ? (
-                <PinEvidence
-                  busy={pinPatchBusy}
-                  canEdit={canEditPins}
-                  evidence={selectedPin.evidence}
-                  onRemove={(index) => void removeEvidenceItem(selectedPin, index)}
-                />
-              ) : null}
-              {pinPatchError ? <p className="text-xs text-destructive">{pinPatchError}</p> : null}
-              <TabsContent className="min-w-0" value="preview">
+
+                      <section aria-label={t("viewer.comments")} className="flex min-w-0 flex-col gap-3">
+                        <h3 className="text-sm font-medium">{t("viewer.comments")}</h3>
+                        {thread.length > 0 ? (
+                          <ol className="flex min-w-0 flex-col gap-2">
+                            {thread.map((message) => (
+                              <li className="min-w-0 rounded-md border bg-card px-3 py-2" key={message.id}>
+                                <p className="text-xs font-medium text-foreground">{message.author}</p>
+                                <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground [overflow-wrap:anywhere]">{message.text}</p>
+                              </li>
+                            ))}
+                          </ol>
+                        ) : null}
+                        {canEditPins ? (
+                          <form
+                            className="flex min-w-0 flex-col gap-2"
+                            onSubmit={(event) => {
+                              event.preventDefault();
+                              void sendComment(selectedPin);
+                            }}
+                          >
+                            <label className="min-w-0">
+                              <span className="sr-only">{t("viewer.commentLabel")}</span>
+                              <textarea
+                                className="border-input bg-background focus-visible:ring-ring min-h-20 w-full rounded-md border px-3 py-2 text-sm outline-none focus-visible:ring-2"
+                                value={draft}
+                                onChange={(event) => {
+                                  const value = event.target.value;
+                                  setCommentDrafts((current) => ({ ...current, [pinId]: value }));
+                                }}
+                              />
+                            </label>
+                            <div>
+                              <Button disabled={commentBusy || !draft.trim()} size="sm" type="submit">
+                                {commentBusy ? <LoaderCircleIcon className="animate-spin" /> : null}
+                                {t("viewer.sendComment")}
+                              </Button>
+                            </div>
+                            {commentErrors[pinId] ? <p className="text-sm text-destructive" role="alert">{commentErrors[pinId]}</p> : null}
+                          </form>
+                        ) : null}
+                      </section>
+                      <div className="flex flex-wrap items-center justify-end gap-3">
+                        {concluded ? <Badge variant="successSoft">{t("viewer.pinConcluded")}</Badge> : null}
+                        <div className="flex flex-wrap gap-2">
+                          {concluded ? (
+                            <Button
+                              disabled={reviewBusy}
+                              size="sm"
+                              type="button"
+                              variant="outline"
+                              onClick={() => void submitReview(selectedPin, "reopen")}
+                            >
+                              {reviewBusy ? <LoaderCircleIcon className="animate-spin" /> : null}
+                              {t("viewer.reopenPin")}
+                            </Button>
+                          ) : (
+                            <Button
+                              disabled={reviewBusy}
+                              size="sm"
+                              type="button"
+                              onClick={() => void submitReview(selectedPin, "accept")}
+                            >
+                              {reviewBusy ? <LoaderCircleIcon className="animate-spin" /> : null}
+                              {t("viewer.concludePin")}
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                      {reviewError ? <p className="text-sm text-destructive" role="alert">{reviewError}</p> : null}
+                    </div>
+                  );
+                })()}
+              </TabsContent>
+              <TabsContent className="min-w-0 flex flex-col gap-3" value="preview">
+                {selectedPin.evidence ? (
+                  <PinEvidence
+                    busy={pinPatchBusy}
+                    canEdit={canEditPins}
+                    evidence={selectedPin.evidence}
+                    onRemove={(index) => void removeEvidenceItem(selectedPin, index)}
+                  />
+                ) : null}
+                {pinPatchError ? <p className="text-xs text-destructive">{pinPatchError}</p> : null}
                 <div className="min-w-0 overflow-hidden rounded-lg border bg-card">
                   <article className="min-w-0 flex flex-col gap-4 p-5 text-sm leading-relaxed">
                     <ReactMarkdown

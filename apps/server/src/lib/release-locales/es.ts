@@ -17,11 +17,32 @@ const locale = {
     releaseNotFound: "Versión no encontrada",
     releaseNotFoundDescription:
       "Esta versión no está en el historial publicado.",
-    upcomingRelease: "Próxima versión · aún no publicada",
     viewDetails: "Ver detalles",
     whatChanged: "Qué cambió",
   },
   releases: {
+    "v0.6.0": {
+      title: "Gestión completa por MCP, entrega enfocada y diálogo de pins más claro",
+      summary:
+        "Los agentes ahora pueden gestionar proyectos, colecciones, lotes, sesiones, pins y comentarios a través de MCP: en Local sin cuenta y en Cloud con claves con alcance. Por defecto, al finalizar la sesión solo entran en la entrega compacta los pins que aún requieren acción, y el diálogo de pins del viewer deja de ofrecer las pestañas técnicas.",
+      changes: {
+        "mcp-crud": {
+          title: "Gestión completa de sesiones y organización por MCP",
+          description:
+            "Los agentes pueden crear, leer, actualizar y eliminar proyectos, colecciones, lotes, sesiones, pins y comentarios de pins a través de MCP. Pinar Local ofrece estas operaciones a los agentes en la misma máquina, sin cuenta ni clave; Pinar Cloud aplica el permiso y el alcance de la clave a cada operación.",
+        },
+        "focused-handoff": {
+          title: "Entrega enfocada, con el detalle completo al alcance",
+          description:
+            "Por defecto, al finalizar la sesión, solo los pins que aún requieren acción entran en la entrega compacta, con el contexto de la página para actuar sobre ellos; el detalle completo de la sesión sigue accesible desde los enlaces de la entrega. Con Prompt se copia el texto, con Link solo el enlace de la sesión y con Off no se copia nada. Las notas de los pins y los comentarios de la conversación siguen siendo editables, según las mismas reglas del viewer en Local y Cloud.",
+        },
+        "viewer-technical-tabs-removed": {
+          title: "Diálogo de pins sin las pestañas técnicas",
+          description:
+            "El diálogo de pins del viewer ya no ofrece las pestañas técnicas. El contexto del pin ahora se muestra directamente en la vista previa, y la pestaña de conversación se abre primero, reuniendo comentarios, evidencia y ediciones.",
+        },
+      },
+    },
     "v0.5.1": {
       title: "Acceso de agentes a Cloud y revisión de pins más clara",
       summary:
@@ -479,23 +500,6 @@ const locale = {
           description:
             "La redacción de campos sensibles, las máscaras manuales, el consentimiento versionado y las políticas de servicio publicadas establecieron el límite de seguridad de la nube.",
         },
-      },
-    },
-  },
-  upcoming: {
-    title: "Gestión por MCP y entrega enfocada",
-    summary:
-      "Lo que viene: los agentes obtienen el conjunto completo de operaciones MCP para la organización, las sesiones, los pins y los comentarios, y al finalizar la sesión solo se entrega el trabajo que sigue abierto.",
-    changes: {
-      "mcp-crud": {
-        title: "Gestión completa de sesiones y organización por MCP",
-        description:
-          "Los agentes pueden crear, leer, actualizar y eliminar proyectos, colecciones, lotes, sesiones, pins y comentarios de pins a través de MCP. Pinar Local ofrece estas operaciones a los agentes en la misma máquina, sin cuenta ni clave; Pinar Cloud aplica el permiso y el alcance de la clave a cada operación.",
-      },
-      "focused-handoff": {
-        title: "Entrega enfocada, con el detalle completo al alcance",
-        description:
-          "Al finalizar la sesión, solo los pins que aún requieren acción entran en la entrega compacta, con el contexto de la página para actuar sobre ellos; el detalle completo de la sesión sigue accesible desde los enlaces de la entrega. Con Prompt se copia el texto, con Link solo el enlace de la sesión y con Off no se copia nada. Las notas de los pins y los comentarios de la conversación siguen siendo editables, según las mismas reglas del viewer en Local y Cloud.",
       },
     },
   },

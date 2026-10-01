@@ -18,11 +18,32 @@ const locale = {
     releaseNotFound: "Versão não encontrada",
     releaseNotFoundDescription:
       "Essa versão não existe no histórico publicado.",
-    upcomingRelease: "Próxima versão · ainda não publicada",
     viewDetails: "Ver detalhes",
     whatChanged: "O que mudou",
   },
   releases: {
+    "v0.6.0": {
+      title: "Gestão completa pelo MCP, handoff focado e diálogo de pins mais limpo",
+      summary:
+        "Agentes agora podem gerenciar projetos, coleções, lotes, sessões, pins e comentários pelo MCP — no Local, sem conta, e no Cloud, com chaves de escopo. Por padrão, ao finalizar a sessão só entram no handoff compacto os pins que ainda precisam de ação, e o diálogo de pins do viewer deixa de oferecer as abas técnicas.",
+      changes: {
+        "mcp-crud": {
+          title: "Gestão completa de sessões e organização pelo MCP",
+          description:
+            "Agentes podem criar, ler, atualizar e excluir projetos, coleções, lotes, sessões, pins e comentários de pins pelo MCP. O Pinar Local oferece essas operações a agentes na mesma máquina, sem conta nem chave; o Pinar Cloud aplica a permissão e o escopo da chave a cada operação.",
+        },
+        "focused-handoff": {
+          title: "Handoff focado, com o detalhe completo ao alcance",
+          description:
+            "Por padrão, ao finalizar a sessão, apenas os pins que ainda precisam de ação entram no handoff compacto, com o contexto da página para agirem sobre eles; o detalhe completo da sessão continua acessível pelos links do handoff. Com Prompt você copia o texto, com Link apenas o link da sessão e com Off nada é copiado. Notas dos pins e comentários da conversa continuam editáveis, seguindo as mesmas regras do viewer no Local e no Cloud.",
+        },
+        "viewer-technical-tabs-removed": {
+          title: "Diálogo de pins sem as abas técnicas",
+          description:
+            "O diálogo de pins do viewer deixa de oferecer as abas técnicas. O contexto do pin agora aparece diretamente na pré-visualização, e a aba de conversa abre primeiro, reunindo comentários, evidências e edições.",
+        },
+      },
+    },
     "v0.5.1": {
       title: "Acesso de agentes ao Cloud e revisão de pins mais clara",
       summary:
@@ -496,23 +517,6 @@ const locale = {
           description:
             "Redação de campos sensíveis, máscaras manuais, consentimento versionado e políticas publicadas estabeleceram o limite de segurança da nuvem.",
         },
-      },
-    },
-  },
-  upcoming: {
-    title: "Gestão completa pelo MCP e handoff focado",
-    summary:
-      "O que vem a seguir: agentes ganham o conjunto completo de operações de organização, sessões, pins e comentários pelo MCP, e ao finalizar a sessão só é entregue o trabalho que ainda está aberto.",
-    changes: {
-      "mcp-crud": {
-        title: "Gestão completa de sessões e organização pelo MCP",
-        description:
-          "Agentes podem criar, ler, atualizar e excluir projetos, coleções, lotes, sessões, pins e comentários de pins pelo MCP. O Pinar Local oferece essas operações a agentes na mesma máquina, sem conta nem chave; o Pinar Cloud aplica a permissão e o escopo da chave a cada operação.",
-      },
-      "focused-handoff": {
-        title: "Handoff focado, com o detalhe completo ao alcance",
-        description:
-          "Ao finalizar a sessão, apenas os pins que ainda precisam de ação entram no handoff compacto, com o contexto da página para agirem sobre eles; o detalhe completo da sessão continua acessível pelos links do handoff. Com Prompt você copia o texto, com Link apenas o link da sessão e com Off nada é copiado. Notas dos pins e comentários da conversa continuam editáveis, seguindo as mesmas regras do viewer no Local e no Cloud.",
       },
     },
   },

@@ -86,6 +86,11 @@ export interface ReleaseContent {
 
 export const releaseDefinitions = [
   {
+    tag: "v0.6.0",
+    date: "2026-10-01",
+    changes: ["mcp-crud", "focused-handoff", "viewer-technical-tabs-removed"],
+  },
+  {
     tag: "v0.5.1",
     date: "2026-09-26",
     changes: ["cloud-agent-access", "agent-mcp-operations", "viewer-sharing-followups"],

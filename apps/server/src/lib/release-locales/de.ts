@@ -18,11 +18,32 @@ const locale = {
     releaseNotFound: "Version nicht gefunden",
     releaseNotFoundDescription:
       "Diese Version steht nicht im veröffentlichten Verlauf.",
-    upcomingRelease: "Nächste Version · noch nicht veröffentlicht",
     viewDetails: "Details anzeigen",
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.6.0": {
+      title: "MCP-Verwaltung, fokussierte Übergabe und klarerer Pin-Dialog",
+      summary:
+        "Agenten verwalten jetzt Projekte, Sammlungen, Chargen, Sitzungen, Pins und Kommentare über MCP — lokal ohne Konto, in der Cloud mit Schlüsselberechtigung. Standardmäßig enthält die kompakte Übergabe beim Beenden einer Sitzung nur die Pins, die noch Arbeit brauchen, und der Pin-Dialog im Viewer verzichtet auf die technischen Registerkarten.",
+      changes: {
+        "mcp-crud": {
+          title: "Vollständige MCP-Verwaltung für Sitzungen und Organisation",
+          description:
+            "Agenten können Projekte, Sammlungen, Chargen, Sitzungen, Pins und Pin-Kommentare über MCP erstellen, lesen, ändern und löschen. Pinar Local bietet diese Operationen Agenten auf demselben Rechner ohne Konto und ohne Schlüssel an; Pinar Cloud wendet bei jeder Operation Berechtigung und Umfang des Schlüssels an.",
+        },
+        "focused-handoff": {
+          title: "Fokussierte Übergabe, vollständiges Detail auf Abruf",
+          description:
+            "Standardmäßig enthält die kompakte Übergabe beim Beenden einer Sitzung nur die Pins, die noch Arbeit brauchen, mit dem Seitenkontext zum Arbeiten; das vollständige Sitzungsdetail bleibt über die Links der Übergabe erreichbar. Mit Prompt wird der Text kopiert, mit Link nur der Sitzungslink und mit Off wird nichts kopiert. Pin-Notizen und Gesprächskommentare bleiben editierbar, nach den gleichen Regeln wie im Viewer lokal und in der Cloud.",
+        },
+        "viewer-technical-tabs-removed": {
+          title: "Klarerer Pin-Dialog ohne technische Registerkarten",
+          description:
+            "Der Pin-Dialog im Viewer bietet die technischen Registerkarten nicht mehr an. Der Pin-Kontext wird jetzt direkt in der Vorschau angezeigt, und die Gesprächsregisterkarte öffnet zuerst und hält Kommentare, Belege und Änderungen zusammen.",
+        },
+      },
+    },
     "v0.5.1": {
       title: "Cloud-Zugriff für Agenten und klarere Pin-Prüfungen",
       summary:
@@ -479,23 +500,6 @@ const locale = {
           description:
             "Schwärzung sensibler Felder, manuelle Masken, versionierte Zustimmung und veröffentlichte Dienstrichtlinien zogen die Sicherheitsgrenze der Cloud.",
         },
-      },
-    },
-  },
-  upcoming: {
-    title: "MCP-Verwaltung und fokussierte Übergabe",
-    summary:
-      "Als Nächstes: Agenten erhalten die vollständigen MCP-Operationen für Organisation, Sitzungen, Pins und Kommentare, und beim Beenden einer Sitzung wird nur die noch offene Arbeit übergeben.",
-    changes: {
-      "mcp-crud": {
-        title: "Vollständige MCP-Verwaltung für Sitzungen und Organisation",
-        description:
-          "Agenten können Projekte, Sammlungen, Chargen, Sitzungen, Pins und Pin-Kommentare über MCP erstellen, lesen, ändern und löschen. Pinar Local bietet diese Operationen Agenten auf demselben Rechner ohne Konto und ohne Schlüssel an; Pinar Cloud wendet bei jeder Operation Berechtigung und Umfang des Schlüssels an.",
-      },
-      "focused-handoff": {
-        title: "Fokussierte Übergabe, vollständiges Detail auf Abruf",
-        description:
-          "Beim Beenden einer Sitzung enthalten nur die Pins, die noch Arbeit brauchen, die kompakte Übergabe, mit dem Seitenkontext zum Arbeiten; das vollständige Sitzungsdetail bleibt über die Links der Übergabe erreichbar. Mit Prompt wird der Text kopiert, mit Link nur der Sitzungslink und mit Off wird nichts kopiert. Pin-Notizen und Gesprächskommentare bleiben editierbar, nach den gleichen Regeln wie im Viewer lokal und in der Cloud.",
       },
     },
   },

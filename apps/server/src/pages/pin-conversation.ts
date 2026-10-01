@@ -3,6 +3,10 @@ import type { AgentExecution, PinComment } from "@pinar/shared";
 export interface PinConversationMessage {
   at: string;
   author: string;
+  /** Authorship id of stored comments (human or agent); absent on the note and legacy executions. */
+  actorId?: string;
+  /** Stored comment id; present only on real comments (human or agent), never on the note or legacy executions. */
+  commentId?: string;
   id: string;
   kind: "agent" | "human" | "pin";
   text: string;
@@ -48,11 +52,16 @@ export function pinConversation({
   const later: PinConversationMessage[] = [];
   for (const comment of comments) {
     if (comment.captureId !== captureId || comment.pinId !== pinId) continue;
+    // Real agent comments are stored comments: they keep the comment id and
+    // authorship so the viewer can edit them like any other comment. Legacy
+    // executions never get a commentId and are not treated as editable text.
     later.push({
+      actorId: comment.actorId,
       at: comment.createdAt,
       author: comment.actorLabel,
+      commentId: comment.id,
       id: comment.id,
-      kind: "human",
+      kind: comment.actorType === "agent" ? "agent" : "human",
       text: comment.body,
     });
   }
@@ -72,4 +81,21 @@ export function pinConversation({
   }
   later.sort((left, right) => left.at.localeCompare(right.at) || left.id.localeCompare(right.id));
   return [...messages, ...later];
+}
+
+/**
+ * Viewer edit authorization for stored thread messages. Real agent comments
+ * (stored comments) are editable in the local runtime, which has no login,
+ * but never in the cloud, where only the human author edits. Legacy
+ * executions carry no commentId and are never editable here; the original
+ * note is authorized separately (canEditPins).
+ */
+export function canEditThreadComment(
+  message: Pick<PinConversationMessage, "commentId" | "kind">,
+  context: { cloud: boolean; isCommentAuthor: boolean },
+): boolean {
+  if (!message.commentId) return false;
+  if (message.kind === "agent") return !context.cloud;
+  if (!context.cloud) return true;
+  return context.isCommentAuthor;
 }

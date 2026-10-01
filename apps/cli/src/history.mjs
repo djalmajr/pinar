@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, sep } from "node:path";
 import {
   DEFAULT_PROJECT_ICON,
@@ -311,13 +311,25 @@ function formatPinComment(row) {
   return {
     actorId: row.actor_id,
     actorLabel: row.actor_label,
-    actorType: "human",
+    actorType: row.actor_type === "agent" ? "agent" : "human",
     body: row.body,
     captureId: row.capture_id,
     createdAt: row.created_at,
     id: row.id,
     pinId: row.pin_id,
   };
+}
+
+const PIN_COMMENT_AGENT_NAME_MAX = 64;
+
+function parseAgentName(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string") throw new PinReviewError("invalid_payload");
+  const name = value.trim();
+  if (!name || name.length > PIN_COMMENT_AGENT_NAME_MAX || /[\u0000-\u001f\u007f]/.test(name)) {
+    throw new PinReviewError("invalid_payload");
+  }
+  return name;
 }
 
 function requirePinReview(reviews, pinId) {
@@ -405,6 +417,29 @@ class JsonHistoryDb {
       writeFileSync(this.dbPath, JSON.stringify(this.data, null, 2), "utf8");
     } catch (error) {
       console.warn("Failed to write history json", error);
+    }
+  }
+
+  /**
+   * Atomic persistence restricted to addPin/deletePin: the complete next
+   * state is serialized to a sibling temp file and renamed onto
+   * history.json, so a failed write can never truncate the original file.
+   * IO failures propagate to the caller, which must only commit the state
+   * to memory after this returns.
+   */
+  _savePinState(data) {
+    const tmpPath = `${this.dbPath}.pin-state`;
+    try {
+      mkdirSync(join(this.dbPath, ".."), { recursive: true });
+      writeFileSync(tmpPath, JSON.stringify(data, null, 2), "utf8");
+      renameSync(tmpPath, this.dbPath);
+    } catch (error) {
+      try {
+        rmSync(tmpPath, { force: true });
+      } catch {
+        // Keep the original error.
+      }
+      throw error;
     }
   }
 
@@ -537,6 +572,42 @@ class JsonHistoryDb {
     return row ? this._decorateSession(formatSession(row)) : null;
   }
 
+  /**
+   * Metadata patch for an existing session: only the provided page fields,
+   * privacy report and reproduction change. Id, created_at, position,
+   * collection, batch, shot identity and the stored pins are untouched, so
+   * the patch can never restamp creation, reset order, or detach the batch.
+   * An empty description clears the stored value; omitted fields stay as-is.
+   */
+  updateSession(id, { description, privacy, reproduction, title, url } = {}) {
+    const existing = this.data.sessions.find((item) => item.id === id);
+    if (!existing) return null;
+    const capture = decodeVisualCaptureJson(existing.pins_json, id);
+    const page = { ...capture.page };
+    if (title !== undefined) page.title = title;
+    if (url !== undefined) page.url = url;
+    if (description !== undefined) {
+      if (description) page.description = description;
+      else delete page.description;
+    }
+    const next = parseVisualCapture({
+      captureId: id,
+      createdAt: capture.createdAt,
+      page,
+      pins: capture.pins,
+      privacy: privacy !== undefined ? privacy : capture.privacy,
+      reproduction: reproduction !== undefined ? reproduction ?? undefined : capture.reproduction,
+      schemaVersion: capture.schemaVersion,
+      screenshot: capture.screenshot,
+      warnings: capture.warnings,
+    }, id);
+    existing.pins_json = encodeVisualCaptureJson(next);
+    if (title !== undefined) existing.title = title;
+    if (url !== undefined) existing.url = url;
+    this._save();
+    return this._decorateSession(formatSession(existing));
+  }
+
   _reviewStatusMap(captureId) {
     return new Map(
       this.data.pin_reviews
@@ -590,14 +661,15 @@ class JsonHistoryDb {
       .map(formatPinComment);
   }
 
-  addPinComment(captureId, pinId, body) {
+  addPinComment(captureId, pinId, body, agentName) {
     const text = parsePinCommentBody(body);
+    const name = parseAgentName(agentName);
     const session = this.getSession(captureId);
     if (!session || !pinIdsFromPins(session.pins).has(pinId)) throw new PinReviewError("pin_not_found");
     const row = {
       actor_id: LOCAL_OWNER_ID,
-      actor_label: "Local",
-      actor_type: "human",
+      actor_label: name || "Local",
+      actor_type: name ? "agent" : "human",
       body: text,
       capture_id: captureId,
       created_at: now(),
@@ -607,6 +679,91 @@ class JsonHistoryDb {
     this.data.pin_comments.push(row);
     this._save();
     return formatPinComment(row);
+  }
+
+  updatePinComment(captureId, pinId, commentId, body) {
+    const text = parsePinCommentBody(body);
+    const row = this.data.pin_comments.find(
+      (item) => item.id === commentId && item.capture_id === captureId && item.pin_id === pinId,
+    );
+    if (!row) throw new PinReviewError("pin_not_found");
+    row.body = text;
+    this._save();
+    return formatPinComment(row);
+  }
+
+  deletePinComment(captureId, pinId, commentId) {
+    const session = this.getSession(captureId);
+    if (!session || !pinIdsFromPins(session.pins).has(pinId)) throw new PinReviewError("pin_not_found");
+    const index = this.data.pin_comments.findIndex(
+      (item) => item.id === commentId && item.capture_id === captureId && item.pin_id === pinId,
+    );
+    if (index === -1) throw new PinReviewError("pin_not_found");
+    const [row] = this.data.pin_comments.splice(index, 1);
+    this._save();
+    return formatPinComment(row);
+  }
+
+  updatePinNote(captureId, pinId, comment) {
+    const text = parsePinCommentBody(comment);
+    const row = this.data.sessions.find((item) => item.id === captureId);
+    if (!row) throw new PinReviewError("pin_not_found");
+    const capture = decodeVisualCaptureJson(row.pins_json, row.id);
+    const pin = capture.pins.find((item) => (item.pinId || item.id) === pinId);
+    if (!pin) throw new PinReviewError("pin_not_found");
+    pin.comment = text;
+    row.pins_json = encodeVisualCaptureJson(capture);
+    this._save();
+    return pin;
+  }
+
+  /**
+   * Append a server-normalized pin (id and number already assigned by the
+   * caller) to an existing session. Remaining pins and their numbers are
+   * untouched; the state is persisted atomically before memory commits, so
+   * a failed write leaves memory, file, and review tables untouched.
+   */
+  addPin(captureId, pin) {
+    const row = this.data.sessions.find((item) => item.id === captureId);
+    if (!row) throw new PinReviewError("pin_not_found");
+    const capture = decodeVisualCaptureJson(row.pins_json, row.id);
+    if (pinIdsFromPins(capture.pins).has(pin.pinId)) throw new PinReviewError("pin_not_found");
+    const nextData = {
+      ...this.data,
+      sessions: this.data.sessions.map((item) => item.id === row.id
+        ? { ...item, pin_count: capture.pins.length + 1, pins_json: encodeVisualCaptureJson({ ...capture, pins: [...capture.pins, pin] }) }
+        : item),
+    };
+    this._savePinState(nextData);
+    this.data = nextData;
+    return pin;
+  }
+
+  /**
+   * Remove the pin plus its current reviews, events and comments. The new
+   * state is persisted atomically before memory commits, so a failed write
+   * leaves memory, file, and tables untouched. The execution audit rows are
+   * preserved, and no read path lists the removed pin again because reviews
+   * are presented per stored pin id.
+   */
+  deletePin(captureId, pinId) {
+    const row = this.data.sessions.find((item) => item.id === captureId);
+    if (!row) return false;
+    const capture = decodeVisualCaptureJson(row.pins_json, row.id);
+    const index = capture.pins.findIndex((item) => (item.pinId || item.id) === pinId);
+    if (index === -1) return false;
+    const nextData = {
+      ...this.data,
+      sessions: this.data.sessions.map((item) => item.id === row.id
+        ? { ...item, pin_count: capture.pins.length - 1, pins_json: encodeVisualCaptureJson({ ...capture, pins: capture.pins.filter((_, kept) => kept !== index) }) }
+        : item),
+      pin_review_events: this.data.pin_review_events.filter((item) => !(item.capture_id === captureId && item.pin_id === pinId)),
+      pin_reviews: this.data.pin_reviews.filter((item) => !(item.capture_id === captureId && item.pin_id === pinId)),
+      pin_comments: this.data.pin_comments.filter((item) => !(item.capture_id === captureId && item.pin_id === pinId)),
+    };
+    this._savePinState(nextData);
+    this.data = nextData;
+    return true;
   }
 
   applyPinReview(captureId, pinId, action, actor) {
@@ -901,6 +1058,30 @@ class JsonHistoryDb {
     return formatBatch(row, this.data.sessions.filter((item) => item.batch_id === id).length);
   }
 
+  // Server-side batch creation: the id and startedAt are generated here so a
+  // client can never claim an existing batch id or backdate the batch.
+  createBatch(label) {
+    const row = {
+      finished_at: null,
+      id: generateNanoId(),
+      label,
+      started_at: new Date().toISOString(),
+    };
+    this.data.batches.push(row);
+    this._save();
+    return formatBatch(row, 0);
+  }
+
+  // Dedicated rename: only the label changes; id, started_at, finished_at and
+  // session membership are untouched (unlike upsertBatch, which never renames).
+  renameBatch(id, label) {
+    const row = this.data.batches.find((item) => item.id === id);
+    if (!row) return null;
+    row.label = label;
+    this._save();
+    return formatBatch(row, this.data.sessions.filter((item) => item.batch_id === id).length);
+  }
+
   listBatches() {
     return [...this.data.batches]
       .sort((left, right) => String(right.started_at).localeCompare(String(left.started_at)))
@@ -1090,7 +1271,7 @@ class SqliteHistoryDb {
         pin_id TEXT NOT NULL,
         actor_id TEXT NOT NULL,
         actor_label TEXT NOT NULL,
-        actor_type TEXT NOT NULL CHECK (actor_type = 'human'),
+        actor_type TEXT NOT NULL CHECK (actor_type IN ('agent', 'human')),
         body TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
@@ -1127,6 +1308,33 @@ class SqliteHistoryDb {
     if (!columns.has("batch_id")) this.db.exec("ALTER TABLE sessions ADD COLUMN batch_id TEXT;");
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_sessions_collection_position ON sessions(collection_id, position);");
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_sessions_batch ON sessions(batch_id, created_at DESC);");
+    // Pre-agent stores pin a single-value CHECK on actor_type, which SQLite
+    // cannot alter in place. Rebuild the table keeping every comment and the
+    // capture index; the D1 side runs the same rebuild in migration 0026.
+    const pinCommentSql = this.db.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'pin_comments'",
+    ).get();
+    if (pinCommentSql && String(pinCommentSql.sql).includes("CHECK (actor_type = 'human')")) {
+      this.db.exec(`
+        BEGIN;
+        CREATE TABLE pin_comments_new (
+          id TEXT PRIMARY KEY,
+          capture_id TEXT NOT NULL,
+          pin_id TEXT NOT NULL,
+          actor_id TEXT NOT NULL,
+          actor_label TEXT NOT NULL,
+          actor_type TEXT NOT NULL CHECK (actor_type IN ('agent', 'human')),
+          body TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+        INSERT INTO pin_comments_new (id, capture_id, pin_id, actor_id, actor_label, actor_type, body, created_at)
+          SELECT id, capture_id, pin_id, actor_id, actor_label, actor_type, body, created_at FROM pin_comments;
+        DROP TABLE pin_comments;
+        ALTER TABLE pin_comments_new RENAME TO pin_comments;
+        CREATE INDEX idx_pin_comments_capture ON pin_comments(capture_id, created_at);
+        COMMIT;
+      `);
+    }
   }
 
   _ensureDefaults() {
@@ -1276,6 +1484,49 @@ class SqliteHistoryDb {
     return row ? this._decorateSession(formatSession(row)) : null;
   }
 
+  /**
+   * Metadata patch for an existing session: a surgical UPDATE that only
+   * writes the patched page fields, privacy report and reproduction into the
+   * row's capture plus the title/url columns. Created_at, position,
+   * collection, batch, shot identity and pins are never written, so the
+   * patch cannot restamp creation, reset order, or detach the batch.
+   */
+  updateSession(id, { description, privacy, reproduction, title, url } = {}) {
+    const existing = this.db.prepare("SELECT pins_json FROM sessions WHERE id = ?").get(id);
+    if (!existing) return null;
+    const capture = decodeVisualCaptureJson(existing.pins_json, id);
+    const page = { ...capture.page };
+    if (title !== undefined) page.title = title;
+    if (url !== undefined) page.url = url;
+    if (description !== undefined) {
+      if (description) page.description = description;
+      else delete page.description;
+    }
+    const next = parseVisualCapture({
+      captureId: id,
+      createdAt: capture.createdAt,
+      page,
+      pins: capture.pins,
+      privacy: privacy !== undefined ? privacy : capture.privacy,
+      reproduction: reproduction !== undefined ? reproduction ?? undefined : capture.reproduction,
+      schemaVersion: capture.schemaVersion,
+      screenshot: capture.screenshot,
+      warnings: capture.warnings,
+    }, id);
+    const updates = ["pins_json = ?"];
+    const values = [encodeVisualCaptureJson(next)];
+    if (title !== undefined) {
+      updates.push("title = ?");
+      values.push(title);
+    }
+    if (url !== undefined) {
+      updates.push("url = ?");
+      values.push(url);
+    }
+    this.db.prepare(`UPDATE sessions SET ${updates.join(", ")} WHERE id = ?`).run(...values, id);
+    return this._decorateSession(this.getSession(id));
+  }
+
   _reviewStatusMap(captureId) {
     return new Map(
       this.db.prepare("SELECT pin_id, status FROM pin_reviews WHERE capture_id = ?")
@@ -1322,14 +1573,15 @@ class SqliteHistoryDb {
     ).all(captureId).map(formatPinComment);
   }
 
-  addPinComment(captureId, pinId, body) {
+  addPinComment(captureId, pinId, body, agentName) {
     const text = parsePinCommentBody(body);
+    const name = parseAgentName(agentName);
     const session = this.getSession(captureId);
     if (!session || !pinIdsFromPins(session.pins).has(pinId)) throw new PinReviewError("pin_not_found");
     const row = {
       actor_id: LOCAL_OWNER_ID,
-      actor_label: "Local",
-      actor_type: "human",
+      actor_label: name || "Local",
+      actor_type: name ? "agent" : "human",
       body: text,
       capture_id: captureId,
       created_at: now(),
@@ -1351,6 +1603,100 @@ class SqliteHistoryDb {
       row.created_at,
     );
     return formatPinComment(row);
+  }
+
+  updatePinComment(captureId, pinId, commentId, body) {
+    const text = parsePinCommentBody(body);
+    const row = this.db.prepare(
+      "SELECT * FROM pin_comments WHERE id = ? AND capture_id = ? AND pin_id = ?",
+    ).get(commentId, captureId, pinId);
+    if (!row) throw new PinReviewError("pin_not_found");
+    this.db.prepare(
+      "UPDATE pin_comments SET body = ? WHERE id = ? AND capture_id = ? AND pin_id = ?",
+    ).run(text, commentId, captureId, pinId);
+    return formatPinComment({ ...row, body: text });
+  }
+
+  deletePinComment(captureId, pinId, commentId) {
+    const session = this.getSession(captureId);
+    if (!session || !pinIdsFromPins(session.pins).has(pinId)) throw new PinReviewError("pin_not_found");
+    const row = this.db.prepare(
+      "SELECT * FROM pin_comments WHERE id = ? AND capture_id = ? AND pin_id = ?",
+    ).get(commentId, captureId, pinId);
+    if (!row) throw new PinReviewError("pin_not_found");
+    this.db.prepare(
+      "DELETE FROM pin_comments WHERE id = ? AND capture_id = ? AND pin_id = ?",
+    ).run(commentId, captureId, pinId);
+    return formatPinComment(row);
+  }
+
+  updatePinNote(captureId, pinId, comment) {
+    const text = parsePinCommentBody(comment);
+    const row = this.db.prepare("SELECT id, pins_json FROM sessions WHERE id = ?").get(captureId);
+    if (!row) throw new PinReviewError("pin_not_found");
+    const capture = decodeVisualCaptureJson(row.pins_json, row.id);
+    const pin = capture.pins.find((item) => (item.pinId || item.id) === pinId);
+    if (!pin) throw new PinReviewError("pin_not_found");
+    pin.comment = text;
+    this.db.prepare("UPDATE sessions SET pins_json = ? WHERE id = ?").run(
+      encodeVisualCaptureJson(capture),
+      row.id,
+    );
+    return pin;
+  }
+
+  /**
+   * Append a server-normalized pin (id and number already assigned by the
+   * caller) to an existing session. Remaining pins and their numbers are
+   * untouched; pin_count follows the stored pin list.
+   */
+  addPin(captureId, pin) {
+    const row = this.db.prepare("SELECT id, pins_json FROM sessions WHERE id = ?").get(captureId);
+    if (!row) throw new PinReviewError("pin_not_found");
+    const capture = decodeVisualCaptureJson(row.pins_json, row.id);
+    if (pinIdsFromPins(capture.pins).has(pin.pinId)) throw new PinReviewError("pin_not_found");
+    capture.pins.push(pin);
+    this.db.prepare("UPDATE sessions SET pins_json = ?, pin_count = ? WHERE id = ?").run(
+      encodeVisualCaptureJson(capture),
+      capture.pins.length,
+      row.id,
+    );
+    return pin;
+  }
+
+  /**
+   * Remove the pin plus its current reviews, events and comments in one
+   * transaction. The execution audit rows are preserved, and no read path
+   * lists the removed pin again because reviews are presented per stored
+   * pin id.
+   */
+  deletePin(captureId, pinId) {
+    const row = this.db.prepare("SELECT id, pins_json FROM sessions WHERE id = ?").get(captureId);
+    if (!row) return false;
+    const capture = decodeVisualCaptureJson(row.pins_json, row.id);
+    const index = capture.pins.findIndex((item) => (item.pinId || item.id) === pinId);
+    if (index === -1) return false;
+    capture.pins.splice(index, 1);
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare("DELETE FROM pin_review_events WHERE capture_id = ? AND pin_id = ?").run(captureId, pinId);
+      this.db.prepare("DELETE FROM pin_reviews WHERE capture_id = ? AND pin_id = ?").run(captureId, pinId);
+      this.db.prepare("DELETE FROM pin_comments WHERE capture_id = ? AND pin_id = ?").run(captureId, pinId);
+      this.db.prepare("UPDATE sessions SET pins_json = ?, pin_count = ? WHERE id = ?").run(
+        encodeVisualCaptureJson(capture),
+        capture.pins.length,
+        row.id,
+      );
+      this.db.exec("COMMIT");
+    } catch (error) {
+      try {
+        this.db.exec("ROLLBACK");
+      } catch {
+        // Keep the original error; the transaction is already doomed.
+      }
+      throw error;
+    }
+    return true;
   }
 
   applyPinReview(captureId, pinId, action, actor) {
@@ -1736,6 +2082,25 @@ class SqliteHistoryDb {
     // means the write did not land: fail loudly instead of returning null.
     if (!row) throw new Error(`Unable to persist the capture batch ${id}`);
     return this._formatBatchRow(row);
+  }
+
+  // Server-side batch creation: the id and startedAt are generated here so a
+  // client can never claim an existing batch id or backdate the batch.
+  createBatch(label) {
+    const id = generateNanoId();
+    this.db.prepare("INSERT INTO batches (id, label, started_at) VALUES (?, ?, ?)").run(id, label, new Date().toISOString());
+    const row = this._batchRow(id);
+    if (!row) throw new Error(`Unable to persist the capture batch ${id}`);
+    return this._formatBatchRow(row);
+  }
+
+  // Dedicated rename: only the label changes; id, started_at, finished_at and
+  // session membership are untouched (unlike upsertBatch, which never renames).
+  renameBatch(id, label) {
+    const result = this.db.prepare("UPDATE batches SET label = ? WHERE id = ?").run(label, id);
+    if (!result.changes) return null;
+    const row = this._batchRow(id);
+    return row ? this._formatBatchRow(row) : null;
   }
 
   listBatches() {

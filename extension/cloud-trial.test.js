@@ -7,6 +7,7 @@ import {
   formatTrialEnd,
   normalizeCloudTrial,
 } from "./cloud-trial.js";
+import { reviewErrorKey } from "./continuous-session.js";
 
 const messages = {
   en: {
@@ -84,7 +85,9 @@ describe("cloud trial entitlements", () => {
     assert.equal(cloudSubscriptionRequired(402, { code: "cloud_subscription_required" }), true);
     assert.equal(cloudSubscriptionRequired(402, { code: "insufficient_ai_credits" }), false);
     assert.equal(cloudSubscriptionRequired(403, { code: "cloud_subscription_required" }), false);
-    assert.match(backgroundSrc, /messages\.overlay_cloud_subscription_required/);
+    // The pending toast resolves the 402 code to the localized subscription copy.
+    assert.match(backgroundSrc, /messages\[reviewErrorKey\(reason\)\]/);
+    assert.equal(reviewErrorKey("cloud_subscription_required"), "overlay_cloud_subscription_required");
   });
 
   test("localizes the trial copy in every shipped language", () => {

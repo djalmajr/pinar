@@ -42,7 +42,7 @@ import {
 import { createSingleFlight } from "./single-flight.js";
 import { resolveVoiceAvailability } from "./voice-access.js";
 import { cloudSubscriptionRequired, normalizeCloudTrial } from "./cloud-trial.js";
-import { createContinuousSession, continuousSummary, indexedDraftStore } from "./continuous-session.js";
+import { createContinuousSession, continuousSummary, indexedDraftStore, restoreEntriesForPage, reviewErrorKey, copyReviewHandoff } from "./continuous-session.js";
 import { MAX_VIEWER_MARKDOWN_BYTES, readOptionalViewerMarkdown } from "./viewer-markdown.js";
 import "./privacy.js";
 
@@ -157,10 +157,20 @@ async function finishReviewDraft(draft) {
 }
 
 async function copyReviewDraft(draft) {
-  const { request } = await reviewDestination(draft);
-  const response = await request(`/api/batches/${encodeURIComponent(draft.id)}/markdown`, { cache: "no-store" });
-  if (!response.ok) throw new Error(`copy_failed_${response.status}`);
-  await writeClipboardPlain(await response.text());
+  const { base, request, settings } = await reviewDestination(draft);
+  // Same precedence as the legacy batch: the account's saved mode wins over the local one.
+  const remotePrefs = await fetchDeliveryPreferences(settings);
+  if (remotePrefs) await cacheDeliveryPreferences(remotePrefs, settings);
+  await copyReviewHandoff(draft, {
+    base,
+    fetchMarkdown: async () => {
+      const response = await request(`/api/batches/${encodeURIComponent(draft.id)}/markdown`, { cache: "no-store" });
+      if (!response.ok) throw new Error(`copy_failed_${response.status}`);
+      return response.text();
+    },
+    mode: remotePrefs?.copyOnFinishBatch ?? settings.copyOnFinishBatch,
+    writeClipboard: writeClipboardPlain,
+  });
 }
 
 function toolbarVisibilityMap(value) {
@@ -281,7 +291,68 @@ function confirmPinarHostConcealed() {
   });
 }
 
+// The shutter hides every Pinar host, which would steal focus from an open
+// composer and send the user's next keystrokes to the page. A capture that
+// starts while any frame still has a composer open must wait for it to close;
+// the wait is bounded so an abandoned composer can never hang the capture,
+// and the host is only hidden once every frame reports the composer closed.
+const COMPOSER_WAIT_POLL_MS = 120;
+const COMPOSER_WAIT_LIMIT_MS = 10_000;
+async function waitComposerClosed(tabId) {
+  const started = Date.now();
+  for (;;) {
+    let frames;
+    try {
+      frames = await chrome.scripting.executeScript({
+        func: () => Boolean(globalThis.__pinarComposerOpen?.()),
+        target: { allFrames: true, tabId },
+      });
+    } catch {
+      return; // Frames that cannot be probed cannot report an open composer.
+    }
+    if (frames.every((frame) => !frame?.result)) return;
+    if (Date.now() - started >= COMPOSER_WAIT_LIMIT_MS) return;
+    await wait(COMPOSER_WAIT_POLL_MS);
+  }
+}
+
+// Resolves true as soon as any frame reports an open composer, or false after
+// the limit when none opens. The shutter it races against always settles the
+// capture one way or the other, so this poller never outlives the capture.
+const COMPOSER_OPEN_POLL_MS = 60;
+const COMPOSER_OPEN_LIMIT_MS = 5_000;
+function watchComposerOpen(tabId) {
+  return new Promise((resolve) => {
+    const started = Date.now();
+    let settled = false;
+    let timer = 0;
+    const finish = (open) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(open);
+    };
+    const check = () => {
+      if (settled) return;
+      chrome.scripting
+        .executeScript({
+          func: () => Boolean(globalThis.__pinarComposerOpen?.()),
+          target: { allFrames: true, tabId },
+        })
+        .then((frames) => {
+          if (settled) return;
+          if (frames.some((frame) => Boolean(frame?.result))) return finish(true);
+          if (Date.now() - started >= COMPOSER_OPEN_LIMIT_MS) return finish(false);
+          timer = setTimeout(check, COMPOSER_OPEN_POLL_MS);
+        })
+        .catch(() => finish(false));
+    };
+    timer = setTimeout(check, COMPOSER_OPEN_POLL_MS);
+  });
+}
+
 async function concealPinarForCapture(tabId) {
+  await waitComposerClosed(tabId);
   await chrome.scripting.executeScript({
     func: hidePinarHostsForCapture,
     target: { allFrames: true, tabId },
@@ -309,7 +380,17 @@ async function captureReviewEvidence(entry, input) {
   try {
     await concealPinarForCapture(tabId);
     lastReviewShot = Date.now();
-    const dataUrl = await chrome.tabs.captureVisibleTab(input.windowId, { format: "png" });
+    // The shutter's frame must stay screenshot-free. If the user opens a
+    // composer while the host is hidden, the frame is discarded and the pin
+    // stays pending for the next sync instead of stealing the user's focus:
+    // the reveal wins, the typed text is preserved, and nothing is lost.
+    const shutter = chrome.tabs.captureVisibleTab(input.windowId, { format: "png" });
+    const race = await Promise.race([
+      shutter.then(() => "shot"),
+      watchComposerOpen(tabId).then((open) => (open ? "composer" : null)),
+    ]);
+    if (race === "composer") throw new Error("screenshot_composer_open");
+    const dataUrl = await shutter;
     const [after] = await chrome.scripting.executeScript({ target, func: () => globalThis.__pinarReviewContext?.() });
     const [stillActive] = await chrome.tabs.query({ active: true, windowId: input.windowId });
     if (stillActive?.id !== tabId || after?.result?.documentId !== documentId || after.result.url !== snapshot.url || after.result.scroll.x !== snapshot.scroll.x || after.result.scroll.y !== snapshot.scroll.y) throw new Error("screenshot_page_changed");
@@ -335,21 +416,49 @@ async function reportReviewError(error) {
   const draft = await draftStore.read().catch(() => null);
   const subscriptionRequired = error?.message === "cloud_subscription_required"
     || draft?.entries?.some((entry) => entry.status !== "saved" && entry.error === "cloud_subscription_required");
-  const toast = subscriptionRequired
-    ? messages.overlay_cloud_subscription_required
-    : messages.overlay_session_pending;
+  const reason = subscriptionRequired ? "cloud_subscription_required" : draft?.entries?.find((entry) => entry.status !== "saved")?.error;
+  const toast = messages[reviewErrorKey(reason)] || messages.overlay_session_pending;
   await syncBatchSurfaces({ toast, toastKind: "error" }).catch(() => null);
 }
 
-async function resumeReviewTab(tabId) {
-  const stored = await chrome.storage.session.get({ reviewTabs: [] });
-  if (!reviewTabs.has(tabId) && !stored.reviewTabs.includes(tabId)) return;
-  if (!await draftStore.read()) return;
-  await installEvidenceHook(tabId, true);
-  const recording = tabRecordings.get(tabId);
-  const visible = recording && !recording.finished ? false : await toolbarVisibleForTab(tabId);
-  await prepareInitialToolbarVisibility(tabId, visible);
-  await chrome.scripting.executeScript({ files: CONTENT_INJECTION_FILES, target: { tabId, allFrames: true } });
+// Resume the session content on a review tab after navigation. Chains for a
+// tab are serialized and the injection is skipped when the document already
+// runs content.js: fast consecutive navigations queue several chains for the
+// same tab, and without this the later chain can inject content.js into the
+// same document the earlier chain just loaded - a duplicate instance whose
+// host starts visible, breaking the hidden-persists-across-navigation state.
+const resumeChains = new Map();
+function resumeReviewTab(tabId) {
+  const run = async () => {
+    const stored = await chrome.storage.session.get({ reviewTabs: [] });
+    if (!reviewTabs.has(tabId) && !stored.reviewTabs.includes(tabId)) return;
+    if (!await draftStore.read()) return;
+    const [probe] = await chrome.scripting.executeScript({
+      func: () => Boolean(globalThis.__pinarToggle),
+      target: { frameIds: [0], tabId },
+    }).catch(() => []);
+    const recording = tabRecordings.get(tabId);
+    const visible = recording && !recording.finished ? false : await toolbarVisibleForTab(tabId);
+    if (probe?.result) {
+      // A late files injection from an earlier chain (requested by tab only)
+      // can land in this tab's newer document without its
+      // __pinarInitialVisible flag, so the instance it left behind mounted
+      // default-visible. Reconcile it to the persisted state: a resume must
+      // never unhide, so only the hidden direction runs, and the expected
+      // stale-document rejection is swallowed.
+      if (!visible) await chrome.scripting.executeScript({
+        func: () => globalThis.__pinarReconcileHidden?.(),
+        target: { frameIds: [0], tabId },
+      }).catch(() => null);
+      return;
+    }
+    await installEvidenceHook(tabId, true);
+    await prepareInitialToolbarVisibility(tabId, visible);
+    await chrome.scripting.executeScript({ files: CONTENT_INJECTION_FILES, target: { tabId, allFrames: true } });
+  };
+  const chain = (resumeChains.get(tabId) ?? Promise.resolve()).then(run, run);
+  resumeChains.set(tabId, chain.catch(() => null));
+  return chain;
 }
 
 async function persistReviewPins(message, sender, pins) {
@@ -371,9 +480,15 @@ async function persistReviewPins(message, sender, pins) {
     documentId: sender.frameId ? snapshot.documentId : message.documentId,
     masks: message.masks,
     refreshShot: message.refreshShot === true,
+    workspaceView: snapshot.workspaceView,
   });
   const subscriptionRequired = draft?.entries.some((entry) => entry.error === "cloud_subscription_required");
-  if (draft?.entries.some((entry) => entry.status === "pending")) {
+  // screenshot_composer_open is a transient shutter abort: the user opened the
+  // next composer while this capture was in flight. The pin stays pending for
+  // the next sync, which recaptures it, and reporting it here would only push
+  // a confirm bar (data-confirm) that hides the composer the user just opened
+  // and steals its focus. Real failures and the subscription gate still report.
+  if (draft?.entries.some((entry) => entry.status === "pending" && entry.error !== "screenshot_composer_open")) {
     await reportReviewError(new Error(subscriptionRequired ? "cloud_subscription_required" : "session_pending"));
   }
 }
@@ -629,13 +744,16 @@ chrome.contextMenus?.onClicked.addListener((info) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   tabPins.delete(tabId);
   tabRecordings.delete(tabId);
+  resumeChains.delete(tabId);
   void setToolbarVisible(tabId, false);
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.url) {
     tabPins.delete(tabId);
-    void chrome.tabs.sendMessage(tabId, { type: "review:navigated" }).catch(() => null);
+    // A stable wipe id lets each frame recognize the top frame's FRAME_CLEAR
+    // re-broadcast of the very same navigated wipe it already processed.
+    void chrome.tabs.sendMessage(tabId, { type: "review:navigated", wipeId: crypto.randomUUID() }).catch(() => null);
   }
   if (changeInfo.status === "loading") tabPins.delete(tabId);
   if (changeInfo.status === "complete" && canInjectInto(tab.url)) {
@@ -660,6 +778,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     setToolbarVisible(sender.tab.id, message.visible)
       .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+  // A content script may ask for the persisted visibility of its own tab. The
+  // resume reconcile uses it to re-check its (possibly stale) read before
+  // hiding: the read is fresh enough to be trusted here, unlike a value the
+  // worker cached at chain start.
+  if (message.type === "toolbar:visibility:get") {
+    if (sender.frameId !== 0 || sender.tab?.id == null) {
+      sendResponse({ ok: false });
+      return false;
+    }
+    toolbarVisibleForTab(sender.tab.id)
+      .then((visible) => sendResponse({ ok: true, visible }))
       .catch(() => sendResponse({ ok: false }));
     return true;
   }
@@ -738,12 +870,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }).catch(() => sendResponse({ ok: false }));
     return true;
   }
-  if (message.type === "review:finish" || message.type === "review:retry" || message.type === "review:discard" || message.type === "review:remove") {
+  if (message.type === "review:finish" || message.type === "review:discard" || message.type === "review:remove") {
     const operation = message.type === "review:finish" ? concludeReview()
       : message.type === "review:discard" ? continuous.discard().then(() => endReviewTabs("cancelled"))
-      : message.type === "review:remove" ? removeReviewPin(message.captureId)
-      : continuous.retry();
-    operation.then(() => sendResponse({ ok: true })).catch((error) => sendResponse({ ok: false, error: String(error.message || error) }));
+      : removeReviewPin(message.captureId);
+    operation.then(
+      () => sendResponse({ ok: true }),
+      async (error) => {
+        const draft = await draftStore.read().catch(() => null);
+        const pending = draft?.entries.find((entry) => entry.status !== "saved");
+        sendResponse({
+          error: String(error?.message || error),
+          ok: false,
+          reasonKey: reviewErrorKey(pending?.error || error?.message),
+        });
+      },
+    );
     return true;
   }
   if (message.type === "app:open") {
@@ -806,6 +948,62 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     batchState()
       .then((state) => sendResponse({ ...state, ok: true }))
       .catch((error) => sendResponse({ error: String(error), ok: false }));
+    return true;
+  }
+
+  // Trusted page-identity restore: the sender's own URL (never the page's
+  // claim) is sanitized with the current privacy settings and matched against
+  // the durable draft's sanitized entry URLs, the Pinar workspace view and the
+  // requesting frame's stable identity. A child frame is matched by the top
+  // tab URL and the top frame's workspace view (its own claims must not
+  // decide what a child sees), and only the entries of that exact frame are
+  // projected back. Screenshots stay in the draft store. A finished or
+  // discarded draft replies with an empty list.
+  if (message.type === "review:restore") {
+    const tabId = sender.tab?.id;
+    const requestId = typeof message.requestId === "string" && message.requestId ? message.requestId : null;
+    // The top frame sends the empty prefix; any frame sends a stable string.
+    const framePath = typeof message.framePath === "string" ? message.framePath : "";
+    if (tabId == null || !requestId) {
+      sendResponse({ ok: false });
+      return false;
+    }
+    void (async () => {
+      const draft = await draftStore.read().catch(() => null);
+      const isTopFrame = (sender.frameId ?? 0) === 0;
+      let senderUrl = null;
+      let workspaceView = typeof message.workspaceView === "string" ? message.workspaceView : null;
+      if (isTopFrame) {
+        // The top frame reports its own live URL with the request: sender.url
+        // stays stale across same-document (SPA) navigations, and matching
+        // against the stale URL would restore another page's pins here. Only
+        // trust sender.url (or the top-context probe below) as fallbacks.
+        if (typeof message.pageUrl === "string" && message.pageUrl) senderUrl = message.pageUrl;
+        else if (typeof sender.url === "string" && sender.url) senderUrl = sender.url;
+      }
+      if (!senderUrl) {
+        // Child frames restore against the trusted top context, and the top
+        // frame falls back to it when Chrome does not expose the URL.
+        const [context] = await chrome.scripting.executeScript({
+          func: () => globalThis.__pinarReviewContext?.(),
+          target: { frameIds: [0], tabId },
+        }).catch(() => []);
+        if (typeof context?.result?.url === "string" && context.result.url) senderUrl = context.result.url;
+        if (typeof context?.result?.workspaceView === "string" && context.result.workspaceView) workspaceView = context.result.workspaceView;
+        if (!senderUrl) senderUrl = typeof sender.tab?.url === "string" ? sender.tab.url : null;
+      }
+      if (!senderUrl) {
+        sendResponse({ ok: false });
+        return;
+      }
+      const settings = await getSettings();
+      const pageUrl = globalThis.__pinarPrivacy.sanitizeUrl(
+        senderUrl,
+        globalThis.__pinarPrivacy.parseExtraKeys(settings.sensitiveQueryKeys),
+      ).url;
+      const pins = restoreEntriesForPage(draft, { pageUrl, workspaceView, framePath });
+      sendResponse({ ok: true, pins, requestId });
+    })().catch(() => sendResponse({ ok: false }));
     return true;
   }
 
@@ -872,7 +1070,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.persist) {
       persistReviewPins(message, sender, next.filter((pin) => pin.frameId === frameId))
         .then(() => sendResponse({ ok: true, pins: next }))
-        .catch((error) => { reportReviewError(error); sendResponse({ ok: false, pins: next, error: String(error.message || error) }); });
+        .catch((error) => { reportReviewError(error); sendResponse({ ok: false, pins: next, error: String(error.message || error), reasonKey: reviewErrorKey(error?.message) }); });
       return true;
     }
     sendResponse({ ok: true, pins: next });

@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { readFile, rm } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import type {
   CaptureDestination,
@@ -57,6 +57,8 @@ import { localHealthDiscoveryBody } from "./local-api-trust";
 import { decodePngDataUrl } from "./png";
 import { SESSION_PATCH_MAX_BYTES } from "./session-patch";
 import { handleLocalAiRequest, resetLocalAiForTests } from "./ai/local-ai";
+import { handleLocalMcpRequest } from "./local-mcp";
+import { canonicalShotPath, isUsableSessionShotPath, removeSessionShotFile, sessionShotIdentity } from "./local-session-files";
 
 interface LocalSession extends Session {
   batchId?: string | null;
@@ -73,10 +75,12 @@ interface HistoryBatch {
 
 interface HistoryDatabase {
   close(): void;
+  createBatch(label: string): HistoryBatch;
   createCollection(projectId: string, name: string, parentId?: string | null): Collection | null;
   createProject(name: string, icon?: ProjectIcon): Project;
   deleteBatch(id: string): boolean;
   deleteCollection(id: string): boolean;
+  deletePinComment(captureId: string, pinId: string, commentId: string): PinComment;
   deleteProject(id: string): boolean;
   deleteSession(id: string): boolean;
   finishBatch(id: string, finishedAt: string): HistoryBatch | null;
@@ -86,7 +90,11 @@ interface HistoryDatabase {
   listAgentExecutions(captureId: string): AgentExecution[];
   listPinReviews(captureId: string): import("@pinar/shared").PinReview[];
   listPinComments(captureId: string): PinComment[];
-  addPinComment(captureId: string, pinId: string, body: unknown): PinComment;
+  addPin(captureId: string, pin: Pin): Pin;
+  addPinComment(captureId: string, pinId: string, body: unknown, agentName?: unknown): PinComment;
+  deletePin(captureId: string, pinId: string): boolean;
+  updatePinComment(captureId: string, pinId: string, commentId: string, body: unknown): PinComment;
+  updatePinNote(captureId: string, pinId: string, comment: unknown): Pin;
   applyPinReview(
     captureId: string,
     pinId: string,
@@ -109,6 +117,7 @@ interface HistoryDatabase {
     query: string;
   }): LocalSession[];
   moveSession(id: string, collectionId: string): LocalSession | null;
+  renameBatch(id: string, label: string): HistoryBatch | null;
   reorderCollections(projectId: string, items: CollectionPlacement[] | string[]): Collection[] | null;
   reorderProjects(ids: string[]): Project[];
   reorderSessions(collectionId: string, ids: string[]): LocalSession[];
@@ -131,6 +140,13 @@ interface HistoryDatabase {
     warnings?: string[];
   }): LocalSession;
   updateCollection(id: string, name: string): Collection | null;
+  updateSession(id: string, patch: {
+    description?: string;
+    privacy?: import("@pinar/shared").PrivacyReport;
+    reproduction?: import("@pinar/shared").Reproduction | null;
+    title?: string;
+    url?: string;
+  }): LocalSession | null;
   upsertBatch(input: { id: string; label: string; startedAt: string }): HistoryBatch;
   updateProject(id: string, name: string, icon?: ProjectIcon): Project | null;
 }
@@ -266,9 +282,18 @@ function text(body: string, status = 200, initial?: HeadersInit) {
   return new Response(body, { headers: headers(initial), status });
 }
 
+// The shot identity fallback (shotId || session id) is an identifier, never
+// PNG evidence: a shot URL is only presented when the canonical shot file
+// actually exists, so a metadata-only session never fakes a screenshot while
+// a real captured PNG keeps working.
+function localShotUrl(session: LocalSession, origin: string): string | null {
+  const identity = sessionShotIdentity(session);
+  const canonical = canonicalShotPath(identity);
+  return canonical && existsSync(canonical) ? `${origin}/shots/${identity}.png` : null;
+}
+
 function presentSession(session: LocalSession | null, origin: string): Session | null {
   if (!session) return null;
-  const shotId = session.shotId || session.id;
   return {
     ...session,
     captureId: session.captureId || session.id,
@@ -281,7 +306,7 @@ function presentSession(session: LocalSession | null, origin: string): Session |
       Object.fromEntries(visiblePinReviews(session.id).map((review) => [review.pinId, review.status])),
     ),
     schemaVersion: session.schemaVersion ?? 1,
-    shotUrl: shotId ? `${origin}/shots/${shotId}.png` : null,
+    shotUrl: localShotUrl(session, origin),
     viewerUrl: `${origin}/v/${session.id}.md`,
   };
 }
@@ -337,8 +362,35 @@ function sessionPayload(session: LocalSession | null, origin: string) {
 async function createPinComment(request: Request, captureId: string, pinId: string) {
   const body = await readJson(request);
   try {
-    const comment = historyDatabase().addPinComment(captureId, pinId, body.body);
+    // A present but non-string agentName is rejected, never silently downgraded.
+    const comment = historyDatabase().addPinComment(captureId, pinId, body.body, body.agentName ?? null);
     return json({ comment, ok: true });
+  } catch (error) {
+    if (error instanceof PinReviewError) {
+      return json(pinReviewErrorBody(error), pinReviewHttpStatus(error));
+    }
+    throw error;
+  }
+}
+
+async function editPinComment(request: Request, captureId: string, pinId: string, commentId: string) {
+  const body = await readJson(request);
+  try {
+    const comment = historyDatabase().updatePinComment(captureId, pinId, commentId, body.body);
+    return json({ comment, ok: true });
+  } catch (error) {
+    if (error instanceof PinReviewError) {
+      return json(pinReviewErrorBody(error), pinReviewHttpStatus(error));
+    }
+    throw error;
+  }
+}
+
+async function editPinNote(request: Request, captureId: string, pinId: string) {
+  const body = await readJson(request);
+  try {
+    const pin = historyDatabase().updatePinNote(captureId, pinId, body.comment);
+    return json({ ok: true, pin });
   } catch (error) {
     if (error instanceof PinReviewError) {
       return json(pinReviewErrorBody(error), pinReviewHttpStatus(error));
@@ -518,6 +570,13 @@ async function saveHistory(request: Request): Promise<Response> {
   const id = stringValue(body, "id") || stringValue(body, "captureId") || generateNanoId();
   const parsed = visualCaptureFromBody(body, id);
   if (!parsed.ok) return parsed.response;
+  // The stored shot path is later used for file cleanup, so only accept the
+  // canonical shot file of this session's shot identity; reject before any
+  // mutation.
+  const shotPath = stringValue(body, "shotPath");
+  if (shotPath && !isUsableSessionShotPath(shotPath, stringValue(body, "shotId") || id)) {
+    return json({ error: "invalid shotPath" }, 400);
+  }
   try {
     const session = historyDatabase().saveSession({
       batchId: persistBatch(body)?.id ?? null,
@@ -529,7 +588,7 @@ async function saveHistory(request: Request): Promise<Response> {
       privacy: parsed.capture.privacy,
       reproduction: parsed.capture.reproduction,
       shotId: stringValue(body, "shotId"),
-      shotPath: stringValue(body, "shotPath"),
+      shotPath,
       includeScreenshot: booleanValue(
         body,
         "includeScreenshot",
@@ -580,7 +639,10 @@ async function deleteHistory(id: string) {
   const database = historyDatabase();
   const existing = database.getSession(id);
   if (!existing) return json({ error: "not found" }, 404);
-  if (existing.shotPath && existsSync(existing.shotPath)) await rm(existing.shotPath, { force: true });
+  // Corrupted or legacy shotPaths that escape the shots root, or that point
+  // at a file this session does not own, are skipped: the session row is
+  // still deleted and no unrelated file is removed.
+  await removeSessionShotFile(database, existing);
   return json({ deleted: database.deleteSession(id), ok: true });
 }
 
@@ -599,6 +661,7 @@ async function routeLocalApi(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const { method } = request;
   const path = url.pathname;
+  if (path === "/api/mcp") return handleLocalMcpRequest(request, historyDatabase());
   const isLocalAiRoute = path.startsWith("/api/ai/");
   if (isLocalAiRoute) {
     const aiResponse = await handleLocalAiRequest(request, rootPath(), historyDatabase());
@@ -770,6 +833,38 @@ async function routeLocalApi(request: Request): Promise<Response> {
       request,
       decodeURIComponent(pinCommentMatch[1]),
       decodeURIComponent(pinCommentMatch[2]),
+    );
+  }
+  const pinCommentEditMatch = path.match(/^\/api\/sessions\/([^/]+)\/pins\/([^/]+)\/comments\/([^/]+)$/);
+  if (pinCommentEditMatch && method === "PATCH") {
+    return editPinComment(
+      request,
+      decodeURIComponent(pinCommentEditMatch[1]),
+      decodeURIComponent(pinCommentEditMatch[2]),
+      decodeURIComponent(pinCommentEditMatch[3]),
+    );
+  }
+  if (pinCommentEditMatch && method === "DELETE") {
+    try {
+      historyDatabase().deletePinComment(
+        decodeURIComponent(pinCommentEditMatch[1]),
+        decodeURIComponent(pinCommentEditMatch[2]),
+        decodeURIComponent(pinCommentEditMatch[3]),
+      );
+      return json({ ok: true });
+    } catch (error) {
+      if (error instanceof PinReviewError) {
+        return json(pinReviewErrorBody(error), pinReviewHttpStatus(error));
+      }
+      throw error;
+    }
+  }
+  const pinNoteMatch = path.match(/^\/api\/sessions\/([^/]+)\/pins\/([^/]+)$/);
+  if (pinNoteMatch && method === "PATCH") {
+    return editPinNote(
+      request,
+      decodeURIComponent(pinNoteMatch[1]),
+      decodeURIComponent(pinNoteMatch[2]),
     );
   }
   const pinReviewMatch = path.match(/^\/api\/sessions\/([^/]+)\/pins\/([^/]+)\/review$/);

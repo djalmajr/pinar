@@ -18,6 +18,7 @@ const locale = {
     releaseNotFound: "Version nicht gefunden",
     releaseNotFoundDescription:
       "Diese Version steht nicht im veröffentlichten Verlauf.",
+    upcomingRelease: "Nächste Version · noch nicht veröffentlicht",
     viewDetails: "Details anzeigen",
     whatChanged: "Was sich geändert hat",
   },
@@ -478,6 +479,23 @@ const locale = {
           description:
             "Schwärzung sensibler Felder, manuelle Masken, versionierte Zustimmung und veröffentlichte Dienstrichtlinien zogen die Sicherheitsgrenze der Cloud.",
         },
+      },
+    },
+  },
+  upcoming: {
+    title: "MCP-Verwaltung und fokussierte Übergabe",
+    summary:
+      "Als Nächstes: Agenten erhalten die vollständigen MCP-Operationen für Organisation, Sitzungen, Pins und Kommentare, und beim Beenden einer Sitzung wird nur die noch offene Arbeit übergeben.",
+    changes: {
+      "mcp-crud": {
+        title: "Vollständige MCP-Verwaltung für Sitzungen und Organisation",
+        description:
+          "Agenten können Projekte, Sammlungen, Chargen, Sitzungen, Pins und Pin-Kommentare über MCP erstellen, lesen, ändern und löschen. Pinar Local bietet diese Operationen Agenten auf demselben Rechner ohne Konto und ohne Schlüssel an; Pinar Cloud wendet bei jeder Operation Berechtigung und Umfang des Schlüssels an.",
+      },
+      "focused-handoff": {
+        title: "Fokussierte Übergabe, vollständiges Detail auf Abruf",
+        description:
+          "Beim Beenden einer Sitzung enthalten nur die Pins, die noch Arbeit brauchen, die kompakte Übergabe, mit dem Seitenkontext zum Arbeiten; das vollständige Sitzungsdetail bleibt über die Links der Übergabe erreichbar. Mit Prompt wird der Text kopiert, mit Link nur der Sitzungslink und mit Off wird nichts kopiert. Pin-Notizen und Gesprächskommentare bleiben editierbar, nach den gleichen Regeln wie im Viewer lokal und in der Cloud.",
       },
     },
   },

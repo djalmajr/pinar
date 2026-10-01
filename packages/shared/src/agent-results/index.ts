@@ -1,3 +1,5 @@
+import { untrustedMarkdownBlock, untrustedMarkdownLine } from "../visual-context/index.ts";
+
 export const AGENT_NAMES = ["claude", "codex", "cursor", "grok"] as const;
 export type AgentName = (typeof AGENT_NAMES)[number];
 
@@ -215,16 +217,19 @@ export function encodeAgentExecutionsJson(executions: AgentExecution[]) {
 export function formatAgentResultsMarkdown(executions: AgentExecution[]) {
   if (!executions.length) return "";
   const lines = ["## Agent results", ""];
+  // Agents control this prose: every field is kept on its own line (the summary
+  // may span lines, indented) so none can open a heading, list item or fence.
+  // The JSON fence below carries the untouched values.
   for (const execution of executions) {
-    lines.push(`### ${execution.agent} · ${execution.createdAt}`);
-    lines.push(`idempotencyKey: ${execution.idempotencyKey}`);
+    lines.push(`### ${untrustedMarkdownLine(execution.agent)} · ${untrustedMarkdownLine(execution.createdAt)}`);
+    lines.push(`idempotencyKey: ${untrustedMarkdownLine(execution.idempotencyKey)}`);
     lines.push("");
     for (const result of execution.results) {
-      lines.push(`- ${result.pinId}: ${result.status} — ${result.summary}`);
-      if (result.reason) lines.push(`  - reason: ${result.reason}`);
-      if (result.files.length) lines.push(`  - files: ${result.files.join(", ")}`);
-      if (result.commit) lines.push(`  - commit: ${result.commit}`);
-      if (result.pullRequest) lines.push(`  - pullRequest: ${result.pullRequest}`);
+      lines.push(`- ${untrustedMarkdownLine(result.pinId)}: ${untrustedMarkdownLine(result.status)} — ${untrustedMarkdownBlock(result.summary)}`);
+      if (result.reason) lines.push(`  - reason: ${untrustedMarkdownBlock(result.reason, "      ")}`);
+      if (result.files.length) lines.push(`  - files: ${result.files.map(untrustedMarkdownLine).join(", ")}`);
+      if (result.commit) lines.push(`  - commit: ${untrustedMarkdownLine(result.commit)}`);
+      if (result.pullRequest) lines.push(`  - pullRequest: ${untrustedMarkdownLine(result.pullRequest)}`);
     }
     lines.push("");
   }

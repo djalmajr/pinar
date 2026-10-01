@@ -33,9 +33,9 @@ import {
   Tabs,
   TabsList,
   TabsTrigger,
-  toast,
 } from "@pinar/ui";
 import { AgentAccessSettings } from "@/components/AgentAccessSettings";
+import { resolveSettingsSection, showsAiSettings, type SettingsSection } from "@/components/global-settings-sections";
 import { isProjectTreeProject, isRecord } from "@/lib/api-data";
 import { isPaidAuthSession, useAuthSession } from "@/lib/auth-session";
 import { flattenCollections } from "@/lib/collection-tree";
@@ -54,16 +54,12 @@ import LaptopIcon from "~icons/lucide/laptop";
 import MonitorIcon from "~icons/lucide/monitor";
 import MoonIcon from "~icons/lucide/moon";
 import ShieldCheckIcon from "~icons/lucide/shield-check";
-import SparklesIcon from "~icons/lucide/sparkles";
 import SlidersHorizontalIcon from "~icons/lucide/sliders-horizontal";
 import SunIcon from "~icons/lucide/sun";
 import XIcon from "~icons/lucide/x";
 
-type SettingsSection = "about" | "agentAccess" | "aiUsage" | "capture" | "general" | "interface";
 type ThemeMode = "dark" | "light" | "system";
 type AiUsageStatus = "idle" | "loading" | "ready" | "unavailable";
-type AiMode = "byok" | "disabled" | "local";
-type AiSettingsStatus = "clearing" | "idle" | "loading" | "ready" | "saving";
 type AiUsageFeature = "voice_pin";
 
 interface AiUsageHistoryEntry {
@@ -72,15 +68,6 @@ interface AiUsageHistoryEntry {
   credits: number;
   feature: AiUsageFeature;
   status: "refunded" | "reserved" | "succeeded";
-}
-
-interface LocalAiSettings {
-  apiKey: string;
-  apiKeyPreview: string;
-  endpoint: string;
-  hasApiKey: boolean;
-  mode: AiMode;
-  model: string;
 }
 
 interface GlobalSettingsDialogProps {
@@ -97,7 +84,6 @@ const THEME_STORAGE_KEY = "pinar-theme";
 const DEFAULT_DESTINATION = "__default__";
 const PINAR_GITHUB_URL = "https://github.com/djalmajr/pinar";
 const PINAR_WEBSITE_URL = "https://pinar.dev";
-const AI_SETTINGS_TOAST_ID = "ai-settings-feedback";
 const AI_USAGE_FEATURES = new Set<AiUsageFeature>([
   "voice_pin",
 ]);
@@ -197,24 +183,22 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
   const [section, setSection] = useState<SettingsSection>("general");
   const [aiUsage, setAiUsage] = useState<AiUsageHistoryEntry[]>([]);
   const [aiUsageStatus, setAiUsageStatus] = useState<AiUsageStatus>("idle");
-  const [aiSettings, setAiSettings] = useState<LocalAiSettings>({ apiKey: "", apiKeyPreview: "", endpoint: "", hasApiKey: false, mode: "disabled", model: "" });
-  const [aiSettingsStatus, setAiSettingsStatus] = useState<AiSettingsStatus>("idle");
   const [theme, setTheme] = useState<ThemeMode>("system");
   const [projects, setProjects] = useState<ProjectTreeProject[]>([]);
   const [sensitiveQueryKeysDraft, setSensitiveQueryKeysDraft] = useState("");
   const runtime = pinarRuntime();
   const authSession = useAuthSession();
   const showPaidAi = runtime === "cloud" && isPaidAuthSession(authSession);
-  const showAiSettings = runtime === "local" || showPaidAi;
+  const showAiSettings = showsAiSettings(runtime, isPaidAuthSession(authSession));
   const showAgentAccess = runtime === "cloud";
   const [currentRelease, setCurrentRelease] = useState<ProductRelease | null>();
 
   useEffect(() => {
     if (!open) return;
-    setSection(initialSection === "agentAccess" && !showAgentAccess ? "general" : initialSection);
+    setSection(resolveSettingsSection(initialSection, { runtime, showAgentAccess }));
     setTheme(currentThemeMode());
     setSensitiveQueryKeysDraft(sensitiveQueryKeys);
-  }, [initialSection, open, sensitiveQueryKeys, showAgentAccess]);
+  }, [initialSection, open, runtime, sensitiveQueryKeys, showAgentAccess]);
 
   useEffect(() => {
     if (!open) return;
@@ -260,33 +244,6 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
       });
     return () => controller.abort();
   }, [open, showPaidAi]);
-
-  useEffect(() => {
-    if (!open || runtime !== "local") return undefined;
-    const controller = new AbortController();
-    setAiSettingsStatus("loading");
-    void fetch("/api/ai/settings", { cache: "no-store", signal: controller.signal })
-      .then(async (response) => {
-        const value: unknown = await response.json().catch(() => null);
-        if (!response.ok || !isRecord(value)) throw new Error(t("settings.aiUnavailable"));
-        if (value.mode !== "disabled" && value.mode !== "local" && value.mode !== "byok") throw new Error(t("settings.aiUnavailable"));
-        setAiSettings({
-          apiKey: "",
-          apiKeyPreview: typeof value.apiKeyPreview === "string" ? value.apiKeyPreview : "",
-          endpoint: typeof value.endpoint === "string" ? value.endpoint : "",
-          hasApiKey: value.hasApiKey === true,
-          mode: value.mode,
-          model: typeof value.model === "string" ? value.model : "",
-        });
-        setAiSettingsStatus("ready");
-      })
-      .catch((error) => {
-        if (controller.signal.aborted) return;
-        toast.error(error instanceof Error ? error.message : t("settings.aiUnavailable"), { id: AI_SETTINGS_TOAST_ID });
-        setAiSettingsStatus("ready");
-      });
-    return () => controller.abort();
-  }, [open, runtime, t]);
 
   useEffect(() => {
     if (!open) return;
@@ -345,7 +302,7 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
     : section === "agentAccess"
       ? t("settings.agentAccessDescription")
     : section === "aiUsage"
-      ? runtime === "local" ? t("settings.aiDescription") : t("settings.aiUsageDescription")
+      ? t("settings.aiUsageDescription")
     : section === "capture"
       ? t("settings.captureDescription")
       : section === "interface"
@@ -367,64 +324,6 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
     const inbox = project.collections.find((collection) => collection.isProtected) ?? project.collections[0];
     if (!inbox) return;
     void patch({ captureDestination: { collectionId: inbox.id, projectId: project.id } });
-  }
-
-  async function saveAiSettings() {
-    setAiSettingsStatus("saving");
-    toast.dismiss(AI_SETTINGS_TOAST_ID);
-    try {
-      const response = await fetch("/api/ai/settings", {
-        body: JSON.stringify({
-          endpoint: aiSettings.endpoint,
-          mode: aiSettings.mode,
-          model: aiSettings.model,
-          ...(aiSettings.apiKey ? { apiKey: aiSettings.apiKey } : {}),
-        }),
-        headers: { "Content-Type": "application/json" },
-        method: "PATCH",
-      });
-      const value: unknown = await response.json().catch(() => null);
-      if (!response.ok || !isRecord(value)) {
-        throw new Error(isRecord(value) && typeof value.error === "string" ? value.error : t("settings.aiUnavailable"));
-      }
-      setAiSettings((current) => ({
-        ...current,
-        apiKey: "",
-        apiKeyPreview: typeof value.apiKeyPreview === "string" ? value.apiKeyPreview : current.apiKeyPreview,
-        hasApiKey: value.hasApiKey === true,
-      }));
-      const testedModel = isRecord(value.tested) && typeof value.tested.model === "string"
-        ? value.tested.model
-        : aiSettings.model;
-      toast.success(t("settings.aiSaved", { model: testedModel }), { id: AI_SETTINGS_TOAST_ID });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("settings.aiUnavailable"), { id: AI_SETTINGS_TOAST_ID });
-    } finally {
-      setAiSettingsStatus("ready");
-    }
-  }
-
-  async function clearAiKey() {
-    setAiSettingsStatus("clearing");
-    toast.dismiss(AI_SETTINGS_TOAST_ID);
-    try {
-      const response = await fetch("/api/ai/settings/key", { method: "DELETE" });
-      const value: unknown = await response.json().catch(() => null);
-      if (!response.ok || !isRecord(value)) {
-        throw new Error(isRecord(value) && typeof value.error === "string" ? value.error : t("settings.aiUnavailable"));
-      }
-      setAiSettings((current) => ({
-        ...current,
-        apiKey: "",
-        apiKeyPreview: "",
-        hasApiKey: false,
-      }));
-      toast.success(t("settings.aiKeyRemoved"), { id: AI_SETTINGS_TOAST_ID });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("settings.aiUnavailable"), { id: AI_SETTINGS_TOAST_ID });
-    } finally {
-      setAiSettingsStatus("ready");
-    }
   }
 
   return (
@@ -483,7 +382,7 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
                   variant="ghost"
                   onClick={() => setSection("aiUsage")}
                 >
-                  {runtime === "local" ? <SparklesIcon /> : <HistoryIcon />}
+                  <HistoryIcon />
                   {t("settings.ai")}
                 </Button>
               ) : null}
@@ -667,106 +566,6 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
                 <AgentAccessSettings canCreate={showPaidAi} open={open && section === "agentAccess"} projects={projects} />
               </section> : null}
               {showAiSettings ? <section className={cn("flex flex-col gap-3", section !== "aiUsage" && "hidden")}>
-                {runtime === "local" ? (
-                  <div className="flex flex-col gap-5">
-                    <SettingRow controlClassName="w-72" description={t("settings.aiModeDescription")} title={t("settings.aiMode")}>
-                      <Select
-                        disabled={aiSettingsStatus === "loading" || aiSettingsStatus === "saving" || aiSettingsStatus === "clearing"}
-                        items={[
-                          { label: t("settings.aiDisabled"), value: "disabled" },
-                          { label: t("settings.aiLocal"), value: "local" },
-                          { label: t("settings.aiByok"), value: "byok" },
-                        ]}
-                        value={aiSettings.mode}
-                        onValueChange={(value) => {
-                          if (value !== "disabled" && value !== "local" && value !== "byok") return;
-                          setAiSettings((current) => ({
-                            ...current,
-                            endpoint: value === "local" && !current.endpoint ? "http://127.0.0.1:11434/v1" : current.endpoint,
-                            mode: value,
-                          }));
-                        }}
-                      >
-                        <SelectTrigger aria-label={t("settings.aiMode")} className="w-full"><SelectValue /></SelectTrigger>
-                        <SelectContent align="end">
-                          <SelectGroup>
-                            <SelectItem value="disabled">{t("settings.aiDisabled")}</SelectItem>
-                            <SelectItem value="local">{t("settings.aiLocal")}</SelectItem>
-                            <SelectItem value="byok">{t("settings.aiByok")}</SelectItem>
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    </SettingRow>
-                    {aiSettings.mode !== "disabled" ? (
-                      <>
-                        <SettingRow controlClassName="w-72" description={t("settings.aiEndpointDescription")} title={t("settings.aiEndpoint")}>
-                          <Input
-                            aria-label={t("settings.aiEndpoint")}
-                            autoComplete="url"
-                            disabled={aiSettingsStatus === "saving" || aiSettingsStatus === "clearing"}
-                            placeholder="http://127.0.0.1:11434/v1"
-                            value={aiSettings.endpoint}
-                            onChange={(event) => {
-                              setAiSettings((current) => ({ ...current, endpoint: event.target.value }));
-                            }}
-                          />
-                        </SettingRow>
-                        <SettingRow controlClassName="w-72" description={t("settings.aiModelDescription")} title={t("settings.aiModel")}>
-                          <Input
-                            aria-label={t("settings.aiModel")}
-                            disabled={aiSettingsStatus === "saving" || aiSettingsStatus === "clearing"}
-                            placeholder="llama3.2"
-                            value={aiSettings.model}
-                            onChange={(event) => {
-                              setAiSettings((current) => ({ ...current, model: event.target.value }));
-                            }}
-                          />
-                        </SettingRow>
-                        {aiSettings.mode === "byok" ? (
-                          <SettingRow controlClassName="w-72" description={t("settings.aiKeyDescription")} title={t("settings.aiKey")}>
-                            <div className="relative w-full">
-                              <Input
-                                aria-label={t("settings.aiKey")}
-                                autoComplete="off"
-                                className={cn("w-full", aiSettings.hasApiKey && "pr-9")}
-                                disabled={aiSettingsStatus === "saving" || aiSettingsStatus === "clearing"}
-                                placeholder={aiSettings.apiKeyPreview || (aiSettings.hasApiKey ? t("settings.aiKeyStored") : "sk-…")}
-                                type="password"
-                                value={aiSettings.apiKey}
-                                onChange={(event) => {
-                                  setAiSettings((current) => ({ ...current, apiKey: event.target.value }));
-                                }}
-                              />
-                              {aiSettings.hasApiKey ? (
-                                <Button
-                                  aria-label={t("settings.aiKeyRemove")}
-                                  className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                                  disabled={aiSettingsStatus === "saving" || aiSettingsStatus === "clearing"}
-                                  size="icon-xs"
-                                  title={t("settings.aiKeyRemove")}
-                                  type="button"
-                                  variant="ghost"
-                                  onClick={() => void clearAiKey()}
-                                >
-                                  <XIcon className="size-3.5" />
-                                </Button>
-                              ) : null}
-                            </div>
-                          </SettingRow>
-                        ) : null}
-                      </>
-                    ) : null}
-                    <div className="flex justify-end">
-                      <Button
-                        disabled={aiSettingsStatus === "loading" || aiSettingsStatus === "saving" || aiSettingsStatus === "clearing"}
-                        type="button"
-                        onClick={() => void saveAiSettings()}
-                      >
-                        {aiSettingsStatus === "saving" ? t("settings.aiTesting") : t("settings.aiTestAndSave")}
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
                   <div className="flex flex-col gap-3">
                     <SettingRow
                       description={t("settings.voicePostProcessingDescription")}
@@ -801,7 +600,6 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
                   </div>
                 ))}
                   </div>
-                )}
               </section> : null}
               <section className={cn("flex flex-col gap-5", section !== "about" && "hidden")}>
                 <div className="flex flex-col gap-5">

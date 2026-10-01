@@ -151,9 +151,9 @@ const messages = {
   "settings.copyOnFinishBatchLink": "Link",
   "settings.copyOnFinishBatchOff": "Off",
   "settings.copyOnFinishBatchPrompt": "Prompt",
-  "settings.copyViewerContent": "Copy Markdown content",
+  "settings.copyViewerContent": "Include complementary history",
   "settings.copyViewerContentDescription":
-    "Copies only the saved Markdown document instead of the visual context bundle.",
+    "Adds a concise, non-actionable section with completed pins, review status, and agent results. Open pins are never repeated; the full Markdown stays available from the link.",
   "settings.handoffHeading": "Agent handoff",
   "settings.includeViewer": "Copy Web Viewer",
   "settings.includeViewerDescription":
@@ -217,19 +217,19 @@ const messages = {
     "Select an element or area and attach the feedback exactly where the problem appears, without losing the page context.",
   "landing.contextTitle": "Preserve the context",
   "landing.contextDescription":
-    "Every capture keeps the screenshot, comment, selector, DOM path, and coordinates together.",
-  "landing.aiTitle": "Hand it to AI",
+    "Finishing copies a compact prompt with each useful fact once, or only the session Markdown link — the full details stay available when needed.",
+  "landing.aiTitle": "Agents work with MCP",
   "landing.aiDescription":
-    "Copy one Markdown-ready link so an AI agent can move from report to implementation quickly.",
+    "Connect agents through the Model Context Protocol to read sessions and pins, comment on feedback, and organize projects and collections — no account or API key locally, and an authorized key with explicit sharing on Pinar Cloud.",
   "landing.privateTitle": "Private by default",
   "landing.privateDescription":
     "Run the local server with unlimited retention. Your screenshots and annotations remain on your device.",
   "landing.privateNote":
-    "Ideal for private workflows with AI agents running on your own machine.",
+    "Ideal for private workflows: your own agents reach the local MCP connection without any account, login, or API key.",
   "landing.openLocalDashboard": "Open local dashboard",
   "landing.shareTitle": "Share when you need to",
   "landing.shareDescription":
-    "Use the remote server for unlisted viewer and Markdown links, with 30-day Free retention or retention while a paid plan is active.",
+    "Cloud links stay private until you share them explicitly, and agents access them with an authorized key. Unlisted viewer and Markdown links keep 30-day Free retention or retention while a paid plan is active.",
   "landing.sameExperience":
     "The same capture and viewer experience works locally and remotely.",
   "landing.comparePlans": "Compare plans",
@@ -360,7 +360,8 @@ const messages = {
   "dashboard.designSystem": "Extract design system",
   "dashboard.collaborators": "Collaborators",
   "dashboard.collaboratorsTitle": "Collaborators for {name}",
-  "dashboard.collaboratorsDescription": "Invite reviewers by email to view and review this collection.",
+  "dashboard.collaboratorsDescription": "Invite reviewers by email to view and review this collection."
+,
   "dashboard.collectionAccessTitle": "Access to {name}",
   "dashboard.collectionAccessDescription": "Manage access to this collection.",
   "dashboard.collaboratorEmailPlaceholder": "teammate@example.com",
@@ -576,6 +577,8 @@ const messages = {
   "viewer.commentLabel": "Comment",
   "viewer.sendComment": "Send comment",
   "viewer.commentFailed": "The comment could not be sent. Try again.",
+  "viewer.commentEditFailed": "The comment could not be saved. Try again.",
+  "viewer.editComment": "Edit comment",
   "viewer.reviewActionFailed": "The pin could not be updated. Try again.",
   "viewer.originalPinComment": "Pin comment",
   "viewer.lastAgentResult": "Last agent result",
@@ -601,6 +604,14 @@ const messages = {
     "The AI request failed and the Pinar Cloud credit refund is still processing. Retry safely in a few minutes.",
   "viewer.aiNetworkError":
     "The connection was interrupted. Try again to safely resume the same request.",
+  "viewer.editorBold": "Bold",
+  "viewer.editorItalic": "Italic",
+  "viewer.editorBulletList": "Bullet list",
+  "viewer.editorOrderedList": "Numbered list",
+  "viewer.editorBlockquote": "Quote",
+  "viewer.editorCode": "Code",
+  "viewer.editorFormatting": "Comment formatting",
+  "commentTooLong": "Comments must be at most 2000 characters.",
   "share.publish": "Publish",
   "share.revoke": "Revoke",
   "share.copyLink": "Copy link",

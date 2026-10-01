@@ -153,9 +153,9 @@ const messages: UiMessages = {
   "settings.copyOnFinishBatchLink": "Link",
   "settings.copyOnFinishBatchOff": "Aus",
   "settings.copyOnFinishBatchPrompt": "Prompt",
-  "settings.copyViewerContent": "Markdown-Inhalt kopieren",
+  "settings.copyViewerContent": "Ergänzenden Verlauf einbeziehen",
   "settings.copyViewerContentDescription":
-    "Kopiert ausschließlich das gespeicherte Markdown-Dokument anstelle des Visual-Context-Bundles.",
+    "Fügt einen knappen, nicht umsetzbaren Abschnitt mit erledigten Pins, Reviews und Agentenergebnissen hinzu. Offene Pins werden nicht wiederholt; das vollständige Markdown bleibt über den Link verfügbar.",
   "settings.handoffHeading": "Übergabe an den Agenten",
   "settings.includeViewer": "Web-Viewer kopieren",
   "settings.includeViewerDescription":
@@ -219,19 +219,19 @@ const messages: UiMessages = {
     "Wähle ein Element oder einen Bereich und platziere das Feedback genau an der Problemstelle, ohne den Seitenkontext zu verlieren.",
   "landing.contextTitle": "Bewahre den Kontext",
   "landing.contextDescription":
-    "Jede Aufnahme hält Screenshot, Kommentar, Selektor, DOM-Pfad und Koordinaten zusammen.",
-  "landing.aiTitle": "Übergib es an die KI",
+    "Beim Beenden kopiert Pinar einen kompakten Prompt mit jeder nützlichen Information genau einmal, oder nur den Markdown-Link der Sitzung – die vollen Details bleiben bei Bedarf verfügbar.",
+  "landing.aiTitle": "Agenten arbeiten mit MCP",
   "landing.aiDescription":
-    "Kopiere einen Markdown-fertigen Link, damit ein KI-Agent schnell vom Bericht zur Umsetzung gelangt.",
+    "Verbinde Agenten über das Model Context Protocol, um Sitzungen und Pins zu lesen, Feedback zu kommentieren und Projekte und Collections zu organisieren – lokal ohne Konto oder API-Schlüssel, und in Pinar Cloud mit autorisiertem Schlüssel und explizitem Teilen.",
   "landing.privateTitle": "Standardmäßig privat",
   "landing.privateDescription":
     "Nutze den lokalen Server mit unbegrenzter Aufbewahrung. Screenshots und Anmerkungen bleiben auf deinem Gerät.",
   "landing.privateNote":
-    "Ideal für private Workflows mit KI-Agenten, die auf deinem eigenen Rechner laufen.",
+    "Ideal für private Workflows: Deine eigenen Agenten erreichen die lokale MCP-Verbindung ohne Konto, Login oder API-Schlüssel.",
   "landing.openLocalDashboard": "Lokale Übersicht öffnen",
   "landing.shareTitle": "Teile bei Bedarf",
   "landing.shareDescription":
-    "Nutze den Remote-Server für nicht gelistete Viewer- und Markdown-Links, 30 Tage kostenlos oder solange ein kostenpflichtiger Tarif aktiv ist.",
+    "Cloud-Links bleiben privat, bis du sie explizit teilst, und Agenten greifen mit einem autorisierten Schlüssel darauf zu. Nicht gelistete Viewer- und Markdown-Links behalten die kostenlose 30-Tage-Aufbewahrung oder die Aufbewahrung, solange ein kostenpflichtiger Tarif aktiv ist.",
   "landing.sameExperience":
     "Dieselbe Aufnahme- und Viewer-Erfahrung funktioniert lokal und remote.",
   "landing.comparePlans": "Tarife vergleichen",
@@ -363,7 +363,8 @@ const messages: UiMessages = {
   "dashboard.designSystem": "Design-System extrahieren",
   "dashboard.collaborators": "Mitarbeiter",
   "dashboard.collaboratorsTitle": "Mitarbeiter für {name}",
-  "dashboard.collaboratorsDescription": "Lade Prüfer per E-Mail ein, um diese Sammlung anzusehen und zu prüfen.",
+  "dashboard.collaboratorsDescription": "Lade Prüfer per E-Mail ein, um diese Sammlung anzusehen und zu prüfen."
+,
   "dashboard.collectionAccessTitle": "Zugriff auf {name}",
   "dashboard.collectionAccessDescription": "Verwalte den Zugriff auf diese Sammlung.",
   "dashboard.collaboratorEmailPlaceholder": "kollege@beispiel.de",
@@ -579,6 +580,8 @@ const messages: UiMessages = {
   "viewer.commentLabel": "Kommentar",
   "viewer.sendComment": "Kommentar senden",
   "viewer.commentFailed": "Der Kommentar konnte nicht gesendet werden. Bitte erneut versuchen.",
+  "viewer.commentEditFailed": "Der Kommentar konnte nicht gespeichert werden. Bitte erneut versuchen.",
+  "viewer.editComment": "Kommentar bearbeiten",
   "viewer.reviewActionFailed": "Der Pin konnte nicht aktualisiert werden. Bitte erneut versuchen.",
   "viewer.originalPinComment": "Pinkommentar",
   "viewer.lastAgentResult": "Letztes Agentenergebnis",
@@ -606,6 +609,14 @@ const messages: UiMessages = {
     "Die KI-Anfrage ist fehlgeschlagen und die Pinar Cloud Gutschrift wird noch verarbeitet. Versuche es in einigen Minuten sicher erneut.",
   "viewer.aiNetworkError":
     "Die Verbindung wurde unterbrochen. Versuche es erneut, um dieselbe Anfrage sicher fortzusetzen.",
+  "viewer.editorBold": "Fett",
+  "viewer.editorItalic": "Kursiv",
+  "viewer.editorBulletList": "Aufzählungsliste",
+  "viewer.editorOrderedList": "Nummerierte Liste",
+  "viewer.editorBlockquote": "Zitat",
+  "viewer.editorCode": "Code",
+  "viewer.editorFormatting": "Kommentarformatierung",
+  "commentTooLong": "Der Kommentar darf höchstens 2000 Zeichen lang sein.",
   "share.publish": "Veröffentlichen",
   "share.revoke": "Widerrufen",
   "share.copyLink": "Link kopieren",

@@ -1,3 +1,5 @@
+import { untrustedMarkdownLine } from "../visual-context/index.ts";
+
 export const PIN_REVIEW_STATUSES = [
   "accepted",
   "correction_ready",
@@ -58,13 +60,16 @@ export interface PinReview {
   updatedAt: string;
 }
 
+export const PIN_COMMENT_ACTOR_TYPES = ["agent", "human"] as const;
+export type PinCommentActorType = (typeof PIN_COMMENT_ACTOR_TYPES)[number];
+
 export interface PinComment {
   id: string;
   captureId: string;
   pinId: string;
   actorId: string;
   actorLabel: string;
-  actorType: "human";
+  actorType: PinCommentActorType;
   body: string;
   createdAt: string;
 }
@@ -167,15 +172,17 @@ export function pinReviewHttpStatus(error: unknown) {
   return 400;
 }
 
+// The ids and states come from stored records and are printed in the full
+// viewer Markdown, so each one is kept on its own line.
 export function formatPinReviewsMarkdown(reviews: PinReview[]) {
   if (!reviews.length) return "";
   const lines = ["## Pin review", ""];
   for (const review of reviews) {
-    lines.push(`- ${review.pinId}: ${review.status}`);
+    lines.push(`- ${untrustedMarkdownLine(review.pinId)}: ${untrustedMarkdownLine(review.status)}`);
     if (review.timeline.length) {
       const last = review.timeline[review.timeline.length - 1];
       if (last) {
-        lines.push(`  - last: ${last.fromStatus} → ${last.toStatus} (${last.origin})`);
+        lines.push(`  - last: ${untrustedMarkdownLine(last.fromStatus)} → ${untrustedMarkdownLine(last.toStatus)} (${untrustedMarkdownLine(last.origin)})`);
       }
     }
   }

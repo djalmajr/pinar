@@ -153,9 +153,9 @@ const messages: UiMessages = {
   "settings.copyOnFinishBatchLink": "Link",
   "settings.copyOnFinishBatchOff": "Desligado",
   "settings.copyOnFinishBatchPrompt": "Prompt",
-  "settings.copyViewerContent": "Copiar conteúdo Markdown",
+  "settings.copyViewerContent": "Incluir histórico complementar",
   "settings.copyViewerContentDescription":
-    "Copia somente o documento Markdown salvo, no lugar do bundle de contexto visual.",
+    "Acrescenta uma seção concisa e não acionável com pins concluídos, revisões e resultados do agente. Pins abertos não se repetem; o Markdown completo continua disponível pelo link.",
   "settings.handoffHeading": "Entrega ao agente",
   "settings.includeViewer": "Copiar Web Viewer",
   "settings.includeViewerDescription":
@@ -218,19 +218,19 @@ const messages: UiMessages = {
     "Selecione um elemento ou uma área e anexe o feedback exatamente onde o problema aparece, sem perder o contexto da página.",
   "landing.contextTitle": "Preserve o contexto",
   "landing.contextDescription":
-    "Cada captura mantém juntos o screenshot, comentário, seletor, caminho DOM e coordenadas.",
-  "landing.aiTitle": "Entregue para a IA",
+    "Ao terminar, o Pinar copia um prompt compacto com cada informação útil uma vez, ou apenas o link Markdown da sessão — os detalhes completos permanecem disponíveis quando necessário.",
+  "landing.aiTitle": "Agentes trabalham com MCP",
   "landing.aiDescription":
-    "Copie um único link pronto para Markdown para que um agente de IA passe rapidamente do relato à implementação.",
+    "Conecte agentes pelo Model Context Protocol para ler sessões e pins, comentar o feedback e organizar projetos e coleções — sem conta ou chave de API no local, e com chave autorizada e compartilhamento explícito no Pinar Cloud.",
   "landing.privateTitle": "Privado por padrão",
   "landing.privateDescription":
     "Execute o servidor local com retenção ilimitada. Seus screenshots e anotações permanecem no dispositivo.",
   "landing.privateNote":
-    "Ideal para fluxos privados com agentes de IA executados na sua própria máquina.",
+    "Ideal para fluxos privados: seus próprios agentes acessam a conexão MCP local sem conta, login ou chave de API.",
   "landing.openLocalDashboard": "Abrir painel local",
   "landing.shareTitle": "Compartilhe quando precisar",
   "landing.shareDescription":
-    "Use o servidor remoto para links não listados do viewer e Markdown, com retenção gratuita de 30 dias ou enquanto um plano pago estiver ativo.",
+    "Links do Pinar Cloud permanecem privados até você compartilhá-los explicitamente, e agentes acessam com uma chave autorizada. Links não listados do viewer e Markdown mantêm a retenção gratuita de 30 dias ou a retenção enquanto um plano pago estiver ativo.",
   "landing.sameExperience":
     "A mesma experiência de captura e visualização funciona local e remotamente.",
   "landing.comparePlans": "Comparar planos",
@@ -360,7 +360,8 @@ const messages: UiMessages = {
   "dashboard.designSystem": "Extrair design system",
   "dashboard.collaborators": "Colaboradores",
   "dashboard.collaboratorsTitle": "Colaboradores de {name}",
-  "dashboard.collaboratorsDescription": "Convide revisores por e-mail para visualizar e revisar esta coleção.",
+  "dashboard.collaboratorsDescription": "Convide revisores por e-mail para visualizar e revisar esta coleção."
+,
   "dashboard.collectionAccessTitle": "Acesso a {name}",
   "dashboard.collectionAccessDescription": "Gerencie o acesso a esta coleção.",
   "dashboard.collaboratorEmailPlaceholder": "colega@exemplo.com",
@@ -575,6 +576,8 @@ const messages: UiMessages = {
   "viewer.commentLabel": "Comentário",
   "viewer.sendComment": "Enviar comentário",
   "viewer.commentFailed": "Não foi possível enviar o comentário. Tente novamente.",
+  "viewer.commentEditFailed": "Não foi possível salvar o comentário. Tente novamente.",
+  "viewer.editComment": "Editar comentário",
   "viewer.reviewActionFailed": "Não foi possível atualizar o pin. Tente novamente.",
   "viewer.originalPinComment": "Comentário do pin",
   "viewer.lastAgentResult": "Última devolutiva do agente",
@@ -601,6 +604,14 @@ const messages: UiMessages = {
     "A solicitação de IA falhou e o estorno do crédito do Pinar Cloud ainda está sendo processado. Tente novamente com segurança em alguns minutos.",
   "viewer.aiNetworkError":
     "A conexão foi interrompida. Tente novamente para retomar a mesma solicitação com segurança.",
+  "viewer.editorBold": "Negrito",
+  "viewer.editorItalic": "Itálico",
+  "viewer.editorBulletList": "Lista com marcadores",
+  "viewer.editorOrderedList": "Lista numerada",
+  "viewer.editorBlockquote": "Citação",
+  "viewer.editorCode": "Código",
+  "viewer.editorFormatting": "Formatação do comentário",
+  "commentTooLong": "O comentário deve ter no máximo 2000 caracteres.",
   "share.publish": "Publicar",
   "share.revoke": "Revogar",
   "share.copyLink": "Copiar link",

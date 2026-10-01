@@ -43,15 +43,20 @@ for (const mode of ["local", "cloud"]) test(`${mode}: progressive screenshots fo
     const response = await request("/api/batches/review_contract/markdown");
     expect(response.status).toBe(200);
     const markdown = await response.text();
-    expect(markdown).not.toContain("Reference only: full viewer Markdown");
+    expect(markdown).not.toContain("Complementary history");
     for (let index = 0; index < 3; index++) {
       expect(markdown).toContain(`Comment ${index}`);
       expect(markdown).toContain(`review_capture_${index}`);
       expect(markdown).toContain(`pin_${index}`);
     }
+    const heading = "Complementary history (not actionable)";
+    const fenceCount = (text: string) => text.match(/```pinar-visual-context/g)?.length ?? 0;
+    // Three open pins without history: nothing to add, so the preference never duplicates them.
     const explicitDetailedResponse = await request("/api/batches/review_contract/markdown?includeViewerContent=1");
     expect(explicitDetailedResponse.status).toBe(200);
-    expect(await explicitDetailedResponse.text()).toContain("Reference only: full viewer Markdown");
+    const explicitDetailed = await explicitDetailedResponse.text();
+    expect(explicitDetailed).toBe(markdown);
+    expect(fenceCount(explicitDetailed)).toBe(3);
     const preferencePatch = await request(
       "/api/preferences",
       { copyViewerContent: true },
@@ -61,11 +66,36 @@ for (const mode of ["local", "cloud"]) test(`${mode}: progressive screenshots fo
     const detailedResponse = await request("/api/batches/review_contract/markdown");
     expect(detailedResponse.status).toBe(200);
     const detailed = await detailedResponse.text();
-    expect(detailed).toContain("Reference only: full viewer Markdown");
-    expect(detailed).toContain("### Page 0");
+    expect(detailed).toBe(markdown);
+    expect(detailed).not.toContain("full viewer Markdown");
+    expect(detailed).not.toContain("pinar-viewer-reference");
+    expect(detailed).not.toContain(heading);
+    expect(detailed.match(/Comment 0/g)).toHaveLength(1);
     expect(detailed).toContain("captureId\":\"review_capture_0\"");
     expect(detailed).toContain("pinId\":\"pin_0\"");
     expect(detailed).not.toContain("token=");
+    // An accepted pin leaves the actionable copy and appears once, concisely, as complementary history.
+    const accepted = await request("/api/sessions/review_capture_1/pins/pin_1/review", { action: "accept" });
+    expect(accepted.status).toBe(200);
+    const withHistory = await (await request("/api/batches/review_contract/markdown")).text();
+    expect(fenceCount(withHistory)).toBe(2);
+    expect(withHistory).toContain(heading);
+    expect(withHistory).toContain("### Page 1");
+    expect(withHistory).toContain("- #1 (pin_1): Comment 1 — accepted");
+    expect(withHistory.match(/Comment 1/g)).toHaveLength(1);
+    expect(withHistory.split(heading)[0]).not.toContain("review_capture_1\"");
+    expect(withHistory).not.toContain("pinar-viewer-reference");
+    const withoutHistory = await (await request("/api/batches/review_contract/markdown?includeViewerContent=0")).text();
+    expect(fenceCount(withoutHistory)).toBe(2);
+    expect(withoutHistory).not.toContain(heading);
+    expect(withoutHistory).not.toContain("Comment 1");
+    const acceptedPage = await (await request("/api/sessions/review_capture_1/markdown")).text();
+    expect(acceptedPage).toContain("\"pins\":[]");
+    expect(acceptedPage.match(/Comment 1/g)).toHaveLength(1);
+    expect(acceptedPage.split(heading)[0]).not.toContain("Comment 1");
+    const acceptedPageOff = await (await request("/api/sessions/review_capture_1/markdown?includeViewerContent=0")).text();
+    expect(acceptedPageOff).not.toContain("Comment 1");
+    expect(acceptedPageOff).not.toContain(heading);
     const pageResponse = await request("/api/sessions/review_capture_0/markdown");
     expect(pageResponse.status).toBe(200);
     const pageMarkdown = await pageResponse.text();
@@ -80,13 +110,13 @@ for (const mode of ["local", "cloud"]) test(`${mode}: progressive screenshots fo
     expect(includeViewerOff.status).toBe(200);
     const compactAfterViewerOff = await request("/api/batches/review_contract/markdown");
     expect(compactAfterViewerOff.status).toBe(200);
-    expect(await compactAfterViewerOff.text()).not.toContain("Reference only: full viewer Markdown");
+    expect(await compactAfterViewerOff.text()).not.toContain("Complementary history");
     const explicitAfterViewerOff = await request("/api/batches/review_contract/markdown?includeViewerContent=1");
     expect(explicitAfterViewerOff.status).toBe(200);
-    expect(await explicitAfterViewerOff.text()).not.toContain("Reference only: full viewer Markdown");
+    expect(await explicitAfterViewerOff.text()).not.toContain("Complementary history");
     const pageAfterViewerOff = await request("/api/sessions/review_capture_0/markdown");
     expect(pageAfterViewerOff.status).toBe(200);
-    expect(await pageAfterViewerOff.text()).not.toContain("Reference only: full viewer Markdown");
+    expect(await pageAfterViewerOff.text()).not.toContain("Complementary history");
     if (mode === "cloud") {
       const anonymous = await handleCloudApiRequest(new Request(`${origin}/api/batches/review_contract/markdown`), env);
       expect(anonymous.status).toBe(401);
@@ -103,7 +133,7 @@ for (const mode of ["local", "cloud"]) test(`${mode}: progressive screenshots fo
     } else {
       const publicResponse = await handlePublicRequest(new Request(`${origin}/b/review_contract.md`));
       expect(publicResponse.status).toBe(200);
-      expect(await publicResponse.text()).not.toContain("Reference only: full viewer Markdown");
+      expect(await publicResponse.text()).not.toContain("Complementary history");
     }
     expect((await request("/api/history/review_capture_1", undefined, "DELETE")).status).toBe(200);
     expect((await (await request("/api/history?batchId=review_contract")).json() as any).sessions).toHaveLength(2);

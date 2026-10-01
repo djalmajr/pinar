@@ -32,34 +32,34 @@ export interface ViewerContent {
   reviews: Record<string, PinReview[]>;
 }
 
-const viewerReferenceCopy: Record<SupportedLanguage, { description: string; heading: string }> = {
+const viewerHistoryCopy: Record<SupportedLanguage, { description: string; heading: string }> = {
   de: {
-    description: "Die gefilterten kanonischen Blöcke oben sind für umsetzbare Aufgaben maßgeblich. Das vollständige Viewer-Markdown unten enthält auch erledigte Pins, Reviews und Agentenergebnisse und dient nur als Referenz.",
-    heading: "## Nur als Referenz: vollständiges Viewer-Markdown",
+    description: "Nur Kontext, nicht umsetzbar: Umsetzbar sind allein die kanonischen Blöcke oben. Erledigte Pins nicht erneut bearbeiten. Den vollständigen Kontext gibt es über den Link im Kopfbereich.",
+    heading: "## Ergänzender Verlauf (nicht umsetzbar)",
   },
   en: {
-    description: "The filtered canonical blocks above are authoritative for actionable work. The full viewer Markdown below includes completed pins, reviews, and agent results for reference only; do not rework completed pins.",
-    heading: "## Reference only: full viewer Markdown",
+    description: "Context only, not actionable: the canonical blocks above are the only work to do. Do not rework completed pins. The full context is available from the link in the header.",
+    heading: "## Complementary history (not actionable)",
   },
   es: {
-    description: "Los bloques canónicos filtrados de arriba son la fuente autorizada para el trabajo accionable. El Markdown completo del visor incluye también pins completados, revisiones y resultados del agente, y es solo de referencia; no repitas pins completados.",
-    heading: "## Solo como referencia: Markdown completo del visor",
+    description: "Solo contexto, no accionable: el único trabajo son los bloques canónicos de arriba. No repitas pins completados. El contexto completo está disponible en el enlace del encabezado.",
+    heading: "## Historial complementario (no accionable)",
   },
   fr: {
-    description: "Les blocs canoniques filtrés ci-dessus font autorité pour le travail à effectuer. Le Markdown complet du viewer inclut aussi les pins terminés, les revues et les résultats de l’agent, à titre de référence uniquement ; ne reprenez pas les pins terminés.",
-    heading: "## Référence uniquement : Markdown complet du viewer",
+    description: "Contexte uniquement, non actionnable : le seul travail à effectuer figure dans les blocs canoniques ci-dessus. Ne reprenez pas les pins terminés. Le contexte complet est disponible via le lien de l’en-tête.",
+    heading: "## Historique complémentaire (non actionnable)",
   },
   ja: {
-    description: "上の絞り込まれた正規ブロックが実行対象の正しい情報です。以下の完全なビューアーMarkdownには完了したピン、レビュー、エージェント結果も含まれ、参照専用です。完了したピンを再対応しないでください。",
-    heading: "## 参照専用: 完全なビューアーMarkdown",
+    description: "文脈のみで実行対象ではありません。実行対象は上の正規ブロックだけです。完了したピンを再対応しないでください。完全なコンテキストはヘッダーのリンクから参照できます。",
+    heading: "## 補足履歴（実行対象外）",
   },
   pt: {
-    description: "Os blocos canônicos filtrados acima são a fonte de verdade para o trabalho acionável. O Markdown completo do viewer abaixo inclui pins concluídos, revisões e resultados do agente e serve apenas como referência; não refaça pins concluídos.",
-    heading: "## Somente referência: Markdown completo do viewer",
+    description: "Somente contexto, não acionável: o único trabalho a fazer está nos blocos canônicos acima. Não refaça pins concluídos. O contexto completo está disponível no link do cabeçalho.",
+    heading: "## Histórico complementar (não acionável)",
   },
   zh: {
-    description: "上方经过筛选的规范代码块是可执行工作的权威来源。下面的完整查看器 Markdown 还包含已完成的图钉、评审和代理结果，仅供参考；不要重复处理已完成的图钉。",
-    heading: "## 仅供参考：完整查看器 Markdown",
+    description: "仅供上下文参考，不可执行：需要处理的工作只在上方的规范代码块中。不要重复处理已完成的图钉。完整上下文可通过页眉中的链接获取。",
+    heading: "## 补充历史（不可执行）",
   },
 };
 
@@ -95,56 +95,78 @@ export function formatSessionMarkdown(
   return parts.join("\n\n");
 }
 
+function statusLookup(reviews: PinReview[]) {
+  return Object.fromEntries(reviews.map((review) => [review.pinId, review.status]));
+}
+
 function actionablePins(session: Session, reviews: PinReview[]) {
-  const statusByPinId = Object.fromEntries(reviews.map((review) => [review.pinId, review.status]));
+  const statusByPinId = statusLookup(reviews);
   return session.pins.filter((pin) => isPinAwaitingAgent(
     pinReviewStatusFor(String(pin.pinId || pin.id || ""), statusByPinId),
   ));
 }
 
-export function viewerReferenceMarkdown(markdown: string) {
-  return markdown.replace(/```pinar-visual-context[^\r\n]*\r?\n([\s\S]*?)\r?\n```/g, (_match, payload: string) => {
-    try {
-      return [
-        "```pinar-viewer-reference",
-        JSON.stringify({ context: JSON.parse(payload), referenceOnly: true, source: "pinar-viewer" }),
-        "```",
-      ].join("\n");
-    } catch {
-      return ["```pinar-viewer-reference", payload, "```"].join("\n");
-    }
-  });
+// Every value in the complementary history comes from captured pages, users or
+// agents. It is flattened to one line (any Unicode whitespace, including line
+// and paragraph separators, becomes a space) and fence markers are defused, so
+// no field can open a heading, list item or fenced block of its own; a false
+// `pinar-visual-context` fence would otherwise be read as a second capture.
+function oneLine(value: unknown, max = 160) {
+  const flat = String(value ?? "")
+    .replace(/[\s\u0085\u2028\u2029]+/g, " ")
+    .replace(/`{3,}/g, (run) => "ˋ".repeat(run.length))
+    .replace(/~{3,}/g, (run) => "∼".repeat(run.length))
+    .trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
-function referenceSessionMarkdown(
+/**
+ * Complementary history for one page: only what the canonical block cannot
+ * carry. Completed pins (with their comment, since they are absent from the
+ * block), agent results, and review movement on open pins. An open pin is
+ * referenced by number and id, never re-quoted. Returns "" when there is
+ * nothing to add so a single fresh pin produces no extra section.
+ */
+function complementaryPageHistory(
   session: Session,
-  origin: string,
   executions: AgentExecution[],
   reviews: PinReview[],
-  delivery?: MarkdownDelivery,
+  statusByPinId: Record<string, PinReviewStatus> = statusLookup(reviews),
 ) {
-  const pins = session.pins;
-  if (!pins.length) return "";
-  const statusByPinId = Object.fromEntries(reviews.map((review) => [review.pinId, review.status]));
-  const statuses = [`### ${session.page.title || session.page.url || session.id}`, ""];
-  for (const [index, pin] of pins.entries()) {
+  const reviewByPinId = new Map(reviews.map((review) => [review.pinId, review]));
+  const lines: string[] = [];
+  for (const [index, pin] of session.pins.entries()) {
     const pinId = String(pin.pinId || pin.id || "");
-    statuses.push(`${pin.number || index + 1}. ${pin.comment} — status: ${pinReviewStatusFor(pinId, statusByPinId)}`);
+    const status = pinReviewStatusFor(pinId, statusByPinId);
+    const concluded = !isPinAwaitingAgent(status);
+    const review = reviewByPinId.get(pinId);
+    const last = review?.timeline[review.timeline.length - 1];
+    const results = executions.flatMap((execution) => execution.results
+      .filter((result) => result.pinId === pinId)
+      .map((result) => ({ agent: execution.agent, result })));
+    if (!concluded && !results.length && !last) continue;
+    const label = `#${oneLine(pin.number || index + 1, 16)}${pinId ? ` (${oneLine(pinId, 80)})` : ""}`;
+    lines.push(concluded
+      ? `- ${label}: ${oneLine(pin.comment)} — ${oneLine(status, 32)}`
+      : `- ${label}: ${oneLine(status, 32)}`);
+    if (last) lines.push(`  - review: ${oneLine(last.fromStatus, 32)} → ${oneLine(last.toStatus, 32)}`);
+    for (const { agent, result } of results) {
+      lines.push(`  - ${oneLine(agent, 80)}: ${oneLine(result.status, 32)} — ${oneLine(result.summary)}`);
+      if (result.reason) lines.push(`    - reason: ${oneLine(result.reason)}`);
+      if (result.files.length) lines.push(`    - files: ${result.files.map((file) => oneLine(file, 240)).join(", ")}`);
+      if (result.commit) lines.push(`    - commit: ${oneLine(result.commit, 80)}`);
+      if (result.pullRequest) lines.push(`    - pullRequest: ${oneLine(result.pullRequest, 240)}`);
+    }
   }
-  const fullViewerMarkdown = viewerReferenceMarkdown(formatSessionMarkdown(
-    session,
-    withShareToken(`${origin}/v/${session.id}`, delivery?.shareToken),
-    executions,
-    reviews,
-    delivery,
-  ));
-  return [...statuses, "", fullViewerMarkdown].join("\n").trim();
+  if (!lines.length) return "";
+  return [`### ${oneLine(session.page.title || session.page.url || session.id)}`, "", ...lines].join("\n");
 }
 
-function appendViewerReference(primary: string, references: string[], language?: SupportedLanguage | null) {
-  if (!references.length) return primary;
-  const copy = viewerReferenceCopy[language ?? "en"] || viewerReferenceCopy.en;
-  return [primary.trim(), "", copy.heading, "", copy.description, "", references.join("\n\n")].join("\n").trim();
+function appendComplementaryHistory(primary: string, histories: string[], language?: SupportedLanguage | null) {
+  const present = histories.filter(Boolean);
+  if (!present.length) return primary;
+  const copy = viewerHistoryCopy[language ?? "en"] || viewerHistoryCopy.en;
+  return [primary.trim(), "", copy.heading, "", copy.description, "", present.join("\n\n")].join("\n").trim();
 }
 
 export function formatSessionHandoffMarkdown(
@@ -154,9 +176,9 @@ export function formatSessionHandoffMarkdown(
   reviews: PinReview[] = [],
   delivery?: MarkdownDelivery,
 ) {
-  const primarySession = delivery?.includeViewerContent
-    ? { ...session, pins: actionablePins(session, reviews) }
-    : session;
+  // The copy is work for an agent: completed pins never enter the canonical
+  // block, whether or not the complementary history is requested.
+  const primarySession = { ...session, pins: actionablePins(session, reviews) };
   const primary = formatClipboardText(
     primarySession.page,
     primarySession.pins,
@@ -168,9 +190,11 @@ export function formatSessionHandoffMarkdown(
     delivery?.language ?? "en",
   );
   if (!delivery?.includeViewerContent) return primary;
-  const origin = new URL(viewerUrl).origin;
-  const reference = referenceSessionMarkdown(session, origin, executions, reviews, delivery);
-  return appendViewerReference(primary, reference ? [reference] : [], delivery.language);
+  return appendComplementaryHistory(
+    primary,
+    [complementaryPageHistory(session, executions, reviews)],
+    delivery.language,
+  );
 }
 
 function appendSession(lines: string[], session: Session, origin: string, delivery?: MarkdownDelivery) {
@@ -242,14 +266,12 @@ export function formatBatchMarkdown(
       pinReviewStatusFor(String(pin.pinId || pin.id || ""), effectiveStatusByPinId),
     ));
     if (delivery?.includeViewerContent) {
-      const reference = referenceSessionMarkdown(
+      references.push(complementaryPageHistory(
         session,
-        origin,
         delivery.viewerContent?.executions[session.id] ?? [],
         reviews,
-        delivery,
-      );
-      if (reference) references.push(reference);
+        effectiveStatusByPinId,
+      ));
     }
     if (!pins.length) continue;
     captures.push({
@@ -273,7 +295,7 @@ export function formatBatchMarkdown(
     delivery?.language ?? "en",
   ).trim();
   if (!delivery?.includeViewerContent) return markdown;
-  return appendViewerReference(markdown, references, delivery.language);
+  return appendComplementaryHistory(markdown, references, delivery.language);
 }
 
 export function formatProjectMarkdown(

@@ -18,6 +18,7 @@ const locale = {
     releaseNotFound: "Version introuvable",
     releaseNotFoundDescription:
       "Cette version n’est pas dans l’historique publié.",
+    upcomingRelease: "Prochaine version · pas encore publiée",
     viewDetails: "Voir les détails",
     whatChanged: "Ce qui a changé",
   },
@@ -478,6 +479,23 @@ const locale = {
           description:
             "La rédaction des champs sensibles, les masques manuels, le consentement versionné et les politiques de service publiées ont établi la frontière de sécurité du cloud.",
         },
+      },
+    },
+  },
+  upcoming: {
+    title: "Gestion par MCP et passation ciblée",
+    summary:
+      "Ce qui vient : les agents disposent de l'ensemble des opérations MCP pour l'organisation, les sessions, les épingles et les commentaires, et à la fin d'une session, seul le travail encore ouvert est transmis.",
+    changes: {
+      "mcp-crud": {
+        title: "Gestion complète des sessions et de l'organisation par MCP",
+        description:
+          "Les agents peuvent créer, lire, modifier et supprimer projets, collections, lots, sessions, épingles et commentaires d'épingles via MCP. Pinar Local propose ces opérations aux agents de la même machine, sans compte ni clé ; Pinar Cloud applique à chaque opération la permission et le périmètre de la clé.",
+      },
+      "focused-handoff": {
+        title: "Passation ciblée, détail complet à portée de main",
+        description:
+          "À la fin d'une session, seules les épingles qui restent à traiter entrent dans la passation compacte, avec le contexte de la page pour agir sur elles ; le détail complet de la session reste accessible depuis les liens de la passation. Avec Prompt, on copie le texte ; avec Link, seulement le lien de session ; avec Off, rien n'est copié. Les notes d'épingles et les commentaires de la conversation restent modifiables, selon les mêmes règles du viewer en local et dans le Cloud.",
       },
     },
   },

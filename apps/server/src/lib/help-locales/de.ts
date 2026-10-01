@@ -299,7 +299,7 @@ const locale = {
         {
           heading: "Sitzung abschließen oder abbrechen",
           paragraphs: [
-            "Nutze unter macOS `Command+Enter` oder unter Windows und Linux `Alt+Enter`, um die vollständige Sitzung abzuschließen und zu kopieren. Pinar bestätigt den Erfolg sichtbar. Bei einem Fehler bleibt die Sitzung zur Prüfung und Wiederholung erhalten. Sitzung verwerfen beendet sie ohne Kopie.",
+            "Nutze unter macOS `Command+Enter` oder unter Windows und Linux `Alt+Enter`, oder die Schaltfläche Sitzung abschließen, um die vollständige Sitzung abzuschließen. Was kopiert wird, richtet sich nach der Option Beim Abschließen: Prompt kopiert den Übergabetext der Sitzung, Link kopiert nur den Sitzungslink und Aus schließt ab, ohne zu kopieren. Pinar bestätigt den Erfolg sichtbar. Bei einem Fehler bleibt die Sitzung zur Prüfung und Wiederholung erhalten. Sitzung verwerfen beendet sie ohne Kopie. In Pinar Cloud ist der Link privat: Er lässt sich nur mit authentifiziertem Zugriff (API-Key oder MCP) oder bei ausdrücklicher Freigabe öffnen.",
             "Behandle den Inhalt der Zwischenablage als Einheit: lesbare Anweisungen, eine optionale Viewer-URL und je Seite einen abgegrenzten pinar-visual-context-Block. Jeder Block enthält seinen eigenen Screenshot sowie `captureId`, `pinId`, Seiten-URL und Locator-Daten. Nummerierte Badges sind Annotations-Overlays. Schreibe `captureId` und `pinId` nicht um.",
           ],
           bullets: [
@@ -324,7 +324,7 @@ const locale = {
         {
           heading: "Cloud",
           paragraphs: [
-            "Wenn das angemeldete Konto im aktuellen Angebot berechtigt ist, bietet der Cloud-Modus Remote-Zugriff auf den Workspace, verwaltete Aufbewahrung, Abrechnung und unlisted Freigabelinks. Die lokale App und ein selbst gehosteter Server bleiben kostenlos. Die Sprachtranskription von Pinar Cloud bleibt ein Pro-Vorteil und gehört nicht zu einer Evaluierung. Lokale KI und BYOK bleiben ohne Pinar-Cloud-Credits verfügbar. Du akzeptierst die aktuellen Richtlinien, bevor etwas remote gespeichert wird.",
+            "Wenn das angemeldete Konto im aktuellen Angebot berechtigt ist, bietet der Cloud-Modus Remote-Zugriff auf den Workspace, verwaltete Aufbewahrung, Abrechnung und unlisted Freigabelinks. Die lokale App und ein selbst gehosteter Server bleiben kostenlos. Die Sprachtranskription von Pinar Cloud bleibt ein Pro-Vorteil und gehört nicht zu einer Evaluierung. Du akzeptierst die aktuellen Richtlinien, bevor etwas remote gespeichert wird.",
           ],
         },
         {
@@ -355,7 +355,7 @@ const locale = {
             "`Enter` setzt einen Pin auf das Element unter dem Zeiger; `Arrow Up` wählt das Elternelement, `Arrow Down` kehrt zu einem Kind zurück.",
             "`M` schaltet das Zeichnen der Privacy-Maske um. `Escape` bricht einen Entwurf oder eine Maske ab; ohne Entwurf werden Pins gelöscht und die Symbolleiste ausgeblendet.",
             "`R` schaltet das Live-Overlay zwischen nur nummerierten Pins und Pins mit ihren Regionen um. Der kopierte Screenshot enthält immer beides.",
-            "`Command+Enter` / `Alt+Enter` kopiert das fertige Bundle.",
+            "`Command+Enter` / `Alt+Enter` schließt die Sitzung ab und kopiert gemäß der Option Beim Abschließen.",
             "`Alt+Shift+P` blendet die Toolbar ein oder aus, ohne die Sitzung abzubrechen, und lässt sich unter `chrome://extensions/shortcuts` neu belegen. Browser-Kurzbefehle bleiben auf `chrome://`-Seiten, im Chrome Web Store und vor der Injektion des Overlays wirkungslos.",
             "`G` startet die Aufzeichnung der Schritte, die du auf der Seite ausführst. Öffne Pinar erneut, pinne das Ergebnis und kopiere mit `Command+Enter` / `Alt+Enter`, um die Schritte anzuhängen; ein erneutes `G` verwirft die Aufzeichnung.",
           ],
@@ -373,7 +373,7 @@ const locale = {
             "`Arrow Up` geht zum Elternelement und merkt sich das verlassene Kind, sodass `Arrow Down` zu diesem gemerkten Knoten zurückkehrt, wenn er noch ein Kind ist; sonst wird das erste Kind verwendet. Im Maskenmodus ziehst du einen Bereich, um ihn auszublenden, und klickst auf eine vorhandene Maske, um sie wiederherzustellen. Tastatur-Scrolling funktioniert weiterhin im Dokument, aber auf fokussierte Seitensteuerungen gerichtete Tasten werden blockiert, damit sie keine Schaltflächen auslösen oder in das Host-Formular schreiben.",
           ],
           bullets: [
-            "`Command+Enter` / `Alt+Enter` speichert einen offenen Entwurf und kopiert anschließend; ohne Kommentar erscheint „Zuerst einen Kommentar schreiben“, statt einen leeren Pin zu senden.",
+            "`Command+Enter` / `Alt+Enter` speichert einen offenen Entwurf und schließt anschließend ab; ohne Kommentar erscheint „Zuerst einen Kommentar schreiben“, statt einen leeren Pin zu senden.",
             "Nach `Escape` oder dem Kopieren behält Pinar diese physische Taste bis keyup, damit die Host-Seite denselben Tastendruck nicht als eigenes Abbrechen oder Absenden wertet.",
             "Ein Bereichs-Pin startet erst, wenn sich der Zeiger etwa sechs Pixel bewegt; ein kürzerer Klick setzt weiterhin einen Pin auf das Element unter dem Zeiger, statt ein Freiform-Rechteck zu öffnen.",
           ],
@@ -441,12 +441,22 @@ const locale = {
         {
           heading: "Struktur und technische Belege",
           paragraphs: [
-            "Jeder Element-Pin speichert außerdem einen Snapshot dessen, worauf er zeigt: den HTML-Baum des Elements, die berechneten Stile, die von den Browser-Standardwerten abweichen, die verwendeten Schriften und Symbole sowie Eltern- und Geschwisterelemente. Der Viewer zeigt das unter „Struktur“. Große Elemente werden gekürzt, um innerhalb der Capture-Grenze zu bleiben, und der Viewer weist darauf hin.",
+            "Jeder Element-Pin speichert außerdem einen Snapshot dessen, worauf er zeigt: den HTML-Baum des Elements, die berechneten Stile, die von den Browser-Standardwerten abweichen, die verwendeten Schriften und Symbole sowie Eltern- und Geschwisterelemente. Die Vorschau zeigt die mit dem Pin gespeicherten Locator und Belege, während der vollständige Snapshot in der gespeicherten Aufnahme und dem vollständigen Handoff-Paket bleibt. Große Elemente werden gekürzt, um innerhalb der Capture-Grenze zu bleiben, und das Sitzungs-Markdown weist darauf mit einer gekürzten Knotenanzahl hin.",
             "„Technische Belege“ listet Fakten auf, die die Erweiterung während des Pinnens auf der Seite beobachtet hat: Konsolenfehler, fehlgeschlagene Anfragen und die Umgebung (Browser, Viewport, Sprache). Jeder Eintrag ist als „Nach Interaktion“ eingestuft, wenn er nach deinem letzten Klick oder Tastendruck aufgetreten ist, oder als „Gleiche Seite“, wenn er nur dieselbe Seite teilt. Nichts wird abgeleitet und kein KI-Credit verbraucht; entferne einen Eintrag vor dem Teilen, wenn er nichts damit zu tun hat.",
           ],
           bullets: [
             "Bereichs-Pins haben keine Struktur; verwende einen Element-Pin, wenn der Agent DOM-Kontext und robuste Locator benötigt.",
-            "Struktur und Belege reisen im pinar-visual-context-JSON-Block mit, sodass ein Agent sie mit dem Einfügen erhält.",
+            "Der Standard-Kompakt-Prompt behält die Locator, den Kommentar und die kompakten Belege; der Element-Snapshot reist mit dem pinar-visual-context-Block des vollständigen Pakets und dem Sitzungs-Markdown und steht über den Kontext-Link zur Verfügung.",
+          ],
+        },
+        {
+          heading: "Notiz und Kommentare im Viewer bearbeiten",
+          paragraphs: [
+            "Die Pin-Diskussion im Viewer bietet die Original-Notiz und die gespeicherten Thread-Kommentare zur Bearbeitung an. Die Regeln unterscheiden sich zwischen dem lokalen Workspace und Pinar Cloud.",
+            "Der lokale Workspace hat kein Login, daher können im Viewer jede Notiz und jeder gespeicherte Kommentar bearbeitet werden. In Pinar Cloud bearbeitet der Sitzungsinhaber die Notiz, und einen menschlichen Kommentar kann nur seine Verfasserin oder sein Verfasser bearbeiten. Agenten-Kommentare sind im Viewer nie bearbeitbar.",
+          ],
+          bullets: [
+            "Eine Bearbeitung überschreibt den gespeicherten Text und behält die Identität, die Urheberschaft und den Zeitstempel der Nachricht.",
           ],
         },
       ],
@@ -547,12 +557,12 @@ const locale = {
         {
           heading: "Viewer-Steuerung",
           paragraphs: [
-            "Der Sitzungsviewer unterstützt Verschieben, am Zeiger verankerten Mausrad-Zoom, Doppelklick-Zoom und Steuerung von 50 % bis 800 %. Die rechte Leiste zeigt alle Pins der Sitzung.",
+            "Der Sitzungsviewer unterstützt Verschieben, am Zeiger verankerten Mausrad-Zoom, Doppelklick-Zoom und Steuerung von 50 % bis 800 %. Ein gewählter Pin öffnet einen Detail-Dialog mit dem Kommentar-Thread und einer Vorschau, die das gespeicherte Pin-Markdown und die erfassten technischen Belege darstellt.",
           ],
           bullets: [
             "Lade einen Screenshot herunter oder kopiere das Sitzungs-Markdown aus dem Viewer.",
             "Nutze den Link zur Originalseite, um die aktuelle Website separat zu prüfen.",
-            "Wähle einen Pin, um zwischen Vorschau und Roh-Markdown zu wechseln.",
+            "Die Vorschau zeigt das gespeicherte Pin-Markdown; der Abschnitt mit den technischen Belegen erscheint nur, wenn die Aufnahme Belege gespeichert hat.",
             "Eine gruppierte Sitzung hält alle erfassten Screenshots auf derselben Pan-und-Zoom-Fläche.",
             "Der Link zur Originalseite öffnet separat, ohne die gespeicherte Sitzung zu verändern.",
           ],
@@ -585,13 +595,26 @@ const locale = {
         {
           heading: "Wie das kopierte Bundle an einen Agenten geliefert wird",
           paragraphs: [
-            "Die Chrome-Erweiterung tippt niemals in den Agent-Composer. Nach `Command+Enter` / `Alt+Enter` füge die Zwischenablage selbst in Cursor, Claude, Codex oder Grok ein. Der Text beginnt damit, dass die Pin-Notizen eine Änderung oder eine Erklärung erbitten können, und Selektor und DOM-Pfad als ergänzende Locator zu behandeln, gefolgt von einem abgegrenzten pinar-visual-context-JSON-Block. Wenn eine Viewer-URL enthalten ist, rufe sie nur ab, wenn diese Details nicht ausreichen.",
+            "Die Chrome-Erweiterung tippt niemals in den Agent-Composer. Im Prompt-Modus füge die Zwischenablage nach `Command+Enter` / `Alt+Enter` selbst in Cursor, Claude, Codex oder Grok ein. Der Text beginnt damit, dass die Pin-Notizen eine Änderung oder eine Erklärung erbitten können, und Selektor und DOM-Pfad als ergänzende Locator zu behandeln, gefolgt von einem abgegrenzten pinar-visual-context-JSON-Block. Wenn eine Viewer-URL enthalten ist, rufe sie nur ab, wenn diese Details nicht ausreichen. Im Link-Modus erhält der Agent nur den Sitzungslink und braucht Zugriff auf diese `.md` (Pinar-Cloud-Links sind privat und erfordern API-Key oder MCP); Aus speichert nur.",
             "Behandle `captureId` und `pinId` als Identität, nicht als Labels zum Umschreiben. Visual Context kodiert derzeit schemaVersion 1; parseVisualCapture lehnt eine fehlende `captureId` und jede schemaVersion außer 1 oder dem Legacy-Wert 0 ab. Folge nur dem, was die Pins beschreiben. Wenn die Person nichts eingefügt hat, bitte sie, erneut aus Pinar zu kopieren, statt Pins aus dem Gedächtnis zu rekonstruieren.",
           ],
           bullets: [
             "Füge die gesamte Zwischenablage in den Agenten ein; tippe Kommentare nicht ab und erfinde keine neue `captureId`.",
             "Bestätige, dass der eingefügte Text noch einen geschlossenen pinar-visual-context-Fence enthält, bevor du Code bearbeitest.",
             "Wenn nichts eingefügt wurde, bitte um `Command+Enter` / `Alt+Enter` in Pinar und folge nur den Pin-Notizen.",
+          ],
+        },
+        {
+          heading: "Einen Agenten mit Pinar über MCP arbeiten lassen",
+          paragraphs: [
+            "Pinar stellt seine gespeicherten Sitzungen außerdem über das Model Context Protocol bereit. Ein MCP-Client kann Projekte, Collections, Chargen, Sitzungen, Pins und Pin-Kommentare auflisten und sie anlegen, kommentieren, umbenennen, verschieben, neu anordnen oder löschen.",
+            "Der lokale Pinar-Dienst bietet MCP auf deinem eigenen Rechner an, ohne Konto, Login oder API-Schlüssel. Pinar Cloud verlangt einen API-Schlüssel mit der nötigen Berechtigung, und der Ressourcenumfang des Schlüssels begrenzt, was der Agent lesen, kommentieren oder ändern kann.",
+            "Für die Client-Konfiguration, einschließlich Endpunkt, Authentifizierungs-Header und Protokolldetails, siehe den [Agenten-Zugangsleitfaden](https://github.com/djalmajr/pinar/blob/main/docs/cloud-agent-access.md) im Pinar-Repository.",
+          ],
+          bullets: [
+            "Eine vom Agenten angelegte Sitzung speichert die Seitendaten ohne Screenshot, und ein Agenten-Pin speichert den Kommentar mit einem optionalen Locator statt gemessener Geometrie.",
+            "MCP rehydratisiert oder synchronisiert den Browser-Entwurf nicht; die Erweiterung bleibt die Schreibende des aktiven Entwurfs, und ein späteres explizites Speichern ersetzt die gespeicherte Sitzung unter derselben id.",
+            "Teilen bleibt explizit: Veröffentliche einen Share aus dem Workspace oder lass einen Agenten mit der Teilen-Berechtigung ihn veröffentlichen oder widerrufen.",
           ],
         },
       ],
@@ -633,9 +656,9 @@ const locale = {
       summary: "Teste Sprachtranskription und verwandle einen aufgezeichneten Browserablauf in knappe, ausformulierte Reproduktionsschritte.",
       sections: [
         {
-          heading: "Anbieter für die Reproduktion wählen",
+          heading: "Reproduktion in Pinar Cloud",
           paragraphs: [
-            "Öffne auf dem lokalen Server Einstellungen → KI-Assistent, wähle Lokale KI oder BYOK, trage den OpenAI-kompatiblen Endpunkt und das Modell ein und nutze Testen und speichern. Lokale KI und BYOK verbrauchen keine Pinar-Guthaben. In Pinar Cloud steht die Reproduktion berechtigten angemeldeten Konten zur Verfügung, ohne KI-Guthaben abzuziehen.",
+            "In Pinar Cloud steht die Reproduktion berechtigten angemeldeten Konten zur Verfügung, ohne KI-Guthaben abzuziehen.",
           ],
         },
         {
@@ -890,7 +913,7 @@ const locale = {
           heading: "Kosten der Sprachtranskription",
           paragraphs: [
             "Die Sprachtranskription von Pinar Cloud ist die einzige Pinar-Funktion, die KI-Credits verbraucht. Eine Aufnahme bis 60 Sekunden reserviert 1 Credit; 61 bis 120 Sekunden reservieren 2. Bei Erfolg wird die Reservierung verbraucht. Eine fehlgeschlagene Transkription erstattet sie; eine länger als fünf Minuten unerledigte Reservierung wird automatisch erstattet.",
-            "Das Aufzeichnen einer Reproduktionszeitleiste und das Erzeugen ihrer ausformulierten Schritte zieht keine KI-Credits ab. Lokale KI und BYOK nutzen ebenfalls nie das Pinar-Cloud-Guthaben.",
+            "Das Aufzeichnen einer Reproduktionszeitleiste und das Erzeugen ihrer ausformulierten Schritte zieht keine KI-Credits ab.",
           ],
         },
         {
@@ -953,7 +976,7 @@ const locale = {
         {
           heading: "Unlisted öffentliche Links",
           paragraphs: [
-            "Cloud-Viewer gibt es für eine Sitzung, ein Projekt oder eine Sammlung. Sie sind für alle öffentlich, die den Link haben, und werden nicht wie die normale Navigation indexiert. Behandle eine unlisted URL nicht als Authentifizierung für sensible Inhalte.",
+            "Sitzungen, Projekte und Sammlungen in Pinar Cloud bleiben privat, bis du einen Share veröffentlichst: Das private Markdown öffnet nur mit deinem Konto oder einem autorisierten Schlüssel. Ein veröffentlichter Share ist ein nicht gelisteter Viewer für eine Sitzung, ein Projekt oder eine Sammlung. Er ist für alle mit dem Link öffentlich und wird nicht wie die normale Navigation indexiert. Behandle eine unlisted URL nicht als Authentifizierung für sensible Inhalte.",
           ],
         },
         {

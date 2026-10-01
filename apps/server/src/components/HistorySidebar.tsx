@@ -203,6 +203,11 @@ function CollectionMenu({
   onRename,
   onShare,
 }: CollectionMenuProps) {
+  const isCloud = pinarRuntime() === "cloud";
+  // The protected inbox offers no create, rename, or removal actions. In the
+  // local runtime those omissions would leave an empty menu, so the trigger is
+  // omitted there; the cloud keeps the share/collaborators actions.
+  if (collection.isProtected && !isCloud) return null;
   return (
     <DropdownMenu open={menuOpen} onOpenChange={onMenuOpenChange}>
       <DropdownMenuTrigger
@@ -226,29 +231,33 @@ function CollectionMenu({
         sideOffset={8}
       >
         <DropdownMenuGroup>
-          <DropdownMenuItem onClick={onCreate}>
-            <FolderPlusIcon />
-            {t("dashboard.newCollection")}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() =>
-              onRename({
-                id: collection.id,
-                kind: "collection",
-                name: collection.name,
-              })
-            }
-          >
-            <PencilIcon />
-            {t("dashboard.rename")}
-          </DropdownMenuItem>
-          {pinarRuntime() === "cloud" && (
+          {!collection.isProtected && (
+            <>
+              <DropdownMenuItem onClick={onCreate}>
+                <FolderPlusIcon />
+                {t("dashboard.newCollection")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() =>
+                  onRename({
+                    id: collection.id,
+                    kind: "collection",
+                    name: collection.name,
+                  })
+                }
+              >
+                <PencilIcon />
+                {t("dashboard.rename")}
+              </DropdownMenuItem>
+            </>
+          )}
+          {isCloud && (
             <DropdownMenuItem onClick={() => onShare({ id: collection.id, kind: "collection" })}>
               <ShareIcon />
               {t("dashboard.share")}
             </DropdownMenuItem>
           )}
-          {pinarRuntime() === "cloud" && canManageCollaborators && onManageCollaborators && (
+          {isCloud && canManageCollaborators && onManageCollaborators && (
             <DropdownMenuItem onClick={() => onManageCollaborators(collection)}>
               <UsersIcon />
               {t("dashboard.collaborators")}
@@ -446,7 +455,10 @@ function FixedCollection({
       </SidebarMenuButton>
       <SidebarMenuBadge
         className={cn(
-          "group-hover/menu-item:opacity-0",
+          // The protected inbox renders no menu in the local runtime, so the
+          // badge must not fade on hover there: nothing would take its place.
+          (!collection.isProtected || pinarRuntime() === "cloud") &&
+            "group-hover/menu-item:opacity-0",
           (menuOpen || menuActionFocused) && "opacity-0",
         )}
       >

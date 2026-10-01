@@ -70,7 +70,9 @@ describe("session after copy", () => {
     const showPending = send.indexOf('showPending(t("overlay_copying"));');
     const finishRequest = send.indexOf('type: "review:finish"');
     assert.ok(markSending >= 0 && showPending > markSending && finishRequest > showPending);
-    assert.match(send, /catch \{[\s\S]*clearProgress\(\);[\s\S]*setReviewOpen\(true\);/);
+    // A failed finish keeps the pins and shows the reason; review only reopens when it was already open.
+    assert.match(send, /catch \(error\) \{[\s\S]*flashFailure\([\s\S]*if \(reviewWasOpen\) setReviewOpen\(true\);/);
+    assert.match(contentSrc, /function flashFailure\(message\) \{\s*clearProgress\(\);/);
     assert.match(contentSrc, /:host\(\[data-indeterminate\]\) \.toolbar::before/);
     assert.match(backgroundSrc, /concludeReviewOnce\("active-review", \(\) => performConcludeReview\(options\)\)/);
   });

@@ -30,7 +30,7 @@ const PINS = [{
 }];
 
 describe("shared clipboard formats", () => {
-  test("preserves complete page and pin context once in compact structured text", () => {
+  test("preserves relevant page and pin context once in compact structured text", () => {
     const text = formatClipboardText(
       PAGE,
       PINS,
@@ -44,7 +44,8 @@ describe("shared clipboard formats", () => {
     assert.deepEqual(context.screenshot, { url: "/tmp/pinar-shot.png" });
     assert.equal(context.pins[0].locator.domPath, "body > main > button");
     assert.equal(context.pins[0].locator.cssSelector, 'button[name="pay"]');
-    assert.equal(context.pins[0].locator.innerText, "Pay\nnow");
+    // Compact intentionally normalizes innerText whitespace ("Pay\nnow" -> "Pay now"); the full projection is unchanged.
+    assert.equal(context.pins[0].locator.innerText, "Pay now");
     assert.equal(context.captureId, "clipboard");
     assert.match(text, /^Full context \(fetch only if the details above are insufficient\): https:\/\/pinar\.dev\/v\/session-one$/m);
     assert.equal((text.match(/body > main > button/g) || []).length, 1);

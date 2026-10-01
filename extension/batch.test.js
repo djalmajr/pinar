@@ -12,6 +12,7 @@ import {
   planCapturePersistence,
   savedCount,
 } from "./batch.js";
+import { translations } from "./i18n.js";
 
 const opened = { id: "11111111-1111-4111-8111-111111111111", label: "Batch · 01/09/2026, 14:11" };
 
@@ -161,6 +162,76 @@ describe("batch identity", () => {
   });
 });
 
+describe("continuous session overlay interactions", () => {
+  const contentSrc = readFileSync(new URL("./content.js", import.meta.url), "utf8");
+  const backgroundSrc = readFileSync(new URL("./background.js", import.meta.url), "utf8");
+  const slice = (source, from, to) => {
+    const start = source.indexOf(from);
+    const end = source.indexOf(to, start);
+    assert.ok(start >= 0 && end > start, `${from} → ${to}`);
+    return source.slice(start, end);
+  };
+
+  test("finish recaptures pending pins before finishing, keeps review closed and never shows raw codes", () => {
+    const finish = slice(contentSrc, "async function sendPins()", "function frameElementForSource");
+    assert.doesNotMatch(finish, /^\s*setReviewOpen\(true\);$/m);
+    assert.match(finish, /if \(reviewWasOpen\) setReviewOpen\(true\)/);
+    const recapture = finish.indexOf("await syncPins(true)");
+    assert.ok(recapture >= 0 && recapture < finish.indexOf('type: "review:finish"'));
+    assert.match(finish, /result\?\.reasonKey/);
+    assert.match(finish, /reviewFailureMessage\(error\?\.reasonKey\)/);
+    // The only text shown comes from i18n keys resolved by the worker.
+    assert.doesNotMatch(contentSrc, /replaceAll\("_", " "\)/);
+    assert.doesNotMatch(contentSrc, /entry\.error\b/);
+
+    const keyboard = slice(contentSrc, "function onKey(event)", "function frameElementForSource");
+    assert.match(keyboard, /event.key === "Tab"/);
+  });
+
+  test("the redundant retry button and message are gone; finishing is the single recovery path", () => {
+    assert.doesNotMatch(contentSrc, /reviewRetry|overlay_session_retry/);
+    assert.doesNotMatch(backgroundSrc, /review:retry/);
+    assert.doesNotMatch(readFileSync(new URL("./i18n.js", import.meta.url), "utf8"), /overlay_session_retry/);
+  });
+
+  test("the worker answers failures with an i18n key, not the pending entry's raw error", () => {
+    assert.match(backgroundSrc, /reasonKey: reviewErrorKey\(pending\?\.error \|\| error\?\.message\)/);
+    assert.match(backgroundSrc, /reasonKey: reviewErrorKey\(error\?\.message\)/);
+    assert.doesNotMatch(backgroundSrc, /reason: pending\?\.error/);
+  });
+
+  test("new overlay error strings match the shared catalog in the fallback and the generated worker copy", () => {
+    const keys = [
+      "overlay_session_pending",
+      "overlay_session_finish_failed",
+      "overlay_session_error_pin_not_visible",
+      "overlay_session_error_page_changed",
+      "overlay_session_error_tab_changed",
+      "overlay_session_error_screenshot",
+    ];
+    for (const key of keys) {
+      assert.ok(translations.en[key], key);
+      assert.ok(contentSrc.includes(`${key}: ${JSON.stringify(translations.en[key])},`), `content fallback drifted for ${key}`);
+    }
+  });
+});
+
+describe("continuous session copy mode wiring", () => {
+  test("the worker's publish step honours the saved copy mode, remote first, and never fetches for link", () => {
+    const backgroundSrc = readFileSync(new URL("./background.js", import.meta.url), "utf8");
+    const publish = backgroundSrc.slice(
+      backgroundSrc.indexOf("async function copyReviewDraft("),
+      backgroundSrc.indexOf("function toolbarVisibilityMap"),
+    );
+    assert.match(publish, /copyReviewHandoff\(draft,/);
+    assert.match(publish, /mode: remotePrefs\?\.copyOnFinishBatch \?\? settings\.copyOnFinishBatch/);
+    assert.match(publish, /writeClipboard: writeClipboardPlain/);
+    // The Markdown request lives in a lazy callback so only "prompt" triggers it.
+    assert.match(publish, /fetchMarkdown: async \(\) =>/);
+    assert.doesNotMatch(publish, /writeClipboardPlain\(await response/);
+  });
+});
+
 describe("copy on finish batch", () => {
   const base = "http://127.0.0.1:17373";
   const batchId = opened.id;
@@ -256,7 +327,7 @@ describe("copy on finish batch", () => {
     // OS notification. Copy still happens; the toast does not say so.
     const apply = contentSrc.slice(
       contentSrc.indexOf("function applyBatchState"),
-      contentSrc.indexOf("async function syncBatchLabel"),
+      contentSrc.indexOf("function reviewErrorText"),
     );
     assert.match(apply, /showConfirm\(next\.toast, kind\)/);
     assert.match(contentSrc, /data-confirm/);

@@ -5,6 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
+  DEVELOPMENT_EXTENSION_ID,
+  DEVELOPMENT_EXTENSION_KEY,
+  STAGING_CLOUD_URL,
+  resolveCloudUrl,
+} from "../extension/environment.js";
+import {
+  OFFICIAL_EXTENSION_PUBLIC_KEY,
   collectExtensionEntries,
   extensionVersions,
   packageExtension,
@@ -16,6 +23,7 @@ import {
 } from "./package-extension.mjs";
 
 const root = join(import.meta.dir, "..");
+const OFFICIAL_EXTENSION_ID = "idpeaokdndjedekacfdfbilcolpholbo";
 
 function chromeExtensionId(publicKey: string) {
   const digest = createHash("sha256").update(Buffer.from(publicKey, "base64")).digest();
@@ -30,9 +38,10 @@ function createPackagingFixture(rootDirectory: string, version: string, key?: st
   mkdirSync(join(extension, "dist"), { recursive: true });
   mkdirSync(join(extension, "icons"), { recursive: true });
   mkdirSync(join(rootDirectory, "apps/extension"), { recursive: true });
+  const fixtureKey = arguments.length < 3 ? DEVELOPMENT_EXTENSION_KEY : key;
   writeFileSync(join(extension, "manifest.json"), JSON.stringify({
     background: { service_worker: "background.js" },
-    ...(key === undefined ? {} : { key }),
+    ...(fixtureKey === undefined ? {} : { key: fixtureKey }),
     manifest_version: 3,
     options_ui: { page: "dist/options.html" },
     version,
@@ -70,33 +79,51 @@ describe("extension package", () => {
     expect(() => extensionVersions(fixture)).toThrow("extension version mismatch");
   });
 
-  test("strips the key for Store and preserves the stable key for unpacked manifests", () => {
+  test("the tracked source manifest is the development identity pinned to staging", () => {
     const { manifest } = extensionVersions(root);
-    expect(typeof manifest.key === "string" && manifest.key.length > 0).toBe(true);
-    expect(releaseManifest(manifest).key).toBeUndefined();
+    expect(manifest.key).toBe(DEVELOPMENT_EXTENSION_KEY);
+    expect(chromeExtensionId(manifest.key)).toBe(DEVELOPMENT_EXTENSION_ID);
+    expect(resolveCloudUrl(manifest)).toBe(STAGING_CLOUD_URL);
+  });
+
+  test("the official unpacked release key is pinned to the official extension ID", () => {
+    expect(chromeExtensionId(OFFICIAL_EXTENSION_PUBLIC_KEY)).toBe(OFFICIAL_EXTENSION_ID);
+  });
+
+  test("strips the key for Store and pins the unpacked release to the official identity", () => {
+    const { manifest } = extensionVersions(root);
+    const store = releaseManifest(manifest);
+    expect("key" in store).toBe(false);
     const unpacked = releaseManifest(manifest, { unpacked: true });
-    expect(unpacked.key === manifest.key).toBe(true);
-    expect(chromeExtensionId(unpacked.key)).toBe("idpeaokdndjedekacfdfbilcolpholbo");
+    expect(unpacked.key).toBe(OFFICIAL_EXTENSION_PUBLIC_KEY);
+    expect(chromeExtensionId(unpacked.key)).toBe(OFFICIAL_EXTENSION_ID);
     expect(unpacked.version).toBe(manifest.version);
   });
 
-  test("rejects missing, empty, malformed, and mismatched keys for unpacked packages", () => {
+  test("rejects missing, malformed, and unrecognized source keys without writing archives", () => {
+    const missingMessage = "source manifest.key is missing; the repository extension must carry the recognized development key";
+    const unrecognizedMessage = "source manifest.key is not the recognized development key; refusing unrecognized key material";
     const invalidKeys = [
-      { key: undefined, message: "unpacked packaging requires a non-empty valid manifest.key" },
-      { key: "", message: "unpacked packaging requires a non-empty valid manifest.key" },
-      { key: "not base64!", message: "unpacked packaging requires a non-empty valid manifest.key" },
-      { key: "aGVsbG8=", message: "unpacked manifest.key does not match the expected extension ID" },
+      { key: undefined, message: missingMessage },
+      { key: "", message: missingMessage },
+      { key: "not base64!", message: unrecognizedMessage },
+      { key: "aGVsbG8=", message: unrecognizedMessage },
+      // A real, well-formed key that is not the recognized development source key
+      // (the official production key misplaced in the source manifest).
+      { key: OFFICIAL_EXTENSION_PUBLIC_KEY, message: unrecognizedMessage },
     ];
     for (const { key, message } of invalidKeys) {
-      const fixture = mkdtempSync(join(tmpdir(), "pinar-extension-invalid-key-"));
-      try {
-        createPackagingFixture(fixture, "0.6.5", key);
-        const archive = join(fixture, "extension/pinar-extension-0.6.5-unpacked.zip");
-        expect(() => packageExtension({ rootDirectory: fixture, runBuild: false, unpacked: true }))
-          .toThrow(message);
-        expect(existsSync(archive)).toBe(false);
-      } finally {
-        rmSync(fixture, { recursive: true, force: true });
+      for (const unpacked of [false, true]) {
+        const fixture = mkdtempSync(join(tmpdir(), "pinar-extension-invalid-key-"));
+        try {
+          createPackagingFixture(fixture, "0.6.5", key);
+          const archive = join(fixture, `extension/pinar-extension-0.6.5${unpacked ? "-unpacked" : ""}.zip`);
+          expect(() => packageExtension({ rootDirectory: fixture, runBuild: false, unpacked }))
+            .toThrow(message);
+          expect(existsSync(archive)).toBe(false);
+        } finally {
+          rmSync(fixture, { recursive: true, force: true });
+        }
       }
     }
   });
@@ -127,8 +154,9 @@ describe("extension package", () => {
       expect(storeManifest.version).toBe(version);
       expect("key" in storeManifest).toBe(false);
       expect(unpackedManifest.version).toBe(version);
-      expect(unpackedManifest.key === manifest.key).toBe(true);
-      expect(chromeExtensionId(unpackedManifest.key)).toBe("idpeaokdndjedekacfdfbilcolpholbo");
+      expect(chromeExtensionId(sourceManifest.key)).toBe(DEVELOPMENT_EXTENSION_ID);
+      expect(unpackedManifest.key).toBe(OFFICIAL_EXTENSION_PUBLIC_KEY);
+      expect(chromeExtensionId(unpackedManifest.key)).toBe(OFFICIAL_EXTENSION_ID);
       expect(store.sha256).toBe(storeAgain.sha256);
       expect(unpacked.sha256).toBe(unpackedAgain.sha256);
     } finally {

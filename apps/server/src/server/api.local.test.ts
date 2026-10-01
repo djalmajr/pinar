@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -469,6 +470,8 @@ describe("local TanStack API", () => {
     assert.equal(handoff.status, 200);
     const handoffText = await handoff.text();
     assert.match(handoffText, /Human pin/);
+    assert.equal(handoffText.match(/```pinar-visual-context/g)?.length, 1);
+    assert.doesNotMatch(handoffText, /Complementary history|pinar-viewer-reference/);
     assert.doesNotMatch(handoffText, /Agent correction/);
   });
 
@@ -577,6 +580,12 @@ describe("local TanStack API", () => {
     const handoffText = await handoff.text();
     assert.match(handoffText, /Human pin A/);
     assert.match(handoffText, /Human pin B/);
+    // The accepted pin moves out of the actionable block into the complementary history, once.
+    assert.equal(handoffText.match(/```pinar-visual-context/g)?.length, 1);
+    assert.equal(handoffText.match(/Human pin A/g)?.length, 1);
+    assert.equal(handoffText.match(/Human pin B/g)?.length, 1);
+    assert.match(handoffText.split("## Complementary history (not actionable)")[1] ?? "", /Human pin A/);
+    assert.doesNotMatch(handoffText, /pinar-viewer-reference/);
     assert.doesNotMatch(handoffText, /Legacy agent summary/);
     assert.doesNotMatch(handoffText, /correction_ready/);
     assert.doesNotMatch(handoffText, /agent_result/);
@@ -970,5 +979,355 @@ describe("local TanStack API", () => {
     assert.equal(recreated.status, 201);
     const afterDelete = await jsonBody(await request("/api/sessions/local_comment_capture"));
     assert.deepEqual(afterDelete.comments, []);
+  });
+
+  test("adds agent-authored comments and preserves actor_type across reads", async () => {
+    const upload = await request("/api/shots", {
+      body: JSON.stringify({
+        id: "agent_comment_capture",
+        image: VALID_PNG,
+        page: { title: "Agent comments", url: "https://example.test/agent-comments" },
+        pins: [{ comment: "Original note", kind: "element", pinId: "pin_one" }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(upload.status, 201);
+
+    const human = await request("/api/sessions/agent_comment_capture/pins/pin_one/comments", {
+      body: JSON.stringify({ body: "Human says hi" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(human.status, 200);
+    const humanBody = await jsonBody(human);
+    const humanComment = humanBody.comment as Record<string, unknown>;
+    assert.equal(humanComment.actorType, "human");
+    assert.equal(humanComment.actorLabel, "Local");
+
+    const agent = await request("/api/sessions/agent_comment_capture/pins/pin_one/comments", {
+      body: JSON.stringify({ agentName: "Grok", body: "Agent reply" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(agent.status, 200);
+    const agentBody = await jsonBody(agent);
+    const agentComment = agentBody.comment as Record<string, unknown>;
+    assert.equal(agentComment.actorType, "agent");
+    assert.equal(agentComment.actorLabel, "Grok");
+    assert.equal(agentComment.pinId, "pin_one");
+
+    const listed = await jsonBody(await request("/api/sessions/agent_comment_capture"));
+    const comments = listed.comments as Array<Record<string, unknown>>;
+    assert.equal(comments.length, 2);
+    assert.deepEqual(comments.map((item) => item.actorType), ["human", "agent"]);
+  });
+
+  test("rejects a non-string agentName without persisting a comment", async () => {
+    const upload = await request("/api/shots", {
+      body: JSON.stringify({
+        id: "agent_name_capture",
+        image: VALID_PNG,
+        page: { title: "Agent name", url: "https://example.test/agent-name" },
+        pins: [{ comment: "Original note", kind: "element", pinId: "pin_one" }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(upload.status, 201);
+
+    const numberAgent = await request("/api/sessions/agent_name_capture/pins/pin_one/comments", {
+      body: JSON.stringify({ agentName: 123, body: "Should not persist" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(numberAgent.status, 400);
+
+    const objectAgent = await request("/api/sessions/agent_name_capture/pins/pin_one/comments", {
+      body: JSON.stringify({ agentName: { name: "x" }, body: "Should not persist" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(objectAgent.status, 400);
+
+    const payload = await jsonBody(await request("/api/sessions/agent_name_capture"));
+    assert.deepEqual(payload.comments, []);
+  });
+
+  test("edits any stored comment, rejects empty or overlong bodies, and refuses cross references", async () => {
+    const upload = await request("/api/shots", {
+      body: JSON.stringify({
+        id: "edit_comment_capture",
+        image: VALID_PNG,
+        page: { title: "Edit comments", url: "https://example.test/edit-comments" },
+        pins: [{ comment: "Original note", kind: "element", pinId: "pin_one" }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(upload.status, 201);
+
+    const created = await request("/api/sessions/edit_comment_capture/pins/pin_one/comments", {
+      body: JSON.stringify({ agentName: "Grok", body: "Agent reply" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const createdBody = await jsonBody(created);
+    const comment = createdBody.comment as Record<string, unknown>;
+    const commentId = String(comment.id);
+    const createdAt = String(comment.createdAt);
+
+    const edited = await request(`/api/sessions/edit_comment_capture/pins/pin_one/comments/${commentId}`, {
+      body: JSON.stringify({ body: "Agent reply (edited)" }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    });
+    assert.equal(edited.status, 200);
+    const editedBody = await jsonBody(edited);
+    assert.equal(editedBody.ok, true);
+    const editedComment = editedBody.comment as Record<string, unknown>;
+    assert.equal(editedComment.id, commentId);
+    assert.equal(editedComment.createdAt, createdAt);
+    assert.equal(editedComment.body, "Agent reply (edited)");
+    assert.equal(editedComment.actorType, "agent");
+
+    // The trusted local environment edits any comment, including human ones.
+    const humanCreated = await request("/api/sessions/edit_comment_capture/pins/pin_one/comments", {
+      body: JSON.stringify({ body: "Human says hi" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const humanComment = (await jsonBody(humanCreated)).comment as Record<string, unknown>;
+    const humanEdited = await request(
+      `/api/sessions/edit_comment_capture/pins/pin_one/comments/${humanComment.id}`,
+      { body: JSON.stringify({ body: "Human says hi v2" }), headers: { "content-type": "application/json" }, method: "PATCH" },
+    );
+    assert.equal(humanEdited.status, 200);
+
+    const empty = await request(`/api/sessions/edit_comment_capture/pins/pin_one/comments/${commentId}`, {
+      body: JSON.stringify({ body: "   " }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    });
+    assert.equal(empty.status, 400);
+
+    const overlong = await request(`/api/sessions/edit_comment_capture/pins/pin_one/comments/${commentId}`, {
+      body: JSON.stringify({ body: "x".repeat(2001) }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    });
+    assert.equal(overlong.status, 400);
+
+    const unknownComment = await request("/api/sessions/edit_comment_capture/pins/pin_one/comments/does_not_exist", {
+      body: JSON.stringify({ body: "New body" }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    });
+    assert.equal(unknownComment.status, 404);
+
+    const wrongPin = await request(`/api/sessions/edit_comment_capture/pins/pin_other/comments/${commentId}`, {
+      body: JSON.stringify({ body: "New body" }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    });
+    assert.equal(wrongPin.status, 404);
+
+    const wrongCapture = await request(`/api/sessions/other_capture/pins/pin_one/comments/${commentId}`, {
+      body: JSON.stringify({ body: "New body" }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    });
+    assert.equal(wrongCapture.status, 404);
+
+    const blankAgentName = await request("/api/sessions/edit_comment_capture/pins/pin_one/comments", {
+      body: JSON.stringify({ agentName: "   ", body: "Body" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(blankAgentName.status, 400);
+
+    const longAgentName = await request("/api/sessions/edit_comment_capture/pins/pin_one/comments", {
+      body: JSON.stringify({ agentName: "a".repeat(65), body: "Body" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(longAgentName.status, 400);
+
+    const hostileAgentName = await request("/api/sessions/edit_comment_capture/pins/pin_one/comments", {
+      body: JSON.stringify({ agentName: "bad\u0000name", body: "Body" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(hostileAgentName.status, 400);
+  });
+
+  test("edits the original note while preserving the session and pin", async () => {
+    const upload = await request("/api/shots", {
+      body: JSON.stringify({
+        id: "note_capture",
+        image: VALID_PNG,
+        page: { title: "Note capture", url: "https://example.test/note" },
+        pins: [
+          { anchor: { x: 12, y: 34 }, comment: "Original note", kind: "element", pinId: "pin_one" },
+          { comment: "Second pin", kind: "element", pinId: "pin_two" },
+        ],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(upload.status, 201);
+
+    const edited = await request("/api/sessions/note_capture/pins/pin_one", {
+      body: JSON.stringify({ comment: "Edited note" }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    });
+    assert.equal(edited.status, 200);
+    const editedBody = await jsonBody(edited);
+    assert.equal(editedBody.ok, true);
+    assert.equal((editedBody.pin as Record<string, unknown>).comment, "Edited note");
+    assert.equal((editedBody.pin as Record<string, unknown>).pinId, "pin_one");
+
+    const payload = await jsonBody(await request("/api/sessions/note_capture"));
+    const pins = (payload.session as Record<string, unknown>).pins as Array<Record<string, unknown>>;
+    assert.equal(pins[0].comment, "Edited note");
+    assert.equal(pins[0].kind, "element");
+    assert.equal(pins[1].comment, "Second pin");
+    assert.equal(payload.session.id, "note_capture");
+
+    const empty = await request("/api/sessions/note_capture/pins/pin_one", {
+      body: JSON.stringify({ comment: "" }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    });
+    assert.equal(empty.status, 400);
+
+    const overlong = await request("/api/sessions/note_capture/pins/pin_one", {
+      body: JSON.stringify({ comment: "x".repeat(2001) }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    });
+    assert.equal(overlong.status, 400);
+
+    const unknownPin = await request("/api/sessions/note_capture/pins/pin_missing", {
+      body: JSON.stringify({ comment: "New note" }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    });
+    assert.equal(unknownPin.status, 404);
+
+    const unknownCapture = await request("/api/sessions/other_capture/pins/pin_one", {
+      body: JSON.stringify({ comment: "New note" }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    });
+    assert.equal(unknownCapture.status, 404);
+  });
+
+  test("migrates a pre-agent comment store keeping data, index, and the new CHECK", async () => {
+    // Seed a store in the pre-agent shape: the single-value CHECK on
+    // actor_type and one human comment written before this change.
+    const seed = new Database(join(root, "history.db"));
+    seed.exec(`
+      CREATE TABLE pin_comments (
+        id TEXT PRIMARY KEY,
+        capture_id TEXT NOT NULL,
+        pin_id TEXT NOT NULL,
+        actor_id TEXT NOT NULL,
+        actor_label TEXT NOT NULL,
+        actor_type TEXT NOT NULL CHECK (actor_type = 'human'),
+        body TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX idx_pin_comments_capture ON pin_comments(capture_id, created_at);
+      INSERT INTO pin_comments (id, capture_id, pin_id, actor_id, actor_label, actor_type, body, created_at)
+        VALUES ('legacy_human_comment', 'migrated_capture', 'pin_one', 'local', 'Local', 'human', 'Legacy human comment', '2026-01-01T00:00:00.000Z');
+    `);
+    seed.close();
+
+    const upload = await request("/api/shots", {
+      body: JSON.stringify({
+        id: "migrated_capture",
+        image: VALID_PNG,
+        page: { title: "Migrated", url: "https://example.test/migrated" },
+        pins: [{ comment: "Original note", kind: "element", pinId: "pin_one" }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(upload.status, 201);
+
+    const payload = await jsonBody(await request("/api/sessions/migrated_capture"));
+    const listed = (payload.comments as Array<Record<string, unknown>>).find((item) => item.id === "legacy_human_comment");
+    assert.ok(listed);
+    assert.equal(listed.body, "Legacy human comment");
+    assert.equal(listed.actorType, "human");
+
+    const agent = await request("/api/sessions/migrated_capture/pins/pin_one/comments", {
+      body: JSON.stringify({ agentName: "Grok", body: "After migration" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(agent.status, 200);
+    const agentComment = (await jsonBody(agent)).comment as Record<string, unknown>;
+    assert.equal(agentComment.actorType, "agent");
+
+    const edited = await request(
+      `/api/sessions/migrated_capture/pins/pin_one/comments/${agentComment.id}`,
+      { body: JSON.stringify({ body: "After migration (edited)" }), headers: { "content-type": "application/json" }, method: "PATCH" },
+    );
+    assert.equal(edited.status, 200);
+
+    // Close the store and verify persistence at the raw database level.
+    resetLocalApiForTests();
+    const reopened = new Database(join(root, "history.db"));
+    const schema = reopened.query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'pin_comments'").get() as { sql: string };
+    assert.ok(schema.sql.includes("CHECK (actor_type IN ('agent', 'human'))"));
+    const index = reopened.query(
+      "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_pin_comments_capture'",
+    ).get() as { name: string } | null;
+    assert.equal(index?.name, "idx_pin_comments_capture");
+    const legacy = reopened.query("SELECT * FROM pin_comments WHERE id = 'legacy_human_comment'").get() as { actor_type: string; body: string };
+    assert.equal(legacy.body, "Legacy human comment");
+    assert.equal(legacy.actor_type, "human");
+    const migrated = reopened.query("SELECT * FROM pin_comments WHERE id = ?").get(String(agentComment.id)) as { actor_type: string; body: string };
+    assert.equal(migrated.actor_type, "agent");
+    assert.equal(migrated.body, "After migration (edited)");
+    reopened.close();
+  });
+
+  test("denies hostile origins on the comment, note, and MCP routes", async () => {
+    const upload = await request("/api/shots", {
+      body: JSON.stringify({
+        id: "hostile_comment_capture",
+        image: VALID_PNG,
+        page: { title: "Hostile", url: "https://example.test/hostile" },
+        pins: [{ comment: "Original note", kind: "element", pinId: "pin_one" }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(upload.status, 201);
+
+    const commentEdit = await request("/api/sessions/hostile_comment_capture/pins/pin_one/comments/whatever", {
+      body: JSON.stringify({ body: "New body" }),
+      headers: { "content-type": "application/json", origin: "https://evil.example" },
+      method: "PATCH",
+    });
+    assert.equal(commentEdit.status, 401);
+
+    const noteEdit = await request("/api/sessions/hostile_comment_capture/pins/pin_one", {
+      body: JSON.stringify({ comment: "New note" }),
+      headers: { "content-type": "application/json", origin: "https://evil.example" },
+      method: "PATCH",
+    });
+    assert.equal(noteEdit.status, 401);
+
+    const mcp = await request("/api/mcp", {
+      body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "tools/list" }),
+      headers: { "content-type": "application/json", origin: "https://evil.example" },
+      method: "POST",
+    });
+    assert.equal(mcp.status, 401);
   });
 });

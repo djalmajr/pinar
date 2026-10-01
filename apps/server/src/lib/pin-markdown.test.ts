@@ -71,6 +71,55 @@ describe("formatPinMarkdown", () => {
     assert.match(markdown, /- \*\*Warning:\*\* cross-origin iframe is not readable/);
   });
 
+  test("omits Coordinates and Area only for an explicit none location", () => {
+    const unmeasured: Pin = {
+      anchor: { x: 0, y: 0 },
+      comment: "Note without geometry.",
+      coords: { x: 0, y: 0 },
+      innerText: "Only text",
+      location: { confidence: "unresolved", evidence: [], score: 0, strategy: "none" },
+      number: 1,
+      type: "point",
+    };
+    const unmeasuredMarkdown = formatPinMarkdown(unmeasured, 1);
+    assert.doesNotMatch(unmeasuredMarkdown, /- \*\*Coordinates:\*\*/);
+    assert.doesNotMatch(unmeasuredMarkdown, /- \*\*Area:\*\*/);
+    assert.match(unmeasuredMarkdown, /- \*\*Location:\*\* unresolved \(none\)/);
+
+    const areaUnmeasured: Pin = {
+      areaBox: { height: 0, width: 0, x: 0, y: 0 },
+      comment: "Note without a measured area.",
+      kind: "area",
+      location: { confidence: "unresolved", evidence: [], score: 0, strategy: "none" },
+      number: 2,
+      type: "area",
+    };
+    const areaMarkdown = formatPinMarkdown(areaUnmeasured, 2);
+    assert.doesNotMatch(areaMarkdown, /- \*\*Coordinates:\*\*/);
+    assert.doesNotMatch(areaMarkdown, /- \*\*Area:\*\*/);
+    assert.match(areaMarkdown, /- \*\*Type:\*\* Area selection/);
+
+    // A measured pin keeps its coordinates, including a legitimate origin 0,0.
+    const measured: Pin = {
+      comment: "Measured at the origin.",
+      coords: { x: 0, y: 0 },
+      location: { confidence: "exact", evidence: ["captured"], score: 1, strategy: "geometry" },
+      number: 3,
+      type: "point",
+    };
+    assert.match(formatPinMarkdown(measured, 3), /- \*\*Coordinates:\*\* `x=0, y=0`/);
+
+    const stableSelector: Pin = {
+      comment: "Measured by selector.",
+      coords: { x: 0, y: 0 },
+      location: { confidence: "exact", evidence: ["stable selector"], score: 1, strategy: "stable-selector" },
+      number: 4,
+      selector: "button#origin",
+      type: "point",
+    };
+    assert.match(formatPinMarkdown(stableSelector, 4), /- \*\*Coordinates:\*\* `x=0, y=0`/);
+  });
+
   test("keeps redacted placeholders instead of original secrets", () => {
     const pin: Pin = {
       comment: "Reset with [redacted]",
@@ -84,7 +133,7 @@ describe("formatPinMarkdown", () => {
     assert.doesNotMatch(markdown, /PINAR_FIXTURE/);
   });
 
-  test("renders structure, accepted diagnosis and technical evidence sections only when present", () => {
+  test("renders accepted diagnosis and technical evidence sections only when present", () => {
     const plain: Pin = { comment: "Plain", coords: { x: 0, y: 0 }, number: 1, type: "point" };
     const plainMarkdown = formatPinMarkdown(plain, 1);
     assert.doesNotMatch(plainMarkdown, /## Structure|## Diagnosis|## Technical evidence/);
@@ -116,10 +165,16 @@ describe("formatPinMarkdown", () => {
       },
       type: "point",
     };
+    const snapshotBefore = structuredClone(rich.snapshot);
     const markdown = formatPinMarkdown(rich, 2);
     assert.match(markdown, /## Diagnosis\n\n- \*\*Confidence:\*\* high\n- \*\*Cause:\*\* Missing align-items\n- \*\*Properties:\*\* `align-items`\n\n```css\n\.row \{ align-items: center; \}\n```/);
     assert.match(markdown, /## Technical evidence\n\n- `after_interaction` POST https:\/\/example\.test\/api → 500\n\n- \*\*Environment:\*\* Chrome 140 · 1440×900 · dpr 2/);
-    assert.match(markdown, /## Structure\n\n- \*\*Nodes:\*\* 2 nodes, truncated\n- \*\*Fonts:\*\* Inter 600\n- \*\*Icons:\*\* lucide-check\n\n```html\n<button> \{ display: flex \}\n  <span> "Pay"\n```/);
+    // Structure was removed from the pin detail: the snapshot stays in the input but never reaches the markdown.
+    assert.doesNotMatch(markdown, /## Structure/);
+    assert.doesNotMatch(markdown, /- \*\*Nodes:\*\*|- \*\*Fonts:\*\*|- \*\*Icons:\*\*/);
+    assert.doesNotMatch(markdown, /```html/);
+    assert.doesNotMatch(markdown, /<button> \{ display: flex \}/);
+    assert.deepEqual(rich.snapshot, snapshotBefore);
 
     const pending: Pin = { ...rich, diagnosis: { ...rich.diagnosis!, acceptedAt: undefined } };
     assert.doesNotMatch(formatPinMarkdown(pending, 2), /## Diagnosis/);

@@ -16,6 +16,7 @@ const locale = {
     releaseNavigation: "版本导航",
     releaseNotFound: "未找到该版本",
     releaseNotFoundDescription: "该版本不在已发布的历史记录中。",
+    upcomingRelease: "下一个版本 · 尚未发布",
     viewDetails: "查看详情",
     whatChanged: "更新内容",
   },
@@ -475,6 +476,23 @@ const locale = {
           description:
             "敏感字段脱敏、手动遮罩、版本化同意以及已发布的服务政策，确立了云端安全边界。",
         },
+      },
+    },
+  },
+  upcoming: {
+    title: "MCP 完整管理与聚焦交接",
+    summary:
+      "即将到来：代理可以通过 MCP 使用组织、会话、图钉和评论的完整操作；结束会话时，只交接仍需处理的工作。",
+    changes: {
+      "mcp-crud": {
+        title: "通过 MCP 完整管理会话与组织",
+        description:
+          "代理可以通过 MCP 创建、读取、更新和删除项目、集合、批次、会话、图钉和图钉评论。Pinar Local 在同一台机器上为代理提供这些操作，无需账号或密钥；Pinar Cloud 会对每个操作应用密钥的权限与作用域。",
+      },
+      "focused-handoff": {
+        title: "聚焦交接，完整详情可随取随用",
+        description:
+          "结束会话时，只有仍需处理的图钉会进入紧凑交接，并附带页面上下文以便处理；会话的完整详情仍可通过交接中的链接访问。使用 Prompt 复制文本，使用 Link 仅复制会话链接，使用 Off 则不复制任何内容。图钉备注和会话评论仍可按 viewer 在 Local 与 Cloud 中的相同规则编辑。",
       },
     },
   },

@@ -153,9 +153,9 @@ const messages: UiMessages = {
   "settings.copyOnFinishBatchLink": "リンク",
   "settings.copyOnFinishBatchOff": "オフ",
   "settings.copyOnFinishBatchPrompt": "プロンプト",
-  "settings.copyViewerContent": "Markdown の内容をコピー",
+  "settings.copyViewerContent": "補足履歴を含める",
   "settings.copyViewerContentDescription":
-    "ビジュアルコンテキストのバンドルではなく、保存された Markdown ドキュメントのみをコピーします。",
+    "完了したピン、レビュー、エージェント結果を含む、簡潔で実行対象外のセクションを追加します。未完了のピンは繰り返されません。完全なMarkdownはリンクから引き続き参照できます。",
   "settings.handoffHeading": "エージェントへの引き渡し",
   "settings.includeViewer": "Webビューアをコピー",
   "settings.includeViewerDescription":
@@ -219,19 +219,19 @@ const messages: UiMessages = {
     "要素や範囲を選び、ページのコンテキストを失わずに問題のある場所へ正確にフィードバックを付けます。",
   "landing.contextTitle": "コンテキストを保持",
   "landing.contextDescription":
-    "各キャプチャでスクリーンショット、コメント、セレクター、DOM パス、座標をまとめて保持します。",
-  "landing.aiTitle": "AI に渡す",
+    "セッションを終えると、Pinar は有用な情報を1度だけまとめたコンパクトなプロンプトを、またはセッションの Markdown リンクのみをコピーします。完全な詳細は必要になったら利用できます。",
+  "landing.aiTitle": "エージェントが MCP で作業",
   "landing.aiDescription":
-    "Markdown 対応リンクを1つコピーし、AI エージェントが報告から実装へすばやく進めるようにします。",
+    "Model Context Protocol を介してエージェントを接続し、セッションとピンを閲覧、フィードバックへのコメント、プロジェクトやコレクションの整理を行います。ローカルではアカウントや API キーは不要で、Pinar Cloud では許可されたキーと明示的な共有が必要です。",
   "landing.privateTitle": "デフォルトで非公開",
   "landing.privateDescription":
     "ローカルサーバーなら無期限保存。スクリーンショットと注釈は端末内に残ります。",
   "landing.privateNote":
-    "自分のマシン上で AI エージェントを実行するプライベートなワークフローに最適です。",
+    "プライベートなワークフローに最適です。ご自身のエージェントが、アカウント、ログイン、API キーなしでローカルの MCP に接続できます。",
   "landing.openLocalDashboard": "ローカルダッシュボードを開く",
   "landing.shareTitle": "必要なときだけ共有",
   "landing.shareDescription":
-    "リモートサーバーで非公開のビューアー／Markdown リンクを利用できます。無料版は30日間、有料プランの有効期間中は継続して保存されます。",
+    "Pinar Cloud のリンクは明示的に共有するまで非公開で、エージェントは許可されたキーでアクセスします。非公開のビューアー／Markdown リンクは、無料版は30日間、有料プランの有効期間中は継続して保存されます。",
   "landing.sameExperience":
     "ローカルでもリモートでも同じキャプチャとビューアー体験です。",
   "landing.comparePlans": "プランを比較",
@@ -365,7 +365,8 @@ const messages: UiMessages = {
   "dashboard.designSystem": "デザインシステムを抽出",
   "dashboard.collaborators": "共同作業者",
   "dashboard.collaboratorsTitle": "{name} の共同作業者",
-  "dashboard.collaboratorsDescription": "メールでレビュー担当者を招待し、このコレクションを閲覧・レビューしてもらいます。",
+  "dashboard.collaboratorsDescription": "メールでレビュー担当者を招待し、このコレクションを閲覧・レビューしてもらいます。"
+,
   "dashboard.collectionAccessTitle": "{name} へのアクセス",
   "dashboard.collectionAccessDescription": "このコレクションへのアクセスを管理します。",
   "dashboard.collaboratorEmailPlaceholder": "colleague@example.com",
@@ -579,6 +580,8 @@ const messages: UiMessages = {
   "viewer.commentLabel": "コメント",
   "viewer.sendComment": "コメントを送信",
   "viewer.commentFailed": "コメントを送信できませんでした。再試行してください。",
+  "viewer.commentEditFailed": "コメントを保存できませんでした。再試行してください。",
+  "viewer.editComment": "コメントを編集",
   "viewer.reviewActionFailed": "ピンを更新できませんでした。再試行してください。",
   "viewer.originalPinComment": "ピンのコメント",
   "viewer.lastAgentResult": "最新のエージェント結果",
@@ -606,6 +609,14 @@ const messages: UiMessages = {
     "AI リクエストに失敗し、Pinar Cloud クレジットの返還処理中です。数分後に安全に再試行してください。",
   "viewer.aiNetworkError":
     "接続が中断されました。再試行すると同じリクエストを安全に再開できます。",
+  "viewer.editorBold": "太字",
+  "viewer.editorItalic": "斜体",
+  "viewer.editorBulletList": "箇条書きリスト",
+  "viewer.editorOrderedList": "番号付きリスト",
+  "viewer.editorBlockquote": "引用",
+  "viewer.editorCode": "コード",
+  "viewer.editorFormatting": "コメントの書式",
+  "commentTooLong": "コメントは2000文字以内でください。",
   "share.publish": "公開",
   "share.revoke": "取り消す",
   "share.copyLink": "リンクをコピー",

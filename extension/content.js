@@ -32,6 +32,7 @@
   let localPageKey = currentPageKey();
   // How long the copy confirmation stays up before the overlay closes.
   const COPY_CONFIRMATION_MS = 2000;
+  const REVIEW_FAILURE_MS = 6000;
   // How long a copy error stays up before the overlay closes; the pins are kept
   // so reopening lets the user retry.
   const COPY_ERROR_MS = 3000;
@@ -220,7 +221,7 @@
     overlay_helper_unavailable: "helper unavailable",
     overlay_hint_clear_long: "Hide",
     overlay_hint_clear_short: "Hide",
-    overlay_hint_copy_long: "Conclude and copy",
+    overlay_hint_copy_long: "Finish session",
     overlay_hint_copy_short: "Finish",
     overlay_session_summary: "{pages} pages · {pins} pins",
     overlay_session_start: "Add a pin to start a session",
@@ -230,13 +231,16 @@
     overlay_session_saved: "Saved",
     overlay_session_captured: "Captured",
     overlay_session_cancelled: "Session cancelled",
-    overlay_session_pending: "Pending — review and retry",
-    overlay_session_finish: "Conclude and copy",
-    overlay_session_retry: "Retry",
+    overlay_session_pending: "Pending — try again",
+    overlay_session_finish: "Finish session",
     overlay_session_discard: "Discard session",
     overlay_session_remove: "Remove",
     overlay_session_finished: "Session saved",
-    overlay_session_finish_failed: "Could not finish the session · review and retry",
+    overlay_session_finish_failed: "Could not finish the session · your pins were kept, try again",
+    overlay_session_error_pin_not_visible: "A pin is outside the visible area · bring it into view and try again",
+    overlay_session_error_page_changed: "The page changed during capture · stay on the page and try again",
+    overlay_session_error_tab_changed: "The annotated tab was not active · switch back to it and try again",
+    overlay_session_error_screenshot: "Screenshot not captured · return to the annotated page and try again",
     overlay_hint_mask_long: "Mask",
     overlay_hint_mask_short: "Mask",
     overlay_hint_pin: "Click or drag",
@@ -827,7 +831,6 @@
       <div data-ref="reviewList"></div>
       <div class="review-actions">
         <button class="btn-add" type="button" data-ref="reviewFinish" data-i18n="overlay_session_finish">${t("overlay_session_finish")}</button>
-        <button class="btn-cancel" type="button" data-ref="reviewRetry" data-i18n="overlay_session_retry">${t("overlay_session_retry")}</button>
         <button class="btn-cancel" type="button" data-ref="reviewDiscard" data-i18n="overlay_session_discard">${t("overlay_session_discard")}</button>
       </div>
     </section>` : ""}
@@ -1730,13 +1733,36 @@
     }, COPY_CONFIRMATION_MS);
   }
 
+  // Internal failure codes never reach the UI: the worker maps known ones to an
+  // i18n key and everything else falls back to the generic message.
+  function reviewErrorText(reasonKey) {
+    return (reasonKey && t(reasonKey)) || "";
+  }
+
+  function reviewFailureMessage(reasonKey) {
+    return reviewErrorText(reasonKey) || t("overlay_session_finish_failed");
+  }
+
+  // A failed finish/retry stays visible long enough to read and act on.
+  function flashFailure(message) {
+    clearProgress();
+    showConfirm(message, "error");
+    setStatus(message, "error");
+    state.statusTimer = setTimeout(() => {
+      state.status = null;
+      host.removeAttribute("data-confirm");
+      state.progressLabel = null;
+      state.progressKind = "info";
+      renderChrome();
+    }, REVIEW_FAILURE_MS);
+  }
+
   function renderReviewList() {
     if (!ui.reviewList) return;
     if (shadow.activeElement?.matches(".review-comment:not(:disabled)")) return;
     for (const name of ["reviewFinish", "reviewDiscard"]) {
       shadow.querySelector(`[data-ref=${name}]`).disabled = !state.batch.entries?.length;
     }
-    shadow.querySelector("[data-ref=reviewRetry]").hidden = !state.batch.entries?.some((entry) => entry.status !== "saved");
     ui.reviewList.replaceChildren();
     for (const entry of state.batch.entries || []) {
       const row = document.createElement("div");
@@ -1780,7 +1806,10 @@
       const status = document.createElement("small");
       status.className = "review-status";
       status.setAttribute("role", "status");
-      status.textContent = entry.status === "saved" ? t("overlay_session_captured") : t("overlay_session_pending");
+      const errorText = entry.status === "saved" ? "" : reviewErrorText(entry.errorKey);
+      status.textContent = entry.status === "saved"
+        ? t("overlay_session_captured")
+        : `${t("overlay_session_pending")}${errorText ? ` · ${errorText}` : ""}`;
       row.append(heading, target, comment);
       if (entry.path) {
         const path = document.createElement("code");
@@ -1819,11 +1848,6 @@
     hideOutline();
   }
   shadow.querySelector("[data-ref=reviewFinish]")?.addEventListener("click", () => void sendPins());
-  shadow.querySelector("[data-ref=reviewRetry]")?.addEventListener("click", async () => {
-    await syncPins(true);
-    const response = await chrome.runtime.sendMessage({ type: "review:retry" });
-    if (!response?.ok) flashStatus(t("overlay_session_pending"));
-  });
   shadow.querySelector("[data-ref=reviewDiscard]")?.addEventListener("click", async () => {
     const response = await chrome.runtime.sendMessage({ type: "review:discard" });
     if (!response?.ok) flashStatus(t("overlay_session_pending"));
@@ -1835,6 +1859,92 @@
       applyBatchState(response?.ok ? response : null);
     } catch {
       applyBatchState(null);
+    }
+  }
+
+  // Navigation wipes page-local pins (clearNavigationPins/resetLocalPins), but
+  // the active session's annotations live on in the service worker's durable
+  // draft. Coming back to a page must not lose them: this pulls only the
+  // entries whose sanitized page identity matches the current page/frame and
+  // renders them. No capture, no screenshot recapture, no draft mutation -
+  // the draft stays exactly as the user left it until an explicit edit or
+  // removal. A stale reply (page changed, pins wiped, session ended while in
+  // flight) is dropped, and locally present pins are never overwritten.
+  let restoreGeneration = 0;
+  // Pins removed while a restore reply is still in flight must not come back:
+  // the generation drops the whole reply, and this id set filters the removed
+  // pin out of any reply that already passed the generation check. Cleared
+  // when the local state is wiped, which is when a fresh restore may run.
+  const restoreTombstones = new Set();
+  // The wipe id of the last review:navigated this frame processed. The top
+  // frame re-broadcasts that same wipe to child frames as FRAME_CLEAR; a
+  // frame that already handled the wipe must not let the broadcast re-wipe
+  // it (the destructive reset bumps the restore generation and drops the
+  // frame's own in-flight re-pull reply).
+  let lastNavigatedWipeId = null;
+  // An explicit user show whose persistence the worker has not acknowledged
+  // yet. A resume reconcile acting on a stale hidden read must not undo that
+  // show, so it stays out while this flag is armed.
+  let pendingExplicitShow = false;
+  async function restoreActivePins() {
+    if (state.sending) return;
+    const requestId = crypto.randomUUID();
+    const generation = restoreGeneration;
+    const pageKey = currentPageKey();
+    // Stable frame identity: the DOM path prefix from the top frame down to
+    // this frame (empty for the top frame). Chrome frame ids change across
+    // navigations, so the draft is matched by this prefix, never the frameId.
+    // An embedded frame that cannot resolve its own path must not guess: it
+    // restores nothing instead of claiming the top frame's pins.
+    let framePath = "";
+    if (isEmbedded) {
+      const frameParts = await requestFramePaths();
+      if (!frameParts.length) return;
+      framePath = joinFrameDomPath(frameParts);
+    }
+    try {
+      const response = await chrome.runtime.sendMessage({
+        requestId,
+        type: "review:restore",
+        workspaceView: currentWorkspaceView(),
+        framePath,
+        // The live URL of this frame. For the top frame it is the restore
+        // match key: sender.url stays stale across same-document (SPA)
+        // navigations and would match another page's entries.
+        pageUrl: location.href,
+      });
+      if (response?.ok !== true || response.requestId !== requestId) return;
+      if (generation !== restoreGeneration) return;
+      if (currentPageKey() !== pageKey) return;
+      const restored = [];
+      const localIds = new Set(state.pins.map((pin) => pin.pinId || pin.id));
+      const { FRAME_BOUNDARY } = globalThis.__pinarFramePath;
+      for (const item of Array.isArray(response.pins) ? response.pins : []) {
+        const pin = item?.pin;
+        if (!pin || typeof pin !== "object") continue;
+        const pinId = typeof pin.pinId === "string" && pin.pinId ? pin.pinId : pin.id;
+        if (!pinId || localIds.has(pinId) || restoreTombstones.has(pinId)) continue;
+        // The worker already filters by frame identity; re-check it here so a
+        // stale or hostile reply can never render another frame's pin (with
+        // another frame's local geometry) in this frame.
+        if (splitFrameDomPath(pin.path || "").slice(0, -1).join(FRAME_BOUNDARY) !== framePath) continue;
+        const number = Number(item?.number) || Number(pin.number) || 0;
+        restored.push({
+          ...pin,
+          captureId: item.captureId,
+          color: pinColor(number || 1),
+          id: pinId,
+          number: number || undefined,
+          pageUrl: location.href,
+        });
+        localIds.add(pinId);
+      }
+      if (!restored.length) return;
+      state.pins = [...state.pins, ...restored];
+      renderChrome();
+      renderMarkers();
+    } catch {
+      /* runtime gone (extension update/unload): nothing to restore */
     }
   }
 
@@ -2622,7 +2732,21 @@
 
   function deleteDraft() {
     if (state.draft?.editId) {
+      const pin = state.pins.find((item) => item.id === state.draft.editId);
       state.pins = state.pins.filter((pin) => pin.id !== state.draft.editId);
+      // Restored pins belong to an earlier document of this page, and the sync
+      // diff only removes entries of the current document - so a pin that came
+      // back from the durable draft is removed through its capture id, which
+      // updates the same draft entry.
+      if (pin?.captureId) void chrome.runtime.sendMessage({ type: "review:remove", captureId: pin.captureId }).catch(() => null);
+      // The removal above may not reach this frame as a review:pin-removed
+      // broadcast (a fresh pin has no capture id): drop in-flight restore
+      // replies and tombstone the id so the deleted pin can neither re-render
+      // nor be re-synced into a new entry.
+      if (pin) {
+        restoreTombstones.add(pin.id);
+        restoreGeneration += 1;
+      }
       pendingReviewSync = syncPins(true);
     }
     cancelDraft();
@@ -2703,8 +2827,9 @@
       } : {}),
       type: "pins:sync",
     }).catch(() => null);
-    if (persist && !response?.ok) flashStatus(t("overlay_session_pending"));
     const synced = response?.ok === true;
+    state.syncFailureKey = synced ? null : response?.reasonKey || null;
+    if (persist && !synced) flashStatus(reviewErrorText(state.syncFailureKey) || t("overlay_session_pending"));
     if (synced) {
       const colorsById = new Map(response.pins.map((pin) => [pin.id, pin.color]));
       state.pins = state.pins.map((pin) => ({ ...pin, color: pin.number ? pinColor(pin.number) : colorsById.get(pin.id) || pin.color }));
@@ -2724,6 +2849,10 @@
   }
 
   function resetLocalPins() {
+    // Any local wipe invalidates in-flight restore replies: they must not
+    // re-render pins on a page that just navigated or a session that ended.
+    restoreGeneration += 1;
+    restoreTombstones.clear();
     resetVoiceUi();
     state.pins = [];
     state.draft = null;
@@ -2739,9 +2868,11 @@
     renderMarkers();
   }
 
-  function clearNavigationPins() {
+  function clearNavigationPins(wipeId = null) {
     if (!isEmbedded) {
-      broadcastToChildFrames(FRAME_CLEAR);
+      // Carry the wipe id so child frames can recognize their own copy of
+      // this same navigated wipe (they receive review:navigated directly).
+      broadcastToChildFrames(FRAME_CLEAR, wipeId ? { wipeId } : {});
       void chrome.runtime.sendMessage({ type: "pins:clear" }).catch(() => null);
     }
     localPageKey = currentPageKey();
@@ -2761,6 +2892,8 @@
   }
 
   async function discardAnnotations() {
+    // A full local wipe also invalidates in-flight restore replies.
+    restoreGeneration += 1;
     state.pins = [];
     pendingReviewSync = syncPins(true);
     await pendingReviewSync;
@@ -3063,6 +3196,7 @@
 
   async function sendPins() {
     if (!isMounted() || !state.active || state.sending) return;
+    const reviewWasOpen = host.hasAttribute("data-review-open");
     if (isEmbedded) {
       if (!saveDraft()) {
         flashStatus(t("overlay_write_comment"));
@@ -3087,14 +3221,14 @@
     showPending(t("overlay_copying"));
     try {
       await pendingReviewSync;
+      if (state.pins.length && !await syncPins(true)) throw Object.assign(new Error("session_pending"), { reasonKey: state.syncFailureKey });
       const result = await chrome.runtime.sendMessage({ type: "review:finish" });
-      if (!result?.ok) throw new Error(result?.error || "session_pending");
+      if (!result?.ok) throw Object.assign(new Error(result?.error || "session_pending"), { reasonKey: result?.reasonKey });
       await clearPins();
       broadcast(FRAME_CLEAR);
-    } catch {
-      clearProgress();
-      flashStatus(t("overlay_session_finish_failed"));
-      setReviewOpen(true);
+    } catch (error) {
+      flashFailure(reviewFailureMessage(error?.reasonKey));
+      if (reviewWasOpen) setReviewOpen(true);
     } finally {
       state.sending = false;
       host.setAttribute("aria-busy", "false");
@@ -3151,9 +3285,17 @@
       return;
     }
     if (event.data?.type === FRAME_CLEAR) {
-      broadcastToChildFrames(FRAME_CLEAR);
-      localPageKey = currentPageKey();
-      resetLocalPins();
+      // The same navigated wipe this frame already processed must not reset
+      // it again: the reset bumps the restore generation and would drop the
+      // frame's own re-pull reply, losing the frame's pin. Unrelated wipes
+      // (discard, session end) arrive without a wipe id and still wipe.
+      const alreadyProcessed =
+        typeof event.data?.wipeId === "string" && event.data.wipeId !== "" && event.data.wipeId === lastNavigatedWipeId;
+      if (!alreadyProcessed) {
+        localPageKey = currentPageKey();
+        resetLocalPins();
+      }
+      broadcastToChildFrames(FRAME_CLEAR, event.data?.wipeId ? { wipeId: event.data.wipeId } : {});
       return;
     }
     if (event.data?.type === FRAME_HIDE) {
@@ -3200,8 +3342,22 @@
     }
   }
 
+  // When the capture shutter hides this host while the composer is open, the
+  // input's text, selection and focus must survive the round trip: without
+  // this, the user's in-progress comment is lost and the next keystrokes go
+  // to the page. The saved state only applies to the same draft object; a
+  // replaced or cancelled draft discards it.
+  let concealedComposer = null;
   function setHidden(hidden) {
     renderRecordingBadge(hidden);
+    if (hidden && state.draft && !concealedComposer) {
+      concealedComposer = {
+        draft: state.draft,
+        selectionEnd: ui.input.selectionEnd,
+        selectionStart: ui.input.selectionStart,
+        value: ui.input.value,
+      };
+    }
     host.style.display = hidden || !state.active ? "none" : "";
     if (hidden) {
       document.documentElement.removeAttribute("data-pinar-active");
@@ -3209,6 +3365,23 @@
     } else if (state.active && !host.hasAttribute("data-review-open")) {
       document.documentElement.setAttribute("data-pinar-active", "true");
       applyGlobalStyles();
+    }
+    if (!hidden && concealedComposer) {
+      const saved = concealedComposer;
+      concealedComposer = null;
+      if (state.draft === saved.draft) {
+        ui.input.value = saved.value;
+        fitInput();
+        ui.input.focus({ preventScroll: true });
+        ui.input.setSelectionRange(saved.selectionStart, saved.selectionEnd);
+      }
+    } else if (!hidden && state.draft && shadow.activeElement !== ui.input) {
+      // A composer opened while the host was out of layout (the capture
+      // shutter), so the focus claim failed and the retries may have
+      // surrendered. The shutter has taken its frame: claim the focus now so
+      // the user's next keystrokes reach the input, not the page.
+      composerFocusRetries = 0;
+      claimComposerFocus();
     }
   }
 
@@ -3238,6 +3411,7 @@
       updateOutline();
       renderMarkers();
       void syncBatchLabel();
+      void restoreActivePins();
       void syncUiMessages();
       return;
     }
@@ -3424,6 +3598,7 @@
     delete globalThis.__pinarToggle;
     delete globalThis.__pinarSetHidden;
     delete globalThis.__pinarDismiss;
+    delete globalThis.__pinarReconcileHidden;
     delete globalThis.__pinarSyncPins;
     delete globalThis.__pinarCaptureMetrics;
     delete globalThis.__pinarPrepareCapture;
@@ -3446,15 +3621,51 @@
     }
     const visible = !isVisible();
     setVisible(visible);
-    if (!isEmbedded) void chrome.runtime.sendMessage({ type: "toolbar:visibility", visible }).catch(() => null);
+    if (!isEmbedded) {
+      // While the worker persists the show, a resume reconcile may still hold
+      // a stale hidden read: arm the flag so that reconcile does not undo the
+      // show, and clear it once the persistence is acknowledged (or lost).
+      if (visible) pendingExplicitShow = true;
+      void chrome.runtime.sendMessage({ type: "toolbar:visibility", visible })
+        .then(() => { pendingExplicitShow = false; })
+        .catch(() => { pendingExplicitShow = false; });
+    }
+    // Child frames follow the top frame's toolbar: a show must reach them so
+    // their own pins restore and render, and a hide must hide them too (the
+    // Escape path already broadcasts FRAME_HIDE; the action/shortcut did not).
+    if (visible) broadcast(FRAME_SHOW);
+    else broadcast(FRAME_HIDE);
     globalThis.__pinarToggle = toggle;
     globalThis.__pinarSetHidden = setHidden;
     globalThis.__pinarDismiss = dismiss;
   }
 
+  // A resume chain can probe a document that received content.js from an
+  // earlier chain's late files injection (requested by tab only) after the tab
+  // navigated: its __pinarInitialVisible flag never reached it, so the
+  // instance mounted default-visible while the persisted state is hidden.
+  // Reconcile it through the real visibility path - the shutter would restore
+  // the instance on its round trip - and let child frames follow. While a
+  // capture is in flight the send owns its end state, so the reconcile stays
+  // out: it must not queue reopenAfterSend nor touch the in-flight pins.
+  async function reconcileHidden() {
+    if (state.sending || !isVisible() || pendingExplicitShow) return;
+    // The chain's visibility read can be stale by the time this runs: the user
+    // may have explicitly shown the toolbar in between. Re-read the persisted
+    // state through the worker and honor a show that is still being persisted;
+    // a resume must never unhide, but it must not un-show either.
+    const response = await chrome.runtime.sendMessage({ type: "toolbar:visibility:get" }).catch(() => null);
+    if (response?.ok !== true || response.visible === true) return;
+    if (state.sending || !isVisible() || pendingExplicitShow) return;
+    setVisible(false);
+    broadcast(FRAME_HIDE);
+  }
+
   globalThis.__pinarToggle = toggle;
   globalThis.__pinarSetHidden = setHidden;
   globalThis.__pinarDismiss = dismiss;
+  globalThis.__pinarReconcileHidden = reconcileHidden;
+  globalThis.__pinarComposerOpen = () => Boolean(state.draft);
   globalThis.__pinarSyncPins = syncPins;
   globalThis.__pinarCaptureMetrics = pageMetrics;
   globalThis.__pinarPrepareCapture = prepareCapture;
@@ -3465,15 +3676,32 @@
     documentId: currentReviewDocumentId(), url: location.href, page: pageContext(),
     scroll: currentScroll(), width: window.innerWidth, height: window.innerHeight,
     masks: activeMaskRegions(), unevaluated: activeScan().unevaluated,
+    workspaceView: currentWorkspaceView(),
   });
   globalThis.chrome?.runtime?.onMessage?.addListener?.((message, _sender, sendResponse) => {
     if (message?.type === "review:navigated") {
-      clearNavigationPins();
+      // Remember this wipe so the top frame's FRAME_CLEAR re-broadcast of the
+      // same event is recognized (and skipped) below.
+      lastNavigatedWipeId = typeof message?.wipeId === "string" && message.wipeId ? message.wipeId : null;
+      clearNavigationPins(lastNavigatedWipeId);
+      // The worker sends this on every URL change and the delivery races the
+      // resume chains: it can land in a document that never saw that
+      // navigation, after the late resume injection mounted it. The wipe
+      // above bumps the restore generation and drops the restore reply still
+      // in flight (the one the explicit show just fired), or clears the pin
+      // the reply already rendered - either way a visible toolbar would be
+      // left without the page's pins until a manual re-toggle. While the
+      // toolbar is visible, re-pull the entries that still match this
+      // page/frame through the same scoped restore.
+      if (isVisible()) void restoreActivePins();
       sendResponse({ ok: true });
       return false;
     }
     if (message?.type === "review:pin-edited") {
       for (const pin of state.pins) if ((pin.pinId || pin.id) === message.pinId) pin.comment = message.comment;
+      // A reply still in flight carries the pre-edit comment: drop it so the
+      // stale text cannot overwrite the edited pin.
+      restoreGeneration += 1;
       renderMarkers();
       sendResponse({ ok: true });
       return false;
@@ -3481,6 +3709,12 @@
     if (message?.type === "review:pin-removed") {
       state.pins = state.pins.filter((pin) => (pin.pinId || pin.id) !== message.pinId);
       if (state.draft?.editId === message.pinId) state.draft = null;
+      // A removed pin must not come back from a delayed restore reply: the
+      // generation drops replies still in flight and the tombstone filters the
+      // id out of any reply that survives the generation check, so the pin can
+      // neither re-render here nor be re-synced into a new entry.
+      if (typeof message.pinId === "string" && message.pinId) restoreTombstones.add(message.pinId);
+      restoreGeneration += 1;
       void syncPins();
       sendResponse({ ok: true });
       return false;
@@ -3535,4 +3769,7 @@
   void syncBatchLabel();
   void syncUiMessages();
   void syncRecordingStatus();
+  // Restore only when the toolbar is actually shown on this document: a hidden
+  // toolbar (persisted across navigation) stays hidden and unannotated.
+  if (initialVisible) void restoreActivePins();
 })();

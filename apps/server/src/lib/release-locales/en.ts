@@ -16,6 +16,7 @@ const locale = {
     releaseNavigation: "Release navigation",
     releaseNotFound: "Release not found",
     releaseNotFoundDescription: "This release is not in the published history.",
+    upcomingRelease: "Upcoming · not released yet",
     viewDetails: "View details",
     whatChanged: "What changed",
   },
@@ -493,6 +494,23 @@ const locale = {
           description:
             "Sensitive-field redaction, manual masks, versioned consent, and published service policies established the cloud safety boundary.",
         },
+      },
+    },
+  },
+  upcoming: {
+    title: "MCP management and a focused handoff",
+    summary:
+      "Next up: agents get the full set of organization, session, pin, and comment operations through MCP, and finishing a session hands over only the work that is still open.",
+    changes: {
+      "mcp-crud": {
+        title: "Full MCP management for sessions and organization",
+        description:
+          "Agents can create, read, update, and delete projects, collections, batches, sessions, pins, and pin comments through MCP. Pinar Local offers these operations to agents on the same machine, without an account or key; Pinar Cloud applies the key's permission and scope to every operation.",
+      },
+      "focused-handoff": {
+        title: "Focused handoff, full detail on demand",
+        description:
+          "When a session finishes, only the pins that still need work enter the compact handoff, with the page context to act on them; the session's full detail stays reachable from the handoff's links. With Prompt you copy the text, with Link only the session link, and with Off nothing is copied. Pin notes and thread comments stay editable, following the same Local and Cloud rules as the viewer.",
       },
     },
   },

@@ -68,6 +68,7 @@ describe("cloud schema migrations", () => {
       "0023_cloud_trial.sql",
       "0024_pin_comments.sql",
       "0025_agent_api_keys.sql",
+      "0026_pin_comment_agents.sql",
     ]);
     const migrated = new Database(":memory:");
     const canonical = new Database(":memory:");
@@ -80,6 +81,63 @@ describe("cloud schema migrations", () => {
     } finally {
       migrated.close();
       canonical.close();
+    }
+  });
+
+  test("pin_comments actor_type CHECK accepts agent and human, rejects others, and preserves rows", () => {
+    const canonical = new Database(":memory:");
+    const migrated = new Database(":memory:");
+    const before0026 = migrationFiles().filter((name) => name < "0026_pin_comment_agents.sql");
+    try {
+      canonical.exec("PRAGMA foreign_keys = ON;");
+      migrated.exec("PRAGMA foreign_keys = ON;");
+      canonical.exec(readFileSync(schemaUrl, "utf8"));
+      applyMigrations(migrated, before0026);
+      migrated.exec(`
+        INSERT INTO pin_comments (id, capture_id, pin_id, actor_id, actor_label, actor_type, body, created_at)
+        VALUES ('pc_preserved', 'cap_pc', 'pin_pc', 'usr_pc', 'Owner', 'human', 'human note', '2026-09-26T12:00:00.000Z')
+      `);
+      applyMigrations(migrated, ["0026_pin_comment_agents.sql"]);
+
+      for (const db of [canonical, migrated]) {
+        db.exec(`
+          INSERT INTO pin_comments (id, capture_id, pin_id, actor_id, actor_label, actor_type, body, created_at)
+          VALUES ('pc_human', 'cap_pc', 'pin_pc', 'usr_pc', 'Owner', 'human', 'human note', '2026-09-26T12:01:00.000Z')
+        `);
+        db.exec(`
+          INSERT INTO pin_comments (id, capture_id, pin_id, actor_id, actor_label, actor_type, body, created_at)
+          VALUES ('pc_agent', 'cap_pc', 'pin_pc', 'agent_pc', 'Grok', 'agent', 'agent note', '2026-09-26T12:02:00.000Z')
+        `);
+        assert.throws(
+          () => db.query(`
+            INSERT INTO pin_comments (id, capture_id, pin_id, actor_id, actor_label, actor_type, body, created_at)
+            VALUES ('pc_rejected', 'cap_pc', 'pin_pc', 'usr_pc', 'Owner', 'robot', 'bad', '2026-09-26T12:03:00.000Z')
+          `).run(),
+          /constraint/i,
+        );
+        assert.equal(
+          db.query<{ actor_type: string }, []>(
+            "SELECT actor_type FROM pin_comments WHERE id = 'pc_agent'",
+          ).get()?.actor_type,
+          "agent",
+        );
+        assert.equal(
+          db.query<{ actor_type: string }, []>(
+            "SELECT actor_type FROM pin_comments WHERE id = 'pc_human'",
+          ).get()?.actor_type,
+          "human",
+        );
+      }
+
+      assert.deepEqual(
+        migrated.query<{ actor_type: string; body: string }, []>(
+          "SELECT actor_type, body FROM pin_comments WHERE id = 'pc_preserved'",
+        ).get(),
+        { actor_type: "human", body: "human note" },
+      );
+    } finally {
+      canonical.close();
+      migrated.close();
     }
   });
 

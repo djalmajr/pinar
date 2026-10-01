@@ -1,3 +1,6 @@
+import { createMCPServer, type MCPServer, type MCPHandleOptions } from "@tanstack/ai-mcp/server";
+import { toolDefinition, type SchemaInput } from "@tanstack/ai";
+
 export interface McpToolDefinition {
   description: string;
   inputSchema: {
@@ -8,8 +11,15 @@ export interface McpToolDefinition {
   name: string;
 }
 
+export interface McpCallerIdentity {
+  clientId: string;
+  principalId?: string | null;
+}
+
 export interface McpProtocolHandlers {
   callTool: (name: string, args: Record<string, unknown>) => Promise<unknown>;
+  caller?: McpCallerIdentity;
+  instructions?: string;
   tools: McpToolDefinition[];
 }
 
@@ -20,34 +30,60 @@ export class McpToolError extends Error {
   }
 }
 
-interface JsonRpcRequest {
-  id?: number | string | null;
-  jsonrpc: "2.0";
-  method: string;
-  params?: Record<string, unknown>;
-}
-
 const MAX_REQUEST_BYTES = 256 * 1024;
 const MAX_TOOL_RESPONSE_BYTES = 1024 * 1024;
-const PROTOCOL_VERSION = "2025-11-25";
+const MCP_ACCEPT = "application/json, text/event-stream";
+const DEFAULT_CLOUD_INSTRUCTIONS = "Pinar Cloud tools act only within the authenticated user's current permissions.";
 
-function response(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    headers: { "Cache-Control": "private, no-store", "Content-Type": "application/json; charset=utf-8" },
-    status,
-  });
-}
-
-function error(id: JsonRpcRequest["id"], code: number, message: string) {
-  return { error: { code, message }, id: id ?? null, jsonrpc: "2.0" };
-}
-
-function success(id: JsonRpcRequest["id"], result: unknown) {
-  return { id: id ?? null, jsonrpc: "2.0", result };
-}
+const serverCache = new WeakMap<McpToolDefinition[], MCPServer>();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function serverFor(tools: McpToolDefinition[]): MCPServer {
+  const cached = serverCache.get(tools);
+  if (cached) return cached;
+  const server = createMCPServer({
+    name: "pinar",
+    sessions: "memory",
+    tools: tools.map((tool) =>
+      toolDefinition({
+        description: tool.description,
+        inputSchema: tool.inputSchema as SchemaInput,
+        name: tool.name,
+      }).server(async (input, ctx) => {
+        const handlers = (ctx?.context as { handlers?: McpProtocolHandlers } | null | undefined)?.handlers;
+        if (!handlers) throw new McpToolError("Tool failed");
+        let text: string;
+        try {
+          const result = await handlers.callTool(tool.name, (input ?? {}) as Record<string, unknown>);
+          text = typeof result === "string" ? result : JSON.stringify(result);
+          if (typeof text !== "string") throw new McpToolError("Tool failed");
+        } catch (caught) {
+          throw caught instanceof McpToolError ? caught : new McpToolError("Tool failed");
+        }
+        if (new TextEncoder().encode(text).byteLength > MAX_TOOL_RESPONSE_BYTES) {
+          throw new McpToolError("Tool result is too large; narrow the request or query individual sessions");
+        }
+        return text;
+      }),
+    ),
+    version: import.meta.env.VITE_PINAR_VERSION ?? "0.5.0",
+  });
+  serverCache.set(tools, server);
+  return server;
+}
+
+function authInfoFor(handlers: McpProtocolHandlers): MCPHandleOptions["authInfo"] {
+  const caller = handlers.caller;
+  if (!caller) return undefined;
+  return {
+    clientId: caller.clientId,
+    extra: { sub: caller.principalId ?? null },
+    scopes: [],
+    token: caller.clientId,
+  };
 }
 
 async function readBody(request: Request): Promise<string | null> {
@@ -76,14 +112,15 @@ async function readBody(request: Request): Promise<string | null> {
   }
 }
 
-function isJsonRpcRequest(value: unknown): value is JsonRpcRequest {
-  return isRecord(value)
-    && value.jsonrpc === "2.0"
-    && typeof value.method === "string"
-    && (!Object.hasOwn(value, "id")
-      || value.id === null
-      || typeof value.id === "string"
-      || (typeof value.id === "number" && Number.isFinite(value.id)));
+function rpcError(id: number | string | null, code: number, message: string) {
+  return { error: { code, message }, id: id ?? null, jsonrpc: "2.0" };
+}
+
+function guardResponse(body: unknown, status: number) {
+  return new Response(JSON.stringify(body), {
+    headers: { "Cache-Control": "private, no-store", "Content-Type": "application/json; charset=utf-8" },
+    status,
+  });
 }
 
 export async function handleMcpProtocolRequest(request: Request, handlers: McpProtocolHandlers): Promise<Response> {
@@ -92,53 +129,79 @@ export async function handleMcpProtocolRequest(request: Request, handlers: McpPr
   }
   if (request.method !== "POST") return new Response(null, { status: 405 });
   const origin = request.headers.get("origin");
-  if (origin && origin !== new URL(request.url).origin) return response(error(null, -32000, "Forbidden"), 403);
-  const contentType = request.headers.get("content-type") || "";
-  if (!contentType.toLowerCase().startsWith("application/json")) return response(error(null, -32600, "Content-Type must be application/json"), 415);
-  const version = request.headers.get("mcp-protocol-version");
-  if (version && version !== PROTOCOL_VERSION) return response(error(null, -32600, "Unsupported protocol version"), 400);
+  if (origin && origin !== new URL(request.url).origin) return guardResponse(rpcError(null, -32000, "Forbidden"), 403);
+  const contentType = request.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().startsWith("application/json")) {
+    return guardResponse(rpcError(null, -32600, "Content-Type must be application/json"), 415);
+  }
   const raw = await readBody(request);
-  if (raw === null) return response(error(null, -32600, "Request too large"), 413);
-  let message: unknown;
+  if (raw === null) return guardResponse(rpcError(null, -32600, "Request too large"), 413);
+  const headers = new Headers(request.headers);
+  if (headers.get("accept") === null) headers.set("accept", MCP_ACCEPT);
+  let isHandshake = headers.get("mcp-method") === "server/discover";
+  let isToolCall = headers.get("mcp-method") === "tools/call";
+  let isBatch = false;
   try {
-    message = JSON.parse(raw);
-  } catch {
-    return response(error(null, -32700, "Parse error"), 400);
-  }
-  if (!isJsonRpcRequest(message)) return response(error(null, -32600, "Invalid request"), 400);
-  if (!Object.hasOwn(message, "id")) {
-    return message.method === "notifications/initialized"
-      ? new Response(null, { headers: { "Cache-Control": "private, no-store" }, status: 202 })
-      : response(error(null, -32600, "Unsupported notification"), 400);
-  }
-  const { id, method } = message;
-  if (method === "initialize") {
-    return response(success(id, {
-      capabilities: { tools: { listChanged: false } },
-      instructions: "Pinar Cloud tools act only within the authenticated user's current permissions.",
-      protocolVersion: PROTOCOL_VERSION,
-      serverInfo: { name: "pinar", version: import.meta.env.VITE_PINAR_VERSION ?? "0.5.0" },
-    }));
-  }
-  if (method === "ping") return response(success(id, {}));
-  if (method === "tools/list") return response(success(id, { tools: handlers.tools }));
-  if (method !== "tools/call") return response(error(id, -32601, "Method not found"));
-  const params = message.params;
-  const name = params?.name;
-  const args = params?.arguments ?? {};
-  if (typeof name !== "string" || !isRecord(args)) return response(error(id, -32602, "Invalid tool arguments"));
-  if (!handlers.tools.some((tool) => tool.name === name)) return response(error(id, -32602, "Unknown tool"));
-  try {
-    const result = await handlers.callTool(name, args);
-    const contentText = typeof result === "string" ? result : JSON.stringify(result);
-    if (typeof contentText !== "string") throw new Error("Invalid tool result");
-    const body = success(id, { content: [{ text: contentText, type: "text" }] });
-    if (new TextEncoder().encode(JSON.stringify(body)).byteLength > MAX_TOOL_RESPONSE_BYTES) {
-      throw new McpToolError("Tool result is too large; narrow the request or query individual sessions");
+    const message: unknown = JSON.parse(raw);
+    if (Array.isArray(message)) {
+      isBatch = true;
+    } else if (isRecord(message)) {
+      if (message.method === "initialize") isHandshake = true;
+      if (message.method === "tools/call") isToolCall = true;
     }
-    return response(body);
-  } catch (caught) {
-    const message = caught instanceof McpToolError ? caught.message : "Tool failed";
-    return response(success(id, { content: [{ text: message, type: "text" }], isError: true }));
+  } catch {
+    // The library reports malformed bodies with its own parse error.
   }
+  if (isBatch) return guardResponse(rpcError(null, -32600, "Batch requests are not supported"), 400);
+  const response = await serverFor(handlers.tools).handle(new Request(request.url, { body: raw, headers, method: "POST" }), {
+    authInfo: authInfoFor(handlers),
+    context: { handlers },
+  });
+  const finalHeaders = new Headers(response.headers);
+  finalHeaders.set("Cache-Control", "private, no-store");
+  if (!(response.headers.get("content-type") ?? "").includes("application/json")) {
+    return new Response(response.body, { headers: finalHeaders, status: response.status, statusText: response.statusText });
+  }
+  const body = await response.text();
+  let finalBody = body;
+  if (isHandshake) {
+    try {
+      const parsed: unknown = JSON.parse(body);
+      if (isRecord(parsed) && isRecord(parsed.result) && typeof (parsed.result as Record<string, unknown>).instructions !== "string") {
+        const result = parsed.result as Record<string, unknown>;
+        const meta = isRecord(result._meta) ? result._meta : null;
+        const hasServerInfo = isRecord(result.serverInfo) || (meta !== null && isRecord(meta["io.modelcontextprotocol/serverInfo"]));
+        if (hasServerInfo) {
+          result.instructions = handlers.instructions ?? DEFAULT_CLOUD_INSTRUCTIONS;
+          finalBody = JSON.stringify(parsed);
+        }
+      }
+    } catch {
+      // Non-JSON or unexpected handshake bodies pass through unchanged.
+    }
+  }
+  if (isToolCall && response.status === 200 && new TextEncoder().encode(finalBody).byteLength > MAX_TOOL_RESPONSE_BYTES) {
+    let id: number | string | null = null;
+    let hasResultType = false;
+    try {
+      const parsed: unknown = JSON.parse(finalBody);
+      if (isRecord(parsed)) {
+        if (typeof parsed.id === "string" || typeof parsed.id === "number") id = parsed.id;
+        const result = isRecord(parsed.result) ? parsed.result : null;
+        hasResultType = result !== null && typeof result.resultType === "string";
+      }
+    } catch {
+      // Keep the null id when the oversized envelope is not parseable.
+    }
+    finalBody = JSON.stringify({
+      id: id ?? null,
+      jsonrpc: "2.0",
+      result: {
+        ...(hasResultType ? { resultType: "complete" } : {}),
+        content: [{ text: "Tool result is too large; narrow the request or query individual sessions", type: "text" }],
+        isError: true,
+      },
+    });
+  }
+  return new Response(finalBody, { headers: finalHeaders, status: response.status, statusText: response.statusText });
 }

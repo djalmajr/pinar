@@ -101,7 +101,9 @@ describe("capture destination", () => {
     assert.match(interfaceSection, /<SettingRow size="xs" description=\{t\.language_desc\} title=\{t\.language_label\}>/);
     assert.match(interfaceSection, /<SettingRow size="xs" description=\{t\.theme_desc\} title=\{t\.theme_label\}>/);
     assert.match(optionsSrc, /<SettingRow size="xs" description=\{t\.handoff_mode_desc\}/);
-    assert.doesNotMatch(optionsSrc, /<SettingRow size="xs" description=\{t\.copy_on_finish_batch_desc\}/);
+    const handoffSection = optionsSrc.slice(optionsSrc.indexOf("{t.section_handoff}"), optionsSrc.indexOf("{t.section_privacy}"));
+    assert.match(handoffSection, /<SettingRow size="xs" description=\{t\.copy_on_finish_batch_desc\} title=\{t\.copy_on_finish_batch_label\}>/);
+    for (const value of ["prompt", "link", "off"]) assert.match(handoffSection, new RegExp(`<SelectItem value="${value}">\\{t\\.copy_on_finish_batch_${value}\\}`));
     assert.match(optionsSrc, /<SettingRow layout="stack" size="xs" description=\{t\.privacy_query_keys_desc\} title=\{t\.privacy_query_keys_label\}>/);
     // Mutation captured: w-52 + w-full stretches the trigger; the menu then inherits --anchor-width and looks padded.
     assert.doesNotMatch(optionsSrc, /controlClassName="w-52"/);

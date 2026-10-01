@@ -1,4 +1,4 @@
-import { acceptedDiagnosis, describeEvidenceItem, renderSnapshotOutline, type Pin } from "@pinar/shared";
+import { acceptedDiagnosis, describeEvidenceItem, type Pin } from "@pinar/shared";
 
 function appendCodeBlock(lines: string[], title: string, value?: string | null, language = "text") {
   if (!value) return;
@@ -32,22 +32,14 @@ function appendEvidence(lines: string[], pin: Pin) {
   }
 }
 
-function appendStructure(lines: string[], pin: Pin) {
-  if (!pin.snapshot) return;
-  const outline = renderSnapshotOutline(pin.snapshot.root).join("\n");
-  const summary = `${pin.snapshot.nodeCount} nodes${pin.snapshot.truncated ? ", truncated" : ""}`;
-  lines.push("", "## Structure", "", `- **Nodes:** ${summary}`);
-  if (pin.snapshot.fonts.length) {
-    lines.push(`- **Fonts:** ${pin.snapshot.fonts.map((font) => [font.family, font.weight, font.style].filter(Boolean).join(" ")).join(", ")}`);
-  }
-  if (pin.snapshot.icons.length) lines.push(`- **Icons:** ${pin.snapshot.icons.map((icon) => icon.name).join(", ")}`);
-  const fence = outline.includes("```") ? "````" : "```";
-  lines.push("", `${fence}html`, outline, fence);
-}
-
 export function formatPinMarkdown(pin: Pin, number: number) {
-  const coordinates = pin.coords || pin.anchor;
-  const box = pin.areaBox || pin.box;
+  // An explicit "none" location is never measured: the parser's zero
+  // coordinate defaults are placeholders, so Coordinates and Area stay out of
+  // the document. Measured pins keep their coordinates, including a
+  // legitimate origin 0,0.
+  const unmeasured = pin.location?.strategy === "none";
+  const coordinates = unmeasured ? undefined : pin.coords || pin.anchor;
+  const box = unmeasured ? undefined : pin.areaBox || pin.box;
   const isArea = pin.type === "area" || pin.kind === "area";
   const lines = [
     `# Pin ${number}`,
@@ -78,7 +70,6 @@ export function formatPinMarkdown(pin: Pin, number: number) {
   appendCodeBlock(lines, "Selector", pin.selector, "css");
   appendCodeBlock(lines, "DOM path", pin.domPath || pin.path);
   appendCodeBlock(lines, "Visible text", pin.innerText || pin.text);
-  appendStructure(lines, pin);
 
   return `${lines.join("\n")}\n`;
 }

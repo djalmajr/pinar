@@ -1,4 +1,26 @@
+import "./frame-path.js";
+import { copyFinishedBatch } from "./batch.js";
 import { getPinColor } from "./pin-colors.js";
+// Known internal failure codes → i18n key. Anything else stays unmapped so raw
+// error text is never shown to the user.
+const REVIEW_ERROR_KEYS = {
+  cloud_subscription_required: "overlay_cloud_subscription_required",
+  screenshot_missing: "overlay_session_error_screenshot",
+  screenshot_page_changed: "overlay_session_error_page_changed",
+  screenshot_pin_not_visible: "overlay_session_error_pin_not_visible",
+  screenshot_tab_changed: "overlay_session_error_tab_changed",
+};
+export function reviewErrorKey(reason) {
+  return Object.hasOwn(REVIEW_ERROR_KEYS, reason) ? REVIEW_ERROR_KEYS[reason] : null;
+}
+
+// Hands a finished session to the agent using the saved copy mode. "prompt"
+// copies the authenticated Markdown body, "link" copies only the bundle URL
+// (no Markdown fetch, no token in it) and "off" leaves the clipboard alone.
+export function copyReviewHandoff(draft, { mode, base, fetchMarkdown, writeClipboard }) {
+  return copyFinishedBatch({ mode, base, batchId: draft.id, fetchText: () => fetchMarkdown(draft), writeClipboard });
+}
+
 // A durable outbox shared by all annotated tabs. Browser and server operations
 // are injected so failure/restart behaviour can be tested without Chrome.
 export function createContinuousSession({ read, write, create, capture, save, remove, finish, publish, changed = () => {}, id = () => crypto.randomUUID() }) {
@@ -51,7 +73,7 @@ export function createContinuousSession({ read, write, create, capture, save, re
         let entry = draft.entries.find((item) => !item.deleted && (item.pin.pinId || item.pin.id) === pinId);
         if (!entry) {
           const number = Math.max(draft.entries.length, ...draft.entries.map((item) => item.pin.number || 0)) + 1;
-          entry = { captureId: id(), source: input.source, page: input.page, pin: { ...pin, number, color: getPinColor(number) }, privacy: input.privacy, warnings: input.warnings || [], createdAt: new Date().toISOString(), shot: null, status: "pending" };
+          entry = { captureId: id(), source: input.source, page: input.page, pin: { ...pin, number, color: getPinColor(number) }, privacy: input.privacy, warnings: input.warnings || [], createdAt: new Date().toISOString(), shot: null, status: "pending", workspaceView: normalizeWorkspaceView(input.workspaceView) };
           draft.entries.push(entry);
           // Persist the annotation before attempting any screenshot/network IO.
           await persist(draft);
@@ -89,10 +111,6 @@ export function createContinuousSession({ read, write, create, capture, save, re
         await persist(draft);
       }
       return deliver(draft);
-    }),
-    retry: () => serial(async () => {
-      const draft = await read();
-      return draft ? deliver(draft) : null;
     }),
     attachReproduction: (tabId, reproduction) => serial(async () => {
       if (!reproduction) return;
@@ -159,6 +177,44 @@ export function createContinuousSession({ read, write, create, capture, save, re
   };
 }
 
+function normalizeWorkspaceView(value) {
+  return typeof value === "string" && value ? value : null;
+}
+
+// Stable frame identity of a stored pin: the DOM path prefix from the top
+// frame down to the frame the pin belongs to ("" for a top-frame pin). Chrome
+// frame ids change across navigations, so this prefix - already carried by
+// pin.path - is the identity a restore matches on, never the frameId.
+function pinFramePath(pin) {
+  const { FRAME_BOUNDARY, splitFrameDomPath } = globalThis.__pinarFramePath;
+  return splitFrameDomPath(pin?.path || "").slice(0, -1).join(FRAME_BOUNDARY);
+}
+
+// Narrow restore projection for a page that is being (re)opened with the
+// toolbar visible. Entries are already sanitized durable state, so the full
+// pin payload (geometry, locators, comment, number, color, id) is returned as
+// stored; screenshots (entry.shot) and the page object are never included.
+// framePath selects the requesting frame ("", or its stable DOM path prefix):
+// a child pin is never returned to the top frame or a sibling frame, and
+// entries without a frame path (legacy/top-frame pins) restore only on the
+// top frame.
+export function restoreEntriesForPage(draft, { pageUrl, workspaceView = null, framePath = "" } = {}) {
+  if (!draft || !Array.isArray(draft.entries) || typeof pageUrl !== "string" || !pageUrl) return [];
+  const view = normalizeWorkspaceView(workspaceView);
+  const requestedFrame = typeof framePath === "string" ? framePath : "";
+  const restored = [];
+  for (const entry of draft.entries) {
+    if (!entry || entry.deleted) continue;
+    if (!entry.pin || typeof entry.pin !== "object") continue;
+    if (typeof entry.page?.url !== "string" || entry.page.url !== pageUrl) continue;
+    if (normalizeWorkspaceView(entry.workspaceView) !== view) continue;
+    if (pinFramePath(entry.pin) !== requestedFrame) continue;
+    if (typeof entry.captureId !== "string") continue;
+    restored.push({ captureId: entry.captureId, number: entry.pin.number, pin: entry.pin });
+  }
+  return restored;
+}
+
 export function continuousSummary(draft) {
   const entries = draft?.entries.filter((entry) => !entry.deleted) || [];
   return {
@@ -168,7 +224,7 @@ export function continuousSummary(draft) {
     pins: entries.length,
     nextNumber: Math.max(draft?.entries.length || 0, ...(draft?.entries || []).map((entry) => entry.pin.number || 0)) + 1,
     pending: draft?.entries.filter((entry) => entry.status !== "saved").length || 0,
-    entries: entries.map(({ captureId, page, pin, status, error }) => ({ captureId, page, pinId: pin.pinId || pin.id, number: pin.number, comment: pin.comment, tag: pin.tag || pin.label, type: pin.type || pin.kind, path: pin.selector || pin.domPath || pin.path, status, error })),
+    entries: entries.map(({ captureId, page, pin, status, error }) => ({ captureId, page, pinId: pin.pinId || pin.id, number: pin.number, comment: pin.comment, tag: pin.tag || pin.label, type: pin.type || pin.kind, path: pin.selector || pin.domPath || pin.path, status, error, errorKey: status === "saved" ? null : reviewErrorKey(error) })),
   };
 }
 

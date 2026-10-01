@@ -479,18 +479,45 @@ export function knownPinFields(pin: Pin | VisualPin) {
   };
 }
 
+const LINE_BREAKS = /\r\n|[\r\n\u000b\u000c\u0085\u2028\u2029]/;
+
+// Pages, users and agents control the prose of the full Markdown document. A
+// line break there would start a heading, a fake `Pin #n:` or a fenced block of
+// its own (a false `pinar-visual-context` fence reads as another capture). A
+// single-line field has its breaks (Unicode ones included) folded into one
+// space; runs of three or more backticks or tildes become look-alike characters
+// so no text can open a fence even after re-flowing. Ordinary text is returned
+// unchanged, and the JSON fences keep every original value.
+function defuseFences(text: string) {
+  return text
+    .replace(/`{3,}/g, (run) => "\u02cb".repeat(run.length))
+    .replace(/~{3,}/g, (run) => "\u223c".repeat(run.length));
+}
+
+export function untrustedMarkdownLine(value: unknown) {
+  return defuseFences(String(value ?? "").replace(new RegExp(`(?:${LINE_BREAKS.source})+`, "g"), " "));
+}
+
+// A field that legitimately spans lines (a pin comment, an agent summary) keeps
+// them, but every continuation line is indented so it cannot begin a heading,
+// list item, fence or `Key:` line of the document structure.
+export function untrustedMarkdownBlock(value: unknown, indent = "    ") {
+  const [first = "", ...rest] = defuseFences(String(value ?? "")).split(LINE_BREAKS);
+  return [first, ...rest.map((line) => (line ? `${indent}${line}` : line))].join("\n");
+}
+
 export function formatVisualContextMarkdown(capture: VisualCapture, viewerUrl?: string | null) {
   const lines = [
     `schemaVersion: ${capture.schemaVersion}`,
-    `captureId: ${capture.captureId}`,
-    `Page: ${capture.page.title || "(untitled)"}`,
-    ...(capture.page.description ? [`Description: ${capture.page.description}`] : []),
-    `URL: ${capture.page.url || "(unknown)"}`,
+    `captureId: ${untrustedMarkdownLine(capture.captureId)}`,
+    `Page: ${untrustedMarkdownLine(capture.page.title || "(untitled)")}`,
+    ...(capture.page.description ? [`Description: ${untrustedMarkdownLine(capture.page.description)}`] : []),
+    `URL: ${untrustedMarkdownLine(capture.page.url || "(unknown)")}`,
   ];
-  if (viewerUrl) lines.push(`Viewer: ${viewerUrl}`);
-  if (capture.screenshot.url) lines.push(`Screenshot: ${capture.screenshot.url}`);
+  if (viewerUrl) lines.push(`Viewer: ${untrustedMarkdownLine(viewerUrl)}`);
+  if (capture.screenshot.url) lines.push(`Screenshot: ${untrustedMarkdownLine(capture.screenshot.url)}`);
   if (capture.privacy?.redacted.length) {
-    lines.push(`Redacted: ${capture.privacy.redacted.join(", ")}`);
+    lines.push(`Redacted: ${untrustedMarkdownLine(capture.privacy.redacted.join(", "))}`);
   }
   if (capture.privacy?.unevaluated) {
     lines.push("Warning: some regions could not be inspected");
@@ -505,19 +532,19 @@ export function formatVisualContextMarkdown(capture: VisualCapture, viewerUrl?: 
     capture.capabilities?.iframe ? "iframe" : "",
   ].filter(Boolean);
   if (capabilityLabels.length) lines.push(`Capabilities: ${capabilityLabels.join(", ")}`);
-  if (capture.warnings.length) lines.push(`Warnings: ${capture.warnings.join(", ")}`);
+  if (capture.warnings.length) lines.push(`Warnings: ${untrustedMarkdownLine(capture.warnings.join(", "))}`);
   lines.push("");
   for (const [index, pin] of capture.pins.entries()) {
-    lines.push(`Pin #${pin.number || index + 1}:`);
-    lines.push(`pinId: ${pin.pinId}`);
-    lines.push(`Comment: ${pin.comment}`);
-    if (pin.locator.domPath) lines.push(`DOM: ${pin.locator.domPath}`);
-    if (pin.locator.cssSelector) lines.push(`Selector: ${pin.locator.cssSelector}`);
+    lines.push(`Pin #${untrustedMarkdownLine(pin.number || index + 1)}:`);
+    lines.push(`pinId: ${untrustedMarkdownLine(pin.pinId)}`);
+    lines.push(`Comment: ${untrustedMarkdownBlock(pin.comment)}`);
+    if (pin.locator.domPath) lines.push(`DOM: ${untrustedMarkdownLine(pin.locator.domPath)}`);
+    if (pin.locator.cssSelector) lines.push(`Selector: ${untrustedMarkdownLine(pin.locator.cssSelector)}`);
     if (pin.locator.innerText) {
-      lines.push(`Text: "${pin.locator.innerText.replace(/\n+/g, " ").trim()}"`);
+      lines.push(`Text: "${untrustedMarkdownLine(pin.locator.innerText).trim()}"`);
     }
     if (pin.location) {
-      lines.push(`Location: ${pin.location.confidence} (${pin.location.strategy})`);
+      lines.push(`Location: ${untrustedMarkdownLine(pin.location.confidence)} (${untrustedMarkdownLine(pin.location.strategy)})`);
       if (pin.location.warning === "cross-origin-frame") {
         lines.push("Warning: cross-origin iframe is not readable");
       }
@@ -527,14 +554,14 @@ export function formatVisualContextMarkdown(capture: VisualCapture, viewerUrl?: 
     }
     const diagnosis = acceptedDiagnosis(pin.diagnosis);
     if (diagnosis) {
-      lines.push(`Diagnosis (${diagnosis.confidence} confidence): ${diagnosis.cause}`);
-      if (diagnosis.properties.length) lines.push(`Properties: ${diagnosis.properties.join(", ")}`);
-      if (diagnosis.fix) lines.push(`Suggested fix: ${diagnosis.fix.replace(/\s*\n\s*/g, " ").trim()}`);
+      lines.push(`Diagnosis (${untrustedMarkdownLine(diagnosis.confidence)} confidence): ${untrustedMarkdownLine(diagnosis.cause)}`);
+      if (diagnosis.properties.length) lines.push(`Properties: ${untrustedMarkdownLine(diagnosis.properties.join(", "))}`);
+      if (diagnosis.fix) lines.push(`Suggested fix: ${untrustedMarkdownLine(diagnosis.fix.replace(/\s*\n\s*/g, " ")).trim()}`);
     }
     if (pin.evidence?.items.length) {
       lines.push("Technical evidence:");
       for (const item of pin.evidence.items) {
-        lines.push(`- [${item.grade}] ${describeEvidenceItem(item)}`);
+        lines.push(`- [${untrustedMarkdownLine(item.grade)}] ${untrustedMarkdownLine(describeEvidenceItem(item))}`);
       }
     }
     lines.push("");
@@ -543,7 +570,7 @@ export function formatVisualContextMarkdown(capture: VisualCapture, viewerUrl?: 
     lines.push("Reproduction:");
     const steps = capture.reproduction.generated?.steps
       ?? capture.reproduction.steps.map(describeReproductionStep);
-    for (const [index, step] of steps.entries()) lines.push(`${index + 1}. ${step}`);
+    for (const [index, step] of steps.entries()) lines.push(`${index + 1}. ${untrustedMarkdownLine(step)}`);
     lines.push("");
   }
   return lines.join("\n").trim();

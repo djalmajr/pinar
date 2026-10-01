@@ -35,8 +35,10 @@ describe("toolbar visibility", () => {
     assert.match(backgroundSrc, /typeof value !== "object"/);
     assert.match(backgroundSrc, /async function toolbarVisibleForTab\(tabId\)/);
     assert.equal(backgroundSrc.includes("async function toolbarVisible()"), false);
+    // resumeReviewTab is the serialization wrapper (synchronous); the resume
+    // body runs in the chained task and keeps the per-tab visibility read.
     const resume = backgroundSrc.slice(
-      backgroundSrc.indexOf("async function resumeReviewTab"),
+      backgroundSrc.indexOf("function resumeReviewTab"),
       backgroundSrc.indexOf("async function persistReviewPins"),
     );
     assert.match(resume, /await toolbarVisibleForTab\(tabId\)/);

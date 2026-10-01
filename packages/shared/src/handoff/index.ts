@@ -3,8 +3,14 @@ import {
   formatVisualContextMarkdown,
   parseVisualCapture,
   type VisualCapture,
+  type VisualPin,
 } from "../visual-context/index.js";
-import { acceptedDiagnosis, reproductionForHandoff } from "../visual-context/fields.js";
+import {
+  acceptedDiagnosis,
+  reproductionForHandoff,
+  type EvidenceGrade,
+  type EvidenceItem,
+} from "../visual-context/fields.js";
 import { translations } from "../i18n/index.js";
 import type { SupportedLanguage } from "../types/index.js";
 
@@ -18,6 +24,84 @@ export const DEGRADED_HANDOFF_WARNINGS = [
   "helper_unavailable",
   "viewer_unavailable",
 ] as const;
+
+// Compact projection budgets (Unicode code points / distinct errors). The
+// extension mirror in extension/format.js keeps equivalent helpers: test the
+// parity in handoff.test.ts before changing either side.
+export const COMPACT_INNER_TEXT_MAX = 120;
+export const COMPACT_EVIDENCE_MESSAGE_MAX = 200;
+export const COMPACT_EVIDENCE_MAX_ITEMS = 3;
+
+/**
+ * Flattens whitespace (Unicode included) and limits the text to `max` Unicode
+ * code points, ending with an ellipsis when cut. Empty text becomes undefined
+ * so the field is omitted. Never apply this to comments, IDs, URLs, selectors
+ * or DOM paths.
+ */
+export function compactText(value: string | undefined, max: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const flat = value.replace(/\s+/gu, " ").trim();
+  if (!flat) return undefined;
+  const codePoints = Array.from(flat);
+  if (codePoints.length <= max) return flat;
+  return `${codePoints.slice(0, max - 1).join("")}…`;
+}
+
+function evidenceSignature(item: Pick<EvidenceItem, "at" | "frame" | "grade" | "kind" | "message" | "method" | "origin" | "status" | "url">) {
+  return [
+    item.kind,
+    item.grade,
+    item.origin,
+    item.frame ?? "",
+    item.method ?? "",
+    item.status ?? "",
+    item.url ?? "",
+    item.message ?? "",
+  ].join("\u0000");
+}
+
+/**
+ * Compact projection of technical evidence: after_interaction errors come
+ * first, the original order is kept within each grade, occurrences that differ
+ * only by unpublished details (timestamp, stack) collapse into one, and at most
+ * COMPACT_EVIDENCE_MAX_ITEMS distinct errors remain. `environment` and `stack`
+ * are omitted (they stay in the full context) and `stack` is excluded from the
+ * dedupe signature: differences in data the projection never publishes must not
+ * consume slots. Dedupe runs on the full message before the
+ * COMPACT_EVIDENCE_MESSAGE_MAX cut so distinct messages that share a prefix are
+ * never merged. The input is never mutated; `at`, `origin` and `version` stay
+ * because the parser requires them.
+ */
+export function compactEvidence(evidence: VisualPin["evidence"]): { items: Array<Partial<EvidenceItem>>; version: number } | undefined {
+  if (!evidence || !evidence.items.length) return undefined;
+  const rank = (grade: EvidenceGrade) => (grade === "after_interaction" ? 0 : 1);
+  const ordered = [...evidence.items].sort((a, b) => rank(a.grade) - rank(b.grade));
+  const seen = new Set<string>();
+  const items: Array<Partial<EvidenceItem>> = [];
+  for (const item of ordered) {
+    if (!item.at || !item.origin) continue;
+    const signature = evidenceSignature(item);
+    if (seen.has(signature)) continue;
+    seen.add(signature);
+    const next: Partial<EvidenceItem> = { at: item.at, grade: item.grade, kind: item.kind, origin: item.origin };
+    if (item.frame) next.frame = item.frame;
+    if (item.method) next.method = item.method;
+    if (item.status !== undefined) next.status = item.status;
+    if (item.url) next.url = item.url;
+    const message = compactText(item.message, COMPACT_EVIDENCE_MESSAGE_MAX);
+    if (message) next.message = message;
+    items.push(next);
+    if (items.length >= COMPACT_EVIDENCE_MAX_ITEMS) break;
+  }
+  if (!items.length) return undefined;
+  return { items, version: evidence.version };
+}
+
+/** Only a cross-origin iframe location is carried: the DOM is not readable and the agent must not hunt for a selector that does not exist. */
+export function compactLocation(pin: VisualPin): VisualPin["location"] {
+  if (pin.location?.warning !== "cross-origin-frame") return undefined;
+  return pin.location;
+}
 
 const AGENT_PREAMBLE: Record<HandoffAgent, string> = {
   claude: "Pinar visual context for Claude. captureId and pinId identify the capture; do not rewrite them. Paste is the source of truth.",
@@ -81,6 +165,31 @@ export function isDegradedHandoff(warnings: string[] = []) {
   return warnings.some((warning) => (DEGRADED_HANDOFF_WARNINGS as readonly string[]).includes(warning));
 }
 
+// A pin whose explicit location strategy is "none" was never measured: the
+// parser's zero-coordinate defaults are placeholders, not geometry, so every
+// coordinate, box, anchor, and geometry field is omitted. Measured pins
+// (including a legitimate origin 0,0 from geometry/stable-selector) keep all
+// captured fields.
+const UNMEASURED_PIN_FIELDS = [
+  "anchor",
+  "areaBox",
+  "box",
+  "coords",
+  "documentAnchor",
+  "documentBox",
+  "geometry",
+  "historicalAnchor",
+  "historicalBox",
+  "topBox",
+] as const;
+
+function unmeasuredPin(pin: VisualPin): VisualPin {
+  if (pin.location?.strategy !== "none") return pin;
+  const rest: Record<string, unknown> = { ...pin };
+  for (const field of UNMEASURED_PIN_FIELDS) delete rest[field];
+  return rest as unknown as VisualPin;
+}
+
 export function captureForHandoffJson(capture: VisualCapture): VisualCapture {
   const url = capture.screenshot.url;
   const inline = typeof url === "string" && url.startsWith("data:");
@@ -90,7 +199,7 @@ export function captureForHandoffJson(capture: VisualCapture): VisualCapture {
   return {
     ...capture,
     pins: capture.pins.map((pin) => ({
-      ...pin,
+      ...unmeasuredPin(pin),
       diagnosis: acceptedDiagnosis(pin.diagnosis),
     })),
     reproduction: reproductionForHandoff(capture.reproduction),
@@ -104,26 +213,34 @@ export function captureForHandoffJson(capture: VisualCapture): VisualCapture {
 
 function compactPin(pin: VisualCapture["pins"][number]) {
   const selector = pin.locator.cssSelector || undefined;
-  const domPath = pin.locator.domPath || undefined;
-  const innerText = pin.locator.innerText || undefined;
-  const locator = {
-    cssSelector: selector,
-    domPath,
-    innerText,
-  };
-  const hasLocator = Object.values(locator).some((value) => value !== undefined);
-  const needsGeometry = pin.kind === "area" || !hasLocator;
+  // The selector and the DOM path are complementary locators: keep both when
+  // they differ, and emit an identical pair only once.
+  const domPath = pin.locator.domPath && pin.locator.domPath !== selector
+    ? pin.locator.domPath
+    : undefined;
+  const innerText = compactText(pin.locator.innerText, COMPACT_INNER_TEXT_MAX);
+  const locator: { cssSelector?: string; domPath?: string; innerText?: string } = {};
+  if (selector) locator.cssSelector = selector;
+  if (domPath) locator.domPath = domPath;
+  if (innerText) locator.innerText = innerText;
+  // Text alone cannot locate an element: geometry stays for areas and for
+  // pins without a selector or DOM path, even when innerText is present. An
+  // explicit "none" location is never measured, so its zero-coordinate
+  // defaults are dropped instead of published.
+  const hasLocator = Boolean(selector || domPath);
+  const needsGeometry = pin.location?.strategy !== "none" && (pin.kind === "area" || !hasLocator);
   // The snapshot stays behind the "full context" link: the compact paste keeps
-  // the small, high-signal facts (an accepted diagnosis, technical evidence).
+  // the small, high-signal facts (an accepted diagnosis, compacted evidence).
   return {
     box: needsGeometry ? pin.box : undefined,
     comment: pin.comment,
     coords: needsGeometry && !pin.box ? pin.coords : undefined,
     diagnosis: acceptedDiagnosis(pin.diagnosis),
-    evidence: pin.evidence,
+    evidence: compactEvidence(pin.evidence),
     frameId: pin.frameId || undefined,
     kind: pin.kind === "area" ? "area" : undefined,
-    locator: hasLocator ? locator : undefined,
+    locator: Object.keys(locator).length ? locator : undefined,
+    location: compactLocation(pin),
     pinId: pin.pinId,
     viewportAnchored: pin.viewportAnchored || undefined,
   };
@@ -140,7 +257,7 @@ export function compactCaptureForHandoff(capture: VisualCapture) {
     iframe: capture.capabilities?.iframe || undefined,
   };
   const page = {
-    description: capture.page.description || undefined,
+    // page.description is generic page metadata: it stays out of the prompt.
     title: capture.page.title || undefined,
     url: capture.page.url,
   };
@@ -198,6 +315,16 @@ export function formatFullHandoffBundle(
   return structuredHandoffBundle(capture, captureForHandoffJson(capture), viewerUrl, language);
 }
 
+// Human headings and link lines carry text taken from pages and users. A line
+// break there would let the rest of the text start a heading or a fenced block
+// of its own, and a false `pinar-visual-context` fence reads as another
+// capture. Line terminators (including Unicode ones) become a space, so the text
+// stays on its line; ordinary text is returned unchanged. The JSON fences keep
+// the original values: only the human projection is normalised.
+function singleLine(value: string) {
+  return value.replace(/[\r\n\u000b\u000c\u0085\u2028\u2029]+/g, " ");
+}
+
 export interface BatchHandoffCapture {
   capture: VisualCapture;
   viewerUrl?: string | null;
@@ -218,21 +345,21 @@ export function formatBatchHandoff(
 ): string {
   const t = (language && translations[language]) || translations.en;
   if (captures.length === 0) {
-    return `# ${title}\n\n${t.handoff_batch_empty}\n`;
+    return `# ${singleLine(title)}\n\n${t.handoff_batch_empty}\n`;
   }
   const project = handoffMode === "full" ? captureForHandoffJson : compactCaptureForHandoff;
   const anyScreenshot = captures.some(({ capture }) => Boolean(capture.screenshot.url));
   const instructions = [
-    `# ${title}`,
+    `# ${singleLine(title)}`,
     "",
     fillHandoff(t.handoff_batch_instructions, { count: captures.length }),
     t.handoff_batch_blocks,
     ...(anyScreenshot ? [t.handoff_screenshot_note] : []),
   ];
-  const viewerLinks = captures.flatMap(({ viewerUrl }, index) => viewerUrl ? [`${index + 1}. ${viewerUrl}`] : []);
+  const viewerLinks = captures.flatMap(({ viewerUrl }, index) => viewerUrl ? [`${index + 1}. ${singleLine(viewerUrl)}`] : []);
   if (viewerLinks.length) instructions.push("", t.handoff_batch_full_context, ...viewerLinks);
   const blocks = captures.map(({ capture }) => [
-    `## ${capture.page.title || capture.page.url}`,
+    `## ${singleLine(capture.page.title || capture.page.url)}`,
     "",
     formatHandoffJsonFence(JSON.stringify(project(capture))),
   ].join("\n"));

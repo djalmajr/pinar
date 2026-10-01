@@ -342,7 +342,10 @@ describe("cloud collection collaborators and ACL", () => {
       method: "GET",
     }), env);
     assert.equal(privateMarkdownRes.status, 200);
-    assert.match(await privateMarkdownRes.text(), /Reference only: full viewer Markdown/);
+    const privateMarkdown = await privateMarkdownRes.text();
+    // A pin with no history is delivered once, in the canonical block; the preference adds nothing to duplicate.
+    assert.equal(privateMarkdown.match(/```pinar-visual-context/g)?.length, 1);
+    assert.doesNotMatch(privateMarkdown, /Complementary history|pinar-viewer-reference|full viewer Markdown/);
 
     // 7. Guest loads shot image directly without public share token
     const shotImageRes = await handleCloudPublicRequest(new Request(`https://pinar.test/shots/${sessionId}.png`, {
@@ -1356,7 +1359,7 @@ describe("cloud collection collaborators and ACL", () => {
         env,
       );
       assert.equal(anonymousBatch.status, 200);
-      assert.doesNotMatch(await anonymousBatch.text(), /Reference only: full viewer Markdown/);
+      assert.doesNotMatch(await anonymousBatch.text(), /Complementary history|full viewer Markdown/);
       const anonymousCollection = await handleCloudPublicRequest(
         new Request(`https://pinar.test/c/${collectionId}.md?token=${collectionToken}`),
         env,

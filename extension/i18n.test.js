@@ -97,7 +97,7 @@ test("overlay copy is served through ui:messages and falls back to English", () 
   const literals = [
     "Click or drag",
     "Adjust selection",
-    "Conclude and copy",
+    "Finish session",
     "Mask",
     "Cancel",
     "Regions",
@@ -122,5 +122,17 @@ test("overlay copy is served through ui:messages and falls back to English", () 
     const quoted = `"${literal}"`;
     assert.ok(fallback.includes(quoted), `fallback missing ${literal}`);
     assert.equal(outside.includes(quoted), false, `${literal} still appears outside the fallback dictionary`);
+  }
+});
+
+test("the review finish button and shortcut hint are neutral about copying and their fallbacks match the catalog", () => {
+  const contentSrc = readFileSync(new URL("./content.js", import.meta.url), "utf8");
+  const fallback = contentSrc.match(/const FALLBACK_MESSAGES = \{[\s\S]*?\n  \};/)[0];
+  const copyWords = /copy|copiar|copier|kopier|复制|コピー/i;
+  for (const key of ["overlay_session_finish", "overlay_hint_copy_long"]) {
+    assert.ok(fallback.includes(`${key}: ${JSON.stringify(translations.en[key])},`), key);
+    for (const [language, messages] of Object.entries(translations)) {
+      assert.doesNotMatch(messages[key], copyWords, `${language}:${key}`);
+    }
   }
 });

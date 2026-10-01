@@ -43,7 +43,7 @@ function ReleaseContentBoundary({ children }: { children: ReactNode }) {
 
 function ReleasesPageContent() {
   const content = useActiveReleaseContent();
-  const { language, releases, ui } = content;
+  const { language, releases, ui, upcoming } = content;
   useDocumentMeta(ui.pageTitle, ui.metaDescription);
 
   return (
@@ -61,6 +61,41 @@ function ReleasesPageContent() {
               {ui.pageDescription}
             </p>
           </section>
+
+          {upcoming ? (
+            <section
+              aria-labelledby="upcoming-release-heading"
+              className="mt-14 w-full border-t"
+            >
+              <article className="grid gap-5 border-b py-8 md:grid-cols-[9rem_minmax(0,1fr)] md:items-start">
+                <div>
+                  <Badge variant="secondary">{ui.upcomingRelease}</Badge>
+                </div>
+                <div>
+                  <h2
+                    id="upcoming-release-heading"
+                    className="text-xl font-semibold tracking-tight"
+                  >
+                    {upcoming.title}
+                  </h2>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    {upcoming.summary}
+                  </p>
+                  <ul className="mt-4 grid gap-2 sm:grid-cols-2">
+                    {upcoming.changes.map((change) => (
+                      <li
+                        className="flex items-start gap-2 text-sm"
+                        key={change.id}
+                      >
+                        <CheckIcon className="mt-0.5 size-4 shrink-0 text-primary" />
+                        <span>{change.title}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </article>
+            </section>
+          ) : null}
 
           <div className="mt-14 w-full border-t">
             {releases.map((release) => (

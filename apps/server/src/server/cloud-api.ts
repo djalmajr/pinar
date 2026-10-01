@@ -27,7 +27,9 @@ import {
   parseAgentExecutionInput,
   parseVisualCapture,
   applySessionPatch,
+  normalizePin,
   pinIdsFromPins,
+  getPinColor,
   parsePinCommentBody,
   pinReviewErrorBody,
   pinReviewHttpStatus,
@@ -41,6 +43,7 @@ import {
   parseDeliveryPreferences,
   type DeliveryPreferences,
   type LoopMetric,
+  type Pin,
   type PinComment,
   type PinReview,
   type PinReviewEvent,
@@ -51,6 +54,7 @@ import {
   PERSONAL_PROJECT_ICON,
   isProjectIcon,
 } from "@pinar/shared/project-icons";
+import { mergeCategories, sanitizeUrl, type RedactedCategory } from "@pinar/shared/privacy";
 import {
   LEGACY_PURCHASED_AI_CREDITS,
   LEGACY_STORAGE_20GB_BYTES,
@@ -2664,6 +2668,262 @@ async function deleteBatch(env: CloudEnv, principal: Principal, id: string) {
     }
   }
   memoryBatches.delete(id);
+  return true;
+}
+
+async function createBatch(env: CloudEnv, principal: Principal, label: string): Promise<BatchRecord | null> {
+  const id = generateNanoId();
+  const startedAt = currentDate().toISOString();
+  if (env.DB) {
+    await env.DB.prepare(
+      "INSERT INTO batches (id, user_id, label, started_at, finished_at) VALUES (?, ?, ?, ?, NULL)",
+    ).bind(id, principal.id, label, startedAt).run();
+  } else {
+    memoryBatches.set(id, { finishedAt: null, id, label, startedAt, userId: principal.id });
+  }
+  return getBatch(env, principal, id);
+}
+
+async function renameBatch(env: CloudEnv, principal: Principal, id: string, label: string): Promise<BatchRecord | null> {
+  if (env.DB) {
+    const existing = await env.DB.prepare(
+      "SELECT id FROM batches WHERE id = ? AND user_id = ?",
+    ).bind(id, principal.id).first();
+    if (!existing) return null;
+    await env.DB.prepare(
+      "UPDATE batches SET label = ? WHERE id = ? AND user_id = ?",
+    ).bind(label, id, principal.id).run();
+    return getBatch(env, principal, id);
+  }
+  const batch = memoryBatches.get(id);
+  if (!batch || batch.userId !== principal.id) return null;
+  batch.label = label;
+  return memoryBatchRecord(batch);
+}
+
+// MCP session creation is metadata-only: a server-generated id, zero image
+// bytes, no shotId/shotUrl and includeScreenshot false, so the stored capture
+// honestly reports screenshot_missing. Trial, quota and batch/collection
+// ownership are validated before anything is written.
+export async function createMcpSession(
+  env: CloudEnv,
+  principal: Principal,
+  input: {
+    collectionId: string;
+    description: string | null;
+    redacted: RedactedCategory[];
+    title: string;
+    url: string;
+  },
+  batchId: string | null,
+) {
+  const trialDenied = await cloudTrialWriteResponse(env, principal);
+  if (trialDenied) throw new McpToolError("Cloud subscription required");
+  const storage = await storageForPrincipal(env, principal);
+  if (!canStoreBytes(storage, 0, 0)) throw new McpToolError("Storage quota exceeded");
+  if (batchId && !(await getBatch(env, principal, batchId))) throw new McpToolError("Batch not found");
+  let destination: CaptureDestination;
+  if (input.collectionId) {
+    // An explicitly requested destination must exist and be owned; unknown
+    // or foreign collections reject before any write instead of the REST
+    // helper's default fallback.
+    if (env.DB) {
+      const collection = await env.DB.prepare(
+        "SELECT id, project_id FROM collections WHERE id = ? AND owner_id = ?",
+      ).bind(input.collectionId, principal.id).first();
+      if (!collection) throw new McpToolError("Collection not found");
+      destination = { collectionId: String(collection.id), projectId: String(collection.project_id) };
+    } else {
+      const collection = memoryCollections.get(input.collectionId);
+      if (!collection || collection.ownerId !== principal.id) throw new McpToolError("Collection not found");
+      destination = { collectionId: collection.id, projectId: collection.projectId };
+    }
+  } else {
+    destination = await resolveDestination(env, principal, "");
+  }
+  const id = generateNanoId();
+  if (!(await assertSessionOwner(env, id, principal))) throw new McpToolError("Session id is unavailable");
+  const createdAt = currentDate().toISOString();
+  let capture;
+  try {
+    capture = parseVisualCapture({
+      captureId: id,
+      createdAt,
+      page: {
+        ...(input.description ? { description: input.description } : {}),
+        title: input.title,
+        url: input.url,
+      },
+      pins: [],
+      privacy: { redacted: input.redacted, unevaluated: true },
+      screenshot: { missing: true },
+    }, id);
+  } catch {
+    throw new McpToolError("page is invalid");
+  }
+  const session = sessionFromCapture(capture, {
+    byteSize: 0,
+    collectionId: destination.collectionId,
+    id,
+    includeScreenshot: false,
+    isPermanent: principal.isPermanent || storage.activeAddOnBytes > 0,
+    plan: principal.plan,
+    position: await nextSessionPosition(env, principal, destination.collectionId),
+    shotUrl: null,
+    userId: principal.id,
+  });
+  await persistSession(env, session, batchId);
+  return decorateCloudSession(env, session);
+}
+
+// MCP session updates are limited to the page title/url/description and the
+// reproduction (shared validation). The session is loaded and patched, so
+// owner, plan, bytes, permanence, createdAt, batch and position survive.
+export async function updateMcpSession(
+  env: CloudEnv,
+  principal: Principal,
+  id: string,
+  changes: {
+    description: string | null;
+    redacted: RedactedCategory[] | null;
+    reproduction: unknown;
+    title: string | null;
+    url: string | null;
+  },
+): Promise<CloudSession | null> {
+  const session = await findOwnedSession(env, principal, id);
+  if (!session) return null;
+  const trialDenied = await cloudTrialWriteResponse(env, principal);
+  if (trialDenied) throw new McpToolError("Cloud subscription required");
+  const storage = await storageForPrincipal(env, principal);
+  if (!canStoreBytes(storage, 0, Number(session.byteSize || 0))) throw new McpToolError("Storage quota exceeded");
+  let next: Session = { ...session, page: { ...session.page } };
+  if (changes.title !== null) next.page.title = changes.title;
+  if (changes.description !== null) {
+    if (changes.description) next.page.description = changes.description;
+    else delete next.page.description;
+  }
+  if (changes.url !== null) {
+    next.page.url = changes.url;
+    // The new URL's categories join the report already stored for the
+    // screenshot/pins (which did not change); the new URL itself is only
+    // sanitized, never inspected, so unevaluated stays true.
+    next.privacy = { redacted: mergeCategories([...(session.privacy?.redacted || []), ...(changes.redacted || []), "unevaluated"]), unevaluated: true };
+  }
+  if (changes.reproduction !== undefined) {
+    const withReproduction = applySessionPatch(next, { reproduction: changes.reproduction });
+    if (!withReproduction) throw new McpToolError("reproduction is invalid");
+    next = withReproduction;
+  }
+  await persistSession(env, next, session.batchId ?? null);
+  const stored = await findOwnedSession(env, principal, id);
+  return decorateCloudSession(env, stored || next);
+}
+
+// Agent-created pins are notes: a server-generated UUID id, the next
+// noncolliding number (remaining numbers are never renumbered), the palette
+// color at that number unless it would collide, and an explicitly unresolved
+// location (no measured geometry, no 0,0 marker claim, no screenshot).
+async function createMcpPin(
+  env: CloudEnv,
+  principal: Principal,
+  sessionId: string,
+  input: {
+    comment: string;
+    cssSelector: string | null;
+    domPath: string | null;
+    innerText: string | null;
+  },
+): Promise<Pin> {
+  const session = await findOwnedSession(env, principal, sessionId);
+  if (!session) throw new McpToolError("Session not found");
+  const trialDenied = await cloudTrialWriteResponse(env, principal);
+  if (trialDenied) throw new McpToolError("Cloud subscription required");
+  const storage = await storageForPrincipal(env, principal);
+  if (!canStoreBytes(storage, 0, Number(session.byteSize || 0))) throw new McpToolError("Storage quota exceeded");
+  const number = Math.max(0, ...session.pins.map((pin) => (Number.isFinite(pin.number) ? pin.number : 0))) + 1;
+  const paletteColor = getPinColor(number);
+  const colorCollides = session.pins.some((pin) => pin.color && pin.color === paletteColor);
+  const pinId = crypto.randomUUID();
+  const pin = normalizePin({
+    comment: input.comment,
+    id: pinId,
+    kind: "element",
+    location: { confidence: "unresolved", score: 0, strategy: "none" },
+    locator: {
+      ...(input.cssSelector ? { cssSelector: input.cssSelector } : {}),
+      ...(input.domPath ? { domPath: input.domPath } : {}),
+      ...(input.innerText ? { innerText: input.innerText } : {}),
+    },
+    number,
+    ...(colorCollides ? {} : { color: paletteColor }),
+  }, session.id, session.pins.length);
+  const next: Session = { ...session, pins: [...session.pins, pin] };
+  await persistSession(env, next, session.batchId ?? null);
+  const stored = await findOwnedSession(env, principal, sessionId);
+  const created = stored?.pins.find((item) => (item.pinId || item.id) === pinId);
+  if (!created) throw new McpToolError("Pin not found");
+  return created;
+}
+
+// Delete the pin (in the session row) plus its current reviews, events and
+// comments in one D1 batch; the execution audit rows are preserved and no
+// read path resurrects the removed pin. Other pins keep their numbers/ids.
+async function deleteMcpPin(env: CloudEnv, principal: Principal, sessionId: string, pinId: string): Promise<boolean> {
+  const session = await findOwnedSession(env, principal, sessionId);
+  if (!session) throw new McpToolError("Session not found");
+  const index = session.pins.findIndex((pin) => (pin.pinId || pin.id) === pinId);
+  if (index < 0) return false;
+  const next: Session = { ...session, pins: session.pins.filter((_, item) => item !== index) };
+  if (env.DB) {
+    const capture = captureFromSession(next);
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM pin_review_events WHERE capture_id = ? AND pin_id = ?").bind(session.id, pinId),
+      env.DB.prepare("DELETE FROM pin_reviews WHERE capture_id = ? AND pin_id = ?").bind(session.id, pinId),
+      env.DB.prepare("DELETE FROM pin_comments WHERE capture_id = ? AND pin_id = ?").bind(session.id, pinId),
+      env.DB.prepare(
+        `INSERT INTO sessions (
+           id, url, title, shot_id, shot_url, pin_count, pins_json, created_at, user_id,
+           plan, is_permanent, byte_size, collection_id, position, include_screenshot, batch_id
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET url=excluded.url, title=excluded.title, shot_id=excluded.shot_id,
+         shot_url=excluded.shot_url, pin_count=excluded.pin_count, pins_json=excluded.pins_json,
+         created_at=excluded.created_at, user_id=excluded.user_id, plan=excluded.plan,
+         is_permanent=excluded.is_permanent, byte_size=excluded.byte_size,
+         collection_id=excluded.collection_id, position=excluded.position,
+         include_screenshot=excluded.include_screenshot, batch_id=excluded.batch_id`,
+      ).bind(
+        next.id,
+        next.page.url || "",
+        next.page.title || "",
+        next.shotId || "",
+        next.shotUrl || "",
+        capture.pins.length,
+        encodeVisualCaptureJson(capture),
+        next.createdAt,
+        next.userId || "",
+        next.plan || "free",
+        next.isPermanent ? 1 : 0,
+        next.byteSize || 0,
+        next.collectionId || "",
+        next.position || 0,
+        next.includeScreenshot === false ? 0 : 1,
+        session.batchId ?? null,
+      ),
+    ]);
+    return true;
+  }
+  memorySessions.set(session.id, next);
+  memoryPinReviews.delete(pinReviewKey(session.id, pinId));
+  for (let item = memoryPinReviewEvents.length - 1; item >= 0; item -= 1) {
+    const event = memoryPinReviewEvents[item];
+    if (event?.captureId === session.id && event.pinId === pinId) memoryPinReviewEvents.splice(item, 1);
+  }
+  for (let item = memoryPinComments.length - 1; item >= 0; item -= 1) {
+    if (memoryPinComments[item]?.captureId === session.id && memoryPinComments[item]?.pinId === pinId) {
+      memoryPinComments.splice(item, 1);
+    }
+  }
   return true;
 }
 
@@ -5336,7 +5596,7 @@ function commentFromRow(row: Record<string, unknown>): PinComment {
   return {
     actorId: String(row.actor_id || ""),
     actorLabel: String(row.actor_label || ""),
-    actorType: "human",
+    actorType: row.actor_type === "agent" ? "agent" : "human",
     body: String(row.body || ""),
     captureId: String(row.capture_id || ""),
     createdAt: String(row.created_at || ""),
@@ -5361,14 +5621,14 @@ async function insertPinComment(
   env: CloudEnv,
   session: Session,
   pinId: string,
-  actor: { actorId: string; actorLabel: string },
+  actor: { actorId: string; actorLabel: string; actorType: PinComment["actorType"] },
   body: string,
 ): Promise<PinComment> {
   if (!pinIdsFromPins(session.pins).has(pinId)) throw new PinReviewError("pin_not_found");
   const comment: PinComment = {
     actorId: actor.actorId,
     actorLabel: actor.actorLabel,
-    actorType: "human",
+    actorType: actor.actorType,
     body,
     captureId: session.id,
     createdAt: currentDate().toISOString(),
@@ -5379,13 +5639,14 @@ async function insertPinComment(
     await env.DB.prepare(`
       INSERT INTO pin_comments (
         id, capture_id, pin_id, actor_id, actor_label, actor_type, body, created_at
-      ) VALUES (?, ?, ?, ?, ?, 'human', ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       comment.id,
       comment.captureId,
       comment.pinId,
       comment.actorId,
       comment.actorLabel,
+      comment.actorType,
       comment.body,
       comment.createdAt,
     ).run();
@@ -5393,6 +5654,58 @@ async function insertPinComment(
   }
   memoryPinComments.push(comment);
   return comment;
+}
+
+async function findPinComment(env: CloudEnv, captureId: string, commentId: string): Promise<PinComment | null> {
+  if (env.DB) {
+    const row = await env.DB.prepare(
+      "SELECT * FROM pin_comments WHERE id = ? AND capture_id = ?",
+    ).bind(commentId, captureId).first();
+    return row ? commentFromRow(row) : null;
+  }
+  return memoryPinComments.find((comment) => comment.id === commentId && comment.captureId === captureId) || null;
+}
+
+async function updatePinCommentBody(
+  env: CloudEnv,
+  captureId: string,
+  pinId: string,
+  commentId: string,
+  body: string,
+): Promise<PinComment | null> {
+  if (env.DB) {
+    const result = await env.DB.prepare(
+      "UPDATE pin_comments SET body = ? WHERE id = ? AND capture_id = ? AND pin_id = ?",
+    ).bind(body, commentId, captureId, pinId).run();
+    if (Number(result.meta?.changes ?? 0) < 1) return null;
+    return findPinComment(env, captureId, commentId);
+  }
+  const comment = memoryPinComments.find(
+    (item) => item.id === commentId && item.captureId === captureId && item.pinId === pinId,
+  );
+  if (!comment) return null;
+  comment.body = body;
+  return comment;
+}
+
+async function deletePinComment(
+  env: CloudEnv,
+  captureId: string,
+  pinId: string,
+  commentId: string,
+): Promise<boolean> {
+  if (env.DB) {
+    const result = await env.DB.prepare(
+      "DELETE FROM pin_comments WHERE id = ? AND capture_id = ? AND pin_id = ?",
+    ).bind(commentId, captureId, pinId).run();
+    return Number(result.meta?.changes ?? 0) >= 1;
+  }
+  const index = memoryPinComments.findIndex(
+    (item) => item.id === commentId && item.captureId === captureId && item.pinId === pinId,
+  );
+  if (index < 0) return false;
+  memoryPinComments.splice(index, 1);
+  return true;
 }
 
 async function reviewPin(request: Request, env: CloudEnv, captureId: string, pinId: string) {
@@ -5553,7 +5866,7 @@ async function createPinComment(request: Request, env: CloudEnv, captureId: stri
       env,
       session,
       pinId,
-      { actorId: principal.id, actorLabel },
+      { actorId: principal.id, actorLabel, actorType: "human" },
       parsePinCommentBody(payload.body),
     );
     return json({ comment, ok: true });
@@ -5563,6 +5876,66 @@ async function createPinComment(request: Request, env: CloudEnv, captureId: stri
     }
     throw error;
   }
+}
+
+async function editPinComment(
+  request: Request,
+  env: CloudEnv,
+  captureId: string,
+  pinId: string,
+  commentId: string,
+): Promise<Response> {
+  const principal = await resolvePrincipal(request, env);
+  if (!principal) return json({ error: "Unauthorized" }, 401);
+  const session = await findAccessibleSession(env, principal, captureId);
+  if (!session) return json({ error: "Not found" }, 404);
+  const existing = await findPinComment(env, captureId, commentId);
+  if (!existing || existing.pinId !== pinId
+    || existing.actorType !== "human" || existing.actorId !== principal.id) {
+    return json({ error: "Not found" }, 404);
+  }
+  const payload = await readJson(request);
+  try {
+    const comment = await updatePinCommentBody(env, captureId, pinId, commentId, parsePinCommentBody(payload.body));
+    if (!comment) return json({ error: "Not found" }, 404);
+    return json({ comment, ok: true });
+  } catch (error) {
+    if (error instanceof PinReviewError) {
+      return json(pinReviewErrorBody(error), pinReviewHttpStatus(error));
+    }
+    throw error;
+  }
+}
+
+async function editPinNote(request: Request, env: CloudEnv, captureId: string, pinId: string): Promise<Response> {
+  const principal = await resolvePrincipal(request, env);
+  if (!principal) return json({ error: "Unauthorized" }, 401);
+  const session = await findOwnedSession(env, principal, captureId);
+  if (!session) return json({ error: "Session not found" }, 404);
+  const payload = await readJson(request);
+  let comment: string;
+  try {
+    comment = parsePinCommentBody(payload.comment);
+  } catch (error) {
+    if (error instanceof PinReviewError) return json(pinReviewErrorBody(error), pinReviewHttpStatus(error));
+    throw error;
+  }
+  const pin = session.pins.find((item) => (item.pinId || item.id) === pinId);
+  if (!pin) return json({ error: "Pin not found" }, 404);
+  const patched: Session = {
+    ...session,
+    pins: session.pins.map((item) => ((item.pinId || item.id) === pinId ? { ...item, comment } : item)),
+  };
+  try {
+    await persistSession(env, patched, session.batchId ?? null);
+  } catch {
+    return json({ error: "Session persistence failed" }, 503);
+  }
+  const stored = await findOwnedSession(env, principal, captureId);
+  const updatedPin = stored?.pins.find((item) => (item.pinId || item.id) === pinId)
+    || patched.pins.find((item) => (item.pinId || item.id) === pinId);
+  if (!updatedPin) return json({ error: "Pin not found" }, 404);
+  return json({ ok: true, pin: updatedPin }, 200, { "Cache-Control": "no-store" });
 }
 
 async function accountEntitlements(request: Request, env: CloudEnv) {
@@ -6426,6 +6799,7 @@ const MCP_MAX_AGGREGATE_SESSIONS = 200;
 const MCP_MAX_AGGREGATE_PINS_BYTES = 512 * 1024;
 const MCP_MAX_LIST_SIZE = 100;
 const MCP_MAX_NAME_LENGTH = 200;
+const MCP_MAX_SESSION_TEXT_LENGTH = 2000;
 const MCP_RESOURCE_TYPES: ShareToken["resourceType"][] = ["batch", "collection", "project", "session"];
 const MCP_PAGE_PROPERTIES = {
   limit: { maximum: MCP_MAX_LIST_SIZE, minimum: 1, type: "integer" },
@@ -6461,8 +6835,54 @@ function mcpResourceIdArg(args: Record<string, unknown>, name: string) {
   return value;
 }
 
+// Pin ids carry a second, legacy form from the shared parser:
+// "<sessionId>:p<number>". Only this pin-specific validator accepts it; every
+// other resource id (session, project, collection, batch, comment) stays on
+// the strict pattern above, and membership is always checked independently.
+const MCP_LEGACY_PIN_ID_PATTERN = new RegExp(`^${SESSION_ID_PATTERN.source.slice(1, -1)}:p\\d{1,6}$`);
+
+function mcpPinResourceIdArg(args: Record<string, unknown>, name: string) {
+  const value = mcpTextArg(args, name, MCP_MAX_ARGUMENT_LENGTH);
+  if (/^[A-Za-z0-9_-]{1,128}$/.test(value) || MCP_LEGACY_PIN_ID_PATTERN.test(value)) return value;
+  throw new McpToolError(`${name} is invalid`);
+}
+
+// Bounded pin projection for MCP reads: identity, note, locator, location and
+// review status. Snapshot, data URLs and measured geometry never leave.
+function mcpPinView(pin: Pin, reviewStatus: PinReviewStatus) {
+  return {
+    comment: pin.comment || "",
+    id: pin.pinId || pin.id || "",
+    location: pin.location || null,
+    locator: {
+      cssSelector: pin.selector || null,
+      domPath: pin.domPath || null,
+      innerText: pin.innerText || null,
+    },
+    number: pin.number,
+    reviewStatus,
+  };
+}
+
 function mcpNameArg(args: Record<string, unknown>) {
   return mcpTextArg(args, "name", MCP_MAX_NAME_LENGTH);
+}
+
+// Session page URLs must parse, use http(s), and carry no embedded
+// credentials; the stored url is the shared sanitizer's redacted form and
+// only its category list is kept (never the secret values).
+function mcpSessionUrl(value: unknown, name: string) {
+  if (typeof value !== "string") throw new McpToolError(`${name} is required`);
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new McpToolError(`${name} is invalid`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new McpToolError(`${name} is invalid`);
+  if (parsed.username || parsed.password) throw new McpToolError(`${name} is invalid`);
+  const sanitized = sanitizeUrl(parsed.toString());
+  return { redacted: sanitized.redacted, url: sanitized.url };
 }
 
 function mcpStringArrayArg(args: Record<string, unknown>, name: string, required = true) {
@@ -6502,6 +6922,16 @@ async function mcpRequireRead(
 ) {
   if (!mcpCapabilityAllowed(context.key, "read")) throw new McpToolError("read permission required");
   if (!await agentKeyAllowsRead(context.env, { key: context.key, principal: context.principal }, resourceType, resourceId)) {
+    throw new McpToolError("Resource not found");
+  }
+}
+
+// Pin conversation mutations: manage/full permission plus the key's resource
+// scope covering the session. Unlike the workspace mutations above, scoped
+// keys may act on the one session they cover.
+async function mcpRequireSessionMutation(context: CloudMcpContext, sessionId: string) {
+  if (!mcpCapabilityAllowed(context.key, "manage")) throw new McpToolError("manage permission required");
+  if (!await agentKeyAllowsRead(context.env, { key: context.key, principal: context.principal }, "session", sessionId)) {
     throw new McpToolError("Resource not found");
   }
 }
@@ -6585,6 +7015,111 @@ export const CLOUD_MCP_TOOLS: McpToolDefinition[] = [
     resourceId: { type: "string" },
     resourceType: { enum: MCP_RESOURCE_TYPES, type: "string" },
   }, ["resourceType", "resourceId"]),
+  mcpTool("pinar.list_pin_comments", "List the conversation comments on a pin, with ids, authorship, and bodies.", {
+    pinId: { type: "string" },
+    sessionId: { type: "string" },
+  }, ["sessionId", "pinId"]),
+  mcpTool("pinar.add_pin_comment", "Add an agent comment to a pin conversation; the author is derived from this key.", {
+    body: { type: "string" },
+    pinId: { type: "string" },
+    sessionId: { type: "string" },
+  }, ["sessionId", "pinId", "body"]),
+  mcpTool("pinar.edit_pin_comment", "Edit a comment this key authored; id, authorship, and createdAt are preserved.", {
+    body: { type: "string" },
+    commentId: { type: "string" },
+    pinId: { type: "string" },
+    sessionId: { type: "string" },
+  }, ["sessionId", "pinId", "commentId", "body"]),
+  mcpTool("pinar.edit_pin_note", "Edit the original note on a pin, preserving the session and pin ids.", {
+    comment: { type: "string" },
+    pinId: { type: "string" },
+    sessionId: { type: "string" },
+  }, ["sessionId", "pinId", "comment"]),
+  mcpTool("pinar.delete_project", "Delete an owned project; its sessions move to the default Inbox. Protected projects cannot be deleted.", {
+    projectId: { type: "string" },
+  }, ["projectId"]),
+  mcpTool("pinar.delete_collection", "Delete an owned collection; its sessions move to the default Inbox. Protected collections cannot be deleted.", {
+    collectionId: { type: "string" },
+  }, ["collectionId"]),
+  mcpTool("pinar.delete_batch", "Delete an owned batch; its sessions are kept and detached from the batch.", {
+    batchId: { type: "string" },
+  }, ["batchId"]),
+  mcpTool("pinar.finish_batch", "Mark an owned batch as finished, recording the server timestamp.", {
+    batchId: { type: "string" },
+  }, ["batchId"]),
+  mcpTool("pinar.create_batch", "Create a batch with a server-generated id and start time.", {
+    label: { type: "string" },
+  }, ["label"]),
+  mcpTool("pinar.rename_batch", "Rename an owned batch; its id, owner, timestamps and session membership are preserved.", {
+    batchId: { type: "string" },
+    label: { type: "string" },
+  }, ["batchId", "label"]),
+  mcpTool("pinar.create_session", "Create a metadata-only session note (no screenshot, zero stored bytes) with a server-generated id in an owned collection or batch.", {
+    batchId: { type: "string" },
+    collectionId: { type: "string" },
+    page: {
+      properties: {
+        description: { maxLength: MCP_MAX_SESSION_TEXT_LENGTH, type: "string" },
+        title: { maxLength: MCP_MAX_SESSION_TEXT_LENGTH, type: "string" },
+        url: { type: "string" },
+      },
+      required: ["title", "url"],
+      type: "object",
+    },
+  }, ["page"]),
+  mcpTool("pinar.update_session", "Update a session's page title, url or description and/or its reproduction; identity, owner, plan, bytes, permanence, batch and position are preserved.", {
+    page: {
+      properties: {
+        description: { maxLength: MCP_MAX_SESSION_TEXT_LENGTH, type: "string" },
+        title: { maxLength: MCP_MAX_SESSION_TEXT_LENGTH, type: "string" },
+        url: { type: "string" },
+      },
+      type: "object",
+    },
+    reproduction: { type: ["object", "null"] },
+    sessionId: { type: "string" },
+  }, ["sessionId"]),
+  mcpTool("pinar.delete_session", "Delete an owned session and its pinned content.", {
+    sessionId: { type: "string" },
+  }, ["sessionId"]),
+  mcpTool("pinar.list_pins", "List the pins of an owned session as bounded notes: id, number, comment, locator, location and review status. No screenshots or measured geometry.", {
+    limit: { type: "integer" },
+    offset: { type: "integer" },
+    sessionId: { type: "string" },
+  }, ["sessionId"]),
+  mcpTool("pinar.get_pin", "Read one pin of an owned session as a bounded note; legacy captureId:pN pin ids are accepted.", {
+    pinId: { type: "string" },
+    sessionId: { type: "string" },
+  }, ["sessionId", "pinId"]),
+  mcpTool("pinar.create_pin", "Create a note pin on an owned session: server-generated UUID id and next number, optional locator, explicitly unresolved location, zero stored bytes.", {
+    comment: { type: "string" },
+    locator: {
+      properties: {
+        cssSelector: { type: "string" },
+        domPath: { type: "string" },
+        innerText: { type: "string" },
+      },
+      type: "object",
+    },
+    sessionId: { type: "string" },
+  }, ["sessionId", "comment"]),
+  mcpTool("pinar.delete_pin", "Delete a pin and its current reviews, events and comments; remaining pins keep their numbers and the execution audit is preserved.", {
+    pinId: { type: "string" },
+    sessionId: { type: "string" },
+  }, ["sessionId", "pinId"]),
+  mcpTool("pinar.delete_pin_comment", "Delete a comment this key authored from a pin conversation.", {
+    commentId: { type: "string" },
+    pinId: { type: "string" },
+    sessionId: { type: "string" },
+  }, ["sessionId", "pinId", "commentId"]),
+  mcpTool("pinar.conclude_pin", "Conclude a pin review as accepted, following the review state machine.", {
+    pinId: { type: "string" },
+    sessionId: { type: "string" },
+  }, ["sessionId", "pinId"]),
+  mcpTool("pinar.reopen_pin", "Reopen an accepted pin review, following the review state machine.", {
+    pinId: { type: "string" },
+    sessionId: { type: "string" },
+  }, ["sessionId", "pinId"]),
 ];
 
 async function mcpProjectIdsForKey(context: CloudMcpContext) {
@@ -6797,6 +7332,37 @@ function mcpShareExpiry(args: Record<string, unknown>) {
   return new Date(timestamp).toISOString();
 }
 
+// Pin review transitions driven by an agent key. The key is recorded as the
+// actor (never a human), so the human-only REST review path and the "human
+// action" semantics are preserved; the state machine itself is shared.
+async function mcpPinReviewTransition(
+  context: CloudMcpContext,
+  args: Record<string, unknown>,
+  action: "accept" | "reopen",
+) {
+  const sessionId = mcpResourceIdArg(args, "sessionId");
+  const pinId = mcpPinResourceIdArg(args, "pinId");
+  await mcpRequireSessionMutation(context, sessionId);
+  const session = await findOwnedSession(context.env, context.principal, sessionId);
+  if (!session) throw new McpToolError("Resource not found");
+  if (!pinIdsFromPins(session.pins).has(pinId)) throw new McpToolError("Pin not found");
+  try {
+    const result = await applyCloudPinReview(context.env, session, pinId, action, {
+      actorId: context.key.id,
+      actorType: "agent",
+      origin: "agent_result",
+    });
+    return { changed: result.changed, ok: true, review: result.review };
+  } catch (error) {
+    if (error instanceof PinReviewError) {
+      if (error.code === "pin_not_found") throw new McpToolError("Pin not found");
+      if (error.code === "invalid_transition") throw new McpToolError("Invalid pin review transition");
+      throw new McpToolError("Invalid pin review");
+    }
+    throw error;
+  }
+}
+
 function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
   return {
     async callTool(name, args) {
@@ -6954,10 +7520,342 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
           }
           return { ok: true, resourceId, resourceType };
         }
+        case "pinar.list_pin_comments": {
+          const sessionId = mcpResourceIdArg(args, "sessionId");
+          const pinId = mcpPinResourceIdArg(args, "pinId");
+          await mcpRequireRead(context, "session", sessionId);
+          const session = await findOwnedSession(context.env, context.principal, sessionId);
+          if (!session || !pinIdsFromPins(session.pins).has(pinId)) throw new McpToolError("Resource not found");
+          const comments = (await listPinComments(context.env, sessionId)).filter((item) => item.pinId === pinId);
+          return { comments, ok: true };
+        }
+        case "pinar.add_pin_comment": {
+          const sessionId = mcpResourceIdArg(args, "sessionId");
+          const pinId = mcpPinResourceIdArg(args, "pinId");
+          await mcpRequireSessionMutation(context, sessionId);
+          const session = await findOwnedSession(context.env, context.principal, sessionId);
+          if (!session) throw new McpToolError("Resource not found");
+          if (!pinIdsFromPins(session.pins).has(pinId)) throw new McpToolError("Pin not found");
+          let body: string;
+          try {
+            body = parsePinCommentBody(args.body);
+          } catch {
+            throw new McpToolError("body is invalid");
+          }
+          // The author is derived from the key; the caller cannot spoof it.
+          const comment = await insertPinComment(context.env, session, pinId, {
+            actorId: context.key.id,
+            actorLabel: context.key.name,
+            actorType: "agent",
+          }, body);
+          return { comment, ok: true };
+        }
+        case "pinar.edit_pin_comment": {
+          const sessionId = mcpResourceIdArg(args, "sessionId");
+          const pinId = mcpPinResourceIdArg(args, "pinId");
+          const commentId = mcpResourceIdArg(args, "commentId");
+          await mcpRequireSessionMutation(context, sessionId);
+          const session = await findOwnedSession(context.env, context.principal, sessionId);
+          if (!session) throw new McpToolError("Resource not found");
+          const existing = await findPinComment(context.env, sessionId, commentId);
+          if (!existing || existing.pinId !== pinId
+            || existing.actorType !== "agent" || existing.actorId !== context.key.id) {
+            throw new McpToolError("Resource not found");
+          }
+          let body: string;
+          try {
+            body = parsePinCommentBody(args.body);
+          } catch {
+            throw new McpToolError("body is invalid");
+          }
+          const comment = await updatePinCommentBody(context.env, sessionId, pinId, commentId, body);
+          if (!comment) throw new McpToolError("Resource not found");
+          return { comment, ok: true };
+        }
+        case "pinar.edit_pin_note": {
+          const sessionId = mcpResourceIdArg(args, "sessionId");
+          const pinId = mcpPinResourceIdArg(args, "pinId");
+          await mcpRequireSessionMutation(context, sessionId);
+          const session = await findOwnedSession(context.env, context.principal, sessionId);
+          if (!session) throw new McpToolError("Resource not found");
+          const pin = session.pins.find((item) => (item.pinId || item.id) === pinId);
+          if (!pin) throw new McpToolError("Pin not found");
+          let comment: string;
+          try {
+            comment = parsePinCommentBody(args.comment);
+          } catch {
+            throw new McpToolError("comment is invalid");
+          }
+          const patched: Session = {
+            ...session,
+            pins: session.pins.map((item) => ((item.pinId || item.id) === pinId ? { ...item, comment } : item)),
+          };
+          await persistSession(context.env, patched, session.batchId ?? null);
+          const updatedPin = patched.pins.find((item) => (item.pinId || item.id) === pinId);
+          if (!updatedPin) throw new McpToolError("Pin not found");
+          return { ok: true, pin: updatedPin };
+        }
+        case "pinar.delete_project": {
+          mcpRequireMutation(context, "manage");
+          const projectId = mcpResourceIdArg(args, "projectId");
+          if (!(await deleteProjectContainer(context.env, context.principal, projectId))) {
+            throw new McpToolError("Project not found");
+          }
+          return { ok: true, projectId };
+        }
+        case "pinar.delete_collection": {
+          mcpRequireMutation(context, "manage");
+          const collectionId = mcpResourceIdArg(args, "collectionId");
+          if (!(await deleteCollectionContainer(context.env, context.principal, collectionId))) {
+            throw new McpToolError("Collection not found");
+          }
+          return { ok: true, collectionId };
+        }
+        case "pinar.delete_batch": {
+          mcpRequireMutation(context, "manage");
+          const batchId = mcpResourceIdArg(args, "batchId");
+          if (!(await deleteBatch(context.env, context.principal, batchId))) {
+            throw new McpToolError("Batch not found");
+          }
+          return { ok: true, batchId };
+        }
+          case "pinar.finish_batch": {
+            mcpRequireMutation(context, "manage");
+            const batchId = mcpResourceIdArg(args, "batchId");
+            if (Object.hasOwn(args, "finishedAt")) throw new McpToolError("finishedAt is not accepted");
+            const batch = await finishBatch(context.env, context.principal, batchId, currentDate().toISOString());
+            if (!batch) throw new McpToolError("Batch not found");
+            return { batch, ok: true };
+          }
+        case "pinar.create_batch": {
+          mcpRequireMutation(context, "manage");
+          if (Object.keys(args).some((key) => key !== "label")) throw new McpToolError("Unexpected argument");
+          const batch = await createBatch(context.env, context.principal, mcpTextArg(args, "label", MCP_MAX_NAME_LENGTH));
+          if (!batch) throw new McpToolError("Batch not found");
+          return { batch };
+        }
+        case "pinar.rename_batch": {
+          mcpRequireMutation(context, "manage");
+          if (Object.keys(args).some((key) => key !== "batchId" && key !== "label")) throw new McpToolError("Unexpected argument");
+          const batch = await renameBatch(
+            context.env,
+            context.principal,
+            mcpResourceIdArg(args, "batchId"),
+            mcpTextArg(args, "label", MCP_MAX_NAME_LENGTH),
+          );
+          if (!batch) throw new McpToolError("Batch not found");
+          return { batch };
+        }
+        case "pinar.create_session": {
+          mcpRequireMutation(context, "manage");
+          if (Object.keys(args).some((key) => key !== "page" && key !== "collectionId" && key !== "batchId")) {
+            throw new McpToolError("Unexpected argument");
+          }
+          // An explicitly present empty-string destination is a caller error
+          // (rejected before any write); only an omitted destination falls
+          // back to the default collection / no batch.
+          if (Object.hasOwn(args, "collectionId") && args.collectionId === "") throw new McpToolError("collectionId is invalid");
+          if (Object.hasOwn(args, "batchId") && args.batchId === "") throw new McpToolError("batchId is invalid");
+          if (!isRecord(args.page)) throw new McpToolError("page is required");
+          const page = args.page as Record<string, unknown>;
+          if (Object.keys(page).some((key) => key !== "title" && key !== "url" && key !== "description")) {
+            throw new McpToolError("Unexpected argument");
+          }
+          const title = mcpTextArg(page, "title", MCP_MAX_SESSION_TEXT_LENGTH);
+          const description = mcpOptionalTextArg(page, "description", MCP_MAX_SESSION_TEXT_LENGTH);
+          const url = mcpSessionUrl(page.url, "page.url");
+          const collectionId = mcpOptionalTextArg(args, "collectionId", MCP_MAX_ARGUMENT_LENGTH) || "";
+          const batchId = mcpOptionalTextArg(args, "batchId", MCP_MAX_ARGUMENT_LENGTH);
+          const session = await createMcpSession(
+            context.env,
+            context.principal,
+            { collectionId, description, redacted: url.redacted, title, url: url.url },
+            batchId,
+          );
+          return { session };
+        }
+        case "pinar.update_session": {
+          const sessionId = mcpResourceIdArg(args, "sessionId");
+          await mcpRequireSessionMutation(context, sessionId);
+          if (Object.keys(args).some((key) => key !== "sessionId" && key !== "page" && key !== "reproduction")) {
+            throw new McpToolError("Unexpected argument");
+          }
+          const page = isRecord(args.page) ? args.page : {};
+          if (Object.keys(page).some((key) => key !== "title" && key !== "url" && key !== "description")) {
+            throw new McpToolError("page is invalid");
+          }
+          // An explicit "" title is invalid and rejects the whole update
+          // (even when a valid description is also present); only an omitted
+          // title leaves it unchanged. mcpOptionalTextArg would otherwise
+          // collapse "" to "absent".
+          if (Object.hasOwn(page, "title") && page.title === "") throw new McpToolError("title is invalid");
+          const title = mcpOptionalTextArg(page, "title", MCP_MAX_SESSION_TEXT_LENGTH);
+          const url = page.url === undefined ? null : mcpSessionUrl(page.url, "page.url");
+          // An explicit "" (or whitespace-only) description clears the stored
+          // value; the key's absence leaves it unchanged. mcpOptionalTextArg
+          // collapses "" to null, so the clear must be detected from presence.
+          let description: string | null = null;
+          let descriptionProvided = false;
+          if (Object.hasOwn(page, "description")) {
+            const rawDescription = page.description;
+            if (typeof rawDescription !== "string") throw new McpToolError("description is invalid");
+            const trimmedDescription = rawDescription.trim();
+            if (
+              trimmedDescription.length > MCP_MAX_SESSION_TEXT_LENGTH
+              || /[\u0000-\u001f\u007f]/.test(trimmedDescription)
+            ) {
+              throw new McpToolError("description is invalid");
+            }
+            description = trimmedDescription;
+            descriptionProvided = true;
+          }
+          if (!title && !descriptionProvided && !url && !Object.hasOwn(args, "reproduction")) {
+            throw new McpToolError("No changes provided");
+          }
+          const session = await updateMcpSession(context.env, context.principal, sessionId, {
+            description,
+            redacted: url ? url.redacted : null,
+            reproduction: Object.hasOwn(args, "reproduction") ? args.reproduction : undefined,
+            title,
+            url: url ? url.url : null,
+          });
+          if (!session) throw new McpToolError("Session not found");
+          return { session };
+        }
+        case "pinar.delete_session": {
+          const sessionId = mcpResourceIdArg(args, "sessionId");
+          await mcpRequireSessionMutation(context, sessionId);
+          if (!SESSION_ID_PATTERN.test(sessionId)) throw new McpToolError("Session not found");
+          let shotId = sessionId;
+          if (context.env.DB) {
+            const existing = await context.env.DB.prepare("SELECT shot_id FROM sessions WHERE id = ? AND user_id = ?")
+              .bind(sessionId, context.principal.id).first();
+            if (!existing) throw new McpToolError("Session not found");
+            shotId = String(existing.shot_id || sessionId);
+            try {
+              await context.env.DB.batch([
+                context.env.DB.prepare("DELETE FROM agent_executions WHERE capture_id = ? AND owner_id = ?")
+                  .bind(sessionId, context.principal.id),
+                context.env.DB.prepare("DELETE FROM pin_review_events WHERE capture_id = ?").bind(sessionId),
+                context.env.DB.prepare("DELETE FROM pin_reviews WHERE capture_id = ?").bind(sessionId),
+                context.env.DB.prepare("DELETE FROM pin_comments WHERE capture_id = ?").bind(sessionId),
+                context.env.DB.prepare("DELETE FROM sessions WHERE id = ? AND user_id = ?").bind(sessionId, context.principal.id),
+              ]);
+            } catch {
+              throw new McpToolError("Session deletion failed");
+            }
+          } else {
+            const existing = memorySessions.get(sessionId);
+            if (!existing || existing.userId !== context.principal.id) throw new McpToolError("Session not found");
+            shotId = existing.shotId || sessionId;
+            memorySessions.delete(sessionId);
+            deleteMemoryExecutionsForCapture(sessionId, context.principal.id);
+            deleteMemoryReviewsForCapture(sessionId);
+          }
+           if (context.env.PINAR_BUCKET) await context.env.PINAR_BUCKET.delete(shotObjectKey(shotId)).catch(() => undefined);
+           return { ok: true, sessionId };
+         }
+          case "pinar.list_pins": {
+            const sessionId = mcpResourceIdArg(args, "sessionId");
+            await mcpRequireRead(context, "session", sessionId);
+            if (Object.keys(args).some((key) => key !== "sessionId" && key !== "limit" && key !== "offset")) {
+              throw new McpToolError("Unexpected argument");
+            }
+            const session = await findOwnedSession(context.env, context.principal, sessionId);
+           if (!session) throw new McpToolError("Resource not found");
+           const limit = mcpLimitArg(args, "limit", MCP_MAX_LIST_SIZE);
+           const offset = mcpOffsetArg(args);
+           const reviews = await listPinReviews(context.env, sessionId);
+           const statusByPinId = new Map(reviews.map((review) => [review.pinId, review.status] as const));
+           const pins = session.pins.slice(offset, offset + limit).map((pin) => {
+             const pinId = pin.pinId || pin.id || "";
+             return mcpPinView(pin, statusByPinId.get(pinId) || "open");
+           });
+           return { limit, offset, pins };
+         }
+          case "pinar.get_pin": {
+            const sessionId = mcpResourceIdArg(args, "sessionId");
+            const pinId = mcpPinResourceIdArg(args, "pinId");
+            await mcpRequireRead(context, "session", sessionId);
+            if (Object.keys(args).some((key) => key !== "sessionId" && key !== "pinId")) {
+              throw new McpToolError("Unexpected argument");
+            }
+            const session = await findOwnedSession(context.env, context.principal, sessionId);
+           const pin = session?.pins.find((item) => (item.pinId || item.id) === pinId);
+           if (!session || !pin) throw new McpToolError("Resource not found");
+           const reviews = await listPinReviews(context.env, sessionId);
+           return { ok: true, pin: mcpPinView(pin, reviews.find((review) => review.pinId === pinId)?.status || "open") };
+         }
+         case "pinar.create_pin": {
+           const sessionId = mcpResourceIdArg(args, "sessionId");
+           await mcpRequireSessionMutation(context, sessionId);
+           if (Object.keys(args).some((key) => key !== "sessionId" && key !== "comment" && key !== "locator")) {
+             throw new McpToolError("Unexpected argument");
+           }
+           let locator: { cssSelector: string | null; domPath: string | null; innerText: string | null } = {
+             cssSelector: null,
+             domPath: null,
+             innerText: null,
+           };
+           if (args.locator !== undefined) {
+             if (!isRecord(args.locator)) throw new McpToolError("locator is invalid");
+             const rawLocator = args.locator as Record<string, unknown>;
+             if (Object.keys(rawLocator).some((key) => key !== "cssSelector" && key !== "domPath" && key !== "innerText")) {
+               throw new McpToolError("locator is invalid");
+             }
+             locator = {
+               cssSelector: mcpOptionalTextArg(rawLocator, "cssSelector", MCP_MAX_ARGUMENT_LENGTH),
+               domPath: mcpOptionalTextArg(rawLocator, "domPath", MCP_MAX_ARGUMENT_LENGTH),
+               innerText: mcpOptionalTextArg(rawLocator, "innerText", MCP_MAX_ARGUMENT_LENGTH),
+             };
+           }
+           let comment: string;
+           try {
+             comment = parsePinCommentBody(args.comment);
+           } catch {
+             throw new McpToolError("comment is invalid");
+           }
+           const pin = await createMcpPin(context.env, context.principal, sessionId, { comment, ...locator });
+           return { ok: true, pin: mcpPinView(pin, "open"), sessionId };
+         }
+          case "pinar.delete_pin": {
+            const sessionId = mcpResourceIdArg(args, "sessionId");
+            const pinId = mcpPinResourceIdArg(args, "pinId");
+            await mcpRequireSessionMutation(context, sessionId);
+            if (Object.keys(args).some((key) => key !== "sessionId" && key !== "pinId")) {
+              throw new McpToolError("Unexpected argument");
+            }
+            if (!(await deleteMcpPin(context.env, context.principal, sessionId, pinId))) {
+             throw new McpToolError("Pin not found");
+           }
+           return { ok: true, pinId, sessionId };
+         }
+         case "pinar.delete_pin_comment": {
+          const sessionId = mcpResourceIdArg(args, "sessionId");
+          const pinId = mcpPinResourceIdArg(args, "pinId");
+          const commentId = mcpResourceIdArg(args, "commentId");
+          await mcpRequireSessionMutation(context, sessionId);
+          const session = await findOwnedSession(context.env, context.principal, sessionId);
+          if (!session) throw new McpToolError("Resource not found");
+          const existing = await findPinComment(context.env, sessionId, commentId);
+          if (!existing || existing.pinId !== pinId
+            || existing.actorType !== "agent" || existing.actorId !== context.key.id) {
+            throw new McpToolError("Resource not found");
+          }
+          if (!(await deletePinComment(context.env, sessionId, pinId, commentId))) {
+            throw new McpToolError("Resource not found");
+          }
+          return { commentId, ok: true };
+        }
+        case "pinar.conclude_pin":
+          return mcpPinReviewTransition(context, args, "accept");
+        case "pinar.reopen_pin":
+          return mcpPinReviewTransition(context, args, "reopen");
         default:
           throw new McpToolError("Unknown tool");
       }
     },
+    caller: { clientId: context.key.id, principalId: context.principal.id },
     tools: CLOUD_MCP_TOOLS,
   };
 }
@@ -7354,6 +8252,25 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
       env,
       decodeURIComponent(pinCommentMatch[1]),
       decodeURIComponent(pinCommentMatch[2]),
+    );
+  }
+  const pinCommentEditMatch = path.match(/^\/api\/sessions\/([^/]+)\/pins\/([^/]+)\/comments\/([^/]+)$/);
+  if (pinCommentEditMatch && method === "PATCH") {
+    return editPinComment(
+      request,
+      env,
+      decodeURIComponent(pinCommentEditMatch[1]),
+      decodeURIComponent(pinCommentEditMatch[2]),
+      decodeURIComponent(pinCommentEditMatch[3]),
+    );
+  }
+  const pinNoteMatch = path.match(/^\/api\/sessions\/([^/]+)\/pins\/([^/]+)$/);
+  if (pinNoteMatch && method === "PATCH") {
+    return editPinNote(
+      request,
+      env,
+      decodeURIComponent(pinNoteMatch[1]),
+      decodeURIComponent(pinNoteMatch[2]),
     );
   }
   const pinReviewMatch = path.match(/^\/api\/sessions\/([^/]+)\/pins\/([^/]+)\/review$/);

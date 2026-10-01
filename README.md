@@ -5,7 +5,7 @@
 
 Pin comments on elements or areas in Chrome and **copy** the bundle (comment, DOM path, coordinates, screenshot) to the clipboard. Paste it anywhere — Grok, Claude, Codex, Slack, notes.
 
-The first saved pin starts a continuous review session, in both local and remote storage. Add comments, press **Esc** to browse, and continue on another page. Once hidden, the toolbar stays hidden across navigation until the extension action or its shortcut is invoked. Pinar captures evidence while the page is still open; it does not revisit URLs at the end. Use **Conclude and copy** or **Ctrl/⌘+Enter** to hand over all pages together. A visible confirmation reports success, while a failed finish keeps the session available for review and retry. The history shows one session with its individual screenshots.
+The first saved pin starts a continuous review session, in both local and remote storage. Add comments, press **Esc** to browse, and continue on another page. Once hidden, the toolbar stays hidden across navigation until the extension action or its shortcut is invoked. Pinar captures evidence while the page is still open; it does not revisit URLs at the end. Use **Finish session** or **Ctrl/⌘+Enter** to conclude and hand over all pages together; the *On finish* setting chooses what is copied: **Prompt** (the full text), **Link** (only the session link) or **Off** (nothing). In Pinar Cloud the link is private: an agent needs authenticated access (API key or MCP) unless you share it explicitly, while a local link opens without that. A visible confirmation reports success, while a failed finish keeps the session available for review and retry. The history shows one session with its individual screenshots.
 
 Press **Tab** while annotating to review saved/pending annotations, retry, remove or discard. The review replaces the toolbar until you return to the page. Upload failures keep the local draft and its screenshots for retry. If a screenshot could not be taken before the page changed, recreate that annotation on the original page and remove the pending entry. Finish the draft before changing its server/account. The former manual batch mode is retired; stored captures and existing share links remain compatible.
 
@@ -61,7 +61,7 @@ A history record is a session containing one or more captures. Opening it always
 1. Open the page you want to annotate
 2. Click the Pinar icon in the Chrome toolbar (pin it from the puzzle-piece menu if it is hidden)
 3. Click an element or drag an area, write the comment, press **Enter** to add
-4. **⌘↵ / Ctrl+Enter** to copy (the toolbar shows *Copied* and closes)
+4. **⌘↵ / Ctrl+Enter** to finish the session (the toolbar confirms *Session saved* and closes; *On finish* copies the prompt, the link or nothing)
 
 - **Enter** adds the pin
 - **Shift+Enter** inserts a newline
@@ -73,6 +73,68 @@ A history record is a session containing one or more captures. Opening it always
 - See the [continuous session validation guide](docs/continuous-review-validation.md) for the full flow and screenshots.
 
 PNG crops go to `~/.pinar/shots` (Windows: `%USERPROFILE%\.pinar\shots`). The extension cannot write that folder by itself — on macOS, **Pinar.app** starts the local service (menu bar: Start if it shows Off). If the connection is not available, open Pinar and try the capture again.
+
+## Agent access to sessions (MCP)
+
+Coding agents can read stored sessions, manage the local organization, and work on the pin conversations through the Model Context Protocol.
+
+- **Local**: the helper serves a native MCP endpoint at `http://127.0.0.1:<port>/api/mcp` on loopback. It is unauthenticated by design — no login, no API key, and no provider configuration: any agent points its MCP client at that URL, and hostile browser origins are still denied.
+- **Cloud**: the MCP surface requires a Pinar API key with the needed scopes, and the key's resource scope bounds what it can list, comment on, or edit. See [Cloud agent access](docs/cloud-agent-access.md) for the key permissions, the full tool matrix, and the wire protocol.
+
+### Local MCP tools
+
+All thirty-six tools are prefixed `pinar`. List tools return `{limit, offset, …}` metadata (limit 1–50, offset 0–10000, default limit 50) without embedded screenshots or session payloads; Markdown tools return the stored Markdown as text; mutations return `ok` with the affected resource(s).
+
+| Tool | Arguments | Returns |
+| --- | --- | --- |
+| `pinar.list_sessions` | `batchId?`, `collectionId?`, `limit?`, `offset?`, `query?` | session summaries |
+| `pinar.get_session_markdown` | `sessionId` | session Markdown |
+| `pinar.list_pins` | `sessionId`, `limit?`, `offset?` | pin views (comment, locator, review status) |
+| `pinar.get_pin` | `sessionId`, `pinId` | the pin view |
+| `pinar.list_pin_comments` | `sessionId`, `pinId` | the pin conversation |
+| `pinar.add_pin_comment` | `sessionId`, `pinId`, `body`, `agentName?` | the stored comment; `agentName` is informational and not authenticated |
+| `pinar.edit_pin_comment` | `sessionId`, `pinId`, `commentId`, `body` | the updated comment |
+| `pinar.edit_pin_note` | `sessionId`, `pinId`, `comment` | the updated pin |
+| `pinar.delete_pin_comment` | `sessionId`, `pinId`, `commentId` | `ok`, `deleted` |
+| `pinar.list_projects` | `limit?`, `offset?` | project metadata |
+| `pinar.get_project_markdown` | `projectId` | project Markdown |
+| `pinar.list_collections` | `projectId`, `limit?`, `offset?` | collection metadata |
+| `pinar.get_collection_markdown` | `collectionId` | collection Markdown |
+| `pinar.list_batches` | `limit?`, `offset?` | batch metadata |
+| `pinar.get_batch_markdown` | `batchId` | batch handoff Markdown |
+| `pinar.create_project` | `name` | the created project |
+| `pinar.rename_project` | `projectId`, `name` | the renamed project |
+| `pinar.reorder_projects` | `ids` | the new project order |
+| `pinar.delete_project` | `projectId` | `ok`, `deleted`; the protected Personal project is rejected; sessions of the project's collections move to the default destination |
+| `pinar.create_collection` | `projectId`, `name`, `parentId?` | the created collection; `null` or omitted parent places it at the root |
+| `pinar.rename_collection` | `collectionId`, `name` | the renamed collection |
+| `pinar.reorder_collections` | `projectId`, `items` (`{id, parentId: string \| null}`) | the new collection hierarchy |
+| `pinar.delete_collection` | `collectionId` | `ok`, `deleted`; the protected Inbox is rejected; child collections are promoted and sessions move to the default destination |
+| `pinar.create_batch` | `label` | `ok`, `batch` |
+| `pinar.rename_batch` | `batchId`, `label` | `ok`, `batch` |
+| `pinar.finish_batch` | `batchId` | `ok`, `batch` (marked finished; sessions stay attached) |
+| `pinar.delete_batch` | `batchId` | `ok`, `deleted`; sessions are kept and detached from the batch |
+| `pinar.create_session` | `page` (`title`, `url` required; `description?`, each up to 2000 chars), `collectionId?`, `batchId?` | `ok`, the session summary (metadata only; no screenshot) |
+| `pinar.update_session` | `sessionId`, `page?`, `reproduction?` (version-1 object: `steps[]` — valid steps carry `at` and `kind` click/input/key/navigate/scroll/wait plus optional `locator`/`thumbnail`/`title`/`url`/`value`; invalid steps are discarded and the list is truncated at 60; `null` clears) | `ok`, the session summary; rejected (`reproduction is invalid`) when the version is not 1 or no step survives |
+| `pinar.delete_session` | `sessionId` | `ok`, `deleted`; the session, its pins, comments, and reviews are removed, and the local shot file is deleted when it is the session's canonical screenshot |
+| `pinar.move_session` | `sessionId`, `collectionId` | the moved session |
+| `pinar.reorder_sessions` | `collectionId`, `ids` | the new session order |
+| `pinar.create_pin` | `sessionId`, `comment`, `locator?` (`{cssSelector?, domPath?, innerText?}`) | `ok`, the created pin with an assigned `number`; no screenshot or measured geometry |
+| `pinar.delete_pin` | `sessionId`, `pinId` | `ok`, `pinId`, `sessionId` |
+| `pinar.conclude_pin` | `sessionId`, `pinId` | `ok`, `changed`, `review` (human accept) |
+| `pinar.reopen_pin` | `sessionId`, `pinId` | `ok`, `changed`, `review` (human reopen) |
+
+Names and ids are trimmed, must be nonblank, may not contain control characters, and are limited to 256 characters. The reorder tools require the **complete list** — every project, every collection of the project, or every session of the collection, exactly once — because an omitted resource would keep its old position and duplicate positions would result; partial lists are rejected before any write. `pinar.reorder_collections` validates the whole hierarchy atomically (unique ids, no cycles, no unknown or foreign parents) and keeps the protected root Inbox at the root. `pinar.conclude_pin` and `pinar.reopen_pin` act as the human reviewer (accept/reopen); a repeated action the review state forbids is rejected without changing the state.
+
+The comment tools add comments and edit stored comments or the original pin note; edits preserve the message ids, authorship, and timestamps. The same edit actions are available in the viewer's pin discussion (note: when you can edit pins; comments: any stored comment in the local viewer, and only your own human comments in the Cloud; agent comments are never viewer-editable).
+
+Agent-created sessions and pins are metadata only: `pinar.create_session` stores the `page` without a screenshot, and `pinar.create_pin` stores an optional text `locator` without measured geometry. The extension is the separate writer for the active draft: MCP does not rehydrate or synchronize an in-browser draft, and an explicit later save from the extension replaces the stored session under the same id.
+
+### Transport (Local and Cloud)
+
+Both endpoints run the same TanStack MCP server over HTTP. Only `POST` is accepted (`GET`/`DELETE` return `405`), the body must be `application/json`, and JSON-RPC batch arrays are rejected with `400`. In the legacy `2025-11-25` protocol the client must complete the `initialize` handshake first (a bare `tools/list` returns `400`), keep the `mcp-session-id` header from the response, and send `Accept: application/json, text/event-stream`; the modern `2026-07-28` protocol has no `initialize` and no `mcp-session-id` — the client uses `server/discover` and the calls follow without a legacy session. Legacy HTTP sessions are in-memory and live with the process: after a helper restart (Local) or worker-isolate restart (Cloud), an open session answers `404` and the client reconnects and reinitializes. The server speaks protocol generations `2025-11-25` (legacy; the default of `@modelcontextprotocol/client` 2.2.0) and `2026-07-28` (modern; negotiated with the client's `versionNegotiation` set to `auto` or pinned to the revision), and modern requests do not depend on the legacy session.
+
+Developer notes (legacy transport): request bodies are capped at 256 KiB (larger requests get `413`) and a tool result is capped at 1 MiB (larger results come back as a bounded `isError` envelope: `Tool result is too large; narrow the request or query individual sessions`). Legacy `2025-11-25` sessions are swept lazily about 30 minutes after last use — the sweep only runs when the next request arrives, and `DELETE` returns `405`, so a client cannot end a session explicitly. Concurrent legacy calls within the same session may run against the most recent request's handler context (there is no per-call isolation within a legacy session); when isolation matters, prefer the modern `2026-07-28` protocol, serialize legacy calls, or use a separate connection per session. No production-isolate or live-Cloud behavior was verified for this documentation; no remote/production verification or deploy was authorized.
 
 ## Architecture
 
@@ -151,7 +213,7 @@ Re-register hooks from Pinar.app (macOS) or, on Windows/Linux:
 pinar install-hooks
 ```
 
-`AGENTS.md` and `CLAUDE.md` describe how an agent should treat the pasted text. The copy includes `captureId`, `pinId`, and a `pinar-visual-context` JSON block. If it also has `Screenshot: /path/to/file.png`, open that file — it is a single crop with every pin. Cursor uses `.cursor/hooks.json` (`sessionStart`) like the other agents.
+`AGENTS.md` and `CLAUDE.md` describe how an agent should treat the pasted text. In Prompt mode the copy includes `captureId`, `pinId`, and a `pinar-visual-context` JSON block. If it also has `Screenshot: /path/to/file.png`, open that file — it is a single crop with every pin. Cursor uses `.cursor/hooks.json` (`sessionStart`) like the other agents.
 
 ```sh
 bun test

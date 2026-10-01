@@ -18,10 +18,10 @@ const extensionId = (key) => [...createHash("sha256").update(Buffer.from(key, "b
   .map((digit) => String.fromCharCode(97 + Number.parseInt(digit, 16))).join("");
 
 describe("extension runtime environment", () => {
-  test("the unpacked repository build has a recognized development or production identity", () => {
-    const id = extensionId(manifest.key);
-    assert.ok([DEVELOPMENT_EXTENSION_ID, "idpeaokdndjedekacfdfbilcolpholbo"].includes(id));
-    assert.equal(resolveCloudUrl(manifest), id === DEVELOPMENT_EXTENSION_ID ? STAGING_CLOUD_URL : PRODUCTION_CLOUD_URL);
+  test("the unpacked repository build uses the development identity pinned to staging", () => {
+    assert.equal(manifest.key, DEVELOPMENT_EXTENSION_KEY);
+    assert.equal(extensionId(manifest.key), DEVELOPMENT_EXTENSION_ID);
+    assert.equal(resolveCloudUrl(manifest), STAGING_CLOUD_URL);
   });
 
   test("the development identity remains pinned to staging", () => {

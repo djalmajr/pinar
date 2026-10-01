@@ -297,7 +297,7 @@ const locale = {
         {
           heading: "Finish or cancel the session",
           paragraphs: [
-            "Use `Command+Enter` on macOS or `Alt+Enter` on Windows and Linux to finish and copy the complete session. Pinar visibly confirms success. If finishing fails, it shows an actionable error and keeps the session available for review and retry. Discard session cancels it without copying.",
+            "Use `Command+Enter` on macOS or `Alt+Enter` on Windows and Linux, or the Finish session button, to finish the complete session. What is copied follows the On finish setting: Prompt copies the session handoff text, Link copies only the session link, and Off finishes without copying. Pinar visibly confirms success. If finishing fails, it shows an actionable error and keeps the session available for review and retry. Discard session cancels it without copying. With Pinar Cloud the link is private: it opens only with authenticated access (API key or MCP) or when you share it explicitly.",
             "Treat the clipboard payload as one unit: readable instructions, an optional viewer URL, and one fenced pinar-visual-context block per page. Each block carries its own screenshot plus `captureId`, `pinId`, page URL, and locators (cssSelector, domPath, innerText). Numbered badges are annotation overlays, not page UI. Do not rewrite `captureId` or `pinId` when pasting to an agent.",
           ],
           bullets: [
@@ -322,7 +322,7 @@ const locale = {
         {
           heading: "Cloud",
           paragraphs: [
-            "When the signed-in account is eligible under the current offer, cloud mode provides remote workspace access, managed retention, billing, and unlisted share links. The local app and a self-hosted server stay free. Pinar Cloud voice transcription remains a Pro benefit and is not part of an evaluation. Local AI and BYOK remain available without using Pinar Cloud credits. You accept the current policies before anything is stored remotely.",
+            "When the signed-in account is eligible under the current offer, cloud mode provides remote workspace access, managed retention, billing, and unlisted share links. The local app and a self-hosted server stay free. Pinar Cloud voice transcription remains a Pro benefit and is not part of an evaluation. You accept the current policies before anything is stored remotely.",
           ],
         },
         {
@@ -353,7 +353,7 @@ const locale = {
             "`Enter` pins the hovered element; `Arrow Up` selects its parent and `Arrow Down` returns to a child.",
             "`M` toggles privacy-mask drawing. `Escape` cancels a draft or mask; with no draft it clears pins and hides the toolbar.",
             "`R` toggles the live overlay between numbered pins only and pins with their selected regions. The copied screenshot always includes both.",
-            "`Command+Enter` / `Alt+Enter` copies the completed bundle.",
+            "`Command+Enter` / `Alt+Enter` finishes the session and copies according to the On finish setting.",
             "`Alt+Shift+P` shows or hides the toolbar without cancelling the session, and you can rebind it in `chrome://extensions/shortcuts`. Browser shortcuts stay inert on `chrome://` pages, on the Chrome Web Store, and before the overlay is injected.",
             "`G` starts recording the steps you take on the page. Reopen Pinar, pin the result, and copy with `Command+Enter` / `Alt+Enter` to attach the steps; pressing `G` again discards the recording.",
           ],
@@ -371,7 +371,7 @@ const locale = {
             "`Arrow Up` walks to the parent element and remembers the child you left, so `Arrow Down` returns to that remembered node when it is still a child; otherwise it uses the first child. In mask mode, drag a region to hide it and click an existing mask to restore it. Keyboard scrolling still works on the document, but keys aimed at focused page controls are blocked so they cannot activate buttons or type into the host form.",
           ],
           bullets: [
-            "`Command+Enter` / `Alt+Enter` saves an open draft, then copies; without a comment it shows “Write a comment first” instead of sending an empty pin.",
+            "`Command+Enter` / `Alt+Enter` saves an open draft, then finishes; without a comment it shows “Write a comment first” instead of sending an empty pin.",
             "After `Escape` or copy, Pinar keeps owning that physical key through keyup so the host page does not treat the same keystroke as its own cancel or submit.",
             "An area pin starts only after the pointer moves about six pixels; a shorter click still pins the hovered element instead of opening a freeform rectangle.",
           ],
@@ -439,12 +439,22 @@ const locale = {
         {
           heading: "Structure and technical evidence",
           paragraphs: [
-            "Each element pin also stores a snapshot of what it points at: the element’s HTML tree, the computed styles that differ from the browser defaults, the fonts and icons it uses, and its parent and siblings. The viewer shows this under “Structure”. Large elements are trimmed to stay within the capture limit, and the viewer says so.",
+            "Each element pin also stores a snapshot of what it points at: the element’s HTML tree, the computed styles that differ from the browser defaults, the fonts and icons it uses, and its parent and siblings. The Preview renders the locators and the evidence stored with the pin, while the full snapshot stays in the stored capture and the complete handoff payload. Large elements are trimmed to stay within the capture limit, and the session Markdown says so with a truncated node count.",
             "“Technical evidence” lists facts the extension observed on the page while you pinned: console errors, failed requests, and the environment (browser, viewport, language). Each item is graded “After interaction” when it happened after your last click or keystroke, or “Same page” when it only shares the page. Nothing is inferred and no AI credit is spent; remove an item before sharing if it is unrelated.",
           ],
           bullets: [
             "Area pins have no element structure; use an element pin when the agent needs DOM context and resilient locators.",
-            "Structure and evidence travel inside the pinar-visual-context JSON block, so an agent receives them with the paste.",
+            "The default compact prompt keeps the locators, comment, and compact evidence, while the element snapshot travels with the pinar-visual-context block of the complete payload and the session Markdown behind the full-context link.",
+          ],
+        },
+        {
+          heading: "Edit notes and comments in the viewer",
+          paragraphs: [
+            "The pin discussion in the viewer offers the original note and the stored thread comments for editing. The rules differ between the local workspace and Pinar Cloud.",
+            "The local workspace has no login, so any note and stored comment can be edited from the viewer. In Pinar Cloud the session owner edits the note, and a human comment is editable only by the person who wrote it. Agent comments are never editable from the viewer.",
+          ],
+          bullets: [
+            "An edit saves over the stored text and keeps the message’s identity, authorship, and timestamp.",
           ],
         },
       ],
@@ -545,12 +555,12 @@ const locale = {
         {
           heading: "Viewer controls",
           paragraphs: [
-            "The capture viewer supports pointer pan, wheel zoom anchored to the cursor, double-click zoom, and controls from 50% to 800%. Selecting a pin opens rendered Preview and verbatim Raw Markdown tabs.",
+            "The capture viewer supports pointer pan, wheel zoom anchored to the cursor, double-click zoom, and controls from 50% to 800%. Selecting a pin opens a details dialog with the comment thread and a Preview that renders the stored pin Markdown and the captured technical evidence.",
           ],
           bullets: [
             "Download the screenshot or copy the session Markdown from the viewer.",
             "Use the original-page link when you need to inspect the current site separately.",
-            "Select a pin to switch between Preview and Raw Markdown.",
+            "The Preview renders the stored pin Markdown; the technical-evidence section appears only when the capture stored evidence.",
             "A grouped session keeps every captured screenshot in the same viewer.",
             "The original-page link opens separately without changing the saved session.",
           ],
@@ -583,13 +593,26 @@ const locale = {
         {
           heading: "How to deliver the copied bundle to an agent",
           paragraphs: [
-            "The Chrome extension never types into the agent composer. After `Command+Enter` / `Alt+Enter`, paste the clipboard yourself into Cursor, Claude, Codex, or Grok. The text begins by saying the pin notes may ask for a change or an explanation, and to treat selector and DOM path as complementary locators, followed by a fenced pinar-visual-context JSON block. If a Viewer URL is included, fetch it only when those details are not enough.",
+            "The Chrome extension never types into the agent composer. In Prompt mode, after `Command+Enter` / `Alt+Enter`, paste the clipboard yourself into Cursor, Claude, Codex, or Grok. The text begins by saying the pin notes may ask for a change or an explanation, and to treat selector and DOM path as complementary locators, followed by a fenced pinar-visual-context JSON block. If a Viewer URL is included, fetch it only when those details are not enough. In Link mode the agent receives only the session link and needs access to that `.md` (Pinar Cloud links are private and require an API key or MCP); Off only saves.",
             "Treat `captureId` and `pinId` as identity, not labels to rewrite. Visual Context currently encodes schemaVersion 1; parseVisualCapture rejects a missing `captureId` and any schemaVersion other than 1 or the legacy 0. Follow only what the pins describe. If the person never pasted, ask them to copy again from Pinar instead of reconstructing pins from memory.",
           ],
           bullets: [
             "Paste the whole clipboard into the agent; do not retype comments or invent a new `captureId`.",
             "Confirm the pasted text still contains a closed pinar-visual-context fence before you start editing code.",
             "If nothing was pasted, ask for `Command+Enter` / `Alt+Enter` in Pinar and follow only the pin notes.",
+          ],
+        },
+        {
+          heading: "Let an agent work with Pinar through MCP",
+          paragraphs: [
+            "Pinar also exposes its stored sessions through the Model Context Protocol. An MCP client can list projects, collections, batches, sessions, pins, and pin comments, and can create, comment on, rename, move, reorder, and delete them.",
+            "The local Pinar service exposes MCP on your own machine without an account, login, or API key. Pinar Cloud requires an API key with the needed permission, and the key’s resource scope bounds what the agent can read, comment on, or change.",
+            "For client configuration, including the endpoint, the authentication header, and the protocol details, see the [Cloud agent access guide](https://github.com/djalmajr/pinar/blob/main/docs/cloud-agent-access.md) in the Pinar repository.",
+          ],
+          bullets: [
+            "An agent-created session stores the page metadata without a screenshot, and an agent pin stores the comment with an optional locator instead of measured geometry.",
+            "MCP does not rehydrate or synchronize the in-browser draft; the extension remains the writer of the active draft, and a later explicit save replaces the stored session under the same id.",
+            "Sharing stays explicit: publish a share from the workspace, or let an agent with the share permission publish or revoke it.",
           ],
         },
       ],
@@ -630,9 +653,9 @@ const locale = {
       summary: "Test voice transcription and turn a recorded browser flow into concise written reproduction steps.",
       sections: [
         {
-          heading: "Choose a provider for reproduction",
+          heading: "Reproduction in Pinar Cloud",
           paragraphs: [
-            "On the local server, open Settings → AI Assistant, choose Local AI or BYOK, enter the OpenAI-compatible endpoint and model, then use Test and save. Local AI and BYOK do not use Pinar credits. In Pinar Cloud, reproduction is available to eligible signed-in accounts without debiting AI credits.",
+            "In Pinar Cloud, reproduction is available to eligible signed-in accounts without debiting AI credits.",
           ],
         },
         {
@@ -885,7 +908,7 @@ const locale = {
           heading: "Voice transcription cost",
           paragraphs: [
             "Pinar Cloud voice transcription is the only Pinar feature that consumes AI credits. A recording up to 60 seconds reserves 1 credit; a recording from 61 to 120 seconds reserves 2. On success, the reservation is consumed. A failed transcription refunds it, and a reservation left unsettled for more than five minutes is refunded automatically.",
-            "Recording a reproduction timeline and generating its written steps do not debit AI credits. Local AI and BYOK also never use the Pinar Cloud balance.",
+            "Recording a reproduction timeline and generating its written steps do not debit AI credits.",
           ],
         },
         {
@@ -948,7 +971,7 @@ const locale = {
         {
           heading: "Unlisted public links",
           paragraphs: [
-            "Cloud viewers exist for one session, a project, or a collection. They are public to anyone who has the link and are not indexed as normal navigation. Do not treat an unlisted URL as authentication for sensitive content.",
+            "Cloud sessions, projects, and collections stay private until you publish a share: the private Markdown opens only with your account or an authorized key. A published share is an unlisted viewer for one session, a project, or a collection. It is public to anyone who has the link and is not indexed as normal navigation. Do not treat an unlisted URL as authentication for sensitive content.",
           ],
         },
         {

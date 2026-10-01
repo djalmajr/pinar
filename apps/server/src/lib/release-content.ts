@@ -5,6 +5,13 @@ export type ReleaseTag = (typeof releaseDefinitions)[number]["tag"];
 export type ReleaseChangeId =
   (typeof releaseDefinitions)[number]["changes"][number];
 
+/**
+ * Unreleased work shown above the published history. It has no tag and no
+ * date, so it must never be looked up through the tag-based release routes.
+ */
+export const upcomingChanges = ["mcp-crud", "focused-handoff"] as const;
+export type UpcomingChangeId = (typeof upcomingChanges)[number];
+
 export interface ReleaseChange {
   description: string;
   id: ReleaseChangeId;
@@ -19,8 +26,19 @@ export interface ProductRelease {
   title: string;
 }
 
+export interface UpcomingRelease {
+  changes: {
+    description: string;
+    id: UpcomingChangeId;
+    title: string;
+  }[];
+  summary: string;
+  title: string;
+}
+
 export interface ReleaseUi {
   allReleases: string;
+  upcomingRelease?: string;
   backToReleases: string;
   firstRelease: string;
   historyDescription: string;
@@ -49,12 +67,21 @@ export interface ReleaseLocale {
     };
   };
   ui: ReleaseUi;
+  upcoming?: {
+    changes: Record<
+      UpcomingChangeId,
+      { description: string; title: string }
+    >;
+    summary: string;
+    title: string;
+  };
 }
 
 export interface ReleaseContent {
   language: SupportedLanguage;
   releases: ProductRelease[];
   ui: ReleaseUi;
+  upcoming?: UpcomingRelease;
 }
 
 export const releaseDefinitions = [
@@ -230,7 +257,29 @@ export function createReleaseContent(
       }),
     };
   });
-  return { language, releases, ui: locale.ui };
+  let upcoming: UpcomingRelease | undefined;
+  if (locale.upcoming) {
+    const changes: Partial<
+      Record<UpcomingChangeId, { description: string; title: string }>
+    > = locale.upcoming.changes;
+    upcoming = {
+      title: locale.upcoming.title,
+      summary: locale.upcoming.summary,
+      changes: upcomingChanges.map((id) => {
+        const change = changes[id];
+        if (!change) {
+          throw new Error(`Missing upcoming release change: ${id}`);
+        }
+        return { id, ...change };
+      }),
+    };
+  }
+  return {
+    language,
+    releases,
+    ui: locale.ui,
+    ...(upcoming ? { upcoming } : {}),
+  };
 }
 
 export const defaultReleaseContent = createReleaseContent(

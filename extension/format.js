@@ -48,30 +48,98 @@ function handoffWarnings({ shot, warnings = [], includeScreenshot = true } = {})
   return [...new Set(next)];
 }
 
+// Mirror of the compact budgets in packages/shared/src/handoff (no shared->
+// extension import): keep the numbers and the helpers in sync and test the
+// parity in packages/shared/src/handoff.test.ts.
+const COMPACT_INNER_TEXT_MAX = 120;
+const COMPACT_EVIDENCE_MESSAGE_MAX = 200;
+const COMPACT_EVIDENCE_MAX_ITEMS = 3;
+
+function compactText(value, max) {
+  if (typeof value !== "string") return undefined;
+  const flat = value.replace(/\s+/gu, " ").trim();
+  if (!flat) return undefined;
+  const codePoints = Array.from(flat);
+  if (codePoints.length <= max) return flat;
+  return `${codePoints.slice(0, max - 1).join("")}…`;
+}
+
+function evidenceSignature(item) {
+  return [
+    item.kind,
+    item.grade,
+    item.origin,
+    item.frame ?? "",
+    item.method ?? "",
+    item.status ?? "",
+    item.url ?? "",
+    item.message ?? "",
+  ].join("\u0000");
+}
+
+function compactEvidence(evidence) {
+  if (!evidence || !Array.isArray(evidence.items) || !evidence.items.length) return undefined;
+  const rank = (grade) => (grade === "after_interaction" ? 0 : 1);
+  const ordered = [...evidence.items].sort((a, b) => rank(a.grade) - rank(b.grade));
+  const seen = new Set();
+  const items = [];
+  for (const item of ordered) {
+    if (!item.at || !item.origin) continue;
+    const signature = evidenceSignature(item);
+    if (seen.has(signature)) continue;
+    seen.add(signature);
+    const next = { at: item.at, grade: item.grade, kind: item.kind, origin: item.origin };
+    if (item.frame) next.frame = item.frame;
+    if (item.method) next.method = item.method;
+    if (item.status !== undefined) next.status = item.status;
+    if (item.url) next.url = item.url;
+    const message = compactText(item.message, COMPACT_EVIDENCE_MESSAGE_MAX);
+    if (message) next.message = message;
+    items.push(next);
+    if (items.length >= COMPACT_EVIDENCE_MAX_ITEMS) break;
+  }
+  if (!items.length) return undefined;
+  return { items, version: evidence.version };
+}
+
+function compactLocation(location) {
+  if (!location || location.warning !== "cross-origin-frame") return undefined;
+  const next = { confidence: location.confidence, evidence: location.evidence, score: location.score, strategy: location.strategy, warning: location.warning };
+  for (const key of Object.keys(next)) {
+    if (next[key] === undefined) delete next[key];
+  }
+  return next;
+}
+
 function compactPinForHandoff(pin) {
   const selector = pin.selector || pin.locator?.cssSelector || undefined;
-  const domPath = pin.path || pin.domPath || pin.locator?.domPath || undefined;
-  const innerText = pin.text || pin.innerText || pin.locator?.innerText || undefined;
-  const locator = {
-    cssSelector: selector,
-    domPath,
-    innerText,
-  };
-  const hasLocator = Object.values(locator).some((value) => value !== undefined);
+  // The selector and the DOM path are complementary locators: keep both when
+  // they differ, and emit an identical pair only once.
+  const rawDomPath = pin.path || pin.domPath || pin.locator?.domPath || undefined;
+  const domPath = rawDomPath && rawDomPath !== selector ? rawDomPath : undefined;
+  const innerText = compactText(pin.text || pin.innerText || pin.locator?.innerText, COMPACT_INNER_TEXT_MAX);
+  const locator = {};
+  if (selector) locator.cssSelector = selector;
+  if (domPath) locator.domPath = domPath;
+  if (innerText) locator.innerText = innerText;
+  // Text alone cannot locate an element: geometry stays for areas and for
+  // pins without a selector or DOM path, even when innerText is present.
+  const hasLocator = Boolean(selector || domPath);
   const area = pin.kind === "area" || pin.type === "area";
   const needsGeometry = area || !hasLocator;
   const box = pin.box || pin.areaBox;
   // Mirrors compactPin in packages/shared/src/handoff: the snapshot stays
-  // behind the viewer link; an accepted diagnosis and technical evidence travel.
+  // behind the viewer link; an accepted diagnosis and compacted evidence travel.
   return {
     box: needsGeometry ? box : undefined,
     comment: pin.comment || "",
     coords: needsGeometry && !box ? pin.coords : undefined,
     diagnosis: pin.diagnosis?.acceptedAt ? pin.diagnosis : undefined,
-    evidence: pin.evidence?.items?.length ? pin.evidence : undefined,
+    evidence: compactEvidence(pin.evidence),
     frameId: pin.frameId || undefined,
     kind: area ? "area" : undefined,
-    locator: hasLocator ? locator : undefined,
+    locator: Object.keys(locator).length ? locator : undefined,
+    location: compactLocation(pin.location),
     pinId: pin.pinId || pin.id || "",
     viewportAnchored: pin.viewportAnchored || undefined,
   };
@@ -106,7 +174,7 @@ function structuredHandoff({
     capabilities: Object.values(compactCapabilities).some(Boolean) ? compactCapabilities : undefined,
     captureId: captureId || "",
     page: {
-      ...(page.description ? { description: page.description } : {}),
+      // page.description is generic page metadata: it stays out of the prompt.
       ...(page.title ? { title: page.title } : {}),
       url: page.url || "",
     },

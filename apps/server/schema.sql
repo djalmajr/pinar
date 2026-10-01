@@ -368,7 +368,7 @@ CREATE TABLE pin_comments (
   pin_id TEXT NOT NULL,
   actor_id TEXT NOT NULL,
   actor_label TEXT NOT NULL,
-  actor_type TEXT NOT NULL CHECK (actor_type = 'human'),
+  actor_type TEXT NOT NULL CHECK (actor_type IN ('agent', 'human')),
   body TEXT NOT NULL,
   created_at TEXT NOT NULL
 );

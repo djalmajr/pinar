@@ -16,8 +16,12 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { DEVELOPMENT_EXTENSION_KEY } from "../extension/environment.js";
 
 const ARCHIVE_EPOCH = new Date("1980-01-01T00:00:00.000Z");
+// The official Chrome Web Store extension's public key, preserved from the previous
+// tracked manifest. Manual --unpacked releases keep this stable production identity.
+export const OFFICIAL_EXTENSION_PUBLIC_KEY = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAs4GNk+Y7qUYEDxmfXQid38tICmGg81x+EpHftKZ+JsnLjqPE24eWNmyM8muS2hzcT8UjFNWHxAvm0RTDCodMzu0QaE9hWSflU/pLVch8EDzo3y8MSHH5VuBzWsTlCdbxUkM8LoBB7r//B2F5Q62h7CYjaWON1OcJpiFlP7oByMoWwNCdT6lgBU/3IrrgAnCvD3wQMfd9DAwJtalr/uqu8LWgHzmyiHVHRZGww9EUO0jPw2dn9FIpqPM2JbP/r/svJqrC02ygewWASLx83cOjJMDzySGfxCBaB+aFfrk5mC+Vl5Sb8LAJL8aaU0BeNlZrv+bc5u6mBhf9tJIoicQEwwIDAQAB";
 const UNPACKED_EXTENSION_ID = "idpeaokdndjedekacfdfbilcolpholbo";
 const BASE64_PUBLIC_KEY = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const RUNTIME_DIRECTORIES = ["_locales", "dist", "icons"];
@@ -50,11 +54,11 @@ export function extensionVersions(rootDirectory = root) {
 
 function extensionIdFromManifestKey(key) {
   if (typeof key !== "string" || !key || key.trim() !== key || !BASE64_PUBLIC_KEY.test(key)) {
-    throw new Error("unpacked packaging requires a non-empty valid manifest.key");
+    throw new Error("manifest key is not valid base64 public key material");
   }
   const publicKey = Buffer.from(key, "base64");
   if (!publicKey.length || publicKey.toString("base64") !== key) {
-    throw new Error("unpacked packaging requires a non-empty valid manifest.key");
+    throw new Error("manifest key is not valid base64 public key material");
   }
   const digest = createHash("sha256").update(publicKey).digest();
   return [...digest.subarray(0, 16)]
@@ -62,14 +66,28 @@ function extensionIdFromManifestKey(key) {
     .join("");
 }
 
+function assertDevelopmentSourceKey(manifest) {
+  // The tracked repository manifest must carry the recognized development key.
+  // Any other material (missing, malformed, or an unrecognized/foreign key) is
+  // rejected outright instead of being packaged.
+  if (typeof manifest.key !== "string" || manifest.key.length === 0) {
+    throw new Error("source manifest.key is missing; the repository extension must carry the recognized development key");
+  }
+  if (manifest.key !== DEVELOPMENT_EXTENSION_KEY) {
+    throw new Error("source manifest.key is not the recognized development key; refusing unrecognized key material");
+  }
+}
+
 export function releaseManifest(manifest, { unpacked = false } = {}) {
+  assertDevelopmentSourceKey(manifest);
   const release = { ...manifest };
-  if (unpacked) {
-    if (extensionIdFromManifestKey(release.key) !== UNPACKED_EXTENSION_ID) {
-      throw new Error("unpacked manifest.key does not match the expected extension ID");
-    }
-  } else {
+  if (!unpacked) {
     delete release.key;
+    return release;
+  }
+  release.key = OFFICIAL_EXTENSION_PUBLIC_KEY;
+  if (extensionIdFromManifestKey(release.key) !== UNPACKED_EXTENSION_ID) {
+    throw new Error("official unpacked extension key does not derive the expected extension ID");
   }
   return release;
 }

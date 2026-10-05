@@ -1,7 +1,12 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
 	isPinarWindowsExe,
+	loginExePath,
 	parseRegQueryHasValue,
+	runningWindowsLauncher,
 	shouldConfigureDefaultLogin,
 	windowsRunAddArgs,
 	windowsRunDeleteArgs,
@@ -57,5 +62,49 @@ describe("default login configuration", () => {
 		expect(isPinarWindowsExe("C:\\Windows\\System32\\launcher.exe")).toBe(false);
 		expect(isPinarWindowsExe("C:\\Users\\me\\.cargo\\bin\\bun.exe")).toBe(false);
 		expect(isPinarWindowsExe("C:\\Users\\me\\AppData\\Local\\Programs\\Pinar\\Pinar.exe")).toBe(true);
+	});
+});
+
+describe("running Windows launcher", () => {
+	test("runningWindowsLauncher finds launcher.exe next to cottontail.exe", () => {
+		const bin = join(mkdtempSync(join(tmpdir(), "pinar-setup-launcher-")), "bin");
+		mkdirSync(bin);
+		writeFileSync(join(bin, "launcher.exe"), "");
+		writeFileSync(join(bin, "cottontail.exe"), "");
+		expect(runningWindowsLauncher(join(bin, "cottontail.exe"))).toBe(join(bin, "launcher.exe"));
+	});
+
+	test("runningWindowsLauncher is null without cottontail.exe", () => {
+		const bin = join(mkdtempSync(join(tmpdir(), "pinar-setup-launcher-")), "bin");
+		mkdirSync(bin);
+		writeFileSync(join(bin, "launcher.exe"), "");
+		expect(runningWindowsLauncher(join(bin, "launcher.exe"))).toBeNull();
+	});
+
+	test("runningWindowsLauncher is null without launcher.exe", () => {
+		const bin = join(mkdtempSync(join(tmpdir(), "pinar-setup-launcher-")), "bin");
+		mkdirSync(bin);
+		writeFileSync(join(bin, "cottontail.exe"), "");
+		expect(runningWindowsLauncher(join(bin, "cottontail.exe"))).toBeNull();
+	});
+
+	test("loginExePath prefers the running Setup launcher over an installed app", () => {
+		const root = mkdtempSync(join(tmpdir(), "pinar-setup-login-"));
+		const bin = join(root, "app", "bin");
+		mkdirSync(bin, { recursive: true });
+		writeFileSync(join(bin, "launcher.exe"), "");
+		writeFileSync(join(bin, "cottontail.exe"), "");
+		const installed = join(root, "local", "Programs", "Pinar");
+		mkdirSync(join(installed, "bin"), { recursive: true });
+		writeFileSync(join(installed, "bin", "launcher.exe"), "");
+		writeFileSync(join(installed, "bin", "cottontail.exe"), "");
+		const previous = process.env.LOCALAPPDATA;
+		process.env.LOCALAPPDATA = join(root, "local");
+		try {
+			expect(loginExePath(join(bin, "cottontail.exe"))).toBe(join(bin, "launcher.exe"));
+		} finally {
+			if (previous == null) delete process.env.LOCALAPPDATA;
+			else process.env.LOCALAPPDATA = previous;
+		}
 	});
 });

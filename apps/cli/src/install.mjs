@@ -16,7 +16,9 @@ export const RUNTIME_SCRIPTS = [
   ["apps/cli/src/install.mjs", "apps/cli/src/install.mjs"],
   ["apps/cli/src/paths.mjs", "apps/cli/src/paths.mjs"],
   ["apps/cli/src/process.mjs", "apps/cli/src/process.mjs"],
+  ["apps/cli/src/runtime.mjs", "apps/cli/src/runtime.mjs"],
   ["apps/cli/src/shots.mjs", "apps/cli/src/shots.mjs"],
+  ["apps/cli/package.json", "apps/cli/package.json"],
 ];
 
 const STAGING = ".tmp-install";

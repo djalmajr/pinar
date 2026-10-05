@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { ensureUserPath, installApp, installPlatformHooks, launcherPath, removeLegacyDarwinBin } from "./install.mjs";
+import { ensureUserPath, installApp, installPlatformHooks, launcherPath, removeLegacyDarwinBin, RUNTIME_SCRIPTS } from "./install.mjs";
 
 const source = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -104,5 +105,32 @@ describe("install", () => {
     assert.equal(existsSync(join(dest, "hooks", "ensure.cmd")), false);
     assert.match(await readFile(join(dest, "hooks", "ensure.mjs"), "utf8"), /darwinOpenArgs/);
     assert.match(await readFile(join(dest, "hooks", "pinar.js"), "utf8"), /ensure\.mjs/);
+  });
+
+  test("installed runtime CLI answers --version without a native binary", async () => {
+    const fixture = await mkdtemp(join(tmpdir(), "pinar-runtime-"));
+    const sourceDir = join(fixture, "source");
+    const dest = join(fixture, "installed");
+    // synthetic source fixture (same no-native-binary path the reviewer probe uses):
+    // every RUNTIME_SCRIPTS entry plus the server output and a fake launcher
+    for (const [from] of RUNTIME_SCRIPTS) {
+      const target = join(sourceDir, from);
+      await mkdir(dirname(target), { recursive: true });
+      await copyFile(join(source, from), target);
+    }
+    await mkdir(join(sourceDir, "apps/server/.output/server"), { recursive: true });
+    await writeFile(join(sourceDir, "apps/server/.output/server/index.mjs"), "// fixture only\n");
+    await mkdir(join(sourceDir, "bin"), { recursive: true });
+    await writeFile(join(sourceDir, "bin/pinar"), "# fixture only\n");
+    await installApp({ source: sourceDir, dest, platform: "linux", log: () => {} });
+    assert.ok(existsSync(join(dest, "apps/cli/src/runtime.mjs")), "runtime.mjs must be installed");
+    assert.ok(existsSync(join(dest, "apps/cli/package.json")), "cli package.json must be installed");
+    const result = spawnSync(process.execPath, [join(dest, "apps/cli/src/cli.mjs"), "--version"], {
+      encoding: "utf8",
+      timeout: 10000,
+      env: { ...process.env, PINAR_HOME: join(fixture, "home"), PINAR_PORT: "1" },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, "pinar 0.6.0\n");
   });
 });

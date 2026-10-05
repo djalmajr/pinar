@@ -47,7 +47,9 @@ export function runningAppRoot(execPath = process.execPath) {
 		if (
 			existsSync(join(current, "Helpers", "pinar.exe")) ||
 			existsSync(join(current, "Pinar.exe")) ||
-			existsSync(join(current, "Pinar-dev.exe"))
+			existsSync(join(current, "Pinar-dev.exe")) ||
+			// Electrobun Setup layout: the app root holds Resources/app/Helpers/pinar.exe.
+			existsSync(join(current, "Resources", "app", "Helpers", "pinar.exe"))
 		) {
 			return current;
 		}

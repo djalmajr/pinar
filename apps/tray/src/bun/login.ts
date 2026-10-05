@@ -47,7 +47,18 @@ export function windowsInstallExePath(
 	return launcher;
 }
 
+export function runningWindowsLauncher(execPath = process.execPath): string | null {
+	const dir = dirname(execPath);
+	// The Setup app keeps launcher.exe beside the running cottontail.exe.
+	if (existsSync(join(dir, "launcher.exe")) && existsSync(join(dir, "cottontail.exe"))) {
+		return join(dir, "launcher.exe");
+	}
+	return null;
+}
+
 export function loginExePath(execPath = process.execPath) {
+	const running = runningWindowsLauncher(execPath);
+	if (running) return running;
 	const installed = windowsInstallExePath();
 	if (existsSync(installed)) return installed;
 	if (isPinarWindowsExe(execPath) && existsSync(execPath)) return execPath;

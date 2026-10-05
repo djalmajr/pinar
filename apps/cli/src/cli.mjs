@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import cliPackage from "../package.json" with { type: "json" };
 import { findAvailablePort, findHealthyPort, waitHealthy } from "./ensure.mjs";
 import { install } from "./install.mjs";
 import { installHooks } from "./install-hooks.mjs";
@@ -13,11 +14,24 @@ import {
   stopPid,
   writeServerPid,
 } from "./process.mjs";
+import { isCompiledModuleUrl } from "./runtime.mjs";
 import { migrateNestedShots } from "./shots.mjs";
 
-const isCompiled = import.meta.url.includes("$bunfs");
+const isCompiled = isCompiledModuleUrl(import.meta.url);
 const commands = new Set(["ensure", "install", "install-hooks", "serve", "status", "stop"]);
-const command = process.argv.slice(1).find((argument) => commands.has(argument)) ?? "ensure";
+const userArgs = process.argv.slice(2);
+let command = "ensure";
+if (userArgs.length > 0) {
+  if (userArgs[0] === "--version" || userArgs[0] === "-v" || userArgs[0] === "version") {
+    console.log(`pinar ${cliPackage.version}`);
+    process.exit(0);
+  }
+  if (!commands.has(userArgs[0])) {
+    console.error("Usage: pinar <ensure|serve|status|stop|install|install-hooks|--version>");
+    process.exit(2);
+  }
+  command = userArgs[0];
+}
 const root = pinarHome();
 const self = fileURLToPath(import.meta.url);
 
@@ -126,7 +140,4 @@ if (command === "serve") {
   await install();
 } else if (command === "install-hooks") {
   await installHooks();
-} else {
-  console.error("Usage: pinar <ensure|serve|status|stop|install|install-hooks>");
-  process.exit(1);
 }

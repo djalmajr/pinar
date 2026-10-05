@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtemp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  bundledHelperDir,
   darwinOpenAppCommand,
   ensureCommand,
   ensureCommandWindows,
@@ -15,6 +16,7 @@ import {
   hookExtensionPath,
   installHooks,
   isPinarEnsureCommand,
+  isPinarOwnedCommand,
   mergeAntigravity,
   mergeCursorHooks,
   mergeGrokDocument,
@@ -165,6 +167,15 @@ describe("install-hooks", () => {
     assert.equal(doc.pinar.PreInvocation.length, 1);
   });
 
+  test("mergeAntigravity is idempotent for Windows commands", () => {
+    const command = 'set PINAR_HOOK_JSON=1&& node "C:\\Users\\me\\.pinar\\hooks\\ensure.mjs"';
+    const first = mergeAntigravity({}, command);
+    assert.equal(first.changed, true);
+    const second = mergeAntigravity(first.doc, command);
+    assert.equal(second.changed, false);
+    assert.deepEqual(second.doc, first.doc);
+  });
+
   test("mergeOmpConfig appends and later replaces the extension path", () => {
     const first = mergeOmpConfig("theme: dark\n", "/opt/pinar/hooks/pinar.js");
     assert.equal(first.changed, true);
@@ -291,5 +302,347 @@ describe("install-hooks", () => {
     assert.match(command, /^node "/);
     assert.match(command, /ensure\.mjs/);
     assert.equal(isPinarEnsureCommand(command), true);
+  });
+
+  test("bundledHelperDir matches only the compiled app helper with ensure.mjs beside it", () => {
+    const dir = mkdtempSync(join(tmpdir(), "pinar-bundled-"));
+    const helpers = join(dir, "app", "Helpers");
+    mkdirSync(helpers, { recursive: true });
+    writeFileSync(join(helpers, "ensure.mjs"), "");
+    assert.equal(bundledHelperDir(join(helpers, "pinar.exe")), helpers);
+    assert.equal(bundledHelperDir(join(helpers, "Pinar.exe")), helpers);
+    const standalone = join(dir, "bin");
+    mkdirSync(standalone, { recursive: true });
+    assert.equal(bundledHelperDir(join(standalone, "pinar.exe")), null);
+    const other = join(dir, "other");
+    mkdirSync(other, { recursive: true });
+    writeFileSync(join(other, "ensure.mjs"), "");
+    assert.equal(bundledHelperDir(join(other, "node.exe")), null);
+    assert.equal(bundledHelperDir(join(other, "bun.exe")), null);
+  });
+
+  async function runBundledInstall(home) {
+    const saved = { source: process.env.PINAR_SOURCE, pinarHome: process.env.PINAR_HOME };
+    delete process.env.PINAR_SOURCE;
+    delete process.env.PINAR_HOME;
+    try {
+      return await installHooks({ home, platform: "win32", execPath: join(home, "app", "Helpers", "pinar.exe"), log: () => {} });
+    } finally {
+      if (saved.source === undefined) delete process.env.PINAR_SOURCE;
+      else process.env.PINAR_SOURCE = saved.source;
+      if (saved.pinarHome === undefined) delete process.env.PINAR_HOME;
+      else process.env.PINAR_HOME = saved.pinarHome;
+    }
+  }
+
+  async function seedBundledHelper(home) {
+    const helperDir = join(home, "app", "Helpers");
+    await mkdir(helperDir, { recursive: true });
+    await writeFile(join(helperDir, "ensure.mjs"), "// fake ensure\n");
+    await writeFile(join(helperDir, "pinar.js"), "// fake extension\n");
+  }
+
+  test("installHooks materializes the bundled helper into pinar home on Windows", async () => {
+    const home = await mkdtemp(join(tmpdir(), "pinar-bundled-home-"));
+    await seedBundledHelper(home);
+    const pinarHomeDir = join(home, ".pinar");
+    const execPath = join(home, "app", "Helpers", "pinar.exe");
+    const saved = { source: process.env.PINAR_SOURCE, pinarHome: process.env.PINAR_HOME };
+    delete process.env.PINAR_SOURCE;
+    delete process.env.PINAR_HOME;
+    try {
+      await installHooks({ home, platform: "win32", execPath, log: () => {} });
+      assert.equal(await readFile(join(pinarHomeDir, "hooks", "ensure.mjs"), "utf8"), "// fake ensure\n");
+      assert.equal(await readFile(join(pinarHomeDir, "hooks", "pinar.js"), "utf8"), "// fake extension\n");
+      assert.equal(
+        await readFile(join(pinarHomeDir, "bin", "pinar.cmd"), "utf8"),
+        `@echo off\r\n"${execPath}" %*\r\nexit /b %ERRORLEVEL%\r\n`,
+      );
+      const claude = JSON.parse(await readFile(join(home, ".claude", "settings.json"), "utf8"));
+      assert.equal(claude.hooks.SessionStart[0].hooks[0].command, `node "${join(pinarHomeDir, "hooks", "ensure.mjs")}"`);
+      const ompConfig = await readFile(join(home, ".omp", "agent", "config.yml"), "utf8");
+      assert.ok(ompConfig.includes(JSON.stringify(join(pinarHomeDir, "hooks", "pinar.js"))));
+      const again = await installHooks({ home, platform: "win32", execPath, log: () => {} });
+      assert.deepEqual(again, []);
+    } finally {
+      if (saved.source === undefined) delete process.env.PINAR_SOURCE;
+      else process.env.PINAR_SOURCE = saved.source;
+      if (saved.pinarHome === undefined) delete process.env.PINAR_HOME;
+      else process.env.PINAR_HOME = saved.pinarHome;
+    }
+  });
+
+  test("installHooks skips pinar.cmd when a standalone pinar.exe is installed", async () => {
+    const home = await mkdtemp(join(tmpdir(), "pinar-bundled-standalone-"));
+    await seedBundledHelper(home);
+    const bin = join(home, ".pinar", "bin");
+    await mkdir(bin, { recursive: true });
+    await writeFile(join(bin, "pinar.exe"), "MZ");
+    const changed = await runBundledInstall(home);
+    assert.ok(changed.length > 0);
+    assert.ok(!existsSync(join(bin, "pinar.cmd")));
+    assert.equal(await readFile(join(bin, "pinar.exe"), "utf8"), "MZ");
+    assert.equal(await readFile(join(home, ".pinar", "hooks", "ensure.mjs"), "utf8"), "// fake ensure\n");
+    const claude = JSON.parse(await readFile(join(home, ".claude", "settings.json"), "utf8"));
+    assert.equal(claude.hooks.SessionStart[0].hooks[0].command, `node "${join(home, ".pinar", "hooks", "ensure.mjs")}"`);
+  });
+
+  test("installHooks second call does not rewrite identical materialized files", async () => {
+    const home = await mkdtemp(join(tmpdir(), "pinar-bundled-mtime-"));
+    await seedBundledHelper(home);
+    const execPath = join(home, "app", "Helpers", "pinar.exe");
+    const targets = [join(home, ".pinar", "hooks", "ensure.mjs"), join(home, ".pinar", "bin", "pinar.cmd")];
+    const saved = { source: process.env.PINAR_SOURCE, pinarHome: process.env.PINAR_HOME };
+    delete process.env.PINAR_SOURCE;
+    delete process.env.PINAR_HOME;
+    try {
+      await installHooks({ home, platform: "win32", execPath, log: () => {} });
+      const before = await Promise.all(targets.map((path) => stat(path)));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      await installHooks({ home, platform: "win32", execPath, log: () => {} });
+      const after = await Promise.all(targets.map((path) => stat(path)));
+      assert.equal(after[0].mtimeMs, before[0].mtimeMs, "ensure.mjs must not be rewritten");
+      assert.equal(after[1].mtimeMs, before[1].mtimeMs, "pinar.cmd must not be rewritten");
+    } finally {
+      if (saved.source === undefined) delete process.env.PINAR_SOURCE;
+      else process.env.PINAR_SOURCE = saved.source;
+      if (saved.pinarHome === undefined) delete process.env.PINAR_HOME;
+      else process.env.PINAR_HOME = saved.pinarHome;
+    }
+  });
+
+  test("upsertSessionStart keeps a foreign /usr/bin/open -ga hook that is not Pinar", () => {
+    const command = 'node "C:\\Users\\u\\.pinar\\hooks\\ensure.mjs"';
+    const foreign = { type: "command", command: '/usr/bin/open -ga "/Applications/Other.app"', timeout: 8 };
+    const hooks = {
+      SessionStart: [
+        { hooks: [{ type: "command", command, timeout: 8 }] },
+        { hooks: [foreign] },
+      ],
+    };
+    const { hooks: next, changed } = upsertSessionStart(hooks, command);
+    assert.equal(changed, false);
+    assert.equal(next.SessionStart.length, 2);
+    assert.equal(next.SessionStart[0].hooks[0].command, command);
+    assert.equal(next.SessionStart[1].hooks[0].command, foreign.command);
+  });
+
+  test("mergeCursorHooks keeps a foreign /usr/bin/open -ga hook that is not Pinar", () => {
+    const command = 'node "C:\\Users\\u\\.pinar\\hooks\\ensure.mjs"';
+    const foreign = { command: '/usr/bin/open -ga "/Applications/Other.app"', timeout: 8 };
+    const doc = {
+      version: 1,
+      hooks: { sessionStart: [{ command: 'node "C:\\x\\hooks\\ensure.mjs"', timeout: 8 }, foreign] },
+    };
+    const { doc: next, changed } = mergeCursorHooks(doc, command);
+    assert.equal(changed, true);
+    assert.equal(next.hooks.sessionStart.length, 2);
+    assert.equal(next.hooks.sessionStart[0].command, command);
+    assert.equal(next.hooks.sessionStart[1].command, foreign.command);
+  });
+
+  test("isPinarOwnedCommand matches Pinar ensure and open commands only", () => {
+    const darwin = darwinOpenAppCommand("/Users/u");
+    assert.equal(isPinarOwnedCommand("node hooks/ensure.mjs"), true);
+    assert.equal(isPinarOwnedCommand('node "C:\\Users\\u\\.pinar\\hooks\\ensure.mjs"'), true);
+    assert.equal(isPinarOwnedCommand(darwin), true);
+    assert.equal(isPinarOwnedCommand("/usr/bin/open -ga Pinar"), true);
+    assert.equal(isPinarOwnedCommand('/usr/bin/open -ga "Pinar"'), true);
+    assert.equal(isPinarOwnedCommand('/usr/bin/open -ga "/Applications/Other.app"'), false);
+    assert.equal(isPinarOwnedCommand("/usr/bin/open -ga Other"), false);
+    assert.equal(isPinarOwnedCommand("echo other"), false);
+  });
+
+  test("mergeOmpConfig drops pinar items with trailing comments and keeps the comment", () => {
+    const input = 'extensions:\n  - "/old/hooks/pinar.js"\n  # user comment\n  - "/older/hooks/pinar.ts"\ntheme: dark\n';
+    const first = mergeOmpConfig(input, "/new/hooks/pinar.js");
+    assert.equal(first.changed, true);
+    assert.equal(first.text, 'extensions:\n  - "/new/hooks/pinar.js"\n  # user comment\ntheme: dark\n');
+    const second = mergeOmpConfig(first.text, "/new/hooks/pinar.js");
+    assert.equal(second.changed, false);
+    assert.equal(second.text, first.text);
+  });
+
+  test("mergeOmpConfig CRLF input keeps CRLF and drops inline-commented pinar item", () => {
+    const input = 'extensions:\r\n  - "/old/hooks/pinar.js" # user comment\r\ntheme: dark\r\n';
+    const first = mergeOmpConfig(input, "/new/hooks/pinar.js");
+    assert.equal(first.changed, true);
+    assert.equal(first.text, 'extensions:\r\n  - "/new/hooks/pinar.js"\r\ntheme: dark\r\n');
+    assert.ok(!/(?<!\r)\n/.test(first.text), "no bare LF may appear in a CRLF file");
+    const second = mergeOmpConfig(first.text, "/new/hooks/pinar.js");
+    assert.equal(second.changed, false);
+    assert.equal(second.text, first.text);
+  });
+
+  test("mergeOmpConfig keeps a foreign item whose comment mentions pinar.js", () => {
+    const input = 'extensions:\n  - "/x/other.js" # pinar.js\ntheme: dark\n';
+    const first = mergeOmpConfig(input, "/new/hooks/pinar.js");
+    assert.equal(first.changed, true);
+    assert.equal(first.text, 'extensions:\n  - "/new/hooks/pinar.js"\n  - "/x/other.js" # pinar.js\ntheme: dark\n');
+    assert.ok(first.text.includes('# pinar.js'));
+  });
+
+  test("mergeOmpConfig removes a plain Pinar item with a literal apostrophe in the path", () => {
+    const input = "extensions:\n  - C:/Users/O'Brien/.pinar/hooks/pinar.js # legacy\n  - /opt/other/other.js\ntheme: dark\n";
+    const first = mergeOmpConfig(input, "/new/hooks/pinar.js");
+    assert.equal(first.changed, true);
+    assert.equal(first.text, 'extensions:\n  - "/new/hooks/pinar.js"\n  - /opt/other/other.js\ntheme: dark\n');
+    const second = mergeOmpConfig(first.text, "/new/hooks/pinar.js");
+    assert.equal(second.changed, false);
+    assert.equal(second.text, first.text);
+  });
+
+  test("mergeOmpConfig removes a double-quoted Pinar item with escaped backslashes and quote", () => {
+    const input = "extensions:\n" + String.raw`  - "C:\\Users\\a\"b\\pinar.js" # x` + "\ntheme: dark\n";
+    const first = mergeOmpConfig(input, "/new/hooks/pinar.js");
+    assert.equal(first.changed, true);
+    assert.equal(first.text, 'extensions:\n  - "/new/hooks/pinar.js"\ntheme: dark\n');
+    const second = mergeOmpConfig(first.text, "/new/hooks/pinar.js");
+    assert.equal(second.changed, false);
+    assert.equal(second.text, first.text);
+  });
+
+  test("mergeOmpConfig removes a single-quoted Pinar item with a doubled quote", () => {
+    const input = "extensions:\n  - 'C:/Users/O''Brien/pinar.ts'\ntheme: dark\n";
+    const first = mergeOmpConfig(input, "/new/hooks/pinar.js");
+    assert.equal(first.changed, true);
+    assert.equal(first.text, 'extensions:\n  - "/new/hooks/pinar.js"\ntheme: dark\n');
+    const second = mergeOmpConfig(first.text, "/new/hooks/pinar.js");
+    assert.equal(second.changed, false);
+    assert.equal(second.text, first.text);
+  });
+
+  test("mergeOmpConfig keeps a plain foreign item with an apostrophe and a pinar comment", () => {
+    const input = "extensions:\n  - /opt/x/it's-fine.js # pinar.js\ntheme: dark\n";
+    const first = mergeOmpConfig(input, "/new/hooks/pinar.js");
+    assert.equal(first.changed, true);
+    assert.equal(first.text, "extensions:\n  - \"/new/hooks/pinar.js\"\n  - /opt/x/it's-fine.js # pinar.js\ntheme: dark\n");
+    const second = mergeOmpConfig(first.text, "/new/hooks/pinar.js");
+    assert.equal(second.changed, false);
+    assert.equal(second.text, first.text);
+  });
+
+  test("upsertSessionStart preserves foreign groups without a hooks array", () => {
+    const command = 'node "C:\\Users\\u\\.pinar\\hooks\\ensure.mjs"';
+    const hooks = {
+      SessionStart: [
+        { matcher: "x" },
+        { hooks: [{ type: "command", command: '"C:\\Users\\u\\.pinar\\apps\\cli\\hooks\\ensure.cmd"', timeout: 8 }] },
+      ],
+    };
+    const { hooks: next, changed } = upsertSessionStart(hooks, command);
+    assert.equal(changed, true);
+    assert.equal(next.SessionStart.length, 2);
+    assert.deepEqual(next.SessionStart[0], { matcher: "x" });
+    assert.ok(!("hooks" in next.SessionStart[0]));
+    assert.equal(next.SessionStart[1].hooks.length, 1);
+    assert.equal(next.SessionStart[1].hooks[0].command, command);
+    assert.equal(hooks.SessionStart.length, 2);
+  });
+
+  test("upsertSessionStart removes legacy pinar handlers from every group", () => {
+    const legacy = {
+      SessionStart: [
+        {
+          matcher: "startup",
+          hooks: [{ type: "command", command: 'node "C:\\Users\\u\\.pinar\\apps\\cli\\hooks\\ensure.mjs"', timeout: 8 }],
+        },
+        { matcher: "startup", hooks: [{ type: "command", command: '"C:\\Users\\u\\.pinar\\apps\\cli\\hooks\\ensure.cmd"', timeout: 8 }] },
+        { hooks: [{ type: "command", command: "echo other", timeout: 8 }] },
+      ],
+    };
+    const command = 'node "C:\\Users\\u\\.pinar\\hooks\\ensure.mjs"';
+    const commandWindows = 'set PINAR_HOOK_JSON=1&& node "C:\\Users\\u\\.pinar\\hooks\\ensure.mjs"';
+    const { hooks, changed } = upsertSessionStart(legacy, command, { commandWindows });
+    assert.equal(changed, true);
+    assert.equal(hooks.SessionStart.length, 2);
+    const pinar = hooks.SessionStart.find((group) => group.hooks.some((hook) => isPinarEnsureCommand(hook.command)));
+    assert.equal(pinar.hooks.length, 1);
+    assert.equal(pinar.hooks[0].command, command);
+    assert.equal(pinar.hooks[0].commandWindows, commandWindows);
+    const foreign = hooks.SessionStart.find((group) => !group.hooks.some((hook) => isPinarEnsureCommand(hook.command)));
+    assert.equal(foreign.hooks[0].command, "echo other");
+    for (const group of hooks.SessionStart) {
+      for (const hook of group.hooks) {
+        if (hook === pinar.hooks[0]) continue;
+        assert.equal(isPinarEnsureCommand(hook.command), false, hook.command);
+        assert.equal(isPinarEnsureCommand(hook.commandWindows), false, hook.commandWindows);
+      }
+    }
+    const second = upsertSessionStart(hooks, command, { commandWindows });
+    assert.equal(second.changed, false);
+    assert.equal(legacy.SessionStart.length, 3);
+  });
+
+  test("upsertSessionStart reports changed when it only removes duplicates", () => {
+    const command = 'node "C:\\Users\\u\\.pinar\\hooks\\ensure.mjs"';
+    const hooks = {
+      SessionStart: [
+        { hooks: [{ type: "command", command, timeout: 8 }] },
+        { hooks: [{ type: "command", command: '"C:\\Users\\u\\.pinar\\apps\\cli\\hooks\\ensure.cmd"', timeout: 8 }] },
+      ],
+    };
+    const { hooks: next, changed } = upsertSessionStart(hooks, command);
+    assert.equal(changed, true);
+    assert.equal(next.SessionStart.length, 1);
+    assert.equal(next.SessionStart[0].hooks[0].command, command);
+  });
+
+  test("mergeCursorHooks removes legacy pinar entries and keeps foreign ones in order", () => {
+    const doc = {
+      version: 1,
+      hooks: {
+        sessionStart: [
+          { command: 'node "C:\\Users\\u\\.pinar\\apps\\cli\\hooks\\ensure.mjs"', timeout: 8 },
+          { command: "echo other", timeout: 8 },
+          { command: '"C:\\Users\\u\\.pinar\\apps\\cli\\hooks\\ensure.cmd"', timeout: 8 },
+        ],
+      },
+    };
+    const command = 'node "C:\\Users\\u\\.pinar\\hooks\\ensure.mjs"';
+    const { doc: next, changed } = mergeCursorHooks(doc, command);
+    assert.equal(changed, true);
+    assert.equal(next.hooks.sessionStart.length, 2);
+    assert.equal(next.hooks.sessionStart[0].command, command);
+    assert.equal(next.hooks.sessionStart[1].command, "echo other");
+    const again = mergeCursorHooks(next, command);
+    assert.equal(again.changed, false);
+    assert.deepEqual(again.doc, next);
+  });
+
+  test("mergeOmpConfig keeps exactly one pinar extension and the rest of the file", () => {
+    const newPath = 'C:\\Users\\u\\.pinar\\hooks\\pinar.js';
+    const text = [
+      "extensions:",
+      `  - ${JSON.stringify(newPath)}`,
+      '  - C:\\Users\\u\\.pinar\\apps\\cli\\hooks\\pinar.js',
+      '  - C:\\Users\\u\\repo.git\\pinar\\hooks\\pinar.js',
+      "composer:",
+      "  shape: pi",
+      "",
+    ].join("\n");
+    const next = mergeOmpConfig(text, newPath);
+    assert.equal(next.changed, true);
+    assert.equal(next.text, `extensions:\n  - ${JSON.stringify(newPath)}\ncomposer:\n  shape: pi\n`);
+    const again = mergeOmpConfig(next.text, newPath);
+    assert.equal(again.changed, false);
+    assert.equal(again.text, next.text);
+  });
+
+  test("mergeOmpConfig leaves other extensions and file content intact", () => {
+    const text = [
+      "extensions:",
+      '  - "/opt/other/other.js"',
+      "  - 'C:\\Users\\u\\.pinar\\apps\\cli\\hooks\\pinar.ts'",
+      "  - /opt/other2/other2.js",
+      "theme: dark",
+      "",
+    ].join("\n");
+    const next = mergeOmpConfig(text, "C:/x/.pinar/hooks/pinar.js");
+    assert.equal(next.changed, true);
+    assert.equal(
+      next.text,
+      `extensions:\n  - "C:/x/.pinar/hooks/pinar.js"\n  - "/opt/other/other.js"\n  - /opt/other2/other2.js\ntheme: dark\n`,
+    );
   });
 });

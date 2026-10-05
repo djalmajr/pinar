@@ -77,6 +77,37 @@ describe("bundled helper paths", () => {
 		}
 	});
 
+	test("runningAppRoot finds the Setup app folder with Resources/app/Helpers/pinar.exe", () => {
+		const root = mkdtempSync(join(tmpdir(), "pinar-setup-bundle-"));
+		const app = join(root, "app");
+		const execPath = join(app, "bin", "cottontail.exe");
+		const helper = join(app, "Resources", "app", "Helpers", "pinar.exe");
+		mkdirSync(dirname(execPath), { recursive: true });
+		mkdirSync(dirname(helper), { recursive: true });
+		writeFileSync(execPath, "");
+		writeFileSync(helper, "");
+		expect(runningAppRoot(execPath)).toBe(app);
+		expect(bundledHelperPath(execPath)).toBe(helper);
+		const previous = process.env.PINAR_BIN;
+		delete process.env.PINAR_BIN;
+		try {
+			expect(pinarBin(execPath)).toBe(helper);
+		} finally {
+			if (previous == null) delete process.env.PINAR_BIN;
+			else process.env.PINAR_BIN = previous;
+		}
+	});
+
+	test("runningAppRoot ignores a Resources/app dir without Helpers/pinar.exe", () => {
+		const root = mkdtempSync(join(tmpdir(), "pinar-setup-partial-"));
+		const app = join(root, "app");
+		const execPath = join(app, "bin", "cottontail.exe");
+		mkdirSync(dirname(execPath), { recursive: true });
+		mkdirSync(join(app, "Resources", "app"), { recursive: true });
+		writeFileSync(execPath, "");
+		expect(runningAppRoot(execPath)).toBeNull();
+	});
+
 	test("usesShell is true only for Windows batch launchers", () => {
 		expect(usesShell("C:\\pinar\\bin\\pinar.cmd", "win32")).toBe(true);
 		expect(usesShell("C:\\pinar\\Helpers\\pinar.exe", "win32")).toBe(false);

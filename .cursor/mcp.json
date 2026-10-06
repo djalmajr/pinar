@@ -1,7 +1,11 @@
 {
   "mcpServers": {
-    "linear": {
-      "url": "https://mcp.linear.app/mcp"
+    "cinzel": {
+      "url": "https://cinzel.app/mcp",
+      "headers": {
+        "Authorization": "Bearer ${env:CINZEL_API_KEY}",
+        "Origin": "https://cinzel.app"
+      }
     }
   }
 }

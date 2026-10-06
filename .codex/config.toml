@@ -1,2 +1,4 @@
-[mcp_servers.linear]
-url = "https://mcp.linear.app/mcp"
+[mcp_servers.cinzel]
+url = "https://cinzel.app/mcp"
+bearer_token_env_var = "CINZEL_API_KEY"
+http_headers = { "Origin" = "https://cinzel.app" }

@@ -1,3 +1,7 @@
-[mcp_servers.linear]
-url = "https://mcp.linear.app/mcp"
+[mcp_servers.cinzel]
+url = "https://cinzel.app/mcp"
 enabled = true
+
+[mcp_servers.cinzel.headers]
+Authorization = "Bearer ${CINZEL_API_KEY}"
+Origin = "https://cinzel.app"

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, test } from "node:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -833,6 +833,28 @@ describe("local TanStack API", () => {
       const response = await request(path, { method });
       assert.equal(response.status, 404, `${method} ${path}`);
     }
+  });
+
+  test("reports voice readiness without reading the credential vault", async () => {
+    let vaultReads = 0;
+    setLocalAiDependenciesForTests({
+      vault: {
+        clear: async () => {},
+        get: async () => { vaultReads += 1; return "sk-never-read"; },
+        set: async () => {},
+      },
+    });
+    const disabled = await jsonBody(await request("/api/ai/status"));
+    assert.deepEqual(disabled, { mode: "disabled", ok: true, transcriptionModel: "", voiceReady: false });
+    writeFileSync(join(root, "ai.json"), JSON.stringify({
+      endpoint: "https://provider.example/v1",
+      mode: "byok",
+      model: "qwen3.8-27b",
+      transcriptionModel: "parakeet-tdt-0.6b-v3",
+    }));
+    const ready = await jsonBody(await request("/api/ai/status"));
+    assert.deepEqual(ready, { mode: "byok", ok: true, transcriptionModel: "parakeet-tdt-0.6b-v3", voiceReady: true });
+    assert.equal(vaultReads, 0);
   });
 
   test("returns only a masked preview for a stored BYOK key", async () => {

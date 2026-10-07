@@ -6,10 +6,30 @@ import { describe, test } from "node:test";
 import {
   createAiCredentialVault,
   readAiSettings,
+  readAiSettingsMetadata,
+  VAULT_COMMAND_SPAWN_OPTIONS,
   writeAiSettings,
 } from "./ai-settings.mjs";
 
 describe("local AI settings", () => {
+  test("hides the console window of every vault command", () => {
+    assert.equal(VAULT_COMMAND_SPAWN_OPTIONS.windowsHide, true);
+  });
+
+  test("reads the stored metadata without asking the vault", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pinar-ai-meta-"));
+    const stored = {
+      endpoint: "https://api.example.test/v1",
+      mode: "byok",
+      model: "model-a",
+      transcriptionModel: "parakeet",
+    };
+    writeFileSync(join(root, "ai.json"), JSON.stringify(stored));
+    // readAiSettingsMetadata takes no vault at all, so it cannot spawn one.
+    assert.equal(readAiSettingsMetadata.length, 0);
+    assert.deepEqual(readAiSettingsMetadata(root), stored);
+  });
+
   test("stores endpoint and model on disk but keeps the API key in the OS vault", async () => {
     const root = mkdtempSync(join(tmpdir(), "pinar-ai-"));
     const calls = [];

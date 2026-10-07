@@ -2467,9 +2467,12 @@
   }
 
   async function refreshVoiceAvailability() {
-    voiceAvailable = false;
-    voiceAvailabilityReason = "checking";
-    renderVoiceControls();
+    // Only the first query on this page has no known state; the following
+    // ones keep the last answer on screen until the fresh one arrives.
+    if (voiceAvailabilityReason === "checking") {
+      voiceAvailable = false;
+      renderVoiceControls();
+    }
     const response = await chrome.runtime.sendMessage({ type: "voice:availability" }).catch(() => null);
     voiceAvailable = response?.ok === true && response.available === true;
     voiceAvailabilityReason = voiceAvailable

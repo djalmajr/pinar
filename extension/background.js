@@ -589,6 +589,11 @@ async function syncUiMessages() {
 }
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === "sync" && changes.storageMode) {
+    // A mode switch must not let the local positive cache survive into the
+    // other mode; the next availability check re-asks the server.
+    localAiPositivelyConfigured = false;
+  }
   if (areaName !== "sync" || !changes.language) return;
   void syncUiMessages();
   void batchState().then(syncActionMenu).catch(() => null);
@@ -1867,18 +1872,37 @@ async function localFetch(base, path, init = {}) {
   return response;
 }
 
+// Last positive answer from the local AI availability check, kept in the
+// service worker memory. A negative or unknown answer is never cached: the
+// next check must re-ask the server so the microphone lights up as soon as
+// the user configures a transcription model. A local transcription failure
+// that proves the AI or the helper is down, and a storage mode change,
+// drop the cached answer.
+let localAiPositivelyConfigured = false;
+
+// Local transcription failures that prove the AI is down. Other failures
+// (network, invalid audio) must not drop the cached answer.
+const LOCAL_AI_DOWN_CODES = new Set(["ai_endpoint_unavailable", "ai_timeout", "ai_unavailable"]);
+
 // Local AI status for the voice availability check. A network failure or a
 // non-OK response means the status is unknown (null), not "not configured".
+// The light status route never reads the OS credential store; the settings
+// route (which does) is a one-shot fallback for servers that predate it.
 async function localAiAvailability() {
+  if (localAiPositivelyConfigured) return { configured: true };
   try {
     const base = await findShotBase();
     if (!base) return null;
-    const response = await localFetch(base, "/api/ai/settings");
+    let response = await localFetch(base, "/api/ai/status");
+    if (response.status === 404) response = await localFetch(base, "/api/ai/settings");
     const body = await responseBody(response);
     if (!response.ok) return null;
-    const configured = body.mode !== "disabled"
-      && typeof body.transcriptionModel === "string"
-      && body.transcriptionModel.trim() !== "";
+    const configured = typeof body.voiceReady === "boolean"
+      ? body.voiceReady
+      : body.mode !== "disabled"
+        && typeof body.transcriptionModel === "string"
+        && body.transcriptionModel.trim() !== "";
+    if (configured) localAiPositivelyConfigured = true;
     return { configured };
   } catch {
     return null;
@@ -1995,21 +2019,31 @@ async function transcribeVoiceComment(message) {
   form.set("durationSeconds", String(durationSeconds));
   form.set("language", getBestLanguage(settings.language));
   form.set("requestId", typeof message.requestId === "string" ? message.requestId : "");
-  const response = settings.storageMode === "cloud"
-    ? await remoteFetch(cloudEndpoint(settings), "/api/ai/voice-pin", { body: form, method: "POST" })
-    : await (async () => {
-      const base = await findShotBase();
-      if (!base) throw new Error("helper_unavailable");
-      return localFetch(base, "/api/ai/voice-pin", { body: form, method: "POST" });
-    })();
-  const body = await responseBody(response);
-  if (!response.ok || !body.result) {
-    const error = new Error(body.error || "Voice transcription failed");
-    error.code = typeof body.code === "string" ? body.code : "voice_transcription_failed";
-    error.status = response.status;
+  try {
+    const response = settings.storageMode === "cloud"
+      ? await remoteFetch(cloudEndpoint(settings), "/api/ai/voice-pin", { body: form, method: "POST" })
+      : await (async () => {
+        const base = await findShotBase();
+        if (!base) throw new Error("helper_unavailable");
+        return localFetch(base, "/api/ai/voice-pin", { body: form, method: "POST" });
+      })();
+    const body = await responseBody(response);
+    if (!response.ok || !body.result) {
+      const error = new Error(body.error || "Voice transcription failed");
+      error.code = typeof body.code === "string" ? body.code : "voice_transcription_failed";
+      error.status = response.status;
+      throw error;
+    }
+    return body.result;
+  } catch (error) {
+    // A local failure that proves the AI or the helper is down drops the
+    // positive availability cache; the next check re-asks the local server.
+    if (settings.storageMode === "local"
+      && (error?.message === "helper_unavailable" || LOCAL_AI_DOWN_CODES.has(error?.code))) {
+      localAiPositivelyConfigured = false;
+    }
     throw error;
   }
-  return body.result;
 }
 
 async function responseBody(response) {

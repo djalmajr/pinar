@@ -167,6 +167,34 @@ function emailBinding() {
   return { binding, codes };
 }
 
+function failingEmailBinding(code: string | null) {
+  const codes: string[] = [];
+  const binding = {
+    async send(message: unknown) {
+      // Keep the code the server tried to send, so a test can prove the
+      // challenge was dropped.
+      if (isRecord(message) && typeof message.text === "string") {
+        const sent = message.text.match(/\b\d{6}\b/)?.[0];
+        if (sent) codes.push(sent);
+      }
+      throw code ? Object.assign(new Error("delivery refused"), { code }) : new Error("delivery refused");
+    },
+  } as unknown as NonNullable<CloudEnv["EMAIL"]>;
+  return { binding, codes };
+}
+
+async function capturedLines(stream: "error" | "log", run: () => Promise<void>) {
+  const lines: string[] = [];
+  const original = console[stream];
+  console[stream] = (...values: unknown[]) => { lines.push(values.map(String).join(" ")); };
+  try {
+    await run();
+  } finally {
+    console[stream] = original;
+  }
+  return lines;
+}
+
 function bucketBinding() {
   const deletedKeys: string[] = [];
   const getKeys: string[] = [];
@@ -868,6 +896,91 @@ describe("remote installation isolation", () => {
     const locked = await verifyEmailCode("paid@example.test", mail.codes[0], env);
     assert.equal(locked.status, 400);
     assert.equal(locked.headers.get("set-cookie"), null);
+  });
+
+  test("answers 503 email_delivery_failed when the email cannot be sent and drops the challenge", async () => {
+    const mail = failingEmailBinding("E_RECIPIENT_SUPPRESSED");
+    const env: CloudEnv = { ...TEST_ENV, EMAIL: mail.binding };
+    const email = "person@hotmail.example";
+    let response: Response | undefined;
+    const errors = await capturedLines("error", async () => {
+      response = await requestEmailCode(email, env);
+    });
+    assert.ok(response);
+    assert.equal(response.status, 503);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    const body = await jsonBody(response);
+    assert.equal(body.code, "email_delivery_failed");
+    assert.equal(typeof body.error, "string");
+    assert.equal(mail.codes.length, 1);
+    // The challenge is gone: the code that never arrived cannot sign in.
+    assert.equal((await verifyEmailCode(email, mail.codes[0], env)).status, 400);
+
+    const line = errors.find((item) => item.includes("email_code_delivery_failed"));
+    assert.ok(line);
+    const logged = JSON.parse(line);
+    assert.equal(logged.message, "email_code_delivery_failed");
+    assert.equal(logged.errorCode, "E_RECIPIENT_SUPPRESSED");
+    assert.equal(logged.recipientDomain, "hotmail.example");
+    assert.match(String(logged.challengeId), /^emc_/);
+    assert.ok(!line.includes(email));
+    assert.ok(!line.includes(mail.codes[0]));
+  });
+
+  test("answers the same delivery failure with or without an account", async () => {
+    const mail = failingEmailBinding(null);
+    const env: CloudEnv = { ...TEST_ENV, EMAIL: mail.binding };
+    seedCloudAccountForTests({ email: "member@example.test", plan: "pro" });
+    let known: Response | undefined;
+    let unknown: Response | undefined;
+    const errors = await capturedLines("error", async () => {
+      known = await requestEmailCode("member@example.test", env);
+      unknown = await requestEmailCode("stranger@example.test", env);
+    });
+    assert.ok(known && unknown);
+    assert.equal(known.status, unknown.status);
+    assert.deepEqual(await jsonBody(known), await jsonBody(unknown));
+    assert.deepEqual(errors.map((item) => JSON.parse(item).errorCode), [null, null]);
+  });
+
+  test("logs a sent code without the address or the code", async () => {
+    const mail = emailBinding();
+    const env: CloudEnv = { ...TEST_ENV, EMAIL: mail.binding };
+    const email = "logged@studio.example";
+    let response: Response | undefined;
+    const logs = await capturedLines("log", async () => {
+      response = await requestEmailCode(email, env);
+    });
+    assert.ok(response);
+    assert.equal(response.status, 202);
+    assert.deepEqual(await jsonBody(response), { accepted: true, expiresInSeconds: 600 });
+    const line = logs.find((item) => item.includes("email_code_sent"));
+    assert.ok(line);
+    const logged = JSON.parse(line);
+    assert.equal(logged.messageId, "test-1");
+    assert.equal(logged.recipientDomain, "studio.example");
+    assert.match(String(logged.challengeId), /^emc_/);
+    assert.ok(!line.includes(email));
+    assert.ok(!line.includes(mail.codes[0]));
+  });
+
+  test("reports a missing email binding only in a deployed environment", async () => {
+    const email = "nobody@studio.example";
+    for (const deployment of ["staging", "production"] as const) {
+      resetCloudMemoryStateForTests();
+      let response: Response | undefined;
+      const errors = await capturedLines("error", async () => {
+        response = await requestEmailCode(email, { ...TEST_ENV, DEPLOYMENT_ENV: deployment, EMAIL: undefined });
+      });
+      assert.ok(response);
+      assert.equal(response.status, 503);
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      assert.equal((await jsonBody(response)).code, "email_not_configured");
+      assert.ok(errors.some((item) => item.includes("email_code_not_configured") && !item.includes(email)));
+    }
+    resetCloudMemoryStateForTests();
+    const local = await requestEmailCode(email, { ...TEST_ENV, DEPLOYMENT_ENV: undefined, EMAIL: undefined });
+    assert.equal(local.status, 202);
   });
 
   test("creates a Free account only after verifying a custom-domain email", async () => {

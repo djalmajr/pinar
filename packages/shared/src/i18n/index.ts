@@ -110,6 +110,8 @@ export interface TranslationDictionary {
   account_email_title: string;
   account_email_description: string;
   account_email_sent: string;
+  account_email_delivery_failed: string;
+  account_email_unavailable: string;
   account_create_on_web: string;
   account_registration_required: string;
   account_legal_update_required: string;
@@ -351,6 +353,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     account_email_title: "Sign in with email",
     account_email_description: 'Sign in with the email you registered on the Pinar website.',
     account_email_sent: "If this email belongs to an eligible account, a six-digit code is on its way.",
+    account_email_delivery_failed: "We couldn't send the code right now. Try again in a few minutes.",
+    account_email_unavailable: "Sign-in by email isn't available right now.",
     account_create_on_web: 'Create account',
     account_registration_required: 'Create your account on the Pinar website before signing in here.',
     account_legal_update_required: 'Accept the current policies on the Pinar website, then try again.',
@@ -590,6 +594,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     account_email_title: "Entrar com e-mail",
     account_email_description: 'Entre com o e-mail cadastrado no site do Pinar.',
     account_email_sent: "Se este e-mail pertencer a uma conta elegível, um código de seis dígitos está a caminho.",
+    account_email_delivery_failed: "Não conseguimos enviar o código agora. Tente novamente em alguns minutos.",
+    account_email_unavailable: "O login por e-mail não está disponível no momento.",
     account_create_on_web: 'Criar conta',
     account_registration_required: 'Crie sua conta no site do Pinar antes de entrar na extensão.',
     account_legal_update_required: 'Aceite as políticas vigentes no site do Pinar e tente novamente.',
@@ -829,6 +835,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     account_email_title: "Iniciar sesión con correo",
     account_email_description: 'Inicia sesión con el correo registrado en el sitio de Pinar.',
     account_email_sent: "Si este correo pertenece a una cuenta elegible, un código de seis dígitos está en camino.",
+    account_email_delivery_failed: "No pudimos enviar el código ahora. Inténtalo de nuevo en unos minutos.",
+    account_email_unavailable: "El inicio de sesión por correo no está disponible en este momento.",
     account_create_on_web: 'Crear cuenta',
     account_registration_required: 'Crea tu cuenta en el sitio de Pinar antes de iniciar sesión aquí.',
     account_legal_update_required: 'Acepta las políticas vigentes en el sitio de Pinar e inténtalo de nuevo.',
@@ -1068,6 +1076,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     account_email_title: "Se connecter par e-mail",
     account_email_description: 'Connectez-vous avec l’adresse e-mail inscrite sur le site Pinar.',
     account_email_sent: "Si cet e-mail correspond à un compte éligible, un code à six chiffres est en route.",
+    account_email_delivery_failed: "Nous n’avons pas pu envoyer le code pour le moment. Réessayez dans quelques minutes.",
+    account_email_unavailable: "La connexion par e-mail n’est pas disponible pour le moment.",
     account_create_on_web: 'Créer un compte',
     account_registration_required: 'Créez votre compte sur le site Pinar avant de vous connecter ici.',
     account_legal_update_required: 'Acceptez les politiques en vigueur sur le site Pinar, puis réessayez.',
@@ -1307,6 +1317,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     account_email_title: "Mit E-Mail anmelden",
     account_email_description: 'Melde dich mit der E-Mail-Adresse an, die du auf der Pinar-Website registriert hast.',
     account_email_sent: "Wenn diese E-Mail zu einem berechtigten Konto gehört, ist ein sechsstelliger Code unterwegs.",
+    account_email_delivery_failed: "Wir konnten den Code gerade nicht senden. Versuch es in einigen Minuten erneut.",
+    account_email_unavailable: "Die Anmeldung per E-Mail ist derzeit nicht verfügbar.",
     account_create_on_web: 'Konto erstellen',
     account_registration_required: 'Erstelle zuerst dein Konto auf der Pinar-Website.',
     account_legal_update_required: 'Akzeptiere die aktuellen Richtlinien auf der Pinar-Website und versuche es erneut.',
@@ -1546,6 +1558,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     account_email_title: "使用邮箱登录",
     account_email_description: '使用已在 Pinar 网站注册的邮箱登录。',
     account_email_sent: "如果该邮箱属于符合条件的账户，六位数代码已发送。",
+    account_email_delivery_failed: "暂时无法发送验证码。请几分钟后重试。",
+    account_email_unavailable: "邮箱登录暂时不可用。",
     account_create_on_web: '创建账户',
     account_registration_required: '请先在 Pinar 网站创建账户，再登录扩展程序。',
     account_legal_update_required: '请先在 Pinar 网站接受最新政策，然后重试。',
@@ -1785,6 +1799,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     account_email_title: "メールでログイン",
     account_email_description: 'Pinar のウェブサイトで登録したメールアドレスでログインしてください。',
     account_email_sent: "このメールが対象アカウントのものであれば、6桁のコードが送信されます。",
+    account_email_delivery_failed: "現在コードを送信できませんでした。数分後にもう一度お試しください。",
+    account_email_unavailable: "現在、メールでのサインインはご利用いただけません。",
     account_create_on_web: 'アカウントを作成',
     account_registration_required: '拡張機能にログインする前に、Pinar のウェブサイトでアカウントを作成してください。',
     account_legal_update_required: 'Pinar のウェブサイトで最新のポリシーに同意してから、もう一度お試しください。',

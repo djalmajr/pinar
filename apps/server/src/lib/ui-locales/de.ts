@@ -216,12 +216,15 @@ const messages: UiMessages = {
   "signIn.accountTitle": "Bei deinem Konto anmelden",
   "signIn.changeEmail": "Andere E-Mail verwenden",
   "signIn.codeInvalid": "Der Code ist ungültig oder abgelaufen.",
+  "signIn.deliveryFailed":
+    "Wir konnten den Code gerade nicht senden. Versuch es in einigen Minuten erneut.",
   "signIn.emailSent":
     "Wenn diese Adresse einen Code empfangen kann, ist er unterwegs.",
   "signIn.entering": "Anmeldung…",
   "signIn.requestFailed": "Der Code konnte nicht angefordert werden.",
   "signIn.sendCode": "Code senden",
   "signIn.sending": "Wird gesendet…",
+  "signIn.unavailable": "Die Anmeldung per E-Mail ist derzeit nicht verfügbar.",
   "signIn.verifyCode": "Prüfen und anmelden",
   "landing.badge": "Visuelles Feedback für KI-Workflows",
   "landing.title": "Zeige auf das Problem. Teile den vollständigen Kontext.",

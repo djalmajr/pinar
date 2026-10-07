@@ -176,6 +176,9 @@ async function installOptionsHarness(page: Page, { development = false, platform
           if (message.type === "auth:email-code:request") {
             const delay = Number(localStorage.getItem("pinar-e2e-email-request-delay") || 0);
             if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+            if (localStorage.getItem("pinar-e2e-email-delivery-fail") === "1") {
+              return { code: "email_delivery_failed", error: "SMTP relay rejected the message", ok: false };
+            }
             localStorage.setItem("pinar-e2e-email", String(message.email));
             return { ok: true };
           }
@@ -653,6 +656,24 @@ test("email sign-in remains available in remote settings when the session servic
     .toEqual({ buttonHeight: 32, inputHeight: 32 });
   await expect(page.getByRole("button", { name: "Generate code", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Open app", exact: true })).toHaveCount(1);
+});
+
+test("a failed email code delivery shows the localized error and keeps the code field hidden", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("pinar-e2e-extension-identity", "installation");
+    localStorage.setItem("pinar-e2e-email-delivery-fail", "1");
+  });
+  await installOptionsHarness(page);
+  await page.getByRole("radio", { name: /Remote Server/ }).check();
+
+  await page.getByPlaceholder("you@example.com").fill("contato@pinar.dev");
+  await page.getByRole("button", { name: "Send code", exact: true }).click();
+
+  await expect(page.getByRole("alert").getByText("We couldn't send the code right now. Try again in a few minutes.")).toBeVisible();
+  // The delivery failure never reveals the raw server error or the code input.
+  await expect(page.getByText("SMTP relay rejected the message")).toHaveCount(0);
+  await expect(page.getByPlaceholder("000000")).toHaveCount(0);
+  await expect(page.getByPlaceholder("you@example.com")).toBeVisible();
 });
 
 test("signed-out Cloud asks for email and never offers an extension pairing code", async ({ page }) => {

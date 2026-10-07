@@ -199,6 +199,34 @@ describe("capture destination", () => {
     assert.doesNotMatch(backgroundSrc, /legalAcceptance,/);
   });
 
+  test("forwards the server code when the email code delivery fails", () => {
+    const requestHandler = backgroundSrc.slice(
+      backgroundSrc.indexOf('message.type === "auth:email-code:request"'),
+      backgroundSrc.indexOf('message.type === "auth:email-code:verify"'),
+    );
+    assert.match(requestHandler, /requestAccountEmailCode\(message\.email\)/);
+    // Same failure shape as the verify handler: the server code travels alongside the error.
+    assert.match(requestHandler, /sendResponse\(\{ code: error\.code, error: String\(error\.message \|\| error\), ok: false \}\)/);
+    assert.doesNotMatch(requestHandler, /sendResponse\(\{ error: String\(error\), ok: false \}\)/);
+    const requestCode = backgroundSrc.slice(
+      backgroundSrc.indexOf("async function requestAccountEmailCode("),
+      backgroundSrc.indexOf("async function verifyAccountEmailCode("),
+    );
+    assert.match(requestCode, /error\.code = body\.code/);
+    assert.match(requestCode, /throw error/);
+    // The pre-code shape (a bare throw without a code) must stay gone.
+    assert.doesNotMatch(requestCode, /if \(!response\.ok\) throw new Error\(body\.error/);
+    const optionsRequest = optionsSrc.slice(
+      optionsSrc.indexOf('{ email, type: "auth:email-code:request" }'),
+      optionsSrc.indexOf("setEmailCodeRequested(true)"),
+    );
+    assert.match(optionsRequest, /response\.code === "email_delivery_failed"\) throw new Error\(t\.account_email_delivery_failed\)/);
+    assert.match(optionsRequest, /response\.code === "email_not_configured"\) throw new Error\(t\.account_email_unavailable\)/);
+    assert.match(optionsRequest, /throw new Error\(response\.error \|\| t\.account_unavailable\)/);
+    assert.match(i18nSrc, /account_email_delivery_failed: "Não conseguimos enviar o código agora\. Tente novamente em alguns minutos\."/);
+    assert.match(i18nSrc, /account_email_unavailable: "O login por e-mail não está disponível no momento\."/);
+  });
+
   test("exposes voice to signed-in Pro accounts and to local mode with configured local AI", () => {
     assert.match(backgroundSrc, /resolveVoiceAvailability\(settings\.storageMode, session, localAi\)/);
     assert.match(backgroundSrc, /async function localAiAvailability\(\)/);

@@ -908,7 +908,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "auth:email-code:request") {
     requestAccountEmailCode(message.email)
       .then(() => sendResponse({ ok: true }))
-      .catch((error) => sendResponse({ error: String(error), ok: false }));
+      .catch((error) => sendResponse({ code: error.code, error: String(error.message || error), ok: false }));
     return true;
   }
 
@@ -2136,7 +2136,11 @@ async function requestAccountEmailCode(email) {
     method: "POST",
   });
   const body = await responseBody(response);
-  if (!response.ok) throw new Error(body.error || "Unable to request an email code");
+  if (!response.ok) {
+    const error = new Error(body.error || "Unable to request an email code");
+    error.code = body.code;
+    throw error;
+  }
 }
 
 async function verifyAccountEmailCode(email, code) {

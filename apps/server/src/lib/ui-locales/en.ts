@@ -214,12 +214,15 @@ const messages = {
   "signIn.accountTitle": "Sign in to your account",
   "signIn.changeEmail": "Use another email",
   "signIn.codeInvalid": "The code is invalid or expired.",
+  "signIn.deliveryFailed":
+    "We couldn’t send the code right now. Try again in a few minutes.",
   "signIn.emailSent":
     "If this email address can receive a code, it is on its way.",
   "signIn.entering": "Signing in…",
   "signIn.requestFailed": "Unable to request a code.",
   "signIn.sendCode": "Send code",
   "signIn.sending": "Sending…",
+  "signIn.unavailable": "Sign-in by email isn’t available right now.",
   "signIn.verifyCode": "Verify and enter",
   "landing.badge": "Visual feedback for AI workflows",
   "landing.title": "Point to the problem. Share the complete context.",

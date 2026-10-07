@@ -216,12 +216,15 @@ const messages: UiMessages = {
   "signIn.accountTitle": "アカウントにログイン",
   "signIn.changeEmail": "別のメールを使う",
   "signIn.codeInvalid": "コードが無効か期限切れです。",
+  "signIn.deliveryFailed":
+    "現在コードを送信できませんでした。数分後にもう一度お試しください。",
   "signIn.emailSent":
     "このメールアドレスでコードを受信できる場合、送信されます。",
   "signIn.entering": "ログイン中…",
   "signIn.requestFailed": "コードをリクエストできませんでした。",
   "signIn.sendCode": "コードを送信",
   "signIn.sending": "送信中…",
+  "signIn.unavailable": "現在、メールでのサインインはご利用いただけません。",
   "signIn.verifyCode": "確認してログイン",
   "landing.badge": "AI ワークフロー向けビジュアルフィードバック",
   "landing.title": "問題を示し、完全なコンテキストを共有。",

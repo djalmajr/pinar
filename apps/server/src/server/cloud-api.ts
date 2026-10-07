@@ -3435,7 +3435,17 @@ async function requestEmailCode(request: Request, env: CloudEnv) {
   }
   const code = generateEmailCode();
   const codeHash = await hashCode(env, "email-code", email + ":" + code);
+  const recipientDomain = email.slice(email.lastIndexOf("@") + 1);
   if (!codeHash || !env.EMAIL) {
+    // Local runs and tests seed the challenge straight into the database, so
+    // only a deployed environment reports the missing binding or pepper.
+    if (env.DEPLOYMENT_ENV === "staging" || env.DEPLOYMENT_ENV === "production") {
+      console.error(JSON.stringify({ message: "email_code_not_configured", recipientDomain }));
+      return json({
+        code: "email_not_configured",
+        error: "Sign-in by email is not available right now.",
+      }, 503, { "Cache-Control": "no-store" });
+    }
     return json(generic, 202, { "Cache-Control": "no-store" });
   }
   const now = currentDate();
@@ -3464,23 +3474,40 @@ async function requestEmailCode(request: Request, env: CloudEnv) {
     memoryEmailChallenges.set(challenge.id, challenge);
   }
   try {
-    await env.EMAIL.send({
+    const sent: unknown = await env.EMAIL.send({
       from: { email: "noreply@pinar.dev", name: "Pinar" },
       html: "<p>Your Pinar sign-in code is:</p><p><strong>" + code + "</strong></p><p>This code expires in 10 minutes.</p>",
       subject: "Your Pinar sign-in code",
       text: "Your Pinar sign-in code is " + code + ". It expires in 10 minutes.",
       to: email,
     });
+    console.log(JSON.stringify({
+      challengeId: challenge.id,
+      message: "email_code_sent",
+      messageId: isRecord(sent) && typeof sent.messageId === "string" ? sent.messageId : null,
+      recipientDomain,
+    }));
   } catch (error) {
+    // Never log the full address or the code: the domain and the challenge id
+    // are enough to find the attempt.
+    const errorCode = isRecord(error) && typeof error.code === "string" ? error.code : null;
     console.error(JSON.stringify({
+      challengeId: challenge.id,
       error: error instanceof Error ? error.message : String(error),
+      errorCode,
       message: "email_code_delivery_failed",
+      recipientDomain,
     }));
     if (env.DB) {
       await env.DB.prepare("DELETE FROM email_challenges WHERE id = ?").bind(challenge.id).run();
     } else {
       memoryEmailChallenges.delete(challenge.id);
     }
+    // The same answer with or without an account, so it reveals nothing.
+    return json({
+      code: "email_delivery_failed",
+      error: "We could not send the sign-in code. Try again in a few minutes.",
+    }, 503, { "Cache-Control": "no-store" });
   }
   return json(generic, 202, { "Cache-Control": "no-store" });
 }

@@ -66,7 +66,7 @@ import { PendingInvitationsBanner } from "@/components/PendingInvitationsBanner"
 import { copyBatchHandoff, copySessionHandoff } from "../lib/session-actions";
 import { SessionActionsMenu } from "../components/SessionActionsMenu";
 import { useDeliveryPreferences } from "@/lib/delivery-preferences";
-import { collectionDisplayName } from "@/lib/collection-display-name";
+import { collectionDisplayName } from "@pinar/shared";
 import { useDocumentMeta } from "@/lib/document-meta";
 import { type Translate, useServerI18n } from "@/lib/i18n";
 import { formatSessionDate } from "@/lib/session-date";

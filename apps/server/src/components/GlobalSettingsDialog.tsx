@@ -8,12 +8,15 @@ import {
   useState,
 } from "react";
 import {
+  captureDestinationOptions,
+  captureDestinationPath,
   type ProjectTreeProject,
   SUPPORTED_LANGUAGES,
 } from "@pinar/shared";
 import {
   Badge,
   Button,
+  Cascader,
   cn,
   Dialog,
   DialogClose,
@@ -21,6 +24,7 @@ import {
   DialogDescription,
   DialogTitle,
   Input,
+  ProjectIconGlyph,
   SectionHeading,
   Select,
   SelectContent,
@@ -38,17 +42,18 @@ import { AgentAccessSettings } from "@/components/AgentAccessSettings";
 import { resolveSettingsSection, showsAiSettings, type SettingsSection } from "@/components/global-settings-sections";
 import { isProjectTreeProject, isRecord } from "@/lib/api-data";
 import { isPaidAuthSession, useAuthSession } from "@/lib/auth-session";
-import { flattenCollections } from "@/lib/collection-tree";
 import { useDeliveryPreferences } from "@/lib/delivery-preferences";
 import { useServerI18n } from "@/lib/i18n";
-import { collectionDisplayName } from "@/lib/collection-display-name";
+import { collectionDisplayName } from "@pinar/shared";
 import { isSupportedLanguage } from "@/lib/language";
 import { findProductRelease, loadReleaseContent, type ProductRelease } from "@/lib/release-content";
 import { pinarRuntime } from "@/lib/server-header";
 import { SERVER_BUILD, SERVER_VERSION, SERVER_VERSION_LABEL } from "@/lib/version";
 import InfoIcon from "~icons/lucide/info";
 import ExternalLinkIcon from "~icons/lucide/external-link";
+import FolderIcon from "~icons/lucide/folder";
 import HistoryIcon from "~icons/lucide/history";
+import InboxIcon from "~icons/lucide/inbox";
 import KeyRoundIcon from "~icons/lucide/key-round";
 import LaptopIcon from "~icons/lucide/laptop";
 import MonitorIcon from "~icons/lucide/monitor";
@@ -81,7 +86,6 @@ type OpenGlobalSettings = (section?: SettingsSection) => void;
 const GlobalSettingsContext = createContext<OpenGlobalSettings | null>(null);
 
 const THEME_STORAGE_KEY = "pinar-theme";
-const DEFAULT_DESTINATION = "__default__";
 const PINAR_GITHUB_URL = "https://github.com/djalmajr/pinar";
 const PINAR_WEBSITE_URL = "https://pinar.dev";
 const AI_USAGE_FEATURES = new Set<AiUsageFeature>([
@@ -113,6 +117,16 @@ function aiUsageHistory(value: unknown): AiUsageHistoryEntry[] | null {
     });
   }
   return entries;
+}
+
+// Mirrors the extension's defaultDestination: the first project's inbox.
+function serverDefaultDestination(projects: ProjectTreeProject[]) {
+  const ordered = [...projects].sort((left, right) => left.position - right.position);
+  for (const project of ordered) {
+    const inbox = project.collections.find((collection) => collection.isProtected);
+    if (inbox) return { collectionId: inbox.id, projectId: project.id };
+  }
+  return null;
 }
 
 function currentThemeMode(): ThemeMode {
@@ -268,22 +282,21 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
     return () => media.removeEventListener("change", handleChange);
   }, [theme]);
 
-  const selectedProject = projects.find((project) => project.id === captureDestination?.projectId);
   const inboxLabel = t("dashboard.protectedInbox");
-  const collectionEntries = useMemo(
-    () => selectedProject ? flattenCollections(selectedProject.collections) : [],
-    [selectedProject],
+  const destinationOptions = useMemo(
+    () => captureDestinationOptions({
+      collectionIcon: (collection) => collection.isProtected ? <InboxIcon /> : <FolderIcon />,
+      collectionLabel: (collection) => collectionDisplayName(collection, inboxLabel),
+      projectIcon: (project) => <ProjectIconGlyph icon={project.icon} />,
+      tree: { projects },
+    }),
+    [inboxLabel, projects],
   );
-  const projectItems = useMemo(
-    () => [
-      { label: t("settings.captureDestinationDefault"), value: DEFAULT_DESTINATION },
-      ...projects.map((project) => ({ label: project.name, value: project.id })),
-    ],
-    [projects, t],
-  );
-  const collectionItems = useMemo(
-    () => collectionEntries.map(({ collection }) => ({ label: collectionDisplayName(collection, inboxLabel), value: collection.id })),
-    [collectionEntries, inboxLabel],
+  // Without an explicit choice the server uses the first project's inbox;
+  // show that path so the field never reads as empty.
+  const destinationPath = useMemo(
+    () => captureDestinationPath({ projects }, captureDestination ?? serverDefaultDestination(projects)),
+    [captureDestination, projects],
   );
 
   const sectionLabel = section === "about"
@@ -314,16 +327,12 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
     applyTheme(nextTheme);
   }
 
-  function selectCaptureProject(value: string | null) {
-    if (!value || value === DEFAULT_DESTINATION) {
-      void patch({ captureDestination: null });
-      return;
-    }
-    const project = projects.find((item) => item.id === value);
-    if (!project) return;
-    const inbox = project.collections.find((collection) => collection.isProtected) ?? project.collections[0];
-    if (!inbox) return;
-    void patch({ captureDestination: { collectionId: inbox.id, projectId: project.id } });
+  function selectCaptureDestination(path: string[]) {
+    const projectId = path[0];
+    const collectionId = path.at(-1);
+    if (!projectId || !collectionId || path.length < 2) return;
+    if (captureDestination?.collectionId === collectionId && captureDestination.projectId === projectId) return;
+    void patch({ captureDestination: { collectionId, projectId } });
   }
 
   return (
@@ -420,7 +429,7 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
             </nav>
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
               <section className={cn("flex flex-col gap-5", section !== "general" && "hidden")}>
-                <SettingRow controlClassName="w-52" description={t("settings.languageDescription")} title={t("common.language")}>
+                <SettingRow controlClassName="w-36" description={t("settings.languageDescription")} title={t("common.language")}>
                   <Select
                     items={SUPPORTED_LANGUAGES.map((candidate) => ({ label: languageName(candidate), value: candidate }))}
                     value={language}
@@ -443,54 +452,17 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
               <section className={cn("flex flex-col gap-5", section !== "capture" && "hidden")}>
                 <div className="flex flex-col gap-5">
                   <SectionHeading>{t("settings.captureHeading")}</SectionHeading>
-                  <SettingRow controlClassName="w-52" description={t("settings.captureDestinationDescription")} title={t("settings.captureDestination")}>
-                    <div className="flex w-full flex-col gap-2">
-                      <Select
-                        disabled={!available}
-                        items={projectItems}
-                        value={captureDestination?.projectId ?? DEFAULT_DESTINATION}
-                        onValueChange={selectCaptureProject}
-                      >
-                        <SelectTrigger aria-label={t("settings.project")} className="w-full"><SelectValue /></SelectTrigger>
-                        <SelectContent align="end">
-                          <SelectGroup>
-                            <SelectItem value={DEFAULT_DESTINATION}>{t("settings.captureDestinationDefault")}</SelectItem>
-                            {projects.map((project) => (
-                              <SelectItem disabled={project.collections.length === 0} key={project.id} value={project.id}>
-                                {project.name}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                      {captureDestination ? (
-                        // Only meaningful once a project is chosen; an empty
-                        // second box under "server default" reads as broken.
-                        <Select
-                          disabled={!available}
-                          items={collectionItems}
-                          value={captureDestination.collectionId}
-                          onValueChange={(value) => {
-                            if (!value) return;
-                            if (!collectionEntries.some(({ collection }) => collection.id === value)) return;
-                            void patch({ captureDestination: { collectionId: value, projectId: captureDestination.projectId } });
-                          }}
-                        >
-                          <SelectTrigger aria-label={t("settings.collection")} className="w-full"><SelectValue /></SelectTrigger>
-                          <SelectContent align="end">
-                            <SelectGroup>
-                              {collectionEntries.map(({ collection, depth }) => (
-                                <SelectItem key={collection.id} value={collection.id}>
-                                  <span className="block truncate" style={{ paddingInlineStart: `${depth * 12}px` }}>
-                                    {collectionDisplayName(collection, inboxLabel)}
-                                  </span>
-                                </SelectItem>
-                              ))}
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
-                      ) : null}
-                    </div>
+                  <SettingRow controlClassName="min-w-0 max-w-72" description={t("settings.captureDestinationDescription")} title={t("settings.captureDestination")}>
+                    <Cascader
+                      aria-label={t("settings.captureDestination")}
+                      disabled={!available || destinationOptions.length === 0}
+                      emptyText={t("dashboard.noCollectionsFound")}
+                      options={destinationOptions}
+                      placeholder={t("settings.collection")}
+                      searchPlaceholder={t("dashboard.search")}
+                      value={destinationPath}
+                      onValueChange={selectCaptureDestination}
+                    />
                   </SettingRow>
                 </div>
                 <div className="flex flex-col gap-5">

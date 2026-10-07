@@ -15,7 +15,7 @@ import {
   toast,
 } from "@pinar/ui";
 import { isRecord } from "@/lib/api-data";
-import { collectionDisplayName } from "@/lib/collection-display-name";
+import { collectionDisplayName } from "@pinar/shared";
 import { flattenCollections } from "@/lib/collection-tree";
 import { useServerI18n } from "@/lib/i18n";
 import CopyIcon from "~icons/lucide/copy";

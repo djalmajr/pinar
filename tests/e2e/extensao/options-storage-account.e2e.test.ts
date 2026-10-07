@@ -113,8 +113,14 @@ async function installOptionsHarness(page: Page, { development = false, platform
         id: "pinar-e2e",
         sendMessage: async (message: any) => {
           remember(message);
-          if (message.type === "destination:get" || message.type === "destination:set") {
-            return { ok: true, ...destination() };
+          if (message.type === "destination:get") return { ok: true, ...destination() };
+          if (message.type === "destination:set") {
+            // Like the background: the saved destination is the collection that was asked for.
+            const context = destination();
+            const project = context.tree.projects.find((item: { collections: Array<{ id: string }> }) => item.collections.some((collection) => collection.id === message.collectionId));
+            return project
+              ? { ok: true, ...context, destination: { collectionId: message.collectionId, projectId: project.id } }
+              : { error: "Capture destination no longer exists", ok: false };
           }
           if (message.type === "preferences:get") {
             return {
@@ -503,7 +509,7 @@ test("shortcuts without browser commands do not leave an empty section gap", asy
   await expect(page.getByRole("tabpanel").locator("[data-slot=separator]")).toHaveCount(1);
 
   await page.getByRole("tab", { name: "Capture" }).click();
-  await expect(page.getByRole("tabpanel").locator("[data-slot=separator]")).toHaveCount(1);
+  await expect(page.getByRole("tabpanel").locator("[data-slot=separator]")).toHaveCount(2);
 
   await page.getByRole("tab", { name: "Shortcuts" }).click();
   await expect(page.getByText("⌘ + Enter", { exact: true })).toBeVisible();
@@ -688,4 +694,63 @@ test("remote Free account shows its plan but does not show Pro voice preferences
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
   await expect(page.getByRole("switch", { name: "Save Annotation History" })).toBeVisible();
   await expect(page.getByRole("switch", { name: "Clean up transcription with AI" })).toHaveCount(0);
+});
+
+test("capture tab picks the destination collection and saves it through the background sync", async ({ page }) => {
+  await installOptionsHarness(page);
+  await page.getByRole("tab", { name: "Capture", exact: true }).click();
+
+  await expect(page.getByText("Capture destination", { exact: true })).toBeVisible();
+  const destination = page.getByRole("combobox", { name: "Capture destination", exact: true });
+  await expect(destination).toHaveText("Account Local / Inbox");
+  const loadOrder = await page.evaluate(() => JSON.parse(localStorage.getItem("pinar-e2e-extension-messages") || "[]")
+    .map((message: { type?: string }) => message.type)
+    .filter((type: string) => type === "preferences:get" || type === "destination:get"));
+  expect(loadOrder.slice(0, 2)).toEqual(["preferences:get", "destination:get"]);
+
+  await destination.click();
+  // The popup opens with the projects column and the collections of the current project.
+  await expect(page.getByRole("option", { name: "Account Local", exact: true })).toBeVisible();
+  await expect(page.getByRole("option", { name: "Inbox", exact: true })).toBeVisible();
+  await page.getByRole("option", { name: "Scale collection 00 — UX", exact: true }).click();
+
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("pinar-e2e-extension-messages") || "[]")
+    .filter((message: { type?: string }) => message.type === "destination:set")
+    .map((message: { collectionId?: string }) => message.collectionId))).toEqual(["account-local-scale-collection-0"]);
+  await expect(page.getByText("Settings saved successfully!")).toBeVisible();
+  // "Scale collection 00" has children, so choosing it keeps the popup open; Esc closes it.
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("option", { name: "Account Local", exact: true })).toHaveCount(0);
+
+  await destination.click();
+  await page.getByPlaceholder("Search projects and collections…").fill("Scale collection 07");
+  await page.getByRole("option", { name: /Scale collection 07 — International customer experience$/ }).click();
+
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("pinar-e2e-extension-messages") || "[]")
+    .filter((message: { type?: string }) => message.type === "destination:set")
+    .map((message: { collectionId?: string }) => message.collectionId))).toEqual(["account-local-scale-collection-0", "account-local-scale-collection-7"]);
+  await expect(page.getByText("Settings saved successfully!").last()).toBeVisible();
+});
+
+test("capture destination cascader keeps the search clean and expands a parent chosen by search", async ({ page }) => {
+  await installOptionsHarness(page);
+  await page.getByRole("tab", { name: "Capture", exact: true }).click();
+  const destination = page.getByRole("combobox", { name: "Capture destination", exact: true });
+  const search = page.getByPlaceholder("Search projects and collections…");
+
+  // Choosing a result leaves the search clean when the field reopens on its columns.
+  await destination.click();
+  await search.fill("Scale collection 05");
+  await page.getByRole("option", { name: /Scale collection 05/ }).click();
+  await destination.click();
+  await expect(search).toHaveValue("");
+  await expect(page.getByRole("option", { name: "Account Local", exact: true })).toBeVisible();
+
+  // A parent chosen through search stays open showing its children column.
+  await search.fill("Scale collection 00");
+  await page.getByRole("option", { name: "Account Local / Scale collection 00 — UX", exact: true }).click();
+  await expect(page.getByRole("option", { name: "Scale collection 01 — International customer experience", exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("pinar-e2e-extension-messages") || "[]")
+    .filter((message: { type?: string }) => message.type === "destination:set")
+    .map((message: { collectionId?: string }) => message.collectionId))).toEqual(["account-local-scale-collection-5", "account-local-scale-collection-0"]);
 });

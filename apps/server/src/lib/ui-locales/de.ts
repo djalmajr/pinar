@@ -142,7 +142,7 @@ const messages: UiMessages = {
   "settings.handoffModeDescription":
     "Kompakt kopiert nur den relevanten Kontext. Vollständig enthält alle erfassten Felder. Gespeicherte Aufnahmen und Viewer bleiben immer vollständig.",
   "settings.captureDestination": "Aufnahmeziel",
-  "settings.captureDestinationDefault": "Standard (Posteingang)",
+  "settings.captureDestinationDefault": "Posteingang",
   "settings.captureDestinationDescription":
     "Wohin neue Aufnahmen gespeichert werden. Der Serverstandard verwendet den Posteingang des ersten Projekts.",
   "settings.captureHeading": "Aufnahme",

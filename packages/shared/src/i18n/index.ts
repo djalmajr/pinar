@@ -24,6 +24,10 @@ export interface TranslationDictionary {
   capture_destination_desc: string;
   collection_label: string;
   destination_unavailable: string;
+  destination_search_placeholder: string;
+  protected_inbox_label: string;
+  section_capture: string;
+  section_capture_desc: string;
   name: string;
   header_title: string;
   header_desc: string;
@@ -260,6 +264,10 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     capture_destination_desc: "Project and collection that receive new captures on the selected server.",
     collection_label: "Collection",
     destination_unavailable: "Projects and collections could not be loaded. Check that the selected server is available and up to date.",
+    destination_search_placeholder: "Search projects and collections…",
+    protected_inbox_label: "Inbox",
+    section_capture: "Capture",
+    section_capture_desc: "Where new captures are saved on the selected server.",
     name: "English",
     header_title: "Pinar Settings",
     header_desc: "Configure storage destination and feedback preferences",
@@ -494,6 +502,10 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     capture_destination_desc: "Projeto e coleção que recebem as novas capturas no servidor selecionado.",
     collection_label: "Coleção",
     destination_unavailable: "Não foi possível carregar projetos e coleções. Verifique se o servidor selecionado está disponível e atualizado.",
+    destination_search_placeholder: "Buscar projetos e coleções…",
+    protected_inbox_label: "Caixa de entrada",
+    section_capture: "Captura",
+    section_capture_desc: "Onde as novas capturas são salvas no servidor selecionado.",
     name: "Português",
     header_title: "Configurações do Pinar",
     header_desc: "Configure o destino de armazenamento e preferências de feedback",
@@ -728,6 +740,10 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     capture_destination_desc: "Proyecto y colección que reciben las nuevas capturas en el servidor seleccionado.",
     collection_label: "Colección",
     destination_unavailable: "No se pudieron cargar los proyectos y las colecciones. Comprueba que el servidor seleccionado esté disponible y actualizado.",
+    destination_search_placeholder: "Buscar proyectos y colecciones…",
+    protected_inbox_label: "Bandeja de entrada",
+    section_capture: "Captura",
+    section_capture_desc: "Dónde se guardan las nuevas capturas en el servidor seleccionado.",
     name: "Español",
     header_title: "Configuración de Pinar",
     header_desc: "Configura el destino de almacenamiento y preferencias de feedback",
@@ -962,6 +978,10 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     capture_destination_desc: "Projet et collection qui reçoivent les nouvelles captures sur le serveur sélectionné.",
     collection_label: "Collection",
     destination_unavailable: "Impossible de charger les projets et les collections. Vérifiez que le serveur sélectionné est disponible et à jour.",
+    destination_search_placeholder: "Rechercher des projets et des collections…",
+    protected_inbox_label: "Boîte de réception",
+    section_capture: "Capture",
+    section_capture_desc: "Où les nouvelles captures sont enregistrées sur le serveur sélectionné.",
     name: "Français",
     header_title: "Paramètres de Pinar",
     header_desc: "Configurez la destination de stockage et les préférences de feedback",
@@ -1196,6 +1216,10 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     capture_destination_desc: "Projekt und Sammlung, die neue Aufnahmen auf dem gewählten Server empfangen.",
     collection_label: "Sammlung",
     destination_unavailable: "Projekte und Sammlungen konnten nicht geladen werden. Prüfen Sie, ob der ausgewählte Server verfügbar und aktuell ist.",
+    destination_search_placeholder: "Projekte und Sammlungen suchen…",
+    protected_inbox_label: "Posteingang",
+    section_capture: "Erfassung",
+    section_capture_desc: "Wo neue Erfassungen auf dem ausgewählten Server gespeichert werden.",
     name: "Deutsch",
     header_title: "Pinar Einstellungen",
     header_desc: "Konfigurieren Sie Speicherziel und Feedback-Einstellungen",
@@ -1430,6 +1454,10 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     capture_destination_desc: "在所选服务器上接收新捕获的项目和集合。",
     collection_label: "集合",
     destination_unavailable: "无法加载项目和集合。请检查所选服务器是否可用且已更新。",
+    destination_search_placeholder: "搜索项目和集合…",
+    protected_inbox_label: "收件箱",
+    section_capture: "捕获",
+    section_capture_desc: "新捕获在所选服务器上的保存位置。",
     name: "简体中文",
     header_title: "Pinar 设置",
     header_desc: "配置存储目标和反馈偏好",
@@ -1664,6 +1692,10 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     capture_destination_desc: "選択したサーバーで新しいキャプチャを受け取るプロジェクトとコレクション。",
     collection_label: "コレクション",
     destination_unavailable: "プロジェクトとコレクションを読み込めませんでした。選択したサーバーが利用可能で最新であることを確認してください。",
+    destination_search_placeholder: "プロジェクトとコレクションを検索…",
+    protected_inbox_label: "受信トレイ",
+    section_capture: "キャプチャ",
+    section_capture_desc: "選択したサーバーで新しいキャプチャを保存する場所。",
     name: "日本語",
     header_title: "Pinar 設定",
     header_desc: "ストレージの保存先とフィードバック設定を構成",

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { SUPPORTED_LANGUAGES } from "@pinar/shared";
-import { collectionDisplayName } from "./collection-display-name";
+import { collectionDisplayName } from "@pinar/shared";
 import { loadUiMessages } from "./i18n";
 
 const inboxLabels = {

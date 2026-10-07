@@ -11,3 +11,5 @@ export * from "./handoff/index.js";
 export * from "./agent-results/index.js";
 export * from "./pin-review/index.js";
 export * from "./loop-metrics/index.js";
+export * from "./capture-destination/index.js";
+export * from "./collections/display-name.js";

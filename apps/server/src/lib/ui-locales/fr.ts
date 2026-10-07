@@ -142,7 +142,7 @@ const messages: UiMessages = {
   "settings.handoffModeDescription":
     "Compact ne copie que le contexte exploitable. Complet inclut tous les champs capturés. La capture enregistrée et le viewer restent toujours complets.",
   "settings.captureDestination": "Destination de la capture",
-  "settings.captureDestinationDefault": "Par défaut (Boîte de réception)",
+  "settings.captureDestinationDefault": "Boîte de réception",
   "settings.captureDestinationDescription":
     "Où atterrissent les nouvelles captures. La valeur par défaut du serveur utilise la Boîte de réception du premier projet.",
   "settings.captureHeading": "Capture",

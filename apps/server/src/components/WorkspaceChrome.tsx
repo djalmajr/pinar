@@ -21,7 +21,7 @@ import type {
   Session,
 } from "@pinar/shared";
 import { DEFAULT_PROJECT_ICON } from "@pinar/shared/project-icons";
-import { collectionDisplayName } from "@/lib/collection-display-name";
+import { collectionDisplayName } from "@pinar/shared";
 import {
   DndContext,
   DragOverlay,

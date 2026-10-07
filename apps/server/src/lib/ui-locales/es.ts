@@ -142,7 +142,7 @@ const messages: UiMessages = {
   "settings.handoffModeDescription":
     "Compacto copia solo el contexto accionable. Completo incluye todos los campos capturados. La captura guardada y el visor siempre están completos.",
   "settings.captureDestination": "Destino de captura",
-  "settings.captureDestinationDefault": "Por defecto (Bandeja de entrada)",
+  "settings.captureDestinationDefault": "Bandeja de entrada",
   "settings.captureDestinationDescription":
     "Dónde se guardan las capturas nuevas. El valor predeterminado del servidor usa la Bandeja de entrada del primer proyecto.",
   "settings.captureHeading": "Captura",

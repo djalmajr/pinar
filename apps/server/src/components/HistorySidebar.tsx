@@ -7,7 +7,7 @@ import type {
   ProjectTreeProject,
 } from "@pinar/shared";
 import { MENU_LABEL_FIT } from "./SessionActionsMenu";
-import { collectionDisplayName } from "../lib/collection-display-name";
+import { collectionDisplayName } from "@pinar/shared";
 import { sessionGroupCount } from "../lib/session-groups";
 import {
   DragOverlay,
@@ -34,6 +34,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  ProjectIconGlyph,
   Sidebar,
   SidebarContent,
   SidebarFooter,
@@ -59,7 +60,6 @@ import {
   visibleCollections,
 } from "@/lib/collection-tree";
 import { COLLECTION_DND_TYPE, SESSION_DND_TYPE } from "@/lib/workspace-dnd";
-import { ProjectIconGlyph } from "@/components/ProjectIcon";
 import type { ServerMessageKey } from "@/lib/i18n";
 import { pinarRuntime } from "@/lib/server-header";
 import type {

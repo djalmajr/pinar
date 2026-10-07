@@ -1,12 +1,17 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import {
   type AuthSession,
+  type CaptureDestination,
+  captureDestinationOptions,
+  captureDestinationPath,
+  collectionDisplayName,
   type CopyOnFinishBatch,
   getBestLanguage,
   type HandoffMode,
   macosDesktopDmgUrl,
   mergeDeliveryPreferences,
   type PinarSettings,
+  type ProjectTree,
   SUPPORTED_LANGUAGES,
   type SupportedLanguage,
   type ThemeMode,
@@ -16,8 +21,10 @@ import {
 } from "@pinar/shared";
 import {
   Button,
+  Cascader,
   Input,
   PinarMark,
+  ProjectIconGlyph,
   ScrollArea,
   ScrollBar,
   Select,
@@ -40,8 +47,10 @@ import IconCheck from "~icons/lucide/check";
 import IconCoffee from "~icons/lucide/coffee";
 import IconCopy from "~icons/lucide/copy";
 import IconExternalLink from "~icons/lucide/external-link";
+import IconFolder from "~icons/lucide/folder";
 import IconGithub from "~icons/radix-icons/github-logo";
 import IconHeart from "~icons/lucide/heart";
+import IconInbox from "~icons/lucide/inbox";
 import IconLaptop from "~icons/lucide/laptop";
 import IconLoaderCircle from "~icons/lucide/loader-circle";
 import IconLogOut from "~icons/lucide/log-out";
@@ -191,6 +200,7 @@ interface ExtensionResponse extends ExtensionResponseBase {
   code?: string;
   copyOnFinishBatch?: CopyOnFinishBatch;
   copyViewerContent?: boolean;
+  destination?: CaptureDestination;
   error?: string;
   handoffMode?: HandoffMode;
   includeScreenshot?: boolean;
@@ -202,6 +212,7 @@ interface ExtensionResponse extends ExtensionResponseBase {
   mode?: string;
   session?: AuthSession;
   trial?: unknown;
+  tree?: ProjectTree;
   url?: string;
 }
 
@@ -239,6 +250,11 @@ async function extensionMessage(
   if (!isExtensionContext()) return { error: unavailableMessage, ok: false };
   const response: ExtensionResponse | undefined = await chrome.runtime.sendMessage(message).catch(() => undefined);
   return withExtensionResponseFallback(response, unavailableMessage);
+}
+
+function destinationFailureMessage(message: string, t: TranslationDictionary) {
+  if (/Invalid request origin/i.test(message)) return t.extension_origin_rejected;
+  return message || t.destination_unavailable;
 }
 
 function areSettingsEqual(left: PinarSettings, right: PinarSettings) {
@@ -300,6 +316,11 @@ export function OptionsApp() {
   const [emailCodeRequestLoading, setEmailCodeRequestLoading] = useState(false);
   const [emailCodeVerificationLoading, setEmailCodeVerificationLoading] = useState(false);
   const [logoutLoading, setLogoutLoading] = useState(false);
+  const [captureDestination, setCaptureDestination] = useState<CaptureDestination | null>(null);
+  const [destinationTree, setDestinationTree] = useState<ProjectTree | null>(null);
+  const [destinationLoading, setDestinationLoading] = useState(true);
+  const [destinationError, setDestinationError] = useState("");
+  const destinationLoad = useRef(0);
 
   const t = translations[lang] || translations.en;
   const manifest = isExtensionContext() ? chrome.runtime.getManifest() : {};
@@ -313,6 +334,62 @@ export function OptionsApp() {
     && settings.storageMode === "cloud"
     && authSession?.kind === "account"
     && authSession.plan === "pro";
+  const destinationOptions = destinationTree
+    ? captureDestinationOptions({
+        collectionIcon: (collection) => (collection.isProtected ? <IconInbox /> : <IconFolder />),
+        collectionLabel: (collection) => collectionDisplayName(collection, t.protected_inbox_label),
+        projectIcon: (project) => <ProjectIconGlyph icon={project.icon} />,
+        tree: destinationTree,
+      })
+    : [];
+  const destinationValue = destinationTree ? captureDestinationPath(destinationTree, captureDestination) : null;
+
+  // The background owns the sync: destination:get refreshes the server
+  // preferences first, so a choice made in the Pinar app wins over this
+  // browser's cache; destination:set saves locally and on the server.
+  async function loadCaptureDestination() {
+    const loadId = ++destinationLoad.current;
+    setDestinationLoading(true);
+    setDestinationError("");
+    try {
+      const response = await extensionMessage({ type: "destination:get" }, t.destination_unavailable);
+      if (loadId !== destinationLoad.current) return;
+      if (!response.ok || !response.destination || !response.tree) {
+        throw new Error(response.error || t.destination_unavailable);
+      }
+      setCaptureDestination(response.destination);
+      setDestinationTree(response.tree);
+    } catch (cause) {
+      if (loadId !== destinationLoad.current) return;
+      setCaptureDestination(null);
+      setDestinationTree(null);
+      setDestinationError(destinationFailureMessage(cause instanceof Error ? cause.message : String(cause), t));
+    } finally {
+      if (loadId === destinationLoad.current) setDestinationLoading(false);
+    }
+  }
+
+  async function saveCaptureDestination(collectionId: string) {
+    const loadId = ++destinationLoad.current;
+    setDestinationLoading(true);
+    setDestinationError("");
+    try {
+      const response = await extensionMessage({ collectionId, type: "destination:set" }, t.destination_unavailable);
+      if (loadId !== destinationLoad.current) return;
+      if (!response.ok || !response.destination || !response.tree) {
+        throw new Error(response.error || t.destination_unavailable);
+      }
+      setCaptureDestination(response.destination);
+      setDestinationTree(response.tree);
+      toast.success(t.status_saved);
+    } catch {
+      if (loadId !== destinationLoad.current) return;
+      toast.error(t.destination_unavailable);
+      await loadCaptureDestination();
+    } finally {
+      if (loadId === destinationLoad.current) setDestinationLoading(false);
+    }
+  }
 
   async function syncDeliveryPreferences(current: PinarSettings): Promise<PinarSettings> {
     const response = await extensionMessage({ type: "preferences:get" }, "");
@@ -417,7 +494,7 @@ export function OptionsApp() {
     try {
       await chrome.storage.sync.set({ storageMode });
       setSavedSettings((current) => ({ ...current, storageMode }));
-      await loadAuthSession(storageMode);
+      await Promise.all([loadCaptureDestination(), loadAuthSession(storageMode)]);
     } catch (cause) {
       setSettings((current) => ({ ...current, storageMode: previousMode }));
       setAuthError(cause instanceof Error ? cause.message : String(cause));
@@ -458,7 +535,7 @@ export function OptionsApp() {
       setLang(loaded.language as SupportedLanguage);
       setSettings(loaded);
       setSavedSettings(loaded);
-      await loadAuthSession(loaded.storageMode);
+      await Promise.all([loadCaptureDestination(), loadAuthSession(loaded.storageMode)]);
     }
     void initialize();
   }, []);
@@ -547,7 +624,7 @@ export function OptionsApp() {
       setAuthSession(response.session);
       setEmailCode("");
       setEmailCodeRequested(false);
-      await loadCloudTrial(settings.storageMode, response.session, requestId);
+      await Promise.all([loadCaptureDestination(), loadCloudTrial(settings.storageMode, response.session, requestId)]);
     } catch (cause) {
       setAuthError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -567,6 +644,7 @@ export function OptionsApp() {
       if (!response.ok) throw new Error(response.error || t.account_unavailable);
       setAuthSession(null);
       setCloudTrial(null);
+      await loadCaptureDestination();
     } catch (cause) {
       if (requestId !== trialLoad.current.id) return;
       setAuthError(cause instanceof Error ? cause.message : String(cause));
@@ -722,6 +800,27 @@ export function OptionsApp() {
               </TabsContent>
 
               <TabsContent className="flex flex-col gap-5" value="capture">
+                <section className="flex flex-col">
+                  <span className={SECTION_HEADER}>{t.section_capture}</span>
+                  <p className={SECTION_DESC}>{t.section_capture_desc}</p>
+                  <div className="flex flex-col gap-3">
+                    <SettingRow controlClassName="min-w-0 max-w-60" size="xs" description={t.capture_destination_desc} title={t.capture_destination_label}>
+                      <Cascader
+                        aria-label={t.capture_destination_label}
+                        className="w-full"
+                        disabled={destinationLoading || !destinationTree?.projects.length}
+                        emptyText={t.no_collections_found}
+                        options={destinationOptions}
+                        placeholder={destinationLoading ? "…" : t.collection_label}
+                        searchPlaceholder={t.destination_search_placeholder}
+                        value={destinationValue}
+                        onValueChange={(path) => { const collectionId = path.at(-1); if (collectionId && collectionId !== captureDestination?.collectionId) void saveCaptureDestination(collectionId); }}
+                      />
+                    </SettingRow>
+                  </div>
+                  {destinationError ? <p className="mt-2 text-xs font-medium text-destructive" role="alert">{destinationError}</p> : null}
+                </section>
+                <Separator />
                 <section className="flex flex-col">
                   <span className={SECTION_HEADER}>{t.section_handoff}</span>
                   <p className={SECTION_DESC}>{t.section_handoff_desc}</p>

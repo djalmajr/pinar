@@ -142,7 +142,7 @@ const messages: UiMessages = {
   "settings.handoffModeDescription":
     "コンパクトは実行に必要な情報だけをコピーし、完全は全フィールドを含みます。保存済みキャプチャとビューアーは常に完全です。",
   "settings.captureDestination": "キャプチャ先",
-  "settings.captureDestinationDefault": "既定（受信トレイ）",
+  "settings.captureDestinationDefault": "受信トレイ",
   "settings.captureDestinationDescription":
     "新しいキャプチャの保存先です。サーバーの既定は最初のプロジェクトの受信トレイです。",
   "settings.captureHeading": "キャプチャ",

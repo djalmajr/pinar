@@ -50,7 +50,13 @@ describe("capture destination", () => {
 
   test("resolves the destination in the background and sends the effective collection with captures", () => {
     assert.doesNotMatch(contentSrc, /data-ref="projectSelect"|data-ref="collectionSelect"|message\.destination/);
-    assert.doesNotMatch(optionsSrc, /type: "destination:get"|type: "destination:set"|flattenDestinationCollections/);
+    // Options pick the destination through the background, which syncs it with the server.
+    assert.match(optionsSrc, /type: "destination:get"/);
+    assert.match(optionsSrc, /type: "destination:set"/);
+    assert.doesNotMatch(optionsSrc, /captureDestinations/);
+    // A single cascader replaces the project/collection combobox pair.
+    assert.match(optionsSrc, /<Cascader[\s\S]*?searchPlaceholder=\{t\.destination_search_placeholder\}[\s\S]*?\/>/);
+    assert.doesNotMatch(optionsSrc, /flattenDestinationCollections|Combobox/);
     assert.match(backgroundSrc, /getCaptureDestinationContext\(settings\)/);
     assert.match(backgroundSrc, /JSON\.stringify\(payload\)/);
     assert.match(backgroundSrc, /includeScreenshot,/);
@@ -96,7 +102,7 @@ describe("capture destination", () => {
   test("language and theme each occupy a full settings row like the workspace dialog", () => {
     const interfaceSection = optionsSrc.slice(
       optionsSrc.indexOf("{t.section_interface}"),
-      optionsSrc.indexOf("{t.section_handoff}"),
+      optionsSrc.indexOf("</TabsContent>", optionsSrc.indexOf("{t.section_interface}")),
     );
     assert.match(interfaceSection, /<SettingRow size="xs" description=\{t\.language_desc\} title=\{t\.language_label\}>/);
     assert.match(interfaceSection, /<SettingRow size="xs" description=\{t\.theme_desc\} title=\{t\.theme_label\}>/);
@@ -121,7 +127,11 @@ describe("capture destination", () => {
     // Mutation captured: dropping the separators leaves preference sections as an undifferentiated stack.
     assert.match(optionsSrc, /\{t\.storage_title\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.section_interface\}/);
     assert.match(optionsSrc, /\{t\.section_handoff\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.section_privacy\}/);
-    assert.doesNotMatch(optionsSrc, /\{t\.storage_status_title\}|\{t\.capture_destination_label\}/);
+    assert.doesNotMatch(optionsSrc, /\{t\.storage_status_title\}/);
+    // The capture section has its own header; the destination is a row like the other preferences.
+    assert.match(optionsSrc, /\{t\.section_capture\}<\/span>\s*<p className=\{SECTION_DESC\}>\{t\.section_capture_desc\}<\/p>\s*<div className="flex flex-col gap-3">/);
+    assert.match(optionsSrc, /<SettingRow controlClassName="min-w-0 max-w-60" size="xs" description=\{t\.capture_destination_desc\} title=\{t\.capture_destination_label\}>[\s\S]*?<Cascader[\s\S]*?<\/SettingRow>/);
+    assert.match(optionsSrc, /\{t\.section_capture\}[\s\S]*<\/section>\s*<Separator \/>\s*<section[\s\S]*\{t\.section_handoff\}/);
     assert.match(optionsSrc, /\{t\.shortcuts_browser_title\}[\s\S]*<\/section>\s*\{commands\.length \? <Separator \/> : null\}\s*<section[\s\S]*\{t\.shortcuts_overlay_title\}/);
     assert.match(optionsSrc, /<label className="text-xs font-semibold" htmlFor="account-email">\{t\.account_email_title\}<\/label>/);
     assert.doesNotMatch(optionsSrc, /t\.account_email_description/);
@@ -142,7 +152,8 @@ describe("capture destination", () => {
     assert.match(optionsSrc, /<form className="flex flex-wrap gap-2" onSubmit=\{requestEmailCode\}>[\s\S]*\{t\.btn_send_code\}<\/Button>\s*<\/form>/);
     assert.match(i18nSrc, /account_email_title: "Entrar com e-mail"/);
     assert.match(i18nSrc, /account_create_on_web: 'Criar conta'/);
-    assert.doesNotMatch(optionsSrc, /\{t\.storage_status_title_desc\}|\{t\.capture_destination_desc\}/);
+    assert.doesNotMatch(optionsSrc, /\{t\.storage_status_title_desc\}/);
+    assert.doesNotMatch(optionsSrc, /\{t\.capture_destination_desc\}<\/p>/);
   });
 
   test("extension setting rows stay compact xs while the workspace dialog stays sm", () => {

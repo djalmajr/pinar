@@ -140,7 +140,7 @@ const messages: UiMessages = {
   "settings.handoffModeDescription":
     "精简模式仅复制可操作上下文；完整模式包含所有捕获字段。已保存的捕获和查看器始终完整。",
   "settings.captureDestination": "捕获目标",
-  "settings.captureDestinationDefault": "默认（收件箱）",
+  "settings.captureDestinationDefault": "收件箱",
   "settings.captureDestinationDescription": "新捕获的保存位置。服务器默认使用第一个项目的收件箱。",
   "settings.captureHeading": "捕获",
   "settings.collection": "集合",

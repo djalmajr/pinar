@@ -1,18 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type SVGProps, type UIEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type UIEvent } from "react";
 import type { ProjectIcon } from "@pinar/shared";
-import {
-  DEFAULT_PROJECT_ICON,
-  PROJECT_ICON_OPTIONS,
-  PROJECT_ICON_HEIGHT,
-  PROJECT_ICON_WIDTH,
-  getProjectIconData,
-} from "@pinar/shared/project-icons";
-import { Button, Input } from "@pinar/ui";
+import { PROJECT_ICON_OPTIONS } from "@pinar/shared/project-icons";
+import { Button, Input, ProjectIconGlyph } from "@pinar/ui";
 import SearchIcon from "~icons/lucide/search";
-
-interface ProjectIconGlyphProps extends Omit<SVGProps<SVGSVGElement>, "children"> {
-  icon: ProjectIcon;
-}
 
 interface ProjectIconPickerProps {
   emptyMessage: string;
@@ -32,20 +22,6 @@ function iconLabel(name: ProjectIcon) {
     .split("-")
     .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
     .join(" ");
-}
-
-export function ProjectIconGlyph({ icon, ...props }: ProjectIconGlyphProps) {
-  const data = getProjectIconData(icon) ?? getProjectIconData(DEFAULT_PROJECT_ICON);
-  return (
-    <svg
-      aria-hidden="true"
-      focusable="false"
-      viewBox={`0 0 ${data?.width ?? PROJECT_ICON_WIDTH} ${data?.height ?? PROJECT_ICON_HEIGHT}`}
-      xmlns="http://www.w3.org/2000/svg"
-      {...props}
-      dangerouslySetInnerHTML={{ __html: data?.body ?? "" }}
-    />
-  );
 }
 
 export function ProjectIconPicker({

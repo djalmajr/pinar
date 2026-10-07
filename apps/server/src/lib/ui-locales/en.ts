@@ -140,7 +140,7 @@ const messages = {
   "settings.handoffModeDescription":
     "Compact copies only actionable context. Full includes every captured field. Saved captures and the viewer are always complete.",
   "settings.captureDestination": "Capture destination",
-  "settings.captureDestinationDefault": "Default (Inbox)",
+  "settings.captureDestinationDefault": "Inbox",
   "settings.captureDestinationDescription":
     "Where new captures land. Server default uses the Inbox of the first project.",
   "settings.captureHeading": "Capture",

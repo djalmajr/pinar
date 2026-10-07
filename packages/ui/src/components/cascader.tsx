@@ -36,6 +36,8 @@ export function Cascader({
   const [openValues, setOpenValues] = React.useState<string[]>([]);
   const [active, setActive] = React.useState<{ column: number; value: string } | null>(null);
   const [activeResult, setActiveResult] = React.useState<number | null>(null);
+  // The active item is painted only while the keyboard drives it; the mouse uses CSS hover.
+  const [keyboardNav, setKeyboardNav] = React.useState(false);
   const rootId = React.useId();
   const triggerId = React.useId();
   const searchInputRef = React.useRef<HTMLInputElement>(null);
@@ -89,6 +91,7 @@ export function Cascader({
         setActive(first >= 0 ? { column: 0, value: options[first].value } : null);
       }
       setActiveResult(null);
+      setKeyboardNav(false);
       setOpen(true);
       return;
     }
@@ -135,6 +138,7 @@ export function Cascader({
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key.startsWith("Arrow")) setKeyboardNav(true);
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const direction = event.key === "ArrowDown" ? 1 : -1;
@@ -243,6 +247,7 @@ export function Cascader({
             data-slot="cascader-content"
             initialFocus={searchInputRef}
             onKeyDown={handleKeyDown}
+            onMouseMove={() => setKeyboardNav(false)}
             className="isolate z-50 flex max-w-(--available-width) flex-col origin-(--transform-origin) overflow-x-auto rounded-lg bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10 duration-100 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2"
           >
             <input
@@ -255,6 +260,7 @@ export function Cascader({
               onChange={(event) => {
                 setSearch(event.target.value);
                 setActiveResult(0);
+                setKeyboardNav(true);
               }}
               className="m-2 mb-0 h-8 min-w-0 rounded-md border border-input bg-transparent px-2.5 text-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 dark:bg-input/30"
             />
@@ -284,8 +290,9 @@ export function Cascader({
                           onMouseEnter={() => setActiveResult(index)}
                           onClick={() => commitPath(optionPath)}
                           className={cn(
-                            "flex w-full cursor-default items-center gap-1.5 rounded-md py-1 pr-1.5 pl-1.5 text-sm select-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-                            isActive && "bg-accent text-accent-foreground",
+                            "flex w-full cursor-default items-center gap-1.5 rounded-md py-1 pr-1.5 pl-1.5 text-sm select-none hover:bg-accent hover:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+                            isSelected && "font-semibold",
+                            isActive && keyboardNav && "bg-accent text-accent-foreground",
                           )}
                         >
                           {last.icon != null && <span className="flex shrink-0 items-center">{last.icon}</span>}
@@ -329,9 +336,9 @@ export function Cascader({
                             onMouseEnter={() => activateColumnOption(columnIndex, optionIndex)}
                             onClick={() => chooseColumnOption(columnIndex, optionIndex)}
                             className={cn(
-                              "relative flex w-full cursor-default items-center gap-1.5 rounded-md py-1 pr-1.5 pl-1.5 text-sm select-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-                              isExpanded && !isActive && "bg-muted font-medium",
-                              isActive && "bg-accent text-accent-foreground",
+                              "relative flex w-full cursor-default items-center gap-1.5 rounded-md py-1 pr-1.5 pl-1.5 text-sm select-none hover:bg-accent hover:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+                              (isSelected || isExpanded) && "font-semibold",
+                              isActive && keyboardNav && "bg-accent text-accent-foreground",
                               option.disabled && "pointer-events-none opacity-50",
                             )}
                           >

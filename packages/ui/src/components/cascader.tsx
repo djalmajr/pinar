@@ -242,7 +242,7 @@ export function Cascader({
         }
       />
       <PopoverPrimitive.Portal>
-        <PopoverPrimitive.Positioner align="start" className="isolate z-50" collisionPadding={16} side="bottom" sideOffset={4}>
+        <PopoverPrimitive.Positioner align="end" className="isolate z-50" collisionPadding={16} side="bottom" sideOffset={4}>
           <PopoverPrimitive.Popup
             data-slot="cascader-content"
             initialFocus={searchInputRef}

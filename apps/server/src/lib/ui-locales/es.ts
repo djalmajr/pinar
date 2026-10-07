@@ -216,12 +216,16 @@ const messages: UiMessages = {
   "signIn.accountTitle": "Entrar en tu cuenta",
   "signIn.changeEmail": "Usar otro correo",
   "signIn.codeInvalid": "El código no es válido o ha caducado.",
+  "signIn.deliveryFailed":
+    "No pudimos enviar el código ahora. Inténtalo de nuevo en unos minutos.",
   "signIn.emailSent":
     "Si esta dirección puede recibir el código, está en camino.",
   "signIn.entering": "Entrando…",
   "signIn.requestFailed": "No se pudo solicitar el código.",
   "signIn.sendCode": "Enviar código",
   "signIn.sending": "Enviando…",
+  "signIn.unavailable":
+    "El inicio de sesión por correo no está disponible en este momento.",
   "signIn.verifyCode": "Verificar y entrar",
   "landing.badge": "Feedback visual para flujos con IA",
   "landing.title": "Señala el problema. Comparte todo el contexto.",

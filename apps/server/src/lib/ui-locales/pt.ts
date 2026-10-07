@@ -215,12 +215,15 @@ const messages: UiMessages = {
   "signIn.accountTitle": "Entrar na sua conta",
   "signIn.changeEmail": "Usar outro e-mail",
   "signIn.codeInvalid": "O código é inválido ou expirou.",
+  "signIn.deliveryFailed":
+    "Não conseguimos enviar o código agora. Tente novamente em alguns minutos.",
   "signIn.emailSent":
     "Se este endereço puder receber o código, ele está a caminho.",
   "signIn.entering": "Entrando…",
   "signIn.requestFailed": "Não foi possível solicitar o código.",
   "signIn.sendCode": "Enviar código",
   "signIn.sending": "Enviando…",
+  "signIn.unavailable": "O login por e-mail não está disponível no momento.",
   "signIn.verifyCode": "Verificar e entrar",
   "landing.badge": "Feedback visual para fluxos com IA",
   "landing.title": "Aponte o problema. Compartilhe todo o contexto.",

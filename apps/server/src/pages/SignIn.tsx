@@ -22,11 +22,6 @@ interface SignInPageProps {
 
 type Step = "request" | "verify";
 
-async function responseError(response: Response) {
-  const data: unknown = await response.json().catch(() => ({}));
-  return isRecord(data) && typeof data.error === "string" ? data.error : "Request failed";
-}
-
 export function SignInPage({ returnTo }: SignInPageProps) {
   const { language, t } = useServerI18n();
   const [email, setEmail] = useState("");
@@ -45,7 +40,18 @@ export function SignInPage({ returnTo }: SignInPageProps) {
         headers: { "Content-Type": "application/json" },
         method: "POST",
       });
-      if (!response.ok) throw new Error(await responseError(response));
+      const data: unknown = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        let message = t("signIn.requestFailed");
+        if (isRecord(data) && typeof data.code === "string") {
+          if (data.code === "email_delivery_failed") {
+            message = t("signIn.deliveryFailed");
+          } else if (data.code === "email_not_configured") {
+            message = t("signIn.unavailable");
+          }
+        }
+        throw new Error(message);
+      }
       setStep("verify");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("signIn.requestFailed"));

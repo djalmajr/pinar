@@ -218,3 +218,71 @@ test("first remote account activation accepts the current policies with OTP veri
     termsVersion: "2026-09-14",
   });
 });
+
+test("email delivery failures keep the request step and never show the raw server error", async ({ page }) => {
+  const requested: string[] = [];
+  await page.route("**/api/auth/email-codes", async (route) => {
+    const { email } = route.request().postDataJSON() as { email: string };
+    requested.push(email);
+    if (email === "unconfigured@example.com") {
+      await route.fulfill({
+        json: {
+          code: "email_not_configured",
+          error: "Sign-in by email is not available right now.",
+        },
+        status: 503,
+      });
+      return;
+    }
+    await route.fulfill({
+      json: {
+        code: "email_delivery_failed",
+        error: "We could not send the sign-in code. Try again in a few minutes.",
+      },
+      status: 503,
+    });
+  });
+
+  await page.goto("/sign-in");
+
+  // The dev server compiles modules on demand, so the SSR HTML can render
+  // before React attaches its event handlers. Wait until the email input is
+  // hydrated (React props present) before driving the form.
+  await page.waitForFunction(() => {
+    const input = document.querySelector('input[placeholder="you@example.com"]');
+    return input !== null && Object.keys(input).some((key) => key.startsWith("__reactProps"));
+  }, null, { timeout: 20_000 });
+
+  const email = page.getByPlaceholder("you@example.com");
+  const sendCode = page.getByRole("button", { name: "Send code" });
+  const codeField = page.getByPlaceholder("000000");
+  const requestStep = page.getByText(
+    "Enter your email to create a Free account or sign in. We will send you a six-digit code.",
+  );
+
+  await email.fill("delivery-failed@example.com");
+  await sendCode.click();
+  await expect(page.getByRole("alert")).toHaveText(
+    "We couldn’t send the code right now. Try again in a few minutes.",
+  );
+  await expect(
+    page.getByText("We could not send the sign-in code. Try again in a few minutes."),
+  ).toHaveCount(0);
+  await expect(codeField).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Verify and enter" })).toHaveCount(0);
+  await expect(requestStep).toBeVisible();
+
+  await email.fill("unconfigured@example.com");
+  await sendCode.click();
+  await expect(page.getByRole("alert")).toHaveText(
+    "Sign-in by email isn’t available right now.",
+  );
+  await expect(
+    page.getByText("Sign-in by email is not available right now."),
+  ).toHaveCount(0);
+  await expect(codeField).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Verify and enter" })).toHaveCount(0);
+  await expect(requestStep).toBeVisible();
+
+  expect(requested).toEqual(["delivery-failed@example.com", "unconfigured@example.com"]);
+});

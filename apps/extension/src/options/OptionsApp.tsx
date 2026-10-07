@@ -607,7 +607,11 @@ export function OptionsApp() {
         { email, type: "auth:email-code:request" },
         t.account_unavailable,
       );
-      if (!response.ok) throw new Error(response.error || t.account_unavailable);
+      if (!response.ok) {
+        if (response.code === "email_delivery_failed") throw new Error(t.account_email_delivery_failed);
+        if (response.code === "email_not_configured") throw new Error(t.account_email_unavailable);
+        throw new Error(response.error || t.account_unavailable);
+      }
       setEmailCodeRequested(true);
     } catch (cause) {
       setAuthError(cause instanceof Error ? cause.message : String(cause));

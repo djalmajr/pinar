@@ -22,9 +22,24 @@ const {
 
 describe("voice pin recording helpers", () => {
   test("explains every voice entitlement state", () => {
-    assert.deepEqual(resolveVoiceAvailability("local", { kind: "account", plan: "pro" }), {
+    // Local mode is gated on the local AI configuration status reported by the background.
+    assert.deepEqual(resolveVoiceAvailability("local", { kind: "local" }, { configured: true }), {
+      available: true,
+      reason: null,
+    });
+    assert.deepEqual(resolveVoiceAvailability("local", { kind: "local" }, { configured: false }), {
       available: false,
-      reason: "cloud_required",
+      reason: "local_ai_required",
+    });
+    // An unknown local AI status (server off or unreachable) is not "not configured".
+    assert.deepEqual(resolveVoiceAvailability("local", { kind: "local" }, null), {
+      available: false,
+      reason: "unavailable",
+    });
+    // The cloud rules keep their previous behavior, with or without a local AI status.
+    assert.deepEqual(resolveVoiceAvailability("cloud", { kind: "account", plan: "pro" }, { configured: true }), {
+      available: true,
+      reason: null,
     });
     assert.deepEqual(resolveVoiceAvailability("cloud", { kind: "installation", plan: "free" }), {
       available: false,
@@ -95,7 +110,7 @@ describe("voice pin recording helpers", () => {
     assert.deepEqual(Array.from(fourth), [0.6, 1, 0]);
   });
 
-  test("wires ephemeral recording to the cloud-only voice endpoint", () => {
+  test("wires ephemeral recording to the mode-routed voice endpoint", () => {
     assert.ok(sessionSource.indexOf('"voice.js"') < sessionSource.indexOf('"content.js"'));
     assert.match(contentSource, /navigator\.mediaDevices\.getUserMedia\(\{ audio: true \}\)/);
     assert.match(contentSource, /type: "voice:transcribe"/);
@@ -120,10 +135,17 @@ describe("voice pin recording helpers", () => {
     assert.doesNotMatch(contentSource, /setVoiceStatus\(t\("overlay_voice_ready"\)\)/);
     assert.match(contentSource, /response\?\.code === "ai_inference_failed"/);
     assert.match(contentSource, /ui\.voiceReview\.hidden = transcript === structured/);
-    assert.match(backgroundSource, /settings\.storageMode !== "cloud"/);
+    // The voice endpoint is routed by storage mode instead of refusing local mode.
+    assert.doesNotMatch(backgroundSource, /Voice comments require the Pinar cloud server/);
+    assert.match(backgroundSource, /localAi = settings\.storageMode === "local" \? await localAiAvailability\(\) : undefined/);
+    assert.match(backgroundSource, /resolveVoiceAvailability\(settings\.storageMode, session, localAi\)/);
+    assert.match(backgroundSource, /localFetch\(base, "\/api\/ai\/settings"\)/);
+    assert.match(backgroundSource, /body\.mode !== "disabled"[\s\S]*?typeof body\.transcriptionModel === "string"[\s\S]*?body\.transcriptionModel\.trim\(\) !== ""/);
+    assert.match(backgroundSource, /localFetch\(base, "\/api\/ai\/voice-pin", \{ body: form, method: "POST" \}\)/);
+    assert.match(contentSource, /local_ai_required: "overlay_voice_local_ai_required"/);
     assert.match(backgroundSource, /voicePostProcessing: false/);
     assert.match(backgroundSource, /voicePostProcessing: preferences\.voicePostProcessing/);
-    assert.match(backgroundSource, /"\/api\/ai\/voice-pin"/);
+    assert.match(backgroundSource, /remoteFetch\(cloudEndpoint\(settings\), "\/api\/ai\/voice-pin", \{ body: form, method: "POST" \}\)/);
     assert.match(backgroundSource, /message\.type === "voice:copy-transcript"[\s\S]*?writeClipboardPlain\(transcript\)/);
     assert.doesNotMatch(backgroundSource, /chrome\.storage\.[a-z]+\.set\([^)]*audioDataUrl/);
   });

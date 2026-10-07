@@ -197,6 +197,7 @@ const DEFAULT_SETTINGS: PinarSettings = {
 };
 
 interface ExtensionResponse extends ExtensionResponseBase {
+  available?: boolean;
   code?: string;
   copyOnFinishBatch?: CopyOnFinishBatch;
   copyViewerContent?: boolean;
@@ -321,6 +322,8 @@ export function OptionsApp() {
   const [destinationLoading, setDestinationLoading] = useState(true);
   const [destinationError, setDestinationError] = useState("");
   const destinationLoad = useRef(0);
+  const [voiceAvailable, setVoiceAvailable] = useState(false);
+  const voiceLoad = useRef(0);
 
   const t = translations[lang] || translations.en;
   const manifest = isExtensionContext() ? chrome.runtime.getManifest() : {};
@@ -330,10 +333,6 @@ export function OptionsApp() {
   const desktopInstallUrl =
     installPlatform === "win" ? windowsDesktopSetupUrl() : macosDesktopDmgUrl();
   const localStorageDescription = installPlatform === "win" ? t.local_desc_windows : t.local_desc;
-  const voiceAvailable = authReady
-    && settings.storageMode === "cloud"
-    && authSession?.kind === "account"
-    && authSession.plan === "pro";
   const destinationOptions = destinationTree
     ? captureDestinationOptions({
         collectionIcon: (collection) => (collection.isProtected ? <IconInbox /> : <IconFolder />),
@@ -458,6 +457,16 @@ export function OptionsApp() {
     }
   }
 
+  // The background owns the voice entitlement rule (cloud Pro or local AI
+  // configured); Options renders only what the voice:availability RPC answers.
+  async function loadVoiceAvailability() {
+    const loadId = ++voiceLoad.current;
+    const response = await extensionMessage({ type: "voice:availability" }, "");
+    if (loadId === voiceLoad.current) {
+      setVoiceAvailable(response.ok === true && response.available === true);
+    }
+  }
+
   async function loadAuthSession(storageMode: PinarSettings["storageMode"] = settings.storageMode) {
     const requestId = startTrialLoad();
     setAuthReady(false);
@@ -474,11 +483,13 @@ export function OptionsApp() {
       if (!response.ok) throw new Error(response.error || t.account_unavailable);
       const session = auth.session;
       setAuthSession(session);
+      void loadVoiceAvailability();
       await loadCloudTrial(storageMode, session, requestId);
     } catch {
       if (requestId !== trialLoad.current.id) return;
       setAuthSession(null);
       setCloudTrial(null);
+      setVoiceAvailable(false);
     } finally {
       if (requestId === trialLoad.current.id) setAuthReady(true);
     }
@@ -499,6 +510,7 @@ export function OptionsApp() {
       setSettings((current) => ({ ...current, storageMode: previousMode }));
       setAuthError(cause instanceof Error ? cause.message : String(cause));
       setAuthReady(true);
+      void loadVoiceAvailability();
     } finally {
       setStorageModeSaving(false);
     }
@@ -553,7 +565,7 @@ export function OptionsApp() {
         includeViewer: settings.includeViewer,
         language: settings.language,
         sensitiveQueryKeys: settings.sensitiveQueryKeys,
-        voicePostProcessing: settings.storageMode === "cloud" && settings.voicePostProcessing,
+        voicePostProcessing: settings.voicePostProcessing === true,
         type: "preferences:set",
       }, "");
       const saved = prefs.ok && typeof prefs.includeScreenshot === "boolean"
@@ -622,6 +634,7 @@ export function OptionsApp() {
       requestId = startTrialLoad();
       setAuthReady(false);
       setAuthSession(response.session);
+      void loadVoiceAvailability();
       setEmailCode("");
       setEmailCodeRequested(false);
       await Promise.all([loadCaptureDestination(), loadCloudTrial(settings.storageMode, response.session, requestId)]);
@@ -644,6 +657,7 @@ export function OptionsApp() {
       if (!response.ok) throw new Error(response.error || t.account_unavailable);
       setAuthSession(null);
       setCloudTrial(null);
+      void loadVoiceAvailability();
       await loadCaptureDestination();
     } catch (cause) {
       if (requestId !== trialLoad.current.id) return;
@@ -696,22 +710,35 @@ export function OptionsApp() {
                   <span className={SECTION_HEADER}>{t.storage_title}</span>
                   <p className={SECTION_DESC}>{t.storage_title_desc}</p>
                   <div className="flex flex-col gap-2">
-                    <label className="flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 hover:bg-muted/50">
-                      <input checked={settings.storageMode === "local"} className="mt-0.5 accent-primary" disabled={settingsSaving || storageModeSaving} name="storageMode" type="radio" onChange={() => void selectStorageMode("local")} />
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-xs font-semibold">{t.local_title}</span>
-                        <span className="mt-0.5 block text-xs text-muted-foreground">{localStorageDescription}</span>
-                        {installPlatform === "other" ? (
-                          <span className="mt-2 flex items-center gap-1.5 rounded-lg border bg-muted/60 p-1.5 font-mono text-[11px]">
-                            <ScrollArea className="min-w-0 flex-1"><code className="block whitespace-nowrap px-1 text-muted-foreground">{installCommand}</code><ScrollBar orientation="horizontal" /></ScrollArea>
-                            <button className="shrink-0 rounded p-1 text-muted-foreground hover:bg-background hover:text-foreground" title={t.btn_copy} type="button" onClick={async (event) => { event.preventDefault(); await navigator.clipboard.writeText(installCommand); setCopiedInstall(true); window.setTimeout(() => setCopiedInstall(false), 2_000); }}>
-                              {copiedInstall ? <IconCheck className="size-3.5 text-emerald-500" /> : <IconCopy className="size-3.5" />}
-                            </button>
-                          </span>
-                        ) : null}
-                      </span>
-                      {installPlatform === "other" ? null : <Button className="h-7 shrink-0 self-center text-xs" render={<a href={desktopInstallUrl} rel="noopener noreferrer" target="_blank" />} size="sm" variant="outline" onClick={(event) => event.stopPropagation()}>{t.btn_download_macos}<IconExternalLink data-icon="inline-end" /></Button>}
-                    </label>
+                    <div className="overflow-hidden rounded-lg border">
+                      <label className="flex cursor-pointer items-start gap-2 px-3 py-2 hover:bg-muted/50">
+                        <input checked={settings.storageMode === "local"} className="mt-0.5 accent-primary" disabled={settingsSaving || storageModeSaving} name="storageMode" type="radio" onChange={() => void selectStorageMode("local")} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-xs font-semibold">{t.local_title}</span>
+                          <span className="mt-0.5 block text-xs text-muted-foreground">{localStorageDescription}</span>
+                          {installPlatform === "other" ? (
+                            <span className="mt-2 flex items-center gap-1.5 rounded-lg border bg-muted/60 p-1.5 font-mono text-[11px]">
+                              <ScrollArea className="min-w-0 flex-1"><code className="block whitespace-nowrap px-1 text-muted-foreground">{installCommand}</code><ScrollBar orientation="horizontal" /></ScrollArea>
+                              <button className="shrink-0 rounded p-1 text-muted-foreground hover:bg-background hover:text-foreground" title={t.btn_copy} type="button" onClick={async (event) => { event.preventDefault(); await navigator.clipboard.writeText(installCommand); setCopiedInstall(true); window.setTimeout(() => setCopiedInstall(false), 2_000); }}>
+                                {copiedInstall ? <IconCheck className="size-3.5 text-emerald-500" /> : <IconCopy className="size-3.5" />}
+                              </button>
+                            </span>
+                          ) : null}
+                        </span>
+                        {installPlatform === "other" ? null : <Button className="h-7 shrink-0 self-center text-xs" render={<a href={desktopInstallUrl} rel="noopener noreferrer" target="_blank" />} size="sm" variant="outline" onClick={(event) => event.stopPropagation()}>{t.btn_download_macos}<IconExternalLink data-icon="inline-end" /></Button>}
+                      </label>
+                      {settings.storageMode === "local" && authReady && voiceAvailable ? (
+                        <div className="flex flex-col gap-4 border-t p-3">
+                          <SettingRow size="xs" description={t.voice_post_processing_desc} title={t.voice_post_processing_label}>
+                            <Switch
+                              aria-label={t.voice_post_processing_label}
+                              checked={settings.voicePostProcessing}
+                              onCheckedChange={(value) => setSettings((current) => ({ ...current, voicePostProcessing: value }))}
+                            />
+                          </SettingRow>
+                        </div>
+                      ) : null}
+                    </div>
                     <div className="overflow-hidden rounded-lg border">
                       <div className="flex items-center gap-2 px-3 py-2">
                         <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-2">
@@ -770,7 +797,7 @@ export function OptionsApp() {
                         </section>
                           )}
                           {authReady && authError && <p className="text-xs font-medium text-destructive" role="alert">{authError}</p>}
-                          {voiceAvailable ? (
+                          {authReady && voiceAvailable ? (
                             <SettingRow size="xs" description={t.voice_post_processing_desc} title={t.voice_post_processing_label}>
                               <Switch
                                 aria-label={t.voice_post_processing_label}

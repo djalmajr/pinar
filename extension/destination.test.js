@@ -141,7 +141,12 @@ describe("capture destination", () => {
     assert.match(optionsSrc, /\{t\.section_handoff_desc\}<\/p>\s*<div className="flex flex-col gap-3">/);
     assert.match(optionsSrc, /\{t\.section_privacy_desc\}<\/p>\s*<div className="flex flex-col gap-3">/);
     assert.doesNotMatch(optionsSrc, /SECTION_LEAD/);
-    assert.match(optionsSrc, /const voiceAvailable = authReady\s*&&[\s\S]*settings\.storageMode === "cloud"[\s\S]*authSession\?\.kind === "account"[\s\S]*authSession\.plan === "pro"/);
+    // The voice preference follows the background voice:availability RPC, not a local rule copy.
+    assert.match(optionsSrc, /const \[voiceAvailable, setVoiceAvailable\] = useState\(false\)/);
+    assert.match(optionsSrc, /type: "voice:availability"/);
+    assert.match(optionsSrc, /response\.ok === true && response\.available === true/);
+    assert.match(optionsSrc, /authReady && voiceAvailable \? \(/);
+    assert.match(optionsSrc, /settings\.storageMode === "local" && authReady && voiceAvailable \? \(/);
     assert.match(optionsSrc, /\{t\.section_interface_desc\}/);
     assert.match(optionsSrc, /\{t\.section_handoff_desc\}/);
     assert.match(optionsSrc, /\{t\.section_privacy_desc\}/);
@@ -194,8 +199,9 @@ describe("capture destination", () => {
     assert.doesNotMatch(backgroundSrc, /legalAcceptance,/);
   });
 
-  test("exposes voice only to signed-in Pro accounts", () => {
-    assert.match(backgroundSrc, /resolveVoiceAvailability\(settings\.storageMode, session\)/);
+  test("exposes voice to signed-in Pro accounts and to local mode with configured local AI", () => {
+    assert.match(backgroundSrc, /resolveVoiceAvailability\(settings\.storageMode, session, localAi\)/);
+    assert.match(backgroundSrc, /async function localAiAvailability\(\)/);
     assert.match(contentSrc, /ui\.voice\.hidden = false/);
     assert.match(contentSrc, /ui\.voice\.disabled = !voiceAvailable \|\| active/);
     assert.match(contentSrc, /class="voice-tooltip"/);

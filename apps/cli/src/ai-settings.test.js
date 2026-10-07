@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
@@ -25,11 +25,13 @@ describe("local AI settings", () => {
       endpoint: "https://api.example.test/v1",
       mode: "byok",
       model: "model-a",
+      transcriptionModel: "whisper-large-v3",
     }, root, vault);
 
     const stored = readFileSync(join(root, "ai.json"), "utf8");
     assert.doesNotMatch(stored, /sk-stored/);
     assert.match(stored, /api\.example\.test/);
+    assert.match(stored, /whisper-large-v3/);
     assert.equal(calls[0][0], "security");
     assert.deepEqual(await readAiSettings(root, vault), {
       apiKey: "sk-stored",
@@ -37,6 +39,7 @@ describe("local AI settings", () => {
       hasApiKey: true,
       mode: "byok",
       model: "model-a",
+      transcriptionModel: "whisper-large-v3",
     });
   });
 
@@ -57,8 +60,42 @@ describe("local AI settings", () => {
       hasApiKey: false,
       mode: "local",
       model: "llama3.2",
+      transcriptionModel: "",
     });
     assert.ok(calls.some(([, args]) => args[0] === "delete-generic-password"));
+  });
+
+  test("reads an empty transcriptionModel from an ai.json written before the field existed", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pinar-ai-"));
+    writeFileSync(join(root, "ai.json"), JSON.stringify({
+      endpoint: "http://localhost:11434/v1",
+      mode: "local",
+      model: "llama3.2",
+    }));
+    const vault = createAiCredentialVault({ platform: "darwin", run: async () => ({ stdout: "" }) });
+    assert.deepEqual(await readAiSettings(root, vault), {
+      endpoint: "http://localhost:11434/v1",
+      hasApiKey: false,
+      mode: "local",
+      model: "llama3.2",
+      transcriptionModel: "",
+    });
+  });
+
+  test("stores a trimmed transcriptionModel capped at 200 characters", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pinar-ai-"));
+    const vault = createAiCredentialVault({ platform: "darwin", run: async () => ({ stdout: "" }) });
+    const long = "m".repeat(205);
+    const saved = await writeAiSettings({
+      endpoint: "http://localhost:11434/v1",
+      mode: "local",
+      model: "llama3.2",
+      transcriptionModel: `  ${long}  `,
+    }, root, vault);
+    assert.equal(saved.transcriptionModel, "m".repeat(200));
+    const stored = JSON.parse(readFileSync(join(root, "ai.json"), "utf8"));
+    assert.equal(stored.transcriptionModel, "m".repeat(200));
+    assert.equal((await readAiSettings(root, vault)).transcriptionModel, "m".repeat(200));
   });
 
   test("uses the Windows credential vault rather than writing a secret file", async () => {

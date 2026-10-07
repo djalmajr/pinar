@@ -29,12 +29,17 @@ function settingsPath(root) {
   return join(root, SETTINGS_FILE);
 }
 
+const TRANSCRIPTION_MODEL_MAX_LENGTH = 200;
+
 function metadata(value) {
   const mode = MODES.has(value?.mode) ? value.mode : "disabled";
   return {
     endpoint: typeof value?.endpoint === "string" ? value.endpoint.trim() : "",
     mode,
     model: typeof value?.model === "string" ? value.model.trim() : "",
+    transcriptionModel: typeof value?.transcriptionModel === "string"
+      ? value.transcriptionModel.trim().slice(0, TRANSCRIPTION_MODEL_MAX_LENGTH)
+      : "",
   };
 }
 

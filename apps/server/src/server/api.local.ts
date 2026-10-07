@@ -57,6 +57,7 @@ import { localHealthDiscoveryBody } from "./local-api-trust";
 import { decodePngDataUrl } from "./png";
 import { SESSION_PATCH_MAX_BYTES } from "./session-patch";
 import { handleLocalAiRequest, resetLocalAiForTests } from "./ai/local-ai";
+import { localExportFileName, streamLocalExport } from "./local-export";
 import { handleLocalMcpRequest } from "./local-mcp";
 import { canonicalShotPath, isUsableSessionShotPath, removeSessionShotFile, sessionShotIdentity } from "./local-session-files";
 
@@ -173,6 +174,38 @@ function historyDatabase(): HistoryDatabase {
   }
   if (!activeDatabase) throw new Error("Unable to initialize local history database");
   return activeDatabase;
+}
+
+/** Streams the local history and screenshots as a Pinar export (.zip). */
+function exportLocalData() {
+  const root = rootPath();
+  const chunks = streamLocalExport({
+    root,
+    shotsRoot: shotsDir(root),
+    source: historyDatabase(),
+    version: import.meta.env.VITE_PINAR_VERSION ?? "",
+  });
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const next = await chunks.next();
+        if (next.done) controller.close();
+        else controller.enqueue(next.value);
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+    async cancel() {
+      await chunks.return(undefined);
+    },
+  });
+  return new Response(body, {
+    headers: {
+      "Cache-Control": "no-store",
+      "Content-Disposition": `attachment; filename="${localExportFileName()}"`,
+      "Content-Type": "application/zip",
+    },
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -711,6 +744,7 @@ async function routeLocalApi(request: Request): Promise<Response> {
     );
     return collection ? json({ collection, ok: true }) : json({ error: "not found" }, 404);
   }
+  if (method === "GET" && path === "/api/export") return exportLocalData();
   if (method === "GET" && path === "/api/project-tree") {
     return json({ ok: true, tree: presentProjectTree(historyDatabase().getProjectTree(), url.origin) });
   }

@@ -25,6 +25,7 @@ import {
   isPinReviewHumanAction,
   isPinReviewStatus,
   parseAgentExecutionInput,
+  parseLocalExportManifest,
   parseVisualCapture,
   applySessionPatch,
   normalizePin,
@@ -54,6 +55,7 @@ import {
   PERSONAL_PROJECT_ICON,
   isProjectIcon,
 } from "@pinar/shared/project-icons";
+import { importStructure, ImportStructureError, type ImportStructureStore, MAX_IMPORTED_SESSIONS } from "./import-structure";
 import { mergeCategories, sanitizeUrl, type RedactedCategory } from "@pinar/shared/privacy";
 import {
   LEGACY_PURCHASED_AI_CREDITS,
@@ -4910,6 +4912,120 @@ async function createCollection(
   return collection;
 }
 
+function cloudImportStore(env: CloudEnv, principal: Principal): ImportStructureStore {
+  const icon = (value: string): ProjectIcon => (isProjectIcon(value) ? value : DEFAULT_PROJECT_ICON);
+  // Imported ids are derived from the owner (see importedId), so a conflict
+  // means the row is not ours to touch: never update another account's row or
+  // a protected one, and answer whether the row is now our own.
+  const ownedRow = (row: Record<string, unknown> | null) =>
+    Boolean(row) && String(row?.owner_id) === principal.id && Number(row?.is_protected) === 0;
+  return {
+    protectedDestination: () => ensureDefaultDestination(env, principal),
+    async upsertCollection(collection) {
+      if (env.DB) {
+        await env.DB.prepare(`
+          INSERT INTO collections (
+            id, project_id, owner_id, parent_id, name, position, is_protected, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            project_id = excluded.project_id, parent_id = excluded.parent_id, name = excluded.name,
+            position = excluded.position, updated_at = excluded.updated_at
+          WHERE collections.owner_id = excluded.owner_id AND collections.is_protected = 0
+        `).bind(
+          collection.id, collection.projectId, principal.id, collection.parentId, collection.name,
+          collection.position, collection.createdAt, collection.updatedAt,
+        ).run();
+        return ownedRow(await env.DB.prepare("SELECT owner_id, is_protected FROM collections WHERE id = ?").bind(collection.id).first());
+      }
+      const existing = memoryCollections.get(collection.id);
+      if (existing && (existing.ownerId !== principal.id || existing.isProtected)) return false;
+      memoryCollections.set(collection.id, { ...collection, isProtected: false, ownerId: principal.id });
+      return true;
+    },
+    async upsertProject(project) {
+      if (env.DB) {
+        await env.DB.prepare(`
+          INSERT INTO projects (id, owner_id, name, icon, position, is_protected, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name, icon = excluded.icon, position = excluded.position, updated_at = excluded.updated_at
+          WHERE projects.owner_id = excluded.owner_id AND projects.is_protected = 0
+        `).bind(
+          project.id, principal.id, project.name, icon(project.icon), project.position, project.createdAt, project.updatedAt,
+        ).run();
+        return ownedRow(await env.DB.prepare("SELECT owner_id, is_protected FROM projects WHERE id = ?").bind(project.id).first());
+      }
+      const existing = memoryProjects.get(project.id);
+      if (existing && (existing.ownerId !== principal.id || existing.isProtected)) return false;
+      memoryProjects.set(project.id, { ...project, icon: icon(project.icon), isProtected: false, ownerId: principal.id });
+      return true;
+    },
+  };
+}
+
+// The structure call carries the projects, collections and batches of an
+// export plus the bare session ids; the sessions themselves follow one by one.
+const MAX_IMPORT_STRUCTURE_BYTES = 8 * 1024 * 1024;
+const IMPORTED_SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+function importedSessionIds(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.length > MAX_IMPORTED_SESSIONS) return null;
+  const ids = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== "string" || !IMPORTED_SESSION_ID_PATTERN.test(item) || ids.has(item)) return null;
+    ids.add(item);
+  }
+  return [...ids];
+}
+
+/**
+ * Creates or updates the projects and collections of a Pinar local export
+ * for the signed-in owner and answers the cloud id of every imported record.
+ * Sessions follow through the existing idempotent /api/shots and /api/history
+ * routes, using the returned id maps.
+ */
+async function importLocalStructure(request: Request, env: CloudEnv) {
+  const principal = await resolvePrincipal(request, env);
+  if (!principal) return json({ error: "Unauthorized" }, 401);
+  const trialDenied = await cloudTrialWriteResponse(env, principal);
+  if (trialDenied) return trialDenied;
+  const invalid = (error: string) => json({ code: "invalid_export", error }, 400);
+  const declaredBytes = Number(request.headers.get("content-length") ?? 0);
+  if (declaredBytes > MAX_IMPORT_STRUCTURE_BYTES) return json({ code: "invalid_export", error: "export structure too large" }, 413);
+  const text = await request.text();
+  if (text.length > MAX_IMPORT_STRUCTURE_BYTES) return json({ code: "invalid_export", error: "export structure too large" }, 413);
+  let body: Record<string, unknown>;
+  try {
+    const value: unknown = JSON.parse(text);
+    if (!isRecord(value)) return invalid("invalid export");
+    body = value;
+  } catch {
+    return invalid("invalid export");
+  }
+  // Sessions are not part of this call: refuse them before parsing anything.
+  if (!Array.isArray(body.sessions) || body.sessions.length > 0) return invalid("sessions must be sent one by one");
+  const sessionIds = importedSessionIds(body.sessionIds);
+  if (!sessionIds) return invalid("invalid sessionIds");
+  let manifest;
+  try {
+    manifest = parseLocalExportManifest(body);
+  } catch (error) {
+    return invalid(error instanceof Error ? error.message : "invalid export");
+  }
+  try {
+    const result = await importStructure(cloudImportStore(env, principal), principal.id, {
+      batchIds: manifest.batches.map((batch) => batch.id),
+      collections: manifest.collections,
+      projects: manifest.projects,
+      sessionIds,
+    });
+    return json({ ok: true, ...result });
+  } catch (error) {
+    if (error instanceof ImportStructureError) return json({ code: "invalid_export", error: error.message }, error.status);
+    throw error;
+  }
+}
+
 async function renameProject(
   env: CloudEnv,
   principal: Principal,
@@ -8032,6 +8148,7 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
       ? json({ ok: true, tree: await projectTree(env, principal) }, 200, { "Cache-Control": "no-store" })
       : json({ error: "Unauthorized" }, 401);
   }
+  if (method === "POST" && path === "/api/import/structure") return importLocalStructure(request, env);
   if (method === "GET" && path === "/api/projects") {
     const principal = await resolvePrincipal(request, env);
     return principal

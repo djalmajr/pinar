@@ -873,7 +873,7 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
                       type="button"
                       onClick={() => void saveAiSettings()}
                     >
-                      {aiSettingsStatus === "saving" ? t("settings.aiTesting") : t("settings.aiTestAndSave")}
+                      {aiSettingsStatus === "saving" ? t("settings.aiTesting") : t("settings.aiSave")}
                     </Button>
                   </div>
                 </section>

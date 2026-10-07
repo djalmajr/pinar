@@ -3,9 +3,13 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ensurePinarHome, pinarHome } from "./paths.mjs";
 
+// The local server runs without a console; without windowsHide every vault
+// call would flash a PowerShell window on Windows.
+export const VAULT_COMMAND_SPAWN_OPTIONS = Object.freeze({ stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+
 function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(command, args, VAULT_COMMAND_SPAWN_OPTIONS);
     let stdout = "";
     let stderr = "";
     child.stdout.setEncoding("utf8");
@@ -122,14 +126,19 @@ export function createAiCredentialVault({ platform = process.platform, run = run
   };
 }
 
-export async function readAiSettings(root = pinarHome(), vault = createAiCredentialVault()) {
+/** The stored mode, endpoint and models, without touching the credential vault. */
+export function readAiSettingsMetadata(root = pinarHome()) {
   let stored = {};
   try {
     if (existsSync(settingsPath(root))) stored = JSON.parse(readFileSync(settingsPath(root), "utf8"));
   } catch {
     stored = {};
   }
-  const result = metadata(stored);
+  return metadata(stored);
+}
+
+export async function readAiSettings(root = pinarHome(), vault = createAiCredentialVault()) {
+  const result = readAiSettingsMetadata(root);
   const apiKey = result.mode === "byok" ? await vault.get() : null;
   return { ...result, ...(apiKey ? { apiKey } : {}), hasApiKey: Boolean(apiKey) };
 }

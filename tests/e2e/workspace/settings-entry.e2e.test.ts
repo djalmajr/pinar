@@ -113,7 +113,7 @@ test("AI settings tests the connection and saves with the transcription model", 
   await expect(transcription).toHaveValue("whisper-1");
   const removeButton = dialog.getByRole("button", { exact: true, name: "Remove API key" });
   const testButton = dialog.getByRole("button", { exact: true, name: "Test connection" });
-  const saveButton = dialog.getByRole("button", { exact: true, name: "Test and save" });
+  const saveButton = dialog.getByRole("button", { exact: true, name: "Save" });
   const providerBox = await provider.boundingBox();
   const endpointBox = await endpoint.boundingBox();
   const modelBox = await model.boundingBox();

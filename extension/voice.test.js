@@ -139,7 +139,8 @@ describe("voice pin recording helpers", () => {
     assert.doesNotMatch(backgroundSource, /Voice comments require the Pinar cloud server/);
     assert.match(backgroundSource, /localAi = settings\.storageMode === "local" \? await localAiAvailability\(\) : undefined/);
     assert.match(backgroundSource, /resolveVoiceAvailability\(settings\.storageMode, session, localAi\)/);
-    assert.match(backgroundSource, /localFetch\(base, "\/api\/ai\/settings"\)/);
+    assert.match(backgroundSource, /let response = await localFetch\(base, "\/api\/ai\/status"\)/);
+    assert.match(backgroundSource, /if \(response\.status === 404\) response = await localFetch\(base, "\/api\/ai\/settings"\)/);
     assert.match(backgroundSource, /body\.mode !== "disabled"[\s\S]*?typeof body\.transcriptionModel === "string"[\s\S]*?body\.transcriptionModel\.trim\(\) !== ""/);
     assert.match(backgroundSource, /localFetch\(base, "\/api\/ai\/voice-pin", \{ body: form, method: "POST" \}\)/);
     assert.match(contentSource, /local_ai_required: "overlay_voice_local_ai_required"/);
@@ -148,6 +149,53 @@ describe("voice pin recording helpers", () => {
     assert.match(backgroundSource, /remoteFetch\(cloudEndpoint\(settings\), "\/api\/ai\/voice-pin", \{ body: form, method: "POST" \}\)/);
     assert.match(backgroundSource, /message\.type === "voice:copy-transcript"[\s\S]*?writeClipboardPlain\(transcript\)/);
     assert.doesNotMatch(backgroundSource, /chrome\.storage\.[a-z]+\.set\([^)]*audioDataUrl/);
+  });
+
+  // Mutation captured: answering a cached positive check from the network re-opens the
+  // credential vault on every overlay open.
+  test("answers a positive local availability from memory until the server proves it down", () => {
+    const availabilityFn = backgroundSource.slice(
+      backgroundSource.indexOf("async function localAiAvailability()"),
+      backgroundSource.indexOf("async function fetchSavedViewerMarkdown"),
+    );
+    // The light status route never reads the vault; the settings route is a one-shot 404 fallback.
+    assert.match(availabilityFn, /let response = await localFetch\(base, "\/api\/ai\/status"\)/);
+    assert.match(availabilityFn, /if \(response\.status === 404\) response = await localFetch\(base, "\/api\/ai\/settings"\)/);
+    // voiceReady decides; the previous rule applies to the same body when it is absent.
+    assert.match(availabilityFn, /typeof body\.voiceReady === "boolean"[\s\S]*?body\.voiceReady[\s\S]*?body\.mode !== "disabled"/);
+    // A positive answer is cached and then answered without touching the server.
+    assert.match(availabilityFn, /if \(localAiPositivelyConfigured\) return \{ configured: true \};/);
+    assert.match(availabilityFn, /if \(configured\) localAiPositivelyConfigured = true;/);
+    // A negative or unknown answer never reaches the positive cache.
+    assert.doesNotMatch(availabilityFn, /localAiPositivelyConfigured = false/);
+    // The local check stays local: no cloud fetch in the availability path.
+    assert.doesNotMatch(availabilityFn, /remoteFetch|cloudEndpoint/);
+  });
+
+  test("drops the positive local availability cache on a down-AI failure or a mode change", () => {
+    const transcribeFn = backgroundSource.slice(
+      backgroundSource.indexOf("async function transcribeVoiceComment("),
+      backgroundSource.indexOf("async function responseBody("),
+    );
+    // Only the down-AI codes and the missing helper drop the cache, and only in local mode.
+    assert.match(backgroundSource, /const LOCAL_AI_DOWN_CODES = new Set\(\["ai_endpoint_unavailable", "ai_timeout", "ai_unavailable"\]\)/);
+    assert.match(transcribeFn, /settings\.storageMode === "local"[\s\S]*?error\?\.message === "helper_unavailable" \|\| LOCAL_AI_DOWN_CODES\.has\(error\?\.code\)/);
+    assert.match(transcribeFn, /localAiPositivelyConfigured = false/);
+    // Changing the storage mode drops the cache where settings are saved.
+    assert.match(backgroundSource, /if \(areaName === "sync" && changes\.storageMode\) \{[\s\S]*?localAiPositivelyConfigured = false;/);
+  });
+
+  // Mutation captured: re-showing "checking" on every refresh flickers the microphone on each open.
+  test("shows the checking state only while the page has no known voice state", () => {
+    const refreshFn = contentSource.slice(
+      contentSource.indexOf("async function refreshVoiceAvailability()"),
+      contentSource.indexOf("function blobDataUrl"),
+    );
+    assert.match(refreshFn, /if \(voiceAvailabilityReason === "checking"\) \{\s*voiceAvailable = false;\s*renderVoiceControls\(\);\s*\}/);
+    // The unconditional "checking" assignment that preceded the request must stay gone.
+    assert.doesNotMatch(refreshFn, /voiceAvailabilityReason = "checking"/);
+    // The fresh answer still wins when it arrives.
+    assert.match(refreshFn, /voiceAvailabilityReason = voiceAvailable[\s\S]*?Object\.hasOwn\(VOICE_AVAILABILITY_MESSAGE_KEYS, response\?\.reason\)/);
   });
 
   test("keeps every voice action compact and gives stop a full-size icon", () => {

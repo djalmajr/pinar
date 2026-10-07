@@ -5,6 +5,7 @@ import {
 import {
   createAiCredentialVault,
   readAiSettings,
+  readAiSettingsMetadata,
   writeAiSettings,
 } from "@pinar/cli/ai-settings";
 import {
@@ -210,6 +211,11 @@ export async function handleLocalAiRequest(
   database: LocalAiDatabase,
 ): Promise<Response | null> {
   const path = new URL(request.url).pathname;
+  if (request.method === "GET" && path === "/api/ai/status") {
+    // Cheap status for the extension's voice check: never reads the vault.
+    const { mode, transcriptionModel } = readAiSettingsMetadata(root);
+    return json({ mode, ok: true, transcriptionModel, voiceReady: mode !== "disabled" && transcriptionModel !== "" });
+  }
   if (request.method === "GET" && path === "/api/ai/settings") {
     return json({ ok: true, ...publicSettings(await readAiSettings(root, localAiVault())) });
   }

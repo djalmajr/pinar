@@ -204,6 +204,7 @@
     overlay_voice_use_transcript: "Use transcription",
     overlay_voice_ready: "Voice comment ready to review",
     overlay_voice_local_only: "Voice comments are available with Pinar Cloud on Pro.",
+    overlay_voice_local_ai_required: "Configure a transcription model in Pinar Settings → AI to use voice comments.",
     overlay_voice_checking: "Checking voice availability…",
     overlay_voice_sign_in_required: "Sign in to Pinar Cloud to use voice comments.",
     overlay_voice_pro_required: "Voice comments are available only to Pinar Pro subscribers.",
@@ -272,6 +273,7 @@
   const VOICE_AVAILABILITY_MESSAGE_KEYS = {
     checking: "overlay_voice_checking",
     cloud_required: "overlay_voice_local_only",
+    local_ai_required: "overlay_voice_local_ai_required",
     pro_required: "overlay_voice_pro_required",
     sign_in_required: "overlay_voice_sign_in_required",
     unavailable: "overlay_voice_unavailable",

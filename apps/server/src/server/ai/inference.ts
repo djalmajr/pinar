@@ -132,6 +132,27 @@ interface OpenAiCompatibleDependencies {
   fetch?: typeof fetch;
 }
 
+export interface AiTranscriptionOptions {
+  filename?: string;
+  language?: string;
+  model: string;
+  signal?: AbortSignal;
+}
+
+export interface AiTranscriptionResult {
+  duration?: number;
+  language?: string;
+  text: string;
+  truncated?: boolean;
+}
+
+export interface OpenAiCompatibleProvider extends AiInferenceProvider {
+  transcribe(audio: Blob, options: AiTranscriptionOptions): Promise<AiTranscriptionResult>;
+}
+
+// Confirmed limit of the reference OpenAI-compatible ASR appliance.
+const TRANSCRIPTION_TIMEOUT_MS = 180_000;
+
 function endpointUrl(endpoint: string, suffix: string) {
   let url: URL;
   try {
@@ -176,7 +197,9 @@ function classifyHttpError(response: Response): AiInferenceError {
 
 async function request(fetcher: typeof fetch, url: string, init: RequestInit, timeoutMs: number) {
   try {
-    return await fetcher(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+    // redirect: "error" so a Bearer key is never taken to another host by a
+    // redirect; the refusal surfaces as the usual endpoint error below.
+    return await fetcher(url, { ...init, redirect: "error", signal: AbortSignal.timeout(timeoutMs) });
   } catch (error) {
     if (error instanceof DOMException && (error.name === "AbortError" || error.name === "TimeoutError")) {
       throw new AiInferenceError("ai_timeout", "The AI endpoint timed out");
@@ -188,7 +211,7 @@ async function request(fetcher: typeof fetch, url: string, init: RequestInit, ti
 export function openAiCompatibleProvider(
   config: AiProviderConfig,
   dependencies: OpenAiCompatibleDependencies = {},
-): AiInferenceProvider {
+): OpenAiCompatibleProvider {
   const fetcher = dependencies.fetch ?? fetch;
   const headers = () => {
     const value = new Headers({ "Content-Type": "application/json" });
@@ -243,6 +266,57 @@ export function openAiCompatibleProvider(
         throw new AiInferenceError("ai_model_unavailable", "The configured model is not available at this endpoint");
       }
       return { model: config.model, ok: true, provider: config.mode };
+    },
+    async transcribe(audio, options) {
+      // The reference ASR appliance only confirmed file, model and language;
+      // response_format is deliberately not sent.
+      const form = new FormData();
+      if (options.filename) {
+        // A File keeps its own name in FormData even when append carries a
+        // filename, so the bytes of a File go through a plain Blob: the
+        // provider sees the requested name, never a client-controlled one.
+        if (audio instanceof File) {
+          form.append("file", new Blob([new Uint8Array(await audio.arrayBuffer())], { type: audio.type }), options.filename);
+        } else {
+          form.append("file", audio, options.filename);
+        }
+      } else {
+        form.append("file", audio);
+      }
+      form.append("model", options.model);
+      if (options.language) form.append("language", options.language);
+      const transcriptionHeaders = new Headers();
+      if (config.apiKey) transcriptionHeaders.set("Authorization", `Bearer ${config.apiKey}`);
+      let response: Response;
+      try {
+        response = await fetcher(endpointUrl(config.endpoint, "audio/transcriptions"), {
+          body: form,
+          headers: transcriptionHeaders,
+          method: "POST",
+          // Same redirect refusal as the JSON routes: the Bearer key must
+          // never follow a redirect, so it becomes the endpoint error below.
+          redirect: "error",
+          signal: options.signal ?? AbortSignal.timeout(TRANSCRIPTION_TIMEOUT_MS),
+        });
+      } catch (error) {
+        if (error instanceof DOMException && (error.name === "AbortError" || error.name === "TimeoutError")) {
+          throw new AiInferenceError("ai_timeout", "The AI endpoint timed out");
+        }
+        throw new AiInferenceError("ai_endpoint_unavailable", "The AI endpoint could not be reached");
+      }
+      if (!response.ok) throw classifyHttpError(response);
+      const body = await responseBody(response);
+      if (!record(body)) {
+        throw new AiInferenceError("invalid_ai_response", "The AI endpoint returned an invalid transcription response");
+      }
+      const text = typeof body.text === "string" ? body.text.trim() : "";
+      if (!text) throw new AiInferenceError("invalid_ai_response", "The AI endpoint returned no transcript");
+      return {
+        duration: positiveNumber(body.duration) || undefined,
+        language: typeof body.language === "string" && body.language ? body.language : undefined,
+        text,
+        truncated: response.headers.get("x-asr-truncated")?.toLowerCase() === "true" ? true : undefined,
+      };
     },
   };
 }

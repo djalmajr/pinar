@@ -13,3 +13,5 @@ export * from "./pin-review/index.js";
 export * from "./loop-metrics/index.js";
 export * from "./capture-destination/index.js";
 export * from "./collections/display-name.js";
+export * from "./archive/stored-zip.js";
+export * from "./local-export/index.js";

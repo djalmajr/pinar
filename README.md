@@ -74,6 +74,10 @@ A history record is a session containing one or more captures. Opening it always
 
 PNG crops go to `~/.pinar/shots` (Windows: `%USERPROFILE%\.pinar\shots`). The extension cannot write that folder by itself — on macOS, **Pinar.app** starts the local service (menu bar: Start if it shows Off). If the connection is not available, open Pinar and try the capture again.
 
+### Move local data to Pinar Cloud
+
+In the local app, **Settings → Data → Export data** downloads a `.zip` with your projects, collections, batches, sessions and their screenshots (only screenshots stored inside `~/.pinar`). In Pinar Cloud, **Settings → Data → Import data** reads that file in the browser and uploads it one session at a time, with progress and a Cancel button. Importing the same file again updates what was already imported instead of duplicating it. The local Personal project and Inbox land in the account's own; everything else gets new ids in the cloud, so an export never touches records that already exist there.
+
 ## Agent access to sessions (MCP)
 
 Coding agents can read stored sessions, manage the local organization, and work on the pin conversations through the Model Context Protocol.

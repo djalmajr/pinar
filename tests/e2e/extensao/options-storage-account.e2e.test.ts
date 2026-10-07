@@ -146,6 +146,19 @@ async function installOptionsHarness(page: Page, { development = false, platform
             }
             return { ok: true, session: authSession() };
           }
+          if (message.type === "voice:availability") {
+            // Mirrors the background rule: local AI configured, or cloud Pro.
+            const mode = settings().storageMode === "cloud" ? "cloud" : "local";
+            if (mode === "local") {
+              const available = localStorage.getItem("pinar-e2e-local-voice-available") === "1";
+              return available
+                ? { available: true, ok: true, reason: null }
+                : { available: false, ok: true, reason: "local_ai_required" };
+            }
+            return identity() === "account"
+              ? { available: true, ok: true, reason: null }
+              : { available: false, ok: true, reason: identity() === "installation" ? "sign_in_required" : "pro_required" };
+          }
           if (message.type === "storage:status") {
             const requestNumber = JSON.parse(localStorage.getItem(MESSAGES_KEY) || "[]")
               .filter((entry: { type?: string }) => entry.type === "storage:status").length;
@@ -390,6 +403,17 @@ test("an older account status cannot finish a newer storage mode load", async ({
   await expect(page.getByRole("status")).toHaveCount(0);
   await expect(page.getByText("contato@pinar.dev (PRO)", { exact: true })).toBeVisible();
   await expect(page.getByRole("switch", { name: "Save Annotation History" })).toBeVisible();
+});
+
+test("local mode shows the voice preference only when the local AI is configured", async ({ page }) => {
+  await installOptionsHarness(page);
+  await expect(page.getByRole("radio", { name: /Local Server/ })).toBeChecked();
+  await expect(page.getByRole("switch", { name: "Clean up transcription with AI" })).toHaveCount(0);
+
+  await page.evaluate(() => localStorage.setItem("pinar-e2e-local-voice-available", "1"));
+  await page.reload();
+  await expect(page.getByRole("radio", { name: /Local Server/ })).toBeChecked();
+  await expect(page.getByRole("switch", { name: "Clean up transcription with AI" })).toBeVisible();
 });
 
 test("storage mode persists immediately and opens the matching app", async ({ page }) => {

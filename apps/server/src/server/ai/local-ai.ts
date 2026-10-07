@@ -14,12 +14,14 @@ import {
   type AiProviderConfig,
   type AiProviderKind,
   type AiPrompt,
+  type OpenAiCompatibleProvider,
 } from "./inference";
 import {
   REPRODUCTION_INSTRUCTIONS,
   parseGenerated,
   reproductionPromptInput,
 } from "./reproduction";
+import { handleLocalVoiceRequest } from "./local-voice";
 
 interface LocalSession extends Session {
   shotPath?: string | null;
@@ -55,7 +57,7 @@ export function resetLocalAiForTests() {
   vaultOverride = undefined;
 }
 
-function vault() {
+export function localAiVault() {
   return vaultOverride ?? createAiCredentialVault();
 }
 
@@ -80,7 +82,7 @@ function language(value: string) {
   return OUTPUT_LANGUAGES.has(value) ? value : "en";
 }
 
-function json(value: unknown, status = 200) {
+export function json(value: unknown, status = 200) {
   return Response.json(value, { headers: { "Cache-Control": "no-store" }, status });
 }
 
@@ -97,11 +99,12 @@ function publicSettings(settings: Awaited<ReturnType<typeof readAiSettings>>) {
     hasApiKey: settings.hasApiKey,
     mode: settings.mode,
     model: settings.model,
+    transcriptionModel: settings.transcriptionModel,
   };
 }
 
-async function configuredProvider(root: string, candidate?: Record<string, unknown>): Promise<AiInferenceProvider> {
-  const stored = await readAiSettings(root, vault());
+export async function configuredProvider(root: string, candidate?: Record<string, unknown>): Promise<OpenAiCompatibleProvider> {
+  const stored = await readAiSettings(root, localAiVault());
   const mode = candidate?.mode === "local" || candidate?.mode === "byok" ? candidate.mode : stored.mode;
   if (mode !== "local" && mode !== "byok") {
     throw new AiInferenceError("ai_endpoint_unavailable", "Configure Local AI or BYOK in Settings before using AI");
@@ -121,7 +124,7 @@ async function configuredProvider(root: string, candidate?: Record<string, unkno
   return openAiCompatibleProvider(config, { fetch: fetchOverride });
 }
 
-function inferenceError(error: unknown) {
+export function inferenceError(error: unknown) {
   if (!(error instanceof AiInferenceError)) {
     return json({ code: "ai_inference_failed", error: "AI inference failed" }, 503);
   }
@@ -208,10 +211,10 @@ export async function handleLocalAiRequest(
 ): Promise<Response | null> {
   const path = new URL(request.url).pathname;
   if (request.method === "GET" && path === "/api/ai/settings") {
-    return json({ ok: true, ...publicSettings(await readAiSettings(root, vault())) });
+    return json({ ok: true, ...publicSettings(await readAiSettings(root, localAiVault())) });
   }
   if (request.method === "DELETE" && path === "/api/ai/settings/key") {
-    const credentialVault = vault();
+    const credentialVault = localAiVault();
     await credentialVault.clear();
     return json({ ok: true, ...publicSettings(await readAiSettings(root, credentialVault)) });
   }
@@ -219,7 +222,7 @@ export async function handleLocalAiRequest(
     const input = await body(request);
     try {
       if (input.mode === "disabled") {
-        const saved = await writeAiSettings({ mode: "disabled" }, root, vault());
+        const saved = await writeAiSettings({ mode: "disabled" }, root, localAiVault());
         return json({ ok: true, ...publicSettings(saved) });
       }
       const provider = await configuredProvider(root, input);
@@ -229,8 +232,9 @@ export async function handleLocalAiRequest(
         endpoint: stringValue(input, "endpoint"),
         mode: input.mode,
         model: provider.model,
-      }, root, vault());
-      const stored = saved.mode === "byok" ? await readAiSettings(root, vault()) : saved;
+        transcriptionModel: stringValue(input, "transcriptionModel"),
+      }, root, localAiVault());
+      const stored = saved.mode === "byok" ? await readAiSettings(root, localAiVault()) : saved;
       return json({ ok: true, tested, ...publicSettings(stored) });
     } catch (error) {
       return inferenceError(error);
@@ -245,5 +249,6 @@ export async function handleLocalAiRequest(
     }
   }
   if (request.method === "POST" && path === "/api/ai/reproduction") return reproduction(request, root, database);
+  if (request.method === "POST" && path === "/api/ai/voice-pin") return handleLocalVoiceRequest(request, root);
   return null;
 }

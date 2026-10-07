@@ -2680,3 +2680,121 @@ describe("remote installation isolation", () => {
     assert.deepEqual(afterDelete.comments, []);
   });
 });
+
+describe("local export import", () => {
+  beforeEach(() => resetCloudMemoryStateForTests());
+
+  function exportManifest(overrides: Record<string, unknown> = {}) {
+    return {
+      batches: [],
+      collections: [
+        { createdAt: "2026-10-01T00:00:00.000Z", id: "localInbox01", isProtected: true, name: "Inbox", parentId: null, position: 0, projectId: "localPersonal", updatedAt: "2026-10-01T00:00:00.000Z" },
+        { createdAt: "2026-10-01T00:00:00.000Z", id: "workRoot0001", isProtected: false, name: "Root", parentId: null, position: 0, projectId: "workProject1", updatedAt: "2026-10-01T00:00:00.000Z" },
+        { createdAt: "2026-10-01T00:00:00.000Z", id: "workChild001", isProtected: false, name: "Child", parentId: "workRoot0001", position: 0, projectId: "workProject1", updatedAt: "2026-10-01T00:00:00.000Z" },
+      ],
+      exportedAt: "2026-10-07T00:00:00.000Z",
+      format: "pinar-local-export",
+      projects: [
+        { createdAt: "2026-10-01T00:00:00.000Z", icon: "user-round", id: "localPersonal", isProtected: true, name: "Personal", position: 0, updatedAt: "2026-10-01T00:00:00.000Z" },
+        { createdAt: "2026-10-01T00:00:00.000Z", icon: "briefcase", id: "workProject1", isProtected: false, name: "Work", position: 1, updatedAt: "2026-10-01T00:00:00.000Z" },
+      ],
+      schemaVersion: 1,
+      sessions: [],
+      source: { runtime: "local", version: "0.7.0" },
+      ...overrides,
+    };
+  }
+
+  function importStructureRequest(identity: typeof identityA | null, body: unknown) {
+    return api("/api/import/structure", {
+      body: JSON.stringify(body),
+      headers: identity ? identityHeaders(identity, { "content-type": "application/json" }) : { "content-type": "application/json" },
+      method: "POST",
+    });
+  }
+
+  function importBody(overrides: Record<string, unknown> = {}) {
+    return { ...exportManifest(), sessionIds: ["localSession01"], ...overrides };
+  }
+
+  test("imports projects and collections under owner-derived ids and maps personal and inbox onto the account's", async () => {
+    assert.equal((await register(identityA)).status, 201);
+    const response = await importStructureRequest(identityA, importBody());
+    assert.equal(response.status, 200);
+    const body = await jsonBody(response);
+    assert.ok(isRecord(body.projectIds) && isRecord(body.collectionIds) && isRecord(body.sessionIds) && isRecord(body.batchIds));
+    const workId = body.projectIds.workProject1;
+    assert.ok(typeof workId === "string" && workId !== "workProject1");
+    assert.match(String(body.sessionIds.localSession01), /^[A-Za-z0-9_-]{22}$/);
+    const tree = await jsonBody(await api("/api/project-tree", { headers: identityHeaders(identityA) }));
+    assert.ok(isRecord(tree.tree) && Array.isArray(tree.tree.projects));
+    const personal = tree.tree.projects.find((project: Record<string, unknown>) => project.isProtected);
+    const work = tree.tree.projects.find((project: Record<string, unknown>) => project.id === workId);
+    assert.ok(isRecord(personal) && isRecord(work));
+    assert.equal(body.projectIds.localPersonal, personal.id);
+    assert.ok(Array.isArray(personal.collections) && isRecord(personal.collections[0]));
+    assert.equal(body.collectionIds.localInbox01, personal.collections[0].id);
+    assert.ok(Array.isArray(work.collections));
+    const child = work.collections.find((collection: Record<string, unknown>) => collection.id === body.collectionIds.workChild001);
+    assert.ok(isRecord(child));
+    assert.equal(child.parentId, body.collectionIds.workRoot0001);
+
+    const again = await jsonBody(await importStructureRequest(identityA, importBody()));
+    assert.deepEqual(again, body);
+    const treeAgain = await jsonBody(await api("/api/project-tree", { headers: identityHeaders(identityA) }));
+    assert.ok(isRecord(treeAgain.tree) && Array.isArray(treeAgain.tree.projects));
+    assert.equal(treeAgain.tree.projects.length, 2);
+  });
+
+  test("gives another account its own stable ids for the same export", async () => {
+    await register(identityA);
+    await register(identityB);
+    const mine = await jsonBody(await importStructureRequest(identityA, importBody()));
+    const first = await jsonBody(await importStructureRequest(identityB, importBody()));
+    const second = await jsonBody(await importStructureRequest(identityB, importBody()));
+    assert.deepEqual(second, first);
+    assert.ok(isRecord(mine.projectIds) && isRecord(first.projectIds) && isRecord(mine.sessionIds) && isRecord(first.sessionIds));
+    assert.notEqual(first.projectIds.workProject1, mine.projectIds.workProject1);
+    assert.notEqual(first.sessionIds.localSession01, mine.sessionIds.localSession01);
+    const tree = await jsonBody(await api("/api/project-tree", { headers: identityHeaders(identityB) }));
+    assert.ok(isRecord(tree.tree) && Array.isArray(tree.tree.projects));
+    assert.equal(tree.tree.projects.length, 2);
+  });
+
+  test("cannot reach the account's protected inbox through a forged collection id", async () => {
+    await register(identityA);
+    const tree = await jsonBody(await api("/api/project-tree", { headers: identityHeaders(identityA) }));
+    assert.ok(isRecord(tree.tree) && Array.isArray(tree.tree.projects));
+    const personal = tree.tree.projects.find((project: Record<string, unknown>) => project.isProtected);
+    assert.ok(isRecord(personal) && Array.isArray(personal.collections) && isRecord(personal.collections[0]));
+    const inboxId = String(personal.collections[0].id);
+    const forged = exportManifest();
+    forged.collections[1] = { ...forged.collections[1], id: inboxId, name: "Renamed" };
+    forged.collections[2] = { ...forged.collections[2], parentId: inboxId };
+    assert.equal((await importStructureRequest(identityA, { ...forged, sessionIds: [] })).status, 200);
+    const after = await jsonBody(await api("/api/project-tree", { headers: identityHeaders(identityA) }));
+    assert.ok(isRecord(after.tree) && Array.isArray(after.tree.projects));
+    const personalAfter = after.tree.projects.find((project: Record<string, unknown>) => project.isProtected);
+    assert.ok(isRecord(personalAfter) && Array.isArray(personalAfter.collections));
+    const inbox = personalAfter.collections.find((collection: Record<string, unknown>) => collection.id === inboxId);
+    assert.ok(isRecord(inbox));
+    assert.equal(inbox.name, personal.collections[0].name);
+  });
+
+  test("refuses sessions in the structure call and malformed session ids", async () => {
+    await register(identityA);
+    const withSessions = await importStructureRequest(identityA, importBody({ sessions: [{ id: "x" }] }));
+    assert.equal(withSessions.status, 400);
+    assert.equal((await importStructureRequest(identityA, importBody({ sessionIds: ["../bad"] }))).status, 400);
+    assert.equal((await importStructureRequest(identityA, importBody({ sessionIds: ["dup", "dup"] }))).status, 400);
+    assert.equal((await importStructureRequest(identityA, importBody({ sessionIds: undefined }))).status, 400);
+  });
+
+  test("refuses anonymous requests and invalid exports", async () => {
+    await register(identityA);
+    assert.equal((await importStructureRequest(null, importBody())).status, 401);
+    const invalid = await importStructureRequest(identityA, importBody({ format: "other" }));
+    assert.equal(invalid.status, 400);
+    assert.equal((await jsonBody(invalid)).code, "invalid_export");
+  });
+});

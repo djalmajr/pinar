@@ -815,10 +815,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message.type === "voice:availability") {
     Promise.all([getSettings(), getAuthSession()])
-      .then(([settings, session]) => sendResponse({
-        ...resolveVoiceAvailability(settings.storageMode, session),
-        ok: true,
-      }))
+      .then(async ([settings, session]) => {
+        const localAi = settings.storageMode === "local" ? await localAiAvailability() : undefined;
+        sendResponse({
+          ...resolveVoiceAvailability(settings.storageMode, session, localAi),
+          ok: true,
+        });
+      })
       .catch((error) => sendResponse({ available: false, error: String(error), ok: false, reason: "unavailable" }));
     return true;
   }
@@ -1864,6 +1867,24 @@ async function localFetch(base, path, init = {}) {
   return response;
 }
 
+// Local AI status for the voice availability check. A network failure or a
+// non-OK response means the status is unknown (null), not "not configured".
+async function localAiAvailability() {
+  try {
+    const base = await findShotBase();
+    if (!base) return null;
+    const response = await localFetch(base, "/api/ai/settings");
+    const body = await responseBody(response);
+    if (!response.ok) return null;
+    const configured = body.mode !== "disabled"
+      && typeof body.transcriptionModel === "string"
+      && body.transcriptionModel.trim() !== "";
+    return { configured };
+  } catch {
+    return null;
+  }
+}
+
 async function fetchSavedViewerMarkdown(settings, captureId) {
   const path = `/v/${encodeURIComponent(captureId)}.md`;
   const response = settings.storageMode === "cloud"
@@ -1964,7 +1985,6 @@ function audioBlobFromDataUrl(value) {
 
 async function transcribeVoiceComment(message) {
   const settings = await getSettings();
-  if (settings.storageMode !== "cloud") throw new Error("Voice comments require the Pinar cloud server");
   const durationSeconds = Number(message.durationSeconds);
   if (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || durationSeconds > 120) {
     throw new Error("Voice recording must be between 1 and 120 seconds");
@@ -1975,7 +1995,13 @@ async function transcribeVoiceComment(message) {
   form.set("durationSeconds", String(durationSeconds));
   form.set("language", getBestLanguage(settings.language));
   form.set("requestId", typeof message.requestId === "string" ? message.requestId : "");
-  const response = await remoteFetch(cloudEndpoint(settings), "/api/ai/voice-pin", { body: form, method: "POST" });
+  const response = settings.storageMode === "cloud"
+    ? await remoteFetch(cloudEndpoint(settings), "/api/ai/voice-pin", { body: form, method: "POST" })
+    : await (async () => {
+      const base = await findShotBase();
+      if (!base) throw new Error("helper_unavailable");
+      return localFetch(base, "/api/ai/voice-pin", { body: form, method: "POST" });
+    })();
   const body = await responseBody(response);
   if (!response.ok || !body.result) {
     const error = new Error(body.error || "Voice transcription failed");

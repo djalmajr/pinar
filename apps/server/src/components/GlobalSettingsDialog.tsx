@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -37,18 +38,21 @@ import {
   Tabs,
   TabsList,
   TabsTrigger,
+  toast,
 } from "@pinar/ui";
 import { AgentAccessSettings } from "@/components/AgentAccessSettings";
-import { resolveSettingsSection, showsAiSettings, type SettingsSection } from "@/components/global-settings-sections";
+import { resolveSettingsSection, showsAiSection, showsAiSettings, type SettingsSection } from "@/components/global-settings-sections";
 import { isProjectTreeProject, isRecord } from "@/lib/api-data";
 import { isPaidAuthSession, useAuthSession } from "@/lib/auth-session";
 import { useDeliveryPreferences } from "@/lib/delivery-preferences";
 import { useServerI18n } from "@/lib/i18n";
 import { collectionDisplayName } from "@pinar/shared";
 import { isSupportedLanguage } from "@/lib/language";
+import { importLocalExport, LocalImportStoppedError, type LocalImportProgress } from "@/lib/local-import";
 import { findProductRelease, loadReleaseContent, type ProductRelease } from "@/lib/release-content";
 import { pinarRuntime } from "@/lib/server-header";
 import { SERVER_BUILD, SERVER_VERSION, SERVER_VERSION_LABEL } from "@/lib/version";
+import DatabaseIcon from "~icons/lucide/database";
 import InfoIcon from "~icons/lucide/info";
 import ExternalLinkIcon from "~icons/lucide/external-link";
 import FolderIcon from "~icons/lucide/folder";
@@ -66,6 +70,8 @@ import XIcon from "~icons/lucide/x";
 type ThemeMode = "dark" | "light" | "system";
 type AiUsageStatus = "idle" | "loading" | "ready" | "unavailable";
 type AiUsageFeature = "voice_pin";
+type AiMode = "byok" | "disabled" | "local";
+type AiSettingsStatus = "clearing" | "idle" | "loading" | "ready" | "saving" | "testing";
 
 interface AiUsageHistoryEntry {
   completedAt: string | null;
@@ -73,6 +79,16 @@ interface AiUsageHistoryEntry {
   credits: number;
   feature: AiUsageFeature;
   status: "refunded" | "reserved" | "succeeded";
+}
+
+interface LocalAiSettings {
+  apiKey: string;
+  apiKeyPreview: string;
+  endpoint: string;
+  hasApiKey: boolean;
+  mode: AiMode;
+  model: string;
+  transcriptionModel: string;
 }
 
 interface GlobalSettingsDialogProps {
@@ -195,6 +211,13 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
   } = useDeliveryPreferences();
   const { language, languageName, setLanguage, t } = useServerI18n();
   const [section, setSection] = useState<SettingsSection>("general");
+  const [aiSettings, setAiSettings] = useState<LocalAiSettings>({ apiKey: "", apiKeyPreview: "", endpoint: "", hasApiKey: false, mode: "disabled", model: "", transcriptionModel: "" });
+  const [aiSettingsStatus, setAiSettingsStatus] = useState<AiSettingsStatus>("idle");
+  const [importProgress, setImportProgress] = useState<LocalImportProgress | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const aiFeedbackToastId = useRef<string | number | null>(null);
+  const importAbortRef = useRef<AbortController | null>(null);
+  const importFeedbackToastId = useRef<string | number | null>(null);
   const [aiUsage, setAiUsage] = useState<AiUsageHistoryEntry[]>([]);
   const [aiUsageStatus, setAiUsageStatus] = useState<AiUsageStatus>("idle");
   const [theme, setTheme] = useState<ThemeMode>("system");
@@ -204,6 +227,7 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
   const authSession = useAuthSession();
   const showPaidAi = runtime === "cloud" && isPaidAuthSession(authSession);
   const showAiSettings = showsAiSettings(runtime, isPaidAuthSession(authSession));
+  const showLocalAi = showsAiSection(runtime);
   const showAgentAccess = runtime === "cloud";
   const [currentRelease, setCurrentRelease] = useState<ProductRelease | null>();
 
@@ -260,6 +284,42 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
   }, [open, showPaidAi]);
 
   useEffect(() => {
+    if (!open || runtime !== "local") return undefined;
+    const controller = new AbortController();
+    setAiSettingsStatus("loading");
+    void fetch("/api/ai/settings", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const value: unknown = await response.json().catch(() => null);
+        if (!response.ok || !isRecord(value)) throw new Error(t("settings.aiUnavailable"));
+        if (value.mode !== "disabled" && value.mode !== "local" && value.mode !== "byok") throw new Error(t("settings.aiUnavailable"));
+        setAiSettings({
+          apiKey: "",
+          apiKeyPreview: typeof value.apiKeyPreview === "string" ? value.apiKeyPreview : "",
+          endpoint: typeof value.endpoint === "string" ? value.endpoint : "",
+          hasApiKey: value.hasApiKey === true,
+          mode: value.mode,
+          model: typeof value.model === "string" ? value.model : "",
+          transcriptionModel: typeof value.transcriptionModel === "string" ? value.transcriptionModel : "",
+        });
+        setAiSettingsStatus("ready");
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) return;
+        aiFeedbackToastId.current = toast.error(error instanceof Error ? error.message : t("settings.aiUnavailable"));
+        setAiSettingsStatus("ready");
+      });
+    return () => controller.abort();
+  }, [open, runtime, t]);
+
+  // A closing dialog or an unmounted component stops a running import, so the
+  // progress state cannot outlive the UI that shows it.
+  useEffect(() => {
+    return () => {
+      importAbortRef.current?.abort();
+    };
+  }, [open]);
+
+  useEffect(() => {
     if (!open) return;
     let cancelled = false;
     void loadReleaseContent(language)
@@ -303,10 +363,12 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
     ? t("settings.aboutTitle")
     : section === "agentAccess"
       ? t("settings.agentAccess")
-    : section === "aiUsage"
+    : section === "ai" || section === "aiUsage"
       ? t("settings.ai")
     : section === "capture"
       ? t("settings.capture")
+    : section === "data"
+      ? t("settings.data")
       : section === "interface"
         ? t("settings.interface")
         : t("settings.general");
@@ -316,11 +378,150 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
       ? t("settings.agentAccessDescription")
     : section === "aiUsage"
       ? t("settings.aiUsageDescription")
+    : section === "ai"
+      ? t("settings.aiDescription")
     : section === "capture"
       ? t("settings.captureDescription")
+      : section === "data"
+        ? t("settings.dataDescription")
       : section === "interface"
         ? t("settings.interfaceDescription")
         : t("settings.generalDescription");
+  // The form is locked while the initial load has not finished or a request is
+  // in flight; the fields themselves stay editable while only the load is pending.
+  const aiFormBusy = aiSettingsStatus !== "ready" && aiSettingsStatus !== "idle";
+  const aiWriteBusy = aiSettingsStatus === "saving" || aiSettingsStatus === "clearing" || aiSettingsStatus === "testing";
+
+  function aiSettingsPayload() {
+    return {
+      endpoint: aiSettings.endpoint,
+      mode: aiSettings.mode,
+      model: aiSettings.model,
+      transcriptionModel: aiSettings.transcriptionModel,
+      // The key is only sent when the user typed a new one; an empty field
+      // keeps the stored key untouched.
+      ...(aiSettings.apiKey ? { apiKey: aiSettings.apiKey } : {}),
+    };
+  }
+
+  // Sonner deletes a toast by id in a later animation frame, so a new toast with the
+  // same id created within that window is the one that gets deleted. Result toasts
+  // therefore never reuse a fixed id; the previous id is tracked to clear stale feedback.
+  function clearAiFeedback() {
+    if (aiFeedbackToastId.current !== null) {
+      toast.dismiss(aiFeedbackToastId.current);
+      aiFeedbackToastId.current = null;
+    }
+  }
+  function clearImportFeedback() {
+    if (importFeedbackToastId.current !== null) {
+      toast.dismiss(importFeedbackToastId.current);
+      importFeedbackToastId.current = null;
+    }
+  }
+
+  async function testAiConnection() {
+    setAiSettingsStatus("testing");
+    clearAiFeedback();
+    try {
+      const response = await fetch("/api/ai/settings/test", {
+        body: JSON.stringify(aiSettingsPayload()),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      });
+      const value: unknown = await response.json().catch(() => null);
+      if (!response.ok || !isRecord(value) || value.ok !== true) {
+        throw new Error(isRecord(value) && typeof value.error === "string" ? value.error : t("settings.aiUnavailable"));
+      }
+      const testedModel = typeof value.model === "string" ? value.model : aiSettings.model;
+      aiFeedbackToastId.current = toast.success(t("settings.aiConnectionOk", { model: testedModel }));
+    } catch (error) {
+      aiFeedbackToastId.current = toast.error(error instanceof Error ? error.message : t("settings.aiUnavailable"));
+    } finally {
+      setAiSettingsStatus("ready");
+    }
+  }
+
+  async function saveAiSettings() {
+    setAiSettingsStatus("saving");
+    clearAiFeedback();
+    try {
+      const response = await fetch("/api/ai/settings", {
+        body: JSON.stringify(aiSettingsPayload()),
+        headers: { "Content-Type": "application/json" },
+        method: "PATCH",
+      });
+      const value: unknown = await response.json().catch(() => null);
+      if (!response.ok || !isRecord(value)) {
+        throw new Error(isRecord(value) && typeof value.error === "string" ? value.error : t("settings.aiUnavailable"));
+      }
+      setAiSettings((current) => ({
+        ...current,
+        apiKey: "",
+        apiKeyPreview: typeof value.apiKeyPreview === "string" ? value.apiKeyPreview : current.apiKeyPreview,
+        hasApiKey: value.hasApiKey === true,
+      }));
+      const testedModel = isRecord(value.tested) && typeof value.tested.model === "string"
+        ? value.tested.model
+        : aiSettings.model;
+      aiFeedbackToastId.current = toast.success(t("settings.aiSaved", { model: testedModel }));
+    } catch (error) {
+      aiFeedbackToastId.current = toast.error(error instanceof Error ? error.message : t("settings.aiUnavailable"));
+    } finally {
+      setAiSettingsStatus("ready");
+    }
+  }
+
+  async function clearAiKey() {
+    setAiSettingsStatus("clearing");
+    clearAiFeedback();
+    try {
+      const response = await fetch("/api/ai/settings/key", { method: "DELETE" });
+      const value: unknown = await response.json().catch(() => null);
+      if (!response.ok || !isRecord(value)) {
+        throw new Error(isRecord(value) && typeof value.error === "string" ? value.error : t("settings.aiUnavailable"));
+      }
+      setAiSettings((current) => ({
+        ...current,
+        apiKey: "",
+        apiKeyPreview: "",
+        hasApiKey: false,
+      }));
+      aiFeedbackToastId.current = toast.success(t("settings.aiKeyRemoved"));
+    } catch (error) {
+      aiFeedbackToastId.current = toast.error(error instanceof Error ? error.message : t("settings.aiUnavailable"));
+    } finally {
+      setAiSettingsStatus("ready");
+    }
+  }
+
+  // Cloud-only data row: the local export is a plain file, so the browser does
+  // the whole job; the importer reports progress per session and stops on a
+  // fatal answer (auth, trial, quota) or an invalid file.
+  async function importLocalFile(file: File) {
+    clearImportFeedback();
+    setImportProgress({ done: 0, failed: 0, total: 0 });
+    const controller = new AbortController();
+    importAbortRef.current = controller;
+    try {
+      const result = await importLocalExport(file, { onProgress: (progress) => setImportProgress(progress), signal: controller.signal });
+      if (result.failed.length > 0) {
+        importFeedbackToastId.current = toast.error(t("settings.importPartial", { count: result.imported, failed: result.failed.length }));
+      } else {
+        importFeedbackToastId.current = toast.success(t("settings.importDone", { count: result.imported }));
+      }
+    } catch (error) {
+      if (error instanceof LocalImportStoppedError && error.invalidFile) {
+        importFeedbackToastId.current = toast.error(t("settings.importInvalid"));
+      } else {
+        importFeedbackToastId.current = toast.error(t("settings.importStopped", { error: error instanceof Error ? error.message : String(error) }));
+      }
+    } finally {
+      setImportProgress(null);
+      if (importAbortRef.current === controller) importAbortRef.current = null;
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
 
   function selectTheme(nextTheme: ThemeMode) {
     setTheme(nextTheme);
@@ -384,6 +585,26 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
                 <MonitorIcon />
                 {t("settings.interfaceNav")}
               </Button>
+              {showLocalAi ? (
+                <Button
+                  aria-current={section === "ai" ? "page" : undefined}
+                  className={settingsNavButtonClass(section === "ai")}
+                  variant="ghost"
+                  onClick={() => setSection("ai")}
+                >
+                  <HistoryIcon />
+                  {t("settings.ai")}
+                </Button>
+              ) : null}
+              <Button
+                aria-current={section === "data" ? "page" : undefined}
+                className={settingsNavButtonClass(section === "data")}
+                variant="ghost"
+                onClick={() => setSection("data")}
+              >
+                <DatabaseIcon />
+                {t("settings.data")}
+              </Button>
               {showAiSettings ? (
                 <Button
                   aria-current={section === "aiUsage" ? "page" : undefined}
@@ -424,6 +645,8 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
               <Button size="sm" variant={section === "capture" ? "secondary" : "ghost"} onClick={() => setSection("capture")}>{t("settings.captureNav")}</Button>
               {showAgentAccess ? <Button size="sm" variant={section === "agentAccess" ? "secondary" : "ghost"} onClick={() => setSection("agentAccess")}><KeyRoundIcon />{t("settings.agentAccess")}</Button> : null}
               <Button size="sm" variant={section === "interface" ? "secondary" : "ghost"} onClick={() => setSection("interface")}>{t("settings.interfaceNav")}</Button>
+              {showLocalAi ? <Button size="sm" variant={section === "ai" ? "secondary" : "ghost"} onClick={() => setSection("ai")}><HistoryIcon />{t("settings.ai")}</Button> : null}
+              <Button size="sm" variant={section === "data" ? "secondary" : "ghost"} onClick={() => setSection("data")}><DatabaseIcon />{t("settings.data")}</Button>
               {showAiSettings ? <Button size="sm" variant={section === "aiUsage" ? "secondary" : "ghost"} onClick={() => setSection("aiUsage")}>{t("settings.ai")}</Button> : null}
               <Button size="sm" variant={section === "about" ? "secondary" : "ghost"} onClick={() => setSection("about")}>{t("settings.about")}</Button>
             </nav>
@@ -537,6 +760,167 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
               {showAgentAccess ? <section className={cn("flex flex-col gap-5", section !== "agentAccess" && "hidden")}>
                 <AgentAccessSettings canCreate={showPaidAi} open={open && section === "agentAccess"} projects={projects} />
               </section> : null}
+              {showLocalAi ? (
+                <section className={cn("flex flex-col gap-5", section !== "ai" && "hidden")}>
+                  <SettingRow controlClassName="w-72" description={t("settings.aiModeDescription")} title={t("settings.aiMode")}>
+                    <Select
+                      disabled={aiFormBusy}
+                      items={[
+                        { label: t("settings.aiDisabled"), value: "disabled" },
+                        { label: t("settings.aiLocal"), value: "local" },
+                        { label: t("settings.aiByok"), value: "byok" },
+                      ]}
+                      value={aiSettings.mode}
+                      onValueChange={(value) => {
+                        if (value !== "disabled" && value !== "local" && value !== "byok") return;
+                        setAiSettings((current) => ({
+                          ...current,
+                          endpoint: value === "local" && !current.endpoint ? "http://127.0.0.1:11434/v1" : current.endpoint,
+                          mode: value,
+                        }));
+                      }}
+                    >
+                      <SelectTrigger aria-label={t("settings.aiMode")} className="w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent align="end">
+                        <SelectGroup>
+                          <SelectItem value="disabled">{t("settings.aiDisabled")}</SelectItem>
+                          <SelectItem value="local">{t("settings.aiLocal")}</SelectItem>
+                          <SelectItem value="byok">{t("settings.aiByok")}</SelectItem>
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </SettingRow>
+                  {aiSettings.mode !== "disabled" ? (
+                    <>
+                      <SettingRow controlClassName="w-72" description={t("settings.aiEndpointDescription")} title={t("settings.aiEndpoint")}>
+                        <Input
+                          aria-label={t("settings.aiEndpoint")}
+                          autoComplete="url"
+                          disabled={aiWriteBusy}
+                          placeholder="http://127.0.0.1:11434/v1"
+                          value={aiSettings.endpoint}
+                          onChange={(event) => {
+                            setAiSettings((current) => ({ ...current, endpoint: event.target.value }));
+                          }}
+                        />
+                      </SettingRow>
+                      <SettingRow controlClassName="w-72" description={t("settings.aiModelDescription")} title={t("settings.aiModel")}>
+                        <Input
+                          aria-label={t("settings.aiModel")}
+                          disabled={aiWriteBusy}
+                          placeholder="llama3.2"
+                          value={aiSettings.model}
+                          onChange={(event) => {
+                            setAiSettings((current) => ({ ...current, model: event.target.value }));
+                          }}
+                        />
+                      </SettingRow>
+                      <SettingRow controlClassName="w-72" description={t("settings.aiTranscriptionModelDescription")} title={t("settings.aiTranscriptionModel")}>
+                        <Input
+                          aria-label={t("settings.aiTranscriptionModel")}
+                          disabled={aiWriteBusy}
+                          value={aiSettings.transcriptionModel}
+                          onChange={(event) => {
+                            setAiSettings((current) => ({ ...current, transcriptionModel: event.target.value }));
+                          }}
+                        />
+                      </SettingRow>
+                      {aiSettings.mode === "byok" ? (
+                        <SettingRow controlClassName="w-72" description={t("settings.aiKeyDescription")} title={t("settings.aiKey")}>
+                          <div className="relative w-full">
+                            <Input
+                              aria-label={t("settings.aiKey")}
+                              autoComplete="off"
+                              className={cn("w-full", aiSettings.hasApiKey && "pr-9")}
+                              disabled={aiWriteBusy}
+                              placeholder={aiSettings.apiKeyPreview || (aiSettings.hasApiKey ? t("settings.aiKeyStored") : "sk-…")}
+                              type="password"
+                              value={aiSettings.apiKey}
+                              onChange={(event) => {
+                                setAiSettings((current) => ({ ...current, apiKey: event.target.value }));
+                              }}
+                            />
+                            {aiSettings.hasApiKey ? (
+                              <Button
+                                aria-label={t("settings.aiKeyRemove")}
+                                className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                disabled={aiWriteBusy}
+                                size="icon-xs"
+                                title={t("settings.aiKeyRemove")}
+                                type="button"
+                                variant="ghost"
+                                onClick={() => void clearAiKey()}
+                              >
+                                <XIcon className="size-3.5" />
+                              </Button>
+                            ) : null}
+                          </div>
+                        </SettingRow>
+                      ) : null}
+                    </>
+                  ) : null}
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      disabled={aiFormBusy}
+                      type="button"
+                      variant="outline"
+                      onClick={() => void testAiConnection()}
+                    >
+                      {aiSettingsStatus === "testing" ? t("settings.aiTesting") : t("settings.aiTestConnection")}
+                    </Button>
+                    <Button
+                      disabled={aiFormBusy}
+                      type="button"
+                      onClick={() => void saveAiSettings()}
+                    >
+                      {aiSettingsStatus === "saving" ? t("settings.aiTesting") : t("settings.aiTestAndSave")}
+                    </Button>
+                  </div>
+                </section>
+              ) : null}
+              <section className={cn("flex flex-col gap-5", section !== "data" && "hidden")}>
+                {runtime === "local" ? (
+                  <SettingRow controlClassName="w-72" description={t("settings.exportDataDescription")} title={t("settings.exportData")}>
+                    <Button render={<a download href="/api/export" />}>{t("settings.exportData")}</Button>
+                  </SettingRow>
+                ) : (
+                  <>
+                    <SettingRow controlClassName="w-72" description={t("settings.importDataDescription")} title={t("settings.importData")}>
+                      <Button disabled={importProgress !== null} type="button" onClick={() => fileInputRef.current?.click()}>
+                        {t("settings.importChoose")}
+                      </Button>
+                      <input
+                        accept=".zip,application/zip"
+                        aria-hidden="true"
+                        className="hidden"
+                        ref={fileInputRef}
+                        tabIndex={-1}
+                        type="file"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          if (file) void importLocalFile(file);
+                        }}
+                      />
+                    </SettingRow>
+                    {importProgress ? (
+                      <div className="flex flex-col gap-1" role="status">
+                        <div className="h-2 overflow-hidden rounded-full bg-muted">
+                          <div
+                            className="h-full rounded-full bg-primary transition-all"
+                            style={{ width: `${importProgress.total === 0 ? 0 : Math.min(100, Math.round((importProgress.done / importProgress.total) * 100))}%` }}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm text-muted-foreground">{t("settings.importProgress", { done: importProgress.done, total: importProgress.total })}</p>
+                          <Button type="button" onClick={() => importAbortRef.current?.abort()}>
+                            {t("settings.importCancel")}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </>
+                )}
+              </section>
               {showAiSettings ? <section className={cn("flex flex-col gap-3", section !== "aiUsage" && "hidden")}>
                   <div className="flex flex-col gap-3">
                     <SettingRow

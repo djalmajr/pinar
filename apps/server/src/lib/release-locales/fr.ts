@@ -22,6 +22,23 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.7.1": {
+      title: "Une icône Pinar plus stable sous Windows",
+      summary:
+        "L’icône de la zone de notification Windows redémarre après une fermeture forcée, quitte plus vite, travaille moins en arrière-plan et se remplace avant que la croissance mémoire de son runtime ne ralentisse l’ordinateur.",
+      changes: {
+        "tray-reliability": {
+          title: "L’icône démarre toujours et quitte plus vite",
+          description:
+            "Après une fermeture depuis le Gestionnaire des tâches, Pinar pouvait refuser de redémarrer tant qu’un fichier de verrou n’était pas supprimé à la main ; il reconnaît désormais que l’ancienne instance n’existe plus. Quitter depuis le menu n’attend plus les minuteries en arrière-plan, et l’icône ne reconstruit plus son menu ni ne relit le démarrage avec Windows toutes les deux secondes.",
+        },
+        "tray-memory-guard": {
+          title: "Protection contre la croissance mémoire de l’icône",
+          description:
+            "Le runtime de bureau sous l’icône continue de réserver de la mémoire même au repos. En attendant un correctif en amont, l’icône vérifie sa propre mémoire toutes les cinq minutes et, au-delà de 2 Go, se remplace discrètement par une nouvelle instance. Le serveur local continue de tourner, sans interrompre les captures ni les agents.",
+        },
+      },
+    },
     "v0.7.0": {
       title: "IA locale avec la voix, un chemin vers Pinar Cloud et une destination de capture plus claire",
       summary:

@@ -1,5 +1,6 @@
+import { spawn } from "node:child_process";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import Electrobun, { Tray, Updater, Utils } from "electrobun/main";
 import { claimInstanceLock } from "./instance-lock";
 import {
@@ -21,6 +22,11 @@ import {
 import { trayMenuLabels } from "./menu-labels";
 import { trayImageOptions } from "./tray-image";
 import { windowsSmallIconSize } from "./windows-dpi";
+import {
+	memoryCheckInterval,
+	shouldRestartForMemory,
+	windowsPrivateBytes,
+} from "./memory-guard";
 import { createQuitController } from "./tray-quit";
 import {
 	UPDATE_STATUS_DURATION_MS,
@@ -271,6 +277,8 @@ const updateTimer = setInterval(
 	6 * 60 * 60 * 1000,
 );
 
+let memoryTimer: ReturnType<typeof setInterval> | null = null;
+
 const quit = createQuitController({
 	quit: (code) => {
 		Utils.quit(code ?? 0);
@@ -285,11 +293,37 @@ const quit = createQuitController({
 	stopTimers: () => {
 		clearInterval(refreshTimer);
 		clearInterval(updateTimer);
+		if (memoryTimer) clearInterval(memoryTimer);
 		stopStatusResetTimer();
 	},
 	stopServer,
 });
 Electrobun.events.on("before-quit", quit.onBeforeQuit);
+
+/** Starts a new tray through the launcher next to this runtime. */
+function relaunchTray() {
+	const launcher = join(dirname(process.execPath), "launcher.exe");
+	spawn(launcher, [], { detached: true, stdio: "ignore", windowsHide: true }).unref();
+}
+
+// The Electrobun runtime leaks committed memory even when idle; replace the
+// tray before it grows large. Skipped while a menu action is running.
+let reportedUnreadableMemory = false;
+memoryTimer = setInterval(() => {
+	void windowsPrivateBytes()
+		.then((privateBytes) => {
+			if (privateBytes == null && process.platform === "win32" && !reportedUnreadableMemory) {
+				reportedUnreadableMemory = true;
+				console.error("pinar tray could not read its private memory; the memory guard is inactive");
+			}
+			if (busy || !shouldRestartForMemory(privateBytes)) return;
+			console.error(`pinar tray restarting itself at ${Math.round((privateBytes ?? 0) / 1048576)} MB of private memory`);
+			void quit.restart(relaunchTray);
+		})
+		.catch((error) => {
+			console.error("pinar tray could not read its memory usage", error);
+		});
+}, memoryCheckInterval());
 
 console.error("pinar tray started");
 

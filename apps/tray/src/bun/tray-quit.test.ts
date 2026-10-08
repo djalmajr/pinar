@@ -55,4 +55,23 @@ describe("tray quit", () => {
 		await first;
 		expect(stops).toBe(1);
 	});
+
+	test("restart relaunches without stopping the server and lets the native quit through", async () => {
+		const events: string[] = [];
+		const quit = createQuitController({
+			stopServer: async () => {
+				events.push("stop");
+			},
+			releaseLock: () => events.push("unlock"),
+			removeTray: () => events.push("remove"),
+			stopTimers: () => events.push("timers"),
+			quit: () => events.push("quit"),
+		});
+		await quit.restart(() => events.push("relaunch"));
+		expect(events).toEqual(["timers", "unlock", "remove", "relaunch", "quit"]);
+		const event = {};
+		quit.onBeforeQuit(event);
+		expect(event).toEqual({});
+		expect(events).not.toContain("stop");
+	});
 });

@@ -21,6 +21,23 @@ const locale = {
     whatChanged: "Qué cambió",
   },
   releases: {
+    "v0.7.1": {
+      title: "Una bandeja de Pinar más estable en Windows",
+      summary:
+        "La bandeja de Windows vuelve a abrirse después de cerrarla a la fuerza, sale más rápido, trabaja menos en segundo plano y se reemplaza antes de que el crecimiento de memoria de su runtime ralentice el equipo.",
+      changes: {
+        "tray-reliability": {
+          title: "La bandeja siempre se abre y sale más rápido",
+          description:
+            "Después de cerrarla desde el Administrador de tareas, Pinar podía negarse a abrir de nuevo hasta borrar a mano un archivo de bloqueo; ahora reconoce que la bandeja anterior ya no existe. Salir desde el menú ya no espera a los temporizadores en segundo plano, y la bandeja dejó de reconstruir el menú y de releer la opción de iniciar con Windows cada dos segundos.",
+        },
+        "tray-memory-guard": {
+          title: "Protección contra el crecimiento de memoria de la bandeja",
+          description:
+            "El runtime de escritorio bajo la bandeja sigue reservando memoria incluso en reposo. Hasta que se corrija en el origen, la bandeja revisa su propia memoria cada cinco minutos y, por encima de 2 GB, se reemplaza discretamente por una bandeja nueva. El servidor local sigue funcionando, así que las capturas y los agentes no se interrumpen.",
+        },
+      },
+    },
     "v0.7.0": {
       title: "IA local con voz, un camino a Pinar Cloud y un destino de captura más claro",
       summary:

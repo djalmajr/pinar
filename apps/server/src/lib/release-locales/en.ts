@@ -20,6 +20,38 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.7.0": {
+      title: "Local AI with voice, a path to Pinar Cloud, and a clearer capture destination",
+      summary:
+        "Pinar Local runs AI through your own OpenAI-compatible endpoint again, now with voice comments. You can carry your local work into Pinar Cloud, pick where captures land from one menu, and see why a sign-in code did not arrive.",
+      changes: {
+        "local-ai-voice": {
+          title: "Local AI and BYOK with voice comments",
+          description:
+            "Settings → AI in Pinar Local connects a local server or your own OpenAI-compatible provider, with the key kept in the system vault. With a transcription model, the extension records voice comments in local mode and the local server transcribes them, optionally turning the transcript into a comment and acceptance criteria. No Pinar credits are used.",
+        },
+        "local-to-cloud-import": {
+          title: "Move local work to Pinar Cloud",
+          description:
+            "Settings → Data exports projects, collections, batches, sessions, and screenshots from Pinar Local as one file. In Pinar Cloud, the same section imports it session by session, with progress and a Cancel button. Importing the same file again updates what was already imported instead of duplicating it.",
+        },
+        "capture-destination-picker": {
+          title: "Pick the capture destination in one menu",
+          description:
+            "The app and the extension options choose where new captures land with a single cascading menu: project first, then collection, with search, icons, and the selected path shown in the field. The choice stays in sync between the extension and the server.",
+        },
+        "sign-in-delivery-errors": {
+          title: "Clear sign-in errors when a code cannot be sent",
+          description:
+            "When the sign-in email cannot be delivered, Pinar now says so in your language instead of showing that a code was sent. The answer is the same whether or not the address has an account.",
+        },
+        "windows-desktop": {
+          title: "Steadier Pinar on Windows",
+          description:
+            "The Windows app starts the local server from the tray, honors start with Windows, installs the agent session hooks, and no longer flashes a PowerShell window when it reads the AI key.",
+        },
+      },
+    },
     "v0.6.0": {
       title: "Full MCP management, focused handoff, and a cleaner pin dialog",
       summary:

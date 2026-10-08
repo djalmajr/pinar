@@ -22,6 +22,38 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.7.0": {
+      title: "Lokale KI mit Sprache, ein Weg in die Pinar Cloud und ein klareres Aufnahmeziel",
+      summary:
+        "Pinar Local nutzt KI wieder über deinen eigenen OpenAI-kompatiblen Endpunkt, jetzt mit Sprachkommentaren. Du kannst deine lokale Arbeit in die Pinar Cloud mitnehmen, in einem einzigen Menü wählen, wo Aufnahmen landen, und sehen, warum ein Anmeldecode nicht angekommen ist.",
+      changes: {
+        "local-ai-voice": {
+          title: "Lokale KI und BYOK mit Sprachkommentaren",
+          description:
+            "Einstellungen → KI in Pinar Local verbindet einen lokalen Server oder deinen eigenen OpenAI-kompatiblen Anbieter; der Schlüssel liegt im Tresor des Systems. Mit einem Transkriptionsmodell nimmt die Erweiterung im lokalen Modus Sprachkommentare auf, und der lokale Server transkribiert sie und macht daraus auf Wunsch einen Kommentar mit Akzeptanzkriterien. Es werden keine Pinar-Guthaben verbraucht.",
+        },
+        "local-to-cloud-import": {
+          title: "Lokale Arbeit in die Pinar Cloud mitnehmen",
+          description:
+            "Einstellungen → Daten exportiert Projekte, Sammlungen, Stapel, Sitzungen und Screenshots aus Pinar Local in eine Datei. In der Pinar Cloud importiert derselbe Bereich sie Sitzung für Sitzung, mit Fortschritt und Abbrechen-Schaltfläche. Ein erneuter Import derselben Datei aktualisiert das bereits Importierte, statt es zu duplizieren.",
+        },
+        "capture-destination-picker": {
+          title: "Das Aufnahmeziel in einem einzigen Menü wählen",
+          description:
+            "Die App und die Optionen der Erweiterung wählen mit einem einzigen Kaskadenmenü, wo neue Aufnahmen landen: zuerst das Projekt, dann die Sammlung, mit Suche, Symbolen und dem gewählten Pfad im Feld. Die Auswahl bleibt zwischen Erweiterung und Server synchron.",
+        },
+        "sign-in-delivery-errors": {
+          title: "Klare Fehler, wenn ein Code nicht gesendet werden kann",
+          description:
+            "Wenn die Anmelde-E-Mail nicht zugestellt werden kann, sagt Pinar das jetzt in deiner Sprache, statt anzuzeigen, dass ein Code gesendet wurde. Die Antwort ist gleich, ob die Adresse ein Konto hat oder nicht.",
+        },
+        "windows-desktop": {
+          title: "Stabileres Pinar unter Windows",
+          description:
+            "Die Windows-App startet den lokalen Server über das Infobereichssymbol, berücksichtigt den Start mit Windows, installiert die Sitzungs-Hooks der Agenten und öffnet beim Lesen des KI-Schlüssels kein PowerShell-Fenster mehr.",
+        },
+      },
+    },
     "v0.6.0": {
       title: "MCP-Verwaltung, fokussierte Übergabe und klarerer Pin-Dialog",
       summary:

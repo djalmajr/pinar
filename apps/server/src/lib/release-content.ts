@@ -86,6 +86,11 @@ export interface ReleaseContent {
 
 export const releaseDefinitions = [
   {
+    tag: "v0.7.0",
+    date: "2026-10-07",
+    changes: ["local-ai-voice", "local-to-cloud-import", "capture-destination-picker", "sign-in-delivery-errors", "windows-desktop"],
+  },
+  {
     tag: "v0.6.0",
     date: "2026-10-01",
     changes: ["mcp-crud", "focused-handoff", "viewer-technical-tabs-removed"],

@@ -22,6 +22,38 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.7.0": {
+      title: "IA locale avec la voix, un chemin vers Pinar Cloud et une destination de capture plus claire",
+      summary:
+        "Pinar Local utilise à nouveau l’IA via votre propre endpoint compatible OpenAI, désormais avec des commentaires vocaux. Vous pouvez transférer votre travail local vers Pinar Cloud, choisir où arrivent les captures depuis un seul menu et comprendre pourquoi un code de connexion n’est pas arrivé.",
+      changes: {
+        "local-ai-voice": {
+          title: "IA locale et BYOK avec commentaires vocaux",
+          description:
+            "Paramètres → IA dans Pinar Local connecte un serveur local ou votre propre fournisseur compatible OpenAI, avec la clé conservée dans le coffre du système. Avec un modèle de transcription, l’extension enregistre des commentaires vocaux en mode local et le serveur local les transcrit, en transformant éventuellement la transcription en commentaire et critères d’acceptation. Aucun crédit Pinar n’est utilisé.",
+        },
+        "local-to-cloud-import": {
+          title: "Transférez votre travail local vers Pinar Cloud",
+          description:
+            "Paramètres → Données exporte les projets, collections, lots, sessions et captures d’écran de Pinar Local dans un seul fichier. Dans Pinar Cloud, la même section l’importe session par session, avec la progression et un bouton Annuler. Importer à nouveau le même fichier met à jour ce qui a déjà été importé au lieu de le dupliquer.",
+        },
+        "capture-destination-picker": {
+          title: "Choisissez la destination des captures dans un seul menu",
+          description:
+            "L’application et les options de l’extension choisissent où arrivent les nouvelles captures avec un seul menu en cascade : d’abord le projet, puis la collection, avec recherche, icônes et le chemin choisi affiché dans le champ. Le choix reste synchronisé entre l’extension et le serveur.",
+        },
+        "sign-in-delivery-errors": {
+          title: "Des erreurs claires quand un code ne peut pas être envoyé",
+          description:
+            "Quand l’e-mail de connexion ne peut pas être remis, Pinar l’indique désormais dans votre langue au lieu d’afficher qu’un code a été envoyé. La réponse est la même, que l’adresse ait un compte ou non.",
+        },
+        "windows-desktop": {
+          title: "Pinar plus stable sous Windows",
+          description:
+            "L’application Windows démarre le serveur local depuis la zone de notification, respecte le démarrage avec Windows, installe les hooks de session des agents et n’ouvre plus de fenêtre PowerShell en lisant la clé d’IA.",
+        },
+      },
+    },
     "v0.6.0": {
       title: "Gestion MCP complète, passation ciblée et dialogue d'épingles plus clair",
       summary:

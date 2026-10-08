@@ -22,6 +22,38 @@ const locale = {
     whatChanged: "O que mudou",
   },
   releases: {
+    "v0.7.0": {
+      title: "IA local com voz, um caminho para o Pinar Cloud e destino de captura mais claro",
+      summary:
+        "O Pinar Local volta a usar IA pelo seu próprio endpoint compatível com OpenAI, agora com comentários por voz. Você pode levar o trabalho local para o Pinar Cloud, escolher onde as capturas caem em um só menu e entender por que um código de login não chegou.",
+      changes: {
+        "local-ai-voice": {
+          title: "IA local e BYOK com comentários por voz",
+          description:
+            "Configurações → IA no Pinar Local conecta um servidor local ou o seu próprio provedor compatível com OpenAI, com a chave guardada no cofre do sistema. Com um modelo de transcrição, a extensão grava comentários por voz no modo local e o servidor local os transcreve, opcionalmente transformando a transcrição em comentário e critérios de aceite. Nenhum crédito do Pinar é usado.",
+        },
+        "local-to-cloud-import": {
+          title: "Leve o trabalho local para o Pinar Cloud",
+          description:
+            "Configurações → Dados exporta projetos, coleções, lotes, sessões e capturas de tela do Pinar Local em um único arquivo. No Pinar Cloud, a mesma seção importa esse arquivo sessão por sessão, com progresso e botão de cancelar. Importar o mesmo arquivo de novo atualiza o que já foi importado, sem duplicar.",
+        },
+        "capture-destination-picker": {
+          title: "Escolha o destino das capturas em um só menu",
+          description:
+            "O app e as opções da extensão escolhem onde as novas capturas caem com um único menu em cascata: primeiro o projeto, depois a coleção, com busca, ícones e o caminho escolhido exibido no campo. A escolha fica sincronizada entre a extensão e o servidor.",
+        },
+        "sign-in-delivery-errors": {
+          title: "Erros claros quando o código de login não pode ser enviado",
+          description:
+            "Quando o e-mail de login não pode ser entregue, o Pinar agora avisa no seu idioma, em vez de mostrar que o código foi enviado. A resposta é a mesma, tenha o endereço uma conta ou não.",
+        },
+        "windows-desktop": {
+          title: "Pinar mais estável no Windows",
+          description:
+            "O app do Windows inicia o servidor local pela bandeja, respeita a opção de iniciar com o Windows, instala os hooks de sessão dos agentes e não abre mais uma janela do PowerShell ao ler a chave de IA.",
+        },
+      },
+    },
     "v0.6.0": {
       title: "Gestão completa pelo MCP, handoff focado e diálogo de pins mais limpo",
       summary:

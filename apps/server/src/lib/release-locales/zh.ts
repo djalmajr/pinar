@@ -20,6 +20,38 @@ const locale = {
     whatChanged: "更新内容",
   },
   releases: {
+    "v0.7.0": {
+      title: "带语音的本地 AI、通往 Pinar Cloud 的路径，以及更清晰的捕获目标",
+      summary:
+        "Pinar Local 再次通过你自己的 OpenAI 兼容端点使用 AI，并新增语音评论。你可以把本地工作带到 Pinar Cloud，在一个菜单中选择捕获保存的位置，并了解登录验证码为何没有送达。",
+      changes: {
+        "local-ai-voice": {
+          title: "支持语音评论的本地 AI 和 BYOK",
+          description:
+            "Pinar Local 的“设置 → AI”可连接本地服务器或你自己的 OpenAI 兼容提供商，密钥保存在系统凭据库中。配置转写模型后，扩展在本地模式下录制语音评论，由本地服务器转写，并可选择把转写整理成评论和验收标准。不消耗 Pinar 额度。",
+        },
+        "local-to-cloud-import": {
+          title: "把本地工作带到 Pinar Cloud",
+          description:
+            "“设置 → 数据”可将 Pinar Local 的项目、集合、批次、会话和截图导出为一个文件。在 Pinar Cloud 中，同一部分会逐个会话导入该文件，并显示进度和取消按钮。再次导入同一文件会更新已导入的内容，而不会重复。",
+        },
+        "capture-destination-picker": {
+          title: "在一个菜单中选择捕获目标",
+          description:
+            "应用和扩展选项通过一个级联菜单选择新捕获的保存位置：先选项目，再选集合，支持搜索和图标，并在字段中显示所选路径。选择会在扩展和服务器之间保持同步。",
+        },
+        "sign-in-delivery-errors": {
+          title: "无法发送验证码时给出清晰的错误",
+          description:
+            "当登录邮件无法送达时，Pinar 现在会用你的语言说明，而不是显示验证码已发送。无论该地址是否有账户，响应都相同。",
+        },
+        "windows-desktop": {
+          title: "更稳定的 Windows 版 Pinar",
+          description:
+            "Windows 应用会从托盘启动本地服务器，遵循开机启动设置，安装智能体会话钩子，并且在读取 AI 密钥时不再弹出 PowerShell 窗口。",
+        },
+      },
+    },
     "v0.6.0": {
       title: "MCP 完整管理、聚焦交接与更简洁的图钉对话框",
       summary:

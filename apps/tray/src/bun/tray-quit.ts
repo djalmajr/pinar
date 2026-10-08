@@ -7,6 +7,7 @@ export function createQuitController(options: {
 	releaseLock: () => void;
 	removeTray: () => void;
 	stopServer: () => Promise<void>;
+	stopTimers?: () => void;
 }) {
 	let helperStopped = false;
 	let inFlight: Promise<void> | null = null;
@@ -14,6 +15,7 @@ export function createQuitController(options: {
 	async function finish() {
 		if (inFlight) return inFlight;
 		inFlight = (async () => {
+			options.stopTimers?.();
 			try {
 				await options.stopServer();
 			} finally {

@@ -80,6 +80,19 @@ describe("tray instance lock", () => {
 		expect(signalProbeCalled).toBe(false);
 	});
 
+	test.skipIf(process.platform !== "win32")("Windows probe: running self is alive, an exited or foreign PID is not", async () => {
+		expect(await processIsAlive(process.pid)).toBe(true);
+		// The exited child's PID can still be opened while Windows keeps its object.
+		const exited = Bun.spawnSync(["cmd", "/c", "exit 0"]).pid;
+		expect(await processIsAlive(exited)).toBe(false);
+		const foreign = Bun.spawn(["ping", "-n", "5", "127.0.0.1"], { stdout: "ignore" });
+		try {
+			expect(await processIsAlive(foreign.pid)).toBe(false);
+		} finally {
+			foreign.kill();
+		}
+	});
+
 	test("current instance can reclaim its own lock", async () => {
 		const path = lockPath();
 		writeFileSync(path, "202\n");

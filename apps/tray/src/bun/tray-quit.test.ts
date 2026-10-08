@@ -15,15 +15,17 @@ describe("tray quit", () => {
 			},
 			releaseLock: () => events.push("unlock"),
 			removeTray: () => events.push("remove"),
+			stopTimers: () => events.push("timers"),
 			quit: () => events.push("quit"),
 		});
 		const first = {};
 		quit.onBeforeQuit(first);
 		expect(first).toEqual({ response: { allow: false } });
-		expect(events).toEqual(["stop"]);
+		// Timers stop first, so the native graceful quit does not wait on them.
+		expect(events).toEqual(["timers", "stop"]);
 		resolveStop();
 		await quit.finish();
-		expect(events).toEqual(["stop", "unlock", "remove", "quit"]);
+		expect(events).toEqual(["timers", "stop", "unlock", "remove", "quit"]);
 		const second = {};
 		quit.onBeforeQuit(second);
 		expect(second).toEqual({});

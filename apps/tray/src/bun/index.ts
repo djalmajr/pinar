@@ -75,6 +75,14 @@ let loginEnabled = false;
 let busy = false;
 let updateUi: UpdateUiState = idleUpdateUi();
 let statusResetTimer: ReturnType<typeof setTimeout> | null = null;
+let lastMenu = "";
+let loginCheckedAt = 0;
+let refreshing: Promise<number | null> | null = null;
+
+// The server state is polled often; the Run key (reg.exe on Windows) and the
+// login agent change only through this menu, so they are re-read rarely.
+const REFRESH_INTERVAL_MS = 2000;
+const LOGIN_RECHECK_MS = 60_000;
 
 function stopStatusResetTimer() {
 	if (!statusResetTimer) return;
@@ -102,7 +110,7 @@ function showTransientStatus(status: "failed" | "updated") {
 
 function updateMenu() {
 	const labels = trayMenuLabels();
-	tray.setMenu([
+	const items: Parameters<typeof tray.setMenu>[0] = [
 		versionMenuItem(),
 		{
 			enabled: false,
@@ -136,7 +144,13 @@ function updateMenu() {
 		updateMenuItem(updateUi, labels),
 		{ type: "divider" },
 		{ action: "quit", label: labels.quit, type: "normal" },
-	]);
+	];
+	// Rebuilding the native menu on every poll is what the tray did forever;
+	// only hand it to Electrobun when something visible changed.
+	const key = JSON.stringify(items);
+	if (key === lastMenu) return;
+	lastMenu = key;
+	tray.setMenu(items);
 }
 
 async function syncUpdate() {
@@ -193,13 +207,30 @@ async function syncUpdate() {
 	updateMenu();
 }
 
-async function refresh() {
+async function refreshOnce(checkLogin: boolean) {
 	ensurePinarHome();
 	const port = await findHealthyPort();
 	online = port != null;
-	loginEnabled = await isServerLoginEnabled();
+	if (checkLogin || Date.now() - loginCheckedAt >= LOGIN_RECHECK_MS) {
+		loginEnabled = await isServerLoginEnabled();
+		loginCheckedAt = Date.now();
+	}
 	updateMenu();
 	return port;
+}
+
+/** One refresh at a time: a slow poll never stacks up behind the interval. */
+function refresh({ checkLogin = false } = {}) {
+	if (refreshing && !checkLogin) return refreshing;
+	const previous = refreshing ?? Promise.resolve(null);
+	const current: Promise<number | null> = previous
+		.catch(() => null)
+		.then(() => refreshOnce(checkLogin))
+		.finally(() => {
+			if (refreshing === current) refreshing = null;
+		});
+	refreshing = current;
+	return current;
 }
 
 async function withBusy(work: () => Promise<void>) {
@@ -210,7 +241,7 @@ async function withBusy(work: () => Promise<void>) {
 		await work();
 	} finally {
 		busy = false;
-		await refresh();
+		await refresh({ checkLogin: true });
 	}
 }
 
@@ -218,7 +249,7 @@ updateMenu();
 void ensureDefaultLogin()
 	.then(async () => {
 		installBundledHooks();
-		await refresh();
+		await refresh({ checkLogin: true });
 		if (!online) {
 			startServer();
 			await waitUntilHealthy();
@@ -229,11 +260,11 @@ void ensureDefaultLogin()
 		console.error("pinar tray login setup failed", error);
 		return refresh();
 	});
-setInterval(() => {
+const refreshTimer = setInterval(() => {
 	void refresh();
-}, 2000);
+}, REFRESH_INTERVAL_MS);
 void syncUpdate();
-setInterval(
+const updateTimer = setInterval(
 	() => {
 		void syncUpdate();
 	},
@@ -249,6 +280,13 @@ const quit = createQuitController({
 		releaseTrayLock();
 	},
 	removeTray: () => tray.remove(),
+	// Live timers keep the event loop busy, and Electrobun's graceful quit
+	// then waits for its whole timeout before forcing the exit.
+	stopTimers: () => {
+		clearInterval(refreshTimer);
+		clearInterval(updateTimer);
+		stopStatusResetTimer();
+	},
 	stopServer,
 });
 Electrobun.events.on("before-quit", quit.onBeforeQuit);

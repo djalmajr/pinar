@@ -20,6 +20,23 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.7.1": {
+      title: "A steadier Pinar tray on Windows",
+      summary:
+        "The Windows tray starts again after it was closed by force, quits faster, does less work in the background, and replaces itself before its runtime's memory growth can slow the computer down.",
+      changes: {
+        "tray-reliability": {
+          title: "The tray always starts and quits faster",
+          description:
+            "After the tray was ended from Task Manager, Pinar could refuse to start again until a lock file was deleted by hand; it now recognizes that the old tray is gone. Quitting from the tray menu no longer waits on background timers, and the tray stops rebuilding its menu and re-reading the start-with-Windows setting every two seconds.",
+        },
+        "tray-memory-guard": {
+          title: "Protection against the tray's memory growth",
+          description:
+            "The desktop runtime under the tray keeps reserving memory even while idle. Until that is fixed upstream, the tray checks its own memory every five minutes and, above 2 GB, quietly replaces itself with a fresh tray. The local server keeps running, so captures and agents are not interrupted.",
+        },
+      },
+    },
     "v0.7.0": {
       title: "Local AI with voice, a path to Pinar Cloud, and a clearer capture destination",
       summary:

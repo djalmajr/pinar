@@ -3,5 +3,5 @@ url = "https://cinzel.app/mcp"
 enabled = true
 
 [mcp_servers.cinzel.headers]
-Authorization = "Bearer ${CINZEL_API_KEY}"
+Authorization = "Bearer ${CINZEL_DJA_API_KEY}"
 Origin = "https://cinzel.app"

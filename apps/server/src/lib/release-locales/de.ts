@@ -22,6 +22,23 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.7.1": {
+      title: "Ein stabileres Pinar-Infobereichssymbol unter Windows",
+      summary:
+        "Das Windows-Infobereichssymbol startet nach einem erzwungenen Beenden wieder, beendet sich schneller, arbeitet weniger im Hintergrund und ersetzt sich selbst, bevor das Speicherwachstum seiner Laufzeit den Rechner ausbremst.",
+      changes: {
+        "tray-reliability": {
+          title: "Das Symbol startet immer und beendet sich schneller",
+          description:
+            "Nach dem Beenden über den Task-Manager konnte Pinar den Neustart verweigern, bis eine Sperrdatei von Hand gelöscht wurde; jetzt erkennt es, dass die alte Instanz nicht mehr läuft. Beenden über das Menü wartet nicht mehr auf Hintergrund-Timer, und das Symbol baut sein Menü nicht mehr alle zwei Sekunden neu auf und liest die Einstellung zum Start mit Windows nicht mehr ständig neu ein.",
+        },
+        "tray-memory-guard": {
+          title: "Schutz vor dem Speicherwachstum des Symbols",
+          description:
+            "Die Desktop-Laufzeit unter dem Symbol reserviert auch im Leerlauf weiter Speicher. Bis das upstream behoben ist, prüft das Symbol alle fünf Minuten seinen eigenen Speicher und ersetzt sich oberhalb von 2 GB unauffällig durch eine neue Instanz. Der lokale Server läuft weiter, Aufnahmen und Agenten werden nicht unterbrochen.",
+        },
+      },
+    },
     "v0.7.0": {
       title: "Lokale KI mit Sprache, ein Weg in die Pinar Cloud und ein klareres Aufnahmeziel",
       summary:

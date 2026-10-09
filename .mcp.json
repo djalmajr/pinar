@@ -4,7 +4,7 @@
       "type": "http",
       "url": "https://cinzel.app/mcp",
       "headers": {
-        "Authorization": "Bearer ${CINZEL_API_KEY}",
+        "Authorization": "Bearer ${CINZEL_DJA_API_KEY}",
         "Origin": "https://cinzel.app"
       }
     }

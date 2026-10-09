@@ -41,7 +41,23 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
       - name: Test
-        run: bun run test
+        run: |
+          # Info-ZIP is not preinstalled on windows-latest. Install zip/unzip
+          # from the runner's preinstalled MSYS2 so the extension packaging
+          # tests run instead of being skipped for a missing zip. The PATH
+          # append is step-local (never added to GITHUB_PATH), and the step
+          # fails if pacman fails.
+          $ErrorActionPreference = "Stop"
+          & "C:\msys64\usr\bin\pacman.exe" -S --noconfirm --needed zip unzip
+          if ($LASTEXITCODE -ne 0) {
+            throw "pacman failed to install zip and unzip (exit code $LASTEXITCODE)"
+          }
+          $env:PATH = "$env:PATH;C:\msys64\usr\bin"
+          Write-Host "zip -v (first 2 lines):"
+          (zip -v 2>&1 | Select-Object -First 2) | ForEach-Object { Write-Host "  $_" }
+          Write-Host "unzip -v (first line):"
+          (unzip -v 2>&1 | Select-Object -First 1) | ForEach-Object { Write-Host "  $_" }
+          bun run test
       - name: Install Hutch
         run: |
           $ErrorActionPreference = "Stop"

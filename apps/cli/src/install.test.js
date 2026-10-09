@@ -131,6 +131,7 @@ describe("install", () => {
       env: { ...process.env, PINAR_HOME: join(fixture, "home"), PINAR_PORT: "1" },
     });
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout, "pinar 0.6.0\n");
+    const installedPackage = JSON.parse(await readFile(join(dest, "apps/cli/package.json"), "utf8"));
+    assert.equal(result.stdout, `pinar ${installedPackage.version}\n`);
   });
 });

@@ -1,5 +1,6 @@
 node_modules/
 .agents/plans/*
+.agents/herdr-roles/
 *.png
 !extension/icons/*.png
 extension/*.zip

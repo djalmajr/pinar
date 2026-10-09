@@ -58,6 +58,12 @@ export default {
 		},
 		cottontail: {
 			entrypoint: "src/bun/index.ts",
+			// The tray's main-process bundle uses `bun:ffi` dynamically
+			// (Windows instance lock + DPI) behind platform guards, so the
+			// capability scan can miss it. Hutch 0.25.0 does not copy the
+			// Cottontail 0.7.x core or stdlib into the app; scripts/post-build.mjs
+			// copies the core plus the capabilities listed here.
+			capabilities: ["ffi"],
 		},
 		mainProcess: "cottontail",
 	},

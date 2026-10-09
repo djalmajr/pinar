@@ -61,6 +61,29 @@ describe("CI workflow", () => {
     }
   });
 
+  test("provisions zip and unzip from MSYS2 on Windows only, before the tests", () => {
+    const windows = jobBlock(workflow, "windows");
+    const macos = jobBlock(workflow, "macos");
+    const linux = jobBlock(workflow, "linux");
+    const pacman = '& "C:\\msys64\\usr\\bin\\pacman.exe" -S --noconfirm --needed zip unzip';
+    const pathAppend = "$env:PATH = \"$env:PATH;C:\\msys64\\usr\\bin\"";
+    expect(windows).toContain(pacman);
+    expect(windows).toContain("if ($LASTEXITCODE -ne 0) {");
+    expect(windows).toContain('throw "pacman failed to install zip and unzip (exit code $LASTEXITCODE)"');
+    expect(windows).toContain(pathAppend);
+    // The provisioning must run inside the windows job, before the test gate.
+    expect(windows.indexOf(pacman)).toBeLessThan(windows.indexOf("bun run test"));
+    // The step-local PATH append must never leak into the job environment.
+    for (const line of windows.split("\n")) {
+      expect(line.includes("msys64") && line.includes("GITHUB_PATH"), "the msys64 PATH append must stay step-local").toBe(false);
+    }
+    // No MSYS2 provisioning on the other runners.
+    for (const block of [macos, linux]) {
+      expect(block).not.toContain("pacman");
+      expect(block).not.toContain("msys64");
+    }
+  });
+
   test("never reads secrets or publishes anything", () => {
     expect(workflow).not.toContain("secrets.");
     expect(workflow).not.toContain("GITHUB_TOKEN");

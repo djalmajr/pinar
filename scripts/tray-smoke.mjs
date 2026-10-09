@@ -23,9 +23,24 @@
  * never writes the HKCU Run key or a LaunchAgent. `PINAR_PORT` pins the
  * helper to the smoke port, which must be free before the launch.
  *
- * Exit 0 only on success; the final stdout line is a single JSON object:
- *   { ok, platform, appDir, launcher, port, jsExecuted, trayPid, health,
- *     elapsedMs, reason }
+ * Cleanup ownership: a PID is only killed when this run actually spawned
+ * the launcher (the pinned port was verified free right before the spawn)
+ * AND the PID is inside the launched process tree or its image lies inside
+ * the CANONICAL launch dir. A refused pre-busy-port launch or any
+ * pre-spawn failure kills nothing. Containment is decided on canonical
+ * paths (`realpathSync.native`, which resolves symlinks/junctions and
+ * expands 8.3 short names to the long form on Windows), so a short
+ * TEMP (C:\Users\RUNNER~1\...) and a long-form Win32_Process
+ * ExecutablePath of the same tree compare equal. Every kill refusal and
+ * cleanup error is reported instead of throwing.
+ *
+ * Exit 0 only when the startup succeeded AND the cleanup left no residue
+ * (killed pids gone, pinned port free, sandbox removed or retained on
+ * purpose). stdout always ends with exactly one JSON line:
+ *   { ok, platform, appDir, launchDir, launcher, launcherPid, port,
+ *     jsExecuted, trayPid, health, elapsedMs, reason,
+ *     cleanup: { ok, killed, refused, errors, sandboxRemoved },
+ *     sandbox?, sandboxRetained }
  */
 import { spawn, spawnSync } from "node:child_process";
 import {
@@ -36,12 +51,14 @@ import {
 	readFileSync,
 	readlinkSync,
 	readdirSync,
+	realpathSync,
 	rmSync,
 	statSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const DEFAULT_PORT = 17390;
@@ -365,7 +382,8 @@ async function killTree(pid) {
 
 /**
  * Main entry. `hooks` lets tests substitute probes, but the defaults are the
- * real platform probes below.
+ * real platform probes below. Resolves (never rejects): every cleanup fault
+ * is recorded in `result.cleanup` instead of throwing.
  */
 export async function runSmoke(args, hooks = {}) {
 	// The default parent/image probes write their .ps1 into the sandbox so the
@@ -374,6 +392,9 @@ export async function runSmoke(args, hooks = {}) {
 	const killTreeFn = hooks.killTree ?? killTree;
 	const listeningPid = hooks.listeningPid ?? findListeningPid;
 	const spawnFn = hooks.spawn ?? spawn;
+	const probeHealthFn = hooks.probeHealth ?? probeHealth;
+	const removeDirFn = hooks.removeDir ?? removeDir;
+	const realpathFn = hooks.realpath ?? realpathSync.native;
 	let parentOf = hooks.parentOf ?? null;
 	let imageOf = hooks.imageOf ?? null;
 
@@ -392,15 +413,26 @@ export async function runSmoke(args, hooks = {}) {
 		health: false,
 		elapsedMs: 0,
 		reason: null,
+		cleanup: { ok: false, killed: [], refused: [], errors: [], sandboxRemoved: false },
 	};
+	const cleanup = result.cleanup;
 	let sandbox = null;
 	let launchRoot = appDir;
 	let child = null;
+	let startMs = 0;
 	let outBuf = "";
 	let errBuf = "";
 
 	try {
-		sandbox = mkdtempSync(join(tmpdir(), "pinar-tray-smoke-"));
+		const created = mkdtempSync(join(tmpdir(), "pinar-tray-smoke-"));
+		try {
+			sandbox = realpathFn(created);
+		} catch (error) {
+			// Still removable: fall back to the raw mkdtemp path.
+			sandbox = created;
+			result.reason = `failed to canonicalize the sandbox ${created}: ${errorText(error)}`;
+			return finish();
+		}
 		const probeDir = join(sandbox, "probes");
 		mkdirSync(probeDir, { recursive: true });
 		parentOf = parentOf ?? defaultParentOf(probeDir);
@@ -420,8 +452,14 @@ export async function runSmoke(args, hooks = {}) {
 				return finish();
 			}
 			launchRoot = extracted;
-			result.launchDir = launchRoot;
 		}
+		try {
+			launchRoot = realpathFn(launchRoot);
+		} catch (error) {
+			result.reason = `failed to canonicalize the launch dir ${launchRoot}: ${errorText(error)}`;
+			return finish();
+		}
+		result.launchDir = launchRoot;
 		const launcher = resolveLauncher(launchRoot, platform);
 		if (launcher == null) {
 			result.reason = `launcher not found under ${launchRoot}`;
@@ -442,13 +480,15 @@ export async function runSmoke(args, hooks = {}) {
 
 		// Refuse to launch when the pinned port is in use by ANY process — a
 		// success on top of a foreign helper (or a kill of it in cleanup) would
-		// be a false result.
+		// be a false result. This pre-spawn refusal is also what makes the
+		// cleanup kills conditional below: a refusal means this run spawned
+		// nothing and must kill nothing.
 		const prePid = listeningPid(args.port);
 		if (prePid != null) {
 			result.reason = `port ${args.port} is already in use by pid ${prePid}; free the port or choose another with --port`;
 			return finish();
 		}
-		const pre = await probeHealth(args.port);
+		const pre = await probeHealthFn(args.port);
 		if (pre.healthy) {
 			// Backstop for hosts without netstat/lsof: a healthy pinar helper
 			// already answers on the pinned port.
@@ -456,17 +496,28 @@ export async function runSmoke(args, hooks = {}) {
 			return finish();
 		}
 
-		const startMs = Date.now();
+		startMs = Date.now();
 		let spawnError = null;
-		child = spawnFn(launcher, [], {
-			cwd: dirname(launcher),
-			env,
-			stdio: ["ignore", "pipe", "pipe"],
-			detached: platform !== "win32",
-			windowsHide: true,
-		});
+		try {
+			child = spawnFn(launcher, [], {
+				cwd: dirname(launcher),
+				env,
+				stdio: ["ignore", "pipe", "pipe"],
+				detached: platform !== "win32",
+				windowsHide: true,
+			});
+		} catch (error) {
+			// A synchronous throw out of the spawn (hook or runtime) means
+			// nothing was started: nothing may be killed. Record it and fall
+			// through to the normal cleanup/finish — the result (including
+			// sandbox/sandboxRetained) is returned, never thrown.
+			spawnError = error instanceof Error ? error : new Error(String(error));
+			child = null;
+		}
 		if (child == null || child.pid == null) {
-			result.reason = "launcher spawn failed (no pid)";
+			result.reason = spawnError != null
+				? `launcher spawn failed: ${spawnError.message}`
+				: "launcher spawn failed (no pid)";
 			return finish();
 		}
 		result.launcherPid = child.pid;
@@ -498,7 +549,7 @@ export async function runSmoke(args, hooks = {}) {
 				pidAlive = await isAlive(pidInfo.pid);
 				if (pidAlive) inTree = await inProcessTree(pidInfo.pid, child.pid, parentOf);
 			}
-			const healthOk = (await probeHealth(args.port)).healthy;
+			const healthOk = (await probeHealthFn(args.port)).healthy;
 			result.health = healthOk;
 			const decision = decide({
 				freshPidFile: pidInfo.fresh,
@@ -519,85 +570,169 @@ export async function runSmoke(args, hooks = {}) {
 			result.reason = `timeout after ${args.timeoutMs}ms`;
 		}
 	} finally {
-		// Always terminate everything we started, including the helper the
-		// tray launched on the pinned port. Never kill a PID we did not start:
-		// only a member of the launched process tree, or whose image lies
-		// inside the launched build dir, is ours.
-		if (child != null && child.pid != null && sandbox != null) {
-			const info = readTrayPid(join(sandbox, ".pinar", "tray.pid"), 0);
-			if (info.pid != null && info.pid !== child.pid) {
-				// The JS runtime process (cottontail) may outlive the launcher.
-				const alive = await isAlive(info.pid).catch(() => false);
-				if (alive) {
-					let ours = false;
-					if (parentOf != null) {
-						try {
-							ours = await inProcessTree(info.pid, child.pid, parentOf);
-						} catch {
-							ours = false;
-						}
-					}
-					if (!ours && imageOf != null) {
-						try {
-							ours = isInsideAppDir(await imageOf(info.pid), launchRoot);
-						} catch {
-							ours = false;
-						}
-					}
-					if (ours) {
-						await killTreeFn(info.pid);
-					} else {
-						result.reason =
-							result.reason ??
-							`refusing to kill foreign tray pid ${info.pid} (not inside the launched tree nor ${launchRoot})`;
-					}
+		await cleanupAfterRun();
+	}
+
+	return finish();
+
+	/**
+	 * Cleanup ownership (all kills): a PID may be killed only when ALL of:
+	 *  (a) this run actually spawned the launcher (the pinned port was
+	 *      verified free right before the spawn),
+	 *  (b) the PID is inside the launched process tree, or its image (via
+	 *      imageOf) is inside the CANONICAL launchRoot (isInsideAppDir),
+	 *  (c) the PID is still alive at the moment of the kill (PID-reuse guard:
+	 *      liveness and ownership are re-checked immediately before each kill).
+	 * A refused pre-busy-port launch or any pre-spawn failure kills NOTHING,
+	 * even when a pre-existing process image lies under appDir: such a PID is
+	 * recorded in `cleanup.refused` instead. The tray PID candidate comes only
+	 * from a FRESH tray.pid (mtime >= startMs); a stale one is trusted for
+	 * nothing. Nothing in here throws: killTree faults, residual live pids or
+	 * port listeners, and sandbox-removal failures all land in `cleanup`
+	 * diagnostics. Startup facts (jsExecuted, trayPid, health, launcherPid,
+	 * launcher, launchDir) are preserved unchanged; result.ok additionally
+	 * requires a clean cleanup.
+	 */
+	async function cleanupAfterRun() {
+		const spawned = child != null && child.pid != null;
+		// The process tree proves ownership only while the launcher is still
+		// RUNNING at the moment of the check: once the launcher has exited its
+		// PID can be reused by an unrelated process and Windows never updates
+		// ParentProcessId, so neither `pid === launcher pid` nor a recorded
+		// parent edge is evidence any more. Only canonical image containment
+		// inside launchRoot still qualifies then. (The main loop's inTree is a
+		// startup fact for decide() and is untouched.)
+		const launcherRunning = () =>
+			child != null && child.exitCode === null && child.signalCode === null;
+		const ownership = async (pid) => {
+			// "tree" / "image" when the live pid is ours, null otherwise.
+			const alive = await isAlive(pid).catch(() => false);
+			if (!alive) return null;
+			if (parentOf != null && launcherRunning()) {
+				try {
+					if (await inProcessTree(pid, child.pid, parentOf)) return "tree";
+				} catch {
+					// tree probe failed: fall through to the image check
+				}
+			}
+			if (imageOf != null) {
+				try {
+					if (isInsideAppDir(await imageOf(pid), launchRoot, { platform, realpath: realpathFn })) return "image";
+				} catch {
+					// image probe failed: not provably ours
+				}
+			}
+			return null;
+		};
+		const tryKill = async (label, pid) => {
+			// PID-reuse guard: re-check liveness and ownership immediately
+			// before signalling.
+			if ((await ownership(pid)) == null) {
+				cleanup.refused.push(`${label} pid ${pid}: not alive or no longer inside the launched tree / ${launchRoot}`);
+				return;
+			}
+			try {
+				await killTreeFn(pid);
+				cleanup.killed.push(pid);
+			} catch (error) {
+				cleanup.errors.push(`killTree(${label} pid ${pid}) failed: ${errorText(error)}`);
+			}
+		};
+		if (spawned) {
+			// The JS runtime process (cottontail) may outlive the launcher.
+			// Only a FRESH tray.pid (mtime at/after this launch) is a cleanup
+			// candidate; a stale one is trusted for nothing.
+			const info = readTrayPid(join(sandbox, ".pinar", "tray.pid"), startMs);
+			if (info.fresh && info.pid != null && info.pid !== child.pid) {
+				if ((await ownership(info.pid)) != null) {
+					await tryKill("tray.pid", info.pid);
+				} else {
+					cleanup.refused.push(`tray.pid pid ${info.pid}: not inside the launched tree nor ${launchRoot}`);
 				}
 			}
 			// Never signal the launcher once it has exited on its own: by
 			// cleanup time its PID may have been reused by an unrelated
-			// process. (The tray/helper branches above still run.)
+			// process.
 			if (child.exitCode === null && child.signalCode === null) {
-				await killTreeFn(child.pid);
+				await tryKill("launcher", child.pid);
 			}
 		}
 		const helperPid = listeningPid(args.port);
 		if (helperPid != null) {
-			let inside = false;
-			if (imageOf != null) {
-				try {
-					inside = isInsideAppDir(await imageOf(helperPid), launchRoot);
-				} catch {
-					inside = false;
+			if (spawned) {
+				if ((await ownership(helperPid)) != null) {
+					await tryKill(`port ${args.port}`, helperPid);
+				} else {
+					cleanup.refused.push(`pid ${helperPid} on port ${args.port}: not inside the launched tree nor ${launchRoot}; not killed`);
 				}
-			}
-			let ours = inside;
-			if (!ours && parentOf != null && child != null && child.pid != null) {
-				ours = await inProcessTree(helperPid, child.pid, parentOf).catch(() => false);
-			}
-			if (ours) {
-				await killTreeFn(helperPid);
 			} else {
-				// Not ours (e.g. a production helper): never kill, just report.
-				result.reason = result.reason ?? `refusing to kill foreign pid ${helperPid} on port ${args.port}`;
+				// Not spawned by this run (e.g. a production helper, or a
+				// pre-busy port): never kill, just report.
+				cleanup.refused.push(`pid ${helperPid} holds port ${args.port} but was not spawned by this run; not killed`);
 			}
 		}
 		if (child != null) {
 			await waitClose(child, 5_000);
 		}
-		if (sandbox != null) {
-			if (!args.keepHome) {
-				rmSync(sandbox, { recursive: true, force: true });
-			} else {
-				result.sandbox = sandbox;
+		// Bounded poll until every killed pid is gone and (we launched, so)
+		// the pinned port is free again.
+		if (spawned || cleanup.killed.length > 0) {
+			const pollDeadline = Date.now() + 10_000;
+			for (;;) {
+				let settled = true;
+				for (const pid of cleanup.killed) {
+					if (await isAlive(pid).catch(() => true)) {
+						settled = false;
+						break;
+					}
+				}
+				if (settled && spawned) {
+					settled = listeningPid(args.port) == null;
+				}
+				if (settled || Date.now() >= pollDeadline) break;
+				await sleep(250);
+			}
+			for (const pid of cleanup.killed) {
+				if (await isAlive(pid).catch(() => true)) {
+					cleanup.errors.push(`pid ${pid} still alive after cleanup`);
+				}
+			}
+			if (spawned) {
+				const lingering = listeningPid(args.port);
+				if (lingering != null) cleanup.errors.push(`port ${args.port} still held by pid ${lingering} after cleanup`);
 			}
 		}
+		if (sandbox != null) {
+			if (args.keepHome) {
+				result.sandbox = sandbox;
+				result.sandboxRetained = true;
+			} else {
+				try {
+					removeDirFn(sandbox);
+					cleanup.sandboxRemoved = true;
+					result.sandboxRetained = false;
+				} catch (error) {
+					cleanup.errors.push(`sandbox removal failed: ${errorText(error)}`);
+					// Kept on disk as evidence.
+					result.sandbox = sandbox;
+					result.sandboxRetained = true;
+				}
+			}
+		}
+		const startupOk = result.ok;
+		cleanup.ok = cleanup.errors.length === 0;
+		result.ok = startupOk && cleanup.ok;
+		if (result.ok) {
+			result.reason = null;
+		} else if (startupOk && !cleanup.ok) {
+			result.reason = `cleanup failed: ${cleanup.errors[0] ?? "unknown cleanup failure"}`;
+		}
+		// When startup already failed the startup reason is kept as-is; the
+		// cleanup diagnostics stay in result.cleanup.
 	}
-
-	return finish();
 
 	function finish() {
 		result.elapsedMs = Date.now() - start;
-		delete result.sandbox;
 		// Keep the buffers for the caller (40-line tail on failure).
 		result.__tail = () => [...lastLines(errBuf, 20), ...lastLines(outBuf, 20)];
 		return result;
@@ -615,6 +750,18 @@ async function probeHealth(port) {
 	} catch {
 		return { healthy: false };
 	}
+}
+
+/** Default sandbox removal (hooks may substitute; tests drive failures). */
+function removeDir(sandboxPath) {
+	rmSync(sandboxPath, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+}
+
+/** Compact "CODE: message" text for diagnostics. */
+function errorText(error) {
+	const message = error instanceof Error ? error.message : String(error);
+	const code = error != null && typeof error === "object" && "code" in error ? ` ${error.code}` : "";
+	return code.trim() === "" ? message : `${code.trim()}: ${message}`;
 }
 
 function defaultParentOf(probeDir) {
@@ -743,14 +890,44 @@ function defaultImageOf(probeDir) {
 	return imageOfFor(process.platform, { probeDir });
 }
 
-/** Is `imagePath` inside the build dir? (The guard for the helper kill.)
- * Comparison is separator-agnostic so it behaves the same on every platform. */
-export function isInsideAppDir(imagePath, appDir) {
-	if (!imagePath || !appDir) return false;
-	const norm = (value) => resolve(value).toLowerCase().split(/[\\/]/).join("/");
-	const base = norm(appDir);
-	const image = norm(imagePath);
-	return image === base || image.startsWith(base + "/");
+/* ---------------- canonical paths and the containment guard ------------- */
+
+/**
+ * Is `imagePath` inside the build dir? (The guard for the cleanup kills.)
+ * Both sides are canonicalized with `realpath` — default
+ * `realpathSync.native`, which resolves symlinks/junctions and expands 8.3
+ * short names to the long form on Windows — and compared with the platform's
+ * path module (both must be EXISTING paths; any failure fails closed to
+ * false), never with a lexical prefix check. win32 compares
+ * case-insensitively (both canonical strings are normalized to `\`
+ * separators and lowercased); posix case-sensitively. A different drive on
+ * win32 makes `relative` return an absolute path → not inside.
+ */
+export function isInsideAppDir(imagePath, dirPath, { platform = process.platform, realpath = realpathSync.native } = {}) {
+	if (imagePath == null || imagePath === "" || dirPath == null || dirPath === "") return false;
+	let canonImage;
+	let canonDir;
+	try {
+		canonImage = realpath(imagePath);
+	} catch {
+		return false;
+	}
+	try {
+		canonDir = realpath(dirPath);
+	} catch {
+		return false;
+	}
+	if (canonImage == null || canonImage === "" || canonDir == null || canonDir === "") return false;
+	const p = platform === "win32" ? path.win32 : path.posix;
+	if (platform === "win32") {
+		// path.win32.relative is case-insensitive but keeps input casing in
+		// the segments it returns; normalize both sides so an injected
+		// realpath with mixed case or / separators still compares right.
+		canonImage = canonImage.replace(/\//g, "\\").toLowerCase();
+		canonDir = canonDir.replace(/\//g, "\\").toLowerCase();
+	}
+	const rel = p.relative(canonDir, canonImage);
+	return rel === "" || (rel !== ".." && !rel.startsWith(".." + p.sep) && !p.isAbsolute(rel));
 }
 
 export function parseNetstatListeningPid(stdout, port) {
@@ -818,8 +995,29 @@ async function main() {
 		printHelp(process.stdout);
 		return;
 	}
-	const result = await runSmoke(args);
-	const tail = result.__tail();
+	let result;
+	try {
+		result = await runSmoke(args);
+	} catch (error) {
+		// runSmoke must not reject; if it ever does, stdout still gets exactly
+		// one final JSON line and the exit code is non-zero.
+		const reason = `internal error: ${error instanceof Error ? error.message : String(error)}`;
+		result = {
+			ok: false,
+			platform: process.platform,
+			appDir: null,
+			launchDir: null,
+			launcher: null,
+			port: args.port,
+			jsExecuted: false,
+			trayPid: null,
+			health: false,
+			elapsedMs: 0,
+			reason,
+			cleanup: { ok: false, killed: [], refused: [], errors: [reason], sandboxRemoved: false },
+		};
+	}
+	const tail = typeof result.__tail === "function" ? result.__tail() : [];
 	delete result.__tail;
 	process.stdout.write(`${JSON.stringify(result)}\n`);
 	if (!result.ok) {

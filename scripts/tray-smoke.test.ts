@@ -1,7 +1,20 @@
-import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import {
+	copyFileSync,
+	existsSync,
+	mkdtempSync,
+	mkdirSync,
+	rmSync,
+	realpathSync,
+	statSync,
+	symlinkSync,
+	utimesSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { describe, expect, test } from "bun:test";
+import { fileURLToPath } from "node:url";
+import { afterAll, describe, expect, test } from "bun:test";
 import {
 	DEFAULT_PORT,
 	DEFAULT_TIMEOUT_MS,
@@ -241,6 +254,32 @@ describe("launcher resolution", () => {
 	});
 });
 
+describe("per-platform fixture layout", () => {
+	test("each platform builds only its own fixture: first candidate resolves, no candidate is an ancestor of another", () => {
+		for (const platform of ["win32", "darwin", "linux"] as const) {
+			const root = makeAppDir(platform);
+			try {
+				const candidates = launcherCandidates(root, platform);
+				expect(resolveLauncher(root, platform)).toBe(candidates[0]);
+				// Lexically: no candidate path may be an ancestor directory
+				// of another candidate in the same platform list (that is
+				// what made the old all-platforms fixture write the linux
+				// `Pinar` file over the win32 `Pinar/` directory).
+				for (const ancestor of candidates) {
+					for (const other of candidates) {
+						if (ancestor === other) continue;
+						const a = ancestor.replace(/\\/g, "/");
+						const b = other.replace(/\\/g, "/");
+						expect(b.startsWith(a + "/")).toBe(false);
+					}
+				}
+			} finally {
+				rmSync(root, { recursive: true, force: true });
+			}
+		}
+	});
+});
+
 describe("defaultAppDir", () => {
 	test("points at apps/tray/build for the named platform", () => {
 		// Pure path computation (no fs): an absolute, non-existent root keeps
@@ -333,24 +372,161 @@ describe("readTrayPid", () => {
 	});
 });
 
-describe("isInsideAppDir", () => {
-	test("win32 containment is case-insensitive and prefix-safe", () => {
-		const appDir = "C:\\Users\\x\\builds\\stable-win-x64\\app";
-		expect(isInsideAppDir("C:\\users\\x\\BUILDS\\stable-win-x64\\app\\Resources\\app\\Helpers\\pinar.exe", appDir)).toBe(true);
-		expect(isInsideAppDir("C:\\Users\\x\\builds\\stable-win-x64\\app\\evil.exe", appDir)).toBe(true);
-		expect(isInsideAppDir("C:\\Users\\x\\builds\\stable-win-x64\\app-evil\\pinar.exe", appDir)).toBe(false);
-		expect(isInsideAppDir("C:\\Users\\x\\builds\\stable-win-x64\\other\\pinar.exe", appDir)).toBe(false);
+describe("isInsideAppDir (canonical)", () => {
+	/** Injectable realpath: a map from EXACT input string to canonical path;
+	 * anything else throws ENOENT (fail closed). */
+	function fakeRealpath(map) {
+		return (p) => {
+			if (typeof p !== "string" || p === "" || !Object.prototype.hasOwnProperty.call(map, p)) {
+				const error = new Error(`ENOENT: no such file or directory, realpath '${p}'`);
+				error.code = "ENOENT";
+				throw error;
+			}
+			return map[p];
+		};
+	}
+	const win = (map) => ({ platform: "win32", realpath: fakeRealpath(map) });
+	const posix = (map) => ({ platform: "posix", realpath: fakeRealpath(map) });
+
+	test("win32 8.3: a short dir canonicalizes to the long dir of the image (F2)", () => {
+		const shortDir = "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\pinar-tray-smoke-abc\\extracted";
+		const longImage = "C:\\Users\\runneradmin\\AppData\\Local\\Temp\\pinar-tray-smoke-abc\\extracted\\Helpers\\pinar.exe";
+		expect(
+			isInsideAppDir(longImage, shortDir, win({
+				[longImage]: longImage,
+				[shortDir]: "C:\\Users\\runneradmin\\AppData\\Local\\Temp\\pinar-tray-smoke-abc\\extracted",
+			})),
+		).toBe(true);
+		// The reverse spelling of the same image (short form) is inside too:
+		// the injected canonicalizer maps every spelling to the same
+		// canonical path.
+		const canonicalBase = "C:\\Users\\runneradmin\\AppData\\Local\\Temp\\pinar-tray-smoke-abc\\extracted";
+		const shortImage = "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\pinar-tray-smoke-abc\\extracted\\Helpers\\pinar.exe";
+		expect(
+			isInsideAppDir(shortImage, canonicalBase, win({
+				[shortImage]: `${canonicalBase}\\Helpers\\pinar.exe`,
+				[canonicalBase]: canonicalBase,
+			})),
+		).toBe(true);
 	});
 
-	test("unix containment uses / separators", () => {
+	test("win32: containment is case-insensitive, separator-agnostic and prefix-safe", () => {
+		const appDir = "C:\\Users\\x\\builds\\stable-win-x64\\app";
+		const options = win({
+			"C:\\users\\x\\BUILDS\\stable-win-x64\\app\\Resources\\app\\Helpers\\pinar.exe":
+				"C:\\Users\\x\\builds\\stable-win-x64\\app\\Resources\\app\\Helpers\\pinar.exe",
+			[appDir]: appDir,
+			"C:\\Users\\x\\builds\\stable-win-x64\\app\\evil.exe": "C:\\Users\\x\\builds\\stable-win-x64\\app\\evil.exe",
+			"C:\\Users\\x\\builds\\stable-win-x64\\app-evil\\pinar.exe":
+				"C:\\Users\\x\\builds\\stable-win-x64\\app-evil\\pinar.exe",
+			"C:\\Users\\x\\builds\\stable-win-x64\\other\\pinar.exe":
+				"C:\\Users\\x\\builds\\stable-win-x64\\other\\pinar.exe",
+		});
+		expect(isInsideAppDir("C:\\users\\x\\BUILDS\\stable-win-x64\\app\\Resources\\app\\Helpers\\pinar.exe", appDir, options)).toBe(true);
+		// Mixed / and \ separators on the image side.
+		expect(
+			isInsideAppDir("c:/users/x/builds/stable-win-x64/app/evil.exe", appDir, {
+				platform: "win32",
+				realpath: fakeRealpath({
+					"c:/users/x/builds/stable-win-x64/app/evil.exe": "C:\\Users\\x\\builds\\stable-win-x64\\app\\evil.exe",
+					[appDir]: appDir,
+				}),
+			}),
+		).toBe(true);
+		expect(isInsideAppDir("C:\\Users\\x\\builds\\stable-win-x64\\app-evil\\pinar.exe", appDir, options)).toBe(false);
+		expect(isInsideAppDir("C:\\Users\\x\\builds\\stable-win-x64\\other\\pinar.exe", appDir, options)).toBe(false);
+	});
+
+	test("sibling prefix is not inside (win32 and posix)", () => {
+		expect(
+			isInsideAppDir("C:\\a\\app-evil\\x.exe", "C:\\a\\app", win({
+				"C:\\a\\app-evil\\x.exe": "C:\\a\\app-evil\\x.exe",
+				"C:\\a\\app": "C:\\a\\app",
+			})),
+		).toBe(false);
+		expect(
+			isInsideAppDir("/tmp/app-evil/pinar", "/tmp/app", posix({
+				"/tmp/app-evil/pinar": "/tmp/app-evil/pinar",
+				"/tmp/app": "/tmp/app",
+			})),
+		).toBe(false);
+	});
+
+	test("unix containment uses / separators and is case-sensitive", () => {
 		const appDir = "/tmp/builds/stable-linux-x64";
-		expect(isInsideAppDir("/tmp/builds/stable-linux-x64/Helpers/pinar", appDir)).toBe(true);
-		expect(isInsideAppDir("/tmp/builds/stable-linux-x64-evil/pinar", appDir)).toBe(false);
+		expect(isInsideAppDir("/tmp/builds/stable-linux-x64/Helpers/pinar", appDir, posix({
+			"/tmp/builds/stable-linux-x64/Helpers/pinar": "/tmp/builds/stable-linux-x64/Helpers/pinar",
+			[appDir]: appDir,
+		}))).toBe(true);
+		// Case difference on posix: a different directory.
+		expect(isInsideAppDir("/tmp/builds/STABLE-LINUX-X64/Helpers/pinar", appDir, posix({
+			"/tmp/builds/STABLE-LINUX-X64/Helpers/pinar": "/tmp/builds/STABLE-LINUX-X64/Helpers/pinar",
+			[appDir]: appDir,
+		}))).toBe(false);
+	});
+
+	test("posix: a symlinked image that escapes the dir is not inside", () => {
+		// `link` lexically sits under /opt/app but resolves to /elsewhere.
+		expect(
+			isInsideAppDir("/opt/app/link/pinar", "/opt/app", posix({
+				"/opt/app/link/pinar": "/elsewhere/pinar",
+				"/opt/app": "/opt/app",
+			})),
+		).toBe(false);
+	});
+
+	test("posix: a dir that is itself a symlink to the real dir is inside", () => {
+		expect(
+			isInsideAppDir("/opt/app/x/pinar", "/opt/link-to-app", posix({
+				"/opt/app/x/pinar": "/opt/app/x/pinar",
+				"/opt/link-to-app": "/opt/app",
+			})),
+		).toBe(true);
+	});
+
+	test("win32: a different drive is not inside", () => {
+		expect(
+			isInsideAppDir("D:\\a\\app\\x.exe", "C:\\a\\app", win({
+				"D:\\a\\app\\x.exe": "D:\\a\\app\\x.exe",
+				"C:\\a\\app": "C:\\a\\app",
+			})),
+		).toBe(false);
+	});
+
+	test("realpath throwing for the image or for the dir fails closed", () => {
+		const throwing = () => {
+			const error = new Error("ENOENT: no such file or directory");
+			error.code = "ENOENT";
+			throw error;
+		};
+		expect(isInsideAppDir("C:\\a\\app\\x.exe", "C:\\a\\app", { platform: "win32", realpath: throwing })).toBe(false);
+		expect(
+			isInsideAppDir("C:\\a\\app\\x.exe", "C:\\a\\app", {
+				platform: "win32",
+				realpath: (p) => (p === "C:\\a\\app" ? "C:\\a\\app" : throwing()),
+			}),
+		).toBe(false);
 	});
 
 	test("null or empty input is never inside", () => {
 		expect(isInsideAppDir(null, "/tmp/app")).toBe(false);
 		expect(isInsideAppDir("/tmp/app/exe", "")).toBe(false);
+		expect(isInsideAppDir("", "/tmp/app")).toBe(false);
+	});
+
+	test("a `..foo` child (a name that starts with two dots) is inside", () => {
+		expect(
+			isInsideAppDir("C:\\a\\app\\..foo\\x.exe", "C:\\a\\app", win({
+				"C:\\a\\app\\..foo\\x.exe": "C:\\a\\app\\..foo\\x.exe",
+				"C:\\a\\app": "C:\\a\\app",
+			})),
+		).toBe(true);
+		expect(
+			isInsideAppDir("/tmp/app/..foo/x", "/tmp/app", posix({
+				"/tmp/app/..foo/x": "/tmp/app/..foo/x",
+				"/tmp/app": "/tmp/app",
+			})),
+		).toBe(true);
 	});
 });
 
@@ -503,85 +679,93 @@ describe("imageOfFor darwin branch", () => {
 	});
 });
 
-describe("runSmoke", () => {
-	/** Every launcher candidate for every platform, so the fixture resolves
-	 * on any host; each win32 stub always has its runtime next to it, so the
-	 * self-extracting-wrapper detection stays null. */
-	const LAUNCHER_FIXTURES = [
-		join("bin", "launcher.exe"),
-		join("bin", "cottontail.exe"),
-		join("Pinar", "bin", "launcher.exe"),
-		join("Pinar", "bin", "cottontail.exe"),
-		join("app", "bin", "launcher.exe"),
-		join("app", "bin", "cottontail.exe"),
-		"launcher.exe",
-		"Pinar.exe",
-		join("app", "Pinar.exe"),
-		join("Pinar", "launcher.exe"),
-		join("app", "launcher.exe"),
-		join("Pinar.app", "Contents", "MacOS", "launcher"),
-		join("Pinar.app", "Contents", "MacOS", "Pinar"),
-		join("app", "Pinar.app", "Contents", "MacOS", "launcher"),
-		join("app", "Pinar.app", "Contents", "MacOS", "Pinar"),
-		"Pinar",
-		"Pinar-dev",
-		join("app", "Pinar"),
-		join("app", "Pinar-dev"),
-	];
+/* Shared runSmoke fixtures/helpers (module scope: used by several suites). */
 
-	function makeAppDir() {
-		const root = mkdtempSync(join(tmpdir(), "pinar-smoke-app-"));
-		for (const rel of LAUNCHER_FIXTURES) {
-			const path = join(root, rel);
-			mkdirSync(dirname(path), { recursive: true });
-			writeFileSync(path, "");
-		}
-		return root;
-	}
-
-	/** A fake launcher: records the spawn and (optionally) pre-writes tray.pid.
-	 * The child stays live (exitCode/signalCode null) until cleanup signals it,
-	 * at which point it exits — matching a real launcher that only dies when
-	 * the kill reaches it. Pass `{ alreadyExited: true }` to model a launcher
-	 * that exited on its own before cleanup (PID-reuse scenario). */
-	function fakeSpawn(childPid, trayPid, opts = {}) {
-		const calls = [];
-		let child;
-		const spawnFn = (launcher, _args, spawnOpts) => {
-			calls.push(launcher);
-			if (trayPid != null) {
-				const pinarHome = spawnOpts.env.PINAR_HOME;
-				mkdirSync(pinarHome, { recursive: true });
-				writeFileSync(join(pinarHome, "tray.pid"), `${trayPid}\n`);
+/** ONLY the given platform's launcher candidates (plus, for win32, the
+ * cottontail.exe runtime next to each bin/launcher.exe stub so the
+ * self-extracting-wrapper detection stays null). The old all-platforms
+ * fixture wrote the linux `Pinar` FILE over the win32 `Pinar/` DIRECTORY:
+ * EISDIR on POSIX, and a silent file-over-directory "success" on Windows
+ * Bun. The exists-as-directory guard below makes every platform fail
+ * loudly instead. */
+function makeAppDir(platform = process.platform) {
+	const root = mkdtempSync(join(tmpdir(), "pinar-smoke-app-"));
+	const files = launcherCandidates(root, platform).slice();
+	if (platform === "win32") {
+		for (const stub of files) {
+			if (stub.endsWith(join("bin", "launcher.exe"))) {
+				files.push(join(dirname(stub), "cottontail.exe"));
 			}
-			const closeListeners = [];
-			child = {
-				pid: childPid,
-				exitCode: opts.alreadyExited ? 0 : null,
-				signalCode: null,
-				stdout: null,
-				stderr: null,
-				on(event, fn) {
-					if (event !== "close" || opts.alreadyExited) return;
-					closeListeners.push(fn);
-					// The launcher exits right after the signal: resolves
-					// waitClose without waiting the real 5 s timeout.
-					queueMicrotask(() => {
-						child.exitCode = 0;
-						for (const listener of closeListeners.splice(0)) listener(0);
-					});
-				},
-			};
-			return child;
-		};
-		return { spawnFn, calls };
+		}
 	}
+	for (const file of files) {
+		if (existsSync(file) && statSync(file).isDirectory()) {
+			throw new Error(`fixture collision: ${file} already exists as a directory`);
+		}
+		mkdirSync(dirname(file), { recursive: true });
+		writeFileSync(file, "");
+	}
+	return root;
+}
 
+/** A fake launcher: records the spawn and (optionally) pre-writes
+ * tray.pid. The child stays live (exitCode/signalCode null) until
+ * cleanup signals it, at which point it exits — matching a real launcher
+ * that only dies when the kill reaches it. `backdate` models a tray.pid
+ * written by an earlier run (mtime before this launch). Pass
+ * `{ alreadyExited: true }` to model a launcher that exited on its own
+ * before cleanup (PID-reuse scenario). */
+function fakeSpawn(childPid, trayPid, opts = {}) {
+	const calls = [];
+	let child;
+	const spawnFn = (launcher, _args, spawnOpts) => {
+		calls.push(launcher);
+		if (trayPid != null) {
+			const pinarHome = spawnOpts.env.PINAR_HOME;
+			mkdirSync(pinarHome, { recursive: true });
+			const pidFile = join(pinarHome, "tray.pid");
+			writeFileSync(pidFile, `${trayPid}\n`);
+			// NTFS mtime can land up to ~0.4 ms BEFORE the Date.now() that
+			// runSmoke records as startMs in the same tick; stamp the file 1 s
+			// in the future so readTrayPid's `mtimeMs >= startMs` sees it as
+			// fresh (a real tray writes the file after the child starts).
+			const freshStamp = new Date(Date.now() + 1_000);
+			utimesSync(pidFile, freshStamp, freshStamp);
+			if (opts.backdate) {
+				const past = new Date(Date.now() - 120_000);
+				utimesSync(pidFile, past, past);
+			}
+		}
+		const closeListeners = [];
+		child = {
+			pid: childPid,
+			exitCode: opts.alreadyExited ? 0 : null,
+			signalCode: null,
+			stdout: null,
+			stderr: null,
+			on(event, fn) {
+				if (event !== "close" || opts.alreadyExited) return;
+				closeListeners.push(fn);
+				// The launcher exits right after the signal: resolves
+				// waitClose without waiting the real 5 s timeout.
+				queueMicrotask(() => {
+					child.exitCode = 0;
+					for (const listener of closeListeners.splice(0)) listener(0);
+				});
+			},
+		};
+		return child;
+	};
+	return { spawnFn, calls };
+}
+
+describe("runSmoke", () => {
 	test("never kills a tray.pid pid outside the launched tree and launch dir", async () => {
 		const appDir = makeAppDir();
 		const foreign = 99991;
 		const childPid = 7777;
 		const killCalls = [];
+		const killed = new Set();
 		const { spawnFn, calls } = fakeSpawn(childPid, foreign);
 		try {
 			const result = await runSmoke(
@@ -589,12 +773,15 @@ describe("runSmoke", () => {
 				{
 					spawn: spawnFn,
 					parentOf: async () => null, // nothing is related to the launched child
-					isAlive: async (pid) => pid === foreign || pid === childPid,
+					isAlive: async (pid) => (killed.has(pid) ? false : pid === foreign || pid === childPid),
+					// Non-existent image: the canonical check fails closed.
 					imageOf: async () => "C:\\outside\\foreign\\bin\\pinar.exe",
 					killTree: async (pid) => {
 						killCalls.push(pid);
+						killed.add(pid);
 					},
 					listeningPid: () => null,
+					probeHealth: async () => ({ healthy: false }),
 				},
 			);
 			expect(calls).toHaveLength(1);
@@ -602,6 +789,9 @@ describe("runSmoke", () => {
 			expect(result.jsExecuted).toBe(false);
 			// Only the launcher this run spawned is terminated.
 			expect(killCalls).toEqual([childPid]);
+			// The foreign tray pid is recorded as a refusal, and cleanup is clean.
+			expect(result.cleanup.ok).toBe(true);
+			expect(result.cleanup.refused.some((entry) => entry.includes(String(foreign)))).toBe(true);
 		} finally {
 			rmSync(appDir, { recursive: true, force: true });
 		}
@@ -612,6 +802,7 @@ describe("runSmoke", () => {
 		const foreign = 99992;
 		const childPid = 7778;
 		const killCalls = [];
+		const killed = new Set();
 		const { spawnFn } = fakeSpawn(childPid, foreign);
 		try {
 			const result = await runSmoke(
@@ -619,12 +810,14 @@ describe("runSmoke", () => {
 				{
 					spawn: spawnFn,
 					parentOf: async (pid) => (pid === foreign ? childPid : null),
-					isAlive: async (pid) => pid === foreign || pid === childPid,
+					isAlive: async (pid) => (killed.has(pid) ? false : pid === foreign || pid === childPid),
 					imageOf: async () => "C:\\outside\\foreign\\bin\\pinar.exe",
 					killTree: async (pid) => {
 						killCalls.push(pid);
+						killed.add(pid);
 					},
 					listeningPid: () => null,
+					probeHealth: async () => ({ healthy: false }),
 				},
 			);
 			expect(result.ok).toBe(false); // health never came up on the pinned port
@@ -640,6 +833,7 @@ describe("runSmoke", () => {
 		const foreign = 99993;
 		const childPid = 7779;
 		const killCalls = [];
+		const killed = new Set();
 		const { spawnFn } = fakeSpawn(childPid, foreign);
 		try {
 			await runSmoke(
@@ -647,12 +841,15 @@ describe("runSmoke", () => {
 				{
 					spawn: spawnFn,
 					parentOf: async () => null, // not in the tree: the image decides
-					isAlive: async (pid) => pid === foreign || pid === childPid,
-					imageOf: async (pid) => (pid === foreign ? join(appDir, "Pinar", "bin", "pinar.exe") : null),
+					isAlive: async (pid) => (killed.has(pid) ? false : pid === foreign || pid === childPid),
+					// A REAL file inside the current platform's fixture.
+					imageOf: async (pid) => (pid === foreign ? launcherCandidates(appDir, process.platform)[0] : null),
 					killTree: async (pid) => {
 						killCalls.push(pid);
+						killed.add(pid);
 					},
 					listeningPid: () => null,
+					probeHealth: async () => ({ healthy: false }),
 				},
 			);
 			expect(killCalls).toContain(foreign);
@@ -681,6 +878,7 @@ describe("runSmoke", () => {
 						killCalls.push(pid);
 					},
 					listeningPid: (port) => (port === 17398 ? 42424 : null),
+					probeHealth: async () => ({ healthy: false }),
 				},
 			);
 			expect(result.ok).toBe(false);
@@ -688,6 +886,78 @@ describe("runSmoke", () => {
 			expect(result.reason).toContain("already in use by pid 42424");
 			expect(spawned).toBe(0); // refused before launching anything
 			expect(killCalls).toEqual([]); // and nothing was killed
+			// The pre-existing listener is recorded as a refusal.
+			expect(result.cleanup.refused.some((entry) => entry.includes("42424"))).toBe(true);
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	});
+
+	test("a pre-busy port whose listener image is inside the app dir is never killed", async () => {
+		// Regression (F2 cleanup ownership): the pre-existing listener's
+		// image lies INSIDE the app dir fixture — a refusal before spawn must
+		// still kill nothing (the old finally killed it via launchRoot).
+		const appDir = makeAppDir();
+		const killCalls = [];
+		let spawned = 0;
+		try {
+			const result = await runSmoke(
+				{ appDir, port: 17407, timeoutMs: 1_500, log: null, keepHome: false },
+				{
+					spawn: () => {
+						spawned += 1;
+						throw new Error("spawn must not run");
+					},
+					parentOf: async () => null,
+					isAlive: async (pid) => pid === 42424,
+					imageOf: async (pid) => (pid === 42424 ? launcherCandidates(appDir, process.platform)[0] : null),
+					killTree: async (pid) => {
+						killCalls.push(pid);
+					},
+					listeningPid: (port) => (port === 17407 ? 42424 : null),
+					probeHealth: async () => ({ healthy: false }),
+				},
+			);
+			expect(spawned).toBe(0);
+			expect(result.ok).toBe(false);
+			expect(result.reason).toContain("already in use");
+			expect(killCalls).toEqual([]);
+			expect(result.cleanup.refused.some((entry) => entry.includes("42424"))).toBe(true);
+			expect(result.cleanup.errors).toEqual([]);
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	});
+
+	test("a pre-spawn failure (launcher not found) with a listener inside the app dir kills nothing", async () => {
+		const appDir = mkdtempSync(join(tmpdir(), "pinar-smoke-empty2-"));
+		const marker = join(appDir, "marker.txt");
+		writeFileSync(marker, "");
+		const killCalls = [];
+		let spawned = 0;
+		try {
+			const result = await runSmoke(
+				{ appDir, port: 17408, timeoutMs: 1_500, log: null, keepHome: false },
+				{
+					spawn: () => {
+						spawned += 1;
+						throw new Error("spawn must not run");
+					},
+					parentOf: async () => null,
+					isAlive: async (pid) => pid === 55555,
+					imageOf: async (pid) => (pid === 55555 ? marker : null),
+					killTree: async (pid) => {
+						killCalls.push(pid);
+					},
+					listeningPid: (port) => (port === 17408 ? 55555 : null),
+					probeHealth: async () => ({ healthy: false }),
+				},
+			);
+			expect(spawned).toBe(0);
+			expect(result.ok).toBe(false);
+			expect(result.reason).toContain("launcher not found");
+			expect(killCalls).toEqual([]);
+			expect(result.cleanup.refused.some((entry) => entry.includes("55555"))).toBe(true);
 		} finally {
 			rmSync(appDir, { recursive: true, force: true });
 		}
@@ -698,6 +968,7 @@ describe("runSmoke", () => {
 		const foreignHelper = 99994;
 		const childPid = 7780;
 		const killCalls = [];
+		const killed = new Set();
 		const { spawnFn } = fakeSpawn(childPid, null);
 		// The port is free before the launch (first probe); by cleanup a
 		// foreign process holds it, and it must survive.
@@ -708,24 +979,27 @@ describe("runSmoke", () => {
 				{
 					spawn: spawnFn,
 					parentOf: async () => null,
-					isAlive: async (pid) => pid === childPid,
+					isAlive: async (pid) => (killed.has(pid) ? false : pid === childPid || pid === foreignHelper),
 					imageOf: async (pid) => (pid === foreignHelper ? "C:\\outside\\helpers\\pinar.exe" : null),
 					killTree: async (pid) => {
 						killCalls.push(pid);
+						killed.add(pid);
 					},
 					listeningPid: () => {
 						listeningCalls += 1;
 						return listeningCalls <= 1 ? null : foreignHelper;
 					},
+					probeHealth: async () => ({ healthy: false }),
 				},
 			);
 			expect(listeningCalls).toBeGreaterThan(1); // cleanup probe ran
 			expect(result.ok).toBe(false);
 			expect(killCalls).toEqual([childPid]); // the foreign helper survived
+			expect(result.cleanup.refused.some((entry) => entry.includes(String(foreignHelper)))).toBe(true);
 		} finally {
 			rmSync(appDir, { recursive: true, force: true });
 		}
-	});
+	}, 60_000);
 
 	test("does not signal the launcher once it has already exited on its own", async () => {
 		const appDir = makeAppDir();
@@ -744,6 +1018,7 @@ describe("runSmoke", () => {
 						killCalls.push(pid);
 					},
 					listeningPid: () => null,
+					probeHealth: async () => ({ healthy: false }),
 				},
 			);
 			expect(calls).toHaveLength(1); // the launcher did spawn
@@ -756,5 +1031,544 @@ describe("runSmoke", () => {
 			rmSync(appDir, { recursive: true, force: true });
 		}
 	});
+
+	test("a failed sandbox removal keeps the startup facts and reports cleanup failure", async () => {
+		const appDir = makeAppDir();
+		const childPid = 90001;
+		const trayPid = 90002;
+		const killCalls = [];
+		const killed = new Set();
+		const { spawnFn } = fakeSpawn(childPid, trayPid);
+		let healthCalls = 0;
+		let result;
+		try {
+			result = await runSmoke(
+				{ appDir, port: 17410, timeoutMs: 2_000, log: null, keepHome: false },
+				{
+					spawn: spawnFn,
+					parentOf: async (pid) => (pid === trayPid ? childPid : null),
+					isAlive: async (pid) => (killed.has(pid) ? false : pid === trayPid || pid === childPid),
+					imageOf: async () => null,
+					killTree: async (pid) => {
+						killCalls.push(pid);
+						killed.add(pid);
+					},
+					listeningPid: () => null,
+					// The pre-launch probe must see a free/unhealthy port;
+					// the helper only comes up after the (fake) spawn.
+					probeHealth: async () => {
+						healthCalls += 1;
+						return { healthy: healthCalls > 1 };
+					},
+					removeDir: (p) => {
+						const error = new Error(`rmSync: EBUSY: resource busy or locked, rmdir '${p}'`);
+						(error as NodeJS.ErrnoException).code = "EBUSY";
+						throw error;
+					},
+				},
+			);
+			expect(result.ok).toBe(false);
+			expect(result.jsExecuted).toBe(true);
+			expect(result.trayPid).toBe(trayPid);
+			expect(result.health).toBe(true);
+			expect(result.cleanup.ok).toBe(false);
+			expect(result.cleanup.errors.some((entry) => entry.includes("EBUSY"))).toBe(true);
+			expect(result.sandbox).toBeTruthy();
+			expect(result.sandboxRetained).toBe(true);
+			expect(result.reason).toMatch(/^cleanup failed:/);
+			expect(killCalls).toContain(trayPid);
+			expect(killCalls).toContain(childPid);
+		} finally {
+			// The retained sandbox is removed here (it is test evidence, not
+			// a fixture the next test needs).
+			if (result?.sandbox != null) rmSync(result.sandbox, { recursive: true, force: true });
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	});
+
+	test("a killTree that throws is recorded in cleanup.errors and runSmoke resolves", async () => {
+		const appDir = makeAppDir();
+		const childPid = 90003;
+		const { spawnFn } = fakeSpawn(childPid, null);
+		try {
+			const result = await runSmoke(
+				{ appDir, port: 17411, timeoutMs: 1_500, log: null, keepHome: false },
+				{
+					spawn: spawnFn,
+					parentOf: async () => null,
+					isAlive: async (pid) => pid === childPid,
+					imageOf: async () => null,
+					killTree: async () => {
+						throw new Error("boom-kill");
+					},
+					listeningPid: () => null,
+					probeHealth: async () => ({ healthy: false }),
+				},
+			);
+			expect(result.ok).toBe(false);
+			expect(result.cleanup.ok).toBe(false);
+			expect(result.cleanup.errors.some((entry) => entry.includes("boom-kill"))).toBe(true);
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	});
+
+	test("a stale tray.pid (mtime before the launch) is never a cleanup candidate", async () => {
+		const appDir = makeAppDir();
+		const childPid = 91001;
+		const stalePid = 91002;
+		const killCalls = [];
+		const killed = new Set();
+		const { spawnFn } = fakeSpawn(childPid, stalePid, { backdate: true });
+		try {
+			const result = await runSmoke(
+				{ appDir, port: 17412, timeoutMs: 1_500, log: null, keepHome: false },
+				{
+					spawn: spawnFn,
+					parentOf: async () => null,
+					isAlive: async (pid) => (killed.has(pid) ? false : pid === childPid || pid === stalePid),
+					// If the stale pid were (wrongly) trusted, its image would
+					// look like it is inside the launched build dir:
+					imageOf: async (pid) => (pid === stalePid ? launcherCandidates(appDir, process.platform)[0] : null),
+					killTree: async (pid) => {
+						killCalls.push(pid);
+						killed.add(pid);
+					},
+					listeningPid: () => null,
+					probeHealth: async () => ({ healthy: false }),
+				},
+			);
+			expect(result.ok).toBe(false);
+			expect(result.jsExecuted).toBe(false);
+			expect(result.trayPid).toBeNull(); // the stale pid was never adopted
+			// Only the launched launcher is terminated — the stale pid's
+			// (live, in-dir-image) PID is never killed.
+			expect(killCalls).toEqual([childPid]);
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	});
+
+	test("--keep-home success reports the kept sandbox on disk", async () => {
+		const appDir = makeAppDir();
+		const childPid = 92001;
+		const trayPid = 92002;
+		const killed = new Set();
+		const { spawnFn } = fakeSpawn(childPid, trayPid);
+		let healthCalls = 0;
+		let result;
+		try {
+			result = await runSmoke(
+				{ appDir, port: 17413, timeoutMs: 2_000, log: null, keepHome: true },
+				{
+					spawn: spawnFn,
+					parentOf: async (pid) => (pid === trayPid ? childPid : null),
+					isAlive: async (pid) => (killed.has(pid) ? false : pid === trayPid || pid === childPid),
+					imageOf: async () => null,
+					killTree: async (pid) => {
+						killed.add(pid);
+					},
+					listeningPid: () => null,
+					// The pre-launch probe must see a free/unhealthy port.
+					probeHealth: async () => {
+						healthCalls += 1;
+						return { healthy: healthCalls > 1 };
+					},
+				},
+			);
+			expect(result.ok).toBe(true);
+			expect(result.cleanup.ok).toBe(true);
+			expect(result.jsExecuted).toBe(true);
+			expect(result.sandbox).toBeTruthy();
+			expect(result.sandboxRetained).toBe(true);
+			expect(existsSync(result.sandbox)).toBe(true);
+		} finally {
+			// The test removes the kept sandbox.
+			if (result?.sandbox != null) rmSync(result.sandbox, { recursive: true, force: true });
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	});
+
+	// --- PID reuse via an exited launcher ---------------------------------
+	// Once the launcher has exited, its PID can be reused by an unrelated
+	// process; tree membership (pid === launcher pid, or a recorded parent
+	// edge to it) is no longer evidence — only canonical image containment
+	// inside the launch dir qualifies.
+
+	test("a port listener reusing an exited launcher pid (image outside) is refused", async () => {
+		const appDir = makeAppDir();
+		const outsideDir = mkdtempSync(join(tmpdir(), "pinar-smoke-outside-"));
+		writeFileSync(join(outsideDir, "unrelated.exe"), "");
+		const launcherPid = 77001; // reused by an unrelated live process
+		const { spawnFn } = fakeSpawn(launcherPid, null, { alreadyExited: true });
+		let listeningCalls = 0;
+		let result;
+		try {
+			result = await runSmoke(
+				{ appDir, port: 17415, timeoutMs: 1_000, log: null, keepHome: false },
+				{
+					spawn: spawnFn,
+					parentOf: async () => null,
+					isAlive: async () => true, // the reused pid is alive
+					imageOf: async (pid) => (pid === launcherPid ? join(outsideDir, "unrelated.exe") : null),
+					killTree: async () => {
+						throw new Error("killTree must not be called");
+					},
+					listeningPid: (port) => {
+						listeningCalls += 1;
+						// Free before the spawn; held by the reused pid at the
+						// cleanup decision; the process then exits, so the
+						// bounded poll settles.
+						return port === 17415 && listeningCalls === 2 ? launcherPid : null;
+					},
+					probeHealth: async () => ({ healthy: false }),
+				},
+			);
+			expect(result.ok).toBe(false);
+			expect(result.cleanup.killed).toEqual([]);
+			expect(result.cleanup.refused.some((entry) => entry.includes(String(launcherPid)))).toBe(true);
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+			rmSync(outsideDir, { recursive: true, force: true });
+		}
+	});
+
+	test("a fresh tray.pid whose parent is the exited launcher (image outside) is not killed", async () => {
+		const appDir = makeAppDir();
+		const outsideDir = mkdtempSync(join(tmpdir(), "pinar-smoke-outside-"));
+		writeFileSync(join(outsideDir, "unrelated.exe"), "");
+		const launcherPid = 77002;
+		const trayPid = 77003;
+		const { spawnFn } = fakeSpawn(launcherPid, trayPid, { alreadyExited: true });
+		let result;
+		try {
+			result = await runSmoke(
+				{ appDir, port: 17416, timeoutMs: 1_000, log: null, keepHome: false },
+				{
+					spawn: spawnFn,
+					// The recorded parent edge points at the exited launcher pid.
+					parentOf: async (pid) => (pid === trayPid ? launcherPid : null),
+					isAlive: async () => true,
+					imageOf: async (pid) => (pid === trayPid ? join(outsideDir, "unrelated.exe") : null),
+					killTree: async () => {
+						throw new Error("killTree must not be called");
+					},
+					listeningPid: () => null,
+					probeHealth: async () => ({ healthy: false }),
+				},
+			);
+			expect(result.ok).toBe(false);
+			expect(result.cleanup.killed).toEqual([]);
+			expect(result.cleanup.refused.some((entry) => entry.includes(String(trayPid)))).toBe(true);
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+			rmSync(outsideDir, { recursive: true, force: true });
+		}
+	});
+
+	test("a helper whose image is inside the launch dir is killed even after the launcher exited", async () => {
+		const appDir = makeAppDir();
+		const launcherPid = 77005;
+		const helperPid = 77004;
+		const killed = new Set();
+		const { spawnFn } = fakeSpawn(launcherPid, null, { alreadyExited: true });
+		const helperExe = join(appDir, "helper-inside.exe");
+		writeFileSync(helperExe, "");
+		let listeningCalls = 0;
+		let result;
+		try {
+			result = await runSmoke(
+				{ appDir, port: 17417, timeoutMs: 1_000, log: null, keepHome: false },
+				{
+					spawn: spawnFn,
+					parentOf: async () => null,
+					isAlive: async (pid) => !killed.has(pid),
+					imageOf: async (pid) => (pid === helperPid ? helperExe : null),
+					killTree: async (pid) => {
+						killed.add(pid);
+					},
+					listeningPid: (port) => {
+						listeningCalls += 1;
+						return port === 17417 && listeningCalls === 2 ? helperPid : null;
+					},
+					probeHealth: async () => ({ healthy: false }),
+				},
+			);
+			// Image containment still justifies the kill after the launcher
+			// exited (the real-smoke shape: launcher exits after the tray dies,
+			// the helper is found by image).
+			expect(result.cleanup.killed).toEqual([helperPid]);
+			expect(result.cleanup.ok).toBe(true);
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	});
+
+	test("a throwing spawn hook is reported, resolves and retains the sandbox on --keep-home", async () => {
+		const appDir = makeAppDir();
+		let result;
+		try {
+			result = await runSmoke(
+				{ appDir, port: 17418, timeoutMs: 1_000, log: null, keepHome: true },
+				{
+					spawn: () => {
+						throw new Error("spawn failed early");
+					},
+					isAlive: async () => false,
+					imageOf: async () => null,
+					killTree: async () => {
+						throw new Error("killTree must not be called");
+					},
+					listeningPid: () => null,
+					probeHealth: async () => ({ healthy: false }),
+				},
+			);
+			expect(result.ok).toBe(false);
+			expect(result.reason.startsWith("launcher spawn failed:")).toBe(true);
+			expect(result.launcherPid).toBeUndefined(); // nothing was started
+			expect(result.cleanup.killed).toEqual([]);
+			expect(result.cleanup.ok).toBe(true);
+			expect(result.sandbox).toBeTruthy();
+			expect(result.sandboxRetained).toBe(true);
+			expect(existsSync(result.sandbox)).toBe(true);
+		} finally {
+			// The test removes the kept sandbox.
+			if (result?.sandbox != null) rmSync(result.sandbox, { recursive: true, force: true });
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	});
 });
 
+/* ---------------- win32 8.3 short paths (real) ---------------------------- */
+
+// bun:test has no runtime self-skip, so the real short-path tests are
+// declared with test.skip (and an explicit message) when this machine's
+// volume has 8.3 names disabled. The fixture (a long-named dir + its 8.3
+// form) is built once at import time, on win32 only.
+const shortPathFixture = (() => {
+	if (process.platform !== "win32") return null;
+	const root = mkdtempSync(join(tmpdir(), "pinar-smoke-83base-"));
+	const longDir = join(root, "averyverylongpinarsmoketestnamefortesting");
+	mkdirSync(longDir, { recursive: true });
+	const out = spawnSync("cmd", ["/d", "/c", "for", "%I", "in", `(${longDir})`, "do", "@echo", "%~sI"], {
+		encoding: "utf8",
+		windowsHide: true,
+	});
+	const shortDir = String(out.stdout ?? "").trim();
+	// Warm the CIM service so the real Win32_Process probe inside the tests
+	// does not pay first-call latency inside its own timeout.
+	spawnSync("powershell", [
+		"-NoProfile",
+		"-Command",
+		"Get-CimInstance Win32_Process -Filter \"ProcessId=$PID\" | Out-Null",
+	], { stdio: "ignore", windowsHide: true });
+	return { root, longDir, shortDir, shortNamesDisabled: shortDir === "" || shortDir === longDir };
+})();
+
+afterAll(() => {
+	if (shortPathFixture != null) {
+		rmSync(shortPathFixture.root, { recursive: true, force: true });
+	}
+});
+
+describe("win32 8.3 short paths (real)", () => {
+	// bun:test has no runtime self-skip. On a volume where 8.3 names are
+	// disabled (short form equals long form) the tests are declared with
+	// test.skip and an EXPLICIT message — never a silent pass.
+	const declare =
+		process.platform === "win32" && shortPathFixture != null && shortPathFixture.shortNamesDisabled
+			? (name, fn) =>
+					test.skip(
+						`${name} (skipped: 8.3 short names disabled on this volume — the short form equals the long form)`,
+						fn,
+					)
+			: (name, fn, timeout) => test.skipIf(process.platform !== "win32")(name, fn, timeout);
+
+	declare(
+		"win32 real 8.3: the CIM image (short or long form) is inside both spellings of the dir",
+		async () => {
+			const fx = shortPathFixture;
+			if (fx == null) throw new Error("fixture unavailable");
+			const probeDir = mkdtempSync(join(tmpdir(), "pinar-smoke-cim-"));
+			let pid = null;
+			try {
+				const source = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "PING.EXE");
+				const exe = join(fx.longDir, "ping.exe");
+				copyFileSync(source, exe);
+				// Spawn through the SHORT path: Win32_Process may report the
+				// image in either spelling.
+				const child = spawn(join(fx.shortDir, "ping.exe"), ["-n", "30", "127.0.0.1"], {
+					stdio: "ignore",
+					windowsHide: true,
+				});
+				pid = child.pid;
+				if (pid == null) throw new Error("spawn returned no pid");
+				child.on("error", () => undefined);
+				await new Promise((resolve) => setTimeout(resolve, 700));
+				const imageOf = imageOfFor("win32", { probeDir });
+				const image = await imageOf(pid);
+				expect(image).not.toBeNull();
+				const imageLower = String(image).toLowerCase();
+				const shortExe = join(fx.shortDir, "ping.exe").toLowerCase();
+				const longExe = join(fx.longDir, "ping.exe").toLowerCase();
+				expect([shortExe, longExe]).toContain(imageLower);
+				// Containment holds for BOTH spellings of the dir (F2).
+				expect(isInsideAppDir(String(image), fx.shortDir)).toBe(true);
+				expect(isInsideAppDir(String(image), fx.longDir)).toBe(true);
+				// A sibling dir is never inside.
+				const evilDir = join(fx.root, "averyverylongpinarsmoketestnamefortesting-evil");
+				mkdirSync(evilDir, { recursive: true });
+				expect(isInsideAppDir(String(image), evilDir)).toBe(false);
+			} finally {
+				if (pid != null) {
+					spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+					// Verify it is gone.
+					const out = spawnSync("tasklist", ["/NH", "/FI", `PID eq ${pid}`, "/FO", "CSV"], {
+						encoding: "utf8",
+						windowsHide: true,
+					});
+					expect(tasklistCsvHasPid(out.stdout, pid)).toBe(false);
+				}
+				rmSync(probeDir, { recursive: true, force: true });
+			}
+		},
+		60_000,
+	);
+
+	declare(
+		"win32 real 8.3 TEMP: a helper with a long-form image inside the short-form sandbox is killed",
+		async () => {
+			const fx = shortPathFixture;
+			if (fx == null) throw new Error("fixture unavailable");
+			const oldTmp = process.env.TMP;
+			const oldTemp = process.env.TEMP;
+			const appDir = mkdtempSync(join(tmpdir(), "pinar-smoke-83app-"));
+			const childPid = 88001;
+			const helperPid = 88002;
+			const killCalls = [];
+			const killed = new Set();
+			let capturedHome = null;
+			let listeningCalls = 0;
+			try {
+				// Wrapper fixture with a REAL tar.zst payload so the
+				// extraction inside runSmoke runs for real: launchRoot becomes
+				// the extracted dir INSIDE the sandbox (under the short TEMP).
+				const wrapper = join(appDir, "Pinar");
+				mkdirSync(join(wrapper, "bin"), { recursive: true });
+				mkdirSync(join(wrapper, "Resources"), { recursive: true });
+				writeFileSync(join(wrapper, "bin", "launcher.exe"), ""); // stub, no runtime
+				const src = join(appDir, "payload-src");
+				mkdirSync(join(src, "bin"), { recursive: true });
+				writeFileSync(join(src, "bin", "launcher.exe"), "");
+				writeFileSync(join(src, "helper.exe"), "");
+				const payload = join(wrapper, "Resources", "abc123.tar.zst");
+				const tar = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe");
+				const packed = spawnSync(tar, ["-a", "-cf", payload, "-C", src, "."], { stdio: "ignore", windowsHide: true });
+				expect(packed.status).toBe(0);
+				process.env.TMP = fx.shortDir;
+				process.env.TEMP = fx.shortDir;
+				const result = await runSmoke(
+					{ appDir, port: 17414, timeoutMs: 1_500, log: null, keepHome: false },
+					{
+						spawn: (_launcher, _args, spawnOpts) => {
+							capturedHome = spawnOpts.env.PINAR_HOME;
+							return { pid: childPid, exitCode: null, signalCode: null, stdout: null, stderr: null, on() {} };
+						},
+						parentOf: async () => null,
+						isAlive: async (pid) => (killed.has(pid) ? false : pid === childPid || pid === helperPid),
+						// The LONG canonical form of a file inside the
+						// sandbox, derived from the fake spawn's
+						// env.PINAR_HOME (mimics a CIM ExecutablePath that
+						// reports the long spelling of a short-built sandbox).
+						imageOf: async (pid) => {
+							if (pid !== helperPid || capturedHome == null) return null;
+							const sandbox = dirname(capturedHome);
+							return realpathSync.native(join(sandbox, "extracted", "helper.exe"));
+						},
+						killTree: async (pid) => {
+							killCalls.push(pid);
+							killed.add(pid);
+						},
+						listeningPid: (port) => {
+							listeningCalls += 1;
+							if (port !== 17414) return null;
+							if (killed.has(helperPid)) return null;
+							return listeningCalls > 1 ? helperPid : null;
+						},
+						probeHealth: async () => ({ healthy: false }),
+					},
+				);
+				expect(killCalls).toContain(helperPid);
+				expect(killCalls).toContain(childPid);
+				expect(result.cleanup.ok).toBe(true);
+				expect(result.cleanup.errors).toEqual([]);
+				// Startup itself never succeeded (no tray.pid): the point is
+				// that the helper was recognized as ours and killed.
+				expect(result.ok).toBe(false);
+				expect(result.sandboxRetained).toBe(false);
+			} finally {
+				// Restoring `undefined` would store the string "undefined"; delete
+				// the variable when it was not set.
+				if (oldTmp === undefined) delete process.env.TMP;
+				else process.env.TMP = oldTmp;
+				if (oldTemp === undefined) delete process.env.TEMP;
+				else process.env.TEMP = oldTemp;
+				rmSync(appDir, { recursive: true, force: true });
+			}
+		},
+		60_000,
+	);
+});
+
+/* ---------------- real symlink containment (posix) ------------------------ */
+
+test.skipIf(process.platform === "win32")("posix: real symlinks — containment is decided on canonical paths", () => {
+	const root = mkdtempSync(join(tmpdir(), "pinar-smoke-symlink-"));
+	try {
+		const realDir = join(root, "real");
+		mkdirSync(realDir, { recursive: true });
+		writeFileSync(join(realDir, "pinar"), "x");
+		const linkDir = join(root, "link-to-real");
+		symlinkSync(realDir, linkDir); // the dir itself is a symlink
+		const outside = join(root, "outside");
+		mkdirSync(outside, { recursive: true });
+		writeFileSync(join(outside, "pinar"), "y");
+		symlinkSync(outside, join(linkDir, "sub")); // escapes the real dir
+		const image = join(linkDir, "sub", "pinar"); // lexically under linkDir
+		// Dir that is itself a symlink to the real dir: inside.
+		expect(isInsideAppDir(join(linkDir, "pinar"), realDir)).toBe(true);
+		// Lexically under the dir, canonically outside: NOT inside.
+		expect(isInsideAppDir(image, linkDir)).toBe(false);
+		// A real sibling is not inside.
+		expect(isInsideAppDir(join(outside, "pinar"), realDir)).toBe(false);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+/* ---------------- CLI final JSON line ------------------------------------ */
+
+test("the CLI prints exactly one final JSON line with a cleanup object on failure", () => {
+	const appDir = mkdtempSync(join(tmpdir(), "pinar-smoke-cli-"));
+	try {
+		const script = join(dirname(fileURLToPath(import.meta.url)), "tray-smoke.mjs");
+		// Port 17409 is the only real port this suite may use; the run must
+		// not launch anything (empty app dir → launcher not found).
+		const out = spawnSync(process.execPath, [script, "--app-dir", appDir, "--port", "17409", "--timeout-ms", "1000"], {
+			encoding: "utf8",
+			windowsHide: true,
+		});
+		expect(out.status).toBe(1);
+		const lines = String(out.stdout ?? "").split(/\r?\n/).filter((line) => line.length > 0);
+		expect(lines).toHaveLength(1);
+		const parsed = JSON.parse(lines[0]);
+		expect(parsed.ok).toBe(false);
+		expect(parsed.cleanup).toBeDefined();
+		expect(Array.isArray(parsed.cleanup.killed)).toBe(true);
+		expect(Array.isArray(parsed.cleanup.refused)).toBe(true);
+		expect(Array.isArray(parsed.cleanup.errors)).toBe(true);
+		expect(typeof parsed.cleanup.sandboxRemoved).toBe("boolean");
+	} finally {
+		rmSync(appDir, { recursive: true, force: true });
+	}
+});

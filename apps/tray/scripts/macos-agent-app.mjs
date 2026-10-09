@@ -6,15 +6,15 @@ export function infoPlistPath(bundle) {
   return join(bundle, "Contents", "Info.plist");
 }
 
-export function setAgentApp(bundle) {
+export function setAgentApp(bundle, run = execFileSync) {
   const plist = infoPlistPath(bundle);
   if (!existsSync(plist)) throw new Error(`missing Info.plist in ${bundle}`);
   try {
-    execFileSync("/usr/libexec/PlistBuddy", ["-c", "Add :LSUIElement bool true", plist], {
+    run("/usr/libexec/PlistBuddy", ["-c", "Add :LSUIElement bool true", plist], {
       stdio: "pipe",
     });
   } catch {
-    execFileSync("/usr/libexec/PlistBuddy", ["-c", "Set :LSUIElement true", plist], {
+    run("/usr/libexec/PlistBuddy", ["-c", "Set :LSUIElement true", plist], {
       stdio: "pipe",
     });
   }
@@ -34,10 +34,10 @@ export function resolveBundle(env = process.env, argv = process.argv) {
   return arg?.endsWith(".app") ? arg : null;
 }
 
-export function applyAgentAppFromEnv(env = process.env, argv = process.argv) {
+export function applyAgentAppFromEnv(env = process.env, argv = process.argv, run = execFileSync) {
   const bundle = resolveBundle(env, argv);
   if (!bundle) return false;
-  setAgentApp(bundle);
+  setAgentApp(bundle, run);
   console.error(`macos-agent-app: LSUIElement=true in ${bundle}`);
   return true;
 }

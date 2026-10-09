@@ -3,7 +3,7 @@ name: CI
 # Pull request checks on Windows, macOS, and Linux. Windows and macOS also
 # build the tray and smoke its startup; the tray ships for macOS and Windows
 # only, so Linux runs the repo gates without a tray build. This workflow is
-# read-only: it never publishes, uploads artifacts, or reads repository secrets.
+# read-only: it never publishes, uploads artifacts, or reads any repository secret.
 
 on:
   pull_request:

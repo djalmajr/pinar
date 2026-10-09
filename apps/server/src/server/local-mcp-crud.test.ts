@@ -226,13 +226,29 @@ function shotSafetyTests(jsonFallback: boolean) {
   });
 
   test("symlink escapes and directory shotPaths are skipped, never removed", async () => {
+    // Real symlinks are tried first, so hosts that may create them keep the
+    // full coverage. Windows without SeCreateSymbolicLinkPrivilege (no
+    // developer mode) fails with EPERM: the directory escape then uses a
+    // junction, which realpathSync follows, and the file cases fall back to an
+    // external path or a junction. Every fallback resolves outside the shots
+    // root, so the containment check rejects it first; the ownership or
+    // regular-file checks would also reject it if containment let it through.
+    const trySymlink = (target: string, path: string, type: "dir" | "file") => {
+      try {
+        symlinkSync(target, path, type);
+        return true;
+      } catch (error) {
+        if (process.platform !== "win32" || !(error instanceof Error && "code" in error && error.code === "EPERM")) throw error;
+        return false;
+      }
+    };
     const linked = makeVictim("linked.txt");
     mkdirSync(join(root, "shots"), { recursive: true });
     const parentLink = join(root, "shots", "escape-parent");
-    symlinkSync(victimDir, parentLink);
+    if (!trySymlink(victimDir, parentLink, "dir")) symlinkSync(victimDir, parentLink, "junction");
     const fileLink = makeVictim("file-link-target.txt");
-    const fileLinkPath = join(root, "shots", "escape-file.png");
-    symlinkSync(fileLink, fileLinkPath);
+    const fileLinkCandidate = join(root, "shots", "escape-file.png");
+    const fileLinkPath = trySymlink(fileLink, fileLinkCandidate, "file") ? fileLinkCandidate : fileLink;
     const subDir = join(root, "shots", "subdir");
     mkdirSync(subDir);
     writeFileSync(join(subDir, "keep.txt"), "keep");
@@ -262,15 +278,17 @@ function shotSafetyTests(jsonFallback: boolean) {
     assert.equal(fourth.isError, false, fourth.text);
     assert.ok(existsSync(join(subDir, "keep.txt")), "a directory shotPath must never be removed recursively");
 
-    // The session's own canonical file name pointing outside the root: the
-    // ownership check passes because the canonical path resolves to the same
-    // external target, so only the containment guard protects the file
-    // (review 173240 P3-1). Exercised on the MCP tool and the REST route.
+    // The session's own canonical file name pointing outside the root: with a
+    // real file symlink the ownership check passes because the canonical path
+    // resolves to the same external target, so only the containment guard
+    // protects the file (review 173240 P3-1). The win32 EPERM junction
+    // fallback is a directory, so it is also not a regular file. Exercised on
+    // the MCP tool and the REST route.
     await seedSession("safety_ownlink_mcp");
     const ownMcpLink = join(root, "shots", "safety_ownlink_mcp.png");
     const ownMcpVictim = makeVictim("own-canonical-mcp.txt");
     rmSync(ownMcpLink);
-    symlinkSync(ownMcpVictim, ownMcpLink);
+    if (!trySymlink(ownMcpVictim, ownMcpLink, "file")) symlinkSync(victimDir, ownMcpLink, "junction");
     const ownMcp = await callTool("pinar.delete_session", { sessionId: "safety_ownlink_mcp" });
     assert.equal(ownMcp.isError, false, ownMcp.text);
     assert.equal((await request("/api/sessions/safety_ownlink_mcp")).status, 404, "the session row must still be deleted (MCP)");
@@ -280,7 +298,7 @@ function shotSafetyTests(jsonFallback: boolean) {
     const ownRestLink = join(root, "shots", "safety_ownlink_rest.png");
     const ownRestVictim = makeVictim("own-canonical-rest.txt");
     rmSync(ownRestLink);
-    symlinkSync(ownRestVictim, ownRestLink);
+    if (!trySymlink(ownRestVictim, ownRestLink, "file")) symlinkSync(victimDir, ownRestLink, "junction");
     const ownRest = await request("/api/history/safety_ownlink_rest", { method: "DELETE" });
     const ownRestText = await ownRest.text();
     assert.equal(ownRest.status, 200, `the REST delete must succeed: ${ownRestText}`);

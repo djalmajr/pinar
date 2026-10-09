@@ -3,7 +3,7 @@
     "cinzel": {
       "url": "https://cinzel.app/mcp",
       "headers": {
-        "Authorization": "Bearer ${env:CINZEL_API_KEY}",
+        "Authorization": "Bearer ${env:CINZEL_DJA_API_KEY}",
         "Origin": "https://cinzel.app"
       }
     }

@@ -1,3 +1,4 @@
+// @hutch cli=0.25.0
 export default {
 	scripts: {
 		install: ["hutch", "install", "--frozen-lockfile"],
@@ -7,6 +8,6 @@ export default {
 		"build:canary": ["hutch", "electrobun", "build", "--env=canary"],
 	},
 	electrobun: {
-		version: "2.0.1",
+		version: "2.0.3-beta.11",
 	},
 };

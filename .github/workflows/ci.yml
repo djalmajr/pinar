@@ -1,0 +1,141 @@
+name: CI
+
+# Pull request checks on Windows, macOS, and Linux. Windows and macOS also
+# build the tray and smoke its startup; the tray ships for macOS and Windows
+# only, so Linux runs the repo gates without a tray build. This workflow is
+# read-only: it never publishes, uploads artifacts, or reads any repository secret.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Keep line endings stable
+        run: |
+          $ErrorActionPreference = "Stop"
+          git config --global core.autocrlf input
+          git config --global core.eol lf
+      - name: Check out the pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.0
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Test
+        run: |
+          # Info-ZIP is not preinstalled on windows-latest. Install zip/unzip
+          # from the runner's preinstalled MSYS2 so the extension packaging
+          # tests run instead of being skipped for a missing zip. The PATH
+          # append is step-local (never added to GITHUB_PATH), and the step
+          # fails if pacman fails.
+          $ErrorActionPreference = "Stop"
+          & "C:\msys64\usr\bin\pacman.exe" -S --noconfirm --needed zip unzip
+          if ($LASTEXITCODE -ne 0) {
+            throw "pacman failed to install zip and unzip (exit code $LASTEXITCODE)"
+          }
+          $env:PATH = "$env:PATH;C:\msys64\usr\bin"
+          Write-Host "zip -v (first 2 lines):"
+          (zip -v 2>&1 | Select-Object -First 2) | ForEach-Object { Write-Host "  $_" }
+          Write-Host "unzip -v (first line):"
+          (unzip -v 2>&1 | Select-Object -First 1) | ForEach-Object { Write-Host "  $_" }
+          bun run test
+      - name: Install Hutch
+        run: |
+          $ErrorActionPreference = "Stop"
+          & ([scriptblock]::Create((irm https://hutch.blackboard.sh/hutch/install.ps1))) -Version 0.25.0 -NoModifyPath
+          Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $env:USERPROFILE ".hutch\bin")
+      - name: Build tray
+        run: bun run build:tray
+      - name: Tray startup smoke
+        run: bun scripts/tray-smoke.mjs --timeout-ms 120000 --log "$env:RUNNER_TEMP/tray-smoke.log"
+      - name: Show tray smoke log
+        if: failure()
+        run: |
+          $ErrorActionPreference = "Stop"
+          $log = "$env:RUNNER_TEMP/tray-smoke.log"
+          if (Test-Path $log) {
+            Get-Content $log
+          } else {
+            Write-Host "tray smoke log not found at $log"
+          }
+
+  macos:
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.0
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Test
+        run: bun run test
+      - name: Install Hutch
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://hutch.blackboard.sh/hutch/install.sh | sh -s -- --version 0.25.0 --no-modify-path
+          echo "$HOME/.hutch/bin" >> "$GITHUB_PATH"
+      - name: Build tray
+        run: bun run build:tray
+      - name: Tray startup smoke
+        run: bun scripts/tray-smoke.mjs --timeout-ms 120000 --log "$RUNNER_TEMP/tray-smoke.log"
+      - name: Show tray smoke log
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/tray-smoke.log"
+          if [ -f "$log" ]; then
+            cat "$log"
+          else
+            echo "tray smoke log not found at $log"
+          fi
+
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      # The tray ships for macOS and Windows only: the standalone local-server
+      # helper is not compiled for Linux (scripts/prepare-tray-helper.mjs), so
+      # there is no tray build or startup smoke to run here.
+      - name: Check out the pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.0
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Test
+        run: bun run test

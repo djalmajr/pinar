@@ -41,7 +41,13 @@ describe("local capability store", () => {
     const again = await readOrCreateLocalCapability();
     assert.equal(again.current.secret, created.current.secret);
     const info = await stat(localCapabilityPath(root));
-    assert.equal(info.mode & 0o777, 0o600);
+    // POSIX permission bits are not expressible on Windows (chmod only
+    // toggles the read-only attribute), so the 0600 assertion only runs on
+    // unix; the store file itself is asserted everywhere.
+    if (process.platform !== "win32") {
+      assert.equal(info.mode & 0o777, 0o600);
+    }
+    assert.ok(info.isFile(), "the capability store must be a regular file");
     assert.equal(await localCapabilityMatches(created.current.secret), true);
     assert.equal(await localCapabilityMatches("not-the-secret"), false);
     assert.equal(await localCapabilityMatches(""), false);

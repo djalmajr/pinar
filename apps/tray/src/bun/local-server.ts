@@ -3,12 +3,43 @@ import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-const PORTS = Array.from({ length: 10 }, (_, index) => 17373 + index);
+export const DEFAULT_HEALTH_PORTS = Array.from({ length: 10 }, (_, index) => 17373 + index);
+const PORTS = DEFAULT_HEALTH_PORTS;
 
-export async function findHealthyPort(): Promise<number | null> {
-	for (const port of PORTS) {
+/**
+ * The single port pinned by a valid `PINAR_PORT` env var (integer 1-65535),
+ * or null when the variable is missing or invalid. A diagnostic tray must not
+ * "borrow" a production helper on another port, so a valid pin collapses the
+ * health check to that port alone.
+ */
+export function pinnedHealthPort(env: Record<string, string | undefined> = process.env) {
+	const raw = env.PINAR_PORT;
+	if (raw == null) return null;
+	const trimmed = raw.trim();
+	if (!/^\d+$/.test(trimmed)) return null;
+	const port = Number(trimmed);
+	if (port < 1 || port > 65535) return null;
+	return port;
+}
+
+/** Ports to probe for a healthy helper: the pinned port alone, else the sweep. */
+export function healthPorts(env: Record<string, string | undefined> = process.env): number[] {
+	const pinned = pinnedHealthPort(env);
+	return pinned == null ? PORTS : [pinned];
+}
+
+export type FindHealthyPortOptions = {
+	env?: Record<string, string | undefined>;
+	ports?: number[];
+	fetch?: typeof fetch;
+};
+
+export async function findHealthyPort(options: FindHealthyPortOptions = {}): Promise<number | null> {
+	const ports = options.ports ?? healthPorts(options.env ?? process.env);
+	const doFetch = options.fetch ?? fetch;
+	for (const port of ports) {
 		try {
-			const response = await fetch(`http://127.0.0.1:${port}/api/health`);
+			const response = await doFetch(`http://127.0.0.1:${port}/api/health`);
 			const body = (await response.json()) as { ok?: boolean; service?: string };
 			if (response.ok && body.ok === true && body.service === "pinar") return port;
 		} catch {
@@ -126,6 +157,7 @@ export type StopServerDeps = {
 	healthyPort?: () => Promise<number | null>;
 	killPort?: (port: number, seen: Set<number>) => Promise<void>;
 	run?: (args: string[]) => Promise<number>;
+	env?: Record<string, string | undefined>;
 	unhealthyTimeoutMs?: number;
 	wait?: (ms: number) => Promise<void>;
 };
@@ -173,10 +205,16 @@ export async function stopServer(deps: StopServerDeps = {}) {
 	const run = deps.run ?? runPinarCommand;
 	const wait = deps.wait ?? sleep;
 	const unhealthyTimeoutMs = deps.unhealthyTimeoutMs ?? 2000;
-	try {
-		await run(["stop"]);
-	} catch {
-		// Missing binary or spawn failure — fall through to health + lsof.
+	// `pinar stop` signals the pid in PINAR_HOME/server.pid regardless of the
+	// pin, so with a valid PINAR_PORT it can stop a helper that is not the
+	// listener on the pinned port. Skip it and let the kill loop below (driven
+	// by findHealthyPort, which honours the pin) stop only that listener.
+	if (pinnedHealthPort(deps.env ?? process.env) == null) {
+		try {
+			await run(["stop"]);
+		} catch {
+			// Missing binary or spawn failure — fall through to health + lsof.
+		}
 	}
 	if (await waitUntilUnhealthy(unhealthyTimeoutMs, healthyPort, wait)) return;
 	const seen = new Set<number>();

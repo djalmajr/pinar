@@ -23,6 +23,31 @@
  * never writes the HKCU Run key or a LaunchAgent. `PINAR_PORT` pins the
  * helper to the smoke port, which must be free before the launch.
  *
+ * The win32 and darwin build dirs are Electrobun self-extracting wrappers
+ * (the wrapper `launcher` installs the real app OVER the build-dir bundle
+ * and relaunches it through the OS, so the tray would parent to launchd / the
+ * init process and the smoke would always fail with "outside the launched
+ * process tree" while silently rewriting the build artifact). The script
+ * detects the wrapper payload (win32: `Pinar/Resources/<hash>.tar.zst` next
+ * to the launcher stub; darwin: `Pinar.app/Contents/Resources/<hash>.tar.zst`
+ * with the stub `Contents/MacOS/launcher` and no `Contents/Resources/app`)
+ * with a fail-closed predicate (two or more payloads throw), decompresses it
+ * in-process (Bun.zstdDecompressSync, 2 GiB cap — no `zstd` binary, no bsdtar
+ * zstd assumption), validates the plain tar (absolute/drive names, `..`
+ * segments, unsupported entry types, escaping symlinks, bad checksums,
+ * truncation) before ANY byte is written, and extracts it into this run's
+ * sandbox (`<sandbox>/extracted`) with the platform tar. The inner launcher
+ * is spawned directly (never the wrapper launcher, never `open`); on darwin
+ * the extracted payload must not itself be wrapper-shaped. Detection or
+ * extraction failures fail closed BEFORE the spawn: nothing is spawned,
+ * nothing is killed, the sandbox is removed (or kept with --keep-home).
+ *
+ * A fresh live tray PID that is outside the launched tree additionally
+ * reports `trayAncestry` (the PID chain upward via the same parent probe,
+ * at most 8 hops, stopping at null/0/1/a repeat) in the final JSON: a
+ * diagnostic that never changes decide(), jsExecuted, ok, or the cleanup
+ * kills.
+ *
  * Cleanup ownership: a PID is only killed when this run actually spawned
  * the launcher (the pinned port was verified free right before the spawn)
  * AND the PID is inside the launched process tree or its image lies inside
@@ -40,7 +65,7 @@
  *   { ok, platform, appDir, launchDir, launcher, launcherPid, port,
  *     jsExecuted, trayPid, health, elapsedMs, reason,
  *     cleanup: { ok, killed, refused, errors, sandboxRemoved },
- *     sandbox?, sandboxRetained }
+ *     sandbox?, sandboxRetained, trayAncestry? }
  */
 import { spawn, spawnSync } from "node:child_process";
 import {
@@ -57,13 +82,19 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const DEFAULT_PORT = 17390;
 export const DEFAULT_TIMEOUT_MS = 90_000;
 export const DEFAULT_POLL_MS = 1_000;
+
+/** Hard cap on a wrapper payload's decompressed plain-tar size (2 GiB). */
+export const MAX_WRAPPER_DECOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024;
+
+/** Hard cap on the number of entries a wrapper payload's plain tar may hold. */
+export const MAX_WRAPPER_ENTRIES = 200_000;
 
 /** Pre-seeded desktop prefs: login already configured and disabled, so the
  * tray never adds the HKCU Run key / LaunchAgent. */
@@ -216,6 +247,7 @@ export function resolveLauncher(appDir, platform = process.platform) {
  * The Windows build dir holds a self-extracting wrapper (`Pinar/` with a
  * launcher.exe stub and the real app in `Resources/<hash>.tar.zst`). Return
  * the payload tar when `appDir` is (or contains) such a wrapper, else null.
+ * A wrapper with TWO OR MORE payloads is ambiguous and fails closed (throw).
  */
 export function wrapperPayloadTarZst(appDir) {
 	const appRoots = [
@@ -233,11 +265,294 @@ export function wrapperPayloadTarZst(appDir) {
 		} catch {
 			continue;
 		}
-		const payload = entries.find((entry) => entry.endsWith(".tar.zst"));
-		if (payload != null) return join(resources, payload);
+		const payloads = entries.filter((entry) => entry.endsWith(".tar.zst"));
+		if (payloads.length === 0) continue;
+		if (payloads.length > 1) {
+			throw new Error(`ambiguous wrapper payload: ${payloads.length} .tar.zst in ${resources} (${payloads.join(", ")})`);
+		}
+		return join(resources, payloads[0]);
 	}
 	return null;
 }
+
+/**
+ * The macOS build dir holds a self-extracting wrapper: a `Pinar.app` whose
+ * `Contents/MacOS/launcher` is the Electrobun extractor stub and the real
+ * app lives in `Contents/Resources/<hash>.tar.zst`. For each candidate
+ * bundle (`<appDir>/Pinar.app`, and `appDir` itself when it IS a `.app`
+ * bundle) a bundle is a wrapper iff the stub launcher exists, `Contents/
+ * Resources/app` does NOT (an extracted app), and `Contents/Resources` holds
+ * `.tar.zst` files. Exactly one payload → its path; two or more → throw
+ * (ambiguous; fail closed); not a wrapper → null.
+ */
+export function darwinWrapperPayloadTarZst(appDir) {
+	const bundles = [join(appDir, "Pinar.app")];
+	if (basename(appDir).endsWith(".app")) bundles.push(appDir);
+	for (const bundle of bundles) {
+		if (!existsSync(join(bundle, "Contents", "MacOS", "launcher"))) continue;
+		if (existsSync(join(bundle, "Contents", "Resources", "app"))) continue;
+		const resources = join(bundle, "Contents", "Resources");
+		let entries = [];
+		try {
+			entries = readdirSync(resources);
+		} catch {
+			continue;
+		}
+		const payloads = entries.filter((entry) => entry.endsWith(".tar.zst"));
+		if (payloads.length === 0) continue;
+		if (payloads.length > 1) {
+			throw new Error(`ambiguous wrapper payload: ${payloads.length} .tar.zst in ${resources} (${payloads.join(", ")})`);
+		}
+		return join(resources, payloads[0]);
+	}
+	return null;
+}
+
+/* ---------------- wrapper payload extraction (fail closed) --------------- */
+
+/** The tar used to extract a validated plain tar, by platform: win32 prefers
+ * the System32 bsdtar, darwin the stock /usr/bin/tar (its zstd support is NOT
+ * assumed — the payload is decompressed in-process first), others `tar`.
+ * `options.tarCommand` (tests only) overrides the choice. */
+function tarCommandFor(platform) {
+	if (platform === "win32") {
+		const exe = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe");
+		return existsSync(exe) ? exe : "tar";
+	}
+	if (platform === "darwin") return existsSync("/usr/bin/tar") ? "/usr/bin/tar" : "tar";
+	return "tar";
+}
+
+/** Decode a NUL-terminated field of a 512-byte tar header; non-zero bytes
+ * after the terminator mean a malformed header (throw). */
+function tarField(block, start, length, label) {
+	let end = start;
+	while (end < start + length && block[end] !== 0) end += 1;
+	const text = block.subarray(start, end).toString("latin1");
+	if (block.subarray(end + 1, start + length).some((byte) => byte !== 0)) {
+		throw new Error(`${label}: stray non-NUL bytes after the field terminator`);
+	}
+	return text;
+}
+
+/** Parse an octal tar header field (space/NUL padded). */
+function tarOctalField(block, start, length, label) {
+	const text = block.subarray(start, start + length).toString("latin1");
+	const match = text.match(/^[0-7]+/);
+	if (match == null) throw new Error(`${label}: not an octal field: ${JSON.stringify(text)}`);
+	const rest = text.slice(match[0].length);
+	if (rest.replace(/[\0 ]/g, "") !== "") {
+		throw new Error(`${label}: malformed octal field: ${JSON.stringify(text)}`);
+	}
+	const value = parseInt(match[0], 8);
+	if (!Number.isSafeInteger(value)) throw new Error(`${label}: octal field out of range: ${JSON.stringify(text)}`);
+	return value;
+}
+
+/**
+ * Every path check a tar entry name (and a symlink target) must pass
+ * before any of its bytes may be written: no NUL/empty names, no `\` or `:`
+ * (absolute `\\x` and drive `C:…` names included), no absolute names, no
+ * `..` segment.
+ */
+function assertSafeTarName(name, label) {
+	if (name === "") throw new Error(`${label}: empty entry name`);
+	if (name.includes("\0")) throw new Error(`${label}: NUL in entry name`);
+	if (name.includes("\\")) throw new Error(`${label}: backslash in entry name: ${name}`);
+	if (name.includes(":")) throw new Error(`${label}: colon in entry name: ${name}`);
+	if (name.startsWith("/") || name.startsWith("\\")) {
+		throw new Error(`${label}: absolute entry name: ${name}`);
+	}
+	if (/^[A-Za-z]:/.test(name)) throw new Error(`${label}: drive-qualified entry name: ${name}`);
+	for (const segment of name.split("/")) {
+		if (segment === "..") throw new Error(`${label}: ".." segment in entry name: ${name}`);
+	}
+}
+
+/**
+ * Validate a plain (uncompressed) ustar archive BEFORE any of its bytes are
+ * written to the destination. Rejects (throw, naming the offending entry):
+ * absolute names, any `..` segment, names containing `\` or `:`, NUL/empty
+ * names, entry types other than regular file (`0`/NUL), directory (`5`) and
+ * symlink (`2`) — so hardlinks (`1`), fifos, devices, pax headers (`x`,`g`)
+ * and GNU long name/link (`L`,`K`) entries are rejected — a symlink whose
+ * target fails the same name checks (absolute, `..` segment, `\`, `:`), so
+ * it cannot point outside the archive root, a bad header checksum and a
+ * truncated archive,
+ * and more than MAX_WRAPPER_ENTRIES entries. The ustar `prefix` field is
+ * joined with the name (`prefix + "/" + name`) when the magic at 257 is
+ * `ustar`, and the joined name goes through every path check as one path.
+ */
+export function validatePlainTar(input) {
+	const bytes = Buffer.isBuffer(input) ? input : Buffer.from(input);
+	if (bytes.length === 0) throw new Error("truncated tar archive: empty input");
+	if (bytes.length % 512 !== 0) {
+		throw new Error(`truncated tar archive: ${bytes.length} bytes is not a multiple of 512`);
+	}
+	let offset = 0;
+	let entryCount = 0;
+	let terminatorSeen = false;
+	while (offset < bytes.length) {
+		const header = bytes.subarray(offset, offset + 512);
+		if (header.every((byte) => byte === 0)) {
+			// The standard end is two zero blocks; extra padding is fine.
+			terminatorSeen = true;
+			offset += 512;
+			continue;
+		}
+		if (terminatorSeen) {
+			throw new Error(`tar entry ${entryCount + 1}: data after the terminator block`);
+		}
+		entryCount += 1;
+		if (entryCount > MAX_WRAPPER_ENTRIES) {
+			throw new Error(`tar archive has more than ${MAX_WRAPPER_ENTRIES} entries`);
+		}
+		const label = `tar entry ${entryCount}`;
+		let name = tarField(header, 0, 100, `${label}: name`);
+		const prefix = tarField(header, 345, 155, `${label}: prefix`);
+		const magic = header.subarray(257, 262).toString("latin1");
+		const linkname = tarField(header, 157, 100, `${label}: linkname`);
+		const typeflag = header[156];
+		// Header checksum: sum of the 512 bytes with the chksum field (148–155)
+		// treated as spaces (0x20).
+		let sum = 0;
+		for (let i = 0; i < 512; i += 1) sum += i >= 148 && i < 156 ? 0x20 : header[i];
+		if (tarOctalField(header, 148, 8, `${label}: chksum`) !== sum) {
+			throw new Error(`${label}: bad header checksum`);
+		}
+		if (typeflag !== 0x00 && typeflag !== 0x30 && typeflag !== 0x35 && typeflag !== 0x32) {
+			throw new Error(
+				`${label} (${name || "unnamed"}): unsupported tar entry type ${typeflag === 0 ? "NUL" : JSON.stringify(String.fromCharCode(typeflag))} (only regular file, directory and symlink entries are allowed)`,
+			);
+		}
+		if (prefix !== "" && magic.startsWith("ustar")) name = `${prefix}/${name}`;
+		assertSafeTarName(name, label);
+		// A symlink target gets the same checks as a name: no absolute target
+		// and no `..` segment, so it can never resolve outside the archive root.
+		if (typeflag === 0x32) assertSafeTarName(linkname, `${label}: symlink target`);
+		const size = tarOctalField(header, 124, 12, `${label}: size`);
+		const dataEnd = offset + 512 + Math.ceil(size / 512) * 512;
+		if (dataEnd > bytes.length) {
+			throw new Error(
+				`${label} (${name}): truncated archive (size ${size} needs ${dataEnd - offset} bytes, ${bytes.length - offset} remain)`,
+			);
+		}
+		offset = dataEnd;
+	}
+	return entryCount;
+}
+
+/**
+ * Post-extraction containment check: walk `destDir` (lstat) and require
+ * every entry to canonically live inside the canonical `destDir`; a symlink
+ * whose resolved (or, when broken, lexical) target escapes throws.
+ */
+function postCheckExtraction(destDir) {
+	let root;
+	try {
+		root = realpathSync.native(destDir);
+	} catch (error) {
+		throw new Error(`post-extraction check: cannot canonicalize ${destDir}: ${errorText(error)}`);
+	}
+	const win = process.platform === "win32";
+	const p = win ? path.win32 : path.posix;
+	const canon = (value) => (win ? value.replace(/\//g, "\\").toLowerCase() : value);
+	const inside = (value) => {
+		const rel = p.relative(canon(root), canon(value));
+		return rel === "" || (rel !== ".." && !rel.startsWith(".." + p.sep) && !p.isAbsolute(rel));
+	};
+	const walk = (dir) => {
+		let entries;
+		try {
+			entries = readdirSync(dir, { withFileTypes: true });
+		} catch (error) {
+			throw new Error(`post-extraction check: cannot read ${dir}: ${errorText(error)}`);
+		}
+		for (const entry of entries) {
+			const full = join(dir, entry.name);
+			let resolved;
+			try {
+				resolved = realpathSync.native(full);
+			} catch (error) {
+				if (!entry.isSymbolicLink()) {
+					throw new Error(`post-extraction check: cannot canonicalize ${full}: ${errorText(error)}`);
+				}
+				// Broken symlink: resolve the target lexically; a relative
+				// target must still stay inside destDir.
+				let target;
+				try {
+					target = readlinkSync(full);
+				} catch (readError) {
+					throw new Error(`post-extraction check: cannot read symlink ${full}: ${errorText(readError)}`);
+				}
+				const lexical = path.resolve(dirname(full), target);
+				if (!inside(lexical)) {
+					throw new Error(`post-extraction check: symlink ${full} points outside ${destDir} (target ${target})`);
+				}
+				continue;
+			}
+			if (!inside(resolved)) {
+				throw new Error(`post-extraction check: entry ${full} resolves outside ${destDir} (${resolved})`);
+			}
+			if (entry.isDirectory()) walk(resolved);
+		}
+	};
+	walk(root);
+}
+
+/**
+ * Materialize a wrapper payload (a `Resources/<hash>.tar.zst`) into
+ * `destDir` without ever trusting its bytes: decompress in-process with
+ * Bun.zstdDecompressSync (no `zstd` binary, no bsdtar zstd assumption), cap
+ * the decompressed size at 2 GiB, validate the plain tar headers BEFORE
+ * anything is written (see validatePlainTar), write the plain tar to the
+ * caller's sandbox (NOT inside `destDir`; default: `dirname(destDir)`),
+ * extract it with the platform tar (args exactly
+ * `[-xf, <plainTar>, -C, destDir]`, no -P) and post-check every extracted
+ * entry with lstat/realpath. Any violation throws (fail closed).
+ * `options.platform` selects the tar the way `runSmoke`'s platform does;
+ * `options.tarCommand` overrides it (tests only).
+ */
+export async function extractWrapperPayload(payloadTarZst, destDir, options = {}) {
+	const platform = options.platform ?? process.platform;
+	const zstd = globalThis.Bun?.zstdDecompressSync;
+	if (typeof zstd !== "function") {
+		throw new Error("Bun.zstdDecompressSync is unavailable; cannot decompress the wrapper payload in-process");
+	}
+	let compressed;
+	try {
+		compressed = readFileSync(payloadTarZst);
+	} catch (error) {
+		throw new Error(`cannot read wrapper payload ${payloadTarZst}: ${errorText(error)}`);
+	}
+	let plain;
+	try {
+		plain = Buffer.from(zstd(compressed));
+	} catch (error) {
+		throw new Error(`zstd decompression of ${payloadTarZst} failed: ${errorText(error)}`);
+	}
+	if (plain.byteLength > MAX_WRAPPER_DECOMPRESSED_BYTES) {
+		throw new Error(
+			`wrapper payload expands to ${plain.byteLength} bytes, above the 2 GiB (${MAX_WRAPPER_DECOMPRESSED_BYTES} byte) cap`,
+		);
+	}
+	validatePlainTar(plain);
+	const scratchDir = options.scratchDir ?? dirname(destDir);
+	const plainTar = join(scratchDir, "wrapper-payload.tar");
+	writeFileSync(plainTar, plain);
+	const tar = options.tarCommand ?? tarCommandFor(platform);
+	const out = spawnSync(tar, ["-xf", plainTar, "-C", destDir], { stdio: "pipe", windowsHide: true });
+	try {
+		rmSync(plainTar, { force: true });
+	} catch {
+		// Best effort: the sandbox cleanup removes any residue.
+	}
+	if (out.status !== 0) {
+		throw new Error(`tar -xf exited with ${out.status}: ${String(out.stderr ?? "").trim().slice(0, 300)}`);
+	}
+	postCheckExtraction(destDir);
+}
+
 
 /**
  * Default --app-dir: the current platform's tray build under apps/tray/build/.
@@ -398,8 +713,8 @@ export async function runSmoke(args, hooks = {}) {
 	let parentOf = hooks.parentOf ?? null;
 	let imageOf = hooks.imageOf ?? null;
 
-	const start = Date.now();
-	const platform = process.platform;
+const start = Date.now();
+	const platform = hooks.platform ?? process.platform;
 	const appDir = args.appDir != null ? resolve(args.appDir) : defaultAppDir(dirname(fileURLToPath(import.meta.url)), platform, process.arch);
 	const result = {
 		ok: false,
@@ -438,20 +753,57 @@ export async function runSmoke(args, hooks = {}) {
 		parentOf = parentOf ?? defaultParentOf(probeDir);
 		imageOf = imageOf ?? defaultImageOf(probeDir);
 
-		// The Windows build dir is a self-extracting wrapper; materialize the
-		// real app from its payload before looking for the launcher.
-		const payloadTar = platform === "win32" ? wrapperPayloadTarZst(appDir) : null;
+		// The win32 and darwin build dirs are Electrobun self-extracting
+		// wrappers (the wrapper `launcher` installs the real app OVER the
+		// build-dir bundle and relaunches it through the OS, so the tray would
+		// parent to launchd / the init process and the smoke would always fail
+		// "outside the launched process tree" while rewriting the build
+		// artifact). Materialize the real app from the payload into THIS run's
+		// sandbox and spawn the inner launcher directly (never the wrapper
+		// launcher, never `open`); the build artifact stays byte-for-byte
+		// unchanged. Detection and extraction fail closed BEFORE the spawn:
+		// nothing is spawned, nothing is killed, the sandbox is removed (or
+		// retained on --keep-home).
+		let payloadTar = null;
+		try {
+			payloadTar =
+				platform === "win32"
+					? wrapperPayloadTarZst(appDir)
+					: platform === "darwin"
+						? darwinWrapperPayloadTarZst(appDir)
+						: null;
+		} catch (error) {
+			result.reason = `unsafe or ambiguous wrapper payload under ${appDir}: ${errorText(error)}`;
+			return finish();
+		}
 		if (payloadTar != null) {
 			const extracted = join(sandbox, "extracted");
 			mkdirSync(extracted, { recursive: true });
-			const tarExe = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe");
-			const tar = existsSync(tarExe) ? tarExe : "tar";
-			const out = spawnSync(tar, ["-xf", payloadTar, "-C", extracted], { stdio: "pipe", windowsHide: true });
-			if (out.status !== 0) {
-				result.reason = `failed to extract wrapper payload ${payloadTar}: ${String(out.stderr ?? "").trim().slice(0, 300)}`;
+			try {
+				await extractWrapperPayload(payloadTar, extracted, { platform, scratchDir: sandbox });
+			} catch (error) {
+				result.reason = `failed to extract wrapper payload ${payloadTar}: ${errorText(error)}`;
 				return finish();
 			}
 			launchRoot = extracted;
+			if (platform === "darwin") {
+				// The inner app must not itself be a wrapper: Electrobun never
+				// nests, so a wrapper-shaped payload is a different (unsafe)
+				// thing and fails closed.
+				let innerWrapper = null;
+				let innerAmbiguous = null;
+				try {
+					innerWrapper = darwinWrapperPayloadTarZst(launchRoot);
+				} catch (error) {
+					innerAmbiguous = errorText(error);
+				}
+				if (innerWrapper != null || innerAmbiguous != null) {
+					result.reason = innerAmbiguous != null
+						? `extracted payload is still a self-extracting wrapper (ambiguous: ${innerAmbiguous})`
+						: "extracted payload is still a self-extracting wrapper";
+					return finish();
+				}
+			}
 		}
 		try {
 			launchRoot = realpathFn(launchRoot);
@@ -569,6 +921,18 @@ export async function runSmoke(args, hooks = {}) {
 		if (!result.ok && result.reason == null) {
 			result.reason = `timeout after ${args.timeoutMs}ms`;
 		}
+		// Ancestry diagnostic (narrow): when the final result is a fresh live
+		// tray PID that is NOT in the launched tree, report the PID chain from
+		// that PID upward (at most 8 hops, stopping at null/0/1/a repeat). The
+		// field is diagnostic only — decide(), jsExecuted, ok, and what the
+		// cleanup may kill are never influenced by it.
+		if (
+			!result.ok &&
+			result.trayPid != null &&
+			result.reason === `tray.pid pid ${result.trayPid} is outside the launched process tree`
+		) {
+			result.trayAncestry = await pidAncestry(result.trayPid, parentOf);
+		}
 	} finally {
 		await cleanupAfterRun();
 	}
@@ -617,7 +981,10 @@ export async function runSmoke(args, hooks = {}) {
 			}
 			if (imageOf != null) {
 				try {
-					if (isInsideAppDir(await imageOf(pid), launchRoot, { platform, realpath: realpathFn })) return "image";
+					// Path containment compares REAL fs paths: the actual OS's
+					// path semantics (the injected `platform` drives the
+					// spawn/detection branches, not this host's paths).
+					if (isInsideAppDir(await imageOf(pid), launchRoot, { platform: process.platform, realpath: realpathFn })) return "image";
 				} catch {
 					// image probe failed: not provably ours
 				}
@@ -737,6 +1104,30 @@ export async function runSmoke(args, hooks = {}) {
 		result.__tail = () => [...lastLines(errBuf, 20), ...lastLines(outBuf, 20)];
 		return result;
 	}
+}
+
+/**
+ * The PID chain from `pid` upward via `parentOf`: at most 8 hops, stopping
+ * at null/0/1/a repeat or a probe failure (the stopping value is not
+ * included). Returns `[pid]` alone when the first probe fails. Diagnostic
+ * only; never throws.
+ */
+async function pidAncestry(pid, parentOf) {
+	const chain = [pid];
+	if (parentOf == null) return chain;
+	const seen = new Set([pid]);
+	for (let hops = 0; hops < 8; hops += 1) {
+		let parent = null;
+		try {
+			parent = await parentOf(chain[chain.length - 1]);
+		} catch {
+			break;
+		}
+		if (parent == null || parent === 0 || parent === 1 || seen.has(parent)) break;
+		seen.add(parent);
+		chain.push(parent);
+	}
+	return chain;
 }
 
 /** GET /api/health on the pinned port; healthy only for ok/pinar. */

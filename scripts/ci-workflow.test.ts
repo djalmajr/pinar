@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
+import { readHutchCliPin } from "./hutch-pin.mjs";
 
 const root = join(import.meta.dir, "..");
 
@@ -124,5 +125,25 @@ describe("CI workflow", () => {
     expect(linux).not.toContain("tray-smoke");
     expect(linux).not.toContain("hutch/install");
     expect(workflow).toContain("The tray ships for macOS and Windows only");
+  });
+
+  test("Hutch pin in hutch.config.ts agrees with the CI and release installer versions", () => {
+    const config = readFileSync(join(root, "apps/tray/hutch.config.ts"), "utf8");
+    const pin = readHutchCliPin(config);
+    // The project pins the exact Hutch that the CI and release builds install.
+    expect(pin).toBe("0.25.0");
+    const windowsVersion = /install\.ps1[^-\n]*?-Version\s+(\S+)/.exec(workflow)?.[1];
+    const macosVersion = /install\.sh[^\n]*?--version\s+(\S+)/.exec(workflow)?.[1];
+    expect(windowsVersion, "ci.yml Windows installer version").toBe(pin);
+    expect(macosVersion, "ci.yml macOS installer version").toBe(pin);
+    const release = readFileSync(join(root, ".github/workflows/release-app.yml"), "utf8");
+    expect(
+      /install\.ps1[^-\n]*?-Version\s+(\S+)/.exec(release)?.[1],
+      "release-app.yml Windows installer version",
+    ).toBe(pin);
+    expect(
+      /install\.sh[^\n]*?--version\s+(\S+)/.exec(release)?.[1],
+      "release-app.yml macOS installer version",
+    ).toBe(pin);
   });
 });

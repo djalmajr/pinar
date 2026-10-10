@@ -58,12 +58,16 @@ export default {
 		},
 		cottontail: {
 			entrypoint: "src/bun/index.ts",
-			// The tray's main-process bundle uses `bun:ffi` dynamically
-			// (Windows instance lock + DPI) behind platform guards, so the
-			// capability scan can miss it. Hutch 0.25.0 does not copy the
-			// Cottontail 0.7.x core or stdlib into the app; scripts/post-build.mjs
-			// copies the core plus the capabilities listed here.
-			capabilities: ["ffi"],
+			// `ffi` backs the Windows instance lock + DPI behind platform guards.
+			// `compression` is declared because the bundled Electrobun devkit
+			// (api/sdks/main/webgpuAdapter.ts) statically imports `inflateSync`
+			// from `zlib`; it is not reached by the tray's startup, but the
+			// capability is declared so the payload never ships a static import
+			// without its module and Hutch 0.25.0 (no capability scan) and later
+			// Hutch payloads converge. Hutch is pinned to 0.25.0 in hutch.config.ts,
+			// which does not copy the Cottontail 0.7.x core or stdlib, so
+			// scripts/post-build.mjs copies the core plus these capabilities.
+			capabilities: ["ffi", "compression"],
 		},
 		mainProcess: "cottontail",
 	},

@@ -235,7 +235,12 @@ function shotSafetyTests(jsonFallback: boolean) {
   const isWin32Eperm = (error: unknown): boolean =>
     process.platform === "win32" && error instanceof Error && "code" in error && error.code === "EPERM";
 
-  test("linked parent directories and directory shotPaths are skipped, never removed", async () => {
+  test("linked parent directories and directory shotPaths are skipped, never removed", { timeout: 30_000 }, async () => {
+    // 30_000 ms (bun's node:test default is 5 s): the load-sensitive junction
+    // plus the repeated SQLite reopen inside corruptShotPath measured 6.7 s
+    // under host memory pressure; a body that hits the default timeout would
+    // keep running and race afterEach's reset of the module-level
+    // root/victimDir/PINAR_HOME.
     // Real dir symlinks are tried first, so hosts that may create them keep
     // the full coverage. On win32 EPERM a directory junction is used instead
     // (a genuine directory link that realpathSync follows, so containment is
@@ -249,30 +254,38 @@ function shotSafetyTests(jsonFallback: boolean) {
       if (isWin32Eperm(error)) symlinkSync(victimDir, parentLink, "junction");
       else throw error;
     }
-    const subDir = join(root, "shots", "subdir");
-    mkdirSync(subDir);
-    writeFileSync(join(subDir, "keep.txt"), "keep");
+    try {
+      const subDir = join(root, "shots", "subdir");
+      mkdirSync(subDir);
+      writeFileSync(join(subDir, "keep.txt"), "keep");
 
-    await seedSession("safety_links");
-    assertBackendShape(jsonFallback);
-    corruptShotPath("safety_links", join(parentLink, "linked.txt"));
-    const first = await callTool("pinar.delete_session", { sessionId: "safety_links" });
-    assert.equal(first.isError, false, first.text);
-    assert.equal(readFileSync(linked, "utf8"), VICTIM_CONTENT, "a symlinked parent escaping the root must not be removed");
+      await seedSession("safety_links");
+      assertBackendShape(jsonFallback);
+      corruptShotPath("safety_links", join(parentLink, "linked.txt"));
+      const first = await callTool("pinar.delete_session", { sessionId: "safety_links" });
+      assert.equal(first.isError, false, first.text);
+      assert.equal(readFileSync(linked, "utf8"), VICTIM_CONTENT, "a symlinked parent escaping the root must not be removed");
 
-    await seedSession("safety_rootdir");
-    corruptShotPath("safety_rootdir", join(root, "shots"));
-    const third = await callTool("pinar.delete_session", { sessionId: "safety_rootdir" });
-    assert.equal(third.isError, false, third.text);
-    assert.ok(existsSync(join(root, "shots")), "the shots root itself must survive");
+      await seedSession("safety_rootdir");
+      corruptShotPath("safety_rootdir", join(root, "shots"));
+      const third = await callTool("pinar.delete_session", { sessionId: "safety_rootdir" });
+      assert.equal(third.isError, false, third.text);
+      assert.ok(existsSync(join(root, "shots")), "the shots root itself must survive");
 
-    await seedSession("safety_subdir");
-    corruptShotPath("safety_subdir", subDir);
-    const fourth = await callTool("pinar.delete_session", { sessionId: "safety_subdir" });
-    assert.equal(fourth.isError, false, fourth.text);
-    assert.ok(existsSync(join(subDir, "keep.txt")), "a directory shotPath must never be removed recursively");
+      await seedSession("safety_subdir");
+      corruptShotPath("safety_subdir", subDir);
+      const fourth = await callTool("pinar.delete_session", { sessionId: "safety_subdir" });
+      assert.equal(fourth.isError, false, fourth.text);
+      assert.ok(existsSync(join(subDir, "keep.txt")), "a directory shotPath must never be removed recursively");
 
-    assert.deepEqual(sessionIds(parse((await callTool("pinar.list_sessions", {})).text)), [], "every corrupted session must be deleted");
+      assert.deepEqual(sessionIds(parse((await callTool("pinar.list_sessions", {})).text)), [], "every corrupted session must be deleted");
+    } finally {
+      // Release the escape-parent junction/symlink from this test's own scope
+      // on every completion path, before afterEach runs. rmSync on the link
+      // itself unlinks it without following into victimDir; force makes it a
+      // no-op when afterEach already removed root.
+      rmSync(parentLink, { force: true });
+    }
   });
 
   test("a file symlink escaping the shots root is skipped, never removed", async (t) => {

@@ -64,7 +64,7 @@
  * purpose). stdout always ends with exactly one JSON line:
  *   { ok, platform, appDir, launchDir, launcher, launcherPid, port,
  *     jsExecuted, trayPid, health, elapsedMs, reason,
- *     cleanup: { ok, killed, refused, errors, sandboxRemoved },
+ *     cleanup: { ok, killed, refused, errors, reused, sandboxRemoved },
  *     sandbox?, sandboxRetained, trayAncestry? }
  */
 import { spawn, spawnSync } from "node:child_process";
@@ -664,11 +664,11 @@ async function psScript(file, args, timeoutMs = 20_000) {
 		}, timeoutMs);
 		child.on("error", () => {
 			clearTimeout(timer);
-			resolve({ ok: false, stdout: "", stderr: `spawn failed: ${stderr}` });
+			resolve({ ok: false, stdout: "", stderr: `spawn failed: ${stderr}`, code: null });
 		});
 		child.on("close", (code) => {
 			clearTimeout(timer);
-			resolve({ ok: code === 0, stdout, stderr });
+			resolve({ ok: code === 0, stdout, stderr, code });
 		});
 	});
 }
@@ -712,6 +712,7 @@ export async function runSmoke(args, hooks = {}) {
 	const realpathFn = hooks.realpath ?? realpathSync.native;
 	let parentOf = hooks.parentOf ?? null;
 	let imageOf = hooks.imageOf ?? null;
+	let identityOf = hooks.identityOf ?? null;
 
 const start = Date.now();
 	const platform = hooks.platform ?? process.platform;
@@ -728,7 +729,7 @@ const start = Date.now();
 		health: false,
 		elapsedMs: 0,
 		reason: null,
-		cleanup: { ok: false, killed: [], refused: [], errors: [], sandboxRemoved: false },
+		cleanup: { ok: false, killed: [], refused: [], errors: [], reused: [], sandboxRemoved: false },
 	};
 	const cleanup = result.cleanup;
 	let sandbox = null;
@@ -752,6 +753,12 @@ const start = Date.now();
 		mkdirSync(probeDir, { recursive: true });
 		parentOf = parentOf ?? defaultParentOf(probeDir);
 		imageOf = imageOf ?? defaultImageOf(probeDir);
+		// The default identity probe needs the sandbox (its .ps1 files live in
+		// probeDir), so it is built here like parentOf/imageOf. Hook sets that
+		// inject the legacy isAlive but not identityOf fall back to a derived
+		// probe so their existing behavior is preserved exactly.
+		identityOf =
+			identityOf ?? (hooks.isAlive != null ? derivedFromIsAlive(isAlive) : identityOfFor(process.platform, { probeDir }));
 
 		// The win32 and darwin build dirs are Electrobun self-extracting
 		// wrappers (the wrapper `launcher` installs the real app OVER the
@@ -946,7 +953,17 @@ const start = Date.now();
 	 *  (b) the PID is inside the launched process tree, or its image (via
 	 *      imageOf) is inside the CANONICAL launchRoot (isInsideAppDir),
 	 *  (c) the PID is still alive at the moment of the kill (PID-reuse guard:
-	 *      liveness and ownership are re-checked immediately before each kill).
+	 *      liveness and ownership are re-checked immediately before each kill),
+	 *  (d) the PID's identity (an immutable creation-time id captured by
+	 *      identityOf BEFORE the signal) is unchanged at the signal: a
+	 *      different id means a different process now owns the PID and is
+	 *      refused, never signalled.
+	 * The post-kill verdict is bound to that pre-signal identity: after the
+	 * bounded poll, a killed PID that is gone, or alive with a DIFFERENT id,
+	 * counts as the original process having exited (the reuse is reported in
+	 * `cleanup.reused`, nothing is re-signalled); an alive PID with the SAME
+	 * recorded id, an alive PID whose pre-signal identity is unknown, or an
+	 * unknown probe is a failure recorded in `cleanup.errors`.
 	 * A refused pre-busy-port launch or any pre-spawn failure kills NOTHING,
 	 * even when a pre-existing process image lies under appDir: such a PID is
 	 * recorded in `cleanup.refused` instead. The tray PID candidate comes only
@@ -991,16 +1008,73 @@ const start = Date.now();
 			}
 			return null;
 		};
+		const killedIdentity = new Map();
+		/**
+		 * identityOf wrapped so it never throws and never returns anything but
+		 * the three documented shapes (a throwing or mis-shaped injected hook
+		 * becomes `unknown`, which is never treated as gone).
+		 */
+		const probeIdentity = async (pid) => {
+			if (identityOf == null) return { state: "unknown", error: "identity probe unavailable" };
+			let out;
+			try {
+				out = await identityOf(pid);
+			} catch (error) {
+				return { state: "unknown", error: `identity probe threw: ${errorText(error)}` };
+			}
+			if (out?.state === "gone") return { state: "gone" };
+			if (out?.state === "alive" && typeof out.id === "string" && out.id !== "") {
+				return { state: "alive", id: out.id };
+			}
+			return { state: "unknown", error: String(out?.error ?? "identity probe returned an unexpected shape") };
+		};
+		/**
+		 * Post-kill settledness for a killed PID, bound to the identity
+		 * recorded at its signal: gone is settled; alive with a DIFFERENT id
+		 * is the original process gone (PID reused) and settled; alive with
+		 * the same recorded id (or no recorded id) is not settled; an unknown
+		 * probe is never settled (never treated as gone).
+		 */
+		const isSettled = (pid, now) => {
+			if (now.state === "gone") return true;
+			if (now.state === "alive") {
+				const recorded = killedIdentity.get(pid) ?? null;
+				return recorded != null && now.id !== recorded;
+			}
+			return false;
+		};
 		const tryKill = async (label, pid) => {
-			// PID-reuse guard: re-check liveness and ownership immediately
-			// before signalling.
+			// PID-reuse guard: re-check identity and ownership immediately
+			// before signalling, and bind the pre-signal identity so the
+			// post-kill verdict can separate a reused PID from a survivor.
+			const before = await probeIdentity(pid);
+			if (before.state === "gone") {
+				cleanup.refused.push(`${label} pid ${pid}: not alive at cleanup`);
+				return;
+			}
 			if ((await ownership(pid)) == null) {
 				cleanup.refused.push(`${label} pid ${pid}: not alive or no longer inside the launched tree / ${launchRoot}`);
 				return;
 			}
+			const atSignal = await probeIdentity(pid);
+			if (atSignal.state === "gone") {
+				cleanup.refused.push(`${label} pid ${pid}: not alive at cleanup`);
+				return;
+			}
+			if (before.state === "alive" && atSignal.state === "alive" && before.id !== atSignal.id) {
+				cleanup.refused.push(
+					`${label} pid ${pid}: identity changed between the ownership check and the signal (${before.id} -> ${atSignal.id}); not signalled`,
+				);
+				return;
+			}
+			// An unknown identity probe does not block a kill whose ownership
+			// was just proven (leaving an owned process running is worse); the
+			// post-kill verdict for that PID can then only accept a proven gone.
+			const bound = atSignal.state === "alive" ? atSignal.id : before.state === "alive" ? before.id : null;
 			try {
 				await killTreeFn(pid);
 				cleanup.killed.push(pid);
+				killedIdentity.set(pid, bound);
 			} catch (error) {
 				cleanup.errors.push(`killTree(${label} pid ${pid}) failed: ${errorText(error)}`);
 			}
@@ -1048,7 +1122,7 @@ const start = Date.now();
 			for (;;) {
 				let settled = true;
 				for (const pid of cleanup.killed) {
-					if (await isAlive(pid).catch(() => true)) {
+					if (!isSettled(pid, await probeIdentity(pid))) {
 						settled = false;
 						break;
 					}
@@ -1059,10 +1133,33 @@ const start = Date.now();
 				if (settled || Date.now() >= pollDeadline) break;
 				await sleep(250);
 			}
+			// Final verdict: one more identity probe after the poll (a late
+			// death or a late reuse is credited). No branch here signals
+			// anything.
 			for (const pid of cleanup.killed) {
-				if (await isAlive(pid).catch(() => true)) {
+				const recorded = killedIdentity.get(pid) ?? null;
+				const now = await probeIdentity(pid);
+				if (now.state === "gone") continue; // settled
+				if (now.state === "alive" && recorded != null && now.id === recorded) {
 					cleanup.errors.push(`pid ${pid} still alive after cleanup`);
+					continue;
 				}
+				if (now.state === "alive" && recorded == null) {
+					cleanup.errors.push(
+						`pid ${pid} is alive after cleanup and its pre-signal identity is unknown; cannot prove the original process exited`,
+					);
+					continue;
+				}
+				if (now.state === "unknown") {
+					cleanup.errors.push(`pid ${pid} liveness unknown after cleanup: ${now.error}`);
+					continue;
+				}
+				// alive with a different id: the original process exited and the
+				// OS handed the PID to a different process — settled, reported,
+				// never re-signalled.
+				cleanup.reused.push(
+					`pid ${pid}: original process (id ${recorded}) exited; the pid now belongs to a different process (id ${now.id}); not signalled`,
+				);
 			}
 			if (spawned) {
 				const lingering = listeningPid(args.port);
@@ -1281,6 +1378,135 @@ function defaultImageOf(probeDir) {
 	return imageOfFor(process.platform, { probeDir });
 }
 
+/**
+ * Process-identity result: exactly one of
+ *   `{ state: "alive", id }`   — a process with this PID exists; `id` is an
+ *                                immutable identity (its creation time)
+ *   `{ state: "gone" }`        — the OS proved no process has this PID
+ *                                (or it is already a zombie/defunct)
+ *   `{ state: "unknown", error }` — the probe could not decide (spawn
+ *                                failure, timeout, permission, parse failure)
+ */
+
+/** Map a win32 CIM probe result ({ code, stdout, stderr }) to an identity. */
+function mapWin32Identity(out) {
+	const digits = String(out?.stdout ?? "").trim();
+	if (out?.code === 3) return { state: "gone" };
+	if (out?.code === 0 && /^\d+$/.test(digits)) return { state: "alive", id: digits };
+	return { state: "unknown", error: `identity probe exited ${String(out?.code)}` };
+}
+
+/** Windows identity lookup: CIM CreationDate file time through PowerShell. */
+function identityOfWin32(probeDir) {
+	return async (pid) => {
+		mkdirSync(probeDir, { recursive: true });
+		const file = join(probeDir, `identity-${pid}.ps1`);
+		writeFileSync(
+			file,
+			`param([int]$Target)\n` +
+				`$ErrorActionPreference='Stop'\n` +
+				`try { $p = Get-CimInstance Win32_Process -Filter "ProcessId=$Target" } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 2 }\n` +
+				`if ($null -eq $p) { exit 3 }\n` +
+				`if ($null -eq $p.CreationDate) { exit 4 }\n` +
+				`Write-Output $p.CreationDate.ToFileTimeUtc()\n`,
+		);
+		const out = await psScript(file, [String(pid)]);
+		return mapWin32Identity(out);
+	};
+}
+
+/**
+ * Platform-selected process-identity probe for the cleanup kills:
+ *   win32  → CIM CreationDate file time (PowerShell); exit 3 proves the PID
+ *            no longer exists, exit 0 + a run of digits is the immutable id
+ *   darwin → `ps -o stat=,lstart=`: a `Z` stat is gone, otherwise the lstart
+ *            text is the id; status 1 with empty output proves gone
+ *   linux  → /proc/<pid>/stat: ENOENT/ESRCH prove gone; state field Z/X is
+ *            gone; stat field 22 (starttime) is the id
+ * Every branch resolves one of the documented identity shapes and never
+ * throws. `runPsWin`, `runPs` and `procDir` are injectable so tests can
+ * drive any branch without spawning real processes.
+ */
+export function identityOfFor(platform, { probeDir, runPs, runPsWin, procDir = "/proc" } = {}) {
+	if (platform === "win32") {
+		if (runPsWin != null) {
+			return async (pid) => {
+				let out;
+				try {
+					out = await runPsWin(pid);
+				} catch {
+					return { state: "unknown", error: "identity runner threw" };
+				}
+				return mapWin32Identity(out);
+			};
+		}
+		return identityOfWin32(probeDir);
+	}
+	if (platform === "darwin") {
+		const run =
+			runPs ??
+			((pid) =>
+				spawnSync("ps", ["-o", "stat=,lstart=", "-p", String(pid)], {
+					encoding: "utf8",
+				}));
+		return async (pid) => {
+			const out = run(pid);
+			if (out.error != null) return { state: "unknown", error: `ps failed: ${String(out.error)}` };
+			const trimmed = String(out.stdout ?? "").trim();
+			if (out.status === 0 && trimmed !== "") {
+				const match = trimmed.match(/^\S+\s+/);
+				if (match == null) return { state: "unknown", error: "unparsable ps output (no lstart field)" };
+				const stat = trimmed.slice(0, match[0].length).trim();
+				if (stat.startsWith("Z")) return { state: "gone" };
+				return { state: "alive", id: trimmed.slice(match[0].length).trim() };
+			}
+			if (out.status === 1 && trimmed === "") return { state: "gone" };
+			return { state: "unknown", error: `ps exited ${String(out.status)} with output ${JSON.stringify(trimmed)}` };
+		};
+	}
+	return async (pid) => {
+		let text;
+		try {
+			text = readFileSync(join(procDir, String(pid), "stat"), "utf8");
+		} catch (error) {
+			const code = error instanceof Error && "code" in error ? error.code : undefined;
+			if (code === "ENOENT" || code === "ESRCH") return { state: "gone" };
+			return { state: "unknown", error: `cannot read ${procDir}/${pid}/stat: ${errorText(error)}` };
+		}
+		// The comm field is parenthesized and may itself contain ") (" — the
+		// numeric fields start after the LAST ")".
+		const closeParen = text.lastIndexOf(")");
+		if (closeParen < 0) return { state: "unknown", error: "unparsable /proc stat (no closing paren)" };
+		const fields = text.slice(closeParen + 1).trim().split(/\s+/);
+		if (fields.length < 2) return { state: "unknown", error: "unparsable /proc stat (no state field)" };
+		if (fields[0] === "Z" || fields[0] === "X") return { state: "gone" };
+		// Fields after ")" are stat fields 3+; field 22 (starttime) is index 19.
+		const starttime = fields[19];
+		if (starttime == null || !/^\d+$/.test(starttime)) {
+			return { state: "unknown", error: "unparsable /proc stat (no starttime)" };
+		}
+		return { state: "alive", id: starttime };
+	};
+}
+
+/**
+ * Test-compat only: derives the identity verdict from the legacy isAlive
+ * hook. It cannot see PID reuse (a reused PID still reports alive), so it
+ * exists only so hook sets that inject isAlive but not identityOf keep
+ * their meaning. Never throws.
+ */
+function derivedFromIsAlive(isAlive) {
+	return async (pid) => {
+		let alive;
+		try {
+			alive = await isAlive(pid);
+		} catch (error) {
+			return { state: "unknown", error: `isAlive threw: ${errorText(error)}` };
+		}
+		return alive ? { state: "alive", id: "alive" } : { state: "gone" };
+	};
+}
+
 /* ---------------- canonical paths and the containment guard ------------- */
 
 /**
@@ -1405,7 +1631,7 @@ async function main() {
 			health: false,
 			elapsedMs: 0,
 			reason,
-			cleanup: { ok: false, killed: [], refused: [], errors: [reason], sandboxRemoved: false },
+			cleanup: { ok: false, killed: [], refused: [], errors: [reason], reused: [], sandboxRemoved: false },
 		};
 	}
 	const tail = typeof result.__tail === "function" ? result.__tail() : [];

@@ -27,6 +27,7 @@ import {
 	decide,
 	extractWrapperPayload,
 	isHealthyHealth,
+	identityOfFor,
 	imageOfFor,
 	isInsideAppDir,
 	launcherCandidates,
@@ -681,6 +682,206 @@ describe("imageOfFor darwin branch", () => {
 		const imageOf = imageOfFor("linux", { procDir: "/tmp/fakeproc" });
 		// No such link: the resolver swallows the error and reports null.
 		return expect(imageOf(31337)).resolves.toBeNull();
+	});
+});
+
+type IdentityState =
+	| { state: "alive"; id: string }
+	| { state: "gone" }
+	| { state: "unknown"; error: string };
+
+/** Scripted identityOf: a per-PID queue of states consumed one per call;
+ * the last state repeats. Records every call. */
+function scriptedIdentity(perPid: Record<number, IdentityState[]>): {
+	identityOf: (pid: number) => Promise<IdentityState>;
+	calls: Map<number, number>;
+} {
+	const calls = new Map<number, number>();
+	return {
+		identityOf: async (pid) => {
+			const n = (calls.get(pid) ?? 0) + 1;
+			calls.set(pid, n);
+			const queue = perPid[pid] ?? [];
+			return queue[Math.min(n, queue.length) - 1];
+		},
+		calls,
+	};
+}
+
+describe("identityOfFor", () => {
+	// --- win32 (CIM CreationDate) ------------------------------------------
+	const win = (run: (pid: number) => { code: number | null; stdout: string; stderr: string }) =>
+		identityOfFor("win32", { probeDir: "/tmp/fake-probes", runPsWin: async () => run(0) });
+
+	test("win32: exit 0 with a run of digits is alive with the file time as id", async () => {
+		const identityOf = win(() => ({ code: 0, stdout: "133850432100000000\n", stderr: "" }));
+		expect(await identityOf(1234)).toEqual({ state: "alive", id: "133850432100000000" });
+	});
+
+	test("win32: exit 3 proves the PID is gone", async () => {
+		const identityOf = win(() => ({ code: 3, stdout: "", stderr: "" }));
+		expect(await identityOf(1234)).toEqual({ state: "gone" });
+	});
+
+	test("win32: exit 2 (CIM failure) is unknown", async () => {
+		const identityOf = win(() => ({ code: 2, stdout: "", stderr: "access denied" }));
+		const out = await identityOf(1234);
+		expect(out.state).toBe("unknown");
+	});
+
+	test("win32: exit 4 (no CreationDate) is unknown", async () => {
+		const identityOf = win(() => ({ code: 4, stdout: "", stderr: "" }));
+		const out = await identityOf(1234);
+		expect(out.state).toBe("unknown");
+	});
+
+	test("win32: a null exit code (timeout kill) is unknown", async () => {
+		const identityOf = win(() => ({ code: null, stdout: "", stderr: "" }));
+		const out = await identityOf(1234);
+		expect(out.state).toBe("unknown");
+	});
+
+	test("win32: exit 0 with non-digit stdout is unknown", async () => {
+		const identityOf = win(() => ({ code: 0, stdout: "not-a-time\n", stderr: "" }));
+		const out = await identityOf(1234);
+		expect(out.state).toBe("unknown");
+	});
+
+	test("win32: exit 0 with empty stdout is unknown", async () => {
+		const identityOf = win(() => ({ code: 0, stdout: "\n", stderr: "" }));
+		const out = await identityOf(1234);
+		expect(out.state).toBe("unknown");
+	});
+
+	test("win32: a throwing runner is unknown, never a throw", async () => {
+		const identityOf = identityOfFor("win32", {
+			probeDir: "/tmp/fake-probes",
+			runPsWin: async () => {
+				throw new Error("runner exploded");
+			},
+		});
+		const out = await identityOf(1234);
+		expect(out.state).toBe("unknown");
+	});
+
+	// --- darwin (ps stat=,lstart=) ------------------------------------------
+	const mac = (run: () => { status: number | null; stdout: string; error?: unknown }) =>
+		identityOfFor("darwin", { runPs: () => run() });
+
+	test("darwin: stat 0 with Ss and an lstart is alive with the lstart as id", async () => {
+		const identityOf = mac(() => ({ status: 0, stdout: "Ss   Sat Oct 10 04:22:18 2026" }));
+		expect(await identityOf(42)).toEqual({ state: "alive", id: "Sat Oct 10 04:22:18 2026" });
+	});
+
+	test("darwin: stat 0 with a Z stat is gone", async () => {
+		const identityOf = mac(() => ({ status: 0, stdout: "Z    Sat Oct 10 04:22:18 2026" }));
+		expect(await identityOf(42)).toEqual({ state: "gone" });
+	});
+
+	test("darwin: status 1 with empty output proves gone", async () => {
+		const identityOf = mac(() => ({ status: 1, stdout: "" }));
+		expect(await identityOf(42)).toEqual({ state: "gone" });
+	});
+
+	test("darwin: status 1 with stdout is unknown", async () => {
+		const identityOf = mac(() => ({ status: 1, stdout: "garbled" }));
+		const out = await identityOf(42);
+		expect(out.state).toBe("unknown");
+	});
+
+	test("darwin: status 2 is unknown", async () => {
+		const identityOf = mac(() => ({ status: 2, stdout: "" }));
+		const out = await identityOf(42);
+		expect(out.state).toBe("unknown");
+	});
+
+	test("darwin: a spawn error is unknown", async () => {
+		const identityOf = mac(() => ({ status: null, stdout: "", error: new Error("ENOENT: ps") }));
+		const out = await identityOf(42);
+		expect(out.state).toBe("unknown");
+	});
+
+	// --- linux (/proc/<pid>/stat) -------------------------------------------
+	test("linux: a live stat entry with a comm containing ') (' is alive with the starttime as id", async () => {
+		const procDir = mkdtempSync(join(tmpdir(), "pinar-smoke-proc-"));
+		try {
+			// comm = "weird ) ( name": the numeric fields start after the LAST
+			// ")" — a naive first-paren split would take the wrong fields.
+			mkdirSync(join(procDir, "12345"), { recursive: true });
+			writeFileSync(
+				join(procDir, "12345", "stat"),
+				"12345 (weird ) ( name) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 987654321\n",
+			);
+			const identityOf = identityOfFor("linux", { procDir });
+			expect(await identityOf(12345)).toEqual({ state: "alive", id: "987654321" });
+		} finally {
+			rmSync(procDir, { recursive: true, force: true });
+		}
+	});
+
+	test("linux: a Z state is gone", async () => {
+		const procDir = mkdtempSync(join(tmpdir(), "pinar-smoke-proc-"));
+		try {
+			mkdirSync(join(procDir, "12345"), { recursive: true });
+			writeFileSync(
+				join(procDir, "12345", "stat"),
+				"12345 (zombie) Z 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 1\n",
+			);
+			const identityOf = identityOfFor("linux", { procDir });
+			expect(await identityOf(12345)).toEqual({ state: "gone" });
+		} finally {
+			rmSync(procDir, { recursive: true, force: true });
+		}
+	});
+
+	test("linux: a missing stat entry is gone", async () => {
+		const procDir = mkdtempSync(join(tmpdir(), "pinar-smoke-proc-"));
+		try {
+			const identityOf = identityOfFor("linux", { procDir });
+			expect(await identityOf(31337)).toEqual({ state: "gone" });
+		} finally {
+			rmSync(procDir, { recursive: true, force: true });
+		}
+	});
+
+	test("linux: a stat without a closing paren is unknown", async () => {
+		const procDir = mkdtempSync(join(tmpdir(), "pinar-smoke-proc-"));
+		try {
+			mkdirSync(join(procDir, "12345"), { recursive: true });
+			writeFileSync(join(procDir, "12345", "stat"), "12345 (never closed S 1 2\n");
+			const identityOf = identityOfFor("linux", { procDir });
+			const out = await identityOf(12345);
+			expect(out.state).toBe("unknown");
+		} finally {
+			rmSync(procDir, { recursive: true, force: true });
+		}
+	});
+
+	test("linux: a truncated stat without a starttime is unknown", async () => {
+		const procDir = mkdtempSync(join(tmpdir(), "pinar-smoke-proc-"));
+		try {
+			mkdirSync(join(procDir, "12345"), { recursive: true });
+			writeFileSync(join(procDir, "12345", "stat"), "12345 (short) S 1 2\n");
+			const identityOf = identityOfFor("linux", { procDir });
+			const out = await identityOf(12345);
+			expect(out.state).toBe("unknown");
+		} finally {
+			rmSync(procDir, { recursive: true, force: true });
+		}
+	});
+
+	test("linux: an unreadable stat entry (a directory) is unknown, never gone", async () => {
+		const procDir = mkdtempSync(join(tmpdir(), "pinar-smoke-proc-"));
+		try {
+			// A DIRECTORY named `stat`: the read fails with something other
+			// than ENOENT/ESRCH, which must not be treated as gone.
+			mkdirSync(join(procDir, "12345", "stat"), { recursive: true });
+			const identityOf = identityOfFor("linux", { procDir });
+			const out = await identityOf(12345);
+			expect(out.state).toBe("unknown");
+		} finally {
+			rmSync(procDir, { recursive: true, force: true });
+		}
 	});
 });
 
@@ -1342,6 +1543,478 @@ describe("runSmoke", () => {
 			rmSync(appDir, { recursive: true, force: true });
 		}
 	});
+});
+
+/* ---------------- cleanup identity binding (P2) ---------------------------
+ *
+ * Every kill decision and every post-kill verdict is bound to a process
+ * identity captured BEFORE the signal: a reused PID (a different id, or no
+ * process) counts as the original process being gone — reported in
+ * cleanup.reused, never re-signalled — while an owned survivor (same id) or
+ * an unknown probe fails the cleanup. All tests below use healthy startups
+ * with an already-exited launcher, so killTree is called for the tray PID
+ * alone and its exact call count is asserted.
+ */
+
+describe("cleanup identity binding", () => {
+	// Healthy startup (fresh tray.pid in the launched tree + health) for the
+	// kill/verdict tests below. The pre-launch health probe must be
+	// unhealthy (a healthy helper before launch refuses the spawn); the
+	// helper comes up only after the (fake) spawn.
+	const healthyHooks = (appDir: string, childPid: number, trayPid: number, extra: Record<string, unknown>) => {
+		let healthCalls = 0;
+		return {
+			parentOf: async (pid: number) => (pid === trayPid ? childPid : null),
+			isAlive: async (pid: number) => pid === trayPid,
+			// Image containment inside the app dir fixture proves ownership
+			// after the launcher exited (the tree edge is no longer evidence).
+			imageOf: async (pid: number) =>
+				pid === trayPid ? launcherCandidates(appDir, process.platform)[0] : null,
+			listeningPid: () => null,
+			probeHealth: async () => {
+				healthCalls += 1;
+				return { healthy: healthCalls > 1 };
+			},
+			...extra,
+		};
+	};
+
+	test("a killed pid reused by a different process settles with a cleanup.reused entry", async () => {
+		const appDir = makeAppDir();
+		const childPid = 93001;
+		const trayPid = 93002;
+		const killCalls: number[] = [];
+		const { spawnFn } = fakeSpawn(childPid, trayPid, { alreadyExited: true });
+		const { identityOf } = scriptedIdentity({
+			[trayPid]: [
+				{ state: "alive", id: "A" }, // before the signal
+				{ state: "alive", id: "A" }, // at the signal (unchanged)
+				{ state: "alive", id: "B" }, // after the kill: a different process
+			],
+		});
+		try {
+			const result = await runSmoke(
+				{ appDir, port: 17425, timeoutMs: 2_000, log: null, keepHome: false },
+				healthyHooks(appDir, childPid, trayPid, {
+					spawn: spawnFn,
+					killTree: async (pid: number) => {
+						killCalls.push(pid);
+					},
+					identityOf,
+				}),
+			);
+			expect(result.ok).toBe(true);
+			expect(result.reason).toBeNull();
+			expect(result.jsExecuted).toBe(true);
+			expect(result.trayPid).toBe(trayPid);
+			expect(result.health).toBe(true);
+			expect(result.cleanup.ok).toBe(true);
+			expect(result.cleanup.killed).toEqual([trayPid]);
+			expect(result.cleanup.errors).toEqual([]);
+			expect(result.cleanup.reused).toHaveLength(1);
+			expect(result.cleanup.reused[0]).toContain(String(trayPid));
+			expect(result.cleanup.reused[0]).toContain("not signalled");
+			expect(killCalls.filter((pid) => pid === trayPid)).toHaveLength(1);
+			expect(killCalls).toEqual([trayPid]); // exactly one killTree call total
+			expect(result.cleanup.sandboxRemoved).toBe(true);
+			expect(result.sandboxRetained).toBe(false);
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	});
+
+	test("a killed pid still alive with the same identity fails the cleanup (owned survivor)", async () => {
+		const appDir = makeAppDir();
+		const childPid = 93003;
+		const trayPid = 93004;
+		const killCalls: number[] = [];
+		const { spawnFn } = fakeSpawn(childPid, trayPid, { alreadyExited: true });
+		const { identityOf } = scriptedIdentity({
+			[trayPid]: [
+				{ state: "alive", id: "A" }, // before
+				{ state: "alive", id: "A" }, // at the signal
+				{ state: "alive", id: "A" }, // after the kill: the SAME process
+			],
+		});
+		try {
+			// The 10 s bounded poll really runs (the process never settles).
+			const result = await runSmoke(
+				{ appDir, port: 17426, timeoutMs: 2_000, log: null, keepHome: false },
+				healthyHooks(appDir, childPid, trayPid, {
+					spawn: spawnFn,
+					killTree: async (pid: number) => {
+						killCalls.push(pid);
+					},
+					identityOf,
+				}),
+			);
+			expect(result.ok).toBe(false);
+			expect(result.cleanup.ok).toBe(false);
+			expect(result.cleanup.errors).toEqual([`pid ${trayPid} still alive after cleanup`]);
+			expect(result.reason).toMatch(/^cleanup failed: pid \d+ still alive after cleanup/);
+			// The startup facts are preserved.
+			expect(result.jsExecuted).toBe(true);
+			expect(result.trayPid).toBe(trayPid);
+			expect(result.health).toBe(true);
+			expect(result.cleanup.killed).toEqual([trayPid]);
+			expect(result.cleanup.reused).toEqual([]);
+			expect(killCalls).toEqual([trayPid]); // one signal, no retry
+			expect(result.cleanup.sandboxRemoved).toBe(true); // default removeDir is unchanged
+			expect(result.sandboxRetained).toBe(false);
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	}, 60_000);
+
+	test("an owned survivor with a locked sandbox keeps the sandbox (EBUSY) without changing sandbox semantics", async () => {
+		const appDir = makeAppDir();
+		const childPid = 93005;
+		const trayPid = 93006;
+		const killCalls: number[] = [];
+		const { spawnFn } = fakeSpawn(childPid, trayPid, { alreadyExited: true });
+		const { identityOf } = scriptedIdentity({
+			[trayPid]: [{ state: "alive", id: "A" }], // alive A for every probe
+		});
+		let result;
+		try {
+			result = await runSmoke(
+				{ appDir, port: 17427, timeoutMs: 2_000, log: null, keepHome: false },
+				healthyHooks(appDir, childPid, trayPid, {
+					spawn: spawnFn,
+					killTree: async (pid: number) => {
+						killCalls.push(pid);
+					},
+					identityOf,
+					removeDir: (p: string) => {
+						const error = new Error(`rmSync: EBUSY: resource busy or locked, rmdir '${p}'`);
+						(error as NodeJS.ErrnoException).code = "EBUSY";
+						throw error;
+					},
+				}),
+			);
+			expect(result.ok).toBe(false);
+			expect(result.cleanup.ok).toBe(false);
+			expect(result.cleanup.errors.some((entry) => entry.includes("still alive after cleanup"))).toBe(true);
+			expect(result.cleanup.errors.some((entry) => entry.includes("EBUSY"))).toBe(true);
+			expect(result.sandboxRetained).toBe(true);
+			expect(result.sandbox).toBeTruthy();
+		} finally {
+			if (result?.sandbox != null) rmSync(result.sandbox, { recursive: true, force: true });
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	}, 60_000);
+
+	test("a killed pid that is gone after the poll settles the cleanup", async () => {
+		const appDir = makeAppDir();
+		const childPid = 93007;
+		const trayPid = 93008;
+		const killCalls: number[] = [];
+		const { spawnFn } = fakeSpawn(childPid, trayPid, { alreadyExited: true });
+		const { identityOf } = scriptedIdentity({
+			[trayPid]: [
+				{ state: "alive", id: "A" }, // before
+				{ state: "alive", id: "A" }, // at the signal
+				{ state: "gone" }, // after the kill: the OS proved it is gone
+			],
+		});
+		try {
+			const result = await runSmoke(
+				{ appDir, port: 17428, timeoutMs: 2_000, log: null, keepHome: false },
+				healthyHooks(appDir, childPid, trayPid, {
+					spawn: spawnFn,
+					killTree: async (pid: number) => {
+						killCalls.push(pid);
+					},
+					identityOf,
+				}),
+			);
+			expect(result.ok).toBe(true);
+			expect(result.cleanup.ok).toBe(true);
+			expect(result.cleanup.errors).toEqual([]);
+			expect(result.cleanup.reused).toEqual([]);
+			expect(result.cleanup.killed).toEqual([trayPid]);
+			expect(killCalls).toEqual([trayPid]);
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	});
+
+	test("a probe that reports gone before the signal refuses the kill", async () => {
+		const appDir = makeAppDir();
+		const childPid = 93009;
+		const trayPid = 93010;
+		const killCalls: number[] = [];
+		const { spawnFn } = fakeSpawn(childPid, trayPid, { alreadyExited: true });
+		const { identityOf } = scriptedIdentity({
+			[trayPid]: [{ state: "gone" }], // gone already at `before`
+		});
+		try {
+			const result = await runSmoke(
+				{ appDir, port: 17429, timeoutMs: 2_000, log: null, keepHome: false },
+				healthyHooks(appDir, childPid, trayPid, {
+					spawn: spawnFn,
+					killTree: async (pid: number) => {
+						killCalls.push(pid);
+					},
+					identityOf,
+				}),
+			);
+			expect(killCalls).toEqual([]);
+			expect(result.cleanup.killed).toEqual([]);
+			expect(result.cleanup.refused.some((entry) => entry.includes(String(trayPid)) && entry.includes("not alive at cleanup"))).toBe(true);
+			expect(result.cleanup.errors).toEqual([]);
+			expect(result.cleanup.ok).toBe(true);
+			expect(result.ok).toBe(true);
+			expect(result.reason).toBeNull();
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	});
+
+	test("an unknown identity after the kill is never treated as gone", async () => {
+		const appDir = makeAppDir();
+		const childPid = 93011;
+		const trayPid = 93012;
+		const killCalls: number[] = [];
+		const { spawnFn } = fakeSpawn(childPid, trayPid, { alreadyExited: true });
+		const { identityOf } = scriptedIdentity({
+			[trayPid]: [
+				{ state: "alive", id: "A" }, // before
+				{ state: "alive", id: "A" }, // at the signal
+				{ state: "unknown", error: "probe failed" }, // after the kill
+			],
+		});
+		try {
+			// The 10 s bounded poll really runs (unknown never settles).
+			const result = await runSmoke(
+				{ appDir, port: 17430, timeoutMs: 2_000, log: null, keepHome: false },
+				healthyHooks(appDir, childPid, trayPid, {
+					spawn: spawnFn,
+					killTree: async (pid: number) => {
+						killCalls.push(pid);
+					},
+					identityOf,
+				}),
+			);
+			expect(result.ok).toBe(false);
+			expect(result.cleanup.ok).toBe(false);
+			expect(result.cleanup.errors).toEqual([`pid ${trayPid} liveness unknown after cleanup: probe failed`]);
+			expect(result.cleanup.reused).toEqual([]);
+			expect(killCalls).toEqual([trayPid]); // never re-signalled
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	}, 60_000);
+
+	test("a throwing identity hook becomes unknown and fails the cleanup, never gone", async () => {
+		const appDir = makeAppDir();
+		const childPid = 93013;
+		const trayPid = 93014;
+		const killCalls: number[] = [];
+		const { spawnFn } = fakeSpawn(childPid, trayPid, { alreadyExited: true });
+		try {
+			const result = await runSmoke(
+				{ appDir, port: 17431, timeoutMs: 2_000, log: null, keepHome: false },
+				healthyHooks(appDir, childPid, trayPid, {
+					spawn: spawnFn,
+					killTree: async (pid: number) => {
+						killCalls.push(pid);
+					},
+					identityOf: async () => {
+						throw new Error("identity probe exploded");
+					},
+				}),
+			);
+			expect(result.ok).toBe(false);
+			expect(result.cleanup.ok).toBe(false);
+			// Pre-signal unknown does not block a kill whose ownership was
+			// proven; the post-kill unknown then fails the cleanup.
+			expect(killCalls).toEqual([trayPid]);
+			expect(result.cleanup.killed).toEqual([trayPid]);
+			expect(result.cleanup.errors.some((entry) => entry.includes("liveness unknown after cleanup"))).toBe(true);
+			expect(result.cleanup.errors.some((entry) => entry.includes("identity probe exploded"))).toBe(true);
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	}, 60_000);
+
+	test("a pre-signal unknown identity with proven ownership is killed; a post-kill alive is an unknown-identity error", async () => {
+		const appDir = makeAppDir();
+		const childPid = 93015;
+		const trayPid = 93016;
+		const killCalls: number[] = [];
+		const { spawnFn } = fakeSpawn(childPid, trayPid, { alreadyExited: true });
+		const { identityOf } = scriptedIdentity({
+			[trayPid]: [
+				{ state: "unknown", error: "probe down" }, // before
+				{ state: "unknown", error: "probe down" }, // at the signal
+				{ state: "alive", id: "X" }, // after the kill
+			],
+		});
+		try {
+			const result = await runSmoke(
+				{ appDir, port: 17432, timeoutMs: 2_000, log: null, keepHome: false },
+				healthyHooks(appDir, childPid, trayPid, {
+					spawn: spawnFn,
+					killTree: async (pid: number) => {
+						killCalls.push(pid);
+					},
+					identityOf,
+				}),
+			);
+			expect(killCalls).toEqual([trayPid]); // the kill happened
+			expect(result.ok).toBe(false);
+			expect(result.cleanup.ok).toBe(false);
+			expect(result.cleanup.errors).toEqual([
+				`pid ${trayPid} is alive after cleanup and its pre-signal identity is unknown; cannot prove the original process exited`,
+			]);
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	}, 60_000);
+
+	test("a pre-signal unknown identity with a post-kill gone settles the cleanup", async () => {
+		const appDir = makeAppDir();
+		const childPid = 93017;
+		const trayPid = 93018;
+		const killCalls: number[] = [];
+		const { spawnFn } = fakeSpawn(childPid, trayPid, { alreadyExited: true });
+		const { identityOf } = scriptedIdentity({
+			[trayPid]: [
+				{ state: "unknown", error: "probe down" }, // before
+				{ state: "unknown", error: "probe down" }, // at the signal
+				{ state: "gone" }, // after the kill: a proven gone is accepted
+			],
+		});
+		try {
+			const result = await runSmoke(
+				{ appDir, port: 17433, timeoutMs: 2_000, log: null, keepHome: false },
+				healthyHooks(appDir, childPid, trayPid, {
+					spawn: spawnFn,
+					killTree: async (pid: number) => {
+						killCalls.push(pid);
+					},
+					identityOf,
+				}),
+			);
+			expect(killCalls).toEqual([trayPid]);
+			expect(result.ok).toBe(true);
+			expect(result.cleanup.ok).toBe(true);
+			expect(result.cleanup.errors).toEqual([]);
+			expect(result.cleanup.reused).toEqual([]);
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	});
+
+	test("an identity change between the ownership check and the signal is refused without a signal", async () => {
+		const appDir = makeAppDir();
+		const childPid = 93019;
+		const trayPid = 93020;
+		const killCalls: number[] = [];
+		const { spawnFn } = fakeSpawn(childPid, trayPid, { alreadyExited: true });
+		const { identityOf } = scriptedIdentity({
+			[trayPid]: [
+				{ state: "alive", id: "A" }, // before
+				{ state: "alive", id: "B" }, // at the signal: a different process
+			],
+		});
+		try {
+			const result = await runSmoke(
+				{ appDir, port: 17434, timeoutMs: 2_000, log: null, keepHome: false },
+				healthyHooks(appDir, childPid, trayPid, {
+					spawn: spawnFn,
+					killTree: async (pid: number) => {
+						killCalls.push(pid);
+					},
+					identityOf,
+				}),
+			);
+			expect(killCalls).toEqual([]); // killTree NOT called for that PID
+			expect(result.cleanup.killed).toEqual([]);
+			expect(result.cleanup.refused.some((entry) => entry.includes(String(trayPid)) && entry.includes("identity changed"))).toBe(true);
+			expect(result.cleanup.refused.some((entry) => entry.includes("A -> B"))).toBe(true);
+			expect(result.cleanup.errors).toEqual([]);
+			expect(result.ok).toBe(true);
+			expect(result.reason).toBeNull();
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	});
+
+	test("a process that dies late in the bounded poll settles (late death is credited)", async () => {
+		const appDir = makeAppDir();
+		const childPid = 93021;
+		const trayPid = 93022;
+		const killCalls: number[] = [];
+		const { spawnFn } = fakeSpawn(childPid, trayPid, { alreadyExited: true });
+		const { identityOf } = scriptedIdentity({
+			[trayPid]: [
+				{ state: "alive", id: "A" }, // before
+				{ state: "alive", id: "A" }, // at the signal
+				{ state: "alive", id: "A" }, // post-kill probe 1: still there
+				{ state: "alive", id: "A" }, // post-kill probe 2: still there
+				{ state: "alive", id: "A" }, // post-kill probe 3: still there
+				{ state: "gone" }, // post-kill probe 4: late death
+			],
+		});
+		try {
+			const result = await runSmoke(
+				{ appDir, port: 17435, timeoutMs: 2_000, log: null, keepHome: false },
+				healthyHooks(appDir, childPid, trayPid, {
+					spawn: spawnFn,
+					killTree: async (pid: number) => {
+						killCalls.push(pid);
+					},
+					identityOf,
+				}),
+			);
+			expect(result.ok).toBe(true);
+			expect(result.cleanup.ok).toBe(true);
+			expect(result.cleanup.errors).toEqual([]);
+			expect(result.cleanup.reused).toEqual([]);
+			expect(killCalls).toEqual([trayPid]);
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	}, 30_000);
+
+	test("a pid that becomes a different process late in the poll settles with a reused entry", async () => {
+		const appDir = makeAppDir();
+		const childPid = 93023;
+		const trayPid = 93024;
+		const killCalls: number[] = [];
+		const { spawnFn } = fakeSpawn(childPid, trayPid, { alreadyExited: true });
+		const { identityOf } = scriptedIdentity({
+			[trayPid]: [
+				{ state: "alive", id: "A" }, // before
+				{ state: "alive", id: "A" }, // at the signal
+				{ state: "alive", id: "A" }, // post-kill probe 1: still there
+				{ state: "alive", id: "A" }, // post-kill probe 2: still there
+				{ state: "alive", id: "B" }, // post-kill probe 3: a different process
+			],
+		});
+		try {
+			const result = await runSmoke(
+				{ appDir, port: 17436, timeoutMs: 2_000, log: null, keepHome: false },
+				healthyHooks(appDir, childPid, trayPid, {
+					spawn: spawnFn,
+					killTree: async (pid: number) => {
+						killCalls.push(pid);
+					},
+					identityOf,
+				}),
+			);
+			expect(result.ok).toBe(true);
+			expect(result.cleanup.ok).toBe(true);
+			expect(result.cleanup.errors).toEqual([]);
+			expect(result.cleanup.reused).toHaveLength(1);
+			expect(result.cleanup.reused[0]).toContain(String(trayPid));
+			expect(killCalls).toEqual([trayPid]); // the reused process is not signalled
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	}, 30_000);
 });
 
 /* ---------------- win32 8.3 short paths (real) ---------------------------- */
@@ -2234,6 +2907,7 @@ describe("tray ancestry diagnostic", () => {
 });
 
 describe("ustar prefix field (amendment 1)", () => {
+	// Real zstd + tar extraction: the 5 s default is too tight under host load.
 	test("a real archive entry split across prefix+name is validated as one path and extracted", async () => {
 		// name "launcher" + prefix "Pinar.app/Contents/MacOS": the joined path
 		// is inside the archive root and must extract for real.
@@ -2249,7 +2923,7 @@ describe("ustar prefix field (amendment 1)", () => {
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}
-	});
+	}, 60_000);
 
 	test("a prefix + name containing .. is rejected and nothing is written", async () => {
 		const plain = tarArchive(tarEntry("evil", Buffer.from("x\n"), { prefix: "../escape" }));
@@ -2273,6 +2947,7 @@ describe("ustar prefix field (amendment 1)", () => {
 });
 
 describe("post-extraction containment walk", () => {
+	// Real zstd + tar extraction: the 5 s default is too tight under host load.
 	test("an entry under the destination that resolves outside it fails the extraction", async () => {
 		// The validator accepts this payload and the real tar extracts it; the
 		// escaping entry (a junction on Windows, a directory symlink elsewhere)
@@ -2295,32 +2970,84 @@ describe("post-extraction containment walk", () => {
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}
-	});
+	}, 60_000);
 });
 
 /* ---------------- CLI final JSON line ------------------------------------ */
 
-test("the CLI prints exactly one final JSON line with a cleanup object on failure", () => {
+test("the CLI prints exactly one final JSON line with a cleanup object on failure", async () => {
 	const appDir = mkdtempSync(join(tmpdir(), "pinar-smoke-cli-"));
-	try {
-		const script = join(dirname(fileURLToPath(import.meta.url)), "tray-smoke.mjs");
-		// Port 17409 is the only real port this suite may use; the run must
-		// not launch anything (empty app dir → launcher not found).
-		const out = spawnSync(process.execPath, [script, "--app-dir", appDir, "--port", "17409", "--timeout-ms", "1000"], {
-			encoding: "utf8",
-			windowsHide: true,
+	const script = join(dirname(fileURLToPath(import.meta.url)), "tray-smoke.mjs");
+	// Port 17409 is the only real port this suite may use; the run must
+	// not launch anything (empty app dir → launcher not found).
+	let stdout = "";
+	let stderr = "";
+	let status: number | null = null;
+	const child = spawn(process.execPath, [script, "--app-dir", appDir, "--port", "17409", "--timeout-ms", "1000"], {
+		stdio: ["ignore", "pipe", "pipe"],
+		windowsHide: true,
+	});
+	child.stdout?.on("data", (chunk: Buffer | string) => {
+		stdout += String(chunk);
+	});
+	child.stderr?.on("data", (chunk: Buffer | string) => {
+		stderr += String(chunk);
+	});
+	let deadline: ReturnType<typeof setTimeout> | null = null;
+	const closed = new Promise<void>((resolve) => {
+		// Inner 45 s deadline: the child is always bounded and always reaped
+		// in the finally block below, never left behind by this test.
+		deadline = setTimeout(() => {
+			deadline = null;
+			resolve();
+		}, 45_000);
+		child.once("close", (code: number | null) => {
+			status = code;
+			if (deadline != null) {
+				clearTimeout(deadline);
+				deadline = null;
+			}
+			resolve();
 		});
-		expect(out.status).toBe(1);
-		const lines = String(out.stdout ?? "").split(/\r?\n/).filter((line) => line.length > 0);
-		expect(lines).toHaveLength(1);
-		const parsed = JSON.parse(lines[0]);
-		expect(parsed.ok).toBe(false);
-		expect(parsed.cleanup).toBeDefined();
-		expect(Array.isArray(parsed.cleanup.killed)).toBe(true);
-		expect(Array.isArray(parsed.cleanup.refused)).toBe(true);
-		expect(Array.isArray(parsed.cleanup.errors)).toBe(true);
-		expect(typeof parsed.cleanup.sandboxRemoved).toBe("boolean");
+	});
+	try {
+		await closed;
 	} finally {
+		if (deadline != null) clearTimeout(deadline);
+		if (child.exitCode == null && child.signalCode == null) {
+			// The inner deadline fired while the child still runs: terminate
+			// THIS test's own live child (its handle is held, so its PID
+			// cannot be reused) and await its close before removing appDir.
+			if (child.pid != null) {
+				if (process.platform === "win32") {
+					spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
+						stdio: "ignore",
+						windowsHide: true,
+					});
+				} else {
+					child.kill("SIGKILL");
+				}
+				// Bounded wait for the close (a spawn error would never close).
+				await Promise.race([
+					new Promise<void>((resolve) => {
+						if (child.exitCode != null || child.signalCode != null) return resolve();
+						child.once("close", () => resolve());
+					}),
+					new Promise<void>((resolve) => setTimeout(resolve, 10_000)),
+				]);
+			}
+		}
 		rmSync(appDir, { recursive: true, force: true });
 	}
-});
+	expect(status).toBe(1);
+	const lines = stdout.split(/\r?\n/).filter((line) => line.length > 0);
+	expect(lines).toHaveLength(1);
+	const parsed = JSON.parse(lines[0]);
+	expect(parsed.ok).toBe(false);
+	expect(parsed.cleanup).toBeDefined();
+	expect(Array.isArray(parsed.cleanup.killed)).toBe(true);
+	expect(Array.isArray(parsed.cleanup.refused)).toBe(true);
+	expect(Array.isArray(parsed.cleanup.errors)).toBe(true);
+	expect(Array.isArray(parsed.cleanup.reused)).toBe(true);
+	expect(typeof parsed.cleanup.sandboxRemoved).toBe("boolean");
+}, 60_000);

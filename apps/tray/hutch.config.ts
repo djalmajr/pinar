@@ -1,4 +1,4 @@
-// @hutch cli=0.25.0
+// @hutch cli=0.25.0 cottontail=0.7.2-canary.6
 export default {
 	scripts: {
 		install: ["hutch", "install", "--frozen-lockfile"],

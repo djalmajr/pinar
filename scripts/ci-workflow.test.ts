@@ -127,6 +127,47 @@ describe("CI workflow", () => {
     expect(workflow).toContain("The tray ships for macOS and Windows only");
   });
 
+  test("installs Hutch from checksum-pinned bytes and verifies the installed release", () => {
+    const windows = jobBlock(workflow, "windows");
+    const macos = jobBlock(workflow, "macos");
+    // No remote script runs from a pipe or from an unhashed download.
+    expect(workflow).not.toMatch(/\|\s*(iex|Invoke-Expression)/i);
+    expect(workflow).not.toMatch(/\birm\b/);
+    expect(windows).not.toMatch(/\[scriptblock\]::Create\(\s*\(\s*irm/i);
+    expect(macos).not.toMatch(/curl[^\n]*\|\s*sh/);
+    // The five pinned values are present (installer sha256 per OS, the
+    // 0.25.0 revision per OS, the archive sha256 per OS).
+    const pinned = [
+      "185cc615d3d1b6e7156c104beb902cce3f4b9f35cb3d14df047586aa432883e7", // install.ps1
+      "9803e467afab4d795ebf506abbe94c3592b761188bd68b1b5edf02ad7955b92c", // install.sh
+      "5668321389b6f47e24a2408c963ef5a437793b4c", // 0.25.0 revision
+      "a29ec038ede84e5875f0bc134e834f6e74c5411d6f2163de8e9a93ba503f8d64", // windows-x64 archive
+      "521828934a4524a2f745b24a1843d7fde61a6b5ec355c9d3fe331168f5fadbc3", // macos-arm64 archive
+    ];
+    for (const value of pinned) {
+      expect(workflow, `pinned value ${value} missing from ci.yml`).toContain(value);
+    }
+    expect(windows).toContain(pinned[2]);
+    expect(macos).toContain(pinned[2]);
+    // The installer bytes are hashed before they run, on both OSes.
+    expect(windows).toContain("Get-FileHash -Algorithm SHA256 -Path $installerPath");
+    expect(macos).toContain('shasum -a 256 "$RUNNER_TEMP/install.sh"');
+    // The verified bytes are what runs.
+    expect(windows).toContain('[scriptblock]::Create([System.IO.File]::ReadAllText("$env:RUNNER_TEMP\\install.ps1")))');
+    expect(macos).toContain('sh "$RUNNER_TEMP/install.sh" --version 0.25.0 --no-modify-path');
+    // Both post-install checks exist for both OSes: the pinned archive
+    // sha256 stored as .dash-installed in the pinned revision's release dir,
+    // and the copied bin matching that release dir's executable.
+    expect(windows).toContain('.hutch\\releases\\hutch\\0.25.0\\$revision\\windows-x64');
+    expect(windows).toContain(".dash-installed");
+    expect(windows).toContain("if ($dashInstalled -ne $pinnedArchiveSha256) {");
+    expect(windows).toContain("if ($binHutchSha256 -ne $releaseBinHutchSha256) {");
+    expect(macos).toContain("releases/hutch/0.25.0/$revision/macos-arm64");
+    expect(macos).toContain(".dash-installed");
+    expect(macos).toContain('if [ "$dash_installed" != "$pinned_archive_sha256" ]; then');
+    expect(macos).toContain('if [ "$bin_hutch_sha256" != "$release_bin_hutch_sha256" ]; then');
+  });
+
   test("Hutch pin in hutch.config.ts agrees with the CI and release installer versions", () => {
     const config = readFileSync(join(root, "apps/tray/hutch.config.ts"), "utf8");
     const pin = readHutchCliPin(config);

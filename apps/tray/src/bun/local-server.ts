@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { boundedProcessIdentity, type IdentityOutcome, type IdentityProbe } from "./process-identity";
+import { boundedProcessIdentity, parsePid, PROBE_KILL_WAIT_MS, type IdentityOutcome, type IdentityProbe } from "./process-identity";
 
 export const DEFAULT_HEALTH_PORTS = Array.from({ length: 10 }, (_, index) => 17373 + index);
 const PORTS = DEFAULT_HEALTH_PORTS;
@@ -140,20 +140,6 @@ function spawnPinar(args: string[]) {
 	return child;
 }
 
-export function runPinarCommand(args: string[]): Promise<number> {
-	return new Promise((resolve, reject) => {
-		const bin = pinarBin();
-		const child = spawn(bin, args, {
-			env: process.env,
-			shell: usesShell(bin),
-			stdio: "ignore",
-			windowsHide: true,
-		});
-		child.on("error", reject);
-		child.on("close", (code) => resolve(code ?? 1));
-	});
-}
-
 /**
  * Creation-time identity guards for numeric-PID signals (DJA-208). A healthy
  * `/api/health` proves only that something answered on the port, not WHICH
@@ -188,21 +174,61 @@ export interface TaskkillResult {
 	code: number | null;
 	/** Set when the bounded wait expired (child killed through its held handle). */
 	timedOut?: boolean;
-	/** Set when the spawn emitted an error event. */
+	/**
+	 * Only when timedOut: the reaping verdict, and it comes only from a real
+	 * close ("reaped") or the expiry of the finite post-kill close wait
+	 * ("unreaped").
+	 */
+	cleanup?: "reaped" | "unreaped";
+	/** Set when the spawn emitted an error event before the deadline. */
 	spawnError?: string;
+	/**
+	 * Set when an error event arrived after the deadline: a kill failure, not
+	 * a spawn failure (the same rule as boundedProcessIdentity's killError).
+	 */
+	killError?: string;
 }
 
 export type TaskkillRunner = (pid: number) => Promise<TaskkillResult>;
+
+/** Injected seams and bounds for taskkillRunner (defaults keep production). */
+export interface TaskkillRunnerOptions {
+	/** The spawner (default node:child_process spawn). Injected for tests. */
+	spawn?: typeof spawn;
+	/** Injectable timers (defaults to the global ones). */
+	setTimeout?: typeof setTimeout;
+	clearTimeout?: typeof clearTimeout;
+	/** Runner deadline (default TASKKILL_TIMEOUT_MS). */
+	timeoutMs?: number;
+	/** Verified-close wait after the deadline kill (default PROBE_KILL_WAIT_MS). */
+	killWaitMs?: number;
+}
 
 export type StopServerDeps = {
 	healthyPort?: () => Promise<number | null>;
 	/** May return the structured outcome or void (existing seams keep working). */
 	killPort?: (port: number, seen: Set<number>) => Promise<KillPortOutcome | void>;
+	/**
+	 * Legacy seam, kept for tests only: stopServer no longer invokes
+	 * `pinar stop` on any path (DJA-208) — the unbound server.pid signal is
+	 * gone — and the tests assert this seam is never called.
+	 */
 	run?: (args: string[]) => Promise<number>;
-	env?: Record<string, string | undefined>;
 	unhealthyTimeoutMs?: number;
 	wait?: (ms: number) => Promise<void>;
-};
+}
+
+/** stopServer's outcome: the kill bookkeeping plus the verified-stop flag. */
+export interface StopServerOutcome extends KillPortOutcome {
+	/**
+	 * True ONLY when a bounded waitUntilUnhealthy checkpoint verified the
+	 * helper is no longer healthy — the early return or the end of the loop.
+	 * Every bounded false or error path — including the mid-loop single
+	 * probe and the no-progress bail-out — leaves it false: "attempted",
+	 * not "verified" (DJA-208).
+	 */
+	stopped: boolean;
+}
 
 export async function waitUntilUnhealthy(
 	timeoutMs = 2000,
@@ -241,28 +267,31 @@ export async function waitUntilHealthy(timeoutMs = 2000) {
 	return findHealthyPort();
 }
 
-export async function stopServer(deps: StopServerDeps = {}): Promise<KillPortOutcome> {
+export async function stopServer(deps: StopServerDeps = {}): Promise<StopServerOutcome> {
 	const healthyPort = deps.healthyPort ?? findHealthyPort;
 	const killPort = deps.killPort ?? killListeningPid;
-	const run = deps.run ?? runPinarCommand;
 	const wait = deps.wait ?? sleep;
 	const unhealthyTimeoutMs = deps.unhealthyTimeoutMs ?? 2000;
-	const outcome: KillPortOutcome = { refusals: [], signals: [], errors: [] };
-	// `pinar stop` signals the pid in PINAR_HOME/server.pid regardless of the
-	// pin, so with a valid PINAR_PORT it can stop a helper that is not the
-	// listener on the pinned port. Skip it and let the kill loop below (driven
-	// by findHealthyPort, which honours the pin) stop only that listener.
-	if (pinnedHealthPort(deps.env ?? process.env) == null) {
-		try {
-			await run(["stop"]);
-		} catch {
-			// Missing binary or spawn failure — fall through to health + lsof.
-		}
+	const outcome: StopServerOutcome = { refusals: [], signals: [], errors: [], stopped: false };
+	// stopServer never invokes `pinar stop` (DJA-208): that CLI path signals
+	// the numeric pid in PINAR_HOME/server.pid after only a liveness check,
+	// so a stale server.pid can signal a recycled PID. Every stop goes
+	// through the identity-bound killListeningPid loop below, driven by
+	// healthyPort (findHealthyPort honours a valid PINAR_PORT pin): bind,
+	// port re-check, and the pre-signal identity re-checks apply on every
+	// path. Behaviour change: a hung, unhealthy helper that answers no
+	// health request is no longer stopped by the tray — before, `pinar stop`
+	// killed it by server.pid, which is exactly the unbound kill removed.
+	if (await waitUntilUnhealthy(unhealthyTimeoutMs, healthyPort, wait)) {
+		outcome.stopped = true;
+		return outcome;
 	}
-	if (await waitUntilUnhealthy(unhealthyTimeoutMs, healthyPort, wait)) return outcome;
 	const seen = new Set<number>();
 	for (let n = 0; n < PORTS.length; n += 1) {
 		const port = await healthyPort();
+		// stopped stays false here: a single healthyPort() == null probe is
+		// an attempt, not a verification — only the bounded
+		// waitUntilUnhealthy checkpoints above set stopped (DJA-208).
 		if (port == null) return outcome;
 		const before = seen.size;
 		const killed = await killPort(port, seen);
@@ -273,9 +302,17 @@ export async function stopServer(deps: StopServerDeps = {}): Promise<KillPortOut
 			outcome.signals.push(...killed.signals);
 			outcome.errors.push(...killed.errors);
 		}
+		// No progress (refusal or gone-before-bind): the helper is still up.
 		if (seen.size === before) return outcome;
 	}
-	await waitUntilUnhealthy(unhealthyTimeoutMs, healthyPort, wait);
+	// The final verification is no longer discarded: false means the helper
+	// is still healthy, so stopped stays false and the port is recorded.
+	if (await waitUntilUnhealthy(unhealthyTimeoutMs, healthyPort, wait)) {
+		outcome.stopped = true;
+	} else {
+		const port = await healthyPort();
+		outcome.errors.push(`local server still healthy on port ${port ?? "unknown"} after stop`);
+	}
 	return outcome;
 }
 
@@ -292,8 +329,10 @@ export function parseNetstatListeningPid(stdout: string, port: number) {
 		const cols = line.trim().split(/\s+/);
 		const local = cols[1] ?? "";
 		if (!local.endsWith(suffix)) continue;
-		const pid = Number(cols[cols.length - 1]);
-		if (Number.isInteger(pid) && pid > 0) return pid;
+		// Strict parse: a pid column that does not parse ("0x1f", "1e3",
+		// "99999999999", ...) is no pid — never Number()-normalized.
+		const pid = parsePid(cols[cols.length - 1]);
+		if (pid != null) return pid;
 	}
 	return null;
 }
@@ -320,8 +359,9 @@ async function findOsListeningPid(port: number) {
 		return parseNetstatListeningPid(stdout, port);
 	}
 	const stdout = await commandStdout(["lsof", "-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"]);
-	const pid = Number(stdout.trim().split(/\s+/)[0]);
-	return Number.isInteger(pid) && pid > 0 ? pid : null;
+	// Strict parse: lsof -t prints bare pids; anything that does not parse
+	// ("0x1f", "1e3", "99999999999", ...) is no pid — never Number()-normalized.
+	return parsePid(stdout.trim().split(/\s+/)[0]);
 }
 
 const TASKKILL_TIMEOUT_MS = 8_000; // same bound teardownChild uses for taskkillTimeoutMs
@@ -334,36 +374,99 @@ function errorText(error: unknown): string {
  * Bounded win32 taskkill runner: async spawn of `taskkill /PID <pid> /T /F`
  * (fixed argv, the pid validated upstream as a positive integer), awaited
  * with a bounded timeout (TASKKILL_TIMEOUT_MS — the same value teardownChild
- * uses for taskkillTimeoutMs); on timeout the child is killed through its
- * HELD handle (TerminateProcess on Windows — never a numeric-PID signal).
- * Non-zero status, a spawn error or a timeout is a recorded result, never a
- * throw and never a retry.
+ * uses for taskkillTimeoutMs). On the deadline the normal settlement path is
+ * detached (a later close can no longer erase the timeout verdict), the
+ * child is killed through its HELD handle (TerminateProcess on Windows —
+ * never a numeric-PID signal), and the run resolves ONLY from a real close
+ * (`cleanup: "reaped"`) or the expiry of the finite post-kill close wait
+ * (`cleanup: "unreaped"` — PROBE_KILL_WAIT_MS, the same verified-close bound
+ * as boundedProcessIdentity; the wait is armed BEFORE kill()). An `error`
+ * before the deadline is a spawn failure (spawnError); an `error` after the
+ * deadline is a kill failure (killError), never a spawn failure. Non-zero
+ * status, a spawn error or a timeout is a recorded result, never a throw
+ * and never a retry.
  */
-function taskkillRunner(pid: number): Promise<TaskkillResult> {
+export function taskkillRunner(pid: number, options: TaskkillRunnerOptions = {}): Promise<TaskkillResult> {
+	const spawnFn = options.spawn ?? spawn;
+	const setT = options.setTimeout ?? setTimeout;
+	const clearT = options.clearTimeout ?? clearTimeout;
+	const timeoutMs = options.timeoutMs ?? TASKKILL_TIMEOUT_MS;
+	const killWaitMs = options.killWaitMs ?? PROBE_KILL_WAIT_MS;
 	return new Promise((resolve) => {
 		let settled = false;
-		let timer: ReturnType<typeof setTimeout> | null = null;
-		const child = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], {
+		let deadlineTimer: ReturnType<typeof setT> | null = null;
+		let killWaitTimer: ReturnType<typeof setT> | null = null;
+		let killError: string | null = null;
+		const child = spawnFn("taskkill", ["/PID", String(pid), "/T", "/F"], {
 			stdio: "ignore",
 			windowsHide: true,
 		});
 		const finish = (result: TaskkillResult) => {
 			if (settled) return;
 			settled = true;
-			if (timer != null) clearTimeout(timer);
+			if (deadlineTimer != null) {
+				try {
+					clearT(deadlineTimer);
+				} catch {
+					// already fired
+				}
+				deadlineTimer = null;
+			}
+			if (killWaitTimer != null) {
+				try {
+					clearT(killWaitTimer);
+				} catch {
+					// already fired
+				}
+				killWaitTimer = null;
+			}
 			resolve(result);
 		};
-		timer = setTimeout(() => {
-			timer = null;
+		const onClose = (code: number | null) => finish({ code });
+		child.on("close", onClose);
+		const onError = (error: Error) => finish({ code: null, spawnError: errorText(error) });
+		child.on("error", onError);
+		deadlineTimer = setT(() => {
+			deadlineTimer = null;
+			// Deadline: from this moment the run's partial status is untrusted
+			// — detach the normal close/error settlement so a later close can
+			// no longer erase the timeout verdict. An `error` after the
+			// deadline is a KILL failure (or the dying child reporting its own
+			// death) — it must NOT settle the run: only a real close proves
+			// reaping, so the close verification stays in place and the kill
+			// error is only recorded (never turned into a spawn failure).
+			child.removeListener("close", onClose);
+			child.removeListener("error", onError);
+			const onKillError = (error: Error) => {
+				killError = errorText(error);
+			};
+			child.on("error", onKillError);
+			const timeoutResult = (cleanup: "reaped" | "unreaped"): TaskkillResult => {
+				const result: TaskkillResult = { code: null, timedOut: true, cleanup };
+				if (killError != null) result.killError = killError;
+				return result;
+			};
+			const onKilled = () => finish(timeoutResult("reaped"));
+			child.on("close", onKilled);
+			// Verify the kill with a FINITE, checked wait: close observed →
+			// "reaped" (a real close event on the handle — no fake reaping);
+			// no close in time → "unreaped" (residue). The timer is installed
+			// BEFORE kill() and settlement is guarded by `settled` inside
+			// finish(): a synchronous kill() failure can neither settle the
+			// run early nor leave a timer scheduled after settlement.
+			killWaitTimer = setT(() => {
+				killWaitTimer = null;
+				finish(timeoutResult("unreaped"));
+			}, killWaitMs);
 			try {
 				child.kill();
-			} catch {
-				// Already gone; the timeout verdict below stands.
+			} catch (error) {
+				// A synchronous kill failure is recorded as the kill error; the
+				// verification timer installed above still decides reaped vs
+				// unreaped.
+				killError = errorText(error);
 			}
-			finish({ code: null, timedOut: true });
-		}, TASKKILL_TIMEOUT_MS);
-		child.on("close", (code: number | null) => finish({ code }));
-		child.on("error", (error: Error) => finish({ code: null, spawnError: errorText(error) }));
+		}, timeoutMs);
 	});
 }
 
@@ -376,14 +479,30 @@ async function safeIdentity(identity: IdentityProbe, pid: number): Promise<Ident
 	}
 }
 
-/** Record a taskkill run's outcome: the signal is logged, the status checked. */
+/**
+ * Record a taskkill run's outcome. ONLY a delivered signal is recorded as
+ * one: status 0 with no timeout and no spawn error. Errors and timed-out
+ * calls are not delivered signals — they are errors only.
+ */
 async function recordTaskkill(taskkill: TaskkillRunner, pid: number, port: number, outcome: KillPortOutcome) {
 	const result = await taskkill(pid);
-	outcome.signals.push({ pid, port, signal: "taskkill" });
-	if (result.timedOut) outcome.errors.push(`taskkill timed out after ${TASKKILL_TIMEOUT_MS}ms (pid ${pid})`);
-	else if (result.spawnError != null) outcome.errors.push(`taskkill failed: ${result.spawnError}`);
-	else if (result.code == null) outcome.errors.push(`taskkill finished without an exit code (pid ${pid})`);
-	else if (result.code !== 0) outcome.errors.push(`taskkill exited ${result.code} (pid ${pid})`);
+	if (result.code === 0 && !result.timedOut && result.spawnError == null) {
+		outcome.signals.push({ pid, port, signal: "taskkill" });
+	}
+	if (result.timedOut) {
+		outcome.errors.push(`taskkill timed out after ${TASKKILL_TIMEOUT_MS}ms (pid ${pid})`);
+	} else if (typeof result.spawnError === "string" && result.spawnError !== "") {
+		outcome.errors.push(`taskkill failed: ${result.spawnError}`);
+	} else if (result.spawnError != null) {
+		// Runner error preflight: a non-empty string is the spawn error; any
+		// other non-null shape is malformed and fails closed (no signal is
+		// recorded above, and the run is recorded as an error).
+		outcome.errors.push(`taskkill spawn error malformed: ${JSON.stringify(result.spawnError)}`);
+	} else if (result.code == null) {
+		outcome.errors.push(`taskkill finished without an exit code (pid ${pid})`);
+	} else if (result.code !== 0) {
+		outcome.errors.push(`taskkill exited ${result.code} (pid ${pid})`);
+	}
 }
 
 export interface KillListeningPidDeps {
@@ -418,6 +537,14 @@ export interface KillListeningPidDeps {
  * The pid is added to `seen` at the bind step, so the caller's bounded loop
  * never revisits it. Every refusal/signal/error lands in the returned
  * outcome.
+ *
+ * RESIDUAL RACE (documented, not fixed — DJA-208): the numeric listener PID
+ * can still be REUSED between the last identity probe and `process.kill` /
+ * `taskkill` — Bun/Node holds no OS handle for a process this code did not
+ * spawn, so the reuse window cannot be closed here (no OpenProcess/duplicate
+ * handle). The window is minimized by the pre-signal re-probe immediately
+ * before every signal. `taskkill /T` also kills that process's current
+ * children.
  */
 export async function killListeningPid(
 	port: number,

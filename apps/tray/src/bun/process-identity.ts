@@ -74,6 +74,25 @@ function errorText(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
+/** Verified-close wait after a deadline kill (the default probeKillWaitMs). */
+export const PROBE_KILL_WAIT_MS = 2_000;
+
+/**
+ * Strict numeric-PID parse (DJA-208): after trim, integer digits only
+ * (`/^\d+$/`) and a value in 1..2147483647 (the 32-bit pid range). Every
+ * other shape — "12abc", "1e3", "0x1f", "", "0", "-5",
+ * "99999999999" — is null. Malformed values are never normalized: a PID
+ * column that does not parse is no PID (a null), not a rounded number.
+ */
+export function parsePid(value: string | null | undefined): number | null {
+	if (value == null) return null;
+	const trimmed = value.trim();
+	if (!/^\d+$/.test(trimmed)) return null;
+	const pid = Number(trimmed);
+	if (!Number.isInteger(pid) || pid < 1 || pid > 2_147_483_647) return null;
+	return pid;
+}
+
 export function boundedProcessIdentity(
 	platform: NodeJS.Platform | string | null | undefined,
 	options: ProcessIdentityOptions = {},
@@ -83,7 +102,7 @@ export function boundedProcessIdentity(
 	const clearT = options.clearTimeout ?? clearTimeout;
 	const spawnFn = options.spawn ?? spawn;
 	const probeTimeoutMs = options.probeTimeoutMs ?? 8_000;
-	const probeKillWaitMs = options.probeKillWaitMs ?? 2_000;
+	const probeKillWaitMs = options.probeKillWaitMs ?? PROBE_KILL_WAIT_MS;
 	const systemRoot = options.systemRoot ?? process.env.SystemRoot ?? process.env.WINDIR ?? "C:\\Windows";
 	const psPath = join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
 	// Same CIM query as identityOfFor("win32")'s .ps1 (inline, no file):
@@ -120,7 +139,9 @@ export function boundedProcessIdentity(
 		// subprocess, so nothing to bound or kill.
 		const procDir = options.procDir ?? "/proc";
 		return async (pid: number): Promise<IdentityOutcome> => {
-			if (!Number.isInteger(pid) || pid <= 0) {
+			// Strict PID contract (parsePid): integer digits in 1..
+			// 2147483647 — nothing else reaches the /proc read.
+			if (!Number.isInteger(pid) || pid <= 0 || parsePid(String(pid)) == null) {
 				return { state: "unknown", error: `identity probe rejected a non-positive-integer pid: ${String(pid)}` };
 			}
 			let text: string;
@@ -152,7 +173,9 @@ export function boundedProcessIdentity(
 		// CIM filter as a bare number only (win32); darwin passes it as a
 		// single argv element (no shell). Unvalidated input never reaches a
 		// subprocess.
-		if (!Number.isInteger(pid) || pid <= 0) {
+		// Strict PID contract (parsePid): integer digits in 1..
+		// 2147483647 — a pid above the 32-bit range is rejected too.
+		if (!Number.isInteger(pid) || pid <= 0 || parsePid(String(pid)) == null) {
 			return { state: "unknown", error: `identity probe rejected a non-positive-integer pid: ${String(pid)}` };
 		}
 		let exe: string;

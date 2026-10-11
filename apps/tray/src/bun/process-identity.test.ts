@@ -182,6 +182,18 @@ describe("boundedProcessIdentity parity with boundedIdentityProbe", () => {
 	});
 });
 
+describe("boundedProcessIdentity pid contract", () => {
+	test("rejects a pid above the 32-bit range without spawning", async () => {
+		const fake = makeFakeSpawn({ code: 0, stdout: "13324546654321\n" });
+		const result = await boundedProcessIdentity("win32", { spawn: fake.spawnFn as never })(3_000_000_000);
+		expect(fake.spawnArgs.length).toBe(0);
+		expect(result).toEqual({
+			state: "unknown",
+			error: "identity probe rejected a non-positive-integer pid: 3000000000",
+		});
+	});
+});
+
 describe("boundedProcessIdentity live", () => {
 	test("live probe of the host's own pid is alive and the id is stable across two calls", async () => {
 		const probe = boundedProcessIdentity(process.platform);

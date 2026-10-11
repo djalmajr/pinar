@@ -1,14 +1,18 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
 	copyFileSync,
 	existsSync,
+	lstatSync,
 	mkdirSync,
+	realpathSync,
 	readdirSync,
 	readFileSync,
 	statSync,
 } from "node:fs";
-import { dirname, join, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveHutchExecutable } from "../../../scripts/hutch-exe.mjs";
 
 const trayRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -50,6 +54,136 @@ export function assertContainedPath(base, candidatePath) {
 		);
 	}
 	return candidate;
+}
+
+function canonicallyEqual(baseCanonical, entryCanonical) {
+	if (process.platform === "win32") return baseCanonical.toLowerCase() === entryCanonical.toLowerCase();
+	return baseCanonical === entryCanonical;
+}
+
+function canonicallyInside(baseCanonical, entryCanonical) {
+	const prefix = baseCanonical.endsWith(sep) ? baseCanonical : baseCanonical + sep;
+	if (process.platform === "win32") return entryCanonical.toLowerCase().startsWith(prefix.toLowerCase());
+	return entryCanonical.startsWith(prefix);
+}
+
+/**
+ * Canonical counterpart of assertContainedPath (SY-1): both paths must exist
+ * and the candidate's resolved (realpath.native) location must sit inside
+ * the base's resolved location, so an entry cannot claim a lexical path
+ * inside the base while resolving to a different place (a symlinked or
+ * junctioned chain resolves to its target). Case-insensitive on win32,
+ * where file system paths are case-insensitive. The base itself counts as
+ * contained (the destination root check passes for the staged bin dir).
+ * Throw means a link or case mismatch put the entry outside the base.
+ */
+export function assertCanonicallyContained(base, candidatePath) {
+	const baseCanonical = realpathSync.native(base);
+	const candidateCanonical = realpathSync.native(candidatePath);
+	if (!canonicallyEqual(baseCanonical, candidateCanonical) && !canonicallyInside(baseCanonical, candidateCanonical)) {
+		throw new Error(
+			`post-build: Cottontail runtime path ${candidatePath} resolves to ${candidateCanonical} outside its base ${baseCanonical}; capability paths must stay inside their base dir`,
+		);
+	}
+	return candidateCanonical;
+}
+
+/**
+ * Plan a source tree for the link-safe copy (SY-1): walk it with lstat
+ * (never following a link), reject any symbolic link (including Windows
+ * junctions) and any entry that is neither a regular file nor a directory,
+ * and canonicalize every entry against the release bin base so a link
+ * cannot claim a path inside the base while resolving outside it. Returns
+ * the relative directories (to create) and files (to copy). No writes
+ * happen here.
+ */
+function planSourceTree(root, baseDir) {
+	const rootStat = lstatSync(root);
+	if (rootStat.isSymbolicLink()) {
+		throw new Error(
+			`post-build: Cottontail runtime source ${root} is a symbolic link; refusing to copy through links into the staged runtime tree`,
+		);
+	}
+	if (!rootStat.isDirectory()) {
+		throw new Error(
+			`post-build: Cottontail runtime source ${root} is not a directory; refusing to plan it as a core or capability tree`,
+		);
+	}
+	assertCanonicallyContained(baseDir, root);
+	const dirs = [];
+	const files = [];
+	const stack = [root];
+	while (stack.length > 0) {
+		const dir = stack.pop();
+		for (const name of readdirSync(dir)) {
+			const entry = join(dir, name);
+			const entryStat = lstatSync(entry);
+			if (entryStat.isSymbolicLink()) {
+				throw new Error(
+					`post-build: Cottontail runtime source ${entry} is a symbolic link; refusing to copy through links into the staged runtime tree`,
+				);
+			}
+			if (entryStat.isDirectory()) {
+				dirs.push(relative(root, entry).split(/[\\/]/).join("/"));
+				assertCanonicallyContained(baseDir, entry);
+				stack.push(entry);
+			} else if (entryStat.isFile()) {
+				files.push(relative(root, entry).split(/[\\/]/).join("/"));
+				assertCanonicallyContained(baseDir, entry);
+			} else {
+				throw new Error(
+					`post-build: Cottontail runtime source ${entry} is neither a regular file nor a directory; refusing to copy it`,
+				);
+			}
+		}
+	}
+	return { dirs, files };
+}
+
+/**
+ * Assert a planned destination path is safe to write (SY-1): it must resolve
+ * lexically inside the staged bin dir (assertContainedPath); the path itself
+ * must not be a pre-existing symbolic link (a write would go through it);
+ * and every pre-existing directory on the way from the staged bin dir down
+ * (including a pre-existing planned dir) must be a real (not a link)
+ * directory that resolves canonically inside it. No writes happen here.
+ * A pre-existing regular file at a planned file path is fine: the copy
+ * replaces it and verification re-hashes the bytes.
+ */
+function assertPlannedDestinationSafe(stagedBin, destPath) {
+	assertContainedPath(stagedBin, destPath);
+	const stagedResolved = resolve(stagedBin);
+	const destResolved = resolve(destPath);
+	let destStat = null;
+	try {
+		destStat = lstatSync(destResolved);
+	} catch (error) {
+		if ((error instanceof Error) && error.code !== "ENOENT") throw error;
+	}
+	if (destStat !== null && destStat.isSymbolicLink()) {
+		throw new Error(
+			`post-build: staged Cottontail runtime path ${destResolved} is a symbolic link; refusing to write through or under it`,
+		);
+	}
+	// Parent chain: from the deepest existing directory on the path (the dest
+	// itself when it is an existing planned dir) up to the staged bin dir.
+	const chain = [stagedResolved];
+	for (let dir = dirname(destResolved); ; ) {
+		if (dir === stagedResolved || !existsSync(dir)) break;
+		chain.push(dir);
+		const up = dirname(dir);
+		if (up === dir) break;
+		dir = up;
+	}
+	for (const dir of chain) {
+		const stat = lstatSync(dir);
+		if (stat.isSymbolicLink() || !stat.isDirectory()) {
+			throw new Error(
+				`post-build: staged Cottontail runtime path ${dir} is ${stat.isSymbolicLink() ? "a symbolic link" : "not a plain directory"}; refusing to write through or under it`,
+			);
+		}
+		assertCanonicallyContained(stagedResolved, dir);
+	}
 }
 
 // Default dependency injection: node's spawnSync and the real platform. Tests
@@ -148,9 +282,15 @@ export function syncCottontailRuntime(buildDir, deps = defaultDeps) {
 	// capability segment first (requested or transitive): a name is joined
 	// under cottontail-stdlib below, so it must not be able to escape it, and
 	// a malformed `requires` value (not an array of strings) is rejected here
-	// as well. The whole walk completes before copyTree / mkdirSync /
-	// copyFileSync run, so a rejected name leaves the staged tree untouched.
+	// as well. Capability dirs live next to the catalog file
+	// capabilities.json on a case-insensitive file system (Windows, macOS):
+	// a name that equals the catalog file name case-insensitively is
+	// reserved (it would overwrite the catalog on copy), and two names that
+	// are equal case-insensitively resolve to the same dir and collide.
+	// The whole walk completes before copyTree / mkdirSync / copyFileSync
+	// run, so a rejected name leaves the staged tree untouched.
 	const visited = [];
+	const visitedCase = new Map();
 	const visit = (name, where) => {
 		if (!isValidCapabilityName(name)) {
 			throw new Error(
@@ -158,7 +298,20 @@ export function syncCottontailRuntime(buildDir, deps = defaultDeps) {
 			);
 		}
 		if (visited.includes(name)) return;
+		const caseKey = String(name).toLowerCase();
+		if (caseKey === "capabilities.json") {
+			throw new Error(
+				`post-build: reserved Cottontail capability name ${JSON.stringify(name)} (Cottontail ${version}) in ${where}: it equals the catalog file name capabilities.json case-insensitively and would collide with the catalog in the staged tree`,
+			);
+		}
+		const firstOfCase = visitedCase.get(caseKey);
+		if (firstOfCase !== undefined) {
+			throw new Error(
+				`post-build: Cottontail capability name ${JSON.stringify(name)} (Cottontail ${version}) in ${where} collides with the already-resolved capability ${JSON.stringify(firstOfCase)}: case-insensitively equal names resolve to the same directory in the release and staged trees`,
+			);
+		}
 		visited.push(name);
+		visitedCase.set(caseKey, name);
 		if (!Object.prototype.hasOwnProperty.call(capabilityCatalog, name)) {
 			throw new Error(
 				`post-build: required Cottontail capability "${name}" (Cottontail ${version}) is not in the ${catalogSource} catalog`,
@@ -174,12 +327,16 @@ export function syncCottontailRuntime(buildDir, deps = defaultDeps) {
 	};
 	for (const name of capabilities) visit(name, "the requested capabilities");
 
-	const copied = [];
-	copyTree(coreSource, join(stagedBin, "cottontail-core"));
-	copied.push("cottontail-core/");
-	mkdirSync(stdlibDest, { recursive: true });
-	copyFileSync(catalogSource, join(stdlibDest, "capabilities.json"));
-	copied.push("capabilities.json");
+	// Plan the whole copy before any write (SY-1): every source tree that
+	// will be copied is walked with lstat (links rejected, canonicalized
+	// against the release bin base) and every planned destination path is
+	// checked against the staged bin base. A rejected input throws before
+	// mkdirSync / copyFileSync run, so the destination stays untouched.
+	const stagedResolved = resolve(stagedBin);
+	realpathSync.native(stagedResolved); // must exist (the staged runtime is there)
+	const coreDest = join(stagedResolved, "cottontail-core");
+	const corePlan = planSourceTree(coreSource, releaseBin);
+	const capabilityPlans = [];
 	for (const name of visited) {
 		// Defense in depth: the validated name must still resolve inside its
 		// base dir before anything is copied (unreachable for valid names).
@@ -187,18 +344,66 @@ export function syncCottontailRuntime(buildDir, deps = defaultDeps) {
 		if (!existsSync(source)) {
 			throw new Error(`post-build: required Cottontail capability "${name}" missing from ${stdlibSource}`);
 		}
-		copyTree(source, assertContainedPath(stdlibDest, join(stdlibDest, name)));
-		copied.push(name);
+		const dest = assertContainedPath(stdlibDest, join(stdlibDest, name));
+		capabilityPlans.push({ name, source, dest, plan: planSourceTree(source, releaseBin) });
 	}
-
-	// Verify the copied bytes match the source before declaring success.
-	verifyTreeEqual(coreSource, join(stagedBin, "cottontail-core"));
+	// The catalog file is copied as a single regular file: it must not be a
+	// link and must resolve canonically inside the release bin.
 	const catalogDest = join(stdlibDest, "capabilities.json");
-	if (readFileSync(catalogSource).compare(readFileSync(catalogDest)) !== 0) {
-		throw new Error(`post-build: copied ${catalogDest} does not match ${catalogSource}`);
+	const catalogStat = lstatSync(catalogSource);
+	if (catalogStat.isSymbolicLink()) {
+		throw new Error(
+			`post-build: Cottontail ${version} catalog ${catalogSource} is a symbolic link; refusing to copy through links into the staged runtime tree`,
+		);
 	}
-	for (const name of visited) {
-		verifyTreeEqual(join(stdlibSource, name), join(stdlibDest, name));
+	if (!catalogStat.isFile()) {
+		throw new Error(
+			`post-build: Cottontail ${version} catalog ${catalogSource} is not a regular file; refusing to copy it`,
+		);
+	}
+	assertCanonicallyContained(releaseBin, catalogSource);
+	// Every planned destination path (root, subdir and file) must resolve
+	// lexically inside the staged bin, and every pre-existing directory on
+	// the way down must be a real directory inside it canonically.
+	assertPlannedDestinationSafe(stagedResolved, coreDest);
+	assertPlannedDestinationSafe(stagedResolved, stdlibDest);
+	for (const { plan, dest } of capabilityPlans) {
+		assertPlannedDestinationSafe(stagedResolved, dest);
+		for (const rel of plan.dirs) assertPlannedDestinationSafe(stagedResolved, join(dest, rel));
+		for (const rel of plan.files) assertPlannedDestinationSafe(stagedResolved, join(dest, rel));
+	}
+	assertPlannedDestinationSafe(stagedResolved, catalogDest);
+
+	// Copy phase: only the planned regular files are copied and only the
+	// planned directories are created (the plan above already verified every
+	// path on the way is a real directory inside the staged bin).
+	const mkdirPlanned = (dir) => {
+		if (!existsSync(dir)) mkdirSync(dir);
+	};
+	mkdirPlanned(coreDest);
+	for (const rel of corePlan.dirs) mkdirPlanned(join(coreDest, rel));
+	for (const rel of corePlan.files) copyFileSync(join(coreSource, rel), join(coreDest, rel));
+	mkdirPlanned(stdlibDest);
+	copyFileSync(catalogSource, catalogDest);
+	for (const { name, source, dest, plan } of capabilityPlans) {
+		mkdirPlanned(dest);
+		for (const rel of plan.dirs) mkdirPlanned(join(dest, rel));
+		for (const rel of plan.files) copyFileSync(join(source, rel), join(dest, rel));
+	}
+	const copied = ["cottontail-core/", "capabilities.json", ...capabilityPlans.map(({ name }) => name)];
+
+	// Verify the copied bytes match the source before declaring success:
+	// the relative file lists and the SHA-256 of every file must equal, and
+	// the destination is re-walked with lstat, so a link planted in the
+	// staged tree (or a file swapped after the copy) fails verification.
+	verifyTreeEqual(coreSource, coreDest);
+	if (sha256OfFile(catalogSource) !== sha256OfFile(catalogDest)) {
+		throw new Error(
+			`post-build: copied ${catalogDest} does not match ${catalogSource} (SHA-256 ${sha256OfFile(catalogDest)} != ${sha256OfFile(catalogSource)})`,
+		);
+	}
+	for (const { source, dest } of capabilityPlans) {
+		verifyTreeEqual(source, dest);
 	}
 
 	return `ok (synced Cottontail ${version}: ${copied.join(", ")})`;
@@ -208,13 +413,30 @@ export function syncCottontailRuntime(buildDir, deps = defaultDeps) {
  * Resolve the cached Cottontail release bin dir through Hutch:
  * `hutch cottontail path <version>` prints the release executable; the
  * dirname of the trimmed last non-empty stdout line is the release `bin/`
- * (already platform-specific). The default resolver uses `deps.spawnSync` so
- * a test can inject a fake process runner.
+ * (already platform-specific). The Hutch executable is spawned by absolute
+ * path (SY-3): a bare `hutch` goes through libuv's search, which on Windows
+ * looks in the working directory first, so a hutch.exe / hutch.cmd planted
+ * in the cwd would run instead of the installed Hutch. The executable is
+ * `deps.hutchExecutable` when injected (an absolute path string or a
+ * resolver function, for tests); otherwise resolveHutchExecutable() resolves
+ * it from absolute PATH entries only, and a resolver throw becomes the
+ * existing "cannot resolve the Cottontail … release" error with the reason.
+ * The default resolver uses `deps.spawnSync` so a test can inject a fake
+ * process runner.
  */
 export function resolveCottontailReleaseBin(version, deps = defaultDeps) {
 	const spawn = deps.spawnSync ?? spawnSync;
+	let hutchExe;
+	try {
+		const injected = deps.hutchExecutable;
+		hutchExe = typeof injected === "function" ? injected() : injected ?? resolveHutchExecutable();
+	} catch (error) {
+		throw new Error(
+			`post-build: cannot resolve the Cottontail ${version} release: ${error instanceof Error ? error.message : String(error)}`,
+		);
+	}
 	const args = ["cottontail", "path", version];
-	const result = spawn("hutch", args, { encoding: "utf8", windowsHide: true });
+	const result = spawn(hutchExe, args, { encoding: "utf8", shell: false, windowsHide: true });
 	const command = `hutch ${args.join(" ")}`;
 	if (result.error || result.status !== 0) {
 		throw new Error(
@@ -309,24 +531,56 @@ export function copyTree(source, dest) {
 }
 
 /**
- * Compare a copied tree against its source: the destination relative file list
- * and each file's byte size must equal the source's. Mismatch -> throw.
+ * Compare a copied tree against its source: the destination relative file
+ * list and the SHA-256 of every file must equal the source's. The
+ * destination is re-walked with lstat, so a symbolic link planted in it
+ * (or an entry that is neither a regular file nor a directory) fails the
+ * verification, and a same-size byte swap fails the hash compare.
+ * Mismatch -> throw.
  */
-function verifyTreeEqual(source, dest) {
+export function verifyTreeEqual(source, dest) {
 	const sourceFiles = relativeFiles(source);
-	const destFiles = relativeFiles(dest);
+	const destFiles = relativeFilesNoLinks(dest);
 	if (sourceFiles.length !== destFiles.length || sourceFiles.join("\0") !== destFiles.join("\0")) {
 		throw new Error(`post-build: copied tree ${dest} does not match source ${source} (file list differs)`);
 	}
 	for (const rel of sourceFiles) {
-		const sourceSize = statSync(join(source, rel)).size;
-		const destSize = statSync(join(dest, rel)).size;
-		if (sourceSize !== destSize) {
+		const sourceHash = sha256OfFile(join(source, rel));
+		const destHash = sha256OfFile(join(dest, rel));
+		if (sourceHash !== destHash) {
 			throw new Error(
-				`post-build: copied ${join(dest, rel)} has size ${destSize} but source ${join(source, rel)} has ${sourceSize}`,
+				`post-build: copied ${join(dest, rel)} does not match source ${join(source, rel)} (SHA-256 ${destHash} != ${sourceHash})`,
 			);
 		}
 	}
+}
+
+function relativeFilesNoLinks(root) {
+	const out = [];
+	const walk = (dir) => {
+		for (const name of readdirSync(dir)) {
+			const path = join(dir, name);
+			const stat = lstatSync(path);
+			if (stat.isSymbolicLink()) {
+				throw new Error(
+					`post-build: ${path} in the copied tree is a symbolic link; verification of the staged runtime tree fails on links`,
+				);
+			}
+			if (stat.isDirectory()) walk(path);
+			else if (stat.isFile()) out.push(relative(root, path).split(/[\\/]/).join("/"));
+			else {
+				throw new Error(
+					`post-build: ${path} in the copied tree is neither a regular file nor a directory; verification fails`,
+				);
+			}
+		}
+	};
+	walk(root);
+	return out.sort();
+}
+
+function sha256OfFile(path) {
+	return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
 function relativeFiles(root) {

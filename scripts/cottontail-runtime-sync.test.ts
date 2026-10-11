@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
   assertContainedPath,
@@ -8,6 +8,7 @@ import {
   readRequiredCapabilities,
   resolveCottontailReleaseBin,
   syncCottontailRuntime,
+  verifyTreeEqual,
 } from "../apps/tray/scripts/cottontail-runtime-sync.mjs";
 
 // Exercises syncCottontailRuntime against staged fixtures for BOTH layouts
@@ -467,6 +468,7 @@ describe("resolveCottontailReleaseBin (default resolver through injected spawnSy
       const binDir = join(root, "rel", "bin");
       mkdirSync(binDir, { recursive: true });
       const result = resolveCottontailReleaseBin(VERSION, {
+        hutchExecutable: join(root, "hutch.exe"),
         spawnSync: () => ({ status: 0, stdout: `download noise\n${join(binDir, "cottontail.exe")}\n`, stderr: "" }),
       });
       expect(result).toBe(binDir);
@@ -476,6 +478,7 @@ describe("resolveCottontailReleaseBin (default resolver through injected spawnSy
   test("nonzero exit throws", () => {
     const err = () =>
       resolveCottontailReleaseBin(VERSION, {
+        hutchExecutable: "C:/fake/hutch.exe",
         spawnSync: () => ({ status: 1, stdout: "", stderr: "hutch failed" }),
       });
     expect(err).toThrow(/failed/);
@@ -484,6 +487,7 @@ describe("resolveCottontailReleaseBin (default resolver through injected spawnSy
   test("spawn error throws", () => {
     const err = () =>
       resolveCottontailReleaseBin(VERSION, {
+        hutchExecutable: "C:/fake/hutch.exe",
         spawnSync: () => ({ status: null, stdout: "", stderr: "", error: new Error("spawn failed") }),
       });
     expect(err).toThrow(/spawn error/);
@@ -493,9 +497,44 @@ describe("resolveCottontailReleaseBin (default resolver through injected spawnSy
     const missing = join(tmpdir(), `pinar-sync-resolver-nonexistent-${process.pid}`, "cottontail.exe");
     const err = () =>
       resolveCottontailReleaseBin(VERSION, {
+        hutchExecutable: "C:/fake/hutch.exe",
         spawnSync: () => ({ status: 0, stdout: `${missing}\n`, stderr: "" }),
       });
     expect(err).toThrow(/did not yield an existing bin dir/);
+  });
+
+  test("spawns the injected absolute executable with shell not true (no bare 'hutch')", () => {
+    withTemp("pinar-sync-resolver-exe-", (root) => {
+      const binDir = join(root, "rel", "bin");
+      mkdirSync(binDir, { recursive: true });
+      const exe = join(root, "hutch.exe");
+      const calls: Array<{ file: unknown; args: unknown; options: unknown }> = [];
+      const result = resolveCottontailReleaseBin(VERSION, {
+        hutchExecutable: exe,
+        spawnSync: (file: unknown, args: unknown, options: unknown) => {
+          calls.push({ file, args, options });
+          return { status: 0, stdout: `${join(binDir, "cottontail.exe")}\n`, stderr: "" };
+        },
+      });
+      expect(result).toBe(binDir);
+      expect(calls).toHaveLength(1);
+      expect(calls[0].file).toBe(exe);
+      expect(isAbsolute(String(calls[0].file)), "the spawned executable is absolute").toBe(true);
+      expect((calls[0].options as { shell?: boolean }).shell, "shell is not true").not.toBe(true);
+    });
+  });
+
+  test("a failing executable resolver becomes the existing cannot-resolve error with the reason", () => {
+    const err = () =>
+      resolveCottontailReleaseBin(VERSION, {
+        hutchExecutable: () => {
+          throw new Error("hutch-exe-resolver-boom");
+        },
+        spawnSync: () => {
+          throw new Error("must not spawn");
+        },
+      });
+    expect(err).toThrow(/cannot resolve the Cottontail .* release: hutch-exe-resolver-boom/);
   });
 });
 
@@ -538,6 +577,8 @@ describe("isValidCapabilityName (single capability path segment)", () => {
       "con",
       "nul.txt",
       "foo.",
+      "foo ",
+      "ffi~1",
       "",
       "a".repeat(65),
     ]) {
@@ -652,5 +693,294 @@ describe("assertContainedPath (defense in depth after name validation)", () => {
       expect(() => assertContainedPath(base, join(base, "..", "escape"))).toThrow(/escapes its base/);
       expect(() => assertContainedPath(base, join(root, "outside"))).toThrow(/escapes its base/);
     });
+  });
+});
+
+describe("syncCottontailRuntime link-safe planning (SY-1: a link may not enter the staged tree)", () => {
+  function replaceStdlibFfiWithLink(f: Fixture, outside: string, kind: "junction" | "dir"): NodeJS.ErrnoException | null {
+    rmSync(join(f.releaseBin, "cottontail-stdlib", "ffi"), { recursive: true, force: true });
+    try {
+      symlinkSync(outside, join(f.releaseBin, "cottontail-stdlib", "ffi"), kind);
+      return null;
+    } catch (error) {
+      return error as NodeJS.ErrnoException;
+    }
+  }
+
+  test("win32: a junction capability dir pointing outside throws before any write and copies nothing", () => {
+    withTemp("pinar-sync-neg-junction-", (root) => {
+      if (process.platform !== "win32") {
+        console.log(`(skip) the real junction test needs a win32 host (host: ${process.platform})`);
+        return;
+      }
+      const f = fixture(root, "win32", CAPS_FFI);
+      const outside = join(root, "outside-secret");
+      mkdirSync(outside, { recursive: true });
+      writeFileSync(join(outside, "secret.txt"), "secret-bytes");
+      const linkError = replaceStdlibFfiWithLink(f, outside, "junction");
+      if (linkError) throw new Error(`junction creation failed on a win32 host: ${linkError.code} ${linkError.message}`);
+      const message = thrownMessage(() => runSync(f));
+      expect(message).toContain("symbolic link");
+      expect(readdirSync(f.stagedBin)).toEqual(["cottontail.exe"]);
+      expect(existsSync(join(f.stagedBin, "cottontail-core")), "no cottontail-core at dest").toBe(false);
+      expect(existsSync(join(f.stagedBin, "cottontail-stdlib")), "no cottontail-stdlib at dest").toBe(false);
+      expect(readdirSync(outside), "the outside dir keeps its single secret").toEqual(["secret.txt"]);
+      expect(existsSync(join(f.stagedBin, "cottontail-stdlib", "ffi", "secret.txt")), "secret.txt never copied").toBe(false);
+    });
+  });
+
+  test('a "dir" symlinked capability dir pointing outside throws before any write (skipped only on EPERM)', () => {
+    withTemp("pinar-sync-neg-dirsymlink-", (root) => {
+      const f = fixture(root, "win32", CAPS_FFI);
+      const outside = join(root, "outside-secret");
+      mkdirSync(outside, { recursive: true });
+      writeFileSync(join(outside, "secret.txt"), "secret-bytes");
+      const linkError = replaceStdlibFfiWithLink(f, outside, "dir");
+      if (linkError && linkError.code === "EPERM") {
+        console.log(`(skip) symlink(..., "dir") not permitted on this host: ${linkError.code} ${linkError.message}`);
+        return;
+      }
+      if (linkError) throw new Error(`unexpected symlink failure: ${linkError.code} ${linkError.message}`);
+      const message = thrownMessage(() => runSync(f));
+      expect(message).toContain("symbolic link");
+      expect(readdirSync(f.stagedBin)).toEqual(["cottontail.exe"]);
+      expect(existsSync(join(f.stagedBin, "cottontail-stdlib", "ffi", "secret.txt")), "secret.txt never copied").toBe(false);
+    });
+  });
+
+  test("a symlinked file inside cottontail-core throws before any write (skipped only on EPERM)", () => {
+    withTemp("pinar-sync-neg-corefilelink-", (root) => {
+      const f = fixture(root, "win32", CAPS_FFI);
+      const outsideFile = join(root, "core-secret.jsc");
+      writeFileSync(outsideFile, "CORE-SECRET");
+      let linkError: NodeJS.ErrnoException | null = null;
+      try {
+        symlinkSync(outsideFile, join(f.releaseBin, "cottontail-core", "evil.jsc"), "file");
+      } catch (error) {
+        linkError = error as NodeJS.ErrnoException;
+      }
+      if (linkError && linkError.code === "EPERM") {
+        console.log(`(skip) symlink(..., "file") not permitted on this host: ${linkError.code} ${linkError.message}`);
+        return;
+      }
+      if (linkError) throw new Error(`unexpected symlink failure: ${linkError.code} ${linkError.message}`);
+      const message = thrownMessage(() => runSync(f));
+      expect(message).toContain("symbolic link");
+      expect(readdirSync(f.stagedBin)).toEqual(["cottontail.exe"]);
+    });
+  });
+
+  test("a junction dir inside cottontail-core pointing outside throws before any write and copies nothing", () => {
+    withTemp("pinar-sync-neg-corejunction-", (root) => {
+      const f = fixture(root, "win32", CAPS_FFI);
+      const outside = join(root, "core-outside");
+      mkdirSync(outside, { recursive: true });
+      writeFileSync(join(outside, "secret.txt"), "CORE-SECRET");
+      let linkError: NodeJS.ErrnoException | null = null;
+      try {
+        symlinkSync(outside, join(f.releaseBin, "cottontail-core", "evil"), "junction");
+      } catch (error) {
+        linkError = error as NodeJS.ErrnoException;
+      }
+      if (linkError && linkError.code === "EPERM" && process.platform !== "win32") {
+        console.log(`(skip) symlink creation not permitted on this host: ${linkError.code} ${linkError.message}`);
+        return;
+      }
+      if (linkError) throw new Error(`unexpected link failure: ${linkError.code} ${linkError.message}`);
+      const message = thrownMessage(() => runSync(f));
+      expect(message).toContain("symbolic link");
+      expect(readdirSync(f.stagedBin)).toEqual(["cottontail.exe"]);
+      expect(existsSync(join(f.stagedBin, "cottontail-core")), "no cottontail-core at dest").toBe(false);
+      expect(readdirSync(outside), "the outside dir keeps its single secret").toEqual(["secret.txt"]);
+    });
+  });
+
+  test("a junction pre-existing at a planned destination path is rejected before any write", () => {
+    withTemp("pinar-sync-neg-destjunction-", (root) => {
+      if (process.platform !== "win32") {
+        console.log(`(skip) the destination-junction test needs a win32 host (host: ${process.platform})`);
+        return;
+      }
+      const f = fixture(root, "win32", CAPS_FFI);
+      const outside = join(root, "dest-outside");
+      mkdirSync(outside, { recursive: true });
+      writeFileSync(join(outside, "junk.txt"), "JUNK");
+      symlinkSync(outside, join(f.stagedBin, "cottontail-core"), "junction"); // pre-existing dest entry is a link
+      const message = thrownMessage(() => runSync(f));
+      expect(message).toContain("symbolic link");
+      expect([...readdirSync(f.stagedBin)].sort()).toEqual(["cottontail-core", "cottontail.exe"]);
+      expect(existsSync(join(f.stagedBin, "cottontail-stdlib")), "no cottontail-stdlib at dest").toBe(false);
+      expect(existsSync(join(outside, "host-bootstrap.jsc")), "nothing written through the link").toBe(false);
+    });
+  });
+
+  test("re-syncing an already staged tree is idempotent (existing regular files are replaced, not rejected)", () => {
+    withTemp("pinar-sync-ok-rerun-", (root) => {
+      const f = fixture(root, "win32", CAPS_FFI_COMPRESSION);
+      const first = runSync(f);
+      expect(first).toBe(`ok (synced Cottontail ${VERSION}: cottontail-core/, capabilities.json, ffi, compression)`);
+      const second = runSync(f);
+      expect(second).toBe(first);
+      assertCoreAndCatalog(f);
+      assertCopiedCaps(f, ["ffi", "compression"]);
+    });
+  });
+
+  test("verifyTreeEqual throws on a same-size byte swap after the copy and passes on the control copy", () => {
+    withTemp("pinar-sync-neg-swap-", (root) => {
+      const source = join(root, "src");
+      const dest = join(root, "dest");
+      mkdirSync(join(source, "sub"), { recursive: true });
+      writeFileSync(join(source, "a.txt"), "AAAA");
+      writeFileSync(join(source, "sub", "b.txt"), "00000000");
+      mkdirSync(join(dest, "sub"), { recursive: true });
+      copyFileSync(join(source, "a.txt"), join(dest, "a.txt"));
+      copyFileSync(join(source, "sub", "b.txt"), join(dest, "sub", "b.txt"));
+      expect(() => verifyTreeEqual(source, dest), "control: an identical copy passes").not.toThrow();
+      writeFileSync(join(dest, "a.txt"), "BBBB"); // same size, different bytes
+      const message = thrownMessage(() => verifyTreeEqual(source, dest));
+      expect(message).toContain("SHA-256");
+      writeFileSync(join(dest, "a.txt"), "AAAA"); // restore the control
+      expect(() => verifyTreeEqual(source, dest), "control restored: passes again").not.toThrow();
+    });
+  });
+
+  test("verifyTreeEqual re-walks the destination with lstat and fails on a link in it", () => {
+    withTemp("pinar-sync-neg-verifylink-", (root) => {
+      const source = join(root, "src");
+      const dest = join(root, "dest");
+      const outside = join(root, "outside");
+      mkdirSync(source, { recursive: true });
+      mkdirSync(outside, { recursive: true });
+      writeFileSync(join(source, "a.txt"), "AAAA");
+      writeFileSync(join(outside, "secret.txt"), "SECRET");
+      mkdirSync(dest, { recursive: true });
+      copyFileSync(join(source, "a.txt"), join(dest, "a.txt"));
+      rmSync(join(dest, "a.txt"));
+      let linkError: NodeJS.ErrnoException | null = null;
+      try {
+        symlinkSync(outside, join(dest, "a.txt"), process.platform === "win32" ? "junction" : "dir");
+      } catch (error) {
+        linkError = error as NodeJS.ErrnoException;
+      }
+      if (linkError && linkError.code === "EPERM") {
+        console.log(`(skip) symlink creation not permitted on this host: ${linkError.code} ${linkError.message}`);
+        return;
+      }
+      if (linkError) throw new Error(`unexpected link failure: ${linkError.code} ${linkError.message}`);
+      const message = thrownMessage(() => verifyTreeEqual(source, dest));
+      expect(message).toContain("symbolic link");
+    });
+  });
+});
+
+describe("syncCottontailRuntime reserved catalog name and case collisions (SY-2)", () => {
+  function assertStagedTreeUntouched(f: Fixture, sentinel: string): void {
+    // The staged dest root must have NO new entries at all.
+    expect(readdirSync(f.stagedBin)).toEqual(f.platform === "win32" ? ["cottontail.exe"] : ["cottontail"]);
+    expect(existsSync(join(f.stagedBin, "cottontail-core")), "no cottontail-core").toBe(false);
+    expect(existsSync(join(f.stagedBin, "cottontail-stdlib")), "no cottontail-stdlib").toBe(false);
+    expect(existsSync(join(f.stagedBin, "capabilities.json")), "no capabilities.json at dest root").toBe(false);
+    // And nothing may have been written outside the staged tree.
+    expect(readdirSync(sentinel).length, "sentinel sibling dir stays empty").toBe(0);
+  }
+
+  test("a requested name equal to capabilities.json (any case) throws before any write", () => {
+    for (const name of ["capabilities.json", "CAPABILITIES.JSON", "Capabilities.Json"]) {
+      const slug = name.toLowerCase().replace(/[^a-z0-9]/gi, "_");
+      withTemp(`pinar-sync-neg-reserved-${slug}-`, (root) => {
+        const sentinel = join(root, "sentinel");
+        mkdirSync(sentinel, { recursive: true });
+        const f = fixture(root, "win32", capsConfig(["ffi", name]), {
+          releaseOpts: {
+            catalog: {
+              schema: 1,
+              capabilities: { ffi: { requires: [] }, [name]: { requires: [] } },
+            },
+          },
+        });
+        const message = thrownMessage(() => runSync(f));
+        expect(message).toContain("reserved");
+        expect(message).toContain(JSON.stringify(name));
+        expect(message).toContain("capabilities.json");
+        assertStagedTreeUntouched(f, sentinel);
+      });
+    }
+  });
+
+  test("a transitive name equal to capabilities.json (any case) throws before any write", () => {
+    withTemp("pinar-sync-neg-reserved-transitive-", (root) => {
+      const sentinel = join(root, "sentinel");
+      mkdirSync(sentinel, { recursive: true });
+      const f = fixture(root, "win32", CAPS_FFI, {
+        releaseOpts: {
+          catalog: {
+            schema: 1,
+            capabilities: {
+              ffi: { requires: ["Capabilities.Json"] },
+              "Capabilities.Json": { requires: [] },
+            },
+          },
+        },
+      });
+      const message = thrownMessage(() => runSync(f));
+      expect(message).toContain("reserved");
+      expect(message).toContain(`in "ffi".requires of the`);
+      assertStagedTreeUntouched(f, sentinel);
+    });
+  });
+
+  test("two requested names equal case-insensitively (ffi + FFI) throw before any write", () => {
+    withTemp("pinar-sync-neg-casecollide-requested-", (root) => {
+      const sentinel = join(root, "sentinel");
+      mkdirSync(sentinel, { recursive: true });
+      const f = fixture(root, "win32", capsConfig(["ffi", "FFI"]), {
+        releaseOpts: { catalog: { schema: 1, capabilities: { ffi: { requires: [] }, FFI: { requires: [] } } } },
+      });
+      const message = thrownMessage(() => runSync(f));
+      expect(message).toContain("collides");
+      expect(message).toContain(JSON.stringify("ffi"));
+      expect(message).toContain(JSON.stringify("FFI"));
+      assertStagedTreeUntouched(f, sentinel);
+    });
+  });
+
+  test("a transitive name colliding case-insensitively with a requested one (FFI after ffi) throws before any write", () => {
+    withTemp("pinar-sync-neg-casecollide-transitive-", (root) => {
+      const sentinel = join(root, "sentinel");
+      mkdirSync(sentinel, { recursive: true });
+      const f = fixture(root, "win32", CAPS_FFI, {
+        releaseOpts: { catalog: { schema: 1, capabilities: { ffi: { requires: ["FFI"] }, FFI: { requires: [] } } } },
+      });
+      const message = thrownMessage(() => runSync(f));
+      expect(message).toContain("collides");
+      expect(message).toContain(`in "ffi".requires of the`);
+      assertStagedTreeUntouched(f, sentinel);
+    });
+  });
+
+  test("an exact-case duplicate name still resolves once (no false positive from the case check)", () => {
+    withTemp("pinar-sync-ok-exactdup-", (root) => {
+      const f = fixture(root, "win32", capsConfig(["ffi", "ffi"]), {
+        releaseOpts: { catalog: { schema: 1, capabilities: { ffi: { requires: ["ffi"] } } } },
+      });
+      expect(runSync(f)).toBe(`ok (synced Cottontail ${VERSION}: cottontail-core/, capabilities.json, ffi)`);
+    });
+  });
+
+  test("trailing-dot, trailing-space and 8.3-style (tilde) names still throw before any write", () => {
+    for (const name of ["ffi.", "ffi ", "ffi~1"]) {
+      const slug = name.replace(/[^a-z0-9]/gi, "_");
+      withTemp(`pinar-sync-neg-legacy-${slug}-`, (root) => {
+        const sentinel = join(root, "sentinel");
+        mkdirSync(sentinel, { recursive: true });
+        const f = fixture(root, "win32", capsConfig(["ffi", name]), {
+          releaseOpts: { catalog: { schema: 1, capabilities: { ffi: { requires: [] }, [name]: { requires: [] } } } },
+        });
+        const message = thrownMessage(() => runSync(f));
+        expect(message).toContain(`invalid Cottontail capability name ${JSON.stringify(name)}`);
+        assertStagedTreeUntouched(f, sentinel);
+      });
+    }
   });
 });

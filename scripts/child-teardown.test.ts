@@ -1203,6 +1203,91 @@ const CLOSE_MS = 10_000; // the existing default closeTimeoutMs; the finally's h
 const TEARDOWN_TAIL_MS = PROBE_MS + PROBE_KILL_WAIT_MS + TASKKILL_MS + CLOSE_MS; // 28_000 — derived from the same values, never a parallel literal
 const WINDOW_CAP_MS = 30_000; // the unchanged bun per-test cap (passed as data; never broadened)
 
+// (amendment 2) ONE bounded structured line per REAL-process run (pass or
+// refusal alike): the exact prefix + a single JSON object, truncated to at
+// most 4096 bytes. Written through the injected writer seam — the real
+// tests point it at process.stderr.write (never console.log), the
+// deterministic tests inject a recording writer and never touch the real
+// stderr. The payload carries NO environment values.
+const TRACE_PREFIX = "child-teardown-trace ";
+const TRACE_MAX_BYTES = 4096;
+function buildTraceLine(payload: Record<string, unknown>): string {
+	const line = `${TRACE_PREFIX}${JSON.stringify(payload)}`;
+	if (Buffer.byteLength(line, "utf8") <= TRACE_MAX_BYTES) return line;
+	return Buffer.from(line, "utf8").subarray(0, TRACE_MAX_BYTES).toString("utf8");
+}
+
+// (b) The NAMED bounded steps of a signalled:false result: the exact texts
+// teardownChild records for each, mapped to the step's SHRUNK bound (the
+// same named option the callback passed to the teardown) and to the step's
+// MEASURED duration (the teardown result's timings — the injectable-clock
+// step measurement). "exited during the pre-signal re-check" is the
+// synchronous F1 handle check right after the re-probe: its duration lives
+// in the re-probe's measurement. A signalled:false whose refused/errors
+// name NONE of these is a red failure (never a silent green). A valid
+// runner error ("failed to run") and a runner throw are the SAME bounded
+// taskkill step as the timeout / non-zero / malformed / no-status texts.
+const BOUNDED_STEPS: Array<{
+	category: "identity" | "taskkill";
+	match: RegExp;
+	bound: (o: { probeTimeoutMs: number; probeKillWaitMs: number; taskkillTimeoutMs: number; closeTimeoutMs: number }) => number;
+	timing: (t: any) => number | null;
+}> = [
+	{
+		category: "identity",
+		// identity probe timed out / unknown
+		match: /identity probe timed out after|identity unknown at the pre-signal re-check|identity probe returned an unexpected shape|identity probe threw|identity probe child pid .* was not reaped after the probe timeout|bound identity .* is unknown/,
+		bound: (o) => o.probeTimeoutMs,
+		timing: (t) => (typeof t?.timings?.preSignalProbeMs === "number" ? t.timings.preSignalProbeMs : null),
+	},
+	{
+		category: "identity",
+		// pid gone
+		match: /gone at the pre-signal re-check|bound identity .* is gone/,
+		bound: (o) => o.probeTimeoutMs,
+		timing: (t) => (typeof t?.timings?.preSignalProbeMs === "number" ? t.timings.preSignalProbeMs : null),
+	},
+	{
+		category: "identity",
+		// recycled pid
+		match: /identity changed since spawn .* recycled pid/,
+		bound: (o) => o.probeTimeoutMs,
+		timing: (t) => (typeof t?.timings?.preSignalProbeMs === "number" ? t.timings.preSignalProbeMs : null),
+	},
+	{
+		category: "identity",
+		// exited during the pre-signal re-check (the F1 handle check)
+		match: /exited during the pre-signal re-check/,
+		bound: (o) => o.probeTimeoutMs,
+		timing: (t) => (typeof t?.timings?.preSignalProbeMs === "number" ? t.timings.preSignalProbeMs : null),
+	},
+	{
+		category: "taskkill",
+		// taskkill timed out / exited non-zero / malformed / no status (the
+		// same bounded step: a valid runner error, a runner throw)
+		match: /taskkill \/PID \d+ \/T \/F (timed out after|exited|runner returned a malformed error|returned no exit status|failed to run)|taskkill runner threw/,
+		bound: (o) => o.taskkillTimeoutMs,
+		timing: (t) => (typeof t?.timings?.signalMs === "number" ? t.timings.signalMs : null),
+	},
+];
+/** The first refused/errors entry that names a bounded step (or null). */
+function matchBoundedStep(refused: unknown, errors: unknown): {
+	category: "identity" | "taskkill";
+	entry: string;
+	bound: (o: any) => number;
+	timing: (t: any) => number | null;
+} | null {
+	const entries: string[] = [];
+	if (Array.isArray(refused)) for (const e of refused) if (typeof e === "string") entries.push(e);
+	if (Array.isArray(errors)) for (const e of errors) if (typeof e === "string") entries.push(e);
+	for (const step of BOUNDED_STEPS) {
+		for (const entry of entries) {
+			if (step.match.test(entry)) return { category: step.category, entry, bound: step.bound, timing: step.timing };
+		}
+	}
+	return null;
+}
+
 // (A9) The ping-reap callback with injected seams — the SAME code the
 // native test (B) runs with real seams and the deterministic tests
 // drive with fakes + a virtual clock:
@@ -1235,7 +1320,7 @@ async function runConsistencyCallback(
 			options: { probeTimeoutMs: number; probeKillWaitMs: number; taskkillTimeoutMs: number; closeTimeoutMs: number },
 		) => Promise<any>;
 		ownedResults: any[];
-		teardowns: any[]; // the shrunk options (or { skipped: true, budgetMs }) + the result's probeResidue
+		teardowns: any[]; // the shrunk options (or { skipped: true, budgetMs }) + the diagnostic record
 		clock: { now: () => number }; // real performance.now / the virtual clock
 		windowStart: number; // the test's start (real ms / virtual 0) — the window INCLUDES everything before it
 		windowCapMs: number; // the unchanged 30 s per-test cap (passed as data)
@@ -1245,6 +1330,8 @@ async function runConsistencyCallback(
 		clearTimeoutFn: (id: unknown) => void;
 		rmProbeDir: () => void;
 		cleanup: { killRan: boolean; closeObserved: boolean };
+		testName: string; // the test's title (the trace line's identity)
+		writeTrace: (line: string) => void; // the trace writer (process.stderr.write in the real tests, a recorder in the deterministic ones)
 	},
 ): Promise<{ owned: any; teardown: any }> {
 	const deadline = seams.windowStart + seams.windowCapMs; // ONE window deadline from the test start
@@ -1252,6 +1339,15 @@ async function runConsistencyCallback(
 	let windowExceeded = false; // any window-based fact → probeDir kept
 	let success = false;
 	let teardownResult: any = null;
+	// (amendment 2) the run-wide facts for the ONE trace line the finally
+	// emits (pass or refusal alike, before the probeDir decision): the
+	// shrunk options once the teardown started, the owned probe's measured
+	// duration + result, and who proved the owned real close (reapedBy).
+	let startedOptions: any = null;
+	let ownedResult: any = null;
+	let ownedDurationMs: number | null = null;
+	let reapedBy: "teardown" | "test-finally" | null = null;
+	let diagnosticRecord: any = null;
 	try {
 		// (1) the owned probe on the ping, bounded to the remaining
 		// window via the existing probeTimeoutMs cap (no new knob): the
@@ -1265,7 +1361,10 @@ async function runConsistencyCallback(
 				`consistency fixture: the shared 30 s window has no budget for the owned probe (remaining ${String(ownedRem)} ms ≤ the ${PROBE_KILL_WAIT_MS} ms probe kill-wait reservation); not probed; the ping is cleaned through its held handle and probeDir is kept`,
 			);
 		}
+		const ownedStarted = now();
 		const owned = await seams.owned(seams.pingPid, Math.min(PROBE_MS, ownedRem - PROBE_KILL_WAIT_MS));
+		ownedDurationMs = now() - ownedStarted;
+		ownedResult = owned;
 		seams.ownedResults.push(owned);
 		const ownedVerdict = consistencyProbeDecision({
 			warmup: null,
@@ -1314,19 +1413,91 @@ async function runConsistencyCallback(
 			closeTimeoutMs: tClose,
 		};
 		seams.teardowns.push({ ...options });
-		// (3) the real teardown signal is REQUIRED: signalled AND reaped
-		// (reaped from the real close inside the helper's
-		// closeTimeoutMs). A not-reaped result is a failure: the fact is
-		// carried and the finally reaps through the held handle. The
-		// bound identity is the callback's own owned probe result (alive
-		// — guarded above): the helper still re-checks the identity
+		startedOptions = options;
+		// (3) (b) SOUND INVARIANTS replace the bare signalled===true: the
+		// bound identity is the callback's own owned probe result (alive —
+		// guarded above): the helper still re-checks the identity
 		// immediately before the signal (refusing a recycled pid) and
 		// applies the F1 exit check; bound-by-caller is the same contract
 		// the CLI uses after its own capture.
+		const teardownStarted = now();
 		teardownResult = await seams.teardown(seams.pingPid, { ...options, boundIdentity: owned });
-		seams.teardowns.push({ ...options, probeResidue: teardownResult?.probeResidue ?? false });
-		expect(teardownResult.signalled).toBe(true);
-		expect(teardownResult.reaped).toBe(true);
+		// (a) the diagnostic record: pushed for EVERY outcome (signalled
+		// true or false, reaped or not) into seams.teardowns and attached
+		// to every failure message below — a red run prints the shrunk
+		// options, the owned probe's measured duration + result, and the
+		// teardown result's fields (JSON.stringify, no console.log).
+		const probePid = teardownResult?.signalIdentity?.probePid ?? teardownResult?.boundIdentity?.probePid;
+		diagnosticRecord = {
+			...options,
+			probeResidue: teardownResult?.probeResidue ?? false,
+			diagnostic: {
+				owned: { durationMs: ownedDurationMs, result: ownedResult },
+				teardown: {
+					durationMs: now() - teardownStarted,
+					signalled: teardownResult?.signalled ?? null,
+					reaped: teardownResult?.reaped ?? null,
+					refused: teardownResult?.refused ?? null,
+					errors: teardownResult?.errors ?? null,
+					signalIdentity: teardownResult?.signalIdentity ?? null,
+					boundIdentity: teardownResult?.boundIdentity ?? null,
+					probeResidue: teardownResult?.probeResidue ?? false,
+					timings: teardownResult?.timings ?? null,
+					...(probePid != null ? { probePid } : {}),
+				},
+			},
+		};
+		seams.teardowns.push(diagnosticRecord);
+		if (teardownResult.signalled === true) {
+			// A signal only with a RE-PROVED identity: alive, the same id as
+			// the bound identity, the real reap (the close inside the
+			// helper's closeTimeoutMs), and no recorded faults.
+			if (teardownResult.signalIdentity?.state !== "alive" || teardownResult.signalIdentity.id !== owned.id) {
+				throw new Error(
+					`consistency fixture: a signal WITHOUT a re-proved identity (signalIdentity: ${JSON.stringify(teardownResult.signalIdentity)}; bound: ${JSON.stringify(owned)}); record: ${JSON.stringify(diagnosticRecord)}`,
+				);
+			}
+			if (teardownResult.reaped !== true) {
+				throw new Error(
+					`consistency fixture: signalled but NOT reaped (the real close never landed inside the close bound); record: ${JSON.stringify(diagnosticRecord)}`,
+				);
+			}
+			if (!Array.isArray(teardownResult.errors) || teardownResult.errors.length !== 0) {
+				throw new Error(
+					`consistency fixture: signalled with recorded faults (errors: ${JSON.stringify(teardownResult.errors)}); record: ${JSON.stringify(diagnosticRecord)}`,
+				);
+			}
+		} else {
+			// signalled:false only with a NAMED bounded step: at least one
+			// refused/errors entry names it (the texts above), and its
+			// measured duration stayed inside its shrunk bound + the
+			// scheduling allowance (PROBE_KILL_WAIT_MS — the existing knob,
+			// no new number). success then STAYS FALSE so the finally reaps
+			// through the held handle and proves the owned real close
+			// (reapedBy "test-finally" — the test's own cleanup, NEVER the
+			// product's reaping: a signalled:false green is never called
+			// "teardown reaped").
+			const step = matchBoundedStep(teardownResult.refused, teardownResult.errors);
+			if (step == null) {
+				throw new Error(
+					`consistency fixture: signalled:false with no named bounded step (refused: ${JSON.stringify(teardownResult.refused)}; errors: ${JSON.stringify(teardownResult.errors)}); record: ${JSON.stringify(diagnosticRecord)}`,
+				);
+			}
+			// A failed or timed-out taskkill can never be reported as reaped
+			// by the teardown (reapedBy "teardown") — red.
+			if (step.category === "taskkill" && teardownResult.reaped === true) {
+				throw new Error(
+					`consistency fixture: a failed/timed-out taskkill (${JSON.stringify(step.entry)}) reported reaped by the teardown — the product must not claim a reap it did not prove; record: ${JSON.stringify(diagnosticRecord)}`,
+				);
+			}
+			const measured = step.timing(teardownResult);
+			const bound = step.bound(options);
+			if (measured != null && measured > bound + PROBE_KILL_WAIT_MS) {
+				throw new Error(
+					`consistency fixture: the named step (${JSON.stringify(step.entry)}) took ${String(measured)} ms > its shrunk bound ${String(bound)} ms + the ${PROBE_KILL_WAIT_MS} ms scheduling allowance; record: ${JSON.stringify(diagnosticRecord)}`,
+				);
+			}
+		}
 		const finalVerdict = consistencyProbeDecision({
 			warmup: null,
 			results: seams.ownedResults,
@@ -1335,9 +1506,19 @@ async function runConsistencyCallback(
 			teardowns: seams.teardowns,
 		});
 		expect(finalVerdict.residue).toBe(false);
-		success = true;
+		// Only the signalled:true path skips the finally's held-handle
+		// reap; the bounded-refusal path reaps through the held handle and
+		// proves the owned real close (either way).
+		success = teardownResult.signalled === true;
 		return { owned, teardown: teardownResult };
 	} finally {
+		// (reapedBy) who proved the owned real close: the teardown's own
+		// bounded close wait (the success path — "teardown") or the
+		// finally's held-handle kill + the at-spawn close observer
+		// ("test-finally" — the test's own cleanup, NEVER the product's
+		// reaping; a signalled:false green is never called "teardown
+		// reaped").
+		if (success) reapedBy = "teardown";
 		if (!success) {
 			// (F1) Failure-path cleanup through the HELD handle:
 			// ping.kill() (TerminateProcess on that handle — cannot hit a
@@ -1377,12 +1558,40 @@ async function runConsistencyCallback(
 			// FACT: set only by the at-spawn observer's real close
 			// event — never derived from exit metadata.
 			seams.cleanup.closeObserved = seams.closeTracker.observed;
+			if (killRan && seams.closeTracker.observed) reapedBy = "test-finally";
 			if (!killRan || !seams.cleanup.closeObserved) {
 				throw new Error(
-					`consistency fixture: ping pid ${String(seams.pingPid)} not confirmed gone after the held-handle kill (kill: ${String(killRan)}; closeObserved: ${String(seams.cleanup.closeObserved)}); probeDir kept for inspection`,
+					`consistency fixture: ping pid ${String(seams.pingPid)} not confirmed gone after the held-handle kill (kill: ${String(killRan)}; closeObserved: ${String(seams.cleanup.closeObserved)}); probeDir kept for inspection${diagnosticRecord != null ? `; record: ${JSON.stringify(diagnosticRecord)}` : ""}`,
 				);
 			}
 		}
+		// (amendment 2) ONE bounded structured trace line per run (pass or
+		// refusal alike, red or green): the prefix + a single JSON object,
+		// at most 4096 bytes, through the injected writer — the real tests
+		// point it at process.stderr.write (never console.log), the
+		// deterministic tests inject a recorder and never touch the real
+		// stderr. No environment values in the payload.
+		seams.writeTrace(
+			buildTraceLine({
+				testName: seams.testName,
+				options: startedOptions,
+				owned: { durationMs: ownedDurationMs, result: ownedResult },
+				signalled: teardownResult?.signalled ?? null,
+				reaped: teardownResult?.reaped ?? null,
+				reapedBy,
+				refused: teardownResult?.refused ?? null,
+				errors: teardownResult?.errors ?? null,
+				signalIdentity: teardownResult?.signalIdentity ?? null,
+				boundIdentity: teardownResult?.boundIdentity ?? null,
+				probeResidue: teardownResult?.probeResidue ?? false,
+				...(teardownResult?.signalIdentity?.probePid != null
+					? { probePid: teardownResult.signalIdentity.probePid }
+					: teardownResult?.boundIdentity?.probePid != null
+						? { probePid: teardownResult.boundIdentity.probePid }
+						: {}),
+				timings: teardownResult?.timings ?? null,
+			}),
+		);
 		// (F6) probeDir is removed ONLY when no owned probe result AND no
 		// teardown result carries an unreaped probe child AND no
 		// window-based fact left an unaccounted probe. On residue or a
@@ -1510,9 +1719,20 @@ describe("owned probe + teardownChild (real processes, win32 only)", () => {
 	// red at the assert even on a slow host); register the at-spawn
 	// close tracker; ONE owned probe on the ping bounded to the
 	// remaining window; then teardownChild with its EXISTING options
-	// shrunk to the time actually left (the callback's gate). Success
-	// requires the real teardown signal: signalled:true AND reaped:true
-	// from the real close.
+	// shrunk to the time actually left (the callback's gate).
+	// WHAT THIS TEST ASSERTS NOW (instead of the bare signalled===true):
+	// SAFETY INVARIANTS plus a MANDATORY DIAGNOSTIC RECORD — a signal only
+	// with a re-proved identity (alive, the same id as the bound identity,
+	// the real reap, no recorded faults); a signalled:false only with a
+	// named bounded step whose measured duration stayed inside its shrunk
+	// bound + the scheduling allowance. The diagnostic record (shrunk
+	// options, the owned probe's measured duration + result, the teardown
+	// result's fields incl. timings) is pushed into seams.teardowns for
+	// every outcome and attached to every failure message, and the ONE
+	// bounded `child-teardown-trace` stderr line (pass or refusal alike)
+	// carries reapedBy — who proved the owned REAL CLOSE EITHER WAY: the
+	// teardown's own bounded close wait ("teardown") or the finally's
+	// held-handle kill + the at-spawn close observer ("test-finally").
 	test.skipIf(process.platform !== "win32")("teardownChild reaps its own ping through the shrunk-window bounds (real close)", async () => {
 		// The window clock starts at TEST ENTRY (monotonic; Bun's 30 s
 		// cap starts there too).
@@ -1592,13 +1812,20 @@ describe("owned probe + teardownChild (real processes, win32 only)", () => {
 				clearTimeoutFn: clearTimeout,
 				rmProbeDir: () => rmSync(probeDir, { recursive: true, force: true }),
 				cleanup: { killRan: false, closeObserved: false },
+				testName: "teardownChild reaps its own ping through the shrunk-window bounds (real close)",
+				writeTrace: (line) => process.stderr.write(line),
 			});
-			// Success requires the REAL teardown signal (the callback has
-			// already asserted it; the record carries it): signalled and
-			// reaped FROM THE REAL CLOSE.
+			// The callback asserted the sound invariants (a signal only with
+			// a re-proved identity; a signalled:false only with a named
+			// bounded step inside its shrunk bound + the allowance, reaped
+			// through the held handle by the finally — reapedBy
+			// "test-finally"). The record carries the facts either way; the
+			// trace line carries reapedBy.
 			expect(record.owned.state).toBe("alive");
-			expect(record.teardown.signalled).toBe(true);
-			expect(record.teardown.reaped).toBe(true);
+			if (record.teardown.signalled === true) {
+				expect(record.teardown.reaped).toBe(true);
+				expect(record.teardown.errors).toEqual([]);
+			}
 			// (F-tail) the window math: the shrunk bounds fit the
 			// remaining window + the close margin — each ≤ its existing
 			// default and the sum ≤ the cap − the margin (by
@@ -1623,6 +1850,136 @@ describe("owned probe + teardownChild (real processes, win32 only)", () => {
 			if (!callbackRan && !consistencyProbeDecision({ warmup: null, results: ownedResults, a: null, b: null, teardowns }).residue) {
 				rmSync(probeDir, { recursive: true, force: true });
 			}
+		}
+	}, 30_000);
+
+	// (amendment 1) HYBRID owned-close check — what it PROVES: the REAL
+	// default taskkill runner and the REAL close of an owned ping, under
+	// the DEFAULT taskkillTimeoutMs (8_000) / closeTimeoutMs (10_000)
+	// bounds (the named constants — no parallel literal). What it does
+	// NOT prove: the identity step is a FIXED seam (alive with a fixed id,
+	// never calling CIM), so it is NOT a native identity → signal → close
+	// proof. The end-to-end native proof comes from two places outside
+	// this test: the unchanged real-process test (B) — real CIM identity
+	// probe, real signal and real close, when it signals — and the
+	// orchestrator's later real native tray smoke and gates. The fixed-id
+	// seam is never presented as native identity. The one bounded
+	// `child-teardown-trace` stderr line is emitted for this run (pass or
+	// refusal alike), with reapedBy: the teardown's bounded close wait
+	// ("teardown") or the finally's held-handle kill + the at-spawn close
+	// observer ("test-finally" — the test's own cleanup).
+	test.skipIf(process.platform !== "win32")("teardownChild real taskkill + real close with an injected identity seam (hybrid; not a native identity proof)", async () => {
+		// OUR OWN child only: ping is spawned directly (no shell), so
+		// ping.pid is the ping itself — the only pid this test ever
+		// signals. The at-spawn close observer is the same shape test (B)
+		// registers (the REAL close is the only close).
+		const ping = spawnFixturePing(spawn);
+		expect(ping.spawnargs).toContain(String(PING_COUNT));
+		const pingErrors: Error[] = [];
+		const onPingError = (e: Error) => pingErrors.push(e);
+		ping.on("error", onPingError);
+		const pingPid = ping.pid;
+		const closeTracker: { observed: boolean; code: number | null; signal: string | null } = {
+			observed: false,
+			code: null,
+			signal: null,
+		};
+		let closeResolve: (() => void) | null = null;
+		const closeWaiter = new Promise<void>((resolve) => {
+			closeResolve = resolve;
+		});
+		const onPingClose = (code: number | null, signal: string | null) => {
+			if (!closeTracker.observed) {
+				closeTracker.observed = true;
+				closeTracker.code = code;
+				closeTracker.signal = signal;
+			}
+			closeResolve?.();
+		};
+		ping.on("close", onPingClose);
+		// The FIXED identity seam: alive with a fixed id, answered without
+		// any CIM call (it calls nothing — never CIM). The bound identity
+		// is caller-probound by this test; the helper's pre-signal re-check
+		// must come from THIS seam (seamCalls — not from CIM).
+		const FIXED_ID = "800000000000000000"; // a fixed, non-CIM id (file-time shaped)
+		let seamCalls = 0;
+		const identitySeam = async (_pid: number) => {
+			seamCalls += 1;
+			return { state: "alive", id: FIXED_ID };
+		};
+		// The REAL default taskkill runner (no runTaskkill seam) with the
+		// DEFAULT taskkillTimeoutMs / closeTimeoutMs bounds (the named
+		// constants).
+		const options: any = {
+			platform: "win32",
+			boundIdentity: { state: "alive", id: FIXED_ID },
+			identity: identitySeam,
+			taskkillTimeoutMs: TASKKILL_MS, // the DEFAULT 8_000
+			closeTimeoutMs: CLOSE_MS, // the DEFAULT 10_000
+		};
+		let teardownResult: any = null;
+		let reapedBy: "teardown" | "test-finally" | null = null;
+		try {
+			expect(pingPid, `ping spawn failed: ${pingErrors.map((e) => String(e)).join("; ")}`).not.toBeNull();
+			teardownResult = await teardownChild(ping, options);
+			// STRICTLY require the real signal and the real close: this
+			// test is the no-fallback owned-close proof for the default
+			// runner — no bounded-refusal green here (a refusal or a
+			// not-observed close is a red, and the finally below reaps
+			// through the held handle so the ping never leaks).
+			expect(teardownResult.signalled).toBe(true);
+			expect(teardownResult.reaped).toBe(true);
+			expect(closeTracker.observed).toBe(true);
+			expect(seamCalls).toBe(1); // the re-check came from the seam, never CIM
+			reapedBy = "teardown";
+		} finally {
+			ping.removeListener("error", onPingError);
+			ping.removeListener("close", onPingClose);
+			if (reapedBy == null) {
+				// The finally reaps through the HELD handle if anything
+				// failed (the same shape the callback's finally uses).
+				let killRan = false;
+				try {
+					killRan = ping.kill() === true;
+				} catch {
+					killRan = false;
+				}
+				if (!closeTracker.observed) {
+					await new Promise<void>((resolve) => {
+						let settled = false;
+						let t: unknown;
+						const finish = () => {
+							if (settled) return;
+							settled = true;
+							if (t != null) clearTimeout(t);
+							resolve();
+						};
+						t = setTimeout(finish, CLOSE_MS);
+						closeWaiter.then(finish, () => finish());
+					});
+				}
+				if (killRan && closeTracker.observed) reapedBy = "test-finally";
+			}
+			// The one bounded `child-teardown-trace` stderr line for this
+			// real-process run (pass or refusal alike) — the identity seam
+			// is NAMED as a fixed seam in the payload (never presented as
+			// native identity); no environment values.
+			process.stderr.write(
+				buildTraceLine({
+					testName: "teardownChild real taskkill + real close with an injected identity seam (hybrid; not a native identity proof)",
+					options: { taskkillTimeoutMs: TASKKILL_MS, closeTimeoutMs: CLOSE_MS, identity: "fixed-id seam (no CIM)" },
+					owned: { durationMs: null, result: null },
+					signalled: teardownResult?.signalled ?? null,
+					reaped: teardownResult?.reaped ?? null,
+					reapedBy,
+					refused: teardownResult?.refused ?? null,
+					errors: teardownResult?.errors ?? null,
+					signalIdentity: teardownResult?.signalIdentity ?? null,
+					boundIdentity: teardownResult?.boundIdentity ?? null,
+					probeResidue: teardownResult?.probeResidue ?? false,
+					timings: teardownResult?.timings ?? null,
+				}),
+			);
 		}
 	}, 30_000);
 });
@@ -1766,6 +2123,8 @@ describe("native consistency fixture (F9 deterministic port, virtual clock)", ()
 				removed = true;
 			},
 			cleanup,
+			testName: "A9: F9 win32 clean probes",
+			writeTrace: () => {},
 		});
 		// Every one of the callback's assertions passed — the record
 		// carries them:
@@ -1919,6 +2278,8 @@ describe("native consistency fixture (F9 deterministic port, virtual clock)", ()
 				removed = true;
 			},
 			cleanup,
+			testName: "A9: F9 POSIX twin clean probes",
+			writeTrace: () => {},
 		});
 		// The same contract as the win32 F9 test, adapted only where
 		// POSIX semantics differ (a signal, not a status):
@@ -2060,6 +2421,8 @@ describe("native consistency callback (F9 residual + A9 deterministic)", () => {
 				removed = true;
 			},
 			cleanup,
+			testName: "A9: owned unknown unreaped",
+			writeTrace: () => {},
 		});
 		await pumpVirtual(clock, pending);
 		// NO teardown call: the owned non-alive result fails before it
@@ -2114,6 +2477,8 @@ describe("native consistency callback (F9 residual + A9 deterministic)", () => {
 				removed = true;
 			},
 			cleanup,
+			testName: "A9: owned unknown reaped",
+			writeTrace: () => {},
 		});
 		await pumpVirtual(clock, pending);
 		// The guard threw BEFORE the teardown was called (the window
@@ -2163,7 +2528,10 @@ describe("native consistency callback (F9 residual + A9 deterministic)", () => {
 				clock.setTimeout(
 					() => {
 						returnedAt = clock.now();
-						resolve({ signalled: true, reaped: true, probeResidue: false, exitCode: 0 });
+						// The (b) invariants read the re-proved identity and
+						// the recorded faults: the fake carries them (the
+						// same id the owned probe bound, no faults).
+						resolve({ signalled: true, reaped: true, probeResidue: false, exitCode: 0, signalIdentity: { state: "alive", id: "A" }, errors: [] });
 					},
 					options.probeTimeoutMs + options.probeKillWaitMs + options.taskkillTimeoutMs + options.closeTimeoutMs,
 				);
@@ -2191,6 +2559,8 @@ describe("native consistency callback (F9 residual + A9 deterministic)", () => {
 				removed = true;
 			},
 			cleanup,
+			testName: "A9: tail teardown at virtual 12 s",
+			writeTrace: () => {},
 		});
 		await pumpVirtual(clock, pending);
 		// The teardown STARTED (budget 8_000 > 0) and its FULL shrunk
@@ -2258,6 +2628,8 @@ describe("native consistency callback (F9 residual + A9 deterministic)", () => {
 				removed = true;
 			},
 			cleanup,
+			testName: "A9: no teardown budget at virtual 20 s",
+			writeTrace: () => {},
 		});
 		await pumpVirtual(clock, pending);
 		await expect(pending).rejects.toThrow("teardown skipped");
@@ -2292,7 +2664,11 @@ describe("native consistency callback (F9 residual + A9 deterministic)", () => {
 		let teardownCalls = 0;
 		const teardown = (_pid: number, _options: any) => {
 			teardownCalls += 1;
-			return Promise.resolve({ signalled: true, reaped: false, probeResidue: false, error: "close timeout" });
+			// The (b) invariants read the re-proved identity first (the
+			// fake carries it — the same id the owned probe bound); the
+			// red then comes from "signalled but NOT reaped", which is
+			// what this scenario drives.
+			return Promise.resolve({ signalled: true, reaped: false, probeResidue: false, signalIdentity: { state: "alive", id: "A" }, errors: [] });
 		};
 		const ownedResults: any[] = [];
 		const teardowns: any[] = [];
@@ -2316,6 +2692,8 @@ describe("native consistency callback (F9 residual + A9 deterministic)", () => {
 				removed = true;
 			},
 			cleanup,
+			testName: "A9: not-reaped + kill does not land",
+			writeTrace: () => {},
 		});
 		// Let the callback reach its bounded close wait (the fake probes
 		// settle on microtasks), then expire the 10 s bound.
@@ -2381,6 +2759,8 @@ describe("native consistency callback (F9 residual + A9 deterministic)", () => {
 				removed = true;
 			},
 			cleanup,
+			testName: "A9: exit only (no close)",
+			writeTrace: () => {},
 		});
 		await pumpVirtual(clock, pending);
 		await expect(pending).rejects.toThrow("not confirmed gone after the held-handle kill");
@@ -2448,6 +2828,8 @@ describe("native consistency callback (F9 residual + A9 deterministic)", () => {
 				removed = true;
 			},
 			cleanup,
+			testName: "A9: close before the finally",
+			writeTrace: () => {},
 		});
 		await pumpVirtual(clock, pending);
 		await expect(pending).rejects.toThrow("closeObserved: true");
@@ -2512,6 +2894,8 @@ describe("native consistency callback (F9 residual + A9 deterministic)", () => {
 				removed = true;
 			},
 			cleanup,
+			testName: "A9: owned probe bounded at a late start",
+			writeTrace: () => {},
 		});
 		await pumpVirtual(clock, pending);
 		await expect(pending).rejects.toThrow("owned probe not alive before the teardown");
@@ -2570,6 +2954,8 @@ describe("native consistency callback (F9 residual + A9 deterministic)", () => {
 				removed = true;
 			},
 			cleanup,
+			testName: "A9: no budget for the owned probe",
+			writeTrace: () => {},
 		});
 		await pumpVirtual(clock, pending);
 		await expect(pending).rejects.toThrow("no budget for the owned probe");
@@ -2587,6 +2973,554 @@ describe("native consistency callback (F9 residual + A9 deterministic)", () => {
 		// Retention: the window fact KEEPS probeDir:
 		expect(removed).toBe(false);
 		expect(clock.pending()).toBe(0);
+	}, 5_000);
+
+	// (A9b) signalled:false with the taskkill-timeout text PASSES: the
+	// named bounded step stayed inside its shrunk bound + the allowance,
+	// and the finally reaped through the held handle (reapedBy
+	// "test-finally" — the test's own cleanup, never the product's). The
+	// diagnostic record is present for the outcome; the trace line (the
+	// injected recorder — the real tests write stderr, this one never
+	// touches the real stderr) carries the same facts.
+	test("signalled:false + taskkill timeout text passes: named step inside its bound, reapedBy test-finally, the record present (A9b)", async () => {
+		const clock = virtualClock();
+		const { child, closeTracker, closeWaiter } = makeFakePing(false, true);
+		const owned = async (_pid: number) => {
+			clock.advance(2_000);
+			return { state: "alive", id: "A" };
+		};
+		const teardown = async (_pid: number, _options: any) => ({
+			signalled: false,
+			reaped: false,
+			refused: [],
+			errors: ["taskkill /PID 8123250 /T /F timed out after 5142ms; the child may still be running"],
+			signalIdentity: { state: "alive", id: "A" },
+			boundIdentity: { state: "alive", id: "A" },
+			probeResidue: false,
+			timings: { preSignalProbeMs: 0, signalMs: 5_142, closeWaitMs: 6_431 },
+		});
+		const ownedResults: any[] = [];
+		const teardowns: any[] = [];
+		let removed = false;
+		const cleanup: { killRan: boolean; closeObserved: boolean } = { killRan: false, closeObserved: false };
+		const trace: string[] = [];
+		const pending = runConsistencyCallback({
+			ping: child,
+			pingPid: 8123250,
+			owned,
+			teardown,
+			ownedResults,
+			teardowns,
+			clock: { now: () => clock.now() },
+			windowStart: 0,
+			windowCapMs: WINDOW_CAP_MS,
+			closeTracker,
+			awaitClose: closeWaiter,
+			setTimeoutFn: clock.setTimeout,
+			clearTimeoutFn: clock.clearTimeout,
+			rmProbeDir: () => {
+				removed = true;
+			},
+			cleanup,
+			testName: "A9b: signalled:false taskkill timeout passes",
+			writeTrace: (line: string) => trace.push(line),
+		});
+		await pumpVirtual(clock, pending);
+		// The bounded refusal PASSES: the named step (taskkill timed out)
+		// stayed inside its shrunk bound + the allowance, and the finally
+		// reaped through the held handle (the owned real close happened —
+		// the test's own cleanup).
+		expect(cleanup.killRan).toBe(true);
+		expect(cleanup.closeObserved).toBe(true);
+		expect(removed).toBe(true);
+		expect(clock.pending()).toBe(0);
+		// The diagnostic record is present for the outcome:
+		const record = teardowns[teardowns.length - 1];
+		expect(record.skipped).toBeUndefined();
+		expect(record.diagnostic).toBeDefined();
+		expect(record.diagnostic.owned.durationMs).toBe(2_000);
+		expect(record.diagnostic.owned.result).toEqual({ state: "alive", id: "A" });
+		expect(record.diagnostic.teardown.signalled).toBe(false);
+		expect(record.diagnostic.teardown.errors).toEqual(["taskkill /PID 8123250 /T /F timed out after 5142ms; the child may still be running"]);
+		expect(record.diagnostic.teardown.timings.signalMs).toBe(5_142);
+		expect(record.probeResidue).toBe(false);
+		// The trace line: one per run, prefix + a single JSON object,
+		// reapedBy "test-finally" (never "teardown" for a refusal).
+		expect(trace).toHaveLength(1);
+		expect(trace[0].startsWith("child-teardown-trace ")).toBe(true);
+		const payload = JSON.parse(trace[0].slice("child-teardown-trace ".length));
+		expect(payload.testName).toBe("A9b: signalled:false taskkill timeout passes");
+		expect(payload.options.taskkillTimeoutMs).toBe(5_142);
+		expect(payload.owned.durationMs).toBe(2_000);
+		expect(payload.owned.result).toEqual({ state: "alive", id: "A" });
+		expect(payload.signalled).toBe(false);
+		expect(payload.reaped).toBe(false);
+		expect(payload.reapedBy).toBe("test-finally");
+		expect(payload.errors[0]).toContain("taskkill /PID 8123250 /T /F timed out after");
+		expect(payload.probeResidue).toBe(false);
+		expect(payload.timings.signalMs).toBe(5_142);
+		expect(Buffer.byteLength(trace[0], "utf8")).toBeLessThanOrEqual(4096);
+	}, 5_000);
+
+	// (A9b/M3) the REAL teardownChild's taskkill timeout driven through
+	// the SAME callback: the runner never settles, the raced timeout fires
+	// at the shrunk taskkillTimeoutMs on the virtual clock, and the REAL
+	// code records the bounded-step reason (M3 kills exactly that
+	// recording — with it removed, errors stay empty and the (b) check
+	// goes red with "no named bounded step"). The virtual clock is the
+	// helper's monotonic `now`, so the step timings are the exact virtual
+	// durations (the measured signal step == the shrunk bound).
+	test("the REAL teardownChild's taskkill timeout through the callback: named step + measured duration inside the bound, reapedBy test-finally (A9b/M3)", async () => {
+		const clock = virtualClock();
+		const { child, closeTracker, closeWaiter } = makeFakePing(false, true);
+		const owned = async (_pid: number) => {
+			clock.advance(2_000);
+			return { state: "alive", id: "A" };
+		};
+		let teardownCalls = 0;
+		const teardown = (_pid: number, options: any) => {
+			teardownCalls += 1;
+			return teardownChild(child, {
+				...options,
+				platform: "win32",
+				identity: async (pid: number) => (pid === 8123250 && child.exitCode != null ? { state: "gone" } : { state: "alive", id: "A" }),
+				runTaskkill: () => new Promise(() => {}),
+				setTimeout: clock.setTimeout,
+				clearTimeout: clock.clearTimeout,
+				now: () => clock.now(),
+			});
+		};
+		const ownedResults: any[] = [];
+		const teardowns: any[] = [];
+		let removed = false;
+		const cleanup: { killRan: boolean; closeObserved: boolean } = { killRan: false, closeObserved: false };
+		const pending = runConsistencyCallback({
+			ping: child,
+			pingPid: 8123250,
+			owned,
+			teardown,
+			ownedResults,
+			teardowns,
+			clock: { now: () => clock.now() },
+			windowStart: 0,
+			windowCapMs: WINDOW_CAP_MS,
+			closeTracker,
+			awaitClose: closeWaiter,
+			setTimeoutFn: clock.setTimeout,
+			clearTimeoutFn: clock.clearTimeout,
+			rmProbeDir: () => {
+				removed = true;
+			},
+			cleanup,
+			testName: "A9b: real teardownChild taskkill timeout",
+			writeTrace: () => {},
+		});
+		// Drive the virtual clock MANUALLY (not pumpVirtual's 10 s quantum
+		// — the quantum would make the measured step durations include the
+		// advance step, not the exact bound): the advances land on the
+		// timers' fire times, so the step timings are the EXACT virtual
+		// durations. The raced taskkill timeout fires at exactly the shrunk
+		// bound (virtual 2_000 + 5_142), the close wait at its shrunk bound.
+		await flushMicrotasks(); // the callback reaches the race's await (timer at 7_142)
+		expect(clock.pending()).toBe(1);
+		clock.advance(5_142); // now = 7_142 — the raced timeout fired at exactly the bound
+		await flushMicrotasks(); // the classification records the reason; the close wait arms (timer at 13_573)
+		expect(clock.pending()).toBe(1);
+		clock.advance(6_431); // now = 13_573 — the close wait fired at exactly its bound
+		await flushMicrotasks(); // teardownChild returns; the (b) invariants hold; the finally reaps through the held handle
+		// The callback RESOLVES (a red would throw here — e.g. M3, which
+		// drops the timeout's recorded reason, leaves errors empty and
+		// goes red with "no named bounded step"):
+		const res = await pending;
+		expect(res.teardown.signalled).toBe(false);
+		expect(res.teardown.reaped).toBe(false);
+		// The REAL timeout path: the bounded-step text is recorded, the
+		// measured step durations are the exact virtual durations, and the
+		// finally reaped through the held handle.
+		expect(teardownCalls).toBe(1);
+		expect(cleanup.killRan).toBe(true);
+		expect(cleanup.closeObserved).toBe(true);
+		const record = teardowns[teardowns.length - 1];
+		expect(record.diagnostic.teardown.signalled).toBe(false);
+		expect(record.diagnostic.teardown.reaped).toBe(false);
+		expect(record.diagnostic.teardown.errors.some((e: string) => e.includes("taskkill /PID 8123250 /T /F timed out after"))).toBe(true);
+		expect(record.diagnostic.teardown.timings.preSignalProbeMs).toBe(0);
+		expect(record.diagnostic.teardown.timings.signalMs).toBe(record.taskkillTimeoutMs);
+		expect(record.diagnostic.teardown.timings.closeWaitMs).toBe(record.closeTimeoutMs);
+		expect(removed).toBe(true);
+		expect(clock.pending()).toBe(0);
+	}, 5_000);
+
+	// (A9b) signalled:false with EMPTY refused and errors → red (never a
+	// silent green): the named-bounded-step check fails, and the finally
+	// still reaps through the held handle (the owned real close happened);
+	// the record is present for the red.
+	test("signalled:false with EMPTY refused and errors → red (A9b)", async () => {
+		const clock = virtualClock();
+		const { child, closeTracker, closeWaiter } = makeFakePing(false, true);
+		const owned = async (_pid: number) => {
+			clock.advance(2_000);
+			return { state: "alive", id: "A" };
+		};
+		const teardown = async (_pid: number, _options: any) => ({
+			signalled: false,
+			reaped: false,
+			refused: [],
+			errors: [],
+			signalIdentity: { state: "alive", id: "A" },
+			boundIdentity: { state: "alive", id: "A" },
+			probeResidue: false,
+			timings: { preSignalProbeMs: 0, signalMs: 5_142, closeWaitMs: 6_431 },
+		});
+		const ownedResults: any[] = [];
+		const teardowns: any[] = [];
+		let removed = false;
+		const cleanup: { killRan: boolean; closeObserved: boolean } = { killRan: false, closeObserved: false };
+		const pending = runConsistencyCallback({
+			ping: child,
+			pingPid: 8123250,
+			owned,
+			teardown,
+			ownedResults,
+			teardowns,
+			clock: { now: () => clock.now() },
+			windowStart: 0,
+			windowCapMs: WINDOW_CAP_MS,
+			closeTracker,
+			awaitClose: closeWaiter,
+			setTimeoutFn: clock.setTimeout,
+			clearTimeoutFn: clock.clearTimeout,
+			rmProbeDir: () => {
+				removed = true;
+			},
+			cleanup,
+			testName: "A9b: signalled:false empty refused/errors",
+			writeTrace: () => {},
+		});
+		await pumpVirtual(clock, pending);
+		await expect(pending).rejects.toThrow("no named bounded step");
+		// The finally still proved the owned real close, and the record is
+		// present for the red:
+		expect(cleanup.killRan).toBe(true);
+		expect(cleanup.closeObserved).toBe(true);
+		const record = teardowns[teardowns.length - 1];
+		expect(record.diagnostic.teardown.signalled).toBe(false);
+		expect(record.diagnostic.teardown.errors).toEqual([]);
+		expect(record.diagnostic.teardown.refused).toEqual([]);
+	}, 5_000);
+
+	// (A9b) signalled:true with a DIFFERENT signalIdentity id → red (a
+	// signal without a re-proved identity is never a green).
+	test("signalled:true with a different signalIdentity id → red (A9b)", async () => {
+		const clock = virtualClock();
+		const { child, closeTracker, closeWaiter } = makeFakePing(false, true);
+		const owned = async (_pid: number) => {
+			clock.advance(2_000);
+			return { state: "alive", id: "A" };
+		};
+		const teardown = async (_pid: number, _options: any) => ({
+			signalled: true,
+			reaped: true,
+			refused: [],
+			errors: [],
+			signalIdentity: { state: "alive", id: "B" },
+			boundIdentity: { state: "alive", id: "A" },
+			probeResidue: false,
+			timings: { preSignalProbeMs: 0, signalMs: 5_142, closeWaitMs: 6_431 },
+		});
+		const ownedResults: any[] = [];
+		const teardowns: any[] = [];
+		let removed = false;
+		const cleanup: { killRan: boolean; closeObserved: boolean } = { killRan: false, closeObserved: false };
+		const pending = runConsistencyCallback({
+			ping: child,
+			pingPid: 8123250,
+			owned,
+			teardown,
+			ownedResults,
+			teardowns,
+			clock: { now: () => clock.now() },
+			windowStart: 0,
+			windowCapMs: WINDOW_CAP_MS,
+			closeTracker,
+			awaitClose: closeWaiter,
+			setTimeoutFn: clock.setTimeout,
+			clearTimeoutFn: clock.clearTimeout,
+			rmProbeDir: () => {
+				removed = true;
+			},
+			cleanup,
+			testName: "A9b: signalled:true different identity",
+			writeTrace: () => {},
+		});
+		await pumpVirtual(clock, pending);
+		await expect(pending).rejects.toThrow("WITHOUT a re-proved identity");
+		expect(cleanup.killRan).toBe(true);
+		expect(cleanup.closeObserved).toBe(true);
+		const record = teardowns[teardowns.length - 1];
+		expect(record.diagnostic.teardown.signalled).toBe(true);
+		expect(record.diagnostic.teardown.signalIdentity).toEqual({ state: "alive", id: "B" });
+	}, 5_000);
+
+	// (A9b) signalled:true with reaped:false → red (a signal without the
+	// real close is never a green).
+	test("signalled:true with reaped:false → red (A9b)", async () => {
+		const clock = virtualClock();
+		const { child, closeTracker, closeWaiter } = makeFakePing(false, true);
+		const owned = async (_pid: number) => {
+			clock.advance(2_000);
+			return { state: "alive", id: "A" };
+		};
+		const teardown = async (_pid: number, _options: any) => ({
+			signalled: true,
+			reaped: false,
+			refused: [],
+			errors: [],
+			signalIdentity: { state: "alive", id: "A" },
+			boundIdentity: { state: "alive", id: "A" },
+			probeResidue: false,
+			timings: { preSignalProbeMs: 0, signalMs: 5_142, closeWaitMs: 6_431 },
+		});
+		const ownedResults: any[] = [];
+		const teardowns: any[] = [];
+		let removed = false;
+		const cleanup: { killRan: boolean; closeObserved: boolean } = { killRan: false, closeObserved: false };
+		const pending = runConsistencyCallback({
+			ping: child,
+			pingPid: 8123250,
+			owned,
+			teardown,
+			ownedResults,
+			teardowns,
+			clock: { now: () => clock.now() },
+			windowStart: 0,
+			windowCapMs: WINDOW_CAP_MS,
+			closeTracker,
+			awaitClose: closeWaiter,
+			setTimeoutFn: clock.setTimeout,
+			clearTimeoutFn: clock.clearTimeout,
+			rmProbeDir: () => {
+				removed = true;
+			},
+			cleanup,
+			testName: "A9b: signalled:true not reaped",
+			writeTrace: () => {},
+		});
+		await pumpVirtual(clock, pending);
+		await expect(pending).rejects.toThrow("signalled but NOT reaped");
+		expect(cleanup.killRan).toBe(true);
+		expect(cleanup.closeObserved).toBe(true);
+		const record = teardowns[teardowns.length - 1];
+		expect(record.diagnostic.teardown.signalled).toBe(true);
+		expect(record.diagnostic.teardown.reaped).toBe(false);
+	}, 5_000);
+
+	// (A9b/amendment 3) a failed/timed-out taskkill reported with
+	// reapedBy "teardown" (the result claims reaped:true) → red: the
+	// product must not claim a reap a failed signal did not prove.
+	test("a failed/timed-out taskkill reported reaped by the teardown → red (A9b)", async () => {
+		const clock = virtualClock();
+		const { child, closeTracker, closeWaiter } = makeFakePing(false, true);
+		const owned = async (_pid: number) => {
+			clock.advance(2_000);
+			return { state: "alive", id: "A" };
+		};
+		const teardown = async (_pid: number, _options: any) => ({
+			signalled: false,
+			reaped: true,
+			refused: [],
+			errors: ["taskkill /PID 8123250 /T /F timed out after 5142ms; the child may still be running"],
+			signalIdentity: { state: "alive", id: "A" },
+			boundIdentity: { state: "alive", id: "A" },
+			probeResidue: false,
+			timings: { preSignalProbeMs: 0, signalMs: 5_142, closeWaitMs: 6_431 },
+		});
+		const ownedResults: any[] = [];
+		const teardowns: any[] = [];
+		let removed = false;
+		const cleanup: { killRan: boolean; closeObserved: boolean } = { killRan: false, closeObserved: false };
+		const pending = runConsistencyCallback({
+			ping: child,
+			pingPid: 8123250,
+			owned,
+			teardown,
+			ownedResults,
+			teardowns,
+			clock: { now: () => clock.now() },
+			windowStart: 0,
+			windowCapMs: WINDOW_CAP_MS,
+			closeTracker,
+			awaitClose: closeWaiter,
+			setTimeoutFn: clock.setTimeout,
+			clearTimeoutFn: clock.clearTimeout,
+			rmProbeDir: () => {
+				removed = true;
+			},
+			cleanup,
+			testName: "A9b: failed taskkill reported reaped",
+			writeTrace: () => {},
+		});
+		await pumpVirtual(clock, pending);
+		await expect(pending).rejects.toThrow("reported reaped by the teardown");
+		const record = teardowns[teardowns.length - 1];
+		expect(record.diagnostic.teardown.signalled).toBe(false);
+		expect(record.diagnostic.teardown.reaped).toBe(true);
+	}, 5_000);
+
+	// (A9b/M5) a MALFORMED runner error ({}) is fail-closed: signalled
+	// stays false and the recorded text names the malformed error and its
+	// type (the REAL teardownChild — M5 treats {} as success and goes red
+	// here).
+	test("a malformed runner error ({}) is fail-closed: signalled:false + the malformed-error text (A9b/M5)", async () => {
+		const child = fakeChild(8123290);
+		const teardown: any = await teardownChild(child, {
+			platform: "win32",
+			boundIdentity: { state: "alive", id: "A" },
+			identity: async () => ({ state: "alive", id: "A" }),
+			runTaskkill: () => ({ status: 0, error: {} }),
+			closeTimeoutMs: 40,
+		});
+		expect(teardown.signalled).toBe(false);
+		expect(teardown.reaped).toBe(false);
+		expect(teardown.errors).toHaveLength(1);
+		expect(teardown.errors[0]).toContain("taskkill /PID 8123290 /T /F runner returned a malformed error (object)");
+		// The step's measured duration was recorded for the refusal:
+		expect(typeof teardown.timings.signalMs).toBe("number");
+	}, 5_000);
+
+	// (A9b) a runner result WITHOUT a usable exit status (a non-object
+	// result, a missing or non-integer status) is fail-closed with the
+	// "returned no exit status" text — never a success.
+	test("a runner result without a usable exit status is fail-closed: 'returned no exit status' (A9b)", async () => {
+		const child = fakeChild(8123291);
+		// A non-object result:
+		const a: any = await teardownChild(child, {
+			platform: "win32",
+			boundIdentity: { state: "alive", id: "A" },
+			identity: async () => ({ state: "alive", id: "A" }),
+			runTaskkill: () => "boom" as never,
+			closeTimeoutMs: 40,
+		});
+		expect(a.signalled).toBe(false);
+		expect(a.reaped).toBe(false);
+		expect(a.errors[0]).toContain("taskkill /PID 8123291 /T /F returned no exit status");
+		// A missing (null) status:
+		const b: any = await teardownChild(child, {
+			platform: "win32",
+			boundIdentity: { state: "alive", id: "A" },
+			identity: async () => ({ state: "alive", id: "A" }),
+			runTaskkill: () => ({ status: null, error: null }),
+			closeTimeoutMs: 40,
+		});
+		expect(b.signalled).toBe(false);
+		expect(b.errors[0]).toContain("taskkill /PID 8123291 /T /F returned no exit status");
+	}, 5_000);
+
+	// (A9b/amendment 2) the deterministic trace-record check: the writer
+	// is INJECTED through the seam (the real tests point it at
+	// process.stderr.write — this test never captures the real stderr).
+	// Run A: the prefix + a single JSON object with the required fields.
+	// Run B: the line is truncated to at most 4096 bytes (a payload too
+	// big for the bound is cut, prefix intact).
+	test("the trace line: prefix, JSON shape, reapedBy, and the 4096-byte bound (A9b)", async () => {
+		// Run A: a bounded refusal (signalled:false + the taskkill timeout
+		// text) — the passing path with reapedBy "test-finally".
+		const clockA = virtualClock();
+		const a = makeFakePing(false, true);
+		const ownedA = async (_pid: number) => {
+			clockA.advance(2_000);
+			return { state: "alive", id: "A" };
+		};
+		const teardownA = async (_pid: number, _options: any) => ({
+			signalled: false,
+			reaped: false,
+			refused: [],
+			errors: ["taskkill /PID 8123250 /T /F timed out after 5142ms; the child may still be running"],
+			signalIdentity: { state: "alive", id: "A" },
+			boundIdentity: { state: "alive", id: "A" },
+			probeResidue: false,
+			timings: { preSignalProbeMs: 0, signalMs: 5_142, closeWaitMs: 6_431 },
+		});
+		const traceA: string[] = [];
+		const pendingA = runConsistencyCallback({
+			ping: a.child,
+			pingPid: 8123250,
+			owned: ownedA,
+			teardown: teardownA,
+			ownedResults: [],
+			teardowns: [],
+			clock: { now: () => clockA.now() },
+			windowStart: 0,
+			windowCapMs: WINDOW_CAP_MS,
+			closeTracker: a.closeTracker,
+			awaitClose: a.closeWaiter,
+			setTimeoutFn: clockA.setTimeout,
+			clearTimeoutFn: clockA.clearTimeout,
+			rmProbeDir: () => {},
+			cleanup: { killRan: false, closeObserved: false },
+			testName: "A9b trace check",
+			writeTrace: (line: string) => traceA.push(line),
+		});
+		await pumpVirtual(clockA, pendingA);
+		expect(traceA).toHaveLength(1);
+		expect(traceA[0].startsWith("child-teardown-trace ")).toBe(true);
+		expect(Buffer.byteLength(traceA[0], "utf8")).toBeLessThanOrEqual(4096);
+		const payloadA = JSON.parse(traceA[0].slice("child-teardown-trace ".length));
+		expect(payloadA.testName).toBe("A9b trace check");
+		expect(payloadA.options.probeTimeoutMs).toBe(5_142);
+		expect(payloadA.owned.result).toEqual({ state: "alive", id: "A" });
+		expect(payloadA.signalled).toBe(false);
+		expect(payloadA.reapedBy).toBe("test-finally");
+		expect(payloadA.errors[0]).toContain("timed out after");
+		expect(payloadA.signalIdentity).toEqual({ state: "alive", id: "A" });
+		expect(payloadA.boundIdentity).toEqual({ state: "alive", id: "A" });
+		expect(payloadA.probeResidue).toBe(false);
+		expect(payloadA.timings.signalMs).toBe(5_142);
+		// Run B: a payload bigger than the bound → truncated to at most
+		// 4096 bytes (the prefix stays; the cut object is a log line, not
+		// a promise of parseability).
+		const clockB = virtualClock();
+		const b = makeFakePing(false, true);
+		const ownedB = async (_pid: number) => {
+			clockB.advance(2_000);
+			return { state: "alive", id: "A" };
+		};
+		const filler = Array.from({ length: 100 }, (_v, i) => `taskkill /PID 8123250 /T /F timed out after 5142ms; filler ${String(i)} ${"x".repeat(120)}`);
+		const teardownB = async (_pid: number, _options: any) => ({
+			signalled: false,
+			reaped: false,
+			refused: [],
+			errors: filler,
+			signalIdentity: { state: "alive", id: "A" },
+			boundIdentity: { state: "alive", id: "A" },
+			probeResidue: false,
+			timings: { preSignalProbeMs: 0, signalMs: 5_142, closeWaitMs: 6_431 },
+		});
+		const traceB: string[] = [];
+		const pendingB = runConsistencyCallback({
+			ping: b.child,
+			pingPid: 8123250,
+			owned: ownedB,
+			teardown: teardownB,
+			ownedResults: [],
+			teardowns: [],
+			clock: { now: () => clockB.now() },
+			windowStart: 0,
+			windowCapMs: WINDOW_CAP_MS,
+			closeTracker: b.closeTracker,
+			awaitClose: b.closeWaiter,
+			setTimeoutFn: clockB.setTimeout,
+			clearTimeoutFn: clockB.clearTimeout,
+			rmProbeDir: () => {},
+			cleanup: { killRan: false, closeObserved: false },
+			testName: "A9b trace truncation check",
+			writeTrace: (line: string) => traceB.push(line),
+		});
+		await pumpVirtual(clockB, pendingB);
+		expect(traceB).toHaveLength(1);
+		expect(traceB[0].startsWith("child-teardown-trace ")).toBe(true);
+		expect(Buffer.byteLength(traceB[0], "utf8")).toBeLessThanOrEqual(4096);
+		expect(Buffer.byteLength(traceB[0], "utf8")).toBe(4096); // the bound was actually hit and cut
 	}, 5_000);
 });
 

@@ -60,8 +60,39 @@ jobs:
           bun run test
       - name: Install Hutch
         run: |
+          # DJA-208: Hutch 0.25.0 is installed from checksum-pinned bytes. The
+          # installer script is hashed before it runs, and its verified bytes
+          # are what execute. The installer fetches the release manifest
+          # itself; the post-install checks bind the installed bytes to the
+          # pinned release: the pinned archive sha256 stored in the release
+          # dir's .dash-installed under the pinned revision path, and the
+          # copied bin matching that release dir's executable. Upstream
+          # changing install.ps1 makes this step fail closed (intended); update
+          # the pinned value below in that case. The pinned Action SHAs are
+          # unchanged. pacman (zip/unzip, test tooling only, not shipped) stays
+          # unpinned: MSYS2 verifies package signatures.
           $ErrorActionPreference = "Stop"
-          & ([scriptblock]::Create((irm https://hutch.blackboard.sh/hutch/install.ps1))) -Version 0.25.0 -NoModifyPath
+          $installerPath = "$env:RUNNER_TEMP\install.ps1"
+          Invoke-WebRequest -UseBasicParsing -Uri "https://hutch.blackboard.sh/hutch/install.ps1" -OutFile $installerPath
+          $pinnedInstallerSha256 = "185cc615d3d1b6e7156c104beb902cce3f4b9f35cb3d14df047586aa432883e7"
+          $installerSha256 = (Get-FileHash -Algorithm SHA256 -Path $installerPath).Hash.ToLowerInvariant()
+          if ($installerSha256 -ne $pinnedInstallerSha256) {
+            throw "hutch install.ps1 checksum mismatch: expected $pinnedInstallerSha256, got $installerSha256"
+          }
+          & ([scriptblock]::Create([System.IO.File]::ReadAllText("$env:RUNNER_TEMP\install.ps1"))) -Version 0.25.0 -NoModifyPath
+          $revision = "5668321389b6f47e24a2408c963ef5a437793b4c"
+          $pinnedArchiveSha256 = "a29ec038ede84e5875f0bc134e834f6e74c5411d6f2163de8e9a93ba503f8d64"
+          $releaseDir = Join-Path $env:USERPROFILE ".hutch\releases\hutch\0.25.0\$revision\windows-x64"
+          $dashInstalled = (Get-Content -Raw -Path (Join-Path $releaseDir ".dash-installed")).Trim().ToLowerInvariant()
+          if ($dashInstalled -ne $pinnedArchiveSha256) {
+            throw "hutch .dash-installed mismatch: expected $pinnedArchiveSha256, got $dashInstalled"
+          }
+          $binHutch = Join-Path $env:USERPROFILE ".hutch\bin\hutch.exe"
+          $binHutchSha256 = (Get-FileHash -Algorithm SHA256 -Path $binHutch).Hash.ToLowerInvariant()
+          $releaseBinHutchSha256 = (Get-FileHash -Algorithm SHA256 -Path (Join-Path $releaseDir "bin\hutch.exe")).Hash.ToLowerInvariant()
+          if ($binHutchSha256 -ne $releaseBinHutchSha256) {
+            throw "hutch bin\hutch.exe does not match the pinned release bytes: expected $releaseBinHutchSha256, got $binHutchSha256"
+          }
           Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $env:USERPROFILE ".hutch\bin")
       - name: Build tray
         run: bun run build:tray
@@ -99,8 +130,39 @@ jobs:
       - name: Install Hutch
         shell: bash
         run: |
+          # DJA-208: Hutch 0.25.0 is installed from checksum-pinned bytes.
+          # The installer script is hashed before it runs, and its verified
+          # bytes are what execute. The installer fetches the release manifest
+          # itself; the post-install checks bind the installed bytes to the
+          # pinned release: the pinned archive sha256 stored in the release
+          # dir's .dash-installed under the pinned revision path, and the
+          # copied bin matching that release dir's executable. Upstream
+          # changing install.sh makes this step fail closed (intended); update
+          # the pinned value below in that case. The pinned Action SHAs are
+          # unchanged.
           set -euo pipefail
-          curl -fsSL https://hutch.blackboard.sh/hutch/install.sh | sh -s -- --version 0.25.0 --no-modify-path
+          curl -fsSL -o "$RUNNER_TEMP/install.sh" https://hutch.blackboard.sh/hutch/install.sh
+          pinned_installer_sha256="9803e467afab4d795ebf506abbe94c3592b761188bd68b1b5edf02ad7955b92c"
+          actual_installer_sha256="$(shasum -a 256 "$RUNNER_TEMP/install.sh" | awk '{print $1}')"
+          if [ "$actual_installer_sha256" != "$pinned_installer_sha256" ]; then
+            echo "hutch install.sh checksum mismatch: expected $pinned_installer_sha256, got $actual_installer_sha256" >&2
+            exit 1
+          fi
+          sh "$RUNNER_TEMP/install.sh" --version 0.25.0 --no-modify-path
+          revision="5668321389b6f47e24a2408c963ef5a437793b4c"
+          pinned_archive_sha256="521828934a4524a2f745b24a1843d7fde61a6b5ec355c9d3fe331168f5fadbc3"
+          release_dir="$HOME/.hutch/releases/hutch/0.25.0/$revision/macos-arm64"
+          dash_installed="$(cat "$release_dir/.dash-installed")"
+          if [ "$dash_installed" != "$pinned_archive_sha256" ]; then
+            echo "hutch .dash-installed mismatch: expected $pinned_archive_sha256, got $dash_installed" >&2
+            exit 1
+          fi
+          bin_hutch_sha256="$(shasum -a 256 "$HOME/.hutch/bin/hutch" | awk '{print $1}')"
+          release_bin_hutch_sha256="$(shasum -a 256 "$release_dir/bin/hutch" | awk '{print $1}')"
+          if [ "$bin_hutch_sha256" != "$release_bin_hutch_sha256" ]; then
+            echo "hutch bin/hutch does not match the pinned release bytes: expected $release_bin_hutch_sha256, got $bin_hutch_sha256" >&2
+            exit 1
+          fi
           echo "$HOME/.hutch/bin" >> "$GITHUB_PATH"
       - name: Build tray
         run: bun run build:tray

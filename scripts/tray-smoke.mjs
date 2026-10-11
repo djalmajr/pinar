@@ -65,16 +65,25 @@
  *   { ok, platform, appDir, launchDir, launcher, launcherPid, port,
  *     jsExecuted, trayPid, health, elapsedMs, reason,
  *     cleanup: { ok, killed, refused, errors, reused, sandboxRemoved },
- *     sandbox?, sandboxRetained, trayAncestry? }
+ *     sandbox?, sandboxRetained, trayAncestry?, diagnostics? } —
+ * `diagnostics` exists ONLY when ok is false: `{ samples (≤14),
+ * lastHealth, trayPid, serverPid: { value, reason }, sandboxFiles (≤60
+ * { relPath, size } under the sandbox's .pinar and the extracted app log
+ * dir), logTails ({ relPath: last ≤4096 bytes }, *.log under .pinar and the
+ * extracted app.log, total ≤16 KiB) }`, built before the cleanup removes the
+ * sandbox; a success JSON is byte-for-byte unchanged.
  */
 import { spawn, spawnSync } from "node:child_process";
 import {
 	appendFileSync,
+	closeSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	openSync,
 	readFileSync,
 	readlinkSync,
+	readSync,
 	readdirSync,
 	realpathSync,
 	rmSync,
@@ -90,11 +99,28 @@ export const DEFAULT_PORT = 17390;
 export const DEFAULT_TIMEOUT_MS = 90_000;
 export const DEFAULT_POLL_MS = 1_000;
 
+/**
+ * Failure-diagnostics sampling cadence (SM-7): while the wait loop is
+ * failing, at most one health/port/helper sample is taken every
+ * SAMPLE_INTERVAL_MS plus one final sample — a 120 s run never takes more
+ * than 14. This is a sampling cadence, not a new timeout: every probe a
+ * sample runs is an EXISTING bounded probe (the 3 s health fetch,
+ * listeningPid, inProcessTree, imageOf, isInsideAppDir) and no new bound is
+ * added.
+ */
+export const SAMPLE_INTERVAL_MS = 10_000;
+
 /** Hard cap on a wrapper payload's decompressed plain-tar size (2 GiB). */
 export const MAX_WRAPPER_DECOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024;
 
 /** Hard cap on the number of entries a wrapper payload's plain tar may hold. */
 export const MAX_WRAPPER_ENTRIES = 200_000;
+
+/** The win32 taskkill bound in `killTreeFor`: the SAME value as
+ * `teardownChild`'s default `taskkillTimeoutMs` (scripts/child-teardown.mjs,
+ * default 8_000) — the smoke's taskkill is bounded exactly the way the
+ * tray's own runner is bounded; it is not a new budget. */
+export const TASKKILL_TIMEOUT_MS = 8_000;
 
 /** Pre-seeded desktop prefs: login already configured and disabled, so the
  * tray never adds the HKCU Run key / LaunchAgent. */
@@ -163,6 +189,23 @@ export function parsePort(raw) {
 		throw new Error(`port out of range 1-65535: ${raw}`);
 	}
 	return port;
+}
+
+/**
+ * Strict PID parse for every pid read from external output (tray.pid,
+ * netstat/lsof, ps/powershell ParentProcessId, tasklist): digits only
+ * (after trim), 1..2147483647. Anything else ("12abc", "1e3", "0x1f",
+ * " ", "0", "-5", "99999999999", suffixes) is null — never normalized:
+ * a malformed pid is a missing pid, and a missing pid is a refusal,
+ * not a signal.
+ */
+export function parsePid(text) {
+	if (typeof text !== "string") return null;
+	const trimmed = text.trim();
+	if (!/^\d+$/.test(trimmed)) return null;
+	const value = Number(trimmed);
+	if (!Number.isInteger(value) || value < 1 || value > 2147483647) return null;
+	return value;
 }
 
 /** Health body is healthy only when ok === true AND service === "pinar". */
@@ -352,8 +395,11 @@ function tarOctalField(block, start, length, label) {
 /**
  * Every path check a tar entry name (and a symlink target) must pass
  * before any of its bytes may be written: no NUL/empty names, no `\` or `:`
- * (absolute `\\x` and drive `C:…` names included), no absolute names, no
- * `..` segment.
+ * (absolute `\\x` and drive `C:…` names included), no absolute names, and
+ * per segment: no `.`/`..` segment; no segment ending with a dot or a
+ * space (Windows strips trailing dots/spaces, so `.. ` collapses to `..`
+ * and `foo.` collides with `foo` after extraction); no segment made only
+ * of dots and/or spaces (the same Windows normalization class).
  */
 function assertSafeTarName(name, label) {
 	if (name === "") throw new Error(`${label}: empty entry name`);
@@ -366,6 +412,15 @@ function assertSafeTarName(name, label) {
 	if (/^[A-Za-z]:/.test(name)) throw new Error(`${label}: drive-qualified entry name: ${name}`);
 	for (const segment of name.split("/")) {
 		if (segment === "..") throw new Error(`${label}: ".." segment in entry name: ${name}`);
+		if (segment === ".") throw new Error(`${label}: "." segment in entry name: ${name}`);
+		// SM-3 (security S7): NTFS strips trailing dots/spaces from names, so
+		// `foo. ` collapses to `foo` (collision) and `.. ` collapses to `..`
+		// (escape) once the OS strips them. A segment that consists ONLY of
+		// dots and/or spaces always ends with a dot or a space, so the check
+		// below subsumes that case as well.
+		if (segment.endsWith(".") || segment.endsWith(" ")) {
+			throw new Error(`${label}: segment ${JSON.stringify(segment)} ends with a dot or space in entry name: ${name}`);
+		}
 	}
 }
 
@@ -564,30 +619,185 @@ export function zstdDeclaredContentSize(bytes) {
 }
 
 /**
+ * Internal: the pre-allocation frame walk (SM-5; runs before ANY
+ * decompression). `bytes` must be EXACTLY ONE normal zstd frame ending
+ * exactly at the input end. Throws, naming the offending property:
+ * a skippable frame (magic 0x184D2A50..0x184D2A5F) anywhere; a non-zstd
+ * magic; a dictionary id; a reserved block type; any frame or block that
+ * runs past the input; more than one frame, or trailing bytes after the
+ * first frame. The frame end is the block walk (3-byte little-endian
+ * headers: bit 0 last-block; bits 1-2 type — 0 raw → size bytes, 1 RLE →
+ * 1 byte, 2 compressed → size bytes, 3 reserved → reject; bits 3-23 the
+ * size) plus the 4-byte checksum when the descriptor's checksum flag is
+ * set; it must equal the input length. Along the walk it also computes the
+ * pre-allocation decompressed-size BOUND (F-1, RFC 8878): Window_Size
+ * from the Window_Descriptor (windowLog = 10 + exponent, windowBase =
+ * 1 << windowLog, windowAdd = (windowBase / 8) * mantissa, Window_Size =
+ * windowBase + windowAdd; a single-segment frame has no Window_Descriptor
+ * and 128 KiB stands in), Block_Maximum_Size = min(Window_Size,
+ * 128 KiB); per block a raw block contributes exactly its Block_Size, an
+ * RLE block exactly its Block_Size (that field is its regenerated size),
+ * and a compressed block at most Block_Maximum_Size. Returns `{ declared,
+ * bound }` — `declared` is the declared content size (null when the frame
+ * declares none: a windowed frame with FCS_Flag 0b00).
+ */
+function zstdFrameWalk(bytes) {
+	const b = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+	if (b.length === 0) throw new Error("zstd frame validation: empty input is not a zstd frame");
+	const magic = b.readUInt32LE(0);
+	if (magic >= 0x184d2a50 && magic <= 0x184d2a5f) {
+		throw new Error(`zstd frame validation: skippable frame (magic 0x${magic.toString(16)}) rejected`);
+	}
+	if (magic !== 0xfd2fb528) {
+		throw new Error(`zstd frame validation: not a zstd frame (magic 0x${magic.toString(16)})`);
+	}
+	if (b.length < 5) throw new Error("zstd frame validation: truncated frame header");
+	const descriptor = b.readUInt8(4);
+	const singleSegment = (descriptor & 0x20) !== 0;
+	const fcsFlag = (descriptor >> 6) & 0x03;
+	const checksum = (descriptor & 0x04) !== 0;
+	if ((descriptor & 0x03) !== 0) {
+		throw new Error(`zstd frame validation: dictionary id (flag 0b${(descriptor & 0x03).toString(2)}) rejected`);
+	}
+	let offset = 5;
+	// Window_Size (RFC 8878 §3.1.1.1.2): Window_Descriptor bits 6-3 are
+	// the exponent, bits 2-0 the mantissa. A single-segment frame carries
+	// no Window_Descriptor: 128 KiB stands in (its Block_Maximum_Size is
+	// the 128 KiB minimum of min(Window_Size, 128 KiB) either way).
+	let windowSize = 0x20000;
+	if (!singleSegment) {
+		if (offset >= b.length) throw new Error("zstd frame validation: truncated frame header (no window descriptor)");
+		const windowDescriptor = b[offset];
+		const windowBase = 1 << (10 + ((windowDescriptor >> 3) & 0x0f));
+		windowSize = windowBase + (windowBase / 8) * (windowDescriptor & 0x07);
+		offset += 1; // window descriptor
+	}
+	let declared = null;
+	if (fcsFlag === 0) {
+		// FCS_Flag 0b00 declares a size only on single-segment frames;
+		// a windowed frame with FCS_Flag 0b00 has NO FCS field (null).
+		if (singleSegment) {
+			if (offset + 1 > b.length) throw new Error("zstd frame validation: truncated frame header (no 1-byte FCS field)");
+			declared = b.readUInt8(offset);
+			offset += 1;
+		}
+	} else if (fcsFlag === 1) {
+		if (offset + 2 > b.length) throw new Error("zstd frame validation: truncated frame header (no 2-byte FCS field)");
+		declared = b.readUInt16LE(offset) + 256; // RFC 8878 §3.1.1.1.4
+		offset += 2;
+	} else if (fcsFlag === 2) {
+		if (offset + 4 > b.length) throw new Error("zstd frame validation: truncated frame header (no 4-byte FCS field)");
+		declared = b.readUInt32LE(offset);
+		offset += 4;
+	} else {
+		if (offset + 8 > b.length) throw new Error("zstd frame validation: truncated frame header (no 8-byte FCS field)");
+		const size = b.readBigUInt64LE(offset);
+		if (size > BigInt(Number.MAX_SAFE_INTEGER)) {
+			throw new Error("zstd frame validation: declared content size beyond the safe integer range; rejected before decompression");
+		}
+		declared = Number(size);
+		offset += 8;
+	}
+	const blockMax = Math.min(windowSize, 0x20000);
+	let bound = 0;
+	for (;;) {
+		if (offset + 3 > b.length) throw new Error("zstd frame validation: block header runs past the input");
+		const word = b.readUInt16LE(offset) | (b.readUInt8(offset + 2) << 16);
+		const last = (word & 0x01) !== 0;
+		const type = (word >> 1) & 0x03;
+		const size = (word >> 3) & 0x1fffff;
+		if (type === 3) throw new Error("zstd frame validation: reserved block type rejected");
+		const dataLen = type === 1 ? 1 : size;
+		if (offset + 3 + dataLen > b.length) throw new Error("zstd frame validation: block data runs past the input");
+		// F-1 pre-allocation bound: raw contributes exactly Block_Size;
+		// RLE contributes exactly Block_Size (that field is its
+		// regenerated size); compressed contributes at most
+		// Block_Maximum_Size.
+		bound += type === 2 ? blockMax : size;
+		offset += 3 + dataLen;
+		if (last) break;
+	}
+	if (checksum) {
+		if (offset + 4 > b.length) throw new Error("zstd frame validation: checksum runs past the input");
+		offset += 4;
+	}
+	if (offset !== b.length) {
+		throw new Error(`zstd frame validation: frame ends at byte ${offset} of ${b.length}; trailing bytes or more than one frame rejected`);
+	}
+	return { declared, bound };
+}
+
+/**
+ * Pre-allocation decompressed-size bound of `bytes` (F-1; exported for
+ * tests and read-only payload verification). Runs the same structural
+ * walk as validateZstdSingleFrame (same throws) and returns the bound:
+ * the sum over the frame's blocks of raw/RLE Block_Size (exact — an RLE
+ * block's Block_Size field is its regenerated size) and, per compressed
+ * block, at most Block_Maximum_Size = min(Window_Size, 128 KiB) with
+ * Window_Size from the Window_Descriptor (128 KiB for a single-segment
+ * frame). The bound is a PRE-ALLOCATION upper bound used to reject a
+ * frame before decompression when it declares no content size; the
+ * post-decompression cap check remains the authoritative size guard.
+ */
+export function zstdPreallocationBound(bytes) {
+	return zstdFrameWalk(bytes).bound;
+}
+
+/**
+ * Pre-allocation zstd frame validation (SM-5 + F-1; runs before ANY
+ * decompression). `bytes` must be EXACTLY ONE structurally complete
+ * normal zstd frame (see zstdFrameWalk for the structural rules). Size
+ * gating, all BEFORE decompression, against `cap` (the UNCHANGED 2 GiB
+ * default): a declared content size above `cap` is rejected; a frame
+ * that declares none (a windowed frame with FCS_Flag 0b00 — the one
+ * shape whose size the header cannot name) is rejected when its
+ * pre-allocation bound (the window + block walk sum, see
+ * zstdPreallocationBound) exceeds `cap`. The post-decompression cap
+ * check in extractWrapperPayload stays the authoritative size guard.
+ * Returns the declared content size, or null when the frame declares
+ * none.
+ */
+export function validateZstdSingleFrame(bytes, cap = MAX_WRAPPER_DECOMPRESSED_BYTES) {
+	const { declared, bound } = zstdFrameWalk(bytes);
+	if (declared !== null && declared > cap) {
+		throw new Error(
+			`wrapper payload declares a zstd content size of ${declared} bytes, above the ${cap} byte decompression cap; rejected before decompression`,
+		);
+	}
+	if (declared === null && bound > cap) {
+		throw new Error(
+			`wrapper payload declares no zstd content size; its pre-allocation decompressed-size bound is ${bound} bytes (window + block walk), above the ${cap} byte decompression cap; rejected before decompression`,
+		);
+	}
+	return declared;
+}
+
+/**
  * Materialize a wrapper payload (a `Resources/<hash>.tar.zst`) into
- * `destDir` without ever trusting its bytes: read the zstd frame header
- * FIRST and reject, before decompressing anything, when the first normal
- * frame declares a content size above the cap (no expansion is ever
- * allocated); then decompress in-process (Bun.zstdDecompressSync by
- * default — no `zstd` binary, no bsdtar zstd assumption) and re-check the
- * ACTUAL decompressed size against the cap: that is the only size guard
- * when the frame declares no content size (zstdDeclaredContentSize is
- * null — e.g. a non-single-segment frame without an FCS field, or a
- * skippable frame before the real one, or multiple frames where the total
- * exceeds the first frame's declared size), and in that case
- * Bun.zstdDecompressSync has already allocated the full output before the
- * comparison — an accepted limitation because the payload is this
- * project's own self-built build output (trusted). Then validate the plain
- * tar headers BEFORE anything is written (see validatePlainTar), write the
- * plain tar to the caller's sandbox (NOT inside `destDir`; default:
- * `dirname(destDir)`), extract it with the platform tar (args exactly
- * `[-xf, <plainTar>, -C, destDir]`, no -P) and post-check every extracted
- * entry with lstat/realpath. Any violation throws (fail closed).
- * `options.platform` selects the tar the way `runSmoke`'s platform does;
- * `options.tarCommand` overrides it (tests only). Test-only options:
- * `maxDecompressedBytes` / `maxEntries` narrow the production caps
- * (positive integer, never above the default, otherwise throw) and
- * `zstdDecompress` replaces the decompressor (default:
+ * `destDir` without ever trusting its bytes: validate the ENTIRE zstd
+ * frame structure FIRST (validateZstdSingleFrame — exactly one normal
+ * frame, no skippable frames, no dictionary id, no reserved block type,
+ * nothing past the input, no trailing bytes, a declared content size
+ * within the cap — and, when the frame declares NO content size (a
+ * windowed frame with FCS_Flag 0b00), its pre-allocation decompressed-
+ * size bound (the window + block walk sum, see zstdPreallocationBound)
+ * within the cap — so an oversize is rejected BEFORE decompressing and
+ * the expansion is never allocated; then decompress in-process
+ * (Bun.zstdDecompressSync by default — no `zstd` binary, no bsdtar zstd
+ * assumption) and re-check the ACTUAL decompressed size against the cap:
+ * that post-decompression check is the authoritative size guard (for a
+ * no-content-size frame the pre-check bound is a window/block upper
+ * bound, not a proof of the exact decompressed length). Then validate the
+ * plain tar headers BEFORE anything is written (see validatePlainTar),
+ * write the plain tar to the caller's sandbox (NOT inside `destDir`;
+ * default: `dirname(destDir)`), extract it with the platform tar (args
+ * exactly `[-xf, <plainTar>, -C, destDir]`, no -P) and post-check every
+ * extracted entry with lstat/realpath. Any violation throws (fail
+ * closed). `options.platform` selects the tar the way `runSmoke`'s
+ * platform does; `options.tarCommand` overrides it (tests only).
+ * Test-only options: `maxDecompressedBytes` / `maxEntries` narrow the
+ * production caps (positive integer, never above the default, otherwise
+ * throw) and `zstdDecompress` replaces the decompressor (default:
  * Bun.zstdDecompressSync).
  */
 export async function extractWrapperPayload(payloadTarZst, destDir, options = {}) {
@@ -607,16 +817,17 @@ export async function extractWrapperPayload(payloadTarZst, destDir, options = {}
 	} catch (error) {
 		throw new Error(`cannot read wrapper payload ${payloadTarZst}: ${errorText(error)}`);
 	}
-	// Fail-closed pre-check: a declared content size above the cap is
-	// rejected BEFORE decompressing, so the expansion is never allocated.
-	// When the first frame declares no content size (null), the
-	// post-decompression check below is the only size guard.
-	const declared = zstdDeclaredContentSize(compressed);
-	if (declared !== null && declared > cap) {
-		throw new Error(
-			`wrapper payload declares a zstd content size of ${declared} bytes, above the ${cap} byte decompression cap; rejected before decompression`,
-		);
-	}
+	// Fail-closed pre-check (before ANY allocation): the whole frame
+	// structure is validated — exactly one normal zstd frame, no skippable
+	// frames, no dictionary id, no reserved block type, nothing past the
+	// input, no trailing bytes — and an oversize is rejected BEFORE
+	// decompressing, so the expansion is never allocated: a declared
+	// content size above the cap, or — for the one frame shape that
+	// declares no content size (a windowed frame with FCS_Flag 0b00) —
+	// the pre-allocation decompressed-size bound (window + block walk)
+	// above the cap. The post-decompression check below remains the
+	// authoritative size guard.
+	validateZstdSingleFrame(compressed, cap);
 	let plain;
 	try {
 		plain = Buffer.from(decompress(compressed));
@@ -661,20 +872,51 @@ export function defaultAppDir(scriptDir, platform = process.platform, arch = pro
 /**
  * Env for the sandboxed launcher: PINAR_HOME/HOME/USERPROFILE (and
  * LOCALAPPDATA/APPDATA on Windows) inside the sandbox, PINAR_PORT pinned.
+ * The base env is inherited (the executable search path and system
+ * variables are needed for a native start) EXCEPT the inherited PINAR_*
+ * variables, which are dropped (allowlist approach): the smoke sets only
+ * PINAR_HOME and PINAR_PORT itself, and a parent's PINAR_BIN /
+ * PINAR_UPDATE_BASE_URL (or any other PINAR_*) must not leak into the
+ * sandboxed child. TEMP/TMP/TMPDIR point at <sandbox>/tmp (created by the
+ * caller before the spawn); on win32 HOMEDRIVE/HOMEPATH are split from the
+ * sandbox home; on POSIX the XDG_* homes point under the sandbox home.
  */
 export function smokeEnv(sandbox, port, options = {}) {
 	const { platform = process.platform, baseEnv = process.env } = options;
 	const home = join(sandbox, "home");
+	// Allowlist: drop every inherited PINAR_* (the smoke re-sets PINAR_HOME
+	// and PINAR_PORT below; nothing else from the parent survives).
+	const inherited = {};
+	for (const [key, value] of Object.entries(baseEnv)) {
+		if (key.startsWith("PINAR_")) continue;
+		inherited[key] = value;
+	}
 	const env = {
-		...baseEnv,
+		...inherited,
 		PINAR_HOME: join(sandbox, ".pinar"),
 		HOME: home,
 		USERPROFILE: home,
 		PINAR_PORT: String(port),
+		TEMP: join(sandbox, "tmp"),
+		TMP: join(sandbox, "tmp"),
+		TMPDIR: join(sandbox, "tmp"),
 	};
 	if (platform === "win32") {
 		env.LOCALAPPDATA = join(home, "AppData", "Local");
 		env.APPDATA = join(home, "AppData", "Roaming");
+		// HOMEDRIVE/HOMEPATH split from the sandbox home (the home is always
+		// an absolute drive path inside the sandbox).
+		const homeWin = home.replace(/\//g, "\\");
+		const split = homeWin.match(/^([A-Za-z]:)(.*)$/);
+		if (split != null) {
+			env.HOMEDRIVE = split[1];
+			env.HOMEPATH = split[2] === "" ? "\\" : split[2];
+		}
+	} else {
+		env.XDG_CONFIG_HOME = join(home, ".config");
+		env.XDG_DATA_HOME = join(home, ".local", "share");
+		env.XDG_CACHE_HOME = join(home, ".cache");
+		env.XDG_STATE_HOME = join(home, ".local", "state");
 	}
 	return env;
 }
@@ -688,8 +930,8 @@ export function readTrayPid(path, startMs) {
 	} catch {
 		content = "";
 	}
-	const pid = Number(content);
-	const valid = Number.isInteger(pid) && pid > 0;
+	const pid = parsePid(content);
+	const valid = pid !== null;
 	let fresh = false;
 	try {
 		fresh = valid && statSync(path).mtimeMs >= startMs;
@@ -894,39 +1136,60 @@ function normalizeIdentity(out, error) {
  *   - unknown (a throwing or indecisive probe) OR boundId == null → refuse
  *       to signal in that step, outcome `unknown` (honest failure: the PID
  *       cannot be re-proven as ours);
- *   - alive with the SAME id → signal the step's signal to the GROUP `-pid`
- *       only (an ESRCH on the group is normal when the PID is not a group
- *       leader — recorded in `outcome.esrch`, not a failure; every other
- *       group error is recorded in `outcome.errors`). A delivered group
- *       signal needs no bare-pid call in that step: the leader `pid` is a
- *       member of its own group `pid`, so while a live process holds `pid`
- *       with the bound id, group `pid` can only be its group. If the group
- *       call was NOT delivered, the bare-pid fallback is a SEPARATE signal
- *       and is only sent after the bound identity is re-proved (gone/reused/
- *       unknown stop it exactly as at the step start), then wait
- *       (stepDelayMs) and continue (an owned survivor escalates to SIGKILL).
+ *   - alive with the SAME id → the step's signal goes to the GROUP `-pid`
+ *       only when the pid is proven to be its OWN process-group leader
+ *       first (a bounded `ps -o pgid=` probe with the same runner and the
+ *       same timeout as the identity probe; only `pgid === pid` permits the
+ *       group signal). A delivered group signal needs no bare-pid call in
+ *       that step: the leader `pid` is a member of its own group `pid`, so
+ *       while a live process holds `pid` with the bound id, group `pid` can
+ *       only be its group. An ESRCH on the group is normal when the leader
+ *       proof went stale — recorded in `outcome.esrch`, not a failure
+ *       (every other group error is recorded in `outcome.errors`), and the
+ *       bare-pid fallback is a SEPARATE signal only sent after the bound
+ *       identity is re-proved (gone/reused/unknown stop it exactly as at
+ *       the step start). When the leader proof is unknown, a different pgid,
+ *       or the probe fails, NO group signal is sent: the bare pid is
+ *       signalled (the identity was re-proved at the step start — the same
+ *       rule as the fallback) and `outcome.groupRefused` records the
+ *       reason. Then wait (stepDelayMs) and continue (an owned survivor
+ *       escalates to SIGKILL).
  * After SIGKILL one final probe classifies `gone` / `reused` / `survivor` /
  * `unknown` (survivor: still alive with the SAME bound id). `signals` lists
  * only DELIVERED signals; `groupSignalled` is true when at least one group
  * signal was delivered (runSmoke's group-empty check then requires the group
- * to be absent before crediting success).
+ * to be absent before crediting success); `groupRefused` names the reason a
+ * step refused the group signal (leader proof unknown/different/failed), or
+ * null.
  *
  * win32: a single `taskkill /PID <pid> /T /F` (unchanged ownership
- * semantics); the exit status is captured in `outcome.taskkillStatus`
- * (non-zero → recorded by the caller; a spawn failure lands in
- * `outcome.errors`; never thrown).
+ * semantics), bounded at TASKKILL_TIMEOUT_MS (the same value as
+ * teardownChild's default taskkillTimeoutMs, scripts/child-teardown.mjs —
+ * not a new budget). The exit status is captured in
+ * `outcome.taskkillStatus` (kept, null when it cannot be known); the
+ * `signals` entry is DELIVERED only when the run returned status 0 with no
+ * error and no signal — a timeout (`timed out after 8000ms`), a non-zero
+ * exit (`exited <n>`), a runner error (`spawn failed: …`, classified
+ * strictly: an Error with a non-empty message or a non-empty string; any
+ * other non-null error is `malformed runner error (<type>)` and fails
+ * closed), or a missing/non-integer status (`no exit status`) all yield
+ * outcome state `failed` with the precise error, never `signalled`.
  *
- * Residual limits (documented, fail closed): (a) a TOCTOU window between the
- * identity probe and `kill()` that Node cannot close (no pidfd support);
- * (b) darwin `ps -o lstart=` has one-SECOND precision, so a PID reuse within
- * the same second with the same start text is indistinguishable; (c) when
- * the group leader is gone the remaining group members are NOT signalled
- * (no signal on the old PGID after leader exit) — runSmoke's group-empty
- * check (the bounded post-kill poll and the final verdict require the group
- * to be absent before crediting success) reports them instead.
+ * Residual limits (documented, fail closed): (a) a TOCTOU window between
+ * the identity probe and `kill()` that Node cannot close (no pidfd support)
+ * — the pgid leader proof has the same window; (b) darwin `ps -o lstart=`
+ * has one-SECOND precision, so the darwin id now also requires the SAME
+ * executable path (`<lstart>|<comm>`), which for the smoke lives inside the
+ * unique mkdtemp sandbox — a false match needs the same second AND the same
+ * image inside that sandbox; (c) when the group leader is gone the
+ * remaining group members are NOT signalled (no signal on the old PGID
+ * after leader exit) — runSmoke's group-empty check (the bounded post-kill
+ * poll and the final verdict require the group to be absent before
+ * crediting success) reports them instead. Native darwin/linux behaviour is
+ * proven only by CI (this host is Windows).
  *
- * `kill`, `sleep`, `identityOf` and `runTaskkill` are injectable so tests
- * exercise the real sequence without touching real processes.
+ * `kill`, `sleep`, `identityOf`, `runTaskkill` and `pgidOf` are injectable
+ * so tests exercise the real sequence without touching real processes.
  */
 export function killTreeFor(
 	platform,
@@ -935,15 +1198,36 @@ export function killTreeFor(
 		sleep: sleepFn = sleep,
 		identityOf = null,
 		runTaskkill = null,
+		pgidOf = null,
 		stepDelayMs = 500,
 		settleDelayMs = 300,
 	} = {},
 ) {
+	// The default taskkill is bounded at TASKKILL_TIMEOUT_MS (the same value
+	// as teardownChild's default taskkillTimeoutMs in
+	// scripts/child-teardown.mjs — not a new budget): a stuck taskkill must
+	// not block cleanup until the CI job timeout. The raw error and the
+	// signal are passed through so the caller can classify the outcome
+	// (spawnSync's timeout kill sets `signal`; a spawn failure sets
+	// `error`).
 	const defaultRunTaskkill = async (pid) => {
-		const out = spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
-		if (out.error != null) return { status: null, error: errorText(out.error) };
-		return { status: out.status };
+		const out = spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
+			stdio: "ignore",
+			windowsHide: true,
+			timeout: TASKKILL_TIMEOUT_MS,
+		});
+		return { status: out.status, signal: out.signal ?? null, error: out.error ?? null };
 	};
+	// The default process-group probe (POSIX only): the same bounded `ps`
+	// runner and the same timeout (none, like the darwin identity probe) —
+	// `ps -o pgid= -p <pid>`; a missing pid (non-zero status), a spawn fault
+	// or a malformed pgid is null (unknown → no group signal).
+	const defaultPgidOf = async (pid) => {
+		const out = spawnSync("ps", ["-o", "pgid=", "-p", String(pid)], { encoding: "utf8" });
+		if (out.error != null || out.status !== 0) return null;
+		return parsePid(String(out.stdout ?? ""));
+	};
+	const groupPgidOf = pgidOf ?? defaultPgidOf;
 	const taskkill = runTaskkill ?? defaultRunTaskkill;
 	const probe = async (pid) => {
 		if (identityOf == null) return { state: "unknown", error: "identity probe unavailable" };
@@ -956,7 +1240,7 @@ export function killTreeFor(
 		}
 		return normalizeIdentity(out, error);
 	};
-	const finish = (state, { signals, esrch, errors, groupSignalled }, detail, taskkillStatus = null) => ({
+	const finish = (state, { signals, esrch, errors, groupSignalled }, detail, taskkillStatus = null, groupRefused = null) => ({
 		platform,
 		state,
 		signals,
@@ -965,6 +1249,7 @@ export function killTreeFor(
 		groupSignalled,
 		detail,
 		taskkillStatus,
+		groupRefused,
 	});
 	if (platform === "win32") {
 		// A single taskkill /T /F, with its exit status captured in the
@@ -999,22 +1284,72 @@ export function killTreeFor(
 					`pid now owned by id ${now.id} (bound ${boundId}); not signalled`,
 				);
 			}
-			// Same identity as bound: exactly one taskkill /T /F.
-			const signals = [`taskkill /PID ${pid} /T /F`];
+			// Same identity as bound: exactly one taskkill /T /F. The signal
+			// string is DELIVERED (counted in `signals`) only when the run
+			// returned status 0 with no error and no signal; every other
+			// outcome is state `failed` with a precise error and the
+			// taskkill status kept (null when it cannot be known).
+			const signals = [];
 			let status = null;
+			let signal = null;
+			let runnerError = null;
 			try {
 				const result = await taskkill(pid);
 				if (typeof result === "number") {
 					status = result;
 				} else if (result != null && typeof result === "object") {
-					status = typeof result.status === "number" ? result.status : null;
-					if (result.error != null) errors.push(String(result.error));
+					status = result.status;
+					signal = result.signal ?? null;
+					runnerError = result.error ?? null;
 				}
 			} catch (error) {
-				errors.push(`taskkill invocation failed: ${errorText(error)}`);
+				runnerError = error;
+			}
+			// Runner error preflight (strict): an Error with a non-empty
+			// message, or a non-empty string, is an error; any other non-null
+			// error is malformed and fails closed.
+			let errorTextValue = null;
+			let malformed = false;
+			if (runnerError != null) {
+				if (runnerError instanceof Error && runnerError.message !== "") {
+					errorTextValue = errorText(runnerError);
+				} else if (typeof runnerError === "string" && runnerError !== "") {
+					errorTextValue = runnerError;
+				} else {
+					malformed = true;
+					errorTextValue = typeof runnerError;
+				}
+			}
+			if (status !== null && (typeof status !== "number" || !Number.isInteger(status))) {
+				// A non-integer status is no exit status (fail closed).
+				status = null;
+			}
+			let failed = false;
+			if (malformed) {
+				failed = true;
+				errors.push(`malformed runner error (${errorTextValue})`);
+			} else if (errorTextValue !== null) {
+				failed = true;
+				const timedOut =
+					signal != null ||
+					(runnerError != null && typeof runnerError === "object" && "code" in runnerError &&
+						(runnerError.code === "ERR_CHILD_PROCESS_TIMEOUT" || runnerError.code === "ETIMEDOUT")) ||
+					(runnerError instanceof Error && /ETIMEDOUT/.test(runnerError.message));
+				errors.push(timedOut ? `timed out after ${TASKKILL_TIMEOUT_MS}ms` : `spawn failed: ${errorTextValue}`);
+			} else if (signal != null) {
+				failed = true;
+				errors.push(`timed out after ${TASKKILL_TIMEOUT_MS}ms`);
+			} else if (status === null) {
+				failed = true;
+				errors.push("no exit status");
+			} else if (status !== 0) {
+				failed = true;
+				errors.push(`exited ${status}`);
+			} else {
+				signals.push(`taskkill /PID ${pid} /T /F`);
 			}
 			await sleepFn(settleDelayMs);
-			return finish("signalled", { signals, esrch, errors, groupSignalled: false }, null, status);
+			return finish(failed ? "failed" : "signalled", { signals, esrch, errors, groupSignalled: false }, null, status);
 		};
 	}
 	return async (pid, ctx = {}) => {
@@ -1023,6 +1358,10 @@ export function killTreeFor(
 		const esrch = [];
 		const errors = [];
 		let groupSignalled = false;
+		let groupRefused = null;
+		// Every POSIX outcome carries the group-signal refusal reason (the
+		// leader-gate refusal recorded above), if one was recorded.
+		const finishPosix = (state, parts, detail) => finish(state, parts, detail, null, groupRefused);
 		// `signals` holds only DELIVERED signals; details never say
 		// "not signalled" once the list is non-empty.
 		const sent = (extra) => (signals.length > 0 ? `signals already sent; ${extra}` : extra);
@@ -1055,44 +1394,73 @@ export function killTreeFor(
 			// group signal: a recycled PID must not receive it.
 			const now = await probe(pid);
 			if (now.state === "gone") {
-				return finish("gone", { signals, esrch, errors, groupSignalled }, sent(`pid gone before the ${signal} step`));
+				return finishPosix("gone", { signals, esrch, errors, groupSignalled }, sent(`pid gone before the ${signal} step`));
 			}
 			if (now.state === "unknown") {
-				return finish("unknown", { signals, esrch, errors, groupSignalled }, sent(now.error));
+				return finishPosix("unknown", { signals, esrch, errors, groupSignalled }, sent(now.error));
 			}
 			// now.state === "alive"
 			if (boundId == null) {
-				return finish(
+				return finishPosix(
 					"unknown",
 					{ signals, esrch, errors, groupSignalled },
 					sent("the pre-signal identity was unknown (boundId null); refused to signal"),
 				);
 			}
 			if (now.id !== boundId) {
-				return finish("reused", { signals, esrch, errors, groupSignalled }, reuseDetail(now.id));
+				return finishPosix("reused", { signals, esrch, errors, groupSignalled }, reuseDetail(now.id));
 			}
-			// Same identity as bound: signal the GROUP only. A delivered group
-			// signal needs no bare-pid call in this step: the leader `pid` is a
-			// member of its own group `pid`, so while a live process holds
-			// `pid` with the bound id, group `pid` can only be its group.
+			// Same identity as bound: the group signal goes out only for a
+			// proven own-group leader — a bounded `ps -o pgid=` probe (the
+			// same runner and the same timeout as the identity probe); only
+			// `pgid === pid` permits it. A delivered group signal needs no
+			// bare-pid call in this step: the leader `pid` is a member of its
+			// own group `pid`, so while a live process holds `pid` with the
+			// bound id, group `pid` can only be its group.
+			let leader = false;
+			let pgidValue = null;
+			let pgidFault = null;
+			try {
+				pgidValue = await groupPgidOf(pid);
+			} catch (error) {
+				pgidFault = error;
+			}
+			if (pgidFault == null && typeof pgidValue === "number" && pgidValue === pid) leader = true;
+			if (!leader) {
+				// Unknown, a different pgid, or a probe failure: NO group
+				// signal. The bare pid is a separate signal and the identity
+				// was re-proved at the step start (the `now` checks above) —
+				// the same rule as the fallback below.
+				if (groupRefused == null) {
+					groupRefused = pgidFault != null
+						? `process-group leader could not be proven for pid ${pid} (${errorText(pgidFault)}); group signal refused`
+						: pgidValue == null
+							? `process-group leader could not be proven for pid ${pid}; group signal refused`
+							: `pid ${pid} is not a process-group leader (pgid ${pgidValue}); group signal refused`;
+				}
+				sendTo(pid, signal);
+				await sleepFn(stepDelayMs);
+				continue;
+			}
 			const groupDelivered = sendTo(-pid, signal);
 			if (groupDelivered) {
 				groupSignalled = true;
 				await sleepFn(stepDelayMs);
 				continue;
 			}
-			// The group call was NOT delivered (ESRCH: not a group leader, or
-			// an unexpected error recorded in esrch/errors): the bare-pid
-			// fallback is a SEPARATE signal and needs a fresh identity proof.
+			// The group call was NOT delivered (ESRCH: the leader proof went
+			// stale, or an unexpected error recorded in esrch/errors): the
+			// bare-pid fallback is a SEPARATE signal and needs a fresh
+			// identity proof.
 			const again = await probe(pid);
 			if (again.state === "gone") {
-				return finish("gone", { signals, esrch, errors, groupSignalled }, sent(`pid gone before the ${signal} bare-pid fallback`));
+				return finishPosix("gone", { signals, esrch, errors, groupSignalled }, sent(`pid gone before the ${signal} bare-pid fallback`));
 			}
 			if (again.state === "unknown") {
-				return finish("unknown", { signals, esrch, errors, groupSignalled }, sent(again.error));
+				return finishPosix("unknown", { signals, esrch, errors, groupSignalled }, sent(again.error));
 			}
 			if (again.id !== boundId) {
-				return finish("reused", { signals, esrch, errors, groupSignalled }, reuseDetail(again.id));
+				return finishPosix("reused", { signals, esrch, errors, groupSignalled }, reuseDetail(again.id));
 			}
 			sendTo(pid, signal);
 			await sleepFn(stepDelayMs);
@@ -1102,15 +1470,15 @@ export function killTreeFor(
 		await sleepFn(settleDelayMs);
 		const final = await probe(pid);
 		if (final.state === "gone") {
-			return finish("gone", { signals, esrch, errors, groupSignalled }, sent("pid gone after SIGKILL"));
+			return finishPosix("gone", { signals, esrch, errors, groupSignalled }, sent("pid gone after SIGKILL"));
 		}
 		if (final.state === "alive") {
 			if (final.id !== boundId) {
-				return finish("reused", { signals, esrch, errors, groupSignalled }, reuseDetail(final.id));
+				return finishPosix("reused", { signals, esrch, errors, groupSignalled }, reuseDetail(final.id));
 			}
-			return finish("survivor", { signals, esrch, errors, groupSignalled }, "pid still alive after SIGKILL with the bound identity");
+			return finishPosix("survivor", { signals, esrch, errors, groupSignalled }, "pid still alive after SIGKILL with the bound identity");
 		}
-		return finish("unknown", { signals, esrch, errors, groupSignalled }, sent(final.error));
+		return finishPosix("unknown", { signals, esrch, errors, groupSignalled }, sent(final.error));
 	};
 }
 
@@ -1154,6 +1522,9 @@ export async function runSmoke(args, hooks = {}) {
 	const listeningPid = hooks.listeningPid ?? findListeningPid;
 	const spawnFn = hooks.spawn ?? spawn;
 	const probeHealthFn = hooks.probeHealth ?? probeHealth;
+	// Detailed health probe for failure diagnostics (SM-7): the same 3 s
+	// bound, never throws; injectable for tests.
+	const probeHealthDetailFn = hooks.probeHealthDetail ?? probeHealthDetail;
 	const removeDirFn = hooks.removeDir ?? removeDir;
 	const realpathFn = hooks.realpath ?? realpathSync.native;
 	let parentOf = hooks.parentOf ?? null;
@@ -1192,6 +1563,170 @@ const start = Date.now();
 	const probeResidue = [];
 	const noteProbeResidue = (kind, pid) => {
 		probeResidue.push({ kind, pid });
+	};
+
+	// Failure-diagnostics sampling (SM-7): bounded sampling while the wait
+	// loop is failing. `maybeSample` gates on SAMPLE_INTERVAL_MS (one sample
+	// per 10 s) and a hard 14-sample cap (a 120 s run: 12 cadence + 1 final +
+	// margin), so no new timeout can extend the run: every probe inside a
+	// sample is an existing bounded probe (3 s health fetch, listeningPid,
+	// inProcessTree, imageOf, isInsideAppDir — no command-line enumeration).
+	const diagSamples = [];
+	let lastSampleAt = -Infinity;
+	const maybeSample = async (force = false) => {
+		if (diagSamples.length >= 14) return;
+		const now = Date.now();
+		if (!force && now - lastSampleAt < SAMPLE_INTERVAL_MS) return;
+		lastSampleAt = now;
+		const portOwnerPid = listeningPid(args.port);
+		const ownerInTree =
+			parentOf != null && child != null && child.pid != null && portOwnerPid != null
+				? await inProcessTree(portOwnerPid, child.pid, parentOf).catch(() => null)
+				: null;
+		// helpers: the port owner and the tray.pid candidate — each listed
+		// only when it is inside the launched tree OR its image (imageOf) is
+		// inside the canonical launch root (the existing isInsideAppDir).
+		const candidatePids = [];
+		if (portOwnerPid != null) candidatePids.push(portOwnerPid);
+		if (result.trayPid != null && !candidatePids.includes(result.trayPid)) candidatePids.push(result.trayPid);
+		const helpers = [];
+		for (const pid of candidatePids) {
+			let inTree = null;
+			if (parentOf != null && child != null && child.pid != null) {
+				try {
+					inTree = await inProcessTree(pid, child.pid, parentOf);
+				} catch {
+					inTree = null;
+				}
+			}
+			if (inTree === true) {
+				helpers.push({ pid, inTree: true });
+				continue;
+			}
+			if (imageOf != null) {
+				try {
+					const image = await imageOf(pid);
+					const containmentPlatform =
+						platform === "win32" || process.platform === "win32" ? "win32" : platform;
+					if (image != null && isInsideAppDir(image, launchRoot, { platform: containmentPlatform, realpath: realpathFn })) {
+						helpers.push({ pid, inTree: inTree === null ? null : false });
+					}
+				} catch {
+					// image probe fault: not listed (fail closed, diagnostic only)
+				}
+			}
+		}
+		const health = await probeHealthDetailFn(args.port);
+		diagSamples.push({ tMs: now - start, health, portOwnerPid, portOwnerInTree: ownerInTree, helpers });
+	};
+
+	/**
+	 * Build the failure diagnostics (SM-7). Called ONLY when the result is
+	 * not ok and BEFORE the cleanup removes the sandbox (sandboxFiles and
+	 * logTails read the sandbox's .pinar and the extracted app log dir).
+	 * Everything is bounded and read-only: ≤14 samples (already taken),
+	 * ≤60 sandboxFiles { relPath, size }, log tails of ≤4096 bytes each with
+	 * a ≤16 KiB total. Never throws: any fault degrades to an empty/absent
+	 * entry (a diagnostic must never fail the run).
+	 */
+	const collectDiagnostics = async () => {
+		const samples = [...diagSamples];
+		const lastHealth =
+			samples.length > 0
+				? samples[samples.length - 1].health
+				: await probeHealthDetailFn(args.port).catch(() => ({ ok: false, error: "health probe unavailable" }));
+		// server.pid: the strict SM-6 parse (digits only, 1..2^31-1).
+		let serverPid = { value: null, reason: "no sandbox" };
+		if (sandbox != null) {
+			const file = join(sandbox, ".pinar", "server.pid");
+			let content = null;
+			try {
+				content = readFileSync(file, "utf8").trim();
+			} catch {
+				content = null;
+			}
+			if (content == null || content === "") {
+				serverPid = { value: null, reason: "absent" };
+			} else {
+				const value = parsePid(content);
+				serverPid =
+					value != null
+						? { value, reason: null }
+						: { value: null, reason: `unparseable (strict digits 1..2147483647): ${content.slice(0, 80)}` };
+			}
+		}
+		// sandboxFiles: { relPath, size } under the sandbox's .pinar and the
+		// extracted app log dir — at most 60 entries, sorted for stability.
+		const sandboxFiles = [];
+		if (sandbox != null) {
+			const walk = (root, prefix, files, cap) => {
+				for (const entry of readdirSync(root, { withFileTypes: true })) {
+					if (files.length >= cap) return;
+					const relPath = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+					const full = join(root, entry.name);
+					if (entry.isDirectory()) walk(full, relPath, files, cap);
+					else if (entry.isFile()) {
+						let size = 0;
+						try {
+							size = statSync(full).size;
+						} catch {
+							size = 0;
+						}
+						files.push({ relPath, size });
+					}
+				}
+				files.sort((a, b) => (a.relPath < b.relPath ? -1 : 1));
+			};
+			try {
+				walk(join(sandbox, ".pinar"), ".pinar", sandboxFiles, 60);
+			} catch {
+				// .pinar missing: no sandbox files
+			}
+			// The extracted app log dir is the launcher's own dir (the
+			// extracted payload's bin dir) — only when a payload was
+			// extracted (launchRoot !== appDir).
+			if (launchRoot !== appDir && result.launcher != null && sandboxFiles.length < 60) {
+				try {
+					walk(dirname(result.launcher), "applog", sandboxFiles, 60);
+				} catch {
+					// log dir not present: nothing to list
+				}
+			}
+		}
+		// logTails: the last ≤4096 bytes of each *.log under .pinar and the
+		// extracted app.log; the TOTAL of all tails is ≤16 KiB.
+		const logEntries = [];
+		if (sandbox != null) {
+			const pinarDir = join(sandbox, ".pinar");
+			try {
+				for (const entry of readdirSync(pinarDir, { withFileTypes: true })) {
+					if (entry.isFile() && entry.name.toLowerCase().endsWith(".log")) {
+						logEntries.push({ relPath: `.pinar/${entry.name}`, full: join(pinarDir, entry.name) });
+					}
+				}
+			} catch {
+				// no .pinar
+			}
+			if (launchRoot !== appDir && result.launcher != null) {
+				const appLog = join(dirname(result.launcher), "app.log");
+				try {
+					if (existsSync(appLog) && statSync(appLog).isFile()) logEntries.push({ relPath: "applog/app.log", full: appLog });
+				} catch {
+					// no app log
+				}
+			}
+		}
+		const logTails = {};
+		let tailBytes = 0;
+		for (const entry of [...logEntries].sort((a, b) => (a.relPath < b.relPath ? -1 : 1))) {
+			const text = readTailFile(entry.full, 4_096);
+			if (text === "") continue;
+			const bytes = Buffer.byteLength(text, "utf8");
+			if (tailBytes > 0 && tailBytes + bytes > 16_384) continue;
+			logTails[entry.relPath] = text;
+			tailBytes += bytes;
+		}
+		return { samples, lastHealth, trayPid: result.trayPid, serverPid, sandboxFiles, logTails };
 	};
 
 	try {
@@ -1400,10 +1935,17 @@ const start = Date.now();
 				result.ok = true;
 				break;
 			}
+			// Failure-diagnostics sampling (SM-7): at most one sample per
+			// SAMPLE_INTERVAL_MS while the run is failing (no new timeout —
+			// the loop deadline is unchanged).
+			await maybeSample();
 		}
 		if (!result.ok && result.reason == null) {
 			result.reason = `timeout after ${args.timeoutMs}ms`;
 		}
+		// The final failure-diagnostics sample (SM-7): one forced sample
+		// after the loop, still within the hard 14-sample cap.
+		if (!result.ok) await maybeSample(true);
 		// Ancestry diagnostic (narrow): when the final result is a fresh live
 		// tray PID that is NOT in the launched tree, report the PID chain from
 		// that PID upward (at most 8 hops, stopping at null/0/1/a repeat). The
@@ -1417,6 +1959,26 @@ const start = Date.now();
 			result.trayAncestry = await pidAncestry(result.trayPid, parentOf);
 		}
 	} finally {
+		// Failure diagnostics (SM-7): built BEFORE the cleanup removes the
+		// sandbox (sandboxFiles/logTails read the sandbox's .pinar and the
+		// extracted app log dir). Only on ok:false — a success JSON is
+		// byte-for-byte unchanged.
+		if (!result.ok) {
+			try {
+				result.diagnostics = await collectDiagnostics();
+			} catch {
+				// a diagnostics fault never fails the run: drop the field
+				result.diagnostics = null;
+				delete result.diagnostics;
+			}
+			if (result.diagnostics != null && args.log != null) {
+				try {
+					appendFileSync(args.log, `\n--- tray-smoke diagnostics ---\n${JSON.stringify(result.diagnostics, null, 2)}\n`);
+				} catch {
+					// a log-append fault never fails the run
+				}
+			}
+		}
 		await cleanupAfterRun();
 	}
 
@@ -1626,7 +2188,15 @@ const start = Date.now();
 			}
 			// `survivor` (alive with the bound id after SIGKILL) is recorded by
 			// the bounded post-kill verdict as `still alive after cleanup`.
-			if (typeof outcome.taskkillStatus === "number" && outcome.taskkillStatus !== 0) {
+			// A `failed` state is NEVER counted as killed (SM-1): its precise
+			// error text already lives in outcome.errors; the legacy injected
+			// hooks that expose only the status (no errors entry) keep the
+			// explicit taskkill-status report.
+			if (
+				typeof outcome.taskkillStatus === "number" &&
+				outcome.taskkillStatus !== 0 &&
+				outcome.state !== "failed"
+			) {
 				cleanup.errors.push(`killTree(${label} pid ${pid}) incomplete: taskkill exited ${outcome.taskkillStatus}`);
 			}
 			if (Array.isArray(outcome.errors) && outcome.errors.length > 0) {
@@ -1824,6 +2394,51 @@ async function probeHealth(port) {
 	}
 }
 
+/**
+ * Bounded detailed /api/health probe for failure diagnostics (SM-7): the
+ * SAME existing 3 s bound (injectable `timeoutMs` keeps it bounded),
+ * never throws. Success: `{ ok: true, status, service }` (service null when
+ * the body is not the pinar shape); failure: `{ ok: false, error }` with
+ * the error text truncated to 200 chars — a failure must not leak a
+ * response body or secret into the diagnostics.
+ */
+export async function probeHealthDetail(port, timeoutMs = 3_000) {
+	try {
+		const response = await fetch(`http://127.0.0.1:${port}/api/health`, {
+			signal: AbortSignal.timeout(timeoutMs),
+		});
+		let body = null;
+		try {
+			body = await response.json();
+		} catch {
+			// a non-JSON body is itself the diagnostic fact (body stays null)
+		}
+		const service =
+			body != null && typeof body === "object" && typeof body.service === "string" ? body.service : null;
+		return { ok: response.ok && isHealthyHealth(body), status: response.status, service };
+	} catch (error) {
+		return { ok: false, status: null, service: null, error: String(error instanceof Error ? error.message : error).slice(0, 200) };
+	}
+}
+
+/** Read the last `bytes` of a file as utf8 (SM-7 log tails); "" on any fault. */
+export function readTailFile(file, bytes) {
+	try {
+		const size = statSync(file).size;
+		const start = size > bytes ? size - bytes : 0;
+		const buffer = Buffer.alloc(Math.min(size, bytes));
+		const fd = openSync(file, "r");
+		try {
+			readSync(fd, buffer, 0, buffer.length, start);
+		} finally {
+			closeSync(fd);
+		}
+		return buffer.toString("utf8");
+	} catch {
+		return "";
+	}
+}
+
 /** Default sandbox removal (hooks may substitute; tests drive failures). */
 function removeDir(sandboxPath) {
 	rmSync(sandboxPath, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
@@ -1882,14 +2497,14 @@ function defaultParentOf(platform, probeDir, onResidue = null, runPsWin = null) 
 			// A timed-out probe whose child was not reaped is residue: the
 			// caller (runSmoke) retains its sandbox and reports it.
 			if (out.unreaped === true) onResidue?.("parent", pid);
-			const value = Number(out.stdout.trim());
-			return out.ok && Number.isInteger(value) && value > 0 ? value : null;
+			const value = parsePid(out.stdout);
+			return out.ok && value !== null ? value : null;
 		};
 	}
 	return async (pid) => {
 		const out = spawnSync("ps", ["-o", "ppid=", "-p", String(pid)], { encoding: "utf8" });
-		const value = Number(String(out.stdout ?? "").trim());
-		return Number.isInteger(value) && value > 0 ? value : null;
+		const value = parsePid(String(out.stdout ?? ""));
+		return value !== null ? value : null;
 	};
 }
 
@@ -1903,7 +2518,7 @@ export function parseTasklistCsvLine(line) {
 	if (!trimmed.startsWith('"') || !trimmed.endsWith('"')) return null;
 	const fields = trimmed.slice(1, -1).split('","');
 	if (fields.length < 2) return null;
-	return { image: fields[0], pid: Number(fields[1]) };
+	return { image: fields[0], pid: parsePid(fields[1]) };
 }
 
 /** True when tasklist's CSV output lists the given PID as a live task. */
@@ -2054,8 +2669,12 @@ function identityOfWin32(probeDir) {
  * Platform-selected process-identity probe for the cleanup kills:
  *   win32  → CIM CreationDate file time (PowerShell); exit 3 proves the PID
  *            no longer exists, exit 0 + a run of digits is the immutable id
- *   darwin → `ps -o stat=,lstart=`: a `Z` stat is gone, otherwise the lstart
- *            text is the id; status 1 with empty output proves gone
+ *   darwin → `ps -o stat=,lstart=,comm=`: a `Z` stat is gone; otherwise the
+ *            id is `<lstart>|<executable path>` (the lstart text has one-
+ *            second precision, so the id also binds the executable path,
+ *            which for the smoke lives inside the unique mkdtemp sandbox);
+ *            a missing/empty path is unknown (fail closed); status 1 with
+ *            empty output proves gone
  *   linux  → /proc/<pid>/stat: ENOENT/ESRCH prove gone; state field Z/X is
  *            gone; stat field 22 (starttime) is the id
  * Every branch resolves one of the documented identity shapes and never
@@ -2081,10 +2700,14 @@ export function identityOfFor(platform, { probeDir, runPs, runPsWin, procDir = "
 		};
 	}
 	if (platform === "darwin") {
+		// The SAME bounded `ps` runner and timeout as the group-leader probe:
+		// stat + lstart (5 tokens) + comm (macOS prints the full executable
+		// path, which may contain spaces — parse stat and the 5 lstart tokens
+		// first and take the remainder as the path).
 		const run =
 			runPs ??
 			((pid) =>
-				spawnSync("ps", ["-o", "stat=,lstart=", "-p", String(pid)], {
+				spawnSync("ps", ["-o", "stat=,lstart=,comm=", "-p", String(pid)], {
 					encoding: "utf8",
 				}));
 		return async (pid) => {
@@ -2092,11 +2715,17 @@ export function identityOfFor(platform, { probeDir, runPs, runPsWin, procDir = "
 			if (out.error != null) return { state: "unknown", error: `ps failed: ${String(out.error)}` };
 			const trimmed = String(out.stdout ?? "").trim();
 			if (out.status === 0 && trimmed !== "") {
-				const match = trimmed.match(/^\S+\s+/);
-				if (match == null) return { state: "unknown", error: "unparsable ps output (no lstart field)" };
-				const stat = trimmed.slice(0, match[0].length).trim();
+				const tokens = trimmed.split(/\s+/);
+				if (tokens.length < 2) return { state: "unknown", error: "unparsable ps output (no stat field)" };
+				const stat = tokens[0];
 				if (stat.startsWith("Z")) return { state: "gone" };
-				return { state: "alive", id: trimmed.slice(match[0].length).trim() };
+				if (tokens.length < 7) {
+					return { state: "unknown", error: "unparsable ps output (no executable path); failing closed" };
+				}
+				const lstart = tokens.slice(1, 6).join(" ");
+				const comm = tokens.slice(6).join(" ").trim();
+				if (comm === "") return { state: "unknown", error: "unparsable ps output (empty executable path); failing closed" };
+				return { state: "alive", id: `${lstart}|${comm}` };
 			}
 			if (out.status === 1 && trimmed === "") return { state: "gone" };
 			return { state: "unknown", error: `ps exited ${String(out.status)} with output ${JSON.stringify(trimmed)}` };
@@ -2192,8 +2821,8 @@ export function parseNetstatListeningPid(stdout, port) {
 		const cols = line.trim().split(/\s+/);
 		const local = cols[1] ?? "";
 		if (!local.endsWith(suffix)) continue;
-		const pid = Number(cols[cols.length - 1]);
-		if (Number.isInteger(pid) && pid > 0) return pid;
+		const pid = parsePid(cols[cols.length - 1] ?? "");
+		if (pid !== null) return pid;
 	}
 	return null;
 }
@@ -2204,8 +2833,8 @@ function findListeningPid(port) {
 		return parseNetstatListeningPid(out.stdout, port);
 	}
 	const out = spawnSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], { encoding: "utf8" });
-	const pid = Number(String(out.stdout ?? "").trim().split(/\s+/)[0]);
-	return Number.isInteger(pid) && pid > 0 ? pid : null;
+	const pid = parsePid(String(out.stdout ?? "").trim().split(/\s+/)[0]);
+	return pid !== null ? pid : null;
 }
 
 function waitClose(child, timeoutMs) {

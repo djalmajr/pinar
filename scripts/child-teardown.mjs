@@ -96,6 +96,18 @@ function errorText(error) {
 }
 
 /**
+ * Label for a MALFORMED taskkill runner error — any non-null error that is
+ * neither an Error with a non-empty message nor a non-empty string ({} ,
+ * an empty string, a number, an Error with an empty message). The
+ * fail-closed error text records this type so a future red says what the
+ * runner actually returned. Never throws.
+ */
+function malformedErrorLabel(error) {
+	if (error instanceof Error) return "Error";
+	return typeof error;
+}
+
+/**
  * Normalize a raw identity probe outcome to one of the three documented
  * shapes. A throwing or mis-shaped probe becomes `unknown` — never `gone`
  * (an unreadable probe must not read as "safe to signal") and never a throw.
@@ -458,10 +470,16 @@ export function boundedIdentityProbe(platform, options = {}) {
  *                    exitCode/signalCode (never assumed from a signal)
  *   exitCode       — child.exitCode at resolution (null while alive)
  *   signalCode     — child.signalCode at resolution (null while alive)
- *   signalled      — a signal was actually issued and accepted (taskkill
- *                    exit 0, or kill() returned true)
+ *   signalled      — a signal was actually issued and accepted: ONLY an
+ *                    integer taskkill status 0 with no error and no signal,
+ *                    or kill() returned true (any other outcome — a
+ *                    non-zero status, a missing or non-integer status, a
+ *                    non-object result, a runner error, a timeout, a
+ *                    malformed error — is a recorded failure and signalled
+ *                    stays false)
  *   refused        — why no signal was issued (identity-guard refusals)
- *   errors         — recorded faults (taskkill status, runner errors, the
+ *   errors         — recorded faults (taskkill status, runner errors,
+ *                    malformed runner errors, missing exit status, the
  *                    child's "error" events, unreaped probe residue)
  *   pid            — the child's pid (null when the child never got one)
  *   boundIdentity  — the identity bound right after spawn
@@ -470,6 +488,13 @@ export function boundedIdentityProbe(platform, options = {}) {
  *   probeResidue   — true when a probe child was NOT reaped after its own
  *                    timeout (probeCleanup "unreaped" on the bound or the
  *                    pre-signal identity): the sandbox must be kept
+ *   timings        — { preSignalProbeMs, signalMs, closeWaitMs }: the
+ *                    MEASURED duration of each step (the pre-signal
+ *                    identity re-probe, the signal step, the bounded close
+ *                    wait), null when the step did not run — a
+ *                    signalled:false result now says which bounded step it
+ *                    took and how long it actually took (measured with the
+ *                    injectable monotonic clock below)
  *
  * Options:
  *   platform        — default process.platform; selects the signal path and
@@ -502,9 +527,18 @@ export function boundedIdentityProbe(platform, options = {}) {
  *   runTaskkill     — (pid) => {status,error} (sync or Promise); default
  *                     spawnSync("taskkill", ["/PID", pid, "/T", "/F"],
  *                     { timeout: taskkillTimeoutMs }); the outcome IS
- *                     checked: non-zero status or error (incl. a timeout,
- *                     error.code === "ETIMEDOUT" or a set signal) → a
- *                     recorded failure, never success, never retried
+ *                     STRICTLY classified (fail-closed): only an integer
+ *                     status 0 with no error and no signal → success. A
+ *                     non-zero status, a missing or non-integer status, a
+ *                     non-object result, a valid error (incl. a timeout,
+ *                     error.code === "ETIMEDOUT" or a set signal), or a
+ *                     MALFORMED error (a non-Error without a message, an
+ *                     empty string, a number, an Error with an empty
+ *                     message) → a recorded failure, never success, never
+ *                     retried
+ *   now             — injectable monotonic clock for the result's timings
+ *                     (default () => performance.now()); no new timeout
+ *                     knob
  *   taskkillTimeoutMs — cap for the win32 taskkill runner (default 8_000);
  *                     the default runner passes it to spawnSync, an
  *                     injected Promise-returning runner is raced against
@@ -516,6 +550,9 @@ export function boundedIdentityProbe(platform, options = {}) {
  */
 export async function teardownChild(child, options = {}) {
 	const platform = options.platform ?? process.platform;
+	// Injectable monotonic clock for the step timings (unit tests inject a
+	// virtual clock; the default is the real monotonic performance.now).
+	const now = options.now ?? (() => performance.now());
 	const result = {
 		reaped: false,
 		exitCode: null,
@@ -527,6 +564,12 @@ export async function teardownChild(child, options = {}) {
 		boundIdentity: null,
 		signalIdentity: null,
 		probeResidue: false,
+		// Measured step durations (or null when the step did not run): the
+		// pre-signal identity re-probe, the signal step and the bounded
+		// close wait — a future signalled:false result says which bounded
+		// step it took and how long each step actually took (no more
+		// unlogged reds).
+		timings: { preSignalProbeMs: null, signalMs: null, closeWaitMs: null },
 	};
 	if (child == null) {
 		result.refused.push("no child handle; nothing to reap");
@@ -607,7 +650,12 @@ export async function teardownChild(child, options = {}) {
 	 *  always cleared/removed before the promise resolves. */
 	const waitClose = () =>
 		new Promise((resolve) => {
-			if (child.exitCode != null || child.signalCode != null) return resolve(true);
+			const waitStarted = now();
+			const done = (closed) => {
+				result.timings.closeWaitMs = now() - waitStarted;
+				resolve(closed);
+			};
+			if (child.exitCode != null || child.signalCode != null) return done(true);
 			let settled = false;
 			let onClose = null;
 			const settle = (closed) => {
@@ -625,7 +673,7 @@ export async function teardownChild(child, options = {}) {
 					child.removeListener("close", onClose);
 					onClose = null;
 				}
-				resolve(closed);
+				done(closed);
 			};
 			onClose = () => settle(true);
 			child.once("close", onClose);
@@ -699,7 +747,11 @@ export async function teardownChild(child, options = {}) {
 
 	// Re-probe the identity IMMEDIATELY before the signal: a recycled PID
 	// (alive with a DIFFERENT immutable id) is refused, never signalled.
+	// The step's measured duration lands in result.timings (a signalled:
+	// false refusal must say how long the re-probe took).
+	const probeStarted = now();
 	const atSignal = await probeIdentity(pid);
+	result.timings.preSignalProbeMs = now() - probeStarted;
 	result.signalIdentity = atSignal;
 	if (atSignal?.probeCleanup === "unreaped") markProbeResidue(atSignal, "signal");
 	if (atSignal.state === "gone") {
@@ -751,6 +803,7 @@ export async function teardownChild(child, options = {}) {
 		let out = null;
 		let runnerThrew = false;
 		let runnerTimedOut = false;
+		const signalStarted = now();
 		try {
 			const started = runner(pid);
 			// The injected runner's Promise is raced against taskkillTimeoutMs:
@@ -788,32 +841,71 @@ export async function teardownChild(child, options = {}) {
 			runnerThrew = true;
 			errors.push(`taskkill runner threw: ${errorText(error)}`);
 		}
+		// The signal step's measured duration (the runner call up to the
+		// outcome classification) lands in result.timings.
+		result.timings.signalMs = now() - signalStarted;
 		if (runnerTimedOut) {
 			errors.push(`taskkill /PID ${pid} /T /F timed out after ${taskkillMs}ms; the child may still be running`);
 		} else if (!runnerThrew) {
+			// STRICT outcome classification (fail-closed): only an INTEGER
+			// status 0 with NO error and NO signal is a successful signal.
+			// Everything else is a recorded failure and signalled stays
+			// false — including a runner that returned a malformed error
+			// ({} / an empty string / a number / an Error with an empty
+			// message) or no usable exit status at all (a non-object result,
+			// a missing or non-integer status).
 			if (out?.error != null) {
-				const code = out.error instanceof Error && "code" in out.error ? out.error.code : undefined;
-				// A spawnSync timeout (error.code === "ETIMEDOUT", or a set
-				// signal) is a recorded failure — reaped only from a real exit.
-				if (code === "ETIMEDOUT" || out?.signal != null) {
-					errors.push(`taskkill /PID ${pid} /T /F timed out after ${taskkillMs}ms; the child may still be running`);
+				const e = out.error;
+				if (e instanceof Error && e.message !== "") {
+					const code = "code" in e ? e.code : undefined;
+					// A spawnSync timeout (error.code === "ETIMEDOUT", or a
+					// set signal) is a recorded failure — reaped only from a
+					// real exit.
+					if (code === "ETIMEDOUT" || out.signal != null) {
+						errors.push(`taskkill /PID ${pid} /T /F timed out after ${taskkillMs}ms; the child may still be running`);
+					} else {
+						errors.push(`taskkill /PID ${pid} /T /F failed to run: ${e.message}`);
+					}
+				} else if (typeof e === "string" && e !== "") {
+					// A plain-string error carries no code: it is the runner's
+					// failure text (a set signal still reads as the timeout).
+					if (out.signal != null) {
+						errors.push(`taskkill /PID ${pid} /T /F timed out after ${taskkillMs}ms; the child may still be running`);
+					} else {
+						errors.push(`taskkill /PID ${pid} /T /F failed to run: ${e}`);
+					}
 				} else {
-					errors.push(`taskkill /PID ${pid} /T /F failed to run: ${errorText(out.error)}`);
+					// Malformed error: its text cannot be trusted — fail
+					// closed, naming the type, never a success.
+					errors.push(`taskkill /PID ${pid} /T /F runner returned a malformed error (${malformedErrorLabel(e)}); the child may still be running`);
 				}
-			} else if (out?.status !== 0) {
-				errors.push(`taskkill /PID ${pid} /T /F exited ${String(out?.status)}; the child may still be running`);
-			} else {
+			} else if (
+				out != null &&
+				typeof out === "object" &&
+				Number.isInteger(out.status) &&
+				out.status === 0 &&
+				out.signal == null
+			) {
 				result.signalled = true;
+			} else if (out != null && typeof out === "object" && Number.isInteger(out.status)) {
+				errors.push(`taskkill /PID ${pid} /T /F exited ${String(out.status)}; the child may still be running`);
+			} else {
+				// No usable exit status (a non-object result, a missing or
+				// non-integer status, or a set signal with status 0):
+				// recorded failure, signalled stays false.
+				errors.push(`taskkill /PID ${pid} /T /F returned no exit status; the child may still be running`);
 			}
 		}
 	} else {
 		// POSIX: signal the HELD handle (never a bare pid by number).
+		const signalStarted = now();
 		let ok = false;
 		try {
 			ok = child.kill("SIGKILL") === true;
 		} catch (error) {
 			errors.push(`child.kill(SIGKILL) threw: ${errorText(error)}`);
 		}
+		result.timings.signalMs = now() - signalStarted;
 		if (ok) result.signalled = true;
 		else errors.push(`child.kill(SIGKILL) returned false for pid ${pid}`);
 	}

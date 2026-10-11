@@ -25,6 +25,8 @@ import {
 	DESKTOP_PREFS,
 	MAX_WRAPPER_DECOMPRESSED_BYTES,
 	MAX_WRAPPER_ENTRIES,
+	SAMPLE_INTERVAL_MS,
+	TASKKILL_TIMEOUT_MS,
 	darwinWrapperPayloadTarZst,
 	defaultAppDir,
 	decide,
@@ -37,18 +39,23 @@ import {
 	launcherCandidates,
 	parseArgs,
 	parseNetstatListeningPid,
+	parsePid,
 	parsePort,
 	parseTasklistCsvLine,
+	probeHealthDetail,
 	probeResidueKeepsSandbox,
 	psScript,
+	readTailFile,
 	readTrayPid,
 	resolveLauncher,
 	runSmoke,
 	smokeEnv,
 	tasklistCsvHasPid,
 	validatePlainTar,
+	validateZstdSingleFrame,
 	wrapperPayloadTarZst,
 	zstdDeclaredContentSize,
+	zstdPreallocationBound,
 } from "./tray-smoke.mjs";
 import {
 	boundedIdentityProbe,
@@ -120,6 +127,23 @@ describe("parsePort", () => {
 		for (const bad of ["0", "65536", "-5", "1.5", "1e3", "", "0x10", "  ", null, 17390]) {
 			expect(() => parsePort(bad)).toThrow();
 		}
+	});
+});
+
+describe("parsePid (SM-6 strict PID parsing)", () => {
+	test("accepts bare decimal PIDs in 1..2147483647 with surrounding whitespace", () => {
+		expect(parsePid("1")).toBe(1);
+		expect(parsePid("1234")).toBe(1234);
+		expect(parsePid("  4321  \n")).toBe(4321);
+		expect(parsePid("2147483647")).toBe(2147483647);
+	});
+
+	test("rejects every malformed value with null (never normalizes)", () => {
+		for (const bad of ["12abc", "1e3", "0x1f", " ", "0", "-5", "99999999999", "42x", " 42 x", "1.0", "+42", "04 2", "", null, 42]) {
+			expect(parsePid(bad)).toBeNull();
+		}
+		// Above the 32-bit PID bound:
+		expect(parsePid("2147483648")).toBeNull();
 	});
 });
 
@@ -346,6 +370,59 @@ describe("smokeEnv", () => {
 		expect(env.APPDATA).toBeUndefined();
 		expect(env.PINAR_PORT).toBe("17392");
 	});
+
+	// SM-4: the smoke child environment is hardened against inherited
+	// state: every inherited PINAR_* (allowlist) is dropped, and the
+	// temp/home state roots are overridden to paths inside the sandbox.
+	test("SM-4: every inherited PINAR_* is dropped; the smoke's own two are kept", () => {
+		const env = smokeEnv("C:\\temp\\smoke-4", 17394, {
+			platform: "win32",
+			baseEnv: {
+				PINAR_HOME: "C:\\old\\pinar",
+				PINAR_PORT: "17373",
+				PINAR_BIN: "C:\\old\\pinar\\bin",
+				PINAR_UPDATE_BASE_URL: "https://example.invalid/update",
+				PINAR_ANYTHING_ELSE: "x",
+				FOO: "bar",
+			},
+		});
+		expect(env.PINAR_HOME).toBe(join("C:\\temp\\smoke-4", ".pinar")); // re-set by the smoke
+		expect(env.PINAR_PORT).toBe("17394"); // re-set by the smoke
+		expect(env.PINAR_BIN).toBeUndefined();
+		expect(env.PINAR_UPDATE_BASE_URL).toBeUndefined();
+		expect(env.PINAR_ANYTHING_ELSE).toBeUndefined();
+		expect(env.FOO).toBe("bar"); // non-PINAR base env still inherited
+	});
+
+	test("SM-4: TEMP/TMP/TMPDIR point inside the sandbox on every platform", () => {
+		for (const platform of ["win32", "darwin", "linux"] as const) {
+			const env = smokeEnv("/tmp/smoke-4b", 17395, { platform, baseEnv: { TEMP: "/tmp", TMP: "/tmp", TMPDIR: "/tmp" } });
+			expect(env.TEMP).toBe(join("/tmp/smoke-4b", "tmp"));
+			expect(env.TMP).toBe(join("/tmp/smoke-4b", "tmp"));
+			expect(env.TMPDIR).toBe(join("/tmp/smoke-4b", "tmp"));
+		}
+	});
+
+	test("SM-4: win32 HOMEDRIVE/HOMEPATH split from the sandbox home", () => {
+		const env = smokeEnv("C:\\Users\\runner\\AppData\\Local\\Temp\\smoke-4c", 17396, {
+			platform: "win32",
+			baseEnv: { HOMEDRIVE: "D:", HOMEPATH: "\\oldhome" },
+		});
+		expect(env.HOMEDRIVE).toBe("C:");
+		expect(env.HOMEPATH).toBe("\\Users\\runner\\AppData\\Local\\Temp\\smoke-4c\\home");
+	});
+
+	test("SM-4: POSIX XDG_* roots sit under the sandbox home", () => {
+		const env = smokeEnv("/tmp/smoke-4d", 17397, {
+			platform: "linux",
+			baseEnv: { XDG_CONFIG_HOME: "/old/.config" },
+		});
+		const home = join("/tmp/smoke-4d", "home");
+		expect(env.XDG_CONFIG_HOME).toBe(join(home, ".config"));
+		expect(env.XDG_DATA_HOME).toBe(join(home, ".local", "share"));
+		expect(env.XDG_CACHE_HOME).toBe(join(home, ".cache"));
+		expect(env.XDG_STATE_HOME).toBe(join(home, ".local", "state"));
+	});
 });
 
 describe("readTrayPid", () => {
@@ -388,6 +465,26 @@ describe("readTrayPid", () => {
 			const path = join(root, "tray.pid");
 			writeFileSync(path, "not-a-pid\n");
 			expect(readTrayPid(path, Date.now() - 1_000)).toEqual({ exists: true, pid: null, fresh: false });
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	// SM-6: the tray.pid content goes through the strict parsePid (digits
+	// only, 1..2^31-1) — no Number() normalization of malformed values.
+	test("SM-6: malformed tray.pid values are rejected (strict parse, no normalization)", () => {
+		const root = mkdtempSync(join(tmpdir(), "pinar-smoke-pid4-"));
+		try {
+			const path = join(root, "tray.pid");
+			for (const bad of ["1e3\n", "0x1f\n", "0\n", "-5\n", "99999999999\n", "12abc\n", "42 x\n"]) {
+				writeFileSync(path, bad);
+				expect(readTrayPid(path, Date.now() - 1_000)).toEqual({ exists: true, pid: null, fresh: false });
+			}
+			// The strict bound is inclusive:
+			writeFileSync(path, "2147483647\n");
+			expect(readTrayPid(path, Date.now() - 1_000).pid).toBe(2147483647);
+			writeFileSync(path, "2147483648\n");
+			expect(readTrayPid(path, Date.now() - 1_000).pid).toBeNull();
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}
@@ -562,6 +659,17 @@ describe("netstat listening pid", () => {
 		expect(parseNetstatListeningPid(stdout, 17390)).toBe(31337);
 		expect(parseNetstatListeningPid(stdout, 17391)).toBeNull();
 	});
+
+	// SM-6: the pid column goes through the strict parsePid — a malformed
+	// listener pid is no listener (never normalized to a number).
+	test("SM-6: a malformed pid column is not a listener", () => {
+		for (const bad of ["1e3", "0x1f", "0", "-5", "99999999999", "42x"]) {
+			const stdout = `  TCP    127.0.0.1:17390        0.0.0.0:0              LISTENING       ${bad}`;
+			expect(parseNetstatListeningPid(stdout, 17390)).toBeNull();
+		}
+		const good = `  TCP    127.0.0.1:17390        0.0.0.0:0              LISTENING       4242`;
+		expect(parseNetstatListeningPid(good, 17390)).toBe(4242);
+	});
 });
 
 describe("tasklist csv parsers", () => {
@@ -579,6 +687,17 @@ describe("tasklist csv parsers", () => {
 	test("returns null for the no-match INFO line and empty input", () => {
 		expect(parseTasklistCsvLine("INFO: No tasks are running which match the specified criteria.")).toBeNull();
 		expect(parseTasklistCsvLine("")).toBeNull();
+	});
+
+	// SM-6: the pid field is the strict parsePid (nullable) — a malformed
+	// pid is null, and the trusted-numeric exact comparison can never match
+	// a real positive pid on it.
+	test("SM-6: a malformed pid column is null and never matches", () => {
+		for (const bad of ["1e3", "0x1f", "0", "-5", "99999999999", "42x"]) {
+			const row = `"pinar.exe","${bad}","Console","1","51,000 K"`;
+			expect(parseTasklistCsvLine(row)?.pid).toBeNull();
+			expect(tasklistCsvHasPid(row, 42)).toBe(false);
+		}
 	});
 
 	test("matches the pid exactly (no prefix collisions)", () => {
@@ -843,17 +962,55 @@ describe("identityOfFor", () => {
 		expect(residue).toEqual([]);
 	});
 
-	// --- darwin (ps stat=,lstart=) ------------------------------------------
+	// --- darwin (ps stat=,lstart=,comm=) ------------------------------------
+	// SM-2: the darwin id is `<lstart>|<executable path>` — the lstart text
+	// has one-second precision, so the id also binds the executable path
+	// (which for the smoke lives inside the unique mkdtemp sandbox).
 	const mac = (run: () => { status: number | null; stdout: string; error?: unknown }) =>
 		identityOfFor("darwin", { runPs: () => run() });
 
-	test("darwin: stat 0 with Ss and an lstart is alive with the lstart as id", async () => {
+	test("darwin: stat 0 with Ss, an lstart and the comm path is alive with the lstart|path id", async () => {
+		const identityOf = mac(() => ({
+			status: 0,
+			stdout: "Ss   Sat Oct 10 04:22:18 2026 /opt/pinar/Pinar.app/Contents/MacOS/launcher",
+		}));
+		expect(await identityOf(42)).toEqual({
+			state: "alive",
+			id: "Sat Oct 10 04:22:18 2026|/opt/pinar/Pinar.app/Contents/MacOS/launcher",
+		});
+	});
+
+	test("darwin: the comm path may contain spaces (the remainder after stat + 5 lstart tokens)", async () => {
+		const identityOf = mac(() => ({
+			status: 0,
+			stdout: "S    Sat Oct 10 04:22:18 2026 /App Files/Pinar app/Contents/MacOS/Pinar",
+		}));
+		expect(await identityOf(42)).toEqual({
+			state: "alive",
+			id: "Sat Oct 10 04:22:18 2026|/App Files/Pinar app/Contents/MacOS/Pinar",
+		});
+	});
+
+	test("darwin: the SAME lstart with a different path is a different id", async () => {
+		const a = mac(() => ({ status: 0, stdout: "Ss  Sat Oct 10 04:22:18 2026 /a/bin/x" }));
+		const b = mac(() => ({ status: 0, stdout: "Ss  Sat Oct 10 04:22:18 2026 /b/bin/x" }));
+		expect((await a(42)).id).not.toBe((await b(42)).id);
+	});
+
+	test("darwin: a missing comm path is unknown (fail closed)", async () => {
 		const identityOf = mac(() => ({ status: 0, stdout: "Ss   Sat Oct 10 04:22:18 2026" }));
-		expect(await identityOf(42)).toEqual({ state: "alive", id: "Sat Oct 10 04:22:18 2026" });
+		const out = await identityOf(42);
+		expect(out.state).toBe("unknown");
+	});
+
+	test("darwin: an empty comm path is unknown (fail closed)", async () => {
+		const identityOf = mac(() => ({ status: 0, stdout: "Ss   Sat Oct 10 04:22:18 2026 " }));
+		const out = await identityOf(42);
+		expect(out.state).toBe("unknown");
 	});
 
 	test("darwin: stat 0 with a Z stat is gone", async () => {
-		const identityOf = mac(() => ({ status: 0, stdout: "Z    Sat Oct 10 04:22:18 2026" }));
+		const identityOf = mac(() => ({ status: 0, stdout: "Z    Sat Oct 10 04:22:18 2026 /a/bin/x" }));
 		expect(await identityOf(42)).toEqual({ state: "gone" });
 	});
 
@@ -1486,13 +1643,19 @@ describe("runSmoke", () => {
 		writeFileSync(join(outsideDir, "unrelated.exe"), "");
 		const launcherPid = 77001; // reused by an unrelated live process
 		const { spawnFn } = fakeSpawn(launcherPid, null, { alreadyExited: true });
-		let listeningCalls = 0;
+		let launched = false;
 		let result;
 		try {
 			result = await runSmoke(
 				{ appDir, port: 17415, timeoutMs: 1_000, log: null, keepHome: false },
 				{
-					spawn: spawnFn,
+					// SM-7: the spawn-phase flag replaces the call counter —
+					// the SM-7 diagnostic samples also probe listeningPid
+					// during the wait loop.
+					spawn: (launcher: string, args: string[], opts: { env: Record<string, string> }) => {
+						launched = true;
+						return spawnFn(launcher, args, opts);
+					},
 					parentOf: async () => null,
 					isAlive: async () => true, // the reused pid is alive
 					imageOf: async (pid) => (pid === launcherPid ? join(outsideDir, "unrelated.exe") : null),
@@ -1500,11 +1663,11 @@ describe("runSmoke", () => {
 						throw new Error("killTree must not be called");
 					},
 					listeningPid: (port) => {
-						listeningCalls += 1;
-						// Free before the spawn; held by the reused pid at the
-						// cleanup decision; the process then exits, so the
-						// bounded poll settles.
-						return port === 17415 && listeningCalls === 2 ? launcherPid : null;
+						// Free before the spawn; held by the reused pid once this
+						// run has launched (the cleanup decision sees it; the
+						// bounded post-kill poll runs its full budget against the
+						// still-held port, which is reported, never re-signalled).
+						return port === 17415 && launched ? launcherPid : null;
 					},
 					probeHealth: async () => ({ healthy: false }),
 				},
@@ -1559,13 +1722,19 @@ describe("runSmoke", () => {
 		const { spawnFn } = fakeSpawn(launcherPid, null, { alreadyExited: true });
 		const helperExe = join(appDir, "helper-inside.exe");
 		writeFileSync(helperExe, "");
-		let listeningCalls = 0;
+		let launched = false;
 		let result;
 		try {
 			result = await runSmoke(
 				{ appDir, port: 17417, timeoutMs: 1_000, log: null, keepHome: false },
 				{
-					spawn: spawnFn,
+					// SM-7: the spawn-phase flag replaces the call counter —
+					// the SM-7 diagnostic samples also probe listeningPid
+					// during the wait loop.
+					spawn: (launcher: string, args: string[], opts: { env: Record<string, string> }) => {
+						launched = true;
+						return spawnFn(launcher, args, opts);
+					},
 					parentOf: async () => null,
 					isAlive: async (pid) => !killed.has(pid),
 					imageOf: async (pid) => (pid === helperPid ? helperExe : null),
@@ -1573,8 +1742,11 @@ describe("runSmoke", () => {
 						killed.add(pid);
 					},
 					listeningPid: (port) => {
-						listeningCalls += 1;
-						return port === 17417 && listeningCalls === 2 ? helperPid : null;
+						if (port !== 17417) return null;
+						// The helper holds the port once this run has launched,
+						// until the (fake) kill reaches it — the bounded poll
+						// then settles.
+						return launched && !killed.has(helperPid) ? helperPid : null;
 					},
 					probeHealth: async () => ({ healthy: false }),
 				},
@@ -1635,29 +1807,294 @@ describe("runSmoke", () => {
  * alone and its exact call count is asserted.
  */
 
+// Healthy startup (fresh tray.pid in the launched tree + health) for the
+// kill/verdict/diagnostics tests. The pre-launch health probe must be
+// unhealthy (a healthy helper before launch refuses the spawn); the
+// helper comes up only after the (fake) spawn.
+const healthyHooks = (appDir: string, childPid: number, trayPid: number, extra: Record<string, unknown>) => {
+	let healthCalls = 0;
+	return {
+		parentOf: async (pid: number) => (pid === trayPid ? childPid : null),
+		isAlive: async (pid: number) => pid === trayPid,
+		// Image containment inside the app dir fixture proves ownership
+		// after the launcher exited (the tree edge is no longer evidence).
+		imageOf: async (pid: number) =>
+			pid === trayPid ? launcherCandidates(appDir, process.platform)[0] : null,
+		listeningPid: () => null,
+		probeHealth: async () => {
+			healthCalls += 1;
+			return { healthy: healthCalls > 1 };
+		},
+		...extra,
+	};
+};
+
+/* ---------------- SM-7: failure diagnostics ------------------------------ */
+
+describe("runSmoke failure diagnostics (SM-7)", () => {
+	// The deterministic fakes: never-healthy port, a port owner that appears
+	// only AFTER the pre-spawn port check (so the run is not refused before
+	// spawning), an in-tree tray pid, and an injected probeHealthDetail.
+	// The samples are taken from the wait loop (≤1 per SAMPLE_INTERVAL_MS)
+	// plus one forced final sample — every probe inside a sample is an
+	// existing bounded probe. The port owner is never ALIVE (isAlive false),
+	// so the cleanup refuses it (ownership) and no kill is ever attempted.
+	const failingHooks = (appDir: string, childPid: number, trayPid: number, extras: Record<string, unknown> = {}) => {
+		let listeningCalls = 0;
+		const killCalls: number[] = [];
+		const killedPids = new Set<number>();
+		return {
+			parentOf: async (pid: number) => (pid === trayPid ? childPid : null),
+			isAlive: async (pid: number) => (killedPids.has(pid) ? false : pid === trayPid || pid === childPid),
+			imageOf: async (pid: number) =>
+				pid === trayPid || pid === 8888 ? launcherCandidates(appDir, process.platform)[0] : null,
+			identityOf: async (pid: number) =>
+				killedPids.has(pid) ? { state: "gone" } : { state: "alive", id: "A" },
+			// A FAKE killTree: the suite must never signal a process it did
+			// not spawn (the default win32 killTree would taskkill a real pid
+			// if one were recycled to the fixture pid).
+			killTree: async (pid: number) => {
+				killCalls.push(pid);
+				killedPids.add(pid);
+			},
+			// Call 1 is the pre-spawn refusal probe (free port: null); every
+			// later call (samples + cleanup) sees the port owner — until a
+			// (fake) kill has happened, then the port is free and the bounded
+			// post-kill poll settles instead of running its full budget.
+			listeningPid: () => {
+				listeningCalls += 1;
+				return listeningCalls === 1 ? null : killCalls.length === 0 ? 8888 : null;
+			},
+			probeHealth: async () => ({ healthy: false }),
+			probeHealthDetail: async () => ({ ok: false, status: null, service: null, error: "injected detail" }),
+			groupExists: () => "absent",
+			...extras,
+		};
+	};
+
+	test("diagnostics are present on a health timeout with the documented shape; absent on success", async () => {
+		const appDir = makeAppDir();
+		const childPid = 96001;
+		const trayPid = 96002;
+		const { spawnFn } = fakeSpawn(childPid, trayPid, { alreadyExited: true });
+		let result;
+		try {
+			result = await runSmoke(
+				{ appDir, port: 17401, timeoutMs: 2_000, log: null, keepHome: false },
+				healthyHooks(appDir, childPid, trayPid, {
+					spawn: spawnFn,
+					// The pinned port never answers healthy: the run times out
+					// on the health (the CI 38156214350 failure shape).
+					...failingHooks(appDir, childPid, trayPid, {}),
+				}),
+			);
+			expect(result.ok).toBe(false);
+			const diag = result.diagnostics;
+			expect(diag).toBeDefined();
+			// The samples: ≤14, each with the documented shape.
+			expect(Array.isArray(diag.samples)).toBe(true);
+			expect(diag.samples.length).toBeLessThanOrEqual(14);
+			expect(diag.samples.length).toBeGreaterThanOrEqual(1);
+			for (const s of diag.samples) {
+				expect(typeof s.tMs).toBe("number");
+				expect(s.health).toBeDefined();
+				expect(s.portOwnerPid).toBe(8888);
+				expect(s.portOwnerInTree).toBe(false); // the owner is not in the launched tree
+				expect(Array.isArray(s.helpers)).toBe(true);
+				// The port owner's image is inside the launch dir → listed
+				// (no command lines, only { pid, inTree }).
+				expect(s.helpers.some((h) => h.pid === 8888 && h.inTree === false)).toBe(true);
+			}
+			// lastHealth: the injected detail probe.
+			expect(diag.lastHealth).toEqual({ ok: false, status: null, service: null, error: "injected detail" });
+			expect(diag.trayPid).toBe(trayPid);
+			// server.pid: the strict parse (absent in this sandbox).
+			expect(diag.serverPid).toEqual({ value: null, reason: "absent" });
+			// sandboxFiles: ≤60 { relPath, size }, the seeded desktop.json is in.
+			expect(Array.isArray(diag.sandboxFiles)).toBe(true);
+			expect(diag.sandboxFiles.length).toBeLessThanOrEqual(60);
+			expect(diag.sandboxFiles.some((f) => f.relPath === ".pinar/desktop.json")).toBe(true);
+			for (const f of diag.sandboxFiles) {
+				expect(typeof f.relPath).toBe("string");
+				expect(typeof f.size).toBe("number");
+			}
+			// logTails: an object (no *.log in this sandbox → empty).
+			expect(typeof diag.logTails).toBe("object");
+			expect(Object.keys(diag.logTails)).toHaveLength(0);
+			// And on success the field is absent (byte-for-byte unchanged):
+			const appDir2 = makeAppDir();
+			const childPid2 = 96003;
+			const trayPid2 = 96004;
+			const { spawnFn: spawnFn2 } = fakeSpawn(childPid2, trayPid2, { alreadyExited: true });
+			let healthCalls = 0;
+			const okResult = await runSmoke(
+				{ appDir: appDir2, port: 17402, timeoutMs: 2_000, log: null, keepHome: false },
+				healthyHooks(appDir2, childPid2, trayPid2, {
+					spawn: spawnFn2,
+					...failingHooks(appDir2, childPid2, trayPid2, {}),
+					probeHealth: async () => {
+						healthCalls += 1;
+						return { healthy: healthCalls > 1 };
+					},
+				}),
+			);
+			rmSync(appDir2, { recursive: true, force: true });
+			expect(okResult.ok).toBe(true);
+			expect(okResult.diagnostics).toBeUndefined(); // the success JSON is unchanged
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	}, 20_000);
+
+	test("the samples are bounded: at most one per 10 s cadence plus the final sample (≤14 over a 13.5 s run)", async () => {
+		const appDir = makeAppDir();
+		const childPid = 96005;
+		const trayPid = 96006;
+		const { spawnFn } = fakeSpawn(childPid, trayPid, { alreadyExited: true });
+		let result;
+		try {
+			// A REAL 13.5 s run: the cadence samples at ~1 s / ~11 s
+			// (≥ SAMPLE_INTERVAL_MS apart) plus the one forced final sample.
+			result = await runSmoke(
+				{ appDir, port: 17403, timeoutMs: 13_500, log: null, keepHome: false },
+				healthyHooks(appDir, childPid, trayPid, failingHooks(appDir, childPid, trayPid, { spawn: spawnFn })),
+			);
+			expect(result.ok).toBe(false);
+			const samples = result.diagnostics.samples;
+			expect(samples.length).toBeLessThanOrEqual(14); // the hard cap
+			expect(samples.length).toBeGreaterThanOrEqual(3); // 1 s + 11 s + the final sample
+			// tMs is monotonically increasing and the CADENCE samples (all but
+			// the forced final one) are ≥ 10 s apart (1 s jitter tolerance):
+			for (let i = 1; i < samples.length; i += 1) {
+				expect(samples[i].tMs).toBeGreaterThan(samples[i - 1].tMs);
+			}
+			for (let i = 1; i < samples.length - 1; i += 1) {
+				expect(samples[i].tMs - samples[i - 1].tMs).toBeGreaterThanOrEqual(SAMPLE_INTERVAL_MS - 1_000);
+			}
+			expect(SAMPLE_INTERVAL_MS).toBe(10_000);
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	}, 20_000);
+
+	test("log tails are truncated to 4096 bytes per file and 16 KiB total; the tail is the LAST bytes", async () => {
+		const appDir = makeAppDir();
+		const childPid = 96007;
+		const trayPid = 96008;
+		const secretLogs: string[] = [];
+		const spawnFn = (launcher: string, _args: string[], opts: { env: Record<string, string> }) => {
+			const pinarHome = opts.env.PINAR_HOME;
+			mkdirSync(pinarHome, { recursive: true });
+			// Four 10 KiB logs: each tail is the last 4096 bytes and the total
+			// of all tails is ≤ 16 KiB.
+			for (let i = 0; i < 4; i += 1) {
+				const body = `log-${i}-`.repeat(1000) + `END-${i}`;
+				secretLogs.push(body);
+				writeFileSync(join(pinarHome, `log${i}.log`), body);
+			}
+			return {
+				pid: childPid,
+				exitCode: null,
+				signalCode: null,
+				stdout: null,
+				stderr: null,
+				on() {},
+			};
+		};
+		let result;
+		try {
+			result = await runSmoke(
+				{ appDir, port: 17404, timeoutMs: 1_500, log: null, keepHome: false },
+				healthyHooks(appDir, childPid, trayPid, {
+					spawn: spawnFn,
+					...failingHooks(appDir, childPid, trayPid, {}),
+				}),
+			);
+			expect(result.ok).toBe(false);
+			const tails = result.diagnostics.logTails;
+			let total = 0;
+			for (const [relPath, text] of Object.entries(tails)) {
+				expect(relPath).toMatch(/^\.pinar\/log[0-3]\.log$/);
+				const bytes = Buffer.byteLength(text, "utf8");
+				expect(bytes).toBeLessThanOrEqual(4_096); // per-file bound
+				total += bytes;
+				const n = Number(relPath.match(/log(\d)\.log$/)![1]);
+				// The tail is the LAST 4096 bytes of the seeded log:
+				expect(text).toBe(secretLogs[n].slice(-4_096));
+			}
+			expect(total).toBeLessThanOrEqual(16_384); // the total bound
+			expect(Object.keys(tails).length).toBeGreaterThanOrEqual(1);
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	}, 20_000);
+
+	test("a strict parse is applied to .pinar/server.pid (unparseable → null + reason)", async () => {
+		const appDir = makeAppDir();
+		const childPid = 96009;
+		const trayPid = 96010;
+		const withServerPid = (content: string) => (launcher: string, _args: string[], opts: { env: Record<string, string> }) => {
+			const pinarHome = opts.env.PINAR_HOME;
+			mkdirSync(pinarHome, { recursive: true });
+			writeFileSync(join(pinarHome, "server.pid"), content);
+			return { pid: childPid, exitCode: null, signalCode: null, stdout: null, stderr: null, on() {} };
+		};
+		let result;
+		try {
+			result = await runSmoke(
+				{ appDir, port: 17405, timeoutMs: 1_500, log: null, keepHome: false },
+				healthyHooks(appDir, childPid, trayPid, {
+					spawn: withServerPid("1e3\n"),
+					...failingHooks(appDir, childPid, trayPid, {}),
+				}),
+			);
+			expect(result.diagnostics.serverPid.value).toBeNull();
+			expect(result.diagnostics.serverPid.reason).toContain("unparseable");
+			result = await runSmoke(
+				{ appDir, port: 17406, timeoutMs: 1_500, log: null, keepHome: false },
+				healthyHooks(appDir, childPid, trayPid, {
+					spawn: withServerPid("4242\n"),
+					...failingHooks(appDir, childPid, trayPid, {}),
+				}),
+			);
+			expect(result.diagnostics.serverPid).toEqual({ value: 4242, reason: null });
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	}, 20_000);
+
+	test("env is never dumped: an inherited secret env var never appears in the diagnostics", async () => {
+		const appDir = makeAppDir();
+		const childPid = 96011;
+		const trayPid = 96012;
+		const { spawnFn } = fakeSpawn(childPid, trayPid, { alreadyExited: true });
+		const secret = `smoke-env-secret-${Date.now()}`;
+		process.env.__SMOKE_SECRET__ = secret;
+		let result;
+		try {
+			result = await runSmoke(
+				{ appDir, port: 17407, timeoutMs: 1_500, log: null, keepHome: false },
+				healthyHooks(appDir, childPid, trayPid, {
+					spawn: spawnFn,
+					...failingHooks(appDir, childPid, trayPid, {}),
+				}),
+			);
+			// The child env inherited the secret (smokeEnv inherits the base
+			// env) — the diagnostics must still not contain it: only files
+			// from inside the sandbox are captured, never env.
+			expect(JSON.stringify(result.diagnostics)).not.toContain(secret);
+		} finally {
+			delete process.env.__SMOKE_SECRET__;
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	}, 20_000);
+});
+
 describe("cleanup identity binding", () => {
 	// Healthy startup (fresh tray.pid in the launched tree + health) for the
 	// kill/verdict tests below. The pre-launch health probe must be
 	// unhealthy (a healthy helper before launch refuses the spawn); the
 	// helper comes up only after the (fake) spawn.
-	const healthyHooks = (appDir: string, childPid: number, trayPid: number, extra: Record<string, unknown>) => {
-		let healthCalls = 0;
-		return {
-			parentOf: async (pid: number) => (pid === trayPid ? childPid : null),
-			isAlive: async (pid: number) => pid === trayPid,
-			// Image containment inside the app dir fixture proves ownership
-			// after the launcher exited (the tree edge is no longer evidence).
-			imageOf: async (pid: number) =>
-				pid === trayPid ? launcherCandidates(appDir, process.platform)[0] : null,
-			listeningPid: () => null,
-			probeHealth: async () => {
-				healthCalls += 1;
-				return { healthy: healthCalls > 1 };
-			},
-			...extra,
-		};
-	};
-
 	test("a killed pid reused by a different process settles with a cleanup.reused entry", async () => {
 		const appDir = makeAppDir();
 		const childPid = 93001;
@@ -2234,6 +2671,8 @@ describe("cleanup identity binding", () => {
 					spawn: spawnFn,
 					identityOf,
 					killTree: async () => ({
+						// Legacy injected hook: it reports the status without the
+						// new `failed` state (kept for the status-capture consumer).
 						state: "signalled",
 						signals: [`taskkill /PID ${trayPid} /T /F`],
 						esrch: [],
@@ -2249,6 +2688,53 @@ describe("cleanup identity binding", () => {
 			expect(result.cleanup.reused).toEqual([]);
 			expect(result.cleanup.sandboxRemoved).toBe(true);
 			expect(result.sandboxRetained).toBe(false);
+			expect(result.cleanup.ok).toBe(false);
+			expect(result.ok).toBe(false);
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	});
+
+	// SM-1: a `failed` taskkill outcome (non-zero / timeout / spawn fault /
+	// malformed error) is NEVER counted as killed — the precise error text
+	// is the cleanup error and cleanup.ok is false.
+	test("SM-1: a failed taskkill outcome is never counted as killed and fails the cleanup", async () => {
+		const appDir = makeAppDir();
+		const childPid = 93049;
+		const trayPid = 93050;
+		const { spawnFn } = fakeSpawn(childPid, trayPid, { alreadyExited: true });
+		const { identityOf } = scriptedIdentity({
+			[trayPid]: [
+				{ state: "alive", id: "A" }, // before
+				{ state: "alive", id: "A" }, // at the signal
+				// The failed taskkill leaves the process possibly alive: the
+				// post-kill verdict sees it alive with the bound id — the
+				// failure is the taskkill's, reported exactly once.
+				{ state: "alive", id: "A" },
+			],
+		});
+		try {
+			const result = await runSmoke(
+				{ appDir, port: 17440, timeoutMs: 2_000, log: null, keepHome: false },
+				healthyHooks(appDir, childPid, trayPid, {
+					spawn: spawnFn,
+					identityOf,
+					killTree: async () => ({
+						state: "failed",
+						signals: [],
+						esrch: [],
+						errors: ["exited 128"],
+						taskkillStatus: 128,
+					}),
+				}),
+			);
+			expect(result.cleanup.killed).toEqual([]); // a failed taskkill never counts as killed
+			// The precise failure text is the killTree's own (exactly once);
+			// the un-signalled pid never joins the post-kill verdict (nothing
+			// was signalled), so no "still alive" error is appended.
+			expect(result.cleanup.errors).toEqual([
+				`killTree(tray.pid pid ${trayPid}) incomplete: exited 128`,
+			]);
 			expect(result.cleanup.ok).toBe(false);
 			expect(result.ok).toBe(false);
 		} finally {
@@ -2277,6 +2763,7 @@ describe("killTreeFor POSIX signal sequence", () => {
 		states: Probe[],
 		boundId: string | null,
 		killSideEffect: (pid: number, signal: string) => void = () => {},
+		pgidOf: ((pid: number) => Promise<number | null>) | null = null,
 	) => {
 		const calls: [number, string][] = [];
 		const killTree = killTreeFor(platform, {
@@ -2286,6 +2773,10 @@ describe("killTreeFor POSIX signal sequence", () => {
 			},
 			sleep: async () => {},
 			identityOf: scripted(states),
+			// SM-2 leader gate: default is the proven leader (pgid === pid),
+			// so the pre-SM-2 group-signal expectations hold; the refusal
+			// cases below inject a non-leader / unknown / throwing probe.
+			pgidOf: pgidOf ?? (async (pid) => pid),
 		});
 		return killTree(4242, { boundId }).then((outcome) => ({ calls, outcome }));
 	};
@@ -2552,6 +3043,88 @@ describe("killTreeFor POSIX signal sequence", () => {
 		expect(outcome.errors).toEqual(["kill(-4242, SIGKILL) failed: EPERM: kill SIGKILL failed: operation not permitted"]);
 	});
 
+	// SM-2 leader gate: a group signal goes out ONLY when `ps -o pgid=`
+	// proves the bound pid is its own process-group leader (pgid === pid).
+	// Unknown, a different pgid, or a probe failure → NO group signal:
+	// the bare pid is signalled (the identity was re-proved at the step
+	// start) and outcome.groupRefused records the reason.
+	onPosix("SM-2: a non-leader pgid refuses the group signal; the bare pid is signalled and groupRefused is recorded", async (platform) => {
+		const { calls, outcome } = await run(
+			platform,
+			[
+				{ state: "alive", id: "A" }, // step 1 probe (leader refused → bare TERM)
+				{ state: "alive", id: "A" }, // step 2 probe (leader refused → bare KILL)
+				{ state: "gone" }, // final probe
+			],
+			"A",
+			() => {},
+			async () => 7777, // a DIFFERENT pgid: the pid is not its own leader
+		);
+		expect(calls).toEqual([
+			[4242, "SIGTERM"],
+			[4242, "SIGKILL"],
+		]);
+		expect(calls.every(([target]) => target === 4242)).toBe(true); // no group call ever
+		expect(outcome.state).toBe("gone");
+		expect(outcome.groupSignalled).toBe(false);
+		expect(outcome.groupRefused).toBe("pid 4242 is not a process-group leader (pgid 7777); group signal refused");
+		expect(outcome.signals).toEqual(calls); // only DELIVERED signals count
+	});
+
+	onPosix("SM-2: an unknown pgid (null probe) refuses the group signal (fail closed)", async (platform) => {
+		const { calls, outcome } = await run(
+			platform,
+			[
+				{ state: "alive", id: "A" }, // step 1 probe (leader unknown → bare TERM)
+				{ state: "gone" }, // step 2: the bare TERM took it
+			],
+			"A",
+			() => {},
+			async () => null, // the pgid probe could not decide
+		);
+		expect(calls).toEqual([[4242, "SIGTERM"]]);
+		expect(outcome.state).toBe("gone");
+		expect(outcome.groupSignalled).toBe(false);
+		expect(outcome.groupRefused).toBe("process-group leader could not be proven for pid 4242; group signal refused");
+	});
+
+	onPosix("SM-2: a throwing pgid probe refuses the group signal (fail closed, the fault is named)", async (platform) => {
+		const { calls, outcome } = await run(
+			platform,
+			[
+				{ state: "alive", id: "A" }, // step 1 probe (leader probe threw → bare TERM)
+				{ state: "gone" }, // step 2: the bare TERM took it
+			],
+			"A",
+			() => {},
+			async () => {
+				throw new Error("ps pgid failed: ENOENT");
+			},
+		);
+		expect(calls).toEqual([[4242, "SIGTERM"]]);
+		expect(outcome.state).toBe("gone");
+		expect(outcome.groupSignalled).toBe(false);
+		expect(outcome.groupRefused).toContain("process-group leader could not be proven for pid 4242");
+		expect(outcome.groupRefused).toContain("ps pgid failed: ENOENT");
+	});
+
+	onPosix("SM-2: a proven leader (pgid === pid) keeps the group signal; groupRefused stays null", async (platform) => {
+		const { calls, outcome } = await run(
+			platform,
+			[
+				{ state: "alive", id: "A" }, // step 1 probe (leader proven → group TERM)
+				{ state: "gone" }, // step 2: the group TERM took it
+			],
+			"A",
+			() => {},
+			async (pid) => pid, // proven leader
+		);
+		expect(calls).toEqual([[-4242, "SIGTERM"]]);
+		expect(outcome.state).toBe("gone");
+		expect(outcome.groupSignalled).toBe(true);
+		expect(outcome.groupRefused).toBeNull();
+	});
+
 	// S2's "unknown stops" rule applies to the win32 branch too (review
 	// rv-fin-sec F3): the bound identity is re-proved IMMEDIATELY before the
 	// taskkill; a null bound, or a fresh probe that is not alive with that
@@ -2559,7 +3132,10 @@ describe("killTreeFor POSIX signal sequence", () => {
 	// unchanged for the matching-alive-id case.
 	const win32Identity = (id: string) => async () => ({ state: "alive", id });
 
-	test("win32: exactly one taskkill call; a non-zero status is recorded in the outcome, never thrown", async () => {
+	// SM-1: the taskkill string is DELIVERED (counted in `signals`) only when
+	// the run returned status 0 with no error and no signal; every other
+	// outcome is state `failed` with a precise error and the status kept.
+	test("SM-1: exactly one taskkill call; a non-zero status is a failed outcome with the precise error, never thrown", async () => {
 		const taskkillCalls: number[] = [];
 		const killTree = killTreeFor("win32", {
 			sleep: async () => {},
@@ -2571,13 +3147,13 @@ describe("killTreeFor POSIX signal sequence", () => {
 		});
 		const outcome = await killTree(5151, { boundId: "133850432100000000" });
 		expect(taskkillCalls).toEqual([5151]); // exactly one taskkill
-		expect(outcome.state).toBe("signalled");
+		expect(outcome.state).toBe("failed");
 		expect(outcome.taskkillStatus).toBe(128);
-		expect(outcome.signals).toEqual(["taskkill /PID 5151 /T /F"]);
-		expect(outcome.errors).toEqual([]);
+		expect(outcome.signals).toEqual([]); // not delivered
+		expect(outcome.errors).toEqual(["exited 128"]);
 	});
 
-	test("win32: a zero status is a clean kill; a taskkill spawn error lands in outcome.errors", async () => {
+	test("SM-1: a zero status is a clean kill (delivered); a taskkill spawn error is a failed outcome", async () => {
 		const ok = await killTreeFor("win32", {
 			sleep: async () => {},
 			identityOf: win32Identity("133850432100000000"),
@@ -2585,14 +3161,84 @@ describe("killTreeFor POSIX signal sequence", () => {
 		})(777, { boundId: "133850432100000000" });
 		expect(ok.state).toBe("signalled");
 		expect(ok.taskkillStatus).toBe(0);
+		expect(ok.signals).toEqual([`taskkill /PID 777 /T /F`]);
 		expect(ok.errors).toEqual([]);
 		const broken = await killTreeFor("win32", {
 			sleep: async () => {},
 			identityOf: win32Identity("133850432100000000"),
 			runTaskkill: async () => ({ status: null, error: "taskkill spawn failed: ENOENT" }),
 		})(777, { boundId: "133850432100000000" });
+		expect(broken.state).toBe("failed");
 		expect(broken.taskkillStatus).toBeNull();
-		expect(broken.errors).toEqual(["taskkill spawn failed: ENOENT"]);
+		expect(broken.signals).toEqual([]);
+		expect(broken.errors).toEqual(["spawn failed: taskkill spawn failed: ENOENT"]);
+	});
+
+	test("SM-1: a timed-out taskkill (signal set, or ERR_CHILD_PROCESS_TIMEOUT) is a failed timeout outcome", async () => {
+		const bySignal = await killTreeFor("win32", {
+			sleep: async () => {},
+			identityOf: win32Identity("133850432100000000"),
+			// spawnSync's timeout kill: status null, signal "SIGTERM".
+			runTaskkill: async () => ({ status: null, signal: "SIGTERM", error: null }),
+		})(777, { boundId: "133850432100000000" });
+		expect(bySignal.state).toBe("failed");
+		expect(bySignal.signals).toEqual([]);
+		expect(bySignal.errors).toEqual([`timed out after ${TASKKILL_TIMEOUT_MS}ms`]);
+		expect(TASKKILL_TIMEOUT_MS).toBe(8_000); // the SAME value as teardownChild's default
+
+		const byCode = await killTreeFor("win32", {
+			sleep: async () => {},
+			identityOf: win32Identity("133850432100000000"),
+			runTaskkill: async () => ({
+				status: null,
+				signal: null,
+				error: Object.assign(new Error("spawnSync taskkill ETIMEDOUT"), { code: "ERR_CHILD_PROCESS_TIMEOUT" }),
+			}),
+		})(777, { boundId: "133850432100000000" });
+		expect(byCode.state).toBe("failed");
+		expect(byCode.errors).toEqual([`timed out after ${TASKKILL_TIMEOUT_MS}ms`]);
+
+		const byMessage = await killTreeFor("win32", {
+			sleep: async () => {},
+			identityOf: win32Identity("133850432100000000"),
+			runTaskkill: async () => {
+				throw Object.assign(new Error("taskkill ETIMEDOUT after 8000ms"), { code: "ETIMEDOUT" });
+			},
+		})(777, { boundId: "133850432100000000" });
+		expect(byMessage.state).toBe("failed");
+		expect(byMessage.errors).toEqual([`timed out after ${TASKKILL_TIMEOUT_MS}ms`]);
+	});
+
+	test("SM-1: a malformed runner error (neither an Error with a message nor a non-empty string) fails closed", async () => {
+		for (const malformed of [42, true, 0, {}, []]) {
+			const outcome = await killTreeFor("win32", {
+				sleep: async () => {},
+				identityOf: win32Identity("133850432100000000"),
+				runTaskkill: async () => ({ status: null, error: malformed }),
+			})(777, { boundId: "133850432100000000" });
+			expect(outcome.state).toBe("failed");
+			expect(outcome.signals).toEqual([]);
+			expect(outcome.errors[0]).toContain("malformed runner error (");
+		}
+	});
+
+	test("SM-1: a missing or non-integer status is a failed `no exit status` outcome", async () => {
+		const missing = await killTreeFor("win32", {
+			sleep: async () => {},
+			identityOf: win32Identity("133850432100000000"),
+			runTaskkill: async () => ({}),
+		})(777, { boundId: "133850432100000000" });
+		expect(missing.state).toBe("failed");
+		expect(missing.taskkillStatus).toBeNull();
+		expect(missing.errors).toEqual(["no exit status"]);
+		const nonInteger = await killTreeFor("win32", {
+			sleep: async () => {},
+			identityOf: win32Identity("133850432100000000"),
+			runTaskkill: async () => ({ status: 1.5 }),
+		})(777, { boundId: "133850432100000000" });
+		expect(nonInteger.state).toBe("failed");
+		expect(nonInteger.taskkillStatus).toBeNull(); // a non-integer status is no exit status
+		expect(nonInteger.errors).toEqual(["no exit status"]);
 	});
 
 	test("win32: a null bound identity refuses the taskkill (fail closed, no signal)", async () => {
@@ -3183,6 +3829,8 @@ describe("runSmoke POSIX-declared cleanup (runs on every OS)", () => {
 			const killTree = killTreeFor("linux", {
 				identityOf,
 				sleep: async () => {},
+				// SM-2 leader gate: the tray pid is proven its own group leader.
+				pgidOf: async () => trayPid,
 				kill: (pid: number, signal: string) => {
 					killCalls.push([pid, signal]);
 					if (signal === "SIGTERM") {
@@ -3244,6 +3892,8 @@ describe("runSmoke POSIX-declared cleanup (runs on every OS)", () => {
 			const killTree = killTreeFor("linux", {
 				identityOf,
 				sleep: async () => {},
+				// SM-2 leader gate: the tray pid is proven its own group leader.
+				pgidOf: async () => trayPid,
 				kill: (pid: number, signal: string) => {
 					killCalls.push([pid, signal]);
 					if (signal === "SIGTERM") {
@@ -3414,6 +4064,8 @@ describe("group-empty check after a group-signalled kill (POSIX)", () => {
 		const killTree = killTreeFor("linux", {
 			identityOf,
 			sleep: async () => {},
+			// SM-2 leader gate: the leader is proven its own group leader.
+			pgidOf: async () => leaderPid,
 			kill: (pid: number, signal: string) => {
 				calls.push([pid, signal]);
 				if (signal === "SIGTERM") {
@@ -3547,6 +4199,10 @@ describe("group-empty check after a group-signalled kill (POSIX)", () => {
 		const killTree = killTreeFor("linux", {
 			identityOf,
 			sleep: async () => {},
+			// SM-2 leader gate: the leader proof SUCCEEDS (pgid === pid) — the
+			// ESRCH below is the leader proof going stale between the probe
+			// and the group signal (the pre-SM-2 non-leader case).
+			pgidOf: async () => trayPid,
 			kill: (pid: number, signal: string) => {
 				if (pid < 0) {
 					const error = new Error(`kill ${signal} failed: ESRCH: no such process`);
@@ -3611,14 +4267,17 @@ describe("group-empty check after a group-signalled kill (POSIX)", () => {
 			[helperPid]: [
 				{ state: "alive", id: "H" }, // tryKill: before
 				{ state: "alive", id: "H" }, // tryKill: at signal
-				{ state: "alive", id: "H" }, // factory step 1 (group ESRCH: not a leader)
-				{ state: "alive", id: "H" }, // re-probe → bare TERM delivered
+				{ state: "alive", id: "H" }, // factory step 1 (group refused: not a leader → bare TERM)
 				{ state: "gone" }, // factory step 2: the helper died on TERM
 			],
 		});
 		const killTree = killTreeFor("linux", {
 			identityOf: scripted.identityOf,
 			sleep: async () => {},
+			// SM-2 leader gate: the leader is proven its own group leader;
+			// the helper is NOT (a different pgid) → its group signal is
+			// refused and the bare pid is signalled instead.
+			pgidOf: async (pid: number) => (pid === leaderPid ? leaderPid : 99999),
 			kill: (pid: number, signal: string) => {
 				if (pid === -leaderPid && signal === "SIGTERM") {
 					leaderAlive = false; // the group TERM takes the leader
@@ -3628,7 +4287,7 @@ describe("group-empty check after a group-signalled kill (POSIX)", () => {
 				if (pid < 0) {
 					const error = new Error(`kill ${signal} failed: ESRCH: no such process`);
 					(error as NodeJS.ErrnoException).code = "ESRCH";
-					throw error; // the helper is not a group leader
+					throw error; // a -pid call must never reach the helper
 				}
 				if (pid === helperPid && signal === "SIGTERM") helperAlive = false;
 				calls.push([pid, signal]);
@@ -3665,8 +4324,9 @@ describe("group-empty check after a group-signalled kill (POSIX)", () => {
 					removeDir: () => {},
 				},
 			);
-			// Exactly two signals: the group TERM on the leader, then the bare
-			// TERM on the helper (its own group does not exist: ESRCH).
+			// Exactly two signals: the group TERM on the leader (a proven
+			// leader), then the bare TERM on the helper (the leader gate
+			// refused its group signal: it is not its own group leader).
 			expect(calls).toEqual([
 				[-leaderPid, "SIGTERM"],
 				[helperPid, "SIGTERM"],
@@ -3808,7 +4468,10 @@ describe("win32 8.3 short paths (real)", () => {
 				writeFileSync(join(src, "helper.exe"), "");
 				const payload = join(wrapper, "Resources", "abc123.tar.zst");
 				const tar = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe");
-				const packed = spawnSync(tar, ["-a", "-cf", payload, "-C", src, "."], { stdio: "ignore", windowsHide: true });
+				// SM-3: explicit top-level entries (no `.` — the platform bsdtar
+				// emits `./` entries when given `.` as the argument, and the
+				// extractor now rejects `.` segments).
+				const packed = spawnSync(tar, ["-a", "-cf", payload, "-C", src, "bin", "helper.exe"], { stdio: "ignore", windowsHide: true });
 				expect(packed.status).toBe(0);
 				process.env.TMP = fx.shortDir;
 				process.env.TEMP = fx.shortDir;
@@ -3902,10 +4565,14 @@ function platformTar(): string {
 }
 
 /** A REAL `.tar.zst` from a fixture dir: plain tar via the platform tar,
- * compressed in-process with Bun (the same zstd the smoke decompresses). */
+ * compressed in-process with Bun (the same zstd the smoke decompresses).
+ * The top-level entries are passed EXPLICITLY (never `.`): the SM-3
+ * tar-name policy rejects `.` segments, and `.` as the argument makes
+ * bsdtar emit `./`-prefixed member names. */
 function realTarZst(destFile: string, srcDir: string): void {
 	const plain = join(dirname(destFile), "plain-fixture.tar");
-	const packed = spawnSync(platformTar(), ["-cf", plain, "-C", srcDir, "."], {
+	const entries = readdirSync(srcDir).sort();
+	const packed = spawnSync(platformTar(), ["-cf", plain, "-C", srcDir, ...entries], {
 		stdio: "ignore",
 		windowsHide: true,
 	});
@@ -4150,7 +4817,8 @@ describe("darwin runSmoke: real wrapper payload materialization", () => {
 		const killed = new Set<number>();
 		const { spawnFn, calls } = fakeSpawn(childPid, trayPid);
 		let capturedSandbox: string | null = null;
-		let listeningCalls = 0;
+		let launched = false;
+		let childClosed = false;
 		let result;
 		try {
 			result = await runSmoke(
@@ -4161,7 +4829,18 @@ describe("darwin runSmoke: real wrapper payload materialization", () => {
 						// Canonicalize while the sandbox still exists (cleanup
 						// removes it before the assertions run).
 						capturedSandbox = realpathSync.native(dirname(opts.env.PINAR_HOME));
-						return spawnFn(launcher, args, opts);
+						launched = true;
+						const child = spawnFn(launcher, args, opts);
+						// Track the (fake) close so the port owner can be
+						// modelled by the child's liveness: the cleanup
+						// decision runs before the close, the post-kill poll
+						// after it.
+						const origOn = child.on?.bind(child);
+						child.on = (event: string, fn?: unknown) => {
+							if (event === "close") childClosed = true;
+							return origOn?.(event, fn);
+						};
+						return child;
 					},
 					parentOf: async () => null,
 					isAlive: async (pid) =>
@@ -4188,8 +4867,17 @@ describe("darwin runSmoke: real wrapper payload materialization", () => {
 						killed.add(pid);
 					},
 					listeningPid: (port) => {
-						listeningCalls += 1;
-						return port === 17420 && listeningCalls === 2 ? outsidePid : null;
+						// SM-7: the SM-7 diagnostic samples also probe
+						// listeningPid during the wait loop (this run fails —
+						// the fake parentOf never puts the tray in the tree),
+						// so the port owner cannot be modelled by a call
+						// counter. The outside helper holds the port from spawn
+						// until the (fake) launcher close reaches it: the
+						// samples and the cleanup decision (both before the
+						// close) see it, the post-kill poll (after the close)
+						// does not — so the poll settles and the cleanup stays
+						// error-free.
+						return port === 17420 && launched && !childClosed ? outsidePid : null;
 					},
 					probeHealth: async () => ({ healthy: false }),
 				},
@@ -4269,7 +4957,10 @@ describe("darwin runSmoke: fail-closed matrix (real .tar.zst archives)", () => {
 		},
 		{
 			name: "corrupt zstd bytes are rejected",
-			reason: /zstd decompression/,
+			// SM-5: the rejection now happens BEFORE decompression (the frame
+			// walk refuses a non-zstd magic), so the message is the validation
+			// message, not a decompression failure.
+			reason: /zstd frame validation/,
 			build: (_srcDir, payloadFile) =>
 				writeFileSync(payloadFile, Buffer.from("this is definitely not a zstd frame", "latin1")),
 		},
@@ -4427,6 +5118,9 @@ describe("win32 runSmoke through the same extraction routine", () => {
 	test("a traversal payload fails closed (spawn 0 / kill 0)", async () => {
 		const fx = makeWinWrapperAppDir((srcDir) => {
 			mkdirSync(srcDir, { recursive: true });
+			// A member so the (replaced) wrapper payload packs as a real
+			// archive: bsdtar refuses a zero-member `tar -cf`.
+			writeFileSync(join(srcDir, "stub.txt"), "stub\n");
 		});
 		// Replace the real payload with the malicious one.
 		zstFromPlain(fx.payloadFile, tarArchive(tarEntry("../../pinar-smoke-escape-file", Buffer.from("boom\n"))));
@@ -4660,6 +5354,46 @@ describe("tar/zstd fail-closed branches", () => {
 		expect(validatePlainTar(tarArchive(tarEntry("dir/", Buffer.alloc(0), { type: "5" })))).toBe(1);
 	});
 
+	// SM-3 (security S7): NTFS strips trailing dots/spaces from names, so
+	// `foo. ` collapses to `foo` (collision) and `.. ` collapses to `..`
+	// (escape) once the OS strips them. Every segment that ends with a dot
+	// or a space, consists only of dots/spaces, or is `.` / `..` is
+	// rejected — on every platform — before the tar ever runs.
+	const sm3Cases: Array<[string, RegExp]> = [
+		// The review regression: the segment `".. "` (a dot run with a
+		// trailing space) is not the literal `..` — it is the trailing-space
+		// rule that catches it (the mutation that drops that rule accepts it).
+		[".. /escaped.txt", /segment "\.\. " ends with a dot or space in entry name/],
+		["foo.", /segment "foo\." ends with a dot or space in entry name/],
+		["bar ", /segment "bar " ends with a dot or space in entry name/],
+		["Pinar/app.log ", /ends with a dot or space in entry name/],
+		["Pinar/.", /"\." segment in entry name/],
+		["Pinar/app/./helper", /"\." segment in entry name/],
+		["..", /"\.\." segment in entry name/],
+		["Pinar/..", /"\.\." segment in entry name/],
+		["Pinar/a.. /b.txt", /ends with a dot or space in entry name/], // trailing space on a mid segment
+	];
+	for (const [name, reason] of sm3Cases) {
+		test(`SM-3: the tar name ${JSON.stringify(name)} is rejected before the tar runs`, async () => {
+			const fx = fixture("sm3");
+			try {
+				await expectFailClosed(
+					fx,
+					tarArchive(tarEntry(name, Buffer.from("x\n"))),
+					reason,
+				);
+			} finally {
+				rmSync(fx.root, { recursive: true, force: true });
+			}
+		}, 60_000);
+	}
+
+	test("SM-3 control: interior, leading and adjacent dots are still safe names", () => {
+		expect(validatePlainTar(tarArchive(tarEntry("a..b.txt", Buffer.from("x\n"))))).toBe(1);
+		expect(validatePlainTar(tarArchive(tarEntry("..foo.txt", Buffer.from("x\n"))))).toBe(1);
+		expect(validatePlainTar(tarArchive(tarEntry("Pinar/bin/Pinar.exe", Buffer.from("x\n"))))).toBe(1);
+	});
+
 	// Each device/pax/GNU typeflag is rejected on the typeflag alone: the
 	// header has a VALID checksum and a safe name.
 	const typeflagCases: Array<[string, string, RegExp]> = [
@@ -4865,18 +5599,24 @@ describe("tar/zstd fail-closed branches", () => {
 
 	// Embedded fixture: a real 76-byte .tar.zst frame WITHOUT a
 	// Frame_Content_Size (RFC 8878 §3.1.1.1.4: FCS_Flag 0b00, window
-	// descriptor, no FCS field). Provenance: generated once with the job's
-	// tools/bin/zstd.exe 1.5.7, `zstd -q --no-content-size -f <tar> -o
-	// nfc.tar.zst`, over the 2048-byte plain tar built by the in-file
-	// tarEntry/tarArchive helpers (sha256 below); `zstd -l` reports no
-	// uncompressed size and Bun decodes it to exactly that tar. The
-	// pre-check cannot decide (declared size null), so the post-
-	// decompression cap is the guard.
+	// descriptor, no FCS field, checksum flag set). Provenance: generated
+	// once with the job's tools/bin/zstd.exe 1.5.7, `zstd -q
+	// --no-content-size -f <tar> -o nfc.tar.zst`, over the 2048-byte plain
+	// tar built by the in-file tarEntry/tarArchive helpers (sha256 below);
+	// `zstd -l` reports no uncompressed size and Bun decodes it to exactly
+	// that tar. SM-5/F-1: the pre-check PROVES this shape (a single
+	// structurally complete frame whose walk ends exactly at the input
+	// length), returns null for the declared size and computes its
+	// pre-allocation bound (2048 bytes for this fixture): a bound above
+	// the cap rejects BEFORE decompression, and the post-decompression
+	// cap remains the authoritative size guard.
 	const NO_FCS_FIXTURE_B64 =
 		"KLUv/QQI/QEAJAJhLnR4dAAwMDA2NDQwMDAyNjU1NgAgMAB1c3RhcgAwYQoACgD6gX8gQAHxhtQAkBi8uOkH1gBwrFxlJ1AEdCCYbg==";
 	const NO_FCS_PLAIN_SHA256 = "483a674556ad2625826fbb6184749f996c17f4f2aac2e5f454cb9cc08b5e547f";
 
-	test("an undeclared-size frame: the pre-check cannot decide, the decompressor runs, the cap guards, and the default cap extracts", async () => {
+	test(
+		"an undeclared-size frame: the pre-check proves the single frame and bounds its size; a bound above the cap rejects before the decompressor, the post-decompression cap still guards, and the default cap extracts",
+		async () => {
 		const fx = fixture("nfc");
 		try {
 			const compressed = Buffer.from(NO_FCS_FIXTURE_B64, "base64");
@@ -4886,11 +5626,18 @@ describe("tar/zstd fail-closed branches", () => {
 		// in-file helpers build:
 			expect(createHash("sha256").update(Bun.zstdDecompressSync(compressed)).digest("hex")).toBe(NO_FCS_PLAIN_SHA256);
 			expect(createHash("sha256").update(tarArchive(tarEntry("a.txt", Buffer.from("a\n")))).digest("hex")).toBe(NO_FCS_PLAIN_SHA256);
-			// The header declares no content size:
+			// The header declares no content size (FCS_Flag 0b00, windowed):
 			expect(zstdDeclaredContentSize(compressed)).toBeNull();
-			// A small cap below the 2048-byte expansion: the real decompressor
-			// IS called (the pre-check could not decide) and the
-			// post-decompression cap rejects before spawn/kill/write:
+			// SM-5/F-1: the frame walk ACCEPTS this frame (a single
+			// structurally complete frame: the walk proves frame end = input
+			// length), returns null for the declared size and computes its
+			// pre-allocation bound (2048 for this fixture):
+			expect(validateZstdSingleFrame(compressed)).toBeNull();
+			expect(zstdPreallocationBound(compressed)).toBe(2048);
+			// F-1: a cap below the 2048-byte BOUND rejects BEFORE ANY
+			// decompression (the decompressor is never called and nothing is
+			// written) — closing the "the full output is allocated before the
+			// cap" window for the one frame shape without a declared size:
 			let decompressCalls = 0;
 			await expect(
 				extractWrapperPayload(fx.payload, fx.dest, {
@@ -4902,14 +5649,35 @@ describe("tar/zstd fail-closed branches", () => {
 						return Bun.zstdDecompressSync(buf);
 					},
 				}),
-			).rejects.toThrow(/expands to 2048 bytes, above the 1024 byte decompression cap/);
+			).rejects.toThrow(/pre-allocation decompressed-size bound is 2048 bytes \(window \+ block walk\), above the 1024 byte decompression cap/);
+			expect(decompressCalls).toBe(0);
+			expect(readdirSync(fx.dest)).toEqual([]);
+			expect(existsSync(join(fx.root, "wrapper-payload.tar"))).toBe(false);
+			// …and when the bound is WITHIN the cap, the decompressor runs
+			// and the POST-DECOMPRESSION cap remains the authoritative size
+			// guard: a decompressor reporting a 5000-byte expansion (above
+			// the 3000 cap — and above the 2048 bound) is rejected after
+			// decompression, before spawn/kill/write:
+			decompressCalls = 0;
+			await expect(
+				extractWrapperPayload(fx.payload, fx.dest, {
+					scratchDir: fx.root,
+					tarCommand: fx.tarCommand,
+					maxDecompressedBytes: 3000,
+					zstdDecompress: () => {
+						decompressCalls += 1;
+						return Buffer.alloc(5000, 0);
+					},
+				}),
+			).rejects.toThrow(/expands to 5000 bytes, above the 3000 byte decompression cap/);
 			expect(decompressCalls).toBe(1);
 			expect(readdirSync(fx.dest)).toEqual([]);
 			expect(existsSync(join(fx.root, "wrapper-payload.tar"))).toBe(false);
 			expect(createHash("sha256").update(readFileSync(fx.payload)).digest("hex")).toBe(before);
-			// Default cap: the same bytes pass every validation and extract
-			// normally with the real platform tar (same style as the
-			// post-extraction containment tests):
+			// Default cap: bound (2048) and expansion (2048) are both within
+			// the unchanged 2 GiB default: the same bytes pass every
+			// validation and extract normally with the real platform tar
+			// (same style as the post-extraction containment tests):
 			await extractWrapperPayload(fx.payload, fx.dest, { scratchDir: fx.root });
 			expect(readFileSync(join(fx.dest, "a.txt"), "utf8")).toBe("a\n");
 		} finally {
@@ -4953,7 +5721,11 @@ describe("tar/zstd fail-closed branches", () => {
 	// reviewer's 9 MiB variant of this frame mis-declared 2,415,919,104
 	// bytes and was falsely rejected before decompression — review
 	// rv-rt-s3).
-	test("a one-byte Dictionary_ID frame extracts normally at the default cap", async () => {
+	// SM-5: a Dictionary_ID is rejected by the pre-allocation frame walk
+	// BEFORE the decompressor is called (RFC 8878 allows it in real
+	// decoders, but the payload is a single self-built frame — a DID is a
+	// shape that must never appear here).
+	test("SM-5: a one-byte Dictionary_ID frame is rejected before the decompressor is called", async () => {
 		const fx = fixture("did");
 		try {
 			const plain = tarArchive(tarEntry("a.txt", Buffer.from("a\n")));
@@ -4968,8 +5740,20 @@ describe("tar/zstd fail-closed branches", () => {
 			expect(createHash("sha256").update(Bun.zstdDecompressSync(crafted)).digest("hex")).toBe(
 				createHash("sha256").update(plain).digest("hex"),
 			);
-			await extractWrapperPayload(fx.payload, fx.dest, { scratchDir: fx.root });
-			expect(readFileSync(join(fx.dest, "a.txt"), "utf8")).toBe("a\n");
+			let decompressCalls = 0;
+			await expect(
+				extractWrapperPayload(fx.payload, fx.dest, {
+					scratchDir: fx.root,
+					tarCommand: fx.tarCommand,
+					zstdDecompress: () => {
+						decompressCalls += 1;
+						return plain;
+					},
+				}),
+			).rejects.toThrow(/dictionary id \(flag 0b1\) rejected/);
+			expect(decompressCalls).toBe(0); // rejected before ANY allocation
+			expect(readdirSync(fx.dest)).toEqual([]);
+			expect(existsSync(join(fx.root, "wrapper-payload.tar"))).toBe(false);
 		} finally {
 			rmSync(fx.root, { recursive: true, force: true });
 		}
@@ -5028,6 +5812,187 @@ describe("tar/zstd fail-closed branches", () => {
 		// read it and return a number: the correct parser returns null.
 		const padded = Buffer.from([0x28, 0xb5, 0x2f, 0xfd, 0xc0, 0x18, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
 		expect(zstdDeclaredContentSize(padded)).toBeNull();
+	});
+});
+
+/**
+ * SM-5 (security S9) + F-1: pre-allocation zstd frame validation.
+ * `bytes` must be EXACTLY ONE normal zstd frame ending exactly at the
+ * input end; every shape the walk cannot prove is rejected BEFORE any
+ * decompression (allocation). The NO_FCS fixture (the embedded base64
+ * frame — a windowed frame whose FCS_Flag 0b00 declares no content
+ * size) is the one accepted shape without a declared size: the walk
+ * proves it a single structurally complete frame (frame end = input
+ * length) and its pre-allocation bound (the window + block walk sum,
+ * see zstdPreallocationBound) is checked against the cap before
+ * decompression; the post-decompression cap remains the authoritative
+ * size guard.
+ */
+describe("validateZstdSingleFrame (SM-5 pre-allocation frame walk)", () => {
+	const NO_FCS_FIXTURE_B64 =
+		"KLUv/QQI/QEAJAJhLnR4dAAwMDA2NDQwMDAyNjU1NgAgMAB1c3RhcgAwYQoACgD6gX8gQAHxhtQAkBi8uOkH1gBwrFxlJ1AEdCCYbg==";
+	const realFrame = () => Buffer.from(Bun.zstdCompressSync(tarArchive(tarEntry("a.txt", Buffer.from("a\n")))));
+
+	test("a real single-segment frame passes and returns its declared size", () => {
+		const frame = realFrame();
+		expect(validateZstdSingleFrame(frame)).toBe(tarArchive(tarEntry("a.txt", Buffer.from("a\n"))).length);
+		// The default cap is the unchanged 2 GiB:
+		expect(() => validateZstdSingleFrame(frame, 16)).toThrow(/above the 16 byte decompression cap/);
+		expect(validateZstdSingleFrame(frame, 2 * 1024 * 1024 * 1024)).not.toBeNull();
+	});
+
+	test("the no-content-size windowed fixture passes the walk (frame end = input length) and returns null", () => {
+		const compressed = Buffer.from(NO_FCS_FIXTURE_B64, "base64");
+		// The walk proves a single structurally complete frame; the declared
+		// size is null (FCS_Flag 0b00 on a windowed frame), the pre-
+		// allocation bound is computed, and the post-decompression cap
+		// remains the authoritative size guard.
+		expect(validateZstdSingleFrame(compressed)).toBeNull();
+		expect(zstdDeclaredContentSize(compressed)).toBeNull();
+		expect(zstdPreallocationBound(compressed)).toBe(2048);
+	});
+
+	test("a skippable frame is rejected", () => {
+		expect(() =>
+			validateZstdSingleFrame(Buffer.from([0x50, 0x2a, 0x4d, 0x18, 0x01, 0x00, 0x00, 0x00, 0xab])),
+		).toThrow(/skippable frame/);
+	});
+
+	test("a non-zstd magic is rejected", () => {
+		expect(() => validateZstdSingleFrame(Buffer.from([0x00, 0x01, 0x02, 0x03, 0x04, 0x05]))).toThrow(/not a zstd frame/);
+		expect(() => validateZstdSingleFrame(Buffer.alloc(0))).toThrow(/empty input/);
+	});
+
+	test("a dictionary id is rejected", () => {
+		const frame = realFrame();
+		const crafted = Buffer.concat([frame.subarray(0, 4), Buffer.from([frame[4] | 0x03]), Buffer.alloc(4, 0), frame.subarray(5)]);
+		expect(() => validateZstdSingleFrame(crafted)).toThrow(/dictionary id/);
+	});
+
+	test("more than one frame / trailing bytes are rejected", () => {
+		const frame = realFrame();
+		// Two complete frames concatenated: the walk stops at the first frame
+		// end and finds trailing bytes (the second frame).
+		expect(() => validateZstdSingleFrame(Buffer.concat([frame, frame]))).toThrow(/trailing bytes or more than one frame/);
+		// A single trailing NUL byte after a complete frame:
+		expect(() => validateZstdSingleFrame(Buffer.concat([frame, Buffer.alloc(1, 0)]))).toThrow(/trailing bytes or more than one frame/);
+	});
+
+	test("a reserved block type is rejected", () => {
+		// A single-segment frame whose only block uses the reserved type 3:
+		// block header word = size<<3 | type=0b11 | last=1. size 5, type 3,
+		// last block → (5 << 3) | 3 | 1 = 0x2B; little-endian 3 bytes.
+		const crafted = Buffer.concat([
+			Buffer.from([0x28, 0xb5, 0x2f, 0xfd]),
+			Buffer.from([0x60]), // descriptor: 2-byte FCS, no window, no checksum, no DID
+			Buffer.from([0x05, 0x00]), // FCS = 5 + 256 = 261 (the size is irrelevant to the walk)
+			Buffer.from([0x2f, 0x00, 0x00]), // reserved block, last (word = (5<<3)|(3<<1)|1 = 0x2F)
+			Buffer.alloc(5),
+		]);
+		expect(() => validateZstdSingleFrame(crafted)).toThrow(/reserved block type/);
+	});
+
+	test("a block that runs past the input is rejected", () => {
+		// Block header claims 100 bytes of raw data but only 5 are present:
+		const crafted = Buffer.concat([
+			Buffer.from([0x28, 0xb5, 0x2f, 0xfd]),
+			Buffer.from([0x60]),
+			Buffer.from([0x05, 0x00]),
+			Buffer.from([0x21, 0x03, 0x00]), // raw block, size 100, last (word = (100<<3)|0|1 = 0x0321)
+			Buffer.alloc(5),
+		]);
+		expect(() => validateZstdSingleFrame(crafted)).toThrow(/block data runs past the input/);
+	});
+
+	test("a truncated frame header is rejected", () => {
+		expect(() => validateZstdSingleFrame(Buffer.from([0x28, 0xb5, 0x2f, 0xfd]))).toThrow(/truncated frame header/);
+		// Magic + descriptor only (no window descriptor for a windowed frame):
+		expect(() => validateZstdSingleFrame(Buffer.from([0x28, 0xb5, 0x2f, 0xfd, 0x04]))).toThrow(/truncated frame header/);
+	});
+
+	test("a checksum-flagged frame consumes the 4-byte content checksum at the frame end", () => {
+		// A real frame with the checksum flag set: the walk must consume the
+		// trailing 4-byte checksum (a walker that forgets it sees trailing
+		// bytes and rejects the valid frame).
+		const plain = tarArchive(tarEntry("a.txt", Buffer.from("a\n")));
+		const frame = Buffer.from(Bun.zstdCompressSync(plain));
+		const withFlag = Buffer.from(frame);
+		withFlag[4] |= 0x04; // set the Checksum_Flag (0b100)
+		const checksummed = Buffer.concat([withFlag, Buffer.from([0xde, 0xad, 0xbe, 0xef])]);
+		expect(() => validateZstdSingleFrame(checksummed)).not.toThrow();
+		// …and the same bytes WITHOUT the trailing 4 checksum bytes are a
+		// truncated frame:
+		expect(() => validateZstdSingleFrame(withFlag)).toThrow(/checksum runs past the input/);
+	});
+});
+
+describe("F-1: the pre-allocation decompressed-size bound (frames without a declared size)", () => {
+	/** A structurally valid WINDOWED, no-FCS (FCS_Flag 0b00) frame: magic,
+	 * descriptor 0x00, the given Window_Descriptor, then the block list.
+	 * Block types: 0 raw (size data bytes), 1 RLE (size = regenerated size,
+	 * 1 data byte), 2 compressed (size data bytes). */
+	function windowedNoFcsFrame(windowDescriptor: number, blocks: { type: number; size: number }[]): Buffer {
+		const parts: Buffer[] = [Buffer.from([0x28, 0xb5, 0x2f, 0xfd, 0x00, windowDescriptor])];
+		blocks.forEach((block, i) => {
+			const word = (block.size << 3) | (block.type << 1) | (i === blocks.length - 1 ? 1 : 0);
+			const header = Buffer.alloc(3);
+			header.writeUInt16LE(word & 0xffff, 0);
+			header[2] = (word >> 16) & 0xff;
+			parts.push(header, Buffer.alloc(block.type === 1 ? 1 : block.size, 0x01));
+		});
+		return Buffer.concat(parts);
+	}
+
+	test("the bound arithmetic: window exponent/mantissa, raw and RLE exact, compressed capped", () => {
+		const blocks = [
+			{ type: 2, size: 100 },
+			{ type: 2, size: 40 },
+			{ type: 0, size: 50 }, // raw → contributes exactly 50
+			{ type: 1, size: 3000 }, // RLE → contributes exactly its regenerated size
+		];
+		// exponent 0, mantissa 0 → windowLog 10, windowBase 1024,
+		// windowAdd 0 → Window_Size 1024 → Block_Maximum_Size 1024.
+		expect(zstdPreallocationBound(windowedNoFcsFrame(0x00, blocks))).toBe(2 * 1024 + 50 + 3000);
+		// exponent 3, mantissa 5 → windowLog 13, windowBase 8192,
+		// windowAdd (8192/8)*5 = 5120 → Window_Size 13312 →
+		// Block_Maximum_Size 13312 (below 128 KiB).
+		expect(zstdPreallocationBound(windowedNoFcsFrame((3 << 3) | 5, blocks))).toBe(2 * 13312 + 50 + 3000);
+		// exponent 9, mantissa 7 → windowLog 19, windowBase 524288,
+		// windowAdd (524288/8)*7 = 458752 → Window_Size 983040 →
+		// Block_Maximum_Size min(983040, 128 KiB) = 131072.
+		expect(zstdPreallocationBound(windowedNoFcsFrame((9 << 3) | 7, blocks))).toBe(2 * 131072 + 50 + 3000);
+	});
+
+	test("a no-FCS frame whose bound exceeds the injected cap is rejected BEFORE the decompressor is called", async () => {
+		// 20 compressed blocks × Block_Maximum_Size 131072 = 2621440,
+		// above the injected 1 MiB cap (and far below the 2 GiB default).
+		const frame = windowedNoFcsFrame((9 << 3) | 7, Array.from({ length: 20 }, () => ({ type: 2, size: 8 })));
+		expect(zstdPreallocationBound(frame)).toBe(20 * 131072);
+		expect(() => validateZstdSingleFrame(frame, 1024 * 1024)).toThrow(
+			/pre-allocation decompressed-size bound is 2621440 bytes/,
+		);
+		// Exactly at the cap is NOT above it: accepted.
+		expect(validateZstdSingleFrame(frame, 2621440)).toBeNull();
+		const root = mkdtempSync(join(tmpdir(), "pinar-smoke-f1-"));
+		try {
+			const payloadFile = join(root, "payload.tar.zst");
+			writeFileSync(payloadFile, frame);
+			let decompressCalls = 0;
+			const spy = () => {
+				decompressCalls += 1;
+				throw new Error("the decompressor must never run for a bound-oversized frame");
+			};
+			await expect(
+				extractWrapperPayload(payloadFile, join(root, "dest"), {
+					platform: "linux",
+					maxDecompressedBytes: 1024 * 1024,
+					zstdDecompress: spy,
+				}),
+			).rejects.toThrow(/pre-allocation decompressed-size bound is 2621440 bytes/);
+			expect(decompressCalls).toBe(0); // rejected before ANY allocation
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
 	});
 });
 
@@ -5174,4 +6139,19 @@ test("the CLI prints exactly one final JSON line with a cleanup object on failur
 	expect(Array.isArray(parsed.cleanup.errors)).toBe(true);
 	expect(Array.isArray(parsed.cleanup.reused)).toBe(true);
 	expect(typeof parsed.cleanup.sandboxRemoved).toBe("boolean");
+	// SM-7: a failed run always carries the diagnostics object (never env
+	// dumps, only bounded file/health facts). This particular failure is a
+	// pre-spawn "launcher not found": the .pinar dir is not created (it is
+	// written only once a launcher is found), so sandboxFiles may be empty —
+	// the shape, not the content, is the contract.
+	expect(parsed.diagnostics).toBeDefined();
+	expect(Array.isArray(parsed.diagnostics.samples)).toBe(true);
+	expect(parsed.diagnostics.samples.length).toBeLessThanOrEqual(14);
+	expect(parsed.diagnostics.lastHealth).toBeDefined();
+	expect(parsed.diagnostics.lastHealth.ok).toBe(false); // no helper was launched (launcher missing)
+	expect(parsed.diagnostics.trayPid).toBeNull();
+	expect(parsed.diagnostics.serverPid).toEqual({ value: null, reason: "absent" }); // sandbox exists, .pinar/server.pid does not
+	expect(Array.isArray(parsed.diagnostics.sandboxFiles)).toBe(true);
+	expect(parsed.diagnostics.sandboxFiles.length).toBeLessThanOrEqual(60);
+	expect(typeof parsed.diagnostics.logTails).toBe("object");
 }, 60_000);

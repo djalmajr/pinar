@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -19,9 +20,11 @@ import {
 	runningAppBundle,
 	runningAppRoot,
 	stopServer,
+	taskkillRunner,
+	type TaskkillResult,
 	usesShell,
 } from "./local-server";
-import type { IdentityOutcome } from "./process-identity";
+import { parsePid, type IdentityOutcome } from "./process-identity";
 
 describe("bundled helper paths", () => {
 	test("runningAppBundle walks up to the .app wrapper", () => {
@@ -372,25 +375,59 @@ describe("data home", () => {
 });
 
 describe("stopServer", () => {
-	test("runs pinar stop and returns once health is gone", async () => {
+	test("with PINAR_PORT unset, never calls run([\"stop\"]) and stops only through the kill loop", async () => {
 		const calls: string[][] = [];
-		let port: number | null = 17373;
 		const killed: number[] = [];
-		delete process.env.PINAR_PORT; // no pin: the legacy stop must run
-		await stopServer({
-			run: async (args) => {
-				calls.push(args);
-				port = null;
-				return 0;
-			},
-			healthyPort: async () => port,
-			killPort: async (next) => {
-				killed.push(next);
-			},
-			wait: async () => {},
-		});
-		expect(calls).toEqual([["stop"]]);
-		expect(killed).toEqual([]);
+		let port: number | null = 17373;
+		const previous = process.env.PINAR_PORT;
+		delete process.env.PINAR_PORT; // no pin: the unbound `pinar stop` must not run
+		try {
+			const outcome = await stopServer({
+				run: async (args) => {
+					calls.push(args);
+					return 0;
+				},
+				healthyPort: async () => port,
+				killPort: async (next, seen) => {
+					killed.push(next);
+					seen.add(42);
+					port = null;
+				},
+				wait: async () => {},
+				unhealthyTimeoutMs: 0,
+			});
+			// The unbound `pinar stop` (run(["stop"])) is gone from every path:
+			// only the identity-bound kill loop signals.
+			expect(calls).toEqual([]);
+			expect(killed).toEqual([17373]);
+			// The mid-loop single probe is an attempt, not a verification.
+			expect(outcome.stopped).toBe(false);
+		} finally {
+			if (previous == null) delete process.env.PINAR_PORT;
+			else process.env.PINAR_PORT = previous;
+		}
+	});
+
+	test("stopped is true when the helper is already unhealthy (early return)", async () => {
+		const killed: number[] = [];
+		const previous = process.env.PINAR_PORT;
+		delete process.env.PINAR_PORT;
+		try {
+			const outcome = await stopServer({
+				healthyPort: async () => null,
+				killPort: async (next) => {
+					killed.push(next);
+				},
+				wait: async () => {},
+				unhealthyTimeoutMs: 0,
+			});
+			expect(killed).toEqual([]);
+			expect(outcome.stopped).toBe(true);
+			expect(outcome.errors).toEqual([]);
+		} finally {
+			if (previous == null) delete process.env.PINAR_PORT;
+			else process.env.PINAR_PORT = previous;
+		}
 	});
 
 	test("parses a Windows netstat LISTENING pid", () => {
@@ -402,22 +439,60 @@ describe("stopServer", () => {
 		expect(parseNetstatListeningPid(stdout, 17374)).toBeNull();
 	});
 
-	test("falls back to killing the listening pid when pinar stop leaves health up", async () => {
-		const killed: number[] = [];
-		let port: number | null = 17373;
-		delete process.env.PINAR_PORT; // no pin: the legacy stop must run
-		await stopServer({
-			unhealthyTimeoutMs: 0,
-			run: async () => 0,
-			healthyPort: async () => port,
-			killPort: async (next, seen) => {
-				killed.push(next);
-				seen.add(42);
-				port = null;
-			},
-			wait: async () => {},
-		});
-		expect(killed).toEqual([17373]);
+	test("rejects malformed netstat pid columns (strict parse, never Number-normalized)", () => {
+		const stdout = [
+			"  TCP    127.0.0.1:17373        0.0.0.0:0              LISTENING       0x1f",
+			"  TCP    127.0.0.1:17374        0.0.0.0:0              LISTENING       1e3",
+			"  TCP    127.0.0.1:17375        0.0.0.0:0              LISTENING       99999999999",
+		].join("\r\n");
+		expect(parseNetstatListeningPid(stdout, 17373)).toBeNull(); // Number() would give 31
+		expect(parseNetstatListeningPid(stdout, 17374)).toBeNull(); // Number() would give 1000
+		expect(parseNetstatListeningPid(stdout, 17375)).toBeNull(); // out of the 32-bit range
+	});
+
+	test("stopped is false and the refusal is recorded when the kill loop makes no progress", async () => {
+		const previous = process.env.PINAR_PORT;
+		delete process.env.PINAR_PORT;
+		try {
+			const outcome = await stopServer({
+				healthyPort: async () => 17373, // still healthy every probe
+				killPort: async (port) => ({
+					refusals: [{ pid: 7, port, reason: "reused" as const, step: "pre-sigterm" as const }],
+					signals: [],
+					errors: [],
+				}),
+				wait: async () => {},
+				unhealthyTimeoutMs: 0,
+			});
+			// Refusal: killPort made no progress (seen never grows) — the
+			// bounded bail-out, and the helper was still healthy.
+			expect(outcome.stopped).toBe(false);
+			expect(outcome.refusals).toEqual([{ pid: 7, port: 17373, reason: "reused", step: "pre-sigterm" }]);
+			expect(outcome.errors).toEqual([]);
+		} finally {
+			if (previous == null) delete process.env.PINAR_PORT;
+			else process.env.PINAR_PORT = previous;
+		}
+	});
+
+	test("stopped is false and the still-healthy port is recorded when the bound is exhausted", async () => {
+		const previous = process.env.PINAR_PORT;
+		delete process.env.PINAR_PORT;
+		try {
+			const outcome = await stopServer({
+				healthyPort: async () => 17373, // healthy every probe
+				killPort: async (_port, seen) => {
+					seen.add(seen.size + 1); // a new pid each time: run to the bound
+				},
+				wait: async () => {},
+				unhealthyTimeoutMs: 0,
+			});
+			expect(outcome.stopped).toBe(false);
+			expect(outcome.errors).toEqual(["local server still healthy on port 17373 after stop"]);
+		} finally {
+			if (previous == null) delete process.env.PINAR_PORT;
+			else process.env.PINAR_PORT = previous;
+		}
 	});
 
 	test("records every refusal, signal and error from the kill loop in the result", async () => {
@@ -446,6 +521,35 @@ describe("stopServer", () => {
 	});
 });
 
+describe("parsePid strict parse", () => {
+	test("accepts integer digits in 1..2147483647 after trim", () => {
+		expect(parsePid("42")).toBe(42);
+		expect(parsePid(" 42 ")).toBe(42);
+		expect(parsePid("1")).toBe(1);
+		expect(parsePid("2147483647")).toBe(2147483647);
+	});
+
+	test("returns null for every other shape, never normalized", () => {
+		for (const invalid of [
+			"12abc",
+			"1e3",
+			"0x1f",
+			"",
+			"0",
+			"-5",
+			"99999999999",
+			"2147483648",
+			"1.5",
+			"+42",
+			"4 2",
+		]) {
+			expect(parsePid(invalid)).toBeNull();
+		}
+		expect(parsePid(null)).toBeNull();
+		expect(parsePid(undefined)).toBeNull();
+	});
+});
+
 describe("killListeningPid identity guards (fakes)", () => {
 	const PORT = 17401;
 	const PID = 4242;
@@ -463,6 +567,8 @@ describe("killListeningPid identity guards (fakes)", () => {
 		sigtermThrows?: boolean;
 		taskkillCode?: number | null;
 		taskkillTimedOut?: boolean;
+		/** Full taskkill result override (win32 signal path). */
+		taskkillResult?: TaskkillResult;
 	}
 
 	function harness(opts: HarnessOpts = {}) {
@@ -485,8 +591,9 @@ describe("killListeningPid identity guards (fakes)", () => {
 			return true;
 		};
 		const taskkillCalls: number[] = [];
-		const taskkill = async (pid: number) => {
+		const taskkill = async (pid: number): Promise<TaskkillResult> => {
 			taskkillCalls.push(pid);
+			if (opts.taskkillResult != null) return opts.taskkillResult;
 			return opts.taskkillTimedOut ? { code: null, timedOut: true } : { code: opts.taskkillCode ?? 0 };
 		};
 		const sleepCalls: number[] = [];
@@ -629,6 +736,8 @@ describe("killListeningPid identity guards (fakes)", () => {
 		const h = harness({ platform: "win32", sigtermThrows: true, identity: [A, A, A, GONE], taskkillCode: 1 });
 		const outcome = await killListeningPid(PORT, new Set<number>(), h.deps);
 		expect(h.taskkillCalls).toEqual([PID]);
+		// A non-zero exit is not a delivered signal: no signals entry, an errors entry.
+		expect(outcome.signals).toEqual([]);
 		expect(outcome.errors).toEqual([`taskkill exited 1 (pid ${PID})`]);
 	});
 
@@ -636,7 +745,33 @@ describe("killListeningPid identity guards (fakes)", () => {
 		const h = harness({ platform: "win32", sigtermThrows: true, identity: [A, A, A, GONE], taskkillTimedOut: true });
 		const outcome = await killListeningPid(PORT, new Set<number>(), h.deps);
 		expect(h.taskkillCalls).toEqual([PID]);
+		// A timed-out call is not a delivered signal: no signals entry, an errors entry.
+		expect(outcome.signals).toEqual([]);
 		expect(outcome.errors).toEqual([expect.stringMatching(new RegExp(`taskkill timed out after \\d+ms \\(pid ${PID}\\)`))]);
+	});
+
+	test("win32 spawn-error taskkill records the error and no delivered signal", async () => {
+		const h = harness({ platform: "win32", sigtermThrows: true, identity: [A, A, A, GONE], taskkillResult: { code: null, spawnError: "ENOENT" } });
+		const outcome = await killListeningPid(PORT, new Set<number>(), h.deps);
+		expect(h.taskkillCalls).toEqual([PID]);
+		expect(outcome.signals).toEqual([]);
+		expect(outcome.errors).toEqual(["taskkill failed: ENOENT"]);
+	});
+
+	test("win32 malformed spawn error shapes are recorded and fail closed", async () => {
+		for (const raw of ["", 5]) {
+			// A non-empty string is the spawn error; any other non-null shape
+			// is malformed: no signal is recorded, and the shape is reported.
+			const h = harness({
+				platform: "win32",
+				sigtermThrows: true,
+				identity: [A, A, A, GONE],
+				taskkillResult: { code: 0, spawnError: raw as never },
+			});
+			const outcome = await killListeningPid(PORT, new Set<number>(), h.deps);
+			expect(outcome.signals).toEqual([]);
+			expect(outcome.errors).toEqual([`taskkill spawn error malformed: ${JSON.stringify(raw)}`]);
+		}
 	});
 
 	test("a pid already in seen is not re-signalled", async () => {
@@ -654,6 +789,78 @@ describe("killListeningPid identity guards (fakes)", () => {
 		expect(h.identityCalls).toEqual([]);
 		expect(outcome).toEqual({ refusals: [], signals: [], errors: [] });
 		expect(seen.size).toBe(0);
+	});
+});
+
+describe("taskkillRunner bounded close wait (fakes)", () => {
+	const PID = 4242;
+
+	interface FakeChildOpts {
+		/** Emit close(code, SIGKILL) this many ms after kill(); omit to never close. */
+		closeAfterKill?: { atMs: number; code: number | null };
+		/** Emit an error this many ms after kill() (a kill failure). */
+		killErrorAfterMs?: number;
+		/** Emit an error this many ms after spawn (a spawn failure). */
+		spawnErrorAtMs?: number;
+	}
+
+	function fakeTaskkillChild(opts: FakeChildOpts) {
+		const child = new EventEmitter() as unknown as { kill: () => boolean };
+		child.kill = () => {
+			if (opts.closeAfterKill != null) {
+				setTimeout(() => child.emit("close", opts.closeAfterKill.code, "SIGKILL"), opts.closeAfterKill.atMs);
+			}
+			if (opts.killErrorAfterMs != null) {
+				setTimeout(() => child.emit("error", new Error("kill failed")), opts.killErrorAfterMs);
+			}
+			return true;
+		};
+		if (opts.spawnErrorAtMs != null) {
+			setTimeout(() => child.emit("error", new Error("ENOENT")), opts.spawnErrorAtMs);
+		}
+		return child;
+	}
+
+	const runnerOpts = (child: unknown) => ({
+		spawn: (() => child) as never,
+		timeoutMs: 30,
+		killWaitMs: 50,
+	});
+
+	test("timeout then close within the wait resolves timedOut with cleanup reaped", async () => {
+		const child = fakeTaskkillChild({ closeAfterKill: { atMs: 10, code: null } });
+		const result = await taskkillRunner(PID, runnerOpts(child));
+		expect(result).toEqual({ code: null, timedOut: true, cleanup: "reaped" });
+	});
+
+	test("timeout with no close resolves timedOut with cleanup unreaped", async () => {
+		const child = fakeTaskkillChild({});
+		const result = await taskkillRunner(PID, runnerOpts(child));
+		expect(result).toEqual({ code: null, timedOut: true, cleanup: "unreaped" });
+	});
+
+	test("a close with code 0 after the deadline does not erase the timeout verdict", async () => {
+		const child = fakeTaskkillChild({ closeAfterKill: { atMs: 10, code: 0 } });
+		const result = await taskkillRunner(PID, runnerOpts(child));
+		// The close carried code 0, but the timeout verdict stands: the result
+		// keeps timedOut and a null code.
+		expect(result.timedOut).toBe(true);
+		expect(result.cleanup).toBe("reaped");
+		expect(result.code).toBeNull();
+	});
+
+	test("a spawn error before the deadline is a spawn failure, not a timeout", async () => {
+		const child = fakeTaskkillChild({ spawnErrorAtMs: 5 });
+		const result = await taskkillRunner(PID, runnerOpts(child));
+		expect(result).toEqual({ code: null, spawnError: "ENOENT" });
+	});
+
+	test("an error after the deadline is a kill error, never a spawn failure", async () => {
+		const child = fakeTaskkillChild({ killErrorAfterMs: 5 });
+		const result = await taskkillRunner(PID, runnerOpts(child));
+		// The reaped/unreaped verdict still comes only from the close wait;
+		// the post-deadline error is recorded as the kill error.
+		expect(result).toEqual({ code: null, timedOut: true, cleanup: "unreaped", killError: "kill failed" });
 	});
 });
 

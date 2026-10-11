@@ -370,6 +370,19 @@ function assertSafeTarName(name, label) {
 }
 
 /**
+ * Test-only override for a production cap: `undefined` keeps the default;
+ * any other value must be a positive integer not above the default
+ * (fail closed: throw otherwise — a test can narrow a cap, never raise it).
+ */
+function resolveCapOption(value, name, defaultValue) {
+	if (value === undefined) return defaultValue;
+	if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > defaultValue) {
+		throw new Error(`options.${name} must be a positive integer not above ${defaultValue}`);
+	}
+	return value;
+}
+
+/**
  * Validate a plain (uncompressed) ustar archive BEFORE any of its bytes are
  * written to the destination. Rejects (throw, naming the offending entry):
  * absolute names, any `..` segment, names containing `\` or `:`, NUL/empty
@@ -378,12 +391,15 @@ function assertSafeTarName(name, label) {
  * and GNU long name/link (`L`,`K`) entries are rejected — a symlink whose
  * target fails the same name checks (absolute, `..` segment, `\`, `:`), so
  * it cannot point outside the archive root, a bad header checksum and a
- * truncated archive,
- * and more than MAX_WRAPPER_ENTRIES entries. The ustar `prefix` field is
- * joined with the name (`prefix + "/" + name`) when the magic at 257 is
- * `ustar`, and the joined name goes through every path check as one path.
+ * truncated archive, more than MAX_WRAPPER_ENTRIES entries (a test-only
+ * `options.maxEntries` narrows the cap, never above the default; otherwise
+ * throw), and non-NUL bytes after the terminator block.
+ * The ustar `prefix` field is joined with the name (`prefix + "/" + name`)
+ * when the magic at 257 is `ustar`, and the joined name goes through every
+ * path check as one path.
  */
-export function validatePlainTar(input) {
+export function validatePlainTar(input, options = {}) {
+	const maxEntries = resolveCapOption(options.maxEntries, "maxEntries", MAX_WRAPPER_ENTRIES);
 	const bytes = Buffer.isBuffer(input) ? input : Buffer.from(input);
 	if (bytes.length === 0) throw new Error("truncated tar archive: empty input");
 	if (bytes.length % 512 !== 0) {
@@ -404,8 +420,8 @@ export function validatePlainTar(input) {
 			throw new Error(`tar entry ${entryCount + 1}: data after the terminator block`);
 		}
 		entryCount += 1;
-		if (entryCount > MAX_WRAPPER_ENTRIES) {
-			throw new Error(`tar archive has more than ${MAX_WRAPPER_ENTRIES} entries`);
+		if (entryCount > maxEntries) {
+			throw new Error(`tar archive has more than ${maxEntries} entries`);
 		}
 		const label = `tar entry ${entryCount}`;
 		let name = tarField(header, 0, 100, `${label}: name`);
@@ -501,22 +517,88 @@ function postCheckExtraction(destDir) {
 }
 
 /**
+ * The content size (decompressed bytes) declared by the FIRST normal zstd
+ * frame of `bytes`, or null when it cannot be known from the header: not a
+ * normal frame (skippable/unknown magic, too short) or the frame declares
+ * no content size. The parse follows the field order of RFC 8878 §3.1.1.1,
+ * cross-verified against the real decoders (the zstd 1.5.7 CLI and Bun's
+ * decoder), including the windowed forms: magic 0xfd2fb528 (little-endian
+ * on disk: 28 B5 2F FD), descriptor byte (FCS_Flag = bits 7-6,
+ * Single_Segment_Flag = bit 5, Checksum_Flag = bit 2, Dictionary_ID_Flag =
+ * bits 1-0), an optional Window_Descriptor byte (present iff single-
+ * segment is cleared), an optional Dictionary_ID field (0/1/2/4 bytes per
+ * Dictionary_ID_Flag 0/1/2/3), then the little-endian FCS_Field:
+ * a 1-byte field stores the size (single-segment frames only), a 2-byte
+ * field is offset by 256 (size = value + 256, both segment modes), a
+ * 4-byte field stores the size (both segment modes) — RFC 8878
+ * §3.1.1.1.4. FCS_Flag 0b11 selects an 8-byte field (sizes of 4 GiB and
+ * up); it is not parsed here and returns null. Any shape the parser cannot
+ * name here returns null and the caller keeps the post-decompression cap
+ * check as the guard.
+ */
+export function zstdDeclaredContentSize(bytes) {
+	const b = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+	if (b.length < 5 || b.readUInt32LE(0) !== 0xfd2fb528) return null;
+	const descriptor = b.readUInt8(4);
+	const singleSegment = (descriptor & 0x20) !== 0;
+	const fcsFlag = (descriptor >> 6) & 0x03;
+	// Dictionary_ID: bits 1-0 of the descriptor select a 0/1/2/4-byte field
+	// (flag 0/1/2/3) between the Window_Descriptor and the FCS_Field; the
+	// length is part of the FCS offset (review rv-rt-s3: skipping it made
+	// a one-byte zero Dictionary_ID shift the 4-byte FCS read and falsely
+	// declare 2,415,919,104 bytes for a 9 MiB tar).
+	const didLength = [0, 1, 2, 4][descriptor & 0x03];
+	// FCS_Field width: flag 0b00: 1-byte field, single-segment frames only
+	// (exact size), none otherwise; flag 0b01: 2-byte field (size = value
+	// + 256), both segment modes; flag 0b10: 4-byte little-endian field
+	// (exact), both segment modes; flag 0b11: 8-byte field, not parsed
+	// here (returns null; the post-decompression cap is the guard).
+	const fieldSize = fcsFlag === 0 ? (singleSegment ? 1 : 0) : fcsFlag === 1 ? 2 : fcsFlag === 2 ? 4 : 0;
+	if (fieldSize === 0) return null;
+	const offset = 5 + (singleSegment ? 0 : 1) + didLength;
+	if (b.length < offset + fieldSize) return null;
+	let value = 0;
+	for (let i = fieldSize - 1; i >= 0; i -= 1) value = value * 256 + b[offset + i];
+	// RFC 8878 §3.1.1.1.4: the 2-byte FCS_Field is offset by 256.
+	return fcsFlag === 1 ? value + 256 : value;
+}
+
+/**
  * Materialize a wrapper payload (a `Resources/<hash>.tar.zst`) into
- * `destDir` without ever trusting its bytes: decompress in-process with
- * Bun.zstdDecompressSync (no `zstd` binary, no bsdtar zstd assumption), cap
- * the decompressed size at 2 GiB, validate the plain tar headers BEFORE
- * anything is written (see validatePlainTar), write the plain tar to the
- * caller's sandbox (NOT inside `destDir`; default: `dirname(destDir)`),
- * extract it with the platform tar (args exactly
+ * `destDir` without ever trusting its bytes: read the zstd frame header
+ * FIRST and reject, before decompressing anything, when the first normal
+ * frame declares a content size above the cap (no expansion is ever
+ * allocated); then decompress in-process (Bun.zstdDecompressSync by
+ * default — no `zstd` binary, no bsdtar zstd assumption) and re-check the
+ * ACTUAL decompressed size against the cap: that is the only size guard
+ * when the frame declares no content size (zstdDeclaredContentSize is
+ * null — e.g. a non-single-segment frame without an FCS field, or a
+ * skippable frame before the real one, or multiple frames where the total
+ * exceeds the first frame's declared size), and in that case
+ * Bun.zstdDecompressSync has already allocated the full output before the
+ * comparison — an accepted limitation because the payload is this
+ * project's own self-built build output (trusted). Then validate the plain
+ * tar headers BEFORE anything is written (see validatePlainTar), write the
+ * plain tar to the caller's sandbox (NOT inside `destDir`; default:
+ * `dirname(destDir)`), extract it with the platform tar (args exactly
  * `[-xf, <plainTar>, -C, destDir]`, no -P) and post-check every extracted
  * entry with lstat/realpath. Any violation throws (fail closed).
  * `options.platform` selects the tar the way `runSmoke`'s platform does;
- * `options.tarCommand` overrides it (tests only).
+ * `options.tarCommand` overrides it (tests only). Test-only options:
+ * `maxDecompressedBytes` / `maxEntries` narrow the production caps
+ * (positive integer, never above the default, otherwise throw) and
+ * `zstdDecompress` replaces the decompressor (default:
+ * Bun.zstdDecompressSync).
  */
 export async function extractWrapperPayload(payloadTarZst, destDir, options = {}) {
 	const platform = options.platform ?? process.platform;
-	const zstd = globalThis.Bun?.zstdDecompressSync;
-	if (typeof zstd !== "function") {
+	const cap = resolveCapOption(options.maxDecompressedBytes, "maxDecompressedBytes", MAX_WRAPPER_DECOMPRESSED_BYTES);
+	const maxEntries = resolveCapOption(options.maxEntries, "maxEntries", MAX_WRAPPER_ENTRIES);
+	if (options.zstdDecompress !== undefined && typeof options.zstdDecompress !== "function") {
+		throw new Error("options.zstdDecompress must be a function");
+	}
+	const decompress = options.zstdDecompress ?? globalThis.Bun?.zstdDecompressSync;
+	if (typeof decompress !== "function") {
 		throw new Error("Bun.zstdDecompressSync is unavailable; cannot decompress the wrapper payload in-process");
 	}
 	let compressed;
@@ -525,18 +607,28 @@ export async function extractWrapperPayload(payloadTarZst, destDir, options = {}
 	} catch (error) {
 		throw new Error(`cannot read wrapper payload ${payloadTarZst}: ${errorText(error)}`);
 	}
+	// Fail-closed pre-check: a declared content size above the cap is
+	// rejected BEFORE decompressing, so the expansion is never allocated.
+	// When the first frame declares no content size (null), the
+	// post-decompression check below is the only size guard.
+	const declared = zstdDeclaredContentSize(compressed);
+	if (declared !== null && declared > cap) {
+		throw new Error(
+			`wrapper payload declares a zstd content size of ${declared} bytes, above the ${cap} byte decompression cap; rejected before decompression`,
+		);
+	}
 	let plain;
 	try {
-		plain = Buffer.from(zstd(compressed));
+		plain = Buffer.from(decompress(compressed));
 	} catch (error) {
 		throw new Error(`zstd decompression of ${payloadTarZst} failed: ${errorText(error)}`);
 	}
-	if (plain.byteLength > MAX_WRAPPER_DECOMPRESSED_BYTES) {
+	if (plain.byteLength > cap) {
 		throw new Error(
-			`wrapper payload expands to ${plain.byteLength} bytes, above the 2 GiB (${MAX_WRAPPER_DECOMPRESSED_BYTES} byte) cap`,
+			`wrapper payload expands to ${plain.byteLength} bytes, above the ${cap} byte decompression cap`,
 		);
 	}
-	validatePlainTar(plain);
+	validatePlainTar(plain, { maxEntries });
 	const scratchDir = options.scratchDir ?? dirname(destDir);
 	const plainTar = join(scratchDir, "wrapper-payload.tar");
 	writeFileSync(plainTar, plain);
@@ -673,26 +765,250 @@ async function psScript(file, args, timeoutMs = 20_000) {
 	});
 }
 
-/** Kill a process and its descendants. */
-async function killTree(pid) {
-	if (process.platform === "win32") {
-		spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
-	} else {
-		for (const signal of ["SIGTERM", "SIGKILL"]) {
-			try {
-				process.kill(-pid, signal);
-			} catch {
-				// Not a group leader or already gone; try the bare pid.
-			}
-			try {
-				process.kill(pid, signal);
-			} catch {
-				// already gone
-			}
-			await sleep(500);
-		}
+/**
+ * Coerce one identity probe resolution into a documented shape: `out` is the
+ * probe's resolved value, `error` the catch value when the probe threw (with
+ * `out` undefined). A throwing or mis-shaped probe is `unknown`, never
+ * `gone`. Shared by runSmoke's probeIdentity and killTreeFor so both fail
+ * closed identically.
+ */
+function normalizeIdentity(out, error) {
+	if (error != null) return { state: "unknown", error: `identity probe threw: ${errorText(error)}` };
+	if (out?.state === "gone") return { state: "gone" };
+	if (out?.state === "alive" && typeof out.id === "string" && out.id !== "") {
+		return { state: "alive", id: out.id };
 	}
-	await sleep(300);
+	return { state: "unknown", error: String(out?.error ?? "identity probe returned an unexpected shape") };
+}
+
+/**
+ * Factory for the cleanup process-tree kill. Returns `async (pid, ctx) =>
+ * outcome` where `ctx.boundId` is the IMMUTABLE pre-signal identity id bound
+ * by the caller's tryKill (a string, or null when the pre-signal identity was
+ * unknown).
+ *
+ * POSIX (darwin/linux): the launcher is spawned detached, so its PID is its
+ * own process-group leader and `-pid` is its group. For EACH escalation step
+ * (SIGTERM, then SIGKILL) the bound identity is re-proved IMMEDIATELY before
+ * that step's signals:
+ *   - gone → stop, send nothing more, outcome `gone` (the owned process
+ *       exited — success);
+ *   - alive with a DIFFERENT id → stop, send nothing more, outcome
+ *       `reused` (a different process now owns the PID; never signalled);
+ *   - unknown (a throwing or indecisive probe) OR boundId == null → refuse
+ *       to signal in that step, outcome `unknown` (honest failure: the PID
+ *       cannot be re-proven as ours);
+ *   - alive with the SAME id → signal the step's signal to the GROUP `-pid`
+ *       only (an ESRCH on the group is normal when the PID is not a group
+ *       leader — recorded in `outcome.esrch`, not a failure; every other
+ *       group error is recorded in `outcome.errors`). A delivered group
+ *       signal needs no bare-pid call in that step: the leader `pid` is a
+ *       member of its own group `pid`, so while a live process holds `pid`
+ *       with the bound id, group `pid` can only be its group. If the group
+ *       call was NOT delivered, the bare-pid fallback is a SEPARATE signal
+ *       and is only sent after the bound identity is re-proved (gone/reused/
+ *       unknown stop it exactly as at the step start), then wait
+ *       (stepDelayMs) and continue (an owned survivor escalates to SIGKILL).
+ * After SIGKILL one final probe classifies `gone` / `reused` / `survivor` /
+ * `unknown` (survivor: still alive with the SAME bound id). `signals` lists
+ * only DELIVERED signals; `groupSignalled` is true when at least one group
+ * signal was delivered (runSmoke's group-empty check then requires the group
+ * to be absent before crediting success).
+ *
+ * win32: a single `taskkill /PID <pid> /T /F` (unchanged ownership
+ * semantics); the exit status is captured in `outcome.taskkillStatus`
+ * (non-zero → recorded by the caller; a spawn failure lands in
+ * `outcome.errors`; never thrown).
+ *
+ * Residual limits (documented, fail closed): (a) a TOCTOU window between the
+ * identity probe and `kill()` that Node cannot close (no pidfd support);
+ * (b) darwin `ps -o lstart=` has one-SECOND precision, so a PID reuse within
+ * the same second with the same start text is indistinguishable; (c) when
+ * the group leader is gone the remaining group members are NOT signalled
+ * (no signal on the old PGID after leader exit) — runSmoke's group-empty
+ * check (the bounded post-kill poll and the final verdict require the group
+ * to be absent before crediting success) reports them instead.
+ *
+ * `kill`, `sleep`, `identityOf` and `runTaskkill` are injectable so tests
+ * exercise the real sequence without touching real processes.
+ */
+export function killTreeFor(
+	platform,
+	{
+		kill = (pid, signal) => process.kill(pid, signal),
+		sleep: sleepFn = sleep,
+		identityOf = null,
+		runTaskkill = null,
+		stepDelayMs = 500,
+		settleDelayMs = 300,
+	} = {},
+) {
+	const defaultRunTaskkill = async (pid) => {
+		const out = spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+		if (out.error != null) return { status: null, error: errorText(out.error) };
+		return { status: out.status };
+	};
+	const taskkill = runTaskkill ?? defaultRunTaskkill;
+	const probe = async (pid) => {
+		if (identityOf == null) return { state: "unknown", error: "identity probe unavailable" };
+		let out;
+		let error = null;
+		try {
+			out = await identityOf(pid);
+		} catch (err) {
+			error = err;
+		}
+		return normalizeIdentity(out, error);
+	};
+	const finish = (state, { signals, esrch, errors, groupSignalled }, detail, taskkillStatus = null) => ({
+		platform,
+		state,
+		signals,
+		esrch,
+		errors,
+		groupSignalled,
+		detail,
+		taskkillStatus,
+	});
+	if (platform === "win32") {
+		// A single taskkill /T /F, as before; its exit status is now captured
+		// in the outcome instead of being discarded. The bound identity is not
+		// consulted here: Windows ownership semantics are unchanged.
+		return async (pid, _ctx = {}) => {
+			const signals = [`taskkill /PID ${pid} /T /F`];
+			const esrch = [];
+			const errors = [];
+			let status = null;
+			try {
+				const result = await taskkill(pid);
+				if (typeof result === "number") {
+					status = result;
+				} else if (result != null && typeof result === "object") {
+					status = typeof result.status === "number" ? result.status : null;
+					if (result.error != null) errors.push(String(result.error));
+				}
+			} catch (error) {
+				errors.push(`taskkill invocation failed: ${errorText(error)}`);
+			}
+			await sleepFn(settleDelayMs);
+			return finish("signalled", { signals, esrch, errors, groupSignalled: false }, null, status);
+		};
+	}
+	return async (pid, ctx = {}) => {
+		const boundId = ctx != null && typeof ctx.boundId === "string" && ctx.boundId !== "" ? ctx.boundId : null;
+		const signals = [];
+		const esrch = [];
+		const errors = [];
+		let groupSignalled = false;
+		// `signals` holds only DELIVERED signals; details never say
+		// "not signalled" once the list is non-empty.
+		const sent = (extra) => (signals.length > 0 ? `signals already sent; ${extra}` : extra);
+		const reuseDetail = (id) =>
+			signals.length > 0
+				? `refused further signals; pid now owned by id ${id} (bound ${boundId})`
+				: `pid now owned by id ${id} (bound ${boundId}); not signalled`;
+		// Deliver one signal; records the delivery in `signals` and any fault
+		// in `esrch` (the expected ESRCH) or `errors` (everything else);
+		// returns whether the signal was delivered.
+		const sendTo = (target, signal) => {
+			try {
+				kill(target, signal);
+				signals.push([target, signal]);
+				return true;
+			} catch (error) {
+				const code = error != null && typeof error === "object" && "code" in error ? error.code : null;
+				if (code === "ESRCH") {
+					// Expected when the PID is not a group leader or the process
+					// just exited: recorded, not a failure.
+					esrch.push(`kill(${target}, ${signal}) ESRCH (not a group leader / already gone)`);
+				} else {
+					errors.push(`kill(${target}, ${signal}) failed: ${errorText(error)}`);
+				}
+				return false;
+			}
+		};
+		for (const signal of ["SIGTERM", "SIGKILL"]) {
+			// The bound identity is re-proved IMMEDIATELY before this step's
+			// group signal: a recycled PID must not receive it.
+			const now = await probe(pid);
+			if (now.state === "gone") {
+				return finish("gone", { signals, esrch, errors, groupSignalled }, sent(`pid gone before the ${signal} step`));
+			}
+			if (now.state === "unknown") {
+				return finish("unknown", { signals, esrch, errors, groupSignalled }, sent(now.error));
+			}
+			// now.state === "alive"
+			if (boundId == null) {
+				return finish(
+					"unknown",
+					{ signals, esrch, errors, groupSignalled },
+					sent("the pre-signal identity was unknown (boundId null); refused to signal"),
+				);
+			}
+			if (now.id !== boundId) {
+				return finish("reused", { signals, esrch, errors, groupSignalled }, reuseDetail(now.id));
+			}
+			// Same identity as bound: signal the GROUP only. A delivered group
+			// signal needs no bare-pid call in this step: the leader `pid` is a
+			// member of its own group `pid`, so while a live process holds
+			// `pid` with the bound id, group `pid` can only be its group.
+			const groupDelivered = sendTo(-pid, signal);
+			if (groupDelivered) {
+				groupSignalled = true;
+				await sleepFn(stepDelayMs);
+				continue;
+			}
+			// The group call was NOT delivered (ESRCH: not a group leader, or
+			// an unexpected error recorded in esrch/errors): the bare-pid
+			// fallback is a SEPARATE signal and needs a fresh identity proof.
+			const again = await probe(pid);
+			if (again.state === "gone") {
+				return finish("gone", { signals, esrch, errors, groupSignalled }, sent(`pid gone before the ${signal} bare-pid fallback`));
+			}
+			if (again.state === "unknown") {
+				return finish("unknown", { signals, esrch, errors, groupSignalled }, sent(again.error));
+			}
+			if (again.id !== boundId) {
+				return finish("reused", { signals, esrch, errors, groupSignalled }, reuseDetail(again.id));
+			}
+			sendTo(pid, signal);
+			await sleepFn(stepDelayMs);
+		}
+		// After SIGKILL: let the process settle, then one final probe
+		// classifies the outcome.
+		await sleepFn(settleDelayMs);
+		const final = await probe(pid);
+		if (final.state === "gone") {
+			return finish("gone", { signals, esrch, errors, groupSignalled }, sent("pid gone after SIGKILL"));
+		}
+		if (final.state === "alive") {
+			if (final.id !== boundId) {
+				return finish("reused", { signals, esrch, errors, groupSignalled }, reuseDetail(final.id));
+			}
+			return finish("survivor", { signals, esrch, errors, groupSignalled }, "pid still alive after SIGKILL with the bound identity");
+		}
+		return finish("unknown", { signals, esrch, errors, groupSignalled }, sent(final.error));
+	};
+}
+
+/**
+ * POSIX group-existence probe for the post-kill group-empty check: signal 0
+ * delivers nothing, it only asks the OS whether the group still has members.
+ * `present` (including EPERM: a group we may not signal still exists),
+ * `absent` (ESRCH: the OS proves the group has no members), or `unknown`
+ * (any other fault — fail closed). Not used on win32 (taskkill /T walks the
+ * process tree itself; there is no process-group signalling there).
+ */
+function defaultGroupExists(pgid) {
+	try {
+		process.kill(-pgid, 0);
+		return "present";
+	} catch (error) {
+		const code = error != null && typeof error === "object" && "code" in error ? error.code : null;
+		if (code === "ESRCH") return "absent";
+		if (code === "EPERM") return "present";
+		return "unknown";
+	}
 }
 
 /**
@@ -704,7 +1020,14 @@ export async function runSmoke(args, hooks = {}) {
 	// The default parent/image probes write their .ps1 into the sandbox so the
 	// sandbox cleanup removes them; tests inject their own probes (and spawn).
 	const isAlive = hooks.isAlive ?? defaultIsAlive();
-	const killTreeFn = hooks.killTree ?? killTree;
+	// The default killTree is built below, once the identity probe exists: it
+	// must re-prove the SAME bound identity runSmoke binds before every
+	// escalation step. An injected hook keeps its legacy (pid)-only contract.
+	let killTreeFn = hooks.killTree ?? null;
+	// POSIX group-existence probe for the post-kill group-empty check (signal
+	// 0; not used on win32 — there the taskkill /T kill is never a group
+	// signal and the outcome's groupSignalled is false).
+	const groupExistsFn = hooks.groupExists ?? defaultGroupExists;
 	const listeningPid = hooks.listeningPid ?? findListeningPid;
 	const spawnFn = hooks.spawn ?? spawn;
 	const probeHealthFn = hooks.probeHealth ?? probeHealth;
@@ -759,6 +1082,10 @@ const start = Date.now();
 		// probe so their existing behavior is preserved exactly.
 		identityOf =
 			identityOf ?? (hooks.isAlive != null ? derivedFromIsAlive(isAlive) : identityOfFor(process.platform, { probeDir }));
+		// Production default: the real host-platform kill sequence, built with
+		// the SAME identity probe runSmoke uses, so each escalation step
+		// re-proves the bound pre-signal identity before it signals.
+		killTreeFn = killTreeFn ?? killTreeFor(process.platform, { identityOf });
 
 		// The win32 and darwin build dirs are Electrobun self-extracting
 		// wrappers (the wrapper `launcher` installs the real app OVER the
@@ -957,7 +1284,25 @@ const start = Date.now();
 	 *  (d) the PID's identity (an immutable creation-time id captured by
 	 *      identityOf BEFORE the signal) is unchanged at the signal: a
 	 *      different id means a different process now owns the PID and is
-	 *      refused, never signalled.
+	 *      refused, never signalled,
+	 *  (e) on POSIX every escalation step (the group `-pid` and the bare `pid`
+	 *      SIGTERM/SIGKILL) re-verifies the bound identity IMMEDIATELY before it
+	 *      is sent: gone stops the sequence (success); a different id stops it
+	 *      (`reused`, never signalled); an unknown probe or a null bound id
+	 *      refuses the step (`unknown`, honest failure — no signal is sent for a
+	 *      step whose identity cannot be re-proven). Residual limits (fail
+	 *      closed, documented): a TOCTOU window between the probe and kill() that
+	 *      Node cannot close (no pidfd); darwin lstart has one-second precision.
+	 *  (f) a pid whose kill was signalled through its process group is also
+	 *      verified group-empty before success is credited: the bounded
+	 *      post-kill poll's settled condition and the final verdict include
+	 *      "group `pid` absent" (the injectable `groupExists` signal-0 probe):
+	 *      present → a `cleanup.errors` entry and the sandbox is retained;
+	 *      unknown → likewise (fail closed); absent → settled. NO signal is
+	 *      ever sent on the old PGID after the leader is gone. Residual limits:
+	 *      members that left the group (setsid/setpgid) are not covered; a
+	 *      signal-0 probe to a recycled group after the real group fully exited
+	 *      cannot harm anything and at worst yields a fail-closed error.
 	 * The post-kill verdict is bound to that pre-signal identity: after the
 	 * bounded poll, a killed PID that is gone, or alive with a DIFFERENT id,
 	 * counts as the original process having exited (the reuse is reported in
@@ -1009,6 +1354,14 @@ const start = Date.now();
 			return null;
 		};
 		const killedIdentity = new Map();
+		// Pids whose kill was signalled through their process group: before
+		// success is credited their group must be proven empty (item f).
+		const groupSignalledPids = new Set();
+		// Set when an `unknown` killTree outcome leaves a signalled owned
+		// process possibly alive, or a group-signalled pid's group still has
+		// members / unknown state: the sandbox is retained (not removed) as
+		// evidence.
+		let retainSandboxOnIncomplete = false;
 		/**
 		 * identityOf wrapped so it never throws and never returns anything but
 		 * the three documented shapes (a throwing or mis-shaped injected hook
@@ -1017,16 +1370,13 @@ const start = Date.now();
 		const probeIdentity = async (pid) => {
 			if (identityOf == null) return { state: "unknown", error: "identity probe unavailable" };
 			let out;
+			let error = null;
 			try {
 				out = await identityOf(pid);
-			} catch (error) {
-				return { state: "unknown", error: `identity probe threw: ${errorText(error)}` };
+			} catch (err) {
+				error = err;
 			}
-			if (out?.state === "gone") return { state: "gone" };
-			if (out?.state === "alive" && typeof out.id === "string" && out.id !== "") {
-				return { state: "alive", id: out.id };
-			}
-			return { state: "unknown", error: String(out?.error ?? "identity probe returned an unexpected shape") };
+			return normalizeIdentity(out, error);
 		};
 		/**
 		 * Post-kill settledness for a killed PID, bound to the identity
@@ -1067,16 +1417,64 @@ const start = Date.now();
 				);
 				return;
 			}
-			// An unknown identity probe does not block a kill whose ownership
-			// was just proven (leaving an owned process running is worse); the
-			// post-kill verdict for that PID can then only accept a proven gone.
+			// The bound pre-signal identity (null when the probe could not
+			// prove one): the default killTree re-verifies it before EVERY
+			// escalation step and refuses to signal a step it cannot match
+			// (fail closed); an injected killTree hook keeps its legacy
+			// (pid)-only contract and returns no outcome.
 			const bound = atSignal.state === "alive" ? atSignal.id : before.state === "alive" ? before.id : null;
+			let outcome;
 			try {
-				await killTreeFn(pid);
-				cleanup.killed.push(pid);
-				killedIdentity.set(pid, bound);
+				outcome = await killTreeFn(pid, { boundId: bound });
 			} catch (error) {
 				cleanup.errors.push(`killTree(${label} pid ${pid}) failed: ${errorText(error)}`);
+				return;
+			}
+			if (outcome == null) {
+				// Legacy injected hook (pid only, no outcome): it was called,
+				// so the pre-outcome recording applies unchanged.
+				cleanup.killed.push(pid);
+				killedIdentity.set(pid, bound);
+				return;
+			}
+			const signalled = Array.isArray(outcome.signals) && outcome.signals.length > 0;
+			// Only a pid that actually received a signal joins the post-kill
+			// verdict and its bounded poll; a group-signalled pid also joins the
+			// group-empty check (item f).
+			if (signalled) {
+				cleanup.killed.push(pid);
+				killedIdentity.set(pid, bound);
+				if (outcome.groupSignalled === true) groupSignalledPids.add(pid);
+			}
+			if (outcome.state === "reused") {
+				// When signals were sent the outcome detail already says
+				// "refused further signals; …" — never append "not signalled"
+				// in that case.
+				cleanup.reused.push(
+					signalled
+						? `killTree(${label} pid ${pid}): ${outcome.detail ?? "the pid is now owned by a different process"}`
+						: `killTree(${label} pid ${pid}): the pid is now owned by a different process${
+								outcome.detail != null ? ` (${outcome.detail})` : ""
+							}; not signalled`,
+				);
+			}
+			if (outcome.state === "unknown") {
+				cleanup.errors.push(
+					`killTree(${label} pid ${pid}) incomplete: identity unknown, no further signals sent${
+						outcome.detail != null ? `: ${outcome.detail}` : ""
+					}`,
+				);
+				// A signalled owned process may still be alive: retain the
+				// sandbox as evidence instead of removing it.
+				if (signalled) retainSandboxOnIncomplete = true;
+			}
+			// `survivor` (alive with the bound id after SIGKILL) is recorded by
+			// the bounded post-kill verdict as `still alive after cleanup`.
+			if (typeof outcome.taskkillStatus === "number" && outcome.taskkillStatus !== 0) {
+				cleanup.errors.push(`killTree(${label} pid ${pid}) incomplete: taskkill exited ${outcome.taskkillStatus}`);
+			}
+			if (Array.isArray(outcome.errors) && outcome.errors.length > 0) {
+				cleanup.errors.push(`killTree(${label} pid ${pid}) incomplete: ${outcome.errors.join("; ")}`);
 			}
 		};
 		if (spawned) {
@@ -1130,6 +1528,17 @@ const start = Date.now();
 				if (settled && spawned) {
 					settled = listeningPid(args.port) == null;
 				}
+				// A group-signalled pid is only settled when its group is proven
+				// EMPTY: a surviving group member must not be credited as whole-
+				// tree cleanup (item f).
+				if (settled && groupSignalledPids.size > 0) {
+					for (const pid of groupSignalledPids) {
+						if (groupExistsFn(pid) !== "absent") {
+							settled = false;
+							break;
+						}
+					}
+				}
 				if (settled || Date.now() >= pollDeadline) break;
 				await sleep(250);
 			}
@@ -1162,12 +1571,27 @@ const start = Date.now();
 				);
 			}
 			if (spawned) {
+				// Final group-empty verdict for group-signalled pids, AFTER all
+				// tryKill calls (so a helper killed later is not misreported):
+				// present or unknown both fail closed and retain the sandbox.
+				for (const pid of groupSignalledPids) {
+					const groupState = groupExistsFn(pid);
+					if (groupState === "present") {
+						cleanup.errors.push(`process group ${pid} still has members after cleanup`);
+						retainSandboxOnIncomplete = true;
+					} else if (groupState === "unknown") {
+						cleanup.errors.push(
+							`process group ${pid} state unknown after cleanup: the group-existence probe could not decide`,
+						);
+						retainSandboxOnIncomplete = true;
+					}
+				}
 				const lingering = listeningPid(args.port);
 				if (lingering != null) cleanup.errors.push(`port ${args.port} still held by pid ${lingering} after cleanup`);
 			}
 		}
 		if (sandbox != null) {
-			if (args.keepHome) {
+			if (args.keepHome || retainSandboxOnIncomplete) {
 				result.sandbox = sandbox;
 				result.sandboxRetained = true;
 			} else {

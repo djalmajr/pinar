@@ -22,6 +22,8 @@ import {
 	DEFAULT_PORT,
 	DEFAULT_TIMEOUT_MS,
 	DESKTOP_PREFS,
+	MAX_WRAPPER_DECOMPRESSED_BYTES,
+	MAX_WRAPPER_ENTRIES,
 	darwinWrapperPayloadTarZst,
 	defaultAppDir,
 	decide,
@@ -30,6 +32,7 @@ import {
 	identityOfFor,
 	imageOfFor,
 	isInsideAppDir,
+	killTreeFor,
 	launcherCandidates,
 	parseArgs,
 	parseNetstatListeningPid,
@@ -40,8 +43,18 @@ import {
 	runSmoke,
 	smokeEnv,
 	tasklistCsvHasPid,
+	validatePlainTar,
 	wrapperPayloadTarZst,
+	zstdDeclaredContentSize,
 } from "./tray-smoke.mjs";
+import {
+	boundedIdentityProbe,
+	captureChildIdentity,
+	cliSandboxDecision,
+	shouldRemoveSandbox,
+	teardownChild,
+	waitChildOutcome,
+} from "./child-teardown.mjs";
 
 describe("parseArgs", () => {
 	test("defaults: port 17390, timeout 90000, no app-dir/log", () => {
@@ -2015,6 +2028,778 @@ describe("cleanup identity binding", () => {
 			rmSync(appDir, { recursive: true, force: true });
 		}
 	}, 30_000);
+
+	test("tryKill passes the bound pre-signal identity to killTree and records a reused outcome (0 signals)", async () => {
+		const appDir = makeAppDir();
+		const childPid = 93041;
+		const trayPid = 93042;
+		const seen: { pid: number; ctx: { boundId: string | null } }[] = [];
+		const { spawnFn } = fakeSpawn(childPid, trayPid, { alreadyExited: true });
+		const { identityOf } = scriptedIdentity({
+			[trayPid]: [
+				{ state: "alive", id: "A" }, // before
+				{ state: "alive", id: "A" }, // at the signal → bound
+			],
+		});
+		try {
+			const result = await runSmoke(
+				{ appDir, port: 17437, timeoutMs: 2_000, log: null, keepHome: false },
+				healthyHooks(appDir, childPid, trayPid, {
+					spawn: spawnFn,
+					identityOf,
+					killTree: async (pid: number, ctx: { boundId: string | null }) => {
+						seen.push({ pid, ctx });
+						return { state: "reused", signals: [], esrch: [], errors: [], detail: "bound A, now B" };
+					},
+				}),
+			);
+			// The boundId is the pre-signal identity bound by tryKill.
+			expect(seen).toEqual([{ pid: trayPid, ctx: { boundId: "A" } }]);
+			expect(result.cleanup.killed).toEqual([]); // 0 signals → not a killed pid
+			expect(result.cleanup.reused).toHaveLength(1);
+			expect(result.cleanup.reused[0]).toContain(`killTree(tray.pid pid ${trayPid})`);
+			expect(result.cleanup.reused[0]).toContain("not signalled");
+			expect(result.cleanup.errors).toEqual([]);
+			expect(result.cleanup.ok).toBe(true);
+			expect(result.ok).toBe(true);
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	});
+
+	test("an unknown killTree outcome with signals sent records an error and RETAINS the sandbox", async () => {
+		const appDir = makeAppDir();
+		const childPid = 93043;
+		const trayPid = 93044;
+		const { spawnFn } = fakeSpawn(childPid, trayPid, { alreadyExited: true });
+		const { identityOf } = scriptedIdentity({
+			[trayPid]: [{ state: "alive", id: "A" }], // alive A for every probe
+		});
+		let result;
+		try {
+			// The 10 s bounded poll really runs: a signalled pid whose verdict
+			// stays alive-with-the-same-id never settles.
+			result = await runSmoke(
+				{ appDir, port: 17438, timeoutMs: 2_000, log: null, keepHome: false },
+				healthyHooks(appDir, childPid, trayPid, {
+					spawn: spawnFn,
+					identityOf,
+					killTree: async () => ({
+						state: "unknown",
+						signals: [[-trayPid, "SIGTERM"], [trayPid, "SIGTERM"]],
+						esrch: [],
+						errors: [],
+						detail: "identity probe threw: ps exploded",
+					}),
+				}),
+			);
+			expect(result.cleanup.killed).toEqual([trayPid]); // 2 signals were sent
+			expect(
+				result.cleanup.errors.some((entry) =>
+					entry.includes(`killTree(tray.pid pid ${trayPid}) incomplete: identity unknown, no further signals sent: identity probe threw: ps exploded`),
+				),
+			).toBe(true);
+			expect(result.cleanup.errors.some((entry) => entry.includes("still alive after cleanup"))).toBe(true);
+			expect(result.sandboxRetained).toBe(true);
+			expect(result.sandbox).toBeTruthy();
+			expect(result.cleanup.ok).toBe(false);
+			expect(result.ok).toBe(false);
+		} finally {
+			if (result?.sandbox != null) rmSync(result.sandbox, { recursive: true, force: true });
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	}, 60_000);
+
+	test("an unknown killTree outcome with NO signal sent records an error, kills nothing and removes the sandbox", async () => {
+		const appDir = makeAppDir();
+		const childPid = 93045;
+		const trayPid = 93046;
+		const seen: { boundId: string | null }[] = [];
+		const { spawnFn } = fakeSpawn(childPid, trayPid, { alreadyExited: true });
+		const { identityOf } = scriptedIdentity({
+			[trayPid]: [
+				{ state: "unknown", error: "probe down" }, // before → boundId null
+				{ state: "unknown", error: "probe down" }, // at the signal
+			],
+		});
+		try {
+			const result = await runSmoke(
+				{ appDir, port: 17439, timeoutMs: 2_000, log: null, keepHome: false },
+				healthyHooks(appDir, childPid, trayPid, {
+					spawn: spawnFn,
+					identityOf,
+					killTree: async (_pid: number, ctx: { boundId: string | null }) => {
+						seen.push(ctx);
+						return { state: "unknown", signals: [], esrch: [], errors: [], detail: "boundId null; refused" };
+					},
+				}),
+			);
+			expect(seen).toEqual([{ boundId: null }]); // pre-signal identity was unknown
+			expect(result.cleanup.killed).toEqual([]);
+			expect(result.cleanup.errors).toEqual([
+				`killTree(tray.pid pid ${trayPid}) incomplete: identity unknown, no further signals sent: boundId null; refused`,
+			]);
+			expect(result.cleanup.reused).toEqual([]);
+			expect(result.cleanup.sandboxRemoved).toBe(true); // no signalled process → no retention
+			expect(result.sandboxRetained).toBe(false);
+			expect(result.cleanup.ok).toBe(false);
+			expect(result.ok).toBe(false);
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	});
+
+	test("a non-zero taskkill status in the outcome is recorded as an incomplete killTree error", async () => {
+		const appDir = makeAppDir();
+		const childPid = 93047;
+		const trayPid = 93048;
+		const { spawnFn } = fakeSpawn(childPid, trayPid, { alreadyExited: true });
+		const { identityOf } = scriptedIdentity({
+			[trayPid]: [
+				{ state: "alive", id: "A" }, // before
+				{ state: "alive", id: "A" }, // at the signal
+				{ state: "gone" }, // post-kill verdict: the OS proved it is gone
+			],
+		});
+		try {
+			const result = await runSmoke(
+				{ appDir, port: 17440, timeoutMs: 2_000, log: null, keepHome: false },
+				healthyHooks(appDir, childPid, trayPid, {
+					spawn: spawnFn,
+					identityOf,
+					killTree: async () => ({
+						state: "signalled",
+						signals: [`taskkill /PID ${trayPid} /T /F`],
+						esrch: [],
+						errors: [],
+						taskkillStatus: 128,
+					}),
+				}),
+			);
+			expect(result.cleanup.killed).toEqual([trayPid]); // the taskkill was attempted
+			expect(result.cleanup.errors).toEqual([
+				`killTree(tray.pid pid ${trayPid}) incomplete: taskkill exited 128`,
+			]);
+			expect(result.cleanup.reused).toEqual([]);
+			expect(result.cleanup.sandboxRemoved).toBe(true);
+			expect(result.sandboxRetained).toBe(false);
+			expect(result.cleanup.ok).toBe(false);
+			expect(result.ok).toBe(false);
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("killTreeFor POSIX signal sequence", () => {
+	// The REAL factory with an injected kill (records [pid, signal] for every
+	// signal actually attempted), an injected sleep (no real wait) and a
+	// scripted identity probe: the recorded calls are the ACTUAL signal list,
+	// so every case asserts the exact list (no extra signals).
+	type Probe = IdentityState | "throw";
+	const scripted = (states: Probe[]) => {
+		let next = 0;
+		return async () => {
+			const state = states[Math.min(next, states.length - 1)];
+			next += 1;
+			if (state === "throw") throw new Error("identity probe exploded");
+			return state;
+		};
+	};
+	const run = (
+		platform: "linux" | "darwin",
+		states: Probe[],
+		boundId: string | null,
+		killSideEffect: (pid: number, signal: string) => void = () => {},
+	) => {
+		const calls: [number, string][] = [];
+		const killTree = killTreeFor(platform, {
+			kill: (pid: number, signal: string) => {
+				killSideEffect(pid, signal);
+				calls.push([pid, signal]);
+			},
+			sleep: async () => {},
+			identityOf: scripted(states),
+		});
+		return killTree(4242, { boundId }).then((outcome) => ({ calls, outcome }));
+	};
+	const onPosix = (name: string, fn: (platform: "linux" | "darwin") => Promise<void>) => {
+		for (const platform of ["linux", "darwin"] as const) {
+			test(`${name} [${platform}]`, () => fn(platform));
+		}
+	};
+
+	onPosix("death after group TERM: the group TERM is the only call of that step, no KILL, outcome gone", async (platform) => {
+		const { calls, outcome } = await run(
+			platform,
+			[
+				{ state: "alive", id: "A" }, // step 1 (SIGTERM): still ours
+				{ state: "gone" }, // step 2 (SIGKILL): the OS proved it is gone
+			],
+			"A",
+		);
+		expect(calls).toEqual([[-4242, "SIGTERM"]]);
+		expect(calls.every(([target]) => target === -4242)).toBe(true); // group only
+		expect(outcome.state).toBe("gone");
+		expect(outcome.detail).toBe("signals already sent; pid gone before the SIGKILL step");
+		expect(outcome.errors).toEqual([]);
+	});
+
+	onPosix("same-identity survivor: group TERM then group KILL then gone after SIGKILL", async (platform) => {
+		const { calls, outcome } = await run(
+			platform,
+			[
+				{ state: "alive", id: "A" }, // step 1 (SIGTERM)
+				{ state: "alive", id: "A" }, // step 2 (SIGKILL)
+				{ state: "gone" }, // final probe after SIGKILL
+			],
+			"A",
+		);
+		expect(calls).toEqual([
+			[-4242, "SIGTERM"],
+			[-4242, "SIGKILL"],
+		]);
+		expect(outcome.state).toBe("gone");
+		expect(outcome.groupSignalled).toBe(true);
+	});
+
+	onPosix("same-identity survivor: group TERM then group KILL then still alive classifies survivor", async (platform) => {
+		const { calls, outcome } = await run(
+			platform,
+			[
+				{ state: "alive", id: "A" }, // step 1 (SIGTERM)
+				{ state: "alive", id: "A" }, // step 2 (SIGKILL)
+				{ state: "alive", id: "A" }, // final probe: still alive with the bound id
+			],
+			"A",
+		);
+		expect(calls).toEqual([
+			[-4242, "SIGTERM"],
+			[-4242, "SIGKILL"],
+		]);
+		expect(outcome.state).toBe("survivor");
+	});
+
+	onPosix("reused before TERM: 0 signals, outcome reused", async (platform) => {
+		const { calls, outcome } = await run(platform, [{ state: "alive", id: "B" }], "A");
+		expect(calls).toEqual([]);
+		expect(outcome.state).toBe("reused");
+	});
+
+	onPosix("gone before TERM: 0 signals, outcome gone", async (platform) => {
+		const { calls, outcome } = await run(platform, [{ state: "gone" }], "A");
+		expect(calls).toEqual([]);
+		expect(outcome.state).toBe("gone");
+	});
+
+	onPosix(
+		"the PID was recycled right after the group TERM: only the group TERM was sent, no further call, outcome reused",
+		async (platform) => {
+			const { calls, outcome } = await run(
+				platform,
+				[
+					{ state: "alive", id: "A" }, // step 1: group TERM delivered
+					{ state: "alive", id: "B" }, // step 2: the PID was recycled
+				],
+				"A",
+			);
+			expect(calls).toEqual([[-4242, "SIGTERM"]]);
+			expect(calls.every(([target]) => target === -4242)).toBe(true); // no bare call was ever made
+			expect(outcome.state).toBe("reused");
+			expect(outcome.detail).toBe("refused further signals; pid now owned by id B (bound A)");
+		},
+	);
+
+	onPosix("reuse after group KILL: no further call", async (platform) => {
+		const { calls, outcome } = await run(
+			platform,
+			[
+				{ state: "alive", id: "A" }, // step 1 (SIGTERM)
+				{ state: "alive", id: "A" }, // step 2 (SIGKILL)
+				{ state: "alive", id: "B" }, // final probe: the PID was recycled
+			],
+			"A",
+		);
+		expect(calls).toEqual([
+			[-4242, "SIGTERM"],
+			[-4242, "SIGKILL"],
+		]);
+		expect(calls.every(([target]) => target === -4242)).toBe(true);
+		expect(outcome.state).toBe("reused");
+		expect(outcome.detail).toBe("refused further signals; pid now owned by id B (bound A)");
+	});
+
+	onPosix("unknown before TERM: 0 signals, outcome unknown", async (platform) => {
+		const { calls, outcome } = await run(platform, [{ state: "unknown", error: "probe failed" }], "A");
+		expect(calls).toEqual([]);
+		expect(outcome.state).toBe("unknown");
+	});
+
+	onPosix("unknown after the group TERM: no KILL, outcome unknown", async (platform) => {
+		const { calls, outcome } = await run(
+			platform,
+			[
+				{ state: "alive", id: "A" }, // step 1
+				{ state: "unknown", error: "probe failed" }, // step 2: indecisive
+			],
+			"A",
+		);
+		expect(calls).toEqual([[-4242, "SIGTERM"]]);
+		expect(outcome.state).toBe("unknown");
+		expect(outcome.detail).toBe("signals already sent; probe failed");
+	});
+
+	onPosix("a throwing probe is unknown: 0 signals, outcome unknown", async (platform) => {
+		const { calls, outcome } = await run(platform, ["throw"], "A");
+		expect(calls).toEqual([]);
+		expect(outcome.state).toBe("unknown");
+		expect(outcome.detail).toContain("identity probe threw");
+	});
+
+	onPosix("boundId null: 0 signals even when the probe says alive, outcome unknown", async (platform) => {
+		const { calls, outcome } = await run(platform, [{ state: "alive", id: "A" }], null);
+		expect(calls).toEqual([]);
+		expect(outcome.state).toBe("unknown");
+	});
+
+	onPosix(
+		"group ESRCH: the re-prove still the bound id → the bare pid fallback is signalled (ESRCH recorded, not a failure)",
+		async (platform) => {
+			const { calls, outcome } = await run(
+				platform,
+				[
+					{ state: "alive", id: "A" }, // step 1 probe
+					{ state: "alive", id: "A" }, // re-probe after the group ESRCH → bare TERM
+					{ state: "alive", id: "A" }, // step 2 probe
+					{ state: "alive", id: "A" }, // re-probe after the group ESRCH → bare KILL
+					{ state: "gone" }, // final probe
+				],
+				"A",
+				(pid, signal) => {
+					if (pid === -4242) {
+						const error = new Error(`kill ${signal} failed: ESRCH: no such process`);
+						(error as NodeJS.ErrnoException).code = "ESRCH";
+						throw error;
+					}
+				},
+			);
+			// The group call was never delivered, so the re-proved bare pid was
+			// signalled in both steps; the ESRCHs never failed them.
+			expect(calls).toEqual([
+				[4242, "SIGTERM"],
+				[4242, "SIGKILL"],
+			]);
+			expect(outcome.state).toBe("gone");
+			expect(outcome.errors).toEqual([]);
+			expect(outcome.esrch).toHaveLength(2);
+			expect(outcome.signals).toEqual(calls); // only DELIVERED signals count as sent
+			expect(outcome.groupSignalled).toBe(false);
+		},
+	);
+
+	onPosix("group ESRCH: the re-probe says reused → no bare call", async (platform) => {
+		const { calls, outcome } = await run(
+			platform,
+			[
+				{ state: "alive", id: "A" }, // step 1 probe
+				{ state: "alive", id: "B" }, // re-probe after the group ESRCH
+			],
+			"A",
+			(pid) => {
+				if (pid === -4242) {
+					const error = new Error("kill SIGTERM failed: ESRCH: no such process");
+					(error as NodeJS.ErrnoException).code = "ESRCH";
+					throw error;
+				}
+			},
+		);
+		expect(calls).toEqual([]);
+		expect(outcome.signals).toEqual([]); // the ESRCH'd group attempt was never delivered
+		expect(outcome.state).toBe("reused");
+		expect(outcome.esrch).toHaveLength(1);
+	});
+
+	onPosix("group ESRCH: the re-probe says gone → no bare call", async (platform) => {
+		const { calls, outcome } = await run(
+			platform,
+			[
+				{ state: "alive", id: "A" }, // step 1 probe
+				{ state: "gone" }, // re-probe after the group ESRCH
+			],
+			"A",
+			() => {
+				const error = new Error("kill SIGTERM failed: ESRCH: no such process");
+				(error as NodeJS.ErrnoException).code = "ESRCH";
+				throw error;
+			},
+		);
+		expect(calls).toEqual([]);
+		expect(outcome.signals).toEqual([]); // the ESRCH'd group attempt was never delivered
+		expect(outcome.state).toBe("gone");
+		expect(outcome.esrch).toHaveLength(1);
+	});
+
+	onPosix("group ESRCH: the re-probe is unknown → no bare call, outcome unknown", async (platform) => {
+		const { calls, outcome } = await run(
+			platform,
+			[
+				{ state: "alive", id: "A" }, // step 1 probe
+				{ state: "unknown", error: "probe failed" }, // re-probe after the group ESRCH
+			],
+			"A",
+			(pid) => {
+				if (pid === -4242) {
+					const error = new Error("kill SIGTERM failed: ESRCH: no such process");
+					(error as NodeJS.ErrnoException).code = "ESRCH";
+					throw error;
+				}
+			},
+		);
+		expect(calls).toEqual([]);
+		expect(outcome.signals).toEqual([]); // the ESRCH'd group attempt was never delivered
+		expect(outcome.state).toBe("unknown");
+	});
+
+	onPosix("a non-ESRCH group error is recorded; the re-proved bare pid fallback is still signalled", async (platform) => {
+		const { calls, outcome } = await run(
+			platform,
+			[
+				{ state: "alive", id: "A" }, // step 1 probe (group TERM delivered)
+				{ state: "alive", id: "A" }, // step 2 probe (group KILL EPERM)
+				{ state: "alive", id: "A" }, // re-probe after the group error → bare KILL
+				{ state: "gone" }, // final probe
+			],
+			"A",
+			(pid, signal) => {
+				if (pid === -4242 && signal === "SIGKILL") {
+					const error = new Error("kill SIGKILL failed: operation not permitted");
+					(error as NodeJS.ErrnoException).code = "EPERM";
+					throw error;
+				}
+			},
+		);
+		expect(calls).toEqual([
+			[-4242, "SIGTERM"],
+			[4242, "SIGKILL"],
+		]);
+		expect(outcome.state).toBe("gone");
+		expect(outcome.errors).toEqual(["kill(-4242, SIGKILL) failed: EPERM: kill SIGKILL failed: operation not permitted"]);
+	});
+
+	test("win32: exactly one taskkill call; a non-zero status is recorded in the outcome, never thrown", async () => {
+		const taskkillCalls: number[] = [];
+		const killTree = killTreeFor("win32", {
+			sleep: async () => {},
+			runTaskkill: async (pid: number) => {
+				taskkillCalls.push(pid);
+				return 128;
+			},
+		});
+		const outcome = await killTree(5151, { boundId: "133850432100000000" });
+		expect(taskkillCalls).toEqual([5151]); // exactly one taskkill
+		expect(outcome.state).toBe("signalled");
+		expect(outcome.taskkillStatus).toBe(128);
+		expect(outcome.signals).toEqual(["taskkill /PID 5151 /T /F"]);
+		expect(outcome.errors).toEqual([]);
+	});
+
+	test("win32: a zero status is a clean kill; a taskkill spawn error lands in outcome.errors", async () => {
+		const ok = await killTreeFor("win32", { sleep: async () => {}, runTaskkill: async () => ({ status: 0 }) })(777, { boundId: null });
+		expect(ok.taskkillStatus).toBe(0);
+		expect(ok.errors).toEqual([]);
+		const broken = await killTreeFor("win32", {
+			sleep: async () => {},
+			runTaskkill: async () => ({ status: null, error: "taskkill spawn failed: ENOENT" }),
+		})(777, { boundId: null });
+		expect(broken.taskkillStatus).toBeNull();
+		expect(broken.errors).toEqual(["taskkill spawn failed: ENOENT"]);
+	});
+});
+
+describe("group-empty check after a group-signalled kill (POSIX)", () => {
+	// Ports the reviewer's non-listening-descendant scenarios through the REAL
+	// inner factory: the leader (group) is signalled, and the group must be
+	// proven EMPTY before success is credited. `groupExists` is injected (a
+	// real signal-0 probe on the host would not be hermetic); exactly one
+	// signal — the group TERM — is ever sent, never on the old PGID after the
+	// leader is gone.
+	const descendantHooks = (appDir: string, leaderPid: number, port: number, groupState: () => "present" | "absent" | "unknown") => {
+		let leaderAlive = true;
+		let descendantAlive = true;
+		let child;
+		const calls: [number, string][] = [];
+		const identityOf = async () => (leaderAlive ? { state: "alive", id: "owned-leader" } : { state: "gone" });
+		const killTree = killTreeFor("linux", {
+			identityOf,
+			sleep: async () => {},
+			kill: (pid: number, signal: string) => {
+				calls.push([pid, signal]);
+				if (signal === "SIGTERM") {
+					leaderAlive = false;
+					child.exitCode = 0; // the leader exits on TERM
+				}
+				if (pid < 0 && signal === "SIGKILL") descendantAlive = false; // the group KILL
+			},
+		});
+		let healthCalls = 0;
+		const run = () =>
+			runSmoke(
+				{ appDir, port, timeoutMs: 2_000, keepHome: false, log: null },
+				{
+					platform: "linux",
+					spawn: (_file: string, _args: string[], opts: { env: Record<string, string>; detached?: boolean }) => {
+						expect(opts.detached).toBe(true);
+						const pidFile = join(opts.env.PINAR_HOME, "tray.pid");
+						writeFileSync(pidFile, `${leaderPid}\n`);
+						const stamp = new Date(Date.now() + 1_000);
+						utimesSync(pidFile, stamp, stamp);
+						child = { pid: leaderPid, exitCode: null, signalCode: null, stdout: null, stderr: null, on() {} };
+						return child;
+					},
+					parentOf: async () => null,
+					imageOf: async () => launcherCandidates(appDir, "linux")[0],
+					isAlive: async () => leaderAlive,
+					identityOf,
+					listeningPid: () => null,
+					probeHealth: async () => ({ healthy: ++healthCalls > 1 }),
+					killTree,
+					groupExists: groupState,
+					removeDir: () => {},
+				},
+			);
+		return { run, calls, descendant: () => descendantAlive };
+	};
+
+	test("a TERM-resistant non-listening group member fails cleanup: the error names the group, the sandbox is retained, no extra signal", async () => {
+		const appDir = makeAppDir("linux");
+		const leaderPid = 94101;
+		let result;
+		const { run, calls, descendant } = descendantHooks(appDir, leaderPid, 17441, () => "present");
+		try {
+			// The 10 s bounded post-kill poll really runs: the group never
+			// becomes absent, so this is a real transition (present, forever).
+			result = await run();
+			expect(descendant()).toBe(true); // no SIGKILL reached the group
+			expect(calls).toEqual([[-leaderPid, "SIGTERM"]]); // exactly one signal ever
+			expect(result.ok).toBe(false);
+			expect(result.cleanup.ok).toBe(false);
+			expect(result.cleanup.killed).toEqual([leaderPid]);
+			expect(result.cleanup.errors).toEqual([`process group ${leaderPid} still has members after cleanup`]);
+			expect(result.sandboxRetained).toBe(true);
+			expect(result.sandbox).toBeTruthy();
+		} finally {
+			if (result?.sandbox != null) rmSync(result.sandbox, { recursive: true, force: true });
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	}, 60_000);
+
+	test("a group member that exits during the poll settles (present then absent → ok)", async () => {
+		const appDir = makeAppDir("linux");
+		const leaderPid = 94102;
+		let groupProbes = 0;
+		const { run, calls } = descendantHooks(appDir, leaderPid, 17442, () => {
+			groupProbes += 1;
+			return groupProbes < 3 ? "present" : "absent";
+		});
+		let result;
+		try {
+			// Observable transition inside the bounded poll: present, present,
+			// then absent → settled early, no error.
+			result = await run();
+			expect(calls).toEqual([[-leaderPid, "SIGTERM"]]);
+			expect(result.ok).toBe(true);
+			expect(result.cleanup.ok).toBe(true);
+			expect(result.cleanup.errors).toEqual([]);
+			expect(groupProbes).toBeGreaterThanOrEqual(3);
+			expect(result.cleanup.sandboxRemoved).toBe(true);
+			expect(result.sandboxRetained).toBe(false);
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	}, 60_000);
+
+	test("an unknown group state fails cleanup and retains the sandbox", async () => {
+		const appDir = makeAppDir("linux");
+		const leaderPid = 94103;
+		let result;
+		const { run, calls } = descendantHooks(appDir, leaderPid, 17443, () => "unknown");
+		try {
+			// The 10 s bounded post-kill poll really runs: unknown is never
+			// settled, so the fail-closed verdict comes after the deadline.
+			result = await run();
+			expect(calls).toEqual([[-leaderPid, "SIGTERM"]]);
+			expect(result.ok).toBe(false);
+			expect(result.cleanup.errors).toEqual([
+				`process group ${leaderPid} state unknown after cleanup: the group-existence probe could not decide`,
+				]);
+			expect(result.sandboxRetained).toBe(true);
+			expect(result.sandbox).toBeTruthy();
+		} finally {
+			if (result?.sandbox != null) rmSync(result.sandbox, { recursive: true, force: true });
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	}, 60_000);
+
+	test("a non-leader tray pid (group ESRCH path) never triggers a group check", async () => {
+		const appDir = makeAppDir("linux");
+		const childPid = 94104;
+		const trayPid = 94105;
+		let groupChecks = 0;
+		let healthCalls = 0;
+		const { spawnFn } = fakeSpawn(childPid, trayPid, { alreadyExited: true });
+		// The scripted identity is SHARED between runSmoke (tryKill's
+		// before/atSignal probes + verdict) and the factory (step probes,
+		// re-probes, final probe): the bound id must match what the factory
+		// re-proves.
+		const { identityOf } = scriptedIdentity({
+			[trayPid]: [
+				{ state: "alive", id: "A" }, // tryKill: pre-signal
+				{ state: "alive", id: "A" }, // tryKill: at signal
+				{ state: "alive", id: "A" }, // factory step 1 (group ESRCH)
+				{ state: "alive", id: "A" }, // re-probe → bare TERM
+				{ state: "alive", id: "A" }, // factory step 2 (group ESRCH)
+				{ state: "alive", id: "A" }, // re-probe → bare KILL
+				{ state: "gone" }, // factory final probe
+			],
+		});
+		const killTree = killTreeFor("linux", {
+			identityOf,
+			sleep: async () => {},
+			kill: (pid: number, signal: string) => {
+				if (pid < 0) {
+					const error = new Error(`kill ${signal} failed: ESRCH: no such process`);
+					(error as NodeJS.ErrnoException).code = "ESRCH";
+					throw error;
+				}
+			},
+		});
+		let result;
+		try {
+			result = await runSmoke(
+				{ appDir, port: 17444, timeoutMs: 2_000, keepHome: false, log: null },
+				{
+					platform: "linux",
+					parentOf: async (pid: number) => (pid === trayPid ? childPid : null),
+					isAlive: async (pid: number) => pid === trayPid,
+					imageOf: async (pid: number) => (pid === trayPid ? launcherCandidates(appDir, "linux")[0] : null),
+					identityOf,
+					listeningPid: () => null,
+					probeHealth: async () => ({ healthy: ++healthCalls > 1 }),
+					spawn: spawnFn,
+					killTree,
+					groupExists: () => {
+						groupChecks += 1;
+						return "absent";
+					},
+				},
+			);
+			// The group was never signalled (ESRCH on both group attempts), so
+			// the group-empty check must never run.
+			expect(groupChecks).toBe(0);
+			expect(result.ok).toBe(true);
+			expect(result.cleanup.ok).toBe(true);
+			expect(result.cleanup.killed).toEqual([trayPid]);
+			expect(result.cleanup.errors).toEqual([]);
+		} finally {
+			if (result?.sandbox != null) rmSync(result.sandbox, { recursive: true, force: true });
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	});
+
+	test("a port helper that is a group member and is killed later is not misreported", async () => {
+		// The group check must run AFTER all tryKill calls (tray.pid, launcher,
+		// port helper): the helper is a member of the leader's group and is
+		// killed by its OWN tryKill later in the cleanup — a group check that
+		// ran before that kill would see the helper and fail closed in error.
+		const appDir = makeAppDir("linux");
+		const childPid = 94107;
+		const leaderPid = 94101;
+		const helperPid = 94106;
+		let leaderAlive = true;
+		let helperAlive = true;
+		let helperListening = false; // the helper starts serving the port once the tray is up
+		const calls: [number, string][] = [];
+		const scripted = scriptedIdentity({
+			[leaderPid]: [
+				{ state: "alive", id: "L" }, // tryKill: before
+				{ state: "alive", id: "L" }, // tryKill: at signal
+				{ state: "alive", id: "L" }, // factory step 1 (group TERM delivered)
+				{ state: "gone" }, // factory step 2: the leader died on TERM
+			],
+			[helperPid]: [
+				{ state: "alive", id: "H" }, // tryKill: before
+				{ state: "alive", id: "H" }, // tryKill: at signal
+				{ state: "alive", id: "H" }, // factory step 1 (group ESRCH: not a leader)
+				{ state: "alive", id: "H" }, // re-probe → bare TERM delivered
+				{ state: "gone" }, // factory step 2: the helper died on TERM
+			],
+		});
+		const killTree = killTreeFor("linux", {
+			identityOf: scripted.identityOf,
+			sleep: async () => {},
+			kill: (pid: number, signal: string) => {
+				if (pid === -leaderPid && signal === "SIGTERM") {
+					leaderAlive = false; // the group TERM takes the leader
+					calls.push([pid, signal]);
+					return;
+				}
+				if (pid < 0) {
+					const error = new Error(`kill ${signal} failed: ESRCH: no such process`);
+					(error as NodeJS.ErrnoException).code = "ESRCH";
+					throw error; // the helper is not a group leader
+				}
+				if (pid === helperPid && signal === "SIGTERM") helperAlive = false;
+				calls.push([pid, signal]);
+			},
+		});
+		const { spawnFn } = fakeSpawn(childPid, leaderPid, { alreadyExited: true });
+		let groupChecks = 0;
+		let healthCalls = 0;
+		let result;
+		try {
+			result = await runSmoke(
+				{ appDir, port: 17445, timeoutMs: 2_000, keepHome: false, log: null },
+				{
+					platform: "linux",
+					parentOf: async (pid: number) => (pid === leaderPid || pid === helperPid ? childPid : null),
+					isAlive: async (pid: number) => (pid === leaderPid ? leaderAlive : pid === helperPid ? helperAlive : false),
+					imageOf: async (pid: number) =>
+						pid === leaderPid || pid === helperPid ? launcherCandidates(appDir, "linux")[0] : null,
+					identityOf: scripted.identityOf,
+					listeningPid: () => (helperListening && helperAlive ? helperPid : null),
+					probeHealth: async () => {
+						healthCalls += 1;
+						if (healthCalls > 1) helperListening = true; // the helper comes up with the app
+						return { healthy: healthCalls > 1 };
+					},
+					spawn: spawnFn,
+					killTree,
+					groupExists: () => {
+						groupChecks += 1;
+						// The group 94101 has members while the helper (a group
+						// member) is alive; empty once both leader and helper die.
+						return helperAlive ? "present" : "absent";
+					},
+					removeDir: () => {},
+				},
+			);
+			// Exactly two signals: the group TERM on the leader, then the bare
+			// TERM on the helper (its own group does not exist: ESRCH).
+			expect(calls).toEqual([
+				[-leaderPid, "SIGTERM"],
+				[helperPid, "SIGTERM"],
+			]);
+			expect(result.ok).toBe(true);
+			expect(result.cleanup.ok).toBe(true);
+			expect(result.cleanup.errors).toEqual([]);
+			expect(result.cleanup.killed).toEqual([leaderPid, helperPid]);
+			expect(groupChecks).toBeGreaterThanOrEqual(1); // the group WAS checked (after the helper kill)
+			expect(result.cleanup.sandboxRemoved).toBe(true);
+		} finally {
+			if (result?.sandbox != null) rmSync(result.sandbox, { recursive: true, force: true });
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	});
 });
 
 /* ---------------- win32 8.3 short paths (real) ---------------------------- */
@@ -2946,6 +3731,394 @@ describe("ustar prefix field (amendment 1)", () => {
 	});
 });
 
+describe("tar/zstd fail-closed branches", () => {
+	// A tar that must never run: every rejection below throws before the
+	// spawn. If a branch were bypassed, spawnSync would fail differently
+	// (status null -> "tar -xf exited with null") and wrapper-payload.tar
+	// would appear in scratchDir.
+	function fixture(prefix: string) {
+		const root = mkdtempSync(join(tmpdir(), `pinar-smoke-${prefix}-`));
+		const payload = join(root, "payload.tar.zst");
+		const dest = join(root, "dest");
+		mkdirSync(dest, { recursive: true });
+		const tarCommand = join(root, "must-not-run");
+		return { root, payload, dest, tarCommand };
+	}
+
+	// One end-to-end rejection: write a REAL .tar.zst, extract with the dead
+	// tar, assert the rejection names the branch, and prove fail-before-
+	// spawn/kill/write: the destination stays empty, wrapper-payload.tar is
+	// never written to scratchDir, and the payload artifact is
+	// byte-for-byte unchanged.
+	async function expectFailClosed(
+		fx: { root: string; payload: string; dest: string; tarCommand: string },
+		plain: Buffer,
+		reason: RegExp,
+		extraOptions: Record<string, unknown> = {},
+	): Promise<void> {
+		zstFromPlain(fx.payload, plain);
+		const before = createHash("sha256").update(readFileSync(fx.payload)).digest("hex");
+		await expect(
+			extractWrapperPayload(fx.payload, fx.dest, {
+				scratchDir: fx.root,
+				tarCommand: fx.tarCommand,
+				...extraOptions,
+			}),
+		).rejects.toThrow(reason);
+		expect(readdirSync(fx.dest)).toEqual([]);
+		expect(existsSync(join(fx.root, "wrapper-payload.tar"))).toBe(false);
+		expect(createHash("sha256").update(readFileSync(fx.payload)).digest("hex")).toBe(before);
+	}
+
+	// Control: a regular file and a directory built with the same builder
+	// are accepted, so the negative tests below reject the typeflag itself,
+	// not the builder (checksum, name or shape).
+	test("control: regular-file and directory entries built with the same builder are accepted", () => {
+		expect(validatePlainTar(tarArchive(tarEntry("safe.txt", Buffer.from("x\n"))))).toBe(1);
+		expect(validatePlainTar(tarArchive(tarEntry("dir/", Buffer.alloc(0), { type: "5" })))).toBe(1);
+	});
+
+	// Each device/pax/GNU typeflag is rejected on the typeflag alone: the
+	// header has a VALID checksum and a safe name.
+	const typeflagCases: Array<[string, string, RegExp]> = [
+		["3", "character device", /unsupported tar entry type "3"/],
+		["4", "block device", /unsupported tar entry type "4"/],
+		["6", "fifo", /unsupported tar entry type "6"/],
+		["x", "pax extended header", /unsupported tar entry type "x"/],
+		["g", "pax global header", /unsupported tar entry type "g"/],
+		["L", "GNU long name", /unsupported tar entry type "L"/],
+		["K", "GNU long link", /unsupported tar entry type "K"/],
+	];
+	for (const [type, label, reason] of typeflagCases) {
+		test(`a ${label} entry (typeflag ${type}) is rejected, nothing is spawned or written`, async () => {
+			const fx = fixture("tzf");
+			try {
+				await expectFailClosed(
+					fx,
+					tarArchive(tarEntry("safe.txt", Buffer.from("x\n"), { type })),
+					reason,
+				);
+			} finally {
+				rmSync(fx.root, { recursive: true, force: true });
+			}
+		}, 60_000);
+	}
+
+	test("data after the terminator block is rejected, nothing is spawned or written", async () => {
+		const fx = fixture("tzt");
+		try {
+			// A valid entry, the standard two zero blocks, then a VALID
+			// header: data after the terminator.
+			const plain = Buffer.concat([
+				tarArchive(tarEntry("a.txt", Buffer.from("a\n"))),
+				tarEntry("b.txt", Buffer.from("b\n")),
+			]);
+			await expectFailClosed(fx, plain, /data after the terminator/);
+		} finally {
+			rmSync(fx.root, { recursive: true, force: true });
+		}
+	}, 60_000);
+
+	test("control: extra zero padding after the terminator is accepted", () => {
+		const padded = Buffer.concat([
+			tarArchive(tarEntry("a.txt", Buffer.from("a\n"))),
+			Buffer.alloc(1024),
+		]);
+		expect(validatePlainTar(padded)).toBe(1);
+	});
+
+	// The entry cap is test-only configurable downward (never above the
+	// production default) and rejects with the effective cap.
+	test("an archive over options.maxEntries is rejected with the effective cap", async () => {
+		const fx = fixture("ten");
+		try {
+			const plain = tarArchive(
+				tarEntry("a.txt", Buffer.from("a\n")),
+				tarEntry("b.txt", Buffer.from("b\n")),
+				tarEntry("c.txt", Buffer.from("c\n")),
+			);
+			await expectFailClosed(fx, plain, /more than 2 entries/, { maxEntries: 2 });
+		} finally {
+			rmSync(fx.root, { recursive: true, force: true });
+		}
+	}, 60_000);
+
+	test("control: the same archive is accepted at its entry count and with the default cap", () => {
+		const plain = tarArchive(
+			tarEntry("a.txt", Buffer.from("a\n")),
+			tarEntry("b.txt", Buffer.from("b\n")),
+			tarEntry("c.txt", Buffer.from("c\n")),
+		);
+		expect(validatePlainTar(plain)).toBe(3);
+		expect(validatePlainTar(plain, { maxEntries: 3 })).toBe(3);
+	});
+
+	test("cap options validate: positive integers not above the defaults", async () => {
+		const one = tarArchive(tarEntry("a.txt", Buffer.from("a\n")));
+		for (const bad of [0, -1, 4096.5, "4096", MAX_WRAPPER_ENTRIES + 1]) {
+			expect(() => validatePlainTar(one, { maxEntries: bad })).toThrow(
+				`options.maxEntries must be a positive integer not above ${MAX_WRAPPER_ENTRIES}`,
+			);
+		}
+		expect(validatePlainTar(one, { maxEntries: 1 })).toBe(1);
+		for (const bad of [0, -1, 4096.5, "4096", MAX_WRAPPER_DECOMPRESSED_BYTES + 1]) {
+			await expect(
+				extractWrapperPayload("missing.tar.zst", "missing-dest", { maxDecompressedBytes: bad }),
+			).rejects.toThrow(
+				`options.maxDecompressedBytes must be a positive integer not above ${MAX_WRAPPER_DECOMPRESSED_BYTES}`,
+			);
+		}
+	});
+
+	// The zstd frame header declares the content size (RFC 8878 §3.1.1.1.4,
+	// cross-verified against the zstd CLI and Bun's compressor): the parser
+	// reads it, and the undeclared/skippable/unknown cases return null (the
+	// post-decompression check stays the guard).
+	test("the frame header parse: declared sizes and the undeclared, skippable and unknown cases", () => {
+		// Real frames from the same compressor the payload is built with:
+		const smallFrame = Buffer.from(Bun.zstdCompressSync(Buffer.alloc(1024, 7)));
+		expect(zstdDeclaredContentSize(smallFrame)).toBe(1024);
+		// Precise 2-byte FCS boundary values (RFC 8878 §3.1.1.1.4: the
+		// 2-byte field is offset by 256, so size = value + 256):
+		expect(zstdDeclaredContentSize(Buffer.from(Bun.zstdCompressSync(Buffer.alloc(256, 7))))).toBe(256);
+		expect(zstdDeclaredContentSize(Buffer.from(Bun.zstdCompressSync(Buffer.alloc(1000, 7))))).toBe(1000);
+		const bigFrame = Buffer.from(Bun.zstdCompressSync(Buffer.alloc(70000, 9)));
+		expect(zstdDeclaredContentSize(bigFrame)).toBe(70000);
+		// A 4-byte FCS with a window descriptor (single-segment cleared):
+		const windowed = Buffer.concat([
+			Buffer.from([0x28, 0xb5, 0x2f, 0xfd]),
+			Buffer.from([0x80]), // 4-byte FCS, window descriptor present
+			Buffer.from([0x58]), // window descriptor
+			Buffer.from([0x00, 0x00, 0x40, 0x00]), // 4 MiB, little-endian
+			Buffer.alloc(8),
+		]);
+		expect(zstdDeclaredContentSize(windowed)).toBe(4 * 1024 * 1024);
+		// Undeclared: FCS flag cleared (a window descriptor, no FCS field):
+		const undeclared = Buffer.concat([
+			Buffer.from([0x28, 0xb5, 0x2f, 0xfd]),
+			Buffer.from([0x04]),
+			Buffer.alloc(8),
+		]);
+		expect(zstdDeclaredContentSize(undeclared)).toBeNull();
+		// A skippable frame and an unknown magic are not normal frames:
+		expect(zstdDeclaredContentSize(Buffer.from([0x50, 0x2a, 0x4d, 0x18, 0x01, 0x00, 0x00, 0x00, 0xab]))).toBeNull();
+		expect(zstdDeclaredContentSize(Buffer.from([0x00, 0x01, 0x02, 0x03, 0x04, 0x05]))).toBeNull();
+		// Too short to hold magic + descriptor:
+		expect(zstdDeclaredContentSize(Buffer.from([0x28, 0xb5, 0x2f, 0xfd]))).toBeNull();
+	});
+
+	// A frame declaring a content size above the configured cap is rejected
+	// BEFORE the decompressor is called: the expansion is never allocated.
+	test("a frame declaring a content size above the cap is rejected before the decompressor is called", async () => {
+		const fx = fixture("tzc");
+		try {
+			// One 5000-byte entry: plain tar = 512 + 5120 + 1024 = 6656 >
+			// 4096, and the real frame Bun writes declares exactly that size.
+			const plain = tarArchive(tarEntry("big.txt", Buffer.alloc(5000, 7)));
+			zstFromPlain(fx.payload, plain);
+			let decompressCalls = 0;
+			await expect(
+				extractWrapperPayload(fx.payload, fx.dest, {
+					scratchDir: fx.root,
+					tarCommand: fx.tarCommand,
+					maxDecompressedBytes: 4096,
+					zstdDecompress: () => {
+						decompressCalls += 1;
+						throw new Error("the decompressor must not be called");
+					},
+				}),
+			).rejects.toThrow(/declares a zstd content size of \d+ bytes, above the 4096 byte decompression cap/);
+			expect(decompressCalls).toBe(0);
+			expect(readdirSync(fx.dest)).toEqual([]);
+			expect(existsSync(join(fx.root, "wrapper-payload.tar"))).toBe(false);
+		} finally {
+			rmSync(fx.root, { recursive: true, force: true });
+		}
+	}, 60_000);
+
+	// A REAL .tar.zst whose expansion exceeds the small configured cap is
+	// rejected with the cap message (before spawn/kill/write), whatever
+	// guard fires: the declared-size pre-check or the post-decompression
+	// check.
+	test("a real .tar.zst expanding above the configured cap is rejected with the cap message", async () => {
+		const fx = fixture("tzc2");
+		try {
+			const plain = tarArchive(tarEntry("big.txt", Buffer.alloc(5000, 7)));
+			await expectFailClosed(fx, plain, /above the 4096 byte decompression cap/, {
+				maxDecompressedBytes: 4096,
+			});
+		} finally {
+			rmSync(fx.root, { recursive: true, force: true });
+		}
+	}, 60_000);
+
+	// The post-decompression cap is the guard when the frame declares no
+	// (or a smaller) content size than the actual expansion: the decompressor
+	// spy returns a real plain tar larger than the cap even though the
+	// frame's declared size is under it.
+	test("the post-decompression cap rejects when the actual expansion exceeds the cap and the declared size does not", async () => {
+		const fx = fixture("tzc3");
+		try {
+			// A real frame whose declared size (2048) is under the cap:
+			zstFromPlain(fx.payload, tarArchive(tarEntry("a.txt", Buffer.from("a\n"))));
+			const before = createHash("sha256").update(readFileSync(fx.payload)).digest("hex");
+			// ...but the decompressed result is a real plain tar of 6656
+			// bytes (one 5000-byte entry), above the 4096 cap:
+			const oversized = tarArchive(tarEntry("big.txt", Buffer.alloc(5000, 7)));
+			await expect(
+				extractWrapperPayload(fx.payload, fx.dest, {
+					scratchDir: fx.root,
+					tarCommand: fx.tarCommand,
+					maxDecompressedBytes: 4096,
+					zstdDecompress: () => oversized,
+				}),
+			).rejects.toThrow(/expands to 6656 bytes, above the 4096 byte decompression cap/);
+			expect(readdirSync(fx.dest)).toEqual([]);
+			expect(existsSync(join(fx.root, "wrapper-payload.tar"))).toBe(false);
+			expect(createHash("sha256").update(readFileSync(fx.payload)).digest("hex")).toBe(before);
+		} finally {
+			rmSync(fx.root, { recursive: true, force: true });
+		}
+	}, 60_000);
+
+	// Embedded fixture: a real 76-byte .tar.zst frame WITHOUT a
+	// Frame_Content_Size (RFC 8878 §3.1.1.1.4: FCS_Flag 0b00, window
+	// descriptor, no FCS field). Provenance: generated once with the job's
+	// tools/bin/zstd.exe 1.5.7, `zstd -q --no-content-size -f <tar> -o
+	// nfc.tar.zst`, over the 2048-byte plain tar built by the in-file
+	// tarEntry/tarArchive helpers (sha256 below); `zstd -l` reports no
+	// uncompressed size and Bun decodes it to exactly that tar. The
+	// pre-check cannot decide (declared size null), so the post-
+	// decompression cap is the guard.
+	const NO_FCS_FIXTURE_B64 =
+		"KLUv/QQI/QEAJAJhLnR4dAAwMDA2NDQwMDAyNjU1NgAgMAB1c3RhcgAwYQoACgD6gX8gQAHxhtQAkBi8uOkH1gBwrFxlJ1AEdCCYbg==";
+	const NO_FCS_PLAIN_SHA256 = "483a674556ad2625826fbb6184749f996c17f4f2aac2e5f454cb9cc08b5e547f";
+
+	test("an undeclared-size frame: the pre-check cannot decide, the decompressor runs, the cap guards, and the default cap extracts", async () => {
+		const fx = fixture("nfc");
+		try {
+			const compressed = Buffer.from(NO_FCS_FIXTURE_B64, "base64");
+			writeFileSync(fx.payload, compressed);
+			const before = createHash("sha256").update(compressed).digest("hex");
+			// Provenance: the embedded frame is the zstd of the plain tar the
+		// in-file helpers build:
+			expect(createHash("sha256").update(Bun.zstdDecompressSync(compressed)).digest("hex")).toBe(NO_FCS_PLAIN_SHA256);
+			expect(createHash("sha256").update(tarArchive(tarEntry("a.txt", Buffer.from("a\n")))).digest("hex")).toBe(NO_FCS_PLAIN_SHA256);
+			// The header declares no content size:
+			expect(zstdDeclaredContentSize(compressed)).toBeNull();
+			// A small cap below the 2048-byte expansion: the real decompressor
+			// IS called (the pre-check could not decide) and the
+			// post-decompression cap rejects before spawn/kill/write:
+			let decompressCalls = 0;
+			await expect(
+				extractWrapperPayload(fx.payload, fx.dest, {
+					scratchDir: fx.root,
+					tarCommand: fx.tarCommand,
+					maxDecompressedBytes: 1024,
+					zstdDecompress: (buf: Buffer) => {
+						decompressCalls += 1;
+						return Bun.zstdDecompressSync(buf);
+					},
+				}),
+			).rejects.toThrow(/expands to 2048 bytes, above the 1024 byte decompression cap/);
+			expect(decompressCalls).toBe(1);
+			expect(readdirSync(fx.dest)).toEqual([]);
+			expect(existsSync(join(fx.root, "wrapper-payload.tar"))).toBe(false);
+			expect(createHash("sha256").update(readFileSync(fx.payload)).digest("hex")).toBe(before);
+			// Default cap: the same bytes pass every validation and extract
+			// normally with the real platform tar (same style as the
+			// post-extraction containment tests):
+			await extractWrapperPayload(fx.payload, fx.dest, { scratchDir: fx.root });
+			expect(readFileSync(join(fx.dest, "a.txt"), "utf8")).toBe("a\n");
+		} finally {
+			rmSync(fx.root, { recursive: true, force: true });
+		}
+	}, 60_000);
+
+	// Dictionary_ID (descriptor bits 1-0: a 0/1/2/4-byte field between the
+	// [Window_Descriptor] and the FCS_Field; the real decoders accept it in
+	// both segment modes): zero dictionary IDs of each size are inserted
+	// into a real Bun-compressed single-segment frame's header (DID_Flag
+	// set, field right after the descriptor). Bun decodes each crafted frame
+	// to exactly the plain tar, and the parser returns the exact plain size
+	// — the P2 from review rv-rt-s3 was this field being skipped by the FCS
+	// offset (a one-byte zero Dictionary_ID on a 9 MiB frame mis-declared
+	// 2,415,919,104 bytes).
+	test("a frame with a one-, two- or four-byte Dictionary_ID declares the exact content size", () => {
+		const plain = tarArchive(tarEntry("a.txt", Buffer.from("a\n")));
+		const frame = Buffer.from(Bun.zstdCompressSync(plain));
+		// A real single-segment 2-byte-FCS frame: pin the shape the crafting
+		// relies on (descriptor 0x60).
+		expect(frame[4] & 0x03).toBe(0); // no Dictionary_ID yet
+		expect(frame[4] & 0x20).not.toBe(0); // single-segment
+		expect((frame[4] >> 6) & 0x03).toBe(1); // 2-byte FCS field
+		const plainSha = createHash("sha256").update(plain).digest("hex");
+		for (const [didFlag, didLength] of [[1, 1], [2, 2], [3, 4]] as const) {
+			const crafted = Buffer.concat([
+				frame.subarray(0, 4), // magic
+				Buffer.from([frame[4] | didFlag]), // descriptor + the DID flag
+				Buffer.alloc(didLength, 0), // zero dictionary ID
+				frame.subarray(5), // the 2-byte FCS and the blocks, unchanged
+			]);
+			expect(createHash("sha256").update(Bun.zstdDecompressSync(crafted)).digest("hex")).toBe(plainSha);
+			expect(zstdDeclaredContentSize(crafted)).toBe(plain.length);
+		}
+	});
+
+	// End-to-end: the same one-byte zero Dictionary_ID frame of a small real
+	// tar passes the pre-check at the DEFAULT cap and extracts normally with
+	// the real platform tar (before the Dictionary_ID offset fix, the
+	// reviewer's 9 MiB variant of this frame mis-declared 2,415,919,104
+	// bytes and was falsely rejected before decompression — review
+	// rv-rt-s3).
+	test("a one-byte Dictionary_ID frame extracts normally at the default cap", async () => {
+		const fx = fixture("did");
+		try {
+			const plain = tarArchive(tarEntry("a.txt", Buffer.from("a\n")));
+			const frame = Buffer.from(Bun.zstdCompressSync(plain));
+			const crafted = Buffer.concat([
+				frame.subarray(0, 4),
+				Buffer.from([frame[4] | 0x01]), // one-byte Dictionary_ID flag
+				Buffer.from([0x00]), // zero dictionary ID
+				frame.subarray(5),
+			]);
+			writeFileSync(fx.payload, crafted);
+			expect(createHash("sha256").update(Bun.zstdDecompressSync(crafted)).digest("hex")).toBe(
+				createHash("sha256").update(plain).digest("hex"),
+			);
+			await extractWrapperPayload(fx.payload, fx.dest, { scratchDir: fx.root });
+			expect(readFileSync(join(fx.dest, "a.txt"), "utf8")).toBe("a\n");
+		} finally {
+			rmSync(fx.root, { recursive: true, force: true });
+		}
+	}, 60_000);
+
+	// The windowed FCS forms the corrected comment names: a 2-byte field
+	// (FCS_Flag 0b01, size = value + 256) and a 4-byte field (FCS_Flag
+	// 0b10, exact) both parse to the exact content size. The 8-byte form
+	// (FCS_Flag 0b11) is not parsed and returns null.
+	test("windowed frames with 2-byte and 4-byte FCS fields declare the exact content size", () => {
+		const plain = tarArchive(tarEntry("a.txt", Buffer.from("a\n")));
+		const frame = Buffer.from(Bun.zstdCompressSync(plain));
+		const plainSha = createHash("sha256").update(plain).digest("hex");
+		// Windowed 2-byte FCS (the field's value + 256 = the size):
+		const twoByte = Buffer.concat([frame.subarray(0, 4), Buffer.from([frame[4] & 0xdf, 0x18]), frame.subarray(5)]);
+		expect(createHash("sha256").update(Bun.zstdDecompressSync(twoByte)).digest("hex")).toBe(plainSha);
+		expect(zstdDeclaredContentSize(twoByte)).toBe(plain.length);
+		// Windowed 4-byte FCS (exact): widen the 2-byte field's size
+		// (value + 256) to the exact 4-byte little-endian value:
+		const exactSize = frame[5] + frame[6] * 256 + 256;
+		const fourByte = Buffer.concat([
+			frame.subarray(0, 4),
+			Buffer.from([(frame[4] & 0x1f) | 0x80, 0x18]),
+			Buffer.from([exactSize & 0xff, (exactSize >> 8) & 0xff, 0x00, 0x00]),
+			frame.subarray(7),
+		]);
+		expect(createHash("sha256").update(Bun.zstdDecompressSync(fourByte)).digest("hex")).toBe(plainSha);
+		expect(zstdDeclaredContentSize(fourByte)).toBe(plain.length);
+	});
+});
+
 describe("post-extraction containment walk", () => {
 	// Real zstd + tar extraction: the 5 s default is too tight under host load.
 	test("an entry under the destination that resolves outside it fails the extraction", async () => {
@@ -2987,57 +4160,96 @@ test("the CLI prints exactly one final JSON line with a cleanup object on failur
 		stdio: ["ignore", "pipe", "pipe"],
 		windowsHide: true,
 	});
-	child.stdout?.on("data", (chunk: Buffer | string) => {
+	// F3: spawn errors are recorded from the very start — before ANY await —
+	// so a failed spawn can never throw through an unhandled "error" event
+	// and lose the bookkeeping below.
+	let spawnError: Error | null = null;
+	const onSpawnError = (error: Error) => {
+		spawnError = error;
+	};
+	child.on("error", onSpawnError);
+	const onStdout = (chunk: Buffer | string) => {
 		stdout += String(chunk);
-	});
-	child.stderr?.on("data", (chunk: Buffer | string) => {
+	};
+	const onStderr = (chunk: Buffer | string) => {
 		stderr += String(chunk);
-	});
-	let deadline: ReturnType<typeof setTimeout> | null = null;
-	const closed = new Promise<void>((resolve) => {
-		// Inner 45 s deadline: the child is always bounded and always reaped
-		// in the finally block below, never left behind by this test.
-		deadline = setTimeout(() => {
-			deadline = null;
-			resolve();
-		}, 45_000);
-		child.once("close", (code: number | null) => {
-			status = code;
-			if (deadline != null) {
-				clearTimeout(deadline);
-				deadline = null;
-			}
-			resolve();
-		});
-	});
+	};
+	child.stdout?.on("data", onStdout);
+	child.stderr?.on("data", onStderr);
+	const tailLines = (text: string) => String(text).split(/\r?\n/).slice(-5).filter((line) => line.length > 0);
+	// Bind the child's identity right after spawn, inside the protected
+	// lifecycle (the error listener above is attached first): the bounded
+	// verified teardown (teardownChild) only signals a pid whose immutable
+	// identity (creation time) is still the same one, so a recycled PID can
+	// never be signalled. The capture is void to `gone` if the handle
+	// already shows an exit when the probe finishes (a pid recycled after a
+	// very fast exit). The probe is the OWNED boundedIdentityProbe: one
+	// asynchronous probe child per call, no executable discovery, no .ps1
+	// files (the CIM query runs inline), and a timed-out probe is killed
+	// through its held handle and verified reaped — if it cannot be reaped,
+	// the probeResidue tag below keeps the sandbox.
+	const identityOf = boundedIdentityProbe(process.platform, {});
+	// F2/F3: waitChildOutcome settles on the close, an error, or the inner
+	// 20 s deadline; it is created before the identity capture so the
+	// deadline runs concurrently with it: worst case 20 s + capture ≤ 8+2 s
+	// (probe + kill wait, concurrent with the deadline) + re-probe ≤ 8+2 s +
+	// taskkill ≤ 8 s + close wait 10 s ≈ 48 s < the 60 s outer timeout.
+	const outcomePromise = waitChildOutcome(child, { deadlineMs: 20_000 });
+	const boundIdentity: unknown = child.pid != null ? await captureChildIdentity(child, identityOf) : null;
 	try {
-		await closed;
-	} finally {
-		if (deadline != null) clearTimeout(deadline);
-		if (child.exitCode == null && child.signalCode == null) {
-			// The inner deadline fired while the child still runs: terminate
-			// THIS test's own live child (its handle is held, so its PID
-			// cannot be reused) and await its close before removing appDir.
-			if (child.pid != null) {
-				if (process.platform === "win32") {
-					spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
-						stdio: "ignore",
-						windowsHide: true,
-					});
-				} else {
-					child.kill("SIGKILL");
-				}
-				// Bounded wait for the close (a spawn error would never close).
-				await Promise.race([
-					new Promise<void>((resolve) => {
-						if (child.exitCode != null || child.signalCode != null) return resolve();
-						child.once("close", () => resolve());
-					}),
-					new Promise<void>((resolve) => setTimeout(resolve, 10_000)),
-				]);
-			}
+		const outcome = await outcomePromise;
+		if (outcome.kind === "close") {
+			status = outcome.code;
+		}
+		// F4: teardownChild runs in EVERY path — also when the root
+		// already exited: its early return marks the capture's unreaped
+		// probe child (boundIdentity) before returning and re-reads
+		// reaped from the held handle, so the residue accounting (and the
+		// probe pid/error facts) reach the removal predicate in every
+		// path. cliSandboxDecision is the single source of truth for the
+		// decision (capture tag OR teardown residue). The already-exited
+		// path returns early — no probes, no extra budget.
+		const teardown: { reaped?: boolean; probeResidue?: boolean } = await teardownChild(child, {
+			platform: process.platform,
+			identity: identityOf,
+			boundIdentity,
+			closeTimeoutMs: 10_000,
+		});
+		const reaped = teardown.reaped === true;
+		if (!cliSandboxDecision({ reaped, pid: child.pid, boundIdentity, teardown })) {
+			// Fail closed: keep the sandbox (its path is in the message) and
+			// fail the test with the preserved facts (pid, identity states,
+			// taskkill status, refused/errors, the spawn error, the
+			// stdout/stderr tails).
+			throw new Error(
+				`could not reap the CLI child: pid ${String(child.pid)}, ` +
+					`boundIdentity=${JSON.stringify(boundIdentity)}, ` +
+					`teardown=${JSON.stringify(teardown)}, ` +
+					`spawnError=${spawnError != null ? JSON.stringify(spawnError.message) : "none"}, ` +
+					`stdout tail: ${JSON.stringify(tailLines(stdout))}, ` +
+					`stderr tail: ${JSON.stringify(tailLines(stderr))}; ` +
+					`sandbox ${appDir} left in place`,
+			);
 		}
 		rmSync(appDir, { recursive: true, force: true });
+		if (spawnError != null) {
+			// F3: a spawn error means "never spawned" (the sandbox was removed
+			// above), but the test must still fail clearly with the recorded
+			// error — it expects status 1 and one JSON line.
+			throw new Error(
+				`CLI child spawn failed: ${spawnError.message} ` +
+					`(outcome ${outcome.kind}); ` +
+					`stdout tail: ${JSON.stringify(tailLines(stdout))}, ` +
+					`stderr tail: ${JSON.stringify(tailLines(stderr))}; ` +
+					`sandbox ${appDir} removed (the child never spawned)`,
+			);
+		}
+	} finally {
+		// The test's own listeners are always cleared here (waitChildOutcome
+		// removed its own; its deadline timer is cleared on settlement).
+		child.removeListener("error", onSpawnError);
+		child.stdout?.removeListener("data", onStdout);
+		child.stderr?.removeListener("data", onStderr);
 	}
 	expect(status).toBe(1);
 	const lines = stdout.split(/\r?\n/).filter((line) => line.length > 0);

@@ -1643,37 +1643,55 @@ describe("runSmoke", () => {
 		writeFileSync(join(outsideDir, "unrelated.exe"), "");
 		const launcherPid = 77001; // reused by an unrelated live process
 		const { spawnFn } = fakeSpawn(launcherPid, null, { alreadyExited: true });
-		let launched = false;
+		// Port-hold phases (fixture only): free before the spawn; held by the
+		// reused pid from the spawn until the cleanup decision's ownership
+		// re-check; free afterwards, so the bounded post-kill poll settles at
+		// once instead of running its full 10 s budget. The release is keyed
+		// to that re-check (the first isAlive call after the launch), not to
+		// listeningPid call counts: the wait loop calls isAlive only for a
+		// fresh tray.pid (this fixture has none) and the SM-7 diagnostic
+		// samples — which also probe listeningPid during the wait loop — never
+		// call isAlive, so the samples cannot shift when the port frees.
+		let holding = false;
 		let result;
 		try {
 			result = await runSmoke(
 				{ appDir, port: 17415, timeoutMs: 1_000, log: null, keepHome: false },
 				{
-					// SM-7: the spawn-phase flag replaces the call counter —
-					// the SM-7 diagnostic samples also probe listeningPid
-					// during the wait loop.
 					spawn: (launcher: string, args: string[], opts: { env: Record<string, string> }) => {
-						launched = true;
+						holding = true;
 						return spawnFn(launcher, args, opts);
 					},
 					parentOf: async () => null,
-					isAlive: async () => true, // the reused pid is alive
+					isAlive: async () => {
+						// The cleanup decision reads the port (listeningPid) and
+						// then re-checks the owner through ownership, whose first
+						// probe is isAlive: that re-check is the moment the held
+						// port frees (the post-kill poll runs after it).
+						holding = false;
+						return true; // the reused pid is alive
+					},
 					imageOf: async (pid) => (pid === launcherPid ? join(outsideDir, "unrelated.exe") : null),
 					killTree: async () => {
 						throw new Error("killTree must not be called");
 					},
 					listeningPid: (port) => {
-						// Free before the spawn; held by the reused pid once this
-						// run has launched (the cleanup decision sees it; the
-						// bounded post-kill poll runs its full budget against the
-						// still-held port, which is reported, never re-signalled).
-						return port === 17415 && launched ? launcherPid : null;
+						// Free before the spawn and after the cleanup decision;
+						// held by the reused pid in between — the SM-7 samples and
+						// the cleanup decision all see it.
+						return port === 17415 && holding ? launcherPid : null;
 					},
 					probeHealth: async () => ({ healthy: false }),
 				},
 			);
 			expect(result.ok).toBe(false);
 			expect(result.cleanup.killed).toEqual([]);
+			// The cleanup decision reached the port held by the reused pid: the
+			// refusal is the decision's own read of the port (a fixture that
+		// never holds the port produces no refusal at all).
+			expect(result.cleanup.refused).toEqual([
+				`pid ${launcherPid} on port 17415: not inside the launched tree nor ${result.launchDir}; not killed`,
+			]);
 			expect(result.cleanup.refused.some((entry) => entry.includes(String(launcherPid)))).toBe(true);
 		} finally {
 			rmSync(appDir, { recursive: true, force: true });

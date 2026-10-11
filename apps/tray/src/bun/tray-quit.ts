@@ -57,11 +57,50 @@ export function createQuitController(options: {
 		return inFlight;
 	}
 
+	/**
+	 * Hands the quit to Electrobun's updater. `apply` asks before-quit for
+	 * approval before it writes the update plan, so the veto below would cancel
+	 * the update and still close the tray. The helper is stopped first (its
+	 * executable lives in the folder the updater swaps), then that native quit
+	 * is allowed through. `apply` resolves false when the updater did not hand
+	 * off; the tray is then relaunched instead of leaving nothing running.
+	 */
+	function update(apply: () => Promise<boolean>, relaunch: () => void) {
+		if (inFlight) return inFlight;
+		inFlight = (async () => {
+			options.stopTimers?.();
+			try {
+				await options.stopServer();
+			} finally {
+				options.releaseLock();
+				try {
+					options.removeTray();
+				} catch {
+					// Tray may already be gone.
+				}
+				helperStopped = true;
+			}
+			let handedOff = false;
+			try {
+				handedOff = await apply();
+			} finally {
+				if (!handedOff) {
+					try {
+						relaunch();
+					} finally {
+						options.quit(0);
+					}
+				}
+			}
+		})();
+		return inFlight;
+	}
+
 	function onBeforeQuit(event: BeforeQuitEvent) {
 		if (helperStopped) return;
 		event.response = { allow: false };
 		void finish();
 	}
 
-	return { finish, onBeforeQuit, restart };
+	return { finish, onBeforeQuit, restart, update };
 }

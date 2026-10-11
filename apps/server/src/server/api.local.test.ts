@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { Database } from "bun:sqlite";
-import { afterEach, beforeEach, describe, test } from "node:test";
+import { afterEach, before, beforeEach, describe, test } from "node:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -19,7 +19,69 @@ import { setLocalAiDependenciesForTests } from "./ai/local-ai";
 const VALID_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 
 let root = "";
-let previousHome: string | undefined;
+// bun 1.4.0 does not cancel a timed-out node:test body: its body and its
+// afterEach keep running while the next tests run. The hooks must therefore
+// act only on the fixture of the test they belong to, never on "the current
+// module root": each fixture (its own mkdtemp root) is kept on the
+// TestContext the adapter passes to both hooks, and process-wide state
+// (PINAR_HOME, the active sqlite handle) is only reset or restored while
+// that fixture is still the live generation (PINAR_HOME points at its root).
+let originalHome: string | undefined;
+let originalHomeCaptured = false;
+let generation = 0;
+
+interface LocalApiFixture {
+  generation: number;
+  root: string;
+}
+
+const fixtures = new WeakMap<object, LocalApiFixture>();
+
+// Capture the PINAR_HOME value that existed before the first fixture of the
+// file, once; teardowns restore to it (deleting it when it was undefined).
+function captureOriginalHome() {
+  if (!originalHomeCaptured) {
+    originalHome = process.env.PINAR_HOME;
+    originalHomeCaptured = true;
+  }
+}
+
+// Create the fixture for one test's context: a fresh temp root that becomes
+// the live PINAR_HOME with a reset local API, exactly as the old
+// module-level beforeEach did, so the next test starts fresh even if a
+// timed-out body is still running.
+async function createFixture(context: object) {
+  captureOriginalHome();
+  generation += 1;
+  const fixture: LocalApiFixture = {
+    generation,
+    root: await mkdtemp(join(tmpdir(), "pinar-local-api-")),
+  };
+  root = fixture.root;
+  process.env.PINAR_HOME = fixture.root;
+  resetLocalApiForTests();
+  fixtures.set(context, fixture);
+  return fixture;
+}
+
+// Tear down exactly the fixture created for one test's context, never the
+// current module root. Only the live generation (PINAR_HOME still pointing
+// at its own root) may reset the process-wide state and restore PINAR_HOME
+// to the once-captured original; a stale/late teardown removes only its own
+// directory and touches nothing else.
+async function teardownFixture(context: object) {
+  const fixture = fixtures.get(context);
+  if (!fixture) return;
+  fixtures.delete(context);
+  if (process.env.PINAR_HOME === fixture.root) {
+    // Reset before rm so the sqlite handle is closed (and GC'd on Windows)
+    // while the fixture root is still the live PINAR_HOME.
+    resetLocalApiForTests();
+    if (originalHome === undefined) delete process.env.PINAR_HOME;
+    else process.env.PINAR_HOME = originalHome;
+  }
+  await rm(fixture.root, { force: true, recursive: true });
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -36,18 +98,16 @@ function request(path: string, init: RequestInit = {}) {
 }
 
 describe("local TanStack API", () => {
-  beforeEach(async () => {
-    previousHome = process.env.PINAR_HOME;
-    root = await mkdtemp(join(tmpdir(), "pinar-local-api-"));
-    process.env.PINAR_HOME = root;
-    resetLocalApiForTests();
+  before(() => {
+    captureOriginalHome();
   });
 
-  afterEach(async () => {
-    resetLocalApiForTests();
-    if (previousHome === undefined) delete process.env.PINAR_HOME;
-    else process.env.PINAR_HOME = previousHome;
-    await rm(root, { force: true, recursive: true });
+  beforeEach(async (t) => {
+    await createFixture(t);
+  });
+
+  afterEach(async (t) => {
+    await teardownFixture(t);
   });
 
   test("recreates storage, stores one shots directory, and exposes history and markdown", async () => {
@@ -1351,5 +1411,58 @@ describe("local TanStack API", () => {
       method: "POST",
     });
     assert.equal(mcp.status, 401);
+  });
+});
+
+// Drives the fixture helpers directly, without the describe hooks above:
+// proves that a late teardown of an older fixture (the shape of a
+// timed-out test's delayed afterEach) can never delete, reset, or re-home
+// the fixture of the test that is still live.
+describe("per-test fixture isolation", () => {
+  before(() => {
+    captureOriginalHome();
+  });
+
+  test("a late teardown of a stale fixture leaves the live fixture intact", async () => {
+    const stale = {};
+    const live = {};
+    const a = await createFixture(stale);
+    const b = await createFixture(live);
+    assert.ok(b.generation > a.generation);
+    assert.notEqual(b.root, a.root);
+    assert.equal(process.env.PINAR_HOME, b.root);
+
+    // A's teardown now runs late (its test body outlived the timeout).
+    await teardownFixture(stale);
+
+    // Only A's own root is gone: B's root still exists, PINAR_HOME is still
+    // B's root, and the reset was not run against B's database.
+    assert.equal(existsSync(a.root), false);
+    assert.equal(existsSync(b.root), true);
+    assert.equal(process.env.PINAR_HOME, b.root);
+
+    // A full request flow still resolves under B's root and database.
+    const upload = await request("/api/shots", {
+      body: JSON.stringify({
+        id: "late_teardown_probe",
+        image: VALID_PNG,
+        page: { title: "Late teardown", url: "https://example.test/late-teardown" },
+        pins: [],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(upload.status, 201);
+    assert.equal(existsSync(join(b.root, "shots", "late_teardown_probe.png")), true);
+    const session = await request("/api/sessions/late_teardown_probe");
+    assert.equal(session.status, 200);
+    const sessionBody = await jsonBody(session);
+    assert.ok(isRecord(sessionBody.session));
+    assert.equal(sessionBody.session.captureId, "late_teardown_probe");
+
+    // B's own teardown restores the original PINAR_HOME.
+    await teardownFixture(live);
+    if (originalHome === undefined) assert.equal(process.env.PINAR_HOME, undefined);
+    else assert.equal(process.env.PINAR_HOME, originalHome);
   });
 });

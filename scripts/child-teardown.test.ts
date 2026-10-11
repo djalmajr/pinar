@@ -1733,6 +1733,15 @@ describe("native consistency fixture (F9 deterministic port, virtual clock)", ()
 			teardown: (_pid: number, options: any) =>
 				teardownChild(child, {
 					...options,
+					// The fixture models the native win32 ping-reap (the
+					// status-checked taskkill seam): the platform is
+					// EXPLICIT so the test takes this branch on every host —
+					// the default process.platform would take the POSIX
+					// SIGKILL branch on Linux/macOS, where this fixture's
+					// fake kill never closes and waitClose would arm a
+					// virtual timer nothing advances (the POSIX twin below
+					// declares "linux" and lets the kill land).
+					platform: "win32",
 					identity: async (pid: number) => (pid === 8123250 && child.exitCode != null ? { state: "gone" } : { state: "alive", id: "A" }),
 					runTaskkill: () => {
 						// A successful taskkill ends the process: the
@@ -1785,6 +1794,165 @@ describe("native consistency fixture (F9 deterministic port, virtual clock)", ()
 		// (F9) the window clock INCLUDES everything from virtual 0 (the
 		// test entry): the owned bound is min(8_000, 30_000 − 2_000
 		// kill-wait) = 8_000.
+		expect(ownedBound).toBe(8_000);
+		// The window ends at virtual 2 s — far inside the child's 120 s
+		// lifetime: the natural exit was scheduled but never reached, so
+		// the child ended ONLY through the verified teardown above, and
+		// the only pending timer is that scheduled-but-unreached
+		// lifetime.
+		expect(clock.now()).toBe(2_000);
+		expect(clock.now()).toBeLessThan(PING_LIFETIME_MS);
+		expect(naturalExitTriggered).toBe(false);
+		expect(clock.pending()).toBe(1);
+		// Success path: no held-handle kill (the finally's cleanup runs
+		// only on failure), and the clean probeDir (no residue) is
+		// removed.
+		expect(cleanup.killRan).toBe(false);
+		expect(removed).toBe(true);
+	}, 5_000);
+
+	// (F9 twin) The POSIX-declared twin of the F9 scenario: the SAME
+	// fixture (the 120 s ping outliving the whole 30 s window, clean
+	// probes, the REAL teardownChild on the virtual clock) with an
+	// explicit `platform: "linux"` — the helper's POSIX branch signals
+	// the HELD handle with child.kill("SIGKILL") and never runs
+	// taskkill. The per-test kill hook makes the SIGKILL land: a real
+	// observed close on the held handle carrying the signal (POSIX
+	// semantics: a signal, not a status — the shared fakeChild default
+	// stays "kill does not close" for the other tests). The darwin
+	// path is the SAME `else` branch (the helper keys only on
+	// "win32" vs POSIX), so "linux" covers both POSIX hosts. Everything
+	// else is the win32 F9 contract: true observed close, the owned
+	// bound, the shrunk bounds derived from the whole 30 s cap, the
+	// record fields. No real waiting, no virtual-clock pump: the kill
+	// lands before waitClose arms a timer, so nothing is advanced.
+	test("clean probes outlive the ping on POSIX: the SIGKILL lands and reaps from a true observed close (F9 twin)", async () => {
+		const clock = virtualClock();
+		let recordedArgs: string[] = [];
+		const child = spawnFixturePing((_cmd: string, args: string[], _opts: unknown) => {
+			recordedArgs = args;
+			return fakeChild(8123250);
+		});
+		expect(recordedArgs).toContain(String(PING_COUNT));
+		const PING_LIFETIME_MS = Number.parseInt(recordedArgs[recordedArgs.indexOf("-n") + 1], 10) * 1000;
+		// The native fixture invariant: the child OUTLIVES the whole
+		// native 30 s window — it can only end through the test's
+		// verified teardown.
+		expect(PING_LIFETIME_MS).toBeGreaterThan(30_000);
+		let naturalExitTriggered = false;
+		// The fixture's natural exit at its 120 s lifetime: if the
+		// window ever reached it, the child would end on its own.
+		clock.setTimeout(() => {
+			naturalExitTriggered = true;
+			exitChild(child, 0, null);
+		}, PING_LIFETIME_MS);
+		// The at-spawn close observer (the same shape the win32 F9
+		// fixture and the native test register on the real handle).
+		const closeTracker: { observed: boolean; code: number | null; signal: string | null } = {
+			observed: false,
+			code: null,
+			signal: null,
+		};
+		let closeResolve: (() => void) | null = null;
+		const closeWaiter = new Promise<void>((resolve) => {
+			closeResolve = resolve;
+		});
+		child.on("close", (code: number | null, signal: string | null) => {
+			if (!closeTracker.observed) {
+				closeTracker.observed = true;
+				closeTracker.code = code;
+				closeTracker.signal = signal;
+			}
+			closeResolve?.();
+		});
+		// The per-test kill hook: the SIGKILL on the held handle LANDS
+		// (the real observed close with the signal is emitted on the
+		// handle). Only SIGKILL lands: an un-signalled kill from the
+		// finally's failure-path cleanup would not.
+		const originalKill = child.kill;
+		child.kill = (signal?: string) => {
+			const ok = originalKill(signal);
+			if (signal === "SIGKILL") exitChild(child, null, "SIGKILL");
+			return ok;
+		};
+		let ownedBound: number | null = null;
+		const ownedProbe = async (pid: number, probeMs: number): Promise<any> => {
+			if (pid === 8123250 && ownedBound === null) ownedBound = probeMs;
+			clock.advance(2_000);
+			// A probe of the fixture child sees `gone` only once its
+			// handle actually closed; the long-lived test process always
+			// reports an alive identity.
+			if (pid === 8123250 && (child.exitCode != null || child.signalCode != null)) return { state: "gone" };
+			return { state: "alive", id: pid === process.pid ? "W" : "A" };
+		};
+		const ownedResults: any[] = [];
+		const teardowns: any[] = [];
+		let removed = false;
+		const cleanup: { killRan: boolean; closeObserved: boolean } = { killRan: false, closeObserved: false };
+		// The recording taskkill seam must stay UNUSED: the POSIX branch
+		// signals the held handle and never runs taskkill.
+		const tk = taskkillRunner(0);
+		const record: any = await runConsistencyCallback({
+			ping: child as any,
+			pingPid: 8123250,
+			owned: ownedProbe,
+			teardown: (_pid: number, options: any) =>
+				teardownChild(child, {
+					...options,
+					platform: "linux",
+					identity: async (pid: number) =>
+						(pid === 8123250 && (child.exitCode != null || child.signalCode != null) ? { state: "gone" } : { state: "alive", id: "A" }),
+					runTaskkill: tk.fn,
+					setTimeout: clock.setTimeout,
+					clearTimeout: clock.clearTimeout,
+				}),
+			ownedResults,
+			teardowns,
+			clock: { now: () => clock.now() },
+			windowStart: 0,
+			windowCapMs: WINDOW_CAP_MS,
+			closeTracker,
+			awaitClose: () => closeWaiter,
+			setTimeoutFn: clock.setTimeout,
+			clearTimeoutFn: clock.clearTimeout,
+			rmProbeDir: () => {
+				removed = true;
+			},
+			cleanup,
+		});
+		// The same contract as the win32 F9 test, adapted only where
+		// POSIX semantics differ (a signal, not a status):
+		const { owned, teardown } = record;
+		expect(owned).toEqual({ state: "alive", id: "A" });
+		expect(teardown.signalled).toBe(true);
+		expect(teardown.reaped).toBe(true);
+		// Reaped from a TRUE observed close: the at-spawn observer saw
+		// the real close event carrying the SIGKILL signal (never a
+		// synthetic reaped from exit metadata).
+		expect(closeTracker.observed).toBe(true);
+		expect(closeTracker.code).toBeNull();
+		expect(closeTracker.signal).toBe("SIGKILL");
+		expect(teardown.exitCode).toBeNull();
+		expect(teardown.signalCode).toBe("SIGKILL");
+		expect(teardown.probeResidue).toBe(false);
+		expect(teardown.signalIdentity).toEqual(owned);
+		// The POSIX branch signalled the HELD handle with SIGKILL
+		// (exactly once — the finally's cleanup kill runs only on
+		// failure) and never ran taskkill.
+		expect(child.killCalls).toEqual(["SIGKILL"]);
+		expect(tk.pids).toEqual([]);
+		// The SHRUNK teardown bounds: the SAME platform-independent
+		// window math at virtual 2 s — budget = 30_000 − 2_000 − 10_000
+		// (close margin) = 18_000, split proportionally to the existing
+		// defaults (floors + the remainder into closeTimeoutMs).
+		const opts = teardowns[teardowns.length - 1];
+		expect(opts.skipped).toBeUndefined();
+		expect(opts.probeTimeoutMs).toBe(5_142);
+		expect(opts.probeKillWaitMs).toBe(1_285);
+		expect(opts.taskkillTimeoutMs).toBe(5_142);
+		expect(opts.closeTimeoutMs).toBe(6_431);
+		expect(opts.probeTimeoutMs + opts.probeKillWaitMs + opts.taskkillTimeoutMs + opts.closeTimeoutMs).toBe(18_000);
+		// The owned bound is min(8_000, 30_000 − 2_000 kill-wait) = 8_000.
 		expect(ownedBound).toBe(8_000);
 		// The window ends at virtual 2 s — far inside the child's 120 s
 		// lifetime: the natural exit was scheduled but never reached, so

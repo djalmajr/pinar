@@ -2987,14 +2987,21 @@ describe("psScript (deterministic seams — review rv-fin-sec F1)", () => {
  * retains the sandbox and reports the probe-residue fact in
  * cleanup.errors — never removes the sandbox silently. The launcher stays
  * alive during cleanup (the fake child does not pre-exit) so the
- * ownership tree check reaches the parent probe.
+ * ownership tree check reaches the parent probe. Every run declares
+ * `platform: "win32"` so EVERY platform-dependent builder in the run
+ * (identity, parent, image, kill, the image-containment decision) uses the
+ * SAME declared platform on every host — on a POSIX host the injected
+ * win32 runners would otherwise be ignored (the builders would bind to the
+ * host platform and ownership would fail closed with no kill). The app dir
+ * fixture is the win32 layout so the image probe's path exists on the host
+ * filesystem.
  */
 
 describe("runSmoke probe residue retention", () => {
 	const RESIDUE_TAIL = " hit its deadline and its child was not reaped (it may still be running); the sandbox is retained";
 
 	test("an unreaped identity probe retains the sandbox with the residue fact in cleanup.errors", async () => {
-		const appDir = makeAppDir();
+		const appDir = makeAppDir("win32");
 		const childPid = 94101;
 		const trayPid = 94102;
 		const killCalls: number[] = [];
@@ -3006,6 +3013,7 @@ describe("runSmoke probe residue retention", () => {
 			result = await runSmoke(
 				{ appDir, port: 17446, timeoutMs: 3_000, log: null, keepHome: false },
 				{
+					platform: "win32",
 					spawn: spawnFn,
 					isAlive: async (pid: number) => pid === trayPid,
 					listeningPid: () => null,
@@ -3048,7 +3056,7 @@ describe("runSmoke probe residue retention", () => {
 	});
 
 	test("an unreaped parent probe retains the sandbox (ownership falls back to the image)", async () => {
-		const appDir = makeAppDir();
+		const appDir = makeAppDir("win32");
 		const childPid = 94201;
 		const trayPid = 94202;
 		const killCalls: number[] = [];
@@ -3067,6 +3075,7 @@ describe("runSmoke probe residue retention", () => {
 			result = await runSmoke(
 				{ appDir, port: 17447, timeoutMs: 3_000, log: null, keepHome: false },
 				{
+					platform: "win32",
 					spawn: spawnFn,
 					isAlive: async (pid: number) => pid === trayPid,
 					listeningPid: () => null,
@@ -3111,6 +3120,279 @@ describe("runSmoke probe residue retention", () => {
 			expect(result.reason).toBe(`cleanup failed: probe residue: the parent probe for pid ${trayPid}${RESIDUE_TAIL}`);
 		} finally {
 			if (result?.sandbox != null) rmSync(result.sandbox, { recursive: true, force: true });
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	});
+});
+
+/* ---------------- runSmoke POSIX-declared cleanup (every OS) ---------------
+ *
+ * Residue (`unreaped: true`) is defined only for the win32 PowerShell
+ * probes, so the POSIX seams get their own explicit coverage that runs on
+ * EVERY OS (the platform is declared, never the host): the identity and
+ * image probes are the module's real POSIX builders
+ * (`identityOfFor("linux" | "darwin")`, `imageOfFor`), the kill sequence is
+ * the real `killTreeFor` (injected `kill` — no real signal is sent), and
+ * the runs prove (a) the kill is bound to the proven identity (a reused
+ * PID is refused, never signalled), (b) ownership still refuses
+ * gone/unknown (a gone pid is refused before the signal; an unknown
+ * identity refuses with an error, no signal), and (c) no probe-residue
+ * fact is invented on POSIX (cleanup.errors stays empty and the sandbox is
+ * removed). The launcher is already exited in every run, so the tree edge
+ * is no longer evidence and ownership falls back to the image probe.
+ */
+
+describe("runSmoke POSIX-declared cleanup (runs on every OS)", () => {
+	// A valid /proc/<pid>/stat line for the linux identity fixture: the
+	// state field is S and the numeric field at index 19 after the last ")"
+	// (starttime) carries the identity.
+	const writeProcStat = (procDir: string, pid: number, id: string) => {
+		const dir = join(procDir, String(pid));
+		mkdirSync(dir, { recursive: true });
+		// state(0) + 18 filler fields + starttime(19).
+		writeFileSync(join(dir, "stat"), `${pid} (pinar) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ${id} 0 0 0\n`);
+	};
+	// A /proc/<pid>/exe pointing at the app dir for the linux image fixture.
+	// Windows cannot create file symlinks without elevation, so a directory
+	// junction targets the app dir itself (a canonical path equal to the
+	// launch root is inside it); on POSIX a plain symlink with the same
+	// target. readlink yields the app dir in both cases.
+	const linkProcExe = (procDir: string, pid: number, appDir: string) => {
+		mkdirSync(join(procDir, String(pid)), { recursive: true });
+		const exe = join(procDir, String(pid), "exe");
+		try {
+			symlinkSync(appDir, exe, "junction");
+		} catch {
+			symlinkSync(appDir, exe);
+		}
+	};
+
+	test("a linux-declared run kills through the bound identity: only the group TERM is delivered, the KILL step sees gone, no residue fact, sandbox removed", async () => {
+		const appDir = makeAppDir("linux");
+		const procDir = mkdtempSync(join(tmpdir(), "pinar-smoke-proc-"));
+		const childPid = 94301;
+		const trayPid = 94302;
+		const BOUND_ID = "1741000000";
+		const killCalls: [number, string][] = [];
+		let alive = true;
+		try {
+			writeProcStat(procDir, trayPid, BOUND_ID);
+			linkProcExe(procDir, trayPid, appDir);
+			const identityOf = identityOfFor("linux", { procDir });
+			const imageOf = imageOfFor("linux", { procDir });
+			const killTree = killTreeFor("linux", {
+				identityOf,
+				sleep: async () => {},
+				kill: (pid: number, signal: string) => {
+					killCalls.push([pid, signal]);
+					if (signal === "SIGTERM") {
+						// The original exits on the group TERM: its stat file
+						// disappears, so the KILL step re-proves the bound
+						// identity and sees the pid gone.
+						rmSync(join(procDir, String(trayPid), "stat"), { force: true });
+						alive = false;
+					}
+				},
+			});
+			let healthCalls = 0;
+			const { spawnFn } = fakeSpawn(childPid, trayPid, { alreadyExited: true });
+			const result = await runSmoke(
+				{ appDir, port: 17448, timeoutMs: 2_000, log: null, keepHome: false },
+				{
+					platform: "linux",
+					spawn: spawnFn,
+					parentOf: async (pid: number) => (pid === trayPid ? childPid : null),
+					isAlive: async () => alive,
+					identityOf,
+					imageOf,
+					listeningPid: () => null,
+					probeHealth: async () => ({ healthy: ++healthCalls > 1 }),
+					killTree,
+					groupExists: () => "absent",
+				},
+			);
+			expect(result.ok).toBe(true);
+			expect(result.reason).toBeNull();
+			// The group TERM is the only delivered signal: the KILL step
+			// re-proved the bound identity and saw the pid gone.
+			expect(killCalls).toEqual([[-trayPid, "SIGTERM"]]);
+			expect(result.cleanup.killed).toEqual([trayPid]);
+			expect(result.cleanup.errors).toEqual([]); // no probe-residue fact on POSIX
+			expect(result.cleanup.reused).toEqual([]);
+			expect(result.cleanup.refused).toEqual([]);
+			expect(result.cleanup.sandboxRemoved).toBe(true);
+			expect(result.sandboxRetained).toBe(false);
+		} finally {
+			rmSync(procDir, { recursive: true, force: true });
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	});
+
+	test("a linux-declared run refuses the KILL step after a PID reuse following the pre-signal bind: only the group TERM was delivered, the reuse is reported", async () => {
+		const appDir = makeAppDir("linux");
+		const procDir = mkdtempSync(join(tmpdir(), "pinar-smoke-proc-"));
+		const childPid = 94401;
+		const trayPid = 94402;
+		const BOUND_ID = "1742000000";
+		const REUSED_ID = "1742000001";
+		const killCalls: [number, string][] = [];
+		try {
+			writeProcStat(procDir, trayPid, BOUND_ID);
+			linkProcExe(procDir, trayPid, appDir);
+			const identityOf = identityOfFor("linux", { procDir });
+			const imageOf = imageOfFor("linux", { procDir });
+			const killTree = killTreeFor("linux", {
+				identityOf,
+				sleep: async () => {},
+				kill: (pid: number, signal: string) => {
+					killCalls.push([pid, signal]);
+					if (signal === "SIGTERM") {
+						// The original exits on the group TERM and the OS hands
+						// the PID to a different process: the stat file now
+						// carries a DIFFERENT starttime (identity).
+						writeProcStat(procDir, trayPid, REUSED_ID);
+					}
+				},
+			});
+			let healthCalls = 0;
+			const { spawnFn } = fakeSpawn(childPid, trayPid, { alreadyExited: true });
+			const result = await runSmoke(
+				{ appDir, port: 17449, timeoutMs: 2_000, log: null, keepHome: false },
+				{
+					platform: "linux",
+					spawn: spawnFn,
+					parentOf: async (pid: number) => (pid === trayPid ? childPid : null),
+					isAlive: async () => true, // the reused pid is alive
+					identityOf,
+					imageOf,
+					listeningPid: () => null,
+					probeHealth: async () => ({ healthy: ++healthCalls > 1 }),
+					killTree,
+					groupExists: () => "absent",
+				},
+			);
+			// The KILL step was refused by the identity bind: the only
+			// delivered signal is the group TERM.
+			expect(killCalls).toEqual([[-trayPid, "SIGTERM"]]);
+			expect(result.cleanup.killed).toEqual([trayPid]);
+			expect(result.cleanup.errors).toEqual([]);
+			expect(result.cleanup.reused.some((entry) =>
+				entry.includes(`refused further signals; pid now owned by id ${REUSED_ID} (bound ${BOUND_ID})`),
+			)).toBe(true);
+			expect(result.cleanup.reused.some((entry) => entry.includes(`original process (id ${BOUND_ID}) exited`))).toBe(true);
+			expect(result.ok).toBe(true);
+			expect(result.reason).toBeNull();
+			expect(result.cleanup.sandboxRemoved).toBe(true);
+		} finally {
+			rmSync(procDir, { recursive: true, force: true });
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	});
+
+	test("a darwin-declared run refuses a gone tray pid: no signal, the refusal is recorded, the sandbox is removed", async () => {
+		const appDir = makeAppDir("darwin");
+		const childPid = 94501;
+		const trayPid = 94502;
+		const killCalls: [number, string][] = [];
+		try {
+			// status 1 with empty output proves gone (the darwin identity seam
+			// — no real ps is spawned).
+			const identityOf = identityOfFor("darwin", { runPs: () => ({ status: 1, stdout: "" }) });
+			// The image still proves containment (coarse evidence says "ours"): the
+			// fine-grained identity probe proving gone is what must refuse the
+			// kill — a contained, live-looking pid with no identity is never signalled.
+			const imageOf = imageOfFor("darwin", {
+				ps: () => ({ status: 0, stdout: `${launcherCandidates(appDir, "darwin")[0]}\n` }),
+			});
+			const killTree = killTreeFor("darwin", {
+				identityOf,
+				sleep: async () => {},
+				kill: (pid: number, signal: string) => {
+					killCalls.push([pid, signal]);
+				},
+			});
+			let healthCalls = 0;
+			const { spawnFn } = fakeSpawn(childPid, trayPid, { alreadyExited: true });
+			const result = await runSmoke(
+				{ appDir, port: 17450, timeoutMs: 2_000, log: null, keepHome: false },
+				{
+					platform: "darwin",
+					spawn: spawnFn,
+					// Coarse liveness (the legacy isAlive seam) still says
+					// alive; the fine-grained identity probe proves gone — the
+					// kill is refused on the identity.
+					parentOf: async (pid: number) => (pid === trayPid ? childPid : null),
+					isAlive: async () => true,
+					identityOf,
+					imageOf,
+					listeningPid: () => null,
+					probeHealth: async () => ({ healthy: ++healthCalls > 1 }),
+					killTree,
+				},
+			);
+			expect(killCalls).toEqual([]);
+			expect(result.cleanup.killed).toEqual([]);
+			expect(result.cleanup.refused).toEqual([`tray.pid pid ${trayPid}: not alive at cleanup`]);
+			expect(result.cleanup.errors).toEqual([]);
+			expect(result.ok).toBe(true);
+			expect(result.reason).toBeNull();
+			expect(result.cleanup.sandboxRemoved).toBe(true);
+		} finally {
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	});
+
+	test("a darwin-declared run refuses to signal on an unknown identity: the error names the identity, no signal is sent", async () => {
+		const appDir = makeAppDir("darwin");
+		const childPid = 94601;
+		const trayPid = 94602;
+		const killCalls: [number, string][] = [];
+		try {
+			// A probe fault (status 2) is unknown — never gone, never alive.
+			const identityOf = identityOfFor("darwin", {
+				runPs: (pid: number) => (pid === trayPid ? { status: 2, stdout: "boom" } : { status: 1, stdout: "" }),
+			});
+			const imageOf = imageOfFor("darwin", {
+				ps: () => ({ status: 0, stdout: `${launcherCandidates(appDir, "darwin")[0]}\n` }),
+			});
+			const killTree = killTreeFor("darwin", {
+				identityOf,
+				sleep: async () => {},
+				kill: (pid: number, signal: string) => {
+					killCalls.push([pid, signal]);
+				},
+			});
+			let healthCalls = 0;
+			const { spawnFn } = fakeSpawn(childPid, trayPid, { alreadyExited: true });
+			const result = await runSmoke(
+				{ appDir, port: 17451, timeoutMs: 2_000, log: null, keepHome: false },
+				{
+					platform: "darwin",
+					spawn: spawnFn,
+					// The launcher is already exited: ownership falls back to
+					// the contained image — the only thing standing between the
+					// pid and a signal is the identity.
+					parentOf: async (pid: number) => (pid === trayPid ? childPid : null),
+					isAlive: async () => true,
+					identityOf,
+					imageOf,
+					listeningPid: () => null,
+					probeHealth: async () => ({ healthy: ++healthCalls > 1 }),
+					killTree,
+				},
+			);
+			expect(killCalls).toEqual([]); // fail closed: no signal without a proven identity
+			expect(result.cleanup.killed).toEqual([]);
+			expect(result.cleanup.refused).toEqual([]);
+			expect(result.cleanup.errors).toEqual([
+				`killTree(tray.pid pid ${trayPid}) incomplete: identity unknown, no further signals sent: ps exited 2 with output "boom"`,
+			]);
+			expect(result.ok).toBe(false);
+			expect(result.reason).toBe(
+				`cleanup failed: killTree(tray.pid pid ${trayPid}) incomplete: identity unknown, no further signals sent: ps exited 2 with output "boom"`,
+			);
+			expect(result.cleanup.sandboxRemoved).toBe(true); // nothing was signalled: nothing is retained
+		} finally {
 			rmSync(appDir, { recursive: true, force: true });
 		}
 	});

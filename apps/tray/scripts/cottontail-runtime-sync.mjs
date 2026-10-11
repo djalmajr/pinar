@@ -7,7 +7,7 @@ import {
 	readFileSync,
 	statSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const trayRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -15,6 +15,42 @@ const trayRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 // A concrete release version: X.Y.Z with an optional pre-release segment
 // (e.g. 0.7.2-canary.6). Rejects "latest", bare "0.7", path fragments, etc.
 const COTTONTAIL_VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+
+// A capability name is joined as a single path segment under
+// cottontail-stdlib, so it must stay a plain one-segment name: ASCII letters,
+// digits, dots, underscores and dashes (starting alnum), 1-64 chars, no ".",
+// ".." or embedded "..". Windows reserved device names (with or without an
+// extension) and trailing dots/spaces resolve to device files or are mangled
+// by the OS, so they are rejected on every platform: the check stays
+// deterministic and fail-closed regardless of where the build runs.
+const WINDOWS_RESERVED_DEVICE_RE = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+
+export function isValidCapabilityName(name) {
+	if (typeof name !== "string" || name.length < 1 || name.length > 64) return false;
+	if (name === "." || name === ".." || name.includes("..")) return false;
+	if (!/^[a-z0-9][a-z0-9._-]*$/i.test(name)) return false;
+	if (WINDOWS_RESERVED_DEVICE_RE.test(name)) return false;
+	if (name.endsWith(".") || name.endsWith(" ")) return false;
+	return true;
+}
+
+/**
+ * Defense in depth for the capability copy: after names are validated as
+ * single segments, a resolved source/dest path must still sit inside its base
+ * dir, or throw before anything is written. Unreachable for valid names; a
+ * throw here means name validation was bypassed or broken.
+ */
+export function assertContainedPath(base, candidatePath) {
+	const baseResolved = resolve(base);
+	const prefix = baseResolved.endsWith(sep) ? baseResolved : baseResolved + sep;
+	const candidate = resolve(candidatePath);
+	if (!candidate.startsWith(prefix)) {
+		throw new Error(
+			`post-build: Cottontail runtime path ${candidate} escapes its base ${baseResolved}; capability paths must stay inside their base dir`,
+		);
+	}
+	return candidate;
+}
 
 // Default dependency injection: node's spawnSync and the real platform. Tests
 // inject their own so no real Hutch / filesystem layout is touched.
@@ -108,9 +144,19 @@ export function syncCottontailRuntime(buildDir, deps = defaultDeps) {
 	// Resolve the requested capabilities plus their transitive `requires` in
 	// visit order (requested order, then transitive) before copying, so a
 	// capability that is absent from the catalog (requested or transitive) is
-	// caught before any file is written.
+	// caught before any file is written. Every name is validated as a single
+	// capability segment first (requested or transitive): a name is joined
+	// under cottontail-stdlib below, so it must not be able to escape it, and
+	// a malformed `requires` value (not an array of strings) is rejected here
+	// as well. The whole walk completes before copyTree / mkdirSync /
+	// copyFileSync run, so a rejected name leaves the staged tree untouched.
 	const visited = [];
-	const visit = (name) => {
+	const visit = (name, where) => {
+		if (!isValidCapabilityName(name)) {
+			throw new Error(
+				`post-build: invalid Cottontail capability name ${JSON.stringify(name)} (Cottontail ${version}) in ${where}`,
+			);
+		}
 		if (visited.includes(name)) return;
 		visited.push(name);
 		if (!Object.prototype.hasOwnProperty.call(capabilityCatalog, name)) {
@@ -118,9 +164,15 @@ export function syncCottontailRuntime(buildDir, deps = defaultDeps) {
 				`post-build: required Cottontail capability "${name}" (Cottontail ${version}) is not in the ${catalogSource} catalog`,
 			);
 		}
-		for (const dep of capabilityCatalog[name]?.requires ?? []) visit(dep);
+		const requires = capabilityCatalog[name]?.requires;
+		if (requires !== undefined && !Array.isArray(requires)) {
+			throw new Error(
+				`post-build: invalid Cottontail capability name ${JSON.stringify(requires)} (Cottontail ${version}) in "${name}".requires of the ${catalogSource} catalog`,
+			);
+		}
+		for (const dep of requires ?? []) visit(dep, `"${name}".requires of the ${catalogSource} catalog`);
 	};
-	for (const name of capabilities) visit(name);
+	for (const name of capabilities) visit(name, "the requested capabilities");
 
 	const copied = [];
 	copyTree(coreSource, join(stagedBin, "cottontail-core"));
@@ -129,11 +181,13 @@ export function syncCottontailRuntime(buildDir, deps = defaultDeps) {
 	copyFileSync(catalogSource, join(stdlibDest, "capabilities.json"));
 	copied.push("capabilities.json");
 	for (const name of visited) {
-		const source = join(stdlibSource, name);
+		// Defense in depth: the validated name must still resolve inside its
+		// base dir before anything is copied (unreachable for valid names).
+		const source = assertContainedPath(stdlibSource, join(stdlibSource, name));
 		if (!existsSync(source)) {
 			throw new Error(`post-build: required Cottontail capability "${name}" missing from ${stdlibSource}`);
 		}
-		copyTree(source, join(stdlibDest, name));
+		copyTree(source, assertContainedPath(stdlibDest, join(stdlibDest, name)));
 		copied.push(name);
 	}
 

@@ -1206,8 +1206,16 @@ const start = Date.now();
 		}
 		const probeDir = join(sandbox, "probes");
 		mkdirSync(probeDir, { recursive: true });
-		parentOf = parentOf ?? defaultParentOf(probeDir, noteProbeResidue, hooks.runPsWinParent ?? null);
-		imageOf = imageOf ?? defaultImageOf(probeDir, noteProbeResidue, hooks.runPsWinImage ?? null);
+		// Every platform-dependent builder in the run (identity probe, parent
+		// probe, image probe, kill sequence, the containment decision below)
+		// uses the SAME declared platform (hooks.platform ?? the host). A run
+		// that declares a platform must never mix platform builders: on a
+		// POSIX host a win32-declared run built on process.platform would
+		// ignore the injected win32 runners, ownership would fail closed, and
+		// nothing would be killed. Production declares nothing, so this is the
+		// host platform — unchanged from before.
+		parentOf = parentOf ?? defaultParentOf(platform, probeDir, noteProbeResidue, hooks.runPsWinParent ?? null);
+		imageOf = imageOf ?? defaultImageOf(platform, probeDir, noteProbeResidue, hooks.runPsWinImage ?? null);
 		// The default identity probe needs the sandbox (its .ps1 files live in
 		// probeDir), so it is built here like parentOf/imageOf. An injected
 		// win32 runner (hooks.runPsWin) drives the REAL win32 pipeline and
@@ -1218,14 +1226,15 @@ const start = Date.now();
 		identityOf =
 			identityOf ??
 			(hooks.runPsWin != null
-				? identityOfFor(process.platform, { probeDir, onResidue: noteProbeResidue, runPsWin: hooks.runPsWin })
+				? identityOfFor(platform, { probeDir, onResidue: noteProbeResidue, runPsWin: hooks.runPsWin })
 				: hooks.isAlive != null
 					? derivedFromIsAlive(isAlive)
-					: identityOfFor(process.platform, { probeDir, onResidue: noteProbeResidue }));
-		// Production default: the real host-platform kill sequence, built with
-		// the SAME identity probe runSmoke uses, so each escalation step
-		// re-proves the bound pre-signal identity before it signals.
-		killTreeFn = killTreeFn ?? killTreeFor(process.platform, { identityOf });
+					: identityOfFor(platform, { probeDir, onResidue: noteProbeResidue }));
+		// Default kill sequence: the declared platform's steps, built with the
+		// SAME platform and the SAME identity probe runSmoke uses, so each
+		// escalation step re-proves the bound pre-signal identity before it
+		// signals.
+		killTreeFn = killTreeFn ?? killTreeFor(platform, { identityOf });
 
 		// The win32 and darwin build dirs are Electrobun self-extracting
 		// wrappers (the wrapper `launcher` installs the real app OVER the
@@ -1483,10 +1492,17 @@ const start = Date.now();
 			}
 			if (imageOf != null) {
 				try {
-					// Path containment compares REAL fs paths: the actual OS's
-					// path semantics (the injected `platform` drives the
-					// spawn/detection branches, not this host's paths).
-					if (isInsideAppDir(await imageOf(pid), launchRoot, { platform: process.platform, realpath: realpathFn })) return "image";
+					// Path containment compares REAL fs paths (both sides are
+					// canonicalized with the host's realpath). The comparison
+					// itself follows the declared platform: a win32-declared run
+					// uses win32 semantics on every host (win32 parses both /
+					// and \ separators), and a win32 HOST always uses win32
+					// semantics because its real fs paths cannot be parsed by
+					// the posix module.
+					const containmentPlatform =
+						platform === "win32" || process.platform === "win32" ? "win32" : platform;
+					if (isInsideAppDir(await imageOf(pid), launchRoot, { platform: containmentPlatform, realpath: realpathFn }))
+						return "image";
 				} catch {
 					// image probe failed: not provably ours
 				}
@@ -1837,8 +1853,13 @@ export function probeResidueKeepsSandbox(probeResidue, cleanup) {
 	return true;
 }
 
-function defaultParentOf(probeDir, onResidue = null, runPsWin = null) {
-	if (process.platform === "win32") {
+/**
+ * `platform` is the declared platform of the run (hooks.platform ?? the
+ * host): the win32 branch only exists for win32-declared runs, so a POSIX
+ * host never probes the host's `ps` for a win32 run.
+ */
+function defaultParentOf(platform, probeDir, onResidue = null, runPsWin = null) {
+	if (platform === "win32") {
 		// The runner is injectable (tests) — the same seam pattern as the
 		// identity/image probes; the default writes the probe .ps1 into
 		// probeDir and runs it through psScript.
@@ -1980,8 +2001,8 @@ export function imageOfFor(platform, { probeDir, ps, procDir = "/proc", onResidu
 	};
 }
 
-function defaultImageOf(probeDir, onResidue = null, runPsWin = null) {
-	return imageOfFor(process.platform, { probeDir, onResidue, runPsWin });
+function defaultImageOf(platform, probeDir, onResidue = null, runPsWin = null) {
+	return imageOfFor(platform, { probeDir, onResidue, runPsWin });
 }
 
 /**

@@ -1,8 +1,10 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
+  assertContainedPath,
+  isValidCapabilityName,
   readRequiredCapabilities,
   resolveCottontailReleaseBin,
   syncCottontailRuntime,
@@ -172,6 +174,22 @@ function runSync(f: Fixture): string {
 
 function bytesEqual(a: string, b: string): boolean {
   return readFileSync(a).equals(readFileSync(b));
+}
+
+function thrownMessage(fn: () => unknown): string {
+  try {
+    fn();
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  throw new Error("expected the operation to throw");
+}
+
+function capsConfig(caps: string[]): string {
+  // Raw double-quoted names (like the CAPS_* constants above): the parser
+  // strips quotes without unescaping, so the raw file text IS the name.
+  const list = caps.map((c) => `"${c}"`).join(", ");
+  return `export default { build: { cottontail: { entrypoint: "x", capabilities: [${list}] } } };`;
 }
 
 function assertCoreAndCatalog(f: Fixture): void {
@@ -498,5 +516,141 @@ describe("post-build.mjs thin hook (static)", () => {
       /import\s*\{[^}]*\bsyncCottontailRuntime\b[^}]*\}\s*from\s*["']\.\/cottontail-runtime-sync\.mjs["']/,
     );
     expect(postBuild).not.toMatch(/function\s+syncCottontailRuntime/);
+  });
+});
+
+describe("isValidCapabilityName (single capability path segment)", () => {
+  test("accepts the pinned and ordinary catalog capability names", () => {
+    for (const name of ["ffi", "compression", "dependencies", "node-compat", "fs.promises"]) {
+      expect(isValidCapabilityName(name), `should accept ${JSON.stringify(name)}`).toBe(true);
+    }
+  });
+
+  test("rejects traversal, device, trailing-dot, over-long and non-string names", () => {
+    for (const name of [
+      "../x",
+      "a/b",
+      "a\\b",
+      "C:x",
+      "..",
+      ".",
+      "x\u0000",
+      "con",
+      "nul.txt",
+      "foo.",
+      "",
+      "a".repeat(65),
+    ]) {
+      expect(isValidCapabilityName(name), `should reject ${JSON.stringify(name)}`).toBe(false);
+    }
+    for (const name of [42, {}, null]) {
+      expect(isValidCapabilityName(name), `should reject non-string ${JSON.stringify(name)}`).toBe(false);
+    }
+  });
+});
+
+describe("syncCottontailRuntime capability name validation (bad name -> throw before any write)", () => {
+  // The catalog contains the malicious name with a valid `requires`, so
+  // catalog membership cannot be what stops it: only the name validation can.
+  // With validation removed the walk would succeed and the copies would start,
+  // which is exactly what the untouched-dest assertions catch.
+  function maliciousCatalog(name: string): unknown {
+    const capabilities: Record<string, { requires: unknown }> = {
+      ffi: { requires: [] },
+      compression: { requires: [] },
+      [name]: { requires: [] },
+    };
+    return { schema: 1, capabilities };
+  }
+
+  function assertStagedTreeUntouched(f: Fixture, sentinel: string): void {
+    // The staged dest root must have NO new entries at all.
+    expect(readdirSync(f.stagedBin)).toEqual(f.platform === "win32" ? ["cottontail.exe"] : ["cottontail"]);
+    expect(existsSync(join(f.stagedBin, "cottontail-core")), "no cottontail-core").toBe(false);
+    expect(existsSync(join(f.stagedBin, "cottontail-stdlib")), "no cottontail-stdlib").toBe(false);
+    expect(existsSync(join(f.stagedBin, "capabilities.json")), "no capabilities.json at dest root").toBe(false);
+    // And nothing may have been written outside the staged tree.
+    expect(readdirSync(sentinel).length, "sentinel sibling dir stays empty").toBe(0);
+  }
+
+  test("a requested malicious name throws before any write (each traversal form)", () => {
+    for (const name of ["../escape", "a/b", "a\\b", "C:x", ".."]) {
+      const slug = name.replace(/[^a-z0-9]/gi, "_");
+      withTemp(`pinar-sync-neg-badcap-${slug}-`, (root) => {
+        const sentinel = join(root, "sentinel");
+        mkdirSync(sentinel, { recursive: true });
+        const f = fixture(root, "win32", capsConfig(["ffi", name]), {
+          releaseOpts: { catalog: maliciousCatalog(name) },
+        });
+        const message = thrownMessage(() => runSync(f));
+        expect(message).toContain(`invalid Cottontail capability name ${JSON.stringify(name)}`);
+        expect(message).toContain("in the requested capabilities");
+        assertStagedTreeUntouched(f, sentinel);
+      });
+    }
+  });
+
+  test("a transitive malicious name (via a valid requested capability's requires) throws before any write", () => {
+    const name = "../escape";
+    withTemp("pinar-sync-neg-badcap-transitive-", (root) => {
+      const sentinel = join(root, "sentinel");
+      mkdirSync(sentinel, { recursive: true });
+      const f = fixture(root, "win32", CAPS_FFI, {
+        releaseOpts: {
+          catalog: {
+            schema: 1,
+            capabilities: {
+              ffi: { requires: [name] },
+              [name]: { requires: [] },
+            },
+          },
+        },
+      });
+      const message = thrownMessage(() => runSync(f));
+      expect(message).toContain(`invalid Cottontail capability name ${JSON.stringify(name)}`);
+      expect(message).toContain(`in "ffi".requires of the`);
+      expect(message).toContain("catalog");
+      assertStagedTreeUntouched(f, sentinel);
+    });
+  });
+
+  test("a requires that is a string instead of an array throws before any write", () => {
+    withTemp("pinar-sync-neg-badrequires-string-", (root) => {
+      const sentinel = join(root, "sentinel");
+      mkdirSync(sentinel, { recursive: true });
+      const f = fixture(root, "win32", CAPS_FFI, {
+        releaseOpts: { catalog: { schema: 1, capabilities: { ffi: { requires: "compression" } } } },
+      });
+      const message = thrownMessage(() => runSync(f));
+      expect(message).toMatch(/invalid Cottontail capability name/);
+      expect(message).toContain(`in "ffi".requires of the`);
+      assertStagedTreeUntouched(f, sentinel);
+    });
+  });
+
+  test("a requires array containing a number throws before any write", () => {
+    withTemp("pinar-sync-neg-badrequires-number-", (root) => {
+      const sentinel = join(root, "sentinel");
+      mkdirSync(sentinel, { recursive: true });
+      const f = fixture(root, "win32", CAPS_FFI, {
+        releaseOpts: { catalog: { schema: 1, capabilities: { ffi: { requires: [42] } } } },
+      });
+      const message = thrownMessage(() => runSync(f));
+      expect(message).toMatch(/invalid Cottontail capability name 42/);
+      expect(message).toContain(`in "ffi".requires of the`);
+      assertStagedTreeUntouched(f, sentinel);
+    });
+  });
+});
+
+describe("assertContainedPath (defense in depth after name validation)", () => {
+  test("accepts a contained path and rejects one that escapes the base", () => {
+    withTemp("pinar-sync-containment-", (root) => {
+      const base = join(root, "base");
+      mkdirSync(base, { recursive: true });
+      expect(() => assertContainedPath(base, join(base, "ffi", "mod.js"))).not.toThrow();
+      expect(() => assertContainedPath(base, join(base, "..", "escape"))).toThrow(/escapes its base/);
+      expect(() => assertContainedPath(base, join(root, "outside"))).toThrow(/escapes its base/);
+    });
   });
 });

@@ -239,7 +239,7 @@ function refresh({ checkLogin = false } = {}) {
 	return current;
 }
 
-async function withBusy(work: () => Promise<void>) {
+async function withBusy(work: () => Promise<unknown>) {
 	if (busy) return;
 	busy = true;
 	updateMenu();

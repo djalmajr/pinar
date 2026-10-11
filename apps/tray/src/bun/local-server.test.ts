@@ -1,6 +1,9 @@
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { createServer } from "node:net";
 import { describe, expect, test } from "bun:test";
 import {
 	bundledHelperCandidates,
@@ -9,6 +12,7 @@ import {
 	ensurePinarHome,
 	findHealthyPort,
 	healthPorts,
+	killListeningPid,
 	parseNetstatListeningPid,
 	pinnedHealthPort,
 	pinarBin,
@@ -17,6 +21,7 @@ import {
 	stopServer,
 	usesShell,
 } from "./local-server";
+import type { IdentityOutcome } from "./process-identity";
 
 describe("bundled helper paths", () => {
 	test("runningAppBundle walks up to the .app wrapper", () => {
@@ -414,4 +419,391 @@ describe("stopServer", () => {
 		});
 		expect(killed).toEqual([17373]);
 	});
+
+	test("records every refusal, signal and error from the kill loop in the result", async () => {
+		let calls = 0;
+		delete process.env.PINAR_PORT; // no pin: the legacy stop must run
+		const result = await stopServer({
+			run: async () => 0,
+			healthyPort: async () => {
+				calls += 1;
+				return calls < 3 ? 17373 : null;
+			},
+			killPort: async (port, seen) => {
+				seen.add(7);
+				return {
+					refusals: [{ pid: 7, port, reason: "reused" as const, step: "pre-sigterm" as const }],
+					signals: [{ pid: 7, port, signal: "SIGTERM" as const }],
+					errors: ["recorded fault"],
+				};
+			},
+			wait: async () => {},
+			unhealthyTimeoutMs: 0,
+		});
+		expect(result.refusals).toEqual([{ pid: 7, port: 17373, reason: "reused", step: "pre-sigterm" }]);
+		expect(result.signals).toEqual([{ pid: 7, port: 17373, signal: "SIGTERM" }]);
+		expect(result.errors).toEqual(["recorded fault"]);
+	});
+});
+
+describe("killListeningPid identity guards (fakes)", () => {
+	const PORT = 17401;
+	const PID = 4242;
+	const A: IdentityOutcome = { state: "alive", id: "1123456789" };
+	const B: IdentityOutcome = { state: "alive", id: "9876543210" };
+	const UNKNOWN: IdentityOutcome = { state: "unknown", error: "boom" };
+	const GONE: IdentityOutcome = { state: "gone" };
+
+	interface HarnessOpts {
+		platform?: string;
+		/** Listener pids per netstat/lsof call (last entry reused). */
+		listening?: (number | null)[];
+		/** Identity outcomes per probe call (last entry reused). */
+		identity?: IdentityOutcome[];
+		sigtermThrows?: boolean;
+		taskkillCode?: number | null;
+		taskkillTimedOut?: boolean;
+	}
+
+	function harness(opts: HarnessOpts = {}) {
+		const listeningCalls: number[] = [];
+		const listeningSeq = opts.listening ?? [PID, PID];
+		const listeningPid = async (port: number): Promise<number | null> => {
+			listeningCalls.push(port);
+			return listeningSeq[Math.min(listeningCalls.length - 1, listeningSeq.length - 1)] ?? null;
+		};
+		const identityCalls: number[] = [];
+		const identityScript = opts.identity ?? [A];
+		const identity = async (pid: number): Promise<IdentityOutcome> => {
+			identityCalls.push(pid);
+			return identityScript[Math.min(identityCalls.length - 1, identityScript.length - 1)];
+		};
+		const signals: string[] = [];
+		const signal = (pid: number, sig: string): boolean => {
+			if (opts.sigtermThrows && sig === "SIGTERM") throw new Error("ESRCH");
+			signals.push(`${pid}:${sig}`);
+			return true;
+		};
+		const taskkillCalls: number[] = [];
+		const taskkill = async (pid: number) => {
+			taskkillCalls.push(pid);
+			return opts.taskkillTimedOut ? { code: null, timedOut: true } : { code: opts.taskkillCode ?? 0 };
+		};
+		const sleepCalls: number[] = [];
+		const sleepFn = async (ms: number): Promise<void> => {
+			sleepCalls.push(ms);
+		};
+		return {
+			deps: {
+				platform: opts.platform ?? process.platform,
+				listeningPid,
+				identity,
+				signal,
+				taskkill,
+				sleep: sleepFn,
+			},
+			signals,
+			taskkillCalls,
+			sleepCalls,
+			identityCalls,
+			listeningCalls,
+		};
+	}
+
+	test("signals SIGTERM and SIGKILL only when the bound id is unchanged", async () => {
+		const h = harness({ platform: "posix", identity: [A, A, A] });
+		const seen = new Set<number>();
+		const outcome = await killListeningPid(PORT, seen, h.deps);
+		expect(h.signals).toEqual([`${PID}:SIGTERM`, `${PID}:SIGKILL`]);
+		expect(outcome.signals).toEqual([
+			{ pid: PID, port: PORT, signal: "SIGTERM" },
+			{ pid: PID, port: PORT, signal: "SIGKILL" },
+		]);
+		expect(outcome.refusals).toEqual([]);
+		expect(outcome.errors).toEqual([]);
+		expect(h.sleepCalls).toEqual([150]);
+		expect(seen.has(PID)).toBe(true);
+		expect(h.identityCalls).toEqual([PID, PID, PID]);
+	});
+
+	test("reused id at pre-SIGTERM: no signal, refusal recorded", async () => {
+		const h = harness({ platform: "posix", identity: [A, B] });
+		const seen = new Set<number>();
+		const outcome = await killListeningPid(PORT, seen, h.deps);
+		expect(h.signals).toEqual([]);
+		expect(h.taskkillCalls).toEqual([]);
+		expect(outcome.signals).toEqual([]);
+		expect(outcome.refusals).toEqual([{ pid: PID, port: PORT, reason: "reused", step: "pre-sigterm" }]);
+		expect(seen.has(PID)).toBe(true);
+	});
+
+	test("reused id after SIGTERM: SIGTERM sent, no escalation, refusal recorded", async () => {
+		const h = harness({ platform: "posix", identity: [A, A, B] });
+		const outcome = await killListeningPid(PORT, new Set<number>(), h.deps);
+		expect(h.signals).toEqual([`${PID}:SIGTERM`]);
+		expect(outcome.signals).toEqual([{ pid: PID, port: PORT, signal: "SIGTERM" }]);
+		expect(outcome.refusals).toEqual([{ pid: PID, port: PORT, reason: "reused", step: "pre-escalation" }]);
+		expect(h.sleepCalls).toEqual([150]);
+	});
+
+	test("unknown at bind: refusal, no signal, no further probes", async () => {
+		const h = harness({ platform: "posix", identity: [UNKNOWN] });
+		const outcome = await killListeningPid(PORT, new Set<number>(), h.deps);
+		expect(h.signals).toEqual([]);
+		expect(outcome.refusals).toEqual([{ pid: PID, port: PORT, reason: "unknown", step: "bind" }]);
+		expect(h.identityCalls).toEqual([PID]);
+	});
+
+	test("unknown at pre-SIGTERM: refusal, no signal", async () => {
+		const h = harness({ platform: "posix", identity: [A, UNKNOWN] });
+		const outcome = await killListeningPid(PORT, new Set<number>(), h.deps);
+		expect(h.signals).toEqual([]);
+		expect(outcome.refusals).toEqual([{ pid: PID, port: PORT, reason: "unknown", step: "pre-sigterm" }]);
+	});
+
+	test("unknown at pre-escalation: SIGTERM sent, refusal, no escalation", async () => {
+		const h = harness({ platform: "posix", identity: [A, A, UNKNOWN] });
+		const outcome = await killListeningPid(PORT, new Set<number>(), h.deps);
+		expect(h.signals).toEqual([`${PID}:SIGTERM`]);
+		expect(outcome.refusals).toEqual([{ pid: PID, port: PORT, reason: "unknown", step: "pre-escalation" }]);
+	});
+
+	test("gone at bind: no signal and no refusal", async () => {
+		const h = harness({ platform: "posix", identity: [GONE] });
+		const seen = new Set<number>();
+		const outcome = await killListeningPid(PORT, seen, h.deps);
+		expect(h.signals).toEqual([]);
+		expect(outcome.signals).toEqual([]);
+		expect(outcome.refusals).toEqual([]);
+		expect(seen.has(PID)).toBe(true);
+	});
+
+	test("listener-changed after the bind: refusal, no signal", async () => {
+		const h = harness({ platform: "posix", listening: [PID, 9999], identity: [A, A] });
+		const outcome = await killListeningPid(PORT, new Set<number>(), h.deps);
+		expect(h.signals).toEqual([]);
+		expect(outcome.refusals).toEqual([{ pid: PID, port: PORT, reason: "listener-changed", step: "bind" }]);
+	});
+
+	test("SIGTERM throwing on POSIX: no escalation when the pre-escalation re-probe is gone", async () => {
+		const h = harness({ platform: "posix", sigtermThrows: true, identity: [A, A, GONE] });
+		const outcome = await killListeningPid(PORT, new Set<number>(), h.deps);
+		expect(h.signals).toEqual([]);
+		expect(outcome.signals).toEqual([]);
+		expect(outcome.refusals).toEqual([]);
+	});
+
+	test("win32 fallback: SIGTERM throws, re-probe same id, taskkill sent, no escalation", async () => {
+		const h = harness({ platform: "win32", sigtermThrows: true, identity: [A, A, A, GONE], taskkillCode: 0 });
+		const outcome = await killListeningPid(PORT, new Set<number>(), h.deps);
+		expect(h.signals).toEqual([]); // SIGTERM threw; no handle signal recorded
+		expect(h.taskkillCalls).toEqual([PID]); // the fallback only — the pre-escalation re-probe is gone
+		expect(outcome.signals).toEqual([{ pid: PID, port: PORT, signal: "taskkill" }]);
+		expect(outcome.refusals).toEqual([]);
+		expect(outcome.errors).toEqual([]);
+	});
+
+	test("win32 fallback: reused id before taskkill, no taskkill", async () => {
+		const h = harness({ platform: "win32", sigtermThrows: true, identity: [A, A, B, B] });
+		const outcome = await killListeningPid(PORT, new Set<number>(), h.deps);
+		expect(h.signals).toEqual([]);
+		expect(h.taskkillCalls).toEqual([]);
+		expect(outcome.refusals).toEqual([
+			{ pid: PID, port: PORT, reason: "reused", step: "pre-taskkill" },
+			{ pid: PID, port: PORT, reason: "reused", step: "pre-escalation" },
+		]);
+	});
+
+	test("win32 escalation runs taskkill only with an unchanged id", async () => {
+		const h = harness({ platform: "win32", identity: [A, A, A] });
+		const outcome = await killListeningPid(PORT, new Set<number>(), h.deps);
+		expect(h.signals).toEqual([`${PID}:SIGTERM`]);
+		expect(h.taskkillCalls).toEqual([PID]); // the escalation (win32 escalates through taskkill)
+		expect(outcome.signals).toEqual([
+			{ pid: PID, port: PORT, signal: "SIGTERM" },
+			{ pid: PID, port: PORT, signal: "taskkill" },
+		]);
+	});
+
+	test("win32 taskkill failure is recorded, never retried", async () => {
+		const h = harness({ platform: "win32", sigtermThrows: true, identity: [A, A, A, GONE], taskkillCode: 1 });
+		const outcome = await killListeningPid(PORT, new Set<number>(), h.deps);
+		expect(h.taskkillCalls).toEqual([PID]);
+		expect(outcome.errors).toEqual([`taskkill exited 1 (pid ${PID})`]);
+	});
+
+	test("win32 taskkill timeout is recorded", async () => {
+		const h = harness({ platform: "win32", sigtermThrows: true, identity: [A, A, A, GONE], taskkillTimedOut: true });
+		const outcome = await killListeningPid(PORT, new Set<number>(), h.deps);
+		expect(h.taskkillCalls).toEqual([PID]);
+		expect(outcome.errors).toEqual([expect.stringMatching(new RegExp(`taskkill timed out after \\d+ms \\(pid ${PID}\\)`))]);
+	});
+
+	test("a pid already in seen is not re-signalled", async () => {
+		const h = harness({ platform: "posix", identity: [A, A, A] });
+		const seen = new Set<number>([PID]);
+		const outcome = await killListeningPid(PORT, seen, h.deps);
+		expect(h.identityCalls).toEqual([]);
+		expect(outcome).toEqual({ refusals: [], signals: [], errors: [] });
+	});
+
+	test("no listener on the port: no probe, no signal", async () => {
+		const h = harness({ platform: "posix", listening: [null] });
+		const seen = new Set<number>();
+		const outcome = await killListeningPid(PORT, seen, h.deps);
+		expect(h.identityCalls).toEqual([]);
+		expect(outcome).toEqual({ refusals: [], signals: [], errors: [] });
+		expect(seen.size).toBe(0);
+	});
+});
+
+describe("killListeningPid native (win32 host)", () => {
+	// Our own bun child: a bare TCP listener on 127.0.0.1, job port range only.
+	const LISTENER_SOURCE =
+		"import { createServer } from 'node:net';\n" +
+		"const port = Number(process.argv[2]);\n" +
+		"if (!Number.isInteger(port) || port < 1 || port > 65535) process.exit(2);\n" +
+		"const server = createServer((socket) => socket.end('ok\\n'));\n" +
+		"server.once('error', (error) => { console.error(String(error.message)); process.exit(1); });\n" +
+		"server.listen(port, '127.0.0.1', () => process.stdout.write('ready\\n'));\n";
+
+	async function freeJobPort(): Promise<number> {
+		for (let port = 17401; port <= 17409; port += 1) {
+			const free = await new Promise<boolean>((resolve) => {
+				const server = createServer();
+				server.once("error", () => resolve(false));
+				server.listen(port, "127.0.0.1", () => {
+					server.close(() => resolve(true));
+				});
+			});
+			if (free) return port;
+		}
+		throw new Error("no free job port in 127.0.0.1:17401-17409");
+	}
+
+	function waitForReady(child: ChildProcess): Promise<void> {
+		return new Promise((resolve, reject) => {
+			let done = false;
+			const timer = setTimeout(() => {
+				if (!done) {
+					done = true;
+					reject(new Error("listener did not become ready"));
+				}
+			}, 20_000);
+			const onData = (chunk: Buffer) => {
+				if (!done && String(chunk).includes("ready")) {
+					done = true;
+					clearTimeout(timer);
+					resolve();
+				}
+			};
+			const onExit = () => {
+				if (!done) {
+					done = true;
+					clearTimeout(timer);
+					reject(new Error("listener exited before ready"));
+				}
+			};
+			child.stdout?.on("data", onData);
+			child.once("exit", onExit);
+			child.once("error", onExit);
+		});
+	}
+
+	function stopOwnChild(child: ChildProcess): Promise<void> {
+		return new Promise((resolve) => {
+			if (child.exitCode != null || child.signalCode != null) {
+				resolve();
+				return;
+			}
+			const timer = setTimeout(() => resolve(), 10_000); // never hang the suite
+			child.once("close", () => {
+				clearTimeout(timer);
+				resolve();
+			});
+			try {
+				// Our own child, through the held handle — never a numeric-PID signal.
+				child.kill();
+			} catch {
+				clearTimeout(timer);
+				resolve();
+			}
+		});
+	}
+
+	test.skipIf(process.platform !== "win32")("stops a real listener under the real netstat + bounded identity guards", async () => {
+		const port = await freeJobPort();
+		const dir = mkdtempSync(join(tmpdir(), "pinar-native-"));
+		const script = join(dir, "listener.js");
+		writeFileSync(script, LISTENER_SOURCE);
+		const child = spawn(process.execPath, [script, String(port)], { stdio: ["ignore", "pipe", "ignore"] });
+		try {
+			await waitForReady(child);
+			expect(child.pid).toBeGreaterThan(0);
+			// PID evidence for the "no process left behind" check (acceptance 4).
+			console.log(`[native] listener pid=${child.pid} port=${port}`);
+			// Observe the close through the HELD handle — the listener must be
+			// attached before the kill: the real identity probes take seconds,
+			// so the child closes mid-killListeningPid, long before it returns.
+			const closePromise = new Promise<boolean>((resolve) => {
+				const timer = setTimeout(() => resolve(false), 30_000);
+				child.once("close", () => {
+					clearTimeout(timer);
+					resolve(true);
+				});
+			});
+			const seen = new Set<number>();
+			// The real defaults: real netstat, real boundedProcessIdentity, real process.kill.
+			const outcome = await killListeningPid(port, seen);
+			expect(outcome.signals.length).toBeGreaterThan(0);
+			expect(outcome.refusals).toEqual([]);
+			expect(outcome.errors).toEqual([]);
+			expect(seen.has(child.pid ?? -1)).toBe(true);
+			// The child is stopped.
+			const closed = await closePromise;
+			expect(closed).toBe(true);
+		} finally {
+			await stopOwnChild(child);
+			rmSync(dir, { recursive: true, force: true });
+		}
+	}, 60_000);
+
+	test.skipIf(process.platform !== "win32")("refuses (no signal) when the identity seam reports a different id at pre-SIGTERM", async () => {
+		const port = await freeJobPort();
+		const dir = mkdtempSync(join(tmpdir(), "pinar-native-"));
+		const script = join(dir, "listener.js");
+		writeFileSync(script, LISTENER_SOURCE);
+		const child = spawn(process.execPath, [script, String(port)], { stdio: ["ignore", "pipe", "ignore"] });
+		let identityCalls = 0;
+		const identity = async (pid: number): Promise<IdentityOutcome> => {
+			identityCalls += 1;
+			// Bind (the first call) reports one creation id; every re-probe
+			// reports a different one: the guard must refuse, never signal.
+			return identityCalls === 1
+				? { state: "alive", id: "100000000000000000" }
+				: { state: "alive", id: "200000000000000000" };
+		};
+		const signals: string[] = [];
+		const signal = (pid: number, sig: string): boolean => {
+			signals.push(`${pid}:${sig}`);
+			return true;
+		};
+		try {
+			await waitForReady(child);
+			// PID evidence for the "no process left behind" check (acceptance 4).
+			console.log(`[native] refusing listener pid=${child.pid} port=${port}`);
+			const outcome = await killListeningPid(port, new Set<number>(), { identity, signal, sleep: async () => {} });
+			expect(signals).toEqual([]);
+			expect(outcome.signals).toEqual([]);
+			expect(outcome.refusals.length).toBeGreaterThan(0);
+			for (const refusal of outcome.refusals) expect(refusal.reason).toBe("reused");
+			// The child was never signalled: it is still alive.
+			expect(child.exitCode).toBeNull();
+			expect(child.signalCode).toBeNull();
+		} finally {
+			// Kill our own child through the held handle.
+			await stopOwnChild(child);
+			rmSync(dir, { recursive: true, force: true });
+		}
+	}, 60_000);
 });

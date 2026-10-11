@@ -715,53 +715,149 @@ function sleep(ms) {
 
 /* ---------------- platform-specific probes (main path only) ------------- */
 
-let cachedPsExe = null;
+// The probe kill-wait value (2 s) — the same finite bound
+// `boundedIdentityProbe` (scripts/child-teardown.mjs, `probeKillWaitMs`
+// default 2_000) waits for the real close after a deadline kill. A
+// `psScript` probe that hit the deadline must settle within this bound:
+// no new knob, no raised bound.
+const PS_SCRIPT_CLOSE_WAIT_MS = 2_000;
 
-function psExe() {
-	if (cachedPsExe != null) return cachedPsExe;
-	for (const candidate of ["pwsh", "powershell"]) {
-		const probe = spawnSync(candidate, ["-NoProfile", "-Command", "exit 0"], {
-			stdio: "ignore",
-			windowsHide: true,
-		});
-		if (!probe.error) {
-			cachedPsExe = candidate;
-			return candidate;
-		}
-	}
-	cachedPsExe = "powershell";
-	return cachedPsExe;
-}
-
-async function psScript(file, args, timeoutMs = 20_000) {
+/**
+ * Run a probe .ps1 file with the FIXED
+ * `<SystemRoot>\System32\WindowsPowerShell\v1.0\powershell.exe` — the same
+ * derivation as `boundedIdentityProbe` — and settle within a finite window
+ * (review rv-fin-sec F1; the old path discovered the interpreter with an
+ * unbounded `spawnSync` and, on the deadline, killed the probe by NUMERIC
+ * PID — `taskkill /PID` / `process.kill(pid)` — without ever settling the
+ * promise when `close` never arrived, hanging the sandbox decision).
+ *
+ * Settlement: `close` (the normal path), `error` (spawn failure), or the
+ * deadline. On the deadline the probe is killed on its HELD handle
+ * (`child.kill()` — never a numeric-PID signal, which could hit whatever
+ * tree then owns the PID) and the real `close` is waited for up to
+ * PS_SCRIPT_CLOSE_WAIT_MS; the promise ALWAYS settles:
+ *   - close within the wait → `{ ok: false, stdout, stderr, code: null,
+ *     timedOut: true, unreaped: false }`
+ *   - no close within the wait → the same shape with `unreaped: true` —
+ *     the probe child may still be alive; the caller records the residue
+ *     and the smoke retains its sandbox (no silent abandonment).
+ * The close-wait timer is armed BEFORE `child.kill()`, matching
+ * `boundedIdentityProbe`: Bun's `ChildProcess.kill` emits `error`
+ * synchronously from its catch, and a synchronous `close`/`error` inside
+ * `kill()` must settle through the already-armed timer — never leaving a
+ * timer scheduled after settlement. After the deadline an `error` never
+ * settles: it is recorded as the `killError` diagnostic (the timed-out
+ * shape gains the field when one was recorded), and the real `close` or
+ * the armed wait settles. The real `close` is the only reaping
+ * observation — never inferred from a kill's return value or from exit
+ * metadata. Listeners and timers are cleared on every path. Callers map a
+ * timed-out result to an unknown identity / parent / image (fail closed:
+ * no kill based on it). `spawn`, `spawnSync`, `setTimeout` and
+ * `clearTimeout` are injectable seams so tests can drive the hang
+ * deterministically; the reserved `spawnSync` seam exists so a re-added
+ * spawnSync call on this path (a discovery or a numeric-PID kill) is
+ * observable and red in the tests, never executed against the host.
+ */
+export async function psScript(file, args, timeoutMs = 20_000, options = {}) {
+	const spawnFn = options.spawn ?? spawn;
+	const spawnSyncFn = options.spawnSync ?? spawnSync;
+	const setTimer = options.setTimeout ?? setTimeout;
+	const clearTimer = options.clearTimeout ?? clearTimeout;
+	void spawnSyncFn; // reserved seam: the path never calls spawnSync (tests assert this)
 	return await new Promise((resolve) => {
-		const child = spawn(psExe(), ["-NoProfile", "-File", file, ...args], {
+		const systemRoot = process.env.SystemRoot ?? process.env.WINDIR ?? "C:\\Windows";
+		const exe = join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+		const child = spawnFn(exe, ["-NoProfile", "-File", file, ...args], {
 			stdio: ["ignore", "pipe", "pipe"],
 			windowsHide: true,
 		});
 		let stdout = "";
 		let stderr = "";
+		let settled = false;
+		let timedOut = false;
+		let killErrorText = null;
+		let deadlineTimer = null;
+		let closeWaitTimer = null;
+		const clearAll = () => {
+			if (deadlineTimer != null) clearTimer(deadlineTimer);
+			if (closeWaitTimer != null) clearTimer(closeWaitTimer);
+			deadlineTimer = null;
+			closeWaitTimer = null;
+			child.stdout?.removeAllListeners("data");
+			child.stderr?.removeAllListeners("data");
+			child.removeAllListeners("close");
+			child.removeAllListeners("error");
+		};
+		const settle = (value) => {
+			if (settled) return;
+			settled = true;
+			clearAll();
+			resolve(value);
+		};
 		child.stdout?.on("data", (chunk) => (stdout += chunk));
 		child.stderr?.on("data", (chunk) => (stderr += chunk));
-		const timer = setTimeout(() => {
+		child.on("close", (code) => {
+			settle(
+				timedOut
+					? {
+							ok: false,
+							stdout,
+							stderr,
+							code: null,
+							timedOut: true,
+							unreaped: false,
+							...(killErrorText != null ? { killError: killErrorText } : {}),
+						}
+					: { ok: code === 0, stdout, stderr, code },
+			);
+		});
+		child.on("error", (error) => {
+			if (timedOut) {
+				// After the deadline an error must NOT settle (it may be the
+				// synchronous error Bun's ChildProcess.kill emits from its
+				// catch): record it as a kill diagnostic; the real close or
+				// the already-armed close-wait settles.
+				killErrorText = errorText(error);
+				return;
+			}
+			settle({ ok: false, stdout: "", stderr: `spawn failed: ${errorText(error)}`, code: null });
+		});
+		deadlineTimer = setTimer(() => {
+			if (settled) return;
+			timedOut = true;
+			// The close-wait is armed BEFORE the kill — matching
+			// boundedIdentityProbe (child-teardown.mjs): a synchronous
+			// error/close emitted inside kill() (Bun's ChildProcess.kill
+			// emits `error` synchronously in its catch) then settles through
+			// the already-armed timer, never leaving a timer scheduled after
+			// settlement.
+			closeWaitTimer = setTimer(
+				() => {
+					closeWaitTimer = null;
+					settle({
+						ok: false,
+						stdout,
+						stderr,
+						code: null,
+						timedOut: true,
+						unreaped: true,
+						...(killErrorText != null ? { killError: killErrorText } : {}),
+					});
+				},
+				PS_SCRIPT_CLOSE_WAIT_MS,
+			);
+			// HELD handle only: never `taskkill /PID <pid> /T /F` and never
+			// `process.kill(pid, ...)` — a numeric-PID signal after the
+			// deadline could kill whatever tree now owns the PID.
 			try {
-				if (process.platform === "win32") {
-					spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
-				} else {
-					process.kill(child.pid, "SIGKILL");
-				}
-			} catch {
-				// already gone
+				child.kill();
+			} catch (error) {
+				// A synchronous kill failure is recorded as a diagnostic;
+				// the verification timer installed above still decides
+				// reaped vs unreaped.
+				killErrorText = errorText(error);
 			}
 		}, timeoutMs);
-		child.on("error", () => {
-			clearTimeout(timer);
-			resolve({ ok: false, stdout: "", stderr: `spawn failed: ${stderr}`, code: null });
-		});
-		child.on("close", (code) => {
-			clearTimeout(timer);
-			resolve({ ok: code === 0, stdout, stderr, code });
-		});
 	});
 }
 
@@ -871,13 +967,40 @@ export function killTreeFor(
 		taskkillStatus,
 	});
 	if (platform === "win32") {
-		// A single taskkill /T /F, as before; its exit status is now captured
-		// in the outcome instead of being discarded. The bound identity is not
-		// consulted here: Windows ownership semantics are unchanged.
-		return async (pid, _ctx = {}) => {
-			const signals = [`taskkill /PID ${pid} /T /F`];
+		// A single taskkill /T /F, with its exit status captured in the
+		// outcome. S2's "unknown stops" rule applies here too (review
+		// rv-fin-sec F3): the bound identity (ctx.boundId) is re-proved
+		// IMMEDIATELY before the taskkill; a null bound, or a fresh probe
+		// that is not `alive` with that id, REFUSES the taskkill (fail
+		// closed — a numeric kill without a creation-time id is not an
+		// owned kill). `signals` holds only DELIVERED signals, as on POSIX.
+		return async (pid, ctx = {}) => {
+			const boundId = ctx != null && typeof ctx.boundId === "string" && ctx.boundId !== "" ? ctx.boundId : null;
 			const esrch = [];
 			const errors = [];
+			if (boundId == null) {
+				return finish(
+					"unknown",
+					{ signals: [], esrch, errors, groupSignalled: false },
+					"the pre-signal identity was unknown (boundId null); refused to signal",
+				);
+			}
+			const now = await probe(pid);
+			if (now.state === "gone") {
+				return finish("gone", { signals: [], esrch, errors, groupSignalled: false }, "pid gone before taskkill");
+			}
+			if (now.state === "unknown") {
+				return finish("unknown", { signals: [], esrch, errors, groupSignalled: false }, now.error);
+			}
+			if (now.id !== boundId) {
+				return finish(
+					"reused",
+					{ signals: [], esrch, errors, groupSignalled: false },
+					`pid now owned by id ${now.id} (bound ${boundId}); not signalled`,
+				);
+			}
+			// Same identity as bound: exactly one taskkill /T /F.
+			const signals = [`taskkill /PID ${pid} /T /F`];
 			let status = null;
 			try {
 				const result = await taskkill(pid);
@@ -1061,6 +1184,15 @@ const start = Date.now();
 	let startMs = 0;
 	let outBuf = "";
 	let errBuf = "";
+	// Residue from a timed-out PowerShell probe whose child was not reaped
+	// (psScript `unreaped: true`): the probe child may still be alive inside
+	// the sandbox, so the sandbox is retained and the residue reported (no
+	// silent abandonment). Only the DEFAULT win32 probes record here; tests
+	// that inject their own probes never do.
+	const probeResidue = [];
+	const noteProbeResidue = (kind, pid) => {
+		probeResidue.push({ kind, pid });
+	};
 
 	try {
 		const created = mkdtempSync(join(tmpdir(), "pinar-tray-smoke-"));
@@ -1074,14 +1206,22 @@ const start = Date.now();
 		}
 		const probeDir = join(sandbox, "probes");
 		mkdirSync(probeDir, { recursive: true });
-		parentOf = parentOf ?? defaultParentOf(probeDir);
-		imageOf = imageOf ?? defaultImageOf(probeDir);
+		parentOf = parentOf ?? defaultParentOf(probeDir, noteProbeResidue, hooks.runPsWinParent ?? null);
+		imageOf = imageOf ?? defaultImageOf(probeDir, noteProbeResidue, hooks.runPsWinImage ?? null);
 		// The default identity probe needs the sandbox (its .ps1 files live in
-		// probeDir), so it is built here like parentOf/imageOf. Hook sets that
+		// probeDir), so it is built here like parentOf/imageOf. An injected
+		// win32 runner (hooks.runPsWin) drives the REAL win32 pipeline and
+		// outranks the legacy isAlive-derived shim, which cannot express the
+		// win32 probe result shapes (timedOut / unreaped). Hook sets that
 		// inject the legacy isAlive but not identityOf fall back to a derived
 		// probe so their existing behavior is preserved exactly.
 		identityOf =
-			identityOf ?? (hooks.isAlive != null ? derivedFromIsAlive(isAlive) : identityOfFor(process.platform, { probeDir }));
+			identityOf ??
+			(hooks.runPsWin != null
+				? identityOfFor(process.platform, { probeDir, onResidue: noteProbeResidue, runPsWin: hooks.runPsWin })
+				: hooks.isAlive != null
+					? derivedFromIsAlive(isAlive)
+					: identityOfFor(process.platform, { probeDir, onResidue: noteProbeResidue }));
 		// Production default: the real host-platform kill sequence, built with
 		// the SAME identity probe runSmoke uses, so each escalation step
 		// re-proves the bound pre-signal identity before it signals.
@@ -1590,6 +1730,10 @@ const start = Date.now();
 				if (lingering != null) cleanup.errors.push(`port ${args.port} still held by pid ${lingering} after cleanup`);
 			}
 		}
+		if (probeResidueKeepsSandbox(probeResidue, cleanup)) {
+			// An unreaped probe child may still hold files inside the sandbox.
+			retainSandboxOnIncomplete = true;
+		}
 		if (sandbox != null) {
 			if (args.keepHome || retainSandboxOnIncomplete) {
 				result.sandbox = sandbox;
@@ -1676,19 +1820,47 @@ function errorText(error) {
 	return code.trim() === "" ? message : `${code.trim()}: ${message}`;
 }
 
-function defaultParentOf(probeDir) {
+/**
+ * A timed-out probe whose child was not reaped is residue (a `psScript`
+ * `unreaped: true` result): the probe child may still be running inside
+ * the sandbox, so the smoke must retain the sandbox and report the residue
+ * — never remove it silently. Records the residue in `cleanup.errors` and
+ * returns true when the sandbox must be kept.
+ */
+export function probeResidueKeepsSandbox(probeResidue, cleanup) {
+	if (probeResidue.length === 0) return false;
+	for (const entry of probeResidue) {
+		cleanup.errors.push(
+			`probe residue: the ${entry.kind} probe for pid ${entry.pid} hit its deadline and its child was not reaped (it may still be running); the sandbox is retained`,
+		);
+	}
+	return true;
+}
+
+function defaultParentOf(probeDir, onResidue = null, runPsWin = null) {
 	if (process.platform === "win32") {
+		// The runner is injectable (tests) — the same seam pattern as the
+		// identity/image probes; the default writes the probe .ps1 into
+		// probeDir and runs it through psScript.
+		const run =
+			runPsWin ??
+			((pid) => {
+				mkdirSync(probeDir, { recursive: true });
+				const file = join(probeDir, `parent-${pid}.ps1`);
+				writeFileSync(
+					file,
+					`param([int]$Target)\n` +
+						`$p = Get-CimInstance Win32_Process -Filter "ProcessId=$Target" -ErrorAction SilentlyContinue\n` +
+						`if ($null -eq $p) { exit 1 }\n` +
+						`Write-Output $p.ParentProcessId\n`,
+				);
+				return psScript(file, [String(pid)]);
+			});
 		return async (pid) => {
-			mkdirSync(probeDir, { recursive: true });
-			const file = join(probeDir, `parent-${pid}.ps1`);
-			writeFileSync(
-				file,
-				`param([int]$Target)\n` +
-					`$p = Get-CimInstance Win32_Process -Filter "ProcessId=$Target" -ErrorAction SilentlyContinue\n` +
-					`if ($null -eq $p) { exit 1 }\n` +
-					`Write-Output $p.ParentProcessId\n`,
-			);
-			const out = await psScript(file, [String(pid)]);
+			const out = await run(pid);
+			// A timed-out probe whose child was not reaped is residue: the
+			// caller (runSmoke) retains its sandbox and reports it.
+			if (out.unreaped === true) onResidue?.("parent", pid);
 			const value = Number(out.stdout.trim());
 			return out.ok && Number.isInteger(value) && value > 0 ? value : null;
 		};
@@ -1744,7 +1916,10 @@ function defaultIsAlive() {
 	};
 }
 
-/** Windows image lookup: CIM ExecutablePath probe through PowerShell. */
+/**
+ * Windows image lookup: the raw CIM ExecutablePath probe through PowerShell
+ * (the `psScript` result — the caller maps it to a path or null).
+ */
 function imageOfWin32(probeDir) {
 	return async (pid) => {
 		mkdirSync(probeDir, { recursive: true });
@@ -1756,9 +1931,7 @@ function imageOfWin32(probeDir) {
 				`if ($null -eq $p) { exit 1 }\n` +
 				`Write-Output $p.ExecutablePath\n`,
 		);
-		const out = await psScript(file, [String(pid)]);
-		const path = String(out.stdout ?? "").trim();
-		return out.ok && path.length > 0 ? path : null;
+		return psScript(file, [String(pid)]);
 	};
 }
 
@@ -1767,12 +1940,21 @@ function imageOfWin32(probeDir) {
  *   win32  → CIM ExecutablePath probe (PowerShell)
  *   darwin → `ps -p <pid> -o comm=` (trimmed; empty output → null)
  *   linux  → /proc/<pid>/exe
- * `platform` and the `ps` runner are injectable so tests can drive any
- * branch without spawning real processes.
+ * `platform`, the `ps`/`runPsWin` runners, `procDir` and `onResidue` are
+ * injectable so tests can drive any branch without spawning real
+ * processes.
  */
-export function imageOfFor(platform, { probeDir, ps, procDir = "/proc" } = {}) {
+export function imageOfFor(platform, { probeDir, ps, procDir = "/proc", onResidue = null, runPsWin = null } = {}) {
 	if (platform === "win32") {
-		return imageOfWin32(probeDir);
+		const run = runPsWin ?? imageOfWin32(probeDir);
+		return async (pid) => {
+			const out = await run(pid);
+			// A timed-out probe whose child was not reaped is residue: the
+			// caller (runSmoke) retains its sandbox and reports it.
+			if (out.unreaped === true) onResidue?.("image", pid);
+			const path = String(out.stdout ?? "").trim();
+			return out.ok && path.length > 0 ? path : null;
+		};
 	}
 	if (platform === "darwin") {
 		const runPs =
@@ -1798,8 +1980,8 @@ export function imageOfFor(platform, { probeDir, ps, procDir = "/proc" } = {}) {
 	};
 }
 
-function defaultImageOf(probeDir) {
-	return imageOfFor(process.platform, { probeDir });
+function defaultImageOf(probeDir, onResidue = null, runPsWin = null) {
+	return imageOfFor(process.platform, { probeDir, onResidue, runPsWin });
 }
 
 /**
@@ -1814,13 +1996,22 @@ function defaultImageOf(probeDir) {
 
 /** Map a win32 CIM probe result ({ code, stdout, stderr }) to an identity. */
 function mapWin32Identity(out) {
+	// A timed-out probe (a `psScript` deadline) is unknown by construction —
+	// its code is null and it is never mapped to alive or gone.
+	if (out?.timedOut === true) {
+		return { state: "unknown", error: `identity probe timed out (unreaped: ${out.unreaped === true ? "yes" : "no"})` };
+	}
 	const digits = String(out?.stdout ?? "").trim();
 	if (out?.code === 3) return { state: "gone" };
 	if (out?.code === 0 && /^\d+$/.test(digits)) return { state: "alive", id: digits };
 	return { state: "unknown", error: `identity probe exited ${String(out?.code)}` };
 }
 
-/** Windows identity lookup: CIM CreationDate file time through PowerShell. */
+/**
+ * Windows identity lookup: the raw CIM CreationDate probe through
+ * PowerShell (the `psScript` result — the caller maps it with
+ * `mapWin32Identity`).
+ */
 function identityOfWin32(probeDir) {
 	return async (pid) => {
 		mkdirSync(probeDir, { recursive: true });
@@ -1834,8 +2025,7 @@ function identityOfWin32(probeDir) {
 				`if ($null -eq $p.CreationDate) { exit 4 }\n` +
 				`Write-Output $p.CreationDate.ToFileTimeUtc()\n`,
 		);
-		const out = await psScript(file, [String(pid)]);
-		return mapWin32Identity(out);
+		return psScript(file, [String(pid)]);
 	};
 }
 
@@ -1851,20 +2041,23 @@ function identityOfWin32(probeDir) {
  * throws. `runPsWin`, `runPs` and `procDir` are injectable so tests can
  * drive any branch without spawning real processes.
  */
-export function identityOfFor(platform, { probeDir, runPs, runPsWin, procDir = "/proc" } = {}) {
+export function identityOfFor(platform, { probeDir, runPs, runPsWin, procDir = "/proc", onResidue = null } = {}) {
 	if (platform === "win32") {
-		if (runPsWin != null) {
-			return async (pid) => {
-				let out;
-				try {
-					out = await runPsWin(pid);
-				} catch {
-					return { state: "unknown", error: "identity runner threw" };
-				}
-				return mapWin32Identity(out);
-			};
-		}
-		return identityOfWin32(probeDir);
+		// One choke point for both the injected and the default runner: a
+		// timed-out probe whose child was not reaped is residue — the caller
+		// (runSmoke) retains its sandbox and reports it — and every result
+		// is mapped through mapWin32Identity (a timeout is unknown).
+		const run = runPsWin ?? identityOfWin32(probeDir);
+		return async (pid) => {
+			let out;
+			try {
+				out = await run(pid);
+			} catch {
+				return { state: "unknown", error: "identity runner threw" };
+			}
+			if (out?.unreaped === true) onResidue?.("identity", pid);
+			return mapWin32Identity(out);
+		};
 	}
 	if (platform === "darwin") {
 		const run =

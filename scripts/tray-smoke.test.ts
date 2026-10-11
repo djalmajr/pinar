@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
+import { EventEmitter } from "node:events";
 import {
 	copyFileSync,
 	existsSync,
@@ -38,6 +39,8 @@ import {
 	parseNetstatListeningPid,
 	parsePort,
 	parseTasklistCsvLine,
+	probeResidueKeepsSandbox,
+	psScript,
 	readTrayPid,
 	resolveLauncher,
 	runSmoke,
@@ -696,6 +699,31 @@ describe("imageOfFor darwin branch", () => {
 		// No such link: the resolver swallows the error and reports null.
 		return expect(imageOf(31337)).resolves.toBeNull();
 	});
+
+	// The win32 branch maps a timed-out probe to an UNKNOWN image (null —
+	// fail closed: no ownership match on it) and records the residue when
+	// the probe child was not reaped (review rv-fin-sec F1).
+	test("win32: an unreaped timed-out image probe is an unknown image and records the residue", async () => {
+		const residue: [string, number][] = [];
+		const imageOf = imageOfFor("win32", {
+			probeDir: "/tmp/fake-probes",
+			runPsWin: async () => ({ ok: false, stdout: "C:\\Pinar\\Pinar.exe\n", stderr: "", code: null, timedOut: true, unreaped: true }),
+			onResidue: (kind: string, pid: number) => residue.push([kind, pid]),
+		});
+		expect(await imageOf(55)).toBeNull(); // unknown image: fail closed
+		expect(residue).toEqual([["image", 55]]);
+	});
+
+	test("win32: a reaped timed-out image probe is an unknown image with no residue", async () => {
+		const residue: [string, number][] = [];
+		const imageOf = imageOfFor("win32", {
+			probeDir: "/tmp/fake-probes",
+			runPsWin: async () => ({ ok: false, stdout: "", stderr: "", code: null, timedOut: true, unreaped: false }),
+			onResidue: (kind: string, pid: number) => residue.push([kind, pid]),
+		});
+		expect(await imageOf(55)).toBeNull();
+		expect(residue).toEqual([]);
+	});
 });
 
 type IdentityState =
@@ -775,6 +803,44 @@ describe("identityOfFor", () => {
 		});
 		const out = await identityOf(1234);
 		expect(out.state).toBe("unknown");
+	});
+
+	// A timed-out probe (a psScript deadline) is unknown by construction —
+	// never alive or gone — and an UNREAPED timed-out probe is residue:
+	// the caller's onResidue is called so the smoke retains its sandbox and
+	// reports it (review rv-fin-sec F1). A reaped timeout is plain unknown.
+	test("win32: a timed-out probe is unknown even with digit stdout", async () => {
+		const identityOf = identityOfFor("win32", {
+			probeDir: "/tmp/fake-probes",
+			runPsWin: async () => ({ ok: false, stdout: "133850432100000000\n", stderr: "", code: null, timedOut: true, unreaped: false }),
+		});
+		const out = await identityOf(1234);
+		expect(out.state).toBe("unknown");
+		expect(out.error).toContain("timed out");
+	});
+
+	test("win32: an unreaped timed-out probe records the residue", async () => {
+		const residue: [string, number][] = [];
+		const identityOf = identityOfFor("win32", {
+			probeDir: "/tmp/fake-probes",
+			runPsWin: async () => ({ ok: false, stdout: "", stderr: "", code: null, timedOut: true, unreaped: true }),
+			onResidue: (kind: string, pid: number) => residue.push([kind, pid]),
+		});
+		const out = await identityOf(4321);
+		expect(out.state).toBe("unknown");
+		expect(residue).toEqual([["identity", 4321]]);
+	});
+
+	test("win32: a reaped timed-out probe records no residue", async () => {
+		const residue: [string, number][] = [];
+		const identityOf = identityOfFor("win32", {
+			probeDir: "/tmp/fake-probes",
+			runPsWin: async () => ({ ok: false, stdout: "", stderr: "", code: null, timedOut: true, unreaped: false }),
+			onResidue: (kind: string, pid: number) => residue.push([kind, pid]),
+		});
+		const out = await identityOf(4321);
+		expect(out.state).toBe("unknown");
+		expect(residue).toEqual([]);
 	});
 
 	// --- darwin (ps stat=,lstart=) ------------------------------------------
@@ -2486,10 +2552,18 @@ describe("killTreeFor POSIX signal sequence", () => {
 		expect(outcome.errors).toEqual(["kill(-4242, SIGKILL) failed: EPERM: kill SIGKILL failed: operation not permitted"]);
 	});
 
+	// S2's "unknown stops" rule applies to the win32 branch too (review
+	// rv-fin-sec F3): the bound identity is re-proved IMMEDIATELY before the
+	// taskkill; a null bound, or a fresh probe that is not alive with that
+	// id, refuses the taskkill (fail closed). The status-capture behavior is
+	// unchanged for the matching-alive-id case.
+	const win32Identity = (id: string) => async () => ({ state: "alive", id });
+
 	test("win32: exactly one taskkill call; a non-zero status is recorded in the outcome, never thrown", async () => {
 		const taskkillCalls: number[] = [];
 		const killTree = killTreeFor("win32", {
 			sleep: async () => {},
+			identityOf: win32Identity("133850432100000000"),
 			runTaskkill: async (pid: number) => {
 				taskkillCalls.push(pid);
 				return 128;
@@ -2504,15 +2578,541 @@ describe("killTreeFor POSIX signal sequence", () => {
 	});
 
 	test("win32: a zero status is a clean kill; a taskkill spawn error lands in outcome.errors", async () => {
-		const ok = await killTreeFor("win32", { sleep: async () => {}, runTaskkill: async () => ({ status: 0 }) })(777, { boundId: null });
+		const ok = await killTreeFor("win32", {
+			sleep: async () => {},
+			identityOf: win32Identity("133850432100000000"),
+			runTaskkill: async () => ({ status: 0 }),
+		})(777, { boundId: "133850432100000000" });
+		expect(ok.state).toBe("signalled");
 		expect(ok.taskkillStatus).toBe(0);
 		expect(ok.errors).toEqual([]);
 		const broken = await killTreeFor("win32", {
 			sleep: async () => {},
+			identityOf: win32Identity("133850432100000000"),
 			runTaskkill: async () => ({ status: null, error: "taskkill spawn failed: ENOENT" }),
-		})(777, { boundId: null });
+		})(777, { boundId: "133850432100000000" });
 		expect(broken.taskkillStatus).toBeNull();
 		expect(broken.errors).toEqual(["taskkill spawn failed: ENOENT"]);
+	});
+
+	test("win32: a null bound identity refuses the taskkill (fail closed, no signal)", async () => {
+		const taskkillCalls: number[] = [];
+		const killTree = killTreeFor("win32", {
+			sleep: async () => {},
+			identityOf: win32Identity("133850432100000000"),
+			runTaskkill: async (pid: number) => {
+				taskkillCalls.push(pid);
+				return 0;
+			},
+		});
+		const outcome = await killTree(5151, { boundId: null });
+		expect(taskkillCalls).toEqual([]); // no taskkill at all
+		expect(outcome.state).toBe("unknown");
+		expect(outcome.signals).toEqual([]);
+		expect(outcome.detail).toContain("boundId null");
+		expect(outcome.errors).toEqual([]);
+	});
+
+	test("win32: a fresh unknown probe refuses the taskkill (fail closed, no signal)", async () => {
+		const taskkillCalls: number[] = [];
+		const killTree = killTreeFor("win32", {
+			sleep: async () => {},
+			identityOf: async () => ({ state: "unknown", error: "CIM provider unavailable" }),
+			runTaskkill: async (pid: number) => {
+				taskkillCalls.push(pid);
+				return 0;
+			},
+		});
+		const outcome = await killTree(5151, { boundId: "133850432100000000" });
+		expect(taskkillCalls).toEqual([]);
+		expect(outcome.state).toBe("unknown");
+		expect(outcome.signals).toEqual([]);
+		expect(outcome.detail).toBe("CIM provider unavailable");
+	});
+
+	test("win32: a fresh probe with a different id refuses (reused, no signal)", async () => {
+		const taskkillCalls: number[] = [];
+		const killTree = killTreeFor("win32", {
+			sleep: async () => {},
+			identityOf: win32Identity("999999999999999999"),
+			runTaskkill: async (pid: number) => {
+				taskkillCalls.push(pid);
+				return 0;
+			},
+		});
+		const outcome = await killTree(5151, { boundId: "133850432100000000" });
+		expect(taskkillCalls).toEqual([]);
+		expect(outcome.state).toBe("reused");
+		expect(outcome.signals).toEqual([]);
+		expect(outcome.detail).toContain("999999999999999999");
+	});
+
+	test("win32: a fresh gone probe stops before the taskkill (no signal)", async () => {
+		const taskkillCalls: number[] = [];
+		const killTree = killTreeFor("win32", {
+			sleep: async () => {},
+			identityOf: async () => ({ state: "gone" }),
+			runTaskkill: async (pid: number) => {
+				taskkillCalls.push(pid);
+				return 0;
+			},
+		});
+		const outcome = await killTree(5151, { boundId: "133850432100000000" });
+		expect(taskkillCalls).toEqual([]);
+		expect(outcome.state).toBe("gone");
+		expect(outcome.signals).toEqual([]);
+	});
+});
+
+describe("probeResidueKeepsSandbox (unreaped probe residue)", () => {
+	// A timed-out probe whose child was not reaped is residue (review
+	// rv-fin-sec F1): the smoke reports it in cleanup.errors and retains
+	// the sandbox instead of removing it silently.
+	const makeCleanup = () => ({ ok: false, killed: [] as number[], refused: [] as string[], errors: [] as string[], reused: [] as string[], sandboxRemoved: false });
+
+	test("no residue: the sandbox may be removed", () => {
+		const cleanup = makeCleanup();
+		expect(probeResidueKeepsSandbox([], cleanup)).toBe(false);
+		expect(cleanup.errors).toEqual([]);
+	});
+
+	test("residue: the sandbox is kept and every entry is reported", () => {
+		const cleanup = makeCleanup();
+		expect(probeResidueKeepsSandbox([{ kind: "identity", pid: 77 }, { kind: "image", pid: 78 }], cleanup)).toBe(true);
+		expect(cleanup.errors).toEqual([
+			"probe residue: the identity probe for pid 77 hit its deadline and its child was not reaped (it may still be running); the sandbox is retained",
+			"probe residue: the image probe for pid 78 hit its deadline and its child was not reaped (it may still be running); the sandbox is retained",
+		]);
+	});
+});
+
+describe("psScript (deterministic seams — review rv-fin-sec F1)", () => {
+	// The probe .ps1 path: the FIXED `<SystemRoot>\\System32\\WindowsPowerShell\\v1.0\\powershell.exe` (no
+	// spawnSync discovery), and on the 20 s deadline a HELD-handle kill
+	// (`child.kill()` — never `taskkill /PID` / `process.kill(pid)`), then a
+	// wait for the REAL close up to the 2 s probe kill-wait value, then
+	// ALWAYS a settlement (unreaped: true when no close was observed). The
+	// fake child's pid never exists on this host, so even a restored
+	// numeric-PID kill would be a no-op here — the held-handle killCalls and
+	// the settlement shape are what catch it.
+	const makeTimers = () => {
+		const timers = new Map<number, { id: number; delay: number; fn: () => void; cleared: boolean }>();
+		let next = 1;
+		return {
+			setTimeout: (fn: () => void, delay: number) => {
+				const id = next++;
+				timers.set(id, { id, delay, fn, cleared: false });
+				return id;
+			},
+			clearTimeout: (id: unknown) => {
+				const t = timers.get(id as number);
+				if (t) t.cleared = true;
+			},
+			pending: () => [...timers.values()].filter((t) => !t.cleared).map((t) => t.delay),
+			fire: (delay: number) => {
+				for (const t of [...timers.values()]) {
+					if (!t.cleared && t.delay === delay) {
+						// A fired timer is no longer pending (runtime semantics)
+						// — even if its callback settles synchronously.
+						t.cleared = true;
+						t.fn();
+					}
+				}
+			},
+		};
+	};
+	const makeChild = (pid: number) => {
+		const child = new EventEmitter() as EventEmitter & { pid: number; stdout: EventEmitter; stderr: EventEmitter; kill: () => boolean };
+		const stdout = new EventEmitter();
+		const stderr = new EventEmitter();
+		const killCalls: string[] = [];
+		child.pid = pid;
+		child.stdout = stdout;
+		child.stderr = stderr;
+		child.kill = () => {
+			killCalls.push("held-handle");
+			return true;
+		};
+		return { child, stdout, stderr, killCalls };
+	};
+	const flushMicrotasks = async () => {
+		for (let i = 0; i < 5; i += 1) await Promise.resolve();
+	};
+	type Handles = {
+		promise: Promise<unknown>;
+		spawnCalls: [string, string[]][];
+		spawnSyncCalls: unknown[][];
+		processKillCalls: [unknown, unknown][];
+		restore: () => void;
+	};
+	const start = (child: ReturnType<typeof makeChild>["child"], t: ReturnType<typeof makeTimers>): Handles => {
+		const spawnCalls: [string, string[]][] = [];
+		const spawnSyncCalls: unknown[][] = [];
+		const processKillCalls: [unknown, unknown][] = [];
+		const realKill = process.kill;
+		process.kill = ((pid: unknown, signal?: unknown) => {
+			processKillCalls.push([pid, signal]);
+			return true;
+		}) as typeof process.kill;
+		const promise = psScript("/tmp/identity-4242.ps1", ["4242"], 20_000, {
+			spawn: (exe: string, args: string[]) => {
+				spawnCalls.push([exe, args]);
+				return child;
+			},
+			spawnSync: (...a: unknown[]) => {
+				spawnSyncCalls.push(a);
+				return { error: null, status: 1 };
+			},
+			setTimeout: t.setTimeout,
+			clearTimeout: t.clearTimeout,
+		});
+		return {
+			promise,
+			spawnCalls,
+			spawnSyncCalls,
+			processKillCalls,
+			restore: () => {
+				process.kill = realKill;
+			},
+		};
+	};
+
+	test("spawns the FIXED System32 PowerShell with -NoProfile -File; no spawnSync on the path", async () => {
+		const t = makeTimers();
+		const { child } = makeChild(4242);
+		const h = start(child, t);
+		try {
+			child.emit("close", 0);
+			await h.promise;
+			const systemRoot = process.env.SystemRoot ?? process.env.WINDIR ?? "C:\\Windows";
+			expect(h.spawnCalls).toEqual([
+				[join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), ["-NoProfile", "-File", "/tmp/identity-4242.ps1", "4242"]],
+			]);
+			expect(h.spawnSyncCalls).toEqual([]); // no discovery, no taskkill
+			expect(h.processKillCalls).toEqual([]);
+		} finally {
+			h.restore();
+		}
+	});
+
+	test("a close before the deadline settles the normal shape and clears the deadline timer", async () => {
+		const t = makeTimers();
+		const { child, stdout } = makeChild(4242);
+		const h = start(child, t);
+		try {
+			stdout.emit("data", "133850432100000000\n");
+			child.emit("close", 0);
+			const out = (await h.promise) as { ok: boolean; stdout: string; stderr: string; code: number | null };
+			expect(out).toEqual({ ok: true, stdout: "133850432100000000\n", stderr: "", code: 0 });
+			expect(t.pending()).toEqual([]);
+			expect(h.spawnSyncCalls).toEqual([]);
+		} finally {
+			h.restore();
+		}
+	});
+
+	test("deadline: the held handle is killed exactly once (never taskkill /PID or process.kill), and the real close settles timedOut with unreaped false", async () => {
+		const t = makeTimers();
+		const { child, killCalls } = makeChild(987654321);
+		const h = start(child, t);
+		let settleCount = 0;
+		let settled: unknown = null;
+		h.promise.then((r) => {
+			settleCount += 1;
+			settled = r;
+		});
+		try {
+			t.fire(20_000); // the 20 s deadline
+			expect(killCalls.length).toBe(1); // the held-handle kill
+			expect(h.processKillCalls).toEqual([]); // never process.kill(pid, …)
+			expect(h.spawnSyncCalls).toEqual([]); // never taskkill /PID <pid>
+			child.emit("close", 1); // the real close after the kill
+			await flushMicrotasks();
+			expect(settleCount).toBe(1);
+			expect(settled).toEqual({ ok: false, stdout: "", stderr: "", code: null, timedOut: true, unreaped: false });
+			expect(t.pending()).toEqual([]); // the close-wait timer was cleared
+			expect(child.listenerCount("close")).toBe(0); // the close listener was removed
+			expect(child.listenerCount("error")).toBe(0);
+		} finally {
+			h.restore();
+		}
+	});
+
+	test("deadline: no close within the 2 s kill-wait still settles within the bound, unreaped true", async () => {
+		const t = makeTimers();
+		const { child, killCalls } = makeChild(987654322);
+		const h = start(child, t);
+		let settleCount = 0;
+		let settled: unknown = null;
+		h.promise.then(
+			(r) => {
+				settleCount += 1;
+				settled = r;
+			},
+			() => {
+				settleCount += 1;
+				settled = "REJECTED";
+			},
+		);
+		try {
+			t.fire(20_000);
+			expect(killCalls.length).toBe(1);
+			t.fire(2_000); // the probe kill-wait value expires
+			await flushMicrotasks();
+			expect(settleCount).toBe(1); // the promise is never left unsettled
+			expect(settled).toEqual({ ok: false, stdout: "", stderr: "", code: null, timedOut: true, unreaped: true });
+			expect(t.pending()).toEqual([]);
+		} finally {
+			h.restore();
+		}
+	});
+
+	test("a spawn error settles the spawn-failed shape and clears the timer", async () => {
+		const t = makeTimers();
+		const { child } = makeChild(1);
+		const h = start(child, t);
+		try {
+			child.emit("error", new Error("boom"));
+			const out = (await h.promise) as { ok: boolean; stdout: string; stderr: string; code: number | null };
+			expect(out.ok).toBe(false);
+			expect(out.stdout).toBe("");
+			expect(out.stderr).toContain("spawn failed");
+			expect(out.code).toBeNull();
+			expect(t.pending()).toEqual([]);
+		} finally {
+			h.restore();
+		}
+	});
+
+	test("an error after the deadline does not settle — it is recorded as killError and the armed close-wait settles", async () => {
+		const t = makeTimers();
+		const { child } = makeChild(987654323);
+		const h = start(child, t);
+		let settleCount = 0;
+		let settled: unknown = null;
+		h.promise.then((r) => {
+			settleCount += 1;
+			settled = r;
+		});
+		try {
+			t.fire(20_000); // deadline: the close-wait is armed, then the kill
+			child.emit("error", new Error("late")); // must NOT settle
+			await flushMicrotasks();
+			expect(settleCount).toBe(0);
+			t.fire(2_000); // the already-armed close-wait settles
+			await flushMicrotasks();
+			expect(settleCount).toBe(1);
+			expect(settled).toEqual({ ok: false, stdout: "", stderr: "", code: null, timedOut: true, unreaped: true, killError: "late" });
+			expect(t.pending()).toEqual([]);
+			expect(child.listenerCount("close")).toBe(0);
+			expect(child.listenerCount("error")).toBe(0);
+		} finally {
+			h.restore();
+		}
+	});
+
+	// Bun's ChildProcess.kill emits close/error SYNCHRONOUSLY from its
+	// catch: the close-wait must be armed BEFORE the kill (matching
+	// boundedIdentityProbe), so a synchronous settle cannot leave a timer
+	// scheduled after settlement (review rv-s5-sec finding 1).
+	test("a close emitted SYNCHRONOUSLY inside kill() settles once with unreaped false and zero pending timers", async () => {
+		const t = makeTimers();
+		const { child, killCalls } = makeChild(987654324);
+		child.kill = () => {
+			killCalls.push("held-handle");
+			child.emit("close", 1); // synchronous inside kill()
+			return true;
+		};
+		const h = start(child, t);
+		let settleCount = 0;
+		let settled: unknown = null;
+		h.promise.then((r) => {
+			settleCount += 1;
+			settled = r;
+		});
+		try {
+			t.fire(20_000);
+			await flushMicrotasks();
+			expect(settleCount).toBe(1); // settled exactly once
+			expect(settled).toEqual({ ok: false, stdout: "", stderr: "", code: null, timedOut: true, unreaped: false });
+			expect(t.pending()).toEqual([]); // the close-wait armed before the kill was cleared
+			expect(child.listenerCount("close")).toBe(0);
+			expect(child.listenerCount("error")).toBe(0);
+			expect(killCalls.length).toBe(1);
+		} finally {
+			h.restore();
+		}
+	});
+
+	test("an error emitted SYNCHRONOUSLY inside kill() does not settle — recorded as killError, and the armed close-wait settles unreaped", async () => {
+		const t = makeTimers();
+		const { child, killCalls } = makeChild(987654325);
+		child.kill = () => {
+			killCalls.push("held-handle");
+			child.emit("error", new Error("boom")); // synchronous inside kill()
+			return true;
+		};
+		const h = start(child, t);
+		let settleCount = 0;
+		let settled: unknown = null;
+		h.promise.then((r) => {
+			settleCount += 1;
+			settled = r;
+		});
+		try {
+			t.fire(20_000);
+			await flushMicrotasks();
+			expect(settleCount).toBe(0); // the synchronous error did not settle
+			t.fire(2_000); // the already-armed close-wait settles
+			await flushMicrotasks();
+			expect(settleCount).toBe(1);
+			expect(settled).toEqual({ ok: false, stdout: "", stderr: "", code: null, timedOut: true, unreaped: true, killError: "boom" });
+			expect(t.pending()).toEqual([]);
+			expect(child.listenerCount("close")).toBe(0);
+			expect(child.listenerCount("error")).toBe(0);
+			expect(killCalls.length).toBe(1);
+		} finally {
+			h.restore();
+		}
+	});
+});
+
+/* ---------------- runSmoke probe residue retention -----------------------
+ *
+ * An unreaped probe child must reach the FINAL result (review rv-s5-sec
+ * finding 2): the default win32 probes are driven through the injected
+ * win32 runners (the real psScript pipeline — `hooks.runPsWin` for the
+ * identity, `hooks.runPsWinImage` for the image, `hooks.runPsWinParent` for
+ * the parent), and when one of them reports `unreaped: true` runSmoke
+ * retains the sandbox and reports the probe-residue fact in
+ * cleanup.errors — never removes the sandbox silently. The launcher stays
+ * alive during cleanup (the fake child does not pre-exit) so the
+ * ownership tree check reaches the parent probe.
+ */
+
+describe("runSmoke probe residue retention", () => {
+	const RESIDUE_TAIL = " hit its deadline and its child was not reaped (it may still be running); the sandbox is retained";
+
+	test("an unreaped identity probe retains the sandbox with the residue fact in cleanup.errors", async () => {
+		const appDir = makeAppDir();
+		const childPid = 94101;
+		const trayPid = 94102;
+		const killCalls: number[] = [];
+		const identityCalls = new Map<number, number>();
+		let healthCalls = 0;
+		const { spawnFn } = fakeSpawn(childPid, trayPid);
+		let result;
+		try {
+			result = await runSmoke(
+				{ appDir, port: 17446, timeoutMs: 3_000, log: null, keepHome: false },
+				{
+					spawn: spawnFn,
+					isAlive: async (pid: number) => pid === trayPid,
+					listeningPid: () => null,
+					killTree: async (pid: number) => {
+						killCalls.push(pid);
+					},
+					probeHealth: async () => {
+						healthCalls += 1;
+						return { healthy: healthCalls > 1 };
+					},
+					runPsWin: async (pid: number) => {
+						const p = pid;
+						const n = (identityCalls.get(p) ?? 0) + 1;
+						identityCalls.set(p, n);
+						if (p === trayPid) {
+							if (n === 1) return { ok: false, stdout: "", stderr: "", code: null, timedOut: true, unreaped: true };
+							if (n === 2) return { ok: true, stdout: "133850432100000000\n", stderr: "", code: 0 };
+							return { ok: false, stdout: "", stderr: "", code: 3 }; // gone for the poll and verdict
+						}
+						return { ok: false, stdout: "", stderr: "", code: 3 }; // the launcher pid: gone (refused)
+					},
+					runPsWinImage: async () => ({ ok: true, stdout: `${launcherCandidates(appDir, "win32")[0]}\n`, stderr: "", code: 0 }),
+					runPsWinParent: async () => ({ ok: true, stdout: `${childPid}\n`, stderr: "", code: 0 }),
+				},
+			);
+			// the kill still happened (the identity was alive at the signal)
+			expect(killCalls).toEqual([trayPid]);
+			expect(result.cleanup.killed).toEqual([trayPid]);
+			expect(result.sandboxRetained).toBe(true);
+			expect(result.sandbox).toBeTruthy();
+			expect(existsSync(result.sandbox)).toBe(true); // not removed
+			expect(result.cleanup.ok).toBe(false);
+			expect(result.ok).toBe(false);
+			expect(result.cleanup.errors).toEqual([`probe residue: the identity probe for pid ${trayPid}${RESIDUE_TAIL}`]);
+			expect(result.reason).toBe(`cleanup failed: probe residue: the identity probe for pid ${trayPid}${RESIDUE_TAIL}`);
+		} finally {
+			if (result?.sandbox != null) rmSync(result.sandbox, { recursive: true, force: true });
+			rmSync(appDir, { recursive: true, force: true });
+		}
+	});
+
+	test("an unreaped parent probe retains the sandbox (ownership falls back to the image)", async () => {
+		const appDir = makeAppDir();
+		const childPid = 94201;
+		const trayPid = 94202;
+		const killCalls: number[] = [];
+		const identityCalls = new Map<number, number>();
+		const parentUnreaped = new Set<number>();
+		// The parent probe degrades (unreaped) exactly once, after the startup
+		// is confirmed healthy: during the health wait it still reports the
+		// launcher pid, so decide() sees the tray in the tree and the run
+		// succeeds; the first cleanup observation is unreaped (the residue),
+		// later probes fail normally (no further residue).
+		let healthy = false;
+		let healthCalls = 0;
+		const { spawnFn } = fakeSpawn(childPid, trayPid);
+		let result;
+		try {
+			result = await runSmoke(
+				{ appDir, port: 17447, timeoutMs: 3_000, log: null, keepHome: false },
+				{
+					spawn: spawnFn,
+					isAlive: async (pid: number) => pid === trayPid,
+					listeningPid: () => null,
+					killTree: async (pid: number) => {
+						killCalls.push(pid);
+					},
+					probeHealth: async () => {
+						healthCalls += 1;
+						if (healthCalls > 1) healthy = true;
+						return { healthy: healthCalls > 1 };
+					},
+					runPsWin: async (pid: number) => {
+						const p = pid;
+						const n = (identityCalls.get(p) ?? 0) + 1;
+						identityCalls.set(p, n);
+						if (p === trayPid) {
+							if (n <= 2) return { ok: true, stdout: "133850432100000001\n", stderr: "", code: 0 };
+							return { ok: false, stdout: "", stderr: "", code: 3 }; // gone for the poll and verdict
+						}
+						return { ok: false, stdout: "", stderr: "", code: 3 };
+					},
+					runPsWinImage: async () => ({ ok: true, stdout: `${launcherCandidates(appDir, "win32")[0]}\n`, stderr: "", code: 0 }),
+					runPsWinParent: async (pid: number) => {
+						if (!healthy) return { ok: true, stdout: `${childPid}\n`, stderr: "", code: 0 };
+						if (!parentUnreaped.has(pid)) {
+							parentUnreaped.add(pid);
+							return { ok: false, stdout: "", stderr: "", code: null, timedOut: true, unreaped: true };
+						}
+						return { ok: false, stdout: "", stderr: "", code: 1 }; // later probes fail without residue
+					},
+				},
+			);
+			expect(killCalls).toEqual([trayPid]);
+			expect(result.cleanup.killed).toEqual([trayPid]);
+			expect(result.sandboxRetained).toBe(true);
+			expect(result.sandbox).toBeTruthy();
+			expect(existsSync(result.sandbox)).toBe(true); // not removed
+			expect(result.cleanup.ok).toBe(false);
+			expect(result.ok).toBe(false);
+			// exactly the parent residue fact — no identity residue
+			expect(result.cleanup.errors).toEqual([`probe residue: the parent probe for pid ${trayPid}${RESIDUE_TAIL}`]);
+			expect(result.reason).toBe(`cleanup failed: probe residue: the parent probe for pid ${trayPid}${RESIDUE_TAIL}`);
+		} finally {
+			if (result?.sandbox != null) rmSync(result.sandbox, { recursive: true, force: true });
+			rmSync(appDir, { recursive: true, force: true });
+		}
 	});
 });
 
@@ -4116,6 +4716,36 @@ describe("tar/zstd fail-closed branches", () => {
 		]);
 		expect(createHash("sha256").update(Bun.zstdDecompressSync(fourByte)).digest("hex")).toBe(plainSha);
 		expect(zstdDeclaredContentSize(fourByte)).toBe(plain.length);
+	});
+
+	// The two FCS forms the suite did not lock (review rv-fin-rt finding 1):
+	// the 1-byte single-segment field (FCS_Flag 0b00 — exact size, RFC 8878
+	// §3.1.1.1) and the 8-byte form (FCS_Flag 0b11 — not parsed; null).
+	// Mutants that skip the 1-byte read or parse the 8-byte form instead of
+	// returning null go assertion-red here.
+	test("a 1-byte single-segment FCS field declares the exact content size", () => {
+		// descriptor 0x20: single-segment (0b00100000), FCS_Flag 0b00, no Dictionary_ID
+		const oneByte = Buffer.from([0x28, 0xb5, 0x2f, 0xfd, 0x20, 0x2a]);
+		expect(zstdDeclaredContentSize(oneByte)).toBe(42);
+		expect(zstdDeclaredContentSize(Buffer.from([0x28, 0xb5, 0x2f, 0xfd, 0x20, 0xff]))).toBe(255);
+		// Truncated: the FCS byte is missing.
+		expect(zstdDeclaredContentSize(Buffer.from([0x28, 0xb5, 0x2f, 0xfd, 0x20]))).toBeNull();
+		// FCS_Flag 0b00 on a WINDOWED frame declares no size (the 1-byte
+		// field is a single-segment-only form).
+		expect(zstdDeclaredContentSize(Buffer.from([0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x18, 0x2a]))).toBeNull();
+	});
+
+	test("FCS_Flag 0b11 (the 8-byte form) is not parsed and returns null", () => {
+		// Windowed, no Dictionary_ID: descriptor 0xC0 (0b11000000) + a window byte.
+		expect(zstdDeclaredContentSize(Buffer.from([0x28, 0xb5, 0x2f, 0xfd, 0xc0, 0x18]))).toBeNull();
+		// Windowed + a one-byte Dictionary_ID: descriptor 0xC1.
+		expect(zstdDeclaredContentSize(Buffer.from([0x28, 0xb5, 0x2f, 0xfd, 0xc1, 0x18, 0x00]))).toBeNull();
+		// Windowed + a four-byte Dictionary_ID: descriptor 0xC3.
+		expect(zstdDeclaredContentSize(Buffer.from([0x28, 0xb5, 0x2f, 0xfd, 0xc3, 0x18, 0x00, 0x00, 0x00]))).toBeNull();
+		// Padded long enough for a mutant that parses the 8-byte field to
+		// read it and return a number: the correct parser returns null.
+		const padded = Buffer.from([0x28, 0xb5, 0x2f, 0xfd, 0xc0, 0x18, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
+		expect(zstdDeclaredContentSize(padded)).toBeNull();
 	});
 });
 

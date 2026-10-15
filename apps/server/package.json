@@ -9,6 +9,7 @@
     "build:local": "vite build --config vite.local.config.ts",
     "db:import-d1": "bun scripts/import-d1-export.ts",
     "db:migrate:libsql": "bun scripts/migrate-libsql.ts",
+    "edger:dev": "bun scripts/edger-dev.ts",
     "edger:install": "bun scripts/edger-install.ts",
     "dev:cloud": "bun scripts/cloud-local.mjs --serve",
     "dev": "vite dev --host",

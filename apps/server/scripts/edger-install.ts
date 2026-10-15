@@ -753,8 +753,15 @@ export async function runEdgerInstall(
       }
       log(`installed ${worker.name}@${version} (staged)`);
       if (args.noPromote) {
+        // The worker declares `hosts`, so its name route answers 404 since
+        // EdgeR EDG-27; a staged version is reached through the
+        // control-plane invoke, an internal request.
+        const invokeUrl = adminEndpoint(
+          args.url,
+          `/api/admin/workers/${encodeURIComponent(worker.name)}/invoke/`,
+        );
         log(
-          `not promoted (--no-promote): test it at ${args.url.replace(/\/+$/, "")}/${worker.name}@${version}/`,
+          `not promoted (--no-promote): test it at ${invokeUrl}<path> with headers x-edger-worker-version: ${version} and x-edger-control-authorization: Bearer <key with workers:invoke>`,
         );
         return 0;
       }

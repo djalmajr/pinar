@@ -744,7 +744,7 @@ describe("runEdgerInstall", () => {
     assert.equal(captures.length, 1);
     assert.deepEqual(lines, [
       "installed pinar-stg@1.2.3 (staged)",
-      "not promoted (--no-promote): test it at https://stg.pinar.dev/pinar-stg@1.2.3/",
+      `not promoted (--no-promote): test it at https://stg.pinar.dev/api/admin/workers/pinar-stg/invoke/<path> with headers x-edger-worker-version: 1.2.3 and x-edger-control-authorization: Bearer <key with workers:invoke>`,
     ]);
     noTempLeftovers(fixture);
   });
@@ -821,7 +821,7 @@ describe("runEdgerInstall", () => {
     );
     assert.equal(
       lines[1],
-      "not promoted (--no-promote): test it at https://stg.pinar.dev/apps/pinar-stg@1.2.3/",
+      `not promoted (--no-promote): test it at https://stg.pinar.dev/apps/api/admin/workers/pinar-stg/invoke/<path> with headers x-edger-worker-version: 1.2.3 and x-edger-control-authorization: Bearer <key with workers:invoke>`,
     );
   });
 

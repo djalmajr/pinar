@@ -8,6 +8,7 @@
     "build:edger": "bun scripts/build-edger.ts",
     "build:local": "vite build --config vite.local.config.ts",
     "db:migrate:libsql": "bun scripts/migrate-libsql.ts",
+    "edger:install": "bun scripts/edger-install.ts",
     "dev:cloud": "bun scripts/cloud-local.mjs --serve",
     "dev": "vite dev --host",
     "dev:local": "vite dev --config vite.local.config.ts --host 127.0.0.1 --port 17373 --strictPort",

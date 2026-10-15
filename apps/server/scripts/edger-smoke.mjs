@@ -72,8 +72,9 @@ if (typeof handler !== "function") {
 const origin = "http://smoke.test";
 let failed = false;
 
-async function expect(method, path, check) {
+async function expect(method, path, check, headers = {}) {
   const request = new Request(`${origin}${path}`, {
+    headers,
     method,
     signal: AbortSignal.timeout(30_000),
   });
@@ -110,10 +111,29 @@ await expect("GET", "/", async (response) => {
 });
 
 // The cron route must not reveal itself to external traffic: without the
-// internal header it answers the same 404 as any unknown path.
+// internal header it answers the EdgeR entry's plain 404 (the TanStack
+// not-found page would mean the bundle lost src/edger-server-entry.ts).
 await expect("POST", "/_internal/cron/daily", async (response) => {
   if (response.status !== 404) return `expected 404, got ${response.status}`;
+  const body = await response.text();
+  if (body !== "Not found") return `expected the entry's "Not found", got ${JSON.stringify(body.slice(0, 80))}`;
 });
+
+// With the header EdgeR's scheduler sends, the entry runs the four daily
+// jobs and reports each one. Without a database they may fail (500); the
+// report itself proves the route is wired.
+await expect("POST", "/_internal/cron/daily", async (response) => {
+  if (response.status !== 200 && response.status !== 500) return `expected 200 or 500, got ${response.status}`;
+  let body;
+  try {
+    body = await response.json();
+  } catch {
+    return "body is not JSON";
+  }
+  const jobs = Array.isArray(body.jobs) ? body.jobs.map((job) => job.job) : [];
+  const expected = ["cleanupOldRecords", "reconcileBillingEntitlements", "refundStaleAiReservations", "sendStorageExpiryNotices"];
+  if (JSON.stringify(jobs) !== JSON.stringify(expected)) return `expected the four daily jobs, got ${JSON.stringify(jobs)}`;
+}, { "x-edger-internal": "true" });
 
 // The marketing page renders.
 await expect("GET", "/pricing", async (response) => {

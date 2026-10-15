@@ -56,7 +56,10 @@ export default defineConfig({
       compiler: "jsx",
       jsx: "react",
     }),
-    tanstackStart(),
+    // The plugin picks the SSR entry from this option (default `src/server`),
+    // not from the `server-entry` alias below: without it the bundle gets the
+    // generic TanStack entry and loses the internal cron route.
+    tanstackStart({ server: { entry: "edger-server-entry" } }),
     react(),
   ],
   resolve: {

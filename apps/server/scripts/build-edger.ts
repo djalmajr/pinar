@@ -63,6 +63,10 @@ const serverSource = readFileSync(serverJs, "utf8");
 // adapter is inlined, and a Cloudflare binding's own source never spells its
 // specifier.
 const forbidden = ["cloudflare:workers", "cloudflare:email", "@cloudflare/vite-plugin"];
+// The EdgeR entry (src/edger-server-entry.ts) owns the internal cron route;
+// a bundle without it fell back to the generic TanStack entry.
+const requiredMarker = "/_internal/cron/daily";
+let hasRequiredMarker = false;
 for (const file of listJsFiles(join(edgerDir, "server"))) {
   const source = readFileSync(file, "utf8");
   for (const marker of forbidden) {
@@ -70,6 +74,10 @@ for (const file of listJsFiles(join(edgerDir, "server"))) {
       throw new Error(`${relative(root, file)} contains ${marker}`);
     }
   }
+  if (source.includes(requiredMarker)) hasRequiredMarker = true;
+}
+if (!hasRequiredMarker) {
+  throw new Error(`dist/edger/server does not contain ${requiredMarker}: the EdgeR server entry was not used`);
 }
 if (
   !serverSource.includes("as default") &&

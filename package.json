@@ -32,6 +32,7 @@
     "dev:local": "bun --filter @pinar/server dev:local",
     "prepare:cloud": "bun apps/server/scripts/cloud-local.mjs",
     "build:server": "bun scripts/release-check.mjs && bun --filter @pinar/server build",
+    "build:edger": "bun --filter @pinar/server build:edger",
     "build:local": "bun --filter @pinar/server build:local",
     "dev:ext": "bun --filter @pinar/extension dev",
     "dev:tray": "bun scripts/prepare-tray-helper.mjs && bun scripts/run-tray.mjs dev",

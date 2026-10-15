@@ -1,0 +1,78 @@
+import {
+  cleanupOldRecords,
+  reconcileBillingEntitlements,
+  refundStaleAiReservations,
+  sendStorageExpiryNotices,
+} from "./server/cloud-api";
+import { getEdgerCloudEnv } from "./server/api.edger";
+import { FREE_CLOUD_RETENTION_DAYS } from "./lib/retention";
+
+type TanstackFetch = typeof import("./tanstack-server-entry")["default"]["fetch"];
+
+let cachedTanstackFetch: TanstackFetch | null = null;
+
+async function getTanstackFetch(): Promise<TanstackFetch> {
+  if (cachedTanstackFetch) return cachedTanstackFetch;
+  const { default: entry } = await import("./tanstack-server-entry");
+  cachedTanstackFetch = entry.fetch;
+  return cachedTanstackFetch;
+}
+
+const CRON_PATH = "/_internal/cron/daily";
+const INTERNAL_HEADER = "x-edger-internal";
+
+/**
+ * Server entry for EdgeR (a self-hosted Deno runtime). The Cloudflare cron
+ * becomes an internal POST to `/_internal/cron/daily` carrying
+ * `x-edger-internal: true`, which the EdgeR runtime strips from external
+ * traffic, so the route may require it. Everything else goes to the TanStack
+ * handler.
+ */
+export function createEdgerFetch(deps: {
+  tanstackFetch: (request: Request) => Promise<Response>;
+  jobs: Array<{ name: string; run: () => Promise<unknown> }>;
+  log?: (line: string) => void;
+}) {
+  const log = deps.log ?? ((line: string) => console.log(line));
+  return async (request: Request): Promise<Response> => {
+    if (new URL(request.url).pathname === CRON_PATH) {
+      if (request.method !== "POST" || request.headers.get(INTERNAL_HEADER) !== "true") {
+        // Same 404 as any unknown path: the route must not reveal itself.
+        return new Response("Not found", { status: 404 });
+      }
+      // A job that throws before returning its promise (resolving the env,
+      // for example) must not stop the others from starting.
+      const results = await Promise.allSettled(deps.jobs.map((job) => Promise.resolve().then(() => job.run())));
+      const report = deps.jobs.map((job, index) => ({
+        job: job.name,
+        ok: results[index].status === "fulfilled",
+      }));
+      const ok = report.every((entry) => entry.ok);
+      results.forEach((result, index) => {
+        if (result.status === "fulfilled") {
+          log(JSON.stringify({ message: "cron_job", job: deps.jobs[index].name, ok: true }));
+        } else {
+          log(JSON.stringify({ message: "cron_job", job: deps.jobs[index].name, ok: false, error: errorMessage(result.reason) }));
+        }
+      });
+      return Response.json({ ok, jobs: report }, { status: ok ? 200 : 500 });
+    }
+    return deps.tanstackFetch(request);
+  };
+}
+
+function errorMessage(reason: unknown): string {
+  return reason instanceof Error && reason.message.length > 0 ? reason.message : String(reason);
+}
+
+export default {
+  fetch: createEdgerFetch({
+    tanstackFetch: async (request) => (await getTanstackFetch())(request),
+    jobs: [
+      { name: "cleanupOldRecords", run: () => cleanupOldRecords(getEdgerCloudEnv(), FREE_CLOUD_RETENTION_DAYS) },
+      { name: "reconcileBillingEntitlements", run: () => reconcileBillingEntitlements(getEdgerCloudEnv()) },
+      { name: "refundStaleAiReservations", run: () => refundStaleAiReservations(getEdgerCloudEnv()) },
+      { name: "sendStorageExpiryNotices", run: () => sendStorageExpiryNotices(getEdgerCloudEnv()) },
+    ],
+  }),
+};

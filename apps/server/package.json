@@ -6,6 +6,7 @@
   "scripts": {
     "build": "vite build",
     "build:local": "vite build --config vite.local.config.ts",
+    "db:migrate:libsql": "bun scripts/migrate-libsql.ts",
     "dev:cloud": "bun scripts/cloud-local.mjs --serve",
     "dev": "vite dev --host",
     "dev:local": "vite dev --config vite.local.config.ts --host 127.0.0.1 --port 17373 --strictPort",
@@ -18,6 +19,7 @@
     "@dnd-kit/core": "6.3.1",
     "@dnd-kit/sortable": "10.0.0",
     "@dnd-kit/utilities": "3.2.2",
+    "@libsql/client": "0.18.0",
     "@pinar/cli": "workspace:*",
     "@pinar/shared": "workspace:*",
     "@pinar/ui": "workspace:*",
@@ -29,6 +31,7 @@
     "@tiptap/pm": "^3.31.3",
     "@tiptap/react": "^3.31.3",
     "@tiptap/starter-kit": "^3.31.3",
+    "aws4fetch": "1.0.20",
     "disposable-email-domains-js": "1.26.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",

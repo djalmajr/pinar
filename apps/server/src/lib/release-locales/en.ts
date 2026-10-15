@@ -20,6 +20,18 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.7.2": {
+      title: "Pinar Cloud on new hosting",
+      summary:
+        "Pinar's cloud service now runs on new hosting. Accounts, captures, purchases, and credits stay the same, and there is nothing you need to do.",
+      changes: {
+        "cloud-hosting": {
+          title: "New hosting for the cloud service",
+          description:
+            "Shared captures, voice transcription, AI suggestions, sign-in emails, and payments now run on new hosting. While the move happens, actions that save data may be unavailable for a few minutes.",
+        },
+      },
+    },
     "v0.7.1": {
       title: "A steadier Pinar tray on Windows",
       summary:

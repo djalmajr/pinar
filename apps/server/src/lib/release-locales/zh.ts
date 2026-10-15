@@ -20,6 +20,18 @@ const locale = {
     whatChanged: "更新内容",
   },
   releases: {
+    "v0.7.2": {
+      title: "Pinar Cloud 迁移到新的托管环境",
+      summary:
+        "Pinar 的云服务现在运行在新的托管环境上。账户、捕获、购买和额度保持不变，你无需任何操作。",
+      changes: {
+        "cloud-hosting": {
+          title: "云服务的新托管环境",
+          description:
+            "共享捕获、语音转写、AI 建议、登录邮件和支付现在运行在新的托管环境上。迁移期间，保存数据的操作可能会有几分钟无法使用。",
+        },
+      },
+    },
     "v0.7.1": {
       title: "Windows 上更稳定的 Pinar 托盘",
       summary:

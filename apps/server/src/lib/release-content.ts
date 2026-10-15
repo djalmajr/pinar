@@ -86,6 +86,11 @@ export interface ReleaseContent {
 
 export const releaseDefinitions = [
   {
+    tag: "v0.7.2",
+    date: "2026-10-15",
+    changes: ["cloud-hosting"],
+  },
+  {
     tag: "v0.7.1",
     date: "2026-10-08",
     changes: ["tray-reliability", "tray-memory-guard"],

@@ -21,6 +21,18 @@ const locale = {
     whatChanged: "Qué cambió",
   },
   releases: {
+    "v0.7.2": {
+      title: "Pinar Cloud en un nuevo alojamiento",
+      summary:
+        "El servicio en la nube de Pinar ahora funciona en un nuevo alojamiento. Las cuentas, capturas, compras y créditos siguen igual, y no tienes que hacer nada.",
+      changes: {
+        "cloud-hosting": {
+          title: "Nuevo alojamiento para el servicio en la nube",
+          description:
+            "Las capturas compartidas, la transcripción de voz, las sugerencias de IA, los correos de inicio de sesión y los pagos ahora funcionan en un nuevo alojamiento. Durante el traslado, las acciones que guardan datos pueden no estar disponibles durante unos minutos.",
+        },
+      },
+    },
     "v0.7.1": {
       title: "Una bandeja de Pinar más estable en Windows",
       summary:

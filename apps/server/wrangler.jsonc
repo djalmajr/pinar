@@ -102,8 +102,11 @@
       }
     },
 
+    // Production runs on EdgeR too (worker pinar on pinar.dev and
+    // www.pinar.dev), with the same rules as staging above.
     "production": {
       "name": "pinar-prd",
+      "triggers": { "crons": [] },
       "d1_databases": [
         {
           "binding": "DB",
@@ -125,11 +128,6 @@
       "secrets": {
         "required": ["AUTH_PEPPER", "EXTENSION_ORIGIN", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"]
       },
-      "routes": [
-        { "pattern": "pinar.dev", "custom_domain": true },
-        { "pattern": "www.pinar.dev", "custom_domain": true }
-      ],
-      "triggers": { "crons": ["0 3 * * *"] },
       "vars": {
         "DEPLOYMENT_ENV": "production",
         "CLOUD_TRIAL_ENABLED": "true",

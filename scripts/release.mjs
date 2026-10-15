@@ -6,8 +6,8 @@
 // Writes the new version to the root package.json and to every package that
 // ships (cli, tray, server). Closed tags require notes in every language.
 // Commits "chore: release vX.Y.Z" and tags. It does not push: pushing a closed
-// tag deploys the production Worker + desktop; a prerelease tag deploys
-// nothing (staging is installed on EdgeR by hand).
+// tag builds the desktop apps; a prerelease tag publishes nothing. The server
+// is installed on EdgeR by hand (edger:install) in both cases.
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -89,7 +89,7 @@ git("commit", "-q", "-m", `chore: release ${tag}`);
 git("tag", "-a", tag, "-m", tag);
 console.log(`release: ${current} -> ${version}, tagged ${tag} (${classified.kind})`);
 if (classified.kind === "closed") {
-  console.log("next: git push && git push --tags — CI deploys the production Worker and builds macOS/Windows, then marks GitHub Latest.");
+  console.log("next: git push && git push --tags — CI builds macOS/Windows and marks GitHub Latest. Install the server on EdgeR with edger:install.");
 } else {
-  console.log("next: git push && git push --tags — CI deploys the staging Worker. No desktop build and no GitHub Latest.");
+  console.log("next: git push && git push --tags — No desktop build and no GitHub Latest. Install staging on EdgeR with edger:install.");
 }

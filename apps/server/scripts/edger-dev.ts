@@ -15,7 +15,9 @@
  * to `@every 2s` (the original `dist/edger` is untouched), every install
  * uses `--artifact-dir <tmp>/artifact`, and the EdgeR runs with
  * `EDGER_LOG=info` and `NO_COLOR=1` so the log lines stay plain. Without
- * the flag the behavior is exactly as before.
+ * the flag the behavior is exactly as before. These proofs need EdgeR
+ * v0.3.2-rc.19 or later, the first release with both fixes; on rc.18
+ * proofs 6 and 8 to 10 fail.
  *
  * Every helper process (sqld, EdgeR and the installer) is a supervised
  * subprocess in its own process group; on any exit — a signal, a failed

@@ -6,13 +6,24 @@
  * orchestrator's manual end-to-end test, scripted: it is the standard way to
  * reproduce the deploy locally before staging.
  *
+ * `--platform-proofs` adds the platform proofs (EDG-26/EDG-27) after the
+ * five existing ones: the name-based routes must answer 404, the host
+ * health must keep answering, and the `cron dispatched` lines must follow
+ * the promoted version (staging a second version never steals the cron,
+ * and the promote switches the target without duplicating it). With the
+ * flag the artifact is copied to the temp dir with its cron schedule set
+ * to `@every 2s` (the original `dist/edger` is untouched), every install
+ * uses `--artifact-dir <tmp>/artifact`, and the EdgeR runs with
+ * `EDGER_LOG=info` and `NO_COLOR=1` so the log lines stay plain. Without
+ * the flag the behavior is exactly as before.
+ *
  * Every helper process (sqld, EdgeR and the installer) is a supervised
  * subprocess in its own process group; on any exit — a signal, a failed
  * proof or an early child death — each group that still exists receives
  * SIGTERM, then SIGKILL after the escalation window, before the temp dir is
  * removed. A dead leader never orphans its group's descendants.
  *
- *   bun run edger:dev -- [--no-build] [--once]
+ *   bun run edger:dev -- [--no-build] [--once] [--platform-proofs]
  *
  * Required: `EDGER_BIN` (the executable EdgeR binary), `EDGER_SRC` (a
  * directory with `workers/core`) and `sqld` + `deno` on the PATH. Everything
@@ -31,11 +42,13 @@ import {
   chmodSync,
   closeSync,
   constants,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   openSync,
   readFileSync,
+  readSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -47,10 +60,15 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@libsql/client";
 import { defaultMigrationsDir, migrateLibsql } from "./migrate-libsql";
+import {
+  healthCheck,
+  patchCronSchedule,
+  PLATFORM_CRON_SCHEDULE,
+  runPlatformProofs,
+  STAGING_HOST,
+} from "./edger-dev-platform";
 
 const serverDir = fileURLToPath(new URL("..", import.meta.url));
-/** The host the staging worker serves (the `WORKERS.staging` hosts). */
-const STAGING_HOST = "stg.pinar.dev";
 /** A host the EdgeR has no worker for: it must answer 404. */
 const UNKNOWN_HOST = "evil.example";
 /** The guide printed when `EDGER_BIN`/`EDGER_SRC` cannot be resolved. */
@@ -73,13 +91,14 @@ const SHUTDOWN_MS = 10_000;
 export interface DevOptions {
   build: boolean;
   once: boolean;
+  platformProofs: boolean;
 }
 
 class UsageError extends Error {}
 
-/** `--no-build` and `--once` are the only accepted arguments. */
+/** `--no-build`, `--once` and `--platform-proofs` are the only accepted arguments. */
 export function parseDevArgs(argv: readonly string[]): DevOptions {
-  const options: DevOptions = { build: true, once: false };
+  const options: DevOptions = { build: true, once: false, platformProofs: false };
   for (const arg of argv) {
     if (arg === "--") continue;
     if (arg === "--no-build") {
@@ -90,7 +109,13 @@ export function parseDevArgs(argv: readonly string[]): DevOptions {
       options.once = true;
       continue;
     }
-    throw new UsageError(`unknown argument: ${arg} (expected --no-build or --once)`);
+    if (arg === "--platform-proofs") {
+      options.platformProofs = true;
+      continue;
+    }
+    throw new UsageError(
+      `unknown argument: ${arg} (expected --no-build, --once or --platform-proofs)`,
+    );
   }
   return options;
 }
@@ -320,26 +345,6 @@ export async function runProofs(
   return { allOk: lines.every((line) => line.startsWith("ok ")), lines };
 }
 
-/** `null` when the health proof passes; otherwise the failing detail. */
-async function healthCheck(attempt: () => Promise<ProofResponse>): Promise<string | null> {
-  let response: ProofResponse;
-  try {
-    response = await attempt();
-  } catch (error) {
-    return error instanceof Error ? error.message : "request failed";
-  }
-  if (response.status !== 200) return `status ${response.status}`;
-  let body: { hasDb?: unknown; service?: unknown };
-  try {
-    body = (await response.json()) as { hasDb?: unknown; service?: unknown };
-  } catch {
-    return "body is not JSON";
-  }
-  if (body.service !== "pinar") return `service is ${JSON.stringify(body.service)}`;
-  if (body.hasDb !== true) return `hasDb is ${JSON.stringify(body.hasDb)}`;
-  return null;
-}
-
 /** The real `ProofFetch`: `127.0.0.1` only, body capped, no credentials. */
 function httpProofFetch(url: string, init: ProofInit): Promise<ProofResponse> {
   const target = new URL(url);
@@ -386,6 +391,33 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * The new part of a growing log file: the **bytes** from `offset` to the
+ * current size. The EdgeR appends to it; a partially written tail line is
+ * re-read whole on the next call (the offset does not move). The platform
+ * module bounds the window in these bytes and decodes UTF-8 only at the
+ * end — `logSize` is `statSync().size` (bytes), so string units would
+ * desync the boundary on multibyte text.
+ */
+function readLogFromOffset(path: string, offset: number): Buffer {
+  const size = statSync(path).size;
+  if (size <= offset) return Buffer.alloc(0);
+  const length = size - offset;
+  const buffer = Buffer.alloc(length);
+  const fd = openSync(path, "r");
+  try {
+    let read = 0;
+    while (read < length) {
+      const chunk = readSync(fd, buffer, read, length - read, offset + read);
+      if (chunk === 0) break;
+      read += chunk;
+    }
+    return buffer.subarray(0, read);
+  } finally {
+    closeSync(fd);
+  }
+}
+
 function resolveOnPath(name: string): string | null {
   const pathEnv = process.env.PATH;
   if (!pathEnv) return null;
@@ -415,7 +447,7 @@ function resolveOnPath(name: string): string | null {
 export const childGroups: number[] = [];
 let shuttingDown = false;
 let tmpRoot = "";
-let devOptions: DevOptions = { build: true, once: false };
+let devOptions: DevOptions = { build: true, once: false, platformProofs: false };
 
 function childExited(child: ChildProcess): boolean {
   return child.exitCode !== null || child.signalCode !== null;
@@ -663,6 +695,21 @@ async function main(): Promise<void> {
     }
   }
 
+  // --- platform-proofs artifact (only with the flag) ----------------------
+  // A private copy of the artifact whose cron schedule is `@every 2s`, so
+  // the cron windows are measurable; the original `dist/edger` is never
+  // touched, and every install of the run uses this copy.
+  let artifactDir = "";
+  if (devOptions.platformProofs) {
+    artifactDir = join(tmpRoot, "artifact");
+    cpSync(distDir, artifactDir, { recursive: true });
+    const manifestPath = join(artifactDir, "manifest.yaml");
+    writeFileSync(
+      manifestPath,
+      patchCronSchedule(readFileSync(manifestPath, "utf8"), PLATFORM_CRON_SCHEDULE),
+    );
+  }
+
   // --- root key and env file (0600, never printed) --------------------------
   const rootKeyPath = join(tmpRoot, "root-key");
   writePrivateFile(rootKeyPath, randomBytes(24).toString("hex"));
@@ -718,6 +765,9 @@ async function main(): Promise<void> {
       EDGER_CORE_WORKER_OVERLAY_DIR: join(tmpRoot, "overlay"),
       EDGER_CRON_ENABLED: "true",
       EDGER_ROOT_KEY_FILE: rootKeyPath,
+      // Plain info lines for the `cron dispatched` proof (no ANSI even
+      // when a tty would colorize; the parser strips ANSI either way).
+      ...(devOptions.platformProofs ? { EDGER_LOG: "info", NO_COLOR: "1" } : {}),
       PORT: String(edgerPort),
       RUNTIME_WORKER_DIRS: join(tmpRoot, "workers"),
     },
@@ -732,6 +782,9 @@ async function main(): Promise<void> {
   // to it. Its output goes straight to stdout/stderr — the installer
   // redacts its own secrets.
   const version = `0.0.0-dev.${Math.floor(Date.now() / 1000)}`;
+  // Proof 8 observes the log from before the v1 install: a scheduler that
+  // registers per install must not be able to dispatch earlier.
+  const firstInstallOffset = statSync(join(tmpRoot, "edger.log")).size;
   const installChild = startProcess(
     "install",
     process.execPath,
@@ -748,6 +801,7 @@ async function main(): Promise<void> {
       `http://127.0.0.1:${edgerPort}`,
       "--version",
       version,
+      ...(devOptions.platformProofs ? ["--artifact-dir", artifactDir] : []),
     ],
     serverDir,
     process.env,
@@ -762,7 +816,77 @@ async function main(): Promise<void> {
   // --- proofs -----------------------------------------------------------------
   const outcome = await runProofs(edgerPort, httpProofFetch);
   for (const line of outcome.lines) console.log(line);
-  if (!outcome.allOk) throw new Error("a proof failed");
+  if (!devOptions.platformProofs && !outcome.allOk) throw new Error("a proof failed");
+  // With the flag the run keeps going after a failed proof and exits 1 at
+  // the end only if anything failed; without it the behavior is unchanged.
+  let anyProofFailed = !outcome.allOk;
+  if (devOptions.platformProofs) {
+    const version2 = `${version}.2`;
+    const edgerLogPath = join(tmpRoot, "edger.log");
+    const installSecond = async (): Promise<number> => {
+      const secondChild = startProcess(
+        "install v2",
+        process.execPath,
+        [
+          "scripts/edger-install.ts",
+          "--api-key-file",
+          rootKeyPath,
+          "--env",
+          "staging",
+          "--env-file",
+          envFile,
+          "--no-build",
+          "--no-promote",
+          "--url",
+          `http://127.0.0.1:${edgerPort}`,
+          "--version",
+          version2,
+          "--artifact-dir",
+          artifactDir,
+        ],
+        serverDir,
+        process.env,
+        null,
+        { expectExit: true },
+      );
+      const code = await waitForExitCode(secondChild);
+      // The installer's group is usually gone now: forget it at once. The
+      // code is the proof's to judge, not this run's failure.
+      retireGoneGroups();
+      return code;
+    };
+    const platform = await runPlatformProofs({
+      fetch: httpProofFetch,
+      firstInstallOffset,
+      installSecond,
+      logSize: () => statSync(edgerLogPath).size,
+      logTail: (offset: number) => readLogFromOffset(edgerLogPath, offset),
+      // F1: the byte right before the offset, immutable in an append-only
+      // log. A read that starts mid-line drops the tail of the line before
+      // it, so that tail never counts.
+      prevByteIsNewline: (offset: number) => {
+        if (offset <= 0) return true;
+        const probe = Buffer.alloc(1);
+        const fd = openSync(edgerLogPath, "r");
+        try {
+          return readSync(fd, probe, 0, 1, offset - 1) === 1 && probe[0] === 0x0a;
+        } finally {
+          closeSync(fd);
+        }
+      },
+      port: edgerPort,
+      rootKey: () => readFileSync(rootKeyPath, "utf8").trim(),
+      sleepMs: sleep,
+      version,
+      version2,
+    });
+    for (const line of platform.lines) console.log(line);
+    anyProofFailed = anyProofFailed || !platform.allOk;
+  }
+  if (anyProofFailed) {
+    await shutdown(1);
+    return;
+  }
 
   if (devOptions.once) {
     await shutdown(0);

@@ -140,16 +140,31 @@ function textResponse(status: number, body: string, contentType = "text/plain"):
 }
 
 describe("parseDevArgs", () => {
-  test("accepts the two flags, alone or combined, and skips --", () => {
-    expect(parseDevArgs([])).toEqual({ build: true, once: false });
-    expect(parseDevArgs(["--no-build"])).toEqual({ build: false, once: false });
-    expect(parseDevArgs(["--once"])).toEqual({ build: true, once: true });
-    expect(parseDevArgs(["--", "--no-build", "--once"])).toEqual({ build: false, once: true });
-    expect(parseDevArgs(["--once", "--no-build", "--"])).toEqual({ build: false, once: true });
+  test("accepts the three flags, alone or combined, and skips --", () => {
+    expect(parseDevArgs([])).toEqual({ build: true, once: false, platformProofs: false });
+    expect(parseDevArgs(["--no-build"])).toEqual({ build: false, once: false, platformProofs: false });
+    expect(parseDevArgs(["--once"])).toEqual({ build: true, once: true, platformProofs: false });
+    expect(parseDevArgs(["--platform-proofs"])).toEqual({
+      build: true,
+      once: false,
+      platformProofs: true,
+    });
+    expect(parseDevArgs(["--", "--no-build", "--once"])).toEqual({
+      build: false,
+      once: true,
+      platformProofs: false,
+    });
+    expect(parseDevArgs(["--once", "--no-build", "--", "--platform-proofs"])).toEqual({
+      build: false,
+      once: true,
+      platformProofs: true,
+    });
   });
 
-  test("rejects an unknown argument", () => {
-    expect(() => parseDevArgs(["--port", "1234"])).toThrow(/unknown argument: --port/);
+  test("rejects an unknown argument, listing the accepted flags", () => {
+    expect(() => parseDevArgs(["--port", "1234"])).toThrow(
+      /unknown argument: --port \(expected --no-build, --once or --platform-proofs\)/,
+    );
     expect(() => parseDevArgs(["--no-build", "--bogus"])).toThrow(/unknown argument: --bogus/);
   });
 });

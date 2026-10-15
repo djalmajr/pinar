@@ -4,13 +4,19 @@
  *
  *   bun run edger:install -- \
  *     --url <edger admin url> --env staging|production --env-file <file> \
- *     [--api-key-file <file>] [--version <semver>] [--no-build] [--no-promote]
+ *     [--api-key-file <file>] [--version <semver>] [--artifact-dir <dir>] \
+ *     [--no-build] [--no-promote]
  *
  * `staging` installs the worker `pinar-stg` on stg.pinar.dev; `production`
  * installs the worker `pinar` on pinar.dev and www.pinar.dev. The install is
  * always staged; the promote follows right after, unless `--no-promote` is
  * given. With `--env production`, `releaseProblems({ requireTag: true })`
  * from `scripts/release-check.mjs` must pass before anything else.
+ *
+ * `--artifact-dir <dir>` installs from the given artifact directory instead
+ * of building: the installer never runs `bun run build:edger` with it, and
+ * the directory must contain a `manifest.yaml` (a usage error otherwise).
+ * Without the flag the default is `<rootDir>/apps/server/dist/edger`.
  *
  * The API key and the env values never reach the log: every printed line
  * is redacted against the key and every non-empty env-file value. The
@@ -49,7 +55,7 @@ const ZIP_CAP = 64 * 1024 * 1024;
 const SEMVER =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 const USAGE =
-  "usage: bun run edger:install -- --url <edger admin url> --env staging|production --env-file <file> [--api-key-file <file>] [--version <semver>] [--no-build] [--no-promote]";
+  "usage: bun run edger:install -- --url <edger admin url> --env staging|production --env-file <file> [--api-key-file <file>] [--version <semver>] [--artifact-dir <dir>] [--no-build] [--no-promote]";
 
 /** EdgeR worker per environment (the wrangler names are a different thing). */
 const WORKERS = {
@@ -61,6 +67,8 @@ export type EdgerEnvName = keyof typeof WORKERS;
 
 export interface InstallArgs {
   apiKeyFile?: string;
+  /** The artifact directory (`--artifact-dir`); never built when present. */
+  artifactDir?: string;
   build: boolean;
   env: EdgerEnvName;
   envFile: string;
@@ -162,6 +170,7 @@ export function parseAdminUrl(value: string): URL {
 export function parseInstallArgs(argv: readonly string[]): InstallArgs {
   const options: {
     apiKeyFile?: string;
+    artifactDir?: string;
     env?: EdgerEnvName;
     envFile?: string;
     url?: string;
@@ -188,7 +197,8 @@ export function parseInstallArgs(argv: readonly string[]): InstallArgs {
       flag === "--env" ||
       flag === "--env-file" ||
       flag === "--api-key-file" ||
-      flag === "--version";
+      flag === "--version" ||
+      flag === "--artifact-dir";
     if (!valued) failUsage(`unknown argument: ${arg}`);
     if (value === undefined) {
       index += 1;
@@ -209,6 +219,14 @@ export function parseInstallArgs(argv: readonly string[]): InstallArgs {
       options.envFile = value;
     } else if (flag === "--api-key-file") {
       options.apiKeyFile = value;
+    } else if (flag === "--artifact-dir") {
+      // A given directory is used as-is, never built: a missing manifest is
+      // a usage error, like the other bad arguments.
+      if (!existsSync(join(value, "manifest.yaml"))) {
+        failUsage(`--artifact-dir ${value} has no manifest.yaml`);
+      }
+      options.artifactDir = value;
+      build = false;
     } else {
       options.version = assertSemver(value);
     }
@@ -224,6 +242,7 @@ export function parseInstallArgs(argv: readonly string[]): InstallArgs {
     url: options.url,
   };
   if (options.apiKeyFile !== undefined) args.apiKeyFile = options.apiKeyFile;
+  if (options.artifactDir !== undefined) args.artifactDir = options.artifactDir;
   if (options.version !== undefined) args.version = options.version;
   return args;
 }
@@ -346,7 +365,7 @@ export function assembleEnv(options: {
   if (declared !== envName) {
     throw new Error("DEPLOYMENT_ENV in env file does not match --env");
   }
-  for (const [key, value] of envFileEntries) {
+  for (const [key] of envFileEntries) {
     if (key === "DEPLOYMENT_ENV") continue; // identity: checked above
     if (!manifestKeys.includes(key)) {
       throw new Error(`unknown key in env file: ${key}`);
@@ -649,7 +668,6 @@ export async function runEdgerInstall(
   const log = (line: string): void => baseLog(redactSecrets(line, secrets));
   const fetchImpl = options.fetch ?? fetch;
   const rootDir = options.rootDir ?? defaultRoot;
-  const artifactDir = options.artifactDir ?? join(rootDir, "apps/server/dist/edger");
 
   let args: InstallArgs;
   try {
@@ -663,6 +681,9 @@ export async function runEdgerInstall(
     log(errorMessage(error));
     return 1;
   }
+
+  const artifactDir =
+    options.artifactDir ?? args.artifactDir ?? join(rootDir, "apps/server/dist/edger");
 
   const worker = WORKERS[args.env];
   try {

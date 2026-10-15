@@ -350,6 +350,77 @@ describe("parseInstallArgs", () => {
       /unknown argument: --bogus/,
     );
   });
+
+  test("parses --artifact-dir (both forms) and disables the build", () => {
+    const area = mkdtempSync(join(tmpdir(), "pinar-edger-artifact-test-"));
+    try {
+      writeFileSync(join(area, "manifest.yaml"), "name: pinar\n");
+      const args = parseInstallArgs([
+        "--url",
+        "https://stg.pinar.dev",
+        "--env",
+        "staging",
+        "--env-file",
+        "env.txt",
+        "--artifact-dir",
+        area,
+      ]);
+      assert.equal(args.artifactDir, area);
+      assert.equal(args.build, false);
+      const equals = parseInstallArgs([
+        "--url",
+        "https://stg.pinar.dev",
+        "--env",
+        "staging",
+        "--env-file",
+        "env.txt",
+        `--artifact-dir=${area}`,
+      ]);
+      assert.equal(equals.artifactDir, area);
+      assert.equal(equals.build, false);
+    } finally {
+      rmSync(area, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects --artifact-dir without a value", () => {
+    assert.throws(
+      () =>
+        parseInstallArgs([
+          "--url",
+          "https://stg.pinar.dev",
+          "--env",
+          "staging",
+          "--env-file",
+          "env.txt",
+          "--artifact-dir",
+        ]),
+      /--artifact-dir requires a value/,
+    );
+  });
+
+  test("rejects a --artifact-dir without a manifest.yaml", () => {
+    const area = mkdtempSync(join(tmpdir(), "pinar-edger-artifact-test-"));
+    try {
+      writeFileSync(join(area, "server.js"), "export default {};\n");
+      assert.throws(
+        () =>
+          parseInstallArgs([
+            "--url",
+            "https://stg.pinar.dev",
+            "--env",
+            "staging",
+            "--env-file",
+            "env.txt",
+            "--artifact-dir",
+            area,
+          ]),
+        new RegExp(`--artifact-dir ${area} has no manifest\\.yaml`),
+      );
+    } finally {
+      rmSync(area, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("parseEnvFile", () => {
@@ -895,6 +966,65 @@ describe("runEdgerInstall", () => {
     assert.equal(code, 1);
     assert.equal(captures.length, 0);
     assert.deepEqual(lines, ["dist/edger is missing; run bun run build:edger"]);
+  });
+
+  test("--artifact-dir installs from the given directory, never building", async () => {
+    writeEnvFile(fixture, STAGING_ENV_FILE);
+    // A distinct artifact dir (a marker file) proves the given directory is
+    // the source; the fixture root has no `bun run build:edger`, so a build
+    // attempt would fail the run.
+    const artifactDir = join(fixture.area, "artifact");
+    mkdirSync(join(artifactDir, "server"), { recursive: true });
+    writeFileSync(join(artifactDir, "manifest.yaml"), readFileSync(REAL_MANIFEST, "utf8"));
+    writeFileSync(join(artifactDir, "server/server.js"), "export default {};\n");
+    writeFileSync(join(artifactDir, "marker.txt"), "platform-proof\n");
+    const captures: Capture[] = [];
+    const { code, lines } = await run(
+      fixture,
+      [
+        "--url",
+        "https://stg.pinar.dev",
+        "--env",
+        "staging",
+        "--env-file",
+        fixture.envFile,
+        "--api-key-file",
+        fixture.keyFile,
+        "--version",
+        "1.2.3",
+        "--artifact-dir",
+        artifactDir,
+      ],
+      fakeFetch(captures, () => ({ status: 201 })),
+    );
+    assert.equal(code, 0);
+    assert.equal(captures.length, 2);
+    const zipFile = join(fixture.area, "captured-artifact.zip");
+    writeFileSync(zipFile, captures[0].body!);
+    assert.ok(unzipList(zipFile).includes("marker.txt"));
+    assert.ok(!unzipList(zipFile).includes("dist/edger"));
+    assert.deepEqual(lines, [
+      "installed pinar-stg@1.2.3 (staged)",
+      "promoted pinar-stg@1.2.3",
+    ]);
+    noTempLeftovers(fixture);
+  });
+
+  test("--artifact-dir without a manifest.yaml is a usage error (exit 2)", async () => {
+    writeEnvFile(fixture, STAGING_ENV_FILE);
+    const emptyDir = join(fixture.area, "empty-artifact");
+    mkdirSync(emptyDir, { recursive: true });
+    const captures: Capture[] = [];
+    const { code, lines } = await run(
+      fixture,
+      stagingArgs(fixture, ["--artifact-dir", emptyDir]),
+      fakeFetch(captures, () => ({ status: 201 })),
+    );
+    assert.equal(code, 2);
+    assert.equal(captures.length, 0);
+    assert.ok(lines.some((line) => line.includes(`--artifact-dir ${emptyDir} has no manifest.yaml`)));
+    assert.ok(lines.some((line) => line.startsWith("usage:")));
+    noTempLeftovers(fixture);
   });
 
   test("rejects a 0644 env file", async () => {

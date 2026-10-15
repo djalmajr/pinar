@@ -5,8 +5,9 @@
 //
 // Writes the new version to the root package.json and to every package that
 // ships (cli, tray, server). Closed tags require notes in every language.
-// Commits "chore: release vX.Y.Z" and tags. It does not push: pushing the tag
-// deploys (closed → production Worker + desktop; prerelease → staging Worker).
+// Commits "chore: release vX.Y.Z" and tags. It does not push: pushing a closed
+// tag deploys the production Worker + desktop; a prerelease tag deploys
+// nothing (staging is installed on EdgeR by hand).
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";

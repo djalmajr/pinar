@@ -51,8 +51,14 @@
   },
 
   "env": {
+    // Staging runs on EdgeR (worker pinar-stg on stg.pinar.dev). edger:install
+    // reads this env's vars and required secrets; it has no routes and no
+    // crons, so a `wrangler deploy --env staging` cannot take the host or
+    // run the daily jobs against the old D1. The empty crons list is
+    // deliberate: `triggers` is inheritable, and the top-level one is local.
     "staging": {
       "name": "pinar-stg",
+      "triggers": { "crons": [] },
       "d1_databases": [
         {
           "binding": "DB",
@@ -74,10 +80,6 @@
       "secrets": {
         "required": ["AUTH_PEPPER", "EXTENSION_ORIGIN", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"]
       },
-      "routes": [
-        { "pattern": "stg.pinar.dev", "custom_domain": true }
-      ],
-      "triggers": { "crons": ["0 3 * * *"] },
       "vars": {
         "DEPLOYMENT_ENV": "staging",
         "CLOUD_TRIAL_ENABLED": "true",

@@ -1,9 +1,12 @@
 name: Deploy Worker
 
 # Closed product tags (v1.2.3) deploy pinar-prd. Prerelease tags
-# (v1.2.3-rc.1, v1.0.0-0, alpha, beta) deploy pinar-stg. Extension tags
-# (ext-v*) never run this workflow. Requires CLOUDFLARE_API_TOKEN and
-# CLOUDFLARE_ACCOUNT_ID repository secrets. D1 migrations stay manual.
+# (v1.2.3-rc.1, v1.0.0-0, alpha, beta) deploy no Worker: staging runs on
+# EdgeR (worker pinar-stg on stg.pinar.dev), installed by hand with
+# `bun run edger:install -- --env staging` from the zip that
+# edger-artifact.yml keeps for the tag. Extension tags (ext-v*) never run
+# this workflow. Requires CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID
+# repository secrets.
 
 on:
   push:
@@ -108,41 +111,3 @@ jobs:
           done
           echo "Production health did not reach $EXPECTED within 60 seconds" >&2
           exit 1
-
-  staging:
-    name: Deploy staging Worker
-    needs: classify
-    if: needs.classify.outputs.kind == 'prerelease'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out the tagged source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          ref: ${{ needs.classify.outputs.tag }}
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.4.0
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-      - name: Build the staging artifact
-        env:
-          CLOUDFLARE_ENV: staging
-        run: bun run build:server
-      - name: Inspect the staging artifact
-        run: bun scripts/assert-worker-artifact.mjs staging
-      - name: Apply D1 migrations to pinar-stg
-        env:
-          CI: "1"
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        working-directory: apps/server
-        run: bunx wrangler d1 migrations apply pinar-stg --env staging --remote
-      - name: Deploy pinar-stg
-        env:
-          CI: "1"
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        working-directory: apps/server
-        run: bunx wrangler deploy --env staging

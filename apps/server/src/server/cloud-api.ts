@@ -936,8 +936,15 @@ function clientIp(request: Request) {
 }
 
 function requestCountry(request: Request) {
-  const country = request.cf?.country;
-  return typeof country === "string" ? country.trim().toUpperCase() : null;
+  const cfCountry = request.cf?.country;
+  if (typeof cfCountry === "string") {
+    return cfCountry.trim().toUpperCase();
+  }
+  // Outside Cloudflare (EdgeR behind the proxy) `request.cf` does not exist;
+  // the proxy reports the visitor country in cf-ipcountry instead. XX means
+  // unknown and T1 means Tor, both of which count as no country.
+  const country = (request.headers.get("cf-ipcountry") ?? "").trim().toUpperCase();
+  return country === "" || country === "XX" || country === "T1" ? null : country;
 }
 
 function pricingConfig(env: CloudEnv): PricingConfig | null {

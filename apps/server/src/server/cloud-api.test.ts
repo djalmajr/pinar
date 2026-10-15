@@ -1732,6 +1732,39 @@ describe("remote installation isolation", () => {
     assert.equal(params.get("line_items[0][price]"), "price_br_yearly_test");
   });
 
+  test("falls back to the cf-ipcountry header for Brazil pricing when request.cf is absent", async () => {
+    // Behind the Cloudflare proxy `request.cf` does not exist; the proxy
+    // reports the visitor country in the cf-ipcountry header instead.
+    const response = await handleCloudApiRequest(
+      new Request("https://pinar.test/api/pricing", { headers: { "cf-ipcountry": " br " } }),
+      TEST_ENV,
+    );
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("vary"), "CF-IPCountry");
+    const pricing = await jsonBody(response);
+    assert.equal(pricing.country, "BR");
+    assert.equal(pricing.currency, "BRL");
+    assert.equal(pricing.regional, true);
+    assert.deepEqual(pricing.prices.year, { amount: 9_900, originalAmount: null });
+    assert.deepEqual(pricing.prices.aiCredits500, { amount: 990, originalAmount: null });
+  });
+
+  test("treats unknown (XX) and Tor (T1) cf-ipcountry values as no country", async () => {
+    for (const country of ["XX", "T1"]) {
+      const response = await handleCloudApiRequest(
+        new Request("https://pinar.test/api/pricing", { headers: { "cf-ipcountry": country } }),
+        TEST_ENV,
+      );
+      assert.equal(response.status, 200);
+      const pricing = await jsonBody(response);
+      assert.equal(pricing.country, null);
+      assert.equal(pricing.currency, "USD");
+      assert.equal(pricing.regional, false);
+      assert.deepEqual(pricing.prices.year, { amount: 2_900, originalAmount: null });
+      assert.deepEqual(pricing.prices.aiCredits500, { amount: 299, originalAmount: null });
+    }
+  });
+
   test("does not silently charge USD when the Brazil Stripe price is missing", async () => {
     // Mutation captured: falling back to the global price makes the UI show BRL while Stripe charges USD.
     const response = await handleCloudApiRequest(

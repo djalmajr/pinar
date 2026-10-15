@@ -1,6 +1,6 @@
 # Extension releases
 
-The browser extension has an independent version and release channel. Closed product tags use `vX.Y.Z` (production Worker + desktop Latest); prerelease product tags use `vX.Y.Z-rc.1` (staging Worker only); extension tags use `ext-vX.Y.Z`.
+The browser extension has an independent version and release channel. Closed product tags use `vX.Y.Z` (desktop Latest; the server is installed on EdgeR by hand); prerelease product tags use `vX.Y.Z-rc.1` (no deploy; staging is installed on EdgeR by hand); extension tags use `ext-vX.Y.Z`.
 
 Extension releases are intentionally not marked as GitHub's global **Latest** release. Pinar.app resolves its update files through `/releases/latest/download`, so only a product release may own that channel.
 

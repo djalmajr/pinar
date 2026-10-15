@@ -1,0 +1,42 @@
+# Public routes for the Pinar workers (plan EDG-25, namespace
+# `edger`). Cloudflare proxies these hosts with SSL mode Full
+# (strict); the EdgeR service serves each worker by `Host` (the
+# manifest `hosts:`), so the whole domain is routed with the default
+# `passHostHeader`. The `cloudflare-only` middleware refuses
+# direct-to-origin traffic because the app trusts `cf-ipcountry`
+# for per-country pricing (a forged header on a direct hit would
+# price everything in BRL). No path is excluded: Pinar has no
+# break-glass route on these hosts.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: pinar
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`pinar.dev`) || Host(`www.pinar.dev`)
+      middlewares:
+        - name: cloudflare-only
+      services:
+        - name: edger
+          port: 3000
+  tls:
+    secretName: pinar-tls
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: pinar-stg
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`stg.pinar.dev`)
+      middlewares:
+        - name: cloudflare-only
+      services:
+        - name: edger
+          port: 3000
+  tls:
+    secretName: pinar-stg-tls

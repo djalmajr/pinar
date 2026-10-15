@@ -22,6 +22,18 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.7.2": {
+      title: "Pinar Cloud change d’hébergement",
+      summary:
+        "Le service cloud de Pinar fonctionne désormais sur un nouvel hébergement. Les comptes, captures, achats et crédits restent les mêmes, et vous n’avez rien à faire.",
+      changes: {
+        "cloud-hosting": {
+          title: "Nouvel hébergement du service cloud",
+          description:
+            "Les captures partagées, la transcription vocale, les suggestions d’IA, les e-mails de connexion et les paiements fonctionnent désormais sur un nouvel hébergement. Pendant le transfert, les actions qui enregistrent des données peuvent être indisponibles quelques minutes.",
+        },
+      },
+    },
     "v0.7.1": {
       title: "Une icône Pinar plus stable sous Windows",
       summary:

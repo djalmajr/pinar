@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 // Classifies git tags for the product and extension release channels.
 //
-//   v1.2.3              closed product → production Worker + desktop Latest
-//   v1.2.3-rc.1         prerelease     → staging Worker only
-//   v1.2.3-0            prerelease     → staging Worker only
+//   v1.2.3              closed product → desktop Latest (server on EdgeR, by hand)
+//   v1.2.3-rc.1         prerelease     → no deploy (staging is on EdgeR)
+//   v1.2.3-0            prerelease     → no deploy (staging is on EdgeR)
 //   ext-v1.2.3          extension      → Chrome zip, never Latest
 import { appendFileSync } from "node:fs";
 

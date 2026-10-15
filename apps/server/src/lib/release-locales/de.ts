@@ -22,6 +22,18 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.7.2": {
+      title: "Pinar Cloud auf neuem Hosting",
+      summary:
+        "Der Cloud-Dienst von Pinar läuft jetzt auf neuem Hosting. Konten, Aufnahmen, Käufe und Guthaben bleiben unverändert, und du musst nichts tun.",
+      changes: {
+        "cloud-hosting": {
+          title: "Neues Hosting für den Cloud-Dienst",
+          description:
+            "Geteilte Aufnahmen, Sprachtranskription, KI-Vorschläge, Anmelde-E-Mails und Zahlungen laufen jetzt auf neuem Hosting. Während des Umzugs können Aktionen, die Daten speichern, einige Minuten lang nicht verfügbar sein.",
+        },
+      },
+    },
     "v0.7.1": {
       title: "Ein stabileres Pinar-Infobereichssymbol unter Windows",
       summary:

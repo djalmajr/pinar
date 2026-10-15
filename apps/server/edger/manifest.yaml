@@ -1,0 +1,87 @@
+name: pinar
+# The installer replaces the version at install time.
+version: "0.0.0"
+kind: fullstack
+adapter: tanstack
+ssrEntrypoint: server/server.js
+clientDir: client
+# The TanStack build bakes the base path in; the app is served at the host
+# root.
+basePath: "/"
+# Base64 shot uploads and the 8 MiB import cap need room for JSON overhead.
+maxBodySize: 16mb
+# Voice transcription can run until 45 s; the request deadline stays above
+# it.
+timeout: "60s"
+# Long AI streams must not hold a process slot past two minutes.
+streamTimeout: "120s"
+# Two processes isolate long inference streams from navigation requests;
+# the floor keeps one warm.
+maxProcesses: 2
+minProcesses: 1
+# Finite admission for parallel client requests; 5 s wait deadline before a
+# queued request is dropped.
+queueLimit: 32
+queueTimeout: "5s"
+# One synthetic GET after spawn so the first real request does not pay the
+# first SSR execution.
+warmup:
+  path: /
+# The Cloudflare scheduled cron becomes an internal POST that only the EdgeR
+# runtime can send (it strips the marker header from external traffic).
+cron:
+  - schedule: "0 3 * * *"
+    path: /_internal/cron/daily
+    method: POST
+# External egress only. The database host is intentionally absent from the
+# repository: the sqld topology of the cluster is still under study, and the
+# installer adds each environment's database host.
+allowNet:
+  - 1427e570ac9806fcc2626c20e0d38b3d.r2.cloudflarestorage.com:443
+  - api.cloudflare.com:443
+  - lb-vllm-node-01.centralit.com.br:443
+  - api.stripe.com:443
+# The installer defines the hosts per environment: pinar.dev and
+# www.pinar.dev in prd, stg.pinar.dev in stg.
+# hosts:
+#   - pinar.dev
+env:
+  DEPLOYMENT_ENV: ""
+  DATABASE_URL: ""
+  DATABASE_AUTH_TOKEN: ""
+  S3_ACCESS_KEY_ID: ""
+  S3_BUCKET: ""
+  S3_ENDPOINT: ""
+  S3_REGION: ""
+  S3_SECRET_ACCESS_KEY: ""
+  CLOUDFLARE_ACCOUNT_ID: ""
+  CLOUDFLARE_EMAIL_API_TOKEN: ""
+  # Injected by a Cloudflare Transform Rule (x-pinar-origin-auth); empty disables the origin check.
+  CLOUDFLARE_ORIGIN_SECRET: ""
+  AI_API_KEY: ""
+  AI_BASE_URL: ""
+  AI_MODEL: ""
+  AI_TRANSCRIPTION_MODEL: ""
+  ADMIN_API_KEY: ""
+  AUTH_PEPPER: ""
+  CLOUD_TRIAL_ENABLED: ""
+  COMPLIMENTARY_PRO_USER_IDS: ""
+  EXTENSION_ORIGIN: ""
+  PRICING_AI_CREDITS_500_BRL_CENTS: ""
+  PRICING_AI_CREDITS_500_USD_CENTS: ""
+  PRICING_STORAGE_1GB_12M_BRL_CENTS: ""
+  PRICING_STORAGE_1GB_12M_USD_CENTS: ""
+  PRICING_STORAGE_5GB_12M_BRL_CENTS: ""
+  PRICING_STORAGE_5GB_12M_USD_CENTS: ""
+  PRICING_YEARLY_BRL_CENTS: ""
+  PRICING_YEARLY_USD_CENTS: ""
+  STRIPE_PRICE_AI_CREDITS_500: ""
+  STRIPE_PRICE_BR_AI_CREDITS_500: ""
+  STRIPE_PRICE_BR_STORAGE_1GB_12M: ""
+  STRIPE_PRICE_BR_STORAGE_5GB_12M: ""
+  STRIPE_PRICE_BR_YEARLY: ""
+  STRIPE_PRICE_STORAGE_1GB_12M: ""
+  STRIPE_PRICE_STORAGE_5GB_12M: ""
+  STRIPE_PRICE_YEARLY: ""
+  STRIPE_SECRET_KEY: ""
+  STRIPE_WEBHOOK_SECRET: ""

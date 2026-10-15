@@ -22,6 +22,18 @@ const locale = {
     whatChanged: "O que mudou",
   },
   releases: {
+    "v0.7.2": {
+      title: "Pinar Cloud em nova hospedagem",
+      summary:
+        "O serviço em nuvem do Pinar agora roda numa hospedagem nova. Contas, capturas, compras e créditos continuam os mesmos, e você não precisa fazer nada.",
+      changes: {
+        "cloud-hosting": {
+          title: "Nova hospedagem do serviço em nuvem",
+          description:
+            "Capturas compartilhadas, transcrição de voz, sugestões de IA, e-mails de acesso e pagamentos agora rodam numa hospedagem nova. Durante a mudança, ações que gravam dados podem ficar indisponíveis por alguns minutos.",
+        },
+      },
+    },
     "v0.7.1": {
       title: "Bandeja do Pinar mais estável no Windows",
       summary:

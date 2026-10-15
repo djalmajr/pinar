@@ -6,7 +6,7 @@ Pinar has three intentionally different runtime targets:
 | --- | --- | --- |
 | Local helper | `bun run dev:local` | Nitro/Bun, local history, no hosted account or paid features |
 | Local cloud runtime | `bun run dev:cloud` | Cloudflare Worker code with isolated local D1/R2 and a deterministic paid fixture |
-| Staging | `https://stg.pinar.dev` | Deployed Worker, staging D1/R2, email and Stripe Test/Sandbox lifecycle |
+| Staging | `https://stg.pinar.dev` | EdgeR worker `pinar-stg`, staging libSQL/R2, email and Stripe Test/Sandbox lifecycle |
 
 ## Use the unpacked extension against staging
 

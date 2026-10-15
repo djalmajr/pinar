@@ -1,0 +1,13 @@
+# Pinar's k8s manifests for the shared EdgeR instance (plan EDG-25,
+# namespace `edger`). Cloudflare proxies these hosts with SSL mode
+# Full (strict); the `cloudflare-only` middleware refuses
+# direct-to-origin traffic because the app trusts `cf-ipcountry` for
+# per-country pricing (a forged header on a direct hit would price
+# everything in BRL).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: edger
+resources:
+  - certificates.yaml
+  - cloudflare-only.yaml
+  - ingressroutes.yaml

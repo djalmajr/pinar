@@ -1,0 +1,31 @@
+# Let's Encrypt certificates for the Pinar routes (plan EDG-25,
+# namespace `edger`), issued by the cluster DNS-01 ClusterIssuer.
+# Cloudflare proxies these hosts with SSL mode Full (strict); the
+# `cloudflare-only` middleware (cloudflare-only.yaml) refuses
+# direct-to-origin traffic because the app trusts `cf-ipcountry` for
+# per-country pricing (a forged header on a direct hit would price
+# everything in BRL).
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: pinar-tls
+spec:
+  secretName: pinar-tls
+  dnsNames:
+    - pinar.dev
+    - www.pinar.dev
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt-dns
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: pinar-stg-tls
+spec:
+  secretName: pinar-stg-tls
+  dnsNames:
+    - stg.pinar.dev
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt-dns

@@ -1,8 +1,7 @@
 # Local AI and BYOK
 
-Pinar's local server can run the five AI-assisted workflows—session summaries,
-pin diagnosis, component export, reproduction generation, and design-system
-extraction—through an OpenAI-compatible endpoint.
+Pinar's local server can run its AI features—reproduction generation and voice
+comments—through an OpenAI-compatible endpoint.
 
 Open **Settings → AI** in the local Pinar app and choose:
 
@@ -50,7 +49,6 @@ The endpoint must implement OpenAI-compatible `GET /v1/models` and
 `POST /v1/chat/completions`. Voice comments also need
 `POST /v1/audio/transcriptions`. The selected model should follow system prompts,
 support the requested context size, and reliably produce JSON when asked.
-Component export also needs long structured text output. Small or heavily
-quantized models can return invalid JSON, incomplete components, weak visual
-diagnoses, or lower-quality reproduction tests. Pinar reports these as invalid
-responses and does not switch providers automatically.
+Small or heavily quantized models can return invalid JSON, lower-quality
+reproduction steps, or weaker voice comment cleanup. Pinar reports these as
+invalid responses and does not switch providers automatically.

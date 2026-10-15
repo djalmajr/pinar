@@ -140,6 +140,169 @@ describe("createEdgerFetch", () => {
   });
 });
 
+const ORIGIN_HEADER = "x-pinar-origin-auth";
+const ORIGIN_SECRET = "s3cr3t-origin";
+
+function entryWith(deps: { originSecret?: string } = {}) {
+  const calls: string[] = [];
+  const logs: string[] = [];
+  const tanstackRequests: Request[] = [];
+  const fetch = createEdgerFetch({
+    ...deps,
+    jobs: JOB_NAMES.map((name) => ({
+      name,
+      run: async () => {
+        calls.push(name);
+      },
+    })),
+    log: (line) => logs.push(line),
+    tanstackFetch: async (request) => {
+      tanstackRequests.push(request);
+      return new Response("tanstack", { status: 200 });
+    },
+  });
+  return { calls, fetch, logs, tanstackRequests };
+}
+
+describe("origin defense (EDG-27)", () => {
+  test("without a secret the request reaches tanstackFetch unchanged", async () => {
+    for (const originSecret of [undefined, ""] as Array<string | undefined>) {
+      const { fetch, tanstackRequests } = entryWith({ originSecret });
+      const request = new Request("https://pinar.test/checkout", {
+        headers: { "cf-ipcountry": "BR", "cf-connecting-ip": "1.2.3.4", [ORIGIN_HEADER]: "anything" },
+      });
+      const response = await fetch(request);
+      assert.equal(response.status, 200);
+      assert.equal(tanstackRequests.length, 1);
+      assert.equal(tanstackRequests[0], request);
+      assert.equal(tanstackRequests[0].headers.get("cf-ipcountry"), "BR");
+      assert.equal(tanstackRequests[0].headers.get("cf-connecting-ip"), "1.2.3.4");
+      assert.equal(tanstackRequests[0].headers.get(ORIGIN_HEADER), "anything");
+    }
+  });
+
+  test("with the secret and the right header, the cf-* headers pass and the auth header does not", async () => {
+    const { fetch, tanstackRequests } = entryWith({ originSecret: ORIGIN_SECRET });
+    const controller = new AbortController();
+    const request = new Request("https://pinar.test/checkout", {
+      signal: controller.signal,
+      headers: {
+        [ORIGIN_HEADER]: ORIGIN_SECRET,
+        "cf-ipcountry": "BR",
+        "cf-connecting-ip": "1.2.3.4",
+        "user-agent": "pinar-agent",
+      },
+    });
+    await fetch(request);
+    const seen = tanstackRequests[0];
+    assert.equal(seen.headers.get("cf-ipcountry"), "BR");
+    assert.equal(seen.headers.get("cf-connecting-ip"), "1.2.3.4");
+    assert.equal(seen.headers.get(ORIGIN_HEADER), null);
+    assert.equal(seen.headers.get("user-agent"), "pinar-agent");
+    assert.equal(seen.method, request.method);
+    assert.equal(seen.url, request.url);
+    // The forwarded request is a clone: its signal follows the original's.
+    assert.equal(seen.signal.aborted, false);
+    controller.abort();
+    assert.equal(seen.signal.aborted, true);
+  });
+
+  test("with the secret and the wrong header, no cf-* and no auth header reach the app", async () => {
+    const { fetch, tanstackRequests } = entryWith({ originSecret: ORIGIN_SECRET });
+    const request = new Request("https://pinar.test/checkout", {
+      headers: {
+        [ORIGIN_HEADER]: "forged",
+        "cf-ipcountry": "BR",
+        "cf-connecting-ip": "1.2.3.4",
+        "user-agent": "pinar-agent",
+      },
+    });
+    await fetch(request);
+    const seen = tanstackRequests[0];
+    assert.equal(seen.headers.get("cf-ipcountry"), null);
+    assert.equal(seen.headers.get("cf-connecting-ip"), null);
+    assert.equal(seen.headers.get(ORIGIN_HEADER), null);
+    assert.equal(seen.headers.get("user-agent"), "pinar-agent");
+  });
+
+  test("with the secret and the header missing, the cf-* headers are still stripped", async () => {
+    const { fetch, tanstackRequests } = entryWith({ originSecret: ORIGIN_SECRET });
+    const request = new Request("https://pinar.test/checkout", {
+      headers: { "cf-ipcountry": "BR", "cf-connecting-ip": "1.2.3.4", "user-agent": "pinar-agent" },
+    });
+    await fetch(request);
+    const seen = tanstackRequests[0];
+    assert.equal(seen.headers.get("cf-ipcountry"), null);
+    assert.equal(seen.headers.get("cf-connecting-ip"), null);
+    assert.equal(seen.headers.get(ORIGIN_HEADER), null);
+    assert.equal(seen.headers.get("user-agent"), "pinar-agent");
+  });
+
+  test("a POST with the wrong header arrives with the method, the URL and the same body", async () => {
+    const { fetch, tanstackRequests } = entryWith({ originSecret: ORIGIN_SECRET });
+    const url = "https://pinar.test/api/thing";
+    const body = "payload=1&x=2";
+    const request = new Request(url, {
+      method: "POST",
+      body,
+      headers: { "content-type": "application/x-www-form-urlencoded", [ORIGIN_HEADER]: "forged", "cf-ipcountry": "BR" },
+    });
+    await fetch(request);
+    const seen = tanstackRequests[0];
+    assert.equal(seen.method, "POST");
+    assert.equal(seen.url, url);
+    assert.equal(seen.headers.get("content-type"), "application/x-www-form-urlencoded");
+    assert.equal(await seen.text(), body);
+  });
+
+  test("a POST with a streamed body arrives with the same content", async () => {
+    const { fetch, tanstackRequests } = entryWith({ originSecret: ORIGIN_SECRET });
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode("chunk-one"));
+        controller.enqueue(encoder.encode("chunk-two"));
+        controller.close();
+      },
+    });
+    const request = new Request("https://pinar.test/api/thing", {
+      method: "POST",
+      body,
+      duplex: "half",
+      headers: { [ORIGIN_HEADER]: ORIGIN_SECRET },
+    });
+    await fetch(request);
+    const seen = tanstackRequests[0];
+    assert.equal(seen.method, "POST");
+    assert.equal(await seen.text(), "chunk-onechunk-two");
+  });
+
+  test("a header whose size differs from the secret does not throw", async () => {
+    // Only cf-* and the origin header: nothing is left after the strip.
+    const { fetch, tanstackRequests } = entryWith({ originSecret: ORIGIN_SECRET });
+    const request = new Request("https://pinar.test/", {
+      headers: { [ORIGIN_HEADER]: "t", "cf-ipcountry": "BR" },
+    });
+    const response = await fetch(request);
+    assert.equal(response.status, 200);
+    assert.deepEqual([...tanstackRequests[0].headers], []);
+  });
+
+  test("the cron route is unchanged with the secret set", async () => {
+    const { calls, fetch, tanstackRequests } = entryWith({ originSecret: ORIGIN_SECRET });
+    const authorized = await fetch(cronRequest({
+      method: "POST",
+      headers: { "x-edger-internal": "true", "cf-ipcountry": "BR", [ORIGIN_HEADER]: "forged" },
+    }));
+    assert.equal(authorized.status, 200);
+    assert.deepEqual(calls, JOB_NAMES);
+    assert.deepEqual(tanstackRequests, []);
+    const rejected = await fetch(cronRequest({ method: "GET", headers: { "x-edger-internal": "true" } }));
+    assert.equal(rejected.status, 404);
+    assert.deepEqual(calls, JOB_NAMES);
+  });
+});
+
 describe("edger entry wiring", () => {
   test("default export exposes the fetch handler", () => {
     assert.equal(typeof edgerEntry.fetch, "function");

@@ -56,6 +56,8 @@ env:
   S3_SECRET_ACCESS_KEY: ""
   CLOUDFLARE_ACCOUNT_ID: ""
   CLOUDFLARE_EMAIL_API_TOKEN: ""
+  # Injected by a Cloudflare Transform Rule (x-pinar-origin-auth); empty disables the origin check.
+  CLOUDFLARE_ORIGIN_SECRET: ""
   AI_API_KEY: ""
   AI_BASE_URL: ""
   AI_MODEL: ""

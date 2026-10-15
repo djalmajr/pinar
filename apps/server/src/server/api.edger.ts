@@ -16,7 +16,7 @@ interface DenoLike {
   env: DenoEnvLike;
 }
 
-function readEnv(name: string): string | undefined {
+export function readEnv(name: string): string | undefined {
   const deno = (globalThis as { Deno?: DenoLike }).Deno;
   if (deno) return deno.env.get(name);
   return process.env[name];

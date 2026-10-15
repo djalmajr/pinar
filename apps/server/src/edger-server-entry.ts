@@ -4,8 +4,9 @@ import {
   refundStaleAiReservations,
   sendStorageExpiryNotices,
 } from "./server/cloud-api";
-import { getEdgerCloudEnv } from "./server/api.edger";
+import { getEdgerCloudEnv, readEnv } from "./server/api.edger";
 import { FREE_CLOUD_RETENTION_DAYS } from "./lib/retention";
+import { timingSafeEqual } from "node:crypto";
 
 type TanstackFetch = typeof import("./tanstack-server-entry")["default"]["fetch"];
 
@@ -20,6 +21,45 @@ async function getTanstackFetch(): Promise<TanstackFetch> {
 
 const CRON_PATH = "/_internal/cron/daily";
 const INTERNAL_HEADER = "x-edger-internal";
+const ORIGIN_AUTH_HEADER = "x-pinar-origin-auth";
+
+/**
+ * Origin defense for the EdgeR path (EDG-27). Cloudflare injects
+ * `x-pinar-origin-auth` on every request it proxies (Transform Rule on the
+ * pinar.dev zone: "Modify Request Header" → "Set static" →
+ * `x-pinar-origin-auth` = <secret>). The EdgeR entry also reaches the app
+ * by paths that do not pass the Cloudflare IP allowlist (for example the
+ * hostname route edger.djalmajr.dev/pinar/...), where a forged
+ * `cf-ipcountry: BR` would price in BRL and a forged `cf-connecting-ip`
+ * would rate-limit a foreign IP. With the secret set, a request whose
+ * `x-pinar-origin-auth` is missing or wrong may have come around the proxy,
+ * so it goes on without that header and without any `cf-*` header: the app
+ * sees country null (USD price) and IP unknown. With the secret empty —
+ * the default until the Transform Rule exists — nothing changes.
+ */
+function originAuthMatches(secret: string, header: string | null): boolean {
+  if (header === null) return false;
+  const secretBytes = new TextEncoder().encode(secret);
+  const headerBytes = new TextEncoder().encode(header);
+  // Equal sizes are checked first: timingSafeEqual throws on different
+  // lengths, and a size mismatch is already a non-match.
+  if (secretBytes.length !== headerBytes.length) return false;
+  return timingSafeEqual(secretBytes, headerBytes);
+}
+
+/** Rebuilds the request without `x-pinar-origin-auth`, dropping every `cf-*` header when `trusted` is false. */
+function withoutUntrustedOriginHeaders(request: Request, trusted: boolean): Request {
+  // Clone, then delete: `new Request(request, { headers })` with an empty
+  // Headers keeps the original headers in Bun, while the clone keeps the
+  // method, body stream and signal in both Bun and Deno.
+  const forwarded = new Request(request);
+  for (const name of [...forwarded.headers.keys()]) {
+    if (name === ORIGIN_AUTH_HEADER || (!trusted && name.startsWith("cf-"))) {
+      forwarded.headers.delete(name);
+    }
+  }
+  return forwarded;
+}
 
 /**
  * Server entry for EdgeR (a self-hosted Deno runtime). The Cloudflare cron
@@ -32,6 +72,7 @@ export function createEdgerFetch(deps: {
   tanstackFetch: (request: Request) => Promise<Response>;
   jobs: Array<{ name: string; run: () => Promise<unknown> }>;
   log?: (line: string) => void;
+  originSecret?: string;
 }) {
   const log = deps.log ?? ((line: string) => console.log(line));
   return async (request: Request): Promise<Response> => {
@@ -57,6 +98,13 @@ export function createEdgerFetch(deps: {
       });
       return Response.json({ ok, jobs: report }, { status: ok ? 200 : 500 });
     }
+    const secret = deps.originSecret;
+    if (secret) {
+      // Empty (or absent) secret: the defense is off and the request passes
+      // through untouched. The cron route above is never touched by this.
+      const trusted = originAuthMatches(secret, request.headers.get(ORIGIN_AUTH_HEADER));
+      request = withoutUntrustedOriginHeaders(request, trusted);
+    }
     return deps.tanstackFetch(request);
   };
 }
@@ -68,6 +116,9 @@ function errorMessage(reason: unknown): string {
 export default {
   fetch: createEdgerFetch({
     tanstackFetch: async (request) => (await getTanstackFetch())(request),
+    // Read through the same env reader as the rest of the EdgeR worker; an
+    // empty value counts as absent (defense off until the rule exists).
+    originSecret: readEnv("CLOUDFLARE_ORIGIN_SECRET") || undefined,
     jobs: [
       { name: "cleanupOldRecords", run: () => cleanupOldRecords(getEdgerCloudEnv(), FREE_CLOUD_RETENTION_DAYS) },
       { name: "reconcileBillingEntitlements", run: () => reconcileBillingEntitlements(getEdgerCloudEnv()) },

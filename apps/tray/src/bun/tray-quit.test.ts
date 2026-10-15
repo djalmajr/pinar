@@ -74,4 +74,66 @@ describe("tray quit", () => {
 		expect(event).toEqual({});
 		expect(events).not.toContain("stop");
 	});
+
+	test("update stops the helper and lets the updater's before-quit through", async () => {
+		// Mutation captured: vetoing the updater's before-quit cancels the update
+		// and the tray quits anyway, so the app closes and never reopens.
+		const events: string[] = [];
+		const quit = createQuitController({
+			stopServer: async () => {
+				events.push("stop");
+			},
+			releaseLock: () => events.push("unlock"),
+			removeTray: () => events.push("remove"),
+			stopTimers: () => events.push("timers"),
+			quit: () => events.push("quit"),
+		});
+		await quit.update(
+			async () => {
+				const approval = {};
+				quit.onBeforeQuit(approval);
+				expect(approval).toEqual({});
+				events.push("apply");
+				return true;
+			},
+			() => events.push("relaunch"),
+		);
+		expect(events).toEqual(["timers", "stop", "unlock", "remove", "apply"]);
+	});
+
+	test("update relaunches the tray when the updater does not hand off", async () => {
+		const events: string[] = [];
+		const quit = createQuitController({
+			stopServer: async () => {
+				events.push("stop");
+			},
+			releaseLock: () => events.push("unlock"),
+			removeTray: () => events.push("remove"),
+			quit: () => events.push("quit"),
+		});
+		await quit.update(
+			async () => false,
+			() => events.push("relaunch"),
+		);
+		expect(events).toEqual(["stop", "unlock", "remove", "relaunch", "quit"]);
+	});
+
+	test("update relaunches the tray when the updater throws", async () => {
+		const events: string[] = [];
+		const quit = createQuitController({
+			stopServer: async () => {},
+			releaseLock: () => {},
+			removeTray: () => {},
+			quit: () => events.push("quit"),
+		});
+		await expect(
+			quit.update(
+				async () => {
+					throw new Error("helper missing");
+				},
+				() => events.push("relaunch"),
+			),
+		).rejects.toThrow("helper missing");
+		expect(events).toEqual(["relaunch", "quit"]);
+	});
 });

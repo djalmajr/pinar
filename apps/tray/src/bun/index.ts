@@ -364,7 +364,13 @@ tray.on("tray-clicked", (event: unknown) => {
 		return;
 	}
 	if (action === "apply-update") {
-		void Updater.applyUpdate();
+		void quit.update(async () => {
+			await Updater.applyUpdate();
+			// A failed hand-off records its reason here and does not quit.
+			return !Updater.updateInfo().error;
+		}, process.platform === "win32" ? relaunchTray : () => {}).catch((error) => {
+			console.error("pinar tray update failed", error);
+		});
 		return;
 	}
 	if (action === "quit") {

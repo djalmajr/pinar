@@ -22,6 +22,28 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.7.3": {
+      title: "Updates, die sich über das Menü installieren, und klarere Sprache mit eigener KI",
+      summary:
+        "Ein Update im Pinar-Menü zu wählen, installiert es jetzt und öffnet Pinar neu. Die lokale App prüft dein Transkriptionsmodell und sagt, warum Sprache fehlschlägt, und die Hilfe deckt viel mehr von Pinar ab.",
+      changes: {
+        "desktop-updates": {
+          title: "Updates installieren sich über das Pinar-Menü",
+          description:
+            "Der Update-Eintrag im Pinar-Menü installiert jetzt die heruntergeladene Version und öffnet Pinar neu, und der lokale Server startet mit ihr neu. Frühere Versionen schlossen sich, ohne zu aktualisieren; installiere diese Version deshalb einmal über die Download-Seite, danach laufen Updates über das Menü. Kann ein Update nicht starten, bleibt Pinar geöffnet und das Menü meldet es.",
+        },
+        "local-voice-checks": {
+          title: "Sprache mit eigener KI erklärt, was nicht stimmt",
+          description:
+            "In der lokalen App prüfen Verbindung testen und Speichern unter Einstellungen → KI-Assistent jetzt neben dem Hauptmodell auch das Transkriptionsmodell und sagen, warum die Transkription fehlschlägt, zum Beispiel weil ein API-Schlüssel kein Audio transkribieren darf. Die Einstellungen werden trotzdem gespeichert, wenn nur die Transkription fehlschlägt, und ein Sprachkommentar, der im lokalen Modus fehlschlägt, fordert nicht mehr dazu auf, die Erweiterung mit Pinar Cloud zu verbinden.",
+        },
+        "help-center": {
+          title: "Eine vollständigere Hilfe",
+          description:
+            "Die Hilfe behandelt jetzt Updates der Desktop-App, Sitzungs-Hooks für Agents, die Verbindung von Agents mit der lokalen App über MCP, API-Schlüssel für Agents, eigene KI in der lokalen App, die Zusammenarbeit an Sammlungen, das Verschieben von Daten zwischen der lokalen App und Pinar Cloud und die Meldungen, wenn sich eine Sitzung nicht abschließen lässt. Mehrere Aussagen, die nicht mehr zu Pinar passten, wurden korrigiert.",
+        },
+      },
+    },
     "v0.7.2": {
       title: "Pinar Cloud auf neuem Hosting",
       summary:

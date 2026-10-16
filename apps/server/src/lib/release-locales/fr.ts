@@ -22,6 +22,28 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.7.3": {
+      title: "Des mises à jour qui s’installent depuis le menu et une voix plus claire avec votre propre IA",
+      summary:
+        "Choisir une mise à jour dans le menu Pinar l’installe maintenant et rouvre Pinar. L’application locale vérifie votre modèle de transcription et explique pourquoi la voix échoue, et le centre d’aide couvre bien plus de Pinar.",
+      changes: {
+        "desktop-updates": {
+          title: "Les mises à jour s’installent depuis le menu Pinar",
+          description:
+            "Choisir l’élément de mise à jour dans le menu Pinar installe maintenant la version téléchargée et rouvre Pinar, avec le serveur local redémarré sur celle-ci. Les versions précédentes se fermaient sans se mettre à jour : installez donc cette version une fois depuis la page de téléchargement ; ensuite, les mises à jour passent par le menu. Si une mise à jour ne peut pas démarrer, Pinar reste ouvert et le menu le signale.",
+        },
+        "local-voice-checks": {
+          title: "La voix avec votre propre IA explique ce qui ne va pas",
+          description:
+            "Dans l’application locale, Tester la connexion et Enregistrer dans Paramètres → Assistant IA vérifient maintenant le modèle de transcription en plus du modèle principal et expliquent pourquoi la transcription échoue, par exemple une clé API qui n’est pas autorisée à transcrire l’audio. Les paramètres sont toujours enregistrés quand seule la transcription échoue, et un commentaire vocal qui échoue en mode local ne demande plus de connecter l’extension à Pinar Cloud.",
+        },
+        "help-center": {
+          title: "Un centre d’aide plus complet",
+          description:
+            "Le centre d’aide couvre maintenant les mises à jour de l’application de bureau, les hooks de session des agents, la connexion des agents à l’application locale via MCP, les clés API pour agents, votre propre IA dans l’application locale, la collaboration sur les collections, le déplacement des données entre l’application locale et Pinar Cloud et les messages affichés quand une session ne peut pas se terminer. Plusieurs affirmations qui ne correspondaient plus à Pinar ont été corrigées.",
+        },
+      },
+    },
     "v0.7.2": {
       title: "Pinar Cloud change d’hébergement",
       summary:

@@ -21,6 +21,28 @@ const locale = {
     whatChanged: "Qué cambió",
   },
   releases: {
+    "v0.7.3": {
+      title: "Actualizaciones que se instalan desde el menú y una voz más clara con tu propia IA",
+      summary:
+        "Elegir una actualización en el menú de Pinar ahora la instala y vuelve a abrir Pinar. La aplicación local comprueba tu modelo de transcripción y explica por qué falla la voz, y el centro de ayuda cubre mucho más de Pinar.",
+      changes: {
+        "desktop-updates": {
+          title: "Las actualizaciones se instalan desde el menú de Pinar",
+          description:
+            "Elegir el elemento de actualización en el menú de Pinar ahora instala la versión descargada y vuelve a abrir Pinar, con el servidor local reiniciado en ella. Las versiones anteriores se cerraban sin actualizar, así que instala esta versión una vez desde la página de descarga; a partir de entonces, las actualizaciones pasan por el menú. Si una actualización no puede empezar, Pinar sigue abierto y el menú lo indica.",
+        },
+        "local-voice-checks": {
+          title: "La voz con tu propia IA explica qué falla",
+          description:
+            "En la aplicación local, Probar conexión y Guardar en Configuración → Asistente de IA ahora comprueban el modelo de transcripción además del modelo principal y explican por qué falla la transcripción, por ejemplo una clave de API sin permiso para transcribir audio. La configuración se sigue guardando cuando solo falla la transcripción, y un comentario de voz que falla en modo local ya no te pide conectar la extensión a Pinar Cloud.",
+        },
+        "help-center": {
+          title: "Un centro de ayuda más completo",
+          description:
+            "El centro de ayuda ahora cubre las actualizaciones de la aplicación de escritorio, los hooks de sesión de los agentes, la conexión de agentes a la aplicación local mediante MCP, las claves de API para agentes, tu propia IA en la aplicación local, la colaboración en colecciones, el traslado de datos entre la aplicación local y Pinar Cloud y los mensajes que aparecen cuando una sesión no puede terminar. Se corrigieron varias afirmaciones que ya no coincidían con Pinar.",
+        },
+      },
+    },
     "v0.7.2": {
       title: "Pinar Cloud en un nuevo alojamiento",
       summary:

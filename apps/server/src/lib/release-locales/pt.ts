@@ -22,6 +22,28 @@ const locale = {
     whatChanged: "O que mudou",
   },
   releases: {
+    "v0.7.3": {
+      title: "Atualizações que se instalam pelo menu e voz mais clara com a sua própria IA",
+      summary:
+        "Escolher uma atualização no menu do Pinar agora a instala e reabre o Pinar. O aplicativo local confere o seu modelo de transcrição e diz por que a voz falha, e a central de ajuda cobre muito mais do Pinar.",
+      changes: {
+        "desktop-updates": {
+          title: "Atualizações se instalam pelo menu do Pinar",
+          description:
+            "Escolher o item de atualização no menu do Pinar agora instala a versão baixada e reabre o Pinar, com o servidor local reiniciado nela. As versões anteriores fechavam sem atualizar, então instale esta versão uma vez pela página de download; a partir daí, as atualizações passam pelo menu. Se uma atualização não puder começar, o Pinar continua aberto e o menu avisa.",
+        },
+        "local-voice-checks": {
+          title: "A voz com a sua própria IA explica o que está errado",
+          description:
+            "No aplicativo local, Testar conexão e Salvar em Configurações → Assistente de IA agora conferem o modelo de transcrição além do modelo principal e dizem por que a transcrição falha, por exemplo uma chave de API sem permissão para transcrever áudio. As configurações continuam sendo salvas quando só a transcrição falha, e um comentário de voz que falha no modo local não pede mais para conectar a extensão ao Pinar Cloud.",
+        },
+        "help-center": {
+          title: "Uma central de ajuda mais completa",
+          description:
+            "A central de ajuda agora cobre as atualizações do aplicativo desktop, os hooks de sessão dos agentes, a conexão de agentes ao aplicativo local pelo MCP, as chaves de API para agentes, a sua própria IA no aplicativo local, a colaboração em coleções, a migração de dados entre o aplicativo local e o Pinar Cloud e as mensagens mostradas quando uma sessão não consegue terminar. Várias afirmações que não correspondiam mais ao Pinar foram corrigidas.",
+        },
+      },
+    },
     "v0.7.2": {
       title: "Pinar Cloud em nova hospedagem",
       summary:

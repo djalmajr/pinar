@@ -659,7 +659,7 @@ const locale = {
         {
           heading: "Sprachkommentar transkribieren",
           paragraphs: [
-            "Beginne einen Pin-Kommentar und wähle das Mikrofon. Nimm bis zu 120 Sekunden auf, stoppe dann, um die Transkription in den Kommentar einzufügen, oder sende sie direkt. In Pinar Cloud benötigt die Sprachtranskription ein Pro-Konto und verbraucht KI-Credits; der Leitfaden Sprachtranskription und Pinar-Cloud-KI-Credits erklärt die Kostenstufen und Erstattungen. In der lokalen App nutzt Sprache das in Einstellungen → KI-Assistent hinterlegte Transkriptionsmodell auf deinem eigenen OpenAI-kompatiblen Endpunkt, ohne Credits. Der API-Schlüssel des Endpunkts muss Audio-Transkription erlauben, und Verbindung testen prüft das Modell und das Transkriptionsmodell.",
+            "Beginne einen Pin-Kommentar und wähle das Mikrofon. Nimm bis zu 120 Sekunden auf, stoppe dann, um die Transkription in den Kommentar einzufügen, oder sende sie direkt. In Pinar Cloud benötigt die Sprachtranskription ein Pro-Konto und verbraucht KI-Credits; der Leitfaden Sprachtranskription und Pinar-Cloud-KI-Credits erklärt die Kostenstufen und Erstattungen. In der lokalen App nutzt Sprache das in Einstellungen → KI-Assistent hinterlegte Transkriptionsmodell auf deinem eigenen OpenAI-kompatiblen Endpunkt, ohne Credits. Der API-Schlüssel des Endpunkts muss Audio-Transkription erlauben.",
           ],
         },
         {

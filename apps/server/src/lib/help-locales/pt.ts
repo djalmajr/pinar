@@ -659,7 +659,7 @@ const locale = {
         {
           heading: "Transcreva um comentário por voz",
           paragraphs: [
-            "Inicie o comentário de um pin e escolha o microfone. Grave por até 120 segundos, pare para inserir a transcrição no comentário ou envie diretamente. No Pinar Cloud, a transcrição por voz exige uma conta Pro e usa créditos de IA; o guia Transcrição por voz e créditos de IA do Pinar Cloud explica as faixas de cobrança e os estornos. No aplicativo local, a voz usa o modelo de transcrição definido em Configurações → Assistente de IA no seu próprio endpoint compatível com a OpenAI, sem créditos. A chave de API do endpoint deve permitir transcrição de áudio, e Testar conexão confere o modelo e o modelo de transcrição.",
+            "Inicie o comentário de um pin e escolha o microfone. Grave por até 120 segundos, pare para inserir a transcrição no comentário ou envie diretamente. No Pinar Cloud, a transcrição por voz exige uma conta Pro e usa créditos de IA; o guia Transcrição por voz e créditos de IA do Pinar Cloud explica as faixas de cobrança e os estornos. No aplicativo local, a voz usa o modelo de transcrição definido em Configurações → Assistente de IA no seu próprio endpoint compatível com a OpenAI, sem créditos. A chave de API do endpoint deve permitir transcrição de áudio.",
           ],
         },
         {

@@ -656,7 +656,7 @@ const locale = {
         {
           heading: "Transcribe a voice comment",
           paragraphs: [
-            "Start a pin comment and choose the microphone. Record for up to 120 seconds, then stop to place the transcription in the comment, or send it directly. In Pinar Cloud, voice transcription needs a Pro account and uses AI credits; the Voice transcription and Pinar Cloud AI credits guide explains the charging tiers and refunds. In the local app, voice uses the transcription model set in Settings → AI on your own OpenAI-compatible endpoint, without credits. The endpoint's API key must allow audio transcription, and Test connection checks the model and the transcription model.",
+            "Start a pin comment and choose the microphone. Record for up to 120 seconds, then stop to place the transcription in the comment, or send it directly. In Pinar Cloud, voice transcription needs a Pro account and uses AI credits; the Voice transcription and Pinar Cloud AI credits guide explains the charging tiers and refunds. In the local app, voice uses the transcription model set in Settings → AI Assistant on your own OpenAI-compatible endpoint, without credits. The endpoint's API key must allow audio transcription.",
           ],
         },
         {

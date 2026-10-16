@@ -659,7 +659,7 @@ const locale = {
         {
           heading: "Transcrire un commentaire vocal",
           paragraphs: [
-            "Commencez le commentaire d’une épingle et choisissez le microphone. Enregistrez jusqu’à 120 secondes, puis arrêtez pour insérer la transcription dans le commentaire ou envoyez-la directement. Dans Pinar Cloud, la transcription vocale nécessite un compte Pro et utilise des crédits IA ; le guide Transcription vocale et crédits IA Pinar Cloud détaille les paliers de facturation et les remboursements. Dans l’application locale, la voix utilise le modèle de transcription défini dans Paramètres → Assistant IA sur votre propre endpoint compatible OpenAI, sans crédits. La clé API de l’endpoint doit autoriser la transcription audio, et Tester la connexion vérifie le modèle et le modèle de transcription.",
+            "Commencez le commentaire d’une épingle et choisissez le microphone. Enregistrez jusqu’à 120 secondes, puis arrêtez pour insérer la transcription dans le commentaire ou envoyez-la directement. Dans Pinar Cloud, la transcription vocale nécessite un compte Pro et utilise des crédits IA ; le guide Transcription vocale et crédits IA Pinar Cloud détaille les paliers de facturation et les remboursements. Dans l’application locale, la voix utilise le modèle de transcription défini dans Paramètres → Assistant IA sur votre propre endpoint compatible OpenAI, sans crédits. La clé API de l’endpoint doit autoriser la transcription audio.",
           ],
         },
         {

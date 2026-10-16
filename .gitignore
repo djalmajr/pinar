@@ -19,3 +19,4 @@ coverage/
 test-results/
 !e2e/usability/screenshots/**/*.png
 .herdr-agents/
+.soho/

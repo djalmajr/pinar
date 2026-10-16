@@ -6,6 +6,9 @@
         "Authorization": "Bearer ${env:CINZEL_DJA_API_KEY}",
         "Origin": "https://cinzel.app"
       }
+    },
+    "pinar": {
+      "url": "http://127.0.0.1:17373/api/mcp"
     }
   }
 }

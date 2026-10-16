@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { Database } from "bun:sqlite";
-import { afterEach, beforeEach, describe, test } from "node:test";
+import { afterEach, before, beforeEach, describe, test } from "node:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -18,8 +18,75 @@ import { setLocalAiDependenciesForTests } from "./ai/local-ai";
 
 const VALID_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 
-let root = "";
-let previousHome: string | undefined;
+// bun 1.4.0 does not cancel a timed-out node:test body: its body and its
+// afterEach keep running while the next tests run. Isolation therefore has
+// two layers, each keyed to the test's OWN fixture:
+//   1. The hooks act only on the fixture of the test they belong to, never
+//      on "the current module root": each fixture (its own mkdtemp root) is
+//      kept on the TestContext the adapter passes to the hooks AND the body
+//      (the same object on bun 1.4.0), and process-wide state (PINAR_HOME,
+//      the active sqlite handle) is only reset or restored while that
+//      fixture is still the live generation (PINAR_HOME points at its root).
+//   2. Every body captures ITS fixture (fixtureFor, before its first await)
+//      and every request goes through the single fixture-bound request()
+//      helper below, which re-checks that the fixture is still the live
+//      PINAR_HOME: a body that outlives bun's timeout fails at its next
+//      request instead of touching the live fixture (DJA-208).
+let originalHome: string | undefined;
+let originalHomeCaptured = false;
+let generation = 0;
+
+interface LocalApiFixture {
+  generation: number;
+  root: string;
+}
+
+const fixtures = new WeakMap<object, LocalApiFixture>();
+
+// Capture the PINAR_HOME value that existed before the first fixture of the
+// file, once; teardowns restore to it (deleting it when it was undefined).
+function captureOriginalHome() {
+  if (!originalHomeCaptured) {
+    originalHome = process.env.PINAR_HOME;
+    originalHomeCaptured = true;
+  }
+}
+
+// Create the fixture for one test's context: a fresh temp root that becomes
+// the live PINAR_HOME with a reset local API, exactly as the old
+// module-level beforeEach did, so the next test starts fresh even if a
+// timed-out body is still running.
+async function createFixture(context: object) {
+  captureOriginalHome();
+  generation += 1;
+  const fixture: LocalApiFixture = {
+    generation,
+    root: await mkdtemp(join(tmpdir(), "pinar-local-api-")),
+  };
+  process.env.PINAR_HOME = fixture.root;
+  resetLocalApiForTests();
+  fixtures.set(context, fixture);
+  return fixture;
+}
+
+// Tear down exactly the fixture created for one test's context, never the
+// current module root. Only the live generation (PINAR_HOME still pointing
+// at its own root) may reset the process-wide state and restore PINAR_HOME
+// to the once-captured original; a stale/late teardown removes only its own
+// directory and touches nothing else.
+async function teardownFixture(context: object) {
+  const fixture = fixtures.get(context);
+  if (!fixture) return;
+  fixtures.delete(context);
+  if (process.env.PINAR_HOME === fixture.root) {
+    // Reset before rm so the sqlite handle is closed (and GC'd on Windows)
+    // while the fixture root is still the live PINAR_HOME.
+    resetLocalApiForTests();
+    if (originalHome === undefined) delete process.env.PINAR_HOME;
+    else process.env.PINAR_HOME = originalHome;
+  }
+  await rm(fixture.root, { force: true, recursive: true });
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -31,35 +98,58 @@ async function jsonBody(response: Response) {
   return body;
 }
 
-function request(path: string, init: RequestInit = {}) {
-  return handleApiRequest(new Request(`http://127.0.0.1:17373${path}`, init));
+// The fixture the beforeEach hook created for this test's context. The
+// adapter passes the same context object to the hook and the body (bun
+// 1.4.0), so the body reads ITS fixture — captured before the first await,
+// a late body keeps using its own fixture's root, never the next test's.
+function fixtureFor(t: object): LocalApiFixture {
+  const fixture = fixtures.get(t);
+  assert.ok(fixture, "the beforeEach fixture for this test context");
+  return fixture;
+}
+
+// The ONE fixture-bound request entry point of this file (DJA-208): before
+// each request it re-checks that the fixture is still the live PINAR_HOME
+// and throws otherwise, so a body that outlives bun's timeout fails at its
+// next request instead of touching the live fixture. `handler` keeps the
+// public routes on the same bound path.
+function request(
+  fixture: LocalApiFixture,
+  path: string,
+  init: RequestInit = {},
+  handler: (request: Request) => Promise<Response> = handleApiRequest,
+) {
+  if (process.env.PINAR_HOME !== fixture.root) {
+    throw new Error("stale fixture: PINAR_HOME moved to another test");
+  }
+  return handler(new Request(`http://127.0.0.1:17373${path}`, init));
 }
 
 describe("local TanStack API", () => {
-  beforeEach(async () => {
-    previousHome = process.env.PINAR_HOME;
-    root = await mkdtemp(join(tmpdir(), "pinar-local-api-"));
-    process.env.PINAR_HOME = root;
-    resetLocalApiForTests();
+  before(() => {
+    captureOriginalHome();
   });
 
-  afterEach(async () => {
-    resetLocalApiForTests();
-    if (previousHome === undefined) delete process.env.PINAR_HOME;
-    else process.env.PINAR_HOME = previousHome;
-    await rm(root, { force: true, recursive: true });
+  beforeEach(async (t) => {
+    await createFixture(t);
   });
 
-  test("recreates storage, stores one shots directory, and exposes history and markdown", async () => {
-    const health = await request("/api/health");
+  afterEach(async (t) => {
+    await teardownFixture(t);
+  });
+
+  test("recreates storage, stores one shots directory, and exposes history and markdown", async (t) => {
+    const fixture = fixtureFor(t);
+    const root = fixture.root; // this body's own fixture (DJA-208)
+    const health = await request(fixture, "/api/health");
     assert.equal(health.status, 200);
     assert.equal((await jsonBody(health)).runtime, "local");
     assert.equal(await authorizeAppRequest(), true);
-    assert.deepEqual(await jsonBody(await request("/api/auth/session")), {
+    assert.deepEqual(await jsonBody(await request(fixture, "/api/auth/session")), {
       session: { kind: "local", plan: "free" },
     });
 
-    const upload = await request("/api/shots", {
+    const upload = await request(fixture, "/api/shots", {
       body: JSON.stringify({
         id: "local_session_001",
         image: VALID_PNG,
@@ -74,7 +164,7 @@ describe("local TanStack API", () => {
     assert.equal(existsSync(join(root, "shots", "shots")), false);
     assert.equal(existsSync(join(root, "history.db")), true);
 
-    const invalidUpload = await request("/api/shots", {
+    const invalidUpload = await request(fixture, "/api/shots", {
       body: JSON.stringify({ id: "broken_session", image: "data:image/png;base64,iVBORw==" }),
       headers: { "content-type": "application/json" },
       method: "POST",
@@ -82,12 +172,12 @@ describe("local TanStack API", () => {
     assert.equal(invalidUpload.status, 400);
     assert.equal(existsSync(join(root, "shots", "broken_session.png")), false);
 
-    const history = await request("/api/history");
+    const history = await request(fixture, "/api/history");
     const historyBody = await jsonBody(history);
     assert.ok(Array.isArray(historyBody.sessions));
     assert.equal(historyBody.sessions.length, 1);
 
-    const session = await request("/api/sessions/local_session_001");
+    const session = await request(fixture, "/api/sessions/local_session_001");
     assert.equal(session.status, 200);
     const sessionBody = await jsonBody(session);
     assert.ok(isRecord(sessionBody.session));
@@ -99,31 +189,28 @@ describe("local TanStack API", () => {
     assert.equal(sessionBody.session.pins[0].number, 1);
     assert.equal(sessionBody.session.pins[0].pinId, "local_session_001:p1");
     assert.deepEqual(sessionBody.session.pins[0].coords, { x: 12, y: 34 });
-    const markdown = await handlePublicRequest(
-      new Request("http://127.0.0.1:17373/v/local_session_001.md"),
-    );
+    const markdown = await request(fixture, "/v/local_session_001.md", {}, handlePublicRequest);
     assert.equal(markdown.status, 200);
     const markdownText = await markdown.text();
     assert.match(markdownText, /Local pin/);
     assert.match(markdownText, /Screenshot:/);
     assert.equal(sessionBody.session.includeScreenshot, true);
-    const shot = await handlePublicRequest(
-      new Request("http://127.0.0.1:17373/shots/local_session_001.png"),
-    );
+    const shot = await request(fixture, "/shots/local_session_001.png", {}, handlePublicRequest);
     assert.equal(shot.status, 200);
     assert.equal(shot.headers.get("cache-control"), "no-store");
 
-    assert.equal((await request("/api/history/local_session_001", { method: "DELETE" })).status, 200);
+    assert.equal((await request(fixture, "/api/history/local_session_001", { method: "DELETE" })).status, 200);
     assert.equal(existsSync(join(root, "shots", "local_session_001.png")), false);
   });
 
-  test("serves session markdown from the live helper preference", async () => {
-    const defaults = await jsonBody(await request("/api/preferences"));
+  test("serves session markdown from the live helper preference", async (t) => {
+    const fixture = fixtureFor(t);
+    const defaults = await jsonBody(await request(fixture, "/api/preferences"));
     assert.equal(defaults.ok, true);
     assert.equal(defaults.handoffMode, "compact");
     assert.equal(defaults.includeScreenshot, true);
 
-    const upload = await request("/api/shots", {
+    const upload = await request(fixture, "/api/shots", {
       body: JSON.stringify({
         id: "local_session_live_pref",
         image: VALID_PNG,
@@ -134,30 +221,28 @@ describe("local TanStack API", () => {
       method: "POST",
     });
     assert.equal(upload.status, 201);
-    const session = await jsonBody(await request("/api/sessions/local_session_live_pref"));
+    const session = await jsonBody(await request(fixture, "/api/sessions/local_session_live_pref"));
     assert.ok(isRecord(session.session));
     assert.equal(session.session.includeScreenshot, true);
     assert.match(String(session.session.shotUrl), /\/shots\/local_session_live_pref\.png/);
-    const withShot = await handlePublicRequest(
-      new Request("http://127.0.0.1:17373/v/local_session_live_pref.md"),
-    );
+    const withShot = await request(fixture, "/v/local_session_live_pref.md", {}, handlePublicRequest);
     assert.match(await withShot.text(), /Screenshot:/);
 
-    const patched = await jsonBody(await request("/api/preferences", {
+    const patched = await jsonBody(await request(fixture, "/api/preferences", {
       body: JSON.stringify({ includeScreenshot: false }),
       headers: { "content-type": "application/json" },
       method: "PATCH",
     }));
     assert.equal(patched.includeScreenshot, false);
     assert.equal(patched.handoffMode, "compact");
-    const detailed = await jsonBody(await request("/api/preferences", {
+    const detailed = await jsonBody(await request(fixture, "/api/preferences", {
       body: JSON.stringify({ handoffMode: "full" }),
       headers: { "content-type": "application/json" },
       method: "PATCH",
     }));
     assert.equal(detailed.handoffMode, "full");
     assert.equal(detailed.includeScreenshot, false);
-    const emptyPatch = await jsonBody(await request("/api/preferences", {
+    const emptyPatch = await jsonBody(await request(fixture, "/api/preferences", {
       body: JSON.stringify({}),
       headers: { "content-type": "application/json" },
       method: "PATCH",
@@ -165,9 +250,7 @@ describe("local TanStack API", () => {
     assert.equal(emptyPatch.handoffMode, "full");
     assert.equal(emptyPatch.includeScreenshot, false);
 
-    const markdown = await handlePublicRequest(
-      new Request("http://127.0.0.1:17373/v/local_session_live_pref.md"),
-    );
+    const markdown = await request(fixture, "/v/local_session_live_pref.md", {}, handlePublicRequest);
     assert.equal(markdown.status, 200);
     const text = await markdown.text();
     assert.match(text, /Fix the form/);
@@ -175,8 +258,9 @@ describe("local TanStack API", () => {
     assert.doesNotMatch(text, /screenshot_missing/);
   });
 
-  test("falls back to captureDestination when a shot omits a collection", async () => {
-    const defaults = await jsonBody(await request("/api/preferences"));
+  test("falls back to captureDestination when a shot omits a collection", async (t) => {
+    const fixture = fixtureFor(t);
+    const defaults = await jsonBody(await request(fixture, "/api/preferences"));
     assert.deepEqual(defaults, {
       ok: true,
       captureDestination: null,
@@ -191,7 +275,7 @@ describe("local TanStack API", () => {
       voicePostProcessing: false,
     });
 
-    const tree = await jsonBody(await request("/api/project-tree"));
+    const tree = await jsonBody(await request(fixture, "/api/project-tree"));
     assert.ok(isRecord(tree.tree));
     assert.ok(Array.isArray(tree.tree.projects));
     const personal = tree.tree.projects[0];
@@ -200,14 +284,14 @@ describe("local TanStack API", () => {
     const inbox = personal.collections[0];
     assert.ok(isRecord(inbox));
 
-    const projectBody = await jsonBody(await request("/api/projects", {
+    const projectBody = await jsonBody(await request(fixture, "/api/projects", {
       body: JSON.stringify({ name: "Preferred" }),
       headers: { "content-type": "application/json" },
       method: "POST",
     }));
     assert.ok(isRecord(projectBody.project));
     const projectId = String(projectBody.project.id);
-    const collectionBody = await jsonBody(await request(`/api/projects/${projectId}/collections`, {
+    const collectionBody = await jsonBody(await request(fixture, `/api/projects/${projectId}/collections`, {
       body: JSON.stringify({ name: "Review" }),
       headers: { "content-type": "application/json" },
       method: "POST",
@@ -215,7 +299,7 @@ describe("local TanStack API", () => {
     assert.ok(isRecord(collectionBody.collection));
     const collectionId = String(collectionBody.collection.id);
 
-    const patched = await jsonBody(await request("/api/preferences", {
+    const patched = await jsonBody(await request(fixture, "/api/preferences", {
       body: JSON.stringify({
         captureDestination: { collectionId, projectId },
         copyOnFinishBatch: "link",
@@ -229,7 +313,7 @@ describe("local TanStack API", () => {
     assert.equal(patched.includeScreenshot, true);
     assert.equal(patched.voicePostProcessing, true);
 
-    const preferred = await jsonBody(await request("/api/shots", {
+    const preferred = await jsonBody(await request(fixture, "/api/shots", {
       body: JSON.stringify({
         id: "pref_dest_session",
         image: VALID_PNG,
@@ -242,7 +326,7 @@ describe("local TanStack API", () => {
     assert.ok(isRecord(preferred.destination));
     assert.deepEqual(preferred.destination, { collectionId, projectId });
 
-    const explicit = await jsonBody(await request("/api/shots", {
+    const explicit = await jsonBody(await request(fixture, "/api/shots", {
       body: JSON.stringify({
         collectionId: String(inbox.id),
         id: "explicit_dest_session",
@@ -256,14 +340,14 @@ describe("local TanStack API", () => {
     assert.ok(isRecord(explicit.destination));
     assert.equal(explicit.destination.collectionId, inbox.id);
 
-    await request("/api/preferences", {
+    await request(fixture, "/api/preferences", {
       body: JSON.stringify({
         captureDestination: { collectionId: "missing-collection", projectId },
       }),
       headers: { "content-type": "application/json" },
       method: "PATCH",
     });
-    const missing = await jsonBody(await request("/api/shots", {
+    const missing = await jsonBody(await request(fixture, "/api/shots", {
       body: JSON.stringify({
         id: "missing_dest_session",
         image: VALID_PNG,
@@ -277,8 +361,9 @@ describe("local TanStack API", () => {
     assert.equal(missing.destination.collectionId, inbox.id);
   });
 
-  test("session includeScreenshot stamp does not control live markdown", async () => {
-    const upload = await request("/api/shots", {
+  test("session includeScreenshot stamp does not control live markdown", async (t) => {
+    const fixture = fixtureFor(t);
+    const upload = await request(fixture, "/api/shots", {
       body: JSON.stringify({
         id: "local_session_stamp_only",
         image: VALID_PNG,
@@ -290,16 +375,15 @@ describe("local TanStack API", () => {
       method: "POST",
     });
     assert.equal(upload.status, 201);
-    const session = await jsonBody(await request("/api/sessions/local_session_stamp_only"));
+    const session = await jsonBody(await request(fixture, "/api/sessions/local_session_stamp_only"));
     assert.ok(isRecord(session.session));
     assert.equal(session.session.includeScreenshot, false);
-    const markdown = await handlePublicRequest(
-      new Request("http://127.0.0.1:17373/v/local_session_stamp_only.md"),
-    );
+    const markdown = await request(fixture, "/v/local_session_stamp_only.md", {}, handlePublicRequest);
     assert.match(await markdown.text(), /Screenshot:/);
   });
 
-  test("does not proxy cloud pricing or checkout", async () => {
+  test("does not proxy cloud pricing or checkout", async (t) => {
+    const fixture = fixtureFor(t);
     let fetched = 0;
     const originalFetch = globalThis.fetch;
     globalThis.fetch = (async () => {
@@ -307,8 +391,8 @@ describe("local TanStack API", () => {
       return Response.json({ leaked: true });
     }) as typeof fetch;
     try {
-      const pricing = await request("/api/pricing");
-      const checkout = await request("/api/stripe/checkout", {
+      const pricing = await request(fixture, "/api/pricing");
+      const checkout = await request(fixture, "/api/stripe/checkout", {
         body: JSON.stringify({ interval: "year" }),
         headers: { "content-type": "application/json" },
         method: "POST",
@@ -323,9 +407,11 @@ describe("local TanStack API", () => {
     }
   });
 
-  test("provides project and collection CRUD with safe capture fallback", async () => {
+  test("provides project and collection CRUD with safe capture fallback", async (t) => {
+    const fixture = fixtureFor(t);
+    const root = fixture.root; // this body's own fixture (DJA-208)
     // Mutation captured: accepting the requested collection without resolving it leaks orphan sessions into the API.
-    const initialTree = await jsonBody(await request("/api/project-tree"));
+    const initialTree = await jsonBody(await request(fixture, "/api/project-tree"));
     assert.ok(isRecord(initialTree.tree));
     assert.ok(Array.isArray(initialTree.tree.projects));
     const personal = initialTree.tree.projects[0];
@@ -337,7 +423,7 @@ describe("local TanStack API", () => {
     assert.ok(isRecord(inbox));
     assert.equal(inbox.name, "Inbox");
 
-    const projectResponse = await request("/api/projects", {
+    const projectResponse = await request(fixture, "/api/projects", {
       body: JSON.stringify({ name: "Website" }),
       headers: { "content-type": "application/json" },
       method: "POST",
@@ -347,7 +433,7 @@ describe("local TanStack API", () => {
     assert.ok(isRecord(projectBody.project));
     const projectId = String(projectBody.project.id);
 
-    const collectionResponse = await request(`/api/projects/${projectId}/collections`, {
+    const collectionResponse = await request(fixture, `/api/projects/${projectId}/collections`, {
       body: JSON.stringify({ name: "Review" }),
       headers: { "content-type": "application/json" },
       method: "POST",
@@ -357,7 +443,7 @@ describe("local TanStack API", () => {
     assert.ok(isRecord(collectionBody.collection));
     const collectionId = String(collectionBody.collection.id);
 
-    const upload = await request("/api/shots", {
+    const upload = await request(fixture, "/api/shots", {
       body: JSON.stringify({
         collectionId,
         id: "organized-session",
@@ -372,18 +458,14 @@ describe("local TanStack API", () => {
     assert.ok(isRecord(uploadBody.destination));
     assert.equal(uploadBody.destination.collectionId, collectionId);
     assert.equal(uploadBody.destination.projectId, projectId);
-    const projectMarkdown = await handlePublicRequest(
-      new Request(`http://127.0.0.1:17373/p/${projectId}.md`),
-    );
+    const projectMarkdown = await request(fixture, `/p/${projectId}.md`, {}, handlePublicRequest);
     assert.equal(projectMarkdown.status, 200);
     assert.match(await projectMarkdown.text(), /Organized/);
-    const collectionMarkdown = await handlePublicRequest(
-      new Request(`http://127.0.0.1:17373/c/${collectionId}.md`),
-    );
+    const collectionMarkdown = await request(fixture, `/c/${collectionId}.md`, {}, handlePublicRequest);
     assert.equal(collectionMarkdown.status, 200);
     assert.match(await collectionMarkdown.text(), /\/v\/organized-session/);
 
-    const fallbackUpload = await request("/api/shots", {
+    const fallbackUpload = await request(fixture, "/api/shots", {
       body: JSON.stringify({
         collectionId: "deleted-or-foreign",
         id: "fallback-session",
@@ -398,27 +480,31 @@ describe("local TanStack API", () => {
     assert.ok(isRecord(fallbackBody.destination));
     assert.equal(fallbackBody.destination.collectionId, inbox.id);
 
-    const deleted = await request(`/api/projects/${projectId}`, { method: "DELETE" });
+    const deleted = await request(fixture, `/api/projects/${projectId}`, { method: "DELETE" });
     assert.equal(deleted.status, 200);
     assert.equal(existsSync(join(root, "shots", "organized-session.png")), true);
-    const movedBody = await jsonBody(await request("/api/sessions/organized-session"));
+    const movedBody = await jsonBody(await request(fixture, "/api/sessions/organized-session"));
     assert.ok(isRecord(movedBody.session));
     assert.equal(movedBody.session.collectionId, inbox.id);
-    assert.equal((await request(`/api/projects/${personal.id}`, { method: "DELETE" })).status, 409);
+    assert.equal((await request(fixture, `/api/projects/${personal.id}`, { method: "DELETE" })).status, 409);
   });
 
-  test("matches the shared projects and collections API contract", async () => {
-    await exerciseProjectApiContract(request);
+  test("matches the shared projects and collections API contract", async (t) => {
+    const fixture = fixtureFor(t);
+    await exerciseProjectApiContract((path, init) => request(fixture, path, init));
   });
 
-  test("matches the shared visual context contract", async () => {
-    await exerciseVisualContextContract(request, (path, init) => (
-      handlePublicRequest(new Request(`http://127.0.0.1:17373${path}`, init))
-    ));
+  test("matches the shared visual context contract", async (t) => {
+    const fixture = fixtureFor(t);
+    await exerciseVisualContextContract(
+      (path, init) => request(fixture, path, init),
+      (path, init) => request(fixture, path, init, handlePublicRequest),
+    );
   });
 
-  test("rejects agent feedback locally without persisting", async () => {
-    const upload = await request("/api/shots", {
+  test("rejects agent feedback locally without persisting", async (t) => {
+    const fixture = fixtureFor(t);
+    const upload = await request(fixture, "/api/shots", {
       body: JSON.stringify({
         id: "local_no_agents",
         image: VALID_PNG,
@@ -436,7 +522,7 @@ describe("local TanStack API", () => {
       idempotencyKey: "exec_local_blocked_01",
       results: [{ pinId: "pin_cta", status: "changed", summary: "Agent correction" }],
     };
-    const blocked = await request("/api/agent-executions", {
+    const blocked = await request(fixture, "/api/agent-executions", {
       body: JSON.stringify(payload),
       headers: { "content-type": "application/json" },
       method: "POST",
@@ -446,27 +532,25 @@ describe("local TanStack API", () => {
     assert.equal(blockedBody.ok, false);
     assert.equal(blockedBody.error, "agent_feedback_disabled");
 
-    const replay = await request("/api/agent-executions", {
+    const replay = await request(fixture, "/api/agent-executions", {
       body: JSON.stringify(payload),
       headers: { "content-type": "application/json" },
       method: "POST",
     });
     assert.equal(replay.status, 410);
 
-    const session = await jsonBody(await request("/api/sessions/local_no_agents"));
+    const session = await jsonBody(await request(fixture, "/api/sessions/local_no_agents"));
     assert.deepEqual(session.executions, []);
     assert.ok(Array.isArray(session.reviews));
 
-    const markdown = await handlePublicRequest(
-      new Request("http://127.0.0.1:17373/v/local_no_agents.md"),
-    );
+    const markdown = await request(fixture, "/v/local_no_agents.md", {}, handlePublicRequest);
     assert.equal(markdown.status, 200);
     const text = await markdown.text();
     assert.match(text, /Human pin/);
     assert.doesNotMatch(text, /## Agent results/);
     assert.doesNotMatch(text, /Agent correction/);
 
-    const handoff = await request("/api/sessions/local_no_agents/markdown?includeViewerContent=1");
+    const handoff = await request(fixture, "/api/sessions/local_no_agents/markdown?includeViewerContent=1");
     assert.equal(handoff.status, 200);
     const handoffText = await handoff.text();
     assert.match(handoffText, /Human pin/);
@@ -475,8 +559,9 @@ describe("local TanStack API", () => {
     assert.doesNotMatch(handoffText, /Agent correction/);
   });
 
-  test("keeps human pin review in Local without agent results", async () => {
-    const upload = await request("/api/shots", {
+  test("keeps human pin review in Local without agent results", async (t) => {
+    const fixture = fixtureFor(t);
+    const upload = await request(fixture, "/api/shots", {
       body: JSON.stringify({
         id: "local_human_review",
         image: VALID_PNG,
@@ -488,7 +573,7 @@ describe("local TanStack API", () => {
     });
     assert.equal(upload.status, 201);
 
-    const review = (action: string) => request("/api/sessions/local_human_review/pins/pin_cta/review", {
+    const review = (action: string) => request(fixture, "/api/sessions/local_human_review/pins/pin_cta/review", {
       body: JSON.stringify({ action }),
       headers: { "content-type": "application/json" },
       method: "POST",
@@ -501,7 +586,7 @@ describe("local TanStack API", () => {
     assert.ok(isRecord(acceptedAgain.review));
     assert.equal(acceptedAgain.review.status, "accepted");
 
-    const session = await jsonBody(await request("/api/sessions/local_human_review"));
+    const session = await jsonBody(await request(fixture, "/api/sessions/local_human_review"));
     assert.deepEqual(session.executions, []);
     assert.ok(Array.isArray(session.reviews));
     const stored = session.reviews.find((item) => isRecord(item) && item.pinId === "pin_cta");
@@ -509,8 +594,10 @@ describe("local TanStack API", () => {
     assert.equal(stored.status, "accepted");
   });
 
-  test("hides legacy agent feedback in Local while keeping human review", async () => {
-    const upload = await request("/api/shots", {
+  test("hides legacy agent feedback in Local while keeping human review", async (t) => {
+    const fixture = fixtureFor(t);
+    const root = fixture.root; // this body's own fixture (DJA-208)
+    const upload = await request(fixture, "/api/shots", {
       body: JSON.stringify({
         batch: { id: "local_legacy_batch", label: "Legacy batch", startedAt: new Date().toISOString() },
         id: "local_legacy_agent",
@@ -526,7 +613,7 @@ describe("local TanStack API", () => {
     });
     assert.equal(upload.status, 201);
 
-    const acceptA = await request("/api/sessions/local_legacy_agent/pins/pin_a/review", {
+    const acceptA = await request(fixture, "/api/sessions/local_legacy_agent/pins/pin_a/review", {
       body: JSON.stringify({ action: "accept" }),
       headers: { "content-type": "application/json" },
       method: "POST",
@@ -547,7 +634,7 @@ describe("local TanStack API", () => {
       legacyDb.close();
     }
 
-    const session = await jsonBody(await request("/api/sessions/local_legacy_agent"));
+    const session = await jsonBody(await request(fixture, "/api/sessions/local_legacy_agent"));
     assert.deepEqual(session.executions, []);
     assert.ok(Array.isArray(session.reviews));
     for (const item of session.reviews) {
@@ -563,9 +650,7 @@ describe("local TanStack API", () => {
     assert.ok(isRecord(acceptedA));
     assert.equal(acceptedA.status, "accepted");
 
-    const markdown = await handlePublicRequest(
-      new Request("http://127.0.0.1:17373/v/local_legacy_agent.md"),
-    );
+    const markdown = await request(fixture, "/v/local_legacy_agent.md", {}, handlePublicRequest);
     assert.equal(markdown.status, 200);
     const text = await markdown.text();
     assert.match(text, /Human pin A/);
@@ -575,7 +660,7 @@ describe("local TanStack API", () => {
     assert.doesNotMatch(text, /correction_ready/);
     assert.doesNotMatch(text, /agent_result/);
 
-    const handoff = await request("/api/sessions/local_legacy_agent/markdown?includeViewerContent=1");
+    const handoff = await request(fixture, "/api/sessions/local_legacy_agent/markdown?includeViewerContent=1");
     assert.equal(handoff.status, 200);
     const handoffText = await handoff.text();
     assert.match(handoffText, /Human pin A/);
@@ -590,14 +675,14 @@ describe("local TanStack API", () => {
     assert.doesNotMatch(handoffText, /correction_ready/);
     assert.doesNotMatch(handoffText, /agent_result/);
 
-    const history = await jsonBody(await request("/api/history"));
+    const history = await jsonBody(await request(fixture, "/api/history"));
     assert.ok(Array.isArray(history.sessions));
     const listed = history.sessions.find((item) => isRecord(item) && item.id === "local_legacy_agent");
     assert.ok(isRecord(listed) && isRecord(listed.reviewCounts));
     assert.equal(listed.reviewCounts.correction_ready ?? 0, 0);
     assert.equal(listed.reviewCounts.accepted, 1);
 
-    const batch = await request("/api/batches/local_legacy_batch/markdown");
+    const batch = await request(fixture, "/api/batches/local_legacy_batch/markdown");
     assert.equal(batch.status, 200);
     const batchText = await batch.text();
     assert.match(batchText, /Human pin B/);
@@ -605,7 +690,7 @@ describe("local TanStack API", () => {
     assert.doesNotMatch(batchText, /correction_ready/);
     assert.doesNotMatch(batchText, /agent_result/);
 
-    const blocked = await request("/api/agent-executions", {
+    const blocked = await request(fixture, "/api/agent-executions", {
       body: JSON.stringify({
         agent: "cursor",
         captureId: "local_legacy_agent",
@@ -617,13 +702,13 @@ describe("local TanStack API", () => {
     });
     assert.equal(blocked.status, 410);
 
-    const acceptB = await request("/api/sessions/local_legacy_agent/pins/pin_b/review", {
+    const acceptB = await request(fixture, "/api/sessions/local_legacy_agent/pins/pin_b/review", {
       body: JSON.stringify({ action: "accept" }),
       headers: { "content-type": "application/json" },
       method: "POST",
     });
     assert.equal(acceptB.status, 200);
-    const afterAccept = await jsonBody(await request("/api/sessions/local_legacy_agent"));
+    const afterAccept = await jsonBody(await request(fixture, "/api/sessions/local_legacy_agent"));
     const reviewB = afterAccept.reviews.find((item) => isRecord(item) && item.pinId === "pin_b");
     assert.ok(isRecord(reviewB));
     assert.equal(reviewB.status, "accepted");
@@ -634,9 +719,7 @@ describe("local TanStack API", () => {
       assert.notEqual(event.origin, "agent_result");
     }
 
-    const markdownAfterAccept = await handlePublicRequest(
-      new Request("http://127.0.0.1:17373/v/local_legacy_agent.md"),
-    );
+    const markdownAfterAccept = await request(fixture, "/v/local_legacy_agent.md", {}, handlePublicRequest);
     assert.equal(markdownAfterAccept.status, 200);
     const textAfterAccept = await markdownAfterAccept.text();
     assert.match(textAfterAccept, /Human pin B/);
@@ -645,8 +728,10 @@ describe("local TanStack API", () => {
     assert.doesNotMatch(textAfterAccept, /agent_result/);
   });
 
-  test("reflects the last human state after interleaved legacy agent events", async () => {
-    const upload = await request("/api/shots", {
+  test("reflects the last human state after interleaved legacy agent events", async (t) => {
+    const fixture = fixtureFor(t);
+    const root = fixture.root; // this body's own fixture (DJA-208)
+    const upload = await request(fixture, "/api/shots", {
       body: JSON.stringify({
         id: "local_legacy_interleaved",
         image: VALID_PNG,
@@ -681,7 +766,7 @@ describe("local TanStack API", () => {
       legacyDb.close();
     }
 
-    const session = await jsonBody(await request("/api/sessions/local_legacy_interleaved"));
+    const session = await jsonBody(await request(fixture, "/api/sessions/local_legacy_interleaved"));
     assert.deepEqual(session.executions, []);
     assert.ok(Array.isArray(session.reviews));
     const review = session.reviews.find((item) => isRecord(item) && item.pinId === "pin_mixed");
@@ -705,16 +790,14 @@ describe("local TanStack API", () => {
     assert.doesNotMatch(JSON.stringify(session.reviews), /agent_result/);
     assert.doesNotMatch(JSON.stringify(session.reviews), /Legacy agent summary/);
 
-    const history = await jsonBody(await request("/api/history"));
+    const history = await jsonBody(await request(fixture, "/api/history"));
     const listed = (Array.isArray(history.sessions) ? history.sessions : [])
       .find((item) => isRecord(item) && item.id === "local_legacy_interleaved");
     assert.ok(isRecord(listed) && isRecord(listed.reviewCounts));
     assert.equal(listed.reviewCounts.correction_ready ?? 0, 0);
     assert.equal(listed.reviewCounts.reopened, 1);
 
-    const markdown = await handlePublicRequest(
-      new Request("http://127.0.0.1:17373/v/local_legacy_interleaved.md"),
-    );
+    const markdown = await request(fixture, "/v/local_legacy_interleaved.md", {}, handlePublicRequest);
     assert.equal(markdown.status, 200);
     const text = await markdown.text();
     assert.match(text, /Human pin/);
@@ -724,20 +807,21 @@ describe("local TanStack API", () => {
     assert.doesNotMatch(text, /agent_result/);
 
     // The human review API still operates on the real stored row.
-    const accept = await request("/api/sessions/local_legacy_interleaved/pins/pin_mixed/review", {
+    const accept = await request(fixture, "/api/sessions/local_legacy_interleaved/pins/pin_mixed/review", {
       body: JSON.stringify({ action: "accept" }),
       headers: { "content-type": "application/json" },
       method: "POST",
     });
     assert.equal(accept.status, 200);
-    const afterAccept = await jsonBody(await request("/api/sessions/local_legacy_interleaved"));
+    const afterAccept = await jsonBody(await request(fixture, "/api/sessions/local_legacy_interleaved"));
     const accepted = afterAccept.reviews.find((item) => isRecord(item) && item.pinId === "pin_mixed");
     assert.ok(isRecord(accepted));
     assert.equal(accepted.status, "accepted");
   });
 
-  test("keeps loop-metrics opt-in behavior without agent feedback", async () => {
-    const off = await request("/api/loop-metrics", {
+  test("keeps loop-metrics opt-in behavior without agent feedback", async (t) => {
+    const fixture = fixtureFor(t);
+    const off = await request(fixture, "/api/loop-metrics", {
       body: JSON.stringify({
         events: [{ comment: "Make the CTA bolder", event: "handoff", url: "https://example.test/cta" }],
         optIn: false,
@@ -748,7 +832,7 @@ describe("local TanStack API", () => {
     assert.equal(off.status, 200);
     assert.equal((await jsonBody(off)).stored, 0);
 
-    const forbidden = await request("/api/loop-metrics", {
+    const forbidden = await request(fixture, "/api/loop-metrics", {
       body: JSON.stringify({
         events: [{
           comment: "secret comment",
@@ -764,7 +848,7 @@ describe("local TanStack API", () => {
     });
     assert.equal(forbidden.status, 400);
 
-    const on = await request("/api/loop-metrics", {
+    const on = await request(fixture, "/api/loop-metrics", {
       body: JSON.stringify({
         events: [
           { agent: "cursor", durationMs: 40, event: "handoff" },
@@ -780,8 +864,9 @@ describe("local TanStack API", () => {
     assert.equal((await jsonBody(on)).stored, 3);
   });
 
-  test("patches viewer-owned pin fields and renders them in the session markdown", async () => {
-    const upload = await request("/api/shots", {
+  test("patches viewer-owned pin fields and renders them in the session markdown", async (t) => {
+    const fixture = fixtureFor(t);
+    const upload = await request(fixture, "/api/shots", {
       body: JSON.stringify({
         id: "local_patch_001",
         image: VALID_PNG,
@@ -792,13 +877,13 @@ describe("local TanStack API", () => {
       method: "POST",
     });
     assert.equal(upload.status, 201);
-    const patch = (body: unknown) => request("/api/sessions/local_patch_001", {
+    const patch = (body: unknown) => request(fixture, "/api/sessions/local_patch_001", {
       body: JSON.stringify(body),
       headers: { "content-type": "application/json" },
       method: "PATCH",
     });
     assert.equal((await patch({ pins: [{ pinId: "nope" }] })).status, 400);
-    assert.equal((await request("/api/sessions/missing_session", { body: "{}", method: "PATCH" })).status, 404);
+    assert.equal((await request(fixture, "/api/sessions/missing_session", { body: "{}", method: "PATCH" })).status, 404);
     const patched = await jsonBody(await patch({
       pins: [{
         diagnosis: {
@@ -813,14 +898,15 @@ describe("local TanStack API", () => {
       }],
     }));
     assert.equal(patched.ok, true);
-    const markdown = await handlePublicRequest(new Request("http://127.0.0.1:17373/v/local_patch_001.md"));
+    const markdown = await request(fixture, "/v/local_patch_001.md", {}, handlePublicRequest);
     assert.equal(markdown.status, 200);
     const text = await markdown.text();
     assert.match(text, /Diagnosis \(medium confidence\): Padding differs from siblings/);
     assert.match(text, /"cause":"Padding differs from siblings"/);
   });
 
-  test("does not expose retired local AI generation endpoints", async () => {
+  test("does not expose retired local AI generation endpoints", async (t) => {
+    const fixture = fixtureFor(t);
     const requests = [
       ["/api/ai/session-summary", "POST"],
       ["/api/ai/pin-diagnosis", "POST"],
@@ -830,12 +916,14 @@ describe("local TanStack API", () => {
     ] as const;
 
     for (const [path, method] of requests) {
-      const response = await request(path, { method });
+      const response = await request(fixture, path, { method });
       assert.equal(response.status, 404, `${method} ${path}`);
     }
   });
 
-  test("reports voice readiness without reading the credential vault", async () => {
+  test("reports voice readiness without reading the credential vault", async (t) => {
+    const fixture = fixtureFor(t);
+    const root = fixture.root; // this body's own fixture (DJA-208)
     let vaultReads = 0;
     setLocalAiDependenciesForTests({
       vault: {
@@ -844,7 +932,7 @@ describe("local TanStack API", () => {
         set: async () => {},
       },
     });
-    const disabled = await jsonBody(await request("/api/ai/status"));
+    const disabled = await jsonBody(await request(fixture, "/api/ai/status"));
     assert.deepEqual(disabled, { mode: "disabled", ok: true, transcriptionModel: "", voiceReady: false });
     writeFileSync(join(root, "ai.json"), JSON.stringify({
       endpoint: "https://provider.example/v1",
@@ -852,12 +940,14 @@ describe("local TanStack API", () => {
       model: "qwen3.8-27b",
       transcriptionModel: "parakeet-tdt-0.6b-v3",
     }));
-    const ready = await jsonBody(await request("/api/ai/status"));
+    const ready = await jsonBody(await request(fixture, "/api/ai/status"));
     assert.deepEqual(ready, { mode: "byok", ok: true, transcriptionModel: "parakeet-tdt-0.6b-v3", voiceReady: true });
     assert.equal(vaultReads, 0);
   });
 
-  test("returns only a masked preview for a stored BYOK key", async () => {
+  test("returns only a masked preview for a stored BYOK key", async (t) => {
+    const fixture = fixtureFor(t);
+    const root = fixture.root; // this body's own fixture (DJA-208)
     // Mutation captured: omitting apiKeyPreview or returning the stored secret exposes no safe key identity to the UI.
     const secret = "sk-proj-1234567890abcdef";
     const secrets = new Map<string, string>();
@@ -873,7 +963,7 @@ describe("local TanStack API", () => {
       },
     });
 
-    const configuredResponse = await request("/api/ai/settings", {
+    const configuredResponse = await request(fixture, "/api/ai/settings", {
       body: JSON.stringify({
         apiKey: secret,
         endpoint: "https://provider.example/v1",
@@ -889,7 +979,7 @@ describe("local TanStack API", () => {
     assert.ok(isRecord(configured));
     assert.equal(configured.apiKeyPreview, "sk-p••••cdef");
 
-    const storedResponse = await request("/api/ai/settings");
+    const storedResponse = await request(fixture, "/api/ai/settings");
     const storedText = await storedResponse.text();
     assert.doesNotMatch(storedText, new RegExp(secret));
     const stored: unknown = JSON.parse(storedText);
@@ -897,7 +987,7 @@ describe("local TanStack API", () => {
     assert.equal(stored.apiKeyPreview, "sk-p••••cdef");
     assert.doesNotMatch(readFileSync(join(root, "ai.json"), "utf8"), new RegExp(secret));
 
-    const clearedResponse = await request("/api/ai/settings/key", { method: "DELETE" });
+    const clearedResponse = await request(fixture, "/api/ai/settings/key", { method: "DELETE" });
     assert.equal(clearedResponse.status, 200);
     const cleared = await jsonBody(clearedResponse);
     assert.equal(cleared.ok, true);
@@ -909,8 +999,9 @@ describe("local TanStack API", () => {
     assert.equal(secrets.size, 0);
   });
 
-  test("stores local pin comments, reloads them, and drops them with the capture", async () => {
-    const upload = await request("/api/shots", {
+  test("stores local pin comments, reloads them, and drops them with the capture", async (t) => {
+    const fixture = fixtureFor(t);
+    const upload = await request(fixture, "/api/shots", {
       body: JSON.stringify({
         id: "local_comment_capture",
         image: VALID_PNG,
@@ -924,7 +1015,7 @@ describe("local TanStack API", () => {
       method: "POST",
     });
     assert.equal(upload.status, 201);
-    const other = await request("/api/shots", {
+    const other = await request(fixture, "/api/shots", {
       body: JSON.stringify({
         id: "local_comment_other",
         image: VALID_PNG,
@@ -936,7 +1027,7 @@ describe("local TanStack API", () => {
     });
     assert.equal(other.status, 201);
 
-    const created = await request("/api/sessions/local_comment_capture/pins/pin_one/comments", {
+    const created = await request(fixture, "/api/sessions/local_comment_capture/pins/pin_one/comments", {
       body: JSON.stringify({
         actorId: "browser",
         actorLabel: "Spoofed",
@@ -956,25 +1047,25 @@ describe("local TanStack API", () => {
     assert.equal(createdBody.comment.actorType, "human");
     assert.equal(createdBody.comment.pinId, "pin_one");
 
-    const second = await request("/api/sessions/local_comment_capture/pins/pin_two/comments", {
+    const second = await request(fixture, "/api/sessions/local_comment_capture/pins/pin_two/comments", {
       body: JSON.stringify({ body: "second local note" }),
       headers: { "content-type": "application/json" },
       method: "POST",
     });
     assert.equal(second.status, 200);
-    assert.equal((await request("/api/sessions/local_comment_capture/pins/pin_one/comments", {
+    assert.equal((await request(fixture, "/api/sessions/local_comment_capture/pins/pin_one/comments", {
       body: JSON.stringify({ body: "   " }),
       headers: { "content-type": "application/json" },
       method: "POST",
     })).status, 400);
-    assert.equal((await request("/api/sessions/local_comment_capture/pins/pin_missing/comments", {
+    assert.equal((await request(fixture, "/api/sessions/local_comment_capture/pins/pin_missing/comments", {
       body: JSON.stringify({ body: "missing pin" }),
       headers: { "content-type": "application/json" },
       method: "POST",
     })).status, 404);
 
     resetLocalApiForTests();
-    const listed = await jsonBody(await request("/api/sessions/local_comment_capture"));
+    const listed = await jsonBody(await request(fixture, "/api/sessions/local_comment_capture"));
     assert.ok(Array.isArray(listed.comments));
     assert.deepEqual(listed.comments.map((item) => {
       assert.ok(isRecord(item));
@@ -984,11 +1075,11 @@ describe("local TanStack API", () => {
       assert.ok(isRecord(item));
       return item.pinId;
     }), ["pin_one", "pin_two"]);
-    const isolated = await jsonBody(await request("/api/sessions/local_comment_other"));
+    const isolated = await jsonBody(await request(fixture, "/api/sessions/local_comment_other"));
     assert.deepEqual(isolated.comments, []);
 
-    assert.equal((await request("/api/history/local_comment_capture", { method: "DELETE" })).status, 200);
-    const recreated = await request("/api/shots", {
+    assert.equal((await request(fixture, "/api/history/local_comment_capture", { method: "DELETE" })).status, 200);
+    const recreated = await request(fixture, "/api/shots", {
       body: JSON.stringify({
         id: "local_comment_capture",
         image: VALID_PNG,
@@ -999,12 +1090,13 @@ describe("local TanStack API", () => {
       method: "POST",
     });
     assert.equal(recreated.status, 201);
-    const afterDelete = await jsonBody(await request("/api/sessions/local_comment_capture"));
+    const afterDelete = await jsonBody(await request(fixture, "/api/sessions/local_comment_capture"));
     assert.deepEqual(afterDelete.comments, []);
   });
 
-  test("adds agent-authored comments and preserves actor_type across reads", async () => {
-    const upload = await request("/api/shots", {
+  test("adds agent-authored comments and preserves actor_type across reads", async (t) => {
+    const fixture = fixtureFor(t);
+    const upload = await request(fixture, "/api/shots", {
       body: JSON.stringify({
         id: "agent_comment_capture",
         image: VALID_PNG,
@@ -1016,7 +1108,7 @@ describe("local TanStack API", () => {
     });
     assert.equal(upload.status, 201);
 
-    const human = await request("/api/sessions/agent_comment_capture/pins/pin_one/comments", {
+    const human = await request(fixture, "/api/sessions/agent_comment_capture/pins/pin_one/comments", {
       body: JSON.stringify({ body: "Human says hi" }),
       headers: { "content-type": "application/json" },
       method: "POST",
@@ -1027,7 +1119,7 @@ describe("local TanStack API", () => {
     assert.equal(humanComment.actorType, "human");
     assert.equal(humanComment.actorLabel, "Local");
 
-    const agent = await request("/api/sessions/agent_comment_capture/pins/pin_one/comments", {
+    const agent = await request(fixture, "/api/sessions/agent_comment_capture/pins/pin_one/comments", {
       body: JSON.stringify({ agentName: "Grok", body: "Agent reply" }),
       headers: { "content-type": "application/json" },
       method: "POST",
@@ -1039,14 +1131,15 @@ describe("local TanStack API", () => {
     assert.equal(agentComment.actorLabel, "Grok");
     assert.equal(agentComment.pinId, "pin_one");
 
-    const listed = await jsonBody(await request("/api/sessions/agent_comment_capture"));
+    const listed = await jsonBody(await request(fixture, "/api/sessions/agent_comment_capture"));
     const comments = listed.comments as Array<Record<string, unknown>>;
     assert.equal(comments.length, 2);
     assert.deepEqual(comments.map((item) => item.actorType), ["human", "agent"]);
   });
 
-  test("rejects a non-string agentName without persisting a comment", async () => {
-    const upload = await request("/api/shots", {
+  test("rejects a non-string agentName without persisting a comment", async (t) => {
+    const fixture = fixtureFor(t);
+    const upload = await request(fixture, "/api/shots", {
       body: JSON.stringify({
         id: "agent_name_capture",
         image: VALID_PNG,
@@ -1058,26 +1151,27 @@ describe("local TanStack API", () => {
     });
     assert.equal(upload.status, 201);
 
-    const numberAgent = await request("/api/sessions/agent_name_capture/pins/pin_one/comments", {
+    const numberAgent = await request(fixture, "/api/sessions/agent_name_capture/pins/pin_one/comments", {
       body: JSON.stringify({ agentName: 123, body: "Should not persist" }),
       headers: { "content-type": "application/json" },
       method: "POST",
     });
     assert.equal(numberAgent.status, 400);
 
-    const objectAgent = await request("/api/sessions/agent_name_capture/pins/pin_one/comments", {
+    const objectAgent = await request(fixture, "/api/sessions/agent_name_capture/pins/pin_one/comments", {
       body: JSON.stringify({ agentName: { name: "x" }, body: "Should not persist" }),
       headers: { "content-type": "application/json" },
       method: "POST",
     });
     assert.equal(objectAgent.status, 400);
 
-    const payload = await jsonBody(await request("/api/sessions/agent_name_capture"));
+    const payload = await jsonBody(await request(fixture, "/api/sessions/agent_name_capture"));
     assert.deepEqual(payload.comments, []);
   });
 
-  test("edits any stored comment, rejects empty or overlong bodies, and refuses cross references", async () => {
-    const upload = await request("/api/shots", {
+  test("edits any stored comment, rejects empty or overlong bodies, and refuses cross references", async (t) => {
+    const fixture = fixtureFor(t);
+    const upload = await request(fixture, "/api/shots", {
       body: JSON.stringify({
         id: "edit_comment_capture",
         image: VALID_PNG,
@@ -1089,7 +1183,7 @@ describe("local TanStack API", () => {
     });
     assert.equal(upload.status, 201);
 
-    const created = await request("/api/sessions/edit_comment_capture/pins/pin_one/comments", {
+    const created = await request(fixture, "/api/sessions/edit_comment_capture/pins/pin_one/comments", {
       body: JSON.stringify({ agentName: "Grok", body: "Agent reply" }),
       headers: { "content-type": "application/json" },
       method: "POST",
@@ -1099,7 +1193,7 @@ describe("local TanStack API", () => {
     const commentId = String(comment.id);
     const createdAt = String(comment.createdAt);
 
-    const edited = await request(`/api/sessions/edit_comment_capture/pins/pin_one/comments/${commentId}`, {
+    const edited = await request(fixture, `/api/sessions/edit_comment_capture/pins/pin_one/comments/${commentId}`, {
       body: JSON.stringify({ body: "Agent reply (edited)" }),
       headers: { "content-type": "application/json" },
       method: "PATCH",
@@ -1114,68 +1208,69 @@ describe("local TanStack API", () => {
     assert.equal(editedComment.actorType, "agent");
 
     // The trusted local environment edits any comment, including human ones.
-    const humanCreated = await request("/api/sessions/edit_comment_capture/pins/pin_one/comments", {
+    const humanCreated = await request(fixture, "/api/sessions/edit_comment_capture/pins/pin_one/comments", {
       body: JSON.stringify({ body: "Human says hi" }),
       headers: { "content-type": "application/json" },
       method: "POST",
     });
     const humanComment = (await jsonBody(humanCreated)).comment as Record<string, unknown>;
-    const humanEdited = await request(
-      `/api/sessions/edit_comment_capture/pins/pin_one/comments/${humanComment.id}`,
-      { body: JSON.stringify({ body: "Human says hi v2" }), headers: { "content-type": "application/json" }, method: "PATCH" },
-    );
+    const humanEdited = await request(fixture, `/api/sessions/edit_comment_capture/pins/pin_one/comments/${humanComment.id}`, {
+      body: JSON.stringify({ body: "Human says hi v2" }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    });
     assert.equal(humanEdited.status, 200);
 
-    const empty = await request(`/api/sessions/edit_comment_capture/pins/pin_one/comments/${commentId}`, {
+    const empty = await request(fixture, `/api/sessions/edit_comment_capture/pins/pin_one/comments/${commentId}`, {
       body: JSON.stringify({ body: "   " }),
       headers: { "content-type": "application/json" },
       method: "PATCH",
     });
     assert.equal(empty.status, 400);
 
-    const overlong = await request(`/api/sessions/edit_comment_capture/pins/pin_one/comments/${commentId}`, {
+    const overlong = await request(fixture, `/api/sessions/edit_comment_capture/pins/pin_one/comments/${commentId}`, {
       body: JSON.stringify({ body: "x".repeat(2001) }),
       headers: { "content-type": "application/json" },
       method: "PATCH",
     });
     assert.equal(overlong.status, 400);
 
-    const unknownComment = await request("/api/sessions/edit_comment_capture/pins/pin_one/comments/does_not_exist", {
+    const unknownComment = await request(fixture, "/api/sessions/edit_comment_capture/pins/pin_one/comments/does_not_exist", {
       body: JSON.stringify({ body: "New body" }),
       headers: { "content-type": "application/json" },
       method: "PATCH",
     });
     assert.equal(unknownComment.status, 404);
 
-    const wrongPin = await request(`/api/sessions/edit_comment_capture/pins/pin_other/comments/${commentId}`, {
+    const wrongPin = await request(fixture, `/api/sessions/edit_comment_capture/pins/pin_other/comments/${commentId}`, {
       body: JSON.stringify({ body: "New body" }),
       headers: { "content-type": "application/json" },
       method: "PATCH",
     });
     assert.equal(wrongPin.status, 404);
 
-    const wrongCapture = await request(`/api/sessions/other_capture/pins/pin_one/comments/${commentId}`, {
+    const wrongCapture = await request(fixture, `/api/sessions/other_capture/pins/pin_one/comments/${commentId}`, {
       body: JSON.stringify({ body: "New body" }),
       headers: { "content-type": "application/json" },
       method: "PATCH",
     });
     assert.equal(wrongCapture.status, 404);
 
-    const blankAgentName = await request("/api/sessions/edit_comment_capture/pins/pin_one/comments", {
+    const blankAgentName = await request(fixture, "/api/sessions/edit_comment_capture/pins/pin_one/comments", {
       body: JSON.stringify({ agentName: "   ", body: "Body" }),
       headers: { "content-type": "application/json" },
       method: "POST",
     });
     assert.equal(blankAgentName.status, 400);
 
-    const longAgentName = await request("/api/sessions/edit_comment_capture/pins/pin_one/comments", {
+    const longAgentName = await request(fixture, "/api/sessions/edit_comment_capture/pins/pin_one/comments", {
       body: JSON.stringify({ agentName: "a".repeat(65), body: "Body" }),
       headers: { "content-type": "application/json" },
       method: "POST",
     });
     assert.equal(longAgentName.status, 400);
 
-    const hostileAgentName = await request("/api/sessions/edit_comment_capture/pins/pin_one/comments", {
+    const hostileAgentName = await request(fixture, "/api/sessions/edit_comment_capture/pins/pin_one/comments", {
       body: JSON.stringify({ agentName: "bad\u0000name", body: "Body" }),
       headers: { "content-type": "application/json" },
       method: "POST",
@@ -1183,8 +1278,9 @@ describe("local TanStack API", () => {
     assert.equal(hostileAgentName.status, 400);
   });
 
-  test("edits the original note while preserving the session and pin", async () => {
-    const upload = await request("/api/shots", {
+  test("edits the original note while preserving the session and pin", async (t) => {
+    const fixture = fixtureFor(t);
+    const upload = await request(fixture, "/api/shots", {
       body: JSON.stringify({
         id: "note_capture",
         image: VALID_PNG,
@@ -1199,7 +1295,7 @@ describe("local TanStack API", () => {
     });
     assert.equal(upload.status, 201);
 
-    const edited = await request("/api/sessions/note_capture/pins/pin_one", {
+    const edited = await request(fixture, "/api/sessions/note_capture/pins/pin_one", {
       body: JSON.stringify({ comment: "Edited note" }),
       headers: { "content-type": "application/json" },
       method: "PATCH",
@@ -1210,35 +1306,35 @@ describe("local TanStack API", () => {
     assert.equal((editedBody.pin as Record<string, unknown>).comment, "Edited note");
     assert.equal((editedBody.pin as Record<string, unknown>).pinId, "pin_one");
 
-    const payload = await jsonBody(await request("/api/sessions/note_capture"));
+    const payload = await jsonBody(await request(fixture, "/api/sessions/note_capture"));
     const pins = (payload.session as Record<string, unknown>).pins as Array<Record<string, unknown>>;
     assert.equal(pins[0].comment, "Edited note");
     assert.equal(pins[0].kind, "element");
     assert.equal(pins[1].comment, "Second pin");
     assert.equal(payload.session.id, "note_capture");
 
-    const empty = await request("/api/sessions/note_capture/pins/pin_one", {
+    const empty = await request(fixture, "/api/sessions/note_capture/pins/pin_one", {
       body: JSON.stringify({ comment: "" }),
       headers: { "content-type": "application/json" },
       method: "PATCH",
     });
     assert.equal(empty.status, 400);
 
-    const overlong = await request("/api/sessions/note_capture/pins/pin_one", {
+    const overlong = await request(fixture, "/api/sessions/note_capture/pins/pin_one", {
       body: JSON.stringify({ comment: "x".repeat(2001) }),
       headers: { "content-type": "application/json" },
       method: "PATCH",
     });
     assert.equal(overlong.status, 400);
 
-    const unknownPin = await request("/api/sessions/note_capture/pins/pin_missing", {
+    const unknownPin = await request(fixture, "/api/sessions/note_capture/pins/pin_missing", {
       body: JSON.stringify({ comment: "New note" }),
       headers: { "content-type": "application/json" },
       method: "PATCH",
     });
     assert.equal(unknownPin.status, 404);
 
-    const unknownCapture = await request("/api/sessions/other_capture/pins/pin_one", {
+    const unknownCapture = await request(fixture, "/api/sessions/other_capture/pins/pin_one", {
       body: JSON.stringify({ comment: "New note" }),
       headers: { "content-type": "application/json" },
       method: "PATCH",
@@ -1246,7 +1342,9 @@ describe("local TanStack API", () => {
     assert.equal(unknownCapture.status, 404);
   });
 
-  test("migrates a pre-agent comment store keeping data, index, and the new CHECK", async () => {
+  test("migrates a pre-agent comment store keeping data, index, and the new CHECK", async (t) => {
+    const fixture = fixtureFor(t);
+    const root = fixture.root; // this body's own fixture (DJA-208)
     // Seed a store in the pre-agent shape: the single-value CHECK on
     // actor_type and one human comment written before this change.
     const seed = new Database(join(root, "history.db"));
@@ -1267,7 +1365,7 @@ describe("local TanStack API", () => {
     `);
     seed.close();
 
-    const upload = await request("/api/shots", {
+    const upload = await request(fixture, "/api/shots", {
       body: JSON.stringify({
         id: "migrated_capture",
         image: VALID_PNG,
@@ -1279,13 +1377,13 @@ describe("local TanStack API", () => {
     });
     assert.equal(upload.status, 201);
 
-    const payload = await jsonBody(await request("/api/sessions/migrated_capture"));
+    const payload = await jsonBody(await request(fixture, "/api/sessions/migrated_capture"));
     const listed = (payload.comments as Array<Record<string, unknown>>).find((item) => item.id === "legacy_human_comment");
     assert.ok(listed);
     assert.equal(listed.body, "Legacy human comment");
     assert.equal(listed.actorType, "human");
 
-    const agent = await request("/api/sessions/migrated_capture/pins/pin_one/comments", {
+    const agent = await request(fixture, "/api/sessions/migrated_capture/pins/pin_one/comments", {
       body: JSON.stringify({ agentName: "Grok", body: "After migration" }),
       headers: { "content-type": "application/json" },
       method: "POST",
@@ -1294,10 +1392,11 @@ describe("local TanStack API", () => {
     const agentComment = (await jsonBody(agent)).comment as Record<string, unknown>;
     assert.equal(agentComment.actorType, "agent");
 
-    const edited = await request(
-      `/api/sessions/migrated_capture/pins/pin_one/comments/${agentComment.id}`,
-      { body: JSON.stringify({ body: "After migration (edited)" }), headers: { "content-type": "application/json" }, method: "PATCH" },
-    );
+    const edited = await request(fixture, `/api/sessions/migrated_capture/pins/pin_one/comments/${agentComment.id}`, {
+      body: JSON.stringify({ body: "After migration (edited)" }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    });
     assert.equal(edited.status, 200);
 
     // Close the store and verify persistence at the raw database level.
@@ -1318,8 +1417,9 @@ describe("local TanStack API", () => {
     reopened.close();
   });
 
-  test("denies hostile origins on the comment, note, and MCP routes", async () => {
-    const upload = await request("/api/shots", {
+  test("denies hostile origins on the comment, note, and MCP routes", async (t) => {
+    const fixture = fixtureFor(t);
+    const upload = await request(fixture, "/api/shots", {
       body: JSON.stringify({
         id: "hostile_comment_capture",
         image: VALID_PNG,
@@ -1331,25 +1431,126 @@ describe("local TanStack API", () => {
     });
     assert.equal(upload.status, 201);
 
-    const commentEdit = await request("/api/sessions/hostile_comment_capture/pins/pin_one/comments/whatever", {
+    const commentEdit = await request(fixture, "/api/sessions/hostile_comment_capture/pins/pin_one/comments/whatever", {
       body: JSON.stringify({ body: "New body" }),
       headers: { "content-type": "application/json", origin: "https://evil.example" },
       method: "PATCH",
     });
     assert.equal(commentEdit.status, 401);
 
-    const noteEdit = await request("/api/sessions/hostile_comment_capture/pins/pin_one", {
+    const noteEdit = await request(fixture, "/api/sessions/hostile_comment_capture/pins/pin_one", {
       body: JSON.stringify({ comment: "New note" }),
       headers: { "content-type": "application/json", origin: "https://evil.example" },
       method: "PATCH",
     });
     assert.equal(noteEdit.status, 401);
 
-    const mcp = await request("/api/mcp", {
+    const mcp = await request(fixture, "/api/mcp", {
       body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "tools/list" }),
       headers: { "content-type": "application/json", origin: "https://evil.example" },
       method: "POST",
     });
     assert.equal(mcp.status, 401);
+  });
+});
+
+// Drives the fixture helpers directly, without the describe hooks above:
+// proves that a late teardown of an older fixture (the shape of a
+// timed-out test's delayed afterEach) can never delete, reset, or re-home
+// the fixture of the test that is still live.
+describe("per-test fixture isolation", () => {
+  before(() => {
+    captureOriginalHome();
+  });
+
+  test("a late teardown of a stale fixture leaves the live fixture intact", async () => {
+    const stale = {};
+    const live = {};
+    const a = await createFixture(stale);
+    const b = await createFixture(live);
+    assert.ok(b.generation > a.generation);
+    assert.notEqual(b.root, a.root);
+    assert.equal(process.env.PINAR_HOME, b.root);
+
+    // A's teardown now runs late (its test body outlived the timeout).
+    await teardownFixture(stale);
+
+    // Only A's own root is gone: B's root still exists, PINAR_HOME is still
+    // B's root, and the reset was not run against B's database.
+    assert.equal(existsSync(a.root), false);
+    assert.equal(existsSync(b.root), true);
+    assert.equal(process.env.PINAR_HOME, b.root);
+
+    // A full request flow still resolves under B's root and database.
+    const upload = await request(b, "/api/shots", {
+      body: JSON.stringify({
+        id: "late_teardown_probe",
+        image: VALID_PNG,
+        page: { title: "Late teardown", url: "https://example.test/late-teardown" },
+        pins: [],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(upload.status, 201);
+    assert.equal(existsSync(join(b.root, "shots", "late_teardown_probe.png")), true);
+    const session = await request(b, "/api/sessions/late_teardown_probe");
+    assert.equal(session.status, 200);
+    const sessionBody = await jsonBody(session);
+    assert.ok(isRecord(sessionBody.session));
+    assert.equal(sessionBody.session.captureId, "late_teardown_probe");
+
+    // B's own teardown restores the original PINAR_HOME.
+    await teardownFixture(live);
+    if (originalHome === undefined) assert.equal(process.env.PINAR_HOME, undefined);
+    else assert.equal(process.env.PINAR_HOME, originalHome);
+  });
+
+  // Drives a late BODY (the shape of a timed-out test whose body keeps
+  // running): the body must fail at its next request and its direct file
+  // writes must land in its OWN fixture's root, never the live one.
+  test("a late body of a stale fixture fails at its next request and writes only in its own root", async () => {
+    // A: the fixture of the (timed-out) test that owns the late body.
+    const stale = {};
+    const a = await createFixture(stale);
+    // The late body: it captures A's root before its first await, then
+    // suspends on a deferred promise while the next fixture takes over.
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const body = (async () => {
+      const root = a.root; // A's own root, captured before the first await
+      await gate; // B becomes live while this body is suspended
+      let requestError: unknown;
+      try {
+        await request(a, "/api/health");
+      } catch (error) {
+        requestError = error;
+      }
+      assert.ok(requestError instanceof Error, "the late body's next request must throw");
+      assert.equal(requestError.message, "stale fixture: PINAR_HOME moved to another test");
+      // Direct file writes use A's root.
+      writeFileSync(join(root, "late_body.txt"), "late");
+      return root;
+    })();
+    // B: the next test's fixture; it becomes the live PINAR_HOME.
+    const live = {};
+    const b = await createFixture(live);
+    assert.equal(process.env.PINAR_HOME, b.root);
+    // B's root before the late body resumes.
+    const before = (await readdir(b.root)).sort();
+    release();
+    const bodyRoot = await body;
+    // B's root after: nothing appeared in the live fixture.
+    const after = (await readdir(b.root)).sort();
+    assert.equal(bodyRoot, a.root);
+    assert.equal(existsSync(join(a.root, "late_body.txt")), true);
+    assert.deepEqual(after, before);
+    // Clean up both manual fixtures (A is stale, B is live).
+    await teardownFixture(stale);
+    await teardownFixture(live);
+    if (originalHome === undefined) assert.equal(process.env.PINAR_HOME, undefined);
+    else assert.equal(process.env.PINAR_HOME, originalHome);
   });
 });

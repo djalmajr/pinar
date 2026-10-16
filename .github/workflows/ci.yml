@@ -1,0 +1,203 @@
+name: CI
+
+# Pull request checks on Windows, macOS, and Linux. Windows and macOS also
+# build the tray and smoke its startup; the tray ships for macOS and Windows
+# only, so Linux runs the repo gates without a tray build. This workflow is
+# read-only: it never publishes, uploads artifacts, or reads any repository secret.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Keep line endings stable
+        run: |
+          $ErrorActionPreference = "Stop"
+          git config --global core.autocrlf input
+          git config --global core.eol lf
+      - name: Check out the pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.0
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Test
+        run: |
+          # Info-ZIP is not preinstalled on windows-latest. Install zip/unzip
+          # from the runner's preinstalled MSYS2 so the extension packaging
+          # tests run instead of being skipped for a missing zip. The PATH
+          # append is step-local (never added to GITHUB_PATH), and the step
+          # fails if pacman fails.
+          $ErrorActionPreference = "Stop"
+          & "C:\msys64\usr\bin\pacman.exe" -S --noconfirm --needed zip unzip
+          if ($LASTEXITCODE -ne 0) {
+            throw "pacman failed to install zip and unzip (exit code $LASTEXITCODE)"
+          }
+          $env:PATH = "$env:PATH;C:\msys64\usr\bin"
+          Write-Host "zip -v (first 2 lines):"
+          (zip -v 2>&1 | Select-Object -First 2) | ForEach-Object { Write-Host "  $_" }
+          Write-Host "unzip -v (first line):"
+          (unzip -v 2>&1 | Select-Object -First 1) | ForEach-Object { Write-Host "  $_" }
+          bun run test
+      - name: Install Hutch
+        run: |
+          # DJA-208: Hutch 0.25.0 is installed from checksum-pinned bytes. The
+          # installer script is hashed before it runs, and its verified bytes
+          # are what execute. The installer fetches the release manifest
+          # itself; the post-install checks bind the installed bytes to the
+          # pinned release: the pinned archive sha256 stored in the release
+          # dir's .dash-installed under the pinned revision path, and the
+          # copied bin matching that release dir's executable. Upstream
+          # changing install.ps1 makes this step fail closed (intended); update
+          # the pinned value below in that case. The pinned Action SHAs are
+          # unchanged. pacman (zip/unzip, test tooling only, not shipped) stays
+          # unpinned: MSYS2 verifies package signatures.
+          $ErrorActionPreference = "Stop"
+          $installerPath = "$env:RUNNER_TEMP\install.ps1"
+          Invoke-WebRequest -UseBasicParsing -Uri "https://hutch.blackboard.sh/hutch/install.ps1" -OutFile $installerPath
+          $pinnedInstallerSha256 = "185cc615d3d1b6e7156c104beb902cce3f4b9f35cb3d14df047586aa432883e7"
+          $installerSha256 = (Get-FileHash -Algorithm SHA256 -Path $installerPath).Hash.ToLowerInvariant()
+          if ($installerSha256 -ne $pinnedInstallerSha256) {
+            throw "hutch install.ps1 checksum mismatch: expected $pinnedInstallerSha256, got $installerSha256"
+          }
+          & ([scriptblock]::Create([System.IO.File]::ReadAllText("$env:RUNNER_TEMP\install.ps1"))) -Version 0.25.0 -NoModifyPath
+          $revision = "5668321389b6f47e24a2408c963ef5a437793b4c"
+          $pinnedArchiveSha256 = "a29ec038ede84e5875f0bc134e834f6e74c5411d6f2163de8e9a93ba503f8d64"
+          $releaseDir = Join-Path $env:USERPROFILE ".hutch\releases\hutch\0.25.0\$revision\windows-x64"
+          $dashInstalled = (Get-Content -Raw -Path (Join-Path $releaseDir ".dash-installed")).Trim().ToLowerInvariant()
+          if ($dashInstalled -ne $pinnedArchiveSha256) {
+            throw "hutch .dash-installed mismatch: expected $pinnedArchiveSha256, got $dashInstalled"
+          }
+          $binHutch = Join-Path $env:USERPROFILE ".hutch\bin\hutch.exe"
+          $binHutchSha256 = (Get-FileHash -Algorithm SHA256 -Path $binHutch).Hash.ToLowerInvariant()
+          $releaseBinHutchSha256 = (Get-FileHash -Algorithm SHA256 -Path (Join-Path $releaseDir "bin\hutch.exe")).Hash.ToLowerInvariant()
+          if ($binHutchSha256 -ne $releaseBinHutchSha256) {
+            throw "hutch bin\hutch.exe does not match the pinned release bytes: expected $releaseBinHutchSha256, got $binHutchSha256"
+          }
+          Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $env:USERPROFILE ".hutch\bin")
+      - name: Build tray
+        run: bun run build:tray
+      - name: Tray startup smoke
+        run: bun scripts/tray-smoke.mjs --timeout-ms 120000 --log "$env:RUNNER_TEMP/tray-smoke.log"
+      - name: Show tray smoke log
+        if: failure()
+        run: |
+          $ErrorActionPreference = "Stop"
+          $log = "$env:RUNNER_TEMP/tray-smoke.log"
+          if (Test-Path $log) {
+            Get-Content $log
+          } else {
+            Write-Host "tray smoke log not found at $log"
+          }
+
+  macos:
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.0
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Test
+        run: bun run test
+      - name: Install Hutch
+        shell: bash
+        run: |
+          # DJA-208: Hutch 0.25.0 is installed from checksum-pinned bytes.
+          # The installer script is hashed before it runs, and its verified
+          # bytes are what execute. The installer fetches the release manifest
+          # itself; the post-install checks bind the installed bytes to the
+          # pinned release: the pinned archive sha256 stored in the release
+          # dir's .dash-installed under the pinned revision path, and the
+          # copied bin matching that release dir's executable. Upstream
+          # changing install.sh makes this step fail closed (intended); update
+          # the pinned value below in that case. The pinned Action SHAs are
+          # unchanged.
+          set -euo pipefail
+          curl -fsSL -o "$RUNNER_TEMP/install.sh" https://hutch.blackboard.sh/hutch/install.sh
+          pinned_installer_sha256="9803e467afab4d795ebf506abbe94c3592b761188bd68b1b5edf02ad7955b92c"
+          actual_installer_sha256="$(shasum -a 256 "$RUNNER_TEMP/install.sh" | awk '{print $1}')"
+          if [ "$actual_installer_sha256" != "$pinned_installer_sha256" ]; then
+            echo "hutch install.sh checksum mismatch: expected $pinned_installer_sha256, got $actual_installer_sha256" >&2
+            exit 1
+          fi
+          sh "$RUNNER_TEMP/install.sh" --version 0.25.0 --no-modify-path
+          revision="5668321389b6f47e24a2408c963ef5a437793b4c"
+          pinned_archive_sha256="521828934a4524a2f745b24a1843d7fde61a6b5ec355c9d3fe331168f5fadbc3"
+          release_dir="$HOME/.hutch/releases/hutch/0.25.0/$revision/macos-arm64"
+          dash_installed="$(cat "$release_dir/.dash-installed")"
+          if [ "$dash_installed" != "$pinned_archive_sha256" ]; then
+            echo "hutch .dash-installed mismatch: expected $pinned_archive_sha256, got $dash_installed" >&2
+            exit 1
+          fi
+          bin_hutch_sha256="$(shasum -a 256 "$HOME/.hutch/bin/hutch" | awk '{print $1}')"
+          release_bin_hutch_sha256="$(shasum -a 256 "$release_dir/bin/hutch" | awk '{print $1}')"
+          if [ "$bin_hutch_sha256" != "$release_bin_hutch_sha256" ]; then
+            echo "hutch bin/hutch does not match the pinned release bytes: expected $release_bin_hutch_sha256, got $bin_hutch_sha256" >&2
+            exit 1
+          fi
+          echo "$HOME/.hutch/bin" >> "$GITHUB_PATH"
+      - name: Build tray
+        run: bun run build:tray
+      - name: Tray startup smoke
+        run: bun scripts/tray-smoke.mjs --timeout-ms 120000 --log "$RUNNER_TEMP/tray-smoke.log"
+      - name: Show tray smoke log
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/tray-smoke.log"
+          if [ -f "$log" ]; then
+            cat "$log"
+          else
+            echo "tray smoke log not found at $log"
+          fi
+
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      # The tray ships for macOS and Windows only: the standalone local-server
+      # helper is not compiled for Linux (scripts/prepare-tray-helper.mjs), so
+      # there is no tray build or startup smoke to run here.
+      - name: Check out the pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.0
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Test
+        run: bun run test

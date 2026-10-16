@@ -6,7 +6,7 @@ export function createQuitController(options: {
 	quit: (code?: number) => void;
 	releaseLock: () => void;
 	removeTray: () => void;
-	stopServer: () => Promise<void>;
+	stopServer: () => Promise<unknown>;
 	stopTimers?: () => void;
 }) {
 	let helperStopped = false;

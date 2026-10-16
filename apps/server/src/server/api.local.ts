@@ -1066,6 +1066,13 @@ export function resetLocalApiForTests() {
   activeDatabase?.close();
   activeDatabase = null;
   activeRoot = "";
+  // bun on Windows keeps the history db file locked while its sqlite
+  // statement wrappers are live, even after close(); a forced major GC
+  // finalizes them so test cleanup can remove the temp PINAR_HOME.
+  if (process.platform === "win32") {
+    const bunRuntime = (globalThis as { Bun?: { gc?: (force: boolean) => void } }).Bun;
+    bunRuntime?.gc?.(true);
+  }
   resetLocalCapabilityForTests();
   resetLocalAiForTests();
 }

@@ -225,52 +225,116 @@ function shotSafetyTests(jsonFallback: boolean) {
     assert.deepEqual(sessionIds(parse((await callTool("pinar.list_sessions", {})).text)), [], "both corrupted sessions must be gone");
   });
 
-  test("symlink escapes and directory shotPaths are skipped, never removed", async () => {
+  // Windows without SeCreateSymbolicLinkPrivilege (no developer mode) fails
+  // with EPERM when creating symlinks. For directory links a junction is a
+  // genuine directory link that realpathSync follows, so the directory cases
+  // keep running on the junction; for FILE links there is no equivalent shape
+  // (a junction is a directory, a direct path is not a symlink), so the
+  // file-symlink tests skip via the node:test context instead of degrading
+  // the fixture. Every other error, or any error on non-win32, is rethrown.
+  const isWin32Eperm = (error: unknown): boolean =>
+    process.platform === "win32" && error instanceof Error && "code" in error && error.code === "EPERM";
+
+  test("linked parent directories and directory shotPaths are skipped, never removed", { timeout: 30_000 }, async () => {
+    // 30_000 ms (bun's node:test default is 5 s): the load-sensitive junction
+    // plus the repeated SQLite reopen inside corruptShotPath measured 6.7 s
+    // under host memory pressure; a body that hits the default timeout would
+    // keep running and race afterEach's reset of the module-level
+    // root/victimDir/PINAR_HOME.
+    // Real dir symlinks are tried first, so hosts that may create them keep
+    // the full coverage. On win32 EPERM a directory junction is used instead
+    // (a genuine directory link that realpathSync follows, so containment is
+    // still exercised on the same path shape).
     const linked = makeVictim("linked.txt");
     mkdirSync(join(root, "shots"), { recursive: true });
     const parentLink = join(root, "shots", "escape-parent");
-    symlinkSync(victimDir, parentLink);
+    try {
+      symlinkSync(victimDir, parentLink, "dir");
+    } catch (error) {
+      if (isWin32Eperm(error)) symlinkSync(victimDir, parentLink, "junction");
+      else throw error;
+    }
+    try {
+      const subDir = join(root, "shots", "subdir");
+      mkdirSync(subDir);
+      writeFileSync(join(subDir, "keep.txt"), "keep");
+
+      await seedSession("safety_links");
+      assertBackendShape(jsonFallback);
+      corruptShotPath("safety_links", join(parentLink, "linked.txt"));
+      const first = await callTool("pinar.delete_session", { sessionId: "safety_links" });
+      assert.equal(first.isError, false, first.text);
+      assert.equal(readFileSync(linked, "utf8"), VICTIM_CONTENT, "a symlinked parent escaping the root must not be removed");
+
+      await seedSession("safety_rootdir");
+      corruptShotPath("safety_rootdir", join(root, "shots"));
+      const third = await callTool("pinar.delete_session", { sessionId: "safety_rootdir" });
+      assert.equal(third.isError, false, third.text);
+      assert.ok(existsSync(join(root, "shots")), "the shots root itself must survive");
+
+      await seedSession("safety_subdir");
+      corruptShotPath("safety_subdir", subDir);
+      const fourth = await callTool("pinar.delete_session", { sessionId: "safety_subdir" });
+      assert.equal(fourth.isError, false, fourth.text);
+      assert.ok(existsSync(join(subDir, "keep.txt")), "a directory shotPath must never be removed recursively");
+
+      assert.deepEqual(sessionIds(parse((await callTool("pinar.list_sessions", {})).text)), [], "every corrupted session must be deleted");
+    } finally {
+      // Release the escape-parent junction/symlink from this test's own scope
+      // on every completion path, before afterEach runs. rmSync on the link
+      // itself unlinks it without following into victimDir; force makes it a
+      // no-op when afterEach already removed root.
+      rmSync(parentLink, { force: true });
+    }
+  });
+
+  test("a file symlink escaping the shots root is skipped, never removed", async (t) => {
     const fileLink = makeVictim("file-link-target.txt");
-    const fileLinkPath = join(root, "shots", "escape-file.png");
-    symlinkSync(fileLink, fileLinkPath);
-    const subDir = join(root, "shots", "subdir");
-    mkdirSync(subDir);
-    writeFileSync(join(subDir, "keep.txt"), "keep");
-
-    await seedSession("safety_links");
-    assertBackendShape(jsonFallback);
-    corruptShotPath("safety_links", join(parentLink, "linked.txt"));
-    const first = await callTool("pinar.delete_session", { sessionId: "safety_links" });
-    assert.equal(first.isError, false, first.text);
-    assert.equal(readFileSync(linked, "utf8"), VICTIM_CONTENT, "a symlinked parent escaping the root must not be removed");
-
+    const fileLinkCandidate = join(root, "shots", "escape-file.png");
+    mkdirSync(join(root, "shots"), { recursive: true });
+    try {
+      symlinkSync(fileLink, fileLinkCandidate, "file");
+    } catch (error) {
+      if (isWin32Eperm(error)) {
+        t.skip("file symlinks are not permitted on this Windows host (EPERM); file-symlink containment coverage not exercised");
+        return;
+      }
+      throw error;
+    }
     await seedSession("safety_filelink");
-    corruptShotPath("safety_filelink", fileLinkPath);
+    corruptShotPath("safety_filelink", fileLinkCandidate);
     const second = await callTool("pinar.delete_session", { sessionId: "safety_filelink" });
     assert.equal(second.isError, false, second.text);
     assert.equal(readFileSync(fileLink, "utf8"), VICTIM_CONTENT, "a symlink pointing outside the root must not be removed");
+    assert.deepEqual(sessionIds(parse((await callTool("pinar.list_sessions", {})).text)), [], "the corrupted session must be deleted");
+  });
 
-    await seedSession("safety_rootdir");
-    corruptShotPath("safety_rootdir", join(root, "shots"));
-    const third = await callTool("pinar.delete_session", { sessionId: "safety_rootdir" });
-    assert.equal(third.isError, false, third.text);
-    assert.ok(existsSync(join(root, "shots")), "the shots root itself must survive");
-
-    await seedSession("safety_subdir");
-    corruptShotPath("safety_subdir", subDir);
-    const fourth = await callTool("pinar.delete_session", { sessionId: "safety_subdir" });
-    assert.equal(fourth.isError, false, fourth.text);
-    assert.ok(existsSync(join(subDir, "keep.txt")), "a directory shotPath must never be removed recursively");
-
-    // The session's own canonical file name pointing outside the root: the
-    // ownership check passes because the canonical path resolves to the same
-    // external target, so only the containment guard protects the file
-    // (review 173240 P3-1). Exercised on the MCP tool and the REST route.
-    await seedSession("safety_ownlink_mcp");
-    const ownMcpLink = join(root, "shots", "safety_ownlink_mcp.png");
+  test("an own-canonical file symlink to an external file is skipped (MCP and REST)", async (t) => {
+    // The session's own canonical file name pointing outside the root: with a
+    // real file symlink the ownership check passes because the canonical path
+    // resolves to the same external target, so only the containment guard
+    // protects the file (review 173240 P3-1). The shot upload writes through
+    // a link at the canonical path, so the fixture link can only be created
+    // after the upload; the probe below therefore runs before any session is
+    // seeded, and on win32 EPERM the test skips instead of substituting a
+    // junction or a direct path.
     const ownMcpVictim = makeVictim("own-canonical-mcp.txt");
+    const ownMcpLink = join(root, "shots", "safety_ownlink_mcp.png");
+    mkdirSync(join(root, "shots"), { recursive: true });
+    try {
+      symlinkSync(ownMcpVictim, ownMcpLink, "file");
+    } catch (error) {
+      if (isWin32Eperm(error)) {
+        t.skip("file symlinks are not permitted on this Windows host (EPERM); file-symlink containment coverage not exercised");
+        return;
+      }
+      throw error;
+    }
     rmSync(ownMcpLink);
-    symlinkSync(ownMcpVictim, ownMcpLink);
+
+    await seedSession("safety_ownlink_mcp");
+    rmSync(ownMcpLink);
+    symlinkSync(ownMcpVictim, ownMcpLink, "file");
     const ownMcp = await callTool("pinar.delete_session", { sessionId: "safety_ownlink_mcp" });
     assert.equal(ownMcp.isError, false, ownMcp.text);
     assert.equal((await request("/api/sessions/safety_ownlink_mcp")).status, 404, "the session row must still be deleted (MCP)");
@@ -280,7 +344,7 @@ function shotSafetyTests(jsonFallback: boolean) {
     const ownRestLink = join(root, "shots", "safety_ownlink_rest.png");
     const ownRestVictim = makeVictim("own-canonical-rest.txt");
     rmSync(ownRestLink);
-    symlinkSync(ownRestVictim, ownRestLink);
+    symlinkSync(ownRestVictim, ownRestLink, "file");
     const ownRest = await request("/api/history/safety_ownlink_rest", { method: "DELETE" });
     const ownRestText = await ownRest.text();
     assert.equal(ownRest.status, 200, `the REST delete must succeed: ${ownRestText}`);

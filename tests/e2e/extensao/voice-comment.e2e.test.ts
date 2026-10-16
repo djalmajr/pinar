@@ -1,7 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { resolve } from "node:path";
-
-const extensionPath = (file: string) => resolve(process.cwd(), "extension", file);
+import { injectExtensionScripts } from "../helpers/extension-scripts";
 
 const fixture = `<!doctype html>
 <html lang="en">
@@ -116,9 +114,9 @@ async function installVoiceHarness(
     (globalThis as any).MediaRecorder = FakeMediaRecorder;
   }, { availability: voiceAvailability, deferVoiceAvailability });
 
-  for (const file of ["coordinates.js", "frame-path.js", "locators.js", "privacy.js", "keyboard.js", "voice.js", "content.js"]) {
-    await page.addScriptTag({ path: extensionPath(file) });
-  }
+  // The voice fakes above are the only additions on top of the real
+  // injection list; the scripts themselves come from the single source.
+  await injectExtensionScripts(page);
   await expect(page.locator('[data-pinar="host"]')).toBeVisible();
 }
 

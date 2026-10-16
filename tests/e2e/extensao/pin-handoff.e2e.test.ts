@@ -1,8 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
-import { resolve } from "node:path";
 import { pressCopyShortcut } from "../helpers/extension-shortcut";
-
-const extensionPath = (file: string) => resolve(process.cwd(), "extension", file);
+import { injectExtensionScripts } from "../helpers/extension-scripts";
 
 const fixture = `<!doctype html>
 <html lang="en">
@@ -69,12 +67,7 @@ async function installHarness(page: Page, { failCapture = false } = {}) {
       },
     };
   }, failCapture);
-  await page.addScriptTag({ path: extensionPath("coordinates.js") });
-  await page.addScriptTag({ path: extensionPath("frame-path.js") });
-  await page.addScriptTag({ path: extensionPath("locators.js") });
-  await page.addScriptTag({ path: extensionPath("privacy.js") });
-  await page.addScriptTag({ path: extensionPath("keyboard.js") });
-  await page.addScriptTag({ path: extensionPath("content.js") });
+  await injectExtensionScripts(page);
   await expect(page.locator('[data-pinar="host"]')).toBeVisible();
 }
 

@@ -108,7 +108,9 @@
   const {
     copyShortcutLabel,
     handleComposerKeyDown,
+    insertSuppressedKey,
     isCopyShortcut,
+    pinarTextField,
     stopComposerKeyboardEvent,
   } = globalThis.__pinarKeyboardEvents;
   const captureSnapshot = globalThis.__pinarSnapshot?.captureSnapshot ?? (() => undefined);
@@ -3089,7 +3091,24 @@
   function onKey(event) {
     if (!isMounted()) return;
     if (!state.active) return;
-    if (event.composedPath()[0]?.matches?.(".review-comment")) return;
+    // Pinar's text fields are resolved before the global shortcuts, in window
+    // capture: the page's capture listeners (registered before the extension)
+    // never treat a key typed in a field as a site shortcut, and the global
+    // shortcuts never steal keys from the fields.
+    const field = pinarTextField(event, host, shadow);
+    // Review comments stay out of the copy/Tab/Esc shortcuts: Tab moves to
+    // the next control (its change then persists the comment), Esc keeps the
+    // review open, the copy shortcut does not fire. No preventDefault, so
+    // the native default (typing, moving focus) is preserved.
+    if (field && field.matches(".review-comment")) {
+      // A site capture listener registered before us may have canceled the
+      // default action; the suppressed effect is applied straight to the
+      // field (printable character, Backspace, Delete - see
+      // insertSuppressedKey).
+      if (event.defaultPrevented) insertSuppressedKey(event, field);
+      event.stopImmediatePropagation();
+      return;
+    }
     // onKey fully owns these two keys: never let the page see them, even when
     // they originate inside the composer (e.g. Esc closing a page modal).
     if (isCopyShortcut(event, apple)) {
@@ -3127,8 +3146,21 @@
       else broadcast(FRAME_HIDE);
       return;
     }
+    // The remaining Pinar field (the prompt; review comments returned above)
+    // keeps its own keydown logic here instead of waiting for bubble: Enter
+    // saves the draft, while the global shortcuts above it still apply.
+    if (field) {
+      // A capture listener on the page's window may have been registered
+      // before this one and already canceled the default action. That cannot
+      // be undone, so the suppressed effect is applied straight to the field
+      // (printable character, Backspace, Delete - see insertSuppressedKey).
+      if (event.defaultPrevented) insertSuppressedKey(event, field);
+      if (handleComposerKeyDown(event)) saveDraft();
+      event.stopImmediatePropagation();
+      return;
+    }
     // While pin mode is active the page app must never react to keys. Events
-    // from our UI keep propagating so the composer's own handlers still run.
+    // from the rest of our UI keep propagating so their own handlers still run.
     const path = event.composedPath();
     if (!path.includes(host)) {
       event.stopImmediatePropagation();
@@ -3193,6 +3225,21 @@
     // Keys onKey owns on keydown stay owned here too, regardless of origin:
     // apps may react to Escape or the copy shortcut on keyup even with keydown blocked.
     if (event.key === "Escape" || isCopyShortcut(event, apple)) {
+      event.stopImmediatePropagation();
+      return;
+    }
+    // Pinar's text fields are isolated in capture too, mirroring their own
+    // keypress/keyup handlers (stopComposerKeyboardEvent) so the page's
+    // capture listeners never see them.
+    const field = pinarTextField(event, host, shadow);
+    if (field) {
+      // A site capture listener on the window (registered before the
+      // extension) may cancel the keypress of a printable character without
+      // canceling its keydown: the native insertion is the keypress default,
+      // so the character would be lost. The suppressed effect is applied
+      // here instead. A canceled keydown never produces a keypress (checked
+      // in e2e), so this cannot duplicate the keydown recovery.
+      if (event.type === "keypress" && event.defaultPrevented) insertSuppressedKey(event, field);
       event.stopImmediatePropagation();
       return;
     }

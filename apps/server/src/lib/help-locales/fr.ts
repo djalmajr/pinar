@@ -852,8 +852,8 @@ const locale = {
           bullets: [
             "« Un pin est hors de la zone visible · ramenez-le dans la zone visible et réessayez » — faites défiler jusqu’à ce que l’élément épinglé soit visible, puis terminez la session à nouveau.",
             "« La page a changé pendant la capture · restez dessus et réessayez » — terminez à nouveau depuis la page annotée sans en sortir.",
-            "« L’onglet annoté n’était pas actif · revenez-y et réessayez » — revenez à l’onglet annoté et terminez à nouveau.",
-            "« Capture d’écran non réalisée · revenez à la page annotée et réessayez » — revenez à la page annotée et terminez à nouveau.",
+            "« L'onglet annoté n'était pas actif · revenez-y et réessayez » — revenez à l’onglet annoté et terminez à nouveau.",
+            "« Capture d'écran non réalisée · revenez à la page annotée et réessayez » — revenez à la page annotée et terminez à nouveau.",
           ],
         },
       ],

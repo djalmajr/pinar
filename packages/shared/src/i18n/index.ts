@@ -217,6 +217,10 @@ export interface TranslationDictionary {
   overlay_voice_ready: string;
   overlay_voice_local_only: string;
   overlay_voice_local_ai_required: string;
+  overlay_voice_local_scope: string;
+  overlay_voice_local_auth: string;
+  overlay_voice_local_model: string;
+  overlay_voice_local_endpoint: string;
   overlay_voice_checking: string;
   overlay_voice_sign_in_required: string;
   overlay_voice_pro_required: string;
@@ -460,6 +464,10 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_voice_ready: "Voice comment ready to review",
     overlay_voice_local_only: "Voice comments are available with Pinar Cloud on Pro.",
     overlay_voice_local_ai_required: "Configure a transcription model in Pinar Settings → AI to use voice comments.",
+    overlay_voice_local_scope: "Your AI key can't transcribe audio. Use a key with audio permission in Pinar Settings → AI.",
+    overlay_voice_local_auth: "The AI endpoint rejected your API key. Check it in Pinar Settings → AI.",
+    overlay_voice_local_model: "The AI endpoint doesn't offer the transcription model. Check it in Pinar Settings → AI.",
+    overlay_voice_local_endpoint: "The AI endpoint didn't answer. Check Pinar Settings → AI and try again.",
     overlay_voice_checking: "Checking voice availability…",
     overlay_voice_sign_in_required: "Sign in to Pinar Cloud to use voice comments.",
     overlay_voice_pro_required: "Voice comments are available only to Pinar Pro subscribers.",
@@ -701,6 +709,10 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_voice_ready: "Comentário por voz pronto para revisão",
     overlay_voice_local_only: "Comentários por voz estão disponíveis no Pinar Cloud com o plano Pro.",
     overlay_voice_local_ai_required: "Configure um modelo de transcrição em Configurações → IA do Pinar para usar comentários por voz.",
+    overlay_voice_local_scope: "Sua chave de IA não pode transcrever áudio. Use uma chave com permissão de áudio em Configurações → IA do Pinar.",
+    overlay_voice_local_auth: "O endpoint de IA recusou sua chave da API. Confira em Configurações → IA do Pinar.",
+    overlay_voice_local_model: "O endpoint de IA não oferece o modelo de transcrição. Confira em Configurações → IA do Pinar.",
+    overlay_voice_local_endpoint: "O endpoint de IA não respondeu. Confira Configurações → IA do Pinar e tente novamente.",
     overlay_voice_checking: "Verificando disponibilidade dos comentários por voz…",
     overlay_voice_sign_in_required: "Entre no Pinar Cloud para usar comentários por voz.",
     overlay_voice_pro_required: "Comentários por voz estão disponíveis apenas para assinantes do Pinar Pro.",
@@ -942,6 +954,10 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_voice_ready: "Comentario de voz listo para revisar",
     overlay_voice_local_only: "Los comentarios de voz están disponibles en Pinar Cloud con el plan Pro.",
     overlay_voice_local_ai_required: "Configura un modelo de transcripción en Configuración → IA de Pinar para usar comentarios de voz.",
+    overlay_voice_local_scope: "Tu clave de IA no puede transcribir audio. Usa una clave con permiso de audio en Configuración → IA de Pinar.",
+    overlay_voice_local_auth: "El endpoint de IA rechazó tu clave de API. Revísala en Configuración → IA de Pinar.",
+    overlay_voice_local_model: "El endpoint de IA no ofrece el modelo de transcripción. Revísalo en Configuración → IA de Pinar.",
+    overlay_voice_local_endpoint: "El endpoint de IA no respondió. Revisa Configuración → IA de Pinar e inténtalo de nuevo.",
     overlay_voice_checking: "Comprobando la disponibilidad de los comentarios de voz…",
     overlay_voice_sign_in_required: "Inicia sesión en Pinar Cloud para usar comentarios de voz.",
     overlay_voice_pro_required: "Los comentarios de voz están disponibles solo para suscriptores de Pinar Pro.",
@@ -1183,6 +1199,10 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_voice_ready: "Commentaire vocal prêt à être relu",
     overlay_voice_local_only: "Les commentaires vocaux sont disponibles avec Pinar Cloud et l’offre Pro.",
     overlay_voice_local_ai_required: "Configurez un modèle de transcription dans Paramètres → IA de Pinar pour utiliser les commentaires vocaux.",
+    overlay_voice_local_scope: "Votre clé IA ne peut pas transcrire l'audio. Utilisez une clé avec l'autorisation audio dans Paramètres → IA de Pinar.",
+    overlay_voice_local_auth: "L'endpoint IA a rejeté votre clé API. Vérifiez-la dans Paramètres → IA de Pinar.",
+    overlay_voice_local_model: "L'endpoint IA n'offre pas le modèle de transcription. Vérifiez-le dans Paramètres → IA de Pinar.",
+    overlay_voice_local_endpoint: "L'endpoint IA n'a pas répondu. Vérifiez Paramètres → IA de Pinar et réessayez.",
     overlay_voice_checking: "Vérification de la disponibilité des commentaires vocaux…",
     overlay_voice_sign_in_required: "Connectez-vous à Pinar Cloud pour utiliser les commentaires vocaux.",
     overlay_voice_pro_required: "Les commentaires vocaux sont réservés aux abonnés Pinar Pro.",
@@ -1424,6 +1444,10 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_voice_ready: "Sprachkommentar kann geprüft werden",
     overlay_voice_local_only: "Sprachkommentare sind mit Pinar Cloud im Pro-Tarif verfügbar.",
     overlay_voice_local_ai_required: "Richten Sie in den Pinar-Einstellungen → KI ein Transkriptionsmodell ein, um Sprachkommentare zu verwenden.",
+    overlay_voice_local_scope: "Ihr KI-Schlüssel kann keine Audio-Aufnahmen transkribieren. Verwenden Sie einen Schlüssel mit Audio-Berechtigung in Pinar-Einstellungen → KI.",
+    overlay_voice_local_auth: "Der KI-Endpunkt hat Ihren API-Schlüssel abgelehnt. Prüfen Sie ihn unter Pinar-Einstellungen → KI.",
+    overlay_voice_local_model: "Der KI-Endpunkt bietet das Transkriptionsmodell nicht an. Prüfen Sie es unter Pinar-Einstellungen → KI.",
+    overlay_voice_local_endpoint: "Der KI-Endpunkt hat nicht geantwortet. Prüfen Sie Pinar-Einstellungen → KI und versuchen Sie es erneut.",
     overlay_voice_checking: "Verfügbarkeit von Sprachkommentaren wird geprüft…",
     overlay_voice_sign_in_required: "Melden Sie sich bei Pinar Cloud an, um Sprachkommentare zu verwenden.",
     overlay_voice_pro_required: "Sprachkommentare sind nur für Pinar-Pro-Abonnenten verfügbar.",
@@ -1665,6 +1689,10 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_voice_ready: "语音评论已可供审核",
     overlay_voice_local_only: "语音评论可通过 Pinar Cloud Pro 方案使用。",
     overlay_voice_local_ai_required: "请在 Pinar 设置 → AI 中配置转写模型以使用语音评论。",
+    overlay_voice_local_scope: "您的 AI 密钥无法转录音频。请在 Pinar 设置 → AI 中使用具有音频权限的密钥。",
+    overlay_voice_local_auth: "AI 端点拒绝了您的 API 密钥。请在 Pinar 设置 → AI 中检查。",
+    overlay_voice_local_model: "AI 端点不提供该转录模型。请在 Pinar 设置 → AI 中检查。",
+    overlay_voice_local_endpoint: "AI 端点没有响应。请检查 Pinar 设置 → AI 并重试。",
     overlay_voice_checking: "正在检查语音评论是否可用…",
     overlay_voice_sign_in_required: "请登录 Pinar Cloud 以使用语音评论。",
     overlay_voice_pro_required: "语音评论仅向 Pinar Pro 订阅用户提供。",
@@ -1906,6 +1934,10 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_voice_ready: "音声コメントを確認できます",
     overlay_voice_local_only: "音声コメントは Pinar Cloud の Pro プランで利用できます。",
     overlay_voice_local_ai_required: "音声コメントを使うには、Pinar の設定 → AI で文字起こしモデルを設定してください。",
+    overlay_voice_local_scope: "AI キーでは音声の文字起こしができません。音声の許可があるキーを Pinar の設定 → AI で使用してください。",
+    overlay_voice_local_auth: "AI エンドポイントが API キーを拒否しました。Pinar の設定 → AI で確認してください。",
+    overlay_voice_local_model: "AI エンドポイントは文字起こしモデルを提供していません。Pinar の設定 → AI で確認してください。",
+    overlay_voice_local_endpoint: "AI エンドポイントが応答しません。Pinar の設定 → AI を確認して再試行してください。",
     overlay_voice_checking: "音声コメントが利用可能か確認しています…",
     overlay_voice_sign_in_required: "音声コメントを使用するには Pinar Cloud にサインインしてください。",
     overlay_voice_pro_required: "音声コメントは Pinar Pro の加入者だけが利用できます。",

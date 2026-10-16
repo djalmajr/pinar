@@ -106,7 +106,7 @@ interface FakeCall { init?: RequestInit; url: string }
 function fakeFetch(handlers: {
   chat?: (init: RequestInit | undefined) => { content: string; usage?: { completion_tokens: number; prompt_tokens: number } };
   models?: { id: string }[];
-  transcribe?: (init: RequestInit | undefined) => { body: Record<string, unknown>; headers?: Record<string, string> };
+  transcribe?: (init: RequestInit | undefined) => { body: unknown; headers?: Record<string, string>; status?: number };
 }) {
   const calls: FakeCall[] = [];
   const fetcher: typeof fetch = async (input, init) => {
@@ -117,7 +117,7 @@ function fakeFetch(handlers: {
       if (!result) return Response.json({ error: "no transcribe handler" }, { status: 500 });
       return new Response(JSON.stringify(result.body), {
         headers: { "Content-Type": "application/json", ...result.headers },
-        status: 200,
+        status: result.status ?? 200,
       });
     }
     if (url.endsWith("/chat/completions")) {
@@ -361,7 +361,7 @@ describe("POST /api/ai/voice-pin (local)", () => {
       body: voiceForm("voice_local_byok_0001"),
       method: "POST",
     });
-    assert.equal(withoutKey.status, 401);
+    assert.equal(withoutKey.status, 502);
     assert.deepEqual(await jsonBody(withoutKey), {
       code: "ai_auth_failed",
       error: "An API key is required for BYOK",
@@ -513,7 +513,10 @@ describe("POST /api/ai/voice-pin (local)", () => {
   });
 
   test("settings expose and persist a trimmed transcriptionModel capped at 200 characters", async () => {
-    const { fetcher } = fakeFetch({ models: [{ id: LLM_MODEL }] });
+    const { fetcher } = fakeFetch({
+      models: [{ id: LLM_MODEL }],
+      transcribe: () => ({ body: { text: "" } }),
+    });
     setLocalAiDependenciesForTests({ fetch: fetcher, vault: fakeVault() });
     seedAiSettings();
 
@@ -537,6 +540,12 @@ describe("POST /api/ai/voice-pin (local)", () => {
     const patchedBody = await jsonBody(patched);
     assert.equal(patchedBody.transcriptionModel, "m".repeat(200));
     assert.equal(patchedBody.model, LLM_MODEL);
+    const tested = isRecord(patchedBody.tested) ? patchedBody.tested : {};
+    const testedTranscription = isRecord(tested.transcription) ? tested.transcription : {};
+    assert.equal(testedTranscription.ok, true);
+    // The probe uses the body's transcriptionModel as sent (like the LLM
+    // model); the stored value is the trimmed/capped one asserted below.
+    assert.equal(testedTranscription.model, `  ${longModel}  `);
     assert.equal(
       JSON.parse(readFileSync(join(root, "ai.json"), "utf8")).transcriptionModel,
       "m".repeat(200),
@@ -544,7 +553,14 @@ describe("POST /api/ai/voice-pin (local)", () => {
   });
 
   test("the connection test accepts a transcriptionModel without validating it", async () => {
-    const { calls, fetcher } = fakeFetch({ models: [{ id: LLM_MODEL }] });
+    const { calls, fetcher } = fakeFetch({
+      models: [{ id: LLM_MODEL }],
+      transcribe: (init) => {
+        const form = init?.body as FormData;
+        assert.equal(form.get("model"), "whisper-large-v3");
+        return { body: { text: "" } };
+      },
+    });
     setLocalAiDependenciesForTests({ fetch: fetcher, vault: fakeVault() });
     seedAiSettings();
 
@@ -559,8 +575,166 @@ describe("POST /api/ai/voice-pin (local)", () => {
       method: "POST",
     });
     assert.equal(response.status, 200, await response.clone().text());
-    assert.deepEqual(await jsonBody(response), { model: LLM_MODEL, ok: true, provider: "local" });
+    const body = await jsonBody(response);
+    assert.equal(body.ok, true);
+    assert.equal(body.model, LLM_MODEL);
+    assert.equal(body.provider, "local");
+    // The probe uses the body's model even though the models list does not
+    // mention it: the transcription model is not validated against /models.
+    assert.deepEqual(body.transcription, { model: "whisper-large-v3", ok: true });
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].url, `${ENDPOINT}/models`);
+    assert.equal(calls[1].url, `${ENDPOINT}/audio/transcriptions`);
+  });
+
+  test("reports the transcription probe in the connection test using the stored model", async () => {
+    const { calls, fetcher } = fakeFetch({
+      models: [{ id: LLM_MODEL }],
+      transcribe: (init) => {
+        const form = init?.body as FormData;
+        const file = form.get("file");
+        assert.ok(file instanceof File);
+        assert.equal(file.name, "probe.wav");
+        assert.equal(form.get("model"), TRANSCRIPTION_MODEL);
+        assert.equal(form.get("language"), "en");
+        return { body: { text: "" } };
+      },
+    });
+    setLocalAiDependenciesForTests({ fetch: fetcher, vault: fakeVault() });
+    seedAiSettings();
+
+    const response = await requestAi("/api/ai/settings/test", {
+      body: JSON.stringify({ endpoint: ENDPOINT, mode: "local", model: LLM_MODEL }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(response.status, 200, await response.clone().text());
+    // No transcriptionModel in the body: the stored model is probed.
+    assert.deepEqual(await jsonBody(response), {
+      model: LLM_MODEL,
+      ok: true,
+      provider: "local",
+      transcription: { model: TRANSCRIPTION_MODEL, ok: true },
+    });
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].url, `${ENDPOINT}/models`);
+    assert.equal(calls[1].url, `${ENDPOINT}/audio/transcriptions`);
+  });
+
+  test("keeps the connection test green when the transcription probe is scope denied", async () => {
+    const { fetcher } = fakeFetch({
+      models: [{ id: LLM_MODEL }],
+      transcribe: () => ({
+        body: { error: { message: "chave sem escopo 'audio'", type: "scope_denied" } },
+        status: 403,
+      }),
+    });
+    setLocalAiDependenciesForTests({ fetch: fetcher, vault: fakeVault() });
+    seedAiSettings();
+
+    const response = await requestAi("/api/ai/settings/test", {
+      body: JSON.stringify({ endpoint: ENDPOINT, mode: "local", model: LLM_MODEL }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(response.status, 200, await response.clone().text());
+    const text = await response.clone().text();
+    // The provider's own error text is never forwarded to the client.
+    assert.doesNotMatch(text, /chave sem escopo/);
+    const body = await jsonBody(response);
+    assert.equal(body.ok, true);
+    assert.equal(body.model, LLM_MODEL);
+    assert.equal(body.provider, "local");
+    assert.deepEqual(body.transcription, {
+      code: "ai_scope_denied",
+      error: "The API key is not allowed to use this AI route",
+      model: TRANSCRIPTION_MODEL,
+      ok: false,
+    });
+  });
+
+  test("skips the transcription probe when no transcription model is configured", async () => {
+    const { calls, fetcher } = fakeFetch({ models: [{ id: LLM_MODEL }] });
+    setLocalAiDependenciesForTests({ fetch: fetcher, vault: fakeVault() });
+    seedAiSettings({ transcriptionModel: "" });
+
+    const response = await requestAi("/api/ai/settings/test", {
+      body: JSON.stringify({ endpoint: ENDPOINT, mode: "local", model: LLM_MODEL }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(response.status, 200, await response.clone().text());
+    const body = await jsonBody(response);
+    assert.equal(body.ok, true);
+    assert.equal(body.model, LLM_MODEL);
+    assert.equal(body.transcription, undefined);
     assert.equal(calls.length, 1);
     assert.equal(calls[0].url, `${ENDPOINT}/models`);
+  });
+
+  test("saves the settings even when the transcription probe fails", async () => {
+    const { fetcher } = fakeFetch({
+      models: [{ id: LLM_MODEL }],
+      transcribe: () => ({
+        body: { error: { message: "forbidden", type: "other" } },
+        status: 403,
+      }),
+    });
+    setLocalAiDependenciesForTests({ fetch: fetcher, vault: fakeVault() });
+    seedAiSettings();
+
+    const response = await requestAi("/api/ai/settings", {
+      body: JSON.stringify({
+        endpoint: ENDPOINT,
+        mode: "local",
+        model: LLM_MODEL,
+        transcriptionModel: TRANSCRIPTION_MODEL,
+      }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    });
+    assert.equal(response.status, 200, await response.clone().text());
+    const body = await jsonBody(response);
+    assert.equal(body.ok, true);
+    assert.equal(body.model, LLM_MODEL);
+    assert.equal(body.transcriptionModel, TRANSCRIPTION_MODEL);
+    assert.deepEqual(body.tested, {
+      model: LLM_MODEL,
+      ok: true,
+      provider: "local",
+      transcription: {
+        code: "ai_auth_failed",
+        error: "The AI endpoint rejected the configured API key",
+        model: TRANSCRIPTION_MODEL,
+        ok: false,
+      },
+    });
+    // The probe failure did not block the save.
+    const saved = JSON.parse(readFileSync(join(root, "ai.json"), "utf8"));
+    assert.equal(saved.mode, "local");
+    assert.equal(saved.model, LLM_MODEL);
+    assert.equal(saved.transcriptionModel, TRANSCRIPTION_MODEL);
+  });
+
+  test("answers 502 ai_scope_denied when the provider denies the audio scope", async () => {
+    const { fetcher } = fakeFetch({
+      transcribe: () => ({
+        body: { error: { message: "chave sem escopo 'audio'", type: "scope_denied" } },
+        status: 403,
+      }),
+    });
+    setLocalAiDependenciesForTests({ fetch: fetcher, vault: fakeVault() });
+    seedAiSettings();
+
+    const response = await requestAi("/api/ai/voice-pin", {
+      body: voiceForm("voice_local_scope_0001"),
+      method: "POST",
+    });
+    assert.equal(response.status, 502, await response.clone().text());
+    const text = await response.clone().text();
+    assert.doesNotMatch(text, /chave sem escopo/);
+    const body = await jsonBody(response);
+    assert.equal(body.code, "ai_scope_denied");
+    assert.equal(body.error, "The API key is not allowed to use this AI route");
   });
 });

@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import {
   AiInferenceError,
   openAiCompatibleProvider,
+  silentWav,
   type AiPrompt,
   type AiProviderConfig,
 } from "./inference";
@@ -99,6 +100,59 @@ describe("OpenAI-compatible inference provider", () => {
     );
   });
 
+  test("classifies a scope denied 403 separately from other 403 and 401", async () => {
+    const scopeDenied = openAiCompatibleProvider(config, {
+      fetch: async () => Response.json({ error: { message: "chave sem escopo 'audio'", type: "scope_denied" } }, { status: 403 }),
+    });
+    await assert.rejects(
+      scopeDenied.run(prompt, { maxTokens: 128, timeoutMs: 1_000 }),
+      (error: unknown) => error instanceof AiInferenceError
+        && error.code === "ai_scope_denied"
+        && error.message === "The API key is not allowed to use this AI route"
+        && !error.message.includes("chave sem escopo"),
+    );
+
+    const plainForbidden = openAiCompatibleProvider(config, {
+      fetch: async () => Response.json({ error: { message: "forbidden" } }, { status: 403 }),
+    });
+    await assert.rejects(
+      plainForbidden.run(prompt, { maxTokens: 128, timeoutMs: 1_000 }),
+      (error: unknown) => error instanceof AiInferenceError && error.code === "ai_auth_failed",
+    );
+
+    const notJson = openAiCompatibleProvider(config, {
+      fetch: async () => new Response("<html>forbidden</html>", { status: 403 }),
+    });
+    await assert.rejects(
+      notJson.run(prompt, { maxTokens: 128, timeoutMs: 1_000 }),
+      (error: unknown) => error instanceof AiInferenceError && error.code === "ai_auth_failed",
+    );
+
+    const unauthorized = openAiCompatibleProvider(config, {
+      fetch: async () => Response.json({ error: "invalid key" }, { status: 401 }),
+    });
+    await assert.rejects(
+      unauthorized.run(prompt, { maxTokens: 128, timeoutMs: 1_000 }),
+      (error: unknown) => error instanceof AiInferenceError && error.code === "ai_auth_failed",
+    );
+  });
+
+  test("only reads the first 4096 bytes of a 403 body when classifying it", async () => {
+    // The scope_denied marker sits past the 4096-byte read limit, so the
+    // truncated prefix is not valid JSON and the refusal stays ai_auth_failed.
+    const filler = { padding: "x".repeat(4_200) };
+    const padded = openAiCompatibleProvider(config, {
+      fetch: async () => new Response(
+        JSON.stringify({ ...filler, error: { message: "late", type: "scope_denied" } }),
+        { status: 403 },
+      ),
+    });
+    await assert.rejects(
+      padded.run(prompt, { maxTokens: 128, timeoutMs: 1_000 }),
+      (error: unknown) => error instanceof AiInferenceError && error.code === "ai_auth_failed",
+    );
+  });
+
   test("tests endpoint model compatibility through the models API", async () => {
     const provider = openAiCompatibleProvider(config, {
       fetch: async (input) => {
@@ -136,6 +190,59 @@ describe("OpenAI-compatible inference provider", () => {
 
 describe("OpenAI-compatible transcription", () => {
   const audio = () => new Blob([new TextEncoder().encode("áudio")], { type: "audio/webm" });
+
+  test("builds a 16 kHz silent WAV probe with a 44-byte RIFF header", () => {
+    const wav = silentWav(1_000, 16_000);
+    assert.equal(wav.byteLength, 44 + 32_000);
+    const ascii = (offset: number, length: number) => new TextDecoder().decode(wav.subarray(offset, offset + length));
+    assert.equal(ascii(0, 4), "RIFF");
+    assert.equal(ascii(8, 4), "WAVE");
+    assert.equal(ascii(36, 4), "data");
+    const view = new DataView(wav.buffer, wav.byteOffset, wav.byteLength);
+    assert.equal(view.getUint32(4, true), 36 + 32_000);
+    assert.equal(view.getUint16(20, true), 1);
+    assert.equal(view.getUint16(22, true), 1);
+    assert.equal(view.getUint32(24, true), 16_000);
+    assert.equal(view.getUint16(34, true), 16);
+    assert.equal(view.getUint32(40, true), 32_000);
+    const data = wav.subarray(44);
+    assert.ok(data.every((byte) => byte === 0), "the data chunk is pure silence");
+  });
+
+  test("testTranscription posts the silent probe and accepts an empty 200 transcript", async () => {
+    let posted: { form: FormData; url: string } | null = null;
+    const provider = openAiCompatibleProvider(config, {
+      fetch: async (input, init) => {
+        posted = { form: init?.body as FormData, url: String(input) };
+        return Response.json({ text: "" });
+      },
+    });
+    assert.deepEqual(await provider.testTranscription("parakeet-tdt-0.6b-v3"), {
+      model: "parakeet-tdt-0.6b-v3",
+      ok: true,
+    });
+    assert.ok(posted);
+    assert.equal(posted.url, "http://127.0.0.1:11434/v1/audio/transcriptions");
+    assert.equal(posted.form.get("model"), "parakeet-tdt-0.6b-v3");
+    assert.equal(posted.form.get("language"), "en");
+    const file = posted.form.get("file");
+    assert.ok(file instanceof File);
+    assert.equal(file.name, "probe.wav");
+    assert.equal(file.type, "audio/wav");
+    assert.equal(await file.arrayBuffer().then((bytes) => new Uint8Array(bytes).byteLength), 44 + 32_000);
+  });
+
+  test("testTranscription classifies a scope denied probe as ai_scope_denied", async () => {
+    const provider = openAiCompatibleProvider(config, {
+      fetch: async () => Response.json({ error: { message: "chave sem escopo 'audio'", type: "scope_denied" } }, { status: 403 }),
+    });
+    await assert.rejects(
+      provider.testTranscription("parakeet-tdt-0.6b-v3"),
+      (error: unknown) => error instanceof AiInferenceError
+        && error.code === "ai_scope_denied"
+        && error.message === "The API key is not allowed to use this AI route",
+    );
+  });
 
   test("rejects a redirect on the transcription endpoint instead of following it", async () => {
     const { calls, fetcher } = redirectingFetcher();

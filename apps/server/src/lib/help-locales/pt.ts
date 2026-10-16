@@ -263,6 +263,39 @@ const locale = {
             "Linux: `curl -fsSL https://pinar.dev/install.sh | sh`",
           ],
         },
+        {
+          heading: "Atualizar o aplicativo desktop",
+          paragraphs: [
+            "O menu do Pinar procura atualizações sozinho e quando você escolhe “Verificar atualizações…”. Uma versão nova baixa em segundo plano enquanto o menu mostra “Baixando {version}…”. Escolha “Atualizar para {version}” para aplicar a atualização baixada: o aplicativo reabre na nova versão, e o servidor local reinicia junto. Quando não há nada mais novo, o menu mostra “Tudo atualizado” por um breve momento.",
+            "Se a verificação falhar, o aplicativo continua aberto e o menu mostra “Falha ao verificar atualizações”. Escolha esse item para rodar a verificação de novo. Leia o que cada versão muda na página “Novidades” do site, ou abra o link “Novidades” em Configurações → Sobre, que fica ao lado da versão da sua build.",
+          ],
+          bullets: [
+            "Uma verificação com falha só bloqueia a própria atualização: a versão em execução, as suas capturas e o servidor local continuam funcionando.",
+            "O aplicativo desktop verifica atualizações ao iniciar, então o menu geralmente mostra o resultado sem você pedir.",
+          ],
+        },
+        {
+          heading: "Ganchos de sessão do agente",
+          paragraphs: [
+            "Cada agente suportado registra um gancho de sessão do Pinar. Quando você abre uma sessão no Claude Code, Codex, Cursor, Grok, Antigravity, Pi ou OMP, o gancho abre o Pinar e garante que o servidor local esteja em execução antes de o agente começar a trabalhar.",
+            "O aplicativo desktop do Pinar registra esses ganchos ao iniciar, e os instaladores de linha de comando os registram enquanto instalam o auxiliar, então não há nada a configurar por agente. O arquivo de gancho que cada agente usa, e o passo de confiança da primeira vez que um agente pode pedir, estão listados na [seção de ganchos de sessão do README do Pinar](https://github.com/djalmajr/pinar/blob/main/README.md#session-hooks).",
+          ],
+          bullets: [
+            "O gancho só abre o aplicativo ou inicia o servidor local. Ele não lê os seus arquivos nem muda o que o agente faz.",
+            "Rerodar o instalador, ou reiniciar o aplicativo desktop, registra os ganchos de novo se você os limpou ou trocou de agente.",
+          ],
+        },
+        {
+          heading: "Instalação por linha de comando no Linux e no Windows",
+          paragraphs: [
+            "No Linux e no Windows, você pode instalar o auxiliar do Pinar pela linha de comando em vez do aplicativo desktop. O instalador de uma linha baixa o auxiliar para uma pasta na sua conta de usuário, adiciona essa pasta ao seu PATH e registra os ganchos de sessão do agente, para que uma nova sessão de terminal encontre o auxiliar imediatamente.",
+            "O auxiliar é o mesmo serviço local do Pinar que o aplicativo desktop executa: ele armazena as capturas neste computador e serve o workspace e o visualizador locais. A [seção de instalação do README do Pinar](https://github.com/djalmajr/pinar/blob/main/README.md#install) documenta os comandos do auxiliar, incluindo como iniciá-lo, pará-lo e verificar o seu status.",
+          ],
+          bullets: [
+            "Use a linha de comando em máquinas sem o aplicativo desktop, ou quando você gerencia o Pinar de um terminal remoto.",
+            "Instalar o aplicativo desktop e o auxiliar de linha de comando juntos é seguro: eles usam o mesmo serviço local e as mesmas capturas.",
+          ],
+        },
       ],
     },
     "first-capture": {
@@ -279,6 +312,7 @@ const locale = {
             "A numeração dos pins continua em todas as páginas da mesma sessão.",
             "`Shift+Enter` adiciona uma quebra de linha. `Escape` fecha um rascunho ou oculta a barra quando não há rascunho aberto.",
             "Depois de ocultada, a barra permanece assim durante a navegação até você acionar novamente a extensão ou o atalho.",
+            "Recarregar a aba anotada não encerra a sessão; quando a aba termina de carregar de novo, o Pinar restaura a sessão em andamento e os seus pins.",
           ],
         },
         {
@@ -321,6 +355,9 @@ const locale = {
           paragraphs: [
             "Quando a conta autenticada é elegível na oferta atual, o modo na nuvem oferece acesso remoto ao workspace, retenção gerenciada, cobrança e links não listados. O aplicativo local e um servidor self-hosted continuam gratuitos. No Pinar Cloud, a transcrição de voz continua um benefício Pro e não faz parte de uma avaliação; o aplicativo local pode transcrever voz com o seu próprio endpoint de IA. Você aceita as políticas atuais antes de qualquer coisa ser armazenada remotamente.",
           ],
+          bullets: [
+            "Nas opções da extensão, “Salvar Histórico de Anotações” (visível no modo na nuvem quando você está autenticado) controla se a sessão é armazenada no servidor do Pinar Cloud para que o visualizador, a reabertura e a revisão continuem funcionando. As capturas locais sempre permanecem neste dispositivo.",
+          ],
         },
         {
           heading: "Como as sessões local e na nuvem realmente abrem",
@@ -332,6 +369,18 @@ const locale = {
             "O workspace local permanece neste computador e não precisa de uma conta na nuvem.",
             "Se o histórico local não conseguir abrir o armazenamento usual, o Pinar recupera um catálogo utilizável em vez de travar.",
             "Links de compartilhamento na nuvem não exigem uma sessão do workspace: quem tiver a URL não listada lê o Markdown ou a imagem.",
+          ],
+        },
+        {
+          heading: "Como as interfaces local e na nuvem diferem",
+          paragraphs: [
+            "As mesmas páginas se comportam de forma diferente conforme o armazenamento. No aplicativo local, o visualizador da sessão, as páginas de projeto, coleção e lote, e o Markdown abrem neste computador sem uma conta. No Pinar Cloud, essas páginas permanecem privadas até você publicar um share: o Markdown privado abre apenas com a sua conta ou uma chave autorizada.",
+            "No aplicativo local, as páginas Planos e de acesso abrem em pinar.dev em vez de carregarem neste computador.",
+          ],
+          bullets: [
+            "O visualizador local não carrega o retorno de agentes: os resultados de agentes nunca aparecem, e a revisão de um pin mostra apenas o lado humano. O Pinar Cloud mostra os resultados de agentes e o fio completo de revisão.",
+            "Os controles de compartilhamento no visualizador — publicar um share, copiar o link dele e revogá-lo — são oferecidos apenas no Pinar Cloud.",
+            "A ação “Gerar passos escritos” no visualizador é oferecida apenas no Pinar Cloud.",
           ],
         },
       ],
@@ -353,6 +402,16 @@ const locale = {
             "`Command+Enter` / `Alt+Enter` conclui a sessão e copia conforme a opção Ao concluir.",
             "`Alt+Shift+P` mostra ou esconde a barra sem cancelar a sessão, e você pode redefini-lo em `chrome://extensions/shortcuts`. Atalhos do navegador ficam inertes em páginas `chrome://`, na Chrome Web Store e antes de a sobreposição ser injetada.",
             "`G` começa a gravar os passos que você faz na página. Reabra o Pinar, pine o resultado e copie com `Command+Enter` / `Alt+Enter` para anexar os passos; pressionar `G` de novo descarta a gravação.",
+          ],
+        },
+        {
+          heading: "Comandos do navegador e o ícone da barra",
+          paragraphs: [
+            "A extensão registra três comandos do navegador com atalhos padrão: `Alt+Shift+P` mostra ou esconde a barra do Pinar, `Alt+Shift+O` abre o workspace do Pinar em uma nova aba, e `Alt+Shift+X` encerra a sessão sem copiar. Clicar no ícone da extensão faz o mesmo que `Alt+Shift+P` na aba atual.",
+            "O menu de contexto do ícone oferece três itens: “Abrir painel”, “Concluir sessão” e “Cancelar sessão”. Os dois itens de sessão funcionam apenas enquanto uma sessão está ativa. Enquanto uma sessão está em execução, o badge do ícone mostra “on” até o primeiro pin ser salvo, e a contagem de pins depois disso.",
+          ],
+          bullets: [
+            "As associações podem ser mudadas na página de atalhos de extensões do Chrome; a aba Atalhos das opções da extensão lista cada comando do navegador com a associação atual e abre essa página, ao lado das teclas fixas da sobreposição.",
           ],
         },
         {
@@ -612,6 +671,28 @@ const locale = {
             "O compartilhamento continua explícito: publique um share a partir do workspace, ou deixe um agente com a permissão de compartilhar publicar ou revogar.",
           ],
         },
+        {
+          heading: "Conectar um agente ao aplicativo local",
+          paragraphs: [
+            "O aplicativo local do Pinar oferece a mesma superfície Model Context Protocol a agentes que rodam no mesmo computador, e é aberto por design: nenhuma conta, login ou chave de API está envolvida. Aponte o cliente MCP do seu agente para o endpoint descrito na [seção de acesso de agentes a sessões](https://github.com/djalmajr/pinar/blob/main/README.md#agent-access-to-sessions-mcp) do README do Pinar.",
+            "A [seção de ferramentas MCP locais](https://github.com/djalmajr/pinar/blob/main/README.md#local-mcp-tools) do README lista cada ferramenta com os seus argumentos e valor de retorno. As ferramentas de listagem paginam os resultados, até 50 itens por página, para que um agente percorra um workspace grande uma página de cada vez. As ferramentas de reordenação esperam a lista completa de itens e rejeitam uma parcial antes de qualquer coisa se mover.",
+          ],
+          bullets: [
+            "Como a conexão é local, o agente trabalha apenas com as capturas armazenadas neste computador e nunca precisa do Pinar Cloud.",
+            "A maior parte da superfície de ferramentas da nuvem está disponível localmente; os extras exclusivos da nuvem dizem respeito a chaves de agente e à publicação de shares.",
+          ],
+        },
+        {
+          heading: "Criar e gerenciar chaves de API de agente",
+          paragraphs: [
+            "O Pinar Cloud permite que contas Pro emitam chaves dedicadas de agente. Abra Configurações → “Acesso de agentes” no workspace para criar uma: dê um nome à chave, escolha uma permissão — “Leitura”, “Gerenciar”, “Compartilhar” ou “Completa” — e um vencimento de 7, 30 ou 90 dias. Uma chave de “Leitura” pode ter escopo da conta inteira ou de um projeto, coleção, sessão ou lote. As outras permissões atuam sobre a conta inteira.",
+            "A chave é mostrada apenas uma vez, logo depois que você a cria, então copie-a antes que o diálogo feche — o Pinar guarda apenas um prefixo curto e não pode mostrar a chave de novo. Até 20 chaves ativas podem existir ao mesmo tempo. Cada chave listada mostra o seu escopo, permissão, vencimento e último uso, e “Revogar” a encerra imediatamente. Uma solicitação de um recurso fora do escopo da chave é respondida como se o recurso não existisse, para que uma chave nunca revele o que há além do seu escopo. O [guia de acesso de agentes na nuvem](https://github.com/djalmajr/pinar/blob/main/docs/cloud-agent-access.md) documenta a matriz de permissões e a superfície completa de ferramentas por trás de cada chave.",
+          ],
+          bullets: [
+            "Dê a cada agente ou automação a sua própria chave, para que revogar uma não perturbe as outras.",
+            "As chaves funcionam com clientes MCP que suportam cabeçalhos personalizados e com os links privados de Markdown; o painel “Acesso de agentes” explica como a chave é usada.",
+          ],
+        },
       ],
     },
     "handoff-formats": {
@@ -672,6 +753,28 @@ const locale = {
             "Edite ou remova eventos ruidosos da timeline antes de gerar.",
             "Revise as instruções geradas antes de entregá-las ao seu agente local.",
             "Deixe o agente local criar testes automatizados específicos com o repositório e suas convenções em contexto.",
+          ],
+        },
+        {
+          heading: "Usar a sua própria IA no aplicativo local",
+          paragraphs: [
+            "O aplicativo local pode executar os seus recursos de IA — passos escritos de reprodução e comentários por voz — com uma IA que você fornece em vez do Pinar Cloud. Abra Configurações → Assistente de IA e escolha um modo: “Desativada” desliga a IA, “IA local” usa um servidor no mesmo computador, e “BYOK” conecta diretamente a um provedor remoto com a sua própria chave. Os dois modos ativos aceitam um endpoint compatível com a OpenAI e o modelo exato que ele expõe, mais um modelo opcional de transcrição: deixe esse campo vazio para manter a voz desligada.",
+            "Com “BYOK”, a chave de API fica guardada no cofre de credenciais do seu sistema operacional, não nas preferências do Pinar. “Testar conexão” e “Salvar” verificam o modelo e o modelo de transcrição antes de terminarem. Se apenas o modelo de transcrição falhar, a mensagem diz por quê — por exemplo, que a chave não tem permissão de áudio — e o salvamento continua funcionando para os recursos que não precisam de voz. Os comentários por voz precisam de um endpoint que permita transcrição de áudio. O [guia de IA local e BYOK](https://github.com/djalmajr/pinar/blob/main/docs/local-ai.md) cobre configuração, privacidade e requisitos de modelo.",
+          ],
+          bullets: [
+            "Os passos escritos e os comentários por voz no aplicativo local rodam direto contra o seu provedor e não usam créditos do Pinar Cloud.",
+            "Os pedidos vão do aplicativo local apenas para o seu endpoint; não existe fallback silencioso para o Pinar Cloud.",
+          ],
+        },
+        {
+          heading: "Limpar transcrição com IA",
+          paragraphs: [
+            "Por padrão, um comentário por voz gravado coloca a transcrição bruta no pin. O interruptor “Limpar transcrição com IA” nas opções da extensão — e o interruptor “Limpar transcrições de voz” em Configurações → “Uso de IA” no Pinar Cloud — enviam a transcrição primeiro pelo modelo de IA, para que o pin receba o comentário que você intentou: as falas de preenchimento e os recomeços são removidos, e o modelo pode adicionar critérios de aceitação curtos ao lado do comentário.",
+            "Com o interruptor desligado, a transcrição completa vira o comentário e nada é reescrito. No aplicativo local, a limpeza usa o modelo que você configurou em Configurações → Assistente de IA. No Pinar Cloud, ela roda com os mesmos créditos de IA que a transcrição por voz já usa.",
+          ],
+          bullets: [
+            "A transcrição bruta continua armazenada com o comentário, então a limpeza nunca perde o que você realmente disse.",
+            "A limpeza está desligada por padrão. Ligue-a nas opções da extensão para capturas locais, ou em Configurações → “Uso de IA” para o Pinar Cloud.",
           ],
         },
       ],
@@ -738,6 +841,18 @@ const locale = {
             "Se a barra disser “Escreva um comentário” ou “Adicione um pin”, conclua o pin e pressione `Command+Enter` / `Alt+Enter` de novo.",
             "Se aparecer “Falha ao copiar”, confirme que os pins ainda estão na página, conceda permissão de área de transferência se pedirem e tente copiar de novo.",
             "Leia o sufixo de “Copiado com sucesso!”: “sem captura”, “auxiliar indisponível” e “sem visualizador” nomeiam a camada ausente a retentar sem descartar comentários.",
+          ],
+        },
+        {
+          heading: "Mensagens ao concluir a sessão",
+          paragraphs: [
+            "Quando a conclusão falha porque o screenshot final não pode ser capturado, a barra mostra uma dessas mensagens em vez de um erro genérico, e a sessão fica na página para uma nova tentativa. Cada mensagem nomeia a causa e a correção:",
+          ],
+          bullets: [
+            "“Um pin está fora da área visível · traga-o para a área visível e tente novamente” — role até o elemento pinado ficar visível e conclua a sessão de novo.",
+            "“A página mudou durante a captura · permaneça nela e tente novamente” — conclua de novo a partir da página anotada sem sair dela.",
+            "“A aba anotada não estava ativa · volte a ela e tente novamente” — volte para a aba anotada e conclua de novo.",
+            "“Screenshot não capturado · volte à página anotada e tente novamente” — volte à página anotada e conclua de novo.",
           ],
         },
       ],
@@ -896,6 +1011,12 @@ const locale = {
             "Se Gerenciar assinatura estiver indisponível, conclua primeiro um Checkout pago e depois abra-o numa conta autenticada.",
           ],
         },
+        {
+          heading: "Quando uma avaliação termina",
+          paragraphs: [
+            "Quando uma avaliação temporária termina, as novas capturas no Pinar Cloud ficam pausadas até a conta assinar. As capturas já armazenadas continuam disponíveis e permanecem sujeitas a retenção e exportação, conforme descrito em Armazenamento, retenção e recuperação.",
+          ],
+        },
       ],
     },
     "ai-credits": {
@@ -926,6 +1047,7 @@ const locale = {
             "Se uma transcrição já estiver em andamento, espere terminar em vez de enviar a mesma gravação outra vez.",
             "Se uma reserva expirar ou for estornada, grave ou envie o comentário por voz novamente.",
             "Se o workspace mostrar zero créditos, confira o saldo restante antes de comprar outro pacote de 500 créditos.",
+            "Se você enviar muitos pedidos de IA dentro de um minuto, o pedido é recusado temporariamente; espere um minuto e tente de novo.",
           ],
         },
       ],
@@ -973,6 +1095,18 @@ const locale = {
           ],
         },
         {
+          heading: "Colaborar em uma coleção",
+          paragraphs: [
+            "Colaborar em uma coleção é oferecido pelo Pinar Cloud aos donos Pro. A partir do menu da coleção, escolha “Colaboradores” e depois convide pessoas por e-mail com o botão “Convidar”. A aba lista cada colaborador com o status “Pendente” ou “Aceito”, e “Revogar acesso” remove um.",
+          ],
+          bullets: [
+            "Quem é convidado vê um aviso de “Convites pendentes” no workspace. “Ver convites” abre o diálogo “Convites de coleção”, onde “Aceitar convite” aceita o convite e “Abrir coleção” abre a coleção.",
+            "As coleções aceitas aparecem na seção “Coleções compartilhadas” da barra lateral, com o nome do dono e a contagem de sessões.",
+            "No visualizador público da coleção, quem chega por convite é marcado com um badge “Compartilhada com você”.",
+            "Uma coleção compartilhada fica suspensa enquanto a assinatura Pro do dono está inativa. Na barra lateral, ela então mostra um badge “Suspensa” e não pode ser aberta, e a página da coleção mostra “Acesso à coleção suspenso” com uma nota de que o acesso retoma automaticamente quando o Pro é restabelecido.",
+          ],
+        },
+        {
           heading: "Markdown para agentes",
           paragraphs: [
             "A projeção .md de uma sessão inclui metadados, referências de screenshots, localizadores, resultados de agentes e histórico de revisão. Projeções de projeto e coleção combinam suas sessões. Dados compartilhados expirados ou indisponíveis retornam não encontrado, não detalhes privados da conta.",
@@ -1007,6 +1141,16 @@ const locale = {
           heading: "Limite da nuvem",
           paragraphs: [
             "Registros da conta, metadados de capturas e imagens ficam no serviço hospedado. A Stripe processa a cobrança, e o serviço de e-mail envia códigos de acesso. A página de Subprocessadores é a lista atual de papéis de serviços externos.",
+          ],
+        },
+        {
+          heading: "Mover os seus dados entre o aplicativo local e o Pinar Cloud",
+          paragraphs: [
+            "Configurações → Dados move capturas entre os dois armazéns. No aplicativo local, “Exportar dados” baixa um .zip com os seus projetos, coleções, capturas e screenshots. No Pinar Cloud, “Importar do app local” recebe esse arquivo: escolha-o com “Escolher arquivo”, siga o progresso por sessão e pare a qualquer momento com “Cancelar importação”. Quando a importação termina, o Pinar relata o resultado, incluindo importações parciais e arquivos que não são uma exportação do Pinar.",
+          ],
+          bullets: [
+            "Importar a mesma exportação de novo atualiza o que já foi importado em vez de duplicá-lo.",
+            "Para o comportamento completo da exportação e da importação, incluindo para onde as sessões exportadas vão na conta da nuvem, veja [mover dados locais para o Pinar Cloud](https://github.com/djalmajr/pinar/blob/main/README.md#move-local-data-to-pinar-cloud) no README do Pinar.",
           ],
         },
         {

@@ -261,6 +261,39 @@ const locale = {
             "Linux: `curl -fsSL https://pinar.dev/install.sh | sh`",
           ],
         },
+        {
+          heading: "Update the desktop app",
+          paragraphs: [
+            "The Pinar menu looks for updates on its own and when you choose “Check for Updates…”. A newer version downloads in the background while the menu shows “Downloading {version}…”. Choose “Update to {version}” to apply the downloaded update: the app reopens at the new version, and the local server restarts with it. When there is nothing newer, the menu shows “You're updated” for a short while.",
+            "If a check fails, the app stays open and the menu shows “Update check failed”. Choose that item to run the check again. Read what each version changes on the “What’s new” page of the site, or open the “What’s new” link in Settings → About, which sits next to the version your build runs.",
+          ],
+          bullets: [
+            "A failed check only blocks the update itself: the running version, your captures, and the local server keep working.",
+            "The desktop app checks for updates when it starts, so the menu usually shows the result without you asking.",
+          ],
+        },
+        {
+          heading: "Agent session hooks",
+          paragraphs: [
+            "Every supported agent registers a Pinar session hook. When you open a session in Claude Code, Codex, Cursor, Grok, Antigravity, Pi, or OMP, the hook opens Pinar and makes sure the local server is running before the agent starts working.",
+            "The Pinar desktop app registers these hooks when it starts, and the command-line installers register them while they install the helper, so there is nothing to set up per agent. The hook file each agent uses, and the first-time trust step an agent may ask for, are listed in the [Session hooks section of the Pinar README](https://github.com/djalmajr/pinar/blob/main/README.md#session-hooks).",
+          ],
+          bullets: [
+            "The hook only opens the app or starts the local server. It does not read your files or change what the agent does.",
+            "Re-running the installer, or restarting the desktop app, re-registers the hooks if you cleared them or switched agents.",
+          ],
+        },
+        {
+          heading: "Command-line install on Linux and Windows",
+          paragraphs: [
+            "On Linux and Windows you can install Pinar's helper from the command line instead of the desktop app. The one-line installer downloads the helper into a folder in your user account, adds that folder to your PATH, and registers the agent session hooks, so a new terminal session finds the helper right away.",
+            "The helper is the same local Pinar service the desktop app runs: it stores the captures on this computer and serves the local workspace and viewer. The [Install section of the Pinar README](https://github.com/djalmajr/pinar/blob/main/README.md#install) documents the helper's commands, including how to start it, stop it, and check its status.",
+          ],
+          bullets: [
+            "Use the command line on machines without the desktop app, or when you manage Pinar from a remote terminal.",
+            "Installing both the desktop app and the command-line helper is safe: they use the same local service and the same captures.",
+          ],
+        },
       ],
     },
     "first-capture": {
@@ -610,6 +643,28 @@ const locale = {
             "Sharing stays explicit: publish a share from the workspace, or let an agent with the share permission publish or revoke it.",
           ],
         },
+        {
+          heading: "Connect an agent to the local app",
+          paragraphs: [
+            "The local Pinar app offers the same Model Context Protocol surface to agents that run on the same computer, and it is open by design: no account, login, or API key is involved. Point your agent's MCP client at the endpoint described in the [Agent access to sessions](https://github.com/djalmajr/pinar/blob/main/README.md#agent-access-to-sessions-mcp) section of the Pinar README.",
+            "The [Local MCP tools](https://github.com/djalmajr/pinar/blob/main/README.md#local-mcp-tools) section of the README lists every tool with its arguments and return value. List tools page their results, up to 50 items per page, so an agent walks a large workspace one page at a time. Reorder tools expect the complete list of items and reject a partial one before anything moves.",
+          ],
+          bullets: [
+            "Because the connection is local, the agent works only with the captures stored on this computer and never needs Pinar Cloud.",
+            "Most of the cloud tool surface is available locally; the cloud-only extras concern agent keys and publishing shares.",
+          ],
+        },
+        {
+          heading: "Create and manage agent API keys",
+          paragraphs: [
+            "Pinar Cloud lets Pro accounts issue dedicated agent keys. Open Settings → “Agent access” in the workspace to create one: give the key a name, choose a permission — “Read”, “Manage”, “Share”, or “Full” — and an expiry of 7, 30, or 90 days. A “Read” key can be scoped to the entire account or to one project, collection, session, or batch. The other permissions act on the whole account.",
+            "The key is shown only once, right after you create it, so copy it before the dialog closes — Pinar keeps only a short prefix and cannot show the key again. Up to 20 active keys can exist at once. Each listed key shows its scope, permission, expiry, and last use, and “Revoke” ends it immediately. A request for a resource outside the key's scope is answered as if the resource did not exist, so a key never reveals what lies beyond its scope. The [Cloud agent access guide](https://github.com/djalmajr/pinar/blob/main/docs/cloud-agent-access.md) documents the permission matrix and the full tool surface behind each key.",
+          ],
+          bullets: [
+            "Give each agent or automation its own key, so revoking one does not disturb the others.",
+            "Keys work with MCP clients that support custom headers and with the private Markdown links; the “Agent access” panel explains how the key is used.",
+          ],
+        },
       ],
     },
     "handoff-formats": {
@@ -669,6 +724,28 @@ const locale = {
             "Edit or remove noisy timeline events before generation.",
             "Review the generated instructions before handing them to your local agent.",
             "Let the local agent create project-specific automated tests with the repository and its conventions in context.",
+          ],
+        },
+        {
+          heading: "Use your own AI in the local app",
+          paragraphs: [
+            "The local app can run its AI features — written reproduction steps and voice comments — with AI you provide instead of Pinar Cloud. Open Settings → AI and choose a mode: “Disabled” switches AI off, “Local AI” uses a server on the same computer, and “BYOK” connects directly to a remote provider with your own key. Both active modes take an OpenAI-compatible endpoint and the exact model it exposes, plus an optional transcription model: leave that field empty to keep voice off.",
+            "With “BYOK”, the API key is stored in your operating system's credential vault, not in Pinar's preferences. “Test connection” and “Save” check the model and the transcription model before they finish. If only the transcription model fails, the message says why — for example, that the key lacks audio permission — and saving still works for the features that do not need voice. Voice comments need an endpoint that allows audio transcription. The [Local AI and BYOK guide](https://github.com/djalmajr/pinar/blob/main/docs/local-ai.md) covers setup, privacy, and model requirements.",
+          ],
+          bullets: [
+            "Written steps and voice comments in the local app run against your provider directly and use no Pinar Cloud credits.",
+            "Requests go from the local app to your endpoint only; there is no silent fallback to Pinar Cloud.",
+          ],
+        },
+        {
+          heading: "Clean up transcription with AI",
+          paragraphs: [
+            "By default, a recorded voice comment places the raw transcript into the pin. The “Clean up transcription with AI” switch in the extension options — and the “Clean up voice transcriptions” switch in Settings → “AI usage” in Pinar Cloud — send the transcript through the AI model first, so the pin receives the comment you intended: fillers and false starts are removed, and the model may add short acceptance criteria beside the comment.",
+            "With the switch off, the full transcript becomes the comment and nothing is rewritten. In the local app the cleanup uses the model you configured in Settings → AI. In Pinar Cloud it runs with the same AI credits that voice transcription already uses.",
+          ],
+          bullets: [
+            "The raw transcript stays stored with the comment, so cleanup never loses what you actually said.",
+            "Cleanup is off by default. Turn it on in the extension options for local captures, or in Settings → “AI usage” for Pinar Cloud.",
           ],
         },
       ],

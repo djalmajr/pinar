@@ -8,6 +8,7 @@ export function createQuitController(options: {
 	removeTray: () => void;
 	stopServer: () => Promise<void>;
 	stopTimers?: () => void;
+	startTimers?: () => void;
 }) {
 	let helperStopped = false;
 	let inFlight: Promise<void> | null = null;
@@ -57,11 +58,39 @@ export function createQuitController(options: {
 		return inFlight;
 	}
 
+	/**
+	 * Hands the exit to the update helper: the veto lifts so the updater's
+	 * before-quit passes, and a handoff that does not launch the new version
+	 * restores the veto, restarts the timers and runs recover.
+	 */
+	function update(apply: () => Promise<boolean>, recover: () => Promise<void>): Promise<void> {
+		if (inFlight) return inFlight;
+		inFlight = (async () => {
+			options.stopTimers?.();
+			let started = false;
+			try {
+				await options.stopServer();
+				helperStopped = true;
+				started = await apply();
+			} catch {
+				// A server that does not stop, or a handoff that throws, is
+				// recovered like a handoff that did not start.
+			}
+			if (!started) {
+				helperStopped = false;
+				inFlight = null;
+				options.startTimers?.();
+				await recover();
+			}
+		})();
+		return inFlight;
+	}
+
 	function onBeforeQuit(event: BeforeQuitEvent) {
 		if (helperStopped) return;
 		event.response = { allow: false };
 		void finish();
 	}
 
-	return { finish, onBeforeQuit, restart };
+	return { finish, onBeforeQuit, restart, update };
 }

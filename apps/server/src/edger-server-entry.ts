@@ -61,43 +61,6 @@ function withoutUntrustedOriginHeaders(request: Request, trusted: boolean): Requ
   return forwarded;
 }
 
-const HOST = /^[A-Za-z0-9.-]+(?::\d{1,5})?$/;
-
-/**
- * EdgeR hands the worker `http://edger.local/<path>`: its Deno shim builds
- * the URL from the path alone. The app compares `Origin` with the request
- * origin on every mutation and builds absolute links from it, so the public
- * URL is rebuilt from the `Host` header, which EdgeR keeps (it routes on
- * it), and the scheme from `X-Forwarded-Proto`, which Traefik sets on the
- * TLS entrypoint. Without that header the scheme stays as it came; a
- * missing or malformed Host leaves the request untouched.
- */
-function withPublicUrl(request: Request): Request {
-  const host = request.headers.get("host");
-  if (!host || !HOST.test(host)) return request;
-  const url = new URL(request.url);
-  const proto = request.headers.get("x-forwarded-proto")?.split(",", 1)[0].trim().toLowerCase();
-  const scheme = proto === "https" || proto === "http" ? `${proto}:` : url.protocol;
-  let publicUrl: URL;
-  try {
-    publicUrl = new URL(`${scheme}//${host}${url.pathname}${url.search}`);
-  } catch {
-    return request;
-  }
-  if (publicUrl.href === url.href) return request;
-  const hasBody = request.method !== "GET" && request.method !== "HEAD";
-  // The Fetch spec requires `duplex` for a stream body; the workerd types lack it.
-  const init: RequestInit & { duplex: "half" } = {
-    body: hasBody ? request.body : null,
-    duplex: "half",
-    headers: request.headers,
-    method: request.method,
-    redirect: request.redirect,
-    signal: request.signal,
-  };
-  return new Request(publicUrl, init);
-}
-
 /**
  * Server entry for EdgeR (a self-hosted Deno runtime). The Cloudflare cron
  * becomes an internal POST to `/_internal/cron/daily` carrying
@@ -135,7 +98,6 @@ export function createEdgerFetch(deps: {
       });
       return Response.json({ ok, jobs: report }, { status: ok ? 200 : 500 });
     }
-    request = withPublicUrl(request);
     const secret = deps.originSecret;
     if (secret) {
       // Empty (or absent) secret: the defense is off and the request passes

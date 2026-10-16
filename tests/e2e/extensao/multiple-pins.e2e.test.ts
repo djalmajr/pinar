@@ -1,8 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
-import { resolve } from "node:path";
 import { pressCopyShortcut } from "../helpers/extension-shortcut";
-
-const extensionPath = (file: string) => resolve(process.cwd(), "extension", file);
+import { injectExtensionScripts } from "../helpers/extension-scripts";
 
 const fixture = `<!doctype html>
 <html lang="en">
@@ -102,14 +100,7 @@ async function installExtensionHarness(page: Page) {
       },
     };
   });
-  await page.addScriptTag({ path: extensionPath("coordinates.js") });
-  await page.addScriptTag({ path: extensionPath("frame-path.js") });
-  await page.addScriptTag({ path: extensionPath("locators.js") });
-  await page.addScriptTag({ path: extensionPath("privacy.js") });
-  await page.addScriptTag({ path: extensionPath("keyboard.js") });
-  await page.addScriptTag({ path: extensionPath("floating.js") });
-  await page.addScriptTag({ path: extensionPath("voice.js") });
-  await page.addScriptTag({ path: extensionPath("content.js") });
+  await injectExtensionScripts(page);
   await expect(page.locator('[data-pinar="host"]')).toBeVisible();
 }
 
@@ -154,14 +145,7 @@ async function installIframeExtensionHarness(page: Page) {
   await page.goto("/iframe-path-fixture");
   await expect.poll(() => page.frames().length).toBe(3);
   for (const frame of page.frames()) {
-    await frame.addScriptTag({ path: extensionPath("coordinates.js") });
-    await frame.addScriptTag({ path: extensionPath("frame-path.js") });
-    await frame.addScriptTag({ path: extensionPath("locators.js") });
-    await frame.addScriptTag({ path: extensionPath("privacy.js") });
-    await frame.addScriptTag({ path: extensionPath("keyboard.js") });
-    await frame.addScriptTag({ path: extensionPath("floating.js") });
-    await frame.addScriptTag({ path: extensionPath("voice.js") });
-    await frame.addScriptTag({ path: extensionPath("content.js") });
+    await injectExtensionScripts(frame);
   }
 }
 

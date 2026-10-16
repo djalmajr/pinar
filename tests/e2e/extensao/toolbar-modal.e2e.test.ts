@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { resolve } from "node:path";
+import { injectExtensionScripts } from "../helpers/extension-scripts";
 
 const extensionPath = (file: string) => resolve(process.cwd(), "extension", file);
 
@@ -23,17 +24,6 @@ const fixture = `<!doctype html>
   </body>
 </html>`;
 
-const scripts = [
-  "coordinates.js",
-  "frame-path.js",
-  "locators.js",
-  "privacy.js",
-  "keyboard.js",
-  "floating.js",
-  "voice.js",
-  "content.js",
-];
-
 async function installExtensionHarness(page: Page) {
   await page.route("**/toolbar-modal-fixture", (route) => route.fulfill({
     body: fixture,
@@ -56,9 +46,7 @@ async function installExtensionHarness(page: Page) {
       },
     };
   });
-  for (const file of scripts) {
-    await page.addScriptTag({ path: extensionPath(file) });
-  }
+  await injectExtensionScripts(page);
 }
 
 async function openAndCloseModal(page: Page) {

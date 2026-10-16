@@ -22,6 +22,18 @@ const locale = {
     whatChanged: "O que mudou",
   },
   releases: {
+    "v0.7.4": {
+      title: "O Pinar Cloud mostra o botão certo desde o início",
+      summary:
+        "Quando você está conectado ao Pinar Cloud, o cabeçalho do site não mostra mais Entrar antes de trocar para Abrir app, e o card Apoie o desenvolvimento Fair Source não pisca mais para contas Pro.",
+      changes: {
+        "signed-in-header": {
+          title: "Sem Entrar piscando para quem já está conectado",
+          description:
+            "O Pinar Cloud agora reconhece a sua sessão enquanto prepara a página, então o cabeçalho mostra Abrir app desde o primeiro instante e o card Apoie o desenvolvimento Fair Source fica oculto para contas Pro, em vez de aparecer e sumir. Se a sua sessão não puder ser conferida por um momento, o cabeçalho espera em vez de oferecer Entrar e confere de novo logo depois.",
+        },
+      },
+    },
     "v0.7.3": {
       title: "Atualizações que se instalam pelo menu e voz mais clara com a sua própria IA",
       summary:

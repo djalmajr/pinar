@@ -20,6 +20,18 @@ const locale = {
     whatChanged: "更新内容",
   },
   releases: {
+    "v0.7.4": {
+      title: "Pinar Cloud 从一开始就显示正确的按钮",
+      summary:
+        "登录 Pinar Cloud 后，网站页眉不会再先显示“登录”再切换为“打开应用”，Pro 账户也不会再看到“支持 Fair Source 开发”卡片一闪而过。",
+      changes: {
+        "signed-in-header": {
+          title: "已登录时不再闪现“登录”",
+          description:
+            "Pinar Cloud 现在会在准备页面时识别你的会话，因此页眉从一开始就显示“打开应用”，Pro 账户的“支持 Fair Source 开发”卡片会保持隐藏，而不是出现后又消失。如果暂时无法确认你的会话，页眉会等待，而不是显示“登录”，并在稍后再次确认。",
+        },
+      },
+    },
     "v0.7.3": {
       title: "从菜单安装的更新，以及使用自有 AI 时更清晰的语音",
       summary:

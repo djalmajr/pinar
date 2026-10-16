@@ -20,6 +20,18 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.7.4": {
+      title: "Pinar Cloud shows the right button from the start",
+      summary:
+        "When you are signed in to Pinar Cloud, the site header no longer shows Sign in before switching to Open app, and the Support Fair Source development card no longer flashes for Pro accounts.",
+      changes: {
+        "signed-in-header": {
+          title: "No Sign in flash once you are signed in",
+          description:
+            "Pinar Cloud now recognizes your session while it prepares the page, so the header shows Open app from the first moment and the Support Fair Source development card stays hidden for Pro accounts instead of appearing and then disappearing. If your session cannot be checked for a moment, the header waits instead of offering Sign in, and checks again shortly after.",
+        },
+      },
+    },
     "v0.7.3": {
       title: "Updates that install from the menu, and clearer voice with your own AI",
       summary:

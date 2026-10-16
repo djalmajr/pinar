@@ -86,6 +86,11 @@ export interface ReleaseContent {
 
 export const releaseDefinitions = [
   {
+    tag: "v0.7.4",
+    date: "2026-10-16",
+    changes: ["signed-in-header"],
+  },
+  {
     tag: "v0.7.3",
     date: "2026-10-16",
     changes: ["desktop-updates", "local-voice-checks", "help-center"],

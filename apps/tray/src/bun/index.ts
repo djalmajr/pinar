@@ -266,18 +266,62 @@ void ensureDefaultLogin()
 		console.error("pinar tray login setup failed", error);
 		return refresh();
 	});
-const refreshTimer = setInterval(() => {
-	void refresh();
-}, REFRESH_INTERVAL_MS);
-void syncUpdate();
-const updateTimer = setInterval(
-	() => {
-		void syncUpdate();
-	},
-	6 * 60 * 60 * 1000,
-);
-
+let refreshTimer: ReturnType<typeof setInterval> | null = null;
+let updateTimer: ReturnType<typeof setInterval> | null = null;
 let memoryTimer: ReturnType<typeof setInterval> | null = null;
+let reportedUnreadableMemory = false;
+
+// Live timers keep the event loop busy, and Electrobun's graceful quit then
+// waits for its whole timeout before forcing the exit.
+function stopTimers() {
+	if (refreshTimer) {
+		clearInterval(refreshTimer);
+		refreshTimer = null;
+	}
+	if (updateTimer) {
+		clearInterval(updateTimer);
+		updateTimer = null;
+	}
+	if (memoryTimer) {
+		clearInterval(memoryTimer);
+		memoryTimer = null;
+	}
+	stopStatusResetTimer();
+}
+
+/** Restarts the pollers after a failed update recovery. */
+function startTimers() {
+	if (refreshTimer || updateTimer || memoryTimer) return;
+	refreshTimer = setInterval(() => {
+		void refresh();
+	}, REFRESH_INTERVAL_MS);
+	updateTimer = setInterval(
+		() => {
+			void syncUpdate();
+		},
+		6 * 60 * 60 * 1000,
+	);
+	// The Electrobun runtime leaks committed memory even when idle; replace
+	// the tray before it grows large. Skipped while a menu action is running.
+	memoryTimer = setInterval(() => {
+		void windowsPrivateBytes()
+			.then((privateBytes) => {
+				if (privateBytes == null && process.platform === "win32" && !reportedUnreadableMemory) {
+					reportedUnreadableMemory = true;
+					console.error("pinar tray could not read its private memory; the memory guard is inactive");
+				}
+				if (busy || !shouldRestartForMemory(privateBytes)) return;
+				console.error(`pinar tray restarting itself at ${Math.round((privateBytes ?? 0) / 1048576)} MB of private memory`);
+				void quit.restart(relaunchTray);
+			})
+			.catch((error) => {
+				console.error("pinar tray could not read its memory usage", error);
+			});
+	}, memoryCheckInterval());
+}
+
+startTimers();
+void syncUpdate();
 
 const quit = createQuitController({
 	quit: (code) => {
@@ -288,14 +332,8 @@ const quit = createQuitController({
 		releaseTrayLock();
 	},
 	removeTray: () => tray.remove(),
-	// Live timers keep the event loop busy, and Electrobun's graceful quit
-	// then waits for its whole timeout before forcing the exit.
-	stopTimers: () => {
-		clearInterval(refreshTimer);
-		clearInterval(updateTimer);
-		if (memoryTimer) clearInterval(memoryTimer);
-		stopStatusResetTimer();
-	},
+	startTimers,
+	stopTimers,
 	stopServer,
 });
 Electrobun.events.on("before-quit", quit.onBeforeQuit);
@@ -305,25 +343,6 @@ function relaunchTray() {
 	const launcher = join(dirname(process.execPath), "launcher.exe");
 	spawn(launcher, [], { detached: true, stdio: "ignore", windowsHide: true }).unref();
 }
-
-// The Electrobun runtime leaks committed memory even when idle; replace the
-// tray before it grows large. Skipped while a menu action is running.
-let reportedUnreadableMemory = false;
-memoryTimer = setInterval(() => {
-	void windowsPrivateBytes()
-		.then((privateBytes) => {
-			if (privateBytes == null && process.platform === "win32" && !reportedUnreadableMemory) {
-				reportedUnreadableMemory = true;
-				console.error("pinar tray could not read its private memory; the memory guard is inactive");
-			}
-			if (busy || !shouldRestartForMemory(privateBytes)) return;
-			console.error(`pinar tray restarting itself at ${Math.round((privateBytes ?? 0) / 1048576)} MB of private memory`);
-			void quit.restart(relaunchTray);
-		})
-		.catch((error) => {
-			console.error("pinar tray could not read its memory usage", error);
-		});
-}, memoryCheckInterval());
 
 console.error("pinar tray started");
 
@@ -364,7 +383,18 @@ tray.on("tray-clicked", (event: unknown) => {
 		return;
 	}
 	if (action === "apply-update") {
-		void Updater.applyUpdate();
+		void quit.update(
+			async () => {
+				await Updater.applyUpdate();
+				return Updater.getStatusHistory().at(-1)?.status === "launching-new-version";
+			},
+			async () => {
+				startServer();
+				await waitUntilHealthy();
+				showTransientStatus("failed");
+				updateMenu();
+			},
+		);
 		return;
 	}
 	if (action === "quit") {

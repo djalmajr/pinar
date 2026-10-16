@@ -324,6 +324,7 @@ export const helpArticleDefinitions = [
     ] as const,
     sourceRefs: [
       "README.md",
+      "extension/background.js",
       "extension/content.js",
       "extension/keyboard.js",
       "packages/shared/src/handoff/index.ts",
@@ -342,10 +343,13 @@ export const helpArticleDefinitions = [
     ] as const,
     sourceRefs: [
       "apps/cli/src/history.mjs",
+      "apps/server/src/lib/local-cloud-redirect.ts",
+      "apps/server/src/pages/WebViewer.tsx",
       "apps/server/src/server/api.local.ts",
       "apps/server/src/server/cloud-api.ts",
       "apps/server/src/server/local-capability.ts",
       "apps/extension/src/options/OptionsApp.tsx",
+      "packages/shared/src/i18n/index.ts",
     ],
   },
   {
@@ -353,7 +357,13 @@ export const helpArticleDefinitions = [
     category: "getting-started",
     readMinutes: 3,
     screenshotKey: "capture-shortcuts",
-    sourceRefs: ["extension/content.js", "extension/keyboard.js", "README.md"],
+    sourceRefs: [
+      "extension/background.js",
+      "extension/content.js",
+      "extension/keyboard.js",
+      "extension/manifest.json",
+      "README.md",
+    ],
   },
   {
     id: "capture-types",
@@ -495,6 +505,7 @@ export const helpArticleDefinitions = [
       "extension/offscreen.js",
       "extension/content.js",
       "packages/shared/src/handoff/index.ts",
+      "packages/shared/src/i18n/index.ts",
     ],
   },
   {
@@ -555,6 +566,7 @@ export const helpArticleDefinitions = [
       "apps/server/src/lib/entitlements.ts",
       "apps/server/src/lib/retention.ts",
       "apps/server/src/lib/pricing.ts",
+      "apps/server/src/lib/cloud-trial.ts",
       "apps/server/src/server/cloud-api.ts",
     ],
     popular: true,
@@ -588,6 +600,11 @@ export const helpArticleDefinitions = [
     readMinutes: 5,
     screenshotKey: "sharing-markdown",
     sourceRefs: [
+      "apps/server/src/components/CollectionCollaboratorsDialog.tsx",
+      "apps/server/src/components/CollectionInvitationsDialog.tsx",
+      "apps/server/src/components/HistorySidebar.tsx",
+      "apps/server/src/components/PendingInvitationsBanner.tsx",
+      "apps/server/src/lib/collection-collaborators.ts",
       "apps/server/src/pages/AggregateViewer.tsx",
       "apps/server/src/server/markdown.ts",
       "apps/server/src/server/cloud-api.ts",
@@ -604,6 +621,7 @@ export const helpArticleDefinitions = [
       "apps/server/src/server/cloud-api.ts",
       "apps/server/src/lib/legal-documents.ts",
       "apps/server/src/components/GlobalSettingsDialog.tsx",
+      "README.md",
     ],
     popular: true,
   },

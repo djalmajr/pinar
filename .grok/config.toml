@@ -5,3 +5,7 @@ enabled = true
 [mcp_servers.cinzel.headers]
 Authorization = "Bearer ${CINZEL_DJA_API_KEY}"
 Origin = "https://cinzel.app"
+
+[mcp_servers.pinar]
+url = "http://127.0.0.1:17373/api/mcp"
+enabled = true

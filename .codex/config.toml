@@ -2,3 +2,6 @@
 url = "https://cinzel.app/mcp"
 bearer_token_env_var = "CINZEL_DJA_API_KEY"
 http_headers = { "Origin" = "https://cinzel.app" }
+
+[mcp_servers.pinar]
+url = "http://127.0.0.1:17373/api/mcp"

@@ -74,11 +74,6 @@ const locale = {
     },
   },
   screenshots: {
-    "sign-in-extension": {
-      alt: "Pinar-Anmeldebildschirm mit ausgewähltem Kopplungscode-Ablauf der Browser-Erweiterung.",
-      caption:
-        "Der Erweiterungsablauf übernimmt den von Pinar angezeigten temporären Kopplungscode und verbindet diesen Browser ohne Passwort.",
-    },
     "capture-workspace": {
       alt: "Pinar-Arbeitsbereich mit annotierten Sitzungskarten, Pin-Anzahlen, Projekten, Sammlungen, Suche und Kontosteuerung.",
       caption:
@@ -124,7 +119,7 @@ const locale = {
         "Erfassung legt kompakte oder vollständige Übergabe fest und ob die nächste Kopie einen Screenshot enthält; Speichern schreibt diese Wahl vor der nächsten Kopie.",
     },
     "help-navigation": {
-      alt: "Pinar-Hilfeartikel mit Kategorienavigation, Links zu verwandten Artikeln, strukturierten Abschnitten und Seitennavigation.",
+      alt: "Pinar-Hilfeartikel mit Kategorienavigation, Links zu den anderen Artikeln der Kategorie, strukturierten Abschnitten und Seitennavigation.",
       caption:
         "Hilfeseiten halten Kategorie, benachbarte Abläufe, Artikelabschnitte und Wiederherstellungspfade gemeinsam sichtbar.",
     },
@@ -324,7 +319,7 @@ const locale = {
         {
           heading: "Cloud",
           paragraphs: [
-            "Wenn das angemeldete Konto im aktuellen Angebot berechtigt ist, bietet der Cloud-Modus Remote-Zugriff auf den Workspace, verwaltete Aufbewahrung, Abrechnung und unlisted Freigabelinks. Die lokale App und ein selbst gehosteter Server bleiben kostenlos. Die Sprachtranskription von Pinar Cloud bleibt ein Pro-Vorteil und gehört nicht zu einer Evaluierung. Du akzeptierst die aktuellen Richtlinien, bevor etwas remote gespeichert wird.",
+            "Wenn das angemeldete Konto im aktuellen Angebot berechtigt ist, bietet der Cloud-Modus Remote-Zugriff auf den Workspace, verwaltete Aufbewahrung, Abrechnung und unlisted Freigabelinks. Die lokale App und ein selbst gehosteter Server bleiben kostenlos. In Pinar Cloud bleibt die Sprachtranskription ein Pro-Vorteil und gehört nicht zu einer Evaluierung; die lokale App kann Sprache mit deinem eigenen KI-Endpunkt transkribieren. Du akzeptierst die aktuellen Richtlinien, bevor etwas remote gespeichert wird.",
           ],
         },
         {
@@ -560,7 +555,7 @@ const locale = {
             "Der Sitzungsviewer unterstützt Verschieben, am Zeiger verankerten Mausrad-Zoom, Doppelklick-Zoom und Steuerung von 50 % bis 800 %. Ein gewählter Pin öffnet einen Detail-Dialog mit dem Kommentar-Thread und einer Vorschau, die das gespeicherte Pin-Markdown und die erfassten technischen Belege darstellt.",
           ],
           bullets: [
-            "Lade einen Screenshot herunter oder kopiere das Sitzungs-Markdown aus dem Viewer.",
+            "Öffne den Screenshot der Aufnahme in einem neuen Tab aus dem Pin-Dialog, oder kopiere das Sitzungs-Markdown aus dem Viewer.",
             "Nutze den Link zur Originalseite, um die aktuelle Website separat zu prüfen.",
             "Die Vorschau zeigt das gespeicherte Pin-Markdown; der Abschnitt mit den technischen Belegen erscheint nur, wenn die Aufnahme Belege gespeichert hat.",
             "Eine gruppierte Sitzung hält alle erfassten Screenshots auf derselben Pan-und-Zoom-Fläche.",
@@ -664,7 +659,7 @@ const locale = {
         {
           heading: "Sprachkommentar transkribieren",
           paragraphs: [
-            "Verbinde die Erweiterung mit einem Pinar-Cloud-Pro-Konto, beginne einen Pin-Kommentar und wähle das Mikrofon. Nimm bis zu 120 Sekunden auf, stoppe zum Einfügen der Transkription oder sende sie direkt. Der Leitfaden Sprachtranskription und Pinar-Cloud-KI-Credits erklärt die aktuellen Kostenstufen und Erstattungen.",
+            "Beginne einen Pin-Kommentar und wähle das Mikrofon. Nimm bis zu 120 Sekunden auf, stoppe dann, um die Transkription in den Kommentar einzufügen, oder sende sie direkt. In Pinar Cloud benötigt die Sprachtranskription ein Pro-Konto und verbraucht KI-Credits; der Leitfaden Sprachtranskription und Pinar-Cloud-KI-Credits erklärt die Kostenstufen und Erstattungen. In der lokalen App nutzt Sprache das in Einstellungen → KI-Assistent hinterlegte Transkriptionsmodell auf deinem eigenen OpenAI-kompatiblen Endpunkt, ohne Credits. Der API-Schlüssel des Endpunkts muss Audio-Transkription erlauben.",
           ],
         },
         {
@@ -849,7 +844,7 @@ const locale = {
         {
           heading: "E-Mail-Code für Free und Pro",
           paragraphs: [
-            "Gib deine E-Mail-Adresse in der Erweiterung oder auf pinar.dev ein. Der sechsstellige Code läuft nach zehn Minuten ab und wird nach fünf falschen Versuchen gesperrt. Ein Free-Konto entsteht erst nach Bestätigung des Codes. Wegwerf-Anbieter werden für neue Konten gesperrt; eigene Domains sind erlaubt.",
+            "Erstelle dein Konto auf pinar.dev mit deiner E-Mail-Adresse. Der sechsstellige Code läuft nach zehn Minuten ab und wird nach fünf falschen Versuchen gesperrt, und ein neues Free-Konto entsteht erst nach Bestätigung des Codes. Die Erweiterung meldet sich nur in ein bestehendes Konto an: Hat die Adresse noch kein Konto, bittet sie zuerst um die Erstellung auf der Pinar-Website. Wegwerf-Anbieter werden für neue Konten gesperrt; eigene Domains sind erlaubt.",
           ],
         },
         {
@@ -859,15 +854,15 @@ const locale = {
           ],
         },
         {
-          heading: "Im Konto-Tab der Erweiterung anmelden",
+          heading: "Im Einstellungen-Tab der Erweiterung anmelden",
           paragraphs: [
-            "Öffne den Konto-Tab, gib deine E-Mail-Adresse ein und fordere einen Code an. Gib den erhaltenen Code ein, um die Erweiterung mit deinem Konto zu verbinden. Aufnahmen einer älteren anonymen Installation werden bei der Bestätigung übertragen.",
+            "Öffne die Erweiterungsoptionen und bleibe im Tab Einstellungen. Wähle Remote-Server als Speicher, gib deine E-Mail-Adresse ein, fordere einen Code an und gib den erhaltenen Code ein, um diese Erweiterung mit deinem Konto zu verbinden. Aufnahmen einer älteren anonymen Installation werden bei der Bestätigung übertragen.",
             "Die Anfrage zeigt für unbekannte oder gesperrte Adressen dieselbe Antwort und verrät nicht, ob ein Konto existiert. Abmelden beendet die aktuelle Erweiterungssitzung.",
           ],
           bullets: [
             "Wenn keine E-Mail ankommt, warte vor einem erneuten Versuch; Codes laufen ab, und zu viele Versuche werden verzögert.",
-            "Verwende einen aktuellen E-Mail-Code; die Erweiterung bietet keine Kopplungscodes mehr an.",
-            "Nutze Sign out im Account-Tab, wenn die aktuelle Web- oder Erweiterungssitzung sofort beendet werden soll.",
+            "Verwende einen aktuellen E-Mail-Code.",
+            "Nutze Abmelden im Einstellungen-Tab der Erweiterung oder im Web-Kontomenu, wenn die aktuelle Erweiterungs- oder Web-Sitzung sofort beendet werden soll.",
           ],
         },
       ],
@@ -880,7 +875,7 @@ const locale = {
         {
           heading: "Planstruktur",
           paragraphs: [
-            "Die lokale App und ein selbst gehosteter Server bleiben kostenlos. Gehostetes Pinar Cloud folgt dem aktuellen Angebot und der Berechtigung dieses Kontos: Ein neues Konto kann eine zeitlich begrenzte Evaluierung erhalten, und ein älteres Konto kann eine bestehende Berechtigung behalten. Es gibt keine einheitliche Frist für alle Konten. Pro ist ein bezahlter Jahresplan, mit 2 GB und einmalig 500 KI-Credits beim ersten Abonnement des Kontos. Sprachtranskription bleibt ein Pro-Vorteil. Die Plans-Seite und die Kontoberechtigungen zeigen das Angebot und das Kontingent, die jetzt gelten. Bereits in der Cloud gespeicherte Captures bleiben Aufbewahrung und Export unterworfen.",
+            "Die lokale App und ein selbst gehosteter Server bleiben kostenlos. Gehostetes Pinar Cloud folgt dem aktuellen Angebot und der Berechtigung dieses Kontos: Ein neues Konto kann eine zeitlich begrenzte Evaluierung erhalten, und ein älteres Konto kann eine bestehende Berechtigung behalten. Es gibt keine einheitliche Frist für alle Konten. Pro ist ein bezahlter Jahresplan, mit 2 GB und einmalig 500 KI-Credits beim ersten Abonnement des Kontos. In Pinar Cloud bleibt die Sprachtranskription ein Pro-Vorteil; die lokale App kann Sprache mit deinem eigenen KI-Endpunkt transkribieren. Die Plans-Seite und die Kontoberechtigungen zeigen das Angebot und das Kontingent, die jetzt gelten. Bereits in der Cloud gespeicherte Captures bleiben Aufbewahrung und Export unterworfen.",
           ],
         },
         {
@@ -976,7 +971,7 @@ const locale = {
         {
           heading: "Unlisted öffentliche Links",
           paragraphs: [
-            "Sitzungen, Projekte und Sammlungen in Pinar Cloud bleiben privat, bis du einen Share veröffentlichst: Das private Markdown öffnet nur mit deinem Konto oder einem autorisierten Schlüssel. Ein veröffentlichter Share ist ein nicht gelisteter Viewer für eine Sitzung, ein Projekt oder eine Sammlung. Er ist für alle mit dem Link öffentlich und wird nicht wie die normale Navigation indexiert. Behandle eine unlisted URL nicht als Authentifizierung für sensible Inhalte.",
+            "Sitzungen, Projekte und Sammlungen in Pinar Cloud bleiben privat, bis du einen Share veröffentlichst: Das private Markdown öffnet nur mit deinem Konto oder einem autorisierten Schlüssel. Ein veröffentlichter Share ist ein nicht gelisteter Viewer für eine Sitzung, eine Charge, ein Projekt oder eine Sammlung. Er ist für alle mit dem Link öffentlich und wird nicht wie die normale Navigation indexiert. Behandle eine unlisted URL nicht als Authentifizierung für sensible Inhalte.",
           ],
         },
         {

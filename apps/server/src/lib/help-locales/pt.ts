@@ -74,11 +74,6 @@ const locale = {
     },
   },
   screenshots: {
-    "sign-in-extension": {
-      alt: "Tela de acesso do Pinar com o fluxo de pareamento por código da extensão selecionado.",
-      caption:
-        "O fluxo da extensão aceita o código temporário mostrado pelo Pinar e conecta o navegador sem senha.",
-    },
     "capture-workspace": {
       alt: "Workspace do Pinar com cartões de sessões anotadas, contagem de pins, projetos, coleções, busca e controles da conta.",
       caption:
@@ -124,7 +119,7 @@ const locale = {
         "A aba Captura define entrega compacta ou completa e se a próxima cópia inclui screenshot; Salvar grava essas escolhas antes da próxima cópia.",
     },
     "help-navigation": {
-      alt: "Artigo de ajuda do Pinar com navegação por categorias, links de artigos relacionados, seções estruturadas e navegação na página.",
+      alt: "Artigo de ajuda do Pinar com navegação por categorias, links para os outros artigos da categoria, seções estruturadas e navegação na página.",
       caption:
         "As páginas de ajuda mantêm juntos a categoria, os procedimentos relacionados, as seções do artigo e os caminhos de recuperação.",
     },
@@ -324,7 +319,7 @@ const locale = {
         {
           heading: "Nuvem",
           paragraphs: [
-            "Quando a conta autenticada é elegível na oferta atual, o modo na nuvem oferece acesso remoto ao workspace, retenção gerenciada, cobrança e links não listados. O aplicativo local e um servidor self-hosted continuam gratuitos. A transcrição de voz do Pinar Cloud continua um benefício Pro e não faz parte de uma avaliação. Você aceita as políticas atuais antes de qualquer coisa ser armazenada remotamente.",
+            "Quando a conta autenticada é elegível na oferta atual, o modo na nuvem oferece acesso remoto ao workspace, retenção gerenciada, cobrança e links não listados. O aplicativo local e um servidor self-hosted continuam gratuitos. No Pinar Cloud, a transcrição de voz continua um benefício Pro e não faz parte de uma avaliação; o aplicativo local pode transcrever voz com o seu próprio endpoint de IA. Você aceita as políticas atuais antes de qualquer coisa ser armazenada remotamente.",
           ],
         },
         {
@@ -560,7 +555,7 @@ const locale = {
             "O visualizador permite arrastar, aplicar zoom com a roda ancorado no cursor, usar duplo clique e ajustar de 50% a 800%. Selecionar um pin abre um diálogo de detalhes com a thread de comentários e uma Prévia que renderiza o Markdown armazenado do pin e as evidências técnicas capturadas.",
           ],
           bullets: [
-            "Baixe o screenshot ou copie o Markdown da sessão pelo visualizador.",
+            "Abra o screenshot da captura em uma nova aba a partir do diálogo do pin, ou copie o Markdown da sessão pelo visualizador.",
             "Use o link da página original quando precisar conferir o site atual separadamente.",
             "A Prévia renderiza o Markdown armazenado do pin; a seção de evidências técnicas aparece somente quando a captura armazenou evidências.",
             "Uma sessão agrupada mantém todos os screenshots capturados no mesmo visualizador.",
@@ -664,7 +659,7 @@ const locale = {
         {
           heading: "Transcreva um comentário por voz",
           paragraphs: [
-            "Conecte a extensão a uma conta Pro do Pinar Cloud, inicie o comentário de um pin e escolha o microfone. Grave por até 120 segundos, pare para inserir a transcrição no comentário ou envie diretamente. O guia Transcrição por voz e créditos de IA do Pinar Cloud explica as faixas atuais de cobrança e os estornos.",
+            "Inicie o comentário de um pin e escolha o microfone. Grave por até 120 segundos, pare para inserir a transcrição no comentário ou envie diretamente. No Pinar Cloud, a transcrição por voz exige uma conta Pro e usa créditos de IA; o guia Transcrição por voz e créditos de IA do Pinar Cloud explica as faixas de cobrança e os estornos. No aplicativo local, a voz usa o modelo de transcrição definido em Configurações → Assistente de IA no seu próprio endpoint compatível com a OpenAI, sem créditos. A chave de API do endpoint deve permitir transcrição de áudio.",
           ],
         },
         {
@@ -848,7 +843,7 @@ const locale = {
         {
           heading: "Código por e-mail para Free e Pro",
           paragraphs: [
-            "Informe seu e-mail na extensão ou em pinar.dev. O código de seis dígitos expira em dez minutos e bloqueia após cinco tentativas inválidas. A conta Free só é criada depois da confirmação do código. Provedores temporários são bloqueados para novas contas; domínios próprios são aceitos.",
+            "Crie sua conta em pinar.dev com o seu e-mail. O código de seis dígitos expira em dez minutos e bloqueia após cinco tentativas inválidas, e a nova conta Free só é criada depois da confirmação do código. A extensão faz login apenas em uma conta existente: se o endereço ainda não tem conta, ela pede para criar primeiro no site do Pinar. Provedores temporários são bloqueados para novas contas; domínios próprios são aceitos.",
           ],
         },
         {
@@ -858,15 +853,15 @@ const locale = {
           ],
         },
         {
-          heading: "Entre pela aba Conta da extensão",
+          heading: "Entre pela aba Preferências da extensão",
           paragraphs: [
-            "Abra a aba Conta, informe seu e-mail e solicite um código. Digite o código recebido para conectar a extensão à sua conta. Capturas de uma instalação anônima antiga são movidas para a conta durante a confirmação.",
+            "Abra as opções da extensão e fique na aba Preferências. Escolha Servidor Remoto como armazenamento, informe seu e-mail, solicite um código e digite o código recebido para conectar esta extensão à sua conta. Capturas de uma instalação anônima antiga são movidas para a conta durante a confirmação.",
             "A solicitação do código mostra a mesma resposta para endereços desconhecidos ou bloqueados, sem revelar se a conta existe. Sair encerra a sessão atual da extensão.",
           ],
           bullets: [
             "Se nenhum e-mail chegar, espere antes de tentar de novo; os códigos expiram, e tentativas demais são adiadas.",
-            "Use um código atual recebido por e-mail; a extensão não oferece mais códigos de pareamento.",
-            "Use Sair na aba Conta quando precisar encerrar imediatamente a sessão atual da web ou da extensão.",
+            "Use um código atual recebido por e-mail.",
+            "Use Sair na aba Preferências da extensão, ou no menu de conta da web, quando precisar encerrar imediatamente a sessão atual da extensão ou da web.",
           ],
         },
       ],
@@ -879,7 +874,7 @@ const locale = {
         {
           heading: "Formato dos planos",
           paragraphs: [
-            "O aplicativo local e um servidor self-hosted continuam gratuitos. O Pinar Cloud hospedado segue a oferta atual e a elegibilidade da conta: uma conta nova pode receber uma avaliação temporária, e uma conta anterior pode manter elegibilidade legada. Não há um prazo único para todas as contas. Pro é um plano anual pago, com 2 GB e uma concessão única de 500 créditos de IA na primeira assinatura da conta. A transcrição por voz continua um benefício Pro. A página Planos e os direitos da conta mostram a oferta e a cota que valem agora. Capturas já guardadas na nuvem continuam sujeitas a retenção e exportação.",
+            "O aplicativo local e um servidor self-hosted continuam gratuitos. O Pinar Cloud hospedado segue a oferta atual e a elegibilidade da conta: uma conta nova pode receber uma avaliação temporária, e uma conta anterior pode manter elegibilidade legada. Não há um prazo único para todas as contas. Pro é um plano anual pago, com 2 GB e uma concessão única de 500 créditos de IA na primeira assinatura da conta. No Pinar Cloud, a transcrição por voz continua um benefício Pro; o aplicativo local pode transcrever voz com o seu próprio endpoint de IA. A página Planos e os direitos da conta mostram a oferta e a cota que valem agora. Capturas já guardadas na nuvem continuam sujeitas a retenção e exportação.",
           ],
         },
         {
@@ -974,7 +969,7 @@ const locale = {
         {
           heading: "Links públicos não listados",
           paragraphs: [
-            "Sessões, projetos e coleções no Pinar Cloud permanecem privados até você publicar um share: o Markdown privado abre apenas com a sua conta ou uma chave autorizada. Um share publicado é um viewer não listado para uma sessão, um projeto ou uma coleção. Ele é público para quem tiver o link e não aparece na navegação normal. Não trate uma URL não listada como autenticação para conteúdo sensível.",
+            "Sessões, projetos e coleções no Pinar Cloud permanecem privados até você publicar um share: o Markdown privado abre apenas com a sua conta ou uma chave autorizada. Um share publicado é um viewer não listado para uma sessão, um lote, um projeto ou uma coleção. Ele é público para quem tiver o link e não aparece na navegação normal. Não trate uma URL não listada como autenticação para conteúdo sensível.",
           ],
         },
         {

@@ -70,7 +70,6 @@ const SCREENSHOT_TARGETS = {
   privacy: { path: "/legal/privacy" },
   "sharing-markdown": { path: "/app", view: "grid", openMarkdown: true },
   "sign-in-email": { path: "/sign-in", tab: 1 },
-  "sign-in-extension": { path: "/sign-in" },
   updates: { path: "/releases/0.1.5" },
   "workspace-nested": { path: "/app", view: "grid", clickCollection: true },
   "workspace-review": { path: "/app", view: "table", openReviewFilter: true },

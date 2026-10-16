@@ -1,35 +1,45 @@
 #!/usr/bin/env bun
-// Refuses to build a production artifact from a commit that is not a release.
+// Refuses to build or install a production artifact from a commit that is not
+// a release.
 //
-// A release is: HEAD sits exactly on tag v<root version>, the tree is clean,
-// every workspace package.json that ships (cli, tray, server) carries the same
-// version, and the release notes know that tag in every language. Anything
-// else is unreleased work and must not reach production. Staging and local
-// builds pass through untouched - they are where unreleased work belongs.
+// A release is: the root version is a valid semver (closed 1.2.3, prerelease
+// 1.2.3-rc.1 or with build metadata 1.2.3+build.5), HEAD carries the tag
+// v<root version>, the tree is clean, and every workspace package.json that
+// ships (cli, tray, server) carries the same version. A closed version also
+// needs release notes for its tag in every language; a prerelease does not.
+// Anything else is unreleased work and must not reach production. Staging and
+// local builds pass through untouched - they are where unreleased work belongs.
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { classifyReleaseTag } from "./release-tag.mjs";
+import { isClosedProductTag } from "./release-tag.mjs";
 
-const root = fileURLToPath(new URL("..", import.meta.url));
-const read = (rel) => readFileSync(new URL(rel, `file://${root}`), "utf8");
-const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+const defaultRoot = fileURLToPath(new URL("..", import.meta.url));
 
 export const SHIPPED_PACKAGES = ["apps/cli/package.json", "apps/tray/package.json", "apps/server/package.json"];
 export const RELEASE_LOCALES = ["en", "pt", "es", "fr", "de", "zh", "ja"];
+/** Semantic Versioning 2.0.0, prerelease and build metadata included. */
+export const SEMVER =
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
-export function releaseProblems({ requireTag = true } = {}) {
+export function releaseProblems({ requireTag = true, root = defaultRoot } = {}) {
+  const read = (rel) => readFileSync(join(root, rel), "utf8");
+  const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
   const problems = [];
   const version = JSON.parse(read("package.json")).version;
   const tag = `v${version}`;
-  const classified = classifyReleaseTag(tag);
+
+  if (typeof version !== "string" || !SEMVER.test(version)) {
+    problems.push(`root version ${version} is not a valid semver`);
+  }
 
   for (const rel of SHIPPED_PACKAGES) {
     const shipped = JSON.parse(read(rel)).version;
     if (shipped !== version) problems.push(`${rel} is ${shipped}; root is ${version}. Run: bun run release <patch|minor|major>`);
   }
 
-  if (classified.kind === "closed") {
+  if (isClosedProductTag(tag)) {
     const definitions = read("apps/server/src/lib/release-content.ts");
     if (!definitions.includes(`tag: "${tag}"`)) problems.push(`release-content.ts has no entry for ${tag}`);
     for (const lang of RELEASE_LOCALES) {
@@ -38,12 +48,11 @@ export function releaseProblems({ requireTag = true } = {}) {
   }
 
   if (requireTag) {
-    if (classified.kind !== "closed") {
-      problems.push(`${tag} is ${classified.kind}; production builds require a closed vX.Y.Z tag.`);
-    }
-    let at = "";
-    try { at = git("describe", "--tags", "--exact-match", "HEAD"); } catch { /* not on a tag */ }
-    if (at !== tag) problems.push(`HEAD is not on ${tag} (${at || "no tag"}). Production builds come from the release tag only.`);
+    // Every tag on HEAD, not `git describe`: that one names a single tag, and
+    // a commit may carry more than one (an rc and its closed release).
+    let tags = [];
+    try { tags = git("tag", "--points-at", "HEAD").split("\n").filter(Boolean); } catch { /* no tags */ }
+    if (!tags.includes(tag)) problems.push(`HEAD is not on ${tag} (${tags.join(", ") || "no tag"}). Production builds come from the release tag only.`);
     if (git("status", "--porcelain")) problems.push("working tree is not clean");
   }
   return { problems, tag, version };

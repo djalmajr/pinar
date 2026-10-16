@@ -21,6 +21,18 @@ const locale = {
     whatChanged: "Qué cambió",
   },
   releases: {
+    "v0.7.4": {
+      title: "Pinar Cloud muestra el botón correcto desde el principio",
+      summary:
+        "Cuando has iniciado sesión en Pinar Cloud, el encabezado del sitio ya no muestra Entrar antes de cambiar a Abrir app, y la tarjeta Apoya el desarrollo Fair Source ya no parpadea en las cuentas Pro.",
+      changes: {
+        "signed-in-header": {
+          title: "Sin Entrar parpadeando cuando ya has iniciado sesión",
+          description:
+            "Pinar Cloud ahora reconoce tu sesión mientras prepara la página, así que el encabezado muestra Abrir app desde el primer momento y la tarjeta Apoya el desarrollo Fair Source permanece oculta en las cuentas Pro, en lugar de aparecer y luego desaparecer. Si tu sesión no se puede comprobar por un momento, el encabezado espera en lugar de ofrecer Entrar y vuelve a comprobarla poco después.",
+        },
+      },
+    },
     "v0.7.3": {
       title: "Actualizaciones que se instalan desde el menú y una voz más clara con tu propia IA",
       summary:

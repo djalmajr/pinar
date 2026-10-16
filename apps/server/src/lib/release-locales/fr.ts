@@ -22,6 +22,18 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.7.4": {
+      title: "Pinar Cloud affiche le bon bouton dès le début",
+      summary:
+        "Lorsque vous êtes connecté à Pinar Cloud, l’en-tête du site n’affiche plus Se connecter avant de passer à Ouvrir l’app, et la carte Soutenez le développement Fair Source ne clignote plus pour les comptes Pro.",
+      changes: {
+        "signed-in-header": {
+          title: "Plus de Se connecter qui clignote une fois connecté",
+          description:
+            "Pinar Cloud reconnaît désormais votre session pendant qu’il prépare la page : l’en-tête affiche Ouvrir l’app dès le premier instant, et la carte Soutenez le développement Fair Source reste masquée pour les comptes Pro au lieu d’apparaître puis de disparaître. Si votre session ne peut pas être vérifiée un instant, l’en-tête attend au lieu de proposer Se connecter, puis vérifie de nouveau peu après.",
+        },
+      },
+    },
     "v0.7.3": {
       title: "Des mises à jour qui s’installent depuis le menu et une voix plus claire avec votre propre IA",
       summary:

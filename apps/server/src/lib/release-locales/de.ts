@@ -22,6 +22,18 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.7.4": {
+      title: "Pinar Cloud zeigt von Anfang an die richtige Schaltfläche",
+      summary:
+        "Wenn du bei Pinar Cloud angemeldet bist, zeigt die Kopfzeile der Website nicht mehr erst Anmelden und dann App öffnen, und die Karte Fair-Source-Entwicklung unterstützen blitzt bei Pro-Konten nicht mehr auf.",
+      changes: {
+        "signed-in-header": {
+          title: "Kein aufblitzendes Anmelden mehr, wenn du angemeldet bist",
+          description:
+            "Pinar Cloud erkennt deine Sitzung jetzt schon beim Vorbereiten der Seite. Die Kopfzeile zeigt deshalb von Anfang an App öffnen, und die Karte Fair-Source-Entwicklung unterstützen bleibt bei Pro-Konten ausgeblendet, statt zu erscheinen und wieder zu verschwinden. Kann deine Sitzung kurz nicht geprüft werden, wartet die Kopfzeile, statt Anmelden anzubieten, und prüft kurz danach erneut.",
+        },
+      },
+    },
     "v0.7.3": {
       title: "Updates, die sich über das Menü installieren, und klarere Sprache mit eigener KI",
       summary:

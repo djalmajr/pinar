@@ -133,7 +133,7 @@ describe("voice pin recording helpers", () => {
     assert.match(contentSource, /submittedVoiceRecorders\.add\(voiceRecorder\)/);
     assert.match(contentSource, /if \(submitAfterTranscription\)[\s\S]*saveDraft\(\)/);
     assert.doesNotMatch(contentSource, /setVoiceStatus\(t\("overlay_voice_ready"\)\)/);
-    assert.match(contentSource, /response\?\.code === "ai_inference_failed"/);
+    assert.match(contentSource, /return t\(voiceErrorKey\(response\)\);/);
     assert.match(contentSource, /ui\.voiceReview\.hidden = transcript === structured/);
     // The voice endpoint is routed by storage mode instead of refusing local mode.
     assert.doesNotMatch(backgroundSource, /Voice comments require the Pinar cloud server/);

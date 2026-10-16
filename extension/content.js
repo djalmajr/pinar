@@ -121,6 +121,7 @@
     preferredVoiceMimeType,
     voiceSignalLevel,
   } = globalThis.__pinarVoice;
+  const { voiceErrorKey } = globalThis.__pinarVoiceErrors;
   const fitFloatingPosition = globalThis.__pinarFitFloating ?? (({ anchor }) => ({
     left: anchor.left,
     maxHeight: null,
@@ -205,6 +206,10 @@
     overlay_voice_ready: "Voice comment ready to review",
     overlay_voice_local_only: "Voice comments are available with Pinar Cloud on Pro.",
     overlay_voice_local_ai_required: "Configure a transcription model in Pinar Settings → AI to use voice comments.",
+    overlay_voice_local_scope: "Your AI key can't transcribe audio. Use a key with audio permission in Pinar Settings → AI.",
+    overlay_voice_local_auth: "The AI endpoint rejected your API key. Check it in Pinar Settings → AI.",
+    overlay_voice_local_model: "The AI endpoint doesn't offer the transcription model. Check it in Pinar Settings → AI.",
+    overlay_voice_local_endpoint: "The AI endpoint didn't answer. Check Pinar Settings → AI and try again.",
     overlay_voice_checking: "Checking voice availability…",
     overlay_voice_sign_in_required: "Sign in to Pinar Cloud to use voice comments.",
     overlay_voice_pro_required: "Voice comments are available only to Pinar Pro subscribers.",
@@ -2353,14 +2358,9 @@
   }
 
   function voiceErrorMessage(response) {
-    if (response?.status === 401 || response?.status === 403) return t("overlay_voice_auth");
-    if (response?.status === 402 || response?.code === "insufficient_ai_credits") return t("overlay_voice_credits");
-    if (response?.code === "invalid_audio" || response?.code === "invalid_audio_duration" || response?.code === "unsupported_audio") {
-      return t("overlay_voice_invalid");
-    }
-    if (response?.code === "ai_inference_failed") return t("overlay_voice_refunded");
-    if (response?.code === "network_error") return t("overlay_voice_network");
-    return t("overlay_voice_failed");
+    // The mapping lives in voice-errors.js (injected before this script) so
+    // the node:test suite can exercise it without a browser.
+    return t(voiceErrorKey(response));
   }
 
   function clearVoiceTimers() {

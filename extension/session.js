@@ -45,5 +45,6 @@ export const CONTENT_INJECTION_FILES = [
   "keyboard.js",
   "voice.js",
   "floating.js",
+  "voice-errors.js",
   "content.js",
 ];

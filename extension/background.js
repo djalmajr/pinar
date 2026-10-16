@@ -844,12 +844,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "voice:transcribe") {
     transcribeVoiceComment(message)
       .then((result) => sendResponse({ ok: true, result }))
-      .catch((error) => sendResponse({
-        code: typeof error?.code === "string" ? error.code : "network_error",
-        error: String(error?.message || error),
-        ok: false,
-        status: Number(error?.status) || 0,
-      }));
+      .catch(async (error) => {
+        const settings = await getSettings();
+        sendResponse({
+          code: typeof error?.code === "string" ? error.code : "network_error",
+          error: String(error?.message || error),
+          ok: false,
+          status: Number(error?.status) || 0,
+          storageMode: settings.storageMode,
+        });
+      });
     return true;
   }
   if (message.type === "review:preview") {

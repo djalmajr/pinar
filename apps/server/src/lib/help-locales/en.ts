@@ -72,11 +72,6 @@ const locale = {
     },
   },
   screenshots: {
-    "sign-in-extension": {
-      alt: "Pinar sign-in screen with the browser-extension pairing-code flow selected.",
-      caption:
-        "The extension flow accepts the temporary pairing code shown by Pinar and connects that browser without a password.",
-    },
     "capture-workspace": {
       alt: "Pinar workspace with annotated session cards, pin counts, projects, collections, search, and account controls.",
       caption:
@@ -122,7 +117,7 @@ const locale = {
         "Capture sets compact or full handoff and whether the next copy includes a screenshot; Save writes those choices before the next copy.",
     },
     "help-navigation": {
-      alt: "Pinar help article with category navigation, related article links, structured sections, and on-page navigation.",
+      alt: "Pinar help article with category navigation, links to the category's other articles, structured sections, and on-page navigation.",
       caption:
         "Help pages keep the category, neighboring procedures, article sections, and recovery paths visible together.",
     },
@@ -322,7 +317,7 @@ const locale = {
         {
           heading: "Cloud",
           paragraphs: [
-            "When the signed-in account is eligible under the current offer, cloud mode provides remote workspace access, managed retention, billing, and unlisted share links. The local app and a self-hosted server stay free. Pinar Cloud voice transcription remains a Pro benefit and is not part of an evaluation. You accept the current policies before anything is stored remotely.",
+            "When the signed-in account is eligible under the current offer, cloud mode provides remote workspace access, managed retention, billing, and unlisted share links. The local app and a self-hosted server stay free. In Pinar Cloud, voice transcription remains a Pro benefit and is not part of an evaluation; the local app can transcribe voice with your own AI endpoint. You accept the current policies before anything is stored remotely.",
           ],
         },
         {
@@ -558,7 +553,7 @@ const locale = {
             "The capture viewer supports pointer pan, wheel zoom anchored to the cursor, double-click zoom, and controls from 50% to 800%. Selecting a pin opens a details dialog with the comment thread and a Preview that renders the stored pin Markdown and the captured technical evidence.",
           ],
           bullets: [
-            "Download the screenshot or copy the session Markdown from the viewer.",
+            "Open a capture's screenshot in a new tab from the pin dialog, or copy the session Markdown from the viewer.",
             "Use the original-page link when you need to inspect the current site separately.",
             "The Preview renders the stored pin Markdown; the technical-evidence section appears only when the capture stored evidence.",
             "A grouped session keeps every captured screenshot in the same viewer.",
@@ -661,7 +656,7 @@ const locale = {
         {
           heading: "Transcribe a voice comment",
           paragraphs: [
-            "Connect the extension to a Pinar Cloud Pro account, start a pin comment, and choose the microphone. Record for up to 120 seconds, stop to place the transcription in the comment, or send it directly. The Voice transcription and Pinar Cloud AI credits guide explains the current charging tiers and refunds.",
+            "Start a pin comment and choose the microphone. Record for up to 120 seconds, then stop to place the transcription in the comment, or send it directly. In Pinar Cloud, voice transcription needs a Pro account and uses AI credits; the Voice transcription and Pinar Cloud AI credits guide explains the charging tiers and refunds. In the local app, voice uses the transcription model set in Settings → AI on your own OpenAI-compatible endpoint, without credits. The endpoint's API key must allow audio transcription, and Test connection checks the model and the transcription model.",
           ],
         },
         {
@@ -845,7 +840,7 @@ const locale = {
         {
           heading: "Email code for Free and Pro",
           paragraphs: [
-            "Provide your email in the extension or on pinar.dev. A six-digit code expires after ten minutes and locks after five invalid attempts. A new Free account is created only after the code is confirmed. Disposable email providers are blocked for new accounts; custom domains are accepted.",
+            "Create your account on pinar.dev with your email. A six-digit code expires after ten minutes and locks after five invalid attempts, and a new Free account is created only after the code is confirmed. The extension signs in to an existing account only: if the address has no account yet, it asks you to create one on the Pinar website first. Disposable email providers are blocked for new accounts; custom domains are accepted.",
           ],
         },
         {
@@ -855,15 +850,15 @@ const locale = {
           ],
         },
         {
-          heading: "Sign in from the extension Account tab",
+          heading: "Sign in from the extension Preferences tab",
           paragraphs: [
-            "Open the Account tab, enter your email, and request a code. Use the code you receive to connect this extension to your account. Any captures from an older anonymous installation move to the account during verification.",
+            "Open the extension options and stay on the Preferences tab. Choose Remote Server as the storage, enter your email, request a code, and type the code you receive to connect this extension to your account. Any captures from an older anonymous installation move to the account during verification.",
             "Email-code requests show the same result for unknown or blocked addresses, so the form does not reveal whether an account exists. Sign out ends the current extension device session.",
           ],
           bullets: [
             "If no email arrives, wait before retrying; codes expire, and too many attempts are delayed.",
-            "Use a current code sent to your email address; extension pairing codes are no longer offered.",
-            "Use Sign out on the Account tab when you need the current web or extension session ended immediately.",
+            "Use a current code sent to your email address.",
+            "Use Sign out on the extension Preferences tab, or in the web account menu, when you need the current extension or web session ended immediately.",
           ],
         },
       ],
@@ -876,7 +871,7 @@ const locale = {
         {
           heading: "Plan shape",
           paragraphs: [
-            "The local app and a self-hosted server stay free. Hosted Pinar Cloud follows the current offer and that account’s eligibility: a new account may receive a temporary evaluation, and an earlier account may keep legacy eligibility. There is no single deadline for every account. Pro is a paid annual plan, with 2 GB and a one-time allocation of 500 AI credits on the account’s first subscription. Voice transcription stays a Pro benefit. The Plans page and the account entitlements show the offer and quota that apply now. Captures already stored in the cloud remain subject to retention and export.",
+            "The local app and a self-hosted server stay free. Hosted Pinar Cloud follows the current offer and that account’s eligibility: a new account may receive a temporary evaluation, and an earlier account may keep legacy eligibility. There is no single deadline for every account. Pro is a paid annual plan, with 2 GB and a one-time allocation of 500 AI credits on the account’s first subscription. In Pinar Cloud, voice transcription stays a Pro benefit; the local app can transcribe voice with your own AI endpoint. The Plans page and the account entitlements show the offer and quota that apply now. Captures already stored in the cloud remain subject to retention and export.",
           ],
         },
         {
@@ -971,7 +966,7 @@ const locale = {
         {
           heading: "Unlisted public links",
           paragraphs: [
-            "Cloud sessions, projects, and collections stay private until you publish a share: the private Markdown opens only with your account or an authorized key. A published share is an unlisted viewer for one session, a project, or a collection. It is public to anyone who has the link and is not indexed as normal navigation. Do not treat an unlisted URL as authentication for sensitive content.",
+            "Cloud sessions, projects, and collections stay private until you publish a share: the private Markdown opens only with your account or an authorized key. A published share is an unlisted viewer for one session, a batch, a project, or a collection. It is public to anyone who has the link and is not indexed as normal navigation. Do not treat an unlisted URL as authentication for sensitive content.",
           ],
         },
         {

@@ -206,7 +206,7 @@ describe("help content", () => {
   test("describes hosted Cloud by current offer instead of a permanent Free quota", async () => {
     const banned = /250\s*(?:MB|Mo)|armazenamento base na nuvem|almacenamiento base en la nube|stockage cloud de base|Basis-Cloud-Speicher|基本クラウドストレージは 250|基础云存储/;
     const required = {
-      en: /temporary evaluation.*legacy eligibility.*Voice transcription stays a Pro benefit.*Plans page.*account entitlements/s,
+      en: /temporary evaluation.*legacy eligibility.*voice transcription stays a Pro benefit.*Plans page.*account entitlements/s,
       pt: /avaliação temporária.*elegibilidade legada.*benefício Pro.*página Planos.*direitos da conta/s,
       es: /evaluación temporal.*elegibilidad heredada.*beneficio de Pro.*página Planes.*derechos de la cuenta/s,
       fr: /évaluation temporaire.*éligibilité héritée.*avantage Pro.*page Plans.*droits du compte/s,

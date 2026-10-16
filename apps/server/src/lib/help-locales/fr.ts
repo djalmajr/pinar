@@ -74,11 +74,6 @@ const locale = {
     },
   },
   screenshots: {
-    "sign-in-extension": {
-      alt: "Écran de connexion Pinar avec le flux de code d’association de l’extension de navigateur sélectionné.",
-      caption:
-        "Le flux de l’extension accepte le code d’association temporaire affiché par Pinar et connecte ce navigateur sans mot de passe.",
-    },
     "capture-workspace": {
       alt: "Workspace Pinar avec des cartes de sessions annotées, des compteurs de pins, des projets, des collections, la recherche et les contrôles de compte.",
       caption:
@@ -124,7 +119,7 @@ const locale = {
         "Capture définit la livraison compacte ou complète et si la copie suivante inclut un screenshot ; Enregistrer écrit ces choix avant la copie suivante.",
     },
     "help-navigation": {
-      alt: "Article d’aide Pinar avec navigation par catégorie, liens d’articles liés, sections structurées et navigation dans la page.",
+      alt: "Article d’aide Pinar avec navigation par catégorie, liens vers les autres articles de la catégorie, sections structurées et navigation dans la page.",
       caption:
         "Les pages d’aide gardent visibles ensemble la catégorie, les procédures voisines, les sections de l’article et les chemins de récupération.",
     },
@@ -324,7 +319,7 @@ const locale = {
         {
           heading: "Cloud",
           paragraphs: [
-            "Lorsque le compte connecté est éligible dans l’offre actuelle, le mode cloud fournit l’accès distant au workspace, la rétention gérée, la facturation et les liens de partage non listés. L’application locale et un serveur auto-hébergé restent gratuits. La transcription vocale Pinar Cloud reste un avantage Pro et ne fait pas partie d’une évaluation. Vous acceptez les politiques en vigueur avant que quoi que ce soit ne soit stocké à distance.",
+            "Lorsque le compte connecté est éligible dans l’offre actuelle, le mode cloud fournit l’accès distant au workspace, la rétention gérée, la facturation et les liens de partage non listés. L’application locale et un serveur auto-hébergé restent gratuits. Dans Pinar Cloud, la transcription vocale reste un avantage Pro et ne fait pas partie d’une évaluation ; l’application locale peut transcrire la voix avec votre propre endpoint IA. Vous acceptez les politiques en vigueur avant que quoi que ce soit ne soit stocké à distance.",
           ],
         },
         {
@@ -560,7 +555,7 @@ const locale = {
             "Le visualiseur de session permet le déplacement, le zoom à la molette ancré au pointeur, le double-clic et des commandes de 50 % à 800 %. Sélectionner un pin ouvre une boîte de dialogue de détails avec le fil de commentaires et un Aperçu qui affiche le Markdown stocké du pin et les preuves techniques capturées.",
           ],
           bullets: [
-            "Téléchargez une capture ou copiez le Markdown de la session depuis le visualiseur.",
+            "Ouvrez le screenshot de la capture dans un nouvel onglet depuis la boîte de dialogue du pin, ou copiez le Markdown de la session depuis le visualiseur.",
             "Utilisez le lien de la page d’origine pour examiner le site actuel séparément.",
             "L’Aperçu affiche le Markdown stocké du pin ; la section des preuves techniques n’apparaît que lorsque la capture a stocké des preuves.",
             "Une session groupée garde toutes les captures sur la même surface de déplacement et zoom.",
@@ -664,7 +659,7 @@ const locale = {
         {
           heading: "Transcrire un commentaire vocal",
           paragraphs: [
-            "Connectez l’extension à un compte Pinar Cloud Pro, commencez le commentaire d’une épingle et choisissez le microphone. Enregistrez jusqu’à 120 secondes, arrêtez pour insérer la transcription dans le commentaire ou envoyez-la directement. Le guide Transcription vocale et crédits IA Pinar Cloud détaille les paliers de facturation en vigueur et les remboursements.",
+            "Commencez le commentaire d’une épingle et choisissez le microphone. Enregistrez jusqu’à 120 secondes, puis arrêtez pour insérer la transcription dans le commentaire ou envoyez-la directement. Dans Pinar Cloud, la transcription vocale nécessite un compte Pro et utilise des crédits IA ; le guide Transcription vocale et crédits IA Pinar Cloud détaille les paliers de facturation et les remboursements. Dans l’application locale, la voix utilise le modèle de transcription défini dans Paramètres → Assistant IA sur votre propre endpoint compatible OpenAI, sans crédits. La clé API de l’endpoint doit autoriser la transcription audio, et Tester la connexion vérifie le modèle et le modèle de transcription.",
           ],
         },
         {
@@ -849,7 +844,7 @@ const locale = {
         {
           heading: "Code e-mail pour Free et Pro",
           paragraphs: [
-            "Saisissez votre e-mail dans l’extension ou sur pinar.dev. Le code à six chiffres expire après dix minutes et se bloque après cinq essais incorrects. Un compte Free est créé seulement après confirmation du code. Les fournisseurs temporaires sont bloqués pour les nouveaux comptes ; les domaines personnalisés sont acceptés.",
+            "Créez votre compte sur pinar.dev avec votre e-mail. Le code à six chiffres expire après dix minutes et se bloque après cinq essais incorrects, et un nouveau compte Free est créé seulement après confirmation du code. L’extension se connecte à un compte existant uniquement : si l’adresse n’a pas encore de compte, elle vous demande de le créer d’abord sur le site web Pinar. Les fournisseurs temporaires sont bloqués pour les nouveaux comptes ; les domaines personnalisés sont acceptés.",
           ],
         },
         {
@@ -859,15 +854,15 @@ const locale = {
           ],
         },
         {
-          heading: "Se connecter depuis l’onglet Compte",
+          heading: "Se connecter depuis l’onglet Préférences de l’extension",
           paragraphs: [
-            "Ouvrez l’onglet Compte, saisissez votre e-mail et demandez un code. Entrez le code reçu pour relier l’extension à votre compte. Les captures d’une ancienne installation anonyme sont transférées au compte lors de la vérification.",
+            "Ouvrez les options de l’extension et restez sur l’onglet Préférences. Choisissez Serveur Distant comme stockage, saisissez votre e-mail, demandez un code et entrez le code reçu pour relier cette extension à votre compte. Les captures d’une ancienne installation anonyme sont transférées au compte lors de la vérification.",
             "La demande affiche la même réponse pour les adresses inconnues ou bloquées, sans révéler si un compte existe. La déconnexion termine la session actuelle de l’extension.",
           ],
           bullets: [
             "Si aucun e-mail n’arrive, attendez avant de réessayer ; les codes expirent, et trop de tentatives sont retardées.",
-            "Utilisez un code reçu par e-mail ; l’extension ne propose plus de code d’association.",
-            "Utilisez Se déconnecter dans l’onglet Compte lorsque vous devez terminer immédiatement la session web ou d’extension courante.",
+            "Utilisez un code reçu par e-mail.",
+            "Utilisez Se déconnecter dans l’onglet Préférences de l’extension, ou dans le menu de compte de la page web, lorsque vous devez terminer immédiatement la session courante de l’extension ou de la page web.",
           ],
         },
       ],
@@ -880,7 +875,7 @@ const locale = {
         {
           heading: "Forme des plans",
           paragraphs: [
-            "L’application locale et un serveur auto-hébergé restent gratuits. Pinar Cloud hébergé suit l’offre actuelle et l’éligibilité de ce compte : un nouveau compte peut recevoir une évaluation temporaire, et un compte antérieur peut conserver une éligibilité héritée. Il n’y a pas une seule échéance pour tous les comptes. Pro est un plan annuel payant, avec 2 Go et une allocation unique de 500 crédits IA lors du premier abonnement du compte. La transcription vocale reste un avantage Pro. La page Plans et les droits du compte indiquent l’offre et le quota qui s’appliquent maintenant. Les captures déjà stockées dans le cloud restent soumises à la rétention et à l’export.",
+            "L’application locale et un serveur auto-hébergé restent gratuits. Pinar Cloud hébergé suit l’offre actuelle et l’éligibilité de ce compte : un nouveau compte peut recevoir une évaluation temporaire, et un compte antérieur peut conserver une éligibilité héritée. Il n’y a pas une seule échéance pour tous les comptes. Pro est un plan annuel payant, avec 2 Go et une allocation unique de 500 crédits IA lors du premier abonnement du compte. Dans Pinar Cloud, la transcription vocale reste un avantage Pro ; l’application locale peut transcrire la voix avec votre propre endpoint IA. La page Plans et les droits du compte indiquent l’offre et le quota qui s’appliquent maintenant. Les captures déjà stockées dans le cloud restent soumises à la rétention et à l’export.",
           ],
         },
         {
@@ -976,7 +971,7 @@ const locale = {
         {
           heading: "Liens publics non listés",
           paragraphs: [
-            "Les sessions, les projets et les collections de Pinar Cloud restent privés jusqu’à ce que vous publiiez un partage : le Markdown privé ne s’ouvre qu’avec votre compte ou une clé autorisée. Un partage publié est un visualiseur non répertorié pour une session, un projet ou une collection. Il est public pour quiconque a le lien et n’est pas indexé comme une navigation normale. Ne traitez pas une URL non listée comme une authentification pour du contenu sensible.",
+            "Les sessions, les projets et les collections de Pinar Cloud restent privés jusqu’à ce que vous publiiez un partage : le Markdown privé ne s’ouvre qu’avec votre compte ou une clé autorisée. Un partage publié est un visualiseur non répertorié pour une session, un lot, un projet ou une collection. Il est public pour quiconque a le lien et n’est pas indexé comme une navigation normale. Ne traitez pas une URL non listée comme une authentification pour du contenu sensible.",
           ],
         },
         {

@@ -132,11 +132,6 @@ export const helpCategoryDefinitions = [
 
 export const helpScreenshotDefinitions = [
   {
-    key: "sign-in-extension",
-    height: 1279,
-    width: 1200,
-  },
-  {
     key: "capture-workspace",
     height: 900,
     width: 1280,

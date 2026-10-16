@@ -420,6 +420,15 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
     }
   }
 
+  // Maps a transcription probe failure to a translated reason without
+  // exposing the provider's raw error text.
+  function aiTranscriptionReason(code: unknown) {
+    if (code === "ai_scope_denied") return t("settings.aiReasonScope");
+    if (code === "ai_auth_failed") return t("settings.aiReasonAuth");
+    if (code === "ai_model_unavailable") return t("settings.aiReasonModel");
+    return t("settings.aiReasonEndpoint");
+  }
+
   async function testAiConnection() {
     setAiSettingsStatus("testing");
     clearAiFeedback();
@@ -434,7 +443,21 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
         throw new Error(isRecord(value) && typeof value.error === "string" ? value.error : t("settings.aiUnavailable"));
       }
       const testedModel = typeof value.model === "string" ? value.model : aiSettings.model;
-      aiFeedbackToastId.current = toast.success(t("settings.aiConnectionOk", { model: testedModel }));
+      const transcription = isRecord(value.transcription) ? value.transcription : null;
+      const transcriptionModel = transcription && typeof transcription.model === "string"
+        ? transcription.model
+        : aiSettings.transcriptionModel;
+      if (transcription) {
+        aiFeedbackToastId.current = transcription.ok === true
+          ? toast.success(t("settings.aiConnectionOkWithTranscription", { model: testedModel, transcriptionModel }))
+          : toast.warning(t("settings.aiTranscriptionFailed", {
+              model: testedModel,
+              reason: aiTranscriptionReason(transcription.code),
+              transcriptionModel,
+            }));
+      } else {
+        aiFeedbackToastId.current = toast.success(t("settings.aiConnectionOk", { model: testedModel }));
+      }
     } catch (error) {
       aiFeedbackToastId.current = toast.error(error instanceof Error ? error.message : t("settings.aiUnavailable"));
     } finally {
@@ -461,10 +484,23 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
         apiKeyPreview: typeof value.apiKeyPreview === "string" ? value.apiKeyPreview : current.apiKeyPreview,
         hasApiKey: value.hasApiKey === true,
       }));
-      const testedModel = isRecord(value.tested) && typeof value.tested.model === "string"
-        ? value.tested.model
-        : aiSettings.model;
-      aiFeedbackToastId.current = toast.success(t("settings.aiSaved", { model: testedModel }));
+      const tested = isRecord(value.tested) ? value.tested : null;
+      const testedModel = tested && typeof tested.model === "string" ? tested.model : aiSettings.model;
+      const transcription = tested && isRecord(tested.transcription) ? tested.transcription : null;
+      const transcriptionModel = transcription && typeof transcription.model === "string"
+        ? transcription.model
+        : aiSettings.transcriptionModel;
+      if (transcription) {
+        aiFeedbackToastId.current = transcription.ok === true
+          ? toast.success(t("settings.aiSavedWithTranscription", { model: testedModel, transcriptionModel }))
+          : toast.warning(t("settings.aiSavedTranscriptionFailed", {
+              model: testedModel,
+              reason: aiTranscriptionReason(transcription.code),
+              transcriptionModel,
+            }));
+      } else {
+        aiFeedbackToastId.current = toast.success(t("settings.aiSaved", { model: testedModel }));
+      }
     } catch (error) {
       aiFeedbackToastId.current = toast.error(error instanceof Error ? error.message : t("settings.aiUnavailable"));
     } finally {

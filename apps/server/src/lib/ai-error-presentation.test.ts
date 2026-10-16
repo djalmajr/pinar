@@ -8,6 +8,10 @@ describe("aiErrorPresentation", () => {
       messageKey: "viewer.aiConfigure",
       recovery: "settings",
     });
+    assert.deepEqual(aiErrorPresentation(502, "ai_scope_denied", "local"), {
+      messageKey: "viewer.aiConfigure",
+      recovery: "settings",
+    });
     assert.deepEqual(aiErrorPresentation(503, "ai_endpoint_unavailable", "local"), {
       messageKey: "viewer.aiConfigure",
       recovery: "settings",

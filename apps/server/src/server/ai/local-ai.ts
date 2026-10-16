@@ -129,12 +129,39 @@ export function inferenceError(error: unknown) {
   if (!(error instanceof AiInferenceError)) {
     return json({ code: "ai_inference_failed", error: "AI inference failed" }, 503);
   }
-  const status = error.code === "ai_auth_failed" ? 401
+  // 401 is reserved for the extension capability (the extension renews it and
+  // retries), so provider refusals never reuse it.
+  const status = error.code === "ai_auth_failed" || error.code === "ai_scope_denied" ? 502
     : error.code === "ai_model_unavailable" ? 422
       : error.code === "invalid_ai_response" ? 502
         : error.code === "ai_timeout" ? 504
           : 503;
   return json({ code: error.code, error: error.message }, status);
+}
+
+type TranscriptionTestResult =
+  | { model: string; ok: true }
+  | { code: string; error: string; model: string; ok: false };
+
+// A probe failure never fails the route: the transcription result is reported
+// next to the (successful) LLM test so the user sees exactly which half broke.
+async function testTranscriptionResult(provider: OpenAiCompatibleProvider, model: string): Promise<TranscriptionTestResult> {
+  try {
+    return await provider.testTranscription(model);
+  } catch (error) {
+    if (error instanceof AiInferenceError) {
+      return { code: error.code, error: error.message, model, ok: false };
+    }
+    return { code: "ai_inference_failed", error: "AI inference failed", model, ok: false };
+  }
+}
+
+// The transcription model to probe: the body's field wins, the stored value
+// is the fallback when the body has no field, and an empty string turns the
+// probe off.
+async function transcriptionProbeModel(root: string, input: Record<string, unknown>): Promise<string> {
+  if (typeof input.transcriptionModel === "string") return input.transcriptionModel;
+  return (await readAiSettings(root, localAiVault())).transcriptionModel;
 }
 
 type InferenceOutcome<T> =
@@ -233,6 +260,8 @@ export async function handleLocalAiRequest(
       }
       const provider = await configuredProvider(root, input);
       const tested = await provider.testConnection();
+      const transcriptionModel = await transcriptionProbeModel(root, input);
+      const probe = transcriptionModel ? { transcription: await testTranscriptionResult(provider, transcriptionModel) } : {};
       const saved = await writeAiSettings({
         apiKey: typeof input.apiKey === "string" ? input.apiKey : undefined,
         endpoint: stringValue(input, "endpoint"),
@@ -241,15 +270,18 @@ export async function handleLocalAiRequest(
         transcriptionModel: stringValue(input, "transcriptionModel"),
       }, root, localAiVault());
       const stored = saved.mode === "byok" ? await readAiSettings(root, localAiVault()) : saved;
-      return json({ ok: true, tested, ...publicSettings(stored) });
+      return json({ ok: true, tested: { ...tested, ...probe }, ...publicSettings(stored) });
     } catch (error) {
       return inferenceError(error);
     }
   }
   if (request.method === "POST" && path === "/api/ai/settings/test") {
     try {
-      const tested = await (await configuredProvider(root, await body(request))).testConnection();
-      return json(tested);
+      const input = await body(request);
+      const provider = await configuredProvider(root, input);
+      const tested = await provider.testConnection();
+      const transcriptionModel = await transcriptionProbeModel(root, input);
+      return json(transcriptionModel ? { ...tested, transcription: await testTranscriptionResult(provider, transcriptionModel) } : tested);
     } catch (error) {
       return inferenceError(error);
     }

@@ -13,6 +13,7 @@ const LOCAL_CONFIGURATION_ERRORS = new Set([
   "ai_disabled",
   "ai_endpoint_unavailable",
   "ai_model_unavailable",
+  "ai_scope_denied",
   "ai_unavailable",
 ]);
 

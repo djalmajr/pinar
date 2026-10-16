@@ -287,7 +287,7 @@ const locale = {
           heading: "Command-line install on Linux and Windows",
           paragraphs: [
             "On Linux and Windows you can install Pinar's helper from the command line instead of the desktop app. The one-line installer downloads the helper into a folder in your user account, adds that folder to your PATH, and registers the agent session hooks, so a new terminal session finds the helper right away.",
-            "The helper is the same local Pinar service the desktop app runs: it stores the captures on this computer and serves the local workspace and viewer. The [Install section of the Pinar README](https://github.com/djalmajr/pinar/blob/main/README.md#install) documents the helper's commands, including how to start it, stop it, and check its status.",
+            "The helper is the same local Pinar service the desktop app runs: it stores the captures on this computer and serves the local workspace and viewer. The [Install section of the Pinar README](https://github.com/djalmajr/pinar/blob/main/README.md#install) documents the command-line installers.",
           ],
           bullets: [
             "Use the command line on machines without the desktop app, or when you manage Pinar from a remote terminal.",
@@ -376,7 +376,7 @@ const locale = {
             "In the local app, the Plans and sign-in pages open on pinar.dev instead of loading on this computer.",
           ],
           bullets: [
-            "The local viewer does not load agent feedback: agent results never appear, and a pin's review shows only the human side. Pinar Cloud shows agent results and the complete review thread.",
+            "The local viewer does not show agent execution results. It does show the comments stored on pins, including comments that agents add through MCP. Pinar Cloud also shows agent execution results in the review thread.",
             "The share controls in the viewer — publishing a share, copying its link, and revoking it — are offered only in Pinar Cloud.",
             "The “Generate written steps” action in the viewer is offered only in Pinar Cloud.",
           ],
@@ -755,11 +755,11 @@ const locale = {
         {
           heading: "Use your own AI in the local app",
           paragraphs: [
-            "The local app can run its AI features — written reproduction steps and voice comments — with AI you provide instead of Pinar Cloud. Open Settings → AI and choose a mode: “Disabled” switches AI off, “Local AI” uses a server on the same computer, and “BYOK” connects directly to a remote provider with your own key. Both active modes take an OpenAI-compatible endpoint and the exact model it exposes, plus an optional transcription model: leave that field empty to keep voice off.",
+            "The local app can transcribe voice comments and clean them up with AI you provide instead of Pinar Cloud. Open Settings → AI Assistant and choose a mode: “Disabled” switches AI off, “Local AI” uses a server on the same computer, and “BYOK” connects directly to a remote provider with your own key. Both active modes take an OpenAI-compatible endpoint and the exact model it exposes, plus an optional transcription model: leave that field empty to keep voice off.",
             "With “BYOK”, the API key is stored in your operating system's credential vault, not in Pinar's preferences. “Test connection” and “Save” check the model and the transcription model before they finish. If only the transcription model fails, the message says why — for example, that the key lacks audio permission — and saving still works for the features that do not need voice. Voice comments need an endpoint that allows audio transcription. The [Local AI and BYOK guide](https://github.com/djalmajr/pinar/blob/main/docs/local-ai.md) covers setup, privacy, and model requirements.",
           ],
           bullets: [
-            "Written steps and voice comments in the local app run against your provider directly and use no Pinar Cloud credits.",
+            "Voice transcription and cleanup in the local app use your provider directly and no Pinar Cloud credits. The viewer's “Generate written steps” action is offered only in Pinar Cloud.",
             "Requests go from the local app to your endpoint only; there is no silent fallback to Pinar Cloud.",
           ],
         },
@@ -767,10 +767,10 @@ const locale = {
           heading: "Clean up transcription with AI",
           paragraphs: [
             "By default, a recorded voice comment places the raw transcript into the pin. The “Clean up transcription with AI” switch in the extension options — and the “Clean up voice transcriptions” switch in Settings → “AI usage” in Pinar Cloud — send the transcript through the AI model first, so the pin receives the comment you intended: fillers and false starts are removed, and the model may add short acceptance criteria beside the comment.",
-            "With the switch off, the full transcript becomes the comment and nothing is rewritten. In the local app the cleanup uses the model you configured in Settings → AI. In Pinar Cloud it runs with the same AI credits that voice transcription already uses.",
+            "With the switch off, the transcript is used directly as the comment, up to the comment length limit, without AI rewriting. In the local app the cleanup uses the model you configured in Settings → AI Assistant. In Pinar Cloud it runs with the same AI credits that voice transcription already uses.",
           ],
           bullets: [
-            "The raw transcript stays stored with the comment, so cleanup never loses what you actually said.",
+            "Before you save the pin, review the original transcript in the voice panel or choose “Use transcription” to insert it into the comment. The original transcript is also copied to your clipboard; it is not saved separately with the pin.",
             "Cleanup is off by default. Turn it on in the extension options for local captures, or in Settings → “AI usage” for Pinar Cloud.",
           ],
         },

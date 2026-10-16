@@ -289,7 +289,7 @@ const locale = {
           heading: "Instalación por línea de comando en Linux y Windows",
           paragraphs: [
             "En Linux y Windows puedes instalar el auxiliar de Pinar desde la línea de comando en lugar de la aplicación de escritorio. El instalador de una línea descarga el auxiliar a una carpeta de tu cuenta de usuario, añade esa carpeta a tu PATH y registra los ganchos de sesión del agente, para que una nueva sesión de terminal encuentre el auxiliar de inmediato.",
-            "El auxiliar es el mismo servicio local de Pinar que ejecuta la aplicación de escritorio: guarda las capturas en este equipo y sirve el espacio de trabajo y el visor locales. La [sección de instalación del README de Pinar](https://github.com/djalmajr/pinar/blob/main/README.md#install) documenta los comandos del auxiliar, incluida la forma de iniciarlo, detenerlo y comprobar su estado.",
+            "El auxiliar es el mismo servicio local de Pinar que ejecuta la aplicación de escritorio: guarda las capturas en este equipo y sirve el espacio de trabajo y el visor locales. La [sección de instalación del README de Pinar](https://github.com/djalmajr/pinar/blob/main/README.md#install) documenta los instaladores de línea de comandos.",
           ],
           bullets: [
             "Usa la línea de comando en equipos sin la aplicación de escritorio, o cuando gestionas Pinar desde una terminal remota.",
@@ -378,7 +378,7 @@ const locale = {
             "En la aplicación local, las páginas Planes y de acceso se abren en pinar.dev en lugar de cargarse en este equipo.",
           ],
           bullets: [
-            "El visor local no carga el retorno de agentes: los resultados de agente nunca aparecen, y la revisión de un pin muestra solo el lado humano. Pinar Cloud muestra los resultados de agente y el hilo de revisión completo.",
+            "El visor local no muestra los resultados de ejecución de agentes. Sí muestra los comentarios guardados en los pins, incluidos los que los agentes añaden por MCP. Pinar Cloud también muestra los resultados de ejecución de agentes en el hilo de revisión.",
             "Los controles de uso compartido en el visor — publicar un share, copiar su enlace y revocarlo — se ofrecen solo en Pinar Cloud.",
             "La acción “Generar pasos escritos” en el visor se ofrece solo en Pinar Cloud.",
           ],
@@ -759,11 +759,11 @@ const locale = {
         {
           heading: "Usar tu propia IA en la aplicación local",
           paragraphs: [
-            "La aplicación local puede ejecutar sus funciones de IA — pasos escritos de reproducción y comentarios por voz — con una IA que tú proporciones en lugar de Pinar Cloud. Abre Configuración → Asistente de IA y elige un modo: “Desactivada” desactiva la IA, “IA local” usa un servidor en el mismo equipo, y “BYOK” conecta directamente a un proveedor remoto con tu propia clave. Ambos modos activos toman un endpoint compatible con OpenAI y el modelo exacto que expone, más un modelo opcional de transcripción: deja ese campo vacío para mantener la voz desactivada.",
+            "La aplicación local puede transcribir comentarios por voz y limpiarlos con una IA que tú proporciones en lugar de Pinar Cloud. Abre Configuración → Asistente de IA y elige un modo: “Desactivada” desactiva la IA, “IA local” usa un servidor en el mismo equipo, y “BYOK” conecta directamente a un proveedor remoto con tu propia clave. Ambos modos activos toman un endpoint compatible con OpenAI y el modelo exacto que expone, más un modelo opcional de transcripción: deja ese campo vacío para mantener la voz desactivada.",
             "Con “BYOK”, la clave de API se almacena en el almacén de credenciales de tu sistema operativo, no en las preferencias de Pinar. “Probar conexión” y “Guardar” comprueban el modelo y el modelo de transcripción antes de terminar. Si solo falla el modelo de transcripción, el mensaje dice por qué — por ejemplo, que la clave carece de permiso de audio — y guardar sigue funcionando para las funciones que no necesitan voz. Los comentarios por voz necesitan un endpoint que permita la transcripción de audio. La [guía de IA local y BYOK](https://github.com/djalmajr/pinar/blob/main/docs/local-ai.md) cubre la configuración, la privacidad y los requisitos de modelo.",
           ],
           bullets: [
-            "Los pasos escritos y los comentarios por voz en la aplicación local se ejecutan directamente contra tu proveedor y no usan créditos de Pinar Cloud.",
+            "La transcripción de voz y la limpieza en la aplicación local usan tu proveedor directamente y no consumen créditos de Pinar Cloud. La acción “Generar pasos escritos” del visor solo se ofrece en Pinar Cloud.",
             "Las peticiones van de la aplicación local solo a tu endpoint; no existe un respaldo silencioso hacia Pinar Cloud.",
           ],
         },
@@ -771,10 +771,10 @@ const locale = {
           heading: "Limpiar la transcripción con IA",
           paragraphs: [
             "Por defecto, un comentario por voz grabado coloca la transcripción sin procesar en el pin. El interruptor “Limpiar la transcripción con IA” en las opciones de la extensión — y el interruptor “Limpiar transcripciones de voz” en Configuración → “Uso de IA” en Pinar Cloud — envían la transcripción primero por el modelo de IA, para que el pin reciba el comentario que tú pretendías: se eliminan las muletillas y los falsos inicios, y el modelo puede añadir criterios de aceptación breves junto al comentario.",
-            "Con el interruptor desactivado, la transcripción completa se convierte en el comentario y nada se reescribe. En la aplicación local, la limpieza usa el modelo que configuraste en Configuración → Asistente de IA. En Pinar Cloud se ejecuta con los mismos créditos de IA que ya usa la transcripción por voz.",
+            "Con el interruptor desactivado, la transcripción se usa directamente como comentario, hasta el límite de longitud del comentario, sin reescritura con IA. En la aplicación local, la limpieza usa el modelo que configuraste en Configuración → Asistente de IA. En Pinar Cloud se ejecuta con los mismos créditos de IA que ya usa la transcripción por voz.",
           ],
           bullets: [
-            "La transcripción sin procesar permanece almacenada con el comentario, así que la limpieza nunca pierde lo que realmente dijiste.",
+            "Antes de guardar el pin, revisa la transcripción original en el panel de voz o elige “Usar transcripción” para insertarla en el comentario. La transcripción original también se copia al portapapeles; no se guarda por separado con el pin.",
             "La limpieza está desactivada por defecto. Actívala en las opciones de la extensión para capturas locales, o en Configuración → “Uso de IA” para Pinar Cloud.",
           ],
         },

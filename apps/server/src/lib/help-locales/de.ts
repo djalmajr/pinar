@@ -289,7 +289,7 @@ const locale = {
           heading: "Installation über die Befehlszeile auf Linux und Windows",
           paragraphs: [
             "Auf Linux und Windows kannst du den Pinar-Helfer stattdessen per Befehlszeile installieren. Der Einzeilen-Installer lädt den Helfer in einen Ordner deines Benutzerkontos herunter, fügt diesen Ordner deinem PATH hinzu und registriert die Agenten-Sitzungshooks, sodass eine neue Terminal-Sitzung den Helfer sofort findet.",
-            "Der Helfer ist derselbe lokale Pinar-Dienst, den die Desktop-App ausführt: Er speichert die Aufnahmen auf diesem Computer und stellt den lokalen Workspace und den Viewer bereit. Der [Abschnitt „Install“ der Pinar-README](https://github.com/djalmajr/pinar/blob/main/README.md#install) dokumentiert die Befehle des Helfers, einschließlich wie du ihn startest, stoppst und seinen Status prüfst.",
+            "Der Helfer ist derselbe lokale Pinar-Dienst, den die Desktop-App ausführt: Er speichert die Aufnahmen auf diesem Computer und stellt den lokalen Workspace und den Viewer bereit. Der [Abschnitt „Install“ der Pinar-README](https://github.com/djalmajr/pinar/blob/main/README.md#install) dokumentiert die Kommandozeilen-Installer.",
           ],
           bullets: [
             "Nutze die Befehlszeile auf Maschinen ohne Desktop-App oder wenn du Pinar aus einer Remote-Terminal-Sitzung verwaltest.",
@@ -378,7 +378,7 @@ const locale = {
             "In der lokalen App öffnen sich die Plans- und Anmeldeseiten auf pinar.dev, statt auf diesem Computer zu laden.",
           ],
           bullets: [
-            "Der lokale Viewer lädt kein Agent-Feedback: Agent-Ergebnisse erscheinen nie, und die Prüfung eines Pins zeigt nur die menschliche Seite. Pinar Cloud zeigt Agent-Ergebnisse und den vollständigen Review-Thread.",
+            "Der lokale Viewer zeigt keine Ausführungsergebnisse von Agents. Er zeigt die an Pins gespeicherten Kommentare, auch die, die Agents über MCP hinzufügen. Pinar Cloud zeigt zusätzlich die Ausführungsergebnisse von Agents im Review-Thread.",
             "Die Share-Steuerungen im Viewer — ein Share veröffentlichen, dessen Link kopieren und ihn widerrufen — werden nur in Pinar Cloud angeboten.",
             "Die „Ausformulierte Schritte erzeugen“-Aktion im Viewer wird nur in Pinar Cloud angeboten.",
           ],
@@ -758,11 +758,11 @@ const locale = {
         {
           heading: "Eigene KI in der lokalen App nutzen",
           paragraphs: [
-            "Die lokale App kann ihre KI-Funktionen — ausformulierte Reproduktionsschritte und Sprachkommentare — mit KI ausführen, die du bereitstellst, statt mit Pinar Cloud. Öffne Einstellungen → KI-Assistent und wähle einen Modus: „Deaktiviert“ schaltet die KI ab, „Lokale KI“ nutzt einen Server auf demselben Computer, und „BYOK“ verbindet sich direkt mit einem Remote-Anbieter mit deinem eigenen Schlüssel. Beide aktiven Modi nehmen einen OpenAI-kompatiblen Endpunkt und das genaue Modell, das er anbietet, plus ein optionales Transkriptionsmodell an: Lass das Feld leer, um Sprache auszulassen.",
+            "Die lokale App kann Sprachkommentare transkribieren und mit KI bereinigen, die du bereitstellst, statt mit Pinar Cloud. Öffne Einstellungen → KI-Assistent und wähle einen Modus: „Deaktiviert“ schaltet die KI ab, „Lokale KI“ nutzt einen Server auf demselben Computer, und „BYOK“ verbindet sich direkt mit einem Remote-Anbieter mit deinem eigenen Schlüssel. Beide aktiven Modi nehmen einen OpenAI-kompatiblen Endpunkt und das genaue Modell, das er anbietet, plus ein optionales Transkriptionsmodell an: Lass das Feld leer, um Sprache auszulassen.",
             "Bei „BYOK“ wird der API-Schlüssel im Credentials-Vault deines Betriebssystems gespeichert, nicht in den Pinar-Einstellungen. „Verbindung testen“ und „Speichern“ prüfen das Modell und das Transkriptionsmodell, bevor sie fertig sind. Wenn nur das Transkriptionsmodell fehlschlägt, sagt die Nachricht warum — zum Beispiel, dass dem Schlüssel die Audio-Berechtigung fehlt — und das Speichern funktioniert weiterhin für die Funktionen, die keine Stimme brauchen. Sprachkommentare brauchen einen Endpunkt, der Audio-Transkription erlaubt. Der [Leitfaden Lokale KI und BYOK](https://github.com/djalmajr/pinar/blob/main/docs/local-ai.md) behandelt Einrichtung, Datenschutz und Modellvoraussetzungen.",
           ],
           bullets: [
-            "Ausformulierte Schritte und Sprachkommentare in der lokalen App laufen direkt gegen deinen Anbieter und verbrauchen keine Pinar-Cloud-Credits.",
+            "Sprachtranskription und Bereinigung in der lokalen App nutzen deinen Anbieter direkt und verbrauchen keine Pinar-Cloud-Credits. Die „Ausformulierte Schritte erzeugen“-Aktion im Viewer wird nur in Pinar Cloud angeboten.",
             "Anfragen gehen nur von der lokalen App zu deinem Endpunkt; es gibt keinen stillen Fallback auf Pinar Cloud.",
           ],
         },
@@ -770,10 +770,10 @@ const locale = {
           heading: "Transkription mit KI bereinigen",
           paragraphs: [
             "Standardmäßig setzt ein aufgenommener Sprachkommentar die rohe Transkription in den Pin. Der Schalter „Transkription mit KI bereinigen“ in den Erweiterungsoptionen — und der Schalter „Sprachtranskriptionen bereinigen“ in Einstellungen → „KI-Nutzung“ in Pinar Cloud — geben die Transkription zuerst durch das KI-Modell, sodass der Pin den Kommentar erhält, den du beabsichtigt hast: Füllwörter und Fehlstarts werden entfernt, und das Modell kann kurze Akzeptanzkriterien neben den Kommentar setzen.",
-            "Ist der Schalter aus, wird die vollständige Transkription der Kommentar, und nichts wird umgeschrieben. In der lokalen App nutzt die Bereinigung das Modell, das du in Einstellungen → KI-Assistent eingerichtet hast. In Pinar Cloud läuft sie mit denselben KI-Credits, die die Sprachtranskription bereits verwendet.",
+            "Ist der Schalter aus, wird die Transkription direkt zum Kommentar, bis zur Längengrenze des Kommentars, ohne Umschreiben durch KI. In der lokalen App nutzt die Bereinigung das Modell, das du in Einstellungen → KI-Assistent eingerichtet hast. In Pinar Cloud läuft sie mit denselben KI-Credits, die die Sprachtranskription bereits verwendet.",
           ],
           bullets: [
-            "Die rohe Transkription bleibt mit dem Kommentar gespeichert, damit die Bereinigung nie verliert, was du tatsächlich gesagt hast.",
+            "Bevor du den Pin speicherst, prüfe die ursprüngliche Transkription im Sprachbereich oder wähle „Transkription verwenden“, um sie in den Kommentar einzufügen. Die ursprüngliche Transkription wird außerdem in die Zwischenablage kopiert; sie wird nicht separat mit dem Pin gespeichert.",
             "Die Bereinigung ist standardmäßig aus. Schalte sie in den Erweiterungsoptionen für lokale Aufnahmen ein, oder in Einstellungen → „KI-Nutzung“ für Pinar Cloud.",
           ],
         },

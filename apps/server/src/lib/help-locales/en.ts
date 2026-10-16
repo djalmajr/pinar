@@ -261,6 +261,39 @@ const locale = {
             "Linux: `curl -fsSL https://pinar.dev/install.sh | sh`",
           ],
         },
+        {
+          heading: "Update the desktop app",
+          paragraphs: [
+            "The Pinar menu looks for updates on its own and when you choose “Check for Updates…”. A newer version downloads in the background while the menu shows “Downloading {version}…”. Choose “Update to {version}” to apply the downloaded update: the app reopens at the new version, and the local server restarts with it. When there is nothing newer, the menu shows “You're updated” for a short while.",
+            "If a check fails, the app stays open and the menu shows “Update check failed”. Choose that item to run the check again. Read what each version changes on the “What’s new” page of the site, or open the “What’s new” link in Settings → About, which sits next to the version your build runs.",
+          ],
+          bullets: [
+            "A failed check only blocks the update itself: the running version, your captures, and the local server keep working.",
+            "The desktop app checks for updates when it starts, so the menu usually shows the result without you asking.",
+          ],
+        },
+        {
+          heading: "Agent session hooks",
+          paragraphs: [
+            "Every supported agent registers a Pinar session hook. When you open a session in Claude Code, Codex, Cursor, Grok, Antigravity, Pi, or OMP, the hook opens Pinar and makes sure the local server is running before the agent starts working.",
+            "The Pinar desktop app registers these hooks when it starts, and the command-line installers register them while they install the helper, so there is nothing to set up per agent. The hook file each agent uses, and the first-time trust step an agent may ask for, are listed in the [Session hooks section of the Pinar README](https://github.com/djalmajr/pinar/blob/main/README.md#session-hooks).",
+          ],
+          bullets: [
+            "The hook only opens the app or starts the local server. It does not read your files or change what the agent does.",
+            "Re-running the installer, or restarting the desktop app, re-registers the hooks if you cleared them or switched agents.",
+          ],
+        },
+        {
+          heading: "Command-line install on Linux and Windows",
+          paragraphs: [
+            "On Linux and Windows you can install Pinar's helper from the command line instead of the desktop app. The one-line installer downloads the helper into a folder in your user account, adds that folder to your PATH, and registers the agent session hooks, so a new terminal session finds the helper right away.",
+            "The helper is the same local Pinar service the desktop app runs: it stores the captures on this computer and serves the local workspace and viewer. The [Install section of the Pinar README](https://github.com/djalmajr/pinar/blob/main/README.md#install) documents the command-line installers.",
+          ],
+          bullets: [
+            "Use the command line on machines without the desktop app, or when you manage Pinar from a remote terminal.",
+            "Installing both the desktop app and the command-line helper is safe: they use the same local service and the same captures.",
+          ],
+        },
       ],
     },
     "first-capture": {
@@ -277,6 +310,7 @@ const locale = {
             "Pin numbering continues across every page in the same session.",
             "`Shift+Enter` adds a line break. `Escape` closes a draft, or hides the toolbar when no draft is open.",
             "After being hidden, the toolbar stays hidden across navigation until you invoke the extension action or shortcut again.",
+            "Reloading the annotated tab does not end the session; when the tab finishes loading again, Pinar restores the in-progress session and its pins.",
           ],
         },
         {
@@ -319,6 +353,9 @@ const locale = {
           paragraphs: [
             "When the signed-in account is eligible under the current offer, cloud mode provides remote workspace access, managed retention, billing, and unlisted share links. The local app and a self-hosted server stay free. In Pinar Cloud, voice transcription remains a Pro benefit and is not part of an evaluation; the local app can transcribe voice with your own AI endpoint. You accept the current policies before anything is stored remotely.",
           ],
+          bullets: [
+            "In the extension options, “Save Annotation History” (shown in cloud mode when you are signed in) controls whether the session is stored on the Pinar Cloud server so the viewer, reopen, and review keep working. Local captures always stay on this device.",
+          ],
         },
         {
           heading: "How local and cloud sessions actually open",
@@ -330,6 +367,18 @@ const locale = {
             "The local workspace stays on this computer and does not need a cloud account.",
             "If local history cannot open its usual store, Pinar recovers a usable catalog instead of crashing.",
             "Cloud share links do not require a workspace session: anyone with the unlisted URL can read the Markdown or image.",
+          ],
+        },
+        {
+          heading: "How the local and cloud interfaces differ",
+          paragraphs: [
+            "The same pages behave differently by storage. In the local app, the session viewer, the project, collection, and batch pages, and the Markdown open on this computer without a login. In Pinar Cloud, those pages stay private until you publish a share: the private Markdown opens only with your account or an authorized key.",
+            "In the local app, the Plans and sign-in pages open on pinar.dev instead of loading on this computer.",
+          ],
+          bullets: [
+            "The local viewer does not show agent execution results. It does show the comments stored on pins, including comments that agents add through MCP. Pinar Cloud also shows agent execution results in the review thread.",
+            "The share controls in the viewer — publishing a share, copying its link, and revoking it — are offered only in Pinar Cloud.",
+            "The “Generate written steps” action in the viewer is offered only in Pinar Cloud.",
           ],
         },
       ],
@@ -351,6 +400,16 @@ const locale = {
             "`Command+Enter` / `Alt+Enter` finishes the session and copies according to the On finish setting.",
             "`Alt+Shift+P` shows or hides the toolbar without cancelling the session, and you can rebind it in `chrome://extensions/shortcuts`. Browser shortcuts stay inert on `chrome://` pages, on the Chrome Web Store, and before the overlay is injected.",
             "`G` starts recording the steps you take on the page. Reopen Pinar, pin the result, and copy with `Command+Enter` / `Alt+Enter` to attach the steps; pressing `G` again discards the recording.",
+          ],
+        },
+        {
+          heading: "Browser commands and the toolbar icon",
+          paragraphs: [
+            "The extension registers three browser commands with default shortcuts: `Alt+Shift+P` shows or hides the Pinar toolbar, `Alt+Shift+O` opens the Pinar workspace in a new tab, and `Alt+Shift+X` closes the session without copying. Clicking the extension icon does the same as `Alt+Shift+P` on the current tab.",
+            "The icon's context menu offers three items: “Open panel”, “Finish session”, and “Cancel session”. The two session items work only while a session is active. While a session runs, the icon badge shows “on” until the first pin is saved, and the pin count after that.",
+          ],
+          bullets: [
+            "The bindings can be changed on Chrome's extension shortcuts page; the Shortcuts tab of the extension options lists every browser command with its current binding and opens that page, next to the fixed overlay keys.",
           ],
         },
         {
@@ -610,6 +669,28 @@ const locale = {
             "Sharing stays explicit: publish a share from the workspace, or let an agent with the share permission publish or revoke it.",
           ],
         },
+        {
+          heading: "Connect an agent to the local app",
+          paragraphs: [
+            "The local Pinar app offers the same Model Context Protocol surface to agents that run on the same computer, and it is open by design: no account, login, or API key is involved. Point your agent's MCP client at the endpoint described in the [Agent access to sessions](https://github.com/djalmajr/pinar/blob/main/README.md#agent-access-to-sessions-mcp) section of the Pinar README.",
+            "The [Local MCP tools](https://github.com/djalmajr/pinar/blob/main/README.md#local-mcp-tools) section of the README lists every tool with its arguments and return value. List tools page their results, up to 50 items per page, so an agent walks a large workspace one page at a time. Reorder tools expect the complete list of items and reject a partial one before anything moves.",
+          ],
+          bullets: [
+            "Because the connection is local, the agent works only with the captures stored on this computer and never needs Pinar Cloud.",
+            "Most of the cloud tool surface is available locally; the cloud-only extras concern agent keys and publishing shares.",
+          ],
+        },
+        {
+          heading: "Create and manage agent API keys",
+          paragraphs: [
+            "Pinar Cloud lets Pro accounts issue dedicated agent keys. Open Settings → “Agent access” in the workspace to create one: give the key a name, choose a permission — “Read”, “Manage”, “Share”, or “Full” — and an expiry of 7, 30, or 90 days. A “Read” key can be scoped to the entire account or to one project, collection, session, or batch. The other permissions act on the whole account.",
+            "The key is shown only once, right after you create it, so copy it before the dialog closes — Pinar keeps only a short prefix and cannot show the key again. Up to 20 active keys can exist at once. Each listed key shows its scope, permission, expiry, and last use, and “Revoke” ends it immediately. A request for a resource outside the key's scope is answered as if the resource did not exist, so a key never reveals what lies beyond its scope. The [Cloud agent access guide](https://github.com/djalmajr/pinar/blob/main/docs/cloud-agent-access.md) documents the permission matrix and the full tool surface behind each key.",
+          ],
+          bullets: [
+            "Give each agent or automation its own key, so revoking one does not disturb the others.",
+            "Keys work with MCP clients that support custom headers and with the private Markdown links; the “Agent access” panel explains how the key is used.",
+          ],
+        },
       ],
     },
     "handoff-formats": {
@@ -669,6 +750,28 @@ const locale = {
             "Edit or remove noisy timeline events before generation.",
             "Review the generated instructions before handing them to your local agent.",
             "Let the local agent create project-specific automated tests with the repository and its conventions in context.",
+          ],
+        },
+        {
+          heading: "Use your own AI in the local app",
+          paragraphs: [
+            "The local app can transcribe voice comments and clean them up with AI you provide instead of Pinar Cloud. Open Settings → AI Assistant and choose a mode: “Disabled” switches AI off, “Local AI” uses a server on the same computer, and “BYOK” connects directly to a remote provider with your own key. Both active modes take an OpenAI-compatible endpoint and the exact model it exposes, plus an optional transcription model: leave that field empty to keep voice off.",
+            "With “BYOK”, the API key is stored in your operating system's credential vault, not in Pinar's preferences. “Test connection” and “Save” check the model and the transcription model before they finish. If only the transcription model fails, the message says why — for example, that the key lacks audio permission — and saving still works for the features that do not need voice. Voice comments need an endpoint that allows audio transcription. The [Local AI and BYOK guide](https://github.com/djalmajr/pinar/blob/main/docs/local-ai.md) covers setup, privacy, and model requirements.",
+          ],
+          bullets: [
+            "Voice transcription and cleanup in the local app use your provider directly and no Pinar Cloud credits. The viewer's “Generate written steps” action is offered only in Pinar Cloud.",
+            "Requests go from the local app to your endpoint only; there is no silent fallback to Pinar Cloud.",
+          ],
+        },
+        {
+          heading: "Clean up transcription with AI",
+          paragraphs: [
+            "By default, a recorded voice comment places the raw transcript into the pin. The “Clean up transcription with AI” switch in the extension options — and the “Clean up voice transcriptions” switch in Settings → “AI usage” in Pinar Cloud — send the transcript through the AI model first, so the pin receives the comment you intended: fillers and false starts are removed, and the model may add short acceptance criteria beside the comment.",
+            "With the switch off, the transcript is used directly as the comment, up to the comment length limit, without AI rewriting. In the local app the cleanup uses the model you configured in Settings → AI Assistant. In Pinar Cloud it runs with the same AI credits that voice transcription already uses.",
+          ],
+          bullets: [
+            "Before you save the pin, review the original transcript in the voice panel or choose “Use transcription” to insert it into the comment. The original transcript is also copied to your clipboard; it is not saved separately with the pin.",
+            "Cleanup is off by default. Turn it on in the extension options for local captures, or in Settings → “AI usage” for Pinar Cloud.",
           ],
         },
       ],
@@ -735,6 +838,18 @@ const locale = {
             "If the toolbar says “Write a comment first” or “Add a pin first”, finish that pin and press `Command+Enter` / `Alt+Enter` again.",
             "If “Copy failed” appears, confirm the pins are still on the page, grant clipboard permission if prompted, and retry the copy.",
             "Read the “Copied successfully!” suffix: “no screenshot”, “helper unavailable”, and “no viewer” name the missing layer to retry without discarding comments.",
+          ],
+        },
+        {
+          heading: "Messages when finishing a session",
+          paragraphs: [
+            "When finishing fails because the final screenshot cannot be captured, the toolbar shows one of these messages instead of a generic error, and the session stays on the page for a retry. Each message names the cause and the fix:",
+          ],
+          bullets: [
+            "“A pin is outside the visible area · bring it into view and try again” — scroll until the pinned element is visible, then finish the session again.",
+            "“The page changed during capture · stay on the page and try again” — finish again from the annotated page without leaving it.",
+            "“The annotated tab was not active · switch back to it and try again” — switch to the annotated tab and finish again.",
+            "“Screenshot not captured · return to the annotated page and try again” — return to the annotated page and finish again.",
           ],
         },
       ],
@@ -893,6 +1008,12 @@ const locale = {
             "If Manage subscription is unavailable, finish a paid Checkout first, then open it from a signed-in account.",
           ],
         },
+        {
+          heading: "When an evaluation ends",
+          paragraphs: [
+            "When a temporary evaluation ends, new captures in Pinar Cloud are paused until the account subscribes. Captures already stored remain available and stay subject to retention and export, as described in Storage, retention, and recovery.",
+          ],
+        },
       ],
     },
     "ai-credits": {
@@ -922,6 +1043,7 @@ const locale = {
             "If a transcription is already running, wait for it to finish instead of sending the same recording again.",
             "If a reservation expires or is refunded, record or send the voice comment again.",
             "If the workspace shows zero credits, check the remaining balance before buying another 500-credit pack.",
+            "If you send too many AI requests within a minute, the request is refused temporarily; wait a minute and try again.",
           ],
         },
       ],
@@ -970,6 +1092,18 @@ const locale = {
           ],
         },
         {
+          heading: "Collaborate on a collection",
+          paragraphs: [
+            "Collaborating on a collection is offered by Pinar Cloud to Pro owners. From the collection's menu, choose “Collaborators”, then invite people by email with the “Invite” button. The tab lists every collaborator with a “Pending” or “Accepted” status, and “Revoke access” removes one.",
+          ],
+          bullets: [
+            "Someone who is invited sees a “Pending invitations” notice in the workspace. “View invitations” opens the “Collection invitations” dialog, where “Accept invitation” accepts the invite and “Open collection” opens the collection.",
+            "Accepted collections appear in the “Shared collections” section of the sidebar, with the owner's name and the session count.",
+            "In the public collection viewer, someone who arrives by invitation is marked with a “Shared with you” badge.",
+            "A shared collection is suspended while the owner's Pro subscription is inactive. In the sidebar it then shows a “Suspended” badge and cannot be opened, and the collection page shows “Collection access suspended” with a note that access resumes automatically when Pro is restored.",
+          ],
+        },
+        {
           heading: "Markdown for agents",
           paragraphs: [
             "The .md projection for a session includes metadata, screenshot references, locators, agent results, and review history. Project and collection projections combine their sessions. Expired or unavailable shared data returns a not-found response rather than private account details.",
@@ -1005,6 +1139,16 @@ const locale = {
           heading: "Cloud boundary",
           paragraphs: [
             "Cloud account records, capture metadata, and images are stored in the hosted service. Stripe processes billing, and the email service sends login codes. The Subprocessors page is the current list of external service roles.",
+          ],
+        },
+        {
+          heading: "Move your data between the local app and Pinar Cloud",
+          paragraphs: [
+            "Settings → Data moves captures between the two stores. In the local app, “Export data” downloads a .zip with your projects, collections, captures, and screenshots. In Pinar Cloud, “Import from the local app” receives that file: choose it with “Choose file”, follow the per-session progress, and stop at any time with “Cancel import”. When the import ends, Pinar reports the result, including partial imports and files that are not a Pinar export.",
+          ],
+          bullets: [
+            "Importing the same export again updates what was already imported instead of duplicating it.",
+            "For the full behavior of the export and the import, including where the exported sessions land in the cloud account, see [Move local data to Pinar Cloud](https://github.com/djalmajr/pinar/blob/main/README.md#move-local-data-to-pinar-cloud) in the Pinar README.",
           ],
         },
         {

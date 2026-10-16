@@ -20,6 +20,28 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.7.3": {
+      title: "Updates that install from the menu, and clearer voice with your own AI",
+      summary:
+        "Choosing an update in the Pinar menu now installs it and reopens Pinar. The local app checks your transcription model and says why voice fails, and the help center covers much more of Pinar.",
+      changes: {
+        "desktop-updates": {
+          title: "Updates install from the Pinar menu",
+          description:
+            "Choosing the update item in the Pinar menu now installs the downloaded version and reopens Pinar, with the local server restarted on it. Earlier versions closed without updating, so install this version once from the download page; from then on, updates go through the menu. If an update cannot start, Pinar stays open and the menu says so.",
+        },
+        "local-voice-checks": {
+          title: "Voice with your own AI explains what is wrong",
+          description:
+            "In the local app, Test connection and Save in Settings → AI Assistant now check the transcription model as well as the main model, and say why transcription fails, for example an API key that is not allowed to transcribe audio. Settings still save when only transcription fails, and a voice comment that fails in local mode no longer asks you to connect the extension to Pinar Cloud.",
+        },
+        "help-center": {
+          title: "A more complete help center",
+          description:
+            "The help center now covers desktop updates, agent session hooks, connecting agents to the local app through MCP, agent API keys, your own AI in the local app, collaborating on collections, moving data between the local app and Pinar Cloud, and the messages shown when a session cannot finish. Several statements that no longer matched Pinar were corrected.",
+        },
+      },
+    },
     "v0.7.2": {
       title: "Pinar Cloud on new hosting",
       summary:

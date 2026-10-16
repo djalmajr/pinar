@@ -10,6 +10,7 @@ import { Toaster } from "@pinar/ui";
 import appCss from "@pinar/ui/styles.css?url";
 import { GlobalSettingsProvider } from "@/components/GlobalSettingsDialog";
 import { RoutePending } from "@/components/RoutePending";
+import { AuthSessionProvider, type AuthSessionState } from "@/lib/auth-session";
 import { DeliveryPreferencesProvider } from "@/lib/delivery-preferences";
 import { loadUiMessages, ServerI18nProvider } from "@/lib/i18n";
 import {
@@ -41,9 +42,21 @@ async function resolveLanguageContext(): Promise<{
   return { language: readClientLanguage(), origin: location.origin };
 }
 
+async function resolveInitialAuthSession(): Promise<AuthSessionState> {
+  // Server-only: the client bundle drops the dead `import.meta.env.SSR`
+  // branch and keeps the dehydrated initial value from the loader, so the
+  // first client render matches the server HTML.
+  if (import.meta.env.SSR) {
+    const { resolveRequestAuthSession } = await import("@/lib/auth-session-server");
+    const resolution = await resolveRequestAuthSession();
+    return resolution.status === "resolved" ? resolution.session : "unknown";
+  }
+  return "unknown";
+}
+
 function RootDocument() {
   const { language, origin } = Route.useRouteContext();
-  const { messages } = Route.useLoaderData();
+  const { initialSession, messages } = Route.useLoaderData();
   const { pathname, searchStr } = useRouterState({
     select: (state) => ({
       pathname: state.location.pathname,
@@ -93,18 +106,20 @@ function RootDocument() {
           : null}
       </head>
       <body suppressHydrationWarning>
-        <ServerI18nProvider
-          initialLanguage={language}
-          initialMessages={messages}
-        >
-          {usesWorkspaceProviders ? (
-            <DeliveryPreferencesProvider>
-              <GlobalSettingsProvider key={pathname}>
-                {routeContent}
-              </GlobalSettingsProvider>
-            </DeliveryPreferencesProvider>
-          ) : routeContent}
-        </ServerI18nProvider>
+        <AuthSessionProvider initialSession={initialSession}>
+          <ServerI18nProvider
+            initialLanguage={language}
+            initialMessages={messages}
+          >
+            {usesWorkspaceProviders ? (
+              <DeliveryPreferencesProvider>
+                <GlobalSettingsProvider key={pathname}>
+                  {routeContent}
+                </GlobalSettingsProvider>
+              </DeliveryPreferencesProvider>
+            ) : routeContent}
+          </ServerI18nProvider>
+        </AuthSessionProvider>
         <Scripts />
       </body>
     </html>
@@ -133,7 +148,11 @@ export const Route = createRootRoute({
       { title: "Pinar" },
     ],
   }),
-  loader: async ({ context }) => ({
-    messages: await loadUiMessages(context.language),
-  }),
+  loader: async ({ context }) => {
+    const [messages, initialSession] = await Promise.all([
+      loadUiMessages(context.language),
+      resolveInitialAuthSession(),
+    ]);
+    return { initialSession, messages };
+  },
 });

@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
   PinarMark,
 } from "@pinar/ui";
-import { useAuthSession } from "@/lib/auth-session";
+import { useAuthSessionState } from "@/lib/auth-session";
 import { useServerI18n } from "@/lib/i18n";
 import { pinarRuntime, publicHeaderCta, publicHeaderShowsPlans } from "@/lib/server-header";
 import CheckIcon from "~icons/lucide/check";
@@ -37,9 +37,14 @@ export interface ServerHeaderProps {
 
 export function ServerHeader({ actions, activePage, context }: ServerHeaderProps) {
   const { language, languageName, setLanguage, t } = useServerI18n();
-  const session = useAuthSession();
+  const sessionState = useAuthSessionState();
+  const session = sessionState === "unknown" ? null : sessionState;
   const runtime = pinarRuntime();
   const headerCta = publicHeaderCta(session, runtime);
+  // Width reserved by the neutral CTA placeholder while the session is
+  // unknown: icon + gap of the real CTA plus the longer of the two labels,
+  // so the header does not shift when the real button appears.
+  const ctaPlaceholderWidth = `calc(1.125rem + ${Math.max(t("common.openApp").length, t("common.signIn").length)}ch)`;
   const showPlans = publicHeaderShowsPlans(runtime);
   const [isDark, setIsDark] = useState(false);
 
@@ -162,9 +167,24 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
           >
             <GitHubIcon />
           </Button>
-          {headerCta === "open-app" ? (
+          {sessionState === "unknown" ? (
+            // The server could not resolve the session: a neutral
+            // placeholder that reserves the CTA width without asserting
+            // "sign in" or "open app".
+            <Button
+              aria-hidden="true"
+              className="hidden md:inline-flex"
+              data-auth-cta="placeholder"
+              disabled
+              size="sm"
+              variant="pro"
+            >
+              <span aria-hidden="true" style={{ inlineSize: ctaPlaceholderWidth }} />
+            </Button>
+          ) : headerCta === "open-app" ? (
             <Button
               className="hidden md:inline-flex"
+              data-auth-cta="open-app"
               render={<Link preload="intent" search={{ session: undefined }} to="/app" />}
               size="sm"
               variant="pro"
@@ -175,6 +195,7 @@ export function ServerHeader({ actions, activePage, context }: ServerHeaderProps
           ) : (
             <Button
               className="hidden md:inline-flex"
+              data-auth-cta="sign-in"
               render={<Link aria-current={activePage === "signIn" ? "page" : undefined} preload="intent" search={{ returnTo: "/app" }} to="/sign-in" />}
               size="sm"
               variant="pro"

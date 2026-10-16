@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Button, cn, PinarMark } from "@pinar/ui";
 import { Link } from "@tanstack/react-router";
-import { isPaidAuthSession, useAuthSession } from "@/lib/auth-session";
+import { isPaidAuthSession, useAuthSessionState } from "@/lib/auth-session";
 import { useServerI18n } from "@/lib/i18n";
 import { legalDocumentTitle } from "@/lib/legal-documents";
 import { footerYear } from "@/lib/server-footer";
@@ -23,15 +23,19 @@ const FooterLegalDocumentIds = ["terms", "privacy"] as const;
 
 export function FairSourceSupportCard({ className }: FairSourceSupportCardProps) {
   const { t } = useServerI18n();
-  const session = useAuthSession();
-  const isPaidAccount = isPaidAuthSession(session);
-  if (isPaidAccount) return null;
+  const session = useAuthSessionState();
+  // The card only appears once we know the person is not Pro: while the
+  // session is unknown it must not flash for a Pro user who logs in on the
+  // next beat.
+  if (session === "unknown") return null;
+  if (isPaidAuthSession(session)) return null;
   const description = t("pricing.supportDescription");
   const title = t("pricing.supportTitle");
 
   return (
     <section
       aria-label={title}
+      data-auth-support-card="fair-source"
       className={cn(
         "flex min-h-24 w-full flex-col items-stretch gap-4 rounded-xl border bg-card p-5",
         className,

@@ -76,6 +76,15 @@ env:
   AI_GATEWAY_ZERO_DATA_RETENTION: ""
   AI_MODEL: ""
   AI_TRANSCRIPTION_MODEL: ""
+  # Optional: the voice transcription chain and the short text chain (voice
+  # structuring and reproduction steps), CSVs of hub:model links like
+  # ASSISTANT_CHAIN (D5). Empty keeps the AI binding of the AI group.
+  AI_TRANSCRIPTION_CHAIN: ""
+  AI_TEXT_CHAIN: ""
+  # Optional: the automatic filing similarity thresholds, plain decimals;
+  # empty keeps the defaults of filing/constants.ts.
+  FILING_SIMILARITY_MIN: ""
+  FILING_SIMILARITY_MARGIN: ""
   ADMIN_API_KEY: ""
   AUTH_PEPPER: ""
   # Optional: "true" switches the assistant on. Absent or empty stays off.

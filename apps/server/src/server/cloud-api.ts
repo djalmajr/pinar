@@ -116,6 +116,10 @@ import {
   cleanupAssistantThreads,
   resetCloudAssistantMemoryForTests,
 } from "./assistant/store-cloud";
+import {
+  deleteMemoryPinIndexForSession,
+  resetCloudPinIndexMemoryForTests,
+} from "./assistant/retrieval/store-cloud";
 import type { AssistantStatus } from "./assistant/http";
 import type { AssistantStateReader } from "./assistant/state-reader";
 import type { AssistantToolHost } from "./assistant/tools";
@@ -6627,6 +6631,7 @@ async function deleteHistory(request: Request, env: CloudEnv, id: string) {
         env.DB.prepare("DELETE FROM pin_review_events WHERE capture_id = ?").bind(id),
         env.DB.prepare("DELETE FROM pin_reviews WHERE capture_id = ?").bind(id),
         env.DB.prepare("DELETE FROM pin_comments WHERE capture_id = ?").bind(id),
+        env.DB.prepare("DELETE FROM pin_index WHERE session_id = ?").bind(id),
         env.DB.prepare("DELETE FROM sessions WHERE id = ? AND user_id = ?").bind(id, principal.id),
       ]);
     } catch {
@@ -6639,6 +6644,7 @@ async function deleteHistory(request: Request, env: CloudEnv, id: string) {
     memorySessions.delete(id);
     deleteMemoryExecutionsForCapture(id, principal.id);
     deleteMemoryReviewsForCapture(id);
+    deleteMemoryPinIndexForSession(id);
   }
   if (env.PINAR_BUCKET) await env.PINAR_BUCKET.delete(shotObjectKey(shotId)).catch(() => undefined);
   return json({ ok: true });
@@ -6921,6 +6927,9 @@ export async function cleanupOldRecords(env: CloudEnv, days = FREE_CLOUD_RETENTI
     await env.DB.prepare(
       "DELETE FROM pin_comments WHERE capture_id NOT IN (SELECT id FROM sessions)",
     ).run();
+    await env.DB.prepare(
+      "DELETE FROM pin_index WHERE session_id NOT IN (SELECT id FROM sessions)",
+    ).run();
     deletedCount = sessions.length;
     const cleanupResults = await env.DB.batch([
       env.DB.prepare(
@@ -6947,6 +6956,7 @@ export async function cleanupOldRecords(env: CloudEnv, days = FREE_CLOUD_RETENTI
       memorySessionRetentionExpiresAt.delete(session.id);
       deleteMemoryExecutionsForCapture(session.id);
       deleteMemoryReviewsForCapture(session.id);
+      deleteMemoryPinIndexForSession(session.id);
     }
     deletedCount = expired.length;
     for (const [codeHash, code] of memoryExtensionCodes) {
@@ -7835,6 +7845,7 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
                 context.env.DB.prepare("DELETE FROM pin_review_events WHERE capture_id = ?").bind(sessionId),
                 context.env.DB.prepare("DELETE FROM pin_reviews WHERE capture_id = ?").bind(sessionId),
                 context.env.DB.prepare("DELETE FROM pin_comments WHERE capture_id = ?").bind(sessionId),
+                context.env.DB.prepare("DELETE FROM pin_index WHERE session_id = ?").bind(sessionId),
                 context.env.DB.prepare("DELETE FROM sessions WHERE id = ? AND user_id = ?").bind(sessionId, context.principal.id),
               ]);
             } catch {
@@ -7847,6 +7858,7 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
             memorySessions.delete(sessionId);
             deleteMemoryExecutionsForCapture(sessionId, context.principal.id);
             deleteMemoryReviewsForCapture(sessionId);
+            deleteMemoryPinIndexForSession(sessionId);
           }
            if (context.env.PINAR_BUCKET) await context.env.PINAR_BUCKET.delete(shotObjectKey(shotId)).catch(() => undefined);
            return { ok: true, sessionId };
@@ -8984,6 +8996,7 @@ export function resetCloudMemoryStateForTests() {
   memoryStripeSubscriptionStates.clear();
   memoryWebSessions.clear();
   resetCloudAssistantMemoryForTests();
+  resetCloudPinIndexMemoryForTests();
   memoryMigrationFailure = false;
   testNow = null;
 }

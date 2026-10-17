@@ -1,0 +1,350 @@
+import assert from "node:assert/strict";
+import { Database } from "bun:sqlite";
+import { readdirSync, readFileSync } from "node:fs";
+import { afterEach, beforeEach, describe, test } from "node:test";
+import {
+  cleanupOldRecords,
+  cloudAssistantToolHost,
+  handleCloudApiRequest,
+  resetCloudMemoryStateForTests,
+  seedCloudWebSessionForTests,
+  setCloudNowForTests,
+  type CloudEnv,
+} from "../../cloud-api";
+import type { AssistantD1Database, AssistantD1Statement } from "../store-cloud";
+import { cloudPinIndexStore, resetCloudPinIndexMemoryForTests } from "./store-cloud";
+import { assertPinIndexReplaceAtomic, assertPinIndexStore, pinIndexEntry, pinIndexVector } from "./store.test-helpers";
+import type { PinIndexStore } from "./types";
+
+const NOW = "2026-10-01T12:00:00.000Z";
+const VALID_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
+// SQLite-as-D1 model: batch() runs inside a transaction and rolls back on
+// error, and a statement over D1's 100 bound parameters is refused, as D1
+// does (same shim as cloud-mcp.test.ts plus the parameter ceiling).
+function sqliteD1(db: Database): AssistantD1Database {
+  const statement = (query: string) => {
+    let params: unknown[] = [];
+    const checked = () => {
+      if (params.length > 100) throw new Error("too many SQL variables");
+      return params;
+    };
+    const bound: AssistantD1Statement = {
+      async all() {
+        return { results: db.query(query).all(...(checked() as never[])) as Record<string, unknown>[] };
+      },
+      bind(...values: unknown[]) {
+        params = values.map((value) => (value === undefined ? null : value));
+        return bound;
+      },
+      async first() {
+        return (db.query(query).get(...(checked() as never[])) as Record<string, unknown> | null) ?? null;
+      },
+      async run() {
+        db.query(query).run(...(checked() as never[]));
+        const changes = db.query("SELECT changes() AS changes").get() as { changes: number };
+        return { meta: { changes: changes.changes } };
+      },
+    };
+    return bound;
+  };
+  return {
+    async batch(statements) {
+      db.exec("BEGIN");
+      try {
+        const results = [];
+        for (const statement of statements) results.push(await statement.run());
+        db.exec("COMMIT");
+        return results;
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+    },
+    prepare(query: string) {
+      return statement(query);
+    },
+  };
+}
+
+/** D1 itself returns a BLOB as `Array.from` of its bytes; this wrapper reads rows that way. */
+function blobsAsArrays(base: AssistantD1Database): AssistantD1Database {
+  const wrap = (statement: AssistantD1Statement): AssistantD1Statement => ({
+    async all() {
+      const result = await statement.all();
+      return {
+        ...result,
+        results: (result.results || []).map((row) =>
+          Object.fromEntries(Object.entries(row).map(([key, value]) => [key, value instanceof Uint8Array ? Array.from(value) : value]))
+        ),
+      };
+    },
+    bind: (...values: unknown[]) => wrap(statement.bind(...values)),
+    first: () => statement.first(),
+    run: () => statement.run(),
+  });
+  return { batch: (statements) => base.batch(statements), prepare: (query) => wrap(base.prepare(query)) };
+}
+
+/** Records standalone runs versus runs inside a batch. */
+function batchSpy(base: AssistantD1Database) {
+  const events: string[] = [];
+  let inBatch = 0;
+  const wrap = (query: string, statement: AssistantD1Statement): AssistantD1Statement => ({
+    all: () => statement.all(),
+    bind: (...values: unknown[]) => wrap(query, statement.bind(...values)),
+    first: () => statement.first(),
+    run: () => {
+      events.push(inBatch > 0 ? `batch-run ${query.split(" (")[0]}` : `run ${query.split(" (")[0]}`);
+      return statement.run();
+    },
+  });
+  const spy: AssistantD1Database = {
+    async batch(statements) {
+      inBatch += 1;
+      events.push(`batch(${statements.length})`);
+      try {
+        return await base.batch(statements);
+      } finally {
+        inBatch -= 1;
+      }
+    },
+    prepare: (query) => wrap(query, base.prepare(query)),
+  };
+  return { events, spy };
+}
+
+function migratedDatabase(): Database {
+  const db = new Database(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  const directory = new URL("../../../../migrations/", import.meta.url);
+  for (const file of readdirSync(directory).filter((name) => name.endsWith(".sql")).sort()) {
+    db.exec(readFileSync(new URL(file, directory), "utf8"));
+  }
+  return db;
+}
+
+function insertUser(db: Database, id: string, email: string) {
+  db.query(
+    "INSERT INTO users (id, email, plan, ever_paid, billing_status, created_at, updated_at) VALUES (?, ?, 'pro', 1, 'active', ?, ?)",
+  ).run(id, email, NOW, NOW);
+}
+
+function insertSession(db: Database, id: string, userId: string, input: { createdAt?: string; permanent?: boolean } = {}) {
+  db.query(
+    "INSERT INTO sessions (id, url, title, shot_id, shot_url, pin_count, pins_json, created_at, user_id, plan, is_permanent, byte_size) "
+      + "VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, 'pro', ?, 1)",
+  ).run(
+    id,
+    `https://example.test/${id}`,
+    id,
+    id,
+    `https://pinar.test/shots/${id}.png`,
+    JSON.stringify([{ comment: "Fix", number: 1, pinId: `${id}_p1` }]),
+    input.createdAt ?? NOW,
+    userId,
+    input.permanent === false ? 0 : 1,
+  );
+}
+
+function pinIndexRows(db: Database) {
+  return db.query("SELECT session_id, pin_id, owner_id FROM pin_index ORDER BY session_id, pin_id").all() as Array<{
+    owner_id: string;
+    pin_id: string;
+    session_id: string;
+  }>;
+}
+
+/** Owner B neither reads nor replaces owner A's entries, and entriesFor never widens the ids asked for. */
+async function assertOwnerIsolation(ownerA: PinIndexStore, ownerB: PinIndexStore) {
+  const entryA = pinIndexEntry("idx_owner_a", "idx_a_p1", { vector: pinIndexVector(2) });
+  await ownerA.replaceSession("idx_owner_a", [entryA]);
+  await ownerB.replaceSession("idx_owner_b", [pinIndexEntry("idx_owner_b", "idx_b_p1")]);
+
+  assert.deepEqual(await ownerB.entries("idx_owner_a"), []);
+  assert.deepEqual(await ownerB.entriesFor(["idx_owner_a"]), []);
+  assert.deepEqual((await ownerB.entriesFor(["idx_owner_a", "idx_owner_b"])).map((entry) => entry.pinId), ["idx_b_p1"]);
+  assert.deepEqual(
+    await ownerB.staleSessions({ limit: 10, sessions: [{ id: "idx_owner_a", updatedAt: NOW }, { id: "idx_owner_b", updatedAt: "2026-09-01T00:00:00.000Z" }] }),
+    ["idx_owner_a"],
+  );
+  assert.deepEqual((await ownerA.entriesFor(["idx_owner_a", "idx_owner_b"])).map((entry) => entry.pinId), ["idx_a_p1"]);
+
+  // B replacing A's session is refused, for the same pin and for a new one.
+  for (const pinId of ["idx_a_p1", "idx_b_new"]) {
+    await assert.rejects(
+      ownerB.replaceSession("idx_owner_a", [pinIndexEntry("idx_owner_a", pinId, { docText: "Intruder" })]),
+      (error: unknown) => error instanceof Error && error.message === "pin index session belongs to another owner",
+    );
+  }
+  await ownerB.deleteSession("idx_owner_a");
+
+  // Owner A is untouched.
+  assert.deepEqual(await ownerA.entries("idx_owner_a"), [entryA]);
+}
+
+describe("cloudPinIndexStore over D1", () => {
+  let db: Database;
+  let env: { DB: AssistantD1Database };
+
+  beforeEach(() => {
+    db = migratedDatabase();
+    env = { DB: sqliteD1(db) };
+  });
+
+  afterEach(() => db.close());
+
+  test("keeps entries, entriesFor, staleSessions, and the vector bytes", async () => {
+    await assertPinIndexStore(cloudPinIndexStore(env, "usr_a"));
+  });
+
+  test("a failure in the middle of the replacement batch leaves the previous entries", async () => {
+    await assertPinIndexReplaceAtomic(cloudPinIndexStore(env, "usr_a"));
+  });
+
+  test("replaceSession writes the DELETE and the INSERTs in one batch", async () => {
+    const { events, spy } = batchSpy(env.DB);
+    await cloudPinIndexStore({ DB: spy }, "usr_a").replaceSession("idx_batch", [
+      pinIndexEntry("idx_batch", "idx_batch_p1"),
+      pinIndexEntry("idx_batch", "idx_batch_p2", { number: 2 }),
+    ]);
+    assert.deepEqual(events, [
+      "batch(3)",
+      "batch-run DELETE FROM pin_index WHERE session_id = ? AND owner_id = ?",
+      "batch-run INSERT INTO pin_index",
+      "batch-run INSERT INTO pin_index",
+    ]);
+  });
+
+  test("keeps owner B out of owner A's entries", async () => {
+    await assertOwnerIsolation(cloudPinIndexStore(env, "usr_a"), cloudPinIndexStore(env, "usr_b"));
+    assert.deepEqual(pinIndexRows(db), [
+      { owner_id: "usr_a", pin_id: "idx_a_p1", session_id: "idx_owner_a" },
+      { owner_id: "usr_b", pin_id: "idx_b_p1", session_id: "idx_owner_b" },
+    ]);
+  });
+
+  test("reads the vector back from the array of bytes D1 returns", async () => {
+    const entry = pinIndexEntry("idx_array", "idx_array_p1", { vector: pinIndexVector(4) });
+    await cloudPinIndexStore(env, "usr_a").replaceSession("idx_array", [entry]);
+    const store = cloudPinIndexStore({ DB: blobsAsArrays(env.DB) }, "usr_a");
+    assert.deepEqual(await store.entries("idx_array"), [entry]);
+    assert.deepEqual(await store.entriesFor(["idx_array"]), [entry]);
+  });
+
+  test("entriesFor and staleSessions stay under D1's bound parameter ceiling for 500 sessions", async () => {
+    const store = cloudPinIndexStore(env, "usr_a");
+    const ids = Array.from({ length: 500 }, (_, index) => `idx_many_${String(index).padStart(3, "0")}`);
+    for (const id of [ids[0], ids[95], ids[499]]) await store.replaceSession(id, [pinIndexEntry(id, `${id}_p1`)]);
+    // Newest first, as the source lists them: the requested order comes back.
+    const requested = [...ids].reverse();
+    assert.deepEqual((await store.entriesFor(requested)).map((entry) => entry.sessionId), [ids[499], ids[95], ids[0]]);
+    const stale = await store.staleSessions({ limit: 1000, sessions: requested.map((id) => ({ id, updatedAt: "2026-09-01T00:00:00.000Z" })) });
+    assert.equal(stale.length, 497);
+    assert.ok(!stale.includes(ids[95]));
+  });
+});
+
+describe("cloudPinIndexStore in memory", () => {
+  const env = { DB: undefined };
+
+  beforeEach(() => resetCloudPinIndexMemoryForTests());
+
+  test("keeps entries, entriesFor, staleSessions, and the vector bytes", async () => {
+    await assertPinIndexStore(cloudPinIndexStore(env, "usr_a"));
+  });
+
+  test("a failure in the middle of a replacement leaves the previous entries", async () => {
+    await assertPinIndexReplaceAtomic(cloudPinIndexStore(env, "usr_a"));
+  });
+
+  test("keeps owner B out of owner A's entries", async () => {
+    await assertOwnerIsolation(cloudPinIndexStore(env, "usr_a"), cloudPinIndexStore(env, "usr_b"));
+  });
+
+  test("the Cloud test reset clears the memory branch", async () => {
+    await cloudPinIndexStore(env, "usr_a").replaceSession("idx_reset", [pinIndexEntry("idx_reset", "idx_reset_p1")]);
+    resetCloudMemoryStateForTests();
+    assert.deepEqual(await cloudPinIndexStore(env, "usr_a").entries("idx_reset"), []);
+  });
+});
+
+describe("pin index lifecycle in the Cloud API", () => {
+  beforeEach(() => {
+    resetCloudMemoryStateForTests();
+    setCloudNowForTests(NOW);
+  });
+
+  afterEach(() => resetCloudMemoryStateForTests());
+
+  function route(path: string, env: CloudEnv, init: RequestInit = {}) {
+    return handleCloudApiRequest(new Request(`https://pinar.test${path}`, init), env);
+  }
+
+  test("D1: deleting a session over HTTP or MCP deletes its entries, and retention deletes the expired ones", async () => {
+    const db = migratedDatabase();
+    try {
+      const env: CloudEnv = { DB: sqliteD1(db) };
+      insertUser(db, "usr_a", "a@example.test");
+      const account = await seedCloudWebSessionForTests({ email: "a@example.test", id: "usr_a", plan: "pro" }, env);
+      for (const id of ["session_http", "session_mcp", "session_kept"]) insertSession(db, id, "usr_a");
+      insertSession(db, "session_expired", "usr_a", { createdAt: "2026-08-01T12:00:00.000Z", permanent: false });
+      const store = cloudPinIndexStore(env, "usr_a");
+      for (const id of ["session_http", "session_mcp", "session_kept", "session_expired"]) {
+        await store.replaceSession(id, [pinIndexEntry(id, `${id}_p1`, { vector: pinIndexVector(1) })]);
+      }
+
+      const deleted = await route("/api/history/session_http", env, { headers: { cookie: account.cookie }, method: "DELETE" });
+      assert.equal(deleted.status, 200);
+      assert.deepEqual(await store.entries("session_http"), []);
+
+      const host = cloudAssistantToolHost(env, account.principal, "https://pinar.test", { writes: true });
+      assert.deepEqual(await host.callTool("pinar.delete_session", { sessionId: "session_mcp" }), { ok: true, sessionId: "session_mcp" });
+      assert.deepEqual(await store.entries("session_mcp"), []);
+
+      const cleaned = await cleanupOldRecords(env);
+      assert.equal(cleaned.deletedCount, 1);
+      assert.deepEqual(await store.entries("session_expired"), []);
+      assert.deepEqual(pinIndexRows(db), [{ owner_id: "usr_a", pin_id: "session_kept_p1", session_id: "session_kept" }]);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("memory: deleting a session over HTTP or MCP deletes its entries, and retention deletes the expired ones", async () => {
+    const env: CloudEnv = {};
+    const account = await seedCloudWebSessionForTests({ email: "a@example.test", plan: "free" }, env);
+    for (const id of ["session_http", "session_mcp", "session_kept", "session_expired"]) {
+      // A free capture from two months ago is past the 30-day retention.
+      const createdAt = id === "session_expired" ? "2026-08-01T12:00:00.000Z" : NOW;
+      setCloudNowForTests(createdAt);
+      const uploaded = await route("/api/shots", env, {
+        body: JSON.stringify({ createdAt, id, image: VALID_PNG, page: { title: id, url: `https://example.test/${id}` }, pins: [{ comment: "Fix", number: 1 }] }),
+        headers: { cookie: account.cookie, "content-type": "application/json" },
+        method: "POST",
+      });
+      assert.equal(uploaded.status, 201, id);
+    }
+    setCloudNowForTests(NOW);
+    const store = cloudPinIndexStore(env, account.accountId);
+    for (const id of ["session_http", "session_mcp", "session_kept", "session_expired"]) {
+      await store.replaceSession(id, [pinIndexEntry(id, `${id}_p1`, { vector: pinIndexVector(1) })]);
+    }
+
+    const deleted = await route("/api/history/session_http", env, { headers: { cookie: account.cookie }, method: "DELETE" });
+    assert.equal(deleted.status, 200);
+    assert.deepEqual(await store.entries("session_http"), []);
+
+    const host = cloudAssistantToolHost(env, account.principal, "https://pinar.test", { writes: true });
+    assert.deepEqual(await host.callTool("pinar.delete_session", { sessionId: "session_mcp" }), { ok: true, sessionId: "session_mcp" });
+    assert.deepEqual(await store.entries("session_mcp"), []);
+
+    const cleaned = await cleanupOldRecords(env);
+    assert.equal(cleaned.deletedCount, 1);
+    assert.deepEqual(await store.entries("session_expired"), []);
+    assert.deepEqual(
+      (await store.entriesFor(["session_http", "session_mcp", "session_kept", "session_expired"])).map((entry) => entry.sessionId),
+      ["session_kept"],
+    );
+  });
+});

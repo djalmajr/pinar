@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, sep } from "node:path";
 import {
@@ -371,6 +372,80 @@ function formatAssistantProposal(row) {
   };
 }
 
+// SQLite caps the bound parameters of one statement; the IN lists of the pin
+// index reads are cut well below it.
+const PIN_INDEX_IN_CHUNK = 500;
+
+/** BLOB from SQLite (Uint8Array) or base64 from the JSON fallback, as a plain Uint8Array copy. */
+function decodePinIndexVector(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") return new Uint8Array(Buffer.from(value, "base64"));
+  return new Uint8Array(value);
+}
+
+function encodePinIndexVectorJson(vector) {
+  return vector === null ? null : Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength).toString("base64");
+}
+
+function formatPinIndexEntry(row) {
+  return {
+    caption: row.caption ?? null,
+    docHash: row.doc_hash,
+    docText: row.doc_text,
+    model: row.model,
+    number: Number(row.number),
+    ocr: row.ocr ?? null,
+    pinId: row.pin_id,
+    sessionId: row.session_id,
+    truncated: Boolean(row.truncated),
+    updatedAt: row.updated_at,
+    vector: decodePinIndexVector(row.vector),
+  };
+}
+
+/** Rejects the whole replacement before any write: an entry of another session or a vector that is not bytes. */
+function checkPinIndexEntries(sessionId, entries) {
+  for (const entry of entries) {
+    if (entry.sessionId !== sessionId) throw new Error("pin index entry belongs to another session");
+    if (entry.vector !== null && !(entry.vector instanceof Uint8Array)) {
+      throw new Error("pin index vector must be a Uint8Array or null");
+    }
+  }
+}
+
+/** Requested session order first, then pin number, then pin id by code unit (the same order in SQLite and JSON). */
+function orderPinIndexEntries(entries, sessionIds) {
+  const position = new Map(sessionIds.map((id, index) => [id, index]));
+  return entries.sort((left, right) =>
+    position.get(left.sessionId) - position.get(right.sessionId)
+    || left.number - right.number
+    || (left.pinId < right.pinId ? -1 : left.pinId > right.pinId ? 1 : 0)
+  );
+}
+
+/**
+ * Input order, each id once, up to `limit`: a session is stale with no entry
+ * yet, or when its `updatedAt` is newer than its oldest entry's.
+ */
+function stalePinIndexIds(sessions, indexedAt, limit) {
+  const stale = [];
+  const seen = new Set();
+  for (const session of sessions) {
+    if (stale.length >= limit) break;
+    if (seen.has(session.id)) continue;
+    seen.add(session.id);
+    const oldest = indexedAt.get(session.id);
+    if (oldest === undefined || session.updatedAt > oldest) stale.push(session.id);
+  }
+  return stale;
+}
+
+function chunked(values, size) {
+  const chunks = [];
+  for (let index = 0; index < values.length; index += size) chunks.push(values.slice(index, index + size));
+  return chunks;
+}
+
 const PIN_COMMENT_AGENT_NAME_MAX = 64;
 
 function parseAgentName(value) {
@@ -427,6 +502,7 @@ class JsonHistoryDb {
             design_systems: [],
             loop_metrics: [],
             pin_comments: [],
+            pin_index: [],
             pin_review_events: [],
             pin_reviews: [],
             projects: [],
@@ -444,6 +520,7 @@ class JsonHistoryDb {
             design_systems: Array.isArray(stored.design_systems) ? stored.design_systems : [],
             loop_metrics: Array.isArray(stored.loop_metrics) ? stored.loop_metrics : [],
             pin_comments: Array.isArray(stored.pin_comments) ? stored.pin_comments : [],
+            pin_index: Array.isArray(stored.pin_index) ? stored.pin_index : [],
             pin_review_events: Array.isArray(stored.pin_review_events) ? stored.pin_review_events : [],
             pin_reviews: Array.isArray(stored.pin_reviews) ? stored.pin_reviews : [],
             projects: Array.isArray(stored.projects) ? stored.projects : [],
@@ -464,6 +541,7 @@ class JsonHistoryDb {
       design_systems: [],
       loop_metrics: [],
       pin_comments: [],
+      pin_index: [],
       pin_review_events: [],
       pin_reviews: [],
       projects: [],
@@ -484,8 +562,9 @@ class JsonHistoryDb {
    * Atomic persistence of a complete next state: it is serialized to a
    * sibling temp file and renamed onto history.json, so a failed write can
    * never truncate the original file. The pin mutations (addPin/deletePin)
-   * and the assistant conversation mutations (create/append/delete thread,
-   * append message, clearHistory) all persist the next state through this
+   * the assistant conversation mutations (create/append/delete thread,
+   * append message, clearHistory) and the pin index writes (replace and
+   * delete a session's entries) all persist the next state through this
    * helper and commit it to memory only after it returns. IO failures
    * propagate to the caller, which must only commit the state to memory
    * after this returns.
@@ -948,6 +1027,7 @@ class JsonHistoryDb {
     this.data.pin_reviews = this.data.pin_reviews.filter((item) => item.capture_id !== id);
     this.data.pin_review_events = this.data.pin_review_events.filter((item) => item.capture_id !== id);
     this.data.pin_comments = this.data.pin_comments.filter((item) => item.capture_id !== id);
+    this.data.pin_index = this.data.pin_index.filter((item) => item.session_id !== id);
     this._save();
     return previousLength !== this.data.sessions.length;
   }
@@ -961,6 +1041,7 @@ class JsonHistoryDb {
       pin_reviews: [],
       pin_review_events: [],
       pin_comments: [],
+      pin_index: [],
       assistant_proposals: [],
       assistant_threads: [],
       assistant_messages: [],
@@ -1115,6 +1196,81 @@ class JsonHistoryDb {
       .slice(0, limit)
       .reverse()
       .map(({ row }) => formatAssistantMessage(row));
+  }
+
+  listPinIndexEntries(sessionId) {
+    return orderPinIndexEntries(
+      this.data.pin_index.filter((item) => item.session_id === sessionId).map(formatPinIndexEntry),
+      [sessionId],
+    );
+  }
+
+  listPinIndexEntriesFor(sessionIds) {
+    const ids = [...new Set(sessionIds)];
+    const wanted = new Set(ids);
+    return orderPinIndexEntries(
+      this.data.pin_index.filter((item) => wanted.has(item.session_id)).map(formatPinIndexEntry),
+      ids,
+    );
+  }
+
+  /**
+   * Same keys as the SQLite columns; the vector is base64 and `truncated` a
+   * boolean. A duplicate pin id is refused as the SQLite primary key would,
+   * and the next state is persisted before memory commits, so a refused or
+   * failed write leaves the previous entries in place.
+   */
+  replacePinIndexSession(sessionId, entries) {
+    checkPinIndexEntries(sessionId, entries);
+    const pinIds = new Set();
+    for (const entry of entries) {
+      if (pinIds.has(entry.pinId)) throw new Error("duplicate pin index entry");
+      pinIds.add(entry.pinId);
+    }
+    const nextData = {
+      ...this.data,
+      pin_index: [
+        ...this.data.pin_index.filter((item) => item.session_id !== sessionId),
+        ...entries.map((entry) => ({
+          caption: entry.caption,
+          doc_hash: entry.docHash,
+          doc_text: entry.docText,
+          model: entry.model,
+          number: entry.number,
+          ocr: entry.ocr,
+          owner_id: LOCAL_OWNER_ID,
+          pin_id: entry.pinId,
+          session_id: sessionId,
+          truncated: entry.truncated,
+          updated_at: entry.updatedAt,
+          vector: encodePinIndexVectorJson(entry.vector),
+        })),
+      ],
+    };
+    this._savePinState(nextData);
+    this.data = nextData;
+  }
+
+  deletePinIndexSession(sessionId) {
+    if (!this.data.pin_index.some((item) => item.session_id === sessionId)) return;
+    const nextData = {
+      ...this.data,
+      pin_index: this.data.pin_index.filter((item) => item.session_id !== sessionId),
+    };
+    this._savePinState(nextData);
+    this.data = nextData;
+  }
+
+  stalePinIndexSessions({ limit, sessions }) {
+    if (!(limit > 0) || sessions.length === 0) return [];
+    const wanted = new Set(sessions.map((session) => session.id));
+    const indexedAt = new Map();
+    for (const item of this.data.pin_index) {
+      if (!wanted.has(item.session_id)) continue;
+      const oldest = indexedAt.get(item.session_id);
+      if (oldest === undefined || item.updated_at < oldest) indexedAt.set(item.session_id, item.updated_at);
+    }
+    return stalePinIndexIds(sessions, indexedAt, limit);
   }
 
   listProjects() {
@@ -1520,6 +1676,22 @@ class SqliteHistoryDb {
         updated_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_assistant_proposals_thread_created ON assistant_proposals(thread_id, created_at);
+      CREATE TABLE IF NOT EXISTS pin_index (
+        session_id TEXT NOT NULL,
+        pin_id TEXT NOT NULL,
+        owner_id TEXT NOT NULL,
+        number INTEGER NOT NULL,
+        model TEXT NOT NULL,
+        vector BLOB,
+        doc_text TEXT NOT NULL,
+        doc_hash TEXT NOT NULL,
+        truncated INTEGER NOT NULL DEFAULT 0,
+        caption TEXT,
+        ocr TEXT,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (session_id, pin_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_pin_index_owner ON pin_index(owner_id, session_id);
     `);
     const projectColumns = new Set(
       this.db.prepare("PRAGMA table_info(projects)").all().map((row) => row.name),
@@ -2120,11 +2292,12 @@ class SqliteHistoryDb {
     this.db.prepare("DELETE FROM pin_review_events WHERE capture_id = ?").run(id);
     this.db.prepare("DELETE FROM pin_reviews WHERE capture_id = ?").run(id);
     this.db.prepare("DELETE FROM pin_comments WHERE capture_id = ?").run(id);
+    this.db.prepare("DELETE FROM pin_index WHERE session_id = ?").run(id);
     return this.db.prepare("DELETE FROM sessions WHERE id = ?").run(id).changes > 0;
   }
 
   clearHistory() {
-    this.db.exec("DELETE FROM loop_metrics; DELETE FROM agent_pin_results; DELETE FROM agent_executions; DELETE FROM pin_review_events; DELETE FROM pin_reviews; DELETE FROM pin_comments; DELETE FROM assistant_proposals; DELETE FROM assistant_messages; DELETE FROM assistant_threads; DELETE FROM sessions;");
+    this.db.exec("DELETE FROM loop_metrics; DELETE FROM agent_pin_results; DELETE FROM agent_executions; DELETE FROM pin_review_events; DELETE FROM pin_reviews; DELETE FROM pin_comments; DELETE FROM pin_index; DELETE FROM assistant_proposals; DELETE FROM assistant_messages; DELETE FROM assistant_threads; DELETE FROM sessions;");
     return true;
   }
 
@@ -2280,6 +2453,81 @@ class SqliteHistoryDb {
     sql += " RETURNING *";
     const row = this.db.prepare(sql).get(...params);
     return row ? formatAssistantProposal(row) : null;
+  }
+
+  listPinIndexEntries(sessionId) {
+    return orderPinIndexEntries(
+      this.db.prepare("SELECT * FROM pin_index WHERE session_id = ?").all(sessionId).map(formatPinIndexEntry),
+      [sessionId],
+    );
+  }
+
+  listPinIndexEntriesFor(sessionIds) {
+    const ids = [...new Set(sessionIds)];
+    const entries = [];
+    for (const chunk of chunked(ids, PIN_INDEX_IN_CHUNK)) {
+      const placeholders = chunk.map(() => "?").join(", ");
+      entries.push(
+        ...this.db.prepare(`SELECT * FROM pin_index WHERE session_id IN (${placeholders})`).all(...chunk).map(formatPinIndexEntry),
+      );
+    }
+    return orderPinIndexEntries(entries, ids);
+  }
+
+  /** One DELETE plus the INSERTs in a single transaction: a failing INSERT rolls the DELETE back. */
+  replacePinIndexSession(sessionId, entries) {
+    checkPinIndexEntries(sessionId, entries);
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare("DELETE FROM pin_index WHERE session_id = ?").run(sessionId);
+      const insert = this.db.prepare(`
+        INSERT INTO pin_index (session_id, pin_id, owner_id, number, model, vector, doc_text, doc_hash, truncated, caption, ocr, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const entry of entries) {
+        insert.run(
+          sessionId,
+          entry.pinId,
+          LOCAL_OWNER_ID,
+          entry.number,
+          entry.model,
+          entry.vector,
+          entry.docText,
+          entry.docHash,
+          entry.truncated ? 1 : 0,
+          entry.caption,
+          entry.ocr,
+          entry.updatedAt,
+        );
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      try {
+        this.db.exec("ROLLBACK");
+      } catch {
+        // Keep the original error; the transaction is already doomed.
+      }
+      throw error;
+    }
+  }
+
+  deletePinIndexSession(sessionId) {
+    this.db.prepare("DELETE FROM pin_index WHERE session_id = ?").run(sessionId);
+  }
+
+  stalePinIndexSessions({ limit, sessions }) {
+    if (!(limit > 0) || sessions.length === 0) return [];
+    const indexedAt = new Map();
+    for (const chunk of chunked([...new Set(sessions.map((session) => session.id))], PIN_INDEX_IN_CHUNK)) {
+      const placeholders = chunk.map(() => "?").join(", ");
+      const rows = this.db.prepare(`
+        SELECT session_id, MIN(updated_at) AS updated_at FROM pin_index
+        WHERE session_id IN (${placeholders})
+        GROUP BY session_id
+      `).all(...chunk);
+      for (const row of rows) indexedAt.set(row.session_id, row.updated_at);
+    }
+    return stalePinIndexIds(sessions, indexedAt, limit);
   }
 
   listProjects() {

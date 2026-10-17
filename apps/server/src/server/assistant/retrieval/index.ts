@@ -125,6 +125,9 @@ export async function indexSession(
   // (canonical, see canonicalTime)
   options: { notBefore?: string } = {},
 ): Promise<{ captioned: boolean; embedded: number; pins: number }> {
+  // Read before the session, so an edit mark that arrives while this
+  // indexing runs is newer than the one it clears.
+  const readMark = deps.store.readMark ? await deps.store.readMark(sessionId) : undefined;
   const session = await deps.source.session(sessionId);
   if (!session) return { captioned: false, embedded: 0, pins: 0 };
   const { pinIds, pins } = session;
@@ -214,7 +217,7 @@ export async function indexSession(
     updatedAt,
     vector: vectors.get(index) ?? null,
   }));
-  await deps.store.replaceSession(sessionId, entries);
+  await deps.store.replaceSession(sessionId, entries, ...(readMark === undefined ? [] : [{ readMark }]));
   return { captioned, embedded, pins: entries.length };
 }
 

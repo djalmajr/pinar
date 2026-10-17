@@ -129,7 +129,7 @@ function insertCollaborator(db: Database, id: string, collectionId: string, owne
 }
 
 function pinIndexRows(db: Database) {
-  return db.query("SELECT session_id, pin_id, owner_id, model, caption FROM pin_index ORDER BY session_id, pin_id").all() as Array<{
+  return db.query("SELECT session_id, pin_id, owner_id, model, caption FROM pin_index WHERE pin_id <> '' ORDER BY session_id, pin_id").all() as Array<{
     caption: string | null;
     model: string;
     owner_id: string;
@@ -609,7 +609,7 @@ describe("Cloud pin index invalidation", () => {
 
   function documents() {
     return Object.fromEntries(
-      (db.query("SELECT pin_id, doc_text FROM pin_index WHERE session_id = 'session_one' ORDER BY pin_id").all() as Array<{ doc_text: string; pin_id: string }>)
+      (db.query("SELECT pin_id, doc_text FROM pin_index WHERE session_id = 'session_one' AND pin_id <> '' ORDER BY pin_id").all() as Array<{ doc_text: string; pin_id: string }>)
         .map((row) => [row.pin_id, row.doc_text]),
     );
   }
@@ -684,7 +684,7 @@ describe("Cloud pin index invalidation", () => {
 
   test("after a note edit only that pin is embedded again; the other keeps its vector and caption", async () => {
     const context = await indexedSession();
-    const before = db.query("SELECT pin_id, vector, caption, doc_hash FROM pin_index WHERE session_id = 'session_one' ORDER BY pin_id").all() as Array<Record<string, unknown>>;
+    const before = db.query("SELECT pin_id, vector, caption, doc_hash FROM pin_index WHERE session_id = 'session_one' AND pin_id <> '' ORDER BY pin_id").all() as Array<Record<string, unknown>>;
     const embeddings = context.appliance.embeddings().filter((call) => call.body?.prompt_name === "document").length;
     const visions = context.appliance.visions().length;
     await context.host.callTool("pinar.edit_pin_note", { comment: "Nota trocada", pinId: "p1", sessionId: "session_one" });
@@ -694,7 +694,7 @@ describe("Cloud pin index invalidation", () => {
     assert.equal(documentsCalls[0]!.body!.input.length, 1, "only the edited pin");
     assert.ok(String(documentsCalls[0]!.body!.input[0]).includes("Nota trocada"));
     assert.equal(context.appliance.visions().length - visions, 1, "one vision call: a pin comment changed");
-    const after = db.query("SELECT pin_id, vector, caption, doc_hash FROM pin_index WHERE session_id = 'session_one' ORDER BY pin_id").all() as Array<Record<string, unknown>>;
+    const after = db.query("SELECT pin_id, vector, caption, doc_hash FROM pin_index WHERE session_id = 'session_one' AND pin_id <> '' ORDER BY pin_id").all() as Array<Record<string, unknown>>;
     assert.deepEqual(after[1], before[1], "p2 keeps vector, caption and document");
     assert.notDeepEqual(after[0]!.doc_hash, before[0]!.doc_hash);
     assert.equal(after[0]!.caption, "legenda 1");

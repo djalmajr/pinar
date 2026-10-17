@@ -183,12 +183,14 @@ async function assertOwnerIsolation(ownerA: PinIndexStore, ownerB: PinIndexStore
   assert.deepEqual(await ownerA.entries("idx_owner_a"), [entryA]);
 }
 
-const EPOCH = "1970-01-01T00:00:00.000Z";
 
 /**
- * markCloudPinIndexSessionStale stamps every entry of the session with the
- * epoch, whoever owns it, keeps every other field (so indexSession can reuse
- * captions and vectors), and leaves other sessions alone.
+ * markCloudPinIndexSessionStale marks the session dirty, whoever owns it:
+ * the session is stale whatever the times say, its entries keep every field
+ * (so indexSession can reuse captions and vectors), the mark is never read
+ * as an entry, and other sessions are left alone. A replacement after a
+ * fresh read clears the mark; one whose read came before a newer mark
+ * keeps it.
  */
 async function assertMarkStale(env: { DB?: AssistantD1Database }) {
   const ownerA = cloudPinIndexStore(env, "usr_a");
@@ -204,10 +206,79 @@ async function assertMarkStale(env: { DB?: AssistantD1Database }) {
 
   await markCloudPinIndexSessionStale(env, "idx_mark");
   assert.deepEqual(await ownerA.staleSessions({ limit: 10, sessions: listed }), ["idx_mark"]);
-  const marked = await ownerA.entries("idx_mark");
-  assert.deepEqual(marked, entries.map((entry) => ({ ...entry, updatedAt: EPOCH })));
+  assert.deepEqual(await ownerA.entries("idx_mark"), entries, "the entries are untouched and the mark is not one");
+  assert.deepEqual(await ownerA.entriesFor(["idx_mark"]), entries);
   assert.deepEqual(await ownerB.staleSessions({ limit: 10, sessions: [{ id: "idx_other", updatedAt: INDEXED_AT }] }), []);
   assert.equal((await ownerB.entries("idx_other"))[0]!.updatedAt, INDEXED_AT);
+
+  // Even when the listed time is the epoch itself, the mark makes it stale.
+  assert.deepEqual(await ownerA.staleSessions({ limit: 10, sessions: [{ id: "idx_mark", updatedAt: new Date(0).toISOString() }] }), ["idx_mark"]);
+
+  // A replacement that read the current mark first applies and leaves the
+  // mark clean (the row and its token stay for the session's lifetime).
+  const current = await ownerA.readMark!("idx_mark");
+  assert.ok(current);
+  await ownerA.replaceSession("idx_mark", entries, { readMark: current });
+  assert.deepEqual(await ownerA.staleSessions({ limit: 10, sessions: listed }), []);
+  assert.equal(await ownerA.readMark!("idx_mark"), current);
+
+  // Two indexings overlap: A reads mark 1, a write makes mark 2, B reads
+  // mark 2 and writes the new text, then A finishes last with the old one.
+  // A changes nothing: B's text stays, and the session is not stale.
+  await markCloudPinIndexSessionStale(env, "idx_mark");
+  const readByA = await ownerA.readMark!("idx_mark");
+  await markCloudPinIndexSessionStale(env, "idx_mark");
+  const readByB = await ownerA.readMark!("idx_mark");
+  assert.ok(readByA && readByB && readByA !== readByB);
+  const newer = entries.map((entry) => ({ ...entry, docText: `${entry.docText} (new)` }));
+  await ownerA.replaceSession("idx_mark", newer, { readMark: readByB });
+  await ownerA.replaceSession("idx_mark", entries, { readMark: readByA });
+  assert.deepEqual(await ownerA.entries("idx_mark"), newer, "the indexing that read before the edit lost");
+  assert.deepEqual(await ownerA.staleSessions({ limit: 10, sessions: listed }), []);
+
+  // The other order: A (old read) finishes first and changes nothing, so
+  // the session stays stale until B, with the newer read, writes.
+  await markCloudPinIndexSessionStale(env, "idx_mark");
+  const oldRead = await ownerA.readMark!("idx_mark");
+  await markCloudPinIndexSessionStale(env, "idx_mark");
+  await ownerA.replaceSession("idx_mark", entries, { readMark: oldRead });
+  assert.deepEqual(await ownerA.entries("idx_mark"), newer);
+  assert.deepEqual(await ownerA.staleSessions({ limit: 10, sessions: listed }), ["idx_mark"], "the newer mark keeps it stale");
+  await ownerA.replaceSession("idx_mark", entries, { readMark: await ownerA.readMark!("idx_mark") });
+  assert.deepEqual(await ownerA.entries("idx_mark"), entries);
+  assert.deepEqual(await ownerA.staleSessions({ limit: 10, sessions: listed }), []);
+
+  // A first indexing that read an unmarked session loses to an edit that
+  // lands before it writes; the edit is never hidden.
+  await ownerA.replaceSession("idx_first", [pinIndexEntry("idx_first", "idx_f_p1")]);
+  await ownerA.deleteSession("idx_first");
+  const firstRead = await ownerA.readMark!("idx_first");
+  assert.equal(firstRead, null);
+  await ownerA.replaceSession("idx_first", [pinIndexEntry("idx_first", "idx_f_p1")], { readMark: firstRead });
+  assert.deepEqual(await ownerA.staleSessions({ limit: 10, sessions: [{ id: "idx_first", updatedAt: INDEXED_AT }] }), [], "unmarked and unchanged: it applies");
+
+  // Without readMark the replacement is unconditional and leaves the mark.
+  await markCloudPinIndexSessionStale(env, "idx_mark");
+  await ownerA.replaceSession("idx_mark", entries);
+  assert.deepEqual(await ownerA.staleSessions({ limit: 10, sessions: listed }), ["idx_mark"]);
+
+  // Another owner reads the session's mark but never clears it, since its
+  // store holds no entries of the session.
+  await ownerB.replaceSession("idx_other", [pinIndexEntry("idx_other", "idx_o_p1")], { readMark: await ownerB.readMark!("idx_other") });
+  assert.deepEqual(await ownerA.staleSessions({ limit: 10, sessions: listed }), ["idx_mark"]);
+
+  // Emptied, the session has no entries: stale as before, its mark kept.
+  await ownerA.replaceSession("idx_mark", [], { readMark: await ownerA.readMark!("idx_mark") });
+  assert.deepEqual(await ownerA.staleSessions({ limit: 10, sessions: listed }), ["idx_mark"]);
+  assert.deepEqual(await ownerA.entries("idx_mark"), []);
+
+  // A pin whose id reads like a marker is an ordinary pin; an entry
+  // without a pin id is refused.
+  const lookalike = [pinIndexEntry("idx_look", "__pinar_dirty_mark__")];
+  await ownerA.replaceSession("idx_look", lookalike);
+  assert.deepEqual(await ownerA.entries("idx_look"), lookalike);
+  assert.deepEqual(await ownerA.staleSessions({ limit: 10, sessions: [{ id: "idx_look", updatedAt: INDEXED_AT }] }), []);
+  await assert.rejects(ownerA.replaceSession("idx_look", [pinIndexEntry("idx_look", "")]), /no pin id/);
 
   // A session without entries: nothing to mark, nothing created.
   await markCloudPinIndexSessionStale(env, "idx_none");
@@ -217,7 +288,7 @@ async function assertMarkStale(env: { DB?: AssistantD1Database }) {
 describe("markCloudPinIndexSessionStale", () => {
   beforeEach(() => resetCloudPinIndexMemoryForTests());
 
-  test("D1: stamps the session's entries with the epoch and keeps the rest", async () => {
+  test("D1: marks the session dirty, keeps its entries, and survives a racing replacement", async () => {
     const db = migratedDatabase();
     try {
       await assertMarkStale({ DB: sqliteD1(db) });
@@ -226,7 +297,7 @@ describe("markCloudPinIndexSessionStale", () => {
     }
   });
 
-  test("memory: stamps the session's entries with the epoch and keeps the rest", async () => {
+  test("memory: marks the session dirty, keeps its entries, and survives a racing replacement", async () => {
     await assertMarkStale({ DB: undefined });
   });
 
@@ -275,7 +346,7 @@ describe("cloudPinIndexStore over D1", () => {
     ]);
     assert.deepEqual(events, [
       "batch(3)",
-      "batch-run DELETE FROM pin_index WHERE session_id = ? AND owner_id = ?",
+      "batch-run DELETE FROM pin_index WHERE session_id = ? AND owner_id = ? AND pin_id <> ''",
       "batch-run INSERT INTO pin_index",
       "batch-run INSERT INTO pin_index",
     ]);

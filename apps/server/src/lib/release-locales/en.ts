@@ -21,6 +21,30 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.8.0": {
+      title: "An assistant for your captures",
+      summary:
+        "A chat in the workspace answers questions about your work and organizes it once you confirm, a capture setting picks the collection for you, every Pinar Cloud AI feature uses credits, and the Privacy Policy, the Terms of Service, and the Service Providers and Subprocessors page were updated, with renewed acceptance for Pinar Cloud.",
+      changes: {
+        "assistant": {
+          title: "Ask the assistant about your captures",
+          description: "A new chat in the workspace, in the local app and in Pinar Cloud, answers questions about your projects, collections, sessions, batches, and pins, including what appears in a pin’s screenshot. It also creates, renames, moves, deletes, comments on, concludes, and reopens items, always as a proposal: nothing changes until you confirm, and some actions can be undone from the same card. In the local app it uses the AI you set up in Settings.",
+        },
+        "automatic-capture-destination": {
+          title: "Let Pinar choose the collection for new captures",
+          description: "Turn on “Choose the collection automatically” in Settings → Capture and Pinar files each new capture into one of your existing collections. When it is not sure, the capture goes to the Inbox, and captures from the same batch stay together. Sessions filed this way show a mark; moving the session corrects the choice and removes the mark. The option needs AI to be available. While the option stays on without AI available, new captures go to the Inbox; to choose the destination yourself, turn it off.",
+        },
+        "assistant-credits": {
+          title: "Every Pinar Cloud AI feature uses credits",
+          description: "In Pinar Cloud, every AI call now happens inside a charged action. The assistant is part of Pro and uses 3 credits per message, and a failed reply gives them back; confirming or undoing a proposal costs nothing. Generating the written reproduction steps now uses 1 credit per generation; a generation that fails gives it back, and without a credit balance the request is refused. With the automatic collection choice, each capture whose collection the AI chooses uses 1 credit, even when the answer is the Inbox; a failed or expired choice gives it back, and without a credit balance the AI is not called and the capture goes to the Inbox. Re-uploading the same capture does not charge again. Indexing no longer runs in the background: pins are indexed only while the assistant answers a message, which its 3 credits already cover, and the automatic choice uses the index that already exists.",
+        },
+        "legal-update": {
+          title: "Updated legal documents",
+          description:
+            "The Privacy Policy, the Terms of Service, and the Service Providers and Subprocessors page were updated. They now describe the Pinar Cloud AI features that reach the AI providers through the Vercel AI Gateway, your role as controller of the third-party data in your content while Pinar acts as a processor, that the hosted service runs on servers in Germany, and the cookies the service uses: Pinar uses no advertising or analytics cookies. If you use Pinar Cloud, you accept the updated documents again.",
+        },
+      },
+    },
     "v0.7.4": {
       title: "Pinar Cloud shows the right button from the start",
       summary:
@@ -611,24 +635,6 @@ const locale = {
           description:
             "Sensitive-field redaction, manual masks, versioned consent, and published service policies established the cloud safety boundary.",
         },
-      },
-    },
-  },
-  upcoming: {
-    title: "An assistant for your captures",
-    summary: "Next up: a chat that answers questions about your work and organizes it once you confirm, a capture setting that picks the collection for you, and assistant messages in Pinar Cloud that use AI credits.",
-    changes: {
-      "assistant": {
-        title: "Ask the assistant about your captures",
-        description: "A new chat in the workspace, in the local app and in Pinar Cloud, answers questions about your projects, collections, sessions, batches, and pins, including what appears in a pin’s screenshot. It also creates, renames, moves, deletes, comments on, concludes, and reopens items, always as a proposal: nothing changes until you confirm, and some actions can be undone from the same card. In the local app it uses the AI you set up in Settings.",
-      },
-      "automatic-capture-destination": {
-        title: "Let Pinar choose the collection for new captures",
-        description: "Turn on “Choose the collection automatically” in Settings → Capture and Pinar files each new capture into one of your existing collections. When it is not sure, the capture goes to the Inbox, and captures from the same batch stay together. Sessions filed this way show a mark; moving the session corrects the choice and removes the mark. The option needs AI to be available. While the option stays on without AI available, new captures go to the Inbox; to choose the destination yourself, turn it off.",
-      },
-      "assistant-credits": {
-        title: "Every Pinar Cloud AI feature uses credits",
-        description: "In Pinar Cloud, every AI call now happens inside a charged action. The assistant is part of Pro and uses 3 credits per message, and a failed reply gives them back; confirming or undoing a proposal costs nothing. Generating the written reproduction steps now uses 1 credit per generation; a generation that fails gives it back, and without a credit balance the request is refused. With the automatic collection choice, each capture whose collection the AI chooses uses 1 credit, even when the answer is the Inbox; a failed or expired choice gives it back, and without a credit balance the AI is not called and the capture goes to the Inbox. Re-uploading the same capture does not charge again. Indexing no longer runs in the background: pins are indexed only while the assistant answers a message, which its 3 credits already cover, and the automatic choice uses the index that already exists.",
       },
     },
   },

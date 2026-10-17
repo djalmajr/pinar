@@ -23,6 +23,30 @@ const locale = {
     whatChanged: "O que mudou",
   },
   releases: {
+    "v0.8.0": {
+      title: "Um assistente para as suas capturas",
+      summary:
+        "Um chat no workspace responde sobre o seu trabalho e o organiza depois da sua confirmação, uma opção de captura escolhe a coleção por você, todos os recursos de IA do Pinar Cloud usam créditos e a Política de Privacidade, os Termos de Serviço e a página Provedores de Serviço e Suboperadores foram atualizados, com novo aceite para o Pinar Cloud.",
+      changes: {
+        "assistant": {
+          title: "Pergunte ao assistente sobre as suas capturas",
+          description: "Um novo chat no workspace, no aplicativo local e no Pinar Cloud, responde a perguntas sobre seus projetos, coleções, sessões, lotes e pins, inclusive sobre o que aparece na captura de tela de um pin. Ele também cria, renomeia, move, apaga, comenta, conclui e reabre itens, sempre como proposta: nada muda até você confirmar, e algumas ações podem ser desfeitas no próprio cartão. No aplicativo local, ele usa a IA que você configurou nas Configurações.",
+        },
+        "automatic-capture-destination": {
+          title: "O Pinar escolhe a coleção das capturas novas",
+          description: "Ligue “Escolher a coleção automaticamente” em Configurações → Captura e o Pinar coloca cada captura nova numa das suas coleções. Na dúvida, a captura vai para a Caixa de entrada, e as capturas de um mesmo lote ficam juntas. As sessões arquivadas assim mostram um selo; mover a sessão corrige a escolha e tira o selo. A opção precisa da IA disponível. Enquanto a opção ficar ligada sem a IA disponível, as capturas novas vão para a Caixa de entrada; para escolher o destino à mão, desligue a opção.",
+        },
+        "assistant-credits": {
+          title: "Todos os recursos de IA do Pinar Cloud usam créditos",
+          description: "No Pinar Cloud, toda chamada de IA agora acontece dentro de uma ação cobrada. O assistente faz parte do Pro e usa 3 créditos por mensagem, e uma resposta que falha devolve os créditos; confirmar ou desfazer uma proposta não custa nada. Gerar os passos escritos de reprodução agora usa 1 crédito por geração; uma geração que falha devolve o crédito, e sem saldo a resposta é recusada. Com a escolha automática da coleção, cada captura cuja coleção a IA escolhe usa 1 crédito, mesmo quando a resposta é a Caixa de entrada; uma escolha que falha ou estoura o prazo devolve o crédito, e sem saldo a IA não é chamada e a captura vai para a Caixa de entrada. Reenviar a mesma captura não cobra de novo. A indexação não acontece mais em segundo plano: os pins são indexados só enquanto o assistente responde a uma mensagem, o que os 3 créditos dela já cobrem, e a escolha automática usa o índice que já existe.",
+        },
+        "legal-update": {
+          title: "Documentos legais atualizados",
+          description:
+            "A Política de Privacidade, os Termos de Serviço e a página Provedores de Serviço e Suboperadores foram atualizados. Agora descrevem os recursos de IA do Pinar Cloud, que acessam os provedores de IA pelo Vercel AI Gateway, o seu papel como controlador dos dados de terceiros no seu conteúdo enquanto o Pinar atua como operador, que a hospedagem do serviço fica na Alemanha e os cookies que o serviço usa: o Pinar não usa cookies de publicidade nem de análise. Se você usa o Pinar Cloud, aceita os documentos atualizados de novo.",
+        },
+      },
+    },
     "v0.7.4": {
       title: "O Pinar Cloud mostra o botão certo desde o início",
       summary:
@@ -613,24 +637,6 @@ const locale = {
           description:
             "Redação de campos sensíveis, máscaras manuais, consentimento versionado e políticas publicadas estabeleceram o limite de segurança da nuvem.",
         },
-      },
-    },
-  },
-  upcoming: {
-    title: "Um assistente para as suas capturas",
-    summary: "Na próxima versão: um chat que responde sobre o seu trabalho e o organiza depois da sua confirmação, uma opção de captura que escolhe a coleção por você e mensagens ao assistente no Pinar Cloud que usam créditos de IA.",
-    changes: {
-      "assistant": {
-        title: "Pergunte ao assistente sobre as suas capturas",
-        description: "Um novo chat no workspace, no aplicativo local e no Pinar Cloud, responde a perguntas sobre seus projetos, coleções, sessões, lotes e pins, inclusive sobre o que aparece na captura de tela de um pin. Ele também cria, renomeia, move, apaga, comenta, conclui e reabre itens, sempre como proposta: nada muda até você confirmar, e algumas ações podem ser desfeitas no próprio cartão. No aplicativo local, ele usa a IA que você configurou nas Configurações.",
-      },
-      "automatic-capture-destination": {
-        title: "O Pinar escolhe a coleção das capturas novas",
-        description: "Ligue “Escolher a coleção automaticamente” em Configurações → Captura e o Pinar coloca cada captura nova numa das suas coleções. Na dúvida, a captura vai para a Caixa de entrada, e as capturas de um mesmo lote ficam juntas. As sessões arquivadas assim mostram um selo; mover a sessão corrige a escolha e tira o selo. A opção precisa da IA disponível. Enquanto a opção ficar ligada sem a IA disponível, as capturas novas vão para a Caixa de entrada; para escolher o destino à mão, desligue a opção.",
-      },
-      "assistant-credits": {
-        title: "Todos os recursos de IA do Pinar Cloud usam créditos",
-        description: "No Pinar Cloud, toda chamada de IA agora acontece dentro de uma ação cobrada. O assistente faz parte do Pro e usa 3 créditos por mensagem, e uma resposta que falha devolve os créditos; confirmar ou desfazer uma proposta não custa nada. Gerar os passos escritos de reprodução agora usa 1 crédito por geração; uma geração que falha devolve o crédito, e sem saldo a resposta é recusada. Com a escolha automática da coleção, cada captura cuja coleção a IA escolhe usa 1 crédito, mesmo quando a resposta é a Caixa de entrada; uma escolha que falha ou estoura o prazo devolve o crédito, e sem saldo a IA não é chamada e a captura vai para a Caixa de entrada. Reenviar a mesma captura não cobra de novo. A indexação não acontece mais em segundo plano: os pins são indexados só enquanto o assistente responde a uma mensagem, o que os 3 créditos dela já cobrem, e a escolha automática usa o índice que já existe.",
       },
     },
   },

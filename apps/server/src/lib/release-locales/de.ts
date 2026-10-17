@@ -23,6 +23,30 @@ const locale = {
     whatChanged: "Was sich geändert hat",
   },
   releases: {
+    "v0.8.0": {
+      title: "Ein Assistent für deine Aufnahmen",
+      summary:
+        "Ein Chat im Arbeitsbereich beantwortet Fragen zu deiner Arbeit und ordnet sie nach deiner Bestätigung, eine Aufnahmeoption wählt die Sammlung für dich, jede KI-Funktion in Pinar Cloud verbraucht Credits und die Datenschutzerklärung, die Nutzungsbedingungen und die Seite „Service Providers and Subprocessors“ wurden aktualisiert, mit erneuter Zustimmung für Pinar Cloud.",
+      changes: {
+        "assistant": {
+          title: "Frag den Assistenten zu deinen Aufnahmen",
+          description: "Ein neuer Chat im Arbeitsbereich, in der lokalen App und in Pinar Cloud, beantwortet Fragen zu deinen Projekten, Sammlungen, Sitzungen, Stapeln und Pins, auch dazu, was auf dem Screenshot eines Pins zu sehen ist. Er erstellt, benennt um, verschiebt, löscht, kommentiert, schließt ab und öffnet wieder, immer als Vorschlag: Nichts ändert sich, bevor du bestätigst, und manche Aktionen lassen sich auf derselben Karte rückgängig machen. In der lokalen App nutzt er die KI, die du in den Einstellungen eingerichtet hast.",
+        },
+        "automatic-capture-destination": {
+          title: "Pinar wählt die Sammlung für neue Aufnahmen",
+          description: "Schalte „Sammlung automatisch wählen“ in Einstellungen → Aufnahme ein, und Pinar legt jede neue Aufnahme in einer deiner Sammlungen ab. Im Zweifel landet die Aufnahme im Posteingang, und Aufnahmen aus demselben Stapel bleiben zusammen. So abgelegte Sitzungen zeigen eine Markierung; das Verschieben der Sitzung korrigiert die Wahl und entfernt die Markierung. Die Option braucht verfügbare KI. Solange die Option ohne verfügbare KI eingeschaltet bleibt, landen neue Aufnahmen im Posteingang; um das Ziel selbst zu wählen, schalte sie aus.",
+        },
+        "assistant-credits": {
+          title: "Jede KI-Funktion von Pinar Cloud verbraucht Credits",
+          description: "In Pinar Cloud findet jeder KI-Aufruf jetzt innerhalb einer gebuchten Aktion statt. Der Assistent gehört zu Pro und verbraucht 3 KI-Credits pro Nachricht, und eine fehlgeschlagene Antwort gibt sie zurück; einen Vorschlag zu bestätigen oder rückgängig zu machen kostet nichts. Das Erzeugen der ausformulierten Reproduktionsschritte verbraucht jetzt 1 Credit pro Generation; eine fehlgeschlagene Generation erstattet ihn, und ohne Guthaben wird die Anfrage abgewiesen. Bei der automatischen Sammlungswahl verbraucht jede Aufnahme, für die die KI die Sammlung wählt, 1 Credit – auch wenn die Antwort der Posteingang ist; eine fehlgeschlagene oder abgelaufene Wahl erstattet ihn, und ohne Guthaben wird die KI nicht aufgerufen und die Aufnahme landet im Posteingang. Dieselbe Aufnahme erneut hochzuladen kostet nichts. Die Indexierung läuft nicht mehr im Hintergrund: Pins werden nur indexiert, während der Assistent auf eine Nachricht antwortet, was deren 3 Credits schon abdecken; die automatische Wahl nutzt den vorhandenen Index.",
+        },
+        "legal-update": {
+          title: "Aktualisierte Rechtsdokumente",
+          description:
+            "Die Datenschutzerklärung, die Nutzungsbedingungen und die Seite „Service Providers and Subprocessors“ wurden aktualisiert. Sie beschreiben jetzt die KI-Funktionen von Pinar Cloud, die über das Vercel AI Gateway auf KI-Anbieter zugreifen, dass du für die Daten Dritter in deinen Inhalten der Verantwortliche bleibst, während Pinar als Auftragsverarbeiter handelt, dass der gehostete Dienst auf Servern in Deutschland läuft und die Cookies, die der Dienst verwendet: Pinar verwendet keine Werbe- oder Analyse-Cookies. Wenn du Pinar Cloud nutzt, stimmst du den aktualisierten Dokumenten erneut zu.",
+        },
+      },
+    },
     "v0.7.4": {
       title: "Pinar Cloud zeigt von Anfang an die richtige Schaltfläche",
       summary:
@@ -596,24 +620,6 @@ const locale = {
           description:
             "Schwärzung sensibler Felder, manuelle Masken, versionierte Zustimmung und veröffentlichte Dienstrichtlinien zogen die Sicherheitsgrenze der Cloud.",
         },
-      },
-    },
-  },
-  upcoming: {
-    title: "Ein Assistent für deine Aufnahmen",
-    summary: "Als Nächstes: ein Chat, der Fragen zu deiner Arbeit beantwortet und sie nach deiner Bestätigung ordnet, eine Aufnahmeoption, die die Sammlung für dich wählt, und Nachrichten an den Assistenten in Pinar Cloud, die KI-Credits verbrauchen.",
-    changes: {
-      "assistant": {
-        title: "Frag den Assistenten zu deinen Aufnahmen",
-        description: "Ein neuer Chat im Arbeitsbereich, in der lokalen App und in Pinar Cloud, beantwortet Fragen zu deinen Projekten, Sammlungen, Sitzungen, Stapeln und Pins, auch dazu, was auf dem Screenshot eines Pins zu sehen ist. Er erstellt, benennt um, verschiebt, löscht, kommentiert, schließt ab und öffnet wieder, immer als Vorschlag: Nichts ändert sich, bevor du bestätigst, und manche Aktionen lassen sich auf derselben Karte rückgängig machen. In der lokalen App nutzt er die KI, die du in den Einstellungen eingerichtet hast.",
-      },
-      "automatic-capture-destination": {
-        title: "Pinar wählt die Sammlung für neue Aufnahmen",
-        description: "Schalte „Sammlung automatisch wählen“ in Einstellungen → Aufnahme ein, und Pinar legt jede neue Aufnahme in einer deiner Sammlungen ab. Im Zweifel landet die Aufnahme im Posteingang, und Aufnahmen aus demselben Stapel bleiben zusammen. So abgelegte Sitzungen zeigen eine Markierung; das Verschieben der Sitzung korrigiert die Wahl und entfernt die Markierung. Die Option braucht verfügbare KI. Solange die Option ohne verfügbare KI eingeschaltet bleibt, landen neue Aufnahmen im Posteingang; um das Ziel selbst zu wählen, schalte sie aus.",
-      },
-      "assistant-credits": {
-        title: "Jede KI-Funktion von Pinar Cloud verbraucht Credits",
-        description: "In Pinar Cloud findet jeder KI-Aufruf jetzt innerhalb einer gebuchten Aktion statt. Der Assistent gehört zu Pro und verbraucht 3 KI-Credits pro Nachricht, und eine fehlgeschlagene Antwort gibt sie zurück; einen Vorschlag zu bestätigen oder rückgängig zu machen kostet nichts. Das Erzeugen der ausformulierten Reproduktionsschritte verbraucht jetzt 1 Credit pro Generation; eine fehlgeschlagene Generation erstattet ihn, und ohne Guthaben wird die Anfrage abgewiesen. Bei der automatischen Sammlungswahl verbraucht jede Aufnahme, für die die KI die Sammlung wählt, 1 Credit – auch wenn die Antwort der Posteingang ist; eine fehlgeschlagene oder abgelaufene Wahl erstattet ihn, und ohne Guthaben wird die KI nicht aufgerufen und die Aufnahme landet im Posteingang. Dieselbe Aufnahme erneut hochzuladen kostet nichts. Die Indexierung läuft nicht mehr im Hintergrund: Pins werden nur indexiert, während der Assistent auf eine Nachricht antwortet, was deren 3 Credits schon abdecken; die automatische Wahl nutzt den vorhandenen Index.",
       },
     },
   },

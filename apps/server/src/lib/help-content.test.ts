@@ -9,7 +9,10 @@ import {
   loadHelpContent,
   searchHelpArticles,
 } from "./help-content";
-import { loadReleaseContent } from "./release-content";
+import {
+  findProductRelease,
+  loadReleaseContent,
+} from "./release-content";
 import { SUPPORTED_LANGUAGES, translations } from "@pinar/shared";
 
 const expectedArticleCounts = {
@@ -798,7 +801,7 @@ describe("help content", () => {
       assert.ok(article, content.language);
       assert.match(article.sections[6]?.paragraphs[0] ?? "", inboxWithoutAi[content.language], `${content.language}:help`);
       const release = await loadReleaseContent(content.language);
-      const note = release.upcoming?.changes.find((change) => change.id === "automatic-capture-destination");
+      const note = findProductRelease(release, "v0.8.0")?.changes.find((change) => change.id === "automatic-capture-destination");
       assert.ok(note, `${content.language}:note`);
       assert.match(note.description, inboxWithoutAi[content.language], `${content.language}:note`);
     }
@@ -951,12 +954,21 @@ describe("help content", () => {
         texts.push(...articleTexts(article));
       }
       const release = releases.find((candidate) => candidate.language === content.language);
-      assert.ok(release?.upcoming, `${content.language}:upcoming`);
+      assert.ok(release, `${content.language}:release`);
+      const v080 = findProductRelease(release, "v0.8.0");
+      assert.ok(v080, `${content.language}:v0.8.0`);
+      // The section label ships with the upcoming mechanism, and the notes
+      // for the changes that were upcoming before v0.8.0 must stay free of
+      // internal terms now that they ship as released notes. The legal-update
+      // note mirrors the legal documents, which legitimately name the
+      // Vercel AI Gateway, so it is not scanned here.
       texts.push(
         release.ui.upcomingRelease ?? "",
-        release.upcoming.title,
-        release.upcoming.summary,
-        ...release.upcoming.changes.flatMap((change) => [change.title, change.description]),
+        v080.title,
+        v080.summary,
+        ...v080.changes
+          .filter((change) => change.id !== "legal-update")
+          .flatMap((change) => [change.title, change.description]),
       );
       for (const text of texts) {
         assert.deepEqual(

@@ -1,6 +1,6 @@
 {
   "name": "pinar",
-  "version": "0.7.4",
+  "version": "0.8.0",
   "description": "Visual Annotations for AI Agents & Engineers",
   "private": true,
   "type": "module",

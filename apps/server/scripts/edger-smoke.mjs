@@ -41,6 +41,7 @@ const SMOKED_ENV_KEYS = [
   "DATABASE_URL",
   "DEPLOYMENT_ENV",
   "EXTENSION_ORIGIN",
+  "OPS_ALERT_EMAIL",
   "PRICING_AI_CREDITS_500_BRL_CENTS",
   "PRICING_AI_CREDITS_500_USD_CENTS",
   "PRICING_STORAGE_1GB_12M_BRL_CENTS",
@@ -126,7 +127,7 @@ await expect("POST", "/_internal/cron/daily", async (response) => {
   if (body !== "Not found") return `expected the entry's "Not found", got ${JSON.stringify(body.slice(0, 80))}`;
 });
 
-// With the header EdgeR's scheduler sends, the entry runs the five daily
+// With the header EdgeR's scheduler sends, the entry runs the six daily
 // jobs and reports each one. Without a database they may fail (500); the
 // report itself proves the route is wired.
 await expect("POST", "/_internal/cron/daily", async (response) => {
@@ -138,8 +139,8 @@ await expect("POST", "/_internal/cron/daily", async (response) => {
     return "body is not JSON";
   }
   const jobs = Array.isArray(body.jobs) ? body.jobs.map((job) => job.job) : [];
-  const expected = ["cleanupOldRecords", "reconcileBillingEntitlements", "refundStaleAiReservations", "sendStorageExpiryNotices", "indexPinSearch"];
-  if (JSON.stringify(jobs) !== JSON.stringify(expected)) return `expected the five daily jobs, got ${JSON.stringify(jobs)}`;
+  const expected = ["cleanupOldRecords", "reconcileBillingEntitlements", "refundStaleAiReservations", "sendStorageExpiryNotices", "indexPinSearch", "assistantMarginMonitor"];
+  if (JSON.stringify(jobs) !== JSON.stringify(expected)) return `expected the six daily jobs, got ${JSON.stringify(jobs)}`;
 }, { "x-edger-internal": "true" });
 
 // The frequent cron route (every 5 minutes) hides like the daily one and,

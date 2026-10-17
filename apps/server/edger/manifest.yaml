@@ -86,6 +86,9 @@ env:
   CLOUD_TRIAL_ENABLED: ""
   COMPLIMENTARY_PRO_USER_IDS: ""
   EXTENSION_ORIGIN: ""
+  # Optional: the ops address of the assistant margin alerts (at most one
+  # email a day, only with an alert). Empty keeps them as logs only.
+  OPS_ALERT_EMAIL: ""
   PRICING_AI_CREDITS_500_BRL_CENTS: ""
   PRICING_AI_CREDITS_500_USD_CENTS: ""
   PRICING_STORAGE_1GB_12M_BRL_CENTS: ""

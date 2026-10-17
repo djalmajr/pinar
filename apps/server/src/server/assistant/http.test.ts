@@ -1085,9 +1085,21 @@ interface MeterLog {
 }
 
 // A fake meter that records each reservation and how it ended; `balance`
-// null reserves, a number refuses with that balance.
-function fakeMeter(balance: number | null = null): { log: MeterLog; meterTurn: NonNullable<AssistantRequestDeps["meterTurn"]> } {
+// null reserves, a number refuses with that balance. The first
+// `failedSettlements` endings throw (a transient database error), logged as
+// "consume failed" / "refund failed".
+function fakeMeter(
+  balance: number | null = null,
+  options: { failedSettlements?: number } = {},
+): { log: MeterLog; meterTurn: NonNullable<AssistantRequestDeps["meterTurn"]> } {
   const log: MeterLog = { consumed: [], events: [], refunded: [], reserved: [] };
+  let failures = options.failedSettlements ?? 0;
+  const failing = (ending: string) => {
+    if (failures === 0) return false;
+    failures -= 1;
+    log.events.push(`${ending} failed`);
+    return true;
+  };
   return {
     log,
     meterTurn: async (turn): Promise<AssistantTurnReservation> => {
@@ -1096,10 +1108,12 @@ function fakeMeter(balance: number | null = null): { log: MeterLog; meterTurn: N
       log.reserved.push(turn);
       return {
         consume: async (charge) => {
+          if (failing("consume")) throw new Error("D1_ERROR: database is locked");
           log.events.push("consume");
           log.consumed.push(charge);
         },
         refund: async (code) => {
+          if (failing("refund")) throw new Error("D1_ERROR: database is locked");
           log.events.push("refund");
           log.refunded.push(code);
         },
@@ -1291,12 +1305,175 @@ describe("assistant turn credits (meterTurn)", () => {
     });
     const busy = makeDeps({ model: () => gatedModel(gate) });
     const first = await postTurn({ ...busy.deps, meterTurn: meter.meterTurn }, { text: "primeira" });
-    const threadId = threadIdFromTurn(new TextDecoder().decode((await first.body!.getReader().read()).value));
+    const reader = first.body!.getReader();
+    const threadId = threadIdFromTurn(new TextDecoder().decode((await reader.read()).value));
     const second = await postTurn({ ...busy.deps, meterTurn: meter.meterTurn }, { text: "segunda", threadId });
     assert.equal(second.status, 409);
     assert.deepEqual(meter.log.events, ["reserve"]);
     release();
+    while (!(await reader.read()).done);
     await settled(meter.log);
+  });
+
+  // ---- A39 complement: the settlement waits for the outcome and the delivery ----
+
+  test("a final that settles before a slow client cancels is refunded: the delivery decides, not the order", async () => {
+    const { deps, store } = makeDeps({ model: () => textModel("Resposta pronta.") });
+    const meter = fakeMeter();
+    const response = await postTurn({ ...deps, meterTurn: meter.meterTurn }, { text: "oi" });
+    assert.equal(response.status, 200);
+    // The model is done and its answer stored before the client reads anything.
+    const [thread] = await store.listThreads({ limit: 5, offset: 0 });
+    const messages = await waitFor(() => store.listMessages(thread.id, { limit: 10 }).then((items) => (items.length === 2 ? items : null)));
+    assert.equal(messages[1].status, "final");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(meter.log.events, ["reserve"], "a final waits for the delivery");
+    const reader = response.body!.getReader();
+    const first = new TextDecoder().decode((await reader.read()).value);
+    assert.ok(first.includes("data-thread") && !first.includes("text-delta"), first);
+    await reader.cancel();
+    await settled(meter.log);
+    assert.deepEqual(meter.log.refunded, [ASSISTANT_TURN_CLIENT_CANCELLED]);
+    assert.deepEqual(meter.log.consumed, []);
+  });
+
+  test("a first token queued behind the last read, never read, does not count as delivered", async () => {
+    const { deps, store } = makeDeps({ model: () => textModel("Resposta pronta.") });
+    const meter = fakeMeter();
+    const response = await postTurn({ ...deps, meterTurn: meter.meterTurn }, { text: "oi" });
+    const [thread] = await store.listThreads({ limit: 5, offset: 0 });
+    await waitFor(() => store.listMessages(thread.id, { limit: 10 }).then((items) => (items.length === 2 ? items : null)));
+    const reader = response.body!.getReader();
+    let seen = "";
+    // Up to the part right before the first token; the client stalls there
+    // (time enough for a read-ahead to take the next part) and leaves.
+    while (!seen.includes('"type":"text-start"')) {
+      const next = await reader.read();
+      assert.equal(next.done, false, "the stream ended before the text started");
+      seen += new TextDecoder().decode(next.value);
+    }
+    assert.ok(!seen.includes("text-delta"), seen);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(meter.log.events, ["reserve"]);
+    await reader.cancel();
+    await settled(meter.log);
+    assert.deepEqual(meter.log.refunded, [ASSISTANT_TURN_CLIENT_CANCELLED]);
+  });
+
+  test("a final that settles before the client reads is consumed once the first token is read", async () => {
+    const { deps, store } = makeDeps({ model: () => textModel("Resposta pronta.") });
+    const meter = fakeMeter();
+    const response = await postTurn({ ...deps, meterTurn: meter.meterTurn }, { text: "oi" });
+    const [thread] = await store.listThreads({ limit: 5, offset: 0 });
+    await waitFor(() => store.listMessages(thread.id, { limit: 10 }).then((items) => (items.length === 2 ? items : null)));
+    const reader = response.body!.getReader();
+    let seen = "";
+    while (!seen.includes("text-delta")) {
+      const next = await reader.read();
+      assert.equal(next.done, false, "the stream ended before the first token");
+      seen += new TextDecoder().decode(next.value);
+    }
+    await reader.cancel();
+    await settled(meter.log);
+    assert.deepEqual(meter.log.events, ["reserve", "consume"]);
+  });
+
+  test("a final whose body is never read nor cancelled stays reserved, and its thread is free again", async () => {
+    const { deps, store } = makeDeps({ model: () => textModel("Resposta pronta.") });
+    const meter = fakeMeter();
+    const response = await postTurn({ ...deps, meterTurn: meter.meterTurn }, { text: "oi" });
+    const [thread] = await store.listThreads({ limit: 5, offset: 0 });
+    await waitFor(() => store.listMessages(thread.id, { limit: 10 }).then((items) => (items.length === 2 ? items : null)));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.deepEqual(meter.log.events, ["reserve"], "neither consumed nor refunded: the sweeper settles it");
+    const next = await postTurn({ ...deps, meterTurn: fakeMeter().meterTurn }, { text: "de novo", threadId: thread.id });
+    assert.equal(next.status, 200);
+    await readSse(next);
+    // A late read still decides it.
+    await readSse(response);
+    await settled(meter.log);
+    assert.deepEqual(meter.log.events, ["reserve", "consume"]);
+  });
+
+  test("an error refunds without waiting for the delivery", async () => {
+    const { deps } = makeDeps({ model: failingModel });
+    const meter = fakeMeter();
+    const response = await postTurn({ ...deps, meterTurn: meter.meterTurn }, { text: "oi" });
+    assert.equal(response.status, 200);
+    await settled(meter.log);
+    assert.deepEqual(meter.log.refunded, ["ASSISTANT_STREAM_FAILED"]);
+    await response.body!.cancel();
+    assert.deepEqual(meter.log.events, ["reserve", "refund"]);
+  });
+
+  test("a missing final cancelled before its first token keeps its own code", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const waitNotice = mockModel(() => ({
+      stream: new ReadableStream<unknown>({
+        async start(controller) {
+          await gate;
+          for (const part of [...textParts("Vou verificar."), finish("stop")]) controller.enqueue(part);
+          controller.close();
+        },
+      }),
+    }));
+    const { deps } = makeDeps({ model: () => waitNotice });
+    const meter = fakeMeter();
+    const response = await postTurn({ ...deps, meterTurn: meter.meterTurn }, { text: "oi" });
+    const reader = response.body!.getReader();
+    await reader.read();
+    await reader.cancel();
+    release();
+    await settled(meter.log);
+    assert.deepEqual(meter.log.refunded, ["ASSISTANT_TURN_INCOMPLETE"]);
+  });
+
+  test("a settlement that fails once is tried again; a second failure leaves it to the sweeper", async () => {
+    const once = fakeMeter(null, { failedSettlements: 1 });
+    const { deps } = makeDeps({ model: () => textModel("ok") });
+    await readSse(await postTurn({ ...deps, meterTurn: once.meterTurn }, { text: "oi" }));
+    await settled(once.log);
+    assert.deepEqual(once.log.events, ["reserve", "consume failed", "consume"]);
+
+    const twice = fakeMeter(null, { failedSettlements: 2 });
+    const failing = makeDeps({ model: failingModel });
+    await readSse(await postTurn({ ...failing.deps, meterTurn: twice.meterTurn }, { text: "oi" }));
+    await waitFor(() => (twice.log.events.length === 3 ? twice.log : null));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(twice.log.events, ["reserve", "refund failed", "refund failed"]);
+  });
+
+  test("a reservation that already existed answers 409 assistant_turn_in_progress: no model, no settlement", async () => {
+    let modelCalls = 0;
+    const { deps, store } = makeDeps({
+      model: () => {
+        modelCalls += 1;
+        return textModel("nunca");
+      },
+    });
+    const events: string[] = [];
+    const response = await postTurn({
+      ...deps,
+      meterTurn: async () => {
+        events.push("reserve");
+        return { inProgress: true, reserved: false };
+      },
+    }, { text: "oi" });
+    assert.equal(response.status, 409);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await response.json(), { code: "assistant_turn_in_progress", error: "This turn is already running" });
+    assert.equal(modelCalls, 0);
+    assert.deepEqual(events, ["reserve"]);
+    // The user message stored before the reservation stays; no assistant message.
+    const [thread] = await store.listThreads({ limit: 5, offset: 0 });
+    assert.deepEqual((await store.listMessages(thread.id, { limit: 10 })).map((message) => message.role), ["user"]);
+    // The thread is released.
+    const next = await postTurn({ ...deps, meterTurn: fakeMeter().meterTurn }, { text: "de novo", threadId: thread.id });
+    assert.equal(next.status, 200);
+    await readSse(next);
   });
 
   test("confirming and undoing a proposal is not a turn and never reaches the meter", async () => {

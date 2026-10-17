@@ -504,6 +504,10 @@ const AI_RESERVATION_TIMEOUT_MS = 5 * 60 * 1000;
 // Credits of one assistant turn in the Cloud, staging included (F4 contract
 // §2, D1).
 export const ASSISTANT_TURN_CREDITS = 3;
+// A turn's reservation: request id turn:<assistant message id>, resource
+// assistant:<thread id> (F4 contract §2).
+const ASSISTANT_TURN_REQUEST_PREFIX = "turn:";
+const ASSISTANT_TURN_RESOURCE_PREFIX = "assistant:";
 const AI_FEATURES = new Set<AiFeature>([
   "assistant_turn",
   "component_export",
@@ -1429,21 +1433,76 @@ async function refundAiCreditUsage(env: CloudEnv, usage: AiCreditUsageRecord, er
   usage.status = "refunded";
 }
 
+// The result_json of a turn the sweeper consumes: its run stored the final
+// answer but never settled, so the chain's billing is unknown (as in a
+// settlement without billing).
+const SWEPT_TURN_RESULT_JSON = JSON.stringify({ costSource: "none", fallback: false, link: 0 });
+
+// Whether an open assistant_turn reservation was answered: the assistant
+// message under its request id (turn:<message id>) is stored final, owned by
+// the reservation's account.
+async function assistantTurnAnswered(env: CloudEnv, usage: AiCreditUsageRecord): Promise<boolean> {
+  if (usage.feature !== "assistant_turn" || usage.ownerType !== "account") return false;
+  if (!usage.requestId.startsWith(ASSISTANT_TURN_REQUEST_PREFIX)) return false;
+  const messageId = usage.requestId.slice(ASSISTANT_TURN_REQUEST_PREFIX.length);
+  if (env.DB) {
+    const row = await env.DB.prepare(
+      "SELECT id FROM assistant_messages WHERE id = ? AND owner_id = ? AND role = 'assistant' AND status = 'final'",
+    ).bind(messageId, usage.ownerId).first();
+    return row !== null;
+  }
+  const threadId = usage.resourceId.slice(ASSISTANT_TURN_RESOURCE_PREFIX.length);
+  const messages = await cloudAssistantStore(env, usage.ownerId).listMessages(threadId, { limit: Number.MAX_SAFE_INTEGER });
+  return messages.some((message) => message.id === messageId && message.role === "assistant" && message.status === "final");
+}
+
+// Consumes the reservation of an answered turn from the sweeper, with no
+// cost, tokens or error; like the refund, only while it is still open.
+async function consumeAnsweredTurnUsage(env: CloudEnv, usage: AiCreditUsageRecord) {
+  const completedAt = currentDate().toISOString();
+  if (env.DB) {
+    await env.DB.prepare(`
+      UPDATE ai_credit_usages
+      SET status = 'succeeded', result_json = ?, cost_usd_micros = NULL, error_code = NULL, completed_at = ?
+      WHERE id = ? AND status = 'reserved'
+    `).bind(SWEPT_TURN_RESULT_JSON, completedAt, usage.id).run();
+    return;
+  }
+  if (usage.status !== "reserved") return;
+  usage.completedAt = completedAt;
+  usage.costUsdMicros = null;
+  usage.errorCode = null;
+  usage.resultJson = SWEPT_TURN_RESULT_JSON;
+  usage.status = "succeeded";
+}
+
+// The frequent cron (A39): every reservation open past the timeout is
+// settled. An assistant turn whose final answer was stored is consumed (its
+// run answered but never settled); anything else is refunded as
+// reservation_timeout.
 export async function refundStaleAiReservations(env: CloudEnv) {
   const cutoff = new Date(currentDate().getTime() - AI_RESERVATION_TIMEOUT_MS).toISOString();
+  let usages: AiCreditUsageRecord[];
   if (env.DB) {
     const result = await env.DB.prepare(
       "SELECT * FROM ai_credit_usages WHERE status = 'reserved' AND created_at <= ?",
     ).bind(cutoff).all();
-    const usages = (result.results || []).map(aiUsageFromRow);
-    for (const usage of usages) await refundAiCreditUsage(env, usage, "reservation_timeout");
-    return { refundedReservations: usages.length };
+    usages = (result.results || []).map(aiUsageFromRow);
+  } else {
+    usages = Array.from(memoryAiCreditUsages.values()).filter(
+      (usage) => usage.status === "reserved" && usage.createdAt <= cutoff,
+    );
   }
-  const usages = Array.from(memoryAiCreditUsages.values()).filter(
-    (usage) => usage.status === "reserved" && usage.createdAt <= cutoff,
-  );
-  for (const usage of usages) await refundAiCreditUsage(env, usage, "reservation_timeout");
-  return { refundedReservations: usages.length };
+  let consumedReservations = 0;
+  for (const usage of usages) {
+    if (await assistantTurnAnswered(env, usage)) {
+      await consumeAnsweredTurnUsage(env, usage);
+      consumedReservations += 1;
+    } else {
+      await refundAiCreditUsage(env, usage, "reservation_timeout");
+    }
+  }
+  return { consumedReservations, refundedReservations: usages.length - consumedReservations };
 }
 
 interface GrantStorageInput {
@@ -8626,9 +8685,11 @@ export async function indexPinSearch(env: CloudEnv, options: { fetch?: typeof fe
 // reserves ASSISTANT_TURN_CREDITS under turn:<assistant message id> for the
 // resource assistant:<thread id>, with the model the chain starts from; the
 // UNIQUE (owner, request id) keeps a second reservation of the same message
-// from charging again (it gets the first one). Consuming records the model
-// that answered, the tokens, the cost and result_json; a refund that fails
-// is logged and left to the sweeper.
+// from charging again. Only the run that created the reservation settles
+// it: one that finds it already there gets inProgress (409), with no ending
+// of its own. Consuming records the model that answered, the tokens, the
+// cost and result_json; a refund that fails is logged and left to the
+// sweeper.
 export function cloudAssistantTurnMeter(
   env: CloudEnv,
   principal: Principal,
@@ -8637,14 +8698,17 @@ export function cloudAssistantTurnMeter(
   return async ({ messageId, threadId }) => {
     const account = await findAccountById(env, principal.id);
     if (account) await ensureInitialProCredits(env, account);
-    const reservation = await reserveAiCreditUsage(env, principal, `turn:${messageId}`, `assistant:${threadId}`, {
-      credits: ASSISTANT_TURN_CREDITS,
-      feature: "assistant_turn",
-      model,
-    });
+    const reservation = await reserveAiCreditUsage(
+      env,
+      principal,
+      ASSISTANT_TURN_REQUEST_PREFIX + messageId,
+      ASSISTANT_TURN_RESOURCE_PREFIX + threadId,
+      { credits: ASSISTANT_TURN_CREDITS, feature: "assistant_turn", model },
+    );
     if (!reservation) {
       return { aiCredits: await aiCreditBalance(env, principal), creditsRequired: ASSISTANT_TURN_CREDITS, reserved: false };
     }
+    if (reservation.kind === "existing") return { inProgress: true, reserved: false };
     const usage = reservation.usage;
     return {
       consume: (charge) => completeAiCreditUsage(

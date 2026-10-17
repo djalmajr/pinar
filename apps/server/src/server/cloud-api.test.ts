@@ -856,10 +856,16 @@ describe("remote installation isolation", () => {
 
     assert.equal(result.deletedExtensionCodeCount, 2);
     assert.equal(result.deletedWebSessionCount, 3);
+    // The assistant cleanup batches its own two DELETEs; the fake returns
+    // changes 3 for the second statement of every batch, so the count must
+    // come from the threads DELETE, not the messages DELETE (changes 2).
+    assert.equal(result.assistantThreads, 3);
     assert.deepEqual(bucket.deletedKeys, []);
     assert.deepEqual(batchedStatements.map((statement) => statement.query), [
       "DELETE FROM extension_codes WHERE expires_at <= ? OR used_at IS NOT NULL",
       "DELETE FROM web_sessions WHERE expires_at <= ? OR (revoked_at IS NOT NULL AND revoked_at <= ?)",
+      "DELETE FROM assistant_messages WHERE thread_id IN (SELECT id FROM assistant_threads WHERE updated_at < ?)",
+      "DELETE FROM assistant_threads WHERE updated_at < ?",
     ]);
   });
 

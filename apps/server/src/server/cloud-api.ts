@@ -90,7 +90,7 @@ import {
 import { SESSION_PATCH_MAX_BYTES } from "./session-patch";
 import { cloudTrialAccess, newCloudTrialWindow, type CloudTrialAccess } from "../lib/cloud-trial";
 import { type PricingConfig, pricingForCountry } from "../lib/pricing";
-import { FREE_CLOUD_RETENTION_DAYS, laterExpiry, paidRetentionExpiresAt } from "../lib/retention";
+import { ASSISTANT_RETENTION_DAYS, FREE_CLOUD_RETENTION_DAYS, laterExpiry, paidRetentionExpiresAt } from "../lib/retention";
 import { formatBatchMarkdown, formatCollectionMarkdown, formatProjectMarkdown, formatSessionHandoffMarkdown, formatSessionMarkdown, type ViewerContent } from "./markdown";
 import { installerResponse } from "./installers";
 import { decodePngDataUrl } from "./png";
@@ -111,6 +111,10 @@ import {
   McpToolError,
   type McpProtocolHandlers,
 } from "./mcp-protocol";
+import {
+  cleanupAssistantThreads,
+  resetCloudAssistantMemoryForTests,
+} from "./assistant/store-cloud";
 import {
   CLOUD_MCP_TOOLS,
   MCP_MAX_ARGUMENT_LENGTH,
@@ -6944,7 +6948,9 @@ export async function cleanupOldRecords(env: CloudEnv, days = FREE_CLOUD_RETENTI
       deletedWebSessionCount += 1;
     }
   }
-  return { cutoff, deletedCount, deletedExtensionCodeCount, deletedWebSessionCount };
+  const assistantCutoff = new Date(now.getTime() - ASSISTANT_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const assistantThreads = await cleanupAssistantThreads(env, assistantCutoff);
+  return { assistantThreads, cutoff, deletedCount, deletedExtensionCodeCount, deletedWebSessionCount };
 }
 
 export async function authorizeCloudAppRequest(request: Request, env: CloudEnv) {
@@ -8698,6 +8704,7 @@ export function resetCloudMemoryStateForTests() {
   memoryStripeEvents.clear();
   memoryStripeSubscriptionStates.clear();
   memoryWebSessions.clear();
+  resetCloudAssistantMemoryForTests();
   memoryMigrationFailure = false;
   testNow = null;
 }

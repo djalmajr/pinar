@@ -320,6 +320,27 @@ function formatPinComment(row) {
   };
 }
 
+function formatAssistantThread(row) {
+  return {
+    createdAt: row.created_at,
+    id: row.id,
+    title: row.title,
+    updatedAt: row.updated_at,
+  };
+}
+
+function formatAssistantMessage(row) {
+  return {
+    createdAt: row.created_at,
+    errorCode: row.error_code,
+    id: row.id,
+    role: row.role,
+    status: row.status,
+    text: row.text,
+    threadId: row.thread_id,
+  };
+}
+
 const PIN_COMMENT_AGENT_NAME_MAX = 64;
 
 function parseAgentName(value) {
@@ -368,6 +389,8 @@ class JsonHistoryDb {
         if (Array.isArray(stored)) {
           return {
             agent_executions: [],
+            assistant_messages: [],
+            assistant_threads: [],
             batches: [],
             collections: [],
             design_systems: [],
@@ -382,6 +405,8 @@ class JsonHistoryDb {
         if (stored && typeof stored === "object") {
           return {
             agent_executions: Array.isArray(stored.agent_executions) ? stored.agent_executions : [],
+            assistant_messages: Array.isArray(stored.assistant_messages) ? stored.assistant_messages : [],
+            assistant_threads: Array.isArray(stored.assistant_threads) ? stored.assistant_threads : [],
             batches: Array.isArray(stored.batches) ? stored.batches : [],
             collections: Array.isArray(stored.collections) ? stored.collections : [],
             design_systems: Array.isArray(stored.design_systems) ? stored.design_systems : [],
@@ -399,6 +424,8 @@ class JsonHistoryDb {
     }
     return {
       agent_executions: [],
+      assistant_messages: [],
+      assistant_threads: [],
       batches: [],
       collections: [],
       design_systems: [],
@@ -421,11 +448,14 @@ class JsonHistoryDb {
   }
 
   /**
-   * Atomic persistence restricted to addPin/deletePin: the complete next
-   * state is serialized to a sibling temp file and renamed onto
-   * history.json, so a failed write can never truncate the original file.
-   * IO failures propagate to the caller, which must only commit the state
-   * to memory after this returns.
+   * Atomic persistence of a complete next state: it is serialized to a
+   * sibling temp file and renamed onto history.json, so a failed write can
+   * never truncate the original file. The pin mutations (addPin/deletePin)
+   * and the assistant conversation mutations (create/append/delete thread,
+   * append message, clearHistory) all persist the next state through this
+   * helper and commit it to memory only after it returns. IO failures
+   * propagate to the caller, which must only commit the state to memory
+   * after this returns.
    */
   _savePinState(data) {
     const tmpPath = `${this.dbPath}.pin-state`;
@@ -890,14 +920,95 @@ class JsonHistoryDb {
   }
 
   clearHistory() {
-    this.data.sessions = [];
-    this.data.agent_executions = [];
-    this.data.loop_metrics = [];
-    this.data.pin_reviews = [];
-    this.data.pin_review_events = [];
-    this.data.pin_comments = [];
-    this._save();
+    const nextData = {
+      ...this.data,
+      sessions: [],
+      agent_executions: [],
+      loop_metrics: [],
+      pin_reviews: [],
+      pin_review_events: [],
+      pin_comments: [],
+      assistant_threads: [],
+      assistant_messages: [],
+    };
+    this._savePinState(nextData);
+    this.data = nextData;
     return true;
+  }
+
+  createAssistantThread({ id, now, title }) {
+    const nextData = {
+      ...this.data,
+      assistant_threads: [
+        ...this.data.assistant_threads,
+        { created_at: now, id, title, updated_at: now },
+      ],
+    };
+    this._savePinState(nextData);
+    this.data = nextData;
+    return this.getAssistantThread(id);
+  }
+
+  getAssistantThread(id) {
+    const row = this.data.assistant_threads.find((item) => item.id === id);
+    return row ? formatAssistantThread(row) : null;
+  }
+
+  listAssistantThreads({ limit = 50, offset = 0 } = {}) {
+    return [...this.data.assistant_threads]
+      .sort((left, right) => right.updated_at.localeCompare(left.updated_at) || left.id.localeCompare(right.id))
+      .slice(offset, offset + limit)
+      .map((row) => formatAssistantThread(row));
+  }
+
+  deleteAssistantThread(id) {
+    if (!this.data.assistant_threads.some((item) => item.id === id)) return false;
+    const nextData = {
+      ...this.data,
+      assistant_threads: this.data.assistant_threads.filter((item) => item.id !== id),
+      assistant_messages: this.data.assistant_messages.filter((item) => item.thread_id !== id),
+    };
+    this._savePinState(nextData);
+    this.data = nextData;
+    return true;
+  }
+
+  appendAssistantMessage(message) {
+    const thread = this.data.assistant_threads.find((item) => item.id === message.threadId);
+    if (!thread) throw new Error("assistant thread not found");
+    const nextData = {
+      ...this.data,
+      assistant_threads: this.data.assistant_threads.map((item) =>
+        item.id === message.threadId ? { ...item, updated_at: message.createdAt } : item
+      ),
+      assistant_messages: [
+        ...this.data.assistant_messages,
+        {
+          created_at: message.createdAt,
+          error_code: message.errorCode,
+          id: message.id,
+          role: message.role,
+          status: message.status,
+          text: message.text,
+          thread_id: message.threadId,
+        },
+      ],
+    };
+    this._savePinState(nextData);
+    this.data = nextData;
+  }
+
+  listAssistantMessages(threadId, { limit = 200 } = {}) {
+    // The insertion position breaks equal timestamps and must be applied
+    // before the limit cut, so the newest of a tied group survives; the
+    // reverse then restores chronological order.
+    return this.data.assistant_messages
+      .map((row, position) => ({ position, row }))
+      .filter(({ row }) => row.thread_id === threadId)
+      .sort((left, right) => right.row.created_at.localeCompare(left.row.created_at) || right.position - left.position)
+      .slice(0, limit)
+      .reverse()
+      .map(({ row }) => formatAssistantMessage(row));
   }
 
   listProjects() {
@@ -1278,6 +1389,10 @@ class SqliteHistoryDb {
       CREATE INDEX IF NOT EXISTS idx_pin_review_events_pin ON pin_review_events(capture_id, pin_id, created_at);
       CREATE INDEX IF NOT EXISTS idx_pin_comments_capture ON pin_comments(capture_id, created_at);
       CREATE INDEX IF NOT EXISTS idx_loop_metrics_created ON loop_metrics(created_at);
+      CREATE TABLE IF NOT EXISTS assistant_threads (id TEXT PRIMARY KEY, title TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS idx_assistant_threads_updated ON assistant_threads(updated_at DESC);
+      CREATE TABLE IF NOT EXISTS assistant_messages (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, role TEXT NOT NULL CHECK (role IN ('user','assistant')), text TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('final','error')), error_code TEXT, created_at TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS idx_assistant_messages_thread ON assistant_messages(thread_id, created_at);
     `);
     const projectColumns = new Set(
       this.db.prepare("PRAGMA table_info(projects)").all().map((row) => row.name),
@@ -1876,8 +1991,81 @@ class SqliteHistoryDb {
   }
 
   clearHistory() {
-    this.db.exec("DELETE FROM loop_metrics; DELETE FROM agent_pin_results; DELETE FROM agent_executions; DELETE FROM pin_review_events; DELETE FROM pin_reviews; DELETE FROM pin_comments; DELETE FROM sessions;");
+    this.db.exec("DELETE FROM loop_metrics; DELETE FROM agent_pin_results; DELETE FROM agent_executions; DELETE FROM pin_review_events; DELETE FROM pin_reviews; DELETE FROM pin_comments; DELETE FROM assistant_messages; DELETE FROM assistant_threads; DELETE FROM sessions;");
     return true;
+  }
+
+  createAssistantThread({ id, now, title }) {
+    this.db.prepare(
+      "INSERT INTO assistant_threads (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+    ).run(id, title, now, now);
+    return this.getAssistantThread(id);
+  }
+
+  getAssistantThread(id) {
+    const row = this.db.prepare(
+      "SELECT id, title, created_at, updated_at FROM assistant_threads WHERE id = ?",
+    ).get(id);
+    return row ? formatAssistantThread(row) : null;
+  }
+
+  listAssistantThreads({ limit = 50, offset = 0 } = {}) {
+    return this.db.prepare(`
+      SELECT id, title, created_at, updated_at
+      FROM assistant_threads
+      ORDER BY updated_at DESC, id ASC
+      LIMIT ? OFFSET ?
+    `).all(limit, offset).map((row) => formatAssistantThread(row));
+  }
+
+  deleteAssistantThread(id) {
+    const existing = this.db.prepare("SELECT id FROM assistant_threads WHERE id = ?").get(id);
+    if (!existing) return false;
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare("DELETE FROM assistant_messages WHERE thread_id = ?").run(id);
+      this.db.prepare("DELETE FROM assistant_threads WHERE id = ?").run(id);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      try {
+        this.db.exec("ROLLBACK");
+      } catch {
+        // Keep the original error; the transaction is already doomed.
+      }
+      throw error;
+    }
+    return true;
+  }
+
+  appendAssistantMessage(message) {
+    const existing = this.db.prepare("SELECT id FROM assistant_threads WHERE id = ?").get(message.threadId);
+    if (!existing) throw new Error("assistant thread not found");
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare(`
+        INSERT INTO assistant_messages (id, thread_id, role, text, status, error_code, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(message.id, message.threadId, message.role, message.text, message.status, message.errorCode, message.createdAt);
+      this.db.prepare("UPDATE assistant_threads SET updated_at = ? WHERE id = ?").run(message.createdAt, message.threadId);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      try {
+        this.db.exec("ROLLBACK");
+      } catch {
+        // Keep the original error; the transaction is already doomed.
+      }
+      throw error;
+    }
+  }
+
+  listAssistantMessages(threadId, { limit = 200 } = {}) {
+    return this.db.prepare(`
+      SELECT id, thread_id, role, text, status, error_code, created_at
+      FROM assistant_messages
+      WHERE thread_id = ?
+      ORDER BY created_at DESC, rowid DESC
+      LIMIT ?
+    `).all(threadId, limit).reverse().map((row) => formatAssistantMessage(row));
   }
 
   listProjects() {

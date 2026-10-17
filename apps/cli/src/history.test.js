@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -433,6 +433,230 @@ describe("history", () => {
     assert.equal(comments[0].actorLabel, "Local");
     reopened.deleteSession("json_comment_capture");
     assert.deepEqual(reopened.listPinComments("json_comment_capture"), []);
+    reopened.close();
+  });
+
+  function assertAssistantHistory(db) {
+    const first = db.createAssistantThread({ id: "ath_first", now: "2026-10-01T00:00:00.000Z", title: "First" });
+    assert.deepEqual(first, { createdAt: "2026-10-01T00:00:00.000Z", id: "ath_first", title: "First", updatedAt: "2026-10-01T00:00:00.000Z" });
+    const second = db.createAssistantThread({ id: "ath_second", now: "2026-10-02T00:00:00.000Z", title: "Second" });
+    assert.deepEqual(second, { createdAt: "2026-10-02T00:00:00.000Z", id: "ath_second", title: "Second", updatedAt: "2026-10-02T00:00:00.000Z" });
+
+    // Newest first by updated_at, with limit/offset.
+    assert.deepEqual(db.listAssistantThreads().map((item) => item.id), ["ath_second", "ath_first"]);
+    assert.deepEqual(db.listAssistantThreads({ limit: 1 }).map((item) => item.id), ["ath_second"]);
+    assert.deepEqual(db.listAssistantThreads({ limit: 1, offset: 1 }).map((item) => item.id), ["ath_first"]);
+    assert.equal(db.getAssistantThread("ath_never_created"), null);
+
+    // Appending a message stamps the thread's updated_at and reorders the list.
+    const messageOne = {
+      createdAt: "2026-10-03T00:00:00.000Z",
+      errorCode: null,
+      id: "amg_one",
+      role: "user",
+      status: "final",
+      text: "One",
+      threadId: "ath_first",
+    };
+    db.appendAssistantMessage(messageOne);
+    assert.equal(db.getAssistantThread("ath_first").updatedAt, "2026-10-03T00:00:00.000Z");
+    assert.deepEqual(db.listAssistantThreads().map((item) => item.id), ["ath_first", "ath_second"]);
+
+    db.appendAssistantMessage({ ...messageOne, createdAt: "2026-10-03T00:01:00.000Z", id: "amg_two", text: "Two" });
+    db.appendAssistantMessage({ ...messageOne, createdAt: "2026-10-03T00:02:00.000Z", id: "amg_three", role: "assistant", text: "Three" });
+    const recent = db.listAssistantMessages("ath_first", { limit: 2 });
+    assert.deepEqual(recent.map((item) => item.id), ["amg_two", "amg_three"]);
+    assert.equal(recent[0].text, "Two");
+    assert.equal(recent[1].role, "assistant");
+    assert.equal(db.listAssistantMessages("ath_first").length, 3);
+    assert.deepEqual(db.listAssistantMessages("ath_second"), []);
+    assert.throws(
+      () => db.appendAssistantMessage({ ...messageOne, id: "amg_orphan", threadId: "ath_missing" }),
+      (error) => error instanceof Error && error.message === "assistant thread not found",
+    );
+    assert.equal(db.getAssistantThread("ath_missing"), null);
+
+    assert.equal(db.deleteAssistantThread("ath_second"), true);
+    assert.equal(db.deleteAssistantThread("ath_second"), false);
+    assert.equal(db.getAssistantThread("ath_second"), null);
+    assert.deepEqual(db.listAssistantMessages("ath_second"), []);
+    assert.equal(db.listAssistantThreads().length, 1);
+  }
+
+  test("sqlite assistant threads keep order, limits, deletion, and clearHistory", () => {
+    const db = openHistoryDb(tempDir);
+    assertAssistantHistory(db);
+    db.clearHistory();
+    assert.deepEqual(db.listAssistantThreads(), []);
+    assert.deepEqual(db.listAssistantMessages("ath_first"), []);
+    db.close();
+  });
+
+  test("sqlite assistant history survives a restart", () => {
+    const db = openHistoryDb(tempDir);
+    db.createAssistantThread({ id: "ath_reopen", now: "2026-10-01T00:00:00.000Z", title: "Reopen" });
+    db.appendAssistantMessage({
+      createdAt: "2026-10-01T00:01:00.000Z",
+      errorCode: "ASSISTANT_TURN_TIMEOUT",
+      id: "amg_reopen",
+      role: "assistant",
+      status: "error",
+      text: "",
+      threadId: "ath_reopen",
+    });
+    db.close();
+
+    const reopened = openHistoryDb(tempDir);
+    const thread = reopened.getAssistantThread("ath_reopen");
+    assert.equal(thread.title, "Reopen");
+    assert.equal(thread.updatedAt, "2026-10-01T00:01:00.000Z");
+    const messages = reopened.listAssistantMessages("ath_reopen");
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0].errorCode, "ASSISTANT_TURN_TIMEOUT");
+    assert.equal(messages[0].status, "error");
+    reopened.close();
+  });
+
+  function assertTiedTimestamps(db) {
+    db.createAssistantThread({ id: "ath_tied", now: "2026-10-01T00:00:00.000Z", title: "Tied" });
+    for (const id of ["amg_tied_m1", "amg_tied_m2", "amg_tied_m3"]) {
+      db.appendAssistantMessage({
+        createdAt: "2026-10-01T00:01:00.000Z",
+        errorCode: null,
+        id,
+        role: "user",
+        status: "final",
+        text: id,
+        threadId: "ath_tied",
+      });
+    }
+    // Same timestamp: the limit cut must keep the last two inserted, and the
+    // uncut window must be the chronological m1, m2, m3.
+    assert.deepEqual(db.listAssistantMessages("ath_tied", { limit: 2 }).map((item) => item.id), [
+      "amg_tied_m2",
+      "amg_tied_m3",
+    ]);
+    assert.deepEqual(db.listAssistantMessages("ath_tied").map((item) => item.id), [
+      "amg_tied_m1",
+      "amg_tied_m2",
+      "amg_tied_m3",
+    ]);
+  }
+
+  test("sqlite assistant messages keep insertion order for equal timestamps", () => {
+    const db = openHistoryDb(tempDir);
+    assertTiedTimestamps(db);
+    db.close();
+  });
+
+  test("json history fallback stores assistant threads and messages", () => {
+    mkdirSync(join(tempDir, "history.db"));
+    const db = openHistoryDb(tempDir);
+    assertAssistantHistory(db);
+    db.clearHistory();
+    assert.deepEqual(db.listAssistantThreads(), []);
+    assert.deepEqual(db.listAssistantMessages("ath_first"), []);
+    db.close();
+  });
+
+  test("json history fallback keeps assistant history across a restart", () => {
+    mkdirSync(join(tempDir, "history.db"));
+    const db = openHistoryDb(tempDir);
+    db.createAssistantThread({ id: "ath_json_reopen", now: "2026-10-01T00:00:00.000Z", title: "JSON reopen" });
+    db.appendAssistantMessage({
+      createdAt: "2026-10-01T00:01:00.000Z",
+      errorCode: null,
+      id: "amg_json_reopen",
+      role: "user",
+      status: "final",
+      text: "Still here",
+      threadId: "ath_json_reopen",
+    });
+    db.close();
+
+    const reopened = openHistoryDb(tempDir);
+    assert.equal(reopened.getAssistantThread("ath_json_reopen")?.title, "JSON reopen");
+    assert.deepEqual(reopened.listAssistantMessages("ath_json_reopen").map((item) => item.text), ["Still here"]);
+    reopened.close();
+  });
+
+  test("json assistant messages keep insertion order for equal timestamps", () => {
+    mkdirSync(join(tempDir, "history.db"));
+    const db = openHistoryDb(tempDir);
+    assertTiedTimestamps(db);
+    db.close();
+  });
+
+  test("json assistant append with a failed write throws and keeps the previous state", () => {
+    mkdirSync(join(tempDir, "history.db"));
+    const db = openHistoryDb(tempDir);
+    db.createAssistantThread({ id: "ath_fault", now: "2026-10-01T00:00:00.000Z", title: "Fault" });
+    for (const id of ["amg_fault_m1", "amg_fault_m2", "amg_fault_m3"]) {
+      db.appendAssistantMessage({
+        createdAt: "2026-10-01T00:01:00.000Z",
+        errorCode: null,
+        id,
+        role: "user",
+        status: "final",
+        text: id,
+        threadId: "ath_fault",
+      });
+    }
+    const historyPath = join(tempDir, "history.json");
+    const goodBytes = readFileSync(historyPath, "utf8");
+
+    // Break the only write target the JSON store has: the file path becomes
+    // a directory, so the atomic rename fails with EISDIR.
+    const backup = join(tempDir, "fault-backup.json");
+    renameSync(historyPath, backup);
+    mkdirSync(historyPath);
+    try {
+      assert.throws(
+        () =>
+          db.appendAssistantMessage({
+            createdAt: "2026-10-01T00:02:00.000Z",
+            errorCode: null,
+            id: "amg_fault_m4",
+            role: "user",
+            status: "final",
+            text: "Must not persist",
+            threadId: "ath_fault",
+          }),
+        (error) => error.code === "EISDIR",
+      );
+
+      // Memory and disk stay exactly as they were.
+      assert.deepEqual(db.listAssistantMessages("ath_fault").map((item) => item.id), [
+        "amg_fault_m1",
+        "amg_fault_m2",
+        "amg_fault_m3",
+      ]);
+      assert.equal(db.getAssistantThread("ath_fault").updatedAt, "2026-10-01T00:01:00.000Z");
+      assert.equal(readFileSync(backup, "utf8"), goodBytes, "the persisted bytes are untouched by the failed write");
+      assert.ok(!existsSync(join(tempDir, "history.json.pin-state")), "no torn temp file may be left behind");
+    } finally {
+      rmSync(historyPath, { recursive: true });
+      renameSync(backup, historyPath);
+    }
+
+    // With the fault cleared, the same append succeeds and is durable across a reopen.
+    db.appendAssistantMessage({
+      createdAt: "2026-10-01T00:02:00.000Z",
+      errorCode: null,
+      id: "amg_fault_m4",
+      role: "user",
+      status: "final",
+      text: "Must not persist",
+      threadId: "ath_fault",
+    });
+    db.close();
+    const reopened = openHistoryDb(tempDir);
+    assert.deepEqual(reopened.listAssistantMessages("ath_fault").map((item) => item.id), [
+      "amg_fault_m1",
+      "amg_fault_m2",
+      "amg_fault_m3",
+      "amg_fault_m4",
+    ]);
     reopened.close();
   });
 });

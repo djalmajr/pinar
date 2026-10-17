@@ -127,16 +127,12 @@ export function edgerCloudEnv(read: (name: string) => string | undefined): Cloud
   // The assistant reads the raw strings (its own endpoint); they stand
   // alone, so an explicit appliance chain needs no AI_MODEL (A46).
   const aiBaseUrl = value("AI_BASE_URL");
-  if (aiBaseUrl !== undefined) env.AI_BASE_URL = aiBaseUrl;
   const aiApiKey = value("AI_API_KEY");
-  if (aiApiKey !== undefined) env.AI_API_KEY = aiApiKey;
   const aiModel = value("AI_MODEL");
-  if (aiModel !== undefined) env.AI_MODEL = aiModel;
   const transcriptionModel = value("AI_TRANSCRIPTION_MODEL");
   if (aiModel !== undefined || transcriptionModel !== undefined) {
     // The metered AI binding (transcription and reproduction) uses AI_MODEL
-    // and AI_TRANSCRIPTION_MODEL for real, so it is required only when one
-    // of them is present.
+    // and AI_TRANSCRIPTION_MODEL for real, so it needs its full group.
     const ai = requiredGroup(
       "AI",
       {
@@ -154,7 +150,15 @@ export function edgerCloudEnv(read: (name: string) => string | undefined): Cloud
       chatModel: ai.AI_MODEL,
       transcriptionModel: ai.AI_TRANSCRIPTION_MODEL,
     }) as unknown as Ai;
+  } else if ((aiBaseUrl !== undefined) !== (aiApiKey !== undefined)) {
+    // Without the models the URL and the key are a pair: with one of them
+    // present (blank counts as absent), the other must be too, so a broken
+    // pair fails loudly instead of booting with hasAssistant: false (A46).
+    throw new Error(`incomplete AI configuration: missing ${aiBaseUrl === undefined ? "AI_BASE_URL" : "AI_API_KEY"}`);
   }
+  if (aiBaseUrl !== undefined) env.AI_BASE_URL = aiBaseUrl;
+  if (aiApiKey !== undefined) env.AI_API_KEY = aiApiKey;
+  if (aiModel !== undefined) env.AI_MODEL = aiModel;
   // Optional and outside the group: its absence never turns the AI off
   // (the pin search is then textual).
   const embeddingModel = value("AI_EMBEDDING_MODEL");

@@ -172,6 +172,22 @@ describe("edgerCloudEnv", () => {
         { AI_TRANSCRIPTION_MODEL: "transcription-model" },
         "incomplete AI configuration: missing AI_API_KEY, AI_BASE_URL, AI_MODEL",
       ],
+      // The URL and the key are a pair: without the models, one of them
+      // present requires the other (blank counts as absent), so a broken
+      // pair cannot boot silently with hasAssistant: false (A46).
+      [
+        { AI_BASE_URL: "https://ai.example.invalid/v1" },
+        "incomplete AI configuration: missing AI_API_KEY",
+      ],
+      [{ AI_API_KEY: "TOP_SECRET_AI_KEY" }, "incomplete AI configuration: missing AI_BASE_URL"],
+      [
+        { AI_BASE_URL: "https://ai.example.invalid/v1", AI_API_KEY: " " },
+        "incomplete AI configuration: missing AI_API_KEY",
+      ],
+      [
+        { AI_API_KEY: "TOP_SECRET_AI_KEY", AI_BASE_URL: "" },
+        "incomplete AI configuration: missing AI_BASE_URL",
+      ],
     ];
     for (const [vars, message] of cases) {
       assert.throws(

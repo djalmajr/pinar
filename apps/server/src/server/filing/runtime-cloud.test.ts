@@ -640,7 +640,7 @@ describe("cloud capture filing (POST /api/shots)", () => {
     }
   });
 
-  test("a re-upload of the same id follows the new decision", async () => {
+  test("a re-upload of the same id replays the stored decision (F4d)", async () => {
     const db = migratedDatabase();
     try {
       const env = filingEnv(db);
@@ -653,9 +653,12 @@ describe("cloud capture filing (POST /api/shots)", () => {
       await shot(env, cookie, { id: "cloud_again", title: "Onboarding" });
       assert.deepEqual(stored(db, "cloud_again"), { batch_id: null, collection_id: "col_onboarding", filed_by: "auto" });
 
+      // F4d: the engine is only called by the run that created the
+      // reservation. A re-upload of a settled capture replays the stored
+      // choice — the lower probability is never even asked.
       probability = 0.4;
       await shot(env, cookie, { id: "cloud_again", title: "Onboarding" });
-      assert.deepEqual(stored(db, "cloud_again"), { batch_id: null, collection_id: "col_inbox", filed_by: null });
+      assert.deepEqual(stored(db, "cloud_again"), { batch_id: null, collection_id: "col_onboarding", filed_by: "auto" });
 
       probability = 0.92;
       await shot(env, cookie, { id: "cloud_again", title: "Onboarding" });
@@ -838,9 +841,11 @@ describe("cloud capture filing keeps a batch whole (A36)", () => {
     assert.equal(saved.filedBy, "auto");
   });
 
-  test("a re-upload of the batch's only session follows the new decision, which becomes the batch's destination", async () => {
-    // Mutation captured: applying the old claim to the re-upload keeps it in Checkout.
-    // Mutation captured: an UPDATE that only writes an empty claim leaves the batch on Checkout.
+  test("a re-upload of the batch's only session replays the stored decision, and the batch stays claimed (F4d)", async () => {
+    // F4d: the engine is only called by the run that created the
+    // reservation. The re-upload of the settled capture replays the stored
+    // choice (Checkout), without the engine and without a charge, so the
+    // batch keeps the destination the first capture claimed.
     const db = migratedDatabase();
     try {
       const { cookie, env } = await filingSetup(db);
@@ -849,18 +854,19 @@ describe("cloud capture filing keeps a batch whole (A36)", () => {
       assert.equal(first.destination.collectionId, "col_checkout");
       assert.equal(claimOf(db, "batch_again"), "col_checkout");
 
+      // The engine would now decide Onboarding: the re-upload must not ask it.
       appliance = fakeAppliance({ decide: decideFor("Shop / Onboarding", 0.95), engine: "decisions" });
       const again = await shot(env, cookie, { batchId: "batch_again", id: "batch_again_only", title: "Onboarding, changed" });
-      assert.equal(appliance.engineCalls().length, 1, "the re-upload asks the engine again");
-      assert.equal(again.destination.collectionId, "col_onboarding");
-      assert.deepEqual(again.filing, { collectionId: "col_onboarding", confidence: 0.95, engine: "decisions", reason: "chosen" });
-      assert.deepEqual(stored(db, "batch_again_only"), { batch_id: "batch_again", collection_id: "col_onboarding", filed_by: "auto" });
-      assert.equal(claimOf(db, "batch_again"), "col_onboarding");
+      assert.equal(appliance.engineCalls().length, 0, "the re-upload does not call the engine again");
+      assert.equal(again.destination.collectionId, "col_checkout");
+      assert.deepEqual(again.filing, { collectionId: "col_checkout", confidence: 0.95, engine: "decisions", reason: "chosen" });
+      assert.deepEqual(stored(db, "batch_again_only"), { batch_id: "batch_again", collection_id: "col_checkout", filed_by: "auto" });
+      assert.equal(claimOf(db, "batch_again"), "col_checkout");
 
       // The batch's next capture follows the session there, asking nothing.
       appliance = fakeAppliance({ decide: decideFor("Shop / Checkout", 0.95), engine: "decisions" });
       const next = await shot(env, cookie, { batchId: "batch_again", id: "batch_again_next", title: "Checkout" });
-      assert.equal(next.destination.collectionId, "col_onboarding");
+      assert.equal(next.destination.collectionId, "col_checkout");
       assert.equal(appliance.engineCalls().length, 0);
     } finally {
       db.close();
@@ -993,7 +999,7 @@ describe("cloud capture filing keeps a batch whole (A36)", () => {
     }
   });
 
-  test("without D1, a re-upload of the batch's only session follows the new decision", async () => {
+  test("without D1, a re-upload of the batch's only session replays the stored decision (F4d)", async () => {
     const env: CloudEnv = { AI_API_KEY: "sk-ai-test", AI_BASE_URL: BASE_URL, AI_MODEL: "mock", ASSISTANT_ENABLED: "true", DEPLOYMENT_ENV: "staging" };
     const { cookie } = await seedCloudWebSessionForTests({ email: "mem-again@example.test", id: OWNER, plan: "pro" }, env);
     const call = async (path: string, body: unknown) => {
@@ -1007,16 +1013,20 @@ describe("cloud capture filing keeps a batch whole (A36)", () => {
     };
     const shop = (await call("/api/projects", { name: "Shop" })).project.id as string;
     const checkout = (await call(`/api/projects/${shop}/collections`, { name: "Checkout" })).collection.id as string;
-    const onboarding = (await call(`/api/projects/${shop}/collections`, { name: "Onboarding" })).collection.id as string;
     await writeOwnerDeliveryPreferences(env, OWNER, { autoCaptureDestination: true });
 
     appliance = fakeAppliance({ decide: decideFor("Shop / Checkout", 0.95), engine: "decisions" });
     assert.equal((await shot(env, cookie, { batchId: "batch_memory_again", id: "memory_again", title: "Checkout" })).destination.collectionId, checkout);
+    // F4d: the engine is only called by the run that created the
+    // reservation. The re-upload replays the stored choice (Checkout),
+    // without asking the engine — which would now decide Onboarding.
     appliance = fakeAppliance({ decide: decideFor("Shop / Onboarding", 0.95), engine: "decisions" });
-    assert.equal((await shot(env, cookie, { batchId: "batch_memory_again", id: "memory_again", title: "Onboarding" })).destination.collectionId, onboarding);
-    // The batch's next capture follows the session there.
-    appliance = fakeAppliance({ decide: decideFor("Shop / Checkout", 0.95), engine: "decisions" });
-    assert.equal((await shot(env, cookie, { batchId: "batch_memory_again", id: "memory_next", title: "Checkout" })).destination.collectionId, onboarding);
+    const reuploaded = await shot(env, cookie, { batchId: "batch_memory_again", id: "memory_again", title: "Onboarding" });
+    assert.equal(appliance.engineCalls().length, 0, "the re-upload does not call the engine again");
+    assert.equal(reuploaded.destination.collectionId, checkout);
+    // The batch's next capture follows the session there, asking nothing.
+    appliance = fakeAppliance({ decide: decideFor("Shop / Onboarding", 0.95), engine: "decisions" });
+    assert.equal((await shot(env, cookie, { batchId: "batch_memory_again", id: "memory_next", title: "Checkout" })).destination.collectionId, checkout);
   });
 
   // The workspace's routes, as the browser sends them.
@@ -1858,6 +1868,24 @@ const filingRows = (rows: A53LedgerEntry[], useDb: boolean) => rows
   .filter((entry) => entry.feature === "capture_filing")
   .map((entry) => (useDb ? [entry.status, entry.errorCode] : [entry.status]));
 
+// The ledger read after a settlement that settled after the capture's
+// deadline (the fire-and-forget refund): poll until the rows land, bounded.
+async function settledRows(setup: A53Setup, count: number): Promise<A53LedgerEntry[]> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const rows = await setup.ledger();
+    if (rows.length >= count) return rows;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return setup.ledger();
+}
+
+async function ownerPrincipal(setup: A53Setup) {
+  const { resolvePrincipal } = await import("../cloud-api");
+  const principal = await resolvePrincipal(new Request("https://pinar.test/api/account/entitlements", { headers: { cookie: setup.cookie } }), setup.env);
+  assert.ok(principal, "the owner principal");
+  return principal;
+}
+
 for (const runtime of a53Runtimes) {
   describe(`cloud capture filing charges one credit when the engine is called (A53, ${runtime.name})`, () => {
     beforeEach(() => {
@@ -1936,14 +1964,16 @@ for (const runtime of a53Runtimes) {
         assert.deepEqual(filingRows(rows, runtime.useDb), runtime.useDb ? [["refunded", "ai_inference_failed"]] : [["refunded"]]);
 
         // An engine that is detected but never answers: the filing's deadline
-        // fires and the reserved credit goes back.
+        // fires and the reserved credit goes back. The deadline has fired by
+        // the time the capture answers, so the refund settles after the
+        // response: the read waits for it, bounded.
         appliance = fakeAppliance({ decide: () => new Promise<Response>(() => {}), engine: "decisions" });
         const timeout = await shot(setup.env, setup.cookie, { id: "a53_timeout", title: "Onboarding" });
         assert.equal(timeout.filing.reason, "timeout");
         assert.equal(timeout.filing.collectionId, null);
         assert.equal(timeout.destination.collectionId, setup.inbox);
         assert.equal(await setup.balance(), 500, "the second refund");
-        rows = await setup.ledger();
+        rows = await settledRows(setup, 2);
         assert.deepEqual(filingRows(rows, runtime.useDb), runtime.useDb
           ? [["refunded", "ai_inference_failed"], ["refunded", "reservation_timeout"]]
           : [["refunded"], ["refunded"]]);
@@ -1961,10 +1991,97 @@ for (const runtime of a53Runtimes) {
         const first = await shot(setup.env, setup.cookie, { id: "a53_once", title: "Onboarding" });
         assert.equal(first.filing.reason, "chosen");
         const replay = await shot(setup.env, setup.cookie, { id: "a53_once", title: "Onboarding again" });
-        assert.equal(replay.filing.reason, "chosen", "the re-upload is decided again");
+        assert.equal(replay.filing.reason, "chosen", "the stored choice is replayed, not re-decided");
         assert.equal(await setup.balance(), 499, "one capture, one credit");
         const rows = await setup.ledger();
         assert.deepEqual(rows.map((entry) => [entry.feature, entry.status, entry.credits]), [["capture_filing", "succeeded", 1]], "the earlier row is found, whatever its status");
+      } finally {
+        setup.close();
+      }
+    });
+
+    test("a refunded run is not a payment: the re-upload does not call the engine and the balance stays (F4d)", async () => {
+      const setup = await a53Setup(runtime.useDb);
+      try {
+        await writeOwnerDeliveryPreferences(setup.env, OWNER, { autoCaptureDestination: true });
+        appliance = fakeAppliance({ decide: () => new Response("boom", { status: 500 }), engine: "decisions" });
+        const failed = await shot(setup.env, setup.cookie, { id: "a53_refunded", title: "Onboarding" });
+        assert.equal(failed.filing.reason, "error");
+        assert.equal(failed.destination.collectionId, setup.inbox, "the failed run left the capture in the Inbox");
+        assert.equal(await setup.balance(), 500, "the refund of the failed run");
+
+        // The engine would now decide: the re-upload must not call it.
+        const decided = fakeAppliance({ decide: decideFor("Onboarding", 0.95), engine: "decisions" });
+        appliance = decided;
+        const reuploaded = await shot(setup.env, setup.cookie, { id: "a53_refunded", title: "Onboarding" });
+        assert.equal(reuploaded.filing.reason, "error");
+        assert.equal(reuploaded.destination.collectionId, setup.inbox, "the session keeps its destination (the Inbox)");
+        assert.equal(decided.engineCalls().length, 0, "the engine is not called for a refunded capture");
+        assert.equal(await setup.balance(), 500, "no new charge: a refund is not a payment");
+      } finally {
+        setup.close();
+      }
+    });
+
+    test("a settled run is replayed: the re-upload is filed again without the engine and without a charge", async () => {
+      const setup = await a53Setup(runtime.useDb);
+      try {
+        await writeOwnerDeliveryPreferences(setup.env, OWNER, { autoCaptureDestination: true });
+        const decided = fakeAppliance({ decide: decideFor("Onboarding", 0.95), engine: "decisions" });
+        appliance = decided;
+        const first = await shot(setup.env, setup.cookie, { id: "a53_replay", title: "Onboarding" });
+        assert.equal(first.filing.reason, "chosen");
+        assert.equal(await setup.balance(), 499, "the charge of one credit");
+
+        // The engine would now answer the Inbox (low confidence): the
+        // re-upload must replay the stored choice, not re-decide.
+        appliance = fakeAppliance({ decide: decideFor("Onboarding", 0.2), engine: "decisions" });
+        const replay = await shot(setup.env, setup.cookie, { id: "a53_replay", title: "Onboarding again" });
+        assert.equal(replay.filing.reason, "chosen", "the stored choice is replayed");
+        assert.equal(replay.filing.collectionId, setup.onboarding);
+        assert.equal(decided.engineCalls().length, 1, "the re-upload does not call the engine again");
+        assert.equal(await setup.balance(), 499, "the re-upload does not charge again");
+      } finally {
+        setup.close();
+      }
+    });
+
+    test("an open reservation of the capture keeps it in the Inbox without the engine and without a new charge", async () => {
+      const setup = await a53Setup(runtime.useDb);
+      try {
+        await writeOwnerDeliveryPreferences(setup.env, OWNER, { autoCaptureDestination: true });
+        const { cloudCaptureFilingMeter } = await import("../cloud-api");
+        const principal = await ownerPrincipal(setup);
+        const state = await cloudCaptureFilingMeter(setup.env, principal, "a53_open").reserve("mock");
+        assert.equal(state, "reserved", "the reservation is left open (never settled)");
+        assert.equal(await setup.balance(), 499, "the open reservation debits the balance");
+        appliance = fakeAppliance({ decide: decideFor("Onboarding", 0.95), engine: "decisions" });
+
+        const body = await shot(setup.env, setup.cookie, { id: "a53_open", title: "Onboarding" });
+        assert.equal(body.filing.reason, "error", "the capture keeps the destination it has: the Inbox");
+        assert.equal(body.filing.collectionId, null);
+        assert.equal(appliance.engineCalls().length, 0, "the open reservation keeps the engine away");
+        assert.equal(await setup.balance(), 499, "no second reservation");
+      } finally {
+        setup.close();
+      }
+    });
+
+    test("two reservations of the same capture side by side: one debits, the other finds the row", async () => {
+      const setup = await a53Setup(runtime.useDb);
+      try {
+        await writeOwnerDeliveryPreferences(setup.env, OWNER, { autoCaptureDestination: true });
+        const { cloudCaptureFilingMeter } = await import("../cloud-api");
+        const principal = await ownerPrincipal(setup);
+        const meters = [
+          cloudCaptureFilingMeter(setup.env, principal, "a53_race"),
+          cloudCaptureFilingMeter(setup.env, principal, "a53_race"),
+        ];
+        const states = await Promise.all(meters.map((meter) => meter.reserve("mock")));
+        assert.deepEqual(states.sort(), ["existing", "reserved"], "one reservation debits, the other finds the row");
+        assert.equal(await setup.balance(), 499, "one credit");
+        const rows = (await setup.ledger()).filter((entry) => entry.feature === "capture_filing");
+        assert.equal(rows.length, 1, "the ledger has the reservation once");
       } finally {
         setup.close();
       }

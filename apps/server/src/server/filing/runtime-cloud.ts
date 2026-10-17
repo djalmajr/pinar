@@ -20,6 +20,7 @@
 import { cloudRetrievalEndpoints, type CloudIndexCostRecorder, type CloudPinEnv } from "../assistant/retrieval/runtime-cloud";
 import { cloudPinIndexStore } from "../assistant/retrieval/store-cloud";
 import type { FilingThresholdEnv } from "./constants";
+import type { FilingCreditMeter } from "./choose";
 import { fileCapture, type FilingCapture, type FilingEngineChoice, type FilingOutcome, type FilingSource } from "./runtime";
 
 let testFetch: typeof fetch | null = null;
@@ -67,12 +68,14 @@ export async function cloudAutoCaptureDestinationAvailable(env: CloudPinEnv, tim
 /**
  * Files a new Cloud capture of `ownerId`; the caller checked the gate and
  * the preference. The env also carries the filing similarity threshold
- * variables (F3.5 §1), applied where chooseCollection resolves them.
+ * variables (F3.5 §1), applied where chooseCollection resolves them. The
+ * meter (A53) charges the capture's credit when the engine is called.
  */
 export function fileCloudCapture(input: {
   batchId: string | null;
   capture: FilingCapture;
   env: CloudPinEnv & FilingThresholdEnv;
+  meter?: FilingCreditMeter;
   ownerId: string;
   recordIndexCost?: CloudIndexCostRecorder;
   source: Omit<FilingSource, "entriesFor">;
@@ -84,6 +87,7 @@ export function fileCloudCapture(input: {
     capture: input.capture,
     engine: () => cloudFilingEngine(input.env, input.recordIndexCost),
     ...fetchOption(),
+    ...(input.meter ? { meter: input.meter } : {}),
     source: { ...input.source, entriesFor: (sessionIds) => store.entriesFor(sessionIds) },
     ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
   });

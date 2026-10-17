@@ -61,7 +61,8 @@ CREATE TABLE ai_credit_usages (
     'design_system',
     'reproduction',
     'voice_pin',
-    'assistant_turn'
+    'assistant_turn',
+    'capture_filing'
   )),
   resource_id TEXT NOT NULL,
   model TEXT NOT NULL,
@@ -98,7 +99,7 @@ END;
 
 CREATE TRIGGER refund_ai_credit_usage
 AFTER UPDATE OF status ON ai_credit_usages
-WHEN OLD.status = 'reserved' AND NEW.status = 'refunded'
+WHEN OLD.status IN ('reserved', 'succeeded') AND NEW.status = 'refunded'
 BEGIN
   UPDATE ai_credit_grants
   SET consumed_credits = consumed_credits - OLD.credits

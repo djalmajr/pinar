@@ -741,7 +741,7 @@ const locale = {
         {
           heading: "Reproduction in Pinar Cloud",
           paragraphs: [
-            "In Pinar Cloud, reproduction is available to eligible signed-in accounts without debiting AI credits.",
+            "In Pinar Cloud, reproduction is available to eligible signed-in accounts, and each generation of the written steps uses 1 AI credit; a generation that fails gives it back. [Pinar Cloud AI credits for voice and the assistant](/help/cloud/ai-credits) explains balances and refunds.",
           ],
         },
         {
@@ -839,7 +839,7 @@ const locale = {
         {
           heading: "Let Pinar choose the collection",
           paragraphs: [
-            "In Settings → “Capture”, turn on “Choose the collection automatically”. Pinar then picks a collection for each new capture among the ones you already have; when it is not sure, the capture goes to the “Inbox”. Captures from the same batch stay together. The option needs AI to be available. If the option stays on while AI is not available, new captures go to the “Inbox”; to choose the destination yourself, turn the option off.",
+            "In Settings → “Capture”, turn on “Choose the collection automatically”. Pinar then picks a collection for each new capture among the ones you already have; when it is not sure, the capture goes to the “Inbox”. Captures from the same batch stay together. The option needs AI to be available. If the option stays on while AI is not available, new captures go to the “Inbox”; to choose the destination yourself, turn the option off. In Pinar Cloud, each capture whose collection the AI chooses uses 1 AI credit; a failed or expired choice gives it back, and without a credit balance the AI is not called and the capture goes to the “Inbox”. [Pinar Cloud AI credits for voice and the assistant](/help/cloud/ai-credits) explains balances and refunds.",
           ],
           bullets: [
             "A session filed this way shows a small mark. Point at it or focus it to read “Filed automatically. Move to correct.”",
@@ -1096,20 +1096,21 @@ const locale = {
     },
     "ai-credits": {
       title: "Pinar Cloud AI credits for voice and the assistant",
-      summary: "Know how voice and the assistant spend Pinar Cloud credits, when credits come back, and how to buy more.",
+      summary: "Know how voice, the assistant, reproduction, and the automatic collection choice spend Pinar Cloud credits, when credits come back, and how to buy more.",
       sections: [
         {
           heading: "What uses credits",
           paragraphs: [
             "In Pinar Cloud, voice transcription and the assistant use AI credits. A voice recording up to 60 seconds reserves 1 credit; a recording from 61 to 120 seconds reserves 2. On success, the reservation is consumed. A failed transcription refunds it, and a reservation left unsettled for more than five minutes is refunded automatically.",
             "Each message you send to the assistant in Pinar Cloud uses 3 credits, and a reply that fails gives them back. Confirming or undoing a proposal uses no credits. In the local app, the assistant uses the AI you set up and no Pinar credits.",
-            "Recording a reproduction timeline and generating its written steps do not debit AI credits.",
+            "In Pinar Cloud, generating the written reproduction steps uses 1 AI credit per generation, and a generation that fails gives it back.",
+            "With the automatic collection choice on, each capture whose collection the AI chooses uses 1 credit, including when the choice is the “Inbox”; a failed or expired choice gives it back, and without a credit balance the AI is not called and the capture goes to the “Inbox”.",
           ],
         },
         {
           heading: "Balances",
           paragraphs: [
-            "The account’s first Pro subscription grants 500 credits once. Renewing, canceling and reactivating, or changing plans does not grant them again. Purchased Pinar Cloud packs add 500 credits, last up to 12 months, and can only be bought with Pro. Voice and the assistant draw from the same balance.",
+            "The account’s first Pro subscription grants 500 credits once. Renewing, canceling and reactivating, or changing plans does not grant them again. Purchased Pinar Cloud packs add 500 credits, last up to 12 months, and can only be bought with Pro. Voice, the assistant, reproduction, and the automatic collection choice draw from the same balance.",
           ],
         },
         {

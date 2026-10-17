@@ -16,23 +16,31 @@
 //   centroid per collection (collectionCentroid); rankBySimilarity ranks the
 //   collections for the capture, and the raw choice is the best one, its
 //   cosine and its margin over the second.
+// Every call runs under chooseCollection's deadline: it gets a signal that
+// aborts at FILING_TIMEOUT_MS and is raced against it, and its elapsed time
+// is recorded. A capture with no answer by then, or an answer that took
+// longer, is a timeout and stays in the Inbox at every threshold, as
+// chooseCollection's reason "timeout".
 // fileAt applies chooseCollection's rule to a raw choice under any
 // thresholds, so the grid is recomputed without new requests (run.test.ts
-// checks that it matches chooseCollection at the current thresholds).
+// checks that, at the current thresholds, the metrics are the ones of
+// calling chooseCollection per capture, with immediate, slow and failing
+// answers).
 //
 // Metrics: accuracy = captures with a good collection filed into it / the
 // captures with a good collection; false positives = captures filed where
 // they should not be (the Inbox was expected, or another collection) / all
 // captures; Inbox = captures left in the Inbox / all captures. A capture
-// whose engine failed counts as left in the Inbox, as in production. Gates:
-// false positives <= 5% and accuracy >= 80%.
+// whose engine failed or timed out counts as left in the Inbox, as in
+// production; the output and the JSON count the timeouts. Gates: false
+// positives <= 5% and accuracy >= 80%.
 //
 // The endpoint is ASSISTANT_BENCH_BASE_URL (HTTPS) with
 // ASSISTANT_BENCH_API_KEY. The key is never printed nor written: the JSON
 // has no key field and every printed or written text goes through
-// redactSecret. Exit codes: 0 ok (whatever the gates say), 1 the run
-// failed or a capture failed in the engine (the result would not measure
-// it), 2 bad configuration/environment.
+// redactSecret. Exit codes: 0 ok (whatever the gates and the timeouts
+// say), 1 the run failed or a capture failed in the engine (the result
+// would not measure it), 2 bad configuration/environment.
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -46,6 +54,7 @@ import {
   FILING_NONE_OPTION,
   FILING_SIMILARITY_MARGIN,
   FILING_SIMILARITY_MIN,
+  FILING_TIMEOUT_MS,
   type FilingCandidate,
 } from "../../src/server/filing/choose";
 import { decideCollection } from "../../src/server/filing/decisions";
@@ -77,13 +86,17 @@ export interface Thresholds {
 export interface RawChoice {
   // The engine's best collection before any threshold; null when the
   // appliance chose None of these, no collection has a centroid, or the
-  // engine failed.
+  // engine failed or did not answer in time.
   best: string | null;
-  error: string | null;
+  elapsedMs: number;
+  error: string | null; // the engine failed within the deadline
   margin: number | null; // similarity: best cosine minus the second (null without a second)
   option: string | null; // decisions: the option the appliance chose
   score: number | null; // decisions: probability of the best label; similarity: the best cosine
+  timedOut: boolean; // no answer within FILING_TIMEOUT_MS: the Inbox at every threshold
 }
+
+type EngineAnswer = Pick<RawChoice, "best" | "margin" | "option" | "score">;
 
 export interface CaptureResult extends RawChoice {
   confusableWith: string | null;
@@ -113,10 +126,11 @@ export interface GridPoint {
 // ---------- rule and metrics (no requests) ----------
 
 // chooseCollection's rule (src/server/filing/choose.ts) under `thresholds`:
-// the best collection when its score reaches the minimum and, with a margin
-// threshold, when it leads the second by at least that margin (a lone
-// collection has no rival).
+// nothing after a timeout; otherwise the best collection when its score
+// reaches the minimum and, with a margin threshold, when it leads the
+// second by at least that margin (a lone collection has no rival).
 export function fileAt(raw: RawChoice, thresholds: Thresholds): string | null {
+  if (raw.timedOut) return null;
   if (raw.best === null || raw.score === null || raw.score < thresholds.min) return null;
   if (thresholds.margin !== undefined && raw.margin !== null && raw.margin < thresholds.margin) return null;
   return raw.best;
@@ -207,38 +221,68 @@ async function similarityCentroids(collections: FilingBenchCollection[], embeddi
   return { centroids, documents: texts.length };
 }
 
-async function rawChoice(
+async function engineAnswer(
   engine: BenchEngine,
   candidates: FilingCandidate[],
   text: string,
   centroids: Map<string, number[] | null>,
-  fetchImpl?: typeof fetch,
-): Promise<RawChoice> {
+  fetchImpl: typeof fetch | undefined,
+  signal: AbortSignal,
+): Promise<EngineAnswer> {
   if (engine.kind === "decisions") {
-    const decision = await decideCollection({ candidates, endpoint: engine.endpoint, fetch: fetchImpl, text });
+    const decision = await decideCollection({ candidates, endpoint: engine.endpoint, fetch: fetchImpl, signal, text });
     const option = candidates.find((candidate) => candidate.collectionId === decision.collectionId)?.label ?? FILING_NONE_OPTION;
-    return { best: decision.collectionId, error: null, margin: null, option, score: decision.confidence };
+    return { best: decision.collectionId, margin: null, option, score: decision.confidence };
   }
   const ranked = await rankBySimilarity({
     candidates,
     centroid: async (collectionId) => centroids.get(collectionId) ?? null,
     embedding: engine.embedding,
     fetch: fetchImpl,
+    signal,
     text,
   });
   const [first, second] = ranked;
   return {
     best: first?.candidate.collectionId ?? null,
-    error: null,
     margin: first && second ? first.score - second.score : null,
     option: null,
     score: first?.score ?? null,
   };
 }
 
+// One engine call under chooseCollection's deadline (src/server/filing/
+// choose.ts): the signal aborts at FILING_TIMEOUT_MS and the call is raced
+// against it, so the wait ends there even for a fetch that ignores the
+// signal. No answer by then, or an answer that took longer, is a timeout; a
+// late answer is kept for the record but never filed (fileAt).
+async function underDeadline(run: (signal: AbortSignal) => Promise<EngineAnswer>, clock: () => number): Promise<RawChoice> {
+  const deadline = AbortSignal.timeout(FILING_TIMEOUT_MS);
+  const started = clock();
+  let onAbort = () => {};
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(deadline.reason);
+    deadline.addEventListener("abort", onAbort, { once: true });
+  });
+  let answer: EngineAnswer = { best: null, margin: null, option: null, score: null };
+  let error: string | null = null;
+  try {
+    answer = await Promise.race([run(deadline), aborted]);
+  } catch (caught) {
+    error = caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    deadline.removeEventListener("abort", onAbort);
+  }
+  const elapsed = clock() - started;
+  const timedOut = deadline.aborted || elapsed > FILING_TIMEOUT_MS;
+  return { ...answer, elapsedMs: Math.round(elapsed), error: timedOut ? null : error, timedOut };
+}
+
 export async function measureFiling(input: {
   captures?: FilingBenchCapture[];
   collections?: FilingBenchCollection[];
+  // Milliseconds for the elapsed time of each call (default performance.now).
+  clock?: () => number;
   engine: BenchEngine;
   fetch?: typeof fetch;
 }): Promise<{ documents: number; results: CaptureResult[] }> {
@@ -252,12 +296,10 @@ export async function measureFiling(input: {
   const results: CaptureResult[] = [];
   for (const item of input.captures ?? FILING_BENCH_CAPTURES) {
     const text = captureFilingText({ page: item.page, pins: item.pins });
-    let raw: RawChoice;
-    try {
-      raw = await rawChoice(input.engine, candidates, text, prepared.centroids, input.fetch);
-    } catch (error) {
-      raw = { best: null, error: error instanceof Error ? error.message : String(error), margin: null, option: null, score: null };
-    }
+    const raw = await underDeadline(
+      (signal) => engineAnswer(input.engine, candidates, text, prepared.centroids, input.fetch, signal),
+      input.clock ?? (() => performance.now()),
+    );
     results.push({ ...raw, confusableWith: item.confusableWith ?? null, expected: item.expected, id: item.id, language: item.language });
   }
   return { documents: prepared.documents, results };
@@ -341,6 +383,7 @@ function describeMetrics(metrics: FilingMetrics): string {
 }
 
 function describeRaw(result: CaptureResult, labels: Map<string, string>): string {
+  if (result.timedOut) return `timeout (${result.elapsedMs} ms)`;
   if (result.error !== null) return `erro: ${result.error}`;
   const score = result.score === null ? "—" : result.score.toFixed(3);
   if (result.option === FILING_NONE_OPTION) return `${FILING_NONE_OPTION} (melhor rótulo p ${score})`;
@@ -357,6 +400,7 @@ function describeOutcome(expected: string | null, filed: string | null): string 
 }
 
 export interface BenchIo {
+  clock?: () => number;
   env: Record<string, string | undefined>;
   fetch?: typeof fetch;
   now?: () => Date;
@@ -408,7 +452,7 @@ export async function main(argv: string[], io: BenchIo): Promise<number> {
   );
   let measured: Awaited<ReturnType<typeof measureFiling>>;
   try {
-    measured = await measureFiling({ engine, fetch: io.fetch });
+    measured = await measureFiling({ clock: io.clock, engine, fetch: io.fetch });
   } catch (error) {
     stderr(`Erro: ${error instanceof Error ? error.message : String(error)}`);
     return 1;
@@ -426,6 +470,8 @@ export async function main(argv: string[], io: BenchIo): Promise<number> {
   }
 
   const { best, current, grid } = evaluation;
+  const timeouts = results.filter((result) => result.timedOut).length;
+  stdout(`Timeouts (prazo de ${FILING_TIMEOUT_MS} ms): ${timeouts}/${results.length}`);
   stdout(`Limiar atual (${describeThresholds(args.engine, current.thresholds)}): ${describeMetrics(current.metrics)}`);
   stdout(`Gate falso positivo ≤ ${percent(FALSE_POSITIVE_MAX)}: ${percent(current.metrics.falsePositiveRate)} — ${current.gates.falsePositive ? "pass" : "fail"}`);
   stdout(`Gate acerto ≥ ${percent(ACCURACY_MIN)}: ${percent(current.metrics.accuracy)} — ${current.gates.accuracy ? "pass" : "fail"}`);
@@ -448,6 +494,7 @@ export async function main(argv: string[], io: BenchIo): Promise<number> {
     captures: results.map((result) => ({ ...result, filed: fileAt(result, current.thresholds) })),
     config: {
       baseUrl: endpointBase,
+      deadlineMs: FILING_TIMEOUT_MS,
       engine: args.engine,
       gates: { accuracyMin: ACCURACY_MIN, falsePositiveMax: FALSE_POSITIVE_MAX },
       model,
@@ -457,6 +504,7 @@ export async function main(argv: string[], io: BenchIo): Promise<number> {
     errors,
     generatedAt,
     grid,
+    timeouts,
   };
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, redactSecret(JSON.stringify(report, null, 2), apiKey));

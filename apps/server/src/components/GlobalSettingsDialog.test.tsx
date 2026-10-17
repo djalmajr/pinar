@@ -198,8 +198,8 @@ describe("Settings → Capture: automatic collection", () => {
   });
 });
 
-describe("Settings → AI usage: voice and assistant", () => {
-  test("lists the voice pin and the assistant turn, and drops other features and malformed items", () => {
+describe("Settings → AI usage: voice, assistant, and capture filing", () => {
+  test("lists the voice pin, the assistant turn, and capture filing, and drops other features and malformed items", () => {
     const entry = (feature: string, extra: Record<string, unknown> = {}) => ({
       completedAt: "2026-10-01T12:00:01.000Z",
       createdAt: "2026-10-01T12:00:00.000Z",
@@ -212,13 +212,19 @@ describe("Settings → AI usage: voice and assistant", () => {
       aiUsage: [
         entry("assistant_turn"),
         entry("voice_pin", { status: "refunded" }),
+        entry("capture_filing"),
         entry("session_summary"),
         entry("assistant_turn", { credits: 0 }),
         entry("assistant_turn", { status: "lost" }),
       ],
-    }) as unknown[]).toEqual([entry("assistant_turn"), entry("voice_pin", { status: "refunded" })]);
+    }) as unknown[]).toEqual([
+      entry("assistant_turn"),
+      entry("voice_pin", { status: "refunded" }),
+      entry("capture_filing"),
+    ]);
     expect(aiUsageHistory({})).toBeNull();
     expect(enUi["settings.aiUsageAssistantTurn"]).toBe("Assistant message");
+    expect(enUi["settings.aiUsageCaptureFiling"]).toBe("Automatic collection choice");
   });
 });
 

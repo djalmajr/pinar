@@ -171,6 +171,7 @@ const messages = {
   "settings.aiUsageSessionSummary": "Session summary",
   "settings.aiUsageVoicePin": "Voice pin",
   "settings.aiUsageAssistantTurn": "Assistant message",
+  "settings.aiUsageCaptureFiling": "Automatic collection choice",
   "settings.voicePostProcessing": "Clean up voice transcriptions",
   "settings.voicePostProcessingDescription": "Remove fillers and false starts and recover the intended comment. Available only in Pinar Cloud and off by default.",
   "settings.generalDescription":

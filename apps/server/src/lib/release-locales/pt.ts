@@ -629,8 +629,8 @@ const locale = {
         description: "Ligue “Escolher a coleção automaticamente” em Configurações → Captura e o Pinar coloca cada captura nova numa das suas coleções. Na dúvida, a captura vai para a Caixa de entrada, e as capturas de um mesmo lote ficam juntas. As sessões arquivadas assim mostram um selo; mover a sessão corrige a escolha e tira o selo. A opção precisa da IA disponível. Enquanto a opção ficar ligada sem a IA disponível, as capturas novas vão para a Caixa de entrada; para escolher o destino à mão, desligue a opção.",
       },
       "assistant-credits": {
-        title: "Mensagens ao assistente usam créditos do Pinar Cloud",
-        description: "No Pinar Cloud, o assistente faz parte do Pro e cada mensagem enviada usa 3 créditos de IA; uma resposta que falha devolve os créditos, e confirmar ou desfazer uma proposta não custa nada. São os mesmos créditos da transcrição por voz, e os pacotes de créditos só podem ser comprados com o Pro. No aplicativo local, o assistente não usa créditos do Pinar.",
+        title: "Todos os recursos de IA do Pinar Cloud usam créditos",
+        description: "No Pinar Cloud, toda chamada de IA agora acontece dentro de uma ação cobrada. O assistente faz parte do Pro e usa 3 créditos por mensagem, e uma resposta que falha devolve os créditos; confirmar ou desfazer uma proposta não custa nada. Gerar os passos escritos de reprodução agora usa 1 crédito por geração; uma geração que falha devolve o crédito, e sem saldo a resposta é recusada. Com a escolha automática da coleção, cada captura cuja coleção a IA escolhe usa 1 crédito, mesmo quando a resposta é a Caixa de entrada; uma escolha que falha ou estoura o prazo devolve o crédito, e sem saldo a IA não é chamada e a captura vai para a Caixa de entrada. Reenviar a mesma captura não cobra de novo. A indexação não acontece mais em segundo plano: os pins são indexados só enquanto o assistente responde a uma mensagem, o que os 3 créditos dela já cobrem, e a escolha automática usa o índice que já existe.",
       },
     },
   },

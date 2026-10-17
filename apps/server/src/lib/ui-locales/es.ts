@@ -173,6 +173,7 @@ const messages: UiMessages = {
   "settings.aiUsageSessionSummary": "Resumen de sesión",
   "settings.aiUsageVoicePin": "Pin de voz",
   "settings.aiUsageAssistantTurn": "Mensaje del asistente",
+  "settings.aiUsageCaptureFiling": "Elección automática de la colección",
   "settings.voicePostProcessing": "Limpiar transcripciones de voz",
   "settings.voicePostProcessingDescription": "Elimina muletillas y falsos comienzos y recupera el comentario deseado. Solo disponible en Pinar Cloud y desactivado por defecto.",
   "settings.generalDescription":

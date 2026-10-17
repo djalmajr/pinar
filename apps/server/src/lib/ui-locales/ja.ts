@@ -173,6 +173,7 @@ const messages: UiMessages = {
   "settings.aiUsageSessionSummary": "セッションの要約",
   "settings.aiUsageVoicePin": "音声ピン",
   "settings.aiUsageAssistantTurn": "アシスタントのメッセージ",
+  "settings.aiUsageCaptureFiling": "コレクションの自動選択",
   "settings.voicePostProcessing": "音声文字起こしを整える",
   "settings.voicePostProcessingDescription": "言いよどみや言い直しを除き、意図したコメントに整えます。Pinar Cloud のみで利用でき、既定ではオフです。",
   "settings.generalDescription":

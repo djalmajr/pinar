@@ -8,7 +8,7 @@ import { openHistoryDb } from "@pinar/cli/history";
 import { shotsDir } from "@pinar/cli/paths";
 import { handleApiRequest, historyDatabase, resetLocalApiForTests } from "../../api.local";
 import { localAssistantDeps } from "../local-deps";
-import { resetThinkingControlCacheForTests } from "../models";
+import { resetThinkingControlCacheForTests, type AssistantEndpoint } from "../models";
 import { resetRetrievalCapabilitiesCacheForTests } from "./detect";
 import { PIN_EMBEDDING_DIMENSIONS } from "./embeddings";
 import type { PinIndexEntry, PinIndexStore, PinSource } from "./index";
@@ -537,6 +537,81 @@ describe("local pin index runtime", () => {
       assert.equal(replaced.length, 2 * (1 + LOCAL_PIN_INDEX_MAX_CONTINUATIONS), "work left behind makes the next search run a pass");
     } finally {
       looping.stop();
+    }
+  });
+
+  test("a URL change with the same model runs a new pass: the search hits again with the new vectors", async () => {
+    let now = Date.parse("2026-10-17T12:00:00.000Z");
+    const source: PinSource = {
+      async comments() {
+        return new Map();
+      },
+      async listSessions({ limit, offset }) {
+        return [{ id: "s1", updatedAt: "2026-10-17T10:00:00.000Z" }].slice(offset, offset + limit);
+      },
+      async session(id) {
+        return id === "s1"
+          ? { id, page: { title: "Payment declined", url: "https://example.test/pay" }, pinIds: ["p1"], pins: [{ comment: "O contraste do botão comprar está baixo", number: 1 }] }
+          : null;
+      },
+      async shot() {
+        return null;
+      },
+    };
+    // A store like the local one: a session is stale without an entry, or
+    // with an entry older than the session.
+    const stored = new Map<string, PinIndexEntry[]>();
+    const store: PinIndexStore = {
+      async deleteSession() {},
+      async entries(sessionId) {
+        return (stored.get(sessionId) ?? []).map((entry) => ({ ...entry }));
+      },
+      async entriesFor(sessionIds) {
+        return sessionIds.flatMap((id) => stored.get(id) ?? []).map((entry) => ({ ...entry }));
+      },
+      async replaceSession(sessionId, entries) {
+        stored.set(sessionId, entries.map((entry) => ({ ...entry })));
+      },
+      async staleSessions({ sessions }) {
+        return sessions
+          .filter((session) => stored.get(session.id)?.some((entry) => entry.updatedAt < session.updatedAt) ?? true)
+          .map((session) => session.id);
+      },
+    };
+    let endpoint: AssistantEndpoint = { baseUrl: BASE_URL, kind: "openai-compatible", model: "chat-model", thinkingControl: false };
+    const runtime = createLocalPinIndexRuntime({
+      endpoint: async () => endpoint,
+      fetch: appliance.fetch,
+      now: () => new Date((now += 1)),
+      source,
+      store,
+    });
+    try {
+      // The first search runs the pass, embeds the document and hits the pin.
+      const first = await runtime.search.search({ limit: 5, query: "contraste" });
+      await runtime.idle();
+      assert.equal(first.length, 1);
+      assert.equal(first[0]!.sessionId, "s1");
+      assert.equal(appliance.documents().length, 1);
+      assert.ok(stored.get("s1")!.every((entry) => entry.model === embeddingIdentity({ baseUrl: BASE_URL, model: "embed-model" })));
+
+      // The same model, a different URL: the pass's key changed, so the
+      // second search runs a new pass, re-embeds the document and the hit
+      // comes back from the new vector.
+      endpoint = { ...endpoint, baseUrl: "https://new.example/v1" };
+      const second = await runtime.search.search({ limit: 5, query: "contraste" });
+      await runtime.idle();
+      assert.equal(second.length, 1, "the new pass re-embeds and the hit comes back");
+      assert.equal(appliance.documents().length, 2, "the URL change ran a new pass");
+      assert.ok(stored.get("s1")!.every((entry) => entry.model === embeddingIdentity({ baseUrl: "https://new.example/v1", model: "embed-model" })), "the stored vector carries the new identity");
+
+      // A third search runs no new pass.
+      const third = await runtime.search.search({ limit: 5, query: "contraste" });
+      await runtime.idle();
+      assert.equal(third.length, 1);
+      assert.equal(appliance.documents().length, 2, "the pass ran once for the change");
+    } finally {
+      runtime.stop();
     }
   });
 

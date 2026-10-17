@@ -368,6 +368,32 @@ describe("fileCapture", () => {
     assert.deepEqual(seen.reads.filter((read) => read.startsWith("entries")).sort(), ["entries:a1", "entries:b1"]);
   });
 
+  test("entries in the old format (the plain model) keep feeding the centroid, twice in a row", async () => {
+    // The probe scenario: entries as written before the endpoint joined the
+    // identity — the plain model name, no URL. The automatic destination must
+    // not degrade after the upgrade, without any search having run.
+    const sessions: FilingRecentSession[] = [
+      { collectionId: "col_a", createdAt: "2026-10-02T00:00:00.000Z", id: "a1", title: "A1" },
+      { collectionId: "col_b", createdAt: "2026-10-01T00:00:00.000Z", id: "b1", title: "B1" },
+    ];
+    const filingSource = source({
+      entriesFor: async (ids) =>
+        ids.flatMap((id) => (id === "a1" ? [entry("a1", vector(1, 0), "embed"), entry("a1", vector(0, 1), "old-embed")] : id === "b1" ? [entry("b1", vector(0, 1), "embed")] : [])),
+      recentSessions: async () => sessions,
+    });
+    const engine = async () => SIMILARITY;
+    const fetchFn = (async () => Response.json({ data: [{ embedding: vector(1, 0.02), index: 0 }] })) as unknown as typeof fetch;
+    const first = await fileCapture({ batchId: null, capture: CAPTURE, engine, fetch: fetchFn, source: filingSource });
+    assert.equal(first.filing.collectionId, "col_a");
+    assert.equal(first.filing.reason, "chosen");
+    assert.ok(first.filing.confidence > 0.99);
+    assert.equal(first.filedBy, "auto");
+    const second = await fileCapture({ batchId: null, capture: CAPTURE, engine, fetch: fetchFn, source: filingSource });
+    assert.equal(second.filing.collectionId, "col_a", "the second decision keeps the legacy vectors, without any search in between");
+    assert.equal(second.filing.reason, "chosen");
+    assert.ok(second.filing.confidence > 0.99);
+  });
+
   test("a centroid made only of another model's vectors leaves the collection out", async () => {
     const outcome = await fileCapture({
       batchId: null,

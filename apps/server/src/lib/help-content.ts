@@ -281,6 +281,11 @@ export const helpScreenshotDefinitions = [
     height: 1000,
     width: 1440,
   },
+  {
+    key: "assistant",
+    height: 900,
+    width: 1280,
+  },
 ] as const;
 
 export const helpArticleDefinitions = [
@@ -482,6 +487,21 @@ export const helpArticleDefinitions = [
       "docs/local-ai.md",
     ],
     popular: true,
+  },
+  {
+    id: "assistant",
+    category: "agents",
+    readMinutes: 5,
+    screenshotKey: "assistant",
+    sourceRefs: [
+      "apps/server/src/components/assistant/AssistantToggle.tsx",
+      "apps/server/src/components/assistant/AssistantPanel.tsx",
+      "apps/server/src/components/assistant/AssistantComposer.tsx",
+      "apps/server/src/components/assistant/AssistantProposalCard.tsx",
+      "apps/server/src/server/assistant/proposals.ts",
+      "apps/server/src/server/assistant/retrieval/index.ts",
+      "apps/server/src/components/GlobalSettingsDialog.tsx",
+    ],
   },
   {
     id: "closed-loop-review",

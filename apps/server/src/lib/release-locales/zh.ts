@@ -16,6 +16,7 @@ const locale = {
     releaseNavigation: "版本导航",
     releaseNotFound: "未找到该版本",
     releaseNotFoundDescription: "该版本不在已发布的历史记录中。",
+    upcomingRelease: "下一个版本 · 尚未发布",
     viewDetails: "查看详情",
     whatChanged: "更新内容",
   },
@@ -592,6 +593,24 @@ const locale = {
           description:
             "敏感字段脱敏、手动遮罩、版本化同意以及已发布的服务政策，确立了云端安全边界。",
         },
+      },
+    },
+  },
+  upcoming: {
+    title: "为您的捕获而生的助手",
+    summary: "即将推出：一个能回答有关您工作的问题并在您确认后进行整理的聊天助手、一个替您选择集合的捕获选项，以及在 Pinar Cloud 中使用 AI 积分的助手消息。",
+    changes: {
+      "assistant": {
+        title: "就您的捕获向助手提问",
+        description: "工作区中新增的聊天功能可在本地应用和 Pinar Cloud 中使用，能回答有关您的项目、集合、会话、批次和标注的问题，包括标注截图中显示的内容。它还能创建、重命名、移动、删除、评论、完成和重新打开内容，但始终以提议的形式进行：在您确认之前什么都不会改变，部分操作还可以在同一张卡片上撤销。在本地应用中，它使用您在设置中配置的 AI。",
+      },
+      "automatic-capture-destination": {
+        title: "Pinar 为新捕获选择集合",
+        description: "在「设置 → 捕获」中开启「自动选择集合」后，Pinar 会把每个新捕获放入您已有的某个集合。不确定时，捕获会进入收件箱，同一批次的捕获会放在一起。以这种方式归档的会话会显示一个标记；移动会话即可更正选择并移除标记。此选项需要 AI 可用。如果在 AI 不可用时此选项仍保持开启，新捕获会进入收件箱；要自己选择目标，请关闭此选项。",
+      },
+      "assistant-credits": {
+        title: "助手消息使用 Pinar Cloud 积分",
+        description: "在 Pinar Cloud 中，助手属于 Pro，每条发送的消息使用 3 个 AI 积分；回复失败时积分会退还，确认或撤销提议不收取任何费用。这些积分与语音转写使用的积分相同，积分包只能在拥有 Pro 时购买。在本地应用中，助手不消耗 Pinar 积分。",
       },
     },
   },

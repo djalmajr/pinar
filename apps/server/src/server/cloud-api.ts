@@ -121,6 +121,8 @@ import {
   resetCloudPinIndexMemoryForTests,
 } from "./assistant/retrieval/store-cloud";
 import type { AssistantStatus } from "./assistant/http";
+import type { PinSearchService } from "./assistant/retrieval/index";
+import type { CloudPinSessionRow, CloudPinSourceData } from "./assistant/retrieval/source-cloud";
 import type { AssistantStateReader } from "./assistant/state-reader";
 import type { AssistantToolHost } from "./assistant/tools";
 import {
@@ -177,6 +179,9 @@ export interface CloudEnv {
   AI_BASE_URL?: string;
   AI_API_KEY?: string;
   AI_MODEL?: string;
+  // Optional embedding model of the same endpoint for the pin search; without
+  // it the search is textual. Never part of the all-or-nothing AI group.
+  AI_EMBEDDING_MODEL?: string;
   // "true" switches the assistant on; every other value (or absence) is off.
   ASSISTANT_ENABLED?: string;
   AUTH_PEPPER?: string;
@@ -8086,17 +8091,187 @@ export async function handleCloudMcpRequest(request: Request, env: CloudEnv) {
   }));
 }
 
-// The Cloud assistant gate (decision A3): the explicit switch on, outside
-// production, and the raw AI configuration (base URL, key and model);
-// then the Pro plan. The order matters: a disabled deployment reports
-// "disabled" even for a non-Pro principal.
+// The deployment half of the Cloud assistant gate (decision A3): the
+// explicit switch on, outside production, and the raw AI configuration
+// (base URL, key and model).
+function cloudAssistantDeploymentEnabled(env: CloudEnv): boolean {
+  return env.ASSISTANT_ENABLED === "true" && env.DEPLOYMENT_ENV !== "production"
+    && Boolean(env.AI_BASE_URL) && Boolean(env.AI_API_KEY) && Boolean(env.AI_MODEL);
+}
+
+// The Cloud assistant gate (decision A3): the deployment gate, then the Pro
+// plan. The order matters: a disabled deployment reports "disabled" even
+// for a non-Pro principal.
 function cloudAssistantStatus(env: CloudEnv, principal: Principal): AssistantStatus {
-  if (env.ASSISTANT_ENABLED !== "true" || env.DEPLOYMENT_ENV === "production"
-    || !env.AI_BASE_URL || !env.AI_API_KEY || !env.AI_MODEL) {
-    return { available: false, reason: "disabled" };
-  }
+  if (!cloudAssistantDeploymentEnabled(env)) return { available: false, reason: "disabled" };
   if (!planIncludesAi(principal.plan)) return { available: false, reason: "requires_pro" };
   return { available: true, reason: null };
+}
+
+// ---------- pin search (F3 contract §3.3) ----------
+
+// D1 caps one query at 100 bound parameters; the IN lists are cut below it.
+const PIN_SEARCH_IN_CHUNK = 90;
+
+function pinSessionRow(row: Record<string, unknown>): CloudPinSessionRow {
+  return { createdAt: String(row.created_at || ""), id: String(row.id || ""), ownerId: String(row.user_id || "") };
+}
+
+function memoryPinSessionRows(filter: (session: Session) => boolean, limit: number): CloudPinSessionRow[] {
+  return Array.from(memorySessions.values())
+    .filter((session) => session.pins.length > 0 && filter(session))
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+    .slice(0, limit)
+    .map((session) => ({ createdAt: session.createdAt, id: session.id, ownerId: session.userId || "" }));
+}
+
+// What a pin source of the principal reads (CloudPinSourceData), through
+// the Cloud's own access rules. `shared: true` (a search) adds the
+// collections where the principal collaborates: every collaboration row of
+// the person is a candidate and isCollectionCollaborator keeps the accepted
+// ones of an owner on Pro, the rule of mcpSessionSummaries; session(id)
+// asks findAccessibleSession. `shared: false` (the cron, as the owner) sees
+// only the owner's sessions (findOwnedSession).
+function cloudPinSourceData(env: CloudEnv, principal: Principal, options: { shared: boolean }): CloudPinSourceData {
+  return {
+    async ownedSessions(limit) {
+      if (env.DB) {
+        const rows = await env.DB.prepare(
+          "SELECT id, user_id, created_at FROM sessions WHERE user_id = ? AND pin_count > 0 ORDER BY created_at DESC, id ASC LIMIT ?",
+        ).bind(principal.id, limit).all();
+        return (rows.results || []).map(pinSessionRow);
+      }
+      return memoryPinSessionRows((session) => session.userId === principal.id, limit);
+    },
+    async sharedSessions(limit) {
+      if (!options.shared || principal.kind !== "account") return [];
+      let candidates: string[];
+      if (env.DB) {
+        const rows = await env.DB.prepare(
+          "SELECT DISTINCT collection_id FROM collection_collaborators WHERE user_id = ?",
+        ).bind(principal.id).all();
+        candidates = (rows.results || []).map((row) => String(row.collection_id || ""));
+      } else {
+        candidates = [...new Set(Array.from(memoryCollectionCollaborators.values())
+          .filter((collab) => collab.userId === principal.id)
+          .map((collab) => collab.collectionId))];
+      }
+      const collectionIds: string[] = [];
+      for (const id of candidates) {
+        if (await isCollectionCollaborator(env, principal, id)) collectionIds.push(id);
+      }
+      if (collectionIds.length === 0) return [];
+      if (!env.DB) {
+        const allowed = new Set(collectionIds);
+        return memoryPinSessionRows((session) => Boolean(session.collectionId) && allowed.has(session.collectionId!), limit);
+      }
+      const sessions: CloudPinSessionRow[] = [];
+      for (let start = 0; start < collectionIds.length; start += PIN_SEARCH_IN_CHUNK) {
+        const chunk = collectionIds.slice(start, start + PIN_SEARCH_IN_CHUNK);
+        const rows = await env.DB.prepare(
+          `SELECT id, user_id, created_at FROM sessions WHERE collection_id IN (${chunk.map(() => "?").join(", ")}) AND pin_count > 0 ORDER BY created_at DESC, id ASC LIMIT ?`,
+        ).bind(...chunk, limit).all();
+        sessions.push(...(rows.results || []).map(pinSessionRow));
+      }
+      return sessions;
+    },
+    session(id) {
+      return options.shared ? findAccessibleSession(env, principal, id) : findOwnedSession(env, principal, id);
+    },
+    comments(sessionId) {
+      return listPinComments(env, sessionId);
+    },
+    async latestCommentAt(sessionIds) {
+      const latest = new Map<string, string>();
+      if (!env.DB) {
+        const wanted = new Set(sessionIds);
+        for (const comment of memoryPinComments) {
+          if (!wanted.has(comment.captureId)) continue;
+          const current = latest.get(comment.captureId);
+          if (current === undefined || comment.createdAt > current) latest.set(comment.captureId, comment.createdAt);
+        }
+        return latest;
+      }
+      const ids = [...new Set(sessionIds)];
+      for (let start = 0; start < ids.length; start += PIN_SEARCH_IN_CHUNK) {
+        const chunk = ids.slice(start, start + PIN_SEARCH_IN_CHUNK);
+        const rows = await env.DB.prepare(
+          `SELECT capture_id, MAX(created_at) AS latest FROM pin_comments WHERE capture_id IN (${chunk.map(() => "?").join(", ")}) GROUP BY capture_id`,
+        ).bind(...chunk).all();
+        for (const row of rows.results || []) latest.set(String(row.capture_id || ""), String(row.latest || ""));
+      }
+      return latest;
+    },
+    async shot(sessionId) {
+      if (!env.PINAR_BUCKET) return null;
+      const object = await env.PINAR_BUCKET.get(shotObjectKey(sessionId));
+      if (!object) return null;
+      return new Uint8Array(await new Response(object.body).arrayBuffer());
+    },
+  };
+}
+
+/**
+ * The pin search of the principal for the assistant turn, only while the
+ * assistant is available to them (A3); undefined otherwise, so the tool is
+ * not offered and nothing is indexed.
+ */
+export async function cloudPinSearch(
+  env: CloudEnv,
+  principal: Principal,
+  options: { fetch?: typeof fetch } = {},
+): Promise<PinSearchService | undefined> {
+  if (!cloudAssistantStatus(env, principal).available) return undefined;
+  // Loaded lazily, like the assistant HTTP layer: it pulls in the AI SDK.
+  const { createCloudPinSearch } = await import("./assistant/retrieval/runtime-cloud");
+  return createCloudPinSearch({
+    data: cloudPinSourceData(env, principal, { shared: true }),
+    env,
+    ...(options.fetch ? { fetch: options.fetch } : {}),
+    now: currentDate,
+  });
+}
+
+// Owners with at least one session with pins, the most recently captured
+// first, whose plan includes AI.
+async function pinSearchOwners(env: CloudEnv): Promise<Principal[]> {
+  let ownerIds: string[];
+  if (env.DB) {
+    const rows = await env.DB.prepare(
+      "SELECT user_id, MAX(created_at) AS latest FROM sessions WHERE pin_count > 0 GROUP BY user_id ORDER BY latest DESC, user_id ASC",
+    ).all();
+    ownerIds = (rows.results || []).map((row) => String(row.user_id || ""));
+  } else {
+    ownerIds = [...new Set(memoryPinSessionRows(() => true, Number.MAX_SAFE_INTEGER).map((row) => row.ownerId))];
+  }
+  const owners: Principal[] = [];
+  for (const ownerId of ownerIds) {
+    if (!ownerId) continue;
+    const account = await findAccountById(env, ownerId);
+    if (!account) continue;
+    const principal = principalForAccount(account);
+    if (planIncludesAi(principal.plan)) owners.push(principal);
+  }
+  return owners;
+}
+
+/**
+ * Daily cron job: indexes the pins of each owner on a plan with AI, the
+ * owner's own sessions only, within 60 s for the whole run. With the
+ * assistant's deployment gate off it reads nothing.
+ */
+export async function indexPinSearch(env: CloudEnv, options: { fetch?: typeof fetch; now?: () => Date } = {}) {
+  if (!cloudAssistantDeploymentEnabled(env)) return { failed: 0, indexed: 0, owners: 0, remaining: false };
+  const owners = await pinSearchOwners(env);
+  const byId = new Map(owners.map((owner) => [owner.id, owner]));
+  const { runCloudPinIndexCron } = await import("./assistant/retrieval/runtime-cloud");
+  return runCloudPinIndexCron({
+    env,
+    ...(options.fetch ? { fetch: options.fetch } : {}),
+    now: options.now ?? currentDate,
+    ownerData: (ownerId) => cloudPinSourceData(env, byId.get(ownerId)!, { shared: false }),
+    owners: owners.map((owner) => owner.id),
+  });
 }
 
 // /api/assistant/* for the logged-in web user (contract section 2): only an
@@ -8129,6 +8304,7 @@ async function cloudAssistantRoutesUnguarded(request: Request, env: CloudEnv): P
   // vite.config.edger.ts.)
   const { handleAssistantRequest } = await import("./assistant/http");
   const origin = new URL(request.url).origin;
+  const pinSearch = await cloudPinSearch(env, principal);
   const deps: Parameters<typeof handleAssistantRequest>[1] = {
     endpoint: async () =>
       env.AI_BASE_URL && env.AI_API_KEY && env.AI_MODEL
@@ -8140,6 +8316,7 @@ async function cloudAssistantRoutesUnguarded(request: Request, env: CloudEnv): P
             thinkingControl: true,
           }
         : null,
+    ...(pinSearch ? { pinSearch } : {}),
     rateLimitTurn: () =>
       withinRateLimits(env, "assistant-turn", [
         { limit: 20, scope: `account:${principal.id}` },

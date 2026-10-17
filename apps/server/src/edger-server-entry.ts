@@ -1,5 +1,6 @@
 import {
   cleanupOldRecords,
+  indexPinSearch,
   reconcileBillingEntitlements,
   refundStaleAiReservations,
   sendStorageExpiryNotices,
@@ -124,6 +125,7 @@ export default {
       { name: "reconcileBillingEntitlements", run: () => reconcileBillingEntitlements(getEdgerCloudEnv()) },
       { name: "refundStaleAiReservations", run: () => refundStaleAiReservations(getEdgerCloudEnv()) },
       { name: "sendStorageExpiryNotices", run: () => sendStorageExpiryNotices(getEdgerCloudEnv()) },
+      { name: "indexPinSearch", run: () => indexPinSearch(getEdgerCloudEnv()) },
     ],
   }),
 };

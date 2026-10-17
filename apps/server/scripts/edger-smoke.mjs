@@ -121,7 +121,7 @@ await expect("POST", "/_internal/cron/daily", async (response) => {
   if (body !== "Not found") return `expected the entry's "Not found", got ${JSON.stringify(body.slice(0, 80))}`;
 });
 
-// With the header EdgeR's scheduler sends, the entry runs the four daily
+// With the header EdgeR's scheduler sends, the entry runs the five daily
 // jobs and reports each one. Without a database they may fail (500); the
 // report itself proves the route is wired.
 await expect("POST", "/_internal/cron/daily", async (response) => {
@@ -133,8 +133,8 @@ await expect("POST", "/_internal/cron/daily", async (response) => {
     return "body is not JSON";
   }
   const jobs = Array.isArray(body.jobs) ? body.jobs.map((job) => job.job) : [];
-  const expected = ["cleanupOldRecords", "reconcileBillingEntitlements", "refundStaleAiReservations", "sendStorageExpiryNotices"];
-  if (JSON.stringify(jobs) !== JSON.stringify(expected)) return `expected the four daily jobs, got ${JSON.stringify(jobs)}`;
+  const expected = ["cleanupOldRecords", "reconcileBillingEntitlements", "refundStaleAiReservations", "sendStorageExpiryNotices", "indexPinSearch"];
+  if (JSON.stringify(jobs) !== JSON.stringify(expected)) return `expected the five daily jobs, got ${JSON.stringify(jobs)}`;
 }, { "x-edger-internal": "true" });
 
 // The marketing page renders.

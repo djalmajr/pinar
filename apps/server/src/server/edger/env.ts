@@ -141,6 +141,10 @@ export function edgerCloudEnv(read: (name: string) => string | undefined): Cloud
     env.AI_BASE_URL = ai.AI_BASE_URL;
     env.AI_API_KEY = ai.AI_API_KEY;
     env.AI_MODEL = ai.AI_MODEL;
+    // Optional and outside the group: its absence never turns the AI off
+    // (the pin search is then textual).
+    const embeddingModel = value("AI_EMBEDDING_MODEL");
+    if (embeddingModel !== undefined) env.AI_EMBEDDING_MODEL = embeddingModel;
   }
 
   return env;

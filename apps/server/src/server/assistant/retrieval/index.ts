@@ -34,10 +34,9 @@
 // session the source no longer returns, or a pin no longer in it, never
 // becomes a hit.
 
-import type { AssistantEndpoint } from "../models";
 import { buildPinDocument, pinDocumentHash, PIN_SECTION_LINE, pinSectionText, type PinDocumentInput } from "./document";
 import { cosine, decodeVector, embedTexts, encodeVector, type EmbeddingEndpoint } from "./embeddings";
-import { captionSessionPins } from "./vision";
+import { captionSessionPins, type VisionEndpoint } from "./vision";
 import type { PinIndexEntry, PinIndexStore } from "./types";
 
 export const PIN_SEARCH_MAX_SESSIONS = 500;
@@ -55,7 +54,7 @@ export interface PinSource {
 export type { PinIndexEntry, PinIndexStore } from "./types";
 
 export interface PinIndexDeps {
-  chat: AssistantEndpoint | null; // null or no image input → no captions
+  chat: VisionEndpoint | null; // null or no image input → no captions
   embedding: EmbeddingEndpoint | null; // null → text-only entries
   fetch?: typeof fetch;
   now: () => Date;

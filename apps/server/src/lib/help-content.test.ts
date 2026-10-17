@@ -5,13 +5,15 @@ import {
   articlesInCategory,
   defaultHelpContent,
   findHelpArticle,
+  type HelpArticle,
   loadHelpContent,
   searchHelpArticles,
 } from "./help-content";
+import { loadReleaseContent } from "./release-content";
 import { SUPPORTED_LANGUAGES, translations } from "@pinar/shared";
 
 const expectedArticleCounts = {
-  agents: 5,
+  agents: 6,
   captures: 6,
   cloud: 5,
   "getting-started": 4,
@@ -49,11 +51,11 @@ describe("help content", () => {
     assert.equal(loadHelpContent("fr"), frenchContent);
     assert.equal((await frenchContent).language, "fr");
   });
-  test("ships the designed six-category, 27-article catalog in every locale", async () => {
+  test("ships the designed six-category, 28-article catalog in every locale", async () => {
     const contents = await loadEveryHelpLocale();
     for (const content of contents) {
       assert.equal(content.categories.length, 6, content.language);
-      assert.equal(content.articles.length, 27, content.language);
+      assert.equal(content.articles.length, 28, content.language);
       for (const category of content.categories) {
         assert.equal(
           articlesInCategory(content, category.id).length,
@@ -532,8 +534,8 @@ describe("help content", () => {
   test("gives every article its own cover file", async () => {
     for (const content of await loadEveryHelpLocale()) {
       const keys = content.articles.map((article) => article.screenshot.key);
-      assert.equal(keys.length, 27, content.language);
-      assert.equal(new Set(keys).size, 27, content.language);
+      assert.equal(keys.length, 28, content.language);
+      assert.equal(new Set(keys).size, 28, content.language);
     }
   });
 
@@ -570,6 +572,7 @@ describe("help content", () => {
       "account-and-sign-in": "sign-in-email",
       "ai-features": "capture-review",
       "ai-credits": "pricing-credits",
+      assistant: "assistant",
       "automatic-sanitization": "preferences-privacy",
       "capture-types": "capture-types",
       "closed-loop-review": "workspace-review",
@@ -690,4 +693,215 @@ describe("help content", () => {
       }
     }
   });
+
+  test("publishes the assistant article in all seven locales, translated and linked", async () => {
+    const contents = await loadEveryHelpLocale();
+    assert.deepEqual(
+      contents.map((content) => content.language).sort(),
+      ["de", "en", "es", "fr", "ja", "pt", "zh"],
+    );
+    const english = findHelpArticle(contents[0], "agents", "assistant");
+    assert.ok(english);
+    const englishTexts = articleTexts(english);
+
+    for (const content of contents) {
+      const article = findHelpArticle(content, "agents", "assistant");
+      assert.ok(article, `${content.language}:agents/assistant`);
+      assert.match(article.screenshot.src, /\/assistant\.webp$/, content.language);
+
+      // Every link out of the article reaches a published help route.
+      const targets = article.sections.flatMap((section) =>
+        [...section.paragraphs, ...(section.bullets ?? [])].flatMap(markdownLinkTargets),
+      );
+      assert.deepEqual(
+        targets,
+        ["/help/cloud/ai-credits", "/help/privacy/where-data-lives"],
+        content.language,
+      );
+      for (const target of targets) {
+        const [, , categoryId, articleId] = target.split("/");
+        assert.ok(
+          findHelpArticle(content, categoryId, articleId),
+          `${content.language}: ${target} does not resolve`,
+        );
+      }
+
+      if (content.language === "en") continue;
+      const texts = articleTexts(article);
+      assert.equal(texts.length, englishTexts.length, content.language);
+      for (const [index, text] of texts.entries()) {
+        assert.notEqual(
+          text,
+          englishTexts[index],
+          `${content.language}:assistant left English copy: ${text.slice(0, 120)}`,
+        );
+      }
+    }
+  });
+
+  test("prices assistant messages next to voice in the Pinar Cloud credit guide", async () => {
+    // The guide used to call voice the only feature that spends credits.
+    const onlyVoice = {
+      de: /einzige Pinar-Funktion/,
+      en: /only Pinar feature/,
+      es: /única función de Pinar/,
+      fr: /seule fonction Pinar/,
+      ja: /唯一のPinar機能/,
+      pt: /única funcionalidade do Pinar/,
+      zh: /唯一消耗/,
+    } as const;
+    const packsNeedPro = {
+      de: /nur mit Pro gekauft werden/,
+      en: /can only be bought with Pro/,
+      es: /solo se pueden comprar con Pro/,
+      fr: /ne peuvent être achetés qu’avec Pro/,
+      ja: /パックは Pro でのみ購入できます/,
+      pt: /só podem ser comprados com o Pro/,
+      zh: /只能在拥有 Pro 时购买/,
+    } as const;
+
+    for (const content of await loadEveryHelpLocale()) {
+      const credits = findHelpArticle(content, "cloud", "ai-credits");
+      assert.ok(credits, content.language);
+      const text = articleTexts(credits).join("\n");
+      assert.doesNotMatch(text, onlyVoice[content.language], content.language);
+      const assistantCost = credits.sections[0]?.paragraphs[1] ?? "";
+      assert.match(assistantCost, /Pinar Cloud/, `${content.language}:assistant cost`);
+      assert.match(assistantCost, /\b3\b/, `${content.language}:assistant cost`);
+      assert.match(
+        credits.sections[1]?.paragraphs[0] ?? "",
+        packsNeedPro[content.language],
+        `${content.language}:packs need Pro`,
+      );
+    }
+  });
+
+  test("says where new captures go while the automatic destination stays on without AI (A45)", async () => {
+    const inboxWithoutAi = {
+      de: /ohne verfügbare KI eingeschaltet.*Posteingang.*schalte (?:die Option|sie) aus\./s,
+      en: /stays on (?:while AI is not available|without AI available), new captures go to the “?Inbox”?; to choose the destination yourself, turn (?:the option|it) off\./,
+      es: /activada sin la IA disponible, las capturas nuevas van a la “?Bandeja de entrada”?; para elegir el destino a mano, desact[ií]v(?:a la opción|ala)\./,
+      fr: /reste activée sans IA disponible, les nouvelles captures vont dans la (?:« )?Boîte de réception(?: »)? ; pour choisir vous-même la destination, désactivez(?: l’option|-la)\./,
+      ja: /AI を利用できない.*新しいキャプチャは「?受信トレイ」?に入ります。保存先を自分で選ぶには、オプションをオフにしてください。/,
+      pt: /ligada sem a IA disponível, as capturas novas vão para a “?Caixa de entrada”?; para escolher o destino à mão, desligue a opção\./,
+      zh: /AI 不可用时此选项仍保持开启，新捕获会进入「?收件箱」?；要自己选择目标，请关闭此选项。/,
+    } as const;
+
+    for (const content of await loadEveryHelpLocale()) {
+      const article = findHelpArticle(content, "agents", "assistant");
+      assert.ok(article, content.language);
+      assert.match(article.sections[6]?.paragraphs[0] ?? "", inboxWithoutAi[content.language], `${content.language}:help`);
+      const release = await loadReleaseContent(content.language);
+      const note = release.upcoming?.changes.find((change) => change.id === "automatic-capture-destination");
+      assert.ok(note, `${content.language}:note`);
+      assert.match(note.description, inboxWithoutAi[content.language], `${content.language}:note`);
+    }
+  });
+
+  test("keeps the assistant, AI and credit guides and upcoming notes free of internal terms", async () => {
+    // Internal component names, retrieval jargon, and model or vendor names
+    // never reach these user texts, in any locale. "Semantic search model"
+    // stays allowed: it is the plain way to explain the local text search.
+    const internalTerms = [
+      /gateway|ゲートウェイ|网关/i,
+      /appliance/i,
+      /\bcadeia\b|\bchain\b|\bcadena\b|\bchaîne\b|\bKette\b|チェーン|模型链/i,
+      /embedding|Einbettung|埋め込み|嵌入/i,
+      /\bdecisions?\b/i,
+      /similarit|similitud|Ähnlichkeit|類似度|相似度/i,
+      /fallback|\brepli\b|respaldo|フォールバック|回退/i,
+      /\btokens?\b|トークン|令牌|词元/i,
+      /language model|modelo de linguagem|modelo de lenguaje|modèle de langage|Sprachmodell|言語モデル|语言模型|\bLLM\b/i,
+      // Vendor and model names in any case, a version suffix included
+      // ("qwen3", "GPT-4o"), but not a longer word ("llamada", "coherente").
+      /\b(?:openai|anthropic|claude|gpt|gemini|gemma|llama|qwen|mistral|deepseek|ollama|lm studio|whisper|cloudflare|workers ai|kimi|grok|groq|cohere|hugging ?face)(?![a-z])/i,
+    ];
+    // The AI settings field asks for an endpoint compatible with this API and
+    // its own label names it, so the AI features guide may quote the phrase,
+    // exactly as written there.
+    const protocolPhrases = [
+      /OpenAI-compatible/g,
+      /compatível com a OpenAI/g,
+      /compatible con OpenAI/g,
+      /compatible OpenAI/g,
+      /OpenAI-kompatiblen/g,
+      /OpenAI 互換/g,
+      /OpenAI 兼容/g,
+    ];
+    const withoutProtocolPhrases = (text: string) =>
+      protocolPhrases.reduce((rest, phrase) => rest.replace(phrase, " "), text);
+    const leaks = (text: string) =>
+      internalTerms.filter((pattern) => pattern.test(withoutProtocolPhrases(text)));
+
+    // The list catches each banned term and lets the allowed wording through.
+    for (const sample of [
+      "an AI gateway",
+      "the appliance",
+      "a cadeia de modelos",
+      "an embedding model",
+      "the decisions extra",
+      "cosine similarity",
+      "no silent fallback",
+      "1,000 tokens",
+      "um modelo de linguagem",
+      "an OpenAI key",
+      "Qwen",
+      "O fornecedor openai.",
+      "a key from anthropic",
+      "deepseek answers",
+      "qwen3 on this computer",
+      "GPT-4o",
+      "an openai-compatible endpoint",
+    ]) {
+      assert.equal(leaks(sample).length, 1, sample);
+    }
+    for (const allowed of [
+      "Sem um modelo de busca semântica, o assistente procura pelo texto.",
+      "your own OpenAI-compatible endpoint",
+      "Responde a la llamada con un texto coherente.",
+    ]) {
+      assert.deepEqual(leaks(allowed), [], allowed);
+    }
+
+    const releases = await Promise.all(
+      SUPPORTED_LANGUAGES.map((language) => loadReleaseContent(language)),
+    );
+    for (const content of await loadEveryHelpLocale()) {
+      const texts: string[] = [];
+      for (const id of ["assistant", "ai-features", "ai-credits"]) {
+        const article = content.articles.find((candidate) => candidate.id === id);
+        assert.ok(article, `${content.language}:${id}`);
+        texts.push(...articleTexts(article));
+      }
+      const release = releases.find((candidate) => candidate.language === content.language);
+      assert.ok(release?.upcoming, `${content.language}:upcoming`);
+      texts.push(
+        release.ui.upcomingRelease ?? "",
+        release.upcoming.title,
+        release.upcoming.summary,
+        ...release.upcoming.changes.flatMap((change) => [change.title, change.description]),
+      );
+      for (const text of texts) {
+        assert.deepEqual(
+          leaks(text),
+          [],
+          `${content.language} shows an internal term: ${text.slice(0, 160)}`,
+        );
+      }
+    }
+  });
 });
+
+function articleTexts(article: HelpArticle) {
+  return [
+    article.title,
+    article.summary,
+    article.screenshot.alt,
+    article.screenshot.caption,
+    ...article.sections.flatMap((section) => [
+      section.heading,
+      ...section.paragraphs,
+      ...(section.bullets ?? []),
+    ]),
+  ];
+}

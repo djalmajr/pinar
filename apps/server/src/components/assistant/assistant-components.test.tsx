@@ -935,6 +935,45 @@ describe("assistant toggle", () => {
   });
 });
 
+describe("assistant turn error note (F4/S2 credits)", () => {
+  test("a 402 shows the balance, the price and a link to buy credits, without retry", async () => {
+    const { AssistantTurnErrorNote } = await import("./AssistantPanel");
+    const markup = renderToStaticMarkup(createElement(AssistantTurnErrorNote, {
+      error: { credits: { balance: 2, required: 3 }, key: "assistant.errorNoCredits" },
+      onRetry: () => {},
+      t: tv,
+    }));
+    expect(markup).toContain('role="alert"');
+    expect(markup).toContain("assistant.errorNoCredits[count=2;required=3]");
+    expect(markup).toContain('href="/pricing"');
+    expect(markup).toContain("assistant.buyCredits");
+    expect(markup).not.toContain("assistant.retry");
+  });
+
+  test("a 402 without a readable balance still links to /pricing with the generic note", async () => {
+    const { AssistantTurnErrorNote } = await import("./AssistantPanel");
+    const markup = renderToStaticMarkup(createElement(AssistantTurnErrorNote, {
+      error: { credits: null, key: "assistant.errorNoCredits" },
+      onRetry: () => {},
+      t: tv,
+    }));
+    expect(markup).toContain("viewer.aiNoCredits");
+    expect(markup).toContain('href="/pricing"');
+  });
+
+  test("any other failure keeps the retry action and no pricing link", async () => {
+    const { AssistantTurnErrorNote } = await import("./AssistantPanel");
+    const markup = renderToStaticMarkup(createElement(AssistantTurnErrorNote, {
+      error: { credits: null, key: "assistant.errorRateLimited" },
+      onRetry: () => {},
+      t: tv,
+    }));
+    expect(markup).toContain("assistant.errorRateLimited");
+    expect(markup).toContain("assistant.retry");
+    expect(markup).not.toContain("/pricing");
+  });
+});
+
 describe("assistant panel states", () => {
   test("not_configured: the note and the AI-settings action, no composer", () => {
     const markup = renderToStaticMarkup(createElement(AssistantPanel, {

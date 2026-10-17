@@ -2,11 +2,15 @@ import assert from "node:assert/strict";
 import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, test } from "node:test";
+import { parseVisualCapture, sessionFromCapture, type Session } from "@pinar/shared";
 import {
+  findOwnedSession,
   handleCloudApiRequest,
   handleCloudPublicRequest,
   type CloudEnv,
+  persistSession,
   resetCloudMemoryStateForTests,
+  seedCloudWebSessionForTests,
   setCloudNowForTests,
 } from "./cloud-api";
 import { PAID_STORAGE_BYTES } from "../lib/entitlements";
@@ -23,7 +27,13 @@ const SHARE_TOKEN = `pak_${"s".repeat(43)}`;
 // SQLite-as-D1 model: batch() runs inside a transaction and rolls back on
 // error, exactly as D1 does, and an optional failWhen hook injects a
 // statement fault (borrowed from the reviewer-verified pins-matrix probe).
-function sqliteD1(db: Database, failWhen?: (sql: string) => boolean): NonNullable<CloudEnv["DB"]> {
+// An optional afterFirst hook runs after each first() read, so a test can
+// land a concurrent write between a read and the write that follows it.
+function sqliteD1(
+  db: Database,
+  failWhen?: (sql: string) => boolean,
+  afterFirst?: (sql: string, row: Record<string, unknown> | null) => void,
+): NonNullable<CloudEnv["DB"]> {
   const statement = (query: string) => {
     let params: unknown[] = [];
     const bound = {
@@ -35,7 +45,9 @@ function sqliteD1(db: Database, failWhen?: (sql: string) => boolean): NonNullabl
         return bound;
       },
       async first() {
-        return (db.query(query).get(...params) as Record<string, unknown> | null) ?? null;
+        const row = (db.query(query).get(...params) as Record<string, unknown> | null) ?? null;
+        afterFirst?.(query, row);
+        return row;
       },
       async run() {
         if (failWhen?.(query)) throw new Error("injected D1 failure");
@@ -2290,6 +2302,91 @@ describe("cloud MCP endpoint", () => {
     }
   });
 
+  test("delete_pin writes only the pins, so a move that lands after its read keeps the collection and the batch claim", async () => {
+    const db = migratedDatabase();
+    try {
+      const seeded = await seedMcpWorkspace(db);
+      db.query("INSERT INTO batches (id, user_id, label, started_at, filing_collection_id) VALUES (?, ?, 'Batch', ?, ?)")
+        .run("batch_race", "usr_mcp", NOW, "collection_mcp");
+      db.query(
+        "INSERT INTO sessions (id, url, title, shot_id, shot_url, pin_count, pins_json, created_at, user_id, plan, is_permanent, byte_size, collection_id, position, batch_id) "
+          + "VALUES (?, ?, ?, ?, ?, 2, ?, ?, ?, 'pro', 1, 1, ?, 0, ?)",
+      ).run(
+        "session_race",
+        "https://example.test/race",
+        "Race",
+        "session_race",
+        "https://pinar.test/shots/session_race.png",
+        JSON.stringify([{ comment: "first", number: 1 }, { comment: "second", number: 2 }]),
+        NOW,
+        "usr_mcp",
+        "collection_mcp",
+        "batch_race",
+      );
+      // A move, as moveSession writes it (the session and the batch claim),
+      // lands right after delete_pin read the session.
+      let moved = false;
+      const env: CloudEnv = {
+        ...seeded,
+        DB: sqliteD1(db, undefined, (sql, row) => {
+          if (moved || row?.id !== "session_race" || !sql.startsWith("SELECT * FROM sessions WHERE id = ?")) return;
+          moved = true;
+          db.query("UPDATE sessions SET collection_id = ?, position = 7, filed_by = NULL WHERE id = ?").run("collection_target", "session_race");
+          db.query("UPDATE batches SET filing_collection_id = ? WHERE id = ?").run("collection_target", "batch_race");
+        }),
+      };
+
+      const deleted = await callTool(env, "pinar.delete_pin", { pinId: "session_race:p1", sessionId: "session_race" }, MANAGE_TOKEN);
+      assert.equal(deleted.result.isError, undefined);
+      assert.ok(moved, "the move landed between the read and the write");
+      const row = db.query("SELECT collection_id, position, pin_count, pins_json FROM sessions WHERE id = ?").get("session_race") as Record<string, unknown>;
+      assert.equal(row.collection_id, "collection_target", "the move survives the pin deletion");
+      assert.equal(row.position, 7);
+      assert.equal(row.pin_count, 1);
+      assert.ok(!String(row.pins_json).includes("first"));
+      const claim = db.query("SELECT filing_collection_id FROM batches WHERE id = ?").get("batch_race") as { filing_collection_id: string };
+      assert.equal(claim.filing_collection_id, row.collection_id, "the batch claim still matches the session");
+    } finally {
+      db.close();
+    }
+  });
+
+  test("delete_pin never brings back a session deleted after its read", async () => {
+    const db = migratedDatabase();
+    try {
+      const seeded = await seedMcpWorkspace(db);
+      db.query(
+        "INSERT INTO sessions (id, url, title, shot_id, shot_url, pin_count, pins_json, created_at, user_id, plan, is_permanent, byte_size, collection_id, position) "
+          + "VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, 'pro', 1, 1, ?, 0)",
+      ).run(
+        "session_gone",
+        "https://example.test/gone",
+        "Gone",
+        "session_gone",
+        "https://pinar.test/shots/session_gone.png",
+        JSON.stringify([{ comment: "only", number: 1 }]),
+        NOW,
+        "usr_mcp",
+        "collection_mcp",
+      );
+      let removed = false;
+      const env: CloudEnv = {
+        ...seeded,
+        DB: sqliteD1(db, undefined, (sql, row) => {
+          if (removed || row?.id !== "session_gone" || !sql.startsWith("SELECT * FROM sessions WHERE id = ?")) return;
+          removed = true;
+          db.query("DELETE FROM sessions WHERE id = ?").run("session_gone");
+        }),
+      };
+
+      await callTool(env, "pinar.delete_pin", { pinId: "session_gone:p1", sessionId: "session_gone" }, MANAGE_TOKEN);
+      assert.ok(removed);
+      assert.equal(db.query("SELECT id FROM sessions WHERE id = ?").get("session_gone"), null);
+    } finally {
+      db.close();
+    }
+  });
+
   test("list_pins, get_pin and delete_pin reject unknown arguments without writes", async () => {
     const db = migratedDatabase();
     try {
@@ -2456,7 +2553,7 @@ describe("cloud MCP endpoint", () => {
       const baseline = state();
 
       const faults: Array<[string, RegExp]> = [
-        ["fail-on-session-upsert", /INSERT INTO sessions/],
+        ["fail-on-session-write", /UPDATE sessions SET pin_count/],
         ["fail-on-comment-delete", /DELETE FROM pin_comments/],
         ["fail-on-review-delete", /DELETE FROM pin_reviews WHERE/],
       ];
@@ -2488,6 +2585,420 @@ describe("cloud MCP endpoint", () => {
       const listed = await callTool(env, "pinar.list_pins", { sessionId }, MANAGE_TOKEN);
       const listedBody = JSON.parse(listed.text) as { pins: Array<Record<string, unknown>> };
       assert.deepEqual(listedBody.pins.map((pin) => pin.id), [keeperId]);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+// F3.5 data on D1: the owner's automatic-destination switch and the
+// automatic-filing mark a capture saver writes through persistSession.
+describe("capture filing data on D1", () => {
+  beforeEach(() => {
+    mcpSessions.clear();
+    resetCloudMemoryStateForTests();
+    setCloudNowForTests(NOW);
+  });
+
+  afterEach(() => resetCloudMemoryStateForTests());
+
+  // What a capture path saves when it files the session itself.
+  function autoFiledSession(id: string, collectionId: string): Session {
+    const capture = parseVisualCapture({
+      captureId: id,
+      createdAt: NOW,
+      page: { title: `Auto ${id}`, url: `https://example.test/${id}` },
+      pins: [{ comment: "auto note", kind: "element", number: 1 }],
+      screenshot: { missing: true },
+    }, id);
+    return sessionFromCapture(capture, {
+      byteSize: 1,
+      collectionId,
+      filedBy: "auto",
+      id,
+      includeScreenshot: false,
+      isPermanent: true,
+      plan: "pro",
+      position: 0,
+      shotUrl: null,
+      userId: "usr_mcp",
+    });
+  }
+
+  async function webApi(env: CloudEnv, cookie: string, path: string, init: { body?: unknown; method?: string } = {}) {
+    const response = await handleCloudApiRequest(new Request(`https://pinar.test${path}`, {
+      ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+      headers: { cookie, "content-type": "application/json", origin: "https://pinar.test" },
+      method: init.method || "GET",
+    }), env);
+    return { body: await jsonBody(response), status: response.status };
+  }
+
+  function storedMark(db: Database, id: string) {
+    return (db.query("SELECT filed_by FROM sessions WHERE id = ?").get(id) as { filed_by: string | null }).filed_by;
+  }
+
+  test("round-trips autoCaptureDestination through owner_preferences", async () => {
+    const db = migratedDatabase();
+    try {
+      const env = await seedMcpWorkspace(db);
+      const web = await seedCloudWebSessionForTests({ email: "mcp@example.test", id: "usr_mcp", plan: "pro" }, env);
+      const defaults = await webApi(env, web.cookie, "/api/preferences");
+      assert.equal(defaults.status, 200);
+      assert.equal(defaults.body.autoCaptureDestination, false);
+
+      const on = await webApi(env, web.cookie, "/api/preferences", {
+        body: { autoCaptureDestination: true, handoffMode: "full" },
+        method: "PATCH",
+      });
+      assert.equal(on.body.autoCaptureDestination, true);
+      const row = () => db.query(
+        "SELECT auto_capture_destination, handoff_mode, include_screenshot FROM owner_preferences WHERE owner_id = 'usr_mcp'",
+      ).get();
+      assert.deepEqual(row(), { auto_capture_destination: 1, handoff_mode: "full", include_screenshot: 1 });
+
+      // A patch of another key keeps the switch, and the switch alone keeps the rest.
+      const partial = await webApi(env, web.cookie, "/api/preferences", { body: { includeScreenshot: false }, method: "PATCH" });
+      assert.equal(partial.body.autoCaptureDestination, true);
+      assert.equal((await webApi(env, web.cookie, "/api/preferences")).body.autoCaptureDestination, true);
+      const off = await webApi(env, web.cookie, "/api/preferences", { body: { autoCaptureDestination: false }, method: "PATCH" });
+      assert.equal(off.body.autoCaptureDestination, false);
+      assert.equal(off.body.handoffMode, "full");
+      assert.equal(off.body.includeScreenshot, false);
+      assert.deepEqual(row(), { auto_capture_destination: 0, handoff_mode: "full", include_screenshot: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
+  test("keeps the automatic-filing mark on edits, shows it on reads and clears it on every move", async () => {
+    const db = migratedDatabase();
+    try {
+      const env = await seedMcpWorkspace(db);
+      const web = await seedCloudWebSessionForTests({ email: "mcp@example.test", id: "usr_mcp", plan: "pro" }, env);
+
+      await persistSession(env, autoFiledSession("session_auto", "collection_target"));
+      assert.equal(storedMark(db, "session_auto"), "auto");
+      assert.equal(storedMark(db, "session_mcp"), null);
+
+      // Reads: the session route, the history list and the MCP list.
+      const read = await webApi(env, web.cookie, "/api/sessions/session_auto");
+      const session = read.body.session as Session;
+      assert.equal(session.filedBy, "auto");
+      const pinId = String(session.pins[0]?.pinId);
+      const history = await webApi(env, web.cookie, "/api/history?limit=10");
+      const listed = history.body.sessions as Session[];
+      assert.equal(listed.find((item) => item.id === "session_auto")?.filedBy, "auto");
+      assert.equal(Object.hasOwn(listed.find((item) => item.id === "session_mcp") || {}, "filedBy"), false);
+      const summaries = JSON.parse((await callTool(env, "pinar.list_sessions", { limit: 10 })).text) as { sessions: Array<Record<string, unknown>> };
+      assert.equal(summaries.sessions.find((item) => item.id === "session_auto")?.filedBy, "auto");
+      assert.equal(Object.hasOwn(summaries.sessions.find((item) => item.id === "session_mcp") || {}, "filedBy"), false);
+
+      // Edits keep it: the note (web and MCP), the title (MCP), a comment and the viewer patch.
+      assert.equal((await webApi(env, web.cookie, `/api/sessions/session_auto/pins/${encodeURIComponent(pinId)}`, {
+        body: { comment: "edited note" },
+        method: "PATCH",
+      })).status, 200);
+      assert.equal(storedMark(db, "session_auto"), "auto");
+      const note = await callTool(env, "pinar.edit_pin_note", { comment: "agent note", pinId, sessionId: "session_auto" }, MANAGE_TOKEN);
+      assert.equal(note.result.isError, undefined);
+      assert.equal(storedMark(db, "session_auto"), "auto");
+      const title = await callTool(env, "pinar.update_session", { page: { title: "Renamed" }, sessionId: "session_auto" }, MANAGE_TOKEN);
+      assert.equal(title.result.isError, undefined);
+      assert.equal(storedMark(db, "session_auto"), "auto");
+      assert.equal((await webApi(env, web.cookie, `/api/sessions/session_auto/pins/${encodeURIComponent(pinId)}/comments`, {
+        body: { body: "a comment" },
+        method: "POST",
+      })).status, 200);
+      assert.equal((await webApi(env, web.cookie, "/api/sessions/session_auto", {
+        body: { reproduction: null },
+        method: "PATCH",
+      })).status, 200);
+      const edited = (await webApi(env, web.cookie, "/api/sessions/session_auto")).body.session as Session;
+      assert.equal(edited.filedBy, "auto");
+      assert.equal(edited.page.title, "Renamed");
+      assert.equal(edited.pins[0]?.comment, "agent note");
+
+      // Moves clear it: the web route, the MCP tool, deleting the collection (web and MCP).
+      const movedWeb = await webApi(env, web.cookie, "/api/sessions/session_auto/move", {
+        body: { collectionId: "collection_mcp" },
+        method: "POST",
+      });
+      assert.equal(movedWeb.status, 200);
+      assert.equal(Object.hasOwn(movedWeb.body.session as Session, "filedBy"), false);
+      assert.equal(storedMark(db, "session_auto"), null);
+
+      await persistSession(env, autoFiledSession("session_auto", "collection_mcp"));
+      assert.equal(storedMark(db, "session_auto"), "auto");
+      const movedMcp = await callTool(env, "pinar.move_session", { collectionId: "collection_target", sessionId: "session_auto" }, MANAGE_TOKEN);
+      assert.equal(movedMcp.result.isError, undefined);
+      assert.equal(Object.hasOwn(JSON.parse(movedMcp.text).session as Session, "filedBy"), false);
+      assert.equal(storedMark(db, "session_auto"), null);
+
+      await persistSession(env, autoFiledSession("session_auto", "collection_target"));
+      assert.equal(storedMark(db, "session_auto"), "auto");
+      assert.equal((await webApi(env, web.cookie, "/api/collections/collection_target", { method: "DELETE" })).status, 200);
+      const inbox = db.query("SELECT id FROM collections WHERE owner_id = ? AND is_protected = 1").get("usr_mcp") as { id: string };
+      assert.deepEqual(
+        db.query("SELECT collection_id, filed_by FROM sessions WHERE id = 'session_auto'").get(),
+        { collection_id: inbox.id, filed_by: null },
+      );
+
+      await persistSession(env, autoFiledSession("session_auto", "collection_mcp"));
+      assert.equal(storedMark(db, "session_auto"), "auto");
+      const deleted = await callTool(env, "pinar.delete_collection", { collectionId: "collection_mcp" }, MANAGE_TOKEN);
+      assert.equal(deleted.result.isError, undefined);
+      assert.deepEqual(
+        db.query("SELECT collection_id, filed_by FROM sessions WHERE id IN ('session_auto', 'session_mcp') ORDER BY id").all(),
+        [{ collection_id: inbox.id, filed_by: null }, { collection_id: inbox.id, filed_by: null }],
+      );
+    } finally {
+      db.close();
+    }
+  });
+});
+
+// Edits of a stored session start from a read of its row and write it back
+// with keepPlacement: a move (or a batch deletion) that lands between that
+// read and the write keeps the collection, position, batch, filing mark and
+// batch claim it set, and the edit itself is written.
+describe("session edits keep a concurrent move (keepPlacement)", () => {
+  beforeEach(() => {
+    mcpSessions.clear();
+    resetCloudMemoryStateForTests();
+    setCloudNowForTests(NOW);
+  });
+
+  afterEach(() => resetCloudMemoryStateForTests());
+
+  const DIAGNOSIS = {
+    acceptedAt: NOW,
+    cause: "Flex container lacks align-items",
+    confidence: "high",
+    fix: ".row { align-items: center; }",
+    properties: ["align-items"],
+    version: 1,
+  };
+
+  // A batch session in collection_mcp, filed automatically, whose batch
+  // claims collection_mcp.
+  async function raceSetup(db: Database) {
+    const seeded = await seedMcpWorkspace(db);
+    db.query("INSERT INTO batches (id, user_id, label, started_at, filing_collection_id) VALUES (?, ?, 'Batch', ?, ?)")
+      .run("batch_race", "usr_mcp", NOW, "collection_mcp");
+    db.query(
+      "INSERT INTO sessions (id, url, title, shot_id, shot_url, pin_count, pins_json, created_at, user_id, plan, is_permanent, byte_size, collection_id, position, batch_id, filed_by) "
+        + "VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, 'pro', 1, 1, ?, 0, ?, 'auto')",
+    ).run(
+      "session_race",
+      "https://example.test/race",
+      "Race",
+      "session_race",
+      "https://pinar.test/shots/session_race.png",
+      JSON.stringify([{ comment: "first", number: 1 }]),
+      NOW,
+      "usr_mcp",
+      "collection_mcp",
+      "batch_race",
+    );
+    const web = await seedCloudWebSessionForTests({ email: "mcp@example.test", id: "usr_mcp", plan: "pro" }, seeded);
+    return { cookie: web.cookie, seeded };
+  }
+
+  // `concurrent` runs once, right after the edit read session_race.
+  function racingEnv(db: Database, seeded: CloudEnv, concurrent: () => void) {
+    let landed = false;
+    const env: CloudEnv = {
+      ...seeded,
+      DB: sqliteD1(db, undefined, (sql, row) => {
+        if (landed || row?.id !== "session_race" || !sql.startsWith("SELECT * FROM sessions WHERE id = ?")) return;
+        landed = true;
+        concurrent();
+      }),
+    };
+    return { env, landed: () => landed };
+  }
+
+  // A move, as moveSession writes it: the session (its mark cleared) and the
+  // batch claim.
+  const moveToTarget = (db: Database) => () => {
+    db.query("UPDATE sessions SET collection_id = ?, position = 7, filed_by = NULL WHERE id = ?").run("collection_target", "session_race");
+    db.query("UPDATE batches SET filing_collection_id = ? WHERE id = ?").run("collection_target", "batch_race");
+  };
+
+  function webApi(env: CloudEnv, cookie: string, path: string, body: unknown) {
+    return handleCloudApiRequest(new Request(`https://pinar.test${path}`, {
+      body: JSON.stringify(body),
+      headers: { cookie, "content-type": "application/json", origin: "https://pinar.test" },
+      method: "PATCH",
+    }), env);
+  }
+
+  const row = (db: Database) => db.query(
+    "SELECT title, collection_id, position, batch_id, filed_by, pin_count, pins_json FROM sessions WHERE id = 'session_race'",
+  ).get() as Record<string, unknown>;
+  const claim = (db: Database) => (db.query("SELECT filing_collection_id FROM batches WHERE id = 'batch_race'").get() as
+    { filing_collection_id: string } | null)?.filing_collection_id ?? null;
+
+  // What a path answers: the MCP tool's error text, or the web route's
+  // status and error (null on success).
+  type Answer = { error: string | null; status: number | null };
+  const mcpAnswer = (result: Awaited<ReturnType<typeof callTool>>): Answer => ({
+    error: result.result.isError ? result.text : null,
+    status: null,
+  });
+  const webAnswer = async (response: Response): Promise<Answer> => {
+    const body = (await response.json()) as { error?: string };
+    return { error: response.status === 200 ? null : body.error ?? null, status: response.status };
+  };
+
+  // `gone` is the path's own answer for a session findOwnedSession misses.
+  const edits: Array<{
+    edit: (env: CloudEnv, cookie: string) => Promise<Answer>;
+    gone: Answer;
+    name: string;
+    written: (stored: Record<string, unknown>) => void;
+  }> = [
+    {
+      edit: async (env) => mcpAnswer(await callTool(env, "pinar.update_session", { page: { title: "Renamed" }, sessionId: "session_race" }, MANAGE_TOKEN)),
+      gone: { error: "Session not found", status: null },
+      name: "pinar.update_session (updateMcpSession)",
+      written: (stored) => assert.equal(stored.title, "Renamed"),
+    },
+    {
+      edit: async (env) => mcpAnswer(await callTool(env, "pinar.create_pin", { comment: "Agent pin", sessionId: "session_race" }, MANAGE_TOKEN)),
+      gone: { error: "Session not found", status: null },
+      name: "pinar.create_pin (createMcpPin)",
+      written: (stored) => {
+        assert.equal(stored.pin_count, 2);
+        assert.match(String(stored.pins_json), /Agent pin/);
+      },
+    },
+    {
+      edit: async (env) => mcpAnswer(await callTool(env, "pinar.edit_pin_note", { comment: "agent note", pinId: "session_race:p1", sessionId: "session_race" }, MANAGE_TOKEN)),
+      gone: { error: "Resource not found", status: null },
+      name: "pinar.edit_pin_note",
+      written: (stored) => assert.match(String(stored.pins_json), /agent note/),
+    },
+    {
+      edit: async (env, cookie) => webAnswer(await webApi(env, cookie, "/api/sessions/session_race/pins/session_race%3Ap1", { comment: "web note" })),
+      gone: { error: "Session not found", status: 404 },
+      name: "PATCH /api/sessions/:id/pins/:pinId (editPinNote)",
+      written: (stored) => assert.match(String(stored.pins_json), /web note/),
+    },
+    {
+      edit: async (env, cookie) => webAnswer(await webApi(env, cookie, "/api/sessions/session_race", { pins: [{ diagnosis: DIAGNOSIS, pinId: "session_race:p1" }] })),
+      gone: { error: "Session not found", status: 404 },
+      name: "PATCH /api/sessions/:id (updateSessionFields)",
+      written: (stored) => assert.match(String(stored.pins_json), /Flex container lacks align-items/),
+    },
+  ];
+
+  // A deletion, as DELETE /api/history/:id writes it: the session's agent
+  // runs, reviews, comments, index entries and the row; the batch stays.
+  const deleteSession = (db: Database) => () => {
+    db.query("DELETE FROM agent_executions WHERE capture_id = ? AND owner_id = ?").run("session_race", "usr_mcp");
+    db.query("DELETE FROM pin_review_events WHERE capture_id = ?").run("session_race");
+    db.query("DELETE FROM pin_reviews WHERE capture_id = ?").run("session_race");
+    db.query("DELETE FROM pin_comments WHERE capture_id = ?").run("session_race");
+    db.query("DELETE FROM pin_index WHERE session_id = ?").run("session_race");
+    db.query("DELETE FROM sessions WHERE id = ? AND user_id = ?").run("session_race", "usr_mcp");
+  };
+
+  for (const { edit, gone, name, written } of edits) {
+    test(`${name}: a move that lands after its read survives the edit, and the edit is written`, async () => {
+      const db = migratedDatabase();
+      try {
+        const { cookie, seeded } = await raceSetup(db);
+        const race = racingEnv(db, seeded, moveToTarget(db));
+        const answer = await edit(race.env, cookie);
+        assert.equal(answer.error, null, JSON.stringify(answer));
+        assert.ok(race.landed(), "the move landed between the read and the write");
+        const stored = row(db);
+        assert.deepEqual(
+          { batch_id: stored.batch_id, collection_id: stored.collection_id, filed_by: stored.filed_by, position: stored.position },
+          { batch_id: "batch_race", collection_id: "collection_target", filed_by: null, position: 7 },
+          "the move's place survives the edit",
+        );
+        assert.equal(claim(db), "collection_target", "the batch claim still follows the move");
+        written(stored);
+      } finally {
+        db.close();
+      }
+    });
+
+    test(`${name}: a session deleted after its read stays deleted, and the edit answers as for a missing session`, async () => {
+      const db = migratedDatabase();
+      try {
+        const { cookie, seeded } = await raceSetup(db);
+        const race = racingEnv(db, seeded, deleteSession(db));
+        const answer = await edit(race.env, cookie);
+        assert.ok(race.landed(), "the deletion landed between the read and the write");
+        assert.deepEqual(answer, gone);
+        assert.equal(db.query("SELECT id FROM sessions WHERE id = 'session_race'").get(), null, "the row is not brought back");
+        assert.equal(claim(db), "collection_mcp", "the batch claim is untouched");
+        assert.deepEqual(db.query("SELECT capture_id FROM pin_reviews WHERE capture_id = 'session_race'").all(), [], "no review is opened for it");
+      } finally {
+        db.close();
+      }
+    });
+  }
+
+  test("persistSession with keepPlacement writes only the owner's existing row, and says whether it did", async () => {
+    const db = migratedDatabase();
+    try {
+      const { seeded: env } = await raceSetup(db);
+      const owner = { email: "mcp@example.test", id: "usr_mcp", isPermanent: true, kind: "account" as const, plan: "pro" as const };
+      const session = (await findOwnedSession(env, owner, "session_race"))!;
+      assert.equal(await persistSession(env, { ...session, page: { ...session.page, title: "Mine" } }, "batch_race", { keepPlacement: true }), true);
+      assert.equal(row(db).title, "Mine");
+      // The same id under another owner is neither updated nor created.
+      assert.equal(await persistSession(env, { ...session, page: { ...session.page, title: "Theirs" }, userId: "usr_other" }, "batch_race", { keepPlacement: true }), false);
+      assert.equal(row(db).title, "Mine");
+      assert.equal(await persistSession(env, { ...session, id: "session_never" }, null, { keepPlacement: true }), false);
+      assert.equal(db.query("SELECT id FROM sessions WHERE id = 'session_never'").get(), null);
+      // A capture write still upserts and reports it.
+      assert.equal(await persistSession(env, { ...session, id: "session_new" }, null), true);
+      assert.notEqual(db.query("SELECT id FROM sessions WHERE id = 'session_new'").get(), null);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a batch deleted after the edit read stays deleted: the edit brings back neither the batch id nor the claim", async () => {
+    const db = migratedDatabase();
+    try {
+      const { seeded } = await raceSetup(db);
+      // As deleteBatch writes it.
+      const race = racingEnv(db, seeded, () => {
+        db.query("UPDATE sessions SET batch_id = NULL WHERE batch_id = ? AND user_id = ?").run("batch_race", "usr_mcp");
+        db.query("DELETE FROM batches WHERE id = ?").run("batch_race");
+      });
+      const result = await callTool(race.env, "pinar.update_session", { page: { title: "Renamed" }, sessionId: "session_race" }, MANAGE_TOKEN);
+      assert.equal(result.result.isError, undefined, result.text);
+      assert.ok(race.landed());
+      const stored = row(db);
+      assert.equal(stored.batch_id, null);
+      assert.equal(stored.title, "Renamed");
+      assert.equal(claim(db), null);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("without a concurrent move, an edit keeps the session's place and its filing mark", async () => {
+    const db = migratedDatabase();
+    try {
+      const { cookie, seeded } = await raceSetup(db);
+      const response = await webApi(seeded, cookie, "/api/sessions/session_race/pins/session_race%3Ap1", { comment: "plain edit" });
+      assert.equal(response.status, 200);
+      const stored = row(db);
+      assert.deepEqual(
+        { batch_id: stored.batch_id, collection_id: stored.collection_id, filed_by: stored.filed_by, position: stored.position },
+        { batch_id: "batch_race", collection_id: "collection_mcp", filed_by: "auto", position: 0 },
+      );
+      assert.equal(claim(db), "collection_mcp");
+      assert.match(String(stored.pins_json), /plain edit/);
     } finally {
       db.close();
     }

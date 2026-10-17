@@ -223,6 +223,10 @@ const locale = {
       caption:
         "Los créditos de IA se venden como complemento con validez de doce meses, separados del almacenamiento del plan y de la cadencia de facturación.",
     },
+    assistant: {
+      alt: "Espacio de trabajo de Pinar con el panel del asistente abierto junto a las tarjetas de sesión, con una pregunta, la respuesta y una tarjeta de propuesta con Confirmar y Rechazar.",
+      caption: "El asistente responde en un panel lateral y propone cada cambio en una tarjeta, así que nada del espacio de trabajo cambia hasta que confirmas.",
+    },
   },
   articles: {
     "install-pinar": {
@@ -730,8 +734,14 @@ const locale = {
     },
     "ai-features": {
       title: "Funciones de IA y cómo probarlas",
-      summary: "Prueba la transcripción por voz y convierte un flujo grabado del navegador en pasos escritos concisos.",
+      summary: "Prueba la transcripción por voz, convierte un flujo grabado del navegador en pasos escritos concisos y descubre dónde encaja el asistente.",
       sections: [
+        {
+          heading: "Pregunta al asistente",
+          paragraphs: [
+            "El asistente es un chat que responde preguntas sobre tus proyectos, sesiones y pins y los organiza cuando confirmas cada propuesta. La aplicación local lo ejecuta con la IA que configuraste; en Pinar Cloud forma parte de Pro y cada mensaje usa 3 créditos de IA. [Pregunta al asistente](/help/agents/assistant) explica cómo funciona.",
+          ],
+        },
         {
           heading: "Reproducción en Pinar Cloud",
           paragraphs: [
@@ -741,7 +751,7 @@ const locale = {
         {
           heading: "Transcribe un comentario por voz",
           paragraphs: [
-            "Inicia el comentario de un pin y elige el micrófono. Graba hasta 120 segundos y detén para insertar la transcripción en el comentario o envíala directamente. En Pinar Cloud, la transcripción por voz requiere una cuenta Pro y usa créditos de IA; la guía Transcripción por voz y créditos de IA de Pinar Cloud explica los tramos de cobro y los reembolsos. En la aplicación local, la voz usa el modelo de transcripción definido en Configuración → Asistente de IA en tu propio endpoint compatible con OpenAI, sin créditos. La clave de API del endpoint debe permitir transcripción de audio.",
+            "Inicia el comentario de un pin y elige el micrófono. Graba hasta 120 segundos y detén para insertar la transcripción en el comentario o envíala directamente. En Pinar Cloud, la transcripción por voz requiere una cuenta Pro y usa créditos de IA; la guía Créditos de IA de Pinar Cloud para la voz y el asistente explica los tramos de cobro y los reembolsos. En la aplicación local, la voz usa el modelo de transcripción definido en Configuración → Asistente de IA en tu propio endpoint compatible con OpenAI, sin créditos. La clave de API del endpoint debe permitir transcripción de audio.",
           ],
         },
         {
@@ -759,12 +769,12 @@ const locale = {
         {
           heading: "Usar tu propia IA en la aplicación local",
           paragraphs: [
-            "La aplicación local puede transcribir comentarios por voz y limpiarlos con una IA que tú proporciones en lugar de Pinar Cloud. Abre Configuración → Asistente de IA y elige un modo: “Desactivada” desactiva la IA, “IA local” usa un servidor en el mismo equipo, y “BYOK” conecta directamente a un proveedor remoto con tu propia clave. Ambos modos activos toman un endpoint compatible con OpenAI y el modelo exacto que expone, más un modelo opcional de transcripción: deja ese campo vacío para mantener la voz desactivada.",
+            "La aplicación local puede transcribir comentarios por voz, limpiarlos y ejecutar el asistente con una IA que tú proporciones en lugar de Pinar Cloud. Abre Configuración → Asistente de IA y elige un modo: “Desactivada” desactiva la IA, “IA local” usa un servidor en el mismo equipo, y “BYOK” conecta directamente a un proveedor remoto con tu propia clave. Ambos modos activos toman un endpoint compatible con OpenAI y el modelo exacto que expone, más un modelo opcional de transcripción: deja ese campo vacío para mantener la voz desactivada.",
             "Con “BYOK”, la clave de API se almacena en el almacén de credenciales de tu sistema operativo, no en las preferencias de Pinar. “Probar conexión” y “Guardar” comprueban el modelo y el modelo de transcripción antes de terminar. Si solo falla el modelo de transcripción, el mensaje dice por qué — por ejemplo, que la clave carece de permiso de audio — y guardar sigue funcionando para las funciones que no necesitan voz. Los comentarios por voz necesitan un endpoint que permita la transcripción de audio. La [guía de IA local y BYOK](https://github.com/djalmajr/pinar/blob/main/docs/local-ai.md) cubre la configuración, la privacidad y los requisitos de modelo.",
           ],
           bullets: [
-            "La transcripción de voz y la limpieza en la aplicación local usan tu proveedor directamente y no consumen créditos de Pinar Cloud. La acción “Generar pasos escritos” del visor solo se ofrece en Pinar Cloud.",
-            "Las peticiones van de la aplicación local solo a tu endpoint; no existe un respaldo silencioso hacia Pinar Cloud.",
+            "La transcripción de voz, la limpieza y el asistente en la aplicación local usan tu proveedor directamente y no consumen créditos de Pinar Cloud. La acción “Generar pasos escritos” del visor solo se ofrece en Pinar Cloud.",
+            "Las peticiones van de la aplicación local solo a tu endpoint; nunca pasan por su cuenta a Pinar Cloud.",
           ],
         },
         {
@@ -776,6 +786,74 @@ const locale = {
           bullets: [
             "Antes de guardar el pin, revisa la transcripción original en el panel de voz o elige “Usar transcripción” para insertarla en el comentario. La transcripción original también se copia al portapapeles; no se guarda por separado con el pin.",
             "La limpieza está desactivada por defecto. Actívala en las opciones de la extensión para capturas locales, o en Configuración → “Uso de IA” para Pinar Cloud.",
+          ],
+        },
+      ],
+    },
+    assistant: {
+      title: "Pregunta al asistente",
+      summary: "Pregunta en un chat sobre tus proyectos, sesiones y pins, y deja que el asistente los organice cuando confirmes cada cambio.",
+      sections: [
+        {
+          heading: "Qué es el asistente",
+          paragraphs: [
+            "El asistente es un chat dentro de Pinar, en la aplicación local y en Pinar Cloud. Responde preguntas sobre tus proyectos, colecciones, sesiones, lotes y pins, incluido lo que aparece en la captura de pantalla de un pin.",
+            "También puede organizar tu trabajo: crear, renombrar, mover y eliminar elementos, comentar en pins y concluirlos o reabrirlos. Siempre lo hace mediante una propuesta, y nada cambia hasta que la confirmas.",
+          ],
+        },
+        {
+          heading: "Abre el asistente",
+          paragraphs: [
+            "En el espacio de trabajo, elige el botón “Asistente” en la parte superior de la página para abrir el panel del chat. Escribe en “Pregunta al asistente…” y pulsa `Enter` para enviar; `Shift+Enter` empieza una línea nueva.",
+            "Si la IA aún no está configurada en la aplicación local, el panel muestra “Abrir configuración de IA”. En Pinar Cloud sin Pro, muestra “Ver planes”.",
+          ],
+        },
+        {
+          heading: "Qué puedes preguntar",
+          paragraphs: [
+            "Pregunta con tus propias palabras sobre cualquier cosa que hayas capturado. Algunos ejemplos de preguntas y peticiones:",
+          ],
+          bullets: [
+            "“¿Qué pins de la colección Checkout siguen abiertos?”",
+            "“¿Qué aparece en la captura de pantalla del pin 3?”",
+            "“Mueve las sesiones sobre el encabezado a la colección Design.”",
+            "“Concluye el pin 2 y comenta que la corrección ya está publicada.”",
+          ],
+        },
+        {
+          heading: "Nada cambia hasta que confirmas",
+          paragraphs: [
+            "Cuando pides un cambio, el asistente responde con una tarjeta que lo describe. Nada cambia hasta que eliges “Confirmar”; elige “Rechazar” para descartarlo. Una tarjeta que espera demasiado caduca, y puedes volver a pedirlo.",
+            "Algunas acciones se pueden deshacer desde la misma tarjeta: después de ejecutarse, la tarjeta muestra “Deshacer” y durante cuánto tiempo sigue disponible. Las acciones que no se pueden deshacer aparecen marcadas con “No se puede deshacer” antes de que confirmes.",
+          ],
+        },
+        {
+          heading: "En la aplicación local",
+          paragraphs: [
+            "La aplicación local usa la IA que configuraste en Configuración → Asistente de IA y no gasta créditos de Pinar. Sin un modelo de búsqueda semántica, el asistente busca en tus pins por su texto.",
+          ],
+        },
+        {
+          heading: "En Pinar Cloud: Pro y créditos",
+          paragraphs: [
+            "En Pinar Cloud, el asistente forma parte de Pro. Cada mensaje que envías usa 3 créditos de IA, y una respuesta que falla los devuelve. Confirmar o deshacer una propuesta no usa créditos.",
+            "Son los mismos créditos que usa la transcripción por voz, y los paquetes de créditos solo se pueden comprar con Pro. [Créditos de IA de Pinar Cloud para la voz y el asistente](/help/cloud/ai-credits) explica los saldos y los reembolsos.",
+          ],
+        },
+        {
+          heading: "Deja que Pinar elija la colección",
+          paragraphs: [
+            "En Configuración → “Captura”, activa “Elegir la colección automáticamente”. Pinar elige entonces una colección para cada captura nueva entre las que ya tienes; si tiene dudas, la captura va a la “Bandeja de entrada”. Las capturas de un mismo lote se quedan juntas. La opción necesita la IA disponible. Si la opción sigue activada sin la IA disponible, las capturas nuevas van a la “Bandeja de entrada”; para elegir el destino a mano, desactiva la opción.",
+          ],
+          bullets: [
+            "Una sesión archivada así muestra una pequeña marca. Apunta a ella o dale el foco para leer “Archivada automáticamente. Muévela para corregirlo.”",
+            "Si la colección no es la correcta, mueve la sesión a la adecuada. Eso corrige la elección y quita la marca.",
+          ],
+        },
+        {
+          heading: "Privacidad",
+          paragraphs: [
+            "Los comentarios y las capturas de pantalla que usa el asistente van al proveedor de IA que configuraste en la aplicación local, o a los proveedores de IA de Pinar en Pinar Cloud, donde la captura de pantalla también sirve para describir el pin y permitir buscarlo; [Dónde viven tus datos](/help/privacy/where-data-lives) da los detalles.",
           ],
         },
       ],
@@ -1022,25 +1100,25 @@ const locale = {
       ],
     },
     "ai-credits": {
-      title: "Transcripción por voz y créditos de IA de Pinar Cloud",
-      summary:
-        "Conoce cómo las grabaciones de voz reservan, gastan, recargan o reembolsan créditos de Pinar Cloud.",
+      title: "Créditos de IA de Pinar Cloud para la voz y el asistente",
+      summary: "Conoce cómo la voz y el asistente gastan créditos de Pinar Cloud, cuándo se devuelven y cómo comprar más.",
       sections: [
         {
-          heading: "Coste de la transcripción por voz",
+          heading: "Qué usa créditos",
           paragraphs: [
-            "La transcripción por voz de Pinar Cloud es la única función de Pinar que consume créditos de IA. Una grabación de hasta 60 segundos reserva 1 crédito; de 61 a 120 segundos reserva 2. Si tiene éxito, la reserva se consume. Una transcripción fallida la reembolsa y una reserva sin liquidar durante más de cinco minutos se reembolsa automáticamente.",
+            "En Pinar Cloud, la transcripción por voz y el asistente usan créditos de IA. Una grabación de voz de hasta 60 segundos reserva 1 crédito; de 61 a 120 segundos reserva 2. Si tiene éxito, la reserva se consume. Una transcripción fallida la reembolsa y una reserva sin liquidar durante más de cinco minutos se reembolsa automáticamente.",
+            "Cada mensaje que envías al asistente en Pinar Cloud usa 3 créditos, y una respuesta que falla los devuelve. Confirmar o deshacer una propuesta no usa créditos. En la aplicación local, el asistente usa la IA que configuraste y ningún crédito de Pinar.",
             "Grabar una línea temporal de reproducción y generar sus pasos escritos no descuenta créditos de IA.",
           ],
         },
         {
           heading: "Saldos",
           paragraphs: [
-            "La primera suscripción Pro de la cuenta concede 500 créditos una sola vez. Renovar, cancelar y reactivar o cambiar de plan no los vuelve a conceder. Los paquetes comprados añaden 500 créditos y duran hasta 12 meses.",
+            "La primera suscripción Pro de la cuenta concede 500 créditos una sola vez. Renovar, cancelar y reactivar o cambiar de plan no los vuelve a conceder. Los paquetes comprados de Pinar Cloud añaden 500 créditos, duran hasta 12 meses y solo se pueden comprar con Pro. La voz y el asistente usan el mismo saldo.",
           ],
         },
         {
-          heading: "Reintenta la transcripción por voz y consulta el historial",
+          heading: "Reintenta una petición y consulta el historial",
           paragraphs: [
             "En Pinar Cloud, si ya hay una transcripción en curso, espera a que termine en lugar de enviar la grabación otra vez. Las peticiones fallidas reembolsan la reserva cuando es posible. Si el saldo es demasiado bajo, la extensión conserva el comentario escrito e informa que hacen falta más créditos.",
             "Se usa primero el saldo que caduca antes. El menú de cuenta muestra los créditos restantes; no hay recarga mensual ni anual.",
@@ -1048,6 +1126,7 @@ const locale = {
           bullets: [
             "Si ya hay una transcripción en curso, espera a que termine en lugar de enviar la misma grabación otra vez.",
             "Si una reserva caduca o se reembolsa, graba o envía de nuevo el comentario por voz.",
+            "Si falla una respuesta del asistente, sus créditos vuelven; envía el mensaje otra vez cuando quieras.",
             "Si el espacio de trabajo muestra cero créditos, comprueba el saldo antes de comprar otro paquete de 500 créditos.",
             "Si envías demasiadas peticiones de IA dentro de un minuto, la petición se rechaza temporalmente; espera un minuto e inténtalo de nuevo.",
           ],

@@ -221,6 +221,10 @@ const locale = {
       caption:
         "AI credits are sold as an add-on with a twelve-month validity window, separate from plan storage and billing cadence.",
     },
+    assistant: {
+      alt: "Pinar workspace with the assistant panel open beside session cards, showing a question, the answer, and a proposal card with Confirm and Decline.",
+      caption: "The assistant answers in a side panel and proposes each change on a card, so nothing in the workspace moves until you confirm.",
+    },
   },
   articles: {
     "install-pinar": {
@@ -726,8 +730,14 @@ const locale = {
     },
     "ai-features": {
       title: "AI features and how to test them",
-      summary: "Test voice transcription and turn a recorded browser flow into concise written reproduction steps.",
+      summary: "Test voice transcription, turn a recorded browser flow into concise written reproduction steps, and see where the assistant fits.",
       sections: [
+        {
+          heading: "Ask the assistant",
+          paragraphs: [
+            "The assistant is a chat that answers questions about your projects, sessions, and pins and organizes them once you confirm each proposal. The local app runs it with the AI you set up; in Pinar Cloud it is part of Pro and each message uses 3 AI credits. [Ask the assistant](/help/agents/assistant) covers how it works.",
+          ],
+        },
         {
           heading: "Reproduction in Pinar Cloud",
           paragraphs: [
@@ -737,7 +747,7 @@ const locale = {
         {
           heading: "Transcribe a voice comment",
           paragraphs: [
-            "Start a pin comment and choose the microphone. Record for up to 120 seconds, then stop to place the transcription in the comment, or send it directly. In Pinar Cloud, voice transcription needs a Pro account and uses AI credits; the Voice transcription and Pinar Cloud AI credits guide explains the charging tiers and refunds. In the local app, voice uses the transcription model set in Settings → AI Assistant on your own OpenAI-compatible endpoint, without credits. The endpoint's API key must allow audio transcription.",
+            "Start a pin comment and choose the microphone. Record for up to 120 seconds, then stop to place the transcription in the comment, or send it directly. In Pinar Cloud, voice transcription needs a Pro account and uses AI credits; the Pinar Cloud AI credits for voice and the assistant guide explains the charging tiers and refunds. In the local app, voice uses the transcription model set in Settings → AI Assistant on your own OpenAI-compatible endpoint, without credits. The endpoint's API key must allow audio transcription.",
           ],
         },
         {
@@ -755,12 +765,12 @@ const locale = {
         {
           heading: "Use your own AI in the local app",
           paragraphs: [
-            "The local app can transcribe voice comments and clean them up with AI you provide instead of Pinar Cloud. Open Settings → AI Assistant and choose a mode: “Disabled” switches AI off, “Local AI” uses a server on the same computer, and “BYOK” connects directly to a remote provider with your own key. Both active modes take an OpenAI-compatible endpoint and the exact model it exposes, plus an optional transcription model: leave that field empty to keep voice off.",
+            "The local app can transcribe voice comments, clean them up, and run the assistant with AI you provide instead of Pinar Cloud. Open Settings → AI Assistant and choose a mode: “Disabled” switches AI off, “Local AI” uses a server on the same computer, and “BYOK” connects directly to a remote provider with your own key. Both active modes take an OpenAI-compatible endpoint and the exact model it exposes, plus an optional transcription model: leave that field empty to keep voice off.",
             "With “BYOK”, the API key is stored in your operating system's credential vault, not in Pinar's preferences. “Test connection” and “Save” check the model and the transcription model before they finish. If only the transcription model fails, the message says why — for example, that the key lacks audio permission — and saving still works for the features that do not need voice. Voice comments need an endpoint that allows audio transcription. The [Local AI and BYOK guide](https://github.com/djalmajr/pinar/blob/main/docs/local-ai.md) covers setup, privacy, and model requirements.",
           ],
           bullets: [
-            "Voice transcription and cleanup in the local app use your provider directly and no Pinar Cloud credits. The viewer's “Generate written steps” action is offered only in Pinar Cloud.",
-            "Requests go from the local app to your endpoint only; there is no silent fallback to Pinar Cloud.",
+            "Voice transcription, cleanup, and the assistant in the local app use your provider directly and no Pinar Cloud credits. The viewer's “Generate written steps” action is offered only in Pinar Cloud.",
+            "Requests go from the local app to your endpoint only; they never switch to Pinar Cloud on their own.",
           ],
         },
         {
@@ -772,6 +782,74 @@ const locale = {
           bullets: [
             "Before you save the pin, review the original transcript in the voice panel or choose “Use transcription” to insert it into the comment. The original transcript is also copied to your clipboard; it is not saved separately with the pin.",
             "Cleanup is off by default. Turn it on in the extension options for local captures, or in Settings → “AI usage” for Pinar Cloud.",
+          ],
+        },
+      ],
+    },
+    assistant: {
+      title: "Ask the assistant",
+      summary: "Ask about your projects, sessions, and pins in a chat, and let the assistant organize them once you confirm each change.",
+      sections: [
+        {
+          heading: "What the assistant is",
+          paragraphs: [
+            "The assistant is a chat inside Pinar, in the local app and in Pinar Cloud. It answers questions about your projects, collections, sessions, batches, and pins, including what appears in a pin’s screenshot.",
+            "It can also organize your work: create, rename, move, and delete items, comment on pins, and conclude or reopen them. It always does this through a proposal, and nothing changes until you confirm it.",
+          ],
+        },
+        {
+          heading: "Open the assistant",
+          paragraphs: [
+            "In the workspace, choose the “Assistant” button at the top of the page to open the chat panel. Type in “Ask the assistant…” and press `Enter` to send; `Shift+Enter` starts a new line.",
+            "If AI is not set up yet in the local app, the panel shows “Open AI settings”. In Pinar Cloud without Pro, it shows “See plans”.",
+          ],
+        },
+        {
+          heading: "What you can ask",
+          paragraphs: [
+            "Ask in your own words about anything you have captured. Here are some example questions and requests:",
+          ],
+          bullets: [
+            "“Which pins in the Checkout collection are still open?”",
+            "“What does the screenshot of pin 3 show?”",
+            "“Move the sessions about the header to the Design collection.”",
+            "“Conclude pin 2 and comment that the fix is live.”",
+          ],
+        },
+        {
+          heading: "Nothing changes until you confirm",
+          paragraphs: [
+            "When you ask for a change, the assistant answers with a card that describes it. Nothing changes until you choose “Confirm”; choose “Decline” to drop it. A card that waits too long expires, and you can ask again.",
+            "Some actions can be undone from the same card: after they run, the card shows “Undo” and how long it remains available. Actions that cannot be undone are marked “Can’t be undone” before you confirm.",
+          ],
+        },
+        {
+          heading: "In the local app",
+          paragraphs: [
+            "The local app uses the AI you set up in Settings → AI Assistant and spends no Pinar credits. Without a semantic search model, the assistant searches your pins by their text.",
+          ],
+        },
+        {
+          heading: "In Pinar Cloud: Pro and credits",
+          paragraphs: [
+            "In Pinar Cloud, the assistant is part of Pro. Each message you send uses 3 AI credits, and a reply that fails gives them back. Confirming or undoing a proposal uses no credits.",
+            "These are the same credits that voice transcription uses, and credit packs can only be bought with Pro. [Pinar Cloud AI credits for voice and the assistant](/help/cloud/ai-credits) explains balances and refunds.",
+          ],
+        },
+        {
+          heading: "Let Pinar choose the collection",
+          paragraphs: [
+            "In Settings → “Capture”, turn on “Choose the collection automatically”. Pinar then picks a collection for each new capture among the ones you already have; when it is not sure, the capture goes to the “Inbox”. Captures from the same batch stay together. The option needs AI to be available. If the option stays on while AI is not available, new captures go to the “Inbox”; to choose the destination yourself, turn the option off.",
+          ],
+          bullets: [
+            "A session filed this way shows a small mark. Point at it or focus it to read “Filed automatically. Move to correct.”",
+            "If the collection is wrong, move the session to the right one. That corrects the choice and removes the mark.",
+          ],
+        },
+        {
+          heading: "Privacy",
+          paragraphs: [
+            "The comments and screenshots the assistant uses go to the AI provider you set up in the local app, or to Pinar’s AI providers in Pinar Cloud, where the screenshot is also used to describe the pin and make it searchable; [Where your data lives](/help/privacy/where-data-lives) has the details.",
           ],
         },
       ],
@@ -1017,24 +1095,25 @@ const locale = {
       ],
     },
     "ai-credits": {
-      title: "Voice transcription and Pinar Cloud AI credits",
-      summary: "Know how voice recordings reserve, spend, purchase, or refund Pinar Cloud credits.",
+      title: "Pinar Cloud AI credits for voice and the assistant",
+      summary: "Know how voice and the assistant spend Pinar Cloud credits, when credits come back, and how to buy more.",
       sections: [
         {
-          heading: "Voice transcription cost",
+          heading: "What uses credits",
           paragraphs: [
-            "Pinar Cloud voice transcription is the only Pinar feature that consumes AI credits. A recording up to 60 seconds reserves 1 credit; a recording from 61 to 120 seconds reserves 2. On success, the reservation is consumed. A failed transcription refunds it, and a reservation left unsettled for more than five minutes is refunded automatically.",
+            "In Pinar Cloud, voice transcription and the assistant use AI credits. A voice recording up to 60 seconds reserves 1 credit; a recording from 61 to 120 seconds reserves 2. On success, the reservation is consumed. A failed transcription refunds it, and a reservation left unsettled for more than five minutes is refunded automatically.",
+            "Each message you send to the assistant in Pinar Cloud uses 3 credits, and a reply that fails gives them back. Confirming or undoing a proposal uses no credits. In the local app, the assistant uses the AI you set up and no Pinar credits.",
             "Recording a reproduction timeline and generating its written steps do not debit AI credits.",
           ],
         },
         {
           heading: "Balances",
           paragraphs: [
-            "The account’s first Pro subscription grants 500 credits once. Renewing, canceling and reactivating, or changing plans does not grant them again. Purchased Pinar Cloud packs add 500 credits and last up to 12 months.",
+            "The account’s first Pro subscription grants 500 credits once. Renewing, canceling and reactivating, or changing plans does not grant them again. Purchased Pinar Cloud packs add 500 credits, last up to 12 months, and can only be bought with Pro. Voice and the assistant draw from the same balance.",
           ],
         },
         {
-          heading: "Retry voice transcription and read the ledger",
+          heading: "Retry a request and read the ledger",
           paragraphs: [
             "In Pinar Cloud, if a transcription is already in progress, wait for it to finish instead of sending the recording again. Failed requests refund the reservation when possible. If the balance is too low, the extension keeps the typed comment and reports that more credits are required.",
             "The soonest-expiring balance is used first. The account menu shows the remaining credits; there is no monthly or annual refill.",
@@ -1042,6 +1121,7 @@ const locale = {
           bullets: [
             "If a transcription is already running, wait for it to finish instead of sending the same recording again.",
             "If a reservation expires or is refunded, record or send the voice comment again.",
+            "If an assistant reply fails, its credits come back; send the message again when you are ready.",
             "If the workspace shows zero credits, check the remaining balance before buying another 500-credit pack.",
             "If you send too many AI requests within a minute, the request is refused temporarily; wait a minute and try again.",
           ],

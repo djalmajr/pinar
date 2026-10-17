@@ -9,8 +9,9 @@
 //
 // Turn order (contract section 5): status → body validation → rate limit
 // → thread (create or fetch) → one-turn-per-thread gate → persist the user
-// message → endpoint → runAssistantTurn → persist the assistant answer
-// when the outcome settles and release the thread.
+// message → endpoint → credits (meterTurn, Cloud only) → runAssistantTurn
+// → persist the assistant answer when the outcome settles and release the
+// thread → settle the credits once the delivery is known too.
 //
 // Writes (F2 contract section 3): the turn offers the write tools as
 // proposals and pinar_ask. A proposal is stored with the id of the turn's
@@ -56,6 +57,7 @@ import {
   runAssistantTurn,
   type AssistantHistoryEntry,
   type AssistantStreamEmit,
+  type AssistantTurnOutcome,
 } from "./turn";
 import {
   buildAssistantToolSet,
@@ -71,6 +73,25 @@ export interface AssistantStatus {
   reason: AssistantStatusReason | null;
 }
 
+// What a settled turn charges (F4 contract §2): the link that answered,
+// its tokens and cost, and { fallback, link, costSource } as result_json.
+export interface AssistantTurnCharge {
+  costUsdMicros: number | null;
+  inputTokens: number;
+  model: string;
+  outputTokens: number;
+  resultJson: string;
+}
+
+// The turn's credit reservation: reserved, with its two endings, which only
+// the run that created it holds; refused for lack of credits, with the
+// balance the 402 shows; or found already held by another run of the same
+// assistant message, which answers 409 and runs nothing.
+export type AssistantTurnReservation =
+  | { aiCredits: { balance: number; nextExpiryAt: string | null }; creditsRequired: number; reserved: false }
+  | { inProgress: true; reserved: false }
+  | { consume(charge: AssistantTurnCharge): Promise<unknown>; refund(errorCode: string): Promise<unknown>; reserved: true };
+
 export interface AssistantRequestDeps {
   // null → 503 assistant_unavailable
   endpoint(): Promise<AssistantEndpoint | null>;
@@ -81,6 +102,12 @@ export interface AssistantRequestDeps {
   now?: () => Date;
   // the runtime's pin search; without it pinar_pins_search is not offered
   pinSearch?: PinSearchService;
+  // The Cloud's credits (F4 contract §2): reserves the turn under its
+  // assistant message id before the model runs; reserved: false → 402
+  // insufficient_ai_credits, or 409 assistant_turn_in_progress when the
+  // reservation already existed. Without it (the local app) nothing is
+  // charged.
+  meterTurn?: (turn: { messageId: string; threadId: string }) => Promise<AssistantTurnReservation>;
   // false → 429 assistant_rate_limited
   rateLimitTurn?: () => Promise<boolean>;
   // state reads for preparing, confirming and undoing proposals
@@ -143,6 +170,122 @@ function withNoStore(response: Response): Response {
   const headers = new Headers(response.headers);
   headers.set("Cache-Control", "no-store");
   return new Response(response.body, { headers, status: response.status, statusText: response.statusText });
+}
+
+// A UI message stream part that carries the model's first token: text or a
+// tool call.
+const FIRST_TOKEN_PART = /"type":"(?:text-delta|tool-input-start|tool-input-available)"/;
+// Enough of the previous chunk to catch a part split across two chunks.
+const FIRST_TOKEN_TAIL = 64;
+
+// What reached the client of a turn's response body, decided once by the
+// first of three facts: a first-token part was passed to the body
+// ("delivered"), the body was cancelled before that ("cancelled"), or it
+// closed without any ("ended").
+type AssistantTurnDelivery = "cancelled" | "delivered" | "ended";
+
+// Passes the turn's response body through and resolves `delivery` with
+// what reached the client. Parts are pulled only on the client's reads
+// (highWaterMark 0), so a part counts as passed when a read takes it, never
+// while it waits queued for a client that then leaves. A body never read
+// nor cancelled leaves `delivery` pending.
+function watchDelivery(response: Response): { delivery: Promise<AssistantTurnDelivery>; response: Response } {
+  const body = response.body;
+  if (!body) return { delivery: Promise.resolve("ended"), response };
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let tail = "";
+  let decided = false;
+  let resolveDelivery!: (delivery: AssistantTurnDelivery) => void;
+  const delivery = new Promise<AssistantTurnDelivery>((resolve) => {
+    resolveDelivery = resolve;
+  });
+  const decide = (value: AssistantTurnDelivery) => {
+    if (decided) return;
+    decided = true;
+    resolveDelivery(value);
+  };
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      let next: Awaited<ReturnType<typeof reader.read>>;
+      try {
+        next = await reader.read();
+      } catch (error) {
+        decide("ended");
+        throw error;
+      }
+      if (next.done) {
+        decide("ended");
+        controller.close();
+        return;
+      }
+      controller.enqueue(next.value);
+      if (!decided) {
+        const text = tail + decoder.decode(next.value, { stream: true });
+        if (FIRST_TOKEN_PART.test(text)) decide("delivered");
+        tail = text.slice(-FIRST_TOKEN_TAIL);
+      }
+    },
+    cancel(reason) {
+      decide("cancelled");
+      return reader.cancel(reason);
+    },
+  }, { highWaterMark: 0 });
+  return {
+    delivery,
+    response: new Response(stream, { headers: response.headers, status: response.status, statusText: response.statusText }),
+  };
+}
+
+// The error_code of a refunded turn whose client left before the first
+// token (the outcome codes and assistant_unavailable cover the rest).
+export const ASSISTANT_TURN_CLIENT_CANCELLED = "client_cancelled";
+
+// One more try after a failed settlement write (a transient database
+// error); a second failure leaves the reservation to the sweeper.
+async function settleWithRetry(settle: () => Promise<unknown>): Promise<void> {
+  try {
+    await settle();
+  } catch {
+    await settle();
+  }
+}
+
+// Settles a reserved turn (F4 contract §2, A39) once both facts are known:
+// the outcome and, for a final one, the delivery. A final answer (pinar_ask
+// included) consumes the reservation with the billing of the turn (without
+// it, the endpoint's model and an unknown cost) unless its client left
+// before the first token, which refunds it; missing final or an error
+// refunds it right away. A final whose body is never read nor cancelled
+// stays reserved, and the sweeper settles it by the stored answer.
+async function settleTurn(
+  reservation: Extract<AssistantTurnReservation, { reserved: true }>,
+  outcome: AssistantTurnOutcome,
+  endpoint: AssistantEndpoint,
+  delivery: Promise<AssistantTurnDelivery>,
+): Promise<void> {
+  if (outcome.kind !== "final") {
+    await settleWithRetry(() => reservation.refund(outcome.code));
+    return;
+  }
+  if ((await delivery) === "cancelled") {
+    await settleWithRetry(() => reservation.refund(ASSISTANT_TURN_CLIENT_CANCELLED));
+    return;
+  }
+  const billing = outcome.billing;
+  const usage = billing?.usage ?? outcome.usage;
+  const charge: AssistantTurnCharge = {
+    costUsdMicros: billing ? billing.costUsdMicros : null,
+    inputTokens: usage.inputTokens,
+    model: billing?.model ?? endpoint.model,
+    outputTokens: usage.outputTokens,
+    resultJson: JSON.stringify(
+      billing
+        ? { costSource: billing.costSource, fallback: billing.fallback, link: billing.link }
+        : { costSource: "none", fallback: false, link: 0 },
+    ),
+  };
+  await settleWithRetry(() => reservation.consume(charge));
 }
 
 // Reads the request body without buffering more than maxBytes: once the
@@ -396,9 +539,19 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
     return assistantError(409, "turn_in_progress", "A turn is already in progress for this thread");
   }
   inFlightTurnThreads.add(thread.id);
+  // Released once per turn: a later release of this turn must never free
+  // the lock a newer turn of the same thread took meanwhile.
+  let threadLocked = true;
+  const releaseThread = () => {
+    if (!threadLocked) return;
+    threadLocked = false;
+    inFlightTurnThreads.delete(thread.id);
+  };
   // The assistant message id is born now: the proposals of this turn are
   // stored with it, and the answer is persisted under it at the end.
   const assistantMessageId = newAssistantMessageId();
+  // The credits held for this turn, released once by whoever settles it.
+  let reservation: Extract<AssistantTurnReservation, { reserved: true }> | null = null;
 
   try {
     // 6. The user message is persisted before the model, then the history
@@ -435,8 +588,29 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
     //    client right away.
     const endpoint = await deps.endpoint();
     if (!endpoint) {
-      inFlightTurnThreads.delete(thread.id);
+      releaseThread();
       return assistantError(503, "assistant_unavailable", "The assistant is unavailable");
+    }
+    // 7b. The Cloud reserves the turn's credits before the model runs;
+    //     without them nothing else is written (the user message above
+    //     already was) and the model is never called. A reservation that
+    //     already existed belongs to another run of this message: that run
+    //     answers and settles it, this one does neither.
+    if (deps.meterTurn) {
+      const reserved = await deps.meterTurn({ messageId: assistantMessageId, threadId: thread.id });
+      if (!reserved.reserved) {
+        releaseThread();
+        if ("inProgress" in reserved) {
+          return assistantError(409, "assistant_turn_in_progress", "This turn is already running");
+        }
+        return assistantJson({
+          aiCredits: reserved.aiCredits,
+          code: "insufficient_ai_credits",
+          creditsRequired: reserved.creditsRequired,
+          error: "Not enough AI credits",
+        }, 402);
+      }
+      reservation = reserved;
     }
     const requestId = randomUUID();
     const conversationId = thread.id;
@@ -499,9 +673,14 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
     });
 
     // 8. The assistant answer is persisted when the outcome settles (final
-    //    text or the error code), and the thread is released either way.
-    //    A persistence failure is swallowed; nothing is logged, so no
-    //    provider content can leak.
+    //    text or the error code) and the thread is released; then the
+    //    credits are settled, once the delivery is known too (settleTurn).
+    //    A persistence or settlement failure is swallowed; nothing is
+    //    logged, so no provider content can leak (a reservation left open is
+    //    settled by the sweeper from the stored answer).
+    const turnReservation = reservation;
+    reservation = null;
+    const watched = turnReservation ? watchDelivery(response) : null;
     outcome
       .then(async (result) => {
         try {
@@ -518,15 +697,22 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
         } catch {
           // Swallowed on purpose (contract 5.8).
         }
+        // The turn is over once its answer is stored: the thread is free
+        // again while the credits may still wait for the delivery.
+        releaseThread();
+        if (turnReservation) await settleTurn(turnReservation, result, endpoint, watched!.delivery);
       })
       .catch(() => {})
       .finally(() => {
-        inFlightTurnThreads.delete(thread.id);
+        releaseThread();
       });
 
-    return withNoStore(response);
+    return withNoStore(watched ? watched.response : response);
   } catch {
-    inFlightTurnThreads.delete(thread.id);
+    releaseThread();
+    // A failure after the reservation and before the turn took it over
+    // gives the credits back.
+    if (reservation) await reservation.refund("assistant_unavailable").catch(() => {});
     // Store or endpoint failures surface with the defined unavailable code;
     // the original error (which may carry internals) never crosses the
     // boundary.

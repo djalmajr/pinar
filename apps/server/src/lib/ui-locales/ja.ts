@@ -68,6 +68,8 @@ const messages: UiMessages = {
   "assistant.errorIncomplete": "アシスタントがこの回答を完了できませんでした。もう一度試してください。",
   "assistant.errorFailed": "アシスタントは現在利用できません。しばらくしてから試してください。",
   "assistant.errorRateLimited": "短時間に多くの質問がありました。しばらくお待ちください。",
+  "assistant.errorNoCredits": "AIクレジットが不足しています。メッセージ1件に {required} 点使用しますが、残りは {count} 点です。",
+  "assistant.buyCredits": "クレジットを購入",
   "assistant.errorNetwork": "Pinar に接続できません。接続を確認してください。",
   "assistant.proposal.create_project": "プロジェクト「{name}」を作成",
   "assistant.proposal.rename_project": "プロジェクト「{from}」の名前を「{to}」に変更",
@@ -170,6 +172,7 @@ const messages: UiMessages = {
   "settings.aiUsageReproduction": "再現",
   "settings.aiUsageSessionSummary": "セッションの要約",
   "settings.aiUsageVoicePin": "音声ピン",
+  "settings.aiUsageAssistantTurn": "アシスタントのメッセージ",
   "settings.voicePostProcessing": "音声文字起こしを整える",
   "settings.voicePostProcessingDescription": "言いよどみや言い直しを除き、意図したコメントに整えます。Pinar Cloud のみで利用でき、既定ではオフです。",
   "settings.generalDescription":
@@ -242,6 +245,11 @@ const messages: UiMessages = {
   "settings.captureDestinationDefault": "受信トレイ",
   "settings.captureDestinationDescription":
     "新しいキャプチャの保存先です。サーバーの既定は最初のプロジェクトの受信トレイです。",
+  "settings.autoCaptureDestination": "コレクションを自動で選ぶ",
+  "settings.autoCaptureDestinationDescription":
+    "Pinar が新しいキャプチャごとにコレクションを選び、迷ったときは受信トレイに入れます。",
+  "settings.autoCaptureDestinationInboxFallback": "AI を利用できない間、新しいキャプチャは受信トレイに入ります。",
+  "settings.autoCaptureDestinationUnavailable": "AI の設定が必要です。",
   "settings.captureHeading": "キャプチャ",
   "settings.collection": "コレクション",
   "settings.copyOnFinishBatch": "セッション終了時にコピー",
@@ -412,6 +420,7 @@ const messages: UiMessages = {
   "dashboard.allSessions": "すべてのセッション",
   "dashboard.collection": "コレクション",
   "dashboard.protectedInbox": "受信トレイ",
+  "dashboard.autoFiled": "自動で振り分けられました。移動して修正できます。",
   "dashboard.collectionActions": "コレクション操作",
   "dashboard.collapseCollection": "{name} を折りたたむ",
   "dashboard.collectionMenu": "コレクション",

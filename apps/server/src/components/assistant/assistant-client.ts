@@ -133,6 +133,7 @@ export type AssistantErrorKey =
   | "assistant.errorIncomplete"
   | "assistant.errorFailed"
   | "assistant.errorNetwork"
+  | "assistant.errorNoCredits"
   | "assistant.errorRateLimited"
   | "assistant.errorTimeout"
   | "assistant.requiresPro";
@@ -423,6 +424,8 @@ export function assistantErrorMessageKey(code: string | null | undefined): Assis
       return "assistant.errorRateLimited";
     case "assistant_requires_pro":
       return "assistant.requiresPro";
+    case "insufficient_ai_credits":
+      return "assistant.errorNoCredits";
     case "network":
       return "assistant.errorNetwork";
     default:
@@ -494,6 +497,26 @@ export function assistantErrorFromChatError(error: Error): string {
   if (code !== null) return code;
   if (isAssistantNetworkError(error)) return "network";
   return "unknown";
+}
+
+/**
+ * The balance and the price of a turn refused for lack of credits (F4
+ * contract §2: 402 `insufficient_ai_credits` with `aiCredits.balance` and
+ * `creditsRequired`), read from the JSON body the transport puts in the
+ * error message; null for any other error or a malformed body.
+ */
+export function assistantCreditsFromChatError(error: Error): { balance: number; required: number } | null {
+  try {
+    const body: unknown = JSON.parse(error.message);
+    if (!isRecord(body) || body.code !== "insufficient_ai_credits" || !isRecord(body.aiCredits)) return null;
+    const balance = body.aiCredits.balance;
+    const required = body.creditsRequired;
+    if (typeof balance !== "number" || !Number.isInteger(balance) || balance < 0) return null;
+    if (typeof required !== "number" || !Number.isInteger(required) || required <= 0) return null;
+    return { balance, required };
+  } catch {
+    return null;
+  }
 }
 
 function readErrorBodyCode(message: string): string | null {

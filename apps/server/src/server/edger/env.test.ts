@@ -15,6 +15,10 @@ const readVars = (vars: Vars) => (name: string) => vars[name];
 // built by the adapters instead).
 const STRING_FIELDS = [
   "ADMIN_API_KEY",
+  "AI_GATEWAY_API_KEY",
+  "AI_GATEWAY_ZERO_DATA_RETENTION",
+  "ASSISTANT_CHAIN",
+  "ASSISTANT_ENABLED",
   "AUTH_PEPPER",
   "CLOUD_TRIAL_ENABLED",
   "COMPLIMENTARY_PRO_USER_IDS",

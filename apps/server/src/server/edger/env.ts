@@ -10,11 +10,17 @@ const CLOUDFLARE_ACCOUNT_ID = /^[0-9a-f]{32}$/;
 // The CloudEnv string fields read from a variable of the same name.
 const STRING_FIELDS = [
   "ADMIN_API_KEY",
+  // The assistant chain (F4): optional, outside the all-or-nothing AI group.
+  "AI_GATEWAY_API_KEY",
+  "AI_GATEWAY_ZERO_DATA_RETENTION",
+  "ASSISTANT_CHAIN",
   "ASSISTANT_ENABLED",
   "AUTH_PEPPER",
   "CLOUD_TRIAL_ENABLED",
   "COMPLIMENTARY_PRO_USER_IDS",
   "EXTENSION_ORIGIN",
+  // Optional: the ops address of the assistant margin alerts.
+  "OPS_ALERT_EMAIL",
   "PRICING_AI_CREDITS_500_BRL_CENTS",
   "PRICING_AI_CREDITS_500_USD_CENTS",
   "PRICING_STORAGE_1GB_12M_BRL_CENTS",

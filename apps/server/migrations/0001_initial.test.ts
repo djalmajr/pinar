@@ -72,6 +72,9 @@ describe("cloud schema migrations", () => {
       "0027_assistant_threads.sql",
       "0028_assistant_proposals.sql",
       "0029_pin_index.sql",
+      "0030_capture_filing.sql",
+      "0031_assistant_credits.sql",
+      "0032_assistant_margin.sql",
     ]);
     const migrated = new Database(":memory:");
     const canonical = new Database(":memory:");
@@ -839,6 +842,59 @@ describe("cloud schema migrations", () => {
         () => db.query(
           "INSERT INTO users (id, email, plan, ever_paid, created_at, updated_at) VALUES ('usr_no', 'no@example.test', 'lifetime', 1, '2026-09-05T00:00:00.000Z', '2026-09-05T00:00:00.000Z')",
         ).run(),
+        /constraint/i,
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  test("adds the capture filing columns without rewriting existing rows", () => {
+    const db = new Database(":memory:");
+    try {
+      db.exec("PRAGMA foreign_keys = ON;");
+      applyMigrations(db, migrationFiles().filter((name) => name < "0030_"));
+      db.exec(`
+        INSERT INTO users (id, email, plan, ever_paid, created_at, updated_at)
+        VALUES ('usr_existing', 'existing@example.test', 'pro', 1, '2026-10-17T00:00:00.000Z', '2026-10-17T00:00:00.000Z');
+        INSERT INTO sessions (id, created_at, user_id, plan, is_permanent, byte_size)
+        VALUES ('existing_session', '2026-10-17T00:00:00.000Z', 'usr_existing', 'pro', 1, 42);
+        INSERT INTO owner_preferences (owner_id, include_screenshot, handoff_mode, updated_at, voice_post_processing)
+        VALUES ('usr_existing', 0, 'full', '2026-10-17T00:00:00.000Z', 1);
+        INSERT INTO batches (id, user_id, label, started_at, finished_at)
+        VALUES ('existing_batch', 'usr_existing', 'Review', '2026-10-17T00:00:00.000Z', NULL);
+      `);
+
+      applyMigrations(db, ["0030_capture_filing.sql"]);
+      assert.deepEqual(
+        db.query("SELECT byte_size, filed_by, plan FROM sessions WHERE id = 'existing_session'").get(),
+        { byte_size: 42, filed_by: null, plan: "pro" },
+      );
+      assert.deepEqual(
+        db.query(
+          "SELECT auto_capture_destination, handoff_mode, include_screenshot, voice_post_processing FROM owner_preferences WHERE owner_id = 'usr_existing'",
+        ).get(),
+        { auto_capture_destination: 0, handoff_mode: "full", include_screenshot: 0, voice_post_processing: 1 },
+      );
+      assert.deepEqual(
+        db.query("SELECT filing_collection_id, label, started_at FROM batches WHERE id = 'existing_batch'").get(),
+        { filing_collection_id: null, label: "Review", started_at: "2026-10-17T00:00:00.000Z" },
+      );
+      // The claim of A36: the first destination stays, a second one does not overwrite it.
+      const claim = db.query(
+        "UPDATE batches SET filing_collection_id = ? WHERE id = 'existing_batch' AND user_id = 'usr_existing' AND filing_collection_id IS NULL",
+      );
+      assert.equal(claim.run("col_first").changes, 1);
+      assert.equal(claim.run("col_second").changes, 0);
+      assert.deepEqual(db.query("SELECT filing_collection_id FROM batches WHERE id = 'existing_batch'").get(), { filing_collection_id: "col_first" });
+      db.query("UPDATE sessions SET filed_by = 'auto' WHERE id = 'existing_session'").run();
+      db.query("UPDATE owner_preferences SET auto_capture_destination = 1 WHERE owner_id = 'usr_existing'").run();
+      assert.throws(
+        () => db.query("UPDATE sessions SET filed_by = 'manual' WHERE id = 'existing_session'").run(),
+        /constraint/i,
+      );
+      assert.throws(
+        () => db.query("UPDATE owner_preferences SET auto_capture_destination = 2 WHERE owner_id = 'usr_existing'").run(),
         /constraint/i,
       );
     } finally {

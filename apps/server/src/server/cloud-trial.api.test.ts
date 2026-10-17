@@ -565,6 +565,12 @@ describe("cloud trial writes", () => {
       const expiredCookie = await login("expired-addon@example.test", env);
       const expired = await checkout("storage_1gb_12m", expiredCookie);
       assert.equal(expired.status, 402);
+      const expiredCredits = await checkout("ai_credits_500", expiredCookie);
+      assert.equal(expiredCredits.status, 402);
+      assert.deepEqual(await jsonBody(expiredCredits), {
+        code: "cloud_pro_required_for_addon",
+        error: "Pro subscription required for add-ons",
+      });
       assert.equal(stripeCalls, 0);
 
       const anonymous = await checkout("ai_credits_500");

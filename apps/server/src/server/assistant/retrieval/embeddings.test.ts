@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, test } from "node:test";
+import { afterEach, beforeEach, describe, test } from "node:test";
 import {
   cosine,
   decodeVector,
@@ -182,6 +182,137 @@ describe("embedTexts", () => {
     const error = await embedTexts({ endpoint, fetch: fake.fetch, kind: "document", texts: ["secret text"] }).catch((caught: Error) => caught);
     assert.ok(error instanceof Error);
     for (const leak of ["embed-key", "appliance.example", "secret text"]) assert.ok(!error.message.includes(leak), leak);
+  });
+});
+
+describe("embedTexts through the gateway", () => {
+  const gatewayEndpoint: EmbeddingEndpoint = {
+    apiKey: "vck-gateway-key",
+    baseUrl: "https://ai-gateway.vercel.sh/v1",
+    gateway: { inputPrice: "0.00000002", zeroDataRetention: false },
+    model: "openai/text-embedding-3-small",
+  };
+  const logs: unknown[][] = [];
+  let original: typeof console.log;
+  beforeEach(() => {
+    logs.length = 0;
+    original = console.log;
+    console.log = (...args: unknown[]) => {
+      logs.push(args);
+    };
+  });
+  afterEach(() => {
+    console.log = original;
+  });
+  const costLines = () => logs.map((args) => JSON.parse(String(args[0])) as Record<string, unknown>);
+  // The gateway's answer: the vectors, its usage, and the cost when given.
+  const gatewayResponse = (cost?: string) => (call: Call) =>
+    Response.json({
+      data: call.body.input.map((text, index) => ({ embedding: vectorFor(text), index, object: "embedding" })),
+      model: call.body.model,
+      object: "list",
+      ...(cost === undefined ? {} : { providerMetadata: { gateway: { cost, routing: {} } } }),
+      usage: { prompt_tokens: call.body.input.length * 10, total_tokens: call.body.input.length * 10 },
+    });
+
+  test("sends the privacy options in providerOptions and no prompt_name, the gateway key only in Authorization", async () => {
+    for (const zeroDataRetention of [false, true]) {
+      const fake = fakeFetch(gatewayResponse());
+      await embedTexts({ endpoint: { ...gatewayEndpoint, gateway: { inputPrice: "0.00000002", zeroDataRetention } }, fetch: fake.fetch, kind: "query", texts: ["t1"] });
+      const call = fake.calls[0]!;
+      assert.equal(call.url, "https://ai-gateway.vercel.sh/v1/embeddings");
+      assert.equal(call.init.redirect, "manual");
+      assert.deepEqual(call.body, {
+        dimensions: 256,
+        input: ["t1"],
+        model: "openai/text-embedding-3-small",
+        providerOptions: { gateway: zeroDataRetention ? { disallowPromptTraining: true, zeroDataRetention: true } : { disallowPromptTraining: true } },
+      });
+      assert.equal(new Headers(call.init.headers).get("authorization"), "Bearer vck-gateway-key");
+      assert.ok(!String(call.init.body).includes("vck-gateway-key"));
+    }
+  });
+
+  test("one assistant_index_cost line per batch, from the catalog price × usage.prompt_tokens", async () => {
+    const fake = fakeFetch(gatewayResponse());
+    await embedTexts({ endpoint: gatewayEndpoint, fetch: fake.fetch, kind: "document", texts: texts(33) });
+    assert.equal(fake.calls.length, 2);
+    // 32 × 10 tokens × 0.00000002 = 6.4 micros → 7; 10 tokens → 0.2 → 1.
+    assert.deepEqual(costLines().sort((left, right) => Number(right["costUsdMicros"]) - Number(left["costUsdMicros"])), [
+      { costSource: "table", costUsdMicros: 7, kind: "embedding", message: "assistant_index_cost", model: "openai/text-embedding-3-small" },
+      { costSource: "table", costUsdMicros: 1, kind: "embedding", message: "assistant_index_cost", model: "openai/text-embedding-3-small" },
+    ]);
+  });
+
+  test("the gateway's providerMetadata cost wins over the table", async () => {
+    const fake = fakeFetch(gatewayResponse("0.0000035"));
+    await embedTexts({ endpoint: gatewayEndpoint, fetch: fake.fetch, kind: "document", texts: ["t1"] });
+    assert.deepEqual(costLines(), [{ costSource: "gateway", costUsdMicros: 4, kind: "embedding", message: "assistant_index_cost", model: "openai/text-embedding-3-small" }]);
+  });
+
+  test("without a cost nor a usable table the line says none", async () => {
+    const noUsage = fakeFetch((call) => embeddingsResponse(call.body.input));
+    await embedTexts({ endpoint: gatewayEndpoint, fetch: noUsage.fetch, kind: "document", texts: ["t1"] });
+    const noPrice = fakeFetch(gatewayResponse());
+    await embedTexts({ endpoint: { ...gatewayEndpoint, gateway: { inputPrice: null, zeroDataRetention: false } }, fetch: noPrice.fetch, kind: "document", texts: ["t1"] });
+    assert.deepEqual(costLines().map((line) => [line["costSource"], line["costUsdMicros"]]), [["none", null], ["none", null]]);
+  });
+
+  test("a billed batch with a bad body logs its cost and still rejects; a failed request logs nothing", async () => {
+    const bad = fakeFetch(() => Response.json({ data: [{ embedding: [1, 2], index: 0 }], usage: { prompt_tokens: 50 } }));
+    await assert.rejects(embedTexts({ endpoint: gatewayEndpoint, fetch: bad.fetch, kind: "document", texts: ["t1"] }), /embedding response invalid/);
+    assert.deepEqual(costLines().map((line) => [line["costSource"], line["costUsdMicros"]]), [["table", 1]]);
+    logs.length = 0;
+    const down = fakeFetch(() => new Response("down", { status: 503 }));
+    await assert.rejects(embedTexts({ endpoint: gatewayEndpoint, fetch: down.fetch, kind: "document", texts: ["t1"] }));
+    assert.deepEqual(logs, []);
+  });
+
+  test("the line carries no key, URL or text", async () => {
+    const fake = fakeFetch(gatewayResponse("0.000001"));
+    await embedTexts({ endpoint: gatewayEndpoint, fetch: fake.fetch, kind: "query", texts: ["contraste do botão comprar"] });
+    assert.equal(logs.length, 1);
+    const line = String(logs[0]![0]);
+    assert.deepEqual(Object.keys(JSON.parse(line)), ["message", "kind", "model", "costUsdMicros", "costSource"]);
+    for (const leak of ["vck-gateway-key", "ai-gateway.vercel.sh", "https://", "/embeddings", "contraste"]) assert.ok(!line.includes(leak), leak);
+  });
+
+  test("the call's recorder gets each batch's cost line; a failing one is logged and the vectors still come back", async () => {
+    const recorded: unknown[] = [];
+    const withRecorder: EmbeddingEndpoint = {
+      ...gatewayEndpoint,
+      gateway: { inputPrice: "0.00000002", record: async (entry) => { recorded.push(entry); }, zeroDataRetention: false },
+    };
+    const vectors = await embedTexts({ endpoint: withRecorder, fetch: fakeFetch(gatewayResponse()).fetch, kind: "document", texts: texts(33) });
+    assert.equal(vectors.length, 33);
+    assert.equal(recorded.length, 2, "one per batch");
+    const byCost = (items: unknown[]) => [...items].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+    assert.deepEqual(byCost(recorded), byCost(costLines().map(({ message: _message, ...entry }) => entry)), "the same fields as the log lines");
+
+    const errors: unknown[][] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => {
+      errors.push(args);
+    };
+    try {
+      const failing: EmbeddingEndpoint = {
+        ...gatewayEndpoint,
+        gateway: { inputPrice: "0.00000002", record: async () => { throw new Error("recorder down"); }, zeroDataRetention: false },
+      };
+      const kept = await embedTexts({ endpoint: failing, fetch: fakeFetch(gatewayResponse()).fetch, kind: "query", texts: ["t5"] });
+      assert.equal(kept[0]![0], 5);
+    } finally {
+      console.error = originalError;
+    }
+    assert.deepEqual(errors.map((args) => String(args[0])), ['{"message":"assistant_index_cost_record_failed","kind":"embedding","model":"openai/text-embedding-3-small"}']);
+  });
+
+  test("the appliance logs nothing and keeps prompt_name", async () => {
+    const fake = fakeFetch((call) => Response.json({ data: call.body.input.map((text) => ({ embedding: vectorFor(text) })), usage: { prompt_tokens: 3 } }));
+    await embedTexts({ endpoint, fetch: fake.fetch, kind: "document", texts: ["t1"] });
+    assert.equal(fake.calls[0]!.body.prompt_name, "document");
+    assert.equal("providerOptions" in fake.calls[0]!.body, false);
+    assert.deepEqual(logs, []);
   });
 });
 

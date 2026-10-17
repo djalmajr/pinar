@@ -1,8 +1,11 @@
 import { afterAll, describe, expect, mock, test } from "bun:test";
+import { formatMessage } from "@/lib/i18n";
 import englishMessages from "@/lib/ui-locales/en";
 import {
   ASSISTANT_PROPOSAL_ACTIONS,
   ASSISTANT_RESOURCE_TYPES,
+  assistantCreditsFromChatError,
+  assistantErrorFromChatError,
   assistantErrorMessageKey,
   assistantMessageAsk,
   assistantMessageProposals,
@@ -103,6 +106,7 @@ describe("assistantErrorMessageKey", () => {
     expect(assistantErrorMessageKey("assistant_unavailable")).toBe("assistant.errorFailed");
     expect(assistantErrorMessageKey("assistant_rate_limited")).toBe("assistant.errorRateLimited");
     expect(assistantErrorMessageKey("assistant_requires_pro")).toBe("assistant.requiresPro");
+    expect(assistantErrorMessageKey("insufficient_ai_credits")).toBe("assistant.errorNoCredits");
   });
 
   test("unknown codes and empty input fall back to the generic failure note", () => {
@@ -110,6 +114,44 @@ describe("assistantErrorMessageKey", () => {
     expect(assistantErrorMessageKey("")).toBe("assistant.errorFailed");
     expect(assistantErrorMessageKey(null)).toBe("assistant.errorFailed");
     expect(assistantErrorMessageKey(undefined)).toBe("assistant.errorFailed");
+  });
+});
+
+describe("assistantCreditsFromChatError", () => {
+  const body402 = { aiCredits: { balance: 2, nextExpiryAt: null }, code: "insufficient_ai_credits", creditsRequired: 3, error: "Not enough AI credits" };
+
+  test("reads the balance and the price of the 402 body the transport puts in the message", () => {
+    const error = new Error(JSON.stringify(body402));
+    expect(assistantErrorFromChatError(error)).toBe("insufficient_ai_credits");
+    expect(assistantCreditsFromChatError(error)).toEqual({ balance: 2, required: 3 });
+  });
+
+  test("the note renders the balance and the price in the 7 languages", async () => {
+    for (const language of ["de", "en", "es", "fr", "ja", "pt", "zh"] as const) {
+      const messages = (await import(`@/lib/ui-locales/${language}`)).default as typeof englishMessages;
+      const note = formatMessage(messages["assistant.errorNoCredits"], language, { count: 2, required: 3 });
+      expect(note).toContain("2");
+      expect(note).toContain("3");
+      expect(note).not.toMatch(/[{}#]/);
+      expect(messages["assistant.buyCredits"].length).toBeGreaterThan(0);
+      expect(messages["settings.aiUsageAssistantTurn"].length).toBeGreaterThan(0);
+    }
+    expect(formatMessage(englishMessages["assistant.errorNoCredits"], "en", { count: 1, required: 3 }))
+      .toBe("Not enough AI credits: a message uses 3 and you have 1 credit left.");
+  });
+
+  test("anything else is null: other codes, malformed numbers, plain text", () => {
+    const cases = [
+      { ...body402, code: "assistant_rate_limited" },
+      { ...body402, aiCredits: { balance: "2" } },
+      { ...body402, aiCredits: { balance: -1 } },
+      { ...body402, aiCredits: { balance: 1.5 } },
+      { ...body402, creditsRequired: 0 },
+      { ...body402, aiCredits: null },
+    ];
+    for (const body of cases) expect(assistantCreditsFromChatError(new Error(JSON.stringify(body)))).toBeNull();
+    expect(assistantCreditsFromChatError(new Error("ASSISTANT_STREAM_FAILED"))).toBeNull();
+    expect(assistantCreditsFromChatError(new Error("not json {"))).toBeNull();
   });
 });
 

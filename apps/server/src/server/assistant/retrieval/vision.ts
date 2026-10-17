@@ -11,12 +11,19 @@
 //
 // The call reuses the F1 endpoint protections (endpoint.ts) and is bounded
 // by VISION_TIMEOUT_MS, the F1 turn deadline. Failures throw fixed
-// messages; nothing is logged.
+// messages; on the appliance nothing is logged.
+//
+// Through the Vercel AI Gateway (endpoint.gateway, gateway.ts) the body also
+// carries providerOptions, the privacy options of the chain, and a call that
+// gets a response body logs one assistant_index_cost line and hands it to
+// the deployment's recorder (recordIndexCost).
 
+import { assistantTableCostMicros } from "../chain";
 import { assistantProviderOptions, type AssistantEndpoint } from "../models";
 import { ASSISTANT_TURN_TIMEOUT_MS } from "../turn";
 import { clipText } from "./document";
 import { postEndpointJson } from "./endpoint";
+import { assistantIndexCostLog, gatewayIndexCost, gatewayPrivacyOptions, recordIndexCost, usageTokens, type GatewayCallOptions } from "./gateway";
 
 export const PIN_CAPTION_MAX_CHARS = 300;
 export const PIN_OCR_MAX_CHARS = 1000;
@@ -54,6 +61,9 @@ const RESPONSE_SCHEMA = {
 };
 
 const INVALID_RESPONSE = "vision response invalid";
+
+/** The chat endpoint of the captions; `gateway` is set for the Vercel AI Gateway. */
+export type VisionEndpoint = AssistantEndpoint & { gateway?: GatewayCallOptions };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -109,8 +119,21 @@ function parseCaptions(body: unknown, numbers: Set<number>): Map<number, { capti
   return captions;
 }
 
+// The table cost of a caption: usage.prompt_tokens at the input price and
+// usage.completion_tokens at the output price of ASSISTANT_MODEL_PRICES;
+// null without both counts or without a price for the model.
+function captionTableCostMicros(body: unknown, model: string): number | null {
+  const prompt = usageTokens(body, "prompt_tokens");
+  const completion = usageTokens(body, "completion_tokens");
+  if (prompt === null || completion === null) return null;
+  return assistantTableCostMicros(model, {
+    inputTokens: { cacheRead: undefined, cacheWrite: undefined, total: prompt },
+    outputTokens: { total: completion },
+  });
+}
+
 export async function captionSessionPins(input: {
-  endpoint: AssistantEndpoint; // the chat endpoint; must accept images (§4)
+  endpoint: VisionEndpoint; // the chat endpoint; must accept images (§4)
   fetch?: typeof fetch;
   image: { bytes: Uint8Array; mimeType: "image/png" | "image/jpeg" | "image/webp" };
   pins: Array<{ comment: string; number: number }>;
@@ -123,6 +146,7 @@ export async function captionSessionPins(input: {
     baseUrl: input.endpoint.baseUrl,
     body: {
       ...thinkingOptions(input.endpoint),
+      ...(input.endpoint.gateway ? { providerOptions: gatewayPrivacyOptions(input.endpoint.gateway) } : {}),
       messages: [
         { content: VISION_PROMPT, role: "system" },
         {
@@ -144,6 +168,12 @@ export async function captionSessionPins(input: {
     path: "/chat/completions",
     timeoutMs: input.timeoutMs ?? VISION_TIMEOUT_MS,
   });
+  if (input.endpoint.gateway) {
+    const { model } = input.endpoint;
+    const cost = gatewayIndexCost(body, () => captionTableCostMicros(body, model));
+    assistantIndexCostLog({ ...cost, kind: "caption", model });
+    await recordIndexCost(input.endpoint.gateway, { ...cost, kind: "caption", model });
+  }
   const captions = parseCaptions(body, new Set(input.pins.map((pin) => pin.number)));
   const result: Array<{ caption: string; number: number; ocr: string }> = [];
   for (const pin of input.pins) {

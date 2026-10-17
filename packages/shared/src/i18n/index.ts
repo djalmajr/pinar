@@ -22,6 +22,7 @@ export interface TranslationDictionary {
   overlay_session_error_screenshot: string;
   capture_destination_label: string;
   capture_destination_desc: string;
+  capture_destination_automatic: string;
   collection_label: string;
   destination_unavailable: string;
   destination_search_placeholder: string;
@@ -269,6 +270,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_session_error_screenshot: "Screenshot not captured · return to the annotated page and try again",
     capture_destination_label: "Capture destination",
     capture_destination_desc: "Project and collection that receive new captures on the selected server.",
+    capture_destination_automatic: "Automatic",
     collection_label: "Collection",
     destination_unavailable: "Projects and collections could not be loaded. Check that the selected server is available and up to date.",
     destination_search_placeholder: "Search projects and collections…",
@@ -514,6 +516,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_session_error_screenshot: "Screenshot não capturado · volte à página anotada e tente novamente",
     capture_destination_label: "Destino da captura",
     capture_destination_desc: "Projeto e coleção que recebem as novas capturas no servidor selecionado.",
+    capture_destination_automatic: "Automático",
     collection_label: "Coleção",
     destination_unavailable: "Não foi possível carregar projetos e coleções. Verifique se o servidor selecionado está disponível e atualizado.",
     destination_search_placeholder: "Buscar projetos e coleções…",
@@ -759,6 +762,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_session_error_screenshot: "No se pudo capturar la pantalla · vuelve a la página anotada e inténtalo de nuevo",
     capture_destination_label: "Destino de captura",
     capture_destination_desc: "Proyecto y colección que reciben las nuevas capturas en el servidor seleccionado.",
+    capture_destination_automatic: "Automático",
     collection_label: "Colección",
     destination_unavailable: "No se pudieron cargar los proyectos y las colecciones. Comprueba que el servidor seleccionado esté disponible y actualizado.",
     destination_search_placeholder: "Buscar proyectos y colecciones…",
@@ -1004,6 +1008,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_session_error_screenshot: "Capture d'écran non réalisée · revenez à la page annotée et réessayez",
     capture_destination_label: "Destination de la capture",
     capture_destination_desc: "Projet et collection qui reçoivent les nouvelles captures sur le serveur sélectionné.",
+    capture_destination_automatic: "Automatique",
     collection_label: "Collection",
     destination_unavailable: "Impossible de charger les projets et les collections. Vérifiez que le serveur sélectionné est disponible et à jour.",
     destination_search_placeholder: "Rechercher des projets et des collections…",
@@ -1249,6 +1254,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_session_error_screenshot: "Screenshot nicht aufgenommen · zur annotierten Seite zurückkehren und erneut versuchen",
     capture_destination_label: "Aufnahmeziel",
     capture_destination_desc: "Projekt und Sammlung, die neue Aufnahmen auf dem gewählten Server empfangen.",
+    capture_destination_automatic: "Automatisch",
     collection_label: "Sammlung",
     destination_unavailable: "Projekte und Sammlungen konnten nicht geladen werden. Prüfen Sie, ob der ausgewählte Server verfügbar und aktuell ist.",
     destination_search_placeholder: "Projekte und Sammlungen suchen…",
@@ -1494,6 +1500,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_session_error_screenshot: "未能截取屏幕截图 · 请返回带标注的页面后重试",
     capture_destination_label: "捕获目标",
     capture_destination_desc: "在所选服务器上接收新捕获的项目和集合。",
+    capture_destination_automatic: "自动",
     collection_label: "集合",
     destination_unavailable: "无法加载项目和集合。请检查所选服务器是否可用且已更新。",
     destination_search_placeholder: "搜索项目和集合…",
@@ -1739,6 +1746,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     overlay_session_error_screenshot: "スクリーンショットを取得できませんでした · 注釈したページに戻って再試行してください",
     capture_destination_label: "キャプチャ先",
     capture_destination_desc: "選択したサーバーで新しいキャプチャを受け取るプロジェクトとコレクション。",
+    capture_destination_automatic: "自動",
     collection_label: "コレクション",
     destination_unavailable: "プロジェクトとコレクションを読み込めませんでした。選択したサーバーが利用可能で最新であることを確認してください。",
     destination_search_placeholder: "プロジェクトとコレクションを検索…",

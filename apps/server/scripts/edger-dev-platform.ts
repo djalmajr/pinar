@@ -62,7 +62,7 @@ export const CRON_PRESENCE_POLL_MS = 500;
 export const CRON_SETTLE_MS = 3_000;
 /** The observation window after the settle. */
 export const CRON_WINDOW_MS = 10_000;
-/** The path every platform cron job targets in the manifest. */
+/** The path of the daily cron job, the one the platform proofs measure. */
 const CRON_JOB_PATH = "/_internal/cron/daily";
 /** Proof 10: the poll pause while waiting for the v1 dispatch to synchronize the promote. */
 export const PROMOTE_SYNC_POLL_MS = 100;
@@ -123,23 +123,21 @@ function decodeUtf8(bytes: Uint8Array): string {
 }
 
 /**
- * `manifestText` with its single cron job's `schedule` set to `schedule`.
- * The template must declare exactly one cron job, with `path:
- * /_internal/cron/daily`; anything else is a setup error.
+ * `manifestText` with the `schedule` of its daily cron job (`path:
+ * /_internal/cron/daily`) set to `schedule`; the other jobs (the frequent
+ * one, for example) are kept as they are. The template must declare
+ * exactly one daily job; none or more than one is a setup error.
  */
 export function patchCronSchedule(manifestText: string, schedule: string): string {
   const manifest = Bun.YAML.parse(manifestText) as { cron?: unknown };
   const jobs = Array.isArray(manifest.cron) ? manifest.cron : [];
-  if (jobs.length !== 1) {
-    throw new Error(`manifest has ${jobs.length} cron job(s); the platform proofs require exactly one`);
-  }
-  const job = jobs[0] as { path?: unknown };
-  if (typeof job.path !== "string" || job.path !== CRON_JOB_PATH) {
+  const daily = jobs.filter((job) => (job as { path?: unknown } | null)?.path === CRON_JOB_PATH);
+  if (daily.length !== 1) {
     throw new Error(
-      `the single cron job must have path ${CRON_JOB_PATH} (found ${JSON.stringify(job.path)})`,
+      `manifest has ${daily.length} cron job(s) with path ${CRON_JOB_PATH}; the platform proofs require exactly one`,
     );
   }
-  (job as { schedule: string }).schedule = schedule;
+  (daily[0] as { schedule: string }).schedule = schedule;
   return Bun.YAML.stringify(manifest);
 }
 

@@ -17,6 +17,7 @@ const locale = {
     releaseNotFound: "Versión no encontrada",
     releaseNotFoundDescription:
       "Esta versión no está en el historial publicado.",
+    upcomingRelease: "Próxima versión · aún no publicada",
     viewDetails: "Ver detalles",
     whatChanged: "Qué cambió",
   },
@@ -595,6 +596,24 @@ const locale = {
           description:
             "La redacción de campos sensibles, las máscaras manuales, el consentimiento versionado y las políticas de servicio publicadas establecieron el límite de seguridad de la nube.",
         },
+      },
+    },
+  },
+  upcoming: {
+    title: "Un asistente para tus capturas",
+    summary: "Próximamente: un chat que responde sobre tu trabajo y lo organiza cuando confirmas, una opción de captura que elige la colección por ti y mensajes al asistente en Pinar Cloud que usan créditos de IA.",
+    changes: {
+      "assistant": {
+        title: "Pregunta al asistente sobre tus capturas",
+        description: "Un nuevo chat en el espacio de trabajo, en la aplicación local y en Pinar Cloud, responde preguntas sobre tus proyectos, colecciones, sesiones, lotes y pins, incluido lo que aparece en la captura de pantalla de un pin. También crea, renombra, mueve, elimina, comenta, concluye y reabre elementos, siempre como propuesta: nada cambia hasta que confirmas, y algunas acciones se pueden deshacer desde la misma tarjeta. En la aplicación local usa la IA que configuraste en Configuración.",
+      },
+      "automatic-capture-destination": {
+        title: "Pinar elige la colección de las capturas nuevas",
+        description: "Activa “Elegir la colección automáticamente” en Configuración → Captura y Pinar coloca cada captura nueva en una de tus colecciones. Si tiene dudas, la captura va a la Bandeja de entrada, y las capturas de un mismo lote se quedan juntas. Las sesiones archivadas así muestran una marca; mover la sesión corrige la elección y quita la marca. La opción necesita la IA disponible. Mientras la opción siga activada sin la IA disponible, las capturas nuevas van a la Bandeja de entrada; para elegir el destino a mano, desactívala.",
+      },
+      "assistant-credits": {
+        title: "Los mensajes al asistente usan créditos de Pinar Cloud",
+        description: "En Pinar Cloud, el asistente forma parte de Pro y cada mensaje enviado usa 3 créditos de IA; una respuesta que falla los devuelve, y confirmar o deshacer una propuesta no cuesta nada. Son los mismos créditos de la transcripción por voz, y los paquetes de créditos solo se pueden comprar con Pro. En la aplicación local, el asistente no usa créditos de Pinar.",
       },
     },
   },

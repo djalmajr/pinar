@@ -66,6 +66,8 @@ const messages = {
   "assistant.errorIncomplete": "The assistant could not finish this answer. Try again.",
   "assistant.errorFailed": "The assistant is unavailable right now. Try again in a moment.",
   "assistant.errorRateLimited": "Too many questions in a short time. Wait a moment.",
+  "assistant.errorNoCredits": "Not enough AI credits: a message uses {required} and you have {count, plural, one {# credit} other {# credits}} left.",
+  "assistant.buyCredits": "Buy credits",
   "assistant.errorNetwork": "Could not reach Pinar. Check your connection.",
   "assistant.proposal.create_project": "Create the project “{name}”",
   "assistant.proposal.rename_project": "Rename the project “{from}” to “{to}”",
@@ -168,6 +170,7 @@ const messages = {
   "settings.aiUsageReproduction": "Reproduction",
   "settings.aiUsageSessionSummary": "Session summary",
   "settings.aiUsageVoicePin": "Voice pin",
+  "settings.aiUsageAssistantTurn": "Assistant message",
   "settings.voicePostProcessing": "Clean up voice transcriptions",
   "settings.voicePostProcessingDescription": "Remove fillers and false starts and recover the intended comment. Available only in Pinar Cloud and off by default.",
   "settings.generalDescription":
@@ -240,6 +243,11 @@ const messages = {
   "settings.captureDestinationDefault": "Inbox",
   "settings.captureDestinationDescription":
     "Where new captures land. Server default uses the Inbox of the first project.",
+  "settings.autoCaptureDestination": "Choose the collection automatically",
+  "settings.autoCaptureDestinationDescription":
+    "Pinar picks the collection for each new capture; when unsure, it goes to the Inbox.",
+  "settings.autoCaptureDestinationInboxFallback": "Without AI available, new captures go to the Inbox.",
+  "settings.autoCaptureDestinationUnavailable": "Requires AI to be set up.",
   "settings.captureHeading": "Capture",
   "settings.collection": "Collection",
   "settings.copyOnFinishBatch": "Copy when a session finishes",
@@ -407,6 +415,7 @@ const messages = {
   "dashboard.allSessions": "All sessions",
   "dashboard.collection": "collection",
   "dashboard.protectedInbox": "Inbox",
+  "dashboard.autoFiled": "Filed automatically. Move to correct.",
   "dashboard.collectionActions": "Collection actions",
   "dashboard.collapseCollection": "Collapse {name}",
   "dashboard.collectionMenu": "Collection",

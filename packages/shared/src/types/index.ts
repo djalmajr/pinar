@@ -94,6 +94,12 @@ export interface Session {
   captureId?: string;
   collectionId?: string;
   createdAt: string;
+  /**
+   * `"auto"` while the session sits where the automatic capture destination
+   * filed it. Edits keep it; every move, including deleting its collection,
+   * clears it.
+   */
+  filedBy?: "auto";
   id: string;
   isPermanent?: boolean;
   page: PageInfo;
@@ -229,6 +235,7 @@ export interface CaptureDestination {
 }
 
 export interface DeliveryPreferences {
+  autoCaptureDestination: boolean;
   captureDestination: CaptureDestination | null;
   componentTarget: ComponentTarget | null;
   copyOnFinishBatch: CopyOnFinishBatch;
@@ -242,6 +249,7 @@ export interface DeliveryPreferences {
 }
 
 export const DEFAULT_DELIVERY_PREFERENCES: DeliveryPreferences = {
+  autoCaptureDestination: false,
   captureDestination: null,
   componentTarget: null,
   copyOnFinishBatch: "prompt",
@@ -310,6 +318,7 @@ export function mergeDeliveryPreferences(
     key in record ? read(record[key], current[key]) : current[key]
   );
   return {
+    autoCaptureDestination: pick("autoCaptureDestination", booleanValue),
     captureDestination: pick("captureDestination", captureDestinationValue),
     componentTarget: pick("componentTarget", componentTargetValue),
     copyOnFinishBatch: pick("copyOnFinishBatch", copyOnFinishBatchValue),

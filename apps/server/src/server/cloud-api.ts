@@ -122,11 +122,19 @@ import {
   markCloudPinIndexSessionStale,
   resetCloudPinIndexMemoryForTests,
 } from "./assistant/retrieval/store-cloud";
-import type { AssistantStatus } from "./assistant/http";
+import type { AssistantChainLink, AssistantCircuitBreaker } from "./assistant/chain";
+import { cleanupAssistantMarginRecords, recordAssistantIndexCost, type AssistantIndexCostEntry } from "./assistant/margin-monitor";
+import type { AssistantRequestDeps, AssistantStatus } from "./assistant/http";
+import type { AssistantEndpoint } from "./assistant/models";
 import type { PinSearchService } from "./assistant/retrieval/index";
 import type { CloudPinSessionRow, CloudPinSourceData } from "./assistant/retrieval/source-cloud";
 import type { AssistantStateReader } from "./assistant/state-reader";
 import type { AssistantToolHost } from "./assistant/tools";
+// Types and the constants only: the filing engines pull in the AI SDK and
+// are loaded lazily behind the gate (fileCloudShot).
+import type { FilingCollection, FilingRecentSession } from "./filing/candidates";
+import { FILING_TIMEOUT_MS } from "./filing/constants";
+import type { FilingCapture, FilingOutcome, FilingSource } from "./filing/runtime";
 import {
   CLOUD_MCP_TOOLS,
   MCP_MAX_ARGUMENT_LENGTH,
@@ -184,6 +192,14 @@ export interface CloudEnv {
   // Optional embedding model of the same endpoint for the pin search; without
   // it the search is textual. Never part of the all-or-nothing AI group.
   AI_EMBEDDING_MODEL?: string;
+  // The Vercel AI Gateway key of the assistant chain's gateway links.
+  AI_GATEWAY_API_KEY?: string;
+  // "true" asks the gateway for zero data retention on each call; off
+  // otherwise (F4 contract §1).
+  AI_GATEWAY_ZERO_DATA_RETENTION?: string;
+  // The assistant's model chain, a CSV of hub:model links (assistant/
+  // chain.ts); without it the chain is appliance:<AI_MODEL>.
+  ASSISTANT_CHAIN?: string;
   // "true" switches the assistant on; every other value (or absence) is off.
   ASSISTANT_ENABLED?: string;
   AUTH_PEPPER?: string;
@@ -193,6 +209,9 @@ export interface CloudEnv {
   DEPLOYMENT_ENV?: "local" | "production" | "staging";
   EMAIL?: SendEmail;
   EXTENSION_ORIGIN?: string;
+  // The ops address of the assistant margin alerts (F4 contract §3): at most
+  // one email a day, only with an alert. Absent, the alerts are logs only.
+  OPS_ALERT_EMAIL?: string;
   PINAR_BUCKET?: R2Bucket;
   PRICING_AI_CREDITS_500_BRL_CENTS?: string;
   PRICING_AI_CREDITS_500_USD_CENTS?: string;
@@ -279,6 +298,7 @@ interface BatchRecord {
 }
 
 interface MemoryBatch {
+  filingCollectionId?: string | null;
   finishedAt: string | null;
   id: string;
   label: string;
@@ -371,7 +391,7 @@ interface AiUsageHistoryEntry {
   completedAt: string | null;
   createdAt: string;
   credits: number;
-  feature: "voice_pin";
+  feature: "assistant_turn" | "voice_pin";
   status: AiCreditUsageRecord["status"];
 }
 
@@ -453,6 +473,7 @@ export const REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 export const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
 const SHOTS_PREFIX = "shots/";
 export type AiFeature =
+  | "assistant_turn"
   | "component_export"
   | "design_system"
   | "pin_diagnosis"
@@ -484,7 +505,15 @@ export const AI_FEATURE_SPECS: Record<"reproduction", AiFeatureSpec> = {
   },
 };
 const AI_RESERVATION_TIMEOUT_MS = 5 * 60 * 1000;
+// Credits of one assistant turn in the Cloud, staging included (F4 contract
+// §2, D1).
+export const ASSISTANT_TURN_CREDITS = 3;
+// A turn's reservation: request id turn:<assistant message id>, resource
+// assistant:<thread id> (F4 contract §2).
+const ASSISTANT_TURN_REQUEST_PREFIX = "turn:";
+const ASSISTANT_TURN_RESOURCE_PREFIX = "assistant:";
 const AI_FEATURES = new Set<AiFeature>([
+  "assistant_turn",
   "component_export",
   "design_system",
   "pin_diagnosis",
@@ -591,6 +620,7 @@ function deliveryPreferencesFromOwnerRow(row: Record<string, unknown> | null | u
   const projectId = typeof row.capture_project_id === "string" ? row.capture_project_id : "";
   const collectionId = typeof row.capture_collection_id === "string" ? row.capture_collection_id : "";
   return parseDeliveryPreferences({
+    autoCaptureDestination: row.auto_capture_destination,
     captureDestination: projectId && collectionId ? { collectionId, projectId } : null,
     componentTarget: typeof row.component_target === "string" ? row.component_target : null,
     copyOnFinishBatch: row.copy_on_finish_batch,
@@ -610,6 +640,7 @@ export async function readOwnerDeliveryPreferences(env: CloudEnv, ownerId: strin
     try {
       const row = await env.DB.prepare(`
         SELECT
+          auto_capture_destination,
           capture_collection_id,
           capture_project_id,
           component_target,
@@ -661,9 +692,10 @@ export async function writeOwnerDeliveryPreferences(
         language,
         sensitive_query_keys,
         component_target,
-        voice_post_processing
+        voice_post_processing,
+        auto_capture_destination
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(owner_id) DO UPDATE SET
         handoff_mode = excluded.handoff_mode,
         include_screenshot = excluded.include_screenshot,
@@ -676,7 +708,8 @@ export async function writeOwnerDeliveryPreferences(
         language = excluded.language,
         sensitive_query_keys = excluded.sensitive_query_keys,
         component_target = excluded.component_target,
-        voice_post_processing = excluded.voice_post_processing
+        voice_post_processing = excluded.voice_post_processing,
+        auto_capture_destination = excluded.auto_capture_destination
     `).bind(
       ownerId,
       next.handoffMode,
@@ -691,6 +724,7 @@ export async function writeOwnerDeliveryPreferences(
       next.sensitiveQueryKeys,
       next.componentTarget,
       next.voicePostProcessing ? 1 : 0,
+      next.autoCaptureDestination ? 1 : 0,
     ).run();
   } else {
     memoryOwnerPreferences.set(ownerId, next);
@@ -701,7 +735,11 @@ export async function writeOwnerDeliveryPreferences(
 async function readPreferences(request: Request, env: CloudEnv) {
   const principal = await resolvePrincipal(request, env);
   if (!principal) return json({ error: "Unauthorized" }, 401);
-  return json({ ok: true, ...(await readOwnerDeliveryPreferences(env, principal.id)) });
+  return json({
+    ok: true,
+    ...(await readOwnerDeliveryPreferences(env, principal.id)),
+    autoCaptureDestinationAvailable: await cloudAutoCaptureDestinationAvailable(env, principal),
+  });
 }
 
 async function updatePreferences(request: Request, env: CloudEnv) {
@@ -710,6 +748,7 @@ async function updatePreferences(request: Request, env: CloudEnv) {
   return json({
     ok: true,
     ...(await writeOwnerDeliveryPreferences(env, principal.id, await readJson(request))),
+    autoCaptureDestinationAvailable: await cloudAutoCaptureDestinationAvailable(env, principal),
   });
 }
 
@@ -1209,12 +1248,12 @@ async function findAiCreditUsage(env: CloudEnv, principal: Principal, requestId:
 /**
  * The account view is a compact billing history, not inference telemetry. Keep
  * model names, prompts, resource ids, and retired features out of the response
- * that reaches the browser. Voice transcription is the only credit-bearing AI
- * operation exposed to accounts.
+ * that reaches the browser. Voice transcription and assistant turns are the
+ * credit-bearing AI operations exposed to accounts.
  */
 async function listAiUsageHistory(env: CloudEnv, principal: Principal, limit = 25): Promise<AiUsageHistoryEntry[]> {
   const toEntry = (usage: AiCreditUsageRecord): AiUsageHistoryEntry | null => {
-    if (usage.feature !== "voice_pin") return null;
+    if (usage.feature !== "voice_pin" && usage.feature !== "assistant_turn") return null;
     return {
       completedAt: usage.completedAt,
       createdAt: usage.createdAt,
@@ -1226,7 +1265,7 @@ async function listAiUsageHistory(env: CloudEnv, principal: Principal, limit = 2
 
   if (env.DB) {
     const result = await env.DB.prepare(
-      "SELECT * FROM ai_credit_usages WHERE owner_type = ? AND owner_id = ? AND feature = 'voice_pin' ORDER BY created_at DESC, rowid DESC LIMIT ?",
+      "SELECT * FROM ai_credit_usages WHERE owner_type = ? AND owner_id = ? AND feature IN ('voice_pin', 'assistant_turn') ORDER BY created_at DESC, rowid DESC LIMIT ?",
     ).bind(principal.kind, principal.id, limit).all();
     return (result.results || []).map(aiUsageFromRow).map(toEntry).filter((entry): entry is AiUsageHistoryEntry => entry !== null);
   }
@@ -1280,7 +1319,7 @@ async function reserveAiCreditUsage(
   principal: Principal,
   requestId: string,
   resourceId: string,
-  spec: AiFeatureSpec,
+  spec: Pick<AiFeatureSpec, "credits" | "feature" | "model">,
 ): Promise<AiReservation | null> {
   const existing = await findAiCreditUsage(env, principal, requestId);
   if (existing) return { kind: "existing", usage: existing };
@@ -1341,22 +1380,25 @@ async function reserveAiCreditUsage(
   return null;
 }
 
+// `model` replaces the reserved one when the model that answered is only
+// known at the end (the assistant chain's link); a null cost is unknown.
 async function completeAiCreditUsage(
   env: CloudEnv,
   usage: AiCreditUsageRecord,
   resultJson: string,
   inputTokens: number,
   outputTokens: number,
-  costUsdMicros: number,
+  costUsdMicros: number | null,
+  model: string = usage.model,
 ) {
   const completedAt = currentDate().toISOString();
   if (env.DB) {
     await env.DB.prepare(`
       UPDATE ai_credit_usages
       SET status = 'succeeded', result_json = ?, input_tokens = ?, output_tokens = ?,
-        cost_usd_micros = ?, completed_at = ?
+        cost_usd_micros = ?, completed_at = ?, model = ?
       WHERE id = ? AND status = 'reserved'
-    `).bind(resultJson, inputTokens, outputTokens, costUsdMicros, completedAt, usage.id).run();
+    `).bind(resultJson, inputTokens, outputTokens, costUsdMicros, completedAt, model, usage.id).run();
     const settled = await findAiCreditUsage(env, {
       id: usage.ownerId,
       isPermanent: false,
@@ -1366,9 +1408,11 @@ async function completeAiCreditUsage(
     if (settled?.status !== "succeeded") throw new Error("ai_usage_settlement_failed");
     return settled;
   }
+  if (usage.status !== "reserved") throw new Error("ai_usage_settlement_failed");
   usage.completedAt = completedAt;
   usage.costUsdMicros = costUsdMicros;
   usage.inputTokens = inputTokens;
+  usage.model = model;
   usage.outputTokens = outputTokens;
   usage.resultJson = resultJson;
   usage.status = "succeeded";
@@ -1393,21 +1437,76 @@ async function refundAiCreditUsage(env: CloudEnv, usage: AiCreditUsageRecord, er
   usage.status = "refunded";
 }
 
+// The result_json of a turn the sweeper consumes: its run stored the final
+// answer but never settled, so the chain's billing is unknown (as in a
+// settlement without billing).
+const SWEPT_TURN_RESULT_JSON = JSON.stringify({ costSource: "none", fallback: false, link: 0 });
+
+// Whether an open assistant_turn reservation was answered: the assistant
+// message under its request id (turn:<message id>) is stored final, owned by
+// the reservation's account.
+async function assistantTurnAnswered(env: CloudEnv, usage: AiCreditUsageRecord): Promise<boolean> {
+  if (usage.feature !== "assistant_turn" || usage.ownerType !== "account") return false;
+  if (!usage.requestId.startsWith(ASSISTANT_TURN_REQUEST_PREFIX)) return false;
+  const messageId = usage.requestId.slice(ASSISTANT_TURN_REQUEST_PREFIX.length);
+  if (env.DB) {
+    const row = await env.DB.prepare(
+      "SELECT id FROM assistant_messages WHERE id = ? AND owner_id = ? AND role = 'assistant' AND status = 'final'",
+    ).bind(messageId, usage.ownerId).first();
+    return row !== null;
+  }
+  const threadId = usage.resourceId.slice(ASSISTANT_TURN_RESOURCE_PREFIX.length);
+  const messages = await cloudAssistantStore(env, usage.ownerId).listMessages(threadId, { limit: Number.MAX_SAFE_INTEGER });
+  return messages.some((message) => message.id === messageId && message.role === "assistant" && message.status === "final");
+}
+
+// Consumes the reservation of an answered turn from the sweeper, with no
+// cost, tokens or error; like the refund, only while it is still open.
+async function consumeAnsweredTurnUsage(env: CloudEnv, usage: AiCreditUsageRecord) {
+  const completedAt = currentDate().toISOString();
+  if (env.DB) {
+    await env.DB.prepare(`
+      UPDATE ai_credit_usages
+      SET status = 'succeeded', result_json = ?, cost_usd_micros = NULL, error_code = NULL, completed_at = ?
+      WHERE id = ? AND status = 'reserved'
+    `).bind(SWEPT_TURN_RESULT_JSON, completedAt, usage.id).run();
+    return;
+  }
+  if (usage.status !== "reserved") return;
+  usage.completedAt = completedAt;
+  usage.costUsdMicros = null;
+  usage.errorCode = null;
+  usage.resultJson = SWEPT_TURN_RESULT_JSON;
+  usage.status = "succeeded";
+}
+
+// The frequent cron (A39): every reservation open past the timeout is
+// settled. An assistant turn whose final answer was stored is consumed (its
+// run answered but never settled); anything else is refunded as
+// reservation_timeout.
 export async function refundStaleAiReservations(env: CloudEnv) {
   const cutoff = new Date(currentDate().getTime() - AI_RESERVATION_TIMEOUT_MS).toISOString();
+  let usages: AiCreditUsageRecord[];
   if (env.DB) {
     const result = await env.DB.prepare(
       "SELECT * FROM ai_credit_usages WHERE status = 'reserved' AND created_at <= ?",
     ).bind(cutoff).all();
-    const usages = (result.results || []).map(aiUsageFromRow);
-    for (const usage of usages) await refundAiCreditUsage(env, usage, "reservation_timeout");
-    return { refundedReservations: usages.length };
+    usages = (result.results || []).map(aiUsageFromRow);
+  } else {
+    usages = Array.from(memoryAiCreditUsages.values()).filter(
+      (usage) => usage.status === "reserved" && usage.createdAt <= cutoff,
+    );
   }
-  const usages = Array.from(memoryAiCreditUsages.values()).filter(
-    (usage) => usage.status === "reserved" && usage.createdAt <= cutoff,
-  );
-  for (const usage of usages) await refundAiCreditUsage(env, usage, "reservation_timeout");
-  return { refundedReservations: usages.length };
+  let consumedReservations = 0;
+  for (const usage of usages) {
+    if (await assistantTurnAnswered(env, usage)) {
+      await consumeAnsweredTurnUsage(env, usage);
+      consumedReservations += 1;
+    } else {
+      await refundAiCreditUsage(env, usage, "reservation_timeout");
+    }
+  }
+  return { consumedReservations, refundedReservations: usages.length - consumedReservations };
 }
 
 interface GrantStorageInput {
@@ -1647,6 +1746,7 @@ function sessionFromRow(row: Record<string, unknown>): CloudSession {
     captureId: capture.captureId,
     collectionId: String(row.collection_id || ""),
     createdAt: String(row.created_at || ""),
+    ...(row.filed_by === "auto" ? { filedBy: "auto" as const } : {}),
     id,
     isPermanent: Boolean(row.is_permanent),
     page: {
@@ -2858,7 +2958,8 @@ export async function updateMcpSession(
     if (!withReproduction) throw new McpToolError("reproduction is invalid");
     next = withReproduction;
   }
-  await persistSession(env, next, session.batchId ?? null);
+  // Deleted since the read: the same answer as a session never found.
+  if (!(await persistSession(env, next, session.batchId ?? null, { keepPlacement: true }))) return null;
   const stored = await findOwnedSession(env, principal, id);
   return decorateCloudSession(env, stored || next);
 }
@@ -2902,7 +3003,9 @@ async function createMcpPin(
     ...(colorCollides ? {} : { color: paletteColor }),
   }, session.id, session.pins.length);
   const next: Session = { ...session, pins: [...session.pins, pin] };
-  await persistSession(env, next, session.batchId ?? null);
+  if (!(await persistSession(env, next, session.batchId ?? null, { keepPlacement: true }))) {
+    throw new McpToolError("Session not found");
+  }
   const stored = await findOwnedSession(env, principal, sessionId);
   const created = stored?.pins.find((item) => (item.pinId || item.id) === pinId);
   if (!created) throw new McpToolError("Pin not found");
@@ -2924,38 +3027,19 @@ async function deleteMcpPin(env: CloudEnv, principal: Principal, sessionId: stri
       env.DB.prepare("DELETE FROM pin_review_events WHERE capture_id = ? AND pin_id = ?").bind(session.id, pinId),
       env.DB.prepare("DELETE FROM pin_reviews WHERE capture_id = ? AND pin_id = ?").bind(session.id, pinId),
       env.DB.prepare("DELETE FROM pin_comments WHERE capture_id = ? AND pin_id = ?").bind(session.id, pinId),
-      env.DB.prepare(
-        `INSERT INTO sessions (
-           id, url, title, shot_id, shot_url, pin_count, pins_json, created_at, user_id,
-           plan, is_permanent, byte_size, collection_id, position, include_screenshot, batch_id
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET url=excluded.url, title=excluded.title, shot_id=excluded.shot_id,
-         shot_url=excluded.shot_url, pin_count=excluded.pin_count, pins_json=excluded.pins_json,
-         created_at=excluded.created_at, user_id=excluded.user_id, plan=excluded.plan,
-         is_permanent=excluded.is_permanent, byte_size=excluded.byte_size,
-         collection_id=excluded.collection_id, position=excluded.position,
-         include_screenshot=excluded.include_screenshot, batch_id=excluded.batch_id`,
-      ).bind(
-        next.id,
-        next.page.url || "",
-        next.page.title || "",
-        next.shotId || "",
-        next.shotUrl || "",
+      // Only the pin columns: a move or a deletion that lands meanwhile keeps
+      // its collection, position and claim, and a deleted session stays gone.
+      env.DB.prepare("UPDATE sessions SET pin_count = ?, pins_json = ? WHERE id = ? AND user_id = ?").bind(
         capture.pins.length,
         encodeVisualCaptureJson(capture),
-        next.createdAt,
-        next.userId || "",
-        next.plan || "free",
-        next.isPermanent ? 1 : 0,
-        next.byteSize || 0,
-        next.collectionId || "",
-        next.position || 0,
-        next.includeScreenshot === false ? 0 : 1,
-        session.batchId ?? null,
+        session.id,
+        principal.id,
       ),
     ]);
   } else {
-    memorySessions.set(session.id, next);
+    // Only the pins, as in D1: the current row keeps its collection and position.
+    const current = memorySessions.get(session.id);
+    if (current) memorySessions.set(session.id, { ...current, pins: next.pins });
     memoryPinReviews.delete(pinReviewKey(session.id, pinId));
     for (let item = memoryPinReviewEvents.length - 1; item >= 0; item -= 1) {
       const event = memoryPinReviewEvents[item];
@@ -3659,6 +3743,9 @@ async function issueAccountDeviceSession(env: CloudEnv, account: AccountRecord, 
   return { expiresAt, session: accountAuthSession(account), token };
 }
 
+// Moves the installation's Inbox sessions to the account's Inbox without
+// touching batch claims (A36): an installation is Free, and only a Pro
+// capture with automatic filing claims a batch, so it has none to update.
 async function migrateInstallationToAccount(
   env: CloudEnv,
   account: AccountRecord,
@@ -3974,6 +4061,15 @@ async function createCheckout(request: Request, env: CloudEnv) {
   if (!priceId) return json({ error: "Stripe price is not configured" }, 500);
   const principal = await resolvePrincipal(request, env);
   const account = principal?.kind === "account" ? await findAccountById(env, principal.id) : null;
+  // AI credits are sold only to an account whose plan includes AI (Pro or
+  // complimentary Pro), trial or not (decision A42): everything that spends
+  // them is Pro only.
+  if (offer === "ai_credits_500" && !(account && planIncludesAi(effectiveAccountPlan(account)))) {
+    return json({
+      code: "cloud_pro_required_for_addon",
+      error: "Pro subscription required for add-ons",
+    }, 402);
+  }
   if (!subscription && cloudTrialEnabled(env)) {
     const trial = account ? cloudTrialForAccount(env, account) : null;
     if (!trial || trial.state === "active" || trial.state === "expired") {
@@ -5204,9 +5300,17 @@ async function moveSession(
     const existing = await env.DB.prepare("SELECT id FROM sessions WHERE id = ? AND user_id = ?")
       .bind(sessionId, principal.id).first();
     if (!existing) return null;
-    await env.DB.prepare(
-      "UPDATE sessions SET collection_id = ?, position = ? WHERE id = ? AND user_id = ?",
-    ).bind(collectionId, position, sessionId, principal.id).run();
+    // The session's batch claim follows the move in the same D1 batch (A36).
+    await env.DB.batch([
+      env.DB.prepare(
+        "UPDATE sessions SET collection_id = ?, position = ?, filed_by = NULL WHERE id = ? AND user_id = ?",
+      ).bind(collectionId, position, sessionId, principal.id),
+      env.DB.prepare(`
+        UPDATE batches SET filing_collection_id = ?
+        WHERE user_id = ? AND filing_collection_id IS NOT NULL
+          AND id = (SELECT batch_id FROM sessions WHERE id = ? AND user_id = ?)
+      `).bind(collectionId, principal.id, sessionId, principal.id),
+    ]);
     const row = await env.DB.prepare("SELECT * FROM sessions WHERE id = ? AND user_id = ?")
       .bind(sessionId, principal.id).first();
     return row ? sessionFromRow(row) : null;
@@ -5214,8 +5318,26 @@ async function moveSession(
   const session = memorySessions.get(sessionId);
   if (!session || session.userId !== principal.id) return null;
   session.collectionId = collectionId;
+  delete session.filedBy;
   session.position = position;
+  claimFollowsMemoryMove(principal, session, collectionId);
   return session;
+}
+
+// A36: a move is the batch's current destination. The claim of a moved
+// session's batch, once a first capture made one, becomes the collection
+// the session moved to; a batch without a claim keeps none. In D1 this runs
+// in the move's own batch (moveSession, deleteCollectionContainer); this is
+// the in-memory equivalent.
+function claimFollowsMemoryMove(principal: Principal, session: Session, collectionId: string) {
+  claimFollowsMemoryBatch(principal.id, cloudSessionBatchId(session), collectionId);
+}
+
+// The in-memory claim of `batchId` becomes `collectionId` when `ownerId`
+// owns the batch and a first capture already claimed it.
+function claimFollowsMemoryBatch(ownerId: string, batchId: string | null | undefined, collectionId: string) {
+  const batch = batchId ? memoryBatches.get(batchId) : undefined;
+  if (batch && batch.userId === ownerId && batch.filingCollectionId) batch.filingCollectionId = collectionId;
 }
 
 async function reorderSessionIds(
@@ -5261,8 +5383,15 @@ async function deleteCollectionContainer(env: CloudEnv, principal: Principal, id
     const start = await nextSessionPosition(env, principal, fallback.collectionId);
     const timestamp = new Date().toISOString();
     await env.DB.batch([
+      // The claims of the moved sessions' batches go to the Inbox with them
+      // (A36), read before the sessions leave the collection.
+      env.DB.prepare(`
+        UPDATE batches SET filing_collection_id = ?
+        WHERE user_id = ? AND filing_collection_id IS NOT NULL
+          AND id IN (SELECT batch_id FROM sessions WHERE collection_id = ? AND user_id = ? AND batch_id IS NOT NULL)
+      `).bind(fallback.collectionId, principal.id, id, principal.id),
       ...sessions.map((session, index) => env.DB?.prepare(`
-        UPDATE sessions SET collection_id = ?, position = ? WHERE id = ? AND user_id = ?
+        UPDATE sessions SET collection_id = ?, position = ?, filed_by = NULL WHERE id = ? AND user_id = ?
       `).bind(fallback.collectionId, start + index, session.id, principal.id)).filter(
         (item): item is D1Statement => Boolean(item),
       ),
@@ -5280,8 +5409,10 @@ async function deleteCollectionContainer(env: CloudEnv, principal: Principal, id
     for (const session of sessions) {
       const stored = memorySessions.get(session.id) || session;
       stored.collectionId = fallback.collectionId;
+      delete stored.filedBy;
       stored.position = position;
       position += 1;
+      claimFollowsMemoryMove(principal, stored, fallback.collectionId);
     }
     const timestamp = new Date().toISOString();
     promoted.forEach((item, index) => {
@@ -5316,20 +5447,87 @@ async function deleteProjectContainer(env: CloudEnv, principal: Principal, id: s
   return true;
 }
 
-export async function persistSession(env: CloudEnv, session: Session, batchId: string | null = null) {
-  const capture = captureFromSession(session);
-  if (env.DB) {
-    await env.DB.prepare(
-      `INSERT INTO sessions (
-         id, url, title, shot_id, shot_url, pin_count, pins_json, created_at, user_id,
-         plan, is_permanent, byte_size, collection_id, position, include_screenshot, batch_id
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET url=excluded.url, title=excluded.title, shot_id=excluded.shot_id,
+// The columns of a session row an upsert rewrites, without its place.
+const SESSION_CONTENT_UPDATE = `url=excluded.url, title=excluded.title, shot_id=excluded.shot_id,
        shot_url=excluded.shot_url, pin_count=excluded.pin_count, pins_json=excluded.pins_json,
        created_at=excluded.created_at, user_id=excluded.user_id, plan=excluded.plan,
        is_permanent=excluded.is_permanent, byte_size=excluded.byte_size,
-       collection_id=excluded.collection_id, position=excluded.position,
-       include_screenshot=excluded.include_screenshot, batch_id=excluded.batch_id`,
+       include_screenshot=excluded.include_screenshot`;
+// The session's place: its collection, position, batch and automatic-filing mark.
+const SESSION_PLACEMENT_UPDATE = `collection_id=excluded.collection_id, position=excluded.position,
+       batch_id=excluded.batch_id, filed_by=excluded.filed_by`;
+
+// The session's content over the stored entry's place (the in-memory twin of
+// keepPlacement): its collection, position and automatic-filing mark.
+function withStoredPlacement(session: Session, stored: Session): Session {
+  const next: Session = { ...session, collectionId: stored.collectionId, position: stored.position };
+  if (stored.filedBy === "auto") next.filedBy = "auto";
+  else delete next.filedBy;
+  return next;
+}
+
+// Writes the whole row, `filedBy` included: an edit keeps the automatic-filing
+// mark because it starts from the stored session; a new capture is marked by
+// passing `filedBy: "auto"` on the session it saves.
+//
+// A36: every write of a batch session also moves the batch's claim, once a
+// first capture made one, to the session's collection: the claim is the
+// collection of the batch session written last, as the batch rule (A27)
+// reads it. In D1 the claim's UPDATE runs in the upsert's own batch, for the
+// session's owner only (`user_id`); without a batch, or without a claim, no
+// claim is written. moveSession and deleteCollectionContainer update the
+// claim on their own paths.
+//
+// `keepPlacement` is for edits of a stored session (its title, URL, pins or
+// notes), which start from a read of the row: only the owner's existing row
+// is updated (UPDATE … WHERE id AND user_id), with its content alone. It keeps
+// the collection, position, batch and filing mark it has at the write, so a
+// move that lands between that read and the write is not undone, and the
+// claim is not touched (the place did not change); a row deleted since the
+// read is not brought back. Only the capture writes (uploadShot, saveHistory,
+// createMcpSession) place the session.
+//
+// Resolves to whether the row was written: always for a capture write, and
+// for an edit only when the owner's row still existed. The pin index mark
+// and the open reviews follow a written row only.
+export async function persistSession(
+  env: CloudEnv,
+  session: Session,
+  batchId: string | null = null,
+  options: { keepPlacement?: boolean } = {},
+): Promise<boolean> {
+  const capture = captureFromSession(session);
+  const claimCollectionId = batchId && !options.keepPlacement ? session.collectionId || "" : "";
+  let written = true;
+  if (env.DB && options.keepPlacement) {
+    const result = await env.DB.prepare(`
+      UPDATE sessions SET url = ?, title = ?, shot_id = ?, shot_url = ?, pin_count = ?, pins_json = ?,
+        created_at = ?, plan = ?, is_permanent = ?, byte_size = ?, include_screenshot = ?
+      WHERE id = ? AND user_id = ?
+    `).bind(
+      session.page.url || "",
+      session.page.title || "",
+      session.shotId || "",
+      session.shotUrl || "",
+      capture.pins.length,
+      encodeVisualCaptureJson(capture),
+      session.createdAt,
+      session.plan || "free",
+      session.isPermanent ? 1 : 0,
+      session.byteSize || 0,
+      session.includeScreenshot === false ? 0 : 1,
+      session.id,
+      session.userId || "",
+    ).run();
+    written = Number(result.meta?.changes ?? 0) > 0;
+  } else if (env.DB) {
+    const update = `${SESSION_CONTENT_UPDATE},\n       ${SESSION_PLACEMENT_UPDATE}`;
+    const upsert = env.DB.prepare(
+      `INSERT INTO sessions (
+         id, url, title, shot_id, shot_url, pin_count, pins_json, created_at, user_id,
+         plan, is_permanent, byte_size, collection_id, position, include_screenshot, batch_id, filed_by
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET ${update}`,
     ).bind(
       session.id,
       session.page.url || "",
@@ -5347,14 +5545,34 @@ export async function persistSession(env: CloudEnv, session: Session, batchId: s
       session.position || 0,
       session.includeScreenshot === false ? 0 : 1,
       batchId,
-    ).run();
+      session.filedBy === "auto" ? "auto" : null,
+    );
+    if (claimCollectionId) {
+      await env.DB.batch([
+        upsert,
+        env.DB.prepare(
+          "UPDATE batches SET filing_collection_id = ? WHERE id = ? AND user_id = ? AND filing_collection_id IS NOT NULL",
+        ).bind(claimCollectionId, batchId, session.userId || ""),
+      ]);
+    } else {
+      await upsert.run();
+    }
+  } else if (options.keepPlacement) {
+    const stored = memorySessions.get(session.id);
+    written = Boolean(stored && stored.userId === session.userId);
+    if (stored && written) {
+      memorySessions.set(session.id, withCloudBatchId(sessionFromCapture(capture, withStoredPlacement(session, stored)), cloudSessionBatchId(stored)));
+    }
   } else {
     memorySessions.set(session.id, withCloudBatchId(sessionFromCapture(capture, session), batchId));
+    if (claimCollectionId) claimFollowsMemoryBatch(session.userId || "", batchId, claimCollectionId);
   }
+  if (!written) return false;
   // Title, URL, notes or pins may have changed: the pin index of the session
   // is stale for its next pass (best effort, never fails the write).
   await markCloudPinIndexSessionStale(env, session.id);
   await ensureOpenPinReviews(env, session);
+  return true;
 }
 
 function parseFilesJson(value: unknown) {
@@ -6122,7 +6340,9 @@ async function editPinNote(request: Request, env: CloudEnv, captureId: string, p
     pins: session.pins.map((item) => ((item.pinId || item.id) === pinId ? { ...item, comment } : item)),
   };
   try {
-    await persistSession(env, patched, session.batchId ?? null);
+    if (!(await persistSession(env, patched, session.batchId ?? null, { keepPlacement: true }))) {
+      return json({ error: "Session not found" }, 404);
+    }
   } catch {
     return json({ error: "Session persistence failed" }, 503);
   }
@@ -6471,12 +6691,279 @@ async function updateSessionFields(request: Request, env: CloudEnv, id: string) 
   const patched = applySessionPatch(session, body);
   if (!patched) return json({ error: "invalid session patch" }, 400);
   try {
-    await persistSession(env, patched, session.batchId ?? null);
+    if (!(await persistSession(env, patched, session.batchId ?? null, { keepPlacement: true }))) {
+      return json({ error: "Session not found" }, 404);
+    }
   } catch {
     return json({ error: "Session persistence failed" }, 503);
   }
   const stored = await findOwnedSession(env, principal, id);
   return json({ ok: true, session: stored ? await decorateCloudSession(env, stored) : patched }, 200, { "Cache-Control": "no-store" });
+}
+
+// ---------- capture filing (F3.5 contract §3.1) ----------
+
+// What the capture filing reads of the owner: the collections without the
+// protected Inbox (project then collection position), the most recent
+// sessions of each collection (one window query on D1), and the collection
+// and mark of a batch's most recent session.
+function cloudFilingSource(env: CloudEnv, principal: Principal): Omit<FilingSource, "entriesFor"> {
+  return {
+    async batchSession(batchId, excludeId) {
+      if (env.DB) {
+        const row = await env.DB.prepare(
+          "SELECT collection_id, filed_by FROM sessions WHERE user_id = ? AND batch_id = ? AND id <> ? AND collection_id IS NOT NULL ORDER BY created_at DESC, id ASC LIMIT 1",
+        ).bind(principal.id, batchId, excludeId).first();
+        return row && typeof row.collection_id === "string" && row.collection_id
+          ? { collectionId: row.collection_id, filedBy: row.filed_by === "auto" ? "auto" : null }
+          : null;
+      }
+      const latest = Array.from(memorySessions.values())
+        .filter((session) => session.userId === principal.id && session.id !== excludeId
+          && cloudSessionBatchId(session) === batchId && Boolean(session.collectionId))
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))[0];
+      return latest?.collectionId ? { collectionId: latest.collectionId, filedBy: latest.filedBy === "auto" ? "auto" : null } : null;
+    },
+    async collections(): Promise<FilingCollection[]> {
+      if (env.DB) {
+        const rows = await env.DB.prepare(`
+          SELECT c.id AS id, c.name AS name, p.name AS project_name
+          FROM collections c
+          JOIN projects p ON p.id = c.project_id
+          WHERE c.owner_id = ? AND c.is_protected = 0
+          ORDER BY p.position ASC, p.created_at ASC, p.id ASC, c.position ASC, c.created_at ASC, c.id ASC
+        `).bind(principal.id).all();
+        return (rows.results || []).map((row) => ({
+          collectionId: String(row.id || ""),
+          collectionName: String(row.name || ""),
+          projectName: String(row.project_name || ""),
+        }));
+      }
+      const projects = new Map(Array.from(memoryProjects.values()).map((project) => [project.id, project]));
+      return Array.from(memoryCollections.values())
+        .filter((collection) => collection.ownerId === principal.id && !collection.isProtected && projects.has(collection.projectId))
+        .map((collection) => ({ collection, project: projects.get(collection.projectId)! }))
+        .sort((left, right) =>
+          left.project.position - right.project.position
+          || left.project.createdAt.localeCompare(right.project.createdAt)
+          || (left.project.id < right.project.id ? -1 : left.project.id > right.project.id ? 1 : 0)
+          || left.collection.position - right.collection.position
+          || left.collection.createdAt.localeCompare(right.collection.createdAt)
+          || (left.collection.id < right.collection.id ? -1 : left.collection.id > right.collection.id ? 1 : 0))
+        .map(({ collection, project }) => ({ collectionId: collection.id, collectionName: collection.name, projectName: project.name }));
+    },
+    async recentSessions({ collectionIds, excludeId, perCollection }): Promise<FilingRecentSession[]> {
+      const wanted = new Set(collectionIds);
+      if (wanted.size === 0) return [];
+      if (env.DB) {
+        const rows = await env.DB.prepare(`
+          SELECT id, title, created_at, collection_id FROM (
+            SELECT id, title, created_at, collection_id,
+              ROW_NUMBER() OVER (PARTITION BY collection_id ORDER BY created_at DESC, id ASC) AS recent
+            FROM sessions
+            WHERE user_id = ? AND collection_id IS NOT NULL AND id <> ?
+          )
+          WHERE recent <= ?
+          ORDER BY collection_id ASC, recent ASC
+        `).bind(principal.id, excludeId, perCollection).all();
+        return (rows.results || [])
+          .map((row) => ({
+            collectionId: String(row.collection_id || ""),
+            createdAt: String(row.created_at || ""),
+            id: String(row.id || ""),
+            title: typeof row.title === "string" ? row.title : "",
+          }))
+          .filter((session) => wanted.has(session.collectionId));
+      }
+      const counts = new Map<string, number>();
+      return Array.from(memorySessions.values())
+        .filter((session) => session.userId === principal.id && session.id !== excludeId
+          && Boolean(session.collectionId) && wanted.has(session.collectionId!))
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+        .filter((session) => {
+          const count = counts.get(session.collectionId!) ?? 0;
+          counts.set(session.collectionId!, count + 1);
+          return count < perCollection;
+        })
+        .map((session) => ({ collectionId: session.collectionId!, createdAt: session.createdAt, id: session.id, title: session.page.title || "" }));
+    },
+  };
+}
+
+// The Inbox, unmarked, when no engine could answer: the gate is closed (A45)
+// or the engines failed to load.
+function inboxWithoutEngine(): FilingOutcome {
+  return { filedBy: null, filing: { collectionId: null, confidence: 0, engine: "none", reason: "error" } };
+}
+
+// The filing of a new capture of the principal (behind the gate). The
+// engines are loaded here, lazily: they pull in the AI SDK. The budget
+// (FILING_TIMEOUT_MS) counts the module load; a load that fails files the
+// capture in the Inbox.
+async function fileCloudShot(
+  env: CloudEnv,
+  principal: Principal,
+  capture: FilingCapture,
+  batchId: string | null,
+): Promise<FilingOutcome> {
+  const startedAt = Date.now();
+  try {
+    const { fileCloudCapture } = await import("./filing/runtime-cloud");
+    return await fileCloudCapture({
+      batchId,
+      capture,
+      env,
+      ownerId: principal.id,
+      recordIndexCost: cloudIndexCostRecorder(env),
+      source: cloudFilingSource(env, principal),
+      timeoutMs: FILING_TIMEOUT_MS - (Date.now() - startedAt),
+    });
+  } catch {
+    return inboxWithoutEngine();
+  }
+}
+
+// A36: the first filed capture of a batch claims the batch's destination
+// (the collection it resolved, the Inbox included); a concurrent first
+// capture of the same batch, which also found the batch without a session,
+// reads the claim back and follows it. The UPDATE only writes an empty
+// claim, so the first one wins; afterwards every move of a batch session
+// (moveSession, claimFollowsMemoryMove) and every write of one
+// (persistSession) updates it, so it is the batch's current one. Returns
+// the batch's destination after the claim, or null when the batch is not
+// the owner's.
+async function claimBatchDestination(
+  env: CloudEnv,
+  principal: Principal,
+  batchId: string,
+  collectionId: string,
+): Promise<string | null> {
+  if (env.DB) {
+    await env.DB.prepare(
+      "UPDATE batches SET filing_collection_id = ? WHERE id = ? AND user_id = ? AND filing_collection_id IS NULL",
+    ).bind(collectionId, batchId, principal.id).run();
+    const row = await env.DB.prepare(
+      "SELECT filing_collection_id FROM batches WHERE id = ? AND user_id = ?",
+    ).bind(batchId, principal.id).first();
+    return typeof row?.filing_collection_id === "string" && row.filing_collection_id ? row.filing_collection_id : null;
+  }
+  const batch = memoryBatches.get(batchId);
+  if (!batch || batch.userId !== principal.id) return null;
+  batch.filingCollectionId ||= collectionId;
+  return batch.filingCollectionId;
+}
+
+// The capture follows the destination another capture claimed for the
+// batch, as the batch rule follows a session (A27): the "auto" mark for a
+// collection, none for the Inbox. A claimed collection gone since then
+// leaves the capture in the Inbox, unmarked.
+async function followClaimedBatch(
+  env: CloudEnv,
+  principal: Principal,
+  claimed: string,
+): Promise<{ destination: CaptureDestination; filed: FilingOutcome }> {
+  const inbox = await ensureDefaultDestination(env, principal);
+  const destination = await resolveDestination(env, principal, claimed);
+  if (destination.collectionId !== claimed) {
+    return { destination, filed: { filedBy: null, filing: { collectionId: null, confidence: 0, engine: "none", reason: "error" } } };
+  }
+  const candidate = claimed !== inbox.collectionId;
+  return {
+    destination,
+    filed: {
+      filedBy: candidate ? "auto" : null,
+      filing: { collectionId: candidate ? claimed : null, confidence: 0, engine: "none", reason: "chosen" },
+    },
+  };
+}
+
+// The capture follows the batch's most recent session, at its current
+// collection and with its mark, as the batch rule does (A27): unmarked when
+// that session is in the Inbox, and in the Inbox, unmarked, when its
+// collection is gone before the save.
+async function followBatchSession(
+  env: CloudEnv,
+  principal: Principal,
+  session: { collectionId: string; filedBy: "auto" | null },
+): Promise<{ destination: CaptureDestination; filed: FilingOutcome }> {
+  const collections = await cloudFilingSource(env, principal).collections();
+  const candidate = collections.some((collection) => collection.collectionId === session.collectionId);
+  const destination = await resolveDestination(env, principal, candidate ? session.collectionId : "");
+  if (candidate && destination.collectionId !== session.collectionId) {
+    return { destination, filed: { filedBy: null, filing: { collectionId: null, confidence: 0, engine: "none", reason: "error" } } };
+  }
+  return {
+    destination,
+    filed: {
+      filedBy: candidate ? session.filedBy : null,
+      filing: { collectionId: candidate ? session.collectionId : null, confidence: 0, engine: "none", reason: "chosen" },
+      followedBatch: true,
+    },
+  };
+}
+
+// A re-upload: the owner already has a session with this id in this batch.
+async function ownSessionInBatch(env: CloudEnv, principal: Principal, id: string, batchId: string): Promise<boolean> {
+  if (env.DB) {
+    const row = await env.DB.prepare(
+      "SELECT id FROM sessions WHERE id = ? AND user_id = ? AND batch_id = ?",
+    ).bind(id, principal.id, batchId).first();
+    return row !== null;
+  }
+  const session = memorySessions.get(id);
+  return Boolean(session && session.userId === principal.id && cloudSessionBatchId(session) === batchId);
+}
+
+// The batch's destination becomes this one, whatever was claimed before.
+async function replaceBatchDestination(env: CloudEnv, principal: Principal, batchId: string, collectionId: string) {
+  if (env.DB) {
+    await env.DB.prepare(
+      "UPDATE batches SET filing_collection_id = ? WHERE id = ? AND user_id = ?",
+    ).bind(collectionId, batchId, principal.id).run();
+    return;
+  }
+  const batch = memoryBatches.get(batchId);
+  if (batch && batch.userId === principal.id) batch.filingCollectionId = collectionId;
+}
+
+// After the engine chose for a batch that had no session when it was asked
+// (A36), in this order:
+// 1. A session saved in the batch during the wait decides, read again as
+//    the batch rule reads it (without this capture): the capture follows
+//    its current collection and mark, so a move made meanwhile still
+//    corrects the batch.
+// 2. A re-upload of the batch's own session keeps the new decision, which
+//    becomes the batch's destination; the earlier claim is not applied.
+// 3. Otherwise the capture claims the batch's destination, or follows the
+//    current one: claimed by a concurrent first capture, or moved since.
+async function settleBatchDestination(
+  env: CloudEnv,
+  principal: Principal,
+  input: { batchId: string; destination: CaptureDestination; filed: FilingOutcome; id: string },
+): Promise<{ destination: CaptureDestination; filed: FilingOutcome }> {
+  const latest = await cloudFilingSource(env, principal).batchSession(input.batchId, input.id);
+  if (latest) return followBatchSession(env, principal, latest);
+  if (await ownSessionInBatch(env, principal, input.id, input.batchId)) {
+    await replaceBatchDestination(env, principal, input.batchId, input.destination.collectionId);
+    return { destination: input.destination, filed: input.filed };
+  }
+  const claimed = await claimBatchDestination(env, principal, input.batchId, input.destination.collectionId);
+  if (claimed !== null && claimed !== input.destination.collectionId) return followClaimedBatch(env, principal, claimed);
+  return { destination: input.destination, filed: input.filed };
+}
+
+// GET and PATCH /api/preferences: the automatic destination can be turned
+// on, inside the assistant gate (A33) and with an engine. Outside the gate
+// nothing is loaded nor fetched.
+async function cloudAutoCaptureDestinationAvailable(env: CloudEnv, principal: Principal): Promise<boolean> {
+  if (!(await cloudAssistantStatus(env, principal)).available) return false;
+  const startedAt = Date.now();
+  try {
+    const filing = await import("./filing/runtime-cloud");
+    return await filing.cloudAutoCaptureDestinationAvailable(env, FILING_TIMEOUT_MS - (Date.now() - startedAt));
+  } catch {
+    return false;
+  }
 }
 
 async function uploadShot(request: Request, env: CloudEnv) {
@@ -6513,13 +7000,40 @@ async function uploadShot(request: Request, env: CloudEnv) {
   const origin = new URL(request.url).origin;
   const shotUrl = `${origin}/shots/${id}.png`;
   const preferences = await readOwnerDeliveryPreferences(env, principal.id);
-  const destination = await resolveDestination(
-    env,
-    principal,
-    stringValue(body, "collectionId") || preferences.captureDestination?.collectionId || "",
-  );
+  // F3.5: with the automatic destination on, the server files the new
+  // capture and the body's collectionId is ignored (A27); without an
+  // engine, or in doubt, it goes to the Inbox (A29). Outside the assistant
+  // gate (A33) it goes there too, without loading the engines (A45).
+  const automatic = preferences.autoCaptureDestination;
+  const manualDestination = automatic
+    ? null
+    : await resolveDestination(
+      env,
+      principal,
+      stringValue(body, "collectionId") || preferences.captureDestination?.collectionId || "",
+    );
   const batchId = await resolveCaptureBatchId(env, principal, body);
   if (batchId instanceof Response) return batchId;
+  let filed: FilingOutcome | null = null;
+  let destination: CaptureDestination;
+  if (manualDestination) {
+    destination = manualDestination;
+  } else if (!(await cloudAssistantStatus(env, principal)).available) {
+    filed = inboxWithoutEngine();
+    destination = await resolveDestination(env, principal, "");
+  } else {
+    filed = await fileCloudShot(env, principal, capture, batchId);
+    destination = await resolveDestination(env, principal, filed.filing.collectionId ?? "");
+    // A chosen collection that disappeared before the save leaves the
+    // capture in the Inbox, unmarked.
+    if (filed.filing.collectionId !== null && filed.filing.collectionId !== destination.collectionId) {
+      filed = { filedBy: null, filing: { ...filed.filing, collectionId: null, reason: "error" } };
+    }
+    // A batch that had no session when the engine was asked (A36).
+    if (batchId && !filed.followedBatch) {
+      ({ destination, filed } = await settleBatchDestination(env, principal, { batchId, destination, filed, id }));
+    }
+  }
   if (env.PINAR_BUCKET) {
     await env.PINAR_BUCKET.put(shotObjectKey(id), imageBytes, { httpMetadata: { contentType: "image/png" } });
   }
@@ -6539,6 +7053,9 @@ async function uploadShot(request: Request, env: CloudEnv) {
       preferences.includeScreenshot,
     ),
     userId: principal.id,
+    // persistSession writes NULL without a mark, so a re-upload never keeps
+    // an earlier one.
+    ...(filed?.filedBy ? { filedBy: filed.filedBy } : {}),
   });
   try {
     await persistSession(env, session, batchId);
@@ -6547,6 +7064,7 @@ async function uploadShot(request: Request, env: CloudEnv) {
   }
   return json({
     destination,
+    ...(filed ? { filing: filed.filing } : {}),
     isPermanent: session.isPermanent,
     markdownUrl: `${origin}/v/${id}.md`,
     ok: true,
@@ -6993,7 +7511,9 @@ export async function cleanupOldRecords(env: CloudEnv, days = FREE_CLOUD_RETENTI
   }
   const assistantCutoff = new Date(now.getTime() - ASSISTANT_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const assistantThreads = await cleanupAssistantThreads(env, assistantCutoff);
-  return { assistantThreads, cutoff, deletedCount, deletedExtensionCodeCount, deletedWebSessionCount };
+  // The margin monitor's records: index costs and claimed email days, after 30 days.
+  const assistantMargin = await cleanupAssistantMarginRecords(env, now);
+  return { assistantMargin, assistantThreads, cutoff, deletedCount, deletedExtensionCodeCount, deletedWebSessionCount };
 }
 
 export async function authorizeCloudAppRequest(request: Request, env: CloudEnv) {
@@ -7380,6 +7900,7 @@ async function mcpSessionSummaries(
       batchId: session.batchId,
       collectionId: session.collectionId,
       createdAt: session.createdAt,
+      ...(session.filedBy === "auto" ? { filedBy: "auto" as const } : {}),
       id: session.id,
       pinCount: session.pinCount ?? session.pins.length,
       title: session.page.title,
@@ -7403,12 +7924,13 @@ async function mcpSessionSummaries(
   }
   const order = collectionId ? "position ASC" : "created_at DESC";
   const rows = await context.env.DB.prepare(
-    `SELECT id, title, url, pin_count, created_at, collection_id, batch_id FROM sessions WHERE ${clauses.join(" AND ")} ORDER BY ${order} LIMIT ? OFFSET ?`,
+    `SELECT id, title, url, pin_count, created_at, collection_id, batch_id, filed_by FROM sessions WHERE ${clauses.join(" AND ")} ORDER BY ${order} LIMIT ? OFFSET ?`,
   ).bind(...values, limit, offset).all();
   return (rows.results || []).map((row) => ({
     batchId: row.batch_id || null,
     collectionId: row.collection_id || null,
     createdAt: row.created_at,
+    ...(row.filed_by === "auto" ? { filedBy: "auto" as const } : {}),
     id: row.id,
     pinCount: row.pin_count,
     title: row.title,
@@ -7717,7 +8239,9 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
             ...session,
             pins: session.pins.map((item) => ((item.pinId || item.id) === pinId ? { ...item, comment } : item)),
           };
-          await persistSession(context.env, patched, session.batchId ?? null);
+          if (!(await persistSession(context.env, patched, session.batchId ?? null, { keepPlacement: true }))) {
+            throw new McpToolError("Resource not found");
+          }
           const updatedPin = patched.pins.find((item) => (item.pinId || item.id) === pinId);
           if (!updatedPin) throw new McpToolError("Pin not found");
           return { ok: true, pin: updatedPin };
@@ -8108,21 +8632,72 @@ export async function handleCloudMcpRequest(request: Request, env: CloudEnv) {
   }));
 }
 
-// The deployment half of the Cloud assistant gate (decision A3): the
-// explicit switch on, outside production, and the raw AI configuration
-// (base URL, key and model).
-function cloudAssistantDeploymentEnabled(env: CloudEnv): boolean {
-  return env.ASSISTANT_ENABLED === "true" && env.DEPLOYMENT_ENV !== "production"
-    && Boolean(env.AI_BASE_URL) && Boolean(env.AI_API_KEY) && Boolean(env.AI_MODEL);
+// ---------- assistant model chain (F4 contract §1 and §4) ----------
+
+// One circuit breaker per process, shared by every turn (F4 contract §1).
+// Created on first use: chain.ts pulls in the AI SDK and is loaded lazily.
+let cloudAssistantBreaker: AssistantCircuitBreaker | null = null;
+// An invalid ASSISTANT_CHAIN is logged once per process.
+let cloudAssistantChainErrorLogged = false;
+
+// The deployment half of the Cloud assistant gate (decision A3, F4
+// contract §4), with the chain it opens; null when it is off:
+// - ASSISTANT_ENABLED is "true";
+// - the chain, ASSISTANT_CHAIN or else appliance:<AI_MODEL>, is valid for
+//   the deployment (production refuses an appliance link);
+// - a chain with a gateway link has AI_GATEWAY_API_KEY, so production needs
+//   it;
+// - outside production the rule of before still holds: AI_BASE_URL,
+//   AI_API_KEY and AI_MODEL.
+// An invalid chain turns the assistant off and logs
+// assistant_chain_config_error with the reason only, never a value. The
+// chain module is imported lazily (it pulls in the AI SDK), only once the
+// switch is on.
+async function cloudAssistantChain(env: CloudEnv): Promise<AssistantChainLink[] | null> {
+  if (env.ASSISTANT_ENABLED !== "true") return null;
+  const production = env.DEPLOYMENT_ENV === "production";
+  if (!production && !(env.AI_BASE_URL && env.AI_API_KEY && env.AI_MODEL)) return null;
+  const csv = env.ASSISTANT_CHAIN?.trim() ? env.ASSISTANT_CHAIN : env.AI_MODEL ? `appliance:${env.AI_MODEL}` : "";
+  if (!csv) return null;
+  let chainModule: typeof import("./assistant/chain");
+  try {
+    chainModule = await import("./assistant/chain");
+  } catch {
+    return null;
+  }
+  const { AssistantChainConfigError, parseAssistantChain } = chainModule;
+  let chain: AssistantChainLink[];
+  try {
+    chain = parseAssistantChain(csv, production ? "production" : env.DEPLOYMENT_ENV === "staging" ? "staging" : "development");
+  } catch (error) {
+    if (!cloudAssistantChainErrorLogged) {
+      cloudAssistantChainErrorLogged = true;
+      console.error(JSON.stringify({
+        message: "assistant_chain_config_error",
+        reason: error instanceof AssistantChainConfigError ? error.reason : "invalid",
+      }));
+    }
+    return null;
+  }
+  if (chain.some((link) => link.hub === "gateway") && !env.AI_GATEWAY_API_KEY) return null;
+  return chain;
 }
 
-// The Cloud assistant gate (decision A3): the deployment gate, then the Pro
-// plan. The order matters: a disabled deployment reports "disabled" even
-// for a non-Pro principal.
-function cloudAssistantStatus(env: CloudEnv, principal: Principal): AssistantStatus {
-  if (!cloudAssistantDeploymentEnabled(env)) return { available: false, reason: "disabled" };
+async function cloudAssistantDeploymentEnabled(env: CloudEnv): Promise<boolean> {
+  return (await cloudAssistantChain(env)) !== null;
+}
+
+// The Cloud assistant gate (decision A3): the deployment gate (its chain),
+// then the Pro plan. The order matters: a disabled deployment reports
+// "disabled" even for a non-Pro principal.
+function assistantStatusFor(chain: AssistantChainLink[] | null, principal: Principal): AssistantStatus {
+  if (!chain) return { available: false, reason: "disabled" };
   if (!planIncludesAi(principal.plan)) return { available: false, reason: "requires_pro" };
   return { available: true, reason: null };
+}
+
+async function cloudAssistantStatus(env: CloudEnv, principal: Principal): Promise<AssistantStatus> {
+  return assistantStatusFor(await cloudAssistantChain(env), principal);
 }
 
 // ---------- pin search (F3 contract §3.3) ----------
@@ -8217,7 +8792,7 @@ export async function cloudPinSearch(
   principal: Principal,
   options: { fetch?: typeof fetch } = {},
 ): Promise<PinSearchService | undefined> {
-  if (!cloudAssistantStatus(env, principal).available) return undefined;
+  if (!(await cloudAssistantStatus(env, principal)).available) return undefined;
   // Loaded lazily, like the assistant HTTP layer: it pulls in the AI SDK.
   const { createCloudPinSearch } = await import("./assistant/retrieval/runtime-cloud");
   return createCloudPinSearch({
@@ -8225,7 +8800,16 @@ export async function cloudPinSearch(
     env,
     ...(options.fetch ? { fetch: options.fetch } : {}),
     now: currentDate,
+    recordIndexCost: cloudIndexCostRecorder(env),
   });
+}
+
+// The index-cost recorder of the retrieval calls through the gateway (F4
+// contract §3): each cost becomes a row of assistant_index_costs at the
+// Cloud's clock, for the margin monitor. Only the gateway calls use it; a
+// failure is caught there (recordIndexCost in retrieval/gateway.ts).
+function cloudIndexCostRecorder(env: CloudEnv): (entry: AssistantIndexCostEntry) => Promise<void> {
+  return (entry) => recordAssistantIndexCost(env, entry, currentDate());
 }
 
 // The ids of COMPLIMENTARY_PRO_USER_IDS, the list complimentaryProUser reads.
@@ -8281,7 +8865,7 @@ async function pinSearchOwners(env: CloudEnv, expired: () => boolean = () => fal
  * With the assistant's deployment gate off it reads nothing.
  */
 export async function indexPinSearch(env: CloudEnv, options: { fetch?: typeof fetch; now?: () => Date } = {}) {
-  if (!cloudAssistantDeploymentEnabled(env)) return { failed: 0, indexed: 0, owners: 0, remaining: false };
+  if (!(await cloudAssistantDeploymentEnabled(env))) return { failed: 0, indexed: 0, owners: 0, remaining: false };
   const { runCloudPinIndexCron } = await import("./assistant/retrieval/runtime-cloud");
   return runCloudPinIndexCron({
     env,
@@ -8292,7 +8876,80 @@ export async function indexPinSearch(env: CloudEnv, options: { fetch?: typeof fe
     // owners on a plan with AI.
     ownerData: (ownerId) => cloudPinSourceData(env, { id: ownerId, isPermanent: true, kind: "account", plan: "pro" }, { shared: false }),
     owners: (expired) => pinSearchOwners(env, expired),
+    recordIndexCost: cloudIndexCostRecorder(env),
   });
+}
+
+// The credits of a Cloud turn (F4 contract §2, decision A39): the turn
+// reserves ASSISTANT_TURN_CREDITS under turn:<assistant message id> for the
+// resource assistant:<thread id>, with the model the chain starts from; the
+// UNIQUE (owner, request id) keeps a second reservation of the same message
+// from charging again. Only the run that created the reservation settles
+// it: one that finds it already there gets inProgress (409), with no ending
+// of its own. Consuming records the model that answered, the tokens, the
+// cost and result_json; a refund that fails is logged and left to the
+// sweeper.
+export function cloudAssistantTurnMeter(
+  env: CloudEnv,
+  principal: Principal,
+  model: string,
+): NonNullable<AssistantRequestDeps["meterTurn"]> {
+  return async ({ messageId, threadId }) => {
+    const account = await findAccountById(env, principal.id);
+    if (account) await ensureInitialProCredits(env, account);
+    const reservation = await reserveAiCreditUsage(
+      env,
+      principal,
+      ASSISTANT_TURN_REQUEST_PREFIX + messageId,
+      ASSISTANT_TURN_RESOURCE_PREFIX + threadId,
+      { credits: ASSISTANT_TURN_CREDITS, feature: "assistant_turn", model },
+    );
+    if (!reservation) {
+      return { aiCredits: await aiCreditBalance(env, principal), creditsRequired: ASSISTANT_TURN_CREDITS, reserved: false };
+    }
+    if (reservation.kind === "existing") return { inProgress: true, reserved: false };
+    const usage = reservation.usage;
+    return {
+      consume: (charge) => completeAiCreditUsage(
+        env,
+        usage,
+        charge.resultJson,
+        charge.inputTokens,
+        charge.outputTokens,
+        charge.costUsdMicros,
+        charge.model,
+      ),
+      refund: async (errorCode) => {
+        try {
+          await refundAiCreditUsage(env, usage, errorCode);
+        } catch (error) {
+          console.error("ai_credit_refund_failed", JSON.stringify({ error: String(error), usageId: usage.id }));
+          throw error;
+        }
+      },
+      reserved: true,
+    };
+  };
+}
+
+// The AssistantEndpoint of a chain link: the appliance as before, or the
+// gateway's OpenAI-compatible endpoint (F4 contract §4) with its key.
+function cloudAssistantEndpoint(env: CloudEnv, link: AssistantChainLink): AssistantEndpoint {
+  return link.hub === "gateway"
+    ? {
+        apiKey: env.AI_GATEWAY_API_KEY,
+        baseUrl: "https://ai-gateway.vercel.sh/v1",
+        kind: "openai-compatible",
+        model: link.model,
+        thinkingControl: false,
+      }
+    : {
+        apiKey: env.AI_API_KEY,
+        baseUrl: env.AI_BASE_URL ?? "",
+        kind: "appliance",
+        model: link.model,
+        thinkingControl: true,
+      };
 }
 
 // /api/assistant/* for the logged-in web user (contract section 2): only an
@@ -8318,25 +8975,37 @@ async function cloudAssistantRoutesUnguarded(request: Request, env: CloudEnv): P
   if (!principal || principal.kind !== "account") {
     return json({ code: "unauthorized", error: "Unauthorized" }, 401);
   }
-  const status = cloudAssistantStatus(env, principal);
+  const chain = await cloudAssistantChain(env);
+  const status = assistantStatusFor(chain, principal);
   // The assistant HTTP layer pulls in the AI SDK: loaded lazily so the
   // worker's initial module graph and cold start stay free of it. (On EdgeR
   // the SDK's @vercel/oidc dependency is replaced by a stub, see
   // vite.config.edger.ts.)
   const { handleAssistantRequest } = await import("./assistant/http");
+  const { assistantChainLinkName, assistantChainModel, assistantChainOpen, createAssistantCircuitBreaker } = await import("./assistant/chain");
+  const breaker = cloudAssistantBreaker ??= createAssistantCircuitBreaker();
   const origin = new URL(request.url).origin;
   const pinSearch = await cloudPinSearch(env, principal);
   const deps: Parameters<typeof handleAssistantRequest>[1] = {
-    endpoint: async () =>
-      env.AI_BASE_URL && env.AI_API_KEY && env.AI_MODEL
-        ? {
-            apiKey: env.AI_API_KEY,
-            baseUrl: env.AI_BASE_URL,
-            kind: "appliance",
-            model: env.AI_MODEL,
-            thinkingControl: true,
-          }
-        : null,
+    // The endpoint of the chain's first link, which the turn starts from;
+    // null (503 assistant_unavailable) with the gate off or every link's
+    // breaker open.
+    endpoint: async () => (chain && !assistantChainOpen(chain, breaker) ? cloudAssistantEndpoint(env, chain[0]) : null),
+    // The turn's model is the chain (assistant/chain.ts); the endpoint only
+    // names its first link.
+    model: (_endpoint, context) =>
+      assistantChainModel({
+        appliance: env.AI_BASE_URL && env.AI_API_KEY ? { apiKey: env.AI_API_KEY, baseUrl: env.AI_BASE_URL } : null,
+        breaker,
+        chain: chain ?? [],
+        context,
+        gateway: env.AI_GATEWAY_API_KEY
+          ? { apiKey: env.AI_GATEWAY_API_KEY, zeroDataRetention: env.AI_GATEWAY_ZERO_DATA_RETENTION === "true" }
+          : null,
+      }),
+    // 3 credits a turn (F4 contract §2); the model the chain starts from is
+    // the reservation's until the link that answered replaces it.
+    meterTurn: cloudAssistantTurnMeter(env, principal, chain ? assistantChainLinkName(chain[0]) : ""),
     ...(pinSearch ? { pinSearch } : {}),
     rateLimitTurn: () =>
       withinRateLimits(env, "assistant-turn", [
@@ -8371,6 +9040,7 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
     return json({
       hasAdminAuth: Boolean(env.ADMIN_API_KEY),
       hasAi: Boolean(env.AI),
+      hasAssistant: await cloudAssistantDeploymentEnabled(env),
       hasAuthPepper: Boolean(env.AUTH_PEPPER),
       hasBucket: Boolean(env.PINAR_BUCKET),
       hasDb: Boolean(env.DB),
@@ -9195,6 +9865,8 @@ export function resetCloudMemoryStateForTests() {
   memoryWebSessions.clear();
   resetCloudAssistantMemoryForTests();
   resetCloudPinIndexMemoryForTests();
+  cloudAssistantBreaker = null;
+  cloudAssistantChainErrorLogged = false;
   memoryMigrationFailure = false;
   testNow = null;
 }

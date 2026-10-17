@@ -25,8 +25,11 @@ const SMOKED_ENV_KEYS = [
   "ADMIN_API_KEY",
   "AI_API_KEY",
   "AI_BASE_URL",
+  "AI_GATEWAY_API_KEY",
+  "AI_GATEWAY_ZERO_DATA_RETENTION",
   "AI_MODEL",
   "AI_TRANSCRIPTION_MODEL",
+  "ASSISTANT_CHAIN",
   "ASSISTANT_ENABLED",
   "AUTH_PEPPER",
   "CLOUD_TRIAL_ENABLED",
@@ -38,6 +41,7 @@ const SMOKED_ENV_KEYS = [
   "DATABASE_URL",
   "DEPLOYMENT_ENV",
   "EXTENSION_ORIGIN",
+  "OPS_ALERT_EMAIL",
   "PRICING_AI_CREDITS_500_BRL_CENTS",
   "PRICING_AI_CREDITS_500_USD_CENTS",
   "PRICING_STORAGE_1GB_12M_BRL_CENTS",
@@ -103,6 +107,8 @@ await expect("GET", "/api/health", async (response) => {
     return "body is not JSON";
   }
   if (body.service !== "pinar") return `expected service "pinar", got ${JSON.stringify(body.service)}`;
+  // A clean install has no assistant.
+  if (body.hasAssistant !== false) return `expected hasAssistant false, got ${JSON.stringify(body.hasAssistant)}`;
 });
 
 // The SSR entry renders the app shell as HTML.
@@ -121,7 +127,7 @@ await expect("POST", "/_internal/cron/daily", async (response) => {
   if (body !== "Not found") return `expected the entry's "Not found", got ${JSON.stringify(body.slice(0, 80))}`;
 });
 
-// With the header EdgeR's scheduler sends, the entry runs the five daily
+// With the header EdgeR's scheduler sends, the entry runs the six daily
 // jobs and reports each one. Without a database they may fail (500); the
 // report itself proves the route is wired.
 await expect("POST", "/_internal/cron/daily", async (response) => {
@@ -133,8 +139,30 @@ await expect("POST", "/_internal/cron/daily", async (response) => {
     return "body is not JSON";
   }
   const jobs = Array.isArray(body.jobs) ? body.jobs.map((job) => job.job) : [];
-  const expected = ["cleanupOldRecords", "reconcileBillingEntitlements", "refundStaleAiReservations", "sendStorageExpiryNotices", "indexPinSearch"];
-  if (JSON.stringify(jobs) !== JSON.stringify(expected)) return `expected the five daily jobs, got ${JSON.stringify(jobs)}`;
+  const expected = ["cleanupOldRecords", "reconcileBillingEntitlements", "refundStaleAiReservations", "sendStorageExpiryNotices", "indexPinSearch", "assistantMarginMonitor"];
+  if (JSON.stringify(jobs) !== JSON.stringify(expected)) return `expected the six daily jobs, got ${JSON.stringify(jobs)}`;
+}, { "x-edger-internal": "true" });
+
+// The frequent cron route (every 5 minutes) hides like the daily one and,
+// with the internal header, runs only the AI credit sweeper.
+await expect("POST", "/_internal/cron/frequent", async (response) => {
+  if (response.status !== 404) return `expected 404, got ${response.status}`;
+  const body = await response.text();
+  if (body !== "Not found") return `expected the entry's "Not found", got ${JSON.stringify(body.slice(0, 80))}`;
+});
+
+await expect("POST", "/_internal/cron/frequent", async (response) => {
+  if (response.status !== 200 && response.status !== 500) return `expected 200 or 500, got ${response.status}`;
+  let body;
+  try {
+    body = await response.json();
+  } catch {
+    return "body is not JSON";
+  }
+  const jobs = Array.isArray(body.jobs) ? body.jobs.map((job) => job.job) : [];
+  if (JSON.stringify(jobs) !== JSON.stringify(["refundStaleAiReservations"])) {
+    return `expected only refundStaleAiReservations, got ${JSON.stringify(jobs)}`;
+  }
 }, { "x-edger-internal": "true" });
 
 // The marketing page renders.
@@ -162,6 +190,21 @@ for (const name of chunks) {
 }
 console.log(`import ${chunks.length} server chunks: ${chunkFailures === 0 ? "ok" : `${chunkFailures} failed`}`);
 if (chunks.length === 0 || chunkFailures > 0) failed = true;
+
+// The assistant chain's gateway is in the bundle (its default base URL),
+// and @vercel/oidc is the EdgeR stub: the real module (it reads
+// VERCEL_OIDC_TOKEN) is not.
+let gatewayChunks = 0;
+let stubChunks = 0;
+let oidcChunks = 0;
+for (const file of ["server.js", ...chunks.map((name) => `assets/${name}`)]) {
+  const source = await Deno.readTextFile(`${dir}/server/${file}`);
+  if (source.includes("ai-gateway.vercel.sh/v4/ai")) gatewayChunks += 1;
+  if (source.includes("Vercel OIDC is not available on EdgeR")) stubChunks += 1;
+  if (source.includes("VERCEL_OIDC_TOKEN")) oidcChunks += 1;
+}
+console.log(`gateway in ${gatewayChunks} server files, OIDC stub in ${stubChunks}, real OIDC in ${oidcChunks}`);
+if (gatewayChunks === 0 || stubChunks === 0 || oidcChunks > 0) failed = true;
 
 // Exit explicitly: the server module may keep handles (pools, streams) that
 // would otherwise keep the process alive after the expectations are in.

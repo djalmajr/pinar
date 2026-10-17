@@ -68,6 +68,8 @@ const messages: UiMessages = {
   "assistant.errorIncomplete": "L’assistant n’a pas pu terminer cette réponse. Réessayez.",
   "assistant.errorFailed": "L’assistant n’est pas disponible pour le moment. Réessayez dans un instant.",
   "assistant.errorRateLimited": "Trop de questions en peu de temps. Attendez un instant.",
+  "assistant.errorNoCredits": "Crédits IA insuffisants : un message en utilise {required} et il vous reste {count, plural, one {# crédit} other {# crédits}}.",
+  "assistant.buyCredits": "Acheter des crédits",
   "assistant.errorNetwork": "Impossible de joindre Pinar. Vérifiez votre connexion.",
   "assistant.proposal.create_project": "Créer le projet « {name} »",
   "assistant.proposal.rename_project": "Renommer le projet « {from} » en « {to} »",
@@ -170,6 +172,7 @@ const messages: UiMessages = {
   "settings.aiUsageReproduction": "Reproduction",
   "settings.aiUsageSessionSummary": "Résumé de session",
   "settings.aiUsageVoicePin": "Épingle vocale",
+  "settings.aiUsageAssistantTurn": "Message de l’assistant",
   "settings.voicePostProcessing": "Nettoyer les transcriptions vocales",
   "settings.voicePostProcessingDescription": "Supprime les hésitations et faux départs et restitue le commentaire voulu. Disponible uniquement dans Pinar Cloud et désactivé par défaut.",
   "settings.generalDescription":
@@ -242,6 +245,11 @@ const messages: UiMessages = {
   "settings.captureDestinationDefault": "Boîte de réception",
   "settings.captureDestinationDescription":
     "Où atterrissent les nouvelles captures. La valeur par défaut du serveur utilise la Boîte de réception du premier projet.",
+  "settings.autoCaptureDestination": "Choisir la collection automatiquement",
+  "settings.autoCaptureDestinationDescription":
+    "Pinar choisit la collection de chaque nouvelle capture ; en cas de doute, elle va dans la Boîte de réception.",
+  "settings.autoCaptureDestinationInboxFallback": "Sans l’IA disponible, les nouvelles captures vont dans la Boîte de réception.",
+  "settings.autoCaptureDestinationUnavailable": "Nécessite une IA configurée.",
   "settings.captureHeading": "Capture",
   "settings.collection": "Collection",
   "settings.copyOnFinishBatch": "Copier à la fin d’un session",
@@ -412,6 +420,7 @@ const messages: UiMessages = {
   "dashboard.allSessions": "Toutes les sessions",
   "dashboard.collection": "collection",
   "dashboard.protectedInbox": "Boîte de réception",
+  "dashboard.autoFiled": "Classée automatiquement. Déplacez-la pour corriger.",
   "dashboard.collectionActions": "Actions de la collection",
   "dashboard.collapseCollection": "Réduire {name}",
   "dashboard.collectionMenu": "Collection",

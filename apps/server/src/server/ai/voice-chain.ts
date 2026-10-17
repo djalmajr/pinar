@@ -146,17 +146,9 @@ async function runLinks<T>(
  */
 async function gatewayCostMicros(providerMetadata: Record<string, unknown> | undefined): Promise<number | null> {
   if (providerMetadata === undefined) return null;
-  const gateway = providerMetadata["gateway"];
-  if (typeof gateway !== "object" || gateway === null) return null;
-  const record = gateway as Record<string, unknown>;
-  const { usdToMicrosCeil } = await import("../assistant/chain");
-  for (const key of ["marketCost", "cost"]) {
-    const value = record[key];
-    if (typeof value !== "string") continue;
-    const micros = usdToMicrosCeil(value);
-    if (micros !== null) return micros;
-  }
-  return null;
+  // The same rule as the assistant's turns and the index (chain.ts).
+  const { gatewayCostMicros: chainGatewayCostMicros } = await import("../assistant/chain");
+  return chainGatewayCostMicros(providerMetadata["gateway"]);
 }
 
 function positiveToken(value: number | undefined): number {

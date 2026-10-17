@@ -60,9 +60,15 @@ function orderEntries(entries: PinIndexEntry[], sessionIds: string[]): PinIndexE
 
 /**
  * Input order, each id once, up to `limit`: a session is stale with no entry
- * yet, or when its `updatedAt` is newer than its oldest entry's.
+ * yet, when it carries a dirty mark, or when its `updatedAt` is newer than
+ * its oldest entry's.
  */
-function staleIds(sessions: Array<{ id: string; updatedAt: string }>, indexedAt: Map<string, string>, limit: number) {
+function staleIds(
+  sessions: Array<{ id: string; updatedAt: string }>,
+  indexedAt: Map<string, string>,
+  limit: number,
+  dirty: Set<string>,
+) {
   const stale: string[] = [];
   const seen = new Set<string>();
   for (const session of sessions) {
@@ -70,7 +76,7 @@ function staleIds(sessions: Array<{ id: string; updatedAt: string }>, indexedAt:
     if (seen.has(session.id)) continue;
     seen.add(session.id);
     const oldest = indexedAt.get(session.id);
-    if (oldest === undefined || session.updatedAt > oldest) stale.push(session.id);
+    if (oldest === undefined || dirty.has(session.id) || session.updatedAt > oldest) stale.push(session.id);
   }
   return stale;
 }
@@ -88,34 +94,62 @@ interface MemoryPinIndexSession {
 }
 
 const memoryPinIndex = new Map<string, MemoryPinIndexSession>();
+// sessionId → dirty-mark token of the in-memory branch
+const memoryDirtyMarks = new Map<string, string>();
 
 export function resetCloudPinIndexMemoryForTests() {
   memoryPinIndex.clear();
+  memoryDirtyMarks.clear();
+  readMarks.clear();
 }
 
 /** In-memory branch of the session delete and the retention cleanup: the session is gone, so are its entries. */
 export function deleteMemoryPinIndexForSession(sessionId: string) {
   memoryPinIndex.delete(sessionId);
+  memoryDirtyMarks.delete(sessionId);
 }
 
-// The epoch: older than any time a pin source lists.
-const PIN_INDEX_STALE_AT = new Date(0).toISOString();
+// The dirty mark (decision A26) is one extra row of the session under this
+// pin id, which no pin has: its doc_hash holds a fresh token per mark, and
+// its updated_at the epoch. A session with the row is stale whatever the
+// times say. `entries` remembers the token it saw, and `replaceSession`
+// removes the row only while it still holds that token, so a write that
+// marks the session during an indexing keeps it stale for the next pass.
+// Entry reads never return the row.
+// (a constant written into SQL text: letters and underscores only)
+const DIRTY_PIN_ID = "__pinar_dirty_mark__";
+const DIRTY_AT = new Date(0).toISOString();
+
+// ownerId + sessionId → the dirty token `entries` saw (null: none), kept
+// until the replacement that follows it.
+const readMarks = new Map<string, string | null>();
+
+function readMarkKey(ownerId: string, sessionId: string): string {
+  return `${ownerId}\n${sessionId}`;
+}
 
 /**
- * After a write that changes what a pin document holds, stamps every entry
- * of the session (whoever owns it) with the epoch, so the session is stale
- * for the next pass (a search or the cron) while indexSession still reuses
- * the captions and vectors of the pins that did not change. Best effort: a
- * failure (the pin_index table missing before migration 0029, for example)
- * is swallowed and not logged, since the write itself already succeeded.
+ * After a write that changes what a pin document holds, marks the session
+ * (whoever owns it) dirty, so it is stale for the next pass (a search or
+ * the cron) while indexSession still reuses the captions and vectors of
+ * the pins that did not change. A session not indexed yet needs no mark.
+ * Best effort: a failure (the pin_index table missing before migration
+ * 0029, for example) is swallowed and not logged, since the write itself
+ * already succeeded.
  */
 export async function markCloudPinIndexSessionStale(env: { DB?: AssistantD1Database }, sessionId: string): Promise<void> {
   try {
+    const token = crypto.randomUUID();
     if (env.DB) {
-      await env.DB.prepare("UPDATE pin_index SET updated_at = ? WHERE session_id = ?").bind(PIN_INDEX_STALE_AT, sessionId).run();
+      await env.DB.prepare(
+        `INSERT INTO pin_index (session_id, pin_id, owner_id, number, model, vector, doc_text, doc_hash, truncated, caption, ocr, updated_at)
+         SELECT session_id, ?, owner_id, 0, '', NULL, '', ?, 0, NULL, NULL, ? FROM pin_index
+         WHERE session_id = ? AND pin_id <> ? LIMIT 1
+         ON CONFLICT(session_id, pin_id) DO UPDATE SET doc_hash = excluded.doc_hash, updated_at = excluded.updated_at`,
+      ).bind(DIRTY_PIN_ID, token, DIRTY_AT, sessionId, DIRTY_PIN_ID).run();
       return;
     }
-    for (const entry of memoryPinIndex.get(sessionId)?.entries ?? []) entry.updatedAt = PIN_INDEX_STALE_AT;
+    if (memoryPinIndex.has(sessionId)) memoryDirtyMarks.set(sessionId, token);
   } catch {
     // Best effort: the next write marks the session again.
   }
@@ -135,6 +169,7 @@ export function cloudPinIndexStore(env: { DB?: AssistantD1Database }, ownerId: s
 function cloudDbPinIndexStore(db: AssistantD1Database, ownerId: string): PinIndexStore {
   return {
     async deleteSession(sessionId) {
+      readMarks.delete(readMarkKey(ownerId, sessionId));
       await db.prepare("DELETE FROM pin_index WHERE session_id = ? AND owner_id = ?").bind(sessionId, ownerId).run();
     },
     async entries(sessionId) {
@@ -142,7 +177,10 @@ function cloudDbPinIndexStore(db: AssistantD1Database, ownerId: string): PinInde
         .prepare(`SELECT ${PIN_INDEX_COLUMNS} FROM pin_index WHERE session_id = ? AND owner_id = ?`)
         .bind(sessionId, ownerId)
         .all();
-      return orderEntries((result.results || []).map(entryFromRow), [sessionId]);
+      const rows = result.results || [];
+      const mark = rows.find((row) => String(row.pin_id) === DIRTY_PIN_ID);
+      readMarks.set(readMarkKey(ownerId, sessionId), mark ? String(mark.doc_hash) : null);
+      return orderEntries(rows.filter((row) => String(row.pin_id) !== DIRTY_PIN_ID).map(entryFromRow), [sessionId]);
     },
     async entriesFor(sessionIds) {
       const ids = [...new Set(sessionIds)];
@@ -150,7 +188,7 @@ function cloudDbPinIndexStore(db: AssistantD1Database, ownerId: string): PinInde
       for (const chunk of chunked(ids, D1_IN_CHUNK)) {
         const placeholders = chunk.map(() => "?").join(", ");
         const result = await db
-          .prepare(`SELECT ${PIN_INDEX_COLUMNS} FROM pin_index WHERE owner_id = ? AND session_id IN (${placeholders})`)
+          .prepare(`SELECT ${PIN_INDEX_COLUMNS} FROM pin_index WHERE owner_id = ? AND session_id IN (${placeholders}) AND pin_id <> '${DIRTY_PIN_ID}'`)
           .bind(ownerId, ...chunk)
           .all();
         entries.push(...(result.results || []).map(entryFromRow));
@@ -163,17 +201,29 @@ function cloudDbPinIndexStore(db: AssistantD1Database, ownerId: string): PinInde
      * read before it refuses a session another owner already holds; between
      * that read and the batch, the primary key still refuses another
      * owner's row for the same pin, while one for a different pin of the
-     * session can still land.
+     * session can still land. The dirty mark goes only when it still holds
+     * the token the preceding `entries` read; without an empty
+     * replacement, a mark that arrived since then stays.
      */
     async replaceSession(sessionId, entries) {
       checkEntries(sessionId, entries);
+      const key = readMarkKey(ownerId, sessionId);
+      const seen = readMarks.get(key);
+      readMarks.delete(key);
       const foreign = await db
         .prepare("SELECT owner_id FROM pin_index WHERE session_id = ? AND owner_id <> ? LIMIT 1")
         .bind(sessionId, ownerId)
         .first();
       if (foreign) throw new Error("pin index session belongs to another owner");
+      const clearMark = entries.length === 0
+        // nothing left to index: the session needs no mark either
+        ? [db.prepare("DELETE FROM pin_index WHERE session_id = ? AND owner_id = ? AND pin_id = ?").bind(sessionId, ownerId, DIRTY_PIN_ID)]
+        : typeof seen === "string"
+          ? [db.prepare("DELETE FROM pin_index WHERE session_id = ? AND owner_id = ? AND pin_id = ? AND doc_hash = ?").bind(sessionId, ownerId, DIRTY_PIN_ID, seen)]
+          : [];
       await db.batch([
-        db.prepare("DELETE FROM pin_index WHERE session_id = ? AND owner_id = ?").bind(sessionId, ownerId),
+        db.prepare("DELETE FROM pin_index WHERE session_id = ? AND owner_id = ? AND pin_id <> ?").bind(sessionId, ownerId, DIRTY_PIN_ID),
+        ...clearMark,
         ...entries.map((entry) =>
           db.prepare(
             "INSERT INTO pin_index (session_id, pin_id, owner_id, number, model, vector, doc_text, doc_hash, truncated, caption, ocr, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -198,17 +248,21 @@ function cloudDbPinIndexStore(db: AssistantD1Database, ownerId: string): PinInde
       const { limit, sessions } = input;
       if (!(limit > 0) || sessions.length === 0) return [];
       const indexedAt = new Map<string, string>();
+      const dirty = new Set<string>();
       for (const chunk of chunked([...new Set(sessions.map((session) => session.id))], D1_IN_CHUNK)) {
         const placeholders = chunk.map(() => "?").join(", ");
         const result = await db
           .prepare(
-            `SELECT session_id, MIN(updated_at) AS updated_at FROM pin_index WHERE owner_id = ? AND session_id IN (${placeholders}) GROUP BY session_id`,
+            `SELECT session_id, MIN(updated_at) AS updated_at, MAX(pin_id = '${DIRTY_PIN_ID}') AS dirty FROM pin_index WHERE owner_id = ? AND session_id IN (${placeholders}) GROUP BY session_id`,
           )
           .bind(ownerId, ...chunk)
           .all();
-        for (const row of result.results || []) indexedAt.set(String(row.session_id), String(row.updated_at));
+        for (const row of result.results || []) {
+          indexedAt.set(String(row.session_id), String(row.updated_at));
+          if (Number(row.dirty) === 1) dirty.add(String(row.session_id));
+        }
       }
-      return staleIds(sessions, indexedAt, limit);
+      return staleIds(sessions, indexedAt, limit, dirty);
     },
   };
 }
@@ -221,10 +275,15 @@ function ownedMemorySession(sessionId: string, ownerId: string): MemoryPinIndexS
 function cloudMemoryPinIndexStore(ownerId: string): PinIndexStore {
   return {
     async deleteSession(sessionId) {
-      if (ownedMemorySession(sessionId, ownerId)) memoryPinIndex.delete(sessionId);
+      readMarks.delete(readMarkKey(ownerId, sessionId));
+      if (ownedMemorySession(sessionId, ownerId)) {
+        memoryPinIndex.delete(sessionId);
+        memoryDirtyMarks.delete(sessionId);
+      }
     },
     async entries(sessionId) {
       const session = ownedMemorySession(sessionId, ownerId);
+      readMarks.set(readMarkKey(ownerId, sessionId), session ? memoryDirtyMarks.get(sessionId) ?? null : null);
       return session ? orderEntries(session.entries.map(copyEntry), [sessionId]) : [];
     },
     async entriesFor(sessionIds) {
@@ -245,6 +304,12 @@ function cloudMemoryPinIndexStore(ownerId: string): PinIndexStore {
       }
       const current = memoryPinIndex.get(sessionId);
       if (current && current.ownerId !== ownerId) throw new Error("pin index session belongs to another owner");
+      const key = readMarkKey(ownerId, sessionId);
+      const seen = readMarks.get(key);
+      readMarks.delete(key);
+      if (entries.length === 0 || (typeof seen === "string" && memoryDirtyMarks.get(sessionId) === seen)) {
+        memoryDirtyMarks.delete(sessionId);
+      }
       if (entries.length === 0) memoryPinIndex.delete(sessionId);
       else memoryPinIndex.set(sessionId, { entries: entries.map(copyEntry), ownerId });
     },
@@ -252,12 +317,14 @@ function cloudMemoryPinIndexStore(ownerId: string): PinIndexStore {
       const { limit, sessions } = input;
       if (!(limit > 0) || sessions.length === 0) return [];
       const indexedAt = new Map<string, string>();
+      const dirty = new Set<string>();
       for (const { id } of sessions) {
         const session = ownedMemorySession(id, ownerId);
         if (!session || session.entries.length === 0) continue;
         indexedAt.set(id, session.entries.reduce((oldest, entry) => (entry.updatedAt < oldest ? entry.updatedAt : oldest), session.entries[0].updatedAt));
+        if (memoryDirtyMarks.has(id)) dirty.add(id);
       }
-      return staleIds(sessions, indexedAt, limit);
+      return staleIds(sessions, indexedAt, limit, dirty);
     },
   };
 }

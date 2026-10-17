@@ -169,6 +169,8 @@ When your plan includes the AI assistant in Pinar Cloud, we also process: your m
 
 Avoid capturing secrets or unnecessary sensitive personal data. A screenshot may contain information about you or third parties, and you are responsible for having an appropriate basis to submit it.
 
+**Cookies and local storage.** Pinar Cloud uses only what the service needs: a session cookie that keeps you signed in for up to 30 days and is removed when you sign out, a cookie that remembers the language you chose, and your browser's local storage for the theme. Pinar uses no advertising or analytics cookies. Cloudflare, which sits in front of pinar.dev, may set cookies needed to protect the service.
+
 ## 3. Purposes and legal bases
 
 We process data to provide accounts and contracted features; authenticate users; store and share content at your direction; process billing and entitlements; operate AI features, including the Pinar Cloud assistant, the search of your pins, and, when you turn it on, the automatic choice of a new capture's collection; prevent fraud and abuse; secure and troubleshoot the service; comply with law; establish or defend legal claims; and communicate service or policy changes. Under the LGPD, the applicable bases may include contract performance, compliance with legal obligations, legitimate interests subject to safeguards, regular exercise of rights, fraud prevention, and consent where specifically requested. The description of screenshots and the indexing of pins for search are done to run the AI features you use (contract performance).
@@ -207,6 +209,8 @@ Conforme o uso, tratamos: e-mail da conta e registros de autenticação; evidên
 Quando seu plano inclui o assistente de IA no Pinar Cloud, também tratamos: suas mensagens e as respostas dele, guardadas como histórico da conversa; as propostas que ele prepara para você confirmar; os dados de projetos, coleções, sessões, pins e comentários que as ferramentas dele leem para responder, o que pode incluir conteúdo que outras pessoas compartilharam com você; descrições e textos visíveis que a IA extrai dos screenshots das sessões e representações de busca (embeddings) do texto de cada pin (título e URL da página, elemento, descrição e comentários), usadas para buscar seus pins e criadas só enquanto o assistente responde às suas mensagens; o título, a URL e os comentários dos pins de uma captura nova, quando você liga “Escolher a coleção automaticamente”; e registros de consumo com o modelo, os tokens e o custo de cada pedido.
 
 Evite capturar segredos ou dados pessoais sensíveis desnecessários. Um screenshot pode conter informações suas ou de terceiros, e você é responsável por possuir base adequada para enviá-lo.
+
+**Cookies e armazenamento local.** O Pinar Cloud usa só o que o serviço precisa: um cookie de sessão que mantém você conectado por até 30 dias e é removido quando você sai, um cookie que lembra o idioma escolhido e o armazenamento local do navegador para o tema. O Pinar não usa cookies de publicidade nem de análise. A Cloudflare, que fica na frente do pinar.dev, pode definir cookies necessários para proteger o serviço.
 
 ## 3. Finalidades e bases legais
 

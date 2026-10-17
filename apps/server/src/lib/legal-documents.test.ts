@@ -115,6 +115,12 @@ describe("public legal documents", () => {
     assert.match(termsSection6Pt, /instrui o Pinar a tratá-lo com os provedores de IA acessados pelo Vercel AI Gateway, inclusive fora do Brasil/);
     assert.match(termsSection6Pt, /o Pinar atuando como operador/);
     assert.match(termsSection6Pt, /veja a Política de Privacidade/);
+    // Cookies (J13): only the session, the language and the theme; no
+    // advertising or analytics; Cloudflare's own protection cookies.
+    assert.match(privacyEn, /a session cookie that keeps you signed in for up to 30 days and is removed when you sign out, a cookie that remembers the language you chose, and your browser's local storage for the theme\. Pinar uses no advertising or analytics cookies\./);
+    assert.match(privacyPt, /um cookie de sessão que mantém você conectado por até 30 dias e é removido quando você sai, um cookie que lembra o idioma escolhido e o armazenamento local do navegador para o tema\. O Pinar não usa cookies de publicidade nem de análise\./);
+    assert.match(privacyEn, /Cloudflare, which sits in front of pinar\.dev, may set cookies needed to protect the service/);
+    assert.match(privacyPt, /A Cloudflare, que fica na frente do pinar\.dev, pode definir cookies necessários para proteger o serviço/);
     // No background indexing (A53): the pins are indexed only while the
     // assistant answers a message, and the filing choice reads that index.
     assert.match(privacyEn, /used to search your pins and created only while the assistant answers your messages;/);

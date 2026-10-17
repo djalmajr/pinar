@@ -83,8 +83,15 @@ import { CURRENT_LEGAL_VERSION } from "../lib/legal-documents";
 import { generateReproduction } from "./ai/reproduction";
 import { transcribeVoicePin } from "./ai/voice-pin";
 import {
+  chainUsable,
+  runTextChain,
+  textChain,
+  voiceAvailability,
+} from "./ai/voice-chain";
+import {
   AiInferenceError,
   cloudflareAiProvider,
+  type AiInferenceResult,
   type AiPrompt,
 } from "./ai/inference";
 import { SESSION_PATCH_MAX_BYTES } from "./session-patch";
@@ -197,6 +204,14 @@ export interface CloudEnv {
   // "true" asks the gateway for zero data retention on each call; off
   // otherwise (F4 contract §1).
   AI_GATEWAY_ZERO_DATA_RETENTION?: string;
+  // The voice transcription chain (D5): a CSV of hub:model links in the
+  // ASSISTANT_CHAIN format; without it the transcription uses the AI
+  // binding. Never part of the all-or-nothing AI group.
+  AI_TRANSCRIPTION_CHAIN?: string;
+  // The short text chain (D5): the reproduction steps and the voice-note
+  // structuring; without it the text calls use the AI binding. Never part
+  // of the all-or-nothing AI group.
+  AI_TEXT_CHAIN?: string;
   // The assistant's model chain, a CSV of hub:model links (assistant/
   // chain.ts); without it the chain is appliance:<AI_MODEL>.
   ASSISTANT_CHAIN?: string;
@@ -6443,7 +6458,13 @@ export interface RunMeteredAiFeatureInput<T> {
 /** Voice transcription uses the metered gate: plan, reservation and refund. */
 export async function runMeteredAiFeature<T>(input: RunMeteredAiFeatureInput<T>): Promise<Response> {
   const { env, principal, request, requestId, resourceId, spec } = input;
-  if (!env.AI) return json({ code: "ai_unavailable", error: "AI is not configured" }, 503);
+  if (!env.AI) {
+    // D5: a configured and usable chain (AI_TRANSCRIPTION_CHAIN /
+    // AI_TEXT_CHAIN) keeps the metered AI available without the binding;
+    // the environment never decides the provider (A50).
+    const availability = await voiceAvailability(env);
+    if (!availability.any) return json({ code: "ai_unavailable", error: "AI is not configured" }, 503);
+  }
   if (principal.kind !== "account" || !planIncludesAi(principal.plan)) {
     return json({
       code: "ai_requires_paid",
@@ -6575,7 +6596,9 @@ export async function runMeteredAiFeature<T>(input: RunMeteredAiFeatureInput<T>)
 export interface RunUnmeteredAiFeatureInput<T> {
   buildPrompt: () => AiPrompt;
   env: CloudEnv;
-  onSuccess?: (result: T) => Promise<void>;
+  // May return a Response to short-circuit the 200 (a 404 when the write
+  // did not persist, as the other session edits answer).
+  onSuccess?: (result: T) => Promise<void | Response>;
   parse: (text: string) => T | null;
   principal: Principal;
   request: Request;
@@ -6589,7 +6612,13 @@ export interface RunUnmeteredAiFeatureInput<T> {
  */
 export async function runUnmeteredAiFeature<T>(input: RunUnmeteredAiFeatureInput<T>): Promise<Response> {
   const { env, principal, request, spec } = input;
-  if (!env.AI) return json({ code: "ai_unavailable", error: "AI is not configured" }, 503);
+  if (!env.AI) {
+    // D5: a configured and usable chain (AI_TRANSCRIPTION_CHAIN /
+    // AI_TEXT_CHAIN) keeps the unmetered AI available without the binding;
+    // the environment never decides the provider (A50).
+    const availability = await voiceAvailability(env);
+    if (!availability.any) return json({ code: "ai_unavailable", error: "AI is not configured" }, 503);
+  }
   if (principal.kind !== "account" || !planIncludesAi(principal.plan)) {
     return json({ code: "ai_requires_paid", error: "AI features require a paid plan" }, 403);
   }
@@ -6601,14 +6630,40 @@ export async function runUnmeteredAiFeature<T>(input: RunUnmeteredAiFeatureInput
 
   try {
     const prompt = input.buildPrompt();
-    const inference = await cloudflareAiProvider(env.AI, spec.model).run(prompt, {
-      maxTokens: spec.maxTokens,
-      timeoutMs: spec.timeoutMs,
-    });
+    // D5: the AI_TEXT_CHAIN links (gateway or appliance) when configured
+    // and usable; else the AI binding, exactly as before.
+    const links = await textChain(env);
+    let inference: AiInferenceResult;
+    let chainCost: number | null = null;
+    if (links !== null && chainUsable(env, links)) {
+      const outcome = await runTextChain(env, links, {
+        maxTokens: spec.maxTokens,
+        prompt: {
+          ...(prompt.jsonObject !== undefined ? { jsonObject: prompt.jsonObject } : {}),
+          messages: prompt.messages,
+          ...(prompt.temperature !== undefined ? { temperature: prompt.temperature } : {}),
+        },
+        timeoutMs: spec.timeoutMs,
+      });
+      inference = { model: spec.model, provider: "pinar_cloud", text: outcome.text, usage: outcome.usage };
+      chainCost = outcome.costUsdMicros;
+    } else {
+      // The gate above: without the binding only a usable chain gets here,
+      // so the binding is present in this branch.
+      inference = await cloudflareAiProvider(env.AI!, spec.model).run(prompt, {
+        maxTokens: spec.maxTokens,
+        timeoutMs: spec.timeoutMs,
+      });
+    }
     const result = input.parse(inference.text);
     if (!result) throw new Error("invalid_ai_response");
-    if (input.onSuccess) await input.onSuccess(result);
-    const costUsdMicros = Math.ceil(
+    if (input.onSuccess) {
+      const shortCircuit = await input.onSuccess(result);
+      if (shortCircuit instanceof Response) return shortCircuit;
+    }
+    // D5: the gateway's real cost (marketCost, else cost) when the text
+    // went through a gateway link; without it, the estimate of this file.
+    const costUsdMicros = chainCost ?? Math.ceil(
       inference.usage.inputTokens * spec.inputUsdPerMillionTokens
       + inference.usage.outputTokens * spec.outputUsdPerMillionTokens,
     );
@@ -9068,7 +9123,8 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
   if (method === "GET" && path === "/api/health") {
     return json({
       hasAdminAuth: Boolean(env.ADMIN_API_KEY),
-      hasAi: Boolean(env.AI),
+      // D5: the AI binding, or a configured and usable voice/text chain.
+      hasAi: (await voiceAvailability(env)).any,
       hasAssistant: await cloudAssistantDeploymentEnabled(env),
       hasAuthPepper: Boolean(env.AUTH_PEPPER),
       hasBucket: Boolean(env.PINAR_BUCKET),

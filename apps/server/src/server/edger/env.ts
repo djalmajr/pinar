@@ -13,6 +13,9 @@ const STRING_FIELDS = [
   // The assistant chain (F4): optional, outside the all-or-nothing AI group.
   "AI_GATEWAY_API_KEY",
   "AI_GATEWAY_ZERO_DATA_RETENTION",
+  // The voice chains (D5): optional, outside the all-or-nothing AI group.
+  "AI_TEXT_CHAIN",
+  "AI_TRANSCRIPTION_CHAIN",
   "ASSISTANT_CHAIN",
   "ASSISTANT_ENABLED",
   "AUTH_PEPPER",

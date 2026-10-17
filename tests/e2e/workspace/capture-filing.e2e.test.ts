@@ -279,9 +279,22 @@ test("the switch needs the AI, follows a saved AI setup and saves the setting", 
 });
 
 test("with the setting on and the AI removed, the switch shows on, can be turned off, and the selector stays locked until then", async ({ page, request }) => {
+  await page.goto("/app");
+  const seed = await seedWorkspace(page, "no-ai");
   await setAutomatic(request, true);
   // No ai.json (beforeEach removed it): the server cannot choose, yet the
-  // setting stays saved on.
+  // setting stays saved on, and a new capture goes to the Inbox without
+  // asking anything (A45).
+  const id = `e2e_filing_${run}_${test.info().project.name}_no_ai`;
+  const answer = await capture(page, { collectionId: seed.a.id, id, title: `Checkout without AI ${run} ${test.info().project.name}` });
+  expect(answer.status).toBe(201);
+  expect(answer.filing).toEqual({ collectionId: null, confidence: 0, engine: "none", reason: "error" });
+  expect(answer.destination.collectionId).toBe(seed.inboxId);
+  const stored = await storedSession(page, id);
+  expect(stored.collectionId).toBe(seed.inboxId);
+  expect(stored.filedBy).toBeUndefined();
+  expect(fake.decisionRequests).toHaveLength(0);
+
   await page.goto("/app");
   const dialog = await openCaptureSettings(page);
   const toggle = dialog.getByRole("switch", { name: SWITCH });

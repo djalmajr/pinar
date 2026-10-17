@@ -224,14 +224,25 @@ describe("local capture filing (POST /api/shots)", () => {
     assert.equal("filedBy" in stored, false);
   });
 
-  test("switch on without AI configured: the preference is ignored and nothing is fetched", async () => {
+  test("switch on without AI configured: the Inbox with reason error, unmarked, and nothing is fetched (A45)", async () => {
+    // Mutation captured: filing only with the AI configured keeps the body's Checkout.
     useEndpoint(fakeEndpoint({ decide: decideFor("Onboarding", 0.95), engine: "decisions" }));
-    const { checkout } = await seedCollections();
+    const { checkout, inbox } = await seedCollections();
+    await seedSession({ batchId: "batch_no_ai", collectionId: checkout, createdAt: "2026-10-01T10:00:00.000Z", id: "local_no_ai_first", title: "First" });
     await patchPreferences({ autoCaptureDestination: true });
+    const filing = { collectionId: null, confidence: 0, engine: "none", reason: "error" };
 
     const body = (await (await shot({ collectionId: checkout, id: "local_no_ai", title: "Onboarding welcome" })).json()) as Record<string, any>;
-    assert.equal(body.destination.collectionId, checkout);
-    assert.equal("filing" in body, false);
+    assert.equal(body.destination.collectionId, inbox);
+    assert.deepEqual(body.filing, filing);
+    const stored = await storedSession("local_no_ai");
+    assert.equal(stored.collectionId, inbox);
+    assert.equal("filedBy" in stored, false);
+
+    // Not even an existing batch is followed without the AI.
+    const batched = (await (await shot({ batchId: "batch_no_ai", collectionId: checkout, id: "local_no_ai_batch", title: "Onboarding" })).json()) as Record<string, any>;
+    assert.equal(batched.destination.collectionId, inbox);
+    assert.deepEqual(batched.filing, filing);
     assert.equal(endpoint.calls.length, 0);
   });
 

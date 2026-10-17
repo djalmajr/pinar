@@ -350,7 +350,8 @@ describe("cloud capture filing (POST /api/shots)", () => {
     }
   });
 
-  test("outside the gate (switch off, production, no Pro) the preference is ignored and nothing is fetched", async () => {
+  test("outside the gate (switch off, production, no AI, no Pro) the switch on files in the Inbox with reason error, fetching nothing (A45)", async () => {
+    // Mutation captured: ignoring the switch outside the gate keeps the body's Checkout.
     const variants: Array<{ name: string; overrides: Partial<CloudEnv>; plan: "free" | "pro" }> = [
       { name: "assistant switch off", overrides: { ASSISTANT_ENABLED: "false" }, plan: "pro" },
       { name: "production", overrides: { DEPLOYMENT_ENV: "production" }, plan: "pro" },
@@ -367,11 +368,19 @@ describe("cloud capture filing (POST /api/shots)", () => {
         await writeOwnerDeliveryPreferences(env, OWNER, { autoCaptureDestination: true });
         appliance = fakeAppliance({ decide: decideFor("Onboarding", 0.95), engine: "decisions" });
 
+        const inbox = { collectionId: null, confidence: 0, engine: "none", reason: "error" };
         const body = await shot(env, cookie, { collectionId: "col_checkout", id: "cloud_gate_001", title: "Onboarding" });
-        assert.equal(body.destination.collectionId, "col_checkout", variant.name);
-        assert.equal("filing" in body, false, variant.name);
+        assert.equal(body.destination.collectionId, "col_inbox", variant.name);
+        assert.deepEqual(body.filing, inbox, variant.name);
+        assert.deepEqual(stored(db, "cloud_gate_001"), { batch_id: null, collection_id: "col_inbox", filed_by: null }, variant.name);
+
+        // Not even an existing batch is followed: nothing of the filing runs.
+        insertSession(db, { batchId: "batch_gate", collectionId: "col_checkout", createdAt: "2026-10-01T10:00:00.000Z", id: "cloud_gate_first", title: "First" });
+        const batched = await shot(env, cookie, { batchId: "batch_gate", collectionId: "col_checkout", id: "cloud_gate_002", title: "Onboarding" });
+        assert.equal(batched.destination.collectionId, "col_inbox", variant.name);
+        assert.deepEqual(batched.filing, inbox, variant.name);
+        assert.deepEqual(stored(db, "cloud_gate_002"), { batch_id: "batch_gate", collection_id: "col_inbox", filed_by: null }, variant.name);
         assert.equal(appliance.calls.length, 0, variant.name);
-        assert.equal(stored(db, "cloud_gate_001").filed_by, null, variant.name);
       } finally {
         db.close();
       }

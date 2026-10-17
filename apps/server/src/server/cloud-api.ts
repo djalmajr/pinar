@@ -6592,6 +6592,12 @@ function cloudFilingSource(env: CloudEnv, principal: Principal): Omit<FilingSour
   };
 }
 
+// The Inbox, unmarked, when no engine could answer: the gate is closed (A45)
+// or the engines failed to load.
+function inboxWithoutEngine(): FilingOutcome {
+  return { filedBy: null, filing: { collectionId: null, confidence: 0, engine: "none", reason: "error" } };
+}
+
 // The filing of a new capture of the principal (behind the gate). The
 // engines are loaded here, lazily: they pull in the AI SDK. The budget
 // (FILING_TIMEOUT_MS) counts the module load; a load that fails files the
@@ -6614,7 +6620,7 @@ async function fileCloudShot(
       timeoutMs: FILING_TIMEOUT_MS - (Date.now() - startedAt),
     });
   } catch {
-    return { filedBy: null, filing: { collectionId: null, confidence: 0, engine: "none", reason: "error" } };
+    return inboxWithoutEngine();
   }
 }
 
@@ -6717,11 +6723,11 @@ async function uploadShot(request: Request, env: CloudEnv) {
   const origin = new URL(request.url).origin;
   const shotUrl = `${origin}/shots/${id}.png`;
   const preferences = await readOwnerDeliveryPreferences(env, principal.id);
-  // F3.5: with the automatic destination on, inside the assistant gate
-  // (A33), the server files the new capture and the body's collectionId is
-  // ignored (A27); without an engine, or in doubt, it goes to the Inbox
-  // (A29). Outside the gate the preference is ignored.
-  const automatic = preferences.autoCaptureDestination && cloudAssistantStatus(env, principal).available;
+  // F3.5: with the automatic destination on, the server files the new
+  // capture and the body's collectionId is ignored (A27); without an
+  // engine, or in doubt, it goes to the Inbox (A29). Outside the assistant
+  // gate (A33) it goes there too, without loading the engines (A45).
+  const automatic = preferences.autoCaptureDestination;
   const manualDestination = automatic
     ? null
     : await resolveDestination(
@@ -6735,6 +6741,9 @@ async function uploadShot(request: Request, env: CloudEnv) {
   let destination: CaptureDestination;
   if (manualDestination) {
     destination = manualDestination;
+  } else if (!cloudAssistantStatus(env, principal).available) {
+    filed = inboxWithoutEngine();
+    destination = await resolveDestination(env, principal, "");
   } else {
     filed = await fileCloudShot(env, principal, capture, batchId);
     destination = await resolveDestination(env, principal, filed.filing.collectionId ?? "");

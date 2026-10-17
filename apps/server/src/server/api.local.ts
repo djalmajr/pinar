@@ -606,18 +606,21 @@ async function fileAndSaveShot(
   saved: string,
   preferences: DeliveryPreferences,
 ): Promise<Response> {
-  // F3.5: with the automatic destination on and the AI configured (A33),
-  // the server files the new capture and the body's collectionId is
-  // ignored (A27); without an engine, or in doubt, it goes to the Inbox
-  // (A29).
-  let filed: FilingOutcome | null = capture && preferences.autoCaptureDestination && localAiConfigured(rootPath())
-    ? await fileLocalCapture({
-      batchId: batchValue(body)?.id ?? null,
-      capture,
-      db: historyDatabase() as HistoryDatabase & LocalPinIndexHistory,
-      root: rootPath(),
-    })
-    : null;
+  // F3.5: with the automatic destination on, the server files the new
+  // capture and the body's collectionId is ignored (A27); without an
+  // engine, or in doubt, it goes to the Inbox (A29). Without the AI
+  // configured it goes there too, without asking anything (A45).
+  let filed: FilingOutcome | null = null;
+  if (capture && preferences.autoCaptureDestination) {
+    filed = localAiConfigured(rootPath())
+      ? await fileLocalCapture({
+        batchId: batchValue(body)?.id ?? null,
+        capture,
+        db: historyDatabase() as HistoryDatabase & LocalPinIndexHistory,
+        root: rootPath(),
+      })
+      : { filedBy: null, filing: { collectionId: null, confidence: 0, engine: "none", reason: "error" } };
+  }
   const destination = historyDatabase().resolveDestination(
     filed
       ? filed.filing.collectionId ?? undefined

@@ -8817,23 +8817,50 @@ function complimentaryProUserIds(env: CloudEnv): string[] {
   return (env.COMPLIMENTARY_PRO_USER_IDS?.split(",") ?? []).map((entry) => entry.trim()).filter(Boolean);
 }
 
-// Owners with at least one session with pins whose plan includes AI, the
-// most recently captured first, without reading accounts one by one: the
-// plan filter runs in SQL on the two inputs of effectiveAccountPlan, the
-// users.plan column and the deployment's complimentary list. One query;
-// complimentary ids past the first PIN_SEARCH_IN_CHUNK add one query per
-// chunk, and no further query starts once `expired()` says the cron's
-// budget is spent (the cron then reports work left).
+// The owners the daily index cron covers (A49), the most recently captured
+// first, without reading accounts one by one: at least one session with
+// pins, a plan that includes AI (the plan filter runs in SQL on the two
+// inputs of effectiveAccountPlan, the users.plan column and the
+// deployment's complimentary list), and AI use on the account's side — at
+// least one assistant conversation (an assistant_threads row with the
+// owner's id) or the "choose the collection automatically" switch
+// (owner_preferences.auto_capture_destination = 1). One query; complimentary
+// ids past the first PIN_SEARCH_IN_CHUNK add one query per chunk, and no
+// further query starts once `expired()` says the cron's budget is spent
+// (the cron then reports work left). A D1 without assistant_threads (before
+// migration 0027) or without the switch's column (before 0030) never counts
+// an owner by the missing side — the table is checked in sqlite_master, as
+// the margin monitor does, and the column by a guarded read, as the
+// preferences do — so on a D1 without both the enumeration runs no query
+// and the cron indexes nobody instead of breaking.
 async function pinSearchOwners(env: CloudEnv, expired: () => boolean = () => false): Promise<string[]> {
   const complimentary = complimentaryProUserIds(env);
   if (!env.DB) {
     const owners: string[] = [];
     for (const ownerId of new Set(memoryPinSessionRows(() => true, Number.MAX_SAFE_INTEGER).map((row) => row.ownerId))) {
       const account = ownerId ? memoryAccounts.get(ownerId) : undefined;
-      if (account && (account.plan === "pro" || complimentary.includes(ownerId))) owners.push(ownerId);
+      if (!account || !(account.plan === "pro" || complimentary.includes(ownerId))) continue;
+      // The AI-use sides, from the assistant's and the preferences' memory.
+      const hasConversation = (await cloudAssistantStore(env, ownerId).listThreads({ limit: 1, offset: 0 })).length > 0;
+      const hasSwitch = memoryOwnerPreferences.get(ownerId)?.autoCaptureDestination === true;
+      if (hasConversation || hasSwitch) owners.push(ownerId);
     }
     return owners;
   }
+  // The AI-use sides this D1 has (see the function's comment): without
+  // both, no owner qualifies and the enumeration reads nothing.
+  const threads = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'assistant_threads'").first();
+  let switchReady = false;
+  try {
+    await env.DB.prepare("SELECT auto_capture_destination FROM owner_preferences LIMIT 1").first();
+    switchReady = true;
+  } catch {
+    // The column is not there yet (or the table is not yet either).
+  }
+  const sides: string[] = [];
+  if (threads) sides.push("EXISTS (SELECT 1 FROM assistant_threads t WHERE t.owner_id = s.user_id)");
+  if (switchReady) sides.push("EXISTS (SELECT 1 FROM owner_preferences p WHERE p.owner_id = s.user_id AND p.auto_capture_destination = 1)");
+  if (sides.length === 0) return [];
   const groups: string[][] = [complimentary.slice(0, PIN_SEARCH_IN_CHUNK)];
   for (let start = PIN_SEARCH_IN_CHUNK; start < complimentary.length; start += PIN_SEARCH_IN_CHUNK) {
     groups.push(complimentary.slice(start, start + PIN_SEARCH_IN_CHUNK));
@@ -8845,7 +8872,7 @@ async function pinSearchOwners(env: CloudEnv, expired: () => boolean = () => fal
     // The first query also reads the plan column.
     const plan = index > 0 ? listed : listed ? `u.plan = 'pro' OR ${listed}` : "u.plan = 'pro'";
     const rows = await env.DB.prepare(
-      `SELECT s.user_id AS user_id, MAX(s.created_at) AS latest FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.pin_count > 0 AND (${plan}) GROUP BY s.user_id`,
+      `SELECT s.user_id AS user_id, MAX(s.created_at) AS latest FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.pin_count > 0 AND (${plan}) AND (${sides.join(" OR ")}) GROUP BY s.user_id`,
     ).bind(...ids).all();
     for (const row of rows.results || []) {
       const ownerId = String(row.user_id || "");
@@ -8859,10 +8886,13 @@ async function pinSearchOwners(env: CloudEnv, expired: () => boolean = () => fal
 }
 
 /**
- * Daily cron job: indexes the pins of each owner on a plan with AI, the
- * owner's own sessions only, within 60 s for the whole run, the owners'
- * enumeration included (runCloudPinIndexCron starts the budget before it).
- * With the assistant's deployment gate off it reads nothing.
+ * Daily cron job (A49): indexes the pins of each owner the cron covers — a
+ * plan with AI, at least one session with pins, and AI use on the
+ * account's side (an assistant conversation or the automatic capture
+ * destination) — the owner's own sessions only, within 60 s for the whole
+ * run, the owners' enumeration included (runCloudPinIndexCron starts the
+ * budget before it). With the assistant's deployment gate off it reads
+ * nothing.
  */
 export async function indexPinSearch(env: CloudEnv, options: { fetch?: typeof fetch; now?: () => Date } = {}) {
   if (!(await cloudAssistantDeploymentEnabled(env))) return { failed: 0, indexed: 0, owners: 0, remaining: false };
@@ -8873,7 +8903,7 @@ export async function indexPinSearch(env: CloudEnv, options: { fetch?: typeof fe
     now: options.now ?? currentDate,
     // The owner as the cron's principal: only its id is read
     // (ownedSessions, findOwnedSession), and pinSearchOwners already kept
-    // owners on a plan with AI.
+    // owners the cron covers (A49).
     ownerData: (ownerId) => cloudPinSourceData(env, { id: ownerId, isPermanent: true, kind: "account", plan: "pro" }, { shared: false }),
     owners: (expired) => pinSearchOwners(env, expired),
     recordIndexCost: cloudIndexCostRecorder(env),

@@ -16,9 +16,10 @@
 // 1/rank of the first expected pin among them (0 when none), and the MRR is
 // the mean over the questions (MRR@5). searchPins falls back to its text
 // ranking when embedding the query fails, without saying so: the probe
-// checks every query request it sends (status and a 256-dimension vector)
-// and marks a question whose request failed as `text-fallback`, which
-// fails the run.
+// checks every query response it gets with the production rules (a 2xx, as
+// postEndpointJson requires, and parseEmbeddings with one input) and marks
+// a question whose response they refuse as `text-fallback`, which fails the
+// run.
 //
 // Output: one line per question and the total on stdout, the JSON at --out
 // (default <tmp>/assistant-bench-out/search-probe-<model>-<timestamp>.json).
@@ -30,7 +31,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { PIN_EMBEDDING_DIMENSIONS, type EmbeddingEndpoint } from "../../src/server/assistant/retrieval/embeddings";
+import { parseEmbeddings, type EmbeddingEndpoint } from "../../src/server/assistant/retrieval/embeddings";
 import {
   indexSession,
   searchPins,
@@ -202,24 +203,14 @@ export interface ProbeResult {
   totals: { fallbacks: number; hits: number; hitRate: number | null; mrr: number | null; questions: number };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-// Whether a query embedding response is one searchPins can rank with: a 2xx
-// whose JSON has one vector of PIN_EMBEDDING_DIMENSIONS finite numbers.
+// Whether searchPins could rank with a query embedding response: a 2xx
+// whose JSON the production parser accepts for one input (count, index,
+// dimensions and finite values are its rules, not the probe's).
 async function usableQueryResponse(response: Response): Promise<boolean> {
   if (!response.ok) return false;
   try {
-    const body: unknown = await response.json();
-    const data = isRecord(body) ? body["data"] : undefined;
-    const item = Array.isArray(data) && data.length === 1 ? data[0] : undefined;
-    const embedding = isRecord(item) ? item["embedding"] : undefined;
-    return (
-      Array.isArray(embedding) &&
-      embedding.length === PIN_EMBEDDING_DIMENSIONS &&
-      embedding.every((value) => typeof value === "number" && Number.isFinite(value))
-    );
+    parseEmbeddings(await response.json(), 1);
+    return true;
   } catch {
     return false;
   }

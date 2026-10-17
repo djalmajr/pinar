@@ -6615,8 +6615,24 @@ export async function runMeteredAiFeature<T>(input: RunMeteredAiFeatureInput<T>)
         return shortCircuit;
       }
     }
+    // F4d round 2: by here the result is persisted (or, without
+    // `onSuccess`, it is delivered in this very answer) — the auxiliary
+    // balance read of the answer must not be able to refund a consumed
+    // usage. A failure preserves the debit: 200 with the result and a null
+    // balance (the client reads only the result).
+    let aiCredits: Awaited<ReturnType<typeof aiCreditBalance>> | null;
+    try {
+      aiCredits = await aiCreditBalance(env, principal);
+    } catch (balanceError) {
+      console.error("ai_credit_balance_failed", JSON.stringify({
+        error: String(balanceError),
+        feature: spec.feature,
+        usageId: reservation.usage.id,
+      }));
+      aiCredits = null;
+    }
     return json({
-      aiCredits: await aiCreditBalance(env, principal),
+      aiCredits,
       creditsCharged: reservation.usage.credits,
       idempotent: false,
       ok: true,
@@ -7128,11 +7144,35 @@ async function uploadShot(request: Request, env: CloudEnv) {
     destination = await resolveDestination(env, principal, "");
   } else {
     filed = await fileCloudShot(env, principal, capture, batchId);
-    destination = await resolveDestination(env, principal, filed.filing.collectionId ?? "");
-    // A chosen collection that disappeared before the save leaves the
-    // capture in the Inbox, unmarked.
-    if (filed.filing.collectionId !== null && filed.filing.collectionId !== destination.collectionId) {
-      filed = { filedBy: null, filing: { ...filed.filing, collectionId: null, reason: "error" } };
+    if (filed.keepDestination) {
+      // F4d round 2: the capture already has an open or a refunded usage —
+      // this run made no decision, so a session that already exists and
+      // belongs to the owner keeps the collection and the mark it already
+      // has (a re-upload must not send a moved capture back to the Inbox).
+      // Only a session that does not exist yet goes to the Inbox, with the
+      // choice's reason.
+      let current: Session | null = null;
+      if (env.DB) {
+        const row = await env.DB.prepare("SELECT * FROM sessions WHERE id = ? AND user_id = ?")
+          .bind(id, principal.id).first();
+        current = row ? sessionFromRow(row) : null;
+      } else {
+        const session = memorySessions.get(id);
+        current = session && session.userId === principal.id ? session : null;
+      }
+      if (current) {
+        destination = await resolveDestination(env, principal, current.collectionId ?? "");
+        filed = { filedBy: current.filedBy === "auto" ? "auto" : null, filing: filed.filing };
+      } else {
+        destination = await resolveDestination(env, principal, "");
+      }
+    } else {
+      destination = await resolveDestination(env, principal, filed.filing.collectionId ?? "");
+      // A chosen collection that disappeared before the save leaves the
+      // capture in the Inbox, unmarked.
+      if (filed.filing.collectionId !== null && filed.filing.collectionId !== destination.collectionId) {
+        filed = { filedBy: null, filing: { ...filed.filing, collectionId: null, reason: "error" } };
+      }
     }
     // A batch that had no session when the engine was asked (A36).
     if (batchId && !filed.followedBatch) {

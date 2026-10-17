@@ -59,6 +59,14 @@ export interface FilingChoice {
   confidence: number; // 0..1
   engine: FilingEngine["kind"] | "none";
   reason: "chosen" | "low_confidence" | "no_candidates" | "timeout" | "error" | "no_credits";
+  /**
+   * Set only by the `existing` meter state (an open or a refunded usage of
+   * the capture): the run makes no decision, so the upload must not move a
+   * session that already exists — it keeps the collection and the mark it
+   * already has (F4d round 2). Never stored as result_json (that state
+   * consumes nothing).
+   */
+  keepDestination?: true;
 }
 
 /**
@@ -117,7 +125,9 @@ export function parseFilingChoice(json: string | null): FilingChoice | null {
   if (collectionId !== null && typeof collectionId !== "string") return null;
   if (typeof confidence !== "number" || Number.isNaN(confidence) || confidence < 0 || confidence > 1) return null;
   if (engine !== "decisions" && engine !== "similarity" && engine !== "none") return null;
-  if (!["chosen", "low_confidence", "no_candidates", "timeout", "error", "no_credits"].includes(String(reason))) return null;
+  // `reason` as a plain string compared without coercion: a coercible value
+  // (an array, a number) is refused with the whole choice (F4d round 2).
+  if (typeof reason !== "string" || !["chosen", "low_confidence", "no_candidates", "timeout", "error", "no_credits"].includes(reason)) return null;
   return {
     collectionId: collectionId as string | null,
     confidence,
@@ -295,9 +305,11 @@ export async function chooseCollection(input: {
     }
     if (state === "existing") {
       // The capture already has an open or a refunded usage: the engine is
-      // not called again and nothing settles; the capture keeps the
-      // destination the session already has.
-      return { collectionId: null, confidence: 0, engine: input.engine.kind, reason: "error" };
+      // not called again and nothing settles. The run makes no decision:
+      // `keepDestination` tells the upload to leave a session that already
+      // exists where it is — the Inbox only when it does not exist yet
+      // (F4d round 2).
+      return { collectionId: null, confidence: 0, engine: input.engine.kind, reason: "error", keepDestination: true };
     }
     if (state === "no_credits") {
       return { collectionId: null, confidence: 0, engine: input.engine.kind, reason: "no_credits" };

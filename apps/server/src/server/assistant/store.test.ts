@@ -39,6 +39,23 @@ describe("assistant store helpers", () => {
     assert.equal(assistantThreadTitle("😀"), "😀");
   });
 
+  test("without Intl.Segmenter the title cut still keeps accents, ZWJ emoji and flags whole", () => {
+    const intl = Intl as { Segmenter?: unknown };
+    const segmenter = intl.Segmenter;
+    delete intl.Segmenter;
+    try {
+      assert.equal(typeof (Intl as { Segmenter?: unknown }).Segmenter, "undefined");
+      const prefix = "a".repeat(78);
+      assert.equal(assistantThreadTitle(`${prefix}e\u0301xyz`), `${prefix}e\u0301…`);
+      assert.equal(assistantThreadTitle(`${prefix}\u{1F469}\u200D\u{1F4BB}xyz`), `${prefix}\u{1F469}\u200D\u{1F4BB}…`);
+      assert.equal(assistantThreadTitle(`${prefix}\u{1F1E7}\u{1F1F7}\u{1F1FA}\u{1F1F8}x`), `${prefix}\u{1F1E7}\u{1F1F7}…`);
+      assert.equal(assistantThreadTitle(`${prefix}\u{1F44D}\u{1F3FD}xyz`), `${prefix}\u{1F44D}\u{1F3FD}…`);
+      assert.equal(assistantThreadTitle("e\u0301"), "e\u0301");
+    } finally {
+      intl.Segmenter = segmenter;
+    }
+  });
+
   test("id generators produce the contract shapes", () => {
     assert.match(newAssistantThreadId(), ASSISTANT_THREAD_ID_PATTERN);
     assert.match(newAssistantMessageId(), ASSISTANT_MESSAGE_ID_PATTERN);

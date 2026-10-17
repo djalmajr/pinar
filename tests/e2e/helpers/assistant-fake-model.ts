@@ -35,11 +35,33 @@ export type FakeTurn =
 
 export interface FakeModelOptions {
   /**
+   * Declares the appliance's decisions extra on the chat model in /v1/models
+   * and answers POST /v1/decisions from the enqueueDecision queue. Without
+   * it, the chat model has no extra and /v1/decisions answers 404.
+   */
+  decisions?: boolean;
+  /**
    * Lists FAKE_EMBEDDING_MODEL as an embedding model in /v1/models and
    * answers POST /v1/embeddings. Without it, /v1/models lists only the chat
    * model and /v1/embeddings answers 404, as before.
    */
   embeddings?: boolean;
+}
+
+/** The decisions extra the appliance declares on a chat model in /v1/models. */
+export const FAKE_DECISIONS_EXTRA = { available: true, endpoint: "/v1/decisions", experimental: true, scope: "decisions" };
+
+export interface FakeDecisionRequest {
+  instructions?: string;
+  model?: string;
+  questions?: Array<{ id?: string; options?: string[]; question?: string }>;
+  state?: string;
+}
+
+/** One scripted answer of POST /v1/decisions: the chosen option and the probability of each option. */
+export interface FakeDecision {
+  choice: string;
+  probabilities: Record<string, number>;
 }
 
 export const FAKE_EMBEDDING_MODEL = "fake-embed";
@@ -53,12 +75,19 @@ export interface FakeEmbeddingRequest {
 }
 
 export interface FakeModel {
+  /** Parsed JSON bodies of every POST /v1/decisions received, answered or not. */
+  decisionRequests: FakeDecisionRequest[];
   /** Base URL to put in ai.json (`http://127.0.0.1:<port>/v1`). */
   endpoint: string;
   /** Parsed JSON bodies of every POST /v1/embeddings received, answered or not. */
   embeddingRequests: FakeEmbeddingRequest[];
   /** Script the next chat completion answers, in order. */
   enqueue(...turns: FakeTurn[]): void;
+  /**
+   * Script the next POST /v1/decisions answer (one decision for the request's
+   * first question). Its probabilities must sum to 1, as the appliance's do.
+   */
+  enqueueDecision(decision: FakeDecision): void;
   /** Parsed JSON bodies of every POST /v1/chat/completions received. */
   requests: Array<{ messages?: Array<{ content?: unknown; role: string }>; tools?: Array<{ function?: { name?: string } }> }>;
   reset(): void;
@@ -114,10 +143,14 @@ export async function startFakeModel(options: FakeModelOptions = {}): Promise<Fa
   const queue: FakeTurn[] = [];
   const requests: FakeModel["requests"] = [];
   const embeddingRequests: FakeEmbeddingRequest[] = [];
+  const decisionQueue: FakeDecision[] = [];
+  const decisionRequests: FakeDecisionRequest[] = [];
   const server: Server = createServer(async (request, response) => {
     const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
     if (request.method === "GET" && path === "/v1/models") {
-      const models: Array<Record<string, unknown>> = [{ id: "fake-model" }];
+      const models: Array<Record<string, unknown>> = [
+        options.decisions ? { decisions: FAKE_DECISIONS_EXTRA, id: "fake-model" } : { id: "fake-model" },
+      ];
       if (options.embeddings) models.push({ id: FAKE_EMBEDDING_MODEL, type: "embedding" });
       response.writeHead(200, { "content-type": "application/json" });
       response.end(JSON.stringify({ data: models }));
@@ -133,6 +166,19 @@ export async function startFakeModel(options: FakeModelOptions = {}): Promise<Fa
       const data = (body.input ?? []).map((text, index) => ({ embedding: fakeEmbedding(text), index, object: "embedding" }));
       response.writeHead(200, { "content-type": "application/json" });
       response.end(JSON.stringify({ data, model: FAKE_EMBEDDING_MODEL, object: "list" }));
+      return;
+    }
+    if (request.method === "POST" && path === "/v1/decisions") {
+      const body = JSON.parse(await readBody(request)) as FakeDecisionRequest;
+      decisionRequests.push(body);
+      const decision = options.decisions ? decisionQueue.shift() : undefined;
+      if (!decision) {
+        response.writeHead(options.decisions ? 500 : 404, { "content-type": "text/plain" });
+        response.end(options.decisions ? "no scripted decision" : "");
+        return;
+      }
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ decisions: [{ id: body.questions?.[0]?.id ?? "", ...decision }] }));
       return;
     }
     if (request.method === "POST" && path === "/v1/chat/completions") {
@@ -167,14 +213,22 @@ export async function startFakeModel(options: FakeModelOptions = {}): Promise<Fa
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("fake model did not bind");
   return {
+    decisionRequests,
     embeddingRequests,
     endpoint: `http://127.0.0.1:${address.port}/v1`,
     enqueue: (...turns) => queue.push(...turns),
+    enqueueDecision: (decision) => {
+      const total = Object.values(decision.probabilities).reduce((sum, value) => sum + value, 0);
+      if (Math.abs(total - 1) > 1e-9) throw new Error(`scripted decision probabilities sum to ${total}, not 1`);
+      decisionQueue.push(decision);
+    },
     requests,
     reset: () => {
       queue.length = 0;
       requests.length = 0;
       embeddingRequests.length = 0;
+      decisionQueue.length = 0;
+      decisionRequests.length = 0;
     },
     stop: () => new Promise<void>((resolve) => {
       server.closeAllConnections();

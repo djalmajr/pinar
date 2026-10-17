@@ -242,6 +242,7 @@ const messages: UiMessages = {
   "settings.autoCaptureDestination": "自动选择集合",
   "settings.autoCaptureDestinationDescription":
     "Pinar 会为每个新捕获选择集合；不确定时，它会进入收件箱。",
+  "settings.autoCaptureDestinationInboxFallback": "AI 不可用时，新捕获会进入收件箱。",
   "settings.autoCaptureDestinationUnavailable": "需要先配置 AI。",
   "settings.captureHeading": "捕获",
   "settings.collection": "集合",

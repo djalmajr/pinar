@@ -47,7 +47,7 @@ function render(element: ReactElement) {
   tooltips.length = 0;
   const html = renderToStaticMarkup(<ServerI18nProvider initialLanguage="en" initialMessages={enUi}>{element}</ServerI18nProvider>);
   const mark = html.match(new RegExp(`<span[^>]*aria-label="${AUTO_FILED}"[^>]*>`))?.[0] ?? "";
-  return { html, marked: mark.includes('role="img"') && tooltips.length === 1 && tooltips[0] === AUTO_FILED, tooltips: [...tooltips] };
+  return { html, mark, marked: mark.includes('role="img"') && tooltips.length === 1 && tooltips[0] === AUTO_FILED, tooltips: [...tooltips] };
 }
 
 function session(id: string, filedBy?: Session["filedBy"]): Session {
@@ -68,6 +68,14 @@ describe("collection chip: automatically filed mark", () => {
     expect(manual.html).toContain("Design");
     expect(manual.html).not.toContain(AUTO_FILED);
     expect(manual.tooltips).toEqual([]);
+  });
+
+  test("the mark takes keyboard focus, so its tooltip opens from the keyboard too", () => {
+    for (const element of [<CollectionChip filedBy="auto" name="Design" />, <SessionIdentity heading session={session("a", "auto")} showFiledMark />]) {
+      const { mark } = render(element);
+      expect(mark).toContain('tabindex="0"');
+      expect(mark).toContain(`aria-label="${AUTO_FILED}"`);
+    }
   });
 
   test("without a collection name there is no chip, and no mark", () => {

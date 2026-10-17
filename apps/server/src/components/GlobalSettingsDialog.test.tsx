@@ -1,4 +1,4 @@
-import { type ComponentProps, createElement } from "react";
+import { type ComponentProps, createElement, type ReactNode } from "react";
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -27,10 +27,24 @@ for (const spec of new Set(ROOTS.flatMap(sourceFiles).flatMap((file) => readFile
 const ui = { ...(await import("@pinar/ui")) };
 type SwitchProps = ComponentProps<typeof ui.Switch>;
 type CascaderProps = ComponentProps<typeof ui.Cascader>;
+type ButtonProps = ComponentProps<typeof ui.Button>;
 const switches = new Map<string, SwitchProps>();
 const cascaders = new Map<string, CascaderProps>();
+const buttons: ButtonProps[] = [];
+// A dialog portal renders nothing on the server, so its parts become plain
+// containers for this file and the whole settings body is in the markup.
+const container = ({ children }: { children?: ReactNode }) => createElement("div", null, children);
 mock.module("@pinar/ui", () => ({
   ...ui,
+  Button: (props: ButtonProps) => {
+    buttons.push(props);
+    return createElement(ui.Button, props);
+  },
+  Dialog: container,
+  DialogClose: container,
+  DialogContent: container,
+  DialogDescription: container,
+  DialogTitle: container,
   Cascader: (props: CascaderProps) => {
     cascaders.set(props["aria-label"], props);
     return createElement(ui.Cascader, props);
@@ -45,6 +59,7 @@ type PreferencesValue = DeliveryPreferences & {
   autoCaptureDestinationAvailable: boolean;
   available: boolean;
   patch: (partial: Partial<DeliveryPreferences>) => Promise<void>;
+  refresh: () => Promise<void>;
 };
 const deliveryPreferences = { ...(await import("@/lib/delivery-preferences")) };
 const patches: Array<Partial<DeliveryPreferences>> = [];
@@ -59,7 +74,7 @@ afterAll(() => {
   mock.module("@/lib/delivery-preferences", () => deliveryPreferences);
 });
 
-const { CaptureDestinationSettings } = await import("./GlobalSettingsDialog");
+const { CaptureDestinationSettings, GlobalSettingsDialog } = await import("./GlobalSettingsDialog");
 
 const STAMP = { createdAt: "2026-10-17T00:00:00.000Z", ownerId: "owner", updatedAt: "2026-10-17T00:00:00.000Z" };
 const PROJECTS: ProjectTreeProject[] = [{
@@ -78,6 +93,7 @@ const PROJECTS: ProjectTreeProject[] = [{
 const AUTO_LABEL = enUi["settings.autoCaptureDestination"];
 const DESTINATION_LABEL = enUi["settings.captureDestination"];
 const UNAVAILABLE = enUi["settings.autoCaptureDestinationUnavailable"];
+const INBOX_FALLBACK = enUi["settings.autoCaptureDestinationInboxFallback"];
 
 function render(overrides: Partial<DeliveryPreferences & { autoCaptureDestinationAvailable: boolean; available: boolean }> = {}) {
   preferences = {
@@ -88,6 +104,7 @@ function render(overrides: Partial<DeliveryPreferences & { autoCaptureDestinatio
     patch: async (partial) => {
       patches.push(partial);
     },
+    refresh: async () => {},
   };
   switches.clear();
   cascaders.clear();
@@ -133,22 +150,118 @@ describe("Settings → Capture: automatic collection", () => {
     expect(off.destinationDisabledAttribute).toBe(false);
   });
 
-  test("unavailable in the preferences, the switch is disabled with the reason and the selector stays editable", () => {
-    const unavailable = render({ autoCaptureDestination: true, autoCaptureDestinationAvailable: false });
-    expect(unavailable.toggle.disabled).toBe(true);
-    // Without a way to choose, the server files by the manual destination.
-    expect(unavailable.toggle.checked).toBe(false);
-    expect(unavailable.destination.disabled).toBe(false);
-    expect(unavailable.html).toContain(UNAVAILABLE);
+  // The switch shows the saved setting in every state; the selector is locked
+  // whenever the setting is on, since the server keeps filing automatically.
+  test("unavailable and off: the switch cannot be turned on, with the reason; the selector stays editable", () => {
+    const { destination, html, toggle } = render({ autoCaptureDestination: false, autoCaptureDestinationAvailable: false });
+    expect(toggle.checked).toBe(false);
+    expect(toggle.disabled).toBe(true);
+    expect(destination.disabled).toBe(false);
+    expect(html).toContain(UNAVAILABLE);
+    expect(html).not.toContain(INBOX_FALLBACK);
+  });
 
-    const available = render({ autoCaptureDestinationAvailable: true });
-    expect(available.toggle.disabled).toBe(false);
-    expect(available.html).not.toContain(UNAVAILABLE);
+  test("unavailable and on: the switch shows on and can only be turned off; the selector stays locked", () => {
+    const { destination, destinationDisabledAttribute, html, toggle } = render({ autoCaptureDestination: true, autoCaptureDestinationAvailable: false });
+    expect(toggle.checked).toBe(true);
+    expect(toggle.disabled).toBe(false);
+    expect(destination.disabled).toBe(true);
+    expect(destinationDisabledAttribute).toBe(true);
+    expect(html).toContain(INBOX_FALLBACK);
+    expect(html).not.toContain(UNAVAILABLE);
+    toggle.onCheckedChange?.(false, {} as Parameters<NonNullable<SwitchProps["onCheckedChange"]>>[1]);
+    expect(patches).toEqual([{ autoCaptureDestination: false }]);
+  });
+
+  test("available and off: the switch can be turned on and the selector stays editable", () => {
+    const { destination, html, toggle } = render({ autoCaptureDestination: false, autoCaptureDestinationAvailable: true });
+    expect(toggle.checked).toBe(false);
+    expect(toggle.disabled).toBe(false);
+    expect(destination.disabled).toBe(false);
+    expect(html).not.toContain(UNAVAILABLE);
+    expect(html).not.toContain(INBOX_FALLBACK);
+  });
+
+  test("available and on: the switch shows on and the selector is locked", () => {
+    const { destination, html, toggle } = render({ autoCaptureDestination: true, autoCaptureDestinationAvailable: true });
+    expect(toggle.checked).toBe(true);
+    expect(toggle.disabled).toBe(false);
+    expect(destination.disabled).toBe(true);
+    expect(html).not.toContain(UNAVAILABLE);
+    expect(html).not.toContain(INBOX_FALLBACK);
   });
 
   test("preferences that did not load keep both controls disabled", () => {
     const { destination, toggle } = render({ available: false });
     expect(toggle.disabled).toBe(true);
     expect(destination.disabled).toBe(true);
+  });
+});
+
+describe("Settings → AI: saving reads the preferences again", () => {
+  const ENV = import.meta.env as Record<string, unknown>;
+  const savedRuntime = ENV.VITE_PINAR_RUNTIME;
+  const realFetch = globalThis.fetch;
+  const requests: Array<{ method: string; url: string }> = [];
+  let refreshes = 0;
+
+  // The fetch of this file alone: it answers the AI settings PATCH and never
+  // reaches a server.
+  function answerAiSettings(status: number, body: unknown) {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ method: init?.method ?? "GET", url: String(input) });
+      return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" }, status });
+    }) as typeof fetch;
+  }
+
+  // The real Save button of the local AI section, rendered with the real dialog.
+  function saveButton() {
+    ENV.VITE_PINAR_RUNTIME = "local";
+    preferences = {
+      ...DEFAULT_DELIVERY_PREFERENCES,
+      autoCaptureDestinationAvailable: false,
+      available: true,
+      patch: async () => {},
+      refresh: async () => {
+        refreshes += 1;
+      },
+    };
+    buttons.length = 0;
+    renderToStaticMarkup(
+      <ServerI18nProvider initialLanguage="en" initialMessages={enUi}>
+        <GlobalSettingsDialog open onOpenChange={() => {}} />
+      </ServerI18nProvider>,
+    );
+    const save = buttons.find((props) => props.children === enUi["settings.aiSave"]);
+    if (!save?.onClick) throw new Error("the AI section rendered no Save button");
+    return () => save.onClick?.({} as Parameters<NonNullable<ButtonProps["onClick"]>>[0]);
+  }
+
+  // The click starts the save without returning it: let its awaits run.
+  async function settle() {
+    for (let turn = 0; turn < 10; turn += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    ENV.VITE_PINAR_RUNTIME = savedRuntime;
+    requests.length = 0;
+    refreshes = 0;
+  });
+
+  test("a save that succeeds refreshes the preferences once", async () => {
+    answerAiSettings(200, { hasApiKey: false, ok: true });
+    saveButton()();
+    await settle();
+    expect(requests).toEqual([{ method: "PATCH", url: "/api/ai/settings" }]);
+    expect(refreshes).toBe(1);
+  });
+
+  test("a save that fails does not refresh them", async () => {
+    answerAiSettings(400, { error: "Endpoint unreachable" });
+    saveButton()();
+    await settle();
+    expect(requests).toEqual([{ method: "PATCH", url: "/api/ai/settings" }]);
+    expect(refreshes).toBe(0);
   });
 });

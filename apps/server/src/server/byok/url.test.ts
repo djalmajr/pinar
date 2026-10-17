@@ -77,10 +77,91 @@ describe("validateByokUrl", () => {
     refused("https://./v1", "unparseable");
   });
 
+  test("a hostname with an empty label is not a host: it is refused as unparseable", () => {
+    // Stripping a single terminal dot would leave the forbidden one-dot
+    // form, so every empty label — a second terminal dot, `..` in the
+    // middle or a leading dot — is refused before the classification
+    // (security review P2, double-dot variant).
+    refused("https://localhost..", "unparseable");
+    refused("https://LOCALHOST..:443/v1/", "unparseable");
+    refused("https://a.localhost..", "unparseable");
+    refused("https://metadata.google.internal..", "unparseable");
+    refused("https://foo.local..", "unparseable");
+    refused("https://ｌｏｃａｌｈｏｓｔ..", "unparseable"); // fullwidth, mapped to `localhost..`
+    refused("https://bücher.example..:443/v1/", "unparseable"); // IDN, mapped and then refused
+    refused("https://.example.com", "unparseable"); // leading dot
+    refused("https://a..b.example.com", "unparseable"); // empty label in the middle
+    refused("https://example..com/", "unparseable");
+    refused("https://..", "unparseable");
+    refused("https://...", "unparseable");
+    // IP literals with a second terminal dot parse as domains and carry `..`.
+    refused("https://8.8.8.8..:443/", "unparseable");
+    refused("https://127.0.0.1..:443/", "unparseable");
+    // An IP literal with one terminal dot is canonicalized by the parser
+    // into the dotted quad and classified by IP, not by dot rules.
+    refused("https://127.0.0.1./v1", "private_host");
+    assert.equal(allowed("https://8.8.8.8./v1"), "https://8.8.8.8/v1");
+  });
+
   test("the stored URL is the host that was classified: the trailing dot is normalized away", () => {
     assert.equal(allowed("https://api.example.test./v1/"), "https://api.example.test/v1");
     assert.equal(allowed("https://api.example.test.:443/v1/"), "https://api.example.test/v1");
-    assert.equal(allowed("https://a.b..com./deep/"), "https://a.b..com/deep");
+    assert.equal(allowed("https://sub.example.co.uk./deep/path/"), "https://sub.example.co.uk/deep/path");
+    assert.equal(allowed("https://API.EXAMPLE.COM./v1/"), "https://api.example.com/v1");
+  });
+
+  test("is stable: every accepted URL revalidates to the same normalized form", () => {
+    // The property the review demands: for every accepted URL,
+    // validateByokUrl(normalized) accepts and returns the same normalized
+    // URL. The list walks the hostile families (double dots, :443,
+    // uppercase, fullwidth, IDN, IP literals with a trailing dot) plus
+    // public hosts with and without the terminal dot.
+    const cases: Array<[string, { normalized: string } | { error: ByokUrlError }]> = [
+      // The review's double-dot family: refused, never stored.
+      ["https://localhost..", { error: "unparseable" }],
+      ["https://localhost..:443/v1/", { error: "unparseable" }],
+      ["https://a.localhost..", { error: "unparseable" }],
+      ["https://metadata.google.internal..", { error: "unparseable" }],
+      ["https://foo.local..", { error: "unparseable" }],
+      ["https://ｌｏｃａｌｈｏｓｔ..", { error: "unparseable" }],
+      ["https://bücher.example..:443/v1/", { error: "unparseable" }],
+      ["https://.example.com", { error: "unparseable" }],
+      ["https://a..b.example.com", { error: "unparseable" }],
+      ["https://..", { error: "unparseable" }],
+      // One terminal dot is accepted and stripped, with and without :443.
+      ["https://api.example.test.", { normalized: "https://api.example.test" }],
+      ["https://api.example.test./v1/", { normalized: "https://api.example.test/v1" }],
+      ["https://api.example.test.:443/v1/", { normalized: "https://api.example.test/v1" }],
+      ["https://API.EXAMPLE.COM./v1/", { normalized: "https://api.example.com/v1" }],
+      ["https://sub.example.co.uk./deep/path/", { normalized: "https://sub.example.co.uk/deep/path" }],
+      // IDN: one terminal dot is stripped on the mapped form.
+      ["https://bücher.example.", { normalized: "https://xn--bcher-kva.example" }],
+      ["https://bücher.example.:443/v1", { normalized: "https://xn--bcher-kva.example/v1" }],
+      // Uppercase with one terminal dot.
+      ["https://API.EXAMPLE.COM.", { normalized: "https://api.example.com" }],
+      // Public hosts, with and without the terminal dot.
+      ["https://api.example.com", { normalized: "https://api.example.com" }],
+      ["https://api.example.com.", { normalized: "https://api.example.com" }],
+      ["https://8.8.8.8", { normalized: "https://8.8.8.8" }],
+      ["https://8.8.8.8.", { normalized: "https://8.8.8.8" }],
+      ["https://1.1.1.1./v1", { normalized: "https://1.1.1.1/v1" }],
+      ["https://[2606:4700:4700::1111]/v1", { normalized: "https://[2606:4700:4700::1111]/v1" }],
+      // IP literals with a trailing dot are canonicalized by the parser.
+      ["https://127.0.0.1./v1", { error: "private_host" }],
+      ["https://169.254.169.254./v1", { error: "private_host" }],
+    ];
+    for (const [input, expected] of cases) {
+      assert.deepEqual(validateByokUrl(input), expected, `for ${JSON.stringify(input)}`);
+      if ("normalized" in expected) {
+        // The stored form must revalidate to itself: the classifier and the
+        // stored URL agree on the very host that was classified.
+        assert.deepEqual(
+          validateByokUrl(expected.normalized),
+          expected,
+          `revalidating ${JSON.stringify(expected.normalized)}`,
+        );
+      }
+    }
   });
 
   test("refuses private, loopback, link-local and CGNAT IPv4 literals", () => {

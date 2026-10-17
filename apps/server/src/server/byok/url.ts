@@ -8,9 +8,12 @@
 // WHATWG URL, which canonicalizes the hostile IP spellings (decimal, octal,
 // hex, the short "127.1" form, and the IPv4-mapped/IPv4-compatible IPv6)
 // into a dotted quad or a bracketed v6 that is classified here. The DNS
-// trailing dot is an exception: the parser keeps it in the hostname, so it
-// is stripped before the classification, and the normalized URL is the very
-// host that was classified.
+// trailing dot is an exception: the parser keeps it in the hostname, so one
+// terminal dot is stripped before the classification, and the normalized URL
+// is the very host that was classified. Empty labels are not a host at all:
+// a leading dot, `..` anywhere, or a second terminal dot are refused
+// unparseable, because stripping a single dot would leave the forbidden
+// one-dot form (`localhost..` → `localhost.`).
 
 export const BYOK_BASE_URL_MAX = 2048;
 
@@ -48,10 +51,16 @@ export function validateByokUrl(input: unknown): ByokUrlResult {
   // non-empty port here is always a non-default one; "443" is the only
   // other value the parser keeps for https.
   if (url.port !== "" && url.port !== "443") return { error: "bad_port" };
-  // The WHATWG URL keeps the DNS trailing dot in the hostname (and in the
-  // origin): canonicalize it away before classifying, so a forbidden name
-  // cannot pass as `localhost.` and the URL that is stored is the host that
-  // was classified. An empty label (`https://./`) is not a host.
+  // The WHATWG URL keeps the DNS trailing dots in the hostname (and in the
+  // origin): an empty label is not a host — a leading dot, `..` anywhere or
+  // a second terminal dot — and stripping a single dot would leave the
+  // forbidden one-dot form, so those are refused before anything else. One
+  // terminal dot is legal DNS: strip it before classifying, so a forbidden
+  // name cannot pass as `localhost.` and the URL that is stored is the host
+  // that was classified.
+  if (url.hostname.startsWith(".") || url.hostname.includes("..")) {
+    return { error: "unparseable" };
+  }
   if (url.hostname.endsWith(".")) url.hostname = url.hostname.slice(0, -1);
   const host = bareHostname(url.hostname);
   if (host === "" || host === ".") return { error: "unparseable" };

@@ -656,6 +656,36 @@ describe("/api/byok security review probes (F4d)", () => {
     }
   });
 
+  test("a forbidden hostname with two terminal dots is refused by the PUT and not stored", async () => {
+    // The double-dot variant of the trailing-dot finding: stripping a
+    // single dot would leave the forbidden one-dot form, so the PUT must
+    // refuse the input itself — nothing may be stored that the validator
+    // would refuse on revalidation.
+    const db = migratedDatabase();
+    try {
+      const cookie = await insertUser(db, "usr_double", "double@example.test", "pro");
+      const env = envFor(db);
+      for (const baseUrl of [
+        "https://localhost..",
+        "https://localhost..:443/v1/",
+        "https://a.localhost..",
+        "https://metadata.google.internal..",
+        "https://foo.local..",
+      ]) {
+        const response = await api("PUT", "/api/byok", env, {
+          body: JSON.stringify({ apiKey: TEST_KEY, baseUrl }),
+          headers: { cookie },
+        });
+        assert.equal(response.status, 400, baseUrl);
+        assert.equal((await jsonBody(response)).code, "invalid_base_url", baseUrl);
+      }
+      // Nothing was stored by the refused PUTs.
+      assert.equal(db.query("SELECT * FROM byok_endpoints").all().length, 0);
+    } finally {
+      db.close();
+    }
+  });
+
   test("every BYOK answer is no-store, including the early 401, 400 and 405", async () => {
     const db = migratedDatabase();
     try {

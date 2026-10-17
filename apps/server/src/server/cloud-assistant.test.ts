@@ -535,11 +535,13 @@ describe("cloud assistant routes", () => {
     }
   });
 
-  test("a Pro account in production gets disabled even with everything on", async () => {
+  test("a Pro account in production is disabled without the chain's hub configuration", async () => {
     const db = migratedDatabase();
     try {
       const { a } = await seedAccounts(db);
-      const env = assistantEnv(db, { DEPLOYMENT_ENV: "production" });
+      // A46: the default appliance chain is valid in production, so it is
+      // the appliance configuration that decides it off here.
+      const env = assistantEnv(db, { AI_API_KEY: undefined, AI_BASE_URL: undefined, DEPLOYMENT_ENV: "production" });
       const status = await route("/api/assistant/status", env, { headers: { cookie: a.cookie } });
       assert.equal(status.status, 200);
       assert.deepEqual(await status.json(), { available: false, reason: "disabled", surface: "cloud" });
@@ -1122,46 +1124,124 @@ describe("cloud assistant chain (F4/S1)", () => {
     }
   }
 
-  test("gate: staging without a chain keeps appliance:<AI_MODEL> and the rule of before", async () => {
+  test("gate: the per-hub rule outside production: the default appliance chain needs the appliance strings, and a gateway chain needs the gateway key (A46)", async () => {
     const db = migratedDatabase();
     try {
       const env = assistantEnv(db);
       const a = await seedPro(db, env);
       assert.deepEqual(await statusOf(env, a.cookie), { available: true, reason: null, surface: "cloud" });
       assert.equal((await health(env)).hasAssistant, true);
-      // Without the appliance strings staging stays off, chain or not.
-      for (const overrides of [{ AI_BASE_URL: undefined }, { AI_BASE_URL: undefined, ASSISTANT_CHAIN: `gateway:${HAIKU}`, AI_GATEWAY_API_KEY: GATEWAY_KEY }]) {
+      // Without the appliance strings the default appliance chain stays off.
+      for (const overrides of [{ AI_BASE_URL: undefined }, { AI_API_KEY: undefined }]) {
         const off = assistantEnv(db, overrides);
-        assert.deepEqual(await statusOf(off, a.cookie), { available: false, reason: "disabled", surface: "cloud" });
-        assert.equal((await health(off)).hasAssistant, false);
+        assert.deepEqual(await statusOf(off, a.cookie), { available: false, reason: "disabled", surface: "cloud" }, JSON.stringify(overrides));
+        assert.equal((await health(off)).hasAssistant, false, JSON.stringify(overrides));
+      }
+      // A gateway chain without its key is off even with the appliance strings.
+      const noKey = assistantEnv(db, { ASSISTANT_CHAIN: `gateway:${HAIKU}`, AI_GATEWAY_API_KEY: undefined });
+      assert.deepEqual(await statusOf(noKey, a.cookie), { available: false, reason: "disabled", surface: "cloud" });
+      // ...and with the key it is on, the appliance strings or not.
+      for (const overrides of [{}, { AI_API_KEY: undefined, AI_BASE_URL: undefined, AI_MODEL: undefined }]) {
+        const on = assistantEnv(db, { ...overrides, ASSISTANT_CHAIN: `gateway:${HAIKU}`, AI_GATEWAY_API_KEY: GATEWAY_KEY });
+        assert.deepEqual(await statusOf(on, a.cookie), { available: true, reason: null, surface: "cloud" }, JSON.stringify(overrides));
+        assert.equal((await health(on)).hasAssistant, true, JSON.stringify(overrides));
       }
     } finally {
       db.close();
     }
   });
 
-  test("gate: production refuses an appliance link (or the appliance default), logged once without values", async () => {
+  test("gate: production with ASSISTANT_CHAIN=appliance:qwen3.8-27b and the appliance configuration is on, Pro only (A46)", async () => {
     const db = migratedDatabase();
     try {
-      const appliances: Array<Partial<CloudEnv>> = [
-        { AI_API_KEY: "sk-ai-test", AI_BASE_URL: "https://appliance.test/v1", AI_MODEL: "qwen-private-model", ASSISTANT_CHAIN: undefined },
-        { ASSISTANT_CHAIN: `gateway:${HAIKU},appliance:qwen-private-model` },
-      ];
-      for (const overrides of appliances) {
+      const env = productionEnv(db, {
+        AI_API_KEY: "sk-ai-test",
+        AI_BASE_URL: "https://appliance.test/v1",
+        AI_GATEWAY_API_KEY: undefined, // the appliance chain never needs the gateway
+        AI_MODEL: "qwen3.8-27b",
+        ASSISTANT_CHAIN: "appliance:qwen3.8-27b",
+      });
+      const a = await seedPro(db, env);
+      insertUser(db, "usr_free", "free@example.test", "free");
+      const free = await seedCloudWebSessionForTests({ email: "free@example.test", id: "usr_free", plan: "free" }, env);
+      const { logged } = await capturingLogs(async () => {
+        assert.deepEqual(await statusOf(env, a.cookie), { available: true, reason: null, surface: "cloud" });
+        assert.deepEqual(await statusOf(env, free.cookie), { available: false, reason: "requires_pro", surface: "cloud" });
+        assert.equal((await health(env)).hasAssistant, true);
+      });
+      assert.ok(!logged.includes("assistant_chain_config_error"), "the chain is valid; nothing is logged");
+      const denied = await turn(env, free.cookie, "oi");
+      assert.equal(denied.status, 403);
+      assert.equal((await denied.json() as { code: string }).code, "assistant_requires_pro");
+    } finally {
+      db.close();
+    }
+  });
+
+  test("gate: the same appliance chain without AI_BASE_URL or without AI_API_KEY is off (A46)", async () => {
+    const db = migratedDatabase();
+    try {
+      for (const overrides of [{ AI_BASE_URL: undefined }, { AI_API_KEY: undefined }] as Array<Partial<CloudEnv>>) {
+        resetCloudMemoryStateForTests();
+        const env = productionEnv(db, { AI_API_KEY: "sk-ai-test", AI_BASE_URL: "https://appliance.test/v1", AI_GATEWAY_API_KEY: undefined, AI_MODEL: "qwen3.8-27b", ASSISTANT_CHAIN: "appliance:qwen3.8-27b", ...overrides });
+        const a = await seedPro(db, env);
+        const { logged } = await capturingLogs(async () => {
+          assert.deepEqual(await statusOf(env, a.cookie), { available: false, reason: "disabled", surface: "cloud" }, JSON.stringify(overrides));
+          assert.equal((await health(env)).hasAssistant, false, JSON.stringify(overrides));
+          const denied = await turn(env, a.cookie, "oi");
+          assert.equal(denied.status, 503, JSON.stringify(overrides));
+          assert.equal((await denied.json() as { code: string }).code, "assistant_unavailable", JSON.stringify(overrides));
+        });
+        assert.ok(!logged.includes("assistant_chain_config_error"), "a missing hub configuration is not a config error");
+        db.exec("DELETE FROM web_sessions; DELETE FROM users");
+      }
+    } finally {
+      db.close();
+    }
+  });
+
+  test("gate: a mixed gateway:...,appliance:... chain needs both hub configurations (A46)", async () => {
+    const db = migratedDatabase();
+    try {
+      const mixed = `gateway:${HAIKU},appliance:qwen-private-model`;
+      const withBoth: Partial<CloudEnv> = { AI_API_KEY: "sk-ai-test", AI_BASE_URL: "https://appliance.test/v1", ASSISTANT_CHAIN: mixed };
+      for (const overrides of [{ ...withBoth, AI_GATEWAY_API_KEY: undefined }, { ...withBoth, AI_API_KEY: undefined, AI_BASE_URL: undefined }]) {
         resetCloudMemoryStateForTests();
         const env = productionEnv(db, overrides);
         const a = await seedPro(db, env);
-        const { logged } = await capturingLogs(async () => {
-          assert.deepEqual(await statusOf(env, a.cookie), { available: false, reason: "disabled", surface: "cloud" });
-          assert.equal((await health(env)).hasAssistant, false);
-          const denied = await turn(env, a.cookie, "oi");
-          assert.equal(denied.status, 503);
-          assert.equal((await denied.json() as { code: string }).code, "assistant_unavailable");
-        });
-        const lines = logged.match(/assistant_chain_config_error/g) ?? [];
-        assert.equal(lines.length, 1, "logged once per process");
-        assert.ok(logged.includes("appliance_in_production"));
-        for (const value of ["qwen-private-model", HAIKU, GATEWAY_KEY, "appliance.test", "sk-ai-test"]) assert.ok(!logged.includes(value), value);
+        assert.deepEqual(await statusOf(env, a.cookie), { available: false, reason: "disabled", surface: "cloud" }, JSON.stringify(overrides));
+        assert.equal((await health(env)).hasAssistant, false, JSON.stringify(overrides));
+        db.exec("DELETE FROM web_sessions; DELETE FROM users");
+      }
+      resetCloudMemoryStateForTests();
+      const on = productionEnv(db, withBoth);
+      const a = await seedPro(db, on);
+      assert.deepEqual(await statusOf(on, a.cookie), { available: true, reason: null, surface: "cloud" });
+      assert.equal((await health(on)).hasAssistant, true);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("gate: the same chain and the same configuration answer the same in production, staging and development (A46)", async () => {
+    const db = migratedDatabase();
+    try {
+      for (const deployment of ["production", "staging", undefined] as const) {
+        // undefined is the development (local) environment: CloudEnv has no
+        // "development" value.
+        resetCloudMemoryStateForTests();
+        const base: Partial<CloudEnv> = { ASSISTANT_ENABLED: "true", DB: sqliteD1(db), DEPLOYMENT_ENV: deployment };
+        const appliance: CloudEnv = { AI_API_KEY: "sk-ai-test", AI_BASE_URL: "https://appliance.test/v1", AI_GATEWAY_API_KEY: undefined, AI_MODEL: "qwen3.8-27b", ASSISTANT_CHAIN: "appliance:qwen3.8-27b", ...base };
+        const gateway: CloudEnv = { AI_GATEWAY_API_KEY: GATEWAY_KEY, ASSISTANT_CHAIN: `gateway:${HAIKU}`, ...base };
+        insertUser(db, "usr_a", "a@example.test", "pro");
+        insertUser(db, "usr_free", "free@example.test", "free");
+        const a = await seedCloudWebSessionForTests({ email: "a@example.test", id: "usr_a", plan: "pro" }, appliance);
+        const free = await seedCloudWebSessionForTests({ email: "free@example.test", id: "usr_free", plan: "free" }, appliance);
+        for (const env of [appliance, gateway]) {
+          assert.deepEqual(await statusOf(env, a.cookie), { available: true, reason: null, surface: "cloud" }, String(deployment ?? "development"));
+          assert.deepEqual(await statusOf(env, free.cookie), { available: false, reason: "requires_pro", surface: "cloud" }, String(deployment ?? "development"));
+          assert.equal((await health(env)).hasAssistant, true, String(deployment ?? "development"));
+        }
         db.exec("DELETE FROM web_sessions; DELETE FROM users");
       }
     } finally {
@@ -1304,6 +1384,9 @@ describe("cloud assistant chain (F4/S1)", () => {
       assert.equal((await health({})).hasAssistant, false);
       assert.equal((await health(productionEnv(db))).hasAssistant, true);
       assert.equal((await health(productionEnv(db, { ASSISTANT_ENABLED: "false" }))).hasAssistant, false);
+      // A46: the appliance chain is a valid production chain.
+      assert.equal((await health(productionEnv(db, { AI_API_KEY: "sk-ai-test", AI_BASE_URL: "https://appliance.test/v1", AI_MODEL: "qwen3.8-27b", ASSISTANT_CHAIN: "appliance:qwen3.8-27b" }))).hasAssistant, true);
+      assert.equal((await health(productionEnv(db, { AI_GATEWAY_API_KEY: undefined, AI_MODEL: "qwen3.8-27b", ASSISTANT_CHAIN: "appliance:qwen3.8-27b" }))).hasAssistant, false);
     } finally {
       db.close();
     }

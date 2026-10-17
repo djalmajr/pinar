@@ -416,10 +416,10 @@ describe("Cloud pin search", () => {
     const off: Array<[string, Partial<CloudEnv>]> = [
       ["switch off", { ASSISTANT_ENABLED: undefined }],
       ["switch not true", { ASSISTANT_ENABLED: "1" }],
-      ["production", { DEPLOYMENT_ENV: "production" }],
       ["no base URL", { AI_BASE_URL: undefined }],
       ["no key", { AI_API_KEY: undefined }],
       ["no model", { AI_MODEL: undefined }],
+      ["a gateway chain without its key, in production", { ASSISTANT_CHAIN: "gateway:anthropic/claude-haiku-5.5", DEPLOYMENT_ENV: "production" }],
     ];
     for (const [name, overrides] of off) assert.equal(await cloudPinSearch(cloudEnv(db, overrides), pro), undefined, name);
     assert.equal(await cloudPinSearch(cloudEnv(db), principal("usr_free", "free")), undefined, "Free plan");
@@ -445,7 +445,7 @@ describe("Cloud pin search", () => {
           method: "POST",
         }), env);
       assert.equal((await turn(cloudEnv(db, { ASSISTANT_ENABLED: undefined }), pro.cookie)).status, 503);
-      assert.equal((await turn(cloudEnv(db, { DEPLOYMENT_ENV: "production" }), pro.cookie)).status, 503);
+      assert.equal((await turn(cloudEnv(db, { ASSISTANT_CHAIN: "gateway:anthropic/claude-haiku-5.5", DEPLOYMENT_ENV: "production" }), pro.cookie)).status, 503, "A46: production is off only without the hub configuration");
       assert.equal((await turn(cloudEnv(db), free.cookie)).status, 403);
     } finally {
       globalThis.fetch = realFetch;
@@ -982,7 +982,7 @@ describe("Cloud pin index cron", () => {
     insertCollection(db, "col_pro", "usr_pro");
     insertSession(db, "session_one", "usr_pro", "col_pro", [{ comment: "Nota", number: 1, pinId: "p1" }]);
     const appliance = fakeAppliance();
-    for (const overrides of [{ ASSISTANT_ENABLED: undefined }, { DEPLOYMENT_ENV: "production" as const }, { AI_MODEL: undefined }]) {
+    for (const overrides of [{ ASSISTANT_ENABLED: undefined }, { ASSISTANT_CHAIN: "gateway:anthropic/claude-haiku-5.5", DEPLOYMENT_ENV: "production" as const }, { AI_MODEL: undefined }]) {
       const log: QueryLog = [];
       const result = await indexPinSearch(cloudEnv(db, overrides, log), { fetch: appliance.fetch });
       assert.deepEqual(result, { failed: 0, indexed: 0, owners: 0, remaining: false });
@@ -1320,7 +1320,7 @@ describe("Cloud pin search in production, through the gateway (F4 contract §4)"
     assert.deepEqual(lines, []);
   });
 
-  test("the runtime alone never falls back to AI_BASE_URL in production: without a usable gateway chain there is no endpoint", async () => {
+  test("the runtime alone has no endpoint when the first link's hub lacks its configuration, in every environment (A46)", async () => {
     const data: CloudPinSourceData = {
       async comments() { return []; },
       async ownedSessions() { return [{ createdAt: "2026-09-30T00:00:00.000Z", id: "session_x", ownerId: "usr_pro" }]; },
@@ -1330,22 +1330,112 @@ describe("Cloud pin search in production, through the gateway (F4 contract §4)"
       async sharedSessions() { return []; },
       async shot() { return PNG; },
     };
-    const appliance = { AI_API_KEY: "sk-ai-test", AI_BASE_URL: BASE_URL, AI_EMBEDDING_MODEL: "embed-model", AI_MODEL: "mock", DEPLOYMENT_ENV: "production" };
+    const base = { AI_API_KEY: "sk-ai-test", AI_BASE_URL: BASE_URL, AI_EMBEDDING_MODEL: "embed-model", AI_MODEL: "mock" };
     const variants: Array<[string, Record<string, string | undefined>]> = [
-      ["no ASSISTANT_CHAIN", {}],
-      ["a blank ASSISTANT_CHAIN", { ASSISTANT_CHAIN: "  " }],
-      ["an appliance link", { AI_GATEWAY_API_KEY: GATEWAY_KEY, ASSISTANT_CHAIN: "appliance:mock" }],
-      ["an appliance link after a gateway one", { AI_GATEWAY_API_KEY: GATEWAY_KEY, ASSISTANT_CHAIN: `${CHAIN},appliance:mock` }],
-      ["an invalid chain", { AI_GATEWAY_API_KEY: GATEWAY_KEY, ASSISTANT_CHAIN: "gateway" }],
-      ["no AI_GATEWAY_API_KEY", { ASSISTANT_CHAIN: CHAIN }],
+      ["an invalid chain", { ASSISTANT_CHAIN: "gateway" }],
+      ["a gateway chain without AI_GATEWAY_API_KEY", { ASSISTANT_CHAIN: CHAIN }],
+      ["an appliance chain without AI_BASE_URL", { ASSISTANT_CHAIN: "appliance:mock", AI_BASE_URL: undefined }],
+      ["an appliance chain without AI_API_KEY", { ASSISTANT_CHAIN: "appliance:mock", AI_API_KEY: undefined }],
     ];
-    for (const [name, overrides] of variants) {
-      const hubs = fakeHubs();
-      const env = { ...appliance, ...overrides };
-      await assert.rejects(createCloudPinSearch({ data, env, fetch: hubs.fetch }).search({ limit: 5, query: "nota" }), /pin search unavailable/, name);
-      const cron = await runCloudPinIndexCron({ env, fetch: hubs.fetch, ownerData: () => data, owners: async () => ["usr_pro"] });
-      assert.deepEqual(cron, { failed: 0, indexed: 0, owners: 0, remaining: false }, name);
-      assert.deepEqual(hubs.calls, [], name);
+    for (const deployment of ["production", "staging", undefined] as const) {
+      for (const [name, overrides] of variants) {
+        const label = `${deployment ?? "development"}: ${name}`;
+        const hubs = fakeHubs();
+        const env = { ...base, DEPLOYMENT_ENV: deployment, ...overrides };
+        await assert.rejects(createCloudPinSearch({ data, env, fetch: hubs.fetch }).search({ limit: 5, query: "nota" }), /pin search unavailable/, label);
+        const cron = await runCloudPinIndexCron({ env, fetch: hubs.fetch, ownerData: () => data, owners: async () => ["usr_pro"] });
+        assert.deepEqual(cron, { failed: 0, indexed: 0, owners: 0, remaining: false }, label);
+        assert.deepEqual(hubs.calls, [], label);
+      }
+    }
+  });
+});
+
+describe("Cloud pin search in production, through the appliance (A46)", () => {
+  let db: Database;
+
+  beforeEach(() => {
+    resetCloudMemoryStateForTests();
+    resetRetrievalCapabilitiesCacheForTests();
+    setCloudNowForTests(NOW);
+    db = migratedDatabase();
+    insertUser(db, "usr_pro", "pro");
+    insertCollection(db, "col_pro", "usr_pro");
+    insertSession(db, "session_a", "usr_pro", "col_pro", [{ comment: "Contraste baixo no rodapé", number: 1, pinId: "p1" }, { comment: "Menu cortado", number: 2, pinId: "p2" }]);
+    insertSession(db, "session_b", "usr_pro", "col_pro", [{ comment: "Preço errado no carrinho", number: 1, pinId: "p1" }]);
+  });
+
+  afterEach(() => {
+    db.close();
+    resetCloudMemoryStateForTests();
+    resetRetrievalCapabilitiesCacheForTests();
+    setCloudNowForTests(null);
+  });
+
+  const shots = () => fakeBucket({ session_a: PNG, session_b: PNG });
+  const APPLIANCE_ORIGIN = new URL(BASE_URL).origin;
+  // Production with the appliance chain of A46: the same configuration as
+  // staging, only DEPLOYMENT_ENV changes.
+  function applianceProductionEnv(overrides: Partial<CloudEnv> = {}): CloudEnv {
+    return cloudEnv(db, { AI_GATEWAY_API_KEY: undefined, AI_EMBEDDING_MODEL: "embed-model", AI_MODEL: "mock", ASSISTANT_CHAIN: "appliance:qwen3.8-27b", DEPLOYMENT_ENV: "production", ...overrides });
+  }
+
+  test("captions and embeddings use AI_BASE_URL, and nothing reaches the gateway", async () => {
+    const hubs = fakeHubs();
+    const hits = await searchAs(applianceProductionEnv({ PINAR_BUCKET: shots() }), principal("usr_pro"), "contraste", hubs.fetch);
+    assert.equal(hits[0]!.sessionId, "session_a");
+    assert.deepEqual(hubs.gatewayCalls(), [], "no request to the gateway");
+    const appliance = hubs.applianceCalls();
+    assert.ok(appliance.length > 0);
+    for (const call of appliance) assert.equal(call.origin, APPLIANCE_ORIGIN, "every call goes to AI_BASE_URL");
+    // Embeddings by AI_EMBEDDING_MODEL, on the appliance, with its key.
+    const embeddings = appliance.filter((call) => call.path === "/embeddings");
+    assert.ok(embeddings.length >= 2, "the documents and the question");
+    for (const call of embeddings) {
+      assert.equal(call.authorization, "Bearer sk-ai-test");
+      assert.equal(call.body!.model, "embed-model");
+      assert.equal(call.body!.dimensions, PIN_EMBEDDING_DIMENSIONS);
+    }
+    // Captions by AI_MODEL, the chat endpoint of the appliance.
+    const visions = appliance.filter((call) => call.path === "/chat/completions" && !call.body?.stream);
+    assert.equal(visions.length, 2, "one caption per session");
+    for (const call of visions) {
+      assert.equal(call.authorization, "Bearer sk-ai-test");
+      assert.equal(call.body!.model, "mock");
+    }
+    assert.deepEqual(pinIndexRows(db).map((row) => [row.session_id, row.caption, row.model]), [
+      ["session_a", "legenda 1", "embed-model"],
+      ["session_a", "legenda 2", "embed-model"],
+      ["session_b", "legenda 1", "embed-model"],
+    ]);
+  });
+
+  test("the hub of the first link is the same in production, staging and development (A46)", async () => {
+    for (const deployment of ["production", "staging", undefined] as const) {
+      const label = String(deployment ?? "development");
+      db.query("DELETE FROM pin_index").run();
+      resetRetrievalCapabilitiesCacheForTests();
+      const applianceHubs = fakeHubs();
+      await searchAs(
+        cloudEnv(db, { AI_GATEWAY_API_KEY: undefined, AI_EMBEDDING_MODEL: "embed-model", ASSISTANT_CHAIN: "appliance:qwen3.8-27b", DEPLOYMENT_ENV: deployment, PINAR_BUCKET: shots() }),
+        principal("usr_pro"),
+        "contraste",
+        applianceHubs.fetch,
+      );
+      assert.deepEqual(applianceHubs.gatewayCalls(), [], label);
+      assert.ok(applianceHubs.calls.some((call) => call.origin === APPLIANCE_ORIGIN && call.path === "/embeddings"), label);
+
+      db.query("DELETE FROM pin_index").run();
+      resetRetrievalCapabilitiesCacheForTests();
+      const gatewayHubs = fakeHubs();
+      await searchAs(
+        cloudEnv(db, { AI_GATEWAY_API_KEY: GATEWAY_KEY, AI_EMBEDDING_MODEL: GATEWAY_EMBEDDING, ASSISTANT_CHAIN: CHAIN, DEPLOYMENT_ENV: deployment, PINAR_BUCKET: shots() }),
+        principal("usr_pro"),
+        "contraste",
+        gatewayHubs.fetch,
+      );
+      assert.deepEqual(gatewayHubs.applianceCalls(), [], label);
+      assert.ok(gatewayHubs.embeddings().length > 0, label);
     }
   });
 });
@@ -1600,7 +1690,7 @@ describe("Cloud session deletes before and after migration 0029", () => {
   test("without the pin_index table, deletes and the retention cleanup still work", async () => {
     db = migratedDatabase({ skip: "0029" });
     seed();
-    // The assistant off, as in production today.
+    // The assistant off: the switch is off.
     const env = cloudEnv(db, { ASSISTANT_ENABLED: undefined, DEPLOYMENT_ENV: "production" });
     await deleteBoth(env);
     await cleanupOldRecords(env);

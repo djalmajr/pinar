@@ -37,12 +37,9 @@ export interface AssistantChainLink {
   model: string; // the hub's model id, e.g. "anthropic/claude-haiku-5.5"
 }
 
-export type AssistantDeployment = "production" | "staging" | "development";
-
 export const ASSISTANT_CHAIN_MAX_LINKS = 4;
 
 export type AssistantChainConfigReason =
-  | "appliance_in_production"
   | "duplicate_link"
   | "empty"
   | "malformed_link"
@@ -64,10 +61,11 @@ const LINK_PATTERN = /^([^:\s]+):(\S+)$/;
 
 /**
  * Reads ASSISTANT_CHAIN: 1 to 4 comma-separated `hub:model` links, no
- * repetition, hubs "appliance" and "gateway". Production refuses an
- * appliance link here, before any request.
+ * repetition, hubs "appliance" and "gateway", in every environment (A46):
+ * the environment never decides the provider, and the per-hub
+ * configuration is checked by the gate of cloud-api.ts.
  */
-export function parseAssistantChain(csv: string, deployment: AssistantDeployment): AssistantChainLink[] {
+export function parseAssistantChain(csv: string): AssistantChainLink[] {
   const items = csv.split(",").map((item) => item.trim());
   if (items.length === 1 && items[0] === "") throw new AssistantChainConfigError("empty");
   if (items.length > ASSISTANT_CHAIN_MAX_LINKS) throw new AssistantChainConfigError("too_many_links");
@@ -81,9 +79,6 @@ export function parseAssistantChain(csv: string, deployment: AssistantDeployment
     if (seen.has(item)) throw new AssistantChainConfigError("duplicate_link");
     seen.add(item);
     chain.push({ hub, model });
-  }
-  if (deployment === "production" && chain.some((link) => link.hub === "appliance")) {
-    throw new AssistantChainConfigError("appliance_in_production");
   }
   return chain;
 }

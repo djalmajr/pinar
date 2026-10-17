@@ -4,6 +4,7 @@ import type { AssistantEndpoint } from "../models";
 import type { PinDocumentInput } from "./document";
 import { decodeVector, PIN_EMBEDDING_DIMENSIONS, type EmbeddingEndpoint } from "./embeddings";
 import {
+  canonicalTime,
   indexSession,
   indexStale,
   PIN_SEARCH_MAX_SESSIONS,
@@ -518,6 +519,40 @@ describe("indexStale", () => {
     assert.equal(data.get("s1")![0]!.updatedAt, "2099-01-01T00:00:00.000Z", "stamped no earlier than the listed session");
     assert.deepEqual(await indexStale(d, pass), { indexed: 0, remaining: false });
     assert.equal(calls.replaceSession.length, 1);
+  });
+
+  test("listed times with an offset or without milliseconds compare by instant", async () => {
+    const s = session("s1", "2099-01-01T10:00:00+05:00", [{ comment: "Old note", id: "p1", number: 1 }]);
+    const { byId, source } = fakeSource([s]);
+    const { data, store } = fakeStore();
+    const fake = fakeFetch();
+    const d = deps(source, store, fake.fetch);
+    assert.deepEqual(await indexStale(d, pass), { indexed: 1, remaining: false });
+    assert.equal(data.get("s1")![0]!.updatedAt, "2099-01-01T05:00:00.000Z");
+    // As text "10:00:00+05:00" sorts after "05:00:00.000Z"; as instants they
+    // are equal, so an unchanged session is not stale.
+    assert.deepEqual(await indexStale(d, pass), { indexed: 0, remaining: false });
+    // An edit one hour later in absolute time, written with another offset.
+    byId.get("s1")!.updatedAt = "2099-01-01T09:00:00+00:00";
+    byId.get("s1")!.pins[0]!.comment = "New note";
+    assert.deepEqual(await indexStale(d, pass), { indexed: 1, remaining: false });
+    assert.ok(data.get("s1")![0]!.docText.includes("Pin #1: New note"));
+
+    // Without milliseconds, a past time is not stale after its indexing.
+    const plain = session("s2", "2026-10-17T10:00:00Z", [{ comment: "Plain", id: "q1", number: 1 }]);
+    const other = fakeSource([plain]);
+    const second = fakeStore();
+    const d2 = deps(other.source, second.store, fake.fetch);
+    assert.deepEqual(await indexStale(d2, pass), { indexed: 1, remaining: false });
+    assert.deepEqual(await indexStale(d2, pass), { indexed: 0, remaining: false });
+  });
+
+  test("canonicalTime: same instant in ISO UTC, epoch when unreadable, capped at year 9999", () => {
+    assert.equal(canonicalTime("2026-10-17T10:00:00+02:00"), "2026-10-17T08:00:00.000Z");
+    assert.equal(canonicalTime("2026-10-17T10:00:00Z"), "2026-10-17T10:00:00.000Z");
+    assert.equal(canonicalTime("not a date"), "1970-01-01T00:00:00.000Z");
+    assert.equal(canonicalTime(""), "1970-01-01T00:00:00.000Z");
+    assert.equal(canonicalTime("+275760-09-13T00:00:00.000Z"), "9999-12-31T23:59:59.999Z");
   });
 
   test("never indexes a stale id outside listSessions", async () => {

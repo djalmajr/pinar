@@ -20,7 +20,9 @@
 // session once budgetMs has passed (a session already running finishes).
 // Entries it writes are stamped no earlier than the session's listed
 // updatedAt, so a session dated in the future (a skewed clock, a client
-// timestamp) is not stale again on every pass.
+// timestamp) is not stale again on every pass. The stores compare times as
+// text, so every listed updatedAt is first made canonical (canonicalTime):
+// the same instant in ISO UTC, whatever offset or format the source used.
 //
 // searchPins ranks the entries of the PIN_SEARCH_MAX_SESSIONS most recent
 // accessible sessions by cosine against the embedded query, or by a text
@@ -88,6 +90,7 @@ export async function indexSession(
   deps: PinIndexDeps,
   sessionId: string,
   // the session's listed updatedAt: entries are stamped no earlier
+  // (canonical, see canonicalTime)
   options: { notBefore?: string } = {},
 ): Promise<{ captioned: boolean; embedded: number; pins: number }> {
   const session = await deps.source.session(sessionId);
@@ -165,7 +168,7 @@ export async function indexSession(
 
   const now = deps.now();
   const notBefore = options.notBefore === undefined ? Number.NaN : Date.parse(options.notBefore);
-  const updatedAt = notBefore > now.getTime() ? options.notBefore! : now.toISOString();
+  const updatedAt = notBefore > now.getTime() ? new Date(notBefore).toISOString() : now.toISOString();
   const entries: PinIndexEntry[] = pins.map((pin, index) => ({
     caption: captions[index]?.caption ?? null,
     docHash: docs[index]!.hash,
@@ -217,10 +220,27 @@ async function laggingSessions(deps: PinIndexDeps, sessionIds: string[]): Promis
   return sessionIds.filter((id) => lagging.has(id));
 }
 
+// The latest time that still sorts as text in ISO form (toISOString of a
+// later year starts with "+").
+const LATEST_TIME = Date.parse("9999-12-31T23:59:59.999Z");
+
+// A listed updatedAt as the same instant in ISO UTC, so the stores' text
+// comparison orders it right against the entries' stamps. An unreadable
+// time counts as the epoch: the session is indexed once and is stale again
+// only through its writes or a lagging entry.
+export function canonicalTime(value: string): string {
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return new Date(0).toISOString();
+  return new Date(Math.min(time, LATEST_TIME)).toISOString();
+}
+
 export async function indexStale(deps: PinIndexDeps, input: { budgetMs: number; maxSessions: number }): Promise<{ indexed: number; remaining: boolean }> {
   const startedAt = deps.now().getTime();
   const maxSessions = Math.max(0, Math.trunc(input.maxSessions));
-  const sessions = await accessibleSessions(deps.source);
+  const sessions = (await accessibleSessions(deps.source)).map((session) => ({
+    id: session.id,
+    updatedAt: canonicalTime(session.updatedAt),
+  }));
   const ids = sessions.map((session) => session.id);
   const accessible = new Set(ids);
   const stale = (await deps.store.staleSessions({ limit: maxSessions + 1, sessions })).filter((id) => accessible.has(id));

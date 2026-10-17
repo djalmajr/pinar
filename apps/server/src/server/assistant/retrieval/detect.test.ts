@@ -5,9 +5,11 @@ import {
   RETRIEVAL_DETECT_FAILURE_TTL_MS,
   RETRIEVAL_DETECT_TIMEOUT_MS,
   RETRIEVAL_DETECT_TTL_MS,
+  detectGatewayRetrievalCapabilities,
   detectRetrievalCapabilities,
   resetRetrievalCapabilitiesCacheForTests,
 } from "./detect";
+import { GATEWAY_OPENAI_BASE_URL } from "./gateway";
 
 const ENDPOINT: AssistantEndpoint = {
   apiKey: "test-key",
@@ -259,5 +261,108 @@ describe("detectRetrievalCapabilities", () => {
       "probed again after 1 minute, not 10",
     );
     assert.equal(calls.length, 2);
+  });
+});
+
+// The gateway catalog's shape (GET /v1/models of 2026-10-17): language and
+// embedding models with type, tags and pricing; hundreds of them.
+const CATALOG = [
+  { id: "openai/text-embedding-3-large", pricing: { input: "0.00000013" }, tags: null, type: "embedding" },
+  { id: "anthropic/claude-haiku-5.5", pricing: { input: "0.0000001", output: "0.0000005" }, tags: ["tool-use", "vision", "structured-output"], type: "language" },
+  { id: "zai/glm-5.3-flash", pricing: { input: "0.00000015", output: "0.0000005" }, tags: ["reasoning", "tool-use"], type: "language" },
+  { id: "openai/text-embedding-3-small", pricing: { input: "0.00000002", output: null }, tags: null, type: "embedding" },
+  { decisions: { available: true }, id: "mistral/mistral-embed", pricing: {}, tags: ["vision"], type: "embedding" },
+];
+
+describe("detectGatewayRetrievalCapabilities", () => {
+  beforeEach(() => {
+    resetRetrievalCapabilitiesCacheForTests();
+    clock = Date.UTC(2026, 9, 17);
+    Date.now = () => clock;
+  });
+
+  afterEach(() => {
+    Date.now = realNow;
+    resetRetrievalCapabilitiesCacheForTests();
+  });
+
+  const detect = (fetchFn: typeof fetch, chatModel: string, embeddingModel: string | null) =>
+    detectGatewayRetrievalCapabilities({ baseUrl: GATEWAY_OPENAI_BASE_URL, chatModel, embeddingModel, fetch: fetchFn });
+
+  test("reads the public catalog without the key, no redirects and a 5 s deadline", async () => {
+    const { calls, fetch } = fakeFetch(models(CATALOG));
+    await detect(fetch, "anthropic/claude-haiku-5.5", "openai/text-embedding-3-small");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]!.url, "https://ai-gateway.vercel.sh/v1/models");
+    assert.equal(new Headers(calls[0]!.init?.headers).get("authorization"), null);
+    assert.equal(calls[0]!.init?.redirect, "manual");
+    assert.ok(calls[0]!.init?.signal instanceof AbortSignal);
+    assert.equal(RETRIEVAL_DETECT_TIMEOUT_MS, 5_000);
+  });
+
+  test("only the configured ids: vision from the chat model's tags, the embedding model with its pricing.input", async () => {
+    const { fetch } = fakeFetch(models(CATALOG));
+    assert.deepEqual(await detect(fetch, "anthropic/claude-haiku-5.5", "openai/text-embedding-3-small"), {
+      decisions: false,
+      embeddingInputPrice: "0.00000002",
+      embeddingModel: "openai/text-embedding-3-small",
+      vision: true,
+    });
+    // Without AI_EMBEDDING_MODEL no model is picked, although the catalog
+    // lists embedding models; a chat model without the vision tag has none.
+    assert.deepEqual(await detect(fetch, "zai/glm-5.3-flash", null), {
+      decisions: false,
+      embeddingInputPrice: null,
+      embeddingModel: null,
+      vision: false,
+    });
+  });
+
+  test("an embedding id the catalog does not list as embedding, or does not list, is no embedding model", async () => {
+    const { fetch } = fakeFetch(models(CATALOG));
+    for (const embeddingModel of ["anthropic/claude-haiku-5.5", "openai/text-embedding-4", ""]) {
+      const found = await detect(fetch, "zai/glm-5.3-flash", embeddingModel);
+      assert.equal(found.embeddingModel, null, embeddingModel);
+      assert.equal(found.embeddingInputPrice, null, embeddingModel);
+    }
+  });
+
+  test("a model without pricing.input keeps the embedding with a null price; decisions are never read", async () => {
+    const { fetch } = fakeFetch(models(CATALOG));
+    assert.deepEqual(await detect(fetch, "mistral/mistral-embed", "mistral/mistral-embed"), {
+      decisions: false,
+      embeddingInputPrice: null,
+      embeddingModel: "mistral/mistral-embed",
+      vision: true,
+    });
+  });
+
+  test("failures give nulls and are cached for 1 minute; a success for 10, per chat and embedding model", async () => {
+    const { calls, fetch } = fakeFetch(new Response("down", { status: 503 }), models(CATALOG));
+    assert.deepEqual(await detect(fetch, "anthropic/claude-haiku-5.5", "openai/text-embedding-3-small"), NONE);
+    clock += RETRIEVAL_DETECT_FAILURE_TTL_MS - 1;
+    assert.deepEqual(await detect(fetch, "anthropic/claude-haiku-5.5", "openai/text-embedding-3-small"), NONE);
+    assert.equal(calls.length, 1);
+    clock += 1;
+    assert.equal((await detect(fetch, "anthropic/claude-haiku-5.5", "openai/text-embedding-3-small")).vision, true);
+    assert.equal(calls.length, 2);
+    clock += RETRIEVAL_DETECT_TTL_MS - 1;
+    assert.equal((await detect(fetch, "anthropic/claude-haiku-5.5", "openai/text-embedding-3-small")).vision, true);
+    assert.equal(calls.length, 2, "cached just before 10 minutes");
+    await detect(fetch, "anthropic/claude-haiku-5.5", null);
+    await detect(fetch, "zai/glm-5.3-flash", "openai/text-embedding-3-small");
+    assert.equal(calls.length, 4, "another chat or embedding model is another entry");
+  });
+
+  test("shares the cache with the appliance detection without mixing their entries", async () => {
+    const { calls, fetch } = fakeFetch(models(CATALOG));
+    const endpoint: AssistantEndpoint = { ...ENDPOINT, baseUrl: GATEWAY_OPENAI_BASE_URL, model: "anthropic/claude-haiku-5.5" };
+    // The appliance reading of the same list picks the first embedding.
+    assert.deepEqual(await detectRetrievalCapabilities({ endpoint, fetch }), { decisions: false, embeddingModel: "openai/text-embedding-3-large", vision: false });
+    assert.equal((await detect(fetch, "anthropic/claude-haiku-5.5", null)).vision, true);
+    assert.equal(calls.length, 2);
+    resetRetrievalCapabilitiesCacheForTests();
+    await detect(fetch, "anthropic/claude-haiku-5.5", null);
+    assert.equal(calls.length, 3, "the reset hook drops the gateway entries too");
   });
 });

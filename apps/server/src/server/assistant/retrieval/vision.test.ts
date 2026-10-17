@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import type { AssistantEndpoint } from "../models";
-import { captionSessionPins, PIN_CAPTION_MAX_CHARS, PIN_OCR_MAX_CHARS, VISION_MAX_IMAGE_BYTES, VISION_PROMPT } from "./vision";
+import { captionSessionPins, PIN_CAPTION_MAX_CHARS, PIN_OCR_MAX_CHARS, VISION_MAX_IMAGE_BYTES, VISION_PROMPT, type VisionEndpoint } from "./vision";
 
 const appliance: AssistantEndpoint = {
   apiKey: "vision-key",
@@ -182,5 +182,72 @@ describe("captionSessionPins", () => {
         init?.signal?.addEventListener("abort", () => reject(init.signal!.reason));
       })) as typeof fetch;
     await assert.rejects(captionSessionPins({ endpoint: appliance, fetch: stalled, image: png, pins, timeoutMs: 30 }), /vision request timed out/);
+  });
+});
+
+describe("captionSessionPins through the gateway", () => {
+  const gateway: VisionEndpoint = {
+    apiKey: "vck-gateway-key",
+    baseUrl: "https://ai-gateway.vercel.sh/v1",
+    gateway: { zeroDataRetention: false },
+    kind: "openai-compatible",
+    model: "anthropic/claude-haiku-5.5",
+    thinkingControl: false,
+  };
+  const answer = (extra: Record<string, unknown>) => () =>
+    Response.json({
+      choices: [{ finish_reason: "stop", index: 0, message: { content: JSON.stringify({ pins: [{ caption: "Botão azul", number: 1, ocr: "Comprar" }] }), role: "assistant" } }],
+      ...extra,
+    });
+  const costLines = () => consoleCalls.map((args) => JSON.parse(String(args[0])) as Record<string, unknown>);
+
+  test("sends the privacy options in providerOptions with the gateway key, without thinking flags", async () => {
+    for (const zeroDataRetention of [false, true]) {
+      const fake = fakeFetch(answer({}));
+      const result = await captionSessionPins({ endpoint: { ...gateway, gateway: { zeroDataRetention } }, fetch: fake.fetch, image: png, pins });
+      assert.deepEqual(result, [{ caption: "Botão azul", number: 1, ocr: "Comprar" }]);
+      const { body, init, url } = fake.calls[0]!;
+      assert.equal(url, "https://ai-gateway.vercel.sh/v1/chat/completions");
+      assert.equal(new Headers(init.headers).get("authorization"), "Bearer vck-gateway-key");
+      assert.ok(!String(init.body).includes("vck-gateway-key"));
+      assert.equal(body["model"], "anthropic/claude-haiku-5.5");
+      assert.deepEqual(body["providerOptions"], { gateway: zeroDataRetention ? { disallowPromptTraining: true, zeroDataRetention: true } : { disallowPromptTraining: true } });
+      assert.equal(body["chat_template_kwargs"], undefined);
+      assert.deepEqual(Object.keys(body).sort(), ["messages", "model", "providerOptions", "response_format"]);
+    }
+  });
+
+  test("one assistant_index_cost line: the gateway's cost, else ASSISTANT_MODEL_PRICES × usage, else none", async () => {
+    const cases: Array<[Record<string, unknown>, VisionEndpoint, unknown]> = [
+      [{ providerMetadata: { gateway: { cost: "0.000321" } }, usage: { completion_tokens: 200, prompt_tokens: 1000 } }, gateway, ["gateway", 321]],
+      // 1000 × 0.00000055 + 200 × 0.00000275 = 0.0011 USD.
+      [{ usage: { completion_tokens: 200, prompt_tokens: 1000 } }, gateway, ["table", 1100]],
+      [{ usage: { prompt_tokens: 1000 } }, gateway, ["none", null]],
+      [{}, gateway, ["none", null]],
+      [{ usage: { completion_tokens: 200, prompt_tokens: 1000 } }, { ...gateway, model: "google/gemini-9-vision" }, ["none", null]],
+    ];
+    for (const [extra, endpoint, expected] of cases) {
+      consoleCalls.length = 0;
+      await captionSessionPins({ endpoint, fetch: fakeFetch(answer(extra)).fetch, image: png, pins });
+      assert.equal(consoleCalls.length, 1, JSON.stringify(extra));
+      const [line] = costLines();
+      assert.deepEqual(line, { costSource: (expected as unknown[])[0], costUsdMicros: (expected as unknown[])[1], kind: "caption", message: "assistant_index_cost", model: endpoint.model });
+    }
+  });
+
+  test("the line carries no key, URL, comment, caption or image", async () => {
+    await captionSessionPins({ endpoint: gateway, fetch: fakeFetch(answer({ usage: { completion_tokens: 2, prompt_tokens: 3 } })).fetch, image: png, pins });
+    const line = String(consoleCalls[0]![0]);
+    assert.deepEqual(Object.keys(JSON.parse(line)), ["message", "kind", "model", "costUsdMicros", "costSource"]);
+    for (const leak of ["vck-gateway-key", "ai-gateway.vercel.sh", "https://", "Contrast", "Wrong price", "Botão", "Comprar", "base64"]) assert.ok(!line.includes(leak), leak);
+  });
+
+  test("a billed call with a bad body logs its cost and still throws; a failed request logs nothing", async () => {
+    const bad = fakeFetch(() => Response.json({ choices: [{ message: { content: "not json" } }], usage: { completion_tokens: 200, prompt_tokens: 1000 } }));
+    await assert.rejects(captionSessionPins({ endpoint: gateway, fetch: bad.fetch, image: png, pins }), /vision response invalid/);
+    assert.deepEqual(costLines().map((line) => [line["costSource"], line["costUsdMicros"]]), [["table", 1100]]);
+    consoleCalls.length = 0;
+    await assert.rejects(captionSessionPins({ endpoint: gateway, fetch: fakeFetch(() => new Response("down", { status: 503 })).fetch, image: png, pins }));
+    assert.deepEqual(consoleCalls, []);
   });
 });

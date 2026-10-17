@@ -7989,6 +7989,7 @@ async function cloudAssistantRoutesUnguarded(request: Request, env: CloudEnv): P
   // the SDK's @vercel/oidc dependency is replaced by a stub, see
   // vite.config.edger.ts.)
   const { handleAssistantRequest } = await import("./assistant/http");
+  const toolHost = cloudAssistantToolHost(env, principal, new URL(request.url).origin);
   const deps: Parameters<typeof handleAssistantRequest>[1] = {
     endpoint: async () =>
       env.AI_BASE_URL && env.AI_API_KEY && env.AI_MODEL
@@ -8005,10 +8006,26 @@ async function cloudAssistantRoutesUnguarded(request: Request, env: CloudEnv): P
         { limit: 20, scope: `account:${principal.id}` },
         { limit: 60, scope: `ip:${clientIp(request)}` },
       ], 60_000),
+    // Placeholders until F2/S3b: a reader that finds nothing (a write that
+    // reads state is proposed as "<entity> not found") and the read-only
+    // tool host for confirm/undo, which refuses writes for the user actor.
+    reader: {
+      batch: async () => null,
+      collection: async () => null,
+      collectionPlacements: async () => null,
+      comment: async () => null,
+      pin: async () => null,
+      project: async () => null,
+      projectOrder: async () => [],
+      session: async () => null,
+      sessionOrder: async () => null,
+      share: async () => null,
+    },
     status: async () => status,
     store: cloudAssistantStore(env, principal.id),
     surface: "cloud",
-    toolHost: cloudAssistantToolHost(env, principal, new URL(request.url).origin),
+    toolHost,
+    writeHost: toolHost,
   };
   const response = await handleAssistantRequest(request, deps);
   // The assistant path was matched above, so null (a different route) is

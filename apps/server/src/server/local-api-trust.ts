@@ -357,6 +357,30 @@ export const LOCAL_API_TRUST_MATRIX: readonly LocalApiTrustEntry[] = [
     path: "/api/assistant/threads/:id",
     pattern: /^\/api\/assistant\/threads\/[^/]+$/,
   },
+  {
+    class: "mutable",
+    intendedClients: ["workspace"],
+    methods: ["POST"],
+    notes: "Confirms an assistant proposal and runs the write through the local MCP handlers.",
+    path: "/api/assistant/proposals/:id/confirm",
+    pattern: /^\/api\/assistant\/proposals\/[^/]+\/confirm$/,
+  },
+  {
+    class: "mutable",
+    intendedClients: ["workspace"],
+    methods: ["POST"],
+    notes: "Rejects a pending assistant proposal.",
+    path: "/api/assistant/proposals/:id/reject",
+    pattern: /^\/api\/assistant\/proposals\/[^/]+\/reject$/,
+  },
+  {
+    class: "mutable",
+    intendedClients: ["workspace"],
+    methods: ["POST"],
+    notes: "Undoes an executed assistant proposal through the local MCP handlers.",
+    path: "/api/assistant/proposals/:id/undo",
+    pattern: /^\/api\/assistant\/proposals\/[^/]+\/undo$/,
+  },
 ];
 
 export const LOCAL_PUBLIC_PROJECTIONS: readonly LocalApiTrustEntry[] = [

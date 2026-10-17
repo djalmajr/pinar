@@ -3,6 +3,10 @@
 // no plan gate; availability is the ai.json configuration, read with the
 // same functions the rest of the local AI surface uses (readAiSettings and
 // localAiVault).
+//
+// Proposals (F2 contract section 3): the state reader reads the same
+// history database, and confirm/undo run through the same local MCP
+// handlers as the turn's reads, because the local app already writes.
 
 import { readAiSettings } from "@pinar/cli/ai-settings";
 import { pinarHome } from "@pinar/cli/paths";
@@ -12,7 +16,9 @@ import { localMcpHandlers } from "../local-mcp";
 import type { AssistantEndpoint } from "./models";
 import { detectThinkingControl } from "./models";
 import type { AssistantRequestDeps } from "./http";
+import { localAssistantStateReader } from "./state-reader-local";
 import { localAssistantStore } from "./store-local";
+import type { AssistantToolHost } from "./tools";
 
 type LocalAiSettings = Awaited<ReturnType<typeof readAiSettings>>;
 
@@ -31,6 +37,9 @@ export function localAssistantDeps(request: Request): AssistantRequestDeps {
   // The same origin /api/mcp uses for tool results and links.
   const origin = new URL(request.url).origin;
   const database = historyDatabase();
+  const mcpHost: AssistantToolHost = {
+    callTool: (name, args) => localMcpHandlers(database, origin).callTool(name, args),
+  };
   return {
     async endpoint() {
       const settings = await localAiSettings();
@@ -52,10 +61,10 @@ export function localAssistantDeps(request: Request): AssistantRequestDeps {
       const settings = await localAiSettings();
       return settings ? { available: true, reason: null } : { available: false, reason: "not_configured" };
     },
+    reader: localAssistantStateReader(database),
     store: localAssistantStore(database),
     surface: "local",
-    toolHost: {
-      callTool: (name, args) => localMcpHandlers(database, origin).callTool(name, args),
-    },
+    toolHost: mcpHost,
+    writeHost: mcpHost,
   };
 }

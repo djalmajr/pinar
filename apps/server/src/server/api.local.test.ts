@@ -35,6 +35,34 @@ function request(path: string, init: RequestInit = {}) {
   return handleApiRequest(new Request(`http://127.0.0.1:17373${path}`, init));
 }
 
+const MCP_ACCEPT = "application/json, text/event-stream";
+
+// Calls one local MCP tool through /api/mcp (initialize, then tools/call)
+// and returns its JSON result; a tool error fails the test.
+async function localMcpTool(name: string, args: Record<string, unknown>): Promise<Record<string, any>> {
+  const initialized = await request("/api/mcp", {
+    body: JSON.stringify({
+      id: 0,
+      jsonrpc: "2.0",
+      method: "initialize",
+      params: { capabilities: {}, clientInfo: { name: "pinar-assistant-test", version: "0.0.0" }, protocolVersion: "2025-11-25" },
+    }),
+    headers: { accept: MCP_ACCEPT, "content-type": "application/json" },
+    method: "POST",
+  });
+  assert.equal(initialized.status, 200);
+  const session = initialized.headers.get("mcp-session-id");
+  assert.ok(session);
+  const response = await request("/api/mcp", {
+    body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "tools/call", params: { arguments: args, name } }),
+    headers: { accept: MCP_ACCEPT, "content-type": "application/json", "mcp-session-id": session },
+    method: "POST",
+  });
+  const body = (await response.json()) as { result: { content: Array<{ text: string }>; isError?: boolean } };
+  assert.notEqual(body.result.isError, true, `${name}: ${body.result.content[0]?.text}`);
+  return JSON.parse(body.result.content[0].text) as Record<string, any>;
+}
+
 describe("local TanStack API", () => {
   beforeEach(async () => {
     previousHome = process.env.PINAR_HOME;
@@ -1467,6 +1495,88 @@ describe("local TanStack API", () => {
     }
   });
 
+  test("assistant: a proposed move is confirmed and undone through the local MCP", async () => {
+    // Real data, created with the local MCP.
+    const project = (await localMcpTool("pinar.create_project", { name: "Site" })).project;
+    const checkout = (await localMcpTool("pinar.create_collection", { name: "Checkout", projectId: project.id })).collection;
+    const onboarding = (await localMcpTool("pinar.create_collection", { name: "Onboarding", projectId: project.id })).collection;
+    const ids: string[] = [];
+    for (const title of ["Cart page", "Payment form", "Receipt"]) {
+      ids.push((await localMcpTool("pinar.create_session", { collectionId: checkout.id, page: { title, url: "https://example.test/" } })).session.id);
+    }
+    const welcome = (await localMcpTool("pinar.create_session", { collectionId: onboarding.id, page: { title: "Welcome", url: "https://example.test/" } })).session.id;
+    const order = async (collectionId: string) =>
+      ((await localMcpTool("pinar.list_sessions", { collectionId, limit: 50 })).sessions as Array<{ id: string }>).map((item) => item.id);
+    assert.deepEqual(await order(checkout.id), ids);
+    assert.deepEqual(await order(onboarding.id), [welcome]);
+
+    // The fake endpoint answers the first call with a pinar_move_session
+    // call for the real ids, and the second with text.
+    let completions = 0;
+    const chunk = (delta: Record<string, unknown>, finishReason: string | null) =>
+      `data: ${JSON.stringify({ choices: [{ delta, finish_reason: finishReason, index: 0 }], created: 1, id: "c1", model: "fake-model", object: "chat.completion.chunk" })}\n\n`;
+    const fake = Bun.serve({
+      fetch: async (incoming) => {
+        const url = new URL(incoming.url);
+        if (incoming.method === "GET" && url.pathname === "/v1/models") return Response.json({ data: [{ id: "fake-model" }] });
+        if (incoming.method === "POST" && url.pathname === "/v1/chat/completions") {
+          completions += 1;
+          const body = completions === 1
+            ? chunk({
+              role: "assistant",
+              tool_calls: [{
+                function: { arguments: JSON.stringify({ collectionId: onboarding.id, sessionId: ids[1] }), name: "pinar_move_session" },
+                id: "call_1",
+                index: 0,
+                type: "function",
+              }],
+            }, null) + chunk({}, "tool_calls")
+            : chunk({ content: "Propus mover a sessão; confirme no cartão.", role: "assistant" }, null) + chunk({}, "stop");
+          return new Response(`${body}data: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
+        }
+        return new Response("not found", { status: 404 });
+      },
+      port: 0,
+    });
+    try {
+      writeFileSync(join(root, "ai.json"), JSON.stringify({ endpoint: `http://127.0.0.1:${fake.port}/v1`, mode: "local", model: "fake-model" }));
+      const turn = await request("/api/assistant/turn", {
+        body: JSON.stringify({ text: "Mova o Payment form para Onboarding" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      });
+      assert.equal(turn.status, 200);
+      const parts = (await turn.text())
+        .split("\n")
+        .filter((line) => line.startsWith("data: ") && line.slice(6) !== "[DONE]")
+        .map((line) => JSON.parse(line.slice(6)) as { data?: Record<string, any>; type: string });
+      const proposals = parts.filter((part) => part.type === "data-proposal").map((part) => part.data!);
+      assert.equal(proposals.length, 1, JSON.stringify(parts.map((part) => part.type)));
+      assert.equal(proposals[0].status, "proposed");
+      assert.deepEqual(proposals[0].display, { action: "move_session", params: { collection: "Onboarding", session: "Payment form" } });
+      assert.equal(completions, 2);
+      // Nothing moved during the turn.
+      assert.deepEqual(await order(checkout.id), ids);
+
+      const confirmed = await request(`/api/assistant/proposals/${proposals[0].id}/confirm`, {
+        headers: { origin: "http://127.0.0.1:17373" },
+        method: "POST",
+      });
+      assert.equal(confirmed.status, 200);
+      assert.equal((await jsonBody(confirmed) as { proposal: { status: string } }).proposal.status, "executed");
+      assert.deepEqual(await order(checkout.id), [ids[0], ids[2]], "the session really moved");
+      assert.deepEqual(await order(onboarding.id), [welcome, ids[1]]);
+
+      const undone = await request(`/api/assistant/proposals/${proposals[0].id}/undo`, { method: "POST" });
+      assert.equal(undone.status, 200);
+      assert.equal((await jsonBody(undone) as { proposal: { status: string } }).proposal.status, "undone");
+      assert.deepEqual(await order(checkout.id), ids, "back in the same collection and order");
+      assert.deepEqual(await order(onboarding.id), [welcome]);
+    } finally {
+      fake.stop(true);
+    }
+  });
+
   test("assistant: a hostile origin is denied on every route", async () => {
     const hostile = { origin: "https://evil.example" };
     assert.equal((await request("/api/assistant/status", { headers: hostile })).status, 401);
@@ -1490,6 +1600,19 @@ describe("local TanStack API", () => {
       ).status,
       401,
     );
+    for (const action of ["confirm", "reject", "undo"]) {
+      assert.equal(
+        (await request(`/api/assistant/proposals/apr_aaaaaaaaaaaaaaaaaaaaaaaa/${action}`, { headers: hostile, method: "POST" })).status,
+        401,
+        action,
+      );
+      // The loopback workspace origin reaches the route (unknown id, 404 from the route itself).
+      const allowed = await request(`/api/assistant/proposals/apr_aaaaaaaaaaaaaaaaaaaaaaaa/${action}`, {
+        headers: { origin: "http://127.0.0.1:17373" },
+        method: "POST",
+      });
+      assert.notEqual(allowed.status, 401, action);
+    }
     // A loopback workspace origin keeps access.
     assert.equal(
       (await request("/api/assistant/status", { headers: { origin: "http://127.0.0.1:17373" } })).status,

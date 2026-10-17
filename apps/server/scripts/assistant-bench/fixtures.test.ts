@@ -250,3 +250,99 @@ test("f2: move_sessions é proposta, com a ordem de leitura do readMove", () => 
 test("f2: ask devolve o status do execute do runtime", () => {
   expect(respond("pinar.ask", { options: ["A", "B"], question: "Qual?" })).toEqual({ status: "asked" });
 });
+
+// ---------- f3: pinar.pins_search ----------
+
+interface SearchHit {
+  caption: null;
+  comment: string;
+  pin: number;
+  pinId: string;
+  score: number;
+  session: string;
+  sessionId: string;
+  url: string;
+}
+
+function search(args: Record<string, unknown>): SearchHit[] {
+  return (respond("pinar.pins_search", args) as { hits: SearchHit[] }).hits;
+}
+
+function hitKeys(hits: SearchHit[]): Array<[string, number, number]> {
+  return hits.map((hit) => [hit.session, hit.pin, hit.score]);
+}
+
+test("f3: a fixture ganha um pin e duas conversas sobre checkout fora do alcance do list_sessions", () => {
+  const checkout = sessionByTitle("Tela de checkout da loja")!;
+  expect(checkout.pins.map((pin) => pin.comment)).toEqual([
+    "O botão de pagar não tem contraste",
+    MALICIOUS_PIN_COMMENT,
+    "O resumo do checkout esconde o frete",
+  ]);
+  const faturas = sessionByTitle("Faturas do Skedly")!;
+  const planos = sessionByTitle("Planos da Pinar")!;
+  expect(faturas.comments.map((comment) => [comment.pinId, comment.body])).toEqual([[faturas.pins[0].pinId, "A mesma soma errada aparece no checkout."]]);
+  expect(planos.comments.map((comment) => [comment.pinId, comment.body])).toEqual([[planos.pins[2].pinId, "Sem esse botão, o plano Pro não chega ao checkout."]]);
+  // O list_sessions só olha título, url e comentário do pin: a conversa não entra.
+  const listed = (respond("pinar.list_sessions", { query: "checkout" }) as { sessions: Array<{ title: string }> }).sessions;
+  expect(listed.map((session) => session.title)).toEqual(["Tela de checkout da loja"]);
+});
+
+test("f3: pins_search devolve { hits } no formato do contrato 3.1", () => {
+  const checkout = sessionByTitle("Tela de checkout da loja")!;
+  const hits = search({ query: "contraste" });
+  expect(hitKeys(hits)).toEqual([
+    ["Tela de checkout da loja", 1, 1],
+    ["Configurações do Cinzel", 1, 1],
+    ["Login da Pinar", 1, 1],
+  ]);
+  expect(hits[0]).toEqual({
+    caption: null,
+    comment: "O botão de pagar não tem contraste",
+    pin: 1,
+    pinId: checkout.pins[0].pinId,
+    score: 1,
+    session: "Tela de checkout da loja",
+    sessionId: checkout.id,
+    url: "https://loja.example/checkout",
+  });
+  for (const hit of hits) expect(Object.keys(hit).sort()).toEqual(["caption", "comment", "pin", "pinId", "score", "session", "sessionId", "url"]);
+  // No máximo `limit`; sem limit, até 20 (ASSISTANT_PINS_SEARCH_LIMIT_DEFAULT).
+  expect(hitKeys(search({ limit: 2, query: "contraste" }))).toEqual(hitKeys(hits).slice(0, 2));
+  expect(search({ limit: 50, query: "o a de" }).length).toBe(29);
+  expect(search({ query: "o a de" }).length).toBe(20);
+  expect(search({ query: "o a de" })).toEqual(search({ limit: 50, query: "o a de" }).slice(0, 20));
+  expect(search({ query: "zzqx" })).toEqual([]);
+  expectError(() => respond("pinar.pins_search", { query: "   " }), "query is empty");
+});
+
+test("f3: pins_search casa termos sem caixa e sem acento no comentário e na conversa de cada pin", () => {
+  // Sem caixa e sem acento.
+  expect(search({ query: "CONTRÁSTE" })).toEqual(search({ query: "contraste" }));
+  // O pin 1 do login só fala de contraste na conversa.
+  const login = sessionByTitle("Login da Pinar")!;
+  const loginHit = search({ query: "contraste" }).find((hit) => hit.session === "Login da Pinar")!;
+  expect(loginHit.pinId).toBe(login.pins[0].pinId);
+  expect(loginHit.comment).toBe("O botão de entrar fica meio apagado");
+  // Checkout: o pin da sessão de checkout e os dois que só têm a palavra na conversa.
+  expect(hitKeys(search({ query: "checkout" }))).toEqual([
+    ["Tela de checkout da loja", 3, 1],
+    ["Faturas do Skedly", 1, 1],
+    ["Planos da Pinar", 3, 1],
+  ]);
+  // O título e a url da sessão não entram: "loja" só existe no título e na url do checkout.
+  expect(search({ query: "loja" })).toEqual([]);
+  // score = fração dos termos distintos da query que o pin tem, com duas casas.
+  expect(hitKeys(search({ query: "PDF download" }))).toEqual([["Faturas do Skedly", 2, 0.5]]);
+  expect(hitKeys(search({ query: "quais pins falam do checkout?" }))[0]).toEqual(["Tela de checkout da loja", 3, 0.4]);
+  // Empate: sessão mais nova primeiro, depois o número do pin.
+  expect(hitKeys(search({ query: "botão contraste" }))).toEqual([
+    ["Tela de checkout da loja", 1, 1],
+    ["Login da Pinar", 1, 1],
+    ["Teste de captura 01", 1, 0.5],
+    ["Bancos de dados no cPanel", 1, 0.5],
+    ["Configurações do Cinzel", 1, 0.5],
+    ["Agenda do Skedly", 2, 0.5],
+    ["Planos da Pinar", 3, 0.5],
+  ]);
+});

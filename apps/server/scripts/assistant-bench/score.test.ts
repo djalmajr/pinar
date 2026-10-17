@@ -853,3 +853,115 @@ test("f0 intacto: pinar_move_sessions não é escrita nem se expande no perfil f
   expect(scoreCase(expectBulk, wrote).argsOk).toBe(false);
   expect(scoreCase(expectBulk, wrote, "f2").argsOk).toBe(true);
 });
+
+// ---------- perfil f3: busca antes das listagens ----------
+
+const CHECKOUT_TITLE = "Tela de checkout da loja";
+const SEARCH_EXPECT: CaseExpect = { final: "text", mentions: [CHECKOUT_TITLE], mustCall: ["pinar_pins_search"], searchFirst: true };
+const SEARCH_ANSWER = `O pin sobre contraste está na ${CHECKOUT_TITLE}.`;
+
+function searchScore(toolCalls: ToolCallRecord[]): CaseScore {
+  return scoreCase(SEARCH_EXPECT, loop({ finalKind: "text", finalText: SEARCH_ANSWER, toolCalls }), "f3");
+}
+
+test("f3: searchFirst exige a busca bem-sucedida antes de qualquer listagem, na ordem das chamadas", () => {
+  const searched = readWith("pinar_pins_search", [CHECKOUT_TITLE]);
+  const listed = readWith("pinar_list_sessions", [CHECKOUT_TITLE]);
+  // Só a busca, ou a busca e depois uma listagem: certo.
+  for (const calls of [[searched], [searched, listed]]) {
+    const score = searchScore(calls);
+    expect(score.searchFirstOk).toBe(true);
+    expect(score.searchMeasured).toBe(true);
+    expect(score.pass).toBe(true);
+  }
+  // Listar antes de buscar reprova, mesmo com a busca, as menções e o término certos.
+  const listedFirst = searchScore([listed, searched]);
+  expect(listedFirst.searchFirstOk).toBe(false);
+  expect(listedFirst.mustCallOk).toBe(true);
+  expect(listedFirst.mentionsOk).toBe(true);
+  expect(listedFirst.endOk).toBe(true);
+  expect(listedFirst.pass).toBe(false);
+  // Cada listagem conta, inclusive uma tentativa que falhou.
+  for (const name of ["pinar_list_projects", "pinar_list_collections", "pinar_list_batches", "pinar_list_pins", "pinar_list_pin_comments"]) {
+    expect(searchScore([readWith(name, []), searched]).searchFirstOk).toBe(false);
+  }
+  const failedList = record("pinar_list_sessions", { limit: 99 }, null, ["limit must be at most 50"], null, "Invalid arguments");
+  expect(searchScore([failedList, searched]).searchFirstOk).toBe(false);
+  // Uma busca que falhou não é a busca: a listagem depois dela vem antes da busca válida.
+  const failedSearch = record("pinar_pins_search", { query: "" }, null, ["query is empty"], null, "Invalid arguments");
+  expect(searchScore([failedSearch, listed, searched]).searchFirstOk).toBe(false);
+  expect(searchScore([failedSearch, searched, listed]).searchFirstOk).toBe(true);
+  // Sem busca bem-sucedida, nunca.
+  expect(searchScore([]).searchFirstOk).toBe(false);
+  expect(searchScore([failedSearch]).searchFirstOk).toBe(false);
+  // Leituras que não são listagem (markdown, get_pin) não contam.
+  expect(searchScore([readWith("pinar_get_session_markdown", []), searched]).searchFirstOk).toBe(true);
+});
+
+test("f3: casos sem searchFirst mantêm o formato do score (f0 e f2 intactos)", () => {
+  const calls = [readWith("pinar_list_sessions", [CHECKOUT_TITLE])];
+  const expectText: CaseExpect = { final: "text", mentions: [CHECKOUT_TITLE], mustCall: ["pinar_list_sessions"] };
+  for (const profile of ["f0", "f2", "f3"] as const) {
+    const score = scoreCase(expectText, loop({ finalKind: "text", finalText: SEARCH_ANSWER, toolCalls: calls }), profile);
+    expect("searchFirstOk" in score).toBe(false);
+    expect("searchMeasured" in score).toBe(false);
+    expect(score.pass).toBe(true);
+  }
+});
+
+test("gates: só o f3 soma o gate de busca; f0 e f2 seguem com quatro", () => {
+  const runs = [gateRun()];
+  expect(benchGates(runs).map((entry) => entry.id)).toEqual(["action", "arguments", "outside-catalog", "misleading"]);
+  expect(benchGates(runs, "f2").map((entry) => entry.id)).toEqual(["action", "arguments", "outside-catalog", "misleading"]);
+  expect(benchGates(runs, "f3").map((entry) => entry.id)).toEqual(["action", "arguments", "outside-catalog", "misleading", "search"]);
+  // Os quatro primeiros são os mesmos nos três perfis.
+  expect(benchGates(runs, "f3").slice(0, 4)).toEqual(benchGates(runs, "f2"));
+});
+
+test("gates: busca escolhida passa em 90% exatos e reprova abaixo; conta só os casos de busca", () => {
+  const searchGate = (runs: CaseRun[]) => benchGates(runs, "f3").find((entry) => entry.id === "search")!;
+  const right = Array.from({ length: 9 }, () => gateRun({}, { searchFirstOk: true, searchMeasured: true }));
+  const wrong = gateRun({}, { searchFirstOk: false, searchMeasured: true });
+  const notMeasured = gateRun();
+  expect(searchGate([...right, wrong, notMeasured])).toEqual({
+    id: "search",
+    label: "Busca escolhida nas perguntas de conteúdo ≥ 90%",
+    measured: "90.0% (9/10)",
+    pass: true,
+  });
+  const fewer = [...right.slice(1), wrong, gateRun({}, { searchFirstOk: false, searchMeasured: true })];
+  expect(searchGate(fewer)).toMatchObject({ measured: "80.0% (8/10)", pass: false });
+  // Sem caso de busca medido, o gate reprova (sem vacuidade).
+  expect(searchGate([notMeasured])).toMatchObject({ measured: "— (0/0)", pass: false });
+  // O agregado do perfil f3 traz o mesmo gate; o de f2 não.
+  const base: BenchConfig = { baseUrl: "https://x.example", model: "m", parallel: "omit", repeat: 1, strict: false, systemPrompt: "s", thinking: "omit", toolCount: 39 };
+  expect(aggregate([...right, wrong], { ...base, profile: "f3" }).gates).toEqual(benchGates([...right, wrong], "f3"));
+  expect(aggregate([...right, wrong], { ...base, profile: "f2" }).gates.map((entry) => entry.id)).not.toContain("search");
+});
+
+test("gates: listar antes de buscar reprova a ação certa", () => {
+  const action = (runs: CaseRun[]) => benchGates(runs, "f3").find((entry) => entry.id === "action")!;
+  expect(action([gateRun({}, { endOk: true, searchFirstOk: false, searchMeasured: true })])).toMatchObject({ measured: "0.0% (0/1)", pass: false });
+  // Controle: com a busca antes, a mesma execução tem ação certa.
+  expect(action([gateRun({}, { endOk: true, searchFirstOk: true, searchMeasured: true })])).toMatchObject({ measured: "100.0% (1/1)", pass: true });
+  // Sem o campo (casos sem searchFirst), a ação não muda.
+  expect(action([gateRun({}, { endOk: true })]).pass).toBe(true);
+});
+
+test("mustCallAny: basta uma das ferramentas, com chamada válida e bem-sucedida; conta no mustCall", () => {
+  const expectAny: CaseExpect = { final: "text", mustCallAny: ["pinar_list_sessions", "pinar_pins_search"] };
+  const score = (toolCalls: ToolCallRecord[]) => scoreCase(expectAny, loop({ finalKind: "text", finalText: "ok.", toolCalls }), "f3");
+  expect(score([readWith("pinar_pins_search", [])]).mustCallOk).toBe(true);
+  expect(score([readWith("pinar_list_sessions", [])]).mustCallOk).toBe(true);
+  expect(score([readWith("pinar_list_sessions", []), readWith("pinar_pins_search", [])]).mustCallOk).toBe(true);
+  const none = score([readWith("pinar_list_projects", [])]);
+  expect(none.mustCallOk).toBe(false);
+  expect(none.missingMustCall).toEqual(["pinar_list_sessions|pinar_pins_search"]);
+  expect(none.pass).toBe(false);
+  // Uma chamada inválida não conta.
+  const failed = record("pinar_pins_search", { query: "" }, null, ["query is empty"], null, "Invalid arguments");
+  expect(score([failed]).mustCallOk).toBe(false);
+  // Junto com mustCall, os dois valem.
+  const both = scoreCase({ ...expectAny, mustCall: ["pinar_list_projects"] }, loop({ finalKind: "text", finalText: "ok.", toolCalls: [readWith("pinar_pins_search", [])] }), "f3");
+  expect(both.missingMustCall).toEqual(["pinar_list_projects"]);
+});

@@ -6675,6 +6675,81 @@ async function followClaimedBatch(
   };
 }
 
+// The capture follows the batch's most recent session, at its current
+// collection and with its mark, as the batch rule does (A27): unmarked when
+// that session is in the Inbox, and in the Inbox, unmarked, when its
+// collection is gone before the save.
+async function followBatchSession(
+  env: CloudEnv,
+  principal: Principal,
+  session: { collectionId: string; filedBy: "auto" | null },
+): Promise<{ destination: CaptureDestination; filed: FilingOutcome }> {
+  const collections = await cloudFilingSource(env, principal).collections();
+  const candidate = collections.some((collection) => collection.collectionId === session.collectionId);
+  const destination = await resolveDestination(env, principal, candidate ? session.collectionId : "");
+  if (candidate && destination.collectionId !== session.collectionId) {
+    return { destination, filed: { filedBy: null, filing: { collectionId: null, confidence: 0, engine: "none", reason: "error" } } };
+  }
+  return {
+    destination,
+    filed: {
+      filedBy: candidate ? session.filedBy : null,
+      filing: { collectionId: candidate ? session.collectionId : null, confidence: 0, engine: "none", reason: "chosen" },
+      followedBatch: true,
+    },
+  };
+}
+
+// A re-upload: the owner already has a session with this id in this batch.
+async function ownSessionInBatch(env: CloudEnv, principal: Principal, id: string, batchId: string): Promise<boolean> {
+  if (env.DB) {
+    const row = await env.DB.prepare(
+      "SELECT id FROM sessions WHERE id = ? AND user_id = ? AND batch_id = ?",
+    ).bind(id, principal.id, batchId).first();
+    return row !== null;
+  }
+  const session = memorySessions.get(id);
+  return Boolean(session && session.userId === principal.id && cloudSessionBatchId(session) === batchId);
+}
+
+// The batch's destination becomes this one, whatever was claimed before.
+async function replaceBatchDestination(env: CloudEnv, principal: Principal, batchId: string, collectionId: string) {
+  if (env.DB) {
+    await env.DB.prepare(
+      "UPDATE batches SET filing_collection_id = ? WHERE id = ? AND user_id = ?",
+    ).bind(collectionId, batchId, principal.id).run();
+    return;
+  }
+  const batch = memoryBatches.get(batchId);
+  if (batch && batch.userId === principal.id) batch.filingCollectionId = collectionId;
+}
+
+// After the engine chose for a batch that had no session when it was asked
+// (A36), in this order:
+// 1. A session saved in the batch during the wait decides, read again as
+//    the batch rule reads it (without this capture): the capture follows
+//    its current collection and mark, so a move made meanwhile still
+//    corrects the batch.
+// 2. A re-upload of the batch's own session keeps the new decision, which
+//    becomes the batch's destination; the earlier claim is not applied.
+// 3. Otherwise the capture claims the batch's destination, or follows the
+//    one a concurrent first capture claimed before it saved.
+async function settleBatchDestination(
+  env: CloudEnv,
+  principal: Principal,
+  input: { batchId: string; destination: CaptureDestination; filed: FilingOutcome; id: string },
+): Promise<{ destination: CaptureDestination; filed: FilingOutcome }> {
+  const latest = await cloudFilingSource(env, principal).batchSession(input.batchId, input.id);
+  if (latest) return followBatchSession(env, principal, latest);
+  if (await ownSessionInBatch(env, principal, input.id, input.batchId)) {
+    await replaceBatchDestination(env, principal, input.batchId, input.destination.collectionId);
+    return { destination: input.destination, filed: input.filed };
+  }
+  const claimed = await claimBatchDestination(env, principal, input.batchId, input.destination.collectionId);
+  if (claimed !== null && claimed !== input.destination.collectionId) return followClaimedBatch(env, principal, claimed);
+  return { destination: input.destination, filed: input.filed };
+}
+
 // GET and PATCH /api/preferences: the automatic destination can be turned
 // on, inside the assistant gate (A33) and with an engine. Outside the gate
 // nothing is loaded nor fetched.
@@ -6752,13 +6827,9 @@ async function uploadShot(request: Request, env: CloudEnv) {
     if (filed.filing.collectionId !== null && filed.filing.collectionId !== destination.collectionId) {
       filed = { filedBy: null, filing: { ...filed.filing, collectionId: null, reason: "error" } };
     }
-    // A batch without a session yet: claim its destination, or follow the
-    // one a concurrent capture claimed first (A36).
+    // A batch that had no session when the engine was asked (A36).
     if (batchId && !filed.followedBatch) {
-      const claimed = await claimBatchDestination(env, principal, batchId, destination.collectionId);
-      if (claimed !== null && claimed !== destination.collectionId) {
-        ({ destination, filed } = await followClaimedBatch(env, principal, claimed));
-      }
+      ({ destination, filed } = await settleBatchDestination(env, principal, { batchId, destination, filed, id }));
     }
   }
   if (env.PINAR_BUCKET) {

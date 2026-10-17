@@ -45,14 +45,16 @@ export function DeliveryPreferencesProvider({ children }: { children: ReactNode 
   const [available, setAvailable] = useState(false);
   const [autoCaptureDestinationAvailable, setAutoCaptureDestinationAvailable] = useState(true);
 
-  // Each read is numbered: only the latest one, while mounted, sets the state.
-  const latestRead = useRef(0);
+  // Reads and patches share one numbering. A read sets the state only while
+  // it is still the latest operation and the provider is mounted, so neither
+  // an older read nor a read that a patch overtook overwrites newer state.
+  const latestOperation = useRef(0);
   const refresh = useCallback(async () => {
-    const read = ++latestRead.current;
+    const read = ++latestOperation.current;
     try {
       const response = await fetch("/api/preferences");
       const body: unknown = await response.json().catch(() => null);
-      if (read !== latestRead.current) return;
+      if (read !== latestOperation.current) return;
       const next = deliveryPreferencesFromBody(body);
       if (!response.ok || next == null) {
         setAvailable(false);
@@ -65,18 +67,20 @@ export function DeliveryPreferencesProvider({ children }: { children: ReactNode 
         setLanguage(next.preferences.language);
       }
     } catch {
-      if (read === latestRead.current) setAvailable(false);
+      if (read === latestOperation.current) setAvailable(false);
     }
   }, [setLanguage]);
 
   useEffect(() => {
     void refresh();
     return () => {
-      latestRead.current += 1;
+      latestOperation.current += 1;
     };
   }, [refresh]);
 
   const patch = useCallback(async (partial: Partial<DeliveryPreferences>) => {
+    // A read still pending was sent before this write: its answer is older.
+    latestOperation.current += 1;
     const previous = preferences;
     setPreferences((current) => ({ ...current, ...partial }));
     try {

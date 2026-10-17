@@ -59,7 +59,9 @@ import { SESSION_PATCH_MAX_BYTES } from "./session-patch";
 import { handleLocalAiRequest, resetLocalAiForTests } from "./ai/local-ai";
 import { assistantUnavailableResponse, handleAssistantRequest, isAssistantPath } from "./assistant/http";
 import { localAssistantDeps } from "./assistant/local-deps";
-import { attachLocalPinIndex, type LocalPinIndexHistory } from "./assistant/retrieval/runtime-local";
+import { attachLocalPinIndex, localAiConfigured, type LocalPinIndexHistory } from "./assistant/retrieval/runtime-local";
+import type { FilingChoice } from "./filing/choose";
+import { fileLocalCapture, localAutoCaptureDestinationAvailable } from "./filing/runtime-local";
 import { localExportFileName, streamLocalExport } from "./local-export";
 import { handleLocalMcpRequest } from "./local-mcp";
 import { canonicalShotPath, isUsableSessionShotPath, removeSessionShotFile, sessionShotIdentity } from "./local-session-files";
@@ -573,15 +575,36 @@ async function uploadShot(request: Request): Promise<Response> {
   }
   const saved = await writeShot(id, image, rootPath());
   const preferences = readDeliveryPreferences(rootPath());
+  // F3.5: with the automatic destination on and the AI configured (A33),
+  // the server files the new capture and the body's collectionId is
+  // ignored (A27); without an engine, or in doubt, it goes to the Inbox
+  // (A29).
+  let filing: FilingChoice | null = capture && preferences.autoCaptureDestination && localAiConfigured(rootPath())
+    ? await fileLocalCapture({
+      batchId: batchValue(body)?.id ?? null,
+      capture,
+      db: historyDatabase() as HistoryDatabase & LocalPinIndexHistory,
+      root: rootPath(),
+    })
+    : null;
   const destination = historyDatabase().resolveDestination(
-    stringValue(body, "collectionId") || preferences.captureDestination?.collectionId,
+    filing
+      ? filing.collectionId ?? undefined
+      : stringValue(body, "collectionId") || preferences.captureDestination?.collectionId,
   );
+  // A chosen collection that disappeared before the save leaves the capture
+  // in the Inbox.
+  if (filing && filing.collectionId !== null && filing.collectionId !== destination.collectionId) {
+    filing = { ...filing, collectionId: null, reason: "error" };
+  }
   if (capture) {
     try {
       historyDatabase().saveSession({
         batchId: persistBatch(body)?.id ?? null,
         collectionId: destination.collectionId,
         createdAt: stringValue(body, "createdAt") || capture.createdAt,
+        // Always explicit, so a re-upload never keeps an earlier mark.
+        filedBy: filing?.collectionId ? "auto" : null,
         id: capture.captureId,
         page: capture.page,
         pins: capture.pins,
@@ -604,6 +627,7 @@ async function uploadShot(request: Request): Promise<Response> {
   const origin = new URL(request.url).origin;
   return json({
     destination,
+    ...(filing ? { filing } : {}),
     isPermanent: true,
     markdownUrl: `${origin}/v/${id}.md`,
     ok: true,
@@ -748,7 +772,11 @@ async function routeLocalApi(request: Request): Promise<Response> {
     return json({ session: { kind: "local", plan: "free" } }, 200, { "Cache-Control": "no-store" });
   }
   if (method === "GET" && path === "/api/preferences") {
-    return json({ ok: true, ...readDeliveryPreferences(rootPath()) });
+    return json({
+      ok: true,
+      ...readDeliveryPreferences(rootPath()),
+      autoCaptureDestinationAvailable: await localAutoCaptureDestinationAvailable(rootPath()),
+    });
   }
   if (method === "PATCH" && path === "/api/preferences") {
     return json({ ok: true, ...writeDeliveryPreferences(await readJson(request), rootPath()) });

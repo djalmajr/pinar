@@ -305,6 +305,7 @@ describe("local TanStack API", () => {
     assert.deepEqual(defaults, {
       ok: true,
       autoCaptureDestination: false,
+      autoCaptureDestinationAvailable: false,
       captureDestination: null,
       componentTarget: null,
       copyOnFinishBatch: "prompt",

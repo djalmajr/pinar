@@ -167,7 +167,7 @@ const messages = {
   "settings.aiUsageRefunded": "Refunded",
   "settings.aiUsageComponentExport": "Component export",
   "settings.aiUsageDesignSystem": "Design system",
-  "settings.aiUsageReproduction": "Reproduction",
+  "settings.aiUsageReproduction": "Written reproduction steps",
   "settings.aiUsageSessionSummary": "Session summary",
   "settings.aiUsageVoicePin": "Voice pin",
   "settings.aiUsageAssistantTurn": "Assistant message",

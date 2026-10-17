@@ -169,7 +169,7 @@ const messages: UiMessages = {
   "settings.aiUsageRefunded": "Erstattet",
   "settings.aiUsageComponentExport": "Komponentenexport",
   "settings.aiUsageDesignSystem": "Designsystem",
-  "settings.aiUsageReproduction": "Reproduktion",
+  "settings.aiUsageReproduction": "Ausformulierte Reproduktionsschritte",
   "settings.aiUsageSessionSummary": "Sitzungszusammenfassung",
   "settings.aiUsageVoicePin": "Sprach-Pin",
   "settings.aiUsageAssistantTurn": "Assistenten-Nachricht",

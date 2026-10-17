@@ -69,7 +69,7 @@ import XIcon from "~icons/lucide/x";
 
 type ThemeMode = "dark" | "light" | "system";
 type AiUsageStatus = "idle" | "loading" | "ready" | "unavailable";
-type AiUsageFeature = "assistant_turn" | "capture_filing" | "voice_pin";
+type AiUsageFeature = "assistant_turn" | "capture_filing" | "reproduction" | "voice_pin";
 type AiMode = "byok" | "disabled" | "local";
 type AiSettingsStatus = "clearing" | "idle" | "loading" | "ready" | "saving" | "testing";
 
@@ -107,18 +107,20 @@ const PINAR_WEBSITE_URL = "https://pinar.dev";
 const AI_USAGE_FEATURES = new Set<AiUsageFeature>([
   "assistant_turn",
   "capture_filing",
+  "reproduction",
   "voice_pin",
 ]);
 const AI_USAGE_FEATURE_LABELS = {
   assistant_turn: "settings.aiUsageAssistantTurn",
   capture_filing: "settings.aiUsageCaptureFiling",
+  reproduction: "settings.aiUsageReproduction",
   voice_pin: "settings.aiUsageVoicePin",
 } as const;
 
 // The entries of GET /api/account/entitlements the usage section lists: the
-// voice pin, the assistant turn, and the automatic capture filing; other
-// features and malformed items are dropped. null when the answer has no
-// aiUsage list.
+// voice pin, the assistant turn, the automatic capture filing, and the
+// reproduction steps; other features and malformed items are dropped. null
+// when the answer has no aiUsage list.
 export function aiUsageHistory(value: unknown): AiUsageHistoryEntry[] | null {
   if (!isRecord(value) || !Array.isArray(value.aiUsage)) return null;
   const entries: AiUsageHistoryEntry[] = [];

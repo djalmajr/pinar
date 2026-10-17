@@ -168,7 +168,7 @@ const messages: UiMessages = {
   "settings.aiUsageRefunded": "已退款",
   "settings.aiUsageComponentExport": "组件导出",
   "settings.aiUsageDesignSystem": "设计系统",
-  "settings.aiUsageReproduction": "复现",
+  "settings.aiUsageReproduction": "文字复现步骤",
   "settings.aiUsageSessionSummary": "会话摘要",
   "settings.aiUsageVoicePin": "语音标注",
   "settings.aiUsageAssistantTurn": "助手消息",

@@ -169,7 +169,7 @@ const messages: UiMessages = {
   "settings.aiUsageRefunded": "返金済み",
   "settings.aiUsageComponentExport": "コンポーネントのエクスポート",
   "settings.aiUsageDesignSystem": "デザインシステム",
-  "settings.aiUsageReproduction": "再現",
+  "settings.aiUsageReproduction": "文章の再現手順",
   "settings.aiUsageSessionSummary": "セッションの要約",
   "settings.aiUsageVoicePin": "音声ピン",
   "settings.aiUsageAssistantTurn": "アシスタントのメッセージ",

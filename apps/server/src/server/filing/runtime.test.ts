@@ -292,6 +292,42 @@ describe("fileCapture", () => {
     assert.deepEqual(calls, ["reserve"], "no consume, no refund: a refund is not a payment");
   });
 
+  test("a hostile replay refuses a non-string reason and a numeric collectionId (F4d round 2)", async () => {
+    // The stored result_json is untrusted data: a coercible array reason or a
+    // numeric collectionId is refused as a whole and the capture is the
+    // Inbox with reason error — not replayed, not engine-called, not charged.
+    const hostile = { collectionId: "col_a", confidence: 0.99, engine: "decisions" as const, reason: ["chosen"] };
+    const { calls, meter } = metered({ reserve: async () => "replayed" });
+    meter.replayChoice = () => JSON.stringify(hostile);
+    const outcome = await fileCapture({
+      batchId: null,
+      capture: CAPTURE,
+      engine: async () => DECISIONS,
+      fetch: (async () => {
+        throw new Error("no engine");
+      }) as unknown as typeof fetch,
+      meter,
+      source: source(),
+    });
+    assert.deepEqual(outcome, { filedBy: null, filing: { collectionId: null, confidence: 0, engine: "decisions", reason: "error" } });
+    assert.deepEqual(calls, ["reserve"], "a corrupt stored choice is not consumed or refunded");
+
+    const numeric = { collectionId: 123, confidence: 0.9, engine: "decisions" as const, reason: "chosen" as const };
+    const second = metered({ reserve: async () => "replayed" });
+    second.meter.replayChoice = () => JSON.stringify(numeric);
+    const secondOutcome = await fileCapture({
+      batchId: null,
+      capture: CAPTURE,
+      engine: async () => DECISIONS,
+      fetch: (async () => {
+        throw new Error("no engine");
+      }) as unknown as typeof fetch,
+      meter: second.meter,
+      source: source(),
+    });
+    assert.deepEqual(secondOutcome, { filedBy: null, filing: { collectionId: null, confidence: 0, engine: "decisions", reason: "error" } });
+  });
+
   test("similarity reads up to 50 sessions per collection and only the current model's vectors", async () => {
     const sessions: FilingRecentSession[] = [
       { collectionId: "col_a", createdAt: "2026-10-02T00:00:00.000Z", id: "a1", title: "A1" },

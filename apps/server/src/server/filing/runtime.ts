@@ -124,6 +124,13 @@ export interface FilingOutcome {
   filedBy: "auto" | null;
   filing: FilingChoice;
   followedBatch?: true;
+  /**
+   * The run made no decision (the capture already has an open or a
+   * refunded usage, F4d round 2): the upload keeps the collection and the
+   * mark of a session that already exists; only a session that does not
+   * exist yet goes to the Inbox.
+   */
+  keepDestination?: true;
 }
 
 export async function fileCapture(input: {
@@ -188,7 +195,11 @@ export async function fileCapture(input: {
     // chooseCollection reports its own deadline as "timeout" and the
     // caller's signal as "error"; here the signal is this budget.
     const filing: FilingChoice = choice.reason === "error" && expired() ? { ...choice, reason: "timeout" } : choice;
-    return { filedBy: filing.collectionId !== null ? "auto" : null, filing };
+    return {
+      filedBy: filing.collectionId !== null ? "auto" : null,
+      filing,
+      ...(filing.keepDestination ? { keepDestination: true } : {}),
+    };
   } catch {
     return inbox(expired() ? "timeout" : "error");
   }

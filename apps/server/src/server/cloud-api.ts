@@ -397,7 +397,7 @@ interface AiUsageHistoryEntry {
   completedAt: string | null;
   createdAt: string;
   credits: number;
-  feature: "assistant_turn" | "capture_filing" | "voice_pin";
+  feature: "assistant_turn" | "capture_filing" | "reproduction" | "voice_pin";
   status: AiCreditUsageRecord["status"];
 }
 
@@ -1270,7 +1270,7 @@ async function findAiCreditUsage(env: CloudEnv, principal: Principal, requestId:
  */
 async function listAiUsageHistory(env: CloudEnv, principal: Principal, limit = 25): Promise<AiUsageHistoryEntry[]> {
   const toEntry = (usage: AiCreditUsageRecord): AiUsageHistoryEntry | null => {
-    if (usage.feature !== "voice_pin" && usage.feature !== "assistant_turn" && usage.feature !== "capture_filing") return null;
+    if (usage.feature !== "voice_pin" && usage.feature !== "assistant_turn" && usage.feature !== "capture_filing" && usage.feature !== "reproduction") return null;
     return {
       completedAt: usage.completedAt,
       createdAt: usage.createdAt,
@@ -1282,7 +1282,7 @@ async function listAiUsageHistory(env: CloudEnv, principal: Principal, limit = 2
 
   if (env.DB) {
     const result = await env.DB.prepare(
-      "SELECT * FROM ai_credit_usages WHERE owner_type = ? AND owner_id = ? AND feature IN ('voice_pin', 'assistant_turn', 'capture_filing') ORDER BY created_at DESC, rowid DESC LIMIT ?",
+      "SELECT * FROM ai_credit_usages WHERE owner_type = ? AND owner_id = ? AND feature IN ('voice_pin', 'assistant_turn', 'capture_filing', 'reproduction') ORDER BY created_at DESC, rowid DESC LIMIT ?",
     ).bind(principal.kind, principal.id, limit).all();
     return (result.results || []).map(aiUsageFromRow).map(toEntry).filter((entry): entry is AiUsageHistoryEntry => entry !== null);
   }
@@ -1363,6 +1363,14 @@ async function reserveAiCreditUsage(
       status: "reserved",
     };
     if (!env.DB) {
+      // F4d: re-validate after the grant read — a concurrent reservation of
+      // the same request may have recorded or settled its row while this one
+      // awaited (the read above is stale). The re-check, the debit and the
+      // record are one synchronous section (no await between them), so two
+      // reservations of the same id can never debit twice; D1 keeps its
+      // UNIQUE (owner, request) guard instead.
+      const raced = memoryAiCreditUsages.get(aiUsageKey(principal, requestId));
+      if (raced) return { kind: "existing", usage: raced };
       const grant = Array.from(memoryAiCreditGrants.values()).find((item) => item.id === grantId);
       if (!grant || grant.credits - grant.consumedCredits < usage.credits) continue;
       grant.consumedCredits += usage.credits;
@@ -1439,13 +1447,16 @@ async function completeAiCreditUsage(
 async function refundAiCreditUsage(env: CloudEnv, usage: AiCreditUsageRecord, errorCode: string) {
   const completedAt = currentDate().toISOString();
   if (env.DB) {
+    // reserved → refunded (the engine never answered) and succeeded →
+    // refunded (the result was consumed and then not delivered, as the
+    // reproduction's 404 answers) both credit the grant back.
     await env.DB.prepare(`
       UPDATE ai_credit_usages SET status = 'refunded', error_code = ?, completed_at = ?
-      WHERE id = ? AND status = 'reserved'
+      WHERE id = ? AND status IN ('reserved', 'succeeded')
     `).bind(errorCode, completedAt, usage.id).run();
     return;
   }
-  if (usage.status !== "reserved") return;
+  if (usage.status !== "reserved" && usage.status !== "succeeded") return;
   const grant = Array.from(memoryAiCreditGrants.values()).find((item) => item.id === usage.grantId);
   if (!grant || grant.consumedCredits < usage.credits) throw new Error("ai_credit_refund_failed");
   grant.consumedCredits -= usage.credits;
@@ -6449,10 +6460,12 @@ export interface RunMeteredAiFeatureInput<T> {
   env: CloudEnv;
   execute: () => Promise<{ result: T; telemetry: AiFeatureTelemetry }>;
   /**
-   * Runs after the inference and before the settlement. It may return a
-   * Response to short-circuit the 200 (a 404 when the write did not persist,
-   * as the other session edits answer): the result was not delivered, so the
-   * credit is refunded and the response is returned.
+   * Runs after the inference and the settlement: the credit is already
+   * consumed when it runs (F4d: a result written to the session always has
+   * a consumed usage). It may return a Response to short-circuit the 200 (a
+   * 404 when the write did not persist, as the other session edits answer):
+   * the result was not delivered, so the consumed credit is refunded and the
+   * response is returned.
    */
   onSuccess?: (result: T, usage: AiCreditUsageRecord) => Promise<Response | undefined | void>;
   parse: (text: string) => T | null;
@@ -6545,11 +6558,35 @@ export async function runMeteredAiFeature<T>(input: RunMeteredAiFeatureInput<T>)
 
   try {
     const { result, telemetry } = await input.execute();
+    // F4d: the credit is consumed before the result is persisted — a result
+    // written to the session always has a consumed usage. When the
+    // persistence fails below (the 404 of a session deleted between the
+    // read and the write), the already-consumed usage is refunded (the
+    // ledger's succeeded → refunded transition), so a consumed usage without
+    // a persisted result never stays charged.
+    await completeAiCreditUsage(
+      env,
+      reservation.usage,
+      JSON.stringify(result),
+      telemetry.inputTokens,
+      telemetry.outputTokens,
+      telemetry.costUsdMicros,
+    );
+    console.info("ai_inference", JSON.stringify({
+      costUsdMicros: telemetry.costUsdMicros,
+      feature: spec.feature,
+      inputTokens: telemetry.inputTokens,
+      model: spec.model,
+      outputTokens: telemetry.outputTokens,
+      status: "succeeded",
+      usageId: reservation.usage.id,
+    }));
     if (input.onSuccess) {
       const shortCircuit = await input.onSuccess(result, reservation.usage);
       if (shortCircuit instanceof Response) {
         // The write did not persist (the session is gone): the result was
-        // not delivered, so the credit goes back with the short-circuit.
+        // not delivered, so the consumed credit goes back with the
+        // short-circuit.
         let refunded = false;
         try {
           await refundAiCreditUsage(env, reservation.usage, "ai_result_not_stored");
@@ -6570,23 +6607,6 @@ export async function runMeteredAiFeature<T>(input: RunMeteredAiFeatureInput<T>)
         return shortCircuit;
       }
     }
-    await completeAiCreditUsage(
-      env,
-      reservation.usage,
-      JSON.stringify(result),
-      telemetry.inputTokens,
-      telemetry.outputTokens,
-      telemetry.costUsdMicros,
-    );
-    console.info("ai_inference", JSON.stringify({
-      costUsdMicros: telemetry.costUsdMicros,
-      feature: spec.feature,
-      inputTokens: telemetry.inputTokens,
-      model: spec.model,
-      outputTokens: telemetry.outputTokens,
-      status: "succeeded",
-      usageId: reservation.usage.id,
-    }));
     return json({
       aiCredits: await aiCreditBalance(env, principal),
       creditsCharged: reservation.usage.credits,
@@ -6808,22 +6828,25 @@ async function fileCloudShot(
   }
 }
 
-// A53: the capture's automatic destination charges one credit when it calls
-// the engine (decisions or the similarity's embedding). The meter is asked
-// by the filing right before the engine call (chooseCollection): a capture
-// that never calls the engine (the batch rule, no engine, no candidates) is
-// never reserved and never charged. The reservation is under
-// capture:<capture id> — the capture's natural key, the session id — so a
-// re-upload of the same capture finds the earlier row and charges nothing,
-// whatever its status. The model is the engine's (the decisions endpoint's
-// model or the embedding model), read at the reservation. One credit is
-// consumed when the engine answers — even when it chooses the Inbox — and
-// refunded when the engine fails or the filing's deadline fires (the
-// sweeper settles whatever stays open past the reservation timeout).
-// Every failure of the meter is a logged error that leaves the capture in
-// the Inbox: the capture never fails because of the billing.
+// A53 (F4d hardened): the capture's automatic destination charges one
+// credit when it calls the engine (decisions or the similarity's
+// embedding). The meter is asked by the filing right before the engine
+// call (chooseCollection): a capture that never calls the engine (the
+// batch rule, no engine, no candidates) is never reserved and never
+// charged. The reservation is under capture:<capture id> — the capture's
+// natural key, the session id. One credit is consumed when the engine
+// answers — even when it chooses the Inbox — and refunded when the engine
+// fails or the filing's deadline fires (the sweeper settles whatever stays
+// open past the reservation timeout). The engine is only called by the run
+// that created the reservation (F4d): a settled run of the capture replays
+// the stored choice without the engine and without a charge, and a re-
+// upload with an open or a refunded usage keeps the destination the
+// session already has (a refund is not a payment). Every failure of the
+// meter is a logged error that leaves the capture in the Inbox: the
+// capture never fails because of the billing.
 export function cloudCaptureFilingMeter(env: CloudEnv, principal: Principal, captureId: string): FilingCreditMeter {
   let usage: AiCreditUsageRecord | null = null;
+  let replayedJson: string | null = null;
   return {
     async reserve(model) {
       try {
@@ -6837,13 +6860,27 @@ export function cloudCaptureFilingMeter(env: CloudEnv, principal: Principal, cap
           { credits: CAPTURE_FILING_CREDITS, feature: "capture_filing", model },
         );
         if (!reservation) return "no_credits";
-        if (reservation.kind === "existing") return "existing";
+        if (reservation.kind === "existing") {
+          // F4d: the engine is only called by the run that created the
+          // reservation. A settled run of this capture replays the stored
+          // choice without the engine and without a charge; an open or a
+          // refunded usage keeps the destination the session already has
+          // (the earlier run left it in the Inbox when it did not settle).
+          if (reservation.usage.status === "succeeded") {
+            replayedJson = reservation.usage.resultJson;
+            return "replayed";
+          }
+          return "existing";
+        }
         usage = reservation.usage;
         return "reserved";
       } catch (error) {
         console.error("filing_credit_reserve_failed", JSON.stringify({ captureId, error: String(error) }));
         return "error";
       }
+    },
+    replayChoice() {
+      return replayedJson;
     },
     async consume(resultJson) {
       if (usage === null) return true;
@@ -8875,11 +8912,13 @@ function cloudIndexCostRecorder(env: CloudEnv): (entry: AssistantIndexCostEntry)
 // reserves ASSISTANT_TURN_CREDITS under turn:<assistant message id> for the
 // resource assistant:<thread id>, with the model the chain starts from; the
 // UNIQUE (owner, request id) keeps a second reservation of the same message
-// from charging again. Only the run that created the reservation settles
-// it: one that finds it already there gets inProgress (409), with no ending
-// of its own. Consuming records the model that answered, the tokens, the
-// cost and result_json; a refund that fails is logged and left to the
-// sweeper.
+// from charging again. A refund is not a payment (F4d): a refunded row is
+// not re-reserved by a retry of the same request — the metered gate finds
+// it and answers 503 without a new charge. Only the run that created the
+// reservation settles it: one that finds it open or settled gets inProgress
+// (409), with no ending of its own. Consuming records the model that
+// answered, the tokens, the cost and result_json; a refund that fails is
+// logged and left to the sweeper.
 export function cloudAssistantTurnMeter(
   env: CloudEnv,
   principal: Principal,

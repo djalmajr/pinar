@@ -41,6 +41,9 @@ function instructionsFor(candidates: FilingCandidate[]): string {
   ].join("\n");
 }
 
+// How far from 1 the returned probabilities may sum (rounding in the reply).
+const PROBABILITY_SUM_TOLERANCE = 0.01;
+
 function readDecision(body: unknown, options: string[]): { choice: string; probabilities: Map<string, number> } {
   const decisions = isRecord(body) ? body["decisions"] : undefined;
   if (!Array.isArray(decisions) || decisions.length !== 1) throw new Error(INVALID_RESPONSE);
@@ -58,6 +61,10 @@ function readDecision(body: unknown, options: string[]): { choice: string; proba
   }
   const chosen = probabilities.get(choice);
   if (chosen === undefined || [...probabilities.values()].some((value) => value > chosen)) throw new Error(INVALID_RESPONSE);
+  // The appliance renormalizes over the valid options, so the values sum to
+  // 1; a distribution that does not would make the confidence floor meaningless.
+  const total = [...probabilities.values()].reduce((sum, value) => sum + value, 0);
+  if (Math.abs(total - 1) > PROBABILITY_SUM_TOLERANCE) throw new Error(INVALID_RESPONSE);
   return { choice, probabilities };
 }
 

@@ -12,6 +12,8 @@ import {
   type CloudEnv,
 } from "../../cloud-api";
 import type { AssistantD1Database, AssistantD1Statement } from "../store-cloud";
+import { decodeVector, type EmbeddingEndpoint } from "./embeddings";
+import { embeddingIdentity, indexSession, type PinSource } from "./index";
 import { cloudPinIndexStore, markCloudPinIndexOwnerStale, markCloudPinIndexSessionStale, resetCloudPinIndexMemoryForTests } from "./store-cloud";
 import { assertPinIndexReplaceAtomic, assertPinIndexStore, INDEXED_AT, pinIndexEntry, pinIndexVector } from "./store.test-helpers";
 import type { PinIndexStore } from "./types";
@@ -559,5 +561,85 @@ describe("pin index lifecycle in the Cloud API", () => {
       (await store.entriesFor(["session_http", "session_mcp", "session_kept", "session_expired"])).map((entry) => entry.sessionId),
       ["session_kept"],
     );
+  });
+});
+
+// F5/S2 review fix: the identity of the stored vector includes the
+// endpoint. The probe of the review reproduced the defect through the real
+// consumer: index, change the URL keeping the model name, index again — the
+// old provider's vector was kept. The mark makes the session stale, and the
+// identity is what keeps the consumer from reusing a vector of another
+// endpoint with the same model name.
+describe("an embedding endpoint change re-embeds through the real consumer and store (F5/S2)", () => {
+  const SESSION = "sess_endpoint";
+  const OWNER = "usr_endpoint";
+  const UPDATED_AT = "2026-10-02T12:00:00.000Z";
+
+  const endpointOf = (baseUrl: string): EmbeddingEndpoint => ({ apiKey: "synthetic", baseUrl, model: "same-model" });
+
+  async function assertEndpointChangeReEmbeds(env: { DB?: AssistantD1Database }) {
+    resetCloudPinIndexMemoryForTests();
+    const store = cloudPinIndexStore(env, OWNER);
+    let embeddedCalls = 0;
+    // The first dimension is the call number: the bytes of the second call
+    // are distinguishable from the first.
+    const fakeFetch: typeof fetch = (async () => {
+      embeddedCalls += 1;
+      return Response.json({ data: [{ embedding: Array.from({ length: 256 }, (_, index) => (index === 0 ? embeddedCalls : 0)), index: 0 }] });
+    }) as typeof fetch;
+    const source: PinSource = {
+      async comments() {
+        return new Map<string, Array<{ author: string; body: string }>>();
+      },
+      async listSessions() {
+        return [{ id: SESSION, updatedAt: UPDATED_AT }];
+      },
+      async session(id) {
+        return id === SESSION
+          ? { id, page: { title: "Page", url: "https://example.test" }, pinIds: ["pin-1"], pins: [{ comment: "comment", number: 1, selector: "#pin-1", tag: "div" }] }
+          : null;
+      },
+      async shot() {
+        return null;
+      },
+    };
+    const depsOf = (embedding: EmbeddingEndpoint) => ({ chat: null, embedding, fetch: fakeFetch, now: () => new Date(UPDATED_AT), source, store });
+
+    await indexSession(depsOf(endpointOf("https://old.example.test/v1")), SESSION);
+    assert.equal(embeddedCalls, 1);
+    await markCloudPinIndexOwnerStale(env, OWNER);
+    assert.deepEqual(await store.staleSessions({ limit: 10, sessions: [{ id: SESSION, updatedAt: UPDATED_AT }] }), [SESSION], "the mark makes the session stale");
+
+    // The URL changes, the model name stays: the embedding is called again
+    // and the vector is the new one.
+    const result = await indexSession(depsOf(endpointOf("https://new.example.test/v1")), SESSION);
+    assert.equal(result.embedded, 1, "the embedding is called again");
+    assert.equal(embeddedCalls, 2);
+    const entries = await store.entries(SESSION);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0]!.vector === null ? -1 : decodeVector(entries[0]!.vector)[0], 2, "the vector is the one of the second call");
+    assert.equal(entries[0]!.model, embeddingIdentity(endpointOf("https://new.example.test/v1")));
+    assert.deepEqual(await store.staleSessions({ limit: 10, sessions: [{ id: SESSION, updatedAt: UPDATED_AT }] }), [], "the pass clears the mark");
+
+    // A reindex on the same endpoint reuses the new vector.
+    assert.equal((await indexSession(depsOf(endpointOf("https://new.example.test/v1")), SESSION)).embedded, 0);
+    assert.equal(embeddedCalls, 2);
+  }
+
+  test("D1: the URL change re-embeds the owner's vectors", async () => {
+    const db = migratedDatabase();
+    try {
+      await assertEndpointChangeReEmbeds({ DB: sqliteD1(db) });
+    } finally {
+      db.close();
+    }
+  });
+
+  test("memory: the URL change re-embeds the owner's vectors", async () => {
+    try {
+      await assertEndpointChangeReEmbeds({ DB: undefined });
+    } finally {
+      resetCloudPinIndexMemoryForTests();
+    }
   });
 });

@@ -27,6 +27,7 @@ import { runAssistantTurn } from "../turn";
 import { resetRetrievalCapabilitiesCacheForTests } from "./detect";
 import { PIN_EMBEDDING_DIMENSIONS } from "./embeddings";
 import type { PinIndexEntry, PinSearchService } from "./index";
+import { embeddingIdentity } from "./index";
 import {
   CLOUD_PIN_SEARCH_BUDGET_MS,
   CLOUD_PIN_SEARCH_MAX_SESSIONS,
@@ -1213,9 +1214,9 @@ describe("Cloud pin search in production, through the appliance (A46)", () => {
       assert.equal(call.body!.model, "qwen3.8-27b");
     }
     assert.deepEqual(pinIndexRows(db).map((row) => [row.session_id, row.caption, row.model]), [
-      ["session_a", "legenda 1", "embed-model"],
-      ["session_a", "legenda 2", "embed-model"],
-      ["session_b", "legenda 1", "embed-model"],
+      ["session_a", "legenda 1", embeddingIdentity({ baseUrl: BASE_URL, model: "embed-model" })],
+      ["session_a", "legenda 2", embeddingIdentity({ baseUrl: BASE_URL, model: "embed-model" })],
+      ["session_b", "legenda 1", embeddingIdentity({ baseUrl: BASE_URL, model: "embed-model" })],
     ]);
   });
 

@@ -450,4 +450,96 @@ describe("detectByokCapabilities (F5/S2)", () => {
       console.log = original.log;
     }
   });
+
+  test("every call's deadline is capped by the remaining budget (30 ms budget, a 200 ms call)", async () => {
+    // The chat call would run 200 ms and honors its signal: the 30 ms
+    // budget must end the detection with a timeout near 30 ms, not after
+    // the full per-call deadline.
+    let calls = 0;
+    const egress: ByokEgress = (url, init) => {
+      calls += 1;
+      if (url === `${BASE}/models`) return Promise.resolve(jsonStatus(generalCatalog(), 200));
+      return new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        assert.ok(signal instanceof AbortSignal, "the call carries its deadline");
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+    };
+    const startedAt = Date.now();
+    const result = await detectByokCapabilities({
+      budgetMs: 30,
+      endpoint: { ...endpoint, embeddingModel: "", transcriptionModel: "" },
+      egress,
+      now: NOW,
+      timeoutMs: 200,
+    });
+    const elapsed = Date.now() - startedAt;
+    assert.equal(calls, 2, "the catalog and the chat call; the rest never starts");
+    for (const capability of ["chat", "tools", "vision"] as const) {
+      assert.equal(result[capability].error, "timeout", capability);
+    }
+    assert.ok(elapsed < 150, `the detection ended near the budget (${elapsed} ms)`);
+  });
+
+  test("the catalog call's deadline is the remaining budget too", async () => {
+    // A catalog that would run 500 ms: its deadline is the 30 ms budget, so
+    // the detection ends near 30 ms and the minimal calls never start.
+    const egress: ByokEgress = (_url, init) =>
+      new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        assert.ok(signal instanceof AbortSignal, "the catalog call carries its deadline");
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+    const startedAt = Date.now();
+    const result = await detectByokCapabilities({ budgetMs: 30, endpoint, egress, now: NOW, timeoutMs: 500 });
+    const elapsed = Date.now() - startedAt;
+    assert.equal(result.chat.error, "timeout");
+    assert.equal(result.embeddings.error, "timeout");
+    assert.equal(result.transcription.error, "timeout");
+    assert.ok(elapsed < 250, `the catalog alone ended near the budget (${elapsed} ms)`);
+  });
+
+  test("a body that fails to read is a short cause of the call, never a raw rejection", async () => {
+    // (a) the headers arrive and the body stream fails by timeout: the
+    // cause is timeout, and the detection resolves with the short causes.
+    const streamTimeout = () =>
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.error(new DOMException("synthetic stream timeout", "TimeoutError"));
+        },
+      });
+    const timeoutEgress: ByokEgress = async () => new Response(streamTimeout());
+    const a = await detectByokCapabilities({
+      endpoint: { ...endpoint, embeddingModel: "", transcriptionModel: "" },
+      egress: timeoutEgress,
+      now: NOW,
+    });
+    for (const capability of ["chat", "tools", "vision"] as const) {
+      assert.equal(a[capability].error, "timeout", capability);
+      assert.equal(a[capability].ok, false, capability);
+    }
+
+    // (b) a network failure of the body: endpoint_unreachable, and the
+    // capabilities after the failed call keep being tested.
+    const networkEgress: ByokEgress = async (url) => {
+      if (url === `${BASE}/models`) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.error(new Error("synthetic network failure"));
+            },
+          }),
+        );
+      }
+      return jsonStatus(chatCompletion("ok", true), 200);
+    };
+    const b = await detectByokCapabilities({
+      endpoint: { ...endpoint, embeddingModel: "", transcriptionModel: "" },
+      egress: networkEgress,
+      now: NOW,
+    });
+    assert.equal(b.chat.ok, true, "the general path ran past the failed catalog body");
+    assert.equal(b.tools.ok, true);
+    assert.equal(b.vision.ok, true);
+  });
 });

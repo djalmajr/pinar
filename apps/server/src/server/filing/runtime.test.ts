@@ -2,11 +2,16 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { encodeVector, PIN_EMBEDDING_DIMENSIONS } from "../assistant/retrieval/embeddings";
 import type { PinIndexEntry } from "../assistant/retrieval/types";
+import { embeddingIdentity } from "../assistant/retrieval/index";
+
+const BASE_URL = "http://127.0.0.1:9/v1";
+// The identity of the engine's embedding endpoint: the seeds that carry the
+// identity are the current model's vectors; "old-embed" is another space.
+const EMBED_IDENTITY = embeddingIdentity({ baseUrl: BASE_URL, model: "embed" });
 import { FILING_CENTROID_SESSIONS, FILING_EXAMPLE_TITLES, type FilingCollection, type FilingRecentSession } from "./candidates";
 import { FILING_NONE_OPTION, type FilingCreditMeter } from "./choose";
 import { fileCapture, type FilingEngineChoice, type FilingSource } from "./runtime";
 
-const BASE_URL = "http://127.0.0.1:9/v1";
 const CAPTURE = { captureId: "cap_1", page: { title: "Payment declined", url: "https://example.test/pay" }, pins: [{ comment: "Card", number: 1 }] };
 const DECISIONS: FilingEngineChoice = {
   endpoint: { baseUrl: BASE_URL, kind: "openai-compatible", model: "chat", thinkingControl: false },
@@ -28,7 +33,7 @@ function vector(...leading: number[]): number[] {
   return values;
 }
 
-function entry(sessionId: string, values: number[], model = "embed"): PinIndexEntry {
+function entry(sessionId: string, values: number[], model = EMBED_IDENTITY): PinIndexEntry {
   return {
     caption: null, docHash: sessionId, docText: sessionId, model, number: 1, ocr: null, pinId: `pin_${sessionId}`,
     sessionId, truncated: false, updatedAt: "2026-10-01T00:00:00.000Z", vector: encodeVector(values),

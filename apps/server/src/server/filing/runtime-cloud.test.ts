@@ -19,6 +19,7 @@ import {
 } from "../cloud-api";
 import { resetRetrievalCapabilitiesCacheForTests } from "../assistant/retrieval/detect";
 import { encodeVector, PIN_EMBEDDING_DIMENSIONS } from "../assistant/retrieval/embeddings";
+import { embeddingIdentity } from "../assistant/retrieval/index";
 import { cloudPinIndexStore } from "../assistant/retrieval/store-cloud";
 import { FILING_NONE_OPTION } from "./choose";
 import { cloudFilingEngine, setCloudFilingFetchForTests } from "./runtime-cloud";
@@ -27,6 +28,10 @@ const NOW = "2026-10-17T12:00:00.000Z";
 const VALID_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 const BASE_URL = "http://127.0.0.1:9/v1";
 const EMBEDDING_MODEL = "embed-model";
+// The identity of the tests' direct embedding endpoint: the seeds without an
+// explicit model carry it (the current model's vectors); an explicit model
+// (a gateway's, or "old-model") is another space.
+const EMBEDDING_IDENTITY = embeddingIdentity({ baseUrl: BASE_URL, model: EMBEDDING_MODEL });
 const DECISIONS_EXTRA = { available: true, endpoint: "/v1/decisions", experimental: true, scope: "decisions" };
 const OWNER = "usr_owner";
 
@@ -157,7 +162,7 @@ async function indexSession(env: CloudEnv, sessionId: string, vectors: Array<{ m
     caption: null,
     docHash: `hash_${sessionId}_${index}`,
     docText: sessionId,
-    model: item.model ?? EMBEDDING_MODEL,
+    model: item.model ?? EMBEDDING_IDENTITY,
     number: index + 1,
     ocr: null,
     pinId: `pin_${sessionId}_${index}`,

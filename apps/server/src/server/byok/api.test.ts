@@ -1035,6 +1035,142 @@ describe("/api/byok/test (F5/S2)", () => {
     }
   });
 
+  // A held egress: the test enters (ready) and stays pending until release.
+  function heldEgress() {
+    let release: () => void = () => {};
+    let entered: () => void = () => {};
+    const hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    setByokEgressForTests(async () => {
+      entered();
+      await hold;
+      return Response.json(applianceCatalog);
+    });
+    return { release, ready };
+  }
+
+  test("a DELETE during the test is not undone: 409 byok_changed, the row stays deleted (D1)", async () => {
+    const db = migratedDatabase();
+    try {
+      const cookie = await insertUser(db, "usr_race", "race@example.test", "pro");
+      const env = envFor(db);
+      const header = { cookie };
+      await saveEndpoint(db, env, cookie);
+      const { ready, release } = heldEgress();
+      const testing = api("POST", "/api/byok/test", env, { headers: header });
+      await ready;
+      const del = await api("DELETE", "/api/byok", env, { headers: header });
+      assert.equal(del.status, 200);
+      release();
+      const test = await testing;
+      assert.equal(test.status, 409, "the result is discarded");
+      const body = await jsonBody(test);
+      assert.equal(body.code, "byok_changed");
+      assert.equal((body.view as ByokView).configured, false, "the current view is the absent row");
+      assert.equal(db.query("SELECT * FROM byok_endpoints WHERE owner_id = 'usr_race'").all().length, 0, "the row is not resurrected");
+      const get = await api("GET", "/api/byok", env, { headers: header });
+      assert.equal(byokView(await jsonBody(get)).configured, false);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a PUT during the test wins: 409 byok_changed, the new URL and the untested capabilities (D1)", async () => {
+    const db = migratedDatabase();
+    try {
+      const cookie = await insertUser(db, "usr_race", "race@example.test", "pro");
+      const env = envFor(db);
+      const header = { cookie };
+      await saveEndpoint(db, env, cookie);
+      const { ready, release } = heldEgress();
+      const testing = api("POST", "/api/byok/test", env, { headers: header });
+      await ready;
+      const put = await api("PUT", "/api/byok", env, {
+        body: JSON.stringify({ baseUrl: "https://api2.example.test/v1", chatModel: "chat-1" }),
+        headers: { ...header, "content-type": "application/json" },
+      });
+      assert.equal(put.status, 200);
+      release();
+      const test = await testing;
+      assert.equal(test.status, 409, "the old result is not saved over the new save");
+      const body = await jsonBody(test);
+      assert.equal(body.code, "byok_changed");
+      const view = body.view as ByokView;
+      assert.equal(view.configured, true);
+      assert.equal(view.baseUrl, "https://api2.example.test/v1");
+      assert.deepEqual(view.capabilities, UNTESTED, "the new save keeps its untested capabilities");
+      const row = db.query("SELECT base_url, capabilities_json FROM byok_endpoints WHERE owner_id = 'usr_race'").get() as {
+        base_url: string;
+        capabilities_json: string;
+      };
+      assert.equal(row.base_url, "https://api2.example.test/v1");
+      assert.deepEqual(JSON.parse(row.capabilities_json), UNTESTED);
+      // The new configuration can be tested from scratch.
+      setByokEgressForTests(passingEgress());
+      const next = await api("POST", "/api/byok/test", env, { headers: header });
+      assert.equal(next.status, 200);
+      assert.equal((byokView(await jsonBody(next))).baseUrl, "https://api2.example.test/v1");
+    } finally {
+      db.close();
+    }
+  });
+
+  test("the same races on the memory deployment: the test never resurrects nor clobbers", async () => {
+    const env: CloudEnv = { BYOK_MASTER_KEY: MASTER_KEY };
+    const account = await seedCloudWebSessionForTests({ email: "race@example.test", plan: "pro" });
+    const header = { cookie: account.cookie };
+    await handleByokRequest(
+      new Request("https://pinar.test/api/byok", {
+        body: JSON.stringify({ apiKey: TEST_KEY, baseUrl: "https://api.example.test/v1", chatModel: "chat-1" }),
+        headers: { ...header, "content-type": "application/json" },
+        method: "PUT",
+      }),
+      env,
+    );
+    // A DELETE during the test leaves the row deleted.
+    let race = heldEgress();
+    let testing = api("POST", "/api/byok/test", env, { headers: header });
+    await race.ready;
+    const del = await api("DELETE", "/api/byok", env, { headers: header });
+    assert.equal(del.status, 200);
+    race.release();
+    const first = await testing;
+    assert.equal(first.status, 409);
+    const firstBody = await jsonBody(first);
+    assert.equal(firstBody.code, "byok_changed");
+    assert.equal((firstBody.view as ByokView).configured, false, "the current view is the absent row");
+    const getAfterDelete = await api("GET", "/api/byok", env, { headers: header });
+    assert.equal(byokView(await jsonBody(getAfterDelete)).configured, false, "the row is not resurrected");
+    // A PUT during the test keeps the new save (untested capabilities).
+    await handleByokRequest(
+      new Request("https://pinar.test/api/byok", {
+        body: JSON.stringify({ apiKey: TEST_KEY, baseUrl: "https://api.example.test/v1", chatModel: "chat-1" }),
+        headers: { ...header, "content-type": "application/json" },
+        method: "PUT",
+      }),
+      env,
+    );
+    race = heldEgress();
+    testing = api("POST", "/api/byok/test", env, { headers: header });
+    await race.ready;
+    const put = await api("PUT", "/api/byok", env, {
+      body: JSON.stringify({ baseUrl: "https://api2.example.test/v1" }),
+      headers: { ...header, "content-type": "application/json" },
+    });
+    assert.equal(put.status, 200);
+    race.release();
+    const second = await testing;
+    assert.equal(second.status, 409);
+    const secondBody = await jsonBody(second);
+    assert.equal(secondBody.code, "byok_changed");
+    assert.equal((secondBody.view as ByokView).baseUrl, "https://api2.example.test/v1");
+    assert.deepEqual((secondBody.view as ByokView).capabilities, UNTESTED);
+  });
+
   test("the memory deployment runs the same test", async () => {
     const env: CloudEnv = { BYOK_MASTER_KEY: MASTER_KEY };
     const account = await seedCloudWebSessionForTests({ email: "a@example.test", plan: "pro" });

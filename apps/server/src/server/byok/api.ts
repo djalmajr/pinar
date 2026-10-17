@@ -32,7 +32,7 @@ import { byokCrypto } from "./crypto";
 import { detectByokCapabilities } from "./detect";
 import { ByokEgress, byokFetch } from "./fetch";
 import { BYOK_TEST_MAX_PER_HOUR, byokTestConsume } from "./limit";
-import { byokRow, deleteByokRow, saveByokRow, type ByokStoredRow } from "./store";
+import { byokRow, deleteByokRow, recordByokCapabilities, saveByokRow, type ByokStoredRow } from "./store";
 import { BYOK_BASE_URL_MAX, validateByokUrl } from "./url";
 
 const MAX_API_KEY_LENGTH = 4096;
@@ -342,13 +342,28 @@ async function deleteByok(request: Request, env: CloudEnv): Promise<Response> {
 // the key. Without a saved endpoint it is 404 byok_not_configured; without
 // the master key it is 503 byok_unavailable, like the rest. The limit is
 // one test in flight and BYOK_TEST_MAX_PER_HOUR per hour: 429
-// byok_test_limited. In production the egress is byokFetch, which refuses:
-// the configured capabilities then record egress_unavailable and nothing
+// byok_test_limited. The result is recorded only while the tested
+// configuration is still the stored one (a DELETE or a PUT that landed in
+// the middle of the test is not undone nor clobbered): otherwise the
+// result is discarded and the answer is 409 byok_changed with the current
+// view. In production the egress is byokFetch, which refuses: the
+// configured capabilities then record egress_unavailable and nothing
 // leaves.
 function testLimited() {
   return json(
     { code: "byok_test_limited", error: `Too many connection tests; try again later (limit: ${BYOK_TEST_MAX_PER_HOUR} per hour)` },
     429,
+  );
+}
+
+function byokChanged(current: ByokStoredRow | null) {
+  return json(
+    {
+      code: "byok_changed",
+      error: "The BYOK endpoint changed while the test was running",
+      view: current === null ? unconfiguredView() : byokView(current),
+    },
+    409,
   );
 }
 
@@ -387,10 +402,17 @@ async function testByok(request: Request, env: CloudEnv): Promise<Response> {
       egress: byokEgressForTests ?? ((url, init) => byokFetch(env, url, init)),
       now: byokNow(),
     });
+    // The result lands only if the tested configuration is still the stored
+    // one (the conditional update of the store, never an upsert): a DELETE
+    // or a PUT that ran in the middle of the test wins, and the result is
+    // discarded with a 409 that carries the current view.
     const now = byokNow();
-    const updated: ByokStoredRow = { ...row, capabilitiesJson: JSON.stringify(capabilities), updatedAt: now };
-    await saveByokRow(env, ownerId, updated);
-    return json(byokView(updated));
+    const capabilitiesJson = JSON.stringify(capabilities);
+    const recorded = await recordByokCapabilities(env, ownerId, row, capabilitiesJson, now);
+    if (!recorded) {
+      return byokChanged(await byokRow(env, ownerId));
+    }
+    return json(byokView({ ...row, capabilitiesJson, updatedAt: now }));
   } finally {
     byokTestsInFlight.delete(ownerId);
   }

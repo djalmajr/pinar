@@ -16,6 +16,7 @@ import { handleApiRequest, resetLocalApiForTests } from "../api.local";
 import { resetThinkingControlCacheForTests } from "../assistant/models";
 import { resetRetrievalCapabilitiesCacheForTests } from "../assistant/retrieval/detect";
 import { encodeVector, PIN_EMBEDDING_DIMENSIONS } from "../assistant/retrieval/embeddings";
+import { embeddingIdentity } from "../assistant/retrieval/index";
 import { setLocalPinIndexOptionsForTests } from "../assistant/retrieval/runtime-local";
 import { FILING_NONE_OPTION } from "./choose";
 import { setLocalFilingFetchForTests } from "./runtime-local";
@@ -142,7 +143,7 @@ async function seedSession(input: { batchId?: string; collectionId: string; crea
       caption: null,
       docHash: `hash_${input.id}`,
       docText: input.title,
-      model: EMBEDDING_MODEL,
+      model: embeddingIdentity({ baseUrl: BASE_URL, model: EMBEDDING_MODEL }),
       number: 1,
       ocr: null,
       pinId: `pin_${input.id}`,

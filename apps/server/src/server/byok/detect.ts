@@ -184,7 +184,12 @@ async function boundedText(body: ReadableStream<Uint8Array> | null, maxBytes: nu
   return new TextDecoder().decode(bytes);
 }
 
-/** One egress call with its deadline; the refusal, the abort and the network failure map to causes. */
+/** One egress call with its deadline; the refusal, the abort and the network failure map to causes.
+ * The read and the cancel of the body run inside the same boundary: a body
+ * that fails to be read (a post-header timeout, a transport failure — the
+ * situation EDG-38 explicitly names) is a failure of the call (timeout or
+ * endpoint_unreachable), never a raw rejection, and the capabilities after
+ * it keep being tested. */
 async function callEgress(
   egress: ByokEgress,
   url: string,
@@ -192,20 +197,42 @@ async function callEgress(
   timeoutMs: number,
 ): Promise<CallOutcome> {
   let response: Response;
+  let bodyText: string;
   try {
     response = await egress(url, {
       ...init,
       redirect: "error",
       signal: AbortSignal.timeout(timeoutMs),
     });
+    bodyText = await readBody(response, BODY_LIMIT_BYTES);
   } catch (error) {
     if (error instanceof ByokEgressUnavailableError) return { cause: "egress_unavailable" };
     if (isAbort(error)) return { cause: "timeout" };
     return { cause: "endpoint_unreachable" };
   }
-  const bodyText = await boundedText(response.body, BODY_LIMIT_BYTES);
   if (response.ok) return { bodyText, status: response.status };
   return { bodyText, cause: responseCause(response, bodyText), status: response.status };
+}
+
+/**
+ * The body capped at `maxBytes`, with the stream cancelled when the read
+ * stops (at the cap, or by a failure that already closed it): a 200 cut at
+ * the cap must not keep the connection open, and the lock is released
+ * before the cancel. The read and the cancel stay inside the caller's
+ * classification try, so a failure of either is a failure of the call.
+ */
+async function readBody(response: Response, maxBytes: number): Promise<string> {
+  const body = response.body;
+  if (body === null) return "";
+  try {
+    return await boundedText(body, maxBytes);
+  } finally {
+    try {
+      await body.cancel();
+    } catch {
+      // A body that already errored or closed: nothing to cancel.
+    }
+  }
 }
 
 interface CatalogItem {
@@ -268,7 +295,12 @@ export async function detectByokCapabilities(input: ByokDetectInput): Promise<By
   const timeoutMs = input.timeoutMs ?? BYOK_DETECT_TIMEOUT_MS;
   const startedAt = Date.now();
   const budgetMs = input.budgetMs ?? BYOK_DETECT_BUDGET_MS;
-  const withinBudget = () => Date.now() - startedAt < budgetMs;
+  // Every call (the catalog included) runs on the smaller of the per-call
+  // deadline and what is left of the total budget: the detection never
+  // overruns its budget by a whole call (F5/S2 review fix).
+  const remainingMs = () => Math.max(0, budgetMs - (Date.now() - startedAt));
+  const deadlineMs = () => Math.min(timeoutMs, remainingMs());
+  const withinBudget = () => remainingMs() > 0;
 
   const chatConfigured = endpoint.chatModel !== "";
   const embeddingsConfigured = endpoint.embeddingModel !== "";
@@ -316,7 +348,7 @@ export async function detectByokCapabilities(input: ByokDetectInput): Promise<By
   const catalog = await callEgress(egress, `${endpoint.baseUrl}/models`, {
     headers: new Headers({ Authorization: `Bearer ${endpoint.key}` }),
     method: "GET",
-  }, timeoutMs);
+  }, deadlineMs());
   if (catalog.cause === "egress_unavailable") {
     failAllConfigured("egress_unavailable");
     return result;
@@ -379,7 +411,7 @@ export async function detectByokCapabilities(input: ByokDetectInput): Promise<By
       }),
       headers: jsonHeaders(),
       method: "POST",
-    }, timeoutMs);
+    }, deadlineMs());
     if (outcome.cause === undefined && outcome.status === 200) {
       const body = parseJson(outcome.bodyText ?? "");
       const choices = record(body) && Array.isArray(body.choices) ? body.choices : null;
@@ -409,7 +441,7 @@ export async function detectByokCapabilities(input: ByokDetectInput): Promise<By
       }),
       headers: jsonHeaders(),
       method: "POST",
-    }, timeoutMs);
+    }, deadlineMs());
     if (outcome.cause === undefined && outcome.status === 200) {
       const body = parseJson(outcome.bodyText ?? "");
       const choices = record(body) && Array.isArray(body.choices) ? body.choices : null;
@@ -427,7 +459,7 @@ export async function detectByokCapabilities(input: ByokDetectInput): Promise<By
       body: JSON.stringify({ dimensions: 256, input: "pinar", model: endpoint.embeddingModel }),
       headers: jsonHeaders(),
       method: "POST",
-    }, timeoutMs);
+    }, deadlineMs());
     if (outcome.cause === undefined && outcome.status === 200) {
       const body = parseJson(outcome.bodyText ?? "");
       const data = record(body) && Array.isArray(body.data) ? body.data : null;
@@ -452,7 +484,7 @@ export async function detectByokCapabilities(input: ByokDetectInput): Promise<By
       body: form,
       headers: new Headers({ Authorization: `Bearer ${endpoint.key}` }),
       method: "POST",
-    }, timeoutMs);
+    }, deadlineMs());
     if (outcome.cause === undefined && outcome.status === 200) {
       const body = parseJson(outcome.bodyText ?? "");
       const hasText = record(body) && typeof body.text === "string";

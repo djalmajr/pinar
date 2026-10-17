@@ -43,6 +43,20 @@ export const PIN_SEARCH_MAX_SESSIONS = 500;
 export const PIN_SEARCH_MAX_LIMIT = 50;
 const SESSION_PAGE_SIZE = 100;
 
+// The identity of the endpoint that produced a stored vector (F5/S2 review
+// fix): the model and, for a direct endpoint, the base URL that serves it.
+// An entry is current only against the identity of the endpoint that
+// indexed it (indexSession reuses, laggingSessions lags, searchPins ranks):
+// the same model name on another URL is another vector space, and its
+// vectors are stale. A gateway endpoint keeps the plain model name — its
+// base URL is the fixed GATEWAY_OPENAI_BASE_URL constant, and the entries
+// written before the endpoint joined the identity (the plain model name)
+// keep working without a mass re-embed.
+export function embeddingIdentity(endpoint: EmbeddingEndpoint): string {
+  if (endpoint.gateway) return endpoint.model;
+  return `${endpoint.model}\u0000${endpoint.baseUrl}`;
+}
+
 export interface PinSource {
   /** Sessions whose pins the principal can see (owner + accepted collaborations), newest first. */
   listSessions(input: { limit: number; offset: number }): Promise<Array<{ id: string; updatedAt: string }>>;
@@ -189,7 +203,7 @@ export async function indexSession(
   if (embedding) {
     const pending = docs.flatMap((doc, index) => {
       const entry = previous.get(pinIds[index]!);
-      const current = entry !== undefined && entry.docHash === doc.hash && entry.vector !== null && entry.model === embedding.model;
+      const current = entry !== undefined && entry.docHash === doc.hash && entry.vector !== null && entry.model === embeddingIdentity(embedding);
       if (current) vectors.set(index, entry.vector!);
       return current ? [] : [index];
     });
@@ -207,7 +221,7 @@ export async function indexSession(
     caption: captions[index]?.caption ?? null,
     docHash: docs[index]!.hash,
     docText: docs[index]!.text,
-    model: embedding?.model ?? "",
+    model: embedding === null ? "" : embeddingIdentity(embedding),
     number: pin.number,
     ocr: captions[index]?.ocr ?? null,
     pinId: pinIds[index]!,
@@ -247,7 +261,7 @@ async function laggingSessions(deps: PinIndexDeps, sessionIds: string[]): Promis
   if ((!chat && !embedding) || sessionIds.length === 0) return [];
   const lagging = new Set<string>();
   for (const entry of await deps.store.entriesFor(sessionIds)) {
-    const noVector = embedding !== null && (entry.vector === null || entry.model !== embedding.model);
+    const noVector = embedding !== null && (entry.vector === null || entry.model !== embeddingIdentity(embedding));
     const noCaption = chat !== null && entry.caption === null;
     if (noVector || noCaption) lagging.add(entry.sessionId);
   }
@@ -345,7 +359,7 @@ export async function searchPins(deps: PinIndexDeps, input: { limit: number; que
   if (embedding && queryVector) {
     const vector = queryVector;
     scored = entries
-      .filter((entry) => entry.vector !== null && entry.model === embedding.model)
+      .filter((entry) => entry.vector !== null && entry.model === embeddingIdentity(embedding))
       .map((entry) => ({ entry, score: cosine(vector, decodeVector(entry.vector!)) }));
   } else {
     const queryTerms = new Set(terms(query));

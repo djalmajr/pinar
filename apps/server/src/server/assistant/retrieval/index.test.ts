@@ -5,6 +5,7 @@ import type { PinDocumentInput } from "./document";
 import { decodeVector, PIN_EMBEDDING_DIMENSIONS, type EmbeddingEndpoint } from "./embeddings";
 import {
   canonicalTime,
+  embeddingIdentity,
   indexSession,
   indexStale,
   PIN_SEARCH_MAX_SESSIONS,
@@ -173,8 +174,8 @@ describe("indexSession", () => {
     assert.deepEqual(
       entries.map((entry) => [entry.pinId, entry.number, entry.caption, entry.ocr, entry.model, entry.sessionId, entry.updatedAt]),
       [
-        ["p1", 1, "Caption #1", "OCR 1", "embeddinggemma-300m", "s1", "2026-10-17T12:00:00.000Z"],
-        ["p2", 2, "Caption #2", "OCR 2", "embeddinggemma-300m", "s1", "2026-10-17T12:00:00.000Z"],
+        ["p1", 1, "Caption #1", "OCR 1", embeddingIdentity(embedding), "s1", "2026-10-17T12:00:00.000Z"],
+        ["p2", 2, "Caption #2", "OCR 2", embeddingIdentity(embedding), "s1", "2026-10-17T12:00:00.000Z"],
       ],
     );
     for (const entry of entries) {
@@ -206,6 +207,61 @@ describe("indexSession", () => {
       before.map((entry) => [entry.docHash, entry.caption, entry.ocr, [...entry.vector!]]),
     );
     assert.ok(after.every((entry) => entry.updatedAt === "2026-10-17T13:00:00.000Z"), "entries are refreshed so the session is no longer stale");
+  });
+
+  test("a changed endpoint (the same model) re-embeds: the vector identity includes the endpoint", async () => {
+    const { source } = fakeSource([checkoutSession()]);
+    const { data, store } = fakeStore();
+    const fake = fakeFetch();
+    const first: EmbeddingEndpoint = { apiKey: "k", baseUrl: "https://old.example/v1", model: "same-model" };
+    const second: EmbeddingEndpoint = { apiKey: "k", baseUrl: "https://new.example/v1", model: "same-model" };
+    assert.equal(embeddingIdentity(first), "same-model\u0000https://old.example/v1");
+    assert.notEqual(embeddingIdentity(first), embeddingIdentity(second), "the endpoint is part of the identity");
+    const urls: string[] = [];
+    const routed = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      urls.push(String(input));
+      return fake.fetch(input, init);
+    }) as typeof fetch;
+
+    await indexSession(deps(source, store, routed, { chat: null, embedding: first }), "s1");
+    assert.equal(fake.calls.embeddings.length, 1);
+    // The URL changes, the model name stays: the old vectors are in another
+    // space, so the consumer re-embeds them against the new endpoint.
+    const result = await indexSession(deps(source, store, routed, { chat: null, embedding: second }), "s1");
+    assert.equal(result.embedded, 2, "every pin is re-embedded");
+    assert.equal(fake.calls.embeddings.length, 2);
+    assert.ok(urls[1]!.includes("new.example"), "the new call goes to the new endpoint");
+    assert.ok(data.get("s1")!.every((entry) => entry.model === embeddingIdentity(second)), "the stored identity is the new one");
+    // And a reindex on the same endpoint reuses the new vectors.
+    const again = await indexSession(deps(source, store, routed, { chat: null, embedding: second }), "s1");
+    assert.equal(again.embedded, 0);
+    assert.equal(fake.calls.embeddings.length, 2);
+  });
+
+  test("entries written before the endpoint joined the identity: re-embedded by a direct endpoint, kept by the gateway", async () => {
+    const { source } = fakeSource([checkoutSession()]);
+    const { data, store } = fakeStore();
+    const fake = fakeFetch();
+    const direct: EmbeddingEndpoint = { apiKey: "k", baseUrl: "https://old.example/v1", model: "same-model" };
+    const gateway: EmbeddingEndpoint = {
+      apiKey: "k",
+      baseUrl: "https://ai-gateway.vercel.sh/v1",
+      gateway: { inputPrice: null, zeroDataRetention: true },
+      model: "same-model",
+    };
+    assert.equal(embeddingIdentity(gateway), "same-model", "the gateway's identity is the model name, as stored before");
+    await indexSession(deps(source, store, fake.fetch, { chat: null, embedding: direct }), "s1");
+    // Simulate the entries as written before this change: the plain model name.
+    for (const entry of data.get("s1")!) entry.model = "same-model";
+    // A direct endpoint cannot trust a plain-model entry: it re-embeds...
+    const redone = await indexSession(deps(source, store, fake.fetch, { chat: null, embedding: direct }), "s1");
+    assert.equal(redone.embedded, 2, "the old-format entry is stale for a direct endpoint");
+    assert.ok(data.get("s1")!.every((entry) => entry.model === embeddingIdentity(direct)));
+    // ...but the gateway's identity is the plain model name, so its old vectors keep working.
+    for (const entry of data.get("s1")!) entry.model = "same-model";
+    const kept = await indexSession(deps(source, store, fake.fetch, { chat: null, embedding: gateway }), "s1");
+    assert.equal(kept.embedded, 0, "the gateway reuses the old vectors");
+    assert.ok(data.get("s1")!.every((entry) => entry.model === "same-model"));
   });
 
   test("a new conversation comment re-embeds only that pin, without vision", async () => {
@@ -481,7 +537,7 @@ describe("indexStale", () => {
     assert.deepEqual(await indexStale(withEmbedding, pass), { indexed: 1, remaining: false });
     assert.deepEqual(calls.entriesFor, [["s1"]], "one entriesFor read over the listed sessions");
     assert.equal(fake.calls.embeddings.length, 1);
-    assert.ok(data.get("s1")!.every((entry) => entry.vector !== null && entry.model === "embeddinggemma-300m"));
+    assert.ok(data.get("s1")!.every((entry) => entry.vector !== null && entry.model === embeddingIdentity(embedding)));
     assert.deepEqual(await indexStale(withEmbedding, pass), { indexed: 0, remaining: false });
     assert.equal(fake.calls.embeddings.length, 1);
   });
@@ -491,12 +547,12 @@ describe("indexStale", () => {
     const { data, store } = fakeStore();
     const fake = fakeFetch();
     await indexStale(deps(source, store, fake.fetch, { chat: null, embedding: { ...embedding, model: "old-model" } }), pass);
-    assert.ok(data.get("s1")!.every((entry) => entry.model === "old-model" && entry.vector !== null));
+    assert.ok(data.get("s1")!.every((entry) => entry.model === embeddingIdentity({ ...embedding, model: "old-model" }) && entry.vector !== null));
 
     const current = deps(source, store, fake.fetch, { chat: null });
     assert.deepEqual(await indexStale(current, pass), { indexed: 1, remaining: false });
     assert.deepEqual(fake.calls.embeddings.at(-1)!.input.length, 2);
-    assert.ok(data.get("s1")!.every((entry) => entry.model === "embeddinggemma-300m"));
+    assert.ok(data.get("s1")!.every((entry) => entry.model === embeddingIdentity(embedding)));
     assert.deepEqual(await indexStale(current, pass), { indexed: 0, remaining: false });
 
     // A current-model entry whose vector is gone (a store that lost it).

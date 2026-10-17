@@ -12,6 +12,7 @@ import { resetThinkingControlCacheForTests } from "../models";
 import { resetRetrievalCapabilitiesCacheForTests } from "./detect";
 import { PIN_EMBEDDING_DIMENSIONS } from "./embeddings";
 import type { PinIndexEntry, PinIndexStore, PinSource } from "./index";
+import { embeddingIdentity } from "./index";
 import {
   createLocalPinIndexRuntime,
   LOCAL_PIN_INDEX_DELAY_MS,
@@ -284,9 +285,10 @@ describe("local pin index runtime", () => {
 
     // The first pass indexed both sessions with pins, with captions from
     // one vision call per session on the PNG screenshot, and embeddings.
+    const localEmbeddingIdentity = embeddingIdentity({ baseUrl: BASE_URL, model: "embed-model" });
     assert.deepEqual(entries("cap_checkout").map((entry) => [entry.pinId, entry.caption, entry.model]), [
-      ["pin_contrast", "Marcador 1 legenda", "embed-model"],
-      ["pin_logo", "Marcador 2 legenda", "embed-model"],
+      ["pin_contrast", "Marcador 1 legenda", localEmbeddingIdentity],
+      ["pin_logo", "Marcador 2 legenda", localEmbeddingIdentity],
     ]);
     assert.ok(entries("cap_checkout")[1]!.docText.includes("Revisar o espaçamento do cabeçalho"), "the conversation comment is in the document");
     assert.equal(entries("cap_payment").length, 1);

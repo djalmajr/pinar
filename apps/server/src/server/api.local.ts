@@ -5,6 +5,7 @@ import type {
   CaptureDestination,
   Collection,
   CollectionPlacement,
+  DeliveryPreferences,
   PageInfo,
   Pin,
   Project,
@@ -557,6 +558,25 @@ function publicBatch(id: string, origin: string) {
   return { batch, sessions, statusByPinId };
 }
 
+// A36: the captures of one batch are filed and saved one at a time, so the
+// second capture of a new batch finds the first one's session and follows it
+// (A27) instead of asking the engine and splitting the batch. Captures
+// without a batch, or of other batches, do not wait. A batch's queue goes
+// away once it empties.
+const batchQueues = new Map<string, Promise<unknown>>();
+
+async function oneAtATimePerBatch<T>(batchId: string | null, run: () => Promise<T>): Promise<T> {
+  if (!batchId) return run();
+  const current = (batchQueues.get(batchId) ?? Promise.resolve()).then(run);
+  const tail = current.catch(() => {});
+  batchQueues.set(batchId, tail);
+  try {
+    return await current;
+  } finally {
+    if (batchQueues.get(batchId) === tail) batchQueues.delete(batchId);
+  }
+}
+
 async function uploadShot(request: Request): Promise<Response> {
   const body = await readJson(request);
   const id = stringValue(body, "id") || stringValue(body, "captureId");
@@ -575,6 +595,17 @@ async function uploadShot(request: Request): Promise<Response> {
   }
   const saved = await writeShot(id, image, rootPath());
   const preferences = readDeliveryPreferences(rootPath());
+  return oneAtATimePerBatch(batchValue(body)?.id ?? null, () => fileAndSaveShot(request, body, id, capture, saved, preferences));
+}
+
+async function fileAndSaveShot(
+  request: Request,
+  body: Record<string, unknown>,
+  id: string,
+  capture: VisualCapture | null,
+  saved: string,
+  preferences: DeliveryPreferences,
+): Promise<Response> {
   // F3.5: with the automatic destination on and the AI configured (A33),
   // the server files the new capture and the body's collectionId is
   // ignored (A27); without an engine, or in doubt, it goes to the Inbox

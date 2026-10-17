@@ -284,6 +284,7 @@ interface BatchRecord {
 }
 
 interface MemoryBatch {
+  filingCollectionId?: string | null;
   finishedAt: string | null;
   id: string;
   label: string;
@@ -6617,6 +6618,57 @@ async function fileCloudShot(
   }
 }
 
+// A36: the first filed capture of a batch claims the batch's destination
+// (the collection it resolved, the Inbox included); a concurrent first
+// capture of the same batch, which also found the batch without a session,
+// reads the claim back and follows it. The UPDATE only writes an empty
+// claim, so the first one wins. Returns the batch's destination after the
+// claim, or null when the batch is not the owner's.
+async function claimBatchDestination(
+  env: CloudEnv,
+  principal: Principal,
+  batchId: string,
+  collectionId: string,
+): Promise<string | null> {
+  if (env.DB) {
+    await env.DB.prepare(
+      "UPDATE batches SET filing_collection_id = ? WHERE id = ? AND user_id = ? AND filing_collection_id IS NULL",
+    ).bind(collectionId, batchId, principal.id).run();
+    const row = await env.DB.prepare(
+      "SELECT filing_collection_id FROM batches WHERE id = ? AND user_id = ?",
+    ).bind(batchId, principal.id).first();
+    return typeof row?.filing_collection_id === "string" && row.filing_collection_id ? row.filing_collection_id : null;
+  }
+  const batch = memoryBatches.get(batchId);
+  if (!batch || batch.userId !== principal.id) return null;
+  batch.filingCollectionId ||= collectionId;
+  return batch.filingCollectionId;
+}
+
+// The capture follows the destination another capture claimed for the
+// batch, as the batch rule follows a session (A27): the "auto" mark for a
+// collection, none for the Inbox. A claimed collection gone since then
+// leaves the capture in the Inbox, unmarked.
+async function followClaimedBatch(
+  env: CloudEnv,
+  principal: Principal,
+  claimed: string,
+): Promise<{ destination: CaptureDestination; filed: FilingOutcome }> {
+  const inbox = await ensureDefaultDestination(env, principal);
+  const destination = await resolveDestination(env, principal, claimed);
+  if (destination.collectionId !== claimed) {
+    return { destination, filed: { filedBy: null, filing: { collectionId: null, confidence: 0, engine: "none", reason: "error" } } };
+  }
+  const candidate = claimed !== inbox.collectionId;
+  return {
+    destination,
+    filed: {
+      filedBy: candidate ? "auto" : null,
+      filing: { collectionId: candidate ? claimed : null, confidence: 0, engine: "none", reason: "chosen" },
+    },
+  };
+}
+
 // GET and PATCH /api/preferences: the automatic destination can be turned
 // on, inside the assistant gate (A33) and with an engine. Outside the gate
 // nothing is loaded nor fetched.
@@ -6690,6 +6742,14 @@ async function uploadShot(request: Request, env: CloudEnv) {
     // capture in the Inbox, unmarked.
     if (filed.filing.collectionId !== null && filed.filing.collectionId !== destination.collectionId) {
       filed = { filedBy: null, filing: { ...filed.filing, collectionId: null, reason: "error" } };
+    }
+    // A batch without a session yet: claim its destination, or follow the
+    // one a concurrent capture claimed first (A36).
+    if (batchId && !filed.followedBatch) {
+      const claimed = await claimBatchDestination(env, principal, batchId, destination.collectionId);
+      if (claimed !== null && claimed !== destination.collectionId) {
+        ({ destination, filed } = await followClaimedBatch(env, principal, claimed));
+      }
     }
   }
   if (env.PINAR_BUCKET) {

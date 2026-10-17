@@ -365,6 +365,75 @@ describe("local capture filing (POST /api/shots)", () => {
     assert.equal(endpoint.engineCalls().length, 1, "the batch rule asks no engine");
   });
 
+  test("two first captures of a batch that arrive together are filed one after the other, in one collection (A36)", async () => {
+    // Mutation captured: without the batch queue both ask the engine and the batch is split between Checkout and Onboarding.
+    configureAi();
+    // The first decision waits (up to 300 ms) for a second one, so two
+    // captures that ask together get different answers.
+    let waiting: (() => void) | null = null;
+    useEndpoint(fakeEndpoint({
+      decide: async (body) => {
+        if (waiting) waiting();
+        else await new Promise<void>((resolve) => {
+          waiting = resolve;
+          setTimeout(resolve, 300);
+        });
+        return decideFor(String(body.state).includes("Race A") ? "Shop / Checkout" : "Shop / Onboarding", 0.95)(body);
+      },
+      engine: "decisions",
+    }));
+    await seedCollections();
+    await patchPreferences({ autoCaptureDestination: true });
+    endpoint.calls.length = 0;
+
+    const responses = await Promise.all([
+      shot({ batchId: "batch_race", id: "local_race_a", title: "Race A" }),
+      shot({ batchId: "batch_race", id: "local_race_b", title: "Race B" }),
+    ]);
+    const [a, b] = (await Promise.all(responses.map((response) => response.json()))) as Array<Record<string, any>>;
+    const [first, second] = a!.filing.engine === "decisions" ? [a!, b!] : [b!, a!];
+    assert.equal(first.filing.engine, "decisions");
+    assert.deepEqual(second.filing, { collectionId: first.filing.collectionId, confidence: 0, engine: "none", reason: "chosen" });
+    const stored = await Promise.all(["local_race_a", "local_race_b"].map(storedSession));
+    assert.deepEqual(stored.map((session) => [session.collectionId, session.filedBy, session.batchId]), [
+      [first.filing.collectionId, "auto", "batch_race"],
+      [first.filing.collectionId, "auto", "batch_race"],
+    ]);
+    assert.equal(endpoint.engineCalls().length, 1, "the second capture followed the first one's session");
+  });
+
+  test("captures of other batches, or without one, do not wait for each other", async () => {
+    // Mutation captured: one queue for every capture leaves the engine waiting for the other two until the deadline.
+    configureAi();
+    let asking = 0;
+    let peak = 0;
+    const allThree = new Promise<void>((resolve) => {
+      useEndpoint(fakeEndpoint({
+        decide: async (body) => {
+          asking += 1;
+          peak = Math.max(peak, asking);
+          if (asking === 3) resolve();
+          await allThree;
+          return decideFor("Shop / Onboarding", 0.95)(body);
+        },
+        engine: "decisions",
+      }));
+    });
+    const { onboarding } = await seedCollections();
+    await patchPreferences({ autoCaptureDestination: true });
+
+    const responses = await Promise.all([
+      shot({ batchId: "batch_x", id: "local_parallel_x", title: "Onboarding" }),
+      shot({ batchId: "batch_y", id: "local_parallel_y", title: "Onboarding" }),
+      shot({ id: "local_parallel_none", title: "Onboarding" }),
+    ]);
+    const bodies = (await Promise.all(responses.map((response) => response.json()))) as Array<Record<string, any>>;
+    assert.equal(peak, 3, "the three captures asked the engine together");
+    for (const body of bodies) {
+      assert.deepEqual(body.filing, { collectionId: onboarding, confidence: 0.95, engine: "decisions", reason: "chosen" });
+    }
+  });
+
   test("an existing batch is followed with the endpoint down", async () => {
     configureAi();
     const down = fakeEndpoint({ engine: "none" });

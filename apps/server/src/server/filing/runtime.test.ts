@@ -95,7 +95,7 @@ describe("fileCapture", () => {
         }) as unknown as typeof fetch,
         source: seen,
       });
-      assert.deepEqual(outcome, { filedBy, filing: { collectionId: "col_b", confidence: 0, engine: "none", reason: "chosen" } }, String(filedBy));
+      assert.deepEqual(outcome, { filedBy, filing: { collectionId: "col_b", confidence: 0, engine: "none", reason: "chosen" }, followedBatch: true }, String(filedBy));
       assert.deepEqual(seen.reads, ["batch:batch_1:cap_1", "collections"]);
       assert.equal(detection.calls, 0, "the engine is never detected");
       assert.equal(fetched, 0);
@@ -111,7 +111,7 @@ describe("fileCapture", () => {
         engine: detection.engine,
         source: source({ batchSession: async () => ({ collectionId: "col_a", filedBy: "auto" }) }),
       });
-      assert.deepEqual(outcome, { filedBy: "auto", filing: { collectionId: "col_a", confidence: 0, engine: "none", reason: "chosen" } });
+      assert.deepEqual(outcome, { filedBy: "auto", filing: { collectionId: "col_a", confidence: 0, engine: "none", reason: "chosen" }, followedBatch: true });
       assert.equal(detection.calls, 0);
     }
   });
@@ -123,7 +123,7 @@ describe("fileCapture", () => {
       engine: async () => DECISIONS,
       source: source({ batchSession: async () => ({ collectionId: "col_inbox", filedBy: "auto" }) }),
     });
-    assert.deepEqual(outcome, { filedBy: null, filing: { collectionId: null, confidence: 0, engine: "none", reason: "chosen" } });
+    assert.deepEqual(outcome, { filedBy: null, filing: { collectionId: null, confidence: 0, engine: "none", reason: "chosen" }, followedBatch: true });
   });
 
   test("a batch without another session is decided by the engine, with the examples of decisions", async () => {

@@ -7,7 +7,10 @@
 // in it) follows the batch's most recent other session, its collection and
 // its mark ("auto" or none), even with the endpoint down; a batch whose
 // collection is not a candidate (the Inbox) keeps the capture in the Inbox,
-// unmarked. Otherwise the engine is detected; without one the capture goes
+// unmarked. Two first captures of a batch that arrive together both find it
+// empty; the routes keep the batch whole (A36): the Cloud one claims the
+// batch's destination after the choice, the local one files the captures of
+// a batch one at a time. Otherwise the engine is detected; without one the capture goes
 // to the Inbox with reason "error" (A29), and with one chooseCollection
 // picks among the candidates, marking "auto" what it files.
 //
@@ -113,11 +116,14 @@ function similarityEngine(
 /**
  * The filing of one new capture: `filing.collectionId` is the collection the
  * capture is filed in (null for the Inbox) and `filedBy` the mark to store
- * with it.
+ * with it. `followedBatch` is set when the capture followed its batch's
+ * most recent session (A27): only a batch without one has a destination
+ * still to claim (A36).
  */
 export interface FilingOutcome {
   filedBy: "auto" | null;
   filing: FilingChoice;
+  followedBatch?: true;
 }
 
 export async function fileCapture(input: {
@@ -149,6 +155,7 @@ export async function fileCapture(input: {
         return {
           filedBy: candidate ? batch.filedBy : null,
           filing: { collectionId: candidate ? batch.collectionId : null, confidence: 0, engine: "none", reason: "chosen" },
+          followedBatch: true,
         };
       }
     }

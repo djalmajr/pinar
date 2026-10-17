@@ -30,7 +30,10 @@ const OWNER = "usr_owner";
 
 // ---------- D1 shim (same model as cloud-mcp.test.ts) ----------
 
+// Batches run one at a time, as D1 runs each batch as one transaction: two
+// concurrent requests never open two transactions on the one connection.
 function sqliteD1(db: Database): NonNullable<CloudEnv["DB"]> {
+  let batches: Promise<unknown> = Promise.resolve();
   const statement = (query: string) => {
     let params: unknown[] = [];
     const bound = {
@@ -53,17 +56,21 @@ function sqliteD1(db: Database): NonNullable<CloudEnv["DB"]> {
     return bound;
   };
   return {
-    async batch(statements) {
-      db.exec("BEGIN");
-      try {
-        const results = [];
-        for (const statement of statements) results.push(await statement.run());
-        db.exec("COMMIT");
-        return results;
-      } catch (error) {
-        db.exec("ROLLBACK");
-        throw error;
-      }
+    batch(statements) {
+      const work = batches.then(async () => {
+        db.exec("BEGIN");
+        try {
+          const results = [];
+          for (const statement of statements) results.push(await statement.run());
+          db.exec("COMMIT");
+          return results;
+        } catch (error) {
+          db.exec("ROLLBACK");
+          throw error;
+        }
+      });
+      batches = work.catch(() => {});
+      return work;
     },
     prepare(query: string) {
       return statement(query);
@@ -259,6 +266,56 @@ function stored(db: Database, id: string) {
 }
 
 let appliance = fakeAppliance({ engine: "none" });
+
+// Holds every caller until `count` of them are waiting, so captures that ask
+// the engine run side by side.
+function heldUntil(count: number) {
+  const waiting: Array<() => void> = [];
+  return () => new Promise<void>((resolve) => {
+    waiting.push(resolve);
+    if (waiting.length === count) waiting.forEach((done) => done());
+  });
+}
+
+// Two first captures of `batchId` ("Race A" and "Race B") ask the engine
+// together; A's answer (`answerA`) comes at once, B's (`answerB`) only after
+// A's whole request is done, so A claims the batch first. `beforeB` runs
+// between the two.
+async function raceFirstCaptures(
+  env: CloudEnv,
+  cookie: string,
+  input: {
+    answerA: (body: Record<string, any>) => Response;
+    answerB: (body: Record<string, any>) => Response;
+    batchId: string;
+    beforeB?: () => void | Promise<void>;
+  },
+) {
+  const bothAsked = heldUntil(2);
+  let releaseB = () => {};
+  const bReleased = new Promise<void>((resolve) => {
+    releaseB = resolve;
+  });
+  appliance = fakeAppliance({
+    decide: async (body) => {
+      await bothAsked();
+      if (!String(body.state).includes("Race B")) return input.answerA(body);
+      await bReleased;
+      return input.answerB(body);
+    },
+    engine: "decisions",
+  });
+  const first = shot(env, cookie, { batchId: input.batchId, id: `${input.batchId}_a`, title: "Race A" });
+  const second = shot(env, cookie, { batchId: input.batchId, id: `${input.batchId}_b`, title: "Race B" });
+  const a = await first;
+  await input.beforeB?.();
+  releaseB();
+  return { a, b: await second };
+}
+
+function claimOf(db: Database, batchId: string) {
+  return (db.query("SELECT filing_collection_id FROM batches WHERE id = ?").get(batchId) as { filing_collection_id: string | null }).filing_collection_id;
+}
 
 describe("cloud capture filing (POST /api/shots)", () => {
   beforeEach(() => {
@@ -540,6 +597,171 @@ describe("cloud capture filing (POST /api/shots)", () => {
     } finally {
       db.close();
     }
+  });
+});
+
+describe("cloud capture filing keeps a batch whole (A36)", () => {
+  beforeEach(() => {
+    resetCloudMemoryStateForTests();
+    resetRetrievalCapabilitiesCacheForTests();
+    setCloudNowForTests(NOW);
+    appliance = fakeAppliance({ engine: "none" });
+    setCloudFilingFetchForTests(((input: RequestInfo | URL, init?: RequestInit) => appliance.fetch(input, init)) as typeof fetch);
+  });
+
+  afterEach(() => {
+    setCloudFilingFetchForTests(null);
+    resetRetrievalCapabilitiesCacheForTests();
+    resetCloudMemoryStateForTests();
+  });
+
+  async function filingSetup(db: Database) {
+    const env = filingEnv(db);
+    const cookie = await signIn(db, env);
+    seedCollections(db);
+    await writeOwnerDeliveryPreferences(env, OWNER, { autoCaptureDestination: true });
+    return { cookie, env };
+  }
+
+  test("two first captures that arrive together: the second follows the collection the first claimed", async () => {
+    // Mutation captured: an UPDATE without "IS NULL" lets B overwrite the claim and keep Onboarding.
+    // Mutation captured: ignoring the value read back files B in Onboarding, splitting the batch.
+    const db = migratedDatabase();
+    try {
+      const { cookie, env } = await filingSetup(db);
+      const { a, b } = await raceFirstCaptures(env, cookie, {
+        answerA: decideFor("Shop / Checkout", 0.95),
+        answerB: decideFor("Shop / Onboarding", 0.95),
+        batchId: "batch_race",
+      });
+      assert.deepEqual(a.filing, { collectionId: "col_checkout", confidence: 0.95, engine: "decisions", reason: "chosen" });
+      assert.equal(b.destination.collectionId, "col_checkout");
+      assert.deepEqual(b.filing, { collectionId: "col_checkout", confidence: 0, engine: "none", reason: "chosen" });
+      assert.deepEqual(stored(db, "batch_race_a"), { batch_id: "batch_race", collection_id: "col_checkout", filed_by: "auto" });
+      assert.deepEqual(stored(db, "batch_race_b"), { batch_id: "batch_race", collection_id: "col_checkout", filed_by: "auto" });
+      assert.equal(claimOf(db, "batch_race"), "col_checkout");
+      assert.equal(appliance.engineCalls().length, 2, "both found the batch empty and asked the engine");
+    } finally {
+      db.close();
+    }
+  });
+
+  test("when the Inbox won the batch, the second capture follows it unmarked", async () => {
+    const db = migratedDatabase();
+    try {
+      const { cookie, env } = await filingSetup(db);
+      const { a, b } = await raceFirstCaptures(env, cookie, {
+        answerA: decideFor("No such collection", 0.95),
+        answerB: decideFor("Shop / Onboarding", 0.95),
+        batchId: "batch_inbox_race",
+      });
+      assert.equal(a.destination.collectionId, "col_inbox");
+      assert.equal(a.filing.reason, "low_confidence");
+      assert.equal(b.destination.collectionId, "col_inbox");
+      assert.deepEqual(b.filing, { collectionId: null, confidence: 0, engine: "none", reason: "chosen" });
+      assert.deepEqual(stored(db, "batch_inbox_race_b"), { batch_id: "batch_inbox_race", collection_id: "col_inbox", filed_by: null });
+      assert.equal(claimOf(db, "batch_inbox_race"), "col_inbox");
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a claimed collection deleted before the second capture saves leaves it in the Inbox, unmarked", async () => {
+    const db = migratedDatabase();
+    try {
+      const { cookie, env } = await filingSetup(db);
+      const { b } = await raceFirstCaptures(env, cookie, {
+        answerA: decideFor("Shop / Checkout", 0.95),
+        answerB: decideFor("Shop / Onboarding", 0.95),
+        batchId: "batch_gone",
+        beforeB: () => {
+          db.query("UPDATE sessions SET collection_id = 'col_inbox' WHERE collection_id = 'col_checkout'").run();
+          db.query("DELETE FROM collections WHERE id = 'col_checkout'").run();
+        },
+      });
+      assert.equal(b.destination.collectionId, "col_inbox");
+      assert.deepEqual(b.filing, { collectionId: null, confidence: 0, engine: "none", reason: "error" });
+      assert.deepEqual(stored(db, "batch_gone_b"), { batch_id: "batch_gone", collection_id: "col_inbox", filed_by: null });
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a batch with a session follows its latest session, not the claim, so a move still corrects it", async () => {
+    // Mutation captured: claiming when the batch rule applied sends C back to the claimed Checkout.
+    const db = migratedDatabase();
+    try {
+      const { cookie, env } = await filingSetup(db);
+      appliance = fakeAppliance({ decide: decideFor("Shop / Checkout", 0.95), engine: "decisions" });
+      await shot(env, cookie, { batchId: "batch_moved", id: "moved_first", title: "Checkout" });
+      assert.equal(claimOf(db, "batch_moved"), "col_checkout");
+      // The person moves the first capture: the move clears its mark.
+      db.query("UPDATE sessions SET collection_id = 'col_onboarding', filed_by = NULL WHERE id = 'moved_first'").run();
+
+      const next = await shot(env, cookie, { batchId: "batch_moved", id: "moved_next", title: "Checkout again" });
+      assert.equal(next.destination.collectionId, "col_onboarding");
+      assert.deepEqual(next.filing, { collectionId: "col_onboarding", confidence: 0, engine: "none", reason: "chosen" });
+      assert.deepEqual(stored(db, "moved_next"), { batch_id: "batch_moved", collection_id: "col_onboarding", filed_by: null });
+      assert.equal(appliance.engineCalls().length, 1);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("another owner's batch is refused before any claim", async () => {
+    const db = migratedDatabase();
+    try {
+      const { cookie, env } = await filingSetup(db);
+      db.query("INSERT INTO batches (id, user_id, label, started_at) VALUES ('batch_foreign', 'usr_other', 'Theirs', ?)").run(NOW);
+      appliance = fakeAppliance({ decide: decideFor("Shop / Checkout", 0.95), engine: "decisions" });
+      const response = await handleCloudApiRequest(new Request("https://pinar.test/api/shots", {
+        body: JSON.stringify({
+          batch: { id: "batch_foreign", label: "Theirs", startedAt: NOW },
+          id: "foreign_batch_shot",
+          image: VALID_PNG,
+          page: { title: "Checkout", url: "https://example.test/new" },
+          pins: [{ comment: "Checkout pin", number: 1 }],
+        }),
+        headers: { "content-type": "application/json", cookie },
+        method: "POST",
+      }), env);
+      assert.equal(response.status, 409);
+      assert.equal(claimOf(db, "batch_foreign"), null);
+      assert.equal(appliance.engineCalls().length, 0);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("without D1, the in-memory batches keep the same rule", async () => {
+    const env: CloudEnv = { AI_API_KEY: "sk-ai-test", AI_BASE_URL: BASE_URL, AI_MODEL: "mock", ASSISTANT_ENABLED: "true", DEPLOYMENT_ENV: "staging" };
+    const { cookie } = await seedCloudWebSessionForTests({ email: "mem@example.test", id: OWNER, plan: "pro" }, env);
+    const call = async (path: string, body: unknown) => {
+      const response = await handleCloudApiRequest(new Request(`https://pinar.test${path}`, {
+        body: JSON.stringify(body),
+        headers: { "content-type": "application/json", cookie },
+        method: "POST",
+      }), env);
+      assert.ok(response.status < 300, `${path}: ${response.status}`);
+      return (await response.json()) as Record<string, any>;
+    };
+    const shop = (await call("/api/projects", { name: "Shop" })).project.id as string;
+    const checkout = (await call(`/api/projects/${shop}/collections`, { name: "Checkout" })).collection.id as string;
+    await call(`/api/projects/${shop}/collections`, { name: "Onboarding" });
+    await writeOwnerDeliveryPreferences(env, OWNER, { autoCaptureDestination: true });
+
+    const { a, b } = await raceFirstCaptures(env, cookie, {
+      answerA: decideFor("Shop / Checkout", 0.95),
+      answerB: decideFor("Shop / Onboarding", 0.95),
+      batchId: "batch_memory",
+    });
+    assert.equal(a.destination.collectionId, checkout);
+    assert.equal(b.destination.collectionId, checkout);
+    assert.deepEqual(b.filing, { collectionId: checkout, confidence: 0, engine: "none", reason: "chosen" });
+    const session = await handleCloudApiRequest(new Request("https://pinar.test/api/sessions/batch_memory_b", { headers: { cookie } }), env);
+    const saved = ((await session.json()) as { session: Record<string, unknown> }).session;
+    assert.equal(saved.collectionId, checkout);
+    assert.equal(saved.filedBy, "auto");
   });
 });
 

@@ -859,6 +859,8 @@ describe("cloud schema migrations", () => {
         VALUES ('existing_session', '2026-10-17T00:00:00.000Z', 'usr_existing', 'pro', 1, 42);
         INSERT INTO owner_preferences (owner_id, include_screenshot, handoff_mode, updated_at, voice_post_processing)
         VALUES ('usr_existing', 0, 'full', '2026-10-17T00:00:00.000Z', 1);
+        INSERT INTO batches (id, user_id, label, started_at, finished_at)
+        VALUES ('existing_batch', 'usr_existing', 'Review', '2026-10-17T00:00:00.000Z', NULL);
       `);
 
       applyMigrations(db, ["0030_capture_filing.sql"]);
@@ -872,6 +874,17 @@ describe("cloud schema migrations", () => {
         ).get(),
         { auto_capture_destination: 0, handoff_mode: "full", include_screenshot: 0, voice_post_processing: 1 },
       );
+      assert.deepEqual(
+        db.query("SELECT filing_collection_id, label, started_at FROM batches WHERE id = 'existing_batch'").get(),
+        { filing_collection_id: null, label: "Review", started_at: "2026-10-17T00:00:00.000Z" },
+      );
+      // The claim of A36: the first destination stays, a second one does not overwrite it.
+      const claim = db.query(
+        "UPDATE batches SET filing_collection_id = ? WHERE id = 'existing_batch' AND user_id = 'usr_existing' AND filing_collection_id IS NULL",
+      );
+      assert.equal(claim.run("col_first").changes, 1);
+      assert.equal(claim.run("col_second").changes, 0);
+      assert.deepEqual(db.query("SELECT filing_collection_id FROM batches WHERE id = 'existing_batch'").get(), { filing_collection_id: "col_first" });
       db.query("UPDATE sessions SET filed_by = 'auto' WHERE id = 'existing_session'").run();
       db.query("UPDATE owner_preferences SET auto_capture_destination = 1 WHERE owner_id = 'usr_existing'").run();
       assert.throws(

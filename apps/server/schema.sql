@@ -288,7 +288,8 @@ CREATE TABLE batches (
   user_id TEXT NOT NULL,
   label TEXT NOT NULL,
   started_at TEXT NOT NULL,
-  finished_at TEXT
+  finished_at TEXT,
+  filing_collection_id TEXT
 );
 
 CREATE INDEX idx_batches_user_started ON batches(user_id, started_at DESC);

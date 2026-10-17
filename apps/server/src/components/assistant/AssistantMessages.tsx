@@ -5,8 +5,14 @@ import IconLoader from "~icons/lucide/loader-circle";
 import type { Translate } from "@/lib/i18n";
 import {
   assistantErrorMessageKey,
+  assistantMessageAsk,
+  assistantMessageProposals,
+  type AssistantProposalActionKind,
+  type AssistantProposalErrorKey,
+  type AssistantPublicProposal,
   type AssistantUIMessage,
 } from "./assistant-client";
+import { AssistantProposalCard } from "./AssistantProposalCard";
 
 type AssistantPart = AssistantUIMessage["parts"][number];
 
@@ -45,9 +51,24 @@ function toolPartInProgress(part: AssistantPart): part is Extract<AssistantPart,
   return part.state === "input-available" || part.state === "input-streaming";
 }
 
+/** What the panel knows about a proposal beyond the message part that carried it. */
+export interface AssistantProposalCardState {
+  errorKey: AssistantProposalErrorKey | null;
+  pending: boolean;
+  /** The proposal of the last action answer (or refetch); null until there is one. */
+  proposal: AssistantPublicProposal | null;
+}
+
 export interface AssistantMessagesProps {
+  /** A turn is in flight: the ask options are disabled. */
+  busy: boolean;
   messages: readonly AssistantUIMessage[];
+  /** An ask option was picked: send it as the next user message. */
+  onAsk: (option: string) => void;
+  onProposalAction: (kind: AssistantProposalActionKind, proposal: AssistantPublicProposal) => void;
   onRetry: () => void;
+  /** Per proposal id; a proposal without an entry shows the state its part carried. */
+  proposalStates: Readonly<Record<string, AssistantProposalCardState>>;
   t: Translate;
 }
 
@@ -101,11 +122,98 @@ function AssistantAnswer({
   );
 }
 
-export function AssistantMessages({ messages, onRetry, t }: AssistantMessagesProps) {
+/**
+ * A `pinar_ask` question: the question as assistant text (unless a text part
+ * of the message already says it) and one button per option. The buttons
+ * only exist while the question is the last message: any later message
+ * answers it.
+ */
+function AssistantAskOptions({
+  busy,
+  message,
+  onAsk,
+  open,
+}: {
+  busy: boolean;
+  message: AssistantUIMessage;
+  onAsk: (option: string) => void;
+  open: boolean;
+}) {
+  const ask = assistantMessageAsk(message);
+  if (ask === null) return null;
+  const question = ask.question.trim();
+  const questionShown = message.parts.some((part) => part.type === "text" && part.text.trim() === question);
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      {questionShown ? null : (
+        <p className="whitespace-pre-wrap text-sm text-foreground [overflow-wrap:anywhere]">{ask.question}</p>
+      )}
+      {open ? (
+        <div aria-label={ask.question} className="flex flex-wrap gap-2" role="group">
+          {ask.options.map((option, index) => (
+            <Button
+              disabled={busy}
+              key={`option-${index}`}
+              onClick={() => onAsk(option)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              {option}
+            </Button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function AssistantProposalCards({
+  message,
+  onProposalAction,
+  proposalStates,
+  t,
+}: {
+  message: AssistantUIMessage;
+  onProposalAction: AssistantMessagesProps["onProposalAction"];
+  proposalStates: AssistantMessagesProps["proposalStates"];
+  t: Translate;
+}) {
+  const proposals = assistantMessageProposals(message);
+  if (proposals.length === 0) return null;
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      {proposals.map((part) => {
+        const state = proposalStates[part.id];
+        const proposal = state?.proposal ?? part;
+        return (
+          <AssistantProposalCard
+            errorKey={state?.errorKey ?? null}
+            key={part.id}
+            onAction={(kind) => onProposalAction(kind, proposal)}
+            pending={state?.pending ?? false}
+            proposal={proposal}
+            t={t}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+export function AssistantMessages({
+  busy,
+  messages,
+  onAsk,
+  onProposalAction,
+  onRetry,
+  proposalStates,
+  t,
+}: AssistantMessagesProps) {
   return (
     <ol className="flex min-w-0 flex-col gap-3 px-4 py-3">
-      {messages.map((message) => (
-        <li className="min-w-0" key={message.id}>
+      {messages.map((message, index) => (
+        <li className="flex min-w-0 flex-col gap-2" key={message.id}>
           {message.role === "user" ? (
             <div className="min-w-0">
               {message.parts
@@ -117,7 +225,21 @@ export function AssistantMessages({ messages, onRetry, t }: AssistantMessagesPro
                 ))}
             </div>
           ) : (
-            <AssistantAnswer message={message} onRetry={onRetry} t={t} />
+            <>
+              <AssistantAnswer message={message} onRetry={onRetry} t={t} />
+              <AssistantAskOptions
+                busy={busy}
+                message={message}
+                onAsk={onAsk}
+                open={index === messages.length - 1}
+              />
+              <AssistantProposalCards
+                message={message}
+                onProposalAction={onProposalAction}
+                proposalStates={proposalStates}
+                t={t}
+              />
+            </>
           )}
         </li>
       ))}

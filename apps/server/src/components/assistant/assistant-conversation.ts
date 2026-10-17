@@ -1,4 +1,4 @@
-// One read-only assistant conversation bound to its own SDK Chat. Switching
+// One assistant conversation bound to its own SDK Chat. Switching
 // conversations never reuses the previous Chat: a stream interrupted mid-way
 // (late deltas, a late data-thread) still addresses the Chat it started from,
 // so it can never touch the messages of another conversation.
@@ -157,7 +157,7 @@ export async function openAssistantConversation(
       chatId: `assistant:${id}`,
       generation,
       hooks: store.hooks,
-      messages: threadMessagesToUiMessages(loaded.messages),
+      messages: threadMessagesToUiMessages(loaded.messages, loaded.proposals),
       threadId: id,
     }),
     kind: "switched",

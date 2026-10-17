@@ -14,7 +14,10 @@ import {
   buildTurnRequestBody,
   deleteAssistantThread,
   fetchAssistantThreads,
+  runAssistantProposalAction,
   type AssistantErrorKey,
+  type AssistantProposalActionKind,
+  type AssistantPublicProposal,
   type AssistantStatus,
   type AssistantThread,
 } from "./assistant-client";
@@ -28,7 +31,7 @@ import {
 } from "./assistant-conversation";
 import { useAssistantPanel } from "./assistant-panel-state";
 import { AssistantComposer } from "./AssistantComposer";
-import { AssistantMessages } from "./AssistantMessages";
+import { AssistantMessages, type AssistantProposalCardState } from "./AssistantMessages";
 import { AssistantThreadList } from "./AssistantThreadList";
 
 export interface AssistantPanelProps {
@@ -46,6 +49,13 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
   const [historyOpen, setHistoryOpen] = useState(false);
   const [turnErrorKey, setTurnErrorKey] = useState<AssistantErrorKey | null>(null);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  // Card state per proposal id: the most recent proposal an action answer
+  // (or a 409 refetch) returned, the in-flight flag and the action note.
+  // Reset on every conversation switch: a reopened thread brings its own
+  // fresher proposals. Ids are unique, so a late answer for a conversation
+  // already left only fills an entry no card reads.
+  const [proposalStates, setProposalStates] = useState<Record<string, AssistantProposalCardState>>({});
+  const proposalsInFlightRef = useRef(new Set<string>());
 
   // The generation cell and the refs the conversation callbacks consult. The
   // hook closures only touch stable setters, so one memoized set of hooks
@@ -134,6 +144,7 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
     });
     setActiveThreadId(null);
     setTurnErrorKey(null);
+    setProposalStates({});
     setHistoryOpen(false);
     setConversation(next);
   }
@@ -154,6 +165,7 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
     }
     setActiveThreadId(id);
     setTurnErrorKey(null);
+    setProposalStates({});
     setHistoryOpen(false);
     setConversation(result.conversation);
   }
@@ -171,6 +183,27 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
   function handleSend(text: string) {
     setTurnErrorKey(null);
     void sendMessage({ text });
+  }
+
+  // One action per proposal at a time: the ref drops a second click before
+  // React re-renders the disabled buttons.
+  async function handleProposalAction(kind: AssistantProposalActionKind, proposal: AssistantPublicProposal) {
+    const inFlight = proposalsInFlightRef.current;
+    if (inFlight.has(proposal.id)) return;
+    inFlight.add(proposal.id);
+    setProposalStates((current) => ({
+      ...current,
+      [proposal.id]: { errorKey: null, pending: true, proposal: current[proposal.id]?.proposal ?? null },
+    }));
+    try {
+      const outcome = await runAssistantProposalAction(kind, proposal);
+      setProposalStates((current) => ({
+        ...current,
+        [proposal.id]: { errorKey: outcome.errorKey, pending: false, proposal: outcome.proposal },
+      }));
+    } finally {
+      inFlight.delete(proposal.id);
+    }
   }
 
   function handleRetry() {
@@ -206,7 +239,17 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
       </div>
     ) : (
       <>
-        <AssistantMessages messages={messages} onRetry={handleRetry} t={t} />
+        <AssistantMessages
+          busy={busy}
+          messages={messages}
+          onAsk={handleSend}
+          onProposalAction={(kind, proposal) => {
+            void handleProposalAction(kind, proposal);
+          }}
+          onRetry={handleRetry}
+          proposalStates={proposalStates}
+          t={t}
+        />
         {turnErrorKey !== null ? (
           <div className="flex flex-col items-start gap-2 px-4 pb-3" role="alert">
             <p className="text-sm text-destructive">{t(turnErrorKey)}</p>

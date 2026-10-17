@@ -1,5 +1,6 @@
 import { createClient } from "@libsql/client";
 import type { CloudEnv } from "../cloud-api";
+import type { FilingThresholdEnv } from "../filing/constants";
 import { createLibsqlD1 } from "./libsql-d1";
 import { createRestEmail } from "./email-rest";
 import { createS3Bucket } from "./s3-bucket";
@@ -13,6 +14,9 @@ const STRING_FIELDS = [
   // The assistant chain (F4): optional, outside the all-or-nothing AI group.
   "AI_GATEWAY_API_KEY",
   "AI_GATEWAY_ZERO_DATA_RETENTION",
+  // The voice chains (D5): optional, outside the all-or-nothing AI group.
+  "AI_TEXT_CHAIN",
+  "AI_TRANSCRIPTION_CHAIN",
   "ASSISTANT_CHAIN",
   "ASSISTANT_ENABLED",
   "AUTH_PEPPER",
@@ -54,7 +58,7 @@ export function edgerCloudEnv(read: (name: string) => string | undefined): Cloud
     return raw === undefined || raw.trim() === "" ? undefined : raw;
   };
 
-  const env: CloudEnv = {};
+  const env: CloudEnv & FilingThresholdEnv = {};
   for (const field of STRING_FIELDS) {
     env[field] = value(field);
   }
@@ -163,6 +167,14 @@ export function edgerCloudEnv(read: (name: string) => string | undefined): Cloud
   // (the pin search is then textual).
   const embeddingModel = value("AI_EMBEDDING_MODEL");
   if (embeddingModel !== undefined) env.AI_EMBEDDING_MODEL = embeddingModel;
+
+  // The filing similarity thresholds (F3.5 §1): raw text, validated where
+  // they are read (filing/constants.ts). Optional and outside every group,
+  // like AI_EMBEDDING_MODEL: one alone stands, and absence never fails.
+  const filingSimilarityMin = value("FILING_SIMILARITY_MIN");
+  if (filingSimilarityMin !== undefined) env.FILING_SIMILARITY_MIN = filingSimilarityMin;
+  const filingSimilarityMargin = value("FILING_SIMILARITY_MARGIN");
+  if (filingSimilarityMargin !== undefined) env.FILING_SIMILARITY_MARGIN = filingSimilarityMargin;
 
   return env;
 }

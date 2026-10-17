@@ -24,10 +24,25 @@ describe("gateway call options", () => {
 });
 
 describe("gateway costs", () => {
-  test("providerMetadata.gateway.cost in USD micros, rounded up; anything else is null", () => {
+  test("providerMetadata.gateway in USD micros, rounded up: marketCost wins, else cost; anything else is null", () => {
+    // BYOK: cost is 0 and the real cost is marketCost (the 2026-10-17 live shape).
+    assert.equal(
+      gatewayResponseCostMicros({ providerMetadata: { gateway: { cost: "0", marketCost: "0.0000035", surchargeCost: "0", gatewayCost: "0", enabledDisallowPromptTraining: true } } }),
+      4,
+      "0.0000035 USD = 3.5 micros, rounded up; not the 0 of cost",
+    );
+    // system credential: cost and marketCost are equal.
+    assert.equal(gatewayResponseCostMicros({ providerMetadata: { gateway: { cost: "0.0000264", marketCost: "0.0000264" } } }), 27, "0.0000264 USD = 26.4 micros, rounded up");
+    // without marketCost the cost is used, as before.
     assert.equal(gatewayResponseCostMicros({ providerMetadata: { gateway: { cost: "0.00000012" } } }), 1);
     assert.equal(gatewayResponseCostMicros({ providerMetadata: { gateway: { cost: "0.0011" } } }), 1100);
     assert.equal(gatewayResponseCostMicros({ providerMetadata: { gateway: { cost: "0" } } }), 0);
+    // a malformed marketCost falls back to the cost, and vice versa.
+    assert.equal(gatewayResponseCostMicros({ providerMetadata: { gateway: { cost: "0.000005", marketCost: "n/a" } } }), 5);
+    assert.equal(gatewayResponseCostMicros({ providerMetadata: { gateway: { cost: "0.001", marketCost: "1e-6" } } }), 1000);
+    assert.equal(gatewayResponseCostMicros({ providerMetadata: { gateway: { cost: "-0.001", marketCost: "0.000005" } } }), 5);
+    // a numeric marketCost is not a decimal string: it does not shadow the cost.
+    assert.equal(gatewayResponseCostMicros({ providerMetadata: { gateway: { cost: "0", marketCost: 0.0000035 } } }), 0);
     for (const body of [
       null,
       {},
@@ -37,6 +52,9 @@ describe("gateway costs", () => {
       { providerMetadata: { gateway: { cost: "-0.001" } } },
       { providerMetadata: { gateway: { cost: "1e-6" } } },
       { providerMetadata: { gateway: { cost: "" } } },
+      { providerMetadata: { gateway: { cost: "-0.001", marketCost: "-1" } } },
+      { providerMetadata: { gateway: { marketCost: 0.0000035 } } },
+      { providerMetadata: { gateway: [] } },
       { cost: "0.001" },
     ]) {
       assert.equal(gatewayResponseCostMicros(body), null, JSON.stringify(body));
@@ -62,15 +80,20 @@ describe("gateway costs", () => {
     }
   });
 
-  test("the gateway's figure first, then the table, then none", () => {
+  test("the gateway's figure first (marketCost, else cost), then the table, then none", () => {
     let tableCalls = 0;
     const table = (value: number | null) => () => {
       tableCalls += 1;
       return value;
     };
+    assert.deepEqual(gatewayIndexCost({ providerMetadata: { gateway: { cost: "0", marketCost: "0.0000035" } } }, table(99)), { costSource: "gateway", costUsdMicros: 4 });
+    assert.equal(tableCalls, 0, "the table is not read when the gateway reports the marketCost");
     assert.deepEqual(gatewayIndexCost({ providerMetadata: { gateway: { cost: "0.000005" } } }, table(99)), { costSource: "gateway", costUsdMicros: 5 });
     assert.equal(tableCalls, 0, "the table is not read when the gateway reports the cost");
     assert.deepEqual(gatewayIndexCost({ providerMetadata: { gateway: { cost: "n/a" } } }, table(99)), { costSource: "table", costUsdMicros: 99 });
+    assert.equal(tableCalls, 1);
+    assert.deepEqual(gatewayIndexCost({ providerMetadata: { gateway: { cost: "n/a", marketCost: "1e-6" } } }, table(99)), { costSource: "table", costUsdMicros: 99 });
+    assert.equal(tableCalls, 2, "both figures malformed: the table is used");
     assert.deepEqual(gatewayIndexCost({}, table(0)), { costSource: "table", costUsdMicros: 0 });
     assert.deepEqual(gatewayIndexCost({}, table(null)), { costSource: "none", costUsdMicros: null });
   });

@@ -16,6 +16,9 @@ import {
   runUnmeteredAiFeature,
   stringValue,
 } from "../cloud-api";
+import {
+  voiceAvailability,
+} from "./voice-chain";
 
 const MAX_STEPS = 60;
 const MAX_PINS = 10;
@@ -114,7 +117,13 @@ export function parseGenerated(model: string, provider = "pinar_cloud") {
  * result is persisted as `reproduction.generated`.
  */
 export async function generateReproduction(request: Request, env: CloudEnv): Promise<Response> {
-  if (!env.AI) return json({ code: "ai_unavailable", error: "AI is not configured" }, 503);
+  if (!env.AI) {
+    // D5: a configured and usable AI_TEXT_CHAIN keeps the route available
+    // without the AI binding; the environment never decides the provider
+    // (A50).
+    const availability = await voiceAvailability(env);
+    if (!availability.text) return json({ code: "ai_unavailable", error: "AI is not configured" }, 503);
+  }
   const scoped = await aiSessionRequest(request, env);
   if (scoped.response) return scoped.response;
   const { body, principal, session } = scoped;
@@ -138,7 +147,12 @@ export async function generateReproduction(request: Request, env: CloudEnv): Pro
       if (!session.reproduction) throw new Error("reproduction_missing");
       const patched = applySessionPatch(session, { reproduction: { ...session.reproduction, generated } });
       if (!patched) throw new Error("reproduction_patch_failed");
-      await persistSession(env, patched, session.batchId ?? null);
+      // keepPlacement (the F4 edit fix): only the owner's existing row is
+      // updated, so a move that lands between the read and the write is not
+      // undone and a row deleted since the read is not brought back.
+      if (!(await persistSession(env, patched, session.batchId ?? null, { keepPlacement: true }))) {
+        return json({ error: "Session not found" }, 404);
+      }
     },
     parse: parseGenerated(spec.model),
     principal,

@@ -4,10 +4,12 @@
 //
 // The gateway's OpenAI-compatible API takes its options in the request
 // body as `providerOptions.gateway` (chat completions and embeddings) and
-// reports the cost of a call as `providerMetadata.gateway.cost`, a decimal
-// USD string, in the response body. The calls send only what the chain
-// sends for privacy: disallowPromptTraining always, zeroDataRetention only
-// when AI_GATEWAY_ZERO_DATA_RETENTION is "true".
+// reports the cost of a call in the response body under
+// `providerMetadata.gateway`: `marketCost`, a decimal USD string, when the
+// provider credential is BYOK (`cost` then reads 0), else `cost`.
+// The calls send only what the chain sends for privacy: disallowPromptTraining
+// always, zeroDataRetention only when AI_GATEWAY_ZERO_DATA_RETENTION is
+// "true".
 //
 // The calls of a deployment with a recorder (GatewayCallOptions.record) also
 // hand each cost to it (recordIndexCost), for the margin monitor's durable
@@ -17,12 +19,13 @@
 // assistantIndexCostLog writes one JSON line per embedding batch or caption
 // that got a response body: the kind, the gateway model id, the cost in USD
 // micros and where it came from. costSource is "gateway" for
-// providerMetadata.gateway.cost, "table" for the catalog price × tokens
+// providerMetadata.gateway.marketCost (a valid decimal), else .cost,
+// "table" for the catalog price × tokens
 // (embeddings: the model's pricing.input × usage.prompt_tokens; captions:
 // ASSISTANT_MODEL_PRICES of chain.ts), and "none", with a null cost, without
 // either. It never carries the key, a URL or any text of the person.
 
-import { usdToMicrosCeil } from "../chain";
+import { gatewayCostMicros } from "../chain";
 
 /** The gateway's OpenAI-compatible base URL (F4 contract §4). */
 export const GATEWAY_OPENAI_BASE_URL = "https://ai-gateway.vercel.sh/v1";
@@ -64,12 +67,11 @@ export function gatewayPrivacyOptions(options: GatewayCallOptions): { gateway: R
   };
 }
 
-/** USD micros of `providerMetadata.gateway.cost` in a response body, rounded up; null without a valid one. */
+/** USD micros of `providerMetadata.gateway` in a response body — `marketCost` when it is a valid decimal, else `cost` — rounded up; null without a valid one. */
 export function gatewayResponseCostMicros(body: unknown): number | null {
   const metadata = isRecord(body) ? body["providerMetadata"] : undefined;
   const gateway = isRecord(metadata) ? metadata["gateway"] : undefined;
-  const cost = isRecord(gateway) ? gateway["cost"] : undefined;
-  return typeof cost === "string" ? usdToMicrosCeil(cost) : null;
+  return gatewayCostMicros(gateway);
 }
 
 const DECIMAL_USD = /^\d+(\.\d+)?$/;

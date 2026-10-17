@@ -1,8 +1,9 @@
 // Filing bench (F3.5 contract §4): runs the fixture's new captures through
 // one engine of the capture filing (src/server/filing) and measures, at the
-// current thresholds and over a grid of thresholds, how many captures with
-// a good collection are filed into it and how many are filed where they
-// should not be.
+// current thresholds (the deployment's FILING_SIMILARITY_* variables when
+// set, the defaults otherwise) and over a grid of thresholds, how many
+// captures with a good collection are filed into it and how many are filed
+// where they should not be.
 //
 //   bun apps/server/scripts/filing-bench/run.ts --engine decisions|similarity \
 //     [--model <id>] [--embedding-model <id>] [--out <file.json>]
@@ -52,9 +53,8 @@ import { captureFilingText } from "../../src/server/filing/capture-text";
 import {
   FILING_DECISIONS_MIN,
   FILING_NONE_OPTION,
-  FILING_SIMILARITY_MARGIN,
-  FILING_SIMILARITY_MIN,
   FILING_TIMEOUT_MS,
+  filingSimilarityThresholds,
   type FilingCandidate,
 } from "../../src/server/filing/choose";
 import { decideCollection } from "../../src/server/filing/decisions";
@@ -162,7 +162,11 @@ export function metricsAt(results: Array<RawChoice & { expected: string | null }
 }
 
 export function currentThresholds(kind: BenchEngine["kind"]): Thresholds {
-  return kind === "decisions" ? { min: FILING_DECISIONS_MIN } : { margin: FILING_SIMILARITY_MARGIN, min: FILING_SIMILARITY_MIN };
+  // The same variables the production chooseCollection reads (F3.5 §1),
+  // the defaults when they are absent or invalid.
+  if (kind === "decisions") return { min: FILING_DECISIONS_MIN };
+  const { margin, min } = filingSimilarityThresholds((name) => process.env[name]);
+  return { margin, min };
 }
 
 export function thresholdGrid(kind: BenchEngine["kind"]): Thresholds[] {

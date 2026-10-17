@@ -14,6 +14,14 @@ import {
   voicePinStructuringInstructions,
   type VoicePinResult,
 } from "./voice-common";
+import {
+  chainUsable,
+  runTextChain,
+  runTranscriptionChain,
+  textChain,
+  transcriptionChain,
+  voiceAvailability,
+} from "./voice-chain";
 
 export { parseVoicePinResult, voicePinStructuringInstructions };
 export type { VoicePinResult };
@@ -71,7 +79,13 @@ function tokenUsage(output: unknown, input: string, response: string) {
  * never written to D1, R2, logs, or the metering result.
  */
 export async function transcribeVoicePin(request: Request, env: CloudEnv): Promise<Response> {
-  if (!env.AI) return json({ code: "ai_unavailable", error: "AI is not configured" }, 503);
+  if (!env.AI) {
+    // D5: a configured and usable AI_TRANSCRIPTION_CHAIN keeps the route
+    // available without the AI binding; the environment never decides the
+    // provider (A50).
+    const availability = await voiceAvailability(env);
+    if (!availability.transcription) return json({ code: "ai_unavailable", error: "AI is not configured" }, 503);
+  }
   const principal = await resolvePrincipal(request, env);
   if (!principal) return json({ error: "Unauthorized" }, 401);
 
@@ -92,19 +106,35 @@ export async function transcribeVoicePin(request: Request, env: CloudEnv): Promi
   return runMeteredAiFeature<VoicePinResult>({
     env,
     execute: async () => {
-      const transcription: unknown = await env.AI!.run(
-        TRANSCRIPTION_MODEL,
-        {
-          audio: {
-            body: audio.stream(),
-            contentType: audioType,
-          },
+      // D5: the AI_TRANSCRIPTION_CHAIN links when configured and usable,
+      // else the AI binding, exactly as before.
+      const links = await transcriptionChain(env);
+      let transcriptionCost: number | null = null;
+      let transcription: unknown;
+      if (links !== null && chainUsable(env, links)) {
+        const outcome = await runTranscriptionChain(env, links, {
+          audio,
+          audioType,
           language,
-          task: "transcribe",
-          vad_filter: true,
-        },
-        { signal: AbortSignal.timeout(45_000) },
-      );
+          timeoutMs: 45_000,
+        });
+        transcription = outcome.output;
+        transcriptionCost = outcome.costUsdMicros;
+      } else {
+        transcription = await env.AI!.run(
+          TRANSCRIPTION_MODEL,
+          {
+            audio: {
+              body: audio.stream(),
+              contentType: audioType,
+            },
+            language,
+            task: "transcribe",
+            vad_filter: true,
+          },
+          { signal: AbortSignal.timeout(45_000) },
+        );
+      }
       const transcriptionRecord = transcription && typeof transcription === "object"
         ? transcription as Record<string, unknown>
         : {};
@@ -125,7 +155,9 @@ export async function transcribeVoicePin(request: Request, env: CloudEnv): Promi
             transcript: transcript.slice(0, 8_000),
           },
           telemetry: {
-            costUsdMicros: Math.ceil(actualDuration / 60 * WHISPER_USD_MICROS_PER_MINUTE),
+            // D5: the gateway's reported cost (marketCost, else cost);
+            // without it, the estimate of this file.
+            costUsdMicros: transcriptionCost ?? Math.ceil(actualDuration / 60 * WHISPER_USD_MICROS_PER_MINUTE),
             inputTokens: 0,
             outputTokens: 0,
           },
@@ -133,17 +165,40 @@ export async function transcribeVoicePin(request: Request, env: CloudEnv): Promi
       }
       const instructions = voicePinStructuringInstructions();
       const structureInput = JSON.stringify({ language, transcript });
-      const structured: unknown = await env.AI!.run(
-        STRUCTURING_MODEL,
-        {
-          input: structureInput,
-          instructions,
-          max_output_tokens: spec.maxTokens,
-          reasoning: { effort: "low" },
-        },
-        { signal: AbortSignal.timeout(spec.timeoutMs) },
-      );
-      const structuredText = responseText(structured);
+      // D5: the AI_TEXT_CHAIN links when configured and usable, else the AI
+      // binding, exactly as before.
+      const textLinks = await textChain(env);
+      let structuringCost: number | null = null;
+      let structuredText: string;
+      let usage: { inputTokens: number; outputTokens: number };
+      if (textLinks !== null && chainUsable(env, textLinks)) {
+        const outcome = await runTextChain(env, textLinks, {
+          maxTokens: spec.maxTokens,
+          prompt: {
+            messages: [
+              { content: instructions, role: "system" },
+              { content: structureInput, role: "user" },
+            ],
+          },
+          timeoutMs: spec.timeoutMs,
+        });
+        structuringCost = outcome.costUsdMicros;
+        structuredText = outcome.text;
+        usage = outcome.usage;
+      } else {
+        const structured: unknown = await env.AI!.run(
+          STRUCTURING_MODEL,
+          {
+            input: structureInput,
+            instructions,
+            max_output_tokens: spec.maxTokens,
+            reasoning: { effort: "low" },
+          },
+          { signal: AbortSignal.timeout(spec.timeoutMs) },
+        );
+        structuredText = responseText(structured);
+        usage = tokenUsage(structured, structureInput, structuredText);
+      }
       const structuredJson = extractJsonObject(structuredText);
       const result = parseVoicePinResult(JSON.stringify({
         acceptanceCriteria: structuredJson?.acceptanceCriteria,
@@ -152,13 +207,19 @@ export async function transcribeVoicePin(request: Request, env: CloudEnv): Promi
         transcript,
       }));
       if (!result) throw new Error("invalid_ai_response");
-      const usage = tokenUsage(structured, structureInput, structuredText);
+      // D5: each call's real gateway cost (marketCost, else cost); without
+      // either, the estimate this file already computes.
+      const costUsdMicros = transcriptionCost === null && structuringCost === null
+        ? Math.ceil(actualDuration / 60 * WHISPER_USD_MICROS_PER_MINUTE
+            + usage.inputTokens * STRUCTURING_INPUT_USD_PER_MILLION_TOKENS
+            + usage.outputTokens * STRUCTURING_OUTPUT_USD_PER_MILLION_TOKENS)
+        : (transcriptionCost ?? Math.ceil(actualDuration / 60 * WHISPER_USD_MICROS_PER_MINUTE))
+          + (structuringCost ?? Math.ceil(usage.inputTokens * STRUCTURING_INPUT_USD_PER_MILLION_TOKENS
+            + usage.outputTokens * STRUCTURING_OUTPUT_USD_PER_MILLION_TOKENS));
       return {
         result,
         telemetry: {
-          costUsdMicros: Math.ceil(actualDuration / 60 * WHISPER_USD_MICROS_PER_MINUTE
-            + usage.inputTokens * STRUCTURING_INPUT_USD_PER_MILLION_TOKENS
-            + usage.outputTokens * STRUCTURING_OUTPUT_USD_PER_MILLION_TOKENS),
+          costUsdMicros,
           ...usage,
         },
       };

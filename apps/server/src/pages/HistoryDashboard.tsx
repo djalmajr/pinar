@@ -148,7 +148,20 @@ function AutoFiledMark() {
   const { t } = useServerI18n();
   return (
     <Tooltip>
-      <TooltipTrigger render={<span aria-label={t("dashboard.autoFiled")} className="inline-flex shrink-0" role="img" />}>
+      {/* Focusable, so the tooltip also opens from the keyboard; a click
+          stays on the mark and never reaches the card or the row. */}
+      <TooltipTrigger
+        render={(
+          <span
+            aria-label={t("dashboard.autoFiled")}
+            className="inline-flex shrink-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            data-no-dnd=""
+            role="img"
+            tabIndex={0}
+            onClick={(event) => event.stopPropagation()}
+          />
+        )}
+      >
         <SparklesIcon aria-hidden="true" className="size-3.5 text-primary" />
       </TooltipTrigger>
       <TooltipContent>{t("dashboard.autoFiled")}</TooltipContent>

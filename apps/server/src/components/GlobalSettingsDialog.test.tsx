@@ -93,6 +93,7 @@ const PROJECTS: ProjectTreeProject[] = [{
 const AUTO_LABEL = enUi["settings.autoCaptureDestination"];
 const DESTINATION_LABEL = enUi["settings.captureDestination"];
 const UNAVAILABLE = enUi["settings.autoCaptureDestinationUnavailable"];
+const INBOX_FALLBACK = enUi["settings.autoCaptureDestinationInboxFallback"];
 
 function render(overrides: Partial<DeliveryPreferences & { autoCaptureDestinationAvailable: boolean; available: boolean }> = {}) {
   preferences = {
@@ -149,17 +150,45 @@ describe("Settings → Capture: automatic collection", () => {
     expect(off.destinationDisabledAttribute).toBe(false);
   });
 
-  test("unavailable in the preferences, the switch is disabled with the reason and the selector stays editable", () => {
-    const unavailable = render({ autoCaptureDestination: true, autoCaptureDestinationAvailable: false });
-    expect(unavailable.toggle.disabled).toBe(true);
-    // Without a way to choose, the server files by the manual destination.
-    expect(unavailable.toggle.checked).toBe(false);
-    expect(unavailable.destination.disabled).toBe(false);
-    expect(unavailable.html).toContain(UNAVAILABLE);
+  // The switch shows the saved setting in every state; the selector is locked
+  // whenever the setting is on, since the server keeps filing automatically.
+  test("unavailable and off: the switch cannot be turned on, with the reason; the selector stays editable", () => {
+    const { destination, html, toggle } = render({ autoCaptureDestination: false, autoCaptureDestinationAvailable: false });
+    expect(toggle.checked).toBe(false);
+    expect(toggle.disabled).toBe(true);
+    expect(destination.disabled).toBe(false);
+    expect(html).toContain(UNAVAILABLE);
+    expect(html).not.toContain(INBOX_FALLBACK);
+  });
 
-    const available = render({ autoCaptureDestinationAvailable: true });
-    expect(available.toggle.disabled).toBe(false);
-    expect(available.html).not.toContain(UNAVAILABLE);
+  test("unavailable and on: the switch shows on and can only be turned off; the selector stays locked", () => {
+    const { destination, destinationDisabledAttribute, html, toggle } = render({ autoCaptureDestination: true, autoCaptureDestinationAvailable: false });
+    expect(toggle.checked).toBe(true);
+    expect(toggle.disabled).toBe(false);
+    expect(destination.disabled).toBe(true);
+    expect(destinationDisabledAttribute).toBe(true);
+    expect(html).toContain(INBOX_FALLBACK);
+    expect(html).not.toContain(UNAVAILABLE);
+    toggle.onCheckedChange?.(false, {} as Parameters<NonNullable<SwitchProps["onCheckedChange"]>>[1]);
+    expect(patches).toEqual([{ autoCaptureDestination: false }]);
+  });
+
+  test("available and off: the switch can be turned on and the selector stays editable", () => {
+    const { destination, html, toggle } = render({ autoCaptureDestination: false, autoCaptureDestinationAvailable: true });
+    expect(toggle.checked).toBe(false);
+    expect(toggle.disabled).toBe(false);
+    expect(destination.disabled).toBe(false);
+    expect(html).not.toContain(UNAVAILABLE);
+    expect(html).not.toContain(INBOX_FALLBACK);
+  });
+
+  test("available and on: the switch shows on and the selector is locked", () => {
+    const { destination, html, toggle } = render({ autoCaptureDestination: true, autoCaptureDestinationAvailable: true });
+    expect(toggle.checked).toBe(true);
+    expect(toggle.disabled).toBe(false);
+    expect(destination.disabled).toBe(true);
+    expect(html).not.toContain(UNAVAILABLE);
+    expect(html).not.toContain(INBOX_FALLBACK);
   });
 
   test("preferences that did not load keep both controls disabled", () => {

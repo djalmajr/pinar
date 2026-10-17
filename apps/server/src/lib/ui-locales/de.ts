@@ -245,6 +245,7 @@ const messages: UiMessages = {
   "settings.autoCaptureDestination": "Sammlung automatisch wählen",
   "settings.autoCaptureDestinationDescription":
     "Pinar wählt die Sammlung für jede neue Aufnahme; im Zweifel landet sie im Posteingang.",
+  "settings.autoCaptureDestinationInboxFallback": "Ohne verfügbare KI landen neue Aufnahmen im Posteingang.",
   "settings.autoCaptureDestinationUnavailable": "Erfordert eingerichtete KI.",
   "settings.captureHeading": "Aufnahme",
   "settings.collection": "Sammlung",

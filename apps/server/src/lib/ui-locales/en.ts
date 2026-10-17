@@ -243,6 +243,7 @@ const messages = {
   "settings.autoCaptureDestination": "Choose the collection automatically",
   "settings.autoCaptureDestinationDescription":
     "Pinar picks the collection for each new capture; when unsure, it goes to the Inbox.",
+  "settings.autoCaptureDestinationInboxFallback": "Without AI available, new captures go to the Inbox.",
   "settings.autoCaptureDestinationUnavailable": "Requires AI to be set up.",
   "settings.captureHeading": "Capture",
   "settings.collection": "Collection",

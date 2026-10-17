@@ -25,6 +25,7 @@ const MARK = "Filed automatically. Move to correct.";
 const NONE = "None of these";
 const SWITCH = "Choose the collection automatically";
 const UNAVAILABLE = "Requires AI to be set up.";
+const INBOX_FALLBACK = "Without AI available, new captures go to the Inbox.";
 const DESTINATION = "Capture destination";
 let fake: FakeModel;
 const createdSessions: string[] = [];
@@ -203,6 +204,17 @@ async function expectMark(page: Page, scope: Locator) {
   await page.mouse.move(0, 0);
 }
 
+// The mark takes keyboard focus: Shift+Tab from the page link right after it
+// lands on it and opens the tooltip.
+async function expectMarkFromKeyboard(page: Page, scope: Locator) {
+  await scope.getByRole("link").first().focus();
+  await page.keyboard.press("Shift+Tab");
+  await expect(scope.getByRole("img", { name: MARK })).toBeFocused();
+  const tooltip = page.getByRole("tooltip").last();
+  await expect(tooltip).toBeVisible();
+  await expect(tooltip).toHaveText(MARK);
+}
+
 async function openCaptureSettings(page: Page) {
   await openWorkspaceAccountMenu(page);
   await page.getByRole("menuitem", { exact: true, name: "Settings" }).click();
@@ -266,6 +278,30 @@ test("the switch needs the AI, follows a saved AI setup and saves the setting", 
   await expect.poll(() => storedAutomatic(request)).toBe(false);
 });
 
+test("with the setting on and the AI removed, the switch shows on, can be turned off, and the selector stays locked until then", async ({ page, request }) => {
+  await setAutomatic(request, true);
+  // No ai.json (beforeEach removed it): the server cannot choose, yet the
+  // setting stays saved on.
+  await page.goto("/app");
+  const dialog = await openCaptureSettings(page);
+  const toggle = dialog.getByRole("switch", { name: SWITCH });
+  const destination = dialog.getByRole("combobox", { name: DESTINATION });
+  await expect(toggle).toBeChecked();
+  await expect(toggle).toBeEnabled();
+  await expect(destination).toBeDisabled();
+  await expect(dialog.getByText(INBOX_FALLBACK)).toBeVisible();
+  await expect(dialog.getByText(UNAVAILABLE)).toHaveCount(0);
+
+  await toggle.click();
+  await expect(toggle).not.toBeChecked();
+  await expect.poll(() => storedAutomatic(request)).toBe(false);
+  await expect(destination).toBeEnabled();
+  // Off and still unavailable: it cannot be turned back on here.
+  await expect(toggle).toBeDisabled();
+  await expect(dialog.getByText(UNAVAILABLE)).toBeVisible();
+  await expect(dialog.getByText(INBOX_FALLBACK)).toHaveCount(0);
+});
+
 test("a confident choice files the capture into its collection with the mark, and moving it clears the mark", async ({ page, request }) => {
   configureFakeModel();
   await page.goto("/app");
@@ -302,6 +338,12 @@ test("a confident choice files the capture into its collection with the mark, an
   await page.getByRole("button", { exact: true, name: seed.a.name }).click();
   await expect(card(page, title)).not.toContainText(seed.a.name);
   await expectMark(page, card(page, title));
+  await expectMarkFromKeyboard(page, card(page, title));
+  // A click on the mark stays there: the session viewer does not open.
+  await card(page, title).getByRole("img", { name: MARK }).click();
+  await page.waitForTimeout(300);
+  expect(new URL(page.url()).searchParams.get("session")).toBeNull();
+  await page.keyboard.press("Escape");
 
   // The person corrects it through the session menu: the mark goes away.
   await card(page, title).getByRole("button", { name: "More session actions" }).click();

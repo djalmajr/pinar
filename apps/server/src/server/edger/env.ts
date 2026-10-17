@@ -20,10 +20,12 @@ const STRING_FIELDS = [
   "ASSISTANT_CHAIN",
   "ASSISTANT_ENABLED",
   "AUTH_PEPPER",
-  // The BYOK (F5/S1): the master key (32 bytes, base64) and the egress guard
-  // marker (A55, S6). Both optional; absent or invalid keeps the BYOK
-  // answering 503 byok_unavailable.
-  "BYOK_EGRESS",
+  // The BYOK master key (F5/S1): 32 bytes, base64. It is an EdgeR app
+  // secret (EDG-38): the manifest lists its name under secrets and the
+  // EdgeR vault injects the value into this worker's env at spawn. Absent
+  // or invalid keeps the BYOK answering 503 byok_unavailable. The egress
+  // guard's signal is the EDGER_EGRESS_SOCKET the EdgeR itself injects
+  // (S6), not a variable of the Cloud env.
   "BYOK_MASTER_KEY",
   "CLOUD_TRIAL_ENABLED",
   "COMPLIMENTARY_PRO_USER_IDS",

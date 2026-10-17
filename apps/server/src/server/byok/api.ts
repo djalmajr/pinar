@@ -153,6 +153,15 @@ type ByokActor =
   | { ok: false; response: Response }
   | { ok: true; principal: Principal };
 
+// Every answer of the route — the successes, the refusals and the early
+// errors — carries credentials or user state, so nothing may cache it. The
+// header is set once here, at the handler return, so no early path (the
+// 401, a 400 of validation, the 405) can forget it (security review P3).
+function noStore(response: Response): Response {
+  response.headers.set("Cache-Control", "no-store");
+  return response;
+}
+
 // Web session or agent key with a write permission (F5/S1): the agent key
 // authenticates as the Pro account it belongs to (the context already
 // requires the account's Pro plan); only the manage and full permissions of
@@ -170,7 +179,6 @@ async function byokActor(request: Request, env: CloudEnv): Promise<ByokActor> {
         response: json(
           { code: "byok_forbidden", error: "This agent key cannot manage the BYOK endpoint" },
           403,
-          { "Cache-Control": "no-store" },
         ),
       };
     }
@@ -187,7 +195,6 @@ async function byokActor(request: Request, env: CloudEnv): Promise<ByokActor> {
       response: json(
         { code: "byok_requires_pro", error: "BYOK requires a Pro plan" },
         403,
-        { "Cache-Control": "no-store" },
       ),
     };
   }
@@ -198,7 +205,6 @@ function unavailable() {
   return json(
     { code: "byok_unavailable", error: "BYOK is not available on this deployment" },
     503,
-    { "Cache-Control": "no-store" },
   );
 }
 
@@ -217,7 +223,7 @@ async function readByok(request: Request, env: CloudEnv): Promise<Response> {
   if (!actor.ok) return actor.response;
   if (await byokCrypto(env.BYOK_MASTER_KEY) === null) return unavailable();
   const row = await byokRow(env, actor.principal.id);
-  return json(row === null ? unconfiguredView() : byokView(row), 200, { "Cache-Control": "no-store" });
+  return json(row === null ? unconfiguredView() : byokView(row));
 }
 
 async function updateByok(request: Request, env: CloudEnv): Promise<Response> {
@@ -283,7 +289,7 @@ async function updateByok(request: Request, env: CloudEnv): Promise<Response> {
     updatedAt: now,
   };
   await saveByokRow(env, actor.principal.id, row);
-  return json(byokView(row), 200, { "Cache-Control": "no-store" });
+  return json(byokView(row));
 }
 
 async function deleteByok(request: Request, env: CloudEnv): Promise<Response> {
@@ -291,25 +297,27 @@ async function deleteByok(request: Request, env: CloudEnv): Promise<Response> {
   if (!actor.ok) return actor.response;
   if (await byokCrypto(env.BYOK_MASTER_KEY) === null) return unavailable();
   await deleteByokRow(env, actor.principal.id);
-  return json(unconfiguredView(), 200, { "Cache-Control": "no-store" });
+  return json(unconfiguredView());
 }
 
 export async function handleByokRequest(request: Request, env: CloudEnv): Promise<Response> {
   const method = request.method;
   if (method !== "GET" && method !== "PUT" && method !== "DELETE") {
-    return json(
-      { code: "method_not_allowed", error: "Method not allowed" },
-      405,
-      { Allow: "DELETE, GET, PUT" },
+    return noStore(
+      json(
+        { code: "method_not_allowed", error: "Method not allowed" },
+        405,
+        { Allow: "DELETE, GET, PUT" },
+      ),
     );
   }
   try {
-    return await (method === "GET" ? readByok(request, env) : method === "PUT" ? updateByok(request, env) : deleteByok(request, env));
+    return noStore(await (method === "GET" ? readByok(request, env) : method === "PUT" ? updateByok(request, env) : deleteByok(request, env)));
   } catch {
     // A table missing (no 0034), a ciphertext the master key cannot
     // decrypt, or a storage error: the BYOK is unavailable, the error is
     // not logged (a driver may echo the bound key), and the rest of the
     // Cloud answers as usual.
-    return unavailable();
+    return noStore(unavailable());
   }
 }

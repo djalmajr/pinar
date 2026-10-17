@@ -7,7 +7,10 @@
 // private IP is the guard's job (S6), not this one's. The input is parsed by
 // WHATWG URL, which canonicalizes the hostile IP spellings (decimal, octal,
 // hex, the short "127.1" form, and the IPv4-mapped/IPv4-compatible IPv6)
-// into a dotted quad or a bracketed v6 that is classified here.
+// into a dotted quad or a bracketed v6 that is classified here. The DNS
+// trailing dot is an exception: the parser keeps it in the hostname, so it
+// is stripped before the classification, and the normalized URL is the very
+// host that was classified.
 
 export const BYOK_BASE_URL_MAX = 2048;
 
@@ -45,8 +48,13 @@ export function validateByokUrl(input: unknown): ByokUrlResult {
   // non-empty port here is always a non-default one; "443" is the only
   // other value the parser keeps for https.
   if (url.port !== "" && url.port !== "443") return { error: "bad_port" };
+  // The WHATWG URL keeps the DNS trailing dot in the hostname (and in the
+  // origin): canonicalize it away before classifying, so a forbidden name
+  // cannot pass as `localhost.` and the URL that is stored is the host that
+  // was classified. An empty label (`https://./`) is not a host.
+  if (url.hostname.endsWith(".")) url.hostname = url.hostname.slice(0, -1);
   const host = bareHostname(url.hostname);
-  if (host === "") return { error: "unparseable" };
+  if (host === "" || host === ".") return { error: "unparseable" };
   if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal")) return { error: "private_host" };
   if (isPrivateIp(host)) return { error: "private_host" };
   let path = url.pathname;

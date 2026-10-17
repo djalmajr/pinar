@@ -65,6 +65,24 @@ describe("validateByokUrl", () => {
     refused("https://metadata.google.internal/v1", "private_host");
   });
 
+  test("the DNS trailing dot cannot bypass the hostname classes", () => {
+    // The URL parser keeps the final dot in the hostname; it must be
+    // canonicalized away before the classification (security review P2).
+    refused("https://LOCALHOST./v1/", "private_host");
+    refused("https://a.localhost./v1", "private_host");
+    refused("https://metadata.google.internal./v1", "private_host");
+    refused("https://foo.local./v1", "private_host");
+    // The degenerate forms of a trailing dot are not hosts either.
+    refused("https://./", "unparseable");
+    refused("https://./v1", "unparseable");
+  });
+
+  test("the stored URL is the host that was classified: the trailing dot is normalized away", () => {
+    assert.equal(allowed("https://api.example.test./v1/"), "https://api.example.test/v1");
+    assert.equal(allowed("https://api.example.test.:443/v1/"), "https://api.example.test/v1");
+    assert.equal(allowed("https://a.b..com./deep/"), "https://a.b..com/deep");
+  });
+
   test("refuses private, loopback, link-local and CGNAT IPv4 literals", () => {
     // The plain dotted forms.
     refused("https://127.0.0.1/v1", "private_host");

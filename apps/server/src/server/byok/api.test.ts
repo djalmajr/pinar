@@ -613,3 +613,122 @@ describe("handleByokRequest directly", () => {
     assert.equal((await jsonBody(get)).configured, true);
   });
 });
+
+// The probes of the F4d security review (17/10), through the same entry
+// point the probes used: handleCloudApiRequest on a migrated database.
+describe("/api/byok security review probes (F4d)", () => {
+  beforeEach(() => {
+    resetCloudMemoryStateForTests();
+    resetByokMemoryStateForTests();
+    setCloudNowForTests(NOW);
+    setByokNowForTests(NOW);
+  });
+
+  afterEach(() => {
+    resetCloudMemoryStateForTests();
+    resetByokMemoryStateForTests();
+    setCloudNowForTests(null);
+    setByokNowForTests(null);
+  });
+
+  test("a forbidden hostname with the DNS trailing dot is refused by the PUT and not stored", async () => {
+    const db = migratedDatabase();
+    try {
+      const cookie = await insertUser(db, "usr_dot", "dot@example.test", "pro");
+      const env = envFor(db);
+      for (const baseUrl of [
+        "https://LOCALHOST./v1/",
+        "https://a.localhost./v1",
+        "https://metadata.google.internal./v1",
+        "https://foo.local./v1",
+      ]) {
+        const response = await api("PUT", "/api/byok", env, {
+          body: JSON.stringify({ apiKey: TEST_KEY, baseUrl }),
+          headers: { cookie },
+        });
+        assert.equal(response.status, 400, baseUrl);
+        assert.equal((await jsonBody(response)).code, "invalid_base_url", baseUrl);
+      }
+      // Nothing was stored by the refused PUTs.
+      assert.equal(db.query("SELECT * FROM byok_endpoints").all().length, 0);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("every BYOK answer is no-store, including the early 401, 400 and 405", async () => {
+    const db = migratedDatabase();
+    try {
+      const cookie = await insertUser(db, "usr_cache", "cache@example.test", "pro");
+      const env = envFor(db);
+      const responses = [
+        await api("GET", "/api/byok", env), // anonymous: 401
+        await api("PUT", "/api/byok", env, { body: "{}", headers: { cookie } }), // 400 of validation
+        await api("POST", "/api/byok", env, { body: "{}", headers: { cookie } }), // 405
+      ];
+      assert.deepEqual(responses.map((response) => response.status), [401, 400, 405]);
+      for (const response of responses) {
+        assert.equal(response.headers.get("cache-control"), "no-store", `status ${response.status}`);
+      }
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a hostile origin is refused and keeps the saved endpoint; a driver error is not echoed", async () => {
+    const db = migratedDatabase();
+    const capture = new ConsoleCapture();
+    try {
+      const cookie = await insertUser(db, "usr_csrf", "csrf@example.test", "pro");
+      const env = envFor(db);
+      const saved = await api("PUT", "/api/byok", env, {
+        body: JSON.stringify({ apiKey: TEST_KEY, baseUrl: "https://api.example.test/v1" }),
+        headers: { cookie, origin: "https://pinar.test" },
+      });
+      assert.equal(saved.status, 200);
+      const before = db.query("SELECT * FROM byok_endpoints").get();
+      for (const method of ["PUT", "DELETE"] as const) {
+        const response = await api(method, "/api/byok", env, {
+          body: method === "PUT" ? JSON.stringify({ apiKey: "attacker", baseUrl: "https://hostile.example/v1" }) : undefined,
+          headers: { cookie, origin: "https://hostile.example" },
+        });
+        assert.equal(response.status, 403, method);
+        assert.deepEqual(db.query("SELECT * FROM byok_endpoints").get(), before, method);
+      }
+      // A driver that echoes the bound value into its error message must
+      // not leak it: the catch of the route answers a generic 503.
+      db.exec("CREATE TRIGGER review_fail BEFORE UPDATE ON byok_endpoints BEGIN SELECT RAISE(ABORT,'synthetic-secret-in-driver-error'); END;");
+      const failed = await api("PUT", "/api/byok", env, {
+        body: JSON.stringify({ apiKey: TEST_KEY, baseUrl: "https://api.example.test/v1" }),
+        headers: { cookie },
+      });
+      assert.equal(failed.status, 503);
+      assert.ok(!(await failed.text()).includes("synthetic-secret-in-driver-error"));
+      capture.assertNotLeaked(TEST_KEY);
+      capture.assertNotLeaked("synthetic-secret-in-driver-error");
+    } finally {
+      capture.restore();
+      db.close();
+    }
+  });
+
+  test("the saved ciphertext row cascades when the account is deleted", async () => {
+    const db = migratedDatabase();
+    try {
+      const cookie = await insertUser(db, "usr_cascade", "cascade@example.test", "pro");
+      const env = envFor(db);
+      const saved = await api("PUT", "/api/byok", env, {
+        body: JSON.stringify({ apiKey: TEST_KEY, baseUrl: "https://api.example.test/v1" }),
+        headers: { cookie },
+      });
+      assert.equal(saved.status, 200);
+      const row = db.query("SELECT key_ciphertext FROM byok_endpoints").get() as { key_ciphertext: string } | null;
+      assert.ok(row, "the row exists after the API save");
+      assert.ok(!row.key_ciphertext.includes(TEST_KEY), "the ciphertext does not carry the plaintext key");
+      db.exec("DELETE FROM users WHERE id='usr_cascade'");
+      assert.equal(db.query("SELECT * FROM byok_endpoints").all().length, 0);
+    } finally {
+      db.close();
+    }
+  });
+});

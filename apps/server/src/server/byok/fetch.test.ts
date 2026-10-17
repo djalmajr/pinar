@@ -1,17 +1,16 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import type { CloudEnv } from "../cloud-api";
 import { ByokEgressUnavailableError, byokFetch, type ByokEgress } from "./fetch";
 
 describe("byokFetch (F5/S1, A55)", () => {
-  test("always refuses with ByokEgressUnavailableError, with or without BYOK_EGRESS", async () => {
+  test("always refuses with ByokEgressUnavailableError", async () => {
     // The guard does not exist yet (S6): no egress at all, and no fallback.
-    for (const env of [{}, { BYOK_EGRESS: "edger-guard" }] as CloudEnv[]) {
-      await assert.rejects(
-        byokFetch(env, "https://api.example.test/v1/chat/completions", { method: "POST" }),
-        (error: unknown) => error instanceof ByokEgressUnavailableError,
-      );
-    }
+    // Its signal will be the EDGER_EGRESS_SOCKET the EdgeR injects, not a
+    // CloudEnv variable, so the refusal stands for any env (EDG-38 §2).
+    await assert.rejects(
+      byokFetch({}, "https://api.example.test/v1/chat/completions", { method: "POST" }),
+      (error: unknown) => error instanceof ByokEgressUnavailableError,
+    );
   });
 
   test("the refusal carries no value, so it can be surfaced or logged safely", async () => {

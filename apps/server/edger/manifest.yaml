@@ -50,6 +50,15 @@ allowNet:
   - api.stripe.com:443
   # Vercel AI Gateway: the assistant chain's gateway links (F4).
   - ai-gateway.vercel.sh:443
+# The EdgeR app secrets (EDG-38, provisional): the names only — the values
+# live in the EdgeR vault and are injected at spawn into this worker's
+# process env only. They never appear in the manifest, in the version
+# export or in logs. rc.23 accepts and ignores the block: until the vault
+# ships, the variable is absent and the BYOK answers 503 byok_unavailable.
+secrets:
+  # The master key of the BYOK keys (F5): 32 bytes in base64, written by
+  # the operator through the EdgeR admin API (secrets:write scope).
+  - BYOK_MASTER_KEY
 # The installer defines the hosts per environment: pinar.dev and
 # www.pinar.dev in prd, stg.pinar.dev in stg.
 # hosts:
@@ -85,11 +94,6 @@ env:
   # empty keeps the defaults of filing/constants.ts.
   FILING_SIMILARITY_MIN: ""
   FILING_SIMILARITY_MARGIN: ""
-  # Optional (F5): the master key of the BYOK keys (32 bytes in base64;
-  # empty keeps BYOK unavailable), and the EdgeR egress guard of the user
-  # endpoints, which nothing reads as a switch until EDG-38 (A55).
-  BYOK_MASTER_KEY: ""
-  BYOK_EGRESS: ""
   ADMIN_API_KEY: ""
   AUTH_PEPPER: ""
   # Optional: "true" switches the assistant on. Absent or empty stays off.

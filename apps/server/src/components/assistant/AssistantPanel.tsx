@@ -14,7 +14,6 @@ import {
   buildTurnRequestBody,
   deleteAssistantThread,
   fetchAssistantThreads,
-  runAssistantProposalAction,
   type AssistantErrorKey,
   type AssistantProposalActionKind,
   type AssistantPublicProposal,
@@ -22,16 +21,18 @@ import {
   type AssistantThread,
 } from "./assistant-client";
 import {
+  applyAssistantProposalAction,
   createAssistantConversation,
   openAssistantConversation,
   startAssistantConversation,
   stopAssistantConversation,
   type AssistantConversation,
   type AssistantConversationHooks,
+  type AssistantProposalCardStates,
 } from "./assistant-conversation";
 import { useAssistantPanel } from "./assistant-panel-state";
 import { AssistantComposer } from "./AssistantComposer";
-import { AssistantMessages, type AssistantProposalCardState } from "./AssistantMessages";
+import { AssistantMessages } from "./AssistantMessages";
 import { AssistantThreadList } from "./AssistantThreadList";
 
 export interface AssistantPanelProps {
@@ -52,9 +53,9 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
   // Card state per proposal id: the most recent proposal an action answer
   // (or a 409 refetch) returned, the in-flight flag and the action note.
   // Reset on every conversation switch: a reopened thread brings its own
-  // fresher proposals. Ids are unique, so a late answer for a conversation
-  // already left only fills an entry no card reads.
-  const [proposalStates, setProposalStates] = useState<Record<string, AssistantProposalCardState>>({});
+  // fresher proposals, and an answer that arrives after a switch (even back
+  // to the same thread) is dropped by the generation check.
+  const [proposalStates, setProposalStates] = useState<AssistantProposalCardStates>({});
   const proposalsInFlightRef = useRef(new Set<string>());
 
   // The generation cell and the refs the conversation callbacks consult. The
@@ -185,25 +186,14 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
     void sendMessage({ text });
   }
 
-  // One action per proposal at a time: the ref drops a second click before
-  // React re-renders the disabled buttons.
-  async function handleProposalAction(kind: AssistantProposalActionKind, proposal: AssistantPublicProposal) {
-    const inFlight = proposalsInFlightRef.current;
-    if (inFlight.has(proposal.id)) return;
-    inFlight.add(proposal.id);
-    setProposalStates((current) => ({
-      ...current,
-      [proposal.id]: { errorKey: null, pending: true, proposal: current[proposal.id]?.proposal ?? null },
-    }));
-    try {
-      const outcome = await runAssistantProposalAction(kind, proposal);
-      setProposalStates((current) => ({
-        ...current,
-        [proposal.id]: { errorKey: outcome.errorKey, pending: false, proposal: outcome.proposal },
-      }));
-    } finally {
-      inFlight.delete(proposal.id);
-    }
+  // One action per proposal at a time, applied only to the conversation
+  // generation it started in.
+  function handleProposalAction(kind: AssistantProposalActionKind, proposal: AssistantPublicProposal) {
+    return applyAssistantProposalAction(
+      { generation: generationRef, inFlight: proposalsInFlightRef.current, setProposalStates },
+      kind,
+      proposal,
+    );
   }
 
   function handleRetry() {

@@ -1,8 +1,16 @@
 import { cloneElement, createElement, type ReactElement, type ReactNode } from "react";
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, setSystemTime, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Translate } from "@/lib/i18n";
-import type { AssistantProposalErrorKey, AssistantPublicProposal } from "./assistant-client";
+import type { AssistantProposalErrorKey, AssistantPublicProposal, AssistantThreadDetail } from "./assistant-client";
+import type {
+  AssistantConversation,
+  AssistantConversationHooks,
+  AssistantConversationStore,
+  AssistantProposalActionStore,
+  AssistantProposalCardStates,
+} from "./assistant-conversation";
+import type { MinuteClockScheduler } from "./AssistantProposalCard";
 
 // Headless rendering (same approach as pin-discussion.test.tsx and
 // pages/releases.test.tsx): the UI package's barrel and the icon virtual
@@ -56,11 +64,19 @@ mock.module("@tanstack/react-router", () => ({
 
 const { AssistantComposer } = await import("./AssistantComposer");
 const { AssistantMessages } = await import("./AssistantMessages");
-const { AssistantProposalCard } = await import("./AssistantProposalCard");
+const { AssistantProposalCard, nextMinuteTick, proposalDeadline, watchMinutesLeft } = await import(
+  "./AssistantProposalCard"
+);
 const { AssistantPanel } = await import("./AssistantPanel");
 const { AssistantThreadList } = await import("./AssistantThreadList");
 const { AssistantToggle } = await import("./AssistantToggle");
 const { AssistantPanelContext } = await import("./assistant-panel-state");
+const {
+  applyAssistantProposalAction,
+  createAssistantConversation,
+  openAssistantConversation,
+  startAssistantConversation,
+} = await import("./assistant-conversation");
 
 // The i18n keys are rendered verbatim so assertions stay stable.
 const t: Translate = (key) => key as string;
@@ -341,6 +357,223 @@ describe("assistant proposal card", () => {
   });
 });
 
+describe("proposal card countdown (injected clock and scheduler)", () => {
+  const T0 = Date.parse("2026-10-17T12:00:00.000Z");
+  const at = (ms: number) => new Date(T0 + ms).toISOString();
+
+  afterEach(() => {
+    setSystemTime();
+  });
+
+  /** Timers that only fire when the test moves the clock, in deadline order. */
+  function manualClock() {
+    let now = T0;
+    let nextId = 0;
+    const pending = new Map<number, { at: number; callback: () => void }>();
+    const cleared: number[] = [];
+    const scheduler: MinuteClockScheduler<number> = {
+      clearTimeout: (timer) => {
+        cleared.push(timer);
+        pending.delete(timer);
+      },
+      now: () => now,
+      setTimeout: (callback, delay) => {
+        nextId += 1;
+        pending.set(nextId, { at: now + delay, callback });
+        return nextId;
+      },
+    };
+    function advanceTo(target: number) {
+      for (;;) {
+        const due = [...pending]
+          .filter(([, timer]) => timer.at <= target)
+          .sort(([, left], [, right]) => left.at - right.at)[0];
+        if (due === undefined) break;
+        pending.delete(due[0]);
+        now = due[1].at;
+        due[1].callback();
+      }
+      now = target;
+    }
+    return { advanceTo, cleared, pending, scheduler };
+  }
+
+  // The card as a re-render at `time` draws it: the hook reads Date.now().
+  function renderAt(time: number, proposal: AssistantPublicProposal): string {
+    setSystemTime(new Date(time));
+    return renderToStaticMarkup(createElement(AssistantProposalCard, {
+      errorKey: null,
+      onAction: () => undefined,
+      pending: false,
+      proposal,
+      t: tv,
+    }));
+  }
+
+  // Mutation captured: a tick every whole minute from now (ignoring the minute
+  // boundary) fires at +60 s instead of +30 s.
+  test("expires in: the text changes when the minute turns, and the label goes at the deadline", () => {
+    const proposal = cardProposal({ expiresAt: at(150_000) });
+    const clock = manualClock();
+    const renders: Array<{ markup: string; time: number }> = [];
+    const cancel = watchMinutesLeft(
+      proposalDeadline(proposal),
+      () => renders.push({ markup: renderAt(clock.scheduler.now(), proposal), time: clock.scheduler.now() }),
+      clock.scheduler,
+    );
+    expect(renderAt(T0, proposal)).toContain("assistant.proposalExpiresIn[minutes=3]");
+
+    clock.advanceTo(T0 + 29_999);
+    expect(renders).toEqual([]);
+    clock.advanceTo(T0 + 30_000);
+    expect(renders.map((render) => render.time)).toEqual([T0 + 30_000]);
+    expect(renders[0].markup).toContain("assistant.proposalExpiresIn[minutes=2]");
+
+    clock.advanceTo(T0 + 90_000);
+    expect(renders.map((render) => render.time)).toEqual([T0 + 30_000, T0 + 90_000]);
+    expect(renders[1].markup).toContain("assistant.proposalExpiresIn[minutes=1]");
+    expect(renders[1].markup).toMatch(button("assistant.proposalConfirm", false));
+
+    clock.advanceTo(T0 + 150_000);
+    expect(renders.map((render) => render.time)).toEqual([T0 + 30_000, T0 + 90_000, T0 + 150_000]);
+    expect(renders[2].markup).toContain("assistant.proposalExpired");
+    expect(renders[2].markup).not.toContain("assistant.proposalExpiresIn");
+    expect(renders[2].markup).not.toContain("<button");
+    // Past the deadline nothing is scheduled any more.
+    expect(clock.pending.size).toBe(0);
+    clock.advanceTo(T0 + 3_600_000);
+    expect(renders).toHaveLength(3);
+    cancel();
+  });
+
+  // Mutation captured: counting an executed card down to its expiry instead of
+  // its undo window, or ignoring the minute boundary.
+  test("can undo: the minutes change when the minute turns, and Undo and its label go at the deadline", () => {
+    const proposal = cardProposal({ executedAt: at(-60_000), status: "executed", undoExpiresAt: at(75_000) });
+    const clock = manualClock();
+    const renders: string[] = [];
+    const cancel = watchMinutesLeft(
+      proposalDeadline(proposal),
+      () => renders.push(renderAt(clock.scheduler.now(), proposal)),
+      clock.scheduler,
+    );
+    expect(renderAt(T0, proposal)).toContain("assistant.proposalUndoIn[minutes=2]");
+
+    clock.advanceTo(T0 + 15_000);
+    expect(renders).toHaveLength(1);
+    expect(renders[0]).toContain("assistant.proposalUndoIn[minutes=1]");
+    expect(renders[0]).toMatch(button("assistant.proposalUndo", false));
+
+    clock.advanceTo(T0 + 74_999);
+    expect(renders).toHaveLength(1);
+    clock.advanceTo(T0 + 75_000);
+    expect(renders).toHaveLength(2);
+    expect(renders[1]).toContain("assistant.proposalExecuted");
+    expect(renders[1]).not.toContain("assistant.proposalUndo");
+    expect(renders[1]).not.toContain("<button");
+    expect(clock.pending.size).toBe(0);
+    cancel();
+  });
+
+  // Mutation captured: a cancel that does not clear the pending timer lets it tick.
+  test("the unmount cancels the pending timer: no tick after it", () => {
+    const clock = manualClock();
+    let ticks = 0;
+    const cancel = watchMinutesLeft(T0 + 150_000, () => {
+      ticks += 1;
+    }, clock.scheduler);
+    const [timer] = [...clock.pending.keys()];
+    expect(clock.pending.get(timer)?.at).toBe(T0 + 30_000);
+
+    cancel();
+    expect(clock.cleared).toEqual([timer]);
+    expect(clock.pending.size).toBe(0);
+    clock.advanceTo(T0 + 3_600_000);
+    expect(ticks).toBe(0);
+  });
+
+  // Mutation captured: a cancel without clearTimeout, or the undo deadline read from expiresAt.
+  test("a state change moves the deadline: the old timer is cancelled and only the new deadline counts", () => {
+    // The hook's effect depends on proposalDeadline(proposal): each state
+    // change below changes it, so the effect cleanup (the cancel) runs and a
+    // new countdown starts for the new deadline.
+    const clock = manualClock();
+    let ticks: number[] = [];
+    const onTick = () => {
+      ticks.push(clock.scheduler.now());
+    };
+    const proposed = cardProposal({ expiresAt: at(150_000) });
+    let cancel = watchMinutesLeft(proposalDeadline(proposed), onTick, clock.scheduler);
+    const [proposedTimer] = [...clock.pending.keys()];
+
+    // proposed → executing: no deadline, nothing scheduled.
+    const executing = { ...proposed, status: "executing" as const };
+    expect(proposalDeadline(executing)).toBeNull();
+    cancel();
+    cancel = watchMinutesLeft(proposalDeadline(executing), onTick, clock.scheduler);
+    expect(clock.cleared).toEqual([proposedTimer]);
+    expect(clock.pending.size).toBe(0);
+    clock.advanceTo(T0 + 40_000);
+    expect(ticks).toEqual([]);
+
+    // executing → executed: the undo window is the new deadline.
+    const executed = { ...proposed, executedAt: at(40_000), status: "executed" as const, undoExpiresAt: at(160_000) };
+    expect(proposalDeadline(executed)).toBe(T0 + 160_000);
+    cancel();
+    cancel = watchMinutesLeft(proposalDeadline(executed), onTick, clock.scheduler);
+    const [executedTimer] = [...clock.pending.keys()];
+    expect(clock.pending.get(executedTimer)?.at).toBe(T0 + 100_000);
+
+    // executed → undone: cancelled again; neither deadline ticks any more.
+    const undone = { ...executed, status: "undone" as const };
+    expect(proposalDeadline(undone)).toBeNull();
+    cancel();
+    cancel = watchMinutesLeft(proposalDeadline(undone), onTick, clock.scheduler);
+    expect(clock.cleared).toEqual([proposedTimer, executedTimer]);
+    expect(clock.pending.size).toBe(0);
+    clock.advanceTo(T0 + 3_600_000);
+    expect(ticks).toEqual([]);
+    cancel();
+  });
+
+  // Mutation captured: re-arming after the tick without checking the cancel.
+  test("a tick that cancels the countdown arms nothing", () => {
+    const clock = manualClock();
+    let ticks = 0;
+    const cancel = watchMinutesLeft(T0 + 150_000, () => {
+      ticks += 1;
+      cancel();
+    }, clock.scheduler);
+    clock.advanceTo(T0 + 3_600_000);
+    expect(ticks).toBe(1);
+    expect(clock.pending.size).toBe(0);
+  });
+
+  // Mutation captured: the executed deadline read from expiresAt.
+  test("proposalDeadline: the expiry while proposed, the undo window once executed, none otherwise", () => {
+    const proposal = cardProposal({ expiresAt: at(60_000), undoExpiresAt: at(120_000) });
+    expect(proposalDeadline(proposal)).toBe(T0 + 60_000);
+    expect(proposalDeadline({ ...proposal, status: "executed" })).toBe(T0 + 120_000);
+    expect(proposalDeadline({ ...proposal, status: "executed", undoExpiresAt: null })).toBeNull();
+    expect(proposalDeadline({ ...proposal, expiresAt: "not a date" })).toBeNull();
+    for (const status of ["executing", "undoing", "failed", "rejected", "expired", "undone"] as const) {
+      expect(proposalDeadline({ ...proposal, status })).toBeNull();
+    }
+  });
+
+  // Mutation captured: a fixed one-minute delay instead of the time to the next minute boundary.
+  test("nextMinuteTick: the delay until the whole minutes left change; none at or past the deadline", () => {
+    expect(nextMinuteTick(null, T0)).toBeNull();
+    expect(nextMinuteTick(T0, T0)).toBeNull();
+    expect(nextMinuteTick(T0 - 1, T0)).toBeNull();
+    expect(nextMinuteTick(T0 + 1, T0)).toBe(1);
+    expect(nextMinuteTick(T0 + 30_000, T0)).toBe(30_000);
+    expect(nextMinuteTick(T0 + 60_000, T0)).toBe(60_000);
+    expect(nextMinuteTick(T0 + 60_001, T0)).toBe(1);
+    expect(nextMinuteTick(T0 + 150_000, T0)).toBe(30_000);
+  });
+});
+
 describe("assistant messages with proposals and asks", () => {
   const ask = { options: ["Design", "Inbox"], question: "Which collection?" };
 
@@ -429,6 +662,190 @@ describe("assistant messages with proposals and asks", () => {
     expect(markup.split("Which collection?")).toHaveLength(3); // the text and the group label
     expect(markup).toContain('aria-label="Which collection?"');
     expect(markup).toMatch(button("Inbox", false));
+  });
+});
+
+/** The card-state map of the test panel and every write the actions made to it. */
+interface PanelCardStates {
+  states: AssistantProposalCardStates;
+  writes: AssistantProposalCardStates[];
+}
+
+describe("a card action answer from an earlier conversation generation", () => {
+  // Review rev-f2 P2, the scenario of its probe through the real conversation
+  // switch (openAssistantConversation bumps the generation) and the real
+  // action client (fetch stubbed): the panel resets the card states on every
+  // switch, exactly as AssistantPanel does.
+  const originalFetch = globalThis.fetch;
+  const threadA = LEAK_IDS.threadId;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  function threadDetail(threadId: string, proposals: AssistantPublicProposal[]): AssistantThreadDetail {
+    return {
+      messages: [
+        { ask: null, createdAt: "2026-10-17T12:00:00.000Z", errorCode: null, id: `amg_${threadId}_1`, role: "user", status: "final", text: "move it", threadId },
+        { ask: null, createdAt: "2026-10-17T12:00:01.000Z", errorCode: null, id: LEAK_IDS.messageId, role: "assistant", status: "final", text: "Proposed.", threadId },
+      ],
+      proposals,
+      thread: { createdAt: "2026-10-17T12:00:00.000Z", id: threadId, title: threadId, updatedAt: "2026-10-17T12:00:01.000Z" },
+    };
+  }
+
+  /** The panel pieces: its conversation store, its card-state map and the action store over both. */
+  function panel() {
+    const hooks: AssistantConversationHooks = { generation: { current: 0 } };
+    const conversations: AssistantConversationStore = {
+      current: createAssistantConversation({ chatId: "assistant:new:0", generation: 0, hooks, messages: [], threadId: null }),
+      hooks,
+      newThreadCountRef: { current: 0 },
+      requestedThreadRef: { current: null },
+    };
+    const state: PanelCardStates = { states: {}, writes: [] };
+    const actions: AssistantProposalActionStore = {
+      generation: hooks.generation,
+      inFlight: new Set<string>(),
+      setProposalStates: (update) => {
+        state.states = update(state.states);
+        state.writes.push(state.states);
+      },
+    };
+    async function open(id: string, detail: AssistantThreadDetail): Promise<AssistantConversation> {
+      const result = await openAssistantConversation(conversations, id, async () => detail);
+      if (result.kind !== "switched") throw new Error(`open ${id}: ${result.kind}`);
+      conversations.current = result.conversation;
+      state.states = {};
+      return result.conversation;
+    }
+    function cards(conversation: AssistantConversation): string {
+      return renderToStaticMarkup(createElement(AssistantMessages, {
+        ...messageProps,
+        messages: conversation.chat.messages,
+        proposalStates: state.states,
+        t: tv,
+      }));
+    }
+    return { actions, cards, conversations, open, state };
+  }
+
+  /** The POST of the action stays pending until the test settles it. */
+  function pendingPost() {
+    const posts: string[] = [];
+    let reject: (error: Error) => void = () => undefined;
+    let resolve: (response: Response) => void = () => undefined;
+    globalThis.fetch = Object.assign(
+      (input: Parameters<typeof fetch>[0]) => {
+        posts.push(String(input));
+        return new Promise<Response>((settleResolve, settleReject) => {
+          reject = settleReject;
+          resolve = settleResolve;
+        });
+      },
+      { preconnect: originalFetch.preconnect },
+    );
+    const settle = {
+      fail: (error: Error) => reject(error),
+      succeed: (response: Response) => resolve(response),
+    };
+    return { posts, settle };
+  }
+
+  // Mutation captured: without the generation check (the e18472b handler) the
+  // late failure writes the proposed proposal and the network note back.
+  test("pending confirm → switch to B → reopen A with the executed GET → the late POST fails: Done with Undo stays", async () => {
+    const proposed = cardProposal();
+    const executed = cardProposal({ executedAt: inMinutes(0), status: "executed", undoExpiresAt: inMinutes(9.5) });
+    const { actions, cards, open, state } = panel();
+    const { posts, settle } = pendingPost();
+
+    const a = await open(threadA, threadDetail(threadA, [proposed]));
+    const action = applyAssistantProposalAction(actions, "confirm", proposed);
+    expect(posts).toEqual([`/api/assistant/proposals/${proposed.id}/confirm`]);
+    expect(cards(a)).toMatch(button("assistant.proposalConfirm", true));
+
+    await open("ath_B", threadDetail("ath_B", []));
+    const reopened = await open(threadA, threadDetail(threadA, [executed]));
+    const before = cards(reopened);
+    expect(before).toContain("assistant.proposalExecuted");
+    expect(before).toMatch(button("assistant.proposalUndo", false));
+    expect(before).not.toContain("assistant.proposalConfirm");
+
+    // The write committed, then the connection broke before the answer.
+    settle.fail(new TypeError("Failed to fetch"));
+    await action;
+
+    const after = cards(reopened);
+    expect(after).toContain("assistant.proposalExecuted");
+    expect(after).toMatch(button("assistant.proposalUndo", false));
+    expect(after).toContain("assistant.proposalUndoIn[minutes=10]");
+    expect(after).not.toContain("assistant.proposalConfirm");
+    expect(after).not.toContain("assistant.proposalReject");
+    expect(after).not.toContain("assistant.errorNetwork");
+    expect(after).not.toContain('role="alert"');
+    // Only the pending write ever happened; the late answer wrote nothing.
+    expect(state.writes).toHaveLength(1);
+    expect(state.states).toEqual({});
+    expect(actions.inFlight.size).toBe(0);
+    expect(posts).toHaveLength(1);
+  });
+
+  // Mutation captured: without the generation check the late answer is written.
+  test("a late success after starting a new conversation is dropped too", async () => {
+    const proposed = cardProposal();
+    const { actions, conversations, open, state } = panel();
+    const { settle } = pendingPost();
+
+    await open(threadA, threadDetail(threadA, [proposed]));
+    const action = applyAssistantProposalAction(actions, "confirm", proposed);
+    conversations.current = await startAssistantConversation(conversations);
+    state.states = {};
+
+    settle.succeed(new Response(JSON.stringify({ proposal: { ...proposed, status: "executed" } }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    }));
+    await action;
+    expect(state.writes).toHaveLength(1);
+    expect(state.states).toEqual({});
+    expect(actions.inFlight.size).toBe(0);
+  });
+
+  // Mutation captured: a check that drops every answer leaves the card pending.
+  test("control: without a switch the same network failure keeps the proposal and shows the note", async () => {
+    const proposed = cardProposal();
+    const { actions, cards, open, state } = panel();
+    const { settle } = pendingPost();
+
+    const a = await open(threadA, threadDetail(threadA, [proposed]));
+    const action = applyAssistantProposalAction(actions, "confirm", proposed);
+    settle.fail(new TypeError("Failed to fetch"));
+    await action;
+
+    expect(state.writes).toHaveLength(2);
+    expect(state.states).toEqual({
+      [proposed.id]: { errorKey: "assistant.errorNetwork", pending: false, proposal: proposed },
+    });
+    const markup = cards(a);
+    expect(markup).toMatch(button("assistant.proposalConfirm", false));
+    expect(markup).toContain("assistant.errorNetwork");
+    expect(actions.inFlight.size).toBe(0);
+  });
+
+  // Mutation captured: without the in-flight check the second click sends a second POST.
+  test("control: a second click while the action is in flight sends no second POST", async () => {
+    const proposed = cardProposal();
+    const { actions, open } = panel();
+    const { posts, settle } = pendingPost();
+
+    await open(threadA, threadDetail(threadA, [proposed]));
+    const first = applyAssistantProposalAction(actions, "confirm", proposed);
+    await applyAssistantProposalAction(actions, "confirm", proposed);
+    expect(posts).toHaveLength(1);
+    settle.fail(new TypeError("Failed to fetch"));
+    await first;
+    expect(actions.inFlight.size).toBe(0);
   });
 });
 

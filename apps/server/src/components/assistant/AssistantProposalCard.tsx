@@ -25,20 +25,76 @@ function parseTimestamp(value: string | null): number | null {
   return Number.isFinite(time) ? time : null;
 }
 
+/** The deadline the card counts down to: the expiry while proposed, the undo window once executed. */
+export function proposalDeadline(proposal: AssistantPublicProposal): number | null {
+  if (proposal.status === "proposed") return parseTimestamp(proposal.expiresAt);
+  if (proposal.status === "executed") return parseTimestamp(proposal.undoExpiresAt);
+  return null;
+}
+
+/**
+ * The delay (ms) until the whole minutes left before `deadline` change next;
+ * null when there is no deadline or it already passed (no timer needed).
+ */
+export function nextMinuteTick(deadline: number | null, now: number): number | null {
+  if (deadline === null) return null;
+  const left = deadline - now;
+  if (!(left > 0)) return null;
+  return left % MINUTE_MS || MINUTE_MS;
+}
+
+/** The clock and timers the countdown runs on. */
+export interface MinuteClockScheduler<Timer> {
+  clearTimeout: (timer: Timer) => void;
+  now: () => number;
+  setTimeout: (callback: () => void, delay: number) => Timer;
+}
+
+const browserScheduler: MinuteClockScheduler<ReturnType<typeof setTimeout>> = {
+  clearTimeout: (timer) => clearTimeout(timer),
+  now: () => Date.now(),
+  setTimeout: (callback, delay) => setTimeout(callback, delay),
+};
+
+/**
+ * Call `onTick` each time the whole minutes left before `deadline` change,
+ * the last time when it passes. Returns the cancel: it clears the pending
+ * timer, and no tick runs after it.
+ */
+export function watchMinutesLeft<Timer>(
+  deadline: number | null,
+  onTick: () => void,
+  scheduler: MinuteClockScheduler<Timer>,
+): () => void {
+  let active = true;
+  let timer: Timer | null = null;
+  const arm = () => {
+    const delay = nextMinuteTick(deadline, scheduler.now());
+    if (delay === null) return;
+    timer = scheduler.setTimeout(() => {
+      timer = null;
+      onTick();
+      // A tick that cancelled the countdown (a re-render that unmounted the card) arms nothing.
+      if (active) arm();
+    }, delay);
+  };
+  arm();
+  return () => {
+    active = false;
+    if (timer !== null) scheduler.clearTimeout(timer);
+    timer = null;
+  };
+}
+
 /**
  * The current time, read on every render. While `deadline` is ahead, a timer
  * re-renders the card each time the whole minutes left change, and stops
- * once it passed.
+ * once it passed; a new deadline (the proposal changed state) or the unmount
+ * cancels it.
  */
 function useMinuteClock(deadline: number | null): number {
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    if (deadline === null) return;
-    const left = deadline - Date.now();
-    if (left <= 0) return;
-    const timer = setTimeout(() => setTick((value) => value + 1), left % MINUTE_MS || MINUTE_MS);
-    return () => clearTimeout(timer);
-  }, [deadline, tick]);
+  const [, setTick] = useState(0);
+  useEffect(() => watchMinutesLeft(deadline, () => setTick((value) => value + 1), browserScheduler), [deadline]);
   return Date.now();
 }
 
@@ -74,12 +130,7 @@ export interface AssistantProposalCardProps {
 export function AssistantProposalCard({ errorKey, onAction, pending, proposal, t }: AssistantProposalCardProps) {
   const expiresAt = parseTimestamp(proposal.expiresAt);
   const undoExpiresAt = parseTimestamp(proposal.undoExpiresAt);
-  const deadline = proposal.status === "proposed"
-    ? expiresAt
-    : proposal.status === "executed"
-      ? undoExpiresAt
-      : null;
-  const now = useMinuteClock(deadline);
+  const now = useMinuteClock(proposalDeadline(proposal));
   const expiresInMinutes = minutesLeft(expiresAt, now);
   const undoMinutes = minutesLeft(undoExpiresAt, now);
   // A proposal whose expiry passed while the card was open reads as expired,

@@ -539,6 +539,14 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
     return assistantError(409, "turn_in_progress", "A turn is already in progress for this thread");
   }
   inFlightTurnThreads.add(thread.id);
+  // Released once per turn: a later release of this turn must never free
+  // the lock a newer turn of the same thread took meanwhile.
+  let threadLocked = true;
+  const releaseThread = () => {
+    if (!threadLocked) return;
+    threadLocked = false;
+    inFlightTurnThreads.delete(thread.id);
+  };
   // The assistant message id is born now: the proposals of this turn are
   // stored with it, and the answer is persisted under it at the end.
   const assistantMessageId = newAssistantMessageId();
@@ -580,7 +588,7 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
     //    client right away.
     const endpoint = await deps.endpoint();
     if (!endpoint) {
-      inFlightTurnThreads.delete(thread.id);
+      releaseThread();
       return assistantError(503, "assistant_unavailable", "The assistant is unavailable");
     }
     // 7b. The Cloud reserves the turn's credits before the model runs;
@@ -591,7 +599,7 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
     if (deps.meterTurn) {
       const reserved = await deps.meterTurn({ messageId: assistantMessageId, threadId: thread.id });
       if (!reserved.reserved) {
-        inFlightTurnThreads.delete(thread.id);
+        releaseThread();
         if ("inProgress" in reserved) {
           return assistantError(409, "assistant_turn_in_progress", "This turn is already running");
         }
@@ -691,17 +699,17 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
         }
         // The turn is over once its answer is stored: the thread is free
         // again while the credits may still wait for the delivery.
-        inFlightTurnThreads.delete(thread.id);
+        releaseThread();
         if (turnReservation) await settleTurn(turnReservation, result, endpoint, watched!.delivery);
       })
       .catch(() => {})
       .finally(() => {
-        inFlightTurnThreads.delete(thread.id);
+        releaseThread();
       });
 
     return withNoStore(watched ? watched.response : response);
   } catch {
-    inFlightTurnThreads.delete(thread.id);
+    releaseThread();
     // A failure after the reservation and before the turn took it over
     // gives the credits back.
     if (reservation) await reservation.refund("assistant_unavailable").catch(() => {});

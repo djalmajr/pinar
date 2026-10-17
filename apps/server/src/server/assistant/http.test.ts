@@ -1395,6 +1395,38 @@ describe("assistant turn credits (meterTurn)", () => {
     assert.deepEqual(meter.log.events, ["reserve", "consume"]);
   });
 
+  test("settling an earlier turn never frees the lock a newer turn of the same thread holds", async () => {
+    let releaseB!: () => void;
+    const holdB = new Promise<void>((resolve) => {
+      releaseB = resolve;
+    });
+    let calls = 0;
+    const { deps, store } = makeDeps({
+      model: () => {
+        calls += 1;
+        return calls === 1 ? textModel("Resposta A.") : gatedModel(holdB);
+      },
+    });
+    const meter = fakeMeter();
+    const charged = { ...deps, meterTurn: meter.meterTurn };
+    // A is stored but its body is not read yet, so its credits wait.
+    const a = await postTurn(charged, { text: "A" });
+    const [thread] = await store.listThreads({ limit: 5, offset: 0 });
+    await waitFor(() => store.listMessages(thread.id, { limit: 10 }).then((items) => (items.length === 2 ? items : null)));
+    // B takes the thread and blocks in the model.
+    const b = await postTurn(charged, { text: "B", threadId: thread.id });
+    assert.equal(b.status, 200);
+    assert.equal((await postTurn(charged, { text: "C", threadId: thread.id })).status, 409);
+    // Reading A settles it; B still holds the thread.
+    await readSse(a);
+    await waitFor(() => (meter.log.events.includes("consume") ? true : null));
+    const c = await postTurn(charged, { text: "C again", threadId: thread.id });
+    assert.equal(c.status, 409, "A's settlement must not release B's lock");
+    assert.equal(calls, 2);
+    releaseB();
+    await readSse(b);
+  });
+
   test("an error refunds without waiting for the delivery", async () => {
     const { deps } = makeDeps({ model: failingModel });
     const meter = fakeMeter();

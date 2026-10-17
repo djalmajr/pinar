@@ -58,7 +58,37 @@ export interface FilingChoice {
   collectionId: string | null; // null → Inbox
   confidence: number; // 0..1
   engine: FilingEngine["kind"] | "none";
-  reason: "chosen" | "low_confidence" | "no_candidates" | "timeout" | "error";
+  reason: "chosen" | "low_confidence" | "no_candidates" | "timeout" | "error" | "no_credits";
+}
+
+/**
+ * The credits of the automatic destination (A53): the Cloud passes one so
+ * the engine call charges one credit; the local runtime files without one,
+ * so it is optional. `chooseCollection` asks it right before the engine
+ * call — a capture that never calls the engine (no candidates, the batch
+ * rule, no engine) is never billed.
+ */
+export interface FilingCreditMeter {
+  /**
+   * Reserve the capture's credit with the engine's model. "no_credits": no
+   * balance — the engine must not be called and the capture is the Inbox
+   * with reason no_credits. "existing": an earlier run of this capture
+   * already settled (or settles) the credit — this run charges nothing and
+   * settles nothing. "reserved": this run settles the credit (consume on
+   * the answer, refund on a failure or the deadline). "error": reserving
+   * failed — already logged; the capture is the Inbox and nothing is
+   * called.
+   */
+  reserve(model: string): Promise<"error" | "existing" | "no_credits" | "reserved">;
+  /**
+   * Consume the reserved credit; the answer (the FilingChoice) is stored as
+   * result_json. Returns false when the settlement failed (already logged):
+   * the capture goes to the Inbox, unmarked, and the credit is left to the
+   * sweeper.
+   */
+  consume(resultJson: string): Promise<boolean>;
+  /** Refund the reserved credit: the engine failed or the deadline fired. A failed refund is logged and left to the sweeper. */
+  refund(errorCode: string): Promise<void>;
 }
 
 // Labels are the decisions options: unique, not empty, at most
@@ -153,6 +183,7 @@ export async function chooseCollection(input: {
   candidates: FilingCandidate[];
   engine: FilingEngine;
   fetch?: typeof fetch;
+  meter?: FilingCreditMeter;
   signal?: AbortSignal;
   text: string; // captureFilingText(...)
   timeoutMs?: number; // default FILING_TIMEOUT_MS
@@ -175,6 +206,23 @@ export async function chooseCollection(input: {
   // an absent or invalid value keeps the default and never throws.
   const similarity = filingSimilarityThresholds(readFilingEnv);
 
+  // A53: the credit is reserved only now, after the no-candidates and the
+  // already-expired checks: a capture that never calls the engine is never
+  // billed. "no_credits" keeps the capture in the Inbox without the call;
+  // a failed reservation is the "error" inbox, already logged by the meter
+  // (the capture never fails because of the billing).
+  const meter = input.meter;
+  let settled = false;
+  if (meter) {
+    const model = input.engine.kind === "decisions" ? input.engine.endpoint.model : input.engine.embedding.model;
+    const state = await meter.reserve(model);
+    if (state === "no_credits") {
+      return { collectionId: null, confidence: 0, engine: input.engine.kind, reason: "no_credits" };
+    }
+    if (state === "error") return failed();
+    settled = state === "reserved";
+  }
+
   // The engine is raced against the signal, so the answer never waits past
   // the deadline, even for a fetch or centroid lookup that ignores it.
   let onAbort = () => {};
@@ -182,9 +230,39 @@ export async function chooseCollection(input: {
     onAbort = () => reject(signal.reason);
     signal.addEventListener("abort", onAbort, { once: true });
   });
+  // The engine posts through its own deadline (postEndpointJson, FILING_TIMEOUT_MS),
+  // which can fire a tick before the race's signal when the two coincide, and
+  // the caller's signal (fileCapture's budget) can fire a few milliseconds
+  // before this deadline. All of them are a deadline, not an inference
+  // failure, so the refund classifies them together (the reason keeps its
+  // own contract: failed() below).
+  const timedOut = (error: unknown) =>
+    signal.aborted || (error instanceof Error && error.message.endsWith("timed out"));
   try {
-    return await Promise.race([runEngine({ ...input, similarity }, signal), aborted]);
-  } catch {
+    const choice = await Promise.race([runEngine({ ...input, similarity }, signal), aborted]);
+    if (settled) {
+      // The engine answered (the Inbox included): one credit, whatever the
+      // choice.
+      const ok = await meter!.consume(JSON.stringify(choice));
+      if (!ok) {
+        // The settlement failed (logged by the meter): the credit is left
+        // to the sweeper and the capture goes to the Inbox, unmarked — it
+        // never fails because of the billing.
+        return { collectionId: null, confidence: 0, engine: input.engine.kind, reason: "error" };
+      }
+    }
+    return choice;
+  } catch (error) {
+    if (settled) {
+      // The engine failed, or it was cut by a deadline — this one or the
+      // caller's (fileCapture's budget can fire a few milliseconds before
+      // this one), or the engine's own postEndpointJson deadline. The cut
+      // is not an inference failure, so the credit goes back as the
+      // reservation's timeout.
+      await meter!.refund(timedOut(error) ? "reservation_timeout" : "ai_inference_failed");
+    }
+    // The reason keeps the contract: this deadline is "timeout", the
+    // caller's signal is "error" (the caller relabels its own budget).
     return failed();
   } finally {
     signal.removeEventListener("abort", onAbort);

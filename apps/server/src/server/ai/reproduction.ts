@@ -13,12 +13,20 @@ import {
   extractJsonObject,
   json,
   persistSession,
-  runUnmeteredAiFeature,
+  runMeteredAiFeature,
   stringValue,
 } from "../cloud-api";
 import {
+  chainUsable,
+  runTextChain,
+  textChain,
   voiceAvailability,
 } from "./voice-chain";
+import {
+  cloudflareAiProvider,
+  type AiInferenceResult,
+  type AiPrompt,
+} from "./inference";
 
 const MAX_STEPS = 60;
 const MAX_PINS = 10;
@@ -115,6 +123,11 @@ export function parseGenerated(model: string, provider = "pinar_cloud") {
  * recorded timeline. The user edits the timeline in the viewer first
  * (PATCH /api/sessions/:id); the stored steps are what the model sees. The
  * result is persisted as `reproduction.generated`.
+ *
+ * A53: one credit per generation, through the metered gate the voice uses —
+ * reservation before the inference, refund on a failed or invalid answer,
+ * 402 with the balance without enough credits, and the idempotent replay of
+ * a repeated request id (the client's order id).
  */
 export async function generateReproduction(request: Request, env: CloudEnv): Promise<Response> {
   if (!env.AI) {
@@ -126,37 +139,82 @@ export async function generateReproduction(request: Request, env: CloudEnv): Pro
   }
   const scoped = await aiSessionRequest(request, env);
   if (scoped.response) return scoped.response;
-  const { body, principal, session } = scoped;
+  const { body, principal, requestId, session } = scoped;
   const input = reproductionPromptInput(session);
   if (!input) {
     return json({ code: "reproduction_required", error: "This capture has no recorded steps" }, 422);
   }
   const language = aiOutputLanguage(stringValue(body, "language"));
   const spec = AI_FEATURE_SPECS.reproduction;
-  return runUnmeteredAiFeature<ReproductionGenerated>({
-    buildPrompt: () => ({
-      jsonObject: true,
-      messages: [
-        { role: "system", content: REPRODUCTION_INSTRUCTIONS },
-        { role: "user", content: JSON.stringify({ language, ...input }) },
-      ],
-      temperature: 0.1,
-    }),
+  const parse = parseGenerated(spec.model);
+  return runMeteredAiFeature<ReproductionGenerated>({
     env,
+    execute: async () => {
+      const prompt: AiPrompt = {
+        jsonObject: true,
+        messages: [
+          { role: "system", content: REPRODUCTION_INSTRUCTIONS },
+          { role: "user", content: JSON.stringify({ language, ...input }) },
+        ],
+        temperature: 0.1,
+      };
+      // D5: the AI_TEXT_CHAIN links (gateway or appliance) when configured
+      // and usable; else the AI binding, exactly as before.
+      const links = await textChain(env);
+      let inference: AiInferenceResult;
+      let chainCost: number | null = null;
+      if (links !== null && chainUsable(env, links)) {
+        const outcome = await runTextChain(env, links, {
+          maxTokens: spec.maxTokens,
+          prompt,
+          timeoutMs: spec.timeoutMs,
+        });
+        inference = { model: spec.model, provider: "pinar_cloud", text: outcome.text, usage: outcome.usage };
+        chainCost = outcome.costUsdMicros;
+      } else {
+        // The gate above: without the binding only a usable chain gets here,
+        // so the binding is present in this branch.
+        inference = await cloudflareAiProvider(env.AI!, spec.model).run(prompt, {
+          maxTokens: spec.maxTokens,
+          timeoutMs: spec.timeoutMs,
+        });
+      }
+      const result = parse(inference.text);
+      if (!result) throw new Error("invalid_ai_response");
+      // D5: the gateway's real cost (marketCost, else cost) when the text
+      // went through a gateway link; without it, the estimate of this file.
+      const costUsdMicros = chainCost ?? Math.ceil(
+        inference.usage.inputTokens * spec.inputUsdPerMillionTokens
+        + inference.usage.outputTokens * spec.outputUsdPerMillionTokens,
+      );
+      return {
+        result,
+        telemetry: {
+          costUsdMicros,
+          inputTokens: inference.usage.inputTokens,
+          outputTokens: inference.usage.outputTokens,
+        },
+      };
+    },
     onSuccess: async (generated) => {
       if (!session.reproduction) throw new Error("reproduction_missing");
       const patched = applySessionPatch(session, { reproduction: { ...session.reproduction, generated } });
       if (!patched) throw new Error("reproduction_patch_failed");
       // keepPlacement (the F4 edit fix): only the owner's existing row is
       // updated, so a move that lands between the read and the write is not
-      // undone and a row deleted since the read is not brought back.
+      // undone and a row deleted since the read is not brought back. A
+      // deletion answers 404 like the other session edits, and the metered
+      // gate refunds the credit with the short-circuit (the result was not
+      // delivered).
       if (!(await persistSession(env, patched, session.batchId ?? null, { keepPlacement: true }))) {
         return json({ error: "Session not found" }, 404);
       }
     },
-    parse: parseGenerated(spec.model),
+    parse,
     principal,
     request,
+    requestId,
+    resourceId: `reproduction:${session.id}`,
     spec,
     unavailableMessage: "Reproduction generation unavailable",
   });

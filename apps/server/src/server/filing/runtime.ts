@@ -37,7 +37,7 @@ import {
   type FilingCollection,
   type FilingRecentSession,
 } from "./candidates";
-import { chooseCollection, FILING_TIMEOUT_MS, type FilingChoice, type FilingEngine } from "./choose";
+import { chooseCollection, FILING_TIMEOUT_MS, type FilingChoice, type FilingCreditMeter, type FilingEngine } from "./choose";
 import { collectionCentroid } from "./similarity";
 
 /** The engine a runtime detected, before the centroids are attached. */
@@ -131,6 +131,7 @@ export async function fileCapture(input: {
   capture: FilingCapture;
   engine: () => Promise<FilingEngineChoice | null>;
   fetch?: typeof fetch;
+  meter?: FilingCreditMeter; // A53: the Cloud's credit of the capture
   source: FilingSource;
   timeoutMs?: number; // default FILING_TIMEOUT_MS
 }): Promise<FilingOutcome> {
@@ -179,6 +180,7 @@ export async function fileCapture(input: {
       candidates: filingCandidates(collections, sessions),
       engine: engine.kind === "decisions" ? engine : similarityEngine(engine.embedding, sessions, input.source),
       ...(input.fetch ? { fetch: input.fetch } : {}),
+      ...(input.meter ? { meter: input.meter } : {}),
       signal: deadline,
       text: captureFilingText({ page: input.capture.page, pins: input.capture.pins }),
       timeoutMs: remaining,

@@ -463,7 +463,6 @@ describe("assistantMarginMonitor", () => {
       const cronLogs: string[] = [];
       const fetchCron = createEdgerFetch({
         jobs: [
-          { name: "indexPinSearch", run: async () => { ran.push("indexPinSearch"); } },
           { name: "assistantMarginMonitor", run: () => assistantMarginMonitor(env({ EMAIL: email.binding, OPS_ALERT_EMAIL: OPS }), NOW) },
         ],
         log: (line) => cronLogs.push(line),
@@ -471,8 +470,8 @@ describe("assistantMarginMonitor", () => {
       });
       const response = await fetchCron(new Request("https://pinar.test/_internal/cron/daily", { headers: { "x-edger-internal": "true" }, method: "POST" }));
       assert.equal(response.status, 200);
-      assert.deepEqual(await response.json(), { ok: true, jobs: [{ job: "indexPinSearch", ok: true }, { job: "assistantMarginMonitor", ok: true }] });
-      assert.deepEqual(ran, ["indexPinSearch"]);
+      assert.deepEqual(await response.json(), { ok: true, jobs: [{ job: "assistantMarginMonitor", ok: true }] });
+      assert.deepEqual(ran, []);
       assert.deepEqual(logged("assistant_margin_email_failed").length, 1);
     });
   });

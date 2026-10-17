@@ -82,18 +82,8 @@ import { isDisposableEmail } from "../lib/email-policy";
 import { CURRENT_LEGAL_VERSION } from "../lib/legal-documents";
 import { generateReproduction } from "./ai/reproduction";
 import { transcribeVoicePin } from "./ai/voice-pin";
-import {
-  chainUsable,
-  runTextChain,
-  textChain,
-  voiceAvailability,
-} from "./ai/voice-chain";
-import {
-  AiInferenceError,
-  cloudflareAiProvider,
-  type AiInferenceResult,
-  type AiPrompt,
-} from "./ai/inference";
+import { voiceAvailability } from "./ai/voice-chain";
+import { AiInferenceError } from "./ai/inference";
 import { SESSION_PATCH_MAX_BYTES } from "./session-patch";
 import { cloudTrialAccess, newCloudTrialWindow, type CloudTrialAccess } from "../lib/cloud-trial";
 import { type PricingConfig, pricingForCountry } from "../lib/pricing";
@@ -141,6 +131,7 @@ import type { AssistantToolHost } from "./assistant/tools";
 // are loaded lazily behind the gate (fileCloudShot).
 import type { FilingCollection, FilingRecentSession } from "./filing/candidates";
 import { FILING_TIMEOUT_MS } from "./filing/constants";
+import type { FilingCreditMeter } from "./filing/choose";
 import type { FilingCapture, FilingOutcome, FilingSource } from "./filing/runtime";
 import {
   CLOUD_MCP_TOOLS,
@@ -406,7 +397,7 @@ interface AiUsageHistoryEntry {
   completedAt: string | null;
   createdAt: string;
   credits: number;
-  feature: "assistant_turn" | "voice_pin";
+  feature: "assistant_turn" | "capture_filing" | "voice_pin";
   status: AiCreditUsageRecord["status"];
 }
 
@@ -489,6 +480,7 @@ export const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
 const SHOTS_PREFIX = "shots/";
 export type AiFeature =
   | "assistant_turn"
+  | "capture_filing"
   | "component_export"
   | "design_system"
   | "pin_diagnosis"
@@ -510,7 +502,9 @@ export interface AiFeatureSpec {
 // per million tokens: https://developers.cloudflare.com/workers-ai/platform/pricing/
 export const AI_FEATURE_SPECS: Record<"reproduction", AiFeatureSpec> = {
   reproduction: {
-    credits: 0,
+    // A53: every Cloud AI call happens inside a charged action; the written
+    // reproduction steps charge one credit per generation, like the voice.
+    credits: 1,
     feature: "reproduction",
     inputUsdPerMillionTokens: 0.2,
     maxTokens: 2_048,
@@ -527,8 +521,15 @@ export const ASSISTANT_TURN_CREDITS = 3;
 // assistant:<thread id> (F4 contract §2).
 const ASSISTANT_TURN_REQUEST_PREFIX = "turn:";
 const ASSISTANT_TURN_RESOURCE_PREFIX = "assistant:";
+// A53: one credit per capture whose automatic destination calls the engine
+// (decisions or similarity), reserved under capture:<capture id> — the
+// capture's natural key, the session id.
+export const CAPTURE_FILING_CREDITS = 1;
+const CAPTURE_FILING_REQUEST_PREFIX = "capture:";
+const CAPTURE_FILING_RESOURCE_PREFIX = "capture:";
 const AI_FEATURES = new Set<AiFeature>([
   "assistant_turn",
+  "capture_filing",
   "component_export",
   "design_system",
   "pin_diagnosis",
@@ -1263,12 +1264,13 @@ async function findAiCreditUsage(env: CloudEnv, principal: Principal, requestId:
 /**
  * The account view is a compact billing history, not inference telemetry. Keep
  * model names, prompts, resource ids, and retired features out of the response
- * that reaches the browser. Voice transcription and assistant turns are the
- * credit-bearing AI operations exposed to accounts.
+ * that reaches the browser. Voice transcription, assistant turns and the
+ * capture's automatic destination (A53) are the credit-bearing AI operations
+ * exposed to accounts.
  */
 async function listAiUsageHistory(env: CloudEnv, principal: Principal, limit = 25): Promise<AiUsageHistoryEntry[]> {
   const toEntry = (usage: AiCreditUsageRecord): AiUsageHistoryEntry | null => {
-    if (usage.feature !== "voice_pin" && usage.feature !== "assistant_turn") return null;
+    if (usage.feature !== "voice_pin" && usage.feature !== "assistant_turn" && usage.feature !== "capture_filing") return null;
     return {
       completedAt: usage.completedAt,
       createdAt: usage.createdAt,
@@ -1280,7 +1282,7 @@ async function listAiUsageHistory(env: CloudEnv, principal: Principal, limit = 2
 
   if (env.DB) {
     const result = await env.DB.prepare(
-      "SELECT * FROM ai_credit_usages WHERE owner_type = ? AND owner_id = ? AND feature IN ('voice_pin', 'assistant_turn') ORDER BY created_at DESC, rowid DESC LIMIT ?",
+      "SELECT * FROM ai_credit_usages WHERE owner_type = ? AND owner_id = ? AND feature IN ('voice_pin', 'assistant_turn', 'capture_filing') ORDER BY created_at DESC, rowid DESC LIMIT ?",
     ).bind(principal.kind, principal.id, limit).all();
     return (result.results || []).map(aiUsageFromRow).map(toEntry).filter((entry): entry is AiUsageHistoryEntry => entry !== null);
   }
@@ -6446,7 +6448,13 @@ export interface AiFeatureTelemetry {
 export interface RunMeteredAiFeatureInput<T> {
   env: CloudEnv;
   execute: () => Promise<{ result: T; telemetry: AiFeatureTelemetry }>;
-  onSuccess?: (result: T, usage: AiCreditUsageRecord) => Promise<void>;
+  /**
+   * Runs after the inference and before the settlement. It may return a
+   * Response to short-circuit the 200 (a 404 when the write did not persist,
+   * as the other session edits answer): the result was not delivered, so the
+   * credit is refunded and the response is returned.
+   */
+  onSuccess?: (result: T, usage: AiCreditUsageRecord) => Promise<Response | undefined | void>;
   parse: (text: string) => T | null;
   principal: Principal;
   request: Request;
@@ -6455,7 +6463,8 @@ export interface RunMeteredAiFeatureInput<T> {
   spec: AiFeatureSpec;
   unavailableMessage: string;
 }
-/** Voice transcription uses the metered gate: plan, reservation and refund. */
+/** Voice transcription and the written reproduction steps (A53) use the
+ * metered gate: plan, reservation and refund. */
 export async function runMeteredAiFeature<T>(input: RunMeteredAiFeatureInput<T>): Promise<Response> {
   const { env, principal, request, requestId, resourceId, spec } = input;
   if (!env.AI) {
@@ -6536,7 +6545,31 @@ export async function runMeteredAiFeature<T>(input: RunMeteredAiFeatureInput<T>)
 
   try {
     const { result, telemetry } = await input.execute();
-    if (input.onSuccess) await input.onSuccess(result, reservation.usage);
+    if (input.onSuccess) {
+      const shortCircuit = await input.onSuccess(result, reservation.usage);
+      if (shortCircuit instanceof Response) {
+        // The write did not persist (the session is gone): the result was
+        // not delivered, so the credit goes back with the short-circuit.
+        let refunded = false;
+        try {
+          await refundAiCreditUsage(env, reservation.usage, "ai_result_not_stored");
+          refunded = true;
+        } catch (refundError) {
+          console.error("ai_credit_refund_failed", JSON.stringify({
+            error: String(refundError),
+            usageId: reservation.usage.id,
+          }));
+        }
+        console.error("ai_inference", JSON.stringify({
+          errorCode: "ai_result_not_stored",
+          feature: spec.feature,
+          model: spec.model,
+          status: refunded ? "refunded" : "refund_pending",
+          usageId: reservation.usage.id,
+        }));
+        return shortCircuit;
+      }
+    }
     await completeAiCreditUsage(
       env,
       reservation.usage,
@@ -6590,110 +6623,6 @@ export async function runMeteredAiFeature<T>(input: RunMeteredAiFeatureInput<T>)
         ? `${input.unavailableMessage}; credit refunded`
         : `${input.unavailableMessage}; credit refund pending`,
     }, 503);
-  }
-}
-
-export interface RunUnmeteredAiFeatureInput<T> {
-  buildPrompt: () => AiPrompt;
-  env: CloudEnv;
-  // May return a Response to short-circuit the 200 (a 404 when the write
-  // did not persist, as the other session edits answer).
-  onSuccess?: (result: T) => Promise<void | Response>;
-  parse: (text: string) => T | null;
-  principal: Principal;
-  request: Request;
-  spec: AiFeatureSpec;
-  unavailableMessage: string;
-}
-
-/**
- * Runs a paid-plan AI capability without touching the credit ledger. Voice
- * transcription is deliberately the only operation that reserves credits.
- */
-export async function runUnmeteredAiFeature<T>(input: RunUnmeteredAiFeatureInput<T>): Promise<Response> {
-  const { env, principal, request, spec } = input;
-  if (!env.AI) {
-    // D5: a configured and usable chain (AI_TRANSCRIPTION_CHAIN /
-    // AI_TEXT_CHAIN) keeps the unmetered AI available without the binding;
-    // the environment never decides the provider (A50).
-    const availability = await voiceAvailability(env);
-    if (!availability.any) return json({ code: "ai_unavailable", error: "AI is not configured" }, 503);
-  }
-  if (principal.kind !== "account" || !planIncludesAi(principal.plan)) {
-    return json({ code: "ai_requires_paid", error: "AI features require a paid plan" }, 403);
-  }
-  const allowed = await withinRateLimits(env, `ai-${spec.feature.replaceAll("_", "-")}`, [
-    { limit: 10, scope: `${principal.kind}:${principal.id}` },
-    { limit: 30, scope: `ip:${clientIp(request)}` },
-  ], 60_000);
-  if (!allowed) return json({ code: "ai_rate_limited", error: "Too many AI requests" }, 429);
-
-  try {
-    const prompt = input.buildPrompt();
-    // D5: the AI_TEXT_CHAIN links (gateway or appliance) when configured
-    // and usable; else the AI binding, exactly as before.
-    const links = await textChain(env);
-    let inference: AiInferenceResult;
-    let chainCost: number | null = null;
-    if (links !== null && chainUsable(env, links)) {
-      const outcome = await runTextChain(env, links, {
-        maxTokens: spec.maxTokens,
-        prompt: {
-          ...(prompt.jsonObject !== undefined ? { jsonObject: prompt.jsonObject } : {}),
-          messages: prompt.messages,
-          ...(prompt.temperature !== undefined ? { temperature: prompt.temperature } : {}),
-        },
-        timeoutMs: spec.timeoutMs,
-      });
-      inference = { model: spec.model, provider: "pinar_cloud", text: outcome.text, usage: outcome.usage };
-      chainCost = outcome.costUsdMicros;
-    } else {
-      // The gate above: without the binding only a usable chain gets here,
-      // so the binding is present in this branch.
-      inference = await cloudflareAiProvider(env.AI!, spec.model).run(prompt, {
-        maxTokens: spec.maxTokens,
-        timeoutMs: spec.timeoutMs,
-      });
-    }
-    const result = input.parse(inference.text);
-    if (!result) throw new Error("invalid_ai_response");
-    if (input.onSuccess) {
-      const shortCircuit = await input.onSuccess(result);
-      if (shortCircuit instanceof Response) return shortCircuit;
-    }
-    // D5: the gateway's real cost (marketCost, else cost) when the text
-    // went through a gateway link; without it, the estimate of this file.
-    const costUsdMicros = chainCost ?? Math.ceil(
-      inference.usage.inputTokens * spec.inputUsdPerMillionTokens
-      + inference.usage.outputTokens * spec.outputUsdPerMillionTokens,
-    );
-    console.info("ai_inference", JSON.stringify({
-      costUsdMicros,
-      feature: spec.feature,
-      inputTokens: inference.usage.inputTokens,
-      model: spec.model,
-      outputTokens: inference.usage.outputTokens,
-      status: "succeeded",
-    }));
-    return json({
-      creditsCharged: 0,
-      ok: true,
-      result,
-      usage: {
-        costUsdMicros,
-        inputTokens: inference.usage.inputTokens,
-        model: spec.model,
-        outputTokens: inference.usage.outputTokens,
-        provider: "pinar_cloud",
-      },
-    }, 200, { "Cache-Control": "no-store" });
-  } catch (error) {
-    const code = (error instanceof Error && error.message === "invalid_ai_response")
-      || (error instanceof AiInferenceError && error.code === "invalid_ai_response")
-      ? "invalid_ai_response"
-      : "ai_inference_failed";
-    console.error("ai_inference", JSON.stringify({ code, feature: spec.feature, model: spec.model, status: "failed" }));
-    return json({ code, error: input.unavailableMessage }, 503);
   }
 }
 
@@ -6868,6 +6797,7 @@ async function fileCloudShot(
       batchId,
       capture,
       env,
+      meter: cloudCaptureFilingMeter(env, principal, capture.captureId),
       ownerId: principal.id,
       recordIndexCost: cloudIndexCostRecorder(env),
       source: cloudFilingSource(env, principal),
@@ -6876,6 +6806,81 @@ async function fileCloudShot(
   } catch {
     return inboxWithoutEngine();
   }
+}
+
+// A53: the capture's automatic destination charges one credit when it calls
+// the engine (decisions or the similarity's embedding). The meter is asked
+// by the filing right before the engine call (chooseCollection): a capture
+// that never calls the engine (the batch rule, no engine, no candidates) is
+// never reserved and never charged. The reservation is under
+// capture:<capture id> — the capture's natural key, the session id — so a
+// re-upload of the same capture finds the earlier row and charges nothing,
+// whatever its status. The model is the engine's (the decisions endpoint's
+// model or the embedding model), read at the reservation. One credit is
+// consumed when the engine answers — even when it chooses the Inbox — and
+// refunded when the engine fails or the filing's deadline fires (the
+// sweeper settles whatever stays open past the reservation timeout).
+// Every failure of the meter is a logged error that leaves the capture in
+// the Inbox: the capture never fails because of the billing.
+export function cloudCaptureFilingMeter(env: CloudEnv, principal: Principal, captureId: string): FilingCreditMeter {
+  let usage: AiCreditUsageRecord | null = null;
+  return {
+    async reserve(model) {
+      try {
+        const account = await findAccountById(env, principal.id);
+        if (account) await ensureInitialProCredits(env, account);
+        const reservation = await reserveAiCreditUsage(
+          env,
+          principal,
+          CAPTURE_FILING_REQUEST_PREFIX + captureId,
+          CAPTURE_FILING_RESOURCE_PREFIX + captureId,
+          { credits: CAPTURE_FILING_CREDITS, feature: "capture_filing", model },
+        );
+        if (!reservation) return "no_credits";
+        if (reservation.kind === "existing") return "existing";
+        usage = reservation.usage;
+        return "reserved";
+      } catch (error) {
+        console.error("filing_credit_reserve_failed", JSON.stringify({ captureId, error: String(error) }));
+        return "error";
+      }
+    },
+    async consume(resultJson) {
+      if (usage === null) return true;
+      try {
+        await completeAiCreditUsage(env, usage, resultJson, 0, 0, null);
+        console.info("filing_inference", JSON.stringify({
+          costUsdMicros: null,
+          feature: "capture_filing",
+          inputTokens: 0,
+          model: usage.model,
+          outputTokens: 0,
+          status: "succeeded",
+          usageId: usage.id,
+        }));
+        return true;
+      } catch (error) {
+        console.error("filing_credit_settle_failed", JSON.stringify({
+          captureId,
+          error: String(error),
+          usageId: usage.id,
+        }));
+        return false;
+      }
+    },
+    async refund(errorCode) {
+      if (usage === null) return;
+      try {
+        await refundAiCreditUsage(env, usage, errorCode);
+      } catch (error) {
+        console.error("filing_credit_refund_failed", JSON.stringify({
+          captureId,
+          error: String(error),
+          usageId: usage.id,
+        }));
+      }
+    },
+  };
 }
 
 // A36: the first filed capture of a batch claims the batch's destination
@@ -8864,104 +8869,6 @@ export async function cloudPinSearch(
 // failure is caught there (recordIndexCost in retrieval/gateway.ts).
 function cloudIndexCostRecorder(env: CloudEnv): (entry: AssistantIndexCostEntry) => Promise<void> {
   return (entry) => recordAssistantIndexCost(env, entry, currentDate());
-}
-
-// The ids of COMPLIMENTARY_PRO_USER_IDS, the list complimentaryProUser reads.
-function complimentaryProUserIds(env: CloudEnv): string[] {
-  return (env.COMPLIMENTARY_PRO_USER_IDS?.split(",") ?? []).map((entry) => entry.trim()).filter(Boolean);
-}
-
-// The owners the daily index cron covers (A49), the most recently captured
-// first, without reading accounts one by one: at least one session with
-// pins, a plan that includes AI (the plan filter runs in SQL on the two
-// inputs of effectiveAccountPlan, the users.plan column and the
-// deployment's complimentary list), and AI use on the account's side — at
-// least one assistant conversation (an assistant_threads row with the
-// owner's id) or the "choose the collection automatically" switch
-// (owner_preferences.auto_capture_destination = 1). One query; complimentary
-// ids past the first PIN_SEARCH_IN_CHUNK add one query per chunk, and no
-// further query starts once `expired()` says the cron's budget is spent
-// (the cron then reports work left). A D1 without assistant_threads (before
-// migration 0027) or without the switch's column (before 0030) never counts
-// an owner by the missing side — the table is checked in sqlite_master, as
-// the margin monitor does, and the column by a guarded read, as the
-// preferences do — so on a D1 without both the enumeration runs no query
-// and the cron indexes nobody instead of breaking.
-async function pinSearchOwners(env: CloudEnv, expired: () => boolean = () => false): Promise<string[]> {
-  const complimentary = complimentaryProUserIds(env);
-  if (!env.DB) {
-    const owners: string[] = [];
-    for (const ownerId of new Set(memoryPinSessionRows(() => true, Number.MAX_SAFE_INTEGER).map((row) => row.ownerId))) {
-      const account = ownerId ? memoryAccounts.get(ownerId) : undefined;
-      if (!account || !(account.plan === "pro" || complimentary.includes(ownerId))) continue;
-      // The AI-use sides, from the assistant's and the preferences' memory.
-      const hasConversation = (await cloudAssistantStore(env, ownerId).listThreads({ limit: 1, offset: 0 })).length > 0;
-      const hasSwitch = memoryOwnerPreferences.get(ownerId)?.autoCaptureDestination === true;
-      if (hasConversation || hasSwitch) owners.push(ownerId);
-    }
-    return owners;
-  }
-  // The AI-use sides this D1 has (see the function's comment): without
-  // both, no owner qualifies and the enumeration reads nothing.
-  const threads = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'assistant_threads'").first();
-  let switchReady = false;
-  try {
-    await env.DB.prepare("SELECT auto_capture_destination FROM owner_preferences LIMIT 1").first();
-    switchReady = true;
-  } catch {
-    // The column is not there yet (or the table is not yet either).
-  }
-  const sides: string[] = [];
-  if (threads) sides.push("EXISTS (SELECT 1 FROM assistant_threads t WHERE t.owner_id = s.user_id)");
-  if (switchReady) sides.push("EXISTS (SELECT 1 FROM owner_preferences p WHERE p.owner_id = s.user_id AND p.auto_capture_destination = 1)");
-  if (sides.length === 0) return [];
-  const groups: string[][] = [complimentary.slice(0, PIN_SEARCH_IN_CHUNK)];
-  for (let start = PIN_SEARCH_IN_CHUNK; start < complimentary.length; start += PIN_SEARCH_IN_CHUNK) {
-    groups.push(complimentary.slice(start, start + PIN_SEARCH_IN_CHUNK));
-  }
-  const latest = new Map<string, string>();
-  for (const [index, ids] of groups.entries()) {
-    if (index > 0 && expired()) break;
-    const listed = ids.length > 0 ? `u.id IN (${ids.map(() => "?").join(", ")})` : "";
-    // The first query also reads the plan column.
-    const plan = index > 0 ? listed : listed ? `u.plan = 'pro' OR ${listed}` : "u.plan = 'pro'";
-    const rows = await env.DB.prepare(
-      `SELECT s.user_id AS user_id, MAX(s.created_at) AS latest FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.pin_count > 0 AND (${plan}) AND (${sides.join(" OR ")}) GROUP BY s.user_id`,
-    ).bind(...ids).all();
-    for (const row of rows.results || []) {
-      const ownerId = String(row.user_id || "");
-      const at = String(row.latest || "");
-      if (ownerId && at > (latest.get(ownerId) ?? "")) latest.set(ownerId, at);
-    }
-  }
-  return [...latest.entries()]
-    .sort((left, right) => right[1].localeCompare(left[1]) || (left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0))
-    .map(([ownerId]) => ownerId);
-}
-
-/**
- * Daily cron job (A49): indexes the pins of each owner the cron covers — a
- * plan with AI, at least one session with pins, and AI use on the
- * account's side (an assistant conversation or the automatic capture
- * destination) — the owner's own sessions only, within 60 s for the whole
- * run, the owners' enumeration included (runCloudPinIndexCron starts the
- * budget before it). With the assistant's deployment gate off it reads
- * nothing.
- */
-export async function indexPinSearch(env: CloudEnv, options: { fetch?: typeof fetch; now?: () => Date } = {}) {
-  if (!(await cloudAssistantDeploymentEnabled(env))) return { failed: 0, indexed: 0, owners: 0, remaining: false };
-  const { runCloudPinIndexCron } = await import("./assistant/retrieval/runtime-cloud");
-  return runCloudPinIndexCron({
-    env,
-    ...(options.fetch ? { fetch: options.fetch } : {}),
-    now: options.now ?? currentDate,
-    // The owner as the cron's principal: only its id is read
-    // (ownedSessions, findOwnedSession), and pinSearchOwners already kept
-    // owners the cron covers (A49).
-    ownerData: (ownerId) => cloudPinSourceData(env, { id: ownerId, isPermanent: true, kind: "account", plan: "pro" }, { shared: false }),
-    owners: (expired) => pinSearchOwners(env, expired),
-    recordIndexCost: cloudIndexCostRecorder(env),
-  });
 }
 
 // The credits of a Cloud turn (F4 contract §2, decision A39): the turn

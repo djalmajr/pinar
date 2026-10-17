@@ -1735,3 +1735,255 @@ describe("cloud-api.ts loads the filing engines lazily", () => {
     assert.match(source, /await import\("\.\/filing\/runtime-cloud"\)/);
   });
 });
+
+// ---------- A53: one credit per capture whose automatic destination calls the engine ----------
+
+interface A53LedgerEntry {
+  credits: number;
+  feature: string;
+  status: string;
+  errorCode?: string;
+}
+
+// The two ledgers the tests run against: the migrated D1 (read by SQL) and
+// the in-memory fallback (read through GET /api/account/entitlements, whose
+// aiUsage now lists the capture_filing entries).
+interface A53Setup {
+  balance(): Promise<number>;
+  checkout: string;
+  close(): void;
+  cookie: string;
+  env: CloudEnv;
+  inbox: string;
+  ledger(): Promise<A53LedgerEntry[]>;
+  onboarding: string;
+  spendAll(): void | Promise<void>;
+}
+
+async function a53Entitlements(cookie: string, env: CloudEnv) {
+  const response = await handleCloudApiRequest(new Request("https://pinar.test/api/account/entitlements", { headers: { cookie } }), env);
+  assert.ok(response.status < 300, await response.clone().text());
+  return (await response.json()) as { aiCredits: { balance: number }; aiUsage: A53LedgerEntry[] };
+}
+
+function a53Setup(useDb: boolean): Promise<A53Setup> {
+  if (useDb) {
+    const db = migratedDatabase();
+    const env = filingEnv(db);
+    return signIn(db, env).then((cookie) => {
+      seedCollections(db);
+      return {
+        // The entitlements read seeds the pro grant before the spend, as
+        // the meter does at the first reservation.
+        async balance() {
+          return (await a53Entitlements(cookie, env)).aiCredits.balance;
+        },
+        checkout: "col_checkout",
+        close: () => db.close(),
+        cookie,
+        env,
+        inbox: "col_inbox",
+        async ledger() {
+          return (db.query("SELECT feature, status, error_code, credits FROM ai_credit_usages WHERE owner_id = ? ORDER BY created_at, rowid").all(OWNER) as Array<{ credits: number; error_code: string | null; feature: string; status: string }>)
+            .map((row) => ({ credits: row.credits, feature: row.feature, status: row.status, ...(row.error_code ? { errorCode: row.error_code } : {}) }));
+        },
+        onboarding: "col_onboarding",
+        spendAll: async () => {
+          await a53Entitlements(cookie, env);
+          db.query("UPDATE ai_credit_grants SET consumed_credits = credits WHERE owner_id = ?").run(OWNER);
+        },
+      };
+    });
+  }
+  const env: CloudEnv = { AI_API_KEY: "sk-ai-test", AI_BASE_URL: BASE_URL, AI_EMBEDDING_MODEL: EMBEDDING_MODEL, AI_MODEL: "mock", ASSISTANT_ENABLED: "true", DEPLOYMENT_ENV: "staging" };
+  const owner = seedCloudWebSessionForTests({ email: "mem@example.test", id: OWNER, plan: "pro" }, env);
+  return owner.then(async (ownerResult) => {
+    const call = (path: string, body: unknown, method = "POST") => handleCloudApiRequest(new Request(`https://pinar.test${path}`, {
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json", cookie: ownerResult.cookie },
+      method,
+    }), env).then((response) => {
+      assert.ok(response.status < 300, `${path}: ${response.status}`);
+      return (response.json()) as Promise<Record<string, any>>;
+    });
+    const projectsResponse = await handleCloudApiRequest(new Request("https://pinar.test/api/projects", { headers: { cookie: ownerResult.cookie } }), env);
+    const projects = ((await projectsResponse.json()) as { projects: Array<{ id: string; isProtected: boolean }> }).projects;
+    const personal = projects.find((project) => project.isProtected);
+    const collectionsResponse = await handleCloudApiRequest(
+      new Request(`https://pinar.test/api/projects/${personal!.id}/collections`, { headers: { cookie: ownerResult.cookie } }),
+      env,
+    );
+    const inbox = ((await collectionsResponse.json()) as { collections: Array<{ id: string; isProtected: boolean }> })
+      .collections.find((collection) => collection.isProtected)!.id;
+    const shop = await call("/api/projects", { name: "Shop" });
+    const checkout = (await call(`/api/projects/${shop.project.id}/collections`, { name: "Checkout" })).collection.id as string;
+    const onboarding = (await call(`/api/projects/${shop.project.id}/collections`, { name: "Onboarding" })).collection.id as string;
+    return {
+      async balance() {
+        return (await a53Entitlements(ownerResult.cookie, env)).aiCredits.balance;
+      },
+      checkout,
+      close: () => undefined,
+      cookie: ownerResult.cookie,
+      env,
+      inbox,
+      async ledger() {
+        return (await a53Entitlements(ownerResult.cookie, env)).aiUsage;
+      },
+      onboarding,
+      // The entitlements read seeds the pro grant; the meter's own
+      // reservations then spend the balance without calling any engine.
+      async spendAll() {
+        const before = await this.balance();
+        const { cloudCaptureFilingMeter, resolvePrincipal } = await import("../cloud-api");
+        const resolved = await resolvePrincipal(new Request("https://pinar.test/api/account/entitlements", { headers: { cookie: ownerResult.cookie } }), env);
+        if (!resolved) throw new Error("no principal");
+        for (let i = 0; i < before; i++) {
+          const state = await cloudCaptureFilingMeter(env, resolved, `drain_${i}`).reserve("mock");
+          if (state !== "reserved") throw new Error(`the drain stopped at ${state}`);
+        }
+      },
+    };
+  });
+}
+
+const a53Runtimes: Array<{ name: string; useDb: boolean }> = [
+  { name: "D1", useDb: true },
+  { name: "memory", useDb: false },
+];
+
+// The capture_filing entries of the ledger: with the status (and the error
+// code, that only the D1 read carries — the account view does not expose it).
+const filingRows = (rows: A53LedgerEntry[], useDb: boolean) => rows
+  .filter((entry) => entry.feature === "capture_filing")
+  .map((entry) => (useDb ? [entry.status, entry.errorCode] : [entry.status]));
+
+for (const runtime of a53Runtimes) {
+  describe(`cloud capture filing charges one credit when the engine is called (A53, ${runtime.name})`, () => {
+    beforeEach(() => {
+      resetCloudMemoryStateForTests();
+      resetRetrievalCapabilitiesCacheForTests();
+      setCloudNowForTests(NOW);
+      appliance = fakeAppliance({ engine: "none" });
+      setCloudFilingFetchForTests(((input: RequestInfo | URL, init?: RequestInit) => appliance.fetch(input, init)) as typeof fetch);
+    });
+
+    afterEach(() => {
+      setCloudFilingFetchForTests(null);
+      resetRetrievalCapabilitiesCacheForTests();
+      resetCloudMemoryStateForTests();
+    });
+
+    test("with balance: one credit when the engine chooses a collection, and also when it answers the Inbox", async () => {
+      const setup = await a53Setup(runtime.useDb);
+      try {
+        await writeOwnerDeliveryPreferences(setup.env, OWNER, { autoCaptureDestination: true });
+        appliance = fakeAppliance({ decide: decideFor("Onboarding", 0.95), engine: "decisions" });
+
+        const chosen = await shot(setup.env, setup.cookie, { id: "a53_chosen", title: "Onboarding" });
+        assert.equal(chosen.filing.reason, "chosen");
+        assert.equal(chosen.filing.collectionId, setup.onboarding);
+        assert.equal(await setup.balance(), 499, "the charge of one credit");
+        assert.deepEqual((await setup.ledger()).map((entry) => [entry.feature, entry.status, entry.credits]), [["capture_filing", "succeeded", 1]]);
+
+        appliance = fakeAppliance({ decide: decideFor("Onboarding", 0.4), engine: "decisions" });
+        const inbox = await shot(setup.env, setup.cookie, { id: "a53_inbox", title: "Onboarding" });
+        assert.equal(inbox.filing.reason, "low_confidence", "the engine answered with the Inbox");
+        assert.equal(inbox.filing.collectionId, null);
+        assert.equal(inbox.destination.collectionId, setup.inbox, "the capture is in the Inbox");
+        assert.equal(await setup.balance(), 498, "the answer to the Inbox charges the same one credit");
+        const rows = await setup.ledger();
+        assert.deepEqual(rows.map((entry) => [entry.feature, entry.status, entry.credits]).sort(), [
+          ["capture_filing", "succeeded", 1],
+          ["capture_filing", "succeeded", 1],
+        ]);
+      } finally {
+        setup.close();
+      }
+    });
+
+    test("without balance: the engine is not called and the capture is the Inbox with reason no_credits", async () => {
+      const setup = await a53Setup(runtime.useDb);
+      try {
+        await writeOwnerDeliveryPreferences(setup.env, OWNER, { autoCaptureDestination: true });
+        await setup.spendAll();
+        assert.equal(await setup.balance(), 0, "the balance is spent before the capture");
+        appliance = fakeAppliance({ decide: decideFor("Onboarding", 0.95), engine: "decisions" });
+
+        const body = await shot(setup.env, setup.cookie, { id: "a53_poor", title: "Onboarding" });
+        assert.equal(body.filing.reason, "no_credits");
+        assert.equal(body.filing.collectionId, null);
+        assert.equal(body.destination.collectionId, setup.inbox, "the capture still lands, in the Inbox");
+        assert.equal(appliance.engineCalls().length, 0, "no engine call without credits");
+        assert.deepEqual((await setup.ledger()).filter((entry) => entry.feature === "capture_filing" && entry.status === "succeeded"), [], "the capture itself was never reserved");
+      } finally {
+        setup.close();
+      }
+    });
+
+    test("an engine that fails or never answers refunds the credit and leaves the capture in the Inbox", async () => {
+      const setup = await a53Setup(runtime.useDb);
+      try {
+        await writeOwnerDeliveryPreferences(setup.env, OWNER, { autoCaptureDestination: true });
+
+        // A 500 from the engine: the credit goes back as ai_inference_failed.
+        appliance = fakeAppliance({ decide: () => new Response("boom", { status: 500 }), engine: "decisions" });
+        const failed = await shot(setup.env, setup.cookie, { id: "a53_failed", title: "Onboarding" });
+        assert.equal(failed.filing.reason, "error");
+        assert.equal(failed.filing.collectionId, null);
+        assert.equal(await setup.balance(), 500, "the refund");
+        let rows = await setup.ledger();
+        assert.deepEqual(filingRows(rows, runtime.useDb), runtime.useDb ? [["refunded", "ai_inference_failed"]] : [["refunded"]]);
+
+        // An engine that is detected but never answers: the filing's deadline
+        // fires and the reserved credit goes back.
+        appliance = fakeAppliance({ decide: () => new Promise<Response>(() => {}), engine: "decisions" });
+        const timeout = await shot(setup.env, setup.cookie, { id: "a53_timeout", title: "Onboarding" });
+        assert.equal(timeout.filing.reason, "timeout");
+        assert.equal(timeout.filing.collectionId, null);
+        assert.equal(timeout.destination.collectionId, setup.inbox);
+        assert.equal(await setup.balance(), 500, "the second refund");
+        rows = await setup.ledger();
+        assert.deepEqual(filingRows(rows, runtime.useDb), runtime.useDb
+          ? [["refunded", "ai_inference_failed"], ["refunded", "reservation_timeout"]]
+          : [["refunded"], ["refunded"]]);
+      } finally {
+        setup.close();
+      }
+    });
+
+    test("a re-upload of the same capture charges only once", async () => {
+      const setup = await a53Setup(runtime.useDb);
+      try {
+        await writeOwnerDeliveryPreferences(setup.env, OWNER, { autoCaptureDestination: true });
+        appliance = fakeAppliance({ decide: decideFor("Onboarding", 0.95), engine: "decisions" });
+
+        const first = await shot(setup.env, setup.cookie, { id: "a53_once", title: "Onboarding" });
+        assert.equal(first.filing.reason, "chosen");
+        const replay = await shot(setup.env, setup.cookie, { id: "a53_once", title: "Onboarding again" });
+        assert.equal(replay.filing.reason, "chosen", "the re-upload is decided again");
+        assert.equal(await setup.balance(), 499, "one capture, one credit");
+        const rows = await setup.ledger();
+        assert.deepEqual(rows.map((entry) => [entry.feature, entry.status, entry.credits]), [["capture_filing", "succeeded", 1]], "the earlier row is found, whatever its status");
+      } finally {
+        setup.close();
+      }
+    });
+
+    test("with the switch off nothing is charged and no engine is called", async () => {
+      const setup = await a53Setup(runtime.useDb);
+      try {
+        appliance = fakeAppliance({ decide: decideFor("Onboarding", 0.95), engine: "decisions" });
+
+        const body = await shot(setup.env, setup.cookie, { collectionId: setup.checkout, id: "a53_off_1", title: "Onboarding" });
+        assert.equal(body.destination.collectionId, setup.checkout);
+        assert.equal("filing" in body, false);
+        assert.equal(appliance.engineCalls().length, 0);
+        assert.deepEqual(await setup.ledger(), [], "no reservation, no charge");
+        assert.equal(await setup.balance(), 500, "the balance was never spent (the read itself seeds the grant)");
+      } finally {
+        setup.close();
+      }
+    });
+  });
+}

@@ -25,7 +25,11 @@
 // NOTHING), so a second run that day sends nothing; a failed send logs
 // `assistant_margin_email_failed`, gives the day back and the job goes on.
 // Without D1 there is no durable usage to read: the summary says so and no
-// alert is raised.
+// alert is raised. On a D1 before migration 0032 (its tables absent from
+// sqlite_master), the rest is computed without the index cost: no
+// index_cost alert, `indexCosts: "unavailable"` and null index figures in the
+// summary; without assistant_margin_emails no email goes out
+// (`email: "unavailable"`). The job ends normally either way.
 //
 // recordAssistantIndexCost is the recorder cloud-api.ts gives the gateway
 // calls of the index (pin search, index cron, capture filing); the appliance
@@ -53,9 +57,11 @@ export interface AssistantMarginSummary {
   costUsdMicros: number;
   database: boolean;
   fallbackTurns: number;
-  indexCalls: number;
-  indexCostUsdMicros: number;
-  indexUnknownCostCalls: number;
+  // null with indexCosts "unavailable": D1 before migration 0032.
+  indexCalls: number | null;
+  indexCostUsdMicros: number | null;
+  indexCosts?: "unavailable";
+  indexUnknownCostCalls: number | null;
   owners: number;
   revenueUsdMicros: number;
   tableTurns: number;
@@ -117,6 +123,17 @@ async function ownerTurns(db: MarginDatabase, from: string, to: string): Promise
   }));
 }
 
+const INDEX_COSTS_TABLE = "assistant_index_costs";
+const EMAILS_TABLE = "assistant_margin_emails";
+
+// The tables of migration 0032 that this D1 has (none before it).
+async function marginTables(db: MarginDatabase): Promise<Set<string>> {
+  const rows = await db.prepare(
+    `SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('${INDEX_COSTS_TABLE}', '${EMAILS_TABLE}')`,
+  ).all();
+  return new Set((rows.results ?? []).map((row) => String(row.name)));
+}
+
 async function indexCosts(db: MarginDatabase, from: string, to: string) {
   const row = await db.prepare(`
     SELECT COUNT(*) AS calls,
@@ -132,8 +149,11 @@ async function indexCosts(db: MarginDatabase, from: string, to: string) {
   };
 }
 
-/** The alerts of one window, in a fixed order: owners (by id), fallback, table, index. */
-export function assistantMarginAlerts(owners: OwnerTurns[], index: { costUsdMicros: number }): AssistantMarginAlert[] {
+/**
+ * The alerts of one window, in a fixed order: owners (by id), fallback,
+ * table, index; no index alert when the index cost is unavailable (null).
+ */
+export function assistantMarginAlerts(owners: OwnerTurns[], index: { costUsdMicros: number } | null): AssistantMarginAlert[] {
   const alerts: AssistantMarginAlert[] = [];
   let revenue = 0;
   let turns = 0;
@@ -154,7 +174,7 @@ export function assistantMarginAlerts(owners: OwnerTurns[], index: { costUsdMicr
   if (tabled.length > 0) {
     alerts.push({ alert: "table_cost", ownerIds: tabled.map((owner) => owner.ownerId), tableTurns: tabled.reduce((sum, owner) => sum + owner.tableTurns, 0) });
   }
-  if (index.costUsdMicros * ALERT_SHARE_DIVISOR > revenue) {
+  if (index !== null && index.costUsdMicros * ALERT_SHARE_DIVISOR > revenue) {
     alerts.push({ alert: "index_cost", indexCostUsdMicros: index.costUsdMicros, revenueUsdMicros: revenue });
   }
   return alerts;
@@ -182,11 +202,12 @@ async function sendAlertEmail(
   db: MarginDatabase | undefined,
   alerts: AssistantMarginAlert[],
   now: Date,
+  claimable: boolean, // assistant_margin_emails exists
 ): Promise<AssistantMarginEmail> {
   const to = env.OPS_ALERT_EMAIL?.trim();
   if (!to) return "off";
   if (alerts.length === 0) return "no_alerts";
-  if (!env.EMAIL || !db) return "unavailable";
+  if (!env.EMAIL || !db || !claimable) return "unavailable";
   const day = now.toISOString().slice(0, 10);
   const claimed = await db.prepare(
     "INSERT INTO assistant_margin_emails (day, created_at) VALUES (?, ?) ON CONFLICT(day) DO NOTHING RETURNING day",
@@ -218,18 +239,25 @@ export async function assistantMarginMonitor(env: CloudEnv, now: Date = new Date
   const windowEnd = now.toISOString();
   const windowStart = new Date(now.getTime() - MARGIN_WINDOW_MS).toISOString();
   const db = env.DB;
+  const tables = db ? await marginTables(db) : new Set<string>();
   const owners = db ? await ownerTurns(db, windowStart, windowEnd) : [];
-  const index = db ? await indexCosts(db, windowStart, windowEnd) : { calls: 0, costUsdMicros: 0, unknownCostCalls: 0 };
+  // Before migration 0032 the index cost is unavailable (null).
+  const index = !db
+    ? { calls: 0, costUsdMicros: 0, unknownCostCalls: 0 }
+    : tables.has(INDEX_COSTS_TABLE)
+      ? await indexCosts(db, windowStart, windowEnd)
+      : null;
   const alerts = assistantMarginAlerts(owners, index);
   for (const alert of alerts) console.warn(JSON.stringify({ message: "assistant_margin_alert", ...alert }));
-  const email = await sendAlertEmail(env, db, alerts, now);
+  const email = await sendAlertEmail(env, db, alerts, now, tables.has(EMAILS_TABLE));
   const summary: AssistantMarginSummary = {
     costUsdMicros: owners.reduce((sum, owner) => sum + owner.costUsdMicros, 0),
     database: Boolean(db),
     fallbackTurns: owners.reduce((sum, owner) => sum + owner.fallbackTurns, 0),
-    indexCalls: index.calls,
-    indexCostUsdMicros: index.costUsdMicros,
-    indexUnknownCostCalls: index.unknownCostCalls,
+    indexCalls: index?.calls ?? null,
+    indexCostUsdMicros: index?.costUsdMicros ?? null,
+    ...(index === null ? { indexCosts: "unavailable" as const } : {}),
+    indexUnknownCostCalls: index?.unknownCostCalls ?? null,
     owners: owners.length,
     revenueUsdMicros: owners.reduce((sum, owner) => sum + owner.credits * AI_CREDIT_REVENUE_USD_MICROS, 0),
     tableTurns: owners.reduce((sum, owner) => sum + owner.tableTurns, 0),
@@ -280,10 +308,8 @@ export async function cleanupAssistantMarginRecords(
 ): Promise<{ emails: number; indexCosts: number }> {
   const db = env.DB;
   if (!db) return { emails: 0, indexCosts: 0 };
-  const tables = await db.prepare(
-    "SELECT COUNT(*) AS tables FROM sqlite_master WHERE type = 'table' AND name IN ('assistant_index_costs', 'assistant_margin_emails')",
-  ).first();
-  if (count(tables?.tables) !== 2) return { emails: 0, indexCosts: 0 };
+  const tables = await marginTables(db);
+  if (!tables.has(INDEX_COSTS_TABLE) || !tables.has(EMAILS_TABLE)) return { emails: 0, indexCosts: 0 };
   const cutoff = new Date(now.getTime() - ASSISTANT_MARGIN_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const indexCosts = await db.prepare("DELETE FROM assistant_index_costs WHERE created_at < ?").bind(cutoff).run();
   const emails = await db.prepare("DELETE FROM assistant_margin_emails WHERE created_at < ?").bind(cutoff).run();

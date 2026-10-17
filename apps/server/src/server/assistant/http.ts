@@ -206,12 +206,11 @@ function routeAssistantRequest(request: Request, deps: AssistantRequestDeps): Pr
   }
   if (method === "POST") {
     const proposal = proposalActionFromPath(pathname);
-    if (proposal) return proposalRoute(deps, proposal.id, proposal.action);
+    if (proposal) return proposalRoute(deps, proposal.segment, proposal.action);
   }
-  // Wrong method, an undecodable thread or proposal id, or an unknown
-  // sub-path inside the assistant namespace. Thread- and proposal-shaped
-  // paths use their defined 404 codes; everything else reports the generic
-  // validation code.
+  // Wrong method, an undecodable thread id, or an unknown sub-path inside
+  // the assistant namespace. Thread- and proposal-shaped paths use their
+  // defined 404 codes; everything else reports the generic validation code.
   const code = isThreadShapedPath(pathname)
     ? "thread_not_found"
     : PROPOSAL_PATH.test(pathname) ? "proposal_not_found" : "invalid_request";
@@ -222,17 +221,26 @@ const PROPOSAL_PATH = /^\/api\/assistant\/proposals\/([^/]*)\/(confirm|reject|un
 
 type ProposalAction = "confirm" | "reject" | "undo";
 
-// The decoded id and action of /api/assistant/proposals/:id/:action, or
-// null for another shape or an undecodable id (the caller 404s). The id is
-// checked against ASSISTANT_PROPOSAL_ID_PATTERN by the route.
-function proposalActionFromPath(pathname: string): { action: ProposalAction; id: string } | null {
+// The action and the raw (still encoded) id segment of
+// /api/assistant/proposals/:id/:action, or null for another shape. The route
+// runs the status gate first and only then decodes and checks the segment,
+// so an undecodable id answers the same 403/503 as any other while the
+// assistant is unavailable.
+function proposalActionFromPath(pathname: string): { action: ProposalAction; segment: string } | null {
   const match = pathname.match(PROPOSAL_PATH);
-  if (!match) return null;
+  return match ? { action: match[2] as ProposalAction, segment: match[1] } : null;
+}
+
+// The decoded proposal id, or null when the segment does not decode or does
+// not match ASSISTANT_PROPOSAL_ID_PATTERN.
+function proposalIdFromSegment(segment: string): string | null {
+  let id: string;
   try {
-    return { action: match[2] as ProposalAction, id: decodeURIComponent(match[1]) };
+    id = decodeURIComponent(segment);
   } catch {
     return null;
   }
+  return ASSISTANT_PROPOSAL_ID_PATTERN.test(id) ? id : null;
 }
 
 // The status gate shared by the turn and the proposal routes:
@@ -246,11 +254,13 @@ async function unavailableResponse(deps: AssistantRequestDeps): Promise<Response
   return assistantError(503, "assistant_unavailable", "The assistant is unavailable");
 }
 
-async function proposalRoute(deps: AssistantRequestDeps, id: string, action: ProposalAction): Promise<Response> {
+async function proposalRoute(deps: AssistantRequestDeps, segment: string, action: ProposalAction): Promise<Response> {
   const now = deps.now ?? (() => new Date());
+  // Gate → id: the status answer comes first, whatever the id segment.
   const unavailable = await unavailableResponse(deps);
   if (unavailable) return unavailable;
-  if (!ASSISTANT_PROPOSAL_ID_PATTERN.test(id)) {
+  const id = proposalIdFromSegment(segment);
+  if (id === null) {
     return assistantError(404, "proposal_not_found", "Proposal not found");
   }
   const result = action === "confirm"

@@ -986,19 +986,41 @@ describe("assistant proposals over http", () => {
     assert.equal(ctx.writeHost.calls.length, 2);
   });
 
-  test("proposal routes sit behind the status gate: requires_pro 403, the rest 503", async () => {
+  test("proposal routes sit behind the status gate: requires_pro 403, the rest 503, whatever the id", async () => {
+    // A well-formed id, a malformed one and one that does not decode: the
+    // gate answers first for all of them.
+    const ids = ["apr_aaaaaaaaaaaaaaaaaaaaaaaa", "apr_bad", "%E0%A4%A"];
     for (const [reason, status, expected] of [
       ["requires_pro", 403, "assistant_requires_pro"],
       ["not_configured", 503, "assistant_unavailable"],
       ["disabled", 503, "assistant_unavailable"],
     ] as const) {
-      const ctx = proposalContext({ status: async () => ({ available: false, reason }) });
+      let gateCalls = 0;
+      const ctx = proposalContext({
+        status: async () => {
+          gateCalls += 1;
+          return { available: false, reason };
+        },
+      });
       for (const action of ["confirm", "reject", "undo"]) {
-        const response = await proposalAction(ctx.deps, "apr_aaaaaaaaaaaaaaaaaaaaaaaa", action);
-        assert.equal(response.status, status, `${reason} ${action}`);
-        assert.equal(((await response.json()) as { code: string }).code, expected);
+        for (const id of ids) {
+          const before = gateCalls;
+          const response = await proposalAction(ctx.deps, id, action);
+          assert.equal(response.status, status, `${reason} ${action} ${id}`);
+          assert.equal(((await response.json()) as { code: string }).code, expected, `${reason} ${action} ${id}`);
+          assert.equal(gateCalls, before + 1, `the gate ran for ${action} ${id}`);
+        }
       }
       assert.deepEqual(ctx.writeHost.calls, []);
+    }
+    // With the gate open, the malformed and the undecodable ids are 404.
+    const open = proposalContext();
+    for (const action of ["confirm", "reject", "undo"]) {
+      for (const id of ["apr_bad", "%E0%A4%A"]) {
+        const response = await proposalAction(open.deps, id, action);
+        assert.equal(response.status, 404, `${action} ${id}`);
+        assert.equal(((await response.json()) as { code: string }).code, "proposal_not_found", `${action} ${id}`);
+      }
     }
   });
 });

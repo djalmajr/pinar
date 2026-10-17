@@ -2941,38 +2941,19 @@ async function deleteMcpPin(env: CloudEnv, principal: Principal, sessionId: stri
       env.DB.prepare("DELETE FROM pin_review_events WHERE capture_id = ? AND pin_id = ?").bind(session.id, pinId),
       env.DB.prepare("DELETE FROM pin_reviews WHERE capture_id = ? AND pin_id = ?").bind(session.id, pinId),
       env.DB.prepare("DELETE FROM pin_comments WHERE capture_id = ? AND pin_id = ?").bind(session.id, pinId),
-      env.DB.prepare(
-        `INSERT INTO sessions (
-           id, url, title, shot_id, shot_url, pin_count, pins_json, created_at, user_id,
-           plan, is_permanent, byte_size, collection_id, position, include_screenshot, batch_id
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET url=excluded.url, title=excluded.title, shot_id=excluded.shot_id,
-         shot_url=excluded.shot_url, pin_count=excluded.pin_count, pins_json=excluded.pins_json,
-         created_at=excluded.created_at, user_id=excluded.user_id, plan=excluded.plan,
-         is_permanent=excluded.is_permanent, byte_size=excluded.byte_size,
-         collection_id=excluded.collection_id, position=excluded.position,
-         include_screenshot=excluded.include_screenshot, batch_id=excluded.batch_id`,
-      ).bind(
-        next.id,
-        next.page.url || "",
-        next.page.title || "",
-        next.shotId || "",
-        next.shotUrl || "",
+      // Only the pin columns: a move or a deletion that lands meanwhile keeps
+      // its collection, position and claim, and a deleted session stays gone.
+      env.DB.prepare("UPDATE sessions SET pin_count = ?, pins_json = ? WHERE id = ? AND user_id = ?").bind(
         capture.pins.length,
         encodeVisualCaptureJson(capture),
-        next.createdAt,
-        next.userId || "",
-        next.plan || "free",
-        next.isPermanent ? 1 : 0,
-        next.byteSize || 0,
-        next.collectionId || "",
-        next.position || 0,
-        next.includeScreenshot === false ? 0 : 1,
-        session.batchId ?? null,
+        session.id,
+        principal.id,
       ),
     ]);
   } else {
-    memorySessions.set(session.id, next);
+    // Only the pins, as in D1: the current row keeps its collection and position.
+    const current = memorySessions.get(session.id);
+    if (current) memorySessions.set(session.id, { ...current, pins: next.pins });
     memoryPinReviews.delete(pinReviewKey(session.id, pinId));
     for (let item = memoryPinReviewEvents.length - 1; item >= 0; item -= 1) {
       const event = memoryPinReviewEvents[item];

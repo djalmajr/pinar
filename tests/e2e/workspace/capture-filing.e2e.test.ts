@@ -13,8 +13,9 @@ import { isMobileViewport, openWorkspaceAccountMenu, openWorkspaceSidebar } from
 // a new capture (POST /api/shots) into the collection the model picked and
 // marks it; moving the session clears the mark. ai.json is written straight
 // into the e2e PINAR_HOME (see writeLocalAiSettings for why the AI settings
-// routes are never used); the dialog's own AI settings requests are answered
-// in the page and never reach the server.
+// routes are never used); the dialog's own AI settings requests, and their
+// subroutes, are answered in the page in every test and never reach the
+// server.
 const VALID_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 const home = e2eHomeDir();
 // The e2e PINAR_HOME persists between runs and other files use the same
@@ -29,7 +30,10 @@ const INBOX_FALLBACK = "Without AI available, new captures go to the Inbox.";
 const DESTINATION = "Capture destination";
 let fake: FakeModel;
 const createdSessions: string[] = [];
+const createdCollections: string[] = [];
 const createdProjects: string[] = [];
+// Every AI settings request the common route answered, as "METHOD /path".
+const aiSettingsRequests: string[] = [];
 
 test.skip(home === null, "the filing suite needs the local e2e server and its PINAR_HOME");
 
@@ -51,21 +55,62 @@ test.beforeEach(async ({ page, request }) => {
     localStorage.clear();
     sessionStorage.setItem("pinar-e2e-storage-ready", "true");
   });
+  // The dialog reads the AI settings whenever it opens and writes them from
+  // its AI section. Here every such request, subroutes included, is answered
+  // in the page and never forwarded: a read sees the AI switched off, and a
+  // write is refused and fails the test in afterEach. A test that saves adds
+  // its own route for that, which Playwright tries first.
+  await page.route("**/api/ai/settings**", async (route) => {
+    const method = route.request().method();
+    const path = new URL(route.request().url()).pathname;
+    aiSettingsRequests.push(`${method} ${path}`);
+    if (method === "GET" && path === "/api/ai/settings") {
+      await route.fulfill({ json: { apiKeyPreview: "", endpoint: "", hasApiKey: false, mode: "disabled", model: "", transcriptionModel: "" } });
+      return;
+    }
+    await route.fulfill({ json: { error: "AI settings are not written in this suite", ok: false }, status: 403 });
+  });
 });
 
 // Everything the test created, also after a failed assertion: the sessions
-// by id, then the project with its collections; the setting goes back off
-// and ai.json is removed.
+// by id, then the collections and the project; the setting goes back off and
+// ai.json is removed. A step that fails does not stop the others: the test
+// fails at the end with the list of what was left behind.
 test.afterEach(async ({ request }) => {
-  await setAutomatic(request, false);
-  if (home) removeLocalAiSettings(home);
+  const leftovers: string[] = [];
+  async function attempt(what: string, step: () => Promise<string | null>) {
+    try {
+      const problem = await step();
+      if (problem) leftovers.push(`${what}: ${problem}`);
+    } catch (error) {
+      leftovers.push(`${what}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  const deleted = (path: string, accepted: number[]) => async () => {
+    const status = (await request.delete(path)).status();
+    return accepted.includes(status) ? null : `DELETE answered ${status}`;
+  };
+  await attempt("the setting back off", async () => {
+    const response = await request.patch("/api/preferences", { data: { autoCaptureDestination: false } });
+    return response.ok() ? null : `PATCH answered ${response.status()}`;
+  });
+  await attempt("ai.json", async () => {
+    if (home) removeLocalAiSettings(home);
+    return null;
+  });
   for (const id of createdSessions.splice(0)) {
     // 404: a capture that failed before it was saved.
-    expect([200, 404]).toContain((await request.delete(`/api/history/${encodeURIComponent(id)}`)).status());
+    await attempt(`session ${id}`, deleted(`/api/history/${encodeURIComponent(id)}`, [200, 404]));
+  }
+  for (const id of createdCollections.splice(0)) {
+    await attempt(`collection ${id}`, deleted(`/api/collections/${encodeURIComponent(id)}`, [200]));
   }
   for (const id of createdProjects.splice(0)) {
-    expect((await request.delete(`/api/projects/${encodeURIComponent(id)}`)).status()).toBe(200);
+    await attempt(`project ${id}`, deleted(`/api/projects/${encodeURIComponent(id)}`, [200]));
   }
+  const writes = aiSettingsRequests.splice(0).filter((entry) => !entry.startsWith("GET "));
+  expect(leftovers, "cleanup left these behind").toEqual([]);
+  expect(writes, "AI settings writes no test answered").toEqual([]);
 });
 
 async function setAutomatic(request: APIRequestContext, value: boolean) {
@@ -88,55 +133,57 @@ interface Seed {
   project: { id: string; name: string };
 }
 
+// One POST from the page, the way the workspace and the capture send it.
+async function postFromPage<T>(page: Page, path: string, body: unknown): Promise<T> {
+  return page.evaluate(async ({ body, path }) => {
+    const response = await fetch(path, { body: JSON.stringify(body), headers: { "content-type": "application/json" }, method: "POST" });
+    if (!response.ok) throw new Error(`${path} answered ${response.status}`);
+    return response.json();
+  }, { body, path });
+}
+
 // A project with collections A and B, each with example captures, created
 // through the routes the workspace and the capture use while the setting is
-// off, plus the Inbox the capture falls back to.
+// off, plus the Inbox the capture falls back to. Each resource joins the
+// cleanup lists as soon as it exists (an example capture, whose id is known,
+// just before its POST), so a seed that fails halfway leaves nothing behind.
 async function seedWorkspace(page: Page, tag: string): Promise<Seed> {
   const label = `${run} ${test.info().project.name} ${tag}`;
   const prefix = `e2e_filing_${run}_${test.info().project.name}_${tag}`;
-  const seed = await page.evaluate(async ({ image, label, prefix }) => {
-    const post = async (path: string, body: unknown) => {
-      const response = await fetch(path, { body: JSON.stringify(body), headers: { "content-type": "application/json" }, method: "POST" });
-      if (!response.ok) throw new Error(`${path} answered ${response.status}`);
-      return response.json();
-    };
-    const { project } = await post("/api/projects", { name: `Filing ${label}` });
-    const { collection: a } = await post(`/api/projects/${project.id}/collections`, { name: `Design ${label}` });
-    const { collection: b } = await post(`/api/projects/${project.id}/collections`, { name: `Research ${label}` });
-    const examples = [
-      { collectionId: a.id, id: `${prefix}_example_a1`, title: `Checkout button spacing ${label}` },
-      { collectionId: a.id, id: `${prefix}_example_a2`, title: `Cart header alignment ${label}` },
-      { collectionId: b.id, id: `${prefix}_example_b1`, title: `Pricing copy interview ${label}` },
-    ];
-    for (const example of examples) {
-      await post("/api/shots", {
-        collectionId: example.collectionId,
-        id: example.id,
-        image,
-        page: { title: example.title, url: "https://example.test/examples" },
-        pins: [{ comment: "Example pin", kind: "element" }],
-      });
-    }
+  type Named = { id: string; name: string };
+  const { project } = await postFromPage<{ project: Named }>(page, "/api/projects", { name: `Filing ${label}` });
+  createdProjects.push(project.id);
+  const { collection: a } = await postFromPage<{ collection: Named }>(page, `/api/projects/${project.id}/collections`, { name: `Design ${label}` });
+  createdCollections.push(a.id);
+  const { collection: b } = await postFromPage<{ collection: Named }>(page, `/api/projects/${project.id}/collections`, { name: `Research ${label}` });
+  createdCollections.push(b.id);
+  const examples = [
+    { collectionId: a.id, id: `${prefix}_example_a1`, title: `Checkout button spacing ${label}` },
+    { collectionId: a.id, id: `${prefix}_example_a2`, title: `Cart header alignment ${label}` },
+    { collectionId: b.id, id: `${prefix}_example_b1`, title: `Pricing copy interview ${label}` },
+  ];
+  for (const example of examples) {
+    createdSessions.push(example.id);
+    await postFromPage(page, "/api/shots", {
+      collectionId: example.collectionId,
+      id: example.id,
+      image: VALID_PNG,
+      page: { title: example.title, url: "https://example.test/examples" },
+      pins: [{ comment: "Example pin", kind: "element" }],
+    });
+  }
+  const inboxId = await page.evaluate(async () => {
     const tree = (await (await fetch("/api/project-tree")).json()) as {
       tree: { projects: Array<{ collections: Array<{ id: string; isProtected: boolean }>; isProtected: boolean }> };
     };
-    const inbox = tree.tree.projects.find((item) => item.isProtected)?.collections.find((item) => item.isProtected);
-    return {
-      a: { id: a.id as string, name: a.name as string },
-      b: { id: b.id as string, name: b.name as string },
-      examples: examples.map((example) => example.id),
-      inboxId: inbox?.id ?? "",
-      project: { id: project.id as string, name: project.name as string },
-    };
-  }, { image: VALID_PNG, label, prefix });
-  createdProjects.push(seed.project.id);
-  createdSessions.push(...seed.examples);
-  expect(seed.inboxId, "the protected Inbox exists").not.toBe("");
+    return tree.tree.projects.find((item) => item.isProtected)?.collections.find((item) => item.isProtected)?.id ?? "";
+  });
+  expect(inboxId, "the protected Inbox exists").not.toBe("");
   return {
-    a: { ...seed.a, label: `${seed.project.name} / ${seed.a.name}` },
-    b: { ...seed.b, label: `${seed.project.name} / ${seed.b.name}` },
-    inboxId: seed.inboxId,
-    project: seed.project,
+    a: { id: a.id, label: `${project.name} / ${a.name}`, name: a.name },
+    b: { id: b.id, label: `${project.name} / ${b.name}`, name: b.name },
+    inboxId,
+    project: { id: project.id, name: project.name },
   };
 }
 
@@ -278,6 +325,62 @@ test("the switch needs the AI, follows a saved AI setup and saves the setting", 
   await expect.poll(() => storedAutomatic(request)).toBe(false);
 });
 
+test("a preferences read that started before the switch was saved does not turn it back off", async ({ page, request }) => {
+  // Save in the AI section succeeds in the page, as in the test above.
+  await page.route("**/api/ai/settings", async (route) => {
+    await route.fulfill(route.request().method() === "PATCH"
+      ? { json: { apiKeyPreview: "", hasApiKey: false, ok: true, tested: { model: "fake-model" } } }
+      : { json: { apiKeyPreview: "", endpoint: fake.endpoint, hasApiKey: false, mode: "local", model: "fake-model", transcriptionModel: "" } });
+  });
+  // Every read says the server can choose, so the switch is usable from the
+  // start. The first read after the save is answered by the server at once,
+  // with the switch still off, and held in the page until released.
+  let holdNextRead = false;
+  let heldReads = 0;
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/preferences", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as Record<string, unknown>;
+    if (route.request().method() === "GET" && holdNextRead) {
+      holdNextRead = false;
+      heldReads += 1;
+      await held;
+    }
+    await route.fulfill({ json: { ...body, autoCaptureDestinationAvailable: true }, status: response.status() });
+  });
+  try {
+    await page.goto("/app");
+    const dialog = await openCaptureSettings(page);
+    await settingsSection(dialog, "AI Assistant").click();
+    holdNextRead = true;
+    await dialog.getByRole("button", { exact: true, name: "Save" }).filter({ visible: true }).click();
+    await expect.poll(() => heldReads).toBe(1);
+
+    await settingsSection(dialog, "Capture").click();
+    const toggle = dialog.getByRole("switch", { name: SWITCH });
+    await expect(toggle).toBeEnabled();
+    await toggle.click();
+    await expect(toggle).toBeChecked();
+    await expect.poll(() => storedAutomatic(request)).toBe(true);
+
+    // The held read now answers "off": it started before the save, so the
+    // switch stays on.
+    const staleAnswer = page.waitForEvent("requestfinished", (finished) =>
+      finished.method() === "GET" && new URL(finished.url()).pathname === "/api/preferences");
+    release();
+    await staleAnswer;
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 300)));
+    await expect(toggle).toBeChecked();
+    await expect(dialog.getByRole("combobox", { name: DESTINATION })).toBeDisabled();
+    expect(await storedAutomatic(request)).toBe(true);
+  } finally {
+    release();
+  }
+});
+
 test("with the setting on and the AI removed, the switch shows on, can be turned off, and the selector stays locked until then", async ({ page, request }) => {
   await page.goto("/app");
   const seed = await seedWorkspace(page, "no-ai");
@@ -297,6 +400,8 @@ test("with the setting on and the AI removed, the switch shows on, can be turned
 
   await page.goto("/app");
   const dialog = await openCaptureSettings(page);
+  // Opening the dialog reads the AI settings: the common route answered it.
+  await expect.poll(() => aiSettingsRequests).toContain("GET /api/ai/settings");
   const toggle = dialog.getByRole("switch", { name: SWITCH });
   const destination = dialog.getByRole("combobox", { name: DESTINATION });
   await expect(toggle).toBeChecked();

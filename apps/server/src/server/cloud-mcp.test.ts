@@ -26,7 +26,13 @@ const SHARE_TOKEN = `pak_${"s".repeat(43)}`;
 // SQLite-as-D1 model: batch() runs inside a transaction and rolls back on
 // error, exactly as D1 does, and an optional failWhen hook injects a
 // statement fault (borrowed from the reviewer-verified pins-matrix probe).
-function sqliteD1(db: Database, failWhen?: (sql: string) => boolean): NonNullable<CloudEnv["DB"]> {
+// An optional afterFirst hook runs after each first() read, so a test can
+// land a concurrent write between a read and the write that follows it.
+function sqliteD1(
+  db: Database,
+  failWhen?: (sql: string) => boolean,
+  afterFirst?: (sql: string, row: Record<string, unknown> | null) => void,
+): NonNullable<CloudEnv["DB"]> {
   const statement = (query: string) => {
     let params: unknown[] = [];
     const bound = {
@@ -38,7 +44,9 @@ function sqliteD1(db: Database, failWhen?: (sql: string) => boolean): NonNullabl
         return bound;
       },
       async first() {
-        return (db.query(query).get(...params) as Record<string, unknown> | null) ?? null;
+        const row = (db.query(query).get(...params) as Record<string, unknown> | null) ?? null;
+        afterFirst?.(query, row);
+        return row;
       },
       async run() {
         if (failWhen?.(query)) throw new Error("injected D1 failure");
@@ -2293,6 +2301,91 @@ describe("cloud MCP endpoint", () => {
     }
   });
 
+  test("delete_pin writes only the pins, so a move that lands after its read keeps the collection and the batch claim", async () => {
+    const db = migratedDatabase();
+    try {
+      const seeded = await seedMcpWorkspace(db);
+      db.query("INSERT INTO batches (id, user_id, label, started_at, filing_collection_id) VALUES (?, ?, 'Batch', ?, ?)")
+        .run("batch_race", "usr_mcp", NOW, "collection_mcp");
+      db.query(
+        "INSERT INTO sessions (id, url, title, shot_id, shot_url, pin_count, pins_json, created_at, user_id, plan, is_permanent, byte_size, collection_id, position, batch_id) "
+          + "VALUES (?, ?, ?, ?, ?, 2, ?, ?, ?, 'pro', 1, 1, ?, 0, ?)",
+      ).run(
+        "session_race",
+        "https://example.test/race",
+        "Race",
+        "session_race",
+        "https://pinar.test/shots/session_race.png",
+        JSON.stringify([{ comment: "first", number: 1 }, { comment: "second", number: 2 }]),
+        NOW,
+        "usr_mcp",
+        "collection_mcp",
+        "batch_race",
+      );
+      // A move, as moveSession writes it (the session and the batch claim),
+      // lands right after delete_pin read the session.
+      let moved = false;
+      const env: CloudEnv = {
+        ...seeded,
+        DB: sqliteD1(db, undefined, (sql, row) => {
+          if (moved || row?.id !== "session_race" || !sql.startsWith("SELECT * FROM sessions WHERE id = ?")) return;
+          moved = true;
+          db.query("UPDATE sessions SET collection_id = ?, position = 7, filed_by = NULL WHERE id = ?").run("collection_target", "session_race");
+          db.query("UPDATE batches SET filing_collection_id = ? WHERE id = ?").run("collection_target", "batch_race");
+        }),
+      };
+
+      const deleted = await callTool(env, "pinar.delete_pin", { pinId: "session_race:p1", sessionId: "session_race" }, MANAGE_TOKEN);
+      assert.equal(deleted.result.isError, undefined);
+      assert.ok(moved, "the move landed between the read and the write");
+      const row = db.query("SELECT collection_id, position, pin_count, pins_json FROM sessions WHERE id = ?").get("session_race") as Record<string, unknown>;
+      assert.equal(row.collection_id, "collection_target", "the move survives the pin deletion");
+      assert.equal(row.position, 7);
+      assert.equal(row.pin_count, 1);
+      assert.ok(!String(row.pins_json).includes("first"));
+      const claim = db.query("SELECT filing_collection_id FROM batches WHERE id = ?").get("batch_race") as { filing_collection_id: string };
+      assert.equal(claim.filing_collection_id, row.collection_id, "the batch claim still matches the session");
+    } finally {
+      db.close();
+    }
+  });
+
+  test("delete_pin never brings back a session deleted after its read", async () => {
+    const db = migratedDatabase();
+    try {
+      const seeded = await seedMcpWorkspace(db);
+      db.query(
+        "INSERT INTO sessions (id, url, title, shot_id, shot_url, pin_count, pins_json, created_at, user_id, plan, is_permanent, byte_size, collection_id, position) "
+          + "VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, 'pro', 1, 1, ?, 0)",
+      ).run(
+        "session_gone",
+        "https://example.test/gone",
+        "Gone",
+        "session_gone",
+        "https://pinar.test/shots/session_gone.png",
+        JSON.stringify([{ comment: "only", number: 1 }]),
+        NOW,
+        "usr_mcp",
+        "collection_mcp",
+      );
+      let removed = false;
+      const env: CloudEnv = {
+        ...seeded,
+        DB: sqliteD1(db, undefined, (sql, row) => {
+          if (removed || row?.id !== "session_gone" || !sql.startsWith("SELECT * FROM sessions WHERE id = ?")) return;
+          removed = true;
+          db.query("DELETE FROM sessions WHERE id = ?").run("session_gone");
+        }),
+      };
+
+      await callTool(env, "pinar.delete_pin", { pinId: "session_gone:p1", sessionId: "session_gone" }, MANAGE_TOKEN);
+      assert.ok(removed);
+      assert.equal(db.query("SELECT id FROM sessions WHERE id = ?").get("session_gone"), null);
+    } finally {
+      db.close();
+    }
+  });
+
   test("list_pins, get_pin and delete_pin reject unknown arguments without writes", async () => {
     const db = migratedDatabase();
     try {
@@ -2459,7 +2552,7 @@ describe("cloud MCP endpoint", () => {
       const baseline = state();
 
       const faults: Array<[string, RegExp]> = [
-        ["fail-on-session-upsert", /INSERT INTO sessions/],
+        ["fail-on-session-write", /UPDATE sessions SET pin_count/],
         ["fail-on-comment-delete", /DELETE FROM pin_comments/],
         ["fail-on-review-delete", /DELETE FROM pin_reviews WHERE/],
       ];

@@ -3020,38 +3020,19 @@ async function deleteMcpPin(env: CloudEnv, principal: Principal, sessionId: stri
       env.DB.prepare("DELETE FROM pin_review_events WHERE capture_id = ? AND pin_id = ?").bind(session.id, pinId),
       env.DB.prepare("DELETE FROM pin_reviews WHERE capture_id = ? AND pin_id = ?").bind(session.id, pinId),
       env.DB.prepare("DELETE FROM pin_comments WHERE capture_id = ? AND pin_id = ?").bind(session.id, pinId),
-      env.DB.prepare(
-        `INSERT INTO sessions (
-           id, url, title, shot_id, shot_url, pin_count, pins_json, created_at, user_id,
-           plan, is_permanent, byte_size, collection_id, position, include_screenshot, batch_id
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET url=excluded.url, title=excluded.title, shot_id=excluded.shot_id,
-         shot_url=excluded.shot_url, pin_count=excluded.pin_count, pins_json=excluded.pins_json,
-         created_at=excluded.created_at, user_id=excluded.user_id, plan=excluded.plan,
-         is_permanent=excluded.is_permanent, byte_size=excluded.byte_size,
-         collection_id=excluded.collection_id, position=excluded.position,
-         include_screenshot=excluded.include_screenshot, batch_id=excluded.batch_id`,
-      ).bind(
-        next.id,
-        next.page.url || "",
-        next.page.title || "",
-        next.shotId || "",
-        next.shotUrl || "",
+      // Only the pin columns: a move or a deletion that lands meanwhile keeps
+      // its collection, position and claim, and a deleted session stays gone.
+      env.DB.prepare("UPDATE sessions SET pin_count = ?, pins_json = ? WHERE id = ? AND user_id = ?").bind(
         capture.pins.length,
         encodeVisualCaptureJson(capture),
-        next.createdAt,
-        next.userId || "",
-        next.plan || "free",
-        next.isPermanent ? 1 : 0,
-        next.byteSize || 0,
-        next.collectionId || "",
-        next.position || 0,
-        next.includeScreenshot === false ? 0 : 1,
-        session.batchId ?? null,
+        session.id,
+        principal.id,
       ),
     ]);
   } else {
-    memorySessions.set(session.id, next);
+    // Only the pins, as in D1: the current row keeps its collection and position.
+    const current = memorySessions.get(session.id);
+    if (current) memorySessions.set(session.id, { ...current, pins: next.pins });
     memoryPinReviews.delete(pinReviewKey(session.id, pinId));
     for (let item = memoryPinReviewEvents.length - 1; item >= 0; item -= 1) {
       const event = memoryPinReviewEvents[item];
@@ -3755,6 +3736,9 @@ async function issueAccountDeviceSession(env: CloudEnv, account: AccountRecord, 
   return { expiresAt, session: accountAuthSession(account), token };
 }
 
+// Moves the installation's Inbox sessions to the account's Inbox without
+// touching batch claims (A36): an installation is Free, and only a Pro
+// capture with automatic filing claims a batch, so it has none to update.
 async function migrateInstallationToAccount(
   env: CloudEnv,
   account: AccountRecord,
@@ -5309,9 +5293,17 @@ async function moveSession(
     const existing = await env.DB.prepare("SELECT id FROM sessions WHERE id = ? AND user_id = ?")
       .bind(sessionId, principal.id).first();
     if (!existing) return null;
-    await env.DB.prepare(
-      "UPDATE sessions SET collection_id = ?, position = ?, filed_by = NULL WHERE id = ? AND user_id = ?",
-    ).bind(collectionId, position, sessionId, principal.id).run();
+    // The session's batch claim follows the move in the same D1 batch (A36).
+    await env.DB.batch([
+      env.DB.prepare(
+        "UPDATE sessions SET collection_id = ?, position = ?, filed_by = NULL WHERE id = ? AND user_id = ?",
+      ).bind(collectionId, position, sessionId, principal.id),
+      env.DB.prepare(`
+        UPDATE batches SET filing_collection_id = ?
+        WHERE user_id = ? AND filing_collection_id IS NOT NULL
+          AND id = (SELECT batch_id FROM sessions WHERE id = ? AND user_id = ?)
+      `).bind(collectionId, principal.id, sessionId, principal.id),
+    ]);
     const row = await env.DB.prepare("SELECT * FROM sessions WHERE id = ? AND user_id = ?")
       .bind(sessionId, principal.id).first();
     return row ? sessionFromRow(row) : null;
@@ -5321,7 +5313,24 @@ async function moveSession(
   session.collectionId = collectionId;
   delete session.filedBy;
   session.position = position;
+  claimFollowsMemoryMove(principal, session, collectionId);
   return session;
+}
+
+// A36: a move is the batch's current destination. The claim of a moved
+// session's batch, once a first capture made one, becomes the collection
+// the session moved to; a batch without a claim keeps none. In D1 this runs
+// in the move's own batch (moveSession, deleteCollectionContainer); this is
+// the in-memory equivalent.
+function claimFollowsMemoryMove(principal: Principal, session: Session, collectionId: string) {
+  claimFollowsMemoryBatch(principal.id, cloudSessionBatchId(session), collectionId);
+}
+
+// The in-memory claim of `batchId` becomes `collectionId` when `ownerId`
+// owns the batch and a first capture already claimed it.
+function claimFollowsMemoryBatch(ownerId: string, batchId: string | null | undefined, collectionId: string) {
+  const batch = batchId ? memoryBatches.get(batchId) : undefined;
+  if (batch && batch.userId === ownerId && batch.filingCollectionId) batch.filingCollectionId = collectionId;
 }
 
 async function reorderSessionIds(
@@ -5367,6 +5376,13 @@ async function deleteCollectionContainer(env: CloudEnv, principal: Principal, id
     const start = await nextSessionPosition(env, principal, fallback.collectionId);
     const timestamp = new Date().toISOString();
     await env.DB.batch([
+      // The claims of the moved sessions' batches go to the Inbox with them
+      // (A36), read before the sessions leave the collection.
+      env.DB.prepare(`
+        UPDATE batches SET filing_collection_id = ?
+        WHERE user_id = ? AND filing_collection_id IS NOT NULL
+          AND id IN (SELECT batch_id FROM sessions WHERE collection_id = ? AND user_id = ? AND batch_id IS NOT NULL)
+      `).bind(fallback.collectionId, principal.id, id, principal.id),
       ...sessions.map((session, index) => env.DB?.prepare(`
         UPDATE sessions SET collection_id = ?, position = ?, filed_by = NULL WHERE id = ? AND user_id = ?
       `).bind(fallback.collectionId, start + index, session.id, principal.id)).filter(
@@ -5389,6 +5405,7 @@ async function deleteCollectionContainer(env: CloudEnv, principal: Principal, id
       delete stored.filedBy;
       stored.position = position;
       position += 1;
+      claimFollowsMemoryMove(principal, stored, fallback.collectionId);
     }
     const timestamp = new Date().toISOString();
     promoted.forEach((item, index) => {
@@ -5426,10 +5443,19 @@ async function deleteProjectContainer(env: CloudEnv, principal: Principal, id: s
 // Writes the whole row, `filedBy` included: an edit keeps the automatic-filing
 // mark because it starts from the stored session; a new capture is marked by
 // passing `filedBy: "auto"` on the session it saves.
+//
+// A36: every write of a batch session also moves the batch's claim, once a
+// first capture made one, to the session's collection: the claim is the
+// collection of the batch session written last, as the batch rule (A27)
+// reads it. In D1 the claim's UPDATE runs in the upsert's own batch, for the
+// session's owner only (`user_id`); without a batch, or without a claim, no
+// claim is written. moveSession and deleteCollectionContainer update the
+// claim on their own paths.
 export async function persistSession(env: CloudEnv, session: Session, batchId: string | null = null) {
   const capture = captureFromSession(session);
+  const claimCollectionId = batchId ? session.collectionId || "" : "";
   if (env.DB) {
-    await env.DB.prepare(
+    const upsert = env.DB.prepare(
       `INSERT INTO sessions (
          id, url, title, shot_id, shot_url, pin_count, pins_json, created_at, user_id,
          plan, is_permanent, byte_size, collection_id, position, include_screenshot, batch_id, filed_by
@@ -5459,9 +5485,20 @@ export async function persistSession(env: CloudEnv, session: Session, batchId: s
       session.includeScreenshot === false ? 0 : 1,
       batchId,
       session.filedBy === "auto" ? "auto" : null,
-    ).run();
+    );
+    if (claimCollectionId) {
+      await env.DB.batch([
+        upsert,
+        env.DB.prepare(
+          "UPDATE batches SET filing_collection_id = ? WHERE id = ? AND user_id = ? AND filing_collection_id IS NOT NULL",
+        ).bind(claimCollectionId, batchId, session.userId || ""),
+      ]);
+    } else {
+      await upsert.run();
+    }
   } else {
     memorySessions.set(session.id, withCloudBatchId(sessionFromCapture(capture, session), batchId));
+    if (claimCollectionId) claimFollowsMemoryBatch(session.userId || "", batchId, claimCollectionId);
   }
   // Title, URL, notes or pins may have changed: the pin index of the session
   // is stale for its next pass (best effort, never fails the write).
@@ -6716,8 +6753,11 @@ async function fileCloudShot(
 // (the collection it resolved, the Inbox included); a concurrent first
 // capture of the same batch, which also found the batch without a session,
 // reads the claim back and follows it. The UPDATE only writes an empty
-// claim, so the first one wins. Returns the batch's destination after the
-// claim, or null when the batch is not the owner's.
+// claim, so the first one wins; afterwards every move of a batch session
+// (moveSession, claimFollowsMemoryMove) and every write of one
+// (persistSession) updates it, so it is the batch's current one. Returns
+// the batch's destination after the claim, or null when the batch is not
+// the owner's.
 async function claimBatchDestination(
   env: CloudEnv,
   principal: Principal,
@@ -6761,6 +6801,81 @@ async function followClaimedBatch(
       filing: { collectionId: candidate ? claimed : null, confidence: 0, engine: "none", reason: "chosen" },
     },
   };
+}
+
+// The capture follows the batch's most recent session, at its current
+// collection and with its mark, as the batch rule does (A27): unmarked when
+// that session is in the Inbox, and in the Inbox, unmarked, when its
+// collection is gone before the save.
+async function followBatchSession(
+  env: CloudEnv,
+  principal: Principal,
+  session: { collectionId: string; filedBy: "auto" | null },
+): Promise<{ destination: CaptureDestination; filed: FilingOutcome }> {
+  const collections = await cloudFilingSource(env, principal).collections();
+  const candidate = collections.some((collection) => collection.collectionId === session.collectionId);
+  const destination = await resolveDestination(env, principal, candidate ? session.collectionId : "");
+  if (candidate && destination.collectionId !== session.collectionId) {
+    return { destination, filed: { filedBy: null, filing: { collectionId: null, confidence: 0, engine: "none", reason: "error" } } };
+  }
+  return {
+    destination,
+    filed: {
+      filedBy: candidate ? session.filedBy : null,
+      filing: { collectionId: candidate ? session.collectionId : null, confidence: 0, engine: "none", reason: "chosen" },
+      followedBatch: true,
+    },
+  };
+}
+
+// A re-upload: the owner already has a session with this id in this batch.
+async function ownSessionInBatch(env: CloudEnv, principal: Principal, id: string, batchId: string): Promise<boolean> {
+  if (env.DB) {
+    const row = await env.DB.prepare(
+      "SELECT id FROM sessions WHERE id = ? AND user_id = ? AND batch_id = ?",
+    ).bind(id, principal.id, batchId).first();
+    return row !== null;
+  }
+  const session = memorySessions.get(id);
+  return Boolean(session && session.userId === principal.id && cloudSessionBatchId(session) === batchId);
+}
+
+// The batch's destination becomes this one, whatever was claimed before.
+async function replaceBatchDestination(env: CloudEnv, principal: Principal, batchId: string, collectionId: string) {
+  if (env.DB) {
+    await env.DB.prepare(
+      "UPDATE batches SET filing_collection_id = ? WHERE id = ? AND user_id = ?",
+    ).bind(collectionId, batchId, principal.id).run();
+    return;
+  }
+  const batch = memoryBatches.get(batchId);
+  if (batch && batch.userId === principal.id) batch.filingCollectionId = collectionId;
+}
+
+// After the engine chose for a batch that had no session when it was asked
+// (A36), in this order:
+// 1. A session saved in the batch during the wait decides, read again as
+//    the batch rule reads it (without this capture): the capture follows
+//    its current collection and mark, so a move made meanwhile still
+//    corrects the batch.
+// 2. A re-upload of the batch's own session keeps the new decision, which
+//    becomes the batch's destination; the earlier claim is not applied.
+// 3. Otherwise the capture claims the batch's destination, or follows the
+//    current one: claimed by a concurrent first capture, or moved since.
+async function settleBatchDestination(
+  env: CloudEnv,
+  principal: Principal,
+  input: { batchId: string; destination: CaptureDestination; filed: FilingOutcome; id: string },
+): Promise<{ destination: CaptureDestination; filed: FilingOutcome }> {
+  const latest = await cloudFilingSource(env, principal).batchSession(input.batchId, input.id);
+  if (latest) return followBatchSession(env, principal, latest);
+  if (await ownSessionInBatch(env, principal, input.id, input.batchId)) {
+    await replaceBatchDestination(env, principal, input.batchId, input.destination.collectionId);
+    return { destination: input.destination, filed: input.filed };
+  }
+  const claimed = await claimBatchDestination(env, principal, input.batchId, input.destination.collectionId);
+  if (claimed !== null && claimed !== input.destination.collectionId) return followClaimedBatch(env, principal, claimed);
+  return { destination: input.destination, filed: input.filed };
 }
 
 // GET and PATCH /api/preferences: the automatic destination can be turned
@@ -6840,13 +6955,9 @@ async function uploadShot(request: Request, env: CloudEnv) {
     if (filed.filing.collectionId !== null && filed.filing.collectionId !== destination.collectionId) {
       filed = { filedBy: null, filing: { ...filed.filing, collectionId: null, reason: "error" } };
     }
-    // A batch without a session yet: claim its destination, or follow the
-    // one a concurrent capture claimed first (A36).
+    // A batch that had no session when the engine was asked (A36).
     if (batchId && !filed.followedBatch) {
-      const claimed = await claimBatchDestination(env, principal, batchId, destination.collectionId);
-      if (claimed !== null && claimed !== destination.collectionId) {
-        ({ destination, filed } = await followClaimedBatch(env, principal, claimed));
-      }
+      ({ destination, filed } = await settleBatchDestination(env, principal, { batchId, destination, filed, id }));
     }
   }
   if (env.PINAR_BUCKET) {

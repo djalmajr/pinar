@@ -129,6 +129,14 @@ describe("embedTexts", () => {
     await assert.rejects(embedTexts({ endpoint, fetch: nonNumeric.fetch, kind: "document", texts: ["t1"] }), /embedding response invalid/);
   });
 
+  test("rejects a batch where only some items carry an index", async () => {
+    const mixed = fakeFetch(() => Response.json({ data: [{ embedding: vectorFor("t2"), index: 1 }, { embedding: vectorFor("t1") }] }));
+    await assert.rejects(embedTexts({ endpoint, fetch: mixed.fetch, kind: "document", texts: ["t1", "t2"] }), /embedding response invalid/);
+    const positional = fakeFetch(() => Response.json({ data: [{ embedding: vectorFor("t1") }, { embedding: vectorFor("t2") }] }));
+    const vectors = await embedTexts({ endpoint, fetch: positional.fetch, kind: "document", texts: ["t1", "t2"] });
+    assert.deepEqual(vectors, [vectorFor("t1"), vectorFor("t2")]);
+  });
+
   test("one bad batch rejects the whole call and stops new batches", async () => {
     const fake = fakeFetch((call) => (call.body.input[0] === "t0" ? new Response("boom", { status: 500 }) : embeddingsResponse(call.body.input)));
     await assert.rejects(embedTexts({ endpoint, fetch: fake.fetch, kind: "document", texts: texts(200) }), /embedding request failed \(status 500\)/);

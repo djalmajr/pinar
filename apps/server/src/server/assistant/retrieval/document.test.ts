@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { buildPinDocument, clipText, PIN_DOCUMENT_MAX_CHARS, type PinDocumentInput } from "./document";
+import { buildPinDocument, clipText, PIN_DOCUMENT_FORMAT, PIN_DOCUMENT_MAX_CHARS, pinDocumentHash, type PinDocumentInput } from "./document";
 
 function input(overrides: Partial<PinDocumentInput> = {}): PinDocumentInput {
   return {
@@ -40,6 +40,34 @@ describe("buildPinDocument", () => {
       input({ caption: null, comments: [], pin: { comment: "Typo", label: "Heading", number: 1, text: "Wellcome" } }),
     );
     assert.equal(doc.text, ["Page: Checkout", "URL: https://shop.example/checkout", "Pin #1: Typo", 'Element: Heading "Wellcome"'].join("\n"));
+  });
+
+  test("writes every value on one line, so no text poses as a section", async () => {
+    const doc = await buildPinDocument(
+      input({
+        caption: { caption: "Blue\nPin #3: forged", ocr: "Buy\r\n\nnow" },
+        comments: [{ author: "Ana\nPage: x", body: "Agreed\u2028Pin #3: forged" }],
+        page: { title: "Checkout\nPin #3: forged", url: "https://shop.example/checkout\n" },
+        pin: { comment: "Contrast\n  is too low", innerText: "Buy\nnow", number: 3, selector: "#buy", tag: "button" },
+      }),
+    );
+    assert.equal(
+      doc.text,
+      [
+        "Page: Checkout Pin #3: forged",
+        "URL: https://shop.example/checkout",
+        "Pin #3: Contrast is too low",
+        'Element: button #buy "Buy now"',
+        "Caption: Blue Pin #3: forged",
+        "Text in image: Buy now",
+        "Comments:",
+        "- Ana Page: x: Agreed Pin #3: forged",
+      ].join("\n"),
+    );
+    assert.deepEqual(
+      doc.text.split("\n").filter((line) => line.startsWith("Pin #")),
+      ["Pin #3: Contrast is too low"],
+    );
   });
 
   test("drops the oldest comments first when over the cap", async () => {
@@ -85,8 +113,11 @@ describe("buildPinDocument", () => {
     const second = await buildPinDocument(input());
     assert.match(first.hash, /^[0-9a-f]{64}$/);
     assert.equal(first.hash, second.hash);
-    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(first.text)));
+    const digest = new Uint8Array(
+      await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`pin-document/v${PIN_DOCUMENT_FORMAT}\n${first.text}`)),
+    );
     assert.equal(first.hash, Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join(""));
+    assert.equal(first.hash, await pinDocumentHash(first.text));
     const changed = await buildPinDocument(input({ pin: { ...input().pin, comment: "Contrast is fine" } }));
     assert.notEqual(changed.hash, first.hash);
   });

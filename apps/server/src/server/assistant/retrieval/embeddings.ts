@@ -31,11 +31,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 // One vector per input, in input order. Items are placed by `index` when
-// every item carries one (OpenAI shape) and by position otherwise.
+// every item carries one (OpenAI shape) and by position when none does; a
+// mix of both is refused, since either reading may pair a vector with the
+// wrong text.
 function parseEmbeddings(body: unknown, count: number): number[][] {
   const data = isRecord(body) ? body["data"] : undefined;
   if (!Array.isArray(data) || data.length !== count) throw new Error(INVALID_RESPONSE);
-  const indexed = data.every((item) => isRecord(item) && item["index"] !== undefined);
+  const withIndex = data.filter((item) => isRecord(item) && item["index"] !== undefined).length;
+  if (withIndex !== 0 && withIndex !== data.length) throw new Error(INVALID_RESPONSE);
+  const indexed = withIndex > 0;
   const vectors: Array<number[] | undefined> = new Array(count);
   data.forEach((item, position) => {
     if (!isRecord(item)) throw new Error(INVALID_RESPONSE);

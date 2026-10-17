@@ -15,8 +15,8 @@ export interface AssistantToolHost {
   callTool(mcpName: string, args: Record<string, unknown>): Promise<unknown>;
 }
 
-// Characters of data per tool result, measured on the escaped-free text
-// before it is wrapped in <dados>.
+// Characters of data per tool result, measured on the escaped content
+// between <dados> and </dados>.
 export const ASSISTANT_TOOL_DATA_MAX = 20_000;
 
 // Generic error message for tool failures. The original error (which may
@@ -24,9 +24,20 @@ export const ASSISTANT_TOOL_DATA_MAX = 20_000;
 const TOOL_FAILED_MESSAGE = "Tool failed";
 
 // Escapes the data the model sees so third-party content cannot inject
-// markup: & first, then < and >.
-function escapeData(text: string): string {
-  return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+// markup: & first, then < and >. The characters are escaped one by one
+// into a budget: the content stops before it would cross `max`, so the
+// escaped content never exceeds the cap and never ends in a torn entity
+// (&amp;, &lt;, &gt;). `truncated` is true only when something of the
+// original was left out.
+function escapeCapped(text: string, max: number): { data: string; truncated: boolean } {
+  let data = "";
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    const entity = character === "&" ? "&amp;" : character === "<" ? "&lt;" : character === ">" ? "&gt;" : character;
+    if (data.length + entity.length > max) return { data, truncated: true };
+    data += entity;
+  }
+  return { data, truncated: false };
 }
 
 function toolSchema(def: { inputSchema: { properties?: Record<string, unknown>; required?: string[]; type: "object" } }): ToolInputSchema {
@@ -56,9 +67,8 @@ export function buildAssistantToolSet(input: {
         try {
           const result = await input.host.callTool(def.name, args as Record<string, unknown>);
           const text = typeof result === "string" ? result : JSON.stringify(result);
-          const truncated = text.length > ASSISTANT_TOOL_DATA_MAX;
-          const data = `<dados>${escapeData(text.slice(0, ASSISTANT_TOOL_DATA_MAX))}</dados>`;
-          return { data, status: "ok", truncated };
+          const { data, truncated } = escapeCapped(text, ASSISTANT_TOOL_DATA_MAX);
+          return { data: `<dados>${data}</dados>`, status: "ok", truncated };
         } catch (error) {
           // McpToolError carries a message meant to be surfaced; any other
           // error is reported generically so its message never leaks.

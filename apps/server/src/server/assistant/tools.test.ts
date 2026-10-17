@@ -120,6 +120,39 @@ describe("buildAssistantToolSet", () => {
     assert.equal(result.data, `<dados>${"x".repeat(ASSISTANT_TOOL_DATA_MAX)}</dados>`);
   });
 
+  test("an entity-heavy result stays under the cap after escaping, ends on a whole entity, truncated", async () => {
+    // 20,000 `&` escape to 100,000 characters: the inner content must stop
+    // at the cap, on a complete entity, and flag the omission.
+    const raw = "&".repeat(20_000);
+    const set = buildAssistantToolSet({ host: makeHost(raw), kinds: ["read"], surface: "local" });
+    const result = (await execute(set, "pinar_list_sessions", {})) as ToolResult;
+    assert.equal(result.status, "ok");
+    assert.equal(result.truncated, true, "16,000 characters of the original were left out");
+    const inner = result.data!.slice("<dados>".length, -"</dados>".length);
+    assert.equal(result.data, `<dados>${inner}</dados>`);
+    assert.equal(inner.length, ASSISTANT_TOOL_DATA_MAX, "the escaped content must not exceed the cap");
+    assert.equal(inner, "&amp;".repeat(4_000), "exactly 4,000 whole &amp; entities fill the 20,000 cap");
+  });
+
+  test("a short text with <>& escapes fully and is not truncated", async () => {
+    const set = buildAssistantToolSet({ host: makeHost("a<b&c>d"), kinds: ["read"], surface: "local" });
+    const result = (await execute(set, "pinar_list_sessions", {})) as ToolResult;
+    assert.equal(result.status, "ok");
+    assert.equal(result.truncated, false, "nothing of the original was left out");
+    assert.equal(result.data, "<dados>a&lt;b&amp;c&gt;d</dados>");
+  });
+
+  test("an escaped result that fills the cap exactly is not marked truncated", async () => {
+    // 19,995 plain characters plus one `&`: the escaped text reaches
+    // ASSISTANT_TOOL_DATA_MAX exactly (19,995 + 5), so nothing was omitted.
+    const raw = `${"x".repeat(19_995)}&`;
+    const set = buildAssistantToolSet({ host: makeHost(raw), kinds: ["read"], surface: "local" });
+    const result = (await execute(set, "pinar_list_sessions", {})) as ToolResult;
+    assert.equal(result.status, "ok");
+    assert.equal(result.truncated, false, "the exact cap leaves nothing out of the original");
+    assert.equal(result.data, `<dados>${"x".repeat(19_995)}&amp;</dados>`);
+  });
+
   test("McpToolError surfaces its message; any other error is 'Tool failed'", async () => {
     const mcpSet = buildAssistantToolSet({
       host: makeHost(new McpToolError("sessão não encontrada")),

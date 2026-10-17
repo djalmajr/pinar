@@ -68,6 +68,8 @@ const messages: UiMessages = {
   "assistant.errorIncomplete": "アシスタントがこの回答を完了できませんでした。もう一度試してください。",
   "assistant.errorFailed": "アシスタントは現在利用できません。しばらくしてから試してください。",
   "assistant.errorRateLimited": "短時間に多くの質問がありました。しばらくお待ちください。",
+  "assistant.errorNoCredits": "AIクレジットが不足しています。メッセージ1件に {required} 点使用しますが、残りは {count} 点です。",
+  "assistant.buyCredits": "クレジットを購入",
   "assistant.errorNetwork": "Pinar に接続できません。接続を確認してください。",
   "assistant.proposal.create_project": "プロジェクト「{name}」を作成",
   "assistant.proposal.rename_project": "プロジェクト「{from}」の名前を「{to}」に変更",
@@ -170,6 +172,7 @@ const messages: UiMessages = {
   "settings.aiUsageReproduction": "再現",
   "settings.aiUsageSessionSummary": "セッションの要約",
   "settings.aiUsageVoicePin": "音声ピン",
+  "settings.aiUsageAssistantTurn": "アシスタントのメッセージ",
   "settings.voicePostProcessing": "音声文字起こしを整える",
   "settings.voicePostProcessingDescription": "言いよどみや言い直しを除き、意図したコメントに整えます。Pinar Cloud のみで利用でき、既定ではオフです。",
   "settings.generalDescription":

@@ -22,6 +22,7 @@ import {
 } from "../../cloud-api";
 import { runtimeEnv } from "../../cloud-env";
 import { edgerCloudEnv } from "../../edger/env";
+import { assistantMarginMonitor } from "../margin-monitor";
 import { buildAssistantToolSet } from "../tools";
 import { runAssistantTurn } from "../turn";
 import { resetRetrievalCapabilitiesCacheForTests } from "./detect";
@@ -1065,6 +1066,475 @@ describe("Cloud pin index cron", () => {
     assert.deepEqual(result, { failed: 1, indexed: 2, owners: 2, remaining: true });
     assert.equal((await cloudPinIndexStore({}, "usr_a").entries("usr_a_1")).length, 1);
     assert.equal((await cloudPinIndexStore({}, "usr_c").entries("usr_c_1")).length, 1);
+  });
+});
+
+// ---------- production through the gateway (F4 contract §4) ----------
+
+const GATEWAY_URL = "https://ai-gateway.vercel.sh/v1";
+const GATEWAY_KEY = "vck-gateway-test";
+const GATEWAY_EMBEDDING = "openai/text-embedding-3-small";
+const CHAIN = "gateway:anthropic/claude-haiku-5.5,gateway:deepseek/deepseek-v4.1-flash";
+
+// The gateway catalog (GET /v1/models): an embedding model listed before
+// the configured one, the chain's models with or without the vision tag,
+// and a decisions extra the gateway path must never read.
+function gatewayCatalog(visionTagged: string[]) {
+  return [
+    { id: "openai/text-embedding-3-large", pricing: { input: "0.00000013" }, tags: null, type: "embedding" },
+    ...["anthropic/claude-haiku-5.5", "deepseek/deepseek-v4.1-flash"].map((id) => ({
+      decisions: { available: true },
+      id,
+      modalities: { input: ["text", "image"] },
+      pricing: { input: "0.0000001", output: "0.0000005" },
+      tags: visionTagged.includes(id) ? ["tool-use", "vision"] : ["tool-use"],
+      type: "language",
+    })),
+    { id: GATEWAY_EMBEDDING, pricing: { input: "0.00000002", output: null }, tags: null, type: "embedding" },
+  ];
+}
+
+interface HubCall {
+  authorization: string | null;
+  body: Record<string, any> | null;
+  method: string;
+  origin: string;
+  path: string;
+}
+
+// The two hubs on one fake fetch: the gateway (catalog, /embeddings with
+// its cost in providerMetadata, captions with usage only) and, at
+// BASE_URL, an appliance that answers everything, so a request that
+// reaches AI_BASE_URL would succeed and only the recorded origin shows it.
+function fakeHubs(options: { visionTagged?: string[] } = {}) {
+  const calls: HubCall[] = [];
+  const appliance = fakeAppliance({ vision: true });
+  const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    const raw = input instanceof Request ? await input.clone().text() : typeof init?.body === "string" ? init.body : "";
+    const body = raw ? (JSON.parse(raw) as Record<string, any>) : null;
+    const path = url.pathname.replace(/^\/v1/, "");
+    calls.push({ authorization: new Headers(init?.headers).get("authorization"), body, method: init?.method ?? "GET", origin: url.origin, path });
+    if (url.origin !== new URL(GATEWAY_URL).origin) return appliance.fetch(input, init);
+    if (path === "/models") return Response.json({ data: gatewayCatalog(options.visionTagged ?? ["anthropic/claude-haiku-5.5"]), object: "list" });
+    if (path === "/embeddings") {
+      const texts = body!.input as string[];
+      return Response.json({
+        data: texts.map((text, index) => ({ embedding: fakeEmbedding(text), index, object: "embedding" })),
+        model: body!.model,
+        object: "list",
+        providerMetadata: { gateway: { cost: "0.00000012", routing: {} } },
+        usage: { prompt_tokens: texts.length * 7, total_tokens: texts.length * 7 },
+      });
+    }
+    if (path === "/chat/completions" && !body?.stream) {
+      const markers = String(body!.messages[1].content[0].text);
+      const pins = [...markers.matchAll(/^#(\d+):/gm)].map((match) => ({ caption: `legenda ${match[1]}`, number: Number(match[1]), ocr: "" }));
+      return Response.json({
+        choices: [{ finish_reason: "stop", index: 0, message: { content: JSON.stringify({ pins }), role: "assistant" } }],
+        usage: { completion_tokens: 200, prompt_tokens: 1000 },
+      });
+    }
+    return new Response("not found", { status: 404 });
+  }) as typeof fetch;
+  const gatewayOrigin = new URL(GATEWAY_URL).origin;
+  return {
+    applianceCalls: () => calls.filter((call) => call.origin !== gatewayOrigin),
+    calls,
+    embeddings: () => calls.filter((call) => call.origin === gatewayOrigin && call.path === "/embeddings"),
+    fetch: fetchFn,
+    gatewayCalls: () => calls.filter((call) => call.origin === gatewayOrigin),
+    visions: () => calls.filter((call) => call.origin === gatewayOrigin && call.path === "/chat/completions"),
+  };
+}
+
+// Production with a gateway chain; the appliance's AI_* stay set, so a
+// path that used them would reach BASE_URL.
+function productionEnv(db: Database, overrides: Partial<CloudEnv> = {}, log?: QueryLog): CloudEnv {
+  return cloudEnv(db, {
+    AI_EMBEDDING_MODEL: GATEWAY_EMBEDDING,
+    AI_GATEWAY_API_KEY: GATEWAY_KEY,
+    ASSISTANT_CHAIN: CHAIN,
+    DEPLOYMENT_ENV: "production",
+    ...overrides,
+  }, log);
+}
+
+const PRIVACY = { gateway: { disallowPromptTraining: true } };
+const PRIVACY_ZDR = { gateway: { disallowPromptTraining: true, zeroDataRetention: true } };
+
+// console.log lines of `run` that are assistant_index_cost lines, raw.
+async function indexCostLines(run: () => Promise<unknown>): Promise<string[]> {
+  const lines: string[] = [];
+  const original = console.log;
+  console.log = (...args: unknown[]) => {
+    if (typeof args[0] === "string" && args[0].includes("assistant_index_cost")) lines.push(args[0]);
+    else original(...args);
+  };
+  try {
+    await run();
+  } finally {
+    console.log = original;
+  }
+  return lines;
+}
+
+describe("Cloud pin search in production, through the gateway (F4 contract §4)", () => {
+  let db: Database;
+
+  beforeEach(() => {
+    resetCloudMemoryStateForTests();
+    resetRetrievalCapabilitiesCacheForTests();
+    setCloudNowForTests(NOW);
+    db = migratedDatabase();
+    insertUser(db, "usr_pro", "pro");
+    insertCollection(db, "col_pro", "usr_pro");
+    insertSession(db, "session_a", "usr_pro", "col_pro", [{ comment: "Contraste baixo no rodapé", number: 1, pinId: "p1" }, { comment: "Menu cortado", number: 2, pinId: "p2" }]);
+    insertSession(db, "session_b", "usr_pro", "col_pro", [{ comment: "Preço errado no carrinho", number: 1, pinId: "p1" }]);
+  });
+
+  afterEach(() => {
+    db.close();
+    resetCloudMemoryStateForTests();
+    resetRetrievalCapabilitiesCacheForTests();
+    setCloudNowForTests(null);
+  });
+
+  const shots = () => fakeBucket({ session_a: PNG, session_b: PNG });
+
+  test("captions and embeddings go to the gateway with its key and the privacy options; nothing reaches AI_BASE_URL", async () => {
+    const hubs = fakeHubs();
+    const hits = await searchAs(productionEnv(db, { PINAR_BUCKET: shots() }), principal("usr_pro"), "contraste", hubs.fetch);
+    assert.equal(hits[0]!.sessionId, "session_a");
+    assert.deepEqual(hubs.applianceCalls(), [], "no request to AI_BASE_URL");
+    assert.deepEqual([...new Set(hubs.gatewayCalls().map((call) => `${call.method} ${call.path}`))].sort(), [
+      "GET /models",
+      "POST /chat/completions",
+      "POST /embeddings",
+    ]);
+    // The public catalog is read without the key.
+    for (const call of hubs.gatewayCalls().filter((item) => item.path === "/models")) assert.equal(call.authorization, null);
+
+    // Documents and the question: the configured model, never the catalog's
+    // first embedding, no prompt_name.
+    assert.ok(hubs.embeddings().length >= 2);
+    for (const call of hubs.embeddings()) {
+      assert.equal(call.authorization, `Bearer ${GATEWAY_KEY}`);
+      assert.deepEqual(Object.keys(call.body!).sort(), ["dimensions", "input", "model", "providerOptions"]);
+      assert.equal(call.body!.model, GATEWAY_EMBEDDING);
+      assert.equal(call.body!.dimensions, PIN_EMBEDDING_DIMENSIONS);
+      assert.deepEqual(call.body!.providerOptions, PRIVACY);
+    }
+    // One caption call per session, by the chain's first link.
+    assert.equal(hubs.visions().length, 2);
+    for (const call of hubs.visions()) {
+      assert.equal(call.authorization, `Bearer ${GATEWAY_KEY}`);
+      assert.equal(call.body!.model, "anthropic/claude-haiku-5.5");
+      assert.deepEqual(call.body!.providerOptions, PRIVACY);
+      assert.equal(call.body!.chat_template_kwargs, undefined);
+    }
+    assert.deepEqual(pinIndexRows(db).map((row) => [row.session_id, row.caption, row.model]), [
+      ["session_a", "legenda 1", GATEWAY_EMBEDDING],
+      ["session_a", "legenda 2", GATEWAY_EMBEDDING],
+      ["session_b", "legenda 1", GATEWAY_EMBEDDING],
+    ]);
+  });
+
+  test("without AI_EMBEDDING_MODEL, or with one the catalog does not list as embedding, the search is textual", async () => {
+    for (const AI_EMBEDDING_MODEL of [undefined, "", "anthropic/claude-haiku-5.5", "openai/text-embedding-9"]) {
+      db.query("DELETE FROM pin_index").run();
+      resetRetrievalCapabilitiesCacheForTests();
+      const hubs = fakeHubs();
+      const hits = await searchAs(productionEnv(db, { AI_EMBEDDING_MODEL }), principal("usr_pro"), "contraste", hubs.fetch);
+      assert.deepEqual(hits.map((hit) => hit.sessionId), ["session_a"], String(AI_EMBEDDING_MODEL));
+      assert.deepEqual(hubs.embeddings(), [], `no embedding call with ${AI_EMBEDDING_MODEL}`);
+      assert.deepEqual(hubs.applianceCalls(), [], String(AI_EMBEDDING_MODEL));
+      assert.deepEqual([...new Set(pinIndexRows(db).map((row) => row.model))], [""], "text-only entries");
+    }
+  });
+
+  test("captions follow the vision tag of the chain's first link, not of a later one", async () => {
+    const untagged = fakeHubs({ visionTagged: ["deepseek/deepseek-v4.1-flash"] });
+    await searchAs(productionEnv(db, { PINAR_BUCKET: shots() }), principal("usr_pro"), "contraste", untagged.fetch);
+    assert.deepEqual(untagged.visions(), [], "the first link has no vision tag");
+    assert.deepEqual(pinIndexRows(db).map((row) => row.caption), [null, null, null]);
+
+    db.query("DELETE FROM pin_index").run();
+    resetRetrievalCapabilitiesCacheForTests();
+    const swapped = fakeHubs({ visionTagged: ["deepseek/deepseek-v4.1-flash"] });
+    await searchAs(
+      productionEnv(db, { ASSISTANT_CHAIN: "gateway:deepseek/deepseek-v4.1-flash,gateway:anthropic/claude-haiku-5.5", PINAR_BUCKET: shots() }),
+      principal("usr_pro"),
+      "contraste",
+      swapped.fetch,
+    );
+    assert.deepEqual(swapped.visions().map((call) => call.body!.model), ["deepseek/deepseek-v4.1-flash", "deepseek/deepseek-v4.1-flash"]);
+    assert.deepEqual(swapped.applianceCalls(), []);
+  });
+
+  test("the cron indexes through the gateway too, with zero data retention when the env asks for it", async () => {
+    const hubs = fakeHubs();
+    const result = await indexPinSearch(productionEnv(db, { AI_GATEWAY_ZERO_DATA_RETENTION: "true", PINAR_BUCKET: shots() }), { fetch: hubs.fetch });
+    assert.deepEqual(result, { failed: 0, indexed: 2, owners: 1, remaining: false });
+    assert.deepEqual(hubs.applianceCalls(), []);
+    assert.equal(hubs.embeddings().length, 2, "one document batch per session");
+    assert.equal(hubs.visions().length, 2);
+    for (const call of [...hubs.embeddings(), ...hubs.visions()]) {
+      assert.equal(call.authorization, `Bearer ${GATEWAY_KEY}`);
+      assert.deepEqual(call.body!.providerOptions, PRIVACY_ZDR);
+    }
+    // Any other value is off.
+    db.query("DELETE FROM pin_index").run();
+    const off = fakeHubs();
+    await indexPinSearch(productionEnv(db, { AI_GATEWAY_ZERO_DATA_RETENTION: "TRUE" }), { fetch: off.fetch });
+    assert.deepEqual(off.embeddings()[0]!.body!.providerOptions, PRIVACY);
+  });
+
+  test("assistant_index_cost: one line per embedding batch and per caption, without the key, a URL or the person's text", async () => {
+    const hubs = fakeHubs();
+    const lines = await indexCostLines(() =>
+      searchAs(productionEnv(db, { PINAR_BUCKET: shots() }), principal("usr_pro"), "contraste do rodapé", hubs.fetch));
+    const parsed = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+    assert.equal(parsed.filter((line) => line["kind"] === "embedding").length, hubs.embeddings().length);
+    assert.equal(parsed.filter((line) => line["kind"] === "caption").length, hubs.visions().length);
+    for (const line of parsed) {
+      assert.deepEqual(Object.keys(line), ["message", "kind", "model", "costUsdMicros", "costSource"]);
+    }
+    // Embeddings: the gateway's figure (0.00000012 USD → 1 micro). Captions:
+    // no cost in the body, so ASSISTANT_MODEL_PRICES × usage (1000 × 0.00000055
+    // + 200 × 0.00000275 = 0.0011 USD).
+    assert.deepEqual(new Set(parsed.map((line) => JSON.stringify(line))), new Set([
+      JSON.stringify({ message: "assistant_index_cost", kind: "embedding", model: GATEWAY_EMBEDDING, costUsdMicros: 1, costSource: "gateway" }),
+      JSON.stringify({ message: "assistant_index_cost", kind: "caption", model: "anthropic/claude-haiku-5.5", costUsdMicros: 1100, costSource: "table" }),
+    ]));
+    for (const line of lines) {
+      for (const leak of [GATEWAY_KEY, "sk-ai-test", "https://", "ai-gateway", "127.0.0.1", "/v1", "Contraste", "contraste", "rodapé", "Preço", "Menu", "legenda", "base64"]) {
+        assert.ok(!line.includes(leak), `${leak} in ${line}`);
+      }
+    }
+  });
+
+  test("the appliance logs no assistant_index_cost line", async () => {
+    const lines = await indexCostLines(() =>
+      searchAs(cloudEnv(db, { PINAR_BUCKET: shots() }), principal("usr_pro"), "contraste", fakeAppliance({ vision: true }).fetch));
+    assert.deepEqual(lines, []);
+  });
+
+  test("the runtime alone never falls back to AI_BASE_URL in production: without a usable gateway chain there is no endpoint", async () => {
+    const data: CloudPinSourceData = {
+      async comments() { return []; },
+      async ownedSessions() { return [{ createdAt: "2026-09-30T00:00:00.000Z", id: "session_x", ownerId: "usr_pro" }]; },
+      async session(id) {
+        return { createdAt: "2026-09-30T00:00:00.000Z", id, page: { title: "T", url: "https://u.example" }, pins: [{ comment: "Nota", coords: { x: 0, y: 0 }, number: 1, pinId: "p1", type: "point" }] };
+      },
+      async sharedSessions() { return []; },
+      async shot() { return PNG; },
+    };
+    const appliance = { AI_API_KEY: "sk-ai-test", AI_BASE_URL: BASE_URL, AI_EMBEDDING_MODEL: "embed-model", AI_MODEL: "mock", DEPLOYMENT_ENV: "production" };
+    const variants: Array<[string, Record<string, string | undefined>]> = [
+      ["no ASSISTANT_CHAIN", {}],
+      ["a blank ASSISTANT_CHAIN", { ASSISTANT_CHAIN: "  " }],
+      ["an appliance link", { AI_GATEWAY_API_KEY: GATEWAY_KEY, ASSISTANT_CHAIN: "appliance:mock" }],
+      ["an appliance link after a gateway one", { AI_GATEWAY_API_KEY: GATEWAY_KEY, ASSISTANT_CHAIN: `${CHAIN},appliance:mock` }],
+      ["an invalid chain", { AI_GATEWAY_API_KEY: GATEWAY_KEY, ASSISTANT_CHAIN: "gateway" }],
+      ["no AI_GATEWAY_API_KEY", { ASSISTANT_CHAIN: CHAIN }],
+    ];
+    for (const [name, overrides] of variants) {
+      const hubs = fakeHubs();
+      const env = { ...appliance, ...overrides };
+      await assert.rejects(createCloudPinSearch({ data, env, fetch: hubs.fetch }).search({ limit: 5, query: "nota" }), /pin search unavailable/, name);
+      const cron = await runCloudPinIndexCron({ env, fetch: hubs.fetch, ownerData: () => data, owners: async () => ["usr_pro"] });
+      assert.deepEqual(cron, { failed: 0, indexed: 0, owners: 0, remaining: false }, name);
+      assert.deepEqual(hubs.calls, [], name);
+    }
+  });
+});
+
+describe("Cloud index costs recorded for the margin monitor (F4 contract §3)", () => {
+  let db: Database;
+
+  beforeEach(() => {
+    resetCloudMemoryStateForTests();
+    resetRetrievalCapabilitiesCacheForTests();
+    setCloudNowForTests(NOW);
+    db = migratedDatabase();
+    insertUser(db, "usr_pro", "pro");
+    insertCollection(db, "col_pro", "usr_pro");
+    insertSession(db, "session_a", "usr_pro", "col_pro", [{ comment: "Contraste baixo no rodapé", number: 1, pinId: "p1" }, { comment: "Menu cortado", number: 2, pinId: "p2" }]);
+    insertSession(db, "session_b", "usr_pro", "col_pro", [{ comment: "Preço errado no carrinho", number: 1, pinId: "p1" }]);
+  });
+
+  afterEach(() => {
+    db.close();
+    resetCloudMemoryStateForTests();
+    resetRetrievalCapabilitiesCacheForTests();
+    setCloudNowForTests(null);
+  });
+
+  const shots = () => fakeBucket({ session_a: PNG, session_b: PNG });
+  const costRows = () => db.query("SELECT kind, model, cost_usd_micros, cost_source, created_at FROM assistant_index_costs ORDER BY kind, rowid").all() as Array<{
+    cost_source: string;
+    cost_usd_micros: number | null;
+    created_at: string;
+    kind: string;
+    model: string;
+  }>;
+  // Silences the cost and failure lines of a run, and returns them.
+  async function quietly(run: () => Promise<unknown>): Promise<string[]> {
+    const lines: string[] = [];
+    const saved = [console.log, console.error] as const;
+    console.log = console.error = (...args: unknown[]) => {
+      lines.push(args.map(String).join(" "));
+    };
+    try {
+      await run();
+    } finally {
+      [console.log, console.error] = saved;
+    }
+    return lines;
+  }
+
+  test("a search and an index cron through the gateway record each cost with its source, at the Cloud's clock", async () => {
+    const hubs = fakeHubs();
+    await quietly(() => searchAs(productionEnv(db, { PINAR_BUCKET: shots() }), principal("usr_pro"), "contraste", hubs.fetch));
+    const embeddings = hubs.embeddings().length;
+    assert.ok(embeddings >= 2, "the documents and the question");
+    // Embeddings: the gateway's figure (0.00000012 USD → 1 micro). Captions:
+    // ASSISTANT_MODEL_PRICES × usage (1100 micros), as the log lines say.
+    assert.deepEqual(costRows(), [
+      ...hubs.visions().map(() => ({ cost_source: "table", cost_usd_micros: 1100, created_at: NOW, kind: "caption", model: "anthropic/claude-haiku-5.5" })),
+      ...hubs.embeddings().map(() => ({ cost_source: "gateway", cost_usd_micros: 1, created_at: NOW, kind: "embedding", model: GATEWAY_EMBEDDING })),
+    ]);
+    assert.equal(hubs.visions().length, 2);
+
+    db.query("DELETE FROM pin_index").run();
+    db.query("DELETE FROM assistant_index_costs").run();
+    const cron = fakeHubs();
+    await quietly(() => indexPinSearch(productionEnv(db, { PINAR_BUCKET: shots() }), { fetch: cron.fetch }));
+    assert.deepEqual(costRows().map((row) => [row.kind, row.cost_source, row.cost_usd_micros]), [
+      ["caption", "table", 1100],
+      ["caption", "table", 1100],
+      ["embedding", "gateway", 1],
+      ["embedding", "gateway", 1],
+    ]);
+    assert.equal(cron.embeddings().length + cron.visions().length, 4);
+  });
+
+  test("the appliance records nothing", async () => {
+    const appliance = fakeAppliance({ vision: true });
+    await searchAs(cloudEnv(db, { PINAR_BUCKET: shots() }), principal("usr_pro"), "contraste", appliance.fetch);
+    db.query("DELETE FROM pin_index").run();
+    await indexPinSearch(cloudEnv(db, { PINAR_BUCKET: shots() }), { fetch: fakeAppliance({ vision: true }).fetch });
+    assert.ok(appliance.embeddings().length > 0 && appliance.visions().length > 0, "the appliance did embed and caption");
+    assert.deepEqual(costRows(), []);
+  });
+
+  test("a failing recorder breaks neither the search nor the index cron", async () => {
+    db.query("DROP TABLE assistant_index_costs").run();
+    const hubs = fakeHubs();
+    let hits: Awaited<ReturnType<typeof searchAs>> = [];
+    const searchLines = await quietly(async () => {
+      hits = await searchAs(productionEnv(db, { PINAR_BUCKET: shots() }), principal("usr_pro"), "contraste", hubs.fetch);
+    });
+    assert.equal(hits[0]!.sessionId, "session_a");
+    assert.deepEqual(pinIndexRows(db).map((row) => [row.session_id, row.caption, row.model]), [
+      ["session_a", "legenda 1", GATEWAY_EMBEDDING],
+      ["session_a", "legenda 2", GATEWAY_EMBEDDING],
+      ["session_b", "legenda 1", GATEWAY_EMBEDDING],
+    ]);
+    assert.equal(searchLines.filter((line) => line.includes("assistant_index_cost_record_failed")).length, hubs.embeddings().length + hubs.visions().length);
+
+    db.query("DELETE FROM pin_index").run();
+    let result: unknown;
+    await quietly(async () => {
+      result = await indexPinSearch(productionEnv(db, { PINAR_BUCKET: shots() }), { fetch: fakeHubs().fetch });
+    });
+    assert.deepEqual(result, { failed: 0, indexed: 2, owners: 1, remaining: false });
+    assert.equal(pinIndexRows(db).length, 3);
+  });
+
+  test("with a turn's revenue, the index costs the producer recorded raise index_cost over 20% of it, and not below", async () => {
+    // One assistant turn of 3 credits: 9000 USD micros of revenue in the window.
+    db.query("INSERT INTO ai_credit_grants (id, owner_type, owner_id, source_type, source_id, credits, consumed_credits, created_at) VALUES ('grant_pro', 'account', 'usr_pro', 'purchase', 'purchase_pro', 500, 0, ?)").run(NOW);
+    db.query("INSERT INTO ai_credit_usages (id, request_id, owner_type, owner_id, grant_id, feature, resource_id, model, credits, status, created_at) VALUES ('turn_1', 'turn:m1', 'account', 'usr_pro', 'grant_pro', 'assistant_turn', 'assistant:t1', 'gateway:anthropic/claude-haiku-5.5', 3, 'reserved', ?)").run(NOW);
+    db.query("UPDATE ai_credit_usages SET status = 'succeeded', cost_usd_micros = 900, result_json = ?, completed_at = ? WHERE id = 'turn_1'")
+      .run(JSON.stringify({ costSource: "gateway", fallback: false, link: 0 }), NOW);
+    const later = new Date(Date.parse(NOW) + 60_000);
+    const indexAlerts = async () => {
+      let alerts: Array<{ alert: string }> = [];
+      await quietly(async () => {
+        const saved = [console.warn, console.info] as const;
+        console.warn = console.info = () => {};
+        try {
+          alerts = (await assistantMarginMonitor(productionEnv(db), later)).alerts.filter((alert) => alert.alert === "index_cost");
+        } finally {
+          [console.warn, console.info] = saved;
+        }
+      });
+      return alerts;
+    };
+
+    // Without shots, only embeddings (1 micro each): far below 20% of 9000.
+    await quietly(() => searchAs(productionEnv(db), principal("usr_pro"), "contraste", fakeHubs().fetch));
+    const embeddingsOnly = costRows().reduce((sum, row) => sum + (row.cost_usd_micros ?? 0), 0);
+    assert.ok(embeddingsOnly > 0 && embeddingsOnly * 5 <= 9000, String(embeddingsOnly));
+    assert.deepEqual(await indexAlerts(), []);
+
+    // With the shots, two captions at 1100 each: over 1800.
+    db.query("DELETE FROM pin_index").run();
+    await quietly(() => searchAs(productionEnv(db, { PINAR_BUCKET: shots() }), principal("usr_pro"), "contraste", fakeHubs().fetch));
+    const recorded = costRows().reduce((sum, row) => sum + (row.cost_usd_micros ?? 0), 0);
+    assert.ok(recorded * 5 > 9000, String(recorded));
+    assert.deepEqual(await indexAlerts(), [{ alert: "index_cost", indexCostUsdMicros: recorded, revenueUsdMicros: 9000 }]);
+  });
+});
+
+describe("Cloud pin search outside production with ASSISTANT_CHAIN", () => {
+  let db: Database;
+
+  beforeEach(() => {
+    resetCloudMemoryStateForTests();
+    resetRetrievalCapabilitiesCacheForTests();
+    setCloudNowForTests(NOW);
+    db = migratedDatabase();
+    insertUser(db, "usr_pro", "pro");
+    insertCollection(db, "col_pro", "usr_pro");
+    insertSession(db, "session_a", "usr_pro", "col_pro", [{ comment: "Contraste baixo no rodapé", number: 1, pinId: "p1" }]);
+  });
+
+  afterEach(() => {
+    db.close();
+    resetCloudMemoryStateForTests();
+    resetRetrievalCapabilitiesCacheForTests();
+    setCloudNowForTests(null);
+  });
+
+  test("the first link picks the hub: an appliance first keeps AI_BASE_URL as before; a gateway first uses the gateway", async () => {
+    const cases: Array<[string, "appliance" | "gateway"]> = [
+      ["appliance:mock", "appliance"],
+      [`appliance:mock,${CHAIN}`, "appliance"],
+      [CHAIN, "gateway"],
+      [`${CHAIN},appliance:mock`, "gateway"],
+    ];
+    for (const [chain, hub] of cases) {
+      db.query("DELETE FROM pin_index").run();
+      resetRetrievalCapabilitiesCacheForTests();
+      const hubs = fakeHubs();
+      const env = cloudEnv(db, { AI_GATEWAY_API_KEY: GATEWAY_KEY, ASSISTANT_CHAIN: chain, ...(hub === "gateway" ? { AI_EMBEDDING_MODEL: GATEWAY_EMBEDDING } : {}) });
+      await searchAs(env, principal("usr_pro"), "contraste", hubs.fetch);
+      const embeddings = hubs.calls.filter((call) => call.path === "/embeddings");
+      assert.ok(embeddings.length > 0, chain);
+      if (hub === "appliance") {
+        assert.deepEqual(hubs.gatewayCalls(), [], chain);
+        for (const call of embeddings) {
+          assert.deepEqual([call.authorization, call.body!.model, call.body!.providerOptions], ["Bearer sk-ai-test", "embed-model", undefined], chain);
+          assert.ok(["document", "query"].includes(call.body!.prompt_name), chain);
+        }
+      } else {
+        assert.deepEqual(hubs.applianceCalls(), [], chain);
+        for (const call of embeddings) assert.deepEqual([call.authorization, call.body!.providerOptions], [`Bearer ${GATEWAY_KEY}`, PRIVACY], chain);
+      }
+    }
   });
 });
 

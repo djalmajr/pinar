@@ -33,6 +33,11 @@ cron:
   - schedule: "0 3 * * *"
     path: /_internal/cron/daily
     method: POST
+  # Every 5 minutes: refunds AI credit reservations left open (an assistant
+  # turn whose process died).
+  - schedule: "*/5 * * * *"
+    path: /_internal/cron/frequent
+    method: POST
 # External egress only. The database host is intentionally absent from the
 # repository: the sqld topology of the cluster is still under study, and the
 # installer adds each environment's database host.
@@ -41,6 +46,8 @@ allowNet:
   - api.cloudflare.com:443
   - lb-vllm-node-01.centralit.com.br:443
   - api.stripe.com:443
+  # Vercel AI Gateway: the assistant chain's gateway links (F4).
+  - ai-gateway.vercel.sh:443
 # The installer defines the hosts per environment: pinar.dev and
 # www.pinar.dev in prd, stg.pinar.dev in stg.
 # hosts:
@@ -61,16 +68,27 @@ env:
   AI_API_KEY: ""
   AI_BASE_URL: ""
   AI_EMBEDDING_MODEL: ""
+  # Optional, outside the AI group: the Vercel AI Gateway key of the
+  # assistant chain, and "true" to ask the gateway for zero data retention.
+  AI_GATEWAY_API_KEY: ""
+  AI_GATEWAY_ZERO_DATA_RETENTION: ""
   AI_MODEL: ""
   AI_TRANSCRIPTION_MODEL: ""
   ADMIN_API_KEY: ""
   AUTH_PEPPER: ""
-  # Optional: "true" switches the assistant on (staging only; production
-  # keeps it off). Absent or empty stays off.
+  # Optional: "true" switches the assistant on. Absent or empty stays off.
+  # Production also needs a gateway-only ASSISTANT_CHAIN and
+  # AI_GATEWAY_API_KEY.
   ASSISTANT_ENABLED: ""
+  # Optional: the assistant's model chain, a CSV of hub:model links; empty
+  # means appliance:<AI_MODEL>.
+  ASSISTANT_CHAIN: ""
   CLOUD_TRIAL_ENABLED: ""
   COMPLIMENTARY_PRO_USER_IDS: ""
   EXTENSION_ORIGIN: ""
+  # Optional: the ops address of the assistant margin alerts (at most one
+  # email a day, only with an alert). Empty keeps them as logs only.
+  OPS_ALERT_EMAIL: ""
   PRICING_AI_CREDITS_500_BRL_CENTS: ""
   PRICING_AI_CREDITS_500_USD_CENTS: ""
   PRICING_STORAGE_1GB_12M_BRL_CENTS: ""

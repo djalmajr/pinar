@@ -11,16 +11,20 @@ import assert from "node:assert/strict";
 import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, test } from "node:test";
+import { createEdgerFetch } from "../edger-server-entry";
 import {
   cloudAssistantStateReader,
   cloudAssistantToolHost,
+  cloudAssistantTurnMeter,
   handleCloudApiRequest,
+  refundStaleAiReservations,
   resetCloudMemoryStateForTests,
   seedCloudWebSessionForTests,
   setCloudNowForTests,
   type CloudEnv,
   type Principal,
 } from "./cloud-api";
+import { cloudAssistantStore } from "./assistant/store-cloud";
 import type { AssistantToolHost } from "./assistant/tools";
 import { ASSISTANT_TOOL_POLICY } from "./assistant/tool-policy";
 
@@ -754,6 +758,36 @@ describe("cloud assistant proposals", () => {
     }
   });
 
+  test("credits: the proposing turn costs 3 credits, confirming and undoing it cost nothing", async () => {
+    const db = migratedDatabase();
+    const ai = scriptedAiServer([
+      { args: { collectionId: "collection_a2", sessionId: "session_a2" }, tool: "pinar_move_session" },
+      { text: "Propus mover a sessão; confirme no cartão." },
+    ]);
+    try {
+      const { a } = await seedWorkspace(db);
+      const env = assistantEnv(db, { AI_BASE_URL: `http://127.0.0.1:${ai.server.port}/v1` });
+      const turnUsages = () => db.query("SELECT status FROM ai_credit_usages WHERE feature = 'assistant_turn'").all();
+      const balance = () => db.query("SELECT SUM(credits - consumed_credits) AS balance FROM ai_credit_grants WHERE owner_id = 'usr_a'").get();
+      const turn = await proposingTurn(env, a.cookie, "Mova a session_a2 para a collection_a2");
+      const deadline = Date.now() + 5_000;
+      while (JSON.stringify(turnUsages()) !== JSON.stringify([{ status: "succeeded" }])) {
+        if (Date.now() > deadline) throw new Error(`the turn was not charged: ${JSON.stringify(turnUsages())}`);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.deepEqual(balance(), { balance: 497 });
+      const [proposal] = turn.proposals;
+      assert.equal((await act(env, a.cookie, proposal.id, "confirm")).status, 200);
+      assert.equal((await act(env, a.cookie, proposal.id, "undo")).status, 200);
+      assert.deepEqual(turnUsages(), [{ status: "succeeded" }]);
+      assert.deepEqual(balance(), { balance: 497 });
+      assert.equal(db.query("SELECT COUNT(*) AS count FROM ai_credit_usages").get()!.count, 1);
+    } finally {
+      ai.server.stop(true);
+      db.close();
+    }
+  });
+
   test("authorship: a confirmed add_pin_comment is the person's comment, field for field like the web route", async () => {
     const db = migratedDatabase();
     const ai = scriptedAiServer([
@@ -967,6 +1001,850 @@ describe("cloud assistant proposals", () => {
       assert.equal(await readerB.share("collection", "collection_a"), null);
       assert.ok(!(await readerB.projectOrder()).includes("project_a"));
     } finally {
+      db.close();
+    }
+  });
+});
+
+// ---------- F4/S1: the model chain, the production gate and the health ----------
+
+const GATEWAY_KEY = "gw-live-key-SENTINEL-7781";
+const HAIKU = "anthropic/claude-haiku-5.5";
+const DEEPSEEK = "deepseek/deepseek-v4.1-flash";
+
+// A production env with a valid gateway chain: no appliance strings at all.
+function productionEnv(db: Database, overrides: Partial<CloudEnv> = {}): CloudEnv {
+  return {
+    AI_GATEWAY_API_KEY: GATEWAY_KEY,
+    ASSISTANT_CHAIN: `gateway:${HAIKU},gateway:${DEEPSEEK}`,
+    ASSISTANT_ENABLED: "true",
+    DB: sqliteD1(db),
+    DEPLOYMENT_ENV: "production",
+    ...overrides,
+  };
+}
+
+type GatewayCall = { body: Record<string, unknown>; headers: Headers; model: string; url: string };
+
+// Replaces the global fetch with a fake Vercel AI Gateway for one test: each
+// model answers with its scripted status or a text stream. Restored by the
+// returned function, always called in a finally.
+function fakeGatewayFetch(replies: Record<string, number | string>) {
+  const calls: GatewayCall[] = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const headers = new Headers(init?.headers);
+    const model = headers.get("ai-language-model-id") ?? "";
+    calls.push({ body: JSON.parse(String(init?.body ?? "{}")), headers, model, url: String(input) });
+    const reply = replies[model];
+    if (typeof reply === "number") {
+      return Response.json({ error: { message: `upstream ${GATEWAY_KEY}`, type: "rate_limit_exceeded" } }, { status: reply });
+    }
+    const parts = [
+      { type: "stream-start", warnings: [] },
+      { id: "t1", type: "text-start" },
+      { delta: reply ?? "", id: "t1", type: "text-delta" },
+      { id: "t1", type: "text-end" },
+      {
+        finishReason: { raw: "stop", unified: "stop" },
+        providerMetadata: { gateway: { cost: "0.0045405" } },
+        type: "finish",
+        usage: { inputTokens: { total: 12 }, outputTokens: { total: 4 } },
+      },
+    ];
+    return new Response(parts.map((part) => `data: ${JSON.stringify(part)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
+  }) as typeof fetch;
+  return { calls, restore: () => { globalThis.fetch = original; } };
+}
+
+// Collects every console line of a block (restored in a finally).
+async function capturingLogs<T>(run: () => Promise<T>): Promise<{ logged: string; result: T }> {
+  const lines: unknown[] = [];
+  const original = { error: console.error, info: console.info, log: console.log, warn: console.warn };
+  console.error = (...args: unknown[]) => { lines.push(args); };
+  console.info = (...args: unknown[]) => { lines.push(args); };
+  console.log = (...args: unknown[]) => { lines.push(args); };
+  console.warn = (...args: unknown[]) => { lines.push(args); };
+  try {
+    const result = await run();
+    return { logged: JSON.stringify(lines), result };
+  } finally {
+    Object.assign(console, original);
+  }
+}
+
+describe("cloud assistant chain (F4/S1)", () => {
+  beforeEach(() => {
+    resetCloudMemoryStateForTests();
+    setCloudNowForTests(NOW);
+  });
+
+  afterEach(() => resetCloudMemoryStateForTests());
+
+  function route(path: string, env: CloudEnv, init: RequestInit = {}) {
+    return handleCloudApiRequest(new Request(`https://pinar.test${path}`, init), env);
+  }
+
+  async function seedPro(db: Database, env: CloudEnv) {
+    insertUser(db, "usr_a", "a@example.test", "pro");
+    return seedCloudWebSessionForTests({ email: "a@example.test", id: "usr_a", plan: "pro" }, env);
+  }
+
+  async function statusOf(env: CloudEnv, cookie: string) {
+    return (await route("/api/assistant/status", env, { headers: { cookie } })).json();
+  }
+
+  function turn(env: CloudEnv, cookie: string, text: string) {
+    return route("/api/assistant/turn", env, {
+      body: JSON.stringify({ text }),
+      headers: { cookie, "content-type": "application/json" },
+      method: "POST",
+    });
+  }
+
+  async function health(env: CloudEnv) {
+    const response = await route("/api/health", env);
+    assert.equal(response.status, 200);
+    const text = await response.text();
+    assert.ok(!text.includes(GATEWAY_KEY), "the health never shows the key");
+    return JSON.parse(text) as { hasAssistant: unknown };
+  }
+
+  async function assistantMessage(env: CloudEnv, cookie: string, threadId: string) {
+    const deadline = Date.now() + 5_000;
+    for (;;) {
+      const detail = await route(`/api/assistant/threads/${threadId}`, env, { headers: { cookie } });
+      const text = await detail.text();
+      const body = JSON.parse(text) as { messages: Array<Record<string, unknown>> };
+      if (body.messages.length === 2) return { message: body.messages[1], text };
+      if (Date.now() > deadline) throw new Error("timed out waiting for the assistant message");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
+  test("gate: staging without a chain keeps appliance:<AI_MODEL> and the rule of before", async () => {
+    const db = migratedDatabase();
+    try {
+      const env = assistantEnv(db);
+      const a = await seedPro(db, env);
+      assert.deepEqual(await statusOf(env, a.cookie), { available: true, reason: null, surface: "cloud" });
+      assert.equal((await health(env)).hasAssistant, true);
+      // Without the appliance strings staging stays off, chain or not.
+      for (const overrides of [{ AI_BASE_URL: undefined }, { AI_BASE_URL: undefined, ASSISTANT_CHAIN: `gateway:${HAIKU}`, AI_GATEWAY_API_KEY: GATEWAY_KEY }]) {
+        const off = assistantEnv(db, overrides);
+        assert.deepEqual(await statusOf(off, a.cookie), { available: false, reason: "disabled", surface: "cloud" });
+        assert.equal((await health(off)).hasAssistant, false);
+      }
+    } finally {
+      db.close();
+    }
+  });
+
+  test("gate: production refuses an appliance link (or the appliance default), logged once without values", async () => {
+    const db = migratedDatabase();
+    try {
+      const appliances: Array<Partial<CloudEnv>> = [
+        { AI_API_KEY: "sk-ai-test", AI_BASE_URL: "https://appliance.test/v1", AI_MODEL: "qwen-private-model", ASSISTANT_CHAIN: undefined },
+        { ASSISTANT_CHAIN: `gateway:${HAIKU},appliance:qwen-private-model` },
+      ];
+      for (const overrides of appliances) {
+        resetCloudMemoryStateForTests();
+        const env = productionEnv(db, overrides);
+        const a = await seedPro(db, env);
+        const { logged } = await capturingLogs(async () => {
+          assert.deepEqual(await statusOf(env, a.cookie), { available: false, reason: "disabled", surface: "cloud" });
+          assert.equal((await health(env)).hasAssistant, false);
+          const denied = await turn(env, a.cookie, "oi");
+          assert.equal(denied.status, 503);
+          assert.equal((await denied.json() as { code: string }).code, "assistant_unavailable");
+        });
+        const lines = logged.match(/assistant_chain_config_error/g) ?? [];
+        assert.equal(lines.length, 1, "logged once per process");
+        assert.ok(logged.includes("appliance_in_production"));
+        for (const value of ["qwen-private-model", HAIKU, GATEWAY_KEY, "appliance.test", "sk-ai-test"]) assert.ok(!logged.includes(value), value);
+        db.exec("DELETE FROM web_sessions; DELETE FROM users");
+      }
+    } finally {
+      db.close();
+    }
+  });
+
+  test("gate: production without AI_GATEWAY_API_KEY is off, without a config error", async () => {
+    const db = migratedDatabase();
+    try {
+      const env = productionEnv(db, { AI_GATEWAY_API_KEY: undefined });
+      const a = await seedPro(db, env);
+      const { logged } = await capturingLogs(async () => {
+        assert.deepEqual(await statusOf(env, a.cookie), { available: false, reason: "disabled", surface: "cloud" });
+        assert.equal((await health(env)).hasAssistant, false);
+      });
+      assert.ok(!logged.includes("assistant_chain_config_error"));
+      // And the switch is still required.
+      const off = productionEnv(db, { ASSISTANT_ENABLED: undefined });
+      assert.deepEqual(await statusOf(off, a.cookie), { available: false, reason: "disabled", surface: "cloud" });
+    } finally {
+      db.close();
+    }
+  });
+
+  test("gate: production with a gateway-only chain and the key is on, and a turn goes through the gateway", async () => {
+    const db = migratedDatabase();
+    const gateway = fakeGatewayFetch({ [HAIKU]: "Do gateway." });
+    try {
+      const env = productionEnv(db);
+      const a = await seedPro(db, env);
+      const { logged, result } = await capturingLogs(async () => {
+        assert.deepEqual(await statusOf(env, a.cookie), { available: true, reason: null, surface: "cloud" });
+        assert.equal((await health(env)).hasAssistant, true);
+        const response = await turn(env, a.cookie, "Quantas sessões?");
+        assert.equal(response.status, 200);
+        const sse = await response.text();
+        const thread = JSON.parse(sse.split("\n").find((line) => line.startsWith("data: "))!.slice(6)) as { data: { id: string } };
+        return { sse, threadId: thread.data.id, ...(await assistantMessage(env, a.cookie, thread.data.id)) };
+      });
+      assert.ok(result.sse.includes("Do gateway."));
+      assert.equal(result.message.status, "final");
+      assert.equal(result.message.text, "Do gateway.");
+      assert.deepEqual(gateway.calls.map((call) => call.model), [HAIKU]);
+      const call = gateway.calls[0];
+      assert.equal(call.url, "https://ai-gateway.vercel.sh/v4/ai/language-model");
+      assert.equal(call.headers.get("authorization"), `Bearer ${GATEWAY_KEY}`);
+      assert.deepEqual(call.body.providerOptions, {
+        gateway: { caching: "auto", disallowPromptTraining: true, sessionId: result.threadId },
+      });
+      for (const text of [result.sse, result.text, logged]) assert.ok(!text.includes(GATEWAY_KEY), "the key never leaves the server");
+    } finally {
+      gateway.restore();
+      db.close();
+    }
+  });
+
+  test("a route turn falls back to the second link, and AI_GATEWAY_ZERO_DATA_RETENTION=true adds the ZDR option", async () => {
+    const db = migratedDatabase();
+    const gateway = fakeGatewayFetch({ [DEEPSEEK]: "Da reserva.", [HAIKU]: 429 });
+    try {
+      const env = productionEnv(db, { AI_GATEWAY_ZERO_DATA_RETENTION: "true" });
+      const a = await seedPro(db, env);
+      const { logged, result } = await capturingLogs(async () => {
+        const response = await turn(env, a.cookie, "oi");
+        assert.equal(response.status, 200);
+        return response.text();
+      });
+      assert.ok(result.includes("Da reserva."));
+      assert.deepEqual(gateway.calls.map((call) => call.model), [HAIKU, DEEPSEEK]);
+      for (const call of gateway.calls) {
+        assert.equal((call.body.providerOptions as { gateway: { zeroDataRetention?: boolean } }).gateway.zeroDataRetention, true);
+      }
+      assert.ok(!result.includes(GATEWAY_KEY) && !logged.includes(GATEWAY_KEY));
+    } finally {
+      gateway.restore();
+      db.close();
+    }
+  });
+
+  test("the breaker is one per process: 3 failed turns open the only link and the next turn is assistant_unavailable", async () => {
+    const db = migratedDatabase();
+    const gateway = fakeGatewayFetch({ [HAIKU]: 503 });
+    try {
+      const env = productionEnv(db, { ASSISTANT_CHAIN: `gateway:${HAIKU}` });
+      const a = await seedPro(db, env);
+      for (let index = 0; index < 3; index++) {
+        const failed = await turn(env, a.cookie, `oi ${index}`);
+        assert.equal(failed.status, 200);
+        const sse = await failed.text();
+        assert.ok(sse.includes("ASSISTANT_STREAM_FAILED"));
+        assert.ok(!sse.includes(GATEWAY_KEY));
+      }
+      assert.equal(gateway.calls.length, 3);
+      const unavailable = await turn(env, a.cookie, "de novo");
+      assert.equal(unavailable.status, 503);
+      assert.deepEqual(await unavailable.json(), { code: "assistant_unavailable", error: "The assistant is unavailable" });
+      assert.equal(gateway.calls.length, 3, "no request while every link is open");
+      // The deployment is still enabled: the breaker is about the links.
+      assert.equal((await health(env)).hasAssistant, true);
+    } finally {
+      gateway.restore();
+      db.close();
+    }
+  });
+
+  const invalid: Array<[string, string]> = [
+    ["openai:gpt-secret", "unknown_hub"],
+    [`gateway:${HAIKU},gateway:${HAIKU}`, "duplicate_link"],
+    ["gateway:a,gateway:b,gateway:c,gateway:d,gateway:e", "too_many_links"],
+    ["gateway:", "malformed_link"],
+  ];
+  for (const [csv, reason] of invalid) {
+    test(`an invalid ASSISTANT_CHAIN (${reason}) turns the assistant off and logs only the reason`, async () => {
+      const db = migratedDatabase();
+      try {
+        for (const deployment of ["production", "staging"] as const) {
+          resetCloudMemoryStateForTests();
+          const env = deployment === "production"
+            ? productionEnv(db, { ASSISTANT_CHAIN: csv })
+            : assistantEnv(db, { AI_GATEWAY_API_KEY: GATEWAY_KEY, ASSISTANT_CHAIN: csv });
+          const a = await seedPro(db, env);
+          const { logged } = await capturingLogs(async () => {
+            assert.deepEqual(await statusOf(env, a.cookie), { available: false, reason: "disabled", surface: "cloud" });
+            assert.equal((await health(env)).hasAssistant, false);
+          });
+          assert.deepEqual(JSON.parse(JSON.parse(logged)[0][0]), { message: "assistant_chain_config_error", reason });
+          for (const value of [csv, "gpt-secret", HAIKU, GATEWAY_KEY]) assert.ok(!logged.includes(value), value);
+          db.exec("DELETE FROM web_sessions; DELETE FROM users");
+        }
+      } finally {
+        db.close();
+      }
+    });
+  }
+
+  test("/api/health reports hasAssistant as a plain boolean", async () => {
+    const db = migratedDatabase();
+    try {
+      assert.equal((await health({})).hasAssistant, false);
+      assert.equal((await health(productionEnv(db))).hasAssistant, true);
+      assert.equal((await health(productionEnv(db, { ASSISTANT_ENABLED: "false" }))).hasAssistant, false);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+// ---------- F4/S2: 3 credits per Cloud turn ----------
+
+describe("cloud assistant credits (F4/S2)", () => {
+  beforeEach(() => {
+    resetCloudMemoryStateForTests();
+    setCloudNowForTests(NOW);
+  });
+
+  afterEach(() => resetCloudMemoryStateForTests());
+
+  function route(path: string, env: CloudEnv, init: RequestInit = {}) {
+    return handleCloudApiRequest(new Request(`https://pinar.test${path}`, init), env);
+  }
+
+  function turn(env: CloudEnv, cookie: string, text: string) {
+    return route("/api/assistant/turn", env, {
+      body: JSON.stringify({ text }),
+      headers: { cookie, "content-type": "application/json" },
+      method: "POST",
+    });
+  }
+
+  async function seedPro(db: Database, env: CloudEnv) {
+    insertUser(db, "usr_a", "a@example.test", "pro");
+    const session = await seedCloudWebSessionForTests({ email: "a@example.test", id: "usr_a", plan: "pro" }, env);
+    // The entitlements read grants the initial Pro credits (500).
+    assert.equal((await route("/api/account/entitlements", env, { headers: { cookie: session.cookie } })).status, 200);
+    return session;
+  }
+
+  const balance = (db: Database) =>
+    (db.query("SELECT SUM(credits - consumed_credits) AS balance FROM ai_credit_grants WHERE owner_id = 'usr_a'").get() as { balance: number }).balance;
+
+  const turnUsages = (db: Database) => db.query(
+    "SELECT request_id, resource_id, model, credits, status, input_tokens, output_tokens, cost_usd_micros, result_json, error_code "
+      + "FROM ai_credit_usages WHERE feature = 'assistant_turn' ORDER BY created_at, rowid",
+  ).all() as Array<Record<string, unknown>>;
+
+  async function settledUsages(db: Database, count = 1) {
+    const deadline = Date.now() + 5_000;
+    for (;;) {
+      const rows = turnUsages(db);
+      if (rows.length === count && rows.every((row) => row.status !== "reserved")) return rows;
+      if (Date.now() > deadline) throw new Error(`timed out waiting for the turn's credits: ${JSON.stringify(rows)}`);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
+  function threadOf(sse: string) {
+    return (JSON.parse(sse.split("\n").find((line) => line.startsWith("data: "))!.slice(6)) as { data: { id: string } }).data.id;
+  }
+
+  async function assistantMessageId(db: Database, threadId: string) {
+    const deadline = Date.now() + 5_000;
+    for (;;) {
+      const row = db.query("SELECT id FROM assistant_messages WHERE thread_id = ? AND role = 'assistant'").get(threadId) as { id: string } | null;
+      if (row) return row.id;
+      if (Date.now() > deadline) throw new Error("timed out waiting for the assistant message");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
+  test("a final turn consumes 3 credits with the model that answered, its tokens and cost", async () => {
+    const db = migratedDatabase();
+    const gateway = fakeGatewayFetch({ [HAIKU]: "Duas sessões." });
+    try {
+      const env = productionEnv(db);
+      const a = await seedPro(db, env);
+      assert.equal(balance(db), 500);
+      const response = await turn(env, a.cookie, "Quantas sessões?");
+      assert.equal(response.status, 200);
+      const threadId = threadOf(await response.text());
+      const [usage] = await settledUsages(db);
+      const messageId = await assistantMessageId(db, threadId);
+      assert.deepEqual(usage, {
+        cost_usd_micros: 4541,
+        credits: 3,
+        error_code: null,
+        input_tokens: 12,
+        model: `gateway:${HAIKU}`,
+        output_tokens: 4,
+        request_id: `turn:${messageId}`,
+        resource_id: `assistant:${threadId}`,
+        result_json: JSON.stringify({ costSource: "gateway", fallback: false, link: 0 }),
+        status: "succeeded",
+      });
+      assert.equal(balance(db), 497);
+    } finally {
+      gateway.restore();
+      db.close();
+    }
+  });
+
+  test("a fallback answer records the second link and fallback in result_json", async () => {
+    const db = migratedDatabase();
+    const gateway = fakeGatewayFetch({ [DEEPSEEK]: "Da reserva.", [HAIKU]: 429 });
+    try {
+      const env = productionEnv(db);
+      const a = await seedPro(db, env);
+      await (await turn(env, a.cookie, "oi")).text();
+      const [usage] = await settledUsages(db);
+      assert.equal(usage.model, `gateway:${DEEPSEEK}`);
+      assert.equal(usage.result_json, JSON.stringify({ costSource: "gateway", fallback: true, link: 1 }));
+      assert.equal(balance(db), 497);
+    } finally {
+      gateway.restore();
+      db.close();
+    }
+  });
+
+  const refunds: Array<[string, Record<string, number | string>, string]> = [
+    ["a missing final", { [HAIKU]: "Vou verificar." }, "ASSISTANT_TURN_INCOMPLETE"],
+    ["a provider error", { [HAIKU]: 401 }, "ASSISTANT_STREAM_FAILED"],
+  ];
+  for (const [name, replies, code] of refunds) {
+    test(`${name} gives the 3 credits back (${code})`, async () => {
+      const db = migratedDatabase();
+      const gateway = fakeGatewayFetch(replies);
+      try {
+        const env = productionEnv(db);
+        const a = await seedPro(db, env);
+        await (await turn(env, a.cookie, "oi")).text();
+        const [usage] = await settledUsages(db);
+        assert.deepEqual([usage.status, usage.error_code, usage.credits], ["refunded", code, 3]);
+        assert.equal(balance(db), 500);
+      } finally {
+        gateway.restore();
+        db.close();
+      }
+    });
+  }
+
+  test("without enough credits: 402 with the balance, no model call and no assistant message", async () => {
+    const db = migratedDatabase();
+    const gateway = fakeGatewayFetch({ [HAIKU]: "nunca" });
+    try {
+      const env = productionEnv(db);
+      const a = await seedPro(db, env);
+      db.exec("UPDATE ai_credit_grants SET consumed_credits = credits - 2 WHERE owner_id = 'usr_a'");
+      const response = await turn(env, a.cookie, "oi");
+      assert.equal(response.status, 402);
+      const body = (await response.json()) as { aiCredits: { balance: number }; code: string; creditsRequired: number; error: string };
+      assert.equal(body.code, "insufficient_ai_credits");
+      assert.equal(body.aiCredits.balance, 2);
+      assert.equal(body.creditsRequired, 3);
+      assert.equal(gateway.calls.length, 0);
+      assert.deepEqual(db.query("SELECT role FROM assistant_messages").all(), [{ role: "user" }]);
+      assert.deepEqual(turnUsages(db), []);
+      assert.equal(balance(db), 2);
+    } finally {
+      gateway.restore();
+      db.close();
+    }
+  });
+
+  // Both runs read "no usage yet" before either inserts: each INSERT waits
+  // until two lookups are done, so the UNIQUE is what keeps the second one
+  // out. With `requestId`, every turn's request id is replaced by it, so two
+  // route turns (each with its own assistant message) race on one key; the
+  // batches are queued, as one D1 connection would run them.
+  function racingUsages(shared: NonNullable<CloudEnv["DB"]>, requestId?: string) {
+    let lookups = 0;
+    let bothLooked!: () => void;
+    const barrier = new Promise<void>((resolve) => {
+      bothLooked = resolve;
+    });
+    let queue: Promise<unknown> = Promise.resolve();
+    const racing: NonNullable<CloudEnv["DB"]> = {
+      ...shared,
+      batch(statements) {
+        const run = queue.then(() => shared.batch(statements));
+        queue = run.catch(() => {});
+        return run;
+      },
+      prepare(sql: string) {
+        const statement = shared.prepare(sql);
+        const lookup = /^SELECT \* FROM ai_credit_usages WHERE owner_type = \? AND owner_id = \? AND request_id = \?$/.test(sql.trim());
+        const insert = /INSERT INTO ai_credit_usages/.test(sql);
+        if (!lookup && !insert) return statement;
+        const wrapped = {
+          ...statement,
+          bind(...values: unknown[]) {
+            statement.bind(...values.map((value) => (requestId && typeof value === "string" && value.startsWith("turn:") ? requestId : value)));
+            return wrapped;
+          },
+          async first() {
+            const row = await statement.first();
+            if (lookup && ++lookups === 2) bothLooked();
+            return row;
+          },
+          async run() {
+            await barrier;
+            return statement.run();
+          },
+        };
+        return wrapped as typeof statement;
+      },
+    };
+    return { db: racing, lookups: () => lookups };
+  }
+
+  // Fails the first `times` writes whose SQL matches `pattern` (a transient
+  // database error) and counts them.
+  function failingWrites(shared: NonNullable<CloudEnv["DB"]>, pattern: RegExp, times: number) {
+    let failures = 0;
+    const failing: NonNullable<CloudEnv["DB"]> = {
+      ...shared,
+      prepare(sql: string) {
+        const statement = shared.prepare(sql);
+        if (!pattern.test(sql)) return statement;
+        const wrapped = {
+          ...statement,
+          bind(...values: unknown[]) {
+            statement.bind(...values);
+            return wrapped;
+          },
+          async run() {
+            if (failures < times) {
+              failures += 1;
+              throw new Error("D1_ERROR: database is locked");
+            }
+            return statement.run();
+          },
+        };
+        return wrapped as typeof statement;
+      },
+    };
+    return { db: failing, failures: () => failures };
+  }
+
+  const HTTP_CONSUME = /SET status = 'succeeded', result_json = \?, input_tokens/;
+  const REFUND = /SET status = 'refunded'/;
+
+  async function waitUntil(done: () => boolean, what: string) {
+    const deadline = Date.now() + 5_000;
+    while (!done()) {
+      if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
+  const answerOf = (db: Database, threadId: string) =>
+    db.query("SELECT status FROM assistant_messages WHERE thread_id = ? AND role = 'assistant'").get(threadId) as { status: string } | null;
+
+  test("idempotency: of two instances racing on the same assistant message, only the one that created the reservation settles it", async () => {
+    const db = migratedDatabase();
+    try {
+      const base = productionEnv(db);
+      await seedPro(db, base);
+      const race = racingUsages(base.DB!);
+      const principal = { email: "a@example.test", id: "usr_a", isPermanent: true, kind: "account" as const, plan: "pro" as const };
+      const first = cloudAssistantTurnMeter({ ...base, DB: race.db }, principal, `gateway:${HAIKU}`);
+      const second = cloudAssistantTurnMeter({ ...base, DB: race.db }, principal, `gateway:${HAIKU}`);
+      const turnRef = { messageId: "amsg_race_000000000000000000", threadId: "ath_race_0000000000000000000" };
+      const results = await Promise.all([first(turnRef), second(turnRef)]);
+      assert.equal(race.lookups() >= 2, true);
+      assert.equal(turnUsages(db).length, 1);
+      assert.equal(balance(db), 497, "charged once");
+      // The loser holds no ending: it can neither consume nor refund.
+      const winners = results.filter((result) => result.reserved);
+      assert.equal(winners.length, 1);
+      assert.deepEqual(results.filter((result) => !result.reserved), [{ inProgress: true, reserved: false }]);
+      const [winner] = winners;
+      if (!winner.reserved) throw new Error("unreachable");
+      await winner.consume({ costUsdMicros: 10, inputTokens: 1, model: `gateway:${HAIKU}`, outputTokens: 1, resultJson: "{}" });
+      assert.equal(turnUsages(db)[0].status, "succeeded");
+      assert.equal(balance(db), 497);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("idempotency over the route: the run that finds the reservation answers 409 assistant_turn_in_progress without the model, the other consumes", async () => {
+    const db = migratedDatabase();
+    const gateway = fakeGatewayFetch({ [HAIKU]: "Só uma vez." });
+    try {
+      const base = productionEnv(db);
+      const a = await seedPro(db, base);
+      const race = racingUsages(base.DB!, "turn:amsg_shared_000000000000000");
+      const env = { ...base, DB: race.db };
+      const responses = await Promise.all([turn(env, a.cookie, "um"), turn(env, a.cookie, "dois")]);
+      assert.deepEqual(responses.map((response) => response.status).sort(), [200, 409]);
+      const loser = responses.find((response) => response.status === 409)!;
+      assert.equal(loser.headers.get("cache-control"), "no-store");
+      assert.deepEqual(await loser.json(), { code: "assistant_turn_in_progress", error: "This turn is already running" });
+      const winner = responses.find((response) => response.status === 200)!;
+      assert.ok((await winner.text()).includes("Só uma vez."));
+      const [usage] = await settledUsages(db);
+      assert.deepEqual([usage.status, usage.request_id, usage.cost_usd_micros], ["succeeded", "turn:amsg_shared_000000000000000", 4541]);
+      assert.equal(balance(db), 497);
+      assert.equal(gateway.calls.length, 1, "the loser never calls the model");
+      // Both user messages stay; only the winner answers.
+      assert.deepEqual(db.query("SELECT role FROM assistant_messages ORDER BY role").all(), [{ role: "assistant" }, { role: "user" }, { role: "user" }]);
+    } finally {
+      gateway.restore();
+      db.close();
+    }
+  });
+
+  test("a settlement write that fails once is tried again: the final answer is charged with its cost", async () => {
+    const db = migratedDatabase();
+    const gateway = fakeGatewayFetch({ [HAIKU]: "Resposta entregue." });
+    try {
+      const base = productionEnv(db);
+      const a = await seedPro(db, base);
+      const failing = failingWrites(base.DB!, HTTP_CONSUME, 1);
+      const response = await turn({ ...base, DB: failing.db }, a.cookie, "oi");
+      assert.ok((await response.text()).includes("Resposta entregue."));
+      const [usage] = await settledUsages(db);
+      assert.equal(failing.failures(), 1);
+      assert.deepEqual([usage.status, usage.cost_usd_micros, usage.error_code], ["succeeded", 4541, null]);
+      assert.equal(balance(db), 497);
+    } finally {
+      gateway.restore();
+      db.close();
+    }
+  });
+
+  test("sweeper: a delivered final whose settlement kept failing is consumed by the sweeper, with no cost", async () => {
+    const db = migratedDatabase();
+    const gateway = fakeGatewayFetch({ [HAIKU]: "Resposta entregue." });
+    try {
+      const base = productionEnv(db);
+      const a = await seedPro(db, base);
+      const failing = failingWrites(base.DB!, HTTP_CONSUME, 2);
+      const env = { ...base, DB: failing.db };
+      const response = await turn(env, a.cookie, "oi");
+      const threadId = threadOf(await response.text());
+      await waitUntil(() => failing.failures() === 2, "both settlement attempts");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.deepEqual(turnUsages(db).map((row) => row.status), ["reserved"]);
+      assert.deepEqual(answerOf(db, threadId), { status: "final" });
+      assert.equal(balance(db), 497);
+
+      setCloudNowForTests(new Date(Date.parse(NOW) + 6 * 60_000).toISOString());
+      assert.deepEqual(await refundStaleAiReservations(env), { consumedReservations: 1, refundedReservations: 0 });
+      const [usage] = turnUsages(db);
+      assert.deepEqual(
+        [usage.status, usage.cost_usd_micros, usage.error_code, usage.result_json],
+        ["succeeded", null, null, JSON.stringify({ costSource: "none", fallback: false, link: 0 })],
+      );
+      assert.equal(balance(db), 497);
+    } finally {
+      gateway.restore();
+      db.close();
+    }
+  });
+
+  test("sweeper: an error answer whose refund kept failing is refunded as reservation_timeout", async () => {
+    const db = migratedDatabase();
+    const gateway = fakeGatewayFetch({ [HAIKU]: 401 });
+    try {
+      const base = productionEnv(db);
+      const a = await seedPro(db, base);
+      const failing = failingWrites(base.DB!, REFUND, 2);
+      const env = { ...base, DB: failing.db };
+      const { logged, result: threadId } = await capturingLogs(async () => {
+        const id = threadOf(await (await turn(env, a.cookie, "oi")).text());
+        await waitUntil(() => failing.failures() === 2, "both refund attempts");
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return id;
+      });
+      assert.equal(logged.split("ai_credit_refund_failed").length - 1, 2, "each failed refund is logged");
+      assert.deepEqual(answerOf(db, threadId), { status: "error" });
+      assert.deepEqual(turnUsages(db).map((row) => row.status), ["reserved"]);
+
+      setCloudNowForTests(new Date(Date.parse(NOW) + 6 * 60_000).toISOString());
+      assert.deepEqual(await refundStaleAiReservations(env), { consumedReservations: 0, refundedReservations: 1 });
+      assert.deepEqual(turnUsages(db).map((row) => [row.status, row.error_code]), [["refunded", "reservation_timeout"]]);
+      assert.equal(balance(db), 500);
+    } finally {
+      gateway.restore();
+      db.close();
+    }
+  });
+
+  test("sweeper: only a final assistant message of the reservation's own owner consumes it", async () => {
+    const db = migratedDatabase();
+    try {
+      const env = productionEnv(db);
+      await seedPro(db, env);
+      insertUser(db, "usr_b", "b@example.test", "pro");
+      const grant = (db.query("SELECT id FROM ai_credit_grants WHERE owner_id = 'usr_a'").get() as { id: string }).id;
+      const thread = (id: string, owner: string) =>
+        db.query("INSERT INTO assistant_threads (id, owner_id, title, created_at, updated_at) VALUES (?, ?, 't', ?, ?)").run(id, owner, NOW, NOW);
+      const message = (id: string, threadId: string, owner: string, role: string, status: string) =>
+        db.query("INSERT INTO assistant_messages (id, thread_id, owner_id, role, text, status, created_at) VALUES (?, ?, ?, ?, 'x', ?, ?)")
+          .run(id, threadId, owner, role, status, NOW);
+      const reserve = (id: string, requestId: string, feature: string, resourceId: string) =>
+        db.query(
+          "INSERT INTO ai_credit_usages (id, request_id, owner_type, owner_id, grant_id, feature, resource_id, model, credits, status, created_at) "
+            + "VALUES (?, ?, 'account', 'usr_a', ?, ?, ?, 'm', 3, 'reserved', ?)",
+        ).run(id, requestId, grant, feature, resourceId, NOW);
+      thread("ath_a", "usr_a");
+      thread("ath_b", "usr_b");
+      message("amsg_mine", "ath_a", "usr_a", "assistant", "final");
+      message("amsg_theirs", "ath_b", "usr_b", "assistant", "final");
+      message("amsg_question", "ath_a", "usr_a", "user", "final");
+      reserve("aiu_mine", "turn:amsg_mine", "assistant_turn", "assistant:ath_a");
+      reserve("aiu_theirs", "turn:amsg_theirs", "assistant_turn", "assistant:ath_b");
+      reserve("aiu_question", "turn:amsg_question", "assistant_turn", "assistant:ath_a");
+      reserve("aiu_voice", "amsg_mine", "voice_pin", "pin-1");
+      assert.equal(balance(db), 488);
+
+      setCloudNowForTests(new Date(Date.parse(NOW) + 6 * 60_000).toISOString());
+      assert.deepEqual(await refundStaleAiReservations(env), { consumedReservations: 1, refundedReservations: 3 });
+      assert.deepEqual(
+        db.query("SELECT id, status, error_code FROM ai_credit_usages ORDER BY id").all(),
+        [
+          { error_code: null, id: "aiu_mine", status: "succeeded" },
+          { error_code: "reservation_timeout", id: "aiu_question", status: "refunded" },
+          { error_code: "reservation_timeout", id: "aiu_theirs", status: "refunded" },
+          { error_code: "reservation_timeout", id: "aiu_voice", status: "refunded" },
+        ],
+      );
+      assert.equal(balance(db), 497);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("sweeper without a database: the in-memory reservations follow the stored answer and its owner", async () => {
+    const env: CloudEnv = {};
+    const a = await seedCloudWebSessionForTests({ email: "m@example.test", id: "usr_m", plan: "pro" }, env);
+    const entitlements = async () =>
+      (await (await route("/api/account/entitlements", env, { headers: { cookie: a.cookie } })).json()) as {
+        aiCredits: { balance: number };
+        aiUsage: Array<{ status: string }>;
+      };
+    assert.equal((await entitlements()).aiCredits.balance, 500);
+    const meter = cloudAssistantTurnMeter(env, a.principal, `gateway:${HAIKU}`);
+    const mine = cloudAssistantStore(env, "usr_m");
+    const theirs = cloudAssistantStore(env, "usr_other");
+    await mine.createThread({ id: "ath_m", now: NOW, title: "t" });
+    await theirs.createThread({ id: "ath_o", now: NOW, title: "t" });
+    const answer = (store: typeof mine, id: string, threadId: string, status: "error" | "final") =>
+      store.appendMessage({ ask: null, createdAt: NOW, errorCode: status === "error" ? "ASSISTANT_STREAM_FAILED" : null, id, role: "assistant", status, text: "x", threadId });
+    await answer(mine, "amsg_final", "ath_m", "final");
+    await answer(mine, "amsg_error", "ath_m", "error");
+    await answer(theirs, "amsg_theirs", "ath_o", "final");
+    for (const [messageId, threadId] of [["amsg_final", "ath_m"], ["amsg_error", "ath_m"], ["amsg_missing", "ath_m"], ["amsg_theirs", "ath_o"]]) {
+      assert.equal((await meter({ messageId, threadId })).reserved, true);
+    }
+    assert.equal((await entitlements()).aiCredits.balance, 488);
+
+    setCloudNowForTests(new Date(Date.parse(NOW) + 6 * 60_000).toISOString());
+    assert.deepEqual(await refundStaleAiReservations(env), { consumedReservations: 1, refundedReservations: 3 });
+    const after = await entitlements();
+    assert.equal(after.aiCredits.balance, 497);
+    assert.deepEqual(after.aiUsage.map((entry) => entry.status).sort(), ["refunded", "refunded", "refunded", "succeeded"]);
+  });
+
+  test("sweeper: a turn reservation 6 minutes old is refunded by the frequent cron, and the late answer does not charge it again", async () => {
+    const db = migratedDatabase();
+    let release!: () => void;
+    const hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      await hold;
+      const parts = [
+        { id: "t1", type: "text-start" },
+        { delta: "Tarde demais.", id: "t1", type: "text-delta" },
+        { id: "t1", type: "text-end" },
+        { finishReason: { raw: "stop", unified: "stop" }, providerMetadata: { gateway: { cost: "0.0001" } }, type: "finish", usage: { inputTokens: { total: 5 }, outputTokens: { total: 2 } } },
+      ];
+      return new Response(parts.map((part) => `data: ${JSON.stringify(part)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
+    }) as typeof fetch;
+    try {
+      const env = productionEnv(db);
+      const a = await seedPro(db, env);
+      const response = await turn(env, a.cookie, "oi");
+      assert.equal(response.status, 200);
+      assert.deepEqual(turnUsages(db).map((row) => row.status), ["reserved"]);
+      assert.equal(balance(db), 497);
+      const cron = createEdgerFetch({
+        frequentJobs: [{ name: "refundStaleAiReservations", run: () => refundStaleAiReservations(env) }],
+        jobs: [],
+        log: () => {},
+        tanstackFetch: async () => new Response("tanstack"),
+      });
+      const tick = () => cron(new Request("https://pinar.test/_internal/cron/frequent", { headers: { "x-edger-internal": "true" }, method: "POST" }));
+
+      // At 4 minutes the reservation stays.
+      setCloudNowForTests(new Date(Date.parse(NOW) + 4 * 60_000).toISOString());
+      assert.equal((await tick()).status, 200);
+      assert.deepEqual(turnUsages(db).map((row) => row.status), ["reserved"]);
+
+      // At 6 minutes the cron gives it back.
+      setCloudNowForTests(new Date(Date.parse(NOW) + 6 * 60_000).toISOString());
+      const swept = await tick();
+      assert.equal(swept.status, 200);
+      assert.deepEqual(await swept.json(), { jobs: [{ job: "refundStaleAiReservations", ok: true }], ok: true });
+      assert.deepEqual(turnUsages(db).map((row) => [row.status, row.error_code]), [["refunded", "reservation_timeout"]]);
+      assert.equal(balance(db), 500);
+
+      // The answer arrives late: it is stored, and the credits stay refunded.
+      release();
+      const threadId = threadOf(await response.text());
+      await assistantMessageId(db, threadId);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      assert.deepEqual(turnUsages(db).map((row) => row.status), ["refunded"]);
+      assert.equal(balance(db), 500);
+    } finally {
+      release();
+      globalThis.fetch = original;
+      db.close();
+    }
+  });
+
+  test("the usage history shows the voice pin and the assistant turn, without model or resource", async () => {
+    const db = migratedDatabase();
+    const gateway = fakeGatewayFetch({ [HAIKU]: "ok" });
+    try {
+      const env = productionEnv(db);
+      const a = await seedPro(db, env);
+      const grant = (db.query("SELECT id FROM ai_credit_grants WHERE owner_id = 'usr_a'").get() as { id: string }).id;
+      db.query(
+        "INSERT INTO ai_credit_usages (id, request_id, owner_type, owner_id, grant_id, feature, resource_id, model, credits, status, created_at, completed_at) "
+          + "VALUES ('aiu_voice', 'voice-1', 'account', 'usr_a', ?, 'voice_pin', 'pin-1', 'whisper', 1, 'succeeded', '2026-09-30T12:00:00.000Z', '2026-09-30T12:00:01.000Z')",
+      ).run(grant);
+      await (await turn(env, a.cookie, "oi")).text();
+      await settledUsages(db);
+      const response = await route("/api/account/entitlements", env, { headers: { cookie: a.cookie } });
+      const text = await response.text();
+      const body = JSON.parse(text) as { aiUsage: Array<Record<string, unknown>> };
+      assert.deepEqual(body.aiUsage.map((entry) => [entry.feature, entry.credits, entry.status]), [
+        ["assistant_turn", 3, "succeeded"],
+        ["voice_pin", 1, "succeeded"],
+      ]);
+      for (const entry of body.aiUsage) assert.deepEqual(Object.keys(entry).sort(), ["completedAt", "createdAt", "credits", "feature", "status"]);
+      assert.ok(!text.includes(HAIKU) && !text.includes("assistant:"), "no model or resource reaches the browser");
+    } finally {
+      gateway.restore();
       db.close();
     }
   });

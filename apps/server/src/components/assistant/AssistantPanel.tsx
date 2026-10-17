@@ -9,6 +9,7 @@ import IconPlus from "~icons/lucide/plus";
 import IconSparkles from "~icons/lucide/sparkles";
 import IconX from "~icons/lucide/x";
 import {
+  assistantCreditsFromChatError,
   assistantErrorFromChatError,
   assistantErrorMessageKey,
   buildTurnRequestBody,
@@ -35,6 +36,40 @@ import { AssistantComposer } from "./AssistantComposer";
 import { AssistantMessages } from "./AssistantMessages";
 import { AssistantThreadList } from "./AssistantThreadList";
 
+// The note of a failed turn; a turn refused for lack of credits (402
+// insufficient_ai_credits) also carries the balance and the price.
+export interface AssistantTurnError {
+  credits: { balance: number; required: number } | null;
+  key: AssistantErrorKey;
+}
+
+// Lack of credits shows the balance and a link to buy more (/pricing); any
+// other failure offers to try again.
+export function AssistantTurnErrorNote({ error, onRetry, t }: { error: AssistantTurnError; onRetry: () => void; t: Translate }) {
+  if (error.key === "assistant.errorNoCredits") {
+    return (
+      <div className="flex flex-col items-start gap-2 px-4 pb-3" role="alert">
+        <p className="text-sm text-destructive">
+          {error.credits
+            ? t("assistant.errorNoCredits", { count: error.credits.balance, required: error.credits.required })
+            : t("viewer.aiNoCredits")}
+        </p>
+        <Button render={<Link to="/pricing" />} size="sm" type="button" variant="outline">
+          {t("assistant.buyCredits")}
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col items-start gap-2 px-4 pb-3" role="alert">
+      <p className="text-sm text-destructive">{t(error.key)}</p>
+      <Button onClick={onRetry} size="sm" type="button" variant="outline">
+        {t("assistant.retry")}
+      </Button>
+    </div>
+  );
+}
+
 export interface AssistantPanelProps {
   className?: string;
   language: string;
@@ -48,7 +83,7 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
   const { setOpen } = useAssistantPanel();
   const [threads, setThreads] = useState<AssistantThread[] | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [turnErrorKey, setTurnErrorKey] = useState<AssistantErrorKey | null>(null);
+  const [turnError, setTurnError] = useState<AssistantTurnError | null>(null);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   // Card state per proposal id: the most recent proposal an action answer
   // (or a 409 refetch) returned, the in-flight flag and the action note.
@@ -84,7 +119,8 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
       onTurnError: (error) => {
         // The transport delivers the JSON error body as the error message;
         // only the mapped i18n key is ever shown, never the raw text.
-        setTurnErrorKey(assistantErrorMessageKey(assistantErrorFromChatError(error)));
+        const key = assistantErrorMessageKey(assistantErrorFromChatError(error));
+        setTurnError({ credits: key === "assistant.errorNoCredits" ? assistantCreditsFromChatError(error) : null, key });
       },
     }),
     [],
@@ -144,7 +180,7 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
       requestedThreadRef,
     });
     setActiveThreadId(null);
-    setTurnErrorKey(null);
+    setTurnError(null);
     setProposalStates({});
     setHistoryOpen(false);
     setConversation(next);
@@ -165,7 +201,7 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
       return;
     }
     setActiveThreadId(id);
-    setTurnErrorKey(null);
+    setTurnError(null);
     setProposalStates({});
     setHistoryOpen(false);
     setConversation(result.conversation);
@@ -182,7 +218,7 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
   }
 
   function handleSend(text: string) {
-    setTurnErrorKey(null);
+    setTurnError(null);
     void sendMessage({ text });
   }
 
@@ -199,7 +235,7 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
   function handleRetry() {
     const text = buildTurnRequestBody(null, messages).text;
     if (!text) return;
-    setTurnErrorKey(null);
+    setTurnError(null);
     void sendMessage({ text });
   }
 
@@ -240,14 +276,7 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
           proposalStates={proposalStates}
           t={t}
         />
-        {turnErrorKey !== null ? (
-          <div className="flex flex-col items-start gap-2 px-4 pb-3" role="alert">
-            <p className="text-sm text-destructive">{t(turnErrorKey)}</p>
-            <Button onClick={handleRetry} size="sm" type="button" variant="outline">
-              {t("assistant.retry")}
-            </Button>
-          </div>
-        ) : null}
+        {turnError !== null ? <AssistantTurnErrorNote error={turnError} onRetry={handleRetry} t={t} /> : null}
       </>
     );
 

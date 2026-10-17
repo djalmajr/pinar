@@ -122,7 +122,10 @@ import {
   markCloudPinIndexSessionStale,
   resetCloudPinIndexMemoryForTests,
 } from "./assistant/retrieval/store-cloud";
-import type { AssistantStatus } from "./assistant/http";
+import type { AssistantChainLink, AssistantCircuitBreaker } from "./assistant/chain";
+import { cleanupAssistantMarginRecords, recordAssistantIndexCost, type AssistantIndexCostEntry } from "./assistant/margin-monitor";
+import type { AssistantRequestDeps, AssistantStatus } from "./assistant/http";
+import type { AssistantEndpoint } from "./assistant/models";
 import type { PinSearchService } from "./assistant/retrieval/index";
 import type { CloudPinSessionRow, CloudPinSourceData } from "./assistant/retrieval/source-cloud";
 import type { AssistantStateReader } from "./assistant/state-reader";
@@ -189,6 +192,14 @@ export interface CloudEnv {
   // Optional embedding model of the same endpoint for the pin search; without
   // it the search is textual. Never part of the all-or-nothing AI group.
   AI_EMBEDDING_MODEL?: string;
+  // The Vercel AI Gateway key of the assistant chain's gateway links.
+  AI_GATEWAY_API_KEY?: string;
+  // "true" asks the gateway for zero data retention on each call; off
+  // otherwise (F4 contract §1).
+  AI_GATEWAY_ZERO_DATA_RETENTION?: string;
+  // The assistant's model chain, a CSV of hub:model links (assistant/
+  // chain.ts); without it the chain is appliance:<AI_MODEL>.
+  ASSISTANT_CHAIN?: string;
   // "true" switches the assistant on; every other value (or absence) is off.
   ASSISTANT_ENABLED?: string;
   AUTH_PEPPER?: string;
@@ -198,6 +209,9 @@ export interface CloudEnv {
   DEPLOYMENT_ENV?: "local" | "production" | "staging";
   EMAIL?: SendEmail;
   EXTENSION_ORIGIN?: string;
+  // The ops address of the assistant margin alerts (F4 contract §3): at most
+  // one email a day, only with an alert. Absent, the alerts are logs only.
+  OPS_ALERT_EMAIL?: string;
   PINAR_BUCKET?: R2Bucket;
   PRICING_AI_CREDITS_500_BRL_CENTS?: string;
   PRICING_AI_CREDITS_500_USD_CENTS?: string;
@@ -377,7 +391,7 @@ interface AiUsageHistoryEntry {
   completedAt: string | null;
   createdAt: string;
   credits: number;
-  feature: "voice_pin";
+  feature: "assistant_turn" | "voice_pin";
   status: AiCreditUsageRecord["status"];
 }
 
@@ -459,6 +473,7 @@ export const REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 export const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
 const SHOTS_PREFIX = "shots/";
 export type AiFeature =
+  | "assistant_turn"
   | "component_export"
   | "design_system"
   | "pin_diagnosis"
@@ -490,7 +505,15 @@ export const AI_FEATURE_SPECS: Record<"reproduction", AiFeatureSpec> = {
   },
 };
 const AI_RESERVATION_TIMEOUT_MS = 5 * 60 * 1000;
+// Credits of one assistant turn in the Cloud, staging included (F4 contract
+// §2, D1).
+export const ASSISTANT_TURN_CREDITS = 3;
+// A turn's reservation: request id turn:<assistant message id>, resource
+// assistant:<thread id> (F4 contract §2).
+const ASSISTANT_TURN_REQUEST_PREFIX = "turn:";
+const ASSISTANT_TURN_RESOURCE_PREFIX = "assistant:";
 const AI_FEATURES = new Set<AiFeature>([
+  "assistant_turn",
   "component_export",
   "design_system",
   "pin_diagnosis",
@@ -1225,12 +1248,12 @@ async function findAiCreditUsage(env: CloudEnv, principal: Principal, requestId:
 /**
  * The account view is a compact billing history, not inference telemetry. Keep
  * model names, prompts, resource ids, and retired features out of the response
- * that reaches the browser. Voice transcription is the only credit-bearing AI
- * operation exposed to accounts.
+ * that reaches the browser. Voice transcription and assistant turns are the
+ * credit-bearing AI operations exposed to accounts.
  */
 async function listAiUsageHistory(env: CloudEnv, principal: Principal, limit = 25): Promise<AiUsageHistoryEntry[]> {
   const toEntry = (usage: AiCreditUsageRecord): AiUsageHistoryEntry | null => {
-    if (usage.feature !== "voice_pin") return null;
+    if (usage.feature !== "voice_pin" && usage.feature !== "assistant_turn") return null;
     return {
       completedAt: usage.completedAt,
       createdAt: usage.createdAt,
@@ -1242,7 +1265,7 @@ async function listAiUsageHistory(env: CloudEnv, principal: Principal, limit = 2
 
   if (env.DB) {
     const result = await env.DB.prepare(
-      "SELECT * FROM ai_credit_usages WHERE owner_type = ? AND owner_id = ? AND feature = 'voice_pin' ORDER BY created_at DESC, rowid DESC LIMIT ?",
+      "SELECT * FROM ai_credit_usages WHERE owner_type = ? AND owner_id = ? AND feature IN ('voice_pin', 'assistant_turn') ORDER BY created_at DESC, rowid DESC LIMIT ?",
     ).bind(principal.kind, principal.id, limit).all();
     return (result.results || []).map(aiUsageFromRow).map(toEntry).filter((entry): entry is AiUsageHistoryEntry => entry !== null);
   }
@@ -1296,7 +1319,7 @@ async function reserveAiCreditUsage(
   principal: Principal,
   requestId: string,
   resourceId: string,
-  spec: AiFeatureSpec,
+  spec: Pick<AiFeatureSpec, "credits" | "feature" | "model">,
 ): Promise<AiReservation | null> {
   const existing = await findAiCreditUsage(env, principal, requestId);
   if (existing) return { kind: "existing", usage: existing };
@@ -1357,22 +1380,25 @@ async function reserveAiCreditUsage(
   return null;
 }
 
+// `model` replaces the reserved one when the model that answered is only
+// known at the end (the assistant chain's link); a null cost is unknown.
 async function completeAiCreditUsage(
   env: CloudEnv,
   usage: AiCreditUsageRecord,
   resultJson: string,
   inputTokens: number,
   outputTokens: number,
-  costUsdMicros: number,
+  costUsdMicros: number | null,
+  model: string = usage.model,
 ) {
   const completedAt = currentDate().toISOString();
   if (env.DB) {
     await env.DB.prepare(`
       UPDATE ai_credit_usages
       SET status = 'succeeded', result_json = ?, input_tokens = ?, output_tokens = ?,
-        cost_usd_micros = ?, completed_at = ?
+        cost_usd_micros = ?, completed_at = ?, model = ?
       WHERE id = ? AND status = 'reserved'
-    `).bind(resultJson, inputTokens, outputTokens, costUsdMicros, completedAt, usage.id).run();
+    `).bind(resultJson, inputTokens, outputTokens, costUsdMicros, completedAt, model, usage.id).run();
     const settled = await findAiCreditUsage(env, {
       id: usage.ownerId,
       isPermanent: false,
@@ -1382,9 +1408,11 @@ async function completeAiCreditUsage(
     if (settled?.status !== "succeeded") throw new Error("ai_usage_settlement_failed");
     return settled;
   }
+  if (usage.status !== "reserved") throw new Error("ai_usage_settlement_failed");
   usage.completedAt = completedAt;
   usage.costUsdMicros = costUsdMicros;
   usage.inputTokens = inputTokens;
+  usage.model = model;
   usage.outputTokens = outputTokens;
   usage.resultJson = resultJson;
   usage.status = "succeeded";
@@ -1409,21 +1437,76 @@ async function refundAiCreditUsage(env: CloudEnv, usage: AiCreditUsageRecord, er
   usage.status = "refunded";
 }
 
+// The result_json of a turn the sweeper consumes: its run stored the final
+// answer but never settled, so the chain's billing is unknown (as in a
+// settlement without billing).
+const SWEPT_TURN_RESULT_JSON = JSON.stringify({ costSource: "none", fallback: false, link: 0 });
+
+// Whether an open assistant_turn reservation was answered: the assistant
+// message under its request id (turn:<message id>) is stored final, owned by
+// the reservation's account.
+async function assistantTurnAnswered(env: CloudEnv, usage: AiCreditUsageRecord): Promise<boolean> {
+  if (usage.feature !== "assistant_turn" || usage.ownerType !== "account") return false;
+  if (!usage.requestId.startsWith(ASSISTANT_TURN_REQUEST_PREFIX)) return false;
+  const messageId = usage.requestId.slice(ASSISTANT_TURN_REQUEST_PREFIX.length);
+  if (env.DB) {
+    const row = await env.DB.prepare(
+      "SELECT id FROM assistant_messages WHERE id = ? AND owner_id = ? AND role = 'assistant' AND status = 'final'",
+    ).bind(messageId, usage.ownerId).first();
+    return row !== null;
+  }
+  const threadId = usage.resourceId.slice(ASSISTANT_TURN_RESOURCE_PREFIX.length);
+  const messages = await cloudAssistantStore(env, usage.ownerId).listMessages(threadId, { limit: Number.MAX_SAFE_INTEGER });
+  return messages.some((message) => message.id === messageId && message.role === "assistant" && message.status === "final");
+}
+
+// Consumes the reservation of an answered turn from the sweeper, with no
+// cost, tokens or error; like the refund, only while it is still open.
+async function consumeAnsweredTurnUsage(env: CloudEnv, usage: AiCreditUsageRecord) {
+  const completedAt = currentDate().toISOString();
+  if (env.DB) {
+    await env.DB.prepare(`
+      UPDATE ai_credit_usages
+      SET status = 'succeeded', result_json = ?, cost_usd_micros = NULL, error_code = NULL, completed_at = ?
+      WHERE id = ? AND status = 'reserved'
+    `).bind(SWEPT_TURN_RESULT_JSON, completedAt, usage.id).run();
+    return;
+  }
+  if (usage.status !== "reserved") return;
+  usage.completedAt = completedAt;
+  usage.costUsdMicros = null;
+  usage.errorCode = null;
+  usage.resultJson = SWEPT_TURN_RESULT_JSON;
+  usage.status = "succeeded";
+}
+
+// The frequent cron (A39): every reservation open past the timeout is
+// settled. An assistant turn whose final answer was stored is consumed (its
+// run answered but never settled); anything else is refunded as
+// reservation_timeout.
 export async function refundStaleAiReservations(env: CloudEnv) {
   const cutoff = new Date(currentDate().getTime() - AI_RESERVATION_TIMEOUT_MS).toISOString();
+  let usages: AiCreditUsageRecord[];
   if (env.DB) {
     const result = await env.DB.prepare(
       "SELECT * FROM ai_credit_usages WHERE status = 'reserved' AND created_at <= ?",
     ).bind(cutoff).all();
-    const usages = (result.results || []).map(aiUsageFromRow);
-    for (const usage of usages) await refundAiCreditUsage(env, usage, "reservation_timeout");
-    return { refundedReservations: usages.length };
+    usages = (result.results || []).map(aiUsageFromRow);
+  } else {
+    usages = Array.from(memoryAiCreditUsages.values()).filter(
+      (usage) => usage.status === "reserved" && usage.createdAt <= cutoff,
+    );
   }
-  const usages = Array.from(memoryAiCreditUsages.values()).filter(
-    (usage) => usage.status === "reserved" && usage.createdAt <= cutoff,
-  );
-  for (const usage of usages) await refundAiCreditUsage(env, usage, "reservation_timeout");
-  return { refundedReservations: usages.length };
+  let consumedReservations = 0;
+  for (const usage of usages) {
+    if (await assistantTurnAnswered(env, usage)) {
+      await consumeAnsweredTurnUsage(env, usage);
+      consumedReservations += 1;
+    } else {
+      await refundAiCreditUsage(env, usage, "reservation_timeout");
+    }
+  }
+  return { consumedReservations, refundedReservations: usages.length - consumedReservations };
 }
 
 interface GrantStorageInput {
@@ -2875,7 +2958,8 @@ export async function updateMcpSession(
     if (!withReproduction) throw new McpToolError("reproduction is invalid");
     next = withReproduction;
   }
-  await persistSession(env, next, session.batchId ?? null);
+  // Deleted since the read: the same answer as a session never found.
+  if (!(await persistSession(env, next, session.batchId ?? null, { keepPlacement: true }))) return null;
   const stored = await findOwnedSession(env, principal, id);
   return decorateCloudSession(env, stored || next);
 }
@@ -2919,7 +3003,9 @@ async function createMcpPin(
     ...(colorCollides ? {} : { color: paletteColor }),
   }, session.id, session.pins.length);
   const next: Session = { ...session, pins: [...session.pins, pin] };
-  await persistSession(env, next, session.batchId ?? null);
+  if (!(await persistSession(env, next, session.batchId ?? null, { keepPlacement: true }))) {
+    throw new McpToolError("Session not found");
+  }
   const stored = await findOwnedSession(env, principal, sessionId);
   const created = stored?.pins.find((item) => (item.pinId || item.id) === pinId);
   if (!created) throw new McpToolError("Pin not found");
@@ -3975,6 +4061,15 @@ async function createCheckout(request: Request, env: CloudEnv) {
   if (!priceId) return json({ error: "Stripe price is not configured" }, 500);
   const principal = await resolvePrincipal(request, env);
   const account = principal?.kind === "account" ? await findAccountById(env, principal.id) : null;
+  // AI credits are sold only to an account whose plan includes AI (Pro or
+  // complimentary Pro), trial or not (decision A42): everything that spends
+  // them is Pro only.
+  if (offer === "ai_credits_500" && !(account && planIncludesAi(effectiveAccountPlan(account)))) {
+    return json({
+      code: "cloud_pro_required_for_addon",
+      error: "Pro subscription required for add-ons",
+    }, 402);
+  }
   if (!subscription && cloudTrialEnabled(env)) {
     const trial = account ? cloudTrialForAccount(env, account) : null;
     if (!trial || trial.state === "active" || trial.state === "expired") {
@@ -5352,6 +5447,25 @@ async function deleteProjectContainer(env: CloudEnv, principal: Principal, id: s
   return true;
 }
 
+// The columns of a session row an upsert rewrites, without its place.
+const SESSION_CONTENT_UPDATE = `url=excluded.url, title=excluded.title, shot_id=excluded.shot_id,
+       shot_url=excluded.shot_url, pin_count=excluded.pin_count, pins_json=excluded.pins_json,
+       created_at=excluded.created_at, user_id=excluded.user_id, plan=excluded.plan,
+       is_permanent=excluded.is_permanent, byte_size=excluded.byte_size,
+       include_screenshot=excluded.include_screenshot`;
+// The session's place: its collection, position, batch and automatic-filing mark.
+const SESSION_PLACEMENT_UPDATE = `collection_id=excluded.collection_id, position=excluded.position,
+       batch_id=excluded.batch_id, filed_by=excluded.filed_by`;
+
+// The session's content over the stored entry's place (the in-memory twin of
+// keepPlacement): its collection, position and automatic-filing mark.
+function withStoredPlacement(session: Session, stored: Session): Session {
+  const next: Session = { ...session, collectionId: stored.collectionId, position: stored.position };
+  if (stored.filedBy === "auto") next.filedBy = "auto";
+  else delete next.filedBy;
+  return next;
+}
+
 // Writes the whole row, `filedBy` included: an edit keeps the automatic-filing
 // mark because it starts from the stored session; a new capture is marked by
 // passing `filedBy: "auto"` on the session it saves.
@@ -5363,22 +5477,57 @@ async function deleteProjectContainer(env: CloudEnv, principal: Principal, id: s
 // session's owner only (`user_id`); without a batch, or without a claim, no
 // claim is written. moveSession and deleteCollectionContainer update the
 // claim on their own paths.
-export async function persistSession(env: CloudEnv, session: Session, batchId: string | null = null) {
+//
+// `keepPlacement` is for edits of a stored session (its title, URL, pins or
+// notes), which start from a read of the row: only the owner's existing row
+// is updated (UPDATE … WHERE id AND user_id), with its content alone. It keeps
+// the collection, position, batch and filing mark it has at the write, so a
+// move that lands between that read and the write is not undone, and the
+// claim is not touched (the place did not change); a row deleted since the
+// read is not brought back. Only the capture writes (uploadShot, saveHistory,
+// createMcpSession) place the session.
+//
+// Resolves to whether the row was written: always for a capture write, and
+// for an edit only when the owner's row still existed. The pin index mark
+// and the open reviews follow a written row only.
+export async function persistSession(
+  env: CloudEnv,
+  session: Session,
+  batchId: string | null = null,
+  options: { keepPlacement?: boolean } = {},
+): Promise<boolean> {
   const capture = captureFromSession(session);
-  const claimCollectionId = batchId ? session.collectionId || "" : "";
-  if (env.DB) {
+  const claimCollectionId = batchId && !options.keepPlacement ? session.collectionId || "" : "";
+  let written = true;
+  if (env.DB && options.keepPlacement) {
+    const result = await env.DB.prepare(`
+      UPDATE sessions SET url = ?, title = ?, shot_id = ?, shot_url = ?, pin_count = ?, pins_json = ?,
+        created_at = ?, plan = ?, is_permanent = ?, byte_size = ?, include_screenshot = ?
+      WHERE id = ? AND user_id = ?
+    `).bind(
+      session.page.url || "",
+      session.page.title || "",
+      session.shotId || "",
+      session.shotUrl || "",
+      capture.pins.length,
+      encodeVisualCaptureJson(capture),
+      session.createdAt,
+      session.plan || "free",
+      session.isPermanent ? 1 : 0,
+      session.byteSize || 0,
+      session.includeScreenshot === false ? 0 : 1,
+      session.id,
+      session.userId || "",
+    ).run();
+    written = Number(result.meta?.changes ?? 0) > 0;
+  } else if (env.DB) {
+    const update = `${SESSION_CONTENT_UPDATE},\n       ${SESSION_PLACEMENT_UPDATE}`;
     const upsert = env.DB.prepare(
       `INSERT INTO sessions (
          id, url, title, shot_id, shot_url, pin_count, pins_json, created_at, user_id,
          plan, is_permanent, byte_size, collection_id, position, include_screenshot, batch_id, filed_by
        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET url=excluded.url, title=excluded.title, shot_id=excluded.shot_id,
-       shot_url=excluded.shot_url, pin_count=excluded.pin_count, pins_json=excluded.pins_json,
-       created_at=excluded.created_at, user_id=excluded.user_id, plan=excluded.plan,
-       is_permanent=excluded.is_permanent, byte_size=excluded.byte_size,
-       collection_id=excluded.collection_id, position=excluded.position,
-       include_screenshot=excluded.include_screenshot, batch_id=excluded.batch_id,
-       filed_by=excluded.filed_by`,
+       ON CONFLICT(id) DO UPDATE SET ${update}`,
     ).bind(
       session.id,
       session.page.url || "",
@@ -5408,14 +5557,22 @@ export async function persistSession(env: CloudEnv, session: Session, batchId: s
     } else {
       await upsert.run();
     }
+  } else if (options.keepPlacement) {
+    const stored = memorySessions.get(session.id);
+    written = Boolean(stored && stored.userId === session.userId);
+    if (stored && written) {
+      memorySessions.set(session.id, withCloudBatchId(sessionFromCapture(capture, withStoredPlacement(session, stored)), cloudSessionBatchId(stored)));
+    }
   } else {
     memorySessions.set(session.id, withCloudBatchId(sessionFromCapture(capture, session), batchId));
     if (claimCollectionId) claimFollowsMemoryBatch(session.userId || "", batchId, claimCollectionId);
   }
+  if (!written) return false;
   // Title, URL, notes or pins may have changed: the pin index of the session
   // is stale for its next pass (best effort, never fails the write).
   await markCloudPinIndexSessionStale(env, session.id);
   await ensureOpenPinReviews(env, session);
+  return true;
 }
 
 function parseFilesJson(value: unknown) {
@@ -6183,7 +6340,9 @@ async function editPinNote(request: Request, env: CloudEnv, captureId: string, p
     pins: session.pins.map((item) => ((item.pinId || item.id) === pinId ? { ...item, comment } : item)),
   };
   try {
-    await persistSession(env, patched, session.batchId ?? null);
+    if (!(await persistSession(env, patched, session.batchId ?? null, { keepPlacement: true }))) {
+      return json({ error: "Session not found" }, 404);
+    }
   } catch {
     return json({ error: "Session persistence failed" }, 503);
   }
@@ -6532,7 +6691,9 @@ async function updateSessionFields(request: Request, env: CloudEnv, id: string) 
   const patched = applySessionPatch(session, body);
   if (!patched) return json({ error: "invalid session patch" }, 400);
   try {
-    await persistSession(env, patched, session.batchId ?? null);
+    if (!(await persistSession(env, patched, session.batchId ?? null, { keepPlacement: true }))) {
+      return json({ error: "Session not found" }, 404);
+    }
   } catch {
     return json({ error: "Session persistence failed" }, 503);
   }
@@ -6653,6 +6814,7 @@ async function fileCloudShot(
       capture,
       env,
       ownerId: principal.id,
+      recordIndexCost: cloudIndexCostRecorder(env),
       source: cloudFilingSource(env, principal),
       timeoutMs: FILING_TIMEOUT_MS - (Date.now() - startedAt),
     });
@@ -6794,7 +6956,7 @@ async function settleBatchDestination(
 // on, inside the assistant gate (A33) and with an engine. Outside the gate
 // nothing is loaded nor fetched.
 async function cloudAutoCaptureDestinationAvailable(env: CloudEnv, principal: Principal): Promise<boolean> {
-  if (!cloudAssistantStatus(env, principal).available) return false;
+  if (!(await cloudAssistantStatus(env, principal)).available) return false;
   const startedAt = Date.now();
   try {
     const filing = await import("./filing/runtime-cloud");
@@ -6856,7 +7018,7 @@ async function uploadShot(request: Request, env: CloudEnv) {
   let destination: CaptureDestination;
   if (manualDestination) {
     destination = manualDestination;
-  } else if (!cloudAssistantStatus(env, principal).available) {
+  } else if (!(await cloudAssistantStatus(env, principal)).available) {
     filed = inboxWithoutEngine();
     destination = await resolveDestination(env, principal, "");
   } else {
@@ -7349,7 +7511,9 @@ export async function cleanupOldRecords(env: CloudEnv, days = FREE_CLOUD_RETENTI
   }
   const assistantCutoff = new Date(now.getTime() - ASSISTANT_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const assistantThreads = await cleanupAssistantThreads(env, assistantCutoff);
-  return { assistantThreads, cutoff, deletedCount, deletedExtensionCodeCount, deletedWebSessionCount };
+  // The margin monitor's records: index costs and claimed email days, after 30 days.
+  const assistantMargin = await cleanupAssistantMarginRecords(env, now);
+  return { assistantMargin, assistantThreads, cutoff, deletedCount, deletedExtensionCodeCount, deletedWebSessionCount };
 }
 
 export async function authorizeCloudAppRequest(request: Request, env: CloudEnv) {
@@ -8075,7 +8239,9 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
             ...session,
             pins: session.pins.map((item) => ((item.pinId || item.id) === pinId ? { ...item, comment } : item)),
           };
-          await persistSession(context.env, patched, session.batchId ?? null);
+          if (!(await persistSession(context.env, patched, session.batchId ?? null, { keepPlacement: true }))) {
+            throw new McpToolError("Resource not found");
+          }
           const updatedPin = patched.pins.find((item) => (item.pinId || item.id) === pinId);
           if (!updatedPin) throw new McpToolError("Pin not found");
           return { ok: true, pin: updatedPin };
@@ -8466,21 +8632,72 @@ export async function handleCloudMcpRequest(request: Request, env: CloudEnv) {
   }));
 }
 
-// The deployment half of the Cloud assistant gate (decision A3): the
-// explicit switch on, outside production, and the raw AI configuration
-// (base URL, key and model).
-function cloudAssistantDeploymentEnabled(env: CloudEnv): boolean {
-  return env.ASSISTANT_ENABLED === "true" && env.DEPLOYMENT_ENV !== "production"
-    && Boolean(env.AI_BASE_URL) && Boolean(env.AI_API_KEY) && Boolean(env.AI_MODEL);
+// ---------- assistant model chain (F4 contract §1 and §4) ----------
+
+// One circuit breaker per process, shared by every turn (F4 contract §1).
+// Created on first use: chain.ts pulls in the AI SDK and is loaded lazily.
+let cloudAssistantBreaker: AssistantCircuitBreaker | null = null;
+// An invalid ASSISTANT_CHAIN is logged once per process.
+let cloudAssistantChainErrorLogged = false;
+
+// The deployment half of the Cloud assistant gate (decision A3, F4
+// contract §4), with the chain it opens; null when it is off:
+// - ASSISTANT_ENABLED is "true";
+// - the chain, ASSISTANT_CHAIN or else appliance:<AI_MODEL>, is valid for
+//   the deployment (production refuses an appliance link);
+// - a chain with a gateway link has AI_GATEWAY_API_KEY, so production needs
+//   it;
+// - outside production the rule of before still holds: AI_BASE_URL,
+//   AI_API_KEY and AI_MODEL.
+// An invalid chain turns the assistant off and logs
+// assistant_chain_config_error with the reason only, never a value. The
+// chain module is imported lazily (it pulls in the AI SDK), only once the
+// switch is on.
+async function cloudAssistantChain(env: CloudEnv): Promise<AssistantChainLink[] | null> {
+  if (env.ASSISTANT_ENABLED !== "true") return null;
+  const production = env.DEPLOYMENT_ENV === "production";
+  if (!production && !(env.AI_BASE_URL && env.AI_API_KEY && env.AI_MODEL)) return null;
+  const csv = env.ASSISTANT_CHAIN?.trim() ? env.ASSISTANT_CHAIN : env.AI_MODEL ? `appliance:${env.AI_MODEL}` : "";
+  if (!csv) return null;
+  let chainModule: typeof import("./assistant/chain");
+  try {
+    chainModule = await import("./assistant/chain");
+  } catch {
+    return null;
+  }
+  const { AssistantChainConfigError, parseAssistantChain } = chainModule;
+  let chain: AssistantChainLink[];
+  try {
+    chain = parseAssistantChain(csv, production ? "production" : env.DEPLOYMENT_ENV === "staging" ? "staging" : "development");
+  } catch (error) {
+    if (!cloudAssistantChainErrorLogged) {
+      cloudAssistantChainErrorLogged = true;
+      console.error(JSON.stringify({
+        message: "assistant_chain_config_error",
+        reason: error instanceof AssistantChainConfigError ? error.reason : "invalid",
+      }));
+    }
+    return null;
+  }
+  if (chain.some((link) => link.hub === "gateway") && !env.AI_GATEWAY_API_KEY) return null;
+  return chain;
 }
 
-// The Cloud assistant gate (decision A3): the deployment gate, then the Pro
-// plan. The order matters: a disabled deployment reports "disabled" even
-// for a non-Pro principal.
-function cloudAssistantStatus(env: CloudEnv, principal: Principal): AssistantStatus {
-  if (!cloudAssistantDeploymentEnabled(env)) return { available: false, reason: "disabled" };
+async function cloudAssistantDeploymentEnabled(env: CloudEnv): Promise<boolean> {
+  return (await cloudAssistantChain(env)) !== null;
+}
+
+// The Cloud assistant gate (decision A3): the deployment gate (its chain),
+// then the Pro plan. The order matters: a disabled deployment reports
+// "disabled" even for a non-Pro principal.
+function assistantStatusFor(chain: AssistantChainLink[] | null, principal: Principal): AssistantStatus {
+  if (!chain) return { available: false, reason: "disabled" };
   if (!planIncludesAi(principal.plan)) return { available: false, reason: "requires_pro" };
   return { available: true, reason: null };
+}
+
+async function cloudAssistantStatus(env: CloudEnv, principal: Principal): Promise<AssistantStatus> {
+  return assistantStatusFor(await cloudAssistantChain(env), principal);
 }
 
 // ---------- pin search (F3 contract §3.3) ----------
@@ -8575,7 +8792,7 @@ export async function cloudPinSearch(
   principal: Principal,
   options: { fetch?: typeof fetch } = {},
 ): Promise<PinSearchService | undefined> {
-  if (!cloudAssistantStatus(env, principal).available) return undefined;
+  if (!(await cloudAssistantStatus(env, principal)).available) return undefined;
   // Loaded lazily, like the assistant HTTP layer: it pulls in the AI SDK.
   const { createCloudPinSearch } = await import("./assistant/retrieval/runtime-cloud");
   return createCloudPinSearch({
@@ -8583,7 +8800,16 @@ export async function cloudPinSearch(
     env,
     ...(options.fetch ? { fetch: options.fetch } : {}),
     now: currentDate,
+    recordIndexCost: cloudIndexCostRecorder(env),
   });
+}
+
+// The index-cost recorder of the retrieval calls through the gateway (F4
+// contract §3): each cost becomes a row of assistant_index_costs at the
+// Cloud's clock, for the margin monitor. Only the gateway calls use it; a
+// failure is caught there (recordIndexCost in retrieval/gateway.ts).
+function cloudIndexCostRecorder(env: CloudEnv): (entry: AssistantIndexCostEntry) => Promise<void> {
+  return (entry) => recordAssistantIndexCost(env, entry, currentDate());
 }
 
 // The ids of COMPLIMENTARY_PRO_USER_IDS, the list complimentaryProUser reads.
@@ -8639,7 +8865,7 @@ async function pinSearchOwners(env: CloudEnv, expired: () => boolean = () => fal
  * With the assistant's deployment gate off it reads nothing.
  */
 export async function indexPinSearch(env: CloudEnv, options: { fetch?: typeof fetch; now?: () => Date } = {}) {
-  if (!cloudAssistantDeploymentEnabled(env)) return { failed: 0, indexed: 0, owners: 0, remaining: false };
+  if (!(await cloudAssistantDeploymentEnabled(env))) return { failed: 0, indexed: 0, owners: 0, remaining: false };
   const { runCloudPinIndexCron } = await import("./assistant/retrieval/runtime-cloud");
   return runCloudPinIndexCron({
     env,
@@ -8650,7 +8876,80 @@ export async function indexPinSearch(env: CloudEnv, options: { fetch?: typeof fe
     // owners on a plan with AI.
     ownerData: (ownerId) => cloudPinSourceData(env, { id: ownerId, isPermanent: true, kind: "account", plan: "pro" }, { shared: false }),
     owners: (expired) => pinSearchOwners(env, expired),
+    recordIndexCost: cloudIndexCostRecorder(env),
   });
+}
+
+// The credits of a Cloud turn (F4 contract §2, decision A39): the turn
+// reserves ASSISTANT_TURN_CREDITS under turn:<assistant message id> for the
+// resource assistant:<thread id>, with the model the chain starts from; the
+// UNIQUE (owner, request id) keeps a second reservation of the same message
+// from charging again. Only the run that created the reservation settles
+// it: one that finds it already there gets inProgress (409), with no ending
+// of its own. Consuming records the model that answered, the tokens, the
+// cost and result_json; a refund that fails is logged and left to the
+// sweeper.
+export function cloudAssistantTurnMeter(
+  env: CloudEnv,
+  principal: Principal,
+  model: string,
+): NonNullable<AssistantRequestDeps["meterTurn"]> {
+  return async ({ messageId, threadId }) => {
+    const account = await findAccountById(env, principal.id);
+    if (account) await ensureInitialProCredits(env, account);
+    const reservation = await reserveAiCreditUsage(
+      env,
+      principal,
+      ASSISTANT_TURN_REQUEST_PREFIX + messageId,
+      ASSISTANT_TURN_RESOURCE_PREFIX + threadId,
+      { credits: ASSISTANT_TURN_CREDITS, feature: "assistant_turn", model },
+    );
+    if (!reservation) {
+      return { aiCredits: await aiCreditBalance(env, principal), creditsRequired: ASSISTANT_TURN_CREDITS, reserved: false };
+    }
+    if (reservation.kind === "existing") return { inProgress: true, reserved: false };
+    const usage = reservation.usage;
+    return {
+      consume: (charge) => completeAiCreditUsage(
+        env,
+        usage,
+        charge.resultJson,
+        charge.inputTokens,
+        charge.outputTokens,
+        charge.costUsdMicros,
+        charge.model,
+      ),
+      refund: async (errorCode) => {
+        try {
+          await refundAiCreditUsage(env, usage, errorCode);
+        } catch (error) {
+          console.error("ai_credit_refund_failed", JSON.stringify({ error: String(error), usageId: usage.id }));
+          throw error;
+        }
+      },
+      reserved: true,
+    };
+  };
+}
+
+// The AssistantEndpoint of a chain link: the appliance as before, or the
+// gateway's OpenAI-compatible endpoint (F4 contract §4) with its key.
+function cloudAssistantEndpoint(env: CloudEnv, link: AssistantChainLink): AssistantEndpoint {
+  return link.hub === "gateway"
+    ? {
+        apiKey: env.AI_GATEWAY_API_KEY,
+        baseUrl: "https://ai-gateway.vercel.sh/v1",
+        kind: "openai-compatible",
+        model: link.model,
+        thinkingControl: false,
+      }
+    : {
+        apiKey: env.AI_API_KEY,
+        baseUrl: env.AI_BASE_URL ?? "",
+        kind: "appliance",
+        model: link.model,
+        thinkingControl: true,
+      };
 }
 
 // /api/assistant/* for the logged-in web user (contract section 2): only an
@@ -8676,25 +8975,37 @@ async function cloudAssistantRoutesUnguarded(request: Request, env: CloudEnv): P
   if (!principal || principal.kind !== "account") {
     return json({ code: "unauthorized", error: "Unauthorized" }, 401);
   }
-  const status = cloudAssistantStatus(env, principal);
+  const chain = await cloudAssistantChain(env);
+  const status = assistantStatusFor(chain, principal);
   // The assistant HTTP layer pulls in the AI SDK: loaded lazily so the
   // worker's initial module graph and cold start stay free of it. (On EdgeR
   // the SDK's @vercel/oidc dependency is replaced by a stub, see
   // vite.config.edger.ts.)
   const { handleAssistantRequest } = await import("./assistant/http");
+  const { assistantChainLinkName, assistantChainModel, assistantChainOpen, createAssistantCircuitBreaker } = await import("./assistant/chain");
+  const breaker = cloudAssistantBreaker ??= createAssistantCircuitBreaker();
   const origin = new URL(request.url).origin;
   const pinSearch = await cloudPinSearch(env, principal);
   const deps: Parameters<typeof handleAssistantRequest>[1] = {
-    endpoint: async () =>
-      env.AI_BASE_URL && env.AI_API_KEY && env.AI_MODEL
-        ? {
-            apiKey: env.AI_API_KEY,
-            baseUrl: env.AI_BASE_URL,
-            kind: "appliance",
-            model: env.AI_MODEL,
-            thinkingControl: true,
-          }
-        : null,
+    // The endpoint of the chain's first link, which the turn starts from;
+    // null (503 assistant_unavailable) with the gate off or every link's
+    // breaker open.
+    endpoint: async () => (chain && !assistantChainOpen(chain, breaker) ? cloudAssistantEndpoint(env, chain[0]) : null),
+    // The turn's model is the chain (assistant/chain.ts); the endpoint only
+    // names its first link.
+    model: (_endpoint, context) =>
+      assistantChainModel({
+        appliance: env.AI_BASE_URL && env.AI_API_KEY ? { apiKey: env.AI_API_KEY, baseUrl: env.AI_BASE_URL } : null,
+        breaker,
+        chain: chain ?? [],
+        context,
+        gateway: env.AI_GATEWAY_API_KEY
+          ? { apiKey: env.AI_GATEWAY_API_KEY, zeroDataRetention: env.AI_GATEWAY_ZERO_DATA_RETENTION === "true" }
+          : null,
+      }),
+    // 3 credits a turn (F4 contract §2); the model the chain starts from is
+    // the reservation's until the link that answered replaces it.
+    meterTurn: cloudAssistantTurnMeter(env, principal, chain ? assistantChainLinkName(chain[0]) : ""),
     ...(pinSearch ? { pinSearch } : {}),
     rateLimitTurn: () =>
       withinRateLimits(env, "assistant-turn", [
@@ -8729,6 +9040,7 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
     return json({
       hasAdminAuth: Boolean(env.ADMIN_API_KEY),
       hasAi: Boolean(env.AI),
+      hasAssistant: await cloudAssistantDeploymentEnabled(env),
       hasAuthPepper: Boolean(env.AUTH_PEPPER),
       hasBucket: Boolean(env.PINAR_BUCKET),
       hasDb: Boolean(env.DB),
@@ -9553,6 +9865,8 @@ export function resetCloudMemoryStateForTests() {
   memoryWebSessions.clear();
   resetCloudAssistantMemoryForTests();
   resetCloudPinIndexMemoryForTests();
+  cloudAssistantBreaker = null;
+  cloudAssistantChainErrorLogged = false;
   memoryMigrationFailure = false;
   testNow = null;
 }

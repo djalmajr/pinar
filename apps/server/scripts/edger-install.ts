@@ -117,13 +117,15 @@ function errorMessage(error: unknown): string {
 
 /**
  * Env-file keys whose values are not secrets and are short, common words
- * (`pinar-stg`, `auto`, `staging`): redacting them would mask the worker
- * name and the version in the installer's own output.
+ * (`pinar-stg`, `auto`, `staging`, `true`) or model ids: redacting them
+ * would mask the worker name and the version in the installer's own output.
  */
 export const NON_SECRET_ENV_KEYS: ReadonlySet<string> = new Set([
   "AI_EMBEDDING_MODEL",
+  "AI_GATEWAY_ZERO_DATA_RETENTION",
   "AI_MODEL",
   "AI_TRANSCRIPTION_MODEL",
+  "ASSISTANT_CHAIN",
   "DEPLOYMENT_ENV",
   "S3_BUCKET",
   "S3_REGION",

@@ -1,11 +1,27 @@
 // Pin indexing and search runtime of the Cloud (F3 contract §3.3,
 // decisions A18, A20 and A23).
 //
-// Endpoints: the chat endpoint is the assistant's (AI_BASE_URL, AI_API_KEY,
-// AI_MODEL). The embedding endpoint is the same base URL and key with
-// AI_EMBEDDING_MODEL; without it the entries are text-only and the search
-// is textual. Vision uses the chat endpoint only when
-// detectRetrievalCapabilities finds image input for AI_MODEL.
+// Endpoints (cloudRetrievalEndpoints), by the first link of ASSISTANT_CHAIN
+// (F4 contract §4):
+// - appliance, or no ASSISTANT_CHAIN outside production: the chat endpoint
+//   is the assistant's (AI_BASE_URL, AI_API_KEY, AI_MODEL). The embedding
+//   endpoint is the same base URL and key with AI_EMBEDDING_MODEL; without
+//   it the entries are text-only and the search is textual. Vision uses the
+//   chat endpoint only when detectRetrievalCapabilities finds image input
+//   for AI_MODEL, and the filing engine is `decisions` when AI_MODEL
+//   declares it;
+// - gateway: the gateway's OpenAI-compatible endpoint
+//   (GATEWAY_OPENAI_BASE_URL) with AI_GATEWAY_API_KEY, and the chain's
+//   privacy options (AI_GATEWAY_ZERO_DATA_RETENTION) on every call, and
+//   the cost recorder cloud-api.ts passes (recordIndexCost), if any.
+//   detectGatewayRetrievalCapabilities reads the catalog for the configured
+//   ids only: captions by the first link when its tags list "vision", and
+//   embeddings only with AI_EMBEDDING_MODEL of type "embedding" (otherwise
+//   the search is textual and the automatic destination is off, A44).
+//   Never `decisions`.
+// Production never uses AI_BASE_URL: without a valid chain whose first link
+// is a gateway, or without AI_GATEWAY_API_KEY, there is no endpoint (the
+// gate of cloud-api.ts is off then too).
 //
 // Store (A20): the entries of a session belong to its owner. The search
 // store sends each session to cloudPinIndexStore(env, ownerId) of the owner
@@ -28,9 +44,12 @@
 // and the next one runs. cloud-api.ts applies the gates (A3) before calling
 // either.
 
+import { parseAssistantChain, type AssistantChainLink } from "../chain";
 import type { AssistantD1Database } from "../store-cloud";
 import type { AssistantEndpoint } from "../models";
-import { detectRetrievalCapabilities } from "./detect";
+import { detectGatewayRetrievalCapabilities, detectRetrievalCapabilities } from "./detect";
+import type { EmbeddingEndpoint } from "./embeddings";
+import { GATEWAY_OPENAI_BASE_URL, type GatewayCallOptions } from "./gateway";
 import {
   indexStale,
   PIN_SEARCH_MAX_SESSIONS,
@@ -44,6 +63,7 @@ import {
 } from "./index";
 import { cloudPinSource, type CloudPinSourceData } from "./source-cloud";
 import { cloudPinIndexStore } from "./store-cloud";
+import type { VisionEndpoint } from "./vision";
 
 export const CLOUD_PIN_SEARCH_BUDGET_MS = 10_000;
 export const CLOUD_PIN_SEARCH_MAX_SESSIONS = 20;
@@ -53,15 +73,105 @@ export interface CloudPinEnv {
   AI_API_KEY?: string;
   AI_BASE_URL?: string;
   AI_EMBEDDING_MODEL?: string;
+  AI_GATEWAY_API_KEY?: string;
+  AI_GATEWAY_ZERO_DATA_RETENTION?: string;
   AI_MODEL?: string;
+  ASSISTANT_CHAIN?: string;
   DB?: AssistantD1Database;
+  DEPLOYMENT_ENV?: string;
 }
 
-// The assistant's chat endpoint (the one cloud-api.ts gives the turn), or
-// null without the AI configuration.
-export function cloudChatEndpoint(env: CloudPinEnv): AssistantEndpoint | null {
+// The assistant's appliance chat endpoint, or null without the AI
+// configuration.
+function cloudChatEndpoint(env: CloudPinEnv): AssistantEndpoint | null {
   if (!env.AI_BASE_URL || !env.AI_API_KEY || !env.AI_MODEL) return null;
   return { apiKey: env.AI_API_KEY, baseUrl: env.AI_BASE_URL, kind: "appliance", model: env.AI_MODEL, thinkingControl: true };
+}
+
+type CloudRetrievalHub =
+  | { chat: AssistantEndpoint; hub: "appliance" }
+  | { chat: AssistantEndpoint; hub: "gateway"; zeroDataRetention: boolean };
+
+// The hub of the first link of the chain; null when there is none.
+function cloudRetrievalHub(env: CloudPinEnv): CloudRetrievalHub | null {
+  const production = env.DEPLOYMENT_ENV === "production";
+  const appliance = (): CloudRetrievalHub | null => {
+    const chat = production ? null : cloudChatEndpoint(env);
+    return chat ? { chat, hub: "appliance" } : null;
+  };
+  const csv = env.ASSISTANT_CHAIN?.trim();
+  if (!csv) return appliance();
+  let first: AssistantChainLink;
+  try {
+    first = parseAssistantChain(csv, production ? "production" : env.DEPLOYMENT_ENV === "staging" ? "staging" : "development")[0]!;
+  } catch {
+    return null;
+  }
+  if (first.hub === "appliance") return appliance();
+  if (!env.AI_GATEWAY_API_KEY) return null;
+  return {
+    chat: { apiKey: env.AI_GATEWAY_API_KEY, baseUrl: GATEWAY_OPENAI_BASE_URL, kind: "openai-compatible", model: first.model, thinkingControl: false },
+    hub: "gateway",
+    zeroDataRetention: env.AI_GATEWAY_ZERO_DATA_RETENTION === "true",
+  };
+}
+
+export interface CloudRetrievalEndpoints {
+  // Captions; null without image input for the chat model.
+  chat: VisionEndpoint | null;
+  // The filing engine `decisions`; never through the gateway.
+  decisions: AssistantEndpoint | null;
+  // Document and query embeddings; null → text-only entries and search.
+  embedding: EmbeddingEndpoint | null;
+}
+
+/** The recorder cloud-api.ts gives the gateway calls (the margin monitor's index costs). */
+export type CloudIndexCostRecorder = NonNullable<GatewayCallOptions["record"]>;
+
+/**
+ * The retrieval endpoints of the deployment, after the detection of the
+ * hub (cached, see detect.ts); null without a hub. `detectFetch` runs the
+ * /models probe; `recordIndexCost` goes with the gateway endpoints only
+ * (the appliance records nothing).
+ */
+export async function cloudRetrievalEndpoints(
+  env: CloudPinEnv,
+  detectFetch?: typeof fetch,
+  recordIndexCost?: CloudIndexCostRecorder,
+): Promise<CloudRetrievalEndpoints | null> {
+  const hub = cloudRetrievalHub(env);
+  if (!hub) return null;
+  const { chat } = hub;
+  if (hub.hub === "appliance") {
+    const capabilities = await detectRetrievalCapabilities({ endpoint: chat, ...(detectFetch ? { fetch: detectFetch } : {}) });
+    return {
+      chat: capabilities.vision ? chat : null,
+      decisions: capabilities.decisions ? chat : null,
+      embedding: env.AI_EMBEDDING_MODEL ? { apiKey: chat.apiKey, baseUrl: chat.baseUrl, model: env.AI_EMBEDDING_MODEL } : null,
+    };
+  }
+  const capabilities = await detectGatewayRetrievalCapabilities({
+    baseUrl: chat.baseUrl,
+    chatModel: chat.model,
+    embeddingModel: env.AI_EMBEDDING_MODEL || null,
+    ...(detectFetch ? { fetch: detectFetch } : {}),
+  });
+  const gateway: GatewayCallOptions = {
+    ...(recordIndexCost ? { record: recordIndexCost } : {}),
+    zeroDataRetention: hub.zeroDataRetention,
+  };
+  return {
+    chat: capabilities.vision ? { ...chat, gateway } : null,
+    decisions: null,
+    embedding: capabilities.embeddingModel
+      ? {
+          apiKey: chat.apiKey,
+          baseUrl: chat.baseUrl,
+          gateway: { ...gateway, inputPrice: capabilities.embeddingInputPrice ?? null },
+          model: capabilities.embeddingModel,
+        }
+      : null,
+  };
 }
 
 // `fetch` runs the indexing requests; `detectFetch` the /models probe,
@@ -69,14 +179,20 @@ export function cloudChatEndpoint(env: CloudPinEnv): AssistantEndpoint | null {
 // aborted turn never leaves a failed detection cached for a minute.
 async function indexDeps(
   env: CloudPinEnv,
-  options: { detectFetch?: typeof fetch; fetch?: typeof fetch; now: () => Date; source: PinSource; store: PinIndexStore },
+  options: {
+    detectFetch?: typeof fetch;
+    fetch?: typeof fetch;
+    now: () => Date;
+    recordIndexCost?: CloudIndexCostRecorder;
+    source: PinSource;
+    store: PinIndexStore;
+  },
 ): Promise<PinIndexDeps | null> {
-  const chat = cloudChatEndpoint(env);
-  if (!chat) return null;
-  const capabilities = await detectRetrievalCapabilities({ endpoint: chat, ...(options.detectFetch ? { fetch: options.detectFetch } : {}) });
+  const endpoints = await cloudRetrievalEndpoints(env, options.detectFetch, options.recordIndexCost);
+  if (!endpoints) return null;
   return {
-    chat: capabilities.vision ? chat : null,
-    embedding: env.AI_EMBEDDING_MODEL ? { apiKey: chat.apiKey, baseUrl: chat.baseUrl, model: env.AI_EMBEDDING_MODEL } : null,
+    chat: endpoints.chat,
+    embedding: endpoints.embedding,
     ...(options.fetch ? { fetch: options.fetch } : {}),
     now: options.now,
     source: options.source,
@@ -169,6 +285,7 @@ export function createCloudPinSearch(input: {
   fetch?: typeof fetch;
   indexBudgetMs?: number;
   now?: () => Date;
+  recordIndexCost?: CloudIndexCostRecorder;
 }): PinSearchService {
   const now = input.now ?? (() => new Date());
   const indexBudgetMs = input.indexBudgetMs ?? CLOUD_PIN_SEARCH_BUDGET_MS;
@@ -186,6 +303,7 @@ export function createCloudPinSearch(input: {
         ...(input.fetch ? { detectFetch: input.fetch } : {}),
         fetch: withAbortSignal(input.fetch, indexSignal),
         now,
+        ...(input.recordIndexCost ? { recordIndexCost: input.recordIndexCost } : {}),
         source,
         store,
       });
@@ -223,6 +341,7 @@ export async function runCloudPinIndexCron(input: {
   ownerData: (ownerId: string) => CloudPinSourceData;
   // `expired` tells the enumeration that the budget is spent
   owners: (expired: () => boolean) => Promise<string[]>;
+  recordIndexCost?: CloudIndexCostRecorder;
 }): Promise<CloudPinIndexCronResult> {
   const now = input.now ?? (() => new Date());
   const budgetMs = input.budgetMs ?? CLOUD_PIN_INDEX_CRON_BUDGET_MS;
@@ -247,6 +366,7 @@ export async function runCloudPinIndexCron(input: {
         ...(input.fetch ? { detectFetch: input.fetch } : {}),
         fetch: withAbortSignal(input.fetch, deadline),
         now,
+        ...(input.recordIndexCost ? { recordIndexCost: input.recordIndexCost } : {}),
         source: cloudPinSource(input.ownerData(ownerId)),
         store: cloudPinIndexStore(input.env, ownerId),
       });

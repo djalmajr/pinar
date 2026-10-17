@@ -5,17 +5,18 @@
 // (decisions.ts and similarity.ts import retrieval/index), and the capture
 // path with the preference off must not load it.
 //
-// Engine: the assistant's chat endpoint (AI_BASE_URL, AI_API_KEY, AI_MODEL)
-// and its /models detection (cached): `decisions` when AI_MODEL declares the
-// decisions extra available for the key, otherwise `similarity` with
-// AI_EMBEDDING_MODEL, otherwise none.
+// Engine: the retrieval endpoints of the deployment and their /models
+// detection (cloudRetrievalEndpoints, cached): `decisions` when the
+// appliance's AI_MODEL declares the decisions extra available for the key,
+// otherwise `similarity` with the embedding endpoint, otherwise none.
+// Through the gateway (production) it is never `decisions`, and
+// `similarity` needs AI_EMBEDDING_MODEL in the gateway catalog (A44).
 //
 // Data: cloud-api.ts reads the owner's collections and sessions (it knows
 // D1 and its in-memory fallback); the centroids read the owner's F3 entries
 // through cloudPinIndexStore.
 
-import { detectRetrievalCapabilities } from "../assistant/retrieval/detect";
-import { cloudChatEndpoint, type CloudPinEnv } from "../assistant/retrieval/runtime-cloud";
+import { cloudRetrievalEndpoints, type CloudIndexCostRecorder, type CloudPinEnv } from "../assistant/retrieval/runtime-cloud";
 import { cloudPinIndexStore } from "../assistant/retrieval/store-cloud";
 import { fileCapture, type FilingCapture, type FilingEngineChoice, type FilingOutcome, type FilingSource } from "./runtime";
 
@@ -31,14 +32,17 @@ function fetchOption(): { fetch?: typeof fetch } {
   return testFetch ? { fetch: testFetch } : {};
 }
 
-/** The engine of the deployment, or null without the AI configuration or a usable engine. */
-export async function cloudFilingEngine(env: CloudPinEnv): Promise<FilingEngineChoice | null> {
-  const chat = cloudChatEndpoint(env);
-  if (!chat) return null;
-  const capabilities = await detectRetrievalCapabilities({ endpoint: chat, ...fetchOption() });
-  if (capabilities.decisions) return { endpoint: chat, kind: "decisions" };
-  if (!env.AI_EMBEDDING_MODEL) return null;
-  return { embedding: { apiKey: chat.apiKey, baseUrl: chat.baseUrl, model: env.AI_EMBEDDING_MODEL }, kind: "similarity" };
+/**
+ * The engine of the deployment, or null without the AI configuration or a
+ * usable engine. `recordIndexCost` records the gateway embeddings of the
+ * similarity engine (the margin monitor's index costs).
+ */
+export async function cloudFilingEngine(env: CloudPinEnv, recordIndexCost?: CloudIndexCostRecorder): Promise<FilingEngineChoice | null> {
+  const endpoints = await cloudRetrievalEndpoints(env, testFetch ?? undefined, recordIndexCost);
+  if (!endpoints) return null;
+  if (endpoints.decisions) return { endpoint: endpoints.decisions, kind: "decisions" };
+  if (!endpoints.embedding) return null;
+  return { embedding: endpoints.embedding, kind: "similarity" };
 }
 
 /**
@@ -64,6 +68,7 @@ export function fileCloudCapture(input: {
   capture: FilingCapture;
   env: CloudPinEnv;
   ownerId: string;
+  recordIndexCost?: CloudIndexCostRecorder;
   source: Omit<FilingSource, "entriesFor">;
   timeoutMs?: number;
 }): Promise<FilingOutcome> {
@@ -71,7 +76,7 @@ export function fileCloudCapture(input: {
   return fileCapture({
     batchId: input.batchId,
     capture: input.capture,
-    engine: () => cloudFilingEngine(input.env),
+    engine: () => cloudFilingEngine(input.env, input.recordIndexCost),
     ...fetchOption(),
     source: { ...input.source, entriesFor: (sessionIds) => store.entriesFor(sessionIds) },
     ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),

@@ -608,6 +608,9 @@ describe("redactSecrets", () => {
   test("model names are not secrets: the embedding model sits next to the chat model", () => {
     for (const key of ["AI_EMBEDDING_MODEL", "AI_MODEL", "AI_TRANSCRIPTION_MODEL"]) assert.ok(NON_SECRET_ENV_KEYS.has(key), key);
     for (const key of ["AI_API_KEY", "AI_BASE_URL"]) assert.ok(!NON_SECRET_ENV_KEYS.has(key), key);
+    // The assistant chain and the ZDR switch are not secrets; the gateway key is.
+    for (const key of ["ASSISTANT_CHAIN", "AI_GATEWAY_ZERO_DATA_RETENTION"]) assert.ok(NON_SECRET_ENV_KEYS.has(key), key);
+    assert.ok(!NON_SECRET_ENV_KEYS.has("AI_GATEWAY_API_KEY"), "AI_GATEWAY_API_KEY");
   });
 });
 

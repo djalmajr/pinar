@@ -5,6 +5,7 @@ import {
   refundStaleAiReservations,
   sendStorageExpiryNotices,
 } from "./server/cloud-api";
+import { assistantMarginMonitor } from "./server/assistant/margin-monitor";
 import { getEdgerCloudEnv, readEnv } from "./server/api.edger";
 import { FREE_CLOUD_RETENTION_DAYS } from "./lib/retention";
 import { timingSafeEqual } from "node:crypto";
@@ -21,6 +22,9 @@ async function getTanstackFetch(): Promise<TanstackFetch> {
 }
 
 const CRON_PATH = "/_internal/cron/daily";
+// Every 5 minutes: the AI credit sweeper only, so a turn orphaned by a
+// process that died gives its credits back within minutes (F4 contract §2).
+const FREQUENT_CRON_PATH = "/_internal/cron/frequent";
 const INTERNAL_HEADER = "x-edger-internal";
 const ORIGIN_AUTH_HEADER = "x-pinar-origin-auth";
 
@@ -62,39 +66,48 @@ function withoutUntrustedOriginHeaders(request: Request, trusted: boolean): Requ
   return forwarded;
 }
 
+type CronJob = { name: string; run: () => Promise<unknown> };
+
 /**
  * Server entry for EdgeR (a self-hosted Deno runtime). The Cloudflare cron
- * becomes an internal POST to `/_internal/cron/daily` carrying
+ * becomes an internal POST to `/_internal/cron/daily` (the daily jobs) or
+ * `/_internal/cron/frequent` (the frequent ones) carrying
  * `x-edger-internal: true`, which the EdgeR runtime strips from external
- * traffic, so the route may require it. Everything else goes to the TanStack
+ * traffic, so both routes require it. Everything else goes to the TanStack
  * handler.
  */
 export function createEdgerFetch(deps: {
   tanstackFetch: (request: Request) => Promise<Response>;
-  jobs: Array<{ name: string; run: () => Promise<unknown> }>;
+  jobs: CronJob[];
+  frequentJobs?: CronJob[];
   log?: (line: string) => void;
   originSecret?: string;
 }) {
   const log = deps.log ?? ((line: string) => console.log(line));
+  const cronJobs = new Map<string, CronJob[]>([
+    [CRON_PATH, deps.jobs],
+    [FREQUENT_CRON_PATH, deps.frequentJobs ?? []],
+  ]);
   return async (request: Request): Promise<Response> => {
-    if (new URL(request.url).pathname === CRON_PATH) {
+    const jobs = cronJobs.get(new URL(request.url).pathname);
+    if (jobs) {
       if (request.method !== "POST" || request.headers.get(INTERNAL_HEADER) !== "true") {
         // Same 404 as any unknown path: the route must not reveal itself.
         return new Response("Not found", { status: 404 });
       }
       // A job that throws before returning its promise (resolving the env,
       // for example) must not stop the others from starting.
-      const results = await Promise.allSettled(deps.jobs.map((job) => Promise.resolve().then(() => job.run())));
-      const report = deps.jobs.map((job, index) => ({
+      const results = await Promise.allSettled(jobs.map((job) => Promise.resolve().then(() => job.run())));
+      const report = jobs.map((job, index) => ({
         job: job.name,
         ok: results[index].status === "fulfilled",
       }));
       const ok = report.every((entry) => entry.ok);
       results.forEach((result, index) => {
         if (result.status === "fulfilled") {
-          log(JSON.stringify({ message: "cron_job", job: deps.jobs[index].name, ok: true }));
+          log(JSON.stringify({ message: "cron_job", job: jobs[index].name, ok: true }));
         } else {
-          log(JSON.stringify({ message: "cron_job", job: deps.jobs[index].name, ok: false, error: errorMessage(result.reason) }));
+          log(JSON.stringify({ message: "cron_job", job: jobs[index].name, ok: false, error: errorMessage(result.reason) }));
         }
       });
       return Response.json({ ok, jobs: report }, { status: ok ? 200 : 500 });
@@ -126,6 +139,10 @@ export default {
       { name: "refundStaleAiReservations", run: () => refundStaleAiReservations(getEdgerCloudEnv()) },
       { name: "sendStorageExpiryNotices", run: () => sendStorageExpiryNotices(getEdgerCloudEnv()) },
       { name: "indexPinSearch", run: () => indexPinSearch(getEdgerCloudEnv()) },
+      { name: "assistantMarginMonitor", run: () => assistantMarginMonitor(getEdgerCloudEnv(), new Date()) },
+    ],
+    frequentJobs: [
+      { name: "refundStaleAiReservations", run: () => refundStaleAiReservations(getEdgerCloudEnv()) },
     ],
   }),
 };

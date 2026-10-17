@@ -18,6 +18,7 @@ const locale = {
     releaseNotFound: "Version nicht gefunden",
     releaseNotFoundDescription:
       "Diese Version steht nicht im veröffentlichten Verlauf.",
+    upcomingRelease: "Nächste Version · noch nicht veröffentlicht",
     viewDetails: "Details anzeigen",
     whatChanged: "Was sich geändert hat",
   },
@@ -595,6 +596,24 @@ const locale = {
           description:
             "Schwärzung sensibler Felder, manuelle Masken, versionierte Zustimmung und veröffentlichte Dienstrichtlinien zogen die Sicherheitsgrenze der Cloud.",
         },
+      },
+    },
+  },
+  upcoming: {
+    title: "Ein Assistent für deine Aufnahmen",
+    summary: "Als Nächstes: ein Chat, der Fragen zu deiner Arbeit beantwortet und sie nach deiner Bestätigung ordnet, eine Aufnahmeoption, die die Sammlung für dich wählt, und Nachrichten an den Assistenten in Pinar Cloud, die KI-Credits verbrauchen.",
+    changes: {
+      "assistant": {
+        title: "Frag den Assistenten zu deinen Aufnahmen",
+        description: "Ein neuer Chat im Arbeitsbereich, in der lokalen App und in Pinar Cloud, beantwortet Fragen zu deinen Projekten, Sammlungen, Sitzungen, Stapeln und Pins, auch dazu, was auf dem Screenshot eines Pins zu sehen ist. Er erstellt, benennt um, verschiebt, löscht, kommentiert, schließt ab und öffnet wieder, immer als Vorschlag: Nichts ändert sich, bevor du bestätigst, und manche Aktionen lassen sich auf derselben Karte rückgängig machen. In der lokalen App nutzt er die KI, die du in den Einstellungen eingerichtet hast.",
+      },
+      "automatic-capture-destination": {
+        title: "Pinar wählt die Sammlung für neue Aufnahmen",
+        description: "Schalte „Sammlung automatisch wählen“ in Einstellungen → Aufnahme ein, und Pinar legt jede neue Aufnahme in einer deiner Sammlungen ab. Im Zweifel landet die Aufnahme im Posteingang, und Aufnahmen aus demselben Stapel bleiben zusammen. So abgelegte Sitzungen zeigen eine Markierung; das Verschieben der Sitzung korrigiert die Wahl und entfernt die Markierung. Die Option braucht verfügbare KI. Solange die Option ohne verfügbare KI eingeschaltet bleibt, landen neue Aufnahmen im Posteingang; um das Ziel selbst zu wählen, schalte sie aus.",
+      },
+      "assistant-credits": {
+        title: "Nachrichten an den Assistenten verbrauchen Credits in Pinar Cloud",
+        description: "In Pinar Cloud gehört der Assistent zu Pro, und jede gesendete Nachricht verbraucht 3 KI-Credits; eine fehlgeschlagene Antwort gibt sie zurück, und einen Vorschlag zu bestätigen oder rückgängig zu machen kostet nichts. Es sind dieselben Credits wie bei der Sprachtranskription, und Credit-Pakete können nur mit Pro gekauft werden. In der lokalen App verbraucht der Assistent keine Pinar-Credits.",
       },
     },
   },

@@ -9,7 +9,11 @@ export type ReleaseChangeId =
  * Unreleased work shown above the published history. It has no tag and no
  * date, so it must never be looked up through the tag-based release routes.
  */
-export const upcomingChanges = ["mcp-crud", "focused-handoff"] as const;
+export const upcomingChanges = [
+  "assistant",
+  "automatic-capture-destination",
+  "assistant-credits",
+] as const;
 export type UpcomingChangeId = (typeof upcomingChanges)[number];
 
 export interface ReleaseChange {

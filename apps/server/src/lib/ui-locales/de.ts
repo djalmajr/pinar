@@ -68,6 +68,8 @@ const messages: UiMessages = {
   "assistant.errorIncomplete": "Der Assistent konnte diese Antwort nicht abschließen. Versuche es erneut.",
   "assistant.errorFailed": "Der Assistent ist gerade nicht verfügbar. Versuche es in einem Moment erneut.",
   "assistant.errorRateLimited": "Zu viele Fragen in kurzer Zeit. Warte einen Moment.",
+  "assistant.errorNoCredits": "Nicht genügend KI-Guthaben: Eine Nachricht verbraucht {required}, du hast noch {count, plural, one {# Credit} other {# Credits}}.",
+  "assistant.buyCredits": "Guthaben kaufen",
   "assistant.errorNetwork": "Pinar konnte nicht erreicht werden. Prüfe deine Verbindung.",
   "assistant.proposal.create_project": "Projekt „{name}“ erstellen",
   "assistant.proposal.rename_project": "Projekt „{from}“ in „{to}“ umbenennen",
@@ -170,6 +172,7 @@ const messages: UiMessages = {
   "settings.aiUsageReproduction": "Reproduktion",
   "settings.aiUsageSessionSummary": "Sitzungszusammenfassung",
   "settings.aiUsageVoicePin": "Sprach-Pin",
+  "settings.aiUsageAssistantTurn": "Assistenten-Nachricht",
   "settings.voicePostProcessing": "Sprachtranskriptionen bereinigen",
   "settings.voicePostProcessingDescription": "Entfernt Füllwörter und Fehlstarts und stellt den beabsichtigten Kommentar wieder her. Nur in Pinar Cloud verfügbar und standardmäßig deaktiviert.",
   "settings.generalDescription":

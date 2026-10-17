@@ -69,7 +69,7 @@ import XIcon from "~icons/lucide/x";
 
 type ThemeMode = "dark" | "light" | "system";
 type AiUsageStatus = "idle" | "loading" | "ready" | "unavailable";
-type AiUsageFeature = "voice_pin";
+type AiUsageFeature = "assistant_turn" | "voice_pin";
 type AiMode = "byok" | "disabled" | "local";
 type AiSettingsStatus = "clearing" | "idle" | "loading" | "ready" | "saving" | "testing";
 
@@ -105,13 +105,18 @@ const THEME_STORAGE_KEY = "pinar-theme";
 const PINAR_GITHUB_URL = "https://github.com/djalmajr/pinar";
 const PINAR_WEBSITE_URL = "https://pinar.dev";
 const AI_USAGE_FEATURES = new Set<AiUsageFeature>([
+  "assistant_turn",
   "voice_pin",
 ]);
 const AI_USAGE_FEATURE_LABELS = {
+  assistant_turn: "settings.aiUsageAssistantTurn",
   voice_pin: "settings.aiUsageVoicePin",
 } as const;
 
-function aiUsageHistory(value: unknown): AiUsageHistoryEntry[] | null {
+// The entries of GET /api/account/entitlements the usage section lists: the
+// voice pin and the assistant turn; other features and malformed items are
+// dropped. null when the answer has no aiUsage list.
+export function aiUsageHistory(value: unknown): AiUsageHistoryEntry[] | null {
   if (!isRecord(value) || !Array.isArray(value.aiUsage)) return null;
   const entries: AiUsageHistoryEntry[] = [];
   for (const item of value.aiUsage) {

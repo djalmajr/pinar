@@ -142,6 +142,12 @@ describe("local API trust enforcement", () => {
     assert.equal(classifyLocalApiRequest("PATCH", "/api/preferences")?.class, "mutable");
     assert.equal(classifyLocalApiRequest("POST", "/api/sessions/hostile_session/pins/pin_cta/review")?.class, "mutable");
     assert.equal(classifyLocalApiRequest("GET", "/v/hostile_session.md")?.class, "local-public-projection");
+    assert.equal(classifyLocalApiRequest("GET", "/api/assistant/status")?.class, "sensitive-read");
+    assert.equal(classifyLocalApiRequest("GET", "/api/assistant/threads")?.class, "sensitive-read");
+    assert.equal(classifyLocalApiRequest("GET", "/api/assistant/threads/ath_aaaaaaaaaaaaaaaaaaaaaaaa")?.class, "sensitive-read");
+    assert.equal(classifyLocalApiRequest("POST", "/api/assistant/turn")?.class, "mutable");
+    assert.equal(classifyLocalApiRequest("DELETE", "/api/assistant/threads/ath_aaaaaaaaaaaaaaaaaaaaaaaa")?.class, "mutable");
+    assert.ok(classifyLocalApiRequest("POST", "/api/assistant/threads") === null);
   });
 
   test("loopback workspace and CLI clients keep access without a capability header", async () => {

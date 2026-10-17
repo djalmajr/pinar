@@ -1352,4 +1352,147 @@ describe("local TanStack API", () => {
     });
     assert.equal(mcp.status, 401);
   });
+
+  test("assistant: status is not_configured while the AI is off and the turn refuses", async () => {
+    const status = await request("/api/assistant/status");
+    assert.equal(status.status, 200);
+    assert.deepEqual(await jsonBody(status), { available: false, reason: "not_configured", surface: "local" });
+
+    const turn = await request("/api/assistant/turn", {
+      body: JSON.stringify({ text: "oi" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    assert.equal(turn.status, 503);
+    assert.equal((await jsonBody(turn)).code, "assistant_unavailable");
+
+    const threads = await request("/api/assistant/threads");
+    assert.equal(threads.status, 200);
+    assert.deepEqual(await jsonBody(threads), { threads: [] });
+  });
+
+  test("assistant: a turn streams from the configured OpenAI-compatible endpoint and stores both messages", async () => {
+    const fake = Bun.serve({
+      fetch: async (incoming) => {
+        const url = new URL(incoming.url);
+        if (incoming.method === "GET" && url.pathname === "/v1/models") {
+          return Response.json({ data: [{ id: "fake-model" }] });
+        }
+        if (incoming.method === "POST" && url.pathname === "/v1/chat/completions") {
+          const chunks = [
+            { content: "Duas" },
+            { content: " sessões." },
+          ];
+          const lines = [
+            ...chunks.flatMap((delta, index) => [
+              `data: ${JSON.stringify({
+                choices: [{ delta: { content: delta.content, ...(index === 0 ? { role: "assistant" } : {}) }, index: 0, finish_reason: null }],
+                created: 1,
+                id: "c1",
+                model: "fake-model",
+                object: "chat.completion.chunk",
+              })}`,
+              "",
+            ]),
+            `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop", index: 0 }], created: 1, id: "c1", model: "fake-model", object: "chat.completion.chunk" })}`,
+            "",
+            "data: [DONE]",
+            "",
+          ];
+          return new Response(lines.join("\n"), { headers: { "content-type": "text/event-stream" } });
+        }
+        return new Response("not found", { status: 404 });
+      },
+      port: 0,
+    });
+    try {
+      writeFileSync(
+        join(root, "ai.json"),
+        JSON.stringify({ endpoint: `http://127.0.0.1:${fake.port}/v1`, mode: "local", model: "fake-model" }),
+      );
+      const status = await request("/api/assistant/status");
+      assert.deepEqual(await jsonBody(status), { available: true, reason: null, surface: "local" });
+
+      const turn = await request("/api/assistant/turn", {
+        body: JSON.stringify({ text: "Quantas sessões?" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      });
+      assert.equal(turn.status, 200);
+      assert.match(turn.headers.get("content-type") ?? "", /text\/event-stream/);
+      const sse = await turn.text();
+      const firstLine = sse.split("\n").find((line) => line.startsWith("data: "));
+      assert.ok(firstLine, "the stream starts with a data part");
+      const firstPart = JSON.parse(firstLine.slice(6)) as { data: { id: string; title: string }; type: string };
+      assert.equal(firstPart.type, "data-thread");
+      assert.equal(firstPart.data.title, "Quantas sessões?");
+      const threadId = firstPart.data.id;
+      assert.ok(sse.includes("Duas") && sse.includes("sessões."), "the model text reaches the stream");
+
+      // The assistant answer is persisted when the outcome settles; poll
+      // briefly so the read never races the persistence.
+      const deadline = Date.now() + 3_000;
+      let detailBody: Record<string, unknown> | null = null;
+      for (;;) {
+        const detail = await request(`/api/assistant/threads/${threadId}`);
+        assert.equal(detail.status, 200);
+        const body = await jsonBody(detail);
+        const messages = body.messages;
+        if (Array.isArray(messages) && messages.length === 2) {
+          detailBody = body;
+          break;
+        }
+        if (Date.now() > deadline) throw new Error("timed out waiting for the assistant messages");
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      assert.ok(detailBody);
+      const messages = detailBody.messages as { role: string; status: string; text: string }[];
+      assert.equal((detailBody.thread as { title: string }).title, "Quantas sessões?");
+      assert.deepEqual(
+        messages.map((message) => ({ role: message.role, status: message.status, text: message.text })),
+        [
+          { role: "user", status: "final", text: "Quantas sessões?" },
+          { role: "assistant", status: "final", text: "Duas sessões." },
+        ],
+      );
+
+      const list = await jsonBody(await request("/api/assistant/threads"));
+      assert.ok(
+        Array.isArray(list.threads) &&
+          (list.threads as { id: string }[]).some((thread) => thread.id === threadId),
+      );
+    } finally {
+      fake.stop(true);
+    }
+  });
+
+  test("assistant: a hostile origin is denied on every route", async () => {
+    const hostile = { origin: "https://evil.example" };
+    assert.equal((await request("/api/assistant/status", { headers: hostile })).status, 401);
+    assert.equal((await request("/api/assistant/threads", { headers: hostile })).status, 401);
+    assert.equal(
+      (
+        await request("/api/assistant/turn", {
+          body: JSON.stringify({ text: "oi" }),
+          headers: { "content-type": "application/json", ...hostile },
+          method: "POST",
+        })
+      ).status,
+      401,
+    );
+    assert.equal(
+      (
+        await request("/api/assistant/threads/ath_aaaaaaaaaaaaaaaaaaaaaaaa", {
+          headers: hostile,
+          method: "DELETE",
+        })
+      ).status,
+      401,
+    );
+    // A loopback workspace origin keeps access.
+    assert.equal(
+      (await request("/api/assistant/status", { headers: { origin: "http://127.0.0.1:17373" } })).status,
+      200,
+    );
+  });
 });

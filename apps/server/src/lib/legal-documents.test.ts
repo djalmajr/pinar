@@ -115,11 +115,15 @@ describe("public legal documents", () => {
     assert.match(termsSection6Pt, /instrui o Pinar a tratá-lo com os provedores de IA acessados pelo Vercel AI Gateway, inclusive fora do Brasil/);
     assert.match(termsSection6Pt, /o Pinar atuando como operador/);
     assert.match(termsSection6Pt, /veja a Política de Privacidade/);
-    // Background indexing covers only accounts that already use the AI features (A49).
-    assert.match(privacyEn, /used to search your pins, on accounts that use the assistant or have turned on the automatic collection choice/);
-    assert.match(privacyPt, /usadas para buscar seus pins, nas contas que usam o assistente ou ligaram a escolha automática da coleção/);
-    assert.match(privacyEn, /index, before you ask, only the sessions with pins of accounts that have already had a conversation with the assistant or turned on “Choose the collection automatically”/);
-    assert.match(privacyPt, /indexar, antes de você perguntar, só as sessões com pins de contas que já conversaram com o assistente ou ligaram “Escolher a coleção automaticamente”/);
+    // No background indexing (A53): the pins are indexed only while the
+    // assistant answers a message, and the filing choice reads that index.
+    assert.match(privacyEn, /used to search your pins and created only while the assistant answers your messages;/);
+    assert.match(privacyPt, /usadas para buscar seus pins e criadas só enquanto o assistente responde às suas mensagens;/);
+    assert.match(privacyEn, /indexes your pins for search only while the assistant answers one of your messages, never in the background; the automatic collection choice uses the index that already exists/);
+    assert.match(privacyPt, /indexa os seus pins para a busca só enquanto o assistente responde a uma mensagem sua, nunca em segundo plano; a escolha automática da coleção usa o índice que já existe/);
+    for (const text of [privacyEn, privacyPt]) {
+      assert.doesNotMatch(text, /before you ask|antes de você perguntar/);
+    }
     // The screenshot goes to the AI for search whatever the agent-copy option
     // says (A24), quoted with the option's real label.
     assert.match(privacyEn, new RegExp(`even when “${englishMessages["dashboard.includeScreenshot"]}” is off`));

@@ -14,7 +14,7 @@ import { useAssistantPanel } from "./assistant-panel-state";
  */
 export function AssistantToggle() {
   const { t } = useServerI18n();
-  const { toggle } = useAssistantPanel();
+  const { open, toggle } = useAssistantPanel();
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
@@ -39,6 +39,7 @@ export function AssistantToggle() {
 
   return (
     <Button
+      aria-expanded={open}
       aria-label={t("assistant.toggle")}
       size="icon-sm"
       style={{ visibility: visible ? "visible" : "hidden" }}

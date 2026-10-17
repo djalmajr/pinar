@@ -43,6 +43,9 @@ for (const icon of ["history", "loader-circle", "plus", "sparkles", "trash-2", "
 mock.module("@/components/GlobalSettingsDialog", () => ({
   useGlobalSettings: () => () => undefined,
 }));
+mock.module("@/lib/i18n", () => ({
+  useServerI18n: () => ({ language: "en", t: (key: string) => key }),
+}));
 mock.module("@tanstack/react-router", () => ({
   Link: ({ children, to }: { children?: ReactNode; to: string }) =>
     createElement("a", { href: typeof to === "string" ? to : "" }, children),
@@ -52,6 +55,8 @@ const { AssistantComposer } = await import("./AssistantComposer");
 const { AssistantMessages } = await import("./AssistantMessages");
 const { AssistantPanel } = await import("./AssistantPanel");
 const { AssistantThreadList } = await import("./AssistantThreadList");
+const { AssistantToggle } = await import("./AssistantToggle");
+const { AssistantPanelContext } = await import("./assistant-panel-state");
 
 // The i18n keys are rendered verbatim so assertions stay stable.
 const t: Translate = (key) => key as string;
@@ -204,6 +209,24 @@ describe("assistant thread list", () => {
         month: "short",
       }),
     );
+  });
+});
+
+describe("assistant toggle", () => {
+  test("the button exposes the panel expansion state (aria-expanded) open and closed", () => {
+    const base = { setOpen: () => undefined, toggle: () => undefined };
+    const closed = renderToStaticMarkup(createElement(
+      AssistantPanelContext.Provider,
+      { value: { open: false, ...base } },
+      createElement(AssistantToggle),
+    ));
+    expect(closed).toContain('aria-expanded="false"');
+    const opened = renderToStaticMarkup(createElement(
+      AssistantPanelContext.Provider,
+      { value: { open: true, ...base } },
+      createElement(AssistantToggle),
+    ));
+    expect(opened).toContain('aria-expanded="true"');
   });
 });
 

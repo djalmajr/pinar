@@ -21,6 +21,18 @@ const locale = {
     whatChanged: "What changed",
   },
   releases: {
+    "v0.8.1": {
+      title: "Voice and written steps work again in Pinar Cloud",
+      summary:
+        "Pinar Cloud transcribes voice comments and generates written reproduction steps again, and Choose the collection automatically uses the thresholds tuned for Pinar Cloud.",
+      changes: {
+        "cloud-voice-restored": {
+          title: "Voice transcription and Generate written steps are back",
+          description:
+            "In version 0.8.0, Pinar Cloud did not offer voice transcription or Generate written steps because of a server fault. Both work again with the same Pinar Cloud credits: voice uses 1 credit for up to 60 seconds and 2 from 61 to 120 seconds, and each generation of written steps uses 1. Choose the collection automatically now also uses the similarity thresholds tuned for Pinar Cloud. The local app is unchanged.",
+        },
+      },
+    },
     "v0.8.0": {
       title: "An assistant for your captures",
       summary:

@@ -23,6 +23,18 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.8.1": {
+      title: "La voix et les étapes rédigées fonctionnent de nouveau dans Pinar Cloud",
+      summary:
+        "Pinar Cloud transcrit de nouveau les commentaires vocaux et génère de nouveau les étapes de reproduction rédigées, et Choisir la collection automatiquement utilise les seuils réglés pour Pinar Cloud.",
+      changes: {
+        "cloud-voice-restored": {
+          title: "La transcription vocale et Générer les étapes rédigées sont de retour",
+          description:
+            "Dans la version 0.8.0, Pinar Cloud ne proposait ni la transcription vocale ni Générer les étapes rédigées à cause d’une panne du serveur. Les deux fonctionnent de nouveau avec les mêmes crédits Pinar Cloud : la voix utilise 1 crédit jusqu’à 60 secondes et 2 de 61 à 120 secondes, et chaque génération d’étapes rédigées en utilise 1. Choisir la collection automatiquement utilise aussi désormais les seuils de similarité réglés pour Pinar Cloud. L’app locale ne change pas.",
+        },
+      },
+    },
     "v0.8.0": {
       title: "Un assistant pour vos captures",
       summary:

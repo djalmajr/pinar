@@ -23,6 +23,18 @@ const locale = {
     whatChanged: "O que mudou",
   },
   releases: {
+    "v0.8.1": {
+      title: "Voz e passos escritos voltam a funcionar no Pinar Cloud",
+      summary:
+        "O Pinar Cloud volta a transcrever comentários de voz e a gerar passos escritos de reprodução, e Escolher a coleção automaticamente usa os limiares ajustados para o Pinar Cloud.",
+      changes: {
+        "cloud-voice-restored": {
+          title: "A transcrição de voz e Gerar passos escritos estão de volta",
+          description:
+            "Na versão 0.8.0, o Pinar Cloud não oferecia a transcrição de voz nem Gerar passos escritos por causa de uma falha no servidor. Os dois voltam a funcionar com os mesmos créditos do Pinar Cloud: a voz usa 1 crédito por até 60 segundos e 2 de 61 a 120 segundos, e cada geração de passos escritos usa 1. Escolher a coleção automaticamente agora também usa os limiares de semelhança ajustados para o Pinar Cloud. O app local não muda.",
+        },
+      },
+    },
     "v0.8.0": {
       title: "Um assistente para as suas capturas",
       summary:

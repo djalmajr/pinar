@@ -2,15 +2,18 @@ import assert from "node:assert/strict";
 import { beforeEach, describe, test } from "node:test";
 import { FREE_STORAGE_BYTES, PAID_STORAGE_BYTES, STORAGE_1GB_BYTES } from "../lib/entitlements";
 import { CURRENT_LEGAL_VERSION } from "../lib/legal-documents";
+import { parseVisualCapture, sessionFromCapture, type Session } from "@pinar/shared";
 import {
   authorizeCloudAppRequest,
   type CloudEnv,
   cleanupOldRecords,
   handleCloudApiRequest,
   handleCloudPublicRequest,
+  persistSession,
   resetCloudMemoryStateForTests,
   sendStorageExpiryNotices,
   seedCloudAccountForTests,
+  seedCloudWebSessionForTests,
   seedCloudStorageGrantForTests,
   seedCloudStorageUsageForTests,
   setCloudMigrationFailureForTests,
@@ -609,6 +612,7 @@ describe("remote installation isolation", () => {
     const defaults = await jsonBody(await api("/api/preferences", { headers: identityHeaders(identityA) }));
     assert.deepEqual(defaults, {
       ok: true,
+      autoCaptureDestination: false,
       captureDestination: null,
       componentTarget: null,
       copyOnFinishBatch: "prompt",
@@ -713,6 +717,97 @@ describe("remote installation isolation", () => {
     }));
     assert.equal("unknownKey" in unknown, false);
     assert.deepEqual(unknown.captureDestination, { collectionId: "missing-collection", projectId });
+  });
+
+  test("round-trips autoCaptureDestination in memory without touching the other preferences", async () => {
+    assert.equal((await register(identityA)).status, 201);
+    assert.equal((await register(identityB)).status, 201);
+    const patch = (identity: typeof identityA, body: Record<string, unknown>) => api("/api/preferences", {
+      body: JSON.stringify(body),
+      headers: identityHeaders(identity, { "content-type": "application/json" }),
+      method: "PATCH",
+    }).then(jsonBody);
+    const read = (identity: typeof identityA) => api("/api/preferences", { headers: identityHeaders(identity) }).then(jsonBody);
+
+    assert.equal((await read(identityA)).autoCaptureDestination, false);
+    assert.equal((await patch(identityA, { autoCaptureDestination: true })).autoCaptureDestination, true);
+    assert.equal((await read(identityA)).autoCaptureDestination, true);
+    assert.equal((await read(identityB)).autoCaptureDestination, false);
+    const partial = await patch(identityA, { copyOnFinishBatch: "link" });
+    assert.equal(partial.autoCaptureDestination, true);
+    assert.equal(partial.copyOnFinishBatch, "link");
+    const off = await patch(identityA, { autoCaptureDestination: false });
+    assert.equal(off.autoCaptureDestination, false);
+    assert.equal(off.copyOnFinishBatch, "link");
+    assert.equal((await read(identityA)).autoCaptureDestination, false);
+  });
+
+  test("keeps the automatic-filing mark in memory on edits and clears it on moves", async () => {
+    const web = await seedCloudWebSessionForTests({ email: "filing@example.test", plan: "pro" }, TEST_ENV);
+    const call = async (path: string, init: { body?: unknown; method?: string } = {}) => {
+      const response = await api(path, {
+        ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+        headers: { cookie: web.cookie, "content-type": "application/json", origin: "https://pinar.test" },
+        method: init.method || "GET",
+      });
+      return { body: await jsonBody(response), status: response.status };
+    };
+    const project = (await call("/api/projects", { body: { name: "Filing" }, method: "POST" })).body.project as { id: string };
+    const collection = async (name: string) => (
+      (await call(`/api/projects/${project.id}/collections`, { body: { name }, method: "POST" })).body.collection as { id: string }
+    ).id;
+    const review = await collection("Review");
+    const ready = await collection("Ready");
+    const autoFiled = (collectionId: string): Session => sessionFromCapture(parseVisualCapture({
+      captureId: "mem_auto",
+      createdAt: "2026-10-17T00:00:00.000Z",
+      page: { title: "Auto filed", url: "https://example.test/auto" },
+      pins: [{ comment: "auto note", kind: "element", number: 1 }],
+      screenshot: { missing: true },
+    }, "mem_auto"), {
+      byteSize: 1,
+      collectionId,
+      filedBy: "auto",
+      id: "mem_auto",
+      includeScreenshot: false,
+      plan: "pro",
+      position: 0,
+      shotUrl: null,
+      userId: web.accountId,
+    });
+    const mark = async () => {
+      const read = await call("/api/sessions/mem_auto");
+      assert.equal(read.status, 200);
+      return (read.body.session as Session).filedBy ?? null;
+    };
+
+    await persistSession(TEST_ENV, autoFiled(review));
+    assert.equal(await mark(), "auto");
+    const listed = (await call(`/api/history?collectionId=${review}`)).body.sessions as Session[];
+    assert.equal(listed[0]?.filedBy, "auto");
+    const pinId = String(listed[0]?.pins[0]?.pinId);
+
+    assert.equal((await call(`/api/sessions/mem_auto/pins/${encodeURIComponent(pinId)}`, {
+      body: { comment: "edited note" },
+      method: "PATCH",
+    })).status, 200);
+    assert.equal((await call(`/api/sessions/mem_auto/pins/${encodeURIComponent(pinId)}/comments`, {
+      body: { body: "a comment" },
+      method: "POST",
+    })).status, 200);
+    assert.equal((await call("/api/sessions/mem_auto", { body: { reproduction: null }, method: "PATCH" })).status, 200);
+    assert.equal(await mark(), "auto");
+
+    const moved = await call("/api/sessions/mem_auto/move", { body: { collectionId: ready }, method: "POST" });
+    assert.equal(moved.status, 200);
+    assert.equal(Object.hasOwn(moved.body.session as Session, "filedBy"), false);
+    assert.equal(await mark(), null);
+
+    await persistSession(TEST_ENV, autoFiled(ready));
+    assert.equal(await mark(), "auto");
+    assert.equal((await call(`/api/collections/${ready}`, { method: "DELETE" })).status, 200);
+    assert.equal(await mark(), null);
+    assert.notEqual(((await call("/api/sessions/mem_auto")).body.session as Session).collectionId, ready);
   });
 
   test("expires extension codes, validates origins and constrains returnTo", async () => {

@@ -186,6 +186,7 @@ function sessionSummary(session: LocalMcpStoreSession) {
     batchId: session.batchId ?? null,
     collectionId: session.collectionId,
     createdAt: session.createdAt,
+    ...(session.filedBy ? { filedBy: session.filedBy } : {}),
     id: session.id,
     pinCount: session.pinCount,
     title: session.page.title,

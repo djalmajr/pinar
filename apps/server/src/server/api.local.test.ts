@@ -203,10 +203,108 @@ describe("local TanStack API", () => {
     assert.doesNotMatch(text, /screenshot_missing/);
   });
 
+  test("round-trips autoCaptureDestination without touching the other preferences", async () => {
+    const patch = (body: Record<string, unknown>) => request("/api/preferences", {
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    }).then(jsonBody);
+    assert.equal((await jsonBody(await request("/api/preferences"))).autoCaptureDestination, false);
+    const on = await patch({ autoCaptureDestination: true, handoffMode: "full" });
+    assert.equal(on.autoCaptureDestination, true);
+    assert.equal((await jsonBody(await request("/api/preferences"))).autoCaptureDestination, true);
+    const partial = await patch({ includeScreenshot: false });
+    assert.equal(partial.autoCaptureDestination, true);
+    assert.equal(partial.handoffMode, "full");
+    const off = await patch({ autoCaptureDestination: false });
+    assert.equal(off.autoCaptureDestination, false);
+    assert.equal(off.handoffMode, "full");
+    assert.equal(off.includeScreenshot, false);
+    const stored = JSON.parse(readFileSync(join(root, "preferences.json"), "utf8")) as Record<string, unknown>;
+    assert.equal(stored.autoCaptureDestination, false);
+  });
+
+  test("keeps the automatic-filing mark on edits, shows it on reads and clears it on every move", async () => {
+    const post = (path: string, body: unknown, method = "POST") => request(path, {
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+      method,
+    });
+    const project = (await jsonBody(await post("/api/projects", { name: "Filing" }))).project as { id: string };
+    const collection = async (name: string) => (
+      (await jsonBody(await post(`/api/projects/${project.id}/collections`, { name }))).collection as { id: string }
+    ).id;
+    const review = await collection("Review");
+    const ready = await collection("Ready");
+    // The saver's side (S3a): saveSession with filedBy "auto".
+    const fileAutomatically = (collectionId: string) => {
+      const saver = openHistoryDb(root);
+      try {
+        saver.saveSession({
+          collectionId,
+          filedBy: "auto",
+          id: "local_auto",
+          page: { title: "Auto filed", url: "https://example.test/auto" },
+          pins: [{ comment: "auto note", kind: "element", pinId: "pin_auto" }],
+        });
+      } finally {
+        saver.close();
+      }
+    };
+    const mark = async () => {
+      const read = await jsonBody(await request("/api/sessions/local_auto"));
+      assert.ok(isRecord(read.session));
+      return read.session.filedBy ?? null;
+    };
+
+    fileAutomatically(review);
+    assert.equal(await mark(), "auto");
+    const listed = await jsonBody(await request(`/api/history?collectionId=${review}`));
+    assert.ok(Array.isArray(listed.sessions));
+    assert.equal(listed.sessions[0]?.filedBy, "auto");
+    const mcpListed = (await localMcpTool("pinar.list_sessions", { collectionId: review })) as { sessions: Array<Record<string, unknown>> };
+    assert.equal(mcpListed.sessions.find((item) => item.id === "local_auto")?.filedBy, "auto", "the local MCP lists the mark like the Cloud one");
+
+    // Edits keep it: note, title (MCP), comment, and the viewer patch that re-saves the row.
+    assert.equal((await post("/api/sessions/local_auto/pins/pin_auto", { comment: "edited note" }, "PATCH")).status, 200);
+    assert.equal(await mark(), "auto");
+    await localMcpTool("pinar.update_session", { page: { title: "Renamed" }, sessionId: "local_auto" });
+    assert.equal(await mark(), "auto");
+    assert.equal((await post("/api/sessions/local_auto/pins/pin_auto/comments", { body: "a comment" })).status, 200);
+    assert.equal((await post("/api/sessions/local_auto", { reproduction: null }, "PATCH")).status, 200);
+    const edited = await jsonBody(await request("/api/sessions/local_auto"));
+    assert.ok(isRecord(edited.session) && isRecord(edited.session.page));
+    assert.equal(edited.session.filedBy, "auto");
+    assert.equal(edited.session.page.title, "Renamed");
+
+    // Moves clear it: the route, the MCP tool, deleting the collection (route and MCP).
+    const moved = await jsonBody(await post("/api/sessions/local_auto/move", { collectionId: ready }));
+    assert.ok(isRecord(moved.session));
+    assert.equal("filedBy" in moved.session, false);
+    assert.equal(await mark(), null);
+
+    fileAutomatically(review);
+    assert.equal(await mark(), "auto");
+    await localMcpTool("pinar.move_session", { collectionId: ready, sessionId: "local_auto" });
+    assert.equal(await mark(), null);
+
+    fileAutomatically(ready);
+    assert.equal((await request(`/api/collections/${ready}`, { method: "DELETE" })).status, 200);
+    assert.equal(await mark(), null);
+
+    fileAutomatically(review);
+    await localMcpTool("pinar.delete_collection", { collectionId: review });
+    const inInbox = await jsonBody(await request("/api/sessions/local_auto"));
+    assert.ok(isRecord(inInbox.session));
+    assert.equal("filedBy" in inInbox.session, false);
+    assert.notEqual(inInbox.session.collectionId, review);
+  });
+
   test("falls back to captureDestination when a shot omits a collection", async () => {
     const defaults = await jsonBody(await request("/api/preferences"));
     assert.deepEqual(defaults, {
       ok: true,
+      autoCaptureDestination: false,
       captureDestination: null,
       componentTarget: null,
       copyOnFinishBatch: "prompt",

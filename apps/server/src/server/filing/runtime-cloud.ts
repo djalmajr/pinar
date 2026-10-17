@@ -17,8 +17,7 @@
 import { detectRetrievalCapabilities } from "../assistant/retrieval/detect";
 import { cloudChatEndpoint, type CloudPinEnv } from "../assistant/retrieval/runtime-cloud";
 import { cloudPinIndexStore } from "../assistant/retrieval/store-cloud";
-import type { FilingChoice } from "./choose";
-import { fileCapture, type FilingCapture, type FilingEngineChoice, type FilingSource } from "./runtime";
+import { fileCapture, type FilingCapture, type FilingEngineChoice, type FilingOutcome, type FilingSource } from "./runtime";
 
 let testFetch: typeof fetch | null = null;
 
@@ -43,9 +42,9 @@ export async function cloudFilingEngine(env: CloudPinEnv): Promise<FilingEngineC
 }
 
 /**
- * GET /api/preferences behind the gate: an engine is available. The answer
- * waits at most `timeoutMs`; a detection still running then answers false,
- * and its result reaches the cache for the next read.
+ * GET and PATCH /api/preferences behind the gate: an engine is available.
+ * The answer waits at most `timeoutMs`; a detection still running then
+ * answers false, and its result reaches the cache for the next read.
  */
 export async function cloudAutoCaptureDestinationAvailable(env: CloudPinEnv, timeoutMs: number): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -67,7 +66,7 @@ export function fileCloudCapture(input: {
   ownerId: string;
   source: Omit<FilingSource, "entriesFor">;
   timeoutMs?: number;
-}): Promise<FilingChoice> {
+}): Promise<FilingOutcome> {
   const store = cloudPinIndexStore(input.env, input.ownerId);
   return fileCapture({
     batchId: input.batchId,

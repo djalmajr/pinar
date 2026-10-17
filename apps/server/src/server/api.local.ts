@@ -60,8 +60,8 @@ import { handleLocalAiRequest, resetLocalAiForTests } from "./ai/local-ai";
 import { assistantUnavailableResponse, handleAssistantRequest, isAssistantPath } from "./assistant/http";
 import { localAssistantDeps } from "./assistant/local-deps";
 import { attachLocalPinIndex, localAiConfigured, type LocalPinIndexHistory } from "./assistant/retrieval/runtime-local";
-import type { FilingChoice } from "./filing/choose";
 import { fileLocalCapture, localAutoCaptureDestinationAvailable } from "./filing/runtime-local";
+import type { FilingOutcome } from "./filing/runtime";
 import { localExportFileName, streamLocalExport } from "./local-export";
 import { handleLocalMcpRequest } from "./local-mcp";
 import { canonicalShotPath, isUsableSessionShotPath, removeSessionShotFile, sessionShotIdentity } from "./local-session-files";
@@ -579,7 +579,7 @@ async function uploadShot(request: Request): Promise<Response> {
   // the server files the new capture and the body's collectionId is
   // ignored (A27); without an engine, or in doubt, it goes to the Inbox
   // (A29).
-  let filing: FilingChoice | null = capture && preferences.autoCaptureDestination && localAiConfigured(rootPath())
+  let filed: FilingOutcome | null = capture && preferences.autoCaptureDestination && localAiConfigured(rootPath())
     ? await fileLocalCapture({
       batchId: batchValue(body)?.id ?? null,
       capture,
@@ -588,14 +588,14 @@ async function uploadShot(request: Request): Promise<Response> {
     })
     : null;
   const destination = historyDatabase().resolveDestination(
-    filing
-      ? filing.collectionId ?? undefined
+    filed
+      ? filed.filing.collectionId ?? undefined
       : stringValue(body, "collectionId") || preferences.captureDestination?.collectionId,
   );
   // A chosen collection that disappeared before the save leaves the capture
-  // in the Inbox.
-  if (filing && filing.collectionId !== null && filing.collectionId !== destination.collectionId) {
-    filing = { ...filing, collectionId: null, reason: "error" };
+  // in the Inbox, unmarked.
+  if (filed && filed.filing.collectionId !== null && filed.filing.collectionId !== destination.collectionId) {
+    filed = { filedBy: null, filing: { ...filed.filing, collectionId: null, reason: "error" } };
   }
   if (capture) {
     try {
@@ -604,7 +604,7 @@ async function uploadShot(request: Request): Promise<Response> {
         collectionId: destination.collectionId,
         createdAt: stringValue(body, "createdAt") || capture.createdAt,
         // Always explicit, so a re-upload never keeps an earlier mark.
-        filedBy: filing?.collectionId ? "auto" : null,
+        filedBy: filed?.filedBy ?? null,
         id: capture.captureId,
         page: capture.page,
         pins: capture.pins,
@@ -627,7 +627,7 @@ async function uploadShot(request: Request): Promise<Response> {
   const origin = new URL(request.url).origin;
   return json({
     destination,
-    ...(filing ? { filing } : {}),
+    ...(filed ? { filing: filed.filing } : {}),
     isPermanent: true,
     markdownUrl: `${origin}/v/${id}.md`,
     ok: true,
@@ -779,7 +779,11 @@ async function routeLocalApi(request: Request): Promise<Response> {
     });
   }
   if (method === "PATCH" && path === "/api/preferences") {
-    return json({ ok: true, ...writeDeliveryPreferences(await readJson(request), rootPath()) });
+    return json({
+      ok: true,
+      ...writeDeliveryPreferences(await readJson(request), rootPath()),
+      autoCaptureDestinationAvailable: await localAutoCaptureDestinationAvailable(rootPath()),
+    });
   }
   if (method === "POST" && path === "/api/auth/logout") return json({ ok: true });
   if (method === "POST" && path === "/api/shots") return uploadShot(request);

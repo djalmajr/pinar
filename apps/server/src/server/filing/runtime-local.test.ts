@@ -83,7 +83,8 @@ function decideFor(match: string, probability: number) {
   return (body: Record<string, any>) => {
     const options = body.questions[0].options as string[];
     const choice = options.find((option) => option.includes(match)) ?? FILING_NONE_OPTION;
-    const probabilities = Object.fromEntries(options.map((option) => [option, option === choice ? probability : (1 - probability) / options.length]));
+    // A normalized distribution: the rest of the mass spread over the other options.
+    const probabilities = Object.fromEntries(options.map((option) => [option, option === choice ? probability : (1 - probability) / (options.length - 1)]));
     return Response.json({ decisions: [{ choice, id: "collection", probabilities }] });
   };
 }
@@ -320,35 +321,78 @@ describe("local capture filing (POST /api/shots)", () => {
     assert.equal("filedBy" in (await storedSession("local_far")), false);
   });
 
-  test("a capture that enters an existing batch follows the batch's collection without asking the engine", async () => {
+  test("a capture that enters an existing batch follows the batch's collection and mark without asking the engine", async () => {
     configureAi();
     useEndpoint(fakeEndpoint({ decide: decideFor("Shop / Onboarding", 0.95), engine: "decisions" }));
     const { checkout, inbox, onboarding } = await seedCollections();
     await seedSession({ batchId: "batch_review", collectionId: checkout, createdAt: "2026-10-01T10:00:00.000Z", id: "local_batch_1", title: "First" });
     await seedSession({ batchId: "batch_inbox", collectionId: inbox, createdAt: "2026-10-01T10:00:00.000Z", id: "local_batch_inbox", title: "First" });
     await patchPreferences({ autoCaptureDestination: true });
+    // The PATCH answer probes the endpoint for its availability; only the
+    // captures count from here.
+    endpoint.calls.length = 0;
 
+    // The batch's most recent session is unmarked: so is the new capture.
     const body = (await (await shot({ batchId: "batch_review", collectionId: onboarding, id: "local_batch_2", title: "Onboarding" })).json()) as Record<string, any>;
     assert.equal(body.destination.collectionId, checkout);
     assert.deepEqual(body.filing, { collectionId: checkout, confidence: 0, engine: "none", reason: "chosen" });
     const stored = await storedSession("local_batch_2");
     assert.equal(stored.collectionId, checkout);
-    assert.equal(stored.filedBy, "auto");
+    assert.equal("filedBy" in stored, false);
     assert.equal(stored.batchId, "batch_review");
-    assert.deepEqual(endpoint.engineCalls(), [], "the batch rule asks no engine");
+    assert.deepEqual(endpoint.calls, [], "the batch rule reads no endpoint");
 
     // A batch kept in the Inbox keeps its next capture there, unmarked.
     const inInbox = (await (await shot({ batchId: "batch_inbox", collectionId: onboarding, id: "local_batch_3", title: "Onboarding" })).json()) as Record<string, any>;
     assert.equal(inInbox.destination.collectionId, inbox);
     assert.deepEqual(inInbox.filing, { collectionId: null, confidence: 0, engine: "none", reason: "chosen" });
     assert.equal("filedBy" in (await storedSession("local_batch_3")), false);
-    assert.deepEqual(endpoint.engineCalls(), []);
+    assert.deepEqual(endpoint.calls, []);
 
-    // A new batch (no other session in it) is decided by the engine.
+    // A new batch (no other session in it) is decided by the engine...
     const fresh = (await (await shot({ batchId: "batch_new", collectionId: checkout, id: "local_batch_4", title: "Onboarding" })).json()) as Record<string, any>;
     assert.equal(fresh.destination.collectionId, onboarding);
     assert.equal(fresh.filing.engine, "decisions");
+    assert.equal((await storedSession("local_batch_4")).filedBy, "auto");
     assert.equal(endpoint.engineCalls().length, 1);
+
+    // ...and its next capture inherits the "auto" mark of that session.
+    const next = (await (await shot({ batchId: "batch_new", collectionId: checkout, id: "local_batch_5", title: "Checkout card" })).json()) as Record<string, any>;
+    assert.deepEqual(next.filing, { collectionId: onboarding, confidence: 0, engine: "none", reason: "chosen" });
+    const inherited = await storedSession("local_batch_5");
+    assert.equal(inherited.collectionId, onboarding);
+    assert.equal(inherited.filedBy, "auto");
+    assert.equal(endpoint.engineCalls().length, 1, "the batch rule asks no engine");
+  });
+
+  test("an existing batch is followed with the endpoint down", async () => {
+    configureAi();
+    const down = fakeEndpoint({ engine: "none" });
+    useEndpoint({
+      ...down,
+      fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        await down.fetch(input, init);
+        throw new TypeError("connect ECONNREFUSED");
+      }) as typeof fetch,
+    });
+    const { checkout, inbox, onboarding } = await seedCollections();
+    await seedSession({ batchId: "batch_down", collectionId: checkout, createdAt: "2026-10-01T10:00:00.000Z", id: "local_down_1", title: "First" });
+    await patchPreferences({ autoCaptureDestination: true });
+    // The PATCH answer probed the endpoint; only the captures count from here.
+    resetRetrievalCapabilitiesCacheForTests();
+    resetThinkingControlCacheForTests();
+    down.calls.length = 0;
+
+    const body = (await (await shot({ batchId: "batch_down", collectionId: onboarding, id: "local_down_2", title: "Second" })).json()) as Record<string, any>;
+    assert.equal(body.destination.collectionId, checkout);
+    assert.deepEqual(body.filing, { collectionId: checkout, confidence: 0, engine: "none", reason: "chosen" });
+    assert.equal(down.calls.length, 0, "the batch rule never reaches the endpoint");
+
+    // Outside a batch the same endpoint gives no engine: the Inbox.
+    const alone = (await (await shot({ collectionId: onboarding, id: "local_down_3", title: "Third" })).json()) as Record<string, any>;
+    assert.equal(alone.destination.collectionId, inbox);
+    assert.deepEqual(alone.filing, { collectionId: null, confidence: 0, engine: "none", reason: "error" });
+    assert.ok(down.calls.length > 0, "the detection was tried");
   });
 
   test("without an engine: the Inbox with reason error, never the manual destination", async () => {
@@ -475,5 +519,28 @@ describe("local GET /api/preferences autoCaptureDestinationAvailable", () => {
     useEndpoint(fakeEndpoint({ engine: "none" }));
     assert.equal(await available(), false);
     assert.ok(endpoint.calls.some((call) => call.path === "/models"));
+  });
+
+  test("PATCH answers the availability with the saved preferences", async () => {
+    const patch = async (body: Record<string, unknown>) => {
+      const response = await request("/api/preferences", { body: JSON.stringify(body), headers: { "content-type": "application/json" }, method: "PATCH" });
+      assert.equal(response.status, 200);
+      return (await response.json()) as Record<string, unknown>;
+    };
+    useEndpoint(fakeEndpoint({ engine: "decisions" }));
+    const withoutAi = await patch({ autoCaptureDestination: true });
+    assert.equal(withoutAi.autoCaptureDestination, true);
+    assert.equal(withoutAi.autoCaptureDestinationAvailable, false);
+    assert.equal(endpoint.calls.length, 0, "without AI nothing is fetched");
+
+    configureAi();
+    const withEngine = await patch({ autoCaptureDestination: false });
+    assert.equal(withEngine.autoCaptureDestination, false);
+    assert.equal(withEngine.autoCaptureDestinationAvailable, true);
+
+    resetRetrievalCapabilitiesCacheForTests();
+    resetThinkingControlCacheForTests();
+    useEndpoint(fakeEndpoint({ engine: "none" }));
+    assert.equal((await patch({ autoCaptureDestination: true })).autoCaptureDestinationAvailable, false);
   });
 });

@@ -207,7 +207,8 @@ function decideFor(match: string, probability: number) {
   return (body: Record<string, any>) => {
     const options = body.questions[0].options as string[];
     const choice = options.find((option) => option.includes(match)) ?? FILING_NONE_OPTION;
-    const probabilities = Object.fromEntries(options.map((option) => [option, option === choice ? probability : (1 - probability) / options.length]));
+    // A normalized distribution: the rest of the mass spread over the other options.
+    const probabilities = Object.fromEntries(options.map((option) => [option, option === choice ? probability : (1 - probability) / (options.length - 1)]));
     return Response.json({ decisions: [{ choice, id: "collection", probabilities }] });
   };
 }
@@ -402,7 +403,7 @@ describe("cloud capture filing (POST /api/shots)", () => {
     }
   });
 
-  test("a capture that enters an existing batch follows the batch's collection without asking the engine", async () => {
+  test("a capture that enters an existing batch follows the batch's collection and mark without asking the engine", async () => {
     const db = migratedDatabase();
     try {
       const env = filingEnv(db);
@@ -413,21 +414,62 @@ describe("cloud capture filing (POST /api/shots)", () => {
       await writeOwnerDeliveryPreferences(env, OWNER, { autoCaptureDestination: true });
       appliance = fakeAppliance({ decide: decideFor("Shop / Onboarding", 0.95), engine: "decisions" });
 
+      // The batch's most recent session is unmarked: so is the new capture.
       const body = await shot(env, cookie, { batchId: "batch_review", collectionId: "col_onboarding", id: "cloud_batch_2", title: "Onboarding" });
       assert.equal(body.destination.collectionId, "col_checkout");
       assert.deepEqual(body.filing, { collectionId: "col_checkout", confidence: 0, engine: "none", reason: "chosen" });
-      assert.deepEqual(stored(db, "cloud_batch_2"), { batch_id: "batch_review", collection_id: "col_checkout", filed_by: "auto" });
-      assert.deepEqual(appliance.engineCalls(), []);
+      assert.deepEqual(stored(db, "cloud_batch_2"), { batch_id: "batch_review", collection_id: "col_checkout", filed_by: null });
+      assert.deepEqual(appliance.calls, [], "the batch rule reads no endpoint");
 
       const inInbox = await shot(env, cookie, { batchId: "batch_inbox", collectionId: "col_onboarding", id: "cloud_batch_3", title: "Onboarding" });
       assert.equal(inInbox.destination.collectionId, "col_inbox");
       assert.deepEqual(stored(db, "cloud_batch_3"), { batch_id: "batch_inbox", collection_id: "col_inbox", filed_by: null });
-      assert.deepEqual(appliance.engineCalls(), []);
+      assert.deepEqual(appliance.calls, []);
 
+      // A new batch is decided by the engine, and its next capture inherits
+      // the "auto" mark of that session.
       const fresh = await shot(env, cookie, { batchId: "batch_new", collectionId: "col_checkout", id: "cloud_batch_4", title: "Onboarding" });
       assert.equal(fresh.destination.collectionId, "col_onboarding");
       assert.equal(fresh.filing.engine, "decisions");
+      assert.equal(stored(db, "cloud_batch_4").filed_by, "auto");
       assert.equal(appliance.engineCalls().length, 1);
+      const next = await shot(env, cookie, { batchId: "batch_new", collectionId: "col_checkout", id: "cloud_batch_5", title: "Checkout card" });
+      assert.deepEqual(next.filing, { collectionId: "col_onboarding", confidence: 0, engine: "none", reason: "chosen" });
+      assert.deepEqual(stored(db, "cloud_batch_5"), { batch_id: "batch_new", collection_id: "col_onboarding", filed_by: "auto" });
+      assert.equal(appliance.engineCalls().length, 1, "the batch rule asks no engine");
+    } finally {
+      db.close();
+    }
+  });
+
+  test("an existing batch is followed with the endpoint down", async () => {
+    const db = migratedDatabase();
+    try {
+      const env = filingEnv(db);
+      const cookie = await signIn(db, env);
+      seedCollections(db);
+      insertSession(db, { batchId: "batch_down", collectionId: "col_checkout", createdAt: "2026-10-01T10:00:00.000Z", id: "cloud_down_1", title: "First" });
+      await writeOwnerDeliveryPreferences(env, OWNER, { autoCaptureDestination: true });
+      const down = fakeAppliance({ engine: "none" });
+      appliance = {
+        ...down,
+        fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+          await down.fetch(input, init);
+          throw new TypeError("connect ECONNREFUSED");
+        }) as typeof fetch,
+      };
+
+      const body = await shot(env, cookie, { batchId: "batch_down", collectionId: "col_onboarding", id: "cloud_down_2", title: "Second" });
+      assert.equal(body.destination.collectionId, "col_checkout");
+      assert.deepEqual(body.filing, { collectionId: "col_checkout", confidence: 0, engine: "none", reason: "chosen" });
+      assert.equal(down.calls.length, 0, "the batch rule never reaches the endpoint");
+
+      // Outside a batch: no decisions extra is read, so AI_EMBEDDING_MODEL
+      // gives similarity, whose embedding request fails: the Inbox.
+      const alone = await shot(env, cookie, { collectionId: "col_onboarding", id: "cloud_down_3", title: "Third" });
+      assert.equal(alone.destination.collectionId, "col_inbox");
+      assert.deepEqual(alone.filing, { collectionId: null, confidence: 0, engine: "similarity", reason: "error" });
+      assert.ok(down.calls.length > 0, "the detection was tried");
     } finally {
       db.close();
     }
@@ -557,10 +599,24 @@ describe("cloud capture filing without D1 (the in-memory fallback)", () => {
     assert.equal(((await session.json()) as { session: Record<string, unknown> }).session.filedBy, "auto");
 
     const engineCalls = appliance.engineCalls().length;
+    const filedBy = async (id: string) => {
+      const response = await handleCloudApiRequest(new Request(`https://pinar.test/api/sessions/${id}`, { headers: { cookie: owner.cookie } }), env);
+      return ((await response.json()) as { session: Record<string, unknown> }).session.filedBy;
+    };
     const batched = await shot(env, owner.cookie, { batchId: "batch_mem", collectionId: onboarding, id: "mem_batch_2", title: "Onboarding" });
     assert.equal(batched.destination.collectionId, checkout);
     assert.deepEqual(batched.filing, { collectionId: checkout, confidence: 0, engine: "none", reason: "chosen" });
+    assert.equal(await filedBy("mem_batch_2"), undefined, "the batch's session is unmarked");
     assert.equal(appliance.engineCalls().length, engineCalls, "the batch rule asks no engine");
+
+    // A batch whose most recent session was filed automatically passes the mark on.
+    await shot(env, owner.cookie, { batchId: "batch_auto", collectionId: checkout, id: "mem_auto_1", title: "Onboarding" });
+    assert.equal(await filedBy("mem_auto_1"), "auto");
+    const inherited = await shot(env, owner.cookie, { batchId: "batch_auto", collectionId: checkout, id: "mem_auto_2", title: "Card" });
+    assert.equal(inherited.destination.collectionId, onboarding);
+    assert.equal(inherited.filing.engine, "none");
+    assert.equal(await filedBy("mem_auto_2"), "auto");
+    assert.equal(appliance.engineCalls().length, engineCalls + 1);
   });
 });
 
@@ -605,6 +661,33 @@ describe("cloud GET /api/preferences autoCaptureDestinationAvailable", () => {
   test("with an engine: true for decisions and for similarity", async () => {
     assert.equal((await available({ AI_EMBEDDING_MODEL: undefined }, "decisions")).value, true);
     assert.equal((await available({}, "similarity")).value, true);
+  });
+
+  test("PATCH answers the availability with the saved preferences", async () => {
+    const patch = async (overrides: Partial<CloudEnv>, engine: Engine) => {
+      resetCloudMemoryStateForTests();
+      resetRetrievalCapabilitiesCacheForTests();
+      const db = migratedDatabase();
+      try {
+        const env = filingEnv(db, overrides);
+        const cookie = await signIn(db, env);
+        appliance = fakeAppliance({ engine });
+        const response = await handleCloudApiRequest(new Request("https://pinar.test/api/preferences", {
+          body: JSON.stringify({ autoCaptureDestination: true }),
+          headers: { "content-type": "application/json", cookie },
+          method: "PATCH",
+        }), env);
+        assert.equal(response.status, 200);
+        const body = (await response.json()) as Record<string, unknown>;
+        assert.equal(body.autoCaptureDestination, true);
+        return { calls: appliance.calls.length, value: body.autoCaptureDestinationAvailable };
+      } finally {
+        db.close();
+      }
+    };
+    assert.deepEqual(await patch({ ASSISTANT_ENABLED: "false" }, "decisions"), { calls: 0, value: false });
+    assert.equal((await patch({ AI_EMBEDDING_MODEL: undefined }, "decisions")).value, true);
+    assert.equal((await patch({ AI_EMBEDDING_MODEL: undefined }, "none")).value, false);
   });
 
   test("inside the gate without an engine: false", async () => {

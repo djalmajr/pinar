@@ -21,8 +21,8 @@ import { detectRetrievalCapabilities } from "../assistant/retrieval/detect";
 import { localAiConfigured, localAssistantEndpoint } from "../assistant/retrieval/runtime-local";
 import type { PinIndexEntry } from "../assistant/retrieval/types";
 import type { FilingRecentSession } from "./candidates";
-import { FILING_TIMEOUT_MS, type FilingChoice } from "./choose";
-import { fileCapture, type FilingCapture, type FilingEngineChoice, type FilingSource } from "./runtime";
+import { FILING_TIMEOUT_MS } from "./choose";
+import { fileCapture, type FilingCapture, type FilingEngineChoice, type FilingOutcome, type FilingSource } from "./runtime";
 
 const SCAN_PAGE_SIZE = 100;
 
@@ -34,6 +34,7 @@ export interface LocalFilingDatabase {
   listSessions(options: { batchId?: string; limit: number; offset: number; query: string }): Array<{
     collectionId?: string | null;
     createdAt: string;
+    filedBy?: "auto";
     id: string;
     page: { title?: string };
   }>;
@@ -69,9 +70,10 @@ export async function localFilingEngine(root = pinarHome()): Promise<FilingEngin
 }
 
 /**
- * GET /api/preferences: the AI is configured and an engine is detected. The
- * answer waits at most FILING_TIMEOUT_MS; a detection still running then
- * answers false, and its result reaches the cache for the next read.
+ * GET and PATCH /api/preferences: the AI is configured and an engine is
+ * detected. The answer waits at most FILING_TIMEOUT_MS; a detection still
+ * running then answers false, and its result reaches the cache for the next
+ * read.
  */
 export async function localAutoCaptureDestinationAvailable(root = pinarHome()): Promise<boolean> {
   if (!localAiConfigured(root)) return false;
@@ -93,10 +95,10 @@ function nextTurn(): Promise<void> {
 
 function localFilingSource(db: LocalFilingDatabase): FilingSource {
   return {
-    async batchCollection(batchId, excludeId) {
+    async batchSession(batchId, excludeId) {
       // Newest first; two rows cover the capture's own row.
       const session = db.listSessions({ batchId, limit: 2, offset: 0, query: "" }).find((item) => item.id !== excludeId);
-      return session?.collectionId || null;
+      return session?.collectionId ? { collectionId: session.collectionId, filedBy: session.filedBy === "auto" ? "auto" : null } : null;
     },
     async collections() {
       return db.listProjects().flatMap((project) =>
@@ -138,7 +140,7 @@ export function fileLocalCapture(input: {
   capture: FilingCapture;
   db: LocalFilingDatabase;
   root?: string;
-}): Promise<FilingChoice> {
+}): Promise<FilingOutcome> {
   const root = input.root ?? pinarHome();
   return fileCapture({
     batchId: input.batchId,

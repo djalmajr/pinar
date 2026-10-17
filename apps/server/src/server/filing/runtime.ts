@@ -2,15 +2,17 @@
 // for both runtimes: runtime-local.ts and runtime-cloud.ts give it the
 // engine detection and the person's data.
 //
-// Order: the engine is detected first; without one the capture goes to the
-// Inbox with reason "error" (A29). A capture that enters an existing batch
-// (one with another session already in it) follows the collection of the
-// batch's most recent other session, without asking the engine (A27); a
-// batch whose collection is not a candidate (the Inbox) keeps the capture in
-// the Inbox. Otherwise chooseCollection picks among the candidates.
+// Order: the batch rule comes first, since it needs no engine (A27): a
+// capture that enters an existing batch (one with another session already
+// in it) follows the batch's most recent other session, its collection and
+// its mark ("auto" or none), even with the endpoint down; a batch whose
+// collection is not a candidate (the Inbox) keeps the capture in the Inbox,
+// unmarked. Otherwise the engine is detected; without one the capture goes
+// to the Inbox with reason "error" (A29), and with one chooseCollection
+// picks among the candidates, marking "auto" what it files.
 //
 // Deadline: one FILING_TIMEOUT_MS budget starts with fileCapture and covers
-// the detection, the batch lookup, the candidates, the centroids and the
+// the batch lookup, the detection, the candidates, the centroids and the
 // engine. Every step is raced against it, so the answer never waits past it;
 // a step that ignores the signal goes on in the background (a detection
 // still fills its cache), and its result is dropped. Past the budget the
@@ -48,8 +50,8 @@ export interface FilingCapture {
 
 /** What the filing reads of the person, in each runtime. */
 export interface FilingSource {
-  /** The collection of the batch's most recent session other than `excludeId`, or null when there is none. */
-  batchCollection(batchId: string, excludeId: string): Promise<string | null>;
+  /** The collection and mark of the batch's most recent session other than `excludeId`, or null when there is none. */
+  batchSession(batchId: string, excludeId: string): Promise<{ collectionId: string; filedBy: "auto" | null } | null>;
   /** The person's collections without the protected Inbox, in a stable order. */
   collections(): Promise<FilingCollection[]>;
   /** The F3 index entries of these sessions. */
@@ -109,9 +111,15 @@ function similarityEngine(
 }
 
 /**
- * The filing of one new capture: its collectionId is the collection the
- * capture is filed in, null for the Inbox.
+ * The filing of one new capture: `filing.collectionId` is the collection the
+ * capture is filed in (null for the Inbox) and `filedBy` the mark to store
+ * with it.
  */
+export interface FilingOutcome {
+  filedBy: "auto" | null;
+  filing: FilingChoice;
+}
+
 export async function fileCapture(input: {
   batchId: string | null;
   capture: FilingCapture;
@@ -119,34 +127,35 @@ export async function fileCapture(input: {
   fetch?: typeof fetch;
   source: FilingSource;
   timeoutMs?: number; // default FILING_TIMEOUT_MS
-}): Promise<FilingChoice> {
+}): Promise<FilingOutcome> {
   const timeoutMs = input.timeoutMs ?? FILING_TIMEOUT_MS;
   const startedAt = Date.now();
   const deadline = AbortSignal.timeout(Math.max(0, timeoutMs));
   const left = () => timeoutMs - (Date.now() - startedAt);
   const expired = () => deadline.aborted || left() <= 0;
   let engineKind: FilingChoice["engine"] = "none";
-  const inbox = (reason: FilingChoice["reason"]): FilingChoice => ({
-    collectionId: null,
-    confidence: 0,
-    engine: engineKind,
-    reason,
+  const inbox = (reason: FilingChoice["reason"]): FilingOutcome => ({
+    filedBy: null,
+    filing: { collectionId: null, confidence: 0, engine: engineKind, reason },
   });
 
   try {
-    const engine = await beforeDeadline(input.engine(), deadline);
-    if (!engine) return inbox("error");
-    const collections = await beforeDeadline(input.source.collections(), deadline);
-
     if (input.batchId) {
-      const batchCollection = await beforeDeadline(input.source.batchCollection(input.batchId, input.capture.captureId), deadline);
-      if (batchCollection !== null) {
-        const candidate = collections.some((collection) => collection.collectionId === batchCollection);
+      const batch = await beforeDeadline(input.source.batchSession(input.batchId, input.capture.captureId), deadline);
+      if (batch !== null) {
+        const collections = await beforeDeadline(input.source.collections(), deadline);
+        const candidate = collections.some((collection) => collection.collectionId === batch.collectionId);
         // The batch rule asks no engine.
-        return { collectionId: candidate ? batchCollection : null, confidence: 0, engine: "none", reason: "chosen" };
+        return {
+          filedBy: candidate ? batch.filedBy : null,
+          filing: { collectionId: candidate ? batch.collectionId : null, confidence: 0, engine: "none", reason: "chosen" },
+        };
       }
     }
 
+    const engine = await beforeDeadline(input.engine(), deadline);
+    if (!engine) return inbox("error");
+    const collections = await beforeDeadline(input.source.collections(), deadline);
     engineKind = engine.kind;
     const sessions = await beforeDeadline(
       input.source.recentSessions({
@@ -169,7 +178,8 @@ export async function fileCapture(input: {
     });
     // chooseCollection reports its own deadline as "timeout" and the
     // caller's signal as "error"; here the signal is this budget.
-    return choice.reason === "error" && expired() ? { ...choice, reason: "timeout" } : choice;
+    const filing: FilingChoice = choice.reason === "error" && expired() ? { ...choice, reason: "timeout" } : choice;
+    return { filedBy: filing.collectionId !== null ? "auto" : null, filing };
   } catch {
     return inbox(expired() ? "timeout" : "error");
   }

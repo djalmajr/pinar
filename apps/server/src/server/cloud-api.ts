@@ -129,10 +129,9 @@ import type { AssistantStateReader } from "./assistant/state-reader";
 import type { AssistantToolHost } from "./assistant/tools";
 // Types and the constants only: the filing engines pull in the AI SDK and
 // are loaded lazily behind the gate (fileCloudShot).
-import type { FilingChoice } from "./filing/choose";
 import type { FilingCollection, FilingRecentSession } from "./filing/candidates";
 import { FILING_TIMEOUT_MS } from "./filing/constants";
-import type { FilingCapture, FilingSource } from "./filing/runtime";
+import type { FilingCapture, FilingOutcome, FilingSource } from "./filing/runtime";
 import {
   CLOUD_MCP_TOOLS,
   MCP_MAX_ARGUMENT_LENGTH,
@@ -725,6 +724,7 @@ async function updatePreferences(request: Request, env: CloudEnv) {
   return json({
     ok: true,
     ...(await writeOwnerDeliveryPreferences(env, principal.id, await readJson(request))),
+    autoCaptureDestinationAvailable: await cloudAutoCaptureDestinationAvailable(env, principal),
   });
 }
 
@@ -6507,21 +6507,23 @@ async function updateSessionFields(request: Request, env: CloudEnv, id: string) 
 // What the capture filing reads of the owner: the collections without the
 // protected Inbox (project then collection position), the most recent
 // sessions of each collection (one window query on D1), and the collection
-// of a batch's most recent session.
+// and mark of a batch's most recent session.
 function cloudFilingSource(env: CloudEnv, principal: Principal): Omit<FilingSource, "entriesFor"> {
   return {
-    async batchCollection(batchId, excludeId) {
+    async batchSession(batchId, excludeId) {
       if (env.DB) {
         const row = await env.DB.prepare(
-          "SELECT collection_id FROM sessions WHERE user_id = ? AND batch_id = ? AND id <> ? AND collection_id IS NOT NULL ORDER BY created_at DESC, id ASC LIMIT 1",
+          "SELECT collection_id, filed_by FROM sessions WHERE user_id = ? AND batch_id = ? AND id <> ? AND collection_id IS NOT NULL ORDER BY created_at DESC, id ASC LIMIT 1",
         ).bind(principal.id, batchId, excludeId).first();
-        return row && typeof row.collection_id === "string" && row.collection_id ? row.collection_id : null;
+        return row && typeof row.collection_id === "string" && row.collection_id
+          ? { collectionId: row.collection_id, filedBy: row.filed_by === "auto" ? "auto" : null }
+          : null;
       }
       const latest = Array.from(memorySessions.values())
         .filter((session) => session.userId === principal.id && session.id !== excludeId
           && cloudSessionBatchId(session) === batchId && Boolean(session.collectionId))
         .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))[0];
-      return latest?.collectionId || null;
+      return latest?.collectionId ? { collectionId: latest.collectionId, filedBy: latest.filedBy === "auto" ? "auto" : null } : null;
     },
     async collections(): Promise<FilingCollection[]> {
       if (env.DB) {
@@ -6598,7 +6600,7 @@ async function fileCloudShot(
   principal: Principal,
   capture: FilingCapture,
   batchId: string | null,
-): Promise<FilingChoice> {
+): Promise<FilingOutcome> {
   const startedAt = Date.now();
   try {
     const { fileCloudCapture } = await import("./filing/runtime-cloud");
@@ -6611,13 +6613,13 @@ async function fileCloudShot(
       timeoutMs: FILING_TIMEOUT_MS - (Date.now() - startedAt),
     });
   } catch {
-    return { collectionId: null, confidence: 0, engine: "none", reason: "error" };
+    return { filedBy: null, filing: { collectionId: null, confidence: 0, engine: "none", reason: "error" } };
   }
 }
 
-// GET /api/preferences: the automatic destination can be turned on, inside
-// the assistant gate (A33) and with an engine. Outside the gate nothing is
-// loaded nor fetched.
+// GET and PATCH /api/preferences: the automatic destination can be turned
+// on, inside the assistant gate (A33) and with an engine. Outside the gate
+// nothing is loaded nor fetched.
 async function cloudAutoCaptureDestinationAvailable(env: CloudEnv, principal: Principal): Promise<boolean> {
   if (!cloudAssistantStatus(env, principal).available) return false;
   const startedAt = Date.now();
@@ -6677,17 +6679,17 @@ async function uploadShot(request: Request, env: CloudEnv) {
     );
   const batchId = await resolveCaptureBatchId(env, principal, body);
   if (batchId instanceof Response) return batchId;
-  let filing: FilingChoice | null = null;
+  let filed: FilingOutcome | null = null;
   let destination: CaptureDestination;
   if (manualDestination) {
     destination = manualDestination;
   } else {
-    filing = await fileCloudShot(env, principal, capture, batchId);
-    destination = await resolveDestination(env, principal, filing.collectionId ?? "");
+    filed = await fileCloudShot(env, principal, capture, batchId);
+    destination = await resolveDestination(env, principal, filed.filing.collectionId ?? "");
     // A chosen collection that disappeared before the save leaves the
-    // capture in the Inbox.
-    if (filing.collectionId !== null && filing.collectionId !== destination.collectionId) {
-      filing = { ...filing, collectionId: null, reason: "error" };
+    // capture in the Inbox, unmarked.
+    if (filed.filing.collectionId !== null && filed.filing.collectionId !== destination.collectionId) {
+      filed = { filedBy: null, filing: { ...filed.filing, collectionId: null, reason: "error" } };
     }
   }
   if (env.PINAR_BUCKET) {
@@ -6711,7 +6713,7 @@ async function uploadShot(request: Request, env: CloudEnv) {
     userId: principal.id,
     // persistSession writes NULL without a mark, so a re-upload never keeps
     // an earlier one.
-    ...(filing?.collectionId ? { filedBy: "auto" as const } : {}),
+    ...(filed?.filedBy ? { filedBy: filed.filedBy } : {}),
   });
   try {
     await persistSession(env, session, batchId);
@@ -6720,7 +6722,7 @@ async function uploadShot(request: Request, env: CloudEnv) {
   }
   return json({
     destination,
-    ...(filing ? { filing } : {}),
+    ...(filed ? { filing: filed.filing } : {}),
     isPermanent: session.isPermanent,
     markdownUrl: `${origin}/v/${id}.md`,
     ok: true,

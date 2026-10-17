@@ -28,7 +28,7 @@
 // becomes a hit.
 
 import type { AssistantEndpoint } from "../models";
-import { buildPinDocument, pinSectionText, type PinDocumentInput } from "./document";
+import { buildPinDocument, PIN_SECTION_LINE, pinSectionText, type PinDocumentInput } from "./document";
 import { cosine, decodeVector, embedTexts, encodeVector, type EmbeddingEndpoint } from "./embeddings";
 import { captionSessionPins } from "./vision";
 import type { PinIndexEntry, PinIndexStore } from "./types";
@@ -68,11 +68,11 @@ export interface PinSearchHit {
 
 type Caption = { caption: string; ocr: string };
 
-// The stored document still holds the pin's "Pin #n: comment" section,
-// bounded by line breaks (it always follows the URL line).
+// The stored document still has the pin's "Pin #n: comment" line in its
+// fixed place. Values are written on one line, so no other text can fill
+// that place.
 function sameSection(docText: string, pin: PinDocumentInput["pin"]): boolean {
-  const section = `\n${pinSectionText(pin)}`;
-  return docText.includes(`${section}\n`) || docText.endsWith(section);
+  return docText.split("\n")[PIN_SECTION_LINE] === pinSectionText(pin);
 }
 
 export async function indexSession(deps: PinIndexDeps, sessionId: string): Promise<{ captioned: boolean; embedded: number; pins: number }> {

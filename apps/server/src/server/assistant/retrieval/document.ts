@@ -10,6 +10,11 @@
 // then the OCR text is shortened, and `truncated` is true. Only when the
 // remaining sections still exceed the cap is the text cut at the cap.
 //
+// Every value is written on one line (line breaks become spaces), so the
+// line structure is the renderer's alone: text from the page, the element,
+// the image or a comment can never pose as another section, such as the
+// "Pin #n" line index.ts compares.
+//
 // The hash is the SHA-256 hex of the final text through crypto.subtle,
 // which is asynchronous, so buildPinDocument returns a promise.
 
@@ -32,30 +37,40 @@ export function clipText(value: string, max: number): string {
   return cut;
 }
 
+// One line of text: every run of line breaks (and the spaces around it)
+// becomes one space.
+export function oneLine(value: string): string {
+  return value.replace(/\s*[\r\n\u2028\u2029]+\s*/g, " ").trim();
+}
+
+// The line index of the "Pin #n" section: always after Page and URL.
+export const PIN_SECTION_LINE = 2;
+
 // The "Pin #n: comment" section exactly as buildPinDocument writes it.
-// index.ts looks for it in a stored document to tell whether a pin's
-// number or comment changed since that document was built.
+// index.ts compares it with line PIN_SECTION_LINE of a stored document to
+// tell whether a pin's number or comment changed since that document was
+// built.
 export function pinSectionText(pin: Pick<PinDocumentInput["pin"], "comment" | "number">): string {
-  return `Pin #${pin.number}: ${pin.comment.trim()}`;
+  return `Pin #${pin.number}: ${oneLine(pin.comment)}`;
 }
 
 function elementLine(pin: PinDocumentInput["pin"]): string {
-  const element = (pin.tag || pin.label || "").trim();
-  const selector = (pin.selector || "").trim();
-  const text = (pin.innerText || pin.text || "").trim();
+  const element = oneLine(pin.tag || pin.label || "");
+  const selector = oneLine(pin.selector || "");
+  const text = oneLine(pin.innerText || pin.text || "");
   return [element, selector, text ? `"${text}"` : ""].filter((part) => part !== "").join(" ");
 }
 
 function render(input: PinDocumentInput, comments: PinDocumentInput["comments"], ocr: string): string {
-  const lines = [`Page: ${input.page.title.trim()}`, `URL: ${input.page.url.trim()}`, pinSectionText(input.pin)];
+  const lines = [`Page: ${oneLine(input.page.title)}`, `URL: ${oneLine(input.page.url)}`, pinSectionText(input.pin)];
   const element = elementLine(input.pin);
   if (element !== "") lines.push(`Element: ${element}`);
-  const caption = input.caption?.caption.trim() ?? "";
+  const caption = oneLine(input.caption?.caption ?? "");
   if (caption !== "") lines.push(`Caption: ${caption}`);
   if (ocr !== "") lines.push(`Text in image: ${ocr}`);
   if (comments.length > 0) {
     lines.push("Comments:");
-    for (const comment of comments) lines.push(`- ${comment.author.trim()}: ${comment.body.trim()}`);
+    for (const comment of comments) lines.push(`- ${oneLine(comment.author)}: ${oneLine(comment.body)}`);
   }
   return lines.join("\n");
 }
@@ -67,7 +82,7 @@ async function sha256Hex(text: string): Promise<string> {
 
 export async function buildPinDocument(input: PinDocumentInput): Promise<{ hash: string; text: string; truncated: boolean }> {
   const comments = input.comments.filter((comment) => comment.body.trim() !== "");
-  let ocr = input.caption?.ocr.trim() ?? "";
+  let ocr = oneLine(input.caption?.ocr ?? "");
   let text = render(input, comments, ocr);
   let truncated = false;
 

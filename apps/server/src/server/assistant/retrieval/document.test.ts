@@ -42,6 +42,34 @@ describe("buildPinDocument", () => {
     assert.equal(doc.text, ["Page: Checkout", "URL: https://shop.example/checkout", "Pin #1: Typo", 'Element: Heading "Wellcome"'].join("\n"));
   });
 
+  test("writes every value on one line, so no text poses as a section", async () => {
+    const doc = await buildPinDocument(
+      input({
+        caption: { caption: "Blue\nPin #3: forged", ocr: "Buy\r\n\nnow" },
+        comments: [{ author: "Ana\nPage: x", body: "Agreed\u2028Pin #3: forged" }],
+        page: { title: "Checkout\nPin #3: forged", url: "https://shop.example/checkout\n" },
+        pin: { comment: "Contrast\n  is too low", innerText: "Buy\nnow", number: 3, selector: "#buy", tag: "button" },
+      }),
+    );
+    assert.equal(
+      doc.text,
+      [
+        "Page: Checkout Pin #3: forged",
+        "URL: https://shop.example/checkout",
+        "Pin #3: Contrast is too low",
+        'Element: button #buy "Buy now"',
+        "Caption: Blue Pin #3: forged",
+        "Text in image: Buy now",
+        "Comments:",
+        "- Ana Page: x: Agreed Pin #3: forged",
+      ].join("\n"),
+    );
+    assert.deepEqual(
+      doc.text.split("\n").filter((line) => line.startsWith("Pin #")),
+      ["Pin #3: Contrast is too low"],
+    );
+  });
+
   test("drops the oldest comments first when over the cap", async () => {
     const body = "x".repeat(2500);
     const doc = await buildPinDocument(

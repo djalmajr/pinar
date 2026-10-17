@@ -243,6 +243,20 @@ describe("indexSession", () => {
     assert.ok(data.get("s1")![0]!.docText.includes("Pin #1: Contrast fixed, check typo"));
   });
 
+  test("page text that repeats the new comment does not hide a comment change", async () => {
+    const s = checkoutSession();
+    s.page.title = "Checkout\nPin #1: Contrast fixed";
+    const { byId, source } = fakeSource([s]);
+    const { data, store } = fakeStore();
+    const fake = fakeFetch();
+    await indexSession(deps(source, store, fake.fetch), "s1");
+    byId.get("s1")!.pins[0]!.comment = "Contrast fixed";
+    const result = await indexSession(deps(source, store, fake.fetch), "s1");
+    assert.equal(result.captioned, true);
+    assert.equal(fake.calls.chat.length, 2, "the changed comment re-captions the session");
+    assert.equal(data.get("s1")![0]!.docText.split("\n")[2], "Pin #1: Contrast fixed");
+  });
+
   test("a removed pin disappears from the session's entries", async () => {
     const { byId, source } = fakeSource([checkoutSession()]);
     const { calls, data, store } = fakeStore();

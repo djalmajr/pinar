@@ -1611,6 +1611,11 @@ describe("cloud capture filing in production, through the gateway (F4 contract �
       assert.deepEqual(Object.keys(embedding.body!).sort(), ["dimensions", "input", "model", "providerOptions"]);
       assert.equal(embedding.body!.model, GATEWAY_EMBEDDING);
       assert.deepEqual(embedding.body!.providerOptions, { gateway: { disallowPromptTraining: true } });
+      // The capture's embedding is recorded for the margin monitor: no cost
+      // in the body, so pricing.input × usage (5 × 0.00000002 USD → 1 micro).
+      assert.deepEqual(db.query("SELECT kind, model, cost_usd_micros, cost_source, created_at FROM assistant_index_costs").all(), [
+        { cost_source: "table", cost_usd_micros: 1, created_at: NOW, kind: "embedding", model: GATEWAY_EMBEDDING },
+      ]);
     } finally {
       db.close();
     }

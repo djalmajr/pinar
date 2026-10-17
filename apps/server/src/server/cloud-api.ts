@@ -123,6 +123,7 @@ import {
   resetCloudPinIndexMemoryForTests,
 } from "./assistant/retrieval/store-cloud";
 import type { AssistantChainLink, AssistantCircuitBreaker } from "./assistant/chain";
+import { cleanupAssistantMarginRecords, recordAssistantIndexCost, type AssistantIndexCostEntry } from "./assistant/margin-monitor";
 import type { AssistantRequestDeps, AssistantStatus } from "./assistant/http";
 import type { AssistantEndpoint } from "./assistant/models";
 import type { PinSearchService } from "./assistant/retrieval/index";
@@ -6744,6 +6745,7 @@ async function fileCloudShot(
       capture,
       env,
       ownerId: principal.id,
+      recordIndexCost: cloudIndexCostRecorder(env),
       source: cloudFilingSource(env, principal),
       timeoutMs: FILING_TIMEOUT_MS - (Date.now() - startedAt),
     });
@@ -7440,7 +7442,9 @@ export async function cleanupOldRecords(env: CloudEnv, days = FREE_CLOUD_RETENTI
   }
   const assistantCutoff = new Date(now.getTime() - ASSISTANT_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const assistantThreads = await cleanupAssistantThreads(env, assistantCutoff);
-  return { assistantThreads, cutoff, deletedCount, deletedExtensionCodeCount, deletedWebSessionCount };
+  // The margin monitor's records: index costs and claimed email days, after 30 days.
+  const assistantMargin = await cleanupAssistantMarginRecords(env, now);
+  return { assistantMargin, assistantThreads, cutoff, deletedCount, deletedExtensionCodeCount, deletedWebSessionCount };
 }
 
 export async function authorizeCloudAppRequest(request: Request, env: CloudEnv) {
@@ -8725,7 +8729,16 @@ export async function cloudPinSearch(
     env,
     ...(options.fetch ? { fetch: options.fetch } : {}),
     now: currentDate,
+    recordIndexCost: cloudIndexCostRecorder(env),
   });
+}
+
+// The index-cost recorder of the retrieval calls through the gateway (F4
+// contract §3): each cost becomes a row of assistant_index_costs at the
+// Cloud's clock, for the margin monitor. Only the gateway calls use it; a
+// failure is caught there (recordIndexCost in retrieval/gateway.ts).
+function cloudIndexCostRecorder(env: CloudEnv): (entry: AssistantIndexCostEntry) => Promise<void> {
+  return (entry) => recordAssistantIndexCost(env, entry, currentDate());
 }
 
 // The ids of COMPLIMENTARY_PRO_USER_IDS, the list complimentaryProUser reads.
@@ -8792,6 +8805,7 @@ export async function indexPinSearch(env: CloudEnv, options: { fetch?: typeof fe
     // owners on a plan with AI.
     ownerData: (ownerId) => cloudPinSourceData(env, { id: ownerId, isPermanent: true, kind: "account", plan: "pro" }, { shared: false }),
     owners: (expired) => pinSearchOwners(env, expired),
+    recordIndexCost: cloudIndexCostRecorder(env),
   });
 }
 

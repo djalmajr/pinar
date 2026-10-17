@@ -22,6 +22,7 @@ import {
 } from "../../cloud-api";
 import { runtimeEnv } from "../../cloud-env";
 import { edgerCloudEnv } from "../../edger/env";
+import { assistantMarginMonitor } from "../margin-monitor";
 import { buildAssistantToolSet } from "../tools";
 import { runAssistantTurn } from "../turn";
 import { resetRetrievalCapabilitiesCacheForTests } from "./detect";
@@ -1346,6 +1347,145 @@ describe("Cloud pin search in production, through the gateway (F4 contract §4)"
       assert.deepEqual(cron, { failed: 0, indexed: 0, owners: 0, remaining: false }, name);
       assert.deepEqual(hubs.calls, [], name);
     }
+  });
+});
+
+describe("Cloud index costs recorded for the margin monitor (F4 contract §3)", () => {
+  let db: Database;
+
+  beforeEach(() => {
+    resetCloudMemoryStateForTests();
+    resetRetrievalCapabilitiesCacheForTests();
+    setCloudNowForTests(NOW);
+    db = migratedDatabase();
+    insertUser(db, "usr_pro", "pro");
+    insertCollection(db, "col_pro", "usr_pro");
+    insertSession(db, "session_a", "usr_pro", "col_pro", [{ comment: "Contraste baixo no rodapé", number: 1, pinId: "p1" }, { comment: "Menu cortado", number: 2, pinId: "p2" }]);
+    insertSession(db, "session_b", "usr_pro", "col_pro", [{ comment: "Preço errado no carrinho", number: 1, pinId: "p1" }]);
+  });
+
+  afterEach(() => {
+    db.close();
+    resetCloudMemoryStateForTests();
+    resetRetrievalCapabilitiesCacheForTests();
+    setCloudNowForTests(null);
+  });
+
+  const shots = () => fakeBucket({ session_a: PNG, session_b: PNG });
+  const costRows = () => db.query("SELECT kind, model, cost_usd_micros, cost_source, created_at FROM assistant_index_costs ORDER BY kind, rowid").all() as Array<{
+    cost_source: string;
+    cost_usd_micros: number | null;
+    created_at: string;
+    kind: string;
+    model: string;
+  }>;
+  // Silences the cost and failure lines of a run, and returns them.
+  async function quietly(run: () => Promise<unknown>): Promise<string[]> {
+    const lines: string[] = [];
+    const saved = [console.log, console.error] as const;
+    console.log = console.error = (...args: unknown[]) => {
+      lines.push(args.map(String).join(" "));
+    };
+    try {
+      await run();
+    } finally {
+      [console.log, console.error] = saved;
+    }
+    return lines;
+  }
+
+  test("a search and an index cron through the gateway record each cost with its source, at the Cloud's clock", async () => {
+    const hubs = fakeHubs();
+    await quietly(() => searchAs(productionEnv(db, { PINAR_BUCKET: shots() }), principal("usr_pro"), "contraste", hubs.fetch));
+    const embeddings = hubs.embeddings().length;
+    assert.ok(embeddings >= 2, "the documents and the question");
+    // Embeddings: the gateway's figure (0.00000012 USD → 1 micro). Captions:
+    // ASSISTANT_MODEL_PRICES × usage (1100 micros), as the log lines say.
+    assert.deepEqual(costRows(), [
+      ...hubs.visions().map(() => ({ cost_source: "table", cost_usd_micros: 1100, created_at: NOW, kind: "caption", model: "anthropic/claude-haiku-5.5" })),
+      ...hubs.embeddings().map(() => ({ cost_source: "gateway", cost_usd_micros: 1, created_at: NOW, kind: "embedding", model: GATEWAY_EMBEDDING })),
+    ]);
+    assert.equal(hubs.visions().length, 2);
+
+    db.query("DELETE FROM pin_index").run();
+    db.query("DELETE FROM assistant_index_costs").run();
+    const cron = fakeHubs();
+    await quietly(() => indexPinSearch(productionEnv(db, { PINAR_BUCKET: shots() }), { fetch: cron.fetch }));
+    assert.deepEqual(costRows().map((row) => [row.kind, row.cost_source, row.cost_usd_micros]), [
+      ["caption", "table", 1100],
+      ["caption", "table", 1100],
+      ["embedding", "gateway", 1],
+      ["embedding", "gateway", 1],
+    ]);
+    assert.equal(cron.embeddings().length + cron.visions().length, 4);
+  });
+
+  test("the appliance records nothing", async () => {
+    const appliance = fakeAppliance({ vision: true });
+    await searchAs(cloudEnv(db, { PINAR_BUCKET: shots() }), principal("usr_pro"), "contraste", appliance.fetch);
+    db.query("DELETE FROM pin_index").run();
+    await indexPinSearch(cloudEnv(db, { PINAR_BUCKET: shots() }), { fetch: fakeAppliance({ vision: true }).fetch });
+    assert.ok(appliance.embeddings().length > 0 && appliance.visions().length > 0, "the appliance did embed and caption");
+    assert.deepEqual(costRows(), []);
+  });
+
+  test("a failing recorder breaks neither the search nor the index cron", async () => {
+    db.query("DROP TABLE assistant_index_costs").run();
+    const hubs = fakeHubs();
+    let hits: Awaited<ReturnType<typeof searchAs>> = [];
+    const searchLines = await quietly(async () => {
+      hits = await searchAs(productionEnv(db, { PINAR_BUCKET: shots() }), principal("usr_pro"), "contraste", hubs.fetch);
+    });
+    assert.equal(hits[0]!.sessionId, "session_a");
+    assert.deepEqual(pinIndexRows(db).map((row) => [row.session_id, row.caption, row.model]), [
+      ["session_a", "legenda 1", GATEWAY_EMBEDDING],
+      ["session_a", "legenda 2", GATEWAY_EMBEDDING],
+      ["session_b", "legenda 1", GATEWAY_EMBEDDING],
+    ]);
+    assert.equal(searchLines.filter((line) => line.includes("assistant_index_cost_record_failed")).length, hubs.embeddings().length + hubs.visions().length);
+
+    db.query("DELETE FROM pin_index").run();
+    let result: unknown;
+    await quietly(async () => {
+      result = await indexPinSearch(productionEnv(db, { PINAR_BUCKET: shots() }), { fetch: fakeHubs().fetch });
+    });
+    assert.deepEqual(result, { failed: 0, indexed: 2, owners: 1, remaining: false });
+    assert.equal(pinIndexRows(db).length, 3);
+  });
+
+  test("with a turn's revenue, the index costs the producer recorded raise index_cost over 20% of it, and not below", async () => {
+    // One assistant turn of 3 credits: 9000 USD micros of revenue in the window.
+    db.query("INSERT INTO ai_credit_grants (id, owner_type, owner_id, source_type, source_id, credits, consumed_credits, created_at) VALUES ('grant_pro', 'account', 'usr_pro', 'purchase', 'purchase_pro', 500, 0, ?)").run(NOW);
+    db.query("INSERT INTO ai_credit_usages (id, request_id, owner_type, owner_id, grant_id, feature, resource_id, model, credits, status, created_at) VALUES ('turn_1', 'turn:m1', 'account', 'usr_pro', 'grant_pro', 'assistant_turn', 'assistant:t1', 'gateway:anthropic/claude-haiku-5.5', 3, 'reserved', ?)").run(NOW);
+    db.query("UPDATE ai_credit_usages SET status = 'succeeded', cost_usd_micros = 900, result_json = ?, completed_at = ? WHERE id = 'turn_1'")
+      .run(JSON.stringify({ costSource: "gateway", fallback: false, link: 0 }), NOW);
+    const later = new Date(Date.parse(NOW) + 60_000);
+    const indexAlerts = async () => {
+      let alerts: Array<{ alert: string }> = [];
+      await quietly(async () => {
+        const saved = [console.warn, console.info] as const;
+        console.warn = console.info = () => {};
+        try {
+          alerts = (await assistantMarginMonitor(productionEnv(db), later)).alerts.filter((alert) => alert.alert === "index_cost");
+        } finally {
+          [console.warn, console.info] = saved;
+        }
+      });
+      return alerts;
+    };
+
+    // Without shots, only embeddings (1 micro each): far below 20% of 9000.
+    await quietly(() => searchAs(productionEnv(db), principal("usr_pro"), "contraste", fakeHubs().fetch));
+    const embeddingsOnly = costRows().reduce((sum, row) => sum + (row.cost_usd_micros ?? 0), 0);
+    assert.ok(embeddingsOnly > 0 && embeddingsOnly * 5 <= 9000, String(embeddingsOnly));
+    assert.deepEqual(await indexAlerts(), []);
+
+    // With the shots, two captions at 1100 each: over 1800.
+    db.query("DELETE FROM pin_index").run();
+    await quietly(() => searchAs(productionEnv(db, { PINAR_BUCKET: shots() }), principal("usr_pro"), "contraste", fakeHubs().fetch));
+    const recorded = costRows().reduce((sum, row) => sum + (row.cost_usd_micros ?? 0), 0);
+    assert.ok(recorded * 5 > 9000, String(recorded));
+    assert.deepEqual(await indexAlerts(), [{ alert: "index_cost", indexCostUsdMicros: recorded, revenueUsdMicros: 9000 }]);
   });
 });
 

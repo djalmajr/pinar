@@ -7,7 +7,9 @@ import {
   gatewayPrivacyOptions,
   gatewayResponseCostMicros,
   priceTimesTokensMicros,
+  recordIndexCost,
   usageTokens,
+  type IndexCostEntry,
 } from "./gateway";
 
 describe("gateway call options", () => {
@@ -102,5 +104,44 @@ describe("assistantIndexCostLog", () => {
     assistantIndexCostLog(entry);
     assert.deepEqual(Object.keys(JSON.parse(String(lines[0]![0]))), ["message", "kind", "model", "costUsdMicros", "costSource"]);
     for (const forbidden of ["vck-secret", "ai-gateway", "https://", "texto da pessoa"]) assert.ok(!String(lines[0]![0]).includes(forbidden), forbidden);
+  });
+});
+
+describe("recordIndexCost", () => {
+  const entry: IndexCostEntry = { costSource: "gateway", costUsdMicros: 7, kind: "embedding", model: "openai/text-embedding-3-small" };
+  const errors: unknown[][] = [];
+  let original: typeof console.error;
+  beforeEach(() => {
+    errors.length = 0;
+    original = console.error;
+    console.error = (...args: unknown[]) => {
+      errors.push(args);
+    };
+  });
+  afterEach(() => {
+    console.error = original;
+  });
+
+  test("hands the entry to the call's recorder and waits for it; without one, nothing", async () => {
+    const recorded: IndexCostEntry[] = [];
+    let settled = false;
+    await recordIndexCost({ record: async (item) => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      recorded.push(item);
+      settled = true;
+    }, zeroDataRetention: false }, entry);
+    assert.equal(settled, true, "awaited");
+    assert.deepEqual(recorded, [entry]);
+    await recordIndexCost({ zeroDataRetention: false }, entry);
+    assert.deepEqual(errors, []);
+  });
+
+  test("a failing recorder is logged with the kind and model only, and does not throw", async () => {
+    await recordIndexCost({ record: async () => {
+      throw new Error("D1_ERROR: no such table: assistant_index_costs vck-secret");
+    }, zeroDataRetention: false }, entry);
+    assert.deepEqual(errors.map((args) => args.map(String)), [
+      ['{"message":"assistant_index_cost_record_failed","kind":"embedding","model":"openai/text-embedding-3-small"}'],
+    ]);
   });
 });

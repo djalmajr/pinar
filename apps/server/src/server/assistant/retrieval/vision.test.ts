@@ -235,6 +235,22 @@ describe("captionSessionPins through the gateway", () => {
     }
   });
 
+  test("the call's recorder gets the caption's cost line; a failing one is logged and the captions still come back", async () => {
+    const recorded: unknown[] = [];
+    const withRecorder: VisionEndpoint = { ...gateway, gateway: { record: async (entry) => { recorded.push(entry); }, zeroDataRetention: false } };
+    await captionSessionPins({ endpoint: withRecorder, fetch: fakeFetch(answer({ usage: { completion_tokens: 200, prompt_tokens: 1000 } })).fetch, image: png, pins });
+    assert.deepEqual(recorded, [{ costSource: "table", costUsdMicros: 1100, kind: "caption", model: "anthropic/claude-haiku-5.5" }]);
+
+    consoleCalls.length = 0;
+    const failing: VisionEndpoint = { ...gateway, gateway: { record: async () => { throw new Error("recorder down"); }, zeroDataRetention: false } };
+    const result = await captionSessionPins({ endpoint: failing, fetch: fakeFetch(answer({})).fetch, image: png, pins });
+    assert.deepEqual(result, [{ caption: "Botão azul", number: 1, ocr: "Comprar" }]);
+    assert.deepEqual(consoleCalls.map((args) => String(args[0])), [
+      '{"message":"assistant_index_cost","kind":"caption","model":"anthropic/claude-haiku-5.5","costUsdMicros":null,"costSource":"none"}',
+      '{"message":"assistant_index_cost_record_failed","kind":"caption","model":"anthropic/claude-haiku-5.5"}',
+    ]);
+  });
+
   test("the line carries no key, URL, comment, caption or image", async () => {
     await captionSessionPins({ endpoint: gateway, fetch: fakeFetch(answer({ usage: { completion_tokens: 2, prompt_tokens: 3 } })).fetch, image: png, pins });
     const line = String(consoleCalls[0]![0]);

@@ -16,7 +16,7 @@
 // D1 and its in-memory fallback); the centroids read the owner's F3 entries
 // through cloudPinIndexStore.
 
-import { cloudRetrievalEndpoints, type CloudPinEnv } from "../assistant/retrieval/runtime-cloud";
+import { cloudRetrievalEndpoints, type CloudIndexCostRecorder, type CloudPinEnv } from "../assistant/retrieval/runtime-cloud";
 import { cloudPinIndexStore } from "../assistant/retrieval/store-cloud";
 import { fileCapture, type FilingCapture, type FilingEngineChoice, type FilingOutcome, type FilingSource } from "./runtime";
 
@@ -32,9 +32,13 @@ function fetchOption(): { fetch?: typeof fetch } {
   return testFetch ? { fetch: testFetch } : {};
 }
 
-/** The engine of the deployment, or null without the AI configuration or a usable engine. */
-export async function cloudFilingEngine(env: CloudPinEnv): Promise<FilingEngineChoice | null> {
-  const endpoints = await cloudRetrievalEndpoints(env, testFetch ?? undefined);
+/**
+ * The engine of the deployment, or null without the AI configuration or a
+ * usable engine. `recordIndexCost` records the gateway embeddings of the
+ * similarity engine (the margin monitor's index costs).
+ */
+export async function cloudFilingEngine(env: CloudPinEnv, recordIndexCost?: CloudIndexCostRecorder): Promise<FilingEngineChoice | null> {
+  const endpoints = await cloudRetrievalEndpoints(env, testFetch ?? undefined, recordIndexCost);
   if (!endpoints) return null;
   if (endpoints.decisions) return { endpoint: endpoints.decisions, kind: "decisions" };
   if (!endpoints.embedding) return null;
@@ -64,6 +68,7 @@ export function fileCloudCapture(input: {
   capture: FilingCapture;
   env: CloudPinEnv;
   ownerId: string;
+  recordIndexCost?: CloudIndexCostRecorder;
   source: Omit<FilingSource, "entriesFor">;
   timeoutMs?: number;
 }): Promise<FilingOutcome> {
@@ -71,7 +76,7 @@ export function fileCloudCapture(input: {
   return fileCapture({
     batchId: input.batchId,
     capture: input.capture,
-    engine: () => cloudFilingEngine(input.env),
+    engine: () => cloudFilingEngine(input.env, input.recordIndexCost),
     ...fetchOption(),
     source: { ...input.source, entriesFor: (sessionIds) => store.entriesFor(sessionIds) },
     ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),

@@ -15,14 +15,15 @@
 //
 // Through the Vercel AI Gateway (endpoint.gateway, gateway.ts) the body also
 // carries providerOptions, the privacy options of the chain, and a call that
-// gets a response body logs one assistant_index_cost line.
+// gets a response body logs one assistant_index_cost line and hands it to
+// the deployment's recorder (recordIndexCost).
 
 import { assistantTableCostMicros } from "../chain";
 import { assistantProviderOptions, type AssistantEndpoint } from "../models";
 import { ASSISTANT_TURN_TIMEOUT_MS } from "../turn";
 import { clipText } from "./document";
 import { postEndpointJson } from "./endpoint";
-import { assistantIndexCostLog, gatewayIndexCost, gatewayPrivacyOptions, usageTokens, type GatewayCallOptions } from "./gateway";
+import { assistantIndexCostLog, gatewayIndexCost, gatewayPrivacyOptions, recordIndexCost, usageTokens, type GatewayCallOptions } from "./gateway";
 
 export const PIN_CAPTION_MAX_CHARS = 300;
 export const PIN_OCR_MAX_CHARS = 1000;
@@ -169,7 +170,9 @@ export async function captionSessionPins(input: {
   });
   if (input.endpoint.gateway) {
     const { model } = input.endpoint;
-    assistantIndexCostLog({ ...gatewayIndexCost(body, () => captionTableCostMicros(body, model)), kind: "caption", model });
+    const cost = gatewayIndexCost(body, () => captionTableCostMicros(body, model));
+    assistantIndexCostLog({ ...cost, kind: "caption", model });
+    await recordIndexCost(input.endpoint.gateway, { ...cost, kind: "caption", model });
   }
   const captions = parseCaptions(body, new Set(input.pins.map((pin) => pin.number)));
   const result: Array<{ caption: string; number: number; ocr: string }> = [];

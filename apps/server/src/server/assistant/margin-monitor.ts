@@ -26,6 +26,11 @@
 // `assistant_margin_email_failed`, gives the day back and the job goes on.
 // Without D1 there is no durable usage to read: the summary says so and no
 // alert is raised.
+//
+// recordAssistantIndexCost is the recorder cloud-api.ts gives the gateway
+// calls of the index (pin search, index cron, capture filing); the appliance
+// records nothing. cleanupAssistantMarginRecords, run by cleanupOldRecords,
+// keeps 30 days of index costs and claimed email days.
 
 import type { CloudEnv } from "../cloud-api";
 
@@ -239,6 +244,12 @@ export async function assistantMarginMonitor(env: CloudEnv, now: Date = new Date
 
 export type AssistantIndexCostKind = "caption" | "embedding";
 export type AssistantIndexCostSource = "gateway" | "none" | "table";
+export interface AssistantIndexCostEntry {
+  costSource: AssistantIndexCostSource;
+  costUsdMicros: number | null;
+  kind: AssistantIndexCostKind;
+  model: string;
+}
 
 /**
  * Records one index cost (the fields of the assistant_index_cost log line)
@@ -246,11 +257,35 @@ export type AssistantIndexCostSource = "gateway" | "none" | "table";
  */
 export async function recordAssistantIndexCost(
   env: Pick<CloudEnv, "DB">,
-  entry: { costSource: AssistantIndexCostSource; costUsdMicros: number | null; kind: AssistantIndexCostKind; model: string },
+  entry: AssistantIndexCostEntry,
   now: Date = new Date(),
 ): Promise<void> {
   if (!env.DB) return;
   await env.DB.prepare(
     "INSERT INTO assistant_index_costs (id, kind, model, cost_usd_micros, cost_source, created_at) VALUES (?, ?, ?, ?, ?, ?)",
   ).bind(crypto.randomUUID(), entry.kind, entry.model, entry.costUsdMicros, entry.costSource, now.toISOString()).run();
+}
+
+/** Days the index costs and the claimed email days are kept. */
+export const ASSISTANT_MARGIN_RETENTION_DAYS = 30;
+
+/**
+ * The daily retention (cleanupOldRecords): deletes the index costs and the
+ * claimed email days created more than 30 days before `now`, and keeps the
+ * rest. Nothing without D1, or before migration 0032 created the tables.
+ */
+export async function cleanupAssistantMarginRecords(
+  env: Pick<CloudEnv, "DB">,
+  now: Date,
+): Promise<{ emails: number; indexCosts: number }> {
+  const db = env.DB;
+  if (!db) return { emails: 0, indexCosts: 0 };
+  const tables = await db.prepare(
+    "SELECT COUNT(*) AS tables FROM sqlite_master WHERE type = 'table' AND name IN ('assistant_index_costs', 'assistant_margin_emails')",
+  ).first();
+  if (count(tables?.tables) !== 2) return { emails: 0, indexCosts: 0 };
+  const cutoff = new Date(now.getTime() - ASSISTANT_MARGIN_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const indexCosts = await db.prepare("DELETE FROM assistant_index_costs WHERE created_at < ?").bind(cutoff).run();
+  const emails = await db.prepare("DELETE FROM assistant_margin_emails WHERE created_at < ?").bind(cutoff).run();
+  return { emails: count(emails.meta?.changes), indexCosts: count(indexCosts.meta?.changes) };
 }

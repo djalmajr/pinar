@@ -5,12 +5,13 @@ import assert from "node:assert/strict";
 import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, test } from "node:test";
-import type { CloudEnv } from "../cloud-api";
+import { cleanupOldRecords, setCloudNowForTests, type CloudEnv } from "../cloud-api";
 import { runtimeEnv } from "../cloud-env";
 import { edgerCloudEnv } from "../edger/env";
 import { createEdgerFetch } from "../../edger-server-entry";
 import {
   AI_CREDIT_REVENUE_USD_MICROS,
+  ASSISTANT_MARGIN_RETENTION_DAYS,
   assistantMarginMonitor,
   FALLBACK_ALERT_MIN_TURNS,
   recordAssistantIndexCost,
@@ -57,11 +58,13 @@ function sqliteD1(db: Database, queries: string[] = []): NonNullable<CloudEnv["D
   } as unknown as NonNullable<CloudEnv["DB"]>;
 }
 
-function migratedDatabase() {
+// Every migration, or all but the one whose file name starts with `skip`.
+function migratedDatabase(options: { skip?: string } = {}) {
   const db = new Database(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
   const directory = new URL("../../../migrations/", import.meta.url);
   for (const file of readdirSync(directory).filter((name) => name.endsWith(".sql")).sort()) {
+    if (options.skip && file.startsWith(options.skip)) continue;
     db.exec(readFileSync(new URL(file, directory), "utf8"));
   }
   return db;
@@ -424,5 +427,50 @@ describe("OPS_ALERT_EMAIL in the env", () => {
     const manifest = Bun.YAML.parse(readFileSync(new URL("../../../edger/manifest.yaml", import.meta.url), "utf8")) as { env: Record<string, string> };
     assert.equal(manifest.env.OPS_ALERT_EMAIL, "");
     assert.match(readFileSync(new URL("../../../scripts/edger-smoke.mjs", import.meta.url), "utf8"), /^ {2}"OPS_ALERT_EMAIL",$/m);
+  });
+});
+
+describe("the daily retention of the margin records (cleanupOldRecords)", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const at = (daysAgo: number, extraMs = 0) => new Date(NOW.getTime() - daysAgo * DAY - extraMs).toISOString();
+
+  afterEach(() => {
+    setCloudNowForTests(null);
+  });
+
+  test("deletes the index costs and the email days older than 30 days and keeps the rest", async () => {
+    const db = migratedDatabase();
+    try {
+      assert.equal(ASSISTANT_MARGIN_RETENTION_DAYS, 30);
+      const env: CloudEnv = { DB: sqliteD1(db) };
+      // Older than 30 days by 1 ms, exactly 30 days, 29 days, now.
+      for (const [index, createdAt] of [at(30, 1), at(30), at(29), NOW.toISOString()].entries()) {
+        db.query("INSERT INTO assistant_index_costs (id, kind, model, cost_usd_micros, cost_source, created_at) VALUES (?, 'embedding', 'm', 1, 'gateway', ?)")
+          .run(`cost_${index}`, createdAt);
+      }
+      for (const [day, createdAt] of [["2026-09-01", at(46)], ["2026-09-17", at(30)], ["2026-10-16", at(1)]] as const) {
+        db.query("INSERT INTO assistant_margin_emails (day, created_at) VALUES (?, ?)").run(day, createdAt);
+      }
+      setCloudNowForTests(NOW.toISOString());
+      const cleaned = await cleanupOldRecords(env);
+      assert.deepEqual(cleaned.assistantMargin, { emails: 1, indexCosts: 1 });
+      assert.deepEqual(db.query("SELECT id FROM assistant_index_costs ORDER BY id").all(), [{ id: "cost_1" }, { id: "cost_2" }, { id: "cost_3" }]);
+      assert.deepEqual(db.query("SELECT day FROM assistant_margin_emails ORDER BY day").all(), [{ day: "2026-09-17" }, { day: "2026-10-16" }]);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("before migration 0032, or without D1, the rest of the cleanup still runs", async () => {
+    const db = migratedDatabase({ skip: "0032" });
+    try {
+      setCloudNowForTests(NOW.toISOString());
+      const cleaned = await cleanupOldRecords({ DB: sqliteD1(db) });
+      assert.deepEqual(cleaned.assistantMargin, { emails: 0, indexCosts: 0 });
+      assert.equal(cleaned.deletedCount, 0);
+      assert.deepEqual((await cleanupOldRecords({})).assistantMargin, { emails: 0, indexCosts: 0 });
+    } finally {
+      db.close();
+    }
   });
 });

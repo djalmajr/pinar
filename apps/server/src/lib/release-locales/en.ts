@@ -624,7 +624,7 @@ const locale = {
       },
       "automatic-capture-destination": {
         title: "Let Pinar choose the collection for new captures",
-        description: "Turn on “Choose the collection automatically” in Settings → Capture and Pinar files each new capture into one of your existing collections. When it is not sure, the capture goes to the Inbox, and captures from the same batch stay together. Sessions filed this way show a mark; moving the session corrects the choice and removes the mark. The option needs AI to be available.",
+        description: "Turn on “Choose the collection automatically” in Settings → Capture and Pinar files each new capture into one of your existing collections. When it is not sure, the capture goes to the Inbox, and captures from the same batch stay together. Sessions filed this way show a mark; moving the session corrects the choice and removes the mark. The option needs AI to be available. While the option stays on without AI available, new captures go to the Inbox; to choose the destination yourself, turn it off.",
       },
       "assistant-credits": {
         title: "Assistant messages use Pinar Cloud credits",

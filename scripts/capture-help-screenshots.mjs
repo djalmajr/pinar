@@ -1,10 +1,15 @@
-import { copyFile, mkdir, readFile, rename, rm } from "node:fs/promises";
-import { extname, resolve, sep } from "node:path";
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { copyFile, mkdir, mkdtemp, readFile, rename, rm } from "node:fs/promises";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
 import { translations } from "../packages/shared/src/i18n/index.ts";
 import { SUPPORTED_LANGUAGES } from "../packages/shared/src/types/index.ts";
 import { helpScreenshotDefinitions } from "../apps/server/src/lib/help-content.ts";
+import { startFakeModel, writeLocalAiSettings } from "../tests/e2e/helpers/assistant-fake-model.ts";
 import { overlayFixtureHtml } from "./help-screenshot-fixtures/capture-overlay.mjs";
 
 const OUTPUT_ROOT = new URL(
@@ -34,6 +39,8 @@ const UI_MESSAGE_LOADERS = {
 };
 
 const SCREENSHOT_TARGETS = {
+  // Its own Pinar with demo data and a fake model: see startAssistantDemo.
+  assistant: { assistantDemo: true, path: "/app" },
   "capture-copied": { path: "/screenshot-fixtures/capture-overlay?mode=copied" },
   "capture-copy-failed": {
     path: "/screenshot-fixtures/capture-overlay?mode=copy-failed",
@@ -193,6 +200,177 @@ async function fulfillExtensionOptions(route) {
   }
 }
 
+// The assistant cover: one question in each language and the answer the fake
+// model gives, with a proposed move waiting for confirmation.
+const ASSISTANT_DEMO_CONVERSATION = {
+  de: ["Welche Sitzung hat den Pin zum Bezahlen-Button? Verschiebe sie nach Design.", "Das ist „Payment step“ mit dem Pin „Pay button overlaps the order total“. Ich habe vorgeschlagen, sie nach Design zu verschieben; nichts ändert sich, bevor du bestätigst."],
+  en: ["Which session has the pin about the pay button? Move it to Design.", "“Payment step” has that pin: “Pay button overlaps the order total”. I proposed moving it to Design; nothing changes until you confirm."],
+  es: ["¿Qué sesión tiene el pin sobre el botón de pago? Muévela a Design.", "Es “Payment step”, con el pin “Pay button overlaps the order total”. Propuse moverla a Design; nada cambia hasta que confirmes."],
+  fr: ["Quelle session contient l’épingle sur le bouton de paiement ? Déplacez-la vers Design.", "C’est « Payment step », avec l’épingle « Pay button overlaps the order total ». J’ai proposé de la déplacer vers Design ; rien ne change avant votre confirmation."],
+  ja: ["支払いボタンについてのピンがあるセッションは？ Design に移動して。", "「Payment step」に「Pay button overlaps the order total」というピンがあります。Design への移動を提案しました。確定するまで何も変わりません。"],
+  pt: ["Qual sessão tem o pin sobre o botão de pagar? Mova para Design.", "É a “Payment step”, com o pin “Pay button overlaps the order total”. Propus movê-la para Design; nada muda até você confirmar."],
+  zh: ["哪个会话有关于支付按钮的标注？把它移到 Design。", "是「Payment step」，其中的标注是「Pay button overlaps the order total」。我已提议把它移到 Design；在您确认之前什么都不会改变。"],
+};
+
+function freePort() {
+  return new Promise((resolvePort, reject) => {
+    const probe = createServer();
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const { port } = probe.address();
+      probe.close(() => resolvePort(port));
+    });
+  });
+}
+
+// A page of a fictional shop, rendered to a PNG data URL for a demo capture.
+async function demoShot(browser, { accent, blocks, title }) {
+  const page = await browser.newPage({ viewport: { height: 800, width: 1280 } });
+  try {
+    await page.setContent(`<!doctype html><html><head><style>
+      body{margin:0;font-family:-apple-system,Segoe UI,sans-serif;background:#f6f7f9;color:#111827}
+      header{height:64px;background:#fff;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;gap:32px;padding:0 48px}
+      .logo{width:96px;height:22px;border-radius:6px;background:${accent}}
+      nav span{display:inline-block;width:72px;height:10px;margin-right:18px;border-radius:5px;background:#d1d5db}
+      main{padding:40px 48px} h1{font-size:30px;margin:0 0 24px}
+      .grid{display:grid;grid-template-columns:2fr 1fr;gap:24px}
+      .block{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:22px;min-height:120px;font-size:16px}
+      .field{height:42px;border:1px solid #d1d5db;border-radius:8px;margin:10px 0}
+      .button{height:46px;border-radius:10px;background:${accent};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;margin-top:16px}
+    </style></head><body><header><div class="logo"></div><nav><span></span><span></span><span></span></nav></header>
+    <main><h1>${title}</h1><div class="grid">${blocks.map((block) => `<div class="block">${block}</div>`).join("")}</div></main></body></html>`);
+    return `data:image/png;base64,${(await page.screenshot({ type: "png" })).toString("base64")}`;
+  } finally {
+    await page.close();
+  }
+}
+
+// The assistant answers through a model, and no real model may be reached
+// from here. So this cover gets its own Pinar: the local build on a free
+// port with a temporary PINAR_HOME, pointed at the e2e fake model on
+// loopback by writing ai.json into that home (the AI settings routes are
+// never called), with a demo project created through the workspace routes.
+// Everything goes away in stop().
+async function startAssistantDemo(browser) {
+  const entry = fileURLToPath(new URL("../apps/server/.output/server/index.mjs", import.meta.url));
+  if (!existsSync(entry)) {
+    throw new Error("The assistant cover needs the local build: run `bun run build:local` first");
+  }
+  const home = await mkdtemp(join(tmpdir(), "pinar-help-assistant-"));
+  const fake = await startFakeModel();
+  let server = null;
+  let exited = Promise.resolve();
+  const stop = async () => {
+    if (server && server.exitCode === null) {
+      server.kill("SIGTERM");
+      await exited;
+    }
+    await fake.stop();
+    await rm(home, { force: true, recursive: true });
+  };
+  try {
+    writeLocalAiSettings(home, fake.endpoint);
+    const port = await freePort();
+    const env = { ...process.env, PINAR_HOME: home, PORT: String(port) };
+    delete env.PINAR_PORT;
+    let output = "";
+    server = spawn(process.execPath, [entry], { env, stdio: ["ignore", "pipe", "pipe"] });
+    exited = new Promise((resolveExit) => server.once("exit", resolveExit));
+    server.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    server.stderr.on("data", (chunk) => {
+      output += chunk;
+    });
+    const baseUrl = `http://127.0.0.1:${port}`;
+    process.stdout.write(`assistant demo: Pinar pid ${server.pid} on ${baseUrl}, home ${home}\n`);
+    for (let attempt = 0; ; attempt += 1) {
+      if (server.exitCode !== null) throw new Error(`The assistant demo server exited:\n${output}`);
+      try {
+        const health = await (await fetch(`${baseUrl}/api/health`)).json();
+        if (health?.service === "pinar") break;
+      } catch {
+        // Not listening yet.
+      }
+      if (attempt >= 100) throw new Error(`The assistant demo server did not answer:\n${output}`);
+      await new Promise((resolveWait) => setTimeout(resolveWait, 200));
+    }
+
+    const images = {
+      header: await demoShot(browser, { accent: "#7c3aed", blocks: ['Hero<div class="field"></div>', 'Menu<div class="field"></div>'], title: "Home" }),
+      payment: await demoShot(browser, { accent: "#2563eb", blocks: ['Card number<div class="field"></div>Name on card<div class="field"></div>', 'Order total<div class="button">Pay now</div>'], title: "Payment" }),
+      summary: await demoShot(browser, { accent: "#059669", blocks: ['2 items<div class="field"></div><div class="field"></div>', 'Discount<div class="field"></div>'], title: "Order summary" }),
+    };
+    const page = await browser.newPage();
+    try {
+      await page.goto(`${baseUrl}/app`);
+      const ids = await page.evaluate(async (images) => {
+        const post = async (path, body) => {
+          const response = await fetch(path, { body: JSON.stringify(body), headers: { "content-type": "application/json" }, method: "POST" });
+          if (!response.ok) throw new Error(`${path} answered ${response.status}`);
+          return response.json();
+        };
+        const { project } = await post("/api/projects", { name: "Storefront" });
+        const { collection: checkout } = await post(`/api/projects/${project.id}/collections`, { name: "Checkout" });
+        const { collection: design } = await post(`/api/projects/${project.id}/collections`, { name: "Design" });
+        const shots = [
+          { collectionId: checkout.id, id: "help_demo_payment", image: images.payment, pins: ["Pay button overlaps the order total", "Card field label is cut off"], title: "Payment step", url: "https://shop.example.test/checkout/payment" },
+          { collectionId: checkout.id, id: "help_demo_summary", image: images.summary, pins: ["Discount line is missing"], title: "Order summary", url: "https://shop.example.test/checkout/summary" },
+          { collectionId: design.id, id: "help_demo_header", image: images.header, pins: ["Logo too close to the menu"], title: "Header spacing", url: "https://shop.example.test/" },
+        ];
+        for (const shot of shots) {
+          await post("/api/shots", {
+            collectionId: shot.collectionId,
+            id: shot.id,
+            image: shot.image,
+            page: { title: shot.title, url: shot.url },
+            pins: shot.pins.map((comment) => ({ comment, kind: "element" })),
+          });
+        }
+        return { design: design.id, payment: "help_demo_payment", project: project.id };
+      }, images);
+      return { baseUrl, fake, ids, stop };
+    } finally {
+      await page.close();
+    }
+  } catch (error) {
+    await stop();
+    throw error;
+  }
+}
+
+// The workspace on the demo project with the assistant panel open: the
+// question of `language` sent, the fake model's proposed move and answer.
+async function showAssistantDemo(page, demo, language, ui) {
+  const [question, answer] = ASSISTANT_DEMO_CONVERSATION[language];
+  demo.fake.reset();
+  demo.fake.enqueue(
+    { args: { collectionId: demo.ids.design, sessionId: demo.ids.payment }, kind: "tool", name: "pinar_move_session" },
+    { kind: "text", text: answer },
+  );
+  await page.goto(`${demo.baseUrl}/app`, { waitUntil: "domcontentloaded" });
+  await page.evaluate((projectId) => {
+    localStorage.setItem("pinar-selected-project", projectId);
+    localStorage.removeItem("pinar-selected-collection");
+    localStorage.setItem("pinar-history-view", "grid");
+  }, demo.ids.project);
+  await page.goto(`${demo.baseUrl}/app`, { waitUntil: "networkidle" });
+  await waitForRenderedLocale(page, language);
+  await page.locator('[data-sidebar="content"]').getByText("Checkout", { exact: true }).click();
+  await page.getByRole("button", { exact: true, name: ui["assistant.toggle"] }).click();
+  const panel = page.getByRole("region", { name: ui["assistant.title"] });
+  await panel.waitFor();
+  const composer = panel.getByRole("textbox", { name: ui["assistant.placeholder"] });
+  await composer.fill(question);
+  await composer.press("Enter");
+  await panel.getByRole("button", { exact: true, name: ui["assistant.proposalConfirm"] }).waitFor({ timeout: 15_000 });
+  await panel.getByText(answer).waitFor();
+  await page.mouse.move(0, 0);
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+  });
+}
+
 async function launchHelpScreenshotBrowser() {
   if (process.env.PINAR_HELP_SCREENSHOT_CHANNEL) {
     return chromium.launch({
@@ -209,12 +387,20 @@ async function launchHelpScreenshotBrowser() {
   }
 }
 
-const baseUrl = await discoverBaseUrl();
+// Only the targets on the local Pinar need it: the assistant cover brings
+// its own.
+const baseUrl = SCREENSHOTS.some((screenshot) => !screenshot.assistantDemo)
+  ? await discoverBaseUrl()
+  : null;
 await mkdir(STAGING_ROOT, { recursive: true });
 
 try {
   const browser = await launchHelpScreenshotBrowser();
+  let assistantDemo = null;
   try {
+    if (SCREENSHOTS.some((screenshot) => screenshot.assistantDemo)) {
+      assistantDemo = await startAssistantDemo(browser);
+    }
     for (const language of SUPPORTED_LANGUAGES) {
       const context = await browser.newContext({ colorScheme: "light" });
       const optionsMock = extensionOptionsChromeMock(language);
@@ -363,6 +549,20 @@ try {
           width: screenshot.width,
           height: screenshot.height,
         });
+        if (screenshot.assistantDemo) {
+          await showAssistantDemo(page, assistantDemo, language, ui);
+          const directory = new URL(`${language}/`, STAGING_ROOT);
+          await mkdir(directory, { recursive: true });
+          await page.screenshot({
+            animations: "disabled",
+            caret: "hide",
+            path: fileURLToPath(new URL(`${screenshot.key}.webp`, directory)),
+            quality: 88,
+            type: "webp",
+          });
+          process.stdout.write(`${language}/${screenshot.key}.webp\n`);
+          continue;
+        }
         if (screenshot.view) {
           await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
           await page.evaluate((view) => {
@@ -545,6 +745,7 @@ try {
       await context.close();
     }
   } finally {
+    await assistantDemo?.stop();
     await browser.close();
   }
 

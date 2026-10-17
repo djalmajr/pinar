@@ -609,7 +609,7 @@ const locale = {
       },
       "automatic-capture-destination": {
         title: "Pinar elige la colección de las capturas nuevas",
-        description: "Activa “Elegir la colección automáticamente” en Configuración → Captura y Pinar coloca cada captura nueva en una de tus colecciones. Si tiene dudas, la captura va a la Bandeja de entrada, y las capturas de un mismo lote se quedan juntas. Las sesiones archivadas así muestran una marca; mover la sesión corrige la elección y quita la marca. La opción necesita la IA disponible.",
+        description: "Activa “Elegir la colección automáticamente” en Configuración → Captura y Pinar coloca cada captura nueva en una de tus colecciones. Si tiene dudas, la captura va a la Bandeja de entrada, y las capturas de un mismo lote se quedan juntas. Las sesiones archivadas así muestran una marca; mover la sesión corrige la elección y quita la marca. La opción necesita la IA disponible. Mientras la opción siga activada sin la IA disponible, las capturas nuevas van a la Bandeja de entrada; para elegir el destino a mano, desactívala.",
       },
       "assistant-credits": {
         title: "Los mensajes al asistente usan créditos de Pinar Cloud",

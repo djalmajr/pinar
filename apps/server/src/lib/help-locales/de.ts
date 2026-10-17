@@ -842,7 +842,7 @@ const locale = {
         {
           heading: "Pinar die Sammlung wählen lassen",
           paragraphs: [
-            "Schalte in Einstellungen → „Aufnahme“ die Option „Sammlung automatisch wählen“ ein. Pinar wählt dann für jede neue Aufnahme eine deiner vorhandenen Sammlungen; im Zweifel landet die Aufnahme im „Posteingang“. Aufnahmen aus demselben Stapel bleiben zusammen. Die Option braucht verfügbare KI.",
+            "Schalte in Einstellungen → „Aufnahme“ die Option „Sammlung automatisch wählen“ ein. Pinar wählt dann für jede neue Aufnahme eine deiner vorhandenen Sammlungen; im Zweifel landet die Aufnahme im „Posteingang“. Aufnahmen aus demselben Stapel bleiben zusammen. Die Option braucht verfügbare KI. Bleibt die Option ohne verfügbare KI eingeschaltet, landen neue Aufnahmen im „Posteingang“; um das Ziel selbst zu wählen, schalte die Option aus.",
           ],
           bullets: [
             "Eine so abgelegte Sitzung zeigt eine kleine Markierung. Zeig darauf oder fokussiere sie, um „Automatisch abgelegt. Zum Korrigieren verschieben.“ zu lesen.",

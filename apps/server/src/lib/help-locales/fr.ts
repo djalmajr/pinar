@@ -842,7 +842,7 @@ const locale = {
         {
           heading: "Laisser Pinar choisir la collection",
           paragraphs: [
-            "Dans Paramètres → « Capture », activez « Choisir la collection automatiquement ». Pinar choisit alors une collection pour chaque nouvelle capture parmi celles que vous avez déjà ; en cas de doute, la capture va dans la « Boîte de réception ». Les captures d’un même lot restent ensemble. L’option a besoin d’une IA disponible.",
+            "Dans Paramètres → « Capture », activez « Choisir la collection automatiquement ». Pinar choisit alors une collection pour chaque nouvelle capture parmi celles que vous avez déjà ; en cas de doute, la capture va dans la « Boîte de réception ». Les captures d’un même lot restent ensemble. L’option a besoin d’une IA disponible. Si l’option reste activée sans IA disponible, les nouvelles captures vont dans la « Boîte de réception » ; pour choisir vous-même la destination, désactivez l’option.",
           ],
           bullets: [
             "Une session classée ainsi affiche une petite marque. Survolez-la ou donnez-lui le focus pour lire « Classée automatiquement. Déplacez-la pour corriger. »",

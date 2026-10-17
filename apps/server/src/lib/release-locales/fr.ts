@@ -609,7 +609,7 @@ const locale = {
       },
       "automatic-capture-destination": {
         title: "Pinar choisit la collection des nouvelles captures",
-        description: "Activez « Choisir la collection automatiquement » dans Paramètres → Capture et Pinar range chaque nouvelle capture dans l’une de vos collections. En cas de doute, la capture va dans la Boîte de réception, et les captures d’un même lot restent ensemble. Les sessions classées ainsi affichent une marque ; déplacer la session corrige le choix et retire la marque. L’option a besoin d’une IA disponible.",
+        description: "Activez « Choisir la collection automatiquement » dans Paramètres → Capture et Pinar range chaque nouvelle capture dans l’une de vos collections. En cas de doute, la capture va dans la Boîte de réception, et les captures d’un même lot restent ensemble. Les sessions classées ainsi affichent une marque ; déplacer la session corrige le choix et retire la marque. L’option a besoin d’une IA disponible. Tant que l’option reste activée sans IA disponible, les nouvelles captures vont dans la Boîte de réception ; pour choisir vous-même la destination, désactivez-la.",
       },
       "assistant-credits": {
         title: "Les messages à l’assistant utilisent des crédits Pinar Cloud",

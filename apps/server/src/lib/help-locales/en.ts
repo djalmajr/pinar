@@ -839,7 +839,7 @@ const locale = {
         {
           heading: "Let Pinar choose the collection",
           paragraphs: [
-            "In Settings → “Capture”, turn on “Choose the collection automatically”. Pinar then picks a collection for each new capture among the ones you already have; when it is not sure, the capture goes to the “Inbox”. Captures from the same batch stay together. The option needs AI to be available.",
+            "In Settings → “Capture”, turn on “Choose the collection automatically”. Pinar then picks a collection for each new capture among the ones you already have; when it is not sure, the capture goes to the “Inbox”. Captures from the same batch stay together. The option needs AI to be available. If the option stays on while AI is not available, new captures go to the “Inbox”; to choose the destination yourself, turn the option off.",
           ],
           bullets: [
             "A session filed this way shows a small mark. Point at it or focus it to read “Filed automatically. Move to correct.”",

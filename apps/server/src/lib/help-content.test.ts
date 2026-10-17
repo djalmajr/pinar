@@ -776,6 +776,28 @@ describe("help content", () => {
     }
   });
 
+  test("says where new captures go while the automatic destination stays on without AI (A45)", async () => {
+    const inboxWithoutAi = {
+      de: /ohne verfügbare KI eingeschaltet.*Posteingang.*schalte (?:die Option|sie) aus\./s,
+      en: /stays on (?:while AI is not available|without AI available), new captures go to the “?Inbox”?; to choose the destination yourself, turn (?:the option|it) off\./,
+      es: /activada sin la IA disponible, las capturas nuevas van a la “?Bandeja de entrada”?; para elegir el destino a mano, desact[ií]v(?:a la opción|ala)\./,
+      fr: /reste activée sans IA disponible, les nouvelles captures vont dans la (?:« )?Boîte de réception(?: »)? ; pour choisir vous-même la destination, désactivez(?: l’option|-la)\./,
+      ja: /AI を利用できない.*新しいキャプチャは「?受信トレイ」?に入ります。保存先を自分で選ぶには、オプションをオフにしてください。/,
+      pt: /ligada sem a IA disponível, as capturas novas vão para a “?Caixa de entrada”?; para escolher o destino à mão, desligue a opção\./,
+      zh: /AI 不可用时此选项仍保持开启，新捕获会进入「?收件箱」?；要自己选择目标，请关闭此选项。/,
+    } as const;
+
+    for (const content of await loadEveryHelpLocale()) {
+      const article = findHelpArticle(content, "agents", "assistant");
+      assert.ok(article, content.language);
+      assert.match(article.sections[6]?.paragraphs[0] ?? "", inboxWithoutAi[content.language], `${content.language}:help`);
+      const release = await loadReleaseContent(content.language);
+      const note = release.upcoming?.changes.find((change) => change.id === "automatic-capture-destination");
+      assert.ok(note, `${content.language}:note`);
+      assert.match(note.description, inboxWithoutAi[content.language], `${content.language}:note`);
+    }
+  });
+
   test("keeps the assistant, AI and credit guides and upcoming notes free of internal terms", async () => {
     // Internal component names, retrieval jargon, and model or vendor names
     // never reach these user texts, in any locale. "Semantic search model"
@@ -790,10 +812,13 @@ describe("help content", () => {
       /fallback|\brepli\b|respaldo|フォールバック|回退/i,
       /\btokens?\b|トークン|令牌|词元/i,
       /language model|modelo de linguagem|modelo de lenguaje|modèle de langage|Sprachmodell|言語モデル|语言模型|\bLLM\b/i,
-      /OpenAI|Anthropic|Claude|\bGPT|Gemini|Gemma|Llama|Qwen|Mistral|DeepSeek|Ollama|LM Studio|Whisper|Cloudflare|Workers AI|Kimi|Grok|Groq|Cohere|Hugging ?Face/,
+      // Vendor and model names in any case, a version suffix included
+      // ("qwen3", "GPT-4o"), but not a longer word ("llamada", "coherente").
+      /\b(?:openai|anthropic|claude|gpt|gemini|gemma|llama|qwen|mistral|deepseek|ollama|lm studio|whisper|cloudflare|workers ai|kimi|grok|groq|cohere|hugging ?face)(?![a-z])/i,
     ];
     // The AI settings field asks for an endpoint compatible with this API and
-    // its own label names it, so the AI features guide may quote the phrase.
+    // its own label names it, so the AI features guide may quote the phrase,
+    // exactly as written there.
     const protocolPhrases = [
       /OpenAI-compatible/g,
       /compatível com a OpenAI/g,
@@ -821,12 +846,19 @@ describe("help content", () => {
       "um modelo de linguagem",
       "an OpenAI key",
       "Qwen",
+      "O fornecedor openai.",
+      "a key from anthropic",
+      "deepseek answers",
+      "qwen3 on this computer",
+      "GPT-4o",
+      "an openai-compatible endpoint",
     ]) {
       assert.equal(leaks(sample).length, 1, sample);
     }
     for (const allowed of [
       "Sem um modelo de busca semântica, o assistente procura pelo texto.",
       "your own OpenAI-compatible endpoint",
+      "Responde a la llamada con un texto coherente.",
     ]) {
       assert.deepEqual(leaks(allowed), [], allowed);
     }

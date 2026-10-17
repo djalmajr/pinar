@@ -609,7 +609,7 @@ const locale = {
       },
       "automatic-capture-destination": {
         title: "Pinar wählt die Sammlung für neue Aufnahmen",
-        description: "Schalte „Sammlung automatisch wählen“ in Einstellungen → Aufnahme ein, und Pinar legt jede neue Aufnahme in einer deiner Sammlungen ab. Im Zweifel landet die Aufnahme im Posteingang, und Aufnahmen aus demselben Stapel bleiben zusammen. So abgelegte Sitzungen zeigen eine Markierung; das Verschieben der Sitzung korrigiert die Wahl und entfernt die Markierung. Die Option braucht verfügbare KI.",
+        description: "Schalte „Sammlung automatisch wählen“ in Einstellungen → Aufnahme ein, und Pinar legt jede neue Aufnahme in einer deiner Sammlungen ab. Im Zweifel landet die Aufnahme im Posteingang, und Aufnahmen aus demselben Stapel bleiben zusammen. So abgelegte Sitzungen zeigen eine Markierung; das Verschieben der Sitzung korrigiert die Wahl und entfernt die Markierung. Die Option braucht verfügbare KI. Solange die Option ohne verfügbare KI eingeschaltet bleibt, landen neue Aufnahmen im Posteingang; um das Ziel selbst zu wählen, schalte sie aus.",
       },
       "assistant-credits": {
         title: "Nachrichten an den Assistenten verbrauchen Credits in Pinar Cloud",

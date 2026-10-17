@@ -626,7 +626,7 @@ const locale = {
       },
       "automatic-capture-destination": {
         title: "O Pinar escolhe a coleção das capturas novas",
-        description: "Ligue “Escolher a coleção automaticamente” em Configurações → Captura e o Pinar coloca cada captura nova numa das suas coleções. Na dúvida, a captura vai para a Caixa de entrada, e as capturas de um mesmo lote ficam juntas. As sessões arquivadas assim mostram um selo; mover a sessão corrige a escolha e tira o selo. A opção precisa da IA disponível.",
+        description: "Ligue “Escolher a coleção automaticamente” em Configurações → Captura e o Pinar coloca cada captura nova numa das suas coleções. Na dúvida, a captura vai para a Caixa de entrada, e as capturas de um mesmo lote ficam juntas. As sessões arquivadas assim mostram um selo; mover a sessão corrige a escolha e tira o selo. A opção precisa da IA disponível. Enquanto a opção ficar ligada sem a IA disponível, as capturas novas vão para a Caixa de entrada; para escolher o destino à mão, desligue a opção.",
       },
       "assistant-credits": {
         title: "Mensagens ao assistente usam créditos do Pinar Cloud",

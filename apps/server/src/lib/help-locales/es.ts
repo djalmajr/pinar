@@ -843,7 +843,7 @@ const locale = {
         {
           heading: "Deja que Pinar elija la colección",
           paragraphs: [
-            "En Configuración → “Captura”, activa “Elegir la colección automáticamente”. Pinar elige entonces una colección para cada captura nueva entre las que ya tienes; si tiene dudas, la captura va a la “Bandeja de entrada”. Las capturas de un mismo lote se quedan juntas. La opción necesita la IA disponible.",
+            "En Configuración → “Captura”, activa “Elegir la colección automáticamente”. Pinar elige entonces una colección para cada captura nueva entre las que ya tienes; si tiene dudas, la captura va a la “Bandeja de entrada”. Las capturas de un mismo lote se quedan juntas. La opción necesita la IA disponible. Si la opción sigue activada sin la IA disponible, las capturas nuevas van a la “Bandeja de entrada”; para elegir el destino a mano, desactiva la opción.",
           ],
           bullets: [
             "Una sesión archivada así muestra una pequeña marca. Apunta a ella o dale el foco para leer “Archivada automáticamente. Muévela para corregirlo.”",

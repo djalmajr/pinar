@@ -182,6 +182,113 @@ describe("history", () => {
     db.close();
   });
 
+  // The automatic-filing mark (F3.5): written by the saver, kept by every
+  // edit, cleared by every move. Runs on the SQLite and on the JSON store.
+  function assertFilingMark(db, reopen) {
+    const personal = db.listProjects()[0];
+    const inbox = db.listCollections(personal.id)[0];
+    const project = db.createProject("Website");
+    const review = db.createCollection(project.id, "Review");
+    const ready = db.createCollection(project.id, "Ready");
+    const save = (id, collectionId, extra = {}) => db.saveSession({
+      collectionId,
+      id,
+      page: { title: id, url: `https://example.test/${id}` },
+      pins: [{ comment: "note", kind: "element", pinId: "pin_one" }],
+      ...extra,
+    });
+
+    assert.equal(save("auto_1", review.id, { filedBy: "auto" }).filedBy, "auto");
+    assert.equal(db.getSession("auto_1").filedBy, "auto");
+    const manual = save("manual_1", review.id);
+    assert.equal("filedBy" in manual, false);
+    assert.deepEqual(
+      db.listSessions({ collectionId: review.id }).map((session) => [session.id, session.filedBy ?? null]),
+      [["auto_1", "auto"], ["manual_1", null]],
+    );
+
+    // Edits keep the mark: a full re-save in place, title, note and comment.
+    assert.equal(save("auto_1", review.id, { page: { title: "Renamed" } }).filedBy, "auto");
+    assert.equal(db.updateSession("auto_1", { title: "Renamed again" }).filedBy, "auto");
+    db.updatePinNote("auto_1", "pin_one", "edited note");
+    db.addPinComment("auto_1", "pin_one", "a comment");
+    assert.equal(db.getSession("auto_1").filedBy, "auto");
+    assert.equal(db.getSession("auto_1").page.title, "Renamed again");
+    assert.equal(db.getSession("auto_1").pins[0].comment, "edited note");
+    db = reopen(db);
+    assert.equal(db.getSession("auto_1").filedBy, "auto");
+
+    // An explicit null clears the mark; a save into another collection is a move.
+    assert.equal("filedBy" in save("auto_1", review.id, { filedBy: null }), false);
+    save("auto_1", review.id, { filedBy: "auto" });
+    assert.equal("filedBy" in save("auto_1", ready.id), false);
+    assert.equal(db.getSession("auto_1").collectionId, ready.id);
+
+    // moveSession clears it, even back to the collection it came from.
+    save("auto_2", review.id, { filedBy: "auto" });
+    const moved = db.moveSession("auto_2", review.id);
+    assert.equal("filedBy" in moved, false);
+    assert.equal("filedBy" in db.getSession("auto_2"), false);
+
+    // Deleting the collection sends its sessions to the Inbox without the mark.
+    save("auto_3", review.id, { filedBy: "auto" });
+    save("auto_4", ready.id, { filedBy: "auto" });
+    assert.equal(db.deleteCollection(review.id), true);
+    assert.equal(db.getSession("auto_3").collectionId, inbox.id);
+    assert.equal("filedBy" in db.getSession("auto_3"), false);
+    assert.equal(db.getSession("auto_4").filedBy, "auto");
+    // So does deleting its project.
+    assert.equal(db.deleteProject(project.id), true);
+    assert.equal(db.getSession("auto_4").collectionId, inbox.id);
+    assert.equal("filedBy" in db.getSession("auto_4"), false);
+    db = reopen(db);
+    assert.deepEqual(db.listSessions({ limit: 50 }).filter((session) => "filedBy" in session), []);
+    return db;
+  }
+
+  test("sqlite sessions keep the automatic-filing mark on edits and lose it on moves", () => {
+    const db = assertFilingMark(openHistoryDb(tempDir), (current) => {
+      current.close();
+      return openHistoryDb(tempDir);
+    });
+    assert.equal(db.constructor.name, "SqliteHistoryDb");
+    db.close();
+  });
+
+  test("json sessions keep the automatic-filing mark on edits and lose it on moves", () => {
+    mkdirSync(join(tempDir, "history.db"));
+    const db = assertFilingMark(openHistoryDb(tempDir), (current) => {
+      current.close();
+      return openHistoryDb(tempDir);
+    });
+    assert.equal(db.constructor.name, "JsonHistoryDb");
+    db.close();
+  });
+
+  test("an existing sqlite history gains the filed_by column", () => {
+    const legacy = new DatabaseSync(join(tempDir, "history.db"));
+    legacy.exec(`
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY, url TEXT, title TEXT, shot_id TEXT, shot_path TEXT, pin_count INTEGER,
+        pins_json TEXT, created_at TEXT, collection_id TEXT, batch_id TEXT, position INTEGER,
+        include_screenshot INTEGER NOT NULL DEFAULT 1
+      );
+      INSERT INTO sessions (id, url, title, shot_id, shot_path, pin_count, pins_json, created_at)
+      VALUES ('legacy-session', 'https://example.test', 'Legacy', 'legacy-shot', '/tmp/legacy.png', 0, '[]', '2026-01-01T00:00:00.000Z');
+    `);
+    legacy.close();
+
+    const db = openHistoryDb(tempDir);
+    const columns = db.db.prepare("PRAGMA table_info(sessions)").all().map((row) => row.name);
+    assert.ok(columns.includes("filed_by"));
+    assert.equal("filedBy" in db.getSession("legacy-session"), false);
+    const project = db.createProject("Website");
+    const review = db.createCollection(project.id, "Review");
+    db.saveSession({ collectionId: review.id, filedBy: "auto", id: "legacy-session", page: { title: "Legacy" } });
+    assert.equal(db.getSession("legacy-session").filedBy, "auto");
+    db.close();
+  });
+
   test("nests collections, rejects cycles, and promotes children when a parent is deleted", () => {
     const db = openHistoryDb(tempDir);
     const project = db.createProject("Website");

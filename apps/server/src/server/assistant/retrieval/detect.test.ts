@@ -17,7 +17,7 @@ const ENDPOINT: AssistantEndpoint = {
   thinkingControl: false,
 };
 
-const NONE = { embeddingModel: null, vision: false };
+const NONE = { decisions: false, embeddingModel: null, vision: false };
 
 type Reply = Response | Error | (() => Response | Promise<Response>);
 
@@ -89,7 +89,7 @@ describe("detectRetrievalCapabilities", () => {
 
   test("embeddingModel is the first data[].id with type embedding", async () => {
     const { fetch } = fakeFetch(models(APPLIANCE));
-    assert.deepEqual(await detectRetrievalCapabilities({ endpoint: ENDPOINT, fetch }), { embeddingModel: "embeddinggemma-300m", vision: true });
+    assert.deepEqual(await detectRetrievalCapabilities({ endpoint: ENDPOINT, fetch }), { decisions: false, embeddingModel: "embeddinggemma-300m", vision: true });
 
     resetRetrievalCapabilitiesCacheForTests();
     const noEmbedding = fakeFetch(models([{ id: "chat-a", modalities: { input: ["text"] } }, { id: "embed-ish", type: "chat" }]));
@@ -97,7 +97,7 @@ describe("detectRetrievalCapabilities", () => {
 
     resetRetrievalCapabilitiesCacheForTests();
     const odd = fakeFetch(models([null, { type: "embedding" }, { id: 7, type: "embedding" }, { id: "", type: "embedding" }, { id: "late-embedding", type: "embedding" }]));
-    assert.deepEqual(await detectRetrievalCapabilities({ endpoint: ENDPOINT, fetch: odd.fetch }), { embeddingModel: "late-embedding", vision: false });
+    assert.deepEqual(await detectRetrievalCapabilities({ endpoint: ENDPOINT, fetch: odd.fetch }), { decisions: false, embeddingModel: "late-embedding", vision: false });
   });
 
   test("vision follows the modalities of the endpoint's own model, not another one", async () => {
@@ -112,7 +112,7 @@ describe("detectRetrievalCapabilities", () => {
       { id: "chat-b", modalities: { input: ["text"] } },
       { id: "chat-a", modalities: { input: ["image", "text"] } },
     ]));
-    assert.deepEqual(await detectRetrievalCapabilities({ endpoint: ENDPOINT, fetch: ownHasImage.fetch }), { embeddingModel: null, vision: true });
+    assert.deepEqual(await detectRetrievalCapabilities({ endpoint: ENDPOINT, fetch: ownHasImage.fetch }), { decisions: false, embeddingModel: null, vision: true });
 
     resetRetrievalCapabilitiesCacheForTests();
     const malformed = fakeFetch(models([
@@ -124,6 +124,55 @@ describe("detectRetrievalCapabilities", () => {
     resetRetrievalCapabilitiesCacheForTests();
     const missing = fakeFetch(models([{ id: "chat-a" }]));
     assert.deepEqual(await detectRetrievalCapabilities({ endpoint: ENDPOINT, fetch: missing.fetch }), NONE);
+  });
+
+  test("decisions follows the available flag of the decisions extra of the endpoint's own model", async () => {
+    // The appliance's /models item, as the canary lists it.
+    const extra = { available: true, endpoint: "/v1/decisions", experimental: true, scope: "decisions" };
+    const own = fakeFetch(models([
+      { decisions: extra, id: "chat-a", modalities: { input: ["text", "image"] }, type: "chat" },
+      { id: "embeddinggemma-300m", type: "embedding" },
+    ]));
+    assert.deepEqual(
+      await detectRetrievalCapabilities({ endpoint: ENDPOINT, fetch: own.fetch }),
+      { decisions: true, embeddingModel: "embeddinggemma-300m", vision: true },
+    );
+
+    const cases: Array<{ item: Record<string, unknown>; name: string }> = [
+      { item: { decisions: { ...extra, available: false }, id: "chat-a" }, name: "unavailable" },
+      { item: { decisions: { ...extra, available: "true" }, id: "chat-a" }, name: "available not a boolean" },
+      { item: { decisions: { ...extra, available: 1 }, id: "chat-a" }, name: "available a number" },
+      { item: { decisions: true, id: "chat-a" }, name: "extra not an object" },
+      { item: { decisions: [extra], id: "chat-a" }, name: "extra an array" },
+      { item: { decisions: { endpoint: "/v1/decisions" }, id: "chat-a" }, name: "no available flag" },
+      { item: { available: true, id: "chat-a" }, name: "flag outside the extra" },
+      { item: { id: "chat-a" }, name: "no extra" },
+    ];
+    for (const { item, name } of cases) {
+      resetRetrievalCapabilitiesCacheForTests();
+      const { fetch } = fakeFetch(models([item]));
+      assert.deepEqual(await detectRetrievalCapabilities({ endpoint: ENDPOINT, fetch }), NONE, name);
+    }
+
+    // Another model's extra does not count, and only the first item of the model does.
+    resetRetrievalCapabilitiesCacheForTests();
+    const other = fakeFetch(models([{ decisions: extra, id: "chat-b" }, { id: "chat-a" }]));
+    assert.deepEqual(await detectRetrievalCapabilities({ endpoint: ENDPOINT, fetch: other.fetch }), NONE);
+    resetRetrievalCapabilitiesCacheForTests();
+    const later = fakeFetch(models([{ id: "chat-a" }, { decisions: extra, id: "chat-a" }]));
+    assert.deepEqual(await detectRetrievalCapabilities({ endpoint: ENDPOINT, fetch: later.fetch }), NONE);
+  });
+
+  test("the decisions flag shares the detection cache", async () => {
+    const extra = { available: true, endpoint: "/v1/decisions", experimental: true, scope: "decisions" };
+    const { calls, fetch } = fakeFetch(models([{ decisions: extra, id: "chat-a" }]), models([{ id: "chat-a" }]));
+    assert.equal((await detectRetrievalCapabilities({ endpoint: ENDPOINT, fetch })).decisions, true);
+    clock += RETRIEVAL_DETECT_TTL_MS - 1;
+    assert.equal((await detectRetrievalCapabilities({ endpoint: ENDPOINT, fetch })).decisions, true);
+    assert.equal(calls.length, 1, "one probe for every capability");
+    clock += 1;
+    assert.equal((await detectRetrievalCapabilities({ endpoint: ENDPOINT, fetch })).decisions, false, "read again at 10 minutes");
+    assert.equal(calls.length, 2);
   });
 
   test("network failure, 500, invalid JSON, a redirect and a body without data give nulls", async () => {
@@ -174,7 +223,7 @@ describe("detectRetrievalCapabilities", () => {
   test("a success is cached for 10 minutes per baseUrl and model", async () => {
     const { calls, fetch } = fakeFetch(models(APPLIANCE), models([{ id: "chat-a" }]));
     const first = await detectRetrievalCapabilities({ endpoint: ENDPOINT, fetch });
-    assert.deepEqual(first, { embeddingModel: "embeddinggemma-300m", vision: true });
+    assert.deepEqual(first, { decisions: false, embeddingModel: "embeddinggemma-300m", vision: true });
     clock += RETRIEVAL_DETECT_TTL_MS - 1;
     assert.deepEqual(await detectRetrievalCapabilities({ endpoint: ENDPOINT, fetch }), first);
     assert.equal(calls.length, 1, "cached just before 10 minutes");
@@ -206,7 +255,7 @@ describe("detectRetrievalCapabilities", () => {
     clock += 1;
     assert.deepEqual(
       await detectRetrievalCapabilities({ endpoint: ENDPOINT, fetch }),
-      { embeddingModel: "embeddinggemma-300m", vision: true },
+      { decisions: false, embeddingModel: "embeddinggemma-300m", vision: true },
       "probed again after 1 minute, not 10",
     );
     assert.equal(calls.length, 2);

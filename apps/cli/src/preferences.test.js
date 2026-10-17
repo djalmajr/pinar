@@ -60,6 +60,40 @@ describe("delivery preferences", () => {
     assert.equal("unknownKey" in next, false);
   });
 
+  test("persists the automatic capture destination, off by default", () => {
+    assert.equal(DEFAULT_DELIVERY_PREFERENCES.autoCaptureDestination, false);
+    assert.equal(readDeliveryPreferences(tempDir).autoCaptureDestination, false);
+    writeDeliveryPreferences({ captureDestination: { collectionId: "col_1", projectId: "prj_1" } }, tempDir);
+    assert.deepEqual(writeDeliveryPreferences({ autoCaptureDestination: true }, tempDir), {
+      ...DEFAULT_DELIVERY_PREFERENCES,
+      autoCaptureDestination: true,
+      captureDestination: { collectionId: "col_1", projectId: "prj_1" },
+    });
+    assert.equal(readDeliveryPreferences(tempDir).autoCaptureDestination, true);
+    // A partial patch of another key, or an invalid value, keeps the switch.
+    assert.equal(writeDeliveryPreferences({ includeScreenshot: false }, tempDir).autoCaptureDestination, true);
+    assert.equal(writeDeliveryPreferences({ autoCaptureDestination: "yes" }, tempDir).autoCaptureDestination, true);
+    const off = writeDeliveryPreferences({ autoCaptureDestination: false }, tempDir);
+    assert.equal(off.autoCaptureDestination, false);
+    assert.deepEqual(off.captureDestination, { collectionId: "col_1", projectId: "prj_1" });
+    assert.equal(off.includeScreenshot, false);
+    assert.equal(readDeliveryPreferences(tempDir).autoCaptureDestination, false);
+  });
+
+  test("reads the automatic capture destination like the other switches", () => {
+    assert.equal(parseDeliveryPreferences({ autoCaptureDestination: 1 }).autoCaptureDestination, true);
+    assert.equal(parseDeliveryPreferences({ autoCaptureDestination: 0 }).autoCaptureDestination, false);
+    assert.equal(parseDeliveryPreferences({ autoCaptureDestination: null }).autoCaptureDestination, false);
+    assert.equal(parseDeliveryPreferences({}).autoCaptureDestination, false);
+    assert.equal(
+      mergeDeliveryPreferences(
+        { ...DEFAULT_DELIVERY_PREFERENCES, autoCaptureDestination: true },
+        { handoffMode: "full" },
+      ).autoCaptureDestination,
+      true,
+    );
+  });
+
   test("treats numeric 0 as omitting the screenshot", () => {
     assert.equal(parseDeliveryPreferences({ includeScreenshot: 0 }).includeScreenshot, false);
     assert.equal(

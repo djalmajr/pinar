@@ -240,6 +240,10 @@ const messages = {
   "settings.captureDestinationDefault": "Inbox",
   "settings.captureDestinationDescription":
     "Where new captures land. Server default uses the Inbox of the first project.",
+  "settings.autoCaptureDestination": "Choose the collection automatically",
+  "settings.autoCaptureDestinationDescription":
+    "Pinar picks the collection for each new capture; when unsure, it goes to the Inbox.",
+  "settings.autoCaptureDestinationUnavailable": "Requires AI to be set up.",
   "settings.captureHeading": "Capture",
   "settings.collection": "Collection",
   "settings.copyOnFinishBatch": "Copy when a session finishes",
@@ -407,6 +411,7 @@ const messages = {
   "dashboard.allSessions": "All sessions",
   "dashboard.collection": "collection",
   "dashboard.protectedInbox": "Inbox",
+  "dashboard.autoFiled": "Filed automatically. Move to correct.",
   "dashboard.collectionActions": "Collection actions",
   "dashboard.collapseCollection": "Collapse {name}",
   "dashboard.collectionMenu": "Collection",

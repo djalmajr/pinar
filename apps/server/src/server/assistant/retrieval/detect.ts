@@ -2,15 +2,17 @@
 // decisions A19 and A23), read from its GET {baseUrl}/models list:
 // - embeddingModel: the first data[].id whose type is "embedding";
 // - vision: whether the data[] item whose id is the endpoint's chat model
-//   lists "image" in modalities.input.
+//   lists "image" in modalities.input;
+// - decisions: whether that same item declares the appliance's decisions
+//   extra with `decisions.available === true` (F3.5 contract §3.1, A28).
 //
 // The probe has the protections of the F1 chat model (models.ts): the base
 // URL goes through assertAssistantBaseUrl, the fetch refuses any redirect
 // (guardRedirects), the key travels only in the Authorization header, and
 // the request and body read share a 5 s deadline. Every failure (invalid
 // base URL, network, redirect, status, JSON, a body without a data array,
-// deadline) reports { embeddingModel: null, vision: false }. Nothing is
-// logged.
+// deadline) reports { decisions: false, embeddingModel: null, vision: false }.
+// Nothing is logged.
 //
 // Results are cached per baseUrl and model: a successful read for 10
 // minutes, a failure for 1 minute, so an endpoint that was down is probed
@@ -23,11 +25,12 @@ export const RETRIEVAL_DETECT_TTL_MS = 10 * 60 * 1000;
 export const RETRIEVAL_DETECT_FAILURE_TTL_MS = 60 * 1000;
 
 export interface RetrievalCapabilities {
+  decisions: boolean;
   embeddingModel: string | null;
   vision: boolean;
 }
 
-const NONE: RetrievalCapabilities = { embeddingModel: null, vision: false };
+const NONE: RetrievalCapabilities = { decisions: false, embeddingModel: null, vision: false };
 
 // Keyed by baseUrl + "\n" + model.
 const capabilitiesCache = new Map<string, { expiresAt: number; value: RetrievalCapabilities }>();
@@ -37,6 +40,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function capabilitiesFrom(list: unknown[], model: string): RetrievalCapabilities {
+  let decisions = false;
   let embeddingModel: string | null = null;
   let vision = false;
   let chatSeen = false;
@@ -49,9 +53,11 @@ function capabilitiesFrom(list: unknown[], model: string): RetrievalCapabilities
       const modalities = item["modalities"];
       const input = isRecord(modalities) ? modalities["input"] : undefined;
       vision = Array.isArray(input) && input.includes("image");
+      const extra = item["decisions"];
+      decisions = isRecord(extra) && extra["available"] === true;
     }
   }
-  return { embeddingModel, vision };
+  return { decisions, embeddingModel, vision };
 }
 
 // The capabilities, or null when the probe failed.
@@ -75,7 +81,7 @@ async function probe(endpoint: AssistantEndpoint, baseFetch: typeof fetch): Prom
 export async function detectRetrievalCapabilities(input: {
   endpoint: AssistantEndpoint;
   fetch?: typeof fetch;
-}): Promise<{ embeddingModel: string | null; vision: boolean }> {
+}): Promise<RetrievalCapabilities> {
   const key = `${input.endpoint.baseUrl}\n${input.endpoint.model}`;
   const cached = capabilitiesCache.get(key);
   if (cached !== undefined) {

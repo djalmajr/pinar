@@ -127,6 +127,11 @@ import type { PinSearchService } from "./assistant/retrieval/index";
 import type { CloudPinSessionRow, CloudPinSourceData } from "./assistant/retrieval/source-cloud";
 import type { AssistantStateReader } from "./assistant/state-reader";
 import type { AssistantToolHost } from "./assistant/tools";
+// Types and the constants only: the filing engines pull in the AI SDK and
+// are loaded lazily behind the gate (fileCloudShot).
+import type { FilingCollection, FilingRecentSession } from "./filing/candidates";
+import { FILING_TIMEOUT_MS } from "./filing/constants";
+import type { FilingCapture, FilingOutcome, FilingSource } from "./filing/runtime";
 import {
   CLOUD_MCP_TOOLS,
   MCP_MAX_ARGUMENT_LENGTH,
@@ -591,6 +596,7 @@ function deliveryPreferencesFromOwnerRow(row: Record<string, unknown> | null | u
   const projectId = typeof row.capture_project_id === "string" ? row.capture_project_id : "";
   const collectionId = typeof row.capture_collection_id === "string" ? row.capture_collection_id : "";
   return parseDeliveryPreferences({
+    autoCaptureDestination: row.auto_capture_destination,
     captureDestination: projectId && collectionId ? { collectionId, projectId } : null,
     componentTarget: typeof row.component_target === "string" ? row.component_target : null,
     copyOnFinishBatch: row.copy_on_finish_batch,
@@ -610,6 +616,7 @@ export async function readOwnerDeliveryPreferences(env: CloudEnv, ownerId: strin
     try {
       const row = await env.DB.prepare(`
         SELECT
+          auto_capture_destination,
           capture_collection_id,
           capture_project_id,
           component_target,
@@ -661,9 +668,10 @@ export async function writeOwnerDeliveryPreferences(
         language,
         sensitive_query_keys,
         component_target,
-        voice_post_processing
+        voice_post_processing,
+        auto_capture_destination
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(owner_id) DO UPDATE SET
         handoff_mode = excluded.handoff_mode,
         include_screenshot = excluded.include_screenshot,
@@ -676,7 +684,8 @@ export async function writeOwnerDeliveryPreferences(
         language = excluded.language,
         sensitive_query_keys = excluded.sensitive_query_keys,
         component_target = excluded.component_target,
-        voice_post_processing = excluded.voice_post_processing
+        voice_post_processing = excluded.voice_post_processing,
+        auto_capture_destination = excluded.auto_capture_destination
     `).bind(
       ownerId,
       next.handoffMode,
@@ -691,6 +700,7 @@ export async function writeOwnerDeliveryPreferences(
       next.sensitiveQueryKeys,
       next.componentTarget,
       next.voicePostProcessing ? 1 : 0,
+      next.autoCaptureDestination ? 1 : 0,
     ).run();
   } else {
     memoryOwnerPreferences.set(ownerId, next);
@@ -701,7 +711,11 @@ export async function writeOwnerDeliveryPreferences(
 async function readPreferences(request: Request, env: CloudEnv) {
   const principal = await resolvePrincipal(request, env);
   if (!principal) return json({ error: "Unauthorized" }, 401);
-  return json({ ok: true, ...(await readOwnerDeliveryPreferences(env, principal.id)) });
+  return json({
+    ok: true,
+    ...(await readOwnerDeliveryPreferences(env, principal.id)),
+    autoCaptureDestinationAvailable: await cloudAutoCaptureDestinationAvailable(env, principal),
+  });
 }
 
 async function updatePreferences(request: Request, env: CloudEnv) {
@@ -710,6 +724,7 @@ async function updatePreferences(request: Request, env: CloudEnv) {
   return json({
     ok: true,
     ...(await writeOwnerDeliveryPreferences(env, principal.id, await readJson(request))),
+    autoCaptureDestinationAvailable: await cloudAutoCaptureDestinationAvailable(env, principal),
   });
 }
 
@@ -1647,6 +1662,7 @@ function sessionFromRow(row: Record<string, unknown>): CloudSession {
     captureId: capture.captureId,
     collectionId: String(row.collection_id || ""),
     createdAt: String(row.created_at || ""),
+    ...(row.filed_by === "auto" ? { filedBy: "auto" as const } : {}),
     id,
     isPermanent: Boolean(row.is_permanent),
     page: {
@@ -5205,7 +5221,7 @@ async function moveSession(
       .bind(sessionId, principal.id).first();
     if (!existing) return null;
     await env.DB.prepare(
-      "UPDATE sessions SET collection_id = ?, position = ? WHERE id = ? AND user_id = ?",
+      "UPDATE sessions SET collection_id = ?, position = ?, filed_by = NULL WHERE id = ? AND user_id = ?",
     ).bind(collectionId, position, sessionId, principal.id).run();
     const row = await env.DB.prepare("SELECT * FROM sessions WHERE id = ? AND user_id = ?")
       .bind(sessionId, principal.id).first();
@@ -5214,6 +5230,7 @@ async function moveSession(
   const session = memorySessions.get(sessionId);
   if (!session || session.userId !== principal.id) return null;
   session.collectionId = collectionId;
+  delete session.filedBy;
   session.position = position;
   return session;
 }
@@ -5262,7 +5279,7 @@ async function deleteCollectionContainer(env: CloudEnv, principal: Principal, id
     const timestamp = new Date().toISOString();
     await env.DB.batch([
       ...sessions.map((session, index) => env.DB?.prepare(`
-        UPDATE sessions SET collection_id = ?, position = ? WHERE id = ? AND user_id = ?
+        UPDATE sessions SET collection_id = ?, position = ?, filed_by = NULL WHERE id = ? AND user_id = ?
       `).bind(fallback.collectionId, start + index, session.id, principal.id)).filter(
         (item): item is D1Statement => Boolean(item),
       ),
@@ -5280,6 +5297,7 @@ async function deleteCollectionContainer(env: CloudEnv, principal: Principal, id
     for (const session of sessions) {
       const stored = memorySessions.get(session.id) || session;
       stored.collectionId = fallback.collectionId;
+      delete stored.filedBy;
       stored.position = position;
       position += 1;
     }
@@ -5316,20 +5334,24 @@ async function deleteProjectContainer(env: CloudEnv, principal: Principal, id: s
   return true;
 }
 
+// Writes the whole row, `filedBy` included: an edit keeps the automatic-filing
+// mark because it starts from the stored session; a new capture is marked by
+// passing `filedBy: "auto"` on the session it saves.
 export async function persistSession(env: CloudEnv, session: Session, batchId: string | null = null) {
   const capture = captureFromSession(session);
   if (env.DB) {
     await env.DB.prepare(
       `INSERT INTO sessions (
          id, url, title, shot_id, shot_url, pin_count, pins_json, created_at, user_id,
-         plan, is_permanent, byte_size, collection_id, position, include_screenshot, batch_id
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         plan, is_permanent, byte_size, collection_id, position, include_screenshot, batch_id, filed_by
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET url=excluded.url, title=excluded.title, shot_id=excluded.shot_id,
        shot_url=excluded.shot_url, pin_count=excluded.pin_count, pins_json=excluded.pins_json,
        created_at=excluded.created_at, user_id=excluded.user_id, plan=excluded.plan,
        is_permanent=excluded.is_permanent, byte_size=excluded.byte_size,
        collection_id=excluded.collection_id, position=excluded.position,
-       include_screenshot=excluded.include_screenshot, batch_id=excluded.batch_id`,
+       include_screenshot=excluded.include_screenshot, batch_id=excluded.batch_id,
+       filed_by=excluded.filed_by`,
     ).bind(
       session.id,
       session.page.url || "",
@@ -5347,6 +5369,7 @@ export async function persistSession(env: CloudEnv, session: Session, batchId: s
       session.position || 0,
       session.includeScreenshot === false ? 0 : 1,
       batchId,
+      session.filedBy === "auto" ? "auto" : null,
     ).run();
   } else {
     memorySessions.set(session.id, withCloudBatchId(sessionFromCapture(capture, session), batchId));
@@ -6479,6 +6502,135 @@ async function updateSessionFields(request: Request, env: CloudEnv, id: string) 
   return json({ ok: true, session: stored ? await decorateCloudSession(env, stored) : patched }, 200, { "Cache-Control": "no-store" });
 }
 
+// ---------- capture filing (F3.5 contract §3.1) ----------
+
+// What the capture filing reads of the owner: the collections without the
+// protected Inbox (project then collection position), the most recent
+// sessions of each collection (one window query on D1), and the collection
+// and mark of a batch's most recent session.
+function cloudFilingSource(env: CloudEnv, principal: Principal): Omit<FilingSource, "entriesFor"> {
+  return {
+    async batchSession(batchId, excludeId) {
+      if (env.DB) {
+        const row = await env.DB.prepare(
+          "SELECT collection_id, filed_by FROM sessions WHERE user_id = ? AND batch_id = ? AND id <> ? AND collection_id IS NOT NULL ORDER BY created_at DESC, id ASC LIMIT 1",
+        ).bind(principal.id, batchId, excludeId).first();
+        return row && typeof row.collection_id === "string" && row.collection_id
+          ? { collectionId: row.collection_id, filedBy: row.filed_by === "auto" ? "auto" : null }
+          : null;
+      }
+      const latest = Array.from(memorySessions.values())
+        .filter((session) => session.userId === principal.id && session.id !== excludeId
+          && cloudSessionBatchId(session) === batchId && Boolean(session.collectionId))
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))[0];
+      return latest?.collectionId ? { collectionId: latest.collectionId, filedBy: latest.filedBy === "auto" ? "auto" : null } : null;
+    },
+    async collections(): Promise<FilingCollection[]> {
+      if (env.DB) {
+        const rows = await env.DB.prepare(`
+          SELECT c.id AS id, c.name AS name, p.name AS project_name
+          FROM collections c
+          JOIN projects p ON p.id = c.project_id
+          WHERE c.owner_id = ? AND c.is_protected = 0
+          ORDER BY p.position ASC, p.created_at ASC, p.id ASC, c.position ASC, c.created_at ASC, c.id ASC
+        `).bind(principal.id).all();
+        return (rows.results || []).map((row) => ({
+          collectionId: String(row.id || ""),
+          collectionName: String(row.name || ""),
+          projectName: String(row.project_name || ""),
+        }));
+      }
+      const projects = new Map(Array.from(memoryProjects.values()).map((project) => [project.id, project]));
+      return Array.from(memoryCollections.values())
+        .filter((collection) => collection.ownerId === principal.id && !collection.isProtected && projects.has(collection.projectId))
+        .map((collection) => ({ collection, project: projects.get(collection.projectId)! }))
+        .sort((left, right) =>
+          left.project.position - right.project.position
+          || left.project.createdAt.localeCompare(right.project.createdAt)
+          || (left.project.id < right.project.id ? -1 : left.project.id > right.project.id ? 1 : 0)
+          || left.collection.position - right.collection.position
+          || left.collection.createdAt.localeCompare(right.collection.createdAt)
+          || (left.collection.id < right.collection.id ? -1 : left.collection.id > right.collection.id ? 1 : 0))
+        .map(({ collection, project }) => ({ collectionId: collection.id, collectionName: collection.name, projectName: project.name }));
+    },
+    async recentSessions({ collectionIds, excludeId, perCollection }): Promise<FilingRecentSession[]> {
+      const wanted = new Set(collectionIds);
+      if (wanted.size === 0) return [];
+      if (env.DB) {
+        const rows = await env.DB.prepare(`
+          SELECT id, title, created_at, collection_id FROM (
+            SELECT id, title, created_at, collection_id,
+              ROW_NUMBER() OVER (PARTITION BY collection_id ORDER BY created_at DESC, id ASC) AS recent
+            FROM sessions
+            WHERE user_id = ? AND collection_id IS NOT NULL AND id <> ?
+          )
+          WHERE recent <= ?
+          ORDER BY collection_id ASC, recent ASC
+        `).bind(principal.id, excludeId, perCollection).all();
+        return (rows.results || [])
+          .map((row) => ({
+            collectionId: String(row.collection_id || ""),
+            createdAt: String(row.created_at || ""),
+            id: String(row.id || ""),
+            title: typeof row.title === "string" ? row.title : "",
+          }))
+          .filter((session) => wanted.has(session.collectionId));
+      }
+      const counts = new Map<string, number>();
+      return Array.from(memorySessions.values())
+        .filter((session) => session.userId === principal.id && session.id !== excludeId
+          && Boolean(session.collectionId) && wanted.has(session.collectionId!))
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+        .filter((session) => {
+          const count = counts.get(session.collectionId!) ?? 0;
+          counts.set(session.collectionId!, count + 1);
+          return count < perCollection;
+        })
+        .map((session) => ({ collectionId: session.collectionId!, createdAt: session.createdAt, id: session.id, title: session.page.title || "" }));
+    },
+  };
+}
+
+// The filing of a new capture of the principal (behind the gate). The
+// engines are loaded here, lazily: they pull in the AI SDK. The budget
+// (FILING_TIMEOUT_MS) counts the module load; a load that fails files the
+// capture in the Inbox.
+async function fileCloudShot(
+  env: CloudEnv,
+  principal: Principal,
+  capture: FilingCapture,
+  batchId: string | null,
+): Promise<FilingOutcome> {
+  const startedAt = Date.now();
+  try {
+    const { fileCloudCapture } = await import("./filing/runtime-cloud");
+    return await fileCloudCapture({
+      batchId,
+      capture,
+      env,
+      ownerId: principal.id,
+      source: cloudFilingSource(env, principal),
+      timeoutMs: FILING_TIMEOUT_MS - (Date.now() - startedAt),
+    });
+  } catch {
+    return { filedBy: null, filing: { collectionId: null, confidence: 0, engine: "none", reason: "error" } };
+  }
+}
+
+// GET and PATCH /api/preferences: the automatic destination can be turned
+// on, inside the assistant gate (A33) and with an engine. Outside the gate
+// nothing is loaded nor fetched.
+async function cloudAutoCaptureDestinationAvailable(env: CloudEnv, principal: Principal): Promise<boolean> {
+  if (!cloudAssistantStatus(env, principal).available) return false;
+  const startedAt = Date.now();
+  try {
+    const filing = await import("./filing/runtime-cloud");
+    return await filing.cloudAutoCaptureDestinationAvailable(env, FILING_TIMEOUT_MS - (Date.now() - startedAt));
+  } catch {
+    return false;
+  }
+}
+
 async function uploadShot(request: Request, env: CloudEnv) {
   const principal = await resolvePrincipal(request, env);
   if (!principal) return json({ error: "Unauthorized" }, 401);
@@ -6513,13 +6665,33 @@ async function uploadShot(request: Request, env: CloudEnv) {
   const origin = new URL(request.url).origin;
   const shotUrl = `${origin}/shots/${id}.png`;
   const preferences = await readOwnerDeliveryPreferences(env, principal.id);
-  const destination = await resolveDestination(
-    env,
-    principal,
-    stringValue(body, "collectionId") || preferences.captureDestination?.collectionId || "",
-  );
+  // F3.5: with the automatic destination on, inside the assistant gate
+  // (A33), the server files the new capture and the body's collectionId is
+  // ignored (A27); without an engine, or in doubt, it goes to the Inbox
+  // (A29). Outside the gate the preference is ignored.
+  const automatic = preferences.autoCaptureDestination && cloudAssistantStatus(env, principal).available;
+  const manualDestination = automatic
+    ? null
+    : await resolveDestination(
+      env,
+      principal,
+      stringValue(body, "collectionId") || preferences.captureDestination?.collectionId || "",
+    );
   const batchId = await resolveCaptureBatchId(env, principal, body);
   if (batchId instanceof Response) return batchId;
+  let filed: FilingOutcome | null = null;
+  let destination: CaptureDestination;
+  if (manualDestination) {
+    destination = manualDestination;
+  } else {
+    filed = await fileCloudShot(env, principal, capture, batchId);
+    destination = await resolveDestination(env, principal, filed.filing.collectionId ?? "");
+    // A chosen collection that disappeared before the save leaves the
+    // capture in the Inbox, unmarked.
+    if (filed.filing.collectionId !== null && filed.filing.collectionId !== destination.collectionId) {
+      filed = { filedBy: null, filing: { ...filed.filing, collectionId: null, reason: "error" } };
+    }
+  }
   if (env.PINAR_BUCKET) {
     await env.PINAR_BUCKET.put(shotObjectKey(id), imageBytes, { httpMetadata: { contentType: "image/png" } });
   }
@@ -6539,6 +6711,9 @@ async function uploadShot(request: Request, env: CloudEnv) {
       preferences.includeScreenshot,
     ),
     userId: principal.id,
+    // persistSession writes NULL without a mark, so a re-upload never keeps
+    // an earlier one.
+    ...(filed?.filedBy ? { filedBy: filed.filedBy } : {}),
   });
   try {
     await persistSession(env, session, batchId);
@@ -6547,6 +6722,7 @@ async function uploadShot(request: Request, env: CloudEnv) {
   }
   return json({
     destination,
+    ...(filed ? { filing: filed.filing } : {}),
     isPermanent: session.isPermanent,
     markdownUrl: `${origin}/v/${id}.md`,
     ok: true,
@@ -7380,6 +7556,7 @@ async function mcpSessionSummaries(
       batchId: session.batchId,
       collectionId: session.collectionId,
       createdAt: session.createdAt,
+      ...(session.filedBy === "auto" ? { filedBy: "auto" as const } : {}),
       id: session.id,
       pinCount: session.pinCount ?? session.pins.length,
       title: session.page.title,
@@ -7403,12 +7580,13 @@ async function mcpSessionSummaries(
   }
   const order = collectionId ? "position ASC" : "created_at DESC";
   const rows = await context.env.DB.prepare(
-    `SELECT id, title, url, pin_count, created_at, collection_id, batch_id FROM sessions WHERE ${clauses.join(" AND ")} ORDER BY ${order} LIMIT ? OFFSET ?`,
+    `SELECT id, title, url, pin_count, created_at, collection_id, batch_id, filed_by FROM sessions WHERE ${clauses.join(" AND ")} ORDER BY ${order} LIMIT ? OFFSET ?`,
   ).bind(...values, limit, offset).all();
   return (rows.results || []).map((row) => ({
     batchId: row.batch_id || null,
     collectionId: row.collection_id || null,
     createdAt: row.created_at,
+    ...(row.filed_by === "auto" ? { filedBy: "auto" as const } : {}),
     id: row.id,
     pinCount: row.pin_count,
     title: row.title,

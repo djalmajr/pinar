@@ -20,6 +20,8 @@ interface DeliveryPreferencesContextValue extends DeliveryPreferences {
   autoCaptureDestinationAvailable: boolean;
   available: boolean;
   patch: (partial: Partial<DeliveryPreferences>) => Promise<void>;
+  /** Reads GET /api/preferences again, e.g. after the AI settings change what the server can do. */
+  refresh: () => Promise<void>;
 }
 
 const DeliveryPreferencesContext = createContext<DeliveryPreferencesContextValue | null>(null);
@@ -43,32 +45,36 @@ export function DeliveryPreferencesProvider({ children }: { children: ReactNode 
   const [available, setAvailable] = useState(false);
   const [autoCaptureDestinationAvailable, setAutoCaptureDestinationAvailable] = useState(true);
 
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const response = await fetch("/api/preferences");
-        const body: unknown = await response.json().catch(() => null);
-        if (cancelled) return;
-        const next = deliveryPreferencesFromBody(body);
-        if (!response.ok || next == null) {
-          setAvailable(false);
-          return;
-        }
-        setPreferences(next.preferences);
-        setAutoCaptureDestinationAvailable(next.autoCaptureDestinationAvailable);
-        setAvailable(true);
-        if (next.preferences.language != null && next.preferences.language !== languageRef.current) {
-          setLanguage(next.preferences.language);
-        }
-      } catch {
-        if (!cancelled) setAvailable(false);
+  // Each read is numbered: only the latest one, while mounted, sets the state.
+  const latestRead = useRef(0);
+  const refresh = useCallback(async () => {
+    const read = ++latestRead.current;
+    try {
+      const response = await fetch("/api/preferences");
+      const body: unknown = await response.json().catch(() => null);
+      if (read !== latestRead.current) return;
+      const next = deliveryPreferencesFromBody(body);
+      if (!response.ok || next == null) {
+        setAvailable(false);
+        return;
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
+      setPreferences(next.preferences);
+      setAutoCaptureDestinationAvailable(next.autoCaptureDestinationAvailable);
+      setAvailable(true);
+      if (next.preferences.language != null && next.preferences.language !== languageRef.current) {
+        setLanguage(next.preferences.language);
+      }
+    } catch {
+      if (read === latestRead.current) setAvailable(false);
+    }
   }, [setLanguage]);
+
+  useEffect(() => {
+    void refresh();
+    return () => {
+      latestRead.current += 1;
+    };
+  }, [refresh]);
 
   const patch = useCallback(async (partial: Partial<DeliveryPreferences>) => {
     const previous = preferences;
@@ -98,8 +104,9 @@ export function DeliveryPreferencesProvider({ children }: { children: ReactNode 
       autoCaptureDestinationAvailable,
       available,
       patch,
+      refresh,
     }),
-    [autoCaptureDestinationAvailable, available, patch, preferences],
+    [autoCaptureDestinationAvailable, available, patch, preferences, refresh],
   );
 
   return (

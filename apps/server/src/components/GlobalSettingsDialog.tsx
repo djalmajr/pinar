@@ -277,6 +277,7 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
     includeScreenshot,
     includeViewer,
     patch,
+    refresh: refreshPreferences,
     sensitiveQueryKeys,
     voicePostProcessing,
   } = useDeliveryPreferences();
@@ -555,6 +556,8 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
       } else {
         aiFeedbackToastId.current = toast.success(t("settings.aiSaved", { model: testedModel }));
       }
+      // The saved AI decides whether the server can choose a capture's collection.
+      void refreshPreferences();
     } catch (error) {
       aiFeedbackToastId.current = toast.error(error instanceof Error ? error.message : t("settings.aiUnavailable"));
     } finally {
@@ -578,6 +581,7 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
         hasApiKey: false,
       }));
       aiFeedbackToastId.current = toast.success(t("settings.aiKeyRemoved"));
+      void refreshPreferences();
     } catch (error) {
       aiFeedbackToastId.current = toast.error(error instanceof Error ? error.message : t("settings.aiUnavailable"));
     } finally {

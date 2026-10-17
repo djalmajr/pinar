@@ -46,4 +46,34 @@ describe("delivery preferences: automatic destination availability", () => {
     expect(value.available).toBe(false);
     expect(value.autoCaptureDestination).toBe(false);
   });
+
+  test("refresh reads GET /api/preferences again", async () => {
+    let seen: ReturnType<typeof useDeliveryPreferences> | null = null;
+    function Probe() {
+      seen = useDeliveryPreferences();
+      return null;
+    }
+    renderToStaticMarkup(
+      <ServerI18nProvider initialLanguage="en" initialMessages={enUi}>
+        <DeliveryPreferencesProvider>
+          <Probe />
+        </DeliveryPreferencesProvider>
+      </ServerI18nProvider>,
+    );
+    const value = seen as unknown as ReturnType<typeof useDeliveryPreferences>;
+    const realFetch = globalThis.fetch;
+    const requests: Array<{ method: string; url: string }> = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ method: init?.method ?? "GET", url: String(input) });
+      return new Response(JSON.stringify({ ...SERVER_ANSWER, autoCaptureDestinationAvailable: true }), { status: 200 });
+    }) as typeof fetch;
+    try {
+      await value.refresh();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    // The server render does not keep state, so this proves the read; the
+    // browser e2e (capture-filing) proves the switch follows it.
+    expect(requests).toEqual([{ method: "GET", url: "/api/preferences" }]);
+  });
 });

@@ -889,6 +889,55 @@ describe("POST /api/ai/reproduction on D1 (A53)", () => {
     }
   });
 
+  test("a balance read that fails after the result is persisted preserves the debit (F4d round 2)", async () => {
+    const db = migratedD1();
+    db.exec("CREATE TABLE post_save_flag (value INTEGER)");
+    try {
+      // A real SQLite UPDATE trigger marks the moment the generated steps
+      // are persisted; the answer's balance read then fails once.
+      db.exec("CREATE TRIGGER post_save_flagged AFTER UPDATE ON sessions WHEN NEW.id = 'repro_d1_post_save' BEGIN INSERT INTO post_save_flag VALUES (1); END;");
+      const base = d1Shim(db);
+      const env: CloudEnv = {
+        ...TEST_ENV,
+        DB: {
+          ...base,
+          prepare(query: string) {
+            const flagged = (db.query("SELECT COUNT(*) AS count FROM post_save_flag").get() as { count: number }).count > 0;
+            if (flagged && query.includes("AS balance") && query.includes("ai_credit_grants")) {
+              throw new Error("injected_post_save_balance_error");
+            }
+            return base.prepare(query);
+          },
+        } as unknown as NonNullable<CloudEnv["DB"]>,
+        AI: { run: async () => responsesApi(JSON.stringify(GENERATED)) } as unknown as Ai,
+      };
+      const cookie = await d1Cookie(db, env);
+      assert.equal((await uploadCapture(cookie, {
+        id: "repro_d1_post_save",
+        pins: [{ comment: "x", number: 1 }],
+        reproduction: RECORDING,
+      }, env)).status, 201);
+
+      const response = await postJson("/api/ai/reproduction", {
+        requestId: "repro_d1_request_post_save",
+        sessionId: "repro_d1_post_save",
+      }, cookie, env);
+      const body = await jsonBody(response);
+      // The steps were persisted before the balance read failed: the debit
+      // is preserved and the answer is 200 with the result and no balance.
+      assert.equal(response.status, 200, JSON.stringify(body));
+      assert.equal(body.ok, true);
+      assert.equal(body.aiCredits, null, "the auxiliary balance read failed: the balance is absent");
+      assert.equal(d1Balance(db), 499, "the persisted result keeps its debit");
+      const [usage] = db.query("SELECT * FROM ai_credit_usages WHERE request_id = ?").all("repro_d1_request_post_save") as Array<{ status: string }>;
+      assert.equal(usage.status, "succeeded", "the usage was not refunded after the save");
+      const stored = (await jsonBody(await getJson("/api/sessions/repro_d1_post_save", cookie, env))).session as { reproduction: { generated?: { steps?: unknown[] } } };
+      assert.equal(Array.isArray(stored.reproduction.generated?.steps), true, "the GET delivers the persisted steps");
+    } finally {
+      db.close();
+    }
+  });
+
   test("a session deleted after the settlement answers 404 and the consumed credit goes back (F4d)", async () => {
     const db = migratedD1();
     try {

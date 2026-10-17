@@ -2087,6 +2087,45 @@ for (const runtime of a53Runtimes) {
       }
     });
 
+    test("a refunded run whose session moved keeps the new destination on the re-upload (F4d round 2)", async () => {
+      const setup = await a53Setup(runtime.useDb);
+      try {
+        await writeOwnerDeliveryPreferences(setup.env, OWNER, { autoCaptureDestination: true });
+        appliance = fakeAppliance({ decide: () => new Response("boom", { status: 500 }), engine: "decisions" });
+        const failed = await shot(setup.env, setup.cookie, { id: "a53_moved", title: "Onboarding" });
+        assert.equal(failed.destination.collectionId, setup.inbox);
+        assert.equal(await setup.balance(), 500, "the refund of the failed run");
+
+        // The owner moves the capture to Checkout.
+        const move = await handleCloudApiRequest(new Request("https://pinar.test/api/sessions/a53_moved/move", {
+          body: JSON.stringify({ collectionId: setup.checkout }),
+          headers: { "content-type": "application/json", cookie: setup.cookie },
+          method: "POST",
+        }), setup.env);
+        assert.equal(move.status, 200, await move.clone().text());
+
+        // The re-upload must not call the engine and must not send the
+        // capture back to the Inbox: it keeps where it is.
+        const decided = fakeAppliance({ decide: decideFor("Onboarding", 0.95), engine: "decisions" });
+        appliance = decided;
+        const replay = await shot(setup.env, setup.cookie, { id: "a53_moved", title: "Onboarding" });
+        assert.equal(decided.engineCalls().length, 0, "no engine for a refunded capture");
+        assert.equal(replay.destination.collectionId, setup.checkout, "the moved session keeps its destination");
+        assert.equal(await setup.balance(), 500, "no new charge");
+
+        // The Inbox case is unchanged: a session the owner did not move
+        // stays in the Inbox.
+        appliance = fakeAppliance({ decide: () => new Response("boom", { status: 500 }), engine: "decisions" });
+        const failedAgain = await shot(setup.env, setup.cookie, { id: "a53_moved_inbox", title: "Onboarding" });
+        assert.equal(failedAgain.destination.collectionId, setup.inbox);
+        const inboxReplay = await shot(setup.env, setup.cookie, { id: "a53_moved_inbox", title: "Onboarding" });
+        assert.equal(inboxReplay.destination.collectionId, setup.inbox, "a session the owner kept in the Inbox stays there");
+        assert.equal(await setup.balance(), 500);
+      } finally {
+        setup.close();
+      }
+    });
+
     test("with the switch off nothing is charged and no engine is called", async () => {
       const setup = await a53Setup(runtime.useDb);
       try {

@@ -15,16 +15,20 @@ import {
   deleteAssistantThread,
   fetchAssistantThreads,
   type AssistantErrorKey,
+  type AssistantProposalActionKind,
+  type AssistantPublicProposal,
   type AssistantStatus,
   type AssistantThread,
 } from "./assistant-client";
 import {
+  applyAssistantProposalAction,
   createAssistantConversation,
   openAssistantConversation,
   startAssistantConversation,
   stopAssistantConversation,
   type AssistantConversation,
   type AssistantConversationHooks,
+  type AssistantProposalCardStates,
 } from "./assistant-conversation";
 import { useAssistantPanel } from "./assistant-panel-state";
 import { AssistantComposer } from "./AssistantComposer";
@@ -46,6 +50,13 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
   const [historyOpen, setHistoryOpen] = useState(false);
   const [turnErrorKey, setTurnErrorKey] = useState<AssistantErrorKey | null>(null);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  // Card state per proposal id: the most recent proposal an action answer
+  // (or a 409 refetch) returned, the in-flight flag and the action note.
+  // Reset on every conversation switch: a reopened thread brings its own
+  // fresher proposals, and an answer that arrives after a switch (even back
+  // to the same thread) is dropped by the generation check.
+  const [proposalStates, setProposalStates] = useState<AssistantProposalCardStates>({});
+  const proposalsInFlightRef = useRef(new Set<string>());
 
   // The generation cell and the refs the conversation callbacks consult. The
   // hook closures only touch stable setters, so one memoized set of hooks
@@ -134,6 +145,7 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
     });
     setActiveThreadId(null);
     setTurnErrorKey(null);
+    setProposalStates({});
     setHistoryOpen(false);
     setConversation(next);
   }
@@ -154,6 +166,7 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
     }
     setActiveThreadId(id);
     setTurnErrorKey(null);
+    setProposalStates({});
     setHistoryOpen(false);
     setConversation(result.conversation);
   }
@@ -171,6 +184,16 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
   function handleSend(text: string) {
     setTurnErrorKey(null);
     void sendMessage({ text });
+  }
+
+  // One action per proposal at a time, applied only to the conversation
+  // generation it started in.
+  function handleProposalAction(kind: AssistantProposalActionKind, proposal: AssistantPublicProposal) {
+    return applyAssistantProposalAction(
+      { generation: generationRef, inFlight: proposalsInFlightRef.current, setProposalStates },
+      kind,
+      proposal,
+    );
   }
 
   function handleRetry() {
@@ -206,7 +229,17 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
       </div>
     ) : (
       <>
-        <AssistantMessages messages={messages} onRetry={handleRetry} t={t} />
+        <AssistantMessages
+          busy={busy}
+          messages={messages}
+          onAsk={handleSend}
+          onProposalAction={(kind, proposal) => {
+            void handleProposalAction(kind, proposal);
+          }}
+          onRetry={handleRetry}
+          proposalStates={proposalStates}
+          t={t}
+        />
         {turnErrorKey !== null ? (
           <div className="flex flex-col items-start gap-2 px-4 pb-3" role="alert">
             <p className="text-sm text-destructive">{t(turnErrorKey)}</p>

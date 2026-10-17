@@ -329,8 +329,15 @@ function formatAssistantThread(row) {
   };
 }
 
+function parseAssistantJsonField(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") return JSON.parse(value);
+  return value;
+}
+
 function formatAssistantMessage(row) {
   return {
+    ask: parseAssistantJsonField(row.ask_json),
     createdAt: row.created_at,
     errorCode: row.error_code,
     id: row.id,
@@ -338,6 +345,29 @@ function formatAssistantMessage(row) {
     status: row.status,
     text: row.text,
     threadId: row.thread_id,
+  };
+}
+
+function formatAssistantProposal(row) {
+  return {
+    args: parseAssistantJsonField(row.args_json),
+    createdAt: row.created_at,
+    display: parseAssistantJsonField(row.display_json),
+    errorCode: row.error_code,
+    executedAt: row.executed_at,
+    expiresAt: row.expires_at,
+    fingerprint: row.fingerprint,
+    id: row.id,
+    messageId: row.message_id,
+    result: parseAssistantJsonField(row.result_json),
+    risk: row.risk,
+    status: row.status,
+    summary: row.summary,
+    threadId: row.thread_id,
+    tool: row.tool,
+    undo: parseAssistantJsonField(row.undo_json),
+    undoExpiresAt: row.undo_expires_at,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -390,6 +420,7 @@ class JsonHistoryDb {
           return {
             agent_executions: [],
             assistant_messages: [],
+            assistant_proposals: [],
             assistant_threads: [],
             batches: [],
             collections: [],
@@ -406,6 +437,7 @@ class JsonHistoryDb {
           return {
             agent_executions: Array.isArray(stored.agent_executions) ? stored.agent_executions : [],
             assistant_messages: Array.isArray(stored.assistant_messages) ? stored.assistant_messages : [],
+            assistant_proposals: Array.isArray(stored.assistant_proposals) ? stored.assistant_proposals : [],
             assistant_threads: Array.isArray(stored.assistant_threads) ? stored.assistant_threads : [],
             batches: Array.isArray(stored.batches) ? stored.batches : [],
             collections: Array.isArray(stored.collections) ? stored.collections : [],
@@ -425,6 +457,7 @@ class JsonHistoryDb {
     return {
       agent_executions: [],
       assistant_messages: [],
+      assistant_proposals: [],
       assistant_threads: [],
       batches: [],
       collections: [],
@@ -928,6 +961,7 @@ class JsonHistoryDb {
       pin_reviews: [],
       pin_review_events: [],
       pin_comments: [],
+      assistant_proposals: [],
       assistant_threads: [],
       assistant_messages: [],
     };
@@ -965,6 +999,7 @@ class JsonHistoryDb {
     if (!this.data.assistant_threads.some((item) => item.id === id)) return false;
     const nextData = {
       ...this.data,
+      assistant_proposals: this.data.assistant_proposals.filter((item) => item.thread_id !== id),
       assistant_threads: this.data.assistant_threads.filter((item) => item.id !== id),
       assistant_messages: this.data.assistant_messages.filter((item) => item.thread_id !== id),
     };
@@ -984,6 +1019,7 @@ class JsonHistoryDb {
       assistant_messages: [
         ...this.data.assistant_messages,
         {
+          ask_json: message.ask ?? null,
           created_at: message.createdAt,
           error_code: message.errorCode,
           id: message.id,
@@ -996,6 +1032,76 @@ class JsonHistoryDb {
     };
     this._savePinState(nextData);
     this.data = nextData;
+  }
+
+  createAssistantProposal(record) {
+    if (!this.data.assistant_threads.some((item) => item.id === record.threadId)) {
+      throw new Error("assistant thread not found");
+    }
+    // Same keys as the SQLite columns; the *_json fields hold the parsed
+    // values directly, while the SQLite side stringifies them.
+    const nextData = {
+      ...this.data,
+      assistant_proposals: [
+        ...this.data.assistant_proposals,
+        {
+          args_json: record.args,
+          created_at: record.createdAt,
+          display_json: record.display,
+          error_code: record.errorCode,
+          executed_at: record.executedAt,
+          expires_at: record.expiresAt,
+          fingerprint: record.fingerprint,
+          id: record.id,
+          message_id: record.messageId,
+          result_json: record.result === null ? null : record.result,
+          risk: record.risk,
+          status: record.status,
+          summary: record.summary,
+          thread_id: record.threadId,
+          tool: record.tool,
+          undo_json: record.undo === null ? null : record.undo,
+          undo_expires_at: record.undoExpiresAt,
+          updated_at: record.updatedAt,
+        },
+      ],
+    };
+    this._savePinState(nextData);
+    this.data = nextData;
+  }
+
+  getAssistantProposal(id) {
+    const row = this.data.assistant_proposals.find((item) => item.id === id);
+    return row ? formatAssistantProposal(row) : null;
+  }
+
+  listAssistantProposals(threadId) {
+    return this.data.assistant_proposals
+      .filter((item) => item.thread_id === threadId)
+      .sort((left, right) => left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id))
+      .map(formatAssistantProposal);
+  }
+
+  transitionAssistantProposal({ id, from, to, now, patch = {}, requireBefore = null }) {
+    const row = this.data.assistant_proposals.find((item) => item.id === id);
+    if (!row || from.length === 0 || !from.includes(row.status)) return null;
+    if (requireBefore) {
+      const column = requireBefore === "expiresAt" ? row.expires_at : row.undo_expires_at;
+      if (typeof column !== "string" || !(column > now)) return null;
+    }
+    const nextRow = { ...row, status: to, updated_at: now };
+    if (patch.errorCode !== undefined) nextRow.error_code = patch.errorCode;
+    if (patch.executedAt !== undefined) nextRow.executed_at = patch.executedAt;
+    if (patch.result !== undefined) nextRow.result_json = patch.result === null ? null : patch.result;
+    if (patch.undo !== undefined) nextRow.undo_json = patch.undo === null ? null : patch.undo;
+    if (patch.undoExpiresAt !== undefined) nextRow.undo_expires_at = patch.undoExpiresAt;
+    const nextData = {
+      ...this.data,
+      assistant_proposals: this.data.assistant_proposals.map((item) => (item.id === id ? nextRow : item)),
+    };
+    this._savePinState(nextData);
+    this.data = nextData;
+    return this.getAssistantProposal(id);
   }
 
   listAssistantMessages(threadId, { limit = 200 } = {}) {
@@ -1391,8 +1497,29 @@ class SqliteHistoryDb {
       CREATE INDEX IF NOT EXISTS idx_loop_metrics_created ON loop_metrics(created_at);
       CREATE TABLE IF NOT EXISTS assistant_threads (id TEXT PRIMARY KEY, title TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS idx_assistant_threads_updated ON assistant_threads(updated_at DESC);
-      CREATE TABLE IF NOT EXISTS assistant_messages (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, role TEXT NOT NULL CHECK (role IN ('user','assistant')), text TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('final','error')), error_code TEXT, created_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS assistant_messages (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, role TEXT NOT NULL CHECK (role IN ('user','assistant')), text TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('final','error')), error_code TEXT, created_at TEXT NOT NULL, ask_json TEXT);
       CREATE INDEX IF NOT EXISTS idx_assistant_messages_thread ON assistant_messages(thread_id, created_at);
+      CREATE TABLE IF NOT EXISTS assistant_proposals (
+        id TEXT PRIMARY KEY,
+        thread_id TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        tool TEXT NOT NULL,
+        args_json TEXT NOT NULL,
+        display_json TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        risk TEXT NOT NULL CHECK (risk IN ('reversible', 'irreversible', 'external')),
+        fingerprint TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('proposed', 'executing', 'executed', 'failed', 'rejected', 'expired', 'undoing', 'undone')),
+        error_code TEXT,
+        result_json TEXT,
+        undo_json TEXT,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        executed_at TEXT,
+        undo_expires_at TEXT,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_assistant_proposals_thread_created ON assistant_proposals(thread_id, created_at);
     `);
     const projectColumns = new Set(
       this.db.prepare("PRAGMA table_info(projects)").all().map((row) => row.name),
@@ -1421,6 +1548,12 @@ class SqliteHistoryDb {
       this.db.exec("ALTER TABLE sessions ADD COLUMN include_screenshot INTEGER NOT NULL DEFAULT 1;");
     }
     if (!columns.has("batch_id")) this.db.exec("ALTER TABLE sessions ADD COLUMN batch_id TEXT;");
+    const assistantMessageColumns = new Set(
+      this.db.prepare("PRAGMA table_info(assistant_messages)").all().map((row) => row.name),
+    );
+    if (!assistantMessageColumns.has("ask_json")) {
+      this.db.exec("ALTER TABLE assistant_messages ADD COLUMN ask_json TEXT;");
+    }
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_sessions_collection_position ON sessions(collection_id, position);");
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_sessions_batch ON sessions(batch_id, created_at DESC);");
     // Pre-agent stores pin a single-value CHECK on actor_type, which SQLite
@@ -1991,7 +2124,7 @@ class SqliteHistoryDb {
   }
 
   clearHistory() {
-    this.db.exec("DELETE FROM loop_metrics; DELETE FROM agent_pin_results; DELETE FROM agent_executions; DELETE FROM pin_review_events; DELETE FROM pin_reviews; DELETE FROM pin_comments; DELETE FROM assistant_messages; DELETE FROM assistant_threads; DELETE FROM sessions;");
+    this.db.exec("DELETE FROM loop_metrics; DELETE FROM agent_pin_results; DELETE FROM agent_executions; DELETE FROM pin_review_events; DELETE FROM pin_reviews; DELETE FROM pin_comments; DELETE FROM assistant_proposals; DELETE FROM assistant_messages; DELETE FROM assistant_threads; DELETE FROM sessions;");
     return true;
   }
 
@@ -2023,6 +2156,7 @@ class SqliteHistoryDb {
     if (!existing) return false;
     this.db.exec("BEGIN");
     try {
+      this.db.prepare("DELETE FROM assistant_proposals WHERE thread_id = ?").run(id);
       this.db.prepare("DELETE FROM assistant_messages WHERE thread_id = ?").run(id);
       this.db.prepare("DELETE FROM assistant_threads WHERE id = ?").run(id);
       this.db.exec("COMMIT");
@@ -2043,9 +2177,9 @@ class SqliteHistoryDb {
     this.db.exec("BEGIN");
     try {
       this.db.prepare(`
-        INSERT INTO assistant_messages (id, thread_id, role, text, status, error_code, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(message.id, message.threadId, message.role, message.text, message.status, message.errorCode, message.createdAt);
+        INSERT INTO assistant_messages (id, thread_id, role, text, status, error_code, created_at, ask_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(message.id, message.threadId, message.role, message.text, message.status, message.errorCode, message.createdAt, message.ask ? JSON.stringify(message.ask) : null);
       this.db.prepare("UPDATE assistant_threads SET updated_at = ? WHERE id = ?").run(message.createdAt, message.threadId);
       this.db.exec("COMMIT");
     } catch (error) {
@@ -2060,12 +2194,92 @@ class SqliteHistoryDb {
 
   listAssistantMessages(threadId, { limit = 200 } = {}) {
     return this.db.prepare(`
-      SELECT id, thread_id, role, text, status, error_code, created_at
+      SELECT id, thread_id, role, text, status, error_code, created_at, ask_json
       FROM assistant_messages
       WHERE thread_id = ?
       ORDER BY created_at DESC, rowid DESC
       LIMIT ?
     `).all(threadId, limit).reverse().map((row) => formatAssistantMessage(row));
+  }
+
+  createAssistantProposal(record) {
+    const existing = this.db.prepare("SELECT id FROM assistant_threads WHERE id = ?").get(record.threadId);
+    if (!existing) throw new Error("assistant thread not found");
+    this.db.prepare(`
+      INSERT INTO assistant_proposals (
+        id, thread_id, message_id, tool, args_json, display_json, summary, risk, fingerprint,
+        status, error_code, result_json, undo_json, created_at, expires_at, executed_at,
+        undo_expires_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      record.id,
+      record.threadId,
+      record.messageId,
+      record.tool,
+      JSON.stringify(record.args),
+      JSON.stringify(record.display),
+      record.summary,
+      record.risk,
+      record.fingerprint,
+      record.status,
+      record.errorCode,
+      record.result === null ? null : JSON.stringify(record.result),
+      record.undo === null ? null : JSON.stringify(record.undo),
+      record.createdAt,
+      record.expiresAt,
+      record.executedAt,
+      record.undoExpiresAt,
+      record.updatedAt,
+    );
+  }
+
+  getAssistantProposal(id) {
+    const row = this.db.prepare("SELECT * FROM assistant_proposals WHERE id = ?").get(id);
+    return row ? formatAssistantProposal(row) : null;
+  }
+
+  listAssistantProposals(threadId) {
+    return this.db.prepare(`
+      SELECT * FROM assistant_proposals
+      WHERE thread_id = ?
+      ORDER BY created_at ASC, id ASC
+    `).all(threadId).map(formatAssistantProposal);
+  }
+
+  transitionAssistantProposal({ id, from, to, now, patch = {}, requireBefore = null }) {
+    if (from.length === 0) return null;
+    const sets = ["status = ?", "updated_at = ?"];
+    const params = [to, now];
+    if (patch.errorCode !== undefined) {
+      sets.push("error_code = ?");
+      params.push(patch.errorCode);
+    }
+    if (patch.executedAt !== undefined) {
+      sets.push("executed_at = ?");
+      params.push(patch.executedAt);
+    }
+    if (patch.result !== undefined) {
+      sets.push("result_json = ?");
+      params.push(patch.result === null ? null : JSON.stringify(patch.result));
+    }
+    if (patch.undo !== undefined) {
+      sets.push("undo_json = ?");
+      params.push(patch.undo === null ? null : JSON.stringify(patch.undo));
+    }
+    if (patch.undoExpiresAt !== undefined) {
+      sets.push("undo_expires_at = ?");
+      params.push(patch.undoExpiresAt);
+    }
+    const statusPlaceholders = from.map(() => "?").join(", ");
+    let sql = `UPDATE assistant_proposals SET ${sets.join(", ")} WHERE id = ? AND status IN (${statusPlaceholders})`;
+    params.push(id, ...from);
+    if (requireBefore) {
+      sql += requireBefore === "expiresAt" ? " AND expires_at > ?" : " AND undo_expires_at > ?";
+      params.push(now);
+    }
+    sql += " RETURNING *";
+    const row = this.db.prepare(sql).get(...params);
+    return row ? formatAssistantProposal(row) : null;
   }
 
   listProjects() {

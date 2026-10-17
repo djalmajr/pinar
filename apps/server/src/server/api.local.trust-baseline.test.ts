@@ -148,6 +148,14 @@ describe("local API trust enforcement", () => {
     assert.equal(classifyLocalApiRequest("POST", "/api/assistant/turn")?.class, "mutable");
     assert.equal(classifyLocalApiRequest("DELETE", "/api/assistant/threads/ath_aaaaaaaaaaaaaaaaaaaaaaaa")?.class, "mutable");
     assert.ok(classifyLocalApiRequest("POST", "/api/assistant/threads") === null);
+    for (const action of ["confirm", "reject", "undo"]) {
+      const entry = classifyLocalApiRequest("POST", `/api/assistant/proposals/apr_aaaaaaaaaaaaaaaaaaaaaaaa/${action}`);
+      assert.equal(entry?.class, "mutable", action);
+      assert.deepEqual(entry?.intendedClients, ["workspace"], action);
+      assert.equal(entry?.path, `/api/assistant/proposals/:id/${action}`, action);
+      assert.ok(classifyLocalApiRequest("GET", `/api/assistant/proposals/apr_aaaaaaaaaaaaaaaaaaaaaaaa/${action}`) === null, action);
+    }
+    assert.ok(classifyLocalApiRequest("POST", "/api/assistant/proposals/apr_aaaaaaaaaaaaaaaaaaaaaaaa/delete") === null);
   });
 
   test("loopback workspace and CLI clients keep access without a capability header", async () => {

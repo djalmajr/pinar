@@ -1,4 +1,4 @@
-// One read-only assistant conversation bound to its own SDK Chat. Switching
+// One assistant conversation bound to its own SDK Chat. Switching
 // conversations never reuses the previous Chat: a stream interrupted mid-way
 // (late deltas, a late data-thread) still addresses the Chat it started from,
 // so it can never touch the messages of another conversation.
@@ -7,10 +7,14 @@ import { DefaultChatTransport } from "ai";
 import {
   buildTurnRequestBody,
   fetchAssistantThread,
+  runAssistantProposalAction,
   threadMessagesToUiMessages,
+  type AssistantProposalActionKind,
+  type AssistantPublicProposal,
   type AssistantThreadDetail,
   type AssistantUIMessage,
 } from "./assistant-client";
+import type { AssistantProposalCardState } from "./AssistantMessages";
 
 /**
  * A single assistant conversation: the real SDK Chat, the id passed to the
@@ -157,7 +161,7 @@ export async function openAssistantConversation(
       chatId: `assistant:${id}`,
       generation,
       hooks: store.hooks,
-      messages: threadMessagesToUiMessages(loaded.messages),
+      messages: threadMessagesToUiMessages(loaded.messages, loaded.proposals),
       threadId: id,
     }),
     kind: "switched",
@@ -173,4 +177,47 @@ export async function openAssistantConversation(
  */
 export function stopAssistantConversation(conversation: AssistantConversation): void {
   void conversation.chat.stop();
+}
+
+/** The card states of the current conversation, per proposal id. */
+export type AssistantProposalCardStates = Record<string, AssistantProposalCardState>;
+
+/** What a card action needs from the panel. */
+export interface AssistantProposalActionStore {
+  /** The conversation generation cell (the one in the conversation hooks). */
+  generation: { current: number };
+  /** The ids of the proposals with an action in flight. */
+  inFlight: Set<string>;
+  setProposalStates: (update: (current: AssistantProposalCardStates) => AssistantProposalCardStates) => void;
+}
+
+/**
+ * Run one card action for the current conversation. One action per proposal
+ * at a time: `inFlight` drops a second click before the disabled buttons
+ * render. The answer is applied only while the generation the action started
+ * in is still current: after any switch (even back to the same thread, whose
+ * reopening loaded fresher proposals) a late answer is discarded.
+ */
+export async function applyAssistantProposalAction(
+  store: AssistantProposalActionStore,
+  kind: AssistantProposalActionKind,
+  proposal: AssistantPublicProposal,
+): Promise<void> {
+  if (store.inFlight.has(proposal.id)) return;
+  store.inFlight.add(proposal.id);
+  const generation = store.generation.current;
+  store.setProposalStates((current) => ({
+    ...current,
+    [proposal.id]: { errorKey: null, pending: true, proposal: current[proposal.id]?.proposal ?? null },
+  }));
+  try {
+    const outcome = await runAssistantProposalAction(kind, proposal);
+    if (store.generation.current !== generation) return;
+    store.setProposalStates((current) => ({
+      ...current,
+      [proposal.id]: { errorKey: outcome.errorKey, pending: false, proposal: outcome.proposal },
+    }));
+  } finally {
+    store.inFlight.delete(proposal.id);
+  }
 }

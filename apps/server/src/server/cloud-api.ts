@@ -117,6 +117,7 @@ import {
   resetCloudAssistantMemoryForTests,
 } from "./assistant/store-cloud";
 import type { AssistantStatus } from "./assistant/http";
+import type { AssistantStateReader } from "./assistant/state-reader";
 import type { AssistantToolHost } from "./assistant/tools";
 import {
   CLOUD_MCP_TOOLS,
@@ -6973,11 +6974,14 @@ const MCP_MAX_AGGREGATE_PINS_BYTES = 512 * 1024;
 const MCP_MAX_NAME_LENGTH = 200;
 
 // Actor of a Cloud MCP tool call: an authenticated agent key (the /api/mcp
-// endpoint) or the logged-in web user (the assistant, which runs the read
-// tools as the person themselves, never with an agent key). The user
-// behaves like an account-scoped key with read permission; writes are
-// refused while the F2 writes (proposal and confirmation) are not in.
-type CloudMcpActor = { kind: "agent_key"; key: AgentKeyRecord } | { kind: "user" };
+// endpoint) or the logged-in web user (the assistant, which runs the tools
+// as the person themselves, never with an agent key). The user behaves like
+// an account-scoped key: with `writes: false` (the assistant turn) it reads
+// and every write is refused; with `writes: true` (only the confirm and
+// undo of a proposal, F2 contract section 3) it passes the write guards
+// like a `full` key, still under each handler's owner checks, and its
+// writes are recorded as the person, the way the web app records them.
+type CloudMcpActor = { kind: "agent_key"; key: AgentKeyRecord } | { kind: "user"; writes: boolean };
 
 interface CloudMcpContext {
   actor: CloudMcpActor;
@@ -6986,8 +6990,8 @@ interface CloudMcpContext {
   principal: Principal;
 }
 
-// Refusal of every write tool for the web user actor (writes are the F2
-// phase, with proposal and confirmation).
+// Refusal of every write tool for the web user actor without writes (the
+// assistant turn: writes only run when the person confirms a proposal).
 const MCP_USER_WRITE_UNAVAILABLE = "This action is not available to the assistant yet";
 
 function mcpTextArg(args: Record<string, unknown>, name: string, maxLength = MCP_MAX_ARGUMENT_LENGTH) {
@@ -7079,22 +7083,53 @@ function mcpStringArrayArg(args: Record<string, unknown>, name: string, required
 }
 
 function mcpCapabilityAllowed(context: CloudMcpContext, capability: "manage" | "read" | "share") {
-  if (context.actor.kind === "user") return capability === "read";
+  if (context.actor.kind === "user") return capability === "read" || context.actor.writes;
   const key = context.actor.key;
   if (capability === "read") return key.permission === "read" || key.permission === "manage" || key.permission === "full";
   return key.permission === "full" || key.permission === capability;
 }
 
-// Every mutation records the agent key's identity (never a human), so only
-// an agent-key actor can reach the mutation code; the user actor is refused
-// in the mcpRequire* guards above and this is a backstop for the type.
+// The agent key of an agent-key actor. Mutations of an agent key record the
+// key's identity; the user actor never reaches this (its writes are
+// recorded as the person, see mcpCommentAuthor and mcpReviewActor).
 function mcpAgentKey(context: CloudMcpContext): AgentKeyRecord {
   if (context.actor.kind !== "agent_key") throw new McpToolError(MCP_USER_WRITE_UNAVAILABLE);
   return context.actor.key;
 }
 
+// The author of a pin comment: the agent key, or the person exactly as the
+// web route createPinComment records them (account id, email label,
+// "human"). The caller cannot spoof either.
+function mcpCommentAuthor(context: CloudMcpContext): { actorId: string; actorLabel: string; actorType: PinComment["actorType"] } {
+  if (context.actor.kind === "user") {
+    const actorLabel = context.principal.email?.trim() || "";
+    if (!actorLabel) throw new McpToolError("Unauthorized");
+    return { actorId: context.principal.id, actorLabel, actorType: "human" };
+  }
+  const key = mcpAgentKey(context);
+  return { actorId: key.id, actorLabel: key.name, actorType: "agent" };
+}
+
+// Only the actor's own comments can be edited or deleted: the key's agent
+// comments, or the person's human comments (the web editPinComment rule).
+function mcpOwnsComment(context: CloudMcpContext, comment: PinComment): boolean {
+  if (context.actor.kind === "user") return comment.actorType === "human" && comment.actorId === context.principal.id;
+  return comment.actorType === "agent" && comment.actorId === mcpAgentKey(context).id;
+}
+
+// The review actor: the agent key as an agent result, or the person as a
+// human action, the way the web reviewPin route records it.
+function mcpReviewActor(context: CloudMcpContext): { actorId: string; actorType: "agent" | "human"; origin: "agent_result" | "human" } {
+  if (context.actor.kind === "user") return { actorId: context.principal.id, actorType: "human", origin: "human" };
+  return { actorId: mcpAgentKey(context).id, actorType: "agent", origin: "agent_result" };
+}
+
 function mcpRequireMutation(context: CloudMcpContext, capability: "manage" | "share") {
-  if (context.actor.kind === "user") throw new McpToolError(MCP_USER_WRITE_UNAVAILABLE);
+  if (context.actor.kind === "user") {
+    // An account-scoped full key: the owner checks run in each handler.
+    if (!context.actor.writes) throw new McpToolError(MCP_USER_WRITE_UNAVAILABLE);
+    return;
+  }
   if (!mcpCapabilityAllowed(context, capability)) {
     throw new McpToolError(`${capability} permission required`);
   }
@@ -7123,7 +7158,11 @@ async function mcpRequireRead(
 // scope covering the session. Unlike the workspace mutations above, scoped
 // keys may act on the one session they cover.
 async function mcpRequireSessionMutation(context: CloudMcpContext, sessionId: string) {
-  if (context.actor.kind === "user") throw new McpToolError(MCP_USER_WRITE_UNAVAILABLE);
+  if (context.actor.kind === "user") {
+    // Account scope: findOwnedSession in each handler is the session check.
+    if (!context.actor.writes) throw new McpToolError(MCP_USER_WRITE_UNAVAILABLE);
+    return;
+  }
   if (!mcpCapabilityAllowed(context, "manage")) throw new McpToolError("manage permission required");
   if (!await agentKeyAllowsRead(context.env, { key: context.actor.key, principal: context.principal }, "session", sessionId)) {
     throw new McpToolError("Resource not found");
@@ -7381,9 +7420,11 @@ function mcpShareExpiry(args: Record<string, unknown>) {
   return new Date(timestamp).toISOString();
 }
 
-// Pin review transitions driven by an agent key. The key is recorded as the
-// actor (never a human), so the human-only REST review path and the "human
-// action" semantics are preserved; the state machine itself is shared.
+// Pin review transitions driven by an agent key or by the person (a
+// confirmed proposal). An agent key is recorded as the actor (never a
+// human), so the human-only REST review path and the "human action"
+// semantics are preserved; the person is recorded as a human action, like
+// the web reviewPin route. The state machine itself is shared.
 async function mcpPinReviewTransition(
   context: CloudMcpContext,
   args: Record<string, unknown>,
@@ -7396,11 +7437,7 @@ async function mcpPinReviewTransition(
   if (!session) throw new McpToolError("Resource not found");
   if (!pinIdsFromPins(session.pins).has(pinId)) throw new McpToolError("Pin not found");
   try {
-    const result = await applyCloudPinReview(context.env, session, pinId, action, {
-      actorId: mcpAgentKey(context).id,
-      actorType: "agent",
-      origin: "agent_result",
-    });
+    const result = await applyCloudPinReview(context.env, session, pinId, action, mcpReviewActor(context));
     return { changed: result.changed, ok: true, review: result.review };
   } catch (error) {
     if (error instanceof PinReviewError) {
@@ -7606,13 +7643,8 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
           } catch {
             throw new McpToolError("body is invalid");
           }
-          // The author is derived from the key; the caller cannot spoof it.
-          const agentKey = mcpAgentKey(context);
-          const comment = await insertPinComment(context.env, session, pinId, {
-            actorId: agentKey.id,
-            actorLabel: agentKey.name,
-            actorType: "agent",
-          }, body);
+          // The author is derived from the actor; the caller cannot spoof it.
+          const comment = await insertPinComment(context.env, session, pinId, mcpCommentAuthor(context), body);
           return { comment, ok: true };
         }
         case "pinar.edit_pin_comment": {
@@ -7623,8 +7655,7 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
           const session = await findOwnedSession(context.env, context.principal, sessionId);
           if (!session) throw new McpToolError("Resource not found");
           const existing = await findPinComment(context.env, sessionId, commentId);
-          if (!existing || existing.pinId !== pinId
-            || existing.actorType !== "agent" || existing.actorId !== mcpAgentKey(context).id) {
+          if (!existing || existing.pinId !== pinId || !mcpOwnsComment(context, existing)) {
             throw new McpToolError("Resource not found");
           }
           let body: string;
@@ -7903,8 +7934,7 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
           const session = await findOwnedSession(context.env, context.principal, sessionId);
           if (!session) throw new McpToolError("Resource not found");
           const existing = await findPinComment(context.env, sessionId, commentId);
-          if (!existing || existing.pinId !== pinId
-            || existing.actorType !== "agent" || existing.actorId !== mcpAgentKey(context).id) {
+          if (!existing || existing.pinId !== pinId || !mcpOwnsComment(context, existing)) {
             throw new McpToolError("Resource not found");
           }
           if (!(await deletePinComment(context.env, sessionId, pinId, commentId))) {
@@ -7928,11 +7958,108 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
 // The assistant's tool host: the logged-in web user calls the Cloud MCP
 // tools as themselves (no agent key). `origin` is the app origin of the
 // assistant request, used by the markdown tools for viewer links, exactly
-// like the /api/mcp endpoint.
-export function cloudAssistantToolHost(env: CloudEnv, principal: Principal, origin: string): AssistantToolHost {
+// like the /api/mcp endpoint. `writes` stays false for the turn; only the
+// confirm and undo of a proposal pass true.
+export function cloudAssistantToolHost(
+  env: CloudEnv,
+  principal: Principal,
+  origin: string,
+  options: { writes?: boolean } = {},
+): AssistantToolHost {
+  const writes = options.writes === true;
   return {
     callTool: (name, args) =>
-      mcpHandlers({ actor: { kind: "user" }, env, origin, principal }).callTool(name, args),
+      mcpHandlers({ actor: { kind: "user", writes }, env, origin, principal }).callTool(name, args),
+  };
+}
+
+// The assistant's state reader in the Cloud (F2 contract 1.1): only the
+// person's own entities, through the owner-scoped access functions the
+// write handlers use (findOwnedSession, findOwnedCollection, getBatch,
+// listProjects, listCollections, listCollectionSessions, the pin comment
+// reads). An entity of another account, or one only shared with the
+// person, reads as null: the person cannot write there. share() resolves
+// the resource like publish_share/revoke_share (mcpOwnedResource) and reads
+// the active token the same way (findActiveShareToken, owned by the
+// person, as revokeShareToken requires).
+export function cloudAssistantStateReader(env: CloudEnv, principal: Principal): AssistantStateReader {
+  const ownedProject = async (projectId: string) =>
+    (await listProjects(env, principal)).find((project) => project.id === projectId) ?? null;
+  const ownedPin = async (sessionId: string, pinId: string) => {
+    const session = await findOwnedSession(env, principal, sessionId);
+    return session?.pins.find((pin) => (pin.pinId || pin.id) === pinId) ?? null;
+  };
+  const ownedResourceName = async (resourceType: ShareToken["resourceType"], resourceId: string) => {
+    if (resourceType === "session") return (await findOwnedSession(env, principal, resourceId))?.page.title ?? null;
+    if (resourceType === "collection") return (await findOwnedCollection(env, principal, resourceId))?.name ?? null;
+    if (resourceType === "batch") return (await getBatch(env, principal, resourceId))?.label ?? null;
+    return (await ownedProject(resourceId))?.name ?? null;
+  };
+  return {
+    async batch(id) {
+      const batch = await getBatch(env, principal, id);
+      return batch ? { finishedAt: batch.finishedAt, id: batch.id, label: batch.label, sessionCount: batch.sessionCount } : null;
+    },
+    async collection(id) {
+      const collection = await findOwnedCollection(env, principal, id);
+      if (!collection) return null;
+      return {
+        id: collection.id,
+        name: collection.name,
+        parentId: collection.parentId ?? null,
+        projectId: collection.projectId,
+        sessionCount: (await listCollectionSessions(env, principal, collection.id)).length,
+      };
+    },
+    // listCollections returns the hierarchy parents-first with siblings in
+    // position order: handed back to reorder_collections as `items`, it
+    // rebuilds the same parents and positions.
+    async collectionPlacements(projectId) {
+      if (!(await ownedProject(projectId))) return null;
+      return (await listCollections(env, principal, projectId)).map((collection) => ({ id: collection.id, parentId: collection.parentId ?? null }));
+    },
+    async comment(sessionId, pinId, commentId) {
+      if (!(await ownedPin(sessionId, pinId))) return null;
+      const comment = await findPinComment(env, sessionId, commentId);
+      return comment && comment.pinId === pinId ? { body: comment.body, id: comment.id } : null;
+    },
+    async pin(sessionId, pinId) {
+      const pin = await ownedPin(sessionId, pinId);
+      if (!pin) return null;
+      const commentCount = (await listPinComments(env, sessionId)).filter((comment) => comment.pinId === pinId).length;
+      return { comment: pin.comment || "", commentCount, id: pinId, number: pin.number };
+    },
+    async project(id) {
+      const project = await ownedProject(id);
+      return project ? { collectionCount: (await listCollections(env, principal, id)).length, id: project.id, name: project.name } : null;
+    },
+    async projectOrder() {
+      return (await listProjects(env, principal)).map((project) => project.id);
+    },
+    async session(id) {
+      const session = await findOwnedSession(env, principal, id);
+      if (!session) return null;
+      return {
+        batchId: cloudSessionBatchId(session),
+        collectionId: session.collectionId ?? "",
+        id: session.id,
+        pinCount: session.pinCount ?? session.pins.length,
+        title: session.page.title,
+      };
+    },
+    // The person's sessions of the collection in position order: the set
+    // reorder_sessions updates (reorderSessionIds).
+    async sessionOrder(collectionId) {
+      if (!(await findOwnedCollection(env, principal, collectionId))) return null;
+      return (await listCollectionSessions(env, principal, collectionId)).map((session) => session.id);
+    },
+    async share(resourceType, resourceId) {
+      if (!isMcpResourceType(resourceType)) return null;
+      const name = await ownedResourceName(resourceType, resourceId);
+      if (name === null) return null;
+      const token = await findActiveShareToken(env, resourceType, resourceId);
+      return { active: Boolean(token && token.ownerId === principal.id), name };
+    },
   };
 }
 
@@ -7989,6 +8116,7 @@ async function cloudAssistantRoutesUnguarded(request: Request, env: CloudEnv): P
   // the SDK's @vercel/oidc dependency is replaced by a stub, see
   // vite.config.edger.ts.)
   const { handleAssistantRequest } = await import("./assistant/http");
+  const origin = new URL(request.url).origin;
   const deps: Parameters<typeof handleAssistantRequest>[1] = {
     endpoint: async () =>
       env.AI_BASE_URL && env.AI_API_KEY && env.AI_MODEL
@@ -8005,10 +8133,14 @@ async function cloudAssistantRoutesUnguarded(request: Request, env: CloudEnv): P
         { limit: 20, scope: `account:${principal.id}` },
         { limit: 60, scope: `ip:${clientIp(request)}` },
       ], 60_000),
+    reader: cloudAssistantStateReader(env, principal),
     status: async () => status,
     store: cloudAssistantStore(env, principal.id),
     surface: "cloud",
-    toolHost: cloudAssistantToolHost(env, principal, new URL(request.url).origin),
+    // The turn reads only (defense in depth: it never calls a write); the
+    // confirm and undo routes write as the person.
+    toolHost: cloudAssistantToolHost(env, principal, origin),
+    writeHost: cloudAssistantToolHost(env, principal, origin, { writes: true }),
   };
   const response = await handleAssistantRequest(request, deps);
   // The assistant path was matched above, so null (a different route) is

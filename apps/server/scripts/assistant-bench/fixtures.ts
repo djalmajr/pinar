@@ -661,6 +661,17 @@ export function respond(toolName: string, args: Record<string, unknown>): unknow
       const collection = requireCollection(collectionId);
       return proposal(`Mover a sessão "${session.page.title}" para a coleção "${collection.name}"`);
     }
+    // Assistant-only bulk move (f2). Same read order as readMove in
+    // proposals.ts: every session first, then the target collection.
+    case "pinar.move_sessions": {
+      const collectionId = requireText(args, "collectionId");
+      const sessionIds = Array.isArray(args.sessionIds) ? args.sessionIds : [];
+      if (sessionIds.length === 0) throw new FixtureToolError("sessionIds is required");
+      for (const sessionId of sessionIds) requireSession(String(sessionId));
+      const collection = requireCollection(collectionId);
+      const count = sessionIds.length === 1 ? "1 sessão" : `${sessionIds.length} sessões`;
+      return proposal(`Mover ${count} para a coleção "${collection.name}"`);
+    }
     case "pinar.reorder_sessions": {
       const collectionId = requireText(args, "collectionId");
       requireCollection(collectionId);
@@ -751,6 +762,10 @@ export function respond(toolName: string, args: Record<string, unknown>): unknow
       const session = requireSession(requireText(args, "sessionId"));
       return proposal(`Apagar a sessão "${session.page.title}"`);
     }
+    // Assistant-only question (f2): the runtime's execute answers the model
+    // with this status; the loop ends the turn on the call.
+    case "pinar.ask":
+      return { status: "asked" };
     default:
       throw new FixtureToolError("Unknown tool");
   }

@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { LanguageModel, ToolSet } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
-import type { AssistantToolHost, AssistantTurnOutcome } from "./tools";
+import { ASSISTANT_PROPOSAL_TTL_MS, newAssistantProposalId, prepareProposal, publicProposal, type AssistantProposalRecord } from "./proposals";
+import { FIXTURE_ID_PREFIX, fixtureReader, fixtureWorld } from "./proposals.test-helpers";
+import { newAssistantMessageId } from "./store";
+import { ASSISTANT_TOOL_POLICY } from "./tool-policy";
+import type { AssistantProposalSink, AssistantToolHost } from "./tools";
 import { buildAssistantToolSet } from "./tools";
 import {
   ASSISTANT_MAX_STEPS,
@@ -10,6 +14,8 @@ import {
   classifyTurnOutcome,
   runAssistantTurn,
   type AssistantHistoryEntry,
+  type AssistantStreamEmit,
+  type AssistantTurnOutcome,
 } from "./turn";
 
 // ---------- mock model helpers ----------
@@ -114,6 +120,7 @@ test("text response: the stream starts with data-thread, then text; outcome is f
   assert.deepEqual(parts[0], { data: THREAD, type: "data-thread" });
   assert.ok(body.includes("Você tem 2 sessões."), "the text must reach the stream");
   assert.deepEqual(await outcome, {
+    ask: null,
     kind: "final",
     steps: 1,
     text: "Você tem 2 sessões.",
@@ -374,6 +381,7 @@ test("the client reads the first chunk and cancels: the outcome still resolves",
   assert.equal(settled.resolved, true, "the outcome must settle even after the client cancels");
   if (settled.resolved) {
     assert.deepEqual(settled.value, {
+      ask: null,
       kind: "final",
       steps: 1,
       text: "Oi! tudo bem?",
@@ -445,6 +453,7 @@ test("classifyTurnOutcome: a wait notice is not a final answer", () => {
 test("classifyTurnOutcome: final, long wait-like text, tool cap and empty text", () => {
   // A normal stop with content is final (whitespace trimmed from the text).
   assert.deepEqual(classifyTurnOutcome({ finishReason: "stop", steps: 2, text: "  Você tem 2 sessões. ", usage: usageForTest }), {
+    ask: null,
     kind: "final",
     steps: 2,
     text: "Você tem 2 sessões.",
@@ -465,5 +474,228 @@ test("classifyTurnOutcome: final, long wait-like text, tool cap and empty text",
   assert.equal(
     classifyTurnOutcome({ finishReason: "stop", steps: 1, text: "   ", usage: usageForTest }).kind,
     "error",
+  );
+});
+
+test("classifyTurnOutcome: a valid ask is final with the question, even on tool-calls; an error still wins", () => {
+  const ask = { options: ["A", "B"], question: "Qual coleção?" };
+  assert.deepEqual(classifyTurnOutcome({ ask, finishReason: "tool-calls", steps: 1, text: "", usage: usageForTest }), {
+    ask,
+    kind: "final",
+    steps: 1,
+    text: "Qual coleção?",
+    usage: usageForTest,
+  });
+  assert.equal(classifyTurnOutcome({ ask, finishReason: "error", steps: 1, text: "", usage: usageForTest }).kind, "error");
+  assert.equal(classifyTurnOutcome({ ask: null, finishReason: "tool-calls", steps: 1, text: "", usage: usageForTest }).kind, "error");
+});
+
+// ---------- 9: writes as proposals and pinar_ask ----------
+
+const fx = (suffix: string) => `${FIXTURE_ID_PREFIX}${suffix}`;
+
+// A mock model that records the prompt of every step.
+function scriptedModel(steps: ModelPart[][]): { calls: () => number; model: LanguageModel; prompts: unknown[] } {
+  const prompts: unknown[] = [];
+  const model = new MockLanguageModelV4({
+    doStream: (async (options: { prompt: unknown }) => {
+      prompts.push(options.prompt);
+      const parts = steps[Math.min(prompts.length - 1, steps.length - 1)];
+      return { stream: modelStream(parts) };
+    }) as unknown as MockLanguageModelV4["doStream"],
+    modelId: "mock",
+  });
+  return { calls: () => prompts.length, model, prompts };
+}
+
+const callPart = (toolName: string, input: unknown, toolCallId = "tc1") => ({
+  input: JSON.stringify(input),
+  toolCallId,
+  toolName,
+  type: "tool-call",
+});
+
+// The turn's proposal sink as S3 will wire it: prepare over the state
+// reader, store-shaped record, data-proposal through emit.
+function fixtureSink(emit: AssistantStreamEmit): AssistantProposalSink & { proposals: string[] } {
+  const reader = fixtureReader(fixtureWorld());
+  const proposals: string[] = [];
+  return {
+    proposals,
+    async propose(tool, args) {
+      proposals.push(tool);
+      const prepared = await prepareProposal({ args, reader, tool });
+      if (!prepared.ok) return { problems: prepared.problems, status: "invalid_arguments" };
+      const now = new Date();
+      const record: AssistantProposalRecord = {
+        args,
+        createdAt: now.toISOString(),
+        display: prepared.prepared.display,
+        errorCode: null,
+        executedAt: null,
+        expiresAt: new Date(now.getTime() + ASSISTANT_PROPOSAL_TTL_MS).toISOString(),
+        fingerprint: prepared.prepared.fingerprint,
+        id: newAssistantProposalId(),
+        messageId: newAssistantMessageId(),
+        result: null,
+        risk: prepared.prepared.risk,
+        status: "proposed",
+        summary: prepared.prepared.summary,
+        threadId: THREAD.id,
+        tool,
+        undo: null,
+        undoExpiresAt: null,
+        updatedAt: now.toISOString(),
+      };
+      emit({ data: publicProposal(record, now), type: "data-proposal" });
+      return { status: "awaiting_confirmation", summary: prepared.prepared.summary };
+    },
+  };
+}
+
+function spyHost(): AssistantToolHost & { calls: string[] } {
+  const calls: string[] = [];
+  return {
+    calls,
+    callTool: async (name) => {
+      calls.push(name);
+      return "ok";
+    },
+  };
+}
+
+function writeTurn(steps: ModelPart[][]) {
+  const host = spyHost();
+  const scripted = scriptedModel(steps);
+  let sink: (AssistantProposalSink & { proposals: string[] }) | null = null;
+  const { outcome, response } = runAssistantTurn({
+    history: [{ role: "user", text: "move a sessão" }],
+    model: scripted.model,
+    system: "sys",
+    thread: THREAD,
+    tools: (emit) => {
+      sink = fixtureSink(emit);
+      return buildAssistantToolSet({ emit, host, kinds: ["read", "write"], proposals: sink, surface: "local" });
+    },
+  });
+  return { host, outcome, response, scripted, sink: () => sink! };
+}
+
+test("a write tool call streams data-proposal, the model gets awaiting_confirmation and the host is never called", async () => {
+  const turn = writeTurn([
+    [callPart("pinar_move_session", { collectionId: fx("col-b"), sessionId: fx("session-2") }), finish("tool-calls")],
+    [...textParts("Propus mover a sessão; confirme no cartão."), finish("stop")],
+  ]);
+  const parts = sseDataParts(await readSse(turn.response)) as Array<{ data?: Record<string, unknown>; type: string }>;
+  assert.deepEqual(parts[0], { data: THREAD, type: "data-thread" });
+  const proposals = parts.filter((part) => part.type === "data-proposal");
+  assert.equal(proposals.length, 1);
+  const data = proposals[0].data!;
+  assert.deepEqual(data.display, { action: "move_session", params: { collection: "Onboarding", session: "Payment form" } });
+  assert.equal(data.status, "proposed");
+  assert.equal(data.tool, "pinar.move_session");
+  for (const hidden of ["args", "fingerprint", "result", "undo", "summary"]) assert.ok(!(hidden in data), `${hidden} must not cross the stream`);
+  assert.ok(!JSON.stringify(data.display).includes(FIXTURE_ID_PREFIX));
+  assert.equal(turn.scripted.calls(), 2);
+  const second = JSON.stringify(turn.scripted.prompts[1]);
+  assert.ok(second.includes("awaiting_confirmation"), second.slice(-400));
+  assert.ok(second.includes('Move session \\"Payment form\\" to \\"Onboarding\\"'), second.slice(-400));
+  assert.deepEqual(turn.host.calls, [], "the host must never be called for a write");
+  assert.deepEqual(turn.sink().proposals, ["pinar.move_session"]);
+  const result = (await turn.outcome) as Extract<AssistantTurnOutcome, { kind: "final" }>;
+  assert.equal(result.kind, "final");
+  assert.equal(result.ask, null);
+  assert.equal(result.steps, 2);
+});
+
+test("invalid write arguments go back as invalid_arguments, with no proposal", async () => {
+  const turn = writeTurn([
+    [callPart("pinar_move_session", { sessionId: 7 }), finish("tool-calls")],
+    [...textParts("Faltou a coleção."), finish("stop")],
+  ]);
+  const parts = sseDataParts(await readSse(turn.response)) as Array<{ type: string }>;
+  assert.ok(!parts.some((part) => part.type === "data-proposal"));
+  assert.ok(JSON.stringify(turn.scripted.prompts[1]).includes("invalid_arguments"));
+  assert.deepEqual(turn.sink().proposals, [], "invalid arguments never reach the sink");
+  assert.deepEqual(turn.host.calls, []);
+  assert.equal((await turn.outcome).kind, "final");
+});
+
+test("a missing entity goes back as invalid_arguments with '<entity> not found', with no proposal", async () => {
+  const turn = writeTurn([
+    [callPart("pinar_move_session", { collectionId: fx("col-b"), sessionId: fx("missing") }), finish("tool-calls")],
+    [...textParts("Não achei a sessão."), finish("stop")],
+  ]);
+  const parts = sseDataParts(await readSse(turn.response)) as Array<{ type: string }>;
+  assert.ok(!parts.some((part) => part.type === "data-proposal"));
+  const second = JSON.stringify(turn.scripted.prompts[1]);
+  assert.ok(second.includes("invalid_arguments") && second.includes("session not found"), second.slice(-300));
+  assert.deepEqual(turn.host.calls, []);
+});
+
+test("pinar_ask streams data-ask, stops on the same step and is final with ask and text = question", async () => {
+  const ask = { options: ["Checkout", "Onboarding"], question: "Para qual coleção?" };
+  const turn = writeTurn([
+    [callPart("pinar_ask", ask), finish("tool-calls")],
+    [...textParts("never reached"), finish("stop")],
+  ]);
+  const parts = sseDataParts(await readSse(turn.response)) as Array<{ data?: unknown; type: string }>;
+  assert.deepEqual(parts.filter((part) => part.type === "data-ask"), [{ data: ask, type: "data-ask" }]);
+  assert.equal(turn.scripted.calls(), 1, "the turn must stop on the pinar_ask step");
+  assert.deepEqual(await turn.outcome, {
+    ask,
+    kind: "final",
+    steps: 1,
+    text: "Para qual coleção?",
+    usage: { inputTokens: 3, outputTokens: 5, totalTokens: 8 },
+  });
+});
+
+test("an invalid pinar_ask still stops the loop but is not final and emits nothing", async () => {
+  const turn = writeTurn([
+    [callPart("pinar_ask", { options: ["só uma"], question: "Qual?" }), finish("tool-calls")],
+    [...textParts("never reached"), finish("stop")],
+  ]);
+  const parts = sseDataParts(await readSse(turn.response)) as Array<{ type: string }>;
+  assert.ok(!parts.some((part) => part.type === "data-ask"));
+  assert.equal(turn.scripted.calls(), 1);
+  assert.deepEqual(await turn.outcome, {
+    code: "ASSISTANT_TURN_INCOMPLETE",
+    kind: "error",
+    steps: 1,
+    usage: { inputTokens: 3, outputTokens: 5, totalTokens: 8 },
+  });
+});
+
+test("an excluded write is not offered: a call to it never reaches the sink or the host", async () => {
+  const entry = ASSISTANT_TOOL_POLICY["pinar.delete_project"];
+  const original = entry.assistant;
+  entry.assistant = "exclude";
+  try {
+    const turn = writeTurn([
+      [callPart("pinar_delete_project", { projectId: fx("project-2") }), finish("tool-calls")],
+      [...textParts("Não posso apagar projetos."), finish("stop")],
+    ]);
+    const parts = sseDataParts(await readSse(turn.response)) as Array<{ type: string }>;
+    assert.ok(!parts.some((part) => part.type === "data-proposal"));
+    await turn.outcome;
+    assert.deepEqual(turn.sink().proposals, []);
+    assert.deepEqual(turn.host.calls, []);
+  } finally {
+    entry.assistant = original;
+  }
+});
+
+test("asking for writes without a proposal sink throws before the turn starts", () => {
+  assert.throws(
+    () =>
+      runAssistantTurn({
+        history: [{ role: "user", text: "?" }],
+        model: textModel("x"),
+        system: "sys",
+        thread: THREAD,
+        tools: (emit) => buildAssistantToolSet({ emit, host: spyHost(), kinds: ["read", "write"], surface: "local" }),
+      }),
+    /proposal sink/,
   );
 });

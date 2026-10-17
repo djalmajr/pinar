@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { ToolSet } from "ai";
 import { McpToolError } from "../mcp-protocol";
-import { assistantToolsFor } from "./tool-policy";
-import { ASSISTANT_TOOL_DATA_MAX, buildAssistantToolSet, type AssistantToolHost } from "./tools";
+import { ASSISTANT_BULK_MAX } from "./proposals";
+import { ASSISTANT_TOOL_POLICY, assistantToolsFor, type AssistantSurface } from "./tool-policy";
+import { ASSISTANT_TOOL_DATA_MAX, buildAssistantToolSet, type AssistantProposalSink, type AssistantToolHost } from "./tools";
+import type { AssistantStreamEmit } from "./turn";
+import type { ToolInputSchema } from "./validate";
 
 // Records every host call so tests can prove the host is (not) reached.
 function makeHost(result: unknown, calls: string[] = []): AssistantToolHost {
@@ -22,6 +25,39 @@ function execute(set: ToolSet, llmName: string, args: unknown): Promise<unknown>
   const run = (entry as { execute?: (input: unknown, options: unknown) => Promise<unknown> }).execute;
   assert.equal(typeof run, "function", "the entry must be an executable tool");
   return run!(args, {});
+}
+
+// Records every proposal so tests can prove what the sink received.
+function makeSink(
+  reply: Awaited<ReturnType<AssistantProposalSink["propose"]>> | Error = { status: "awaiting_confirmation", summary: "Proposed" },
+): AssistantProposalSink & { proposals: Array<{ args: Record<string, unknown>; tool: string }> } {
+  const proposals: Array<{ args: Record<string, unknown>; tool: string }> = [];
+  return {
+    proposals,
+    async propose(tool, args) {
+      proposals.push({ args, tool });
+      if (reply instanceof Error) throw reply;
+      return reply;
+    },
+  };
+}
+
+// Minimal valid arguments for a tool schema: every required property with a
+// value of its first declared type.
+function minimalArgs(schema: ToolInputSchema): Record<string, unknown> {
+  const value = (node: ToolInputSchema): unknown => {
+    if (node.anyOf) return value(node.anyOf[0]);
+    const type = Array.isArray(node.type) ? node.type[0] : node.type;
+    if (type === "array") return [value(node.items ?? { type: "string" })];
+    if (type === "object") return minimalArgs(node);
+    if (type === "integer" || type === "number") return node.minimum ?? 1;
+    if (type === "boolean") return true;
+    if (Array.isArray(node.enum)) return node.enum[0];
+    return "x";
+  };
+  const args: Record<string, unknown> = {};
+  for (const key of schema.required ?? []) args[key] = value(schema.properties?.[key] ?? { type: "string" });
+  return args;
 }
 
 interface ToolResult {
@@ -47,22 +83,138 @@ describe("buildAssistantToolSet", () => {
     assert.equal(calls.length, 0, "building the set must not call the host");
   });
 
-  test('kinds: ["write"] keeps only the write tools', () => {
-    const set = buildAssistantToolSet({ host: makeHost("ok"), kinds: ["write"], surface: "local" });
-    const expected = assistantToolsFor("local")
-      .filter((tool) => tool.policy.kind === "write")
-      .map((tool) => tool.llmName);
-    assert.deepEqual(Object.keys(set).sort(), expected.sort());
+  for (const surface of ["local", "cloud"] as AssistantSurface[]) {
+    test(`kinds: ["write"] keeps the write tools plus pinar_move_sessions (${surface})`, () => {
+      const set = buildAssistantToolSet({ host: makeHost("ok"), kinds: ["write"], proposals: makeSink(), surface });
+      const expected = assistantToolsFor(surface)
+        .filter((tool) => tool.policy.kind === "write")
+        .map((tool) => tool.llmName);
+      assert.deepEqual(Object.keys(set).sort(), [...expected, "pinar_move_sessions"].sort());
+    });
+
+    test(`kinds: ["read", "write"] keeps every included tool plus pinar_move_sessions, in policy order (${surface})`, () => {
+      const set = buildAssistantToolSet({ host: makeHost("ok"), kinds: ["read", "write"], proposals: makeSink(), surface });
+      const expected = assistantToolsFor(surface).map((tool) => tool.llmName);
+      assert.deepEqual(Object.keys(set), [...expected, "pinar_move_sessions"]);
+    });
+  }
+
+  test("pinar_ask joins only with an emit; pinar_move_sessions only with writes", () => {
+    const emit: AssistantStreamEmit = () => {};
+    const readOnly = buildAssistantToolSet({ host: makeHost("ok"), kinds: ["read"], surface: "local" });
+    assert.ok(!("pinar_ask" in readOnly) && !("pinar_move_sessions" in readOnly));
+    const readAsk = buildAssistantToolSet({ emit, host: makeHost("ok"), kinds: ["read"], surface: "local" });
+    assert.ok("pinar_ask" in readAsk && !("pinar_move_sessions" in readAsk));
+    assert.equal(Object.keys(readAsk).at(-1), "pinar_ask", "the extras come after the MCP tools");
+    const all = buildAssistantToolSet({ emit, host: makeHost("ok"), kinds: ["read", "write"], proposals: makeSink(), surface: "cloud" });
+    assert.deepEqual(Object.keys(all).slice(-2), ["pinar_move_sessions", "pinar_ask"]);
   });
 
-  test('kinds: ["read", "write"] keeps every included tool of the surface', () => {
-    const set = buildAssistantToolSet({
-      host: makeHost("ok"),
-      kinds: ["read", "write"],
-      surface: "cloud",
+  test("asking for writes without a proposal sink throws", () => {
+    assert.throws(() => buildAssistantToolSet({ host: makeHost("ok"), kinds: ["write"], surface: "local" }), /proposal sink/);
+    assert.throws(() => buildAssistantToolSet({ host: makeHost("ok"), kinds: ["read", "write"], surface: "cloud" }), /proposal sink/);
+  });
+
+  test("an excluded write stays out of the set; included again, it is back", () => {
+    const entry = ASSISTANT_TOOL_POLICY["pinar.delete_project"];
+    const original = entry.assistant;
+    try {
+      entry.assistant = "exclude";
+      const set = buildAssistantToolSet({ host: makeHost("ok"), kinds: ["read", "write"], proposals: makeSink(), surface: "cloud" });
+      assert.ok(!("pinar_delete_project" in set));
+      assert.ok(!("pinar_key_scope" in set), "the excluded read stays out too");
+    } finally {
+      entry.assistant = original;
+    }
+    const restored = buildAssistantToolSet({ host: makeHost("ok"), kinds: ["read", "write"], proposals: makeSink(), surface: "cloud" });
+    assert.ok("pinar_delete_project" in restored);
+  });
+
+  for (const surface of ["local", "cloud"] as AssistantSurface[]) {
+    test(`every write proposes with the MCP name and never calls the host (${surface})`, async () => {
+      const calls: string[] = [];
+      const sink = makeSink();
+      const set = buildAssistantToolSet({ host: makeHost("ok", calls), kinds: ["write"], proposals: sink, surface });
+      const writes = assistantToolsFor(surface).filter((tool) => tool.policy.kind === "write");
+      assert.equal(writes.length, surface === "cloud" ? 27 : 25, "the local surface has no share tools");
+      for (const write of writes) {
+        const args = minimalArgs(write.inputSchema as unknown as ToolInputSchema);
+        const result = await execute(set, write.llmName, args);
+        assert.deepEqual(result, { status: "awaiting_confirmation", summary: "Proposed" }, write.name);
+        assert.deepEqual(sink.proposals.at(-1), { args, tool: write.name });
+      }
+      assert.equal(sink.proposals.length, writes.length);
+      assert.equal(calls.length, 0, "a write must never reach the host during the turn");
     });
-    const expected = assistantToolsFor("cloud").map((tool) => tool.llmName);
-    assert.deepEqual(Object.keys(set).sort(), expected.sort());
+  }
+
+  test("invalid write arguments are invalid_arguments and never reach the sink", async () => {
+    const calls: string[] = [];
+    const sink = makeSink();
+    const set = buildAssistantToolSet({ host: makeHost("ok", calls), kinds: ["write"], proposals: sink, surface: "local" });
+    const result = (await execute(set, "pinar_move_session", { sessionId: 7 })) as ToolResult;
+    assert.equal(result.status, "invalid_arguments");
+    assert.ok(result.problems?.some((problem) => problem.includes("collectionId")), JSON.stringify(result.problems));
+    assert.equal(sink.proposals.length, 0);
+    assert.equal(calls.length, 0);
+  });
+
+  test("the sink's own answers pass through; a sink that throws is a generic 'Tool failed'", async () => {
+    const notFound = makeSink({ problems: ["session not found"], status: "invalid_arguments" });
+    const set = buildAssistantToolSet({ host: makeHost("ok"), kinds: ["write"], proposals: notFound, surface: "local" });
+    assert.deepEqual(await execute(set, "pinar_move_session", { collectionId: "c", sessionId: "s" }), {
+      problems: ["session not found"],
+      status: "invalid_arguments",
+    });
+    const broken = makeSink(new Error("D1 secret detail"));
+    const brokenSet = buildAssistantToolSet({ host: makeHost("ok"), kinds: ["write"], proposals: broken, surface: "local" });
+    assert.deepEqual(await execute(brokenSet, "pinar_move_session", { collectionId: "c", sessionId: "s" }), { message: "Tool failed", status: "error" });
+  });
+
+  test("pinar_move_sessions proposes pinar.move_sessions; repeats, bounds and extra fields are refused", async () => {
+    const calls: string[] = [];
+    const sink = makeSink();
+    const set = buildAssistantToolSet({ host: makeHost("ok", calls), kinds: ["write"], proposals: sink, surface: "local" });
+    const valid = { collectionId: "c", sessionIds: ["s1", "s2"] };
+    assert.deepEqual(await execute(set, "pinar_move_sessions", valid), { status: "awaiting_confirmation", summary: "Proposed" });
+    assert.deepEqual(sink.proposals, [{ args: valid, tool: "pinar.move_sessions" }]);
+    const limit = Array.from({ length: ASSISTANT_BULK_MAX }, (_, index) => `s${index}`);
+    assert.equal(((await execute(set, "pinar_move_sessions", { collectionId: "c", sessionIds: limit })) as ToolResult).status, "awaiting_confirmation");
+    const invalid: unknown[] = [
+      { collectionId: "c", sessionIds: ["s1", "s1"] },
+      { collectionId: "c", sessionIds: [] },
+      { collectionId: "c", sessionIds: [...limit, "one-more"] },
+      { collectionId: "c", extra: true, sessionIds: ["s1"] },
+      { sessionIds: ["s1"] },
+    ];
+    for (const args of invalid) {
+      assert.equal(((await execute(set, "pinar_move_sessions", args)) as ToolResult).status, "invalid_arguments", JSON.stringify(args).slice(0, 80));
+    }
+    assert.equal(sink.proposals.length, 2);
+    assert.equal(calls.length, 0);
+  });
+
+  test("pinar_ask emits data-ask and answers { status: 'asked' }; invalid asks emit nothing", async () => {
+    const parts: Parameters<AssistantStreamEmit>[0][] = [];
+    const set = buildAssistantToolSet({ emit: (part) => parts.push(part), host: makeHost("ok"), kinds: ["read"], surface: "local" });
+    const ask = { options: ["Checkout", "Onboarding"], question: "Which collection?" };
+    assert.deepEqual(await execute(set, "pinar_ask", ask), { status: "asked" });
+    assert.deepEqual(parts, [{ data: ask, type: "data-ask" }]);
+    const invalid: unknown[] = [
+      { options: ["only one"], question: "Q?" },
+      { options: ["a", "b", "c", "d", "e", "f"], question: "Q?" },
+      { options: ["a", ""], question: "Q?" },
+      { options: ["a", "x".repeat(81)], question: "Q?" },
+      { options: ["a", "b"], question: "" },
+      { options: ["a", "b"], question: "q".repeat(301) },
+      { options: ["a", "b"], question: "Q?", extra: 1 },
+    ];
+    for (const args of invalid) {
+      assert.equal(((await execute(set, "pinar_ask", args)) as ToolResult).status, "invalid_arguments", JSON.stringify(args).slice(0, 80));
+    }
+    assert.equal(parts.length, 1, "an invalid ask must not emit");
+    // Bounds: 5 options of 80 characters and a 300-character question are valid.
+    assert.deepEqual(await execute(set, "pinar_ask", { options: Array.from({ length: 5 }, () => "o".repeat(80)), question: "q".repeat(300) }), { status: "asked" });
   });
 
   test("wrong type, undeclared field and missing required field do not call the host", async () => {

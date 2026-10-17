@@ -8233,8 +8233,9 @@ function complimentaryProUserIds(env: CloudEnv): string[] {
 // plan filter runs in SQL on the two inputs of effectiveAccountPlan, the
 // users.plan column and the deployment's complimentary list. One query;
 // complimentary ids past the first PIN_SEARCH_IN_CHUNK add one query per
-// chunk.
-async function pinSearchOwners(env: CloudEnv): Promise<string[]> {
+// chunk, and no further query starts once `expired()` says the cron's
+// budget is spent (the cron then reports work left).
+async function pinSearchOwners(env: CloudEnv, expired: () => boolean = () => false): Promise<string[]> {
   const complimentary = complimentaryProUserIds(env);
   if (!env.DB) {
     const owners: string[] = [];
@@ -8250,6 +8251,7 @@ async function pinSearchOwners(env: CloudEnv): Promise<string[]> {
   }
   const latest = new Map<string, string>();
   for (const [index, ids] of groups.entries()) {
+    if (index > 0 && expired()) break;
     const listed = ids.length > 0 ? `u.id IN (${ids.map(() => "?").join(", ")})` : "";
     // The first query also reads the plan column.
     const plan = index > 0 ? listed : listed ? `u.plan = 'pro' OR ${listed}` : "u.plan = 'pro'";
@@ -8284,7 +8286,7 @@ export async function indexPinSearch(env: CloudEnv, options: { fetch?: typeof fe
     // (ownedSessions, findOwnedSession), and pinSearchOwners already kept
     // owners on a plan with AI.
     ownerData: (ownerId) => cloudPinSourceData(env, { id: ownerId, isPermanent: true, kind: "account", plan: "pro" }, { shared: false }),
-    owners: () => pinSearchOwners(env),
+    owners: (expired) => pinSearchOwners(env, expired),
   });
 }
 

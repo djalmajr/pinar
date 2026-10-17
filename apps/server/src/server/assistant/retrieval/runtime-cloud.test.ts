@@ -810,6 +810,27 @@ describe("Cloud pin search: access, cron budget and the turn's deadline", () => 
     assert.deepEqual(await indexPinSearch(quick, { fetch: fakeAppliance().fetch, now: () => new Date(clock) }), { failed: 0, indexed: 4, owners: 3, remaining: false });
   });
 
+  test("no further enumeration query starts once the cron's budget is spent", async () => {
+    sharedWorld(db);
+    let clock = Date.parse(NOW);
+    const log: QueryLog = [];
+    // 91 complimentary ids: two enumeration queries; the first one takes 75 s.
+    const complimentary = Array.from({ length: 91 }, (_, index) => `usr_gift_${index}`).join(",");
+    const env = { ...cloudEnv(db, { COMPLIMENTARY_PRO_USER_IDS: complimentary }), DB: slowOwnersDb(log, () => { clock += 75_000; }) };
+    const result = await indexPinSearch(env, { fetch: fakeAppliance().fetch, now: () => new Date(clock) });
+    assert.deepEqual(result, { failed: 0, indexed: 0, owners: 0, remaining: true });
+    assert.equal(log.filter((entry) => entry.query.startsWith("SELECT s.user_id AS user_id")).length, 1, "the second chunk never started");
+    assert.equal(log.filter((entry) => entry.query.includes("FROM sessions WHERE user_id = ?")).length, 0);
+
+    // Control: a quick enumeration runs both chunks and the owners.
+    clock = Date.parse(NOW);
+    const quickLog: QueryLog = [];
+    const quick = { ...cloudEnv(db, { COMPLIMENTARY_PRO_USER_IDS: complimentary }), DB: slowOwnersDb(quickLog, () => { clock += 1_000; }) };
+    const done = await indexPinSearch(quick, { fetch: fakeAppliance().fetch, now: () => new Date(clock) });
+    assert.equal(quickLog.filter((entry) => entry.query.startsWith("SELECT s.user_id AS user_id")).length, 2);
+    assert.equal(done.remaining, false);
+  });
+
   test("the cron's owners: the plan column or the complimentary list, in one query", async () => {
     insertUser(db, "usr_pro", "pro");
     insertUser(db, "usr_gift", "free");

@@ -221,14 +221,22 @@ export async function runCloudPinIndexCron(input: {
   fetch?: typeof fetch;
   now?: () => Date;
   ownerData: (ownerId: string) => CloudPinSourceData;
-  owners: () => Promise<string[]>;
+  // `expired` tells the enumeration that the budget is spent
+  owners: (expired: () => boolean) => Promise<string[]>;
 }): Promise<CloudPinIndexCronResult> {
   const now = input.now ?? (() => new Date());
   const budgetMs = input.budgetMs ?? CLOUD_PIN_INDEX_CRON_BUDGET_MS;
   const startedAt = now().getTime();
   const deadline = AbortSignal.timeout(budgetMs);
   const result: CloudPinIndexCronResult = { failed: 0, indexed: 0, owners: 0, remaining: false };
-  for (const ownerId of await input.owners()) {
+  const expired = () => deadline.aborted || now().getTime() - startedAt >= budgetMs;
+  const owners = await input.owners(expired);
+  if (expired()) {
+    // The enumeration used the budget up, or stopped early.
+    result.remaining = true;
+    return result;
+  }
+  for (const ownerId of owners) {
     const left = budgetMs - (now().getTime() - startedAt);
     if (left <= 0 || deadline.aborted) {
       result.remaining = true;

@@ -4,7 +4,7 @@
 
 export const FILING_TIMEOUT_MS = 3000;
 export const FILING_DECISIONS_MIN = 0.7;
-export const FILING_SIMILARITY_MIN = 0.55;
+export const FILING_SIMILARITY_MIN = 0.7;
 export const FILING_SIMILARITY_MARGIN = 0.05;
 export const FILING_NONE_OPTION = "None of these";
 

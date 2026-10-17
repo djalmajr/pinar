@@ -202,11 +202,11 @@ test("métricas: a margem manda para a Inbox só quando há uma segunda coleçã
   const results = [
     { ...raw("A", 0.8, 0.04), expected: "A" },
     { ...raw("A", 0.8, 0.2), expected: "A" },
-    { ...raw("A", 0.6, null), expected: "A" },
+    { ...raw("A", 0.75, null), expected: "A" },
   ];
-  expect(metricsAt(results, { margin: 0.05, min: 0.55 })).toMatchObject({ correct: 2, inbox: 1 });
-  expect(metricsAt(results, { margin: 0.02, min: 0.55 })).toMatchObject({ correct: 3, inbox: 0 });
-  expect(metricsAt(results, { margin: 0, min: 0.7 })).toMatchObject({ correct: 2, inbox: 1 });
+  expect(metricsAt(results, { margin: 0.05, min: 0.7 })).toMatchObject({ correct: 2, inbox: 1 });
+  expect(metricsAt(results, { margin: 0.02, min: 0.7 })).toMatchObject({ correct: 3, inbox: 0 });
+  expect(metricsAt(results, { margin: 0, min: 0.8 })).toMatchObject({ correct: 2, inbox: 1 });
 });
 
 test("limiares: gates no limiar atual e o melhor da grade que passa nos dois", () => {
@@ -233,7 +233,7 @@ test("limiares: gates no limiar atual e o melhor da grade que passa nos dois", (
   expect(evaluated.best?.metrics).toMatchObject({ correct: 8, falsePositives: 0 });
 
   const similarity = evaluateThresholds(fixed, "similarity");
-  expect(similarity.current.thresholds).toEqual({ margin: 0.05, min: 0.55 });
+  expect(similarity.current.thresholds).toEqual({ margin: 0.05, min: 0.7 });
   expect(similarity.grid.length).toBe(SIMILARITY_MIN_GRID.length * SIMILARITY_MARGIN_GRID.length);
 });
 
@@ -269,9 +269,9 @@ test("regra: no limiar atual, fileAt arquiva onde o chooseCollection arquiva (si
   const padded = (...components: number[]) => [...components, ...new Array<number>(PIN_EMBEDDING_DIMENSIONS - components.length).fill(0)];
   const queries = [
     padded(4, 3), // 0.8 over 0.6: filed
-    padded(11, 0, 15, 7, 2, 1), // 0.55 alone over 0: filed
-    padded(27, 0, 42, 2, 1, 1, 1), // 0.54: Inbox
-    padded(30, 29, 27, 5, 2, 1), // 0.6 over 0.58: margin 0.02, Inbox
+    padded(7, 0, 7, 1, 1), // 0.7 alone over 0: filed
+    padded(69, 0, 72, 7, 2, 1, 1), // 0.69: Inbox
+    padded(36, 34, 4, 4, 4), // 0.72 over 0.68: margin 0.04, Inbox
   ];
   const filed: Array<string | null> = [];
   for (const query of queries) {
@@ -400,12 +400,12 @@ test("CLI similarity: embeda os pins de exemplo como documentos e cada captura c
   expect(fake.requests.every((request) => request.body["model"] === "gemma-x" && request.authorization === `Bearer ${API_KEY}`)).toBe(true);
 
   expect(stderr).toContain(`Centróides: ${documents.length} pins embedados como documentos.`);
-  expect(stdout.find((line) => line.startsWith("Limiar atual"))).toMatch(/^Limiar atual \(cosseno ≥ 0\.55, margem ≥ 0\.05\): acerto \d+\/30 /);
+  expect(stdout.find((line) => line.startsWith("Limiar atual"))).toMatch(/^Limiar atual \(cosseno ≥ 0\.70, margem ≥ 0\.05\): acerto \d+\/30 /);
   const at = stdout.indexOf("Grade:");
   expect(stdout.slice(at + 1).filter((line) => line.startsWith("  cosseno ≥ ")).length).toBe(SIMILARITY_MIN_GRID.length * SIMILARITY_MARGIN_GRID.length);
   const written = readFileSync(out, "utf8");
   const report = JSON.parse(written) as { captures: Array<{ margin: number | null; option: null; score: number }>; config: Record<string, unknown> };
-  expect(report.config).toMatchObject({ engine: "similarity", model: "gemma-x", thresholds: { margin: 0.05, min: 0.55 } });
+  expect(report.config).toMatchObject({ engine: "similarity", model: "gemma-x", thresholds: { margin: 0.05, min: 0.7 } });
   expect(report.captures.every((item) => item.option === null && typeof item.score === "number" && typeof item.margin === "number")).toBe(true);
   for (const text of [...stdout, ...stderr, written]) expect(text).not.toContain(API_KEY);
 });

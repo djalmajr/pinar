@@ -4,6 +4,10 @@ export function runtimeEnv(source: CloudEnv): CloudEnv {
   return {
     ADMIN_API_KEY: source.ADMIN_API_KEY,
     AI: source.AI,
+    AI_BASE_URL: source.AI_BASE_URL,
+    AI_API_KEY: source.AI_API_KEY,
+    AI_MODEL: source.AI_MODEL,
+    ASSISTANT_ENABLED: source.ASSISTANT_ENABLED,
     AUTH_PEPPER: source.AUTH_PEPPER,
     CLOUD_TRIAL_ENABLED: source.CLOUD_TRIAL_ENABLED,
     COMPLIMENTARY_PRO_USER_IDS: source.COMPLIMENTARY_PRO_USER_IDS,

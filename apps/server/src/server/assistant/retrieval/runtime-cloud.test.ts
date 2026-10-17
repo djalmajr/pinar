@@ -1859,6 +1859,30 @@ describe("AI_EMBEDDING_MODEL in the EdgeR env", () => {
   });
 });
 
+describe("the filing similarity thresholds in the EdgeR env (F3.5 §1)", () => {
+  const read = (values: Record<string, string>) => (name: string) => values[name];
+
+  test("are optional, passed as text, and outside every group", () => {
+    const without = edgerCloudEnv(read({}));
+    assert.equal(without.FILING_SIMILARITY_MIN, undefined);
+    assert.equal(without.FILING_SIMILARITY_MARGIN, undefined);
+    const withBoth = edgerCloudEnv(read({ FILING_SIMILARITY_MARGIN: "0.02", FILING_SIMILARITY_MIN: "0.65" }));
+    assert.equal(withBoth.FILING_SIMILARITY_MIN, "0.65");
+    assert.equal(withBoth.FILING_SIMILARITY_MARGIN, "0.02");
+    // One alone stands: no group validation, and a blank is absent.
+    const withOne = edgerCloudEnv(read({ FILING_SIMILARITY_MIN: "0.65" }));
+    assert.equal(withOne.FILING_SIMILARITY_MIN, "0.65");
+    assert.equal(withOne.FILING_SIMILARITY_MARGIN, undefined);
+    assert.equal(edgerCloudEnv(read({ FILING_SIMILARITY_MIN: "  " })).FILING_SIMILARITY_MIN, undefined, "blank is absent");
+  });
+
+  test("an invalid value is passed as is: the fallback happens where it is read", () => {
+    const env = edgerCloudEnv(read({ FILING_SIMILARITY_MARGIN: "abc", FILING_SIMILARITY_MIN: "1.5" }));
+    assert.equal(env.FILING_SIMILARITY_MIN, "1.5");
+    assert.equal(env.FILING_SIMILARITY_MARGIN, "abc");
+  });
+});
+
 // Code can ship before migration 0029 runs: deleting a session and the
 // retention cleanup must keep working without the pin_index table, and
 // clean the index once it exists.

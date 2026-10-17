@@ -19,6 +19,7 @@
 
 import { cloudRetrievalEndpoints, type CloudIndexCostRecorder, type CloudPinEnv } from "../assistant/retrieval/runtime-cloud";
 import { cloudPinIndexStore } from "../assistant/retrieval/store-cloud";
+import type { FilingThresholdEnv } from "./constants";
 import { fileCapture, type FilingCapture, type FilingEngineChoice, type FilingOutcome, type FilingSource } from "./runtime";
 
 let testFetch: typeof fetch | null = null;
@@ -63,11 +64,15 @@ export async function cloudAutoCaptureDestinationAvailable(env: CloudPinEnv, tim
   }
 }
 
-/** Files a new Cloud capture of `ownerId`; the caller checked the gate and the preference. */
+/**
+ * Files a new Cloud capture of `ownerId`; the caller checked the gate and
+ * the preference. The env also carries the filing similarity threshold
+ * variables (F3.5 §1), applied where chooseCollection resolves them.
+ */
 export function fileCloudCapture(input: {
   batchId: string | null;
   capture: FilingCapture;
-  env: CloudPinEnv;
+  env: CloudPinEnv & FilingThresholdEnv;
   ownerId: string;
   recordIndexCost?: CloudIndexCostRecorder;
   source: Omit<FilingSource, "entriesFor">;

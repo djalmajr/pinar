@@ -188,3 +188,84 @@ describe("chooseCollection with the similarity engine", () => {
     assert.deepEqual(lookup.asked, []);
   });
 });
+
+// ---------- the thresholds as configuration (F3.5 §1) ----------
+
+// Saves and restores the threshold variables around `fn`.
+function withFilingEnv(values: Record<string, string | undefined>, fn: () => Promise<unknown>): Promise<unknown> {
+  const keys = Object.keys(values);
+  const previous: Record<string, string | undefined> = {};
+  for (const key of keys) previous[key] = process.env[key];
+  for (const key of keys) {
+    const value = values[key]!;
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  return fn().finally(() => {
+    for (const key of keys) {
+      const old = previous[key];
+      if (old === undefined) delete process.env[key];
+      else process.env[key] = old;
+    }
+  });
+}
+
+describe("chooseCollection similarity thresholds from the environment (F3.5 §1)", () => {
+  test("FILING_SIMILARITY_MIN: a score equal to it is filed, just below is not", async () => {
+    // Mutation captured: ignoring the variables (the 0.7/0.05 defaults)
+    // files the just-below case.
+    await withFilingEnv({ FILING_SIMILARITY_MIN: "0.7", FILING_SIMILARITY_MARGIN: "0.02" }, async () => {
+      assert.deepEqual(await choose({ a: COSINE["0.7"] }), { collectionId: "a", confidence: 0.7, engine: "similarity", reason: "chosen" });
+    });
+    await withFilingEnv({ FILING_SIMILARITY_MIN: "0.7000001", FILING_SIMILARITY_MARGIN: "0.02" }, async () => {
+      assert.deepEqual(await choose({ a: COSINE["0.7"] }), { collectionId: null, confidence: 0.7, engine: "similarity", reason: "low_confidence" });
+    });
+  });
+
+  test("FILING_SIMILARITY_MARGIN: a lead equal to it is filed, just below is not", async () => {
+    // best 0.8 over second 0.7: the exact lead the engine computes is
+    // 0.8 - 0.7; the next representable double above it is just below.
+    const lead = 0.8 - 0.7;
+    const justAbove = lead + 2 ** -56; // the ulp of doubles near 0.1
+    assert.ok(justAbove > lead, "the next double above the lead is strictly above it");
+    await withFilingEnv({ FILING_SIMILARITY_MIN: "0.6", FILING_SIMILARITY_MARGIN: String(lead) }, async () => {
+      assert.deepEqual(await choose({ a: COSINE["0.7"], b: COSINE["0.8"] }), { collectionId: "b", confidence: 0.8, engine: "similarity", reason: "chosen" });
+    });
+    await withFilingEnv({ FILING_SIMILARITY_MIN: "0.6", FILING_SIMILARITY_MARGIN: String(justAbove) }, async () => {
+      assert.deepEqual(await choose({ a: COSINE["0.7"], b: COSINE["0.8"] }), { collectionId: null, confidence: 0.8, engine: "similarity", reason: "low_confidence" });
+    });
+  });
+
+  test("without the variables the defaults hold: 0.7 minimum, 0.05 margin", async () => {
+    await withFilingEnv({ FILING_SIMILARITY_MARGIN: undefined, FILING_SIMILARITY_MIN: undefined }, async () => {
+      assert.deepEqual(await choose({ a: COSINE["0.6"] }), { collectionId: null, confidence: 0.6, engine: "similarity", reason: "low_confidence" });
+      assert.deepEqual(await choose({ a: COSINE["0.7"] }), { collectionId: "a", confidence: 0.7, engine: "similarity", reason: "chosen" });
+      assert.deepEqual(await choose({ a: COSINE["0.76"], b: COSINE["0.8"] }), { collectionId: null, confidence: 0.8, engine: "similarity", reason: "low_confidence" });
+    });
+  });
+
+  test("an invalid value falls back to that field's default, independently of the other", async () => {
+    for (const min of ["", "  ", "abc", "-0.1", "1.5", "1e-1"]) {
+      // The default 0.7 keeps 0.69 in the Inbox; a buggy fallback to 0
+      // (or to the score) would file it.
+      await withFilingEnv({ FILING_SIMILARITY_MARGIN: "0.02", FILING_SIMILARITY_MIN: min }, async () => {
+        assert.deepEqual(await choose({ a: COSINE["0.69"] }), { collectionId: null, confidence: 0.69, engine: "similarity", reason: "low_confidence" }, `min ${JSON.stringify(min)}`);
+      });
+    }
+    for (const margin of ["", "abc", "-0.1", "1.5"]) {
+      // The default 0.05 keeps the 0.8-over-0.76 lead (0.04) in the Inbox;
+      // a buggy fallback to 0 would file it.
+      await withFilingEnv({ FILING_SIMILARITY_MARGIN: margin, FILING_SIMILARITY_MIN: "0.6" }, async () => {
+        assert.deepEqual(await choose({ a: COSINE["0.76"], b: COSINE["0.8"] }), { collectionId: null, confidence: 0.8, engine: "similarity", reason: "low_confidence" }, `margin ${JSON.stringify(margin)}`);
+      });
+    }
+    // One valid field applies while the invalid one keeps its default: the
+    // configured min 0.65 files 0.69 (the default 0.7 would not), and the
+    // default 0.05 margin keeps the 0.8-over-0.76 lead (0.04) in the Inbox
+    // (a margin of 0 would file it).
+    await withFilingEnv({ FILING_SIMILARITY_MARGIN: "abc", FILING_SIMILARITY_MIN: "0.65" }, async () => {
+      assert.deepEqual(await choose({ a: COSINE["0.69"] }), { collectionId: "a", confidence: 0.69, engine: "similarity", reason: "chosen" });
+      assert.deepEqual(await choose({ a: COSINE["0.76"], b: COSINE["0.8"] }), { collectionId: null, confidence: 0.8, engine: "similarity", reason: "low_confidence" });
+    });
+  });
+});

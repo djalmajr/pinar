@@ -245,6 +245,7 @@ const messages: UiMessages = {
   "settings.autoCaptureDestination": "Escolher a coleção automaticamente",
   "settings.autoCaptureDestinationDescription":
     "O Pinar escolhe a coleção de cada captura nova; na dúvida, ela vai para a Caixa de entrada.",
+  "settings.autoCaptureDestinationInboxFallback": "Sem a IA disponível, as capturas novas vão para a Caixa de entrada.",
   "settings.autoCaptureDestinationUnavailable": "Precisa da IA configurada.",
   "settings.captureHeading": "Captura",
   "settings.collection": "Coleção",

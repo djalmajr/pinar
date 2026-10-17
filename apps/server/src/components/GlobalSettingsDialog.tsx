@@ -154,9 +154,10 @@ export function CaptureDestinationSettings({ projects }: { projects: ProjectTree
     patch,
   } = useDeliveryPreferences();
   const { t } = useServerI18n();
-  // Without a way to choose, the server ignores the setting and files by the
-  // manual destination, so the switch reads off and the destination stays editable.
-  const automatic = autoCaptureDestination && autoAvailable;
+  // The switch shows the saved setting. Unavailable and off, it cannot be
+  // turned on; unavailable and on, it can still be turned off, and the
+  // manual destination stays locked until it is.
+  const automatic = autoCaptureDestination;
   const inboxLabel = t("dashboard.protectedInbox");
   const destinationOptions = useMemo(
     () => captureDestinationOptions({
@@ -189,7 +190,9 @@ export function CaptureDestinationSettings({ projects }: { projects: ProjectTree
         description={autoAvailable ? t("settings.autoCaptureDestinationDescription") : (
           <>
             {t("settings.autoCaptureDestinationDescription")}
-            <span className="block">{t("settings.autoCaptureDestinationUnavailable")}</span>
+            <span className="block">
+              {automatic ? t("settings.autoCaptureDestinationInboxFallback") : t("settings.autoCaptureDestinationUnavailable")}
+            </span>
           </>
         )}
         title={t("settings.autoCaptureDestination")}
@@ -197,7 +200,7 @@ export function CaptureDestinationSettings({ projects }: { projects: ProjectTree
         <Switch
           aria-label={t("settings.autoCaptureDestination")}
           checked={automatic}
-          disabled={!available || !autoAvailable}
+          disabled={!available || (!autoAvailable && !automatic)}
           onCheckedChange={(value) => void patch({ autoCaptureDestination: value })}
         />
       </SettingRow>
@@ -277,6 +280,7 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
     includeScreenshot,
     includeViewer,
     patch,
+    refresh: refreshPreferences,
     sensitiveQueryKeys,
     voicePostProcessing,
   } = useDeliveryPreferences();
@@ -555,6 +559,8 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
       } else {
         aiFeedbackToastId.current = toast.success(t("settings.aiSaved", { model: testedModel }));
       }
+      // The saved AI decides whether the server can choose a capture's collection.
+      void refreshPreferences();
     } catch (error) {
       aiFeedbackToastId.current = toast.error(error instanceof Error ? error.message : t("settings.aiUnavailable"));
     } finally {
@@ -578,6 +584,7 @@ export function GlobalSettingsDialog({ initialSection = "general", open, onOpenC
         hasApiKey: false,
       }));
       aiFeedbackToastId.current = toast.success(t("settings.aiKeyRemoved"));
+      void refreshPreferences();
     } catch (error) {
       aiFeedbackToastId.current = toast.error(error instanceof Error ? error.message : t("settings.aiUnavailable"));
     } finally {

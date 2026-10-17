@@ -245,6 +245,7 @@ const messages: UiMessages = {
   "settings.autoCaptureDestination": "コレクションを自動で選ぶ",
   "settings.autoCaptureDestinationDescription":
     "Pinar が新しいキャプチャごとにコレクションを選び、迷ったときは受信トレイに入れます。",
+  "settings.autoCaptureDestinationInboxFallback": "AI を利用できない間、新しいキャプチャは受信トレイに入ります。",
   "settings.autoCaptureDestinationUnavailable": "AI の設定が必要です。",
   "settings.captureHeading": "キャプチャ",
   "settings.collection": "コレクション",

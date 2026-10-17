@@ -277,6 +277,36 @@ describe("embedTexts through the gateway", () => {
     for (const leak of ["vck-gateway-key", "ai-gateway.vercel.sh", "https://", "/embeddings", "contraste"]) assert.ok(!line.includes(leak), leak);
   });
 
+  test("the call's recorder gets each batch's cost line; a failing one is logged and the vectors still come back", async () => {
+    const recorded: unknown[] = [];
+    const withRecorder: EmbeddingEndpoint = {
+      ...gatewayEndpoint,
+      gateway: { inputPrice: "0.00000002", record: async (entry) => { recorded.push(entry); }, zeroDataRetention: false },
+    };
+    const vectors = await embedTexts({ endpoint: withRecorder, fetch: fakeFetch(gatewayResponse()).fetch, kind: "document", texts: texts(33) });
+    assert.equal(vectors.length, 33);
+    assert.equal(recorded.length, 2, "one per batch");
+    const byCost = (items: unknown[]) => [...items].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+    assert.deepEqual(byCost(recorded), byCost(costLines().map(({ message: _message, ...entry }) => entry)), "the same fields as the log lines");
+
+    const errors: unknown[][] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => {
+      errors.push(args);
+    };
+    try {
+      const failing: EmbeddingEndpoint = {
+        ...gatewayEndpoint,
+        gateway: { inputPrice: "0.00000002", record: async () => { throw new Error("recorder down"); }, zeroDataRetention: false },
+      };
+      const kept = await embedTexts({ endpoint: failing, fetch: fakeFetch(gatewayResponse()).fetch, kind: "query", texts: ["t5"] });
+      assert.equal(kept[0]![0], 5);
+    } finally {
+      console.error = originalError;
+    }
+    assert.deepEqual(errors.map((args) => String(args[0])), ['{"message":"assistant_index_cost_record_failed","kind":"embedding","model":"openai/text-embedding-3-small"}']);
+  });
+
   test("the appliance logs nothing and keeps prompt_name", async () => {
     const fake = fakeFetch((call) => Response.json({ data: call.body.input.map((text) => ({ embedding: vectorFor(text) })), usage: { prompt_tokens: 3 } }));
     await embedTexts({ endpoint, fetch: fake.fetch, kind: "document", texts: ["t1"] });

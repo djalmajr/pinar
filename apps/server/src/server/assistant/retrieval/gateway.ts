@@ -9,6 +9,11 @@
 // sends for privacy: disallowPromptTraining always, zeroDataRetention only
 // when AI_GATEWAY_ZERO_DATA_RETENTION is "true".
 //
+// The calls of a deployment with a recorder (GatewayCallOptions.record) also
+// hand each cost to it (recordIndexCost), for the margin monitor's durable
+// assistant_index_costs (F4 contract §3); a failing recorder is logged as
+// assistant_index_cost_record_failed and never fails the call.
+//
 // assistantIndexCostLog writes one JSON line per embedding batch or caption
 // that got a response body: the kind, the gateway model id, the cost in USD
 // micros and where it came from. costSource is "gateway" for
@@ -24,6 +29,9 @@ export const GATEWAY_OPENAI_BASE_URL = "https://ai-gateway.vercel.sh/v1";
 
 /** How a retrieval call goes through the gateway. */
 export interface GatewayCallOptions {
+  // Records each call's cost durably (the margin monitor); none in tests or
+  // without a database.
+  record?: (entry: IndexCostEntry) => Promise<void>;
   zeroDataRetention: boolean;
 }
 
@@ -38,6 +46,9 @@ export interface IndexCost {
   costSource: IndexCostSource;
   costUsdMicros: number | null;
 }
+
+/** One index call's cost: the fields of the assistant_index_cost line. */
+export type IndexCostEntry = IndexCost & { kind: "caption" | "embedding"; model: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -89,7 +100,7 @@ export function gatewayIndexCost(body: unknown, table: () => number | null): Ind
 }
 
 /** One `assistant_index_cost` line: kind, model, cost and its source; nothing else. */
-export function assistantIndexCostLog(entry: IndexCost & { kind: "caption" | "embedding"; model: string }): void {
+export function assistantIndexCostLog(entry: IndexCostEntry): void {
   console.log(JSON.stringify({
     message: "assistant_index_cost",
     kind: entry.kind,
@@ -97,4 +108,14 @@ export function assistantIndexCostLog(entry: IndexCost & { kind: "caption" | "em
     costUsdMicros: entry.costUsdMicros,
     costSource: entry.costSource,
   }));
+}
+
+/** Hands `entry` to the call's recorder, if any; a failure is logged with the kind and model only. */
+export async function recordIndexCost(options: GatewayCallOptions, entry: IndexCostEntry): Promise<void> {
+  if (!options.record) return;
+  try {
+    await options.record(entry);
+  } catch {
+    console.error(JSON.stringify({ message: "assistant_index_cost_record_failed", kind: entry.kind, model: entry.model }));
+  }
 }

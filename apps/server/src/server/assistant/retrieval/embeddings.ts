@@ -12,7 +12,8 @@
 // Through the Vercel AI Gateway (endpoint.gateway, gateway.ts) the body is
 // { dimensions: 256, input, model, providerOptions } instead: the privacy
 // options of the chain and no prompt_name, an appliance extra. Each batch
-// that gets a response body then logs one assistant_index_cost line.
+// that gets a response body then logs one assistant_index_cost line and
+// hands it to the deployment's recorder (recordIndexCost).
 //
 // Vectors are stored as Float32 little-endian bytes (encodeVector /
 // decodeVector) and ranked by cosine.
@@ -23,6 +24,7 @@ import {
   gatewayIndexCost,
   gatewayPrivacyOptions,
   priceTimesTokensMicros,
+  recordIndexCost,
   usageTokens,
   type GatewayEmbeddingOptions,
 } from "./gateway";
@@ -106,6 +108,7 @@ export async function embedTexts(input: {
         if (gateway) {
           const cost = gatewayIndexCost(body, () => priceTimesTokensMicros(gateway.inputPrice, usageTokens(body, "prompt_tokens")));
           assistantIndexCostLog({ ...cost, kind: "embedding", model });
+          await recordIndexCost(gateway, { ...cost, kind: "embedding", model });
         }
         results[current] = parseEmbeddings(body, batch.length);
       } catch (error) {

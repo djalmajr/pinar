@@ -12,7 +12,8 @@
 //   declares it;
 // - gateway: the gateway's OpenAI-compatible endpoint
 //   (GATEWAY_OPENAI_BASE_URL) with AI_GATEWAY_API_KEY, and the chain's
-//   privacy options (AI_GATEWAY_ZERO_DATA_RETENTION) on every call.
+//   privacy options (AI_GATEWAY_ZERO_DATA_RETENTION) on every call, and
+//   the cost recorder cloud-api.ts passes (recordIndexCost), if any.
 //   detectGatewayRetrievalCapabilities reads the catalog for the configured
 //   ids only: captions by the first link when its tags list "vision", and
 //   embeddings only with AI_EMBEDDING_MODEL of type "embedding" (otherwise
@@ -48,7 +49,7 @@ import type { AssistantD1Database } from "../store-cloud";
 import type { AssistantEndpoint } from "../models";
 import { detectGatewayRetrievalCapabilities, detectRetrievalCapabilities } from "./detect";
 import type { EmbeddingEndpoint } from "./embeddings";
-import { GATEWAY_OPENAI_BASE_URL } from "./gateway";
+import { GATEWAY_OPENAI_BASE_URL, type GatewayCallOptions } from "./gateway";
 import {
   indexStale,
   PIN_SEARCH_MAX_SESSIONS,
@@ -124,12 +125,20 @@ export interface CloudRetrievalEndpoints {
   embedding: EmbeddingEndpoint | null;
 }
 
+/** The recorder cloud-api.ts gives the gateway calls (the margin monitor's index costs). */
+export type CloudIndexCostRecorder = NonNullable<GatewayCallOptions["record"]>;
+
 /**
  * The retrieval endpoints of the deployment, after the detection of the
  * hub (cached, see detect.ts); null without a hub. `detectFetch` runs the
- * /models probe.
+ * /models probe; `recordIndexCost` goes with the gateway endpoints only
+ * (the appliance records nothing).
  */
-export async function cloudRetrievalEndpoints(env: CloudPinEnv, detectFetch?: typeof fetch): Promise<CloudRetrievalEndpoints | null> {
+export async function cloudRetrievalEndpoints(
+  env: CloudPinEnv,
+  detectFetch?: typeof fetch,
+  recordIndexCost?: CloudIndexCostRecorder,
+): Promise<CloudRetrievalEndpoints | null> {
   const hub = cloudRetrievalHub(env);
   if (!hub) return null;
   const { chat } = hub;
@@ -147,7 +156,10 @@ export async function cloudRetrievalEndpoints(env: CloudPinEnv, detectFetch?: ty
     embeddingModel: env.AI_EMBEDDING_MODEL || null,
     ...(detectFetch ? { fetch: detectFetch } : {}),
   });
-  const gateway = { zeroDataRetention: hub.zeroDataRetention };
+  const gateway: GatewayCallOptions = {
+    ...(recordIndexCost ? { record: recordIndexCost } : {}),
+    zeroDataRetention: hub.zeroDataRetention,
+  };
   return {
     chat: capabilities.vision ? { ...chat, gateway } : null,
     decisions: null,
@@ -167,9 +179,16 @@ export async function cloudRetrievalEndpoints(env: CloudPinEnv, detectFetch?: ty
 // aborted turn never leaves a failed detection cached for a minute.
 async function indexDeps(
   env: CloudPinEnv,
-  options: { detectFetch?: typeof fetch; fetch?: typeof fetch; now: () => Date; source: PinSource; store: PinIndexStore },
+  options: {
+    detectFetch?: typeof fetch;
+    fetch?: typeof fetch;
+    now: () => Date;
+    recordIndexCost?: CloudIndexCostRecorder;
+    source: PinSource;
+    store: PinIndexStore;
+  },
 ): Promise<PinIndexDeps | null> {
-  const endpoints = await cloudRetrievalEndpoints(env, options.detectFetch);
+  const endpoints = await cloudRetrievalEndpoints(env, options.detectFetch, options.recordIndexCost);
   if (!endpoints) return null;
   return {
     chat: endpoints.chat,
@@ -266,6 +285,7 @@ export function createCloudPinSearch(input: {
   fetch?: typeof fetch;
   indexBudgetMs?: number;
   now?: () => Date;
+  recordIndexCost?: CloudIndexCostRecorder;
 }): PinSearchService {
   const now = input.now ?? (() => new Date());
   const indexBudgetMs = input.indexBudgetMs ?? CLOUD_PIN_SEARCH_BUDGET_MS;
@@ -283,6 +303,7 @@ export function createCloudPinSearch(input: {
         ...(input.fetch ? { detectFetch: input.fetch } : {}),
         fetch: withAbortSignal(input.fetch, indexSignal),
         now,
+        ...(input.recordIndexCost ? { recordIndexCost: input.recordIndexCost } : {}),
         source,
         store,
       });
@@ -320,6 +341,7 @@ export async function runCloudPinIndexCron(input: {
   ownerData: (ownerId: string) => CloudPinSourceData;
   // `expired` tells the enumeration that the budget is spent
   owners: (expired: () => boolean) => Promise<string[]>;
+  recordIndexCost?: CloudIndexCostRecorder;
 }): Promise<CloudPinIndexCronResult> {
   const now = input.now ?? (() => new Date());
   const budgetMs = input.budgetMs ?? CLOUD_PIN_INDEX_CRON_BUDGET_MS;
@@ -344,6 +366,7 @@ export async function runCloudPinIndexCron(input: {
         ...(input.fetch ? { detectFetch: input.fetch } : {}),
         fetch: withAbortSignal(input.fetch, deadline),
         now,
+        ...(input.recordIndexCost ? { recordIndexCost: input.recordIndexCost } : {}),
         source: cloudPinSource(input.ownerData(ownerId)),
         store: cloudPinIndexStore(input.env, ownerId),
       });

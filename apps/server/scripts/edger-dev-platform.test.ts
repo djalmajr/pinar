@@ -109,7 +109,7 @@ describe("dropPartialHead", () => {
 });
 
 describe("patchCronSchedule", () => {
-  test("rewrites the schedule of the single job, keeping the rest", () => {
+  test("rewrites the daily job's schedule and keeps the others", () => {
     const text = patchCronSchedule(REAL_MANIFEST, "@every 2s");
     const manifest = Bun.YAML.parse(text) as {
       cron: Array<{ method?: string; path: string; schedule: string }>;
@@ -117,7 +117,10 @@ describe("patchCronSchedule", () => {
       name: string;
       version: string;
     };
-    expect(manifest.cron).toEqual([{ schedule: "@every 2s", path: "/_internal/cron/daily", method: "POST" }]);
+    expect(manifest.cron).toEqual([
+      { schedule: "@every 2s", path: "/_internal/cron/daily", method: "POST" },
+      { schedule: "*/5 * * * *", path: "/_internal/cron/frequent", method: "POST" },
+    ]);
     expect(manifest.name).toBe("pinar");
     expect(manifest.version).toBe("0.0.0");
     // The env keys survive the round trip.
@@ -125,13 +128,45 @@ describe("patchCronSchedule", () => {
     expect(Object.keys(manifest.env).length).toBeGreaterThanOrEqual(30);
   });
 
+  test("touches only the daily job, wherever it is in the list", () => {
+    const text = `name: pinar
+version: "0.0.0"
+cron:
+  - schedule: "*/5 * * * *"
+    path: /_internal/cron/frequent
+    method: POST
+  - schedule: "0 3 * * *"
+    path: /_internal/cron/daily
+    method: POST
+`;
+    const manifest = Bun.YAML.parse(patchCronSchedule(text, "@every 2s")) as { cron: unknown[] };
+    expect(manifest.cron).toEqual([
+      { schedule: "*/5 * * * *", path: "/_internal/cron/frequent", method: "POST" },
+      { schedule: "@every 2s", path: "/_internal/cron/daily", method: "POST" },
+    ]);
+  });
+
   test("rejects a manifest with zero cron jobs", () => {
     expect(() =>
       patchCronSchedule("name: pinar\nversion: \"0.0.0\"\nenv:\n  A: \"\"\n", "@every 2s"),
-    ).toThrow(/0 cron job\(s\); the platform proofs require exactly one/);
+    ).toThrow("manifest has 0 cron job(s) with path /_internal/cron/daily; the platform proofs require exactly one");
   });
 
-  test("rejects a manifest with two cron jobs", () => {
+  test("rejects a manifest without the daily job", () => {
+    const text = `name: pinar
+version: "0.0.0"
+cron:
+  - schedule: "*/5 * * * *"
+    path: /_internal/cron/frequent
+  - schedule: "0 3 * * *"
+    path: /_internal/cron/other
+`;
+    expect(() => patchCronSchedule(text, "@every 2s")).toThrow(
+      "manifest has 0 cron job(s) with path /_internal/cron/daily; the platform proofs require exactly one",
+    );
+  });
+
+  test("rejects a manifest with two daily jobs", () => {
     const text = `name: pinar
 version: "0.0.0"
 cron:
@@ -141,19 +176,7 @@ cron:
     path: /_internal/cron/daily
 `;
     expect(() => patchCronSchedule(text, "@every 2s")).toThrow(
-      /2 cron job\(s\); the platform proofs require exactly one/,
-    );
-  });
-
-  test("rejects the single job with a different path", () => {
-    const text = `name: pinar
-version: "0.0.0"
-cron:
-  - schedule: "0 3 * * *"
-    path: /_internal/cron/other
-`;
-    expect(() => patchCronSchedule(text, "@every 2s")).toThrow(
-      /the single cron job must have path \/_internal\/cron\/daily \(found "\//,
+      "manifest has 2 cron job(s) with path /_internal/cron/daily; the platform proofs require exactly one",
     );
   });
 });

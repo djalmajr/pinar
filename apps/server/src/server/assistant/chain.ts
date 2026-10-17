@@ -2,13 +2,15 @@
 //
 // ASSISTANT_CHAIN is a CSV of `hub:model` links, tried in order. The chain
 // is one LanguageModel built with wrapLanguageModel: its doStream wrapper
-// opens the first link whose circuit breaker is closed and holds the parts
-// that come before the first text or tool chunk (stream start, response
-// metadata, reasoning). An error in that window passes to the next link
-// when it is transient (429, 5xx, timeout, network) and ends the call when
-// it is not (400/401/403 and other 4xx; 402 ends it as out of budget).
-// Once the first text or tool chunk is out, the link is committed: a later
-// error goes on to the turn and no other link is tried.
+// opens the first link whose circuit breaker is closed and holds every
+// part that comes before the first text or tool chunk (stream start,
+// response metadata, raw, reasoning, sources, files). An error in that
+// window passes to the next link when it is transient (429, 5xx, timeout,
+// network) and ends the call when it is not (400/401/403 and other 4xx;
+// 402 ends it as out of budget); the held parts of a dropped link go with
+// it. Only the first text or tool chunk commits the link, or a normal
+// finish with no content (a valid empty answer the turn judges): after
+// that a later error goes on to the turn and no other link is tried.
 //
 // Every committed call adds its billing under providerMetadata
 // [ASSISTANT_CHAIN_METADATA_KEY] of the finish part: the link, its
@@ -296,17 +298,20 @@ type ChainStreamResult = Awaited<ReturnType<WrapStream>>;
 type ChainStreamPart = ChainStreamResult["stream"] extends ReadableStream<infer Part> ? Part : never;
 type FinishPart = Extract<ChainStreamPart, { type: "finish" }>;
 
-// Parts that may come before the first text or tool chunk; they are held
-// until the link commits and dropped if it fails.
-const PREAMBLE_PARTS = new Set<string>([
-  "raw",
-  "reasoning-delta",
-  "reasoning-end",
-  "reasoning-file",
-  "reasoning-start",
-  "response-metadata",
-  "stream-start",
-  "text-start",
+// The parts that commit a link (LanguageModelV4StreamPart): the first text
+// delta or tool chunk, or a finish with no content before it. Every other
+// part (stream-start, response-metadata, raw, reasoning, source, file,
+// custom, a text-start or text-end without a delta) is held until the link
+// commits and dropped with it if it fails.
+const COMMIT_PARTS = new Set<string>([
+  "finish",
+  "text-delta",
+  "tool-approval-request",
+  "tool-call",
+  "tool-input-delta",
+  "tool-input-end",
+  "tool-input-start",
+  "tool-result",
 ]);
 
 function v4Model(model: LanguageModel): ChainModel {
@@ -411,7 +416,8 @@ export function assistantChainModel(input: {
       try {
         result = await entry.model.doStream({ ...params, providerOptions: entry.providerOptions });
         reader = result.stream.getReader();
-        // Hold the parts until the first text or tool chunk (or the end).
+        // Hold the parts until the first text or tool chunk, the finish or
+        // the end of the stream.
         for (;;) {
           const next = await reader.read();
           if (next.done) break;
@@ -421,7 +427,7 @@ export function assistantChainModel(input: {
             break;
           }
           held.push(next.value);
-          if (!PREAMBLE_PARTS.has(next.value.type)) break;
+          if (COMMIT_PARTS.has(next.value.type)) break;
         }
       } catch (error) {
         failed = true;

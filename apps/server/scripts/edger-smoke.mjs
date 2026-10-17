@@ -142,6 +142,28 @@ await expect("POST", "/_internal/cron/daily", async (response) => {
   if (JSON.stringify(jobs) !== JSON.stringify(expected)) return `expected the five daily jobs, got ${JSON.stringify(jobs)}`;
 }, { "x-edger-internal": "true" });
 
+// The frequent cron route (every 5 minutes) hides like the daily one and,
+// with the internal header, runs only the AI credit sweeper.
+await expect("POST", "/_internal/cron/frequent", async (response) => {
+  if (response.status !== 404) return `expected 404, got ${response.status}`;
+  const body = await response.text();
+  if (body !== "Not found") return `expected the entry's "Not found", got ${JSON.stringify(body.slice(0, 80))}`;
+});
+
+await expect("POST", "/_internal/cron/frequent", async (response) => {
+  if (response.status !== 200 && response.status !== 500) return `expected 200 or 500, got ${response.status}`;
+  let body;
+  try {
+    body = await response.json();
+  } catch {
+    return "body is not JSON";
+  }
+  const jobs = Array.isArray(body.jobs) ? body.jobs.map((job) => job.job) : [];
+  if (JSON.stringify(jobs) !== JSON.stringify(["refundStaleAiReservations"])) {
+    return `expected only refundStaleAiReservations, got ${JSON.stringify(jobs)}`;
+  }
+}, { "x-edger-internal": "true" });
+
 // The marketing page renders.
 await expect("GET", "/pricing", async (response) => {
   if (response.status !== 200) return `expected 200, got ${response.status}`;

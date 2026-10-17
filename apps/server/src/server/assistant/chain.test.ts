@@ -400,6 +400,94 @@ describe("link switch before the first chunk", () => {
   });
 });
 
+// ---------- what commits a link ----------
+
+describe("only text or a tool chunk commits a link", () => {
+  const unavailable = { error: { message: "temporary provider failure", statusCode: 503 }, type: "error" };
+  const start = { type: "stream-start", warnings: [] };
+
+  test("a source before any text, then 503: the second link answers and the dropped source never reaches the turn", async () => {
+    const source = { id: "src1", sourceType: "url", title: "Reference", type: "source", url: "https://dropped.example/reference" };
+    const replies = () => ({ [DEEPSEEK]: [answers("Recovered")], [HAIKU]: [() => sse([start, source, unavailable])] });
+
+    const fake = fakeFetch(replies());
+    const { body, outcome } = await turn(chainModel({ chain: gatewayChain(HAIKU, DEEPSEEK), fetch: fake.fetch }));
+    assert.deepEqual(fake.calls.map((call) => call.model), [HAIKU, DEEPSEEK]);
+    assert.equal(outcome.kind, "final");
+    assert.equal(outcome.kind === "final" && outcome.text, "Recovered");
+    assert.equal(billingOf(outcome).link, 1);
+    assert.ok(!body.includes("dropped.example"));
+
+    // What the turn reads from the chain: only the second link's parts.
+    const direct = fakeFetch(replies());
+    const parts = await drainCall(chainModel({ chain: gatewayChain(HAIKU, DEEPSEEK), fetch: direct.fetch }));
+    assert.deepEqual(direct.calls.map((call) => call.model), [HAIKU, DEEPSEEK]);
+    assert.ok(!JSON.stringify(parts).includes("dropped.example"), JSON.stringify(parts));
+    assert.deepEqual(parts.map((part) => part.type), ["stream-start", "text-start", "text-delta", "text-end", "finish"]);
+  });
+
+  // Every part that is not text or a tool chunk is held: a 503 after it
+  // still moves to the next link, and the held part goes with the link.
+  const held: Array<[string, Part[]]> = [
+    ["source", [{ id: "s", sourceType: "url", type: "source", url: "https://dropped.example/s" }]],
+    ["file", [{ data: { data: "ZHJvcHBlZA==", type: "data" }, mediaType: "text/plain", type: "file" }]],
+    ["custom", [{ kind: "dropped.custom", type: "custom" }]],
+    ["response-metadata", [{ id: "dropped-response", type: "response-metadata" }]],
+    ["reasoning", [{ id: "r", type: "reasoning-start" }, { delta: "dropped reasoning", id: "r", type: "reasoning-delta" }, { id: "r", type: "reasoning-end" }]],
+    ["reasoning-file", [{ data: { data: "ZHJvcHBlZA==", type: "data" }, mediaType: "image/png", type: "reasoning-file" }]],
+    ["text-start without a delta", [{ id: "dropped-text", type: "text-start" }]],
+    ["text-start and text-end without a delta", [{ id: "dropped-text", type: "text-start" }, { id: "dropped-text", type: "text-end" }]],
+  ];
+  for (const [name, parts] of held) {
+    test(`${name} before any text, then 503: the next link answers and the held part is dropped`, async () => {
+      const fake = fakeFetch({ [DEEPSEEK]: [answers("Recovered")], [HAIKU]: [() => sse([start, ...parts, unavailable])] });
+      const out = await drainCall(chainModel({ chain: gatewayChain(HAIKU, DEEPSEEK), fetch: fake.fetch }));
+      assert.deepEqual(fake.calls.map((call) => call.model), [HAIKU, DEEPSEEK]);
+      assert.ok(!JSON.stringify(out).includes("dropped"), JSON.stringify(out));
+      assert.equal(out.find((part) => part.type === "text-delta")?.delta, "Recovered");
+    });
+  }
+
+  // The text and tool chunks commit: a 503 after them reaches the turn and
+  // no other link is tried.
+  const committing: Array<[string, Part[]]> = [
+    ["text-delta", [{ id: "t", type: "text-start" }, { delta: "parcial", id: "t", type: "text-delta" }]],
+    ["tool-input-start", [{ id: "tool1", toolName: "lookup", type: "tool-input-start" }]],
+    ["tool-call", [{ input: "{}", toolCallId: "c1", toolName: "lookup", type: "tool-call" }]],
+    ["tool-result", [{ result: { ok: true }, toolCallId: "c1", toolName: "web_search", type: "tool-result" }]],
+    ["tool-approval-request", [{ approvalId: "a1", toolCallId: "c1", type: "tool-approval-request" }]],
+  ];
+  for (const [name, parts] of committing) {
+    test(`a first ${name}, then 503: the link is committed and there is no fallback`, async () => {
+      const fake = fakeFetch({ [DEEPSEEK]: [answers("must not run")], [HAIKU]: [() => sse([...parts, unavailable])] });
+      const out = await drainCall(chainModel({ chain: gatewayChain(HAIKU, DEEPSEEK), fetch: fake.fetch }));
+      assert.deepEqual(fake.calls.map((call) => call.model), [HAIKU]);
+      assert.deepEqual(out.map((part) => part.type), [...parts.map((part) => part.type), "error"]);
+    });
+  }
+
+  test("held parts of the committed link reach the turn in order once the text arrives", async () => {
+    const source = { id: "s", sourceType: "url", type: "source", url: "https://kept.example/s" };
+    const fake = fakeFetch({
+      [HAIKU]: [() => sse([start, { id: "r", type: "reasoning-start" }, source, ...gatewayAnswer("ok").slice(1)])],
+    });
+    const out = await drainCall(chainModel({ chain: gatewayChain(HAIKU, DEEPSEEK), fetch: fake.fetch }));
+    assert.deepEqual(fake.calls.map((call) => call.model), [HAIKU]);
+    assert.deepEqual(out.map((part) => part.type), ["stream-start", "reasoning-start", "source", "text-start", "text-delta", "text-end", "finish"]);
+  });
+
+  test("a finish with no content is a valid empty answer: no fallback, and the turn calls it a missing final", async () => {
+    const source = { id: "s", sourceType: "url", type: "source", url: "https://kept.example/s" };
+    const finish = gatewayAnswer("").at(-1)!;
+    const fake = fakeFetch({ [DEEPSEEK]: [answers("must not run")], [HAIKU]: [() => sse([start, source, finish])] });
+    const { outcome } = await turn(chainModel({ chain: gatewayChain(HAIKU, DEEPSEEK), fetch: fake.fetch }));
+    assert.deepEqual(fake.calls.map((call) => call.model), [HAIKU]);
+    assert.equal(outcome.kind, "error");
+    assert.equal(outcome.kind === "error" && outcome.code, "ASSISTANT_TURN_INCOMPLETE");
+    assert.equal(billingOf(outcome).link, 0);
+  });
+});
+
 // ---------- circuit breaker ----------
 
 describe("circuit breaker", () => {

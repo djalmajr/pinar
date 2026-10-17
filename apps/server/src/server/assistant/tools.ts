@@ -3,16 +3,34 @@
 // buildAssistantToolSet turns the policy-approved MCP tools of a surface
 // (assistantToolsFor) into AI SDK tools keyed by their LLM name
 // (pinar_list_sessions, ...). Every execute first validates the arguments
-// with validateArgs (invalid arguments never reach the host), then calls the
-// host with the original MCP name (pinar.list_sessions).
+// with validateArgs (invalid arguments never reach the host or the
+// proposal sink), then:
+// - a read calls the host with the original MCP name (pinar.list_sessions);
+// - a write never calls the host: it hands the MCP name and the arguments
+//   to the proposal sink, which stores and emits the proposal, and the
+//   model only gets { status: "awaiting_confirmation", summary }.
+// The assistant-only tools (extra-tools.ts) follow the policy order:
+// pinar_move_sessions joins whenever writes are offered, on both surfaces,
+// and pinar_ask whenever there is an emit to send its data-ask part.
 
 import { jsonSchema, tool, type ToolSet } from "ai";
-import { McpToolError } from "../mcp-protocol";
-import { assistantToolsFor, type AssistantSurface, type AssistantToolKind } from "./tool-policy";
+import { McpToolError, type McpToolDefinition } from "../mcp-protocol";
+import { ASSISTANT_ASK_TOOL, ASSISTANT_MOVE_SESSIONS_TOOL, assistantAskFrom, assistantExtraToolProblems } from "./extra-tools";
+import { assistantToolsFor, toLlmToolName, type AssistantSurface, type AssistantToolKind } from "./tool-policy";
+import type { AssistantStreamEmit } from "./turn";
 import { validateArgs, type ToolInputSchema } from "./validate";
 
 export interface AssistantToolHost {
   callTool(mcpName: string, args: Record<string, unknown>): Promise<unknown>;
+}
+
+export interface AssistantProposalSink {
+  /** Validated args in; the proposal is stored and emitted by the sink. */
+  propose(tool: string, args: Record<string, unknown>): Promise<
+    | { status: "awaiting_confirmation"; summary: string }
+    | { problems: string[]; status: "invalid_arguments" }
+    | { message: string; status: "error" }
+  >;
 }
 
 // Characters of data per tool result, measured on the escaped content
@@ -40,22 +58,52 @@ function escapeCapped(text: string, max: number): { data: string; truncated: boo
   return { data, truncated: false };
 }
 
-function toolSchema(def: { inputSchema: { properties?: Record<string, unknown>; required?: string[]; type: "object" } }): ToolInputSchema {
+function toolSchema(def: { inputSchema: McpToolDefinition["inputSchema"] }): ToolInputSchema {
   // The MCP definitions type the schema as a loose JSON object; these are
   // JSON Schema objects, so the ToolInputSchema view is safe at this
   // boundary (the validator only reads the declared keys).
   return def.inputSchema as unknown as ToolInputSchema;
 }
 
+// A sink failure is reported generically, like a host failure: its
+// message never reaches the model.
+async function propose(sink: AssistantProposalSink, mcpName: string, args: Record<string, unknown>) {
+  try {
+    return await sink.propose(mcpName, args);
+  } catch {
+    return { message: TOOL_FAILED_MESSAGE, status: "error" as const };
+  }
+}
+
 export function buildAssistantToolSet(input: {
+  emit?: AssistantStreamEmit; // required when "ask" is offered
   host: AssistantToolHost;
   kinds: readonly AssistantToolKind[];
+  proposals?: AssistantProposalSink; // required when kinds includes "write"
   surface: AssistantSurface;
 }): ToolSet {
+  const sink = input.proposals;
+  if (input.kinds.includes("write") && !sink) {
+    throw new Error("buildAssistantToolSet: write tools need a proposal sink");
+  }
   const tools: ToolSet = {};
   for (const def of assistantToolsFor(input.surface)) {
     if (!input.kinds.includes(def.policy.kind)) continue;
     const schema = toolSchema(def);
+    if (def.policy.kind === "write") {
+      tools[def.llmName] = tool({
+        description: def.description,
+        inputSchema: jsonSchema(schema),
+        execute: async (args) => {
+          const problems = validateArgs(schema, args);
+          if (problems.length > 0) {
+            return { problems, status: "invalid_arguments" };
+          }
+          return propose(sink as AssistantProposalSink, def.name, args as Record<string, unknown>);
+        },
+      });
+      continue;
+    }
     tools[def.llmName] = tool({
       description: def.description,
       inputSchema: jsonSchema(schema),
@@ -77,6 +125,36 @@ export function buildAssistantToolSet(input: {
           }
           return { message: TOOL_FAILED_MESSAGE, status: "error" };
         }
+      },
+    });
+  }
+  if (sink && input.kinds.includes("write")) {
+    const def = ASSISTANT_MOVE_SESSIONS_TOOL;
+    tools[toLlmToolName(def.name)] = tool({
+      description: def.description,
+      inputSchema: jsonSchema(toolSchema(def)),
+      execute: async (args) => {
+        const problems = assistantExtraToolProblems(def, args);
+        if (problems.length > 0) {
+          return { problems, status: "invalid_arguments" };
+        }
+        return propose(sink, def.name, args as Record<string, unknown>);
+      },
+    });
+  }
+  const emit = input.emit;
+  if (emit) {
+    const def = ASSISTANT_ASK_TOOL;
+    tools[toLlmToolName(def.name)] = tool({
+      description: def.description,
+      inputSchema: jsonSchema(toolSchema(def)),
+      execute: async (args) => {
+        const ask = assistantAskFrom(args);
+        if (!ask) {
+          return { problems: assistantExtraToolProblems(def, args), status: "invalid_arguments" };
+        }
+        emit({ data: ask, type: "data-ask" });
+        return { status: "asked" };
       },
     });
   }

@@ -42,7 +42,7 @@ function providerName(endpoint: AssistantEndpoint): "appliance" | "byok" {
 
 // Accepts https anywhere and http only on loopback. Userinfo, query and
 // fragment are refused. The error never includes the URL or the key.
-function assertAssistantBaseUrl(baseUrl: string): void {
+export function assertAssistantBaseUrl(baseUrl: string): void {
   let url: URL;
   try {
     url = new URL(baseUrl);
@@ -63,7 +63,7 @@ function assertAssistantBaseUrl(baseUrl: string): void {
 // redirect:"manual" and any 3xx is refused (the runtime may reject
 // redirect:"error"), without following Location and without reflecting
 // the URL or the secret in the error.
-function guardRedirects(baseFetch: typeof fetch): typeof fetch {
+export function guardRedirects(baseFetch: typeof fetch): typeof fetch {
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
     const response = await baseFetch(input, { ...init, redirect: "manual" });
     if (response.status >= 300 && response.status < 400) {

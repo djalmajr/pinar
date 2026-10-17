@@ -69,11 +69,12 @@ describe("public legal documents", () => {
     for (const language of ["en", "pt"] as const) {
       const subprocessors = body("subprocessors", language);
       const privacy = body("privacy", language);
-      // The AI features run through the Vercel AI Gateway, with the gateway and
-      // the providers as subprocessors under Article 33 of the LGPD (A51).
+      // The AI features run through the Vercel AI Gateway; the dual role and the
+      // Article 33, IX + Article 7, V basis now live in the policy (J2/J3), and
+      // the subprocessor page keeps the short form pointing at the policy.
       assert.match(subprocessors, /Vercel AI Gateway/);
       assert.match(privacy, /Vercel AI Gateway/);
-      assert.match(subprocessors, language === "en" ? /Article 33/ : /art\. 33/);
+      assert.match(subprocessors, language === "en" ? /act as processors of Pinar and, for third-party data that you control, as subprocessors/ : /atuam como operadores do Pinar e, para dados de terceiros que você controla, como suboperadores/);
       assert.match(privacy, language === "en" ? /Article 33/ : /art\. 33/);
       assert.match(subprocessors, /vercel\.com\/legal/);
       assert.match(privacy, /vercel\.com\/legal/);
@@ -128,17 +129,107 @@ describe("public legal documents", () => {
     assert.match(privacyPt, /90 dias após a última mensagem/);
     assert.match(privacyEn, /does not pass through Pinar/);
     assert.match(privacyPt, /não passa pelo Pinar/);
-    // The public texts keep no model-provider name and no zero-retention or
-    // no-training promise for the AI features (A51).
+    // The public texts keep no model-provider name and no training promise for
+    // the AI features (A51). The only zero-retention mention in the whole set is
+    // the policy's transparency sentence that Pinar does not request it (J4); the
+    // subprocessor page keeps none.
     for (const documentId of ["privacy", "subprocessors"] as const) {
       const english = body(documentId, "en");
       const portuguese = body(documentId, "pt");
       assert.doesNotMatch(english, /Anthropic|DeepSeek|Z\.ai|OpenAI|Google/i);
       assert.doesNotMatch(english, /train/i);
-      assert.doesNotMatch(english, /zero data retention/i);
       assert.doesNotMatch(portuguese, /Anthropic|DeepSeek|Z\.ai|OpenAI|Google/i);
       assert.doesNotMatch(portuguese, /treinar|treino/i);
-      assert.doesNotMatch(portuguese, /retenção zero/i);
+    }
+    for (const language of ["en", "pt"] as const) {
+      const privacy = body("privacy", language);
+      const subprocessors = body("subprocessors", language);
+      const zeroRetention = language === "en" ? /zero data retention/gi : /retenção zero/gi;
+      assert.equal((privacy.match(zeroRetention) ?? []).length, 1);
+      assert.doesNotMatch(subprocessors, zeroRetention);
+    }
+  });
+
+  it("applies the legal review findings: DPO, dual role, provider retention, own-purpose controller, indexing basis, incident notice, LGPD deadlines, third-party channel, and license exclusion (J1-J9, J12)", () => {
+    const body = (id: Parameters<typeof legalDocument>[0], language: "en" | "pt") => legalDocument(id, language).body;
+    for (const language of ["en", "pt"] as const) {
+      const privacy = body("privacy", language);
+      const terms = body("terms", language);
+      const subprocessors = body("subprocessors", language);
+      if (language === "en") {
+        // J1: the data protection officer is named through the existing privacy contact.
+        assert.match(privacy, /Data protection officer: \*\*Djalma Júnior\*\*, through the same contact\./);
+        // J2/J3: the providers act as processors of Pinar and, for third-party data
+        // you control, as subprocessors, under Article 33, IX + Article 7, V.
+        assert.match(privacy, /act as processors of Pinar and, for third-party data that you control, as subprocessors/);
+        assert.match(privacy, /The transfer is necessary to run the features you invoke \(Article 33, IX, combined with Article 7, V, of the LGPD\) and, for third-party data, follows your instruction as controller/);
+        // J4: Pinar does not request zero data retention; providers keep their own periods.
+        assert.match(privacy, /Pinar does not request zero data retention, so the providers may retain the data from each request for the periods in their own terms/);
+        // J5: Pinar is controller for its own purposes.
+        assert.match(privacy, /When we process that data for our own purposes, such as security, fraud and abuse prevention, and legal compliance, we act as controller/);
+        // J8: the screenshot description and pin indexing run under contract performance.
+        assert.match(privacy, /The description of screenshots and the indexing of pins for search are done to run the AI features you use \(contract performance\)\./);
+        // J9: a relevant incident is reported to the ANPD and to the data subjects.
+        assert.match(privacy, /If a security incident may cause relevant risk or harm to the data subjects, we will notify the ANPD and the affected data subjects, as required by law\./);
+        // J12: requests are answered within the LGPD time limits.
+        assert.match(privacy, /We will respond within the LGPD time limits\./);
+        // J6: a third party who appears in submitted content is pointed to the customer.
+        assert.match(privacy, /If you appear in content a customer sent to Pinar \(for example, in a screenshot\) and are not a user of the service, direct your request to the person who sent the content, who is the controller of that data\./);
+        assert.match(privacy, /If you contact us, we will forward the request to the customer when we can identify them\./);
+        // J7: the license never includes training AI models on your content.
+        assert.match(terms, /That license does not include using your content to train AI models\./);
+      } else {
+        // J1: encarregado indicado pelo mesmo contato de privacidade.
+        assert.match(privacy, /Encarregado pelo tratamento de dados pessoais: \*\*Djalma Júnior\*\*, pelo mesmo contato\./);
+        // J2/J3: duplo papel operador/suboperador com a base art. 33, IX + art. 7º, V.
+        assert.match(privacy, /atuam como operadores do Pinar e, para dados de terceiros que você controla, como suboperadores/);
+        assert.match(privacy, /A transferência é necessária para executar os recursos que você aciona \(art\. 33, IX, combinado com o art\. 7º, V, da LGPD\) e, para dados de terceiros, segue a sua instrução como controlador/);
+        // J4: o Pinar não solicita retenção zero; os provedores mantêm os prazos dos próprios termos.
+        assert.match(privacy, /O Pinar não solicita retenção zero de dados, então os provedores podem reter os dados de cada pedido pelos prazos dos próprios termos/);
+        // J5: o Pinar é controlador para finalidades próprias.
+        assert.match(privacy, /Quando tratamos esses dados para finalidades próprias, como segurança, prevenção a fraude e abuso e cumprimento da lei, atuamos como controlador/);
+        // J8: a descrição dos screenshots e a indexação dos pins valem pela execução de contrato.
+        assert.match(privacy, /A descrição dos screenshots e a indexação dos pins para busca são feitas para executar os recursos de IA que você usa \(execução de contrato\)\./);
+        // J9: incidente relevante é comunicado à ANPD e aos titulares.
+        assert.match(privacy, /Se um incidente de segurança puder gerar risco ou dano relevante aos titulares, comunicaremos a ANPD e os titulares afetados, conforme a lei\./);
+        // J12: resposta nos prazos da LGPD.
+        assert.match(privacy, /Responderemos nos prazos da LGPD\./);
+        // J6: o terceiro que aparece no conteúdo enviado é encaminhado ao cliente.
+        assert.match(privacy, /Se você aparece no conteúdo que um cliente enviou ao Pinar \(por exemplo, num screenshot\) e não é usuário do serviço, dirija o pedido a quem enviou o conteúdo, que é o controlador desses dados\./);
+        assert.match(privacy, /Se nos procurar, encaminharemos o pedido ao cliente quando pudermos identificá-lo\./);
+        // J7: a licença não inclui treinar modelos de IA com o conteúdo.
+        assert.match(terms, /Essa licença não inclui usar o seu conteúdo para treinar modelos de IA\./);
+      }
+      // J3: a página de suboperadores mantém o raciocínio em forma curta.
+      assert.match(subprocessors, language === "en" ? /act as processors of Pinar and, for third-party data that you control, as subprocessors; processing may take place outside Brazil in the circumstances described in the Privacy Policy/ : /atuam como operadores do Pinar e, para dados de terceiros que você controla, como suboperadores; o tratamento pode ocorrer fora do Brasil nas hipóteses da Política de Privacidade/);
+    }
+  });
+
+  it("describes the real production infrastructure: Hetzner hosting, the Cloudflare proxy/CDN/protection with R2 and the email, and the 14-day database backups (J10)", () => {
+    const body = (id: Parameters<typeof legalDocument>[0], language: "en" | "pt") => legalDocument(id, language).body;
+    for (const language of ["en", "pt"] as const) {
+      const subprocessors = body("subprocessors", language);
+      const privacy = body("privacy", language);
+      const retention = body("retention", language);
+      // Hetzner hosts the application server and the database, with the backups,
+      // in Falkenstein, Germany, and gets no link (no verified URL).
+      const hetznerEntry = subprocessors.slice(subprocessors.indexOf("### Hetzner Online GmbH"), subprocessors.indexOf("### Stripe"));
+      assert.match(hetznerEntry, language === "en" ? /hosts the Pinar Cloud application server and the database, including the backups/ : /hospedagem dos servidores da aplicação e do banco de dados, com os backups/);
+      assert.match(hetznerEntry, language === "en" ? /Germany \(Falkenstein\)/ : /Alemanha \(Falkenstein\)/);
+      assert.doesNotMatch(hetznerEntry, /https?:\/\//);
+      // The Cloudflare entry covers the proxy/CDN/protection, the R2 storage of the
+      // uploaded files and the transactional email, and no longer names Workers, D1
+      // or Workers AI, which no longer run in production.
+      const cloudflareEntry = subprocessors.slice(subprocessors.indexOf("### Cloudflare"), subprocessors.indexOf("### Hetzner Online GmbH"));
+      assert.doesNotMatch(cloudflareEntry, /Workers|D1/i);
+      assert.match(cloudflareEntry, language === "en" ? /proxy, CDN, and protection/ : /proxy, CDN e proteção/);
+      assert.match(cloudflareEntry, /R2/);
+      assert.match(cloudflareEntry, language === "en" ? /transactional email/ : /e-mail transacional/);
+      assert.match(cloudflareEntry, /cloudflare\.com\/gdpr\/subprocessors/);
+      // The policy says where the service is hosted; the retention policy gives the
+      // database backups their ~14-day window.
+      assert.match(privacy, language === "en" ? /the hosted service runs on servers in Germany/ : /a hospedagem do serviço fica na Alemanha/);
+      assert.match(retention, language === "en" ? /until normal rotation \(about 14 days for the database\)/ : /até a rotação normal \(cerca de 14 dias para o banco de dados\)/);
     }
   });
 

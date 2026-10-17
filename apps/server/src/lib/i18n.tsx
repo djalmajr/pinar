@@ -94,9 +94,10 @@ export function formatMessage(
     if (branch === undefined) return block;
     return branch.replaceAll("#", numberFormatFor(language).format(count));
   });
-  return Object.entries(values).reduce(
-    (message, [key, value]) => message.replaceAll(`{${key}}`, String(value)),
-    expanded,
+  // One pass over the template: a value that itself contains `{name}` (a
+  // project called "{to}", say) is inserted as text and never expanded.
+  return expanded.replace(/\{(\w+)\}/g, (placeholder, key: string) =>
+    Object.prototype.hasOwnProperty.call(values, key) ? String(values[key]) : placeholder,
   );
 }
 

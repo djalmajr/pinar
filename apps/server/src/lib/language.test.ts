@@ -105,6 +105,17 @@ describe("message formatting", () => {
     assert.equal(formatMessage("Pin {number}", "en", { number: 3 }), "Pin 3");
   });
 
+  test("inserts a value that contains a placeholder as text", () => {
+    // A user-chosen name must never rewrite the rest of the sentence, as in a
+    // proposal card ("Rename “{to}” to “Website”").
+    assert.equal(
+      formatMessage("Rename “{from}” to “{to}”", "en", { from: "{to}", to: "Website" }),
+      "Rename “{to}” to “Website”",
+    );
+    assert.equal(formatMessage("{a} and {b}", "en", { a: "{b}", b: "{a}" }), "{b} and {a}");
+    assert.equal(formatMessage("Keep {unknown}", "en", { other: 1 }), "Keep {unknown}");
+  });
+
   test("selects English plural categories", () => {
     assert.equal(
       formatMessage(englishMessages["dashboard.pinCount"], "en", { count: 1 }),

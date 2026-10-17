@@ -971,3 +971,307 @@ describe("cloud assistant proposals", () => {
     }
   });
 });
+
+// ---------- F4/S1: the model chain, the production gate and the health ----------
+
+const GATEWAY_KEY = "gw-live-key-SENTINEL-7781";
+const HAIKU = "anthropic/claude-haiku-5.5";
+const DEEPSEEK = "deepseek/deepseek-v4.1-flash";
+
+// A production env with a valid gateway chain: no appliance strings at all.
+function productionEnv(db: Database, overrides: Partial<CloudEnv> = {}): CloudEnv {
+  return {
+    AI_GATEWAY_API_KEY: GATEWAY_KEY,
+    ASSISTANT_CHAIN: `gateway:${HAIKU},gateway:${DEEPSEEK}`,
+    ASSISTANT_ENABLED: "true",
+    DB: sqliteD1(db),
+    DEPLOYMENT_ENV: "production",
+    ...overrides,
+  };
+}
+
+type GatewayCall = { body: Record<string, unknown>; headers: Headers; model: string; url: string };
+
+// Replaces the global fetch with a fake Vercel AI Gateway for one test: each
+// model answers with its scripted status or a text stream. Restored by the
+// returned function, always called in a finally.
+function fakeGatewayFetch(replies: Record<string, number | string>) {
+  const calls: GatewayCall[] = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const headers = new Headers(init?.headers);
+    const model = headers.get("ai-language-model-id") ?? "";
+    calls.push({ body: JSON.parse(String(init?.body ?? "{}")), headers, model, url: String(input) });
+    const reply = replies[model];
+    if (typeof reply === "number") {
+      return Response.json({ error: { message: `upstream ${GATEWAY_KEY}`, type: "rate_limit_exceeded" } }, { status: reply });
+    }
+    const parts = [
+      { type: "stream-start", warnings: [] },
+      { id: "t1", type: "text-start" },
+      { delta: reply ?? "", id: "t1", type: "text-delta" },
+      { id: "t1", type: "text-end" },
+      {
+        finishReason: { raw: "stop", unified: "stop" },
+        providerMetadata: { gateway: { cost: "0.0045405" } },
+        type: "finish",
+        usage: { inputTokens: { total: 12 }, outputTokens: { total: 4 } },
+      },
+    ];
+    return new Response(parts.map((part) => `data: ${JSON.stringify(part)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
+  }) as typeof fetch;
+  return { calls, restore: () => { globalThis.fetch = original; } };
+}
+
+// Collects every console line of a block (restored in a finally).
+async function capturingLogs<T>(run: () => Promise<T>): Promise<{ logged: string; result: T }> {
+  const lines: unknown[] = [];
+  const original = { error: console.error, info: console.info, log: console.log, warn: console.warn };
+  console.error = (...args: unknown[]) => { lines.push(args); };
+  console.info = (...args: unknown[]) => { lines.push(args); };
+  console.log = (...args: unknown[]) => { lines.push(args); };
+  console.warn = (...args: unknown[]) => { lines.push(args); };
+  try {
+    const result = await run();
+    return { logged: JSON.stringify(lines), result };
+  } finally {
+    Object.assign(console, original);
+  }
+}
+
+describe("cloud assistant chain (F4/S1)", () => {
+  beforeEach(() => {
+    resetCloudMemoryStateForTests();
+    setCloudNowForTests(NOW);
+  });
+
+  afterEach(() => resetCloudMemoryStateForTests());
+
+  function route(path: string, env: CloudEnv, init: RequestInit = {}) {
+    return handleCloudApiRequest(new Request(`https://pinar.test${path}`, init), env);
+  }
+
+  async function seedPro(db: Database, env: CloudEnv) {
+    insertUser(db, "usr_a", "a@example.test", "pro");
+    return seedCloudWebSessionForTests({ email: "a@example.test", id: "usr_a", plan: "pro" }, env);
+  }
+
+  async function statusOf(env: CloudEnv, cookie: string) {
+    return (await route("/api/assistant/status", env, { headers: { cookie } })).json();
+  }
+
+  function turn(env: CloudEnv, cookie: string, text: string) {
+    return route("/api/assistant/turn", env, {
+      body: JSON.stringify({ text }),
+      headers: { cookie, "content-type": "application/json" },
+      method: "POST",
+    });
+  }
+
+  async function health(env: CloudEnv) {
+    const response = await route("/api/health", env);
+    assert.equal(response.status, 200);
+    const text = await response.text();
+    assert.ok(!text.includes(GATEWAY_KEY), "the health never shows the key");
+    return JSON.parse(text) as { hasAssistant: unknown };
+  }
+
+  async function assistantMessage(env: CloudEnv, cookie: string, threadId: string) {
+    const deadline = Date.now() + 5_000;
+    for (;;) {
+      const detail = await route(`/api/assistant/threads/${threadId}`, env, { headers: { cookie } });
+      const text = await detail.text();
+      const body = JSON.parse(text) as { messages: Array<Record<string, unknown>> };
+      if (body.messages.length === 2) return { message: body.messages[1], text };
+      if (Date.now() > deadline) throw new Error("timed out waiting for the assistant message");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
+  test("gate: staging without a chain keeps appliance:<AI_MODEL> and the rule of before", async () => {
+    const db = migratedDatabase();
+    try {
+      const env = assistantEnv(db);
+      const a = await seedPro(db, env);
+      assert.deepEqual(await statusOf(env, a.cookie), { available: true, reason: null, surface: "cloud" });
+      assert.equal((await health(env)).hasAssistant, true);
+      // Without the appliance strings staging stays off, chain or not.
+      for (const overrides of [{ AI_BASE_URL: undefined }, { AI_BASE_URL: undefined, ASSISTANT_CHAIN: `gateway:${HAIKU}`, AI_GATEWAY_API_KEY: GATEWAY_KEY }]) {
+        const off = assistantEnv(db, overrides);
+        assert.deepEqual(await statusOf(off, a.cookie), { available: false, reason: "disabled", surface: "cloud" });
+        assert.equal((await health(off)).hasAssistant, false);
+      }
+    } finally {
+      db.close();
+    }
+  });
+
+  test("gate: production refuses an appliance link (or the appliance default), logged once without values", async () => {
+    const db = migratedDatabase();
+    try {
+      const appliances: Array<Partial<CloudEnv>> = [
+        { AI_API_KEY: "sk-ai-test", AI_BASE_URL: "https://appliance.test/v1", AI_MODEL: "qwen-private-model", ASSISTANT_CHAIN: undefined },
+        { ASSISTANT_CHAIN: `gateway:${HAIKU},appliance:qwen-private-model` },
+      ];
+      for (const overrides of appliances) {
+        resetCloudMemoryStateForTests();
+        const env = productionEnv(db, overrides);
+        const a = await seedPro(db, env);
+        const { logged } = await capturingLogs(async () => {
+          assert.deepEqual(await statusOf(env, a.cookie), { available: false, reason: "disabled", surface: "cloud" });
+          assert.equal((await health(env)).hasAssistant, false);
+          const denied = await turn(env, a.cookie, "oi");
+          assert.equal(denied.status, 503);
+          assert.equal((await denied.json() as { code: string }).code, "assistant_unavailable");
+        });
+        const lines = logged.match(/assistant_chain_config_error/g) ?? [];
+        assert.equal(lines.length, 1, "logged once per process");
+        assert.ok(logged.includes("appliance_in_production"));
+        for (const value of ["qwen-private-model", HAIKU, GATEWAY_KEY, "appliance.test", "sk-ai-test"]) assert.ok(!logged.includes(value), value);
+        db.exec("DELETE FROM web_sessions; DELETE FROM users");
+      }
+    } finally {
+      db.close();
+    }
+  });
+
+  test("gate: production without AI_GATEWAY_API_KEY is off, without a config error", async () => {
+    const db = migratedDatabase();
+    try {
+      const env = productionEnv(db, { AI_GATEWAY_API_KEY: undefined });
+      const a = await seedPro(db, env);
+      const { logged } = await capturingLogs(async () => {
+        assert.deepEqual(await statusOf(env, a.cookie), { available: false, reason: "disabled", surface: "cloud" });
+        assert.equal((await health(env)).hasAssistant, false);
+      });
+      assert.ok(!logged.includes("assistant_chain_config_error"));
+      // And the switch is still required.
+      const off = productionEnv(db, { ASSISTANT_ENABLED: undefined });
+      assert.deepEqual(await statusOf(off, a.cookie), { available: false, reason: "disabled", surface: "cloud" });
+    } finally {
+      db.close();
+    }
+  });
+
+  test("gate: production with a gateway-only chain and the key is on, and a turn goes through the gateway", async () => {
+    const db = migratedDatabase();
+    const gateway = fakeGatewayFetch({ [HAIKU]: "Do gateway." });
+    try {
+      const env = productionEnv(db);
+      const a = await seedPro(db, env);
+      const { logged, result } = await capturingLogs(async () => {
+        assert.deepEqual(await statusOf(env, a.cookie), { available: true, reason: null, surface: "cloud" });
+        assert.equal((await health(env)).hasAssistant, true);
+        const response = await turn(env, a.cookie, "Quantas sessões?");
+        assert.equal(response.status, 200);
+        const sse = await response.text();
+        const thread = JSON.parse(sse.split("\n").find((line) => line.startsWith("data: "))!.slice(6)) as { data: { id: string } };
+        return { sse, threadId: thread.data.id, ...(await assistantMessage(env, a.cookie, thread.data.id)) };
+      });
+      assert.ok(result.sse.includes("Do gateway."));
+      assert.equal(result.message.status, "final");
+      assert.equal(result.message.text, "Do gateway.");
+      assert.deepEqual(gateway.calls.map((call) => call.model), [HAIKU]);
+      const call = gateway.calls[0];
+      assert.equal(call.url, "https://ai-gateway.vercel.sh/v4/ai/language-model");
+      assert.equal(call.headers.get("authorization"), `Bearer ${GATEWAY_KEY}`);
+      assert.deepEqual(call.body.providerOptions, {
+        gateway: { caching: "auto", disallowPromptTraining: true, sessionId: result.threadId },
+      });
+      for (const text of [result.sse, result.text, logged]) assert.ok(!text.includes(GATEWAY_KEY), "the key never leaves the server");
+    } finally {
+      gateway.restore();
+      db.close();
+    }
+  });
+
+  test("a route turn falls back to the second link, and AI_GATEWAY_ZERO_DATA_RETENTION=true adds the ZDR option", async () => {
+    const db = migratedDatabase();
+    const gateway = fakeGatewayFetch({ [DEEPSEEK]: "Da reserva.", [HAIKU]: 429 });
+    try {
+      const env = productionEnv(db, { AI_GATEWAY_ZERO_DATA_RETENTION: "true" });
+      const a = await seedPro(db, env);
+      const { logged, result } = await capturingLogs(async () => {
+        const response = await turn(env, a.cookie, "oi");
+        assert.equal(response.status, 200);
+        return response.text();
+      });
+      assert.ok(result.includes("Da reserva."));
+      assert.deepEqual(gateway.calls.map((call) => call.model), [HAIKU, DEEPSEEK]);
+      for (const call of gateway.calls) {
+        assert.equal((call.body.providerOptions as { gateway: { zeroDataRetention?: boolean } }).gateway.zeroDataRetention, true);
+      }
+      assert.ok(!result.includes(GATEWAY_KEY) && !logged.includes(GATEWAY_KEY));
+    } finally {
+      gateway.restore();
+      db.close();
+    }
+  });
+
+  test("the breaker is one per process: 3 failed turns open the only link and the next turn is assistant_unavailable", async () => {
+    const db = migratedDatabase();
+    const gateway = fakeGatewayFetch({ [HAIKU]: 503 });
+    try {
+      const env = productionEnv(db, { ASSISTANT_CHAIN: `gateway:${HAIKU}` });
+      const a = await seedPro(db, env);
+      for (let index = 0; index < 3; index++) {
+        const failed = await turn(env, a.cookie, `oi ${index}`);
+        assert.equal(failed.status, 200);
+        const sse = await failed.text();
+        assert.ok(sse.includes("ASSISTANT_STREAM_FAILED"));
+        assert.ok(!sse.includes(GATEWAY_KEY));
+      }
+      assert.equal(gateway.calls.length, 3);
+      const unavailable = await turn(env, a.cookie, "de novo");
+      assert.equal(unavailable.status, 503);
+      assert.deepEqual(await unavailable.json(), { code: "assistant_unavailable", error: "The assistant is unavailable" });
+      assert.equal(gateway.calls.length, 3, "no request while every link is open");
+      // The deployment is still enabled: the breaker is about the links.
+      assert.equal((await health(env)).hasAssistant, true);
+    } finally {
+      gateway.restore();
+      db.close();
+    }
+  });
+
+  const invalid: Array<[string, string]> = [
+    ["openai:gpt-secret", "unknown_hub"],
+    [`gateway:${HAIKU},gateway:${HAIKU}`, "duplicate_link"],
+    ["gateway:a,gateway:b,gateway:c,gateway:d,gateway:e", "too_many_links"],
+    ["gateway:", "malformed_link"],
+  ];
+  for (const [csv, reason] of invalid) {
+    test(`an invalid ASSISTANT_CHAIN (${reason}) turns the assistant off and logs only the reason`, async () => {
+      const db = migratedDatabase();
+      try {
+        for (const deployment of ["production", "staging"] as const) {
+          resetCloudMemoryStateForTests();
+          const env = deployment === "production"
+            ? productionEnv(db, { ASSISTANT_CHAIN: csv })
+            : assistantEnv(db, { AI_GATEWAY_API_KEY: GATEWAY_KEY, ASSISTANT_CHAIN: csv });
+          const a = await seedPro(db, env);
+          const { logged } = await capturingLogs(async () => {
+            assert.deepEqual(await statusOf(env, a.cookie), { available: false, reason: "disabled", surface: "cloud" });
+            assert.equal((await health(env)).hasAssistant, false);
+          });
+          assert.deepEqual(JSON.parse(JSON.parse(logged)[0][0]), { message: "assistant_chain_config_error", reason });
+          for (const value of [csv, "gpt-secret", HAIKU, GATEWAY_KEY]) assert.ok(!logged.includes(value), value);
+          db.exec("DELETE FROM web_sessions; DELETE FROM users");
+        }
+      } finally {
+        db.close();
+      }
+    });
+  }
+
+  test("/api/health reports hasAssistant as a plain boolean", async () => {
+    const db = migratedDatabase();
+    try {
+      assert.equal((await health({})).hasAssistant, false);
+      assert.equal((await health(productionEnv(db))).hasAssistant, true);
+      assert.equal((await health(productionEnv(db, { ASSISTANT_ENABLED: "false" }))).hasAssistant, false);
+    } finally {
+      db.close();
+    }
+  });
+});

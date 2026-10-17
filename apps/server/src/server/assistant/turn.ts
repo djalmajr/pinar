@@ -33,6 +33,7 @@ import {
   type ToolSet,
   type UIMessageStreamWriter,
 } from "ai";
+import { assistantTurnBilling } from "./chain";
 import { ASSISTANT_ASK_TOOL, assistantAskFrom } from "./extra-tools";
 import type { ProviderOptions } from "./models";
 import type { AssistantPublicProposal } from "./proposals";
@@ -83,15 +84,31 @@ export interface AssistantTurnUsage {
   totalTokens: number;
 }
 
+// What the turn cost and who answered (F4 contract §1), shared with the
+// credits (S2). Set when the turn's steps went through the model chain
+// (chain.ts assistantTurnBilling); the local app has none.
+export interface AssistantTurnBilling {
+  costSource: "gateway" | "table" | "appliance" | "none";
+  costUsdMicros: number | null;
+  fallback: boolean; // answered by a link after the first
+  link: number; // index of the link that answered (0 = first)
+  model: string; // "hub:model" of the link that answered
+  usage: AssistantTurnUsage;
+}
+
 type AssistantAsk = { options: string[]; question: string };
 
 export type AssistantStreamEmit = (part:
   | { data: AssistantPublicProposal; type: "data-proposal" }
   | { data: { options: string[]; question: string }; type: "data-ask" }) => void;
 
+// The plan's outcomes map onto two kinds: final (ask null), intentional
+// stop (final with the pinar_ask question) and missing final (error
+// ASSISTANT_TURN_INCOMPLETE). Each carries `billing` when the steps that
+// ran report it.
 export type AssistantTurnOutcome =
-  | { ask: AssistantAsk | null; kind: "final"; steps: number; text: string; usage: AssistantTurnUsage }
-  | { code: AssistantErrorCode; kind: "error"; steps: number; usage: AssistantTurnUsage };
+  | { ask: AssistantAsk | null; billing?: AssistantTurnBilling; kind: "final"; steps: number; text: string; usage: AssistantTurnUsage }
+  | { billing?: AssistantTurnBilling; code: AssistantErrorCode; kind: "error"; steps: number; usage: AssistantTurnUsage };
 
 export interface AssistantTurnInput {
   abortSignal?: AbortSignal;
@@ -273,13 +290,16 @@ export function runAssistantTurn(input: AssistantTurnInput): {
         result.usage,
         result.steps,
       ]);
-      return classifyTurnOutcome({
+      const turnUsage = toAssistantUsage(usage);
+      const outcome = classifyTurnOutcome({
         ask: askOf(steps.at(-1)),
         finishReason,
         steps: steps.length,
         text,
-        usage: toAssistantUsage(usage),
+        usage: turnUsage,
       });
+      const billing = assistantTurnBilling(steps, turnUsage);
+      return billing ? { ...outcome, billing } : outcome;
     } catch {
       return { code: errorCodeFor(), kind: "error", steps: 0, usage: ZERO_USAGE };
     } finally {

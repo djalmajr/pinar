@@ -122,7 +122,9 @@ import {
   markCloudPinIndexSessionStale,
   resetCloudPinIndexMemoryForTests,
 } from "./assistant/retrieval/store-cloud";
+import type { AssistantChainLink, AssistantCircuitBreaker } from "./assistant/chain";
 import type { AssistantStatus } from "./assistant/http";
+import type { AssistantEndpoint } from "./assistant/models";
 import type { PinSearchService } from "./assistant/retrieval/index";
 import type { CloudPinSessionRow, CloudPinSourceData } from "./assistant/retrieval/source-cloud";
 import type { AssistantStateReader } from "./assistant/state-reader";
@@ -189,6 +191,14 @@ export interface CloudEnv {
   // Optional embedding model of the same endpoint for the pin search; without
   // it the search is textual. Never part of the all-or-nothing AI group.
   AI_EMBEDDING_MODEL?: string;
+  // The Vercel AI Gateway key of the assistant chain's gateway links.
+  AI_GATEWAY_API_KEY?: string;
+  // "true" asks the gateway for zero data retention on each call; off
+  // otherwise (F4 contract §1).
+  AI_GATEWAY_ZERO_DATA_RETENTION?: string;
+  // The assistant's model chain, a CSV of hub:model links (assistant/
+  // chain.ts); without it the chain is appliance:<AI_MODEL>.
+  ASSISTANT_CHAIN?: string;
   // "true" switches the assistant on; every other value (or absence) is off.
   ASSISTANT_ENABLED?: string;
   AUTH_PEPPER?: string;
@@ -6679,7 +6689,7 @@ async function followClaimedBatch(
 // on, inside the assistant gate (A33) and with an engine. Outside the gate
 // nothing is loaded nor fetched.
 async function cloudAutoCaptureDestinationAvailable(env: CloudEnv, principal: Principal): Promise<boolean> {
-  if (!cloudAssistantStatus(env, principal).available) return false;
+  if (!(await cloudAssistantStatus(env, principal)).available) return false;
   const startedAt = Date.now();
   try {
     const filing = await import("./filing/runtime-cloud");
@@ -6741,7 +6751,7 @@ async function uploadShot(request: Request, env: CloudEnv) {
   let destination: CaptureDestination;
   if (manualDestination) {
     destination = manualDestination;
-  } else if (!cloudAssistantStatus(env, principal).available) {
+  } else if (!(await cloudAssistantStatus(env, principal)).available) {
     filed = inboxWithoutEngine();
     destination = await resolveDestination(env, principal, "");
   } else {
@@ -8355,21 +8365,72 @@ export async function handleCloudMcpRequest(request: Request, env: CloudEnv) {
   }));
 }
 
-// The deployment half of the Cloud assistant gate (decision A3): the
-// explicit switch on, outside production, and the raw AI configuration
-// (base URL, key and model).
-function cloudAssistantDeploymentEnabled(env: CloudEnv): boolean {
-  return env.ASSISTANT_ENABLED === "true" && env.DEPLOYMENT_ENV !== "production"
-    && Boolean(env.AI_BASE_URL) && Boolean(env.AI_API_KEY) && Boolean(env.AI_MODEL);
+// ---------- assistant model chain (F4 contract §1 and §4) ----------
+
+// One circuit breaker per process, shared by every turn (F4 contract §1).
+// Created on first use: chain.ts pulls in the AI SDK and is loaded lazily.
+let cloudAssistantBreaker: AssistantCircuitBreaker | null = null;
+// An invalid ASSISTANT_CHAIN is logged once per process.
+let cloudAssistantChainErrorLogged = false;
+
+// The deployment half of the Cloud assistant gate (decision A3, F4
+// contract §4), with the chain it opens; null when it is off:
+// - ASSISTANT_ENABLED is "true";
+// - the chain, ASSISTANT_CHAIN or else appliance:<AI_MODEL>, is valid for
+//   the deployment (production refuses an appliance link);
+// - a chain with a gateway link has AI_GATEWAY_API_KEY, so production needs
+//   it;
+// - outside production the rule of before still holds: AI_BASE_URL,
+//   AI_API_KEY and AI_MODEL.
+// An invalid chain turns the assistant off and logs
+// assistant_chain_config_error with the reason only, never a value. The
+// chain module is imported lazily (it pulls in the AI SDK), only once the
+// switch is on.
+async function cloudAssistantChain(env: CloudEnv): Promise<AssistantChainLink[] | null> {
+  if (env.ASSISTANT_ENABLED !== "true") return null;
+  const production = env.DEPLOYMENT_ENV === "production";
+  if (!production && !(env.AI_BASE_URL && env.AI_API_KEY && env.AI_MODEL)) return null;
+  const csv = env.ASSISTANT_CHAIN?.trim() ? env.ASSISTANT_CHAIN : env.AI_MODEL ? `appliance:${env.AI_MODEL}` : "";
+  if (!csv) return null;
+  let chainModule: typeof import("./assistant/chain");
+  try {
+    chainModule = await import("./assistant/chain");
+  } catch {
+    return null;
+  }
+  const { AssistantChainConfigError, parseAssistantChain } = chainModule;
+  let chain: AssistantChainLink[];
+  try {
+    chain = parseAssistantChain(csv, production ? "production" : env.DEPLOYMENT_ENV === "staging" ? "staging" : "development");
+  } catch (error) {
+    if (!cloudAssistantChainErrorLogged) {
+      cloudAssistantChainErrorLogged = true;
+      console.error(JSON.stringify({
+        message: "assistant_chain_config_error",
+        reason: error instanceof AssistantChainConfigError ? error.reason : "invalid",
+      }));
+    }
+    return null;
+  }
+  if (chain.some((link) => link.hub === "gateway") && !env.AI_GATEWAY_API_KEY) return null;
+  return chain;
 }
 
-// The Cloud assistant gate (decision A3): the deployment gate, then the Pro
-// plan. The order matters: a disabled deployment reports "disabled" even
-// for a non-Pro principal.
-function cloudAssistantStatus(env: CloudEnv, principal: Principal): AssistantStatus {
-  if (!cloudAssistantDeploymentEnabled(env)) return { available: false, reason: "disabled" };
+async function cloudAssistantDeploymentEnabled(env: CloudEnv): Promise<boolean> {
+  return (await cloudAssistantChain(env)) !== null;
+}
+
+// The Cloud assistant gate (decision A3): the deployment gate (its chain),
+// then the Pro plan. The order matters: a disabled deployment reports
+// "disabled" even for a non-Pro principal.
+function assistantStatusFor(chain: AssistantChainLink[] | null, principal: Principal): AssistantStatus {
+  if (!chain) return { available: false, reason: "disabled" };
   if (!planIncludesAi(principal.plan)) return { available: false, reason: "requires_pro" };
   return { available: true, reason: null };
+}
+
+async function cloudAssistantStatus(env: CloudEnv, principal: Principal): Promise<AssistantStatus> {
+  return assistantStatusFor(await cloudAssistantChain(env), principal);
 }
 
 // ---------- pin search (F3 contract §3.3) ----------
@@ -8464,7 +8525,7 @@ export async function cloudPinSearch(
   principal: Principal,
   options: { fetch?: typeof fetch } = {},
 ): Promise<PinSearchService | undefined> {
-  if (!cloudAssistantStatus(env, principal).available) return undefined;
+  if (!(await cloudAssistantStatus(env, principal)).available) return undefined;
   // Loaded lazily, like the assistant HTTP layer: it pulls in the AI SDK.
   const { createCloudPinSearch } = await import("./assistant/retrieval/runtime-cloud");
   return createCloudPinSearch({
@@ -8528,7 +8589,7 @@ async function pinSearchOwners(env: CloudEnv, expired: () => boolean = () => fal
  * With the assistant's deployment gate off it reads nothing.
  */
 export async function indexPinSearch(env: CloudEnv, options: { fetch?: typeof fetch; now?: () => Date } = {}) {
-  if (!cloudAssistantDeploymentEnabled(env)) return { failed: 0, indexed: 0, owners: 0, remaining: false };
+  if (!(await cloudAssistantDeploymentEnabled(env))) return { failed: 0, indexed: 0, owners: 0, remaining: false };
   const { runCloudPinIndexCron } = await import("./assistant/retrieval/runtime-cloud");
   return runCloudPinIndexCron({
     env,
@@ -8540,6 +8601,26 @@ export async function indexPinSearch(env: CloudEnv, options: { fetch?: typeof fe
     ownerData: (ownerId) => cloudPinSourceData(env, { id: ownerId, isPermanent: true, kind: "account", plan: "pro" }, { shared: false }),
     owners: (expired) => pinSearchOwners(env, expired),
   });
+}
+
+// The AssistantEndpoint of a chain link: the appliance as before, or the
+// gateway's OpenAI-compatible endpoint (F4 contract §4) with its key.
+function cloudAssistantEndpoint(env: CloudEnv, link: AssistantChainLink): AssistantEndpoint {
+  return link.hub === "gateway"
+    ? {
+        apiKey: env.AI_GATEWAY_API_KEY,
+        baseUrl: "https://ai-gateway.vercel.sh/v1",
+        kind: "openai-compatible",
+        model: link.model,
+        thinkingControl: false,
+      }
+    : {
+        apiKey: env.AI_API_KEY,
+        baseUrl: env.AI_BASE_URL ?? "",
+        kind: "appliance",
+        model: link.model,
+        thinkingControl: true,
+      };
 }
 
 // /api/assistant/* for the logged-in web user (contract section 2): only an
@@ -8565,25 +8646,34 @@ async function cloudAssistantRoutesUnguarded(request: Request, env: CloudEnv): P
   if (!principal || principal.kind !== "account") {
     return json({ code: "unauthorized", error: "Unauthorized" }, 401);
   }
-  const status = cloudAssistantStatus(env, principal);
+  const chain = await cloudAssistantChain(env);
+  const status = assistantStatusFor(chain, principal);
   // The assistant HTTP layer pulls in the AI SDK: loaded lazily so the
   // worker's initial module graph and cold start stay free of it. (On EdgeR
   // the SDK's @vercel/oidc dependency is replaced by a stub, see
   // vite.config.edger.ts.)
   const { handleAssistantRequest } = await import("./assistant/http");
+  const { assistantChainModel, assistantChainOpen, createAssistantCircuitBreaker } = await import("./assistant/chain");
+  const breaker = cloudAssistantBreaker ??= createAssistantCircuitBreaker();
   const origin = new URL(request.url).origin;
   const pinSearch = await cloudPinSearch(env, principal);
   const deps: Parameters<typeof handleAssistantRequest>[1] = {
-    endpoint: async () =>
-      env.AI_BASE_URL && env.AI_API_KEY && env.AI_MODEL
-        ? {
-            apiKey: env.AI_API_KEY,
-            baseUrl: env.AI_BASE_URL,
-            kind: "appliance",
-            model: env.AI_MODEL,
-            thinkingControl: true,
-          }
-        : null,
+    // The endpoint of the chain's first link, which the turn starts from;
+    // null (503 assistant_unavailable) with the gate off or every link's
+    // breaker open.
+    endpoint: async () => (chain && !assistantChainOpen(chain, breaker) ? cloudAssistantEndpoint(env, chain[0]) : null),
+    // The turn's model is the chain (assistant/chain.ts); the endpoint only
+    // names its first link.
+    model: (_endpoint, context) =>
+      assistantChainModel({
+        appliance: env.AI_BASE_URL && env.AI_API_KEY ? { apiKey: env.AI_API_KEY, baseUrl: env.AI_BASE_URL } : null,
+        breaker,
+        chain: chain ?? [],
+        context,
+        gateway: env.AI_GATEWAY_API_KEY
+          ? { apiKey: env.AI_GATEWAY_API_KEY, zeroDataRetention: env.AI_GATEWAY_ZERO_DATA_RETENTION === "true" }
+          : null,
+      }),
     ...(pinSearch ? { pinSearch } : {}),
     rateLimitTurn: () =>
       withinRateLimits(env, "assistant-turn", [
@@ -8618,6 +8708,7 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
     return json({
       hasAdminAuth: Boolean(env.ADMIN_API_KEY),
       hasAi: Boolean(env.AI),
+      hasAssistant: await cloudAssistantDeploymentEnabled(env),
       hasAuthPepper: Boolean(env.AUTH_PEPPER),
       hasBucket: Boolean(env.PINAR_BUCKET),
       hasDb: Boolean(env.DB),
@@ -9442,6 +9533,8 @@ export function resetCloudMemoryStateForTests() {
   memoryWebSessions.clear();
   resetCloudAssistantMemoryForTests();
   resetCloudPinIndexMemoryForTests();
+  cloudAssistantBreaker = null;
+  cloudAssistantChainErrorLogged = false;
   memoryMigrationFailure = false;
   testNow = null;
 }

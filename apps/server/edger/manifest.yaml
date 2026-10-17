@@ -41,6 +41,8 @@ allowNet:
   - api.cloudflare.com:443
   - lb-vllm-node-01.centralit.com.br:443
   - api.stripe.com:443
+  # Vercel AI Gateway: the assistant chain's gateway links (F4).
+  - ai-gateway.vercel.sh:443
 # The installer defines the hosts per environment: pinar.dev and
 # www.pinar.dev in prd, stg.pinar.dev in stg.
 # hosts:
@@ -61,13 +63,21 @@ env:
   AI_API_KEY: ""
   AI_BASE_URL: ""
   AI_EMBEDDING_MODEL: ""
+  # Optional, outside the AI group: the Vercel AI Gateway key of the
+  # assistant chain, and "true" to ask the gateway for zero data retention.
+  AI_GATEWAY_API_KEY: ""
+  AI_GATEWAY_ZERO_DATA_RETENTION: ""
   AI_MODEL: ""
   AI_TRANSCRIPTION_MODEL: ""
   ADMIN_API_KEY: ""
   AUTH_PEPPER: ""
-  # Optional: "true" switches the assistant on (staging only; production
-  # keeps it off). Absent or empty stays off.
+  # Optional: "true" switches the assistant on. Absent or empty stays off.
+  # Production also needs a gateway-only ASSISTANT_CHAIN and
+  # AI_GATEWAY_API_KEY.
   ASSISTANT_ENABLED: ""
+  # Optional: the assistant's model chain, a CSV of hub:model links; empty
+  # means appliance:<AI_MODEL>.
+  ASSISTANT_CHAIN: ""
   CLOUD_TRIAL_ENABLED: ""
   COMPLIMENTARY_PRO_USER_IDS: ""
   EXTENSION_ORIGIN: ""

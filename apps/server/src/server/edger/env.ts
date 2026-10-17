@@ -124,17 +124,25 @@ export function edgerCloudEnv(read: (name: string) => string | undefined): Cloud
     });
   }
 
-  const ai = requiredGroup(
-    "AI",
-    {
-      AI_API_KEY: value("AI_API_KEY"),
-      AI_BASE_URL: value("AI_BASE_URL"),
-      AI_MODEL: value("AI_MODEL"),
-      AI_TRANSCRIPTION_MODEL: value("AI_TRANSCRIPTION_MODEL"),
-    },
-    ["AI_API_KEY", "AI_BASE_URL", "AI_MODEL", "AI_TRANSCRIPTION_MODEL"],
-  );
-  if (Object.keys(ai).length > 0) {
+  // The assistant reads the raw strings (its own endpoint); they stand
+  // alone, so an explicit appliance chain needs no AI_MODEL (A46).
+  const aiBaseUrl = value("AI_BASE_URL");
+  const aiApiKey = value("AI_API_KEY");
+  const aiModel = value("AI_MODEL");
+  const transcriptionModel = value("AI_TRANSCRIPTION_MODEL");
+  if (aiModel !== undefined || transcriptionModel !== undefined) {
+    // The metered AI binding (transcription and reproduction) uses AI_MODEL
+    // and AI_TRANSCRIPTION_MODEL for real, so it needs its full group.
+    const ai = requiredGroup(
+      "AI",
+      {
+        AI_API_KEY: aiApiKey,
+        AI_BASE_URL: aiBaseUrl,
+        AI_MODEL: aiModel,
+        AI_TRANSCRIPTION_MODEL: transcriptionModel,
+      },
+      ["AI_API_KEY", "AI_BASE_URL", "AI_MODEL", "AI_TRANSCRIPTION_MODEL"],
+    );
     // The runner implements only the run() calls cloud-api and voice-pin make.
     env.AI = createOpenAiCompatibleAi({
       apiKey: ai.AI_API_KEY,
@@ -142,16 +150,19 @@ export function edgerCloudEnv(read: (name: string) => string | undefined): Cloud
       chatModel: ai.AI_MODEL,
       transcriptionModel: ai.AI_TRANSCRIPTION_MODEL,
     }) as unknown as Ai;
-    // The assistant reads the raw strings (its own endpoint), independent
-    // of the metered AI binding.
-    env.AI_BASE_URL = ai.AI_BASE_URL;
-    env.AI_API_KEY = ai.AI_API_KEY;
-    env.AI_MODEL = ai.AI_MODEL;
-    // Optional and outside the group: its absence never turns the AI off
-    // (the pin search is then textual).
-    const embeddingModel = value("AI_EMBEDDING_MODEL");
-    if (embeddingModel !== undefined) env.AI_EMBEDDING_MODEL = embeddingModel;
+  } else if ((aiBaseUrl !== undefined) !== (aiApiKey !== undefined)) {
+    // Without the models the URL and the key are a pair: with one of them
+    // present (blank counts as absent), the other must be too, so a broken
+    // pair fails loudly instead of booting with hasAssistant: false (A46).
+    throw new Error(`incomplete AI configuration: missing ${aiBaseUrl === undefined ? "AI_BASE_URL" : "AI_API_KEY"}`);
   }
+  if (aiBaseUrl !== undefined) env.AI_BASE_URL = aiBaseUrl;
+  if (aiApiKey !== undefined) env.AI_API_KEY = aiApiKey;
+  if (aiModel !== undefined) env.AI_MODEL = aiModel;
+  // Optional and outside the group: its absence never turns the AI off
+  // (the pin search is then textual).
+  const embeddingModel = value("AI_EMBEDDING_MODEL");
+  if (embeddingModel !== undefined) env.AI_EMBEDDING_MODEL = embeddingModel;
 
   return env;
 }

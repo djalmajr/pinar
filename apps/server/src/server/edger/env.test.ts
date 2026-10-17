@@ -138,6 +138,8 @@ describe("edgerCloudEnv", () => {
       );
       assert.ok(withAi.AI, "AI must be defined with the full AI group");
       assert.equal(typeof withAi.AI.run, "function");
+      assert.equal(withAi.AI_BASE_URL, "https://ai.example.invalid/v1", "the assistant reads the raw strings too");
+      assert.equal(withAi.AI_MODEL, "chat-model");
     } finally {
       rmSync(dir, { force: true, recursive: true });
     }
@@ -162,6 +164,30 @@ describe("edgerCloudEnv", () => {
         { AI_BASE_URL: "https://ai.example.invalid/v1", AI_MODEL: "chat-model" },
         "incomplete AI configuration: missing AI_API_KEY, AI_TRANSCRIPTION_MODEL",
       ],
+      [
+        { AI_MODEL: "chat-model" },
+        "incomplete AI configuration: missing AI_API_KEY, AI_BASE_URL, AI_TRANSCRIPTION_MODEL",
+      ],
+      [
+        { AI_TRANSCRIPTION_MODEL: "transcription-model" },
+        "incomplete AI configuration: missing AI_API_KEY, AI_BASE_URL, AI_MODEL",
+      ],
+      // The URL and the key are a pair: without the models, one of them
+      // present requires the other (blank counts as absent), so a broken
+      // pair cannot boot silently with hasAssistant: false (A46).
+      [
+        { AI_BASE_URL: "https://ai.example.invalid/v1" },
+        "incomplete AI configuration: missing AI_API_KEY",
+      ],
+      [{ AI_API_KEY: "TOP_SECRET_AI_KEY" }, "incomplete AI configuration: missing AI_BASE_URL"],
+      [
+        { AI_BASE_URL: "https://ai.example.invalid/v1", AI_API_KEY: " " },
+        "incomplete AI configuration: missing AI_API_KEY",
+      ],
+      [
+        { AI_API_KEY: "TOP_SECRET_AI_KEY", AI_BASE_URL: "" },
+        "incomplete AI configuration: missing AI_BASE_URL",
+      ],
     ];
     for (const [vars, message] of cases) {
       assert.throws(
@@ -170,6 +196,19 @@ describe("edgerCloudEnv", () => {
           error instanceof Error && error.message === message && !error.message.includes("TOP_SECRET"),
       );
     }
+  });
+
+  test("the assistant's appliance strings stand alone without the transcription group (A46)", () => {
+    // An explicit appliance chain needs AI_BASE_URL and AI_API_KEY only;
+    // AI_MODEL and AI_TRANSCRIPTION_MODEL belong to the metered AI binding.
+    const env = edgerCloudEnv(
+      readVars({ AI_BASE_URL: "https://ai.example.invalid/v1", AI_API_KEY: "TOP_SECRET_AI_KEY", AI_EMBEDDING_MODEL: "embed-model" }),
+    );
+    assert.equal(env.AI, undefined, "no metered AI binding without its group");
+    assert.equal(env.AI_BASE_URL, "https://ai.example.invalid/v1");
+    assert.equal(env.AI_API_KEY, "TOP_SECRET_AI_KEY");
+    assert.equal(env.AI_MODEL, undefined);
+    assert.equal(env.AI_EMBEDDING_MODEL, "embed-model");
   });
 
   test("leaves the binding undefined when a group is absent entirely", () => {

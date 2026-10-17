@@ -7,6 +7,7 @@ import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import { MockLanguageModelV4 } from "ai/test";
+import { parseVisualCapture, sessionFromCapture } from "@pinar/shared";
 import {
   cleanupOldRecords,
   cloudAssistantToolHost,
@@ -14,9 +15,12 @@ import {
   findAccessibleSession,
   handleCloudApiRequest,
   indexPinSearch,
+  persistSession,
   resetCloudMemoryStateForTests,
+  seedCloudAccountForTests,
   seedCloudWebSessionForTests,
   setCloudNowForTests,
+  writeOwnerDeliveryPreferences,
   type CloudEnv,
   type Principal,
 } from "../../cloud-api";
@@ -28,11 +32,13 @@ import { runAssistantTurn } from "../turn";
 import { resetRetrievalCapabilitiesCacheForTests } from "./detect";
 import { PIN_EMBEDDING_DIMENSIONS } from "./embeddings";
 import type { PinIndexEntry, PinSearchService } from "./index";
+import { cloudAssistantStore } from "../store-cloud";
 import {
   CLOUD_PIN_INDEX_CRON_BUDGET_MS,
   CLOUD_PIN_SEARCH_BUDGET_MS,
   CLOUD_PIN_SEARCH_MAX_SESSIONS,
   cloudOwnerPinIndexStore,
+  cloudRetrievalEndpoints,
   createCloudPinSearch,
   runCloudPinIndexCron,
 } from "./runtime-cloud";
@@ -133,6 +139,20 @@ function insertCollaborator(db: Database, id: string, collectionId: string, owne
   ).run(id, collectionId, ownerId, `${userId}@example.test`, userId, status, NOW, NOW, status === "accepted" ? NOW : null, status === "revoked" ? NOW : null);
 }
 
+// One assistant conversation of the owner (A49's other side of the cron's filter).
+function insertAssistantThread(db: Database, ownerId: string) {
+  db.query("INSERT INTO assistant_threads (id, owner_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
+    .run(`ath_${ownerId}`, ownerId, `Conversa de ${ownerId}`, NOW, NOW);
+}
+
+// The owner's switch, the row writeOwnerDeliveryPreferences would leave.
+function setAutoCaptureDestination(db: Database, ownerId: string, value: 0 | 1) {
+  db.query(
+    "INSERT INTO owner_preferences (owner_id, auto_capture_destination, updated_at) VALUES (?, ?, ?) "
+      + "ON CONFLICT(owner_id) DO UPDATE SET auto_capture_destination = excluded.auto_capture_destination",
+  ).run(ownerId, value, NOW);
+}
+
 function pinIndexRows(db: Database) {
   return db.query("SELECT session_id, pin_id, owner_id, model, caption FROM pin_index WHERE pin_id <> '' ORDER BY session_id, pin_id").all() as Array<{
     caption: string | null;
@@ -174,7 +194,7 @@ interface ApplianceCall {
 // bag-of-words vectors; a non-stream chat call is a vision call and gets a
 // caption per marker; a stream chat call is the assistant turn, answered
 // by `turn` when set.
-function fakeAppliance(options: { turn?: (body: Record<string, any>) => Response; vision?: boolean } = {}) {
+function fakeAppliance(options: { model?: string; turn?: (body: Record<string, any>) => Response; vision?: boolean } = {}) {
   const calls: ApplianceCall[] = [];
   const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
@@ -186,7 +206,7 @@ function fakeAppliance(options: { turn?: (body: Record<string, any>) => Response
     if (path === "/models") {
       return Response.json({
         data: [
-          { id: "mock", modalities: { input: options.vision ? ["text", "image"] : ["text"] }, type: "chat" },
+          { id: options.model ?? "mock", modalities: { input: options.vision ? ["text", "image"] : ["text"] }, type: "chat" },
           { id: "embed-model", type: "embedding" },
         ],
       });
@@ -416,10 +436,10 @@ describe("Cloud pin search", () => {
     const off: Array<[string, Partial<CloudEnv>]> = [
       ["switch off", { ASSISTANT_ENABLED: undefined }],
       ["switch not true", { ASSISTANT_ENABLED: "1" }],
-      ["production", { DEPLOYMENT_ENV: "production" }],
       ["no base URL", { AI_BASE_URL: undefined }],
       ["no key", { AI_API_KEY: undefined }],
       ["no model", { AI_MODEL: undefined }],
+      ["a gateway chain without its key, in production", { ASSISTANT_CHAIN: "gateway:anthropic/claude-haiku-5.5", DEPLOYMENT_ENV: "production" }],
     ];
     for (const [name, overrides] of off) assert.equal(await cloudPinSearch(cloudEnv(db, overrides), pro), undefined, name);
     assert.equal(await cloudPinSearch(cloudEnv(db), principal("usr_free", "free")), undefined, "Free plan");
@@ -445,7 +465,7 @@ describe("Cloud pin search", () => {
           method: "POST",
         }), env);
       assert.equal((await turn(cloudEnv(db, { ASSISTANT_ENABLED: undefined }), pro.cookie)).status, 503);
-      assert.equal((await turn(cloudEnv(db, { DEPLOYMENT_ENV: "production" }), pro.cookie)).status, 503);
+      assert.equal((await turn(cloudEnv(db, { ASSISTANT_CHAIN: "gateway:anthropic/claude-haiku-5.5", DEPLOYMENT_ENV: "production" }), pro.cookie)).status, 503, "A46: production is off only without the hub configuration");
       assert.equal((await turn(cloudEnv(db), free.cookie)).status, 403);
     } finally {
       globalThis.fetch = realFetch;
@@ -799,6 +819,7 @@ describe("Cloud pin search: access, cron budget and the turn's deadline", () => 
 
   test("the cron's 60 s budget covers the owners' enumeration: a slow one stops the run", async () => {
     sharedWorld(db);
+    for (const ownerId of ["usr_owner", "usr_collab", "usr_third"]) insertAssistantThread(db, ownerId);
     let clock = Date.parse(NOW);
     const log: QueryLog = [];
     const env = { ...cloudEnv(db), DB: slowOwnersDb(log, () => { clock += 70_000; }) };
@@ -817,6 +838,7 @@ describe("Cloud pin search: access, cron budget and the turn's deadline", () => 
 
   test("no further enumeration query starts once the cron's budget is spent", async () => {
     sharedWorld(db);
+    for (const ownerId of ["usr_owner", "usr_collab", "usr_third"]) insertAssistantThread(db, ownerId);
     let clock = Date.parse(NOW);
     const log: QueryLog = [];
     // 91 complimentary ids: two enumeration queries; the first one takes 75 s.
@@ -844,6 +866,8 @@ describe("Cloud pin search: access, cron budget and the turn's deadline", () => 
       insertCollection(db, `col_${id}`, id);
       insertSession(db, `session_${id}`, id, `col_${id}`, [{ comment: "Nota", number: 1, pinId: "p1" }]);
     }
+    insertAssistantThread(db, "usr_pro");
+    setAutoCaptureDestination(db, "usr_gift", 1);
     const log: QueryLog = [];
     const result = await indexPinSearch(cloudEnv(db, { COMPLIMENTARY_PRO_USER_IDS: "usr_other, usr_gift" }, log), { fetch: fakeAppliance().fetch });
     assert.deepEqual(result, { failed: 0, indexed: 2, owners: 2, remaining: false });
@@ -982,7 +1006,7 @@ describe("Cloud pin index cron", () => {
     insertCollection(db, "col_pro", "usr_pro");
     insertSession(db, "session_one", "usr_pro", "col_pro", [{ comment: "Nota", number: 1, pinId: "p1" }]);
     const appliance = fakeAppliance();
-    for (const overrides of [{ ASSISTANT_ENABLED: undefined }, { DEPLOYMENT_ENV: "production" as const }, { AI_MODEL: undefined }]) {
+    for (const overrides of [{ ASSISTANT_ENABLED: undefined }, { ASSISTANT_CHAIN: "gateway:anthropic/claude-haiku-5.5", DEPLOYMENT_ENV: "production" as const }, { AI_MODEL: undefined }]) {
       const log: QueryLog = [];
       const result = await indexPinSearch(cloudEnv(db, overrides, log), { fetch: appliance.fetch });
       assert.deepEqual(result, { failed: 0, indexed: 0, owners: 0, remaining: false });
@@ -994,6 +1018,7 @@ describe("Cloud pin index cron", () => {
 
   test("indexes, for each owner on a plan with AI, only that owner's own sessions", async () => {
     sharedWorld(db);
+    for (const ownerId of ["usr_owner", "usr_collab", "usr_third"]) insertAssistantThread(db, ownerId);
     insertUser(db, "usr_free", "free");
     insertCollection(db, "col_free", "usr_free");
     insertSession(db, "session_free", "usr_free", "col_free", [{ comment: "Nota sem IA", number: 1, pinId: "p1" }]);
@@ -1069,6 +1094,153 @@ describe("Cloud pin index cron", () => {
   });
 });
 
+describe("Cloud pin index cron: only owners who use AI are covered (A49)", () => {
+  let db: Database;
+
+  const memoryEnv: CloudEnv = {
+    AI_API_KEY: "sk-ai-test",
+    AI_BASE_URL: BASE_URL,
+    AI_EMBEDDING_MODEL: "embed-model",
+    AI_MODEL: "mock",
+    ASSISTANT_ENABLED: "true",
+    DEPLOYMENT_ENV: "staging",
+  };
+
+  // One pinned memory session of the owner, captured at `createdAt`.
+  async function memorySession(ownerId: string, sessionId: string, comment: string, createdAt: string) {
+    await persistSession(memoryEnv, sessionFromCapture(parseVisualCapture({
+      captureId: sessionId,
+      createdAt,
+      page: { title: `Page ${sessionId}`, url: `https://site.example/${sessionId}` },
+      pins: comment ? [{ comment, kind: "element", number: 1 }] : [],
+      screenshot: { missing: true },
+    }, sessionId), { id: sessionId, plan: "pro", position: 0, userId: ownerId }));
+  }
+
+  beforeEach(() => {
+    resetCloudMemoryStateForTests();
+    resetRetrievalCapabilitiesCacheForTests();
+    setCloudNowForTests(NOW);
+    db = migratedDatabase();
+  });
+
+  afterEach(() => {
+    db.close();
+    resetCloudMemoryStateForTests();
+    resetRetrievalCapabilitiesCacheForTests();
+    setCloudNowForTests(null);
+  });
+
+  // The A49 world in D1: every owner has a pinned session but only
+  // usr_thread (a conversation), usr_switch (the switch) and usr_gift (a
+  // complimentary plan plus a conversation) are covered; usr_plain has
+  // neither side, usr_nopins has a conversation and no pinned session,
+  // usr_free has both sides but no plan with AI, and usr_off has the
+  // switch back off and no conversation.
+  function a49World() {
+    insertUser(db, "usr_plain", "pro");
+    insertUser(db, "usr_thread", "pro");
+    insertUser(db, "usr_switch", "pro");
+    insertUser(db, "usr_nopins", "pro");
+    insertUser(db, "usr_free", "free");
+    insertUser(db, "usr_gift", "free");
+    insertUser(db, "usr_off", "pro");
+    for (const id of ["usr_plain", "usr_thread", "usr_switch", "usr_free", "usr_gift", "usr_off"]) {
+      insertCollection(db, `col_${id}`, id);
+      insertSession(db, `session_${id}`, id, `col_${id}`, [{ comment: "Nota", number: 1, pinId: "p1" }]);
+    }
+    insertCollection(db, "col_usr_nopins", "usr_nopins");
+    insertSession(db, "session_usr_nopins", "usr_nopins", "col_usr_nopins", []);
+    for (const id of ["usr_thread", "usr_free", "usr_gift", "usr_nopins"]) insertAssistantThread(db, id);
+    setAutoCaptureDestination(db, "usr_switch", 1);
+    setAutoCaptureDestination(db, "usr_free", 1);
+    setAutoCaptureDestination(db, "usr_off", 0); // the switch turned back off
+  }
+
+  test("D1: covered = pins + a plan with AI + a conversation or the switch", async () => {
+    a49World();
+    const result = await indexPinSearch(cloudEnv(db, { COMPLIMENTARY_PRO_USER_IDS: "usr_gift" }), { fetch: fakeAppliance().fetch });
+    assert.deepEqual(result, { failed: 0, indexed: 3, owners: 3, remaining: false });
+    assert.deepEqual(pinIndexRows(db).map((row) => row.owner_id).sort(), ["usr_gift", "usr_switch", "usr_thread"]);
+  });
+
+  test("memory: covered = pins + a plan with AI + a conversation or the switch", async () => {
+    const env: CloudEnv = { ...memoryEnv, COMPLIMENTARY_PRO_USER_IDS: "usr_gift" };
+    for (const [id, plan] of [["usr_plain", "pro"], ["usr_thread", "pro"], ["usr_switch", "pro"], ["usr_nopins", "pro"], ["usr_free", "free"], ["usr_gift", "free"], ["usr_off", "pro"]] as const) {
+      seedCloudAccountForTests({ email: `${id}@example.test`, id, plan: plan as "free" | "pro" });
+    }
+    for (const id of ["usr_plain", "usr_thread", "usr_switch", "usr_free", "usr_gift", "usr_off"]) {
+      await memorySession(id, `session_${id}`, "Nota", "2026-09-30T00:00:00.000Z");
+    }
+    await memorySession("usr_nopins", "session_usr_nopins", "", "2026-09-30T00:00:00.000Z");
+    for (const id of ["usr_thread", "usr_free", "usr_gift", "usr_nopins"]) {
+      await cloudAssistantStore(env, id).createThread({ id: `ath_${id}`, now: NOW, title: "Conversa" });
+    }
+    await writeOwnerDeliveryPreferences(env, "usr_switch", { autoCaptureDestination: true });
+    await writeOwnerDeliveryPreferences(env, "usr_free", { autoCaptureDestination: true });
+    await writeOwnerDeliveryPreferences(env, "usr_off", { autoCaptureDestination: false }); // back off
+    const appliance = fakeAppliance();
+    const result = await indexPinSearch(env, { fetch: appliance.fetch });
+    assert.deepEqual(result, { failed: 0, indexed: 3, owners: 3, remaining: false });
+    for (const id of ["usr_gift", "usr_switch", "usr_thread"]) {
+      assert.equal((await cloudPinIndexStore(env, id).entries(`session_${id}`)).length, 1, id);
+    }
+    for (const id of ["usr_plain", "usr_nopins", "usr_free", "usr_off"]) {
+      assert.equal((await cloudPinIndexStore(env, id).entries(`session_${id}`)).length, 0, id);
+    }
+  });
+
+  test("D1: without assistant_threads the cron keeps running, and the switch still covers an owner", async () => {
+    a49World();
+    db.exec("DROP TABLE assistant_threads"); // a D1 before migration 0027
+    const result = await indexPinSearch(cloudEnv(db, { COMPLIMENTARY_PRO_USER_IDS: "usr_gift" }), { fetch: fakeAppliance().fetch });
+    assert.deepEqual(result, { failed: 0, indexed: 1, owners: 1, remaining: false });
+    assert.deepEqual(pinIndexRows(db).map((row) => row.owner_id), ["usr_switch"]);
+  });
+
+  test("D1: without assistant_threads nor the switch's column the cron indexes nobody and runs no enumeration", async () => {
+    a49World();
+    db.exec("DROP TABLE assistant_threads"); // a D1 before migration 0027
+    db.exec("ALTER TABLE owner_preferences DROP COLUMN auto_capture_destination"); // before 0030
+    const log: QueryLog = [];
+    const result = await indexPinSearch(cloudEnv(db, {}, log), { fetch: fakeAppliance().fetch });
+    assert.deepEqual(result, { failed: 0, indexed: 0, owners: 0, remaining: false });
+    assert.deepEqual(pinIndexRows(db), []);
+    assert.deepEqual(log.filter((entry) => entry.query.startsWith("SELECT s.user_id AS user_id")), [], "no enumeration query");
+  });
+
+  test("D1: the newest capture first, among the covered owners", async () => {
+    for (const [id, at] of [["usr_old", "2026-09-28T00:00:00.000Z"], ["usr_mid", "2026-09-29T00:00:00.000Z"], ["usr_new", "2026-09-30T00:00:00.000Z"]] as const) {
+      insertUser(db, id, "pro");
+      insertCollection(db, `col_${id}`, id);
+      insertSession(db, `session_${id}`, id, `col_${id}`, [{ comment: "Nota", number: 1, pinId: "p1" }], at);
+      insertAssistantThread(db, id);
+    }
+    const log: QueryLog = [];
+    const result = await indexPinSearch(cloudEnv(db, {}, log), { fetch: fakeAppliance().fetch });
+    assert.deepEqual(result, { failed: 0, indexed: 3, owners: 3, remaining: false });
+    // One ownedSessions read per owner, in the owners' order.
+    assert.deepEqual(log.filter((entry) => entry.query.includes("FROM sessions WHERE user_id = ?")).map((entry) => entry.params[0]), ["usr_new", "usr_mid", "usr_old"]);
+  });
+
+  test("memory: the newest capture first, among the covered owners", async () => {
+    for (const [id, at, comment] of [["usr_old", "2026-09-28T00:00:00.000Z", "Nota antiga"], ["usr_mid", "2026-09-29T00:00:00.000Z", "Nota media"], ["usr_new", "2026-09-30T00:00:00.000Z", "Nota nova"]] as const) {
+      seedCloudAccountForTests({ email: `${id}@example.test`, id, plan: "pro" });
+      await memorySession(id, `session_${id}`, comment, at);
+      await cloudAssistantStore(memoryEnv, id).createThread({ id: `ath_${id}`, now: NOW, title: "Conversa" });
+    }
+    const appliance = fakeAppliance();
+    const result = await indexPinSearch(memoryEnv, { fetch: appliance.fetch });
+    assert.deepEqual(result, { failed: 0, indexed: 3, owners: 3, remaining: false });
+    // One document batch per session, in the owners' order.
+    const documents = appliance.calls.filter((call) => call.path === "/embeddings").map((call) => String(call.body!.input));
+    assert.equal(documents.length, 3);
+    assert.ok(documents[0]!.includes("Nota nova"), "the newest capture first");
+    assert.ok(documents[1]!.includes("Nota media"), "then the middle one");
+    assert.ok(documents[2]!.includes("Nota antiga"), "then the oldest");
+  });
+});
+
 // ---------- production through the gateway (F4 contract §4) ----------
 
 const GATEWAY_URL = "https://ai-gateway.vercel.sh/v1";
@@ -1106,9 +1278,9 @@ interface HubCall {
 // its cost in providerMetadata, captions with usage only) and, at
 // BASE_URL, an appliance that answers everything, so a request that
 // reaches AI_BASE_URL would succeed and only the recorded origin shows it.
-function fakeHubs(options: { visionTagged?: string[] } = {}) {
+function fakeHubs(options: { model?: string; visionTagged?: string[] } = {}) {
   const calls: HubCall[] = [];
-  const appliance = fakeAppliance({ vision: true });
+  const appliance = fakeAppliance({ model: options.model, vision: true });
   const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     const raw = input instanceof Request ? await input.clone().text() : typeof init?.body === "string" ? init.body : "";
@@ -1273,6 +1445,7 @@ describe("Cloud pin search in production, through the gateway (F4 contract §4)"
   });
 
   test("the cron indexes through the gateway too, with zero data retention when the env asks for it", async () => {
+    insertAssistantThread(db, "usr_pro");
     const hubs = fakeHubs();
     const result = await indexPinSearch(productionEnv(db, { AI_GATEWAY_ZERO_DATA_RETENTION: "true", PINAR_BUCKET: shots() }), { fetch: hubs.fetch });
     assert.deepEqual(result, { failed: 0, indexed: 2, owners: 1, remaining: false });
@@ -1320,7 +1493,7 @@ describe("Cloud pin search in production, through the gateway (F4 contract §4)"
     assert.deepEqual(lines, []);
   });
 
-  test("the runtime alone never falls back to AI_BASE_URL in production: without a usable gateway chain there is no endpoint", async () => {
+  test("the runtime alone has no endpoint when the first link's hub lacks its configuration, in every environment (A46)", async () => {
     const data: CloudPinSourceData = {
       async comments() { return []; },
       async ownedSessions() { return [{ createdAt: "2026-09-30T00:00:00.000Z", id: "session_x", ownerId: "usr_pro" }]; },
@@ -1330,23 +1503,144 @@ describe("Cloud pin search in production, through the gateway (F4 contract §4)"
       async sharedSessions() { return []; },
       async shot() { return PNG; },
     };
-    const appliance = { AI_API_KEY: "sk-ai-test", AI_BASE_URL: BASE_URL, AI_EMBEDDING_MODEL: "embed-model", AI_MODEL: "mock", DEPLOYMENT_ENV: "production" };
+    const base = { AI_API_KEY: "sk-ai-test", AI_BASE_URL: BASE_URL, AI_EMBEDDING_MODEL: "embed-model", AI_MODEL: "mock" };
     const variants: Array<[string, Record<string, string | undefined>]> = [
-      ["no ASSISTANT_CHAIN", {}],
-      ["a blank ASSISTANT_CHAIN", { ASSISTANT_CHAIN: "  " }],
-      ["an appliance link", { AI_GATEWAY_API_KEY: GATEWAY_KEY, ASSISTANT_CHAIN: "appliance:mock" }],
-      ["an appliance link after a gateway one", { AI_GATEWAY_API_KEY: GATEWAY_KEY, ASSISTANT_CHAIN: `${CHAIN},appliance:mock` }],
-      ["an invalid chain", { AI_GATEWAY_API_KEY: GATEWAY_KEY, ASSISTANT_CHAIN: "gateway" }],
-      ["no AI_GATEWAY_API_KEY", { ASSISTANT_CHAIN: CHAIN }],
+      ["an invalid chain", { ASSISTANT_CHAIN: "gateway" }],
+      ["a gateway chain without AI_GATEWAY_API_KEY", { ASSISTANT_CHAIN: CHAIN }],
+      ["an appliance chain without AI_BASE_URL", { ASSISTANT_CHAIN: "appliance:mock", AI_BASE_URL: undefined }],
+      ["an appliance chain without AI_API_KEY", { ASSISTANT_CHAIN: "appliance:mock", AI_API_KEY: undefined }],
     ];
-    for (const [name, overrides] of variants) {
-      const hubs = fakeHubs();
-      const env = { ...appliance, ...overrides };
-      await assert.rejects(createCloudPinSearch({ data, env, fetch: hubs.fetch }).search({ limit: 5, query: "nota" }), /pin search unavailable/, name);
-      const cron = await runCloudPinIndexCron({ env, fetch: hubs.fetch, ownerData: () => data, owners: async () => ["usr_pro"] });
-      assert.deepEqual(cron, { failed: 0, indexed: 0, owners: 0, remaining: false }, name);
-      assert.deepEqual(hubs.calls, [], name);
+    for (const deployment of ["production", "staging", undefined] as const) {
+      for (const [name, overrides] of variants) {
+        const label = `${deployment ?? "development"}: ${name}`;
+        const hubs = fakeHubs();
+        const env = { ...base, DEPLOYMENT_ENV: deployment, ...overrides };
+        await assert.rejects(createCloudPinSearch({ data, env, fetch: hubs.fetch }).search({ limit: 5, query: "nota" }), /pin search unavailable/, label);
+        const cron = await runCloudPinIndexCron({ env, fetch: hubs.fetch, ownerData: () => data, owners: async () => ["usr_pro"] });
+        assert.deepEqual(cron, { failed: 0, indexed: 0, owners: 0, remaining: false }, label);
+        assert.deepEqual(hubs.calls, [], label);
+      }
     }
+  });
+});
+
+describe("Cloud pin search in production, through the appliance (A46)", () => {
+  let db: Database;
+
+  beforeEach(() => {
+    resetCloudMemoryStateForTests();
+    resetRetrievalCapabilitiesCacheForTests();
+    setCloudNowForTests(NOW);
+    db = migratedDatabase();
+    insertUser(db, "usr_pro", "pro");
+    insertCollection(db, "col_pro", "usr_pro");
+    insertSession(db, "session_a", "usr_pro", "col_pro", [{ comment: "Contraste baixo no rodapé", number: 1, pinId: "p1" }, { comment: "Menu cortado", number: 2, pinId: "p2" }]);
+    insertSession(db, "session_b", "usr_pro", "col_pro", [{ comment: "Preço errado no carrinho", number: 1, pinId: "p1" }]);
+  });
+
+  afterEach(() => {
+    db.close();
+    resetCloudMemoryStateForTests();
+    resetRetrievalCapabilitiesCacheForTests();
+    setCloudNowForTests(null);
+  });
+
+  const shots = () => fakeBucket({ session_a: PNG, session_b: PNG });
+  const APPLIANCE_ORIGIN = new URL(BASE_URL).origin;
+  // Production with the appliance chain of A46: the same configuration as
+  // staging, only DEPLOYMENT_ENV changes.
+  function applianceProductionEnv(overrides: Partial<CloudEnv> = {}): CloudEnv {
+    // The chain's appliance link carries the chat model; AI_MODEL is absent
+    // (A46).
+    return cloudEnv(db, { AI_GATEWAY_API_KEY: undefined, AI_EMBEDDING_MODEL: "embed-model", AI_MODEL: undefined, ASSISTANT_CHAIN: "appliance:qwen3.8-27b", DEPLOYMENT_ENV: "production", ...overrides });
+  }
+
+  test("captions and embeddings use AI_BASE_URL and the chain link's model, and nothing reaches the gateway", async () => {
+    const hubs = fakeHubs({ model: "qwen3.8-27b" });
+    const hits = await searchAs(applianceProductionEnv({ PINAR_BUCKET: shots() }), principal("usr_pro"), "contraste", hubs.fetch);
+    assert.equal(hits[0]!.sessionId, "session_a");
+    assert.deepEqual(hubs.gatewayCalls(), [], "no request to the gateway");
+    const appliance = hubs.applianceCalls();
+    assert.ok(appliance.length > 0);
+    for (const call of appliance) assert.equal(call.origin, APPLIANCE_ORIGIN, "every call goes to AI_BASE_URL");
+    // Embeddings by AI_EMBEDDING_MODEL, on the appliance, with its key.
+    const embeddings = appliance.filter((call) => call.path === "/embeddings");
+    assert.ok(embeddings.length >= 2, "the documents and the question");
+    for (const call of embeddings) {
+      assert.equal(call.authorization, "Bearer sk-ai-test");
+      assert.equal(call.body!.model, "embed-model");
+      assert.equal(call.body!.dimensions, PIN_EMBEDDING_DIMENSIONS);
+    }
+    // Captions by the chain's appliance link model (no AI_MODEL), on the
+    // appliance's chat endpoint.
+    const visions = appliance.filter((call) => call.path === "/chat/completions" && !call.body?.stream);
+    assert.equal(visions.length, 2, "one caption per session");
+    for (const call of visions) {
+      assert.equal(call.authorization, "Bearer sk-ai-test");
+      assert.equal(call.body!.model, "qwen3.8-27b");
+    }
+    assert.deepEqual(pinIndexRows(db).map((row) => [row.session_id, row.caption, row.model]), [
+      ["session_a", "legenda 1", "embed-model"],
+      ["session_a", "legenda 2", "embed-model"],
+      ["session_b", "legenda 1", "embed-model"],
+    ]);
+  });
+
+  test("the hub of the first link is the same in production, staging and development (A46)", async () => {
+    for (const deployment of ["production", "staging", undefined] as const) {
+      const label = String(deployment ?? "development");
+      db.query("DELETE FROM pin_index").run();
+      resetRetrievalCapabilitiesCacheForTests();
+      const applianceHubs = fakeHubs({ model: "qwen3.8-27b" });
+      await searchAs(
+        cloudEnv(db, { AI_GATEWAY_API_KEY: undefined, AI_EMBEDDING_MODEL: "embed-model", ASSISTANT_CHAIN: "appliance:qwen3.8-27b", DEPLOYMENT_ENV: deployment, PINAR_BUCKET: shots() }),
+        principal("usr_pro"),
+        "contraste",
+        applianceHubs.fetch,
+      );
+      assert.deepEqual(applianceHubs.gatewayCalls(), [], label);
+      assert.ok(applianceHubs.calls.some((call) => call.origin === APPLIANCE_ORIGIN && call.path === "/embeddings"), label);
+
+      db.query("DELETE FROM pin_index").run();
+      resetRetrievalCapabilitiesCacheForTests();
+      const gatewayHubs = fakeHubs();
+      await searchAs(
+        cloudEnv(db, { AI_GATEWAY_API_KEY: GATEWAY_KEY, AI_EMBEDDING_MODEL: GATEWAY_EMBEDDING, ASSISTANT_CHAIN: CHAIN, DEPLOYMENT_ENV: deployment, PINAR_BUCKET: shots() }),
+        principal("usr_pro"),
+        "contraste",
+        gatewayHubs.fetch,
+      );
+      assert.deepEqual(gatewayHubs.applianceCalls(), [], label);
+      assert.ok(gatewayHubs.embeddings().length > 0, label);
+    }
+  });
+  test("an explicit appliance chain without AI_MODEL: the gate opens and retrieval uses the link's model (A46)", async () => {
+    const env = applianceProductionEnv();
+    const health = await handleCloudApiRequest(new Request("https://pinar.test/api/health"), env);
+    assert.ok(health, "the health answer");
+    assert.equal((await health.json()).hasAssistant, true);
+    // The capability probe is the only fetch; the fake answers /models.
+    const appliance = fakeAppliance({ model: "qwen3.8-27b", vision: true });
+    const endpoints = await cloudRetrievalEndpoints(env, appliance.fetch);
+    assert.ok(endpoints, "the gate's configuration has retrieval endpoints");
+    assert.equal(endpoints.chat?.model, "qwen3.8-27b");
+    assert.equal(endpoints.chat?.baseUrl, BASE_URL);
+    assert.equal(endpoints.decisions, null);
+    assert.equal(endpoints.embedding?.model, "embed-model");
+  });
+
+  test("without ASSISTANT_CHAIN the default chain keeps using AI_MODEL", async () => {
+    const mustNotFetch = async (): Promise<Response> => {
+      throw new Error("must not fetch");
+    };
+    // No chain: the appliance's chat model is AI_MODEL itself.
+    const defaultAppliance = fakeAppliance({ vision: true });
+    const defaults = await cloudRetrievalEndpoints(cloudEnv(db, { AI_GATEWAY_API_KEY: undefined }), defaultAppliance.fetch);
+    assert.equal(defaults?.chat?.model, "mock");
+    // Without AI_MODEL and without a chain there is no chat model, hence no
+    // endpoint.
+    const bare = await cloudRetrievalEndpoints(cloudEnv(db, { AI_GATEWAY_API_KEY: undefined, AI_MODEL: undefined }), mustNotFetch);
+    assert.equal(bare, null);
   });
 });
 
@@ -1395,6 +1689,7 @@ describe("Cloud index costs recorded for the margin monitor (F4 contract §3)", 
   }
 
   test("a search and an index cron through the gateway record each cost with its source, at the Cloud's clock", async () => {
+    insertAssistantThread(db, "usr_pro");
     const hubs = fakeHubs();
     await quietly(() => searchAs(productionEnv(db, { PINAR_BUCKET: shots() }), principal("usr_pro"), "contraste", hubs.fetch));
     const embeddings = hubs.embeddings().length;
@@ -1421,6 +1716,7 @@ describe("Cloud index costs recorded for the margin monitor (F4 contract §3)", 
   });
 
   test("the appliance records nothing", async () => {
+    insertAssistantThread(db, "usr_pro");
     const appliance = fakeAppliance({ vision: true });
     await searchAs(cloudEnv(db, { PINAR_BUCKET: shots() }), principal("usr_pro"), "contraste", appliance.fetch);
     db.query("DELETE FROM pin_index").run();
@@ -1431,6 +1727,7 @@ describe("Cloud index costs recorded for the margin monitor (F4 contract §3)", 
 
   test("a failing recorder breaks neither the search nor the index cron", async () => {
     db.query("DROP TABLE assistant_index_costs").run();
+    insertAssistantThread(db, "usr_pro");
     const hubs = fakeHubs();
     let hits: Awaited<ReturnType<typeof searchAs>> = [];
     const searchLines = await quietly(async () => {
@@ -1551,11 +1848,13 @@ describe("AI_EMBEDDING_MODEL in the EdgeR env", () => {
     assert.equal(edgerCloudEnv(read({ ...ai, AI_EMBEDDING_MODEL: "embeddinggemma-300m" })).AI_EMBEDDING_MODEL, "embeddinggemma-300m");
   });
 
-  test("alone, without the AI group, it neither completes the group nor fails", () => {
+  test("alone, without the AI group, it neither completes the group nor fails (A46)", () => {
     const env = edgerCloudEnv(read({ AI_EMBEDDING_MODEL: "embeddinggemma-300m" }));
     assert.equal(env.AI, undefined);
     assert.equal(env.AI_BASE_URL, undefined);
-    assert.equal(env.AI_EMBEDDING_MODEL, undefined);
+    // The embedding model is the assistant's own option: it stands alone,
+    // inert without a hub configuration.
+    assert.equal(env.AI_EMBEDDING_MODEL, "embeddinggemma-300m");
     assert.throws(() => edgerCloudEnv(read({ AI_EMBEDDING_MODEL: "embeddinggemma-300m", AI_MODEL: "chat-model" })), /incomplete AI configuration: missing AI_API_KEY, AI_BASE_URL, AI_TRANSCRIPTION_MODEL/);
   });
 });
@@ -1600,7 +1899,7 @@ describe("Cloud session deletes before and after migration 0029", () => {
   test("without the pin_index table, deletes and the retention cleanup still work", async () => {
     db = migratedDatabase({ skip: "0029" });
     seed();
-    // The assistant off, as in production today.
+    // The assistant off: the switch is off.
     const env = cloudEnv(db, { ASSISTANT_ENABLED: undefined, DEPLOYMENT_ENV: "production" });
     await deleteBoth(env);
     await cleanupOldRecords(env);

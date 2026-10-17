@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, test } from "node:test";
-import { resetCloudMemoryStateForTests } from "../cloud-api";
+import { resetCloudMemoryStateForTests, type CloudEnv } from "../cloud-api";
 import {
   aiEnv,
+  api,
   getJson,
   isRecord,
   jsonBody,
   paidProCookie,
   postJson,
+  TEST_ENV,
   uploadCapture,
 } from "../../../tests/helpers/cloud-ai";
 import { reproductionPromptInput } from "./reproduction";
@@ -32,6 +34,42 @@ function responsesApi(text: string) {
     output: [{ content: [{ text, type: "output_text" }], type: "message" }],
     usage: { input_tokens: 900, output_tokens: 300 },
   };
+}
+
+const GATEWAY_TEXT_MODEL = "anthropic/claude-haiku-5.5";
+
+interface GatewayCall {
+  body: Record<string, unknown>;
+  model: string;
+  url: string;
+}
+
+// A fake global fetch for the Vercel AI Gateway: the chain builds the
+// provider with the runtime fetch, so the route reaches this stub.
+function fakeGateway(replies: Record<string, () => Response>) {
+  const calls: GatewayCall[] = [];
+  const fn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const headers = new Headers(init?.headers);
+    const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+    const model = headers.get("ai-language-model-id") ?? "";
+    const call: GatewayCall = { body, model, url };
+    calls.push(call);
+    const reply = replies[`text:${model}`];
+    if (!reply) throw new Error(`fake gateway: no reply for ${model}`);
+    return reply();
+  }) as typeof fetch;
+  return { calls, fn };
+}
+
+async function withGateway<T>(fake: ReturnType<typeof fakeGateway>, fn: () => Promise<T>): Promise<T> {
+  const real = globalThis.fetch;
+  globalThis.fetch = fake.fn;
+  try {
+    return await fn();
+  } finally {
+    globalThis.fetch = real;
+  }
 }
 
 describe("POST /api/ai/reproduction", () => {
@@ -135,5 +173,142 @@ describe("POST /api/ai/reproduction", () => {
     const entitlements = await jsonBody(await getJson("/api/account/entitlements", paid.cookie, paid.env));
     assert.ok(isRecord(entitlements.aiCredits));
     assert.equal(entitlements.aiCredits.balance, 500);
+  });
+
+  test("generates and persists through the AI_TEXT_CHAIN gateway link without the AI binding", async () => {
+    const env: CloudEnv = {
+      ...TEST_ENV,
+      AI_GATEWAY_API_KEY: "sk-repro-gateway-test",
+      AI_TEXT_CHAIN: `gateway:${GATEWAY_TEXT_MODEL}`,
+    };
+    const fake = fakeGateway({
+      [`text:${GATEWAY_TEXT_MODEL}`]: () => Response.json({
+        content: [{ text: JSON.stringify({ generatedAt: "2026-10-17T00:00:00.000Z", steps: GENERATED.steps }), type: "text" }],
+        finishReason: { raw: "stop", unified: "stop" },
+        providerMetadata: { gateway: { cost: "0", marketCost: "0.000123" } },
+        usage: {
+          inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 900, total: 900 },
+          outputTokens: { reasoning: 0, text: 300, total: 300 },
+        },
+        warnings: [],
+      }),
+    });
+    const paid = await paidProCookie(env);
+    assert.equal((await uploadCapture(paid.cookie, {
+      id: "repro_session_010",
+      pins: [{ comment: "The error toast never appears", number: 1, pinId: "pin_repro_10" }],
+      reproduction: RECORDING,
+    }, paid.env)).status, 201);
+
+    const response = await withGateway(fake, () => postJson("/api/ai/reproduction", {
+      language: "pt",
+      requestId: "repro_request_gateway_01",
+      sessionId: "repro_session_010",
+    }, paid.cookie, paid.env));
+
+    assert.equal(response.status, 200, await response.clone().text());
+    const body = await jsonBody(response);
+    assert.equal(body.ok, true);
+    assert.equal(body.creditsCharged, 0);
+    assert.ok(isRecord(body.result) && Array.isArray(body.result.steps));
+    assert.equal(body.result.steps.length, 4);
+    assert.ok(isRecord(body.usage));
+    assert.equal(body.usage.costUsdMicros, 123, "the cost comes from marketCost");
+    assert.equal(body.usage.inputTokens, 900);
+    assert.equal(body.usage.outputTokens, 300);
+    assert.equal(fake.calls.length, 1);
+    assert.ok(fake.calls[0].url.endsWith("/v4/ai/language-model"), fake.calls[0].url);
+    assert.equal(fake.calls[0].model, GATEWAY_TEXT_MODEL);
+    assert.equal(fake.calls[0].body.maxOutputTokens, 2048);
+    assert.equal(fake.calls[0].body.temperature, 0.1);
+    assert.deepEqual(fake.calls[0].body.responseFormat, { type: "json" });
+    assert.deepEqual(fake.calls[0].body.providerOptions, { gateway: { disallowPromptTraining: true } });
+    const prompt = fake.calls[0].body.prompt as Array<Record<string, unknown>>;
+    assert.equal(prompt[0].role, "system");
+    const userText = (prompt[1].content as Array<Record<string, unknown>>).map((part) => part.text).join("");
+    assert.match(userText, /user@example\.test/);
+    assert.match(userText, /"language":"pt"/);
+
+    const stored = await jsonBody(await getJson("/api/sessions/repro_session_010", paid.cookie, paid.env));
+    assert.ok(isRecord(stored.session) && isRecord(stored.session.reproduction) && isRecord(stored.session.reproduction.generated));
+    assert.equal(Array.isArray(stored.session.reproduction.generated.steps) && stored.session.reproduction.generated.steps.length, 4);
+
+    const entitlements = await jsonBody(await getJson("/api/account/entitlements", paid.cookie, paid.env));
+    assert.ok(isRecord(entitlements.aiCredits));
+    assert.equal(entitlements.aiCredits.balance, 500);
+  });
+
+  test("keeps a move that lands between the read and the write (keepPlacement)", async () => {
+    // The move is issued by the inference stub itself: it lands after the
+    // route read the session and before persistSession writes it back.
+    let signed: { cookie: string; env: CloudEnv } | null = null;
+    const destination: { id: string | null } = { id: null };
+    const env = aiEnv(async () => {
+      assert.ok(signed, "the move runs with the signed-in cookie");
+      assert.ok(destination.id, "the destination collection exists");
+      const move = await postJson("/api/sessions/repro_session_020/move", { collectionId: destination.id }, signed.cookie, signed.env);
+      assert.equal(move.status, 200, await move.clone().text());
+      return responsesApi(JSON.stringify(GENERATED));
+    });
+    const paid = await paidProCookie(env);
+    signed = paid;
+    const project = (await jsonBody(await api("/api/projects", {
+      body: JSON.stringify({ name: "Race" }),
+      headers: { cookie: paid.cookie, "content-type": "application/json" },
+      method: "POST",
+    }, paid.env))).project as { id: string };
+    destination.id = (await jsonBody(await api(`/api/projects/${project.id}/collections`, {
+      body: JSON.stringify({ name: "Target" }),
+      headers: { cookie: paid.cookie, "content-type": "application/json" },
+      method: "POST",
+    }, paid.env))).collection.id as string;
+    assert.equal((await uploadCapture(paid.cookie, {
+      id: "repro_session_020",
+      pins: [{ comment: "The error toast never appears", number: 1, pinId: "pin_repro_20" }],
+      reproduction: RECORDING,
+    }, paid.env)).status, 201);
+    const before = (await jsonBody(await getJson("/api/sessions/repro_session_020", paid.cookie, paid.env))).session as { collectionId?: string };
+    assert.notEqual(before.collectionId, destination.id, "the session starts outside the target collection");
+
+    const response = await postJson("/api/ai/reproduction", {
+      language: "pt",
+      requestId: "repro_request_race_move_01",
+      sessionId: "repro_session_020",
+    }, paid.cookie, paid.env);
+
+    assert.equal(response.status, 200, await response.clone().text());
+    const after = (await jsonBody(await getJson("/api/sessions/repro_session_020", paid.cookie, paid.env))).session as { collectionId?: string; reproduction?: { generated?: { steps?: unknown[] } } };
+    assert.equal(after.collectionId, destination.id, "the move that landed during the inference survives the write");
+    assert.ok(isRecord(after.reproduction?.generated) && Array.isArray(after.reproduction?.generated.steps));
+    assert.equal(after.reproduction?.generated?.steps.length, 4, "the write still persisted the result");
+  });
+
+  test("a session deleted between the read and the write answers 404 and is not brought back", async () => {
+    // The deletion is issued by the inference stub itself: it lands after
+    // the route read the session and before persistSession writes it back.
+    let signed: { cookie: string; env: CloudEnv } | null = null;
+    const env = aiEnv(async () => {
+      assert.ok(signed, "the deletion runs with the signed-in cookie");
+      const deleted = await api(`/api/history/repro_session_030`, { headers: { cookie: signed.cookie }, method: "DELETE" }, signed.env);
+      assert.equal(deleted.status, 200);
+      return responsesApi(JSON.stringify(GENERATED));
+    });
+    const paid = await paidProCookie(env);
+    signed = paid;
+    assert.equal((await uploadCapture(paid.cookie, {
+      id: "repro_session_030",
+      pins: [{ comment: "The error toast never appears", number: 1, pinId: "pin_repro_30" }],
+      reproduction: RECORDING,
+    }, paid.env)).status, 201);
+
+    const response = await postJson("/api/ai/reproduction", {
+      language: "pt",
+      requestId: "repro_request_race_delete_01",
+      sessionId: "repro_session_030",
+    }, paid.cookie, paid.env);
+
+    assert.equal(response.status, 404);
+    assert.deepEqual(await response.json(), { error: "Session not found" });
+    assert.equal((await getJson("/api/sessions/repro_session_030", paid.cookie, paid.env)).status, 404, "the session is not brought back");
   });
 });

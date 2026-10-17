@@ -8,7 +8,9 @@ import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import {
+  findOwnedSession,
   handleCloudApiRequest,
+  persistSession,
   resetCloudMemoryStateForTests,
   seedCloudWebSessionForTests,
   setCloudNowForTests,
@@ -1302,17 +1304,25 @@ describe("cloud capture filing keeps a batch whole (A36)", () => {
       assert.deepEqual(claims(db), theirs);
 
       // A session of the owner that names the other owner's batch: an edit
-      // writes it again with that batch id, and their claim stays.
+      // (keepPlacement) touches no claim, and a capture write of it with that
+      // batch id, as persistSession places a session, leaves their claim too.
+      const owner = { id: OWNER, isPermanent: true, kind: "account" as const, plan: "pro" as const };
       insertSession(db, { batchId: "batch_theirs", collectionId: "col_checkout", createdAt: NOW, id: "forged_batch", title: "Checkout" });
       const edited = await webCall(env, cookie, "/api/sessions/forged_batch", { body: { reproduction: null }, method: "PATCH" });
       assert.equal(edited.status, 200, await edited.clone().text());
       assert.deepEqual(claims(db), theirs);
+      const forged = await findOwnedSession(env, owner, "forged_batch");
+      await persistSession(env, { ...forged!, collectionId: "col_onboarding" }, "batch_theirs");
+      assert.deepEqual(claims(db), theirs);
 
-      // Control: the same edit of the owner's own batch session moves the owner's claim.
+      // Control: of the owner's own batch session, an edit leaves the claim
+      // where it was (the place did not change) and a capture write moves it.
       appliance = fakeAppliance({ decide: decideFor("Shop / Checkout", 0.95), engine: "decisions" });
       await shot(env, cookie, { batchId: "batch_mine", id: "mine_batch_a", title: "Checkout" });
       db.query("UPDATE sessions SET collection_id = 'col_onboarding' WHERE id = 'mine_batch_a'").run();
       assert.equal((await webCall(env, cookie, "/api/sessions/mine_batch_a", { body: { reproduction: null }, method: "PATCH" })).status, 200);
+      assert.equal(claimOf(db, "batch_mine"), "col_checkout");
+      await persistSession(env, (await findOwnedSession(env, owner, "mine_batch_a"))!, "batch_mine");
       assert.equal(claimOf(db, "batch_mine"), "col_onboarding");
       assert.deepEqual(claims(db).filter((row) => (row as { id: string }).id === "batch_theirs"), theirs);
     } finally {

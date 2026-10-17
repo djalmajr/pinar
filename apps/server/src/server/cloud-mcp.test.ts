@@ -2756,3 +2756,193 @@ describe("capture filing data on D1", () => {
     }
   });
 });
+
+// Edits of a stored session start from a read of its row and write it back
+// with keepPlacement: a move (or a batch deletion) that lands between that
+// read and the write keeps the collection, position, batch, filing mark and
+// batch claim it set, and the edit itself is written.
+describe("session edits keep a concurrent move (keepPlacement)", () => {
+  beforeEach(() => {
+    mcpSessions.clear();
+    resetCloudMemoryStateForTests();
+    setCloudNowForTests(NOW);
+  });
+
+  afterEach(() => resetCloudMemoryStateForTests());
+
+  const DIAGNOSIS = {
+    acceptedAt: NOW,
+    cause: "Flex container lacks align-items",
+    confidence: "high",
+    fix: ".row { align-items: center; }",
+    properties: ["align-items"],
+    version: 1,
+  };
+
+  // A batch session in collection_mcp, filed automatically, whose batch
+  // claims collection_mcp.
+  async function raceSetup(db: Database) {
+    const seeded = await seedMcpWorkspace(db);
+    db.query("INSERT INTO batches (id, user_id, label, started_at, filing_collection_id) VALUES (?, ?, 'Batch', ?, ?)")
+      .run("batch_race", "usr_mcp", NOW, "collection_mcp");
+    db.query(
+      "INSERT INTO sessions (id, url, title, shot_id, shot_url, pin_count, pins_json, created_at, user_id, plan, is_permanent, byte_size, collection_id, position, batch_id, filed_by) "
+        + "VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, 'pro', 1, 1, ?, 0, ?, 'auto')",
+    ).run(
+      "session_race",
+      "https://example.test/race",
+      "Race",
+      "session_race",
+      "https://pinar.test/shots/session_race.png",
+      JSON.stringify([{ comment: "first", number: 1 }]),
+      NOW,
+      "usr_mcp",
+      "collection_mcp",
+      "batch_race",
+    );
+    const web = await seedCloudWebSessionForTests({ email: "mcp@example.test", id: "usr_mcp", plan: "pro" }, seeded);
+    return { cookie: web.cookie, seeded };
+  }
+
+  // `concurrent` runs once, right after the edit read session_race.
+  function racingEnv(db: Database, seeded: CloudEnv, concurrent: () => void) {
+    let landed = false;
+    const env: CloudEnv = {
+      ...seeded,
+      DB: sqliteD1(db, undefined, (sql, row) => {
+        if (landed || row?.id !== "session_race" || !sql.startsWith("SELECT * FROM sessions WHERE id = ?")) return;
+        landed = true;
+        concurrent();
+      }),
+    };
+    return { env, landed: () => landed };
+  }
+
+  // A move, as moveSession writes it: the session (its mark cleared) and the
+  // batch claim.
+  const moveToTarget = (db: Database) => () => {
+    db.query("UPDATE sessions SET collection_id = ?, position = 7, filed_by = NULL WHERE id = ?").run("collection_target", "session_race");
+    db.query("UPDATE batches SET filing_collection_id = ? WHERE id = ?").run("collection_target", "batch_race");
+  };
+
+  function webApi(env: CloudEnv, cookie: string, path: string, body: unknown) {
+    return handleCloudApiRequest(new Request(`https://pinar.test${path}`, {
+      body: JSON.stringify(body),
+      headers: { cookie, "content-type": "application/json", origin: "https://pinar.test" },
+      method: "PATCH",
+    }), env);
+  }
+
+  const row = (db: Database) => db.query(
+    "SELECT title, collection_id, position, batch_id, filed_by, pin_count, pins_json FROM sessions WHERE id = 'session_race'",
+  ).get() as Record<string, unknown>;
+  const claim = (db: Database) => (db.query("SELECT filing_collection_id FROM batches WHERE id = 'batch_race'").get() as
+    { filing_collection_id: string } | null)?.filing_collection_id ?? null;
+
+  const edits: Array<{ edit: (env: CloudEnv, cookie: string) => Promise<void>; name: string; written: (stored: Record<string, unknown>) => void }> = [
+    {
+      edit: async (env) => {
+        const result = await callTool(env, "pinar.update_session", { page: { title: "Renamed" }, sessionId: "session_race" }, MANAGE_TOKEN);
+        assert.equal(result.result.isError, undefined, result.text);
+      },
+      name: "pinar.update_session (updateMcpSession)",
+      written: (stored) => assert.equal(stored.title, "Renamed"),
+    },
+    {
+      edit: async (env) => {
+        const result = await callTool(env, "pinar.create_pin", { comment: "Agent pin", sessionId: "session_race" }, MANAGE_TOKEN);
+        assert.equal(result.result.isError, undefined, result.text);
+      },
+      name: "pinar.create_pin (createMcpPin)",
+      written: (stored) => {
+        assert.equal(stored.pin_count, 2);
+        assert.match(String(stored.pins_json), /Agent pin/);
+      },
+    },
+    {
+      edit: async (env) => {
+        const result = await callTool(env, "pinar.edit_pin_note", { comment: "agent note", pinId: "session_race:p1", sessionId: "session_race" }, MANAGE_TOKEN);
+        assert.equal(result.result.isError, undefined, result.text);
+      },
+      name: "pinar.edit_pin_note",
+      written: (stored) => assert.match(String(stored.pins_json), /agent note/),
+    },
+    {
+      edit: async (env, cookie) => {
+        const response = await webApi(env, cookie, "/api/sessions/session_race/pins/session_race%3Ap1", { comment: "web note" });
+        assert.equal(response.status, 200, await response.clone().text());
+      },
+      name: "PATCH /api/sessions/:id/pins/:pinId (editPinNote)",
+      written: (stored) => assert.match(String(stored.pins_json), /web note/),
+    },
+    {
+      edit: async (env, cookie) => {
+        const response = await webApi(env, cookie, "/api/sessions/session_race", { pins: [{ diagnosis: DIAGNOSIS, pinId: "session_race:p1" }] });
+        assert.equal(response.status, 200, await response.clone().text());
+      },
+      name: "PATCH /api/sessions/:id (updateSessionFields)",
+      written: (stored) => assert.match(String(stored.pins_json), /Flex container lacks align-items/),
+    },
+  ];
+
+  for (const { edit, name, written } of edits) {
+    test(`${name}: a move that lands after its read survives the edit, and the edit is written`, async () => {
+      const db = migratedDatabase();
+      try {
+        const { cookie, seeded } = await raceSetup(db);
+        const race = racingEnv(db, seeded, moveToTarget(db));
+        await edit(race.env, cookie);
+        assert.ok(race.landed(), "the move landed between the read and the write");
+        const stored = row(db);
+        assert.deepEqual(
+          { batch_id: stored.batch_id, collection_id: stored.collection_id, filed_by: stored.filed_by, position: stored.position },
+          { batch_id: "batch_race", collection_id: "collection_target", filed_by: null, position: 7 },
+          "the move's place survives the edit",
+        );
+        assert.equal(claim(db), "collection_target", "the batch claim still follows the move");
+        written(stored);
+      } finally {
+        db.close();
+      }
+    });
+  }
+
+  test("a batch deleted after the edit read stays deleted: the edit brings back neither the batch id nor the claim", async () => {
+    const db = migratedDatabase();
+    try {
+      const { seeded } = await raceSetup(db);
+      // As deleteBatch writes it.
+      const race = racingEnv(db, seeded, () => {
+        db.query("UPDATE sessions SET batch_id = NULL WHERE batch_id = ? AND user_id = ?").run("batch_race", "usr_mcp");
+        db.query("DELETE FROM batches WHERE id = ?").run("batch_race");
+      });
+      const result = await callTool(race.env, "pinar.update_session", { page: { title: "Renamed" }, sessionId: "session_race" }, MANAGE_TOKEN);
+      assert.equal(result.result.isError, undefined, result.text);
+      assert.ok(race.landed());
+      const stored = row(db);
+      assert.equal(stored.batch_id, null);
+      assert.equal(stored.title, "Renamed");
+      assert.equal(claim(db), null);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("without a concurrent move, an edit keeps the session's place and its filing mark", async () => {
+    const db = migratedDatabase();
+    try {
+      const { cookie, seeded } = await raceSetup(db);
+      const response = await webApi(seeded, cookie, "/api/sessions/session_race/pins/session_race%3Ap1", { comment: "plain edit" });
+      assert.equal(response.status, 200);
+      const stored = row(db);
+      assert.deepEqual(
+        { batch_id: stored.batch_id, collection_id: stored.collection_id, filed_by: stored.filed_by, position: stored.position },
+        { batch_id: "batch_race", collection_id: "collection_mcp", filed_by: "auto", position: 0 },
+      );
+      assert.equal(claim(db), "collection_mcp");
+      assert.match(String(stored.pins_json), /plain edit/);
+    } finally {
+      db.close();
+    }
+  });
+});

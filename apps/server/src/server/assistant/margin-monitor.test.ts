@@ -296,6 +296,81 @@ describe("assistantMarginMonitor", () => {
     assert.deepEqual([summaries[1]!.database, summaries[1]!.turns, summaries[1]!.alerts], [false, 0, 0]);
   });
 
+  describe("before migration 0032", () => {
+    // The same fixtures on a D1 without the two tables of 0032.
+    let before0032: Database;
+    beforeEach(() => {
+      before0032 = migratedDatabase({ skip: "0032" });
+      insertOwner(before0032, "usr_over");
+      insertTurn(before0032, { cost: 20000, ownerId: "usr_over" }); // over its 9000 of revenue
+    });
+    afterEach(() => {
+      before0032.close();
+    });
+
+    test("without either table: the rest is computed, no index cost nor email, and the job ends ok in the daily cron", async () => {
+      const tables = before0032.query("SELECT name FROM sqlite_master WHERE name LIKE 'assistant_%' AND type = 'table' ORDER BY name").all();
+      assert.ok(!JSON.stringify(tables).includes("assistant_index_costs") && !JSON.stringify(tables).includes("assistant_margin_emails"), JSON.stringify(tables));
+      const email = fakeEmail();
+      const report = await assistantMarginMonitor({ DB: sqliteD1(before0032), EMAIL: email.binding, OPS_ALERT_EMAIL: OPS }, NOW);
+      assert.deepEqual(report.alerts, [{ alert: "owner_cost_over_revenue", costUsdMicros: 20000, ownerId: "usr_over", revenueUsdMicros: 9000 }]);
+      assert.equal(report.email, "unavailable");
+      assert.equal(email.sent.length, 0);
+      const [summary] = logged("assistant_margin_daily");
+      assert.deepEqual(summary, {
+        message: "assistant_margin_daily",
+        costUsdMicros: 20000,
+        database: true,
+        fallbackTurns: 0,
+        indexCalls: null,
+        indexCostUsdMicros: null,
+        indexCosts: "unavailable",
+        indexUnknownCostCalls: null,
+        owners: 1,
+        revenueUsdMicros: 9000,
+        tableTurns: 0,
+        turns: 1,
+        unknownCostTurns: 0,
+        windowEnd: NOW.toISOString(),
+        windowStart: new Date(NOW.getTime() - 24 * 60 * 60 * 1000).toISOString(),
+        alerts: 1,
+        email: "unavailable",
+      });
+
+      const fetchCron = createEdgerFetch({
+        jobs: [{ name: "assistantMarginMonitor", run: () => assistantMarginMonitor({ DB: sqliteD1(before0032), EMAIL: email.binding, OPS_ALERT_EMAIL: OPS }, NOW) }],
+        log: () => {},
+        tanstackFetch: async () => new Response("tanstack"),
+      });
+      const response = await fetchCron(new Request("https://pinar.test/_internal/cron/daily", { headers: { "x-edger-internal": "true" }, method: "POST" }));
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), { ok: true, jobs: [{ job: "assistantMarginMonitor", ok: true }] });
+
+      // Control: once 0032 runs on the same D1, the index cost is read and the email goes out.
+      before0032.exec(readFileSync(new URL("../../../migrations/0032_assistant_margin.sql", import.meta.url), "utf8"));
+      const after = await assistantMarginMonitor({ DB: sqliteD1(before0032), EMAIL: email.binding, OPS_ALERT_EMAIL: OPS }, NOW);
+      assert.equal(after.email, "sent");
+      assert.deepEqual([after.summary.indexCalls, after.summary.indexCostUsdMicros, "indexCosts" in after.summary], [0, 0, false]);
+    });
+
+    test("with the index costs but without the email days, the index cost is read and no email goes out", async () => {
+      const db0032 = migratedDatabase();
+      try {
+        insertOwner(db0032, "usr_over");
+        insertTurn(db0032, { cost: 20000, ownerId: "usr_over" });
+        await recordAssistantIndexCost({ DB: sqliteD1(db0032) }, { costSource: "gateway", costUsdMicros: 5, kind: "embedding", model: "m" }, new Date("2026-10-16T20:00:00.000Z"));
+        db0032.exec("DROP TABLE assistant_margin_emails");
+        const email = fakeEmail();
+        const report = await assistantMarginMonitor({ DB: sqliteD1(db0032), EMAIL: email.binding, OPS_ALERT_EMAIL: OPS }, NOW);
+        assert.equal(report.email, "unavailable");
+        assert.equal(email.sent.length, 0);
+        assert.deepEqual([report.summary.indexCalls, report.summary.indexCostUsdMicros, "indexCosts" in report.summary], [1, 5, false]);
+      } finally {
+        db0032.close();
+      }
+    });
+  });
+
   describe("email", () => {
     function alerting(ownerId = "usr_over") {
       insertOwner(db, ownerId);

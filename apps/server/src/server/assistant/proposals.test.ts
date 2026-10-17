@@ -526,6 +526,10 @@ describe("undoProposal", () => {
     { add: (world, id) => world.collections.push({ id: fx("col-9"), name: "Inside", parentId: null, projectId: id }), args: { name: "Mobile app" }, tool: "pinar.create_project" },
     { add: (world, id) => world.sessions.push({ batchId: null, collectionId: id, id: fx("session-9"), title: "Inside" }), args: { name: "Billing", projectId: fx("project-1") }, tool: "pinar.create_collection" },
     { add: (world, id) => world.pins.push({ comment: "Inside", id: fx("pin-9"), number: 1, sessionId: id }), args: { page: { title: "Pricing", url: "https://x" } }, tool: "pinar.create_session" },
+    // Review P1: deleting the created pin would delete this conversation comment.
+    { add: (world, id) => world.comments.push({ body: "Someone else's reply", id: fx("comment-9"), pinId: id, sessionId: fx("session-2") }), args: { comment: "Wrong total", sessionId: fx("session-2") }, tool: "pinar.create_pin" },
+    // Review P2: deleting the created batch would unlink this session.
+    { add: (world, id) => (world.sessions.find((item) => item.id === fx("session-4"))!.batchId = id), args: { label: "Release 3" }, tool: "pinar.create_batch" },
   ];
   for (const item of contentCases) {
     test(`${item.tool}: a creation that gained content is undo_stale and is not deleted`, async () => {
@@ -537,8 +541,33 @@ describe("undoProposal", () => {
       assert.deepEqual(await undo(ctx, proposal.id, at(2 * MINUTE)), { code: "undo_stale", kind: "conflict" });
       assert.equal(ctx.host.calls.length, calls);
       assert.ok(JSON.stringify(worldView(ctx.world)).includes(id), "the created entity must survive");
+      const content = JSON.stringify(worldView(ctx.world));
+      if (item.tool === "pinar.create_pin") assert.ok(content.includes("Someone else's reply"), "the comment must survive");
+      if (item.tool === "pinar.create_batch") assert.equal(ctx.world.sessions.find((session) => session.id === fx("session-4"))?.batchId, id, "the session stays linked");
     });
   }
+
+  test("an orphaned undoing (older than the stale limit) reads as executed / undo_failed with no undo offered", async () => {
+    const ctx = await setup();
+    const proposal = await executed(ctx, "pinar.rename_batch", { batchId: fx("batch-1"), label: "Sprint 13" });
+    // A crash right after claiming the undo: the record stays `undoing`.
+    const claimedAt = at(2 * MINUTE);
+    const undoing = await ctx.store.transitionProposal({ from: ["executed"], id: proposal.id, now: claimedAt.toISOString(), requireBefore: "undoExpiresAt", to: "undoing" });
+    assert.ok(undoing && undoing.undoExpiresAt !== null);
+    const fresh = publicProposal(undoing, new Date(claimedAt.getTime() + ASSISTANT_EXECUTING_STALE_MS));
+    assert.equal(fresh.status, "undoing");
+    assert.equal(fresh.undoExpiresAt, undoing.undoExpiresAt);
+    const staleAt = new Date(claimedAt.getTime() + ASSISTANT_EXECUTING_STALE_MS + 1);
+    const stale = publicProposal(undoing, staleAt);
+    assert.equal(stale.status, "executed");
+    assert.equal(stale.errorCode, "undo_failed");
+    assert.equal(stale.undoExpiresAt, null, "no undo is offered again");
+    assert.equal(proposalHistoryNote(undoing, staleAt), '[proposal executed (undo_failed): Rename batch "Sprint 12" to "Sprint 13"]');
+    const calls = ctx.host.calls.length;
+    assert.deepEqual(await undo(ctx, proposal.id, new Date(claimedAt.getTime() + MINUTE)), { code: "proposal_in_progress", kind: "conflict" });
+    assert.deepEqual(await undo(ctx, proposal.id, staleAt), { code: "undo_unavailable", kind: "conflict" });
+    assert.equal(ctx.host.calls.length, calls, "an orphaned undo never runs again");
+  });
 
   for (const item of PREP_CASES.filter((entry) => entry.risk !== "reversible")) {
     test(`${item.tool} (${item.risk}): executed without an undo plan, undo is undo_unavailable`, async () => {

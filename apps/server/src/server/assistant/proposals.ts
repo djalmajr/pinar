@@ -615,8 +615,9 @@ function proposalTool(tool: string): { action: AssistantProposalAction; risk: As
 // The state each undo call would change, read now. Its fingerprint right
 // after the execution is the plan's postFingerprint; undo refuses when the
 // current one differs. Deletions of created entities read the whole entity,
-// so its content counts (collectionCount, sessionCount, pinCount) are part
-// of it.
+// so its content counts are part of it: collectionCount (project),
+// sessionCount (collection, and the sessions linked to a batch), pinCount
+// (session) and commentCount (pin).
 async function undoCallState(call: UndoCall, reader: AssistantStateReader): Promise<unknown> {
   const args = call.args;
   switch (call.tool) {
@@ -703,16 +704,29 @@ function isExecutingStale(record: AssistantProposalRecord, now: Date): boolean {
   return record.status === "executing" && now.getTime() - Date.parse(record.updatedAt) > ASSISTANT_EXECUTING_STALE_MS;
 }
 
-function lazyStatus(record: AssistantProposalRecord, now: Date): { errorCode: AssistantProposalErrorCode | null; status: AssistantProposalStatus } {
+// An `undoing` proposal older than ASSISTANT_EXECUTING_STALE_MS: a crash
+// between claiming the undo and recording it (decision A12).
+function isUndoingStale(record: AssistantProposalRecord, now: Date): boolean {
+  return record.status === "undoing" && now.getTime() - Date.parse(record.updatedAt) > ASSISTANT_EXECUTING_STALE_MS;
+}
+
+function lazyStatus(
+  record: AssistantProposalRecord,
+  now: Date,
+): { errorCode: AssistantProposalErrorCode | null; status: AssistantProposalStatus; undoExpiresAt: string | null } {
   if (record.status === "proposed" && Date.parse(record.expiresAt) <= now.getTime()) {
-    return { errorCode: record.errorCode, status: "expired" };
+    return { errorCode: record.errorCode, status: "expired", undoExpiresAt: record.undoExpiresAt };
   }
-  if (isExecutingStale(record, now)) return { errorCode: "proposal_unknown_outcome", status: "failed" };
-  return { errorCode: record.errorCode, status: record.status };
+  if (isExecutingStale(record, now)) {
+    return { errorCode: "proposal_unknown_outcome", status: "failed", undoExpiresAt: record.undoExpiresAt };
+  }
+  // The undo may or may not have run: no undo is offered again.
+  if (isUndoingStale(record, now)) return { errorCode: "undo_failed", status: "executed", undoExpiresAt: null };
+  return { errorCode: record.errorCode, status: record.status, undoExpiresAt: record.undoExpiresAt };
 }
 
 export function publicProposal(record: AssistantProposalRecord, now: Date): AssistantPublicProposal {
-  const { errorCode, status } = lazyStatus(record, now);
+  const { errorCode, status, undoExpiresAt } = lazyStatus(record, now);
   return {
     createdAt: record.createdAt,
     display: { action: record.display.action, params: { ...record.display.params } },
@@ -725,7 +739,7 @@ export function publicProposal(record: AssistantProposalRecord, now: Date): Assi
     status,
     threadId: record.threadId,
     tool: record.tool,
-    undoExpiresAt: record.undoExpiresAt,
+    undoExpiresAt,
   };
 }
 
@@ -900,7 +914,7 @@ export async function undoProposal(input: {
   const at = now();
   const record = await store.getProposal(id);
   if (!record) return { kind: "not_found" };
-  if (record.status === "undoing" || (record.status === "executing" && !isExecutingStale(record, at))) {
+  if ((record.status === "undoing" && !isUndoingStale(record, at)) || (record.status === "executing" && !isExecutingStale(record, at))) {
     return { code: "proposal_in_progress", kind: "conflict" };
   }
   if (!undoAvailable(record, at)) return { code: "undo_unavailable", kind: "conflict" };
@@ -914,7 +928,9 @@ export async function undoProposal(input: {
   if (!claimed) {
     const current = await store.getProposal(id);
     if (!current) return { kind: "not_found" };
-    return current.status === "undoing" ? { code: "proposal_in_progress", kind: "conflict" } : { code: "undo_unavailable", kind: "conflict" };
+    return current.status === "undoing" && !isUndoingStale(current, at)
+      ? { code: "proposal_in_progress", kind: "conflict" }
+      : { code: "undo_unavailable", kind: "conflict" };
   }
   // The plan cannot change while the proposal is `executed`; the claimed
   // record carries the same plan undoAvailable checked.

@@ -70,7 +70,7 @@ export function fixtureReader(world: FixtureWorld): AssistantStateReader {
   return {
     async batch(batchId) {
       const batch = world.batches.find((item) => item.id === batchId);
-      return batch ? { ...batch } : null;
+      return batch ? { ...batch, sessionCount: world.sessions.filter((item) => item.batchId === batchId).length } : null;
     },
     async collection(collectionId) {
       const collection = world.collections.find((item) => item.id === collectionId);
@@ -87,7 +87,9 @@ export function fixtureReader(world: FixtureWorld): AssistantStateReader {
     },
     async pin(sessionId, pinId) {
       const pin = world.pins.find((item) => item.sessionId === sessionId && item.id === pinId);
-      return pin ? { comment: pin.comment, id: pin.id, number: pin.number } : null;
+      if (!pin) return null;
+      const commentCount = world.comments.filter((item) => item.sessionId === sessionId && item.pinId === pinId).length;
+      return { comment: pin.comment, commentCount, id: pin.id, number: pin.number };
     },
     async project(projectId) {
       const project = world.projects.find((item) => item.id === projectId);

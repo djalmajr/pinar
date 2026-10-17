@@ -9,12 +9,14 @@
 // not exist or is not visible.
 
 export interface AssistantStateReader {
-  batch(id: string): Promise<{ finishedAt: string | null; id: string; label: string } | null>;
+  /** `sessionCount`: sessions linked to the batch (deleting it unlinks them). */
+  batch(id: string): Promise<{ finishedAt: string | null; id: string; label: string; sessionCount: number } | null>;
   collection(id: string): Promise<{ id: string; name: string; parentId: string | null; projectId: string; sessionCount: number } | null>;
   /** Placements in the exact shape `pinar.reorder_collections` accepts in `items`. */
   collectionPlacements(projectId: string): Promise<unknown[] | null>;
   comment(sessionId: string, pinId: string, commentId: string): Promise<{ body: string; id: string } | null>;
-  pin(sessionId: string, pinId: string): Promise<{ comment: string; id: string; number: number } | null>;
+  /** `commentCount`: conversation comments on the pin (deleting it deletes them). */
+  pin(sessionId: string, pinId: string): Promise<{ comment: string; commentCount: number; id: string; number: number } | null>;
   project(id: string): Promise<{ collectionCount: number; id: string; name: string } | null>;
   projectOrder(): Promise<string[]>;
   session(id: string): Promise<{ batchId: string | null; collectionId: string; id: string; pinCount: number; title: string } | null>;

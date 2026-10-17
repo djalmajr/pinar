@@ -169,7 +169,7 @@ When your plan includes the AI assistant in Pinar Cloud, we also process: your m
 
 Avoid capturing secrets or unnecessary sensitive personal data. A screenshot may contain information about you or third parties, and you are responsible for having an appropriate basis to submit it.
 
-**Cookies and local storage.** Pinar Cloud uses only what the service needs: a session cookie that keeps you signed in for up to 30 days and is removed when you sign out, a cookie that remembers the language you chose, and your browser's local storage for the theme. Pinar uses no advertising or analytics cookies. Cloudflare, which sits in front of pinar.dev, may set cookies needed to protect the service.
+**Cookies and local storage.** Pinar Cloud uses only what the service needs: a session cookie that keeps you signed in for up to 30 days and is removed when you sign out, a cookie that remembers the language you chose, and your browser's local storage for interface preferences: the language, the theme, the project and collection you last selected, the history view, and whether the assistant panel is open. Pinar uses no advertising or analytics cookies. Cloudflare, which sits in front of pinar.dev, may set cookies needed to protect the service.
 
 ## 3. Purposes and legal bases
 
@@ -210,7 +210,7 @@ Quando seu plano inclui o assistente de IA no Pinar Cloud, também tratamos: sua
 
 Evite capturar segredos ou dados pessoais sensíveis desnecessários. Um screenshot pode conter informações suas ou de terceiros, e você é responsável por possuir base adequada para enviá-lo.
 
-**Cookies e armazenamento local.** O Pinar Cloud usa só o que o serviço precisa: um cookie de sessão que mantém você conectado por até 30 dias e é removido quando você sai, um cookie que lembra o idioma escolhido e o armazenamento local do navegador para o tema. O Pinar não usa cookies de publicidade nem de análise. A Cloudflare, que fica na frente do pinar.dev, pode definir cookies necessários para proteger o serviço.
+**Cookies e armazenamento local.** O Pinar Cloud usa só o que o serviço precisa: um cookie de sessão que mantém você conectado por até 30 dias e é removido quando você sai, um cookie que lembra o idioma escolhido e o armazenamento local do navegador para preferências da interface: o idioma, o tema, o projeto e a coleção selecionados por último, a visualização do histórico e se o painel do assistente está aberto. O Pinar não usa cookies de publicidade nem de análise. A Cloudflare, que fica na frente do pinar.dev, pode definir cookies necessários para proteger o serviço.
 
 ## 3. Finalidades e bases legais
 

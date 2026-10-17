@@ -64,6 +64,9 @@ env:
   AI_TRANSCRIPTION_MODEL: ""
   ADMIN_API_KEY: ""
   AUTH_PEPPER: ""
+  # Optional: "true" switches the assistant on (staging only; production
+  # keeps it off). Absent or empty stays off.
+  ASSISTANT_ENABLED: ""
   CLOUD_TRIAL_ENABLED: ""
   COMPLIMENTARY_PRO_USER_IDS: ""
   EXTENSION_ORIGIN: ""

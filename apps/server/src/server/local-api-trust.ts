@@ -317,6 +317,46 @@ export const LOCAL_API_TRUST_MATRIX: readonly LocalApiTrustEntry[] = [
     path: "/api/history/:id",
     pattern: /^\/api\/history\/[^/]+$/,
   },
+  {
+    class: "sensitive-read",
+    intendedClients: ["workspace"],
+    methods: ["GET"],
+    notes: "Assistant availability from the ai.json configuration.",
+    path: "/api/assistant/status",
+    pattern: /^\/api\/assistant\/status$/,
+  },
+  {
+    class: "sensitive-read",
+    intendedClients: ["workspace"],
+    methods: ["GET"],
+    notes: "Paginated assistant thread list.",
+    path: "/api/assistant/threads",
+    pattern: /^\/api\/assistant\/threads$/,
+  },
+  {
+    class: "sensitive-read",
+    intendedClients: ["workspace"],
+    methods: ["GET"],
+    notes: "One assistant thread with its newest messages.",
+    path: "/api/assistant/threads/:id",
+    pattern: /^\/api\/assistant\/threads\/[^/]+$/,
+  },
+  {
+    class: "mutable",
+    intendedClients: ["workspace"],
+    methods: ["POST"],
+    notes: "Streams an assistant turn and persists both messages.",
+    path: "/api/assistant/turn",
+    pattern: /^\/api\/assistant\/turn$/,
+  },
+  {
+    class: "mutable",
+    intendedClients: ["workspace"],
+    methods: ["DELETE"],
+    notes: "Deletes an assistant thread with its messages.",
+    path: "/api/assistant/threads/:id",
+    pattern: /^\/api\/assistant\/threads\/[^/]+$/,
+  },
 ];
 
 export const LOCAL_PUBLIC_PROJECTIONS: readonly LocalApiTrustEntry[] = [

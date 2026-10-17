@@ -122,7 +122,7 @@ function runCli(args: string[], env: Record<string, string>, cwd: string): Promi
 }
 
 describe("migrateLibsql", () => {
-  test("applies the 26 real migrations to a fresh database and skips them on the second run", async () => {
+  test("applies the 27 real migrations to a fresh database and skips them on the second run", async () => {
     const file = tempDatabaseFile();
     const client = openClient(file);
     try {
@@ -130,25 +130,25 @@ describe("migrateLibsql", () => {
       const first = await migrateLibsql(client, defaultMigrationsDir(), {
         log: (line) => firstLog.push(line),
       });
-      assert.equal(first.applied.length, 26);
+      assert.equal(first.applied.length, 27);
       assert.deepEqual(first.alreadyApplied, []);
-      assert.deepEqual(first.pending.length, 26);
+      assert.deepEqual(first.pending.length, 27);
       assert.equal(firstLog[0], "applied 0001_initial.sql");
-      assert.equal(firstLog[firstLog.length - 1], "26 applied, 0 already applied");
+      assert.equal(firstLog[firstLog.length - 1], "27 applied, 0 already applied");
       let history = await client.execute("SELECT name FROM d1_migrations ORDER BY id");
-      assert.equal(history.rows.length, 26);
+      assert.equal(history.rows.length, 27);
       assert.equal(String(history.rows[0].name), "0001_initial.sql");
-      assert.equal(String(history.rows[25].name), "0026_pin_comment_agents.sql");
+      assert.equal(String(history.rows[26].name), "0027_assistant_threads.sql");
 
       const secondLog: string[] = [];
       const second = await migrateLibsql(client, defaultMigrationsDir(), {
         log: (line) => secondLog.push(line),
       });
       assert.deepEqual(second.applied, []);
-      assert.equal(second.alreadyApplied.length, 26);
-      assert.equal(secondLog[secondLog.length - 1], "0 applied, 26 already applied");
+      assert.equal(second.alreadyApplied.length, 27);
+      assert.equal(secondLog[secondLog.length - 1], "0 applied, 27 already applied");
       history = await client.execute("SELECT name FROM d1_migrations");
-      assert.equal(history.rows.length, 26);
+      assert.equal(history.rows.length, 27);
     } finally {
       closeDatabase(client, file);
     }
@@ -355,7 +355,7 @@ describe("migrate-libsql CLI", () => {
       const run = await runCli(["--dry-run"], { DATABASE_URL: `file:${file}` }, SERVER_DIR);
       assert.equal(run.code, 0);
       assert.ok(run.stdout.includes("pending 0001_initial.sql"));
-      assert.ok(run.stdout.includes("pending 0026_pin_comment_agents.sql"));
+      assert.ok(run.stdout.includes("pending 0027_assistant_threads.sql"));
       assert.ok(run.stdout.includes("0 applied, 0 already applied"));
       const client = openClient(file);
       try {
@@ -375,12 +375,12 @@ describe("migrate-libsql CLI", () => {
       const run = await runCli([], { DATABASE_URL: `file:${file}` }, tmpdir());
       assert.equal(run.code, 0);
       assert.ok(run.stdout.includes("applied 0001_initial.sql"));
-      assert.ok(run.stdout.includes("applied 0026_pin_comment_agents.sql"));
-      assert.ok(run.stdout.includes("26 applied, 0 already applied"));
+      assert.ok(run.stdout.includes("applied 0027_assistant_threads.sql"));
+      assert.ok(run.stdout.includes("27 applied, 0 already applied"));
       const client = openClient(file);
       try {
         const history = await client.execute("SELECT name FROM d1_migrations");
-        assert.equal(history.rows.length, 26);
+        assert.equal(history.rows.length, 27);
       } finally {
         closeDatabase(client, file);
       }

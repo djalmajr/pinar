@@ -55,6 +55,8 @@ import {
   ProjectActionsMenu,
   ProjectSwitcher,
 } from "@/components/HistorySidebar";
+import { AssistantPanelProvider } from "@/components/assistant/assistant-panel-state";
+import { AssistantToggle } from "@/components/assistant/AssistantToggle";
 import { ProjectIconPicker } from "@/components/ProjectIcon";
 import { AppAccountMenu } from "@/components/AppAccountMenu";
 import { AppShell } from "@/components/AppShell";
@@ -751,6 +753,7 @@ export function WorkspaceChrome({
 
   return (
     <WorkspaceChromeContext.Provider value={contextValue}>
+      <AssistantPanelProvider>
       <DndContext
         collisionDetection={workspaceCollisionDetection}
         sensors={sensors}
@@ -761,23 +764,26 @@ export function WorkspaceChrome({
       <AppShell
         className={className ?? "font-sans"}
         projectActions={(
-          <ProjectActionsMenu
-            canMoveEarlier={selectedProjectIndex > 0}
-            canMoveLater={selectedProjectIndex >= 0 && selectedProjectIndex < projectTree.projects.length - 1}
-            selectedProject={selectedProject}
-            t={t}
-            onDelete={(target) => {
-              setContainerDeleteError(false);
-              setContainerDelete(target);
-            }}
-            onRename={({ icon, id, kind, name }) => openContainerEditor(
-              { id, kind, mode: "rename" },
-              name,
-              icon,
-            )}
-            onReorder={(direction) => void reorderProject(direction)}
-            onShare={(target) => void copyShare(target)}
-          />
+          <>
+            <AssistantToggle />
+            <ProjectActionsMenu
+              canMoveEarlier={selectedProjectIndex > 0}
+              canMoveLater={selectedProjectIndex >= 0 && selectedProjectIndex < projectTree.projects.length - 1}
+              selectedProject={selectedProject}
+              t={t}
+              onDelete={(target) => {
+                setContainerDeleteError(false);
+                setContainerDelete(target);
+              }}
+              onRename={({ icon, id, kind, name }) => openContainerEditor(
+                { id, kind, mode: "rename" },
+                name,
+                icon,
+              )}
+              onReorder={(direction) => void reorderProject(direction)}
+              onShare={(target) => void copyShare(target)}
+            />
+          </>
         )}
         projectSelector={(compact) => (
           <ProjectSwitcher
@@ -976,6 +982,7 @@ export function WorkspaceChrome({
         ) : null}
       </DragOverlay>
       </DndContext>
+      </AssistantPanelProvider>
     </WorkspaceChromeContext.Provider>
   );
 }

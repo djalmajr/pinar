@@ -57,6 +57,8 @@ import { localHealthDiscoveryBody } from "./local-api-trust";
 import { decodePngDataUrl } from "./png";
 import { SESSION_PATCH_MAX_BYTES } from "./session-patch";
 import { handleLocalAiRequest, resetLocalAiForTests } from "./ai/local-ai";
+import { assistantUnavailableResponse, handleAssistantRequest, isAssistantPath } from "./assistant/http";
+import { localAssistantDeps } from "./assistant/local-deps";
 import { localExportFileName, streamLocalExport } from "./local-export";
 import { handleLocalMcpRequest } from "./local-mcp";
 import { canonicalShotPath, isUsableSessionShotPath, removeSessionShotFile, sessionShotIdentity } from "./local-session-files";
@@ -76,18 +78,22 @@ interface HistoryBatch {
 
 interface HistoryDatabase {
   close(): void;
+  appendAssistantMessage(message: import("./assistant/store").AssistantMessage): void;
+  createAssistantThread(input: { id: string; now: string; title: string }): import("./assistant/store").AssistantThread;
   createBatch(label: string): HistoryBatch;
   createCollection(projectId: string, name: string, parentId?: string | null): Collection | null;
   createProject(name: string, icon?: ProjectIcon): Project;
   deleteBatch(id: string): boolean;
   deleteCollection(id: string): boolean;
   deletePinComment(captureId: string, pinId: string, commentId: string): PinComment;
+  deleteAssistantThread(id: string): boolean;
   deleteProject(id: string): boolean;
   deleteSession(id: string): boolean;
   finishBatch(id: string, finishedAt: string): HistoryBatch | null;
   getDefaultDestination(): CaptureDestination;
   getProjectTree(): ProjectTree;
   getSession(id: string): LocalSession | null;
+  getAssistantThread(id: string): import("./assistant/store").AssistantThread | null;
   listAgentExecutions(captureId: string): AgentExecution[];
   listPinReviews(captureId: string): import("@pinar/shared").PinReview[];
   listPinComments(captureId: string): PinComment[];
@@ -108,6 +114,8 @@ interface HistoryDatabase {
     },
   ): { changed: boolean; review: import("@pinar/shared").PinReview };
   listCollections(projectId: string): Collection[];
+  listAssistantMessages(threadId: string, input: { limit: number }): import("./assistant/store").AssistantMessage[];
+  listAssistantThreads(input: { limit: number; offset: number }): import("./assistant/store").AssistantThread[];
   listBatches(): HistoryBatch[];
   listProjects(): Project[];
   listSessions(options: {
@@ -165,7 +173,7 @@ function includeViewerContentForRequest(request: Request, preferences: { copyVie
   return preferences.includeViewer && include;
 }
 
-function historyDatabase(): HistoryDatabase {
+export function historyDatabase(): HistoryDatabase {
   const root = rootPath();
   if (!activeDatabase || activeRoot !== root) {
     activeDatabase?.close();
@@ -695,6 +703,18 @@ async function routeLocalApi(request: Request): Promise<Response> {
   const { method } = request;
   const path = url.pathname;
   if (path === "/api/mcp") return handleLocalMcpRequest(request, historyDatabase());
+  if (isAssistantPath(path)) {
+    // Building the deps opens the history database; a failure there gets the
+    // same sanitized answer as a failure inside the routes.
+    let deps: ReturnType<typeof localAssistantDeps>;
+    try {
+      deps = localAssistantDeps(request);
+    } catch {
+      return assistantUnavailableResponse();
+    }
+    const assistantResponse = await handleAssistantRequest(request, deps);
+    if (assistantResponse) return assistantResponse;
+  }
   const isLocalAiRoute = path.startsWith("/api/ai/");
   if (isLocalAiRoute) {
     const aiResponse = await handleLocalAiRequest(request, rootPath(), historyDatabase());

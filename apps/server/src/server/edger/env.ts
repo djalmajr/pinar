@@ -10,6 +10,7 @@ const CLOUDFLARE_ACCOUNT_ID = /^[0-9a-f]{32}$/;
 // The CloudEnv string fields read from a variable of the same name.
 const STRING_FIELDS = [
   "ADMIN_API_KEY",
+  "ASSISTANT_ENABLED",
   "AUTH_PEPPER",
   "CLOUD_TRIAL_ENABLED",
   "COMPLIMENTARY_PRO_USER_IDS",
@@ -135,6 +136,11 @@ export function edgerCloudEnv(read: (name: string) => string | undefined): Cloud
       chatModel: ai.AI_MODEL,
       transcriptionModel: ai.AI_TRANSCRIPTION_MODEL,
     }) as unknown as Ai;
+    // The assistant reads the raw strings (its own endpoint), independent
+    // of the metered AI binding.
+    env.AI_BASE_URL = ai.AI_BASE_URL;
+    env.AI_API_KEY = ai.AI_API_KEY;
+    env.AI_MODEL = ai.AI_MODEL;
   }
 
   return env;

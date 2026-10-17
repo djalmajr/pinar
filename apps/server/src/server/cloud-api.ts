@@ -90,7 +90,7 @@ import {
 import { SESSION_PATCH_MAX_BYTES } from "./session-patch";
 import { cloudTrialAccess, newCloudTrialWindow, type CloudTrialAccess } from "../lib/cloud-trial";
 import { type PricingConfig, pricingForCountry } from "../lib/pricing";
-import { FREE_CLOUD_RETENTION_DAYS, laterExpiry, paidRetentionExpiresAt } from "../lib/retention";
+import { ASSISTANT_RETENTION_DAYS, FREE_CLOUD_RETENTION_DAYS, laterExpiry, paidRetentionExpiresAt } from "../lib/retention";
 import { formatBatchMarkdown, formatCollectionMarkdown, formatProjectMarkdown, formatSessionHandoffMarkdown, formatSessionMarkdown, type ViewerContent } from "./markdown";
 import { installerResponse } from "./installers";
 import { decodePngDataUrl } from "./png";
@@ -111,6 +111,13 @@ import {
   McpToolError,
   type McpProtocolHandlers,
 } from "./mcp-protocol";
+import {
+  cloudAssistantStore,
+  cleanupAssistantThreads,
+  resetCloudAssistantMemoryForTests,
+} from "./assistant/store-cloud";
+import type { AssistantStatus } from "./assistant/http";
+import type { AssistantToolHost } from "./assistant/tools";
 import {
   CLOUD_MCP_TOOLS,
   MCP_MAX_ARGUMENT_LENGTH,
@@ -159,6 +166,14 @@ interface R2Bucket {
 export interface CloudEnv {
   ADMIN_API_KEY?: string;
   AI?: Ai;
+  // Raw AI strings for the assistant appliance (the AI binding stays for the
+  // metered features): the assistant reads them directly so a deployment can
+  // point the assistant at its own endpoint.
+  AI_BASE_URL?: string;
+  AI_API_KEY?: string;
+  AI_MODEL?: string;
+  // "true" switches the assistant on; every other value (or absence) is off.
+  ASSISTANT_ENABLED?: string;
   AUTH_PEPPER?: string;
   CLOUD_TRIAL_ENABLED?: string;
   COMPLIMENTARY_PRO_USER_IDS?: string;
@@ -6944,7 +6959,9 @@ export async function cleanupOldRecords(env: CloudEnv, days = FREE_CLOUD_RETENTI
       deletedWebSessionCount += 1;
     }
   }
-  return { cutoff, deletedCount, deletedExtensionCodeCount, deletedWebSessionCount };
+  const assistantCutoff = new Date(now.getTime() - ASSISTANT_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const assistantThreads = await cleanupAssistantThreads(env, assistantCutoff);
+  return { assistantThreads, cutoff, deletedCount, deletedExtensionCodeCount, deletedWebSessionCount };
 }
 
 export async function authorizeCloudAppRequest(request: Request, env: CloudEnv) {
@@ -6955,12 +6972,23 @@ const MCP_MAX_AGGREGATE_SESSIONS = 200;
 const MCP_MAX_AGGREGATE_PINS_BYTES = 512 * 1024;
 const MCP_MAX_NAME_LENGTH = 200;
 
+// Actor of a Cloud MCP tool call: an authenticated agent key (the /api/mcp
+// endpoint) or the logged-in web user (the assistant, which runs the read
+// tools as the person themselves, never with an agent key). The user
+// behaves like an account-scoped key with read permission; writes are
+// refused while the F2 writes (proposal and confirmation) are not in.
+type CloudMcpActor = { kind: "agent_key"; key: AgentKeyRecord } | { kind: "user" };
+
 interface CloudMcpContext {
+  actor: CloudMcpActor;
   env: CloudEnv;
-  key: AgentKeyRecord;
   origin: string;
   principal: Principal;
 }
+
+// Refusal of every write tool for the web user actor (writes are the F2
+// phase, with proposal and confirmation).
+const MCP_USER_WRITE_UNAVAILABLE = "This action is not available to the assistant yet";
 
 function mcpTextArg(args: Record<string, unknown>, name: string, maxLength = MCP_MAX_ARGUMENT_LENGTH) {
   const value = args[name];
@@ -7050,16 +7078,27 @@ function mcpStringArrayArg(args: Record<string, unknown>, name: string, required
   return values;
 }
 
-function mcpCapabilityAllowed(key: AgentKeyRecord, capability: "manage" | "read" | "share") {
+function mcpCapabilityAllowed(context: CloudMcpContext, capability: "manage" | "read" | "share") {
+  if (context.actor.kind === "user") return capability === "read";
+  const key = context.actor.key;
   if (capability === "read") return key.permission === "read" || key.permission === "manage" || key.permission === "full";
   return key.permission === "full" || key.permission === capability;
 }
 
+// Every mutation records the agent key's identity (never a human), so only
+// an agent-key actor can reach the mutation code; the user actor is refused
+// in the mcpRequire* guards above and this is a backstop for the type.
+function mcpAgentKey(context: CloudMcpContext): AgentKeyRecord {
+  if (context.actor.kind !== "agent_key") throw new McpToolError(MCP_USER_WRITE_UNAVAILABLE);
+  return context.actor.key;
+}
+
 function mcpRequireMutation(context: CloudMcpContext, capability: "manage" | "share") {
-  if (!mcpCapabilityAllowed(context.key, capability)) {
+  if (context.actor.kind === "user") throw new McpToolError(MCP_USER_WRITE_UNAVAILABLE);
+  if (!mcpCapabilityAllowed(context, capability)) {
     throw new McpToolError(`${capability} permission required`);
   }
-  if (context.key.resourceType !== "account") {
+  if (context.actor.key.resourceType !== "account") {
     throw new McpToolError("Mutations require an account-scoped key");
   }
 }
@@ -7069,8 +7108,13 @@ async function mcpRequireRead(
   resourceType: Exclude<AgentKeyResourceType, "account">,
   resourceId: string,
 ) {
-  if (!mcpCapabilityAllowed(context.key, "read")) throw new McpToolError("read permission required");
-  if (!await agentKeyAllowsRead(context.env, { key: context.key, principal: context.principal }, resourceType, resourceId)) {
+  if (!mcpCapabilityAllowed(context, "read")) throw new McpToolError("read permission required");
+  // The web user actor has the account scope of the key check below: the
+  // ownership / accepted-collaborator check runs inside each tool
+  // (findAccessibleSession and friends), so the key restriction applies
+  // only to agent-key actors.
+  if (context.actor.kind === "user") return;
+  if (!await agentKeyAllowsRead(context.env, { key: context.actor.key, principal: context.principal }, resourceType, resourceId)) {
     throw new McpToolError("Resource not found");
   }
 }
@@ -7079,8 +7123,9 @@ async function mcpRequireRead(
 // scope covering the session. Unlike the workspace mutations above, scoped
 // keys may act on the one session they cover.
 async function mcpRequireSessionMutation(context: CloudMcpContext, sessionId: string) {
-  if (!mcpCapabilityAllowed(context.key, "manage")) throw new McpToolError("manage permission required");
-  if (!await agentKeyAllowsRead(context.env, { key: context.key, principal: context.principal }, "session", sessionId)) {
+  if (context.actor.kind === "user") throw new McpToolError(MCP_USER_WRITE_UNAVAILABLE);
+  if (!mcpCapabilityAllowed(context, "manage")) throw new McpToolError("manage permission required");
+  if (!await agentKeyAllowsRead(context.env, { key: context.actor.key, principal: context.principal }, "session", sessionId)) {
     throw new McpToolError("Resource not found");
   }
 }
@@ -7117,18 +7162,19 @@ function isMcpResourceType(value: string): value is ShareToken["resourceType"] {
 
 async function mcpProjectIdsForKey(context: CloudMcpContext) {
   const projects = await listProjects(context.env, context.principal);
-  if (context.key.resourceType === "account") return new Set(projects.map((project) => project.id));
-  if (context.key.resourceType === "project") return new Set([context.key.resourceId || ""]);
+  if (context.actor.kind === "user" || context.actor.key.resourceType === "account") return new Set(projects.map((project) => project.id));
+  if (context.actor.key.resourceType === "project") return new Set([context.actor.key.resourceId || ""]);
+  const key = mcpAgentKey(context);
   let projectId = "";
-  if (context.key.resourceType === "collection") {
-    projectId = (await getRawCollection(context.env, context.key.resourceId || ""))?.projectId || "";
-  } else if (context.key.resourceType === "session") {
-    const session = await getRawSession(context.env, context.key.resourceId || "");
+  if (key.resourceType === "collection") {
+    projectId = (await getRawCollection(context.env, key.resourceId || ""))?.projectId || "";
+  } else if (key.resourceType === "session") {
+    const session = await getRawSession(context.env, key.resourceId || "");
     projectId = session?.collectionId
       ? (await getRawCollection(context.env, session.collectionId))?.projectId || ""
       : "";
-  } else if (context.key.resourceType === "batch") {
-    const sessions = await listSessions(context.env, context.principal, "", "1", "", context.key.resourceId || "", "0");
+  } else if (key.resourceType === "batch") {
+    const sessions = await listSessions(context.env, context.principal, "", "1", "", key.resourceId || "", "0");
     projectId = sessions[0]?.collectionId
       ? (await getRawCollection(context.env, sessions[0].collectionId))?.projectId || ""
       : "";
@@ -7172,6 +7218,16 @@ async function mcpCollectionMarkdown(context: CloudMcpContext, collectionId: str
   const preferences = await readOwnerDeliveryPreferences(context.env, context.principal.id);
   const tree: ProjectTreeCollection = { ...collection, sessions };
   return formatCollectionMarkdown(tree, context.origin, { ...preferences, includeViewerContent: false });
+}
+
+// Session lookup of the pin tools (list_pins, get_pin, list_pin_comments).
+// The signed-in web user reads like the web app: owned sessions and the
+// ones shared with an accepted collaboration. An agent key keeps the
+// owner-only lookup it always had, so a key never reads more than before.
+function mcpPinSession(context: CloudMcpContext, sessionId: string) {
+  return context.actor.kind === "user"
+    ? findAccessibleSession(context.env, context.principal, sessionId)
+    : findOwnedSession(context.env, context.principal, sessionId);
 }
 
 async function mcpSessionFullMarkdown(context: CloudMcpContext, sessionId: string) {
@@ -7341,7 +7397,7 @@ async function mcpPinReviewTransition(
   if (!pinIdsFromPins(session.pins).has(pinId)) throw new McpToolError("Pin not found");
   try {
     const result = await applyCloudPinReview(context.env, session, pinId, action, {
-      actorId: context.key.id,
+      actorId: mcpAgentKey(context).id,
       actorType: "agent",
       origin: "agent_result",
     });
@@ -7361,13 +7417,16 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
     async callTool(name, args) {
       switch (name) {
         case "pinar.key_scope":
+          // The assistant has no agent key to describe: the tool is part of
+          // the agent-key surface only (the assistant policy excludes it).
+          if (context.actor.kind !== "agent_key") throw new McpToolError("Unknown tool");
           return {
-            permission: context.key.permission,
-            resourceId: context.key.resourceId,
-            resourceType: context.key.resourceType,
+            permission: context.actor.key.permission,
+            resourceId: context.actor.key.resourceId,
+            resourceType: context.actor.key.resourceType,
           };
         case "pinar.list_projects": {
-          if (!mcpCapabilityAllowed(context.key, "read")) throw new McpToolError("read permission required");
+          if (!mcpCapabilityAllowed(context, "read")) throw new McpToolError("read permission required");
           const projectIds = await mcpProjectIdsForKey(context);
           const limit = mcpLimitArg(args, "limit", MCP_MAX_LIST_SIZE);
           const offset = mcpOffsetArg(args);
@@ -7386,7 +7445,8 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
           const collections = await listCollections(context.env, context.principal, projectId);
           const filtered = [];
           for (const collection of collections) {
-            if (await agentKeyAllowsRead(context.env, { key: context.key, principal: context.principal }, "collection", collection.id)) {
+            if (context.actor.kind === "user"
+              || await agentKeyAllowsRead(context.env, { key: context.actor.key, principal: context.principal }, "collection", collection.id)) {
               filtered.push(collection);
             }
           }
@@ -7395,7 +7455,7 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
         case "pinar.get_collection_markdown":
           return mcpCollectionMarkdown(context, mcpResourceIdArg(args, "collectionId"));
         case "pinar.list_sessions": {
-          if (!mcpCapabilityAllowed(context.key, "read")) throw new McpToolError("read permission required");
+          if (!mcpCapabilityAllowed(context, "read")) throw new McpToolError("read permission required");
           const collectionId = mcpOptionalTextArg(args, "collectionId", MCP_MAX_ARGUMENT_LENGTH) || "";
           const batchId = mcpOptionalTextArg(args, "batchId", MCP_MAX_ARGUMENT_LENGTH) || "";
           const query = mcpOptionalTextArg(args, "query", MCP_MAX_ARGUMENT_LENGTH) || "";
@@ -7406,23 +7466,32 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
           const sessions = await mcpSessionSummaries(context, query, limit, collectionId, batchId, offset);
           const visible = [];
           for (const session of sessions) {
-            if (context.key.resourceType === "session" && session.id !== context.key.resourceId) continue;
-            if (await agentKeyAllowsRead(context.env, { key: context.key, principal: context.principal }, "session", String(session.id))) visible.push(session);
+            // The web user actor sees everything mcpSessionSummaries allows
+            // (own sessions plus accepted-collaborator collections); the
+            // key scope and scope-of-read checks apply only to agent keys.
+            if (context.actor.kind !== "user") {
+              if (context.actor.key.resourceType === "session" && session.id !== context.actor.key.resourceId) continue;
+              if (!await agentKeyAllowsRead(context.env, { key: context.actor.key, principal: context.principal }, "session", String(session.id))) continue;
+            }
+            visible.push(session);
           }
           return { limit, offset, sessions: visible };
         }
         case "pinar.get_session_markdown":
           return mcpSessionFullMarkdown(context, mcpResourceIdArg(args, "sessionId"));
         case "pinar.list_batches": {
-          if (!mcpCapabilityAllowed(context.key, "read")) throw new McpToolError("read permission required");
+          if (!mcpCapabilityAllowed(context, "read")) throw new McpToolError("read permission required");
           const limit = mcpLimitArg(args, "limit", MCP_MAX_LIST_SIZE);
           const offset = mcpOffsetArg(args);
           const batches = await listBatches(context.env, context.principal);
+          // The web user actor sees every batch of its account, like an
+          // account-scoped key; a scoped key only sees the one it covers.
+          const scoped = context.actor.kind !== "user" ? context.actor.key : null;
           return {
-            batches: context.key.resourceType === "account"
+            batches: !scoped || scoped.resourceType === "account"
               ? batches.slice(offset, offset + limit)
-              : context.key.resourceType === "batch"
-                ? batches.filter((batch) => batch.id === context.key.resourceId).slice(offset, offset + limit)
+              : scoped.resourceType === "batch"
+                ? batches.filter((batch) => batch.id === scoped.resourceId).slice(offset, offset + limit)
                 : [],
             limit,
             offset,
@@ -7517,7 +7586,9 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
           const sessionId = mcpResourceIdArg(args, "sessionId");
           const pinId = mcpPinResourceIdArg(args, "pinId");
           await mcpRequireRead(context, "session", sessionId);
-          const session = await findOwnedSession(context.env, context.principal, sessionId);
+          // Accessible (not only owned): an accepted collaborator reads the
+          // pins of the shared collection, for both actors.
+          const session = await mcpPinSession(context, sessionId);
           if (!session || !pinIdsFromPins(session.pins).has(pinId)) throw new McpToolError("Resource not found");
           const comments = (await listPinComments(context.env, sessionId)).filter((item) => item.pinId === pinId);
           return { comments, ok: true };
@@ -7536,9 +7607,10 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
             throw new McpToolError("body is invalid");
           }
           // The author is derived from the key; the caller cannot spoof it.
+          const agentKey = mcpAgentKey(context);
           const comment = await insertPinComment(context.env, session, pinId, {
-            actorId: context.key.id,
-            actorLabel: context.key.name,
+            actorId: agentKey.id,
+            actorLabel: agentKey.name,
             actorType: "agent",
           }, body);
           return { comment, ok: true };
@@ -7552,7 +7624,7 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
           if (!session) throw new McpToolError("Resource not found");
           const existing = await findPinComment(context.env, sessionId, commentId);
           if (!existing || existing.pinId !== pinId
-            || existing.actorType !== "agent" || existing.actorId !== context.key.id) {
+            || existing.actorType !== "agent" || existing.actorId !== mcpAgentKey(context).id) {
             throw new McpToolError("Resource not found");
           }
           let body: string;
@@ -7754,7 +7826,7 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
             if (Object.keys(args).some((key) => key !== "sessionId" && key !== "limit" && key !== "offset")) {
               throw new McpToolError("Unexpected argument");
             }
-            const session = await findOwnedSession(context.env, context.principal, sessionId);
+            const session = await mcpPinSession(context, sessionId);
            if (!session) throw new McpToolError("Resource not found");
            const limit = mcpLimitArg(args, "limit", MCP_MAX_LIST_SIZE);
            const offset = mcpOffsetArg(args);
@@ -7773,7 +7845,7 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
             if (Object.keys(args).some((key) => key !== "sessionId" && key !== "pinId")) {
               throw new McpToolError("Unexpected argument");
             }
-            const session = await findOwnedSession(context.env, context.principal, sessionId);
+            const session = await mcpPinSession(context, sessionId);
            const pin = session?.pins.find((item) => (item.pinId || item.id) === pinId);
            if (!session || !pin) throw new McpToolError("Resource not found");
            const reviews = await listPinReviews(context.env, sessionId);
@@ -7832,7 +7904,7 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
           if (!session) throw new McpToolError("Resource not found");
           const existing = await findPinComment(context.env, sessionId, commentId);
           if (!existing || existing.pinId !== pinId
-            || existing.actorType !== "agent" || existing.actorId !== context.key.id) {
+            || existing.actorType !== "agent" || existing.actorId !== mcpAgentKey(context).id) {
             throw new McpToolError("Resource not found");
           }
           if (!(await deletePinComment(context.env, sessionId, pinId, commentId))) {
@@ -7848,8 +7920,19 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
           throw new McpToolError("Unknown tool");
       }
     },
-    caller: { clientId: context.key.id, principalId: context.principal.id },
+    caller: { clientId: context.actor.kind === "agent_key" ? context.actor.key.id : context.principal.id, principalId: context.principal.id },
     tools: CLOUD_MCP_TOOLS,
+  };
+}
+
+// The assistant's tool host: the logged-in web user calls the Cloud MCP
+// tools as themselves (no agent key). `origin` is the app origin of the
+// assistant request, used by the markdown tools for viewer links, exactly
+// like the /api/mcp endpoint.
+export function cloudAssistantToolHost(env: CloudEnv, principal: Principal, origin: string): AssistantToolHost {
+  return {
+    callTool: (name, args) =>
+      mcpHandlers({ actor: { kind: "user" }, env, origin, principal }).callTool(name, args),
   };
 }
 
@@ -7857,11 +7940,80 @@ export async function handleCloudMcpRequest(request: Request, env: CloudEnv) {
   const context = await authenticateAgentKeyContext(request, env);
   if (!context) return json({ error: "Unauthorized" }, 401, { "Cache-Control": "no-store" });
   return handleMcpProtocolRequest(request, mcpHandlers({
+    actor: { key: context.key, kind: "agent_key" },
     env,
-    key: context.key,
     origin: new URL(request.url).origin,
     principal: context.principal,
   }));
+}
+
+// The Cloud assistant gate (decision A3): the explicit switch on, outside
+// production, and the raw AI configuration (base URL, key and model);
+// then the Pro plan. The order matters: a disabled deployment reports
+// "disabled" even for a non-Pro principal.
+function cloudAssistantStatus(env: CloudEnv, principal: Principal): AssistantStatus {
+  if (env.ASSISTANT_ENABLED !== "true" || env.DEPLOYMENT_ENV === "production"
+    || !env.AI_BASE_URL || !env.AI_API_KEY || !env.AI_MODEL) {
+    return { available: false, reason: "disabled" };
+  }
+  if (!planIncludesAi(principal.plan)) return { available: false, reason: "requires_pro" };
+  return { available: true, reason: null };
+}
+
+// /api/assistant/* for the logged-in web user (contract section 2): only an
+// account principal is admitted; the global mutation-origin check in
+// handleCloudApiRequest already guards the POST and the DELETE.
+async function cloudAssistantRoutes(request: Request, env: CloudEnv): Promise<Response> {
+  try {
+    return await cloudAssistantRoutesUnguarded(request, env);
+  } catch {
+    // Any failure before or around the assistant layer (session lookup,
+    // config, the lazy SDK import) gets the defined unavailable answer; the
+    // original error may carry internals and is not logged. Built here
+    // because the assistant module itself may be what failed to load.
+    return Response.json(
+      { code: "assistant_unavailable", error: "The assistant is unavailable" },
+      { headers: { "Cache-Control": "no-store" }, status: 503 },
+    );
+  }
+}
+
+async function cloudAssistantRoutesUnguarded(request: Request, env: CloudEnv): Promise<Response> {
+  const principal = await resolvePrincipal(request, env);
+  if (!principal || principal.kind !== "account") {
+    return json({ code: "unauthorized", error: "Unauthorized" }, 401);
+  }
+  const status = cloudAssistantStatus(env, principal);
+  // The assistant HTTP layer pulls in the AI SDK: loaded lazily so the
+  // worker's initial module graph and cold start stay free of it. (On EdgeR
+  // the SDK's @vercel/oidc dependency is replaced by a stub, see
+  // vite.config.edger.ts.)
+  const { handleAssistantRequest } = await import("./assistant/http");
+  const deps: Parameters<typeof handleAssistantRequest>[1] = {
+    endpoint: async () =>
+      env.AI_BASE_URL && env.AI_API_KEY && env.AI_MODEL
+        ? {
+            apiKey: env.AI_API_KEY,
+            baseUrl: env.AI_BASE_URL,
+            kind: "appliance",
+            model: env.AI_MODEL,
+            thinkingControl: true,
+          }
+        : null,
+    rateLimitTurn: () =>
+      withinRateLimits(env, "assistant-turn", [
+        { limit: 20, scope: `account:${principal.id}` },
+        { limit: 60, scope: `ip:${clientIp(request)}` },
+      ], 60_000),
+    status: async () => status,
+    store: cloudAssistantStore(env, principal.id),
+    surface: "cloud",
+    toolHost: cloudAssistantToolHost(env, principal, new URL(request.url).origin),
+  };
+  const response = await handleAssistantRequest(request, deps);
+  // The assistant path was matched above, so null (a different route) is
+  // unreachable; the fallback keeps the contract total.
+  return response ?? json({ code: "invalid_request", error: "Not found" }, 404);
 }
 
 export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
@@ -7923,6 +8075,7 @@ export async function handleCloudApiRequest(request: Request, env: CloudEnv) {
   if (method === "POST" && path === "/api/auth/email-codes/verify") return verifyEmailCode(request, env);
   if (method === "POST" && path === "/api/auth/logout") return logout(request, env);
   if (method === "GET" && path === "/api/account/entitlements") return accountEntitlements(request, env);
+  if (path === "/api/assistant" || path.startsWith("/api/assistant/")) return cloudAssistantRoutes(request, env);
   if (method === "POST" && path === "/api/ai/reproduction") return generateReproduction(request, env);
   if (method === "POST" && path === "/api/ai/voice-pin") return transcribeVoicePin(request, env);
   if (method === "POST" && path === "/api/stripe/checkout") return createCheckout(request, env);
@@ -8698,6 +8851,7 @@ export function resetCloudMemoryStateForTests() {
   memoryStripeEvents.clear();
   memoryStripeSubscriptionStates.clear();
   memoryWebSessions.clear();
+  resetCloudAssistantMemoryForTests();
   memoryMigrationFailure = false;
   testNow = null;
 }

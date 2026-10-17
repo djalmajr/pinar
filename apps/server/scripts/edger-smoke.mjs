@@ -27,6 +27,7 @@ const SMOKED_ENV_KEYS = [
   "AI_BASE_URL",
   "AI_MODEL",
   "AI_TRANSCRIPTION_MODEL",
+  "ASSISTANT_ENABLED",
   "AUTH_PEPPER",
   "CLOUD_TRIAL_ENABLED",
   "COMPLIMENTARY_PRO_USER_IDS",
@@ -140,6 +141,27 @@ await expect("POST", "/_internal/cron/daily", async (response) => {
 await expect("GET", "/pricing", async (response) => {
   if (response.status !== 200) return `expected 200, got ${response.status}`;
 });
+
+// Every server chunk loads under these permissions, not only the ones the
+// calls above reach: a lazily imported chunk (the assistant's AI SDK, for
+// one) that touches a denied capability at import time (os.hostname() needs
+// sys access) would otherwise fail only when its route is first hit.
+const chunks = [];
+for await (const entry of Deno.readDir(`${dir}/server/assets`)) {
+  if (entry.isFile && entry.name.endsWith(".js")) chunks.push(entry.name);
+}
+chunks.sort();
+let chunkFailures = 0;
+for (const name of chunks) {
+  try {
+    await import(pathToFileURL(`${dir}/server/assets/${name}`).href);
+  } catch (error) {
+    chunkFailures += 1;
+    console.error(`import server/assets/${name}: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`);
+  }
+}
+console.log(`import ${chunks.length} server chunks: ${chunkFailures === 0 ? "ok" : `${chunkFailures} failed`}`);
+if (chunks.length === 0 || chunkFailures > 0) failed = true;
 
 // Exit explicitly: the server module may keep handles (pools, streams) that
 // would otherwise keep the process alive after the expectations are in.

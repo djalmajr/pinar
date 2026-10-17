@@ -1117,8 +1117,43 @@ describe("cloud capture filing keeps a batch whole (A36)", () => {
     assert.deepEqual(next.filing, { collectionId: onboarding, confidence: 0, engine: "none", reason: "chosen" });
   });
 
-  test("a move made after the second capture read the batch but before it claims is followed", async () => {
-    // Mutation captured: a move that leaves the claim alone sends B back to Checkout, splitting the batch.
+  // POST /api/history as the extension sends it without a screenshot: the
+  // same id, and the batch when there is one, in `collectionId`.
+  function historySave(env: CloudEnv, cookie: string, input: { batchId?: string; collectionId: string; id: string; title: string }) {
+    return webCall(env, cookie, "/api/history", {
+      body: {
+        ...(input.batchId ? { batch: { id: input.batchId, label: "Batch", startedAt: NOW } } : {}),
+        collectionId: input.collectionId,
+        id: input.id,
+        page: { title: input.title, url: "https://example.test/new" },
+        pins: [{ comment: `${input.title} pin`, number: 1 }],
+      },
+      method: "POST",
+    });
+  }
+
+  // Every D1 batch of `env`, as the list of its statements' SQL.
+  function recordD1Batches(env: CloudEnv) {
+    const batches: string[][] = [];
+    const database = env.DB!;
+    const recorded: CloudEnv = {
+      ...env,
+      DB: {
+        batch(statements) {
+          batches.push(statements.map((statement) => (statement as unknown as { sql: string }).sql));
+          return database.batch(statements);
+        },
+        prepare(query: string) {
+          return Object.assign(database.prepare(query), { sql: query.replace(/\s+/g, " ").trim() });
+        },
+      },
+    };
+    return { batches, env: recorded };
+  }
+
+  // B reads the batch empty and is about to claim; A saves then, and
+  // `moveA` puts it in Onboarding. B must follow A there.
+  async function windowCorrectionIsFollowed(moveA: (env: CloudEnv, cookie: string) => Promise<Response>) {
     const db = migratedDatabase();
     let releaseA = () => {};
     let first: Promise<Record<string, any>> | undefined;
@@ -1166,7 +1201,8 @@ describe("cloud capture filing keeps a batch whole (A36)", () => {
         // B read the batch empty and is about to claim: A saves now, and the person moves it.
         releaseA();
         await first;
-        assert.equal((await moveTo(env, cookie, "window_a", "col_onboarding")).status, 200);
+        const response = await moveA(env, cookie);
+        assert.ok(response.status === 200 || response.status === 201, await response.clone().text());
       };
       first = shot(heldEnv, cookie, { batchId: "batch_window", id: "window_a", title: "Race A" });
       const b = await shot(heldEnv, cookie, { batchId: "batch_window", id: "window_b", title: "Race B" });
@@ -1182,6 +1218,133 @@ describe("cloud capture filing keeps a batch whole (A36)", () => {
       await first?.catch(() => null);
       db.close();
     }
+  }
+
+  test("a move made after the second capture read the batch but before it claims is followed", async () => {
+    // Mutation captured: a move that leaves the claim alone sends B back to Checkout, splitting the batch.
+    await windowCorrectionIsFollowed((env, cookie) => moveTo(env, cookie, "window_a", "col_onboarding"));
+  });
+
+  test("a re-save through POST /api/history made in that window is followed too", async () => {
+    // Mutation captured: a persistSession that leaves the claim alone sends B back to Checkout.
+    await windowCorrectionIsFollowed((env, cookie) =>
+      historySave(env, cookie, { batchId: "batch_window", collectionId: "col_onboarding", id: "window_a", title: "Race A" }));
+  });
+
+  test("re-saving a claimed batch's only session through POST /api/history in another collection moves the claim, in the upsert's own D1 batch", async () => {
+    // Mutation captured: a persistSession without the claim's UPDATE keeps Checkout.
+    const db = migratedDatabase();
+    try {
+      const { cookie, env } = await filingSetup(db);
+      appliance = fakeAppliance({ decide: decideFor("Shop / Checkout", 0.95), engine: "decisions" });
+      await shot(env, cookie, { batchId: "batch_history", id: "history_only", title: "Checkout" });
+      assert.equal(claimOf(db, "batch_history"), "col_checkout");
+
+      const recorded = recordD1Batches(env);
+      const response = await historySave(recorded.env, cookie, { batchId: "batch_history", collectionId: "col_onboarding", id: "history_only", title: "Checkout" });
+      assert.equal(response.status, 201, await response.clone().text());
+      assert.deepEqual(stored(db, "history_only"), { batch_id: "batch_history", collection_id: "col_onboarding", filed_by: null });
+      assert.equal(claimOf(db, "batch_history"), "col_onboarding");
+      // The upsert and the claim's UPDATE are the two statements of one D1 batch, in that order.
+      const upsertBatch = recorded.batches.find((sqls) => sqls.some((sql) => sql.startsWith("INSERT INTO sessions")));
+      assert.ok(upsertBatch, "the upsert runs in a D1 batch");
+      assert.equal(upsertBatch.length, 2);
+      assert.ok(upsertBatch[0]!.startsWith("INSERT INTO sessions"));
+      assert.equal(upsertBatch[1], "UPDATE batches SET filing_collection_id = ? WHERE id = ? AND user_id = ? AND filing_collection_id IS NOT NULL");
+
+      // Back to the Inbox as well: the claim is where the batch's session was written last.
+      assert.equal((await historySave(env, cookie, { batchId: "batch_history", collectionId: "col_inbox", id: "history_only", title: "Checkout" })).status, 201);
+      assert.equal(claimOf(db, "batch_history"), "col_inbox");
+    } finally {
+      db.close();
+    }
+  });
+
+  test("POST /api/history writes no claim without a batch, nor for a batch with no claim yet", async () => {
+    // Mutation captured: without "IS NOT NULL" the unclaimed batch gets a claim from the re-save.
+    const db = migratedDatabase();
+    try {
+      const { cookie, env } = await filingSetup(db);
+      appliance = fakeAppliance({ decide: decideFor("Shop / Checkout", 0.95), engine: "decisions" });
+      await shot(env, cookie, { batchId: "batch_kept", id: "kept_batch_a", title: "Checkout" });
+      const before = claims(db);
+
+      // No batch: the upsert runs alone, and no claim changes.
+      const recorded = recordD1Batches(env);
+      assert.equal((await historySave(recorded.env, cookie, { collectionId: "col_onboarding", id: "history_no_batch", title: "Loose" })).status, 201);
+      assert.equal(stored(db, "history_no_batch").collection_id, "col_onboarding");
+      assert.deepEqual(claims(db), before);
+      assert.deepEqual(recorded.batches.filter((sqls) => sqls.some((sql) => sql.startsWith("UPDATE batches"))), []);
+
+      // A batch nothing claimed (switch off): a re-save elsewhere leaves it unclaimed.
+      await writeOwnerDeliveryPreferences(env, OWNER, { autoCaptureDestination: false });
+      await shot(env, cookie, { batchId: "batch_unclaimed", collectionId: "col_checkout", id: "unclaimed_a", title: "Checkout" });
+      assert.equal(claimOf(db, "batch_unclaimed"), null);
+      assert.equal((await historySave(env, cookie, { batchId: "batch_unclaimed", collectionId: "col_onboarding", id: "unclaimed_a", title: "Checkout" })).status, 201);
+      assert.equal(stored(db, "unclaimed_a").collection_id, "col_onboarding");
+      assert.equal(claimOf(db, "batch_unclaimed"), null);
+      assert.equal(claimOf(db, "batch_kept"), "col_checkout");
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a write of a session never rewrites another owner's batch claim", async () => {
+    // Mutation captured: without the owner filter on batches, usr_other's claim follows the write.
+    const db = migratedDatabase();
+    try {
+      const { cookie, env } = await filingSetup(db);
+      db.query("INSERT INTO batches (id, user_id, label, started_at, filing_collection_id) VALUES ('batch_theirs', 'usr_other', 'Theirs', ?, 'col_other')").run(NOW);
+      const theirs = [{ filing_collection_id: "col_other", id: "batch_theirs", user_id: "usr_other" }];
+      // POST /api/history refuses the other owner's batch before any write.
+      const refused = await historySave(env, cookie, { batchId: "batch_theirs", collectionId: "col_onboarding", id: "history_foreign", title: "Theirs" });
+      assert.equal(refused.status, 409);
+      assert.deepEqual(claims(db), theirs);
+
+      // A session of the owner that names the other owner's batch: an edit
+      // writes it again with that batch id, and their claim stays.
+      insertSession(db, { batchId: "batch_theirs", collectionId: "col_checkout", createdAt: NOW, id: "forged_batch", title: "Checkout" });
+      const edited = await webCall(env, cookie, "/api/sessions/forged_batch", { body: { reproduction: null }, method: "PATCH" });
+      assert.equal(edited.status, 200, await edited.clone().text());
+      assert.deepEqual(claims(db), theirs);
+
+      // Control: the same edit of the owner's own batch session moves the owner's claim.
+      appliance = fakeAppliance({ decide: decideFor("Shop / Checkout", 0.95), engine: "decisions" });
+      await shot(env, cookie, { batchId: "batch_mine", id: "mine_batch_a", title: "Checkout" });
+      db.query("UPDATE sessions SET collection_id = 'col_onboarding' WHERE id = 'mine_batch_a'").run();
+      assert.equal((await webCall(env, cookie, "/api/sessions/mine_batch_a", { body: { reproduction: null }, method: "PATCH" })).status, 200);
+      assert.equal(claimOf(db, "batch_mine"), "col_onboarding");
+      assert.deepEqual(claims(db).filter((row) => (row as { id: string }).id === "batch_theirs"), theirs);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("without D1, a history re-save updates the in-memory claim: a capture into the emptied batch follows it", async () => {
+    // Mutation captured: a memory write that leaves the claim alone sends the next capture to Checkout.
+    const env: CloudEnv = { AI_API_KEY: "sk-ai-test", AI_BASE_URL: BASE_URL, AI_MODEL: "mock", ASSISTANT_ENABLED: "true", DEPLOYMENT_ENV: "staging" };
+    const { cookie } = await seedCloudWebSessionForTests({ email: "mem-history@example.test", id: OWNER, plan: "pro" }, env);
+    const created = async (path: string, body: unknown) => {
+      const response = await webCall(env, cookie, path, { body, method: "POST" });
+      assert.ok(response.status < 300, `${path}: ${response.status}`);
+      return (await response.json()) as Record<string, any>;
+    };
+    const shop = (await created("/api/projects", { name: "Shop" })).project.id as string;
+    const checkout = (await created(`/api/projects/${shop}/collections`, { name: "Checkout" })).collection.id as string;
+    const onboarding = (await created(`/api/projects/${shop}/collections`, { name: "Onboarding" })).collection.id as string;
+    await created(`/api/projects/${shop}/collections`, { name: "Research" });
+    await writeOwnerDeliveryPreferences(env, OWNER, { autoCaptureDestination: true });
+
+    appliance = fakeAppliance({ decide: decideFor("Shop / Checkout", 0.95), engine: "decisions" });
+    assert.equal((await shot(env, cookie, { batchId: "batch_memory_history", id: "memory_history_a", title: "Checkout" })).destination.collectionId, checkout);
+    assert.equal((await historySave(env, cookie, { batchId: "batch_memory_history", collectionId: onboarding, id: "memory_history_a", title: "Checkout" })).status, 201);
+    // The batch loses its only session; its claim remains, and is where A was written last.
+    assert.equal((await webCall(env, cookie, "/api/history/memory_history_a", { method: "DELETE" })).status, 200);
+
+    appliance = fakeAppliance({ decide: decideFor("Shop / Research", 0.95), engine: "decisions" });
+    const next = await shot(env, cookie, { batchId: "batch_memory_history", id: "memory_history_b", title: "Research" });
+    assert.equal(next.destination.collectionId, onboarding);
+    assert.deepEqual(next.filing, { collectionId: onboarding, confidence: 0, engine: "none", reason: "chosen" });
   });
 });
 

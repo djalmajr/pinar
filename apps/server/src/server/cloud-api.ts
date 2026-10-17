@@ -3676,6 +3676,9 @@ async function issueAccountDeviceSession(env: CloudEnv, account: AccountRecord, 
   return { expiresAt, session: accountAuthSession(account), token };
 }
 
+// Moves the installation's Inbox sessions to the account's Inbox without
+// touching batch claims (A36): an installation is Free, and only a Pro
+// capture with automatic filing claims a batch, so it has none to update.
 async function migrateInstallationToAccount(
   env: CloudEnv,
   account: AccountRecord,
@@ -5251,9 +5254,14 @@ async function moveSession(
 // in the move's own batch (moveSession, deleteCollectionContainer); this is
 // the in-memory equivalent.
 function claimFollowsMemoryMove(principal: Principal, session: Session, collectionId: string) {
-  const batchId = cloudSessionBatchId(session);
+  claimFollowsMemoryBatch(principal.id, cloudSessionBatchId(session), collectionId);
+}
+
+// The in-memory claim of `batchId` becomes `collectionId` when `ownerId`
+// owns the batch and a first capture already claimed it.
+function claimFollowsMemoryBatch(ownerId: string, batchId: string | null | undefined, collectionId: string) {
   const batch = batchId ? memoryBatches.get(batchId) : undefined;
-  if (batch && batch.userId === principal.id && batch.filingCollectionId) batch.filingCollectionId = collectionId;
+  if (batch && batch.userId === ownerId && batch.filingCollectionId) batch.filingCollectionId = collectionId;
 }
 
 async function reorderSessionIds(
@@ -5366,10 +5374,19 @@ async function deleteProjectContainer(env: CloudEnv, principal: Principal, id: s
 // Writes the whole row, `filedBy` included: an edit keeps the automatic-filing
 // mark because it starts from the stored session; a new capture is marked by
 // passing `filedBy: "auto"` on the session it saves.
+//
+// A36: every write of a batch session also moves the batch's claim, once a
+// first capture made one, to the session's collection: the claim is the
+// collection of the batch session written last, as the batch rule (A27)
+// reads it. In D1 the claim's UPDATE runs in the upsert's own batch, for the
+// session's owner only (`user_id`); without a batch, or without a claim, no
+// claim is written. moveSession and deleteCollectionContainer update the
+// claim on their own paths.
 export async function persistSession(env: CloudEnv, session: Session, batchId: string | null = null) {
   const capture = captureFromSession(session);
+  const claimCollectionId = batchId ? session.collectionId || "" : "";
   if (env.DB) {
-    await env.DB.prepare(
+    const upsert = env.DB.prepare(
       `INSERT INTO sessions (
          id, url, title, shot_id, shot_url, pin_count, pins_json, created_at, user_id,
          plan, is_permanent, byte_size, collection_id, position, include_screenshot, batch_id, filed_by
@@ -5399,9 +5416,20 @@ export async function persistSession(env: CloudEnv, session: Session, batchId: s
       session.includeScreenshot === false ? 0 : 1,
       batchId,
       session.filedBy === "auto" ? "auto" : null,
-    ).run();
+    );
+    if (claimCollectionId) {
+      await env.DB.batch([
+        upsert,
+        env.DB.prepare(
+          "UPDATE batches SET filing_collection_id = ? WHERE id = ? AND user_id = ? AND filing_collection_id IS NOT NULL",
+        ).bind(claimCollectionId, batchId, session.userId || ""),
+      ]);
+    } else {
+      await upsert.run();
+    }
   } else {
     memorySessions.set(session.id, withCloudBatchId(sessionFromCapture(capture, session), batchId));
+    if (claimCollectionId) claimFollowsMemoryBatch(session.userId || "", batchId, claimCollectionId);
   }
   // Title, URL, notes or pins may have changed: the pin index of the session
   // is stale for its next pass (best effort, never fails the write).
@@ -6657,8 +6685,10 @@ async function fileCloudShot(
 // capture of the same batch, which also found the batch without a session,
 // reads the claim back and follows it. The UPDATE only writes an empty
 // claim, so the first one wins; afterwards every move of a batch session
-// updates it (claimFollowsMemoryMove), so it is the batch's current one. Returns the batch's destination after the
-// claim, or null when the batch is not the owner's.
+// (moveSession, claimFollowsMemoryMove) and every write of one
+// (persistSession) updates it, so it is the batch's current one. Returns
+// the batch's destination after the claim, or null when the batch is not
+// the owner's.
 async function claimBatchDestination(
   env: CloudEnv,
   principal: Principal,

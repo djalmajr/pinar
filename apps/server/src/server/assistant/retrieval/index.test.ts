@@ -277,6 +277,33 @@ describe("indexSession", () => {
     assert.equal(data.get("s1")![0]!.docText.split("\n")[2], "Pin #1: Contrast fixed");
   });
 
+  test("reads the store's edit mark before the session and hands it to the replacement", async () => {
+    const { calls: sourceCalls, source } = fakeSource([checkoutSession()]);
+    const { calls, store } = fakeStore();
+    const order: string[] = [];
+    const replaced: unknown[] = [];
+    const marked: PinIndexStore = {
+      ...store,
+      async readMark(sessionId) {
+        order.push(`readMark:${sessionId}:${sourceCalls.session.length}`);
+        return "mark-1";
+      },
+      async replaceSession(sessionId, entries, options) {
+        replaced.push(options);
+        await store.replaceSession(sessionId, entries);
+      },
+    };
+    await indexSession(deps(source, marked, fakeFetch().fetch), "s1");
+    assert.deepEqual(order, ["readMark:s1:0"], "read before the session");
+    assert.deepEqual(replaced, [{ readMark: "mark-1" }]);
+    assert.equal(calls.replaceSession.length, 1);
+
+    // A store without marks gets no options.
+    const plain: unknown[] = [];
+    await indexSession(deps(source, { ...store, async replaceSession(sessionId, entries, options) { plain.push(options); await store.replaceSession(sessionId, entries); } }, fakeFetch().fetch), "s1");
+    assert.deepEqual(plain, [undefined]);
+  });
+
   test("a removed pin disappears from the session's entries", async () => {
     const { byId, source } = fakeSource([checkoutSession()]);
     const { calls, data, store } = fakeStore();

@@ -39,10 +39,11 @@ function copyEntry(entry: PinIndexEntry): PinIndexEntry {
   return { ...entry, vector: entry.vector === null ? null : new Uint8Array(entry.vector) };
 }
 
-/** Rejects the whole replacement before any write: an entry of another session or a vector that is not bytes. */
+/** Rejects the whole replacement before any write: an entry of another session, without a pin id, or a vector that is not bytes. */
 function checkEntries(sessionId: string, entries: PinIndexEntry[]) {
   for (const entry of entries) {
     if (entry.sessionId !== sessionId) throw new Error("pin index entry belongs to another session");
+    if (entry.pinId === DIRTY_PIN_ID) throw new Error("pin index entry has no pin id");
     if (entry.vector !== null && !(entry.vector instanceof Uint8Array)) {
       throw new Error("pin index vector must be a Uint8Array or null");
     }
@@ -100,7 +101,6 @@ const memoryDirtyMarks = new Map<string, string>();
 export function resetCloudPinIndexMemoryForTests() {
   memoryPinIndex.clear();
   memoryDirtyMarks.clear();
-  readMarks.clear();
 }
 
 /** In-memory branch of the session delete and the retention cleanup: the session is gone, so are its entries. */
@@ -109,24 +109,16 @@ export function deleteMemoryPinIndexForSession(sessionId: string) {
   memoryDirtyMarks.delete(sessionId);
 }
 
-// The dirty mark (decision A26) is one extra row of the session under this
-// pin id, which no pin has: its doc_hash holds a fresh token per mark, and
-// its updated_at the epoch. A session with the row is stale whatever the
-// times say. `entries` remembers the token it saw, and `replaceSession`
-// removes the row only while it still holds that token, so a write that
-// marks the session during an indexing keeps it stale for the next pass.
-// Entry reads never return the row.
-// (a constant written into SQL text: letters and underscores only)
-const DIRTY_PIN_ID = "__pinar_dirty_mark__";
+// The dirty mark (decision A26) is one extra row of the session under the
+// empty pin id, which no indexed pin has (the sources leave pins without
+// an id out, and checkEntries refuses one): its doc_hash holds a fresh
+// token per mark. A session with the row is stale whatever the times say.
+// indexSession reads the token (readMark) before it reads the session, and
+// replaceSession removes the row only while it still holds that token, so
+// a write that marks the session during an indexing keeps it stale for the
+// next pass. Entry reads never return the row.
+const DIRTY_PIN_ID = "";
 const DIRTY_AT = new Date(0).toISOString();
-
-// ownerId + sessionId → the dirty token `entries` saw (null: none), kept
-// until the replacement that follows it.
-const readMarks = new Map<string, string | null>();
-
-function readMarkKey(ownerId: string, sessionId: string): string {
-  return `${ownerId}\n${sessionId}`;
-}
 
 /**
  * After a write that changes what a pin document holds, marks the session
@@ -169,18 +161,21 @@ export function cloudPinIndexStore(env: { DB?: AssistantD1Database }, ownerId: s
 function cloudDbPinIndexStore(db: AssistantD1Database, ownerId: string): PinIndexStore {
   return {
     async deleteSession(sessionId) {
-      readMarks.delete(readMarkKey(ownerId, sessionId));
       await db.prepare("DELETE FROM pin_index WHERE session_id = ? AND owner_id = ?").bind(sessionId, ownerId).run();
     },
     async entries(sessionId) {
       const result = await db
-        .prepare(`SELECT ${PIN_INDEX_COLUMNS} FROM pin_index WHERE session_id = ? AND owner_id = ?`)
-        .bind(sessionId, ownerId)
+        .prepare(`SELECT ${PIN_INDEX_COLUMNS} FROM pin_index WHERE session_id = ? AND owner_id = ? AND pin_id <> ?`)
+        .bind(sessionId, ownerId, DIRTY_PIN_ID)
         .all();
-      const rows = result.results || [];
-      const mark = rows.find((row) => String(row.pin_id) === DIRTY_PIN_ID);
-      readMarks.set(readMarkKey(ownerId, sessionId), mark ? String(mark.doc_hash) : null);
-      return orderEntries(rows.filter((row) => String(row.pin_id) !== DIRTY_PIN_ID).map(entryFromRow), [sessionId]);
+      return orderEntries((result.results || []).map(entryFromRow), [sessionId]);
+    },
+    async readMark(sessionId) {
+      const row = await db
+        .prepare("SELECT doc_hash FROM pin_index WHERE session_id = ? AND owner_id = ? AND pin_id = ?")
+        .bind(sessionId, ownerId, DIRTY_PIN_ID)
+        .first();
+      return row ? String(row.doc_hash) : null;
     },
     async entriesFor(sessionIds) {
       const ids = [...new Set(sessionIds)];
@@ -188,7 +183,7 @@ function cloudDbPinIndexStore(db: AssistantD1Database, ownerId: string): PinInde
       for (const chunk of chunked(ids, D1_IN_CHUNK)) {
         const placeholders = chunk.map(() => "?").join(", ");
         const result = await db
-          .prepare(`SELECT ${PIN_INDEX_COLUMNS} FROM pin_index WHERE owner_id = ? AND session_id IN (${placeholders}) AND pin_id <> '${DIRTY_PIN_ID}'`)
+          .prepare(`SELECT ${PIN_INDEX_COLUMNS} FROM pin_index WHERE owner_id = ? AND session_id IN (${placeholders}) AND pin_id <> ''`)
           .bind(ownerId, ...chunk)
           .all();
         entries.push(...(result.results || []).map(entryFromRow));
@@ -201,15 +196,14 @@ function cloudDbPinIndexStore(db: AssistantD1Database, ownerId: string): PinInde
      * read before it refuses a session another owner already holds; between
      * that read and the batch, the primary key still refuses another
      * owner's row for the same pin, while one for a different pin of the
-     * session can still land. The dirty mark goes only when it still holds
-     * the token the preceding `entries` read; without an empty
-     * replacement, a mark that arrived since then stays.
+     * session can still land. The dirty mark goes with an empty
+     * replacement, or when it still holds the `readMark` the indexing read
+     * first; a mark that arrived since then, or any mark when no `readMark`
+     * is given, stays.
      */
-    async replaceSession(sessionId, entries) {
+    async replaceSession(sessionId, entries, options) {
       checkEntries(sessionId, entries);
-      const key = readMarkKey(ownerId, sessionId);
-      const seen = readMarks.get(key);
-      readMarks.delete(key);
+      const seen = options?.readMark;
       const foreign = await db
         .prepare("SELECT owner_id FROM pin_index WHERE session_id = ? AND owner_id <> ? LIMIT 1")
         .bind(sessionId, ownerId)
@@ -253,7 +247,7 @@ function cloudDbPinIndexStore(db: AssistantD1Database, ownerId: string): PinInde
         const placeholders = chunk.map(() => "?").join(", ");
         const result = await db
           .prepare(
-            `SELECT session_id, MIN(updated_at) AS updated_at, MAX(pin_id = '${DIRTY_PIN_ID}') AS dirty FROM pin_index WHERE owner_id = ? AND session_id IN (${placeholders}) GROUP BY session_id`,
+            `SELECT session_id, MIN(updated_at) AS updated_at, MAX(pin_id = '') AS dirty FROM pin_index WHERE owner_id = ? AND session_id IN (${placeholders}) GROUP BY session_id`,
           )
           .bind(ownerId, ...chunk)
           .all();
@@ -275,7 +269,6 @@ function ownedMemorySession(sessionId: string, ownerId: string): MemoryPinIndexS
 function cloudMemoryPinIndexStore(ownerId: string): PinIndexStore {
   return {
     async deleteSession(sessionId) {
-      readMarks.delete(readMarkKey(ownerId, sessionId));
       if (ownedMemorySession(sessionId, ownerId)) {
         memoryPinIndex.delete(sessionId);
         memoryDirtyMarks.delete(sessionId);
@@ -283,8 +276,10 @@ function cloudMemoryPinIndexStore(ownerId: string): PinIndexStore {
     },
     async entries(sessionId) {
       const session = ownedMemorySession(sessionId, ownerId);
-      readMarks.set(readMarkKey(ownerId, sessionId), session ? memoryDirtyMarks.get(sessionId) ?? null : null);
       return session ? orderEntries(session.entries.map(copyEntry), [sessionId]) : [];
+    },
+    async readMark(sessionId) {
+      return ownedMemorySession(sessionId, ownerId) ? memoryDirtyMarks.get(sessionId) ?? null : null;
     },
     async entriesFor(sessionIds) {
       const ids = [...new Set(sessionIds)];
@@ -295,7 +290,7 @@ function cloudMemoryPinIndexStore(ownerId: string): PinIndexStore {
     },
     // Checked in full, then swapped in one synchronous step, mirroring the
     // D1 batch and its primary key.
-    async replaceSession(sessionId, entries) {
+    async replaceSession(sessionId, entries, options) {
       checkEntries(sessionId, entries);
       const pinIds = new Set<string>();
       for (const entry of entries) {
@@ -304,9 +299,7 @@ function cloudMemoryPinIndexStore(ownerId: string): PinIndexStore {
       }
       const current = memoryPinIndex.get(sessionId);
       if (current && current.ownerId !== ownerId) throw new Error("pin index session belongs to another owner");
-      const key = readMarkKey(ownerId, sessionId);
-      const seen = readMarks.get(key);
-      readMarks.delete(key);
+      const seen = options?.readMark;
       if (entries.length === 0 || (typeof seen === "string" && memoryDirtyMarks.get(sessionId) === seen)) {
         memoryDirtyMarks.delete(sessionId);
       }

@@ -117,10 +117,14 @@ export function cloudOwnerPinIndexStore(env: CloudPinEnv, owners: Map<string, st
         .sort((left, right) => position.get(left.entry.sessionId)! - position.get(right.entry.sessionId)! || left.index - right.index)
         .map((item) => item.entry);
     },
-    async replaceSession(sessionId, entries) {
+    async readMark(sessionId) {
+      const ownerId = owners.get(sessionId);
+      return ownerId === undefined ? null : (storeOf(ownerId).readMark?.(sessionId) ?? null);
+    },
+    async replaceSession(sessionId, entries, options) {
       const ownerId = owners.get(sessionId);
       if (ownerId === undefined) throw new Error("pin index session has no known owner");
-      await storeOf(ownerId).replaceSession(sessionId, entries);
+      await storeOf(ownerId).replaceSession(sessionId, entries, options);
     },
     async staleSessions(input) {
       if (!(input.limit > 0)) return [];

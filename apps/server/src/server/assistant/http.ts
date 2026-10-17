@@ -41,6 +41,7 @@ import {
   undoProposal,
   type AssistantProposalRecord,
 } from "./proposals";
+import type { PinSearchService } from "./retrieval/index";
 import type { AssistantStateReader } from "./state-reader";
 import {
   ASSISTANT_THREAD_ID_PATTERN,
@@ -78,6 +79,8 @@ export interface AssistantRequestDeps {
   // test substitute for the real language model
   model?: (endpoint: AssistantEndpoint, context: { conversationId: string; requestId: string }) => LanguageModel;
   now?: () => Date;
+  // the runtime's pin search; without it pinar_pins_search is not offered
+  pinSearch?: PinSearchService;
   // false → 429 assistant_rate_limited
   rateLimitTurn?: () => Promise<boolean>;
   // state reads for preparing, confirming and undoing proposals
@@ -489,6 +492,7 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
           emit,
           host: deps.toolHost,
           kinds: TURN_TOOL_KINDS,
+          ...(deps.pinSearch ? { pinSearch: deps.pinSearch } : {}),
           proposals: proposalSink(emit),
           surface: deps.surface,
         }),

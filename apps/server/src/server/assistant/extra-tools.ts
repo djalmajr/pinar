@@ -1,11 +1,13 @@
 // Tools only the assistant has, in the McpToolDefinition shape but outside
 // the MCP catalog (the MCP lists do not change). buildAssistantToolSet adds
-// them under their LLM names, pinar_move_sessions and pinar_ask. Behavior
-// rules live in the system prompt, not in these descriptions.
+// them under their LLM names, pinar_move_sessions, pinar_ask and
+// pinar_pins_search. Behavior rules live in the system prompt, not in these
+// descriptions.
 //
-// validateArgs covers types, maxLength, item bounds and undeclared
-// properties; assistantExtraToolProblems adds the two constraints it does
-// not read (minLength and unique items).
+// validateArgs covers types, maxLength, minimum/maximum, item bounds and
+// undeclared properties; assistantExtraToolProblems adds the constraints it
+// does not read (minLength, unique items and a query that is empty once
+// trimmed).
 
 import type { McpToolDefinition } from "../mcp-protocol";
 import { ASSISTANT_BULK_MAX } from "./proposals";
@@ -15,6 +17,12 @@ export const ASSISTANT_ASK_QUESTION_MAX = 300;
 export const ASSISTANT_ASK_OPTIONS_MIN = 2;
 export const ASSISTANT_ASK_OPTIONS_MAX = 5;
 export const ASSISTANT_ASK_OPTION_MAX = 80;
+export const ASSISTANT_PINS_SEARCH_QUERY_MAX = 500;
+export const ASSISTANT_PINS_SEARCH_LIMIT_DEFAULT = 20;
+// Same value as PIN_SEARCH_MAX_LIMIT (retrieval/index.ts), kept here because
+// importing the retrieval modules would close an import cycle through
+// turn.ts (vision.ts reads ASSISTANT_TURN_TIMEOUT_MS at load time).
+export const ASSISTANT_PINS_SEARCH_LIMIT_MAX = 50;
 
 // Kept as standalone constants so the JSON Schema keys McpToolDefinition
 // does not declare (additionalProperties, minLength, uniqueItems) reach the
@@ -44,6 +52,16 @@ const askSchema = {
   type: "object" as const,
 };
 
+const pinsSearchSchema = {
+  additionalProperties: false,
+  properties: {
+    limit: { maximum: ASSISTANT_PINS_SEARCH_LIMIT_MAX, minimum: 1, type: "integer" },
+    query: { maxLength: ASSISTANT_PINS_SEARCH_QUERY_MAX, minLength: 1, type: "string" },
+  },
+  required: ["query"],
+  type: "object" as const,
+};
+
 export const ASSISTANT_MOVE_SESSIONS_TOOL: McpToolDefinition = {
   description: "Move several sessions to one collection.",
   inputSchema: moveSessionsSchema,
@@ -54,6 +72,12 @@ export const ASSISTANT_ASK_TOOL: McpToolDefinition = {
   description: "Ask the person one question with 2 to 5 clickable options.",
   inputSchema: askSchema,
   name: "pinar.ask",
+};
+
+export const ASSISTANT_PINS_SEARCH_TOOL: McpToolDefinition = {
+  description: "Search pins by meaning: comments, page, element and screenshot content.",
+  inputSchema: pinsSearchSchema,
+  name: "pinar.pins_search",
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -73,6 +97,9 @@ export function assistantExtraToolProblems(definition: McpToolDefinition, args: 
     (args.options as string[]).forEach((option, index) => {
       if (option.length === 0) problems.push(`options[${index}] is empty`);
     });
+  }
+  if (definition.name === ASSISTANT_PINS_SEARCH_TOOL.name) {
+    if ((args.query as string).trim().length === 0) problems.push("query is empty");
   }
   return problems;
 }

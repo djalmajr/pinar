@@ -66,6 +66,11 @@ export interface PinSearchHit {
   url: string;
 }
 
+/** A runtime's pin search: its lazy indexing, then searchPins (contract §3.1). */
+export interface PinSearchService {
+  search(input: { limit: number; query: string }): Promise<PinSearchHit[]>;
+}
+
 type Caption = { caption: string; ocr: string };
 
 // The stored document still holds the pin's "Pin #n: comment" section,

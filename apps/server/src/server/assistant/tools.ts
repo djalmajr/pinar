@@ -12,10 +12,21 @@
 // The assistant-only tools (extra-tools.ts) follow the policy order:
 // pinar_move_sessions joins whenever writes are offered, on both surfaces,
 // and pinar_ask whenever there is an emit to send its data-ask part.
+// pinar_pins_search is a read: it joins when reads are offered and the
+// runtime passed a pin search service, and its hits reach the model in the
+// same capped, escaped <dados> block as the MCP reads.
 
 import { jsonSchema, tool, type ToolSet } from "ai";
 import { McpToolError, type McpToolDefinition } from "../mcp-protocol";
-import { ASSISTANT_ASK_TOOL, ASSISTANT_MOVE_SESSIONS_TOOL, assistantAskFrom, assistantExtraToolProblems } from "./extra-tools";
+import {
+  ASSISTANT_ASK_TOOL,
+  ASSISTANT_MOVE_SESSIONS_TOOL,
+  ASSISTANT_PINS_SEARCH_LIMIT_DEFAULT,
+  ASSISTANT_PINS_SEARCH_TOOL,
+  assistantAskFrom,
+  assistantExtraToolProblems,
+} from "./extra-tools";
+import type { PinSearchHit, PinSearchService } from "./retrieval/index";
 import { assistantToolsFor, toLlmToolName, type AssistantSurface, type AssistantToolKind } from "./tool-policy";
 import type { AssistantStreamEmit } from "./turn";
 import { validateArgs, type ToolInputSchema } from "./validate";
@@ -65,6 +76,27 @@ function toolSchema(def: { inputSchema: McpToolDefinition["inputSchema"] }): Too
   return def.inputSchema as unknown as ToolInputSchema;
 }
 
+// The data block of a read result: the text escaped and capped.
+function dataResult(text: string) {
+  const { data, truncated } = escapeCapped(text, ASSISTANT_TOOL_DATA_MAX);
+  return { data: `<dados>${data}</dados>`, status: "ok" as const, truncated };
+}
+
+// One pinar_pins_search hit as the model sees it (contract §3.1): the pin
+// number as `pin`, the session title as `session`, the score with two
+// decimals and a null caption when there is none.
+function pinSearchHitData(hit: PinSearchHit) {
+  return {
+    caption: hit.caption,
+    comment: hit.comment,
+    pin: hit.number,
+    score: Math.round(hit.score * 100) / 100,
+    session: hit.sessionTitle,
+    sessionId: hit.sessionId,
+    url: hit.url,
+  };
+}
+
 // A sink failure is reported generically, like a host failure: its
 // message never reaches the model.
 async function propose(sink: AssistantProposalSink, mcpName: string, args: Record<string, unknown>) {
@@ -79,6 +111,7 @@ export function buildAssistantToolSet(input: {
   emit?: AssistantStreamEmit; // required when "ask" is offered
   host: AssistantToolHost;
   kinds: readonly AssistantToolKind[];
+  pinSearch?: PinSearchService; // pinar_pins_search, offered with "read"
   proposals?: AssistantProposalSink; // required when kinds includes "write"
   surface: AssistantSurface;
 }): ToolSet {
@@ -114,15 +147,35 @@ export function buildAssistantToolSet(input: {
         }
         try {
           const result = await input.host.callTool(def.name, args as Record<string, unknown>);
-          const text = typeof result === "string" ? result : JSON.stringify(result);
-          const { data, truncated } = escapeCapped(text, ASSISTANT_TOOL_DATA_MAX);
-          return { data: `<dados>${data}</dados>`, status: "ok", truncated };
+          return dataResult(typeof result === "string" ? result : JSON.stringify(result));
         } catch (error) {
           // McpToolError carries a message meant to be surfaced; any other
           // error is reported generically so its message never leaks.
           if (error instanceof McpToolError) {
             return { message: error.message, status: "error" };
           }
+          return { message: TOOL_FAILED_MESSAGE, status: "error" };
+        }
+      },
+    });
+  }
+  const pinSearch = input.pinSearch;
+  if (pinSearch && input.kinds.includes("read")) {
+    const def = ASSISTANT_PINS_SEARCH_TOOL;
+    tools[toLlmToolName(def.name)] = tool({
+      description: def.description,
+      inputSchema: jsonSchema(toolSchema(def)),
+      execute: async (args) => {
+        const problems = assistantExtraToolProblems(def, args);
+        if (problems.length > 0) {
+          return { problems, status: "invalid_arguments" };
+        }
+        const { limit, query } = args as { limit?: number; query: string };
+        try {
+          const hits = await pinSearch.search({ limit: limit ?? ASSISTANT_PINS_SEARCH_LIMIT_DEFAULT, query: query.trim() });
+          return dataResult(JSON.stringify({ hits: hits.map(pinSearchHitData) }));
+        } catch {
+          // The service error (endpoint, store) never reaches the model.
           return { message: TOOL_FAILED_MESSAGE, status: "error" };
         }
       },

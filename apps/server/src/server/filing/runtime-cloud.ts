@@ -7,10 +7,11 @@
 //
 // Engine: the retrieval endpoints of the deployment and their /models
 // detection (cloudRetrievalEndpoints, cached): `decisions` when the
-// appliance's AI_MODEL declares the decisions extra available for the key,
-// otherwise `similarity` with the embedding endpoint, otherwise none.
-// Through the gateway (production) it is never `decisions`, and
-// `similarity` needs AI_EMBEDDING_MODEL in the gateway catalog (A44).
+// OpenAI-compatible endpoint of AI_BASE_URL declares the decisions extra
+// available for the key (A46: in every environment), otherwise
+// `similarity` with the embedding endpoint, otherwise none. Through the
+// gateway it is never `decisions`, and `similarity` needs
+// AI_EMBEDDING_MODEL in the gateway catalog (A44).
 //
 // Data: cloud-api.ts reads the owner's collections and sessions (it knows
 // D1 and its in-memory fallback); the centroids read the owner's F3 entries

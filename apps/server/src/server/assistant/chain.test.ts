@@ -181,37 +181,35 @@ async function drainCall(model: LanguageModel): Promise<Part[]> {
 
 describe("parseAssistantChain", () => {
   test("reads hub:model links in order, trimmed", () => {
-    assert.deepEqual(parseAssistantChain(` gateway:${HAIKU} , gateway:${DEEPSEEK},gateway:${GLM}`, "production"), gatewayChain(HAIKU, DEEPSEEK, GLM));
-    assert.deepEqual(parseAssistantChain("appliance:qwen3.8-27b", "staging"), [{ hub: "appliance", model: "qwen3.8-27b" }]);
-    assert.deepEqual(parseAssistantChain(`appliance:qwen,gateway:${HAIKU}`, "development"), [
+    assert.deepEqual(parseAssistantChain(` gateway:${HAIKU} , gateway:${DEEPSEEK},gateway:${GLM}`), gatewayChain(HAIKU, DEEPSEEK, GLM));
+    assert.deepEqual(parseAssistantChain("appliance:qwen3.8-27b"), [{ hub: "appliance", model: "qwen3.8-27b" }]);
+    assert.deepEqual(parseAssistantChain(`appliance:qwen,gateway:${HAIKU}`), [
       { hub: "appliance", model: "qwen" },
       { hub: "gateway", model: HAIKU },
     ]);
-    assert.equal(parseAssistantChain("gateway:a,gateway:b,gateway:c,gateway:d", "production").length, 4);
+    assert.equal(parseAssistantChain("gateway:a,gateway:b,gateway:c,gateway:d").length, 4);
     // The model id keeps any further colon.
-    assert.deepEqual(parseAssistantChain("gateway:vendor/model:tag", "production"), [{ hub: "gateway", model: "vendor/model:tag" }]);
+    assert.deepEqual(parseAssistantChain("gateway:vendor/model:tag"), [{ hub: "gateway", model: "vendor/model:tag" }]);
   });
 
-  const invalid: Array<[string, string, string]> = [
-    ["", "development", "empty"],
-    ["   ", "development", "empty"],
-    ["gateway", "development", "malformed_link"],
-    ["gateway:", "development", "malformed_link"],
-    [":model", "development", "malformed_link"],
-    ["gateway:a b", "development", "malformed_link"],
-    ["gateway:a,", "development", "malformed_link"],
-    ["gateway:a,,gateway:b", "development", "malformed_link"],
-    ["openai:gpt-secret-model", "development", "unknown_hub"],
-    ["Gateway:a", "development", "unknown_hub"],
-    ["gateway:a,gateway:a", "development", "duplicate_link"],
-    ["gateway:a,gateway:b,gateway:c,gateway:d,gateway:e", "development", "too_many_links"],
-    ["appliance:qwen", "production", "appliance_in_production"],
-    [`gateway:${HAIKU},appliance:qwen`, "production", "appliance_in_production"],
+  const invalid: Array<[string, string]> = [
+    ["", "empty"],
+    ["   ", "empty"],
+    ["gateway", "malformed_link"],
+    ["gateway:", "malformed_link"],
+    [":model", "malformed_link"],
+    ["gateway:a b", "malformed_link"],
+    ["gateway:a,", "malformed_link"],
+    ["gateway:a,,gateway:b", "malformed_link"],
+    ["openai:gpt-secret-model", "unknown_hub"],
+    ["Gateway:a", "unknown_hub"],
+    ["gateway:a,gateway:a", "duplicate_link"],
+    ["gateway:a,gateway:b,gateway:c,gateway:d,gateway:e", "too_many_links"],
   ];
-  for (const [csv, deployment, reason] of invalid) {
-    test(`refuses ${JSON.stringify(csv)} in ${deployment} (${reason}) without quoting it`, () => {
+  for (const [csv, reason] of invalid) {
+    test(`refuses ${JSON.stringify(csv)} (${reason}) without quoting it`, () => {
       assert.throws(
-        () => parseAssistantChain(csv, deployment as "development" | "production"),
+        () => parseAssistantChain(csv),
         (error: unknown) => {
           assert.ok(error instanceof AssistantChainConfigError);
           assert.equal(error.reason, reason);
@@ -222,9 +220,9 @@ describe("parseAssistantChain", () => {
     });
   }
 
-  test("an appliance link is accepted outside production", () => {
-    assert.equal(parseAssistantChain("appliance:qwen", "staging")[0].hub, "appliance");
-    assert.equal(parseAssistantChain("appliance:qwen", "development")[0].hub, "appliance");
+  test("an appliance link parses in every environment: the provider is configuration, not the environment (A46)", () => {
+    assert.equal(parseAssistantChain("appliance:qwen")[0].hub, "appliance");
+    assert.equal(parseAssistantChain(`gateway:${HAIKU},appliance:qwen`)[1].hub, "appliance");
   });
 });
 

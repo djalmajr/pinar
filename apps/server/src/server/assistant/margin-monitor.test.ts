@@ -190,6 +190,22 @@ describe("assistantMarginMonitor", () => {
     assert.equal(report.summary.costUsdMicros, 18001);
   });
 
+  test("appliance turns (cost 0, costSource appliance) count in the revenue and never raise table_cost or owner_cost", async () => {
+    insertOwner(db, "usr_appliance");
+    insertTurn(db, { cost: 0, costSource: "appliance", ownerId: "usr_appliance" });
+    insertTurn(db, { cost: 0, costSource: "appliance", ownerId: "usr_appliance" });
+    const report = await assistantMarginMonitor(env(), NOW);
+    assert.deepEqual(report.alerts, []);
+    assert.equal(report.summary.turns, 2);
+    assert.equal(report.summary.revenueUsdMicros, 18000, "the credits of the appliance turns are revenue");
+    assert.equal(report.summary.costUsdMicros, 0);
+    assert.equal(report.summary.tableTurns, 0, "never costed by the table");
+    assert.equal(report.summary.unknownCostTurns, 0, "cost 0 is a known cost");
+    // Control: a table turn of the same owner still alerts.
+    insertTurn(db, { cost: 100, costSource: "table", ownerId: "usr_appliance" });
+    assert.deepEqual((await assistantMarginMonitor(env(), NOW)).alerts, [{ alert: "table_cost", ownerIds: ["usr_appliance"], tableTurns: 1 }]);
+  });
+
   test("an owner's revenue counts every credit of its turns, and a turn without a known cost is not a cost", async () => {
     insertOwner(db, "usr_many");
     insertTurn(db, { cost: 9000, ownerId: "usr_many" });

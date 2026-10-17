@@ -1,8 +1,10 @@
-// Read-only HTTP client for the assistant contract (sections 1 and 2 of
-// ai-assistant-f1-contract.md). No React here. Local types mirror the store
-// contract; the server routes arrive in a parallel slice, so every fetch
-// degrades to null (hidden/empty UI) instead of throwing on non-2xx answers,
-// while genuine network failures reject.
+// HTTP client for the assistant contract (sections 1 and 2 of
+// ai-assistant-f1-contract.md; proposals and asks from sections 1.2, 1.6 and
+// 3 of ai-assistant-f2-contract.md). No React here. Local types mirror the
+// store contract; the server routes arrive in a parallel slice, so every
+// read degrades to null (hidden/empty UI) instead of throwing on non-2xx
+// answers, while genuine network failures reject. The proposal actions never
+// reject: they resolve to `{ ok: false, code }`.
 import { isRecord, readResponseRecord } from "@/lib/api-data";
 import type { TextUIPart, UIMessage } from "ai";
 
@@ -24,7 +26,14 @@ export interface AssistantThread {
 export type AssistantRole = "assistant" | "user";
 export type AssistantMessageStatus = "error" | "final";
 
+/** A `pinar_ask` question: 2 to 5 options the user can pick as the next message. */
+export interface AssistantAsk {
+  options: string[];
+  question: string;
+}
+
 export interface AssistantMessage {
+  ask: AssistantAsk | null;
   createdAt: string;
   errorCode: string | null;
   id: string;
@@ -32,6 +41,84 @@ export interface AssistantMessage {
   status: AssistantMessageStatus;
   text: string;
   threadId: string;
+}
+
+export const ASSISTANT_PROPOSAL_ACTIONS = [
+  "create_project",
+  "rename_project",
+  "reorder_projects",
+  "delete_project",
+  "create_collection",
+  "rename_collection",
+  "reorder_collections",
+  "delete_collection",
+  "move_session",
+  "move_sessions",
+  "reorder_sessions",
+  "create_session",
+  "update_session",
+  "delete_session",
+  "create_batch",
+  "rename_batch",
+  "finish_batch",
+  "delete_batch",
+  "create_pin",
+  "edit_pin_note",
+  "delete_pin",
+  "conclude_pin",
+  "reopen_pin",
+  "add_pin_comment",
+  "edit_pin_comment",
+  "delete_pin_comment",
+  "publish_share",
+  "revoke_share",
+] as const;
+
+/** The MCP tool name without `pinar.`; the card text is `assistant.proposal.<action>`. */
+export type AssistantProposalAction = (typeof ASSISTANT_PROPOSAL_ACTIONS)[number];
+
+/** The `kind` param of the share actions, translated by `assistant.resource.<kind>`. */
+export const ASSISTANT_RESOURCE_TYPES = ["batch", "collection", "project", "session"] as const;
+export type AssistantResourceType = (typeof ASSISTANT_RESOURCE_TYPES)[number];
+
+export type AssistantProposalStatus =
+  | "proposed"
+  | "executing"
+  | "executed"
+  | "failed"
+  | "rejected"
+  | "expired"
+  | "undoing"
+  | "undone";
+
+export type AssistantProposalErrorCode =
+  | "proposal_stale"
+  | "proposal_failed"
+  | "proposal_unknown_outcome"
+  | "undo_stale"
+  | "undo_failed";
+
+export type AssistantProposalRisk = "reversible" | "irreversible" | "external";
+
+export interface AssistantProposalDisplay {
+  action: AssistantProposalAction;
+  params: Record<string, string | number>;
+}
+
+/** What crosses HTTP and the stream: never args, fingerprint, undo or result. */
+export interface AssistantPublicProposal {
+  createdAt: string;
+  display: AssistantProposalDisplay;
+  errorCode: AssistantProposalErrorCode | null;
+  executedAt: string | null;
+  expiresAt: string;
+  id: string;
+  messageId: string;
+  risk: AssistantProposalRisk;
+  status: AssistantProposalStatus;
+  threadId: string;
+  tool: string;
+  undoExpiresAt: string | null;
 }
 
 /**
@@ -58,8 +145,81 @@ function isAssistantThread(value: unknown): value is AssistantThread {
     && typeof value.updatedAt === "string";
 }
 
+const ASSISTANT_ASK_MIN_OPTIONS = 2;
+const ASSISTANT_ASK_MAX_OPTIONS = 5;
+
+/** `{ question, options }` with a non-empty question and 2 to 5 non-empty options. */
+export function isAssistantAsk(value: unknown): value is AssistantAsk {
+  return isRecord(value)
+    && typeof value.question === "string"
+    && value.question !== ""
+    && Array.isArray(value.options)
+    && value.options.length >= ASSISTANT_ASK_MIN_OPTIONS
+    && value.options.length <= ASSISTANT_ASK_MAX_OPTIONS
+    && value.options.every((option) => typeof option === "string" && option !== "");
+}
+
+const PROPOSAL_ACTIONS: ReadonlySet<string> = new Set(ASSISTANT_PROPOSAL_ACTIONS);
+const PROPOSAL_STATUSES: ReadonlySet<string> = new Set<AssistantProposalStatus>([
+  "proposed",
+  "executing",
+  "executed",
+  "failed",
+  "rejected",
+  "expired",
+  "undoing",
+  "undone",
+]);
+const PROPOSAL_ERROR_CODES: ReadonlySet<string> = new Set<AssistantProposalErrorCode>([
+  "proposal_stale",
+  "proposal_failed",
+  "proposal_unknown_outcome",
+  "undo_stale",
+  "undo_failed",
+]);
+const PROPOSAL_RISKS: ReadonlySet<string> = new Set<AssistantProposalRisk>([
+  "reversible",
+  "irreversible",
+  "external",
+]);
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === "string";
+}
+
+function isProposalDisplay(value: unknown): value is AssistantProposalDisplay {
+  return isRecord(value)
+    && typeof value.action === "string"
+    && PROPOSAL_ACTIONS.has(value.action)
+    && isRecord(value.params)
+    && Object.values(value.params).every((param) =>
+      typeof param === "string" || (typeof param === "number" && Number.isFinite(param)));
+}
+
+/** The public proposal shape of contract 1.2; an unknown action, status or code is invalid. */
+export function isAssistantPublicProposal(value: unknown): value is AssistantPublicProposal {
+  return isRecord(value)
+    && typeof value.createdAt === "string"
+    && isProposalDisplay(value.display)
+    && (value.errorCode === null
+      || (typeof value.errorCode === "string" && PROPOSAL_ERROR_CODES.has(value.errorCode)))
+    && isNullableString(value.executedAt)
+    && typeof value.expiresAt === "string"
+    && typeof value.id === "string"
+    && value.id !== ""
+    && typeof value.messageId === "string"
+    && typeof value.risk === "string"
+    && PROPOSAL_RISKS.has(value.risk)
+    && typeof value.status === "string"
+    && PROPOSAL_STATUSES.has(value.status)
+    && typeof value.threadId === "string"
+    && typeof value.tool === "string"
+    && isNullableString(value.undoExpiresAt);
+}
+
 function isAssistantMessage(value: unknown): value is AssistantMessage {
   return isRecord(value)
+    && (value.ask === null || isAssistantAsk(value.ask))
     && typeof value.createdAt === "string"
     && (value.errorCode === null || typeof value.errorCode === "string")
     && typeof value.id === "string"
@@ -102,16 +262,117 @@ export async function fetchAssistantThreads(): Promise<AssistantThread[] | null>
 
 export interface AssistantThreadDetail {
   messages: AssistantMessage[];
+  /** The thread's proposals, createdAt asc then id asc. */
+  proposals: AssistantPublicProposal[];
   thread: AssistantThread;
 }
 
-/** `GET /api/assistant/threads/:id`. null on 404 or an invalid body. */
+/**
+ * `GET /api/assistant/threads/:id`. null on 404 or an invalid body: one
+ * malformed message or proposal rejects the whole answer.
+ */
 export async function fetchAssistantThread(id: string): Promise<AssistantThreadDetail | null> {
   const response = await fetch(`/api/assistant/threads/${encodeURIComponent(id)}`);
   const data = await readResponseRecord(response);
   if (!response.ok || data === null || !isAssistantThread(data.thread)) return null;
   if (!Array.isArray(data.messages) || !data.messages.every(isAssistantMessage)) return null;
-  return { messages: data.messages, thread: data.thread };
+  if (!Array.isArray(data.proposals) || !data.proposals.every(isAssistantPublicProposal)) return null;
+  return { messages: data.messages, proposals: data.proposals, thread: data.thread };
+}
+
+export type AssistantProposalActionKind = "confirm" | "reject" | "undo";
+
+/**
+ * A proposal action answer. `code` is the `code` of the JSON error body,
+ * `"network"` when the request never got an answer, or `"unknown"` for an
+ * answer without a code (or a 2xx answer whose proposal is invalid).
+ */
+export type AssistantProposalActionResult =
+  | { ok: true; proposal: AssistantPublicProposal }
+  | { code: string; ok: false };
+
+async function postAssistantProposalAction(
+  kind: AssistantProposalActionKind,
+  id: string,
+): Promise<AssistantProposalActionResult> {
+  let response: Response;
+  let data: Record<string, unknown> | null;
+  try {
+    response = await fetch(`/api/assistant/proposals/${encodeURIComponent(id)}/${kind}`, { method: "POST" });
+    data = await readResponseRecord(response);
+  } catch {
+    // No answer, or the answer broke off while its body was read.
+    return { code: "network", ok: false };
+  }
+  if (!response.ok) {
+    const code = data !== null && typeof data.code === "string" && data.code !== "" ? data.code : "unknown";
+    return { code, ok: false };
+  }
+  // The answer must be the proposal that was asked for.
+  if (data === null || !isAssistantPublicProposal(data.proposal) || data.proposal.id !== id) {
+    return { code: "unknown", ok: false };
+  }
+  return { ok: true, proposal: data.proposal };
+}
+
+/** `POST /api/assistant/proposals/:id/confirm`: 200 is `executed` or `failed` with its errorCode. */
+export function confirmAssistantProposal(id: string): Promise<AssistantProposalActionResult> {
+  return postAssistantProposalAction("confirm", id);
+}
+
+/** `POST /api/assistant/proposals/:id/reject`: 200 is `rejected`. */
+export function rejectAssistantProposal(id: string): Promise<AssistantProposalActionResult> {
+  return postAssistantProposalAction("reject", id);
+}
+
+/** `POST /api/assistant/proposals/:id/undo`: 200 is `undone`, or `executed` with `undo_failed`. */
+export function undoAssistantProposal(id: string): Promise<AssistantProposalActionResult> {
+  return postAssistantProposalAction("undo", id);
+}
+
+const PROPOSAL_ACTION_REQUESTS: Record<
+  AssistantProposalActionKind,
+  (id: string) => Promise<AssistantProposalActionResult>
+> = {
+  confirm: confirmAssistantProposal,
+  reject: rejectAssistantProposal,
+  undo: undoAssistantProposal,
+};
+
+/** The 409 codes of contract section 3: the proposal moved on, its real state is in the thread. */
+const PROPOSAL_CONFLICT_CODES: ReadonlySet<string> = new Set([
+  "proposal_expired",
+  "proposal_in_progress",
+  "proposal_not_pending",
+  "undo_stale",
+  "undo_unavailable",
+]);
+
+export interface AssistantProposalActionOutcome {
+  /** Set when the card must show a note next to the proposal state. */
+  errorKey: AssistantProposalErrorKey | null;
+  /** The most recent state of the proposal the client knows. */
+  proposal: AssistantPublicProposal;
+}
+
+/**
+ * Run one card action and settle the card state (contract section 4): the
+ * proposal of the answer replaces the card's; a 409 fetches the thread again
+ * and shows the real state of the proposal there; anything else (or a 409
+ * whose refetch fails) keeps the proposal and shows the mapped error key.
+ */
+export async function runAssistantProposalAction(
+  kind: AssistantProposalActionKind,
+  proposal: AssistantPublicProposal,
+): Promise<AssistantProposalActionOutcome> {
+  const result = await PROPOSAL_ACTION_REQUESTS[kind](proposal.id);
+  if (result.ok) return { errorKey: null, proposal: result.proposal };
+  if (PROPOSAL_CONFLICT_CODES.has(result.code)) {
+    const detail = await fetchAssistantThread(proposal.threadId).catch(() => null);
+    const current = detail?.proposals.find((item) => item.id === proposal.id);
+    if (current !== undefined) return { errorKey: null, proposal: current };
+  }
+  return { errorKey: assistantProposalErrorKey(result.code), proposal };
 }
 
 /** `DELETE /api/assistant/threads/:id`. false when the thread is gone or the answer is not `ok`. */
@@ -160,6 +421,48 @@ export function assistantErrorMessageKey(code: string | null | undefined): Assis
       return "assistant.errorTimeout";
     case "assistant_rate_limited":
       return "assistant.errorRateLimited";
+    case "assistant_requires_pro":
+      return "assistant.requiresPro";
+    case "network":
+      return "assistant.errorNetwork";
+    default:
+      return "assistant.errorFailed";
+  }
+}
+
+export type AssistantProposalErrorKey =
+  | "assistant.errorFailed"
+  | "assistant.errorNetwork"
+  | "assistant.proposalExpired"
+  | "assistant.proposalFailed"
+  | "assistant.proposalStale"
+  | "assistant.proposalUnknownOutcome"
+  | "assistant.requiresPro"
+  | "assistant.undoFailed"
+  | "assistant.undoStale";
+
+/**
+ * Proposal code → i18n key (contract sections 3 and 4.1). Covers both the
+ * `errorCode` of a stored proposal and the `code` of a proposal action
+ * answer; `"network"` uses the network note. The remaining conflict codes
+ * (`proposal_not_pending`, `proposal_in_progress`, `undo_unavailable`) are
+ * normally replaced by the refetched state; they, `proposal_not_found`,
+ * `assistant_unavailable` and unknown codes fall back to the generic note.
+ */
+export function assistantProposalErrorKey(code: string | null | undefined): AssistantProposalErrorKey {
+  switch (code) {
+    case "proposal_stale":
+      return "assistant.proposalStale";
+    case "proposal_failed":
+      return "assistant.proposalFailed";
+    case "proposal_unknown_outcome":
+      return "assistant.proposalUnknownOutcome";
+    case "undo_stale":
+      return "assistant.undoStale";
+    case "undo_failed":
+      return "assistant.undoFailed";
+    case "proposal_expired":
+      return "assistant.proposalExpired";
     case "assistant_requires_pro":
       return "assistant.requiresPro";
     case "network":
@@ -218,24 +521,59 @@ function isAssistantNetworkError(error: Error): boolean {
 /**
  * Stored messages → UI messages. A message with `status: "error"` becomes an
  * assistant message without text and with `{ errorCode }` metadata, so the
- * panel renders the translated error note and the retry action.
+ * panel renders the translated error note and the retry action. The stored
+ * `ask` and the thread proposals become the same `data-ask` and
+ * `data-proposal` parts the turn stream delivers, so a reopened conversation
+ * renders like a streamed one: each proposal goes under the message with
+ * its `messageId` (a proposal without one is not shown).
  */
 export function threadMessagesToUiMessages(
   messages: readonly AssistantMessage[],
+  proposals: readonly AssistantPublicProposal[],
 ): AssistantUIMessage[] {
   return messages.map((message) => {
+    const proposalParts: AssistantUIMessage["parts"] = message.role === "assistant"
+      ? proposals
+        .filter((proposal) => proposal.messageId === message.id)
+        .map((proposal) => ({ data: proposal, type: "data-proposal" }))
+      : [];
     if (message.status === "error") {
       return {
         id: message.id,
         metadata: { errorCode: message.errorCode ?? undefined },
-        parts: [],
+        parts: proposalParts,
         role: "assistant",
       };
     }
-    return {
-      id: message.id,
-      parts: [{ text: message.text, type: "text" }],
-      role: message.role,
-    };
+    const parts: AssistantUIMessage["parts"] = [{ text: message.text, type: "text" }];
+    if (message.role === "assistant" && message.ask !== null) {
+      parts.push({ data: message.ask, type: "data-ask" });
+    }
+    parts.push(...proposalParts);
+    return { id: message.id, parts, role: message.role };
   });
+}
+
+/**
+ * The proposals of a message, from its `data-proposal` parts: invalid data is
+ * skipped and a later part for the same id replaces the earlier one, in the
+ * order the ids first appeared.
+ */
+export function assistantMessageProposals(message: AssistantUIMessage): AssistantPublicProposal[] {
+  const byId = new Map<string, AssistantPublicProposal>();
+  for (const part of message.parts) {
+    if (part.type !== "data-proposal" || !("data" in part)) continue;
+    if (isAssistantPublicProposal(part.data)) byId.set(part.data.id, part.data);
+  }
+  return [...byId.values()];
+}
+
+/** The question of a message, from its last valid `data-ask` part. */
+export function assistantMessageAsk(message: AssistantUIMessage): AssistantAsk | null {
+  let ask: AssistantAsk | null = null;
+  for (const part of message.parts) {
+    if (part.type !== "data-ask" || !("data" in part)) continue;
+    if (isAssistantAsk(part.data)) ask = part.data;
+  }
+  return ask;
 }

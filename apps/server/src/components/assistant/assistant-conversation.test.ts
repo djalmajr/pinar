@@ -8,6 +8,9 @@ import { describe, expect, test } from "bun:test";
 import {
   assistantErrorFromChatError,
   assistantErrorMessageKey,
+  assistantMessageAsk,
+  assistantMessageProposals,
+  type AssistantPublicProposal,
   type AssistantThreadDetail,
 } from "./assistant-client";
 import {
@@ -187,6 +190,7 @@ describe("switching conversations isolates the in-flight stream (real SDK Chat)"
     const detailB: AssistantThreadDetail = {
       messages: [
         {
+          ask: null,
           createdAt: "2026-10-01T00:00:00.000Z",
           errorCode: null,
           id: "amg_1",
@@ -196,6 +200,7 @@ describe("switching conversations isolates the in-flight stream (real SDK Chat)"
           threadId: "ath_B",
         },
         {
+          ask: null,
           createdAt: "2026-10-01T00:00:01.000Z",
           errorCode: null,
           id: "amg_2",
@@ -205,6 +210,7 @@ describe("switching conversations isolates the in-flight stream (real SDK Chat)"
           threadId: "ath_B",
         },
       ],
+      proposals: [],
       thread: {
         createdAt: "2026-10-01T00:00:00.000Z",
         id: "ath_B",
@@ -250,6 +256,7 @@ describe("switching conversations isolates the in-flight stream (real SDK Chat)"
     const detailC: AssistantThreadDetail = {
       messages: [
         {
+          ask: null,
           createdAt: "2026-10-02T00:00:00.000Z",
           errorCode: null,
           id: "amg_9",
@@ -259,6 +266,7 @@ describe("switching conversations isolates the in-flight stream (real SDK Chat)"
           threadId: "ath_C",
         },
       ],
+      proposals: [],
       thread: {
         createdAt: "2026-10-02T00:00:00.000Z",
         id: "ath_C",
@@ -444,5 +452,113 @@ describe("stopping the current conversation's stream on unmount", () => {
     a.close();
     await a.send;
     expect(a.conversation.chat.status).toBe("ready");
+  });
+});
+
+describe("proposal and ask parts through the real Chat + DefaultChatTransport", () => {
+  const streamedProposal: AssistantPublicProposal = {
+    createdAt: "2026-10-01T00:00:00.000Z",
+    display: { action: "move_sessions", params: { collection: "Design", count: 3 } },
+    errorCode: null,
+    executedAt: null,
+    expiresAt: "2026-10-01T00:10:00.000Z",
+    id: "apr_STREAMEDPROPOSALXXXXXXX",
+    messageId: "answerP",
+    risk: "reversible",
+    status: "proposed",
+    threadId: "ath_P",
+    tool: "pinar.move_sessions",
+    undoExpiresAt: null,
+  };
+
+  function conversationStreaming(chunks: Array<Record<string, unknown>>): AssistantConversation {
+    const encoder = new TextEncoder();
+    return createAssistantConversation({
+      chatId: "assistant:new:0",
+      fetch: async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              for (const chunk of chunks) {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+              }
+              controller.close();
+            },
+          }),
+          { headers: { "content-type": "text/event-stream" } },
+        ),
+      generation: 0,
+      hooks: { generation: { current: 0 }, onActiveThreadCreated: () => undefined, onThreadEntry: () => undefined },
+      messages: [],
+      threadId: null,
+    });
+  }
+
+  test("a data-proposal part stays on the assistant message of the turn", async () => {
+    const conversation = conversationStreaming([
+      { messageId: "answerP", type: "start" },
+      { data: { id: "ath_P", title: "Move" }, type: "data-thread" },
+      { id: "t", type: "text-start" },
+      { delta: "I proposed moving 3 sessions.", id: "t", type: "text-delta" },
+      { id: "t", type: "text-end" },
+      { data: streamedProposal, type: "data-proposal" },
+      { type: "finish" },
+    ]);
+    await conversation.chat.sendMessage({ text: "move them to Design" });
+    const answer = conversation.chat.messages.at(-1);
+    expect(answer?.role).toBe("assistant");
+    expect(answer?.id).toBe("answerP");
+    expect(answer?.parts.filter((part) => part.type === "data-proposal")).toEqual([
+      { data: streamedProposal, type: "data-proposal" },
+    ]);
+    expect(answer === undefined ? [] : assistantMessageProposals(answer)).toEqual([streamedProposal]);
+    expect(conversation.threadId.current).toBe("ath_P");
+  });
+
+  test("a data-ask part leaves the question and its options on the assistant message", async () => {
+    const ask = { options: ["Design", "Inbox", "Archive"], question: "Which collection?" };
+    const conversation = conversationStreaming([
+      { messageId: "answerQ", type: "start" },
+      { data: ask, type: "data-ask" },
+      { type: "finish" },
+    ]);
+    await conversation.chat.sendMessage({ text: "move it" });
+    const answer = conversation.chat.messages.at(-1);
+    expect(answer?.role).toBe("assistant");
+    expect(answer === undefined ? null : assistantMessageAsk(answer)).toEqual(ask);
+  });
+
+  test("opening a stored conversation seeds the proposals and the ask under their messages", async () => {
+    const hooks: AssistantConversationHooks = {
+      generation: { current: 0 },
+      onActiveThreadCreated: () => undefined,
+      onThreadEntry: () => undefined,
+    };
+    const ask = { options: ["Design", "Inbox"], question: "Which collection?" };
+    const stored = { ...streamedProposal, messageId: "amg_2", status: "executed" as const };
+    const store: AssistantConversationStore = {
+      current: createAssistantConversation({ chatId: "assistant:new:0", generation: 0, hooks, messages: [], threadId: null }),
+      hooks,
+      newThreadCountRef: { current: 0 },
+      requestedThreadRef: { current: null },
+    };
+    const detail: AssistantThreadDetail = {
+      messages: [
+        { ask: null, createdAt: "2026-10-01T00:00:00.000Z", errorCode: null, id: "amg_1", role: "user", status: "final", text: "move them", threadId: "ath_P" },
+        { ask: null, createdAt: "2026-10-01T00:00:01.000Z", errorCode: null, id: "amg_2", role: "assistant", status: "final", text: "Proposed.", threadId: "ath_P" },
+        { ask, createdAt: "2026-10-01T00:00:02.000Z", errorCode: null, id: "amg_3", role: "assistant", status: "final", text: "Which collection?", threadId: "ath_P" },
+      ],
+      proposals: [stored],
+      thread: { createdAt: "2026-10-01T00:00:00.000Z", id: "ath_P", title: "Move", updatedAt: "2026-10-01T00:00:02.000Z" },
+    };
+    const result = await openAssistantConversation(store, "ath_P", async () => detail);
+    expect(result.kind).toBe("switched");
+    if (result.kind !== "switched") return;
+    const [user, proposed, asked] = result.conversation.chat.messages;
+    expect(assistantMessageProposals(user)).toEqual([]);
+    expect(assistantMessageProposals(proposed)).toEqual([stored]);
+    expect(assistantMessageAsk(proposed)).toBeNull();
+    expect(assistantMessageAsk(asked)).toEqual(ask);
+    expect(assistantMessageProposals(asked)).toEqual([]);
   });
 });

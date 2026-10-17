@@ -508,6 +508,18 @@ describe("indexStale", () => {
     assert.ok(data.get("lag")!.every((entry) => entry.vector !== null));
   });
 
+  test("a session dated in the future is indexed once, not on every pass", async () => {
+    const future = session("s1", "2099-01-01T00:00:00.000Z", [{ comment: "Contrast is too low", id: "p1", number: 1 }]);
+    const { source } = fakeSource([future]);
+    const { calls, data, store } = fakeStore();
+    const fake = fakeFetch();
+    const d = deps(source, store, fake.fetch);
+    assert.deepEqual(await indexStale(d, pass), { indexed: 1, remaining: false });
+    assert.equal(data.get("s1")![0]!.updatedAt, "2099-01-01T00:00:00.000Z", "stamped no earlier than the listed session");
+    assert.deepEqual(await indexStale(d, pass), { indexed: 0, remaining: false });
+    assert.equal(calls.replaceSession.length, 1);
+  });
+
   test("never indexes a stale id outside listSessions", async () => {
     const { calls, source } = fakeSource(threeSessions(), ["a"]);
     const { data, store } = fakeStore();

@@ -12,10 +12,13 @@
 //   always line up.
 // - shot reads the canonical shot file of the session's shot identity,
 //   <shotsRoot>/<safeShotName(shotId or session id)>, never the stored
-//   shotPath. The mime type comes from the file's signature (PNG, JPEG or
-//   WebP); any other content, a missing file or a non-file is no shot.
+//   shotPath. The file is opened without following a symlink, so a link
+//   placed in the shots folder never reads an image from elsewhere. The
+//   mime type comes from the file's signature (PNG, JPEG or WebP); any
+//   other content, a missing file, a symlink or a non-file is no shot.
 
-import { readFile, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, open } from "node:fs/promises";
 import { join } from "node:path";
 import type { Pin } from "@pinar/shared";
 import { safeShotName } from "@pinar/cli/shots";
@@ -78,9 +81,10 @@ function documentPin(pin: Pin): PinDocumentInput["pin"] {
   return result;
 }
 
+// A missing file, or a symlink refused by O_NOFOLLOW (ELOOP).
 function isMissing(error: unknown): boolean {
   const code = (error as { code?: unknown } | null)?.code;
-  return code === "ENOENT" || code === "ENOTDIR";
+  return code === "ENOENT" || code === "ENOTDIR" || code === "ELOOP";
 }
 
 export function localPinSource(db: LocalPinSourceDatabase, shotsRoot: string): PinSource {
@@ -124,13 +128,22 @@ export function localPinSource(db: LocalPinSourceDatabase, shotsRoot: string): P
       const session = db.getSession(sessionId);
       if (!session) return null;
       const path = join(shotsRoot, safeShotName(sessionShotIdentity(session)));
+      let bytes: Uint8Array;
       try {
-        if (!(await stat(path)).isFile()) return null;
+        // lstat refuses a symlink where O_NOFOLLOW is missing (Windows);
+        // O_NOFOLLOW closes the gap between the check and the open.
+        if (!(await lstat(path)).isFile()) return null;
+        const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+        try {
+          if (!(await handle.stat()).isFile()) return null;
+          bytes = new Uint8Array(await handle.readFile());
+        } finally {
+          await handle.close();
+        }
       } catch (error) {
         if (isMissing(error)) return null;
         throw error;
       }
-      const bytes = new Uint8Array(await readFile(path));
       const mimeType = shotMimeType(bytes);
       return mimeType ? { bytes, mimeType } : null;
     },

@@ -18,6 +18,9 @@
 // endpoints (no vector of the current embedding model, or a null caption
 // while there is a vision endpoint), up to maxSessions. It starts no new
 // session once budgetMs has passed (a session already running finishes).
+// Entries it writes are stamped no earlier than the session's listed
+// updatedAt, so a session dated in the future (a skewed clock, a client
+// timestamp) is not stale again on every pass.
 //
 // searchPins ranks the entries of the PIN_SEARCH_MAX_SESSIONS most recent
 // accessible sessions by cosine against the embedded query, or by a text
@@ -81,7 +84,12 @@ function sameSection(docText: string, pin: PinDocumentInput["pin"]): boolean {
   return docText.split("\n")[PIN_SECTION_LINE] === pinSectionText(pin);
 }
 
-export async function indexSession(deps: PinIndexDeps, sessionId: string): Promise<{ captioned: boolean; embedded: number; pins: number }> {
+export async function indexSession(
+  deps: PinIndexDeps,
+  sessionId: string,
+  // the session's listed updatedAt: entries are stamped no earlier
+  options: { notBefore?: string } = {},
+): Promise<{ captioned: boolean; embedded: number; pins: number }> {
   const session = await deps.source.session(sessionId);
   if (!session) return { captioned: false, embedded: 0, pins: 0 };
   const { pinIds, pins } = session;
@@ -155,7 +163,9 @@ export async function indexSession(deps: PinIndexDeps, sessionId: string): Promi
     embedded = pending.length;
   }
 
-  const updatedAt = deps.now().toISOString();
+  const now = deps.now();
+  const notBefore = options.notBefore === undefined ? Number.NaN : Date.parse(options.notBefore);
+  const updatedAt = notBefore > now.getTime() ? options.notBefore! : now.toISOString();
   const entries: PinIndexEntry[] = pins.map((pin, index) => ({
     caption: captions[index]?.caption ?? null,
     docHash: docs[index]!.hash,
@@ -216,6 +226,7 @@ export async function indexStale(deps: PinIndexDeps, input: { budgetMs: number; 
   const stale = (await deps.store.staleSessions({ limit: maxSessions + 1, sessions })).filter((id) => accessible.has(id));
   // Changed sessions first, then the lagging ones, newest first.
   const pending = [...new Set([...stale, ...(await laggingSessions(deps, ids))])];
+  const listedAt = new Map(sessions.map((session) => [session.id, session.updatedAt]));
   let indexed = 0;
   let remaining = pending.length > maxSessions;
   for (const sessionId of pending.slice(0, maxSessions)) {
@@ -224,7 +235,7 @@ export async function indexStale(deps: PinIndexDeps, input: { budgetMs: number; 
       break;
     }
     try {
-      await indexSession(deps, sessionId);
+      await indexSession(deps, sessionId, { notBefore: listedAt.get(sessionId) });
       indexed += 1;
     } catch {
       // The session stays stale and is retried by the next pass.

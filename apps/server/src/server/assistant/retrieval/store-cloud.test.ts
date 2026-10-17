@@ -12,8 +12,8 @@ import {
   type CloudEnv,
 } from "../../cloud-api";
 import type { AssistantD1Database, AssistantD1Statement } from "../store-cloud";
-import { cloudPinIndexStore, resetCloudPinIndexMemoryForTests } from "./store-cloud";
-import { assertPinIndexReplaceAtomic, assertPinIndexStore, pinIndexEntry, pinIndexVector } from "./store.test-helpers";
+import { cloudPinIndexStore, markCloudPinIndexSessionStale, resetCloudPinIndexMemoryForTests } from "./store-cloud";
+import { assertPinIndexReplaceAtomic, assertPinIndexStore, INDEXED_AT, pinIndexEntry, pinIndexVector } from "./store.test-helpers";
 import type { PinIndexStore } from "./types";
 
 const NOW = "2026-10-01T12:00:00.000Z";
@@ -182,6 +182,71 @@ async function assertOwnerIsolation(ownerA: PinIndexStore, ownerB: PinIndexStore
   // Owner A is untouched.
   assert.deepEqual(await ownerA.entries("idx_owner_a"), [entryA]);
 }
+
+const EPOCH = "1970-01-01T00:00:00.000Z";
+
+/**
+ * markCloudPinIndexSessionStale stamps every entry of the session with the
+ * epoch, whoever owns it, keeps every other field (so indexSession can reuse
+ * captions and vectors), and leaves other sessions alone.
+ */
+async function assertMarkStale(env: { DB?: AssistantD1Database }) {
+  const ownerA = cloudPinIndexStore(env, "usr_a");
+  const ownerB = cloudPinIndexStore(env, "usr_b");
+  const entries = [
+    pinIndexEntry("idx_mark", "idx_m_p1", { caption: "Botão azul", model: "embeddinggemma-300m", ocr: "Comprar", vector: pinIndexVector(3) }),
+    pinIndexEntry("idx_mark", "idx_m_p2", { number: 2 }),
+  ];
+  await ownerA.replaceSession("idx_mark", entries);
+  await ownerB.replaceSession("idx_other", [pinIndexEntry("idx_other", "idx_o_p1")]);
+  const listed = [{ id: "idx_mark", updatedAt: INDEXED_AT }];
+  assert.deepEqual(await ownerA.staleSessions({ limit: 10, sessions: listed }), []);
+
+  await markCloudPinIndexSessionStale(env, "idx_mark");
+  assert.deepEqual(await ownerA.staleSessions({ limit: 10, sessions: listed }), ["idx_mark"]);
+  const marked = await ownerA.entries("idx_mark");
+  assert.deepEqual(marked, entries.map((entry) => ({ ...entry, updatedAt: EPOCH })));
+  assert.deepEqual(await ownerB.staleSessions({ limit: 10, sessions: [{ id: "idx_other", updatedAt: INDEXED_AT }] }), []);
+  assert.equal((await ownerB.entries("idx_other"))[0]!.updatedAt, INDEXED_AT);
+
+  // A session without entries: nothing to mark, nothing created.
+  await markCloudPinIndexSessionStale(env, "idx_none");
+  assert.deepEqual(await ownerA.entries("idx_none"), []);
+}
+
+describe("markCloudPinIndexSessionStale", () => {
+  beforeEach(() => resetCloudPinIndexMemoryForTests());
+
+  test("D1: stamps the session's entries with the epoch and keeps the rest", async () => {
+    const db = migratedDatabase();
+    try {
+      await assertMarkStale({ DB: sqliteD1(db) });
+    } finally {
+      db.close();
+    }
+  });
+
+  test("memory: stamps the session's entries with the epoch and keeps the rest", async () => {
+    await assertMarkStale({ DB: undefined });
+  });
+
+  test("best effort: a missing pin_index table or a failing database never throws", async () => {
+    const db = migratedDatabase();
+    try {
+      db.exec("DROP TABLE pin_index");
+      await assert.doesNotReject(markCloudPinIndexSessionStale({ DB: sqliteD1(db) }, "idx_mark"));
+    } finally {
+      db.close();
+    }
+    const failing: AssistantD1Database = {
+      batch: () => Promise.reject(new Error("batch down")),
+      prepare: () => {
+        throw new Error("database down");
+      },
+    };
+    await assert.doesNotReject(markCloudPinIndexSessionStale({ DB: failing }, "idx_mark"));
+  });
+});
 
 describe("cloudPinIndexStore over D1", () => {
   let db: Database;

@@ -98,6 +98,29 @@ export function deleteMemoryPinIndexForSession(sessionId: string) {
   memoryPinIndex.delete(sessionId);
 }
 
+// The epoch: older than any time a pin source lists.
+const PIN_INDEX_STALE_AT = new Date(0).toISOString();
+
+/**
+ * After a write that changes what a pin document holds, stamps every entry
+ * of the session (whoever owns it) with the epoch, so the session is stale
+ * for the next pass (a search or the cron) while indexSession still reuses
+ * the captions and vectors of the pins that did not change. Best effort: a
+ * failure (the pin_index table missing before migration 0029, for example)
+ * is swallowed and not logged, since the write itself already succeeded.
+ */
+export async function markCloudPinIndexSessionStale(env: { DB?: AssistantD1Database }, sessionId: string): Promise<void> {
+  try {
+    if (env.DB) {
+      await env.DB.prepare("UPDATE pin_index SET updated_at = ? WHERE session_id = ?").bind(PIN_INDEX_STALE_AT, sessionId).run();
+      return;
+    }
+    for (const entry of memoryPinIndex.get(sessionId)?.entries ?? []) entry.updatedAt = PIN_INDEX_STALE_AT;
+  } catch {
+    // Best effort: the next write marks the session again.
+  }
+}
+
 /**
  * Cloud `PinIndexStore`: every query is filtered by `owner_id`, so entries
  * of another account behave as if they did not exist, and `entriesFor`

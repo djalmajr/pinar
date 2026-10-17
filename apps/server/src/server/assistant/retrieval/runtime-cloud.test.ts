@@ -7,6 +7,7 @@ import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import {
+  cloudAssistantToolHost,
   cloudPinSearch,
   handleCloudApiRequest,
   indexPinSearch,
@@ -16,6 +17,7 @@ import {
   type CloudEnv,
   type Principal,
 } from "../../cloud-api";
+import { runtimeEnv } from "../../cloud-env";
 import { edgerCloudEnv } from "../../edger/env";
 import { resetRetrievalCapabilitiesCacheForTests } from "./detect";
 import { PIN_EMBEDDING_DIMENSIONS } from "./embeddings";
@@ -119,12 +121,6 @@ function insertCollaborator(db: Database, id: string, collectionId: string, owne
     "INSERT INTO collection_collaborators (id, collection_id, owner_id, email, user_id, status, created_at, updated_at, accepted_at, revoked_at) "
       + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   ).run(id, collectionId, ownerId, `${userId}@example.test`, userId, status, NOW, NOW, status === "accepted" ? NOW : null, status === "revoked" ? NOW : null);
-}
-
-function insertComment(db: Database, id: string, sessionId: string, pinId: string, body: string, createdAt: string) {
-  db.query(
-    "INSERT INTO pin_comments (id, capture_id, pin_id, actor_id, actor_label, actor_type, body, created_at) VALUES (?, ?, ?, 'usr_owner', 'Owner', 'human', ?, ?)",
-  ).run(id, sessionId, pinId, body, createdAt);
 }
 
 function pinIndexRows(db: Database) {
@@ -235,6 +231,53 @@ async function searchAs(env: CloudEnv, who: Principal, query: string, fetchFn: t
   const service = await cloudPinSearch(env, who, { fetch: fetchFn });
   assert.ok(service, `${who.id} has a pin search`);
   return service.search({ limit, query });
+}
+
+// An appliance whose assistant turn calls pinar_pins_search once, then
+// answers "Achei."; it records the tools offered and the tool results the
+// model got back.
+function scriptedTurnAppliance() {
+  const offered: string[][] = [];
+  const toolMessages: string[] = [];
+  const sse = (chunks: unknown[]) =>
+    new Response(`${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
+  const chunk = (delta: Record<string, unknown>, finish: string | null = null) => ({
+    choices: [{ delta, finish_reason: finish, index: 0 }], created: 1, id: "c1", model: "mock", object: "chat.completion.chunk",
+  });
+  const appliance = fakeAppliance({
+    turn: (body) => {
+      const tools = (body.tools ?? []) as Array<{ function: { name: string } }>;
+      const toolResults = (body.messages as Array<{ content: unknown; role: string }>).filter((message) => message.role === "tool");
+      if (toolResults.length === 0) {
+        offered.push(tools.map((item) => item.function.name));
+        return sse([
+          chunk({ role: "assistant", tool_calls: [{ function: { arguments: JSON.stringify({ query: "contraste do botão" }), name: "pinar_pins_search" }, id: "call_1", index: 0, type: "function" }] }),
+          chunk({}, "tool_calls"),
+        ]);
+      }
+      toolMessages.push(...toolResults.map((message) => String(message.content)));
+      return sse([chunk({ content: "Achei.", role: "assistant" }), chunk({}, "stop")]);
+    },
+  });
+  return { appliance, offered, toolMessages };
+}
+
+// One assistant turn through handleCloudApiRequest, with the global fetch
+// (the model's and the pin search's) on the fake appliance.
+async function postTurn(env: CloudEnv, cookie: string, fetchFn: typeof fetch) {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = fetchFn;
+  try {
+    const response = await handleCloudApiRequest(new Request("https://pinar.test/api/assistant/turn", {
+      body: JSON.stringify({ text: "onde falei de contraste?" }),
+      headers: { cookie, "content-type": "application/json" },
+      method: "POST",
+    }), env);
+    assert.equal(response.status, 200);
+    assert.ok((await response.text()).includes("Achei."));
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 }
 
 // The world of the isolation tests: the owner shares one collection.
@@ -404,41 +447,8 @@ describe("Cloud pin search", () => {
   test("a Pro turn offers pinar_pins_search and the model receives the hit", async () => {
     sharedWorld(db);
     const collab = await seedCloudWebSessionForTests({ email: "usr_collab@example.test", id: "usr_collab", plan: "pro" }, cloudEnv(db));
-    const offered: string[][] = [];
-    const toolMessages: string[] = [];
-    const sse = (chunks: unknown[]) =>
-      new Response(`${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
-    const chunk = (delta: Record<string, unknown>, finish: string | null = null) => ({
-      choices: [{ delta, finish_reason: finish, index: 0 }], created: 1, id: "c1", model: "mock", object: "chat.completion.chunk",
-    });
-    const appliance = fakeAppliance({
-      turn: (body) => {
-        const tools = (body.tools ?? []) as Array<{ function: { name: string } }>;
-        const toolResults = (body.messages as Array<{ content: unknown; role: string }>).filter((message) => message.role === "tool");
-        if (toolResults.length === 0) {
-          offered.push(tools.map((item) => item.function.name));
-          return sse([
-            chunk({ role: "assistant", tool_calls: [{ function: { arguments: JSON.stringify({ query: "contraste do botão" }), name: "pinar_pins_search" }, id: "call_1", index: 0, type: "function" }] }),
-            chunk({}, "tool_calls"),
-          ]);
-        }
-        toolMessages.push(...toolResults.map((message) => String(message.content)));
-        return sse([chunk({ content: "Achei.", role: "assistant" }), chunk({}, "stop")]);
-      },
-    });
-    const realFetch = globalThis.fetch;
-    globalThis.fetch = appliance.fetch;
-    try {
-      const response = await handleCloudApiRequest(new Request("https://pinar.test/api/assistant/turn", {
-        body: JSON.stringify({ text: "onde falei de contraste?" }),
-        headers: { cookie: collab.cookie, "content-type": "application/json" },
-        method: "POST",
-      }), cloudEnv(db));
-      assert.equal(response.status, 200);
-      assert.ok((await response.text()).includes("Achei."));
-    } finally {
-      globalThis.fetch = realFetch;
-    }
+    const { appliance, offered, toolMessages } = scriptedTurnAppliance();
+    await postTurn(cloudEnv(db), collab.cookie, appliance.fetch);
     assert.ok(offered[0]!.includes("pinar_pins_search"), JSON.stringify(offered));
     assert.equal(toolMessages.length, 1);
     assert.ok(toolMessages[0]!.includes("Contraste baixo no botão comprar"), toolMessages[0]);
@@ -459,21 +469,22 @@ describe("Cloud pin search", () => {
     assert.equal(hits[0]!.sessionId, "session_new");
   });
 
-  test("a new conversation comment makes the session stale again", async () => {
-    insertUser(db, "usr_pro", "pro");
-    insertCollection(db, "col_pro", "usr_pro");
-    insertSession(db, "session_one", "usr_pro", "col_pro", [{ comment: "Botão principal", number: 1, pinId: "p1" }]);
-    const appliance = fakeAppliance();
-    const env = cloudEnv(db);
-    await searchAs(env, principal("usr_pro"), "botão", appliance.fetch);
-    const embeddingsBefore = appliance.embeddings().length;
-    setCloudNowForTests("2026-10-02T12:00:00.000Z");
-    insertComment(db, "cmt_1", "session_one", "p1", "O tom de azul falha no contraste", "2026-10-02T11:00:00.000Z");
-    const hits = await searchAs(env, principal("usr_pro"), "tom de azul", appliance.fetch);
-    assert.equal(hits[0]?.sessionId, "session_one");
-    const documents = appliance.embeddings().slice(embeddingsBefore).filter((call) => call.body?.prompt_name === "document");
-    assert.equal(documents.length, 1, "the session was reindexed once");
-    assert.ok(String(documents[0]!.body!.input[0]).includes("O tom de azul falha no contraste"));
+  test("AI_EMBEDDING_MODEL reaches the turn through runtimeEnv: the turn embeds the question", async () => {
+    sharedWorld(db);
+    const collab = await seedCloudWebSessionForTests({ email: "usr_collab@example.test", id: "usr_collab", plan: "pro" }, cloudEnv(db));
+    const queries = (calls: ApplianceCall[]) =>
+      calls.filter((call) => call.path === "/embeddings" && call.body?.prompt_name === "query").map((call) => [call.body!.model, call.body!.input]);
+
+    const withModel = scriptedTurnAppliance();
+    await postTurn(runtimeEnv(cloudEnv(db)), collab.cookie, withModel.appliance.fetch);
+    assert.deepEqual(queries(withModel.appliance.calls), [["embed-model", ["contraste do botão"]]]);
+    assert.ok(withModel.toolMessages[0]!.includes("pin_shared"));
+
+    resetRetrievalCapabilitiesCacheForTests();
+    const withoutModel = scriptedTurnAppliance();
+    await postTurn(runtimeEnv(cloudEnv(db, { AI_EMBEDDING_MODEL: undefined })), collab.cookie, withoutModel.appliance.fetch);
+    assert.deepEqual(queries(withoutModel.appliance.calls), [], "without the env the turn searches by text");
+    assert.ok(withoutModel.toolMessages[0]!.includes("pin_shared"));
   });
 
   test("with 25 pending sessions one search indexes 20 and the next one the rest", async () => {
@@ -547,6 +558,169 @@ describe("Cloud pin search", () => {
   });
 });
 
+describe("Cloud pin index invalidation", () => {
+  const CREATED = "2026-09-30T00:00:00.000Z";
+  let db: Database;
+
+  beforeEach(() => {
+    resetCloudMemoryStateForTests();
+    resetRetrievalCapabilitiesCacheForTests();
+    setCloudNowForTests(NOW);
+    db = migratedDatabase();
+  });
+
+  afterEach(() => {
+    db.close();
+    resetCloudMemoryStateForTests();
+    resetRetrievalCapabilitiesCacheForTests();
+    setCloudNowForTests(null);
+  });
+
+  // One Pro session with two pins, a screenshot and a conversation comment,
+  // indexed by a first search with vision and embeddings.
+  async function indexedSession() {
+    insertUser(db, "usr_pro", "pro");
+    insertCollection(db, "col_pro", "usr_pro");
+    insertCollection(db, "col_other", "usr_pro");
+    insertSession(db, "session_one", "usr_pro", "col_pro", [
+      { comment: "Primeira nota", number: 1, pinId: "p1" },
+      { comment: "Segunda nota", number: 2, pinId: "p2" },
+    ], CREATED);
+    const env = cloudEnv(db, { PINAR_BUCKET: fakeBucket({ session_one: PNG }) });
+    const appliance = fakeAppliance({ vision: true });
+    // The assistant's write host: the MCP as the person, the path of a confirmed proposal.
+    const host = cloudAssistantToolHost(env, principal("usr_pro"), "https://pinar.test", { writes: true });
+    const web = await seedCloudWebSessionForTests({ email: "usr_pro@example.test", id: "usr_pro", plan: "pro" }, env);
+    const added = (await host.callTool("pinar.add_pin_comment", { body: "Comentário inicial", pinId: "p2", sessionId: "session_one" })) as { comment: { id: string } };
+    await searchAs(env, principal("usr_pro"), "nota", appliance.fetch);
+    assert.equal(await stale(env), false, "indexed");
+    return { appliance, commentId: added.comment.id, env, host, web };
+  }
+
+  async function stale(env: CloudEnv) {
+    const listed = [{ id: "session_one", updatedAt: CREATED }];
+    return (await cloudPinIndexStore(env, "usr_pro").staleSessions({ limit: 5, sessions: listed })).length === 1;
+  }
+
+  function documents() {
+    return Object.fromEntries(
+      (db.query("SELECT pin_id, doc_text FROM pin_index WHERE session_id = 'session_one' ORDER BY pin_id").all() as Array<{ doc_text: string; pin_id: string }>)
+        .map((row) => [row.pin_id, row.doc_text]),
+    );
+  }
+
+  async function reindex(context: Awaited<ReturnType<typeof indexedSession>>) {
+    await searchAs(context.env, principal("usr_pro"), "nota", context.appliance.fetch);
+    assert.equal(await stale(context.env), false, "the next pass indexed it");
+  }
+
+  async function web(context: Awaited<ReturnType<typeof indexedSession>>, method: string, path: string, body: unknown) {
+    const response = await handleCloudApiRequest(new Request(`https://pinar.test${path}`, {
+      body: JSON.stringify(body),
+      headers: { cookie: context.web.cookie, "content-type": "application/json" },
+      method,
+    }), context.env);
+    assert.equal(response.status, 200, `${method} ${path}: ${await response.clone().text()}`);
+    return (await response.json()) as Record<string, any>;
+  }
+
+  test("a pin note edited on the web or over MCP makes the session stale; the next pass indexes the new note", async () => {
+    const context = await indexedSession();
+    await web(context, "PATCH", "/api/sessions/session_one/pins/p1", { comment: "Nota pela rota" });
+    assert.equal(await stale(context.env), true);
+    await reindex(context);
+    assert.ok(documents().p1!.includes("Pin #1: Nota pela rota"), documents().p1);
+
+    await context.host.callTool("pinar.edit_pin_note", { comment: "Nota pelo MCP", pinId: "p1", sessionId: "session_one" });
+    assert.equal(await stale(context.env), true);
+    await reindex(context);
+    assert.ok(documents().p1!.includes("Pin #1: Nota pelo MCP"), documents().p1);
+  });
+
+  test("a new title makes the session stale; the next pass indexes it", async () => {
+    const context = await indexedSession();
+    await context.host.callTool("pinar.update_session", { page: { title: "Checkout novo" }, sessionId: "session_one" });
+    assert.equal(await stale(context.env), true);
+    await reindex(context);
+    assert.ok(documents().p1!.startsWith("Page: Checkout novo"), documents().p1);
+    assert.ok(documents().p2!.startsWith("Page: Checkout novo"), documents().p2);
+  });
+
+  test("a comment created, edited and deleted makes the session stale each time", async () => {
+    const context = await indexedSession();
+    const created = await web(context, "POST", "/api/sessions/session_one/pins/p1/comments", { body: "Comentário pela rota" });
+    assert.equal(await stale(context.env), true, "created");
+    await reindex(context);
+    assert.ok(documents().p1!.includes("Comentário pela rota"));
+
+    await web(context, "PATCH", `/api/sessions/session_one/pins/p1/comments/${created.comment.id}`, { body: "Comentário editado" });
+    assert.equal(await stale(context.env), true, "edited on the web");
+    await reindex(context);
+    assert.ok(documents().p1!.includes("Comentário editado") && !documents().p1!.includes("Comentário pela rota"));
+
+    await context.host.callTool("pinar.edit_pin_comment", { body: "Inicial editado", commentId: context.commentId, pinId: "p2", sessionId: "session_one" });
+    assert.equal(await stale(context.env), true, "edited over MCP");
+    await reindex(context);
+    assert.ok(documents().p2!.includes("Inicial editado"));
+
+    await context.host.callTool("pinar.delete_pin_comment", { commentId: context.commentId, pinId: "p2", sessionId: "session_one" });
+    assert.equal(await stale(context.env), true, "deleted");
+    await reindex(context);
+    assert.ok(!documents().p2!.includes("Inicial editado"), documents().p2);
+  });
+
+  test("a pin deleted over MCP makes the session stale; the next pass drops its entry", async () => {
+    const context = await indexedSession();
+    await context.host.callTool("pinar.delete_pin", { pinId: "p2", sessionId: "session_one" });
+    assert.equal(await stale(context.env), true);
+    await reindex(context);
+    assert.deepEqual(Object.keys(documents()), ["p1"]);
+  });
+
+  test("after a note edit only that pin is embedded again; the other keeps its vector and caption", async () => {
+    const context = await indexedSession();
+    const before = db.query("SELECT pin_id, vector, caption, doc_hash FROM pin_index WHERE session_id = 'session_one' ORDER BY pin_id").all() as Array<Record<string, unknown>>;
+    const embeddings = context.appliance.embeddings().filter((call) => call.body?.prompt_name === "document").length;
+    const visions = context.appliance.visions().length;
+    await context.host.callTool("pinar.edit_pin_note", { comment: "Nota trocada", pinId: "p1", sessionId: "session_one" });
+    await reindex(context);
+    const documentsCalls = context.appliance.embeddings().filter((call) => call.body?.prompt_name === "document").slice(embeddings);
+    assert.equal(documentsCalls.length, 1);
+    assert.equal(documentsCalls[0]!.body!.input.length, 1, "only the edited pin");
+    assert.ok(String(documentsCalls[0]!.body!.input[0]).includes("Nota trocada"));
+    assert.equal(context.appliance.visions().length - visions, 1, "one vision call: a pin comment changed");
+    const after = db.query("SELECT pin_id, vector, caption, doc_hash FROM pin_index WHERE session_id = 'session_one' ORDER BY pin_id").all() as Array<Record<string, unknown>>;
+    assert.deepEqual(after[1], before[1], "p2 keeps vector, caption and document");
+    assert.notDeepEqual(after[0]!.doc_hash, before[0]!.doc_hash);
+    assert.equal(after[0]!.caption, "legenda 1");
+  });
+
+  test("moving the session to another collection does not make it stale", async () => {
+    const context = await indexedSession();
+    await context.host.callTool("pinar.move_session", { collectionId: "col_other", sessionId: "session_one" });
+    assert.equal(await stale(context.env), false);
+    const calls = context.appliance.calls.length;
+    await searchAs(context.env, principal("usr_pro"), "nota", context.appliance.fetch);
+    assert.deepEqual(context.appliance.calls.slice(calls).map((call) => [call.path, call.body?.prompt_name ?? null]), [["/embeddings", "query"]], "only the question is embedded");
+  });
+
+  test("best effort: without the pin_index table the writes still succeed", async () => {
+    insertUser(db, "usr_pro", "pro");
+    insertCollection(db, "col_pro", "usr_pro");
+    insertSession(db, "session_one", "usr_pro", "col_pro", [{ comment: "Primeira nota", number: 1, pinId: "p1" }], CREATED);
+    db.exec("DROP TABLE pin_index");
+    const env = cloudEnv(db);
+    const host = cloudAssistantToolHost(env, principal("usr_pro"), "https://pinar.test", { writes: true });
+    await host.callTool("pinar.edit_pin_note", { comment: "Nota sem índice", pinId: "p1", sessionId: "session_one" });
+    const added = (await host.callTool("pinar.add_pin_comment", { body: "Comentário sem índice", pinId: "p1", sessionId: "session_one" })) as { comment: { id: string } };
+    await host.callTool("pinar.edit_pin_comment", { body: "Editado sem índice", commentId: added.comment.id, pinId: "p1", sessionId: "session_one" });
+    await host.callTool("pinar.delete_pin_comment", { commentId: added.comment.id, pinId: "p1", sessionId: "session_one" });
+    await host.callTool("pinar.delete_pin", { pinId: "p1", sessionId: "session_one" });
+    const row = db.query("SELECT pin_count FROM sessions WHERE id = 'session_one'").get() as { pin_count: number };
+    assert.equal(row.pin_count, 0, "every write landed");
+  });
+});
+
 describe("Cloud pin index cron", () => {
   let db: Database;
 
@@ -611,7 +785,6 @@ describe("Cloud pin index cron", () => {
       }));
       return {
         async comments() { return []; },
-        async latestCommentAt() { return new Map(); },
         async ownedSessions() { return sessions.map((session) => ({ createdAt: session.createdAt, id: session.id, ownerId })).reverse(); },
         async session(id) { clock += 25_000; return sessions.find((session) => session.id === id) ?? null; },
         async sharedSessions() { return []; },
@@ -634,7 +807,6 @@ describe("Cloud pin index cron", () => {
   test("an owner that fails does not stop the others", async () => {
     const data = (ownerId: string): CloudPinSourceData => ({
       async comments() { return []; },
-      async latestCommentAt() { return new Map(); },
       async ownedSessions() {
         if (ownerId === "usr_b") throw new Error("database unavailable for B");
         return [{ createdAt: "2026-09-01T00:00:00.000Z", id: `${ownerId}_1`, ownerId }];

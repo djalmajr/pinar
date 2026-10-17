@@ -7,9 +7,10 @@
 //   collections where the principal is an accepted collaborator (the rule
 //   of mcpSessionSummaries and findAccessibleSession). At most
 //   PIN_SEARCH_MAX_SESSIONS sessions are listed, read once per source.
-//   updatedAt is the newest of the session's createdAt and its newest
-//   conversation comment: Cloud sessions keep no update time, and without a
-//   write queue a new comment would otherwise never reach the index.
+//   updatedAt is the session's createdAt: Cloud sessions keep no update
+//   time. A write that changes a pin document (the session itself, a pin, a
+//   conversation comment) stamps the session's entries with the epoch
+//   instead (markCloudPinIndexSessionStale), which makes it stale.
 // - session(id) asks the data access again, so a session the principal can
 //   no longer see is null; comments and shot read only a session that
 //   session(id) finds now (checked once per source).
@@ -52,8 +53,6 @@ export interface CloudPinSourceData {
   session(id: string): Promise<CloudPinSourceSession | null>;
   /** Conversation comments of the session, oldest first. */
   comments(sessionId: string): Promise<Array<{ actorLabel: string; body: string; pinId: string }>>;
-  /** The newest conversation comment time of each session that has one. */
-  latestCommentAt(sessionIds: string[]): Promise<Map<string, string>>;
   /** The screenshot bytes, or null without a bucket or an object. */
   shot(sessionId: string): Promise<Uint8Array | null>;
 }
@@ -120,11 +119,7 @@ export function cloudPinSource(data: CloudPinSourceData): CloudPinSource {
         seen.add(row.id);
         return true;
       }).slice(0, PIN_SEARCH_MAX_SESSIONS);
-      const commented = await data.latestCommentAt(rows.map((row) => row.id));
-      return rows.map((row) => {
-        const comment = commented.get(row.id);
-        return { id: row.id, ownerId: row.ownerId, updatedAt: comment && comment > row.createdAt ? comment : row.createdAt };
-      });
+      return rows.map((row) => ({ id: row.id, ownerId: row.ownerId, updatedAt: row.createdAt }));
     })();
     return listed;
   }

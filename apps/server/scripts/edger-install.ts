@@ -121,6 +121,7 @@ function errorMessage(error: unknown): string {
  * name and the version in the installer's own output.
  */
 export const NON_SECRET_ENV_KEYS: ReadonlySet<string> = new Set([
+  "AI_EMBEDDING_MODEL",
   "AI_MODEL",
   "AI_TRANSCRIPTION_MODEL",
   "DEPLOYMENT_ENV",

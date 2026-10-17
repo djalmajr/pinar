@@ -7,6 +7,7 @@ export function runtimeEnv(source: CloudEnv): CloudEnv {
     AI_BASE_URL: source.AI_BASE_URL,
     AI_API_KEY: source.AI_API_KEY,
     AI_MODEL: source.AI_MODEL,
+    AI_EMBEDDING_MODEL: source.AI_EMBEDDING_MODEL,
     ASSISTANT_ENABLED: source.ASSISTANT_ENABLED,
     AUTH_PEPPER: source.AUTH_PEPPER,
     CLOUD_TRIAL_ENABLED: source.CLOUD_TRIAL_ENABLED,

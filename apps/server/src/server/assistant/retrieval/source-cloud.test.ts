@@ -16,7 +16,6 @@ function pin(number: number, comment: string, extra: Partial<Pin> = {}): Pin {
 // A fake data access that records every call.
 function fakeData(input: {
   comments?: Record<string, Array<{ actorLabel: string; body: string; pinId: string }>>;
-  latest?: Record<string, string>;
   owned?: CloudPinSessionRow[];
   sessions?: Record<string, CloudPinSourceSession | null>;
   shared?: CloudPinSessionRow[];
@@ -27,10 +26,6 @@ function fakeData(input: {
     async comments(sessionId) {
       calls.push(`comments:${sessionId}`);
       return input.comments?.[sessionId] ?? [];
-    },
-    async latestCommentAt(sessionIds) {
-      calls.push(`latest:${sessionIds.join(",")}`);
-      return new Map(Object.entries(input.latest ?? {}).filter(([id]) => sessionIds.includes(id)));
     },
     async ownedSessions(limit) {
       calls.push(`owned:${limit}`);
@@ -71,7 +66,7 @@ describe("cloudPinSource", () => {
     assert.deepEqual(await source.listSessions({ limit: 1, offset: 1 }), [{ id: "shared", updatedAt: "2026-10-02T00:00:00.000Z" }]);
     assert.deepEqual(await source.listSessions({ limit: 5, offset: 3 }), []);
     assert.deepEqual([...(await source.owners()).entries()], [["own-new", "usr_me"], ["shared", "usr_owner"], ["own-old", "usr_me"]]);
-    assert.deepEqual(calls, [`owned:${PIN_SEARCH_MAX_SESSIONS}`, `shared:${PIN_SEARCH_MAX_SESSIONS}`, "latest:own-new,shared,own-old"]);
+    assert.deepEqual(calls, [`owned:${PIN_SEARCH_MAX_SESSIONS}`, `shared:${PIN_SEARCH_MAX_SESSIONS}`]);
   });
 
   test("lists at most PIN_SEARCH_MAX_SESSIONS sessions, ties ordered by id", async () => {
@@ -86,20 +81,16 @@ describe("cloudPinSource", () => {
     assert.equal((await source.owners()).size, PIN_SEARCH_MAX_SESSIONS);
   });
 
-  test("updatedAt is the newest of createdAt and the newest conversation comment", async () => {
-    const source = cloudPinSource(fakeData({
-      latest: { commented: "2026-10-05T00:00:00.000Z", "old-comment": "2026-09-01T00:00:00.000Z" },
-      owned: [
-        row("commented", "2026-10-01T00:00:00.000Z", "usr_me"),
-        row("old-comment", "2026-10-02T00:00:00.000Z", "usr_me"),
-        row("silent", "2026-10-03T00:00:00.000Z", "usr_me"),
-      ],
-    }).data);
-    assert.deepEqual(await source.listSessions({ limit: 10, offset: 0 }), [
-      { id: "silent", updatedAt: "2026-10-03T00:00:00.000Z" },
-      { id: "old-comment", updatedAt: "2026-10-02T00:00:00.000Z" },
-      { id: "commented", updatedAt: "2026-10-05T00:00:00.000Z" },
+  test("updatedAt is the session's createdAt; the comments are not read to list", async () => {
+    const { calls, data } = fakeData({
+      comments: { one: [{ actorLabel: "Ana", body: "depois", pinId: "p1" }] },
+      owned: [row("one", "2026-10-01T00:00:00.000Z", "usr_me"), row("two", "2026-10-02T00:00:00.000Z", "usr_me")],
+    });
+    assert.deepEqual(await cloudPinSource(data).listSessions({ limit: 10, offset: 0 }), [
+      { id: "two", updatedAt: "2026-10-02T00:00:00.000Z" },
+      { id: "one", updatedAt: "2026-10-01T00:00:00.000Z" },
     ]);
+    assert.ok(!calls.some((call) => call.startsWith("comments:")));
   });
 
   test("session asks the data access again and maps the pins; null when the principal cannot see it", async () => {

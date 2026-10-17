@@ -118,6 +118,7 @@ import {
 } from "./assistant/store-cloud";
 import {
   deleteMemoryPinIndexForSession,
+  markCloudPinIndexSessionStale,
   resetCloudPinIndexMemoryForTests,
 } from "./assistant/retrieval/store-cloud";
 import type { AssistantStatus } from "./assistant/http";
@@ -2952,19 +2953,21 @@ async function deleteMcpPin(env: CloudEnv, principal: Principal, sessionId: stri
         session.batchId ?? null,
       ),
     ]);
-    return true;
-  }
-  memorySessions.set(session.id, next);
-  memoryPinReviews.delete(pinReviewKey(session.id, pinId));
-  for (let item = memoryPinReviewEvents.length - 1; item >= 0; item -= 1) {
-    const event = memoryPinReviewEvents[item];
-    if (event?.captureId === session.id && event.pinId === pinId) memoryPinReviewEvents.splice(item, 1);
-  }
-  for (let item = memoryPinComments.length - 1; item >= 0; item -= 1) {
-    if (memoryPinComments[item]?.captureId === session.id && memoryPinComments[item]?.pinId === pinId) {
-      memoryPinComments.splice(item, 1);
+  } else {
+    memorySessions.set(session.id, next);
+    memoryPinReviews.delete(pinReviewKey(session.id, pinId));
+    for (let item = memoryPinReviewEvents.length - 1; item >= 0; item -= 1) {
+      const event = memoryPinReviewEvents[item];
+      if (event?.captureId === session.id && event.pinId === pinId) memoryPinReviewEvents.splice(item, 1);
+    }
+    for (let item = memoryPinComments.length - 1; item >= 0; item -= 1) {
+      if (memoryPinComments[item]?.captureId === session.id && memoryPinComments[item]?.pinId === pinId) {
+        memoryPinComments.splice(item, 1);
+      }
     }
   }
+  // The pin and its conversation left the session: its index is stale.
+  await markCloudPinIndexSessionStale(env, session.id);
   return true;
 }
 
@@ -5347,6 +5350,9 @@ export async function persistSession(env: CloudEnv, session: Session, batchId: s
   } else {
     memorySessions.set(session.id, withCloudBatchId(sessionFromCapture(capture, session), batchId));
   }
+  // Title, URL, notes or pins may have changed: the pin index of the session
+  // is stale for its next pass (best effort, never fails the write).
+  await markCloudPinIndexSessionStale(env, session.id);
   await ensureOpenPinReviews(env, session);
 }
 
@@ -5832,9 +5838,11 @@ async function insertPinComment(
       comment.body,
       comment.createdAt,
     ).run();
-    return comment;
+  } else {
+    memoryPinComments.push(comment);
   }
-  memoryPinComments.push(comment);
+  // A conversation comment is part of the pin document.
+  await markCloudPinIndexSessionStale(env, session.id);
   return comment;
 }
 
@@ -5860,14 +5868,16 @@ async function updatePinCommentBody(
       "UPDATE pin_comments SET body = ? WHERE id = ? AND capture_id = ? AND pin_id = ?",
     ).bind(body, commentId, captureId, pinId).run();
     if (Number(result.meta?.changes ?? 0) < 1) return null;
-    return findPinComment(env, captureId, commentId);
+  } else {
+    const comment = memoryPinComments.find(
+      (item) => item.id === commentId && item.captureId === captureId && item.pinId === pinId,
+    );
+    if (!comment) return null;
+    comment.body = body;
   }
-  const comment = memoryPinComments.find(
-    (item) => item.id === commentId && item.captureId === captureId && item.pinId === pinId,
-  );
-  if (!comment) return null;
-  comment.body = body;
-  return comment;
+  // A conversation comment is part of the pin document.
+  await markCloudPinIndexSessionStale(env, captureId);
+  return findPinComment(env, captureId, commentId);
 }
 
 async function deletePinComment(
@@ -5880,13 +5890,15 @@ async function deletePinComment(
     const result = await env.DB.prepare(
       "DELETE FROM pin_comments WHERE id = ? AND capture_id = ? AND pin_id = ?",
     ).bind(commentId, captureId, pinId).run();
-    return Number(result.meta?.changes ?? 0) >= 1;
+    if (Number(result.meta?.changes ?? 0) < 1) return false;
+  } else {
+    const index = memoryPinComments.findIndex(
+      (item) => item.id === commentId && item.captureId === captureId && item.pinId === pinId,
+    );
+    if (index < 0) return false;
+    memoryPinComments.splice(index, 1);
   }
-  const index = memoryPinComments.findIndex(
-    (item) => item.id === commentId && item.captureId === captureId && item.pinId === pinId,
-  );
-  if (index < 0) return false;
-  memoryPinComments.splice(index, 1);
+  await markCloudPinIndexSessionStale(env, captureId);
   return true;
 }
 
@@ -8180,27 +8192,6 @@ function cloudPinSourceData(env: CloudEnv, principal: Principal, options: { shar
     },
     comments(sessionId) {
       return listPinComments(env, sessionId);
-    },
-    async latestCommentAt(sessionIds) {
-      const latest = new Map<string, string>();
-      if (!env.DB) {
-        const wanted = new Set(sessionIds);
-        for (const comment of memoryPinComments) {
-          if (!wanted.has(comment.captureId)) continue;
-          const current = latest.get(comment.captureId);
-          if (current === undefined || comment.createdAt > current) latest.set(comment.captureId, comment.createdAt);
-        }
-        return latest;
-      }
-      const ids = [...new Set(sessionIds)];
-      for (let start = 0; start < ids.length; start += PIN_SEARCH_IN_CHUNK) {
-        const chunk = ids.slice(start, start + PIN_SEARCH_IN_CHUNK);
-        const rows = await env.DB.prepare(
-          `SELECT capture_id, MAX(created_at) AS latest FROM pin_comments WHERE capture_id IN (${chunk.map(() => "?").join(", ")}) GROUP BY capture_id`,
-        ).bind(...chunk).all();
-        for (const row of rows.results || []) latest.set(String(row.capture_id || ""), String(row.latest || ""));
-      }
-      return latest;
     },
     async shot(sessionId) {
       if (!env.PINAR_BUCKET) return null;

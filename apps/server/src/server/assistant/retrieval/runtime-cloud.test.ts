@@ -33,6 +33,7 @@ import {
   CLOUD_PIN_SEARCH_BUDGET_MS,
   CLOUD_PIN_SEARCH_MAX_SESSIONS,
   cloudOwnerPinIndexStore,
+  cloudRetrievalEndpoints,
   createCloudPinSearch,
   runCloudPinIndexCron,
 } from "./runtime-cloud";
@@ -174,7 +175,7 @@ interface ApplianceCall {
 // bag-of-words vectors; a non-stream chat call is a vision call and gets a
 // caption per marker; a stream chat call is the assistant turn, answered
 // by `turn` when set.
-function fakeAppliance(options: { turn?: (body: Record<string, any>) => Response; vision?: boolean } = {}) {
+function fakeAppliance(options: { model?: string; turn?: (body: Record<string, any>) => Response; vision?: boolean } = {}) {
   const calls: ApplianceCall[] = [];
   const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
@@ -186,7 +187,7 @@ function fakeAppliance(options: { turn?: (body: Record<string, any>) => Response
     if (path === "/models") {
       return Response.json({
         data: [
-          { id: "mock", modalities: { input: options.vision ? ["text", "image"] : ["text"] }, type: "chat" },
+          { id: options.model ?? "mock", modalities: { input: options.vision ? ["text", "image"] : ["text"] }, type: "chat" },
           { id: "embed-model", type: "embedding" },
         ],
       });
@@ -1106,9 +1107,9 @@ interface HubCall {
 // its cost in providerMetadata, captions with usage only) and, at
 // BASE_URL, an appliance that answers everything, so a request that
 // reaches AI_BASE_URL would succeed and only the recorded origin shows it.
-function fakeHubs(options: { visionTagged?: string[] } = {}) {
+function fakeHubs(options: { model?: string; visionTagged?: string[] } = {}) {
   const calls: HubCall[] = [];
-  const appliance = fakeAppliance({ vision: true });
+  const appliance = fakeAppliance({ model: options.model, vision: true });
   const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     const raw = input instanceof Request ? await input.clone().text() : typeof init?.body === "string" ? init.body : "";
@@ -1377,11 +1378,13 @@ describe("Cloud pin search in production, through the appliance (A46)", () => {
   // Production with the appliance chain of A46: the same configuration as
   // staging, only DEPLOYMENT_ENV changes.
   function applianceProductionEnv(overrides: Partial<CloudEnv> = {}): CloudEnv {
-    return cloudEnv(db, { AI_GATEWAY_API_KEY: undefined, AI_EMBEDDING_MODEL: "embed-model", AI_MODEL: "mock", ASSISTANT_CHAIN: "appliance:qwen3.8-27b", DEPLOYMENT_ENV: "production", ...overrides });
+    // The chain's appliance link carries the chat model; AI_MODEL is absent
+    // (A46).
+    return cloudEnv(db, { AI_GATEWAY_API_KEY: undefined, AI_EMBEDDING_MODEL: "embed-model", AI_MODEL: undefined, ASSISTANT_CHAIN: "appliance:qwen3.8-27b", DEPLOYMENT_ENV: "production", ...overrides });
   }
 
-  test("captions and embeddings use AI_BASE_URL, and nothing reaches the gateway", async () => {
-    const hubs = fakeHubs();
+  test("captions and embeddings use AI_BASE_URL and the chain link's model, and nothing reaches the gateway", async () => {
+    const hubs = fakeHubs({ model: "qwen3.8-27b" });
     const hits = await searchAs(applianceProductionEnv({ PINAR_BUCKET: shots() }), principal("usr_pro"), "contraste", hubs.fetch);
     assert.equal(hits[0]!.sessionId, "session_a");
     assert.deepEqual(hubs.gatewayCalls(), [], "no request to the gateway");
@@ -1396,12 +1399,13 @@ describe("Cloud pin search in production, through the appliance (A46)", () => {
       assert.equal(call.body!.model, "embed-model");
       assert.equal(call.body!.dimensions, PIN_EMBEDDING_DIMENSIONS);
     }
-    // Captions by AI_MODEL, the chat endpoint of the appliance.
+    // Captions by the chain's appliance link model (no AI_MODEL), on the
+    // appliance's chat endpoint.
     const visions = appliance.filter((call) => call.path === "/chat/completions" && !call.body?.stream);
     assert.equal(visions.length, 2, "one caption per session");
     for (const call of visions) {
       assert.equal(call.authorization, "Bearer sk-ai-test");
-      assert.equal(call.body!.model, "mock");
+      assert.equal(call.body!.model, "qwen3.8-27b");
     }
     assert.deepEqual(pinIndexRows(db).map((row) => [row.session_id, row.caption, row.model]), [
       ["session_a", "legenda 1", "embed-model"],
@@ -1415,7 +1419,7 @@ describe("Cloud pin search in production, through the appliance (A46)", () => {
       const label = String(deployment ?? "development");
       db.query("DELETE FROM pin_index").run();
       resetRetrievalCapabilitiesCacheForTests();
-      const applianceHubs = fakeHubs();
+      const applianceHubs = fakeHubs({ model: "qwen3.8-27b" });
       await searchAs(
         cloudEnv(db, { AI_GATEWAY_API_KEY: undefined, AI_EMBEDDING_MODEL: "embed-model", ASSISTANT_CHAIN: "appliance:qwen3.8-27b", DEPLOYMENT_ENV: deployment, PINAR_BUCKET: shots() }),
         principal("usr_pro"),
@@ -1437,6 +1441,34 @@ describe("Cloud pin search in production, through the appliance (A46)", () => {
       assert.deepEqual(gatewayHubs.applianceCalls(), [], label);
       assert.ok(gatewayHubs.embeddings().length > 0, label);
     }
+  });
+  test("an explicit appliance chain without AI_MODEL: the gate opens and retrieval uses the link's model (A46)", async () => {
+    const env = applianceProductionEnv();
+    const health = await handleCloudApiRequest(new Request("https://pinar.test/api/health"), env);
+    assert.ok(health, "the health answer");
+    assert.equal((await health.json()).hasAssistant, true);
+    // The capability probe is the only fetch; the fake answers /models.
+    const appliance = fakeAppliance({ model: "qwen3.8-27b", vision: true });
+    const endpoints = await cloudRetrievalEndpoints(env, appliance.fetch);
+    assert.ok(endpoints, "the gate's configuration has retrieval endpoints");
+    assert.equal(endpoints.chat?.model, "qwen3.8-27b");
+    assert.equal(endpoints.chat?.baseUrl, BASE_URL);
+    assert.equal(endpoints.decisions, null);
+    assert.equal(endpoints.embedding?.model, "embed-model");
+  });
+
+  test("without ASSISTANT_CHAIN the default chain keeps using AI_MODEL", async () => {
+    const mustNotFetch = async (): Promise<Response> => {
+      throw new Error("must not fetch");
+    };
+    // No chain: the appliance's chat model is AI_MODEL itself.
+    const defaultAppliance = fakeAppliance({ vision: true });
+    const defaults = await cloudRetrievalEndpoints(cloudEnv(db, { AI_GATEWAY_API_KEY: undefined }), defaultAppliance.fetch);
+    assert.equal(defaults?.chat?.model, "mock");
+    // Without AI_MODEL and without a chain there is no chat model, hence no
+    // endpoint.
+    const bare = await cloudRetrievalEndpoints(cloudEnv(db, { AI_GATEWAY_API_KEY: undefined, AI_MODEL: undefined }), mustNotFetch);
+    assert.equal(bare, null);
   });
 });
 
@@ -1641,11 +1673,13 @@ describe("AI_EMBEDDING_MODEL in the EdgeR env", () => {
     assert.equal(edgerCloudEnv(read({ ...ai, AI_EMBEDDING_MODEL: "embeddinggemma-300m" })).AI_EMBEDDING_MODEL, "embeddinggemma-300m");
   });
 
-  test("alone, without the AI group, it neither completes the group nor fails", () => {
+  test("alone, without the AI group, it neither completes the group nor fails (A46)", () => {
     const env = edgerCloudEnv(read({ AI_EMBEDDING_MODEL: "embeddinggemma-300m" }));
     assert.equal(env.AI, undefined);
     assert.equal(env.AI_BASE_URL, undefined);
-    assert.equal(env.AI_EMBEDDING_MODEL, undefined);
+    // The embedding model is the assistant's own option: it stands alone,
+    // inert without a hub configuration.
+    assert.equal(env.AI_EMBEDDING_MODEL, "embeddinggemma-300m");
     assert.throws(() => edgerCloudEnv(read({ AI_EMBEDDING_MODEL: "embeddinggemma-300m", AI_MODEL: "chat-model" })), /incomplete AI configuration: missing AI_API_KEY, AI_BASE_URL, AI_TRANSCRIPTION_MODEL/);
   });
 });

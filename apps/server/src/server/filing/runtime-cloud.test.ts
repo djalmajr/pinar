@@ -188,7 +188,9 @@ function fakeAppliance(options: {
   decide?: (body: Record<string, any>, init?: RequestInit) => Response | Promise<Response>;
   embed?: (text: string) => number[];
   engine: Engine;
+  model?: string;
 }) {
+  const model = options.model ?? "mock";
   const calls: Call[] = [];
   const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
@@ -200,7 +202,7 @@ function fakeAppliance(options: {
     if (path === "/models") {
       return Response.json({
         data: [
-          { ...(options.engine === "decisions" ? { decisions: DECISIONS_EXTRA } : {}), id: "mock", type: "chat" },
+          { ...(options.engine === "decisions" ? { decisions: DECISIONS_EXTRA } : {}), id: model, type: "chat" },
           { id: EMBEDDING_MODEL, type: "embedding" },
         ],
       });
@@ -414,6 +416,30 @@ describe("cloud capture filing (POST /api/shots)", () => {
       assert.deepEqual(body.filing, { collectionId: "col_onboarding", confidence: 0.9, engine: "decisions", reason: "chosen" });
       assert.equal(stored(db, "prd_decided").filed_by, "auto");
       // The engine is asked through the appliance (AI_BASE_URL).
+      assert.ok(appliance.calls.some((call) => call.path === "/decisions"));
+      for (const call of appliance.calls) assert.ok(call.path === "/models" || call.path === "/decisions", JSON.stringify(call.path));
+    } finally {
+      db.close();
+    }
+  });
+
+  test("an explicit appliance chain without AI_MODEL: the automatic destination uses decisions when the link's model declares it (A46)", async () => {
+    const db = migratedDatabase();
+    try {
+      const env = filingEnv(db, { AI_MODEL: undefined, ASSISTANT_CHAIN: "appliance:qwen3.8-27b", DEPLOYMENT_ENV: "production" });
+      const cookie = await signIn(db, env);
+      seedCollections(db);
+      insertSession(db, { collectionId: "col_onboarding", createdAt: "2026-10-01T10:00:00.000Z", id: "prd_link_1", title: "Welcome tour" });
+      insertSession(db, { collectionId: "col_checkout", createdAt: "2026-10-02T10:00:00.000Z", id: "prd_link_2", title: "Card form" });
+      await writeOwnerDeliveryPreferences(env, OWNER, { autoCaptureDestination: true });
+      appliance = fakeAppliance({ decide: decideFor("Shop / Onboarding", 0.9), engine: "decisions", model: "qwen3.8-27b" });
+
+      const body = await shot(env, cookie, { collectionId: "col_checkout", id: "prd_link_shot", title: "Onboarding step 1" });
+      assert.equal(body.destination.collectionId, "col_onboarding");
+      assert.deepEqual(body.filing, { collectionId: "col_onboarding", confidence: 0.9, engine: "decisions", reason: "chosen" });
+      assert.equal(stored(db, "prd_link_shot").filed_by, "auto");
+      // The engine is asked through the appliance (AI_BASE_URL) with the
+      // link's model.
       assert.ok(appliance.calls.some((call) => call.path === "/decisions"));
       for (const call of appliance.calls) assert.ok(call.path === "/models" || call.path === "/decisions", JSON.stringify(call.path));
     } finally {

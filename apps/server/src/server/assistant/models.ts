@@ -118,6 +118,9 @@ export function assistantProviderOptions(endpoint: AssistantEndpoint): ProviderO
 // ---------- thinking-control detection ----------
 
 const THINKING_CONTROL_TTL_MS = 10 * 60 * 1000;
+// Deadline for the /models probe, body included. The probe runs before the
+// turn's own timeout starts, so a stalled endpoint must not hold the thread.
+export const THINKING_CONTROL_TIMEOUT_MS = 5_000;
 const THINKING_CONTROL_VIA = "chat_template_kwargs.enable_thinking";
 
 // Module cache keyed by baseUrl + "\n" + model; entries expire after 10
@@ -143,13 +146,15 @@ function modelsListEnablesThinkingControl(list: unknown, model: string): boolean
 // Probes GET {baseUrl}/models (Authorization: Bearer when a key is set) and
 // reports whether the endpoint advertises the thinking-control knob. It
 // reuses the model's protections: the base URL is validated and the fetch
-// refuses redirects, so a 3xx is not followed. Every failure (invalid base
-// URL, network, redirect, status, JSON, shape) reports false.
+// refuses redirects, so a 3xx is not followed. The probe is bounded by
+// THINKING_CONTROL_TIMEOUT_MS. Every failure (invalid base URL, network,
+// redirect, status, JSON, shape, deadline) reports false.
 export async function detectThinkingControl(input: {
   apiKey?: string;
   baseUrl: string;
   fetch?: typeof fetch;
   model: string;
+  timeoutMs?: number;
 }): Promise<boolean> {
   const key = `${input.baseUrl}\n${input.model}`;
   const cached = thinkingControlCache.get(key);
@@ -167,6 +172,7 @@ export async function detectThinkingControl(input: {
     const url = `${input.baseUrl.replace(/\/+$/, "")}/models`;
     const response = await doFetch(url, {
       headers: input.apiKey ? { Authorization: `Bearer ${input.apiKey}` } : {},
+      signal: AbortSignal.timeout(input.timeoutMs ?? THINKING_CONTROL_TIMEOUT_MS),
     });
     if (response.ok) {
       const body: unknown = await response.json();

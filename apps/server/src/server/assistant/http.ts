@@ -93,6 +93,14 @@ function assistantError(status: number, code: string, error: string): Response {
   return assistantJson({ code, error }, status);
 }
 
+// The SDK stream response says `Cache-Control: no-cache`; assistant answers
+// are private and must not be stored at all. The other SSE headers stay.
+function withNoStore(response: Response): Response {
+  const headers = new Headers(response.headers);
+  headers.set("Cache-Control", "no-store");
+  return new Response(response.body, { headers, status: response.status, statusText: response.statusText });
+}
+
 // Reads the request body without buffering more than maxBytes: once the
 // limit is exceeded the read stops and null is returned (400 at the
 // caller). null body (no content) reads as "".
@@ -123,13 +131,31 @@ async function readLimitedBody(request: Request, maxBytes: number): Promise<stri
   return new TextDecoder("utf-8").decode(combined);
 }
 
-export function handleAssistantRequest(request: Request, deps: AssistantRequestDeps): Promise<Response | null> {
+export function isAssistantPath(pathname: string): boolean {
+  return pathname === "/api/assistant" || pathname.startsWith("/api/assistant/");
+}
+
+// The defined "server cannot serve" answer. Used for any failure outside the
+// stream, so no exception (store, status, endpoint, deps) crosses the
+// boundary or reaches a log with its message.
+export function assistantUnavailableResponse(): Response {
+  return assistantError(503, "assistant_unavailable", "The assistant is unavailable");
+}
+
+export async function handleAssistantRequest(request: Request, deps: AssistantRequestDeps): Promise<Response | null> {
+  if (!isAssistantPath(new URL(request.url).pathname)) return null;
+  try {
+    return await routeAssistantRequest(request, deps);
+  } catch {
+    // Swallowed on purpose: the original error may carry internals.
+    return assistantUnavailableResponse();
+  }
+}
+
+function routeAssistantRequest(request: Request, deps: AssistantRequestDeps): Promise<Response> {
   const url = new URL(request.url);
   const pathname = url.pathname;
   const { method } = request;
-  if (pathname !== "/api/assistant" && !pathname.startsWith("/api/assistant/")) {
-    return Promise.resolve(null);
-  }
   if (method === "GET" && pathname === "/api/assistant/status") return statusRoute(deps);
   if (method === "POST" && pathname === "/api/assistant/turn") return turnRoute(request, deps);
   if (method === "GET" && pathname === "/api/assistant/threads") return listThreadsRoute(url, deps);
@@ -334,12 +360,12 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
         inFlightTurnThreads.delete(thread.id);
       });
 
-    return response;
+    return withNoStore(response);
   } catch {
     inFlightTurnThreads.delete(thread.id);
     // Store or endpoint failures surface with the defined unavailable code;
     // the original error (which may carry internals) never crosses the
     // boundary.
-    return assistantError(503, "assistant_unavailable", "The assistant is unavailable");
+    return assistantUnavailableResponse();
   }
 }

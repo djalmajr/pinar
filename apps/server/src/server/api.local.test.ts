@@ -1420,6 +1420,7 @@ describe("local TanStack API", () => {
       });
       assert.equal(turn.status, 200);
       assert.match(turn.headers.get("content-type") ?? "", /text\/event-stream/);
+      assert.equal(turn.headers.get("cache-control"), "no-store");
       const sse = await turn.text();
       const firstLine = sse.split("\n").find((line) => line.startsWith("data: "));
       assert.ok(firstLine, "the stream starts with a data part");

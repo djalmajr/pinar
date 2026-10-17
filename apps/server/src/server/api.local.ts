@@ -57,7 +57,7 @@ import { localHealthDiscoveryBody } from "./local-api-trust";
 import { decodePngDataUrl } from "./png";
 import { SESSION_PATCH_MAX_BYTES } from "./session-patch";
 import { handleLocalAiRequest, resetLocalAiForTests } from "./ai/local-ai";
-import { handleAssistantRequest } from "./assistant/http";
+import { assistantUnavailableResponse, handleAssistantRequest, isAssistantPath } from "./assistant/http";
 import { localAssistantDeps } from "./assistant/local-deps";
 import { localExportFileName, streamLocalExport } from "./local-export";
 import { handleLocalMcpRequest } from "./local-mcp";
@@ -703,8 +703,16 @@ async function routeLocalApi(request: Request): Promise<Response> {
   const { method } = request;
   const path = url.pathname;
   if (path === "/api/mcp") return handleLocalMcpRequest(request, historyDatabase());
-  if (path.startsWith("/api/assistant/")) {
-    const assistantResponse = await handleAssistantRequest(request, localAssistantDeps(request));
+  if (isAssistantPath(path)) {
+    // Building the deps opens the history database; a failure there gets the
+    // same sanitized answer as a failure inside the routes.
+    let deps: ReturnType<typeof localAssistantDeps>;
+    try {
+      deps = localAssistantDeps(request);
+    } catch {
+      return assistantUnavailableResponse();
+    }
+    const assistantResponse = await handleAssistantRequest(request, deps);
     if (assistantResponse) return assistantResponse;
   }
   const isLocalAiRoute = path.startsWith("/api/ai/");

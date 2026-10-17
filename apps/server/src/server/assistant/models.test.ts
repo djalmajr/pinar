@@ -330,3 +330,47 @@ describe("detectThinkingControl", () => {
     assert.equal(calls.length, 3, "after the reset the detection runs again");
   });
 });
+
+describe("detectThinkingControl deadline", () => {
+  // A loopback endpoint that never answers /models, or answers the headers
+  // and then stalls the body: the probe runs before the turn's own timeout,
+  // so it must give up by itself and report false.
+  for (const stall of ["headers", "body"] as const) {
+    test(`a /models that stalls its ${stall} reports false within the deadline`, async () => {
+      resetThinkingControlCacheForTests();
+      let release = () => {};
+      const released = new Promise<void>((resolve) => { release = resolve; });
+      const server = Bun.serve({
+        fetch: async () => {
+          if (stall === "headers") {
+            await released;
+            return Response.json({ data: [] });
+          }
+          return new Response(new ReadableStream({
+            async start(controller) {
+              controller.enqueue(new TextEncoder().encode('{"data":['));
+              await released;
+              controller.close();
+            },
+          }), { headers: { "content-type": "application/json" } });
+        },
+        hostname: "127.0.0.1",
+        idleTimeout: 0,
+        port: 0,
+      });
+      const started = Date.now();
+      try {
+        const value = await detectThinkingControl({
+          baseUrl: `http://127.0.0.1:${server.port}/v1`,
+          model: "m1",
+          timeoutMs: 100,
+        });
+        assert.equal(value, false);
+        assert.ok(Date.now() - started < 2_000, `gave up after ${Date.now() - started} ms`);
+      } finally {
+        release();
+        server.stop(true);
+      }
+    });
+  }
+});

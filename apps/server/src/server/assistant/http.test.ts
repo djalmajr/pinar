@@ -291,6 +291,7 @@ describe("assistant http handler", () => {
     const response = await postTurn(deps, { text: "Olá, Pinar" });
     assert.equal(response.status, 200);
     assert.match(response.headers.get("content-type") ?? "", /text\/event-stream/);
+    assert.equal(response.headers.get("cache-control"), "no-store", "the answer stream is never stored");
     const body = await readSse(response);
     const id = threadIdFromTurn(body);
     const first = sseDataParts(body)[0];
@@ -520,5 +521,47 @@ describe("assistant http handler", () => {
     assert.equal(calls.length, 1);
     assert.equal(calls[0].name, "pinar.list_sessions", "the host receives the MCP name, not the LLM name");
     assert.deepEqual(calls[0].args, { limit: 1 });
+  });
+
+  test("a failure outside the stream gives the sanitized 503 on every route, without logging it", async () => {
+    const secret = "SYNTHETIC_PRIVATE_PATH";
+    const failing = () => Promise.reject(new Error(secret));
+    const cases: Array<{ deps: AssistantRequestDeps; init?: RequestInit; path: string }> = [];
+    const statusFails = makeDeps({ status: failing }).deps;
+    cases.push({ deps: statusFails, path: "/api/assistant/status" });
+    cases.push({ deps: statusFails, init: { body: JSON.stringify({ text: "oi" }), method: "POST" }, path: "/api/assistant/turn" });
+    const storeFails = makeDeps().deps;
+    storeFails.store = {
+      ...storeFails.store,
+      createThread: failing,
+      deleteThread: failing,
+      getThread: failing,
+      listThreads: failing,
+    };
+    cases.push({ deps: storeFails, path: "/api/assistant/threads" });
+    cases.push({ deps: storeFails, path: `/api/assistant/threads/${T1}` });
+    cases.push({ deps: storeFails, init: { method: "DELETE" }, path: `/api/assistant/threads/${T1}` });
+    cases.push({ deps: storeFails, init: { body: JSON.stringify({ text: "oi" }), method: "POST" }, path: "/api/assistant/turn" });
+    cases.push({ deps: storeFails, init: { body: JSON.stringify({ text: "oi", threadId: T1 }), method: "POST" }, path: "/api/assistant/turn" });
+
+    const logged: unknown[] = [];
+    const original = { error: console.error, log: console.log, warn: console.warn };
+    console.error = (...args: unknown[]) => { logged.push(args); };
+    console.warn = (...args: unknown[]) => { logged.push(args); };
+    console.log = (...args: unknown[]) => { logged.push(args); };
+    try {
+      for (const item of cases) {
+        const response = await handleAssistantRequest(request(item.path, item.init), item.deps);
+        assert.ok(response, item.path);
+        assert.equal(response.status, 503, `${item.init?.method ?? "GET"} ${item.path}`);
+        assert.equal(response.headers.get("cache-control"), "no-store");
+        const text = await response.text();
+        assert.deepEqual(JSON.parse(text), { code: "assistant_unavailable", error: "The assistant is unavailable" });
+        assert.ok(!text.includes(secret));
+      }
+    } finally {
+      Object.assign(console, original);
+    }
+    assert.ok(!JSON.stringify(logged).includes(secret), "nothing about the failure is logged");
   });
 });

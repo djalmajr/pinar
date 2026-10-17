@@ -1,20 +1,53 @@
-import { type CSSProperties, type ReactNode, useState } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   cn,
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
+  Sheet,
+  SheetContent,
   SidebarProvider,
   SidebarTrigger,
+  useResizablePanelRef,
   useSidebar,
 } from "@pinar/ui";
+import { AssistantPanel } from "@/components/assistant/AssistantPanel";
+import {
+  fetchAssistantStatus,
+  type AssistantStatus,
+} from "@/components/assistant/assistant-client";
+import { useAssistantPanel } from "@/components/assistant/assistant-panel-state";
 import {
   ResizableSidebarPanel,
   SIDEBAR_DEFAULT_WIDTH,
 } from "@/components/ResizableSidebarPanel";
 import { useServerI18n } from "@/lib/i18n";
 import ChevronRightIcon from "~icons/lucide/chevron-right";
+
+// Mounts the panel content only while the panel is open (useChat lives
+// inside AssistantPanel), and feeds it the status answer for the
+// not_configured / requires_pro states. Consulted once per open.
+function AssistantPanelHost({ className }: { className?: string }) {
+  const { language, t } = useServerI18n();
+  const [status, setStatus] = useState<AssistantStatus | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetchAssistantStatus()
+      .then((value) => {
+        if (alive) setStatus(value);
+      })
+      .catch(() => {
+        if (alive) setStatus(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  return <AssistantPanel className={className} language={language} status={status} t={t} />;
+}
 
 export interface WorkspaceCrumb {
   id: string | null;
@@ -109,9 +142,28 @@ function AppWorkspace({
   onSidebarWidthChange: (width: number) => void;
 }) {
   const { isMobile, open, setOpen } = useSidebar();
+  const assistant = useAssistantPanel();
+  const assistantPanelRef = useResizablePanelRef();
+
+  // Same expand/collapse pattern as the sidebar panel: the open state drives
+  // the panel, and a user drag to 0 / back updates it. Closed = 0.
+  useEffect(() => {
+    if (assistant.open) assistantPanelRef.current?.expand();
+    else assistantPanelRef.current?.collapse();
+  }, [assistant, assistantPanelRef]);
 
   if (isMobile) {
-    return <div className="flex min-h-0 flex-1">{sidebar}{children}</div>;
+    return (
+      <div className="flex min-h-0 flex-1">
+        {sidebar}
+        {children}
+        <Sheet open={assistant.open} onOpenChange={assistant.setOpen}>
+          <SheetContent side="right" showCloseButton={false}>
+            <AssistantPanelHost className="h-full" />
+          </SheetContent>
+        </Sheet>
+      </div>
+    );
   }
 
   return (
@@ -128,6 +180,30 @@ function AppWorkspace({
       <ResizableHandle className="bg-sidebar-border" withHandle />
       <ResizablePanel className="flex min-h-0 min-w-0" id="app-content" minSize="20rem">
         {children}
+      </ResizablePanel>
+      {/* The workspace e2e suite locates the sidebar separator by the
+          `resizable-handle` slot, so the assistant handle declares its own
+          slot to keep that selector unique. */}
+      <ResizableHandle
+        className="bg-sidebar-border"
+        data-slot="resizable-handle-assistant"
+        withHandle
+      />
+      <ResizablePanel
+        className="flex min-h-0 min-w-0"
+        collapsible
+        collapsedSize="0"
+        defaultSize="24rem"
+        id="app-assistant"
+        maxSize="36rem"
+        minSize="20rem"
+        panelRef={assistantPanelRef}
+        onResize={({ inPixels }) => {
+          const collapsed = inPixels <= 1;
+          if (collapsed === assistant.open) assistant.setOpen(!collapsed);
+        }}
+      >
+        {assistant.open ? <AssistantPanelHost /> : null}
       </ResizablePanel>
     </ResizablePanelGroup>
   );

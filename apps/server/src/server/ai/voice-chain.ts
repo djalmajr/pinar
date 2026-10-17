@@ -3,9 +3,10 @@
 // tools: the reproduction steps and the voice-note structuring), in the
 // same CSV `hub:model` format as ASSISTANT_CHAIN (assistant/chain.ts).
 // The environment never decides the provider (A50): an "appliance" link
-// uses the AI binding, or the OpenAI-compatible endpoint of AI_BASE_URL
-// with the link's model (as the rest of the code does), and a "gateway"
-// link uses the AI SDK's Vercel AI Gateway provider
+// uses the OpenAI-compatible endpoint of AI_BASE_URL with the link's own
+// model (its own adapter; F4c — the env.AI adapter would replace the model
+// by the configured one) or, without that pair, the AI binding, and a
+// "gateway" link uses the AI SDK's Vercel AI Gateway provider
 // (createGateway().transcriptionModel(id) / .languageModel(id)) with
 // AI_GATEWAY_API_KEY.
 //
@@ -15,7 +16,9 @@
 //
 // Link switching: a transient error (429, 5xx, network, timeout) before
 // any result moves to the next link; 400/401/403 (and 402) end the call
-// (classifyAssistantChainError, assistant/chain.ts).
+// (classifyAssistantChainError, assistant/chain.ts). The appliance's HTTP
+// status rides on the link's error as statusCode (openai-compatible-ai.ts,
+// F4c), so the classification is not lost.
 //
 // Cost: a gateway call reports providerMetadata.gateway.marketCost (with
 // BYOK the cost is 0 and the real cost is in marketCost), else cost;
@@ -155,6 +158,10 @@ function positiveToken(value: number | undefined): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.ceil(value) : 0;
 }
 
+function positiveNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.ceil(value) : 0;
+}
+
 // ---------- transcription ----------
 
 export interface TranscriptionChainInput {
@@ -211,13 +218,21 @@ export async function runTranscriptionChain(
         output: { ...(Object.keys(info).length > 0 ? { transcription_info: info } : {}), text: result.text },
       };
     }
-    const ai = env.AI ?? createOpenAiCompatibleAi({
-      apiKey: env.AI_API_KEY!,
-      baseUrl: env.AI_BASE_URL!,
-      chatModel: link.model,
-      ...(input.fetch !== undefined ? { fetch: input.fetch } : {}),
-      transcriptionModel: link.model,
-    });
+    // F4c: the link's model is what the appliance endpoint knows. With the
+    // AI_BASE_URL/AI_API_KEY pair the chain builds its own adapter with it
+    // (the env.AI adapter — the EdgeR's — would replace the model by the
+    // configured one); without the pair the env.AI binding (the Workers AI)
+    // honors the link's model.
+    const ai = (env.AI_BASE_URL !== undefined && env.AI_API_KEY !== undefined)
+      ? createOpenAiCompatibleAi({
+          apiKey: env.AI_API_KEY,
+          baseUrl: env.AI_BASE_URL,
+          chatModel: link.model,
+          ...(input.fetch !== undefined ? { fetch: input.fetch } : {}),
+          transcriptionModel: link.model,
+        })
+      : env.AI;
+    if (!ai) throw new VoiceChainError("unavailable");
     const output: unknown = await ai.run(
       link.model,
       {
@@ -307,14 +322,48 @@ export async function runTextChain(
         usage,
       };
     }
-    const ai = env.AI ?? createOpenAiCompatibleAi({
-      apiKey: env.AI_API_KEY!,
-      baseUrl: env.AI_BASE_URL!,
-      chatModel: link.model,
-      ...(input.fetch !== undefined ? { fetch: input.fetch } : {}),
-      transcriptionModel: link.model,
-    });
-    const inference: AiInferenceResult = await cloudflareAiProvider(ai as Ai, link.model).run(
+    // F4c: the link's model (the env.AI adapter would replace it by the
+    // configured one). With the AI_BASE_URL/AI_API_KEY pair the call goes
+    // to the endpoint directly, with the same request the binding path
+    // sends — and must not go through cloudflareAiProvider: its wrapper
+    // would replace the adapter's error by an AiInferenceError without the
+    // HTTP status, and the 401 would pass to the next link. Without the
+    // pair the env.AI binding path stays as before.
+    if (env.AI_BASE_URL !== undefined && env.AI_API_KEY !== undefined) {
+      const ai = createOpenAiCompatibleAi({
+        apiKey: env.AI_API_KEY,
+        baseUrl: env.AI_BASE_URL,
+        chatModel: link.model,
+        ...(input.fetch !== undefined ? { fetch: input.fetch } : {}),
+        transcriptionModel: link.model,
+      });
+      const requestInput = {
+        max_tokens: input.maxTokens,
+        messages: input.prompt.messages,
+        ...(input.prompt.jsonObject ? { response_format: { type: "json_object" } } : {}),
+        temperature: input.prompt.temperature ?? 0.1,
+      };
+      const output: unknown = await ai.run(link.model, requestInput, { signal: AbortSignal.timeout(input.timeoutMs) });
+      const record = typeof output === "object" && output !== null && !Array.isArray(output)
+        ? output as Record<string, unknown>
+        : {};
+      // The adapter's chat contract (openai-compatible-ai.ts): the cleaned
+      // text in `response`, the provider's `usage` intact.
+      const text = typeof record["response"] === "string" ? record["response"] : "";
+      const usageRecord = typeof record["usage"] === "object" && record["usage"] !== null
+        ? record["usage"] as Record<string, unknown>
+        : {};
+      const content = input.prompt.messages.map((message) => message.content).join("\n");
+      return {
+        costUsdMicros: null,
+        text,
+        usage: {
+          inputTokens: positiveNumber(usageRecord["prompt_tokens"]) || positiveNumber(usageRecord["input_tokens"]) || Math.ceil(content.length / 4),
+          outputTokens: positiveNumber(usageRecord["completion_tokens"]) || positiveNumber(usageRecord["output_tokens"]) || Math.ceil(text.length / 4),
+        },
+      };
+    }
+    const inference: AiInferenceResult = await cloudflareAiProvider(env.AI!, link.model).run(
       {
         ...(input.prompt.jsonObject !== undefined ? { jsonObject: input.prompt.jsonObject } : {}),
         messages: input.prompt.messages,

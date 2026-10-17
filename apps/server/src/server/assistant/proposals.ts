@@ -21,7 +21,7 @@
 //   them is not detected.
 
 import { McpToolError } from "../mcp-protocol";
-import { MCP_RESOURCE_TYPES } from "../mcp-tools-cloud";
+import { MCP_MAX_LIST_SIZE, MCP_RESOURCE_TYPES } from "../mcp-tools-cloud";
 import type { AssistantStateReader } from "./state-reader";
 import {
   ASSISTANT_PROPOSAL_ID_PATTERN,
@@ -244,9 +244,19 @@ async function readMove(sessionIds: string[], collectionId: string, reader: Assi
   return { moves, orders, target: { name: target.name } };
 }
 
+// The MCP takes at most MCP_MAX_LIST_SIZE ids or items in a reorder_* call
+// (the Cloud handlers refuse more, decision A13). An undo plan leaves out a
+// reorder whose previous list is empty or above the ceiling; the other calls
+// stay, so a session still goes back to its collection, maybe at another
+// position. A plan without calls is no undo at all. The postFingerprint is
+// read from the calls that remain, so it covers only what the undo restores.
+function restorableOrder<T>(list: T[] | null): list is T[] {
+  return list !== null && list.length > 0 && list.length <= MCP_MAX_LIST_SIZE;
+}
+
 // Moves each moved session back to its previous collection, then restores
 // the previous order of every collection the moves touched (sources first,
-// then the target). An empty previous order has nothing to restore.
+// then the target) that restorableOrder allows.
 function moveUndoCalls(moved: MovePlan["moves"], collectionId: string, orders: MovePlan["orders"]): UndoCall[] | null {
   if (moved.length === 0) return null;
   const calls: UndoCall[] = moved.map((move) => ({
@@ -255,7 +265,7 @@ function moveUndoCalls(moved: MovePlan["moves"], collectionId: string, orders: M
   }));
   for (const id of new Set([...moved.map((move) => move.source), collectionId])) {
     const order = orders[id];
-    if (order && order.length > 0) calls.push({ args: { collectionId: id, ids: order }, tool: "pinar.reorder_sessions" });
+    if (restorableOrder(order)) calls.push({ args: { collectionId: id, ids: order }, tool: "pinar.reorder_sessions" });
   }
   return calls;
 }
@@ -504,7 +514,7 @@ const ACTIONS: Record<AssistantProposalAction, ActionPrepare> = {
       params,
       reads: { placements, project: { name: project.name } },
       summary: `Reorder ${countOf(params.count, "collection")} in project ${quote(params.project)}`,
-      undoCalls: () => (placements.length > 0 ? [{ args: { items: placements, projectId }, tool: "pinar.reorder_collections" }] : null),
+      undoCalls: () => (restorableOrder(placements) ? [{ args: { items: placements, projectId }, tool: "pinar.reorder_collections" }] : null),
     };
   },
   async reorder_projects(args, reader) {
@@ -517,7 +527,7 @@ const ACTIONS: Record<AssistantProposalAction, ActionPrepare> = {
       params,
       reads: { order },
       summary: `Reorder ${countOf(params.count, "project")}`,
-      undoCalls: () => (order.length > 0 ? [{ args: { ids: order }, tool: "pinar.reorder_projects" }] : null),
+      undoCalls: () => (restorableOrder(order) ? [{ args: { ids: order }, tool: "pinar.reorder_projects" }] : null),
     };
   },
   async reorder_sessions(args, reader) {
@@ -534,7 +544,7 @@ const ACTIONS: Record<AssistantProposalAction, ActionPrepare> = {
       params,
       reads: { collection: { name: collection.name }, order },
       summary: `Reorder ${countOf(params.count, "session")} in ${quote(params.collection)}`,
-      undoCalls: () => (order.length > 0 ? [{ args: { collectionId, ids: order }, tool: "pinar.reorder_sessions" }] : null),
+      undoCalls: () => (restorableOrder(order) ? [{ args: { collectionId, ids: order }, tool: "pinar.reorder_sessions" }] : null),
     };
   },
   async rename_batch(args, reader) {

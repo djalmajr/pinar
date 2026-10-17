@@ -4,11 +4,14 @@
 // prove no id reaches a summary or the display params.
 //
 // The host mirrors the handler rules the undo depends on: reorder_* must
-// list every member exactly once ("Invalid ordering"), a missing entity is
-// a McpToolError, move_session appends to the end of the target collection,
-// deleting a collection or project sends its sessions to the Inbox.
+// list every member exactly once ("Invalid ordering") and at most
+// MCP_MAX_LIST_SIZE of them (the Cloud handlers' ceiling), a missing entity
+// is a McpToolError, move_session appends to the end of the target
+// collection, deleting a collection or project sends its sessions to the
+// Inbox.
 
 import { McpToolError } from "../mcp-protocol";
+import { MCP_MAX_LIST_SIZE } from "../mcp-tools-cloud";
 import type { AssistantStateReader } from "./state-reader";
 import type { AssistantToolHost } from "./tools";
 
@@ -159,7 +162,19 @@ function text(args: Record<string, unknown>, key: string): string {
 function ids(args: Record<string, unknown>, key: string): string[] {
   const value = args[key];
   if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) throw new McpToolError(`${key} is required`);
+  if (value.length > MCP_MAX_LIST_SIZE) throw new McpToolError(`${key} must contain at most ${MCP_MAX_LIST_SIZE} items`);
   return value as string[];
+}
+
+/** Appends `count` sessions to a collection; their ids are `<prefix>-<n>`, n from 1. */
+export function addSessions(world: FixtureWorld, collectionId: string, count: number, prefix: string): string[] {
+  const added: string[] = [];
+  for (let index = 1; index <= count; index += 1) {
+    const id = `${FIXTURE_ID_PREFIX}${prefix}-${index}`;
+    world.sessions.push({ batchId: null, collectionId, id, title: `${prefix} ${index}` });
+    added.push(id);
+  }
+  return added;
 }
 
 function sameMembers(order: string[], members: string[]): boolean {
@@ -258,6 +273,7 @@ export function fixtureHost(world: FixtureWorld): FixtureHost {
           const projectId = text(args, "projectId");
           project(projectId);
           const items = args.items as Array<{ id: string; parentId: string | null }>;
+          if (items.length > MCP_MAX_LIST_SIZE) throw new McpToolError(`items must contain at most ${MCP_MAX_LIST_SIZE} items`);
           const members = world.collections.filter((item) => item.projectId === projectId);
           if (!sameMembers(items.map((item) => item.id), members.map((item) => item.id))) throw new McpToolError("Invalid ordering");
           const ordered = items.map((item) => ({ ...collection(item.id), parentId: item.parentId ?? null }));

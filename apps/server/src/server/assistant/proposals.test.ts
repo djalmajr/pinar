@@ -19,6 +19,7 @@ import {
 import {
   FIXTURE_ID_PREFIX,
   INBOX_ID,
+  addSessions,
   fixtureHost,
   fixtureReader,
   fixtureWorld,
@@ -30,6 +31,7 @@ import type { AssistantStateReader } from "./state-reader";
 import { ASSISTANT_TITLE_MAX, newAssistantMessageId, newAssistantThreadId, type AssistantStore } from "./store";
 import { cloudAssistantStore, resetCloudAssistantMemoryForTests } from "./store-cloud";
 import { ASSISTANT_TOOL_POLICY } from "./tool-policy";
+import { MCP_MAX_LIST_SIZE } from "../mcp-tools-cloud";
 
 const T0 = new Date("2026-10-17T12:00:00.000Z");
 const at = (ms: number) => new Date(T0.getTime() + ms);
@@ -654,5 +656,115 @@ describe("pinar.move_sessions", () => {
     assert.equal(result.proposal.status, "failed");
     assert.equal(result.proposal.errorCode, "proposal_failed");
     assert.equal(ctx.host.calls.length, 2);
+  });
+});
+
+// ---------- undo plans within the MCP list ceiling (decision A13) ----------
+
+describe("undo plans within the MCP list ceiling", () => {
+  const orderOf = (world: FixtureWorld, collectionId: string) =>
+    world.sessions.filter((session) => session.collectionId === collectionId).map((session) => session.id);
+  const reorderTargets = (proposal: AssistantProposalRecord) =>
+    proposal.undo!.calls.filter((call) => call.tool === "pinar.reorder_sessions").map((call) => call.args.collectionId);
+
+  test("the ceiling is the 100 of the Cloud MCP list arguments", () => {
+    assert.equal(MCP_MAX_LIST_SIZE, 100);
+  });
+
+  test("move_session out of a 130-session collection: no reorder of that collection; undo returns it and ends undone", async () => {
+    const ctx = await setup();
+    const big = addSessions(ctx.world, fx("col-c"), 130, "big");
+    const before = orderOf(ctx.world, fx("col-c"));
+    const proposal = await executed(ctx, "pinar.move_session", { collectionId: fx("col-b"), sessionId: big[4] });
+    assert.deepEqual(proposal.undo!.calls, [
+      { args: { collectionId: fx("col-c"), sessionId: big[4] }, tool: "pinar.move_session" },
+      { args: { collectionId: fx("col-b"), ids: [fx("session-4")] }, tool: "pinar.reorder_sessions" },
+    ], "the 130-session source keeps the move back and loses only its reorder");
+    const result = await undo(ctx, proposal.id, at(2 * MINUTE));
+    assert.ok(result.kind === "ok", JSON.stringify(result));
+    assert.equal(result.proposal.status, "undone");
+    assert.equal(result.proposal.errorCode, null);
+    assert.equal(ctx.world.sessions.find((session) => session.id === big[4])?.collectionId, fx("col-c"), "back in its collection");
+    assert.deepEqual(orderOf(ctx.world, fx("col-c")), [...before.filter((id) => id !== big[4]), big[4]], "same members; the order may change");
+    assert.deepEqual(orderOf(ctx.world, fx("col-b")), [fx("session-4")]);
+  });
+
+  test("a source of exactly 100 sessions keeps its reorder and gets the exact order back", async () => {
+    const ctx = await setup();
+    const full = addSessions(ctx.world, fx("col-c"), MCP_MAX_LIST_SIZE, "full");
+    const proposal = await executed(ctx, "pinar.move_session", { collectionId: fx("col-b"), sessionId: full[4] });
+    assert.deepEqual(reorderTargets(proposal), [fx("col-c"), fx("col-b")]);
+    const result = await undo(ctx, proposal.id, at(2 * MINUTE));
+    assert.ok(result.kind === "ok" && result.proposal.status === "undone", JSON.stringify(result));
+    assert.deepEqual(orderOf(ctx.world, fx("col-c")), full, "the exact order is back");
+  });
+
+  test("move_sessions with one source above the ceiling and one below: only the one above loses its reorder", async () => {
+    const ctx = await setup();
+    const big = addSessions(ctx.world, fx("col-c"), 130, "big");
+    const bigBefore = orderOf(ctx.world, fx("col-c"));
+    const proposal = await executed(ctx, "pinar.move_sessions", { collectionId: fx("col-b"), sessionIds: [big[0], fx("session-2")] });
+    assert.deepEqual(reorderTargets(proposal), [fx("col-a"), fx("col-b")]);
+    assert.deepEqual(
+      proposal.undo!.calls.filter((call) => call.tool === "pinar.move_session").map((call) => [call.args.sessionId, call.args.collectionId]),
+      [[big[0], fx("col-c")], [fx("session-2"), fx("col-a")]],
+    );
+    const result = await undo(ctx, proposal.id, at(2 * MINUTE));
+    assert.ok(result.kind === "ok" && result.proposal.status === "undone", JSON.stringify(result));
+    assert.deepEqual(orderOf(ctx.world, fx("col-a")), [fx("session-1"), fx("session-2"), fx("session-3")], "the small source gets its exact order");
+    assert.deepEqual([...orderOf(ctx.world, fx("col-c"))].sort(), [...bigBefore].sort(), "the big source gets its members back");
+    assert.deepEqual(orderOf(ctx.world, fx("col-b")), [fx("session-4")]);
+  });
+
+  test("the postFingerprint covers what the plan restores: order changes in the big source do not block undo, the target does", async () => {
+    // The 130-session source's order is not restored, so it is not guarded.
+    const free = await setup();
+    const big = addSessions(free.world, fx("col-c"), 130, "big");
+    const moved = await executed(free, "pinar.move_session", { collectionId: fx("col-b"), sessionId: big[0] });
+    const remaining = free.world.sessions.filter((session) => session.collectionId === fx("col-c")).reverse();
+    free.world.sessions = [...free.world.sessions.filter((session) => session.collectionId !== fx("col-c")), ...remaining];
+    const result = await undo(free, moved.id, at(2 * MINUTE));
+    assert.ok(result.kind === "ok" && result.proposal.status === "undone", JSON.stringify(result));
+    // Control: the target collection's order is restored, so a change there is undo_stale.
+    const guarded = await setup();
+    const bigToo = addSessions(guarded.world, fx("col-c"), 130, "big");
+    const movedToo = await executed(guarded, "pinar.move_session", { collectionId: fx("col-b"), sessionId: bigToo[0] });
+    guarded.world.sessions.push({ batchId: null, collectionId: fx("col-b"), id: fx("session-9"), title: "Late" });
+    const calls = guarded.host.calls.length;
+    assert.deepEqual(await undo(guarded, movedToo.id, at(2 * MINUTE)), { code: "undo_stale", kind: "conflict" });
+    assert.equal(guarded.host.calls.length, calls);
+  });
+
+  test("a reorder whose previous list is above the ceiling has no undo plan; at the ceiling it has one", async () => {
+    const ctx = await setup();
+    const big = addSessions(ctx.world, fx("col-c"), 130, "big");
+    const sessions = await prepareProposal({ args: { collectionId: fx("col-c"), ids: [...big].reverse() }, reader: ctx.reader, tool: "pinar.reorder_sessions" });
+    assert.ok(sessions.ok);
+    assert.equal(await sessions.prepared.undoFrom({ ok: true }, ctx.reader), null);
+
+    for (let index = ctx.world.projects.length; index < MCP_MAX_LIST_SIZE + 1; index += 1) {
+      ctx.world.projects.push({ id: fx(`project-extra-${index}`), name: `Extra ${index}` });
+    }
+    const projects = await prepareProposal({ args: { ids: ctx.world.projects.map((project) => project.id).reverse() }, reader: ctx.reader, tool: "pinar.reorder_projects" });
+    assert.ok(projects.ok);
+    assert.equal(await projects.prepared.undoFrom({ ok: true }, ctx.reader), null);
+
+    for (let index = 0; index < MCP_MAX_LIST_SIZE + 1; index += 1) {
+      ctx.world.collections.push({ id: fx(`col-extra-${index}`), name: `Extra ${index}`, parentId: null, projectId: fx("project-2") });
+    }
+    const placements = (await ctx.reader.collectionPlacements(fx("project-2")))!;
+    assert.equal(placements.length, MCP_MAX_LIST_SIZE + 2);
+    const collections = await prepareProposal({ args: { items: [...placements].reverse(), projectId: fx("project-2") }, reader: ctx.reader, tool: "pinar.reorder_collections" });
+    assert.ok(collections.ok);
+    assert.equal(await collections.prepared.undoFrom({ ok: true }, ctx.reader), null);
+
+    // Control: a previous list of exactly the ceiling keeps its reorder.
+    const exact = await setup();
+    const full = addSessions(exact.world, fx("col-c"), MCP_MAX_LIST_SIZE, "full");
+    const atCeiling = await prepareProposal({ args: { collectionId: fx("col-c"), ids: [...full].reverse() }, reader: exact.reader, tool: "pinar.reorder_sessions" });
+    assert.ok(atCeiling.ok);
+    assert.deepEqual((await atCeiling.prepared.undoFrom({ ok: true }, exact.reader))?.calls, [
+      { args: { collectionId: fx("col-c"), ids: full }, tool: "pinar.reorder_sessions" },
+    ]);
   });
 });

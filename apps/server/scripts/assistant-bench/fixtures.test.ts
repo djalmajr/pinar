@@ -232,3 +232,21 @@ test("protegidos: Caixa de entrada e Personal não se apagam", () => {
 test("ferramenta desconhecida devolve o erro do handler", () => {
   expectError(() => respond("pinar.frobnicate", {}), "Unknown tool");
 });
+
+test("f2: move_sessions é proposta, com a ordem de leitura do readMove", () => {
+  const t1 = sessionByTitle("Teste de captura 01")!;
+  const t2 = sessionByTitle("Teste de captura 02")!;
+  const refs = collectionByName("Referências")!;
+  const result = respond("pinar.move_sessions", { collectionId: refs.id, sessionIds: [t1.id, t2.id] }) as {
+    status: string;
+    summary: string;
+  };
+  expect(result).toEqual({ status: "awaiting_confirmation", summary: 'Mover 2 sessões para a coleção "Referências"' });
+  // Sessões primeiro, depois a coleção (proposals.ts readMove).
+  expectError(() => respond("pinar.move_sessions", { collectionId: "x", sessionIds: [t1.id, "y"] }), "Session not found");
+  expectError(() => respond("pinar.move_sessions", { collectionId: "x", sessionIds: [t1.id] }), "Collection not found");
+});
+
+test("f2: ask devolve o status do execute do runtime", () => {
+  expect(respond("pinar.ask", { options: ["A", "B"], question: "Qual?" })).toEqual({ status: "asked" });
+});

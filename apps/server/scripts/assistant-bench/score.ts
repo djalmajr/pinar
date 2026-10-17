@@ -32,7 +32,16 @@
 //     error always fails;
 //   - firstTool is diagnostics only: no case declares the call order as
 //     part of the contract;
-//   - redundant writes are registered in redundantWrites, never fatal.
+//   - redundant writes are registered in redundantWrites, never fatal;
+//   - f2 profile (scoreCase's third argument): pinar_move_sessions is a
+//     write; a valid pinar_ask end (finalKind "ask") is a question by
+//     construction and satisfies `final: "ask"` when one askAbout term
+//     appears in its question or in one of its options (no request marker
+//     needed; free text keeps the sentence rule); bulk move cases read each
+//     successful pinar_move_sessions as one pinar_move_session per
+//     sessionId; the ids of a bulk move are its collectionId and every
+//     sessionIds item;
+//   - the gates of contract §5 are defined above benchGates.
 //
 // LIMITS (deterministic, not semantic): the scoring does not judge full
 // semantics. Mentions are substring matches inside affirmative,
@@ -46,11 +55,14 @@
 // run.ts redacts finalText before rendering (the renderer only truncates).
 
 import { FIXTURE } from "./fixtures";
-import { WRITE_TOOLS } from "./cases";
+import { DESTRUCTIVE_TOOLS, WRITE_TOOLS } from "./cases";
+import { MOVE_SESSIONS_TOOL_LLM_NAME } from "./tools";
 import type {
   BenchAggregate,
   BenchCase,
   BenchConfig,
+  BenchGate,
+  BenchProfile,
   CaseExpect,
   CaseRun,
   CaseScore,
@@ -59,6 +71,13 @@ import type {
 } from "./types";
 
 const WRITE_TOOL_SET = new Set<string>(WRITE_TOOLS);
+// f2 also offers pinar_move_sessions, a write that becomes a proposal.
+const F2_WRITE_TOOL_SET = new Set<string>([...WRITE_TOOLS, MOVE_SESSIONS_TOOL_LLM_NAME]);
+const DESTRUCTIVE_TOOL_SET = new Set<string>(DESTRUCTIVE_TOOLS);
+
+function writeToolSet(profile: BenchProfile): ReadonlySet<string> {
+  return profile === "f2" ? F2_WRITE_TOOL_SET : WRITE_TOOL_SET;
+}
 
 // The opaque ids of the bench fixture (16 hex chars); the provenance check
 // only constrains id-shaped values, never names or new labels.
@@ -301,15 +320,33 @@ function collectStrings(value: unknown, sink: Set<string>): void {
 
 // Every string that appeared in a successful NON-write result (reads and
 // markdown). A write target is proven when its id is in this set.
-function seenValuesFromReads(records: ToolCallRecordLike[]): Set<string> {
+function seenValuesFromReads(records: ToolCallRecordLike[], writeTools: ReadonlySet<string>): Set<string> {
   const seen = new Set<string>();
   for (const record of records) {
     if (!isSuccessful(record)) continue;
     if (record.wasProposal) continue;
-    if (WRITE_TOOL_SET.has(record.name)) continue;
+    if (writeTools.has(record.name)) continue;
     collectStrings(record.result, seen);
   }
   return seen;
+}
+
+// Bulk move cases (f2): each successful pinar_move_sessions record is read
+// as one pinar_move_session per sessionId, with the same collectionId,
+// wasProposal and result. `keepBulk` keeps the bulk record too (name
+// checks: mustCall, exactCalls on pinar_move_sessions) or replaces it by
+// its parts (delta: each target is checked once).
+function expandBulkMoves(records: ToolCallRecordLike[], keepBulk: boolean): ToolCallRecordLike[] {
+  return records.flatMap((record) => {
+    if (record.name !== MOVE_SESSIONS_TOOL_LLM_NAME || !isSuccessful(record) || !isRecord(record.args)) return [record];
+    const { collectionId, sessionIds } = record.args;
+    const parts = (Array.isArray(sessionIds) ? sessionIds : []).map((sessionId) => ({
+      ...record,
+      args: { collectionId, sessionId },
+      name: "pinar_move_session",
+    }));
+    return keepBulk ? [record, ...parts] : parts;
+  });
 }
 
 function scoreFinal(
@@ -317,7 +354,7 @@ function scoreFinal(
   loop: LoopResult,
   writeAttempted: boolean,
   mentionFailures: string[],
-): { finalFailures: string[]; finalOk: boolean } {
+): { endOk: boolean; finalFailures: string[]; finalOk: boolean } {
   const failures: string[] = [];
   if (loop.error !== null) failures.push("erro de caso/protocolo");
   if (loop.stoppedReason === "max-steps") failures.push("passos esgotados");
@@ -329,21 +366,29 @@ function scoreFinal(
   if (expect.final === "write") {
     if (loop.finalKind !== "write") failures.push("final: proposta ausente");
   } else {
-    // "text" and "ask" both end normally with text and no write.
-    if (loop.finalKind !== "text") failures.push(`final esperado ${expect.final}, laço terminou em ${loop.finalKind ?? "?"}`);
-    if (mentionFailures.length > 0) {
-      failures.push(expect.final === "text"
-        ? `menções ausentes: ${mentionFailures.join(", ")}`
-        : `pergunta ausente ou fora dos dados faltantes: ${mentionFailures.join(", ")}`);
-    }
+    // "text" and "ask" both end normally with text and no write; in f2 an
+    // "ask" may also end on a valid pinar_ask (finalKind "ask").
+    const kindOk = loop.finalKind === "text" || (expect.final === "ask" && loop.finalKind === "ask");
+    if (!kindOk) failures.push(`final esperado ${expect.final}, laço terminou em ${loop.finalKind ?? "?"}`);
   }
-  return { finalFailures: failures, finalOk: failures.length === 0 };
+  const endOk = failures.length === 0;
+  if (expect.final !== "write" && mentionFailures.length > 0) {
+    failures.push(expect.final === "text"
+      ? `menções ausentes: ${mentionFailures.join(", ")}`
+      : `pergunta ausente ou fora dos dados faltantes: ${mentionFailures.join(", ")}`);
+  }
+  return { endOk, finalFailures: failures, finalOk: failures.length === 0 };
 }
 
-export function scoreCase(expect: CaseExpect, loop: LoopResult): CaseScore {
+export function scoreCase(expect: CaseExpect, loop: LoopResult, profile: BenchProfile = "f0"): CaseScore {
   const records = loop.toolCalls;
+  const writeTools = writeToolSet(profile);
+  const bulk = profile === "f2" && expect.bulkMove === true;
+  // Target view: what the obligations on tools and arguments read. Only
+  // bulk move cases differ from the recorded calls.
+  const targets = bulk ? expandBulkMoves(records, true) : records;
   const calledNames = new Set(records.map((record) => record.name));
-  const successfulNames = new Set(records.filter(isSuccessful).map((record) => record.name));
+  const successfulNames = new Set(targets.filter(isSuccessful).map((record) => record.name));
 
   const firstToolAllowed: string[] | null =
     expect.firstTool === undefined
@@ -366,7 +411,7 @@ export function scoreCase(expect: CaseExpect, loop: LoopResult): CaseScore {
   // minCalls: minimum number of VALID AND SUCCESSFUL calls.
   const minCallsFailures: string[] = [];
   for (const [name, minimum] of Object.entries(expect.minCalls ?? {})) {
-    const count = records.filter((record) => record.name === name && isSuccessful(record)).length;
+    const count = targets.filter((record) => record.name === name && isSuccessful(record)).length;
     if (count < minimum) minCallsFailures.push(`${name} had ${count} successful call(s), expected at least ${minimum}`);
   }
   const minCallsOk = minCallsFailures.length === 0;
@@ -375,7 +420,7 @@ export function scoreCase(expect: CaseExpect, loop: LoopResult): CaseScore {
   // the approved proposal).
   const argsFailures: string[] = [];
   for (const [name, partial] of Object.entries(expect.args ?? {})) {
-    const matches = candidatesFor(records, name, expect).some((record) => partialMatches(record.args, partial));
+    const matches = candidatesFor(targets, name, expect).some((record) => partialMatches(record.args, partial));
     if (!matches) argsFailures.push(`no successful call to ${name} matches the expected arguments`);
   }
   const argsOk = argsFailures.length === 0;
@@ -383,7 +428,7 @@ export function scoreCase(expect: CaseExpect, loop: LoopResult): CaseScore {
   // exactCalls: the successful calls form exactly this set, order-free.
   const exactCallsFailures: string[] = [];
   for (const [name, entries] of Object.entries(expect.exactCalls ?? {})) {
-    const calls = candidatesFor(records, name, expect);
+    const calls = candidatesFor(targets, name, expect);
     if (calls.length !== entries.length) {
       exactCallsFailures.push(`${name}: ${calls.length} successful call(s), expected exactly ${entries.length}`);
       continue;
@@ -409,21 +454,26 @@ export function scoreCase(expect: CaseExpect, loop: LoopResult): CaseScore {
       : expect.alternatives.some((alternative) =>
           (alternative.mustCall ?? []).every((name) => successfulNames.has(name)) &&
           Object.entries(alternative.args ?? {}).every(
-            ([name, partial]) => candidatesFor(records, name, expect).some((record) => partialMatches(record.args, partial)),
+            ([name, partial]) => candidatesFor(targets, name, expect).some((record) => partialMatches(record.args, partial)),
           ),
         );
 
   // Provenance of write targets, INCREMENTAL (F5): every opaque id used by
   // a write (attempt or proposal) must have appeared in a successful read
   // that PRECEDES the call — an earlier step, or earlier in the same
-  // response, in call order. Reads that come after do not count.
+  // response, in call order. Reads that come after do not count. A bulk
+  // move (f2) also proves each of its sessionIds items.
   const idsUnseen: string[] = [];
   if (expect.final === "write") {
     const seenSoFar = new Set<string>();
     for (const record of records) {
-      if (WRITE_TOOL_SET.has(record.name)) {
+      if (writeTools.has(record.name)) {
         if (isRecord(record.args)) {
-          for (const [key, value] of Object.entries(record.args)) {
+          const values = Object.entries(record.args).flatMap(([key, value]): Array<[string, unknown]> =>
+            record.name === MOVE_SESSIONS_TOOL_LLM_NAME && Array.isArray(value)
+              ? value.map((item, index): [string, unknown] => [`${key}[${index}]`, item])
+              : [[key, value]]);
+          for (const [key, value] of values) {
             if (typeof value === "string" && OPAQUE_ID_PATTERN.test(value) && !seenSoFar.has(value)) {
               idsUnseen.push(`${record.name}.${key}`);
             }
@@ -453,8 +503,8 @@ export function scoreCase(expect: CaseExpect, loop: LoopResult): CaseScore {
   }
   const deltaFailures: string[] = [];
   if (expect.final === "write") {
-    for (const record of records) {
-      if (!WRITE_TOOL_SET.has(record.name) || !isSuccessful(record)) continue;
+    for (const record of bulk ? expandBulkMoves(records, false) : records) {
+      if (!writeTools.has(record.name) || !isSuccessful(record)) continue;
       const matches = deltaShapes.some(
         (shape) => shape.name === record.name && partialMatches(record.args, shape.partial),
       );
@@ -488,7 +538,7 @@ export function scoreCase(expect: CaseExpect, loop: LoopResult): CaseScore {
   // have appeared in a successful read result of the turn — the answer is
   // grounded in what was actually read, not hallucinated.
   const coverageFailures: string[] = [];
-  const seenReads = seenValuesFromReads(records);
+  const seenReads = seenValuesFromReads(records, writeTools);
   for (const mention of expect.mentions ?? []) {
     if (!isFixtureEntity(mention)) continue;
     const normalized = normalizeText(mention);
@@ -504,23 +554,40 @@ export function scoreCase(expect: CaseExpect, loop: LoopResult): CaseScore {
     // The askAbout terms are pt/en radicals of the SAME missing data: the
     // question names the data when AT LEAST ONE of them appears (with a
     // request marker) in a request sentence.
-    const terms = expect.askAbout ?? [];
+    const terms = (expect.askAbout ?? []).map((term) => normalizeText(term));
     if (terms.length > 0) {
-      const questions = requestSentences(loop.finalText).map((question) => normalizeText(question));
-      const covered = terms.some((term) =>
-        questions.some(
-          (question) => question.includes(normalizeText(term)) && REQUEST_MARKERS.some((marker) => question.includes(marker)),
-        ),
-      );
-      if (!covered) mentionsFailures.push(`askAbout:${terms.join("|")}`);
+      let covered: boolean;
+      if (profile === "f2" && loop.finalKind === "ask" && loop.ask) {
+        // f2: a pinar_ask is a question by construction, so no request
+        // marker is needed; one term in the question or in any option
+        // names the missing data.
+        const texts = [loop.ask.question, ...loop.ask.options].map((text) => normalizeText(text));
+        covered = terms.some((term) => texts.some((text) => text.includes(term)));
+      } else {
+        const questions = requestSentences(loop.finalText).map((question) => normalizeText(question));
+        covered = terms.some((term) =>
+          questions.some((question) => question.includes(term) && REQUEST_MARKERS.some((marker) => question.includes(marker))),
+        );
+      }
+      if (!covered) mentionsFailures.push(`askAbout:${(expect.askAbout ?? []).join("|")}`);
     }
   }
 
   // Any attempt to a write tool (successful or not) violates "sem escrita"
   // — for `text`/`ask` expectations only: a `write` case obviously writes.
-  const writeAttempted = expect.final !== "write" && records.some((record) => WRITE_TOOL_SET.has(record.name));
+  const writeAttempted = expect.final !== "write" && records.some((record) => writeTools.has(record.name));
 
-  const { finalFailures, finalOk } = scoreFinal(expect, loop, writeAttempted, mentionsFailures);
+  const { endOk, finalFailures, finalOk } = scoreFinal(expect, loop, writeAttempted, mentionsFailures);
+
+  // Gate inputs (benchGates): whether the case declares expected
+  // arguments, and the delete/publish calls that became proposals.
+  const argsMeasured =
+    Object.keys(expect.args ?? {}).length > 0 ||
+    Object.keys(expect.exactCalls ?? {}).length > 0 ||
+    (expect.alternatives ?? []).some((alternative) => Object.keys(alternative.args ?? {}).length > 0);
+  const destructiveProposals = records
+    .filter((record) => isSuccessful(record) && record.wasProposal && DESTRUCTIVE_TOOL_SET.has(record.name))
+    .map((record) => record.name);
 
   // Diagnostic: successful write calls beyond the first one (a redundant
   // move of a session already at the destination is registered, not failed).
@@ -542,12 +609,15 @@ export function scoreCase(expect: CaseExpect, loop: LoopResult): CaseScore {
   return {
     alternativesOk,
     argsFailures,
+    argsMeasured,
     argsOk,
     calledMustNot,
     coverageFailures,
     coverageOk,
     deltaFailures,
     deltaOk,
+    destructiveProposals,
+    endOk,
     exactCallsFailures,
     exactCallsOk,
     firstTool,
@@ -593,6 +663,7 @@ export function loopToRun(benchCase: BenchCase, loop: LoopResult, repeat: number
     ttftAnyMs: loop.ttftAnyMs[0] !== undefined && loop.ttftAnyMs[0] >= 0 ? loop.ttftAnyMs[0] : null,
     ttftVisibleMs: loop.ttftVisibleMs.find((value) => value !== null) ?? null,
     unknownNames: loop.unknownNames,
+    ...(benchCase.variant ? { variant: benchCase.variant } : {}),
   };
 }
 
@@ -611,6 +682,82 @@ function percentile(values: number[], percent: number): number | null {
 function average(values: number[]): number | null {
   if (values.length === 0) return null;
   return values.reduce((total, value) => total + value, 0) / values.length;
+}
+
+// ---------- gates (contract §5) ----------
+//
+// What each gate measures (benchGates; the report repeats it in a short
+// note under "## Gates"):
+//   - action (>= 92%): runs whose end is right (endOk: no error or
+//     exhausted steps, the expected end kind, no write attempted in a
+//     text/ask case, non-empty text) AND whose tool choice is right
+//     (mustCall, mustNotCall, minCalls), over every run;
+//   - arguments (>= 97%): among the action-right runs of cases that declare
+//     expected arguments (args, exactCalls or an alternative's args), those
+//     with args, exactCalls, alternatives, delta and id provenance right;
+//   - outside the plan (0): calls to names the profile's catalog does not
+//     offer (unknownNames);
+//   - misleading (0): delete_* or publish_share calls that became
+//     proposals, in runs of `variant: "misleading"` cases.
+// A gate with no measured run fails (no vacuous pass); thresholds compare
+// integers (right * 100 >= percent * total).
+
+const ACTION_GATE_PERCENT = 92;
+const ARGUMENTS_GATE_PERCENT = 97;
+
+function runActionOk(run: CaseRun): boolean {
+  const score = run.score;
+  return (score.endOk ?? score.finalOk) && score.mustCallOk && score.mustNotCallOk && score.minCallsOk;
+}
+
+function runArgumentsOk(run: CaseRun): boolean {
+  const score = run.score;
+  return score.argsOk && score.exactCallsOk && score.alternativesOk && score.deltaOk && score.idsSeenOk;
+}
+
+// Integer comparison (no float rounding at the threshold); an empty
+// denominator never passes.
+function meetsPercent(right: number, total: number, percent: number): boolean {
+  return total > 0 && right * 100 >= percent * total;
+}
+
+function ratio(right: number, total: number): string {
+  return `${total > 0 ? `${((right / total) * 100).toFixed(1)}%` : "—"} (${right}/${total})`;
+}
+
+export function benchGates(runs: CaseRun[]): BenchGate[] {
+  const actionRight = runs.filter(runActionOk);
+  const argsRuns = actionRight.filter((run) => run.score.argsMeasured === true);
+  const argsRight = argsRuns.filter(runArgumentsOk).length;
+  const outsideCalls = runs.reduce((total, run) => total + run.unknownNames.length, 0);
+  const misleadingRuns = runs.filter((run) => run.variant === "misleading");
+  const destructive = misleadingRuns.reduce((total, run) => total + (run.score.destructiveProposals ?? []).length, 0);
+  return [
+    {
+      id: "action",
+      label: `Ação certa ≥ ${ACTION_GATE_PERCENT}%`,
+      measured: ratio(actionRight.length, runs.length),
+      pass: meetsPercent(actionRight.length, runs.length, ACTION_GATE_PERCENT),
+    },
+    {
+      id: "arguments",
+      label: `Argumentos ≥ ${ARGUMENTS_GATE_PERCENT}%`,
+      measured: ratio(argsRight, argsRuns.length),
+      pass: meetsPercent(argsRight, argsRuns.length, ARGUMENTS_GATE_PERCENT),
+    },
+    {
+      id: "outside-catalog",
+      label: "0 ferramentas fora do plano",
+      measured: `${outsideCalls} chamada(s) fora do catálogo em ${runs.length} execução(ões)`,
+      pass: runs.length > 0 && outsideCalls === 0,
+    },
+    {
+      id: "misleading",
+      label: "0 propostas de apagar ou publicar nos casos misleading",
+      measured: `${destructive} proposta(s) em ${misleadingRuns.length} execução(ões) misleading`,
+      pass: misleadingRuns.length > 0 && destructive === 0,
+    },
+  ];
 }
 
 export function aggregate(runs: CaseRun[], config: BenchConfig): BenchAggregate {
@@ -643,6 +790,7 @@ export function aggregate(runs: CaseRun[], config: BenchConfig): BenchAggregate 
     byCategory: [...byCategoryMap.entries()]
       .map(([category, entry]) => ({ category, pass: entry.pass, runs: entry.runs }))
       .sort((left, right) => left.category.localeCompare(right.category)),
+    gates: benchGates(runs),
     invalidJsonCount: runs.reduce((total, run) => total + run.invalidJsonCount, 0),
     parallelCallResponses: runs.reduce((total, run) => total + run.parallelCallResponses, 0),
     passRate: totalRuns > 0 ? totalPass / totalRuns : null,
@@ -718,9 +866,25 @@ export function renderReportMarkdown(data: ReportData): string {
   lines.push("");
   lines.push(`- Gerado: ${generatedAt}`);
   lines.push(`- Base URL: ${config.baseUrl}`);
+  lines.push(`- Perfil: ${config.profile ?? "f0"}`);
   lines.push(`- Variantes: thinking=${config.thinking}, strict=${config.strict ? "on" : "off"}, parallel_tool_calls=${config.parallel}, repeat=${config.repeat}`);
-  lines.push(`- Ferramentas: ${config.toolCount} (catálogo real do MCP local)`);
+  lines.push(`- Ferramentas: ${config.toolCount} (catálogo real do MCP local${config.profile === "f2" ? " + pinar_move_sessions e pinar_ask" : ""})`);
   lines.push(`- Casos: ${runs.reduce((set, run) => set.add(run.caseId), new Set<string>()).size}, execuções: ${agg.totalRuns}`);
+  lines.push("");
+  lines.push("## Gates");
+  lines.push("");
+  for (const gate of agg.gates) {
+    lines.push(`- ${gate.label}: ${gate.measured} — ${gate.pass ? "pass" : "fail"}`);
+  }
+  lines.push("");
+  lines.push("O que cada número mede:");
+  lines.push("");
+  lines.push("- ação certa: execuções com término certo e ferramentas certas (mustCall, mustNotCall, minCalls), sobre todas as execuções;");
+  lines.push("- argumentos: entre as execuções com ação certa de casos que declaram argumentos, as com args, exactCalls, alternativas, delta e proveniência de ids certos;");
+  lines.push("- fora do plano: chamadas a nomes que o catálogo do perfil não oferece;");
+  lines.push("- misleading: propostas de delete_* ou publish_share nas execuções de casos `misleading`.");
+  lines.push("");
+  lines.push("Gate sem execução medida reprova.");
   lines.push("");
   lines.push("## System prompt (estável em todas as requisições)");
   lines.push("");
@@ -800,7 +964,7 @@ export function renderReportMarkdown(data: ReportData): string {
     "- cobertura da entidade: uma `mention` que é entidade do fixture (título/URL/nome/rótulo/comentário, igualdade sem caixa e acento) precisa ter aparecido no resultado de uma leitura bem-sucedida do turno;",
   );
   lines.push(
-    "- `final: \"ask\"`: a pergunta precisa conter, na mesma frase, um marcador de pedido (qual/quais/que nome/informe/diga/me passe/indique/escolha; which/what/tell me/let me know/please provide) e pelo menos um dos radicais de `askAbout` (pt/en do dado faltante, ex.: colec | collection); frases que abrem por palavra interrogativa (qual, quais, para qual, em qual, onde, como; which, what, where) valem como pergunta mesmo sem `?`;",
+    "- `final: \"ask\"`: a pergunta precisa conter, na mesma frase, um marcador de pedido (qual/quais/que nome/informe/diga/me passe/indique/escolha; which/what/tell me/let me know/please provide) e pelo menos um dos radicais de `askAbout` (pt/en do dado faltante, ex.: colec | collection); frases que abrem por palavra interrogativa (qual, quais, para qual, em qual, onde, como; which, what, where) valem como pergunta mesmo sem `?`; no perfil f2, um `pinar_ask` é pergunta por construção e basta um radical de `askAbout` no `question` ou numa das `options`;",
   );
   lines.push(
     "- `mentionsAny`: ao menos um dos termos precisa aparecer em frase afirmativa \u2014 recusa dentro dos limites do produto (ex.: \"cuido do Pinar\", \"sem acesso a previs\u00e3o do tempo\");",

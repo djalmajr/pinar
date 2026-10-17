@@ -8,6 +8,7 @@ import {
   defaultReleaseContent,
   findProductRelease,
   loadReleaseContent,
+  upcomingChanges,
 } from "./release-content";
 
 const repositoryRoot = fileURLToPath(new URL("../../../../", import.meta.url));
@@ -169,7 +170,7 @@ describe("upcoming release content", () => {
     if (upcoming) {
       assert.deepEqual(
         upcoming.changes.map((change) => change.id),
-        ["assistant", "automatic-capture-destination", "assistant-credits"],
+        upcomingChanges,
       );
     }
     assert.equal("tag" in (upcoming ?? {}), false);
@@ -184,6 +185,7 @@ describe("upcoming release content", () => {
     assert.equal(findProductRelease(english, "assistant"), null);
     assert.equal(findProductRelease(english, "automatic-capture-destination"), null);
     assert.equal(findProductRelease(english, "assistant-credits"), null);
+    assert.equal(findProductRelease(english, "legal-update"), null);
     assert.equal(findProductRelease(english, "v0.5.1")?.tag, "v0.5.1");
   });
 
@@ -199,10 +201,12 @@ describe("upcoming release content", () => {
     assert.equal(new Set(present).size, 1, "upcoming present in some locales only");
 
     if (!present[0]) {
+      // The section label ships with the mechanism, not with the content:
+      // it stays in every locale while the upcoming block is absent.
       for (const content of contents) {
         assert.equal(
           "upcomingRelease" in content.ui,
-          false,
+          true,
           content.language,
         );
       }
@@ -266,7 +270,9 @@ describe("upcoming release content", () => {
 
   test("states the assistant's per-message cost as Pinar Cloud usage in every locale", async () => {
     for (const content of await loadEveryReleaseLocale()) {
-      const change = content.upcoming?.changes.find((item) => item.id === "assistant-credits");
+      const release = findProductRelease(content, "v0.8.0");
+      assert.ok(release, content.language);
+      const change = release.changes.find((item) => item.id === "assistant-credits");
       assert.ok(change, content.language);
       assert.match(change.title, /Pinar Cloud/, content.language);
       assert.match(change.description, /Pinar Cloud/, content.language);

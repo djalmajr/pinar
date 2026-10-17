@@ -23,6 +23,30 @@ const locale = {
     whatChanged: "Ce qui a changé",
   },
   releases: {
+    "v0.8.0": {
+      title: "Un assistant pour vos captures",
+      summary:
+        "Un chat dans le workspace répond sur votre travail et l’organise après votre confirmation, une option de capture choisit la collection à votre place, chaque fonction IA de Pinar Cloud consomme des crédits et la Politique de confidentialité, les Conditions d’utilisation et la page Service Providers and Subprocessors ont été mises à jour, avec un consentement renouvelé pour Pinar Cloud.",
+      changes: {
+        "assistant": {
+          title: "Interrogez l’assistant sur vos captures",
+          description: "Un nouveau chat dans le workspace, dans l’application locale et dans Pinar Cloud, répond aux questions sur vos projets, collections, sessions, lots et épingles, y compris sur ce qui apparaît dans la capture d’écran d’une épingle. Il crée, renomme, déplace, supprime, commente, conclut et rouvre aussi des éléments, toujours sous forme de proposition : rien ne change avant votre confirmation, et certaines actions peuvent être annulées depuis la même carte. Dans l’application locale, il utilise l’IA configurée dans les Paramètres.",
+        },
+        "automatic-capture-destination": {
+          title: "Pinar choisit la collection des nouvelles captures",
+          description: "Activez « Choisir la collection automatiquement » dans Paramètres → Capture et Pinar range chaque nouvelle capture dans l’une de vos collections. En cas de doute, la capture va dans la Boîte de réception, et les captures d’un même lot restent ensemble. Les sessions classées ainsi affichent une marque ; déplacer la session corrige le choix et retire la marque. L’option a besoin d’une IA disponible. Tant que l’option reste activée sans IA disponible, les nouvelles captures vont dans la Boîte de réception ; pour choisir vous-même la destination, désactivez-la.",
+        },
+        "assistant-credits": {
+          title: "Chaque fonction IA de Pinar Cloud consomme des crédits",
+          description: "Dans Pinar Cloud, chaque appel d’IA se fait désormais dans une action facturée. L’assistant fait partie de Pro et utilise 3 crédits par message, et une réponse qui échoue les rend ; confirmer ou annuler une proposition ne coûte rien. Générer les étapes rédigées de reproduction utilise désormais 1 crédit par génération ; une génération qui échoue le rend, et sans solde la demande est refusée. Avec le choix automatique de la collection, chaque capture dont l’IA choisit la collection utilise 1 crédit, même quand la réponse est la Boîte de réception ; un choix en échec ou expiré le rend, et sans solde l’IA n’est pas appelée et la capture va dans la Boîte de réception. Reverser la même capture ne refait pas payer. L’indexation ne s’exécute plus en arrière-plan : les épingles sont indexées seulement pendant qu’un message est répondu par l’assistant, ce que ses 3 crédits couvrent déjà, et le choix automatique utilise l’index qui existe déjà.",
+        },
+        "legal-update": {
+          title: "Documents juridiques mis à jour",
+          description:
+            "La Politique de confidentialité, les Conditions d’utilisation et la page Service Providers and Subprocessors ont été mises à jour. Elles décrivent désormais les fonctions IA de Pinar Cloud, qui accèdent aux fournisseurs d’IA par le Vercel AI Gateway, votre rôle de responsable de traitement des données de tiers dans votre contenu, Pinar agissant en qualité de sous-traitant, le fait que le service hébergé fonctionne sur des serveurs en Allemagne et les cookies utilisés par le service : Pinar n’utilise ni cookie publicitaire ni cookie d’analyse. Si vous utilisez Pinar Cloud, vous acceptez à nouveau les documents mis à jour.",
+        },
+      },
+    },
     "v0.7.4": {
       title: "Pinar Cloud affiche le bon bouton dès le début",
       summary:
@@ -596,24 +620,6 @@ const locale = {
           description:
             "La rédaction des champs sensibles, les masques manuels, le consentement versionné et les politiques de service publiées ont établi la frontière de sécurité du cloud.",
         },
-      },
-    },
-  },
-  upcoming: {
-    title: "Un assistant pour vos captures",
-    summary: "Bientôt : un chat qui répond sur votre travail et l’organise après votre confirmation, une option de capture qui choisit la collection à votre place et des messages à l’assistant dans Pinar Cloud qui utilisent des crédits IA.",
-    changes: {
-      "assistant": {
-        title: "Interrogez l’assistant sur vos captures",
-        description: "Un nouveau chat dans le workspace, dans l’application locale et dans Pinar Cloud, répond aux questions sur vos projets, collections, sessions, lots et épingles, y compris sur ce qui apparaît dans la capture d’écran d’une épingle. Il crée, renomme, déplace, supprime, commente, conclut et rouvre aussi des éléments, toujours sous forme de proposition : rien ne change avant votre confirmation, et certaines actions peuvent être annulées depuis la même carte. Dans l’application locale, il utilise l’IA configurée dans les Paramètres.",
-      },
-      "automatic-capture-destination": {
-        title: "Pinar choisit la collection des nouvelles captures",
-        description: "Activez « Choisir la collection automatiquement » dans Paramètres → Capture et Pinar range chaque nouvelle capture dans l’une de vos collections. En cas de doute, la capture va dans la Boîte de réception, et les captures d’un même lot restent ensemble. Les sessions classées ainsi affichent une marque ; déplacer la session corrige le choix et retire la marque. L’option a besoin d’une IA disponible. Tant que l’option reste activée sans IA disponible, les nouvelles captures vont dans la Boîte de réception ; pour choisir vous-même la destination, désactivez-la.",
-      },
-      "assistant-credits": {
-        title: "Chaque fonction IA de Pinar Cloud consomme des crédits",
-        description: "Dans Pinar Cloud, chaque appel d’IA se fait désormais dans une action facturée. L’assistant fait partie de Pro et utilise 3 crédits par message, et une réponse qui échoue les rend ; confirmer ou annuler une proposition ne coûte rien. Générer les étapes rédigées de reproduction utilise désormais 1 crédit par génération ; une génération qui échoue le rend, et sans solde la demande est refusée. Avec le choix automatique de la collection, chaque capture dont l’IA choisit la collection utilise 1 crédit, même quand la réponse est la Boîte de réception ; un choix en échec ou expiré le rend, et sans solde l’IA n’est pas appelée et la capture va dans la Boîte de réception. Reverser la même capture ne refait pas payer. L’indexation ne s’exécute plus en arrière-plan : les épingles sont indexées seulement pendant qu’un message est répondu par l’assistant, ce que ses 3 crédits couvrent déjà, et le choix automatique utilise l’index qui existe déjà.",
       },
     },
   },

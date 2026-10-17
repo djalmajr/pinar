@@ -22,6 +22,30 @@ const locale = {
     whatChanged: "Qué cambió",
   },
   releases: {
+    "v0.8.0": {
+      title: "Un asistente para tus capturas",
+      summary:
+        "Un chat en el espacio de trabajo responde sobre tu trabajo y lo organiza cuando confirmas, una opción de captura elige la colección por ti, todas las funciones de IA de Pinar Cloud usan créditos y la Política de privacidad, los Términos del Servicio y la página Service Providers and Subprocessors se actualizaron, con aceptación renovada para Pinar Cloud.",
+      changes: {
+        "assistant": {
+          title: "Pregunta al asistente sobre tus capturas",
+          description: "Un nuevo chat en el espacio de trabajo, en la aplicación local y en Pinar Cloud, responde preguntas sobre tus proyectos, colecciones, sesiones, lotes y pins, incluido lo que aparece en la captura de pantalla de un pin. También crea, renombra, mueve, elimina, comenta, concluye y reabre elementos, siempre como propuesta: nada cambia hasta que confirmas, y algunas acciones se pueden deshacer desde la misma tarjeta. En la aplicación local usa la IA que configuraste en Configuración.",
+        },
+        "automatic-capture-destination": {
+          title: "Pinar elige la colección de las capturas nuevas",
+          description: "Activa “Elegir la colección automáticamente” en Configuración → Captura y Pinar coloca cada captura nueva en una de tus colecciones. Si tiene dudas, la captura va a la Bandeja de entrada, y las capturas de un mismo lote se quedan juntas. Las sesiones archivadas así muestran una marca; mover la sesión corrige la elección y quita la marca. La opción necesita la IA disponible. Mientras la opción siga activada sin la IA disponible, las capturas nuevas van a la Bandeja de entrada; para elegir el destino a mano, desactívala.",
+        },
+        "assistant-credits": {
+          title: "Todas las funciones de IA de Pinar Cloud usan créditos",
+          description: "En Pinar Cloud, cada llamada de IA ahora ocurre dentro de una acción cobrada. El asistente forma parte de Pro y usa 3 créditos por mensaje, y una respuesta que falla los devuelve; confirmar o deshacer una propuesta no cuesta nada. Generar los pasos escritos de reproducción ahora usa 1 crédito por generación; una generación que falla lo devuelve, y sin saldo la petición se rechaza. Con la elección automática de la colección, cada captura cuya colección elige la IA usa 1 crédito, incluso cuando la respuesta es la Bandeja de entrada; una elección fallida o con el plazo vencido lo devuelve, y sin saldo la IA no interviene y la captura va a la Bandeja de entrada. Subir de nuevo la misma captura no vuelve a cobrar. La indexación ya no ocurre en segundo plano: los pins se indexan solo mientras el asistente responde un mensaje, lo que sus 3 créditos ya cubren, y la elección automática usa el índice que ya existe.",
+        },
+        "legal-update": {
+          title: "Documentos legales actualizados",
+          description:
+            "La Política de privacidad, los Términos del Servicio y la página Service Providers and Subprocessors se actualizaron. Ahora describen las funciones de IA de Pinar Cloud, que acceden a los proveedores de IA a través del Vercel AI Gateway, que tú sigues siendo el responsable del tratamiento de los datos de terceros en tu contenido mientras Pinar actúa como encargado del tratamiento, que el servicio hospedado se ejecuta en servidores en Alemania y las cookies que usa el servicio: Pinar no usa cookies de publicidad ni de análisis. Si usas Pinar Cloud, aceptas de nuevo los documentos actualizados.",
+        },
+      },
+    },
     "v0.7.4": {
       title: "Pinar Cloud muestra el botón correcto desde el principio",
       summary:
@@ -596,24 +620,6 @@ const locale = {
           description:
             "La redacción de campos sensibles, las máscaras manuales, el consentimiento versionado y las políticas de servicio publicadas establecieron el límite de seguridad de la nube.",
         },
-      },
-    },
-  },
-  upcoming: {
-    title: "Un asistente para tus capturas",
-    summary: "Próximamente: un chat que responde sobre tu trabajo y lo organiza cuando confirmas, una opción de captura que elige la colección por ti y mensajes al asistente en Pinar Cloud que usan créditos de IA.",
-    changes: {
-      "assistant": {
-        title: "Pregunta al asistente sobre tus capturas",
-        description: "Un nuevo chat en el espacio de trabajo, en la aplicación local y en Pinar Cloud, responde preguntas sobre tus proyectos, colecciones, sesiones, lotes y pins, incluido lo que aparece en la captura de pantalla de un pin. También crea, renombra, mueve, elimina, comenta, concluye y reabre elementos, siempre como propuesta: nada cambia hasta que confirmas, y algunas acciones se pueden deshacer desde la misma tarjeta. En la aplicación local usa la IA que configuraste en Configuración.",
-      },
-      "automatic-capture-destination": {
-        title: "Pinar elige la colección de las capturas nuevas",
-        description: "Activa “Elegir la colección automáticamente” en Configuración → Captura y Pinar coloca cada captura nueva en una de tus colecciones. Si tiene dudas, la captura va a la Bandeja de entrada, y las capturas de un mismo lote se quedan juntas. Las sesiones archivadas así muestran una marca; mover la sesión corrige la elección y quita la marca. La opción necesita la IA disponible. Mientras la opción siga activada sin la IA disponible, las capturas nuevas van a la Bandeja de entrada; para elegir el destino a mano, desactívala.",
-      },
-      "assistant-credits": {
-        title: "Todas las funciones de IA de Pinar Cloud usan créditos",
-        description: "En Pinar Cloud, cada llamada de IA ahora ocurre dentro de una acción cobrada. El asistente forma parte de Pro y usa 3 créditos por mensaje, y una respuesta que falla los devuelve; confirmar o deshacer una propuesta no cuesta nada. Generar los pasos escritos de reproducción ahora usa 1 crédito por generación; una generación que falla lo devuelve, y sin saldo la petición se rechaza. Con la elección automática de la colección, cada captura cuya colección elige la IA usa 1 crédito, incluso cuando la respuesta es la Bandeja de entrada; una elección fallida o con el plazo vencido lo devuelve, y sin saldo la IA no interviene y la captura va a la Bandeja de entrada. Subir de nuevo la misma captura no vuelve a cobrar. La indexación ya no ocurre en segundo plano: los pins se indexan solo mientras el asistente responde un mensaje, lo que sus 3 créditos ya cubren, y la elección automática usa el índice que ya existe.",
       },
     },
   },

@@ -8,12 +8,9 @@ export type ReleaseChangeId =
 /**
  * Unreleased work shown above the published history. It has no tag and no
  * date, so it must never be looked up through the tag-based release routes.
+ * Empty while there is no prepared release; the v0.8.0 changes shipped.
  */
-export const upcomingChanges = [
-  "assistant",
-  "automatic-capture-destination",
-  "assistant-credits",
-] as const;
+export const upcomingChanges: readonly string[] = [];
 export type UpcomingChangeId = (typeof upcomingChanges)[number];
 
 export interface ReleaseChange {
@@ -89,6 +86,16 @@ export interface ReleaseContent {
 }
 
 export const releaseDefinitions = [
+  {
+    tag: "v0.8.0",
+    date: "2026-10-17",
+    changes: [
+      "assistant",
+      "automatic-capture-destination",
+      "assistant-credits",
+      "legal-update",
+    ],
+  },
   {
     tag: "v0.7.4",
     date: "2026-10-16",

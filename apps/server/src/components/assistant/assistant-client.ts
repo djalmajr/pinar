@@ -148,9 +148,9 @@ export function buildTurnRequestBody(
 /**
  * Error code → i18n key (contract section 4). Stream failures deliver only
  * the AssistantErrorCode as the error text; out-of-stream JSON errors use
- * the snake_case codes. Unknown codes and `ASSISTANT_STREAM_FAILED` /
- * `assistant_unavailable` fall back to the generic failure note; a network
- * failure uses `assistant.errorNetwork` at the call site.
+ * the snake_case codes. `"network"` (see assistantErrorFromChatError) uses
+ * the network note; unknown codes and `ASSISTANT_STREAM_FAILED` /
+ * `assistant_unavailable` fall back to the generic failure note.
  */
 export function assistantErrorMessageKey(code: string | null | undefined): AssistantErrorKey {
   switch (code) {
@@ -162,9 +162,57 @@ export function assistantErrorMessageKey(code: string | null | undefined): Assis
       return "assistant.errorRateLimited";
     case "assistant_requires_pro":
       return "assistant.requiresPro";
+    case "network":
+      return "assistant.errorNetwork";
     default:
       return "assistant.errorFailed";
   }
+}
+
+/**
+ * Classify a chat error before mapping it to an i18n key. In-stream
+ * failures arrive as `{ type: "error", errorText }` parts and the Chat
+ * delivers them as `new Error(errorText)`, so an AssistantErrorCode that is
+ * the whole message names the contract error; the transport turns a
+ * non-2xx answer into an APICallError whose message is the raw response
+ * body, so a string `code` in that JSON body names the contract error; a
+ * fetch rejection is a network failure; anything else is unknown. Only
+ * these values are returned, never the raw error text.
+ */
+const STREAM_ERROR_CODES = new Set([
+  "ASSISTANT_STREAM_FAILED",
+  "ASSISTANT_TURN_INCOMPLETE",
+  "ASSISTANT_TURN_TIMEOUT",
+]);
+
+export function assistantErrorFromChatError(error: Error): string {
+  if (STREAM_ERROR_CODES.has(error.message)) return error.message;
+  const code = readErrorBodyCode(error.message);
+  if (code !== null) return code;
+  if (isAssistantNetworkError(error)) return "network";
+  return "unknown";
+}
+
+function readErrorBodyCode(message: string): string | null {
+  try {
+    const body: unknown = JSON.parse(message);
+    if (isRecord(body) && typeof body.code === "string" && body.code !== "") {
+      return body.code;
+    }
+  } catch {
+    // Not a JSON body: the message does not carry an API answer code.
+  }
+  return null;
+}
+
+function isAssistantNetworkError(error: Error): boolean {
+  const message = error.message.toLowerCase();
+  if (error instanceof TypeError) {
+    // Node/Chromium "fetch failed"; Firefox "NetworkError when attempting
+    // to fetch resource."; Safari "load failed".
+    return message.includes("fetch") || message.includes("network") || message === "load failed";
+  }
+  return message === "fetch failed" || message === "failed to fetch" || message === "networkerror";
 }
 
 /**

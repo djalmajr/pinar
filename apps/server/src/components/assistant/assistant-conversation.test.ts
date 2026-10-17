@@ -1,0 +1,448 @@
+// Review finding 1 and 2 (rev-f1): conversation switching must isolate the
+// in-flight stream, and turn errors must keep their HTTP error code and the
+// network distinction. The scenarios below reuse the reviewer's probe
+// (rev-f1-20261016T233144.probe.sdk.ts): a real SDK Chat plus a real
+// DefaultChatTransport, with a controllable SSE stream that keeps delivering
+// events even after the switch.
+import { describe, expect, test } from "bun:test";
+import {
+  assistantErrorFromChatError,
+  assistantErrorMessageKey,
+  type AssistantThreadDetail,
+} from "./assistant-client";
+import {
+  createAssistantConversation,
+  openAssistantConversation,
+  startAssistantConversation,
+  stopAssistantConversation,
+  type AssistantConversation,
+  type AssistantConversationHooks,
+  type AssistantConversationStore,
+} from "./assistant-conversation";
+
+interface StreamedConversation {
+  close: () => void;
+  conversation: AssistantConversation;
+  emit: (chunk: Record<string, unknown>) => void;
+  send: Promise<void>;
+}
+
+/**
+ * A conversation whose turn stream is a controllable SSE response, exactly
+ * the shape the reviewer's probe used: the fetch never closes on its own, so
+ * events emitted after the switch are "late" events.
+ */
+function startStreamingConversation(
+  hooks: AssistantConversationHooks,
+  generation: number,
+): StreamedConversation {
+  let controller: ReadableStreamDefaultController<Uint8Array>;
+  const encoder = new TextEncoder();
+  const conversation = createAssistantConversation({
+    chatId: "assistant:new:0",
+    fetch: async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(streamController) {
+            controller = streamController;
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      ),
+    generation,
+    hooks,
+    messages: [],
+    threadId: null,
+  });
+  const send = conversation.chat.sendMessage({ text: "question A" });
+  return {
+    close: () => controller.close(),
+    conversation,
+    emit: (chunk) => {
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+    },
+    send,
+  };
+}
+
+function textParts(conversation: AssistantConversation): string[] {
+  return conversation.chat.messages.flatMap((message) =>
+    message.parts
+      .filter((part): part is { text: string; type: "text" } => part.type === "text")
+      .map((part) => part.text),
+  );
+}
+
+describe("switching conversations isolates the in-flight stream (real SDK Chat)", () => {
+  test("a late delta of a switched-away stream never reaches the new conversation", async () => {
+    const cell = { current: 0 };
+    let activeThreadId: string | null = null;
+    const hooks: AssistantConversationHooks = {
+      generation: cell,
+      onActiveThreadCreated: (id) => {
+        activeThreadId = id;
+      },
+      onThreadEntry: () => undefined,
+    };
+    const a = startStreamingConversation(hooks, 0);
+    const store: AssistantConversationStore = {
+      current: a.conversation,
+      hooks,
+      newThreadCountRef: { current: 0 },
+      requestedThreadRef: { current: null },
+    };
+
+    await Bun.sleep(20);
+    a.emit({ messageId: "answerA", type: "start" });
+    a.emit({ data: { id: "ath_A", title: "A" }, type: "data-thread" });
+    a.emit({ id: "t", type: "text-start" });
+    a.emit({ delta: "first A", id: "t", type: "text-delta" });
+    await Bun.sleep(20);
+    expect(activeThreadId).toBe("ath_A"); // while conversation A was active
+
+    // The panel's "new conversation" switch: stop first, then the fresh chat.
+    const next = await startAssistantConversation(store);
+    activeThreadId = null; // the panel resets the active thread id
+
+    // A's stream delivers a late delta after the switch.
+    a.emit({ delta: " late A", id: "t", type: "text-delta" });
+    a.emit({ id: "t", type: "text-end" });
+    a.emit({ type: "finish" });
+    a.close();
+    await a.send;
+
+    // The new conversation is still empty and its thread id is still null.
+    expect(next.chatId).toBe("assistant:new:1");
+    expect(next.threadId.current).toBeNull();
+    expect(next.chat.messages).toEqual([]);
+    expect(activeThreadId).toBeNull();
+    // The old answer stays on the old conversation, without the late delta.
+    const answerA = a.conversation.chat.messages.find((message) => message.id === "answerA");
+    expect(
+      answerA?.parts
+        .filter((part): part is { text: string; type: "text" } => part.type === "text")
+        .map((part) => part.text),
+    ).toEqual(["first A"]);
+  });
+
+  test("a data-thread that arrives after the switch does not re-associate the active thread id", async () => {
+    const cell = { current: 0 };
+    let activeThreadId: string | null = null;
+    const threadEntries: Array<{ id: string; title: string }> = [];
+    const hooks: AssistantConversationHooks = {
+      generation: cell,
+      onActiveThreadCreated: (id) => {
+        activeThreadId = id;
+      },
+      onThreadEntry: (entry) => {
+        threadEntries.push({ id: entry.id, title: entry.title });
+      },
+    };
+    // Conversation A is created with generation 0; the panel has since
+    // switched (the active generation is now 1) while A's stream was still
+    // delivering its first parts.
+    const a = startStreamingConversation(hooks, 0);
+    await Bun.sleep(20);
+    cell.current = 1;
+    a.emit({ messageId: "answerA", type: "start" });
+    a.emit({ data: { id: "ath_A", title: "A" }, type: "data-thread" });
+    a.emit({ id: "t", type: "text-start" });
+    a.emit({ delta: "first A", id: "t", type: "text-delta" });
+    a.emit({ id: "t", type: "text-end" });
+    a.emit({ type: "finish" });
+    a.close();
+    await a.send;
+
+    // The generation guard drops the stale data-thread for the panel, while
+    // the conversation itself still knows its own thread id.
+    expect(activeThreadId).toBeNull();
+    expect(threadEntries).toEqual([]);
+    expect(a.conversation.threadId.current).toBe("ath_A");
+  });
+
+  test("opening a stored conversation while A streams: a late delta of A never reaches B", async () => {
+    const cell = { current: 0 };
+    let activeThreadId: string | null = null;
+    const hooks: AssistantConversationHooks = {
+      generation: cell,
+      onActiveThreadCreated: (id) => {
+        activeThreadId = id;
+      },
+      onThreadEntry: () => undefined,
+    };
+    const a = startStreamingConversation(hooks, 0);
+    const store: AssistantConversationStore = {
+      current: a.conversation,
+      hooks,
+      newThreadCountRef: { current: 0 },
+      requestedThreadRef: { current: null },
+    };
+
+    await Bun.sleep(20);
+    a.emit({ messageId: "answerA", type: "start" });
+    a.emit({ id: "t", type: "text-start" });
+    a.emit({ delta: "first A", id: "t", type: "text-delta" });
+    await Bun.sleep(20);
+
+    const detailB: AssistantThreadDetail = {
+      messages: [
+        {
+          createdAt: "2026-10-01T00:00:00.000Z",
+          errorCode: null,
+          id: "amg_1",
+          role: "user",
+          status: "final",
+          text: "hello B",
+          threadId: "ath_B",
+        },
+        {
+          createdAt: "2026-10-01T00:00:01.000Z",
+          errorCode: null,
+          id: "amg_2",
+          role: "assistant",
+          status: "final",
+          text: "hi there",
+          threadId: "ath_B",
+        },
+      ],
+      thread: {
+        createdAt: "2026-10-01T00:00:00.000Z",
+        id: "ath_B",
+        title: "B",
+        updatedAt: "2026-10-01T00:00:01.000Z",
+      },
+    };
+    const result = await openAssistantConversation(store, "ath_B", async () => detailB);
+    expect(result.kind).toBe("switched");
+    const b = result.conversation;
+    activeThreadId = "ath_B"; // the panel
+
+    // A's stream delivers a late delta after the switch.
+    a.emit({ delta: " late A", id: "t", type: "text-delta" });
+    a.emit({ id: "t", type: "text-end" });
+    a.emit({ type: "finish" });
+    a.close();
+    await a.send;
+
+    // B keeps exactly its stored messages: nothing of A was attached.
+    expect(b.chatId).toBe("assistant:ath_B");
+    expect(b.threadId.current).toBe("ath_B");
+    expect(cell.current).toBe(1);
+    expect(textParts(b)).toEqual(["hello B", "hi there"]);
+    expect(activeThreadId).toBe("ath_B");
+  });
+
+  test("out-of-order thread answers: a late response for an earlier open is discarded", async () => {
+    const cell = { current: 0 };
+    const hooks: AssistantConversationHooks = {
+      generation: cell,
+      onActiveThreadCreated: () => undefined,
+      onThreadEntry: () => undefined,
+    };
+    const a = startStreamingConversation(hooks, 0);
+    const store: AssistantConversationStore = {
+      current: a.conversation,
+      hooks,
+      newThreadCountRef: { current: 0 },
+      requestedThreadRef: { current: null },
+    };
+
+    const detailC: AssistantThreadDetail = {
+      messages: [
+        {
+          createdAt: "2026-10-02T00:00:00.000Z",
+          errorCode: null,
+          id: "amg_9",
+          role: "user",
+          status: "final",
+          text: "hi C",
+          threadId: "ath_C",
+        },
+      ],
+      thread: {
+        createdAt: "2026-10-02T00:00:00.000Z",
+        id: "ath_C",
+        title: "C",
+        updatedAt: "2026-10-02T00:00:00.000Z",
+      },
+    };
+    let resolveB: () => void = () => undefined;
+    const gateB = new Promise<void>((resolve) => {
+      resolveB = resolve;
+    });
+    const fetchThread = (id: string): Promise<AssistantThreadDetail | null> =>
+      id === "ath_B"
+        ? gateB.then(() => ({ ...detailC, thread: { ...detailC.thread, id: "ath_B", title: "B" } }))
+        : Promise.resolve(detailC);
+
+    // Open B, then C before B's answer arrives.
+    const openB = openAssistantConversation(store, "ath_B", fetchThread);
+    const openC = openAssistantConversation(store, "ath_C", fetchThread);
+    await Bun.sleep(10);
+    resolveB();
+    const [resultB, resultC] = await Promise.all([openB, openC]);
+
+    expect(resultB.kind).toBe("superseded");
+    expect(resultC.kind).toBe("switched");
+    expect(resultC.conversation.chatId).toBe("assistant:ath_C");
+    expect(resultC.conversation.threadId.current).toBe("ath_C");
+    expect(textParts(resultC.conversation)).toEqual(["hi C"]);
+    // Only the winning open bumped the generation.
+    expect(cell.current).toBe(1);
+  });
+});
+
+describe("turn errors through the real DefaultChatTransport", () => {
+  async function captureTurnError(
+    fetchImpl: typeof globalThis.fetch,
+  ): Promise<Error> {
+    const cell = { current: 0 };
+    const errors: Error[] = [];
+    const conversation = createAssistantConversation({
+      chatId: "assistant:new:0",
+      fetch: fetchImpl,
+      generation: 0,
+      hooks: {
+        generation: cell,
+        onTurnError: (error) => {
+          errors.push(error);
+        },
+      },
+      messages: [],
+      threadId: null,
+    });
+    // The transport delivers the JSON error body as the error message
+    // (APICallError); the SDK surfaces it through onError without rejecting
+    // sendMessage.
+    await conversation.chat.sendMessage({ text: "q" });
+    expect(errors).toHaveLength(1);
+    return errors[0];
+  }
+
+  test("429 with code assistant_rate_limited maps to assistant.errorRateLimited", async () => {
+    const error = await captureTurnError(async () => new Response(JSON.stringify({
+      code: "assistant_rate_limited",
+      error: "Too many requests",
+    }), { status: 429 }));
+    expect(assistantErrorFromChatError(error)).toBe("assistant_rate_limited");
+    expect(assistantErrorMessageKey(assistantErrorFromChatError(error))).toBe("assistant.errorRateLimited");
+  });
+
+  test("403 with code assistant_requires_pro maps to assistant.requiresPro", async () => {
+    const error = await captureTurnError(async () => new Response(JSON.stringify({
+      code: "assistant_requires_pro",
+      error: "Pro required",
+    }), { status: 403 }));
+    expect(assistantErrorFromChatError(error)).toBe("assistant_requires_pro");
+    expect(assistantErrorMessageKey(assistantErrorFromChatError(error))).toBe("assistant.requiresPro");
+  });
+
+  test("a rejected fetch maps to assistant.errorNetwork", async () => {
+    const error = await captureTurnError(async () => {
+      throw new TypeError("fetch failed");
+    });
+    expect(assistantErrorFromChatError(error)).toBe("network");
+    expect(assistantErrorMessageKey(assistantErrorFromChatError(error))).toBe("assistant.errorNetwork");
+  });
+
+  test("a non-JSON error body falls back to assistant.errorFailed", async () => {
+    const error = await captureTurnError(async () => new Response("internal error", { status: 500 }));
+    expect(assistantErrorFromChatError(error)).toBe("unknown");
+    expect(assistantErrorMessageKey(assistantErrorFromChatError(error))).toBe("assistant.errorFailed");
+  });
+});
+
+describe("assistantErrorFromChatError", () => {
+  test("extracts the string code of a JSON error body", () => {
+    expect(
+      assistantErrorFromChatError(new Error('{"error":"Too many requests","code":"assistant_rate_limited"}')),
+    ).toBe("assistant_rate_limited");
+  });
+
+  test("classifies fetch rejections as network, in the forms the transport really uses", () => {
+    // Node/Chromium, Firefox and Safari rejections.
+    expect(assistantErrorFromChatError(new TypeError("fetch failed"))).toBe("network");
+    expect(
+      assistantErrorFromChatError(new TypeError("NetworkError when attempting to fetch resource.")),
+    ).toBe("network");
+    expect(assistantErrorFromChatError(new TypeError("load failed"))).toBe("network");
+    expect(assistantErrorFromChatError(new Error("Failed to fetch"))).toBe("network");
+  });
+
+  test("anything else is unknown (never the raw error text)", () => {
+    expect(assistantErrorFromChatError(new Error("internal error"))).toBe("unknown");
+    expect(assistantErrorFromChatError(new Error('{"code":429}'))).toBe("unknown");
+    expect(assistantErrorFromChatError(new Error('"just a string"'))).toBe("unknown");
+  });
+});
+
+describe("in-stream error codes (real Chat + DefaultChatTransport)", () => {
+  // The reviewer's probe (s4-stream-error.probe.ts) scenario: an SSE stream
+  // `start` + `error` part. The SDK delivers the part to onError as
+  // `new Error(errorText)`, so the code arrives as the whole message.
+  const cases: Array<[code: string, key: string]> = [
+    ["ASSISTANT_TURN_TIMEOUT", "assistant.errorTimeout"],
+    ["ASSISTANT_TURN_INCOMPLETE", "assistant.errorIncomplete"],
+    ["ASSISTANT_STREAM_FAILED", "assistant.errorFailed"],
+  ];
+
+  for (const [code, key] of cases) {
+    test(`a stream error part ${code} maps to ${key}`, async () => {
+      const cell = { current: 0 };
+      const errors: Error[] = [];
+      const encoder = new TextEncoder();
+      const conversation = createAssistantConversation({
+        chatId: "assistant:new:0",
+        fetch: async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                for (const chunk of [{ type: "start" }, { errorText: code, type: "error" }]) {
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+                }
+                controller.close();
+              },
+            }),
+            { headers: { "content-type": "text/event-stream" } },
+          ),
+        generation: 0,
+        hooks: {
+          generation: cell,
+          onTurnError: (error) => {
+            errors.push(error);
+          },
+        },
+        messages: [],
+        threadId: null,
+      });
+      await conversation.chat.sendMessage({ text: "q" });
+      expect(errors).toHaveLength(1);
+      expect(errors[0].message).toBe(code);
+      expect(assistantErrorFromChatError(errors[0])).toBe(code);
+      expect(assistantErrorMessageKey(assistantErrorFromChatError(errors[0]))).toBe(key);
+    });
+  }
+});
+
+describe("stopping the current conversation's stream on unmount", () => {
+  test("stopAssistantConversation stops a real Chat that is streaming", async () => {
+    const cell = { current: 0 };
+    const hooks: AssistantConversationHooks = {
+      generation: cell,
+      onActiveThreadCreated: () => undefined,
+      onThreadEntry: () => undefined,
+    };
+    const a = startStreamingConversation(hooks, 0);
+    await Bun.sleep(20);
+    a.emit({ messageId: "answerA", type: "start" });
+    a.emit({ id: "t", type: "text-start" });
+    a.emit({ delta: "first", id: "t", type: "text-delta" });
+    await Bun.sleep(20);
+    expect(a.conversation.chat.status).toBe("streaming");
+    // The panel's unmount cleanup.
+    stopAssistantConversation(a.conversation);
+    a.close();
+    await a.send;
+    expect(a.conversation.chat.status).toBe("ready");
+  });
+});

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
 import { Link } from "@tanstack/react-router";
 import { Button, cn } from "@pinar/ui";
 import { useGlobalSettings } from "@/components/GlobalSettingsDialog";
@@ -10,17 +9,23 @@ import IconPlus from "~icons/lucide/plus";
 import IconSparkles from "~icons/lucide/sparkles";
 import IconX from "~icons/lucide/x";
 import {
+  assistantErrorFromChatError,
   assistantErrorMessageKey,
   buildTurnRequestBody,
   deleteAssistantThread,
-  fetchAssistantThread,
   fetchAssistantThreads,
-  threadMessagesToUiMessages,
   type AssistantErrorKey,
   type AssistantStatus,
   type AssistantThread,
-  type AssistantUIMessage,
 } from "./assistant-client";
+import {
+  createAssistantConversation,
+  openAssistantConversation,
+  startAssistantConversation,
+  stopAssistantConversation,
+  type AssistantConversation,
+  type AssistantConversationHooks,
+} from "./assistant-conversation";
 import { useAssistantPanel } from "./assistant-panel-state";
 import { AssistantComposer } from "./AssistantComposer";
 import { AssistantMessages } from "./AssistantMessages";
@@ -40,51 +45,72 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
   const [threads, setThreads] = useState<AssistantThread[] | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [turnErrorKey, setTurnErrorKey] = useState<AssistantErrorKey | null>(null);
-  const threadIdRef = useRef<string | null>(null);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
 
-  const available = status !== null && status.available;
-
-  const transport = useMemo(
-    () =>
-      new DefaultChatTransport<AssistantUIMessage>({
-        api: "/api/assistant/turn",
-        prepareSendMessagesRequest: ({ messages }) => ({
-          body: buildTurnRequestBody(threadIdRef.current, messages),
-        }),
-      }),
+  // The generation cell and the refs the conversation callbacks consult. The
+  // hook closures only touch stable setters, so one memoized set of hooks
+  // serves every conversation the panel creates.
+  const generationRef = useRef(0);
+  const requestedThreadRef = useRef<string | null>(null);
+  const newThreadCountRef = useRef(0);
+  const hooks = useMemo<AssistantConversationHooks>(
+    () => ({
+      generation: generationRef,
+      onThreadEntry: (entry) => {
+        setThreads((current) => {
+          const item: AssistantThread = {
+            createdAt: entry.now,
+            id: entry.id,
+            title: entry.title,
+            updatedAt: entry.now,
+          };
+          return [item, ...(current ?? []).filter((existing) => existing.id !== entry.id)];
+        });
+      },
+      onActiveThreadCreated: (id) => {
+        setActiveThreadId(id);
+      },
+      onTurnError: (error) => {
+        // The transport delivers the JSON error body as the error message;
+        // only the mapped i18n key is ever shown, never the raw text.
+        setTurnErrorKey(assistantErrorMessageKey(assistantErrorFromChatError(error)));
+      },
+    }),
     [],
+  );
+
+  // One real SDK Chat per conversation: a stream that is switched away from
+  // still addresses the Chat it started from, so a late event of it can never
+  // reach the messages of the conversation the user moved to.
+  const [conversation, setConversation] = useState<AssistantConversation>(() =>
+    createAssistantConversation({
+      chatId: "assistant:new:0",
+      generation: 0,
+      hooks,
+      messages: [],
+      threadId: null,
+    }),
   );
 
   const {
     messages,
     sendMessage,
-    setMessages,
     status: chatStatus,
     stop,
-  } = useChat<AssistantUIMessage>({
-    onData: (dataPart) => {
-      // First part of the turn stream: the id of a new conversation.
-      if (dataPart.type !== "data-thread") return;
-      const data = dataPart.data;
-      if (typeof data !== "object" || data === null || !("id" in data)) return;
-      const id = data.id;
-      if (typeof id !== "string" || id === "") return;
-      const title = "title" in data && typeof data.title === "string" ? data.title : "";
-      threadIdRef.current = id;
-      setThreads((current) => {
-        const now = new Date().toISOString();
-        const entry: AssistantThread = { createdAt: now, id, title, updatedAt: now };
-        return [entry, ...(current ?? []).filter((existing) => existing.id !== id)];
-      });
-    },
-    onError: (error) => {
-      // Stream failures deliver the AssistantErrorCode as the error text.
-      setTurnErrorKey(assistantErrorMessageKey(error.message));
-    },
-    transport,
-  });
+  } = useChat({ chat: conversation.chat });
+
+  // The SDK does not stop a chat managed outside the hook (isExternallyManaged
+  // in @ai-sdk/react): closing the panel mid-turn must interrupt the stream
+  // itself. Conversation switches already stop before switching; this cleanup
+  // covers the unmount.
+  useEffect(() => {
+    return () => {
+      stopAssistantConversation(conversation);
+    };
+  }, [conversation]);
 
   const busy = chatStatus === "submitted" || chatStatus === "streaming";
+  const available = status !== null && status.available;
 
   const refreshThreads = useCallback(async () => {
     const value = await fetchAssistantThreads().catch(() => null);
@@ -96,25 +122,40 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
     void refreshThreads();
   }, [available, refreshThreads]);
 
-  function startNewThread() {
-    threadIdRef.current = null;
-    setMessages([]);
+  // "New conversation" waits for the in-flight stream to be interrupted
+  // before the switch, so a late event of the previous conversation can never
+  // reach the fresh one.
+  async function startNewThread() {
+    const next = await startAssistantConversation({
+      current: conversation,
+      hooks,
+      newThreadCountRef,
+      requestedThreadRef,
+    });
+    setActiveThreadId(null);
     setTurnErrorKey(null);
     setHistoryOpen(false);
+    setConversation(next);
   }
 
+  // "Open conversation" does the same, then fetches the thread; a response
+  // that arrives after a newer request was made is discarded.
   async function openThread(id: string) {
-    if (id === threadIdRef.current) return;
-    const loaded = await fetchAssistantThread(id);
-    if (!loaded) {
+    if (id === activeThreadId) return;
+    const result = await openAssistantConversation(
+      { current: conversation, hooks, newThreadCountRef, requestedThreadRef },
+      id,
+    );
+    if (result.kind === "superseded") return;
+    if (result.kind === "gone") {
       // The thread vanished (deleted elsewhere): refresh the list.
       void refreshThreads();
       return;
     }
-    threadIdRef.current = id;
+    setActiveThreadId(id);
     setTurnErrorKey(null);
     setHistoryOpen(false);
-    setMessages(threadMessagesToUiMessages(loaded.messages));
+    setConversation(result.conversation);
   }
 
   async function removeThread(id: string) {
@@ -124,7 +165,7 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
       return;
     }
     setThreads((current) => (current ?? []).filter((item) => item.id !== id));
-    if (id === threadIdRef.current) startNewThread();
+    if (id === activeThreadId) void startNewThread();
   }
 
   function handleSend(text: string) {
@@ -191,7 +232,9 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
           title={t("assistant.newThread")}
           type="button"
           variant="ghost"
-          onClick={startNewThread}
+          onClick={() => {
+            void startNewThread();
+          }}
         >
           <IconPlus aria-hidden="true" className="size-4" />
         </Button>
@@ -221,7 +264,7 @@ export function AssistantPanel({ className, language, status, t }: AssistantPane
       {historyOpen ? (
         <div className="shrink-0 border-b">
           <AssistantThreadList
-            activeThreadId={threadIdRef.current}
+            activeThreadId={activeThreadId}
             language={language}
             t={t}
             threads={threads}

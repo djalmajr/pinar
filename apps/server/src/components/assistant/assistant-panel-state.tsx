@@ -18,6 +18,9 @@ export interface AssistantPanelState {
 
 const AssistantPanelContext = createContext<AssistantPanelState | null>(null);
 
+// Exported so headless tests can render consumers with a fixed open state.
+export { AssistantPanelContext };
+
 function readStoredOpen(): boolean {
   try {
     return localStorage.getItem(ASSISTANT_PANEL_OPEN_KEY) === "true";

@@ -659,4 +659,301 @@ describe("history", () => {
     ]);
     reopened.close();
   });
+
+  function assertAssistantProposals(db) {
+    db.createAssistantThread({ id: "ath_prop", now: "2026-10-04T00:00:00.000Z", title: "Proposals" });
+    db.appendAssistantMessage({
+      ask: null,
+      createdAt: "2026-10-04T00:01:00.000Z",
+      errorCode: null,
+      id: "amg_prop",
+      role: "assistant",
+      status: "final",
+      text: "I can move those sessions for you.",
+      threadId: "ath_prop",
+    });
+    db.appendAssistantMessage({
+      ask: { options: ["Confirm", "Reject"], question: "Move them?" },
+      createdAt: "2026-10-04T00:02:00.000Z",
+      errorCode: null,
+      id: "amg_ask",
+      role: "assistant",
+      status: "final",
+      text: "",
+      threadId: "ath_prop",
+    });
+    assert.deepEqual(db.listAssistantMessages("ath_prop").map((item) => item.ask), [
+      null,
+      { options: ["Confirm", "Reject"], question: "Move them?" },
+    ]);
+
+    const first = {
+      args: { collectionId: "col_target", sessionIds: ["s1", "s2"] },
+      createdAt: "2026-10-04T00:03:00.000Z",
+      display: { action: "move_sessions", params: { collection: "Target", count: 2 } },
+      errorCode: null,
+      executedAt: null,
+      expiresAt: "2026-10-04T00:13:00.000Z",
+      fingerprint: "a1",
+      id: "apr_first_local_000000000000",
+      messageId: "amg_ask",
+      result: null,
+      risk: "reversible",
+      status: "proposed",
+      summary: 'Move 2 sessions to "Target"',
+      threadId: "ath_prop",
+      tool: "pinar.move_sessions",
+      undo: null,
+      undoExpiresAt: null,
+      updatedAt: "2026-10-04T00:03:00.000Z",
+    };
+    const tied = { ...first, id: "apr_tied_local_0000000000000" }; // same createdAt as first
+    const executed = {
+      ...first,
+      args: { collectionId: "col_target" },
+      createdAt: "2026-10-04T00:04:00.000Z",
+      executedAt: "2026-10-04T00:05:00.000Z",
+      id: "apr_executed_local_000000000",
+      result: { failed: 0, moved: 2 },
+      status: "executed",
+      undo: { calls: [{ args: { collectionId: "col_origin", sessionId: "s1" }, tool: "pinar.move_session" }], postFingerprint: "b2" },
+      undoExpiresAt: "2026-10-04T00:15:00.000Z",
+      updatedAt: "2026-10-04T00:05:00.000Z",
+    };
+
+    // A proposal for a missing thread is rejected.
+    assert.throws(
+      () => db.createAssistantProposal({ ...first, threadId: "ath_missing" }),
+      (error) => error instanceof Error && error.message === "assistant thread not found",
+    );
+    db.createAssistantProposal(first);
+    db.createAssistantProposal(tied);
+    db.createAssistantProposal(executed);
+
+    // Create, read, and list in order (createdAt asc, then id asc on the tie).
+    assert.equal(db.getAssistantProposal("apr_missing_local_0000000000"), null);
+    assert.deepEqual(db.getAssistantProposal(executed.id), executed);
+    assert.deepEqual(db.listAssistantProposals("ath_prop").map((item) => item.id), [
+      first.id,
+      tied.id,
+      executed.id,
+    ]);
+    assert.deepEqual(db.listAssistantProposals("ath_missing"), []);
+
+    // Transition from the right from.
+    const executing = db.transitionAssistantProposal({ from: ["proposed"], id: first.id, now: "2026-10-04T00:06:00.000Z", to: "executing" });
+    assert.equal(executing.status, "executing");
+    assert.equal(executing.updatedAt, "2026-10-04T00:06:00.000Z");
+
+    // Transition from the wrong from → null.
+    assert.equal(
+      db.transitionAssistantProposal({ from: ["proposed"], id: first.id, now: "2026-10-04T00:07:00.000Z", to: "executing" }),
+      null,
+    );
+
+    // requireBefore expired → null, and the record is untouched.
+    assert.equal(
+      db.transitionAssistantProposal({
+        from: ["executing"],
+        id: first.id,
+        now: "2026-10-04T00:14:00.000Z",
+        patch: { executedAt: "2026-10-04T00:14:00.000Z" },
+        requireBefore: "expiresAt",
+        to: "executed",
+      }),
+      null,
+    );
+    assert.equal(db.getAssistantProposal(first.id).status, "executing");
+
+    // requireBefore inside the window → the patch and the status land together.
+    const done = db.transitionAssistantProposal({
+      from: ["executing"],
+      id: first.id,
+      now: "2026-10-04T00:08:00.000Z",
+      patch: {
+        errorCode: null,
+        executedAt: "2026-10-04T00:08:00.000Z",
+        result: { moved: 2 },
+        undo: { calls: [], postFingerprint: "c3" },
+        undoExpiresAt: "2026-10-04T00:18:00.000Z",
+      },
+      requireBefore: "expiresAt",
+      to: "executed",
+    });
+    assert.equal(done.status, "executed");
+    assert.deepEqual(done.result, { moved: 2 });
+    assert.deepEqual(done.undo, { calls: [], postFingerprint: "c3" });
+
+    // requireBefore on the undo window, expired → null, the record stays executed.
+    assert.equal(
+      db.transitionAssistantProposal({ from: ["executed"], id: first.id, now: "2026-10-04T00:19:00.000Z", requireBefore: "undoExpiresAt", to: "undoing" }),
+      null,
+    );
+    assert.equal(db.getAssistantProposal(first.id).status, "executed");
+
+    // Two back-to-back transitions from "proposed": only the first wins.
+    const firstClaim = db.transitionAssistantProposal({ from: ["proposed"], id: tied.id, now: "2026-10-04T00:09:00.000Z", to: "executing" });
+    const secondClaim = db.transitionAssistantProposal({ from: ["proposed"], id: tied.id, now: "2026-10-04T00:09:01.000Z", to: "rejected" });
+    assert.equal(firstClaim.status, "executing");
+    assert.equal(secondClaim, null);
+    assert.equal(db.getAssistantProposal(tied.id).status, "executing");
+
+    // Deleting a thread deletes its proposals.
+    db.createAssistantThread({ id: "ath_prop_del", now: "2026-10-04T00:10:00.000Z", title: "Delete" });
+    db.createAssistantProposal({ ...first, id: "apr_deleted_local_0000000000", threadId: "ath_prop_del" });
+    assert.equal(db.deleteAssistantThread("ath_prop_del"), true);
+    assert.equal(db.getAssistantProposal("apr_deleted_local_0000000000"), null);
+    assert.equal(db.deleteAssistantThread("ath_prop"), true);
+    assert.equal(db.getAssistantProposal(first.id), null);
+
+    db.clearHistory();
+    assert.deepEqual(db.listAssistantProposals("ath_prop"), []);
+    assert.equal(db.getAssistantThread("ath_prop"), null);
+  }
+
+  test("sqlite assistant proposals keep order, JSON payloads, and atomic transitions", () => {
+    const db = openHistoryDb(tempDir);
+    assertAssistantProposals(db);
+    db.close();
+  });
+
+  test("json history fallback stores assistant proposals and transitions", () => {
+    mkdirSync(join(tempDir, "history.db"));
+    const db = openHistoryDb(tempDir);
+    assertAssistantProposals(db);
+    db.close();
+  });
+
+  test("json assistant transition with a failed write throws and keeps the previous state", () => {
+    mkdirSync(join(tempDir, "history.db"));
+    const db = openHistoryDb(tempDir);
+    db.createAssistantThread({ id: "ath_fault_prop", now: "2026-10-04T00:00:00.000Z", title: "Fault" });
+    db.createAssistantProposal({
+      args: { collectionId: "col_target" },
+      createdAt: "2026-10-04T00:01:00.000Z",
+      display: { action: "move_session", params: { session: "S", collection: "Target" } },
+      errorCode: null,
+      executedAt: null,
+      expiresAt: "2026-10-04T00:11:00.000Z",
+      fingerprint: "a1",
+      id: "apr_fault_proposal_000000000",
+      messageId: "amg_prop",
+      result: null,
+      risk: "reversible",
+      status: "proposed",
+      summary: 'Move a session to "Target"',
+      threadId: "ath_fault_prop",
+      tool: "pinar.move_session",
+      undo: null,
+      undoExpiresAt: null,
+      updatedAt: "2026-10-04T00:01:00.000Z",
+    });
+    const historyPath = join(tempDir, "history.json");
+    const goodBytes = readFileSync(historyPath, "utf8");
+
+    // Break the only write target the JSON store has: the file path becomes
+    // a directory, so the atomic rename fails with EISDIR.
+    const backup = join(tempDir, "fault-backup.json");
+    renameSync(historyPath, backup);
+    mkdirSync(historyPath);
+    try {
+      assert.throws(
+        () =>
+          db.transitionAssistantProposal({
+            from: ["proposed"],
+            id: "apr_fault_proposal_000000000",
+            now: "2026-10-04T00:02:00.000Z",
+            to: "executing",
+          }),
+        (error) => error.code === "EISDIR",
+      );
+
+      // Memory and disk stay exactly as they were.
+      assert.equal(db.getAssistantProposal("apr_fault_proposal_000000000").status, "proposed");
+      assert.equal(readFileSync(backup, "utf8"), goodBytes, "the persisted bytes are untouched by the failed write");
+      assert.ok(!existsSync(join(tempDir, "history.json.pin-state")), "no torn temp file may be left behind");
+    } finally {
+      rmSync(historyPath, { recursive: true });
+      renameSync(backup, historyPath);
+    }
+
+    // With the fault cleared, the same transition succeeds and is durable across a reopen.
+    const done = db.transitionAssistantProposal({
+      from: ["proposed"],
+      id: "apr_fault_proposal_000000000",
+      now: "2026-10-04T00:02:00.000Z",
+      to: "executing",
+    });
+    assert.equal(done.status, "executing");
+    db.close();
+    const reopened = openHistoryDb(tempDir);
+    assert.equal(reopened.getAssistantProposal("apr_fault_proposal_000000000").status, "executing");
+    reopened.close();
+  });
+
+  test("sqlite assistant database from before ask_json opens and gains the column", () => {
+    const dbFile = join(tempDir, "history.db");
+    const legacy = new DatabaseSync(dbFile);
+    try {
+      legacy.exec(`
+        CREATE TABLE assistant_threads (id TEXT PRIMARY KEY, title TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+        CREATE INDEX idx_assistant_threads_updated ON assistant_threads(updated_at DESC);
+        CREATE TABLE assistant_messages (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, role TEXT NOT NULL CHECK (role IN ('user','assistant')), text TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('final','error')), error_code TEXT, created_at TEXT NOT NULL);
+        CREATE INDEX idx_assistant_messages_thread ON assistant_messages(thread_id, created_at);
+      `);
+      legacy.exec(
+        "INSERT INTO assistant_threads (id, title, created_at, updated_at) VALUES ('ath_legacy', 'Legacy', '2026-10-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z')",
+      );
+      legacy.exec(
+        "INSERT INTO assistant_messages (id, thread_id, role, text, status, error_code, created_at) VALUES ('amg_legacy', 'ath_legacy', 'user', 'Old question', 'final', NULL, '2026-10-01T00:00:00.000Z')",
+      );
+    } finally {
+      legacy.close();
+    }
+
+    const db = openHistoryDb(tempDir);
+    const columns = db.db.prepare("PRAGMA table_info(assistant_messages)").all().map((row) => row.name);
+    assert.ok(columns.includes("ask_json"), "the legacy database gains the ask_json column");
+    // The legacy row reads back with ask: null.
+    const legacyMessages = db.listAssistantMessages("ath_legacy");
+    assert.equal(legacyMessages.length, 1);
+    assert.equal(legacyMessages[0].ask, null);
+    db.appendAssistantMessage({
+      ask: { options: ["A", "B"], question: "Which one?" },
+      createdAt: "2026-10-01T00:01:00.000Z",
+      errorCode: null,
+      id: "amg_new",
+      role: "assistant",
+      status: "final",
+      text: "",
+      threadId: "ath_legacy",
+    });
+    assert.deepEqual(db.listAssistantMessages("ath_legacy").map((item) => item.ask), [
+      null,
+      { options: ["A", "B"], question: "Which one?" },
+    ]);
+    // Proposals work on the freshly created table as well.
+    db.createAssistantProposal({
+      args: { collectionId: "col_target" },
+      createdAt: "2026-10-01T00:02:00.000Z",
+      display: { action: "move_session", params: { session: "S", collection: "Target" } },
+      errorCode: null,
+      executedAt: null,
+      expiresAt: "2026-10-01T00:12:00.000Z",
+      fingerprint: "a1",
+      id: "apr_legacy_db_proposal_00000",
+      messageId: "amg_new",
+      result: null,
+      risk: "reversible",
+      status: "proposed",
+      summary: 'Move a session to "Target"',
+      threadId: "ath_legacy",
+      tool: "pinar.move_session",
+      undo: null,
+      undoExpiresAt: null,
+      updatedAt: "2026-10-01T00:02:00.000Z",
+    });
+    assert.equal(db.getAssistantProposal("apr_legacy_db_proposal_00000").status, "proposed");
+    db.close();
+  });
 });

@@ -1,6 +1,10 @@
 import type {
   AssistantMessage,
   AssistantMessageStatus,
+  AssistantProposalErrorCode,
+  AssistantProposalRecord,
+  AssistantProposalRisk,
+  AssistantProposalStatus,
   AssistantRole,
   AssistantStore,
   AssistantThread,
@@ -35,6 +39,7 @@ function threadFromRow(row: Record<string, unknown>): AssistantThread {
 
 function messageFromRow(row: Record<string, unknown>): AssistantMessage {
   return {
+    ask: row.ask_json === null || row.ask_json === undefined ? null : (JSON.parse(String(row.ask_json)) as { options: string[]; question: string }),
     createdAt: String(row.created_at),
     errorCode: row.error_code === null || row.error_code === undefined ? null : String(row.error_code),
     id: String(row.id),
@@ -42,6 +47,29 @@ function messageFromRow(row: Record<string, unknown>): AssistantMessage {
     status: row.status === "error" ? "error" : "final",
     text: String(row.text),
     threadId: String(row.thread_id),
+  };
+}
+
+function proposalFromRow(row: Record<string, unknown>): AssistantProposalRecord {
+  return {
+    args: JSON.parse(String(row.args_json)) as Record<string, unknown>,
+    createdAt: String(row.created_at),
+    display: JSON.parse(String(row.display_json)) as AssistantProposalRecord["display"],
+    errorCode: row.error_code === null || row.error_code === undefined ? null : (String(row.error_code) as AssistantProposalErrorCode),
+    executedAt: row.executed_at === null || row.executed_at === undefined ? null : String(row.executed_at),
+    expiresAt: String(row.expires_at),
+    fingerprint: String(row.fingerprint),
+    id: String(row.id),
+    messageId: String(row.message_id),
+    result: row.result_json === null || row.result_json === undefined ? null : JSON.parse(String(row.result_json)),
+    risk: String(row.risk) as AssistantProposalRisk,
+    status: String(row.status) as AssistantProposalStatus,
+    summary: String(row.summary),
+    threadId: String(row.thread_id),
+    tool: String(row.tool),
+    undo: row.undo_json === null || row.undo_json === undefined ? null : (JSON.parse(String(row.undo_json)) as AssistantProposalRecord["undo"]),
+    undoExpiresAt: row.undo_expires_at === null || row.undo_expires_at === undefined ? null : String(row.undo_expires_at),
+    updatedAt: String(row.updated_at),
   };
 }
 
@@ -54,6 +82,7 @@ interface MemoryAssistantThread {
 }
 
 interface MemoryAssistantMessage {
+  ask: { options: string[]; question: string } | null;
   createdAt: string;
   errorCode: string | null;
   id: string;
@@ -65,13 +94,20 @@ interface MemoryAssistantMessage {
   threadId: string;
 }
 
+interface MemoryAssistantProposal {
+  ownerId: string;
+  record: AssistantProposalRecord;
+}
+
 const memoryAssistantThreads = new Map<string, MemoryAssistantThread>();
 const memoryAssistantMessages = new Map<string, MemoryAssistantMessage>();
+const memoryAssistantProposals = new Map<string, MemoryAssistantProposal>();
 let memoryAssistantMessageSequence = 0;
 
 export function resetCloudAssistantMemoryForTests() {
   memoryAssistantThreads.clear();
   memoryAssistantMessages.clear();
+  memoryAssistantProposals.clear();
   memoryAssistantMessageSequence = 0;
 }
 
@@ -95,8 +131,8 @@ function cloudDbAssistantStore(db: AssistantD1Database, ownerId: string): Assist
       if (!thread) throw new Error("assistant thread not found");
       await db.batch([
         db.prepare(
-          "INSERT INTO assistant_messages (id, thread_id, owner_id, role, text, status, error_code, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        ).bind(message.id, message.threadId, ownerId, message.role, message.text, message.status, message.errorCode, message.createdAt),
+          "INSERT INTO assistant_messages (id, thread_id, owner_id, role, text, status, error_code, created_at, ask_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ).bind(message.id, message.threadId, ownerId, message.role, message.text, message.status, message.errorCode, message.createdAt, message.ask ? JSON.stringify(message.ask) : null),
         db.prepare("UPDATE assistant_threads SET updated_at = ? WHERE id = ? AND owner_id = ?")
           .bind(message.createdAt, message.threadId, ownerId),
       ]);
@@ -110,10 +146,11 @@ function cloudDbAssistantStore(db: AssistantD1Database, ownerId: string): Assist
     },
     async deleteThread(id) {
       const results = (await db.batch([
+        db.prepare("DELETE FROM assistant_proposals WHERE thread_id = ? AND owner_id = ?").bind(id, ownerId),
         db.prepare("DELETE FROM assistant_messages WHERE thread_id = ? AND owner_id = ?").bind(id, ownerId),
         db.prepare("DELETE FROM assistant_threads WHERE id = ? AND owner_id = ?").bind(id, ownerId),
       ])) as { meta?: { changes?: number } }[];
-      return Number(results[1]?.meta?.changes ?? 0) > 0;
+      return Number(results[2]?.meta?.changes ?? 0) > 0;
     },
     async getThread(id) {
       const row = await db
@@ -126,7 +163,7 @@ function cloudDbAssistantStore(db: AssistantD1Database, ownerId: string): Assist
       // rowid breaks timestamp ties by insertion order; reversing restores chronology.
       const result = await db
         .prepare(
-          "SELECT id, thread_id, role, text, status, error_code, created_at FROM assistant_messages WHERE thread_id = ? AND owner_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?",
+          "SELECT id, thread_id, role, text, status, error_code, created_at, ask_json FROM assistant_messages WHERE thread_id = ? AND owner_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?",
         )
         .bind(threadId, ownerId, input.limit)
         .all();
@@ -140,6 +177,93 @@ function cloudDbAssistantStore(db: AssistantD1Database, ownerId: string): Assist
         .bind(ownerId, input.limit, input.offset)
         .all();
       return (result.results || []).map(threadFromRow);
+    },
+    async createProposal(record) {
+      const thread = await db
+        .prepare("SELECT id FROM assistant_threads WHERE id = ? AND owner_id = ?")
+        .bind(record.threadId, ownerId)
+        .first();
+      if (!thread) throw new Error("assistant thread not found");
+      await db
+        .prepare(
+          "INSERT INTO assistant_proposals (id, thread_id, owner_id, message_id, tool, args_json, display_json, summary, risk, fingerprint, status, error_code, result_json, undo_json, created_at, expires_at, executed_at, undo_expires_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(
+          record.id,
+          record.threadId,
+          ownerId,
+          record.messageId,
+          record.tool,
+          JSON.stringify(record.args),
+          JSON.stringify(record.display),
+          record.summary,
+          record.risk,
+          record.fingerprint,
+          record.status,
+          record.errorCode,
+          record.result === null ? null : JSON.stringify(record.result),
+          record.undo === null ? null : JSON.stringify(record.undo),
+          record.createdAt,
+          record.expiresAt,
+          record.executedAt,
+          record.undoExpiresAt,
+          record.updatedAt,
+        )
+        .run();
+    },
+    async getProposal(id) {
+      const row = await db
+        .prepare("SELECT * FROM assistant_proposals WHERE id = ? AND owner_id = ?")
+        .bind(id, ownerId)
+        .first();
+      return row ? proposalFromRow(row) : null;
+    },
+    async listProposals(threadId) {
+      const result = await db
+        .prepare(
+          "SELECT * FROM assistant_proposals WHERE thread_id = ? AND owner_id = ? ORDER BY created_at ASC, id ASC",
+        )
+        .bind(threadId, ownerId)
+        .all();
+      return (result.results || []).map(proposalFromRow);
+    },
+    async transitionProposal(input) {
+      const { id, from, to, now, patch, requireBefore } = input;
+      if (from.length === 0) return null;
+      const sets = ["status = ?", "updated_at = ?"];
+      const params: unknown[] = [to, now];
+      if (patch) {
+        if (patch.errorCode !== undefined) {
+          sets.push("error_code = ?");
+          params.push(patch.errorCode);
+        }
+        if (patch.executedAt !== undefined) {
+          sets.push("executed_at = ?");
+          params.push(patch.executedAt);
+        }
+        if (patch.result !== undefined) {
+          sets.push("result_json = ?");
+          params.push(patch.result === null ? null : JSON.stringify(patch.result));
+        }
+        if (patch.undo !== undefined) {
+          sets.push("undo_json = ?");
+          params.push(patch.undo === null ? null : JSON.stringify(patch.undo));
+        }
+        if (patch.undoExpiresAt !== undefined) {
+          sets.push("undo_expires_at = ?");
+          params.push(patch.undoExpiresAt);
+        }
+      }
+      const statusPlaceholders = from.map(() => "?").join(", ");
+      let query = `UPDATE assistant_proposals SET ${sets.join(", ")} WHERE id = ? AND owner_id = ? AND status IN (${statusPlaceholders})`;
+      const bound: unknown[] = [id, ownerId, ...from];
+      if (requireBefore) {
+        query += requireBefore === "expiresAt" ? " AND expires_at > ?" : " AND undo_expires_at > ?";
+        bound.push(now);
+      }
+      query += " RETURNING *";
+      const result = await db.prepare(query).bind(...params, ...bound).all();
+      return result.results && result.results.length > 0 ? proposalFromRow(result.results[0]) : null;
     },
   };
 }
@@ -155,6 +279,7 @@ function cloudMemoryAssistantStore(ownerId: string): AssistantStore {
       const thread = memoryOwner(message.threadId, ownerId);
       if (!thread) throw new Error("assistant thread not found");
       memoryAssistantMessages.set(message.id, {
+        ask: message.ask,
         createdAt: message.createdAt,
         errorCode: message.errorCode,
         id: message.id,
@@ -183,6 +308,9 @@ function cloudMemoryAssistantStore(ownerId: string): AssistantStore {
       for (const [messageId, message] of memoryAssistantMessages) {
         if (message.threadId === id && message.ownerId === ownerId) memoryAssistantMessages.delete(messageId);
       }
+      for (const [proposalId, proposal] of memoryAssistantProposals) {
+        if (proposal.record.threadId === id && proposal.ownerId === ownerId) memoryAssistantProposals.delete(proposalId);
+      }
       memoryAssistantThreads.delete(id);
       return true;
     },
@@ -202,6 +330,7 @@ function cloudMemoryAssistantStore(ownerId: string): AssistantStore {
         .slice(0, input.limit)
         .reverse()
         .map((message) => ({
+          ask: message.ask,
           createdAt: message.createdAt,
           errorCode: message.errorCode,
           id: message.id,
@@ -223,26 +352,65 @@ function cloudMemoryAssistantStore(ownerId: string): AssistantStore {
           updatedAt: thread.updatedAt,
         }));
     },
+    async createProposal(record) {
+      const thread = memoryOwner(record.threadId, ownerId);
+      if (!thread) throw new Error("assistant thread not found");
+      memoryAssistantProposals.set(record.id, { ownerId, record: { ...record } });
+    },
+    async getProposal(id) {
+      const entry = memoryAssistantProposals.get(id);
+      return entry && entry.ownerId === ownerId ? { ...entry.record } : null;
+    },
+    async listProposals(threadId) {
+      return Array.from(memoryAssistantProposals.values())
+        .filter((entry) => entry.ownerId === ownerId && entry.record.threadId === threadId)
+        .sort((left, right) => left.record.createdAt.localeCompare(right.record.createdAt) || left.record.id.localeCompare(right.record.id))
+        .map((entry) => ({ ...entry.record }));
+    },
+    async transitionProposal(input) {
+      const { id, from, to, now, patch, requireBefore } = input;
+      const entry = memoryAssistantProposals.get(id);
+      if (!entry || entry.ownerId !== ownerId || from.length === 0) return null;
+      const record = entry.record;
+      if (!from.includes(record.status)) return null;
+      if (requireBefore) {
+        const value = requireBefore === "expiresAt" ? record.expiresAt : record.undoExpiresAt;
+        if (typeof value !== "string" || !(value > now)) return null;
+      }
+      const next: AssistantProposalRecord = { ...record, status: to, updatedAt: now };
+      if (patch) {
+        if (patch.errorCode !== undefined) next.errorCode = patch.errorCode;
+        if (patch.executedAt !== undefined) next.executedAt = patch.executedAt;
+        if (patch.result !== undefined) next.result = patch.result;
+        if (patch.undo !== undefined) next.undo = patch.undo;
+        if (patch.undoExpiresAt !== undefined) next.undoExpiresAt = patch.undoExpiresAt;
+      }
+      entry.record = next;
+      return { ...next };
+    },
   };
 }
 
 /**
  * Deletes every thread (all owners) whose `updated_at` is before `cutoffIso`
- * plus its messages. With `env.DB` the two DELETEs run in a single
- * `db.batch`, so a failure (or a concurrent append) in between cannot leave
- * a surviving thread with its history already gone: the batch either
- * deletes both or nothing. The in-memory branch keeps the same
+ * plus its proposals and messages. With `env.DB` the three DELETEs run in a
+ * single `db.batch`, so a failure (or a concurrent append) in between cannot
+ * leave a surviving thread with its history already gone: the batch either
+ * deletes all of it or nothing. The in-memory branch keeps the same
  * thread-then-messages order inside one synchronous step.
  */
 export async function cleanupAssistantThreads(env: { DB?: AssistantD1Database }, cutoffIso: string): Promise<number> {
   if (env.DB) {
     const results = await env.DB.batch([
       env.DB.prepare(
+        "DELETE FROM assistant_proposals WHERE thread_id IN (SELECT id FROM assistant_threads WHERE updated_at < ?)",
+      ).bind(cutoffIso),
+      env.DB.prepare(
         "DELETE FROM assistant_messages WHERE thread_id IN (SELECT id FROM assistant_threads WHERE updated_at < ?)",
       ).bind(cutoffIso),
       env.DB.prepare("DELETE FROM assistant_threads WHERE updated_at < ?").bind(cutoffIso),
     ]) as { meta?: { changes?: number } }[];
-    return Number(results[1]?.meta?.changes || 0);
+    return Number(results[2]?.meta?.changes || 0);
   }
   let deleted = 0;
   for (const [id, thread] of memoryAssistantThreads) {
@@ -253,6 +421,9 @@ export async function cleanupAssistantThreads(env: { DB?: AssistantD1Database },
   }
   for (const [messageId, message] of memoryAssistantMessages) {
     if (!memoryAssistantThreads.has(message.threadId)) memoryAssistantMessages.delete(messageId);
+  }
+  for (const [proposalId, proposal] of memoryAssistantProposals) {
+    if (!memoryAssistantThreads.has(proposal.record.threadId)) memoryAssistantProposals.delete(proposalId);
   }
   return deleted;
 }

@@ -288,7 +288,8 @@ CREATE TABLE batches (
   user_id TEXT NOT NULL,
   label TEXT NOT NULL,
   started_at TEXT NOT NULL,
-  finished_at TEXT
+  finished_at TEXT,
+  filing_collection_id TEXT
 );
 
 CREATE INDEX idx_batches_user_started ON batches(user_id, started_at DESC);
@@ -310,7 +311,8 @@ CREATE TABLE sessions (
   position INTEGER NOT NULL DEFAULT 0,
   retention_expires_at TEXT,
   include_screenshot INTEGER NOT NULL DEFAULT 1 CHECK (include_screenshot IN (0, 1)),
-  batch_id TEXT
+  batch_id TEXT,
+  filed_by TEXT CHECK (filed_by IN ('auto'))
 );
 
 CREATE INDEX idx_sessions_created ON sessions(created_at DESC);
@@ -416,7 +418,8 @@ CREATE TABLE owner_preferences (
   language TEXT,
   sensitive_query_keys TEXT,
   component_target TEXT CHECK (component_target IN ('html', 'react-tailwind', 'preact-htm')),
-  voice_post_processing INTEGER NOT NULL DEFAULT 0 CHECK (voice_post_processing IN (0, 1))
+  voice_post_processing INTEGER NOT NULL DEFAULT 0 CHECK (voice_post_processing IN (0, 1)),
+  auto_capture_destination INTEGER NOT NULL DEFAULT 0 CHECK (auto_capture_destination IN (0, 1))
 );
 
 CREATE TABLE share_tokens (

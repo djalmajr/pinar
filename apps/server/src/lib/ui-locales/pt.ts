@@ -242,6 +242,11 @@ const messages: UiMessages = {
   "settings.captureDestinationDefault": "Caixa de entrada",
   "settings.captureDestinationDescription":
     "Onde as novas capturas são salvas. O padrão do servidor usa a Caixa de entrada do primeiro projeto.",
+  "settings.autoCaptureDestination": "Escolher a coleção automaticamente",
+  "settings.autoCaptureDestinationDescription":
+    "O Pinar escolhe a coleção de cada captura nova; na dúvida, ela vai para a Caixa de entrada.",
+  "settings.autoCaptureDestinationInboxFallback": "Sem a IA disponível, as capturas novas vão para a Caixa de entrada.",
+  "settings.autoCaptureDestinationUnavailable": "Precisa da IA configurada.",
   "settings.captureHeading": "Captura",
   "settings.collection": "Coleção",
   "settings.copyOnFinishBatch": "Copiar ao finalizar um sessão",
@@ -407,6 +412,7 @@ const messages: UiMessages = {
   "dashboard.allSessions": "Todas as sessões",
   "dashboard.collection": "coleção",
   "dashboard.protectedInbox": "Caixa de entrada",
+  "dashboard.autoFiled": "Arquivada automaticamente. Mova para corrigir.",
   "dashboard.collectionActions": "Ações da coleção",
   "dashboard.collapseCollection": "Recolher {name}",
   "dashboard.collectionMenu": "Coleção",

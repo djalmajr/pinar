@@ -1299,6 +1299,7 @@ function parseCaptureDestinationPref(value) {
 
 function localDeliveryPreferences(settings) {
   return {
+    autoCaptureDestination: false,
     captureDestination: null,
     copyOnFinishBatch: settings.copyOnFinishBatch === "off" || settings.copyOnFinishBatch === "link" || settings.copyOnFinishBatch === "prompt"
       ? settings.copyOnFinishBatch
@@ -1319,6 +1320,9 @@ function mergeDeliveryPreferencesPatch(current, patch) {
     ? parseCaptureDestinationPref(patch.captureDestination)
     : current.captureDestination;
   return {
+    autoCaptureDestination: "autoCaptureDestination" in patch
+      ? booleanPref(patch.autoCaptureDestination, current.autoCaptureDestination)
+      : current.autoCaptureDestination,
     captureDestination: captureDestination === undefined ? current.captureDestination : captureDestination,
     copyOnFinishBatch: "copyOnFinishBatch" in patch
       ? (patch.copyOnFinishBatch === "off" || patch.copyOnFinishBatch === "link" || patch.copyOnFinishBatch === "prompt"

@@ -5,6 +5,7 @@ import type {
   CaptureDestination,
   Collection,
   CollectionPlacement,
+  DeliveryPreferences,
   PageInfo,
   Pin,
   Project,
@@ -59,7 +60,9 @@ import { SESSION_PATCH_MAX_BYTES } from "./session-patch";
 import { handleLocalAiRequest, resetLocalAiForTests } from "./ai/local-ai";
 import { assistantUnavailableResponse, handleAssistantRequest, isAssistantPath } from "./assistant/http";
 import { localAssistantDeps } from "./assistant/local-deps";
-import { attachLocalPinIndex, type LocalPinIndexHistory } from "./assistant/retrieval/runtime-local";
+import { attachLocalPinIndex, localAiConfigured, type LocalPinIndexHistory } from "./assistant/retrieval/runtime-local";
+import { fileLocalCapture, localAutoCaptureDestinationAvailable } from "./filing/runtime-local";
+import type { FilingOutcome } from "./filing/runtime";
 import { localExportFileName, streamLocalExport } from "./local-export";
 import { handleLocalMcpRequest } from "./local-mcp";
 import { canonicalShotPath, isUsableSessionShotPath, removeSessionShotFile, sessionShotIdentity } from "./local-session-files";
@@ -143,6 +146,8 @@ interface HistoryDatabase {
     batchId?: string | null;
     collectionId?: string;
     createdAt?: string;
+    /** `"auto"` marks an automatic filing, `null` clears it; omitted keeps it unless the collection changes. */
+    filedBy?: "auto" | null;
     id?: string;
     page?: PageInfo;
     pins?: Pin[];
@@ -553,6 +558,25 @@ function publicBatch(id: string, origin: string) {
   return { batch, sessions, statusByPinId };
 }
 
+// A36: the captures of one batch are filed and saved one at a time, so the
+// second capture of a new batch finds the first one's session and follows it
+// (A27) instead of asking the engine and splitting the batch. Captures
+// without a batch, or of other batches, do not wait. A batch's queue goes
+// away once it empties.
+const batchQueues = new Map<string, Promise<unknown>>();
+
+async function oneAtATimePerBatch<T>(batchId: string | null, run: () => Promise<T>): Promise<T> {
+  if (!batchId) return run();
+  const current = (batchQueues.get(batchId) ?? Promise.resolve()).then(run);
+  const tail = current.catch(() => {});
+  batchQueues.set(batchId, tail);
+  try {
+    return await current;
+  } finally {
+    if (batchQueues.get(batchId) === tail) batchQueues.delete(batchId);
+  }
+}
+
 async function uploadShot(request: Request): Promise<Response> {
   const body = await readJson(request);
   const id = stringValue(body, "id") || stringValue(body, "captureId");
@@ -571,15 +595,50 @@ async function uploadShot(request: Request): Promise<Response> {
   }
   const saved = await writeShot(id, image, rootPath());
   const preferences = readDeliveryPreferences(rootPath());
+  return oneAtATimePerBatch(batchValue(body)?.id ?? null, () => fileAndSaveShot(request, body, id, capture, saved, preferences));
+}
+
+async function fileAndSaveShot(
+  request: Request,
+  body: Record<string, unknown>,
+  id: string,
+  capture: VisualCapture | null,
+  saved: string,
+  preferences: DeliveryPreferences,
+): Promise<Response> {
+  // F3.5: with the automatic destination on, the server files the new
+  // capture and the body's collectionId is ignored (A27); without an
+  // engine, or in doubt, it goes to the Inbox (A29). Without the AI
+  // configured it goes there too, without asking anything (A45).
+  let filed: FilingOutcome | null = null;
+  if (capture && preferences.autoCaptureDestination) {
+    filed = localAiConfigured(rootPath())
+      ? await fileLocalCapture({
+        batchId: batchValue(body)?.id ?? null,
+        capture,
+        db: historyDatabase() as HistoryDatabase & LocalPinIndexHistory,
+        root: rootPath(),
+      })
+      : { filedBy: null, filing: { collectionId: null, confidence: 0, engine: "none", reason: "error" } };
+  }
   const destination = historyDatabase().resolveDestination(
-    stringValue(body, "collectionId") || preferences.captureDestination?.collectionId,
+    filed
+      ? filed.filing.collectionId ?? undefined
+      : stringValue(body, "collectionId") || preferences.captureDestination?.collectionId,
   );
+  // A chosen collection that disappeared before the save leaves the capture
+  // in the Inbox, unmarked.
+  if (filed && filed.filing.collectionId !== null && filed.filing.collectionId !== destination.collectionId) {
+    filed = { filedBy: null, filing: { ...filed.filing, collectionId: null, reason: "error" } };
+  }
   if (capture) {
     try {
       historyDatabase().saveSession({
         batchId: persistBatch(body)?.id ?? null,
         collectionId: destination.collectionId,
         createdAt: stringValue(body, "createdAt") || capture.createdAt,
+        // Always explicit, so a re-upload never keeps an earlier mark.
+        filedBy: filed?.filedBy ?? null,
         id: capture.captureId,
         page: capture.page,
         pins: capture.pins,
@@ -602,6 +661,7 @@ async function uploadShot(request: Request): Promise<Response> {
   const origin = new URL(request.url).origin;
   return json({
     destination,
+    ...(filed ? { filing: filed.filing } : {}),
     isPermanent: true,
     markdownUrl: `${origin}/v/${id}.md`,
     ok: true,
@@ -746,10 +806,18 @@ async function routeLocalApi(request: Request): Promise<Response> {
     return json({ session: { kind: "local", plan: "free" } }, 200, { "Cache-Control": "no-store" });
   }
   if (method === "GET" && path === "/api/preferences") {
-    return json({ ok: true, ...readDeliveryPreferences(rootPath()) });
+    return json({
+      ok: true,
+      ...readDeliveryPreferences(rootPath()),
+      autoCaptureDestinationAvailable: await localAutoCaptureDestinationAvailable(rootPath()),
+    });
   }
   if (method === "PATCH" && path === "/api/preferences") {
-    return json({ ok: true, ...writeDeliveryPreferences(await readJson(request), rootPath()) });
+    return json({
+      ok: true,
+      ...writeDeliveryPreferences(await readJson(request), rootPath()),
+      autoCaptureDestinationAvailable: await localAutoCaptureDestinationAvailable(rootPath()),
+    });
   }
   if (method === "POST" && path === "/api/auth/logout") return json({ ok: true });
   if (method === "POST" && path === "/api/shots") return uploadShot(request);

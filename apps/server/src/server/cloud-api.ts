@@ -127,6 +127,11 @@ import type { PinSearchService } from "./assistant/retrieval/index";
 import type { CloudPinSessionRow, CloudPinSourceData } from "./assistant/retrieval/source-cloud";
 import type { AssistantStateReader } from "./assistant/state-reader";
 import type { AssistantToolHost } from "./assistant/tools";
+// Types and the constants only: the filing engines pull in the AI SDK and
+// are loaded lazily behind the gate (fileCloudShot).
+import type { FilingCollection, FilingRecentSession } from "./filing/candidates";
+import { FILING_TIMEOUT_MS } from "./filing/constants";
+import type { FilingCapture, FilingOutcome, FilingSource } from "./filing/runtime";
 import {
   CLOUD_MCP_TOOLS,
   MCP_MAX_ARGUMENT_LENGTH,
@@ -279,6 +284,7 @@ interface BatchRecord {
 }
 
 interface MemoryBatch {
+  filingCollectionId?: string | null;
   finishedAt: string | null;
   id: string;
   label: string;
@@ -591,6 +597,7 @@ function deliveryPreferencesFromOwnerRow(row: Record<string, unknown> | null | u
   const projectId = typeof row.capture_project_id === "string" ? row.capture_project_id : "";
   const collectionId = typeof row.capture_collection_id === "string" ? row.capture_collection_id : "";
   return parseDeliveryPreferences({
+    autoCaptureDestination: row.auto_capture_destination,
     captureDestination: projectId && collectionId ? { collectionId, projectId } : null,
     componentTarget: typeof row.component_target === "string" ? row.component_target : null,
     copyOnFinishBatch: row.copy_on_finish_batch,
@@ -610,6 +617,7 @@ export async function readOwnerDeliveryPreferences(env: CloudEnv, ownerId: strin
     try {
       const row = await env.DB.prepare(`
         SELECT
+          auto_capture_destination,
           capture_collection_id,
           capture_project_id,
           component_target,
@@ -661,9 +669,10 @@ export async function writeOwnerDeliveryPreferences(
         language,
         sensitive_query_keys,
         component_target,
-        voice_post_processing
+        voice_post_processing,
+        auto_capture_destination
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(owner_id) DO UPDATE SET
         handoff_mode = excluded.handoff_mode,
         include_screenshot = excluded.include_screenshot,
@@ -676,7 +685,8 @@ export async function writeOwnerDeliveryPreferences(
         language = excluded.language,
         sensitive_query_keys = excluded.sensitive_query_keys,
         component_target = excluded.component_target,
-        voice_post_processing = excluded.voice_post_processing
+        voice_post_processing = excluded.voice_post_processing,
+        auto_capture_destination = excluded.auto_capture_destination
     `).bind(
       ownerId,
       next.handoffMode,
@@ -691,6 +701,7 @@ export async function writeOwnerDeliveryPreferences(
       next.sensitiveQueryKeys,
       next.componentTarget,
       next.voicePostProcessing ? 1 : 0,
+      next.autoCaptureDestination ? 1 : 0,
     ).run();
   } else {
     memoryOwnerPreferences.set(ownerId, next);
@@ -701,7 +712,11 @@ export async function writeOwnerDeliveryPreferences(
 async function readPreferences(request: Request, env: CloudEnv) {
   const principal = await resolvePrincipal(request, env);
   if (!principal) return json({ error: "Unauthorized" }, 401);
-  return json({ ok: true, ...(await readOwnerDeliveryPreferences(env, principal.id)) });
+  return json({
+    ok: true,
+    ...(await readOwnerDeliveryPreferences(env, principal.id)),
+    autoCaptureDestinationAvailable: await cloudAutoCaptureDestinationAvailable(env, principal),
+  });
 }
 
 async function updatePreferences(request: Request, env: CloudEnv) {
@@ -710,6 +725,7 @@ async function updatePreferences(request: Request, env: CloudEnv) {
   return json({
     ok: true,
     ...(await writeOwnerDeliveryPreferences(env, principal.id, await readJson(request))),
+    autoCaptureDestinationAvailable: await cloudAutoCaptureDestinationAvailable(env, principal),
   });
 }
 
@@ -1647,6 +1663,7 @@ function sessionFromRow(row: Record<string, unknown>): CloudSession {
     captureId: capture.captureId,
     collectionId: String(row.collection_id || ""),
     createdAt: String(row.created_at || ""),
+    ...(row.filed_by === "auto" ? { filedBy: "auto" as const } : {}),
     id,
     isPermanent: Boolean(row.is_permanent),
     page: {
@@ -2924,38 +2941,19 @@ async function deleteMcpPin(env: CloudEnv, principal: Principal, sessionId: stri
       env.DB.prepare("DELETE FROM pin_review_events WHERE capture_id = ? AND pin_id = ?").bind(session.id, pinId),
       env.DB.prepare("DELETE FROM pin_reviews WHERE capture_id = ? AND pin_id = ?").bind(session.id, pinId),
       env.DB.prepare("DELETE FROM pin_comments WHERE capture_id = ? AND pin_id = ?").bind(session.id, pinId),
-      env.DB.prepare(
-        `INSERT INTO sessions (
-           id, url, title, shot_id, shot_url, pin_count, pins_json, created_at, user_id,
-           plan, is_permanent, byte_size, collection_id, position, include_screenshot, batch_id
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET url=excluded.url, title=excluded.title, shot_id=excluded.shot_id,
-         shot_url=excluded.shot_url, pin_count=excluded.pin_count, pins_json=excluded.pins_json,
-         created_at=excluded.created_at, user_id=excluded.user_id, plan=excluded.plan,
-         is_permanent=excluded.is_permanent, byte_size=excluded.byte_size,
-         collection_id=excluded.collection_id, position=excluded.position,
-         include_screenshot=excluded.include_screenshot, batch_id=excluded.batch_id`,
-      ).bind(
-        next.id,
-        next.page.url || "",
-        next.page.title || "",
-        next.shotId || "",
-        next.shotUrl || "",
+      // Only the pin columns: a move or a deletion that lands meanwhile keeps
+      // its collection, position and claim, and a deleted session stays gone.
+      env.DB.prepare("UPDATE sessions SET pin_count = ?, pins_json = ? WHERE id = ? AND user_id = ?").bind(
         capture.pins.length,
         encodeVisualCaptureJson(capture),
-        next.createdAt,
-        next.userId || "",
-        next.plan || "free",
-        next.isPermanent ? 1 : 0,
-        next.byteSize || 0,
-        next.collectionId || "",
-        next.position || 0,
-        next.includeScreenshot === false ? 0 : 1,
-        session.batchId ?? null,
+        session.id,
+        principal.id,
       ),
     ]);
   } else {
-    memorySessions.set(session.id, next);
+    // Only the pins, as in D1: the current row keeps its collection and position.
+    const current = memorySessions.get(session.id);
+    if (current) memorySessions.set(session.id, { ...current, pins: next.pins });
     memoryPinReviews.delete(pinReviewKey(session.id, pinId));
     for (let item = memoryPinReviewEvents.length - 1; item >= 0; item -= 1) {
       const event = memoryPinReviewEvents[item];
@@ -3659,6 +3657,9 @@ async function issueAccountDeviceSession(env: CloudEnv, account: AccountRecord, 
   return { expiresAt, session: accountAuthSession(account), token };
 }
 
+// Moves the installation's Inbox sessions to the account's Inbox without
+// touching batch claims (A36): an installation is Free, and only a Pro
+// capture with automatic filing claims a batch, so it has none to update.
 async function migrateInstallationToAccount(
   env: CloudEnv,
   account: AccountRecord,
@@ -5204,9 +5205,17 @@ async function moveSession(
     const existing = await env.DB.prepare("SELECT id FROM sessions WHERE id = ? AND user_id = ?")
       .bind(sessionId, principal.id).first();
     if (!existing) return null;
-    await env.DB.prepare(
-      "UPDATE sessions SET collection_id = ?, position = ? WHERE id = ? AND user_id = ?",
-    ).bind(collectionId, position, sessionId, principal.id).run();
+    // The session's batch claim follows the move in the same D1 batch (A36).
+    await env.DB.batch([
+      env.DB.prepare(
+        "UPDATE sessions SET collection_id = ?, position = ?, filed_by = NULL WHERE id = ? AND user_id = ?",
+      ).bind(collectionId, position, sessionId, principal.id),
+      env.DB.prepare(`
+        UPDATE batches SET filing_collection_id = ?
+        WHERE user_id = ? AND filing_collection_id IS NOT NULL
+          AND id = (SELECT batch_id FROM sessions WHERE id = ? AND user_id = ?)
+      `).bind(collectionId, principal.id, sessionId, principal.id),
+    ]);
     const row = await env.DB.prepare("SELECT * FROM sessions WHERE id = ? AND user_id = ?")
       .bind(sessionId, principal.id).first();
     return row ? sessionFromRow(row) : null;
@@ -5214,8 +5223,26 @@ async function moveSession(
   const session = memorySessions.get(sessionId);
   if (!session || session.userId !== principal.id) return null;
   session.collectionId = collectionId;
+  delete session.filedBy;
   session.position = position;
+  claimFollowsMemoryMove(principal, session, collectionId);
   return session;
+}
+
+// A36: a move is the batch's current destination. The claim of a moved
+// session's batch, once a first capture made one, becomes the collection
+// the session moved to; a batch without a claim keeps none. In D1 this runs
+// in the move's own batch (moveSession, deleteCollectionContainer); this is
+// the in-memory equivalent.
+function claimFollowsMemoryMove(principal: Principal, session: Session, collectionId: string) {
+  claimFollowsMemoryBatch(principal.id, cloudSessionBatchId(session), collectionId);
+}
+
+// The in-memory claim of `batchId` becomes `collectionId` when `ownerId`
+// owns the batch and a first capture already claimed it.
+function claimFollowsMemoryBatch(ownerId: string, batchId: string | null | undefined, collectionId: string) {
+  const batch = batchId ? memoryBatches.get(batchId) : undefined;
+  if (batch && batch.userId === ownerId && batch.filingCollectionId) batch.filingCollectionId = collectionId;
 }
 
 async function reorderSessionIds(
@@ -5261,8 +5288,15 @@ async function deleteCollectionContainer(env: CloudEnv, principal: Principal, id
     const start = await nextSessionPosition(env, principal, fallback.collectionId);
     const timestamp = new Date().toISOString();
     await env.DB.batch([
+      // The claims of the moved sessions' batches go to the Inbox with them
+      // (A36), read before the sessions leave the collection.
+      env.DB.prepare(`
+        UPDATE batches SET filing_collection_id = ?
+        WHERE user_id = ? AND filing_collection_id IS NOT NULL
+          AND id IN (SELECT batch_id FROM sessions WHERE collection_id = ? AND user_id = ? AND batch_id IS NOT NULL)
+      `).bind(fallback.collectionId, principal.id, id, principal.id),
       ...sessions.map((session, index) => env.DB?.prepare(`
-        UPDATE sessions SET collection_id = ?, position = ? WHERE id = ? AND user_id = ?
+        UPDATE sessions SET collection_id = ?, position = ?, filed_by = NULL WHERE id = ? AND user_id = ?
       `).bind(fallback.collectionId, start + index, session.id, principal.id)).filter(
         (item): item is D1Statement => Boolean(item),
       ),
@@ -5280,8 +5314,10 @@ async function deleteCollectionContainer(env: CloudEnv, principal: Principal, id
     for (const session of sessions) {
       const stored = memorySessions.get(session.id) || session;
       stored.collectionId = fallback.collectionId;
+      delete stored.filedBy;
       stored.position = position;
       position += 1;
+      claimFollowsMemoryMove(principal, stored, fallback.collectionId);
     }
     const timestamp = new Date().toISOString();
     promoted.forEach((item, index) => {
@@ -5316,20 +5352,33 @@ async function deleteProjectContainer(env: CloudEnv, principal: Principal, id: s
   return true;
 }
 
+// Writes the whole row, `filedBy` included: an edit keeps the automatic-filing
+// mark because it starts from the stored session; a new capture is marked by
+// passing `filedBy: "auto"` on the session it saves.
+//
+// A36: every write of a batch session also moves the batch's claim, once a
+// first capture made one, to the session's collection: the claim is the
+// collection of the batch session written last, as the batch rule (A27)
+// reads it. In D1 the claim's UPDATE runs in the upsert's own batch, for the
+// session's owner only (`user_id`); without a batch, or without a claim, no
+// claim is written. moveSession and deleteCollectionContainer update the
+// claim on their own paths.
 export async function persistSession(env: CloudEnv, session: Session, batchId: string | null = null) {
   const capture = captureFromSession(session);
+  const claimCollectionId = batchId ? session.collectionId || "" : "";
   if (env.DB) {
-    await env.DB.prepare(
+    const upsert = env.DB.prepare(
       `INSERT INTO sessions (
          id, url, title, shot_id, shot_url, pin_count, pins_json, created_at, user_id,
-         plan, is_permanent, byte_size, collection_id, position, include_screenshot, batch_id
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         plan, is_permanent, byte_size, collection_id, position, include_screenshot, batch_id, filed_by
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET url=excluded.url, title=excluded.title, shot_id=excluded.shot_id,
        shot_url=excluded.shot_url, pin_count=excluded.pin_count, pins_json=excluded.pins_json,
        created_at=excluded.created_at, user_id=excluded.user_id, plan=excluded.plan,
        is_permanent=excluded.is_permanent, byte_size=excluded.byte_size,
        collection_id=excluded.collection_id, position=excluded.position,
-       include_screenshot=excluded.include_screenshot, batch_id=excluded.batch_id`,
+       include_screenshot=excluded.include_screenshot, batch_id=excluded.batch_id,
+       filed_by=excluded.filed_by`,
     ).bind(
       session.id,
       session.page.url || "",
@@ -5347,9 +5396,21 @@ export async function persistSession(env: CloudEnv, session: Session, batchId: s
       session.position || 0,
       session.includeScreenshot === false ? 0 : 1,
       batchId,
-    ).run();
+      session.filedBy === "auto" ? "auto" : null,
+    );
+    if (claimCollectionId) {
+      await env.DB.batch([
+        upsert,
+        env.DB.prepare(
+          "UPDATE batches SET filing_collection_id = ? WHERE id = ? AND user_id = ? AND filing_collection_id IS NOT NULL",
+        ).bind(claimCollectionId, batchId, session.userId || ""),
+      ]);
+    } else {
+      await upsert.run();
+    }
   } else {
     memorySessions.set(session.id, withCloudBatchId(sessionFromCapture(capture, session), batchId));
+    if (claimCollectionId) claimFollowsMemoryBatch(session.userId || "", batchId, claimCollectionId);
   }
   // Title, URL, notes or pins may have changed: the pin index of the session
   // is stale for its next pass (best effort, never fails the write).
@@ -6479,6 +6540,270 @@ async function updateSessionFields(request: Request, env: CloudEnv, id: string) 
   return json({ ok: true, session: stored ? await decorateCloudSession(env, stored) : patched }, 200, { "Cache-Control": "no-store" });
 }
 
+// ---------- capture filing (F3.5 contract §3.1) ----------
+
+// What the capture filing reads of the owner: the collections without the
+// protected Inbox (project then collection position), the most recent
+// sessions of each collection (one window query on D1), and the collection
+// and mark of a batch's most recent session.
+function cloudFilingSource(env: CloudEnv, principal: Principal): Omit<FilingSource, "entriesFor"> {
+  return {
+    async batchSession(batchId, excludeId) {
+      if (env.DB) {
+        const row = await env.DB.prepare(
+          "SELECT collection_id, filed_by FROM sessions WHERE user_id = ? AND batch_id = ? AND id <> ? AND collection_id IS NOT NULL ORDER BY created_at DESC, id ASC LIMIT 1",
+        ).bind(principal.id, batchId, excludeId).first();
+        return row && typeof row.collection_id === "string" && row.collection_id
+          ? { collectionId: row.collection_id, filedBy: row.filed_by === "auto" ? "auto" : null }
+          : null;
+      }
+      const latest = Array.from(memorySessions.values())
+        .filter((session) => session.userId === principal.id && session.id !== excludeId
+          && cloudSessionBatchId(session) === batchId && Boolean(session.collectionId))
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))[0];
+      return latest?.collectionId ? { collectionId: latest.collectionId, filedBy: latest.filedBy === "auto" ? "auto" : null } : null;
+    },
+    async collections(): Promise<FilingCollection[]> {
+      if (env.DB) {
+        const rows = await env.DB.prepare(`
+          SELECT c.id AS id, c.name AS name, p.name AS project_name
+          FROM collections c
+          JOIN projects p ON p.id = c.project_id
+          WHERE c.owner_id = ? AND c.is_protected = 0
+          ORDER BY p.position ASC, p.created_at ASC, p.id ASC, c.position ASC, c.created_at ASC, c.id ASC
+        `).bind(principal.id).all();
+        return (rows.results || []).map((row) => ({
+          collectionId: String(row.id || ""),
+          collectionName: String(row.name || ""),
+          projectName: String(row.project_name || ""),
+        }));
+      }
+      const projects = new Map(Array.from(memoryProjects.values()).map((project) => [project.id, project]));
+      return Array.from(memoryCollections.values())
+        .filter((collection) => collection.ownerId === principal.id && !collection.isProtected && projects.has(collection.projectId))
+        .map((collection) => ({ collection, project: projects.get(collection.projectId)! }))
+        .sort((left, right) =>
+          left.project.position - right.project.position
+          || left.project.createdAt.localeCompare(right.project.createdAt)
+          || (left.project.id < right.project.id ? -1 : left.project.id > right.project.id ? 1 : 0)
+          || left.collection.position - right.collection.position
+          || left.collection.createdAt.localeCompare(right.collection.createdAt)
+          || (left.collection.id < right.collection.id ? -1 : left.collection.id > right.collection.id ? 1 : 0))
+        .map(({ collection, project }) => ({ collectionId: collection.id, collectionName: collection.name, projectName: project.name }));
+    },
+    async recentSessions({ collectionIds, excludeId, perCollection }): Promise<FilingRecentSession[]> {
+      const wanted = new Set(collectionIds);
+      if (wanted.size === 0) return [];
+      if (env.DB) {
+        const rows = await env.DB.prepare(`
+          SELECT id, title, created_at, collection_id FROM (
+            SELECT id, title, created_at, collection_id,
+              ROW_NUMBER() OVER (PARTITION BY collection_id ORDER BY created_at DESC, id ASC) AS recent
+            FROM sessions
+            WHERE user_id = ? AND collection_id IS NOT NULL AND id <> ?
+          )
+          WHERE recent <= ?
+          ORDER BY collection_id ASC, recent ASC
+        `).bind(principal.id, excludeId, perCollection).all();
+        return (rows.results || [])
+          .map((row) => ({
+            collectionId: String(row.collection_id || ""),
+            createdAt: String(row.created_at || ""),
+            id: String(row.id || ""),
+            title: typeof row.title === "string" ? row.title : "",
+          }))
+          .filter((session) => wanted.has(session.collectionId));
+      }
+      const counts = new Map<string, number>();
+      return Array.from(memorySessions.values())
+        .filter((session) => session.userId === principal.id && session.id !== excludeId
+          && Boolean(session.collectionId) && wanted.has(session.collectionId!))
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+        .filter((session) => {
+          const count = counts.get(session.collectionId!) ?? 0;
+          counts.set(session.collectionId!, count + 1);
+          return count < perCollection;
+        })
+        .map((session) => ({ collectionId: session.collectionId!, createdAt: session.createdAt, id: session.id, title: session.page.title || "" }));
+    },
+  };
+}
+
+// The Inbox, unmarked, when no engine could answer: the gate is closed (A45)
+// or the engines failed to load.
+function inboxWithoutEngine(): FilingOutcome {
+  return { filedBy: null, filing: { collectionId: null, confidence: 0, engine: "none", reason: "error" } };
+}
+
+// The filing of a new capture of the principal (behind the gate). The
+// engines are loaded here, lazily: they pull in the AI SDK. The budget
+// (FILING_TIMEOUT_MS) counts the module load; a load that fails files the
+// capture in the Inbox.
+async function fileCloudShot(
+  env: CloudEnv,
+  principal: Principal,
+  capture: FilingCapture,
+  batchId: string | null,
+): Promise<FilingOutcome> {
+  const startedAt = Date.now();
+  try {
+    const { fileCloudCapture } = await import("./filing/runtime-cloud");
+    return await fileCloudCapture({
+      batchId,
+      capture,
+      env,
+      ownerId: principal.id,
+      source: cloudFilingSource(env, principal),
+      timeoutMs: FILING_TIMEOUT_MS - (Date.now() - startedAt),
+    });
+  } catch {
+    return inboxWithoutEngine();
+  }
+}
+
+// A36: the first filed capture of a batch claims the batch's destination
+// (the collection it resolved, the Inbox included); a concurrent first
+// capture of the same batch, which also found the batch without a session,
+// reads the claim back and follows it. The UPDATE only writes an empty
+// claim, so the first one wins; afterwards every move of a batch session
+// (moveSession, claimFollowsMemoryMove) and every write of one
+// (persistSession) updates it, so it is the batch's current one. Returns
+// the batch's destination after the claim, or null when the batch is not
+// the owner's.
+async function claimBatchDestination(
+  env: CloudEnv,
+  principal: Principal,
+  batchId: string,
+  collectionId: string,
+): Promise<string | null> {
+  if (env.DB) {
+    await env.DB.prepare(
+      "UPDATE batches SET filing_collection_id = ? WHERE id = ? AND user_id = ? AND filing_collection_id IS NULL",
+    ).bind(collectionId, batchId, principal.id).run();
+    const row = await env.DB.prepare(
+      "SELECT filing_collection_id FROM batches WHERE id = ? AND user_id = ?",
+    ).bind(batchId, principal.id).first();
+    return typeof row?.filing_collection_id === "string" && row.filing_collection_id ? row.filing_collection_id : null;
+  }
+  const batch = memoryBatches.get(batchId);
+  if (!batch || batch.userId !== principal.id) return null;
+  batch.filingCollectionId ||= collectionId;
+  return batch.filingCollectionId;
+}
+
+// The capture follows the destination another capture claimed for the
+// batch, as the batch rule follows a session (A27): the "auto" mark for a
+// collection, none for the Inbox. A claimed collection gone since then
+// leaves the capture in the Inbox, unmarked.
+async function followClaimedBatch(
+  env: CloudEnv,
+  principal: Principal,
+  claimed: string,
+): Promise<{ destination: CaptureDestination; filed: FilingOutcome }> {
+  const inbox = await ensureDefaultDestination(env, principal);
+  const destination = await resolveDestination(env, principal, claimed);
+  if (destination.collectionId !== claimed) {
+    return { destination, filed: { filedBy: null, filing: { collectionId: null, confidence: 0, engine: "none", reason: "error" } } };
+  }
+  const candidate = claimed !== inbox.collectionId;
+  return {
+    destination,
+    filed: {
+      filedBy: candidate ? "auto" : null,
+      filing: { collectionId: candidate ? claimed : null, confidence: 0, engine: "none", reason: "chosen" },
+    },
+  };
+}
+
+// The capture follows the batch's most recent session, at its current
+// collection and with its mark, as the batch rule does (A27): unmarked when
+// that session is in the Inbox, and in the Inbox, unmarked, when its
+// collection is gone before the save.
+async function followBatchSession(
+  env: CloudEnv,
+  principal: Principal,
+  session: { collectionId: string; filedBy: "auto" | null },
+): Promise<{ destination: CaptureDestination; filed: FilingOutcome }> {
+  const collections = await cloudFilingSource(env, principal).collections();
+  const candidate = collections.some((collection) => collection.collectionId === session.collectionId);
+  const destination = await resolveDestination(env, principal, candidate ? session.collectionId : "");
+  if (candidate && destination.collectionId !== session.collectionId) {
+    return { destination, filed: { filedBy: null, filing: { collectionId: null, confidence: 0, engine: "none", reason: "error" } } };
+  }
+  return {
+    destination,
+    filed: {
+      filedBy: candidate ? session.filedBy : null,
+      filing: { collectionId: candidate ? session.collectionId : null, confidence: 0, engine: "none", reason: "chosen" },
+      followedBatch: true,
+    },
+  };
+}
+
+// A re-upload: the owner already has a session with this id in this batch.
+async function ownSessionInBatch(env: CloudEnv, principal: Principal, id: string, batchId: string): Promise<boolean> {
+  if (env.DB) {
+    const row = await env.DB.prepare(
+      "SELECT id FROM sessions WHERE id = ? AND user_id = ? AND batch_id = ?",
+    ).bind(id, principal.id, batchId).first();
+    return row !== null;
+  }
+  const session = memorySessions.get(id);
+  return Boolean(session && session.userId === principal.id && cloudSessionBatchId(session) === batchId);
+}
+
+// The batch's destination becomes this one, whatever was claimed before.
+async function replaceBatchDestination(env: CloudEnv, principal: Principal, batchId: string, collectionId: string) {
+  if (env.DB) {
+    await env.DB.prepare(
+      "UPDATE batches SET filing_collection_id = ? WHERE id = ? AND user_id = ?",
+    ).bind(collectionId, batchId, principal.id).run();
+    return;
+  }
+  const batch = memoryBatches.get(batchId);
+  if (batch && batch.userId === principal.id) batch.filingCollectionId = collectionId;
+}
+
+// After the engine chose for a batch that had no session when it was asked
+// (A36), in this order:
+// 1. A session saved in the batch during the wait decides, read again as
+//    the batch rule reads it (without this capture): the capture follows
+//    its current collection and mark, so a move made meanwhile still
+//    corrects the batch.
+// 2. A re-upload of the batch's own session keeps the new decision, which
+//    becomes the batch's destination; the earlier claim is not applied.
+// 3. Otherwise the capture claims the batch's destination, or follows the
+//    current one: claimed by a concurrent first capture, or moved since.
+async function settleBatchDestination(
+  env: CloudEnv,
+  principal: Principal,
+  input: { batchId: string; destination: CaptureDestination; filed: FilingOutcome; id: string },
+): Promise<{ destination: CaptureDestination; filed: FilingOutcome }> {
+  const latest = await cloudFilingSource(env, principal).batchSession(input.batchId, input.id);
+  if (latest) return followBatchSession(env, principal, latest);
+  if (await ownSessionInBatch(env, principal, input.id, input.batchId)) {
+    await replaceBatchDestination(env, principal, input.batchId, input.destination.collectionId);
+    return { destination: input.destination, filed: input.filed };
+  }
+  const claimed = await claimBatchDestination(env, principal, input.batchId, input.destination.collectionId);
+  if (claimed !== null && claimed !== input.destination.collectionId) return followClaimedBatch(env, principal, claimed);
+  return { destination: input.destination, filed: input.filed };
+}
+
+// GET and PATCH /api/preferences: the automatic destination can be turned
+// on, inside the assistant gate (A33) and with an engine. Outside the gate
+// nothing is loaded nor fetched.
+async function cloudAutoCaptureDestinationAvailable(env: CloudEnv, principal: Principal): Promise<boolean> {
+  if (!cloudAssistantStatus(env, principal).available) return false;
+  const startedAt = Date.now();
+  try {
+    const filing = await import("./filing/runtime-cloud");
+    return await filing.cloudAutoCaptureDestinationAvailable(env, FILING_TIMEOUT_MS - (Date.now() - startedAt));
+  } catch {
+    return false;
+  }
+}
+
 async function uploadShot(request: Request, env: CloudEnv) {
   const principal = await resolvePrincipal(request, env);
   if (!principal) return json({ error: "Unauthorized" }, 401);
@@ -6513,13 +6838,40 @@ async function uploadShot(request: Request, env: CloudEnv) {
   const origin = new URL(request.url).origin;
   const shotUrl = `${origin}/shots/${id}.png`;
   const preferences = await readOwnerDeliveryPreferences(env, principal.id);
-  const destination = await resolveDestination(
-    env,
-    principal,
-    stringValue(body, "collectionId") || preferences.captureDestination?.collectionId || "",
-  );
+  // F3.5: with the automatic destination on, the server files the new
+  // capture and the body's collectionId is ignored (A27); without an
+  // engine, or in doubt, it goes to the Inbox (A29). Outside the assistant
+  // gate (A33) it goes there too, without loading the engines (A45).
+  const automatic = preferences.autoCaptureDestination;
+  const manualDestination = automatic
+    ? null
+    : await resolveDestination(
+      env,
+      principal,
+      stringValue(body, "collectionId") || preferences.captureDestination?.collectionId || "",
+    );
   const batchId = await resolveCaptureBatchId(env, principal, body);
   if (batchId instanceof Response) return batchId;
+  let filed: FilingOutcome | null = null;
+  let destination: CaptureDestination;
+  if (manualDestination) {
+    destination = manualDestination;
+  } else if (!cloudAssistantStatus(env, principal).available) {
+    filed = inboxWithoutEngine();
+    destination = await resolveDestination(env, principal, "");
+  } else {
+    filed = await fileCloudShot(env, principal, capture, batchId);
+    destination = await resolveDestination(env, principal, filed.filing.collectionId ?? "");
+    // A chosen collection that disappeared before the save leaves the
+    // capture in the Inbox, unmarked.
+    if (filed.filing.collectionId !== null && filed.filing.collectionId !== destination.collectionId) {
+      filed = { filedBy: null, filing: { ...filed.filing, collectionId: null, reason: "error" } };
+    }
+    // A batch that had no session when the engine was asked (A36).
+    if (batchId && !filed.followedBatch) {
+      ({ destination, filed } = await settleBatchDestination(env, principal, { batchId, destination, filed, id }));
+    }
+  }
   if (env.PINAR_BUCKET) {
     await env.PINAR_BUCKET.put(shotObjectKey(id), imageBytes, { httpMetadata: { contentType: "image/png" } });
   }
@@ -6539,6 +6891,9 @@ async function uploadShot(request: Request, env: CloudEnv) {
       preferences.includeScreenshot,
     ),
     userId: principal.id,
+    // persistSession writes NULL without a mark, so a re-upload never keeps
+    // an earlier one.
+    ...(filed?.filedBy ? { filedBy: filed.filedBy } : {}),
   });
   try {
     await persistSession(env, session, batchId);
@@ -6547,6 +6902,7 @@ async function uploadShot(request: Request, env: CloudEnv) {
   }
   return json({
     destination,
+    ...(filed ? { filing: filed.filing } : {}),
     isPermanent: session.isPermanent,
     markdownUrl: `${origin}/v/${id}.md`,
     ok: true,
@@ -7380,6 +7736,7 @@ async function mcpSessionSummaries(
       batchId: session.batchId,
       collectionId: session.collectionId,
       createdAt: session.createdAt,
+      ...(session.filedBy === "auto" ? { filedBy: "auto" as const } : {}),
       id: session.id,
       pinCount: session.pinCount ?? session.pins.length,
       title: session.page.title,
@@ -7403,12 +7760,13 @@ async function mcpSessionSummaries(
   }
   const order = collectionId ? "position ASC" : "created_at DESC";
   const rows = await context.env.DB.prepare(
-    `SELECT id, title, url, pin_count, created_at, collection_id, batch_id FROM sessions WHERE ${clauses.join(" AND ")} ORDER BY ${order} LIMIT ? OFFSET ?`,
+    `SELECT id, title, url, pin_count, created_at, collection_id, batch_id, filed_by FROM sessions WHERE ${clauses.join(" AND ")} ORDER BY ${order} LIMIT ? OFFSET ?`,
   ).bind(...values, limit, offset).all();
   return (rows.results || []).map((row) => ({
     batchId: row.batch_id || null,
     collectionId: row.collection_id || null,
     createdAt: row.created_at,
+    ...(row.filed_by === "auto" ? { filedBy: "auto" as const } : {}),
     id: row.id,
     pinCount: row.pin_count,
     title: row.title,

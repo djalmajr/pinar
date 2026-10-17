@@ -22,6 +22,7 @@ import {
 import {
   Button,
   Cascader,
+  type CascaderOption,
   Input,
   PinarMark,
   ProjectIconGlyph,
@@ -197,6 +198,7 @@ const DEFAULT_SETTINGS: PinarSettings = {
 };
 
 interface ExtensionResponse extends ExtensionResponseBase {
+  autoCaptureDestination?: boolean;
   available?: boolean;
   code?: string;
   copyOnFinishBatch?: CopyOnFinishBatch;
@@ -267,6 +269,7 @@ function applyDeliveryResponse(current: PinarSettings, patch: unknown): PinarSet
     ? current.language as SupportedLanguage
     : null;
   const merged = mergeDeliveryPreferences({
+    autoCaptureDestination: false,
     captureDestination: null,
     componentTarget: null,
     copyOnFinishBatch: current.copyOnFinishBatch,
@@ -298,6 +301,35 @@ function applyTheme(mode: ThemeMode) {
   document.documentElement.dataset.theme = dark ? "dark" : "light";
 }
 
+// With automatic filing on, the server picks the collection of each new
+// capture: the field is disabled and reads "Automatic". The background still
+// sends the cached collection with each capture, and the server ignores it.
+export function CaptureDestinationField({ automatic, empty, loading, options, t, value, onSelect }: {
+  automatic: boolean;
+  empty: boolean;
+  loading: boolean;
+  options: CascaderOption[];
+  t: TranslationDictionary;
+  value: string[] | null;
+  onSelect: (collectionId: string) => void;
+}) {
+  return (
+    <SettingRow controlClassName="min-w-0 max-w-60" size="xs" description={t.capture_destination_desc} title={t.capture_destination_label}>
+      <Cascader
+        aria-label={t.capture_destination_label}
+        className="w-full"
+        disabled={automatic || loading || empty}
+        emptyText={t.no_collections_found}
+        options={options}
+        placeholder={automatic ? t.capture_destination_automatic : loading ? "…" : t.collection_label}
+        searchPlaceholder={t.destination_search_placeholder}
+        value={automatic ? null : value}
+        onValueChange={(path) => { const collectionId = path.at(-1); if (collectionId) onSelect(collectionId); }}
+      />
+    </SettingRow>
+  );
+}
+
 export function OptionsApp() {
   const [settings, setSettings] = useState<PinarSettings>(DEFAULT_SETTINGS);
   const [savedSettings, setSavedSettings] = useState<PinarSettings>(DEFAULT_SETTINGS);
@@ -318,6 +350,7 @@ export function OptionsApp() {
   const [emailCodeVerificationLoading, setEmailCodeVerificationLoading] = useState(false);
   const [logoutLoading, setLogoutLoading] = useState(false);
   const [captureDestination, setCaptureDestination] = useState<CaptureDestination | null>(null);
+  const [autoCaptureDestination, setAutoCaptureDestination] = useState(false);
   const [destinationTree, setDestinationTree] = useState<ProjectTree | null>(null);
   const [destinationLoading, setDestinationLoading] = useState(true);
   const [destinationError, setDestinationError] = useState("");
@@ -393,6 +426,7 @@ export function OptionsApp() {
   async function syncDeliveryPreferences(current: PinarSettings): Promise<PinarSettings> {
     const response = await extensionMessage({ type: "preferences:get" }, "");
     if (!response.ok || typeof response.includeScreenshot !== "boolean") return current;
+    setAutoCaptureDestination(response.autoCaptureDestination === true);
     const next = applyDeliveryResponse(current, response);
     if (areSettingsEqual(next, current)) return current;
     if (typeof chrome !== "undefined" && chrome.storage?.sync) {
@@ -835,19 +869,15 @@ export function OptionsApp() {
                   <span className={SECTION_HEADER}>{t.section_capture}</span>
                   <p className={SECTION_DESC}>{t.section_capture_desc}</p>
                   <div className="flex flex-col gap-3">
-                    <SettingRow controlClassName="min-w-0 max-w-60" size="xs" description={t.capture_destination_desc} title={t.capture_destination_label}>
-                      <Cascader
-                        aria-label={t.capture_destination_label}
-                        className="w-full"
-                        disabled={destinationLoading || !destinationTree?.projects.length}
-                        emptyText={t.no_collections_found}
-                        options={destinationOptions}
-                        placeholder={destinationLoading ? "…" : t.collection_label}
-                        searchPlaceholder={t.destination_search_placeholder}
-                        value={destinationValue}
-                        onValueChange={(path) => { const collectionId = path.at(-1); if (collectionId && collectionId !== captureDestination?.collectionId) void saveCaptureDestination(collectionId); }}
-                      />
-                    </SettingRow>
+                    <CaptureDestinationField
+                      automatic={autoCaptureDestination}
+                      empty={!destinationTree?.projects.length}
+                      loading={destinationLoading}
+                      options={destinationOptions}
+                      t={t}
+                      value={destinationValue}
+                      onSelect={(collectionId) => { if (collectionId !== captureDestination?.collectionId) void saveCaptureDestination(collectionId); }}
+                    />
                   </div>
                   {destinationError ? <p className="mt-2 text-xs font-medium text-destructive" role="alert">{destinationError}</p> : null}
                 </section>

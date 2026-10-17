@@ -419,6 +419,24 @@ describe("pinar_pins_search", () => {
     ]);
   });
 
+  test("the turn's abort signal reaches the service; without one there is no signal key", async () => {
+    const seen: Array<{ limit: number; query: string; signal?: AbortSignal }> = [];
+    const pinSearch: PinSearchService = {
+      async search(input) {
+        seen.push(input);
+        return [];
+      },
+    };
+    const entry = buildAssistantToolSet({ host: makeHost("ok"), kinds: ["read"], pinSearch, surface: "cloud" }).pinar_pins_search as {
+      execute: (input: unknown, options: unknown) => Promise<unknown>;
+    };
+    const turn = new AbortController();
+    await entry.execute({ query: "contraste" }, { abortSignal: turn.signal, messages: [], toolCallId: "call1" });
+    await entry.execute({ query: "contraste" }, { messages: [], toolCallId: "call2" });
+    assert.equal(seen[0]!.signal, turn.signal);
+    assert.equal(Object.hasOwn(seen[1]!, "signal"), false);
+  });
+
   test("hits come back in <dados> as { hits } with pin, session and a 2-decimal score", async () => {
     const pinSearch = makePinSearch([
       hit(),

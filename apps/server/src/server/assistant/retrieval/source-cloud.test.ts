@@ -131,7 +131,29 @@ describe("cloudPinSource", () => {
     const source = cloudPinSource(data);
     assert.deepEqual([...(await source.comments("hidden")).entries()], []);
     assert.equal(await source.shot("hidden"), null);
-    assert.deepEqual(calls, ["session:hidden"], "checked once, then nothing else is read");
+    assert.deepEqual(calls, ["session:hidden", "session:hidden"], "checked on each call, then nothing else is read");
+  });
+
+  test("access is checked again on every read: a revocation after session() stops comments, shot and session", async () => {
+    let allowed = true;
+    let checks = 0;
+    const visible: CloudPinSourceSession = { createdAt: "2026-10-01T00:00:00.000Z", id: "shared", page: { title: "Shared", url: "https://u.example" }, pins: [pin(1, "nota privada")] };
+    const { calls, data } = fakeData({ comments: { shared: [{ actorLabel: "Dono", body: "conversa privada", pinId: "p1" }] }, shots: { shared: PNG } });
+    const source = cloudPinSource({
+      ...data,
+      async session(id) {
+        checks += 1;
+        return allowed && id === "shared" ? visible : null;
+      },
+    });
+    assert.ok(await source.session("shared"));
+    assert.ok(await source.shot("shared"), "still allowed: the shot is read");
+    allowed = false;
+    assert.deepEqual([...(await source.comments("shared")).entries()], [], "revoked: no comment read");
+    assert.equal(await source.shot("shared"), null, "revoked: no shot read");
+    assert.equal(await source.session("shared"), null, "revoked: the session is gone");
+    assert.equal(checks, 5, "one access check per call, nothing remembered");
+    assert.deepEqual(calls.filter((call) => !call.startsWith("session:")), ["shot:shared"], "the only content read happened before the revocation");
   });
 
   test("comments are grouped by pin, oldest first, with the actor label as author", async () => {

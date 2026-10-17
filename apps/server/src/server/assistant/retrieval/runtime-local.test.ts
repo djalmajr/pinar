@@ -431,6 +431,36 @@ describe("local pin index runtime", () => {
     assert.deepEqual(entries("cap_first"), [], "the entries written by the pass were removed");
   });
 
+  test("the turn's signal stops the search, never the indexing pass", async () => {
+    writeAiSettings();
+    await capture("cap_turn", "Turno", [{ comment: "Indexada mesmo com o turno cortado", pinId: "pt" }]);
+    const search = localPinSearch(historyDatabase())!;
+    const queries = () => appliance.calls.filter((call) => call.path === "/embeddings" && call.body?.prompt_name === "query");
+
+    // Already aborted: nothing is asked.
+    await assert.rejects(search.search({ limit: 5, query: "turno", signal: AbortSignal.abort() }));
+    assert.deepEqual(appliance.calls, []);
+
+    // Aborted during the first-search pass: the pass ends and writes its
+    // entries, the question is never embedded.
+    const gate = deferred();
+    appliance.state.gate = gate.promise;
+    const turn = new AbortController();
+    const searching = search.search({ limit: 5, query: "turno", signal: turn.signal });
+    await ticks();
+    assert.equal(appliance.posts().length, 1, "the pass is indexing the session");
+    turn.abort();
+    gate.release();
+    await assert.rejects(searching);
+    await settle();
+    assert.equal(entries("cap_turn").length, 1, "the pass finished");
+    assert.deepEqual(queries(), []);
+
+    const hits = await search.search({ limit: 5, query: "turno" });
+    assert.deepEqual(hits.map((hit) => hit.pinId), ["pt"]);
+    assert.equal(queries().length, 1);
+  });
+
   test("capabilities that come back after a failed /models reindex with embeddings", async () => {
     writeAiSettings();
     appliance.state.modelsDown = true;

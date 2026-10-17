@@ -9,6 +9,7 @@ import {
   indexStale,
   PIN_SEARCH_MAX_SESSIONS,
   searchPins,
+  withAbortSignal,
   type PinIndexDeps,
   type PinIndexEntry,
   type PinIndexStore,
@@ -412,6 +413,21 @@ describe("indexStale", () => {
     assert.equal(data.size, 2);
   });
 
+  test("starts no session once its signal is aborted, and leaves them stale", async () => {
+    const { calls, source } = fakeSource(threeSessions());
+    const { data, store } = fakeStore();
+    const fake = fakeFetch();
+    const controller = new AbortController();
+    source.onSession = () => controller.abort(); // aborted while the first session runs
+    const d = deps(source, store, fake.fetch);
+    assert.deepEqual(await indexStale(d, { budgetMs: 60_000, maxSessions: 10, signal: controller.signal }), { indexed: 1, remaining: true });
+    assert.deepEqual(calls.session, ["c"], "no session started after the abort");
+    assert.equal(data.size, 1);
+    assert.deepEqual(await indexStale(d, { budgetMs: 60_000, maxSessions: 10, signal: controller.signal }), { indexed: 0, remaining: true });
+    source.onSession = undefined;
+    assert.deepEqual(await indexStale(d, { budgetMs: 60_000, maxSessions: 10 }), { indexed: 2, remaining: false }, "the next pass takes them");
+  });
+
   test("a failing session does not stop the pass and stays stale", async () => {
     const sessions = threeSessions();
     sessions[1]!.pinIds.push("orphan"); // pins and pinIds disagree → indexSession throws
@@ -711,5 +727,54 @@ describe("searchPins", () => {
     assert.ok(calls.entriesFor[0]!.includes("s519"));
     assert.ok(!calls.entriesFor[0]!.includes("s019"));
     assert.ok(sourceCalls.listSessions.every((call) => call.limit <= 100));
+  });
+});
+
+describe("withAbortSignal", () => {
+  function recordingFetch(answer: (init?: RequestInit) => Promise<Response>) {
+    const calls: Array<RequestInit | undefined> = [];
+    const fetchFn = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push(init);
+      return answer(init);
+    }) as typeof fetch;
+    return { calls, fetchFn };
+  }
+
+  test("without a signal the fetch is unchanged", () => {
+    const { fetchFn } = recordingFetch(async () => new Response("ok"));
+    assert.equal(withAbortSignal(fetchFn, undefined), fetchFn);
+    assert.equal(withAbortSignal(undefined, undefined), undefined);
+  });
+
+  test("an aborted signal starts no request", async () => {
+    const { calls, fetchFn } = recordingFetch(async () => new Response("ok"));
+    const controller = new AbortController();
+    controller.abort(new Error("turn over"));
+    await assert.rejects(withAbortSignal(fetchFn, controller.signal)!("https://x.example/a"), /turn over/);
+    assert.equal(calls.length, 0);
+  });
+
+  test("a request in flight is cut at the abort, even by a fetch that ignores its signal", async () => {
+    const { calls, fetchFn } = recordingFetch(() => new Promise<Response>(() => {})); // never answers
+    const controller = new AbortController();
+    const own = new AbortController();
+    const pending = withAbortSignal(fetchFn, controller.signal)!("https://x.example/a", { signal: own.signal });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]!.signal!.aborted, false);
+    controller.abort(new Error("deadline"));
+    await assert.rejects(pending, /deadline/);
+    assert.equal(calls[0]!.signal!.aborted, true, "the request's own signal now carries the abort");
+  });
+
+  test("the request's own signal still applies, and an answer passes through", async () => {
+    const { calls, fetchFn } = recordingFetch(async () => Response.json({ ok: true }));
+    const controller = new AbortController();
+    const own = new AbortController();
+    const response = await withAbortSignal(fetchFn, controller.signal)!("https://x.example/a", { method: "POST", signal: own.signal });
+    assert.deepEqual(await response.json(), { ok: true });
+    assert.equal(calls[0]!.method, "POST");
+    own.abort();
+    assert.equal(calls[0]!.signal!.aborted, true, "combined with the request's own signal");
   });
 });

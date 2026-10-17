@@ -6,14 +6,18 @@
 //   least one pin and, for a search, the sessions with pins of the
 //   collections where the principal is an accepted collaborator (the rule
 //   of mcpSessionSummaries and findAccessibleSession). At most
-//   PIN_SEARCH_MAX_SESSIONS sessions are listed, read once per source.
+//   PIN_SEARCH_MAX_SESSIONS sessions are listed, read once per source: the
+//   list only proposes candidates, every read below checks access again.
 //   updatedAt is the session's createdAt: Cloud sessions keep no update
 //   time. A write that changes a pin document (the session itself, a pin, a
 //   conversation comment) stamps the session's entries with the epoch
 //   instead (markCloudPinIndexSessionStale), which makes it stale.
-// - session(id) asks the data access again, so a session the principal can
-//   no longer see is null; comments and shot read only a session that
-//   session(id) finds now (checked once per source).
+// - session(id), comments(id) and shot(id) each ask the data access for
+//   the session on every call (findAccessibleSession or findOwnedSession
+//   in cloud-api.ts) before reading anything, and nothing remembers that
+//   answer: access revoked during a search is seen by the next read, and
+//   searchPins resolves every hit through session(id), so a hit of a
+//   session that lost access mid-search never comes back.
 // - shot reads the bucket object; the mime type comes from the bytes (PNG,
 //   JPEG or WebP), anything else is no shot.
 //
@@ -104,7 +108,6 @@ function newestFirst(left: CloudPinSessionRow, right: CloudPinSessionRow): numbe
 
 export function cloudPinSource(data: CloudPinSourceData): CloudPinSource {
   let listed: Promise<Array<{ id: string; ownerId: string; updatedAt: string }>> | null = null;
-  const visible = new Map<string, Promise<CloudPinSourceSession | null>>();
 
   // The accessible sessions with pins, read once per source.
   function accessible() {
@@ -124,16 +127,6 @@ export function cloudPinSource(data: CloudPinSourceData): CloudPinSource {
     return listed;
   }
 
-  // The session as the data access sees it now, checked once per source.
-  function current(id: string) {
-    let session = visible.get(id);
-    if (!session) {
-      session = data.session(id);
-      visible.set(id, session);
-    }
-    return session;
-  }
-
   return {
     async listSessions({ limit, offset }) {
       const start = Math.max(0, Math.trunc(offset));
@@ -146,7 +139,7 @@ export function cloudPinSource(data: CloudPinSourceData): CloudPinSource {
     },
 
     async session(id) {
-      const session = await current(id);
+      const session = await data.session(id);
       if (!session) return null;
       const pins = indexablePins(session);
       return {
@@ -159,7 +152,7 @@ export function cloudPinSource(data: CloudPinSourceData): CloudPinSource {
 
     async comments(sessionId) {
       const byPin = new Map<string, Array<{ author: string; body: string }>>();
-      if (!(await current(sessionId))) return byPin;
+      if (!(await data.session(sessionId))) return byPin;
       for (const comment of await data.comments(sessionId)) {
         const list = byPin.get(comment.pinId) ?? [];
         list.push({ author: comment.actorLabel, body: comment.body });
@@ -169,7 +162,7 @@ export function cloudPinSource(data: CloudPinSourceData): CloudPinSource {
     },
 
     async shot(sessionId) {
-      if (!(await current(sessionId))) return null;
+      if (!(await data.session(sessionId))) return null;
       const bytes = await data.shot(sessionId);
       if (!bytes) return null;
       const mimeType = shotMimeType(bytes);

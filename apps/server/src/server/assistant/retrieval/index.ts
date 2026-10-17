@@ -17,12 +17,14 @@
 // returns and then the ones with an entry that lags behind the current
 // endpoints (no vector of the current embedding model, or a null caption
 // while there is a vision endpoint), up to maxSessions. It starts no new
-// session once budgetMs has passed (a session already running finishes).
-// Entries it writes are stamped no earlier than the session's listed
-// updatedAt, so a session dated in the future (a skewed clock, a client
-// timestamp) is not stale again on every pass. The stores compare times as
-// text, so every listed updatedAt is first made canonical (canonicalTime):
-// the same instant in ISO UTC, whatever offset or format the source used.
+// session once budgetMs has passed (a session already running finishes),
+// nor once its signal is aborted; the requests themselves are cut by the
+// fetch the runtime gives it (withAbortSignal). Entries it writes are
+// stamped no earlier than the session's listed updatedAt, so a session
+// dated in the future (a skewed clock, a client timestamp) is not stale
+// again on every pass. The stores compare times as text, so every listed
+// updatedAt is first made canonical (canonicalTime): the same instant in
+// ISO UTC, whatever offset or format the source used.
 //
 // searchPins ranks the entries of the PIN_SEARCH_MAX_SESSIONS most recent
 // accessible sessions by cosine against the embedded query, or by a text
@@ -72,9 +74,39 @@ export interface PinSearchHit {
   url: string;
 }
 
-/** A runtime's pin search: its lazy indexing, then searchPins (contract §3.1). */
+/**
+ * A runtime's pin search: its lazy indexing, then searchPins (contract
+ * §3.1). `signal` is the assistant turn's: once it aborts, the search starts
+ * no new request.
+ */
 export interface PinSearchService {
-  search(input: { limit: number; query: string }): Promise<PinSearchHit[]>;
+  search(input: { limit: number; query: string; signal?: AbortSignal }): Promise<PinSearchHit[]>;
+}
+
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException("The operation was aborted", "AbortError");
+}
+
+/**
+ * The fetch (or the global one when absent) bound to `signal`: once the
+ * signal is aborted no request starts, and a request in flight is cut (its
+ * own signal is combined with this one) and rejected at once, even by a
+ * fetch that ignores its signal. Without a signal the fetch is unchanged.
+ */
+export function withAbortSignal(fetchFn: typeof fetch | undefined, signal: AbortSignal | undefined): typeof fetch | undefined {
+  if (!signal) return fetchFn;
+  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (signal.aborted) throw abortReason(signal);
+    const combined = init?.signal ? AbortSignal.any([init.signal, signal]) : signal;
+    const target = fetchFn ?? globalThis.fetch;
+    return new Promise<Response>((resolve, reject) => {
+      const onAbort = () => reject(abortReason(signal));
+      signal.addEventListener("abort", onAbort, { once: true });
+      target(input, { ...init, signal: combined })
+        .then(resolve, reject)
+        .finally(() => signal.removeEventListener("abort", onAbort));
+    });
+  }) as typeof fetch;
 }
 
 type Caption = { caption: string; ocr: string };
@@ -234,7 +266,10 @@ export function canonicalTime(value: string): string {
   return new Date(Math.min(time, LATEST_TIME)).toISOString();
 }
 
-export async function indexStale(deps: PinIndexDeps, input: { budgetMs: number; maxSessions: number }): Promise<{ indexed: number; remaining: boolean }> {
+export async function indexStale(
+  deps: PinIndexDeps,
+  input: { budgetMs: number; maxSessions: number; signal?: AbortSignal },
+): Promise<{ indexed: number; remaining: boolean }> {
   const startedAt = deps.now().getTime();
   const maxSessions = Math.max(0, Math.trunc(input.maxSessions));
   const sessions = (await accessibleSessions(deps.source)).map((session) => ({
@@ -250,7 +285,7 @@ export async function indexStale(deps: PinIndexDeps, input: { budgetMs: number; 
   let indexed = 0;
   let remaining = pending.length > maxSessions;
   for (const sessionId of pending.slice(0, maxSessions)) {
-    if (deps.now().getTime() - startedAt >= input.budgetMs) {
+    if (input.signal?.aborted || deps.now().getTime() - startedAt >= input.budgetMs) {
       remaining = true;
       break;
     }

@@ -14,11 +14,19 @@
 // (empty answers) nor written (replaceSession throws).
 //
 // Search: before searchPins, indexStale with a 10 s budget and up to 20
-// sessions, every search. The cron job (runCloudPinIndexCron) indexes, for
-// each owner it is given, that owner's own sessions (stale and lagging,
-// newest first) within one 60 s budget for the whole run; an owner that
-// fails is skipped and the next one runs. cloud-api.ts applies the gates
-// (A3) before calling either.
+// sessions, every search. The budget is a deadline that starts with the
+// search: every indexing request (vision, document embeddings) runs on a
+// signal that joins it with the turn's signal, so a slow request is cut
+// when either ends and its session stays stale for a later pass. The
+// question's embedding runs on the turn's signal only. Once the turn's
+// signal is aborted the search starts no new request.
+//
+// The cron job (runCloudPinIndexCron) enumerates its owners and indexes,
+// for each one, that owner's own sessions (stale and lagging, newest
+// first), all within one 60 s budget that starts before the enumeration;
+// requests in flight are cut at its end. An owner that fails is skipped
+// and the next one runs. cloud-api.ts applies the gates (A3) before calling
+// either.
 
 import type { AssistantD1Database } from "../store-cloud";
 import type { AssistantEndpoint } from "../models";
@@ -27,6 +35,7 @@ import {
   indexStale,
   PIN_SEARCH_MAX_SESSIONS,
   searchPins,
+  withAbortSignal,
   type PinIndexDeps,
   type PinIndexEntry,
   type PinIndexStore,
@@ -55,13 +64,16 @@ export function cloudChatEndpoint(env: CloudPinEnv): AssistantEndpoint | null {
   return { apiKey: env.AI_API_KEY, baseUrl: env.AI_BASE_URL, kind: "appliance", model: env.AI_MODEL, thinkingControl: true };
 }
 
+// `fetch` runs the indexing requests; `detectFetch` the /models probe,
+// which keeps its own 5 s deadline and cache without the run's signal, so an
+// aborted turn never leaves a failed detection cached for a minute.
 async function indexDeps(
   env: CloudPinEnv,
-  options: { fetch?: typeof fetch; now: () => Date; source: PinSource; store: PinIndexStore },
+  options: { detectFetch?: typeof fetch; fetch?: typeof fetch; now: () => Date; source: PinSource; store: PinIndexStore },
 ): Promise<PinIndexDeps | null> {
   const chat = cloudChatEndpoint(env);
   if (!chat) return null;
-  const capabilities = await detectRetrievalCapabilities({ endpoint: chat, ...(options.fetch ? { fetch: options.fetch } : {}) });
+  const capabilities = await detectRetrievalCapabilities({ endpoint: chat, ...(options.detectFetch ? { fetch: options.detectFetch } : {}) });
   return {
     chat: capabilities.vision ? chat : null,
     embedding: env.AI_EMBEDDING_MODEL ? { apiKey: chat.apiKey, baseUrl: chat.baseUrl, model: env.AI_EMBEDDING_MODEL } : null,
@@ -145,24 +157,41 @@ export function cloudOwnerPinIndexStore(env: CloudPinEnv, owners: Map<string, st
 /**
  * The pin search of one principal: `data` is that principal's view
  * (owned sessions and accepted collaborations). Each search indexes up to
- * 20 stale sessions within 10 s, then searches.
+ * 20 stale sessions within `indexBudgetMs` (10 s), then searches.
  */
 export function createCloudPinSearch(input: {
   data: CloudPinSourceData;
   env: CloudPinEnv;
   fetch?: typeof fetch;
+  indexBudgetMs?: number;
   now?: () => Date;
 }): PinSearchService {
   const now = input.now ?? (() => new Date());
+  const indexBudgetMs = input.indexBudgetMs ?? CLOUD_PIN_SEARCH_BUDGET_MS;
   return {
-    async search(query) {
+    async search({ limit, query, signal }) {
+      signal?.throwIfAborted();
+      // The indexing deadline starts with the search; the turn ends it sooner.
+      const deadline = AbortSignal.timeout(indexBudgetMs);
+      const indexSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
       // A fresh source per search: the accessible sessions are read again.
       const source = cloudPinSource(input.data);
       const store = cloudOwnerPinIndexStore(input.env, await source.owners());
-      const deps = await indexDeps(input.env, { ...(input.fetch ? { fetch: input.fetch } : {}), now, source, store });
-      if (!deps) throw new Error("pin search unavailable");
-      await indexStale(deps, { budgetMs: CLOUD_PIN_SEARCH_BUDGET_MS, maxSessions: CLOUD_PIN_SEARCH_MAX_SESSIONS });
-      return searchPins(deps, query);
+      signal?.throwIfAborted();
+      const indexing = await indexDeps(input.env, {
+        ...(input.fetch ? { detectFetch: input.fetch } : {}),
+        fetch: withAbortSignal(input.fetch, indexSignal),
+        now,
+        source,
+        store,
+      });
+      if (!indexing) throw new Error("pin search unavailable");
+      await indexStale(indexing, { budgetMs: indexBudgetMs, maxSessions: CLOUD_PIN_SEARCH_MAX_SESSIONS, signal: indexSignal });
+      signal?.throwIfAborted();
+      // The question's embedding is bound to the turn only.
+      const { fetch: _indexFetch, ...rest } = indexing;
+      const searchFetch = withAbortSignal(input.fetch, signal);
+      return searchPins({ ...rest, ...(searchFetch ? { fetch: searchFetch } : {}) }, { limit, query });
     },
   };
 }
@@ -175,10 +204,12 @@ export interface CloudPinIndexCronResult {
 }
 
 /**
- * The daily indexing: for each owner, in the given order, indexStale over
- * the owner's own sessions with the store of that owner, until the 60 s
- * budget of the whole run is spent. An owner that fails counts in `failed`
- * and the next one runs.
+ * The daily indexing: the budget (60 s) starts first, then `owners()`
+ * enumerates the owners inside it; for each owner, in that order,
+ * indexStale over the owner's own sessions with the store of that owner,
+ * until the budget is spent (`remaining: true`). Requests in flight are cut
+ * when the budget ends. An owner that fails counts in `failed` and the next
+ * one runs.
  */
 export async function runCloudPinIndexCron(input: {
   budgetMs?: number;
@@ -186,27 +217,29 @@ export async function runCloudPinIndexCron(input: {
   fetch?: typeof fetch;
   now?: () => Date;
   ownerData: (ownerId: string) => CloudPinSourceData;
-  owners: string[];
+  owners: () => Promise<string[]>;
 }): Promise<CloudPinIndexCronResult> {
   const now = input.now ?? (() => new Date());
   const budgetMs = input.budgetMs ?? CLOUD_PIN_INDEX_CRON_BUDGET_MS;
   const startedAt = now().getTime();
+  const deadline = AbortSignal.timeout(budgetMs);
   const result: CloudPinIndexCronResult = { failed: 0, indexed: 0, owners: 0, remaining: false };
-  for (const ownerId of input.owners) {
+  for (const ownerId of await input.owners()) {
     const left = budgetMs - (now().getTime() - startedAt);
-    if (left <= 0) {
+    if (left <= 0 || deadline.aborted) {
       result.remaining = true;
       break;
     }
     try {
       const deps = await indexDeps(input.env, {
-        ...(input.fetch ? { fetch: input.fetch } : {}),
+        ...(input.fetch ? { detectFetch: input.fetch } : {}),
+        fetch: withAbortSignal(input.fetch, deadline),
         now,
         source: cloudPinSource(input.ownerData(ownerId)),
         store: cloudPinIndexStore(input.env, ownerId),
       });
       if (!deps) return result;
-      const pass = await indexStale(deps, { budgetMs: left, maxSessions: PIN_SEARCH_MAX_SESSIONS });
+      const pass = await indexStale(deps, { budgetMs: left, maxSessions: PIN_SEARCH_MAX_SESSIONS, signal: deadline });
       result.indexed += pass.indexed;
       result.owners += 1;
       if (pass.remaining) result.remaining = true;

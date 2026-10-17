@@ -27,7 +27,9 @@
 // endpoint capabilities (embedding model, vision) change, and again after a
 // pass chain that left work behind. When a pass leaves work behind, the
 // chain runs up to LOCAL_PIN_INDEX_MAX_CONTINUATIONS more passes in the
-// background, while a pass still indexes something.
+// background, while a pass still indexes something. The turn's signal only
+// keeps the search from starting a request after it aborts (the question's
+// embedding); the passes in the chain run as they are.
 //
 // Trigger: attachLocalPinIndex wraps the history database object that
 // historyDatabase() returns (api.local.ts). The routes, the local MCP at
@@ -44,6 +46,7 @@ import {
   indexSession,
   indexStale,
   searchPins,
+  withAbortSignal,
   type PinIndexDeps,
   type PinIndexStore,
   type PinSearchService,
@@ -267,7 +270,8 @@ export function createLocalPinIndexRuntime(deps: LocalPinIndexRuntimeDeps): Loca
     },
 
     search: {
-      async search(input) {
+      async search({ limit, query, signal }) {
+        signal?.throwIfAborted();
         const indexing = await indexDeps();
         if (!indexing) throw new Error("pin search unavailable");
         const key = capabilitiesKey(indexing);
@@ -284,7 +288,9 @@ export function createLocalPinIndexRuntime(deps: LocalPinIndexRuntimeDeps): Loca
           });
         }
         await pass;
-        return searchPins(indexing, input);
+        signal?.throwIfAborted();
+        const searchFetch = withAbortSignal(indexing.fetch, signal);
+        return searchPins({ ...indexing, ...(searchFetch ? { fetch: searchFetch } : {}) }, { limit, query });
       },
     },
 

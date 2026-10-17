@@ -14,7 +14,8 @@
 // and pinar_ask whenever there is an emit to send its data-ask part.
 // pinar_pins_search is a read: it joins when reads are offered and the
 // runtime passed a pin search service, and its hits reach the model in the
-// same capped, escaped <dados> block as the MCP reads.
+// same capped, escaped <dados> block as the MCP reads. The search gets the
+// turn's abort signal.
 
 import { jsonSchema, tool, type ToolSet } from "ai";
 import { McpToolError, type McpToolDefinition } from "../mcp-protocol";
@@ -166,14 +167,20 @@ export function buildAssistantToolSet(input: {
     tools[toLlmToolName(def.name)] = tool({
       description: def.description,
       inputSchema: jsonSchema(toolSchema(def)),
-      execute: async (args) => {
+      execute: async (args, options) => {
         const problems = assistantExtraToolProblems(def, args);
         if (problems.length > 0) {
           return { problems, status: "invalid_arguments" };
         }
         const { limit, query } = args as { limit?: number; query: string };
         try {
-          const hits = await pinSearch.search({ limit: limit ?? ASSISTANT_PINS_SEARCH_LIMIT_DEFAULT, query: query.trim() });
+          // The turn's signal: once the turn aborts, the search starts no new request.
+          const signal = options?.abortSignal;
+          const hits = await pinSearch.search({
+            limit: limit ?? ASSISTANT_PINS_SEARCH_LIMIT_DEFAULT,
+            query: query.trim(),
+            ...(signal ? { signal } : {}),
+          });
           return dataResult(JSON.stringify({ hits: hits.map(pinSearchHitData) }));
         } catch {
           // The service error (endpoint, store) never reaches the model.

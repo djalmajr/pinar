@@ -545,7 +545,7 @@ describe("assistant http handler", () => {
   });
 
   test("deps.pinSearch reaches the turn: pinar_pins_search is offered and called; without it, it is not offered", async () => {
-    const searches: Array<{ limit: number; query: string }> = [];
+    const searches: Array<{ limit: number; query: string; signal?: AbortSignal }> = [];
     const pinSearch = {
       async search(input: { limit: number; query: string }) {
         searches.push(input);
@@ -577,7 +577,8 @@ describe("assistant http handler", () => {
     assert.equal(response.status, 200);
     assert.ok((await readSse(response)).includes("Achei 1 pin."));
     assert.ok(offered[0]!.includes("pinar_pins_search"));
-    assert.deepEqual(searches, [{ limit: 20, query: "contraste" }]);
+    assert.deepEqual(searches.map(({ limit, query }) => ({ limit, query })), [{ limit: 20, query: "contraste" }]);
+    assert.ok(searches[0]!.signal instanceof AbortSignal, "the turn's signal reaches the search through the handler");
     assert.ok(JSON.stringify(toolResults[0]).includes("Contraste baixo"), "the hit reaches the model as the tool result");
 
     const withoutSearch = makeDeps({ model: scripted() }).deps;

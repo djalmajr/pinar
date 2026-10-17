@@ -8223,45 +8223,68 @@ export async function cloudPinSearch(
   });
 }
 
-// Owners with at least one session with pins, the most recently captured
-// first, whose plan includes AI.
-async function pinSearchOwners(env: CloudEnv): Promise<Principal[]> {
-  let ownerIds: string[];
-  if (env.DB) {
+// The ids of COMPLIMENTARY_PRO_USER_IDS, the list complimentaryProUser reads.
+function complimentaryProUserIds(env: CloudEnv): string[] {
+  return (env.COMPLIMENTARY_PRO_USER_IDS?.split(",") ?? []).map((entry) => entry.trim()).filter(Boolean);
+}
+
+// Owners with at least one session with pins whose plan includes AI, the
+// most recently captured first, without reading accounts one by one: the
+// plan filter runs in SQL on the two inputs of effectiveAccountPlan, the
+// users.plan column and the deployment's complimentary list. One query;
+// complimentary ids past the first PIN_SEARCH_IN_CHUNK add one query per
+// chunk.
+async function pinSearchOwners(env: CloudEnv): Promise<string[]> {
+  const complimentary = complimentaryProUserIds(env);
+  if (!env.DB) {
+    const owners: string[] = [];
+    for (const ownerId of new Set(memoryPinSessionRows(() => true, Number.MAX_SAFE_INTEGER).map((row) => row.ownerId))) {
+      const account = ownerId ? memoryAccounts.get(ownerId) : undefined;
+      if (account && (account.plan === "pro" || complimentary.includes(ownerId))) owners.push(ownerId);
+    }
+    return owners;
+  }
+  const groups: string[][] = [complimentary.slice(0, PIN_SEARCH_IN_CHUNK)];
+  for (let start = PIN_SEARCH_IN_CHUNK; start < complimentary.length; start += PIN_SEARCH_IN_CHUNK) {
+    groups.push(complimentary.slice(start, start + PIN_SEARCH_IN_CHUNK));
+  }
+  const latest = new Map<string, string>();
+  for (const [index, ids] of groups.entries()) {
+    const listed = ids.length > 0 ? `u.id IN (${ids.map(() => "?").join(", ")})` : "";
+    // The first query also reads the plan column.
+    const plan = index > 0 ? listed : listed ? `u.plan = 'pro' OR ${listed}` : "u.plan = 'pro'";
     const rows = await env.DB.prepare(
-      "SELECT user_id, MAX(created_at) AS latest FROM sessions WHERE pin_count > 0 GROUP BY user_id ORDER BY latest DESC, user_id ASC",
-    ).all();
-    ownerIds = (rows.results || []).map((row) => String(row.user_id || ""));
-  } else {
-    ownerIds = [...new Set(memoryPinSessionRows(() => true, Number.MAX_SAFE_INTEGER).map((row) => row.ownerId))];
+      `SELECT s.user_id AS user_id, MAX(s.created_at) AS latest FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.pin_count > 0 AND (${plan}) GROUP BY s.user_id`,
+    ).bind(...ids).all();
+    for (const row of rows.results || []) {
+      const ownerId = String(row.user_id || "");
+      const at = String(row.latest || "");
+      if (ownerId && at > (latest.get(ownerId) ?? "")) latest.set(ownerId, at);
+    }
   }
-  const owners: Principal[] = [];
-  for (const ownerId of ownerIds) {
-    if (!ownerId) continue;
-    const account = await findAccountById(env, ownerId);
-    if (!account) continue;
-    const principal = principalForAccount(account);
-    if (planIncludesAi(principal.plan)) owners.push(principal);
-  }
-  return owners;
+  return [...latest.entries()]
+    .sort((left, right) => right[1].localeCompare(left[1]) || (left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0))
+    .map(([ownerId]) => ownerId);
 }
 
 /**
  * Daily cron job: indexes the pins of each owner on a plan with AI, the
- * owner's own sessions only, within 60 s for the whole run. With the
- * assistant's deployment gate off it reads nothing.
+ * owner's own sessions only, within 60 s for the whole run, the owners'
+ * enumeration included (runCloudPinIndexCron starts the budget before it).
+ * With the assistant's deployment gate off it reads nothing.
  */
 export async function indexPinSearch(env: CloudEnv, options: { fetch?: typeof fetch; now?: () => Date } = {}) {
   if (!cloudAssistantDeploymentEnabled(env)) return { failed: 0, indexed: 0, owners: 0, remaining: false };
-  const owners = await pinSearchOwners(env);
-  const byId = new Map(owners.map((owner) => [owner.id, owner]));
   const { runCloudPinIndexCron } = await import("./assistant/retrieval/runtime-cloud");
   return runCloudPinIndexCron({
     env,
     ...(options.fetch ? { fetch: options.fetch } : {}),
     now: options.now ?? currentDate,
-    ownerData: (ownerId) => cloudPinSourceData(env, byId.get(ownerId)!, { shared: false }),
-    owners: owners.map((owner) => owner.id),
+    // The owner as the cron's principal: only its id is read
+    // (ownedSessions, findOwnedSession), and pinSearchOwners already kept
+    // owners on a plan with AI.
+    ownerData: (ownerId) => cloudPinSourceData(env, { id: ownerId, isPermanent: true, kind: "account", plan: "pro" }, { shared: false }),
+    owners: () => pinSearchOwners(env),
   });
 }
 

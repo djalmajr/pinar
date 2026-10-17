@@ -6,9 +6,11 @@ import assert from "node:assert/strict";
 import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, test } from "node:test";
+import { MockLanguageModelV4 } from "ai/test";
 import {
   cloudAssistantToolHost,
   cloudPinSearch,
+  findAccessibleSession,
   handleCloudApiRequest,
   indexPinSearch,
   resetCloudMemoryStateForTests,
@@ -19,14 +21,17 @@ import {
 } from "../../cloud-api";
 import { runtimeEnv } from "../../cloud-env";
 import { edgerCloudEnv } from "../../edger/env";
+import { buildAssistantToolSet } from "../tools";
+import { runAssistantTurn } from "../turn";
 import { resetRetrievalCapabilitiesCacheForTests } from "./detect";
 import { PIN_EMBEDDING_DIMENSIONS } from "./embeddings";
-import type { PinIndexEntry } from "./index";
+import type { PinIndexEntry, PinSearchService } from "./index";
 import {
   CLOUD_PIN_INDEX_CRON_BUDGET_MS,
   CLOUD_PIN_SEARCH_BUDGET_MS,
   CLOUD_PIN_SEARCH_MAX_SESSIONS,
   cloudOwnerPinIndexStore,
+  createCloudPinSearch,
   runCloudPinIndexCron,
 } from "./runtime-cloud";
 import type { CloudPinSourceData, CloudPinSourceSession } from "./source-cloud";
@@ -721,6 +726,214 @@ describe("Cloud pin index invalidation", () => {
   });
 });
 
+describe("Cloud pin search: access, cron budget and the turn's deadline", () => {
+  let db: Database;
+
+  beforeEach(() => {
+    resetCloudMemoryStateForTests();
+    resetRetrievalCapabilitiesCacheForTests();
+    setCloudNowForTests(NOW);
+    db = migratedDatabase();
+  });
+
+  afterEach(() => {
+    db.close();
+    resetCloudMemoryStateForTests();
+    resetRetrievalCapabilitiesCacheForTests();
+    setCloudNowForTests(null);
+  });
+
+  test("a collaboration revoked during the search returns no hit of that session", async () => {
+    sharedWorld(db);
+    const env = cloudEnv(db);
+    const appliance = fakeAppliance();
+    let revoked = false;
+    // The collaboration is revoked while the shared session's document is
+    // being embedded: its entries get written, then access is gone.
+    const revoking = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const body = typeof init?.body === "string" ? (JSON.parse(init.body) as Record<string, any>) : null;
+      if (!revoked && body?.prompt_name === "document" && JSON.stringify(body.input).includes("botão comprar")) {
+        db.query("UPDATE collection_collaborators SET status = 'revoked' WHERE id = 'collab_ok'").run();
+        revoked = true;
+      }
+      return appliance.fetch(input, init);
+    }) as typeof fetch;
+    const hits = await searchAs(env, principal("usr_collab"), "contraste botão comprar", revoking);
+    assert.equal(revoked, true);
+    assert.equal(await findAccessibleSession(env, principal("usr_collab"), "ses_shared"), null, "access is gone now");
+    assert.deepEqual(pinIndexRows(db).map((row) => row.session_id), ["ses_collab", "ses_shared"], "the shared session was indexed before the revocation");
+    assert.deepEqual(hits.map((hit) => hit.sessionId), ["ses_collab"], "but none of its pins comes back");
+    assert.ok(!JSON.stringify(hits).includes("botão comprar"));
+  });
+
+  // The DB of `cloudEnv`, with the owners' enumeration (the cron's first
+  // query) moving the fake clock `advanceMs` forward.
+  function slowOwnersDb(log: QueryLog, onOwners: () => void): NonNullable<CloudEnv["DB"]> {
+    const base = sqliteD1(db, log);
+    return {
+      batch: (statements) => base.batch(statements),
+      prepare(query: string) {
+        const statement = base.prepare(query);
+        if (!query.startsWith("SELECT s.user_id AS user_id")) return statement;
+        const wrapped = {
+          all: async () => {
+            onOwners();
+            return statement.all();
+          },
+          bind: (...values: unknown[]) => {
+            statement.bind(...values);
+            return wrapped;
+          },
+          first: () => statement.first(),
+          run: () => statement.run(),
+        };
+        return wrapped;
+      },
+    };
+  }
+
+  test("the cron's 60 s budget covers the owners' enumeration: a slow one stops the run", async () => {
+    sharedWorld(db);
+    let clock = Date.parse(NOW);
+    const log: QueryLog = [];
+    const env = { ...cloudEnv(db), DB: slowOwnersDb(log, () => { clock += 70_000; }) };
+    const result = await indexPinSearch(env, { fetch: fakeAppliance().fetch, now: () => new Date(clock) });
+    assert.deepEqual(result, { failed: 0, indexed: 0, owners: 0, remaining: true });
+    assert.deepEqual(pinIndexRows(db), []);
+    assert.equal(log.filter((entry) => entry.query.startsWith("SELECT s.user_id AS user_id")).length, 1, "one enumeration query");
+    assert.equal(log.filter((entry) => /FROM users WHERE id = \?/.test(entry.query)).length, 0, "no account read one by one");
+    assert.equal(log.filter((entry) => entry.query.includes("FROM sessions WHERE user_id = ?")).length, 0, "no owner's sessions read after the budget");
+
+    // Control: an enumeration that leaves time runs the owners.
+    clock = Date.parse(NOW);
+    const quick = { ...cloudEnv(db), DB: slowOwnersDb([], () => { clock += 59_000; }) };
+    assert.deepEqual(await indexPinSearch(quick, { fetch: fakeAppliance().fetch, now: () => new Date(clock) }), { failed: 0, indexed: 4, owners: 3, remaining: false });
+  });
+
+  test("the cron's owners: the plan column or the complimentary list, in one query", async () => {
+    insertUser(db, "usr_pro", "pro");
+    insertUser(db, "usr_gift", "free");
+    insertUser(db, "usr_free", "free");
+    for (const id of ["usr_pro", "usr_gift", "usr_free"]) {
+      insertCollection(db, `col_${id}`, id);
+      insertSession(db, `session_${id}`, id, `col_${id}`, [{ comment: "Nota", number: 1, pinId: "p1" }]);
+    }
+    const log: QueryLog = [];
+    const result = await indexPinSearch(cloudEnv(db, { COMPLIMENTARY_PRO_USER_IDS: "usr_other, usr_gift" }, log), { fetch: fakeAppliance().fetch });
+    assert.deepEqual(result, { failed: 0, indexed: 2, owners: 2, remaining: false });
+    assert.deepEqual(pinIndexRows(db).map((row) => row.owner_id).sort(), ["usr_gift", "usr_pro"]);
+    const owners = log.filter((entry) => entry.query.startsWith("SELECT s.user_id AS user_id"));
+    assert.equal(owners.length, 1);
+    assert.deepEqual(owners[0]!.params, ["usr_other", "usr_gift"]);
+  });
+
+  // One Pro session through a fake data access, for the runtime alone.
+  function oneSession(shot: boolean): CloudPinSourceData {
+    const session: CloudPinSourceSession = {
+      createdAt: "2026-09-30T00:00:00.000Z",
+      id: "session_slow",
+      page: { title: "Lenta", url: "https://site.example/lenta" },
+      pins: [{ comment: "Nota lenta", coords: { x: 0, y: 0 }, number: 1, pinId: "p1", type: "point" }],
+    };
+    return {
+      async comments() { return []; },
+      async ownedSessions() { return [{ createdAt: session.createdAt, id: session.id, ownerId: "usr_pro" }]; },
+      async session(id) { return id === session.id ? session : null; },
+      async sharedSessions() { return []; },
+      async shot() { return shot ? PNG : null; },
+    };
+  }
+
+  const RUNTIME_ENV = { AI_API_KEY: "sk-ai-test", AI_BASE_URL: BASE_URL, AI_EMBEDDING_MODEL: "embed-model", AI_MODEL: "mock" };
+
+  test("a search with slow vision ends near the indexing deadline; the session stays stale and a later search indexes it", async () => {
+    const appliance = fakeAppliance({ vision: true });
+    let visions = 0;
+    // Vision never answers and ignores its signal.
+    const slow = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const body = typeof init?.body === "string" ? (JSON.parse(init.body) as Record<string, any>) : null;
+      if (body?.messages && !body.stream) {
+        visions += 1;
+        return new Promise<Response>(() => {});
+      }
+      return appliance.fetch(input, init);
+    }) as typeof fetch;
+    const started = Date.now();
+    const hits = await createCloudPinSearch({ data: oneSession(true), env: RUNTIME_ENV, fetch: slow, indexBudgetMs: 200 }).search({ limit: 5, query: "nota lenta" });
+    const elapsed = Date.now() - started;
+    assert.ok(elapsed >= 150 && elapsed < 2_000, `ended after ${elapsed} ms`);
+    assert.equal(visions, 1);
+    assert.equal(appliance.embeddings().filter((call) => call.body?.prompt_name === "document").length, 0, "no document embedding after the deadline");
+    assert.equal(appliance.embeddings().filter((call) => call.body?.prompt_name === "query").length, 1, "the question still embedded, on the turn's signal");
+    assert.deepEqual(hits, []);
+    assert.deepEqual(await cloudPinIndexStore({}, "usr_pro").entries("session_slow"), [], "the cut session stays stale");
+
+    const hitsLater = await createCloudPinSearch({ data: oneSession(true), env: RUNTIME_ENV, fetch: appliance.fetch, indexBudgetMs: 200 }).search({ limit: 5, query: "nota lenta" });
+    assert.deepEqual(hitsLater.map((hit) => [hit.sessionId, hit.caption]), [["session_slow", "legenda 1"]]);
+  });
+
+  test("once the turn aborts, the search starts no new request and cuts the one in flight", async () => {
+    const appliance = fakeAppliance();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let afterOutcome = false;
+    const requests: Array<{ afterOutcome: boolean; kind: string; signal: AbortSignal | null }> = [];
+    const gated = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const body = typeof init?.body === "string" ? (JSON.parse(init.body) as Record<string, any>) : null;
+      const kind = body?.prompt_name ?? (body ? "chat" : "models");
+      requests.push({ afterOutcome, kind, signal: init?.signal ?? null });
+      if (kind === "document") await gate; // the document embedding outlives the turn
+      return appliance.fetch(input, init);
+    }) as typeof fetch;
+    const service = createCloudPinSearch({ data: oneSession(false), env: RUNTIME_ENV, fetch: gated });
+    let searchDone: Promise<unknown> = Promise.resolve();
+    const tracked: PinSearchService = {
+      search(input) {
+        const running = service.search(input);
+        searchDone = running.catch(() => {});
+        return running;
+      },
+    };
+    const model = new MockLanguageModelV4({
+      doStream: (async () => ({
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue({ input: JSON.stringify({ limit: 5, query: "nota lenta" }), toolCallId: "call1", toolName: "pinar_pins_search", type: "tool-call" });
+            controller.enqueue({ finishReason: { raw: "tool-calls", unified: "tool-calls" }, type: "finish", usage: { inputTokens: { total: 1 }, outputTokens: { total: 1 } } });
+            controller.close();
+          },
+        }),
+      })) as unknown as MockLanguageModelV4["doStream"],
+      modelId: "mock",
+    });
+    const turn = runAssistantTurn({
+      history: [{ role: "user", text: "onde falei da nota lenta?" }],
+      model,
+      system: "sys",
+      thread: { id: "ath_test000000000000000000", title: "t" },
+      timeoutMs: 40,
+      tools: buildAssistantToolSet({ host: { callTool: async () => ({}) }, kinds: ["read"], pinSearch: tracked, surface: "cloud" }),
+    });
+    const reading = turn.response.text();
+    const outcome = await turn.outcome;
+    afterOutcome = true;
+    await searchDone;
+    release();
+    await reading;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(outcome.kind, "error");
+    assert.equal(outcome.kind === "error" ? outcome.code : null, "ASSISTANT_TURN_TIMEOUT");
+    assert.deepEqual(requests.filter((request) => request.afterOutcome), [], "no request after the turn ended");
+    assert.ok(!requests.some((request) => request.kind === "query"), "the question was never embedded");
+    const document = requests.find((request) => request.kind === "document");
+    assert.ok(document, "the document embedding had started");
+    assert.equal(document.signal?.aborted, true, "and its request was cut");
+    assert.deepEqual(await cloudPinIndexStore({}, "usr_pro").entries("session_slow"), [], "the cut session stays stale");
+  });
+});
+
 describe("Cloud pin index cron", () => {
   let db: Database;
 
@@ -773,8 +986,9 @@ describe("Cloud pin index cron", () => {
     assert.equal(CLOUD_PIN_INDEX_CRON_BUDGET_MS, 60_000);
     let clock = 0;
     const started: string[] = [];
-    // Each session read moves the clock 25 s: owner A spends 50 s, owner B
-    // gets the 10 s left (one session), owner C never starts.
+    // Each indexed session moves the clock 25 s (its one comments read; the
+    // access checks of session() are not counted): owner A spends 50 s,
+    // owner B gets the 10 s left (one session), owner C never starts.
     const data = (ownerId: string): CloudPinSourceData => {
       started.push(ownerId);
       const sessions = [1, 2].map((index): CloudPinSourceSession => ({
@@ -784,9 +998,9 @@ describe("Cloud pin index cron", () => {
         pins: [{ comment: `Nota ${index}`, coords: { x: 0, y: 0 }, number: 1, pinId: "p1", type: "point" }],
       }));
       return {
-        async comments() { return []; },
+        async comments() { clock += 25_000; return []; },
         async ownedSessions() { return sessions.map((session) => ({ createdAt: session.createdAt, id: session.id, ownerId })).reverse(); },
-        async session(id) { clock += 25_000; return sessions.find((session) => session.id === id) ?? null; },
+        async session(id) { return sessions.find((session) => session.id === id) ?? null; },
         async sharedSessions() { return []; },
         async shot() { return null; },
       };
@@ -796,7 +1010,7 @@ describe("Cloud pin index cron", () => {
       fetch: fakeAppliance().fetch,
       now: () => new Date(Date.parse(NOW) + clock),
       ownerData: data,
-      owners: ["usr_a", "usr_b", "usr_c"],
+      owners: async () => ["usr_a", "usr_b", "usr_c"],
     });
     assert.deepEqual(started, ["usr_a", "usr_b"], "no owner starts after the budget");
     assert.deepEqual(result, { failed: 0, indexed: 3, owners: 2, remaining: true });
@@ -821,7 +1035,7 @@ describe("Cloud pin index cron", () => {
       env: { AI_API_KEY: "sk-ai-test", AI_BASE_URL: BASE_URL, AI_MODEL: "mock" },
       fetch: fakeAppliance().fetch,
       ownerData: data,
-      owners: ["usr_a", "usr_b", "usr_c"],
+      owners: async () => ["usr_a", "usr_b", "usr_c"],
     });
     assert.deepEqual(result, { failed: 1, indexed: 2, owners: 2, remaining: true });
     assert.equal((await cloudPinIndexStore({}, "usr_a").entries("usr_a_1")).length, 1);

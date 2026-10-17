@@ -33,8 +33,14 @@ function vector(components: Record<number, number>): number[] {
 
 // A fake POST /embeddings: `embed` maps each input text (and its kind) to a
 // vector; `fail` answers a kind with an error status, whose body carries
-// the key, so a leak would show.
-function fakeEmbeddings(embed: (text: string, kind: "document" | "query") => number[], fail?: { kind: "document" | "query"; status: number }) {
+// the key, so a leak would show. Every item carries its position as `index`,
+// except in the query answers when `queryIndex` is given: that value, or no
+// `index` at all for null.
+function fakeEmbeddings(
+  embed: (text: string, kind: "document" | "query") => number[],
+  fail?: { kind: "document" | "query"; status: number },
+  options: { queryIndex?: number | null } = {},
+) {
   const requests: EmbeddingRequest[] = [];
   const fetchImpl = (async (target: RequestInfo | URL, init?: RequestInit) => {
     const headers = (init?.headers ?? {}) as Record<string, string>;
@@ -43,7 +49,11 @@ function fakeEmbeddings(embed: (text: string, kind: "document" | "query") => num
     if (fail && body.prompt_name === fail.kind) {
       return new Response(JSON.stringify({ error: `bad key ${API_KEY}` }), { status: fail.status });
     }
-    const data = body.input.map((text, index) => ({ embedding: embed(text, body.prompt_name), index }));
+    const data = body.input.map((text, position) => {
+      const embedding = embed(text, body.prompt_name);
+      if (body.prompt_name !== "query" || options.queryIndex === undefined) return { embedding, index: position };
+      return options.queryIndex === null ? { embedding } : { embedding, index: options.queryIndex };
+    });
     return new Response(JSON.stringify({ data }), { headers: { "Content-Type": "application/json" }, status: 200 });
   }) as typeof fetch;
   return { fetchImpl, requests };
@@ -232,6 +242,29 @@ test("sonda: uma consulta que falha cai no ranking textual e fica marcada", asyn
   expect(short.questions[0].ranking).toBe("text-fallback");
 });
 
+test("sonda: a resposta da pergunta passa pelo parser da produção; index 1 cai no ranking textual", async () => {
+  const run = (queryIndex: number | null) =>
+    runSearchProbe({
+      embedding: { apiKey: API_KEY, baseUrl: BASE_URL, model: DEFAULT_EMBEDDING_MODEL },
+      fetch: fakeEmbeddings(handEmbed, undefined, { queryIndex }).fetchImpl,
+      questions: [HAND_QUESTIONS[0]],
+    });
+  // index 1 para uma pergunta só: o parseEmbeddings recusa (slot fora de count = 1)
+  // e o searchPins ranqueia por texto; "q-alpha" não casa termo nenhum, então nada volta.
+  const shifted = await run(1);
+  expect(shifted.questions[0].ranking).toBe("text-fallback");
+  expect(shifted.totals.fallbacks).toBe(1);
+  expect(shifted.questions[0].hits).toEqual([]);
+  // index 0 ou sem index: o vetor é aceito, e o pin do alpha vem primeiro pelo cosseno 2/√5.
+  for (const queryIndex of [0, null]) {
+    const embedded = await run(queryIndex);
+    expect(embedded.questions[0].ranking).toBe("embedding");
+    expect(embedded.totals.fallbacks).toBe(0);
+    expect(embedded.questions[0].rank).toBe(1);
+    expect(embedded.questions[0].hits[0].score).toBeCloseTo(2 / Math.sqrt(5), 6);
+  }
+});
+
 // ---------- CLI ----------
 
 const createdDirs: string[] = [];
@@ -309,6 +342,21 @@ test("CLI: falha ao indexar e queda no ranking textual saem com 1, sem a chave",
   );
   for (const text of [...failed.stdout, ...failed.stderr, ...fallback.stdout, ...fallback.stderr, readFileSync(out, "utf8")]) {
     expect(text).not.toContain(API_KEY);
+  }
+});
+
+test("CLI: index 1 na resposta da pergunta sai com 1; index 0 ou sem index sai com 0", async () => {
+  const shifted = await runCli(["--out", join(outDir(), "shifted.json")], fakeEmbeddings(lexicalVector, undefined, { queryIndex: 1 }).fetchImpl);
+  expect(shifted.code).toBe(1);
+  expect(shifted.stdout.length).toBe(PROBE_QUESTIONS.length + 1);
+  expect(shifted.stdout.slice(0, -1).every((line) => line.includes("(ranking textual)"))).toBe(true);
+  expect(shifted.stderr.at(-1)).toBe(
+    `Erro: ${PROBE_QUESTIONS.length} pergunta(s) caíram no ranking textual (falha ao embedar a pergunta); o resultado não mede os embeddings.`,
+  );
+  for (const queryIndex of [0, null]) {
+    const embedded = await runCli(["--out", join(outDir(), `embedded-${queryIndex}.json`)], fakeEmbeddings(lexicalVector, undefined, { queryIndex }).fetchImpl);
+    expect(embedded.code).toBe(0);
+    expect(embedded.stdout.some((line) => line.includes("(ranking textual)"))).toBe(false);
   }
 });
 

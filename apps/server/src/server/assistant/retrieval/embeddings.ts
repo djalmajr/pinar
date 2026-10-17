@@ -34,7 +34,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 // every item carries one (OpenAI shape) and by position when none does; a
 // mix of both is refused, since either reading may pair a vector with the
 // wrong text.
-function parseEmbeddings(body: unknown, count: number): number[][] {
+export function parseEmbeddings(body: unknown, count: number): number[][] {
   const data = isRecord(body) ? body["data"] : undefined;
   if (!Array.isArray(data) || data.length !== count) throw new Error(INVALID_RESPONSE);
   const withIndex = data.filter((item) => isRecord(item) && item["index"] !== undefined).length;

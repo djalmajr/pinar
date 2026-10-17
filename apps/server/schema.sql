@@ -538,3 +538,21 @@ CREATE TABLE pin_index (
   PRIMARY KEY (session_id, pin_id)
 );
 CREATE INDEX idx_pin_index_owner ON pin_index(owner_id, session_id);
+
+-- Assistant margin monitor (F4 contract §3): the index's gateway costs, one
+-- row per embedding batch or caption, and the day claimed by each margin
+-- alert email (at most one per UTC day).
+CREATE TABLE assistant_index_costs (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('embedding', 'caption')),
+  model TEXT NOT NULL,
+  cost_usd_micros INTEGER,
+  cost_source TEXT NOT NULL CHECK (cost_source IN ('gateway', 'table', 'none')),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_assistant_index_costs_created ON assistant_index_costs(created_at);
+
+CREATE TABLE assistant_margin_emails (
+  day TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL
+);

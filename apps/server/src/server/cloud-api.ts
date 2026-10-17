@@ -208,6 +208,9 @@ export interface CloudEnv {
   DEPLOYMENT_ENV?: "local" | "production" | "staging";
   EMAIL?: SendEmail;
   EXTENSION_ORIGIN?: string;
+  // The ops address of the assistant margin alerts (F4 contract §3): at most
+  // one email a day, only with an alert. Absent, the alerts are logs only.
+  OPS_ALERT_EMAIL?: string;
   PINAR_BUCKET?: R2Bucket;
   PRICING_AI_CREDITS_500_BRL_CENTS?: string;
   PRICING_AI_CREDITS_500_USD_CENTS?: string;

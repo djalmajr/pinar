@@ -5,6 +5,7 @@ import {
   refundStaleAiReservations,
   sendStorageExpiryNotices,
 } from "./server/cloud-api";
+import { assistantMarginMonitor } from "./server/assistant/margin-monitor";
 import { getEdgerCloudEnv, readEnv } from "./server/api.edger";
 import { FREE_CLOUD_RETENTION_DAYS } from "./lib/retention";
 import { timingSafeEqual } from "node:crypto";
@@ -138,6 +139,7 @@ export default {
       { name: "refundStaleAiReservations", run: () => refundStaleAiReservations(getEdgerCloudEnv()) },
       { name: "sendStorageExpiryNotices", run: () => sendStorageExpiryNotices(getEdgerCloudEnv()) },
       { name: "indexPinSearch", run: () => indexPinSearch(getEdgerCloudEnv()) },
+      { name: "assistantMarginMonitor", run: () => assistantMarginMonitor(getEdgerCloudEnv(), new Date()) },
     ],
     frequentJobs: [
       { name: "refundStaleAiReservations", run: () => refundStaleAiReservations(getEdgerCloudEnv()) },

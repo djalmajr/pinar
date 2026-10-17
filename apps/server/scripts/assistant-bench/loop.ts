@@ -11,6 +11,12 @@
 //     are gathered (never executed) and the turn ends before the next
 //     request. Sequential writes across turns are out of scope for this
 //     bench: the bench does not simulate human confirmation;
+//   - f2 only: a step with a pinar_ask call ends the turn, like the
+//     runtime's hasToolCall("pinar_ask") stop (turn.ts). A valid call
+//     ends as finalKind "ask" with the question as the final text, even
+//     next to a proposal of the same step (classifyTurnOutcome gives the
+//     ask precedence); an invalid one ends with no final, which the
+//     runtime reports as ASSISTANT_TURN_INCOMPLETE;
 //   - 8 steps exhausted (the scorer fails the case, never passes it);
 //   - a request fails (recorded as a case error, never retried mid-stream).
 //
@@ -27,9 +33,10 @@
 // stays clean, and any unexpected message is stripped of the key value
 // before it reaches the run record, the reports or the CLI output.
 
+import { assistantAskFrom } from "../../src/server/assistant/extra-tools";
 import { chatStream, redactSecret, type BenchClientOptions } from "./client";
-import { isRecord, mcpToolName, toolByMcpName, validateArgs } from "./tools";
-import type { ChatMessage, LoopResult, ToolCallRecord } from "./types";
+import { ASK_TOOL_LLM_NAME, isRecord, mcpToolName, toolArgProblems, toolByMcpName } from "./tools";
+import type { BenchProfile, ChatMessage, LoopResult, ToolCallRecord } from "./types";
 
 export const DEFAULT_MAX_STEPS = 8;
 
@@ -49,6 +56,8 @@ export interface BenchLoopOptions {
   client: Omit<BenchClientOptions, "messages">;
   casePrompt: string;
   maxSteps?: number;
+  // Catalog the loop resolves names against (default f0).
+  profile?: BenchProfile;
   respond: (toolName: string, args: Record<string, unknown>) => unknown;
   systemPrompt: string;
 }
@@ -65,7 +74,7 @@ function errorText(error: unknown, apiKey: string): string {
 }
 
 export async function runAgentLoop(options: BenchLoopOptions): Promise<LoopResult> {
-  const { client, maxSteps = DEFAULT_MAX_STEPS, respond, systemPrompt } = options;
+  const { client, maxSteps = DEFAULT_MAX_STEPS, profile = "f0", respond, systemPrompt } = options;
   const apiKey = client.apiKey;
   const startedAt = Date.now();
   const messages: ChatMessage[] = [
@@ -74,6 +83,8 @@ export async function runAgentLoop(options: BenchLoopOptions): Promise<LoopResul
   ];
   const toolCalls: ToolCallRecord[] = [];
   const unknownNames: string[] = [];
+  let ask: LoopResult["ask"] = null;
+  let askCalled = false;
   const ttftAnyMs: number[] = [];
   const ttftVisibleMs: (number | null)[] = [];
   let completionTokens = 0;
@@ -148,7 +159,7 @@ export async function runAgentLoop(options: BenchLoopOptions): Promise<LoopResul
         content = JSON.stringify({ error: record.error });
       } else {
         const mcpName = mcpToolName(call.name);
-        const tool = mcpName ? toolByMcpName(mcpName) : undefined;
+        const tool = mcpName ? toolByMcpName(mcpName, profile) : undefined;
         if (!tool) {
           unknownNames.push(call.name);
           record.error = "Unknown tool";
@@ -158,7 +169,7 @@ export async function runAgentLoop(options: BenchLoopOptions): Promise<LoopResul
           // can arrive as a property name, and the validator would quote it
           // back ("<key> is not declared"). Redact before storing or before
           // the problems reach a tool message.
-          const problems = validateArgs(tool.inputSchema, call.args).map((problem) => redactSecret(problem, apiKey));
+          const problems = toolArgProblems(tool, call.args).map((problem) => redactSecret(problem, apiKey));
           record.problems = problems;
           if (problems.length > 0) {
             record.error = "Invalid arguments";
@@ -181,6 +192,18 @@ export async function runAgentLoop(options: BenchLoopOptions): Promise<LoopResul
       }
       toolCalls.push(record);
       messages.push({ content, role: "tool", tool_call_id: assistantCalls[index].id });
+      // Any pinar_ask call of the step stops the turn (invalid JSON or
+      // arguments included); only a successful one carries the question.
+      if (profile === "f2" && call.name === ASK_TOOL_LLM_NAME) {
+        askCalled = true;
+        if (ask === null && record.error === null) ask = assistantAskFrom(call.args);
+      }
+    }
+
+    if (askCalled) {
+      stoppedReason = "ask";
+      finalKind = ask ? "ask" : null;
+      break;
     }
 
     if (proposalSummaries.length > 0) {
@@ -192,14 +215,20 @@ export async function runAgentLoop(options: BenchLoopOptions): Promise<LoopResul
     }
   }
 
-  finalText = proposalSummaries.length > 0
-    ? joinText(pendingText, proposalSummaries.join("; "))
-    : pendingText;
+  if (ask) {
+    // classifyTurnOutcome: the question is the final text.
+    finalText = ask.question;
+  } else {
+    finalText = proposalSummaries.length > 0
+      ? joinText(pendingText, proposalSummaries.join("; "))
+      : pendingText;
+  }
   if (stoppedReason === "max-steps") {
     // Exhausted steps never pass; keep the text for diagnosis only.
     finalKind = "text";
   }
   return {
+    ask,
     finalKind,
     finalText,
     error,

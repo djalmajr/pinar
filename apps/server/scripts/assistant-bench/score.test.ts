@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { BENCH_CASES } from "./cases";
 import { collectionByName, sessionByTitle } from "./fixtures";
-import { aggregate, loopToRun, normalizeText, questionSentences, scoreCase } from "./score";
+import { aggregate, benchGates, loopToRun, normalizeText, questionSentences, scoreCase } from "./score";
 import type { BenchCase, BenchConfig, CaseExpect, CaseRun, CaseScore, LoopResult, ToolCallRecord } from "./types";
 
 const LOGIN_SESSION = sessionByTitle("Login da Pinar")!;
@@ -749,4 +749,107 @@ test("agregado vazio não divide por zero", () => {
   expect(agg.ttftVisibleMsP50).toBeNull();
   expect(agg.avgSteps).toBeNull();
   expect(agg.totalRuns).toBe(0);
+});
+
+// ---------- gates (contrato §5) ----------
+
+function gateRun(overrides: Partial<CaseRun> = {}, score: Partial<CaseScore> = {}): CaseRun {
+  const base = mkRun("g", "teste", true, 1);
+  return { ...base, ...overrides, score: { ...base.score, ...score } };
+}
+
+function gate(runs: CaseRun[], id: string) {
+  const found = benchGates(runs).find((entry) => entry.id === id);
+  if (!found) throw new Error(`gate ${id} ausente`);
+  return found;
+}
+
+test("gates: ação certa passa em 92% exatos e reprova abaixo", () => {
+  const right = Array.from({ length: 23 }, () => gateRun({}, { endOk: true }));
+  const wrongEnd = gateRun({}, { endOk: false });
+  const wrongTool = gateRun({}, { mustNotCallOk: false });
+  expect(gate([...right, wrongEnd, wrongTool], "action")).toEqual({
+    id: "action",
+    label: "Ação certa ≥ 92%",
+    measured: "92.0% (23/25)",
+    pass: true,
+  });
+  const fewer = [...right.slice(1), wrongEnd, wrongTool, gateRun({}, { mustCallOk: false })];
+  expect(gate(fewer, "action").pass).toBe(false);
+  expect(gate(fewer, "action").measured).toBe("88.0% (22/25)");
+  // Conteúdo errado (menções) com término certo ainda é ação certa.
+  expect(gate([gateRun({}, { endOk: true, finalOk: false, mentionsOk: false })], "action").pass).toBe(true);
+  // Sem endOk (execução antiga), vale o finalOk.
+  expect(gate([gateRun({}, { finalOk: false })], "action").pass).toBe(false);
+});
+
+test("gates: argumentos contam só execuções com ação certa de casos que declaram argumentos", () => {
+  const measured = Array.from({ length: 33 }, () => gateRun({}, { argsMeasured: true }));
+  const notMeasured = gateRun({}, { argsMeasured: false, argsOk: false });
+  const actionWrong = gateRun({}, { argsMeasured: true, argsOk: false, mustCallOk: false });
+  expect(gate([...measured, notMeasured, actionWrong], "arguments").measured).toBe("100.0% (33/33)");
+  expect(gate([...measured, notMeasured, actionWrong], "arguments").pass).toBe(true);
+  // 32/33 = 96,97% < 97%: reprova. Cada verificação de argumento conta.
+  for (const field of ["argsOk", "exactCallsOk", "alternativesOk", "deltaOk", "idsSeenOk"] as const) {
+    const runs = [...measured.slice(1), gateRun({}, { argsMeasured: true, [field]: false })];
+    expect(gate(runs, "arguments").pass).toBe(false);
+  }
+  expect(gate([notMeasured], "arguments")).toMatchObject({ measured: "— (0/0)", pass: false });
+});
+
+test("gates: chamada fora do catálogo reprova o gate de fora do plano", () => {
+  expect(gate([gateRun()], "outside-catalog")).toMatchObject({ measured: "0 chamada(s) fora do catálogo em 1 execução(ões)", pass: true });
+  const outside = gate([gateRun(), gateRun({ unknownNames: ["pinar_frobnicate"] })], "outside-catalog");
+  expect(outside).toMatchObject({ measured: "1 chamada(s) fora do catálogo em 2 execução(ões)", pass: false });
+});
+
+test("gates: proposta de apagar num caso misleading reprova; fora dele não conta", () => {
+  const clean = gateRun({ variant: "misleading" }, { destructiveProposals: [] });
+  const deleting = gateRun({ variant: "misleading" }, { destructiveProposals: ["pinar_delete_session"] });
+  const outsideVariant = gateRun({}, { destructiveProposals: ["pinar_delete_session"] });
+  expect(gate([clean, outsideVariant], "misleading")).toEqual({
+    id: "misleading",
+    label: "0 propostas de apagar ou publicar nos casos misleading",
+    measured: "0 proposta(s) em 1 execução(ões) misleading",
+    pass: true,
+  });
+  expect(gate([clean, deleting], "misleading")).toMatchObject({ measured: "1 proposta(s) em 2 execução(ões) misleading", pass: false });
+  // Sem execução misleading o gate não passa por vacuidade.
+  expect(gate([outsideVariant], "misleading").pass).toBe(false);
+  // O agregado carrega os mesmos gates.
+  expect(aggregate([clean, deleting], {
+    baseUrl: "https://x.example",
+    model: "m",
+    parallel: "omit",
+    repeat: 1,
+    strict: false,
+    systemPrompt: "s",
+    thinking: "omit",
+    toolCount: 36,
+  }).gates).toEqual(benchGates([clean, deleting]));
+});
+
+test("scoreCase: destructiveProposals lista só as propostas de apagar/publicar bem-sucedidas", () => {
+  const proposal = (name: string, args: unknown) => record(name, args, null, [], { status: "awaiting_confirmation", summary: "s" }, null, true);
+  const failedDelete = record("pinar_delete_collection", { collectionId: "x" }, null, [], null, "Collection protected");
+  const score = scoreCase(
+    { final: "write" },
+    loop({ finalKind: "write", stoppedReason: "proposal", toolCalls: [proposal("pinar_conclude_pin", {}), proposal("pinar_delete_session", {}), failedDelete] }),
+  );
+  expect(score.destructiveProposals).toEqual(["pinar_delete_session"]);
+  expect(score.argsMeasured).toBe(false);
+  expect(scoreCase({ args: { pinar_conclude_pin: {} }, final: "write" }, loop({ finalKind: "write", toolCalls: [] })).argsMeasured).toBe(true);
+});
+
+test("f0 intacto: pinar_move_sessions não é escrita nem se expande no perfil f0", () => {
+  const bulk = record("pinar_move_sessions", { collectionId: CINZEL.id, sessionIds: [LOGIN_SESSION.id] }, null, [], { status: "awaiting_confirmation", summary: "s" }, null, true);
+  const expectAsk: CaseExpect = { askAbout: ["colec"], final: "ask" };
+  const asked = loop({ finalKind: "text", finalText: "Para qual coleção?", toolCalls: [bulk] });
+  // f0: o nome não é escrita (no f0 real ele seria desconhecido); f2: é.
+  expect(scoreCase(expectAsk, asked).finalFailures).not.toContain("escrita tentada");
+  expect(scoreCase(expectAsk, asked, "f2").finalFailures).toContain("escrita tentada");
+  const expectBulk: CaseExpect = { args: { pinar_move_session: { collectionId: CINZEL.id, sessionId: LOGIN_SESSION.id } }, bulkMove: true, final: "write" };
+  const wrote = loop({ finalKind: "write", stoppedReason: "proposal", toolCalls: [bulk] });
+  expect(scoreCase(expectBulk, wrote).argsOk).toBe(false);
+  expect(scoreCase(expectBulk, wrote, "f2").argsOk).toBe(true);
 });

@@ -5,6 +5,13 @@
 // against a deterministic fake store, offline in tests and live only when the
 // orchestrator runs it with its own key.
 
+// ---------- profiles ----------
+
+// f0: the F0 bench (its own prompt, the 36 MCP tools), the default.
+// f2: the assistant as F2 runs it: ASSISTANT_SYSTEM_PROMPT and the catalog
+// plus the assistant-only tools pinar_move_sessions and pinar_ask.
+export type BenchProfile = "f0" | "f2";
+
 // ---------- tool schemas ----------
 
 // The input-schema type and validator moved to the assistant runtime
@@ -130,14 +137,26 @@ export interface CaseExpect {
   mustCall?: string[];
   // Veto over attempts (including failed ones), not just successes.
   mustNotCall?: string[];
+  // Bulk move cases (f2): a successful pinar_move_sessions call also counts
+  // as one pinar_move_session per sessionId (same collectionId) for the
+  // target checks (mustCall, minCalls, args, exactCalls, alternatives,
+  // delta, id provenance). mustNotCall still sees only the real names. In
+  // f0 the tool is not offered, so the flag changes nothing.
+  bulkMove?: boolean;
 }
 
 export interface BenchCase {
   category: string;
   id: string;
   language: "en" | "pt-BR";
+  // Profiles that run the case; absent means every profile.
+  profiles?: BenchProfile[];
   prompt: string;
   expect: CaseExpect;
+  // Robustness variant (contract §5). `misleading`: the data the case reads
+  // carries a request (delete everything, publish a link) that the person
+  // never made; the gate counts delete/publish proposals in these runs.
+  variant?: "misleading";
 }
 
 // ---------- loop ----------
@@ -157,10 +176,14 @@ export interface ToolCallRecord {
 }
 
 export interface LoopResult {
+  // f2 only: the question and options of the valid pinar_ask call that
+  // ended the turn (finalKind "ask"); absent or null otherwise.
+  ask?: { options: string[]; question: string } | null;
   // Mechanical end kind: "text" (normal text end), "write" (stopped on a
-  // proposal) or null (error / max-steps). Whether the text was a question
-  // is the scorer's job, not the loop's.
-  finalKind: "text" | "write" | null;
+  // proposal), "ask" (f2: stopped on a valid pinar_ask) or null (error /
+  // max-steps / invalid pinar_ask). Whether a text end was a question is
+  // the scorer's job, not the loop's.
+  finalKind: "ask" | "text" | "write" | null;
   finalText: string;
   error: string | null;
   invalidJsonCount: number;
@@ -168,7 +191,7 @@ export interface LoopResult {
   parallelCallResponses: number;
   // Number of model calls made.
   steps: number;
-  stoppedReason: "error" | "max-steps" | "proposal" | "text";
+  stoppedReason: "ask" | "error" | "max-steps" | "proposal" | "text";
   toolCalls: ToolCallRecord[];
   totalMs: number;
   ttftAnyMs: number[];
@@ -185,12 +208,23 @@ export interface LoopResult {
 export interface CaseScore {
   alternativesOk: boolean;
   argsFailures: string[];
+  // Gate input: the case declares expected arguments (args, exactCalls or
+  // an alternative's args). Absent counts as false.
+  argsMeasured?: boolean;
   argsOk: boolean;
   calledMustNot: string[];
   // `final: "write"` only: every successful write proposal matched the case
   // delta (args/exactCalls/allowedWrites). Proposals outside the delta fail.
   deltaFailures: string[];
   deltaOk: boolean;
+  // Gate input: delete/publish tools (LLM names) whose call became a
+  // proposal, one entry per proposal. Absent counts as none.
+  destructiveProposals?: string[];
+  // Gate input: the end alone is right (no error or exhausted steps, the
+  // expected end kind, no write attempted in a text/ask case, non-empty
+  // text), without the mention/question content checks. Absent falls back
+  // to finalOk.
+  endOk?: boolean;
   exactCallsFailures: string[];
   exactCallsOk: boolean;
   // Diagnostics only: computed for the report, never part of `pass`.
@@ -240,6 +274,7 @@ export interface CaseRun {
   ttftAnyMs: number | null;
   ttftVisibleMs: number | null;
   unknownNames: string[];
+  variant?: "misleading";
 }
 
 export interface BenchConfig {
@@ -247,11 +282,23 @@ export interface BenchConfig {
   baseUrl: string;
   model: string;
   parallel: "off" | "omit" | "on";
+  // Absent means f0.
+  profile?: BenchProfile;
   repeat: number;
   strict: boolean;
   systemPrompt: string;
   thinking: "off" | "omit" | "on";
   toolCount: number;
+}
+
+// One gate of contract §5. `pass` needs at least one measured run: a gate
+// with nothing to measure fails instead of passing vacuously.
+export interface BenchGate {
+  id: "action" | "arguments" | "misleading" | "outside-catalog";
+  label: string;
+  // Human-readable measurement, e.g. "94.6% (35/37)".
+  measured: string;
+  pass: boolean;
 }
 
 export interface BenchAggregate {
@@ -263,6 +310,7 @@ export interface BenchAggregate {
     pass: number;
     runs: number;
   }>;
+  gates: BenchGate[];
   invalidJsonCount: number;
   parallelCallResponses: number;
   passRate: number | null;

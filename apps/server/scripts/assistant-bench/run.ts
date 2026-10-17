@@ -1,8 +1,13 @@
 // CLI: runs the assistant bench against one OpenAI-compatible model.
 //
 //   bun apps/server/scripts/assistant-bench/run.ts --model <id> \
-//     [--thinking on|off|omit] [--strict on|off] [--parallel on|off|omit] \
-//     [--repeat N] [--cases id1,id2] [--out <dir>]
+//     [--profile f0|f2] [--thinking on|off|omit] [--strict on|off] \
+//     [--parallel on|off|omit] [--repeat N] [--cases id1,id2] [--out <dir>]
+//
+// --profile f0 (default) is the F0 bench: its own prompt, the 36 MCP tools
+// and the cases of every profile. --profile f2 measures the assistant as
+// F2 runs it: ASSISTANT_SYSTEM_PROMPT, the catalog plus pinar_move_sessions
+// and pinar_ask, and the f2-only cases too.
 //
 // Configuration comes from the environment:
 //   ASSISTANT_BENCH_BASE_URL  (HTTPS base, e.g. https://appliance/v1)
@@ -15,19 +20,21 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { BENCH_CASES } from "./cases";
+import { ASSISTANT_SYSTEM_PROMPT } from "../../src/server/assistant/prompt";
+import { casesForProfile } from "./cases";
 import { redactSecret } from "./client";
 import { respond as fixtureRespond } from "./fixtures";
 import { runAgentLoop, SYSTEM_PROMPT } from "./loop";
 import { aggregate, loopToRun, renderReportJson, renderReportMarkdown, scoreCase } from "./score";
-import { BENCH_TOOLS, llmToolDefs } from "./tools";
-import type { BenchCase, BenchConfig, CaseRun } from "./types";
+import { benchTools, llmToolDefs } from "./tools";
+import type { BenchCase, BenchConfig, BenchProfile, CaseRun } from "./types";
 
 interface ParsedArgs {
   cases?: string[];
   model?: string;
   out: string;
   parallel: "off" | "omit" | "on";
+  profile: BenchProfile;
   repeat: number;
   strict: boolean;
   thinking: "off" | "omit" | "on";
@@ -37,6 +44,7 @@ function parseArgs(argv: string[]): { args?: ParsedArgs; error?: string } {
   const out: ParsedArgs = {
     out: join(tmpdir(), "assistant-bench-out"),
     parallel: "omit",
+    profile: "f0",
     repeat: 1,
     strict: false,
     thinking: "omit",
@@ -48,6 +56,11 @@ function parseArgs(argv: string[]): { args?: ParsedArgs; error?: string } {
       case "--model":
         if (!value) return { error: "--model exige um valor" };
         out.model = value;
+        i += 1;
+        break;
+      case "--profile":
+        if (value !== "f0" && value !== "f2") return { error: "--profile aceita f0 ou f2" };
+        out.profile = value;
         i += 1;
         break;
       case "--thinking":
@@ -93,7 +106,8 @@ function parseArgs(argv: string[]): { args?: ParsedArgs; error?: string } {
 }
 
 const HELP = [
-  "Uso: run.ts --model <id> [--thinking on|off|omit] [--strict on|off] [--parallel on|off|omit] [--repeat N] [--cases id1,id2] [--out <dir>]",
+  "Uso: run.ts --model <id> [--profile f0|f2] [--thinking on|off|omit] [--strict on|off] [--parallel on|off|omit] [--repeat N] [--cases id1,id2] [--out <dir>]",
+  "Perfis: f0 (padrão) = prompt e catálogo da F0; f2 = ASSISTANT_SYSTEM_PROMPT, catálogo + pinar_move_sessions e pinar_ask.",
   "Ambiente: ASSISTANT_BENCH_BASE_URL (HTTPS) e ASSISTANT_BENCH_API_KEY.",
 ].join("\n");
 
@@ -139,30 +153,33 @@ async function main(argv: string[]): Promise<number> {
     console.error("Erro: ASSISTANT_BENCH_BASE_URL deve usar HTTPS.");
     return 2;
   }
+  const profileCases = casesForProfile(args.profile);
   let cases: BenchCase[];
   if (args.cases) {
-    const known = new Map(BENCH_CASES.map((benchCase) => [benchCase.id, benchCase]));
+    const known = new Map(profileCases.map((benchCase) => [benchCase.id, benchCase]));
     const missing = args.cases.filter((id) => !known.has(id));
     if (missing.length > 0) {
-      console.error(`Erro: casos desconhecidos: ${missing.join(", ")}`);
+      console.error(`Erro: casos desconhecidos no perfil ${args.profile}: ${missing.join(", ")}`);
       return 2;
     }
-    cases = BENCH_CASES.filter((benchCase) => args.cases?.includes(benchCase.id));
+    cases = profileCases.filter((benchCase) => args.cases?.includes(benchCase.id));
   } else {
-    cases = BENCH_CASES;
+    cases = profileCases;
   }
+  const systemPrompt = args.profile === "f2" ? ASSISTANT_SYSTEM_PROMPT : SYSTEM_PROMPT;
 
   const config: BenchConfig = {
     baseUrl: baseUrl.replace(/\/+$/, ""),
     model: args.model,
     parallel: args.parallel,
+    profile: args.profile,
     repeat: args.repeat,
     strict: args.strict,
-    systemPrompt: SYSTEM_PROMPT,
+    systemPrompt,
     thinking: args.thinking,
-    toolCount: BENCH_TOOLS.length,
+    toolCount: benchTools(args.profile).length,
   };
-  const tools = llmToolDefs(args.strict);
+  const tools = llmToolDefs(args.strict, args.profile);
 
   const runs: CaseRun[] = [];
   // One request at a time, always: cases and repeats run strictly in order.
@@ -179,10 +196,11 @@ async function main(argv: string[]): Promise<number> {
           thinking: args.thinking,
           tools,
         },
+        profile: args.profile,
         respond: fixtureRespond,
-        systemPrompt: SYSTEM_PROMPT,
+        systemPrompt,
       });
-      const score = scoreCase(benchCase.expect, loop);
+      const score = scoreCase(benchCase.expect, loop, args.profile);
       const run = loopToRun(benchCase, loop, repeat, score);
       runs.push(run);
       const mark = score.pass ? "ok" : "falha";
@@ -200,7 +218,8 @@ async function main(argv: string[]): Promise<number> {
     run.error = run.error === null ? null : redactSecret(run.error, apiKey);
   }
   const reportData = { aggregate: aggregateResult, config, generatedAt, runs };
-  const variant = `think-${args.thinking}_strict-${args.strict ? "on" : "off"}_parallel-${args.parallel}_r${args.repeat}`;
+  // f0 keeps its file names; other profiles add a suffix.
+  const variant = `think-${args.thinking}_strict-${args.strict ? "on" : "off"}_parallel-${args.parallel}_r${args.repeat}${args.profile === "f0" ? "" : `_profile-${args.profile}`}`;
   const stamp = timestamp();
   mkdirSync(args.out, { recursive: true });
   const baseName = `bench-${safeName(args.model)}-${safeName(variant)}-${stamp}`;
@@ -212,6 +231,9 @@ async function main(argv: string[]): Promise<number> {
   console.error(`JSON:      ${jsonPath}`);
   const passRate = aggregateResult.passRate === null ? "n/d" : `${Math.round(aggregateResult.passRate * 100)}%`;
   console.log(`Bench ${args.model}: ${aggregateResult.totalPass}/${aggregateResult.totalRuns} execuções passaram (${passRate}).`);
+  for (const gate of aggregateResult.gates) {
+    console.log(`Gate ${gate.label}: ${gate.measured} — ${gate.pass ? "pass" : "fail"}`);
+  }
   return 0;
 }
 

@@ -142,6 +142,8 @@ describe("chooseCollection with the decisions engine", () => {
     ["a probability for an unknown option", () => decisionsResponse("Pinar / Bugs", { "Pinar / Bugs": 0.9, "Pinar / Other": 0.1 })],
     ["a choice without its probability", () => decisionsResponse("Pinar / Bugs", { "Pinar / Ideas": 0.1 })],
     ["a choice that is not the most probable", () => decisionsResponse("Pinar / Bugs", { "Pinar / Bugs": 0.3, "Pinar / Ideas": 0.6 })],
+    ["probabilities that sum above 1", () => decisionsResponse("Pinar / Bugs", { "None of these": 0.7, "Pinar / Bugs": 0.9, "Pinar / Ideas": 0.8 })],
+    ["probabilities that sum below 1", () => decisionsResponse("Pinar / Bugs", { "Pinar / Bugs": 0.8 })],
     ["a body that is not JSON", () => new Response("not json", { status: 200 })],
     ["status 500", () => new Response("upstream down", { status: 500 })],
   ];

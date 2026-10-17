@@ -16,9 +16,9 @@ function vec(...components: number[]): number[] {
 const QUERY = vec(1);
 const COSINE = {
   "-1": vec(-1),
-  "0.54": vec(27, 42, 2, 1, 1, 1),
-  "0.55": vec(11, 15, 7, 2, 1),
   "0.6": vec(3, 4),
+  "0.69": vec(69, 72, 7, 2, 1, 1),
+  "0.7": vec(7, 7, 1, 1),
   "0.76": vec(19, 16, 2, 2),
   "0.8": vec(4, 3),
 };
@@ -113,12 +113,12 @@ describe("chooseCollection with the similarity engine", () => {
     });
   });
 
-  test("files at a cosine of exactly 0.55 and sends to the Inbox below it", async () => {
-    // Mutation captured: `>=` → `>` on FILING_SIMILARITY_MIN sends the 0.55 case to the Inbox.
-    assert.deepEqual(await choose({ a: COSINE["0.55"] }), { collectionId: "a", confidence: 0.55, engine: "similarity", reason: "chosen" });
-    assert.deepEqual(await choose({ a: COSINE["0.54"] }), {
+  test("files at a cosine of exactly 0.7 and sends to the Inbox below it", async () => {
+    // Mutation captured: `>=` → `>` on FILING_SIMILARITY_MIN sends the 0.7 case to the Inbox.
+    assert.deepEqual(await choose({ a: COSINE["0.7"] }), { collectionId: "a", confidence: 0.7, engine: "similarity", reason: "chosen" });
+    assert.deepEqual(await choose({ a: COSINE["0.69"] }), {
       collectionId: null,
-      confidence: 0.54,
+      confidence: 0.69,
       engine: "similarity",
       reason: "low_confidence",
     });

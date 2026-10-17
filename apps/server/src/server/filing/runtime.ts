@@ -37,7 +37,7 @@ import {
   type FilingCollection,
   type FilingRecentSession,
 } from "./candidates";
-import { chooseCollection, FILING_TIMEOUT_MS, type FilingChoice, type FilingEngine } from "./choose";
+import { chooseCollection, FILING_TIMEOUT_MS, type FilingChoice, type FilingCreditMeter, type FilingEngine } from "./choose";
 import { collectionCentroid } from "./similarity";
 
 /** The engine a runtime detected, before the centroids are attached. */
@@ -124,6 +124,13 @@ export interface FilingOutcome {
   filedBy: "auto" | null;
   filing: FilingChoice;
   followedBatch?: true;
+  /**
+   * The run made no decision (the capture already has an open or a
+   * refunded usage, F4d round 2): the upload keeps the collection and the
+   * mark of a session that already exists; only a session that does not
+   * exist yet goes to the Inbox.
+   */
+  keepDestination?: true;
 }
 
 export async function fileCapture(input: {
@@ -131,6 +138,7 @@ export async function fileCapture(input: {
   capture: FilingCapture;
   engine: () => Promise<FilingEngineChoice | null>;
   fetch?: typeof fetch;
+  meter?: FilingCreditMeter; // A53: the Cloud's credit of the capture
   source: FilingSource;
   timeoutMs?: number; // default FILING_TIMEOUT_MS
 }): Promise<FilingOutcome> {
@@ -179,6 +187,7 @@ export async function fileCapture(input: {
       candidates: filingCandidates(collections, sessions),
       engine: engine.kind === "decisions" ? engine : similarityEngine(engine.embedding, sessions, input.source),
       ...(input.fetch ? { fetch: input.fetch } : {}),
+      ...(input.meter ? { meter: input.meter } : {}),
       signal: deadline,
       text: captureFilingText({ page: input.capture.page, pins: input.capture.pins }),
       timeoutMs: remaining,
@@ -186,7 +195,11 @@ export async function fileCapture(input: {
     // chooseCollection reports its own deadline as "timeout" and the
     // caller's signal as "error"; here the signal is this budget.
     const filing: FilingChoice = choice.reason === "error" && expired() ? { ...choice, reason: "timeout" } : choice;
-    return { filedBy: filing.collectionId !== null ? "auto" : null, filing };
+    return {
+      filedBy: filing.collectionId !== null ? "auto" : null,
+      filing,
+      ...(filing.keepDestination ? { keepDestination: true } : {}),
+    };
   } catch {
     return inbox(expired() ? "timeout" : "error");
   }

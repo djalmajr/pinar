@@ -612,8 +612,8 @@ const locale = {
         description: "Activa “Elegir la colección automáticamente” en Configuración → Captura y Pinar coloca cada captura nueva en una de tus colecciones. Si tiene dudas, la captura va a la Bandeja de entrada, y las capturas de un mismo lote se quedan juntas. Las sesiones archivadas así muestran una marca; mover la sesión corrige la elección y quita la marca. La opción necesita la IA disponible. Mientras la opción siga activada sin la IA disponible, las capturas nuevas van a la Bandeja de entrada; para elegir el destino a mano, desactívala.",
       },
       "assistant-credits": {
-        title: "Los mensajes al asistente usan créditos de Pinar Cloud",
-        description: "En Pinar Cloud, el asistente forma parte de Pro y cada mensaje enviado usa 3 créditos de IA; una respuesta que falla los devuelve, y confirmar o deshacer una propuesta no cuesta nada. Son los mismos créditos de la transcripción por voz, y los paquetes de créditos solo se pueden comprar con Pro. En la aplicación local, el asistente no usa créditos de Pinar.",
+        title: "Todas las funciones de IA de Pinar Cloud usan créditos",
+        description: "En Pinar Cloud, cada llamada de IA ahora ocurre dentro de una acción cobrada. El asistente forma parte de Pro y usa 3 créditos por mensaje, y una respuesta que falla los devuelve; confirmar o deshacer una propuesta no cuesta nada. Generar los pasos escritos de reproducción ahora usa 1 crédito por generación; una generación que falla lo devuelve, y sin saldo la petición se rechaza. Con la elección automática de la colección, cada captura cuya colección elige la IA usa 1 crédito, incluso cuando la respuesta es la Bandeja de entrada; una elección fallida o con el plazo vencido lo devuelve, y sin saldo la IA no interviene y la captura va a la Bandeja de entrada. Subir de nuevo la misma captura no vuelve a cobrar. La indexación ya no ocurre en segundo plano: los pins se indexan solo mientras el asistente responde un mensaje, lo que sus 3 créditos ya cubren, y la elección automática usa el índice que ya existe.",
       },
     },
   },

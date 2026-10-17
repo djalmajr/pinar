@@ -709,13 +709,19 @@ describe("help content", () => {
       assert.ok(article, `${content.language}:agents/assistant`);
       assert.match(article.screenshot.src, /\/assistant\.webp$/, content.language);
 
-      // Every link out of the article reaches a published help route.
+      // Every link out of the article reaches a published help route: the
+      // credit guide is linked twice (the Pro/credits section and the
+      // automatic collection choice section), plus the data-location guide.
       const targets = article.sections.flatMap((section) =>
         [...section.paragraphs, ...(section.bullets ?? [])].flatMap(markdownLinkTargets),
       );
       assert.deepEqual(
         targets,
-        ["/help/cloud/ai-credits", "/help/privacy/where-data-lives"],
+        [
+          "/help/cloud/ai-credits",
+          "/help/cloud/ai-credits",
+          "/help/privacy/where-data-lives",
+        ],
         content.language,
       );
       for (const target of targets) {
@@ -795,6 +801,77 @@ describe("help content", () => {
       const note = release.upcoming?.changes.find((change) => change.id === "automatic-capture-destination");
       assert.ok(note, `${content.language}:note`);
       assert.match(note.description, inboxWithoutAi[content.language], `${content.language}:note`);
+    }
+  });
+
+  test("no locale keeps the free-reproduction claim in Pinar Cloud (A53)", async () => {
+    // The guide used to say that reproduction in Pinar Cloud does not debit
+    // AI credits; the section now prices the generation and links the credit
+    // guide, the automatic collection choice does the same, and the credit
+    // guide no longer calls reproduction free.
+    const reproHeading = {
+      de: "Reproduktion in Pinar Cloud",
+      en: "Reproduction in Pinar Cloud",
+      es: "Reproducción en Pinar Cloud",
+      fr: "La reproduction dans Pinar Cloud",
+      ja: "Pinar Cloud での再現",
+      pt: "Reprodução no Pinar Cloud",
+      zh: "Pinar Cloud 中的复现",
+    } as const;
+    const filingHeading = {
+      de: "Pinar die Sammlung wählen lassen",
+      en: "Let Pinar choose the collection",
+      es: "Deja que Pinar elija la colección",
+      fr: "Laisser Pinar choisir la collection",
+      ja: "Pinar にコレクションを選ばせる",
+      pt: "Deixe o Pinar escolher a coleção",
+      zh: "让 Pinar 选择集合",
+    } as const;
+    const freeClaim = {
+      de: /ohne KI-Guthaben|zieht keine KI-Credits/,
+      en: /without debiting|do not debit/,
+      es: /sin descontar|no descuenta/,
+      fr: /sans débiter|ne débite/,
+      ja: /クレジットを消費せず|クレジットを消費しません/,
+      pt: /sem debitar|não debita/,
+      zh: /不会扣除|不扣除/,
+    } as const;
+
+    for (const content of await loadEveryHelpLocale()) {
+      const features = findHelpArticle(content, "agents", "ai-features");
+      assert.ok(features, `${content.language}:ai-features`);
+      const repro = features.sections.find(
+        (section) => section.heading === reproHeading[content.language],
+      );
+      assert.ok(repro, `${content.language}:reproduction section`);
+      const reproText = repro.paragraphs.join("\n");
+      assert.doesNotMatch(reproText, freeClaim[content.language], `${content.language}:reproduction free`);
+      assert.match(reproText, /Pinar Cloud/, `${content.language}:reproduction cost`);
+      assert.match(reproText, /\b1\b/, `${content.language}:reproduction cost`);
+      assert.deepEqual(
+        markdownLinkTargets(reproText),
+        ["/help/cloud/ai-credits"],
+        `${content.language}:reproduction link`,
+      );
+
+      const assistant = findHelpArticle(content, "agents", "assistant");
+      assert.ok(assistant, `${content.language}:assistant`);
+      const filing = assistant.sections.find(
+        (section) => section.heading === filingHeading[content.language],
+      );
+      assert.ok(filing, `${content.language}:filing section`);
+      const filingText = filing.paragraphs.join("\n");
+      assert.doesNotMatch(filingText, freeClaim[content.language], `${content.language}:filing free`);
+      assert.match(filingText, /Pinar Cloud/, `${content.language}:filing cost`);
+      assert.match(filingText, /\b1\b/, `${content.language}:filing cost`);
+
+      const credits = findHelpArticle(content, "cloud", "ai-credits");
+      assert.ok(credits, `${content.language}:ai-credits`);
+      assert.doesNotMatch(
+        articleTexts(credits).join("\n"),
+        freeClaim[content.language],
+        `${content.language}:credit guide free`,
+      );
     }
   });
 

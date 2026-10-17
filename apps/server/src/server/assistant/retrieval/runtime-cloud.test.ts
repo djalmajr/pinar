@@ -7,20 +7,15 @@ import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import { MockLanguageModelV4 } from "ai/test";
-import { parseVisualCapture, sessionFromCapture } from "@pinar/shared";
 import {
   cleanupOldRecords,
   cloudAssistantToolHost,
   cloudPinSearch,
   findAccessibleSession,
   handleCloudApiRequest,
-  indexPinSearch,
-  persistSession,
   resetCloudMemoryStateForTests,
-  seedCloudAccountForTests,
   seedCloudWebSessionForTests,
   setCloudNowForTests,
-  writeOwnerDeliveryPreferences,
   type CloudEnv,
   type Principal,
 } from "../../cloud-api";
@@ -32,15 +27,12 @@ import { runAssistantTurn } from "../turn";
 import { resetRetrievalCapabilitiesCacheForTests } from "./detect";
 import { PIN_EMBEDDING_DIMENSIONS } from "./embeddings";
 import type { PinIndexEntry, PinSearchService } from "./index";
-import { cloudAssistantStore } from "../store-cloud";
 import {
-  CLOUD_PIN_INDEX_CRON_BUDGET_MS,
   CLOUD_PIN_SEARCH_BUDGET_MS,
   CLOUD_PIN_SEARCH_MAX_SESSIONS,
   cloudOwnerPinIndexStore,
   cloudRetrievalEndpoints,
   createCloudPinSearch,
-  runCloudPinIndexCron,
 } from "./runtime-cloud";
 import type { CloudPinSourceData, CloudPinSourceSession } from "./source-cloud";
 import { cloudPinIndexStore } from "./store-cloud";
@@ -137,20 +129,6 @@ function insertCollaborator(db: Database, id: string, collectionId: string, owne
     "INSERT INTO collection_collaborators (id, collection_id, owner_id, email, user_id, status, created_at, updated_at, accepted_at, revoked_at) "
       + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   ).run(id, collectionId, ownerId, `${userId}@example.test`, userId, status, NOW, NOW, status === "accepted" ? NOW : null, status === "revoked" ? NOW : null);
-}
-
-// One assistant conversation of the owner (A49's other side of the cron's filter).
-function insertAssistantThread(db: Database, ownerId: string) {
-  db.query("INSERT INTO assistant_threads (id, owner_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
-    .run(`ath_${ownerId}`, ownerId, `Conversa de ${ownerId}`, NOW, NOW);
-}
-
-// The owner's switch, the row writeOwnerDeliveryPreferences would leave.
-function setAutoCaptureDestination(db: Database, ownerId: string, value: 0 | 1) {
-  db.query(
-    "INSERT INTO owner_preferences (owner_id, auto_capture_destination, updated_at) VALUES (?, ?, ?) "
-      + "ON CONFLICT(owner_id) DO UPDATE SET auto_capture_destination = excluded.auto_capture_destination",
-  ).run(ownerId, value, NOW);
 }
 
 function pinIndexRows(db: Database) {
@@ -751,7 +729,7 @@ describe("Cloud pin index invalidation", () => {
   });
 });
 
-describe("Cloud pin search: access, cron budget and the turn's deadline", () => {
+describe("Cloud pin search: access and the turn's deadline", () => {
   let db: Database;
 
   beforeEach(() => {
@@ -789,92 +767,6 @@ describe("Cloud pin search: access, cron budget and the turn's deadline", () => 
     assert.deepEqual(pinIndexRows(db).map((row) => row.session_id), ["ses_collab", "ses_shared"], "the shared session was indexed before the revocation");
     assert.deepEqual(hits.map((hit) => hit.sessionId), ["ses_collab"], "but none of its pins comes back");
     assert.ok(!JSON.stringify(hits).includes("botão comprar"));
-  });
-
-  // The DB of `cloudEnv`, with the owners' enumeration (the cron's first
-  // query) moving the fake clock `advanceMs` forward.
-  function slowOwnersDb(log: QueryLog, onOwners: () => void): NonNullable<CloudEnv["DB"]> {
-    const base = sqliteD1(db, log);
-    return {
-      batch: (statements) => base.batch(statements),
-      prepare(query: string) {
-        const statement = base.prepare(query);
-        if (!query.startsWith("SELECT s.user_id AS user_id")) return statement;
-        const wrapped = {
-          all: async () => {
-            onOwners();
-            return statement.all();
-          },
-          bind: (...values: unknown[]) => {
-            statement.bind(...values);
-            return wrapped;
-          },
-          first: () => statement.first(),
-          run: () => statement.run(),
-        };
-        return wrapped;
-      },
-    };
-  }
-
-  test("the cron's 60 s budget covers the owners' enumeration: a slow one stops the run", async () => {
-    sharedWorld(db);
-    for (const ownerId of ["usr_owner", "usr_collab", "usr_third"]) insertAssistantThread(db, ownerId);
-    let clock = Date.parse(NOW);
-    const log: QueryLog = [];
-    const env = { ...cloudEnv(db), DB: slowOwnersDb(log, () => { clock += 70_000; }) };
-    const result = await indexPinSearch(env, { fetch: fakeAppliance().fetch, now: () => new Date(clock) });
-    assert.deepEqual(result, { failed: 0, indexed: 0, owners: 0, remaining: true });
-    assert.deepEqual(pinIndexRows(db), []);
-    assert.equal(log.filter((entry) => entry.query.startsWith("SELECT s.user_id AS user_id")).length, 1, "one enumeration query");
-    assert.equal(log.filter((entry) => /FROM users WHERE id = \?/.test(entry.query)).length, 0, "no account read one by one");
-    assert.equal(log.filter((entry) => entry.query.includes("FROM sessions WHERE user_id = ?")).length, 0, "no owner's sessions read after the budget");
-
-    // Control: an enumeration that leaves time runs the owners.
-    clock = Date.parse(NOW);
-    const quick = { ...cloudEnv(db), DB: slowOwnersDb([], () => { clock += 59_000; }) };
-    assert.deepEqual(await indexPinSearch(quick, { fetch: fakeAppliance().fetch, now: () => new Date(clock) }), { failed: 0, indexed: 4, owners: 3, remaining: false });
-  });
-
-  test("no further enumeration query starts once the cron's budget is spent", async () => {
-    sharedWorld(db);
-    for (const ownerId of ["usr_owner", "usr_collab", "usr_third"]) insertAssistantThread(db, ownerId);
-    let clock = Date.parse(NOW);
-    const log: QueryLog = [];
-    // 91 complimentary ids: two enumeration queries; the first one takes 75 s.
-    const complimentary = Array.from({ length: 91 }, (_, index) => `usr_gift_${index}`).join(",");
-    const env = { ...cloudEnv(db, { COMPLIMENTARY_PRO_USER_IDS: complimentary }), DB: slowOwnersDb(log, () => { clock += 75_000; }) };
-    const result = await indexPinSearch(env, { fetch: fakeAppliance().fetch, now: () => new Date(clock) });
-    assert.deepEqual(result, { failed: 0, indexed: 0, owners: 0, remaining: true });
-    assert.equal(log.filter((entry) => entry.query.startsWith("SELECT s.user_id AS user_id")).length, 1, "the second chunk never started");
-    assert.equal(log.filter((entry) => entry.query.includes("FROM sessions WHERE user_id = ?")).length, 0);
-
-    // Control: a quick enumeration runs both chunks and the owners.
-    clock = Date.parse(NOW);
-    const quickLog: QueryLog = [];
-    const quick = { ...cloudEnv(db, { COMPLIMENTARY_PRO_USER_IDS: complimentary }), DB: slowOwnersDb(quickLog, () => { clock += 1_000; }) };
-    const done = await indexPinSearch(quick, { fetch: fakeAppliance().fetch, now: () => new Date(clock) });
-    assert.equal(quickLog.filter((entry) => entry.query.startsWith("SELECT s.user_id AS user_id")).length, 2);
-    assert.equal(done.remaining, false);
-  });
-
-  test("the cron's owners: the plan column or the complimentary list, in one query", async () => {
-    insertUser(db, "usr_pro", "pro");
-    insertUser(db, "usr_gift", "free");
-    insertUser(db, "usr_free", "free");
-    for (const id of ["usr_pro", "usr_gift", "usr_free"]) {
-      insertCollection(db, `col_${id}`, id);
-      insertSession(db, `session_${id}`, id, `col_${id}`, [{ comment: "Nota", number: 1, pinId: "p1" }]);
-    }
-    insertAssistantThread(db, "usr_pro");
-    setAutoCaptureDestination(db, "usr_gift", 1);
-    const log: QueryLog = [];
-    const result = await indexPinSearch(cloudEnv(db, { COMPLIMENTARY_PRO_USER_IDS: "usr_other, usr_gift" }, log), { fetch: fakeAppliance().fetch });
-    assert.deepEqual(result, { failed: 0, indexed: 2, owners: 2, remaining: false });
-    assert.deepEqual(pinIndexRows(db).map((row) => row.owner_id).sort(), ["usr_gift", "usr_pro"]);
-    const owners = log.filter((entry) => entry.query.startsWith("SELECT s.user_id AS user_id"));
-    assert.equal(owners.length, 1);
-    assert.deepEqual(owners[0]!.params, ["usr_other", "usr_gift"]);
   });
 
   // One Pro session through a fake data access, for the runtime alone.
@@ -981,263 +873,6 @@ describe("Cloud pin search: access, cron budget and the turn's deadline", () => 
     assert.ok(document, "the document embedding had started");
     assert.equal(document.signal?.aborted, true, "and its request was cut");
     assert.deepEqual(await cloudPinIndexStore({}, "usr_pro").entries("session_slow"), [], "the cut session stays stale");
-  });
-});
-
-describe("Cloud pin index cron", () => {
-  let db: Database;
-
-  beforeEach(() => {
-    resetCloudMemoryStateForTests();
-    resetRetrievalCapabilitiesCacheForTests();
-    setCloudNowForTests(NOW);
-    db = migratedDatabase();
-  });
-
-  afterEach(() => {
-    db.close();
-    resetCloudMemoryStateForTests();
-    resetRetrievalCapabilitiesCacheForTests();
-    setCloudNowForTests(null);
-  });
-
-  test("with the deployment gate off it reads no owner and fetches nothing", async () => {
-    insertUser(db, "usr_pro", "pro");
-    insertCollection(db, "col_pro", "usr_pro");
-    insertSession(db, "session_one", "usr_pro", "col_pro", [{ comment: "Nota", number: 1, pinId: "p1" }]);
-    const appliance = fakeAppliance();
-    for (const overrides of [{ ASSISTANT_ENABLED: undefined }, { ASSISTANT_CHAIN: "gateway:anthropic/claude-haiku-5.5", DEPLOYMENT_ENV: "production" as const }, { AI_MODEL: undefined }]) {
-      const log: QueryLog = [];
-      const result = await indexPinSearch(cloudEnv(db, overrides, log), { fetch: appliance.fetch });
-      assert.deepEqual(result, { failed: 0, indexed: 0, owners: 0, remaining: false });
-      assert.deepEqual(log, [], JSON.stringify(overrides));
-    }
-    assert.deepEqual(appliance.calls, []);
-    assert.deepEqual(pinIndexRows(db), []);
-  });
-
-  test("indexes, for each owner on a plan with AI, only that owner's own sessions", async () => {
-    sharedWorld(db);
-    for (const ownerId of ["usr_owner", "usr_collab", "usr_third"]) insertAssistantThread(db, ownerId);
-    insertUser(db, "usr_free", "free");
-    insertCollection(db, "col_free", "usr_free");
-    insertSession(db, "session_free", "usr_free", "col_free", [{ comment: "Nota sem IA", number: 1, pinId: "p1" }]);
-    const result = await indexPinSearch(cloudEnv(db), { fetch: fakeAppliance().fetch });
-    assert.deepEqual(result, { failed: 0, indexed: 4, owners: 3, remaining: false });
-    assert.deepEqual(pinIndexRows(db).map((row) => [row.session_id, row.owner_id]), [
-      ["ses_collab", "usr_collab"],
-      ["ses_private", "usr_owner"],
-      ["ses_shared", "usr_owner"],
-      ["ses_third", "usr_third"],
-    ]);
-    assert.deepEqual(await indexPinSearch(cloudEnv(db), { fetch: fakeAppliance().fetch }), { failed: 0, indexed: 0, owners: 3, remaining: false }, "nothing stale on the next run");
-  });
-
-  test("keeps to one 60 s budget for the whole run, with a fake clock", async () => {
-    assert.equal(CLOUD_PIN_INDEX_CRON_BUDGET_MS, 60_000);
-    let clock = 0;
-    const started: string[] = [];
-    // Each indexed session moves the clock 25 s (its one comments read; the
-    // access checks of session() are not counted): owner A spends 50 s,
-    // owner B gets the 10 s left (one session), owner C never starts.
-    const data = (ownerId: string): CloudPinSourceData => {
-      started.push(ownerId);
-      const sessions = [1, 2].map((index): CloudPinSourceSession => ({
-        createdAt: `2026-09-0${index}T00:00:00.000Z`,
-        id: `${ownerId}_${index}`,
-        page: { title: "T", url: "https://u.example" },
-        pins: [{ comment: `Nota ${index}`, coords: { x: 0, y: 0 }, number: 1, pinId: "p1", type: "point" }],
-      }));
-      return {
-        async comments() { clock += 25_000; return []; },
-        async ownedSessions() { return sessions.map((session) => ({ createdAt: session.createdAt, id: session.id, ownerId })).reverse(); },
-        async session(id) { return sessions.find((session) => session.id === id) ?? null; },
-        async sharedSessions() { return []; },
-        async shot() { return null; },
-      };
-    };
-    const result = await runCloudPinIndexCron({
-      env: { AI_API_KEY: "sk-ai-test", AI_BASE_URL: BASE_URL, AI_MODEL: "mock" },
-      fetch: fakeAppliance().fetch,
-      now: () => new Date(Date.parse(NOW) + clock),
-      ownerData: data,
-      owners: async () => ["usr_a", "usr_b", "usr_c"],
-    });
-    assert.deepEqual(started, ["usr_a", "usr_b"], "no owner starts after the budget");
-    assert.deepEqual(result, { failed: 0, indexed: 3, owners: 2, remaining: true });
-    assert.equal((await cloudPinIndexStore({}, "usr_b").entries("usr_b_1")).length, 0, "B's older session waits for the next run");
-    assert.equal((await cloudPinIndexStore({}, "usr_b").entries("usr_b_2")).length, 1);
-  });
-
-  test("an owner that fails does not stop the others", async () => {
-    const data = (ownerId: string): CloudPinSourceData => ({
-      async comments() { return []; },
-      async ownedSessions() {
-        if (ownerId === "usr_b") throw new Error("database unavailable for B");
-        return [{ createdAt: "2026-09-01T00:00:00.000Z", id: `${ownerId}_1`, ownerId }];
-      },
-      async session(id) {
-        return { createdAt: "2026-09-01T00:00:00.000Z", id, page: { title: "T", url: "https://u.example" }, pins: [{ comment: "Nota", coords: { x: 0, y: 0 }, number: 1, pinId: "p1", type: "point" }] };
-      },
-      async sharedSessions() { return []; },
-      async shot() { return null; },
-    });
-    const result = await runCloudPinIndexCron({
-      env: { AI_API_KEY: "sk-ai-test", AI_BASE_URL: BASE_URL, AI_MODEL: "mock" },
-      fetch: fakeAppliance().fetch,
-      ownerData: data,
-      owners: async () => ["usr_a", "usr_b", "usr_c"],
-    });
-    assert.deepEqual(result, { failed: 1, indexed: 2, owners: 2, remaining: true });
-    assert.equal((await cloudPinIndexStore({}, "usr_a").entries("usr_a_1")).length, 1);
-    assert.equal((await cloudPinIndexStore({}, "usr_c").entries("usr_c_1")).length, 1);
-  });
-});
-
-describe("Cloud pin index cron: only owners who use AI are covered (A49)", () => {
-  let db: Database;
-
-  const memoryEnv: CloudEnv = {
-    AI_API_KEY: "sk-ai-test",
-    AI_BASE_URL: BASE_URL,
-    AI_EMBEDDING_MODEL: "embed-model",
-    AI_MODEL: "mock",
-    ASSISTANT_ENABLED: "true",
-    DEPLOYMENT_ENV: "staging",
-  };
-
-  // One pinned memory session of the owner, captured at `createdAt`.
-  async function memorySession(ownerId: string, sessionId: string, comment: string, createdAt: string) {
-    await persistSession(memoryEnv, sessionFromCapture(parseVisualCapture({
-      captureId: sessionId,
-      createdAt,
-      page: { title: `Page ${sessionId}`, url: `https://site.example/${sessionId}` },
-      pins: comment ? [{ comment, kind: "element", number: 1 }] : [],
-      screenshot: { missing: true },
-    }, sessionId), { id: sessionId, plan: "pro", position: 0, userId: ownerId }));
-  }
-
-  beforeEach(() => {
-    resetCloudMemoryStateForTests();
-    resetRetrievalCapabilitiesCacheForTests();
-    setCloudNowForTests(NOW);
-    db = migratedDatabase();
-  });
-
-  afterEach(() => {
-    db.close();
-    resetCloudMemoryStateForTests();
-    resetRetrievalCapabilitiesCacheForTests();
-    setCloudNowForTests(null);
-  });
-
-  // The A49 world in D1: every owner has a pinned session but only
-  // usr_thread (a conversation), usr_switch (the switch) and usr_gift (a
-  // complimentary plan plus a conversation) are covered; usr_plain has
-  // neither side, usr_nopins has a conversation and no pinned session,
-  // usr_free has both sides but no plan with AI, and usr_off has the
-  // switch back off and no conversation.
-  function a49World() {
-    insertUser(db, "usr_plain", "pro");
-    insertUser(db, "usr_thread", "pro");
-    insertUser(db, "usr_switch", "pro");
-    insertUser(db, "usr_nopins", "pro");
-    insertUser(db, "usr_free", "free");
-    insertUser(db, "usr_gift", "free");
-    insertUser(db, "usr_off", "pro");
-    for (const id of ["usr_plain", "usr_thread", "usr_switch", "usr_free", "usr_gift", "usr_off"]) {
-      insertCollection(db, `col_${id}`, id);
-      insertSession(db, `session_${id}`, id, `col_${id}`, [{ comment: "Nota", number: 1, pinId: "p1" }]);
-    }
-    insertCollection(db, "col_usr_nopins", "usr_nopins");
-    insertSession(db, "session_usr_nopins", "usr_nopins", "col_usr_nopins", []);
-    for (const id of ["usr_thread", "usr_free", "usr_gift", "usr_nopins"]) insertAssistantThread(db, id);
-    setAutoCaptureDestination(db, "usr_switch", 1);
-    setAutoCaptureDestination(db, "usr_free", 1);
-    setAutoCaptureDestination(db, "usr_off", 0); // the switch turned back off
-  }
-
-  test("D1: covered = pins + a plan with AI + a conversation or the switch", async () => {
-    a49World();
-    const result = await indexPinSearch(cloudEnv(db, { COMPLIMENTARY_PRO_USER_IDS: "usr_gift" }), { fetch: fakeAppliance().fetch });
-    assert.deepEqual(result, { failed: 0, indexed: 3, owners: 3, remaining: false });
-    assert.deepEqual(pinIndexRows(db).map((row) => row.owner_id).sort(), ["usr_gift", "usr_switch", "usr_thread"]);
-  });
-
-  test("memory: covered = pins + a plan with AI + a conversation or the switch", async () => {
-    const env: CloudEnv = { ...memoryEnv, COMPLIMENTARY_PRO_USER_IDS: "usr_gift" };
-    for (const [id, plan] of [["usr_plain", "pro"], ["usr_thread", "pro"], ["usr_switch", "pro"], ["usr_nopins", "pro"], ["usr_free", "free"], ["usr_gift", "free"], ["usr_off", "pro"]] as const) {
-      seedCloudAccountForTests({ email: `${id}@example.test`, id, plan: plan as "free" | "pro" });
-    }
-    for (const id of ["usr_plain", "usr_thread", "usr_switch", "usr_free", "usr_gift", "usr_off"]) {
-      await memorySession(id, `session_${id}`, "Nota", "2026-09-30T00:00:00.000Z");
-    }
-    await memorySession("usr_nopins", "session_usr_nopins", "", "2026-09-30T00:00:00.000Z");
-    for (const id of ["usr_thread", "usr_free", "usr_gift", "usr_nopins"]) {
-      await cloudAssistantStore(env, id).createThread({ id: `ath_${id}`, now: NOW, title: "Conversa" });
-    }
-    await writeOwnerDeliveryPreferences(env, "usr_switch", { autoCaptureDestination: true });
-    await writeOwnerDeliveryPreferences(env, "usr_free", { autoCaptureDestination: true });
-    await writeOwnerDeliveryPreferences(env, "usr_off", { autoCaptureDestination: false }); // back off
-    const appliance = fakeAppliance();
-    const result = await indexPinSearch(env, { fetch: appliance.fetch });
-    assert.deepEqual(result, { failed: 0, indexed: 3, owners: 3, remaining: false });
-    for (const id of ["usr_gift", "usr_switch", "usr_thread"]) {
-      assert.equal((await cloudPinIndexStore(env, id).entries(`session_${id}`)).length, 1, id);
-    }
-    for (const id of ["usr_plain", "usr_nopins", "usr_free", "usr_off"]) {
-      assert.equal((await cloudPinIndexStore(env, id).entries(`session_${id}`)).length, 0, id);
-    }
-  });
-
-  test("D1: without assistant_threads the cron keeps running, and the switch still covers an owner", async () => {
-    a49World();
-    db.exec("DROP TABLE assistant_threads"); // a D1 before migration 0027
-    const result = await indexPinSearch(cloudEnv(db, { COMPLIMENTARY_PRO_USER_IDS: "usr_gift" }), { fetch: fakeAppliance().fetch });
-    assert.deepEqual(result, { failed: 0, indexed: 1, owners: 1, remaining: false });
-    assert.deepEqual(pinIndexRows(db).map((row) => row.owner_id), ["usr_switch"]);
-  });
-
-  test("D1: without assistant_threads nor the switch's column the cron indexes nobody and runs no enumeration", async () => {
-    a49World();
-    db.exec("DROP TABLE assistant_threads"); // a D1 before migration 0027
-    db.exec("ALTER TABLE owner_preferences DROP COLUMN auto_capture_destination"); // before 0030
-    const log: QueryLog = [];
-    const result = await indexPinSearch(cloudEnv(db, {}, log), { fetch: fakeAppliance().fetch });
-    assert.deepEqual(result, { failed: 0, indexed: 0, owners: 0, remaining: false });
-    assert.deepEqual(pinIndexRows(db), []);
-    assert.deepEqual(log.filter((entry) => entry.query.startsWith("SELECT s.user_id AS user_id")), [], "no enumeration query");
-  });
-
-  test("D1: the newest capture first, among the covered owners", async () => {
-    for (const [id, at] of [["usr_old", "2026-09-28T00:00:00.000Z"], ["usr_mid", "2026-09-29T00:00:00.000Z"], ["usr_new", "2026-09-30T00:00:00.000Z"]] as const) {
-      insertUser(db, id, "pro");
-      insertCollection(db, `col_${id}`, id);
-      insertSession(db, `session_${id}`, id, `col_${id}`, [{ comment: "Nota", number: 1, pinId: "p1" }], at);
-      insertAssistantThread(db, id);
-    }
-    const log: QueryLog = [];
-    const result = await indexPinSearch(cloudEnv(db, {}, log), { fetch: fakeAppliance().fetch });
-    assert.deepEqual(result, { failed: 0, indexed: 3, owners: 3, remaining: false });
-    // One ownedSessions read per owner, in the owners' order.
-    assert.deepEqual(log.filter((entry) => entry.query.includes("FROM sessions WHERE user_id = ?")).map((entry) => entry.params[0]), ["usr_new", "usr_mid", "usr_old"]);
-  });
-
-  test("memory: the newest capture first, among the covered owners", async () => {
-    for (const [id, at, comment] of [["usr_old", "2026-09-28T00:00:00.000Z", "Nota antiga"], ["usr_mid", "2026-09-29T00:00:00.000Z", "Nota media"], ["usr_new", "2026-09-30T00:00:00.000Z", "Nota nova"]] as const) {
-      seedCloudAccountForTests({ email: `${id}@example.test`, id, plan: "pro" });
-      await memorySession(id, `session_${id}`, comment, at);
-      await cloudAssistantStore(memoryEnv, id).createThread({ id: `ath_${id}`, now: NOW, title: "Conversa" });
-    }
-    const appliance = fakeAppliance();
-    const result = await indexPinSearch(memoryEnv, { fetch: appliance.fetch });
-    assert.deepEqual(result, { failed: 0, indexed: 3, owners: 3, remaining: false });
-    // One document batch per session, in the owners' order.
-    const documents = appliance.calls.filter((call) => call.path === "/embeddings").map((call) => String(call.body!.input));
-    assert.equal(documents.length, 3);
-    assert.ok(documents[0]!.includes("Nota nova"), "the newest capture first");
-    assert.ok(documents[1]!.includes("Nota media"), "then the middle one");
-    assert.ok(documents[2]!.includes("Nota antiga"), "then the oldest");
   });
 });
 
@@ -1444,13 +1079,12 @@ describe("Cloud pin search in production, through the gateway (F4 contract §4)"
     assert.deepEqual(swapped.applianceCalls(), []);
   });
 
-  test("the cron indexes through the gateway too, with zero data retention when the env asks for it", async () => {
-    insertAssistantThread(db, "usr_pro");
+  test("a search indexes through the gateway too, with zero data retention when the env asks for it", async () => {
     const hubs = fakeHubs();
-    const result = await indexPinSearch(productionEnv(db, { AI_GATEWAY_ZERO_DATA_RETENTION: "true", PINAR_BUCKET: shots() }), { fetch: hubs.fetch });
-    assert.deepEqual(result, { failed: 0, indexed: 2, owners: 1, remaining: false });
+    const hits = await searchAs(productionEnv(db, { AI_GATEWAY_ZERO_DATA_RETENTION: "true", PINAR_BUCKET: shots() }), principal("usr_pro"), "contraste", hubs.fetch);
+    assert.equal(hits[0]!.sessionId, "session_a");
     assert.deepEqual(hubs.applianceCalls(), []);
-    assert.equal(hubs.embeddings().length, 2, "one document batch per session");
+    assert.equal(hubs.embeddings().length, 3, "one document batch per session and the question");
     assert.equal(hubs.visions().length, 2);
     for (const call of [...hubs.embeddings(), ...hubs.visions()]) {
       assert.equal(call.authorization, `Bearer ${GATEWAY_KEY}`);
@@ -1458,8 +1092,9 @@ describe("Cloud pin search in production, through the gateway (F4 contract §4)"
     }
     // Any other value is off.
     db.query("DELETE FROM pin_index").run();
+    resetRetrievalCapabilitiesCacheForTests();
     const off = fakeHubs();
-    await indexPinSearch(productionEnv(db, { AI_GATEWAY_ZERO_DATA_RETENTION: "TRUE" }), { fetch: off.fetch });
+    await searchAs(productionEnv(db, { AI_GATEWAY_ZERO_DATA_RETENTION: "TRUE", PINAR_BUCKET: shots() }), principal("usr_pro"), "contraste", off.fetch);
     assert.deepEqual(off.embeddings()[0]!.body!.providerOptions, PRIVACY);
   });
 
@@ -1516,8 +1151,6 @@ describe("Cloud pin search in production, through the gateway (F4 contract §4)"
         const hubs = fakeHubs();
         const env = { ...base, DEPLOYMENT_ENV: deployment, ...overrides };
         await assert.rejects(createCloudPinSearch({ data, env, fetch: hubs.fetch }).search({ limit: 5, query: "nota" }), /pin search unavailable/, label);
-        const cron = await runCloudPinIndexCron({ env, fetch: hubs.fetch, ownerData: () => data, owners: async () => ["usr_pro"] });
-        assert.deepEqual(cron, { failed: 0, indexed: 0, owners: 0, remaining: false }, label);
         assert.deepEqual(hubs.calls, [], label);
       }
     }
@@ -1688,8 +1321,7 @@ describe("Cloud index costs recorded for the margin monitor (F4 contract §3)", 
     return lines;
   }
 
-  test("a search and an index cron through the gateway record each cost with its source, at the Cloud's clock", async () => {
-    insertAssistantThread(db, "usr_pro");
+  test("a search through the gateway records each cost with its source, at the Cloud's clock", async () => {
     const hubs = fakeHubs();
     await quietly(() => searchAs(productionEnv(db, { PINAR_BUCKET: shots() }), principal("usr_pro"), "contraste", hubs.fetch));
     const embeddings = hubs.embeddings().length;
@@ -1701,33 +1333,17 @@ describe("Cloud index costs recorded for the margin monitor (F4 contract §3)", 
       ...hubs.embeddings().map(() => ({ cost_source: "gateway", cost_usd_micros: 1, created_at: NOW, kind: "embedding", model: GATEWAY_EMBEDDING })),
     ]);
     assert.equal(hubs.visions().length, 2);
-
-    db.query("DELETE FROM pin_index").run();
-    db.query("DELETE FROM assistant_index_costs").run();
-    const cron = fakeHubs();
-    await quietly(() => indexPinSearch(productionEnv(db, { PINAR_BUCKET: shots() }), { fetch: cron.fetch }));
-    assert.deepEqual(costRows().map((row) => [row.kind, row.cost_source, row.cost_usd_micros]), [
-      ["caption", "table", 1100],
-      ["caption", "table", 1100],
-      ["embedding", "gateway", 1],
-      ["embedding", "gateway", 1],
-    ]);
-    assert.equal(cron.embeddings().length + cron.visions().length, 4);
   });
 
   test("the appliance records nothing", async () => {
-    insertAssistantThread(db, "usr_pro");
     const appliance = fakeAppliance({ vision: true });
     await searchAs(cloudEnv(db, { PINAR_BUCKET: shots() }), principal("usr_pro"), "contraste", appliance.fetch);
-    db.query("DELETE FROM pin_index").run();
-    await indexPinSearch(cloudEnv(db, { PINAR_BUCKET: shots() }), { fetch: fakeAppliance({ vision: true }).fetch });
     assert.ok(appliance.embeddings().length > 0 && appliance.visions().length > 0, "the appliance did embed and caption");
     assert.deepEqual(costRows(), []);
   });
 
-  test("a failing recorder breaks neither the search nor the index cron", async () => {
+  test("a failing recorder never breaks the search", async () => {
     db.query("DROP TABLE assistant_index_costs").run();
-    insertAssistantThread(db, "usr_pro");
     const hubs = fakeHubs();
     let hits: Awaited<ReturnType<typeof searchAs>> = [];
     const searchLines = await quietly(async () => {
@@ -1740,14 +1356,6 @@ describe("Cloud index costs recorded for the margin monitor (F4 contract §3)", 
       ["session_b", "legenda 1", GATEWAY_EMBEDDING],
     ]);
     assert.equal(searchLines.filter((line) => line.includes("assistant_index_cost_record_failed")).length, hubs.embeddings().length + hubs.visions().length);
-
-    db.query("DELETE FROM pin_index").run();
-    let result: unknown;
-    await quietly(async () => {
-      result = await indexPinSearch(productionEnv(db, { PINAR_BUCKET: shots() }), { fetch: fakeHubs().fetch });
-    });
-    assert.deepEqual(result, { failed: 0, indexed: 2, owners: 1, remaining: false });
-    assert.equal(pinIndexRows(db).length, 3);
   });
 
   test("with a turn's revenue, the index costs the producer recorded raise index_cost over 20% of it, and not below", async () => {

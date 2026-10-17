@@ -40,12 +40,10 @@
 // question's embedding runs on the turn's signal only. Once the turn's
 // signal is aborted the search starts no new request.
 //
-// The cron job (runCloudPinIndexCron) enumerates its owners and indexes,
-// for each one, that owner's own sessions (stale and lagging, newest
-// first), all within one 60 s budget that starts before the enumeration;
-// requests in flight are cut at its end. An owner that fails is skipped
-// and the next one runs. cloud-api.ts applies the gates (A3) before calling
-// either.
+// The search indexes the stale sessions on demand, within the turn's
+// budget (A53: the daily index cron is gone — indexing only happens inside
+// the charged assistant message).
+// cloud-api.ts applies the gates (A3) before calling it.
 
 import { parseAssistantChain, type AssistantChainLink } from "../chain";
 import type { AssistantD1Database } from "../store-cloud";
@@ -55,7 +53,6 @@ import type { EmbeddingEndpoint } from "./embeddings";
 import { GATEWAY_OPENAI_BASE_URL, type GatewayCallOptions } from "./gateway";
 import {
   indexStale,
-  PIN_SEARCH_MAX_SESSIONS,
   searchPins,
   withAbortSignal,
   type PinIndexDeps,
@@ -70,7 +67,6 @@ import type { VisionEndpoint } from "./vision";
 
 export const CLOUD_PIN_SEARCH_BUDGET_MS = 10_000;
 export const CLOUD_PIN_SEARCH_MAX_SESSIONS = 20;
-export const CLOUD_PIN_INDEX_CRON_BUDGET_MS = 60_000;
 
 export interface CloudPinEnv {
   AI_API_KEY?: string;
@@ -322,70 +318,4 @@ export function createCloudPinSearch(input: {
       return searchPins({ ...rest, ...(searchFetch ? { fetch: searchFetch } : {}) }, { limit, query });
     },
   };
-}
-
-export interface CloudPinIndexCronResult {
-  failed: number;
-  indexed: number;
-  owners: number;
-  remaining: boolean;
-}
-
-/**
- * The daily indexing: the budget (60 s) starts first, then `owners()`
- * enumerates the owners inside it; for each owner, in that order,
- * indexStale over the owner's own sessions with the store of that owner,
- * until the budget is spent (`remaining: true`). Requests in flight are cut
- * when the budget ends. An owner that fails counts in `failed` and the next
- * one runs.
- */
-export async function runCloudPinIndexCron(input: {
-  budgetMs?: number;
-  env: CloudPinEnv;
-  fetch?: typeof fetch;
-  now?: () => Date;
-  ownerData: (ownerId: string) => CloudPinSourceData;
-  // `expired` tells the enumeration that the budget is spent
-  owners: (expired: () => boolean) => Promise<string[]>;
-  recordIndexCost?: CloudIndexCostRecorder;
-}): Promise<CloudPinIndexCronResult> {
-  const now = input.now ?? (() => new Date());
-  const budgetMs = input.budgetMs ?? CLOUD_PIN_INDEX_CRON_BUDGET_MS;
-  const startedAt = now().getTime();
-  const deadline = AbortSignal.timeout(budgetMs);
-  const result: CloudPinIndexCronResult = { failed: 0, indexed: 0, owners: 0, remaining: false };
-  const expired = () => deadline.aborted || now().getTime() - startedAt >= budgetMs;
-  const owners = await input.owners(expired);
-  if (expired()) {
-    // The enumeration used the budget up, or stopped early.
-    result.remaining = true;
-    return result;
-  }
-  for (const ownerId of owners) {
-    const left = budgetMs - (now().getTime() - startedAt);
-    if (left <= 0 || deadline.aborted) {
-      result.remaining = true;
-      break;
-    }
-    try {
-      const deps = await indexDeps(input.env, {
-        ...(input.fetch ? { detectFetch: input.fetch } : {}),
-        fetch: withAbortSignal(input.fetch, deadline),
-        now,
-        ...(input.recordIndexCost ? { recordIndexCost: input.recordIndexCost } : {}),
-        source: cloudPinSource(input.ownerData(ownerId)),
-        store: cloudPinIndexStore(input.env, ownerId),
-      });
-      if (!deps) return result;
-      const pass = await indexStale(deps, { budgetMs: left, maxSessions: PIN_SEARCH_MAX_SESSIONS, signal: deadline });
-      result.indexed += pass.indexed;
-      result.owners += 1;
-      if (pass.remaining) result.remaining = true;
-    } catch {
-      // The next owner still runs; nothing about the failure is logged.
-      result.failed += 1;
-      result.remaining = true;
-    }
-  }
-  return result;
 }

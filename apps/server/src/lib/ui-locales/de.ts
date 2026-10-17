@@ -169,10 +169,11 @@ const messages: UiMessages = {
   "settings.aiUsageRefunded": "Erstattet",
   "settings.aiUsageComponentExport": "Komponentenexport",
   "settings.aiUsageDesignSystem": "Designsystem",
-  "settings.aiUsageReproduction": "Reproduktion",
+  "settings.aiUsageReproduction": "Ausformulierte Reproduktionsschritte",
   "settings.aiUsageSessionSummary": "Sitzungszusammenfassung",
   "settings.aiUsageVoicePin": "Sprach-Pin",
   "settings.aiUsageAssistantTurn": "Assistenten-Nachricht",
+  "settings.aiUsageCaptureFiling": "Automatische Sammlungswahl",
   "settings.voicePostProcessing": "Sprachtranskriptionen bereinigen",
   "settings.voicePostProcessingDescription": "Entfernt Füllwörter und Fehlstarts und stellt den beabsichtigten Kommentar wieder her. Nur in Pinar Cloud verfügbar und standardmäßig deaktiviert.",
   "settings.generalDescription":

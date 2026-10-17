@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 import { encodeVector, PIN_EMBEDDING_DIMENSIONS } from "../assistant/retrieval/embeddings";
 import type { PinIndexEntry } from "../assistant/retrieval/types";
 import { FILING_CENTROID_SESSIONS, FILING_EXAMPLE_TITLES, type FilingCollection, type FilingRecentSession } from "./candidates";
-import { FILING_NONE_OPTION } from "./choose";
+import { FILING_NONE_OPTION, type FilingCreditMeter } from "./choose";
 import { fileCapture, type FilingEngineChoice, type FilingSource } from "./runtime";
 
 const BASE_URL = "http://127.0.0.1:9/v1";
@@ -188,6 +188,144 @@ describe("fileCapture", () => {
       assert.deepEqual(outcome, { filedBy: null, filing: { collectionId: null, confidence: 0, engine: step.expected, reason: "timeout" } }, step.name);
       assert.ok(elapsed < 500, `${step.name}: ${elapsed} ms`);
     }
+  });
+
+  // The meter of the capture's credit (A53) and the capture's budget (F4d):
+  // the reservation, the consumption and the refund are raced against the
+  // same deadline as the engine.
+  function metered(overrides: {
+    consume?: () => Promise<boolean>;
+    reserve?: () => Promise<"error" | "existing" | "no_credits" | "replayed" | "reserved">;
+  }): { calls: string[]; meter: FilingCreditMeter } {
+    const calls: string[] = [];
+    const meter: FilingCreditMeter = {
+      async consume() {
+        calls.push("consume");
+        return overrides.consume ? await overrides.consume() : true;
+      },
+      async refund(errorCode: string) {
+        calls.push(`refund:${errorCode}`);
+      },
+      async reserve() {
+        calls.push("reserve");
+        return overrides.reserve ? await overrides.reserve() : "reserved";
+      },
+      replayChoice: () => null,
+    };
+    return { calls, meter };
+  }
+
+  test("a reservation that settles after the deadline: the Inbox timeout now, the late reservation refunded as its timeout", async () => {
+    const { calls, meter } = metered({ reserve: async () => { await new Promise((resolve) => setTimeout(resolve, 150)); return "reserved"; } });
+    const startedAt = Date.now();
+    const outcome = await fileCapture({
+      batchId: null,
+      capture: CAPTURE,
+      engine: async () => DECISIONS,
+      fetch: decisionsFetch("Shop / Checkout", 0.9),
+      meter,
+      source: source(),
+      timeoutMs: 10,
+    });
+    const elapsed = Date.now() - startedAt;
+    assert.deepEqual(outcome, { filedBy: null, filing: { collectionId: null, confidence: 0, engine: "decisions", reason: "timeout" } });
+    assert.ok(elapsed < 100, `${elapsed} ms: the answer never waits for the late reservation`);
+    // The late confirmation settles itself: a refund for its timeout.
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    assert.deepEqual(calls, ["reserve", "refund:reservation_timeout"]);
+  });
+
+  test("a reservation that never settles: the answer still respects the budget, and nothing is refunded", async () => {
+    const { calls, meter } = metered({ reserve: async () => never<"reserved">() });
+    const startedAt = Date.now();
+    const outcome = await fileCapture({
+      batchId: null,
+      capture: CAPTURE,
+      engine: async () => DECISIONS,
+      fetch: decisionsFetch("Shop / Checkout", 0.9),
+      meter,
+      source: source(),
+      timeoutMs: 30,
+    });
+    const elapsed = Date.now() - startedAt;
+    assert.deepEqual(outcome, { filedBy: null, filing: { collectionId: null, confidence: 0, engine: "decisions", reason: "timeout" } });
+    assert.ok(elapsed < 200, `${elapsed} ms: a reservation without an ending has no effect on the answer`);
+    assert.deepEqual(calls, ["reserve"], "the reservation never confirmed, so there is nothing to refund");
+  });
+
+  test("a consumption that settles after the deadline: the Inbox timeout now, the credit goes back when it settles", async () => {
+    const { calls, meter } = metered({ consume: async () => { await new Promise((resolve) => setTimeout(resolve, 200)); return true; } });
+    const startedAt = Date.now();
+    const outcome = await fileCapture({
+      batchId: null,
+      capture: CAPTURE,
+      engine: async () => DECISIONS,
+      fetch: decisionsFetch("Shop / Checkout", 0.9),
+      meter,
+      source: source(),
+      timeoutMs: 30,
+    });
+    const elapsed = Date.now() - startedAt;
+    assert.deepEqual(outcome, { filedBy: null, filing: { collectionId: null, confidence: 0, engine: "decisions", reason: "timeout" } });
+    assert.ok(elapsed < 200, `${elapsed} ms: the answer never waits for the late consumption`);
+    assert.deepEqual(calls, ["reserve", "consume", "refund:reservation_timeout"], "the credit is given back for the timeout");
+  });
+
+  test("the settled run of the capture replays its stored choice without the engine and without a charge", async () => {
+    const { calls, meter } = metered({ reserve: async () => "replayed" });
+    const stored = { collectionId: "col_a", confidence: 0.9, engine: "decisions" as const, reason: "chosen" as const };
+    meter.replayChoice = () => JSON.stringify(stored);
+    let fetched = 0;
+    const outcome = await fileCapture({
+      batchId: null,
+      capture: CAPTURE,
+      engine: async () => DECISIONS,
+      fetch: (async () => {
+        fetched += 1;
+        return new Response("no", { status: 500 });
+      }) as unknown as typeof fetch,
+      meter,
+      source: source(),
+    });
+    assert.deepEqual(outcome, { filedBy: "auto", filing: stored });
+    assert.equal(fetched, 0, "the engine is not called for a replayed choice");
+    assert.deepEqual(calls, ["reserve"], "no consume, no refund: a refund is not a payment");
+  });
+
+  test("a hostile replay refuses a non-string reason and a numeric collectionId (F4d round 2)", async () => {
+    // The stored result_json is untrusted data: a coercible array reason or a
+    // numeric collectionId is refused as a whole and the capture is the
+    // Inbox with reason error — not replayed, not engine-called, not charged.
+    const hostile = { collectionId: "col_a", confidence: 0.99, engine: "decisions" as const, reason: ["chosen"] };
+    const { calls, meter } = metered({ reserve: async () => "replayed" });
+    meter.replayChoice = () => JSON.stringify(hostile);
+    const outcome = await fileCapture({
+      batchId: null,
+      capture: CAPTURE,
+      engine: async () => DECISIONS,
+      fetch: (async () => {
+        throw new Error("no engine");
+      }) as unknown as typeof fetch,
+      meter,
+      source: source(),
+    });
+    assert.deepEqual(outcome, { filedBy: null, filing: { collectionId: null, confidence: 0, engine: "decisions", reason: "error" } });
+    assert.deepEqual(calls, ["reserve"], "a corrupt stored choice is not consumed or refunded");
+
+    const numeric = { collectionId: 123, confidence: 0.9, engine: "decisions" as const, reason: "chosen" as const };
+    const second = metered({ reserve: async () => "replayed" });
+    second.meter.replayChoice = () => JSON.stringify(numeric);
+    const secondOutcome = await fileCapture({
+      batchId: null,
+      capture: CAPTURE,
+      engine: async () => DECISIONS,
+      fetch: (async () => {
+        throw new Error("no engine");
+      }) as unknown as typeof fetch,
+      meter: second.meter,
+      source: source(),
+    });
+    assert.deepEqual(secondOutcome, { filedBy: null, filing: { collectionId: null, confidence: 0, engine: "decisions", reason: "error" } });
   });
 
   test("similarity reads up to 50 sessions per collection and only the current model's vectors", async () => {

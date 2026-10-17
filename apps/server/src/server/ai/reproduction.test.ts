@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
+import { Database } from "bun:sqlite";
+import { readFileSync, readdirSync } from "node:fs";
 import { beforeEach, describe, test } from "node:test";
-import { resetCloudMemoryStateForTests, type CloudEnv } from "../cloud-api";
+import {
+  cloudCaptureFilingMeter,
+  resetCloudMemoryStateForTests,
+  resolvePrincipal,
+  type CloudEnv,
+  type Principal,
+} from "../cloud-api";
 import { createOpenAiCompatibleAi } from "../edger/openai-compatible-ai";
 import {
   aiEnv,
@@ -100,7 +108,7 @@ describe("POST /api/ai/reproduction", () => {
     assert.equal(input.steps[3].described, '"Sign in"');
   });
 
-  test("generates and persists written steps without consuming voice credits", async () => {
+  test("generates and persists written steps, charging one credit (A53)", async () => {
     const calls: Array<{ input: unknown; model: string }> = [];
     const reply = JSON.stringify(GENERATED);
     const env = aiEnv(async (model, input) => {
@@ -121,8 +129,10 @@ describe("POST /api/ai/reproduction", () => {
     }, paid.cookie, paid.env);
     const first = await jsonBody(response);
     assert.equal(first.ok, true);
-    assert.equal(first.creditsCharged, 0);
-    assert.equal(first.aiCredits, undefined);
+    assert.equal(first.creditsCharged, 1);
+    assert.equal(first.idempotent, false);
+    assert.ok(isRecord(first.aiCredits));
+    assert.equal(first.aiCredits.balance, 499, "the balance fell one credit");
     assert.ok(isRecord(first.result) && Array.isArray(first.result.steps));
     assert.equal(first.result.steps.length, 4);
     assert.equal(calls.length, 1);
@@ -145,8 +155,11 @@ describe("POST /api/ai/reproduction", () => {
 
     const entitlements = await jsonBody(await getJson("/api/account/entitlements", paid.cookie, paid.env));
     assert.ok(isRecord(entitlements.aiCredits));
-    assert.equal(entitlements.aiCredits.balance, 500);
-    assert.deepEqual(entitlements.aiUsage, []);
+    assert.equal(entitlements.aiCredits.balance, 499);
+    // The usage history exposes the reproduction credit (F4d), with the
+    // voice, the assistant and the capture filing.
+    const history = entitlements.aiUsage as Array<{ credits: number; feature: string; status: string }>;
+    assert.deepEqual(history.map((entry) => [entry.feature, entry.status, entry.credits]), [["reproduction", "succeeded", 1]]);
   });
 
   test("rejects captures without a recording and leaves voice credits untouched on unusable output", async () => {
@@ -174,6 +187,87 @@ describe("POST /api/ai/reproduction", () => {
     const entitlements = await jsonBody(await getJson("/api/account/entitlements", paid.cookie, paid.env));
     assert.ok(isRecord(entitlements.aiCredits));
     assert.equal(entitlements.aiCredits.balance, 500);
+  });
+
+  // The credits of the account through the capture filing's meter (A53):
+  // each reservation consumes one credit without calling any engine, so a
+  // test can spend the balance before it asks for a generation.
+  async function drainAiCredits(env: CloudEnv, cookie: string, credits: number) {
+    const principal = await resolvePrincipal(
+      new Request("https://pinar.test/api/account/entitlements", { headers: { cookie } }),
+      env,
+    );
+    assert.ok(principal);
+    for (let i = 0; i < credits; i++) {
+      assert.equal(await cloudCaptureFilingMeter(env, principal, `drain_${i}`).reserve("drain"), "reserved");
+    }
+  }
+
+  test("without enough credits: 402 with the balance and no AI call (A53)", async () => {
+    const calls: string[] = [];
+    const env = aiEnv(async (model) => {
+      calls.push(model);
+      return responsesApi(JSON.stringify(GENERATED));
+    });
+    const paid = await paidProCookie(env);
+    assert.equal((await uploadCapture(paid.cookie, {
+      id: "repro_session_040",
+      pins: [{ comment: "x", number: 1 }],
+      reproduction: RECORDING,
+    }, paid.env)).status, 201);
+    await drainAiCredits(paid.env, paid.cookie, 500);
+
+    const response = await postJson("/api/ai/reproduction", {
+      requestId: "repro_request_000040",
+      sessionId: "repro_session_040",
+    }, paid.cookie, paid.env);
+    assert.equal(response.status, 402);
+    const body = await jsonBody(response);
+    assert.equal(body.code, "insufficient_ai_credits");
+    assert.equal(body.creditsRequired, 1);
+    assert.ok(isRecord(body.aiCredits));
+    assert.equal(body.aiCredits.balance, 0, "the 402 answers with the balance");
+    assert.equal(calls.length, 0, "the AI is never called without credits");
+    const stored = await jsonBody(await getJson("/api/sessions/repro_session_040", paid.cookie, paid.env));
+    const session = stored.session as { reproduction?: { generated?: unknown } };
+    assert.ok(isRecord(session.reproduction), "the session and its recording are intact");
+    assert.equal("generated" in (session.reproduction as object), false, "nothing persisted");
+  });
+
+  test("a repeated request id replays the answer and charges only once (A53)", async () => {
+    let calls = 0;
+    const env = aiEnv(async () => {
+      calls += 1;
+      return responsesApi(JSON.stringify(GENERATED));
+    });
+    const paid = await paidProCookie(env);
+    assert.equal((await uploadCapture(paid.cookie, {
+      id: "repro_session_050",
+      pins: [{ comment: "x", number: 1 }],
+      reproduction: RECORDING,
+    }, paid.env)).status, 201);
+
+    const first = await postJson("/api/ai/reproduction", {
+      requestId: "repro_request_000050",
+      sessionId: "repro_session_050",
+    }, paid.cookie, paid.env);
+    const firstBody = await jsonBody(first);
+    assert.equal(first.status, 200);
+    assert.equal(firstBody.idempotent, false);
+
+    const replay = await postJson("/api/ai/reproduction", {
+      requestId: "repro_request_000050",
+      sessionId: "repro_session_050",
+    }, paid.cookie, paid.env);
+    const replayBody = await jsonBody(replay);
+    assert.equal(replay.status, 200);
+    assert.equal(replayBody.idempotent, true, "the repeated order replays the stored result");
+    assert.equal(replayBody.creditsCharged, 1);
+    assert.ok(isRecord(replayBody.result) && Array.isArray(replayBody.result.steps));
+    assert.equal(calls, 1, "the AI is called once for the two requests");
+    const entitlements = await jsonBody(await getJson("/api/account/entitlements", paid.cookie, paid.env));
+    assert.ok(isRecord(entitlements.aiCredits));
+    assert.equal(entitlements.aiCredits.balance, 499, "one order, one credit");
   });
 
   test("generates and persists through the AI_TEXT_CHAIN gateway link without the AI binding", async () => {
@@ -210,7 +304,7 @@ describe("POST /api/ai/reproduction", () => {
     assert.equal(response.status, 200, await response.clone().text());
     const body = await jsonBody(response);
     assert.equal(body.ok, true);
-    assert.equal(body.creditsCharged, 0);
+    assert.equal(body.creditsCharged, 1, "the gateway call charges the same one credit");
     assert.ok(isRecord(body.result) && Array.isArray(body.result.steps));
     assert.equal(body.result.steps.length, 4);
     assert.ok(isRecord(body.usage));
@@ -236,7 +330,7 @@ describe("POST /api/ai/reproduction", () => {
 
     const entitlements = await jsonBody(await getJson("/api/account/entitlements", paid.cookie, paid.env));
     assert.ok(isRecord(entitlements.aiCredits));
-    assert.equal(entitlements.aiCredits.balance, 500);
+    assert.equal(entitlements.aiCredits.balance, 499);
   });
 
   test("keeps a move that lands between the read and the write (keepPlacement)", async () => {
@@ -311,6 +405,10 @@ describe("POST /api/ai/reproduction", () => {
     assert.equal(response.status, 404);
     assert.deepEqual(await response.json(), { error: "Session not found" });
     assert.equal((await getJson("/api/sessions/repro_session_030", paid.cookie, paid.env)).status, 404, "the session is not brought back");
+    // The result was not delivered: the metered gate refunded the credit.
+    const entitlements = await jsonBody(await getJson("/api/account/entitlements", paid.cookie, paid.env));
+    assert.ok(isRecord(entitlements.aiCredits));
+    assert.equal(entitlements.aiCredits.balance, 500, "the 404 gave the credit back");
   });
 });
 
@@ -440,7 +538,8 @@ describe("reproduction appliance chains (F4c)", () => {
     assert.equal(response.status, 503);
     const body = await jsonBody(response);
     assert.equal(body.code, "ai_inference_failed");
-    assert.equal(body.error, "Reproduction generation unavailable");
+    // A53: the failed inference gives the credit back with the message.
+    assert.equal(body.error, "Reproduction generation unavailable; credit refunded");
     assert.equal(fake.calls.length, 1, "a 401 does not pass to the next link");
     const stored = await jsonBody(await getJson("/api/sessions/repro_session_appl_401", paid.cookie, paid.env));
     assert.ok(isRecord(stored.session));
@@ -484,5 +583,394 @@ describe("reproduction appliance chains (F4c)", () => {
     assert.equal(fake.calls[1].model, "fallback-chat");
     const stored = await jsonBody(await getJson("/api/sessions/repro_session_appl_503", paid.cookie, paid.env));
     assert.ok(isRecord(stored.session) && isRecord(stored.session.reproduction) && isRecord(stored.session.reproduction.generated), "the fallback's result persisted");
+  });
+});
+
+// ---------- A53 on D1: the credit ledger of the written steps ----------
+
+const D1_NOW = "2026-10-17T12:00:00.000Z";
+const D1_OWNER = "usr_repro_d1";
+
+// The SQLite-as-D1 shim, same model as cloud-mcp.test.ts: one connection,
+// batches serialized, `run` returns D1's meta.changes.
+function d1Shim(db: Database): NonNullable<CloudEnv["DB"]> {
+  let batches: Promise<unknown> = Promise.resolve();
+  const statement = (query: string) => {
+    let params: unknown[] = [];
+    const bound = {
+      async all() {
+        return { results: db.query(query).all(...params) as Record<string, unknown>[] };
+      },
+      bind(...values: unknown[]) {
+        params = values.map((value) => value === undefined ? null : value);
+        return bound;
+      },
+      async first() {
+        return (db.query(query).get(...params) as Record<string, unknown> | null) ?? null;
+      },
+      async run() {
+        db.query(query).run(...params);
+        const changes = db.query("SELECT changes() AS changes").get() as { changes: number };
+        return { meta: { changes: changes.changes } };
+      },
+    };
+    return bound;
+  };
+  return {
+    batch(statements) {
+      const work = batches.then(async () => {
+        db.exec("BEGIN");
+        try {
+          const results = [];
+          for (const statement of statements) results.push(await statement.run());
+          db.exec("COMMIT");
+          return results;
+        } catch (error) {
+          db.exec("ROLLBACK");
+          throw error;
+        }
+      });
+      batches = work.catch(() => {});
+      return work;
+    },
+    prepare(query: string) {
+      return statement(query);
+    },
+  };
+}
+
+function migratedD1() {
+  const db = new Database(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  const directory = new URL("../../../migrations/", import.meta.url);
+  for (const file of readdirSync(directory).filter((name) => name.endsWith(".sql")).sort()) {
+    db.exec(readFileSync(new URL(file, directory), "utf8"));
+  }
+  return db;
+}
+
+async function d1Cookie(db: Database, env: CloudEnv) {
+  db.query(
+    "INSERT INTO users (id, email, plan, ever_paid, billing_status, created_at, updated_at) VALUES (?, ?, 'pro', 1, 'active', ?, ?)",
+  ).run(D1_OWNER, `${D1_OWNER}@example.test`, D1_NOW, D1_NOW);
+  const { seedCloudWebSessionForTests } = await import("../cloud-api");
+  return (await seedCloudWebSessionForTests({ email: `${D1_OWNER}@example.test`, id: D1_OWNER, plan: "pro" }, env)).cookie;
+}
+
+const d1Balance = (db: Database) =>
+  (db.query("SELECT COALESCE(SUM(credits - consumed_credits), 0) AS balance FROM ai_credit_grants WHERE owner_id = ?").get(D1_OWNER) as { balance: number }).balance;
+
+describe("POST /api/ai/reproduction on D1 (A53)", () => {
+  test("a success stores the usage as succeeded and the balance falls one credit", async () => {
+    const db = migratedD1();
+    try {
+      const env: CloudEnv = {
+        ...TEST_ENV,
+        DB: d1Shim(db),
+        AI: { run: async () => responsesApi(JSON.stringify(GENERATED)) } as unknown as Ai,
+      };
+      const cookie = await d1Cookie(db, env);
+      assert.equal((await uploadCapture(cookie, {
+        id: "repro_d1_001",
+        pins: [{ comment: "x", number: 1 }],
+        reproduction: RECORDING,
+      }, env)).status, 201);
+
+      const response = await postJson("/api/ai/reproduction", {
+        requestId: "repro_d1_request_0001",
+        sessionId: "repro_d1_001",
+      }, cookie, env);
+      const body = await jsonBody(response);
+      assert.equal(response.status, 200);
+      assert.equal(body.creditsCharged, 1);
+      assert.ok(isRecord(body.aiCredits));
+      assert.equal(body.aiCredits.balance, 499);
+      assert.equal(d1Balance(db), 499);
+      const [usage] = db.query("SELECT * FROM ai_credit_usages WHERE request_id = ?").all("repro_d1_request_0001") as Array<{ feature: string; status: string; credits: number }>;
+      assert.deepEqual([usage.feature, usage.status, usage.credits], ["reproduction", "succeeded", 1]);
+      // The usage history exposes the reproduction credit (F4d), read
+      // through the entitlements endpoint.
+      const entitlements = await jsonBody(await getJson("/api/account/entitlements", cookie, env));
+      const history = entitlements.aiUsage as Array<{ credits: number; feature: string; status: string }>;
+      assert.deepEqual(history.map((entry) => [entry.feature, entry.status, entry.credits]), [["reproduction", "succeeded", 1]]);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("an invalid answer refunds the credit and leaves no persisted result", async () => {
+    const db = migratedD1();
+    try {
+      const env: CloudEnv = {
+        ...TEST_ENV,
+        DB: d1Shim(db),
+        AI: { run: async () => "not json at all" } as unknown as Ai,
+      };
+      const cookie = await d1Cookie(db, env);
+      assert.equal((await uploadCapture(cookie, {
+        id: "repro_d1_002",
+        pins: [{ comment: "x", number: 1 }],
+        reproduction: RECORDING,
+      }, env)).status, 201);
+
+      const response = await postJson("/api/ai/reproduction", {
+        requestId: "repro_d1_request_0002",
+        sessionId: "repro_d1_002",
+      }, cookie, env);
+      const body = await jsonBody(response);
+      assert.equal(response.status, 503);
+      assert.equal(body.code, "invalid_ai_response");
+      assert.equal(d1Balance(db), 500, "the refund gave the credit back");
+      const [usage] = db.query("SELECT * FROM ai_credit_usages WHERE request_id = ?").all("repro_d1_request_0002") as Array<{ status: string; error_code: string }>;
+      assert.deepEqual([usage.status, usage.error_code], ["refunded", "invalid_ai_response"]);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("without enough credits: 402 with the balance, no usage row and no AI call", async () => {
+    let calls = 0;
+    const db = migratedD1();
+    try {
+      const env: CloudEnv = {
+        ...TEST_ENV,
+        DB: d1Shim(db),
+        AI: {
+          run: async () => {
+            calls += 1;
+            return responsesApi(JSON.stringify(GENERATED));
+          },
+        } as unknown as Ai,
+      };
+      const cookie = await d1Cookie(db, env);
+      assert.equal((await uploadCapture(cookie, {
+        id: "repro_d1_003",
+        pins: [{ comment: "x", number: 1 }],
+        reproduction: RECORDING,
+      }, env)).status, 201);
+      // The first generation seeds the pro grant and spends one credit...
+      assert.equal((await postJson("/api/ai/reproduction", {
+        requestId: "repro_d1_request_0003",
+        sessionId: "repro_d1_003",
+      }, cookie, env)).status, 200);
+      // ...and the next one spends nothing and answers 402: the balance is 0.
+      db.query("UPDATE ai_credit_grants SET consumed_credits = credits WHERE owner_id = ?").run(D1_OWNER);
+      assert.equal(calls, 1);
+
+      const response = await postJson("/api/ai/reproduction", {
+        requestId: "repro_d1_request_0004",
+        sessionId: "repro_d1_003",
+      }, cookie, env);
+      const body = await jsonBody(response);
+      assert.equal(response.status, 402);
+      assert.equal(body.code, "insufficient_ai_credits");
+      assert.equal(body.creditsRequired, 1);
+      assert.ok(isRecord(body.aiCredits));
+      assert.equal(body.aiCredits.balance, 0);
+      assert.equal(calls, 1, "the AI is never called without credits");
+      assert.equal((db.query("SELECT COUNT(*) AS n FROM ai_credit_usages WHERE request_id = ?").get("repro_d1_request_0004") as { n: number }).n, 0);
+      assert.equal(d1Balance(db), 0);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a repeated request id replays the answer and stores one usage row", async () => {
+    let calls = 0;
+    const db = migratedD1();
+    try {
+      const env: CloudEnv = {
+        ...TEST_ENV,
+        DB: d1Shim(db),
+        AI: {
+          run: async () => {
+            calls += 1;
+            return responsesApi(JSON.stringify(GENERATED));
+          },
+        } as unknown as Ai,
+      };
+      const cookie = await d1Cookie(db, env);
+      assert.equal((await uploadCapture(cookie, {
+        id: "repro_d1_004",
+        pins: [{ comment: "x", number: 1 }],
+        reproduction: RECORDING,
+      }, env)).status, 201);
+
+      const first = await postJson("/api/ai/reproduction", {
+        requestId: "repro_d1_request_0005",
+        sessionId: "repro_d1_004",
+      }, cookie, env);
+      assert.equal(first.status, 200);
+      const replay = await postJson("/api/ai/reproduction", {
+        requestId: "repro_d1_request_0005",
+        sessionId: "repro_d1_004",
+      }, cookie, env);
+      const replayBody = await jsonBody(replay);
+      assert.equal(replay.status, 200);
+      assert.equal(replayBody.idempotent, true);
+      assert.equal(calls, 1, "the AI is called once for the two requests");
+      assert.equal(d1Balance(db), 499, "one order, one credit");
+      const rows = db.query("SELECT * FROM ai_credit_usages WHERE request_id = ?").all("repro_d1_request_0005") as Array<{ status: string; credits: number }>;
+      assert.equal(rows.length, 1);
+      assert.deepEqual([rows[0].status, rows[0].credits], ["succeeded", 1]);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a failed settlement (the succeeded transition) refunds, delivers nothing, and the refunded order does not pay again (F4d)", async () => {
+    const db = migratedD1();
+    try {
+      // The reviewer's probe shape: the failure is injected only on the
+      // usage's transition to succeeded, with real SQLite.
+      db.exec(`CREATE TRIGGER repro_settle_fail BEFORE UPDATE OF status ON ai_credit_usages
+        WHEN NEW.status = 'succeeded'
+        BEGIN SELECT RAISE(ABORT, 'injected settlement failure'); END;`);
+      const env: CloudEnv = {
+        ...TEST_ENV,
+        DB: d1Shim(db),
+        AI: { run: async () => responsesApi(JSON.stringify(GENERATED)) } as unknown as Ai,
+      };
+      const cookie = await d1Cookie(db, env);
+      assert.equal((await uploadCapture(cookie, {
+        id: "repro_d1_settle",
+        pins: [{ comment: "x", number: 1 }],
+        reproduction: RECORDING,
+      }, env)).status, 201);
+
+      const response = await postJson("/api/ai/reproduction", {
+        requestId: "repro_d1_request_settle",
+        sessionId: "repro_d1_settle",
+      }, cookie, env);
+      const body = await jsonBody(response);
+      assert.equal(response.status, 503);
+      assert.equal(body.code, "ai_inference_failed");
+      assert.equal(body.error, "Reproduction generation unavailable; credit refunded");
+      assert.equal(d1Balance(db), 500, "the settlement failure gave the credit back");
+      const stored = (await jsonBody(await getJson("/api/sessions/repro_d1_settle", cookie, env))).session as { reproduction: Record<string, unknown> };
+      assert.ok(isRecord(stored.reproduction), "the session and its recording are intact");
+      assert.equal("generated" in stored.reproduction, false, "the result was never persisted");
+      const [usage] = db.query("SELECT * FROM ai_credit_usages WHERE request_id = ?").all("repro_d1_request_settle") as Array<{ status: string; error_code: string; result_json: string | null }>;
+      assert.deepEqual([usage.status, usage.error_code], ["refunded", "ai_inference_failed"]);
+      assert.equal(usage.result_json, null);
+
+      // F4d: a refund is not a payment. The refunded order (same requestId)
+      // does not pay again — it answers 503 without the AI and without a
+      // charge, whatever the engine would now do.
+      db.exec("DROP TRIGGER repro_settle_fail");
+      const retry = await postJson("/api/ai/reproduction", {
+        requestId: "repro_d1_request_settle",
+        sessionId: "repro_d1_settle",
+      }, cookie, env);
+      const retryBody = await jsonBody(retry);
+      assert.equal(retry.status, 503, "the refunded order is not a new payment");
+      assert.equal(retryBody.code, "ai_request_refunded");
+      assert.equal(d1Balance(db), 500, "no new charge for the refunded order");
+
+      // A new order (a fresh requestId) is a new payment: one credit, the
+      // result persisted.
+      const fresh = await postJson("/api/ai/reproduction", {
+        requestId: "repro_d1_request_settle_fresh",
+        sessionId: "repro_d1_settle",
+      }, cookie, env);
+      assert.equal(fresh.status, 200, await fresh.clone().text());
+      const freshBody = await jsonBody(fresh);
+      assert.equal(freshBody.idempotent, false, "the new order is a new run");
+      assert.equal(d1Balance(db), 499, "the new order consumed the credit");
+      const storedRetry = (await jsonBody(await getJson("/api/sessions/repro_d1_settle", cookie, env))).session as { reproduction: { generated?: { steps?: unknown[] } } };
+      assert.equal(Array.isArray(storedRetry.reproduction.generated?.steps), true, "the new order persisted the result");
+      const rows = db.query("SELECT * FROM ai_credit_usages ORDER BY created_at").all() as Array<{ request_id: string; status: string; credits: number }>;
+      assert.deepEqual(rows.map((row) => [row.request_id, row.status, row.credits]), [
+        ["repro_d1_request_settle", "refunded", 1],
+        ["repro_d1_request_settle_fresh", "succeeded", 1],
+      ], "one row per order; the refunded one is not re-charged");
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a balance read that fails after the result is persisted preserves the debit (F4d round 2)", async () => {
+    const db = migratedD1();
+    db.exec("CREATE TABLE post_save_flag (value INTEGER)");
+    try {
+      // A real SQLite UPDATE trigger marks the moment the generated steps
+      // are persisted; the answer's balance read then fails once.
+      db.exec("CREATE TRIGGER post_save_flagged AFTER UPDATE ON sessions WHEN NEW.id = 'repro_d1_post_save' BEGIN INSERT INTO post_save_flag VALUES (1); END;");
+      const base = d1Shim(db);
+      const env: CloudEnv = {
+        ...TEST_ENV,
+        DB: {
+          ...base,
+          prepare(query: string) {
+            const flagged = (db.query("SELECT COUNT(*) AS count FROM post_save_flag").get() as { count: number }).count > 0;
+            if (flagged && query.includes("AS balance") && query.includes("ai_credit_grants")) {
+              throw new Error("injected_post_save_balance_error");
+            }
+            return base.prepare(query);
+          },
+        } as unknown as NonNullable<CloudEnv["DB"]>,
+        AI: { run: async () => responsesApi(JSON.stringify(GENERATED)) } as unknown as Ai,
+      };
+      const cookie = await d1Cookie(db, env);
+      assert.equal((await uploadCapture(cookie, {
+        id: "repro_d1_post_save",
+        pins: [{ comment: "x", number: 1 }],
+        reproduction: RECORDING,
+      }, env)).status, 201);
+
+      const response = await postJson("/api/ai/reproduction", {
+        requestId: "repro_d1_request_post_save",
+        sessionId: "repro_d1_post_save",
+      }, cookie, env);
+      const body = await jsonBody(response);
+      // The steps were persisted before the balance read failed: the debit
+      // is preserved and the answer is 200 with the result and no balance.
+      assert.equal(response.status, 200, JSON.stringify(body));
+      assert.equal(body.ok, true);
+      assert.equal(body.aiCredits, null, "the auxiliary balance read failed: the balance is absent");
+      assert.equal(d1Balance(db), 499, "the persisted result keeps its debit");
+      const [usage] = db.query("SELECT * FROM ai_credit_usages WHERE request_id = ?").all("repro_d1_request_post_save") as Array<{ status: string }>;
+      assert.equal(usage.status, "succeeded", "the usage was not refunded after the save");
+      const stored = (await jsonBody(await getJson("/api/sessions/repro_d1_post_save", cookie, env))).session as { reproduction: { generated?: { steps?: unknown[] } } };
+      assert.equal(Array.isArray(stored.reproduction.generated?.steps), true, "the GET delivers the persisted steps");
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a session deleted after the settlement answers 404 and the consumed credit goes back (F4d)", async () => {
+    const db = migratedD1();
+    try {
+      let signed: string | null = null;
+      const env: CloudEnv = {
+        ...TEST_ENV,
+        DB: d1Shim(db),
+        AI: {
+          run: async () => {
+            const deleted = await api(`/api/history/repro_d1_404`, { headers: { cookie: signed! }, method: "DELETE" }, env);
+            assert.equal(deleted.status, 200);
+            return responsesApi(JSON.stringify(GENERATED));
+          },
+        } as unknown as Ai,
+      };
+      const cookie = await d1Cookie(db, env);
+      signed = cookie;
+      assert.equal((await uploadCapture(cookie, {
+        id: "repro_d1_404",
+        pins: [{ comment: "x", number: 1 }],
+        reproduction: RECORDING,
+      }, env)).status, 201);
+
+      const response = await postJson("/api/ai/reproduction", {
+        requestId: "repro_d1_request_404",
+        sessionId: "repro_d1_404",
+      }, cookie, env);
+      assert.equal(response.status, 404, await response.clone().text());
+      assert.equal(d1Balance(db), 500, "the consumed credit went back with the 404");
+      const [usage] = db.query("SELECT * FROM ai_credit_usages WHERE request_id = ?").all("repro_d1_request_404") as Array<{ status: string; error_code: string }>;
+      assert.deepEqual([usage.status, usage.error_code], ["refunded", "ai_result_not_stored"], "the succeeded transition was refunded");
+    } finally {
+      db.close();
+    }
   });
 });

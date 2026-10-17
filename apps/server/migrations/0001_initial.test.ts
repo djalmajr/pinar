@@ -77,6 +77,7 @@ describe("cloud schema migrations", () => {
       "0032_assistant_margin.sql",
       "0033_capture_filing_credits.sql",
       "0034_succeeded_refund.sql",
+      "0035_byok_endpoints.sql",
     ]);
     const migrated = new Database(":memory:");
     const canonical = new Database(":memory:");

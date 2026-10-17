@@ -329,6 +329,29 @@ export function manifestEnvKeys(rootDir: string): string[] {
   return Object.keys(manifest.env);
 }
 
+/**
+ * The names of the manifest's top-level `secrets:` block (EDG-38 §3):
+ * their values come from the EdgeR vault, so the env file may not carry
+ * them. An absent or empty block means none (rc.23 accepts and ignores
+ * the block); a malformed one is refused, because a name EdgeR injects
+ * from the vault is as capable as an env value.
+ */
+export function manifestSecretNames(rootDir: string): string[] {
+  const path = join(rootDir, "apps/server/edger/manifest.yaml");
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    throw new Error(`cannot read ${path}`);
+  }
+  const manifest = Bun.YAML.parse(text) as { secrets?: unknown };
+  if (manifest.secrets === undefined || manifest.secrets === null) return [];
+  if (!Array.isArray(manifest.secrets) || manifest.secrets.some((name) => typeof name !== "string" || name === "")) {
+    throw new Error("manifest secrets must be a list of names");
+  }
+  return manifest.secrets;
+}
+
 export function loadWranglerEnv(rootDir: string, envName: EdgerEnvName): WranglerEnv {
   const path = join(rootDir, "apps/server/wrangler.jsonc");
   let text: string;
@@ -423,7 +446,11 @@ export function databaseHostPort(databaseUrl: string): string {
 /**
  * Fills the manifest copy: `name`, `version`, `hosts`, every `env` key
  * (absent values stay `""`) and the database host appended to `allowNet`.
- * Comments are lost in the installed copy, by design.
+ * The `secrets` block is carried through, names only: its values come from
+ * the EdgeR vault (EDG-38 §3), never from the installer (checked by
+ * `fillManifest > keeps the secrets block names-only and never fills it, even
+ * with a secret in the env map`). Comments are lost in the installed copy,
+ * by design.
  */
 export function fillManifest(
   templateText: string,

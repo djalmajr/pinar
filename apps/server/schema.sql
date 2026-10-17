@@ -557,3 +557,23 @@ CREATE TABLE assistant_margin_emails (
   day TEXT PRIMARY KEY,
   created_at TEXT NOT NULL
 );
+
+-- The Pro BYOK endpoint (F5/S1, F5 contract §3): the user's OpenAI-compatible
+-- endpoint and its encrypted API key. key_ciphertext is
+-- `v1:<key_id>:<iv b64>:<ct b64>` (server/byok/crypto.ts), key_id is the
+-- master-key fingerprint (rotation), key_last4 the only part the UI sees.
+-- capabilities_json holds S2's per-capability test results. Deleting the
+-- account deletes the row.
+CREATE TABLE byok_endpoints (
+  owner_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  base_url TEXT NOT NULL,
+  key_ciphertext TEXT NOT NULL,
+  key_last4 TEXT NOT NULL,
+  key_id TEXT NOT NULL,
+  chat_model TEXT NOT NULL,
+  embedding_model TEXT NOT NULL,
+  transcription_model TEXT NOT NULL,
+  capabilities_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);

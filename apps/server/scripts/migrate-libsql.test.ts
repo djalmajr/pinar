@@ -122,7 +122,7 @@ function runCli(args: string[], env: Record<string, string>, cwd: string): Promi
 }
 
 describe("migrateLibsql", () => {
-  test("applies the 34 real migrations to a fresh database and skips them on the second run", async () => {
+  test("applies the 35 real migrations to a fresh database and skips them on the second run", async () => {
     const file = tempDatabaseFile();
     const client = openClient(file);
     try {
@@ -130,29 +130,30 @@ describe("migrateLibsql", () => {
       const first = await migrateLibsql(client, defaultMigrationsDir(), {
         log: (line) => firstLog.push(line),
       });
-      assert.equal(first.applied.length, 34);
+      assert.equal(first.applied.length, 35);
       assert.deepEqual(first.alreadyApplied, []);
-      assert.deepEqual(first.pending.length, 34);
+      assert.deepEqual(first.pending.length, 35);
       assert.equal(firstLog[0], "applied 0001_initial.sql");
-      assert.equal(firstLog[firstLog.length - 1], "34 applied, 0 already applied");
+      assert.equal(firstLog[firstLog.length - 1], "35 applied, 0 already applied");
       let history = await client.execute("SELECT name FROM d1_migrations ORDER BY id");
-      assert.equal(history.rows.length, 34);
+      assert.equal(history.rows.length, 35);
       assert.equal(String(history.rows[0].name), "0001_initial.sql");
       assert.equal(String(history.rows[27].name), "0028_assistant_proposals.sql");
       assert.equal(String(history.rows[28].name), "0029_pin_index.sql");
       assert.equal(String(history.rows[29].name), "0030_capture_filing.sql");
       assert.equal(String(history.rows[30].name), "0031_assistant_credits.sql");
       assert.equal(String(history.rows[33].name), "0034_succeeded_refund.sql");
+      assert.equal(String(history.rows[34].name), "0035_byok_endpoints.sql");
 
       const secondLog: string[] = [];
       const second = await migrateLibsql(client, defaultMigrationsDir(), {
         log: (line) => secondLog.push(line),
       });
       assert.deepEqual(second.applied, []);
-      assert.equal(second.alreadyApplied.length, 34);
-      assert.equal(secondLog[secondLog.length - 1], "0 applied, 34 already applied");
+      assert.equal(second.alreadyApplied.length, 35);
+      assert.equal(secondLog[secondLog.length - 1], "0 applied, 35 already applied");
       history = await client.execute("SELECT name FROM d1_migrations");
-      assert.equal(history.rows.length, 34);
+      assert.equal(history.rows.length, 35);
     } finally {
       closeDatabase(client, file);
     }
@@ -390,11 +391,11 @@ describe("migrate-libsql CLI", () => {
       assert.ok(run.stdout.includes("applied 0031_assistant_credits.sql"));
       assert.ok(run.stdout.includes("applied 0033_capture_filing_credits.sql"));
       assert.ok(run.stdout.includes("applied 0034_succeeded_refund.sql"));
-      assert.ok(run.stdout.includes("34 applied, 0 already applied"));
+      assert.ok(run.stdout.includes("35 applied, 0 already applied"));
       const client = openClient(file);
       try {
         const history = await client.execute("SELECT name FROM d1_migrations");
-        assert.equal(history.rows.length, 34);
+        assert.equal(history.rows.length, 35);
       } finally {
         closeDatabase(client, file);
       }

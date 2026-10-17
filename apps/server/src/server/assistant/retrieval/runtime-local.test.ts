@@ -11,9 +11,11 @@ import { localAssistantDeps } from "../local-deps";
 import { resetThinkingControlCacheForTests } from "../models";
 import { resetRetrievalCapabilitiesCacheForTests } from "./detect";
 import { PIN_EMBEDDING_DIMENSIONS } from "./embeddings";
-import type { PinIndexEntry } from "./index";
+import type { PinIndexEntry, PinIndexStore, PinSource } from "./index";
 import {
+  createLocalPinIndexRuntime,
   LOCAL_PIN_INDEX_DELAY_MS,
+  LOCAL_PIN_INDEX_MAX_CONTINUATIONS,
   LOCAL_PIN_INDEX_SEARCH_BUDGET_MS,
   LOCAL_PIN_INDEX_SEARCH_MAX_SESSIONS,
   localPinIndexRuntime,
@@ -88,11 +90,12 @@ interface ApplianceCall {
 // wait for `gate` when it is set, and the in-flight count is recorded.
 function fakeAppliance() {
   const calls: ApplianceCall[] = [];
-  const state = { gate: null as Promise<void> | null, inFlight: 0, maxInFlight: 0 };
+  const state = { gate: null as Promise<void> | null, inFlight: 0, maxInFlight: 0, modelsDown: false };
   const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = new URL(String(input)).pathname.replace(/^\/v1/, "");
     const body = typeof init?.body === "string" ? (JSON.parse(init.body) as Record<string, any>) : null;
     calls.push({ body, path });
+    if (path === "/models" && state.modelsDown) return new Response("down", { status: 503 });
     if (path === "/models") {
       return Response.json({
         data: [
@@ -411,6 +414,98 @@ describe("local pin index runtime", () => {
     gate.release();
     await settle();
     assert.deepEqual(entries("cap_race"), [], "the entries written by the run were removed");
+  });
+
+  test("a session deleted during the first-search pass loses its entries", async () => {
+    writeAiSettings();
+    await capture("cap_first", "Primeira", [{ comment: "Apagada na primeira busca", pinId: "pf" }]);
+    const gate = deferred();
+    appliance.state.gate = gate.promise;
+    const searching = localPinSearch(historyDatabase())!.search({ limit: 5, query: "apagada" });
+    await ticks();
+    assert.equal(appliance.posts().length, 1, "the first-search pass is indexing the session");
+    assert.equal((await api("/api/history/cap_first", { method: "DELETE" })).status, 200);
+    gate.release();
+    assert.deepEqual(await searching, []);
+    await settle();
+    assert.deepEqual(entries("cap_first"), [], "the entries written by the pass were removed");
+  });
+
+  test("capabilities that come back after a failed /models reindex with embeddings", async () => {
+    writeAiSettings();
+    appliance.state.modelsDown = true;
+    await capture("cap_cap", "Capacidades", [{ comment: "Contraste do rodapé", pinId: "pc" }]);
+    const search = localPinSearch(historyDatabase())!;
+    assert.equal((await search.search({ limit: 5, query: "contraste rodapé" })).length, 1, "text search while /models is down");
+    assert.equal(entries("cap_cap")[0]!.vector, null);
+    assert.equal(appliance.documents().length, 0);
+
+    appliance.state.modelsDown = false;
+    resetRetrievalCapabilitiesCacheForTests(); // the 1-minute failure cache expired
+    const hits = await search.search({ limit: 5, query: "contraste rodapé" });
+    assert.equal(hits.length, 1);
+    assert.notEqual(entries("cap_cap")[0]!.vector, null, "the entry got its vector");
+    assert.equal(appliance.documents().length, 1);
+    assert.equal(appliance.visions().length, 1, "and its caption");
+
+    await search.search({ limit: 5, query: "contraste rodapé" });
+    assert.equal(appliance.documents().length, 1, "the same capabilities run no new pass");
+  });
+
+  test("background passes stop after LOCAL_PIN_INDEX_MAX_CONTINUATIONS; the next search resumes", async () => {
+    assert.equal(LOCAL_PIN_INDEX_MAX_CONTINUATIONS, 10);
+    // A store that never counts a session as indexed, and a clock that
+    // admits one session per pass: every pass leaves work behind.
+    const listed = ["a", "b"].map((id) => ({ id, updatedAt: "2026-01-01T00:00:00.000Z" }));
+    const source: PinSource = {
+      async comments() {
+        return new Map();
+      },
+      async listSessions({ limit, offset }) {
+        return listed.slice(offset, offset + limit);
+      },
+      async session(id) {
+        return { id, page: { title: id, url: `https://site.example/${id}` }, pinIds: [`${id}1`], pins: [{ comment: `nota ${id}`, number: 1 }] };
+      },
+      async shot() {
+        return null;
+      },
+    };
+    const replaced: string[] = [];
+    const store: PinIndexStore = {
+      async deleteSession() {},
+      async entries() {
+        return [];
+      },
+      async entriesFor() {
+        return [];
+      },
+      async replaceSession(id) {
+        replaced.push(id);
+      },
+      async staleSessions({ sessions }) {
+        return sessions.map((item) => item.id);
+      },
+    };
+    let now = Date.now();
+    const looping = createLocalPinIndexRuntime({
+      endpoint: async () => ({ baseUrl: BASE_URL, kind: "openai-compatible", model: "chat-model", thinkingControl: false }),
+      fetch: appliance.fetch,
+      now: () => new Date((now += 15_000)),
+      source,
+      store,
+      timers: clock.timers,
+    });
+    try {
+      await looping.search.search({ limit: 5, query: "nota" });
+      await looping.idle();
+      assert.equal(replaced.length, 1 + LOCAL_PIN_INDEX_MAX_CONTINUATIONS);
+      await looping.search.search({ limit: 5, query: "nota" });
+      await looping.idle();
+      assert.equal(replaced.length, 2 * (1 + LOCAL_PIN_INDEX_MAX_CONTINUATIONS), "work left behind makes the next search run a pass");
+    } finally {
+      looping.stop();
+    }
   });
 
   test("without AI configured the queue calls nothing and there is no pin search", async () => {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, test } from "node:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -161,6 +161,16 @@ describe("localPinSource", () => {
 
     assert.equal(await source.shot("missing-session"), null);
     assert.equal(await localPinSource(history(), join(root, "no-shots-dir")).shot("by-session-id"), null);
+  });
+
+  test("shot never follows a symlink in the shots folder", async () => {
+    const shots = shotsDir(root);
+    mkdirSync(shots, { recursive: true });
+    const outside = join(root, "outside.png");
+    writeFileSync(outside, PNG);
+    save({ id: "linked", page: { title: "T", url: "https://u.example" }, pins: [{ comment: "A" }] });
+    symlinkSync(outside, join(shots, "linked.png"));
+    assert.equal(await localPinSource(history(), shots).shot("linked"), null);
   });
 
   test("shotMimeType recognizes only PNG, JPEG and WebP signatures", () => {

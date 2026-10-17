@@ -15,15 +15,19 @@
 // the work (queued sessions, the first-search pass and its background
 // continuation) runs through one promise chain, so two indexings never run
 // at the same time. A deleted session leaves the queue; its entries are
-// already deleted with it (S2), and an indexing that was running for it has
-// its entries removed when it ends. The queue lives in memory: an edit
+// already deleted with it (S2), and a session deleted while any job runs
+// (a queued indexing, the first-search pass or its continuation) has its
+// entries removed again when that job ends, so an indexing that was
+// running for it cannot leave them behind. The queue lives in memory: an edit
 // whose indexing had not run when the process exits reaches the index with
 // the session's next write.
 //
-// Search: the first search of the runtime runs indexStale (20 s budget, up
-// to 500 sessions) through the same chain, then searchPins. When that pass
-// leaves work behind, the chain keeps running indexStale passes in the
-// background while a pass still indexes something.
+// Search: before searching, an indexStale pass (20 s budget, up to 500
+// sessions) runs through the same chain the first time, again whenever the
+// endpoint capabilities (embedding model, vision) change, and again after a
+// pass chain that left work behind. When a pass leaves work behind, the
+// chain runs up to LOCAL_PIN_INDEX_MAX_CONTINUATIONS more passes in the
+// background, while a pass still indexes something.
 //
 // Trigger: attachLocalPinIndex wraps the history database object that
 // historyDatabase() returns (api.local.ts). The routes, the local MCP at
@@ -51,6 +55,9 @@ import { localPinIndexStore, type LocalPinIndexDatabase } from "./store-local";
 export const LOCAL_PIN_INDEX_DELAY_MS = 2_000;
 export const LOCAL_PIN_INDEX_SEARCH_BUDGET_MS = 20_000;
 export const LOCAL_PIN_INDEX_SEARCH_MAX_SESSIONS = 500;
+// Background passes after a search pass that left work behind; a vision
+// endpoint that keeps timing out could otherwise keep the chain busy.
+export const LOCAL_PIN_INDEX_MAX_CONTINUATIONS = 10;
 
 // ---------- configured endpoint ----------
 
@@ -139,19 +146,40 @@ export function createLocalPinIndexRuntime(deps: LocalPinIndexRuntimeDeps): Loca
   const now = deps.now ?? (() => new Date());
   const waiting = new Map<string, unknown>(); // sessionId → timer
   const queued = new Set<string>(); // fired, waiting for the chain
-  const deletedWhileRunning = new Set<string>();
-  let running: string | null = null;
+  const deletedDuringJob = new Set<string>();
+  let busy = false;
   let tail: Promise<void> = Promise.resolve();
-  let firstPass: Promise<void> | null = null;
+  // The search pass chain: its capabilities key, its promise, and whether
+  // it ended with work left behind.
+  let passKey: string | null = null;
+  let pass: Promise<void> | null = null;
+  let passLeftWork = false;
   let staleQueued = false;
   let stopped = false;
 
   // Runs the job after every job queued before it; a failing job never
-  // breaks the chain, and its error is not logged.
+  // breaks the chain, and its error is not logged. Sessions deleted while
+  // the job ran lose whatever entries it wrote for them.
   function exclusive(job: () => Promise<void>): Promise<void> {
-    const run = tail.then(job).catch(() => {});
+    const run = tail
+      .then(async () => {
+        busy = true;
+        try {
+          await job();
+        } finally {
+          busy = false;
+          const deleted = [...deletedDuringJob];
+          deletedDuringJob.clear();
+          for (const sessionId of deleted) await deps.store.deleteSession(sessionId).catch(() => {});
+        }
+      })
+      .catch(() => {});
     tail = run;
     return run;
+  }
+
+  function capabilitiesKey(indexing: PinIndexDeps): string {
+    return `${indexing.embedding?.model ?? ""}\n${indexing.chat ? "vision" : ""}`;
   }
 
   async function indexDeps(): Promise<PinIndexDeps | null> {
@@ -176,21 +204,20 @@ export function createLocalPinIndexRuntime(deps: LocalPinIndexRuntimeDeps): Loca
     void exclusive(async () => {
       // Forgotten (deleted) while waiting for the chain.
       if (!queued.delete(sessionId) || stopped) return;
-      running = sessionId;
-      try {
-        const indexing = await indexDeps();
-        if (indexing && !stopped) await indexSession(indexing, sessionId);
-      } finally {
-        running = null;
-        if (deletedWhileRunning.delete(sessionId)) await deps.store.deleteSession(sessionId);
-      }
+      const indexing = await indexDeps();
+      if (indexing && !stopped) await indexSession(indexing, sessionId);
     });
   }
 
-  // Background indexStale passes after a first-search pass left work
-  // behind, while each pass still indexes some session.
-  function continueStale(): void {
+  // Background indexStale passes after a search pass left work behind,
+  // while each pass still indexes some session, up to `left` more passes.
+  // Work still left at the end makes the next search run a pass again.
+  function continueStale(left: number): void {
     if (stopped || staleQueued) return;
+    if (left <= 0) {
+      passLeftWork = true;
+      return;
+    }
     staleQueued = true;
     void exclusive(async () => {
       staleQueued = false;
@@ -201,7 +228,9 @@ export function createLocalPinIndexRuntime(deps: LocalPinIndexRuntimeDeps): Loca
         budgetMs: LOCAL_PIN_INDEX_SEARCH_BUDGET_MS,
         maxSessions: LOCAL_PIN_INDEX_SEARCH_MAX_SESSIONS,
       });
-      if (result.remaining && result.indexed > 0) continueStale();
+      if (!result.remaining) return;
+      if (result.indexed > 0) continueStale(left - 1);
+      else passLeftWork = true;
     });
   }
 
@@ -213,7 +242,7 @@ export function createLocalPinIndexRuntime(deps: LocalPinIndexRuntimeDeps): Loca
         waiting.delete(sessionId);
       }
       queued.delete(sessionId);
-      if (running === sessionId) deletedWhileRunning.add(sessionId);
+      if (busy) deletedDuringJob.add(sessionId);
     },
 
     async idle() {
@@ -241,15 +270,20 @@ export function createLocalPinIndexRuntime(deps: LocalPinIndexRuntimeDeps): Loca
       async search(input) {
         const indexing = await indexDeps();
         if (!indexing) throw new Error("pin search unavailable");
-        firstPass ??= exclusive(async () => {
-          if (stopped) return;
-          const result = await indexStale(indexing, {
-            budgetMs: LOCAL_PIN_INDEX_SEARCH_BUDGET_MS,
-            maxSessions: LOCAL_PIN_INDEX_SEARCH_MAX_SESSIONS,
+        const key = capabilitiesKey(indexing);
+        if (pass === null || passKey !== key || passLeftWork) {
+          passKey = key;
+          passLeftWork = false;
+          pass = exclusive(async () => {
+            if (stopped) return;
+            const result = await indexStale(indexing, {
+              budgetMs: LOCAL_PIN_INDEX_SEARCH_BUDGET_MS,
+              maxSessions: LOCAL_PIN_INDEX_SEARCH_MAX_SESSIONS,
+            });
+            if (result.remaining) continueStale(LOCAL_PIN_INDEX_MAX_CONTINUATIONS);
           });
-          if (result.remaining) continueStale();
-        });
-        await firstPass;
+        }
+        await pass;
         return searchPins(indexing, input);
       },
     },

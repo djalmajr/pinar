@@ -249,6 +249,96 @@ test("a provider error surfaces exactly ASSISTANT_STREAM_FAILED, never the secre
   });
 });
 
+// ---------- 5b: provider errors must never reach the console ----------
+
+// Records every console.error/warn/log call made while the spy is in
+// place, so a test can prove provider content (secrets, URLs, messages)
+// was not logged by the turn or the SDK.
+function spyConsole(): { calls: string[][]; restore: () => void } {
+  const calls: string[][] = [];
+  const error = console.error;
+  const warn = console.warn;
+  const log = console.log;
+  const record = (...args: unknown[]) => {
+    calls.push(args.map((arg) => String(arg)));
+  };
+  console.error = record;
+  console.warn = record;
+  console.log = record;
+  return {
+    calls,
+    restore: () => {
+      console.error = error;
+      console.warn = warn;
+      console.log = log;
+    },
+  };
+}
+
+function assertNoLoggedToken(calls: string[][], token: string, message: string): void {
+  assert.ok(!calls.some((call) => call.some((part) => part.includes(token))), `${message}: ${JSON.stringify(calls)}`);
+}
+
+test("a rejected doStream with a secret logs nothing and gives ASSISTANT_STREAM_FAILED", async () => {
+  const spy = spyConsole();
+  try {
+    const model = new MockLanguageModelV4({
+      doStream: (async () => {
+        throw new Error("sk-SYNTHETIC_SECRET");
+      }) as unknown as MockLanguageModelV4["doStream"],
+      modelId: "mock",
+    });
+    const { outcome, response } = runAssistantTurn({
+      history: [{ role: "user", text: "?" }],
+      model,
+      system: "sys",
+      thread: THREAD,
+      timeoutMs: 100,
+      tools: {},
+    });
+    await readSse(response);
+    assert.deepEqual(await outcome, {
+      code: "ASSISTANT_STREAM_FAILED",
+      kind: "error",
+      steps: 0,
+      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    });
+    assertNoLoggedToken(spy.calls, "SYNTHETIC", "the rejected doStream must not log the provider error");
+  } finally {
+    spy.restore();
+  }
+});
+
+test("a model error part is ASSISTANT_STREAM_FAILED in the outcome and logs nothing", async () => {
+  const model = mockModel(() => ({
+    stream: modelStream([{ error: new Error("sk-SYNTHETIC_SECRET"), type: "error" }]),
+  }));
+  const spy = spyConsole();
+  try {
+    const { outcome, response } = runAssistantTurn({
+      history: [{ role: "user", text: "?" }],
+      model,
+      system: "sys",
+      thread: THREAD,
+      timeoutMs: 100,
+      tools: {},
+    });
+    const body = await readSse(response);
+    const errorParts = sseDataParts(body).filter((part) => (part as { type?: string }).type === "error");
+    assert.deepEqual(errorParts, [{ errorText: "ASSISTANT_STREAM_FAILED", type: "error" }], "the SSE must carry one sanitized error part");
+    assert.ok(!body.includes("SYNTHETIC"), "the error part content must not reach the client");
+    assert.deepEqual(await outcome, {
+      code: "ASSISTANT_STREAM_FAILED",
+      kind: "error",
+      steps: 1,
+      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    });
+    assertNoLoggedToken(spy.calls, "SYNTHETIC", "the model error part must not be logged");
+  } finally {
+    spy.restore();
+  }
+});
+
 // ---------- 6: client cancels after the first chunk ----------
 
 test("the client reads the first chunk and cancels: the outcome still resolves", async () => {

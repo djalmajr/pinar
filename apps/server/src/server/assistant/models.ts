@@ -59,6 +59,20 @@ function assertAssistantBaseUrl(baseUrl: string): void {
   if (url.hash !== "") throw new Error(INVALID_ENDPOINT);
 }
 
+// The key must never migrate to another origin: the fetch runs with
+// redirect:"manual" and any 3xx is refused (the runtime may reject
+// redirect:"error"), without following Location and without reflecting
+// the URL or the secret in the error.
+function guardRedirects(baseFetch: typeof fetch): typeof fetch {
+  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const response = await baseFetch(input, { ...init, redirect: "manual" });
+    if (response.status >= 300 && response.status < 400) {
+      throw new Error(REDIRECT_REFUSED);
+    }
+    return response;
+  }) as typeof fetch;
+}
+
 export function assistantLanguageModel(
   endpoint: AssistantEndpoint,
   context: {
@@ -74,18 +88,7 @@ export function assistantLanguageModel(
     headers["X-Conversation-Id"] = context.conversationId;
     headers["X-Request-Id"] = context.requestId;
   }
-  // The key must never migrate to another origin: fetch runs with
-  // redirect:"manual" and any 3xx is refused (the runtime may reject
-  // redirect:"error"), without following Location and without reflecting
-  // the URL or the secret in the error.
-  const baseFetch = context.fetch ?? fetch;
-  const guardedFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const response = await baseFetch(input, { ...init, redirect: "manual" });
-    if (response.status >= 300 && response.status < 400) {
-      throw new Error(REDIRECT_REFUSED);
-    }
-    return response;
-  }) as typeof fetch;
+  const guardedFetch = guardRedirects(context.fetch ?? fetch);
   // Chat completions only, never the Responses API.
   return createOpenAICompatible({
     apiKey: endpoint.apiKey,
@@ -138,8 +141,10 @@ function modelsListEnablesThinkingControl(list: unknown, model: string): boolean
 }
 
 // Probes GET {baseUrl}/models (Authorization: Bearer when a key is set) and
-// reports whether the endpoint advertises the thinking-control knob. Every
-// failure (network, status, JSON, shape) reports false.
+// reports whether the endpoint advertises the thinking-control knob. It
+// reuses the model's protections: the base URL is validated and the fetch
+// refuses redirects, so a 3xx is not followed. Every failure (invalid base
+// URL, network, redirect, status, JSON, shape) reports false.
 export async function detectThinkingControl(input: {
   apiKey?: string;
   baseUrl: string;
@@ -154,7 +159,11 @@ export async function detectThinkingControl(input: {
   }
   let value = false;
   try {
-    const doFetch = input.fetch ?? fetch;
+    // Same protections as the chat model: the base URL is validated and
+    // the fetch refuses redirects; any failure reports false without
+    // following a redirect.
+    assertAssistantBaseUrl(input.baseUrl);
+    const doFetch = guardRedirects(input.fetch ?? fetch);
     const url = `${input.baseUrl.replace(/\/+$/, "")}/models`;
     const response = await doFetch(url, {
       headers: input.apiKey ? { Authorization: `Bearer ${input.apiKey}` } : {},

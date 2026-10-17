@@ -99,17 +99,24 @@ export function isWaitingNotice(text: string): boolean {
   return text.length < WAIT_NOTICE_MAX_CHARS && WAIT_NOTICE_PATTERN.test(text);
 }
 
-// Decides between `final` and ASSISTANT_TURN_INCOMPLETE. Final requires:
-// the last step finished with finishReason "stop", the trimmed text is not
-// empty, and the text is not only a wait notice. Hitting the step cap
-// (finishReason "tool-calls"), other finish reasons and empty text all give
-// ASSISTANT_TURN_INCOMPLETE.
+// Decides between `final`, ASSISTANT_STREAM_FAILED and
+// ASSISTANT_TURN_INCOMPLETE. A provider error part resolves the
+// aggregates with finishReason "error" and is a stream failure: the same
+// code the client receives in the SSE (a timeout abort rejects the
+// aggregates, so it is classified by the caller, not here). Final
+// requires: the last step finished with finishReason "stop", the trimmed
+// text is not empty, and the text is not only a wait notice. Hitting the
+// step cap (finishReason "tool-calls"), other finish reasons and empty
+// text all give ASSISTANT_TURN_INCOMPLETE.
 export function classifyTurnOutcome(input: {
   finishReason: FinishReason;
   steps: number;
   text: string;
   usage: AssistantTurnUsage;
 }): AssistantTurnOutcome {
+  if (input.finishReason === "error") {
+    return { code: "ASSISTANT_STREAM_FAILED", kind: "error", steps: input.steps, usage: input.usage };
+  }
   const text = input.text.trim();
   if (input.finishReason === "stop" && text.length > 0 && !isWaitingNotice(text)) {
     return { kind: "final", steps: input.steps, text, usage: input.usage };
@@ -173,6 +180,13 @@ export function runAssistantTurn(input: AssistantTurnInput): {
     maxRetries: 0,
     messages,
     model: input.model,
+    // The SDK's default onError logs console.error(error): with an
+    // explicit no-op the provider error (secrets, URLs, messages) never
+    // reaches the logs. The other SDK callbacks in use
+    // (toUIMessageStream, createUIMessageStream, consumeStream) already
+    // receive explicit onError callbacks, and their SDK defaults do not
+    // log.
+    onError: () => {},
     providerOptions: input.providerOptions,
     stopWhen: stepCountIs(maxSteps),
     system: input.system,

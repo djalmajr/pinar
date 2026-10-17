@@ -278,6 +278,36 @@ describe("detectThinkingControl", () => {
     assert.equal(noKey.calls[0].headers["authorization"], undefined);
   });
 
+  test("a 3xx on /models is refused without following: false, one call, redirect manual", async () => {
+    resetThinkingControlCacheForTests();
+    const calls: { redirect?: string; url: string }[] = [];
+    const fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ redirect: init?.redirect, url: String(input) });
+      return new Response(null, { headers: { location: "https://evil.example/steal" }, status: 302 });
+    }) as typeof fetch;
+    const value = await detectThinkingControl({ apiKey: "k", baseUrl: "https://meta.example/v1", fetch, model: "m1" });
+    assert.equal(value, false, "a redirect must refuse the metadata, not follow it");
+    assert.equal(calls.length, 1, "the 3xx must not be followed with a second request");
+    assert.equal(calls[0].url, "https://meta.example/v1/models");
+    assert.equal(calls[0].redirect, "manual", "the probe must use the redirect-refusing fetch");
+  });
+
+  test("an invalid base URL is refused before the request: false and no call", async () => {
+    resetThinkingControlCacheForTests();
+    let calls = 0;
+    const fetch = (async () => {
+      calls += 1;
+      return new Response(
+        JSON.stringify({ data: [{ id: "m1", reasoning_control: { via: "chat_template_kwargs.enable_thinking" } }] }),
+        { status: 200 },
+      );
+    }) as typeof fetch;
+    // http off loopback is invalid per the shared base-URL validation.
+    const value = await detectThinkingControl({ apiKey: "k", baseUrl: "http://10.0.0.5/v1", fetch, model: "m1" });
+    assert.equal(value, false, "an invalid URL must report false, not throw");
+    assert.equal(calls, 0, "no request may be made for an invalid URL");
+  });
+
   test("caches per baseUrl + model for 10 minutes and the test reset drops the cache", async () => {
     resetThinkingControlCacheForTests();
     const { calls, fetch } = fakeFetch(() =>

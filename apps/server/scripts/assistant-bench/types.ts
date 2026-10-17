@@ -7,21 +7,10 @@
 
 // ---------- tool schemas ----------
 
-// The tool input schemas are JSON Schema objects straight out of
-// LOCAL_MCP_TOOLS; the validator (tools.ts) only relies on the keys below.
-export interface ToolInputSchema {
-  [key: string]: unknown;
-  anyOf?: ToolInputSchema[];
-  items?: ToolInputSchema;
-  maxItems?: number;
-  maxLength?: number;
-  maximum?: number;
-  minItems?: number;
-  minimum?: number;
-  properties?: Record<string, ToolInputSchema>;
-  required?: string[];
-  type?: string | string[];
-}
+// The input-schema type and validator moved to the assistant runtime
+// (apps/server/src/server/assistant/validate.ts); re-exported here so the
+// bench imports keep a single place to look.
+export type { ToolInputSchema } from "../../src/server/assistant/validate";
 
 export interface BenchToolDef {
   description: string;

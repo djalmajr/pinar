@@ -27,6 +27,7 @@ import {
   runEdgerInstall,
   type RunOptions,
 } from "./edger-install";
+import { edgerCloudEnv } from "../src/server/edger/env";
 
 // Module-local shim: the tests run on Bun, where the global exists; the
 // project tsconfig does not load Bun types for `scripts`.
@@ -611,6 +612,45 @@ describe("redactSecrets", () => {
     // The assistant chain and the ZDR switch are not secrets; the gateway key is.
     for (const key of ["ASSISTANT_CHAIN", "AI_GATEWAY_ZERO_DATA_RETENTION"]) assert.ok(NON_SECRET_ENV_KEYS.has(key), key);
     assert.ok(!NON_SECRET_ENV_KEYS.has("AI_GATEWAY_API_KEY"), "AI_GATEWAY_API_KEY");
+    // The voice chains, the assistant switch and the filing thresholds are
+    // configuration; "true" or "0.65" redacted would mask the installer's output.
+    for (const key of ["AI_TEXT_CHAIN", "AI_TRANSCRIPTION_CHAIN", "ASSISTANT_ENABLED", "FILING_SIMILARITY_MIN", "FILING_SIMILARITY_MARGIN"]) {
+      assert.ok(NON_SECRET_ENV_KEYS.has(key), key);
+    }
+  });
+});
+
+describe("manifest env", () => {
+  // The worker sees only the env keys the manifest declares, and the env
+  // file may carry nothing else: a variable the EdgeR env reads but the
+  // manifest misses can never reach production (F4c shipped four of them).
+  test("declares every variable the EdgeR env reads", () => {
+    const read = new Set<string>();
+    const spy = (vars: Record<string, string>) => (name: string) => {
+      read.add(name);
+      return vars[name];
+    };
+    edgerCloudEnv(spy({}));
+    // Complete groups, so the reads behind each group run too.
+    edgerCloudEnv(spy({
+      AI_API_KEY: "key",
+      AI_BASE_URL: "https://ai.example.invalid/v1",
+      AI_MODEL: "chat",
+      AI_TRANSCRIPTION_MODEL: "stt",
+      CLOUDFLARE_ACCOUNT_ID: "0".repeat(32),
+      CLOUDFLARE_EMAIL_API_TOKEN: "token",
+      DATABASE_AUTH_TOKEN: "token",
+      DATABASE_URL: "http://db.example.invalid:8080",
+      S3_ACCESS_KEY_ID: "id",
+      S3_BUCKET: "bucket",
+      S3_ENDPOINT: "https://s3.example.invalid",
+      S3_REGION: "auto",
+      S3_SECRET_ACCESS_KEY: "secret",
+    }));
+    // Read by the entry itself, outside edgerCloudEnv.
+    read.add("CLOUDFLARE_ORIGIN_SECRET");
+    const declared = new Set(manifestEnvKeys(WORKTREE_ROOT));
+    assert.deepEqual([...read].filter((name) => !declared.has(name)).sort(), []);
   });
 });
 

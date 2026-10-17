@@ -59,6 +59,7 @@ import { SESSION_PATCH_MAX_BYTES } from "./session-patch";
 import { handleLocalAiRequest, resetLocalAiForTests } from "./ai/local-ai";
 import { assistantUnavailableResponse, handleAssistantRequest, isAssistantPath } from "./assistant/http";
 import { localAssistantDeps } from "./assistant/local-deps";
+import { attachLocalPinIndex, type LocalPinIndexHistory } from "./assistant/retrieval/runtime-local";
 import { localExportFileName, streamLocalExport } from "./local-export";
 import { handleLocalMcpRequest } from "./local-mcp";
 import { canonicalShotPath, isUsableSessionShotPath, removeSessionShotFile, sessionShotIdentity } from "./local-session-files";
@@ -181,7 +182,9 @@ export function historyDatabase(): HistoryDatabase {
   const root = rootPath();
   if (!activeDatabase || activeRoot !== root) {
     activeDatabase?.close();
-    activeDatabase = openHistoryDb(root) as HistoryDatabase;
+    // Every write path (routes, /api/mcp, confirmed proposals, local AI)
+    // goes through this object: the pin index queue observes it here.
+    activeDatabase = attachLocalPinIndex(openHistoryDb(root) as HistoryDatabase & LocalPinIndexHistory, root);
     activeRoot = root;
   }
   if (!activeDatabase) throw new Error("Unable to initialize local history database");

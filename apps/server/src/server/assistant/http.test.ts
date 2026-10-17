@@ -544,6 +544,52 @@ describe("assistant http handler", () => {
     assert.deepEqual(calls[0].args, { limit: 1 });
   });
 
+  test("deps.pinSearch reaches the turn: pinar_pins_search is offered and called; without it, it is not offered", async () => {
+    const searches: Array<{ limit: number; query: string; signal?: AbortSignal }> = [];
+    const pinSearch = {
+      async search(input: { limit: number; query: string }) {
+        searches.push(input);
+        return [{ caption: null, comment: "Contraste baixo", number: 3, pinId: "p3", score: 0.9, sessionId: "s1", sessionTitle: "Checkout", url: "https://site.example/c" }];
+      },
+    };
+    const offered: string[][] = [];
+    const toolResults: unknown[] = [];
+    const scripted = () => {
+      let step = 0;
+      return () =>
+        new MockLanguageModelV4({
+          doStream: ((options: { prompt: Array<{ content: unknown; role: string }>; tools?: Array<{ name: string }> }) => {
+            step += 1;
+            if (step === 1) {
+              offered.push((options.tools ?? []).map((item) => item.name).sort());
+              return { stream: modelStream([toolCallPart("tc1", "pinar_pins_search", { query: "contraste" }), finish("tool-calls", 3, 2)]) };
+            }
+            toolResults.push(options.prompt.filter((message) => message.role === "tool").map((message) => message.content));
+            return { stream: modelStream([...textParts("Achei 1 pin."), finish("stop", 4, 6)]) };
+          }) as unknown as MockLanguageModelV4["doStream"],
+          modelId: "mock",
+        });
+    };
+
+    const withSearch = makeDeps({ model: scripted() }).deps;
+    withSearch.pinSearch = pinSearch;
+    const response = await postTurn(withSearch, { text: "onde falei de contraste?" });
+    assert.equal(response.status, 200);
+    assert.ok((await readSse(response)).includes("Achei 1 pin."));
+    assert.ok(offered[0]!.includes("pinar_pins_search"));
+    assert.deepEqual(searches.map(({ limit, query }) => ({ limit, query })), [{ limit: 20, query: "contraste" }]);
+    assert.ok(searches[0]!.signal instanceof AbortSignal, "the turn's signal reaches the search through the handler");
+    assert.ok(JSON.stringify(toolResults[0]).includes("Contraste baixo"), "the hit reaches the model as the tool result");
+
+    const withoutSearch = makeDeps({ model: scripted() }).deps;
+    const second = await postTurn(withoutSearch, { text: "onde falei de contraste?" });
+    assert.equal(second.status, 200);
+    await readSse(second);
+    assert.ok(!offered[1]!.includes("pinar_pins_search"));
+    assert.ok(offered[1]!.includes("pinar_list_sessions"), "the other reads are still offered");
+    assert.equal(searches.length, 1);
+  });
+
   test("a failure outside the stream gives the sanitized 503 on every route, without logging it", async () => {
     const secret = "SYNTHETIC_PRIVATE_PATH";
     const failing = () => Promise.reject(new Error(secret));

@@ -71,6 +71,7 @@ describe("cloud schema migrations", () => {
       "0026_pin_comment_agents.sql",
       "0027_assistant_threads.sql",
       "0028_assistant_proposals.sql",
+      "0029_pin_index.sql",
     ]);
     const migrated = new Database(":memory:");
     const canonical = new Database(":memory:");

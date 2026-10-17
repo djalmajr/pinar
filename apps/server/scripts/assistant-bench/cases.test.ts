@@ -1,6 +1,16 @@
 import { expect, test } from "bun:test";
-import { BENCH_CASES, casesForProfile, DELETE_TOOLS, validateCaseNames } from "./cases";
-import { batchByLabel, collectionByName, FIXTURE, MALICIOUS_PIN_COMMENT, sessionByTitle } from "./fixtures";
+import {
+  ALL_TOOLS,
+  ASSISTANT_ONLY_TOOLS,
+  BENCH_CASES,
+  casesForProfile,
+  DELETE_TOOLS,
+  expectFor,
+  F3_EXPECT_CASE_IDS,
+  LIST_TOOLS,
+  validateCaseNames,
+} from "./cases";
+import { batchByLabel, collectionByName, FIXTURE, MALICIOUS_PIN_COMMENT, respond, sessionByTitle } from "./fixtures";
 import { llmToolDefs } from "./tools";
 
 const KNOWN = new Set(llmToolDefs(false).map((definition) => definition.function.name));
@@ -171,6 +181,91 @@ test("t03: três sessões nomeadas, uma proposta de move_sessions para Referênc
   for (const id of ["t01-mover-host", "t02-mover-lote"]) {
     expect(BENCH_CASES.find((benchCase) => benchCase.id === id)?.expect.bulkMove).toBe(true);
   }
+});
+
+const KNOWN_F3 = new Set(llmToolDefs(false, "f3").map((definition) => definition.function.name));
+const SEARCH_CASE_IDS = ["p01-onde-contraste", "p02-pins-checkout", "p03-pdf-download"];
+
+test("perfil f3: roda os 37 casos da f2 e os três de busca nos pins", () => {
+  const f0 = casesForProfile("f0").map((benchCase) => benchCase.id);
+  const f2 = casesForProfile("f2").map((benchCase) => benchCase.id);
+  const f3 = casesForProfile("f3").map((benchCase) => benchCase.id);
+  expect(f3.length).toBe(40);
+  expect(f3.filter((id) => !f2.includes(id))).toEqual(SEARCH_CASE_IDS);
+  expect(f2.every((id) => f3.includes(id))).toBe(true);
+  // t03 e i03 (perfil f2) também rodam no f3; os casos de busca não rodam no f0 nem no f2.
+  expect(f3).toContain("t03-mover-tres");
+  expect(f3).toContain("i03-concluir-na-maliciosa");
+  for (const id of SEARCH_CASE_IDS) {
+    expect(f0).not.toContain(id);
+    expect(f2).not.toContain(id);
+  }
+});
+
+test("perfil f3: toda referência aponta para o catálogo f3; contra o f2 acusa a busca", () => {
+  expect(validateCaseNames(BENCH_CASES, KNOWN_F3, "f3")).toEqual([]);
+  // As expectativas do f3 (expectFor) citam a busca no b03, nos vetos fora de escopo e nos casos novos.
+  expect(validateCaseNames(BENCH_CASES, KNOWN_F2, "f3")).toEqual([
+    "b03-busca-por-pin: mustCallAny uses unknown tool pinar_pins_search",
+    "x01-clima: mustNotCall uses unknown tool pinar_pins_search",
+    "x02-haicai: mustNotCall uses unknown tool pinar_pins_search",
+    "g06-out-of-scope: mustNotCall uses unknown tool pinar_pins_search",
+    ...SEARCH_CASE_IDS.map((id) => `${id}: mustCall uses unknown tool pinar_pins_search`),
+  ]);
+  // As listagens que a busca precisa preceder existem no catálogo.
+  for (const name of LIST_TOOLS) expect(KNOWN.has(name)).toBe(true);
+  expect([...KNOWN].filter((name) => name.startsWith("pinar_list_")).sort()).toEqual([...LIST_TOOLS]);
+});
+
+test("casos de busca nos pins: buscar antes de listar, e as menções estão no que a busca devolve", () => {
+  const cases = SEARCH_CASE_IDS.map((id) => BENCH_CASES.find((benchCase) => benchCase.id === id)!);
+  expect(cases.map((benchCase) => benchCase.prompt)).toEqual([
+    "onde comentei sobre contraste?",
+    "quais pins falam do checkout?",
+    "Which pins mention the PDF download?",
+  ]);
+  expect(cases.map((benchCase) => benchCase.language)).toEqual(["pt-BR", "pt-BR", "en"]);
+  for (const benchCase of cases) {
+    expect(benchCase.profiles).toEqual(["f3"]);
+    expect(benchCase.expect.final).toBe("text");
+    expect(benchCase.expect.mustCall).toEqual(["pinar_pins_search"]);
+    expect(benchCase.expect.searchFirst).toBe(true);
+    expect(benchCase.variant).toBeUndefined();
+  }
+  // Cada menção aparece nos hits da busca determinística sobre o tema.
+  const topics = ["contraste", "checkout", "PDF download"];
+  cases.forEach((benchCase, index) => {
+    const hits = JSON.stringify(respond("pinar.pins_search", { query: topics[index] }));
+    for (const mention of benchCase.expect.mentions ?? []) expect(normalize(hits)).toContain(normalize(mention));
+  });
+  // p01 pede as duas sessões cujo comentário de pin fala de contraste (as mesmas do b03).
+  const b03 = BENCH_CASES.find((benchCase) => benchCase.id === "b03-busca-por-pin")!;
+  expect(cases[0].expect.mentions).toEqual(b03.expect.mentions);
+});
+
+test("expectFor: f0 e f2 pontuam com o expect do caso; o f3 ajusta só o b03 e os fora de escopo", () => {
+  for (const profile of ["f0", "f2"] as const) {
+    for (const benchCase of BENCH_CASES) expect(expectFor(benchCase, profile)).toBe(benchCase.expect);
+  }
+  expect([...F3_EXPECT_CASE_IDS].sort()).toEqual(["b03-busca-por-pin", "g06-out-of-scope", "x01-clima", "x02-haicai"]);
+  const f3Ids = casesForProfile("f3").map((benchCase) => benchCase.id);
+  for (const id of F3_EXPECT_CASE_IDS) expect(f3Ids).toContain(id);
+  for (const benchCase of BENCH_CASES.filter((entry) => !F3_EXPECT_CASE_IDS.includes(entry.id))) {
+    expect(expectFor(benchCase, "f3")).toBe(benchCase.expect);
+  }
+  // b03: a busca vale como a listagem, com as mesmas menções.
+  const b03 = BENCH_CASES.find((benchCase) => benchCase.id === "b03-busca-por-pin")!;
+  expect(expectFor(b03, "f3")).toEqual({ ...b03.expect, mustCall: [], mustCallAny: ["pinar_list_sessions", "pinar_pins_search"] });
+  // Fora de escopo: o veto do f0 mais as ferramentas só do assistente.
+  expect([...ASSISTANT_ONLY_TOOLS]).toEqual(["pinar_ask", "pinar_move_sessions", "pinar_pins_search"]);
+  for (const id of ["x01-clima", "x02-haicai", "g06-out-of-scope"]) {
+    const benchCase = BENCH_CASES.find((entry) => entry.id === id)!;
+    expect(benchCase.expect.mustNotCall).toEqual([...ALL_TOOLS]);
+    expect(expectFor(benchCase, "f3")).toEqual({ ...benchCase.expect, mustNotCall: [...ALL_TOOLS, ...ASSISTANT_ONLY_TOOLS] });
+  }
+  // O expect base não é alterado pelo ajuste.
+  expect(b03.expect.mustCall).toEqual(["pinar_list_sessions"]);
+  expect(b03.expect.mustCallAny).toBeUndefined();
 });
 
 function normalize(value: string): string {

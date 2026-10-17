@@ -956,4 +956,253 @@ describe("history", () => {
     assert.equal(db.getAssistantProposal("apr_legacy_db_proposal_00000").status, "proposed");
     db.close();
   });
+
+  // ---------- pin index (F3/S2) ----------
+
+  const INDEXED_AT = "2026-10-01T00:00:00.000Z";
+
+  /** A Float32 LE vector of 256 dimensions: 1024 bytes. */
+  function pinIndexVector(seed) {
+    return new Uint8Array(new Float32Array(256).map((_, index) => Math.sin(index + seed) * 1000).buffer);
+  }
+
+  function pinIndexEntry(sessionId, pinId, overrides = {}) {
+    return {
+      caption: null,
+      docHash: `hash-${pinId}`,
+      docText: `Page: ${sessionId}\nPin #1: ${pinId}`,
+      model: "",
+      number: 1,
+      ocr: null,
+      pinId,
+      sessionId,
+      truncated: false,
+      updatedAt: INDEXED_AT,
+      vector: null,
+      ...overrides,
+    };
+  }
+
+  function assertPinIndexHistory(db) {
+    assert.deepEqual(db.listPinIndexEntries("idx_missing"), []);
+
+    // A full entry and a text-only one round-trip every field, ordered by pin number.
+    const embedded = pinIndexEntry("idx_s1", "idx_p2", {
+      caption: "A red button",
+      model: "embeddinggemma-300m",
+      number: 2,
+      ocr: "Buy now",
+      truncated: true,
+      vector: pinIndexVector(1),
+    });
+    const textOnly = pinIndexEntry("idx_s1", "idx_p1");
+    db.replacePinIndexSession("idx_s1", [embedded, textOnly]);
+    const stored = db.listPinIndexEntries("idx_s1");
+    assert.deepEqual(stored, [textOnly, embedded]);
+    assert.ok(stored[1].vector instanceof Uint8Array);
+    assert.equal(stored[1].vector.byteLength, 1024);
+    assert.deepEqual(stored[1].vector, pinIndexVector(1));
+    assert.deepEqual(new Float32Array(stored[1].vector.buffer, stored[1].vector.byteOffset, 256), new Float32Array(pinIndexVector(1).buffer));
+    assert.equal(stored[0].vector, null);
+
+    db.replacePinIndexSession("idx_s2", [pinIndexEntry("idx_s2", "idx_q1", { updatedAt: "2026-10-02T00:00:00.000Z" })]);
+
+    // Replacing drops the pins that left the session and leaves the other sessions alone.
+    const replacement = pinIndexEntry("idx_s1", "idx_p3", { number: 3, vector: pinIndexVector(3) });
+    db.replacePinIndexSession("idx_s1", [replacement]);
+    assert.deepEqual(db.listPinIndexEntries("idx_s1"), [replacement]);
+    assert.deepEqual(db.listPinIndexEntries("idx_s2").map((entry) => entry.pinId), ["idx_q1"]);
+
+    // entriesFor: the requested sessions only, each once, in the requested order.
+    assert.deepEqual(
+      db.listPinIndexEntriesFor(["idx_s2", "idx_s1", "idx_s2", "idx_missing"]).map((entry) => entry.pinId),
+      ["idx_q1", "idx_p3"],
+    );
+    assert.deepEqual(db.listPinIndexEntriesFor(["idx_s1"]).map((entry) => entry.pinId), ["idx_p3"]);
+    assert.deepEqual(db.listPinIndexEntriesFor([]), []);
+
+    // staleSessions: no entry yet, or updatedAt newer than the oldest entry.
+    db.replacePinIndexSession("idx_s4", [
+      pinIndexEntry("idx_s4", "idx_r1", { updatedAt: "2026-10-01T00:00:00.000Z" }),
+      pinIndexEntry("idx_s4", "idx_r2", { number: 2, updatedAt: "2026-10-03T00:00:00.000Z" }),
+    ]);
+    const sessions = [
+      { id: "idx_s1", updatedAt: INDEXED_AT }, // same instant: fresh
+      { id: "idx_s2", updatedAt: "2026-10-01T12:00:00.000Z" }, // older than its entries: fresh
+      { id: "idx_s3", updatedAt: INDEXED_AT }, // no entry: stale
+      { id: "idx_s1", updatedAt: "2026-10-05T00:00:00.000Z" }, // repeated id: counted once
+      { id: "idx_s4", updatedAt: "2026-10-02T00:00:00.000Z" }, // newer than its oldest entry: stale
+      { id: "idx_s5", updatedAt: INDEXED_AT }, // no entry: stale
+    ];
+    assert.deepEqual(db.stalePinIndexSessions({ limit: 10, sessions }), ["idx_s3", "idx_s4", "idx_s5"]);
+    assert.deepEqual(db.stalePinIndexSessions({ limit: 2, sessions }), ["idx_s3", "idx_s4"]);
+    assert.deepEqual(db.stalePinIndexSessions({ limit: 0, sessions }), []);
+    assert.deepEqual(db.stalePinIndexSessions({ limit: 10, sessions: [] }), []);
+    assert.deepEqual(
+      db.stalePinIndexSessions({ limit: 10, sessions: [{ id: "idx_s2", updatedAt: "2026-10-02T00:00:00.001Z" }] }),
+      ["idx_s2"],
+    );
+
+    // A replacement with an entry of another session, or a vector that is not bytes, writes nothing.
+    assert.throws(
+      () => db.replacePinIndexSession("idx_s1", [pinIndexEntry("idx_s1", "idx_ok"), pinIndexEntry("idx_s2", "idx_wrong")]),
+      (error) => error instanceof Error && error.message === "pin index entry belongs to another session",
+    );
+    assert.throws(
+      () => db.replacePinIndexSession("idx_s1", [pinIndexEntry("idx_s1", "idx_float", { vector: new Float32Array(256) })]),
+      (error) => error instanceof Error && error.message === "pin index vector must be a Uint8Array or null",
+    );
+    assert.deepEqual(db.listPinIndexEntries("idx_s1"), [replacement]);
+
+    db.deletePinIndexSession("idx_s2");
+    assert.deepEqual(db.listPinIndexEntries("idx_s2"), []);
+    db.replacePinIndexSession("idx_s1", []);
+    assert.deepEqual(db.listPinIndexEntries("idx_s1"), []);
+    assert.deepEqual(db.listPinIndexEntries("idx_s4").map((entry) => entry.pinId), ["idx_r1", "idx_r2"]);
+  }
+
+  /** A failure in the middle of a replacement (the second INSERT repeats a pin id) leaves the previous entries. */
+  function assertPinIndexReplaceAtomic(db) {
+    const previous = [
+      pinIndexEntry("idx_atomic", "idx_a", { vector: pinIndexVector(5) }),
+      pinIndexEntry("idx_atomic", "idx_b", { number: 2 }),
+    ];
+    db.replacePinIndexSession("idx_atomic", previous);
+    assert.throws(() =>
+      db.replacePinIndexSession("idx_atomic", [
+        pinIndexEntry("idx_atomic", "idx_c", { number: 1 }),
+        pinIndexEntry("idx_atomic", "idx_c", { number: 2 }),
+      ])
+    );
+    assert.deepEqual(db.listPinIndexEntries("idx_atomic"), previous);
+  }
+
+  /** Deleting the session deletes its entries; clearHistory deletes all of them. */
+  function assertPinIndexLifecycle(db) {
+    db.saveSession({ id: "idx_life", page: { title: "Indexed" }, pins: [{ comment: "Fix", kind: "element", pinId: "idx_life_p1" }] });
+    db.saveSession({ id: "idx_keep", page: { title: "Kept" }, pins: [{ comment: "Keep", kind: "element", pinId: "idx_keep_p1" }] });
+    db.replacePinIndexSession("idx_life", [pinIndexEntry("idx_life", "idx_life_p1", { vector: pinIndexVector(7) })]);
+    db.replacePinIndexSession("idx_keep", [pinIndexEntry("idx_keep", "idx_keep_p1")]);
+
+    assert.equal(db.deleteSession("idx_life"), true);
+    assert.deepEqual(db.listPinIndexEntries("idx_life"), []);
+    assert.deepEqual(db.listPinIndexEntries("idx_keep").map((entry) => entry.pinId), ["idx_keep_p1"]);
+
+    db.replacePinIndexSession("idx_orphan", [pinIndexEntry("idx_orphan", "idx_orphan_p1")]);
+    db.clearHistory();
+    assert.deepEqual(db.listPinIndexEntriesFor(["idx_keep", "idx_orphan"]), []);
+  }
+
+  test("sqlite pin index keeps entries, entriesFor, staleSessions, and the vector bytes", () => {
+    const db = openHistoryDb(tempDir);
+    try {
+      assertPinIndexHistory(db);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("sqlite pin index replacement rolls back a failure in the middle", () => {
+    const db = openHistoryDb(tempDir);
+    try {
+      assertPinIndexReplaceAtomic(db);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("sqlite pin index entries go with the session and with clearHistory", () => {
+    const db = openHistoryDb(tempDir);
+    try {
+      assertPinIndexLifecycle(db);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("sqlite pin index survives a restart and reaches an older database", () => {
+    const db = openHistoryDb(tempDir);
+    const entry = pinIndexEntry("idx_reopen", "idx_reopen_p1", { model: "embeddinggemma-300m", vector: pinIndexVector(9) });
+    db.replacePinIndexSession("idx_reopen", [entry]);
+    db.close();
+
+    const reopened = openHistoryDb(tempDir);
+    assert.deepEqual(reopened.listPinIndexEntries("idx_reopen"), [entry]);
+    reopened.close();
+
+    // A database from before F3 has no pin_index table; opening it creates one.
+    const legacy = new DatabaseSync(join(tempDir, "history.db"));
+    legacy.exec("DROP INDEX idx_pin_index_owner; DROP TABLE pin_index;");
+    legacy.close();
+    const upgraded = openHistoryDb(tempDir);
+    try {
+      assert.deepEqual(upgraded.listPinIndexEntries("idx_reopen"), []);
+      upgraded.replacePinIndexSession("idx_reopen", [entry]);
+      assert.deepEqual(upgraded.listPinIndexEntries("idx_reopen"), [entry]);
+      const owner = upgraded.db.prepare("SELECT owner_id FROM pin_index WHERE session_id = ?").get("idx_reopen");
+      assert.equal(owner.owner_id, "local");
+    } finally {
+      upgraded.close();
+    }
+  });
+
+  test("json history fallback keeps the pin index cases", () => {
+    mkdirSync(join(tempDir, "history.db"));
+    const db = openHistoryDb(tempDir);
+    try {
+      assertPinIndexHistory(db);
+      assertPinIndexReplaceAtomic(db);
+      assertPinIndexLifecycle(db);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("json pin index survives a restart with the vector as base64", () => {
+    mkdirSync(join(tempDir, "history.db"));
+    const db = openHistoryDb(tempDir);
+    const entry = pinIndexEntry("idx_json", "idx_json_p1", { truncated: true, vector: pinIndexVector(11) });
+    db.replacePinIndexSession("idx_json", [entry]);
+    db.close();
+
+    const stored = JSON.parse(readFileSync(join(tempDir, "history.json"), "utf8")).pin_index;
+    assert.equal(stored.length, 1);
+    assert.equal(stored[0].owner_id, "local");
+    assert.equal(stored[0].vector, Buffer.from(pinIndexVector(11)).toString("base64"));
+
+    const reopened = openHistoryDb(tempDir);
+    try {
+      assert.deepEqual(reopened.listPinIndexEntries("idx_json"), [entry]);
+    } finally {
+      reopened.close();
+    }
+  });
+
+  test("json pin index replacement with a failed write throws and keeps the previous state", () => {
+    mkdirSync(join(tempDir, "history.db"));
+    const db = openHistoryDb(tempDir);
+    const previous = [pinIndexEntry("idx_fault", "idx_fault_p1", { vector: pinIndexVector(13) })];
+    db.replacePinIndexSession("idx_fault", previous);
+    const historyPath = join(tempDir, "history.json");
+    const goodBytes = readFileSync(historyPath, "utf8");
+
+    // The file path becomes a directory, so the atomic rename fails with EISDIR.
+    const backup = join(tempDir, "pin-index-fault-backup.json");
+    renameSync(historyPath, backup);
+    mkdirSync(historyPath);
+    try {
+      assert.throws(
+        () => db.replacePinIndexSession("idx_fault", [pinIndexEntry("idx_fault", "idx_fault_p2")]),
+        (error) => error.code === "EISDIR",
+      );
+      assert.throws(() => db.deletePinIndexSession("idx_fault"), (error) => error.code === "EISDIR");
+      assert.deepEqual(db.listPinIndexEntries("idx_fault"), previous);
+      assert.equal(readFileSync(backup, "utf8"), goodBytes, "the persisted bytes are untouched by the failed write");
+      assert.ok(!existsSync(join(tempDir, "history.json.pin-state")), "no torn temp file may be left behind");
+    } finally {
+      rmSync(historyPath, { recursive: true });
+      renameSync(backup, historyPath);
+      db.close();
+    }
+  });
 });

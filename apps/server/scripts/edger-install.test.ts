@@ -19,6 +19,7 @@ import {
   fillManifest,
   loadWranglerEnv,
   manifestEnvKeys,
+  NON_SECRET_ENV_KEYS,
   parseEnvFile,
   parseInstallArgs,
   readApiKey,
@@ -602,6 +603,11 @@ describe("redactSecrets", () => {
 
   test("masks a secret that contains another one, whole", () => {
     assert.equal(redactSecrets("the token xab12y end", ["ab12", "xab12y"]), "the token <redacted> end");
+  });
+
+  test("model names are not secrets: the embedding model sits next to the chat model", () => {
+    for (const key of ["AI_EMBEDDING_MODEL", "AI_MODEL", "AI_TRANSCRIPTION_MODEL"]) assert.ok(NON_SECRET_ENV_KEYS.has(key), key);
+    for (const key of ["AI_API_KEY", "AI_BASE_URL"]) assert.ok(!NON_SECRET_ENV_KEYS.has(key), key);
   });
 });
 

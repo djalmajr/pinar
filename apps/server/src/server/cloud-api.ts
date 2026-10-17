@@ -116,7 +116,15 @@ import {
   cleanupAssistantThreads,
   resetCloudAssistantMemoryForTests,
 } from "./assistant/store-cloud";
+import {
+  cloudPinIndexReady,
+  deleteMemoryPinIndexForSession,
+  markCloudPinIndexSessionStale,
+  resetCloudPinIndexMemoryForTests,
+} from "./assistant/retrieval/store-cloud";
 import type { AssistantStatus } from "./assistant/http";
+import type { PinSearchService } from "./assistant/retrieval/index";
+import type { CloudPinSessionRow, CloudPinSourceData } from "./assistant/retrieval/source-cloud";
 import type { AssistantStateReader } from "./assistant/state-reader";
 import type { AssistantToolHost } from "./assistant/tools";
 import {
@@ -173,6 +181,9 @@ export interface CloudEnv {
   AI_BASE_URL?: string;
   AI_API_KEY?: string;
   AI_MODEL?: string;
+  // Optional embedding model of the same endpoint for the pin search; without
+  // it the search is textual. Never part of the all-or-nothing AI group.
+  AI_EMBEDDING_MODEL?: string;
   // "true" switches the assistant on; every other value (or absence) is off.
   ASSISTANT_ENABLED?: string;
   AUTH_PEPPER?: string;
@@ -2943,19 +2954,21 @@ async function deleteMcpPin(env: CloudEnv, principal: Principal, sessionId: stri
         session.batchId ?? null,
       ),
     ]);
-    return true;
-  }
-  memorySessions.set(session.id, next);
-  memoryPinReviews.delete(pinReviewKey(session.id, pinId));
-  for (let item = memoryPinReviewEvents.length - 1; item >= 0; item -= 1) {
-    const event = memoryPinReviewEvents[item];
-    if (event?.captureId === session.id && event.pinId === pinId) memoryPinReviewEvents.splice(item, 1);
-  }
-  for (let item = memoryPinComments.length - 1; item >= 0; item -= 1) {
-    if (memoryPinComments[item]?.captureId === session.id && memoryPinComments[item]?.pinId === pinId) {
-      memoryPinComments.splice(item, 1);
+  } else {
+    memorySessions.set(session.id, next);
+    memoryPinReviews.delete(pinReviewKey(session.id, pinId));
+    for (let item = memoryPinReviewEvents.length - 1; item >= 0; item -= 1) {
+      const event = memoryPinReviewEvents[item];
+      if (event?.captureId === session.id && event.pinId === pinId) memoryPinReviewEvents.splice(item, 1);
+    }
+    for (let item = memoryPinComments.length - 1; item >= 0; item -= 1) {
+      if (memoryPinComments[item]?.captureId === session.id && memoryPinComments[item]?.pinId === pinId) {
+        memoryPinComments.splice(item, 1);
+      }
     }
   }
+  // The pin and its conversation left the session: its index is stale.
+  await markCloudPinIndexSessionStale(env, session.id);
   return true;
 }
 
@@ -5338,6 +5351,9 @@ export async function persistSession(env: CloudEnv, session: Session, batchId: s
   } else {
     memorySessions.set(session.id, withCloudBatchId(sessionFromCapture(capture, session), batchId));
   }
+  // Title, URL, notes or pins may have changed: the pin index of the session
+  // is stale for its next pass (best effort, never fails the write).
+  await markCloudPinIndexSessionStale(env, session.id);
   await ensureOpenPinReviews(env, session);
 }
 
@@ -5823,9 +5839,11 @@ async function insertPinComment(
       comment.body,
       comment.createdAt,
     ).run();
-    return comment;
+  } else {
+    memoryPinComments.push(comment);
   }
-  memoryPinComments.push(comment);
+  // A conversation comment is part of the pin document.
+  await markCloudPinIndexSessionStale(env, session.id);
   return comment;
 }
 
@@ -5851,14 +5869,16 @@ async function updatePinCommentBody(
       "UPDATE pin_comments SET body = ? WHERE id = ? AND capture_id = ? AND pin_id = ?",
     ).bind(body, commentId, captureId, pinId).run();
     if (Number(result.meta?.changes ?? 0) < 1) return null;
-    return findPinComment(env, captureId, commentId);
+  } else {
+    const comment = memoryPinComments.find(
+      (item) => item.id === commentId && item.captureId === captureId && item.pinId === pinId,
+    );
+    if (!comment) return null;
+    comment.body = body;
   }
-  const comment = memoryPinComments.find(
-    (item) => item.id === commentId && item.captureId === captureId && item.pinId === pinId,
-  );
-  if (!comment) return null;
-  comment.body = body;
-  return comment;
+  // A conversation comment is part of the pin document.
+  await markCloudPinIndexSessionStale(env, captureId);
+  return findPinComment(env, captureId, commentId);
 }
 
 async function deletePinComment(
@@ -5871,13 +5891,15 @@ async function deletePinComment(
     const result = await env.DB.prepare(
       "DELETE FROM pin_comments WHERE id = ? AND capture_id = ? AND pin_id = ?",
     ).bind(commentId, captureId, pinId).run();
-    return Number(result.meta?.changes ?? 0) >= 1;
+    if (Number(result.meta?.changes ?? 0) < 1) return false;
+  } else {
+    const index = memoryPinComments.findIndex(
+      (item) => item.id === commentId && item.captureId === captureId && item.pinId === pinId,
+    );
+    if (index < 0) return false;
+    memoryPinComments.splice(index, 1);
   }
-  const index = memoryPinComments.findIndex(
-    (item) => item.id === commentId && item.captureId === captureId && item.pinId === pinId,
-  );
-  if (index < 0) return false;
-  memoryPinComments.splice(index, 1);
+  await markCloudPinIndexSessionStale(env, captureId);
   return true;
 }
 
@@ -6621,12 +6643,14 @@ async function deleteHistory(request: Request, env: CloudEnv, id: string) {
         .bind(id, principal.id).first();
       if (!existing) return json({ error: "Session not found" }, 404);
       shotId = String(existing.shot_id || id);
+      const pinIndex = await cloudPinIndexReady(env.DB);
       await env.DB.batch([
         env.DB.prepare("DELETE FROM agent_executions WHERE capture_id = ? AND owner_id = ?")
           .bind(id, principal.id),
         env.DB.prepare("DELETE FROM pin_review_events WHERE capture_id = ?").bind(id),
         env.DB.prepare("DELETE FROM pin_reviews WHERE capture_id = ?").bind(id),
         env.DB.prepare("DELETE FROM pin_comments WHERE capture_id = ?").bind(id),
+        ...(pinIndex ? [env.DB.prepare("DELETE FROM pin_index WHERE session_id = ?").bind(id)] : []),
         env.DB.prepare("DELETE FROM sessions WHERE id = ? AND user_id = ?").bind(id, principal.id),
       ]);
     } catch {
@@ -6639,6 +6663,7 @@ async function deleteHistory(request: Request, env: CloudEnv, id: string) {
     memorySessions.delete(id);
     deleteMemoryExecutionsForCapture(id, principal.id);
     deleteMemoryReviewsForCapture(id);
+    deleteMemoryPinIndexForSession(id);
   }
   if (env.PINAR_BUCKET) await env.PINAR_BUCKET.delete(shotObjectKey(shotId)).catch(() => undefined);
   return json({ ok: true });
@@ -6921,6 +6946,11 @@ export async function cleanupOldRecords(env: CloudEnv, days = FREE_CLOUD_RETENTI
     await env.DB.prepare(
       "DELETE FROM pin_comments WHERE capture_id NOT IN (SELECT id FROM sessions)",
     ).run();
+    if (await cloudPinIndexReady(env.DB)) {
+      await env.DB.prepare(
+        "DELETE FROM pin_index WHERE session_id NOT IN (SELECT id FROM sessions)",
+      ).run();
+    }
     deletedCount = sessions.length;
     const cleanupResults = await env.DB.batch([
       env.DB.prepare(
@@ -6947,6 +6977,7 @@ export async function cleanupOldRecords(env: CloudEnv, days = FREE_CLOUD_RETENTI
       memorySessionRetentionExpiresAt.delete(session.id);
       deleteMemoryExecutionsForCapture(session.id);
       deleteMemoryReviewsForCapture(session.id);
+      deleteMemoryPinIndexForSession(session.id);
     }
     deletedCount = expired.length;
     for (const [codeHash, code] of memoryExtensionCodes) {
@@ -7829,12 +7860,14 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
             if (!existing) throw new McpToolError("Session not found");
             shotId = String(existing.shot_id || sessionId);
             try {
+              const pinIndex = await cloudPinIndexReady(context.env.DB);
               await context.env.DB.batch([
                 context.env.DB.prepare("DELETE FROM agent_executions WHERE capture_id = ? AND owner_id = ?")
                   .bind(sessionId, context.principal.id),
                 context.env.DB.prepare("DELETE FROM pin_review_events WHERE capture_id = ?").bind(sessionId),
                 context.env.DB.prepare("DELETE FROM pin_reviews WHERE capture_id = ?").bind(sessionId),
                 context.env.DB.prepare("DELETE FROM pin_comments WHERE capture_id = ?").bind(sessionId),
+                ...(pinIndex ? [context.env.DB.prepare("DELETE FROM pin_index WHERE session_id = ?").bind(sessionId)] : []),
                 context.env.DB.prepare("DELETE FROM sessions WHERE id = ? AND user_id = ?").bind(sessionId, context.principal.id),
               ]);
             } catch {
@@ -7847,6 +7880,7 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
             memorySessions.delete(sessionId);
             deleteMemoryExecutionsForCapture(sessionId, context.principal.id);
             deleteMemoryReviewsForCapture(sessionId);
+            deleteMemoryPinIndexForSession(sessionId);
           }
            if (context.env.PINAR_BUCKET) await context.env.PINAR_BUCKET.delete(shotObjectKey(shotId)).catch(() => undefined);
            return { ok: true, sessionId };
@@ -8074,17 +8108,191 @@ export async function handleCloudMcpRequest(request: Request, env: CloudEnv) {
   }));
 }
 
-// The Cloud assistant gate (decision A3): the explicit switch on, outside
-// production, and the raw AI configuration (base URL, key and model);
-// then the Pro plan. The order matters: a disabled deployment reports
-// "disabled" even for a non-Pro principal.
+// The deployment half of the Cloud assistant gate (decision A3): the
+// explicit switch on, outside production, and the raw AI configuration
+// (base URL, key and model).
+function cloudAssistantDeploymentEnabled(env: CloudEnv): boolean {
+  return env.ASSISTANT_ENABLED === "true" && env.DEPLOYMENT_ENV !== "production"
+    && Boolean(env.AI_BASE_URL) && Boolean(env.AI_API_KEY) && Boolean(env.AI_MODEL);
+}
+
+// The Cloud assistant gate (decision A3): the deployment gate, then the Pro
+// plan. The order matters: a disabled deployment reports "disabled" even
+// for a non-Pro principal.
 function cloudAssistantStatus(env: CloudEnv, principal: Principal): AssistantStatus {
-  if (env.ASSISTANT_ENABLED !== "true" || env.DEPLOYMENT_ENV === "production"
-    || !env.AI_BASE_URL || !env.AI_API_KEY || !env.AI_MODEL) {
-    return { available: false, reason: "disabled" };
-  }
+  if (!cloudAssistantDeploymentEnabled(env)) return { available: false, reason: "disabled" };
   if (!planIncludesAi(principal.plan)) return { available: false, reason: "requires_pro" };
   return { available: true, reason: null };
+}
+
+// ---------- pin search (F3 contract §3.3) ----------
+
+// D1 caps one query at 100 bound parameters; the IN lists are cut below it.
+const PIN_SEARCH_IN_CHUNK = 90;
+
+function pinSessionRow(row: Record<string, unknown>): CloudPinSessionRow {
+  return { createdAt: String(row.created_at || ""), id: String(row.id || ""), ownerId: String(row.user_id || "") };
+}
+
+function memoryPinSessionRows(filter: (session: Session) => boolean, limit: number): CloudPinSessionRow[] {
+  return Array.from(memorySessions.values())
+    .filter((session) => session.pins.length > 0 && filter(session))
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+    .slice(0, limit)
+    .map((session) => ({ createdAt: session.createdAt, id: session.id, ownerId: session.userId || "" }));
+}
+
+// What a pin source of the principal reads (CloudPinSourceData), through
+// the Cloud's own access rules. `shared: true` (a search) adds the
+// collections where the principal collaborates: every collaboration row of
+// the person is a candidate and isCollectionCollaborator keeps the accepted
+// ones of an owner on Pro, the rule of mcpSessionSummaries; session(id)
+// asks findAccessibleSession. `shared: false` (the cron, as the owner) sees
+// only the owner's sessions (findOwnedSession).
+function cloudPinSourceData(env: CloudEnv, principal: Principal, options: { shared: boolean }): CloudPinSourceData {
+  return {
+    async ownedSessions(limit) {
+      if (env.DB) {
+        const rows = await env.DB.prepare(
+          "SELECT id, user_id, created_at FROM sessions WHERE user_id = ? AND pin_count > 0 ORDER BY created_at DESC, id ASC LIMIT ?",
+        ).bind(principal.id, limit).all();
+        return (rows.results || []).map(pinSessionRow);
+      }
+      return memoryPinSessionRows((session) => session.userId === principal.id, limit);
+    },
+    async sharedSessions(limit) {
+      if (!options.shared || principal.kind !== "account") return [];
+      let candidates: string[];
+      if (env.DB) {
+        const rows = await env.DB.prepare(
+          "SELECT DISTINCT collection_id FROM collection_collaborators WHERE user_id = ?",
+        ).bind(principal.id).all();
+        candidates = (rows.results || []).map((row) => String(row.collection_id || ""));
+      } else {
+        candidates = [...new Set(Array.from(memoryCollectionCollaborators.values())
+          .filter((collab) => collab.userId === principal.id)
+          .map((collab) => collab.collectionId))];
+      }
+      const collectionIds: string[] = [];
+      for (const id of candidates) {
+        if (await isCollectionCollaborator(env, principal, id)) collectionIds.push(id);
+      }
+      if (collectionIds.length === 0) return [];
+      if (!env.DB) {
+        const allowed = new Set(collectionIds);
+        return memoryPinSessionRows((session) => Boolean(session.collectionId) && allowed.has(session.collectionId!), limit);
+      }
+      const sessions: CloudPinSessionRow[] = [];
+      for (let start = 0; start < collectionIds.length; start += PIN_SEARCH_IN_CHUNK) {
+        const chunk = collectionIds.slice(start, start + PIN_SEARCH_IN_CHUNK);
+        const rows = await env.DB.prepare(
+          `SELECT id, user_id, created_at FROM sessions WHERE collection_id IN (${chunk.map(() => "?").join(", ")}) AND pin_count > 0 ORDER BY created_at DESC, id ASC LIMIT ?`,
+        ).bind(...chunk, limit).all();
+        sessions.push(...(rows.results || []).map(pinSessionRow));
+      }
+      return sessions;
+    },
+    session(id) {
+      return options.shared ? findAccessibleSession(env, principal, id) : findOwnedSession(env, principal, id);
+    },
+    comments(sessionId) {
+      return listPinComments(env, sessionId);
+    },
+    async shot(sessionId) {
+      if (!env.PINAR_BUCKET) return null;
+      const object = await env.PINAR_BUCKET.get(shotObjectKey(sessionId));
+      if (!object) return null;
+      return new Uint8Array(await new Response(object.body).arrayBuffer());
+    },
+  };
+}
+
+/**
+ * The pin search of the principal for the assistant turn, only while the
+ * assistant is available to them (A3); undefined otherwise, so the tool is
+ * not offered and nothing is indexed.
+ */
+export async function cloudPinSearch(
+  env: CloudEnv,
+  principal: Principal,
+  options: { fetch?: typeof fetch } = {},
+): Promise<PinSearchService | undefined> {
+  if (!cloudAssistantStatus(env, principal).available) return undefined;
+  // Loaded lazily, like the assistant HTTP layer: it pulls in the AI SDK.
+  const { createCloudPinSearch } = await import("./assistant/retrieval/runtime-cloud");
+  return createCloudPinSearch({
+    data: cloudPinSourceData(env, principal, { shared: true }),
+    env,
+    ...(options.fetch ? { fetch: options.fetch } : {}),
+    now: currentDate,
+  });
+}
+
+// The ids of COMPLIMENTARY_PRO_USER_IDS, the list complimentaryProUser reads.
+function complimentaryProUserIds(env: CloudEnv): string[] {
+  return (env.COMPLIMENTARY_PRO_USER_IDS?.split(",") ?? []).map((entry) => entry.trim()).filter(Boolean);
+}
+
+// Owners with at least one session with pins whose plan includes AI, the
+// most recently captured first, without reading accounts one by one: the
+// plan filter runs in SQL on the two inputs of effectiveAccountPlan, the
+// users.plan column and the deployment's complimentary list. One query;
+// complimentary ids past the first PIN_SEARCH_IN_CHUNK add one query per
+// chunk, and no further query starts once `expired()` says the cron's
+// budget is spent (the cron then reports work left).
+async function pinSearchOwners(env: CloudEnv, expired: () => boolean = () => false): Promise<string[]> {
+  const complimentary = complimentaryProUserIds(env);
+  if (!env.DB) {
+    const owners: string[] = [];
+    for (const ownerId of new Set(memoryPinSessionRows(() => true, Number.MAX_SAFE_INTEGER).map((row) => row.ownerId))) {
+      const account = ownerId ? memoryAccounts.get(ownerId) : undefined;
+      if (account && (account.plan === "pro" || complimentary.includes(ownerId))) owners.push(ownerId);
+    }
+    return owners;
+  }
+  const groups: string[][] = [complimentary.slice(0, PIN_SEARCH_IN_CHUNK)];
+  for (let start = PIN_SEARCH_IN_CHUNK; start < complimentary.length; start += PIN_SEARCH_IN_CHUNK) {
+    groups.push(complimentary.slice(start, start + PIN_SEARCH_IN_CHUNK));
+  }
+  const latest = new Map<string, string>();
+  for (const [index, ids] of groups.entries()) {
+    if (index > 0 && expired()) break;
+    const listed = ids.length > 0 ? `u.id IN (${ids.map(() => "?").join(", ")})` : "";
+    // The first query also reads the plan column.
+    const plan = index > 0 ? listed : listed ? `u.plan = 'pro' OR ${listed}` : "u.plan = 'pro'";
+    const rows = await env.DB.prepare(
+      `SELECT s.user_id AS user_id, MAX(s.created_at) AS latest FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.pin_count > 0 AND (${plan}) GROUP BY s.user_id`,
+    ).bind(...ids).all();
+    for (const row of rows.results || []) {
+      const ownerId = String(row.user_id || "");
+      const at = String(row.latest || "");
+      if (ownerId && at > (latest.get(ownerId) ?? "")) latest.set(ownerId, at);
+    }
+  }
+  return [...latest.entries()]
+    .sort((left, right) => right[1].localeCompare(left[1]) || (left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0))
+    .map(([ownerId]) => ownerId);
+}
+
+/**
+ * Daily cron job: indexes the pins of each owner on a plan with AI, the
+ * owner's own sessions only, within 60 s for the whole run, the owners'
+ * enumeration included (runCloudPinIndexCron starts the budget before it).
+ * With the assistant's deployment gate off it reads nothing.
+ */
+export async function indexPinSearch(env: CloudEnv, options: { fetch?: typeof fetch; now?: () => Date } = {}) {
+  if (!cloudAssistantDeploymentEnabled(env)) return { failed: 0, indexed: 0, owners: 0, remaining: false };
+  const { runCloudPinIndexCron } = await import("./assistant/retrieval/runtime-cloud");
+  return runCloudPinIndexCron({
+    env,
+    ...(options.fetch ? { fetch: options.fetch } : {}),
+    now: options.now ?? currentDate,
+    // The owner as the cron's principal: only its id is read
+    // (ownedSessions, findOwnedSession), and pinSearchOwners already kept
+    // owners on a plan with AI.
+    ownerData: (ownerId) => cloudPinSourceData(env, { id: ownerId, isPermanent: true, kind: "account", plan: "pro" }, { shared: false }),
+    owners: (expired) => pinSearchOwners(env, expired),
+  });
 }
 
 // /api/assistant/* for the logged-in web user (contract section 2): only an
@@ -8117,6 +8325,7 @@ async function cloudAssistantRoutesUnguarded(request: Request, env: CloudEnv): P
   // vite.config.edger.ts.)
   const { handleAssistantRequest } = await import("./assistant/http");
   const origin = new URL(request.url).origin;
+  const pinSearch = await cloudPinSearch(env, principal);
   const deps: Parameters<typeof handleAssistantRequest>[1] = {
     endpoint: async () =>
       env.AI_BASE_URL && env.AI_API_KEY && env.AI_MODEL
@@ -8128,6 +8337,7 @@ async function cloudAssistantRoutesUnguarded(request: Request, env: CloudEnv): P
             thinkingControl: true,
           }
         : null,
+    ...(pinSearch ? { pinSearch } : {}),
     rateLimitTurn: () =>
       withinRateLimits(env, "assistant-turn", [
         { limit: 20, scope: `account:${principal.id}` },
@@ -8984,6 +9194,7 @@ export function resetCloudMemoryStateForTests() {
   memoryStripeSubscriptionStates.clear();
   memoryWebSessions.clear();
   resetCloudAssistantMemoryForTests();
+  resetCloudPinIndexMemoryForTests();
   memoryMigrationFailure = false;
   testNow = null;
 }

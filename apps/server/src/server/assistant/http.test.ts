@@ -417,6 +417,7 @@ describe("assistant http handler", () => {
     const { deps, store } = makeDeps();
     await store.createThread({ id: T1, now: ISO(0), title: "t1" });
     await store.appendMessage({
+      ask: null,
       createdAt: ISO(10),
       errorCode: null,
       id: "amg_111111111111111111111111",
@@ -426,6 +427,7 @@ describe("assistant http handler", () => {
       threadId: T1,
     });
     await store.appendMessage({
+      ask: null,
       createdAt: ISO(20),
       errorCode: null,
       id: "amg_222222222222222222222222",

@@ -297,6 +297,7 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
     //    (final messages only, the new question included) is cut to the
     //    turn window.
     await deps.store.appendMessage({
+      ask: null,
       createdAt: stamp(),
       errorCode: null,
       id: newAssistantMessageId(),
@@ -343,6 +344,7 @@ async function turnRoute(request: Request, deps: AssistantRequestDeps): Promise<
       .then(async (result) => {
         try {
           await deps.store.appendMessage({
+            ask: null,
             createdAt: stamp(),
             errorCode: result.kind === "error" ? result.code : null,
             id: newAssistantMessageId(),

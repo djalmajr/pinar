@@ -9,6 +9,12 @@
 //   the response body (a consumeStream over a second tee branch keeps the
 //   model call running to the end).
 //
+// Tools may write their own data parts (data-proposal, data-ask) through
+// the `emit` the turn hands to a `tools` function: it writes to the same
+// UI message stream writer, after the data-thread part. A pinar_ask call
+// ends the loop on its step, and a valid one makes the outcome `final`
+// with the question as the text.
+//
 // Errors the client sees in the stream are only the AssistantErrorCode;
 // nothing from the provider (URLs, keys, messages) crosses the boundary.
 // There is deliberately no console.* with provider content in this module.
@@ -17,6 +23,7 @@ import {
   consumeStream,
   createUIMessageStream,
   createUIMessageStreamResponse,
+  hasToolCall,
   stepCountIs,
   streamText,
   toUIMessageStream,
@@ -24,8 +31,12 @@ import {
   type LanguageModel,
   type ModelMessage,
   type ToolSet,
+  type UIMessageStreamWriter,
 } from "ai";
+import { ASSISTANT_ASK_TOOL, assistantAskFrom } from "./extra-tools";
 import type { ProviderOptions } from "./models";
+import type { AssistantPublicProposal } from "./proposals";
+import { toLlmToolName } from "./tool-policy";
 
 export type AssistantErrorCode =
   | "ASSISTANT_TURN_TIMEOUT"
@@ -72,8 +83,14 @@ export interface AssistantTurnUsage {
   totalTokens: number;
 }
 
+type AssistantAsk = { options: string[]; question: string };
+
+export type AssistantStreamEmit = (part:
+  | { data: AssistantPublicProposal; type: "data-proposal" }
+  | { data: { options: string[]; question: string }; type: "data-ask" }) => void;
+
 export type AssistantTurnOutcome =
-  | { kind: "final"; steps: number; text: string; usage: AssistantTurnUsage }
+  | { ask: AssistantAsk | null; kind: "final"; steps: number; text: string; usage: AssistantTurnUsage }
   | { code: AssistantErrorCode; kind: "error"; steps: number; usage: AssistantTurnUsage };
 
 export interface AssistantTurnInput {
@@ -85,8 +102,10 @@ export interface AssistantTurnInput {
   system: string;
   thread: { id: string; title: string };
   timeoutMs?: number;
-  tools: ToolSet;
+  tools: ToolSet | ((emit: AssistantStreamEmit) => ToolSet);
 }
+
+const ASK_TOOL_NAME = toLlmToolName(ASSISTANT_ASK_TOOL.name);
 
 const ZERO_USAGE: AssistantTurnUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
 
@@ -103,12 +122,15 @@ export function isWaitingNotice(text: string): boolean {
 // ASSISTANT_TURN_INCOMPLETE. A provider error part resolves the
 // aggregates with finishReason "error" and is a stream failure: the same
 // code the client receives in the SSE (a timeout abort rejects the
-// aggregates, so it is classified by the caller, not here). Final
-// requires: the last step finished with finishReason "stop", the trimmed
-// text is not empty, and the text is not only a wait notice. Hitting the
-// step cap (finishReason "tool-calls"), other finish reasons and empty
-// text all give ASSISTANT_TURN_INCOMPLETE.
+// aggregates, so it is classified by the caller, not here). A valid
+// pinar_ask call in the last step (`ask`) is final with the question as
+// the text, whatever the finish reason. Otherwise final requires: the last
+// step finished with finishReason "stop", the trimmed text is not empty,
+// and the text is not only a wait notice. Hitting the step cap
+// (finishReason "tool-calls"), other finish reasons and empty text all
+// give ASSISTANT_TURN_INCOMPLETE.
 export function classifyTurnOutcome(input: {
+  ask?: AssistantAsk | null;
   finishReason: FinishReason;
   steps: number;
   text: string;
@@ -117,11 +139,24 @@ export function classifyTurnOutcome(input: {
   if (input.finishReason === "error") {
     return { code: "ASSISTANT_STREAM_FAILED", kind: "error", steps: input.steps, usage: input.usage };
   }
+  if (input.ask) {
+    return { ask: input.ask, kind: "final", steps: input.steps, text: input.ask.question, usage: input.usage };
+  }
   const text = input.text.trim();
   if (input.finishReason === "stop" && text.length > 0 && !isWaitingNotice(text)) {
-    return { kind: "final", steps: input.steps, text, usage: input.usage };
+    return { ask: null, kind: "final", steps: input.steps, text, usage: input.usage };
   }
   return { code: "ASSISTANT_TURN_INCOMPLETE", kind: "error", steps: input.steps, usage: input.usage };
+}
+
+// The question and options of a valid pinar_ask call in the step, if any.
+function askOf(step: { toolCalls: ReadonlyArray<{ input: unknown; invalid?: boolean; toolName: string }> } | undefined): AssistantAsk | null {
+  for (const call of step?.toolCalls ?? []) {
+    if (call.toolName !== ASK_TOOL_NAME || call.invalid) continue;
+    const ask = assistantAskFrom(call.input);
+    if (ask) return ask;
+  }
+  return null;
 }
 
 function toAssistantUsage(usage: {
@@ -167,6 +202,17 @@ export function runAssistantTurn(input: AssistantTurnInput): {
   const errorCodeFor = (): AssistantErrorCode =>
     timedOut ? "ASSISTANT_TURN_TIMEOUT" : "ASSISTANT_STREAM_FAILED";
 
+  // Data parts tools emit go to the UI stream writer. createUIMessageStream
+  // runs `execute` synchronously below, before any tool can run; parts that
+  // would arrive earlier wait for the writer and keep their order.
+  let streamWriter: UIMessageStreamWriter | null = null;
+  const pendingParts: Parameters<AssistantStreamEmit>[0][] = [];
+  const emit: AssistantStreamEmit = (part) => {
+    if (streamWriter) streamWriter.write(part);
+    else pendingParts.push(part);
+  };
+  const tools = typeof input.tools === "function" ? input.tools(emit) : input.tools;
+
   const window = buildTurnWindow(input.history);
   // Each window entry becomes one model message; the discriminated union is
   // preserved so the array is a ModelMessage[].
@@ -188,21 +234,23 @@ export function runAssistantTurn(input: AssistantTurnInput): {
     // log.
     onError: () => {},
     providerOptions: input.providerOptions,
-    stopWhen: stepCountIs(maxSteps),
+    stopWhen: [stepCountIs(maxSteps), hasToolCall(ASK_TOOL_NAME)],
     system: input.system,
-    tools: input.tools,
+    tools,
   });
 
   const response = createUIMessageStreamResponse({
     stream: createUIMessageStream({
       execute: async ({ writer }) => {
         writer.write({ data: { id: input.thread.id, title: input.thread.title }, type: "data-thread" });
+        streamWriter = writer;
+        for (const part of pendingParts.splice(0)) writer.write(part);
         writer.merge(
           toUIMessageStream({
             onError: () => errorCodeFor(),
             sendReasoning: false,
             stream: result.stream,
-            tools: input.tools,
+            tools,
           }),
         );
       },
@@ -226,6 +274,7 @@ export function runAssistantTurn(input: AssistantTurnInput): {
         result.steps,
       ]);
       return classifyTurnOutcome({
+        ask: askOf(steps.at(-1)),
         finishReason,
         steps: steps.length,
         text,

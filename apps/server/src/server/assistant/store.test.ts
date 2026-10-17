@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
   ASSISTANT_MESSAGE_ID_PATTERN,
+  ASSISTANT_PROPOSAL_ID_PATTERN,
   ASSISTANT_THREAD_ID_PATTERN,
   ASSISTANT_TITLE_MAX,
   assistantThreadTitle,
   newAssistantMessageId,
+  newAssistantProposalId,
   newAssistantThreadId,
 } from "./store";
 
@@ -59,7 +61,17 @@ describe("assistant store helpers", () => {
   test("id generators produce the contract shapes", () => {
     assert.match(newAssistantThreadId(), ASSISTANT_THREAD_ID_PATTERN);
     assert.match(newAssistantMessageId(), ASSISTANT_MESSAGE_ID_PATTERN);
+    assert.match(newAssistantProposalId(), ASSISTANT_PROPOSAL_ID_PATTERN);
     assert.notEqual(newAssistantThreadId(), newAssistantThreadId());
     assert.notEqual(newAssistantMessageId(), newAssistantMessageId());
+    assert.notEqual(newAssistantProposalId(), newAssistantProposalId());
+  });
+
+  test("the proposal id pattern accepts only apr_ ids with a 24-character nanoid", () => {
+    assert.ok(ASSISTANT_PROPOSAL_ID_PATTERN.test("apr_0123456789abcdefghijklmn"));
+    assert.ok(!ASSISTANT_PROPOSAL_ID_PATTERN.test("apr_0123456789abcdefghijklmno")); // 25 chars
+    assert.ok(!ASSISTANT_PROPOSAL_ID_PATTERN.test("apr_0123456789abcdefghijklm")); // 23 chars
+    assert.ok(!ASSISTANT_PROPOSAL_ID_PATTERN.test("ath_0123456789abcdefghijklmn")); // wrong prefix
+    assert.ok(!ASSISTANT_PROPOSAL_ID_PATTERN.test("apr_0123456789abcdefghijklm!")); // bad char
   });
 });

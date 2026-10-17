@@ -79,6 +79,7 @@ interface HistoryBatch {
 interface HistoryDatabase {
   close(): void;
   appendAssistantMessage(message: import("./assistant/store").AssistantMessage): void;
+  createAssistantProposal(record: import("./assistant/store").AssistantProposalRecord): void;
   createAssistantThread(input: { id: string; now: string; title: string }): import("./assistant/store").AssistantThread;
   createBatch(label: string): HistoryBatch;
   createCollection(projectId: string, name: string, parentId?: string | null): Collection | null;
@@ -94,6 +95,7 @@ interface HistoryDatabase {
   getProjectTree(): ProjectTree;
   getSession(id: string): LocalSession | null;
   getAssistantThread(id: string): import("./assistant/store").AssistantThread | null;
+  getAssistantProposal(id: string): import("./assistant/store").AssistantProposalRecord | null;
   listAgentExecutions(captureId: string): AgentExecution[];
   listPinReviews(captureId: string): import("@pinar/shared").PinReview[];
   listPinComments(captureId: string): PinComment[];
@@ -115,7 +117,9 @@ interface HistoryDatabase {
   ): { changed: boolean; review: import("@pinar/shared").PinReview };
   listCollections(projectId: string): Collection[];
   listAssistantMessages(threadId: string, input: { limit: number }): import("./assistant/store").AssistantMessage[];
+  listAssistantProposals(threadId: string): import("./assistant/store").AssistantProposalRecord[];
   listAssistantThreads(input: { limit: number; offset: number }): import("./assistant/store").AssistantThread[];
+  transitionAssistantProposal(input: import("./assistant/store").AssistantTransitionProposalInput): import("./assistant/store").AssistantProposalRecord | null;
   listBatches(): HistoryBatch[];
   listProjects(): Project[];
   listSessions(options: {

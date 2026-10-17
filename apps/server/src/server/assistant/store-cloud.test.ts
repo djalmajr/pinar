@@ -8,7 +8,7 @@ import {
   resetCloudAssistantMemoryForTests,
   type AssistantD1Database,
 } from "./store-cloud";
-import { newAssistantMessageId, newAssistantThreadId, type AssistantMessage, type AssistantStore } from "./store";
+import { newAssistantMessageId, newAssistantThreadId, type AssistantMessage, type AssistantProposalRecord, type AssistantStore } from "./store";
 
 const NOW = "2026-10-01T00:00:00.000Z";
 
@@ -141,6 +141,7 @@ function seedUser(db: Database, id: string, email: string) {
 }
 
 const messageFor = (threadId: string): AssistantMessage => ({
+  ask: null,
   createdAt: NOW,
   errorCode: null,
   id: newAssistantMessageId(),
@@ -163,6 +164,7 @@ async function assertStoreInterface(store: AssistantStore) {
 
   // Appending a message stamps the thread's updated_at and reorders the list.
   const userMessage: AssistantMessage = {
+    ask: null,
     createdAt: "2026-10-03T00:00:00.000Z",
     errorCode: null,
     id: "amg_one",
@@ -184,12 +186,24 @@ async function assertStoreInterface(store: AssistantStore) {
     text: "Three",
   };
   await store.appendMessage(reply);
+  // A message with a question and options round-trips its `ask`.
+  await store.appendMessage({
+    ...userMessage,
+    ask: { options: ["Confirm", "Reject"], question: "Move it?" },
+    createdAt: "2026-10-03T00:03:00.000Z",
+    id: "amg_four",
+    role: "assistant",
+    text: "",
+  });
 
   // The N most recent messages, in chronological order.
   const recent = await store.listMessages("ath_first", { limit: 2 });
-  assert.deepEqual(recent.map((message) => message.id), ["amg_two", "amg_three"]);
+  assert.deepEqual(recent.map((message) => message.id), ["amg_three", "amg_four"]);
   assert.equal(recent[1].role, "assistant");
-  assert.equal((await store.listMessages("ath_first", { limit: 10 })).length, 3);
+  assert.equal((await store.listMessages("ath_first", { limit: 10 })).length, 4);
+  const withAsk = (await store.listMessages("ath_first", { limit: 10 })).find((message) => message.id === "amg_four");
+  assert.deepEqual(withAsk?.ask, { options: ["Confirm", "Reject"], question: "Move it?" });
+  assert.equal(recent[0].ask, null);
   assert.deepEqual(await store.listMessages("ath_second", { limit: 10 }), []);
 
   await assert.rejects(
@@ -208,6 +222,7 @@ async function assertCleanupRemovesOnlyOldThreads(store: AssistantStore, env: { 
   const oldThread = await store.createThread({ id: "ath_old", now: "2026-07-01T00:00:00.000Z", title: "Old" });
   const newThread = await store.createThread({ id: "ath_new", now: "2026-10-01T00:00:00.000Z", title: "New" });
   await store.appendMessage({
+    ask: null,
     createdAt: "2026-07-02T00:00:00.000Z",
     errorCode: null,
     id: newAssistantMessageId(),
@@ -217,6 +232,7 @@ async function assertCleanupRemovesOnlyOldThreads(store: AssistantStore, env: { 
     threadId: oldThread.id,
   });
   await store.appendMessage({
+    ask: null,
     createdAt: "2026-10-02T00:00:00.000Z",
     errorCode: null,
     id: newAssistantMessageId(),
@@ -225,6 +241,8 @@ async function assertCleanupRemovesOnlyOldThreads(store: AssistantStore, env: { 
     text: "New body",
     threadId: newThread.id,
   });
+  await store.createProposal(proposalRecord({ id: "apr_cleanup_old_000000000000", threadId: oldThread.id }));
+  await store.createProposal(proposalRecord({ id: "apr_cleanup_new_000000000000", threadId: newThread.id }));
 
   const deleted = await cleanupAssistantThreads(env, "2026-09-01T00:00:00.000Z");
   assert.equal(deleted, 1);
@@ -232,6 +250,143 @@ async function assertCleanupRemovesOnlyOldThreads(store: AssistantStore, env: { 
   assert.equal((await store.getThread(newThread.id))?.title, "New");
   assert.deepEqual(await store.listMessages(oldThread.id, { limit: 10 }), []);
   assert.equal((await store.listMessages(newThread.id, { limit: 10 })).length, 1);
+  // The old thread's proposal is gone, the new thread's stays.
+  assert.deepEqual(await store.listProposals(oldThread.id), []);
+  assert.deepEqual((await store.listProposals(newThread.id)).map((proposal) => proposal.id), ["apr_cleanup_new_000000000000"]);
+}
+
+/** The proposal store interface cases shared by the D1 and memory branches. */
+const proposalRecord = (overrides: Partial<AssistantProposalRecord> = {}): AssistantProposalRecord => ({
+  args: { collectionId: "col_target", sessionIds: ["s1", "s2"] },
+  createdAt: "2026-10-04T00:00:00.000Z",
+  display: { action: "move_sessions", params: { collection: "Target", count: 2 } },
+  errorCode: null,
+  executedAt: null,
+  expiresAt: "2026-10-04T00:10:00.000Z",
+  fingerprint: "aa".repeat(32),
+  id: "apr_default_proposal_0000000",
+  messageId: "amg_prop",
+  result: null,
+  risk: "reversible",
+  status: "proposed",
+  summary: 'Move 2 sessions to "Target"',
+  threadId: "ath_prop",
+  tool: "pinar.move_sessions",
+  undo: null,
+  undoExpiresAt: null,
+  updatedAt: "2026-10-04T00:00:00.000Z",
+  ...overrides,
+});
+
+async function assertProposalStore(store: AssistantStore) {
+  await store.createThread({ id: "ath_prop", now: "2026-10-04T00:00:00.000Z", title: "Proposals" });
+  await assert.rejects(
+    store.createProposal(proposalRecord({ threadId: "ath_missing" })),
+    (error: unknown) => error instanceof Error && error.message === "assistant thread not found",
+  );
+
+  const first = proposalRecord({ id: "apr_first_proposal_aaaaaaaaa" });
+  const tied = proposalRecord({ id: "apr_tied_proposal_aaaaaaaaaa" }); // same createdAt as first
+  const second = proposalRecord({
+    args: { collectionId: "col_target" },
+    createdAt: "2026-10-04T00:01:00.000Z",
+    executedAt: "2026-10-04T00:02:00.000Z",
+    id: "apr_second_proposal_bbbbbbbb",
+    result: { failed: 0, moved: 2 },
+    status: "executed",
+    undo: { calls: [{ args: { collectionId: "col_origin", sessionId: "s1" }, tool: "pinar.move_session" }], postFingerprint: "bb".repeat(32) },
+    undoExpiresAt: "2026-10-04T00:12:00.000Z",
+    updatedAt: "2026-10-04T00:02:00.000Z",
+  });
+  await store.createProposal(first);
+  await store.createProposal(tied);
+  await store.createProposal(second);
+
+  assert.equal(await store.getProposal("apr_missing_proposal_0000000"), null);
+  // The JSON fields round-trip byte for byte.
+  assert.deepEqual(await store.getProposal(second.id), second);
+
+  // createdAt asc, id asc on the tie.
+  assert.deepEqual((await store.listProposals("ath_prop")).map((proposal) => proposal.id), [
+    first.id,
+    tied.id,
+    second.id,
+  ]);
+  assert.deepEqual(await store.listProposals("ath_missing"), []);
+
+  // Transition from the right status.
+  const executing = await store.transitionProposal({
+    from: ["proposed"],
+    id: first.id,
+    now: "2026-10-04T00:03:00.000Z",
+    to: "executing",
+  });
+  assert.equal(executing?.status, "executing");
+  assert.equal(executing?.updatedAt, "2026-10-04T00:03:00.000Z");
+
+  // Transition from the wrong status → null.
+  assert.equal(
+    await store.transitionProposal({ from: ["proposed"], id: first.id, now: "2026-10-04T00:04:00.000Z", to: "executing" }),
+    null,
+  );
+
+  // requireBefore expired → null, and the record is untouched.
+  assert.equal(
+    await store.transitionProposal({
+      from: ["executing"],
+      id: first.id,
+      now: "2026-10-04T00:11:00.000Z",
+      patch: { executedAt: "2026-10-04T00:11:00.000Z" },
+      requireBefore: "expiresAt",
+      to: "executed",
+    }),
+    null,
+  );
+
+  // requireBefore inside the window → the patch lands with the new status.
+  const executed = await store.transitionProposal({
+    from: ["executing"],
+    id: first.id,
+    now: "2026-10-04T00:03:30.000Z",
+    patch: {
+      errorCode: null,
+      executedAt: "2026-10-04T00:03:30.000Z",
+      result: { moved: 2 },
+      undo: { calls: [], postFingerprint: "cc".repeat(32) },
+      undoExpiresAt: "2026-10-04T00:13:30.000Z",
+    },
+    requireBefore: "expiresAt",
+    to: "executed",
+  });
+  assert.equal(executed?.status, "executed");
+  assert.deepEqual(executed?.result, { moved: 2 });
+  assert.deepEqual(executed?.undo, { calls: [], postFingerprint: "cc".repeat(32) });
+  assert.equal(executed?.undoExpiresAt, "2026-10-04T00:13:30.000Z");
+
+  // requireBefore on the undo window, expired → null, the record stays executed.
+  assert.equal(
+    await store.transitionProposal({
+      from: ["executed"],
+      id: first.id,
+      now: "2026-10-04T00:14:00.000Z",
+      requireBefore: "undoExpiresAt",
+      to: "undoing",
+    }),
+    null,
+  );
+  assert.equal((await store.getProposal(first.id))?.status, "executed");
+
+  // Two back-to-back transitions from "proposed": only the first wins.
+  const firstClaim = await store.transitionProposal({ from: ["proposed"], id: tied.id, now: "2026-10-04T00:06:00.000Z", to: "executing" });
+  const secondClaim = await store.transitionProposal({ from: ["proposed"], id: tied.id, now: "2026-10-04T00:06:01.000Z", to: "rejected" });
+  assert.equal(firstClaim?.status, "executing");
+  assert.equal(secondClaim, null);
+  assert.equal((await store.getProposal(tied.id))?.status, "executing");
+
+  // Deleting the thread deletes its proposals.
+  assert.equal(await store.deleteThread("ath_prop"), true);
+  assert.equal(await store.getProposal(first.id), null);
+  assert.deepEqual(await store.listProposals("ath_prop"), []);
 }
 
 describe("cloudAssistantStore over D1", () => {
@@ -271,6 +426,34 @@ describe("cloudAssistantStore over D1", () => {
     assert.equal(await ownerA.deleteThread("ath_a"), true);
   });
 
+  test("keeps proposals stored, ordered, and transitioned atomically", async () => {
+    seedUser(db, "usr_a", "a@example.test");
+    await assertProposalStore(cloudAssistantStore(env, "usr_a"));
+  });
+
+  test("keeps owner B out of owner A's proposals", async () => {
+    seedUser(db, "usr_a", "a@example.test");
+    seedUser(db, "usr_b", "b@example.test");
+    const ownerA = cloudAssistantStore(env, "usr_a");
+    const ownerB = cloudAssistantStore(env, "usr_b");
+    await ownerA.createThread({ id: "ath_iso", now: NOW, title: "A only" });
+    await ownerA.createProposal(proposalRecord({ id: "apr_isolation_proposal_00000", threadId: "ath_iso" }));
+
+    assert.equal(await ownerB.getProposal("apr_isolation_proposal_00000"), null);
+    assert.deepEqual(await ownerB.listProposals("ath_iso"), []);
+    assert.equal(
+      await ownerB.transitionProposal({ from: ["proposed"], id: "apr_isolation_proposal_00000", now: NOW, to: "executing" }),
+      null,
+    );
+
+    // Owner A is untouched: the proposal still exists and was never transitioned.
+    assert.equal((await ownerA.getProposal("apr_isolation_proposal_00000"))?.status, "proposed");
+    assert.equal((await ownerA.listProposals("ath_iso")).length, 1);
+    const row = db.query("SELECT status FROM assistant_proposals WHERE id = ?").get("apr_isolation_proposal_00000") as { status: string } | null;
+    assert.equal(row?.status, "proposed");
+    assert.equal(await ownerA.deleteThread("ath_iso"), true);
+  });
+
   test("keeps the newest of tied timestamps when limiting (rowid tie-break)", async () => {
     seedUser(db, "usr_a", "a@example.test");
     const store = cloudAssistantStore(env, "usr_a");
@@ -291,18 +474,21 @@ describe("cloudAssistantStore over D1", () => {
     const store = cloudAssistantStore(env, "usr_a");
     await assertCleanupRemovesOnlyOldThreads(store, env);
 
-    // Only the new thread and its single message remain.
+    // Only the new thread, its single message and its single proposal remain.
     const remainingThreads = (db.query("SELECT COUNT(*) AS n FROM assistant_threads").get() as { n: number }).n;
     const remainingMessages = (db.query("SELECT COUNT(*) AS n FROM assistant_messages").get() as { n: number }).n;
+    const remainingProposals = (db.query("SELECT COUNT(*) AS n FROM assistant_proposals").get() as { n: number }).n;
     assert.equal(Number(remainingThreads), 1);
     assert.equal(Number(remainingMessages), 1);
+    assert.equal(Number(remainingProposals), 1);
   });
 
-  test("cleanup deletes the messages and the threads in a single batch", async () => {
+  test("cleanup deletes the proposals, the messages and the threads in a single batch", async () => {
     seedUser(db, "usr_a", "a@example.test");
     const store = cloudAssistantStore(env, "usr_a");
     await store.createThread({ id: "ath_old", now: "2026-07-01T00:00:00.000Z", title: "Old" });
     await store.appendMessage({
+      ask: null,
       createdAt: "2026-07-02T00:00:00.000Z",
       errorCode: null,
       id: newAssistantMessageId(),
@@ -311,6 +497,7 @@ describe("cloudAssistantStore over D1", () => {
       text: "Old body",
       threadId: "ath_old",
     });
+    await store.createProposal(proposalRecord({ id: "apr_cleanup_proposal_0000000", threadId: "ath_old" }));
     await store.createThread({ id: "ath_new", now: "2026-10-01T00:00:00.000Z", title: "New" });
 
     const { events, spy } = batchSpy(env.DB);
@@ -319,9 +506,10 @@ describe("cloudAssistantStore over D1", () => {
     assert.equal(await store.getThread("ath_old"), null);
     assert.equal((await store.getThread("ath_new"))?.title, "New");
 
-    // The cleanup's own effect: one batch holding both DELETEs, no sequential runs.
-    assert.deepEqual(events.slice(-3), [
-      "batch(2)",
+    // The cleanup's own effect: one batch holding all three DELETEs, no sequential runs.
+    assert.deepEqual(events.slice(-4), [
+      "batch(3)",
+      "batch-run DELETE FROM assistant_proposals WHERE thread_id IN (SELECT id FROM assistant_threads WHERE updated_at < ?)",
       "batch-run DELETE FROM assistant_messages WHERE thread_id IN (SELECT id FROM assistant_threads WHERE updated_at < ?)",
       "batch-run DELETE FROM assistant_threads WHERE updated_at < ?",
     ]);
@@ -332,6 +520,7 @@ describe("cloudAssistantStore over D1", () => {
     const store = cloudAssistantStore(env, "usr_a");
     await store.createThread({ id: "ath_fault", now: "2026-07-01T00:00:00.000Z", title: "Fault" });
     await store.appendMessage({
+      ask: null,
       createdAt: "2026-07-02T00:00:00.000Z",
       errorCode: null,
       id: newAssistantMessageId(),
@@ -378,6 +567,28 @@ describe("cloudAssistantStore in memory", () => {
 
   beforeEach(() => {
     resetCloudAssistantMemoryForTests();
+  });
+
+  test("keeps proposals stored, ordered, and transitioned atomically", async () => {
+    await assertProposalStore(cloudAssistantStore(env, "usr_a"));
+  });
+
+  test("keeps owner B out of owner A's proposals", async () => {
+    const ownerA = cloudAssistantStore(env, "usr_a");
+    const ownerB = cloudAssistantStore(env, "usr_b");
+    await ownerA.createThread({ id: "ath_iso", now: NOW, title: "A only" });
+    await ownerA.createProposal(proposalRecord({ id: "apr_isolation_proposal_00000", threadId: "ath_iso" }));
+
+    assert.equal(await ownerB.getProposal("apr_isolation_proposal_00000"), null);
+    assert.deepEqual(await ownerB.listProposals("ath_iso"), []);
+    assert.equal(
+      await ownerB.transitionProposal({ from: ["proposed"], id: "apr_isolation_proposal_00000", now: NOW, to: "executing" }),
+      null,
+    );
+
+    assert.equal((await ownerA.getProposal("apr_isolation_proposal_00000"))?.status, "proposed");
+    assert.equal((await ownerA.listProposals("ath_iso")).length, 1);
+    assert.equal(await ownerA.deleteThread("ath_iso"), true);
   });
 
   test("keeps threads ordered, limited, appended, and deleted", async () => {

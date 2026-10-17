@@ -64,54 +64,61 @@ describe("public legal documents", () => {
     }
   });
 
-  it("names the CentralIT appliance as the Pinar Cloud AI provider and what reaches it, in English and Portuguese", () => {
+  it("describes the Vercel AI Gateway as the Pinar Cloud AI path and what reaches it, in English and Portuguese", () => {
     const body = (id: Parameters<typeof legalDocument>[0], language: "en" | "pt") => legalDocument(id, language).body;
     for (const language of ["en", "pt"] as const) {
       const subprocessors = body("subprocessors", language);
-      assert.match(subprocessors, /### CentralIT/);
-      // The gateway and the model providers left the public texts (A46), and the
-      // zero-retention wording went with them (A47).
-      assert.doesNotMatch(subprocessors, /Vercel/i);
-      assert.doesNotMatch(subprocessors, /gateway/i);
-      assert.doesNotMatch(subprocessors, /Anthropic|DeepSeek|Z\.ai/);
-      assert.doesNotMatch(subprocessors, language === "en" ? /zero data retention/i : /retenção zero de dados/i);
       const privacy = body("privacy", language);
-      assert.match(privacy, language === "en" ? /an AI appliance operated by CentralIT, in Brazil/ : /um appliance de IA operado pela CentralIT, no Brasil/);
-      assert.match(privacy, language === "en" ? /processed by CentralIT, in Brazil/ : /processados pela CentralIT, no Brasil/);
-      assert.doesNotMatch(privacy, /Vercel/i);
-      assert.doesNotMatch(privacy, /gateway/i);
-      assert.doesNotMatch(privacy, language === "en" ? /zero data retention/i : /retenção zero de dados/i);
+      // The AI features run through the Vercel AI Gateway, with the gateway and
+      // the providers as subprocessors under Article 33 of the LGPD (A51).
+      assert.match(subprocessors, /Vercel AI Gateway/);
+      assert.match(privacy, /Vercel AI Gateway/);
+      assert.match(subprocessors, language === "en" ? /Article 33/ : /art\. 33/);
+      assert.match(privacy, language === "en" ? /Article 33/ : /art\. 33/);
+      assert.match(subprocessors, /vercel\.com\/legal/);
+      assert.match(privacy, /vercel\.com\/legal/);
+      assert.match(subprocessors, /### Vercel Inc\. \(Vercel AI Gateway\)/);
+      assert.match(subprocessors, language === "en" ? /### AI providers through the Vercel AI Gateway/ : /### Provedores de IA por meio do Vercel AI Gateway/);
+      assert.match(privacy, language === "en" ? /the AI providers accessed through the Vercel AI Gateway \(Vercel Inc\., United States\)/ : /provedores de IA acessados pelo Vercel AI Gateway \(Vercel Inc\., Estados Unidos\)/);
+      // Voice transcription and written reproduction steps also run through the
+      // gateway (D5): CentralIT no longer appears in the public texts.
+      for (const documentId of LegalDocumentIds) {
+        assert.doesNotMatch(body(documentId, language), /CentralIT/i);
+      }
+      assert.match(subprocessors, language === "en" ? /voice transcription, and written reproduction steps/ : /a transcrição de voz e os passos escritos de reprodução/);
+      assert.match(privacy, language === "en" ? /the voice recorded on a pin, to transcribe it/ : /o áudio gravado num pin, para transcrevê-lo/);
+      assert.match(privacy, language === "en" ? /written reproduction steps/ : /passos escritos de reprodução/);
       assert.match(body("retention", language), language === "en" ? /90 days after its last message/ : /90 dias após a última mensagem/);
     }
     const privacyEn = body("privacy", "en");
     const privacyPt = body("privacy", "pt");
-    // The appliance keeps only the request metadata and does not train on the data (A46).
-    assert.match(privacyEn, /never the prompt, the answer, or the image/);
-    assert.match(privacyPt, /nunca o prompt, a resposta ou a imagem/);
-    assert.match(privacyEn, /does not use the data to train models/);
-    assert.match(privacyPt, /não usa os dados para treinar modelos/);
+    const termsEn = body("terms", "en");
+    const termsPt = body("terms", "pt");
+    // The customer carries the burden for third-party data, with the gateway, in
+    // the Policy section 1 and the Terms section 6 (A48).
+    const privacySection1En = privacyEn.slice(privacyEn.indexOf("## 1."), privacyEn.indexOf("## 2."));
+    const privacySection1Pt = privacyPt.slice(privacyPt.indexOf("## 1."), privacyPt.indexOf("## 2."));
+    assert.match(privacySection1En, /you are the controller of that data/);
+    assert.match(privacySection1En, /you instruct Pinar to process it with the AI providers accessed through the Vercel AI Gateway, including outside Brazil/);
+    assert.match(privacySection1En, /Pinar acts as a processor of that data/);
+    assert.match(privacySection1Pt, /você é o controlador desses dados/);
+    assert.match(privacySection1Pt, /você instrui o Pinar a tratá-lo com os provedores de IA acessados pelo Vercel AI Gateway, inclusive fora do Brasil/);
+    assert.match(privacySection1Pt, /o Pinar atua como operador desses dados/);
+    const termsSection6En = termsEn.slice(termsEn.indexOf("## 6."), termsEn.indexOf("## 7."));
+    const termsSection6Pt = termsPt.slice(termsPt.indexOf("## 6."), termsPt.indexOf("## 7."));
+    assert.match(termsSection6En, /you are the controller/);
+    assert.match(termsSection6En, /instructs Pinar to process it with the AI providers accessed through the Vercel AI Gateway, including outside Brazil/);
+    assert.match(termsSection6En, /Pinar acting as a processor/);
+    assert.match(termsSection6En, /see the Privacy Policy/);
+    assert.match(termsSection6Pt, /você é o controlador/);
+    assert.match(termsSection6Pt, /instrui o Pinar a tratá-lo com os provedores de IA acessados pelo Vercel AI Gateway, inclusive fora do Brasil/);
+    assert.match(termsSection6Pt, /o Pinar atuando como operador/);
+    assert.match(termsSection6Pt, /veja a Política de Privacidade/);
     // Background indexing covers only accounts that already use the AI features (A49).
     assert.match(privacyEn, /used to search your pins, on accounts that use the assistant or have turned on the automatic collection choice/);
     assert.match(privacyPt, /usadas para buscar seus pins, nas contas que usam o assistente ou ligaram a escolha automática da coleção/);
     assert.match(privacyEn, /index, before you ask, only the sessions with pins of accounts that have already had a conversation with the assistant or turned on “Choose the collection automatically”/);
     assert.match(privacyPt, /indexar, antes de você perguntar, só as sessões com pins de contas que já conversaram com o assistente ou ligaram “Escolher a coleção automaticamente”/);
-    // The customer carries the burden for third-party data, in the Policy and the Terms (A48).
-    const termsEn = body("terms", "en");
-    const termsPt = body("terms", "pt");
-    assert.match(privacyEn, /you are the controller of that data/);
-    assert.match(privacyEn, /you instruct Pinar to process it with the AI provider/);
-    assert.match(privacyEn, /Pinar acts as a processor of that data/);
-    assert.match(privacyPt, /você é o controlador desses dados/);
-    assert.match(privacyPt, /você instrui o Pinar a tratá-lo com o provedor de IA/);
-    assert.match(privacyPt, /o Pinar atua como operador desses dados/);
-    assert.match(termsEn, /you are the controller/);
-    assert.match(termsEn, /instructs Pinar to process it with the AI provider/);
-    assert.match(termsEn, /Pinar acting as a processor/);
-    assert.match(termsEn, /see the Privacy Policy/);
-    assert.match(termsPt, /você é o controlador/);
-    assert.match(termsPt, /instrui o Pinar a tratá-lo com o provedor de IA/);
-    assert.match(termsPt, /o Pinar atuando como operador/);
-    assert.match(termsPt, /veja a Política de Privacidade/);
     // The screenshot goes to the AI for search whatever the agent-copy option
     // says (A24), quoted with the option's real label.
     assert.match(privacyEn, new RegExp(`even when “${englishMessages["dashboard.includeScreenshot"]}” is off`));
@@ -121,6 +128,18 @@ describe("public legal documents", () => {
     assert.match(privacyPt, /90 dias após a última mensagem/);
     assert.match(privacyEn, /does not pass through Pinar/);
     assert.match(privacyPt, /não passa pelo Pinar/);
+    // The public texts keep no model-provider name and no zero-retention or
+    // no-training promise for the AI features (A51).
+    for (const documentId of ["privacy", "subprocessors"] as const) {
+      const english = body(documentId, "en");
+      const portuguese = body(documentId, "pt");
+      assert.doesNotMatch(english, /Anthropic|DeepSeek|Z\.ai|OpenAI|Google/i);
+      assert.doesNotMatch(english, /train/i);
+      assert.doesNotMatch(english, /zero data retention/i);
+      assert.doesNotMatch(portuguese, /Anthropic|DeepSeek|Z\.ai|OpenAI|Google/i);
+      assert.doesNotMatch(portuguese, /treinar|treino/i);
+      assert.doesNotMatch(portuguese, /retenção zero/i);
+    }
   });
 
   it("describes Pro benefits without offering a one-time plan", () => {

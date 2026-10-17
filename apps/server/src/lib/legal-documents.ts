@@ -91,7 +91,7 @@ You retain ownership of content you submit. You grant Pinar a limited license to
 
 ## 6. AI features
 
-AI output may be incomplete, inaccurate, or unsuitable. You must review it before relying on it. Do not use AI output as the sole basis for legal, medical, financial, employment, credit, or other high-impact decisions. Credits represent product usage units, not currency, stored value, or a guaranteed number of tokens. For third-party data in your content (what appears on the pages you capture and collaborator comments), you are the controller: using the AI features of Pinar Cloud with that content instructs Pinar to process it with the AI provider, and you are responsible for informing the data subjects and for having a legal basis for the processing, with Pinar acting as a processor; see the Privacy Policy.
+AI output may be incomplete, inaccurate, or unsuitable. You must review it before relying on it. Do not use AI output as the sole basis for legal, medical, financial, employment, credit, or other high-impact decisions. Credits represent product usage units, not currency, stored value, or a guaranteed number of tokens. For third-party data in your content (what appears on the pages you capture and collaborator comments), you are the controller: using the AI features of Pinar Cloud with that content instructs Pinar to process it with the AI providers accessed through the Vercel AI Gateway, including outside Brazil, and you are responsible for informing the data subjects and for having a legal basis for the processing, with Pinar acting as a processor; see the Privacy Policy.
 
 ## 7. Availability and changes
 
@@ -136,7 +136,7 @@ Você mantém a titularidade do conteúdo enviado. Você concede ao Pinar uma li
 
 ## 6. Recursos de IA
 
-Resultados de IA podem ser incompletos, imprecisos ou inadequados. Você deve revisá-los antes de utilizá-los. Não use resultados de IA como fundamento exclusivo para decisões jurídicas, médicas, financeiras, trabalhistas, de crédito ou outras decisões de alto impacto. Créditos representam unidades de uso do produto, não moeda, valor armazenado nem uma quantidade garantida de tokens. Para dados de terceiros no seu conteúdo (o que aparece nas páginas capturadas e comentários de colaboradores), você é o controlador: ao usar os recursos de IA do Pinar Cloud com esse conteúdo, você instrui o Pinar a tratá-lo com o provedor de IA, e é responsável por informar os titulares e por ter base legal para o tratamento, com o Pinar atuando como operador; veja a Política de Privacidade.
+Resultados de IA podem ser incompletos, imprecisos ou inadequados. Você deve revisá-los antes de utilizá-los. Não use resultados de IA como fundamento exclusivo para decisões jurídicas, médicas, financeiras, trabalhistas, de crédito ou outras decisões de alto impacto. Créditos representam unidades de uso do produto, não moeda, valor armazenado nem uma quantidade garantida de tokens. Para dados de terceiros no seu conteúdo (o que aparece nas páginas capturadas e comentários de colaboradores), você é o controlador: ao usar os recursos de IA do Pinar Cloud com esse conteúdo, você instrui o Pinar a tratá-lo com os provedores de IA acessados pelo Vercel AI Gateway, inclusive fora do Brasil, e é responsável por informar os titulares e por ter base legal para o tratamento, com o Pinar atuando como operador; veja a Política de Privacidade.
 
 ## 7. Disponibilidade e alterações
 
@@ -159,7 +159,7 @@ A lei brasileira rege estes Termos, sem afastar proteções obrigatórias dispon
 
 For the hosted Pinar service, the data controller is **Djalma Júnior**, an individual in Brazil. Privacy contact: **${OPERATOR_CONTACT_EMAIL.en}**. This Policy does not govern local-only data that never leaves your device; you control that data locally. When you use AI in the local app, it sends each request directly to the endpoint you configure (a model on your computer or a provider of your choice); that content does not pass through Pinar, and that provider's terms apply.
 
-When your use of Pinar includes third-party data — what appears on the pages you capture and collaborator comments — you are the controller of that data. When you use the AI features of Pinar Cloud with that content, you instruct Pinar to process it with the AI provider. You are responsible for informing the data subjects and for having a legal basis for the processing; Pinar acts as a processor of that data.
+When your use of Pinar includes third-party data — what appears on the pages you capture and collaborator comments — you are the controller of that data. When you use the AI features of Pinar Cloud with that content, you instruct Pinar to process it with the AI providers accessed through the Vercel AI Gateway, including outside Brazil. You are responsible for informing the data subjects and for having a legal basis for the processing; Pinar acts as a processor of that data.
 
 ## 2. Data we process
 
@@ -175,9 +175,9 @@ We process data to provide accounts and contracted features; authenticate users;
 
 ## 4. Sharing and international transfers
 
-We share data only as needed with the providers listed in the Service Providers and Subprocessors page, with professional advisers under confidentiality, in a corporate transaction subject to appropriate protections, or with authorities when legally required. Cloud infrastructure and payment processing may involve processing outside Brazil. We use provider contracts and legally recognized safeguards appropriate to the transfer.
+We share data only as needed with the providers listed in the Service Providers and Subprocessors page, with professional advisers under confidentiality, in a corporate transaction subject to appropriate protections, or with authorities when legally required. Cloud infrastructure, payment processing, and AI features may involve processing outside Brazil. We use provider contracts and legally recognized safeguards appropriate to the transfer.
 
-**AI in Pinar Cloud.** To answer in the assistant, search your pins, and choose a new capture's collection, Pinar Cloud sends the content each request needs to an AI appliance operated by CentralIT, in Brazil. That content may include your messages and the conversation history; the data the assistant's tools read; the screenshot of each session with pins, to describe the pins for search, even when “Include screenshot in agent copy” is off; the text of pins, for search; and the title, URL, and pin comments of a new capture, when “Choose the collection automatically” is on. To keep search ready, Pinar indexes the pins as you ask and may index, before you ask, only the sessions with pins of accounts that have already had a conversation with the assistant or turned on “Choose the collection automatically”. The appliance retains only the metadata of each request (the internal key identifier, the status, the tokens, and the timings) — never the prompt, the answer, or the image — and does not use the data to train models. In Pinar Cloud, voice transcription and written reproduction steps are also processed by CentralIT, in Brazil.
+**AI in Pinar Cloud.** To answer in the assistant, search your pins, and choose a new capture's collection, Pinar Cloud sends the content each request needs to the AI providers accessed through the Vercel AI Gateway (Vercel Inc., United States). The gateway routes each request to a provider that serves the model Pinar configured. That content may include your messages and the conversation history; the data the assistant's tools read; the screenshot of each session with pins, to describe the pins for search, even when “Include screenshot in agent copy” is off; the text of pins, for search; the voice recorded on a pin, to transcribe it; and the title, URL, and pin comments of a new capture, when “Choose the collection automatically” is on, and the content each session needs to generate its written reproduction steps. To keep search ready, Pinar indexes the pins as you ask and may index, before you ask, only the sessions with pins of accounts that have already had a conversation with the assistant or turned on “Choose the collection automatically”. Vercel and the AI providers act as subprocessors and may process this content outside Brazil, under Article 33 of the LGPD; see Vercel's terms and privacy policy at https://vercel.com/legal.
 
 ## 5. Retention and deletion
 
@@ -198,7 +198,7 @@ Pinar is not directed to children. Do not submit a child's personal data without
 
 No serviço hospedado do Pinar, o controlador é **Djalma Júnior**, pessoa física no Brasil. Contato de privacidade: **${OPERATOR_CONTACT_EMAIL.pt}**. Esta Política não rege dados de uso exclusivamente local que nunca saem do seu dispositivo; você controla esses dados localmente. Quando você usa IA no app local, ele envia cada pedido diretamente ao endpoint que você configurou (um modelo no seu computador ou um provedor de sua escolha); esse conteúdo não passa pelo Pinar, e valem os termos desse provedor.
 
-Quando o seu uso do Pinar inclui dados de terceiros — o que aparece nas páginas capturadas e os comentários de colaboradores —, você é o controlador desses dados. Ao usar os recursos de IA do Pinar Cloud com esse conteúdo, você instrui o Pinar a tratá-lo com o provedor de IA. Você é responsável por informar os titulares e por ter base legal para o tratamento; o Pinar atua como operador desses dados.
+Quando o seu uso do Pinar inclui dados de terceiros — o que aparece nas páginas capturadas e os comentários de colaboradores —, você é o controlador desses dados. Ao usar os recursos de IA do Pinar Cloud com esse conteúdo, você instrui o Pinar a tratá-lo com os provedores de IA acessados pelo Vercel AI Gateway, inclusive fora do Brasil. Você é responsável por informar os titulares e por ter base legal para o tratamento; o Pinar atua como operador desses dados.
 
 ## 2. Dados tratados
 
@@ -214,9 +214,9 @@ Tratamos dados para fornecer contas e recursos contratados; autenticar usuários
 
 ## 4. Compartilhamento e transferências internacionais
 
-Compartilhamos dados somente quando necessário com os provedores listados na página Provedores de Serviço e Suboperadores, com assessores profissionais sujeitos a confidencialidade, em operação societária sujeita a proteções adequadas ou com autoridades quando legalmente exigido. Infraestrutura de nuvem e processamento de pagamentos podem envolver tratamento fora do Brasil. Utilizamos contratos com fornecedores e salvaguardas reconhecidas em lei apropriadas à transferência.
+Compartilhamos dados somente quando necessário com os provedores listados na página Provedores de Serviço e Suboperadores, com assessores profissionais sujeitos a confidencialidade, em operação societária sujeita a proteções adequadas ou com autoridades quando legalmente exigido. Infraestrutura de nuvem, processamento de pagamentos e recursos de IA podem envolver tratamento fora do Brasil. Utilizamos contratos com fornecedores e salvaguardas reconhecidas em lei apropriadas à transferência.
 
-**IA no Pinar Cloud.** Para responder no assistente, buscar seus pins e escolher a coleção de uma captura nova, o Pinar Cloud envia o conteúdo de que cada pedido precisa a um appliance de IA operado pela CentralIT, no Brasil. Esse conteúdo pode incluir suas mensagens e o histórico da conversa; os dados que as ferramentas do assistente leem; o screenshot de cada sessão com pins, para descrever os pins na busca, mesmo com a opção “Incluir captura no copy para agentes” desligada; o texto dos pins, para a busca; e o título, a URL e os comentários dos pins de uma captura nova, quando “Escolher a coleção automaticamente” está ligado. Para manter a busca pronta, o Pinar indexa os pins na hora da pergunta e pode indexar, antes de você perguntar, só as sessões com pins de contas que já conversaram com o assistente ou ligaram “Escolher a coleção automaticamente”. O appliance retém somente os metadados de cada pedido (o identificador interno da chave, o status, os tokens e os tempos) — nunca o prompt, a resposta ou a imagem — e não usa os dados para treinar modelos. No Pinar Cloud, a transcrição de voz e os passos escritos de reprodução também são processados pela CentralIT, no Brasil.
+**IA no Pinar Cloud.** Para responder no assistente, buscar seus pins e escolher a coleção de uma captura nova, o Pinar Cloud envia o conteúdo de que cada pedido precisa a provedores de IA acessados pelo Vercel AI Gateway (Vercel Inc., Estados Unidos). O gateway encaminha cada pedido a um provedor que oferece o modelo configurado pelo Pinar. Esse conteúdo pode incluir suas mensagens e o histórico da conversa; os dados que as ferramentas do assistente leem; o screenshot de cada sessão com pins, para descrever os pins na busca, mesmo com a opção “Incluir captura no copy para agentes” desligada; o texto dos pins, para a busca; o áudio gravado num pin, para transcrevê-lo; e o título, a URL e os comentários dos pins de uma captura nova, quando “Escolher a coleção automaticamente” está ligado, e o conteúdo que cada sessão precisa para gerar os passos escritos de reprodução. Para manter a busca pronta, o Pinar indexa os pins na hora da pergunta e pode indexar, antes de você perguntar, só as sessões com pins de contas que já conversaram com o assistente ou ligaram “Escolher a coleção automaticamente”. A Vercel e os provedores de IA atuam como suboperadores e podem tratar esse conteúdo fora do Brasil, nos termos do art. 33 da LGPD; veja os termos e a política de privacidade da Vercel em https://vercel.com/legal.
 
 ## 5. Retenção e exclusão
 
@@ -415,9 +415,13 @@ Pinar uses the following core providers to operate the hosted service. A provide
 
 **Purpose:** Checkout, payment processing, subscription status, fraud prevention, receipts, refunds, and billing records. Pinar does not receive full card details. Stripe may also act as an independent controller for parts of payment processing. [Stripe service providers and subprocessors](https://stripe.com/legal/service-providers).
 
-### CentralIT
+### Vercel Inc. (Vercel AI Gateway)
 
-**Purpose:** AI inference on an AI appliance for the assistant of Pinar Cloud (answers, descriptions of session screenshots and the search embeddings, and the automatic choice of a new capture's collection), for voice transcription, and for written reproduction steps, retaining only the metadata of each request. **Typical processing location:** Brazil.
+**Purpose:** forwards the AI requests of Pinar Cloud — the assistant, the search of your pins, the automatic choice of a new capture's collection, voice transcription, and written reproduction steps — to AI providers. **Typical processing location:** United States. Vercel and the AI providers act as subprocessors and may process the data outside Brazil, under Article 33 of the LGPD. [Vercel's terms and privacy policy](https://vercel.com/legal).
+
+### AI providers through the Vercel AI Gateway
+
+**Purpose:** generate the assistant's answers, the descriptions of session screenshots, the embeddings used for search and for the automatic collection choice, the transcription of the voice recorded on a pin, and the written reproduction steps of a session. For each request, the gateway chooses the provider that serves the model Pinar configured. Pinar reaches these providers only through the gateway, with no direct integration. **Typical processing locations:** the United States and other countries.
 
 ## 3. Changes
 
@@ -436,9 +440,13 @@ O Pinar utiliza os provedores essenciais abaixo para operar o serviço hospedado
 
 **Finalidade:** Checkout, processamento de pagamentos, status de assinatura, prevenção à fraude, recibos, reembolsos e registros de cobrança. O Pinar não recebe os dados completos do cartão. O Stripe também pode atuar como controlador independente em partes do processamento do pagamento. [Provedores e suboperadores do Stripe](https://stripe.com/legal/service-providers).
 
-### CentralIT
+### Vercel Inc. (Vercel AI Gateway)
 
-**Finalidade:** inferência em um appliance de IA para o assistente do Pinar Cloud (respostas, descrições dos screenshots das sessões e embeddings da busca, e a escolha automática da coleção de uma captura nova), para a transcrição de voz e os passos escritos de reprodução, retendo somente os metadados de cada pedido. **Local típico de tratamento:** Brasil.
+**Finalidade:** encaminha os pedidos de IA do Pinar Cloud — o assistente, a busca nos seus pins, a escolha automática da coleção de uma captura nova, a transcrição de voz e os passos escritos de reprodução — a provedores de IA. **Local típico de tratamento:** Estados Unidos. A Vercel e os provedores de IA atuam como suboperadores e podem tratar os dados fora do Brasil, nos termos do art. 33 da LGPD. [Termos e política de privacidade da Vercel](https://vercel.com/legal).
+
+### Provedores de IA por meio do Vercel AI Gateway
+
+**Finalidade:** gerar as respostas do assistente, as descrições dos screenshots das sessões, os embeddings usados na busca e na escolha automática da coleção, a transcrição do áudio gravado num pin e os passos escritos de reprodução de uma sessão. Para cada pedido, o gateway escolhe o provedor que oferece o modelo configurado pelo Pinar. O Pinar só alcança esses provedores pelo gateway, sem integração direta. **Locais típicos de tratamento:** Estados Unidos e outros países.
 
 ## 3. Alterações
 

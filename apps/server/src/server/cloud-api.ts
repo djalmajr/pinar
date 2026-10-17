@@ -7220,6 +7220,16 @@ async function mcpCollectionMarkdown(context: CloudMcpContext, collectionId: str
   return formatCollectionMarkdown(tree, context.origin, { ...preferences, includeViewerContent: false });
 }
 
+// Session lookup of the pin tools (list_pins, get_pin, list_pin_comments).
+// The signed-in web user reads like the web app: owned sessions and the
+// ones shared with an accepted collaboration. An agent key keeps the
+// owner-only lookup it always had, so a key never reads more than before.
+function mcpPinSession(context: CloudMcpContext, sessionId: string) {
+  return context.actor.kind === "user"
+    ? findAccessibleSession(context.env, context.principal, sessionId)
+    : findOwnedSession(context.env, context.principal, sessionId);
+}
+
 async function mcpSessionFullMarkdown(context: CloudMcpContext, sessionId: string) {
   await mcpRequireRead(context, "session", sessionId);
   await mcpRequireAggregateLimit(
@@ -7578,7 +7588,7 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
           await mcpRequireRead(context, "session", sessionId);
           // Accessible (not only owned): an accepted collaborator reads the
           // pins of the shared collection, for both actors.
-          const session = await findAccessibleSession(context.env, context.principal, sessionId);
+          const session = await mcpPinSession(context, sessionId);
           if (!session || !pinIdsFromPins(session.pins).has(pinId)) throw new McpToolError("Resource not found");
           const comments = (await listPinComments(context.env, sessionId)).filter((item) => item.pinId === pinId);
           return { comments, ok: true };
@@ -7816,7 +7826,7 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
             if (Object.keys(args).some((key) => key !== "sessionId" && key !== "limit" && key !== "offset")) {
               throw new McpToolError("Unexpected argument");
             }
-            const session = await findAccessibleSession(context.env, context.principal, sessionId);
+            const session = await mcpPinSession(context, sessionId);
            if (!session) throw new McpToolError("Resource not found");
            const limit = mcpLimitArg(args, "limit", MCP_MAX_LIST_SIZE);
            const offset = mcpOffsetArg(args);
@@ -7835,7 +7845,7 @@ function mcpHandlers(context: CloudMcpContext): McpProtocolHandlers {
             if (Object.keys(args).some((key) => key !== "sessionId" && key !== "pinId")) {
               throw new McpToolError("Unexpected argument");
             }
-            const session = await findAccessibleSession(context.env, context.principal, sessionId);
+            const session = await mcpPinSession(context, sessionId);
            const pin = session?.pins.find((item) => (item.pinId || item.id) === pinId);
            if (!session || !pin) throw new McpToolError("Resource not found");
            const reviews = await listPinReviews(context.env, sessionId);
@@ -7954,15 +7964,30 @@ function cloudAssistantStatus(env: CloudEnv, principal: Principal): AssistantSta
 // account principal is admitted; the global mutation-origin check in
 // handleCloudApiRequest already guards the POST and the DELETE.
 async function cloudAssistantRoutes(request: Request, env: CloudEnv): Promise<Response> {
+  try {
+    return await cloudAssistantRoutesUnguarded(request, env);
+  } catch {
+    // Any failure before or around the assistant layer (session lookup,
+    // config, the lazy SDK import) gets the defined unavailable answer; the
+    // original error may carry internals and is not logged. Built here
+    // because the assistant module itself may be what failed to load.
+    return Response.json(
+      { code: "assistant_unavailable", error: "The assistant is unavailable" },
+      { headers: { "Cache-Control": "no-store" }, status: 503 },
+    );
+  }
+}
+
+async function cloudAssistantRoutesUnguarded(request: Request, env: CloudEnv): Promise<Response> {
   const principal = await resolvePrincipal(request, env);
   if (!principal || principal.kind !== "account") {
     return json({ code: "unauthorized", error: "Unauthorized" }, 401);
   }
   const status = cloudAssistantStatus(env, principal);
-  // The assistant HTTP layer pulls in the AI SDK, whose transitive
-  // @vercel/oidc module calls os.hostname() at import time: loaded lazily
-  // here so the EdgeR worker's initial module graph stays free of it (the
-  // artifact smoke runs Deno without --allow-sys).
+  // The assistant HTTP layer pulls in the AI SDK: loaded lazily so the
+  // worker's initial module graph and cold start stay free of it. (On EdgeR
+  // the SDK's @vercel/oidc dependency is replaced by a stub, see
+  // vite.config.edger.ts.)
   const { handleAssistantRequest } = await import("./assistant/http");
   const deps: Parameters<typeof handleAssistantRequest>[1] = {
     endpoint: async () =>

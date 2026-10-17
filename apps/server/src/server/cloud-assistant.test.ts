@@ -212,6 +212,61 @@ describe("cloud assistant MCP actor (the logged-in web user)", () => {
     }
   });
 
+  test("an agent key of the collaborator keeps the owner-only pin reads it always had", async () => {
+    // Review finding (rev-f1 S3b #1): the accessible-session lookup is for
+    // the web user only. A collection key of an accepted guest must not
+    // start reading the owner's pins through the three pin tools.
+    const db = migratedDatabase();
+    try {
+      insertUser(db, "usr_owner", "owner@example.test", "pro");
+      insertUser(db, "usr_guest", "guest@example.test", "pro");
+      insertProject(db, "project_owner", "usr_owner");
+      insertCollection(db, "collection_shared", "project_owner", "usr_owner");
+      insertSession(db, "session_shared", "usr_owner", "collection_shared", [
+        { comment: "first shared note", number: 1, pinId: "pin_1" },
+      ]);
+      acceptCollaborator(db, "collab_shared", "collection_shared", "usr_owner", "guest@example.test", "usr_guest");
+      const token = `pak_${"g".repeat(43)}`;
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+      const tokenHash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+      db.query(
+        "INSERT INTO agent_api_keys (id, account_id, name, token_hash, token_prefix, resource_type, resource_id, permission, expires_at, created_at) "
+          + "VALUES ('key_guest', 'usr_guest', 'Guest reader', ?, ?, 'collection', 'collection_shared', 'read', '2027-01-01T00:00:00.000Z', ?)",
+      ).run(tokenHash, token.slice(0, 12), NOW);
+      const env = assistantEnv(db);
+      const accept = "application/json, text/event-stream";
+      const initialized = await handleCloudApiRequest(new Request("https://pinar.test/api/mcp", {
+        body: JSON.stringify({
+          id: 0,
+          jsonrpc: "2.0",
+          method: "initialize",
+          params: { capabilities: {}, clientInfo: { name: "pinar-cloud-test", version: "0.0.0" }, protocolVersion: "2025-11-25" },
+        }),
+        headers: { accept, authorization: `Bearer ${token}`, "content-type": "application/json" },
+        method: "POST",
+      }), env);
+      assert.equal(initialized.status, 200);
+      const session = initialized.headers.get("mcp-session-id");
+      assert.ok(session);
+      for (const [name, args] of [
+        ["pinar.list_pins", { sessionId: "session_shared" }],
+        ["pinar.get_pin", { pinId: "pin_1", sessionId: "session_shared" }],
+        ["pinar.list_pin_comments", { pinId: "pin_1", sessionId: "session_shared" }],
+      ] as const) {
+        const response = await handleCloudApiRequest(new Request("https://pinar.test/api/mcp", {
+          body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "tools/call", params: { arguments: args, name } }),
+          headers: { accept, authorization: `Bearer ${token}`, "content-type": "application/json", "mcp-session-id": session },
+          method: "POST",
+        }), env);
+        const body = await response.json() as { result: { content: Array<{ text: string }>; isError?: boolean } };
+        assert.equal(body.result.isError, true, name);
+        assert.equal(body.result.content[0].text, "Resource not found", name);
+      }
+    } finally {
+      db.close();
+    }
+  });
+
   test("reads the pins of a session in a collection where it is an accepted collaborator", async () => {
     const db = migratedDatabase();
     try {
@@ -385,6 +440,54 @@ describe("cloud assistant routes", () => {
         assert.equal(denied.status, 503);
         assert.equal((await denied.json() as { code: string }).code, "assistant_unavailable");
       }
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a failure while preparing the route answers the sanitized 503 and is not logged", async () => {
+    // Review finding (rev-f1 S3b #3): the web session resolves, then the
+    // account lookup fails; the error must not escape handleCloudApiRequest.
+    const db = migratedDatabase();
+    try {
+      const { a } = await seedAccounts(db);
+      const env = assistantEnv(db);
+      const base = env.DB!;
+      const secret = "PRIVATE_ACCOUNT_DB_SENTINEL";
+      env.DB = {
+        ...base,
+        prepare(sql: string) {
+          if (/FROM users\b/i.test(sql)) throw new Error(secret);
+          return base.prepare(sql);
+        },
+      } as typeof base;
+      const logged: unknown[] = [];
+      const original = { error: console.error, log: console.log, warn: console.warn };
+      console.error = (...args: unknown[]) => { logged.push(args); };
+      console.warn = (...args: unknown[]) => { logged.push(args); };
+      console.log = (...args: unknown[]) => { logged.push(args); };
+      try {
+        for (const [path, init] of [
+          ["/api/assistant/status", {}],
+          ["/api/assistant/threads", {}],
+          ["/api/assistant/turn", {
+            body: JSON.stringify({ text: "oi" }),
+            headers: { "content-type": "application/json", origin: "https://pinar.test" },
+            method: "POST",
+          }],
+        ] as const) {
+          const headers = { ...("headers" in init ? init.headers : {}), cookie: a.cookie };
+          const response = await route(path, env, { ...init, headers });
+          assert.equal(response.status, 503, path);
+          assert.equal(response.headers.get("cache-control"), "no-store", path);
+          const text = await response.text();
+          assert.deepEqual(JSON.parse(text), { code: "assistant_unavailable", error: "The assistant is unavailable" });
+          assert.ok(!text.includes(secret));
+        }
+      } finally {
+        Object.assign(console, original);
+      }
+      assert.ok(!JSON.stringify(logged).includes(secret), "nothing about the failure is logged");
     } finally {
       db.close();
     }

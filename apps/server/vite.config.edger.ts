@@ -13,6 +13,10 @@ const useSyncExternalStoreShim = fileURLToPath(
   new URL("./src/lib/use-sync-external-store-shim.ts", import.meta.url),
 );
 const edgerApi = fileURLToPath(new URL("./src/server/api.edger.ts", import.meta.url));
+// The AI SDK gateway imports @vercel/oidc, which calls os.hostname() at
+// import time; Deno on EdgeR has no sys access. See the stub for why the
+// two exports it keeps are enough.
+const vercelOidcStub = fileURLToPath(new URL("./src/server/edger/vercel-oidc-stub.ts", import.meta.url));
 
 // HTTP/Hrana client: the package root statically imports the native `libsql`
 // addon, which Deno on EdgeR cannot load. Remote `http:`/`https:`/`libsql:`
@@ -78,6 +82,7 @@ export default defineConfig({
       { find: /^@\/server\/api$/, replacement: edgerApi },
       { find: /^@libsql\/client$/, replacement: libsqlHttp },
       { find: /^@libsql\/isomorphic-ws$/, replacement: isomorphicWsWeb() },
+      { find: /^@vercel\/oidc$/, replacement: vercelOidcStub },
       { find: "@", replacement: fileURLToPath(new URL("./src", import.meta.url)) },
     ],
     dedupe: ["react", "react-dom", "@base-ui/react"],

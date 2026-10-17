@@ -78,7 +78,7 @@ function migratedDatabase(withByok = true) {
   db.exec("PRAGMA foreign_keys = ON");
   const directory = new URL("../../../migrations/", import.meta.url);
   for (const file of readdirSync(directory).filter((name) => name.endsWith(".sql")).sort()) {
-    if (file === "0034_byok_endpoints.sql" && !withByok) continue;
+    if (file === "0035_byok_endpoints.sql" && !withByok) continue;
     db.exec(readFileSync(new URL(file, directory), "utf8"));
   }
   return db;

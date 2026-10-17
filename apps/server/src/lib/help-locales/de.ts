@@ -744,7 +744,7 @@ const locale = {
         {
           heading: "Reproduktion in Pinar Cloud",
           paragraphs: [
-            "In Pinar Cloud steht die Reproduktion berechtigten angemeldeten Konten zur Verfügung, ohne KI-Guthaben abzuziehen.",
+            "In Pinar Cloud steht die Reproduktion berechtigten angemeldeten Konten zur Verfügung, und jede Generation der ausformulierten Schritte verbraucht 1 KI-Credit; eine fehlgeschlagene Generation erstattet ihn. [Pinar-Cloud-KI-Credits für Sprache und Assistent](/help/cloud/ai-credits) erklärt Guthaben und Erstattungen.",
           ],
         },
         {
@@ -842,7 +842,7 @@ const locale = {
         {
           heading: "Pinar die Sammlung wählen lassen",
           paragraphs: [
-            "Schalte in Einstellungen → „Aufnahme“ die Option „Sammlung automatisch wählen“ ein. Pinar wählt dann für jede neue Aufnahme eine deiner vorhandenen Sammlungen; im Zweifel landet die Aufnahme im „Posteingang“. Aufnahmen aus demselben Stapel bleiben zusammen. Die Option braucht verfügbare KI. Bleibt die Option ohne verfügbare KI eingeschaltet, landen neue Aufnahmen im „Posteingang“; um das Ziel selbst zu wählen, schalte die Option aus.",
+            "Schalte in Einstellungen → „Aufnahme“ die Option „Sammlung automatisch wählen“ ein. Pinar wählt dann für jede neue Aufnahme eine deiner vorhandenen Sammlungen; im Zweifel landet die Aufnahme im „Posteingang“. Aufnahmen aus demselben Stapel bleiben zusammen. Die Option braucht verfügbare KI. Bleibt die Option ohne verfügbare KI eingeschaltet, landen neue Aufnahmen im „Posteingang“; um das Ziel selbst zu wählen, schalte die Option aus. In Pinar Cloud verbraucht jede Aufnahme, für die die KI die Sammlung wählt, 1 KI-Credit; eine fehlgeschlagene oder abgelaufene Wahl erstattet ihn, und ohne Guthaben wird die KI nicht aufgerufen und die Aufnahme landet im „Posteingang“. [Pinar-Cloud-KI-Credits für Sprache und Assistent](/help/cloud/ai-credits) erklärt Guthaben und Erstattungen.",
           ],
           bullets: [
             "Eine so abgelegte Sitzung zeigt eine kleine Markierung. Zeig darauf oder fokussiere sie, um „Automatisch abgelegt. Zum Korrigieren verschieben.“ zu lesen.",
@@ -1100,20 +1100,21 @@ const locale = {
     },
     "ai-credits": {
       title: "Pinar-Cloud-KI-Credits für Sprache und Assistent",
-      summary: "Erfahre, wie Sprache und Assistent Pinar Cloud Credits verbrauchen, wann sie zurückkommen und wie du mehr kaufst.",
+      summary: "Erfahre, wie Sprache, Assistent, Reproduktion und die automatische Sammlungswahl Pinar Cloud Credits verbrauchen, wann sie zurückkommen und wie du mehr kaufst.",
       sections: [
         {
           heading: "Was Credits verbraucht",
           paragraphs: [
             "In Pinar Cloud verbrauchen die Sprachtranskription und der Assistent KI-Credits. Eine Sprachaufnahme bis 60 Sekunden reserviert 1 Credit; 61 bis 120 Sekunden reservieren 2. Bei Erfolg wird die Reservierung verbraucht. Eine fehlgeschlagene Transkription erstattet sie; eine länger als fünf Minuten unerledigte Reservierung wird automatisch erstattet.",
             "Jede Nachricht an den Assistenten in Pinar Cloud verbraucht 3 Credits, und eine fehlgeschlagene Antwort gibt sie zurück. Einen Vorschlag zu bestätigen oder rückgängig zu machen kostet keine Credits. In der lokalen App nutzt der Assistent die KI, die du eingerichtet hast, und keine Pinar-Credits.",
-            "Das Aufzeichnen einer Reproduktionszeitleiste und das Erzeugen ihrer ausformulierten Schritte zieht keine KI-Credits ab.",
+            "In Pinar Cloud verbraucht das Erzeugen der ausformulierten Reproduktionsschritte 1 KI-Credit pro Generation, und eine fehlgeschlagene Generation erstattet ihn.",
+            "Bei eingeschalteter automatischer Sammlungswahl verbraucht jede Aufnahme, für die die KI die Sammlung wählt, 1 Credit – auch wenn die Wahl der „Posteingang“ ist; eine fehlgeschlagene oder abgelaufene Wahl erstattet ihn, und ohne Guthaben wird die KI nicht aufgerufen und die Aufnahme landet im „Posteingang“.",
           ],
         },
         {
           heading: "Guthaben",
           paragraphs: [
-            "Das erste Pro-Abonnement des Kontos gewährt einmalig 500 Credits. Verlängerung, Reaktivierung oder Planwechsel gewähren sie nicht erneut. Gekaufte Pinar-Cloud-Pakete fügen 500 Credits für bis zu 12 Monate hinzu und können nur mit Pro gekauft werden. Sprache und Assistent nutzen dasselbe Guthaben.",
+            "Das erste Pro-Abonnement des Kontos gewährt einmalig 500 Credits. Verlängerung, Reaktivierung oder Planwechsel gewähren sie nicht erneut. Gekaufte Pinar-Cloud-Pakete fügen 500 Credits für bis zu 12 Monate hinzu und können nur mit Pro gekauft werden. Sprache, Assistent, Reproduktion und die automatische Sammlungswahl nutzen dasselbe Guthaben.",
           ],
         },
         {

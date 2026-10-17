@@ -1,6 +1,5 @@
 import {
   cleanupOldRecords,
-  indexPinSearch,
   reconcileBillingEntitlements,
   refundStaleAiReservations,
   sendStorageExpiryNotices,
@@ -36,7 +35,6 @@ export default {
       reconcileBillingEntitlements(env),
       refundStaleAiReservations(env),
       sendStorageExpiryNotices(env),
-      indexPinSearch(env),
     ]));
   },
 };

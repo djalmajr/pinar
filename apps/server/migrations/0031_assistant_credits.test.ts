@@ -115,10 +115,18 @@ test("0031 keeps the usages, the grants, the balance and the triggers, and accep
 
 test("schema.sql accepts the same features as the migrated database", () => {
   const schema = readFileSync(new URL("../schema.sql", directory), "utf8");
+  // The last migration that (re)creates the table leaves the CHECK the
+  // migrated database carries.
+  const latestTableSql = readdirSync(directory)
+    .filter((name) => name.endsWith(".sql"))
+    .sort()
+    .map((name) => readFileSync(new URL(name, directory), "utf8"))
+    .filter((sql) => sql.includes("CREATE TABLE ai_credit_usages ("))
+    .at(-1)!;
   const featureCheck = (sql: string) => {
     const table = sql.slice(sql.lastIndexOf("CREATE TABLE ai_credit_usages ("));
     return table.slice(table.indexOf("feature TEXT NOT NULL"), table.indexOf("resource_id TEXT NOT NULL")).replace(/\s+/g, " ");
   };
-  expect(featureCheck(schema)).toBe(featureCheck(migration));
+  expect(featureCheck(schema)).toBe(featureCheck(latestTableSql));
   expect(featureCheck(schema)).toContain("'assistant_turn'");
 });

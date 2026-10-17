@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { readFileSync, readdirSync } from "node:fs";
 
 const directory = new URL("./", import.meta.url);
-const migration = readFileSync(new URL("0034_byok_endpoints.sql", directory), "utf8");
+const migration = readFileSync(new URL("0035_byok_endpoints.sql", directory), "utf8");
 
 const ROW_SQL = `INSERT INTO byok_endpoints (
   owner_id, base_url, key_ciphertext, key_last4, key_id,
@@ -28,13 +28,13 @@ const rowValues = (owner: string) => [
 function previousDatabase() {
   const db = new Database(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
-  for (const file of readdirSync(directory).filter((name) => name.endsWith(".sql") && name < "0034").sort()) {
+  for (const file of readdirSync(directory).filter((name) => name.endsWith(".sql") && name < "0035").sort()) {
     db.exec(readFileSync(new URL(file, directory), "utf8"));
   }
   return db;
 }
 
-test("0034 adds byok_endpoints, refuses an unknown owner, and cascades on account deletion", () => {
+test("0035 adds byok_endpoints, refuses an unknown owner, and cascades on account deletion", () => {
   const db = previousDatabase();
   try {
     db.exec(`

@@ -745,7 +745,7 @@ const locale = {
         {
           heading: "Reproducción en Pinar Cloud",
           paragraphs: [
-            "En Pinar Cloud, la reproducción está disponible para las cuentas autenticadas aptas sin descontar créditos de IA.",
+            "En Pinar Cloud, la reproducción está disponible para las cuentas autenticadas aptas, y cada generación de los pasos escritos usa 1 crédito de IA; una generación que falla devuelve el crédito. [Créditos de IA de Pinar Cloud para la voz y el asistente](/help/cloud/ai-credits) explica saldos y reembolsos.",
           ],
         },
         {
@@ -843,7 +843,7 @@ const locale = {
         {
           heading: "Deja que Pinar elija la colección",
           paragraphs: [
-            "En Configuración → “Captura”, activa “Elegir la colección automáticamente”. Pinar elige entonces una colección para cada captura nueva entre las que ya tienes; si tiene dudas, la captura va a la “Bandeja de entrada”. Las capturas de un mismo lote se quedan juntas. La opción necesita la IA disponible. Si la opción sigue activada sin la IA disponible, las capturas nuevas van a la “Bandeja de entrada”; para elegir el destino a mano, desactiva la opción.",
+            "En Configuración → “Captura”, activa “Elegir la colección automáticamente”. Pinar elige entonces una colección para cada captura nueva entre las que ya tienes; si tiene dudas, la captura va a la “Bandeja de entrada”. Las capturas de un mismo lote se quedan juntas. La opción necesita la IA disponible. Si la opción sigue activada sin la IA disponible, las capturas nuevas van a la “Bandeja de entrada”; para elegir el destino a mano, desactiva la opción. En Pinar Cloud, cada captura cuya colección elige la IA usa 1 crédito de IA; la falla o el vencimiento del plazo lo devuelven, y sin saldo la IA no interviene y la captura va a la “Bandeja de entrada”. [Créditos de IA de Pinar Cloud para la voz y el asistente](/help/cloud/ai-credits) explica saldos y reembolsos.",
           ],
           bullets: [
             "Una sesión archivada así muestra una pequeña marca. Apunta a ella o dale el foco para leer “Archivada automáticamente. Muévela para corregirlo.”",
@@ -1101,20 +1101,21 @@ const locale = {
     },
     "ai-credits": {
       title: "Créditos de IA de Pinar Cloud para la voz y el asistente",
-      summary: "Conoce cómo la voz y el asistente gastan créditos de Pinar Cloud, cuándo se devuelven y cómo comprar más.",
+      summary: "Conoce cómo la voz, el asistente, la reproducción y la elección automática de la colección gastan créditos de Pinar Cloud, cuándo se devuelven y cómo comprar más.",
       sections: [
         {
           heading: "Qué usa créditos",
           paragraphs: [
             "En Pinar Cloud, la transcripción por voz y el asistente usan créditos de IA. Una grabación de voz de hasta 60 segundos reserva 1 crédito; de 61 a 120 segundos reserva 2. Si tiene éxito, la reserva se consume. Una transcripción fallida la reembolsa y una reserva sin liquidar durante más de cinco minutos se reembolsa automáticamente.",
             "Cada mensaje que envías al asistente en Pinar Cloud usa 3 créditos, y una respuesta que falla los devuelve. Confirmar o deshacer una propuesta no usa créditos. En la aplicación local, el asistente usa la IA que configuraste y ningún crédito de Pinar.",
-            "Grabar una línea temporal de reproducción y generar sus pasos escritos no descuenta créditos de IA.",
+            "En Pinar Cloud, generar los pasos escritos de reproducción usa 1 crédito de IA por generación, y una generación que falla lo devuelve.",
+            "Con la elección automática de la colección activada, cada captura cuya colección elige la IA usa 1 crédito, incluso cuando la elección es la “Bandeja de entrada”; la falla o el vencimiento del plazo lo devuelven, y sin saldo la IA no interviene y la captura va a la “Bandeja de entrada”.",
           ],
         },
         {
           heading: "Saldos",
           paragraphs: [
-            "La primera suscripción Pro de la cuenta concede 500 créditos una sola vez. Renovar, cancelar y reactivar o cambiar de plan no los vuelve a conceder. Los paquetes comprados de Pinar Cloud añaden 500 créditos, duran hasta 12 meses y solo se pueden comprar con Pro. La voz y el asistente usan el mismo saldo.",
+            "La primera suscripción Pro de la cuenta concede 500 créditos una sola vez. Renovar, cancelar y reactivar o cambiar de plan no los vuelve a conceder. Los paquetes comprados de Pinar Cloud añaden 500 créditos, duran hasta 12 meses y solo se pueden comprar con Pro. La voz, el asistente, la reproducción y la elección automática de la colección usan el mismo saldo.",
           ],
         },
         {

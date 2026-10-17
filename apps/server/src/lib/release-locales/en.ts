@@ -627,8 +627,8 @@ const locale = {
         description: "Turn on “Choose the collection automatically” in Settings → Capture and Pinar files each new capture into one of your existing collections. When it is not sure, the capture goes to the Inbox, and captures from the same batch stay together. Sessions filed this way show a mark; moving the session corrects the choice and removes the mark. The option needs AI to be available. While the option stays on without AI available, new captures go to the Inbox; to choose the destination yourself, turn it off.",
       },
       "assistant-credits": {
-        title: "Assistant messages use Pinar Cloud credits",
-        description: "In Pinar Cloud, the assistant is part of Pro and each message you send uses 3 AI credits; a reply that fails gives them back, and confirming or undoing a proposal costs nothing. These are the same credits as voice transcription, and credit packs can only be bought with Pro. The assistant in the local app uses no Pinar credits.",
+        title: "Every Pinar Cloud AI feature uses credits",
+        description: "In Pinar Cloud, every AI call now happens inside a charged action. The assistant is part of Pro and uses 3 credits per message, and a failed reply gives them back; confirming or undoing a proposal costs nothing. Generating the written reproduction steps now uses 1 credit per generation; a generation that fails gives it back, and without a credit balance the request is refused. With the automatic collection choice, each capture whose collection the AI chooses uses 1 credit, even when the answer is the Inbox; a failed or expired choice gives it back, and without a credit balance the AI is not called and the capture goes to the Inbox. Re-uploading the same capture does not charge again. Indexing no longer runs in the background: pins are indexed only while the assistant answers a message, which its 3 credits already cover, and the automatic choice uses the index that already exists.",
       },
     },
   },

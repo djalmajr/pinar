@@ -45,6 +45,8 @@ allowNet:
   - 1427e570ac9806fcc2626c20e0d38b3d.r2.cloudflarestorage.com:443
   - api.cloudflare.com:443
   - lb-vllm-node-01.centralit.com.br:443
+  # The OpenAI-compatible appliance endpoint of AI_BASE_URL (A46).
+  - applianceai01.centralit.com.br:443
   - api.stripe.com:443
   # Vercel AI Gateway: the assistant chain's gateway links (F4).
   - ai-gateway.vercel.sh:443
@@ -77,8 +79,8 @@ env:
   ADMIN_API_KEY: ""
   AUTH_PEPPER: ""
   # Optional: "true" switches the assistant on. Absent or empty stays off.
-  # Production also needs a gateway-only ASSISTANT_CHAIN and
-  # AI_GATEWAY_API_KEY.
+  # A chain with appliance links needs AI_BASE_URL and AI_API_KEY, and a
+  # chain with gateway links needs AI_GATEWAY_API_KEY (A46).
   ASSISTANT_ENABLED: ""
   # Optional: the assistant's model chain, a CSV of hub:model links; empty
   # means appliance:<AI_MODEL>.

@@ -8640,23 +8640,21 @@ let cloudAssistantBreaker: AssistantCircuitBreaker | null = null;
 // An invalid ASSISTANT_CHAIN is logged once per process.
 let cloudAssistantChainErrorLogged = false;
 
-// The deployment half of the Cloud assistant gate (decision A3, F4
-// contract §4), with the chain it opens; null when it is off:
+// The deployment half of the Cloud assistant gate (decisions A3 and A46,
+// F4 contract §4), with the chain it opens; null when it is off. The
+// environment never decides the provider (A46): the same chain and the
+// same configuration answer the same in every environment, and
 // - ASSISTANT_ENABLED is "true";
-// - the chain, ASSISTANT_CHAIN or else appliance:<AI_MODEL>, is valid for
-//   the deployment (production refuses an appliance link);
-// - a chain with a gateway link has AI_GATEWAY_API_KEY, so production needs
-//   it;
-// - outside production the rule of before still holds: AI_BASE_URL,
-//   AI_API_KEY and AI_MODEL.
+// - the chain, ASSISTANT_CHAIN or else appliance:<AI_MODEL>, is valid;
+// - a chain with an appliance link has the OpenAI-compatible endpoint of
+//   AI_BASE_URL (AI_BASE_URL and AI_API_KEY);
+// - a chain with a gateway link has AI_GATEWAY_API_KEY.
 // An invalid chain turns the assistant off and logs
 // assistant_chain_config_error with the reason only, never a value. The
 // chain module is imported lazily (it pulls in the AI SDK), only once the
 // switch is on.
 async function cloudAssistantChain(env: CloudEnv): Promise<AssistantChainLink[] | null> {
   if (env.ASSISTANT_ENABLED !== "true") return null;
-  const production = env.DEPLOYMENT_ENV === "production";
-  if (!production && !(env.AI_BASE_URL && env.AI_API_KEY && env.AI_MODEL)) return null;
   const csv = env.ASSISTANT_CHAIN?.trim() ? env.ASSISTANT_CHAIN : env.AI_MODEL ? `appliance:${env.AI_MODEL}` : "";
   if (!csv) return null;
   let chainModule: typeof import("./assistant/chain");
@@ -8668,7 +8666,7 @@ async function cloudAssistantChain(env: CloudEnv): Promise<AssistantChainLink[] 
   const { AssistantChainConfigError, parseAssistantChain } = chainModule;
   let chain: AssistantChainLink[];
   try {
-    chain = parseAssistantChain(csv, production ? "production" : env.DEPLOYMENT_ENV === "staging" ? "staging" : "development");
+    chain = parseAssistantChain(csv);
   } catch (error) {
     if (!cloudAssistantChainErrorLogged) {
       cloudAssistantChainErrorLogged = true;
@@ -8679,6 +8677,7 @@ async function cloudAssistantChain(env: CloudEnv): Promise<AssistantChainLink[] 
     }
     return null;
   }
+  if (chain.some((link) => link.hub === "appliance") && !(env.AI_BASE_URL && env.AI_API_KEY)) return null;
   if (chain.some((link) => link.hub === "gateway") && !env.AI_GATEWAY_API_KEY) return null;
   return chain;
 }

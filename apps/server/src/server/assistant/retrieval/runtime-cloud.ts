@@ -2,14 +2,15 @@
 // decisions A18, A20 and A23).
 //
 // Endpoints (cloudRetrievalEndpoints), by the first link of ASSISTANT_CHAIN
-// (F4 contract §4):
-// - appliance, or no ASSISTANT_CHAIN outside production: the chat endpoint
-//   is the assistant's (AI_BASE_URL, AI_API_KEY, AI_MODEL). The embedding
-//   endpoint is the same base URL and key with AI_EMBEDDING_MODEL; without
-//   it the entries are text-only and the search is textual. Vision uses the
-//   chat endpoint only when detectRetrievalCapabilities finds image input
-//   for AI_MODEL, and the filing engine is `decisions` when AI_MODEL
-//   declares it;
+// (F4 contract §4, decision A46: the environment never decides the
+// provider, so the hub is the same in every environment):
+// - appliance: the OpenAI-compatible endpoint of AI_BASE_URL (AI_API_KEY,
+//   AI_MODEL) - the assistant's chat endpoint. The embedding endpoint is
+//   the same base URL and key with AI_EMBEDDING_MODEL; without it the
+//   entries are text-only and the search is textual. Vision uses the chat
+//   endpoint only when detectRetrievalCapabilities finds image input for
+//   AI_MODEL, and the filing engine is `decisions` when AI_MODEL declares
+//   it;
 // - gateway: the gateway's OpenAI-compatible endpoint
 //   (GATEWAY_OPENAI_BASE_URL) with AI_GATEWAY_API_KEY, and the chain's
 //   privacy options (AI_GATEWAY_ZERO_DATA_RETENTION) on every call, and
@@ -19,9 +20,10 @@
 //   embeddings only with AI_EMBEDDING_MODEL of type "embedding" (otherwise
 //   the search is textual and the automatic destination is off, A44).
 //   Never `decisions`.
-// Production never uses AI_BASE_URL: without a valid chain whose first link
-// is a gateway, or without AI_GATEWAY_API_KEY, there is no endpoint (the
-// gate of cloud-api.ts is off then too).
+// Without the configuration of the first link's hub (an invalid chain,
+// an appliance link without AI_BASE_URL/AI_API_KEY, a gateway link
+// without AI_GATEWAY_API_KEY) there is no endpoint (the gate of
+// cloud-api.ts is off then too, in every environment).
 //
 // Store (A20): the entries of a session belong to its owner. The search
 // store sends each session to cloudPinIndexStore(env, ownerId) of the owner
@@ -81,8 +83,8 @@ export interface CloudPinEnv {
   DEPLOYMENT_ENV?: string;
 }
 
-// The assistant's appliance chat endpoint, or null without the AI
-// configuration.
+// The assistant's appliance chat endpoint (the OpenAI-compatible endpoint
+// of AI_BASE_URL), or null without the AI configuration.
 function cloudChatEndpoint(env: CloudPinEnv): AssistantEndpoint | null {
   if (!env.AI_BASE_URL || !env.AI_API_KEY || !env.AI_MODEL) return null;
   return { apiKey: env.AI_API_KEY, baseUrl: env.AI_BASE_URL, kind: "appliance", model: env.AI_MODEL, thinkingControl: true };
@@ -92,18 +94,18 @@ type CloudRetrievalHub =
   | { chat: AssistantEndpoint; hub: "appliance" }
   | { chat: AssistantEndpoint; hub: "gateway"; zeroDataRetention: boolean };
 
-// The hub of the first link of the chain; null when there is none.
+// The hub of the first link of the chain; null when there is none or when
+// that hub lacks its configuration (A46: the same in every environment).
 function cloudRetrievalHub(env: CloudPinEnv): CloudRetrievalHub | null {
-  const production = env.DEPLOYMENT_ENV === "production";
   const appliance = (): CloudRetrievalHub | null => {
-    const chat = production ? null : cloudChatEndpoint(env);
+    const chat = cloudChatEndpoint(env);
     return chat ? { chat, hub: "appliance" } : null;
   };
   const csv = env.ASSISTANT_CHAIN?.trim();
   if (!csv) return appliance();
   let first: AssistantChainLink;
   try {
-    first = parseAssistantChain(csv, production ? "production" : env.DEPLOYMENT_ENV === "staging" ? "staging" : "development")[0]!;
+    first = parseAssistantChain(csv)[0]!;
   } catch {
     return null;
   }
